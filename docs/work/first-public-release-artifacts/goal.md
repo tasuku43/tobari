@@ -23,8 +23,7 @@ maintainer for synchronous publication approval.
 ## Non-goals
 
 - Publishing from a partially integrated source tree.
-- Claiming an unpublished image digest is authoritative or anonymously
-  retrievable.
+- Claiming a candidate image digest is published or anonymously retrievable.
 - Code signing/notarization or reproducible-build claims unless separately
   decided and proven.
 - Adding release-unrelated runtimes, providers, VM layers, or capabilities.
@@ -49,15 +48,13 @@ maintainer for synchronous publication approval.
       `publication-handoff.md` names branch push as the first mutation and a
       second synchronous approval before tag and Release publication.
 - [x] `task check`, `task security`, `task public:check`, and
-      `task release:check` pass once real published image digests are pinned;
-      before approval any intentional unpublished-digest gate is reported, not
-      weakened or bypassed. Evidence: local check/security gates pass; public
-      and release gates pass their preceding checks and stop at the deliberate
-      `GATEWAY_IMAGE=unpublished` checkpoint.
+      `task release:check` validate paired generated component authority
+      without a digest-pin commit; before approval candidate digests are not
+      described as published authority.
 
 ## Completion definition
 
 This preparation packet reaches the approval checkpoint with local commits and
 synthetic evidence. The parent release remains Active until approved external
-publication, real digest pinning, final gates, release creation, and install
+publication, generated digest locking, final gates, release creation, and install
 verification complete synchronously with the maintainer.

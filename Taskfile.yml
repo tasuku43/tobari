@@ -2,21 +2,22 @@ version: '3'
 
 tasks:
   build:
-    desc: Build the CLI binary.
+    desc: Build source-coupled local images and the CLI binary.
     cmds:
+      - ./scripts/build-dev-images.sh
       - mkdir -p bin
       # Local builds retain the compiled dev version and record only the exact
       # source commit. Dirty state, branches, paths, and usernames are excluded.
-      - go build -buildvcs=false -trimpath -o bin/tobari -ldflags "-X main.commit=$(git rev-parse --verify HEAD)" ./cmd/tobari
+      - go build -tags=tobari_dev -buildvcs=false -trimpath -o bin/tobari -ldflags "-X main.commit=$(git rev-parse --verify HEAD)" ./cmd/tobari
       - 'printf "Built %s\nIf this repository bin directory is not on PATH, run: install -m 0755 bin/tobari ~/.local/bin/tobari\n" bin/tobari'
 
   build:dev:
-    desc: Build local development images and a dev CLI binary.
+    desc: Build the compatibility-named development CLI and local images.
     cmds:
       - ./scripts/build-dev-images.sh
       - mkdir -p bin
       - go build -tags=tobari_dev -buildvcs=false -trimpath -o bin/tobari-dev -ldflags "-X main.commit=$(git rev-parse --verify HEAD)" ./cmd/tobari
-      - 'printf "Built %s using local images tobari-auth-broker:dev, tobari-gateway:dev, and tobari-runtime:dev\nRun it directly, or install it with: install -m 0755 bin/tobari-dev ~/.local/bin/tobari-dev\n" bin/tobari-dev'
+      - 'printf "Built %s using content-addressed local component images and tobari-runtime:dev\nRun it directly, or install it with: install -m 0755 bin/tobari-dev ~/.local/bin/tobari-dev\n" bin/tobari-dev'
 
   test:
     desc: Run the Go test suite.

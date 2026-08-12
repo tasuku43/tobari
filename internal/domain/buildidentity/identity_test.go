@@ -33,7 +33,7 @@ func TestDevelopmentRecoveryRequiresDevelopmentResolverMetadata(t *testing.T) {
 	}
 	identity = Identity{ResolverChannel: ResolverDevelopment, DevelopmentSource: true}
 	build, binary, ok := identity.DevelopmentRecovery()
-	if !ok || build != "task build:dev" || binary != "bin/tobari-dev" {
+	if !ok || build != "task build" || binary != "bin/tobari" {
 		t.Fatalf("development recovery = %q %q %t", build, binary, ok)
 	}
 }

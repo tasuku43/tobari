@@ -12,6 +12,7 @@ export GOWORK=off
 
 bash -n \
   scripts/build-dev-images.sh \
+  scripts/build-release-components.sh \
   scripts/check.sh \
   scripts/package-release.sh \
   scripts/release-archive-entries.sh \
@@ -116,7 +117,7 @@ for forbidden in 'git describe' '{{.VERSION}}' '{{.COMMIT}}'; do
     exit 1
   fi
 done
-grep -qF 'go build -buildvcs=false -trimpath -o bin/' Taskfile.yml || {
+grep -qF 'go build -tags=tobari_dev -buildvcs=false -trimpath -o bin/' Taskfile.yml || {
 	echo "local build must use fixed dev version metadata without implicit VCS stamping" >&2
 	exit 1
 }
@@ -141,8 +142,8 @@ scripts/test-check-environment.sh >/dev/null
 scripts/test-release-archive-entries.sh >/dev/null
 
 for required in \
-  'require_release_compatible_runtime_images' \
-  'GATEWAY_IMAGE_API' 'AUTH_BROKER_IMAGE_API'; do
+  'require_generated_component_release_contract' \
+  'component-lock.json' './tools/componentlock'; do
   grep -qF "$required" scripts/check.sh || {
     echo "release gate is missing runtime image compatibility authority: $required" >&2
     exit 1
@@ -214,7 +215,7 @@ if ((release_checkout_line >= metadata_line || metadata_line >= verify_line || v
   exit 1
 fi
 
-if scripts/package-release.sh bad-tag 0000000000000000000000000000000000000000 linux amd64 dist >/dev/null 2>&1; then
+if scripts/package-release.sh bad-tag 0000000000000000000000000000000000000000 ignored linux amd64 dist >/dev/null 2>&1; then
   echo "package-release accepted an invalid tag" >&2
   exit 1
 fi
@@ -228,7 +229,7 @@ ambient_output=$(env \
   GOTOOLCHAIN=definitely-invalid \
   GOWORK=/definitely/missing/go.work \
   scripts/package-release.sh \
-    v0.0.0 0000000000000000000000000000000000000000 plan9 amd64 dist 2>&1) || ambient_status=$?
+    v0.0.0 0000000000000000000000000000000000000000 ignored plan9 amd64 dist 2>&1) || ambient_status=$?
 if [[ $ambient_status -ne 2 || $ambient_output != *"unsupported release target: plan9/amd64"* ]]; then
   echo "package-release did not neutralize malicious ambient Go configuration" >&2
   printf '%s\n' "$ambient_output" >&2
@@ -332,6 +333,14 @@ reproduction_go_cache=$release_root/go-cache-reproduction
 mkdir -p "$dist" "$primary_go_cache" "$reproduction_go_cache"
 release_tag=v0.0.0
 release_revision=0000000000000000000000000000000000000000
+gateway_source_api=$(sed -n 's/.*io\.tobari\.gateway-api="\([1-9][0-9]*\)".*/\1/p' gateway/Dockerfile)
+auth_broker_source_api=$(sed -n 's/.*io\.tobari\.auth-broker-api="\([1-9][0-9]*\)".*/\1/p' authbroker/Dockerfile)
+gateway_evidence=$release_root/gateway.component.json
+auth_broker_evidence=$release_root/auth-broker.component.json
+printf '{"schema_version":1,"image":"ghcr.io/tasuku43/tobari/gateway","digest":"sha256:%064d","revision":"%s","platforms":["linux/amd64","linux/arm64"]}\n' 1 "$release_revision" >"$gateway_evidence"
+printf '{"schema_version":1,"image":"ghcr.io/tasuku43/tobari/auth-broker","digest":"sha256:%064d","revision":"%s","platforms":["linux/amd64","linux/arm64"]}\n' 2 "$release_revision" >"$auth_broker_evidence"
+component_lock=$dist/component-lock.json
+go run ./tools/componentlock create "$release_revision" "$gateway_source_api" "$gateway_evidence" "$auth_broker_source_api" "$auth_broker_evidence" "$component_lock"
 targets=(
   linux/amd64/tar.gz
   linux/arm64/tar.gz
@@ -341,6 +350,7 @@ targets=(
 )
 expected_assets=$release_root/expected-assets.txt
 : >"$expected_assets"
+printf '%s\n' component-lock.json >>"$expected_assets"
 primary_inputs_before=$release_root/primary-inputs-before.txt
 primary_inputs_after=$release_root/primary-inputs-after.txt
 inputs_before_primary=$(release_input_fingerprint "$primary_inputs_before")
@@ -358,7 +368,7 @@ for target in "${targets[@]}"; do
   fi
 
   env GOCACHE="$primary_go_cache" scripts/package-release.sh \
-    "$release_tag" "$release_revision" "$goos" "$goarch" "$dist" >/dev/null
+    "$release_tag" "$release_revision" "$component_lock" "$goos" "$goarch" "$dist" >/dev/null
   archive=$dist/$asset
   test -s "$archive"
   printf '%s\n' "$asset" >>"$expected_assets"
@@ -420,6 +430,7 @@ fi
 
 repro_dist=$release_root/repro-dist
 mkdir -p "$repro_dist"
+cp "$component_lock" "$repro_dist/component-lock.json"
 reproduction_inputs_before=$release_root/reproduction-inputs-before.txt
 reproduction_inputs_after=$release_root/reproduction-inputs-after.txt
 inputs_before_reproduction=$(release_input_fingerprint "$reproduction_inputs_before")
@@ -436,7 +447,7 @@ for target in "${targets[@]}"; do
   asset=${binary}_${release_tag}_${goos}_${goarch}.${extension}
 
   env GOCACHE="$reproduction_go_cache" scripts/package-release.sh \
-    "$release_tag" "$release_revision" "$goos" "$goarch" "$repro_dist" >/dev/null
+    "$release_tag" "$release_revision" "$repro_dist/component-lock.json" "$goos" "$goarch" "$repro_dist" >/dev/null
 done
 if ! go mod verify >/dev/null; then
   echo "module inputs changed or failed verification during the reproduction archive pass" >&2
@@ -490,7 +501,7 @@ done
 # only builds performed by this profile.
 first_asset=$dist/${binary}_${release_tag}_linux_amd64.tar.gz
 first_digest_before=$(sha256_of "$first_asset")
-if scripts/package-release.sh "$release_tag" "$release_revision" linux amd64 "$dist" >/dev/null 2>&1; then
+if scripts/package-release.sh "$release_tag" "$release_revision" "$component_lock" linux amd64 "$dist" >/dev/null 2>&1; then
   echo "package-release overwrote an existing archive" >&2
   exit 1
 fi
@@ -519,8 +530,8 @@ if ! cmp -s "$metadata_digests_before" "$metadata_digests_after"; then
 fi
 
 checksums=$dist/checksums.txt
-if [[ $(wc -l <"$checksums" | tr -d ' ') -ne 5 ]]; then
-  echo "checksums.txt does not contain exactly five archives" >&2
+if [[ $(wc -l <"$checksums" | tr -d ' ') -ne 6 ]]; then
+  echo "checksums.txt does not contain exactly five archives and one component lock" >&2
   exit 1
 fi
 checksum_assets=$release_root/checksum-assets.txt

@@ -18,12 +18,42 @@ var embedded embed.FS
 
 // Version returns a deterministic digest prefix over every embedded runtime file.
 func Version() (string, error) {
+	version, err := versionForPrefixes()
+	if err != nil {
+		return "", err
+	}
+	return version[:16], nil
+}
+
+// ComponentVersion returns the deterministic source identity used by the
+// development image builder and resolver. versions.env is included because it
+// carries the reviewed parent images used by both component Dockerfiles.
+func ComponentVersion(component string) (string, error) {
+	if component != "gateway" && component != "authbroker" {
+		return "", fmt.Errorf("unknown runtime component %q", component)
+	}
+	return versionForPrefixes("assets/"+component+"/", "assets/versions.env")
+}
+
+func versionForPrefixes(prefixes ...string) (string, error) {
 	names, err := assetNames()
 	if err != nil {
 		return "", err
 	}
 	hash := sha256.New()
 	for _, name := range names {
+		if len(prefixes) > 0 {
+			matched := false
+			for _, prefix := range prefixes {
+				if name == prefix || strings.HasPrefix(name, prefix) {
+					matched = true
+					break
+				}
+			}
+			if !matched {
+				continue
+			}
+		}
 		data, err := embedded.ReadFile(name)
 		if err != nil {
 			return "", fmt.Errorf("read embedded asset %s: %w", name, err)
@@ -33,7 +63,7 @@ func Version() (string, error) {
 		_, _ = hash.Write(data)
 		_, _ = hash.Write([]byte{0})
 	}
-	return hex.EncodeToString(hash.Sum(nil))[:16], nil
+	return hex.EncodeToString(hash.Sum(nil)), nil
 }
 
 // Materialize writes the exact embedded runtime below destination. An existing
@@ -90,9 +120,9 @@ func Read(name string) ([]byte, error) {
 	return append([]byte(nil), data...), nil
 }
 
-// Versions parses the image authorities used by the compose runtime. Tobari-
-// owned images may both be marked unpublished in a source-only snapshot;
-// publication gates require reviewed immutable references.
+// Versions parses reviewed third-party image authorities embedded in source.
+// Tobari-owned release image outputs are injected from a generated component
+// lock and deliberately do not appear in this file.
 func Versions() (map[string]string, error) {
 	data, err := Read("versions.env")
 	if err != nil {
@@ -112,19 +142,9 @@ func Versions() (map[string]string, error) {
 		}
 		values[key] = value
 	}
-	ownedUnpublished := values["GATEWAY_IMAGE"] == "unpublished" && values["AUTH_BROKER_IMAGE"] == "unpublished"
-	if (values["GATEWAY_IMAGE"] == "unpublished") != (values["AUTH_BROKER_IMAGE"] == "unpublished") {
-		return nil, fmt.Errorf("embedded versions.env must publish or withhold both Tobari-owned images together")
-	}
-	for _, required := range []string{"MITMPROXY_IMAGE", "GATEWAY_IMAGE", "GATEWAY_IMAGE_API", "AUTH_BROKER_IMAGE", "AUTH_BROKER_IMAGE_API", "OPA_IMAGE", "DEBIAN_IMAGE"} {
+	for _, required := range []string{"MITMPROXY_IMAGE", "OPA_IMAGE", "DEBIAN_IMAGE"} {
 		if values[required] == "" {
 			return nil, fmt.Errorf("embedded versions.env is missing %s", required)
-		}
-		if required == "GATEWAY_IMAGE_API" || required == "AUTH_BROKER_IMAGE_API" {
-			continue
-		}
-		if ownedUnpublished && (required == "GATEWAY_IMAGE" || required == "AUTH_BROKER_IMAGE") {
-			continue
 		}
 		if err := validateImmutableImageReference(values[required]); err != nil {
 			return nil, fmt.Errorf("embedded versions.env %s: %w", required, err)

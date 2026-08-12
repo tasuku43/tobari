@@ -9,21 +9,26 @@ import (
 
 	"github.com/tasuku43/tobari/internal/domain/buildidentity"
 	"github.com/tasuku43/tobari/internal/domain/tobari"
-	"github.com/tasuku43/tobari/internal/infra/runtimeassets"
 )
 
 type officialImageResolver struct{}
 
+// Release packaging replaces these four values from one validated generated
+// component lock. Repository source deliberately contains no published digest
+// authority.
+var (
+	publishedGatewayImage    = "unpublished"
+	publishedGatewayAPI      = "1"
+	publishedAuthBrokerImage = "unpublished"
+	publishedAuthBrokerAPI   = "1"
+)
+
 func (officialImageResolver) BuildIdentity(version, commit string) (buildidentity.Identity, error) {
-	versions, err := runtimeassets.Versions()
+	gatewayAPI, err := selectedImageAPI(publishedGatewayAPI, "Gateway")
 	if err != nil {
 		return buildidentity.Identity{}, err
 	}
-	gatewayAPI, err := selectedImageAPI(versions, "GATEWAY_IMAGE_API")
-	if err != nil {
-		return buildidentity.Identity{}, err
-	}
-	authBrokerAPI, err := selectedImageAPI(versions, "AUTH_BROKER_IMAGE_API")
+	authBrokerAPI, err := selectedImageAPI(publishedAuthBrokerAPI, "Auth Broker")
 	if err != nil {
 		return buildidentity.Identity{}, err
 	}
@@ -39,10 +44,10 @@ func (officialImageResolver) BuildIdentity(version, commit string) (buildidentit
 	}, nil
 }
 
-func selectedImageAPI(versions map[string]string, key string) (int, error) {
-	value, err := strconv.Atoi(versions[key])
+func selectedImageAPI(raw, component string) (int, error) {
+	value, err := strconv.Atoi(raw)
 	if err != nil || value <= 0 {
-		return 0, fmt.Errorf("embedded versions.env %s must be a positive integer", key)
+		return 0, fmt.Errorf("injected %s API must be a positive integer", component)
 	}
 	return value, nil
 }
@@ -60,17 +65,9 @@ func (officialImageResolver) ShouldPullRuntimeImage(image string) bool {
 }
 
 func (officialImageResolver) GatewayImage(context.Context, *Runtime) (sharedImageSelection, error) {
-	versions, err := runtimeassets.Versions()
-	if err != nil {
-		return sharedImageSelection{}, err
-	}
-	return sharedImageSelection{Image: versions["GATEWAY_IMAGE"], RequireDigest: true}, nil
+	return sharedImageSelection{Image: publishedGatewayImage, RequireDigest: true}, nil
 }
 
 func (officialImageResolver) AuthBrokerImage(context.Context, *Runtime) (sharedImageSelection, error) {
-	versions, err := runtimeassets.Versions()
-	if err != nil {
-		return sharedImageSelection{}, err
-	}
-	return sharedImageSelection{Image: versions["AUTH_BROKER_IMAGE"], RequireDigest: true}, nil
+	return sharedImageSelection{Image: publishedAuthBrokerImage, RequireDigest: true}, nil
 }

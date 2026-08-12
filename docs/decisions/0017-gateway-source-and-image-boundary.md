@@ -70,13 +70,14 @@ embedded versions file. It publishes `latest`, `main`, and `sha-<commit>`
 development identities to GHCR. The pull-request job is cache-only and has no
 package-write permission. No provenance or SBOM claim is added by this ADR.
 
-The CLI records one reviewed multi-architecture Gateway manifest digest in the
-embedded `versions.env` and consumes that digest during routine `cluster up`.
+The original decision recorded one reviewed multi-architecture Gateway digest
+in embedded `versions.env`; ADR 0032 supersedes that release-binding mechanism
+with a generated paired component lock consumed during routine `cluster up`.
 Startup verifies the digest, API/role labels, non-root entrypoint, and Docker
 Engine platform before policy tests or cluster resources. Contributor source
-development uses `task build:dev`, which builds `tobari-gateway:dev` and a
-`tobari_dev` CLI binary whose image resolver selects that local tag and runs
-the same compatibility preflight. Moving tags are never that authority.
+development now uses `task build`, which builds a source-hash Gateway tag and a
+development CLI whose resolver selects that exact local tag and runs the same
+compatibility preflight. Moving tags are never that authority.
 
 ## Consequences
 
@@ -108,8 +109,8 @@ the same compatibility preflight. Moving tags are never that authority.
   main-push publication permissions and verifies the pinned parent reference.
 - The Gateway runtime preflight verifies the immutable digest, API/role labels,
   non-root user, entrypoint, and Docker Engine platform before cluster mutation.
-- `task build:dev` builds the local Gateway and runtime-base development tags
-  and compiles the `tobari_dev` image resolver.
+- `task build` builds or reuses the source-hash local Gateway tag and compiles
+  the development image resolver.
 - The runtime and integration gates retain the embedded snapshot and private /
   public CA volume checks.
 

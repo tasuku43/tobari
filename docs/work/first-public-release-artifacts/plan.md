@@ -17,9 +17,9 @@ tag, publish, create a Release, or update a tap implicitly.
 4. Run synthetic integrity/install audits and all gates that do not require
    published image retrieval.
 5. Stop and obtain explicit approval.
-6. After approval, publish images, inspect indexes, pin real digests in a new
-   reviewed commit, run all gates, then tag/push and create the GitHub Release
-   and Homebrew update synchronously.
+6. After approval, publish and inspect both indexes, generate their paired
+   component lock, inject it into the CLI matrix, then create the GitHub Release
+   and Homebrew update synchronously without a digest-pin commit.
 
 ## Security and ownership
 
@@ -33,9 +33,8 @@ those properties with signatures or reproducible builds.
 
 Run release lint, archive/package tests, SBOM/provenance schema and subject
 checks, formula render/audit against synthetic local assets, action lint, source
-snapshot equality, generated-site checks, and full repository gates. Any
-unpublished-image failure before approval is an explicit remaining publication
-dependency, not an allowed green result.
+snapshot equality, generated-site checks, and full repository gates. Candidate
+component identities before approval are explicitly not publication authority.
 
 ## Rollback
 

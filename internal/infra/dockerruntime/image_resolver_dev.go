@@ -6,10 +6,10 @@ import "context"
 
 import "github.com/tasuku43/tobari/internal/domain/buildidentity"
 
+import "github.com/tasuku43/tobari/internal/infra/runtimeassets"
+
 const (
-	localDevAuthBrokerImage = "tobari-auth-broker:dev"
-	localDevGatewayImage    = "tobari-gateway:dev"
-	localDevRuntimeImage    = "tobari-runtime:dev"
+	localDevRuntimeImage = "tobari-runtime:dev"
 )
 
 type localDevImageResolver struct{}
@@ -42,9 +42,17 @@ func (localDevImageResolver) ShouldPullRuntimeImage(string) bool {
 }
 
 func (localDevImageResolver) GatewayImage(context.Context, *Runtime) (sharedImageSelection, error) {
-	return sharedImageSelection{Image: localDevGatewayImage, RequireDigest: false}, nil
+	version, err := runtimeassets.ComponentVersion("gateway")
+	if err != nil {
+		return sharedImageSelection{}, err
+	}
+	return sharedImageSelection{Image: "tobari-gateway:dev-" + version, RequireDigest: false}, nil
 }
 
 func (localDevImageResolver) AuthBrokerImage(context.Context, *Runtime) (sharedImageSelection, error) {
-	return sharedImageSelection{Image: localDevAuthBrokerImage, RequireDigest: false}, nil
+	version, err := runtimeassets.ComponentVersion("authbroker")
+	if err != nil {
+		return sharedImageSelection{}, err
+	}
+	return sharedImageSelection{Image: "tobari-auth-broker:dev-" + version, RequireDigest: false}, nil
 }

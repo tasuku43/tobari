@@ -149,10 +149,10 @@ validation is cache-only and has no package-write permission; only the
 main-push job may publish moving `latest`/`main` and immutable
 `sha-<commit>` development identities. Routine CLI startup must use a reviewed
 manifest digest rather than those moving tags.
-All Tobari-owned component APIs are V1. The official Gateway and Auth Broker V1
-indexes have not yet been published and reviewed, so development source records
-the paired `unpublished` marker in `versions.env`. Public and release profiles
-reject that marker; it is not runtime authority. Publication requires reviewed
+All Tobari-owned component APIs are V1. Development source records no generated
+Gateway or Auth Broker digest authority. Publication creates both indexes from
+the reviewed revision and emits one paired component lock before CLI packaging.
+Publication requires reviewed
 immutable Linux amd64/arm64 manifest digests, API/role labels, non-root
 `1000:1000` users, entrypoints, source revisions, license metadata, and
 anonymous retrieval for both components.
@@ -163,14 +163,13 @@ names, dirty content, credentials, or invented digest authority; the literal
 `unknown` commit remains visibly incompatible rather than becoming a release
 identity.
 
-Contributors may use the explicit `task build:dev` development images and
-`bin/tobari-dev`, but must separately build the applicable local agent runtime.
+Contributors use `task build` for content-addressed local component images and
+`bin/tobari`, but must separately build the applicable local agent runtime.
 Those local images are not release authority. New immutable V1
 multi-architecture digests require the complete image, license,
-confidentiality, synthetic, and manual live-login review before `versions.env`
-may replace both markers atomically. `task release:check` fails unless both API
-authorities equal the canonical source Dockerfile labels and both image
-references are reviewed immutable digests.
+confidentiality, synthetic, and manual live-login review. Release packaging
+fails unless the paired lock APIs equal the canonical source Dockerfile labels,
+both image references are immutable digests, and all revisions agree.
 
 See [Release](06_release.md) for the artifact workflow.
 

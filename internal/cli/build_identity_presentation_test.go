@@ -90,8 +90,8 @@ func TestBuildIdentityFrozenSemanticCorpus(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if strings.Contains(string(textOutput), "task build:dev") != answer.Development ||
-				strings.Contains(string(textOutput), "bin/tobari-dev") != answer.Development {
+			if strings.Contains(string(textOutput), "task build") != answer.Development ||
+				strings.Contains(string(textOutput), "bin/tobari") != answer.Development {
 				t.Fatalf("text recovery leakage = %q", textOutput)
 			}
 			jsonOutput, err := renderVersion(identity, successFormatJSON, false)

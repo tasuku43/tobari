@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/tasuku43/tobari/internal/domain/buildidentity"
+	"github.com/tasuku43/tobari/internal/infra/runtimeassets"
 )
 
 func TestLocalDevImageResolverSelectsAllLocalImagesWithoutPulling(t *testing.T) {
@@ -15,9 +16,17 @@ func TestLocalDevImageResolverSelectsAllLocalImagesWithoutPulling(t *testing.T) 
 	if got := resolver.DefaultRuntimeImage(); got != localDevRuntimeImage || resolver.ShouldPullRuntimeImage(got) {
 		t.Fatalf("runtime selection = %q pull=%t", got, resolver.ShouldPullRuntimeImage(got))
 	}
+	gatewayVersion, err := runtimeassets.ComponentVersion("gateway")
+	if err != nil {
+		t.Fatal(err)
+	}
+	authVersion, err := runtimeassets.ComponentVersion("authbroker")
+	if err != nil {
+		t.Fatal(err)
+	}
 	for name, want := range map[string]string{
-		"gateway":     localDevGatewayImage,
-		"auth broker": localDevAuthBrokerImage,
+		"gateway":     "tobari-gateway:dev-" + gatewayVersion,
+		"auth broker": "tobari-auth-broker:dev-" + authVersion,
 	} {
 		var selection sharedImageSelection
 		var err error
@@ -42,13 +51,13 @@ func TestLocalDevImageResolverIdentityCannotCrossToPublishedPins(t *testing.T) {
 		t.Fatal(err)
 	}
 	if identity.ResolverChannel != buildidentity.ResolverDevelopment || !identity.DevelopmentSource ||
-		identity.Gateway.RequiredAPI != 4 || identity.Gateway.SelectedAPI != 4 ||
-		identity.AuthBroker.RequiredAPI != 3 || identity.AuthBroker.SelectedAPI != 3 ||
+		identity.Gateway.RequiredAPI != buildidentity.RequiredGatewayAPI || identity.Gateway.SelectedAPI != buildidentity.RequiredGatewayAPI ||
+		identity.AuthBroker.RequiredAPI != buildidentity.RequiredAuthBrokerAPI || identity.AuthBroker.SelectedAPI != buildidentity.RequiredAuthBrokerAPI ||
 		!identity.APIsCompatible() {
 		t.Fatalf("development identity = %+v", identity)
 	}
 	build, binary, ok := identity.DevelopmentRecovery()
-	if !ok || build != "task build:dev" || binary != "bin/tobari-dev" {
+	if !ok || build != "task build" || binary != "bin/tobari" {
 		t.Fatalf("development recovery = %q %q %t", build, binary, ok)
 	}
 }

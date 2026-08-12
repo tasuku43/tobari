@@ -16,14 +16,14 @@
     {
       "name": "development-compatible",
       "compatible": true,
-      "development_build_command": "task build:dev",
-      "development_binary": "bin/tobari-dev"
+      "development_build_command": "task build",
+      "development_binary": "bin/tobari"
     },
     {
       "name": "missing-source-metadata",
       "compatible": false,
-      "development_build_command": "task build:dev",
-      "development_binary": "bin/tobari-dev"
+      "development_build_command": "task build",
+      "development_binary": "bin/tobari"
     }
   ]
 }

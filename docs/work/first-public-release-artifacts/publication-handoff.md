@@ -16,66 +16,40 @@ repo=tasuku43/tobari
 branch=agent/reset-pre-public-contracts-v1
 ```
 
-## 2. Push and validate both component workflows
+## 2. Push and validate the integrated release candidate
 
 The first command below is the first external mutation.
 
 ```sh
 git push -u origin "$branch"
-gh workflow run gateway-image.yml --repo "$repo" --ref "$branch" \
-  -f revision="$source_revision" -f publish=false
-gh workflow run authbroker-image.yml --repo "$repo" --ref "$branch" \
-  -f revision="$source_revision" -f publish=false
+gh workflow run release.yml --repo "$repo" --ref "$branch" \
+  -f tag="$release_tag" -f revision="$source_revision" -f publish=false
 ```
 
-Wait for both validate runs to pass. Then request the protected-environment
-approval and publish the exact same revision:
+Wait for the candidate run to pass. Download its release assets and verify the
+five archives, `component-lock.json`, checksums, SPDX SBOM, unsigned provenance,
+and stable Formula. Confirm the lock carries the requested source revision,
+both canonical repositories, API V1, immutable candidate digests, and the exact
+Linux amd64/arm64 platform set.
 
 ```sh
-gh workflow run gateway-image.yml --repo "$repo" --ref "$branch" \
-  -f revision="$source_revision" -f publish=true
-gh workflow run authbroker-image.yml --repo "$repo" --ref "$branch" \
-  -f revision="$source_revision" -f publish=true
+candidate_dir=$(mktemp -d)
+# Download the candidate run's release-assets artifact into $candidate_dir.
+go run ./tools/componentlock verify "$candidate_dir/component-lock.json" "$source_revision"
 ```
 
-Record the two publish run IDs as `gateway_run_id` and `authbroker_run_id`,
-then independently download and validate their evidence:
+## 3. Keep release outputs out of source
+
+Do not add Gateway or Auth Broker digests to `versions.env`. Pin the generated
+site to the already reviewed source revision and regenerate it before the final
+release commit:
 
 ```sh
-evidence_dir=$(mktemp -d)
-gh run download "$gateway_run_id" --repo "$repo" \
-  -n "gateway-component-$source_revision" -D "$evidence_dir/gateway"
-gh run download "$authbroker_run_id" --repo "$repo" \
-  -n "auth-broker-component-$source_revision" -D "$evidence_dir/authbroker"
-test "$(jq -er .revision "$evidence_dir/gateway/gateway.component.json")" = "$source_revision"
-test "$(jq -er .revision "$evidence_dir/authbroker/auth-broker.component.json")" = "$source_revision"
-gateway_digest=$(jq -er .digest "$evidence_dir/gateway/gateway.component.json")
-authbroker_digest=$(jq -er .digest "$evidence_dir/authbroker/auth-broker.component.json")
-docker buildx imagetools inspect "ghcr.io/tasuku43/tobari/gateway@$gateway_digest"
-docker buildx imagetools inspect "ghcr.io/tasuku43/tobari/auth-broker@$authbroker_digest"
-```
-
-## 3. Pin reviewed component identities and regenerate public data
-
-Apply one reviewed patch to `internal/infra/runtimeassets/assets/versions.env`:
-
-```text
-GATEWAY_IMAGE=ghcr.io/tasuku43/tobari/gateway@<gateway_digest>
-AUTH_BROKER_IMAGE=ghcr.io/tasuku43/tobari/auth-broker@<authbroker_digest>
-```
-
-Keep both API values at `1`, commit both pins atomically, then pin the generated
-site to that commit and regenerate:
-
-```sh
-git add internal/infra/runtimeassets/assets/versions.env
-git commit -m 'build: pin reviewed V1 component images'
-pin_revision=$(git rev-parse HEAD)
 # Apply a reviewed patch setting docs/architecture-site/source-snapshot.txt
-# to exactly $pin_revision.
+# to exactly $source_revision.
 npm --prefix docs/architecture-site run generate
 git add docs/architecture-site/source-snapshot.txt docs/architecture-site/src/generated
-git commit -m 'docs: publish reviewed V1 component identities'
+git commit -m 'docs: publish reviewed V1 source identity'
 release_revision=$(git rev-parse HEAD)
 ```
 
@@ -98,7 +72,7 @@ Also complete the documented clean Quick Start, disposable GitHub trusted-host
 login/static-import scorecards, deny/review/allow/manual-retry journey, and
 history/dependency/license/generated-artifact review without retaining secrets.
 
-## 5. Prepare the exact GitHub Release without publication
+## 5. Reconfirm the exact GitHub Release candidate
 
 ```sh
 git push origin "$branch"
@@ -107,8 +81,8 @@ gh workflow run release.yml --repo "$repo" --ref "$branch" \
 ```
 
 Wait for the complete release asset artifact, download it, and independently
-verify the five archives, `checksums.txt`, SPDX SBOM, unsigned provenance, and
-stable Formula before creating a tag.
+verify the five archives, `component-lock.json`, `checksums.txt`, SPDX SBOM,
+unsigned provenance, and stable Formula before creating a tag.
 
 ## 6. Publish only after a second synchronous approval
 

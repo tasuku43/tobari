@@ -35,7 +35,7 @@ func TestClusterUpRejectsPublishedResolverAPIMismatchBeforeRuntimeCalls(t *testi
 	if !strings.Contains(public.Message, "Gateway API 2") ||
 		!strings.Contains(public.Message, "Auth Broker API 2") ||
 		!strings.Contains(public.Message, "source requires Gateway API 1") ||
-		strings.Contains(public.Message, "task build:dev") || strings.Contains(public.Message, "bin/tobari-dev") {
+		strings.Contains(public.Message, "task build") || strings.Contains(public.Message, "bin/tobari") {
 		t.Fatalf("published mismatch message = %q", public.Message)
 	}
 	if len(progress) != 0 || len(runner.runs) != 0 || len(runner.outputs) != 0 {
@@ -53,7 +53,7 @@ func TestComponentAPIMismatchRecoveryIsChannelSpecific(t *testing.T) {
 	}
 	runtime := &Runtime{images: testImageResolver{identity: &development}}
 	public, ok := fault.PublicCopy(runtime.incompatibleComponentAPI("Gateway", 2, 1, "gateway_image_incompatible"))
-	if !ok || !strings.Contains(public.Message, "task build:dev") || !strings.Contains(public.Message, "bin/tobari-dev cluster up") {
+	if !ok || !strings.Contains(public.Message, "task build") || !strings.Contains(public.Message, "bin/tobari cluster up") {
 		t.Fatalf("development recovery = %#v", public)
 	}
 
@@ -62,7 +62,7 @@ func TestComponentAPIMismatchRecoveryIsChannelSpecific(t *testing.T) {
 	published.DevelopmentSource = false
 	runtime.images = testImageResolver{identity: &published}
 	public, ok = fault.PublicCopy(runtime.incompatibleComponentAPI("Gateway", 2, 1, "gateway_image_incompatible"))
-	if !ok || strings.Contains(public.Message, "task build:dev") || strings.Contains(public.Message, "bin/tobari-dev") {
+	if !ok || strings.Contains(public.Message, "task build") || strings.Contains(public.Message, "bin/tobari") {
 		t.Fatalf("published recovery leaked repository commands = %#v", public)
 	}
 }

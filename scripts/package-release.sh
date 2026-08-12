@@ -11,16 +11,17 @@ export GOTOOLCHAIN=local
 export GOWORK=off
 source scripts/release-archive-entries.sh
 
-if [[ $# -ne 5 ]]; then
-  echo "usage: $0 <tag> <revision> <goos> <goarch> <output-dir>" >&2
+if [[ $# -ne 6 ]]; then
+  echo "usage: $0 <tag> <revision> <component-lock> <goos> <goarch> <output-dir>" >&2
   exit 2
 fi
 
 tag=$1
 revision=$2
-goos=$3
-goarch=$4
-output_dir=$5
+component_lock=$3
+goos=$4
+goarch=$5
+output_dir=$6
 
 go run ./tools/releaseversion "$tag" >/dev/null
 if [[ ! $revision =~ ^[0-9a-f]{40}$ ]]; then
@@ -31,6 +32,7 @@ case "$goos/$goarch" in
   linux/amd64|linux/arm64|darwin/amd64|darwin/arm64|windows/amd64) ;;
   *) echo "unsupported release target: $goos/$goarch" >&2; exit 2 ;;
 esac
+go run ./tools/componentlock verify "$component_lock" "$revision"
 
 binary=$(go run ./tools/projectmeta --field binary_name)
 module=$(go run ./tools/projectmeta --field go_module)
@@ -59,8 +61,19 @@ case "$goarch" in
   amd64) target_environment+=(GOAMD64=v1) ;;
   arm64) target_environment+=(GOARM64=v8.0) ;;
 esac
+gateway_image=$(go run ./tools/componentlock field "$component_lock" "$revision" gateway-image)
+gateway_api=$(go run ./tools/componentlock field "$component_lock" "$revision" gateway-api)
+auth_broker_image=$(go run ./tools/componentlock field "$component_lock" "$revision" auth-broker-image)
+auth_broker_api=$(go run ./tools/componentlock field "$component_lock" "$revision" auth-broker-api)
+gateway_source_api=$(sed -n 's/.*io\.tobari\.gateway-api="\([1-9][0-9]*\)".*/\1/p' gateway/Dockerfile)
+auth_broker_source_api=$(sed -n 's/.*io\.tobari\.auth-broker-api="\([1-9][0-9]*\)".*/\1/p' authbroker/Dockerfile)
+if [[ ! $gateway_source_api =~ ^[1-9][0-9]*$ || ! $auth_broker_source_api =~ ^[1-9][0-9]*$ ||
+      $gateway_api != "$gateway_source_api" || $auth_broker_api != "$auth_broker_source_api" ]]; then
+	echo "component lock APIs do not match the canonical Gateway/Auth Broker source" >&2
+	exit 1
+fi
 env "${target_environment[@]}" go build -buildvcs=false -trimpath \
-  -ldflags "-s -w -X main.version=${version} -X main.commit=${revision}" \
+  -ldflags "-s -w -X main.version=${version} -X main.commit=${revision} -X ${module}/internal/infra/dockerruntime.publishedGatewayImage=${gateway_image} -X ${module}/internal/infra/dockerruntime.publishedGatewayAPI=${gateway_api} -X ${module}/internal/infra/dockerruntime.publishedAuthBrokerImage=${auth_broker_image} -X ${module}/internal/infra/dockerruntime.publishedAuthBrokerAPI=${auth_broker_api}" \
   -o "$work_dir/$executable" "./cmd/$binary"
 
 go version -m "$work_dir/$executable" | grep -F "$module" >/dev/null
@@ -69,20 +82,10 @@ host_os=$(go env GOHOSTOS)
 host_arch=$(go env GOHOSTARCH)
 if [[ $goos == "$host_os" && $goarch == "$host_arch" ]]; then
 	# shellcheck disable=SC1091
-	source internal/infra/runtimeassets/assets/versions.env
-	gateway_source_api=$(sed -n 's/.*io\.tobari\.gateway-api="\([1-9][0-9]*\)".*/\1/p' gateway/Dockerfile)
-	auth_broker_source_api=$(sed -n 's/.*io\.tobari\.auth-broker-api="\([1-9][0-9]*\)".*/\1/p' authbroker/Dockerfile)
-	if [[ ! $gateway_source_api =~ ^[1-9][0-9]*$ || ! $auth_broker_source_api =~ ^[1-9][0-9]*$ ]]; then
-		echo "could not derive exact Gateway/Auth Broker source API labels" >&2
-		exit 1
-	fi
-	compatible=false
-	if [[ $GATEWAY_IMAGE_API == "$gateway_source_api" && $AUTH_BROKER_IMAGE_API == "$auth_broker_source_api" ]]; then
-		compatible=true
-	fi
+	compatible=true
 	actual=$("$work_dir/$executable" version --format json)
 	expected=$(printf '{"schema_version":1,"build_identity":{"version":"%s","commit":"%s","resolver_channel":"published","development_source":false,"gateway_required_api":%s,"gateway_selected_api":%s,"auth_broker_required_api":%s,"auth_broker_selected_api":%s,"compatible":%s,"development_build_command":"","development_binary":""}}' \
-		"$version" "$revision" "$gateway_source_api" "$GATEWAY_IMAGE_API" "$auth_broker_source_api" "$AUTH_BROKER_IMAGE_API" "$compatible")
+		"$version" "$revision" "$gateway_source_api" "$gateway_api" "$auth_broker_source_api" "$auth_broker_api" "$compatible")
 	if [[ $actual != "$expected" ]]; then
 		echo "build identity output = $actual, want $expected" >&2
 		exit 1

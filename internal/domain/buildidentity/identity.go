@@ -13,8 +13,8 @@ const (
 	RequiredGatewayAPI    = 1
 	RequiredAuthBrokerAPI = 1
 
-	DevelopmentBuildCommand = "task build:dev"
-	DevelopmentBinary       = "bin/tobari-dev"
+	DevelopmentBuildCommand = "task build"
+	DevelopmentBinary       = "bin/tobari"
 )
 
 // ResolverChannel identifies the one image authority compiled into a binary.

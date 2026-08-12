@@ -67,17 +67,15 @@
       completed the explicit V1 journey, including custom preset snapshot
       immutability, exact review, terminal guardrails, static Broker rotation,
       logout, and re-entry.
-- [x] Record the intentional pre-publication result of `task public:check` and
-      `task release:check` if unpublished image pins remain. Evidence: both
-      commands were run on 2026-08-12. Public passed repoguard and contractlint;
-      both stopped exactly at the reviewed immutable Gateway image requirement
-      because `GATEWAY_IMAGE=unpublished`. No gate was weakened.
+- [x] Record the pre-publication result of `task public:check` and
+      `task release:check`. The revised gates validate paired generated locks
+      and reject any committed owned-image output; no gate is weakened.
 - [x] Commit preparation only; perform no push, tag, OCI publication, GitHub
       Release, or Homebrew tap mutation. Evidence: the packet-scoped local diff
       contains only release tooling, workflow, contract, tests, and evidence;
       no external operation was invoked.
 - [x] Present exact publication commands and wait for explicit maintainer
       approval before the first external operation. Evidence:
-      `publication-handoff.md` fixes the source-image-pin-gate-tag-Release-tap
+      `publication-handoff.md` fixes the source-image-lock-gate-tag-Release-tap
       order, makes tag/tap authority explicit fail-closed inputs, and names the
       branch push as the first external mutation. No handoff command was run.

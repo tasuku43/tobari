@@ -15,7 +15,6 @@ import (
 	"testing"
 
 	"github.com/tasuku43/tobari/internal/domain/tobari"
-	"github.com/tasuku43/tobari/internal/infra/runtimeassets"
 )
 
 type contextSwitchRunner struct {
@@ -37,11 +36,7 @@ func (r *contextSwitchRunner) Output(_ context.Context, args, _ []string) ([]byt
 		if strings.Contains(strings.Join(args, " "), tobari.RuntimeImageAPILabel) {
 			return compatibleImageInspection(), nil
 		}
-		versions, err := runtimeassets.Versions()
-		if err != nil {
-			return nil, err
-		}
-		return []byte(fmt.Sprintf(`{"RepoDigests":[%q],"Architecture":"arm64","Os":"linux","Config":{"User":"1000:1000","Labels":{"io.tobari.gateway-api":"1","io.tobari.gateway-role":"enforcement"},"Entrypoint":["/opt/tobari/entrypoint.sh"]}}`, versions["GATEWAY_IMAGE"])), nil
+		return []byte(fmt.Sprintf(`{"RepoDigests":[%q],"Architecture":"arm64","Os":"linux","Config":{"User":"1000:1000","Labels":{"io.tobari.gateway-api":"1","io.tobari.gateway-role":"enforcement"},"Entrypoint":["/opt/tobari/entrypoint.sh"]}}`, "ghcr.io/tasuku43/tobari/gateway@"+testGatewayDigest)), nil
 	}
 	if len(args) > 0 && args[0] == "version" {
 		return []byte(`{"Os":"linux","Arch":"arm64"}`), nil

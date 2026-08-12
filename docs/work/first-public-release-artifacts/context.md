@@ -10,8 +10,8 @@
   architectures, attach BuildKit SBOM/max provenance, and produce immutable
   digest metadata plus extracted component evidence. Publication is manual and
   environment-gated; pull-request/cache builds do not push.
-- `versions.env` selects both images as `unpublished`; public and release gates
-  fail intentionally at that contract.
+- `versions.env` contains reviewed source inputs only; the release workflow
+  generates both owned image identities and one paired component lock.
 - `scripts/package-release.sh`, `tools/archivepack`, formula rendering/audit,
   and release lint already provide a deterministic base.
 - Repository-owned component SBOM/provenance evidence and CLI archive-level
@@ -26,8 +26,7 @@
 ## Constraints
 
 - Official image source/digest/metadata is finalized only after auth/policy
-  integration. Never invent or pin a digest that has not been published and
-  inspected.
+  integration. Never describe a candidate lock as published authority.
 - Pushes can trigger Pages or component publication; no push is allowed before
   the approval checkpoint.
 - Release tooling and dependencies require license, integrity, permission, and
@@ -38,8 +37,8 @@
 ## Existing local evidence
 
 - `./scripts/lint-release.sh` passes at the baseline revision.
-- `task public:check` and `task release:check` stop at unpublished component
-  selection; checks are not weakened.
+- `task public:check` and `task release:check` validate generated paired
+  authority and the absence of owned-image outputs in committed source.
 - Architecture-site generation and `generate:check` pass against the final
   integrated committed source snapshot.
 
@@ -70,9 +69,8 @@
   Formula, and accepts only the exact final regular-file inventory.
 - The focused release-artifact/archive/version Go tests and pinned `actionlint`
   v1.7.7 passed. After integration, `task public:check` passes repoguard and
-  contractlint; both public and release gates stop at the intentional
-  unpublished Gateway image authority. No stale catalog/schema/site blocker
-  remains.
+  contractlint; component authority is generated only in release assembly. No
+  stale catalog/schema/site blocker remains.
 - Canonical Gateway/Auth Broker source snapshots and generated architecture
   output are finalized. The live synthetic integration also passes after
   exercising explicit review/allow/retry, preset guardrails, source snapshot

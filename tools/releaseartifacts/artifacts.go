@@ -18,9 +18,10 @@ import (
 )
 
 const (
-	checksumsName  = "checksums.txt"
-	sbomName       = "sbom.spdx.json"
-	provenanceName = "provenance.intoto.jsonl"
+	checksumsName     = "checksums.txt"
+	sbomName          = "sbom.spdx.json"
+	provenanceName    = "provenance.intoto.jsonl"
+	componentLockName = "component-lock.json"
 
 	canonicalCreated = "1980-01-01T00:00:00Z"
 )
@@ -146,7 +147,7 @@ func createReleaseMetadata(request artifactRequest) error {
 			return fmt.Errorf("inspect release metadata %s: %w", name, err)
 		}
 	}
-	if err := validateAssetInventory(request.Directory, expectedArchiveNames(request.Project.BinaryName, request.Tag)); err != nil {
+	if err := validateAssetInventory(request.Directory, expectedSubjectNames(request.Project.BinaryName, request.Tag)); err != nil {
 		return err
 	}
 	files, err := expectedMetadata(request)
@@ -157,7 +158,7 @@ func createReleaseMetadata(request artifactRequest) error {
 }
 
 func verifyReleaseMetadata(request artifactRequest) error {
-	expectedNames := expectedArchiveNames(request.Project.BinaryName, request.Tag)
+	expectedNames := expectedSubjectNames(request.Project.BinaryName, request.Tag)
 	expectedNames = append(expectedNames, checksumsName, provenanceName, sbomName)
 	if err := validateAssetInventory(request.Directory, expectedNames); err != nil {
 		return err
@@ -169,7 +170,7 @@ func verifyFinalReleaseAssets(request artifactRequest) error {
 	if err := verifyReleaseMetadataFiles(request); err != nil {
 		return err
 	}
-	expectedNames := expectedArchiveNames(request.Project.BinaryName, request.Tag)
+	expectedNames := expectedSubjectNames(request.Project.BinaryName, request.Tag)
 	expectedNames = append(expectedNames, checksumsName, provenanceName, sbomName)
 	if request.Stable {
 		expectedNames = append(expectedNames, request.Project.BinaryName+".rb")
@@ -252,7 +253,7 @@ func validateRequest(request artifactRequest) error {
 }
 
 func loadSubjects(request artifactRequest) ([]releaseSubject, error) {
-	names := expectedArchiveNames(request.Project.BinaryName, request.Tag)
+	names := expectedSubjectNames(request.Project.BinaryName, request.Tag)
 	subjects := make([]releaseSubject, 0, len(names))
 	for _, name := range names {
 		data, err := readRegularFile(filepath.Join(request.Directory, name), "release archive "+name)
@@ -263,6 +264,12 @@ func loadSubjects(request artifactRequest) ([]releaseSubject, error) {
 		subjects = append(subjects, releaseSubject{Name: name, Digest: hex.EncodeToString(digest[:])})
 	}
 	return subjects, nil
+}
+
+func expectedSubjectNames(binary, tag string) []string {
+	names := append(expectedArchiveNames(binary, tag), componentLockName)
+	sort.Strings(names)
+	return names
 }
 
 func expectedArchiveNames(binary, tag string) []string {
