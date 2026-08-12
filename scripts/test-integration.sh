@@ -814,16 +814,14 @@ for provider_cli in gh aws pup codex claude; do
 done
 wait_network_membership tobari-control tobari-auth-broker ||
   fail "Auth Broker is not attached to the shared control network"
-if network_contains_container tobari-egress tobari-auth-broker; then
-  fail "static-only Auth Broker retained provider egress"
-fi
+wait_network_membership tobari-egress tobari-auth-broker ||
+  fail "Auth Broker is not attached to bounded refresh egress"
 docker network disconnect -f tobari-control tobari-auth-broker >/dev/null
 start_cluster >/dev/null
 wait_network_membership tobari-control tobari-auth-broker ||
   fail "Auth Broker lost the shared control network during egress reconciliation"
-if network_contains_container tobari-egress tobari-auth-broker; then
-  fail "Auth Broker joined provider egress during control reconciliation"
-fi
+wait_network_membership tobari-egress tobari-auth-broker ||
+  fail "Auth Broker lost bounded refresh egress during control reconciliation"
 created_context=$(run_tobari context create --name restricted --image "$custom_image" \
   --source-access read-only --policy-preset builtin/reviewed-exact --format json)
 assert_contains "$created_context" '"cluster":"requires_reconcile"' "running Context creation"
@@ -1103,8 +1101,8 @@ done
   fail "same-root Workspaces in different Contexts received the same handle"
 [[ $restricted_auth_handle != "$other_auth_handle" ]] ||
   fail "different projects in one Context received the same handle"
-[[ $(docker inspect --format '{{len .NetworkSettings.Networks}}' tobari-auth-broker) == 1 ]] ||
-  fail "static-only Auth Broker joined a network outside shared control"
+[[ $(docker inspect --format '{{len .NetworkSettings.Networks}}' tobari-auth-broker) == 2 ]] ||
+  fail "Auth Broker did not retain exactly control and bounded refresh egress networks"
 for project_network in "$work_network" "$restricted_network" "$other_network"; do
   if network_contains_container "$project_network" tobari-auth-broker; then
     fail "Auth Broker joined Workspace network $project_network"
