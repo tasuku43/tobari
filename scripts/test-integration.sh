@@ -333,6 +333,26 @@ run_project() {
   docker exec "$work_container" "$@"
 }
 
+wait_project_policy_denial() {
+  local url=$1
+  local consecutive=0
+  local status
+  local _
+  for _ in $(seq 1 60); do
+    status=$(run_project curl -sS -o /dev/null -w '%{http_code}' "$url" 2>/dev/null || true)
+    if [[ $status == 403 ]]; then
+      consecutive=$((consecutive + 1))
+      if [[ $consecutive == 3 ]]; then
+        return 0
+      fi
+    else
+      consecutive=0
+    fi
+    sleep 0.2
+  done
+  fail "policy did not settle on default denial for $url"
+}
+
 run_project_shell() {
   docker exec -i "$work_container" /bin/bash
 }
@@ -1258,6 +1278,7 @@ docker run -d \
   "$tobari_image" -u /mock_upstream.py >/dev/null
 wait_listening "$auth_mock_name" 443
 wait_network_connection tobari-gateway api.synthetic.example 443
+wait_project_policy_denial https://api.synthetic.example/brokered-default
 
 # Refresh the reconciliation-owned projections after the container/network
 # recovery above. Stable credential revisions preserve each project handle.
