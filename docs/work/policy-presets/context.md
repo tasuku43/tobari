@@ -105,6 +105,17 @@ method or destination rejection before candidate projection. Naming that raw
 decision terminal contradicted both the evaluator and the system-router
 ownership boundary and prevented `cluster up` before container reconciliation.
 
+Observed on the next integrated V1 journey: the ordinary HTTP Gateway denial
+audit omitted `scheme` even though the accepted exact-policy identity and OPA
+rule both require it. `policy allow` therefore activated a rule with an empty
+scheme that could never match the denied HTTPS request. The unpublished V1
+reader now rejects every absent or non-HTTP(S) scheme at the domain boundary,
+the Gateway records the canonical request scheme, and the typed review fixture
+pins the complete identity. The journey then passed brokered exact approval,
+post-allow retry, Context/project handle isolation, and invalid-handle canaries.
+It next exposed a separately scoped release-journey expectation that still
+assumed the retired implicit `mock-upstream` initial grant.
+
 ## Security and public-boundary notes
 
 - Assets: outbound HTTP authority, denial/candidate semantics, Context policy

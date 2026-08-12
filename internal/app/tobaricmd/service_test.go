@@ -911,7 +911,7 @@ func TestServiceInteractiveRequiresTerminalStreams(t *testing.T) {
 }
 
 func validServiceDenial() tobari.PolicyDenial {
-	return tobari.PolicyDenial{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Protocol: tobari.PolicyProtocolHTTP}, Timestamp: "2026-07-30T10:41:11Z", RequestID: "7185da2688d7469aae9cd9068e920b0b",
+	return tobari.PolicyDenial{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Scheme: "https", Protocol: tobari.PolicyProtocolHTTP}, Timestamp: "2026-07-30T10:41:11Z", RequestID: "7185da2688d7469aae9cd9068e920b0b",
 		ContextID: "01912345-6789-7abc-8def-0123456789ad", ContextName: "default",
 		ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/project",
 		Host: "api.example.com", Port: 443, Method: "GET", Path: "/api/v1/items/one",
@@ -1093,8 +1093,9 @@ func TestDenyPolicyCandidateBindsExactReferenceAndRemovesQueueItem(t *testing.T)
 	}
 	if runtime.denyCalls != 1 || result.TargetID != candidate.ID || !result.Applied ||
 		result.PolicyDirectory != runtime.policyActivationReceipt().PolicyDirectory ||
-		len(runtime.denyRules) != 1 || !runtime.denyRules[0].Matches(
+		len(runtime.denyRules) != 1 || !runtime.denyRules[0].MatchesIdentity(
 		candidate.ContextID, candidate.ProjectID, candidate.Host, candidate.Port, candidate.Method, candidate.Path,
+		candidate.PolicyProtocolIdentity,
 	) {
 		t.Fatalf("result=%+v deny calls=%d rules=%+v", result, runtime.denyCalls, runtime.denyRules)
 	}

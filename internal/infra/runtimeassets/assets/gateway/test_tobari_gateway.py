@@ -190,10 +190,12 @@ class StaticBrokerGatewayTests(unittest.TestCase):
                     learnable=False,
                 )),
                 mock.patch.object(gateway, "commit_upstream_authority") as commit,
+                mock.patch.object(gateway, "_audit") as audit,
             ):
                 addon.requestheaders(flow)
             self.assertEqual(calls, ["introspect"], flow.response.content)
             commit.assert_not_called()
+            self.assertEqual(audit.call_args.kwargs["scheme"], "https")
             self.assertEqual(flow.response.status_code, 403)
             self.assertNotIn("authorization", flow.request.headers)
 

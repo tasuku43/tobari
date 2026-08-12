@@ -504,7 +504,7 @@ func TestBareNamespacesAndUnknownSuggestionsComeOnlyFromCatalog(t *testing.T) {
 }
 
 func TestPreActionPolicyCancellationIsNeutralExit11WithZeroAction(t *testing.T) {
-	denial := tobari.PolicyDenial{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Protocol: tobari.PolicyProtocolHTTP}, Timestamp: "2026-08-11T00:00:00Z", RequestID: "7185da2688d7469aae9cd9068e920b0b",
+	denial := tobari.PolicyDenial{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Scheme: "https", Protocol: tobari.PolicyProtocolHTTP}, Timestamp: "2026-08-11T00:00:00Z", RequestID: "7185da2688d7469aae9cd9068e920b0b",
 		ContextID: "01912345-6789-7abc-8def-0123456789ad", ContextName: "default",
 		ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/example",
 		Host: "api.example.com", Port: 443, Method: "GET", Path: "/v1/example",

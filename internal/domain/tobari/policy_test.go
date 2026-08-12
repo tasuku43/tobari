@@ -16,7 +16,7 @@ const (
 )
 
 func validPolicyDenial() PolicyDenial {
-	return PolicyDenial{PolicyProtocolIdentity: PolicyProtocolIdentity{Protocol: PolicyProtocolHTTP}, Timestamp: "2026-07-30T10:41:11Z", RequestID: "7185da2688d7469aae9cd9068e920b0b",
+	return PolicyDenial{PolicyProtocolIdentity: PolicyProtocolIdentity{Scheme: "https", Protocol: PolicyProtocolHTTP}, Timestamp: "2026-07-30T10:41:11Z", RequestID: "7185da2688d7469aae9cd9068e920b0b",
 		ContextID: policyContextA, ContextName: "default",
 		ProjectID: policyProjectA, ProjectRoot: "/workspace/project-a",
 		Host: "api.github.com", Port: 443, Method: "GET", Path: "/repos/cli/cli",
@@ -64,9 +64,9 @@ func TestPolicyDenialRejectsInterpretationSensitiveFields(t *testing.T) {
 func TestPolicyProtocolIdentityValidationAndEffectiveProtocol(t *testing.T) {
 	t.Parallel()
 	valid := []PolicyProtocolIdentity{
-		{Protocol: PolicyProtocolHTTP},
-		{Protocol: PolicyProtocolGraphQL, GraphQLOperationType: GraphQLOperationQuery, GraphQLRootField: "_viewer"},
-		{Protocol: PolicyProtocolGraphQL, GraphQLOperationType: GraphQLOperationMutation, GraphQLRootField: "updateIssue"},
+		{Scheme: "https", Protocol: PolicyProtocolHTTP},
+		{Scheme: "https", Protocol: PolicyProtocolGraphQL, GraphQLOperationType: GraphQLOperationQuery, GraphQLRootField: "_viewer"},
+		{Scheme: "http", Protocol: PolicyProtocolGraphQL, GraphQLOperationType: GraphQLOperationMutation, GraphQLRootField: "updateIssue"},
 	}
 	for _, identity := range valid {
 		if err := identity.Validate(); err != nil {
@@ -75,15 +75,17 @@ func TestPolicyProtocolIdentityValidationAndEffectiveProtocol(t *testing.T) {
 	}
 	invalid := []PolicyProtocolIdentity{
 		{},
-		{Protocol: "grpc"},
-		{Protocol: PolicyProtocolHTTP, GraphQLOperationType: GraphQLOperationQuery},
-		{Protocol: PolicyProtocolHTTP, GraphQLRootField: "viewer"},
-		{Protocol: PolicyProtocolGraphQL, GraphQLRootField: "viewer"},
-		{Protocol: PolicyProtocolGraphQL, GraphQLOperationType: GraphQLOperationQuery},
-		{Protocol: PolicyProtocolGraphQL, GraphQLOperationType: "subscription", GraphQLRootField: "events"},
-		{Protocol: PolicyProtocolGraphQL, GraphQLOperationType: GraphQLOperationQuery, GraphQLRootField: "1viewer"},
-		{Protocol: PolicyProtocolGraphQL, GraphQLOperationType: GraphQLOperationQuery, GraphQLRootField: "bad-name"},
-		{Protocol: PolicyProtocolGraphQL, GraphQLOperationType: GraphQLOperationQuery, GraphQLRootField: strings.Repeat("a", 257)},
+		{Protocol: PolicyProtocolHTTP},
+		{Scheme: "ftp", Protocol: PolicyProtocolHTTP},
+		{Scheme: "https", Protocol: "grpc"},
+		{Scheme: "https", Protocol: PolicyProtocolHTTP, GraphQLOperationType: GraphQLOperationQuery},
+		{Scheme: "https", Protocol: PolicyProtocolHTTP, GraphQLRootField: "viewer"},
+		{Scheme: "https", Protocol: PolicyProtocolGraphQL, GraphQLRootField: "viewer"},
+		{Scheme: "https", Protocol: PolicyProtocolGraphQL, GraphQLOperationType: GraphQLOperationQuery},
+		{Scheme: "https", Protocol: PolicyProtocolGraphQL, GraphQLOperationType: "subscription", GraphQLRootField: "events"},
+		{Scheme: "https", Protocol: PolicyProtocolGraphQL, GraphQLOperationType: GraphQLOperationQuery, GraphQLRootField: "1viewer"},
+		{Scheme: "https", Protocol: PolicyProtocolGraphQL, GraphQLOperationType: GraphQLOperationQuery, GraphQLRootField: "bad-name"},
+		{Scheme: "https", Protocol: PolicyProtocolGraphQL, GraphQLOperationType: GraphQLOperationQuery, GraphQLRootField: strings.Repeat("a", 257)},
 	}
 	for _, identity := range invalid {
 		if err := identity.Validate(); err == nil {
@@ -147,7 +149,7 @@ func TestGraphQLIdentityBindsCandidatesRulesAndMatching(t *testing.T) {
 	denial.Method = "POST"
 	denial.Path = "/graphql"
 	denial.PolicyProtocolIdentity = PolicyProtocolIdentity{
-		Protocol: PolicyProtocolGraphQL, GraphQLOperationType: GraphQLOperationMutation, GraphQLRootField: "updateIssue",
+		Scheme: "https", Protocol: PolicyProtocolGraphQL, GraphQLOperationType: GraphQLOperationMutation, GraphQLRootField: "updateIssue",
 	}
 	candidate, err := NewPolicyCandidate(denial)
 	if err != nil {
@@ -158,7 +160,7 @@ func TestGraphQLIdentityBindsCandidatesRulesAndMatching(t *testing.T) {
 	}
 
 	httpDenial := denial
-	httpDenial.PolicyProtocolIdentity = PolicyProtocolIdentity{Protocol: PolicyProtocolHTTP}
+	httpDenial.PolicyProtocolIdentity = PolicyProtocolIdentity{Scheme: "https", Protocol: PolicyProtocolHTTP}
 	httpCandidate, err := NewPolicyCandidate(httpDenial)
 	if err != nil {
 		t.Fatal(err)
@@ -191,8 +193,9 @@ func TestGraphQLIdentityBindsCandidatesRulesAndMatching(t *testing.T) {
 		!deny.MatchesIdentity(denial.ContextID, denial.ProjectID, denial.Host, denial.Port, denial.Method, denial.Path, denial.PolicyProtocolIdentity) {
 		t.Fatal("GraphQL rules did not match their exact coordinate")
 	}
-	if allow.Matches(denial.ContextID, denial.ProjectID, denial.Host, denial.Port, denial.Method, denial.Path) ||
-		deny.Matches(denial.ContextID, denial.ProjectID, denial.Host, denial.Port, denial.Method, denial.Path) {
+	httpIdentity := PolicyProtocolIdentity{Scheme: denial.Scheme, Protocol: PolicyProtocolHTTP}
+	if allow.MatchesIdentity(denial.ContextID, denial.ProjectID, denial.Host, denial.Port, denial.Method, denial.Path, httpIdentity) ||
+		deny.MatchesIdentity(denial.ContextID, denial.ProjectID, denial.Host, denial.Port, denial.Method, denial.Path, httpIdentity) {
 		t.Fatal("GraphQL rules matched an ordinary HTTP coordinate")
 	}
 	if allow.MatchesIdentity(denial.ContextID, denial.ProjectID, denial.Host, denial.Port, denial.Method, denial.Path, queryDenial.PolicyProtocolIdentity) ||
@@ -224,7 +227,7 @@ func TestPolicyCandidateAggregationKeepsGraphQLCoordinatesDistinct(t *testing.T)
 	update.Method = "POST"
 	update.Path = "/graphql"
 	update.PolicyProtocolIdentity = PolicyProtocolIdentity{
-		Protocol: PolicyProtocolGraphQL, GraphQLOperationType: GraphQLOperationMutation, GraphQLRootField: "updateIssue",
+		Scheme: "https", Protocol: PolicyProtocolGraphQL, GraphQLOperationType: GraphQLOperationMutation, GraphQLRootField: "updateIssue",
 	}
 	repeated := update
 	repeated.Timestamp = "2026-07-30T10:42:11Z"
@@ -236,7 +239,7 @@ func TestPolicyCandidateAggregationKeepsGraphQLCoordinatesDistinct(t *testing.T)
 	http := update
 	http.Timestamp = "2026-07-30T10:44:11Z"
 	http.RequestID = "a185da2688d7469aae9cd9068e920b0b"
-	http.PolicyProtocolIdentity = PolicyProtocolIdentity{Protocol: PolicyProtocolHTTP}
+	http.PolicyProtocolIdentity = PolicyProtocolIdentity{Scheme: "https", Protocol: PolicyProtocolHTTP}
 
 	items, err := PolicyCandidates([]PolicyDenial{update, repeated, deleteIssue, http}, []LearnedPolicyRule{})
 	if err != nil {
@@ -487,13 +490,13 @@ func TestPolicyDenyRuleBindsExactProjectAndRequest(t *testing.T) {
 	if err := rule.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	if !rule.Matches(candidate.ContextID, candidate.ProjectID, candidate.Host, candidate.Port, candidate.Method, candidate.Path) {
+	if !rule.MatchesIdentity(candidate.ContextID, candidate.ProjectID, candidate.Host, candidate.Port, candidate.Method, candidate.Path, candidate.PolicyProtocolIdentity) {
 		t.Fatal("exact deny rule did not match its bound request")
 	}
-	if rule.Matches(candidate.ContextID, policyProjectB, candidate.Host, candidate.Port, candidate.Method, candidate.Path) {
+	if rule.MatchesIdentity(candidate.ContextID, policyProjectB, candidate.Host, candidate.Port, candidate.Method, candidate.Path, candidate.PolicyProtocolIdentity) {
 		t.Fatal("exact deny rule crossed project boundary")
 	}
-	if rule.Matches(candidate.ContextID, candidate.ProjectID, candidate.Host, 8443, candidate.Method, candidate.Path) {
+	if rule.MatchesIdentity(candidate.ContextID, candidate.ProjectID, candidate.Host, 8443, candidate.Method, candidate.Path, candidate.PolicyProtocolIdentity) {
 		t.Fatal("exact deny rule crossed port boundary")
 	}
 }
@@ -526,7 +529,7 @@ func TestExactLearnedRuleBindsCandidateAndDoesNotBroadenPath(t *testing.T) {
 	if err := rule.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	if !rule.Matches(candidate.ContextID, candidate.ProjectID, candidate.Host, candidate.Port, candidate.Method, candidate.Path) {
+	if !rule.MatchesIdentity(candidate.ContextID, candidate.ProjectID, candidate.Host, candidate.Port, candidate.Method, candidate.Path, candidate.PolicyProtocolIdentity) {
 		t.Fatal("exact rule did not match its approved effect")
 	}
 	for _, changed := range []struct {
@@ -537,14 +540,14 @@ func TestExactLearnedRuleBindsCandidateAndDoesNotBroadenPath(t *testing.T) {
 		{candidate.Host, "POST", candidate.Path, candidate.Port},
 		{candidate.Host, candidate.Method, candidate.Path + "/child", candidate.Port},
 	} {
-		if rule.Matches(candidate.ContextID, candidate.ProjectID, changed.host, changed.port, changed.method, changed.path) {
+		if rule.MatchesIdentity(candidate.ContextID, candidate.ProjectID, changed.host, changed.port, changed.method, changed.path, candidate.PolicyProtocolIdentity) {
 			t.Fatalf("exact rule broadened to %+v", changed)
 		}
 	}
-	if rule.Matches(candidate.ContextID, candidate.ProjectID, candidate.Host, 8443, candidate.Method, candidate.Path) {
+	if rule.MatchesIdentity(candidate.ContextID, candidate.ProjectID, candidate.Host, 8443, candidate.Method, candidate.Path, candidate.PolicyProtocolIdentity) {
 		t.Fatal("exact rule broadened to another port")
 	}
-	if rule.Matches(candidate.ContextID, policyProjectB, candidate.Host, candidate.Port, candidate.Method, candidate.Path) {
+	if rule.MatchesIdentity(candidate.ContextID, policyProjectB, candidate.Host, candidate.Port, candidate.Method, candidate.Path, candidate.PolicyProtocolIdentity) {
 		t.Fatal("exact rule crossed the project boundary")
 	}
 	rule.Path += "/changed"
@@ -607,8 +610,8 @@ func TestPolicyOpaqueReferencesIncludeContextAuthority(t *testing.T) {
 	if firstRule.ID == secondRule.ID || firstDeny.ID == secondDeny.ID {
 		t.Fatal("Context-scoped policy decisions share an opaque ID")
 	}
-	if firstRule.Matches(second.ContextID, second.ProjectID, second.Host, second.Port, second.Method, second.Path) ||
-		firstDeny.Matches(second.ContextID, second.ProjectID, second.Host, second.Port, second.Method, second.Path) {
+	if firstRule.MatchesIdentity(second.ContextID, second.ProjectID, second.Host, second.Port, second.Method, second.Path, second.PolicyProtocolIdentity) ||
+		firstDeny.MatchesIdentity(second.ContextID, second.ProjectID, second.Host, second.Port, second.Method, second.Path, second.PolicyProtocolIdentity) {
 		t.Fatal("Context A decision matched Context B authority")
 	}
 }

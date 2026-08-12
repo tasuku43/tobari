@@ -59,8 +59,8 @@
   {
     "id": "resumable-permission-review.fixture.v1",
     "path": "internal/cli/testdata/resumable-permission-review-fixture.json",
-    "sha256": "b6c0812da90a3d0b029d3c83e7595ef7063570135048a9c649f39c7aa971f48d",
-    "bytes": 4553,
+    "sha256": "27329254ecab7886be128cd05b5b24b9286146c35fe56c0e6b77054672baa0b8",
+    "bytes": 4688,
     "cases": 10,
     "provenance": "Repository-authored synthetic typed fixture for resumable permission navigation, staged review, refresh reconciliation, activation failure, exact receipt, and same-session retry.",
     "license": "MIT"

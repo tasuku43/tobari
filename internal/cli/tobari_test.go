@@ -274,7 +274,7 @@ func TestDefaultCatalogDoesNotPublishDevContainerRuntimeSelection(t *testing.T) 
 
 func TestPolicyReviewTTYStagesExactAllowAndAppliesOnce(t *testing.T) {
 	t.Parallel()
-	denial := tobari.PolicyDenial{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Protocol: tobari.PolicyProtocolHTTP}, Timestamp: "2026-08-02T10:00:00Z", RequestID: "7185da2688d7469aae9cd9068e920b0b",
+	denial := tobari.PolicyDenial{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Scheme: "https", Protocol: tobari.PolicyProtocolHTTP}, Timestamp: "2026-08-02T10:00:00Z", RequestID: "7185da2688d7469aae9cd9068e920b0b",
 		ContextID: "01912345-6789-7abc-8def-0123456789ad", ContextName: "default",
 		ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/project", Host: "api.example.com", Port: 443,
 		Method: "POST", Path: "/repos/example/issues", Reason: "request did not match an allow rule",
@@ -312,7 +312,7 @@ func TestPolicyReviewTTYStagesExactAllowAndAppliesOnce(t *testing.T) {
 
 func TestPolicyReviewTTYAppliesSeveralDecisionsWithOneRuntimeCall(t *testing.T) {
 	t.Parallel()
-	first := tobari.PolicyDenial{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Protocol: tobari.PolicyProtocolHTTP}, Timestamp: "2026-08-02T10:00:00Z", RequestID: "7185da2688d7469aae9cd9068e920b0b",
+	first := tobari.PolicyDenial{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Scheme: "https", Protocol: tobari.PolicyProtocolHTTP}, Timestamp: "2026-08-02T10:00:00Z", RequestID: "7185da2688d7469aae9cd9068e920b0b",
 		ContextID: "01912345-6789-7abc-8def-0123456789ad", ContextName: "default",
 		ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/project",
 		Host: "api.example.com", Port: 443, Method: "POST", Path: "/one",
@@ -346,7 +346,7 @@ func TestPolicyReviewTTYAppliesSeveralDecisionsWithOneRuntimeCall(t *testing.T) 
 
 func TestPolicyReviewTTYRefreshReconcilesStagedDecisionsByCandidateID(t *testing.T) {
 	t.Parallel()
-	first := tobari.PolicyDenial{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Protocol: tobari.PolicyProtocolHTTP}, Timestamp: "2026-08-02T10:00:00Z", RequestID: "7185da2688d7469aae9cd9068e920b0b",
+	first := tobari.PolicyDenial{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Scheme: "https", Protocol: tobari.PolicyProtocolHTTP}, Timestamp: "2026-08-02T10:00:00Z", RequestID: "7185da2688d7469aae9cd9068e920b0b",
 		ContextID: "01912345-6789-7abc-8def-0123456789ad", ContextName: "default",
 		ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/project",
 		Host: "api.example.com", Port: 443, Method: "POST", Path: "/one",
@@ -382,7 +382,7 @@ func TestPolicyReviewTTYRefreshReconcilesStagedDecisionsByCandidateID(t *testing
 
 func TestPolicyReviewTTYRefreshDoesNotTransferStageToDifferentCandidateWithMatchingLabels(t *testing.T) {
 	t.Parallel()
-	original := tobari.PolicyDenial{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Protocol: tobari.PolicyProtocolHTTP}, Timestamp: "2026-08-02T10:00:00Z", RequestID: "7185da2688d7469aae9cd9068e920b0b",
+	original := tobari.PolicyDenial{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Scheme: "https", Protocol: tobari.PolicyProtocolHTTP}, Timestamp: "2026-08-02T10:00:00Z", RequestID: "7185da2688d7469aae9cd9068e920b0b",
 		ContextID: "01912345-6789-7abc-8def-0123456789ad", ContextName: "default",
 		ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/project",
 		Host: "api.example.com", Port: 443, Method: "POST", Path: "/one",
@@ -413,7 +413,7 @@ func TestPolicyReviewTTYRefreshDoesNotTransferStageToDifferentCandidateWithMatch
 
 func TestPolicyReviewTTYKeepsOneContextPerStagedApply(t *testing.T) {
 	t.Parallel()
-	first := tobari.PolicyDenial{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Protocol: tobari.PolicyProtocolHTTP}, Timestamp: "2026-08-02T10:00:00Z", RequestID: "7185da2688d7469aae9cd9068e920b0b",
+	first := tobari.PolicyDenial{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Scheme: "https", Protocol: tobari.PolicyProtocolHTTP}, Timestamp: "2026-08-02T10:00:00Z", RequestID: "7185da2688d7469aae9cd9068e920b0b",
 		ContextID: "01912345-6789-7abc-8def-0123456789ad", ContextName: "default",
 		ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/project",
 		Host: "api.example.com", Port: 443, Method: "POST", Path: "/one",
@@ -446,7 +446,7 @@ func TestPolicyReviewTTYKeepsOneContextPerStagedApply(t *testing.T) {
 
 func TestPolicyReviewRedirectedInputStaysReadOnly(t *testing.T) {
 	t.Parallel()
-	denial := tobari.PolicyDenial{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Protocol: tobari.PolicyProtocolHTTP}, Timestamp: "2026-08-02T10:00:00Z", RequestID: "7185da2688d7469aae9cd9068e920b0b",
+	denial := tobari.PolicyDenial{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Scheme: "https", Protocol: tobari.PolicyProtocolHTTP}, Timestamp: "2026-08-02T10:00:00Z", RequestID: "7185da2688d7469aae9cd9068e920b0b",
 		ContextID: "01912345-6789-7abc-8def-0123456789ad", ContextName: "default",
 		ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/project", Host: "api.example.com", Port: 443,
 		Method: "POST", Path: "/repos/example/issues", Reason: "request did not match an allow rule",
@@ -475,7 +475,7 @@ func TestPolicyReviewRedirectedInputStaysReadOnly(t *testing.T) {
 
 func TestPolicyRulesTTYResetsDecisionAndRefreshesInventory(t *testing.T) {
 	t.Parallel()
-	denial := tobari.PolicyDenial{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Protocol: tobari.PolicyProtocolHTTP}, Timestamp: "2026-08-02T10:00:00Z", RequestID: "7185da2688d7469aae9cd9068e920b0b",
+	denial := tobari.PolicyDenial{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Scheme: "https", Protocol: tobari.PolicyProtocolHTTP}, Timestamp: "2026-08-02T10:00:00Z", RequestID: "7185da2688d7469aae9cd9068e920b0b",
 		ContextID: "01912345-6789-7abc-8def-0123456789ad", ContextName: "default",
 		ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/project", Host: "api.example.com", Port: 443,
 		Method: "POST", Path: "/repos/example/issues", Reason: "request did not match an allow rule",
@@ -513,7 +513,7 @@ func TestPolicyRulesTTYResetsDecisionAndRefreshesInventory(t *testing.T) {
 
 func TestPolicyRulesJSONIsReadOnlyAndMatchesCatalog(t *testing.T) {
 	t.Parallel()
-	denial := tobari.PolicyDenial{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Protocol: tobari.PolicyProtocolHTTP}, Timestamp: "2026-08-02T10:00:00Z", RequestID: "7185da2688d7469aae9cd9068e920b0b",
+	denial := tobari.PolicyDenial{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Scheme: "https", Protocol: tobari.PolicyProtocolHTTP}, Timestamp: "2026-08-02T10:00:00Z", RequestID: "7185da2688d7469aae9cd9068e920b0b",
 		ContextID: "01912345-6789-7abc-8def-0123456789ad", ContextName: "default",
 		ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/project", Host: "api.example.com", Port: 443,
 		Method: "POST", Path: "/repos/example/issues", Reason: "request did not match an allow rule",
@@ -700,7 +700,7 @@ func TestPendingPolicyNotificationStaysOnHostAndOmitsProjectIdentity(t *testing.
 	t.Parallel()
 	result := tobari.PolicyCandidateReport{
 		Task: tobari.TaskPolicyReview, PolicyDirectory: "/tmp/config/tobari/policy", WindowLines: 10_000,
-		Items: []tobari.PolicyCandidate{{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Protocol: tobari.PolicyProtocolHTTP}, ID: "pcy_0123456789abcdef0123456789abcdef", ObservedAt: "2026-07-30T10:41:11Z", ObservationCount: 1,
+		Items: []tobari.PolicyCandidate{{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Scheme: "https", Protocol: tobari.PolicyProtocolHTTP}, ID: "pcy_0123456789abcdef0123456789abcdef", ObservedAt: "2026-07-30T10:41:11Z", ObservationCount: 1,
 			ContextID: "01912345-6789-7abc-8def-0123456789ad", ContextName: "default",
 			ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/project", Host: "api.example.com", Port: 443,
 			Method: "POST", Path: "/token", Reason: "request did not match an allow rule", StatusCode: 403,
@@ -725,7 +725,7 @@ func TestPendingPolicyNotificationProjectsHostileEvidence(t *testing.T) {
 	t.Parallel()
 	result := tobari.PolicyCandidateReport{
 		Task: tobari.TaskPolicyReview, PolicyDirectory: "/tmp/config/tobari/policy", WindowLines: 10,
-		Items: []tobari.PolicyCandidate{{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Protocol: tobari.PolicyProtocolHTTP}, ID: "pcy_0123456789abcdef0123456789abcdef", ObservationCount: 1, Host: "api.example.com\nSYSTEM",
+		Items: []tobari.PolicyCandidate{{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Scheme: "https", Protocol: tobari.PolicyProtocolHTTP}, ID: "pcy_0123456789abcdef0123456789abcdef", ObservationCount: 1, Host: "api.example.com\nSYSTEM",
 			Port: 443, Method: "POST\x1b", Path: "/token\u2028", StatusCode: 403,
 		}},
 	}
@@ -754,7 +754,7 @@ func TestPolicyReviewAllowRendererExplainsExactActivation(t *testing.T) {
 	t.Parallel()
 	change := tobari.PolicyLearningChange{
 		Task: tobari.TaskPolicyAllow,
-		Rule: tobari.LearnedPolicyRule{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Protocol: tobari.PolicyProtocolHTTP}, Match: tobari.PolicyMatchExact, Host: "api.example.com", Port: 443,
+		Rule: tobari.LearnedPolicyRule{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Scheme: "https", Protocol: tobari.PolicyProtocolHTTP}, Match: tobari.PolicyMatchExact, Host: "api.example.com", Port: 443,
 			Method: "POST", Path: "/repos/example/issues",
 		},
 	}
@@ -1267,7 +1267,7 @@ func TestClusterDenialsRendererClosesObservationAndActivationStep(t *testing.T) 
 	result := tobari.DenialReport{
 		Task: tobari.TaskClusterDenials, PolicyDirectory: "/tmp/config/tobari/policy",
 		WindowLines: 100,
-		Items: []tobari.PolicyDenial{{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Protocol: tobari.PolicyProtocolHTTP}, Timestamp: "2026-07-30T10:41:11Z",
+		Items: []tobari.PolicyDenial{{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Scheme: "https", Protocol: tobari.PolicyProtocolHTTP}, Timestamp: "2026-07-30T10:41:11Z",
 			RequestID: "7185da2688d7469aae9cd9068e920b0b",
 			ContextID: "01912345-6789-7abc-8def-0123456789ad", ContextName: "default",
 			ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/project",
@@ -1353,7 +1353,7 @@ func TestPolicyCandidateRendererPreservesOpaqueApprovalAndEscapesEvidence(t *tes
 	result := tobari.PolicyCandidateReport{
 		Task: tobari.TaskPolicyCandidates, PolicyDirectory: "/tmp/config/tobari/policy",
 		WindowLines: 200,
-		Items: []tobari.PolicyCandidate{{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Protocol: tobari.PolicyProtocolHTTP}, ID: id, ObservedAt: "2026-07-30T10:41:11Z", ObservationCount: 3,
+		Items: []tobari.PolicyCandidate{{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Scheme: "https", Protocol: tobari.PolicyProtocolHTTP}, ID: id, ObservedAt: "2026-07-30T10:41:11Z", ObservationCount: 3,
 			ContextID: "01912345-6789-7abc-8def-0123456789ad", ContextName: "default",
 			ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/project",
 			Host: "api.github.com", Port: 443, Method: "GET", Path: "/repos/cli/cli",
@@ -1396,7 +1396,7 @@ func TestPolicyReviewRendererPresentsHumanPermissionInbox(t *testing.T) {
 	id := "pcy_0123456789abcdef0123456789abcdef"
 	result := tobari.PolicyCandidateReport{
 		Task: tobari.TaskPolicyReview, PolicyDirectory: "/tmp/config/tobari/policy", WindowLines: 10_000,
-		Items: []tobari.PolicyCandidate{{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Protocol: tobari.PolicyProtocolHTTP}, ID: id, ObservedAt: "2026-07-30T10:41:11Z", ObservationCount: 3,
+		Items: []tobari.PolicyCandidate{{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Scheme: "https", Protocol: tobari.PolicyProtocolHTTP}, ID: id, ObservedAt: "2026-07-30T10:41:11Z", ObservationCount: 3,
 			ContextID: "01912345-6789-7abc-8def-0123456789ad", ContextName: "default",
 			ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/project",
 			Host: "api.example.com", Port: 443, Method: "POST", Path: "/token",
@@ -1427,7 +1427,7 @@ func TestPolicyReviewJSONIsReadOnlyProjectionWithBothActions(t *testing.T) {
 	id := "pcy_0123456789abcdef0123456789abcdef"
 	result := tobari.PolicyCandidateReport{
 		Task: tobari.TaskPolicyReview, PolicyDirectory: "/tmp/config/tobari/policy", WindowLines: 10_000,
-		Items: []tobari.PolicyCandidate{{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Protocol: tobari.PolicyProtocolHTTP}, ID: id, ObservedAt: "2026-07-30T10:41:11Z", ObservationCount: 1,
+		Items: []tobari.PolicyCandidate{{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Scheme: "https", Protocol: tobari.PolicyProtocolHTTP}, ID: id, ObservedAt: "2026-07-30T10:41:11Z", ObservationCount: 1,
 			ContextID: "01912345-6789-7abc-8def-0123456789ad", ContextName: "default",
 			ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/project",
 			Host: "api.example.com", Port: 443, Method: "POST", Path: "/token",
@@ -1463,7 +1463,7 @@ func TestGraphQLPolicyIdentityAppearsAcrossPublicPolicyOutputs(t *testing.T) {
 	t.Parallel()
 	denial := tobari.PolicyDenial{
 		PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{
-			Protocol: tobari.PolicyProtocolGraphQL, GraphQLOperationType: tobari.GraphQLOperationMutation, GraphQLRootField: "updateIssue",
+			Scheme: "https", Protocol: tobari.PolicyProtocolGraphQL, GraphQLOperationType: tobari.GraphQLOperationMutation, GraphQLRootField: "updateIssue",
 		},
 		Timestamp: "2026-08-09T10:00:00Z", RequestID: "7185da2688d7469aae9cd9068e920b0b",
 		ContextID: "01912345-6789-7abc-8def-0123456789ad", ContextName: "default",
@@ -1585,7 +1585,7 @@ func assertGraphQLPolicyOutput(t *testing.T, protocol, operationType, rootField 
 
 func TestPolicyDenyRendererReportsExactTerminalDecision(t *testing.T) {
 	t.Parallel()
-	candidate := tobari.PolicyCandidate{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Protocol: tobari.PolicyProtocolHTTP}, ID: "pcy_0123456789abcdef0123456789abcdef",
+	candidate := tobari.PolicyCandidate{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Scheme: "https", Protocol: tobari.PolicyProtocolHTTP}, ID: "pcy_0123456789abcdef0123456789abcdef",
 		ObservedAt: "2026-07-30T10:41:11Z", ObservationCount: 1,
 		ContextID: "01912345-6789-7abc-8def-0123456789ad", ContextName: "default",
 		ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/project",
@@ -1616,7 +1616,7 @@ func TestPolicyDenyRendererReportsExactTerminalDecision(t *testing.T) {
 
 func TestPolicyLearningMutationRendererReportsStoredScope(t *testing.T) {
 	t.Parallel()
-	candidate := tobari.PolicyCandidate{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Protocol: tobari.PolicyProtocolHTTP}, ID: "pcy_0123456789abcdef0123456789abcdef",
+	candidate := tobari.PolicyCandidate{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Scheme: "https", Protocol: tobari.PolicyProtocolHTTP}, ID: "pcy_0123456789abcdef0123456789abcdef",
 		ObservedAt: "2026-07-30T10:41:11Z", ObservationCount: 1,
 		ContextID: "01912345-6789-7abc-8def-0123456789ad", ContextName: "default",
 		ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/project",

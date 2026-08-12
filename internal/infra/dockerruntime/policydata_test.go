@@ -24,7 +24,7 @@ func learnedRuleFixture(t *testing.T, path string) tobari.LearnedPolicyRule {
 
 func learnedRuleFixtureForHost(t *testing.T, host, path string) tobari.LearnedPolicyRule {
 	t.Helper()
-	candidate, err := tobari.NewPolicyCandidate(tobari.PolicyDenial{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Protocol: tobari.PolicyProtocolHTTP}, Timestamp: "2026-07-30T10:41:11Z",
+	candidate, err := tobari.NewPolicyCandidate(tobari.PolicyDenial{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Scheme: "https", Protocol: tobari.PolicyProtocolHTTP}, Timestamp: "2026-07-30T10:41:11Z",
 		RequestID:   "7185da2688d7469aae9cd9068e920b0b",
 		ContextID:   "01912345-6789-7abc-8def-0123456789ad",
 		ContextName: "default",
@@ -50,7 +50,7 @@ func learnedRuleFixtureForHost(t *testing.T, host, path string) tobari.LearnedPo
 
 func deniedRuleFixture(t *testing.T, path string) tobari.PolicyDenyRule {
 	t.Helper()
-	candidate, err := tobari.NewPolicyCandidate(tobari.PolicyDenial{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Protocol: tobari.PolicyProtocolHTTP}, Timestamp: "2026-07-30T10:41:11Z",
+	candidate, err := tobari.NewPolicyCandidate(tobari.PolicyDenial{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Scheme: "https", Protocol: tobari.PolicyProtocolHTTP}, Timestamp: "2026-07-30T10:41:11Z",
 		RequestID:   "8185da2688d7469aae9cd9068e920b0b",
 		ContextID:   "01912345-6789-7abc-8def-0123456789ad",
 		ContextName: "default",
@@ -165,7 +165,7 @@ func (concurrentPolicyRunner) Output(_ context.Context, args, _ []string) ([]byt
 
 func contextRuleFixture(t *testing.T, manifest tobari.ContextManifest, projectID, path string) tobari.LearnedPolicyRule {
 	t.Helper()
-	candidate, err := tobari.NewPolicyCandidate(tobari.PolicyDenial{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Protocol: tobari.PolicyProtocolHTTP}, Timestamp: "2026-08-08T08:00:00Z", RequestID: strings.Repeat("a", 32),
+	candidate, err := tobari.NewPolicyCandidate(tobari.PolicyDenial{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Scheme: "https", Protocol: tobari.PolicyProtocolHTTP}, Timestamp: "2026-08-08T08:00:00Z", RequestID: strings.Repeat("a", 32),
 		ContextID: manifest.ID, ContextName: manifest.Name,
 		ProjectID: projectID, ProjectRoot: "/workspace/project",
 		Host: "api.example.com", Port: 443, Method: "POST", Path: path,
@@ -183,7 +183,7 @@ func contextRuleFixture(t *testing.T, manifest tobari.ContextManifest, projectID
 
 func contextDenyFixture(t *testing.T, manifest tobari.ContextManifest, projectID, path string) tobari.PolicyDenyRule {
 	t.Helper()
-	candidate, err := tobari.NewPolicyCandidate(tobari.PolicyDenial{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Protocol: tobari.PolicyProtocolHTTP}, Timestamp: "2026-08-08T08:00:00Z", RequestID: strings.Repeat("b", 32),
+	candidate, err := tobari.NewPolicyCandidate(tobari.PolicyDenial{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Scheme: "https", Protocol: tobari.PolicyProtocolHTTP}, Timestamp: "2026-08-08T08:00:00Z", RequestID: strings.Repeat("b", 32),
 		ContextID: manifest.ID, ContextName: manifest.Name,
 		ProjectID: projectID, ProjectRoot: "/workspace/project",
 		Host: "api.example.com", Port: 443, Method: "POST", Path: path,

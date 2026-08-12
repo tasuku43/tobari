@@ -35,7 +35,7 @@ const (
 // PolicyProtocolIdentity identifies one HTTP effect or refines it to exactly
 // one GraphQL root coordinate.
 type PolicyProtocolIdentity struct {
-	Scheme               string `json:"scheme,omitempty"`
+	Scheme               string `json:"scheme"`
 	Protocol             string `json:"protocol"`
 	GraphQLOperationType string `json:"graphql_operation_type,omitempty"`
 	GraphQLRootField     string `json:"graphql_root_field,omitempty"`
@@ -47,7 +47,7 @@ func (i PolicyProtocolIdentity) EffectiveProtocol() string {
 }
 
 func (i PolicyProtocolIdentity) Validate() error {
-	if i.Scheme != "" && i.Scheme != "http" && i.Scheme != "https" {
+	if i.Scheme != "http" && i.Scheme != "https" {
 		return fmt.Errorf("policy scheme is invalid")
 	}
 	switch i.EffectiveProtocol() {
@@ -425,13 +425,6 @@ type PolicyDenyRule struct {
 	SourceCandidates []string `json:"source_candidates"`
 }
 
-func policyDenyRuleID(contextID, projectID, host string, port int, method, path string, sourceCandidates []string) string {
-	return policyDenyRuleIDWithIdentity(
-		contextID, projectID, host, port, method, path, sourceCandidates,
-		PolicyProtocolIdentity{Protocol: PolicyProtocolHTTP},
-	)
-}
-
 func policyDenyRuleIDWithIdentity(
 	contextID, projectID, host string, port int, method, path string, sourceCandidates []string,
 	identity PolicyProtocolIdentity,
@@ -505,13 +498,6 @@ func (r PolicyDenyRule) Validate() error {
 	return nil
 }
 
-func (r PolicyDenyRule) Matches(contextID, projectID, host string, port int, method, path string) bool {
-	return r.MatchesIdentity(
-		contextID, projectID, host, port, method, path,
-		PolicyProtocolIdentity{Protocol: PolicyProtocolHTTP},
-	)
-}
-
 func (r PolicyDenyRule) MatchesIdentity(
 	contextID, projectID, host string, port int, method, path string, identity PolicyProtocolIdentity,
 ) bool {
@@ -569,15 +555,6 @@ type LearnedPolicyRule struct {
 	Path             string   `json:"path"`
 	Examples         []string `json:"examples"`
 	SourceCandidates []string `json:"source_candidates"`
-}
-
-func learnedRuleID(
-	match, contextID, projectID, host string, port int, method, path string, examples, sourceCandidates []string,
-) string {
-	return learnedRuleIDWithIdentity(
-		match, contextID, projectID, host, port, method, path, examples, sourceCandidates,
-		PolicyProtocolIdentity{Protocol: PolicyProtocolHTTP},
-	)
 }
 
 func learnedRuleIDWithIdentity(
@@ -954,13 +931,6 @@ func (r PolicyRuleReset) Validate() error {
 		return fmt.Errorf("policy rule reset is not applied")
 	}
 	return nil
-}
-
-func (r LearnedPolicyRule) Matches(contextID, projectID, host string, port int, method, path string) bool {
-	return r.MatchesIdentity(
-		contextID, projectID, host, port, method, path,
-		PolicyProtocolIdentity{Protocol: PolicyProtocolHTTP},
-	)
 }
 
 func (r LearnedPolicyRule) MatchesIdentity(

@@ -853,6 +853,7 @@ class TobariGateway:
                     context_id=context_id,
                     context=context_name,
                     project_root=project_root,
+                    scheme=scheme,
                     host=host,
                     port=port,
                     method=flow.request.method.upper(),

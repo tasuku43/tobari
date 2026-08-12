@@ -79,7 +79,11 @@
 - [x] Preserve exact project-bound learned rule identity and manual retry only.
       Evidence: scheme-aware candidate identity tests, project-bound mutation
       tests, catalog reference flow, and integration review steps pass opaque
-      candidate IDs unchanged and never auto-retry the denied request.
+      candidate IDs unchanged and never auto-retry the denied request. The
+      integrated Gateway now records the request scheme on ordinary denials,
+      the domain rejects missing/invalid schemes instead of retaining an
+      unusable compatibility state, and the journey proves the resulting exact
+      HTTPS rule authorizes only the explicit manual retry.
 - [x] Preserve aggregate preflight, atomic promotion, revision confirmation,
       reduction fencing, and fail-closed rollback. Evidence:
       `policydata_test.go` covers complete aggregate preflight, concurrent
@@ -130,14 +134,22 @@
       `mise exec -- task policy:test` then passed 53/53 in the pinned OPA image.
       The subsequent integration run passed Context policy preflight and
       advanced to the independently scoped Gateway/Auth Broker timeout
-      contract check.
+      contract check. After the timeout/status contract correction, the
+      scheme-bound fix passed Gateway 27/27, policy 53/53, source-snapshot
+      equality, and focused Go tests for domain, application, runtime, and CLI.
+      The integration journey then passed exact brokered approval and security
+      canaries before stopping at the parent release journey's stale assumption
+      of an implicit `mock-upstream` grant.
 - [x] `task check` passes. Evidence: `mise exec -- task check` passed on
       integrated V1 HEAD on 2026-08-12, including all Go tests with race,
-      generated/catalog/source checks, both site builds, and Playwright 40/40.
+      generated/catalog/source checks, both site builds, and Playwright 40/40;
+      it passed again after making scheme mandatory across the denial,
+      candidate, rule, receipt, and pinned-fixture boundaries.
 - [x] `task check:fast` passes. Evidence: `mise exec -- task check:fast`
       passed after preset/auth/policy/site integration on 2026-08-12.
 - [x] `task security` passes. Evidence: `mise exec -- task security` passed on
-      the same integration branch.
+      the same integration branch and again after the scheme-bound Gateway
+      audit correction.
 - [ ] `task public:check` passes. Evidence: repoguard and contractlint passed;
       the gate stopped only at the deliberate unpublished Gateway digest
       checkpoint.
