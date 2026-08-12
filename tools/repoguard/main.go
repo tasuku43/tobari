@@ -38,6 +38,7 @@ var (
 	assignmentSecret      = regexp.MustCompile(`(?i)(?:^|[^A-Za-z0-9_])["']?(?:api[_-]?key|client[_-]?secret|password|passwd|access[_-]?token|refresh[_-]?token|private[_-]?key)["']?\s*[:=]\s*(?:"([^"\r\n]*)"|'([^'\r\n]*)'|([^# ,}\]\t\r\n]+))`)
 	exampleSecret         = regexp.MustCompile(`^(?:example|dummy|fake|test|redacted|placeholder)(?:[-_.][a-z0-9][a-z0-9._-]*)?$`)
 	environmentSecret     = regexp.MustCompile(`^(?:\$\{[A-Z][A-Z0-9_]*\}|env\.[A-Z][A-Z0-9_]*)$`)
+	githubActionsSecret   = regexp.MustCompile(`^\$\{\{\s*secrets\.[A-Z][A-Z0-9_]*\s*\}\}$`)
 	secretPatterns        = []struct {
 		name string
 		re   *regexp.Regexp
@@ -1424,7 +1425,7 @@ func safeExampleSecret(value string) bool {
 	if lower == "" || lower == "none" || lower == "null" || lower == "[redacted]" {
 		return true
 	}
-	return exampleSecret.MatchString(lower) || environmentSecret.MatchString(trimmed)
+	return exampleSecret.MatchString(lower) || environmentSecret.MatchString(trimmed) || githubActionsSecret.MatchString(trimmed)
 }
 
 func readDenylist(root, relative string) ([]string, error) {

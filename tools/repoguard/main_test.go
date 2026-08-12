@@ -170,6 +170,7 @@ func TestCheckTextDetectsQuotedJSONSecretsAndMarkerSubstrings(t *testing.T) {
 		jsonSecretAssignment("client_"+"secret", "dummy-value"),
 		jsonSecretAssignment("access_"+"token", "${ACCESS_TOKEN}"),
 		jsonSecretAssignment("pass"+"word", "env.PASSWORD"),
+		jsonSecretAssignment("private_"+"key", "${{ secrets.HOMEBREW_APP_KEY }}"),
 		jsonSecretAssignment("pass"+"word", "[redacted]"),
 	} {
 		if issues := checkText("config.json", value, config, nil, "security"); len(issues) != 0 {

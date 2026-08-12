@@ -90,10 +90,6 @@ grep -qF 'already exists; refusing to replace immutable release assets' .github/
   echo "release workflow does not fail closed when the tag already has a release" >&2
   exit 1
 }
-if grep -qF 'peter-evans/create-pull-request' .github/workflows/release.yml; then
-  echo "release workflow must not mutate the Homebrew Formula branch implicitly" >&2
-  exit 1
-fi
 if grep -qE '^  push:' .github/workflows/release.yml; then
   echo "release workflow must not publish implicitly from a pushed tag" >&2
   exit 1
@@ -175,6 +171,11 @@ assemble_job=$(awk '
   in_assemble && !/^  assemble:/ && /^  [A-Za-z0-9_-]+:/ { exit }
   in_assemble { print }
 ' .github/workflows/release.yml)
+homebrew_job=$(awk '
+  /^  homebrew-tap:/ { in_homebrew=1 }
+  in_homebrew && !/^  homebrew-tap:/ && /^  [A-Za-z0-9_-]+:/ { exit }
+  in_homebrew { print }
+' .github/workflows/release.yml)
 build_job=$(awk '
   /^  build:/ { in_build=1 }
   in_build && !/^  build:/ && /^  [A-Za-z0-9_-]+:/ { exit }
@@ -212,6 +213,26 @@ final_verify_line=$(printf '%s\n' "$assemble_job" | grep -n -m1 -F './tools/rele
 upload_line=$(printf '%s\n' "$assemble_job" | grep -n -m1 -F 'Upload complete release asset set' | cut -d: -f1)
 if ((release_checkout_line >= metadata_line || metadata_line >= verify_line || verify_line >= render_line || render_line >= audit_line || audit_line >= final_verify_line || final_verify_line >= upload_line)); then
   echo "release metadata and Formula must be generated and verified at the release revision before upload" >&2
+  exit 1
+fi
+
+# These are literal workflow expressions and shell expansions.
+# shellcheck disable=SC2016
+for required in \
+  "if: inputs.publish == true && needs.preflight.outputs.stable == 'true'" \
+  'needs: [preflight, publish]' 'environment: release-publication' \
+  'actions/create-github-app-token@' 'app-id: ${{ secrets.HOMEBREW_APP_ID }}' \
+  'private-key:' '${{ secrets.HOMEBREW_APP_KEY }}' 'owner: tasuku43' \
+  'repositories: homebrew-tap' 'gh release download' '--pattern tobari.rb' \
+  'repository: tasuku43/homebrew-tap' 'Formula/tobari.rb' \
+  'git switch -c "${branch}"' 'gh pr create' '--repo tasuku43/homebrew-tap'; do
+  if ! printf '%s\n' "$homebrew_job" | grep -qF -- "$required"; then
+    echo "stable Homebrew publication job is missing: $required" >&2
+    exit 1
+  fi
+done
+if printf '%s\n' "$homebrew_job" | grep -qF 'git push origin main'; then
+  echo "stable Homebrew publication must use the tap pull-request boundary" >&2
   exit 1
 fi
 

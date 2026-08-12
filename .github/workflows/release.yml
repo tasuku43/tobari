@@ -322,3 +322,72 @@ jobs:
             exit 1
           fi
           gh release create "${RELEASE_TAG}" dist/* "${args[@]}"
+
+  homebrew-tap:
+    name: Propose stable Formula in Homebrew tap
+    if: inputs.publish == true && needs.preflight.outputs.stable == 'true'
+    needs: [preflight, publish]
+    runs-on: ubuntu-latest
+    environment: release-publication
+    permissions:
+      contents: read
+    steps:
+      - name: Download the exact published Formula
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_REPOSITORY: ${{ github.repository }}
+          RELEASE_TAG: ${{ needs.preflight.outputs.tag }}
+        shell: bash
+        run: |
+          mkdir formula-dist
+          gh release download "${RELEASE_TAG}" \
+            --repo "${RELEASE_REPOSITORY}" \
+            --pattern tobari.rb \
+            --dir formula-dist
+          test -f formula-dist/tobari.rb
+          test "$(find formula-dist -type f | wc -l | tr -d ' ')" = 1
+          ruby -c formula-dist/tobari.rb
+
+      - name: Create repository-scoped Homebrew App token
+        id: homebrew-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        with:
+          app-id: ${{ secrets.HOMEBREW_APP_ID }}
+          private-key: "${{ secrets.HOMEBREW_APP_KEY }}"
+          owner: tasuku43
+          repositories: homebrew-tap
+
+      - name: Checkout shared Homebrew tap
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: tasuku43/homebrew-tap
+          token: ${{ steps.homebrew-token.outputs.token }}
+          path: homebrew-tap
+
+      - name: Install the verified Formula into the tap
+        shell: bash
+        run: |
+          install -m 0644 formula-dist/tobari.rb homebrew-tap/Formula/tobari.rb
+          ruby -c homebrew-tap/Formula/tobari.rb
+          test "$(git -C homebrew-tap status --short | awk '{print $2}')" = Formula/tobari.rb
+
+      - name: Create Homebrew Formula pull request
+        working-directory: homebrew-tap
+        env:
+          GH_TOKEN: ${{ steps.homebrew-token.outputs.token }}
+          RELEASE_TAG: ${{ needs.preflight.outputs.tag }}
+        shell: bash
+        run: |
+          branch="chore/homebrew-formula-${RELEASE_TAG}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "${branch}"
+          git add Formula/tobari.rb
+          git commit -m "Update Homebrew formula for ${RELEASE_TAG}"
+          git push origin "${branch}"
+          gh pr create \
+            --repo tasuku43/homebrew-tap \
+            --base main \
+            --head "${branch}" \
+            --title "Update Homebrew formula for ${RELEASE_TAG}" \
+            --body "Updates Formula/tobari.rb to the audited immutable GitHub Release artifact for ${RELEASE_TAG}."
