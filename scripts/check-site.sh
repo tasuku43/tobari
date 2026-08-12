@@ -14,7 +14,11 @@ run_static() {
 }
 
 run_browser() {
-  npm exec -- playwright install chromium
+  if [[ ${CI:-} == true && $(uname -s) == Linux ]]; then
+    npm exec -- playwright install --with-deps chromium
+  else
+    npm exec -- playwright install chromium
+  fi
   npm run test:browser
 }
 

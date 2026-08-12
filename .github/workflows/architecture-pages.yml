@@ -1,7 +1,6 @@
 name: Public documentation
 
 on:
-  pull_request:
   push:
     branches: [main]
   workflow_dispatch:
@@ -29,30 +28,10 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
-        with:
-          node-version-file: .node-version
-          cache: npm
-          cache-dependency-path: docs/architecture-site/package-lock.json
+      - uses: ./.github/actions/setup-repository-node
 
-      - name: Select the repository-pinned npm version
-        run: npm install --global "$(node -p "require('./docs/architecture-site/package.json').packageManager")"
-
-      - name: Install locked site dependencies
-        working-directory: docs/architecture-site
-        run: npm ci
-
-      - name: Install the pinned browser runtime
-        working-directory: docs/architecture-site
-        run: npm exec -- playwright install --with-deps chromium
-
-      - name: Verify sources and both static base paths
-        working-directory: docs/architecture-site
-        run: npm run test:static
-
-      - name: Run browser and accessibility tests
-        working-directory: docs/architecture-site
-        run: npm run test:browser
+      - name: Run the canonical site gate
+        run: ./scripts/check-site.sh full
 
       - name: Upload the generated Pages artifact
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
