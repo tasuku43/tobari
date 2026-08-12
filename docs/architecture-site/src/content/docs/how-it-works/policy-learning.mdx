@@ -62,7 +62,7 @@ The rule record itself does not store a scheme field. Current HTTP and HTTPS aut
 
 `policy candidates` is the machine discovery surface. `policy review` is the human Permission Inbox. Redirected/machine-readable review is read-only; on a TTY, the list is still non-mutating while the user opens details and stages **Allow exact** or **Deny exact** choices for one Context.
 
-Each staged choice retains the unchanged opaque ID. Pressing **Apply** revalidates the complete staged set and activates it once; canceling first discards every choice without a write. Apply or discard before switching Context so durable source promotion remains one atomic file replacement. Display order, indentation, label text, or a reconstructed host/path is never the target. Machine callers continue to delegate one unchanged ID to `policy allow --id …` or `policy deny --id …`.
+Each staged choice retains the unchanged opaque ID. Pressing **Apply** revalidates the complete staged set and activates it once; canceling first discards every choice without a write. Apply or discard before switching Context so durable source promotion remains one journaled domain-generation replacement. Display order, indentation, label text, or a reconstructed host/path is never the target. Machine callers continue to delegate one unchanged ID to `policy allow --id …` or `policy deny --id …`.
 
 At action time, Tobari re-reads current retained evidence and current rules. A stale, expired, already-covered, or mismatched ID produces no policy mutation.
 

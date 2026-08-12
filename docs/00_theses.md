@@ -605,7 +605,8 @@ administration project.
 - OPA watches one revisioned complete bundle mounted read-only from an exact
   owner-labeled Docker-managed volume. Exact allow, deny, reset, compaction,
   and reviewed-set actions test a private complete policy copy, atomically
-  update CLI-owned data, build a revision-named archive through pinned OPA,
+  replace one complete Context `policy/domains/` generation, build a
+  revision-named archive through pinned OPA,
   atomically rename it through a fixed pinned publisher, and
   report success only after the running OPA proves the expected revision is
   active. Authority-reducing or mixed changes first confirm a complete
@@ -688,14 +689,25 @@ a handle selects authority without the trusted principal and OPA allow.
   stores, references a read-only agent profile, and records the compatible
   Tobari runtime image. It never accepts a secret value in an argument,
   environment variable, or manifest.
+- Context policy source is grouped by exact canonical lower-case host at
+  `policy/domains/<host>/allow.json` and `deny.json`. The allow document owns
+  that host's authorities, methods, GraphQL endpoints, credential bindings,
+  and learned Allows; the deny document owns baseline and learned exact
+  Denies. Directory and embedded hosts must agree, methods never flow between
+  hosts, deny precedence remains terminal, and wildcard/IP/ambiguous host
+  syntax is unsupported. Context source has no `data.json`; a generated
+  immutable OPA projection may use that filename internally.
 - Auth login/import affects one explicit or current Context and makes the
   Context-wide Workspace eligibility explicit. Login does not rewrite running
   Workspaces; their next matching entry issues or refreshes project-bound
   handles and recreates only a changed work container while preserving home.
 - Context source changes become active only through an explicit `cluster up` or
-  policy mutation. The host generates and validates one atomic projection of
-  every Context for the shared OPA and Gateway; a failed candidate preserves
-  the complete prior known-good projection.
+  policy mutation. The host serializes source mutation across processes,
+  validates and swaps a complete domain generation under a durable recovery
+  journal, then generates and validates one atomic projection of every Context
+  for the shared OPA and Gateway. Incomplete, raced, or ambiguous source state
+  fails closed; a failed candidate preserves the complete prior known-good
+  source generation and projection.
 - The ordinary guided mode keeps deny/review/allow exact permission growth as
   the default. Advanced mode keeps trusted-host Rego and tests available for
   policy that cannot be expressed as an exact learned rule. The projection

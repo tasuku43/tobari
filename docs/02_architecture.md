@@ -784,7 +784,7 @@ the CLI-owned learned allow or deny data and trusted baseline deny rules.
 Baseline denies remain audit-only. `policy review` is the routine human text
 workflow: it stages explicit decisions over unchanged opaque candidate IDs for
 one Context and applies the complete typed set once. Apply or discard precedes
-switching Context, keeping source promotion to one atomic file replacement;
+switching Context, keeping source promotion to one atomic domain generation;
 redirected review is read-only. Manual refresh intersects the staged ordered
 set with the fresh queue by opaque ID. Final review repeats every exact scope,
 effect, decision, and candidate ID before one explicit confirmation. The
@@ -799,24 +799,42 @@ Raw `cluster logs` remains the component-debugging interface.
 
 `policy allow` resolves one exact candidate reference against retained
 validated audit state without decoding it. Infrastructure reads the bounded,
-owner-only `data.json`, preserves non-owned members, appends one deterministic
-exact learned rule, tests a private complete policy copy, atomically replaces
-the data file, and calls the existing OPA activation boundary.
+owner-only `policy/domains/<canonical-host>/{allow,deny}.json` tree, preserves
+every unchanged file byte-for-byte, appends one deterministic exact learned
+rule to its host's `allow.json`, tests a private complete policy copy, swaps one
+complete domain-source generation, and calls the existing OPA activation
+boundary. Deny mutations use the matching `deny.json`; an unknown exact host is
+created with both files in the staged generation.
 
-Each authoritative Context policy data source is schema 1. Guided Contexts
-contribute only that data; aggregate generation loads the current shared Rego
-evaluator and tests from Tobari's embedded runtime assets. Advanced Context
-source and Gateway runtime input both use exact schema 1 and reject any other
-shape. The aggregate
-projection is schema 1 and stores those sources below
+Each authoritative domain source is strict schema 1. The directory name and
+every embedded authority, endpoint, credential binding, and rule host must be
+the same canonical lower-case host. Methods belong to the authority records
+composed from that domain and cannot authorize another host. Wildcards and IP
+literals are not source syntax. Guided Contexts contribute only the domain
+tree; aggregate generation loads the current shared Rego evaluator and tests
+from Tobari's embedded runtime assets. Advanced Contexts add exactly
+`tobari.rego` and `tobari_test.rego`. Gateway runtime input uses exact schema 1
+and rejects any other shape. The generated aggregate projection may contain a
+single internal `data.json`; it is immutable execution input, never a Context
+source. The aggregate projection is schema 1 and stores the composed sources below
 `tobari_contexts[context_id]`; the Tobari-owned router is the only
-`tobari.http` decision entrypoint. `boundary.authorities` and
-`boundary.methods` describe the configured request boundary,
-`boundary.graphql_endpoints` declares exact protocol-classification points, `boundary.ports`
-describes the scheme-specific candidate transport boundary, and `rules` keeps
+`tobari.http` decision entrypoint. Each entry in `boundary.authorities` owns its
+scheme, host, ports, and host-local methods;
+`boundary.graphql_endpoints` declares exact protocol-classification points, and `rules` keeps
 baseline denies, learned allows, and learned denies in separate collections.
 Gateway and OPA share this structure; the CLI only owns the mutation of the
 two learned collections and never rewrites the host-authored boundary.
+
+Routine mutations serialize through an in-process mutex and a cross-process
+file lock. They prepare and fsync a complete sibling generation, record a
+strict durable journal with original/candidate digests, move the prior
+`domains/` generation to a recovery name, and rename the complete candidate
+into place. A lockless reader therefore observes the old generation, a
+fail-closed gap/journal, or the new generation, never a valid mixed pair.
+Aggregate state records the candidate immutable projection revision before the
+journal is finalized; recovery commits only when that revision is durable and
+otherwise restores the validated original. Unexpected external edits make the
+transaction ambiguous and fail closed instead of being overwritten.
 
 Guided Contexts use one current Tobari-owned evaluator, projected once, with
 Context-specific authorities, methods, ports, GraphQL endpoints, baseline decisions, learned

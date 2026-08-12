@@ -168,6 +168,8 @@ func (r *Runtime) withPrincipalRegistryLock(ctx context.Context, action func() e
 }
 
 func (r *Runtime) withPolicyProjectionLock(ctx context.Context, action func() error) error {
+	r.policyProjectionMu.Lock()
+	defer r.policyProjectionMu.Unlock()
 	return r.withConfigFileLock(ctx, "policy-projection.lock", "policy projection", action)
 }
 

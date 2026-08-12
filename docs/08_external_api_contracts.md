@@ -520,10 +520,12 @@ status may additionally report `unavailable`; the infrastructure/doctor label
 socket, handle, and backend inventory is in
 [Authentication handling](07_authentication.md#canonical-schemas-paths-and-backend-identifiers).
 
-The principal registry uses schema version 1. Each Context policy data source
-uses `tobari.schema_version=1`; `boundary.graphql_endpoints` explicitly
-declares exact GraphQL classification points and absence means none. Aggregate projection schema 1 loads one
-current shared evaluator for every data-only Guided Context. Advanced Rego
+The principal registry uses schema version 1. Each Context domain policy source
+uses strict `schema_version=1` `allow.json` and `deny.json` documents. The
+generated execution document uses `tobari.schema_version=1`;
+`boundary.graphql_endpoints` explicitly declares exact GraphQL classification
+points and absence means none. Aggregate projection schema 1 loads one
+current shared evaluator for every domain-data-only Guided Context. Advanced Rego
 source and runtime OPA input use exact schema 1. It
 stores Context data below `tobari_contexts[context_id]` and rejects other
 shapes. Guided Contexts share one system evaluator. GraphQL input always routes

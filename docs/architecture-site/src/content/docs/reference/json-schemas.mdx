@@ -74,20 +74,20 @@ stored in `context.json`.
 
 ## Persisted host contracts
 
-| State                                  | Current contract          |
-| -------------------------------------- | ------------------------- |
-| Context manifest                       | Schema 1                  |
-| Root index and Workspace instance      | Schema 1                  |
-| Shared cluster state                   | Schema 1                  |
-| Project principal registry             | Schema 1                  |
-| Guided policy data                     | `tobari.schema_version` 1 |
-| Aggregate policy projection marker     | Schema 1                  |
-| Owner provider manifest                | Schema 1                  |
-| Reviewed built-in provider manifest    | Schema 1                  |
-| Normalized provider projection         | Schema 1                  |
-| Encrypted Context vault                | Envelope 1; payload 1     |
-| Workspace authentication file registry | Schema 1                  |
-| Base runtime metadata                  | Schema 1                  |
+| State                                           | Current contract      |
+| ----------------------------------------------- | --------------------- |
+| Context manifest                                | Schema 1              |
+| Root index and Workspace instance               | Schema 1              |
+| Shared cluster state                            | Schema 1              |
+| Project principal registry                      | Schema 1              |
+| Domain policy `allow.json` / `deny.json` source | `schema_version` 1    |
+| Aggregate policy projection marker              | Schema 1              |
+| Owner provider manifest                         | Schema 1              |
+| Reviewed built-in provider manifest             | Schema 1              |
+| Normalized provider projection                  | Schema 1              |
+| Encrypted Context vault                         | Envelope 1; payload 1 |
+| Workspace authentication file registry          | Schema 1              |
+| Base runtime metadata                           | Schema 1              |
 
 Readers reject malformed, oversized, unsafe, or unsupported state according to
 the owning contract. Strictness is surface-specific: do not assume that every

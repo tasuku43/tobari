@@ -477,7 +477,11 @@ func TestDoctorDiagnosesUnsafeLearnedPolicyData(t *testing.T) {
 		t.Fatal(err)
 	}
 	state := runtimeState(root)
-	writePolicyFixture(t, state, `{"tobari":{"allowed_hosts":["api.github.com"],"learned_allow_rules":[]}}`)
+	writeMinimalPolicyFixture(t, state)
+	allowPath := filepath.Join(state.PolicyDirectory, policyDomainsName, "api.github.com", policyAllowFileName)
+	if err := os.WriteFile(allowPath, []byte(`{"host":"api.github.com"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	if err := runtime.writeState(state); err != nil {
 		t.Fatal(err)
 	}

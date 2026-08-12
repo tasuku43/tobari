@@ -646,10 +646,20 @@ The test suite has complementary levels:
   `chatgpt-account-id` supplemental header after allow, and reject every
   alternate supplemental shape. Anthropic cases prove one post-allow static
   bearer replacement and no refresh path.
-- Guided-policy projection tests prove a Context owns `data.json` only, stale
-  Context-local Rego cannot change the aggregate revision or evaluator, the
-  shared evaluator makes first brokered use learnable until an exact rule is
-  installed, and Advanced Context Rego remains isolated and schema-checked.
+- Domain-policy contract tests reject unknown fields, duplicate JSON keys,
+  missing fields, duplicate rule IDs, directory/embedded-host mismatches,
+  non-canonical/wildcard/IP hosts, incomplete pairs, extra files, symlinks, and
+  unsafe modes. They prove new domains appear with both JSON files, unchanged
+  files retain exact bytes, method authority is isolated by host, deny wins,
+  and composed projection bytes are deterministic.
+- Guided-policy projection tests prove a Context owns only the exact
+  `policy/domains/<host>/{allow,deny}.json` tree, stale Context-local Rego fails
+  closed, the shared evaluator makes first brokered use learnable until an
+  exact rule is installed, and Advanced Context Rego remains isolated,
+  layout-checked, and schema-checked. Source transaction tests exercise
+  rollback, durable commit recovery, incomplete activation, concurrent runtime
+  mutation, cross-process locking, and direct external editing; a journal or
+  ambiguous generation remains fail closed.
 - Doctor tests prove the full report is emitted, failures produce
   `diagnostic_failed`, warnings alone remain healthy, and provider/root-key/
   vault/broker/project-binding observation does not create a key, start or

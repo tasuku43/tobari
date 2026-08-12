@@ -624,8 +624,8 @@ func (s PolicyDenyRuleSet) Matches(denial PolicyDenial) bool {
 	return false
 }
 
-// LearnedPolicyRule is the only data.json member owned by policy-learning
-// commands. Examples are retained so compaction remains testable.
+// LearnedPolicyRule is the allow.json rule owned by policy-learning commands.
+// Examples are retained so compaction remains testable.
 type LearnedPolicyRule struct {
 	PolicyProtocolIdentity
 	ID               string   `json:"id"`

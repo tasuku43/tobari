@@ -104,7 +104,7 @@ func TestAggregateRejectsUnsupportedOrAmbiguousSourceInputSchema(t *testing.T) {
 	}
 }
 
-func TestGuidedAggregateUsesCanonicalEvaluatorInsteadOfContextRego(t *testing.T) {
+func TestGuidedAggregateRejectsContextOwnedRego(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 	runtime, _ := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), &recordingRunner{})
@@ -123,26 +123,17 @@ func TestGuidedAggregateUsesCanonicalEvaluatorInsteadOfContextRego(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Even if a former installation left a stale Context-local evaluator, it
-	// has no authority in guided mode and cannot change the aggregate revision.
+	// Guided mode has one exact source layout. A stale or manually added local
+	// evaluator is an unsupported source, not compatibility input to ignore.
 	if err := os.WriteFile(regoPath, []byte("package tobari.http\n\nimport rego.v1\ndecision := {\"allow\": false} if { input.schema_version == 2 }\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	second, err := runtime.buildAggregateProjection(context.Background())
-	if err != nil {
-		t.Fatal(err)
+	if _, err := runtime.buildAggregateProjection(context.Background()); err == nil {
+		t.Fatal("guided Context accepted an unsupported local Rego source")
 	}
-	if first.Revision != second.Revision || first.PolicyDirectory != second.PolicyDirectory {
-		t.Fatalf("stale guided Rego changed aggregate: first=%q second=%q", first.Revision, second.Revision)
-	}
-	projected, err := os.ReadFile(filepath.Join(second.PolicyDirectory, "guided.rego"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if bytes.Contains(projected, []byte("input.schema_version == 2")) ||
-		!bytes.Contains(projected, []byte("input.schema_version == 1")) ||
-		!bytes.Contains(projected, []byte("broker_provider")) {
-		t.Fatalf("guided aggregate did not use the current evaluator:\n%s", projected)
+	projected, err := os.ReadFile(filepath.Join(first.PolicyDirectory, "guided.rego"))
+	if err != nil || bytes.Contains(projected, []byte("input.schema_version == 2")) {
+		t.Fatalf("original guided aggregate was changed: error=%v\n%s", err, projected)
 	}
 }
 

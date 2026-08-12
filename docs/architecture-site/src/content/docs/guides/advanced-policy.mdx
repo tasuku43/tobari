@@ -11,7 +11,7 @@ This is not the normal first-denial path. Before continuing, be comfortable with
 
 | Guided Context                                             | Advanced Context                                                    |
 | ---------------------------------------------------------- | ------------------------------------------------------------------- |
-| Owns `policy/data.json` only                               | Owns `data.json`, `tobari.rego`, and `tobari_test.rego`             |
+| Owns `policy/domains/<host>/{allow,deny}.json` only        | Owns the domain tree, `tobari.rego`, and `tobari_test.rego`         |
 | Uses the current Tobari-owned shared evaluator             | Maintainer owns Context-local policy logic and tests                |
 | Routine exact allow/deny/reset/compaction is the main path | Direct host edit is possible when the routine model is insufficient |
 | A Tobari release updates evaluator logic                   | Maintainer must review compatibility and behavior                   |
@@ -33,6 +33,39 @@ Creation does not change a running cluster. Reconcile explicitly before using th
 ```sh
 tobari cluster up
 ```
+
+## Keep domain data exact
+
+Both modes use the same human-editable domain source. Each canonical lower-case
+host has exactly two owner-only files:
+
+```text
+policy/domains/api.example.com/
+  allow.json
+  deny.json
+```
+
+`allow.json` has exactly `schema_version`, `host`, `authorities`, `methods`,
+`graphql_endpoints`, `credential_profiles`, and `rules`. `deny.json` has exactly
+`schema_version`, `host`, `baseline_rules`, and `rules`. Every collection is an
+explicit JSON array. Unknown fields, duplicate keys or rule IDs, missing
+fields, extra files, symlinks, and group/world permissions are rejected.
+
+The directory name and every host in an authority, GraphQL endpoint,
+credential binding, baseline rule, or learned rule must be identical.
+Hostnames are canonical lower-case DNS names. Trailing dots, IP literals,
+uppercase forms, and wildcards are unsupported; the current contract is exact
+host only. HTTP methods are uppercase and belong only to authorities composed
+from this domain, so a method allowed for one host cannot authorize another.
+Explicit deny retains precedence.
+
+When adding a host manually, prepare a complete private sibling directory with
+both files and rename the directory into `domains/`; do not expose a half pair.
+Use an editor that saves one existing file by atomic rename. `cluster up`
+re-reads a stable complete snapshot and fails closed on an incomplete or
+changing source. Routine CLI policy mutations preserve unchanged file bytes
+and swap a complete `domains/` generation under a cross-process lock and
+durable recovery journal.
 
 ## Edit source and tests together
 
@@ -64,7 +97,7 @@ tobari cluster up
 
 The projection owns one fixed router, Context-ID data namespaces, the shared Guided evaluator, and rewritten Advanced packages. Every source and the complete aggregate must pass. Only a valid candidate is published. A failure leaves the prior known-good aggregate authoritative.
 
-Routine exact allow/deny/reset operations use the same all-Context safety boundary and alter only learned collections in `data.json`. They do not rewrite host-authored boundary policy or arbitrary Rego.
+Routine exact allow/deny/reset operations use the same all-Context safety boundary and alter only the matching host's learned `rules` collection in `allow.json` or `deny.json`. They do not rewrite host-authored boundary policy or arbitrary Rego. A generated content-addressed OPA projection contains an internal `data.json`; it is not Context source.
 
 ## A suitable advanced use case
 

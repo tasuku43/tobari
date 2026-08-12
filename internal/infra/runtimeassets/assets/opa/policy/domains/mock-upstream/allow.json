@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "host": "mock-upstream",
+  "authorities": [
+    {"scheme": "http", "host": "mock-upstream", "ports": [8080]},
+    {"scheme": "https", "host": "mock-upstream", "ports": [443]}
+  ],
+  "methods": {
+    "read": ["GET", "HEAD"],
+    "write": [
+      {"method": "POST", "exclude_path_prefixes": ["/repos/"]}
+    ]
+  },
+  "graphql_endpoints": [
+    {"scheme": "http", "host": "mock-upstream", "port": 8080, "path": "/graphql"}
+  ],
+  "credential_profiles": [
+    {"profile": "integration", "host": "mock-upstream"}
+  ],
+  "rules": []
+}

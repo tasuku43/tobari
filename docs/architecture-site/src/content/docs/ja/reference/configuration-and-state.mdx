@@ -30,16 +30,23 @@ Shared data    ${XDG_DATA_HOME:-$HOME/.local/share}/tobari
 
 ## ホストが管理する設定
 
-| 設定ルートからの相対パス                                   | 契約と意味                                                                                                                                                                         |
-| ---------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `contexts/active.json`                                     | 現在のデフォルト Context 名。Context 指定を省略したときの既定値を選ぶだけで、リクエストの権限にはならない                                                                          |
-| `contexts/<name>/context.json`                             | **保存用 Context マニフェストのスキーマ 1**。安定した Context ID、エージェントプロファイル、選択中のイメージ、ポリシーモード、限定的なシェル設定、任意のランタイムビルド情報を保持 |
-| `contexts/<name>/runtime/Dockerfile`                       | `runtime init` が作成する、任意の所有者専用ビルド定義。編集しただけではイメージを選択しない                                                                                        |
-| `contexts/<name>/policy/data.json`                         | Context が所有する境界と、学習済みの許可・拒否データ                                                                                                                               |
-| `contexts/<name>/policy/tobari.rego` と `tobari_test.rego` | Advanced ポリシー用。Guided ポリシーでは、レビュー済みの組み込み評価器を使用                                                                                                       |
-| `contexts/<name>/credentials.json` と `credentials/`       | 静的 managed アダプター（static managed adapter）のメタデータと秘密ファイル。Workspace にはマウントしない                                                                          |
-| `auth/providers/*.json`                                    | 任意の、厳格なプロバイダーマニフェスト v1 文書                                                                                                                                     |
-| `principal-registry/principals.json`                       | Workspace と Gateway の正確なエンドポイントを含む、ホスト発行のプリンシパル台帳スキーマ 1。ディレクトリごと Gateway へ読み取り専用でマウント                                       |
+| 設定ルートからの相対パス                                     | 契約と意味                                                                                                                                                                         |
+| ------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `contexts/active.json`                                       | 現在のデフォルト Context 名。Context 指定を省略したときの既定値を選ぶだけで、リクエストの権限にはならない                                                                          |
+| `contexts/<name>/context.json`                               | **保存用 Context マニフェストのスキーマ 1**。安定した Context ID、エージェントプロファイル、選択中のイメージ、ポリシーモード、限定的なシェル設定、任意のランタイムビルド情報を保持 |
+| `contexts/<name>/runtime/Dockerfile`                         | `runtime init` が作成する、任意の所有者専用ビルド定義。編集しただけではイメージを選択しない                                                                                        |
+| `contexts/<name>/policy/domains/<canonical-host>/allow.json` | 一つの正規化済み小文字ホストに対応する、厳格なスキーマ 1 の authority、ホスト別 HTTP メソッド、GraphQL endpoint、credential host binding、学習済み Allow                           |
+| `contexts/<name>/policy/domains/<canonical-host>/deny.json`  | 同じホストに対応する、厳格なスキーマ 1 の baseline Deny と学習済み exact Deny。埋め込まれた host はディレクトリ名と完全一致する必要がある                                          |
+| `contexts/<name>/policy/tobari.rego` と `tobari_test.rego`   | Advanced ポリシー用。Guided ポリシーでは、レビュー済みの組み込み評価器を使用                                                                                                       |
+| `contexts/<name>/credentials.json` と `credentials/`         | 静的 managed アダプター（static managed adapter）のメタデータと秘密ファイル。Workspace にはマウントしない                                                                          |
+| `auth/providers/*.json`                                      | 任意の、厳格なプロバイダーマニフェスト v1 文書                                                                                                                                     |
+| `principal-registry/principals.json`                         | Workspace と Gateway の正確なエンドポイントを含む、ホスト発行のプリンシパル台帳スキーマ 1。ディレクトリごと Gateway へ読み取り専用でマウント                                       |
+
+Context ポリシーの source は domain tree（および Advanced Rego）だけです。Tobari が
+domain ファイルを単一の内部 `data.json` へ合成するのは、不変な
+`cluster-projections/<revision>/` の内部だけです。wildcard、IP literal、非正規 host、
+host の不一致、未知または重複した field、不完全な allow/deny pair、余分なファイル、
+symlink、安全でない mode は fail closed になります。
 
 保存用マニフェストと公開出力を混同しないでください。`context show` などの Context 結果
 コマンドは、**公開 Context レポートのスキーマ 1**を出力します。これは各タスクが所有する、
@@ -61,7 +68,7 @@ Shared data    ${XDG_DATA_HOME:-$HOME/.local/share}/tobari
 | `auth/projects/<project-id>.json`      | プロジェクト認証ファイル登録簿のスキーマ 1                                                                                                                                                                                    |
 | `auth/runtime/`                        | ホストが管理する Gateway ランタイム用 Unix ソケットディレクトリ。ソケットはサービスとともに再作成し、永続する認証情報としては扱わない                                                                                         |
 | `runtime/<asset-revision>/`            | 埋め込まれた Compose、Gateway、OPA、Broker のランタイム資材を展開したもの                                                                                                                                                     |
-| ジャーナルファイル                     | 中断した複数段階のプロジェクト変更やクラスター変更について、整合を取り直すための永続マーカー                                                                                                                                  |
+| ジャーナルファイル                     | 中断した複数段階のプロジェクト、クラスター、policy domain source の変更について、整合を取り直すための永続マーカー                                                                                                             |
 
 macOS では、サービス `io.tobari.auth-root.v1`、アカウント `tobari` の汎用 Keychain
 パスワードとしてルート鍵を保存します。Linux では、XDG ファイルの保護によってホスト利用者と
@@ -111,8 +118,10 @@ Workspace が存在するかどうかを決めるのは、ルート索引とイ�
 
 - インスタンス状態がないまま残ったルート索引は `incomplete` と報告します。Workspace へ
   入るときに代替レコードを推測せず、完全一致する削除操作を後始末の経路とします。
-- 中断したプロジェクトまたはクラスターのジャーナルは、選択や変更の前に、そのロックを
-  保持した状態で整合を取り直します。
+- 中断したプロジェクト、クラスター、policy domain source のジャーナルは、選択や変更の
+  前に、そのロックを保持した状態で整合を取り直します。policy source は対応する不変の
+  aggregate revision が永続化済みの場合だけ候補世代を採用し、それ以外では検証済みの
+  元の世代を復元します。
 - 集約リビジョンの不一致やポリシー有効化の失敗があると、対応するクラスター操作が
   完了するまで、依存する Workspace に入る処理とポリシー操作を止めます。
 - 暗号化保管庫があるのにルート鍵がない場合は、復旧が必要な障害です。代替鍵を生成して、

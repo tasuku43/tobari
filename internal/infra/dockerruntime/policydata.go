@@ -3,14 +3,16 @@ package dockerruntime
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"path/filepath"
 	"reflect"
-	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -25,20 +27,60 @@ const (
 	maxPolicyPreflight    = 4 * 1024 * 1024
 	maxPolicyFiles        = 128
 	policySchemaVersion   = 1
-	policyRulesDataName   = "rules"
 	learnedPolicyDataName = "learned_allows"
 	learnedDenyDataName   = "learned_denies"
+	policyDomainsName     = "domains"
+	policyAllowFileName   = "allow.json"
+	policyDenyFileName    = "deny.json"
 )
 
 type policyDataFile struct {
-	document          map[string]json.RawMessage
-	tobari            map[string]json.RawMessage
-	ruleData          map[string]json.RawMessage
 	rules             []tobari.LearnedPolicyRule
 	baselineDenyRules []tobari.PolicyBaselineDenyRule
 	denyRules         []tobari.PolicyDenyRule
 	graphqlEndpoints  []tobari.GraphQLEndpoint
+	allows            map[string]policyDomainAllow
+	denies            map[string]policyDomainDeny
+	sources           map[string][]byte
 	source            []byte
+}
+
+type policyDomainAuthority struct {
+	Scheme string `json:"scheme"`
+	Host   string `json:"host"`
+	Ports  []int  `json:"ports"`
+}
+
+type policyDomainCredentialBinding struct {
+	Profile string `json:"profile"`
+	Host    string `json:"host"`
+}
+
+type policyDomainMethods struct {
+	Read  []string                  `json:"read"`
+	Write []policyDomainWriteMethod `json:"write"`
+}
+
+type policyDomainWriteMethod struct {
+	Method              string   `json:"method"`
+	ExcludePathPrefixes []string `json:"exclude_path_prefixes"`
+}
+
+type policyDomainAllow struct {
+	SchemaVersion      int                             `json:"schema_version"`
+	Host               string                          `json:"host"`
+	Authorities        []policyDomainAuthority         `json:"authorities"`
+	Methods            policyDomainMethods             `json:"methods"`
+	GraphQLEndpoints   []tobari.GraphQLEndpoint        `json:"graphql_endpoints"`
+	CredentialProfiles []policyDomainCredentialBinding `json:"credential_profiles"`
+	Rules              []tobari.LearnedPolicyRule      `json:"rules"`
+}
+
+type policyDomainDeny struct {
+	SchemaVersion int                             `json:"schema_version"`
+	Host          string                          `json:"host"`
+	BaselineRules []tobari.PolicyBaselineDenyRule `json:"baseline_rules"`
+	Rules         []tobari.PolicyDenyRule         `json:"rules"`
 }
 
 func validateNoDuplicateJSONKeys(data []byte) error {
@@ -104,88 +146,6 @@ func validateNoDuplicateJSONKeys(data []byte) error {
 	return nil
 }
 
-func decodePolicyObject(raw json.RawMessage, name string) (map[string]json.RawMessage, error) {
-	if len(bytes.TrimSpace(raw)) == 0 || bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
-		return nil, fmt.Errorf("%s must be an object", name)
-	}
-	value := map[string]json.RawMessage{}
-	if err := json.Unmarshal(raw, &value); err != nil || value == nil {
-		return nil, fmt.Errorf("%s must be an object", name)
-	}
-	return value, nil
-}
-
-func decodePolicyArray(object map[string]json.RawMessage, name string) ([]json.RawMessage, error) {
-	raw, exists := object[name]
-	if !exists || bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
-		return nil, fmt.Errorf("%s must be an array", name)
-	}
-	value := []json.RawMessage{}
-	if err := json.Unmarshal(raw, &value); err != nil || value == nil {
-		return nil, fmt.Errorf("%s must be an array", name)
-	}
-	return value, nil
-}
-
-func validatePolicyDataShape(tobariData map[string]json.RawMessage) (map[string]json.RawMessage, error) {
-	var schemaVersion int
-	if err := json.Unmarshal(tobariData["schema_version"], &schemaVersion); err != nil || schemaVersion != policySchemaVersion {
-		return nil, fmt.Errorf("data.json schema_version must be %d", policySchemaVersion)
-	}
-	boundary, err := decodePolicyObject(tobariData["boundary"], "data.json boundary")
-	if err != nil {
-		return nil, err
-	}
-	if _, err := decodePolicyObject(boundary["ports"], "data.json boundary.ports"); err != nil {
-		return nil, err
-	}
-	if _, err := decodePolicyArray(boundary, "authorities"); err != nil {
-		return nil, fmt.Errorf("data.json boundary: %w", err)
-	}
-	if raw, exists := boundary["graphql_endpoints"]; exists {
-		if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
-			return nil, fmt.Errorf("data.json boundary.graphql_endpoints must be an array")
-		}
-		var endpoints []tobari.GraphQLEndpoint
-		if err := json.Unmarshal(raw, &endpoints); err != nil || endpoints == nil {
-			return nil, fmt.Errorf("data.json boundary.graphql_endpoints must be an array")
-		}
-		seen := map[tobari.GraphQLEndpoint]struct{}{}
-		for _, endpoint := range endpoints {
-			if err := endpoint.Validate(); err != nil {
-				return nil, fmt.Errorf("data.json boundary.graphql_endpoints: %w", err)
-			}
-			if _, duplicate := seen[endpoint]; duplicate {
-				return nil, fmt.Errorf("data.json boundary.graphql_endpoints contains a duplicate endpoint")
-			}
-			seen[endpoint] = struct{}{}
-		}
-	}
-	methods, err := decodePolicyObject(boundary["methods"], "data.json boundary.methods")
-	if err != nil {
-		return nil, err
-	}
-	if _, err := decodePolicyArray(methods, "read"); err != nil {
-		return nil, fmt.Errorf("data.json boundary.methods: %w", err)
-	}
-	if _, err := decodePolicyArray(methods, "write"); err != nil {
-		return nil, fmt.Errorf("data.json boundary.methods: %w", err)
-	}
-	if _, err := decodePolicyObject(tobariData["credentials"], "data.json credentials"); err != nil {
-		return nil, err
-	}
-	ruleData, err := decodePolicyObject(tobariData[policyRulesDataName], "data.json rules")
-	if err != nil {
-		return nil, err
-	}
-	for _, name := range []string{"baseline_denies", learnedPolicyDataName, learnedDenyDataName} {
-		if _, err := decodePolicyArray(ruleData, name); err != nil {
-			return nil, fmt.Errorf("data.json rules: %w", err)
-		}
-	}
-	return ruleData, nil
-}
-
 func readOwnerPolicyFile(path string, maximum int) ([]byte, error) {
 	info, err := os.Lstat(path)
 	if err != nil {
@@ -231,149 +191,484 @@ func validateOwnerPolicyDirectory(path string) error {
 	return nil
 }
 
+func validatePolicyDomain(domain string) error {
+	if domain == "" || len(domain) > 253 || domain != strings.ToLower(domain) ||
+		domain == "." || domain == ".." || strings.ContainsAny(domain, "/\\*") || containsSpaceOrControl(domain) ||
+		net.ParseIP(domain) != nil {
+		return fmt.Errorf("policy domain is not a canonical lowercase host")
+	}
+	for _, label := range strings.Split(domain, ".") {
+		if label == "" || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
+			return fmt.Errorf("policy domain is not a canonical lowercase host")
+		}
+		for _, character := range label {
+			if (character < 'a' || character > 'z') && (character < '0' || character > '9') && character != '-' {
+				return fmt.Errorf("policy domain is not a canonical lowercase host")
+			}
+		}
+	}
+	return nil
+}
+
+func containsSpaceOrControl(value string) bool {
+	for _, character := range value {
+		if character <= ' ' || character == 0x7f {
+			return true
+		}
+	}
+	return false
+}
+
+func decodeStrictPolicyJSON(data []byte, name string, target any) error {
+	if err := validateNoDuplicateJSONKeys(data); err != nil {
+		return fmt.Errorf("validate %s: %w", name, err)
+	}
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(target); err != nil {
+		return fmt.Errorf("decode %s: %w", name, err)
+	}
+	if _, err := decoder.Token(); !errors.Is(err, io.EOF) {
+		if err == nil {
+			return fmt.Errorf("decode %s: trailing JSON value", name)
+		}
+		return fmt.Errorf("decode %s: %w", name, err)
+	}
+	return nil
+}
+
+func validateDomainAllow(document policyDomainAllow, domain string) error {
+	if document.SchemaVersion != policySchemaVersion || document.Host != domain {
+		return fmt.Errorf("allow.json must use schema_version %d and match host %q", policySchemaVersion, domain)
+	}
+	if document.Authorities == nil || document.Methods.Read == nil || document.Methods.Write == nil ||
+		document.GraphQLEndpoints == nil || document.CredentialProfiles == nil || document.Rules == nil {
+		return fmt.Errorf("allow.json collections must be explicit arrays")
+	}
+	seenAuthorities := map[string]struct{}{}
+	for _, authority := range document.Authorities {
+		if (authority.Scheme != "http" && authority.Scheme != "https") || authority.Host != domain {
+			return fmt.Errorf("allow.json authority must have a valid scheme and match host %q", domain)
+		}
+		if authority.Ports == nil || len(authority.Ports) == 0 {
+			return fmt.Errorf("allow.json authority ports must be a non-empty array")
+		}
+		previous := 0
+		for _, port := range authority.Ports {
+			if port < 1 || port > 65535 || port <= previous {
+				return fmt.Errorf("allow.json authority ports must be sorted unique valid ports")
+			}
+			previous = port
+		}
+		key := authority.Scheme + "\x00" + authority.Host
+		if _, duplicate := seenAuthorities[key]; duplicate {
+			return fmt.Errorf("allow.json contains a duplicate authority scheme")
+		}
+		seenAuthorities[key] = struct{}{}
+	}
+	seenMethods := map[string]struct{}{}
+	for _, method := range document.Methods.Read {
+		if method == "" || len(method) > 32 || containsSpaceOrControl(method) || method != strings.ToUpper(method) {
+			return fmt.Errorf("allow.json read method is invalid")
+		}
+		if _, duplicate := seenMethods[method]; duplicate {
+			return fmt.Errorf("allow.json contains a duplicate read method")
+		}
+		seenMethods[method] = struct{}{}
+	}
+	for _, write := range document.Methods.Write {
+		method := write.Method
+		if method == "" || len(method) > 32 || containsSpaceOrControl(method) || method != strings.ToUpper(method) {
+			return fmt.Errorf("allow.json write method is invalid")
+		}
+		if write.ExcludePathPrefixes == nil {
+			return fmt.Errorf("allow.json write method exclude_path_prefixes must be an array")
+		}
+		previousPrefix := ""
+		for index, prefix := range write.ExcludePathPrefixes {
+			if !strings.HasPrefix(prefix, "/") || containsSpaceOrControl(prefix) ||
+				(index > 0 && prefix <= previousPrefix) {
+				return fmt.Errorf("allow.json write method path prefix is invalid")
+			}
+			previousPrefix = prefix
+		}
+		if _, duplicate := seenMethods[method]; duplicate {
+			return fmt.Errorf("allow.json contains a duplicate method")
+		}
+		seenMethods[method] = struct{}{}
+	}
+	seenEndpoints := map[tobari.GraphQLEndpoint]struct{}{}
+	for _, endpoint := range document.GraphQLEndpoints {
+		if err := endpoint.Validate(); err != nil || endpoint.Host != domain {
+			return fmt.Errorf("allow.json GraphQL endpoint must be valid and match its domain")
+		}
+		if _, duplicate := seenEndpoints[endpoint]; duplicate {
+			return fmt.Errorf("allow.json contains a duplicate GraphQL endpoint")
+		}
+		seenEndpoints[endpoint] = struct{}{}
+	}
+	previousProfile := ""
+	for index, binding := range document.CredentialProfiles {
+		if binding.Profile == "" || len(binding.Profile) > 96 || containsSpaceOrControl(binding.Profile) ||
+			binding.Host != domain || (index > 0 && binding.Profile <= previousProfile) {
+			return fmt.Errorf("allow.json credential profile bindings must be sorted unique names for host %q", domain)
+		}
+		previousProfile = binding.Profile
+	}
+	for _, rule := range document.Rules {
+		if rule.Host != domain {
+			return fmt.Errorf("allow.json learned rule host must match its domain")
+		}
+	}
+	if err := tobari.ValidateLearnedPolicyRules(document.Rules); err != nil {
+		return fmt.Errorf("allow.json learned rules: %w", err)
+	}
+	return nil
+}
+
+func validateDomainDeny(document policyDomainDeny, domain string) error {
+	if document.SchemaVersion != policySchemaVersion || document.Host != domain {
+		return fmt.Errorf("deny.json must use schema_version %d and match host %q", policySchemaVersion, domain)
+	}
+	if document.BaselineRules == nil || document.Rules == nil {
+		return fmt.Errorf("deny.json collections must be explicit arrays")
+	}
+	for _, rule := range document.BaselineRules {
+		if err := rule.Validate(); err != nil || rule.Host != domain {
+			return fmt.Errorf("deny.json baseline rule must be valid and match its domain")
+		}
+	}
+	for _, rule := range document.Rules {
+		if rule.Host != domain {
+			return fmt.Errorf("deny.json exact rule host must match its domain")
+		}
+	}
+	set := tobari.PolicyDenyRuleSet{Baseline: document.BaselineRules, Exact: document.Rules}
+	if err := set.Validate(); err != nil {
+		return fmt.Errorf("deny.json rules: %w", err)
+	}
+	return nil
+}
+
+func marshalPolicySource(document any) ([]byte, error) {
+	encoded, err := json.MarshalIndent(document, "", "  ")
+	if err != nil {
+		return nil, err
+	}
+	return append(encoded, '\n'), nil
+}
+
+func composePolicyData(allows map[string]policyDomainAllow, denies map[string]policyDomainDeny) ([]byte, error) {
+	domains := make([]string, 0, len(allows))
+	for domain := range allows {
+		domains = append(domains, domain)
+	}
+	sort.Strings(domains)
+	authorities := make([]map[string]any, 0)
+	endpoints := make([]tobari.GraphQLEndpoint, 0)
+	credentials := map[string]map[string][]string{}
+	learnedAllows := make([]tobari.LearnedPolicyRule, 0)
+	baselineDenies := make([]tobari.PolicyBaselineDenyRule, 0)
+	learnedDenies := make([]tobari.PolicyDenyRule, 0)
+	for _, domain := range domains {
+		allow := allows[domain]
+		deny, exists := denies[domain]
+		if !exists {
+			return nil, fmt.Errorf("policy domain %q is missing deny.json", domain)
+		}
+		methods := map[string]any{"read": allow.Methods.Read, "write": allow.Methods.Write}
+		for _, authority := range allow.Authorities {
+			authorities = append(authorities, map[string]any{
+				"scheme": authority.Scheme, "host": authority.Host, "ports": authority.Ports, "methods": methods,
+			})
+		}
+		endpoints = append(endpoints, allow.GraphQLEndpoints...)
+		for _, profileBinding := range allow.CredentialProfiles {
+			binding, exists := credentials[profileBinding.Profile]
+			if !exists {
+				binding = map[string][]string{"hosts": {}}
+				credentials[profileBinding.Profile] = binding
+			}
+			binding["hosts"] = append(binding["hosts"], profileBinding.Host)
+		}
+		learnedAllows = append(learnedAllows, allow.Rules...)
+		baselineDenies = append(baselineDenies, deny.BaselineRules...)
+		learnedDenies = append(learnedDenies, deny.Rules...)
+	}
+	if len(denies) != len(allows) {
+		return nil, fmt.Errorf("policy contains a deny domain without allow.json")
+	}
+	sort.Slice(endpoints, func(i, j int) bool {
+		left, right := endpoints[i], endpoints[j]
+		return fmt.Sprintf("%s\x00%s\x00%05d\x00%s", left.Host, left.Scheme, left.Port, left.Path) <
+			fmt.Sprintf("%s\x00%s\x00%05d\x00%s", right.Host, right.Scheme, right.Port, right.Path)
+	})
+	sort.Slice(learnedAllows, func(i, j int) bool { return learnedAllows[i].ID < learnedAllows[j].ID })
+	sort.Slice(learnedDenies, func(i, j int) bool { return learnedDenies[i].ID < learnedDenies[j].ID })
+	document := map[string]any{"tobari": map[string]any{
+		"schema_version": policySchemaVersion,
+		"boundary":       map[string]any{"authorities": authorities, "graphql_endpoints": endpoints},
+		"credentials":    credentials,
+		"rules": map[string]any{
+			"baseline_denies": baselineDenies, learnedPolicyDataName: learnedAllows, learnedDenyDataName: learnedDenies,
+		},
+	}}
+	return marshalPolicySource(document)
+}
+
+func emptyDomainAllow(domain string) policyDomainAllow {
+	return policyDomainAllow{SchemaVersion: policySchemaVersion, Host: domain, Authorities: []policyDomainAuthority{},
+		Methods: policyDomainMethods{Read: []string{}, Write: []policyDomainWriteMethod{}}, GraphQLEndpoints: []tobari.GraphQLEndpoint{},
+		CredentialProfiles: []policyDomainCredentialBinding{}, Rules: []tobari.LearnedPolicyRule{}}
+}
+
+func emptyDomainDeny(domain string) policyDomainDeny {
+	return policyDomainDeny{SchemaVersion: policySchemaVersion, Host: domain,
+		BaselineRules: []tobari.PolicyBaselineDenyRule{}, Rules: []tobari.PolicyDenyRule{}}
+}
+
 func readPolicyData(policyDirectory string) (policyDataFile, error) {
+	if _, err := os.Lstat(policySourceJournalPath(policyDirectory)); err == nil {
+		return policyDataFile{}, fmt.Errorf("policy source transaction is incomplete")
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return policyDataFile{}, fmt.Errorf("inspect policy source transaction: %w", err)
+	}
+	domainsPath := filepath.Join(policyDirectory, policyDomainsName)
+	before, err := os.Lstat(domainsPath)
+	if err != nil {
+		return policyDataFile{}, fmt.Errorf("inspect policy domains snapshot: %w", err)
+	}
+	file, err := readPolicyDataDuringTransaction(policyDirectory)
+	if err != nil {
+		return policyDataFile{}, err
+	}
+	confirmed, err := readPolicyDataDuringTransaction(policyDirectory)
+	if err != nil {
+		return policyDataFile{}, err
+	}
+	after, err := os.Lstat(domainsPath)
+	if err != nil || !os.SameFile(before, after) || !reflect.DeepEqual(file.sources, confirmed.sources) {
+		return policyDataFile{}, fmt.Errorf("policy domains changed during snapshot read")
+	}
+	if _, err := os.Lstat(policySourceJournalPath(policyDirectory)); err == nil {
+		return policyDataFile{}, fmt.Errorf("policy source transaction started during snapshot read")
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return policyDataFile{}, fmt.Errorf("inspect policy source transaction: %w", err)
+	}
+	return file, nil
+}
+
+func readPolicyDataDuringTransaction(policyDirectory string) (policyDataFile, error) {
 	if err := validateOwnerPolicyDirectory(policyDirectory); err != nil {
 		return policyDataFile{}, err
 	}
-	path := filepath.Join(policyDirectory, "data.json")
-	data, err := readOwnerPolicyFile(path, maxPolicyDataBytes)
+	rootEntries, err := os.ReadDir(policyDirectory)
 	if err != nil {
 		return policyDataFile{}, err
 	}
-	if err := validateNoDuplicateJSONKeys(data); err != nil {
-		return policyDataFile{}, fmt.Errorf("validate data.json: %w", err)
+	for _, entry := range rootEntries {
+		if entry.Name() != policyDomainsName && entry.Name() != "tobari.rego" && entry.Name() != "tobari_test.rego" {
+			return policyDataFile{}, fmt.Errorf("policy directory contains unsupported entry %q", entry.Name())
+		}
 	}
-	document := map[string]json.RawMessage{}
-	if err := json.Unmarshal(data, &document); err != nil {
-		return policyDataFile{}, fmt.Errorf("decode data.json: %w", err)
-	}
-	rawTobari, exists := document["tobari"]
-	if !exists {
-		return policyDataFile{}, fmt.Errorf("data.json must contain a tobari object")
-	}
-	tobariData, err := decodePolicyObject(rawTobari, "data.json tobari")
+	domainsDirectory := filepath.Join(policyDirectory, policyDomainsName)
+	return readPolicyDomains(domainsDirectory)
+}
+
+func validateContextPolicyLayout(policyDirectory string, mode tobari.ContextPolicyMode) error {
+	entries, err := os.ReadDir(policyDirectory)
 	if err != nil {
-		return policyDataFile{}, fmt.Errorf("decode data.json tobari object: %w", err)
+		return err
 	}
-	ruleData, err := validatePolicyDataShape(tobariData)
+	expected := map[string]bool{policyDomainsName: true}
+	switch mode {
+	case tobari.ContextPolicyModeGuided:
+	case tobari.ContextPolicyModeAdvanced:
+		expected["tobari.rego"] = true
+		expected["tobari_test.rego"] = true
+	default:
+		return fmt.Errorf("Context policy mode is invalid")
+	}
+	if len(entries) != len(expected) {
+		return fmt.Errorf("%s Context policy must contain exactly %d managed entries", mode, len(expected))
+	}
+	for _, entry := range entries {
+		if !expected[entry.Name()] {
+			return fmt.Errorf("%s Context policy contains unsupported entry %q", mode, entry.Name())
+		}
+	}
+	return nil
+}
+
+func readPolicyDomains(domainsDirectory string) (policyDataFile, error) {
+	if err := validateOwnerPolicyDirectory(domainsDirectory); err != nil {
+		return policyDataFile{}, fmt.Errorf("validate policy domains: %w", err)
+	}
+	entries, err := os.ReadDir(domainsDirectory)
 	if err != nil {
 		return policyDataFile{}, err
 	}
-	graphqlEndpoints := []tobari.GraphQLEndpoint{}
-	boundary, _ := decodePolicyObject(tobariData["boundary"], "data.json boundary")
-	if raw, exists := boundary["graphql_endpoints"]; exists {
-		if err := json.Unmarshal(raw, &graphqlEndpoints); err != nil {
-			return policyDataFile{}, fmt.Errorf("decode graphql_endpoints: %w", err)
-		}
+	if len(entries) == 0 || len(entries)*2 > maxPolicyFiles {
+		return policyDataFile{}, fmt.Errorf("policy domains must contain between 1 and %d domains", maxPolicyFiles/2)
 	}
-	rules := []tobari.LearnedPolicyRule{}
-	if rawRules := ruleData[learnedPolicyDataName]; rawRules != nil {
-		if err := json.Unmarshal(rawRules, &rules); err != nil {
-			return policyDataFile{}, fmt.Errorf("decode %s: %w", learnedPolicyDataName, err)
-		}
+	file := policyDataFile{
+		allows: map[string]policyDomainAllow{}, denies: map[string]policyDomainDeny{}, sources: map[string][]byte{},
+		rules: []tobari.LearnedPolicyRule{}, baselineDenyRules: []tobari.PolicyBaselineDenyRule{},
+		denyRules: []tobari.PolicyDenyRule{}, graphqlEndpoints: []tobari.GraphQLEndpoint{},
 	}
-	// Rules written before Context became an authority scope cannot be safely
-	// assigned to any Context. Keep them inert and require a fresh denial rather
-	// than guessing. Any partially scoped entry remains an error.
-	rules = slices.DeleteFunc(rules, func(rule tobari.LearnedPolicyRule) bool {
-		return rule.ContextID == "" && rule.ContextName == "" && rule.ProjectRoot == ""
-	})
+	total := 0
+	for _, entry := range entries {
+		domain := entry.Name()
+		if err := validatePolicyDomain(domain); err != nil {
+			return policyDataFile{}, fmt.Errorf("policy domain %q: %w", domain, err)
+		}
+		info, err := entry.Info()
+		if err != nil || !entry.IsDir() || info.Mode().Perm()&0o077 != 0 {
+			return policyDataFile{}, fmt.Errorf("policy domain %q must be an owner-only directory", domain)
+		}
+		directory := filepath.Join(domainsDirectory, domain)
+		children, err := os.ReadDir(directory)
+		if err != nil || len(children) != 2 || children[0].Name() != policyAllowFileName || children[1].Name() != policyDenyFileName {
+			return policyDataFile{}, fmt.Errorf("policy domain %q must contain only allow.json and deny.json", domain)
+		}
+		allowPath := filepath.Join(directory, policyAllowFileName)
+		allowData, err := readOwnerPolicyFile(allowPath, maxPolicyDataBytes)
+		if err != nil {
+			return policyDataFile{}, err
+		}
+		denyPath := filepath.Join(directory, policyDenyFileName)
+		denyData, err := readOwnerPolicyFile(denyPath, maxPolicyDataBytes)
+		if err != nil {
+			return policyDataFile{}, err
+		}
+		total += len(allowData) + len(denyData)
+		if total > maxPolicyPreflight {
+			return policyDataFile{}, fmt.Errorf("policy domain sources exceed %d bytes", maxPolicyPreflight)
+		}
+		var allow policyDomainAllow
+		if err := decodeStrictPolicyJSON(allowData, domain+"/allow.json", &allow); err != nil {
+			return policyDataFile{}, err
+		}
+		if err := validateDomainAllow(allow, domain); err != nil {
+			return policyDataFile{}, fmt.Errorf("validate %s/allow.json: %w", domain, err)
+		}
+		var deny policyDomainDeny
+		if err := decodeStrictPolicyJSON(denyData, domain+"/deny.json", &deny); err != nil {
+			return policyDataFile{}, err
+		}
+		if err := validateDomainDeny(deny, domain); err != nil {
+			return policyDataFile{}, fmt.Errorf("validate %s/deny.json: %w", domain, err)
+		}
+		file.allows[domain], file.denies[domain] = allow, deny
+		file.sources[filepath.Join(policyDomainsName, domain, policyAllowFileName)] = append([]byte{}, allowData...)
+		file.sources[filepath.Join(policyDomainsName, domain, policyDenyFileName)] = append([]byte{}, denyData...)
+		file.rules = append(file.rules, allow.Rules...)
+		file.graphqlEndpoints = append(file.graphqlEndpoints, allow.GraphQLEndpoints...)
+		file.baselineDenyRules = append(file.baselineDenyRules, deny.BaselineRules...)
+		file.denyRules = append(file.denyRules, deny.Rules...)
+	}
+	sort.Slice(file.rules, func(i, j int) bool { return file.rules[i].ID < file.rules[j].ID })
+	if err := tobari.ValidateLearnedPolicyRules(file.rules); err != nil {
+		return policyDataFile{}, fmt.Errorf("validate learned allows: %w", err)
+	}
+	set := tobari.PolicyDenyRuleSet{Baseline: file.baselineDenyRules, Exact: file.denyRules}
+	if err := set.Validate(); err != nil {
+		return policyDataFile{}, fmt.Errorf("validate deny rules: %w", err)
+	}
+	sort.Slice(file.denyRules, func(i, j int) bool { return file.denyRules[i].ID < file.denyRules[j].ID })
+	file.source, err = composePolicyData(file.allows, file.denies)
+	if err != nil {
+		return policyDataFile{}, err
+	}
+	return file, nil
+}
+
+func (f policyDataFile) withPolicyRules(rules []tobari.LearnedPolicyRule, denyRules []tobari.PolicyDenyRule) (policyDataFile, error) {
 	if err := tobari.ValidateLearnedPolicyRules(rules); err != nil {
-		return policyDataFile{}, fmt.Errorf("validate %s: %w", learnedPolicyDataName, err)
+		return policyDataFile{}, err
 	}
-	sort.Slice(rules, func(i, j int) bool { return rules[i].ID < rules[j].ID })
-	baselineDenyRules := []tobari.PolicyBaselineDenyRule{}
-	if rawDenyRules := ruleData["baseline_denies"]; rawDenyRules != nil {
-		if err := json.Unmarshal(rawDenyRules, &baselineDenyRules); err != nil {
-			return policyDataFile{}, fmt.Errorf("decode baseline_denies: %w", err)
+	denySet := tobari.PolicyDenyRuleSet{Baseline: f.baselineDenyRules, Exact: denyRules}
+	if err := denySet.Validate(); err != nil {
+		return policyDataFile{}, err
+	}
+	result := policyDataFile{allows: map[string]policyDomainAllow{}, denies: map[string]policyDomainDeny{}, sources: map[string][]byte{}}
+	for domain, allow := range f.allows {
+		allow.Rules = []tobari.LearnedPolicyRule{}
+		result.allows[domain] = allow
+	}
+	for domain, deny := range f.denies {
+		deny.Rules = []tobari.PolicyDenyRule{}
+		result.denies[domain] = deny
+	}
+	for _, rule := range rules {
+		if err := validatePolicyDomain(rule.Host); err != nil {
+			return policyDataFile{}, err
 		}
-	}
-	for _, rule := range baselineDenyRules {
-		if err := rule.Validate(); err != nil {
-			return policyDataFile{}, fmt.Errorf("validate baseline_denies: %w", err)
+		allow, exists := result.allows[rule.Host]
+		if !exists {
+			allow = emptyDomainAllow(rule.Host)
+			result.denies[rule.Host] = emptyDomainDeny(rule.Host)
 		}
+		allow.Rules = append(allow.Rules, rule)
+		result.allows[rule.Host] = allow
 	}
-	denyRules := []tobari.PolicyDenyRule{}
-	if rawDenyRules := ruleData[learnedDenyDataName]; rawDenyRules != nil {
-		if err := json.Unmarshal(rawDenyRules, &denyRules); err != nil {
-			return policyDataFile{}, fmt.Errorf("decode %s: %w", learnedDenyDataName, err)
+	for _, rule := range denyRules {
+		if err := validatePolicyDomain(rule.Host); err != nil {
+			return policyDataFile{}, err
 		}
+		deny, exists := result.denies[rule.Host]
+		if !exists {
+			deny = emptyDomainDeny(rule.Host)
+			result.allows[rule.Host] = emptyDomainAllow(rule.Host)
+		}
+		deny.Rules = append(deny.Rules, rule)
+		result.denies[rule.Host] = deny
 	}
-	denyRules = slices.DeleteFunc(denyRules, func(rule tobari.PolicyDenyRule) bool {
-		return rule.ContextID == "" && rule.ContextName == "" && rule.ProjectRoot == ""
-	})
-	denyRuleSet := tobari.PolicyDenyRuleSet{Baseline: baselineDenyRules, Exact: denyRules}
-	if err := denyRuleSet.Validate(); err != nil {
-		return policyDataFile{}, fmt.Errorf("validate %s: %w", learnedDenyDataName, err)
+	domains := make([]string, 0, len(result.allows))
+	for domain := range result.allows {
+		domains = append(domains, domain)
 	}
-	sort.Slice(denyRules, func(i, j int) bool { return denyRules[i].ID < denyRules[j].ID })
-	return policyDataFile{
-		document: document, tobari: tobariData, ruleData: ruleData, rules: rules,
-		baselineDenyRules: baselineDenyRules, denyRules: denyRules,
-		graphqlEndpoints: append([]tobari.GraphQLEndpoint{}, graphqlEndpoints...),
-		source:           append([]byte{}, data...),
-	}, nil
-}
-
-func (f policyDataFile) withPolicyRules(
-	rules []tobari.LearnedPolicyRule, denyRules []tobari.PolicyDenyRule,
-) ([]byte, error) {
-	if err := tobari.ValidateLearnedPolicyRules(rules); err != nil {
-		return nil, err
+	sort.Strings(domains)
+	for _, domain := range domains {
+		allow := result.allows[domain]
+		sort.Slice(allow.Rules, func(i, j int) bool { return allow.Rules[i].ID < allow.Rules[j].ID })
+		result.allows[domain] = allow
+		deny := result.denies[domain]
+		sort.Slice(deny.Rules, func(i, j int) bool { return deny.Rules[i].ID < deny.Rules[j].ID })
+		result.denies[domain] = deny
+		allowRelative := filepath.Join(policyDomainsName, domain, policyAllowFileName)
+		allowData := append([]byte{}, f.sources[allowRelative]...)
+		if original, exists := f.allows[domain]; !exists || !reflect.DeepEqual(original, allow) {
+			var err error
+			allowData, err = marshalPolicySource(allow)
+			if err != nil {
+				return policyDataFile{}, err
+			}
+		}
+		denyRelative := filepath.Join(policyDomainsName, domain, policyDenyFileName)
+		denyData := append([]byte{}, f.sources[denyRelative]...)
+		if original, exists := f.denies[domain]; !exists || !reflect.DeepEqual(original, deny) {
+			var err error
+			denyData, err = marshalPolicySource(deny)
+			if err != nil {
+				return policyDataFile{}, err
+			}
+		}
+		result.sources[allowRelative] = allowData
+		result.sources[denyRelative] = denyData
 	}
-	denyRuleSet := tobari.PolicyDenyRuleSet{Baseline: f.baselineDenyRules, Exact: denyRules}
-	if err := denyRuleSet.Validate(); err != nil {
-		return nil, err
+	result.rules = append([]tobari.LearnedPolicyRule{}, rules...)
+	result.denyRules = append([]tobari.PolicyDenyRule{}, denyRules...)
+	result.baselineDenyRules = append([]tobari.PolicyBaselineDenyRule{}, f.baselineDenyRules...)
+	for _, domain := range domains {
+		result.graphqlEndpoints = append(result.graphqlEndpoints, result.allows[domain].GraphQLEndpoints...)
 	}
-	rules = append([]tobari.LearnedPolicyRule{}, rules...)
-	sort.Slice(rules, func(i, j int) bool { return rules[i].ID < rules[j].ID })
-	denyRules = append([]tobari.PolicyDenyRule{}, denyRules...)
-	sort.Slice(denyRules, func(i, j int) bool { return denyRules[i].ID < denyRules[j].ID })
-	rawRules, err := json.Marshal(rules)
+	var err error
+	result.source, err = composePolicyData(result.allows, result.denies)
 	if err != nil {
-		return nil, err
+		return policyDataFile{}, err
 	}
-	ruleData := make(map[string]json.RawMessage, len(f.ruleData)+2)
-	for key, value := range f.ruleData {
-		ruleData[key] = append(json.RawMessage{}, value...)
-	}
-	ruleData[learnedPolicyDataName] = rawRules
-	rawDenyRules, err := json.Marshal(denyRules)
-	if err != nil {
-		return nil, err
-	}
-	ruleData[learnedDenyDataName] = rawDenyRules
-	rawRuleData, err := json.Marshal(ruleData)
-	if err != nil {
-		return nil, err
-	}
-	tobariData := make(map[string]json.RawMessage, len(f.tobari)+1)
-	for key, value := range f.tobari {
-		tobariData[key] = append(json.RawMessage{}, value...)
-	}
-	tobariData[policyRulesDataName] = rawRuleData
-	rawTobari, err := json.Marshal(tobariData)
-	if err != nil {
-		return nil, err
-	}
-	document := make(map[string]json.RawMessage, len(f.document))
-	for key, value := range f.document {
-		document[key] = append(json.RawMessage{}, value...)
-	}
-	document["tobari"] = rawTobari
-	output, err := json.MarshalIndent(document, "", "  ")
-	if err != nil {
-		return nil, err
-	}
-	return append(output, '\n'), nil
-}
-
-func (f policyDataFile) withRules(rules []tobari.LearnedPolicyRule) ([]byte, error) {
-	return f.withPolicyRules(rules, f.denyRules)
-}
-
-func (f policyDataFile) withDenyRules(denyRules []tobari.PolicyDenyRule) ([]byte, error) {
-	return f.withPolicyRules(f.rules, denyRules)
+	return result, nil
 }
 
 // ReadLearnedPolicyRules returns the validated CLI-owned rule collection while
@@ -462,7 +757,7 @@ func (r *Runtime) ReadPolicyDenyRules(
 	return result, result.Validate()
 }
 
-func copyPolicyForPreflight(sourceDirectory string, dataJSON []byte) (string, error) {
+func copyPolicyForPreflight(sourceDirectory string, candidate policyDataFile) (string, error) {
 	if err := validateOwnerPolicyDirectory(sourceDirectory); err != nil {
 		return "", err
 	}
@@ -475,74 +770,40 @@ func copyPolicyForPreflight(sourceDirectory string, dataJSON []byte) (string, er
 		_ = os.RemoveAll(temporary)
 		return "", cause
 	}
-	total, files := 0, 0
-	err = filepath.WalkDir(sourceDirectory, func(path string, entry os.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		relative, err := filepath.Rel(sourceDirectory, path)
-		if err != nil {
-			return err
-		}
-		if relative == "." {
-			return nil
-		}
-		target := filepath.Join(temporary, relative)
-		info, err := entry.Info()
-		if err != nil {
-			return err
-		}
-		if entry.IsDir() {
-			if info.Mode().Perm()&0o077 != 0 {
-				return fmt.Errorf("policy path %s must be an owner-only directory", relative)
-			}
-			return os.Mkdir(target, 0o700)
-		}
-		if !info.Mode().IsRegular() || info.Mode().Perm()&0o077 != 0 {
-			return fmt.Errorf("policy path %s must be a regular owner-only file", relative)
-		}
-		files++
-		if files > maxPolicyFiles {
-			return fmt.Errorf("policy directory exceeds %d files", maxPolicyFiles)
-		}
-		data := dataJSON
-		if relative != "data.json" {
-			data, err = readOwnerPolicyFile(path, maxPolicyPreflight-total)
-			if err != nil {
-				return err
-			}
-		}
-		total += len(data)
-		if total > maxPolicyPreflight {
-			return fmt.Errorf("policy directory exceeds %d bytes", maxPolicyPreflight)
-		}
-		if err := os.WriteFile(target, data, 0o600); err != nil { // #nosec G306 -- policy copies are owner-only.
-			return err
-		}
-		return nil
-	})
-	if err != nil {
-		return cleanup(fmt.Errorf("copy policy for preflight: %w", err))
+	if len(candidate.source) > maxPolicyPreflight {
+		return cleanup(fmt.Errorf("generated policy data exceeds %d bytes", maxPolicyPreflight))
 	}
-	if files == 0 {
-		return cleanup(fmt.Errorf("policy directory is empty"))
+	if err := os.WriteFile(filepath.Join(temporary, "data.json"), candidate.source, 0o600); err != nil { // #nosec G306 -- policy copies are owner-only.
+		return cleanup(err)
+	}
+	for _, name := range []string{"tobari.rego", "tobari_test.rego"} {
+		data, err := readOwnerPolicyFile(filepath.Join(sourceDirectory, name), maxPolicyPreflight-len(candidate.source))
+		if err != nil {
+			return cleanup(fmt.Errorf("copy policy for preflight: %w", err))
+		}
+		if len(candidate.source)+len(data) > maxPolicyPreflight {
+			return cleanup(fmt.Errorf("policy preflight exceeds %d bytes", maxPolicyPreflight))
+		}
+		if err := os.WriteFile(filepath.Join(temporary, name), data, 0o600); err != nil { // #nosec G306 -- policy copies are owner-only.
+			return cleanup(err)
+		}
 	}
 	return temporary, nil
 }
 
 func prepareContextPolicyPreflight(
-	manifest tobari.ContextManifest, sourceDirectory string, dataJSON []byte,
+	manifest tobari.ContextManifest, sourceDirectory string, candidate policyDataFile,
 ) (string, error) {
+	if err := validateContextPolicyLayout(sourceDirectory, manifest.PolicyMode); err != nil {
+		return "", err
+	}
 	if manifest.PolicyMode == tobari.ContextPolicyModeAdvanced {
-		return copyPolicyForPreflight(sourceDirectory, dataJSON)
+		return copyPolicyForPreflight(sourceDirectory, candidate)
 	}
 	if manifest.PolicyMode != tobari.ContextPolicyModeGuided {
 		return "", fmt.Errorf("Context policy mode is invalid")
 	}
 	if err := validateOwnerPolicyDirectory(sourceDirectory); err != nil {
-		return "", err
-	}
-	if _, err := readPolicyData(sourceDirectory); err != nil {
 		return "", err
 	}
 	rego, err := runtimeassets.Read("opa/policy/tobari.rego")
@@ -553,7 +814,7 @@ func prepareContextPolicyPreflight(
 	if err != nil {
 		return "", err
 	}
-	if len(dataJSON)+len(rego)+len(tests) > maxPolicyPreflight {
+	if len(candidate.source)+len(rego)+len(tests) > maxPolicyPreflight {
 		return "", fmt.Errorf("guided policy preflight exceeds %d bytes", maxPolicyPreflight)
 	}
 	temporary, err := os.MkdirTemp(filepath.Dir(sourceDirectory), ".tobari-guided-preflight-*")
@@ -568,7 +829,7 @@ func prepareContextPolicyPreflight(
 		return cleanup(err)
 	}
 	for name, data := range map[string][]byte{
-		"data.json": dataJSON, "tobari.rego": rego, "tobari_test.rego": tests,
+		"data.json": candidate.source, "tobari.rego": rego, "tobari_test.rego": tests,
 	} {
 		if err := os.WriteFile(filepath.Join(temporary, name), data, 0o600); err != nil { // #nosec G306 -- preflight is owner-only.
 			return cleanup(err)
@@ -577,16 +838,110 @@ func prepareContextPolicyPreflight(
 	return temporary, nil
 }
 
-func atomicWriteOwnerFile(path string, data []byte) error {
-	directory := filepath.Dir(path)
-	file, err := os.CreateTemp(directory, ".data.json.tobari-*")
-	if err != nil {
+const (
+	policySourceJournalSchema = 1
+	policySourcePhasePrepared = "prepared"
+	policySourcePhaseOldMoved = "old_moved"
+	policySourcePhaseSwapped  = "swapped"
+)
+
+type policySourceJournal struct {
+	SchemaVersion              int    `json:"schema_version"`
+	Phase                      string `json:"phase"`
+	StageName                  string `json:"stage_name"`
+	BackupName                 string `json:"backup_name"`
+	OriginalDigest             string `json:"original_digest"`
+	CandidateDigest            string `json:"candidate_digest"`
+	CandidateAggregateRevision string `json:"candidate_aggregate_revision"`
+}
+
+func (j policySourceJournal) Validate() error {
+	if j.SchemaVersion != policySourceJournalSchema {
+		return fmt.Errorf("policy source journal schema version must be %d", policySourceJournalSchema)
+	}
+	if j.Phase != policySourcePhasePrepared && j.Phase != policySourcePhaseOldMoved && j.Phase != policySourcePhaseSwapped {
+		return fmt.Errorf("policy source journal phase is invalid")
+	}
+	if !safePolicyTransactionName(j.StageName, ".policy-domains-stage-") ||
+		!safePolicyTransactionName(j.BackupName, ".policy-domains-backup-") {
+		return fmt.Errorf("policy source journal path is invalid")
+	}
+	if strings.TrimPrefix(j.StageName, ".policy-domains-stage-") !=
+		strings.TrimPrefix(j.BackupName, ".policy-domains-backup-") {
+		return fmt.Errorf("policy source journal generation names do not match")
+	}
+	for _, digest := range []string{j.OriginalDigest, j.CandidateDigest} {
+		if !validPolicyDigest(digest) {
+			return fmt.Errorf("policy source journal digest is invalid")
+		}
+	}
+	if j.CandidateAggregateRevision != "" && !validPolicyDigest(j.CandidateAggregateRevision) {
+		return fmt.Errorf("policy source journal aggregate revision is invalid")
+	}
+	return nil
+}
+
+func safePolicyTransactionName(name, prefix string) bool {
+	return name == filepath.Base(name) && strings.HasPrefix(name, prefix) && len(name) > len(prefix)
+}
+
+func validPolicyDigest(value string) bool {
+	if len(value) != sha256.Size*2 || value != strings.ToLower(value) {
+		return false
+	}
+	decoded, err := hex.DecodeString(value)
+	return err == nil && len(decoded) == sha256.Size
+}
+
+func policySourceJournalPath(policyDirectory string) string {
+	return filepath.Join(filepath.Dir(policyDirectory), ".policy-domains-transaction.json")
+}
+
+func policySourceDigest(sources map[string][]byte) string {
+	names := make([]string, 0, len(sources))
+	for name := range sources {
+		names = append(names, filepath.ToSlash(name))
+	}
+	sort.Strings(names)
+	digest := sha256.New()
+	for _, name := range names {
+		digest.Write([]byte(name))
+		digest.Write([]byte{0})
+		digest.Write(sources[filepath.FromSlash(name)])
+		digest.Write([]byte{0})
+	}
+	return hex.EncodeToString(digest.Sum(nil))
+}
+
+func writePolicySourceJournal(policyDirectory string, journal policySourceJournal) error {
+	if err := journal.Validate(); err != nil {
 		return err
 	}
-	temporary := file.Name()
-	defer func() { _ = os.Remove(temporary) }()
-	if err := file.Chmod(0o600); err != nil {
-		_ = file.Close()
+	return writeAtomicJSON(policySourceJournalPath(policyDirectory), journal)
+}
+
+func readPolicySourceJournal(policyDirectory string) (policySourceJournal, bool, error) {
+	path := policySourceJournalPath(policyDirectory)
+	data, err := readOwnerPolicyFile(path, 64*1024)
+	if errors.Is(err, os.ErrNotExist) || (err != nil && errors.Is(errors.Unwrap(err), os.ErrNotExist)) {
+		return policySourceJournal{}, false, nil
+	}
+	if err != nil {
+		return policySourceJournal{}, false, err
+	}
+	var journal policySourceJournal
+	if err := decodeStrictPolicyJSON(data, filepath.Base(path), &journal); err != nil {
+		return policySourceJournal{}, false, err
+	}
+	if err := journal.Validate(); err != nil {
+		return policySourceJournal{}, false, err
+	}
+	return journal, true, nil
+}
+
+func writePolicySnapshotFile(path string, data []byte) error {
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600) // #nosec G304 -- path is a validated child of a new private generation.
+	if err != nil {
 		return err
 	}
 	if _, err := file.Write(data); err != nil {
@@ -597,22 +952,366 @@ func atomicWriteOwnerFile(path string, data []byte) error {
 		_ = file.Close()
 		return err
 	}
-	if err := file.Close(); err != nil {
+	return file.Close()
+}
+
+func writePolicyDomainsSnapshot(directory string, sources map[string][]byte) error {
+	if err := requirePrivateDirectory(directory); errors.Is(err, os.ErrNotExist) {
+		if err := os.Mkdir(directory, 0o700); err != nil {
+			return err
+		}
+	} else if err != nil {
 		return err
-	}
-	if err := os.Rename(temporary, path); err != nil {
+	} else if entries, err := os.ReadDir(directory); err != nil {
 		return err
+	} else if len(entries) != 0 {
+		return fmt.Errorf("candidate policy snapshot directory is not empty")
 	}
-	handle, err := os.Open(directory) // #nosec G304 -- exact state-owned policy directory.
+	names := make([]string, 0, len(sources))
+	for relative := range sources {
+		names = append(names, relative)
+	}
+	sort.Strings(names)
+	seenDomains := map[string]struct{}{}
+	for _, relative := range names {
+		parts := strings.Split(filepath.ToSlash(relative), "/")
+		if len(parts) != 3 || parts[0] != policyDomainsName ||
+			(parts[2] != policyAllowFileName && parts[2] != policyDenyFileName) {
+			return fmt.Errorf("candidate policy source path %q is invalid", relative)
+		}
+		if err := validatePolicyDomain(parts[1]); err != nil {
+			return err
+		}
+		domainDirectory := filepath.Join(directory, parts[1])
+		if _, exists := seenDomains[parts[1]]; !exists {
+			if err := os.Mkdir(domainDirectory, 0o700); err != nil {
+				return err
+			}
+			seenDomains[parts[1]] = struct{}{}
+		}
+		if err := writePolicySnapshotFile(filepath.Join(domainDirectory, parts[2]), sources[relative]); err != nil {
+			return err
+		}
+	}
+	file, err := readPolicyDomains(directory)
 	if err != nil {
 		return err
 	}
-	defer handle.Close()
-	return handle.Sync()
+	if !reflect.DeepEqual(file.sources, sources) {
+		return fmt.Errorf("candidate policy source snapshot changed while being prepared")
+	}
+	for domain := range seenDomains {
+		if err := syncDirectoryIfPresent(filepath.Join(directory, domain)); err != nil {
+			return err
+		}
+	}
+	return syncDirectoryIfPresent(directory)
 }
 
-// ApplyLearnedPolicyRules tests a complete private policy copy, atomically
-// replaces only data.json, then uses the portable OPA activation boundary.
+type policySourceTransaction struct {
+	policyDirectory string
+	journal         policySourceJournal
+}
+
+func (t *policySourceTransaction) verifyJournal() error {
+	current, exists, err := readPolicySourceJournal(t.policyDirectory)
+	if err != nil {
+		return err
+	}
+	if !exists || !reflect.DeepEqual(current, t.journal) {
+		return fmt.Errorf("policy source transaction journal changed")
+	}
+	return nil
+}
+
+func beginPolicySourceTransaction(
+	policyDirectory string, expected, candidate map[string][]byte,
+) (*policySourceTransaction, error) {
+	if _, exists, err := readPolicySourceJournal(policyDirectory); err != nil {
+		return nil, err
+	} else if exists {
+		return nil, fmt.Errorf("policy source transaction is already pending")
+	}
+	equal, err := policySourcesEqual(policyDirectory, expected)
+	if err != nil || !equal {
+		return nil, fault.Wrap(fault.KindRejected, "policy_data_changed", "policy domain sources changed while the candidate was being tested", false, err)
+	}
+	contextDirectory := filepath.Dir(policyDirectory)
+	stagePath, err := os.MkdirTemp(contextDirectory, ".policy-domains-stage-")
+	if err != nil {
+		return nil, err
+	}
+	stageName := filepath.Base(stagePath)
+	cleanupStage := true
+	defer func() {
+		if cleanupStage {
+			_ = os.RemoveAll(stagePath)
+		}
+	}()
+	if err := writePolicyDomainsSnapshot(stagePath, candidate); err != nil {
+		return nil, err
+	}
+	equal, err = policySourcesEqual(policyDirectory, expected)
+	if err != nil || !equal {
+		return nil, fault.Wrap(fault.KindRejected, "policy_data_changed", "policy domain sources changed while the replacement generation was being prepared", false, err)
+	}
+	suffix := strings.TrimPrefix(stageName, ".policy-domains-stage-")
+	backupName := ".policy-domains-backup-" + suffix
+	backupPath := filepath.Join(contextDirectory, backupName)
+	journal := policySourceJournal{
+		SchemaVersion: policySourceJournalSchema,
+		Phase:         policySourcePhasePrepared, StageName: stageName, BackupName: backupName,
+		OriginalDigest: policySourceDigest(expected), CandidateDigest: policySourceDigest(candidate),
+		CandidateAggregateRevision: "",
+	}
+	if err := writePolicySourceJournal(policyDirectory, journal); err != nil {
+		return nil, err
+	}
+	livePath := filepath.Join(policyDirectory, policyDomainsName)
+	if err := os.Rename(livePath, backupPath); err != nil {
+		_ = os.Remove(policySourceJournalPath(policyDirectory))
+		return nil, err
+	}
+	backup, backupErr := readPolicyDomains(backupPath)
+	if backupErr != nil || policySourceDigest(backup.sources) != journal.OriginalDigest {
+		restoreErr := os.Rename(backupPath, livePath)
+		if restoreErr == nil {
+			_ = os.Remove(policySourceJournalPath(policyDirectory))
+			return nil, fault.Wrap(
+				fault.KindRejected, "policy_data_changed",
+				"policy domain sources changed immediately before generation replacement", false,
+				errors.Join(backupErr, fmt.Errorf("recovery generation digest does not match the tested source")),
+			)
+		}
+		return nil, fault.Wrap(
+			fault.KindInternal, "policy_write_failed",
+			"changed policy source could not be restored and recovery remains pending", false,
+			errors.Join(backupErr, restoreErr),
+		)
+	}
+	journal.Phase = policySourcePhaseOldMoved
+	if err := writePolicySourceJournal(policyDirectory, journal); err != nil {
+		if restoreErr := os.Rename(backupPath, livePath); restoreErr == nil {
+			_ = os.Remove(policySourceJournalPath(policyDirectory))
+		} else {
+			return nil, fault.Wrap(fault.KindInternal, "policy_write_failed", "policy source recovery remains pending", false, errors.Join(err, restoreErr))
+		}
+		return nil, err
+	}
+	if err := os.Rename(stagePath, livePath); err != nil {
+		if restoreErr := os.Rename(backupPath, livePath); restoreErr == nil {
+			_ = os.Remove(policySourceJournalPath(policyDirectory))
+		} else {
+			return nil, fault.Wrap(fault.KindInternal, "policy_write_failed", "policy source recovery remains pending", false, errors.Join(err, restoreErr))
+		}
+		return nil, err
+	}
+	cleanupStage = false
+	journal.Phase = policySourcePhaseSwapped
+	if err := writePolicySourceJournal(policyDirectory, journal); err != nil {
+		return nil, err
+	}
+	if err := syncDirectoryIfPresent(policyDirectory); err != nil {
+		return nil, err
+	}
+	if err := syncDirectoryIfPresent(contextDirectory); err != nil {
+		return nil, err
+	}
+	return &policySourceTransaction{policyDirectory: policyDirectory, journal: journal}, nil
+}
+
+func (t *policySourceTransaction) setCandidateAggregateRevision(revision string) error {
+	if !validPolicyDigest(revision) {
+		return fmt.Errorf("candidate aggregate revision is invalid")
+	}
+	if err := t.verifyJournal(); err != nil {
+		return err
+	}
+	t.journal.CandidateAggregateRevision = revision
+	return writePolicySourceJournal(t.policyDirectory, t.journal)
+}
+
+func (t *policySourceTransaction) commit() error {
+	if err := t.verifyJournal(); err != nil {
+		return err
+	}
+	current, err := readPolicyDataDuringTransaction(t.policyDirectory)
+	if err != nil || policySourceDigest(current.sources) != t.journal.CandidateDigest {
+		return fmt.Errorf("candidate policy source changed before commit: %w", err)
+	}
+	contextDirectory := filepath.Dir(t.policyDirectory)
+	backupPath := filepath.Join(contextDirectory, t.journal.BackupName)
+	backup, err := readPolicyDomains(backupPath)
+	if err != nil || policySourceDigest(backup.sources) != t.journal.OriginalDigest {
+		return fmt.Errorf("original policy source recovery snapshot is invalid: %w", err)
+	}
+	if err := os.RemoveAll(backupPath); err != nil {
+		return err
+	}
+	if err := os.Remove(policySourceJournalPath(t.policyDirectory)); err != nil {
+		return err
+	}
+	return syncDirectoryIfPresent(contextDirectory)
+}
+
+func (t *policySourceTransaction) rollback() error {
+	if err := t.verifyJournal(); err != nil {
+		return err
+	}
+	current, err := readPolicyDataDuringTransaction(t.policyDirectory)
+	if err != nil || policySourceDigest(current.sources) != t.journal.CandidateDigest {
+		return fmt.Errorf("candidate policy source changed during rollback: %w", err)
+	}
+	contextDirectory := filepath.Dir(t.policyDirectory)
+	backupPath := filepath.Join(contextDirectory, t.journal.BackupName)
+	backup, err := readPolicyDomains(backupPath)
+	if err != nil || policySourceDigest(backup.sources) != t.journal.OriginalDigest {
+		return fmt.Errorf("original policy source recovery snapshot is invalid: %w", err)
+	}
+	abandonedPath := filepath.Join(contextDirectory, t.journal.StageName)
+	if err := os.Rename(filepath.Join(t.policyDirectory, policyDomainsName), abandonedPath); err != nil {
+		return err
+	}
+	if err := os.Rename(backupPath, filepath.Join(t.policyDirectory, policyDomainsName)); err != nil {
+		_ = os.Rename(abandonedPath, filepath.Join(t.policyDirectory, policyDomainsName))
+		return err
+	}
+	if err := os.RemoveAll(abandonedPath); err != nil {
+		return err
+	}
+	if err := os.Remove(policySourceJournalPath(t.policyDirectory)); err != nil {
+		return err
+	}
+	if err := syncDirectoryIfPresent(t.policyDirectory); err != nil {
+		return err
+	}
+	return syncDirectoryIfPresent(contextDirectory)
+}
+
+func policyDomainsDigest(path string) (string, bool, error) {
+	file, err := readPolicyDomains(path)
+	if errors.Is(err, os.ErrNotExist) || (err != nil && errors.Is(errors.Unwrap(err), os.ErrNotExist)) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, err
+	}
+	return policySourceDigest(file.sources), true, nil
+}
+
+func recoverPolicySourceTransaction(policyDirectory, activeRevision string) error {
+	journal, exists, err := readPolicySourceJournal(policyDirectory)
+	if err != nil || !exists {
+		return err
+	}
+	contextDirectory := filepath.Dir(policyDirectory)
+	livePath := filepath.Join(policyDirectory, policyDomainsName)
+	stagePath := filepath.Join(contextDirectory, journal.StageName)
+	backupPath := filepath.Join(contextDirectory, journal.BackupName)
+	liveDigest, liveExists, liveErr := policyDomainsDigest(livePath)
+	stageDigest, stageExists, stageErr := policyDomainsDigest(stagePath)
+	backupDigest, backupExists, backupErr := policyDomainsDigest(backupPath)
+	if liveErr != nil || stageErr != nil || backupErr != nil {
+		return fmt.Errorf("inspect interrupted policy source transaction: live=%v stage=%v backup=%v", liveErr, stageErr, backupErr)
+	}
+	removeJournal := func() error {
+		if err := os.Remove(policySourceJournalPath(policyDirectory)); err != nil {
+			return err
+		}
+		return syncDirectoryIfPresent(contextDirectory)
+	}
+	if journal.CandidateAggregateRevision != "" && activeRevision == journal.CandidateAggregateRevision &&
+		liveExists && liveDigest == journal.CandidateDigest {
+		if stageExists {
+			return fmt.Errorf("committed policy source transaction retains an unexpected stage")
+		}
+		if backupExists {
+			if backupDigest != journal.OriginalDigest {
+				return fmt.Errorf("committed policy source transaction has an invalid recovery snapshot")
+			}
+			if err := os.RemoveAll(backupPath); err != nil {
+				return err
+			}
+		}
+		return removeJournal()
+	}
+	if liveExists && liveDigest == journal.OriginalDigest && !backupExists {
+		if stageExists && stageDigest != journal.CandidateDigest {
+			return fmt.Errorf("interrupted policy source stage does not match its journal")
+		}
+		if stageExists {
+			if err := os.RemoveAll(stagePath); err != nil {
+				return err
+			}
+		}
+		return removeJournal()
+	}
+	if !backupExists || backupDigest != journal.OriginalDigest {
+		return fmt.Errorf("interrupted policy source transaction has no valid rollback generation")
+	}
+	switch {
+	case !liveExists && stageExists && stageDigest == journal.CandidateDigest:
+		if err := os.Rename(backupPath, livePath); err != nil {
+			return err
+		}
+		if err := os.RemoveAll(stagePath); err != nil {
+			return err
+		}
+	case liveExists && liveDigest == journal.CandidateDigest && !stageExists:
+		if err := os.Rename(livePath, stagePath); err != nil {
+			return err
+		}
+		if err := os.Rename(backupPath, livePath); err != nil {
+			_ = os.Rename(stagePath, livePath)
+			return err
+		}
+		if err := os.RemoveAll(stagePath); err != nil {
+			return err
+		}
+	default:
+		return fmt.Errorf("interrupted policy source transaction layout is ambiguous")
+	}
+	if err := syncDirectoryIfPresent(policyDirectory); err != nil {
+		return err
+	}
+	return removeJournal()
+}
+
+func (r *Runtime) recoverAllPolicySourceTransactions(ctx context.Context) error {
+	state, configured, err := r.LoadState(ctx)
+	if err != nil {
+		return err
+	}
+	activeRevision := ""
+	if configured {
+		activeRevision = state.AggregateRevision
+	}
+	contexts, err := r.ListContexts(ctx)
+	if err != nil {
+		return err
+	}
+	for _, summary := range contexts.Items {
+		_, paths, err := r.resolveContext(summary.Name)
+		if err != nil {
+			return err
+		}
+		if err := recoverPolicySourceTransaction(paths.PolicyDirectory, activeRevision); err != nil {
+			return fmt.Errorf("recover Context %q policy source: %w", summary.Name, err)
+		}
+	}
+	return nil
+}
+
+func policySourcesEqual(policyDirectory string, expected map[string][]byte) (bool, error) {
+	current, err := readPolicyData(policyDirectory)
+	if err != nil {
+		return false, err
+	}
+	return reflect.DeepEqual(current.sources, expected), nil
+}
+
+// ApplyLearnedPolicyRules tests a complete private policy copy, replaces one
+// complete domains generation, then uses the portable OPA activation boundary.
 func (r *Runtime) ApplyLearnedPolicyRules(
 	ctx context.Context, state tobari.State,
 	expected, updated []tobari.LearnedPolicyRule,
@@ -648,6 +1347,26 @@ func (r *Runtime) applyPolicyData(
 			ctx, state, expectedAllows, updatedAllows, expectedDenies, updatedDenies, checkDenySnapshot,
 		)
 	}
+	var receipt tobari.PolicyActivationReceipt
+	err := r.withPolicyProjectionLock(ctx, func() error {
+		if err := recoverPolicySourceTransaction(state.PolicyDirectory, state.AggregateRevision); err != nil {
+			return fault.Wrap(fault.KindRejected, "policy_state_changed", "an interrupted policy source transaction could not be recovered", false, err)
+		}
+		var applyErr error
+		receipt, applyErr = r.applyStandalonePolicyData(
+			ctx, state, expectedAllows, updatedAllows, expectedDenies, updatedDenies, checkDenySnapshot,
+		)
+		return applyErr
+	})
+	return receipt, err
+}
+
+func (r *Runtime) applyStandalonePolicyData(
+	ctx context.Context, state tobari.State,
+	expectedAllows, updatedAllows []tobari.LearnedPolicyRule,
+	expectedDenies, updatedDenies []tobari.PolicyDenyRule,
+	checkDenySnapshot bool,
+) (tobari.PolicyActivationReceipt, error) {
 	receipt := tobari.PolicyActivationReceipt{
 		PolicyDirectory: state.PolicyDirectory,
 		ActiveRevision:  state.AggregateRevision,
@@ -727,23 +1446,34 @@ func (r *Runtime) applyPolicyData(
 			"candidate policy failed OPA tests", false, err,
 		)
 	}
-	current, err := readOwnerPolicyFile(
-		filepath.Join(state.PolicyDirectory, "data.json"), maxPolicyDataBytes,
-	)
-	if err != nil || !bytes.Equal(current, file.source) {
+	equal, err := policySourcesEqual(state.PolicyDirectory, file.sources)
+	if err != nil || !equal {
 		return tobari.PolicyActivationReceipt{}, fault.Wrap(
 			fault.KindRejected, "policy_data_changed",
-			"policy data changed while the candidate was being tested", false, err,
+			"policy domain sources changed while the candidate was being tested", false, err,
 		)
 	}
-	if err := atomicWriteOwnerFile(filepath.Join(state.PolicyDirectory, "data.json"), data); err != nil {
+	transaction, err := beginPolicySourceTransaction(state.PolicyDirectory, file.sources, data.sources)
+	if err != nil {
 		return tobari.PolicyActivationReceipt{}, fault.Wrap(
 			fault.KindInternal, "policy_write_failed",
-			"tested policy data could not be written atomically", false, err,
+			"tested policy domain sources could not be written", false, err,
 		)
 	}
 	if err := r.activatePolicyRevision(ctx, state, policyAuthorityReduces(expectedAllows, updatedAllows, expectedDenies, updatedDenies)); err != nil {
+		if rollbackErr := transaction.rollback(); rollbackErr != nil {
+			return tobari.PolicyActivationReceipt{}, fault.Wrap(
+				fault.KindInternal, "policy_write_failed",
+				"failed policy activation left source recovery pending", false, errors.Join(err, rollbackErr),
+			)
+		}
 		return tobari.PolicyActivationReceipt{}, err
+	}
+	if err := transaction.commit(); err != nil {
+		return tobari.PolicyActivationReceipt{}, fault.Wrap(
+			fault.KindInternal, "policy_write_failed",
+			"activated policy source transaction could not be finalized", false, err,
+		)
 	}
 	return receipt, nil
 }
@@ -852,14 +1582,6 @@ func (r *Runtime) applyAggregatePolicyData(
 	if updatedAllows == nil {
 		updatedAllows = expectedAllows
 	}
-	if !checkDenySnapshot {
-		currentDenies, err := r.ReadPolicyDenyRules(ctx, state)
-		if err != nil {
-			return tobari.PolicyActivationReceipt{}, err
-		}
-		expectedDenies = currentDenies.Exact
-		updatedDenies = currentDenies.Exact
-	}
 	if err := tobari.ValidateLearnedPolicyRules(expectedAllows); err != nil {
 		return tobari.PolicyActivationReceipt{}, err
 	}
@@ -878,6 +1600,9 @@ func (r *Runtime) applyAggregatePolicyData(
 	}
 	receipt := tobari.PolicyActivationReceipt{}
 	err = r.withPolicyProjectionLock(ctx, func() error {
+		if err := r.recoverAllPolicySourceTransactions(ctx); err != nil {
+			return fault.Wrap(fault.KindRejected, "policy_state_changed", "an interrupted policy source transaction could not be recovered", false, err)
+		}
 		stored, configured, err := r.LoadState(ctx)
 		if err != nil || !configured {
 			return fault.Wrap(fault.KindRejected, "policy_state_changed", "shared policy state changed after discovery", false, err)
@@ -893,15 +1618,19 @@ func (r *Runtime) applyAggregatePolicyData(
 		if err != nil {
 			return err
 		}
+		if !checkDenySnapshot {
+			expectedDenies = append([]tobari.PolicyDenyRule{}, currentDenies.Exact...)
+			updatedDenies = append([]tobari.PolicyDenyRule{}, currentDenies.Exact...)
+		}
 		sort.Slice(expectedAllows, func(i, j int) bool { return expectedAllows[i].ID < expectedAllows[j].ID })
 		sort.Slice(expectedDenies, func(i, j int) bool { return expectedDenies[i].ID < expectedDenies[j].ID })
 		if !reflect.DeepEqual(currentAllows, expectedAllows) || !reflect.DeepEqual(currentDenies.Exact, expectedDenies) {
 			return fault.New(fault.KindRejected, "policy_data_changed", "policy decisions changed after discovery", false)
 		}
 		type contextUpdate struct {
-			sourcePath string
-			original   []byte
-			candidate  []byte
+			policyDirectory string
+			original        map[string][]byte
+			candidate       map[string][]byte
 		}
 		updates := make([]contextUpdate, 0, len(targetContexts))
 		for _, targetContext := range targetContexts {
@@ -939,36 +1668,52 @@ func (r *Runtime) applyAggregatePolicyData(
 				return fault.Wrap(fault.KindRejected, "policy_preflight_failed", "candidate Context policy failed OPA tests", false, testErr)
 			}
 			updates = append(updates, contextUpdate{
-				sourcePath: filepath.Join(paths.PolicyDirectory, "data.json"),
-				original:   append([]byte{}, file.source...), candidate: data,
+				policyDirectory: paths.PolicyDirectory,
+				original:        file.sources,
+				candidate:       data.sources,
 			})
 		}
-		rollback := func() {
-			for _, update := range updates {
-				_ = atomicWriteOwnerFile(update.sourcePath, update.original)
+		transactions := make(map[string]*policySourceTransaction, len(updates))
+		orderedTransactions := make([]*policySourceTransaction, 0, len(updates))
+		rollback := func() error {
+			failures := make([]error, 0)
+			for index := len(orderedTransactions) - 1; index >= 0; index-- {
+				if rollbackErr := orderedTransactions[index].rollback(); rollbackErr != nil {
+					failures = append(failures, rollbackErr)
+				}
 			}
 			rollbackContext, cancel := context.WithTimeout(ctx, 30*time.Second)
 			defer cancel()
-			_ = r.activatePolicyRevision(rollbackContext, stored, false)
-		}
-		for index, update := range updates {
-			current, readErr := readOwnerPolicyFile(update.sourcePath, maxPolicyDataBytes)
-			if readErr != nil || !bytes.Equal(current, update.original) {
-				return fault.Wrap(fault.KindRejected, "policy_data_changed", "policy data changed while the reviewed set was being tested", false, readErr)
+			if activationErr := r.activatePolicyRevision(rollbackContext, stored, false); activationErr != nil {
+				failures = append(failures, activationErr)
 			}
-			if err := atomicWriteOwnerFile(update.sourcePath, update.candidate); err != nil {
-				for rollbackIndex := 0; rollbackIndex < index; rollbackIndex++ {
-					_ = atomicWriteOwnerFile(updates[rollbackIndex].sourcePath, updates[rollbackIndex].original)
-				}
-				return err
-			}
+			return errors.Join(failures...)
 		}
-		projection, err := r.buildAggregateProjection(ctx)
+		rollbackAfter := func(cause error) error {
+			if rollbackErr := rollback(); rollbackErr != nil {
+				return fault.Wrap(
+					fault.KindInternal, "policy_write_failed",
+					"aggregate policy failure left source recovery pending", false, errors.Join(cause, rollbackErr),
+				)
+			}
+			return cause
+		}
+		for _, update := range updates {
+			transaction, beginErr := beginPolicySourceTransaction(update.policyDirectory, update.original, update.candidate)
+			if beginErr != nil {
+				return rollbackAfter(beginErr)
+			}
+			transactions[update.policyDirectory] = transaction
+			orderedTransactions = append(orderedTransactions, transaction)
+		}
+		projection, err := r.buildAggregateProjectionWithTransactions(ctx, transactions)
 		if err != nil {
-			for _, update := range updates {
-				_ = atomicWriteOwnerFile(update.sourcePath, update.original)
+			return rollbackAfter(fault.Wrap(fault.KindRejected, "aggregate_policy_invalid", "candidate aggregate policy was not activated", false, err))
+		}
+		for _, transaction := range orderedTransactions {
+			if err := transaction.setCandidateAggregateRevision(projection.Revision); err != nil {
+				return rollbackAfter(fmt.Errorf("record candidate aggregate policy revision: %w", err))
 			}
-			return fault.Wrap(fault.KindRejected, "aggregate_policy_invalid", "candidate aggregate policy was not activated", false, err)
 		}
 		candidateState := stored
 		candidateState.AggregateRevision = projection.Revision
@@ -981,21 +1726,21 @@ func (r *Runtime) applyAggregatePolicyData(
 			ActiveRevision:  candidateState.AggregateRevision,
 		}
 		if err := candidateReceipt.Validate(); err != nil {
-			for _, update := range updates {
-				_ = atomicWriteOwnerFile(update.sourcePath, update.original)
-			}
-			return err
+			return rollbackAfter(err)
 		}
 		if err := r.activatePolicyRevision(
 			ctx, candidateState,
 			policyAuthorityReduces(expectedAllows, updatedAllows, expectedDenies, updatedDenies),
 		); err != nil {
-			rollback()
-			return err
+			return rollbackAfter(err)
 		}
 		if err := r.writeState(candidateState); err != nil {
-			rollback()
-			return fmt.Errorf("persist aggregate policy activation: %w", err)
+			return rollbackAfter(fmt.Errorf("persist aggregate policy activation: %w", err))
+		}
+		for _, transaction := range orderedTransactions {
+			if err := transaction.commit(); err != nil {
+				return fmt.Errorf("finalize policy source transaction: %w", err)
+			}
 		}
 		receipt = candidateReceipt
 		return nil

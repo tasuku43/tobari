@@ -90,11 +90,15 @@ candidate_scheme_allowed if {
 	declared_graphql_endpoint
 }
 
-authority_allowed if {
+request_authority := authority if {
 	some authority in data.tobari.boundary.authorities
 	authority.scheme == input.request.authority.scheme
 	authority.host == input.request.authority.host
 	input.request.authority.port in authority.ports
+}
+
+authority_allowed if {
+	request_authority
 }
 
 authorization_shape_valid if {
@@ -123,11 +127,11 @@ broker_provider_shape_valid if {
 }
 
 method_allowed if {
-	input.request.method in data.tobari.boundary.methods.read
+	input.request.method in request_authority.methods.read
 }
 
 method_allowed if {
-	some rule in data.tobari.boundary.methods.write
+	some rule in request_authority.methods.write
 	rule.method == input.request.method
 	not write_path_excluded(rule)
 }

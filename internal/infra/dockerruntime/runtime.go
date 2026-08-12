@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/tasuku43/tobari/internal/domain/doctor"
@@ -69,19 +70,20 @@ func (osCommandRunner) Output(ctx context.Context, args, environment []string) (
 
 // Runtime owns filesystem state and Docker process execution.
 type Runtime struct {
-	configDirectory   string
-	stateDirectory    string
-	dataDirectory     string
-	runner            commandRunner
-	images            imageResolver
-	browser           hostBrowserOpener
-	gitIdentity       hostGitIdentityResolver
-	companion         companionruntime.Launcher
-	companionEntropy  io.Reader
-	rootKeyLoader     func(context.Context) ([]byte, error)
-	hostCLIs          hostCLIResolver
-	credentialHost    hostCredentialAcquirer
-	hostLoginProfiles hostLoginProfileReader
+	configDirectory    string
+	stateDirectory     string
+	dataDirectory      string
+	runner             commandRunner
+	images             imageResolver
+	browser            hostBrowserOpener
+	gitIdentity        hostGitIdentityResolver
+	companion          companionruntime.Launcher
+	companionEntropy   io.Reader
+	rootKeyLoader      func(context.Context) ([]byte, error)
+	hostCLIs           hostCLIResolver
+	credentialHost     hostCredentialAcquirer
+	hostLoginProfiles  hostLoginProfileReader
+	policyProjectionMu sync.Mutex
 	// projectStateWriter is nil in production. Tests may use it to inject a
 	// durable-state write failure after Docker reconciliation has completed.
 	projectStateWriter func(tobari.ProjectInstance) error
@@ -723,6 +725,11 @@ func (r *Runtime) prepareState(ctx context.Context) (tobari.State, error) {
 	}
 	if err := r.ensureContextStore(); err != nil {
 		return tobari.State{}, fmt.Errorf("prepare Context catalog: %w", err)
+	}
+	if err := r.withPolicyProjectionLock(ctx, func() error {
+		return r.recoverAllPolicySourceTransactions(ctx)
+	}); err != nil {
+		return tobari.State{}, fmt.Errorf("recover interrupted Context policy source transaction: %w", err)
 	}
 	projection, err := r.buildAggregateProjection(ctx)
 	if err != nil {

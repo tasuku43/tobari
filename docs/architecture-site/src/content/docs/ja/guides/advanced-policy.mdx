@@ -9,12 +9,12 @@ description: 通常の完全一致ポリシーでは必要な境界を表現で�
 
 ## ガイド付きポリシーと高度なポリシーでは、管理方式が異なる
 
-| ガイド付き Context                                | 高度な Context                                               |
-| ------------------------------------------------- | ------------------------------------------------------------ |
-| `policy/data.json` だけを所有                     | `data.json`、`tobari.rego`、`tobari_test.rego` を所有        |
-| Tobari が所有する現在の共有評価器を使用           | 保守担当者が Context 固有のポリシーロジックとテストを所有    |
-| 通常は完全一致の許可・拒否、リセット、集約を使う  | 通常のモデルで不足する場合、信頼するホスト上で直接編集できる |
-| Tobari のリリースに合わせて共有評価器が更新される | 保守担当者が互換性と動作をレビューする                       |
+| ガイド付き Context                                   | 高度な Context                                               |
+| ---------------------------------------------------- | ------------------------------------------------------------ |
+| `policy/domains/<host>/{allow,deny}.json` だけを所有 | domain tree、`tobari.rego`、`tobari_test.rego` を所有        |
+| Tobari が所有する現在の共有評価器を使用              | 保守担当者が Context 固有のポリシーロジックとテストを所有    |
+| 通常は完全一致の許可・拒否、リセット、集約を使う     | 通常のモデルで不足する場合、信頼するホスト上で直接編集できる |
+| Tobari のリリースに合わせて共有評価器が更新される    | 保守担当者が互換性と動作をレビューする                       |
 
 どちらのモードでも Workspace は有効なポリシーを編集できません。Context のポリシーディレクトリは所有者だけがアクセスできるホスト状態であり、Workspace へマウントされません。
 
@@ -33,6 +33,37 @@ tobari context use --name policy-lab
 ```sh
 tobari cluster up
 ```
+
+## domain data を完全一致に保つ
+
+どちらの mode も、同じ人間が編集できる domain source を使います。正規化済みの小文字
+host ごとに、所有者だけがアクセスできるファイルを正確に二つ置きます。
+
+```text
+policy/domains/api.example.com/
+  allow.json
+  deny.json
+```
+
+`allow.json` の field は `schema_version`、`host`、`authorities`、`methods`、
+`graphql_endpoints`、`credential_profiles`、`rules` だけです。`deny.json` の
+field は `schema_version`、`host`、`baseline_rules`、`rules` だけです。collection
+はすべて明示的な JSON array です。未知の field、重複 key または rule ID、欠落 field、
+余分なファイル、symlink、group/world が使える permission は拒否されます。
+
+directory 名と、authority、GraphQL endpoint、credential binding、baseline rule、
+learned rule 内のすべての host は完全一致する必要があります。hostname は正規化済みの
+小文字 DNS 名です。末尾 dot、IP literal、大文字表現、wildcard は未対応であり、現在の
+契約は exact host のみです。HTTP method は大文字で、その domain から合成された
+authority だけに属します。ある host の method 許可が別 host を許可することはありません。
+明示的な deny は引き続き優先されます。
+
+host を手作業で追加するときは、非公開の sibling directory に両方のファイルを完成させ、
+directory ごと `domains/` へ rename してください。片方だけを公開しないでください。既存の
+一ファイルを編集する場合は atomic rename で保存する editor を使います。`cluster up` は
+安定した完全 snapshot を再読し、不完全または変更中の source を fail closed にします。
+通常の CLI policy mutation は未変更ファイルの byte を保ち、cross-process lock と永続
+recovery journal の下で完全な `domains/` 世代を入れ替えます。
 
 ## ソースとテストを一緒に編集する
 
@@ -64,7 +95,7 @@ tobari cluster up
 
 プロジェクションには、固定ルーター、Context ID ごとのデータ名前空間、共有のガイド付き評価器、書き換え済みの高度なパッケージが含まれます。すべてのソースと集約ポリシー全体がテストに合格する必要があります。有効な候補だけが公開され、障害時には以前の検証済み集約ポリシーが引き続き有効です。
 
-通常の完全一致の許可・拒否・リセット操作も、同じ全 Context の安全境界を使い、`data.json` の学習済み一覧だけを変更します。ホスト側で管理する境界ポリシーや任意の Rego は書き換えません。
+通常の完全一致の許可・拒否・リセット操作も、同じ全 Context の安全境界を使い、対応 host の `allow.json` または `deny.json` にある学習済み `rules` だけを変更します。ホスト側で管理する境界ポリシーや任意の Rego は書き換えません。内容アドレス方式で生成する OPA projection の内部には `data.json` がありますが、Context source ではありません。
 
 ## 高度なポリシーが適切な例
 

@@ -1,0 +1,6 @@
+{
+  "schema_version": 1,
+  "host": "example.com",
+  "baseline_rules": [],
+  "rules": []
+}

@@ -389,7 +389,14 @@ instead permits one command-bound fixed-target Apply over a bounded typed set:
 each entry must originate on its exact detail screen, retain its opaque ID
 unchanged, belong to one Context, and pass fresh snapshot validation. The
 one-Context bound preserves one atomic policy-source promotion even if the host
-process is interrupted. Display position cannot create authority, staging
+process is interrupted. The authoritative source is one strict
+`policy/domains/<canonical-host>/allow.json` and `deny.json` pair per exact
+host, never a Context `data.json`. Directory names and every embedded
+authority, endpoint, credential binding, and rule host must match; unknown
+fields, duplicate keys or rule IDs, non-canonical hosts, wildcards, IP
+literals, incomplete pairs, extra files, symlinks, and unsafe permissions fail
+closed. Per-domain method data is projected only into that domain's authority,
+and explicit deny retains precedence. Display position cannot create authority, staging
 writes nothing, cancellation discards the set, wildcard creation is impossible,
 and redirected or machine-readable review is read-only. Refresh retains staged
 authority only for an identical candidate ID; stale and same-label replacement
@@ -772,6 +779,17 @@ The mutation rejects stale or ambiguous references, unsafe policy files,
 malformed learned data, failed preflight tests, and unrecognized compaction
 shapes before the atomic policy write.
 
+Routine source writes hold both an in-process mutex and a cross-process file
+lock. Tobari writes and validates a complete sibling `domains/` generation,
+fsyncs it, records a digest-bound durable journal, and promotes it by directory
+rename while retaining the prior complete generation for recovery. Readers
+reject any live journal, missing generation, incomplete pair, changed snapshot,
+or ambiguous recovery layout. Recovery accepts the candidate only when the
+matching immutable aggregate revision is already durable; otherwise it restores
+the verified original. A concurrent direct host edit is never overwritten by
+guess. The generated content-addressed OPA projection may contain one internal
+`data.json`, but Workspaces cannot edit either source or projection.
+
 Learned rules never broaden a project, host, port, method, or GraphQL root
 coordinate beyond the
 explicitly approved evidence. Baseline and exact deny rules remain terminal; an
@@ -946,7 +964,7 @@ reference-bound mutation.
 | Unknown effects fail closed | Domain and catalog validation |
 | Denials support safe policy learning | Typed Context/project/host/port/method/path denial validation, fixed navigation-response schema, host-only session summary, secret canaries, and integration projection |
 | Learned permissions stay explicit and Context/project-bound | Context-scoped opaque-reference round trips, exact effect domain tests, Rego cross-Context/project canaries, preflight-before-aggregate activation tests, and Docker integration |
-| One bad Context cannot replace known-good policy | Serialized content-addressed aggregate generation, reserved namespace validation, whole-candidate OPA tests, atomic publish, rollback tests, and integration |
+| One bad Context cannot replace known-good policy | Strict host-paired source validation, mutex plus cross-process locking, digest-bound source journal recovery, serialized content-addressed aggregate generation, reserved namespace validation, whole-candidate OPA tests, atomic publish, rollback tests, and integration |
 | Context changes cannot mutate existing Tobari authority | Permanent instance binding, current-marker-only tests, Context-local runtime reconciliation, and restart integration |
 | Overlapping roots are not misrepresented as isolated | Product contract, direct read-write mounts, same-root/parent-child integration canaries, and absence of overlay/root-lock paths |
 | Compaction preserves declared boundaries | Three-source same-host/port/method grouping invariant, retained positive examples, outside-prefix canary, stale-reference rejection, and OPA tests |

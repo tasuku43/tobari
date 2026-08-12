@@ -972,7 +972,10 @@ ${XDG_CONFIG_HOME:-$HOME/.config}/tobari/
       runtime/
         Dockerfile         # optional Context runtime recipe
       policy/
-        data.json          # Guided and Advanced Context policy data
+        domains/
+          <canonical-host>/
+            allow.json     # authority, methods, endpoints, credential bindings, learned allows
+            deny.json      # baseline denies and learned exact denies
         tobari.rego        # Advanced Contexts only
         tobari_test.rego   # Advanced Contexts only
       credentials.json     # reserved managed-adapter metadata
@@ -1007,13 +1010,16 @@ tobari.http` source is projected into a reserved Context-ID namespace and
 cannot claim the router, system packages, or another Context's entrypoint.
 
 `context use` changes only the current/default marker. `cluster up` and exact
-policy mutations serialize aggregate generation, test every source and the
-complete candidate, publish only valid revisioned bundles, wait for the running
-OPA to report the exact revision, and retain the prior known-good revision on
-activation failure. Routine allow, deny, reset, compaction, and reviewed-set
-actions derive Context and Tobari authority solely from validated opaque
-references and keep the shared OPA container running. Advanced
-host-authored edits remain explicit and are not part of the routine queue.
+policy mutations serialize aggregate generation across processes, validate a
+complete `domains/` snapshot, test every source and the complete candidate,
+and publish only valid revisioned bundles. A durable source transaction swaps
+the whole domain generation; interrupted or externally modified transactions
+fail closed or restore the validated prior generation. Activation waits for
+the running OPA to report the exact immutable projection revision. Routine
+allow, deny, reset, compaction, and reviewed-set actions derive Context and
+Tobari authority solely from validated opaque references and keep the shared
+OPA container running. Advanced host-authored edits remain explicit and are
+not part of the routine queue.
 
 Only an Advanced Context owns editable Rego. Use its policy directory as a
 trusted-host path and do not mount the parent configuration directory into a
@@ -1023,8 +1029,9 @@ Tobari:
 ${EDITOR:-vi} "${XDG_CONFIG_HOME:-$HOME/.config}/tobari/contexts/<name>/policy/tobari.rego"
 ```
 
-Use `tobari context show` to confirm `advanced` mode before editing. A Guided
-Context owns only `data.json`; its shared evaluator comes from Tobari and is
+Use `tobari context show` to confirm `advanced` mode before editing. Both modes
+own the strict `policy/domains/<canonical-host>/{allow,deny}.json` source tree;
+a Guided Context owns no Rego. Its shared evaluator comes from Tobari and is
 changed through a Tobari release, not a Context-local Rego copy. Keep the
 Context's policy directory separate from its credential stores;
 managed and broker vault stores remain outside untrusted containers. Only
@@ -1036,12 +1043,17 @@ home instead.
 
 The initialized policy is generic HTTP policy, not a GitHub operation adapter. It starts
 deny-by-default, distinguishes HTTPS from explicitly allowed test-only HTTP,
-restricts methods and paths, and validates credential profile or non-secret
-broker-provider metadata without selecting a real credential. Guided Contexts
-store only `data.json`; one current Tobari-owned evaluator is projected for all
-of them. Advanced Context source and Gateway runtime input both require exact
-schema 1 before activation. A brokered request requires an exact learned allow,
-even when the same host and method exist in the static boundary.
+restricts methods and paths independently for each exact host, and validates
+credential profile or non-secret broker-provider metadata without selecting a
+real credential. Hostnames are canonical lower-case DNS names; IP literals,
+trailing dots, wildcards, mismatched embedded hosts, unknown fields, duplicate
+keys, incomplete domain pairs, and extra source files fail closed. One current
+Tobari-owned evaluator is projected for all Guided Contexts. The generated,
+content-addressed OPA projection may contain one `data.json`; it is not a
+user-edited Context source. Advanced Context source and Gateway runtime input
+both require exact schema 1 before activation. A brokered request requires an
+exact learned allow, even when the same host and method exist in the static
+boundary.
 
 ### Grow and compact learned policy
 
@@ -1061,7 +1073,7 @@ detail choice is explicit but remains staged and grants no authority. Continue
 reviewing exact candidates from the same Context, then press `p` to revalidate
 and activate the complete reviewed set once. Pressing `q` before Apply discards
 the set with no policy write. A staged Apply is limited to one Context so source
-promotion remains one atomic file replacement; apply or discard it before
+promotion remains one atomic domain-generation replacement; apply or discard it before
 switching Context. Redirected or `--error-format json` review is read-only. `PCY_ID` is
 emitted by the review or machine discovery queue and must be copied unchanged
 when invoking the explicit action; `policy candidates` remains the structured
@@ -1095,7 +1107,7 @@ declared boundary regression; they do not prove every unknown future path is
 safe.
 
 For advanced policy behavior that the exact learning flow cannot express, edit
-the XDG Rego and data files on the trusted host and add tests. The routine
+the XDG Rego and domain JSON files on the trusted host and add tests. The routine
 review queue does not interpret or activate arbitrary host edits.
 
 Run read-only diagnostics when you want to test policy without activating it:

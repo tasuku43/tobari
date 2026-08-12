@@ -197,16 +197,30 @@ func (r *Runtime) ensureContext(manifest tobari.ContextManifest) error {
 	if err := r.ensurePrivateDirectory(r.contextPolicyDirectory(manifest.Name)); err != nil {
 		return fmt.Errorf("prepare Context %q policy: %w", manifest.Name, err)
 	}
+	domainsDirectory := filepath.Join(r.contextPolicyDirectory(manifest.Name), policyDomainsName)
+	if err := r.ensurePrivateDirectory(domainsDirectory); err != nil {
+		return fmt.Errorf("prepare Context %q policy domains: %w", manifest.Name, err)
+	}
 	if err := r.ensurePrivateDirectory(r.contextCredentialDirectory(manifest.Name)); err != nil {
 		return fmt.Errorf("prepare Context %q credentials: %w", manifest.Name, err)
 	}
-	policyFiles := []string{"data.json"}
-	if manifest.PolicyMode == tobari.ContextPolicyModeAdvanced {
-		policyFiles = append(policyFiles, "tobari.rego", "tobari_test.rego")
+	for _, domain := range []string{"api.github.com", "example.com", "mock-upstream"} {
+		directory := filepath.Join(domainsDirectory, domain)
+		if err := r.ensurePrivateDirectory(directory); err != nil {
+			return fmt.Errorf("prepare Context %q policy domain %q: %w", manifest.Name, domain, err)
+		}
+		for _, name := range []string{policyAllowFileName, policyDenyFileName} {
+			asset := filepath.Join("opa/policy", policyDomainsName, domain, name)
+			if err := initializeFile(filepath.Join(directory, name), asset, 0o600); err != nil {
+				return err
+			}
+		}
 	}
-	for _, name := range policyFiles {
-		if err := initializeFile(filepath.Join(r.contextPolicyDirectory(manifest.Name), name), "opa/policy/"+name, 0o600); err != nil {
-			return err
+	if manifest.PolicyMode == tobari.ContextPolicyModeAdvanced {
+		for _, name := range []string{"tobari.rego", "tobari_test.rego"} {
+			if err := initializeFile(filepath.Join(r.contextPolicyDirectory(manifest.Name), name), "opa/policy/"+name, 0o600); err != nil {
+				return err
+			}
 		}
 	}
 	if err := initializeBytes(

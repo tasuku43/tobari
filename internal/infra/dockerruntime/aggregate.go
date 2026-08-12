@@ -11,6 +11,7 @@ import (
 	"hash"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"sort"
 	"strings"
@@ -38,7 +39,7 @@ type aggregateContext struct {
 	manifest         tobari.ContextManifest
 	paths            tobari.ContextStorePaths
 	data             map[string]any
-	dataJSON         []byte
+	policy           policyDataFile
 	rego             []byte
 	creds            map[string]any
 	graphqlEndpoints []tobari.GraphQLEndpoint
@@ -49,6 +50,12 @@ func (r *Runtime) aggregateRoot() string {
 }
 
 func (r *Runtime) readAggregateContexts(ctx context.Context) ([]aggregateContext, error) {
+	return r.readAggregateContextsWithTransactions(ctx, nil)
+}
+
+func (r *Runtime) readAggregateContextsWithTransactions(
+	ctx context.Context, transactions map[string]*policySourceTransaction,
+) ([]aggregateContext, error) {
 	list, err := r.ListContexts(ctx)
 	if err != nil {
 		return nil, err
@@ -59,9 +66,21 @@ func (r *Runtime) readAggregateContexts(ctx context.Context) ([]aggregateContext
 		if err != nil {
 			return nil, err
 		}
-		policy, err := readPolicyData(paths.PolicyDirectory)
+		var policy policyDataFile
+		if transaction := transactions[paths.PolicyDirectory]; transaction != nil {
+			journal, exists, journalErr := readPolicySourceJournal(paths.PolicyDirectory)
+			if journalErr != nil || !exists || !reflect.DeepEqual(journal, transaction.journal) {
+				return nil, fmt.Errorf("Context %q policy transaction changed during aggregate generation", manifest.Name)
+			}
+			policy, err = readPolicyDataDuringTransaction(paths.PolicyDirectory)
+		} else {
+			policy, err = readPolicyData(paths.PolicyDirectory)
+		}
 		if err != nil {
 			return nil, fmt.Errorf("Context %q policy: %w", manifest.Name, err)
+		}
+		if err := validateContextPolicyLayout(paths.PolicyDirectory, manifest.PolicyMode); err != nil {
+			return nil, fmt.Errorf("Context %q policy layout: %w", manifest.Name, err)
 		}
 		var document map[string]any
 		if err := json.Unmarshal(policy.source, &document); err != nil {
@@ -86,7 +105,7 @@ func (r *Runtime) readAggregateContexts(ctx context.Context) ([]aggregateContext
 		}
 		items = append(items, aggregateContext{
 			manifest: manifest, paths: paths, data: contextData,
-			dataJSON: append([]byte{}, policy.source...), rego: rego, creds: creds,
+			policy: policy, rego: rego, creds: creds,
 			graphqlEndpoints: append([]tobari.GraphQLEndpoint{}, policy.graphqlEndpoints...),
 		})
 	}
@@ -260,7 +279,13 @@ func copyFileExclusive(source, destination string) error {
 }
 
 func (r *Runtime) buildAggregateProjection(ctx context.Context) (aggregateProjection, error) {
-	items, err := r.readAggregateContexts(ctx)
+	return r.buildAggregateProjectionWithTransactions(ctx, nil)
+}
+
+func (r *Runtime) buildAggregateProjectionWithTransactions(
+	ctx context.Context, transactions map[string]*policySourceTransaction,
+) (aggregateProjection, error) {
+	items, err := r.readAggregateContextsWithTransactions(ctx, transactions)
 	if err != nil {
 		return aggregateProjection{}, err
 	}
@@ -268,7 +293,7 @@ func (r *Runtime) buildAggregateProjection(ctx context.Context) (aggregateProjec
 	credentialContexts := map[string]any{}
 	hash := sha256.New()
 	for _, item := range items {
-		preflight, err := prepareContextPolicyPreflight(item.manifest, item.paths.PolicyDirectory, item.dataJSON)
+		preflight, err := prepareContextPolicyPreflight(item.manifest, item.paths.PolicyDirectory, item.policy)
 		if err != nil {
 			return aggregateProjection{}, fmt.Errorf("Context %q policy preflight: %w", item.manifest.Name, err)
 		}
@@ -311,6 +336,9 @@ func (r *Runtime) buildAggregateProjection(ctx context.Context) (aggregateProjec
 	if _, err := os.Lstat(directory); err == nil {
 		if err := r.testPolicyDirectory(ctx, result.PolicyDirectory); err != nil {
 			return aggregateProjection{}, fmt.Errorf("validate existing aggregate policy: %w", err)
+		}
+		if err := verifyAggregatePolicySources(items, transactions); err != nil {
+			return aggregateProjection{}, err
 		}
 		return result, nil
 	} else if !errors.Is(err, os.ErrNotExist) {
@@ -396,10 +424,31 @@ func (r *Runtime) buildAggregateProjection(ctx context.Context) (aggregateProjec
 	if err := r.testPolicyDirectory(ctx, candidatePolicy); err != nil {
 		return aggregateProjection{}, fmt.Errorf("validate aggregate policy: %w", err)
 	}
+	if err := verifyAggregatePolicySources(items, transactions); err != nil {
+		return aggregateProjection{}, err
+	}
 	if err := os.Rename(temporary, directory); err != nil {
 		if !errors.Is(err, os.ErrExist) {
 			return aggregateProjection{}, err
 		}
 	}
 	return result, nil
+}
+
+func verifyAggregatePolicySources(
+	items []aggregateContext, transactions map[string]*policySourceTransaction,
+) error {
+	for _, item := range items {
+		var current policyDataFile
+		var err error
+		if transactions[item.paths.PolicyDirectory] != nil {
+			current, err = readPolicyDataDuringTransaction(item.paths.PolicyDirectory)
+		} else {
+			current, err = readPolicyData(item.paths.PolicyDirectory)
+		}
+		if err != nil || !reflect.DeepEqual(current.sources, item.policy.sources) {
+			return fmt.Errorf("Context %q policy source changed during aggregate generation", item.manifest.Name)
+		}
+	}
+	return nil
 }

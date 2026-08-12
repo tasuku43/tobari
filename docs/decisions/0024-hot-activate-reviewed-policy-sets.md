@@ -6,7 +6,7 @@
 - Scope: Product, architecture, security, policy learning, runtime, and harness
 - Supersedes: The per-decision OPA recreation mechanism in ADR 0018 after the
   activation transport is accepted
-- Superseded by: None
+- Superseded by: ADR 0028 for Context policy-source promotion only
 
 ## Context
 
@@ -28,7 +28,8 @@ session, however, can bind a complete typed snapshot, retain each opaque ID
 unchanged, collect explicit per-candidate choices, and apply the resulting set
 as one mutation of the command-owned installation policy decision set. The
 first slice bounds one Apply to one Context so durable source promotion remains
-one atomic file replacement rather than a multi-file transaction.
+one transaction. ADR 0028 replaces this ADR's former single-file promotion
+mechanism with a journaled complete domain-generation transaction.
 
 ## Decision
 
@@ -83,12 +84,13 @@ falls through to partially loaded or stale broader authority.
   public target inputs or positional display authority.
 - One Apply may contain several projects and effects but exactly one Context.
   The operator applies or discards before switching Context; this keeps the
-  durable source change atomic without introducing a multi-file journal.
+  durable source change within one domain-generation transaction.
 - Machine and automation workflows remain one-reference actions.
 - A process interruption cannot expose a partially promoted reviewed set:
-  source promotion is one atomic file replacement and runtime authority changes
-  only through a complete bundle revision. Mutation output remains subject to
-  the existing uncertain-outcome reconciliation contract after interruption.
+  ADR 0028's journaled complete-generation promotion fails closed or recovers,
+  and runtime authority changes only through a complete bundle revision.
+  Mutation output remains subject to the existing uncertain-outcome
+  reconciliation contract after interruption.
 
 ## Mechanical enforcement
 

@@ -98,6 +98,21 @@ test_allow_https_get if {
 	result.allow
 }
 
+test_domain_methods_do_not_authorize_another_domain if {
+	authorities := [
+		{"scheme": "https", "host": "api.github.com", "ports": [443], "methods": {"read": ["GET"], "write": [{"method": "POST", "exclude_path_prefixes": []}]}},
+		{"scheme": "https", "host": "example.com", "ports": [443], "methods": {"read": ["GET"], "write": []}},
+	]
+	request := object.union(
+		request_with_authority({"host": "example.com"}),
+		{"method": "POST", "path": {"raw": "/write", "segments": ["write"]}},
+	)
+	result := decision with input as input_with_request(request)
+		with data.tobari.boundary.authorities as authorities
+	not result.allow
+	result.learnable
+}
+
 test_allow_plain_http_test_host if {
 	request := request_with_authority({"scheme": "http", "host": "mock-upstream", "port": 8080})
 	result := decision with input as input_with_request(request)

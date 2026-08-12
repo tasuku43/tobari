@@ -574,7 +574,7 @@ advisory only; the interactive `policy review` queue is the human entry point.
 It stages unchanged opaque references only from exact detail screens and uses
 one final `policy apply-reviewed` fixed-target action to revalidate and activate
 one Context's set. Apply or discard is required before switching Context so the
-source change remains one atomic file replacement. `policy rules` is the
+source change remains one atomic domain-generation replacement. `policy rules` is the
 current learned-decision inventory; its TTY reset flow delegates one explicit
 opaque reference to `policy reset`. Redirected and machine-readable review and
 inventory remain read-only. The Permission Inbox groups candidates by their
@@ -742,12 +742,19 @@ synthetic state.
 - `contexts/<name>/runtime/Dockerfile`: optional owner-only Context runtime
   recipe created by `runtime init`; its source digest and last successful
   managed image build are recorded additively in `context.json`;
-- `contexts/<name>/policy/data.json`: authoritative HTTP and exact GraphQL
-  endpoint boundary, baseline, and
-  learned allow/deny data for that Context; Guided Contexts own no Rego files,
-  while Advanced Contexts additionally own `tobari.rego` and
-  `tobari_test.rego`; the directory is never mounted directly as the shared
-  OPA's complete policy;
+- `contexts/<name>/policy/domains/<canonical-host>/allow.json`: strict
+  schema-v1 authority, per-domain method, exact GraphQL endpoint, credential
+  profile host-binding, and learned-Allow source for one canonical lower-case
+  host;
+- `contexts/<name>/policy/domains/<canonical-host>/deny.json`: strict
+  schema-v1 baseline-Deny and learned exact-Deny source for the same host;
+  every directory, embedded host, authority, endpoint, binding, and rule host
+  must match exactly. Guided Contexts own no Rego files, while Advanced
+  Contexts additionally own `tobari.rego` and `tobari_test.rego`. Context
+  policy has no `data.json`; the generated immutable OPA projection may use
+  that filename. Wildcards, IP literals, non-canonical hosts, unknown fields,
+  duplicate keys or rule IDs, incomplete pairs, symlinks, unsafe permissions,
+  and extra files fail closed;
 - `contexts/<name>/credentials.json`: reserved schema-v1 profile metadata for
   the explicitly selected managed Gateway adapter;
 - `contexts/<name>/credentials/`: reserved managed-adapter secret files for
@@ -940,9 +947,12 @@ explicitly mounted root or network bandwidth shaping.
 `policy allow`, `policy deny`, `policy reset`, `policy compact`, and final TTY
 review Apply first build and test the complete candidate
 policy in a private host temporary directory. After successful tests they
-atomically replace only the affected `policy/data.json` sources and invoke the same activation
-boundary. They never write Rego source, managed credential files, or tool-owned
-home files.
+preserve unchanged source bytes, build a complete replacement `domains/`
+generation, and invoke the same activation boundary. The whole source
+generation is swapped under an in-process mutex and a cross-process lock with
+a durable recovery journal; an interrupted or externally edited transaction
+cannot expose a mixed valid generation. They never write Rego source, managed
+credential files, or tool-owned home files.
 OPA marks a denial learnable only when its version, cluster, scheme, fixed
 request port, project-principal boundary, trusted GraphQL endpoint and parsed
 coordinate when applicable, and (when selected) managed

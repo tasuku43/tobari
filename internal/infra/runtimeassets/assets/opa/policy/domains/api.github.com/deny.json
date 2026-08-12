@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "host": "api.github.com",
+  "baseline_rules": [
+    {"host": "api.github.com", "method": "POST", "path_prefix": "/repos/"}
+  ],
+  "rules": []
+}

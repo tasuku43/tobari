@@ -572,11 +572,15 @@ At minimum, exercise:
 - invalid or stale policy bundles, exact revision timeout, authority-reducing
   transition order, and cross-Context reviewed sets before source write;
 - invalid, stale, already-covered, or wrong-kind policy candidate references;
-- duplicate, symlinked, group/world-accessible, concurrently changed, or
-  malformed managed policy data before write;
+- unknown-field, duplicate-key/rule-ID, missing, host-mismatched,
+  non-canonical/wildcard/IP, symlinked, group/world-accessible, incomplete,
+  extra-file, concurrently changed, or malformed domain policy source before
+  write;
 - fewer than three, shallow, mixed-host, mixed-method, or stale compaction
   sources;
-- failed learned-policy preflight before atomic replacement;
+- failed Guided or Advanced learned-policy preflight before complete domain
+  generation replacement, plus rollback/recovery and cross-process mutation
+  races;
 - partial startup mapped to non-retryable `cluster_start_failed`;
 - partial root reconciliation mapped to non-retryable `runtime_reconcile_failed`;
 - inherited Git identity lookup failure mapped to non-retryable
