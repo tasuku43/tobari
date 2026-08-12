@@ -22,11 +22,10 @@ from credential_adapters import (
     DEFAULT_SECRET_HEADERS,
     PROFILE_HEADER,
     CredentialAdapterError,
-    build_credential_adapter,
+    PassthroughCredentialAdapter,
 )
 from broker_credentials import (
     BrokerCredentialBindingError,
-    BrokerCredentialOutcomeUnknown,
     BrokerCredentialUnavailable,
     BrokeredCredentialAdapter,
     redacted_audit_path,
@@ -788,24 +787,7 @@ class TobariGateway:
             if os.path.exists(self.credential_path)
             else None
         )
-        self.credential_adapter_name = os.getenv(
-            "TOBARI_CREDENTIAL_ADAPTER", "passthrough"
-        )
-        base_credential_adapter = build_credential_adapter(
-            self.credential_adapter_name,
-            credential_path=self.credential_path,
-            # Resolve these callbacks when the request runs so the adapter
-            # boundary remains observable/testable without duplicating the
-            # managed implementation in the Gateway lifecycle.
-            load_config=lambda path: load_credential_config(path),
-            configured_secret_headers=lambda config: configured_secret_headers(config),
-            profile_binding=lambda config, name, context, project: _profile_project_binding(
-                config, name, context, project
-            ),
-            injector=lambda request, config, name, host, context, project: inject_credential(
-                request, config, name, host, context, project
-            ),
-        )
+        base_credential_adapter = PassthroughCredentialAdapter()
         self.auth_provider_projection_path = os.getenv(
             "TOBARI_AUTH_PROVIDER_PROJECTION", ""
         )
@@ -814,10 +796,7 @@ class TobariGateway:
             "/run/tobari-auth/runtime/broker.sock",
         )
         self.auth_broker_timeout = float(
-            # The broker may wait for the companion's bounded 60-second
-            # terminal refresh result. Keep this outer socket deadline larger
-            # so the Gateway never manufactures an earlier unknown outcome.
-            _positive_int("TOBARI_AUTH_BROKER_TIMEOUT_SECONDS", 70, 70, 90)
+            _positive_int("TOBARI_AUTH_BROKER_TIMEOUT_SECONDS", 2, 1, 10)
         )
         if self.auth_provider_projection_path:
             self.credential_adapter = BrokeredCredentialAdapter(
@@ -943,18 +922,9 @@ class TobariGateway:
                 "learnable": learnable,
                 "started": started,
             }
-            if bool(getattr(credential_request, "deferred", False)):
-                # AWS SigV4 needs a hash of the complete, bounded request body.
-                # Policy has already allowed the ordinary HTTP effect, but the
-                # request remains buffered and cannot reach upstream until the
-                # broker returns final signed headers from request().
-                flow.metadata["tobari_deferred_credential"] = credential_request
-                flow.request.stream = False
-            else:
-                commit_upstream_authority(flow)
-                # Authorization is complete before mitmproxy forwards any body bytes.
-                # The body is deliberately opaque to policy and is never retained here.
-                flow.request.stream = True
+            commit_upstream_authority(flow)
+            # Resolution completed after policy allow and before any upstream body.
+            flow.request.stream = True
         except GraphQLRequestError as error:
             reason = str(error)
             _deny(flow, 400, error.code)
@@ -967,10 +937,6 @@ class TobariGateway:
             reason = str(error)
             _deny(flow, 403, "credential_profile_not_bound")
             upstream_status = 403
-        except BrokerCredentialOutcomeUnknown as error:
-            reason = str(error)
-            _deny(flow, 409, "credential_refresh_outcome_unknown")
-            upstream_status = 409
         except BrokerCredentialBindingError as error:
             reason = str(error)
             _deny(flow, 403, "credential_handle_invalid")
@@ -1099,13 +1065,6 @@ class TobariGateway:
             profile_name = credential_request.apply(
                 flow.request, decision.credential_profile
             )
-            if bool(getattr(credential_request, "deferred", False)):
-                apply_body = getattr(credential_request, "apply_body", None)
-                if not callable(apply_body):
-                    raise BrokerCredentialUnavailable(
-                        "deferred credential contract is unavailable"
-                    )
-                apply_body(flow.request)
             commit_upstream_authority(flow)
             base = {
                 "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
@@ -1133,8 +1092,6 @@ class TobariGateway:
             audit_failure(503, "policy_unavailable", str(error))
         except CredentialBindingError as error:
             audit_failure(403, "credential_profile_not_bound", str(error))
-        except BrokerCredentialOutcomeUnknown as error:
-            audit_failure(409, "credential_refresh_outcome_unknown", str(error))
         except BrokerCredentialBindingError as error:
             audit_failure(403, "credential_handle_invalid", str(error))
         except BrokerCredentialUnavailable as error:
@@ -1153,39 +1110,6 @@ class TobariGateway:
         if isinstance(graphql_pending, dict):
             self._complete_graphql_request(flow, graphql_pending)
             return
-        pending = flow.metadata.pop("tobari_deferred_credential", None)
-        if pending is None:
-            return
-        event = flow.metadata.get("tobari_audit")
-
-        def deny(status: int, code: str, reason: str) -> None:
-            if isinstance(event, dict):
-                event["decision"] = "deny"
-                event["reason"] = reason
-            _deny(flow, status, code)
-
-        try:
-            apply_body = getattr(pending, "apply_body", None)
-            if not callable(apply_body):
-                raise BrokerCredentialUnavailable(
-                    "deferred credential contract is unavailable"
-                )
-            apply_body(flow.request)
-            commit_upstream_authority(flow)
-        except BrokerCredentialOutcomeUnknown as error:
-            deny(409, "credential_refresh_outcome_unknown", str(error))
-        except BrokerCredentialBindingError as error:
-            deny(403, "broker_signing_request_invalid", str(error))
-        except BrokerCredentialUnavailable as error:
-            deny(503, "credential_broker_unavailable", str(error))
-        except CredentialAdapterError as error:
-            deny(503, "credential_unavailable", str(error))
-        except AuthorityError as error:
-            deny(400, "request_authority_invalid", str(error))
-        except (RuntimeError, UnicodeError, ValueError):
-            deny(503, "credential_unavailable", "credential processing failed")
-        except Exception:
-            deny(502, "gateway_error", "gateway error")
 
     def responseheaders(self, flow: http.HTTPFlow) -> None:
         if not isinstance(flow.metadata.get("tobari_audit"), dict) and not isinstance(

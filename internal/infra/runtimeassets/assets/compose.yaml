@@ -61,7 +61,6 @@ services:
     tmpfs:
       - /tmp:size=16m,mode=1777
       - /run/tobari-auth/control:size=4m,mode=0700,uid=${TOBARI_UID},gid=${TOBARI_GID}
-      - /run/tobari-auth/companion:size=4m,mode=0700,uid=${TOBARI_UID},gid=${TOBARI_GID}
     logging:
       driver: json-file
       options:
@@ -120,7 +119,6 @@ services:
       TOBARI_CLUSTER: default
       TOBARI_OPA_TIMEOUT_SECONDS: ${TOBARI_OPA_TIMEOUT_SECONDS:-2}
       TOBARI_UPSTREAM_TIMEOUT_SECONDS: ${TOBARI_UPSTREAM_TIMEOUT_SECONDS:-30}
-      TOBARI_CREDENTIAL_ADAPTER: ${TOBARI_CREDENTIAL_ADAPTER:-passthrough}
       TOBARI_CREDENTIAL_CONFIG: /run/tobari/config/credentials.json
       TOBARI_PRINCIPAL_REGISTRY: /run/tobari/principal-registry/principals.json
       TOBARI_AUTH_PROVIDER_PROJECTION: /run/tobari/auth/providers.json
@@ -130,7 +128,6 @@ services:
       - gateway-ca:/var/lib/mitmproxy/.mitmproxy
       - public-ca:/run/tobari/ca-public
       - ${TOBARI_CREDENTIAL_CONFIG}:/run/tobari/config/credentials.json:ro
-      - ${TOBARI_CREDENTIAL_DIR}:/run/tobari/credentials:ro
       - ${TOBARI_PRINCIPAL_DIR}:/run/tobari/principal-registry:ro
       - ${TOBARI_AUTH_PROVIDER_CONFIG}:/run/tobari/auth/providers.json:ro
       - ${TOBARI_AUTH_RUNTIME_DIR}:/run/tobari-auth/runtime:ro

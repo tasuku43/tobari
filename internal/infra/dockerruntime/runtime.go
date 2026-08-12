@@ -1285,7 +1285,6 @@ func (r *Runtime) composeEnvironment(state tobari.State) ([]string, error) {
 		environment,
 		"TOBARI_POLICY_DIR="+state.PolicyDirectory,
 		"TOBARI_CREDENTIAL_CONFIG="+state.CredentialConfig,
-		"TOBARI_CREDENTIAL_DIR="+state.CredentialDir,
 		"TOBARI_PRINCIPAL_DIR="+r.principalRegistryDirectory(),
 		"TOBARI_AUTH_PROVIDER_CONFIG="+r.authProviderProjectionPath(),
 		"TOBARI_AUTH_CONTEXTS_DIR="+r.authContextsDirectory(),
@@ -1471,46 +1470,6 @@ func decodeStrictJSON(data []byte, target any) error {
 		return fmt.Errorf("JSON contains trailing data")
 	}
 	return nil
-}
-
-func (r *Runtime) checkCredentialPermissions() error {
-	paths, err := r.diagnosticContextStores()
-	if err != nil {
-		return err
-	}
-	return r.checkCredentialPermissionsAt(paths.CredentialDirectory)
-}
-
-func (r *Runtime) checkCredentialPermissionsAt(directory string) error {
-	info, err := os.Lstat(directory)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm()&0o077 != 0 {
-		return fmt.Errorf("credential directory must be a regular owner-only directory")
-	}
-	return filepath.WalkDir(directory, func(path string, entry os.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		if path == directory {
-			return nil
-		}
-		if entry.Type()&os.ModeSymlink != 0 {
-			return fmt.Errorf("credential entry %s is a symbolic link", entry.Name())
-		}
-		info, err := entry.Info()
-		if err != nil {
-			return err
-		}
-		if info.Mode().Perm()&0o077 != 0 || (!info.IsDir() && !info.Mode().IsRegular()) {
-			return fmt.Errorf("credential entry %s must be regular and owner-only", entry.Name())
-		}
-		return nil
-	})
 }
 
 func boundedDiagnostic(data []byte) string {

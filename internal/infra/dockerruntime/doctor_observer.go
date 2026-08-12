@@ -50,8 +50,6 @@ func (r *Runtime) ObserveDoctorCheck(
 		return r.observeDoctorPolicy(ctx), nil
 	case doctor.CheckIDPolicyData:
 		return r.observeDoctorPolicyData(ctx), nil
-	case doctor.CheckIDCredentials:
-		return r.observeDoctorCredentialFiles(ctx), nil
 	case doctor.CheckIDCredentialConfig:
 		return r.observeDoctorCredentialConfig(ctx), nil
 	case doctor.CheckIDImageConfig:
@@ -261,21 +259,10 @@ func (r *Runtime) doctorContextStorePaths(ctx context.Context) (tobari.ContextSt
 	return r.diagnosticContextStores()
 }
 
-func (r *Runtime) observeDoctorCredentialFiles(ctx context.Context) doctor.Observation {
-	paths, err := r.doctorContextStorePaths(ctx)
-	if err != nil {
-		return observed(doctor.CheckStatusFail, "managed credential paths could not be inspected")
-	}
-	if err := r.checkCredentialPermissionsAt(paths.CredentialDirectory); err != nil {
-		return observed(doctor.CheckStatusFail, err.Error())
-	}
-	return observed(doctor.CheckStatusPass, "credential files have safe Unix modes")
-}
-
 func (r *Runtime) observeDoctorCredentialConfig(ctx context.Context) doctor.Observation {
 	paths, err := r.doctorContextStorePaths(ctx)
 	if err != nil {
-		return observed(doctor.CheckStatusFail, "managed credential configuration could not be inspected")
+		return observed(doctor.CheckStatusFail, "Context endpoint projection could not be inspected")
 	}
 	detail, status := r.checkCredentialConfigAt(paths.CredentialConfig)
 	return observed(status, detail)

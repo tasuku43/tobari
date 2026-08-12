@@ -22,7 +22,7 @@ import (
 )
 
 const (
-	humanPresentationFixtureSHA256 = "f29c8915af1559562253436c7f58654fc677d6505a4f976db26f2e309dc3005b"
+	humanPresentationFixtureSHA256 = "e4e786546630bb263a4afd8ae62356f7a29954bbfea2e1831ce697d1bdbd5714"
 	humanPresentationAnswerSHA256  = "f2dbd3c1c819abf0da5ee05121b13178f9d2889afa9092563a4104de80e1fd32"
 )
 

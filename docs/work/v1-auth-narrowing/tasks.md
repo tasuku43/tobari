@@ -25,26 +25,32 @@
       strict owner static import/status/logout. Evidence: `auth login` requires
       `--provider=github`, only the GitHub manifest remains built in, and the
       provider domain accepts only `primary_secret` header-binding plans.
-- [ ] Remove managed injection and its store, selector, Gateway path, mounts,
-      status, tests, and assets.
-- [ ] Remove AWS, Datadog, OpenAI, Anthropic, Chatwork, companion, refresh,
+- [x] Remove managed injection and its store, selector, Gateway path, mounts,
+      status, tests, and assets. Evidence: the Gateway has no managed adapter
+      or selector, the shared Compose contract mounts no credential directory,
+      and the managed-file doctor check and runtime environment were removed.
+- [x] Remove AWS, Datadog, OpenAI, Anthropic, Chatwork, companion, refresh,
       signing, host drivers, exact-version contracts, state readers, and
-      unowned dependencies/assets. Partial evidence: Go provider built-ins,
-      dynamic/signing domain shapes, non-GitHub host drivers, companion package,
-      private command path, lifecycle/status/doctor fields, and browser targets
-      are removed. Canonical/embedded Python broker and Gateway dynamic,
-      signing, managed, and companion surfaces remain for the source-finalizing
-      follow-up and are intentionally not claimed complete by this commit.
+      unowned dependencies/assets. Evidence: canonical Auth Broker and Gateway
+      sources retain only static `primary_secret` header resolution; retired
+      provider, refresh, signing, companion modules, dispatcher operations,
+      Docker image content, tests, and embedded snapshots are absent.
 - [ ] Clarify brokered versus Workspace-owned authentication in all outputs.
-- [ ] Synchronize canonical and embedded sources only after implementation
-      stabilizes.
+- [x] Synchronize canonical and embedded sources only after implementation
+      stabilizes. Evidence: the repository sync scripts generated both embedded
+      snapshots and both source-equality checks passed.
 
 ## Verify and integrate
 
-- [ ] Re-prove static handle binding, deny-before-resolution, one exact
+- [x] Re-prove static handle binding, deny-before-resolution, one exact
       replacement, rotation, revocation, no fallback, and secret-free output.
+      Evidence: 25 Auth Broker tests and 26 Gateway/GraphQL/DNS tests passed in
+      pinned mitmproxy containers; negative cases cover retired operations,
+      terminal denial, invalid-handle no-fallback, rotation, and revocation.
 - [x] Run focused Go tests. Evidence: `go test ./internal/... ./cmd/tobari`
       passed on 2026-08-12 after the Go vertical deletion.
-- [ ] Review dependency, generated, and image-content diffs.
+- [x] Review dependency, generated, and image-content diffs. Evidence: canonical
+      and embedded source equality plus the Auth Broker image contract passed;
+      retired runtime modules account for the dependency reduction.
 - [ ] Record `task check`, `task security`, and `task public:check` evidence.
 - [ ] Commit only this packet, integrate, and repeat verification.

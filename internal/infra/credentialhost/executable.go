@@ -51,6 +51,9 @@ func hashExecutable(path string) (string, error) {
 	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0o111 == 0 || info.Mode().Perm()&0o022 != 0 || info.Size() <= 0 || info.Size() > maxExecutableBytes {
 		return "", ErrInvalidExecutable
 	}
+	// #nosec G304 -- resolveExecutable canonicalizes the trusted PATH result;
+	// this boundary rejects symlinks, non-regular/world-writable executables,
+	// bounds size, and rebinds the bytes to the captured digest before use.
 	file, err := os.Open(path)
 	if err != nil {
 		return "", ErrInvalidExecutable
