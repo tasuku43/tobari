@@ -113,22 +113,21 @@ type ComponentStatus struct {
 
 // ClusterStatus is a task-bound observation of shared enforcement.
 type ClusterStatus struct {
-	Task                     string            `json:"task"`
-	Configured               bool              `json:"configured"`
-	Running                  bool              `json:"running"`
-	Policy                   string            `json:"policy"`
-	TobariCount              int               `json:"tobari_count"`
-	ContextCount             int               `json:"context_count"`
-	PolicyRevision           string            `json:"policy_revision"`
-	PolicyProjection         string            `json:"policy_projection"`
-	PrincipalRegistry        string            `json:"principal_registry"`
-	CredentialProjection     string            `json:"credential_projection"`
-	AuthProviderProjection   string            `json:"auth_provider_projection"`
-	AuthBrokerState          string            `json:"auth_broker_state"`
-	CredentialCompanionState string            `json:"credential_companion_state"`
-	RootKeyBackend           string            `json:"root_key_backend"`
-	Components               []ComponentStatus `json:"components"`
-	RecentError              string            `json:"recent_error"`
+	Task                   string            `json:"task"`
+	Configured             bool              `json:"configured"`
+	Running                bool              `json:"running"`
+	Policy                 string            `json:"policy"`
+	TobariCount            int               `json:"tobari_count"`
+	ContextCount           int               `json:"context_count"`
+	PolicyRevision         string            `json:"policy_revision"`
+	PolicyProjection       string            `json:"policy_projection"`
+	PrincipalRegistry      string            `json:"principal_registry"`
+	CredentialProjection   string            `json:"credential_projection"`
+	AuthProviderProjection string            `json:"auth_provider_projection"`
+	AuthBrokerState        string            `json:"auth_broker_state"`
+	RootKeyBackend         string            `json:"root_key_backend"`
+	Components             []ComponentStatus `json:"components"`
+	RecentError            string            `json:"recent_error"`
 }
 
 // UnconfiguredClusterStatus preserves an explicit finite observation for every
@@ -138,8 +137,8 @@ func UnconfiguredClusterStatus(task string) ClusterStatus {
 	return ClusterStatus{
 		Task: task, PolicyProjection: "unavailable", PrincipalRegistry: "unavailable",
 		CredentialProjection: "unavailable", AuthProviderProjection: "unavailable",
-		AuthBrokerState: "unavailable", CredentialCompanionState: "absent",
-		RootKeyBackend: "unavailable", Components: []ComponentStatus{},
+		AuthBrokerState: "unavailable",
+		RootKeyBackend:  "unavailable", Components: []ComponentStatus{},
 	}
 }
 
@@ -154,7 +153,7 @@ func (s ClusterStatus) Validate() error {
 		}
 		if s.Components == nil || s.PolicyProjection != "unavailable" || s.PrincipalRegistry != "unavailable" ||
 			s.CredentialProjection != "unavailable" || s.AuthProviderProjection != "unavailable" ||
-			s.AuthBrokerState != "unavailable" || s.CredentialCompanionState != "absent" ||
+			s.AuthBrokerState != "unavailable" ||
 			s.RootKeyBackend != "unavailable" {
 			return fmt.Errorf("unconfigured cluster observation is incomplete")
 		}
@@ -163,15 +162,11 @@ func (s ClusterStatus) Validate() error {
 	if !filepath.IsAbs(s.Policy) || s.TobariCount < 0 || s.ContextCount < 1 ||
 		!regexp.MustCompile(`^[0-9a-f]{64}$`).MatchString(s.PolicyRevision) || s.Components == nil ||
 		s.PolicyProjection == "" || s.PrincipalRegistry == "" || s.CredentialProjection == "" ||
-		s.AuthProviderProjection == "" || s.AuthBrokerState == "" || s.CredentialCompanionState == "" || s.RootKeyBackend == "" {
+		s.AuthProviderProjection == "" || s.AuthBrokerState == "" || s.RootKeyBackend == "" {
 		return fmt.Errorf("configured cluster status is incomplete")
 	}
 	if s.AuthBrokerState != "ready" && s.AuthBrokerState != "locked" && s.AuthBrokerState != "unavailable" {
 		return fmt.Errorf("configured cluster Auth Broker state is invalid")
-	}
-	if s.CredentialCompanionState != "ready" && s.CredentialCompanionState != "prepared" &&
-		s.CredentialCompanionState != "absent" && s.CredentialCompanionState != "unavailable" {
-		return fmt.Errorf("configured cluster credential companion state is invalid")
 	}
 	if s.AuthProviderProjection != "valid" && s.AuthProviderProjection != "invalid" {
 		return fmt.Errorf("configured cluster auth provider projection is invalid")

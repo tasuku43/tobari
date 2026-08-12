@@ -15,7 +15,7 @@ func TestMachineOutputInterpretationFixtureHasReviewedAnswerKey(t *testing.T) {
 	cluster := cases["unconfigured_cluster"].(map[string]any)
 	if cluster["configured"] != false || cluster["running"] != false ||
 		cluster["policy"] != nil || cluster["policy_revision"] != nil ||
-		cluster["policy_projection"] != "unavailable" || cluster["credential_companion_state"] != "absent" ||
+		cluster["policy_projection"] != "unavailable" ||
 		len(cluster["components"].([]any)) != 0 {
 		t.Fatalf("unconfigured fixture facts = %+v", cluster)
 	}

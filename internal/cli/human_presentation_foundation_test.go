@@ -16,14 +16,13 @@ import (
 	"testing"
 
 	"github.com/tasuku43/tobari/internal/app/tobaricmd"
-	"github.com/tasuku43/tobari/internal/domain/authbroker"
 	"github.com/tasuku43/tobari/internal/domain/doctor"
 	"github.com/tasuku43/tobari/internal/domain/fault"
 	"github.com/tasuku43/tobari/internal/domain/tobari"
 )
 
 const (
-	humanPresentationFixtureSHA256 = "ea0c39f32078014cfb228725d013c79538eb5357814fc51a71fbec03a3078ee3"
+	humanPresentationFixtureSHA256 = "f29c8915af1559562253436c7f58654fc677d6505a4f976db26f2e309dc3005b"
 	humanPresentationAnswerSHA256  = "f2dbd3c1c819abf0da5ee05121b13178f9d2889afa9092563a4104de80e1fd32"
 )
 
@@ -445,18 +444,6 @@ func TestRawSelectorsDoNotRedrawDuringIdlePollsAndRestoreTerminal(t *testing.T) 
 				if err == nil && !decision.Canceled {
 					return errors.New("policy rules did not cancel")
 				}
-				return err
-			},
-		},
-		{
-			name: "authentication", title: "Tobari · Provider login",
-			run: func(input *idlePollThenInput, output *bytes.Buffer) error {
-				selector := newAuthLoginProviderSelectorWithStyle(false)
-				selector.wizard.mode = &selectorModeFake{}
-				_, err := selector.Select(context.Background(), "default", []authbroker.ProviderStatus{
-					{Provider: "github", State: authbroker.ProviderCredentialNotConfigured},
-					{Provider: "aws", State: authbroker.ProviderCredentialNotConfigured},
-				}, input, output)
 				return err
 			},
 		},

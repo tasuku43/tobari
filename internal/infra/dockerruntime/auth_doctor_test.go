@@ -43,19 +43,6 @@ func (r *authDoctorRunner) Run(
 			state = "locked"
 		}
 		_, _ = io.WriteString(stdout, `{"schema_version":1,"ok":true,"state":"`+state+`"}`+"\n")
-	case slices.Contains(args, "companion_status"):
-		state := r.companionState
-		if state == "" {
-			state = "ready"
-		}
-		epoch := testCompanionEpoch
-		if state == "absent" {
-			epoch = ""
-		}
-		_, _ = io.WriteString(
-			stdout,
-			`{"schema_version":1,"ok":true,"state":"`+state+`","epoch_id":"`+epoch+`"}`+"\n",
-		)
 	case slices.Contains(args, "status"):
 		provider := authDoctorArgument(args, "--provider")
 		if provider == "github" {
@@ -213,11 +200,10 @@ func TestAuthDoctorVerifiesMatchingProjectBindingWithExactHostOwnedDimensions(t 
 
 	checks := runAuthDiagnostics(fixture.runtime)
 	providerCheck := requireAuthDiagnostic(t, checks, "auth_provider_manifests", doctor.CheckStatusPass)
-	if providerCheck.Detail != "6 credential-provider manifests normalize to projection schema V1" {
+	if providerCheck.Detail != "1 credential-provider manifests normalize to projection schema V1" {
 		t.Fatalf("provider manifest diagnostic = %q", providerCheck.Detail)
 	}
 	requireAuthDiagnostic(t, checks, "auth_broker", doctor.CheckStatusPass)
-	requireAuthDiagnostic(t, checks, "credential_companion", doctor.CheckStatusPass)
 	requireAuthDiagnostic(t, checks, "auth_vault_integrity", doctor.CheckStatusPass)
 	requireAuthDiagnostic(t, checks, "auth_project_handles", doctor.CheckStatusPass)
 	assertAuthDoctorCanaryAbsent(t, checks)
@@ -238,21 +224,6 @@ func TestAuthDoctorVerifiesMatchingProjectBindingWithExactHostOwnedDimensions(t 
 			t.Fatalf("binding_status %s = %q, want %q; argv=%v", name, got, want, call)
 		}
 	}
-}
-
-func TestAuthDoctorReportsCompanionSeparatelyWithoutHidingStaticBrokerHealth(t *testing.T) {
-	runner := &authDoctorRunner{brokerState: "ready", companionState: "absent"}
-	fixture := newAuthDoctorFixture(t, runner)
-	fixture.writeRegistry(t, authDoctorRevision, fixture.digest)
-
-	checks := runAuthDiagnostics(fixture.runtime)
-	requireAuthDiagnostic(t, checks, "auth_broker", doctor.CheckStatusPass)
-	companion := requireAuthDiagnostic(t, checks, "credential_companion", doctor.CheckStatusWarn)
-	if !strings.Contains(companion.Detail, "cluster up") {
-		t.Fatalf("companion diagnostic = %q", companion.Detail)
-	}
-	requireAuthDiagnostic(t, checks, "auth_vault_integrity", doctor.CheckStatusPass)
-	assertAuthDoctorCanaryAbsent(t, checks)
 }
 
 func TestAuthDoctorClassifiesProjectBindingDriftAsReentryWarning(t *testing.T) {
@@ -349,7 +320,7 @@ func TestAuthDoctorStopsAtLockedOrUnavailableBroker(t *testing.T) {
 			}
 			checks := runAuthDiagnostics(runtime)
 			requireAuthDiagnostic(t, checks, "auth_broker", test.status)
-			for _, forbidden := range []string{"credential_companion", "auth_vault_integrity", "auth_project_handles"} {
+			for _, forbidden := range []string{"auth_vault_integrity", "auth_project_handles"} {
 				for _, check := range checks {
 					if check.Name == doctor.CheckID(forbidden) {
 						t.Fatalf("%s broker diagnostic continued into %s", test.name, forbidden)

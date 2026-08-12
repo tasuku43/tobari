@@ -23,6 +23,29 @@ type fakeGitHubRunner struct {
 	run   func(int, context.Context, GitHubCommand) error
 }
 
+func environmentValue(t *testing.T, environment []string, key string) string {
+	t.Helper()
+	prefix := key + "="
+	for _, item := range environment {
+		if strings.HasPrefix(item, prefix) {
+			return strings.TrimPrefix(item, prefix)
+		}
+	}
+	t.Fatalf("environment is missing %s: %v", key, environment)
+	return ""
+}
+
+func assertPrivatePath(t *testing.T, path string, permission os.FileMode) {
+	t.Helper()
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != permission {
+		t.Fatalf("%s permissions = %o, want %o", path, info.Mode().Perm(), permission)
+	}
+}
+
 func (r *fakeGitHubRunner) Run(ctx context.Context, command GitHubCommand) error {
 	r.mu.Lock()
 	call := r.calls

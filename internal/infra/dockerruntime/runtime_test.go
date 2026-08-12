@@ -139,8 +139,6 @@ func TestClusterUpWithProgressReportsEachRuntimeStageInOrder(t *testing.T) {
 	runtime.rootKeyLoader = func(context.Context) ([]byte, error) {
 		return bytes.Repeat([]byte{0x41}, 32), nil
 	}
-	runtime.companion = &fakeCredentialCompanionLauncher{}
-	runtime.companionEntropy = bytes.NewReader(bytes.Repeat([]byte{0x42}, 32))
 	var events []tobari.ClusterUpProgress
 	if _, err := runtime.ClusterUpWithProgress(context.Background(), func(event tobari.ClusterUpProgress) {
 		events = append(events, event)
@@ -577,7 +575,6 @@ func TestClusterDownPurgesMissingVolumesIdempotently(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	runtime.companion = &fakeCredentialCompanionLauncher{}
 	if err := runtime.ClusterDown(context.Background(), runtimeState(root), true); err != nil {
 		t.Fatalf("ClusterDown() = %v, want idempotent success for missing resources", err)
 	}

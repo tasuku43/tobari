@@ -227,7 +227,7 @@ func TestSharedClusterCatalogDeclaresAuthBrokerLifecycle(t *testing.T) {
 	for _, field := range status.Agent.Output.Fields {
 		fieldNames = append(fieldNames, field.Name)
 	}
-	for _, required := range []string{"auth_provider_projection", "auth_broker_state", "credential_companion_state", "root_key_backend"} {
+	for _, required := range []string{"auth_provider_projection", "auth_broker_state", "root_key_backend"} {
 		if !slices.Contains(fieldNames, required) {
 			t.Errorf("cluster status output fields %v lack %q", fieldNames, required)
 		}

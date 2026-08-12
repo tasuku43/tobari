@@ -96,7 +96,7 @@ func recoveryFor(id doctor.CheckID, status doctor.CheckStatus) *doctor.Recovery 
 			return &doctor.Recovery{Action: "Create or reconcile the shared Tobari cluster.", NextCommand: "cluster up"}
 		case doctor.CheckIDAuthRootKey:
 			return &doctor.Recovery{Action: "Initialize the installation root key through cluster reconciliation.", NextCommand: "cluster up"}
-		case doctor.CheckIDAuthBroker, doctor.CheckIDCredentialCompanion:
+		case doctor.CheckIDAuthBroker:
 			return &doctor.Recovery{Action: "Reconcile the shared cluster authentication services.", NextCommand: "cluster up"}
 		default:
 			return nil
@@ -124,14 +124,13 @@ func recoveryFor(id doctor.CheckID, status doctor.CheckStatus) *doctor.Recovery 
 		doctor.CheckIDAuthVaultPaths:        "Repair unsafe Auth Broker vault paths.",
 		doctor.CheckIDAuthRootKey:           "Restore or repair the installation root-key backend.",
 		doctor.CheckIDAuthBroker:            "Reconcile and unlock the shared Auth Broker.",
-		doctor.CheckIDCredentialCompanion:   "Reconcile the trusted-host credential companion.",
 		doctor.CheckIDAuthVaultIntegrity:    "Repair encrypted Context vault integrity without exposing contents.",
 		doctor.CheckIDAuthProjectHandles:    "Repair inconsistent project-bound authentication state.",
 		doctor.CheckIDOwnedResources:        "Repair Docker access before inspecting Tobari-owned resources.",
 	}[id]
 	nextCommand := "doctor"
 	switch id {
-	case doctor.CheckIDAuthBroker, doctor.CheckIDCredentialCompanion:
+	case doctor.CheckIDAuthBroker:
 		nextCommand = "cluster up"
 	}
 	return &doctor.Recovery{Action: action, NextCommand: nextCommand}

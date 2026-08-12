@@ -501,12 +501,6 @@ func (r *Runtime) addAuthDiagnostics(
 		return
 	}
 	add("auth_broker", doctor.CheckStatusPass, "Auth Broker is healthy and unlocked")
-	companionState, _, companionErr := r.credentialCompanionStatus(ctx)
-	if companionErr != nil || companionState != "ready" {
-		add("credential_companion", doctor.CheckStatusWarn, "trusted-host credential refresh is unavailable; run cluster up to reconcile the companion")
-	} else {
-		add("credential_companion", doctor.CheckStatusPass, "trusted-host credential companion is authenticated and ready")
-	}
 	if providerErr != nil {
 		return
 	}

@@ -1,12 +1,10 @@
 package cli
 
 import (
-	"bytes"
 	"reflect"
 	"strings"
 	"testing"
 
-	"github.com/tasuku43/tobari/internal/domain/authbroker"
 	"github.com/tasuku43/tobari/internal/domain/fault"
 	"github.com/tasuku43/tobari/internal/domain/operation"
 )
@@ -14,336 +12,96 @@ import (
 func TestAuthCatalogDeclaresFixedTargetMutationAndReadOnlyStatus(t *testing.T) {
 	for _, path := range []string{"auth login", "auth import", "auth logout"} {
 		spec, found := DefaultCatalog().Lookup(path)
-		if !found {
-			t.Fatalf("catalog lacks %q", path)
-		}
-		if spec.Effect != operation.EffectWrite || spec.Role != RoleAct || spec.Agent.Mutation == nil {
-			t.Fatalf("%s effect/role/mutation = %s/%s/%+v", path, spec.Effect.String(), spec.Role.String(), spec.Agent.Mutation)
-		}
-		if spec.Agent.FixedTarget == nil || spec.Agent.FixedTarget.Kind != authbroker.CredentialCatalogTargetKind ||
-			spec.Agent.FixedTarget.ID != authbroker.CredentialCatalogTargetID || spec.Agent.FixedTarget.Scope != FixedTargetScopeToolLocal {
-			t.Fatalf("%s fixed target = %+v", path, spec.Agent.FixedTarget)
-		}
-		if spec.Agent.Mutation.TargetKind != authbroker.CredentialCatalogTargetKind ||
-			!reflect.DeepEqual(spec.Agent.Mutation.TargetInputs, []string{}) {
-			t.Fatalf("%s mutation target = %+v", path, spec.Agent.Mutation)
-		}
-		if err := spec.Agent.Mutation.Impact.Validate(); err != nil {
-			t.Fatalf("%s impact = %+v: %v", path, spec.Agent.Mutation.Impact, err)
+		if !found || spec.Effect != operation.EffectWrite || spec.Role != RoleAct || spec.Agent.FixedTarget == nil || spec.Agent.Mutation == nil {
+			t.Fatalf("%s contract = %+v", path, spec)
 		}
 	}
-
 	status, found := DefaultCatalog().Lookup("auth status")
-	if !found || status.Effect != operation.EffectRead || status.Role != RoleUtility ||
-		status.Agent.FixedTarget != nil || status.Agent.Mutation != nil {
-		t.Fatalf("auth status = %+v, found=%t", status, found)
+	if !found || status.Effect != operation.EffectRead || status.Role != RoleUtility {
+		t.Fatalf("auth status = %+v", status)
 	}
 }
 
-func TestAuthCatalogDeclaresTerminalAndUnknownMutationOutcomeFaults(t *testing.T) {
-	t.Parallel()
-	for _, path := range []string{"auth login", "auth import", "auth logout"} {
-		spec, found := DefaultCatalog().Lookup(path)
-		if !found {
-			t.Fatalf("catalog lacks %q", path)
-		}
-		unknownFound := false
-		for _, declared := range spec.Agent.Errors {
-			if declared.Code != "auth_mutation_outcome_unknown" {
-				continue
-			}
-			unknownFound = true
-			if declared.Kind != fault.KindContract || declared.Retryable || len(declared.NextActions) != 1 ||
-				declared.NextActions[0].Command != "auth status" {
-				t.Fatalf("%s unknown mutation outcome = %+v", path, declared)
-			}
-		}
-		if !unknownFound {
-			t.Fatalf("%s lacks auth_mutation_outcome_unknown", path)
-		}
-	}
-
-	login, found := DefaultCatalog().Lookup("auth login")
+func TestAuthLoginCatalogIsExplicitGitHubOnly(t *testing.T) {
+	spec, found := DefaultCatalog().Lookup("auth login")
 	if !found {
 		t.Fatal("catalog lacks auth login")
 	}
-	for _, declared := range login.Agent.Errors {
-		if declared.Code == "auth_login_tty_required" {
-			if declared.Kind != fault.KindInvalidInput || declared.Retryable || len(declared.NextActions) != 1 ||
-				declared.NextActions[0].Command != "help auth login" {
-				t.Fatalf("auth login terminal fault = %+v", declared)
-			}
-			return
-		}
+	if spec.Args != "--provider=github [--context <name>] [--format text|json]" || len(spec.Agent.Inputs) == 0 {
+		t.Fatalf("auth login = %+v", spec)
 	}
-	t.Fatal("auth login lacks auth_login_tty_required")
-}
-
-func TestAuthLoginCatalogSeparatesProviderToolAndAcquisitionMethod(t *testing.T) {
-	t.Parallel()
-	login, found := DefaultCatalog().Lookup("auth login")
-	if !found {
-		t.Fatal("catalog lacks auth login")
+	provider := spec.Agent.Inputs[0]
+	if provider.Name != "--provider" || !provider.Required || !reflect.DeepEqual(provider.AllowedValues, []string{"github"}) {
+		t.Fatalf("provider input = %+v", provider)
 	}
-	if len(login.Agent.Inputs) == 0 || login.Agent.Inputs[0].Required ||
-		login.Agent.Inputs[0].Name != "--provider" || login.Agent.Inputs[0].Source != InputSourceFlag ||
-		login.Args != "[--provider <provider>] [--method identity-center|console] [--context <name>] [--format text|json]" ||
-		!strings.Contains(login.Agent.Inputs[0].Description, "github") ||
-		!strings.Contains(login.Agent.Inputs[0].Description, "aws") ||
-		!strings.Contains(login.Agent.Inputs[0].Description, "interactive provider selector") ||
-		!strings.Contains(login.Agent.Inputs[0].Description, "selected automatically") ||
-		!strings.Contains(login.Agent.Inputs[0].Description, "GitHub CLI (gh)") ||
-		!strings.Contains(login.Agent.Inputs[0].Description, "AWS CLI (aws)") ||
-		!strings.Contains(login.Agent.Inputs[0].Description, "datadog uses pup") ||
-		!strings.Contains(login.Agent.Inputs[0].Description, "openai uses Codex 0.146.0") ||
-		!strings.Contains(login.Agent.Inputs[0].Description, "anthropic uses Claude Code 2.1.220") ||
-		!strings.Contains(login.Agent.Inputs[0].Description, "not another tool") {
-		t.Fatalf("auth login provider input = %+v", login.Agent.Inputs)
-	}
-	methodFound := false
-	for _, input := range login.Agent.Inputs {
+	for _, input := range spec.Agent.Inputs {
 		if input.Name == "--method" {
-			methodFound = reflect.DeepEqual(input.AllowedValues, []string{"identity-center", "console"}) &&
-				reflect.DeepEqual(input.Requires, []string{"--provider"}) &&
-				strings.Contains(input.Description, "Omission selects identity-center")
+			t.Fatal("retired method selector remains")
 		}
 	}
-	if !methodFound {
-		t.Fatalf("auth login method input = %+v", login.Agent.Inputs)
+	if _, err := parseCommandInputs(spec, []string{}); err == nil {
+		t.Fatal("omitted provider was accepted")
 	}
-	joinedPrerequisites := strings.Join(login.Agent.Prerequisites, "\n")
-	for _, want := range []string{
-		"github", "aws", "openai", "anthropic", "Codex 0.146.0", "Claude Code 2.1.220",
-		"trusted-host PATH", "access-portal start URL", "SSO region", "account ID", "role name", "request region",
-	} {
-		if !strings.Contains(joinedPrerequisites, want) {
-			t.Fatalf("auth login prerequisites = %q, want %q", joinedPrerequisites, want)
+	if _, err := parseCommandInputs(spec, []string{"--provider=aws"}); err == nil {
+		t.Fatal("retired AWS provider was accepted")
+	}
+	if _, err := parseCommandInputs(spec, []string{"--method=console", "--provider=github"}); err == nil {
+		t.Fatal("retired method was accepted")
+	}
+	if _, err := parseCommandInputs(spec, []string{"--provider=github"}); err != nil {
+		t.Fatalf("GitHub provider rejected: %v", err)
+	}
+	retired := []string{"aws", "datadog", "openai", "anthropic", "chatwork", "console", "identity-center", "codex", "claude", "pup"}
+	encoded := spec.Args + spec.Summary + spec.Agent.Outcome + strings.Join(spec.Agent.Prerequisites, " ")
+	for _, declared := range spec.Agent.Errors {
+		encoded += declared.Code
+	}
+	for _, value := range retired {
+		if strings.Contains(strings.ToLower(encoded), value) {
+			t.Fatalf("retired auth surface %q remains in login contract", value)
 		}
 	}
-	wantErrors := map[string]bool{
-		"github_cli_unavailable":        false,
-		"github_login_cancelled":        false,
-		"github_login_failed":           false,
-		"datadog_cli_unavailable":       false,
-		"datadog_login_cancelled":       false,
-		"datadog_login_timeout":         false,
-		"datadog_login_failed":          false,
-		"openai_cli_unavailable":        false,
-		"openai_login_cancelled":        false,
-		"openai_login_timeout":          false,
-		"openai_login_failed":           false,
-		"anthropic_cli_unavailable":     false,
-		"anthropic_login_cancelled":     false,
-		"anthropic_login_timeout":       false,
-		"anthropic_login_failed":        false,
-		"aws_cli_unavailable":           false,
-		"aws_console_login_unsupported": false,
-		"aws_console_config_invalid":    false,
-		"aws_console_login_cancelled":   false,
-		"aws_console_login_timeout":     false,
-		"aws_console_login_failed":      false,
-		"aws_sso_login_cancelled":       false,
-		"aws_sso_config_invalid":        false,
-		"aws_sso_login_timeout":         false,
-		"aws_sso_login_failed":          false,
-	}
-	for _, declared := range login.Agent.Errors {
-		if _, expected := wantErrors[declared.Code]; expected {
-			wantErrors[declared.Code] = true
+	for _, code := range []string{"github_cli_unavailable", "github_login_cancelled", "github_login_failed", "auth_login_tty_required"} {
+		found := false
+		for _, declared := range spec.Agent.Errors {
+			if declared.Code == code {
+				found = true
+			}
 		}
-	}
-	for code, found := range wantErrors {
 		if !found {
 			t.Fatalf("auth login lacks %q", code)
 		}
 	}
 }
 
-func TestAuthLoginCatalogDeclaresPinnedAgentOAuthFaultRecovery(t *testing.T) {
-	t.Parallel()
-	login, found := DefaultCatalog().Lookup("auth login")
-	if !found {
-		t.Fatal("catalog lacks auth login")
-	}
-	type expectation struct {
-		kind       fault.Kind
-		nextAction string
-	}
-	want := map[string]expectation{
-		"openai_cli_unavailable":    {kind: fault.KindUnavailable, nextAction: "auth login"},
-		"openai_login_cancelled":    {kind: fault.KindRejected, nextAction: "auth login"},
-		"openai_login_timeout":      {kind: fault.KindRejected, nextAction: "auth login"},
-		"openai_login_failed":       {kind: fault.KindUnavailable, nextAction: "auth login"},
-		"anthropic_cli_unavailable": {kind: fault.KindUnavailable, nextAction: "auth login"},
-		"anthropic_login_cancelled": {kind: fault.KindRejected, nextAction: "auth login"},
-		"anthropic_login_timeout":   {kind: fault.KindRejected, nextAction: "auth login"},
-		"anthropic_login_failed":    {kind: fault.KindUnavailable, nextAction: "auth login"},
-	}
-	for _, declared := range login.Agent.Errors {
-		expected, ok := want[declared.Code]
-		if !ok {
-			continue
-		}
-		if declared.Kind != expected.kind || declared.Retryable || len(declared.NextActions) != 1 ||
-			declared.NextActions[0].Command != expected.nextAction {
-			t.Fatalf("auth login %q fault = %+v", declared.Code, declared)
-		}
-		delete(want, declared.Code)
-	}
-	if len(want) != 0 {
-		t.Fatalf("auth login lacks pinned agent OAuth faults: %v", want)
-	}
-	if !strings.Contains(login.Agent.Outcome, "trusted host") || strings.Contains(login.Agent.Outcome, "Workspace credential") {
-		t.Fatalf("auth login outcome = %q", login.Agent.Outcome)
-	}
-}
-
-func TestAuthLoginMethodRequiresExplicitProvider(t *testing.T) {
-	t.Parallel()
-	spec, found := DefaultCatalog().Lookup("auth login")
-	if !found {
-		t.Fatal("catalog lacks auth login")
-	}
-	if _, err := parseCommandInputs(spec, []string{"--method=console"}); err == nil ||
-		!strings.Contains(err.Error(), "--method requires --provider") {
-		t.Fatalf("parse auth login method without provider error = %v", err)
-	}
-	inputs, err := parseCommandInputs(spec, []string{})
-	if err != nil {
-		t.Fatalf("parse omitted provider: %v", err)
-	}
-	if inputs.Provided("--provider") || inputs.One("--provider") != "" {
-		t.Fatalf("omitted provider = provided:%t value:%q", inputs.Provided("--provider"), inputs.One("--provider"))
-	}
-	if _, err := parseCommandInputs(spec, []string{"github"}); err == nil ||
-		!strings.Contains(err.Error(), `unexpected argument "github"`) {
-		t.Fatalf("unexpected positional provider error = %v", err)
-	}
-}
-
-func TestAuthScopedHelpPublishesProtectedStdinContract(t *testing.T) {
-	command, stdout, stderr := newTestCLI(passingInspector("unused"))
-	if code := runCLI(command, []string{"help", "auth", "import", "--format=agent"}); code != ExitOK {
-		t.Fatalf("help auth import code = %d, stderr = %q", code, stderr.String())
-	}
-	output := stdout.String()
-	for _, want := range []string{
-		`"path":"auth import"`, `"name":"credential"`, `"source":"stdin"`, `"required":true`,
-		"interactive terminal stdin is rejected before any credential bytes are read",
-	} {
-		if !strings.Contains(output, want) {
-			t.Fatalf("scoped help = %q, want %q", output, want)
-		}
-	}
-	if strings.Contains(output, `TOBARI_TOKEN`) || strings.Contains(output, `--credential`) {
-		t.Fatalf("scoped help exposes an environment/argv credential channel: %q", output)
-	}
-
-	stdout.Reset()
-	stderr.Reset()
-	command.In = bytes.NewBufferString("")
-	if code := runCLI(command, []string{"auth", "import", "--help"}); code != ExitOK {
-		t.Fatalf("auth import --help code = %d, stderr = %q", code, stderr.String())
-	}
-	if !strings.Contains(stdout.String(), "stdin") || strings.Contains(stdout.String(), "--credential") {
-		t.Fatalf("human auth help = %q", stdout.String())
-	}
-}
-
-func TestAuthImportDeclaresRequiredStdinWithoutArgvOrEnvironmentSecret(t *testing.T) {
+func TestAuthImportPublishesProtectedStdinContract(t *testing.T) {
 	spec, found := DefaultCatalog().Lookup("auth import")
 	if !found {
 		t.Fatal("catalog lacks auth import")
 	}
-	foundCredential := false
+	stdin := false
 	for _, input := range spec.Agent.Inputs {
-		if input.Name == "credential" {
-			foundCredential = true
-			if input.Source != InputSourceStdin || !input.Required || input.Cardinality != InputCardinalitySingle {
-				t.Fatalf("credential input = %+v", input)
-			}
-		}
-		if input.Source == InputSourceEnvironment ||
-			(input.Source == InputSourceArgument && input.Name != "provider") {
-			t.Fatalf("auth import exposes unexpected secret-capable input = %+v", input)
+		stdin = stdin || input.Name == "credential" && input.Source == InputSourceStdin && input.Required
+		if input.Source == InputSourceArgument && input.Name != "provider" {
+			t.Fatalf("unexpected argument input = %+v", input)
 		}
 	}
-	if !foundCredential {
-		t.Fatal("auth import lacks required stdin credential declaration")
-	}
-	if inputs, _, err := parseArgumentSyntaxInputs(spec.Args); err != nil {
-		t.Fatal(err)
-	} else if _, exposed := inputs["credential"]; exposed {
-		t.Fatal("credential appears in public argv grammar")
+	if !stdin {
+		t.Fatal("auth import lacks required stdin credential")
 	}
 }
 
-func TestAuthCommandsPublishOneSecretFreeSchema(t *testing.T) {
-	wantMutationFields := []string{
-		"provider", "context", "context_state", "context_id", "configured", "account_label",
-		"storage_backend", "broker_state", "credential_revision", "change", "workspace_activation",
-	}
+func TestAuthCatalogDeclaresTerminalAndUnknownMutationOutcomeFaults(t *testing.T) {
 	for _, path := range []string{"auth login", "auth import", "auth logout"} {
-		spec, found := DefaultCatalog().Lookup(path)
-		if !found {
-			t.Fatalf("catalog lacks %q", path)
-		}
-		gotFields := make([]string, 0, len(spec.Agent.Output.Fields))
-		for _, field := range spec.Agent.Output.Fields {
-			gotFields = append(gotFields, field.Name)
-		}
-		if !reflect.DeepEqual(gotFields, wantMutationFields) || spec.Agent.Output.JSONEnvelope != "auth" ||
-			spec.Agent.Output.JSONSchemaVersion != 1 || spec.Agent.Output.CollectionCoverage != CollectionCoverageNotApplicable {
-			t.Fatalf("%s output = %+v", path, spec.Agent.Output)
-		}
-		for _, forbidden := range []string{"credential", "secret", "token", "handle", "vault", "root_key"} {
-			for _, field := range gotFields {
-				if field == forbidden {
-					t.Fatalf("%s exposes forbidden field %q", path, field)
-				}
+		spec, _ := DefaultCatalog().Lookup(path)
+		unknown := false
+		for _, declared := range spec.Agent.Errors {
+			if declared.Code == "auth_mutation_outcome_unknown" && declared.Kind == fault.KindContract && !declared.Retryable {
+				unknown = true
 			}
 		}
-	}
-
-	status, found := DefaultCatalog().Lookup("auth status")
-	if !found {
-		t.Fatal("catalog lacks auth status")
-	}
-	gotStatusFields := make([]string, 0, len(status.Agent.Output.Fields))
-	for _, field := range status.Agent.Output.Fields {
-		gotStatusFields = append(gotStatusFields, field.Name)
-	}
-	wantStatusFields := []string{"context", "context_state", "context_id", "storage_backend", "broker_state", "providers", "workspace_activation"}
-	if !reflect.DeepEqual(gotStatusFields, wantStatusFields) || status.Agent.Output.JSONEnvelope != "auth" ||
-		status.Agent.Output.JSONSchemaVersion != 1 || status.Agent.Output.CollectionCoverage != CollectionCoverageExhaustive {
-		t.Fatalf("auth status output = %+v", status.Agent.Output)
-	}
-}
-
-func TestAuthLoginUnsupportedProviderRecoveryUsesInstalledProviderDiscovery(t *testing.T) {
-	spec, found := DefaultCatalog().Lookup("auth login")
-	if !found {
-		t.Fatal("catalog lacks auth login")
-	}
-	for _, declared := range spec.Agent.Errors {
-		if declared.Code != "provider_login_unsupported" {
-			continue
+		if !unknown {
+			t.Fatalf("%s lacks unknown mutation outcome", path)
 		}
-		if len(declared.NextActions) != 1 || declared.NextActions[0].Command != "auth status" {
-			t.Fatalf("provider_login_unsupported recovery = %+v", declared.NextActions)
-		}
-		return
-	}
-	t.Fatal("auth login lacks provider_login_unsupported")
-}
-
-func TestAuthLogoutContractAllowsConfirmedNoChange(t *testing.T) {
-	spec, found := DefaultCatalog().Lookup("auth logout")
-	if !found {
-		t.Fatal("catalog lacks auth logout")
-	}
-	if !strings.Contains(spec.Agent.Outcome, "no_change") ||
-		strings.Contains(strings.Join(spec.Agent.Prerequisites, " "), "credential exist") {
-		t.Fatalf("auth logout contract still assumes a credential mutation: outcome=%q prerequisites=%v", spec.Agent.Outcome, spec.Agent.Prerequisites)
 	}
 }

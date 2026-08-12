@@ -64,15 +64,14 @@ func TestDoctorObserverDependencyMatrixAvoidsDockerFalseBlame(t *testing.T) {
 				doctor.CheckIDState:     doctor.CheckStatusWarn,
 			},
 			blockedBy: map[doctor.CheckID]doctor.CheckID{
-				doctor.CheckIDDockerEngine:        doctor.CheckIDDockerCLI,
-				doctor.CheckIDDockerContext:       doctor.CheckIDDockerCLI,
-				doctor.CheckIDDockerCompose:       doctor.CheckIDDockerCLI,
-				doctor.CheckIDPolicy:              doctor.CheckIDDockerEngine,
-				doctor.CheckIDAuthBroker:          doctor.CheckIDState,
-				doctor.CheckIDCredentialCompanion: doctor.CheckIDAuthBroker,
-				doctor.CheckIDAuthVaultIntegrity:  doctor.CheckIDAuthBroker,
-				doctor.CheckIDAuthProjectHandles:  doctor.CheckIDAuthVaultIntegrity,
-				doctor.CheckIDOwnedResources:      doctor.CheckIDDockerEngine,
+				doctor.CheckIDDockerEngine:       doctor.CheckIDDockerCLI,
+				doctor.CheckIDDockerContext:      doctor.CheckIDDockerCLI,
+				doctor.CheckIDDockerCompose:      doctor.CheckIDDockerCLI,
+				doctor.CheckIDPolicy:             doctor.CheckIDDockerEngine,
+				doctor.CheckIDAuthBroker:         doctor.CheckIDState,
+				doctor.CheckIDAuthVaultIntegrity: doctor.CheckIDAuthBroker,
+				doctor.CheckIDAuthProjectHandles: doctor.CheckIDAuthVaultIntegrity,
+				doctor.CheckIDOwnedResources:     doctor.CheckIDDockerEngine,
 			},
 		},
 		"Docker Engine down": {
@@ -85,12 +84,11 @@ func TestDoctorObserverDependencyMatrixAvoidsDockerFalseBlame(t *testing.T) {
 				doctor.CheckIDState:         doctor.CheckStatusWarn,
 			},
 			blockedBy: map[doctor.CheckID]doctor.CheckID{
-				doctor.CheckIDPolicy:              doctor.CheckIDDockerEngine,
-				doctor.CheckIDAuthBroker:          doctor.CheckIDState,
-				doctor.CheckIDCredentialCompanion: doctor.CheckIDAuthBroker,
-				doctor.CheckIDAuthVaultIntegrity:  doctor.CheckIDAuthBroker,
-				doctor.CheckIDAuthProjectHandles:  doctor.CheckIDAuthVaultIntegrity,
-				doctor.CheckIDOwnedResources:      doctor.CheckIDDockerEngine,
+				doctor.CheckIDPolicy:             doctor.CheckIDDockerEngine,
+				doctor.CheckIDAuthBroker:         doctor.CheckIDState,
+				doctor.CheckIDAuthVaultIntegrity: doctor.CheckIDAuthBroker,
+				doctor.CheckIDAuthProjectHandles: doctor.CheckIDAuthVaultIntegrity,
+				doctor.CheckIDOwnedResources:     doctor.CheckIDDockerEngine,
 			},
 		},
 		"cluster absent": {
@@ -106,10 +104,9 @@ func TestDoctorObserverDependencyMatrixAvoidsDockerFalseBlame(t *testing.T) {
 				doctor.CheckIDOwnedResources: doctor.CheckStatusPass,
 			},
 			blockedBy: map[doctor.CheckID]doctor.CheckID{
-				doctor.CheckIDAuthBroker:          doctor.CheckIDState,
-				doctor.CheckIDCredentialCompanion: doctor.CheckIDAuthBroker,
-				doctor.CheckIDAuthVaultIntegrity:  doctor.CheckIDAuthBroker,
-				doctor.CheckIDAuthProjectHandles:  doctor.CheckIDAuthVaultIntegrity,
+				doctor.CheckIDAuthBroker:         doctor.CheckIDState,
+				doctor.CheckIDAuthVaultIntegrity: doctor.CheckIDAuthBroker,
+				doctor.CheckIDAuthProjectHandles: doctor.CheckIDAuthVaultIntegrity,
 			},
 		},
 	}
@@ -230,7 +227,7 @@ func TestDoctorObserverBrokerLockedBlocksOnlyDependents(t *testing.T) {
 		t.Fatalf("auth_broker = %+v, want locked failure with cluster recovery", broker)
 	}
 	for _, id := range []doctor.CheckID{
-		doctor.CheckIDCredentialCompanion, doctor.CheckIDAuthVaultIntegrity, doctor.CheckIDAuthProjectHandles,
+		doctor.CheckIDAuthVaultIntegrity, doctor.CheckIDAuthProjectHandles,
 	} {
 		check := doctorObserverCheck(t, report, id)
 		if check.Status != doctor.CheckStatusBlocked || check.Recovery != nil {
@@ -247,7 +244,7 @@ func TestDoctorObserverBrokerLockedBlocksOnlyDependents(t *testing.T) {
 
 func TestDoctorObserverHealthyWarningsRemainHealthy(t *testing.T) {
 	installFakeDocker(t, t.TempDir())
-	runner := &authDoctorRunner{brokerState: "ready", companionState: "ready"}
+	runner := &authDoctorRunner{brokerState: "ready"}
 	fixture := newAuthDoctorFixture(t, runner)
 	fixture.writeRegistry(t, "revision_stale", fixture.digest)
 	writeConfiguredDoctorState(t, fixture.runtime)
