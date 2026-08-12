@@ -215,6 +215,7 @@ func TestProjectShellExecEnvironmentUsesOnlyDeclaredSourcesAndQuotesPrompt(t *te
 		ID:            "018bcfe5-687b-7000-8000-000000000000", Name: "default",
 		AgentProfile: tobari.DefaultProfile, Image: tobari.OfficialRuntimeBase,
 		PolicyMode: tobari.ContextPolicyModeGuided, SourceAccess: tobari.ContextSourceAccessReadWrite,
+		PolicyPresetOrigin: tobari.DefaultPolicyPresetOrigin, PolicyPresetRevision: tobari.DefaultPolicyPresetRevision(),
 		ShellEnvironment: []tobari.ContextShellEnvironmentSetting{
 			{Variable: "PS1", Source: tobari.ContextShellEnvironmentInherit},
 			{Variable: "TERM", Source: tobari.ContextShellEnvironmentInherit},
@@ -257,9 +258,11 @@ func TestProjectShellExecEnvironmentFallsBackWhenInheritedPS1IsAbsent(t *testing
 		SchemaVersion: tobari.ContextSchemaVersion,
 		ID:            "018bcfe5-687b-7000-8000-000000000000", Name: "default",
 		AgentProfile: tobari.DefaultProfile, Image: tobari.OfficialRuntimeBase,
-		PolicyMode:       tobari.ContextPolicyModeGuided,
-		SourceAccess:     tobari.ContextSourceAccessReadWrite,
-		ShellEnvironment: tobari.InitialContextShellEnvironment(),
+		PolicyMode:           tobari.ContextPolicyModeGuided,
+		SourceAccess:         tobari.ContextSourceAccessReadWrite,
+		PolicyPresetOrigin:   tobari.DefaultPolicyPresetOrigin,
+		PolicyPresetRevision: tobari.DefaultPolicyPresetRevision(),
+		ShellEnvironment:     tobari.InitialContextShellEnvironment(),
 	}
 	environment, err := projectShellExecEnvironment(manifest, func(string) (string, bool) { return "", false })
 	if err != nil {
@@ -276,6 +279,7 @@ func TestProjectShellExecEnvironmentRejectsOversizedInheritedValue(t *testing.T)
 		ID:            "018bcfe5-687b-7000-8000-000000000000", Name: "default",
 		AgentProfile: tobari.DefaultProfile, Image: tobari.OfficialRuntimeBase,
 		PolicyMode: tobari.ContextPolicyModeGuided, SourceAccess: tobari.ContextSourceAccessReadWrite,
+		PolicyPresetOrigin: tobari.DefaultPolicyPresetOrigin, PolicyPresetRevision: tobari.DefaultPolicyPresetRevision(),
 		ShellEnvironment: []tobari.ContextShellEnvironmentSetting{
 			{Variable: "TERM", Source: tobari.ContextShellEnvironmentInherit},
 		},

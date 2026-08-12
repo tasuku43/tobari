@@ -20,6 +20,10 @@ func runtimeCommandSpecs() []CommandSpec {
 		policyAllowSpec(),
 		policyDenySpec(),
 		policyResetSpec(),
+		policyPresetListSpec(),
+		policyPresetShowSpec(),
+		policyPresetInitSpec(),
+		policyPresetValidateSpec(),
 		contextListSpec(),
 		contextShowSpec(),
 		configShellSpec(),
@@ -170,6 +174,8 @@ func contextListSpec() CommandSpec {
 							{Name: "image", Type: OutputFieldTypeString, Description: "Selected compatible runtime image."},
 							{Name: "policy_mode", Type: OutputFieldTypeString, Description: "Policy development mode.", Enum: []string{"guided", "advanced"}},
 							{Name: "source_access", Type: OutputFieldTypeString, Description: "Direct project-source bind access.", Enum: []string{"read-only", "read-write"}},
+							{Name: "policy_preset_origin", Type: OutputFieldTypeString, Description: "Immutable policy-preset origin."},
+							{Name: "policy_preset_revision", Type: OutputFieldTypeString, Description: "Immutable normalized preset snapshot revision."},
 							{Name: "runtime_status", Type: OutputFieldTypeString, Description: "Runtime recipe status when observed.", Optional: true, Enum: []string{"official", "pending_build", "ready", "invalid"}},
 						},
 					}},
@@ -216,12 +222,12 @@ func contextShowSpec() CommandSpec {
 func contextCreateSpec() CommandSpec {
 	return CommandSpec{
 		Path: "context create", Summary: "Create a named execution Context",
-		Args:   "--name <name> [--image <image>] [--mode guided|advanced] [--source-access read-only|read-write] [--format text|json]",
+		Args:   "--name <name> [--image <image>] [--mode guided|advanced] [--source-access read-only|read-write] [--policy-preset <preset>] [--format text|json]",
 		Effect: operation.EffectCreate, Role: RoleAct,
 		Agent: AgentContract{
 			CapabilityID:  "context.composition",
 			Outcome:       "Create one named Context with separate owner-only policy and managed-credential stores",
-			Inputs:        []CommandInput{contextNameInput(), contextImageInput(), contextModeInput(), contextSourceAccessInput(), formatInput()},
+			Inputs:        []CommandInput{contextNameInput(), contextImageInput(), contextModeInput(), contextSourceAccessInput(), contextPolicyPresetInput(), formatInput()},
 			Output:        contextReportOutput(),
 			Prerequisites: []string{"The host Context directory is accessible."},
 			FixedTarget:   fixedContextCatalogTarget(),
@@ -1063,6 +1069,10 @@ func contextSourceAccessInput() CommandInput {
 	}
 }
 
+func contextPolicyPresetInput() CommandInput {
+	return CommandInput{Name: "--policy-preset", Source: InputSourceFlag, Required: false, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, Description: "Exact built-in or custom policy preset snapshotted into the new Context.", AllowedValues: []string{}, DefaultValue: stringPointer(tobari.DefaultPolicyPresetOrigin)}
+}
+
 func contextReportOutput() CommandOutput {
 	return CommandOutput{
 		Formats: []OutputFormat{OutputFormatText, OutputFormatJSON}, DefaultFormat: OutputFormatText, TextPresentation: TextPresentationSemanticTokens,
@@ -1076,6 +1086,9 @@ func contextReportOutput() CommandOutput {
 			{Name: "image", Type: OutputFieldTypeString, Description: "Default compatible Tobari image selector stored in the Context."},
 			{Name: "policy_mode", Type: OutputFieldTypeString, Description: "Guided or advanced policy-development mode.", Enum: []string{"guided", "advanced"}},
 			{Name: "source_access", Type: OutputFieldTypeString, Description: "Direct project-source bind access; this does not describe Workspace home or tmpfs.", Enum: []string{"read-only", "read-write"}},
+			{Name: "policy_preset_origin", Type: OutputFieldTypeString, Description: "Immutable normalized policy-preset origin selector."},
+			{Name: "policy_preset_revision", Type: OutputFieldTypeString, Description: "SHA-256 revision of the Context-owned normalized preset snapshot; empty only for a synthetic default."},
+			{Name: "policy_guardrail", Type: OutputFieldTypeString, Description: "System-enforced terminal policy guardrail.", Enum: []string{"offline", "reviewed_exact", "get_only_reviewed"}},
 			{Name: "shell_environment", Type: OutputFieldTypeArray, Description: "Complete allowlisted shell variable inventory with default, inherited, or literal source and an exact value only for literal.", SemanticScope: "The fixed four-variable Context shell presentation inventory.", Items: &OutputField{
 				Type: OutputFieldTypeObject, Description: "One allowlisted shell variable policy.", Fields: []OutputField{
 					{Name: "variable", Type: OutputFieldTypeString, Description: "Allowlisted variable name.", Enum: []string{"COLORTERM", "NO_COLOR", "PS1", "TERM"}},

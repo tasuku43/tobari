@@ -8,13 +8,15 @@ import (
 
 func validContextManifest() ContextManifest {
 	return ContextManifest{
-		SchemaVersion: ContextSchemaVersion,
-		ID:            "018bcfe5-687b-7000-8000-000000000000",
-		Name:          "project-tools",
-		AgentProfile:  DefaultProfile,
-		Image:         OfficialRuntimeBase,
-		PolicyMode:    ContextPolicyModeAdvanced,
-		SourceAccess:  ContextSourceAccessReadWrite,
+		SchemaVersion:        ContextSchemaVersion,
+		ID:                   "018bcfe5-687b-7000-8000-000000000000",
+		Name:                 "project-tools",
+		AgentProfile:         DefaultProfile,
+		Image:                OfficialRuntimeBase,
+		PolicyMode:           ContextPolicyModeAdvanced,
+		SourceAccess:         ContextSourceAccessReadWrite,
+		PolicyPresetOrigin:   DefaultPolicyPresetOrigin,
+		PolicyPresetRevision: DefaultPolicyPresetRevision(),
 	}
 }
 
@@ -234,8 +236,9 @@ func TestContextReportAcceptsRuntimeTasksAndStatuses(t *testing.T) {
 	contextReport := ContextReport{
 		Task: TaskRuntimeBuild, ContextState: ContextObservationPersisted, ID: manifest.ID, Name: manifest.Name, Active: true,
 		AgentProfile: manifest.AgentProfile, Image: manifest.Image, PolicyMode: manifest.PolicyMode,
-		SourceAccess: manifest.SourceAccess,
-		Cluster:      ContextClusterStatusNotApplicable,
+		SourceAccess:       manifest.SourceAccess,
+		PolicyPresetOrigin: manifest.PolicyPresetOrigin, PolicyPresetRevision: manifest.PolicyPresetRevision, PolicyGuardrail: PolicyPresetGuardrailReviewedExact,
+		Cluster: ContextClusterStatusNotApplicable,
 		Stores: ContextStorePaths{
 			PolicyDirectory:     filepath.Join(string(filepath.Separator), "config", "contexts", "default", "policy"),
 			CredentialConfig:    filepath.Join(string(filepath.Separator), "config", "contexts", "default", "credentials.json"),
@@ -256,6 +259,7 @@ func TestContextReportAcceptsConfigurationTasksAndRequiresCompleteGitIdentity(t 
 	base := ContextReport{
 		ContextState: ContextObservationPersisted, ID: manifest.ID, Name: manifest.Name, AgentProfile: manifest.AgentProfile,
 		Image: manifest.Image, PolicyMode: manifest.PolicyMode, SourceAccess: manifest.SourceAccess,
+		PolicyPresetOrigin: manifest.PolicyPresetOrigin, PolicyPresetRevision: manifest.PolicyPresetRevision, PolicyGuardrail: PolicyPresetGuardrailReviewedExact,
 		ShellEnvironment: mustCompleteContextShellEnvironment(t, nil),
 		GitIdentity:      DefaultContextGitIdentityReport(),
 		Stores: ContextStorePaths{
@@ -307,8 +311,8 @@ func TestContextClusterStatusValidatesKnownOutcomes(t *testing.T) {
 
 func TestContextListRequiresOneMatchingActiveItem(t *testing.T) {
 	items := []ContextSummary{
-		{ID: "018bcfe5-687b-7000-8000-000000000000", Name: "default", ContextState: ContextObservationPersisted, Active: true, AgentProfile: DefaultProfile, Image: OfficialRuntimeBase, PolicyMode: ContextPolicyModeGuided, SourceAccess: ContextSourceAccessReadWrite},
-		{ID: "018bcfe5-687b-7000-8000-000000000001", Name: "project-tools", ContextState: ContextObservationPersisted, AgentProfile: DefaultProfile, Image: OfficialRuntimeBase, PolicyMode: ContextPolicyModeAdvanced, SourceAccess: ContextSourceAccessReadOnly},
+		{ID: "018bcfe5-687b-7000-8000-000000000000", Name: "default", ContextState: ContextObservationPersisted, Active: true, AgentProfile: DefaultProfile, Image: OfficialRuntimeBase, PolicyMode: ContextPolicyModeGuided, SourceAccess: ContextSourceAccessReadWrite, PolicyPresetOrigin: DefaultPolicyPresetOrigin, PolicyPresetRevision: DefaultPolicyPresetRevision()},
+		{ID: "018bcfe5-687b-7000-8000-000000000001", Name: "project-tools", ContextState: ContextObservationPersisted, AgentProfile: DefaultProfile, Image: OfficialRuntimeBase, PolicyMode: ContextPolicyModeAdvanced, SourceAccess: ContextSourceAccessReadOnly, PolicyPresetOrigin: DefaultPolicyPresetOrigin, PolicyPresetRevision: DefaultPolicyPresetRevision()},
 	}
 	result := ContextListResult{Task: TaskContextList, ContextState: ContextObservationPersisted, Active: "default", Items: items}
 	if err := result.Validate(); err != nil {
@@ -367,6 +371,7 @@ func TestSyntheticContextReportCannotClaimAuthorityOrStores(t *testing.T) {
 		Task: TaskContextShow, ContextState: ContextObservationSyntheticDefault,
 		Name: DefaultContextName, Active: true, AgentProfile: DefaultProfile,
 		Image: OfficialRuntimeBase, PolicyMode: ContextPolicyModeGuided, SourceAccess: ContextSourceAccessReadWrite,
+		PolicyPresetOrigin: DefaultPolicyPresetOrigin, PolicyGuardrail: PolicyPresetGuardrailReviewedExact,
 		ShellEnvironment: DefaultContextShellEnvironmentReport(),
 		GitIdentity:      DefaultContextGitIdentityReport(),
 		Runtime:          ContextRuntimeReport{Kind: ContextRuntimeKindOfficial, Status: ContextRuntimeStatusOfficial, BaseReference: OfficialRuntimeBase},

@@ -154,6 +154,7 @@ explicitly_denied if {
 	http_rule_protocol_valid(rule)
 	rule.context_id == input.principal.context_id
 	rule.project_id == input.principal.project_id
+	object.get(rule, "scheme", input.request.authority.scheme) == input.request.authority.scheme
 	rule.host == input.request.authority.host
 	rule.port == input.request.authority.port
 	rule.method == input.request.method
@@ -167,6 +168,7 @@ explicitly_denied if {
 	graphql_rule_protocol_valid(rule)
 	rule.context_id == input.principal.context_id
 	rule.project_id == input.principal.project_id
+	object.get(rule, "scheme", input.request.authority.scheme) == input.request.authority.scheme
 	rule.host == input.request.authority.host
 	rule.port == input.request.authority.port
 	rule.method == input.request.method
@@ -203,6 +205,7 @@ learned_rule_matches_request(rule, project_id, request) if {
 	rule.match == "exact"
 	rule.context_id == input.principal.context_id
 	rule.project_id == project_id
+	object.get(rule, "scheme", request.authority.scheme) == request.authority.scheme
 	rule.host == request.authority.host
 	rule.port == request.authority.port
 	rule.method == request.method
@@ -225,6 +228,7 @@ learned_rule_valid(rule) if {
 learned_rule_base_valid(rule) if {
 	is_string(rule.id)
 	regex.match("^plr_[0-9a-f]{32}$", rule.id)
+	object.get(rule, "scheme", "https") in {"http", "https"}
 	is_string(rule.project_id)
 	regex.match("^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$", rule.project_id)
 	is_string(rule.context_id)

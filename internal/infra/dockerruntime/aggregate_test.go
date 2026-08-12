@@ -15,13 +15,15 @@ func TestAdvancedPolicyReceivesContextNamespaceAndCannotClaimSystemPackages(t *t
 	t.Parallel()
 	item := aggregateContext{
 		manifest: tobari.ContextManifest{
-			SchemaVersion: tobari.ContextSchemaVersion,
-			ID:            "01912345-6789-7abc-8def-0123456789ad",
-			Name:          "restricted",
-			AgentProfile:  tobari.DefaultProfile,
-			PolicyMode:    tobari.ContextPolicyModeAdvanced,
-			SourceAccess:  tobari.ContextSourceAccessReadWrite,
-			Image:         tobari.BuiltinImageSelector,
+			SchemaVersion:        tobari.ContextSchemaVersion,
+			ID:                   "01912345-6789-7abc-8def-0123456789ad",
+			Name:                 "restricted",
+			AgentProfile:         tobari.DefaultProfile,
+			PolicyMode:           tobari.ContextPolicyModeAdvanced,
+			SourceAccess:         tobari.ContextSourceAccessReadWrite,
+			PolicyPresetOrigin:   tobari.DefaultPolicyPresetOrigin,
+			PolicyPresetRevision: tobari.DefaultPolicyPresetRevision(),
+			Image:                tobari.BuiltinImageSelector,
 		},
 		rego: []byte("package tobari.http\n\nimport rego.v1\ndecision := {\"allow\": false} if { input.schema_version == 1; data.tobari.schema_version == 1 }\n"),
 	}
@@ -43,13 +45,15 @@ func TestAdvancedPolicyReceivesContextNamespaceAndCannotClaimSystemPackages(t *t
 func TestAggregateRouterAlwaysUsesSystemEvaluatorForGraphQL(t *testing.T) {
 	t.Parallel()
 	item := aggregateContext{manifest: tobari.ContextManifest{
-		SchemaVersion: tobari.ContextSchemaVersion,
-		ID:            "01912345-6789-7abc-8def-0123456789ad",
-		Name:          "restricted",
-		AgentProfile:  tobari.DefaultProfile,
-		PolicyMode:    tobari.ContextPolicyModeAdvanced,
-		SourceAccess:  tobari.ContextSourceAccessReadWrite,
-		Image:         tobari.BuiltinImageSelector,
+		SchemaVersion:        tobari.ContextSchemaVersion,
+		ID:                   "01912345-6789-7abc-8def-0123456789ad",
+		Name:                 "restricted",
+		AgentProfile:         tobari.DefaultProfile,
+		PolicyMode:           tobari.ContextPolicyModeAdvanced,
+		SourceAccess:         tobari.ContextSourceAccessReadWrite,
+		PolicyPresetOrigin:   tobari.DefaultPolicyPresetOrigin,
+		PolicyPresetRevision: tobari.DefaultPolicyPresetRevision(),
+		Image:                tobari.BuiltinImageSelector,
 	}}
 	router, err := aggregateRouter([]aggregateContext{item})
 	if err != nil {
@@ -64,6 +68,30 @@ func TestAggregateRouterAlwaysUsesSystemEvaluatorForGraphQL(t *testing.T) {
 		if !bytes.Contains(router, []byte(required)) {
 			t.Fatalf("aggregate router omitted %q:\n%s", required, router)
 		}
+	}
+}
+
+func TestAggregateRouterMakesPresetGuardrailTerminalBeforeAdvancedOrGuidedPolicy(t *testing.T) {
+	t.Parallel()
+	manifest := tobari.ContextManifest{SchemaVersion: tobari.ContextSchemaVersion, ID: "01912345-6789-7abc-8def-0123456789ad", Name: "restricted", AgentProfile: tobari.DefaultProfile, Image: tobari.BuiltinImageSelector, PolicyMode: tobari.ContextPolicyModeAdvanced, SourceAccess: tobari.ContextSourceAccessReadWrite, PolicyPresetOrigin: "builtin/offline", PolicyPresetRevision: tobari.DefaultPolicyPresetRevision()}
+	router, err := aggregateRouter([]aggregateContext{{manifest: manifest}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(router)
+	terminal := strings.Index(text, `decision := {"allow": false, "reason": "denied by Context policy preset guardrail"`)
+	advanced := strings.Index(text, `result := data.tobari.contexts.c0191234567897abc8def0123456789ad.http.decision`)
+	if terminal < 0 || advanced < 0 || terminal > advanced {
+		t.Fatalf("guardrail is not declared before Advanced routing:\n%s", text)
+	}
+	advancedClause := text[strings.LastIndex(text[:advanced], "decision := result if {"):advanced]
+	for _, required := range []string{"not terminal_guardrail", "not exact_denied", "not preset_exact_granted"} {
+		if !strings.Contains(advancedClause, required) {
+			t.Fatalf("Advanced route can bypass %q:\n%s", required, advancedClause)
+		}
+	}
+	if !strings.Contains(text, `kind == "get_only_reviewed"; input.request.method != "GET"`) {
+		t.Fatalf("GET-only guardrail does not terminally reject HEAD and non-GET:\n%s", text)
 	}
 }
 
@@ -89,13 +117,15 @@ func TestCredentialProjectionCarriesOnlyValidatedGraphQLEndpoints(t *testing.T) 
 func TestAggregateRejectsUnsupportedOrAmbiguousSourceInputSchema(t *testing.T) {
 	t.Parallel()
 	manifest := tobari.ContextManifest{
-		SchemaVersion: tobari.ContextSchemaVersion,
-		ID:            "01912345-6789-7abc-8def-0123456789ad",
-		Name:          "restricted",
-		AgentProfile:  tobari.DefaultProfile,
-		PolicyMode:    tobari.ContextPolicyModeAdvanced,
-		SourceAccess:  tobari.ContextSourceAccessReadWrite,
-		Image:         tobari.BuiltinImageSelector,
+		SchemaVersion:        tobari.ContextSchemaVersion,
+		ID:                   "01912345-6789-7abc-8def-0123456789ad",
+		Name:                 "restricted",
+		AgentProfile:         tobari.DefaultProfile,
+		PolicyMode:           tobari.ContextPolicyModeAdvanced,
+		SourceAccess:         tobari.ContextSourceAccessReadWrite,
+		PolicyPresetOrigin:   tobari.DefaultPolicyPresetOrigin,
+		PolicyPresetRevision: tobari.DefaultPolicyPresetRevision(),
+		Image:                tobari.BuiltinImageSelector,
 	}
 	for _, source := range []string{
 		"package tobari.http\n\nimport rego.v1\ndecision := {\"allow\": false} if { input.schema_version == 2 }\n",

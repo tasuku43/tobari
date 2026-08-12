@@ -129,10 +129,13 @@ func contextReport(task, name string) tobari.ContextReport {
 	return tobari.ContextReport{
 		Task: task, ContextState: tobari.ContextObservationPersisted, ID: "018bcfe5-687b-7000-8000-000000000099", Name: name, Active: task == tobari.TaskContextUse,
 		AgentProfile: tobari.DefaultProfile, Image: tobari.OfficialRuntimeBase,
-		PolicyMode:       tobari.ContextPolicyModeGuided,
-		SourceAccess:     tobari.ContextSourceAccessReadWrite,
-		ShellEnvironment: tobari.DefaultContextShellEnvironmentReport(),
-		GitIdentity:      tobari.DefaultContextGitIdentityReport(),
+		PolicyMode:           tobari.ContextPolicyModeGuided,
+		SourceAccess:         tobari.ContextSourceAccessReadWrite,
+		PolicyPresetOrigin:   tobari.DefaultPolicyPresetOrigin,
+		PolicyPresetRevision: tobari.DefaultPolicyPresetRevision(),
+		PolicyGuardrail:      tobari.PolicyPresetGuardrailReviewedExact,
+		ShellEnvironment:     tobari.DefaultContextShellEnvironmentReport(),
+		GitIdentity:          tobari.DefaultContextGitIdentityReport(),
 		Runtime: tobari.ContextRuntimeReport{
 			Kind: tobari.ContextRuntimeKindOfficial, Status: tobari.ContextRuntimeStatusOfficial,
 		},

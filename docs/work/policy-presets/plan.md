@@ -94,11 +94,13 @@ Built-in semantics:
 | `reviewed-exact` | none | eligible exact effects inside existing public/private/protocol boundaries | effects outside those boundaries |
 | `get-only-reviewed` | none | eligible exact `GET` effects inside the destination boundary | `HEAD`, every non-GET, and effects outside the destination boundary |
 
-Custom schema V1 is a closed non-executable document with:
+Custom schema V1 is frozen as a closed non-executable document with:
 
 - canonical name and explicit schema version;
-- method ceiling: `all` or a sorted unique explicit method set;
-- destination ceiling: explicit `public_https` scope or a sorted unique exact
+- `method_ceiling: {mode: all|exact, methods: [...]}` where `all` requires an
+  explicit empty array and `exact` requires a sorted unique explicit set;
+- `destination_ceiling: {mode: public_https|exact, authorities: [...]}` where
+  `public_https` requires an explicit empty array and `exact` owns a sorted unique
   public `scheme + host + port` set; plain HTTP must always be exact;
 - zero or more exact Context-wide baseline grants, each binding scheme, host,
   port, method, and path and proven inside both ceilings;
@@ -108,10 +110,9 @@ Custom schema V1 is a closed non-executable document with:
 - no learned rules, project IDs, credential bindings, wildcard/IP/private
   destinations, executable fields, includes, inheritance, or remote source.
 
-The exact schema is frozen only after strict/hostile tests. Canonicalization
-sorts semantically unordered collections, rejects duplicates rather than
-silently merging, and hashes the complete normalized bytes. Built-in revisions
-use the same normalized representation and validator.
+Canonicalization sorts semantically unordered collections, rejects duplicates
+rather than silently merging, and hashes the complete normalized bytes.
+Built-in revisions use the same normalized representation and validator.
 
 `context show` distinguishes preset facts from learned state. Required facts
 include origin selector, revision, method ceiling, destination scope/count,

@@ -153,22 +153,29 @@ func (r *Runtime) contextReport(ctx context.Context, task string, manifest tobar
 		gitIdentity = *manifest.GitIdentity
 	}
 	result := tobari.ContextReport{
-		Task:             task,
-		ContextState:     tobari.ContextObservationPersisted,
-		ID:               manifest.ID,
-		Name:             manifest.Name,
-		Active:           manifest.Name == active,
-		AgentProfile:     manifest.AgentProfile,
-		Image:            manifest.Image,
-		PolicyMode:       manifest.PolicyMode,
-		SourceAccess:     manifest.SourceAccess,
-		ShellEnvironment: shellEnvironment,
-		GitIdentity:      gitIdentity,
-		Stores:           r.contextPaths(manifest.Name),
-		Runtime:          runtimeReport,
-		Cluster:          tobari.ContextClusterStatusNotApplicable,
-		Authentication:   tobari.ContextAuthentication{BrokerState: tobari.ContextAuthBrokerNotApplicable},
+		Task:                 task,
+		ContextState:         tobari.ContextObservationPersisted,
+		ID:                   manifest.ID,
+		Name:                 manifest.Name,
+		Active:               manifest.Name == active,
+		AgentProfile:         manifest.AgentProfile,
+		Image:                manifest.Image,
+		PolicyMode:           manifest.PolicyMode,
+		SourceAccess:         manifest.SourceAccess,
+		PolicyPresetOrigin:   manifest.PolicyPresetOrigin,
+		PolicyPresetRevision: manifest.PolicyPresetRevision,
+		ShellEnvironment:     shellEnvironment,
+		GitIdentity:          gitIdentity,
+		Stores:               r.contextPaths(manifest.Name),
+		Runtime:              runtimeReport,
+		Cluster:              tobari.ContextClusterStatusNotApplicable,
+		Authentication:       tobari.ContextAuthentication{BrokerState: tobari.ContextAuthBrokerNotApplicable},
 	}
+	preset, presetErr := r.readContextPreset(manifest)
+	if presetErr != nil {
+		return tobari.ContextReport{}, presetErr
+	}
+	result.PolicyGuardrail = preset.Guardrail
 	if task == tobari.TaskContextShow {
 		result.Authentication, err = r.contextAuthentication(ctx, manifest.ID)
 		if err != nil {
@@ -199,6 +206,7 @@ func (r *Runtime) nonPersistedContextReport(observed observedContext, active str
 		Task: tobari.TaskContextShow, ContextState: observed.state, Name: manifest.Name,
 		Active: manifest.Name == active, AgentProfile: manifest.AgentProfile, Image: manifest.Image,
 		PolicyMode: manifest.PolicyMode, SourceAccess: manifest.SourceAccess,
+		PolicyPresetOrigin: tobari.DefaultPolicyPresetOrigin, PolicyGuardrail: tobari.PolicyPresetGuardrailReviewedExact,
 		ShellEnvironment: shellEnvironment, GitIdentity: gitIdentity,
 		Stores: tobari.ContextStorePaths{}, Runtime: runtimeReport, Cluster: tobari.ContextClusterStatusNotApplicable,
 		Authentication: tobari.ContextAuthentication{

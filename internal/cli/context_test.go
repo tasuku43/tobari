@@ -235,6 +235,7 @@ func contextCLIReport(task, name string, active bool, image string, mode tobari.
 	return tobari.ContextReport{
 		Task: task, ContextState: tobari.ContextObservationPersisted, ID: "018bcfe5-687b-7000-8000-000000000099", Name: name, Active: active, AgentProfile: tobari.DefaultProfile,
 		Image: image, PolicyMode: mode, SourceAccess: tobari.ContextSourceAccessReadWrite,
+		PolicyPresetOrigin: tobari.DefaultPolicyPresetOrigin, PolicyPresetRevision: tobari.DefaultPolicyPresetRevision(), PolicyGuardrail: tobari.PolicyPresetGuardrailReviewedExact,
 		Cluster:          tobari.ContextClusterStatusNotApplicable,
 		ShellEnvironment: tobari.DefaultContextShellEnvironmentReport(),
 		GitIdentity:      tobari.DefaultContextGitIdentityReport(),
@@ -638,7 +639,7 @@ func TestContextReportJSONSchemaOneDeclaresExactContextKeys(t *testing.T) {
 	if err := json.Unmarshal(outer["context"], &contextFields); err != nil {
 		t.Fatalf("context envelope = %q, error = %v", outer["context"], err)
 	}
-	want := []string{"active", "agent_profile", "authentication", "cluster", "context_state", "git_identity", "id", "image", "name", "policy_mode", "runtime", "shell_environment", "source_access", "stores", "task"}
+	want := []string{"active", "agent_profile", "authentication", "cluster", "context_state", "git_identity", "id", "image", "name", "policy_guardrail", "policy_mode", "policy_preset_origin", "policy_preset_revision", "runtime", "shell_environment", "source_access", "stores", "task"}
 	got := make([]string, 0, len(contextFields))
 	for name := range contextFields {
 		got = append(got, name)
@@ -664,7 +665,8 @@ func TestSyntheticContextJSONNeverInventsAuthority(t *testing.T) {
 		Task: tobari.TaskContextShow, ContextState: tobari.ContextObservationSyntheticDefault,
 		Name: tobari.DefaultContextName, Active: true, AgentProfile: tobari.DefaultProfile,
 		Image: tobari.OfficialRuntimeBase, PolicyMode: tobari.ContextPolicyModeGuided,
-		SourceAccess:     tobari.ContextSourceAccessReadWrite,
+		SourceAccess:       tobari.ContextSourceAccessReadWrite,
+		PolicyPresetOrigin: tobari.DefaultPolicyPresetOrigin, PolicyGuardrail: tobari.PolicyPresetGuardrailReviewedExact,
 		ShellEnvironment: tobari.DefaultContextShellEnvironmentReport(),
 		GitIdentity:      tobari.DefaultContextGitIdentityReport(),
 		Runtime: tobari.ContextRuntimeReport{
@@ -759,15 +761,17 @@ func TestContextExistsCatalogRecoveryRoutesToListContainingNonActiveDuplicate(t 
 				ID: "018bcfe5-687b-7000-8000-000000000099", Name: "default",
 				ContextState: tobari.ContextObservationPersisted, Active: true,
 				AgentProfile: tobari.DefaultProfile, Image: tobari.OfficialRuntimeBase,
-				PolicyMode:   tobari.ContextPolicyModeGuided,
-				SourceAccess: tobari.ContextSourceAccessReadWrite,
+				PolicyMode:         tobari.ContextPolicyModeGuided,
+				SourceAccess:       tobari.ContextSourceAccessReadWrite,
+				PolicyPresetOrigin: tobari.DefaultPolicyPresetOrigin, PolicyPresetRevision: tobari.DefaultPolicyPresetRevision(),
 			},
 			{
 				ID: "018bcfe5-687b-7000-8000-000000000100", Name: "review",
 				ContextState: tobari.ContextObservationPersisted, Active: false,
 				AgentProfile: tobari.DefaultProfile, Image: tobari.OfficialRuntimeBase,
-				PolicyMode:   tobari.ContextPolicyModeGuided,
-				SourceAccess: tobari.ContextSourceAccessReadOnly,
+				PolicyMode:         tobari.ContextPolicyModeGuided,
+				SourceAccess:       tobari.ContextSourceAccessReadOnly,
+				PolicyPresetOrigin: tobari.DefaultPolicyPresetOrigin, PolicyPresetRevision: tobari.DefaultPolicyPresetRevision(),
 			},
 		},
 	}
@@ -786,7 +790,8 @@ func TestSyntheticContextShowUsesOmissionBasedAuthStatusRecovery(t *testing.T) {
 		Task: tobari.TaskContextShow, ContextState: tobari.ContextObservationSyntheticDefault,
 		Name: tobari.DefaultContextName, Active: true, AgentProfile: tobari.DefaultProfile,
 		Image: tobari.OfficialRuntimeBase, PolicyMode: tobari.ContextPolicyModeGuided,
-		SourceAccess:     tobari.ContextSourceAccessReadWrite,
+		SourceAccess:       tobari.ContextSourceAccessReadWrite,
+		PolicyPresetOrigin: tobari.DefaultPolicyPresetOrigin, PolicyGuardrail: tobari.PolicyPresetGuardrailReviewedExact,
 		ShellEnvironment: tobari.DefaultContextShellEnvironmentReport(),
 		GitIdentity:      tobari.DefaultContextGitIdentityReport(),
 		Runtime: tobari.ContextRuntimeReport{
@@ -815,7 +820,7 @@ func TestContextCommandsRenderActiveContextAndRuntimeImage(t *testing.T) {
 	fake := &contextCLI{report: contextCLIReport(tobari.TaskContextShow, "default", true, tobari.OfficialRuntimeBase, tobari.ContextPolicyModeGuided)}
 	fake.list = tobari.ContextListResult{
 		Task: tobari.TaskContextList, ContextState: tobari.ContextObservationPersisted, Active: "default",
-		Items: []tobari.ContextSummary{{ID: "018bcfe5-687b-7000-8000-000000000099", Name: "default", ContextState: tobari.ContextObservationPersisted, Active: true, AgentProfile: tobari.DefaultProfile, Image: tobari.OfficialRuntimeBase, PolicyMode: tobari.ContextPolicyModeGuided, SourceAccess: tobari.ContextSourceAccessReadWrite}},
+		Items: []tobari.ContextSummary{{ID: "018bcfe5-687b-7000-8000-000000000099", Name: "default", ContextState: tobari.ContextObservationPersisted, Active: true, AgentProfile: tobari.DefaultProfile, Image: tobari.OfficialRuntimeBase, PolicyMode: tobari.ContextPolicyModeGuided, SourceAccess: tobari.ContextSourceAccessReadWrite, PolicyPresetOrigin: tobari.DefaultPolicyPresetOrigin, PolicyPresetRevision: tobari.DefaultPolicyPresetRevision()}},
 	}
 	var stdout, stderr bytes.Buffer
 	command := newCLI(strings.NewReader(""), &stdout, &stderr, DefaultCatalog(), nil)
@@ -1019,15 +1024,16 @@ func TestRuntimeCommandsUseTheActiveContextWithoutAName(t *testing.T) {
 
 func runtimeInitReportFixture() tobari.ContextReport {
 	return tobari.ContextReport{
-		Task:             tobari.TaskRuntimeInit,
-		ContextState:     tobari.ContextObservationPersisted,
-		ID:               "018bcfe5-687b-7000-8000-000000000099",
-		Name:             "default",
-		Active:           true,
-		AgentProfile:     tobari.DefaultProfile,
-		Image:            tobari.OfficialRuntimeBase,
-		PolicyMode:       tobari.ContextPolicyModeGuided,
-		SourceAccess:     tobari.ContextSourceAccessReadWrite,
+		Task:               tobari.TaskRuntimeInit,
+		ContextState:       tobari.ContextObservationPersisted,
+		ID:                 "018bcfe5-687b-7000-8000-000000000099",
+		Name:               "default",
+		Active:             true,
+		AgentProfile:       tobari.DefaultProfile,
+		Image:              tobari.OfficialRuntimeBase,
+		PolicyMode:         tobari.ContextPolicyModeGuided,
+		SourceAccess:       tobari.ContextSourceAccessReadWrite,
+		PolicyPresetOrigin: tobari.DefaultPolicyPresetOrigin, PolicyPresetRevision: tobari.DefaultPolicyPresetRevision(), PolicyGuardrail: tobari.PolicyPresetGuardrailReviewedExact,
 		ShellEnvironment: tobari.DefaultContextShellEnvironmentReport(),
 		GitIdentity:      tobari.DefaultContextGitIdentityReport(),
 		Stores: tobari.ContextStorePaths{

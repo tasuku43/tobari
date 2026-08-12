@@ -467,7 +467,7 @@ func readPolicyDataDuringTransaction(policyDirectory string) (policyDataFile, er
 		return policyDataFile{}, err
 	}
 	for _, entry := range rootEntries {
-		if entry.Name() != policyDomainsName && entry.Name() != "tobari.rego" && entry.Name() != "tobari_test.rego" {
+		if entry.Name() != policyDomainsName && entry.Name() != "preset.json" && entry.Name() != "tobari.rego" && entry.Name() != "tobari_test.rego" {
 			return policyDataFile{}, fmt.Errorf("policy directory contains unsupported entry %q", entry.Name())
 		}
 	}
@@ -480,7 +480,7 @@ func validateContextPolicyLayout(policyDirectory string, mode tobari.ContextPoli
 	if err != nil {
 		return err
 	}
-	expected := map[string]bool{policyDomainsName: true}
+	expected := map[string]bool{policyDomainsName: true, "preset.json": true}
 	switch mode {
 	case tobari.ContextPolicyModeGuided:
 	case tobari.ContextPolicyModeAdvanced:
@@ -508,8 +508,8 @@ func readPolicyDomains(domainsDirectory string) (policyDataFile, error) {
 	if err != nil {
 		return policyDataFile{}, err
 	}
-	if len(entries) == 0 || len(entries)*2 > maxPolicyFiles {
-		return policyDataFile{}, fmt.Errorf("policy domains must contain between 1 and %d domains", maxPolicyFiles/2)
+	if len(entries)*2 > maxPolicyFiles {
+		return policyDataFile{}, fmt.Errorf("policy domains must contain at most %d domains", maxPolicyFiles/2)
 	}
 	file := policyDataFile{
 		allows: map[string]policyDomainAllow{}, denies: map[string]policyDomainDeny{}, sources: map[string][]byte{},

@@ -67,14 +67,16 @@ func projectGitTestInstance(t *testing.T, runtime *Runtime) tobari.ProjectInstan
 func projectGitTestManifest(t *testing.T, setting *tobari.ContextGitIdentitySetting) tobari.ContextManifest {
 	t.Helper()
 	manifest := tobari.ContextManifest{
-		SchemaVersion: tobari.ContextSchemaVersion,
-		ID:            "01912345-6789-7abc-8def-0123456789ad",
-		Name:          "default",
-		AgentProfile:  tobari.DefaultProfile,
-		Image:         tobari.BuiltinImageSelector,
-		PolicyMode:    tobari.ContextPolicyModeGuided,
-		SourceAccess:  tobari.ContextSourceAccessReadWrite,
-		GitIdentity:   setting,
+		SchemaVersion:        tobari.ContextSchemaVersion,
+		ID:                   "01912345-6789-7abc-8def-0123456789ad",
+		Name:                 "default",
+		AgentProfile:         tobari.DefaultProfile,
+		Image:                tobari.BuiltinImageSelector,
+		PolicyMode:           tobari.ContextPolicyModeGuided,
+		SourceAccess:         tobari.ContextSourceAccessReadWrite,
+		PolicyPresetOrigin:   tobari.DefaultPolicyPresetOrigin,
+		PolicyPresetRevision: tobari.DefaultPolicyPresetRevision(),
+		GitIdentity:          setting,
 	}
 	if err := manifest.Validate(); err != nil {
 		t.Fatal(err)

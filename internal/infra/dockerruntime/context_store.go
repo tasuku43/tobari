@@ -126,14 +126,16 @@ func (r *Runtime) ensureContextStoreUnlocked() error {
 		}
 	}
 	return r.initializeContextStoreUnlocked(tobari.ContextManifest{
-		SchemaVersion:    tobari.ContextSchemaVersion,
-		ID:               defaultID,
-		Name:             tobari.DefaultContextName,
-		AgentProfile:     tobari.DefaultProfile,
-		Image:            image,
-		PolicyMode:       tobari.ContextPolicyModeGuided,
-		SourceAccess:     tobari.ContextSourceAccessReadWrite,
-		ShellEnvironment: tobari.InitialContextShellEnvironment(),
+		SchemaVersion:        tobari.ContextSchemaVersion,
+		ID:                   defaultID,
+		Name:                 tobari.DefaultContextName,
+		AgentProfile:         tobari.DefaultProfile,
+		Image:                image,
+		PolicyMode:           tobari.ContextPolicyModeGuided,
+		SourceAccess:         tobari.ContextSourceAccessReadWrite,
+		PolicyPresetOrigin:   tobari.DefaultPolicyPresetOrigin,
+		PolicyPresetRevision: tobari.DefaultPolicyPresetRevision(),
+		ShellEnvironment:     tobari.InitialContextShellEnvironment(),
 	})
 }
 
@@ -198,24 +200,15 @@ func (r *Runtime) ensureContext(manifest tobari.ContextManifest) error {
 	if err := r.ensurePrivateDirectory(r.contextPolicyDirectory(manifest.Name)); err != nil {
 		return fmt.Errorf("prepare Context %q policy: %w", manifest.Name, err)
 	}
+	if err := r.ensureContextPreset(manifest); err != nil {
+		return fmt.Errorf("prepare Context %q policy preset: %w", manifest.Name, err)
+	}
 	domainsDirectory := filepath.Join(r.contextPolicyDirectory(manifest.Name), policyDomainsName)
 	if err := r.ensurePrivateDirectory(domainsDirectory); err != nil {
 		return fmt.Errorf("prepare Context %q policy domains: %w", manifest.Name, err)
 	}
 	if err := r.ensurePrivateDirectory(r.contextCredentialDirectory(manifest.Name)); err != nil {
 		return fmt.Errorf("prepare Context %q credentials: %w", manifest.Name, err)
-	}
-	for _, domain := range []string{"api.github.com", "example.com", "mock-upstream"} {
-		directory := filepath.Join(domainsDirectory, domain)
-		if err := r.ensurePrivateDirectory(directory); err != nil {
-			return fmt.Errorf("prepare Context %q policy domain %q: %w", manifest.Name, domain, err)
-		}
-		for _, name := range []string{policyAllowFileName, policyDenyFileName} {
-			asset := filepath.Join("opa/policy", policyDomainsName, domain, name)
-			if err := initializeFile(filepath.Join(directory, name), asset, 0o600); err != nil {
-				return err
-			}
-		}
 	}
 	if manifest.PolicyMode == tobari.ContextPolicyModeAdvanced {
 		for _, name := range []string{"tobari.rego", "tobari_test.rego"} {
@@ -274,6 +267,9 @@ func (r *Runtime) readContextManifestRaw(name string) (tobari.ContextManifest, e
 	}
 	if manifest.Name != name {
 		return tobari.ContextManifest{}, fmt.Errorf("Context manifest name does not match its path")
+	}
+	if _, err := r.readContextPreset(manifest); err != nil {
+		return tobari.ContextManifest{}, fmt.Errorf("read Context policy preset: %w", err)
 	}
 	return manifest, nil
 }
@@ -371,8 +367,9 @@ func (r *Runtime) observeContext(name string) (observedContext, error) {
 			manifest: tobari.ContextManifest{
 				SchemaVersion: tobari.ContextSchemaVersion, Name: tobari.DefaultContextName,
 				AgentProfile: tobari.DefaultProfile, Image: r.defaultRuntimeImage(), PolicyMode: tobari.ContextPolicyModeGuided,
-				SourceAccess:     tobari.ContextSourceAccessReadWrite,
-				ShellEnvironment: tobari.InitialContextShellEnvironment(),
+				SourceAccess:       tobari.ContextSourceAccessReadWrite,
+				PolicyPresetOrigin: tobari.DefaultPolicyPresetOrigin,
+				ShellEnvironment:   tobari.InitialContextShellEnvironment(),
 			},
 		}, nil
 	}
@@ -501,8 +498,10 @@ func (r *Runtime) ListContexts(ctx context.Context) (tobari.ContextListResult, e
 		items = append(items, tobari.ContextSummary{
 			ID: manifest.ID, Name: manifest.Name, ContextState: tobari.ContextObservationPersisted, Active: manifest.Name == active,
 			AgentProfile: manifest.AgentProfile, Image: manifest.Image, PolicyMode: manifest.PolicyMode,
-			SourceAccess:  manifest.SourceAccess,
-			RuntimeStatus: runtimeReport.Status,
+			SourceAccess:         manifest.SourceAccess,
+			PolicyPresetOrigin:   manifest.PolicyPresetOrigin,
+			PolicyPresetRevision: manifest.PolicyPresetRevision,
+			RuntimeStatus:        runtimeReport.Status,
 		})
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].Name < items[j].Name })
@@ -651,14 +650,26 @@ func persistedContextGitIdentity(setting tobari.ContextGitIdentitySetting) *toba
 func (r *Runtime) CreateContext(
 	ctx context.Context, name string, image string, mode tobari.ContextPolicyMode, sourceAccess tobari.ContextSourceAccess,
 ) (tobari.ContextReport, error) {
+	return r.CreateContextWithPreset(ctx, name, image, mode, sourceAccess, tobari.DefaultPolicyPresetOrigin)
+}
+
+func (r *Runtime) CreateContextWithPreset(
+	ctx context.Context, name string, image string, mode tobari.ContextPolicyMode, sourceAccess tobari.ContextSourceAccess, presetOrigin string,
+) (tobari.ContextReport, error) {
 	if err := ctx.Err(); err != nil {
+		return tobari.ContextReport{}, err
+	}
+	_, _, presetRevision, err := r.resolvePolicyPreset(presetOrigin)
+	if err != nil {
 		return tobari.ContextReport{}, err
 	}
 	manifest := tobari.ContextManifest{
 		SchemaVersion: tobari.ContextSchemaVersion, Name: name,
 		AgentProfile: tobari.DefaultProfile, Image: r.resolveBuiltinImageSelector(image), PolicyMode: mode,
-		SourceAccess:     sourceAccess,
-		ShellEnvironment: tobari.InitialContextShellEnvironment(),
+		SourceAccess:         sourceAccess,
+		PolicyPresetOrigin:   presetOrigin,
+		PolicyPresetRevision: presetRevision,
+		ShellEnvironment:     tobari.InitialContextShellEnvironment(),
 	}
 	id, err := tobari.NewProductionContextID()
 	if err != nil {

@@ -8,6 +8,9 @@
   "image": "ghcr.io/tasuku43/tobari/runtime:latest",
   "policy_mode": "guided",
   "source_access": "read-write",
+  "policy_preset_origin": "builtin/reviewed-exact",
+  "policy_preset_revision": "sha256:12785007486c863a373ff05b29a1adc27fc3a2e1ad6729754c8f14bef8f009d4",
+  "policy_guardrail": "reviewed_exact",
   "shell_environment": [
     {
       "variable": "COLORTERM",

@@ -11,6 +11,7 @@ import (
 	"github.com/tasuku43/tobari/internal/app/authcmd"
 	"github.com/tasuku43/tobari/internal/app/contextcmd"
 	"github.com/tasuku43/tobari/internal/app/doctorcmd"
+	"github.com/tasuku43/tobari/internal/app/policypresetcmd"
 	"github.com/tasuku43/tobari/internal/app/tobaricmd"
 	"github.com/tasuku43/tobari/internal/domain/fault"
 	"github.com/tasuku43/tobari/internal/domain/operation"
@@ -27,13 +28,14 @@ type CLI struct {
 	Version string
 	Commit  string
 
-	catalog Catalog
-	doctor  *doctorcmd.Service
-	tobari  *tobaricmd.Service
-	context *contextcmd.Service
-	auth    *authcmd.Service
-	config  contextConfigurationWizard
-	noColor bool
+	catalog      Catalog
+	doctor       *doctorcmd.Service
+	tobari       *tobaricmd.Service
+	context      *contextcmd.Service
+	policyPreset *policypresetcmd.Service
+	auth         *authcmd.Service
+	config       contextConfigurationWizard
+	noColor      bool
 }
 
 // New builds the production CLI with the Docker-backed Tobari runtime.
@@ -52,6 +54,7 @@ func New(in io.Reader, out, errOut io.Writer) *CLI {
 		newWorkspaceSelectorWithStyle(!command.noColor),
 	)
 	command.context = contextcmd.New(runtime)
+	command.policyPreset = policypresetcmd.New(runtime)
 	command.auth = authcmd.New(runtime)
 	return command
 }

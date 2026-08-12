@@ -250,7 +250,7 @@ func runContextCreate(
 	intent.Impact = command.Agent.Mutation.Impact
 	mode := tobari.ContextPolicyMode(inputs.One("--mode"))
 	sourceAccess := tobari.ContextSourceAccess(inputs.One("--source-access"))
-	result, err := c.context.Create(ctx, intent, inputs.One("--name"), inputs.One("--image"), mode, sourceAccess)
+	result, err := c.context.Create(ctx, intent, inputs.One("--name"), inputs.One("--image"), mode, sourceAccess, inputs.One("--policy-preset"))
 	if err != nil {
 		return c.fail(ctx, err)
 	}
@@ -370,15 +370,17 @@ type contextListDocument struct {
 }
 
 type contextSummaryJSONProjection struct {
-	ID            *string                        `json:"id"`
-	Name          string                         `json:"name"`
-	ContextState  tobari.ContextObservationState `json:"context_state"`
-	Active        bool                           `json:"active"`
-	AgentProfile  string                         `json:"agent_profile"`
-	Image         string                         `json:"image"`
-	PolicyMode    tobari.ContextPolicyMode       `json:"policy_mode"`
-	SourceAccess  tobari.ContextSourceAccess     `json:"source_access"`
-	RuntimeStatus tobari.ContextRuntimeStatus    `json:"runtime_status,omitempty"`
+	ID                   *string                        `json:"id"`
+	Name                 string                         `json:"name"`
+	ContextState         tobari.ContextObservationState `json:"context_state"`
+	Active               bool                           `json:"active"`
+	AgentProfile         string                         `json:"agent_profile"`
+	Image                string                         `json:"image"`
+	PolicyMode           tobari.ContextPolicyMode       `json:"policy_mode"`
+	SourceAccess         tobari.ContextSourceAccess     `json:"source_access"`
+	PolicyPresetOrigin   string                         `json:"policy_preset_origin"`
+	PolicyPresetRevision string                         `json:"policy_preset_revision"`
+	RuntimeStatus        tobari.ContextRuntimeStatus    `json:"runtime_status,omitempty"`
 }
 
 type contextReportDocument struct {
@@ -387,21 +389,24 @@ type contextReportDocument struct {
 }
 
 type contextReportJSONProjection struct {
-	Task             string                                  `json:"task"`
-	ContextState     tobari.ContextObservationState          `json:"context_state"`
-	ID               *string                                 `json:"id"`
-	Name             string                                  `json:"name"`
-	Active           bool                                    `json:"active"`
-	AgentProfile     string                                  `json:"agent_profile"`
-	Image            string                                  `json:"image"`
-	PolicyMode       tobari.ContextPolicyMode                `json:"policy_mode"`
-	SourceAccess     tobari.ContextSourceAccess              `json:"source_access"`
-	ShellEnvironment []tobari.ContextShellEnvironmentSetting `json:"shell_environment"`
-	GitIdentity      tobari.ContextGitIdentitySetting        `json:"git_identity"`
-	Stores           *tobari.ContextStorePaths               `json:"stores"`
-	Runtime          tobari.ContextRuntimeReport             `json:"runtime"`
-	Cluster          tobari.ContextClusterStatus             `json:"cluster"`
-	Authentication   contextAuthenticationJSONProjection     `json:"authentication"`
+	Task                 string                                  `json:"task"`
+	ContextState         tobari.ContextObservationState          `json:"context_state"`
+	ID                   *string                                 `json:"id"`
+	Name                 string                                  `json:"name"`
+	Active               bool                                    `json:"active"`
+	AgentProfile         string                                  `json:"agent_profile"`
+	Image                string                                  `json:"image"`
+	PolicyMode           tobari.ContextPolicyMode                `json:"policy_mode"`
+	SourceAccess         tobari.ContextSourceAccess              `json:"source_access"`
+	PolicyPresetOrigin   string                                  `json:"policy_preset_origin"`
+	PolicyPresetRevision string                                  `json:"policy_preset_revision"`
+	PolicyGuardrail      tobari.PolicyPresetGuardrail            `json:"policy_guardrail"`
+	ShellEnvironment     []tobari.ContextShellEnvironmentSetting `json:"shell_environment"`
+	GitIdentity          tobari.ContextGitIdentitySetting        `json:"git_identity"`
+	Stores               *tobari.ContextStorePaths               `json:"stores"`
+	Runtime              tobari.ContextRuntimeReport             `json:"runtime"`
+	Cluster              tobari.ContextClusterStatus             `json:"cluster"`
+	Authentication       contextAuthenticationJSONProjection     `json:"authentication"`
 }
 
 type contextAuthenticationJSONProjection struct {
@@ -433,7 +438,8 @@ func contextReportJSONDocument(result tobari.ContextReport) contextReportDocumen
 		Context: contextReportJSONProjection{
 			Task: result.Task, ContextState: result.ContextState, ID: optionalString(result.ID), Name: result.Name, Active: result.Active,
 			AgentProfile: result.AgentProfile, Image: result.Image, PolicyMode: result.PolicyMode,
-			SourceAccess:     result.SourceAccess,
+			SourceAccess:       result.SourceAccess,
+			PolicyPresetOrigin: result.PolicyPresetOrigin, PolicyPresetRevision: result.PolicyPresetRevision, PolicyGuardrail: result.PolicyGuardrail,
 			ShellEnvironment: result.ShellEnvironment, GitIdentity: result.GitIdentity, Stores: optionalContextStores(result),
 			Runtime: result.Runtime, Cluster: result.Cluster,
 			Authentication: contextAuthenticationJSONProjection{
@@ -474,6 +480,7 @@ func renderContextList(result tobari.ContextListResult, format successFormat, co
 				ID: optionalString(item.ID), Name: item.Name, ContextState: item.ContextState, Active: item.Active,
 				AgentProfile: item.AgentProfile, Image: item.Image, PolicyMode: item.PolicyMode,
 				SourceAccess: item.SourceAccess, RuntimeStatus: item.RuntimeStatus,
+				PolicyPresetOrigin: item.PolicyPresetOrigin, PolicyPresetRevision: item.PolicyPresetRevision,
 			})
 		}
 		output, err := marshalCommandJSON("context list", document)
@@ -536,6 +543,11 @@ func renderContextReportText(result tobari.ContextReport, color bool) []byte {
 	writeStyledLine(&output, color, "Agent profile:", safeExternalText(result.AgentProfile), styleText)
 	writeStyledLine(&output, color, "Policy mode:", string(result.PolicyMode), styleText)
 	writeStyledLine(&output, color, "Source access:", "direct "+string(result.SourceAccess), styleText)
+	writeStyledLine(&output, color, "Policy preset:", safeExternalText(result.PolicyPresetOrigin), styleText)
+	if result.PolicyPresetRevision != "" {
+		writeStyledLine(&output, color, "Policy preset revision:", result.PolicyPresetRevision, styleText)
+	}
+	writeStyledLine(&output, color, "Policy guardrail:", string(result.PolicyGuardrail), styleText)
 	for _, setting := range result.ShellEnvironment {
 		value := string(setting.Source)
 		if setting.Source == tobari.ContextShellEnvironmentLiteral && setting.Value != nil {

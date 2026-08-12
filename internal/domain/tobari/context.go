@@ -612,6 +612,8 @@ type ContextManifest struct {
 	Image            string                           `json:"image"`
 	PolicyMode       ContextPolicyMode                `json:"policy_mode"`
 	SourceAccess     ContextSourceAccess              `json:"source_access"`
+	PolicyPresetOrigin string                         `json:"policy_preset_origin"`
+	PolicyPresetRevision string                       `json:"policy_preset_revision"`
 	Runtime          *ContextRuntimeRecipe            `json:"runtime,omitempty"`
 	ShellEnvironment []ContextShellEnvironmentSetting `json:"shell_environment,omitempty"`
 	GitIdentity      *ContextGitIdentitySetting       `json:"git_identity,omitempty"`
@@ -638,6 +640,12 @@ func (m ContextManifest) Validate() error {
 	}
 	if err := m.SourceAccess.Validate(); err != nil {
 		return err
+	}
+	if err := ValidatePolicyPresetOrigin(m.PolicyPresetOrigin); err != nil {
+		return err
+	}
+	if !digestPattern.MatchString(m.PolicyPresetRevision) {
+		return fmt.Errorf("context policy preset revision is invalid")
 	}
 	if m.Runtime != nil {
 		if err := m.Runtime.Validate(); err != nil {
@@ -699,6 +707,8 @@ type ContextSummary struct {
 	Image         string                  `json:"image"`
 	PolicyMode    ContextPolicyMode       `json:"policy_mode"`
 	SourceAccess  ContextSourceAccess     `json:"source_access"`
+	PolicyPresetOrigin string              `json:"policy_preset_origin"`
+	PolicyPresetRevision string            `json:"policy_preset_revision"`
 	RuntimeStatus ContextRuntimeStatus    `json:"runtime_status,omitempty"`
 }
 
@@ -720,6 +730,8 @@ func (s ContextSummary) Validate() error {
 		Image:         s.Image,
 		PolicyMode:    s.PolicyMode,
 		SourceAccess:  s.SourceAccess,
+		PolicyPresetOrigin: s.PolicyPresetOrigin,
+		PolicyPresetRevision: s.PolicyPresetRevision,
 	}
 	if err := manifest.Validate(); err != nil {
 		return err
@@ -881,6 +893,9 @@ type ContextReport struct {
 	Image            string                           `json:"image"`
 	PolicyMode       ContextPolicyMode                `json:"policy_mode"`
 	SourceAccess     ContextSourceAccess              `json:"source_access"`
+	PolicyPresetOrigin string                         `json:"policy_preset_origin"`
+	PolicyPresetRevision string                       `json:"policy_preset_revision"`
+	PolicyGuardrail PolicyPresetGuardrail             `json:"policy_guardrail"`
 	ShellEnvironment []ContextShellEnvironmentSetting `json:"shell_environment"`
 	GitIdentity      ContextGitIdentitySetting        `json:"git_identity"`
 	Stores           ContextStorePaths                `json:"stores"`
@@ -901,7 +916,7 @@ func (r ContextReport) Validate() error {
 		if r.Task != TaskContextShow || r.Name != DefaultContextName || !r.Active || r.ID != "" || r.Stores != (ContextStorePaths{}) {
 			return fmt.Errorf("synthetic default Context report claims persisted authority")
 		}
-		if r.AgentProfile == "" || r.Image == "" || r.PolicyMode.Validate() != nil || r.SourceAccess.Validate() != nil {
+		if r.AgentProfile == "" || r.Image == "" || r.PolicyMode.Validate() != nil || r.SourceAccess.Validate() != nil || r.PolicyPresetOrigin != DefaultPolicyPresetOrigin || r.PolicyPresetRevision != "" || r.PolicyGuardrail != PolicyPresetGuardrailReviewedExact {
 			return fmt.Errorf("synthetic default Context display metadata is invalid")
 		}
 	} else {
@@ -913,6 +928,8 @@ func (r ContextReport) Validate() error {
 			Image:         r.Image,
 			PolicyMode:    r.PolicyMode,
 			SourceAccess:  r.SourceAccess,
+			PolicyPresetOrigin: r.PolicyPresetOrigin,
+			PolicyPresetRevision: r.PolicyPresetRevision,
 		}
 		if err := manifest.Validate(); err != nil {
 			return err
@@ -920,6 +937,7 @@ func (r ContextReport) Validate() error {
 		if err := r.Stores.Validate(); err != nil {
 			return err
 		}
+		if err := r.PolicyGuardrail.Validate(); err != nil { return err }
 	}
 	if err := r.Runtime.Validate(); err != nil {
 		return err

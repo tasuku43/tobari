@@ -36,6 +36,7 @@ const (
 // PolicyProtocolIdentity identifies one HTTP effect or refines it to exactly
 // one GraphQL root coordinate.
 type PolicyProtocolIdentity struct {
+	Scheme               string `json:"scheme,omitempty"`
 	Protocol             string `json:"protocol"`
 	GraphQLOperationType string `json:"graphql_operation_type,omitempty"`
 	GraphQLRootField     string `json:"graphql_root_field,omitempty"`
@@ -47,6 +48,9 @@ func (i PolicyProtocolIdentity) EffectiveProtocol() string {
 }
 
 func (i PolicyProtocolIdentity) Validate() error {
+	if i.Scheme != "" && i.Scheme != "http" && i.Scheme != "https" {
+		return fmt.Errorf("policy scheme is invalid")
+	}
 	switch i.EffectiveProtocol() {
 	case PolicyProtocolHTTP:
 		if i.GraphQLOperationType != "" || i.GraphQLRootField != "" {
@@ -67,11 +71,13 @@ func (i PolicyProtocolIdentity) Validate() error {
 
 func (i PolicyProtocolIdentity) matches(other PolicyProtocolIdentity) bool {
 	return i.EffectiveProtocol() == other.EffectiveProtocol() &&
+		i.Scheme == other.Scheme &&
 		i.GraphQLOperationType == other.GraphQLOperationType &&
 		i.GraphQLRootField == other.GraphQLRootField
 }
 
 func appendPolicyProtocolIdentity(material []string, identity PolicyProtocolIdentity) []string {
+	material = append(material, identity.Scheme)
 	if identity.EffectiveProtocol() == PolicyProtocolHTTP {
 		return material
 	}

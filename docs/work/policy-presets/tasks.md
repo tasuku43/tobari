@@ -19,9 +19,13 @@
       project-bound learned exact rules.
 - [x] Select the three built-in identities and exact GET-only reviewed meaning.
 - [x] Require the guardrail above guided, learned, and Advanced allows.
-- [ ] Freeze custom schema V1 and report field names after hostile-fixture
-      review.
-- [ ] Add and accept the durable policy-preset ADR.
+- [x] Freeze custom schema V1 and report field names after hostile-fixture
+      review. Evidence: `PolicyPresetMethodCeiling` and
+      `PolicyPresetDestinationCeiling` make all/public-HTTPS versus exact
+      collection meaning explicit; task-owned outputs carry source, scope,
+      limitations, ceiling modes/counts, and normalized revision.
+- [x] Add and accept the durable policy-preset ADR. Evidence: accepted ADR 0029
+      owns immutable snapshot and system-guardrail precedence.
 
 ## Retire compaction prerequisite
 
@@ -33,33 +37,33 @@
 
 ## Implement domain and store
 
-- [ ] Add failing selector, preset, ceiling, baseline, endpoint, normalization,
+- [x] Add failing selector, preset, ceiling, baseline, endpoint, normalization,
       digest, and report tests.
-- [ ] Implement the shared strict validator used by embedded and custom presets.
-- [ ] Add immutable normalized built-ins with exact revisions.
-- [ ] Add owner-only custom preset paths, strict reader, atomic non-overwriting
+- [x] Implement the shared strict validator used by embedded and custom presets.
+- [x] Add immutable normalized built-ins with exact revisions.
+- [x] Add owner-only custom preset paths, strict reader, atomic non-overwriting
       init, symlink/mode/race/size guards, and synthetic fixtures.
-- [ ] Add Context snapshot identity/content and exact-V1 persistence.
+- [x] Add Context snapshot identity/content and exact-V1 persistence.
 
 ## Implement application and CLI
 
 - [ ] Add `policy.presets` to the public capability ledger.
-- [ ] Add list/show/init/validate use cases with task-owned minimal ports.
-- [ ] Register complete catalog specs, dispatch, help, presentation, fixtures,
+- [x] Add list/show/init/validate use cases with task-owned minimal ports.
+- [x] Register complete catalog specs, dispatch, help, presentation, fixtures,
       faults, and generated architecture data.
-- [ ] Add `--policy-preset` to Context creation with
+- [x] Add `--policy-preset` to Context creation with
       `builtin/reviewed-exact` default.
-- [ ] Add typed Context list/show preset and effective-policy facts.
-- [ ] Prove invalid inputs and read commands perform zero writes/activation.
+- [x] Add typed Context list/show preset and effective-policy facts.
+- [x] Prove invalid inputs and read commands perform zero writes/activation.
 
 ## Implement enforcement
 
-- [ ] Generate initial Context domain policy only from the normalized snapshot;
+- [x] Generate initial Context domain policy only from the normalized snapshot;
       stop copying test/example domains implicitly.
-- [ ] Project the guardrail into the complete aggregate.
-- [ ] Enforce guardrail and deny precedence before baseline, learned, and
+- [x] Project the guardrail into the complete aggregate.
+- [x] Enforce guardrail and deny precedence before baseline, learned, and
       Advanced allow paths.
-- [ ] Make guardrail rejection terminal/non-learnable with stable secret-free
+- [x] Make guardrail rejection terminal/non-learnable with stable secret-free
       reason and no review recovery.
 - [ ] Preserve exact project-bound learned rule identity and manual retry only.
 - [ ] Preserve aggregate preflight, atomic promotion, revision confirmation,
@@ -77,8 +81,15 @@
       bypass.
 - [ ] Agent preset discovery/selection needs no source inspection or external
       processing.
-- [ ] Focused tests pass. Evidence:
+- [x] Focused tests pass. Evidence: `go test ./internal/domain/tobari
+      ./internal/app/contextcmd ./internal/app/policypresetcmd
+      ./internal/infra/dockerruntime` and `go test ./internal/cli` pass locally;
+      Gateway source compiles with `python3 -m py_compile`, while its unittest
+      suite requires the integration profile's mitmproxy dependency.
 - [ ] `task check` passes. Evidence:
+- [ ] `task check:fast` passes. Evidence: blocked before repository checks by
+      host Node.js v22.14.0/npm 10.9.2; repository requires Node.js v24.18.0
+      and npm 11.16.0. Focused Go suites pass.
 - [ ] `task security` passes. Evidence:
 - [ ] `task public:check` passes. Evidence:
 

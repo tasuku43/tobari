@@ -31,6 +31,10 @@ type contextUseProgressRuntimePort interface {
 	UseContextWithProgress(context.Context, string, tobari.ClusterUpProgressSink) (tobari.ContextReport, error)
 }
 
+type policyPresetContextRuntimePort interface {
+	CreateContextWithPreset(context.Context, string, string, tobari.ContextPolicyMode, tobari.ContextSourceAccess, string) (tobari.ContextReport, error)
+}
+
 type contextRuntimeBuildProgressPort interface {
 	BuildRuntimeWithProgress(context.Context, io.Writer, tobari.RuntimeBuildProgressSink) (tobari.ContextReport, error)
 }
@@ -336,13 +340,23 @@ func (s *Service) Show(ctx context.Context, name string) (tobari.ContextReport, 
 }
 
 func (s *Service) Create(
-	ctx context.Context, intent operation.Intent, name, image string, mode tobari.ContextPolicyMode, sourceAccess tobari.ContextSourceAccess,
+	ctx context.Context, intent operation.Intent, name, image string, mode tobari.ContextPolicyMode, sourceAccess tobari.ContextSourceAccess, presetOrigins ...string,
 ) (tobari.ContextReport, error) {
 	if err := s.requireRuntime(); err != nil {
 		return tobari.ContextReport{}, err
 	}
+	presetOrigin := tobari.DefaultPolicyPresetOrigin
+	if len(presetOrigins) > 1 {
+		return tobari.ContextReport{}, fault.New(fault.KindInvalidInput, "invalid_context", "Context policy preset selection is invalid", false)
+	}
+	if len(presetOrigins) == 1 {
+		presetOrigin = presetOrigins[0]
+	}
 	if err := validateCreateInput(name, image, mode, sourceAccess); err != nil {
 		return tobari.ContextReport{}, err
+	}
+	if err := tobari.ValidatePolicyPresetOrigin(presetOrigin); err != nil {
+		return tobari.ContextReport{}, fault.Wrap(fault.KindInvalidInput, "invalid_context", "Context policy preset selection is invalid", false, err)
 	}
 	request := execution.Request{
 		Intent: intent, ExpectedCommand: intent.Command, ExpectedEffect: operation.EffectCreate,
@@ -351,7 +365,15 @@ func (s *Service) Create(
 	}
 	var result tobari.ContextReport
 	err := s.mutator.Invoke(ctx, request, func(actionContext context.Context, _ operation.Intent) error {
-		created, createErr := s.runtime.CreateContext(actionContext, name, image, mode, sourceAccess)
+		var created tobari.ContextReport
+		var createErr error
+		if runtime, ok := s.runtime.(policyPresetContextRuntimePort); ok {
+			created, createErr = runtime.CreateContextWithPreset(actionContext, name, image, mode, sourceAccess, presetOrigin)
+		} else if presetOrigin == tobari.DefaultPolicyPresetOrigin {
+			created, createErr = s.runtime.CreateContext(actionContext, name, image, mode, sourceAccess)
+		} else {
+			createErr = errors.New("policy preset store is unavailable")
+		}
 		if errors.Is(createErr, tobari.ErrContextExists) {
 			return fault.New(
 				fault.KindRejected, "context_exists", "the named Context already exists", false,
@@ -364,7 +386,7 @@ func (s *Service) Create(
 		}
 		contractErr := created.Validate()
 		if contractErr == nil && (created.Task != tobari.TaskContextCreate ||
-			created.Name != name || created.SourceAccess != sourceAccess) {
+			created.Name != name || created.SourceAccess != sourceAccess || created.PolicyPresetOrigin != presetOrigin) {
 			contractErr = fmt.Errorf("created Context identity or source access does not match the request")
 		}
 		if contractErr != nil {
@@ -539,6 +561,7 @@ func validateCreateInput(name, image string, mode tobari.ContextPolicyMode, sour
 	manifest := tobari.ContextManifest{
 		SchemaVersion: tobari.ContextSchemaVersion, ID: "00000000-0000-7000-8000-000000000000", Name: name,
 		AgentProfile: tobari.DefaultProfile, Image: image, PolicyMode: mode, SourceAccess: sourceAccess,
+		PolicyPresetOrigin: tobari.DefaultPolicyPresetOrigin, PolicyPresetRevision: tobari.DefaultPolicyPresetRevision(),
 	}
 	if err := manifest.Validate(); err != nil {
 		return fault.Wrap(
