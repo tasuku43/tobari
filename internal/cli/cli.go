@@ -35,6 +35,7 @@ type CLI struct {
 	policyPreset *policypresetcmd.Service
 	auth         *authcmd.Service
 	config       contextConfigurationWizard
+	authLogin    authLoginProviderSelector
 	noColor      bool
 }
 
@@ -43,6 +44,7 @@ func New(in io.Reader, out, errOut io.Writer) *CLI {
 	command := newCLI(in, out, errOut, DefaultCatalog(), systemdoctor.New())
 	command.noColor = noColorFromEnvironment()
 	command.config = newContextConfigurationWizardWithStyle(!command.noColor)
+	command.authLogin = newAuthLoginProviderSelectorWithStyle(!command.noColor)
 	runtime, err := dockerruntime.New()
 	if err != nil {
 		command.doctor = doctorcmd.New(systemdoctor.New(err))
@@ -75,10 +77,11 @@ func newCLI(in io.Reader, out, errOut io.Writer, catalog Catalog, inspector doct
 	}
 	return &CLI{
 		In: in, Out: out, Err: errOut,
-		Version: "dev",
-		catalog: catalog,
-		doctor:  doctorcmd.New(inspector),
-		config:  newContextConfigurationWizard(),
+		Version:   "dev",
+		catalog:   catalog,
+		doctor:    doctorcmd.New(inspector),
+		config:    newContextConfigurationWizard(),
+		authLogin: newAuthLoginProviderSelector(),
 	}
 }
 

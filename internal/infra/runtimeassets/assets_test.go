@@ -32,6 +32,19 @@ func TestMaterializeAndVersion(t *testing.T) {
 	}
 }
 
+func TestComponentVersionsUseFullContentDigest(t *testing.T) {
+	t.Parallel()
+	for _, component := range []string{"gateway", "authbroker"} {
+		version, err := ComponentVersion(component)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(version) != 64 {
+			t.Fatalf("%s version length = %d, want 64", component, len(version))
+		}
+	}
+}
+
 func TestTobariDockerfileDeclaresRuntimeContract(t *testing.T) {
 	t.Parallel()
 	data, err := Read("tobari/Dockerfile")
@@ -76,7 +89,7 @@ func TestComposeSpecOwnsOnlySharedLeastPrivilegeServices(t *testing.T) {
 		"TOBARI_PRINCIPAL_REGISTRY: /run/tobari/principal-registry/principals.json",
 		"TOBARI_AUTH_PROVIDER_PROJECTION: /run/tobari/auth/providers.json",
 		"TOBARI_AUTH_BROKER_SOCKET: /run/tobari-auth/runtime/broker.sock",
-		"TOBARI_AUTH_BROKER_TIMEOUT_SECONDS: ${TOBARI_AUTH_BROKER_TIMEOUT_SECONDS:-2}",
+		"TOBARI_AUTH_BROKER_TIMEOUT_SECONDS: ${TOBARI_AUTH_BROKER_TIMEOUT_SECONDS:-70}",
 	} {
 		if !strings.Contains(spec, required) {
 			t.Errorf("compose spec is missing %q", required)
@@ -103,8 +116,8 @@ func TestComposeSpecOwnsOnlySharedLeastPrivilegeServices(t *testing.T) {
 	if authBrokerStart < 0 || gatewayStart <= authBrokerStart {
 		t.Fatal("compose spec does not contain ordered Auth Broker and Gateway services")
 	}
-	if strings.Contains(spec[authBrokerStart:gatewayStart], "      egress: {}") {
-		t.Error("Auth Broker retained provider egress after the static-only V1 narrowing")
+	if !strings.Contains(spec[authBrokerStart:gatewayStart], "      egress: {}") {
+		t.Error("Auth Broker is missing bounded egress for reviewed refresh transports")
 	}
 }
 
@@ -211,7 +224,7 @@ func TestGatewayDockerfileDeclaresStableContractAndHostIndependentRuntime(t *tes
 	}
 }
 
-func TestRuntimeVersionsKeepThirdPartyImagesPinnedAndOwnedImagesWithheldTogether(t *testing.T) {
+func TestRuntimeVersionsKeepOnlyThirdPartyImagesPinned(t *testing.T) {
 	t.Parallel()
 	versions, err := Versions()
 	if err != nil {
@@ -222,9 +235,10 @@ func TestRuntimeVersionsKeepThirdPartyImagesPinnedAndOwnedImagesWithheldTogether
 			t.Fatalf("%s is not digest pinned: %q", key, value)
 		}
 	}
-	if versions["GATEWAY_IMAGE"] != "unpublished" || versions["AUTH_BROKER_IMAGE"] != "unpublished" ||
-		versions["GATEWAY_IMAGE_API"] != "1" || versions["AUTH_BROKER_IMAGE_API"] != "1" {
-		t.Fatalf("Tobari-owned image snapshot = %#v", versions)
+	for _, removed := range []string{"GATEWAY_IMAGE", "GATEWAY_IMAGE_API", "AUTH_BROKER_IMAGE", "AUTH_BROKER_IMAGE_API"} {
+		if _, ok := versions[removed]; ok {
+			t.Fatalf("generated release authority %s remains in source", removed)
+		}
 	}
 }
 

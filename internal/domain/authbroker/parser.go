@@ -52,7 +52,7 @@ func validateProviderJSONKeys(data []byte) error {
 	}
 	allowedProviderKeys := []string{
 		"schema_version", "id", "display_name", "acquisition", "credential",
-		"workspace_projections", "header_bindings",
+		"workspace_projections", "header_bindings", "signing_bindings",
 	}
 	if err := rejectUnknownKeys("provider", root, allowedProviderKeys...); err != nil {
 		return err
@@ -88,6 +88,44 @@ func validateProviderJSONKeys(data []byte) error {
 			return err
 		}
 		if err := validateObjectKeys(label+".destination", binding["destination"], "header", "format", "secret_field"); err != nil {
+			return err
+		}
+	}
+	if err := validateSigningBindingJSONKeys(root["signing_bindings"]); err != nil {
+		return err
+	}
+	return nil
+}
+
+func validateSigningBindingJSONKeys(data json.RawMessage) error {
+	var bindings []map[string]json.RawMessage
+	if len(data) != 0 {
+		if err := json.Unmarshal(data, &bindings); err != nil {
+			return fmt.Errorf("signing_bindings must be an array of objects: %w", err)
+		}
+	}
+	for index, binding := range bindings {
+		label := fmt.Sprintf("signing_bindings[%d]", index)
+		if binding == nil {
+			return fmt.Errorf("%s must be an object", label)
+		}
+		if err := rejectUnknownKeys(label, binding, "kind", "aws_sigv4"); err != nil {
+			return err
+		}
+		var plan map[string]json.RawMessage
+		if err := json.Unmarshal(binding["aws_sigv4"], &plan); err != nil || plan == nil {
+			return fmt.Errorf("%s.aws_sigv4 must be an object", label)
+		}
+		if err := rejectUnknownKeys(label+".aws_sigv4", plan, "target", "source", "secret_headers"); err != nil {
+			return err
+		}
+		if err := validateObjectKeys(label+".aws_sigv4.target", plan["target"], "scheme", "port", "dns_suffixes"); err != nil {
+			return err
+		}
+		if err := validateObjectKeys(
+			label+".aws_sigv4.source", plan["source"],
+			"authorization_header", "security_token_header",
+		); err != nil {
 			return err
 		}
 	}

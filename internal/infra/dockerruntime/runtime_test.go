@@ -42,6 +42,7 @@ type clusterUpProgressRunner struct {
 	events             []string
 	composeEnvironment []string
 	networkConnections []runnerCall
+	companionEpoch     string
 }
 
 func (r *clusterUpProgressRunner) Run(_ context.Context, args, environment []string, _ io.Reader, out, _ io.Writer) error {
@@ -50,7 +51,18 @@ func (r *clusterUpProgressRunner) Run(_ context.Context, args, environment []str
 		r.composeEnvironment = append([]string{}, environment...)
 	}
 	if slices.Contains(args, "authbroker.control") {
-		_, _ = io.WriteString(out, `{"schema_version":1,"ok":true,"state":"unlocked"}`+"\n")
+		operationIndex := slices.Index(args, "authbroker.control") + 1
+		operation := args[operationIndex]
+		switch operation {
+		case "unlock", "health":
+			_, _ = io.WriteString(out, `{"schema_version":1,"ok":true,"state":"unlocked"}`+"\n")
+		case "companion_prepare":
+			epochIndex := slices.Index(args, "--epoch-id")
+			r.companionEpoch = args[epochIndex+1]
+			_, _ = fmt.Fprintf(out, `{"schema_version":1,"ok":true,"state":"prepared","epoch_id":%q}`+"\n", r.companionEpoch)
+		case "companion_status":
+			_, _ = fmt.Fprintf(out, `{"schema_version":1,"ok":true,"state":"ready","epoch_id":%q}`+"\n", r.companionEpoch)
+		}
 	}
 	return nil
 }
@@ -126,6 +138,8 @@ func TestClusterUpWithProgressReportsEachRuntimeStageInOrder(t *testing.T) {
 	runtime.rootKeyLoader = func(context.Context) ([]byte, error) {
 		return bytes.Repeat([]byte{0x41}, 32), nil
 	}
+	runtime.companion = &fakeCredentialCompanionLauncher{}
+	runtime.companionEntropy = bytes.NewReader(bytes.Repeat([]byte{0x42}, 32))
 	var events []tobari.ClusterUpProgress
 	if _, err := runtime.ClusterUpWithProgress(context.Background(), func(event tobari.ClusterUpProgress) {
 		events = append(events, event)
@@ -168,9 +182,10 @@ func TestClusterUpWithProgressReportsEachRuntimeStageInOrder(t *testing.T) {
 		}
 	}
 	wantNetworkConnections := [][]string{
-		{"network", "connect", "--alias", "auth-broker", "tobari-control", authBrokerContainer},
 		{"network", "connect", "--alias", "gateway", "tobari-control", gatewayContainer},
+		{"network", "connect", "--alias", "auth-broker", "tobari-control", authBrokerContainer},
 		{"network", "connect", "--alias", "gateway", "tobari-egress", gatewayContainer},
+		{"network", "connect", "--alias", "auth-broker", "tobari-egress", authBrokerContainer},
 	}
 	if len(runner.networkConnections) != len(wantNetworkConnections) {
 		t.Fatalf("shared network connections = %v", runner.networkConnections)
@@ -560,6 +575,7 @@ func TestClusterDownPurgesMissingVolumesIdempotently(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	runtime.companion = &fakeCredentialCompanionLauncher{}
 	if err := runtime.ClusterDown(context.Background(), runtimeState(root), true); err != nil {
 		t.Fatalf("ClusterDown() = %v, want idempotent success for missing resources", err)
 	}

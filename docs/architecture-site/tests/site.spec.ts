@@ -376,9 +376,16 @@ test("Provider-first support map keeps Provider, Tool, and acquisition distinct"
 
     const map = page.locator(".provider-tool-map");
     await expect(map).toBeVisible();
-    await expect(map.locator(".pairing-row")).toHaveCount(1);
+    await expect(map.locator(".pairing-row")).toHaveCount(6);
 
-    const expected = [["github", "GitHub CLI", "gh"]];
+    const expected = [
+      ["github", "GitHub CLI", "gh"],
+      ["aws", "AWS CLI", "aws"],
+      ["datadog", "pup", "pup"],
+      ["openai", "Codex CLI", "codex"],
+      ["anthropic", "Claude Code", "claude"],
+      ["chatwork", "cwk", "cwk"],
+    ];
     for (const [provider, toolName, command] of expected) {
       const row = map.locator(`[data-provider="${provider}"]`);
       await expect(row).toHaveCount(1);
@@ -387,8 +394,11 @@ test("Provider-first support map keeps Provider, Tool, and acquisition distinct"
     }
 
     await expect(map).toContainText(
-      locale ? "明示指定が必須" : "requires explicit",
+      locale
+        ? "レビュー済みプロバイダーを選ぶ"
+        : "choose an installed reviewed provider",
     );
+    await expect(map).toContainText("auth login --provider github");
     await expect(map).toContainText(
       locale ? "OPA の通信許可を追加しません" : "add no OPA network permission",
     );

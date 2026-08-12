@@ -476,6 +476,7 @@ func clusterUpSpec() CommandSpec {
 				declaredCommandError(fault.KindContract, "gateway_image_incompatible", false, "doctor", "Inspect the Gateway image API, digest, and architecture contract."),
 				declaredCommandError(fault.KindUnavailable, "auth_broker_image_unavailable", true, "doctor", "Inspect Docker registry access before retrying the verified Auth Broker image."),
 				declaredCommandError(fault.KindContract, "auth_broker_image_incompatible", false, "doctor", "Inspect the Auth Broker image API, digest, entrypoint, user, and architecture contract."),
+				declaredCommandError(fault.KindUnavailable, "credential_companion_unavailable", true, "cluster up", "Reconcile the shared cluster and its Auth Broker companion session."),
 				declaredCommandError(fault.KindUnavailable, "auth_broker_unavailable", true, "cluster up", "Reconcile the shared cluster and retry the bounded broker control path."),
 				declaredCommandError(fault.KindUnavailable, "auth_broker_request_failed", false, "cluster status", "Inspect partial shared-cluster state before another reconcile."),
 				declaredCommandError(fault.KindContract, "auth_broker_unlock_failed", false, "doctor", "Inspect Auth Broker and root-key provider state."),
@@ -525,6 +526,7 @@ func clusterStatusSpec() CommandSpec {
 					{Name: "gateway_projection", Type: OutputFieldTypeString, Description: "Gateway routing projection integrity observation.", Enum: []string{"valid", "invalid", "unavailable"}},
 					{Name: "auth_provider_projection", Type: OutputFieldTypeString, Description: "Auth Broker provider projection integrity observation.", Enum: []string{"valid", "invalid", "unavailable"}},
 					{Name: "auth_broker_state", Type: OutputFieldTypeString, Description: "Observed ready, locked, or unavailable Auth Broker state.", Enum: []string{"ready", "locked", "unavailable"}},
+					{Name: "credential_companion_state", Type: OutputFieldTypeString, Description: "Observed ready, prepared, absent, or unavailable trusted-host credential companion state.", Enum: []string{"ready", "prepared", "absent", "unavailable"}},
 					{Name: "root_key_backend", Type: OutputFieldTypeString, Description: "Selected host root-key backend or unavailable state.", Enum: []string{"macos_keychain", "xdg_file", "unavailable"}},
 					{Name: "components", Type: OutputFieldTypeArray, Description: "Exact Auth Broker, Gateway, and OPA observations.", SemanticScope: "The three shared services when the cluster is configured; empty when unconfigured.", Items: &OutputField{
 						Type: OutputFieldTypeObject, Description: "One shared service observation.", Fields: []OutputField{
@@ -1386,6 +1388,7 @@ func textClusterStatusOutput() CommandOutput {
 			{Name: "gateway_projection", Type: OutputFieldTypeString, Description: "Gateway routing projection integrity observation."},
 			{Name: "auth_provider_projection", Type: OutputFieldTypeString, Description: "Auth Broker provider projection integrity observation."},
 			{Name: "auth_broker_state", Type: OutputFieldTypeString, Description: "Observed ready, locked, or unavailable Auth Broker state."},
+			{Name: "credential_companion_state", Type: OutputFieldTypeString, Description: "Observed ready, prepared, absent, or unavailable trusted-host credential companion state."},
 			{Name: "root_key_backend", Type: OutputFieldTypeString, Description: "Selected host root-key backend or unavailable state."},
 		},
 		Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageNotApplicable,

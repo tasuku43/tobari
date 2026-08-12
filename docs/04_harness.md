@@ -30,13 +30,12 @@ sources, per-platform integrity, local license/notices, final user, and the
 inherited entrypoint contract. It also fails if a toolbox-only tool enters the
 published base through this capability.
 
-`task build:dev` is a contributor feedback path, not a completion profile. It
-builds local Tobari-managed images `tobari-gateway:dev`,
-`tobari-auth-broker:dev`, and `tobari-runtime:dev`, then builds
-`bin/tobari-dev` with the `tobari_dev` image
-resolver. The normal `task build` binary keeps using the published Gateway
-digest and official runtime base. To run the integration script against the
-dev resolver, set `TOBARI_INTEGRATION_BINARY=$PWD/bin/tobari-dev` and
+`task build` is a contributor feedback path, not a completion profile. It
+builds or reuses local Tobari-managed component images whose tags contain the
+exact embedded source hash, builds `tobari-runtime:dev`, and compiles
+`bin/tobari` with the development resolver. `task build:dev` retains the
+compatibility-named `bin/tobari-dev` output. To run the integration script
+against that compatibility binary, set `TOBARI_INTEGRATION_BINARY=$PWD/bin/tobari-dev` and
 `TOBARI_INTEGRATION_CUSTOM_BASE=tobari-runtime:dev`.
 The integration script owns its dev-resolver prerequisites: when
 `tobari-runtime:dev` is absent, it creates a temporary alias to the selected
@@ -47,20 +46,18 @@ Both repository build tasks embed only `git rev-parse --verify HEAD` as the
 source commit while retaining the fixed `dev` version; `-buildvcs=false` and
 `-trimpath` exclude implicit VCS state and local paths. Build-identity tests
 fix version JSON schema 1, require `unknown` metadata to remain incompatible,
-and compile both resolver tags. The published fixture must expose the recorded
-pin APIs and no repository recovery value; the development fixture must expose
-matching source APIs plus exactly `task build:dev` and `bin/tobari-dev`.
+and compile both resolver tags. Published packaging requires one validated
+component lock and exposes its selected APIs with no repository recovery value;
+the development fixture exposes matching source APIs plus exactly `task build`
+and `bin/tobari`.
 
 The current contributor sources expect `io.tobari.gateway-api=1` and
 `io.tobari.auth-broker-api=1`, including guarded transparent routing,
-synthetic DNS, and schema-1 source principals. `task build:dev` is the matching
-local image path. Official immutable V1 selections are not yet published;
-`versions.env` records a paired `unpublished` marker beside the V1 API
-authorities. Development and full gates accept only that exact paired state,
-while public and release profiles reject it. The release profile derives the API labels from canonical Gateway and
-Auth Broker Dockerfiles and fails unless both recorded pin APIs equal the
-source APIs, so a CLI that necessarily rejects its own official pins cannot be
-tagged.
+synthetic DNS, and schema-1 source principals. `task build` is the matching
+local image path. `versions.env` contains only source inputs and no generated
+Tobari-owned release output. The release profile validates strict paired lock
+generation, derives both APIs from the canonical Dockerfiles, and requires the
+same source revision for both component indexes and every CLI archive.
 
 The focused `task runtime:base:check` workflow validates the canonical
 `runtimes/base` metadata and per-platform artifact lock, the Dockerfile's common
@@ -87,7 +84,7 @@ has package-write permission, and its pull-request validation job is
 cache-only. Runtime tests preflight the immutable Gateway digest, labels,
 entrypoint, default user, Docker Engine platform, and selected runtime base
 before shared resources; local source image feedback is covered by the explicit
-contributor `task build:dev` path.
+contributor `task build` path.
 
 `task authbroker:source:check` and `scripts/check-authbroker-source.sh`
 validate byte equality between canonical `authbroker/` source and the embedded
@@ -105,18 +102,18 @@ only the main-push job has package-write permission.
 `task authbroker:source:sync` is the explicit maintainer operation that
 refreshes the embedded snapshot.
 The version contract requires every production image selector, including Auth
-Broker, to be an immutable digest reference. The public and release profiles
-reject a marker, moving tag, wrong repository, or malformed digest. The
+Broker, to be an immutable digest reference. Component-lock tests reject a
+partial lock, moving tag, wrong repository, malformed digest, source mismatch,
+or incomplete platform set. The
 reviewed Linux amd64/arm64 manifest receives the same runtime preflight and
 ordinary immutable-image checks as Gateway.
 
-Authentication retirement coverage spans Go, Python, Gateway, image content,
-and dependency checks. The retained path fixes the GitHub driver's API-only
-argv/environment, canonical executable identity/digest recheck, private-home
-cleanup, fixed device-page/manual fallback, cancellation, bounded capture, and
-redacted errors. Negative tests prove managed profiles, dynamic records,
-refresh, signing, supplemental headers, companions, retired provider drivers,
-and exact-version selectors are absent rather than dormant.
+Authentication coverage spans Go, Python, Gateway, image content, and
+dependency checks. Reviewed host-driver tests fix argv/environment, canonical
+executable identity/digest recheck, private state/PTY cleanup, bounded
+browser/output behavior, cancellation, typed capture, and redacted errors.
+Negative tests prove managed profiles, owner-selected dynamic plans, arbitrary
+helpers, compatibility readers, and Broker provider CLIs are absent.
 
 The focused Claude and Codex runtime checks validate their pinned agent
 artifacts at Claude Code 2.1.220 and Codex 0.146.0 and their inherited contract.
@@ -551,21 +548,19 @@ The test suite has complementary levels:
   update shape, Linux owner-only XDG file creation, unsafe path/mode/symlink
   rejection, and the rule that a missing key is never regenerated beside an
   encrypted vault.
-- Auth Broker tests cover exact 64 KiB schema-1 framing, 32 KiB primary-secret
-  bounds, locked health, AES-256-GCM Context binding, schema-1 typed state,
+- Auth Broker tests cover exact 64 KiB schema-1 framing, bounded credential
+  payloads, locked health, AES-256-GCM Context binding, schema-1 typed state,
   atomic vault writes,
   SHA-256-only live handle lookup, deterministic handle reuse for one revision,
   cross-Context/project/binding rejection, rotation, logout, restart/unlock
-  rehydration, same-revision static replacement, and rejection of every retired
-  dynamic record and operation. Tests
-  use synthetic values and make no network call.
-- GitHub acquisition UX tests split the trusted host and Broker boundaries:
-  canonical executable/digest selection, fixed argv, sanitized environment,
-  bounded control-safe streams/state, checked private-home cleanup, and cancellation preserve the
-  prior credential on failure. GitHub output recognizes only the fixed device
-  URL and its argv contains no Git protocol or credential-setup request. No
-  provider CLI exists in the Broker image; retired drivers and exact-version
-  selectors are absent.
+  rehydration, same-revision static replacement, bounded AWS signing,
+  Datadog/OpenAI refresh, durable operation barriers, and rejection of every
+  unknown record/operation. Provider network tests use local synthetic servers.
+- Acquisition UX tests split trusted-host and Broker boundaries for
+  GitHub/AWS/pup/Codex/Claude: canonical executable/digest selection, fixed
+  argv, sanitized environment, bounded streams/state, checked cleanup, and
+  cancellation preserve the prior credential on failure. No provider CLI
+  exists in the Broker image.
 - Workspace auth projection tests prove one configured Context credential
   produces distinct project-bound handles, injects only declared environment
   or complete-file data, refuses to overwrite unowned/modified/symlinked files,
@@ -580,8 +575,9 @@ The test suite has complementary levels:
   copied/stale/malformed/misplaced/ambiguous/mismatched handle rejection,
   non-learnable structural denials, broker-unavailable failure, and fallback
   only when every inspected URL/header position contains no Tobari marker.
-  Negative cases reject retired managed/dynamic/signing/supplemental-header
-  markers before OPA and upstream I/O.
+  Dynamic cases prove zero refresh/companion/signing on deny, exact
+  same-revision results after allow, and non-retryable unknown outcomes.
+  Negative cases reject managed-profile and arbitrary-plan markers before OPA.
 - Domain-policy contract tests reject unknown fields, duplicate JSON keys,
   missing fields, duplicate rule IDs, directory/embedded-host mismatches,
   non-canonical/wildcard/IP hosts, incomplete pairs, extra files, symlinks, and
@@ -738,19 +734,19 @@ Every strong statement should identify its enforcement path.
 | Context shell environment boundary | Fixed allowlist and source-enum domain tests, explicit-empty preservation, exact V1 persistence, zero-I/O rejection for arbitrary names and ambiguous values, owner-only atomic update tests, complete Context report output, exact child-exec environment assertions, missing-export fallback, Bash-quote and bounded inherited-value canaries, and host-credential non-copy assertions |
 | Context Git identity boundary | Atomic pair/source domain tests, exact V1 shell-setting preservation and opt-in default initialization, exact two-key global Git argv with an absolute executable and exact `HOME`/optional `XDG_CONFIG_HOME` plus fixed-control environment allowlist, project-owned config-directory and `PATH`/loader/shell-startup canaries, timeout/output/framing/unsafe-value bounds, malicious local-include exclusion, private atomic config encoding, symlink and existing-file size checks, read-only directory mount and system-scope precedence, excluded helper/signing/auth/path keys, absent/incomplete-pair behavior, and secret-/personal-data-free faults and fixtures |
 | Context runtime build boundary | Fixed current-Context target contracts, owner-only recipe checks, bounded BuildKit plain-progress/load argv including official-base refresh versus local-base behavior, live visible-projected stdout/stderr diagnostics, syntax/RUN/base/daemon failure canaries, nonzero/zero exit assertions, compatibility/digest validation, source-digest status, previous-image preservation, atomic promotion tests, and bound-Context next-entry reconciliation coverage |
-| Gateway source and image boundary | Canonical-source/snapshot byte comparison, pinned mitmproxy parent, signed nftables/iproute dependency inventory, canonical-source unit tests, source API-1/role labels, transparent-only listener and fixed network-guard entrypoint, explicit rejection of non-transparent ingress, absence of proxy environment/port exceptions, paired unpublished-marker development preflight, immutable digest/platform/entrypoint release preflight, non-root resident process, and pull-request/main workflow permission separation |
-| Auth Broker source and image boundary | Canonical-source/snapshot byte comparison, canonical Python tests in the pinned image environment, provider-CLI absence including Codex/Claude, source API-1/role labels, paired unpublished-marker development preflight, immutable digest/platform/entrypoint release preflight, non-root Dockerfile, and pull-request/main workflow permission separation |
+| Gateway source and image boundary | Canonical-source/snapshot byte comparison, pinned mitmproxy parent, signed nftables/iproute dependency inventory, canonical-source unit tests, source API-1/role labels, transparent-only listener and fixed network-guard entrypoint, explicit rejection of non-transparent ingress, absence of proxy environment/port exceptions, content-addressed development selection, paired component-lock validation, immutable digest/platform/entrypoint release preflight, non-root resident process, and validation/release workflow permission separation |
+| Auth Broker source and image boundary | Canonical-source/snapshot byte comparison, canonical Python tests in the pinned image environment, provider-CLI absence including Codex/Claude, source API-1/role labels, content-addressed development selection, paired component-lock validation, immutable digest/platform/entrypoint release preflight, non-root Dockerfile, and validation/release workflow permission separation |
 | Context-owned encrypted credentials | Root-key backend tests, strict owner/mode/symlink checks, AES-GCM schema/Context AAD canaries, atomic vault replacement, missing-key-with-vault rejection, and secret-free outputs |
 | Authentication state survives cluster teardown | Exact down/purge resource assertions, preserved vault/key canaries, and subsequent cluster-up unlock/status proof |
 | Doctor remains observational | Fixed dependency-matrix, direct-blocker, complete-report, schema-1 renderer/agent-contract, fail/warn exit, cancellation, Docker-argv allowlist, host-only policy-source validation, content-aware fresh/unsupported-version snapshots, and zero-create/zero-repair canaries across root-key, vault, provider, broker, and project-auth state |
 | Every declared read remains observational | Dynamic public-catalog handler coverage, per-command fresh-XDG before/after snapshots, zero Docker-mutation argv, lockless fresh lifecycle reads, read-only/concurrent fixtures, unsupported-version fail-closed state, and bounded cleanup of only a pre-existing validated journal |
 | Project-bound broker handles | Full Context/project/provider/revision/target/header round trips, hash-only live index assertions, copied/stale/rotated/revoked negative tests, exact Context-wide eligibility and next-entry semantics, and Workspace projection reconciliation |
-| Pinned agent OAuth projections | Exact-key/byte tests for the Codex 0.146.0 complete `.codex/auth.json` sentinel shim with only `${HANDLE}` as `tokens.access_token`, direct synthetic Gateway bearer/account-header checks, Claude `CLAUDE_CODE_OAUTH_TOKEN=${HANDLE}`-only environment checks, API-key/auth-token absence, modified/symlinked-file refusal, and version-drift rejection; an isolated network-disabled client observation records login-status and verbatim-handle behavior but remains a required manual release replay rather than an automated artifact claim |
+| Agent OAuth acquisition and pinned projections | Multi-version host Codex tests require one exact compiled driver-contract revision, fixed argv/environment, canonical executable digest, and strict captured state while treating stable product version as audit metadata; exact-key/byte tests independently fix the Codex 0.146.0 Workspace `.codex/auth.json` sentinel shim with only `${HANDLE}` as `tokens.access_token`, direct synthetic Gateway bearer/account-header checks, Claude `CLAUDE_CODE_OAUTH_TOKEN=${HANDLE}`-only environment checks, API-key/auth-token absence, modified/symlinked-file refusal, and Workspace-client drift rejection; an isolated network-disabled client observation records login-status and verbatim-handle behavior but remains a required manual release replay rather than an automated artifact claim |
 | Broker fallback requires marker absence | URL/path/query/fragment/header-name/value marker canaries, malformed/ambiguous/binding-mismatch rejection, and passthrough tests with no marker anywhere inspected |
-| Post-policy credential resolution | Gateway call-order/count tests for handle removal, introspect-before-OPA, zero resolve on deny, one same-revision resolve after allow, exact header replacement, and no-secret canaries |
-| Static broker boundary | Exact handle recognition, project/Context/provider/revision/HTTPS-header introspection, zero resolution on deny, one same-revision replacement after allow, rotation/revocation, and no invalid-handle fallback |
-| Retired broker capabilities stay absent | Catalog, state-parser, dependency, image-content, and hostile-header tests reject managed profiles, dynamic records, refresh, signing, supplemental headers, companions, AWS/Datadog/OpenAI/Anthropic/Chatwork built-ins, and exact-version drivers |
-| Protected provider acquisition | Catalog stdin input contract, terminal refusal before reading, public-validation-before-read and runtime-prerequisite-before-broker-send tests, bounded reader tests, canonical GitHub CLI identity/digest checks, fixed API-only argv/environment, control-safe output, fixed device URL/manual fallback, checked private-home cleanup, no-Git canaries, cancellation/failure preservation, synthetic integration, and manual live exact-handle validation |
+| Post-policy credential action | Gateway call-order/count tests for handle removal, introspect-before-OPA, zero resolve/refresh/companion/signing on deny, one same-revision reviewed action after allow, exact header replacement/signing, and no-secret canaries |
+| Closed broker plan boundary | Exact static and dynamic record schemas, Context/project/provider/revision/HTTPS-header or signing introspection, bounded AWS/Datadog/OpenAI behavior, rotation/revocation, durable barriers, and no invalid-handle fallback |
+| Unsupported broker capabilities stay absent | Catalog, state-parser, dependency, image-content, and hostile-header tests reject managed profiles, owner-selected dynamic plans, arbitrary helpers, compatibility readers, and provider CLIs inside Broker |
+| Protected provider acquisition | Catalog selector/method/stdin contracts, terminal rules, bounded readers, canonical GitHub/AWS/pup/Codex/Claude identity/digest checks, fixed argv/environment, control-safe output, bounded browser/PTY behavior, checked cleanup, cancellation/failure preservation, synthetic integration, and manual live validation |
 | Typed denial recovery | Strict host/port audit projection, query/header absence, whole-path handle-marker redaction, non-learnable structural rejection, fixed host-review navigation schema, host-stderr session summary, empty bounded scope, hostile-field canaries, and end-to-end JSON assertions |
 | Explicit policy learning | OPA scheme/port learnability classification, terminal deny exclusion, deterministic repeated/concurrent Context/project/scheme/host/port/method/path candidate aggregation with required latest/count, Context-scoped reference validation, single-reference allow/deny/reset round trips, bounded typed TTY staging with one fixed-target Apply and zero-write discard, installation-wide inventory/review, aggregate preflight ordering, and Docker retry |
 | Declared GraphQL policy identity | Exact trusted endpoint projection, hash-pinned parser and license checks, strict bounded envelope fixtures, conservative root-fragment expansion, all-roots OPA matching, HTTP-rule non-matching canaries, per-root audit/candidate/allow/deny/reset round trips, prefix-rule rejection, raw-body privacy canaries, and zero-upstream integration |

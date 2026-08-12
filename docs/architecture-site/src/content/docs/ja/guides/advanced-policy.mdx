@@ -46,7 +46,7 @@ policy/domains/api.example.com/
 ```
 
 `allow.json` の field は `schema_version`、`host`、`authorities`、`methods`、
-`graphql_endpoints`、`credential_profiles`、`rules` だけです。`deny.json` の
+`graphql_endpoints`、`rules` だけです。`deny.json` の
 field は `schema_version`、`host`、`baseline_rules`、`rules` だけです。collection
 はすべて明示的な JSON array です。未知の field、重複 key または rule ID、欠落 field、
 余分なファイル、symlink、group/world が使える permission は拒否されます。

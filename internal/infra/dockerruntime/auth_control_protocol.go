@@ -9,6 +9,8 @@ import (
 
 	"github.com/tasuku43/tobari/internal/domain/authbroker"
 	"github.com/tasuku43/tobari/internal/domain/tobari"
+	"github.com/tasuku43/tobari/internal/infra/companionruntime"
+	"github.com/tasuku43/tobari/internal/infra/credentialhost"
 )
 
 type brokerControlOperation string
@@ -18,22 +20,27 @@ const (
 	// credential-provider manifest, even though both initial schemas are v1.
 	brokerControlSchemaVersion = 1
 
-	brokerControlHealth        brokerControlOperation = "health"
-	brokerControlUnlock        brokerControlOperation = "unlock"
-	brokerControlStatus        brokerControlOperation = "status"
-	brokerControlLogin         brokerControlOperation = "login"
-	brokerControlImport        brokerControlOperation = "import"
-	brokerControlLogout        brokerControlOperation = "logout"
-	brokerControlIssueHandle   brokerControlOperation = "issue_handle"
-	brokerControlBindingStatus brokerControlOperation = "binding_status"
+	brokerControlHealth           brokerControlOperation = "health"
+	brokerControlUnlock           brokerControlOperation = "unlock"
+	brokerControlStatus           brokerControlOperation = "status"
+	brokerControlLogin            brokerControlOperation = "login"
+	brokerControlImport           brokerControlOperation = "import"
+	brokerControlLogout           brokerControlOperation = "logout"
+	brokerControlIssueHandle      brokerControlOperation = "issue_handle"
+	brokerControlBindingStatus    brokerControlOperation = "binding_status"
+	brokerControlCompanionPrepare brokerControlOperation = "companion_prepare"
+	brokerControlCompanionStatus  brokerControlOperation = "companion_status"
 )
 
 type brokerControlExpectation struct {
-	Operation    brokerControlOperation
-	Provider     string
-	Revision     string
-	ContextID    string
-	AccountLabel string
+	Operation      brokerControlOperation
+	Provider       string
+	Revision       string
+	EpochID        string
+	ContextID      string
+	AccountLabel   string
+	DriverID       string
+	DriverRevision string
 }
 
 // brokerMutationOutcomeUnknown marks a control call whose final broker frame
@@ -52,6 +59,18 @@ func brokerControlExpectationFor(arguments []string) (brokerControlExpectation, 
 	expectation := brokerControlExpectation{Operation: brokerControlOperation(arguments[0])}
 	switch expectation.Operation {
 	case brokerControlHealth, brokerControlUnlock:
+		return expectation, nil
+	case brokerControlCompanionPrepare:
+		if len(arguments) != 3 || arguments[1] != "--epoch-id" ||
+			!companionruntime.ValidEpochID(arguments[2]) {
+			return brokerControlExpectation{}, fmt.Errorf("Auth Broker companion epoch is invalid")
+		}
+		expectation.EpochID = arguments[2]
+		return expectation, nil
+	case brokerControlCompanionStatus:
+		if len(arguments) != 1 {
+			return brokerControlExpectation{}, fmt.Errorf("Auth Broker companion status arguments are invalid")
+		}
 		return expectation, nil
 	case brokerControlLogin:
 		return brokerLoginControlExpectation(arguments)
@@ -82,7 +101,7 @@ func brokerControlExpectationFor(arguments []string) (brokerControlExpectation, 
 }
 
 func brokerLoginControlExpectation(arguments []string) (brokerControlExpectation, error) {
-	if len(arguments) != 7 {
+	if len(arguments) != 7 && len(arguments) != 11 {
 		return brokerControlExpectation{}, fmt.Errorf("Auth Broker login arguments are invalid")
 	}
 	if arguments[0] != string(brokerControlLogin) || arguments[1] != "--context-id" ||
@@ -96,8 +115,47 @@ func brokerLoginControlExpectation(arguments []string) (brokerControlExpectation
 		Provider:     arguments[4],
 		AccountLabel: arguments[6],
 	}
-	if expectation.Provider != "github" || expectation.AccountLabel == "" ||
-		authbroker.ValidateSecretFreeText("account label", expectation.AccountLabel, 128) != nil {
+	switch expectation.Provider {
+	case "github":
+		if len(arguments) != 7 || expectation.AccountLabel == "" ||
+			authbroker.ValidateSecretFreeText("account label", expectation.AccountLabel, 128) != nil {
+			return brokerControlExpectation{}, fmt.Errorf("Auth Broker GitHub login arguments are invalid")
+		}
+	case "aws":
+		if len(arguments) != 11 || arguments[7] != "--driver-id" ||
+			arguments[9] != "--driver-revision" ||
+			!hostAWSAccountPattern.MatchString(expectation.AccountLabel) ||
+			(arguments[8] != awsHostDriverID && arguments[8] != awsConsoleDriverID) ||
+			!hostDriverRevisionPattern.MatchString(arguments[10]) {
+			return brokerControlExpectation{}, fmt.Errorf("Auth Broker AWS login arguments are invalid")
+		}
+		expectation.DriverID = arguments[8]
+		expectation.DriverRevision = arguments[10]
+	case "datadog":
+		if len(arguments) != 11 || arguments[7] != "--driver-id" ||
+			arguments[9] != "--driver-revision" ||
+			expectation.AccountLabel != credentialhost.PupAccountLabel ||
+			arguments[8] != credentialhost.PupDriverID ||
+			!hostDriverRevisionPattern.MatchString(arguments[10]) {
+			return brokerControlExpectation{}, fmt.Errorf("Auth Broker Datadog login arguments are invalid")
+		}
+		expectation.DriverID = arguments[8]
+		expectation.DriverRevision = arguments[10]
+	case "openai":
+		if len(arguments) != 11 || arguments[7] != "--driver-id" ||
+			arguments[9] != "--driver-revision" || expectation.AccountLabel == "" ||
+			authbroker.ValidateSecretFreeText("account label", expectation.AccountLabel, 128) != nil ||
+			arguments[8] != credentialhost.CodexDriverID ||
+			!hostDriverRevisionPattern.MatchString(arguments[10]) {
+			return brokerControlExpectation{}, fmt.Errorf("Auth Broker OpenAI login arguments are invalid")
+		}
+		expectation.DriverID = arguments[8]
+		expectation.DriverRevision = arguments[10]
+	case "anthropic":
+		if len(arguments) != 7 || expectation.AccountLabel != credentialhost.ClaudeAccountLabel {
+			return brokerControlExpectation{}, fmt.Errorf("Auth Broker Anthropic login arguments are invalid")
+		}
+	default:
 		return brokerControlExpectation{}, fmt.Errorf("Auth Broker login provider is invalid")
 	}
 	return expectation, nil
@@ -185,6 +243,31 @@ func decodeBrokerControlResponse(
 		if err != nil || response.State != "unlocked" {
 			return brokerControlResponse{}, fmt.Errorf("Auth Broker unlock state is invalid")
 		}
+	case brokerControlCompanionPrepare:
+		if err := requireBrokerFields(fields, "schema_version", "ok", "state", "epoch_id"); err != nil {
+			return brokerControlResponse{}, err
+		}
+		response.State, err = brokerRequiredField[string](fields, "state")
+		if err != nil || response.State != "prepared" {
+			return brokerControlResponse{}, fmt.Errorf("Auth Broker companion prepare state is invalid")
+		}
+		response.EpochID, err = brokerRequiredField[string](fields, "epoch_id")
+		if err != nil || response.EpochID != expectation.EpochID {
+			return brokerControlResponse{}, fmt.Errorf("Auth Broker companion prepare epoch does not match the request")
+		}
+	case brokerControlCompanionStatus:
+		if err := requireBrokerFields(fields, "schema_version", "ok", "state", "epoch_id"); err != nil {
+			return brokerControlResponse{}, err
+		}
+		response.State, err = brokerRequiredField[string](fields, "state")
+		if err != nil || (response.State != "absent" && response.State != "prepared" && response.State != "ready") {
+			return brokerControlResponse{}, fmt.Errorf("Auth Broker companion status state is invalid")
+		}
+		response.EpochID, err = brokerRequiredField[string](fields, "epoch_id")
+		if err != nil || (response.State == "absent" && response.EpochID != "") ||
+			(response.State != "absent" && !companionruntime.ValidEpochID(response.EpochID)) {
+			return brokerControlResponse{}, fmt.Errorf("Auth Broker companion status epoch is invalid")
+		}
 	case brokerControlStatus:
 		if err := decodeBrokerProviderState(fields, expectation, &response); err != nil {
 			return brokerControlResponse{}, err
@@ -194,7 +277,7 @@ func decodeBrokerControlResponse(
 			if err := requireBrokerFields(fields, "schema_version", "ok", "state", "provider"); err != nil {
 				return brokerControlResponse{}, err
 			}
-		case "configured":
+		case "ready":
 			expected := []string{"schema_version", "ok", "state", "provider", "revision"}
 			if _, present := fields["account_label"]; present {
 				expected = append(expected, "account_label")

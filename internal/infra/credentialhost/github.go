@@ -3,7 +3,6 @@ package credentialhost
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"io"
 	"os"
@@ -17,7 +16,7 @@ import (
 
 const (
 	githubHost                  = "github.com"
-	maxGitHubStatusBytes        = 64 << 10
+	maxGitHubAccountBytes       = 64
 	maxGitHubTokenBytes         = 32 << 10
 	githubProcessWaitDelay      = 2 * time.Second
 	githubTemporaryDirectoryTag = "tobari-gh-host-*"
@@ -47,7 +46,7 @@ type GitHubLoginStreams struct {
 }
 
 // GitHubCommand is the complete process boundary for the fixed GitHub CLI
-// acquisition flow. Login receives the trusted-host terminal streams; status
+// acquisition flow. Login receives the trusted-host terminal streams; account
 // and token capture receive private bounded writers instead.
 type GitHubCommand struct {
 	Path   string
@@ -201,30 +200,29 @@ func (d *GitHubDriver) acquireGitHubCredential(
 		return GitHubCredential{}, err
 	}
 
-	statusOutput := newBoundedBuffer(maxGitHubStatusBytes)
-	statusErr := d.runner.Run(ctx, GitHubCommand{
+	accountOutput := newBoundedBuffer(maxGitHubAccountBytes + 2)
+	accountErr := d.runner.Run(ctx, GitHubCommand{
 		Path: executable,
 		Args: []string{
-			"auth", "status",
-			"--active",
+			"api", "user",
 			"--hostname", githubHost,
-			"--json", "hosts",
+			"--jq", ".login",
 		},
 		Env:    append([]string(nil), environment...),
 		Dir:    configDirectory,
-		Stdout: statusOutput,
+		Stdout: accountOutput,
 		Stderr: io.Discard,
 	})
-	if githubCommandCancelled(ctx, statusErr) {
+	if githubCommandCancelled(ctx, accountErr) {
 		return GitHubCredential{}, ErrGitHubLoginCancelled
 	}
-	if statusOutput.err() != nil {
+	if accountOutput.err() != nil {
 		return GitHubCredential{}, ErrGitHubOutputLimit
 	}
-	if statusErr != nil {
+	if accountErr != nil {
 		return GitHubCredential{}, ErrGitHubAccountCapture
 	}
-	accountLabel, err := parseGitHubAccount(statusOutput.bytes())
+	accountLabel, err := parseGitHubAccount(accountOutput.bytes())
 	if err != nil {
 		return GitHubCredential{}, err
 	}
@@ -347,46 +345,18 @@ func githubCommandCancelled(ctx context.Context, commandErr error) bool {
 }
 
 func parseGitHubAccount(encoded []byte) (string, error) {
-	if len(encoded) == 0 || len(encoded) > maxGitHubStatusBytes || !utf8.Valid(encoded) {
+	framed := encoded
+	if bytes.HasSuffix(framed, []byte("\r\n")) {
+		framed = framed[:len(framed)-2]
+	} else if bytes.HasSuffix(framed, []byte("\n")) {
+		framed = framed[:len(framed)-1]
+	}
+	if len(framed) == 0 || len(framed) > maxGitHubAccountBytes || !utf8.Valid(framed) ||
+		bytes.IndexByte(framed, '\n') >= 0 || bytes.IndexByte(framed, '\r') >= 0 ||
+		!githubAccountPattern.Match(framed) {
 		return "", ErrGitHubAccountCapture
 	}
-	value, err := decodeGitHubJSON(encoded)
-	if err != nil {
-		return "", ErrGitHubAccountCapture
-	}
-	document, ok := value.(map[string]any)
-	if !ok || len(document) != 1 {
-		return "", ErrGitHubAccountCapture
-	}
-	hosts, ok := document["hosts"].(map[string]any)
-	if !ok {
-		return "", ErrGitHubAccountCapture
-	}
-	entries, ok := hosts[githubHost].([]any)
-	if !ok || len(entries) == 0 || len(entries) > 16 {
-		return "", ErrGitHubAccountCapture
-	}
-	activeLogins := make([]string, 0, 1)
-	for _, item := range entries {
-		entry, ok := item.(map[string]any)
-		if !ok {
-			continue
-		}
-		active, activeOK := entry["active"].(bool)
-		state, stateOK := entry["state"].(string)
-		if !activeOK || !active || !stateOK || state != "success" {
-			continue
-		}
-		login, ok := entry["login"].(string)
-		if !ok || len(login) > 64 || !githubAccountPattern.MatchString(login) {
-			return "", ErrGitHubAccountCapture
-		}
-		activeLogins = append(activeLogins, login)
-	}
-	if len(activeLogins) != 1 {
-		return "", ErrGitHubAccountCapture
-	}
-	return activeLogins[0], nil
+	return string(framed), nil
 }
 
 func parseGitHubToken(output []byte) ([]byte, error) {
@@ -401,80 +371,4 @@ func parseGitHubToken(output []byte) ([]byte, error) {
 		return nil, ErrGitHubTokenCapture
 	}
 	return append([]byte(nil), framed...), nil
-}
-
-func decodeGitHubJSON(encoded []byte) (any, error) {
-	decoder := json.NewDecoder(bytes.NewReader(encoded))
-	decoder.UseNumber()
-	value, err := readGitHubJSONValue(decoder)
-	if err != nil {
-		return nil, err
-	}
-	if _, err := decoder.Token(); !errors.Is(err, io.EOF) {
-		if err == nil {
-			return nil, errors.New("unexpected trailing JSON value")
-		}
-		return nil, err
-	}
-	return value, nil
-}
-
-func readGitHubJSONValue(decoder *json.Decoder) (any, error) {
-	token, err := decoder.Token()
-	if err != nil {
-		return nil, err
-	}
-	delimiter, composite := token.(json.Delim)
-	if !composite {
-		return token, nil
-	}
-	switch delimiter {
-	case '{':
-		object := make(map[string]any)
-		for decoder.More() {
-			keyToken, err := decoder.Token()
-			if err != nil {
-				return nil, err
-			}
-			key, ok := keyToken.(string)
-			if !ok {
-				return nil, errors.New("JSON object key is not a string")
-			}
-			if _, duplicate := object[key]; duplicate {
-				return nil, errors.New("duplicate JSON object key")
-			}
-			value, err := readGitHubJSONValue(decoder)
-			if err != nil {
-				return nil, err
-			}
-			object[key] = value
-		}
-		closing, err := decoder.Token()
-		if err != nil {
-			return nil, err
-		}
-		if closing != json.Delim('}') {
-			return nil, errors.New("invalid JSON object")
-		}
-		return object, nil
-	case '[':
-		array := make([]any, 0)
-		for decoder.More() {
-			value, err := readGitHubJSONValue(decoder)
-			if err != nil {
-				return nil, err
-			}
-			array = append(array, value)
-		}
-		closing, err := decoder.Token()
-		if err != nil {
-			return nil, err
-		}
-		if closing != json.Delim(']') {
-			return nil, errors.New("invalid JSON array")
-		}
-		return array, nil
-	default:
-		return nil, errors.New("invalid JSON delimiter")
-	}
 }

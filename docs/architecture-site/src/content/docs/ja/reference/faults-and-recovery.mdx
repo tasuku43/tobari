@@ -97,7 +97,8 @@ Workspace からは、Gateway の HTTP レスポンスまたは接続失敗と�
 | 学習できない HTTP `403` 拒否                          | 学習対象の境界外、または識別情報が不正。候補にはできない                                                                   | いいえ                                                     |
 | ポリシーサービスが利用不能、または判断が不正（`503`） | Gateway が OPA から有効な判断を一つ取得できなかった                                                                        | いいえ                                                     |
 | `credential_handle_invalid`                           | Tobari 形式のハンドルが形式不正、古い、コピー済み、場所違い、曖昧、または結び付き不一致                                    | いいえ。パススルーへの切り替えなし                         |
-| `credential_broker_unavailable`（`503`）              | static Broker が resolution 前に locked または unavailable                                                                 | 認証情報を付けた接続先への通信は行わない                   |
+| `credential_broker_unavailable`（`503`）              | Broker が locked/unavailable、またはレビュー済み認証操作が実行前に失敗                                                     | 認証情報を付けた接続先への通信は行わない                   |
+| `credential_refresh_outcome_unknown`（`409`）         | AWS companion 操作または Datadog refresh が dispatch 済みの可能性がある                                                    | application upstream attempt は行わず、自動再実行しない    |
 | 許可後の接続先 DNS、TLS、接続、レスポンス障害         | 通信許可には成功したが、その後の別の接続先操作が失敗                                                                       | 接続を試した可能性がある。Gateway はリクエストを再送しない |
 
 ポリシーによる拒否を学習候補にできるのは、保持した、秘密情報を含まない根拠がある場合

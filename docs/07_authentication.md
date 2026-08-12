@@ -1,7 +1,8 @@
 # Authentication handling
 
-This document defines Tobari's first-public-V1 authentication boundary. The
-security and product authority is ADR 0030 together with the project theses.
+This document defines Tobari's reviewed authentication boundary. ADR 0031
+supersedes ADR 0030 only for provider removal and static-only authentication;
+managed profiles remain retired.
 
 ## Two explicit ownership models
 
@@ -11,20 +12,35 @@ writable home. Tobari does not inherit host credentials, mount a host CLI home,
 or claim that tool-owned credentials stay outside the Workspace. Network
 authority remains separately controlled by Gateway and OPA.
 
-The optional brokered route keeps one static primary secret in an encrypted
-Context vault. A Workspace receives only a random opaque handle bound to the
-stable Context, project, provider, credential revision, exact HTTPS target,
-source header, and source format. Gateway resolves that secret exactly once
-only after OPA allows the ordinary HTTP effect.
+The optional brokered route keeps one typed static or reviewed renewable
+credential record in an encrypted Context vault. A Workspace receives only a
+random opaque handle bound to the stable Context, project, provider,
+credential revision, and exact HTTPS header/signing plan. Gateway performs
+exactly one plan-owned static resolution, token selection/refresh, or bounded
+AWS SigV4 result only after OPA allows the ordinary HTTP effect.
 
 Brokered acquisition or import never grants network permission and never
 creates a policy rule.
 
-## Supported V1 surface
+## Supported surface
 
-The sole reviewed built-in pairing is GitHub.com with GitHub CLI (`gh`).
-`auth login` requires exactly `--provider github`; provider omission and every
-other provider fail before acquisition. The driver:
+The closed reviewed built-in set is GitHub, AWS, Datadog, OpenAI/Codex, and
+Anthropic/Claude for `auth login`, plus Chatwork through protected stdin
+`auth import`. Omitted `--provider` on an interactive trusted-host terminal
+opens a bounded selector over installed reviewed login drivers. Explicit
+selection remains deterministic:
+
+```sh
+tobari auth login --provider github
+tobari auth login --provider aws --method identity-center
+tobari auth login --provider aws --method console
+tobari auth login --provider datadog
+tobari auth login --provider openai
+tobari auth login --provider anthropic
+trusted-secret-source | tobari auth import chatwork
+```
+
+Only AWS accepts `--method`; omission selects `identity-center`. GitHub:
 
 - resolves one canonical GitHub CLI executable outside the project;
 - checks that it is not group/world-writable and hashes it before the flow;
@@ -37,6 +53,22 @@ other provider fail before acquisition. The driver:
 
 Exact GitHub CLI product-version equality is not a security boundary. The
 fixed observed command contract and executable identity are.
+
+AWS uses only fixed IAM Identity Center or commercial-console acquisition
+flows through a canonical AWS CLI. The encrypted record retains bounded opaque
+driver state. After allow, a private authenticated resident companion performs
+one compiled AWS credential export and Broker signs the already-authorized,
+fully bounded request locally.
+
+Datadog uses fixed `pup --no-agent auth login --site datadoghq.com` acquisition
+on the trusted host. Broker selects a valid US1 token or performs one strict
+same-record refresh after allow. OpenAI records a stable host Codex version
+without allowlisting it, requires the exact compiled
+`openai_codex_chatgpt_oauth` device-auth/state contract in an isolated home,
+and Broker selects or refreshes the same-account token after allow while returning only its validated
+account ID as the supplemental header. Anthropic requires exactly Claude Code
+2.1.220 and captures one setup token through a private PTY; its Broker plan is
+static and never refreshes.
 
 `auth import PROVIDER` remains the owner extension path. It accepts one bounded
 non-empty static primary secret only from protected non-terminal stdin.
@@ -51,13 +83,11 @@ remote provider revocation. Login and import replace the prior record and
 rotate every associated handle. Running Workspaces are not rewritten; they
 must be re-entered for a new or removed projection.
 
-First public V1 has no brokered AWS, Datadog, OpenAI, Anthropic, or Chatwork
-built-in; managed Gateway profile; dynamic credential record; refresh; task
-barrier; signer; supplemental header; resident companion; private companion
-protocol; exact-client-version driver; provider menu; or `--method` selector.
-Their tools may still use Workspace-owned login. Reintroducing any retired path
-requires a new thesis, trust-boundary, catalog, state, dependency, and release
-decision.
+Managed Gateway profiles, manifest-selected helpers, arbitrary executable
+adapters, provider-defined routes, multiple accounts, and compatibility
+readers remain unsupported. The dynamic records, refresh, signing,
+supplemental header, companion, compiled provider drivers, provider selector, and
+AWS method selector exist only in the closed reviewed built-in union above.
 
 ## Static provider manifests
 
@@ -94,6 +124,7 @@ Readers reject every other version without migration or fallback.
 | Public root-key backend | enum | `macos_keychain`, `xdg_file`, or observation-only `unavailable` |
 | Broker control socket | NDJSON schema 1 | `/run/tobari-auth/control/broker.sock` |
 | Broker runtime socket | NDJSON schema 1 | `/run/tobari-auth/runtime/broker.sock` |
+| Private companion socket | framed schema 1 | `/run/tobari-auth/companion/bridge.sock` |
 
 `linux_xdg_file` is an infrastructure/doctor label, not a public JSON enum.
 The Context manifest contains no vault path, root key, primary secret, or
@@ -106,10 +137,12 @@ Broker starts locked after every restart and is unlocked through fixed control
 stdin only after exact container identity and control readiness are verified.
 
 The Broker is non-root, has no TCP listener, joins no Workspace network, and
-contains no provider CLI. Gateway alone mounts the runtime socket read-only.
-Host commands use fixed bounded control operations. Control and runtime frames
-are strict 64 KiB schema-1 NDJSON; key and secret payload bytes follow their
-declared length and never use argv or environment.
+contains no provider CLI. It has bounded egress only for its compiled Datadog
+and OpenAI refresh transports. Gateway alone mounts the runtime socket
+read-only. The AWS companion is a private authenticated reverse session, not a
+host listener or Workspace mount. Control and runtime frames are strict 64 KiB
+schema-1 NDJSON; key and credential payload bytes follow their declared length
+and never use argv or environment.
 
 ## Post-policy request sequence
 
@@ -123,9 +156,16 @@ Gateway enforces this exact order:
    the full Context/project/provider/revision/target/header binding.
 4. Redact client authentication and control headers from OPA input and send the
    ordinary normalized HTTP effect to OPA.
-5. On deny, stop with zero Broker resolution, external DNS, or upstream call.
-6. On allow, resolve the same revision exactly once, replace only the declared
-   destination header, and make one upstream attempt.
+5. On deny, stop with zero static resolution, refresh, companion call, signing,
+   external DNS, or upstream call.
+6. On a static allow, resolve the same revision exactly once and replace only
+   the declared destination header.
+7. On Datadog/OpenAI allow, select or refresh the same record once and apply
+   only the reviewed bearer/supplemental-header result.
+8. On AWS allow, retain the complete request within 8 MiB, obtain one
+   same-revision companion export, sign locally, and apply only those headers.
+9. Make one upstream attempt. Gateway and Broker never replay the application
+   request.
 
 Passthrough applies only when no Tobari-looking marker exists. An invalid
 marker never falls back or reaches upstream. Gateway never searches request
@@ -147,17 +187,25 @@ contract: run `auth status` before attempting another mutation. Successful
 login/import/logout output is finalized before late cancellation can imply
 that replay is safe.
 
+If an AWS companion operation or Datadog refresh may have been dispatched but
+its result is unknown, Gateway returns non-retryable
+`credential_refresh_outcome_unknown` and makes no application upstream
+attempt. Reconcile with trusted-host `auth status`; a durable task barrier
+requires explicit login or logout before retry.
+
 ## Verification and release evidence
 
 Automated evidence uses synthetic credentials, fake GitHub CLI output, local
 servers, fixed clocks, secret canaries, and temporary owner-only state. It
 proves locked startup, root-key/vault integrity, project-specific handles,
-deny-before-resolution, exact same-revision replacement, rotation, revocation,
-logout, no invalid-handle fallback, source/snapshot equality, and absence of
-managed/dynamic/refresh/signing/companion/exact-version code and dependencies.
+deny-before-resolution, exact same-revision static replacement, bounded
+refresh/signing/companion behavior, durable unknown-outcome barriers, rotation,
+revocation, logout, no invalid-handle fallback, source/snapshot equality, and
+absence of managed-profile or manifest-selected executable paths.
 
-Before publication, one reviewer performs a live disposable GitHub acquisition
-without recording a token, code, handle, vault, or authenticated transcript:
+Before publication, reviewers replay each reviewed host acquisition against a
+disposable account without recording a token, code, handle, vault, account
+identifier, or authenticated transcript. The GitHub slice includes:
 
 ```sh
 tobari auth login --provider github --context default

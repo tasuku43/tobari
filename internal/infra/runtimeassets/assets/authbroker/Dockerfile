@@ -15,6 +15,12 @@ USER root
 COPY __init__.py /opt/tobari/authbroker/__init__.py
 COPY protocol.py /opt/tobari/authbroker/protocol.py
 COPY vault.py /opt/tobari/authbroker/vault.py
+COPY aws_sigv4.py /opt/tobari/authbroker/aws_sigv4.py
+COPY datadog_oauth.py /opt/tobari/authbroker/datadog_oauth.py
+COPY openai_codex_oauth.py /opt/tobari/authbroker/openai_codex_oauth.py
+COPY openai_refresh_transport.py /opt/tobari/authbroker/openai_refresh_transport.py
+COPY companion_protocol.py /opt/tobari/authbroker/companion_protocol.py
+COPY companion_bridge.py /opt/tobari/authbroker/companion_bridge.py
 COPY broker.py /opt/tobari/authbroker/broker.py
 COPY daemon.py /opt/tobari/authbroker/daemon.py
 COPY control.py /opt/tobari/authbroker/control.py
@@ -25,12 +31,14 @@ RUN python3 -c 'from cryptography.hazmat.primitives.ciphers.aead import AESGCM; 
     && mkdir -p \
       /run/tobari-auth/runtime \
       /run/tobari-auth/control \
+      /run/tobari-auth/companion \
       /var/lib/tobari-auth/contexts \
     && chown -R 1000:1000 /run/tobari-auth /var/lib/tobari-auth \
     && chmod 0711 /run/tobari-auth /var/lib/tobari-auth \
     && chmod 0700 \
       /run/tobari-auth/runtime \
       /run/tobari-auth/control \
+      /run/tobari-auth/companion \
       /var/lib/tobari-auth/contexts \
     && chmod 0444 /opt/tobari/authbroker/*.py \
     && chmod 0555 /opt/tobari/entrypoint.sh /usr/local/bin/tobari-auth-control \

@@ -70,19 +70,20 @@ Workspace-owned login state is deliberately inside one Workspace home. Tobari
 does not inherit host CLI homes, keychains, SSH agents, or credential
 environment variables.
 
-The optional static Broker stores one primary secret in an AES-256-GCM Context
-vault and projects only a random handle bound to Context, project, provider,
-revision, exact HTTPS target, source header, and format. Gateway removes and
-introspects a recognized handle before OPA, resolves once only after allow, and
-replaces one declared header. Malformed, copied, stale, revoked, ambiguous, or
-mismatched handles fail without passthrough fallback. Secrets, raw handles,
+The optional Broker stores one closed typed credential record in an AES-256-GCM
+Context vault and projects only a random handle bound to Context, project,
+provider, revision, and exact HTTPS header/signing plan. Gateway removes and
+introspects a recognized handle before OPA, then performs one same-revision
+static resolution, Datadog/OpenAI token action, or bounded AWS SigV4 action
+only after allow. Malformed, copied, stale, revoked, ambiguous, or mismatched
+handles fail without passthrough fallback. Secrets, raw handles,
 credential revisions, query, headers, and bodies do not enter OPA, audit,
 denial evidence, CLI output, or logs.
 
-V1 has no managed profile, dynamic credential, refresh, signer, supplemental
-header, companion, task barrier, or provider-native resolution path. AWS,
-Datadog, OpenAI, Anthropic, and Chatwork broker built-ins are absent. Their
-tools may authenticate inside a Workspace but receive no policy bypass.
+Managed profiles remain absent. Dynamic credentials, refresh, signing,
+supplemental headers, companion calls, and task barriers exist only inside the
+closed reviewed AWS, Datadog, and OpenAI plans. Owner manifests cannot select
+or extend them. No authentication path grants a policy bypass.
 
 Residual risk: a Workspace can copy its own handle or Workspace-owned secret as
 ordinary payload to an allowed destination. Payload exfiltration to explicitly
@@ -90,12 +91,13 @@ allowed effects is outside the guarantee.
 
 ### Provider helper execution
 
-The sole reviewed built-in helper is GitHub CLI. Tobari resolves a canonical
-non-project executable, rejects group/world-writable identity, hashes it before
-and after, runs fixed API-only argv under a sanitized private temporary home,
-opens only the fixed device page with manual fallback, captures bounded token
-output, performs checked cleanup, and requests no Git protocol. Exact product-
-version equality is not authority. Owner manifests cannot select a helper.
+The reviewed helper set is GitHub CLI, AWS CLI, pup, a contract-checked stable
+Codex CLI, and Claude Code 2.1.220. Tobari resolves canonical non-project executables, rejects unsafe
+identity, hashes before and after, runs only fixed argv under private state or
+PTY boundaries, accepts only bounded browser/output contracts, and performs
+checked cleanup. Codex product version is recorded rather than allowlisted;
+its exact compiled login/state contract determines acceptance. Owner manifests
+cannot select a helper.
 
 ### Source-access confusion
 
@@ -152,12 +154,13 @@ Homebrew tap update.
 - unit/contract tests for domain, application, catalog, state, Gateway, OPA,
   Auth Broker, provider loading, root key, and presentation;
 - Docker integration for topology, source access, guardrail zero-call ordering,
-  exact learning/reset, static Broker replacement, rotation/revocation, and
+  exact learning/reset, closed Broker plans, rotation/revocation, and
   outage denial;
-- dependency/image-content scans proving retired managed/dynamic/provider/
-  companion code is absent;
+- dependency/image-content scans proving managed profiles, arbitrary helpers,
+  compatibility readers, and Broker provider CLIs are absent;
 - secret canaries and repository public-boundary scans;
 - `task check`, `task security`, `task public:check`, and `task release:check`;
-- one manual disposable GitHub acquisition recording secret-free pass/fail only.
+- manual disposable reviewed-provider acquisition recording secret-free
+  pass/fail only.
 
 Sensitive findings follow [SECURITY.md](../SECURITY.md), never a public issue.

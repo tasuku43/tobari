@@ -17,7 +17,12 @@ import (
 )
 
 const (
+	BuiltinAWSProviderID          = "aws"
+	BuiltinAnthropicProviderID    = "anthropic"
+	BuiltinChatworkProviderID     = "chatwork"
+	BuiltinDatadogProviderID      = "datadog"
 	BuiltinGitHubProviderID       = "github"
+	BuiltinOpenAIProviderID       = "openai"
 	UserProviderRelativeDirectory = "tobari/auth/providers"
 )
 

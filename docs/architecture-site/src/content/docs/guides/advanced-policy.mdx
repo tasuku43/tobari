@@ -46,7 +46,7 @@ policy/domains/api.example.com/
 ```
 
 `allow.json` has exactly `schema_version`, `host`, `authorities`, `methods`,
-`graphql_endpoints`, `credential_profiles`, and `rules`. `deny.json` has exactly
+`graphql_endpoints` and `rules`. `deny.json` has exactly
 `schema_version`, `host`, `baseline_rules`, and `rules`. Every collection is an
 explicit JSON array. Unknown fields, duplicate keys or rule IDs, missing
 fields, extra files, symlinks, and group/world permissions are rejected.

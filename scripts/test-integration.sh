@@ -643,6 +643,8 @@ chmod 0600 "$config_directory/auth/providers/$synthetic_noop_provider.json"
 if [[ -n ${TOBARI_INTEGRATION_BINARY:-} ]]; then
   [[ -x $binary ]] || fail "TOBARI_INTEGRATION_BINARY is not executable: $binary"
 else
+	  gateway_dev_tag="tobari-gateway:dev-$(go run ./tools/runtimeassetid gateway)"
+	  auth_broker_dev_tag="tobari-auth-broker:dev-$(go run ./tools/runtimeassetid authbroker)"
   mitmproxy_image=$(awk -F= '$1 == "MITMPROXY_IMAGE" { print $2 }' internal/infra/runtimeassets/assets/versions.env)
   debian_image=$(awk -F= '$1 == "DEBIAN_IMAGE" { print $2 }' internal/infra/runtimeassets/assets/versions.env)
   docker_arch=$(docker info --format '{{.Architecture}}')
@@ -667,11 +669,11 @@ else
       chmod 0600 /tls/synthetic-server.key
       chmod 0644 /tls/synthetic-ca.crt
     '
-  docker build --tag tobari-gateway:dev \
+	  docker build --tag "$gateway_dev_tag" \
     --file test/integration/gateway-auth.Dockerfile \
     --build-arg "TOBARI_GATEWAY_BASE=$gateway_base_image" \
     "$test_root/tls" >/dev/null
-  docker build --tag tobari-auth-broker:dev --file authbroker/Dockerfile \
+	  docker build --tag "$auth_broker_dev_tag" --file authbroker/Dockerfile \
     --build-arg "DEBIAN_IMAGE=$debian_image" \
     --build-arg "MITMPROXY_IMAGE=$mitmproxy_image" \
     --build-arg "TARGETARCH=$auth_target_arch" \
@@ -2005,9 +2007,8 @@ if document.get("schema_version") != 1 or "proxy" in document.get("cluster", {})
 PY
 assert_contains "$final_cluster_status" '"auth_broker_state":"ready"' \
   "shared Auth Broker readiness status"
-if [[ $final_cluster_status == *"credential_companion_state"* ]]; then
-  fail "cluster status retained the retired credential companion state"
-fi
+assert_contains "$final_cluster_status" '"credential_companion_state":"ready"' \
+  "trusted-host credential companion readiness status"
 final_doctor_status=$(run_tobari doctor --root "$work_root" --format json)
 final_gateway_logs=$(run_tobari cluster logs --component gateway --tail 1000)
 final_broker_logs=$(run_tobari cluster logs --component auth-broker --tail 1000)

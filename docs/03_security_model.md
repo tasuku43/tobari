@@ -37,18 +37,23 @@ policy-preset snapshot. They remain secret-free authority metadata in separate
 owner-only state; project files, runtime images, Workspaces, and source preset
 files cannot rewrite an existing Context envelope.
 
-The reviewed GitHub host driver is a trusted, purpose-limited CLI side effect.
-It selects a canonical GitHub CLI executable that
-is not writable by group or world from conventional non-project installation
-roots, bind its SHA-256 identity, construct only fixed argv, use sanitized
-environments and private temporary homes, and accept no Workspace, repository,
-manifest, project `PATH`, or request-selected executable or argument. GitHub
-recognizes only the fixed `https://github.com/login/device` browser target,
-uses fixed API-authentication-only argv, requests no Git protocol, revalidates
-the executable identity after acquisition, and deletes the private home on
-every outcome. V1 has no other brokered acquisition driver, exact-client-version
-contract, dynamic record, refresh, signer, supplemental-header, managed, or
-companion trust boundary.
+The reviewed GitHub, AWS, pup, Codex, and Claude host drivers are trusted,
+purpose-limited CLI side effects. Each selects a canonical executable outside
+the project, rejects group/world-writable candidates, binds SHA-256 identity,
+constructs only fixed argv, uses sanitized private state, and accepts no
+Workspace, repository, manifest, project `PATH`, or request-selected
+executable or argument. GitHub uses only its fixed device page; AWS uses only
+the reviewed Identity Center or commercial-console flow; pup is fixed to
+Datadog US1; Codex uses its contract-checked device flow, while Claude Code
+2.1.220 uses its reviewed setup-token flow. Every driver revalidates executable identity and
+performs checked cleanup. Managed profiles and manifest-selected helpers remain
+absent.
+
+These controls trust the operator-installed conventional host CLI to implement
+its provider login. Path, mode, and digest bind one invocation and detect
+in-process replacement; they do not prove publisher provenance or sandbox all
+upstream filesystem/network behavior. Tobari's compiled driver contracts bound
+argv, environment, captured state, cleanup, and credential commit.
 
 The host Git identity reader is a separate trusted, purpose-limited CLI side
 effect. It accepts one canonical Workspace root and can request only global
@@ -66,16 +71,17 @@ host root B (Context-selected ro/rw) ---> Tobari B --+                       |
                 no cross-route                           +-- post-allow runtime socket
                                                                   |
 host CLI --fixed control exec/stdin--> locked Auth Broker --encrypted Context vaults
-host CLI --reviewed fixed GitHub CLI login driver--> GitHub HTTPS
+host CLI --reviewed fixed credential drivers--> provider acquisition
+host CLI --private resident AWS companion--> Auth Broker bridge
 host CLI --two fixed global Git reads--> validated identity scalars --> Workspace fallback
 ```
 
 Each Tobari joins only its dedicated internal network. OPA joins only an
 internal control network. Gateway has separate interfaces for every Tobari
-proxy network, control, and egress. Auth Broker joins control only, has no
-provider egress or TCP listener, performs no provider network call, and never
+proxy network, control, and egress. Auth Broker joins control and egress, has
+no TCP listener, uses egress only for compiled Datadog/OpenAI refresh, and never
 joins a Tobari network. Only Gateway mounts its runtime Unix socket; host
-control uses a separate socket through fixed in-container operations. GitHub
+control uses a separate socket through fixed in-container operations. Provider
 acquisition runs from the trusted host rather than through Broker egress.
 
 Each Workspace namespace has a verified output guard and default route through
@@ -92,8 +98,8 @@ packet filter is changed.
 - Host files outside the selected root.
 - Docker Engine and socket.
 - Workspace-owned authentication state and broker handles inside a Tobari home
-  or environment, plus static brokered primary secrets in encrypted Context
-  vaults and the installation root key.
+  or environment, plus brokered static/renewable credential records in
+  encrypted Context vaults and the installation root key.
 - OPA policy, decision API, and Gateway management surface.
 - Denial of direct Internet connectivity.
 - Integrity of request normalization, policy decisions, and audit records.
@@ -251,11 +257,11 @@ project state.
 
 Gateway image code is root-owned and read-only in the image, while the service
 starts directly as the invoking numeric non-root identity supplied by Compose.
-Routine startup pulls only the reviewed immutable Gateway digest recorded in
-the embedded asset metadata and rejects missing labels, a root default user,
+Routine startup pulls only the reviewed immutable Gateway digest injected from
+the release component lock and rejects missing labels, a root default user,
 the wrong entrypoint, or a Docker Engine platform mismatch before cluster
-resources are created. Contributor source testing uses the separate
-`task build:dev` path and a `tobari_dev` binary that selects local image tags;
+resources are created. Contributor source testing uses `task build` and a
+development resolver that selects embedded-source-hash local image tags;
 the public `cluster up` command never builds Gateway source. The image does not bake in a host UID/GID. The private CA named volume is
 mounted only into Gateway and its initialization directory is writable by that
 service; the public CA named volume is written by Gateway and mounted
@@ -275,8 +281,8 @@ credential, provider configuration, handle, root key, or vault.
 The canonical Gateway and Auth Broker sources both declare API V1. Their labels
 make guarded transparent routing, schema-1 source-principal binding, and
 policy-before-real-resolution fail closed against any non-V1 component. The
-official immutable V1 images remain unpublished until reviewed
-multi-architecture pins replace the paired development marker.
+strict paired component lock binds their reviewed multi-architecture indexes
+to the exact CLI source revision without storing generated digests in source.
 
 All resources carry `io.tobari.owner=default`; per-Tobari resources also carry
 the exact stable Tobari ID and a resource role. Destructive lifecycle code
@@ -464,24 +470,25 @@ outside Tobari's payload-exfiltration guarantee. The real primary secret
 remains unavailable to that Workspace.
 
 Provider manifests contain no secrets or executable paths. Exact schema-1
-static providers normalize into projection schema 1. The schema accepts
+owner static providers and the closed reviewed built-ins normalize into
+projection schema 1. The schema accepts
 bounded handle templates and exact HTTPS/header transformations; it rejects
 target/projection collisions and prohibits user manifests from overriding the
-GitHub built-in or selecting a helper, dynamic record, refresh, signer,
+any built-in or selecting a helper, dynamic record, refresh, signer,
 supplemental header, executable, argv, environment, policy, or business
-operation. The sole built-in GitHub driver executes on the trusted host, asks
-for no Git protocol, and recognizes only its fixed device URL. Owner providers
-use protected non-terminal stdin import only. A terminal stream is refused
+operation. Reviewed built-in drivers execute on the trusted host under their
+fixed contracts. Owner providers use protected non-terminal stdin import only.
+A terminal stream is refused
 before reading. Provider collections with overlapping exact
 scheme/host/port/source-header/source-format recognition fail completely as
 `ambiguous_provider_http_binding`; no partial projection becomes active.
 
-AWS, Datadog, OpenAI, Anthropic, Chatwork, managed profiles, dynamic records,
-refresh, signing, supplemental headers, companions, exact-client-version
-drivers, arbitrary OAuth orchestration, provider SDK inference, multiple
-provider accounts, and remote revocation are not implemented in brokered V1.
-Those tools may keep Workspace-owned login state, which is inside the
-Workspace and still receives no network authority. A missing, malformed,
+AWS, Datadog, OpenAI, Anthropic, and Chatwork are implemented only through the
+closed reviewed plan union. Dynamic records, Datadog/OpenAI refresh, AWS
+signing/companion, OpenAI supplemental-header ownership, and exact-version
+Codex/Claude drivers cannot be selected or extended by owner manifests.
+Managed profiles, arbitrary OAuth orchestration, provider SDK inference,
+multiple provider accounts, and remote revocation remain unsupported. A missing, malformed,
 ambiguous, or stale principal registry entry denies before broker resolution,
 OPA authorization, and upstream I/O.
 
@@ -585,8 +592,9 @@ authentication, signing, provider account authority, or network permission.
 `auth login`, `auth import`, and `auth logout` are trusted-host fixed-target
 writes against the installation credential catalog. They resolve one existing
 explicit or current Context and one installed provider before acquisition or
-vault I/O. Login requires exactly `--provider github`; omission and every other
-provider fail before acquisition. Import reads one
+vault I/O. Login accepts only the installed reviewed GitHub, AWS, Datadog,
+OpenAI, or Anthropic driver union; interactive omission opens only its bounded
+selector and AWS alone accepts `identity-center|console`. Import reads one
 bounded secret from non-terminal stdin only under the ordering above. One
 credential belongs to one Context/provider, and every permanently bound project
 is eligible for a distinct handle only on its next matching Workspace entry.
@@ -664,15 +672,17 @@ may be unsafe or non-idempotent. Redirect handling remains in the proxy flow and
 each resulting request is independently authorized.
 
 Gateway applies a finite broker-socket timeout and performs at most one
-introspection plus one post-allow static resolution. It never retries or
-resolves on deny. The built-in GitHub host driver runs one fixed
-`gh auth login`, followed by one bounded active-account status capture and one
+introspection plus one post-allow static resolution, token selection/refresh,
+or AWS signing action. It never retries or performs a secret-bearing plan
+action on deny. The built-in GitHub host driver runs one fixed `gh auth login`,
+followed by one bounded active-account status capture and one
 token capture in a private configuration directory. It recognizes the one
 fixed device URL; opener failure leaves manual navigation and is not a provider
 mutation failure. The driver performs no Git configuration, pagination, or
 automatic retry; user cancellation or any failed capture preserves the
-previous Context credential. No other brokered provider helper or post-policy
-provider call exists.
+previous Context credential. AWS/pup/Codex/Claude drivers and the fixed
+Datadog/OpenAI post-policy transports follow their separately bounded contracts
+and never provide a general provider-call surface.
 
 Inherited Git identity reconciliation performs at most two host Git calls, one
 per exact key, with one attempt and a finite timeout each. It performs no
@@ -728,11 +738,11 @@ reference-bound mutation.
 | Host-managed secrets stay outside Tobari; tool-owned state stays in its home | Mount-spec tests and integration canaries |
 | Brokered primary secrets stay outside every Workspace and OPA | Socket/mount topology tests, encrypted-vault tests, Gateway canaries, and integration log/output scans |
 | Broker handles cannot cross Context, project, provider, revision, or HTTP binding | Broker introspect/resolve negative tests, principal-derived Gateway calls, rotation/logout tests, and cross-Workspace integration |
-| Policy denial cannot resolve a brokered secret | Gateway call-count and ordering tests proving zero resolve calls before or on deny and exactly one after allow |
+| Policy denial cannot perform a brokered secret action | Gateway call-count and ordering tests proving zero resolve/refresh/companion/signing calls before or on deny and exactly one reviewed action after allow |
 | The broker restarts locked and cannot silently replace a missing root key | Restart/unlock tests, Keychain/XDG provider tests, and missing-key-with-vault rejection |
 | Provider manifests cannot become executable or ambiguous authority | Strict schema/collision/path/header tests, owner-only XDG loading, and built-in override rejection |
-| Provider login cannot turn visible text into arbitrary browser execution or Broker Git authority | Conventional non-project GitHub CLI selection, canonical executable identity and digest recheck, fixed API-only argv/environment, control-safe visible projection, exact fixed device URL, manual fallback, checked private-home cleanup, cancellation, and no-Git-protocol tests |
-| Retired credential mechanisms cannot remain dormant | Catalog/state/dependency/image-content tests reject managed profiles, dynamic record kinds, refresh, signing, supplemental headers, companion protocols, exact-version drivers, and retired provider selectors |
+| Provider login cannot turn visible text into arbitrary browser execution | Conventional non-project executable selection, identity/digest recheck, fixed argv/environment, bounded browser/PTY projection, checked cleanup, cancellation, and provider-specific negative tests |
+| Unsupported credential mechanisms cannot remain dormant | Catalog/state/dependency/image-content tests reject managed profiles, owner-selected dynamic plans, arbitrary helpers, compatibility readers, and provider CLIs inside Broker |
 | Published tools retain reviewed identity and redistribution evidence | Base-runtime baseline checks for GitHub CLI and AWS CLI; optional local toolbox locks for kubectl, cwk, pup, and local-only TWG; Claude/Codex agent tags remain unpublished while redistribution review is pending |
 | Secret headers, queries, handle-bearing paths, and bodies stay out of logs | Gateway redacted-path/header-absence tests, non-learnable structural-rejection tests, and log scans |
 | Broker fallback cannot accept a Tobari-looking handle | Marker-absence fallback tests plus malformed, misplaced, ambiguous, and binding-mismatch fail-closed canaries |
@@ -771,9 +781,9 @@ Container bases distributed by Tobari and CI actions are pinned to immutable
 versions or digests recorded in source. User-selected local images are neither
 distributed nor trusted by Tobari; their selector is persisted as user
 configuration. Third-party licenses are reviewed. Tests use synthetic
-credentials, fake GitHub CLI output, fixed clocks, and `example.com` identities
-only. Live GitHub acquisition, logout, and stale-handle rejection are manual
-release checks. Tokens, codes, handles, and authenticated
+credentials, fake fixed-driver output, fixed clocks, and `example.com`
+identities only. Live reviewed-provider acquisition, logout, and stale-handle
+rejection are manual release checks. Tokens, codes, handles, and authenticated
 transcripts are never repository fixtures. Publication still requires
 `task security` and `task public:check`; neither replaces a human history and
 confidentiality review. The canonical Gateway source is the public `gateway/`
@@ -781,17 +791,16 @@ tree; its embedded snapshot is byte-checked against the current source, while
 each published image is inspected against the exact source revision that built
 it. The canonical Auth Broker source is the public `authbroker/` tree; its
 embedded snapshot is byte-checked against current source, and provider-CLI
-absence, static-only protocol behavior, and multi-architecture metadata are checked
+absence, closed-plan protocol behavior, and multi-architecture metadata are checked
 for each image's recorded build revision. Pull-request image
 jobs have no package-write permission. GHCR
 moving tags are development conveniences, not a trusted runtime identity;
 routine Gateway and Auth Broker consumption requires reviewed immutable V1
-digests recorded in `versions.env`. Official V1 indexes have not yet been
-published and reviewed, so development source records a paired `unpublished`
-marker. Development and full gates accept only that exact paired state; public
-and release gates reject it until immutable Linux amd64/arm64 V1 indexes are
-reviewed and both markers are replaced atomically. A moving tag or local image
-is never release authority. Likewise, the checked local Claude
+digests from the release-generated component lock. Source contains no owned
+image-output fallback. The lock validator rejects partial, cross-revision,
+wrong-repository, moving, API-invalid, and incomplete-platform authorities
+before CLI packaging. A moving tag or local image is never release authority.
+Likewise, the checked local Claude
 Code 2.1.220 and Codex 0.146.0 runtime recipes establish integrity and test
 identity only; their agent artifacts remain unpublished while redistribution
 and license review is pending.

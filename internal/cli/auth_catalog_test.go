@@ -22,46 +22,48 @@ func TestAuthCatalogDeclaresFixedTargetMutationAndReadOnlyStatus(t *testing.T) {
 	}
 }
 
-func TestAuthLoginCatalogIsExplicitGitHubOnly(t *testing.T) {
+func TestAuthLoginCatalogAllowsInteractiveOmissionAndReviewedProviders(t *testing.T) {
 	spec, found := DefaultCatalog().Lookup("auth login")
 	if !found {
 		t.Fatal("catalog lacks auth login")
 	}
-	if spec.Args != "--provider=github [--context <name>] [--format text|json]" || len(spec.Agent.Inputs) == 0 {
+	if spec.Args != "[--provider github|aws|datadog|openai|anthropic] [--method identity-center|console] [--context <name>] [--format text|json]" || len(spec.Agent.Inputs) == 0 {
 		t.Fatalf("auth login = %+v", spec)
 	}
 	provider := spec.Agent.Inputs[0]
-	if provider.Name != "--provider" || !provider.Required || !reflect.DeepEqual(provider.AllowedValues, []string{"github"}) {
+	if provider.Name != "--provider" || provider.Required || !reflect.DeepEqual(provider.AllowedValues, []string{"github", "aws", "datadog", "openai", "anthropic"}) ||
+		!strings.Contains(provider.Description, "interactive selector") {
 		t.Fatalf("provider input = %+v", provider)
 	}
-	for _, input := range spec.Agent.Inputs {
-		if input.Name == "--method" {
-			t.Fatal("retired method selector remains")
-		}
+	method := spec.Agent.Inputs[1]
+	if method.Name != "--method" || !reflect.DeepEqual(method.AllowedValues, []string{"identity-center", "console"}) ||
+		!reflect.DeepEqual(method.Requires, []string{"--provider"}) {
+		t.Fatalf("method input = %+v", method)
 	}
-	if _, err := parseCommandInputs(spec, []string{}); err == nil {
-		t.Fatal("omitted provider was accepted")
+	inputs, err := parseCommandInputs(spec, []string{})
+	if err != nil || inputs.Provided("--provider") || inputs.One("--provider") != "" {
+		t.Fatalf("omitted provider parse = inputs:%+v error:%v", inputs, err)
 	}
-	if _, err := parseCommandInputs(spec, []string{"--provider=aws"}); err == nil {
-		t.Fatal("retired AWS provider was accepted")
+	if _, err := parseCommandInputs(spec, []string{"--provider=aws"}); err != nil {
+		t.Fatalf("AWS provider rejected: %v", err)
 	}
-	if _, err := parseCommandInputs(spec, []string{"--method=console", "--provider=github"}); err == nil {
-		t.Fatal("retired method was accepted")
+	if _, err := parseCommandInputs(spec, []string{"--method=console"}); err == nil {
+		t.Fatal("method without provider was accepted")
 	}
 	if _, err := parseCommandInputs(spec, []string{"--provider=github"}); err != nil {
 		t.Fatalf("GitHub provider rejected: %v", err)
 	}
-	retired := []string{"aws", "datadog", "openai", "anthropic", "chatwork", "console", "identity-center", "codex", "claude", "pup"}
+	retired := []string{"managed", "credential_profile", "arbitrary helper"}
 	encoded := spec.Args + spec.Summary + spec.Agent.Outcome + strings.Join(spec.Agent.Prerequisites, " ")
 	for _, declared := range spec.Agent.Errors {
 		encoded += declared.Code
 	}
 	for _, value := range retired {
 		if strings.Contains(strings.ToLower(encoded), value) {
-			t.Fatalf("retired auth surface %q remains in login contract", value)
+			t.Fatalf("unsupported auth surface %q remains in login contract", value)
 		}
 	}
-	for _, code := range []string{"github_cli_unavailable", "github_login_cancelled", "github_login_failed", "auth_login_tty_required"} {
+	for _, code := range []string{"github_cli_unavailable", "aws_cli_unavailable", "datadog_cli_unavailable", "openai_cli_unavailable", "anthropic_cli_unavailable", "auth_login_selector_unavailable", "auth_login_tty_required"} {
 		found := false
 		for _, declared := range spec.Agent.Errors {
 			if declared.Code == code {

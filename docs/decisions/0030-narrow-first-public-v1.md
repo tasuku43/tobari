@@ -1,11 +1,11 @@
 # ADR 0030: Narrow first public V1 to exact policy and static brokered authentication
 
-- Status: Accepted
+- Status: Partially superseded
 - Date: 2026-08-12
 - Deciders: Tobari maintainers
 - Scope: Product, architecture, security, harness, compatibility, and public boundary
 - Supersedes: ADR 0020, `0021-add-datadog-pup-oauth.md`, ADR 0023, and ADR 0025
-- Superseded by: None
+- Superseded by: ADR 0031 for provider removal and static-only authentication; exact-policy and managed-profile decisions remain active
 - Revises: ADR 0009, ADR 0019, ADR 0024, ADR 0027, and ADR 0029
 
 ## Context
@@ -63,9 +63,13 @@ First public V1 removes completely:
 - compatibility readers, dormant configuration selectors, aliases, hidden
   routes, state conversion, and unowned dependencies for every retired path.
 
-`auth login` requires explicit `--provider github`; omission is invalid and no
-provider selector is opened. `auth import PROVIDER`, `auth status`, and
-`auth logout PROVIDER` remain. An owner manifest is strict non-secret,
+`auth login` accepts explicit `--provider github`; omission on an interactive
+trusted-host terminal opens a bounded selector over the installed provider
+snapshot filtered to compiled reviewed login drivers. In first public V1 that
+filter still yields only GitHub. JSON error mode, redirected/non-terminal
+omission, cancellation, an empty eligible set, or a selection outside the
+snapshot fails before login mutation. `auth import PROVIDER`, `auth status`, and `auth logout PROVIDER`
+remain. An owner manifest is strict non-secret,
 non-executable local data describing one static primary-secret import, bounded
 handle projection, and exact HTTPS/header replacement. It cannot select shell,
 helper, refresh, signing, arbitrary methods/routes, policy, or provider business
@@ -109,8 +113,9 @@ broader authority. Policy presets integrate only after this deletion.
 
 ## Mechanical enforcement
 
-- Catalog tests reject every removed command, provider, method, selector,
-  output field, fault, recovery, and reference edge.
+- Catalog and CLI tests reject every removed command, provider, method, output
+  field, fault, recovery, and reference edge while proving omitted-provider
+  selection can expose only installed compiled reviewed login drivers.
 - Domain and state parsers reject prefix policy and non-static credential
   record kinds without migration or fallback.
 - Dependency and image-content tests prove no managed, companion, refresh,

@@ -25,10 +25,13 @@ import providerManifest from "../../../../generated/provider-manifest-example.js
 **マニフェストの正式な JSON Schema 文書は公開していません。** フィクスチャ台帳を JSON
 Schema の検証器と説明しないでください。
 
-Provider は Workspace の Tool とは別です。Provider は外部 credential authority、Tool は
-projection を受け取り request を送る client です。first public V1 の組み込み取得は
-GitHub/`gh` 一組です。manifest の表示名、environment variable、近くの binding から
-別の supported Tool を作ることはできません。
+Provider は、Workspace で使う Tool とは別の概念です。Provider は外部の認証情報を
+提供する主体を表します。Tool は宣言済みの投影を受け取り、対応するリクエストを送る
+クライアントです。組み込みマニフェストとコンパイル済みドライバーは、現在一つの完全な
+Provider と Tool の組を表します。対応は GitHub/`gh`、AWS/`aws`、Datadog/`pup`、
+Chatwork/`cwk` です。現在は各 Provider に対応するクライアントが一つだけです。そのため
+Provider を選ぶと Tool が表示され、自動で選ばれます。マニフェストの表示名、環境変数、
+隣接する結び付きから、別の対応 Tool を作ることはできません。
 
 所有者が管理するマニフェストは、次の場所に置く、所有者だけが読める通常ファイルです。
 シンボリックリンクは使えません。
@@ -37,10 +40,10 @@ GitHub/`gh` 一組です。manifest の表示名、environment variable、近く
 ${XDG_CONFIG_HOME:-$HOME/.config}/tobari/auth/providers/*.json
 ```
 
-組み込み provider ID は置き換えられず、`stdin_import` だけを使えます。レビュー済み
-host helper は GitHub の固定 device flow だけです。実行ファイルと動作は compiled
-Infrastructure で、manifest extension ではありません。owner manifest から executable
-helper や non-V1 schema を追加できません。
+組み込みのプロバイダー ID は置き換えられず、`stdin_import` だけを使えます。レビュー済みの
+ホスト側ログインドライバーは GitHub、AWS、Datadog 用です。固定した実行ファイルと動作は、
+コンパイル済みの Infrastructure であり、マニフェストの拡張ではありません。利用者の
+マニフェストから別の補助実行ファイルや組み込み動作を追加することはできません。
 
 ## v1 が担うすべての責務
 
@@ -78,11 +81,21 @@ Workspace が見るのは、`EXAMPLE_TOKEN` と、プロジェクトに結び付
 
 ## レビュー済みの組み込みスキーマ 1 計画
 
-GitHub が唯一の組み込み V1 plan です。trusted-host helper が static credential 一つを
-確定し、manifest は owner static provider と同じ完全一致 HTTPS/header 置換を使います。
-helper は Broker image では動きません。owner file は executable acquisition や dynamic
-credential behavior を宣言できません。組み込み追加には product、architecture、security、
-test の review が必要で、JSON 編集だけでは追加できません。
+組み込み V1 契約は汎用的な拡張機構ではありません。レビュー済みの組み込み定義だけが使える型付き
+フィールドを追加します。
+
+| Built-in  | 認証情報の kind         | Workspace placeholder                                     | ポリシー許可後の完全一致動作                                                                                                                                                           |
+| --------- | ----------------------- | --------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `aws`     | `aws_sso_session`       | 三つの AWS 認証情報変数に同じプロジェクト結び付きハンドル | OPA の許可後、Gateway が 8 MiB 以内のリクエスト一つを保持。Broker が専用ホストコンパニオンに固定の AWS CLI 認証情報エクスポートを要求し、標準的なヘッダー方式の SigV4 をローカルで計算 |
+| `datadog` | `datadog_oauth_session` | プロジェクト結び付きの bearer ハンドル                    | OPA の許可後、Broker が 5 分の更新時間帯の外にあるトークンを選ぶか、プロキシとリダイレクトを無効にした固定 US1 トークンエンドポイントで、同じレコードの更新を一つ実行                  |
+
+GitHub と Chatwork は、スキーマ 1 の固定ヘッダー動作を維持します。GitHub のログインドライバー
+は信頼するホストで実行し、固定認証情報を保存します。Broker イメージ内では動きません。
+
+所有者ファイルは、`aws_sigv4`、OAuth セッション、更新エンドポイント、ホストドライバー、コンパニオン
+操作、その他の組み込み動作を宣言できません。組み込み定義を追加するには、製品、
+アーキテクチャ、セキュリティ、テストを含むレビュー済み変更が必要です。JSON の編集だけでは
+追加できません。
 
 ## 検証とコレクションの有効化
 

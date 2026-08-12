@@ -8,23 +8,23 @@ host
       +-- fixed control exec/stdin --> tobari-auth-broker (locked)
       |                                      |
       |                               encrypted Context vaults
-      +-- reviewed fixed GitHub CLI login driver --> GitHub HTTPS
+      +-- reviewed fixed host credential drivers --> provider acquisition
+      +-- private resident AWS companion ---------> Auth Broker bridge
       +-- root A (Context-selected ro/rw) --> Tobari A -- guarded net A --+
       +-- root B (Context-selected ro/rw) --> Tobari B -- guarded net B --+--> tobari-gateway
                                                                |      |      |
 internal control network:                              tobari-opa :8181 | Unix runtime socket
                                                                       tobari-auth-broker
-egress network:                                       Gateway --> HTTPS
+egress network:                         Gateway/Auth Broker --> bounded HTTPS
 ```
 
 Each Tobari joins only its dedicated internal network. OPA joins only the
 shared internal control network. Gateway joins every Tobari network plus
-control and egress. Auth Broker joins only control, has no TCP listener or
-provider egress, and performs no provider network call; Gateway reaches only
-its read-only mounted runtime Unix socket and
-host commands reach only fixed control operations. The reviewed GitHub CLI
-helper runs from the trusted host and cannot be selected by a Workspace, request, or
-owner manifest. Tobari and control networks
+control and egress. Auth Broker joins control and egress, has no TCP listener,
+and uses egress only for compiled Datadog/OpenAI refresh transports; Gateway
+reaches only its read-only mounted runtime Unix socket and host commands reach
+only fixed control operations. Reviewed host helpers run from the trusted host
+and cannot be selected by a Workspace, request, or owner manifest. Tobari and control networks
 use Docker's `internal` property; the egress network is the only network with
 an external route.
 
@@ -37,15 +37,15 @@ to local listeners, keeps IPv4/IPv6 forwarding disabled, and drops its forward
 chain. Neither resident process retains a network capability, and no host or
 Docker-VM-global firewall state is changed.
 
-The sole reviewed login driver is GitHub CLI for the built-in GitHub.com static
-plan. It resolves and hashes one canonical executable outside the project,
-runs fixed API-authentication-only argv in a sanitized private temporary home,
-opens only the fixed device page with manual fallback, captures one bounded
-token, rechecks the executable identity, and performs checked cleanup. Exact
-GitHub CLI product-version equality is not an authority boundary. Owner
-manifests can describe only static primary-secret import and exact
-HTTPS/header replacement; no helper, managed store, dynamic record, refresh,
-signing, supplemental header, or companion path exists in V1.
+Reviewed login drivers are the closed GitHub, AWS, pup, Codex, and Claude host
+set. Each resolves and hashes a canonical executable outside the project, runs
+fixed argv with a sanitized private state boundary, accepts only its bounded
+browser/PTY/output contract, rechecks executable identity, and performs checked
+cleanup. Codex additionally requires a stable observed product identity and
+the exact compiled host-login/state contract; Claude requires an exact reviewed
+version. Owner
+manifests remain static-only and cannot select these helpers or their dynamic
+plans. Managed stores remain absent.
 
 For HTTPS, ordinary DNS receives a bounded
 synthetic non-public IPv4 answer and the direct TCP connection is redirected
@@ -72,7 +72,7 @@ internal/cli  ------> internal/app
   Context-authentication use cases with consumer-owned ports.
 - `internal/infra`: Docker CLI runner, local state/config filesystem, embedded
   asset materialization, provider projection, host root-key storage, broker
-  control, reviewed GitHub host credential driver, platform inspection, and
+  control, reviewed host credential drivers and companion, platform inspection, and
   terminal/environment capability adapters.
 - `internal/cli`: the canonical catalog, typed argv parsing, rendering, signal
   handoff, shared semantic style presentation, and composition root.
@@ -255,18 +255,17 @@ digest lock, and family manifest are kept beside the source image. This keeps
 the distributed CLI self-contained while avoiding two independently edited
 base definitions.
 
-Gateway follows the same monorepo pattern but has its own release unit. The
+Gateway follows the same monorepo pattern and is part of the CLI release unit. The
 canonical Dockerfile, addon, entrypoint, and tests live under `gateway/`; the
 Go binary embeds a checked snapshot at
 `internal/infra/runtimeassets/assets/gateway/`. The explicit
 `scripts/sync-gateway-source.sh` operation refreshes that snapshot and
 `scripts/check-gateway-source.sh` rejects drift. Compose and OPA remain under
 `internal/infra/runtimeassets/assets` because they are CLI-owned orchestration
-and policy inputs, not Gateway image contents. The main-only Gateway workflow
-builds the canonical source for Linux amd64 and arm64 and publishes moving
-development tags plus an immutable commit tag to GHCR. The embedded
-`versions.env` records one reviewed immutable Gateway digest for routine
-startup; moving tags are never consumed by the CLI.
+and policy inputs, not Gateway image contents. Pull-request workflows validate
+the canonical Linux amd64/arm64 build, while the manual release workflow
+publishes an immutable commit tag and records its digest in the generated
+component lock. Moving tags are never consumed by the CLI.
 
 The root ensure operation materializes exact embedded bytes under the Tobari state directory,
 writes generated non-secret runtime configuration, including the owner-only
@@ -275,8 +274,8 @@ and invokes Docker through the runtime port. Compose owns only Gateway, OPA,
 Auth Broker, shared networks, and CA volumes. Cluster startup obtains the
 verified Gateway and Auth Broker images by digest and the
 official runtime base image through the runtime image resolver. The normal
-resolver uses published images only; the contributor `tobari_dev` resolver
-selects local development tags built by `task build:dev`. The runtime adapter
+resolver uses release-injected images only; the development resolver selects
+embedded-source-hash local tags built by `task build`. The runtime adapter
 creates or reconciles each logical Tobari from its bound Context image and connects Gateway to
 its dedicated network. After it has reconciled the Workspace guard, it records
 the exact owned Workspace and Gateway endpoints in the schema-1 principal
@@ -286,9 +285,10 @@ complete-file projections. A public-only CA volume is mounted read-only into
 each Tobari, whose entrypoint builds an ephemeral CA bundle.
 
 The same resolver owns a pure build-identity projection used by `version` and
-cluster preflight. The published implementation reads selected component APIs
-from embedded `versions.env`; the `tobari_dev` implementation fixes them to the
-canonical source APIs and proves contributor metadata through its build tag.
+cluster preflight. Release packaging injects the published implementation's
+selected component images and APIs from one validated component lock; the
+development implementation fixes APIs to canonical source and derives image
+tags from embedded source bytes.
 Neither implementation can consult CWD, project metadata, environment, or a
 moving registry tag. Cluster preflight compares this projection before state
 loading, asset materialization, journals, policy tests, or Docker calls.
@@ -300,17 +300,15 @@ snapshot at `internal/infra/runtimeassets/assets/authbroker/`.
 `scripts/sync-authbroker-source.sh` refreshes the snapshot and
 `scripts/check-authbroker-source.sh` rejects byte drift. The source and image
 checks run the broker unit suite, prove that no provider CLI is installed, and
-build the fixed non-root image. The main-only image workflow builds Linux amd64
-and arm64 and publishes moving development tags plus an immutable commit tag.
-Routine startup uses the reviewed multi-architecture digest in `versions.env`;
-the moving tags never select runtime authority. The contributor resolver uses
-`tobari-auth-broker:dev` for explicit local source validation.
+build the fixed non-root image. Release assembly builds Linux amd64 and arm64
+and publishes the immutable commit tag beside Gateway. Routine startup uses
+the paired component-lock digest; moving tags never select runtime authority.
+The contributor resolver uses a source-hash local tag.
 
-Both canonical sources declare component API V1. Official immutable V1 Gateway
-and Auth Broker indexes have not yet been published and reviewed, so the paired
-`versions.env` authorities are `unpublished`. Contributor builds supply local
-matching images; public and release gates reject the marker until reviewed
-multi-architecture V1 digests replace both authorities atomically.
+Both canonical sources declare component API V1. Source records only reviewed
+parent inputs; generated owned-image outputs never enter `versions.env`.
+Release assembly rejects partial, cross-revision, API-mismatched, or
+non-multi-architecture component evidence before CLI packaging.
 
 Compose mounts owner-only host state
 `auth/contexts` at `/var/lib/tobari-auth/contexts` and `auth/runtime` at
@@ -323,12 +321,11 @@ directory read-only. The provider projection is generated atomically from the
 built-in documents plus owner-only XDG user manifests and is mounted read-only
 into Gateway; neither the projection nor a provider manifest contains a secret.
 
-The reviewed GitHub driver keeps interactive provider-native execution on the
-trusted host. It resolves and hashes one GitHub CLI executable from
-conventional non-project trusted installation roots, uses fixed API-only argv
-and a sanitized environment, reconstructs only a private bounded temporary
-home, and deletes it on every outcome. It recognizes only the fixed device URL
-and requests no Git protocol. No URL,
+The reviewed host drivers keep interactive provider-native execution on the
+trusted host. Each resolves and hashes one canonical executable from
+conventional non-project trusted installation roots, uses only its fixed argv
+and sanitized private state, and deletes temporary state on every outcome.
+GitHub recognizes only the fixed device URL and requests no Git protocol. No URL,
 executable, argument, environment key, or driver supplied by a provider
 manifest, repository, Workspace, request, or project `PATH` can alter that
 behavior. A Workspace copy is never an acquisition fallback. Request region is
@@ -479,7 +476,7 @@ one OPA, one Gateway, and one Auth Broker, unlocks the broker, and
 reconnects Gateway to every existing registered project network.
 Image preflight fails before the policy test, cluster journal, shared network,
 or service-container mutation. Local Tobari-managed image development uses
-`task build:dev` and the `tobari_dev` image resolver instead of a public
+`task build` and the source-hash development resolver instead of a public
 cluster option.
 Root invocation only verifies that configured cluster is ready and reads the
 canonical CWD's indexed Workspace candidates. An exact current-root record is
@@ -593,9 +590,10 @@ argument/intent/mutation validation; infrastructure then validates the selected
 existing Context, installed provider/acquisition mode, and broker readiness
 before broker send. Provider IDs are human selectors validated against the
 installed projection; they are not opaque action references or credential
-authority. Login requires exactly `--provider github`; omission and every
-other provider fail before acquisition. Import, status, and logout remain
-available for strict owner static manifests.
+authority. Login accepts only the installed reviewed GitHub, AWS, Datadog,
+OpenAI, or Anthropic drivers; interactive omission opens the bounded selector,
+and AWS alone accepts its method axis. Import, status, and logout remain
+available for strict owner static manifests and Chatwork.
 
 `doctor` composes bounded read-only environment, Docker, policy, provider,
 root-key/vault, broker, and project-binding diagnostics. The application-owned
@@ -661,10 +659,14 @@ client request headers
   -> deny on any invalid/unavailable decision
   -> on a static brokered allow, resolve the same revision exactly once and
      replace only the declared destination header
+  -> on a Datadog/OpenAI allow, select or refresh the same record once and
+     apply only its reviewed bearer/supplemental-header result
+  -> on an AWS allow, retain the authorized request within 8 MiB, obtain one
+     private companion export, sign locally, and apply only those headers
   -> otherwise strip control headers and forward client authentication only
      after allow
   -> enable ordinary request-body streaming; forward an allowed buffered
-     GraphQL body once
+     GraphQL or signed AWS body once
   -> resolve and pin the upstream address; reject unsafe dotted-host results
   -> stream the authorized upstream response from its headers
   -> emit redacted audit JSON
@@ -686,8 +688,9 @@ candidates. Any Tobari-looking handle marker either enters the exact valid
 broker route or fails as `credential_handle_invalid`; only complete marker
 absence permits configured fallback. A valid candidate is removed before
 broker or OPA I/O and is never forwarded on failure. Broker introspection
-returns no secret; policy denial performs no resolution. The addon has no
-managed, dynamic, refresh, signing, or companion fallback and never retries.
+returns no secret; policy denial performs no resolution, refresh, companion
+call, or signing. The addon has no managed or arbitrary dynamic fallback and
+never retries.
 
 Denied audit records are also the policy-development feedback interface. A
 learnable Gateway denial carries a fixed host-side `tobari policy review`
@@ -832,13 +835,13 @@ or row order.
   invariants without Docker.
 - Infrastructure tests use a recording command runner.
 - Gateway and Rego tests cover policy boundaries.
-- Auth Broker, root-key, provider, and Gateway integration tests cover locked
-  startup, encrypted static vault records, project-bound handles,
-  deny-before-resolution, exact replacement, rotation/revocation, and absence
-  of fallback.
-- GitHub host-driver tests cover fixed API-only argv, canonical executable
-  identity and digest recheck, private temporary home, fixed device-page/manual
-  fallback, bounded token capture, no Git setup, checked cleanup, and
-  cancellation settlement. Negative dependency and image tests prove managed,
-  dynamic, refresh, signing, companion, and exact-version paths are absent.
+- Auth Broker, root-key, provider, companion, and Gateway integration tests
+  cover locked startup, every closed vault record, project-bound handles,
+  deny-before-action, bounded static/refresh/signing results,
+  rotation/revocation, durable unknown-outcome barriers, and no fallback.
+- Host-driver tests cover each fixed argv, canonical executable identity and
+  digest recheck, private temporary home or PTY, bounded browser/output
+  contract, checked cleanup, and cancellation settlement. Negative dependency
+  and image tests prove managed profiles, arbitrary helpers, and provider CLIs
+  inside Broker remain absent.
 - Docker integration tests prove actual network topology and lifecycle.

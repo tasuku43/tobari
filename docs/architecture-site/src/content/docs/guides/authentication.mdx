@@ -1,135 +1,244 @@
 ---
 title: Authentication
-description: Keep tool-native authentication distinct from V1 static brokered credentials and exact network authorization.
+description: Choose tool-native or brokered authentication without confusing credentials with network permission.
 ---
 
 import CredentialArchitectureMap from "../../../components/CredentialArchitectureMap.astro";
 import ProviderToolMap from "../../../components/ProviderToolMap.astro";
 import SequenceExplorer from "../../../components/SequenceExplorer.astro";
 
-Authentication supplies identity material. It never grants network permission:
-the Context preset guardrail and exact OPA policy still decide every HTTP
-effect.
+Authentication and network authorization are separate in Tobari. Choose one explicit authentication path for the tool, then authorize its ordinary HTTP effects separately. A successful login or import never adds a network allow rule.
 
-## Compare the two custody paths
+This guide compares the two supported paths, shows the reviewed built-in broker flows, and covers handle binding, rotation, and logout. Read [Request journey](../../how-it-works/request-journey/) and [Contexts](../contexts/) first.
 
-| Path        | Credential owner                           | Workspace receives                      | First public V1 boundary                                           |
-| ----------- | ------------------------------------------ | --------------------------------------- | ------------------------------------------------------------------ |
-| Tool-native | The Workspace client and its writable home | The client's own files or process state | Tobari does not broker or inspect it; Gateway policy still applies |
-| Auth Broker | Encrypted Context vault outside Workspace  | A random Context/project-bound handle   | One static primary secret and exact HTTPS header replacement       |
+## Compare the two paths
 
-Use tool-native login when a client already owns a suitable login flow. Use the
-Broker only when the provider manifest's static projection and exact header
-binding express the complete task.
+| Path                    | Where the primary credential lives                              | What the Workspace can read                                             | Gateway behavior                                                                     | Main limit                                                    |
+| ----------------------- | --------------------------------------------------------------- | ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------ | ------------------------------------------------------------- |
+| Tool-native passthrough | Tool-owned state in that Workspace's persistent home or process | The real tool credential                                                | Removes auth/cookie fields from OPA and audit, then forwards after allow             | Credential is available to processes in the same Workspace    |
+| Auth Broker             | Encrypted Context vault under an installation root key          | A random project-bound handle, not static or renewable credential state | Introspects without secret, asks OPA, then resolves, refreshes, or signs after allow | Static exact bindings plus the closed reviewed built-in plans |
 
-## Built-in GitHub acquisition
+No path changes the OPA rule requirement. “The request is authenticated” and “this Context/project/method/path may connect” are different claims.
 
-First public V1 has one reviewed built-in acquisition path and requires the
-provider explicitly:
+<aside class="warning">
+  <strong>Artifact status:</strong> canonical Gateway and Auth Broker source is
+  a paired V1 snapshot, but reviewed immutable V1 image indexes have not been
+  published yet. Contributor builds use the source snapshot; public and release
+  gates remain blocked until those indexes are independently reviewed and
+  pinned.
+</aside>
 
-```sh
-tobari auth login --provider github --context default
-```
+## Tool-native authentication
 
-There is no provider menu, omission default, `--tool`, or alternative built-in
-login method. Tobari runs the fixed, identity-checked `gh` helper from a
-sanitized temporary home on the trusted host. It uses the reviewed device flow,
-opens only the fixed browser destination when possible, and preserves a manual
-fallback. Exact GitHub product-version equality is not a security boundary.
-The helper commits one bounded static credential; it never enters Workspace or
-the Broker image.
+Enter the Workspace and use the tool's normal supported login. Its state is stored below the Workspace's persistent home and survives `exit`, container loss, and runtime rebuild. It is isolated from other Workspace homes and removed by `tobari delete`.
+
+Tobari does not copy the host home, Keychain, SSH agent, credential environment, or general CLI configuration into the Workspace. Tool-native state is readable by other processes within that same Workspace boundary.
+
+## Provider first, Tool second
+
+A credential Provider and the Workspace client Tool that uses it are different
+abstractions. Tobari supports a complete pairing: acquisition, handle
+projection, exact request binding, and the client that emits that request.
+Today every reviewed built-in pairing has one supported client Tool. The CLI
+therefore asks for the Provider, shows the Tool, and selects it automatically.
+It does not pretend that the two concepts are identical, and it does not add a
+redundant `--tool` input.
 
 <ProviderToolMap />
 
-## Owner static provider import
+## Reviewed built-in authentication
 
-An installed owner provider manifest may use only protected stdin import:
+The reviewed helpers are GitHub, two AWS login methods, Datadog US1 pup OAuth,
+OpenAI Codex device auth, and Anthropic Claude setup-token acquisition.
+Chatwork uses protected stdin import. For GitHub, on the trusted host:
+
+```sh
+tobari cluster up
+tobari auth status --context default
+tobari auth login --context default # choose an installed reviewed provider
+tobari auth login --provider github --context default
+tobari auth status --context default
+```
+
+Login requires an interactive trusted-host terminal. Omitting optional
+`--provider` presents only installed reviewed login providers; an explicit
+`--provider` skips that menu. Each menu row names its automatically selected
+Workspace client Tool. The AWS-only `--method` flag requires
+`--provider aws`. Tobari runs the trusted host's identity-checked GitHub CLI
+with fixed argv, sanitized private configuration, bounded projected output,
+and checked cleanup. Neither Gateway nor Auth Broker runs `gh`; the acquired
+static value is committed through Broker control and encrypted in the stable
+Context vault without appearing in CLI output.
+
+Leave and re-enter a Workspace permanently bound to that Context:
+
+```sh
+tobari --context default
+```
+
+The Workspace receives a distinct `tobari-h1_...` handle. For the built-in GitHub manifest it is projected for supported GitHub CLI API use, but it is not the upstream token. Private Git transport through a broker Git credential helper is not currently supported.
+
+For AWS, choose one explicit trusted-host method:
+
+```sh
+tobari auth login --provider aws --method identity-center --context default
+# or, with AWS CLI 2.32 or newer:
+tobari auth login --provider aws --method console --context default
+```
+
+Identity Center collects the reviewed commercial start URL, SSO region,
+12-digit account ID, and role and runs fixed device login. Console login asks
+for one commercial region, opens only the validated cross-device URL, and lets
+AWS CLI read the authorization code from terminal stdin. Both use an isolated
+temporary home and encrypt only distinct bounded opaque AWS state. After
+re-entry, the Workspace's three AWS credential variables contain the same
+project handle—not access key material. Request region remains ordinary
+Context or command configuration.
+
+For Datadog, run `tobari auth login --provider datadog --context default`. Tobari invokes
+fixed host `pup --no-agent auth login --site datadoghq.com` in a private
+file-backed home; pup owns browser consent and the loopback callback. After
+re-entry, the Workspace receives `DD_ACCESS_TOKEN=<project handle>` and fixed
+`DD_SITE=datadoghq.com`. A valid access token is selected only after OPA allow;
+near expiry, Broker performs one bounded fixed-US1 refresh and persists the
+replacement encrypted state. Pup is not installed in Broker.
+
+For OpenAI, run `tobari auth login --provider openai --context default` with a
+stable Codex CLI installed on the trusted host. Tobari records its version but
+accepts it only when the fixed device-auth command and strict V1 state contract
+succeed. The separately pinned Workspace Codex projection is unchanged. For Anthropic, run
+`tobari auth login --provider anthropic --context default` with exactly Claude
+Code 2.1.220. Codex uses the reviewed device-auth flow and a strict private
+auth file; Claude captures one setup token through a private PTY. Chatwork is
+configured through `auth import chatwork`, not the interactive selector.
+
+<CredentialArchitectureMap headingLevel={2} initial="acquisition" />
+
+## What happens on one brokered request
+
+1. Gateway derives the Context/project principal from the kernel-observed Workspace source endpoint.
+2. It strictly recognizes the provider-declared handle in the exact source header and removes it.
+3. Broker introspection verifies Context, project, provider, credential revision, target, and header binding without returning the secret.
+4. Gateway asks OPA about the ordinary body-free HTTP effect.
+5. On deny, processing stops. There is no static resolution, Datadog/OpenAI
+   token selection/refresh, AWS companion call/signing, or upstream connection.
+6. On a static allow, Gateway resolves the same revision once and replaces the
+   declared header.
+7. On an AWS allow, Gateway captures the complete authorized request within
+   8 MiB. Broker uses the authenticated private host companion for one fixed
+   AWS CLI credential export, rechecks/persists the revision, and signs
+   standard header-based SigV4 locally.
+8. On a Datadog allow, Broker selects a sufficiently valid token or performs
+   one same-record strict refresh at the exact proxy-free, no-redirect US1
+   token endpoint and commits state before returning a bearer value.
+9. On an OpenAI allow, Broker selects or refreshes the same-account token and
+   returns only its validated account ID for the reviewed supplemental header.
+10. Gateway creates one exact HTTPS upstream connection. It does not replay.
+
+<SequenceExplorer
+  title="Brokered credential paths"
+  scenarios={[
+    "broker-allowed",
+    "aws-brokered-allowed",
+    "datadog-refresh-allowed",
+    "credential-outcome-unknown",
+    "invalid-handle",
+  ]}
+  initial="broker-allowed"
+/>
+
+Copying a valid handle from Workspace A to Workspace B fails because the host-derived project principal no longer matches. A stale revision after replacement/logout also fails. Any malformed, misplaced, ambiguous, or binding-mismatched Tobari-looking handle is rejected; Gateway does not fall back to passthrough.
+
+## Import for an installed schema-1 provider
+
+Owner-controlled provider manifests may declare `stdin_import`. Supply one credential through protected non-terminal stdin:
 
 ```sh
 trusted-secret-source | tobari auth import example --context default
 ```
 
-Terminal stdin is rejected before reading. Input is bounded and never accepted
-through argv, environment, or output. The strict owner-only manifest is
-non-secret, non-executable data: no shell, helper, refresh, signing, remote
-fetch, arbitrary route, or policy rule can be declared.
-
-<CredentialArchitectureMap headingLevel={2} initial="acquisition" />
-
-## One brokered request, in order
-
-1. Gateway derives Context/project identity from the observed Workspace source.
-2. It recognizes and removes the handle from the exact declared source header.
-3. Broker introspection verifies Context, project, provider, revision, target,
-   and HTTP binding without revealing the secret.
-4. The preset terminal guardrail runs before candidate creation. A terminal
-   denial performs zero candidate, DNS, Broker resolution, or upstream work.
-5. OPA decides the ordinary exact HTTP effect without body, handle, or secret.
-6. Only after allow, Broker resolves the same static revision once. Gateway
-   replaces only the declared header and makes one exact HTTPS attempt.
-
-An invalid, copied, stale, misplaced, or binding-mismatched handle fails before
-policy and never falls back to passthrough or another credential mode.
-
-<SequenceExplorer
-  title="Brokered credential paths"
-  scenarios={["broker-allowed", "invalid-handle"]}
-  initial="broker-allowed"
-/>
+`example` must already be an installed provider ID; the command does not create a manifest. Terminal stdin is rejected before reading bytes. Credential input is bounded and is never accepted in argv, environment, or output. User manifests cannot add executable helpers, request signing, refresh, arbitrary routes, or method/path policy.
 
 ## Rotation and logout
 
-Replacing a Context/provider credential revokes all prior handles. Re-enter the
-Workspace to receive the new project-specific projection. Logout removes local
-state and handles but does not contact the provider or rewrite an already
-running process:
+Replacing a Context/provider credential revokes every previously issued handle. A running process still holds its old environment value, but that value is invalid. Leave and re-enter to receive a new project-specific projection.
+
+To remove local broker state:
 
 ```sh
 tobari auth logout github --context default
 tobari auth status --context default
 ```
 
+Logout removes the local provider record and revokes its handles. It does not contact GitHub or guarantee remote token revocation. It also cannot rewrite the environment of an already running process; next entry removes the projection. `cluster down --purge` is not a substitute for logout and preserves vaults/root key.
+
 ## Failure behavior
 
-- `auth_login_tty_required`: run built-in login from a trusted-host terminal.
-- `invalid_credential_input`: pipe exactly one trusted non-terminal value.
-- `auth_broker_locked` or `auth_broker_unavailable`: restore cluster readiness;
-  no credential-bearing upstream attempt occurred.
-- `root_key_missing_with_vault`: restore the original root key; never generate
-  a replacement over encrypted state.
-- `credential_handle_invalid` (`403`): repair the matching Context/provider and
-  re-enter. Do not reinterpret or forward the value.
-- Mutation outcome faults require `auth status` reconciliation before replay.
+- `auth_login_tty_required`: run login from a trusted-host interactive terminal.
+- `invalid_credential_input`: pipe or redirect exactly one trusted non-terminal value.
+- `auth_broker_locked` or `auth_broker_unavailable`: run host-side `tobari cluster up`, then inspect `tobari auth status`.
+- `root_key_missing_with_vault`: restore the original root key. Do not generate or substitute a new key over existing encrypted state.
+- `auth_vault_invalid`: diagnose integrity without printing or rewriting vault contents.
+- `invalid_provider_manifest` or `ambiguous_provider_http_binding`: correct the entire strict manifest collection; no partial provider projection activates.
+- `credential_handle_invalid` (`403`): leave and re-enter the matching Workspace; a copied or stale handle must not be forwarded.
+- `credential_broker_unavailable` (`503`): this is a known pre-execution
+  availability class. Reconcile Broker/companion state and retry only after
+  readiness; no application upstream attempt was made.
+- `credential_refresh_outcome_unknown` (`409`): do not replay automatically;
+  after the original request settles, inspect `auth status`. Ready/configured
+  permits an explicit retry because Gateway made no application upstream
+  attempt. `not_configured` retains a durable barrier: re-login or logout the
+  affected AWS/Datadog provider, then leave and re-enter before retrying.
+- `auth_mutation_outcome_unknown` or an output failure after mutation: inspect `auth status` before another login/import/logout. Blind replay may rotate or remove confirmed state twice.
 
 ## Guarantees and limits
 
-Brokered primary secrets stay outside Workspace, OPA, logs, and output. Handles
-are project-bound, revisions are checked, resolution is post-policy and exact,
-and invalid handles have no fallback. V1 does not provide dynamic credential
-operations, multiple accounts per Context, remote logout, or isolation between
-peer processes in one Workspace.
+The broker keeps static and renewable credential state out of Workspace
+files/environment and OPA, binds handles to exact authority, and performs
+secret-bearing actions only after allow. It does not isolate mutually hostile
+processes inside one Workspace, stop use of an already allowed capability,
+perform remote logout, support multiple accounts per Context, or implement
+refresh/signing/OAuth beyond the closed reviewed built-in plans.
 
 ## Source evidence
 
-- [Authentication contract](https://github.com/tasuku43/tobari/blob/ab158bde6f0d6ba9e5b3c99aebd5e4ed07b510c6/docs/07_authentication.md)
+- [Authentication governing contract](https://github.com/tasuku43/tobari/blob/ab158bde6f0d6ba9e5b3c99aebd5e4ed07b510c6/docs/07_authentication.md)
+- [Auth Catalog specifications](https://github.com/tasuku43/tobari/blob/ab158bde6f0d6ba9e5b3c99aebd5e4ed07b510c6/internal/cli/auth_catalog.go)
+- [V1 provider domain](https://github.com/tasuku43/tobari/blob/ab158bde6f0d6ba9e5b3c99aebd5e4ed07b510c6/internal/domain/authbroker/provider.go)
+- [Auth Broker implementation and vault tests](https://github.com/tasuku43/tobari/tree/ab158bde6f0d6ba9e5b3c99aebd5e4ed07b510c6/authbroker)
 - [Gateway credential-order tests](https://github.com/tasuku43/tobari/blob/ab158bde6f0d6ba9e5b3c99aebd5e4ed07b510c6/gateway/test_tobari_gateway.py)
+- [Trusted-host credential drivers](https://github.com/tasuku43/tobari/tree/ab158bde6f0d6ba9e5b3c99aebd5e4ed07b510c6/internal/infra/credentialhost)
 
 ## Summary
 
-Tool-native authentication remains Workspace-owned. V1 brokered authentication
-is static: explicit GitHub acquisition or strict owner stdin import, a bound
-opaque handle, deny-before-resolution, and one exact post-allow replacement.
+Authentication supplies identity material; OPA authorization still controls
+each HTTP effect. Brokered Workspaces hold opaque, narrowly bound handles. Only
+an allowed Gateway path can trigger the declared static resolve, AWS signing,
+or Datadog token action.
 
 ## Check your understanding
 
 <details>
-  <summary>Does successful login permit a GitHub API request?</summary>
-  No. It creates credential state only. The preset guardrail and exact policy
-  still decide the HTTP effect.
+<summary>Login succeeds while no GitHub API path is allowed. What happens on the first API call?</summary>
+
+The credential exists and a handle may be projected, but OPA denies the ordinary HTTP effect. Gateway performs no secret resolution and does not connect upstream.
+
 </details>
 
 <details>
-  <summary>Can another Workspace reuse a copied handle?</summary>
-  No. Context, project, provider, revision, target, and header binding must all
-  match the trusted request identity.
+<summary>Can Workspace B use a copied handle from Workspace A if both use the same Context and host?</summary>
+
+No. The handle is also bound to A's project ID. Gateway derives B's different
+principal from the registered Workspace source endpoint, and broker validation
+fails.
+
 </details>
+
+<details>
+<summary>Does <code>auth logout</code> revoke the token at the provider?</summary>
+
+No. It removes local broker state and revokes Tobari handles. Remote revocation is outside the command's contract.
+
+</details>
+
+**Next:** [Review denied policy effects](../policy-review/).

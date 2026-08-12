@@ -21,6 +21,7 @@ import (
 const (
 	githubEphemeralPlaintextWarning = "! Authentication credentials saved in plain text"
 	githubManualBrowserFallback     = "The host browser did not open; visit " + githubDeviceURL + " manually to continue.\n"
+	awsBrowserLinePrefix            = "Open "
 	maxLoginVisibleLine             = 64 * 1024
 	maxLoginVisibleBytes            = 64 * 1024
 	hostBrowserOpenTimeout          = 5 * time.Second
@@ -29,14 +30,15 @@ const (
 var errLoginVisibleOutputLimit = errors.New("host login visible output exceeded its limit")
 
 type loginVisibleOutput struct {
-	mu          sync.Mutex
-	destination io.Writer
-	openBrowser func(string) error
-	pending     []byte
-	opened      bool
-	written     int
-	visible     int
-	failure     error
+	mu            sync.Mutex
+	destination   io.Writer
+	openBrowser   func(string) error
+	consoleRegion string
+	pending       []byte
+	opened        bool
+	written       int
+	visible       int
+	failure       error
 }
 
 func (w *loginVisibleOutput) Write(data []byte) (int, error) {
@@ -119,7 +121,7 @@ func (w *loginVisibleOutput) flushPending() error {
 	if err := w.writeVisible(visible); err != nil {
 		return err
 	}
-	target, recognized := loginBrowserTarget(normalized)
+	target, recognized := loginBrowserTarget(normalized, w.consoleRegion)
 	if !w.opened && recognized && w.openBrowser != nil {
 		w.opened = true
 		if err := w.openBrowser(target); err != nil {
@@ -163,15 +165,31 @@ func projectLoginVisibleText(value string) string {
 	return output.String()
 }
 
-func loginBrowserTarget(line string) (string, bool) {
+func loginBrowserTarget(line, consoleRegion string) (string, bool) {
 	if strings.Contains(line, githubDeviceURL) {
 		return githubDeviceURL, true
 	}
-	return "", false
+	if awsSSODeviceURLPattern.MatchString(line) {
+		return line, true
+	}
+	if consoleRegion != "" && validAWSConsoleAuthorizationURL(line, consoleRegion) {
+		return line, true
+	}
+	if !strings.HasPrefix(line, awsBrowserLinePrefix) {
+		return "", false
+	}
+	target := strings.TrimPrefix(line, awsBrowserLinePrefix)
+	if !awsSSODeviceURLPattern.MatchString(target) {
+		return "", false
+	}
+	return target, true
 }
 
 func manualBrowserFallback(target string) string {
-	return githubManualBrowserFallback
+	if target == githubDeviceURL {
+		return githubManualBrowserFallback
+	}
+	return fmt.Sprintf("The host browser did not open; visit %s manually to continue.\n", target)
 }
 
 func (r *Runtime) LoginAuth(
@@ -219,39 +237,220 @@ func supportsBuiltinAuthHelper(provider authbroker.Provider) bool {
 	if provider.Acquisition.Mode != authbroker.AcquisitionBuiltinHelper {
 		return false
 	}
-	return provider.ID == "github" && provider.Acquisition.Helper == "github-gh"
+	return (provider.ID == "github" && provider.Acquisition.Helper == "github-gh") ||
+		(provider.ID == "aws" && provider.Acquisition.Helper == "aws-sso") ||
+		(provider.ID == "datadog" && provider.Acquisition.Helper == "pup-oauth") ||
+		(provider.ID == "openai" && provider.Acquisition.Helper == "codex-chatgpt-oauth") ||
+		(provider.ID == "anthropic" && provider.Acquisition.Helper == "claude-setup-token")
 }
 
-func classifyHostLoginError(err error, provider string, _ ...string) error {
+func classifyHostLoginError(err error, provider string, methods ...string) error {
+	method := ""
+	if len(methods) == 1 {
+		method = methods[0]
+	}
 	if public, ok := fault.PublicCopy(err); ok {
 		return public
 	}
 	var unavailable hostCLIUnavailableError
 	if errors.As(err, &unavailable) {
+		code := provider + "_cli_unavailable"
+		name := provider
+		if provider == "github" {
+			name = "GitHub"
+		} else if provider == "aws" {
+			name = "AWS"
+		} else if provider == "datadog" {
+			name = "Datadog pup"
+		} else if provider == "openai" {
+			name = "Codex"
+		} else if provider == "anthropic" {
+			name = "Claude Code"
+		}
 		return fault.New(
-			fault.KindUnavailable, "github_cli_unavailable",
-			"The trusted-host GitHub CLI is unavailable; the previous Context credential remains unchanged.", false,
+			fault.KindUnavailable, code,
+			"The trusted-host "+name+" CLI is unavailable; the previous Context credential remains unchanged.", false,
 			fault.NextAction{Command: "auth login", Reason: "Install the reviewed host CLI and retry this login."},
+		)
+	}
+	if provider == "github" {
+		if hostLoginCancelled(err) {
+			return fault.New(
+				fault.KindRejected, "github_login_cancelled",
+				"GitHub login was cancelled; the previous Context credential remains unchanged.", false,
+				fault.NextAction{Command: "auth login", Reason: "Retry the trusted-host GitHub login when ready."},
+			)
+		}
+		if errors.Is(err, credentialhost.ErrGitHubExecutable) {
+			return classifyHostLoginError(hostCLIUnavailableError{provider: provider}, provider, method)
+		}
+		if hostLoginFailureIsCredentialDriver(err) {
+			return fault.New(
+				fault.KindRejected, "github_login_failed",
+				"GitHub login did not complete; the previous Context credential remains unchanged.", false,
+				fault.NextAction{Command: "auth login", Reason: "Retry the trusted-host GitHub login after inspecting the failure."},
+			)
+		}
+		return classifyBrokerError(err, "auth login github")
+	}
+	if provider == "datadog" {
+		if hostLoginTimedOut(err) {
+			return fault.New(
+				fault.KindRejected, "datadog_login_timeout",
+				"The bounded Datadog OAuth login timed out; the previous Context credential remains unchanged.", false,
+				fault.NextAction{Command: "auth login", Reason: "Start a new Datadog login and complete browser consent within the bounded window."},
+			)
+		}
+		if hostLoginCancelled(err) {
+			return fault.New(
+				fault.KindRejected, "datadog_login_cancelled",
+				"Datadog OAuth login was cancelled; the previous Context credential remains unchanged.", false,
+				fault.NextAction{Command: "auth login", Reason: "Retry the trusted-host Datadog login when ready."},
+			)
+		}
+		if errors.Is(err, credentialhost.ErrInvalidExecutable) {
+			return classifyHostLoginError(hostCLIUnavailableError{provider: provider}, provider, method)
+		}
+		if hostLoginFailureIsCredentialDriver(err) {
+			return fault.New(
+				fault.KindUnavailable, "datadog_login_failed",
+				"Datadog OAuth login did not complete; the previous Context credential remains unchanged.", false,
+				fault.NextAction{Command: "auth login", Reason: "Retry the isolated trusted-host pup login after inspecting the failure."},
+			)
+		}
+		return classifyBrokerError(err, "auth login datadog")
+	}
+	if provider == "openai" {
+		if hostLoginTimedOut(err) {
+			return fault.New(
+				fault.KindRejected, "openai_login_timeout",
+				"The bounded Codex ChatGPT OAuth login timed out; the previous Context credential remains unchanged.", false,
+				fault.NextAction{Command: "auth login", Reason: "Start a new OpenAI login and complete device authorization within the bounded window."},
+			)
+		}
+		if hostLoginCancelled(err) {
+			return fault.New(
+				fault.KindRejected, "openai_login_cancelled",
+				"Codex ChatGPT OAuth login was cancelled; the previous Context credential remains unchanged.", false,
+				fault.NextAction{Command: "auth login", Reason: "Retry the trusted-host OpenAI login when ready."},
+			)
+		}
+		if errors.Is(err, credentialhost.ErrCodexExecutable) || errors.Is(err, credentialhost.ErrCodexVersion) {
+			return classifyHostLoginError(hostCLIUnavailableError{provider: provider}, provider, method)
+		}
+		if hostLoginFailureIsCredentialDriver(err) {
+			return fault.New(
+				fault.KindUnavailable, "openai_login_failed",
+				"Codex ChatGPT OAuth login did not complete; the previous Context credential remains unchanged.", false,
+				fault.NextAction{Command: "auth login", Reason: "Retry the isolated trusted-host Codex login after inspecting the failure."},
+			)
+		}
+		return classifyBrokerError(err, "auth login openai")
+	}
+	if provider == "anthropic" {
+		if hostLoginTimedOut(err) {
+			return fault.New(
+				fault.KindRejected, "anthropic_login_timeout",
+				"The bounded Claude setup-token login timed out; the previous Context credential remains unchanged.", false,
+				fault.NextAction{Command: "auth login", Reason: "Start a new Anthropic login and complete browser authorization within the bounded window."},
+			)
+		}
+		if hostLoginCancelled(err) {
+			return fault.New(
+				fault.KindRejected, "anthropic_login_cancelled",
+				"Claude setup-token login was cancelled; the previous Context credential remains unchanged.", false,
+				fault.NextAction{Command: "auth login", Reason: "Retry the trusted-host Anthropic login when ready."},
+			)
+		}
+		if errors.Is(err, credentialhost.ErrClaudeExecutable) || errors.Is(err, credentialhost.ErrClaudeVersion) {
+			return classifyHostLoginError(hostCLIUnavailableError{provider: provider}, provider, method)
+		}
+		if hostLoginFailureIsCredentialDriver(err) {
+			return fault.New(
+				fault.KindUnavailable, "anthropic_login_failed",
+				"Claude setup-token login did not complete; the previous Context credential remains unchanged.", false,
+				fault.NextAction{Command: "auth login", Reason: "Retry the isolated trusted-host Claude Code login after inspecting the failure."},
+			)
+		}
+		return classifyBrokerError(err, "auth login anthropic")
+	}
+	if provider != "aws" {
+		return classifyBrokerError(err, "auth login "+provider)
+	}
+	if method == awsConsoleMethod {
+		if errors.Is(err, credentialhost.ErrConsoleLoginUnsupported) {
+			return fault.New(
+				fault.KindUnsupported, "aws_console_login_unsupported",
+				"The trusted-host AWS CLI does not support console-based login; the previous Context credential remains unchanged.", false,
+				fault.NextAction{Command: "auth login", Reason: "Install AWS CLI 2.32 or newer on the trusted host, then retry console login."},
+			)
+		}
+		if errors.Is(err, credentialhost.ErrInvalidProfile) {
+			return fault.New(
+				fault.KindInvalidInput, "aws_console_config_invalid",
+				"The AWS console login configuration is invalid; the previous Context credential remains unchanged.", false,
+				fault.NextAction{Command: "help auth login", Reason: "Provide a valid commercial AWS region for console login."},
+			)
+		}
+		if hostLoginTimedOut(err) {
+			return fault.New(
+				fault.KindRejected, "aws_console_login_timeout",
+				"The bounded AWS console login timed out; the previous Context credential remains unchanged.", false,
+				fault.NextAction{Command: "auth login", Reason: "Start a new AWS console login and complete it within the bounded window."},
+			)
+		}
+		if hostLoginCancelled(err) {
+			return fault.New(
+				fault.KindRejected, "aws_console_login_cancelled",
+				"AWS console login was cancelled; the previous Context credential remains unchanged.", false,
+				fault.NextAction{Command: "auth login", Reason: "Retry the trusted-host AWS console login when ready."},
+			)
+		}
+		if errors.Is(err, credentialhost.ErrInvalidExecutable) {
+			return classifyHostLoginError(hostCLIUnavailableError{provider: provider}, provider, method)
+		}
+		if hostLoginFailureIsCredentialDriver(err) {
+			return fault.New(
+				fault.KindUnavailable, "aws_console_login_failed",
+				"AWS console login did not complete; the previous Context credential remains unchanged.", false,
+				fault.NextAction{Command: "auth login", Reason: "Retry the trusted-host AWS console login after inspecting the failure."},
+			)
+		}
+		return classifyBrokerError(err, "auth login aws")
+	}
+	if errors.Is(err, credentialhost.ErrInvalidProfile) {
+		return fault.New(
+			fault.KindInvalidInput, "aws_sso_config_invalid",
+			"The AWS IAM Identity Center login configuration is invalid; the previous Context credential remains unchanged.", false,
+			fault.NextAction{Command: "help auth login", Reason: "Provide valid AWS IAM Identity Center login fields."},
+		)
+	}
+	if hostLoginTimedOut(err) {
+		return fault.New(
+			fault.KindRejected, "aws_sso_login_timeout",
+			"The bounded AWS IAM Identity Center device login timed out; the previous Context credential remains unchanged.",
+			false,
+			fault.NextAction{Command: "auth login", Reason: "Start a new AWS IAM Identity Center login and complete it within the bounded window."},
 		)
 	}
 	if hostLoginCancelled(err) {
 		return fault.New(
-			fault.KindRejected, "github_login_cancelled",
-			"GitHub login was cancelled; the previous Context credential remains unchanged.", false,
-			fault.NextAction{Command: "auth login", Reason: "Retry the trusted-host GitHub login when ready."},
+			fault.KindRejected, "aws_sso_login_cancelled",
+			"AWS IAM Identity Center login was cancelled; the previous Context credential remains unchanged.", false,
+			fault.NextAction{Command: "auth login", Reason: "Retry the trusted-host AWS IAM Identity Center login when ready."},
 		)
 	}
-	if errors.Is(err, credentialhost.ErrGitHubExecutable) {
-		return classifyHostLoginError(hostCLIUnavailableError{provider: provider}, provider)
+	if errors.Is(err, credentialhost.ErrInvalidExecutable) {
+		return classifyHostLoginError(hostCLIUnavailableError{provider: provider}, provider, method)
 	}
 	if hostLoginFailureIsCredentialDriver(err) {
 		return fault.New(
-			fault.KindRejected, "github_login_failed",
-			"GitHub login did not complete; the previous Context credential remains unchanged.", false,
-			fault.NextAction{Command: "auth login", Reason: "Retry the trusted-host GitHub login after inspecting the failure."},
+			fault.KindUnavailable, "aws_sso_login_failed",
+			"AWS IAM Identity Center login did not complete; the previous Context credential remains unchanged.", false,
+			fault.NextAction{Command: "auth login", Reason: "Retry the trusted-host AWS IAM Identity Center login after inspecting the failure."},
 		)
 	}
-	return classifyBrokerError(err, "auth login github")
+	return classifyBrokerError(err, "auth login aws")
 }
 
 func (r *Runtime) ImportAuth(
@@ -346,7 +545,7 @@ func (r *Runtime) AuthStatus(ctx context.Context, contextName string) (authbroke
 			if statusErr != nil {
 				return authbroker.StatusObservation{}, classifyBrokerError(statusErr, "auth status")
 			}
-			if response.State == "configured" {
+			if response.State == "ready" {
 				status.State = authbroker.ProviderCredentialConfigured
 				status.CredentialRevision = response.Revision
 				status.AccountLabel, err = validatedAccountLabel(response.AccountLabel)
@@ -446,7 +645,7 @@ func (r *Runtime) buildAuthMutationObservation(
 					switch observed.State {
 					case "not_configured":
 						status.State = authbroker.ProviderCredentialNotConfigured
-					case "configured":
+					case "ready":
 						status.State = authbroker.ProviderCredentialConfigured
 						status.CredentialRevision = observed.Revision
 					}

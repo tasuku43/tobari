@@ -137,13 +137,11 @@ func TestGitHubLoginUsesCanonicalExecutableExactCommandsEnvironmentAndTTY(t *tes
 			_, err := command.Stderr.Write([]byte("Enter the displayed code\n"))
 			return err
 		case 1:
-			wantArgs := []string{"auth", "status", "--active", "--hostname", "github.com", "--json", "hosts"}
+			wantArgs := []string{"api", "user", "--hostname", "github.com", "--jq", ".login"}
 			if !reflect.DeepEqual(command.Args, wantArgs) || command.Stdin != nil || command.Stderr != io.Discard {
-				t.Fatalf("status command = %#v", command)
+				t.Fatalf("account command = %#v", command)
 			}
-			_, err := command.Stdout.Write([]byte(
-				`{"hosts":{"github.com":[{"active":false,"login":"inactive","state":"success"},{"active":true,"login":"octo-user","state":"success"}]}}`,
-			))
+			_, err := command.Stdout.Write([]byte("octo-user\n"))
 			return err
 		case 2:
 			wantArgs := []string{"auth", "token", "--hostname", "github.com"}
@@ -289,40 +287,40 @@ func TestGitHubLoginCleanupFailureSuppressesCredentialAndErrorDetail(t *testing.
 	}
 }
 
-func TestParseGitHubAccountRejectsAmbiguousOrMalformedStatus(t *testing.T) {
-	valid := `{"hosts":{"github.com":[{"active":true,"login":"octo-user","state":"success"}]}}`
-	if login, err := parseGitHubAccount([]byte(valid)); err != nil || login != "octo-user" {
-		t.Fatalf("valid status: login=%q error=%v", login, err)
-	}
-	tests := map[string]string{
-		"empty":                  "",
-		"invalid json":           `{`,
-		"trailing value":         valid + ` {}`,
-		"unknown root field":     `{"hosts":{"github.com":[{"active":true,"login":"octo-user","state":"success"}]},"other":true}`,
-		"duplicate root key":     `{"hosts":{"github.com":[]},"hosts":{"github.com":[]}}`,
-		"missing github host":    `{"hosts":{"example.com":[]}}`,
-		"empty host entries":     `{"hosts":{"github.com":[]}}`,
-		"inactive":               `{"hosts":{"github.com":[{"active":false,"login":"octo-user","state":"success"}]}}`,
-		"failed state":           `{"hosts":{"github.com":[{"active":true,"login":"octo-user","state":"failure"}]}}`,
-		"two active accounts":    `{"hosts":{"github.com":[{"active":true,"login":"one","state":"success"},{"active":true,"login":"two","state":"success"}]}}`,
-		"invalid account label":  `{"hosts":{"github.com":[{"active":true,"login":"-octo","state":"success"}]}}`,
-		"duplicate nested field": `{"hosts":{"github.com":[{"active":true,"active":true,"login":"octo-user","state":"success"}]}}`,
-	}
-	for name, encoded := range tests {
+func TestParseGitHubAccountEnforcesOneBoundedAccountLabel(t *testing.T) {
+	for name, encoded := range map[string][]byte{
+		"lf framing":   []byte("octo-user\n"),
+		"crlf framing": []byte("octo-user\r\n"),
+		"no framing":   []byte("octo-user"),
+		"one byte":     []byte("x"),
+		"exact limit":  []byte("x" + strings.Repeat("-", maxGitHubAccountBytes-2) + "x"),
+	} {
 		t.Run(name, func(t *testing.T) {
-			if login, err := parseGitHubAccount([]byte(encoded)); !errors.Is(err, ErrGitHubAccountCapture) || login != "" {
+			if login, err := parseGitHubAccount(encoded); err != nil || login == "" {
 				t.Fatalf("login=%q error=%v", login, err)
 			}
 		})
 	}
-	entries := strings.Repeat(`{"active":false},`, 16) + `{"active":true,"login":"octo-user","state":"success"}`
-	if _, err := parseGitHubAccount([]byte(`{"hosts":{"github.com":[` + entries + `]}}`)); !errors.Is(err, ErrGitHubAccountCapture) {
-		t.Fatalf("17-entry status error = %v", err)
-	}
-	invalidUTF8 := append([]byte(`{"hosts":{"ignored":"`), 0xff)
-	invalidUTF8 = append(invalidUTF8, []byte(`","github.com":[{"active":true,"login":"octo-user","state":"success"}]}}`)...)
-	if _, err := parseGitHubAccount(invalidUTF8); !errors.Is(err, ErrGitHubAccountCapture) {
-		t.Fatalf("invalid UTF-8 status error = %v", err)
+	invalidUTF8 := []byte{'o', 'c', 0xff, 'o'}
+	for name, encoded := range map[string][]byte{
+		"empty":              {},
+		"only framing":       []byte("\n"),
+		"leading dash":       []byte("-octo\n"),
+		"trailing dash":      []byte("octo-\n"),
+		"underscore":         []byte("octo_user\n"),
+		"space":              []byte("octo user\n"),
+		"two accounts":       []byte("one\ntwo\n"),
+		"embedded return":    []byte("one\rtwo\n"),
+		"double framing":     []byte("octo-user\n\n"),
+		"oversize":           bytes.Repeat([]byte("x"), maxGitHubAccountBytes+1),
+		"JSON status output": []byte(`{"hosts":{}}`),
+		"invalid UTF-8":      invalidUTF8,
+	} {
+		t.Run(name, func(t *testing.T) {
+			if login, err := parseGitHubAccount(encoded); !errors.Is(err, ErrGitHubAccountCapture) || login != "" {
+				t.Fatalf("login=%q error=%v", login, err)
+			}
+		})
 	}
 }
 
@@ -362,8 +360,8 @@ func TestGitHubLoginRejectsBoundedCaptureOverflow(t *testing.T) {
 		overflowCall int
 		wantCalls    int
 	}{
-		"status": {overflowCall: 1, wantCalls: 2},
-		"token":  {overflowCall: 2, wantCalls: 3},
+		"account": {overflowCall: 1, wantCalls: 2},
+		"token":   {overflowCall: 2, wantCalls: 3},
 	}
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -374,10 +372,10 @@ func TestGitHubLoginRejectsBoundedCaptureOverflow(t *testing.T) {
 					return nil
 				case 1:
 					if test.overflowCall == call {
-						_, _ = command.Stdout.Write(bytes.Repeat([]byte("x"), maxGitHubStatusBytes+1))
+						_, _ = command.Stdout.Write(bytes.Repeat([]byte("x"), maxGitHubAccountBytes+3))
 						return nil
 					}
-					_, err := command.Stdout.Write([]byte(`{"hosts":{"github.com":[{"active":true,"login":"octo-user","state":"success"}]}}`))
+					_, err := command.Stdout.Write([]byte("octo-user\n"))
 					return err
 				case 2:
 					_, _ = command.Stdout.Write(bytes.Repeat([]byte("x"), maxGitHubTokenBytes+3))
@@ -403,8 +401,8 @@ func TestGitHubLoginInvalidCaptureNeverReturnsCredential(t *testing.T) {
 		want        error
 		wantCalls   int
 	}{
-		"status": {invalidCall: 1, want: ErrGitHubAccountCapture, wantCalls: 2},
-		"token":  {invalidCall: 2, want: ErrGitHubTokenCapture, wantCalls: 3},
+		"account": {invalidCall: 1, want: ErrGitHubAccountCapture, wantCalls: 2},
+		"token":   {invalidCall: 2, want: ErrGitHubTokenCapture, wantCalls: 3},
 	}
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -416,11 +414,11 @@ func TestGitHubLoginInvalidCaptureNeverReturnsCredential(t *testing.T) {
 				case 0:
 					return nil
 				case 1:
-					status := `{"hosts":{"github.com":[{"active":true,"login":"octo-user","state":"success"}]}}`
+					account := "octo-user\n"
 					if test.invalidCall == call {
-						status = `{"hosts":{"github.com":[{"active":true,"login":"one","state":"success"},{"active":true,"login":"two","state":"success"}]}}`
+						account = "one\ntwo\n"
 					}
-					_, err := command.Stdout.Write([]byte(status))
+					_, err := command.Stdout.Write([]byte(account))
 					return err
 				case 2:
 					_, err := command.Stdout.Write([]byte(githubTokenCanary + "\nsecond-line\n"))
@@ -444,7 +442,7 @@ func TestGitHubLoginInvalidCaptureNeverReturnsCredential(t *testing.T) {
 }
 
 func TestGitHubLoginNeverReturnsRunnerErrorDetails(t *testing.T) {
-	for name, failedCall := range map[string]int{"login": 0, "status": 1, "token": 2} {
+	for name, failedCall := range map[string]int{"login": 0, "account": 1, "token": 2} {
 		t.Run(name, func(t *testing.T) {
 			executable := testGitHubExecutable(t)
 			runner := &fakeGitHubRunner{run: func(call int, _ context.Context, command GitHubCommand) error {
@@ -453,7 +451,7 @@ func TestGitHubLoginNeverReturnsRunnerErrorDetails(t *testing.T) {
 				}
 				switch call {
 				case 1:
-					_, err := command.Stdout.Write([]byte(`{"hosts":{"github.com":[{"active":true,"login":"octo-user","state":"success"}]}}`))
+					_, err := command.Stdout.Write([]byte("octo-user\n"))
 					return err
 				case 2:
 					_, err := command.Stdout.Write([]byte(githubTokenCanary + "\n"))
@@ -488,7 +486,7 @@ func successfulGitHubRunner(t *testing.T, token string) *fakeGitHubRunner {
 		case 0:
 			return nil
 		case 1:
-			_, err := command.Stdout.Write([]byte(`{"hosts":{"github.com":[{"active":true,"login":"octo-user","state":"success"}]}}`))
+			_, err := command.Stdout.Write([]byte("octo-user\n"))
 			return err
 		case 2:
 			_, err := command.Stdout.Write([]byte(token + "\n"))

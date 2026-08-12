@@ -111,15 +111,13 @@ non-learnable and cannot become policy candidates.
   request binding. A provider is not the Workspace client that uses it.
 - **Workspace client tool:** the CLI or other client inside a Workspace that
   receives a provider-declared handle projection and emits the authenticated
-  request shape. The reviewed built-in pairing is GitHub/GitHub CLI (`gh`);
-  its name does not grant provider or network authority. Other tools use their
-  own Workspace-owned authentication or an owner static manifest where the
-  exact HTTPS/header contract can express the outcome.
-- **brokered credential:** one static primary-secret record owned by a stable
-  Context and provider, acquired through protected non-terminal stdin or the
-  reviewed host GitHub driver and stored in the encrypted Context vault. V1
-  has no dynamic record, refresh, signer, supplemental-header, or companion
-  path.
+  request shape. Reviewed pairings cover GitHub/`gh`, AWS/`aws`,
+  Datadog/`pup`, OpenAI/Codex, Anthropic/Claude, and Chatwork/`cwk`; their names
+  grant neither provider identity nor network authority.
+- **brokered credential:** one typed static or reviewed renewable record owned
+  by a stable Context and provider, acquired through protected non-terminal
+  stdin or one purpose-limited reviewed host driver and stored in the
+  encrypted Context vault.
 - **Workspace credential handle:** a versioned random opaque value bound to one
   Context, project, provider, credential revision, and exact HTTP binding. It
   is not the real credential and is not authority without the trusted
@@ -128,10 +126,10 @@ non-learnable and cannot become policy candidates.
   exact learned rule exists.
 - **provider manifest:** strict non-secret data declaring static import,
   Workspace handle projections, and exact HTTPS/header credential bindings.
-  Owner manifests are V1 static-secret/header plans; the reviewed built-in is
-  the GitHub.com plan. Neither form declares executable shell, helper choice,
-  refresh, signing, arbitrary routes, HTTP method/path policy, or provider
-  operation semantics.
+  Owner manifests are V1 static-secret/header plans. Reviewed built-ins are a
+  closed typed union for GitHub, AWS, Datadog, OpenAI, Anthropic, and Chatwork.
+  Owner data declares no executable shell, helper choice, refresh, signing,
+  arbitrary route, HTTP method/path policy, or provider operation semantics.
 - **Context:** one immutable host-owned capability envelope with a stable
   opaque ID and a human name. Its manifest records direct source access,
   normalized policy-preset origin and snapshot revision, and references an
@@ -289,21 +287,23 @@ undeclared Docker mutation by the CLI.
   the official runtime base for an uncustomized Context; custom images still
   fail closed if missing or incompatible before project runtime network or
   container mutation.
-- `cluster up` obtains the embedded immutable Gateway digest when it is not
-  already available locally and does the same for the immutable Auth Broker
-  digest. It validates each digest, API/role labels, non-root default user,
+- `cluster up` obtains the release-injected immutable Gateway digest when it is
+  not already available locally and does the same for the immutable Auth Broker
+  digest. One generated schema-1 component lock binds both images, their APIs,
+  platforms, and the CLI source revision. It validates each digest, API/role labels, non-root default user,
   entrypoint, and Docker Engine platform before running policy tests or
   creating shared networks and containers. Gateway and Auth Broker source
-  development use the contributor-only `task build:dev` path and a
-  `tobari_dev` binary, not a public `cluster up` option.
+  development use the source-coupled `task build` path and a development
+  resolver, not a public `cluster up` option.
   Both official images are published as Linux amd64/arm64 OCI indexes and the
-  checked runtime metadata contains their reviewed immutable manifest digests.
+  release-generated component lock contains their reviewed immutable manifest digests.
   Moving `main` and `latest` tags never become runtime authority. Contributor
-  validation uses `tobari-gateway:dev` and `tobari-auth-broker:dev` through
-  `task build:dev` without changing the normal binary's selectors.
+  validation uses content-addressed local tags through `task build` without changing an
+  installed release binary's selectors.
 - Authentication commands accept only an existing Context name and installed
-  provider ID. `auth login` requires exactly `--provider github`; omission and
-  every other provider fail before acquisition. The reviewed driver shows the
+  provider ID. `auth login` accepts GitHub, AWS, Datadog, OpenAI, or Anthropic;
+  interactive omission opens a bounded reviewed-provider selector. AWS alone
+  accepts `--method identity-center|console`. The GitHub driver shows the
   GitHub device code and the trusted host opens exactly
   `https://github.com/login/device` when possible, with the same URL retained
   for manual fallback. It runs fixed API-authentication-only GitHub CLI argv
@@ -317,11 +317,10 @@ undeclared Docker mutation by the CLI.
   readiness before broker send. The credential is never a positional/flag
   value or Tobari environment input. Every successful auth mutation requires
   existing Workspaces to be re-entered before their environment or
-  handle projection can change. V1 brokered records are static primary secrets;
-  there is no refresh, signing, supplemental-header, managed-profile, or
-  companion path. Tools without the GitHub pairing authenticate inside the
-  Workspace or use an owner static manifest where its exact header binding is
-  expressible.
+  handle projection can change. Reviewed built-ins may use bounded dynamic
+  records, Datadog/OpenAI refresh, AWS signing and the private companion, or
+  the OpenAI supplemental header. Managed profiles and owner-selected dynamic
+  behavior remain absent.
 - `runtime init` creates the current Context's owner-only
   `runtime/Dockerfile`. The template starts from
   `ghcr.io/tasuku43/tobari/runtime:latest`; editing that file is the supported
@@ -464,8 +463,8 @@ failures are stderr.
 Broker APIs, `compatible`, `development_build_command`, and
 `development_binary`. An absent source commit is the explicit string
 `unknown` and makes `compatible=false`. The two repository-command fields are
-empty for a published resolver and contain exactly `task build:dev` and
-`bin/tobari-dev` only when the compiled development metadata proves that path.
+empty for a published resolver and contain exactly `task build` and
+`bin/tobari` only when the compiled development metadata proves that path.
 The Workspace selector is a human stderr interaction; it produces no JSON or
 stdout selection protocol. A successful choice prints an English summary before
 the child session, and cancellation or stale selection prints no success
@@ -884,25 +883,23 @@ discovery excludes other denials, preventing a successful no-op approval.
 
 `auth login`, `auth import`, and `auth logout` validate the fixed installation
 credential-catalog target and mutation impact before acquisition or vault I/O.
-Login requires `--provider github` and runs the sole reviewed GitHub CLI driver
-through an interactive trusted-host terminal. It retains the purpose-limited
-fixed device-page open, manual fallback, digest checks, private temporary home,
-strict bounded token capture, and no-Git behavior. It prints only bounded,
-control-safe guidance and commits the captured static token only into the
-encrypted Context vault. The driver reads no ambient provider home and writes
-no project or Workspace CLI configuration; Auth Broker contains no provider
-CLI. Import
+Login selects only the closed GitHub, AWS, Datadog, OpenAI, or Anthropic host
+driver union through an interactive trusted-host terminal. Each driver owns
+fixed argv, canonical executable identity, private state, bounded browser/PTY
+behavior, strict typed capture, and checked cleanup. It prints only bounded,
+control-safe guidance and commits the captured record only into the encrypted
+Context vault. Drivers read no ambient provider home and write no project or
+Workspace CLI configuration; Auth Broker contains no provider CLI. Import
 rejects terminal stdin before reading and reads bounded non-terminal input only
 after public argument/intent/mutation validation; infrastructure validates the
 selected Context, installed provider/acquisition mode, and broker readiness
-before broker send. Login/import atomically replace one static
+before broker send. Login/import atomically replace one typed
 Context/provider grant and revoke every prior handle. Gateway performs
-non-secret introspection before OPA, resolves the same revision exactly once
-only after allow, replaces the one declared header, and makes one upstream
-attempt. Dynamic records, refresh, signing, task barriers, supplemental
-headers, provider-native resolution, managed profiles, and a resident companion
-do not exist. Logout atomically removes the static record and its handles
-without contacting the provider.
+non-secret introspection before OPA and applies exactly one same-revision
+static resolution, Datadog/OpenAI token result, or bounded AWS SigV4 result only
+after allow. Gateway makes one upstream attempt. Managed profiles and arbitrary
+manifest-selected dynamic execution do not exist. Logout atomically removes
+the record and its handles without contacting the provider.
 One credential is Context/provider-owned, every permanently bound project is
 eligible for a distinct handle only on its next matching Workspace entry, and
 no mutation rewrites a running session. Confirmed results are secret-free and
@@ -926,12 +923,12 @@ command alias, old state interpretation, or compatibility shim for earlier
 development snapshots. Development state must be removed and recreated when
 the V1 contract changes.
 
-The canonical Gateway and Auth Broker source labels are both API V1. Their
-official immutable V1 image indexes have not yet been published and reviewed,
-so `versions.env` records the paired `unpublished` marker. Contributor builds
-use `task build:dev`; public and release gates reject the marker until reviewed
-multi-architecture V1 digests replace it atomically. `cluster up` compares
-required and selected identities before state loading or any Docker call.
+The canonical Gateway and Auth Broker source labels are both API V1. Source
+does not record their release outputs. The release workflow builds both
+multi-architecture indexes from one requested revision and injects one paired
+component lock into every CLI archive. Contributor builds use `task build` and
+content-addressed local images. `cluster up` compares required and selected
+identities before state loading or any Docker call.
 
 ## Unsupported outcomes
 
@@ -941,13 +938,12 @@ sockets through its guarded transparent path;
 it does not forward raw TCP, non-HTTP TLS, UDP, QUIC, recursive DNS, Git SSH, or
 certificate-pinned traffic. A client that cannot use the Tobari CA or expose an
 unambiguous HTTP authority fails closed.
-The built-in broker slice supports one static GitHub.com credential per
-Context. Owner manifests may express another single static primary secret only
-through the same exact HTTPS/header replacement contract and protected stdin
-import. V1 has no AWS, Datadog, OpenAI, Anthropic, or Chatwork built-in; managed
-adapter; provider selector on login; dynamic record; refresh; signer;
-supplemental-header plan; companion; exact-client-version driver; multiple
-provider accounts; provider-specific policy semantics; Git credential helper;
-or general provider SDK/plugin executor. Those tools may still authenticate
-inside their Workspace-owned home, but that state is inside the Workspace and
-is neither brokered nor a network grant.
+The built-in broker slice supports the closed GitHub, AWS, Datadog, OpenAI,
+Anthropic, and Chatwork plan union, one credential per Context/provider. Owner
+manifests may express another single static primary secret only through the
+exact HTTPS/header replacement contract and protected stdin import. V1 has no
+managed adapter, multiple provider accounts, provider-specific policy
+semantics, Git credential helper, manifest-selected helper, or general
+provider SDK/plugin executor. Unsupported tools may still authenticate inside
+their Workspace-owned home, but that state is neither brokered nor a network
+grant.

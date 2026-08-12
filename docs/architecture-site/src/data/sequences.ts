@@ -335,6 +335,301 @@ export const sequenceScenarios: SequenceScenario[] = [
     ],
   },
   {
+    id: "aws-brokered-allowed",
+    label: "AWS SigV4 request allowed",
+    summary:
+      "OPA allows the ordinary AWS HTTP effect before Gateway captures the bounded body and Broker asks the private host companion for one credential export.",
+    actors: [
+      "Workspace process",
+      "Gateway",
+      "OPA",
+      "Auth Broker",
+      "Host credential companion",
+      "Upstream",
+    ],
+    steps: [
+      {
+        title: "AWS placeholders arrive",
+        from: "Workspace process",
+        to: "Gateway",
+        sent: "One project-bound handle in the reviewed AWS credential placeholders",
+        withheld:
+          "Access key, secret key, session token, and trusted project identity",
+        owner: "Gateway",
+        failure: "Malformed, mixed, or ambiguous placeholders fail closed.",
+        explanation:
+          "The three values are the same opaque handle, not usable AWS credentials.",
+        tone: "network",
+      },
+      {
+        title: "Plan is introspected",
+        from: "Gateway",
+        to: "Auth Broker",
+        sent: "Handle, host-derived principal, revision, AWS authority, and signing-plan binding",
+        withheld: "Opaque host CLI state and temporary AWS role credentials",
+        owner: "Auth Broker",
+        failure:
+          "Any Context, project, revision, target, or plan mismatch returns 403.",
+        explanation: "Broker returns only non-secret metadata before policy.",
+        tone: "control",
+      },
+      {
+        title: "Ordinary effect is authorized",
+        from: "Gateway",
+        to: "OPA",
+        sent: "Context, project, HTTPS authority, method, and normalized path",
+        withheld: "Body, body hash, handle, opaque AWS state, and credentials",
+        owner: "OPA",
+        failure:
+          "Deny causes zero body capture, companion calls, signing, or upstream work.",
+        explanation:
+          "AWS authentication does not replace the exact HTTP policy rule.",
+        tone: "allowed",
+      },
+      {
+        title: "Authorized request is bounded",
+        from: "Gateway",
+        to: "Gateway",
+        sent: "The complete already-authorized request within the 8 MiB cap and its hash",
+        withheld:
+          "Body bytes and hash remain outside OPA, audit, and vault state",
+        owner: "Gateway",
+        failure:
+          "Oversized or ambiguous signing forms are rejected without upstream access.",
+        explanation:
+          "AWS SigV4 is the reviewed exception to ordinary streaming after allow.",
+        tone: "control",
+      },
+      {
+        title: "One credential export",
+        from: "Auth Broker",
+        to: "Host credential companion",
+        sent: "Authenticated fixed operation, exact revision, and opaque encrypted driver state",
+        withheld:
+          "No Workspace data selects argv, executable, profile, or host socket",
+        owner: "Host credential companion",
+        failure:
+          "Known pre-execution failure is 503; an explicit or post-dispatch unknown outcome is non-retryable 409.",
+        explanation:
+          "The resident same-binary companion performs only the compiled AWS credential-export operation.",
+        tone: "secret",
+      },
+      {
+        title: "Broker signs locally",
+        from: "Host credential companion",
+        to: "Auth Broker",
+        sent: "One bounded process-credential result plus refreshed opaque state",
+        withheld:
+          "Temporary AWS credentials never enter Workspace, OPA, policy, or durable projection",
+        owner: "Auth Broker",
+        failure:
+          "Stale revision or inconsistent state is rejected before forwarding.",
+        explanation:
+          "Broker rechecks and persists the same revision, then computes standard header-based SigV4.",
+        tone: "secret",
+      },
+      {
+        title: "Signed request goes upstream",
+        from: "Gateway",
+        to: "Upstream",
+        sent: "The authorized request with Broker-produced SigV4 headers over separate TLS",
+        withheld:
+          "Opaque handle, companion protocol, root key, and host CLI cache",
+        owner: "Gateway",
+        failure: "No alternate target, replay, or signing form is attempted.",
+        explanation:
+          "Gateway verifies the request snapshot, applies only returned headers, and makes one upstream attempt.",
+        tone: "allowed",
+      },
+    ],
+  },
+  {
+    id: "datadog-refresh-allowed",
+    label: "Datadog OAuth refresh allowed",
+    summary:
+      "After OPA allow, Broker either selects a sufficiently valid token or refreshes once at the fixed Datadog US1 endpoint before Gateway connects upstream.",
+    actors: [
+      "Workspace process",
+      "Gateway",
+      "OPA",
+      "Auth Broker",
+      "Datadog token endpoint",
+      "Upstream",
+    ],
+    steps: [
+      {
+        title: "Bearer handle arrives",
+        from: "Workspace process",
+        to: "Gateway",
+        sent: "Project-bound handle in the exact reviewed bearer syntax",
+        withheld: "OAuth access token, refresh token, and client secret",
+        owner: "Gateway",
+        failure:
+          "Wrong target, syntax, or duplicate marker returns 403 with no fallback.",
+        explanation:
+          "The handle selects a constrained record but grants no network permission.",
+        tone: "network",
+      },
+      {
+        title: "Session binding is introspected",
+        from: "Gateway",
+        to: "Auth Broker",
+        sent: "Handle, host-derived principal, same revision, exact US1 target, and bearer binding",
+        withheld: "Encrypted OAuth session and all token values",
+        owner: "Auth Broker",
+        failure: "Copied, stale, or mismatched state fails before OPA.",
+        explanation:
+          "Only normalized non-secret provider metadata returns to Gateway.",
+        tone: "control",
+      },
+      {
+        title: "Ordinary effect is authorized",
+        from: "Gateway",
+        to: "OPA",
+        sent: "Context, project, provider ID, HTTPS authority, method, and normalized path",
+        withheld: "Body, handle, revision, OAuth client, and tokens",
+        owner: "OPA",
+        failure:
+          "Deny triggers zero token selection, refresh, or upstream work.",
+        explanation:
+          "A successful Datadog login never creates the exact HTTP allow rule.",
+        tone: "allowed",
+      },
+      {
+        title: "Refresh is selected after allow",
+        from: "Gateway",
+        to: "Auth Broker",
+        sent: "Same allowed revision and exact bearer destination binding",
+        withheld: "No request body is a credential or policy dimension",
+        owner: "Auth Broker",
+        failure: "Locked, stale, or durably barred state fails closed.",
+        explanation:
+          "Broker reuses a token only outside the five-minute refresh window; otherwise it starts one same-record refresh.",
+        tone: "secret",
+      },
+      {
+        title: "Exact token endpoint exchange",
+        from: "Auth Broker",
+        to: "Datadog token endpoint",
+        sent: "One bounded OAuth refresh form over verified TLS to https://api.datadoghq.com/oauth2/v1/token",
+        withheld:
+          "No ambient proxy, redirect, alternate host, Workspace input, or pup process",
+        owner: "Auth Broker",
+        failure:
+          "Known pre-send failure is 503; explicit or post-send ambiguity is non-retryable 409 and keeps the durable barrier.",
+        explanation:
+          "Datadog refresh is Broker-owned; the trusted-host pup driver is used only during login.",
+        tone: "secret",
+      },
+      {
+        title: "Refreshed state commits",
+        from: "Datadog token endpoint",
+        to: "Auth Broker",
+        sent: "Strict bounded token response for the same credential revision",
+        withheld: "Tokens never enter Workspace, OPA, audit, or CLI output",
+        owner: "Auth Broker",
+        failure:
+          "Invalid or stale response cannot clear the task barrier or reach upstream.",
+        explanation:
+          "Broker atomically stores the updated OAuth session before returning one request-local bearer value.",
+        tone: "secret",
+      },
+      {
+        title: "Bearer request goes upstream",
+        from: "Gateway",
+        to: "Upstream",
+        sent: "The authorized request with the request-local access token over separate TLS",
+        withheld:
+          "Opaque handle, refresh token, OAuth client secret, and vault state",
+        owner: "Gateway",
+        failure:
+          "An upstream error does not change policy or retry the refresh.",
+        explanation:
+          "Gateway replaces only the declared Authorization header and makes one upstream attempt.",
+        tone: "allowed",
+      },
+    ],
+  },
+  {
+    id: "credential-outcome-unknown",
+    label: "Credential refresh outcome unknown",
+    summary:
+      "This path follows a Datadog token exchange that becomes uncertain after dispatch. An AWS companion operation uses the same durable barrier and non-retryable 409 rule.",
+    actors: [
+      "Gateway",
+      "Auth Broker",
+      "Host credential companion",
+      "Datadog token endpoint",
+      "Host operator",
+      "Upstream",
+    ],
+    steps: [
+      {
+        title: "Durable task barrier is written",
+        from: "Auth Broker",
+        to: "Auth Broker",
+        sent: "Same-revision operation digest in the encrypted credential record",
+        withheld: "Secret values and body bytes",
+        owner: "Auth Broker",
+        failure:
+          "Without an atomic barrier, external credential work is not dispatched.",
+        explanation:
+          "The barrier is persisted before AWS companion execution or Datadog refresh begins.",
+        tone: "control",
+      },
+      {
+        title: "Datadog refresh outcome becomes ambiguous",
+        from: "Auth Broker",
+        to: "Datadog token endpoint",
+        sent: "One fixed Datadog refresh request; the AWS branch instead dispatches one reviewed companion operation",
+        withheld: "No upstream application request has been sent",
+        owner: "Auth Broker",
+        failure:
+          "Disconnect after dispatch cannot be classified as safe to replay.",
+        explanation:
+          "The token endpoint may have processed the exchange even though its result did not return conclusively. The AWS companion branch is classified the same way after dispatch.",
+        tone: "denied",
+      },
+      {
+        title: "Gateway returns non-retryable 409",
+        from: "Auth Broker",
+        to: "Gateway",
+        sent: "credential_refresh_outcome_unknown",
+        withheld:
+          "No credential, signed headers, automatic replay, or upstream attempt",
+        owner: "Gateway",
+        failure: "Caller retry automation must remain stopped.",
+        explanation:
+          "This differs from a known pre-execution 503 availability failure.",
+        tone: "denied",
+      },
+      {
+        title: "Operator reconciles state",
+        from: "Host operator",
+        to: "Auth Broker",
+        sent: "A deliberate auth status check after the original request settles",
+        withheld: "No blind retry or inferred provider state",
+        owner: "Host operator",
+        failure: "Locked or unavailable Broker state must be repaired first.",
+        explanation:
+          "Ready plus configured permits an explicit retry; not_configured requires re-login or logout and Workspace re-entry.",
+        tone: "diagnostic",
+      },
+      {
+        title: "Upstream remains untouched",
+        from: "Gateway",
+        to: "Upstream",
+        sent: "Nothing",
+        withheld: "The full application request",
+        owner: "Gateway",
+        failure: "No external application effect is initiated.",
+        explanation:
+          "Credential-side uncertainty never becomes permission to send the original request.",
+        tone: "denied",
+      },
+    ],
+  },
+  {
     id: "invalid-handle",
     label: "Invalid or stale broker handle",
     summary:
@@ -369,11 +664,10 @@ export const sequenceScenarios: SequenceScenario[] = [
         from: "Gateway",
         to: "Workspace process",
         sent: "403 credential_handle_invalid",
-        withheld:
-          "No passthrough, alternate credential mode, or policy request",
+        withheld: "No passthrough, managed adapter, or policy request",
         owner: "Gateway",
         failure:
-          "The caller must obtain a current projection by re-entering after credential repair.",
+          "The caller must refresh its projection by re-entering after credential repair.",
         explanation:
           "A syntactically Tobari value never downgrades into ordinary authorization data.",
         tone: "denied",

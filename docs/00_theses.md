@@ -201,16 +201,16 @@ disabled, so neither path is direct egress.
   replace the CLI-owned isolation arguments. Runtime API compatibility includes
   the bootstrap needed to execute Tobari's fixed Workspace lifetime command.
 
-## Thesis 3: Brokered authentication is static, post-policy, and project-bound
+## Thesis 3: Brokered authentication is closed, post-policy, and project-bound
 
 Tobari does not inherit host authentication material. Workspace-owned
 tool-native login inside one Tobari home remains the universal default. The
-optional supported Auth Broker route adds one static Context-owned credential
-imported through protected stdin or the reviewed GitHub helper and stores it in an
-authenticated encrypted vault. Each eligible Workspace receives only a
-distinct random handle bound to its stable Context, project, provider,
-credential revision, and exact HTTP binding. Gateway resolves the real value
-from one shared locked broker only after OPA allows the ordinary HTTP effect.
+optional supported Auth Broker route stores one Context-owned credential or
+renewable provider session in an authenticated encrypted vault. Each eligible
+Workspace receives only a distinct random handle or handle-only client shim
+bound to its stable Context, project, provider, credential revision, and exact
+HTTP binding. Gateway resolves, refreshes, or signs through one closed reviewed
+provider plan only after OPA allows the ordinary HTTP effect.
 
 ### Consequences
 
@@ -227,12 +227,14 @@ from one shared locked broker only after OPA allows the ordinary HTTP effect.
   passthrough route forwards Workspace-owned authentication or the broker route
   performs one exact replacement; proxy and Tobari control headers are not
   forwarded upstream.
-- One shared Auth Broker joins only the internal control network, never egress
-  or a Workspace network. It performs no provider network call. Workspaces and
+- One shared Auth Broker joins the internal control network and a provider
+  egress path limited to compiled reviewed refresh plans, never a Workspace
+  network. Workspaces and
   OPA cannot address its runtime socket; only Gateway mounts that socket.
-  Gateway alone owns upstream egress after policy allow. Host GitHub acquisition
-  runs from the trusted host, while auth control uses bounded in-container
-  operations and never exposes a public broker TCP API.
+  Gateway alone owns ordinary upstream egress after policy allow. Provider
+  acquisition runs through fixed trusted-host drivers, while auth control and
+  the encrypted companion use bounded fixed operations and never expose a
+  public broker or host TCP API.
 - The broker starts locked and retains the installation root key only in
   memory. Cluster reconciliation unlocks it with key bytes transferred through
   stdin. Context vaults are keyed by stable Context ID and bind their version
@@ -243,15 +245,15 @@ from one shared locked broker only after OPA allows the ordinary HTTP effect.
   projection share that version while reviewed built-ins use typed closed
   plans within it. Owner manifests still contain no secrets, executable shell,
   refresh logic, or signer and remain single-secret protected-stdin imports.
-- Provider-native executables do not enter the Auth Broker image. The reviewed
-  GitHub acquisition driver executes fixed argv against a verified host CLI
-  identity in a private temporary home with a sanitized environment. The
-  GitHub driver is API-authentication-only, opens exactly the fixed device page
-  or leaves the same manual URL, and configures no Git protocol or credential
-  helper.
-  No AWS, Datadog, OpenAI, Anthropic, Chatwork, arbitrary helper, callback
-  listener, refresh, signer, exact-version driver, or resident credential
-  companion is part of first public V1.
+- Provider-native executables do not enter the Auth Broker image. Every
+  reviewed acquisition driver executes fixed argv against a verified host CLI
+  identity in a private temporary home with a sanitized environment. Browser
+  targets, callback behavior, output framing, cleanup, versions where the
+  client contract is pinned, and cancellation are closed per provider.
+  GitHub, AWS, Datadog, OpenAI/Codex, Anthropic/Claude, and Chatwork are the
+  complete first-public-V1 built-in set. No manifest-selected helper, arbitrary
+  OAuth client, executable adapter, provider SDK inference, or provider
+  business-operation command is supported.
 - The macOS root-key provider stores one installation key in Keychain. Linux
   uses an owner-only XDG state file and makes no host-user-compromise claim.
 - A recognized malformed, copied, stale, or mismatched Tobari handle fails
@@ -263,9 +265,12 @@ from one shared locked broker only after OPA allows the ordinary HTTP effect.
   brokered request does not inherit a broad static host/method allow; its first
   exact L7 effect remains reviewable until the host installs one exact learned
   rule.
-- Broker plans are static primary-secret plans. Owner manifests are strict
-  non-secret, non-executable local data and cannot select helpers, refresh,
-  signing, policy, arbitrary routes, or provider business operations.
+- Built-in broker plans are a closed typed union of static secrets, reviewed
+  renewable sessions, fixed supplemental-header application, and AWS request-
+  local signing. Owner manifests remain strict static-primary-secret,
+  non-secret, non-executable local data and cannot select helpers, dynamic
+  records, refresh, signing, policy, arbitrary routes, or provider business
+  operations.
 
 ### Mechanical enforcement
 
@@ -276,14 +281,15 @@ from one shared locked broker only after OPA allows the ordinary HTTP effect.
   recovery, is unavailable to another Tobari, and is removed by exact delete.
   Broker tests prove encrypted Context ownership, project-specific handles,
   restart locking, rotation, revocation, and canary-free output.
-- Acquisition tests fix the GitHub host executable identity, argv,
+- Acquisition tests fix every reviewed host executable identity, argv,
   environment, conventional non-project installation-root selection,
   control-safe visible output, checked private-home cleanup, purpose-limited
-  fixed browser target, manual fallback, cancellation, and absence of Broker
-  Git credential configuration.
-- Negative dependency, image-content, state, catalog, and runtime tests prove
-  managed injection, dynamic/provider-specific plans, exact-version drivers,
-  refresh, signing, and companion paths are absent rather than dormant.
+  browser/callback behavior, cancellation, and provider-specific version/state
+  contracts.
+- Companion, Broker, Gateway, dependency, image-content, state, catalog, and
+  runtime tests prove the compiled plan union, encrypted task correlation,
+  durable outcome-unknown barriers, policy-before-refresh/signing, exact one-
+  attempt application, and absence of arbitrary execution fallbacks.
 - Narrow-projection tests fix every allowed scalar, bounded host read, private
   re-encoding target, precedence rule, and hostile source-file/key canary; no
   projection test treats identity as authentication authority.
@@ -492,6 +498,10 @@ test, lint, policy test, or integration scenario.
   resolver channel, source-required Gateway/Auth Broker APIs, and the APIs
   selected by that resolver. Missing source metadata or an API mismatch is
   never presented as compatible.
+- Gateway and Auth Broker are internal artifacts of one CLI release. Their
+  paired immutable identities are generated from the selected source revision
+  and injected during release assembly; generated digest authority is never
+  committed back into source.
 - `task check` is the implementation completion gate; security and public
   changes also run their named profiles.
 - Docker integration is a separate explicit profile because it requires a
@@ -501,8 +511,8 @@ test, lint, policy test, or integration scenario.
 
 - `tools/archlint`, catalog contract tests, Go unit tests, Gateway tests, OPA
   tests, and Docker integration tests cover distinct boundaries.
-- Standard and `tobari_dev` build fixtures prove that published pins and local
-  development tags cannot cross resolver channels, and cluster preflight
+- Published-lock and development build fixtures prove that release-injected
+  authorities and source-hash local tags cannot cross resolver channels, and cluster preflight
   rejects an API mismatch before state or Docker mutation.
 - `.harness/capabilities.json` classifies every supported and excluded outcome.
 - CI delegates to repository scripts rather than duplicating commands.
@@ -734,7 +744,7 @@ a handle selects authority without the trusted principal and OPA allow.
 MVP does not support multiple clusters, process-level identity, a per-project
 static baseline policy, non-HTTP forwarding or policy, recursive DNS, Git SSH,
 provider-specific policy semantics, Git-over-HTTPS credential helpers,
-dynamic provider credentials, refresh or signing, multiple provider accounts
+manifest-defined dynamic credentials, generic refresh or signing, multiple provider accounts
 per Context, approval workflows, general Kubernetes authentication or
 transport, filesystem overlays, GUIs, remote execution, or multi-tenant
 production use.

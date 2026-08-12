@@ -14,7 +14,7 @@ transcripts as repository fixtures.
 | Grow exact permission | `policy review`, or `policy candidates` then one exact allow/deny | Terminal guardrail precedes every candidate; explicit review activates only exact Context/project/scheme/host/port/method/path authority |
 | Inspect/reset decisions | `policy rules`, then `policy reset --id` | One current exact decision is removed through its unchanged opaque reference and returns to default deny |
 | Use Workspace-owned auth | Tool login inside the Workspace | Credential state remains inside that Workspace home and receives no network grant |
-| Use static broker auth | `auth login --provider github` or `auth import PROVIDER`; `auth status`; `auth logout` | Workspace receives only a project-bound handle; OPA deny resolves no secret; allow replaces one exact header once |
+| Use brokered auth | `auth login [--provider github|aws|datadog|openai|anthropic] [--method identity-center|console]` or `auth import PROVIDER`; `auth status`; `auth logout` | Workspace receives only a project-bound handle; OPA deny performs no secret-bearing plan action; allow applies one same-revision reviewed result |
 
 Routine success must require zero undeclared external-processing steps. Reading
 a declared JSON/TSV field is consumption; a custom join/parser, provider-
@@ -32,7 +32,7 @@ task check
 task security
 task integration:test
 
-TOBARI_BIN=bin/tobari-dev
+TOBARI_BIN=bin/tobari
 "$TOBARI_BIN" help --format agent
 "$TOBARI_BIN" help context --format agent
 "$TOBARI_BIN" context create --name writable \
@@ -111,7 +111,7 @@ and root field. Query, headers, body, observation count, and path similarity do
 not widen authority. Prefix rules, compaction commands/references/state, and
 dormant prefix fallbacks must all be absent.
 
-## Static broker synthetic journey
+## Broker synthetic journey
 
 The required `task integration:test` evidence uses a fake GitHub CLI, synthetic
 static provider manifests and secrets, local Broker/Gateway/OPA/upstream
@@ -119,27 +119,33 @@ fixtures, and secret canaries. It proves:
 
 - locked startup and exact root-key/vault ownership/integrity;
 - protected stdin refusal before reading and validation before Broker send;
-- `auth login` requires exactly `--provider github`;
-- fixed API-only GitHub CLI argv, canonical executable digest checks, private
-  home, fixed device page/manual fallback, no Git setup, and checked cleanup;
+- omitted-provider selection is interactive, bounded to installed reviewed
+  login drivers, and explicit provider selection remains deterministic;
+- fixed purpose-limited GitHub/AWS/pup/Codex/Claude argv, canonical executable
+  digest checks, private homes/PTY where declared, bounded browser targets, and
+  checked cleanup;
 - per-project handles bound to Context/provider/revision/target/header;
-- non-secret introspection before OPA, zero resolution on deny, one exact
-  same-revision replacement on allow, and one upstream attempt;
+- non-secret introspection before OPA; zero static resolution, refresh,
+  companion call, or signing on deny; one same-revision reviewed action and
+  one upstream attempt on allow;
+- bounded AWS SigV4 and private companion behavior, fixed Datadog/OpenAI
+  refresh transports, OpenAI supplemental-header ownership, Anthropic static
+  resolution, and durable unknown-outcome barriers;
 - rotation, logout, revocation, Workspace re-entry, and no invalid-handle
   passthrough fallback;
 - secret-free logs/output and canonical/embedded source equality;
-- absence of managed profiles/state, AWS, Datadog, OpenAI, Anthropic, Chatwork,
-  dynamic records, refresh, signing, supplemental headers, task barriers,
-  companion protocols/process modes, exact-version drivers, selectors,
-  dependencies, and image contents.
+- absence of managed profiles/state, manifest-selected executable helpers,
+  arbitrary provider routes, compatibility readers, and provider CLIs inside
+  the Broker image.
 
 Owner manifests are strict static data and cannot select a helper or policy.
-Tools outside the GitHub pairing remain Workspace-owned authentication.
+Owner manifests cannot select a reviewed dynamic plan. Tools without a
+supported pairing remain Workspace-owned authentication.
 
-## Manual GitHub acquisition
+## Manual reviewed-provider acquisition
 
-Immediately before publication, a reviewer uses a disposable GitHub account
-and an interactive trusted-host terminal:
+Immediately before publication, reviewers use disposable provider accounts and
+an interactive trusted-host terminal. The GitHub slice is:
 
 ```sh
 tobari auth login --provider github --context default
@@ -157,7 +163,14 @@ pass/fail, the exact source commit/image digests, and secret-free status. Never
 record the token, device code, handle, account identifier, vault, authenticated
 response, or raw transcript.
 
-No AWS, Datadog, OpenAI, Anthropic, or Chatwork live scenario is part of V1.
+Replay the AWS Identity Center and console methods, Datadog pup flow, the
+contract-checked host Codex device flow, the separately pinned Workspace Codex
+handle projection, Claude Code 2.1.220 setup-token flow, and Chatwork stdin
+import separately. Record only command/observed-version, pass/fail, and secret-free
+state/revision metadata; never store provider responses or credential state.
+When the host Codex version has advanced, also verify its official source still
+matches the compiled refresh client identity and replay one near-expiry refresh
+without recording tokens, account identifiers, or raw transcripts.
 
 ## Publication checkpoint
 

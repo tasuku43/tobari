@@ -65,12 +65,20 @@ for (const required of [
     );
   }
 }
-if (!v1Sources.auth.includes("auth login --provider github")) {
-  errors.push(
-    "authentication guide must show explicit built-in GitHub selection",
-  );
+for (const required of [
+  "auth login --provider github",
+  "auth login --provider aws",
+  "auth login --provider datadog",
+  "auth login --provider openai",
+  "auth login --provider anthropic",
+  "auth import chatwork",
+  "tobari auth login --context default",
+]) {
+  if (!v1Sources.auth.includes(required)) {
+    errors.push(`authentication guide is missing ${required}`);
+  }
 }
-for (const retired of [
+for (const required of [
   "aws-brokered-allowed",
   "datadog-refresh-allowed",
   "credential-outcome-unknown",
@@ -78,21 +86,24 @@ for (const retired of [
   "Datadog token endpoint",
 ]) {
   if (
-    v1Sources.sequences.includes(retired) ||
-    v1Sources.credentialMap.includes(retired)
+    !v1Sources.sequences.includes(required) &&
+    !v1Sources.credentialMap.includes(required)
   ) {
     errors.push(
-      `current V1 diagrams retain retired credential path: ${retired}`,
+      `reviewed credential path is missing from current diagrams: ${required}`,
     );
   }
 }
-for (const retiredProvider of [
+for (const requiredProvider of [
+  'providerId: "github"',
   'providerId: "aws"',
   'providerId: "datadog"',
+  'providerId: "openai"',
+  'providerId: "anthropic"',
   'providerId: "chatwork"',
 ]) {
-  if (v1Sources.providerPairs.includes(retiredProvider)) {
-    errors.push(`current V1 provider map retains ${retiredProvider}`);
+  if (!v1Sources.providerPairs.includes(requiredProvider)) {
+    errors.push(`current provider map is missing ${requiredProvider}`);
   }
 }
 
@@ -133,7 +144,7 @@ for (const file of files) {
 
   if (label.startsWith("src/content/docs/")) {
     const retiredV1Claim =
-      /\b(?:AWS|Datadog|Chatwork|OpenAI|Anthropic|compaction)\b|credential companion|static managed adapter|credential_refresh_outcome_unknown|tobari policy compact(?:ions)?\b/i;
+      /\bcompaction\b|static managed adapter|tobari policy compact(?:ions)?\b/i;
     const match = source.match(retiredV1Claim);
     if (match) {
       errors.push(

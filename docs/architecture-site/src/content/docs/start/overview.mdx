@@ -70,13 +70,14 @@ client that rejects Tobari's CA fails instead of bypassing Gateway.
 **Implemented now:** reusable Context-bound Workspaces, dedicated internal
 project networks, Gateway/OPA mediation, immutable source access, snapshotted
 policy presets, exact denial review, guided and advanced policy modes, Context
-runtime recipes, tool-native authentication, strict schema-1 static Broker
-providers, and explicit built-in GitHub acquisition.
+runtime recipes, tool-native authentication, strict schema-1 closed Broker
+plans, and reviewed GitHub, AWS, Datadog, OpenAI, Anthropic, and Chatwork
+support.
 
-Official immutable
-Gateway and Auth Broker V1 indexes are not yet published and reviewed, so
-`versions.env` records paired `unpublished` markers. Use the explicit
-development-image path until reviewed immutable V1 digests replace them.
+Gateway and Auth Broker are built as internal artifacts of each CLI release.
+The release workflow generates one source-bound component lock for their
+reviewed immutable V1 indexes; `versions.env` contains no generated owned-image
+output. Repository development uses content-addressed local images.
 [Component versions](/reference/component-versions/) reports the
 selected artifacts; [Supply chain](/security/supply-chain/) explains why source
 and runtime identity are separate claims.

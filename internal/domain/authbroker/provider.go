@@ -20,6 +20,7 @@ const (
 	maxProviders             = 64
 	maxProjections           = 32
 	maxBindings              = 64
+	maxSigningBindings       = 8
 	maxSecretHeaders         = 32
 )
 
@@ -51,12 +52,29 @@ type CredentialKind string
 const (
 	// CredentialPrimarySecret is the static credential plan used by protected
 	// stdin imports and reviewed static built-ins.
-	CredentialPrimarySecret CredentialKind = "primary_secret"
+	CredentialPrimarySecret           CredentialKind = "primary_secret"
+	CredentialAWSSSOSession           CredentialKind = "aws_sso_session"
+	CredentialDatadogOAuthSession     CredentialKind = "datadog_oauth_session"      // #nosec G101 -- public credential-kind discriminator, not a credential.
+	CredentialOpenAICodexOAuthSession CredentialKind = "openai_codex_oauth_session" // #nosec G101 -- public credential-kind discriminator, not a credential.
 )
 
 func (k CredentialKind) Validate() error {
-	if k != CredentialPrimarySecret {
+	switch k {
+	case CredentialPrimarySecret, CredentialAWSSSOSession, CredentialDatadogOAuthSession,
+		CredentialOpenAICodexOAuthSession:
+		return nil
+	default:
 		return fmt.Errorf("provider credential kind is invalid: %q", k)
+	}
+}
+
+type SigningBindingKind string
+
+const SigningBindingAWSSigV4 SigningBindingKind = "aws_sigv4"
+
+func (k SigningBindingKind) Validate() error {
+	if k != SigningBindingAWSSigV4 {
+		return fmt.Errorf("signing binding kind is invalid: %q", k)
 	}
 	return nil
 }
@@ -166,6 +184,36 @@ type HeaderBinding struct {
 	SecretHeaders []string           `json:"secret_headers"`
 }
 
+// AWSSigV4Target is deliberately a suffix allowlist rather than an arbitrary
+// endpoint. The aws_sigv4 plan accepts only the reviewed commercial AWS suffix
+// enumerated by validation below.
+type AWSSigV4Target struct {
+	Scheme      string   `json:"scheme"`
+	Port        int      `json:"port"`
+	DNSSuffixes []string `json:"dns_suffixes"`
+}
+
+type AWSSigV4Source struct {
+	AuthorizationHeader string `json:"authorization_header"`
+	SecurityTokenHeader string `json:"security_token_header"`
+}
+
+// AWSSigV4Binding contains only non-secret request-recognition metadata. The
+// signing algorithm, canonicalization, and credential exchange are fixed by
+// reviewed infrastructure and cannot be supplied by a manifest.
+type AWSSigV4Binding struct {
+	Target        AWSSigV4Target `json:"target"`
+	Source        AWSSigV4Source `json:"source"`
+	SecretHeaders []string       `json:"secret_headers"`
+}
+
+// SigningBinding is a closed discriminated union. A new behavior requires a
+// new typed field and domain validation rather than an executable manifest.
+type SigningBinding struct {
+	Kind     SigningBindingKind `json:"kind"`
+	AWSSigV4 *AWSSigV4Binding   `json:"aws_sigv4,omitempty"`
+}
+
 // Provider is a parsed schema-v1 provider manifest. It contains
 // no real credential, root key, or project-bound handle.
 type Provider struct {
@@ -176,6 +224,7 @@ type Provider struct {
 	Credential           Credential            `json:"credential"`
 	WorkspaceProjections []WorkspaceProjection `json:"workspace_projections"`
 	HeaderBindings       []HeaderBinding       `json:"header_bindings"`
+	SigningBindings      []SigningBinding      `json:"signing_bindings,omitempty"`
 }
 
 func ValidateProviderID(id string) error {
@@ -247,15 +296,234 @@ func validateProvider(p Provider) error {
 			)
 		}
 	}
-	if len(p.HeaderBindings) == 0 {
+	if len(p.SigningBindings) > maxSigningBindings {
+		return fmt.Errorf("provider %q cannot declare more than %d signing bindings", p.ID, maxSigningBindings)
+	}
+	for index, binding := range p.SigningBindings {
+		if err := validateSigningBinding(binding); err != nil {
+			return fmt.Errorf("provider %q signing binding %d: %w", p.ID, index, err)
+		}
+	}
+	if len(p.HeaderBindings)+len(p.SigningBindings) == 0 {
 		return fmt.Errorf("provider %q must declare at least one credential binding", p.ID)
+	}
+	if p.Credential.Kind == CredentialAWSSSOSession {
+		if err := validateAWSWorkspaceProjection(p.WorkspaceProjections); err != nil {
+			return fmt.Errorf("provider %q: %w", p.ID, err)
+		}
+	}
+	if p.Credential.Kind == CredentialDatadogOAuthSession {
+		if err := validateDatadogWorkspaceProjection(p.WorkspaceProjections); err != nil {
+			return fmt.Errorf("provider %q: %w", p.ID, err)
+		}
+	}
+	if p.Credential.Kind == CredentialOpenAICodexOAuthSession {
+		if err := validateOpenAICodexWorkspaceProjection(p.WorkspaceProjections); err != nil {
+			return fmt.Errorf("provider %q: %w", p.ID, err)
+		}
+	}
+	if p.ID == "anthropic" || p.Acquisition.Helper == "claude-setup-token" {
+		if err := validateAnthropicClaudePlan(p); err != nil {
+			return fmt.Errorf("provider %q: %w", p.ID, err)
+		}
 	}
 	return nil
 }
 
 func validateCredentialPlan(p Provider) error {
-	if p.Credential.Kind != CredentialPrimarySecret {
-		return fmt.Errorf("provider must use the static primary_secret credential plan")
+	switch p.Credential.Kind {
+	case CredentialPrimarySecret:
+		if len(p.SigningBindings) != 0 {
+			return fmt.Errorf("primary_secret provider cannot declare signing bindings")
+		}
+	case CredentialAWSSSOSession:
+		if p.ID != "aws" || p.Acquisition.Mode != AcquisitionBuiltinHelper || p.Acquisition.Helper != "aws-sso" {
+			return fmt.Errorf("aws_sso_session is reserved for the reviewed aws/aws-sso built-in plan")
+		}
+		if len(p.HeaderBindings) != 0 || len(p.SigningBindings) != 1 ||
+			p.SigningBindings[0].Kind != SigningBindingAWSSigV4 {
+			return fmt.Errorf("aws_sso_session must declare exactly one aws_sigv4 signing binding and no header binding")
+		}
+	case CredentialDatadogOAuthSession:
+		if p.ID != "datadog" || p.Acquisition.Mode != AcquisitionBuiltinHelper || p.Acquisition.Helper != "pup-oauth" {
+			return fmt.Errorf("datadog_oauth_session is reserved for the reviewed datadog/pup-oauth built-in plan")
+		}
+		if len(p.HeaderBindings) != 1 || len(p.SigningBindings) != 0 {
+			return fmt.Errorf("datadog_oauth_session must declare exactly one header binding and no signing binding")
+		}
+		binding := p.HeaderBindings[0]
+		if binding.Target != (BindingTarget{Scheme: "https", Host: "api.datadoghq.com", Port: 443}) ||
+			binding.Source.Header != "authorization" || len(binding.Source.Formats) != 1 ||
+			binding.Source.Formats[0] != SourceFormatBearer ||
+			binding.Destination.Header != "authorization" ||
+			binding.Destination.Format != DestinationFormatBearer ||
+			binding.Destination.SecretField != CredentialDatadogOAuthSession ||
+			len(binding.SecretHeaders) != 1 || binding.SecretHeaders[0] != "authorization" {
+			return fmt.Errorf("datadog_oauth_session binding does not match the reviewed Datadog US1 bearer contract")
+		}
+	case CredentialOpenAICodexOAuthSession:
+		if p.ID != "openai" || p.DisplayName != "OpenAI account for Codex" ||
+			p.Acquisition.Mode != AcquisitionBuiltinHelper || p.Acquisition.Helper != "codex-chatgpt-oauth" {
+			return fmt.Errorf("openai_codex_oauth_session is reserved for the reviewed openai/codex-chatgpt-oauth built-in plan")
+		}
+		if len(p.HeaderBindings) != 1 || len(p.SigningBindings) != 0 {
+			return fmt.Errorf("openai_codex_oauth_session must declare exactly one header binding and no signing binding")
+		}
+		binding := p.HeaderBindings[0]
+		if binding.Target != (BindingTarget{Scheme: "https", Host: "chatgpt.com", Port: 443}) ||
+			binding.Source.Header != "authorization" || len(binding.Source.Formats) != 1 ||
+			binding.Source.Formats[0] != SourceFormatBearer ||
+			binding.Destination.Header != "authorization" ||
+			binding.Destination.Format != DestinationFormatBearer ||
+			binding.Destination.SecretField != CredentialOpenAICodexOAuthSession ||
+			strings.Join(binding.SecretHeaders, ",") != "authorization,chatgpt-account-id,x-openai-fedramp" {
+			return fmt.Errorf("openai_codex_oauth_session binding does not match the reviewed Codex ChatGPT contract")
+		}
+	}
+	return nil
+}
+
+const openAICodexWorkspaceAuthTemplate = `{"auth_mode":"chatgptAuthTokens","OPENAI_API_KEY":null,"tokens":{"id_token":"e30.e30.x","access_token":"${HANDLE}","refresh_token":"","account_id":null},"last_refresh":"1970-01-01T00:00:00Z"}`
+
+func validateOpenAICodexWorkspaceProjection(projections []WorkspaceProjection) error {
+	if len(projections) != 1 {
+		return fmt.Errorf("openai_codex_oauth_session must declare exactly the reviewed Codex auth-file projection")
+	}
+	projection := projections[0]
+	if projection.Kind != WorkspaceProjectionCompleteFile || projection.Name != "" ||
+		projection.Path != ".codex/auth.json" || projection.Template != openAICodexWorkspaceAuthTemplate {
+		return fmt.Errorf("openai_codex_oauth_session projection does not match the reviewed Workspace Codex handle contract")
+	}
+	return nil
+}
+
+func validateAnthropicClaudePlan(p Provider) error {
+	if p.SchemaVersion != ProviderSchemaVersion || p.ID != "anthropic" ||
+		p.DisplayName != "Anthropic account for Claude Code" ||
+		p.Acquisition != (Acquisition{Mode: AcquisitionBuiltinHelper, Helper: "claude-setup-token"}) ||
+		p.Credential.Kind != CredentialPrimarySecret || len(p.WorkspaceProjections) != 1 ||
+		len(p.HeaderBindings) != 1 || len(p.SigningBindings) != 0 {
+		return fmt.Errorf("Claude setup-token must use the reviewed Anthropic built-in plan")
+	}
+	projection := p.WorkspaceProjections[0]
+	if projection.Kind != WorkspaceProjectionEnvironment || projection.Name != "CLAUDE_CODE_OAUTH_TOKEN" ||
+		projection.Path != "" || projection.Template != "${HANDLE}" {
+		return fmt.Errorf("Claude setup-token projection does not match the reviewed environment contract")
+	}
+	binding := p.HeaderBindings[0]
+	if binding.Target != (BindingTarget{Scheme: "https", Host: "api.anthropic.com", Port: 443}) ||
+		binding.Source.Header != "authorization" || len(binding.Source.Formats) != 1 ||
+		binding.Source.Formats[0] != SourceFormatBearer ||
+		binding.Destination.Header != "authorization" || binding.Destination.Format != DestinationFormatBearer ||
+		binding.Destination.SecretField != CredentialPrimarySecret ||
+		len(binding.SecretHeaders) != 1 || binding.SecretHeaders[0] != "authorization" {
+		return fmt.Errorf("Claude setup-token binding does not match the reviewed Anthropic bearer contract")
+	}
+	return nil
+}
+
+func validateDatadogWorkspaceProjection(projections []WorkspaceProjection) error {
+	want := map[string]string{
+		"DD_ACCESS_TOKEN": "${HANDLE}",
+		"DD_SITE":         "datadoghq.com",
+	}
+	if len(projections) != len(want) {
+		return fmt.Errorf("datadog_oauth_session must declare exactly the reviewed pup environment projection")
+	}
+	seen := make(map[string]struct{}, len(projections))
+	for _, projection := range projections {
+		if projection.Kind != WorkspaceProjectionEnvironment || projection.Path != "" ||
+			want[projection.Name] != projection.Template {
+			return fmt.Errorf("datadog_oauth_session projection %q does not match the reviewed pup contract", projection.Name)
+		}
+		if _, duplicate := seen[projection.Name]; duplicate {
+			return fmt.Errorf("datadog_oauth_session projection contains duplicate environment %q", projection.Name)
+		}
+		seen[projection.Name] = struct{}{}
+	}
+	return nil
+}
+
+func validateSigningBinding(binding SigningBinding) error {
+	if err := binding.Kind.Validate(); err != nil {
+		return err
+	}
+	if binding.Kind != SigningBindingAWSSigV4 || binding.AWSSigV4 == nil {
+		return fmt.Errorf("aws_sigv4 signing binding requires exactly one aws_sigv4 contract")
+	}
+	return validateAWSSigV4Binding(*binding.AWSSigV4)
+}
+
+func validateAWSSigV4Binding(binding AWSSigV4Binding) error {
+	if binding.Target.Scheme != "https" || binding.Target.Port != 443 {
+		return fmt.Errorf("aws_sigv4 target must be exact https port 443")
+	}
+	wantSuffixes := map[string]struct{}{
+		"amazonaws.com": {},
+	}
+	if len(binding.Target.DNSSuffixes) != len(wantSuffixes) {
+		return fmt.Errorf("aws_sigv4 target must declare the reviewed AWS DNS suffixes")
+	}
+	seenSuffixes := make(map[string]struct{}, len(binding.Target.DNSSuffixes))
+	for _, suffix := range binding.Target.DNSSuffixes {
+		if _, allowed := wantSuffixes[suffix]; !allowed {
+			return fmt.Errorf("aws_sigv4 target contains unreviewed DNS suffix %q", suffix)
+		}
+		if _, duplicate := seenSuffixes[suffix]; duplicate {
+			return fmt.Errorf("aws_sigv4 target contains duplicate DNS suffix %q", suffix)
+		}
+		seenSuffixes[suffix] = struct{}{}
+	}
+	if binding.Source.AuthorizationHeader != "authorization" ||
+		binding.Source.SecurityTokenHeader != "x-amz-security-token" {
+		return fmt.Errorf("aws_sigv4 source headers must be the reviewed AWS authorization and security-token headers")
+	}
+	if len(binding.SecretHeaders) != 2 {
+		return fmt.Errorf("aws_sigv4 secret_headers must contain authorization and x-amz-security-token")
+	}
+	wantHeaders := map[string]struct{}{
+		"authorization":        {},
+		"x-amz-security-token": {},
+	}
+	seenHeaders := make(map[string]struct{}, len(binding.SecretHeaders))
+	for _, header := range binding.SecretHeaders {
+		if err := validateHeaderName(header); err != nil {
+			return fmt.Errorf("aws_sigv4 secret_headers: %w", err)
+		}
+		if _, allowed := wantHeaders[header]; !allowed {
+			return fmt.Errorf("aws_sigv4 secret_headers contains unreviewed header %q", header)
+		}
+		if _, duplicate := seenHeaders[header]; duplicate {
+			return fmt.Errorf("aws_sigv4 secret_headers contains duplicate header %q", header)
+		}
+		seenHeaders[header] = struct{}{}
+	}
+	return nil
+}
+
+func validateAWSWorkspaceProjection(projections []WorkspaceProjection) error {
+	want := map[string]string{
+		"AWS_ACCESS_KEY_ID":         "${HANDLE}",
+		"AWS_SECRET_ACCESS_KEY":     "${HANDLE}",
+		"AWS_SESSION_TOKEN":         "${HANDLE}",
+		"AWS_EC2_METADATA_DISABLED": "true",
+	}
+	if len(projections) != len(want) {
+		return fmt.Errorf("aws_sso_session must declare exactly the reviewed AWS CLI environment projection")
+	}
+	seen := make(map[string]struct{}, len(projections))
+	for _, projection := range projections {
+		if projection.Kind != WorkspaceProjectionEnvironment || projection.Path != "" {
+			return fmt.Errorf("aws_sso_session projection must contain only environment variables")
+		}
+		template, ok := want[projection.Name]
+		if !ok || projection.Template != template {
+			return fmt.Errorf("aws_sso_session projection %q does not match the reviewed AWS CLI contract", projection.Name)
+		}
+		if _, duplicate := seen[projection.Name]; duplicate {
+			return fmt.Errorf("aws_sso_session projection contains duplicate environment %q", projection.Name)
+		}
+		seen[projection.Name] = struct{}{}
 	}
 	return nil
 }
@@ -397,8 +665,10 @@ func validateHeaderBinding(binding HeaderBinding) error {
 	if err := binding.Destination.SecretField.Validate(); err != nil {
 		return fmt.Errorf("header binding destination secret_field: %w", err)
 	}
-	if binding.Destination.SecretField != CredentialPrimarySecret {
-		return fmt.Errorf("header binding destination must reference the static primary_secret credential")
+	if binding.Destination.SecretField != CredentialPrimarySecret &&
+		binding.Destination.SecretField != CredentialDatadogOAuthSession &&
+		binding.Destination.SecretField != CredentialOpenAICodexOAuthSession {
+		return fmt.Errorf("header binding destination must reference a reviewed header credential")
 	}
 	if len(binding.SecretHeaders) == 0 || len(binding.SecretHeaders) > maxSecretHeaders {
 		return fmt.Errorf("header binding must declare 1..%d secret_headers", maxSecretHeaders)

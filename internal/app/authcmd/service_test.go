@@ -349,28 +349,97 @@ func TestLoginRejectsUnsupportedHelperBeforeRuntime(t *testing.T) {
 	}
 }
 
-func TestLoginSupportsOnlyGitHubAndRejectsRetiredMethodBeforeRuntime(t *testing.T) {
+func TestLoginSupportsReviewedBuiltinHelpers(t *testing.T) {
+	if BuiltinGitHubProviderID != "github" || BuiltinAWSProviderID != "aws" ||
+		BuiltinDatadogProviderID != "datadog" || BuiltinOpenAIProviderID != "openai" ||
+		BuiltinAnthropicProviderID != "anthropic" {
+		t.Fatalf(
+			"built-in provider IDs = %q/%q/%q/%q/%q",
+			BuiltinGitHubProviderID, BuiltinAWSProviderID, BuiltinDatadogProviderID,
+			BuiltinOpenAIProviderID, BuiltinAnthropicProviderID,
+		)
+	}
+	for _, provider := range []string{
+		BuiltinGitHubProviderID,
+		BuiltinAWSProviderID,
+		BuiltinDatadogProviderID,
+		BuiltinOpenAIProviderID,
+		BuiltinAnthropicProviderID,
+	} {
+		t.Run(provider, func(t *testing.T) {
+			fake := &authRuntimeFake{
+				result:        mutationObservation(validAuthResultForProvider(authbroker.TaskLogin, provider)),
+				inputTerminal: true,
+				errorTerminal: true,
+			}
+			result, err := New(fake).Login(
+				context.Background(), authIntent("auth login"), "default", provider, "",
+				strings.NewReader(""), io.Discard,
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.Provider != provider || fake.provider != provider || fake.loginCalls != 1 {
+				t.Fatalf("result/provider/calls = %+v/%q/%d", result, fake.provider, fake.loginCalls)
+			}
+			wantMethod := ""
+			if provider == BuiltinAWSProviderID {
+				wantMethod = string(LoginMethodIdentityCenter)
+			}
+			if fake.method != wantMethod {
+				t.Fatalf("login method = %q, want %q", fake.method, wantMethod)
+			}
+		})
+	}
+}
+
+func TestLoginRejectsAWSMethodForEveryNonAWSBuiltinBeforeTerminalInspection(t *testing.T) {
+	for _, provider := range []string{
+		BuiltinGitHubProviderID,
+		BuiltinDatadogProviderID,
+		BuiltinOpenAIProviderID,
+		BuiltinAnthropicProviderID,
+	} {
+		t.Run(provider, func(t *testing.T) {
+			fake := &authRuntimeFake{inputTerminal: true, errorTerminal: true}
+			_, err := New(fake).Login(
+				context.Background(), authIntent("auth login"), "default", provider,
+				string(LoginMethodConsole), strings.NewReader(""), io.Discard,
+			)
+			public, ok := fault.PublicCopy(err)
+			if !ok || public.Code != "auth_login_method_not_applicable" || fake.loginCalls != 0 ||
+				fake.inputTerminalCalls != 0 || fake.errorTerminalCalls != 0 {
+				t.Fatalf(
+					"provider %q method fault/calls = %+v/%d/%d/%d",
+					provider, public, fake.loginCalls, fake.inputTerminalCalls, fake.errorTerminalCalls,
+				)
+			}
+		})
+	}
+}
+
+func TestLoginSelectsConsoleAndRejectsMethodForGitHubBeforeRuntime(t *testing.T) {
 	fake := &authRuntimeFake{
-		result:        mutationObservation(validAuthResultForProvider(authbroker.TaskLogin, BuiltinGitHubProviderID)),
+		result:        mutationObservation(validAuthResultForProvider(authbroker.TaskLogin, BuiltinAWSProviderID)),
 		inputTerminal: true, errorTerminal: true,
 	}
-	result, err := New(fake).Login(
-		context.Background(), authIntent("auth login"), "default", BuiltinGitHubProviderID,
-		"", strings.NewReader(""), io.Discard,
+	_, err := New(fake).Login(
+		context.Background(), authIntent("auth login"), "default", BuiltinAWSProviderID,
+		string(LoginMethodConsole), strings.NewReader(""), io.Discard,
 	)
-	if err != nil || result.Provider != BuiltinGitHubProviderID || fake.loginCalls != 1 || fake.method != "" {
-		t.Fatalf("GitHub login error/result/calls/method = %v/%+v/%d/%q", err, result, fake.loginCalls, fake.method)
+	if err != nil || fake.loginCalls != 1 || fake.method != string(LoginMethodConsole) {
+		t.Fatalf("console login error/calls/method = %v/%d/%q", err, fake.loginCalls, fake.method)
 	}
 
 	fake = &authRuntimeFake{inputTerminal: true, errorTerminal: true}
 	_, err = New(fake).Login(
 		context.Background(), authIntent("auth login"), "default", BuiltinGitHubProviderID,
-		"console", strings.NewReader(""), io.Discard,
+		string(LoginMethodConsole), strings.NewReader(""), io.Discard,
 	)
 	public, ok := fault.PublicCopy(err)
-	if !ok || public.Code != "auth_login_method_retired" || fake.loginCalls != 0 ||
+	if !ok || public.Code != "auth_login_method_not_applicable" || fake.loginCalls != 0 ||
 		fake.inputTerminalCalls != 0 || fake.errorTerminalCalls != 0 {
-		t.Fatalf("retired method fault/calls = %+v/%d/%d/%d", public, fake.loginCalls, fake.inputTerminalCalls, fake.errorTerminalCalls)
+		t.Fatalf("GitHub method fault/calls = %+v/%d/%d/%d", public, fake.loginCalls, fake.inputTerminalCalls, fake.errorTerminalCalls)
 	}
 }
 

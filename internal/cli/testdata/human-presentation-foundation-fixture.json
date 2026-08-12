@@ -101,6 +101,11 @@
         "detail": "ready"
       },
       {
+        "name": "credential_companion",
+        "status": "pass",
+        "detail": "ready"
+      },
+      {
         "name": "auth_vault_integrity",
         "status": "pass",
         "detail": "ready"

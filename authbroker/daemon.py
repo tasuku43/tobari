@@ -6,8 +6,10 @@ import argparse
 import errno
 import os
 import signal
+import socket
 import socketserver
 import stat
+import struct
 import threading
 from pathlib import Path
 from typing import Any
@@ -18,6 +20,7 @@ from .vault import VaultStore
 
 DEFAULT_RUNTIME_SOCKET = "/run/tobari-auth/runtime/broker.sock"
 DEFAULT_CONTROL_SOCKET = "/run/tobari-auth/control/broker.sock"
+DEFAULT_COMPANION_SOCKET = "/run/tobari-auth/companion/bridge.sock"
 DEFAULT_VAULT_ROOT = "/var/lib/tobari-auth/contexts"
 
 
@@ -106,6 +109,30 @@ class _BrokerRequestHandler(socketserver.BaseRequestHandler):
             return
 
 
+def _peer_owned_by_service(connection: socket.socket) -> bool:
+    """Require the same container UID when Linux exposes peer credentials."""
+
+    peer_option = getattr(socket, "SO_PEERCRED", None)
+    if peer_option is None:
+        return True
+    try:
+        encoded = connection.getsockopt(
+            socket.SOL_SOCKET, peer_option, struct.calcsize("3i")
+        )
+        _, uid, _ = struct.unpack("3i", encoded)
+    except (OSError, struct.error):
+        return False
+    return uid == os.geteuid()
+
+
+class _CompanionRequestHandler(socketserver.BaseRequestHandler):
+    def handle(self) -> None:
+        if not _peer_owned_by_service(self.request):
+            return
+        manager = self.server.manager  # type: ignore[attr-defined]
+        manager.serve_connection(self.request)
+
+
 class _UnixServer(socketserver.ThreadingUnixStreamServer):
     daemon_threads = True
     allow_reuse_address = False
@@ -129,10 +156,35 @@ class _UnixServer(socketserver.ThreadingUnixStreamServer):
             raise
 
 
+class _CompanionUnixServer(socketserver.ThreadingUnixStreamServer):
+    daemon_threads = True
+    allow_reuse_address = False
+    request_queue_size = 2
+
+    def __init__(self, path: str, manager: Any):
+        self.manager = manager
+        virtualized_root = _prepare_socket_directory(path)
+        old_umask = os.umask(0o077)
+        try:
+            super().__init__(path, _CompanionRequestHandler)
+        finally:
+            os.umask(old_umask)
+        try:
+            _protect_socket(path, virtualized_root)
+        except Exception:
+            self.server_close()
+            try:
+                os.unlink(path)
+            except OSError:
+                pass
+            raise
+
+
 def serve(
     runtime_socket: str,
     control_socket: str,
     vault_root: str,
+    companion_socket: str = DEFAULT_COMPANION_SOCKET,
 ) -> int:
     state = BrokerState(VaultStore(vault_root))
     runtime_server = _UnixServer(runtime_socket, Dispatcher(state, "runtime"))
@@ -145,6 +197,20 @@ def serve(
         except OSError:
             pass
         raise
+    try:
+        companion_server = _CompanionUnixServer(
+            companion_socket, state.companion_channel
+        )
+    except Exception:
+        runtime_server.server_close()
+        control_server.server_close()
+        for path in (runtime_socket, control_socket):
+            try:
+                os.unlink(path)
+            except OSError:
+                pass
+        raise
+
     stopping = threading.Event()
 
     def stop(_: int, __: Any) -> None:
@@ -155,6 +221,7 @@ def serve(
     threads = [
         threading.Thread(target=runtime_server.serve_forever, name="runtime-socket"),
         threading.Thread(target=control_server.serve_forever, name="control-socket"),
+        threading.Thread(target=companion_server.serve_forever, name="companion-socket"),
     ]
     for thread in threads:
         thread.start()
@@ -162,13 +229,16 @@ def serve(
         while not stopping.wait(0.25):
             pass
     finally:
+        state.companion_channel.close()
         runtime_server.shutdown()
         control_server.shutdown()
+        companion_server.shutdown()
         runtime_server.server_close()
         control_server.server_close()
+        companion_server.server_close()
         for thread in threads:
             thread.join()
-        for path in (runtime_socket, control_socket):
+        for path in (runtime_socket, control_socket, companion_socket):
             try:
                 os.unlink(path)
             except FileNotFoundError:
@@ -180,12 +250,14 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("--runtime-socket", default=DEFAULT_RUNTIME_SOCKET)
     parser.add_argument("--control-socket", default=DEFAULT_CONTROL_SOCKET)
+    parser.add_argument("--companion-socket", default=DEFAULT_COMPANION_SOCKET)
     parser.add_argument("--vault-root", default=DEFAULT_VAULT_ROOT)
     arguments = parser.parse_args(argv)
     return serve(
         arguments.runtime_socket,
         arguments.control_socket,
         arguments.vault_root,
+        arguments.companion_socket,
     )
 
 

@@ -38,7 +38,7 @@ func (r *authProjectionRunner) Run(_ context.Context, args []string, _ []string,
 	case slices.Contains(args, "status"):
 		response["provider"] = provider
 		if provider == r.readyProvider {
-			response["state"] = "configured"
+			response["state"] = "ready"
 			response["revision"] = "revision_synthetic"
 		} else {
 			response["state"] = "not_configured"
@@ -106,6 +106,34 @@ func TestReconcileProjectAuthProjectsOnlyHandleAndProviderMetadata(t *testing.T)
 	}
 	if !foundIssue {
 		t.Fatalf("handle issue did not bind Context and project: %v", runner.calls)
+	}
+}
+
+func TestBrokerBindingsForAWSIncludesCanonicalSigningPlanInDigest(t *testing.T) {
+	runtime, err := newRuntime(filepath.Join(t.TempDir(), "config"), filepath.Join(t.TempDir(), "state"), &recordingRunner{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	projection, err := runtime.loadAuthProviders()
+	if err != nil {
+		t.Fatal(err)
+	}
+	bindings, encoded, digest, err := brokerBindingsForProvider(projection, "aws")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const want = `[{"provider_id":"aws","kind":"aws_sigv4","aws_sigv4":{"target":{"scheme":"https","port":443,"dns_suffixes":["amazonaws.com"]},"source":{"authorization_header":"authorization","security_token_header":"x-amz-security-token"},"secret_headers":["authorization","x-amz-security-token"]}}]`
+	if string(encoded) != want {
+		t.Fatalf("AWS broker bindings = %s, want %s", encoded, want)
+	}
+	if len(bindings) != 1 || bindings[0].ProviderID != "aws" ||
+		bindings[0].Kind != "aws_sigv4" || bindings[0].AWSSigV4 == nil ||
+		bindings[0].Target != nil || bindings[0].Source != nil || bindings[0].Destination != nil ||
+		len(bindings[0].SecretHeaders) != 0 {
+		t.Fatalf("AWS broker binding union = %+v", bindings)
+	}
+	if digest != digestBytes(encoded) {
+		t.Fatalf("AWS binding digest = %q, want digest of full union %q", digest, digestBytes(encoded))
 	}
 }
 

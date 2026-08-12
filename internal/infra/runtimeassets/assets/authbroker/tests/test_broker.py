@@ -217,33 +217,6 @@ class BrokerStateTests(unittest.TestCase):
         with self.assertRaisesRegex(BrokerError, "locked"):
             self.state.import_secret(CONTEXT_A, "github", CANARY)
 
-    def test_retired_dynamic_providers_and_runtime_operations_are_closed(self) -> None:
-        self.state.unlock(KEY)
-        dispatcher = Dispatcher(self.state, "control")
-        for provider in ("aws", "datadog", "openai", "anthropic", "chatwork"):
-            with self.subTest(provider=provider):
-                with self.assertRaisesRegex(BrokerError, "invalid_provider"):
-                    dispatcher.dispatch(
-                        {
-                            "schema_version": 1,
-                            "op": "login",
-                            "context_id": CONTEXT_A,
-                            "provider": provider,
-                            "secret_length": len(CANARY),
-                            "account_label": "retired",
-                        },
-                        CANARY,
-                    )
-        runtime = Dispatcher(self.state, "runtime")
-        for operation in ("introspect_signing", "sign_sigv4"):
-            with self.subTest(operation=operation):
-                with self.assertRaisesRegex(BrokerError, "unknown_operation"):
-                    runtime.dispatch({"schema_version": 1, "op": operation}, b"")
-        for operation in ("companion_prepare", "companion_status"):
-            with self.subTest(operation=operation):
-                with self.assertRaisesRegex(BrokerError, "unknown_operation"):
-                    dispatcher.dispatch({"schema_version": 1, "op": operation}, b"")
-
     def test_import_omits_account_but_login_preserves_verified_label(self) -> None:
         self.state.unlock(KEY)
         imported = self.state.import_secret(CONTEXT_A, "github", CANARY)

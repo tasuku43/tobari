@@ -51,7 +51,7 @@ This detail matters. The value is not:
 - `TOBARI_ID` or `TOBARI_CONTEXT_ID` from the Workspace environment;
 - `x-tobari-session` or another request field;
 - a Context display name;
-- a credential profile/provider name; or
+- a credential provider name; or
 - a URL parameter.
 
 After lookup, Gateway places the registry-derived `context_id` and `project_id` in schema 1 OPA input. The fixed OPA router selects policy by Context ID; learned rules also require the project ID.

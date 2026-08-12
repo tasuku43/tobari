@@ -60,6 +60,8 @@ func (r *Runtime) ObserveDoctorCheck(
 		return r.observeDoctorRootKey(ctx), nil
 	case doctor.CheckIDAuthBroker:
 		return r.observeDoctorBroker(ctx), nil
+	case doctor.CheckIDCredentialCompanion:
+		return r.observeDoctorCompanion(ctx), nil
 	case doctor.CheckIDAuthVaultIntegrity:
 		observation, _, _, _ := r.observeDoctorVaultIntegrity(ctx)
 		return observation, nil
@@ -299,6 +301,14 @@ func (r *Runtime) observeDoctorBroker(ctx context.Context) doctor.Observation {
 	return observed(doctor.CheckStatusPass, "Auth Broker is healthy and unlocked")
 }
 
+func (r *Runtime) observeDoctorCompanion(ctx context.Context) doctor.Observation {
+	state, _, err := r.credentialCompanionStatus(ctx)
+	if err != nil || state != "ready" {
+		return observed(doctor.CheckStatusWarn, "trusted-host credential refresh is unavailable")
+	}
+	return observed(doctor.CheckStatusPass, "trusted-host credential companion is authenticated and ready")
+}
+
 func (r *Runtime) observeDoctorVaultIntegrity(
 	ctx context.Context,
 ) (doctor.Observation, map[string]map[string]projectAuthProviderBinding, map[string][]byte, error) {
@@ -321,7 +331,7 @@ func (r *Runtime) observeDoctorVaultIntegrity(
 			}
 			switch response.State {
 			case "not_configured":
-			case "configured":
+			case "ready":
 				_, encoded, digest, bindingErr := brokerBindingsForProvider(projection, provider.ID)
 				if bindingErr != nil || !validAuthRevision(response.Revision) {
 					return observed(doctor.CheckStatusFail, "Context credential metadata is inconsistent with the provider projection"), nil, nil, bindingErr

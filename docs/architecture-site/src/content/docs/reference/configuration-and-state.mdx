@@ -55,7 +55,7 @@ from the persisted Context manifest.
 | `state.json`                           | Shared cluster state schema 1. It records aggregate revision and shared resource identity, never credential contents or one active Context authority.            |
 | `cluster-projections/<revision>/`      | Content-addressed, complete policy and managed-provider projection. OPA receives its policy directory read-only.                                                 |
 | `auth/projection/providers.json`       | Normalized, non-secret provider projection schema 1. Owner manifests and reviewed built-ins use exact schema 1.                                                  |
-| `auth/contexts/<context-id>/vault.enc` | Encrypted Context vault: AES-256-GCM envelope schema 1 containing payload schema 1 with typed static secrets, revisions, and raw handles.                        |
+| `auth/contexts/<context-id>/vault.enc` | Encrypted Context vault: AES-256-GCM envelope schema 1 containing payload schema 1 with typed static/renewable records, revisions, barriers, and raw handles.    |
 | `auth/keys/root.key`                   | Linux installation root key: exactly 32 owner-only bytes. On macOS the key is in Keychain instead.                                                               |
 | `auth/projects/<project-id>.json`      | Project authentication file registry schema 1.                                                                                                                   |
 | `auth/runtime/`                        | Host-owned Gateway runtime Unix-socket directory. Sockets are recreated with services; they are not durable credentials.                                         |

@@ -10,6 +10,12 @@ from typing import Any
 from . import SCHEMA_VERSION
 from .daemon import DEFAULT_CONTROL_SOCKET
 from .protocol import MAX_SECRET_BYTES, ProtocolError, call_unix_socket
+from .vault import (
+    AWS_DRIVER_IDS,
+    CLAUDE_ACCOUNT_LABEL,
+    OPENAI_CODEX_DRIVER_ID,
+    PUP_DRIVER_ID,
+)
 
 
 def _read_stdin(limit: int, exact: int | None = None) -> bytes:
@@ -31,7 +37,10 @@ def _bindings(value: str) -> Any:
 
 def _request(arguments: argparse.Namespace) -> tuple[dict[str, Any], bytes]:
     base: dict[str, Any] = {"schema_version": SCHEMA_VERSION, "op": arguments.operation}
-    if arguments.operation == "health":
+    if arguments.operation in {"health", "companion_status"}:
+        return base, b""
+    if arguments.operation == "companion_prepare":
+        base["epoch_id"] = arguments.epoch_id
         return base, b""
     if arguments.operation == "unlock":
         key = _read_stdin(32, exact=32)
@@ -49,16 +58,68 @@ def _request(arguments: argparse.Namespace) -> tuple[dict[str, Any], bytes]:
         )
         return base, secret
     if arguments.operation == "login":
-        if arguments.provider != "github":
-            raise ProtocolError("invalid_provider")
-        secret = _read_stdin(MAX_SECRET_BYTES)
-        base.update(
-            context_id=arguments.context_id,
-            provider=arguments.provider,
-            secret_length=len(secret),
-            account_label=arguments.account_label,
-        )
-        return base, secret
+        if arguments.provider in {"github", "anthropic"}:
+            if arguments.driver_id is not None or arguments.driver_revision is not None:
+                raise ProtocolError("invalid_request")
+            if (
+                arguments.provider == "anthropic"
+                and arguments.account_label != CLAUDE_ACCOUNT_LABEL
+            ):
+                raise ProtocolError("invalid_request")
+            secret = _read_stdin(MAX_SECRET_BYTES)
+            base.update(
+                context_id=arguments.context_id,
+                provider=arguments.provider,
+                secret_length=len(secret),
+                account_label=arguments.account_label,
+            )
+            return base, secret
+        if arguments.provider == "aws":
+            if (
+                arguments.driver_id not in AWS_DRIVER_IDS
+                or arguments.driver_revision is None
+            ):
+                raise ProtocolError("invalid_request")
+            state = _read_stdin(MAX_SECRET_BYTES)
+            base.update(
+                context_id=arguments.context_id,
+                provider=arguments.provider,
+                account_label=arguments.account_label,
+                driver_id=arguments.driver_id,
+                driver_revision=arguments.driver_revision,
+                state_length=len(state),
+            )
+            return base, state
+        if arguments.provider == "datadog":
+            if arguments.driver_id != PUP_DRIVER_ID or arguments.driver_revision is None:
+                raise ProtocolError("invalid_request")
+            state = _read_stdin(MAX_SECRET_BYTES)
+            base.update(
+                context_id=arguments.context_id,
+                provider=arguments.provider,
+                account_label=arguments.account_label,
+                driver_id=arguments.driver_id,
+                driver_revision=arguments.driver_revision,
+                state_length=len(state),
+            )
+            return base, state
+        if arguments.provider == "openai":
+            if (
+                arguments.driver_id != OPENAI_CODEX_DRIVER_ID
+                or arguments.driver_revision is None
+            ):
+                raise ProtocolError("invalid_request")
+            state = _read_stdin(MAX_SECRET_BYTES)
+            base.update(
+                context_id=arguments.context_id,
+                provider=arguments.provider,
+                account_label=arguments.account_label,
+                driver_id=arguments.driver_id,
+                driver_revision=arguments.driver_revision,
+                state_length=len(state),
+            )
+            return base, state
+        raise ProtocolError("invalid_provider")
     if arguments.operation == "logout":
         base.update(context_id=arguments.context_id, provider=arguments.provider)
         return base, b""
@@ -87,6 +148,9 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--socket", default=DEFAULT_CONTROL_SOCKET)
     subparsers = parser.add_subparsers(dest="operation", required=True)
     subparsers.add_parser("health")
+    subparsers.add_parser("companion_status")
+    companion_prepare = subparsers.add_parser("companion_prepare")
+    companion_prepare.add_argument("--epoch-id", required=True)
     subparsers.add_parser("unlock")
     for operation in ("status", "import", "logout"):
         command = subparsers.add_parser(operation)
@@ -96,10 +160,12 @@ def _parser() -> argparse.ArgumentParser:
     login.add_argument(
         "--provider",
         required=True,
-        choices=("github",),
+        choices=("github", "aws", "datadog", "openai", "anthropic"),
     )
     login.add_argument("--context-id", required=True)
     login.add_argument("--account-label", required=True)
+    login.add_argument("--driver-id")
+    login.add_argument("--driver-revision")
     issue = subparsers.add_parser("issue_handle")
     issue.add_argument("--context-id", required=True)
     issue.add_argument("--project-id", required=True)

@@ -45,8 +45,8 @@ on Windows in V1.
 ## Build from source
 
 ```sh
-task build:dev
-bin/tobari-dev version
+task build
+bin/tobari version
 ```
 
 The development binary selects local source images and is not a release
@@ -186,25 +186,37 @@ Workspace. Their network effects still require Gateway/OPA allow.
 gh auth login          # example of Workspace-owned tool login
 ```
 
-### Static brokered
+### Brokered reviewed providers
 
-The sole reviewed built-in pairing is GitHub.com/GitHub CLI. Login requires an
-explicit provider:
+The reviewed built-ins are GitHub/`gh`, AWS/`aws`, Datadog/`pup`,
+OpenAI/Codex's contract-checked host login, Anthropic/Claude Code 2.1.220, and
+static Chatwork/`cwk`.
+Omit `--provider` on an interactive trusted-host terminal to choose an
+installed reviewed login driver, or supply it for deterministic automation:
 
 ```sh
+tobari auth login --context default
 tobari auth login --provider github --context default
+tobari auth login --provider aws --method identity-center --context default
+tobari auth login --provider aws --method console --context default
+tobari auth login --provider datadog --context default
+tobari auth login --provider openai --context default
+tobari auth login --provider anthropic --context default
 tobari auth status --context default
 # Re-enter the matching Workspace to receive/rotate its project-bound handle.
 tobari auth logout github --context default
 ```
 
-The host driver uses fixed API-only GitHub CLI argv, a canonical executable
-outside the project, digest checks, a private temporary home, the fixed GitHub
-device page with manual fallback, bounded token capture, checked cleanup, and
-no Git protocol or credential-helper setup. Exact GitHub CLI product-version
-equality is not an authority boundary.
+Each host driver has fixed argv, a canonical executable outside the project,
+digest checks, an isolated private home, bounded visible output and state
+capture, cancellation, and checked cleanup. GitHub remains API-only with no Git
+credential setup. AWS supports the closed IAM Identity Center and console
+cross-device methods. Datadog is fixed to default-organization US1 OAuth.
+OpenAI requires the reviewed Codex host-login contract and records its stable
+product version; Anthropic still requires the exact reviewed Claude version.
 
-Owner providers use strict schema-V1 static manifests and protected stdin:
+Chatwork and owner providers use strict schema-V1 static plans and protected
+stdin:
 
 ```sh
 printf '%s' "$STATIC_SECRET" | tobari auth import example --context default
@@ -213,20 +225,20 @@ printf '%s' "$STATIC_SECRET" | tobari auth import example --context default
 Do not put secrets in argv, environment-based Tobari configuration, manifests,
 logs, or fixtures. Terminal stdin is rejected before reading. An owner manifest
 is non-secret, non-executable local data describing bounded handle projection
-and exact HTTPS/header replacement. It cannot select a helper, refresh, signer,
-shell, executable, arbitrary route/method, policy, remote fetch, or provider
-business operation.
+and exact HTTPS/header replacement. It cannot select a helper, dynamic record,
+refresh, signer, shell, executable, arbitrary route/method, policy, remote
+fetch, or provider business operation.
 
 Gateway removes one recognized handle, performs full non-secret
-Context/project/provider/revision/target/header introspection, asks OPA about the
-ordinary HTTP effect, and resolves the same revision once only after allow.
-Invalid, copied, stale, ambiguous, or mismatched handles fail without fallback.
-
-First public V1 has no managed Gateway adapter/profile; AWS, Datadog, OpenAI,
-Anthropic, or Chatwork built-in; dynamic credential; refresh; signing;
-supplemental header; task barrier; resident companion; provider menu;
-`--method`; or exact-client-version driver. Those tools may use Workspace-owned
-login, but that is not brokered and does not bypass policy.
+Context/project/provider/revision/target/header introspection, and asks OPA
+about the ordinary HTTP effect. Only after allow may Broker resolve the same
+revision, refresh a fixed Datadog/OpenAI session, or sign one bounded AWS SigV4
+request. A private authenticated companion performs only the compiled AWS
+credential-export operation; it opens no listener. Outcome-unknown refresh or
+signing is not replayed automatically. Anthropic, GitHub, Chatwork, and owner
+plans remain static. Invalid, copied, stale, ambiguous, or mismatched handles
+fail without fallback. Managed Gateway profiles and arbitrary executable
+adapters remain unsupported.
 
 ## Runtime customization
 

@@ -268,7 +268,7 @@ func (r *Runtime) contextAuthentication(ctx context.Context, contextID string) (
 				)
 			}
 			switch response.State {
-			case "configured":
+			case "ready":
 				item.State = tobari.ContextAuthProviderConfigured
 				item.CredentialRevision = response.Revision
 				item.AccountLabel, err = validatedAccountLabel(response.AccountLabel)

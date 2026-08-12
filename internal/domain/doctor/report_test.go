@@ -23,6 +23,7 @@ func TestCheckInventoryIsFiniteTopologicalDAG(t *testing.T) {
 		{ID: CheckIDAuthVaultPaths, Prerequisites: []CheckID{CheckIDContext}},
 		{ID: CheckIDAuthRootKey, Prerequisites: []CheckID{CheckIDAuthVaultPaths}},
 		{ID: CheckIDAuthBroker, Prerequisites: []CheckID{CheckIDState, CheckIDDockerEngine}},
+		{ID: CheckIDCredentialCompanion, Prerequisites: []CheckID{CheckIDAuthBroker}},
 		{ID: CheckIDAuthVaultIntegrity, Prerequisites: []CheckID{CheckIDAuthBroker, CheckIDAuthProviderManifests, CheckIDContext}},
 		{ID: CheckIDAuthProjectHandles, Prerequisites: []CheckID{CheckIDAuthVaultIntegrity, CheckIDAuthProviderManifests, CheckIDState}},
 		{ID: CheckIDOwnedResources, Prerequisites: []CheckID{CheckIDDockerEngine}},

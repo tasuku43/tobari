@@ -1043,7 +1043,7 @@ func TestClusterStatusRendererExposesXDGPolicyAndTobariCount(t *testing.T) {
 		Policy:         "/tmp/config/tobari/policy",
 		PolicyRevision: strings.Repeat("a", 64), PolicyProjection: "valid",
 		PrincipalRegistry: "valid", GatewayProjection: "valid",
-		AuthProviderProjection: "valid", AuthBrokerState: "ready", RootKeyBackend: "xdg_file",
+		AuthProviderProjection: "valid", AuthBrokerState: "ready", CredentialCompanionState: "ready", RootKeyBackend: "xdg_file",
 		TobariCount: 2, Components: []tobari.ComponentStatus{
 			{Name: "auth-broker", State: "running", Health: "healthy"},
 			{Name: "gateway", State: "running", Health: "healthy"},
@@ -1053,7 +1053,7 @@ func TestClusterStatusRendererExposesXDGPolicyAndTobariCount(t *testing.T) {
 	output := string(renderClusterStatusText(status))
 	for _, expected := range []string{
 		"✓ Cluster ready", "  Auth     healthy", "  Gateway  healthy", "  OPA      healthy",
-		"providers valid", "broker ready / root key xdg_file",
+		"providers valid", "broker ready / companion ready / root key xdg_file",
 		"  Policy   /tmp/config/tobari/policy", "  Tobari   2",
 	} {
 		if !strings.Contains(output, expected) {
@@ -1205,7 +1205,7 @@ func TestClusterStatusJSONDoesNotContainTerminalColors(t *testing.T) {
 		Policy:       "/tmp/config/tobari/policy",
 		ContextCount: 1, PolicyRevision: strings.Repeat("a", 64), Components: validClusterComponentStatuses(),
 		PolicyProjection: "valid", PrincipalRegistry: "valid", GatewayProjection: "valid",
-		AuthProviderProjection: "valid", AuthBrokerState: "ready", RootKeyBackend: "xdg_file",
+		AuthProviderProjection: "valid", AuthBrokerState: "ready", CredentialCompanionState: "ready", RootKeyBackend: "xdg_file",
 	}
 	output, err := renderClusterStatus(status, successFormatJSON, true)
 	if err != nil {
@@ -1223,7 +1223,7 @@ func TestClusterStatusJSONExposesAuthBrokerSemantics(t *testing.T) {
 		Policy:      "/tmp/config/tobari/policy",
 		TobariCount: 1, ContextCount: 1, PolicyRevision: strings.Repeat("a", 64),
 		PolicyProjection: "valid", PrincipalRegistry: "valid", GatewayProjection: "valid",
-		AuthProviderProjection: "valid", AuthBrokerState: "ready", RootKeyBackend: "xdg_file",
+		AuthProviderProjection: "valid", AuthBrokerState: "ready", CredentialCompanionState: "ready", RootKeyBackend: "xdg_file",
 		Components: validClusterComponentStatuses(),
 	}
 	output, err := renderClusterStatus(status, successFormatJSON, false)
@@ -1244,9 +1244,10 @@ func TestClusterStatusJSONExposesAuthBrokerSemantics(t *testing.T) {
 		t.Fatalf("cluster output contains prohibited proxy field: %s", output)
 	}
 	for key, want := range map[string]string{
-		"auth_provider_projection": `"valid"`,
-		"auth_broker_state":        `"ready"`,
-		"root_key_backend":         `"xdg_file"`,
+		"auth_provider_projection":   `"valid"`,
+		"auth_broker_state":          `"ready"`,
+		"credential_companion_state": `"ready"`,
+		"root_key_backend":           `"xdg_file"`,
 	} {
 		if got := string(document.Cluster[key]); got != want {
 			t.Errorf("cluster.%s = %s, want %s", key, got, want)

@@ -4,6 +4,7 @@ package dockerruntime
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -19,6 +20,7 @@ import (
 	"github.com/tasuku43/tobari/internal/domain/doctor"
 	"github.com/tasuku43/tobari/internal/domain/fault"
 	"github.com/tasuku43/tobari/internal/domain/tobari"
+	"github.com/tasuku43/tobari/internal/infra/companionruntime"
 	"github.com/tasuku43/tobari/internal/infra/runtimeassets"
 	"github.com/tasuku43/tobari/internal/infra/terminal"
 )
@@ -75,9 +77,12 @@ type Runtime struct {
 	images             imageResolver
 	browser            hostBrowserOpener
 	gitIdentity        hostGitIdentityResolver
+	companion          companionruntime.Launcher
+	companionEntropy   io.Reader
 	rootKeyLoader      func(context.Context) ([]byte, error)
 	hostCLIs           hostCLIResolver
 	credentialHost     hostCredentialAcquirer
+	hostLoginProfiles  hostLoginProfileReader
 	policyProjectionMu sync.Mutex
 	// projectStateWriter is nil in production. Tests may use it to inject a
 	// durable-state write failure after Docker reconciliation has completed.
@@ -151,14 +156,17 @@ func newRuntimeWithData(configDirectory, stateDirectory, dataDirectory string, r
 		return nil, fmt.Errorf("Docker command runner is required")
 	}
 	return &Runtime{
-		configDirectory: configDirectory,
-		stateDirectory:  stateDirectory,
-		dataDirectory:   dataDirectory,
-		runner:          runner,
-		browser:         osHostBrowserOpener{},
-		gitIdentity:     newOSHostGitIdentityResolver(),
-		hostCLIs:        newPathHostCLIResolver(),
-		credentialHost:  newOSHostCredentialAcquirer(),
+		configDirectory:   configDirectory,
+		stateDirectory:    stateDirectory,
+		dataDirectory:     dataDirectory,
+		runner:            runner,
+		browser:           osHostBrowserOpener{},
+		gitIdentity:       newOSHostGitIdentityResolver(),
+		companion:         companionruntime.NewOSLauncher(),
+		companionEntropy:  rand.Reader,
+		hostCLIs:          newPathHostCLIResolver(),
+		credentialHost:    newOSHostCredentialAcquirer(),
+		hostLoginProfiles: osHostLoginProfileReader{},
 	}, nil
 }
 
@@ -501,19 +509,23 @@ func (r *Runtime) clusterUpWithProgressMode(
 			return err
 		}
 		defer clear(rootKey)
+		if err := r.startCredentialCompanion(ctx, rootKey); err != nil {
+			recordAttemptError("Credential companion did not become ready; inspect Auth Broker and host runtime state.")
+			return err
+		}
 		return nil
 	}); err != nil {
 		return tobari.State{}, err
 	}
 
 	if err := runClusterUpProgressStep(progress, tobari.ClusterUpProgressConnectNetworks, func() error {
-		if err := r.ensureAuthBrokerNetwork(ctx, "tobari-control"); err != nil {
-			recordAttemptError("Auth Broker did not rejoin the internal control network; inspect cluster status.")
-			return err
-		}
 		for _, sharedNetwork := range []string{"tobari-control", "tobari-egress"} {
 			if err := r.ensureGatewayNetwork(ctx, sharedNetwork); err != nil {
 				recordAttemptError("Gateway did not rejoin the shared cluster network; inspect cluster status.")
+				return err
+			}
+			if err := r.ensureAuthBrokerNetwork(ctx, sharedNetwork); err != nil {
+				recordAttemptError("Auth Broker did not rejoin the shared cluster network; inspect cluster status.")
 				return err
 			}
 		}
@@ -607,6 +619,9 @@ func (r *Runtime) waitForClusterReady(
 			}
 		}
 		if brokerState, err := r.brokerState(ctx); err != nil || brokerState != "ready" {
+			ready = false
+		}
+		if companionState, _, err := r.credentialCompanionStatus(ctx); err != nil || companionState != "ready" {
 			ready = false
 		}
 		if ready {
@@ -986,6 +1001,13 @@ func (r *Runtime) InspectCluster(ctx context.Context, state tobari.State) (tobar
 	if brokerState != "ready" {
 		running = false
 	}
+	companionState, _, companionErr := r.credentialCompanionStatus(ctx)
+	if companionErr != nil {
+		companionState = "unavailable"
+	}
+	if companionState != "ready" {
+		running = false
+	}
 	backend := "unavailable"
 	if selected, backendErr := authStorageBackend(); backendErr == nil {
 		backend = string(selected)
@@ -996,9 +1018,9 @@ func (r *Runtime) InspectCluster(ctx context.Context, state tobari.State) (tobar
 		PolicyRevision: state.AggregateRevision, PolicyProjection: policyIntegrity,
 		PrincipalRegistry: principalIntegrity, GatewayProjection: gatewayIntegrity,
 		AuthProviderProjection: r.inspectAuthProviderProjectionIntegrity(),
-		AuthBrokerState:        string(brokerState),
-		RootKeyBackend:         backend,
-		Components:             components, RecentError: state.RecentError,
+		AuthBrokerState:        string(brokerState), CredentialCompanionState: companionState,
+		RootKeyBackend: backend,
+		Components:     components, RecentError: state.RecentError,
 	}, nil
 }
 
@@ -1147,6 +1169,9 @@ func (r *Runtime) ClusterDown(ctx context.Context, state tobari.State, purge boo
 		_ = r.recordRecentError(state, "Cluster cleanup did not complete; inspect component logs.")
 		return fmt.Errorf("docker compose down: %w: %s", err, boundedDiagnostic(output.Bytes()))
 	}
+	if err := r.waitForCredentialCompanionStopped(ctx); err != nil {
+		return err
+	}
 	if err := r.replaceProjectPrincipalRegistry(ctx, []projectPrincipalBinding{}); err != nil {
 		return fmt.Errorf("clear project principal registry: %w", err)
 	}
@@ -1263,8 +1288,8 @@ func (r *Runtime) composeEnvironment(state tobari.State) ([]string, error) {
 		"TOBARI_ASSET_VERSION="+state.AssetVersion,
 		"TOBARI_UID="+strconv.Itoa(uid), "TOBARI_GID="+strconv.Itoa(gid),
 		"TOBARI_MITMPROXY_IMAGE="+versions["MITMPROXY_IMAGE"],
-		"TOBARI_GATEWAY_IMAGE="+versions["GATEWAY_IMAGE"],
-		"TOBARI_AUTH_BROKER_IMAGE="+versions["AUTH_BROKER_IMAGE"],
+		"TOBARI_GATEWAY_IMAGE=unselected",
+		"TOBARI_AUTH_BROKER_IMAGE=unselected",
 		"TOBARI_OPA_IMAGE="+versions["OPA_IMAGE"],
 		"TOBARI_DEBIAN_IMAGE="+versions["DEBIAN_IMAGE"],
 	)

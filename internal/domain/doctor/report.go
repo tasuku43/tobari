@@ -28,6 +28,7 @@ const (
 	CheckIDAuthVaultPaths        CheckID = "auth_vault_paths"
 	CheckIDAuthRootKey           CheckID = "auth_root_key"
 	CheckIDAuthBroker            CheckID = "auth_broker"
+	CheckIDCredentialCompanion   CheckID = "credential_companion" // #nosec G101 -- public diagnostic ID, not a credential.
 	CheckIDAuthVaultIntegrity    CheckID = "auth_vault_integrity"
 	CheckIDAuthProjectHandles    CheckID = "auth_project_handles"
 	CheckIDOwnedResources        CheckID = "owned_resources"
@@ -57,6 +58,7 @@ var checkInventory = []CheckSpec{
 	{ID: CheckIDAuthVaultPaths, Prerequisites: []CheckID{CheckIDContext}},
 	{ID: CheckIDAuthRootKey, Prerequisites: []CheckID{CheckIDAuthVaultPaths}},
 	{ID: CheckIDAuthBroker, Prerequisites: []CheckID{CheckIDState, CheckIDDockerEngine}},
+	{ID: CheckIDCredentialCompanion, Prerequisites: []CheckID{CheckIDAuthBroker}},
 	{ID: CheckIDAuthVaultIntegrity, Prerequisites: []CheckID{CheckIDAuthBroker, CheckIDAuthProviderManifests, CheckIDContext}},
 	{ID: CheckIDAuthProjectHandles, Prerequisites: []CheckID{CheckIDAuthVaultIntegrity, CheckIDAuthProviderManifests, CheckIDState}},
 	{ID: CheckIDOwnedResources, Prerequisites: []CheckID{CheckIDDockerEngine}},

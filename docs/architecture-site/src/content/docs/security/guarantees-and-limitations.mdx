@@ -55,7 +55,7 @@ authority.
 
 **Failure behavior.** Deny returns `policy_denied`; timeout, connection failure, non-200, oversize, malformed, or incomplete decision returns `policy_unavailable`. Neither opens upstream.
 
-**Limitation.** Current exact learned rules distinguish Context, project, host, port, method, and raw path. They do not distinguish body, query, safe headers, reason, provider, or credential profile. Different bodies can use the same exact effect rule.
+**Limitation.** Current exact learned rules distinguish Context, project, host, port, method, and raw path. They do not distinguish body, query, safe headers, reason, or provider. Different bodies can use the same exact effect rule.
 
 ## Claim 4: broker-managed credential state is not projected to Workspace
 

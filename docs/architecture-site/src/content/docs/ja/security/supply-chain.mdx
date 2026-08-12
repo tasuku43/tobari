@@ -22,8 +22,7 @@ Go CLI は起動時に実行可能なポリシーや Python ソースをダウ�
 ディレクトリを展開できる必要があります。編集する正本は、Gateway が `gateway/`、
 Auth Broker が `authbroker/`、ランタイムが `runtimes/base/` にあります。
 埋め込み用にバイト列と内容の一致を検査する複製は、
-`internal/infra/runtimeassets/assets/` にあります。static Auth Broker の image contract は
-provider executable が image に入ることを拒否します。
+`internal/infra/runtimeassets/assets/` にあります。閉じた Auth Broker の image contract はレビュー済みの更新・署名コードを含みますが、provider executable が image に入ることを拒否します。
 
 埋め込みの複製は二つ目の実装ではありません。`check-gateway-source.sh`、
 `check-authbroker-source.sh`、`check-runtime-base.sh` が正本との差分を拒否します。
@@ -45,15 +44,14 @@ provider executable が image に入ることを拒否します。
 
 正本のソースと、ダイジェストで固定したランタイム成果物は別の事実です。ソースが
 変わっても、対応する複数アーキテクチャの Gateway と Auth Broker のマニフェストを
-公開してレビューし、`versions.env` の変更されないダイジェストを更新するまでは、実行中または
+公開してレビューし、リリースで生成したコンポーネントロックを CLI に埋め込むまでは、実行中または
 新たに状態を調整する標準クラスターのバイト列は変わりません。このソースのスナップショット
 が実際に選ぶ成果物は、生成された[コンポーネントバージョン](../../reference/component-versions/)
 の表を正本として確認できます。
 
-このスナップショットでは、Gateway と Auth Broker の正本ソース全体が一組の V1 権限です。
-レビュー済みの不変な V1 索引が明示的な unpublished マーカーを置き換えるまでは、公開可能な
-標準クラスター成果物ではありません。ソースのテストが成功しただけで、ランタイム成果物が
-暗黙に公開されることはありません。
+このスナップショットでは、Gateway と Auth Broker の正本ソース全体が一組の V1 要件です。
+レビュー済みの不変な V1 索引を公開権限にするのは保護されたリリースフローだけです。ソースの
+テストが成功しただけで、ランタイム成果物が暗黙に公開されることはありません。
 
 ## ビルドとリリースの制御
 

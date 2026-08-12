@@ -1,10 +1,10 @@
 # External API Contracts
 
 Tobari exposes no provider-specific business-operation API. It authorizes the
-ordinary HTTP/HTTPS effect that leaves a Workspace through Gateway. The sole
-reviewed brokered acquisition helper is GitHub CLI for one static GitHub.com
-credential; owner manifests may import another static primary secret when the
-same exact HTTPS/header transformation can express the outcome.
+ordinary HTTP/HTTPS effect that leaves a Workspace through Gateway. The closed
+reviewed brokered plans cover GitHub, AWS, Datadog, OpenAI/Codex,
+Anthropic/Claude, and Chatwork; owner manifests may add only a static primary
+secret when an exact HTTPS/header transformation expresses the outcome.
 
 ## Generic HTTP contract
 
@@ -36,7 +36,7 @@ authority and GET is not classified as safe or read-only. Terminal denial
 creates no candidate and causes zero external DNS, Broker resolution, or
 upstream calls.
 
-## Static broker contract
+## Broker contract
 
 Provider schema 1 is strict non-secret, non-executable data. It declares a
 bounded Workspace handle projection and exact HTTPS target, source header,
@@ -54,20 +54,25 @@ Gateway follows one sequence:
    Context, project, provider, revision, target, source header, and format.
 3. Send only normalized request identity and non-secret provider identity to
    OPA.
-4. On deny, stop with zero resolution or upstream call.
-5. On allow, resolve the same revision once, replace only the declared header,
-   and make one upstream attempt.
+4. On deny, stop with zero resolution, refresh, companion call, signing, or
+   upstream call.
+5. On static allow, resolve the same revision once and replace only the
+   declared header.
+6. On Datadog/OpenAI allow, select or refresh the same record once and apply
+   only the reviewed bearer/supplemental-header result.
+7. On AWS allow, retain at most 8 MiB, obtain one private companion export,
+   sign that exact authorized request locally, and apply only those headers.
+8. Make one upstream attempt without application replay.
 
 Passthrough applies only when no Tobari-looking marker exists. No malformed or
 stale handle is forwarded or accepted by fallback. Secret values, raw handles,
 credential revisions, queries, headers, and bodies are absent from OPA audit
 and denial output.
 
-First public V1 contains no managed adapter/profile, AWS SigV4, Datadog OAuth,
-OpenAI/Codex OAuth, Anthropic setup-token plan, Chatwork built-in, refresh,
-task barrier, signer, supplemental header, credential companion, or exact-
-client-version driver. Tool-native use of those services remains Workspace-
-owned authentication and still requires ordinary Gateway/OPA authorization.
+Managed adapters/profiles remain absent. Dynamic records, refresh, task
+barriers, signing, supplemental headers, the credential companion, and exact-
+version drivers exist only inside the closed reviewed built-in plans. Owner
+manifests cannot select or extend them.
 
 ## GitHub acquisition
 
@@ -78,6 +83,26 @@ fallback, captures bounded token/status output, rechecks the executable digest,
 performs checked cleanup, and only then commits the static secret. It requests
 no Git protocol or credential-helper setup and reads no ambient GitHub home.
 Exact GitHub CLI product-version equality is not an authority boundary.
+
+## Other reviewed acquisition and post-policy plans
+
+AWS offers only `identity-center` and `console` host acquisition. Its opaque
+state is re-entered by a private authenticated companion after allow, and
+Broker emits one standard header-based SigV4 result for the exact bounded
+request. Datadog uses fixed US1 pup acquisition and a proxy-free,
+no-redirect, same-record refresh transport. OpenAI accepts a stable observed
+host Codex version only when the exact compiled V1 device-auth/state contract
+succeeds, and refreshes only the same ChatGPT account record, returning
+its validated account ID for one supplemental header. Anthropic requires
+Claude Code 2.1.220 and resolves one static setup token without refresh.
+Chatwork is a static stdin-import binding. The OpenAI Broker client ID and
+refresh endpoint and the Workspace Codex handle projection remain separately
+fixed; host product version does not select either contract.
+
+Any dispatched AWS companion or Datadog refresh whose result becomes unknown
+returns `credential_refresh_outcome_unknown` (`409`), records a durable task
+barrier when required, and makes no application upstream attempt. Automatic
+replay is forbidden; trusted-host `auth status` is the reconciliation route.
 
 `auth import PROVIDER` reads one bounded secret from non-terminal stdin after
 public validation and before one Broker send. Terminal input is rejected before
@@ -91,7 +116,8 @@ OPA or Gateway uncertainty denies. Invalid handles return
 `credential_broker_unavailable`. Neither permits fallback. Auth mutation
 uncertainty uses `auth status` reconciliation before another mutation.
 
-Automated tests use synthetic secrets, fake GitHub CLI results, local HTTP
-servers, fixed clocks, and canaries. Live GitHub acquisition is manual release
-evidence and records pass/fail only; no credential, code, handle, vault, account
-identifier, authenticated response, or raw transcript may become a fixture.
+Automated tests use synthetic secrets and provider state, fake fixed-driver
+results, local HTTP servers, fixed clocks, and canaries. Live reviewed-provider
+acquisition is manual release evidence and records pass/fail only; no
+credential, code, handle, vault, account identifier, authenticated response,
+or raw transcript may become a fixture.

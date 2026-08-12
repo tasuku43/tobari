@@ -1302,20 +1302,21 @@ func renderClusterDenialsHuman(result tobari.DenialReport, reviewCommand string,
 }
 
 type clusterStatusOutput struct {
-	Configured             bool                     `json:"configured"`
-	Running                bool                     `json:"running"`
-	Policy                 *string                  `json:"policy"`
-	TobariCount            int                      `json:"tobari_count"`
-	ContextCount           int                      `json:"context_count"`
-	PolicyRevision         *string                  `json:"policy_revision"`
-	PolicyProjection       string                   `json:"policy_projection"`
-	PrincipalRegistry      string                   `json:"principal_registry"`
-	GatewayProjection      string                   `json:"gateway_projection"`
-	AuthProviderProjection string                   `json:"auth_provider_projection"`
-	AuthBrokerState        string                   `json:"auth_broker_state"`
-	RootKeyBackend         string                   `json:"root_key_backend"`
-	Components             []tobari.ComponentStatus `json:"components"`
-	RecentError            *string                  `json:"recent_error"`
+	Configured               bool                     `json:"configured"`
+	Running                  bool                     `json:"running"`
+	Policy                   *string                  `json:"policy"`
+	TobariCount              int                      `json:"tobari_count"`
+	ContextCount             int                      `json:"context_count"`
+	PolicyRevision           *string                  `json:"policy_revision"`
+	PolicyProjection         string                   `json:"policy_projection"`
+	PrincipalRegistry        string                   `json:"principal_registry"`
+	GatewayProjection        string                   `json:"gateway_projection"`
+	AuthProviderProjection   string                   `json:"auth_provider_projection"`
+	AuthBrokerState          string                   `json:"auth_broker_state"`
+	CredentialCompanionState string                   `json:"credential_companion_state"`
+	RootKeyBackend           string                   `json:"root_key_backend"`
+	Components               []tobari.ComponentStatus `json:"components"`
+	RecentError              *string                  `json:"recent_error"`
 }
 
 func renderClusterStatus(status tobari.ClusterStatus, format successFormat, color bool) ([]byte, error) {
@@ -1330,12 +1331,13 @@ func renderClusterStatus(status tobari.ClusterStatus, format successFormat, colo
 				Policy:      optionalExternalText(status.Policy),
 				TobariCount: status.TobariCount, ContextCount: status.ContextCount,
 				PolicyRevision: optionalString(status.PolicyRevision), PolicyProjection: safeExternalText(status.PolicyProjection), PrincipalRegistry: safeExternalText(status.PrincipalRegistry),
-				GatewayProjection:      safeExternalText(status.GatewayProjection),
-				AuthProviderProjection: safeExternalText(status.AuthProviderProjection),
-				AuthBrokerState:        safeExternalText(status.AuthBrokerState),
-				RootKeyBackend:         safeExternalText(status.RootKeyBackend),
-				Components:             append([]tobari.ComponentStatus{}, status.Components...),
-				RecentError:            optionalExternalText(status.RecentError),
+				GatewayProjection:        safeExternalText(status.GatewayProjection),
+				AuthProviderProjection:   safeExternalText(status.AuthProviderProjection),
+				AuthBrokerState:          safeExternalText(status.AuthBrokerState),
+				CredentialCompanionState: safeExternalText(status.CredentialCompanionState),
+				RootKeyBackend:           safeExternalText(status.RootKeyBackend),
+				Components:               append([]tobari.ComponentStatus{}, status.Components...),
+				RecentError:              optionalExternalText(status.RecentError),
 			},
 		}
 		output, err := marshalCommandJSON("cluster status", document)
@@ -1412,8 +1414,8 @@ func renderClusterStatusTextWithColor(status tobari.ClusterStatus, color bool) [
 		fmt.Fprintf(&output, "  %s %s\n", applyStyleToken(color, styleMuted, fmt.Sprintf("%-8s", "Revision")), status.PolicyRevision[:12])
 		fmt.Fprintf(&output, "  %s policy %s / principals %s / gateway %s / providers %s\n", applyStyleToken(color, styleMuted, fmt.Sprintf("%-8s", "Integrity")), safeExternalText(status.PolicyProjection), safeExternalText(status.PrincipalRegistry), safeExternalText(status.GatewayProjection), safeExternalText(status.AuthProviderProjection))
 	}
-	if status.AuthBrokerState != "" || status.RootKeyBackend != "" {
-		fmt.Fprintf(&output, "  %s broker %s / root key %s\n", applyStyleToken(color, styleMuted, fmt.Sprintf("%-8s", "Auth")), safeExternalText(status.AuthBrokerState), safeExternalText(status.RootKeyBackend))
+	if status.AuthBrokerState != "" || status.CredentialCompanionState != "" || status.RootKeyBackend != "" {
+		fmt.Fprintf(&output, "  %s broker %s / companion %s / root key %s\n", applyStyleToken(color, styleMuted, fmt.Sprintf("%-8s", "Auth")), safeExternalText(status.AuthBrokerState), safeExternalText(status.CredentialCompanionState), safeExternalText(status.RootKeyBackend))
 	}
 	if status.Policy != "" {
 		fmt.Fprintln(&output)

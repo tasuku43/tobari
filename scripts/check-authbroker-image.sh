@@ -12,10 +12,16 @@ test "$(grep -c 'io\.tobari\.auth-broker-role="credential-resolution"' "$dockerf
 test "$(grep -c '^EXPOSE' "$dockerfile")" -eq 0
 grep -q '/run/tobari-auth/runtime' "$dockerfile"
 grep -q '/run/tobari-auth/control' "$dockerfile"
-if grep -Eq '(companion|aws_sigv4|datadog_oauth|openai_codex_oauth|refresh|signing)' "$dockerfile"; then
-  echo "auth broker image still includes a retired dynamic credential path" >&2
-  exit 1
-fi
+grep -q '/run/tobari-auth/companion' "$dockerfile"
+for reviewed in \
+  aws_sigv4.py \
+  companion_bridge.py \
+  companion_protocol.py \
+  datadog_oauth.py \
+  openai_codex_oauth.py \
+  openai_refresh_transport.py; do
+  grep -q "COPY $reviewed /opt/tobari/authbroker/$reviewed" "$dockerfile"
+done
 
 if grep -Eq '(github_auth|aws_sso|gh-checksums|github-cli|/run/tobari-auth/login)' "$dockerfile"; then
   echo "auth broker image still includes a provider CLI or broker-native provider helper" >&2

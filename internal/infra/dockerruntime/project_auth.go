@@ -30,6 +30,8 @@ type brokerCredentialBinding struct {
 	Source        *authbroker.NormalizedBindingSource `json:"source,omitempty"`
 	Destination   *authbroker.BindingDestination      `json:"destination,omitempty"`
 	SecretHeaders []string                            `json:"secret_headers,omitempty"`
+	Kind          authbroker.SigningBindingKind       `json:"kind,omitempty"`
+	AWSSigV4      *authbroker.AWSSigV4Binding         `json:"aws_sigv4,omitempty"`
 }
 
 type projectAuthFile struct {
@@ -76,6 +78,23 @@ func brokerBindingsForProvider(
 			SecretHeaders: append([]string(nil), binding.SecretHeaders...),
 		})
 	}
+	for _, binding := range projection.SigningBindings {
+		if binding.ProviderID != providerID {
+			continue
+		}
+		var aws *authbroker.AWSSigV4Binding
+		if binding.AWSSigV4 != nil {
+			value := *binding.AWSSigV4
+			value.Target.DNSSuffixes = append([]string(nil), binding.AWSSigV4.Target.DNSSuffixes...)
+			value.SecretHeaders = append([]string(nil), binding.AWSSigV4.SecretHeaders...)
+			aws = &value
+		}
+		bindings = append(bindings, brokerCredentialBinding{
+			ProviderID: providerID,
+			Kind:       binding.Kind,
+			AWSSigV4:   aws,
+		})
+	}
 	encoded, err := json.Marshal(bindings)
 	if err != nil || len(bindings) == 0 || len(encoded) > maxBrokerControlOutput {
 		return nil, nil, "", fault.New(
@@ -117,7 +136,7 @@ func (r *Runtime) reconcileProjectAuth(
 		switch status.State {
 		case "not_configured":
 			continue
-		case "configured":
+		case "ready":
 		default:
 			return projectAuthProjection{}, fault.New(
 				fault.KindUnavailable, "auth_broker_locked",

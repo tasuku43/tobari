@@ -19,7 +19,7 @@ role of each image and embedded asset.
 
 ## Why source and snapshot both exist
 
-The Go CLI must materialize a runtime directory without downloading executable policy or Python source at startup. Canonical editable Gateway code lives under `gateway/`; Auth Broker under `authbroker/`; runtime source under `runtimes/base/`. Byte/content-checked copies live under `internal/infra/runtimeassets/assets/` for embedding. The static Auth Broker image contract rejects provider executables.
+The Go CLI must materialize a runtime directory without downloading executable policy or Python source at startup. Canonical editable Gateway code lives under `gateway/`; Auth Broker under `authbroker/`; runtime source under `runtimes/base/`. Byte/content-checked copies live under `internal/infra/runtimeassets/assets/` for embedding. The closed Auth Broker image contract includes reviewed refresh/signing code but rejects provider executables.
 
 The copies are not a second implementation. `check-gateway-source.sh`, `check-authbroker-source.sh`, and `check-runtime-base.sh` reject drift. Synchronization is an explicit maintainer operation.
 
@@ -31,16 +31,15 @@ The official default runtime selector is currently `ghcr.io/tasuku43/tobari/runt
 
 Canonical source and a pinned runtime artifact are two separate facts. A source
 change does not alter a running or newly reconciled standard cluster until the
-corresponding multi-architecture Gateway/Auth Broker manifest is published,
-reviewed, and its immutable digest is updated in `versions.env`. The generated
+corresponding multi-architecture Gateway/Auth Broker manifests are published,
+reviewed, and injected through the release-generated component lock. The generated
 [Component versions](/reference/component-versions/) table is the authority for
 the artifacts this source snapshot actually selects.
 
 At this snapshot, canonical Gateway/Auth Broker source is the complete paired
-V1 authority. It remains a contributor snapshot rather than a publishable
-standard-cluster artifact until reviewed immutable V1 indexes replace the
-explicit unpublished marker. A successful source test does not silently
-publish runtime bytes.
+V1 requirement. Only the protected release flow turns its reviewed immutable
+V1 indexes into published runtime authority. A successful source test does not
+silently publish runtime bytes.
 
 ## Build and release controls
 

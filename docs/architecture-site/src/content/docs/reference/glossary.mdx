@@ -236,14 +236,15 @@ not name the Workspace client that uses the credential.
 ### Workspace client Tool
 
 The CLI or other client inside a Workspace that receives provider-declared
-projection and emits the matching request. The sole built-in V1 example is
-`gh`. A Tool name grants neither provider identity nor network authority.
+projection and emits the matching request. Reviewed examples include `gh`,
+`aws`, `pup`, `codex`, `claude`, and `cwk`. A Tool name grants neither provider
+identity nor network authority.
 
 ### supported Provider-Tool pairing
 
 One reviewed combination of Provider, Workspace client Tool, acquisition mode,
-handle projection, and exact request binding. The built-in V1 pairing is
-GitHub/`gh`; owner providers use strict stdin import and static projection.
+handle projection, and exact request binding. Built-ins are a closed reviewed
+set; owner providers use strict stdin import and static projection.
 
 ### tool-native passthrough
 
@@ -256,16 +257,15 @@ Workspace can read these tool-owned secrets.
 
 The shared locked service that stores typed encrypted credential state per
 Context/provider, issues project-bound opaque handles, performs non-secret
-introspection, and resolves only the same static credential revision after
-Gateway reports policy allow. Broker has Unix sockets, no Workspace network,
-and no TCP listener.
+introspection, and performs only one same-revision reviewed static, refresh, or
+signing action after Gateway reports policy allow. Broker has Unix sockets, no
+Workspace network, and no TCP listener.
 
 ### brokered credential state
 
-The typed record encrypted in one Context vault. V1 contains one static primary
-secret plus revision and handle state. It is never projected into Workspace or
-OPA. A request-local value crosses only the declared post-policy
-Broker/Gateway boundary.
+The typed record encrypted in one Context vault. The closed union contains
+static primary secrets and reviewed AWS, Datadog, or OpenAI state plus revision,
+barrier, and handle state. It is never projected into Workspace or OPA.
 
 ### broker handle
 
@@ -310,9 +310,9 @@ Linux or a fixed macOS Keychain item. `cluster down --purge` preserves it.
 
 A strict non-secret data document declaring acquisition mode, Workspace handle
 projection, exact HTTPS binding, and redaction. Owner manifests are schema 1
-and `stdin_import` only. GitHub is the sole reviewed built-in acquisition plan.
+and `stdin_import` only. Reviewed built-ins are a closed compiled plan union.
 A manifest is not executable code, does not declare method/path policy, and
-does not grant communication permission.
+does not grant communication permission or select a dynamic plan.
 
 ## State and public contracts
 

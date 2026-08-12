@@ -72,12 +72,12 @@ Tobari は次を保証しません。
 
 **実装済み:** reusable Context-bound Workspace、project internal network、Gateway/OPA mediation、
 immutable source access、snapshotted policy preset、完全一致 denial review、guided/advanced policy、
-Context runtime recipe、tool-native authentication、strict schema-1 static Broker provider、明示的な
-built-in GitHub acquisition です。
+Context runtime recipe、tool-native authentication、strict schema-1 の閉じた Broker plan、
+GitHub・AWS・Datadog・OpenAI・Anthropic・Chatwork のレビュー済み対応です。
 
-ソースツリーとテストには、両方のスキーマ 1 プランが含まれています。公式の Gateway と Auth Broker の不変 V1 インデックスはまだ公開・レビューされていないため、`versions.env` は二つ一組の `unpublished` マーカーを記録します。レビュー済みの不変 V1 ダイジェストが両方を置き換えるまでは、明示的な開発イメージ経路を使います。[コンポーネントのバージョン](../../reference/component-versions/)では実際に選ばれる成果物を確認でき、[サプライチェーン](../../security/supply-chain/)ではソースとランタイムの識別情報を別々に確認する理由を説明しています。
+Gateway と Auth Broker は各 CLI リリースの内部成果物としてビルドされます。リリースワークフローは、レビュー済みの不変 V1 インデックスをソースリビジョンへ結び付ける一つのコンポーネントロックを生成し、`versions.env` には生成された Tobari 所有イメージを記録しません。リポジトリ開発では内容アドレス付きローカルイメージを使います。[コンポーネントのバージョン](../../reference/component-versions/)では成果物の契約を確認でき、[サプライチェーン](../../security/supply-chain/)ではソースとランタイムの識別情報を別々に確認する理由を説明しています。
 
-この文書では、マニフェストで任意に選べる署名・更新処理、任意の OAuth ヘルパー、プロバイダー操作に対するポリシー、Git 認証情報ヘルパー、プロバイダーまたは Context ごとの複数アカウント、追加の組み込みプランを、現在利用できる機能として扱いません。
+マニフェストで任意に選べる署名・更新処理、任意の OAuth ヘルパー、プロバイダー操作に対するポリシー、Git 認証情報ヘルパー、プロバイダーまたは Context ごとの複数アカウント、追加の未レビュー組み込みプランは対応外です。
 
 ## 根拠となるソース
 

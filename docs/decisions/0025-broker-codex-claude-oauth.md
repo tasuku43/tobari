@@ -7,7 +7,9 @@
   harness, public boundary, and release
 - Extends: [ADR 0020: Add a host credential companion for renewable brokered credentials](0020-broker-reviewed-credential-plans.md)
 - Revised by: ADR 0027 places both plans and component APIs inside exact V1 and
-  withholds official image authority until reviewed V1 indexes exist
+  withholds official image authority until reviewed V1 indexes exist; ADR 0032
+  replaces the trusted-host exact product-version gate with the compiled
+  host-login contract while retaining the pinned Workspace projection
 
 ## Context
 
@@ -46,8 +48,9 @@ tobari auth login --provider anthropic
 ```
 
 The `openai` schema-2 plan uses helper `codex-chatgpt-oauth` and credential kind
-`openai_codex_oauth_session`. Its trusted-host driver accepts only Codex
-0.146.0, runs fixed `login --device-auth` argv with only
+`openai_codex_oauth_session`. As revised by ADR 0032, its trusted-host driver
+records a stable semantic Codex version and accepts the fixed acquisition
+contract rather than one product version. It runs fixed `login --device-auth` argv with only
 `cli_auth_credentials_store="file"` and
 `check_for_update_on_startup=false` configuration overrides in an owner-only
 temporary home, validates the executable before and after, strictly parses
@@ -56,7 +59,7 @@ canonical encrypted OAuth state. It neither reads nor modifies ambient Codex
 state.
 
 The canonical driver state is schema 1 and contains only the absolute
-executable path, its SHA-256 digest, exact version `0.146.0`, `auth_mode` equal
+executable path, its SHA-256 digest, observed semantic version, `auth_mode` equal
 to `chatgpt`, a null `OPENAI_API_KEY`, the ID/access/refresh tokens, one account
 ID, and an RFC3339Nano `last_refresh`. The namespaced ID-token account claim is
 mandatory and must equal the stored account ID; FedRAMP state is rejected. The
@@ -71,9 +74,11 @@ OpenAI token:
 {"auth_mode":"chatgptAuthTokens","OPENAI_API_KEY":null,"tokens":{"id_token":"e30.e30.x","access_token":"${HANDLE}","refresh_token":"","account_id":null},"last_refresh":"1970-01-01T00:00:00Z"}
 ```
 
-Codex must be exactly 0.146.0. Automated contracts prove exact projection
-bytes, Gateway handle recognition and bearer/account injection, and version or
-schema drift rejection. A recorded isolated network-disabled observation also
+The Workspace projection remains reviewed against exactly Codex 0.146.0.
+Automated contracts prove exact projection bytes, Gateway handle recognition
+and bearer/account injection, and schema drift rejection. Host tests accept
+multiple stable semantic versions only when the fixed acquisition and captured
+state postconditions succeed. A recorded isolated network-disabled observation also
 confirmed login-status recognition and verbatim handle placement, but that
 client compatibility observation remains a manual release replay rather than
 a redistributable automated artifact claim. A future Codex version is
@@ -93,7 +98,7 @@ attempt.
 Broker uses an access token only while more than five minutes remain. Otherwise
 it takes the per-record single-flight lock, persists an encrypted no-replay
 barrier, and performs one proxy-free, no-redirect JSON POST to the
-Codex-0.146-reviewed endpoint `https://auth.openai.com/oauth/token`. The
+reviewed endpoint `https://auth.openai.com/oauth/token`. The
 canonical body crosses only stdin to a fixed isolated Python worker. Broker
 starts the deadline before spawn, supplies no ambient environment, and kills
 and reaps the worker at the 30-second wall-clock bound; the worker's own socket
@@ -127,14 +132,15 @@ this plan. Re-login rotates the token before expiry or after a provider 401.
 
 Both helpers require canonical non-group/world-writable host executables from
 the existing conventional non-project trusted installation roots. The host
-must therefore provide `codex --version` as exactly `codex-cli 0.146.0` and
-`claude --version` as exactly `2.1.220 (Claude Code)` before the corresponding
-login can start. Codex persists the observed executable digest as the dynamic
+must therefore provide one bounded stable `codex-cli X.Y.Z` identity whose
+fixed login produces the reviewed state contract, and `claude --version` as
+exactly `2.1.220 (Claude Code)`, before the corresponding login can start.
+Codex persists the observed version and executable digest as the dynamic
 credential driver revision; Claude rechecks the same digest before returning
 the captured static token but does not persist executable metadata in that
 static vault record. A Workspace binary, `PATH` entry from the project,
-ambient provider home, or a newer client is not a fallback acquisition
-authority.
+ambient provider home, or an unverified client contract is not a fallback
+acquisition authority.
 
 `auth logout` retains its existing local-only contract: it atomically removes
 the Context/provider record and handles without contacting OpenAI or Anthropic
@@ -158,8 +164,9 @@ digests remain historical facts and do not acquire this capability.
 - Claude setup tokens are long-lived but not renewable. Their displayed
   one-year lifetime is a client-requested estimate, not a provider-issued
   server expiry claim.
-- Codex compatibility is intentionally pinned to 0.146.0 and inherits the risk
-  of an upstream-internal input shape. Version drift fails closed.
+- Workspace Codex compatibility remains pinned to 0.146.0 and inherits the
+  risk of an upstream-internal input shape. Host acquisition instead fails
+  closed on executable, command, captured-state, or compiled-contract drift.
 - Multiple accounts, arbitrary scopes/endpoints, custom ChatGPT authorities,
   remote revocation, and generic OAuth remain unsupported.
 - Runtime and image validation for this capability remains contributor-local.
