@@ -529,6 +529,12 @@ it through a fixed networkless pinned publisher,
 waits for the running OPA to report the exact expected revision, and rolls back
 on failure. Reducing or mixed authority first activates a deny-all transition
 revision.
+The target-copy test yields a one-shot in-memory receipt bound to the exact
+preflight bytes, candidate source digest, Context policy directory, and source
+transaction. Aggregate construction may consume it only for that same
+candidate; a missing or mismatched receipt reruns the per-Context OPA test. The
+complete aggregate candidate test, existing aggregate revalidation, activation
+test, and authority-reduction fence are never skipped.
 `delete` observes active Docker exec IDs before ordinary removal, then verifies
 owner, ID, and role labels before removing the selected container and network;
 an attached exec rejects ordinary deletion and `--force` skips only that guard.

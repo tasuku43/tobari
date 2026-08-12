@@ -3,6 +3,7 @@ package dockerruntime
 import (
 	"bytes"
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -11,6 +12,44 @@ import (
 
 	"github.com/tasuku43/tobari/internal/domain/tobari"
 )
+
+type policyContentTestRunner struct {
+	recordingRunner
+	opaTests int
+	rejected int
+}
+
+func (r *policyContentTestRunner) Output(ctx context.Context, args, environment []string) ([]byte, error) {
+	output, err := r.recordingRunner.Output(ctx, args, environment)
+	policyDirectory, ok := mountedPolicyTestDirectory(args)
+	if !ok {
+		return output, err
+	}
+	r.opaTests++
+	tests, readErr := os.ReadFile(filepath.Join(policyDirectory, "tobari_test.rego"))
+	if readErr != nil {
+		return nil, readErr
+	}
+	if bytes.Contains(tests, []byte("INVALID_CANDIDATE")) {
+		r.rejected++
+		return []byte("FAIL"), errors.New("opa rejected invalid candidate")
+	}
+	return output, err
+}
+
+func mountedPolicyTestDirectory(args []string) (string, bool) {
+	if len(args) < 2 || args[len(args)-2] != "test" || args[len(args)-1] != "/policy" {
+		return "", false
+	}
+	const prefix = "type=bind,src="
+	const suffix = ",dst=/policy,readonly"
+	for _, argument := range args {
+		if strings.HasPrefix(argument, prefix) && strings.HasSuffix(argument, suffix) {
+			return strings.TrimSuffix(strings.TrimPrefix(argument, prefix), suffix), true
+		}
+	}
+	return "", false
+}
 
 func TestAdvancedPolicyReceivesContextNamespaceAndCannotClaimSystemPackages(t *testing.T) {
 	t.Parallel()
@@ -263,5 +302,136 @@ func TestInvalidContextPolicyDoesNotReplaceKnownGoodAggregate(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Dir(knownGood.PolicyDirectory)); err != nil {
 		t.Fatalf("known-good aggregate was removed: %v", err)
+	}
+}
+
+func TestAggregateReusesOneCandidateReceiptAndRetainsAggregateTests(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	runner := &recordingRunner{}
+	runtime, _ := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), runner)
+	if _, err := runtime.ListContexts(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	manifest, paths, err := runtime.resolveContext(tobari.DefaultContextName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	original, err := readPolicyData(paths.PolicyDirectory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	candidate, err := original.withPolicyRules([]tobari.LearnedPolicyRule{
+		contextRuleFixture(t, manifest, "01912345-6789-7abc-8def-0123456789ab", "/receipt"),
+	}, []tobari.PolicyDenyRule{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	validation, err := runtime.testContextPolicyCandidate(
+		context.Background(), manifest, paths.PolicyDirectory, candidate,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	transaction, err := beginPolicySourceTransaction(paths.PolicyDirectory, original.sources, candidate.sources)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = transaction.rollback() })
+	if err := transaction.bindCandidateValidation(validation); err != nil {
+		t.Fatal(err)
+	}
+	transactions := map[string]*policySourceTransaction{paths.PolicyDirectory: transaction}
+	projection, err := runtime.buildAggregateProjectionWithTransactions(context.Background(), transactions)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := opaPolicyTestCallCount(runner.outputs); got != 2 {
+		t.Fatalf("OPA tests after first build = %d, want target preflight and aggregate candidate: %v", got, runner.outputs)
+	}
+	firstPolicy, firstOK := mountedPolicyTestDirectory(runner.outputs[0].args)
+	secondPolicy, secondOK := mountedPolicyTestDirectory(runner.outputs[1].args)
+	if !firstOK || !strings.Contains(filepath.Base(firstPolicy), "preflight-") ||
+		!secondOK || !strings.Contains(secondPolicy, filepath.Join("cluster-projections", ".candidate-")) {
+		t.Fatalf("first build did not retain target and aggregate-candidate OPA tests: %v", runner.outputs)
+	}
+	if !transaction.candidateValidationConsumed {
+		t.Fatal("matching candidate receipt was not consumed")
+	}
+	if _, err := runtime.buildAggregateProjectionWithTransactions(context.Background(), transactions); err != nil {
+		t.Fatal(err)
+	}
+	if got := opaPolicyTestCallCount(runner.outputs); got != 4 {
+		t.Fatalf("OPA tests after rebuild = %d, want per-Context retest and existing aggregate revalidation: %v", got, runner.outputs)
+	}
+	thirdPolicy, thirdOK := mountedPolicyTestDirectory(runner.outputs[2].args)
+	fourthPolicy, fourthOK := mountedPolicyTestDirectory(runner.outputs[3].args)
+	if !thirdOK || !strings.Contains(filepath.Base(thirdPolicy), "preflight-") ||
+		!fourthOK || fourthPolicy != projection.PolicyDirectory {
+		t.Fatalf("rebuild did not retain per-Context and existing-aggregate OPA tests: %v", runner.outputs)
+	}
+	if _, err := os.Stat(projection.PolicyDirectory); err != nil {
+		t.Fatalf("validated aggregate projection is unavailable: %v", err)
+	}
+}
+
+func TestAggregateReceiptMismatchRetestsAndRejectsInvalidContextPolicy(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	runner := &policyContentTestRunner{}
+	runtime, _ := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), runner)
+	if _, err := runtime.ListContexts(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runtime.CreateContext(
+		context.Background(), "advanced", tobari.OfficialRuntimeBase,
+		tobari.ContextPolicyModeAdvanced, tobari.ContextSourceAccessReadWrite,
+	); err != nil {
+		t.Fatal(err)
+	}
+	manifest, paths, err := runtime.resolveContext("advanced")
+	if err != nil {
+		t.Fatal(err)
+	}
+	original, err := readPolicyData(paths.PolicyDirectory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	candidate, err := original.withPolicyRules([]tobari.LearnedPolicyRule{
+		contextRuleFixture(t, manifest, "01912345-6789-7abc-8def-0123456789ab", "/invalid"),
+	}, []tobari.PolicyDenyRule{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	validation, err := runtime.testContextPolicyCandidate(
+		context.Background(), manifest, paths.PolicyDirectory, candidate,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	transaction, err := beginPolicySourceTransaction(paths.PolicyDirectory, original.sources, candidate.sources)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = transaction.rollback() })
+	if err := transaction.bindCandidateValidation(validation); err != nil {
+		t.Fatal(err)
+	}
+	beforeAggregate := runner.opaTests
+	invalidTests := []byte("package tobari.http\n\nINVALID_CANDIDATE\n")
+	if err := os.WriteFile(filepath.Join(paths.PolicyDirectory, "tobari_test.rego"), invalidTests, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err = runtime.buildAggregateProjectionWithTransactions(
+		context.Background(), map[string]*policySourceTransaction{paths.PolicyDirectory: transaction},
+	)
+	if err == nil || !strings.Contains(err.Error(), `Context "advanced" policy tests`) {
+		t.Fatalf("invalid candidate error = %v", err)
+	}
+	if runner.rejected != 1 || runner.opaTests <= beforeAggregate {
+		t.Fatalf("OPA tests=%d rejected=%d calls=%v", runner.opaTests, runner.rejected, runner.outputs)
+	}
+	if transaction.candidateValidationConsumed {
+		t.Fatal("mismatched receipt was consumed instead of re-testing the invalid candidate")
 	}
 }

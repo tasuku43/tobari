@@ -3,6 +3,7 @@ package dockerruntime
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -161,6 +162,16 @@ func (concurrentPolicyRunner) Output(_ context.Context, args, _ []string) ([]byt
 		return []byte(ownerValue + "\n"), nil
 	}
 	return nil, nil
+}
+
+func opaPolicyTestCallCount(calls []runnerCall) int {
+	count := 0
+	for _, call := range calls {
+		if len(call.args) >= 2 && call.args[len(call.args)-2] == "test" && call.args[len(call.args)-1] == "/policy" {
+			count++
+		}
+	}
+	return count
 }
 
 func contextRuleFixture(t *testing.T, manifest tobari.ContextManifest, projectID, path string) tobari.LearnedPolicyRule {
@@ -900,6 +911,43 @@ func TestPolicySourceTransactionCreatesBothDomainFilesAndRollsBack(t *testing.T)
 	}
 	if _, err := os.Lstat(filepath.Join(state.PolicyDirectory, policyDomainsName, "new.example.com")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("rolled-back domain remains visible: %v", err)
+	}
+}
+
+func TestPolicyCandidateValidationReceiptIsTransactionBoundAndSingleUse(t *testing.T) {
+	t.Parallel()
+	policyDirectory := filepath.Join(t.TempDir(), "policy")
+	candidateDigest := strings.Repeat("a", sha256.Size*2)
+	preflightDigest := strings.Repeat("b", sha256.Size*2)
+	transaction := &policySourceTransaction{
+		policyDirectory: policyDirectory,
+		journal:         policySourceJournal{CandidateDigest: candidateDigest},
+	}
+	if transaction.consumeCandidateValidation(policyDirectory, candidateDigest, preflightDigest) {
+		t.Fatal("missing validation receipt skipped the Context OPA test")
+	}
+	if err := transaction.bindCandidateValidation(policyCandidateValidationReceipt{
+		policyDirectory: policyDirectory,
+		candidateDigest: strings.Repeat("c", sha256.Size*2),
+		preflightDigest: preflightDigest,
+	}); err == nil {
+		t.Fatal("receipt for a different candidate was bound to the transaction")
+	}
+	if err := transaction.bindCandidateValidation(policyCandidateValidationReceipt{
+		policyDirectory: policyDirectory,
+		candidateDigest: candidateDigest,
+		preflightDigest: preflightDigest,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if transaction.consumeCandidateValidation(policyDirectory, candidateDigest, strings.Repeat("d", sha256.Size*2)) {
+		t.Fatal("mismatched preflight digest skipped the Context OPA test")
+	}
+	if !transaction.consumeCandidateValidation(policyDirectory, candidateDigest, preflightDigest) {
+		t.Fatal("matching validation receipt was not reused")
+	}
+	if transaction.consumeCandidateValidation(policyDirectory, candidateDigest, preflightDigest) {
+		t.Fatal("validation receipt was reused more than once")
 	}
 }
 

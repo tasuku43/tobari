@@ -715,6 +715,69 @@ func prepareContextPolicyPreflight(
 	return temporary, nil
 }
 
+type policyCandidateValidationReceipt struct {
+	policyDirectory string
+	candidateDigest string
+	preflightDigest string
+}
+
+func policyPreflightDigest(directory string) (string, error) {
+	if err := validateOwnerPolicyDirectory(directory); err != nil {
+		return "", err
+	}
+	entries, err := os.ReadDir(directory)
+	if err != nil {
+		return "", fmt.Errorf("read policy preflight directory: %w", err)
+	}
+	names := []string{"data.json", "tobari.rego", "tobari_test.rego"}
+	if len(entries) != len(names) {
+		return "", errors.New("policy preflight must contain exactly the reviewed policy files")
+	}
+	files := make(map[string][]byte, len(names))
+	remaining := maxPolicyPreflight
+	for index, name := range names {
+		if entries[index].Name() != name {
+			return "", fmt.Errorf("policy preflight contains unsupported file %q", entries[index].Name())
+		}
+		data, err := readOwnerPolicyFile(filepath.Join(directory, name), remaining)
+		if err != nil {
+			return "", err
+		}
+		remaining -= len(data)
+		files[name] = data
+	}
+	return policySourceDigest(files), nil
+}
+
+func (r *Runtime) testContextPolicyCandidate(
+	ctx context.Context, manifest tobari.ContextManifest, policyDirectory string, candidate policyDataFile,
+) (policyCandidateValidationReceipt, error) {
+	preflight, err := prepareContextPolicyPreflight(manifest, policyDirectory, candidate)
+	if err != nil {
+		return policyCandidateValidationReceipt{}, err
+	}
+	defer os.RemoveAll(preflight)
+	before, err := policyPreflightDigest(preflight)
+	if err != nil {
+		return policyCandidateValidationReceipt{}, err
+	}
+	if err := r.testPolicyDirectory(ctx, preflight); err != nil {
+		return policyCandidateValidationReceipt{}, err
+	}
+	after, err := policyPreflightDigest(preflight)
+	if err != nil {
+		return policyCandidateValidationReceipt{}, err
+	}
+	if before != after {
+		return policyCandidateValidationReceipt{}, fmt.Errorf("policy preflight changed while OPA tested it")
+	}
+	return policyCandidateValidationReceipt{
+		policyDirectory: policyDirectory,
+		candidateDigest: policySourceDigest(candidate.sources),
+		preflightDigest: before,
+	}, nil
+}
+
 const (
 	policySourceJournalSchema = 1
 	policySourcePhasePrepared = "prepared"
@@ -886,8 +949,36 @@ func writePolicyDomainsSnapshot(directory string, sources map[string][]byte) err
 }
 
 type policySourceTransaction struct {
-	policyDirectory string
-	journal         policySourceJournal
+	policyDirectory             string
+	journal                     policySourceJournal
+	candidateValidation         *policyCandidateValidationReceipt
+	candidateValidationConsumed bool
+}
+
+func (t *policySourceTransaction) bindCandidateValidation(receipt policyCandidateValidationReceipt) error {
+	if receipt.policyDirectory != t.policyDirectory ||
+		receipt.candidateDigest != t.journal.CandidateDigest ||
+		!validPolicyDigest(receipt.preflightDigest) {
+		return fmt.Errorf("candidate policy validation receipt does not match the source transaction")
+	}
+	t.candidateValidation = &receipt
+	t.candidateValidationConsumed = false
+	return nil
+}
+
+func (t *policySourceTransaction) consumeCandidateValidation(
+	policyDirectory, candidateDigest, preflightDigest string,
+) bool {
+	receipt := t.candidateValidation
+	if receipt == nil || t.candidateValidationConsumed ||
+		receipt.policyDirectory != policyDirectory ||
+		receipt.candidateDigest != candidateDigest ||
+		receipt.preflightDigest != preflightDigest ||
+		t.journal.CandidateDigest != candidateDigest {
+		return false
+	}
+	t.candidateValidationConsumed = true
+	return true
 }
 
 func (t *policySourceTransaction) verifyJournal() error {
@@ -1504,6 +1595,7 @@ func (r *Runtime) applyAggregatePolicyData(
 			policyDirectory string
 			original        map[string][]byte
 			candidate       map[string][]byte
+			validation      policyCandidateValidationReceipt
 		}
 		updates := make([]contextUpdate, 0, len(targetContexts))
 		for _, targetContext := range targetContexts {
@@ -1531,19 +1623,15 @@ func (r *Runtime) applyAggregatePolicyData(
 			if err != nil {
 				return err
 			}
-			preflight, err := prepareContextPolicyPreflight(manifest, paths.PolicyDirectory, data)
+			validation, err := r.testContextPolicyCandidate(ctx, manifest, paths.PolicyDirectory, data)
 			if err != nil {
-				return err
-			}
-			testErr := r.testPolicyDirectory(ctx, preflight)
-			_ = os.RemoveAll(preflight)
-			if testErr != nil {
-				return fault.Wrap(fault.KindRejected, "policy_preflight_failed", "candidate Context policy failed OPA tests", false, testErr)
+				return fault.Wrap(fault.KindRejected, "policy_preflight_failed", "candidate Context policy failed OPA tests", false, err)
 			}
 			updates = append(updates, contextUpdate{
 				policyDirectory: paths.PolicyDirectory,
 				original:        file.sources,
 				candidate:       data.sources,
+				validation:      validation,
 			})
 		}
 		transactions := make(map[string]*policySourceTransaction, len(updates))
@@ -1575,6 +1663,10 @@ func (r *Runtime) applyAggregatePolicyData(
 			transaction, beginErr := beginPolicySourceTransaction(update.policyDirectory, update.original, update.candidate)
 			if beginErr != nil {
 				return rollbackAfter(beginErr)
+			}
+			if bindErr := transaction.bindCandidateValidation(update.validation); bindErr != nil {
+				orderedTransactions = append(orderedTransactions, transaction)
+				return rollbackAfter(bindErr)
 			}
 			transactions[update.policyDirectory] = transaction
 			orderedTransactions = append(orderedTransactions, transaction)

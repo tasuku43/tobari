@@ -262,12 +262,27 @@ func (r *Runtime) buildAggregateProjectionWithTransactions(
 	dataContexts := map[string]any{}
 	gatewayContexts := map[string]any{}
 	hash := sha256.New()
+	validationReused := false
 	for _, item := range items {
 		preflight, err := prepareContextPolicyPreflight(item.manifest, item.paths.PolicyDirectory, item.policy)
 		if err != nil {
 			return aggregateProjection{}, fmt.Errorf("Context %q policy preflight: %w", item.manifest.Name, err)
 		}
-		testErr := r.testPolicyDirectory(ctx, preflight)
+		preflightDigest, digestErr := policyPreflightDigest(preflight)
+		if digestErr != nil {
+			_ = os.RemoveAll(preflight)
+			return aggregateProjection{}, fmt.Errorf("Context %q policy preflight digest: %w", item.manifest.Name, digestErr)
+		}
+		transaction := transactions[item.paths.PolicyDirectory]
+		reuseValidation := !validationReused && transaction != nil && transaction.consumeCandidateValidation(
+			item.paths.PolicyDirectory, policySourceDigest(item.policy.sources), preflightDigest,
+		)
+		var testErr error
+		if reuseValidation {
+			validationReused = true
+		} else {
+			testErr = r.testPolicyDirectory(ctx, preflight)
+		}
 		_ = os.RemoveAll(preflight)
 		if testErr != nil {
 			return aggregateProjection{}, fmt.Errorf("Context %q policy tests: %w", item.manifest.Name, testErr)
