@@ -303,9 +303,7 @@ func TestGenerateVersionsDerivesCommittedAuthorities(t *testing.T) {
 		"Gateway image API":     {"gateway/Dockerfile", `io\.tobari\.gateway-api="([0-9]+)"`},
 		"Gateway OPA input":     {"gateway/addon/tobari_gateway.py", `policy_input\s*=\s*\{\s*"schema_version":\s*([0-9]+),`},
 		"Auth Broker image API": {"authbroker/Dockerfile", `io\.tobari\.auth-broker-api="([0-9]+)"`},
-		"Auth Broker control/runtime protocol and vault envelope": {"authbroker/__init__.py", `(?m)^SCHEMA_VERSION\s*=\s*([0-9]+)$`},
-		"Encrypted Context vault payload":                         {"authbroker/vault.py", `(?m)^PAYLOAD_SCHEMA_VERSION\s*=\s*([0-9]+)$`},
-		"Private credential companion protocol":                   {"authbroker/companion_protocol.py", `(?m)^COMPANION_PROTOCOL_VERSION\s*=\s*([0-9]+)$`},
+		"Auth Broker control/runtime protocol and static vault": {"authbroker/__init__.py", `(?m)^SCHEMA_VERSION\s*=\s*([0-9]+)$`},
 	} {
 		want := captureIntForTest(t, committedForTest(t, root, authority[0]), authority[1])
 		if got := schemaForTest(t, document, contract).Version; got != want {

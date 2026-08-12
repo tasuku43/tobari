@@ -631,22 +631,6 @@ func generateVersions(root, sourceRef string, catalog catalogDocument) (componen
 	if err != nil {
 		return componentVersionDocument{}, err
 	}
-	authBrokerVault, err := committedFile(root, sourceRef, "authbroker/vault.py")
-	if err != nil {
-		return componentVersionDocument{}, err
-	}
-	vaultPayloadSchema, err := requiredInt(authBrokerVault, `(?m)^PAYLOAD_SCHEMA_VERSION\s*=\s*([0-9]+)$`, "Auth Broker vault payload schema")
-	if err != nil {
-		return componentVersionDocument{}, err
-	}
-	companionSource, err := committedFile(root, sourceRef, "authbroker/companion_protocol.py")
-	if err != nil {
-		return componentVersionDocument{}, err
-	}
-	companionProtocolSchema, err := requiredInt(companionSource, `(?m)^COMPANION_PROTOCOL_VERSION\s*=\s*([0-9]+)$`, "credential companion protocol schema")
-	if err != nil {
-		return componentVersionDocument{}, err
-	}
 	runtimeCatalogSource, err := committedFile(root, sourceRef, "internal/cli/runtime_catalog.go")
 	if err != nil {
 		return componentVersionDocument{}, err
@@ -705,9 +689,7 @@ func generateVersions(root, sourceRef string, catalog catalogDocument) (componen
 			{Contract: "Gateway image API", Version: gatewayImageAPI, Authority: "gateway/Dockerfile"},
 			{Contract: "Gateway OPA input", Version: gatewayOPAInputSchema, Authority: "gateway/addon/tobari_gateway.py"},
 			{Contract: "Auth Broker image API", Version: authBrokerImageAPI, Authority: "authbroker/Dockerfile"},
-			{Contract: "Auth Broker control/runtime protocol and vault envelope", Version: authBrokerProtocolSchema, Authority: "authbroker/__init__.py"},
-			{Contract: "Encrypted Context vault payload", Version: vaultPayloadSchema, Authority: "authbroker/vault.py"},
-			{Contract: "Private credential companion protocol", Version: companionProtocolSchema, Authority: "authbroker/companion_protocol.py"},
+			{Contract: "Auth Broker control/runtime protocol and static vault", Version: authBrokerProtocolSchema, Authority: "authbroker/__init__.py"},
 		},
 		Runtime: runtimeVersionContract{
 			DefaultSelector: defaultSelector,
