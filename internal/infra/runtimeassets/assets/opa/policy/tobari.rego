@@ -5,7 +5,6 @@ import rego.v1
 default decision := {
 	"allow": false,
 	"reason": "request did not match an allow rule",
-	"credential_profile": null,
 	"status_code": 403,
 	"learnable": false,
 }
@@ -13,7 +12,6 @@ default decision := {
 decision := {
 	"allow": false,
 	"reason": "request did not match an allow rule",
-	"credential_profile": requested_profile,
 	"status_code": 403,
 	"learnable": true,
 } if {
@@ -24,7 +22,6 @@ decision := {
 decision := {
 	"allow": true,
 	"reason": "allowed by policy",
-	"credential_profile": requested_profile,
 	"status_code": 403,
 	"learnable": false,
 } if {
@@ -32,7 +29,6 @@ decision := {
 	request_allowed
 }
 
-requested_profile := input.authorization.requested_profile
 broker_provider := input.authorization.broker_provider
 
 candidate_eligible if {
@@ -41,19 +37,10 @@ candidate_eligible if {
 	input.principal.cluster == "default"
 	project_principal_valid
 	transport_port_allowed
-	candidate_scheme_allowed
 	graphql_endpoints_valid
 	request_protocol_valid
 	authorization_shape_valid
-	credential_binding_valid
 	not explicitly_denied
-}
-
-request_allowed if {
-	ordinary_http_request
-	broker_provider == null
-	authority_allowed
-	method_allowed
 }
 
 request_allowed if {
@@ -76,44 +63,9 @@ transport_port_allowed if {
 	input.request.authority.port <= 65535
 }
 
-candidate_scheme_allowed if {
-	input.request.authority.scheme == "https"
-}
-
-candidate_scheme_allowed if {
-	input.request.authority.scheme == "http"
-	authority_allowed
-}
-
-candidate_scheme_allowed if {
-	input.request.authority.scheme == "http"
-	declared_graphql_endpoint
-}
-
-request_authority := authority if {
-	some authority in data.tobari.boundary.authorities
-	authority.scheme == input.request.authority.scheme
-	authority.host == input.request.authority.host
-	input.request.authority.port in authority.ports
-}
-
-authority_allowed if {
-	request_authority
-}
-
 authorization_shape_valid if {
-	object.keys(input.authorization) == {"broker_provider", "requested_profile"}
-	requested_profile_shape_valid
+	object.keys(input.authorization) == {"broker_provider"}
 	broker_provider_shape_valid
-}
-
-requested_profile_shape_valid if {
-	requested_profile == null
-}
-
-requested_profile_shape_valid if {
-	is_string(requested_profile)
-	requested_profile != ""
 }
 
 broker_provider_shape_valid if {
@@ -124,28 +76,6 @@ broker_provider_shape_valid if {
 	is_string(broker_provider)
 	count(broker_provider) <= 64
 	regex.match(`^[a-z0-9]+([._-][a-z0-9]+)*$`, broker_provider)
-}
-
-method_allowed if {
-	input.request.method in request_authority.methods.read
-}
-
-method_allowed if {
-	some rule in request_authority.methods.write
-	rule.method == input.request.method
-	not write_path_excluded(rule)
-}
-
-write_path_excluded(rule) if {
-	some prefix in rule.exclude_path_prefixes
-	startswith(input.request.path.raw, prefix)
-}
-
-explicitly_denied if {
-	some rule in data.tobari.rules.baseline_denies
-	rule.host == input.request.authority.host
-	rule.method == input.request.method
-	startswith(input.request.path.raw, rule.path_prefix)
 }
 
 explicitly_denied if {
@@ -262,16 +192,6 @@ learned_rule_scope_valid(rule) if {
 	every example in rule.examples {
 		example == rule.path
 	}
-}
-
-credential_binding_valid if {
-	requested_profile == null
-}
-
-credential_binding_valid if {
-	profile := requested_profile
-	profile != null
-	input.request.authority.host in data.tobari.credentials[profile].hosts
 }
 
 request_graphql := object.get(input.request, "graphql", null)

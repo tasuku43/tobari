@@ -1,9 +1,0 @@
-{
-  "schema_version": 1,
-  "host": "mock-upstream",
-  "baseline_rules": [
-    {"host": "mock-upstream", "method": "POST", "path_prefix": "/api/v1/"},
-    {"host": "mock-upstream", "method": "POST", "path_prefix": "/denied"}
-  ],
-  "rules": []
-}

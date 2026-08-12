@@ -19,11 +19,10 @@ class CredentialAdapterError(Exception):
 
 
 class PreparedCredentialRequest(Protocol):
-    requested_profile: str | None
     broker_provider: str | None
     secret_headers: set[str]
 
-    def apply(self, request: http.Request, selected_profile: str | None) -> str | None: ...
+    def apply(self, request: http.Request) -> None: ...
 
 
 class CredentialAdapter(Protocol):
@@ -37,7 +36,6 @@ class CredentialAdapter(Protocol):
 
 @dataclass
 class _PassthroughRequest:
-    requested_profile: str | None = None
     broker_provider: str | None = None
     secret_headers: set[str] | None = None
 
@@ -45,12 +43,9 @@ class _PassthroughRequest:
         if self.secret_headers is None:
             self.secret_headers = set(DEFAULT_SECRET_HEADERS)
 
-    def apply(self, request: http.Request, selected_profile: str | None) -> str | None:
-        if selected_profile is not None:
-            raise CredentialAdapterError("managed credential profiles are not supported")
+    def apply(self, request: http.Request) -> None:
         for name in {"proxy-authorization"} | set(CONTROL_HEADERS):
             request.headers.pop(name, None)
-        return None
 
 
 class PassthroughCredentialAdapter:

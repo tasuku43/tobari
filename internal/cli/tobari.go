@@ -712,45 +712,43 @@ type clusterDenialsOutput struct {
 }
 
 type policyDenialOutput struct {
-	Timestamp            string  `json:"timestamp"`
-	RequestID            string  `json:"request_id"`
-	ContextID            string  `json:"context_id"`
-	Context              string  `json:"context"`
-	ProjectID            string  `json:"project_id"`
-	ProjectRoot          string  `json:"project_root"`
-	Host                 string  `json:"host"`
-	Port                 int     `json:"port"`
-	Method               string  `json:"method"`
-	Path                 string  `json:"path"`
-	Protocol             string  `json:"protocol"`
-	GraphQLOperationType string  `json:"graphql_operation_type"`
-	GraphQLRootField     string  `json:"graphql_root_field"`
-	Reason               string  `json:"reason"`
-	StatusCode           int     `json:"status_code"`
-	Learnable            bool    `json:"learnable"`
-	CredentialProfile    *string `json:"credential_profile"`
+	Timestamp            string `json:"timestamp"`
+	RequestID            string `json:"request_id"`
+	ContextID            string `json:"context_id"`
+	Context              string `json:"context"`
+	ProjectID            string `json:"project_id"`
+	ProjectRoot          string `json:"project_root"`
+	Host                 string `json:"host"`
+	Port                 int    `json:"port"`
+	Method               string `json:"method"`
+	Path                 string `json:"path"`
+	Protocol             string `json:"protocol"`
+	GraphQLOperationType string `json:"graphql_operation_type"`
+	GraphQLRootField     string `json:"graphql_root_field"`
+	Reason               string `json:"reason"`
+	StatusCode           int    `json:"status_code"`
+	Learnable            bool   `json:"learnable"`
 }
 
 type policyCandidateOutput struct {
-	ID                   string  `json:"id"`
-	ObservedAt           string  `json:"observed_at"`
-	ObservationCount     int     `json:"observation_count"`
-	ContextID            string  `json:"context_id"`
-	Context              string  `json:"context"`
-	ProjectID            string  `json:"project_id"`
-	ProjectRoot          string  `json:"project_root"`
-	Host                 string  `json:"host"`
-	Port                 int     `json:"port"`
-	Method               string  `json:"method"`
-	Path                 string  `json:"path"`
-	Protocol             string  `json:"protocol"`
-	GraphQLOperationType string  `json:"graphql_operation_type"`
-	GraphQLRootField     string  `json:"graphql_root_field"`
-	Reason               string  `json:"reason"`
-	StatusCode           int     `json:"status_code"`
-	CredentialProfile    *string `json:"credential_profile"`
-	AllowCommand         string  `json:"allow_command"`
-	DenyCommand          string  `json:"deny_command"`
+	ID                   string `json:"id"`
+	ObservedAt           string `json:"observed_at"`
+	ObservationCount     int    `json:"observation_count"`
+	ContextID            string `json:"context_id"`
+	Context              string `json:"context"`
+	ProjectID            string `json:"project_id"`
+	ProjectRoot          string `json:"project_root"`
+	Host                 string `json:"host"`
+	Port                 int    `json:"port"`
+	Method               string `json:"method"`
+	Path                 string `json:"path"`
+	Protocol             string `json:"protocol"`
+	GraphQLOperationType string `json:"graphql_operation_type"`
+	GraphQLRootField     string `json:"graphql_root_field"`
+	Reason               string `json:"reason"`
+	StatusCode           int    `json:"status_code"`
+	AllowCommand         string `json:"allow_command"`
+	DenyCommand          string `json:"deny_command"`
 }
 
 type policyCandidatesDocument struct {
@@ -825,16 +823,12 @@ func renderPolicyCandidatesWithColor(
 	var output bytes.Buffer
 	for _, item := range result.Items {
 		action := allowCommand + " --id " + item.ID
-		profile := "none"
-		if item.CredentialProfile != nil {
-			profile = *item.CredentialProfile
-		}
 		fmt.Fprintf(
 			&output,
-			"id=%s\tobserved_at=%s\tobservation_count=%d\tcontext_id=%s\tcontext=%s\tproject_id=%s\tproject_root=%s\thost=%s\tport=%d\tmethod=%s\tpath=%s\treason=%s\tstatus_code=%d\tcredential_profile=%s\tallow_command=%s\tdeny_command=%s\tprotocol=%s\tgraphql_operation_type=%s\tgraphql_root_field=%s\n",
+			"id=%s\tobserved_at=%s\tobservation_count=%d\tcontext_id=%s\tcontext=%s\tproject_id=%s\tproject_root=%s\thost=%s\tport=%d\tmethod=%s\tpath=%s\treason=%s\tstatus_code=%d\tallow_command=%s\tdeny_command=%s\tprotocol=%s\tgraphql_operation_type=%s\tgraphql_root_field=%s\n",
 			item.ID, escapeTSVCell(item.ObservedAt), item.EffectiveObservationCount(), item.ContextID, escapeTSVCell(item.ContextName), item.ProjectID, escapeTSVCell(item.ProjectRoot), escapeTSVCell(item.Host),
 			item.Port, escapeTSVCell(item.Method), escapeTSVCell(item.Path), escapeTSVCell(item.Reason),
-			item.StatusCode, escapeTSVCell(profile), escapeTSVCell(action), escapeTSVCell(denyCommand+" --id "+item.ID),
+			item.StatusCode, escapeTSVCell(action), escapeTSVCell(denyCommand+" --id "+item.ID),
 			escapeTSVCell(item.EffectiveProtocol()), escapeTSVCell(item.GraphQLOperationType), escapeTSVCell(item.GraphQLRootField),
 		)
 	}
@@ -853,11 +847,10 @@ func policyCandidateOutputs(
 			Host: safeExternalText(item.Host), Port: item.Port, Method: safeExternalText(item.Method),
 			Path: safeExternalText(item.Path), Protocol: safeExternalText(item.EffectiveProtocol()),
 			GraphQLOperationType: safeExternalText(item.GraphQLOperationType), GraphQLRootField: safeExternalText(item.GraphQLRootField),
-			Reason:            safeExternalText(item.Reason),
-			StatusCode:        item.StatusCode,
-			CredentialProfile: safeOptionalExternalText(item.CredentialProfile),
-			AllowCommand:      allowCommand + " --id " + item.ID,
-			DenyCommand:       denyCommand + " --id " + item.ID,
+			Reason:       safeExternalText(item.Reason),
+			StatusCode:   item.StatusCode,
+			AllowCommand: allowCommand + " --id " + item.ID,
+			DenyCommand:  denyCommand + " --id " + item.ID,
 		})
 	}
 	return items
@@ -892,11 +885,6 @@ func renderPolicyCandidatesHuman(result tobari.PolicyCandidateReport, allowComma
 		output.row("Latest", safeExternalText(item.ObservedAt), styleText)
 		output.row("Reason", safeExternalText(item.Reason), styleDanger)
 		output.row("Status", fmt.Sprintf("%d", item.StatusCode), styleDanger)
-		profile := "none"
-		if item.CredentialProfile != nil {
-			profile = safeExternalText(*item.CredentialProfile)
-		}
-		output.row("Credential", profile, styleText)
 		output.row("Allow", allowCommand+" --id "+item.ID, styleAccent)
 		output.row("Deny", pairedPolicyCommand(allowCommand, "allow", "deny")+" --id "+item.ID, styleAccent)
 	}
@@ -1233,7 +1221,7 @@ func renderClusterDenialsWithReviewCommand(
 				Host: safeExternalText(item.Host), Port: item.Port, Method: safeExternalText(item.Method), Path: safeExternalText(item.Path),
 				Protocol: safeExternalText(item.EffectiveProtocol()), GraphQLOperationType: safeExternalText(item.GraphQLOperationType),
 				GraphQLRootField: safeExternalText(item.GraphQLRootField), Reason: safeExternalText(item.Reason), StatusCode: item.StatusCode,
-				Learnable: item.Learnable, CredentialProfile: safeOptionalExternalText(item.CredentialProfile),
+				Learnable: item.Learnable,
 			})
 		}
 		output, err := marshalCommandJSON("cluster denials", clusterDenialsDocument{

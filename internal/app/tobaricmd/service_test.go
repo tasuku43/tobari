@@ -171,9 +171,7 @@ func (f *fakeRuntime) ReadLearnedPolicyRules(
 	return append([]tobari.LearnedPolicyRule{}, f.rules...), nil
 }
 func (f *fakeRuntime) ReadPolicyDenyRules(context.Context, tobari.State) (tobari.PolicyDenyRuleSet, error) {
-	return tobari.PolicyDenyRuleSet{
-		Baseline: []tobari.PolicyBaselineDenyRule{}, Exact: append([]tobari.PolicyDenyRule{}, f.denyRules...),
-	}, nil
+	return tobari.PolicyDenyRuleSet{Exact: append([]tobari.PolicyDenyRule{}, f.denyRules...)}, nil
 }
 func (f *fakeRuntime) ApplyLearnedPolicyRules(
 	_ context.Context, _ tobari.State, _, updated []tobari.LearnedPolicyRule,

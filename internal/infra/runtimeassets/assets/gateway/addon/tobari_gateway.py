@@ -19,7 +19,6 @@ from mitmproxy import http
 from credential_adapters import (
     CONTROL_HEADERS,
     DEFAULT_SECRET_HEADERS,
-    PROFILE_HEADER,
     CredentialAdapterError,
     PassthroughCredentialAdapter,
 )
@@ -42,7 +41,6 @@ MAX_PRINCIPAL_CONFIG_BYTES = 256 * 1024
 PROJECT_ID_PATTERN = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
 )
-_REQUESTED_PROFILE_UNSET = object()
 _SECRET_HEADER_MARKERS = (
     "authorization",
     "api-key",
@@ -61,10 +59,6 @@ class PolicyUnavailable(Exception):
 
 class CredentialError(Exception):
     """A selected credential could not be injected safely."""
-
-
-class CredentialBindingError(CredentialError):
-    """A credential profile is not authorized for the established project."""
 
 
 class PrincipalError(Exception):
@@ -226,19 +220,17 @@ def resolve_upstream_address(host: str, port: int) -> tuple[str, int]:
 class Decision:
     """Validated OPA decision compatible with mitmproxy's script loader."""
 
-    __slots__ = ("allow", "reason", "credential_profile", "status_code", "learnable")
+    __slots__ = ("allow", "reason", "status_code", "learnable")
 
     def __init__(
         self,
         allow: bool,
         reason: str,
-        credential_profile: str | None,
         status_code: int,
         learnable: bool,
     ) -> None:
         self.allow = allow
         self.reason = reason
-        self.credential_profile = credential_profile
         self.status_code = status_code
         self.learnable = learnable
 
@@ -394,7 +386,6 @@ def build_policy_input(
     cluster: str,
     principal: dict[str, str],
     extra_secret_names: set[str],
-    requested_profile: str | None | object = _REQUESTED_PROFILE_UNSET,
     broker_provider: str | None = None,
     graphql: ParsedGraphQLRequest | None = None,
 ) -> dict[str, Any]:
@@ -402,8 +393,6 @@ def build_policy_input(
     split = urlsplit(request.url)
     scheme, host, port = request_authority(flow)
     path = split.path or "/"
-    if requested_profile is _REQUESTED_PROFILE_UNSET:
-        requested_profile = request.headers.get(PROFILE_HEADER)
     secret_names = set(DEFAULT_SECRET_HEADERS) | extra_secret_names
     policy_input = {
         "schema_version": 1,
@@ -427,7 +416,6 @@ def build_policy_input(
             "headers": _headers_for_policy(request.headers, secret_names),
         },
         "authorization": {
-            "requested_profile": requested_profile,
             "broker_provider": broker_provider,
         },
     }
@@ -445,11 +433,10 @@ def _parse_decision(document: Any) -> Decision:
     result = document["result"]
     allow = result.get("allow")
     reason = result.get("reason")
-    profile = result.get("credential_profile")
+    if set(result) != {"allow", "reason", "status_code", "learnable"}:
+        raise PolicyUnavailable("OPA result has an invalid shape")
     if not isinstance(allow, bool) or not isinstance(reason, str) or not reason:
         raise PolicyUnavailable("OPA result has invalid allow or reason")
-    if profile is not None and (not isinstance(profile, str) or not profile):
-        raise PolicyUnavailable("OPA result has invalid credential_profile")
     status = result.get("status_code")
     if not isinstance(status, int) or status != 403:
         raise PolicyUnavailable("OPA result has invalid status_code")
@@ -461,7 +448,6 @@ def _parse_decision(document: Any) -> Decision:
     return Decision(
         allow=allow,
         reason=reason,
-        credential_profile=profile,
         status_code=status,
         learnable=learnable,
     )
@@ -585,7 +571,7 @@ def graphql_endpoint_declared(
 
     context = config.get("contexts", {}).get(context_id)
     if not isinstance(context, dict):
-        raise CredentialBindingError("Gateway Context is not established")
+        raise CredentialError("Gateway Context is not established")
     return any(
         endpoint == {"scheme": scheme, "host": host, "port": port, "path": path}
         for endpoint in context.get("graphql_endpoints", [])
@@ -730,7 +716,6 @@ class TobariGateway:
         started = time.monotonic()
         request_id = uuid.uuid4().hex
         scheme, host, port = "", "", 0
-        profile_name: str | None = None
         project_id: str | None = None
         context_id: str | None = None
         context_name: str | None = None
@@ -758,7 +743,6 @@ class TobariGateway:
             credential_request = self.credential_adapter.prepare(
                 flow.request, scheme, host, port, context_id, project_id
             )
-            profile_name = credential_request.requested_profile
             if graphql_endpoint_declared(
                 self.graphql_config,
                 context_id,
@@ -790,20 +774,16 @@ class TobariGateway:
                 self.cluster,
                 principal,
                 credential_request.secret_headers,
-                profile_name,
                 credential_request.broker_provider,
             )
             decision = query_opa(self.opa_url, policy_input, self.opa_timeout)
             reason = decision.reason
-            profile_name = decision.credential_profile
             learnable = decision.learnable
             if not decision.allow:
                 _policy_denied(flow, decision.status_code, learnable)
                 upstream_status = decision.status_code
                 return
-            profile_name = credential_request.apply(
-                flow.request, decision.credential_profile
-            )
+            credential_request.apply(flow.request)
             decision_name = "allow"
             flow.metadata["tobari_audit"] = {
                 "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
@@ -821,7 +801,6 @@ class TobariGateway:
                 "protocol": "http",
                 "decision": decision_name,
                 "reason": reason,
-                "credential_profile": profile_name,
                 "learnable": learnable,
                 "started": started,
             }
@@ -836,10 +815,6 @@ class TobariGateway:
             reason = str(error)
             _deny(flow, 503, "policy_unavailable")
             upstream_status = 503
-        except CredentialBindingError as error:
-            reason = str(error)
-            _deny(flow, 403, "credential_profile_not_bound")
-            upstream_status = 403
         except BrokerCredentialBindingError as error:
             reason = str(error)
             _deny(flow, 403, "credential_handle_invalid")
@@ -885,7 +860,6 @@ class TobariGateway:
                     protocol="http",
                     decision=decision_name,
                     reason=reason,
-                    credential_profile=profile_name,
                     learnable=learnable,
                     upstream_status=upstream_status,
                     duration_ms=int((time.monotonic() - started) * 1000),
@@ -902,7 +876,6 @@ class TobariGateway:
         port = pending["port"]
         audit_path = pending["audit_path"]
         parsed: ParsedGraphQLRequest | None = None
-        profile_name = credential_request.requested_profile
 
         def audit_failure(
             status: int, code: str, reason: str, learnable: bool = False
@@ -923,7 +896,6 @@ class TobariGateway:
                 "protocol": "http",
                 "decision": "deny",
                 "reason": reason,
-                "credential_profile": profile_name,
                 "learnable": learnable,
                 "upstream_status": status,
                 "duration_ms": int((time.monotonic() - started) * 1000),
@@ -952,12 +924,10 @@ class TobariGateway:
                 self.cluster,
                 principal,
                 credential_request.secret_headers,
-                profile_name,
                 credential_request.broker_provider,
                 parsed,
             )
             decision = query_opa(self.opa_url, policy_input, self.opa_timeout)
-            profile_name = decision.credential_profile
             if not decision.allow:
                 audit_failure(
                     decision.status_code,
@@ -966,9 +936,7 @@ class TobariGateway:
                     decision.learnable,
                 )
                 return
-            profile_name = credential_request.apply(
-                flow.request, decision.credential_profile
-            )
+            credential_request.apply(flow.request)
             commit_upstream_authority(flow)
             base = {
                 "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
@@ -986,7 +954,6 @@ class TobariGateway:
                 "protocol": "http",
                 "decision": "allow",
                 "reason": decision.reason,
-                "credential_profile": profile_name,
                 "learnable": False,
                 "started": started,
             }
@@ -995,8 +962,6 @@ class TobariGateway:
             audit_failure(400, error.code, str(error))
         except PolicyUnavailable as error:
             audit_failure(503, "policy_unavailable", str(error))
-        except CredentialBindingError as error:
-            audit_failure(403, "credential_profile_not_bound", str(error))
         except BrokerCredentialBindingError as error:
             audit_failure(403, "credential_handle_invalid", str(error))
         except BrokerCredentialUnavailable as error:

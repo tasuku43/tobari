@@ -35,52 +35,26 @@ const (
 )
 
 type policyDataFile struct {
-	rules             []tobari.LearnedPolicyRule
-	baselineDenyRules []tobari.PolicyBaselineDenyRule
-	denyRules         []tobari.PolicyDenyRule
-	graphqlEndpoints  []tobari.GraphQLEndpoint
-	allows            map[string]policyDomainAllow
-	denies            map[string]policyDomainDeny
-	sources           map[string][]byte
-	source            []byte
-}
-
-type policyDomainAuthority struct {
-	Scheme string `json:"scheme"`
-	Host   string `json:"host"`
-	Ports  []int  `json:"ports"`
-}
-
-type policyDomainCredentialBinding struct {
-	Profile string `json:"profile"`
-	Host    string `json:"host"`
-}
-
-type policyDomainMethods struct {
-	Read  []string                  `json:"read"`
-	Write []policyDomainWriteMethod `json:"write"`
-}
-
-type policyDomainWriteMethod struct {
-	Method              string   `json:"method"`
-	ExcludePathPrefixes []string `json:"exclude_path_prefixes"`
+	rules            []tobari.LearnedPolicyRule
+	denyRules        []tobari.PolicyDenyRule
+	graphqlEndpoints []tobari.GraphQLEndpoint
+	allows           map[string]policyDomainAllow
+	denies           map[string]policyDomainDeny
+	sources          map[string][]byte
+	source           []byte
 }
 
 type policyDomainAllow struct {
-	SchemaVersion      int                             `json:"schema_version"`
-	Host               string                          `json:"host"`
-	Authorities        []policyDomainAuthority         `json:"authorities"`
-	Methods            policyDomainMethods             `json:"methods"`
-	GraphQLEndpoints   []tobari.GraphQLEndpoint        `json:"graphql_endpoints"`
-	CredentialProfiles []policyDomainCredentialBinding `json:"credential_profiles"`
-	Rules              []tobari.LearnedPolicyRule      `json:"rules"`
+	SchemaVersion    int                        `json:"schema_version"`
+	Host             string                     `json:"host"`
+	GraphQLEndpoints []tobari.GraphQLEndpoint   `json:"graphql_endpoints"`
+	Rules            []tobari.LearnedPolicyRule `json:"rules"`
 }
 
 type policyDomainDeny struct {
-	SchemaVersion int                             `json:"schema_version"`
-	Host          string                          `json:"host"`
-	BaselineRules []tobari.PolicyBaselineDenyRule `json:"baseline_rules"`
-	Rules         []tobari.PolicyDenyRule         `json:"rules"`
+	SchemaVersion int                     `json:"schema_version"`
+	Host          string                  `json:"host"`
+	Rules         []tobari.PolicyDenyRule `json:"rules"`
 }
 
 func validateNoDuplicateJSONKeys(data []byte) error {
@@ -241,61 +215,8 @@ func validateDomainAllow(document policyDomainAllow, domain string) error {
 	if document.SchemaVersion != policySchemaVersion || document.Host != domain {
 		return fmt.Errorf("allow.json must use schema_version %d and match host %q", policySchemaVersion, domain)
 	}
-	if document.Authorities == nil || document.Methods.Read == nil || document.Methods.Write == nil ||
-		document.GraphQLEndpoints == nil || document.CredentialProfiles == nil || document.Rules == nil {
+	if document.GraphQLEndpoints == nil || document.Rules == nil {
 		return fmt.Errorf("allow.json collections must be explicit arrays")
-	}
-	seenAuthorities := map[string]struct{}{}
-	for _, authority := range document.Authorities {
-		if (authority.Scheme != "http" && authority.Scheme != "https") || authority.Host != domain {
-			return fmt.Errorf("allow.json authority must have a valid scheme and match host %q", domain)
-		}
-		if authority.Ports == nil || len(authority.Ports) == 0 {
-			return fmt.Errorf("allow.json authority ports must be a non-empty array")
-		}
-		previous := 0
-		for _, port := range authority.Ports {
-			if port < 1 || port > 65535 || port <= previous {
-				return fmt.Errorf("allow.json authority ports must be sorted unique valid ports")
-			}
-			previous = port
-		}
-		key := authority.Scheme + "\x00" + authority.Host
-		if _, duplicate := seenAuthorities[key]; duplicate {
-			return fmt.Errorf("allow.json contains a duplicate authority scheme")
-		}
-		seenAuthorities[key] = struct{}{}
-	}
-	seenMethods := map[string]struct{}{}
-	for _, method := range document.Methods.Read {
-		if method == "" || len(method) > 32 || containsSpaceOrControl(method) || method != strings.ToUpper(method) {
-			return fmt.Errorf("allow.json read method is invalid")
-		}
-		if _, duplicate := seenMethods[method]; duplicate {
-			return fmt.Errorf("allow.json contains a duplicate read method")
-		}
-		seenMethods[method] = struct{}{}
-	}
-	for _, write := range document.Methods.Write {
-		method := write.Method
-		if method == "" || len(method) > 32 || containsSpaceOrControl(method) || method != strings.ToUpper(method) {
-			return fmt.Errorf("allow.json write method is invalid")
-		}
-		if write.ExcludePathPrefixes == nil {
-			return fmt.Errorf("allow.json write method exclude_path_prefixes must be an array")
-		}
-		previousPrefix := ""
-		for index, prefix := range write.ExcludePathPrefixes {
-			if !strings.HasPrefix(prefix, "/") || containsSpaceOrControl(prefix) ||
-				(index > 0 && prefix <= previousPrefix) {
-				return fmt.Errorf("allow.json write method path prefix is invalid")
-			}
-			previousPrefix = prefix
-		}
-		if _, duplicate := seenMethods[method]; duplicate {
-			return fmt.Errorf("allow.json contains a duplicate method")
-		}
-		seenMethods[method] = struct{}{}
 	}
 	seenEndpoints := map[tobari.GraphQLEndpoint]struct{}{}
 	for _, endpoint := range document.GraphQLEndpoints {
@@ -306,14 +227,6 @@ func validateDomainAllow(document policyDomainAllow, domain string) error {
 			return fmt.Errorf("allow.json contains a duplicate GraphQL endpoint")
 		}
 		seenEndpoints[endpoint] = struct{}{}
-	}
-	previousProfile := ""
-	for index, binding := range document.CredentialProfiles {
-		if binding.Profile == "" || len(binding.Profile) > 96 || containsSpaceOrControl(binding.Profile) ||
-			binding.Host != domain || (index > 0 && binding.Profile <= previousProfile) {
-			return fmt.Errorf("allow.json credential profile bindings must be sorted unique names for host %q", domain)
-		}
-		previousProfile = binding.Profile
 	}
 	for _, rule := range document.Rules {
 		if rule.Host != domain {
@@ -330,20 +243,15 @@ func validateDomainDeny(document policyDomainDeny, domain string) error {
 	if document.SchemaVersion != policySchemaVersion || document.Host != domain {
 		return fmt.Errorf("deny.json must use schema_version %d and match host %q", policySchemaVersion, domain)
 	}
-	if document.BaselineRules == nil || document.Rules == nil {
+	if document.Rules == nil {
 		return fmt.Errorf("deny.json collections must be explicit arrays")
-	}
-	for _, rule := range document.BaselineRules {
-		if err := rule.Validate(); err != nil || rule.Host != domain {
-			return fmt.Errorf("deny.json baseline rule must be valid and match its domain")
-		}
 	}
 	for _, rule := range document.Rules {
 		if rule.Host != domain {
 			return fmt.Errorf("deny.json exact rule host must match its domain")
 		}
 	}
-	set := tobari.PolicyDenyRuleSet{Baseline: document.BaselineRules, Exact: document.Rules}
+	set := tobari.PolicyDenyRuleSet{Exact: document.Rules}
 	if err := set.Validate(); err != nil {
 		return fmt.Errorf("deny.json rules: %w", err)
 	}
@@ -364,11 +272,8 @@ func composePolicyData(allows map[string]policyDomainAllow, denies map[string]po
 		domains = append(domains, domain)
 	}
 	sort.Strings(domains)
-	authorities := make([]map[string]any, 0)
 	endpoints := make([]tobari.GraphQLEndpoint, 0)
-	credentials := map[string]map[string][]string{}
 	learnedAllows := make([]tobari.LearnedPolicyRule, 0)
-	baselineDenies := make([]tobari.PolicyBaselineDenyRule, 0)
 	learnedDenies := make([]tobari.PolicyDenyRule, 0)
 	for _, domain := range domains {
 		allow := allows[domain]
@@ -376,23 +281,8 @@ func composePolicyData(allows map[string]policyDomainAllow, denies map[string]po
 		if !exists {
 			return nil, fmt.Errorf("policy domain %q is missing deny.json", domain)
 		}
-		methods := map[string]any{"read": allow.Methods.Read, "write": allow.Methods.Write}
-		for _, authority := range allow.Authorities {
-			authorities = append(authorities, map[string]any{
-				"scheme": authority.Scheme, "host": authority.Host, "ports": authority.Ports, "methods": methods,
-			})
-		}
 		endpoints = append(endpoints, allow.GraphQLEndpoints...)
-		for _, profileBinding := range allow.CredentialProfiles {
-			binding, exists := credentials[profileBinding.Profile]
-			if !exists {
-				binding = map[string][]string{"hosts": {}}
-				credentials[profileBinding.Profile] = binding
-			}
-			binding["hosts"] = append(binding["hosts"], profileBinding.Host)
-		}
 		learnedAllows = append(learnedAllows, allow.Rules...)
-		baselineDenies = append(baselineDenies, deny.BaselineRules...)
 		learnedDenies = append(learnedDenies, deny.Rules...)
 	}
 	if len(denies) != len(allows) {
@@ -407,24 +297,21 @@ func composePolicyData(allows map[string]policyDomainAllow, denies map[string]po
 	sort.Slice(learnedDenies, func(i, j int) bool { return learnedDenies[i].ID < learnedDenies[j].ID })
 	document := map[string]any{"tobari": map[string]any{
 		"schema_version": policySchemaVersion,
-		"boundary":       map[string]any{"authorities": authorities, "graphql_endpoints": endpoints},
-		"credentials":    credentials,
+		"boundary":       map[string]any{"graphql_endpoints": endpoints},
 		"rules": map[string]any{
-			"baseline_denies": baselineDenies, learnedPolicyDataName: learnedAllows, learnedDenyDataName: learnedDenies,
+			learnedPolicyDataName: learnedAllows, learnedDenyDataName: learnedDenies,
 		},
 	}}
 	return marshalPolicySource(document)
 }
 
 func emptyDomainAllow(domain string) policyDomainAllow {
-	return policyDomainAllow{SchemaVersion: policySchemaVersion, Host: domain, Authorities: []policyDomainAuthority{},
-		Methods: policyDomainMethods{Read: []string{}, Write: []policyDomainWriteMethod{}}, GraphQLEndpoints: []tobari.GraphQLEndpoint{},
-		CredentialProfiles: []policyDomainCredentialBinding{}, Rules: []tobari.LearnedPolicyRule{}}
+	return policyDomainAllow{SchemaVersion: policySchemaVersion, Host: domain,
+		GraphQLEndpoints: []tobari.GraphQLEndpoint{}, Rules: []tobari.LearnedPolicyRule{}}
 }
 
 func emptyDomainDeny(domain string) policyDomainDeny {
-	return policyDomainDeny{SchemaVersion: policySchemaVersion, Host: domain,
-		BaselineRules: []tobari.PolicyBaselineDenyRule{}, Rules: []tobari.PolicyDenyRule{}}
+	return policyDomainDeny{SchemaVersion: policySchemaVersion, Host: domain, Rules: []tobari.PolicyDenyRule{}}
 }
 
 func readPolicyData(policyDirectory string) (policyDataFile, error) {
@@ -513,8 +400,7 @@ func readPolicyDomains(domainsDirectory string) (policyDataFile, error) {
 	}
 	file := policyDataFile{
 		allows: map[string]policyDomainAllow{}, denies: map[string]policyDomainDeny{}, sources: map[string][]byte{},
-		rules: []tobari.LearnedPolicyRule{}, baselineDenyRules: []tobari.PolicyBaselineDenyRule{},
-		denyRules: []tobari.PolicyDenyRule{}, graphqlEndpoints: []tobari.GraphQLEndpoint{},
+		rules: []tobari.LearnedPolicyRule{}, denyRules: []tobari.PolicyDenyRule{}, graphqlEndpoints: []tobari.GraphQLEndpoint{},
 	}
 	total := 0
 	for _, entry := range entries {
@@ -564,14 +450,13 @@ func readPolicyDomains(domainsDirectory string) (policyDataFile, error) {
 		file.sources[filepath.Join(policyDomainsName, domain, policyDenyFileName)] = append([]byte{}, denyData...)
 		file.rules = append(file.rules, allow.Rules...)
 		file.graphqlEndpoints = append(file.graphqlEndpoints, allow.GraphQLEndpoints...)
-		file.baselineDenyRules = append(file.baselineDenyRules, deny.BaselineRules...)
 		file.denyRules = append(file.denyRules, deny.Rules...)
 	}
 	sort.Slice(file.rules, func(i, j int) bool { return file.rules[i].ID < file.rules[j].ID })
 	if err := tobari.ValidateLearnedPolicyRules(file.rules); err != nil {
 		return policyDataFile{}, fmt.Errorf("validate learned allows: %w", err)
 	}
-	set := tobari.PolicyDenyRuleSet{Baseline: file.baselineDenyRules, Exact: file.denyRules}
+	set := tobari.PolicyDenyRuleSet{Exact: file.denyRules}
 	if err := set.Validate(); err != nil {
 		return policyDataFile{}, fmt.Errorf("validate deny rules: %w", err)
 	}
@@ -587,7 +472,7 @@ func (f policyDataFile) withPolicyRules(rules []tobari.LearnedPolicyRule, denyRu
 	if err := tobari.ValidateLearnedPolicyRules(rules); err != nil {
 		return policyDataFile{}, err
 	}
-	denySet := tobari.PolicyDenyRuleSet{Baseline: f.baselineDenyRules, Exact: denyRules}
+	denySet := tobari.PolicyDenyRuleSet{Exact: denyRules}
 	if err := denySet.Validate(); err != nil {
 		return policyDataFile{}, err
 	}
@@ -659,7 +544,6 @@ func (f policyDataFile) withPolicyRules(rules []tobari.LearnedPolicyRule, denyRu
 	}
 	result.rules = append([]tobari.LearnedPolicyRule{}, rules...)
 	result.denyRules = append([]tobari.PolicyDenyRule{}, denyRules...)
-	result.baselineDenyRules = append([]tobari.PolicyBaselineDenyRule{}, f.baselineDenyRules...)
 	for _, domain := range domains {
 		result.graphqlEndpoints = append(result.graphqlEndpoints, result.allows[domain].GraphQLEndpoints...)
 	}
@@ -726,25 +610,18 @@ func (r *Runtime) ReadPolicyDenyRules(
 		if err != nil {
 			return tobari.PolicyDenyRuleSet{}, err
 		}
-		result := tobari.PolicyDenyRuleSet{
-			Baseline: append([]tobari.PolicyBaselineDenyRule{}, file.baselineDenyRules...),
-			Exact:    append([]tobari.PolicyDenyRule{}, file.denyRules...),
-		}
+		result := tobari.PolicyDenyRuleSet{Exact: append([]tobari.PolicyDenyRule{}, file.denyRules...)}
 		return result, result.Validate()
 	}
 	contexts, err := r.readAggregateContexts(ctx)
 	if err != nil {
 		return tobari.PolicyDenyRuleSet{}, err
 	}
-	result := tobari.PolicyDenyRuleSet{Baseline: []tobari.PolicyBaselineDenyRule{}, Exact: []tobari.PolicyDenyRule{}}
+	result := tobari.PolicyDenyRuleSet{Exact: []tobari.PolicyDenyRule{}}
 	for _, item := range contexts {
 		file, err := readPolicyData(item.paths.PolicyDirectory)
 		if err != nil {
 			return tobari.PolicyDenyRuleSet{}, fmt.Errorf("Context %q policy: %w", item.manifest.Name, err)
-		}
-		for _, baseline := range file.baselineDenyRules {
-			baseline.ContextID = item.manifest.ID
-			result.Baseline = append(result.Baseline, baseline)
 		}
 		for _, rule := range file.denyRules {
 			if rule.ContextID != item.manifest.ID || rule.ContextName != item.manifest.Name {
@@ -1402,12 +1279,8 @@ func (r *Runtime) applyStandalonePolicyData(
 		expectedDenies = append([]tobari.PolicyDenyRule{}, file.denyRules...)
 		updatedDenies = append([]tobari.PolicyDenyRule{}, file.denyRules...)
 	}
-	denyExpected := tobari.PolicyDenyRuleSet{
-		Baseline: file.baselineDenyRules, Exact: expectedDenies,
-	}
-	denyUpdated := tobari.PolicyDenyRuleSet{
-		Baseline: file.baselineDenyRules, Exact: updatedDenies,
-	}
+	denyExpected := tobari.PolicyDenyRuleSet{Exact: expectedDenies}
+	denyUpdated := tobari.PolicyDenyRuleSet{Exact: updatedDenies}
 	if err := denyExpected.Validate(); err != nil {
 		return tobari.PolicyActivationReceipt{}, fault.Wrap(fault.KindRejected, "policy_data_invalid", "host policy deny data is invalid", false, err)
 	}

@@ -14,8 +14,10 @@ all supporting state and dependencies are excluded from first public V1.
 - [x] Prefix policy state fails closed rather than loading, converting, or
       falling back to exact behavior.
 - [x] OPA cannot authorize by learned path prefix.
-- [ ] No dormant configuration selector, recovery path, generated entry,
-      dependency, or fixture retains the capability.
+- [x] No dormant broad `allow.json` authority/method/profile reader, prefix
+      baseline deny, production seed domain, OPA matcher, or dependency
+      retains the capability. Generated documentation remains owned by the
+      release integration lane.
 
 ## State handling
 

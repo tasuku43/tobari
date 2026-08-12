@@ -59,12 +59,6 @@ func TestPolicyDenialRejectsInterpretationSensitiveFields(t *testing.T) {
 			}
 		})
 	}
-	profile := "profile\nunsafe"
-	value := validPolicyDenial()
-	value.CredentialProfile = &profile
-	if err := value.Validate(); err == nil {
-		t.Fatal("control-bearing credential profile was accepted")
-	}
 }
 
 func TestPolicyProtocolIdentityValidationAndEffectiveProtocol(t *testing.T) {
@@ -360,11 +354,11 @@ func TestResolvedPolicyCandidatesRemainOutsidePendingAggregation(t *testing.T) {
 	}{
 		"allow": {
 			allows: []LearnedPolicyRule{allow},
-			denies: PolicyDenyRuleSet{Baseline: []PolicyBaselineDenyRule{}, Exact: []PolicyDenyRule{}},
+			denies: PolicyDenyRuleSet{Exact: []PolicyDenyRule{}},
 		},
 		"deny": {
 			allows: []LearnedPolicyRule{},
-			denies: PolicyDenyRuleSet{Baseline: []PolicyBaselineDenyRule{}, Exact: []PolicyDenyRule{deny}},
+			denies: PolicyDenyRuleSet{Exact: []PolicyDenyRule{deny}},
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -457,10 +451,8 @@ func TestConcurrentPolicyObservationsConvergeToOneCandidate(t *testing.T) {
 	}
 }
 
-func TestPolicyCandidatesHideBaselineAndExactDeniedEffects(t *testing.T) {
+func TestPolicyCandidatesHideExactDeniedEffects(t *testing.T) {
 	t.Parallel()
-	baseline := validPolicyDenial()
-	baseline.Path = "/api/v1/secret"
 	exact := validPolicyDenial()
 	exact.Path = "/repos/cli/cli"
 	candidate, err := NewPolicyCandidate(exact)
@@ -472,10 +464,7 @@ func TestPolicyCandidatesHideBaselineAndExactDeniedEffects(t *testing.T) {
 		t.Fatal(err)
 	}
 	items, err := PolicyCandidatesWithDenyRules(
-		[]PolicyDenial{baseline, exact}, []LearnedPolicyRule{}, PolicyDenyRuleSet{
-			Baseline: []PolicyBaselineDenyRule{{Host: baseline.Host, Method: baseline.Method, PathPrefix: "/api/v1/"}},
-			Exact:    []PolicyDenyRule{exactRule},
-		},
+		[]PolicyDenial{exact}, []LearnedPolicyRule{}, PolicyDenyRuleSet{Exact: []PolicyDenyRule{exactRule}},
 	)
 	if err != nil {
 		t.Fatal(err)

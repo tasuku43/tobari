@@ -20,24 +20,23 @@ import (
 
 type gatewayAuditRecord struct {
 	tobari.PolicyProtocolIdentity
-	SchemaVersion     int     `json:"schema_version"`
-	Timestamp         string  `json:"timestamp"`
-	RequestID         string  `json:"request_id"`
-	Cluster           string  `json:"cluster"`
-	ProjectID         string  `json:"project_id"`
-	ContextID         string  `json:"context_id"`
-	ContextName       string  `json:"context"`
-	ProjectRoot       string  `json:"project_root"`
-	Host              string  `json:"host"`
-	Port              int     `json:"port"`
-	Method            string  `json:"method"`
-	Path              string  `json:"path"`
-	Decision          string  `json:"decision"`
-	Reason            string  `json:"reason"`
-	CredentialProfile *string `json:"credential_profile"`
-	Learnable         bool    `json:"learnable"`
-	UpstreamStatus    int     `json:"upstream_status"`
-	DurationMS        int     `json:"duration_ms"`
+	SchemaVersion  int    `json:"schema_version"`
+	Timestamp      string `json:"timestamp"`
+	RequestID      string `json:"request_id"`
+	Cluster        string `json:"cluster"`
+	ProjectID      string `json:"project_id"`
+	ContextID      string `json:"context_id"`
+	ContextName    string `json:"context"`
+	ProjectRoot    string `json:"project_root"`
+	Host           string `json:"host"`
+	Port           int    `json:"port"`
+	Method         string `json:"method"`
+	Path           string `json:"path"`
+	Decision       string `json:"decision"`
+	Reason         string `json:"reason"`
+	Learnable      bool   `json:"learnable"`
+	UpstreamStatus int    `json:"upstream_status"`
+	DurationMS     int    `json:"duration_ms"`
 }
 
 // ClusterDenials projects only validated deny audit records from one bounded
@@ -97,7 +96,7 @@ func parseGatewayDenials(data []byte) ([]tobari.PolicyDenial, error) {
 			ProjectID: record.ProjectID, ProjectRoot: record.ProjectRoot,
 			Host: record.Host, Port: record.Port, Method: record.Method, Path: record.Path,
 			Reason: record.Reason, StatusCode: record.UpstreamStatus,
-			Learnable: record.Learnable, CredentialProfile: record.CredentialProfile,
+			Learnable: record.Learnable,
 		}
 		if err := item.Validate(); err != nil {
 			return nil, fmt.Errorf("Gateway denial line %d: %w", lineNumber+1, err)
@@ -213,7 +212,7 @@ func (r *Runtime) policyFenceState(state tobari.State) (tobari.State, func(), er
 	}
 	rego := []byte(`package tobari.http
 
-default decision := {"allow": false, "reason": "policy transition in progress", "credential_profile": null, "status_code": 503, "learnable": false}
+default decision := {"allow": false, "reason": "policy transition in progress", "status_code": 503, "learnable": false}
 `)
 	data := []byte(fmt.Sprintf(`{"tobari":{"aggregate_schema_version":%d,"aggregate_revision":%q}}`+"\n", aggregateSchemaVersion, revision))
 	for name, contents := range map[string][]byte{"fence.rego": rego, "data.json": data} {

@@ -1488,7 +1488,7 @@ func (s *Service) DenyPolicyCandidate(
 		)
 	}
 	updatedDenies := append(append([]tobari.PolicyDenyRule{}, denyRules.Exact...), rule)
-	updatedSet := tobari.PolicyDenyRuleSet{Baseline: denyRules.Baseline, Exact: updatedDenies}
+	updatedSet := tobari.PolicyDenyRuleSet{Exact: updatedDenies}
 	if err := updatedSet.Validate(); err != nil {
 		return tobari.PolicyDenyChange{}, fault.Wrap(
 			fault.KindContract, "invalid_policy_deny", "exact policy deny is invalid", false, err,

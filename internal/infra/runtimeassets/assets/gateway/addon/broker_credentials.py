@@ -305,15 +305,12 @@ class _BrokerRequest:
     project_id: str
     revision: str
     broker_call: Callable[[dict[str, Any]], dict[str, Any]]
-    requested_profile: str | None = None
-
     @property
     def broker_provider(self) -> str: return self.binding["provider_id"]
     @property
     def secret_headers(self) -> set[str]: return set(DEFAULT_SECRET_HEADERS) | set(self.binding["secret_headers"])
 
-    def apply(self, request: http.Request, selected_profile: str | None) -> str | None:
-        if selected_profile is not None: raise BrokerCredentialBindingError("managed credential profiles are retired")
+    def apply(self, request: http.Request) -> None:
         response = self.broker_call({"schema_version": BROKER_SCHEMA_VERSION, "op": "resolve", "handle": self.candidate.handle,
             "context_id": self.context_id, "project_id": self.project_id, "provider": self.binding["provider_id"],
             "revision": self.revision, "target": self.binding["target"], "source_header": self.binding["source"]["header"],
@@ -330,7 +327,6 @@ class _BrokerRequest:
         elif output_format == "token": rendered = f"token {value}"
         else: raise BrokerCredentialUnavailable("credential broker binding is invalid")
         request.headers[self.binding["destination"]["header"]] = rendered
-        return None
 
 
 class BrokeredCredentialAdapter:

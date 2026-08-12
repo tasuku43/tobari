@@ -10,7 +10,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"unicode/utf8"
 )
 
 var (
@@ -151,20 +150,19 @@ func (e GraphQLEndpoint) Matches(scheme, host string, port int, path string) boo
 // PolicyDenial is one validated, secret-free Gateway audit decision.
 type PolicyDenial struct {
 	PolicyProtocolIdentity
-	Timestamp         string  `json:"timestamp"`
-	RequestID         string  `json:"request_id"`
-	ContextID         string  `json:"context_id"`
-	ContextName       string  `json:"context"`
-	ProjectID         string  `json:"project_id"`
-	ProjectRoot       string  `json:"project_root"`
-	Host              string  `json:"host"`
-	Port              int     `json:"port"`
-	Method            string  `json:"method"`
-	Path              string  `json:"path"`
-	Reason            string  `json:"reason"`
-	StatusCode        int     `json:"status_code"`
-	Learnable         bool    `json:"learnable"`
-	CredentialProfile *string `json:"credential_profile"`
+	Timestamp   string `json:"timestamp"`
+	RequestID   string `json:"request_id"`
+	ContextID   string `json:"context_id"`
+	ContextName string `json:"context"`
+	ProjectID   string `json:"project_id"`
+	ProjectRoot string `json:"project_root"`
+	Host        string `json:"host"`
+	Port        int    `json:"port"`
+	Method      string `json:"method"`
+	Path        string `json:"path"`
+	Reason      string `json:"reason"`
+	StatusCode  int    `json:"status_code"`
+	Learnable   bool   `json:"learnable"`
 }
 
 // Validate rejects audit-shaped data that cannot be safely interpreted as one
@@ -203,9 +201,6 @@ func (d PolicyDenial) Validate() error {
 	if d.StatusCode < 400 || d.StatusCode > 599 {
 		return fmt.Errorf("denial status code is invalid")
 	}
-	if err := validateOptionalCredentialProfile(d.CredentialProfile); err != nil {
-		return err
-	}
 	return nil
 }
 
@@ -218,19 +213,6 @@ func validatePolicyScope(contextID, contextName, projectRoot string) error {
 	}
 	if !filepath.IsAbs(projectRoot) || filepath.Clean(projectRoot) != projectRoot {
 		return fmt.Errorf("project root is invalid")
-	}
-	return nil
-}
-
-func validateOptionalCredentialProfile(value *string) error {
-	if value == nil {
-		return nil
-	}
-	if *value == "" || len(*value) > 256 || !utf8.ValidString(*value) ||
-		strings.IndexFunc(*value, func(r rune) bool {
-			return r < ' ' || r == '\u007f' || r == '\u2028' || r == '\u2029'
-		}) >= 0 {
-		return fmt.Errorf("credential profile is invalid")
 	}
 	return nil
 }
@@ -288,20 +270,19 @@ func (r DenialReport) Validate() error {
 // validated denial. ID is opaque and remains stable for the same exact effect.
 type PolicyCandidate struct {
 	PolicyProtocolIdentity
-	ID                string  `json:"id"`
-	ObservedAt        string  `json:"observed_at"`
-	ObservationCount  int     `json:"observation_count"`
-	ContextID         string  `json:"context_id"`
-	ContextName       string  `json:"context"`
-	ProjectID         string  `json:"project_id"`
-	ProjectRoot       string  `json:"project_root"`
-	Host              string  `json:"host"`
-	Port              int     `json:"port"`
-	Method            string  `json:"method"`
-	Path              string  `json:"path"`
-	Reason            string  `json:"reason"`
-	StatusCode        int     `json:"status_code"`
-	CredentialProfile *string `json:"credential_profile"`
+	ID               string `json:"id"`
+	ObservedAt       string `json:"observed_at"`
+	ObservationCount int    `json:"observation_count"`
+	ContextID        string `json:"context_id"`
+	ContextName      string `json:"context"`
+	ProjectID        string `json:"project_id"`
+	ProjectRoot      string `json:"project_root"`
+	Host             string `json:"host"`
+	Port             int    `json:"port"`
+	Method           string `json:"method"`
+	Path             string `json:"path"`
+	Reason           string `json:"reason"`
+	StatusCode       int    `json:"status_code"`
 }
 
 // NewPolicyCandidate derives a kind-specific opaque reference without exposing
@@ -327,21 +308,12 @@ func NewPolicyCandidate(denial PolicyDenial) (PolicyCandidate, error) {
 		ProjectID: denial.ProjectID, ProjectRoot: denial.ProjectRoot,
 		Host: denial.Host, Port: denial.Port, Method: denial.Method, Path: denial.Path,
 		Reason: denial.Reason, StatusCode: denial.StatusCode,
-		CredentialProfile: cloneStringPointer(denial.CredentialProfile),
 	}, nil
 }
 
 // EffectiveObservationCount returns the required retained observation count.
 func (c PolicyCandidate) EffectiveObservationCount() int {
 	return c.ObservationCount
-}
-
-func cloneStringPointer(value *string) *string {
-	if value == nil {
-		return nil
-	}
-	cloned := *value
-	return &cloned
 }
 
 func ValidatePolicyCandidateID(id string) error {
@@ -398,9 +370,6 @@ func (c PolicyCandidate) Validate() error {
 	if c.StatusCode < 400 || c.StatusCode > 599 {
 		return fmt.Errorf("policy candidate status is invalid")
 	}
-	if err := validateOptionalCredentialProfile(c.CredentialProfile); err != nil {
-		return err
-	}
 	return nil
 }
 
@@ -437,38 +406,6 @@ func (r PolicyCandidateReport) Validate() error {
 		seen[item.ID] = true
 	}
 	return nil
-}
-
-// PolicyBaselineDenyRule is a trusted host-authored deny matcher. It may be
-// broader than one project or port because the host owns its policy source.
-// Baseline denies are terminal policy decisions and never become candidates.
-type PolicyBaselineDenyRule struct {
-	ContextID  string `json:"context_id,omitempty"`
-	Host       string `json:"host"`
-	Method     string `json:"method"`
-	PathPrefix string `json:"path_prefix"`
-}
-
-func (r PolicyBaselineDenyRule) Validate() error {
-	if r.ContextID != "" {
-		if err := ValidateContextID(r.ContextID); err != nil {
-			return fmt.Errorf("baseline deny Context is invalid")
-		}
-	}
-	if len(r.Host) == 0 || len(r.Host) > 253 || containsSpaceOrControl(r.Host) {
-		return fmt.Errorf("baseline deny host is invalid")
-	}
-	if !httpMethodPattern.MatchString(r.Method) {
-		return fmt.Errorf("baseline deny method is invalid")
-	}
-	if err := validatePolicyPath(r.PathPrefix); err != nil {
-		return fmt.Errorf("baseline deny path prefix is invalid")
-	}
-	return nil
-}
-
-func (r PolicyBaselineDenyRule) Matches(contextID, host, method, path string) bool {
-	return (r.ContextID == "" || r.ContextID == contextID) && r.Host == host && r.Method == method && strings.HasPrefix(path, r.PathPrefix)
 }
 
 // PolicyDenyRule is one exact project-bound deny created by rejecting a
@@ -582,23 +519,17 @@ func (r PolicyDenyRule) MatchesIdentity(
 		r.Method == method && r.Path == path && r.PolicyProtocolIdentity.matches(identity)
 }
 
-// PolicyDenyRuleSet is the current effective deny projection used to remove
-// both baseline and exact-denied effects from the review queue.
+// PolicyDenyRuleSet is the current exact-deny projection used to remove
+// already decided effects from the review queue.
 type PolicyDenyRuleSet struct {
-	Baseline []PolicyBaselineDenyRule `json:"baseline"`
-	Exact    []PolicyDenyRule         `json:"exact"`
+	Exact []PolicyDenyRule `json:"exact"`
 }
 
 func (s PolicyDenyRuleSet) Validate() error {
-	if s.Baseline == nil || s.Exact == nil {
+	if s.Exact == nil {
 		return fmt.Errorf("policy deny rule collections are unknown")
 	}
 	seen := make(map[string]bool, len(s.Exact))
-	for _, rule := range s.Baseline {
-		if err := rule.Validate(); err != nil {
-			return err
-		}
-	}
 	for _, rule := range s.Exact {
 		if err := rule.Validate(); err != nil {
 			return err
@@ -612,11 +543,6 @@ func (s PolicyDenyRuleSet) Validate() error {
 }
 
 func (s PolicyDenyRuleSet) Matches(denial PolicyDenial) bool {
-	for _, rule := range s.Baseline {
-		if rule.Matches(denial.ContextID, denial.Host, denial.Method, denial.Path) {
-			return true
-		}
-	}
 	for _, rule := range s.Exact {
 		if rule.MatchesIdentity(
 			denial.ContextID, denial.ProjectID, denial.Host, denial.Port, denial.Method, denial.Path,
@@ -889,7 +815,7 @@ func CurrentPolicyRules(learned []LearnedPolicyRule, denies []PolicyDenyRule) ([
 	if err := ValidateLearnedPolicyRules(learned); err != nil {
 		return nil, err
 	}
-	denySet := PolicyDenyRuleSet{Baseline: []PolicyBaselineDenyRule{}, Exact: denies}
+	denySet := PolicyDenyRuleSet{Exact: denies}
 	if err := denySet.Validate(); err != nil {
 		return nil, err
 	}
@@ -960,7 +886,7 @@ func RemovePolicyRule(
 	if err := ValidateLearnedPolicyRules(learned); err != nil {
 		return nil, nil, PolicyRule{}, err
 	}
-	denySet := PolicyDenyRuleSet{Baseline: []PolicyBaselineDenyRule{}, Exact: denies}
+	denySet := PolicyDenyRuleSet{Exact: denies}
 	if err := denySet.Validate(); err != nil {
 		return nil, nil, PolicyRule{}, err
 	}
@@ -1053,7 +979,7 @@ func PolicyCandidates(
 	denials []PolicyDenial, rules []LearnedPolicyRule,
 ) ([]PolicyCandidate, error) {
 	return PolicyCandidatesWithDenyRules(denials, rules, PolicyDenyRuleSet{
-		Baseline: []PolicyBaselineDenyRule{}, Exact: []PolicyDenyRule{},
+		Exact: []PolicyDenyRule{},
 	})
 }
 

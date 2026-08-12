@@ -145,7 +145,7 @@ func transformContextRego(item aggregateContext) ([]byte, error) {
 func aggregateRouter(items []aggregateContext) ([]byte, error) {
 	var builder strings.Builder
 	builder.WriteString("package tobari.http\n\nimport rego.v1\n\n")
-	builder.WriteString("default decision := {\"allow\": false, \"reason\": \"unknown or invalid Context authority\", \"credential_profile\": null, \"status_code\": 403, \"learnable\": false}\n\n")
+	builder.WriteString("default decision := {\"allow\": false, \"reason\": \"unknown or invalid Context authority\", \"status_code\": 403, \"learnable\": false}\n\n")
 	builder.WriteString("terminal_guardrail if { data.tobari_contexts[input.principal.context_id].guardrail.kind == \"offline\" }\n")
 	builder.WriteString("terminal_guardrail if { data.tobari_contexts[input.principal.context_id].guardrail.kind == \"get_only_reviewed\"; input.request.method != \"GET\" }\n")
 	builder.WriteString("preset_destination_allowed if { some authority in data.tobari_contexts[input.principal.context_id].guardrail.authorities; authority.scheme == input.request.authority.scheme; authority.host == input.request.authority.host; authority.port == input.request.authority.port }\n")
@@ -157,10 +157,10 @@ func aggregateRouter(items []aggregateContext) ([]byte, error) {
 	builder.WriteString("learned_exact_denied if { some rule in data.tobari_contexts[input.principal.context_id].rules.learned_denies; rule.protocol == \"http\"; rule.scheme == input.request.authority.scheme; rule.context_id == input.principal.context_id; rule.project_id == input.principal.project_id; rule.host == input.request.authority.host; rule.port == input.request.authority.port; rule.method == input.request.method; rule.path == input.request.path.raw }\n")
 	builder.WriteString("exact_denied if { preset_exact_denied }\nexact_denied if { learned_exact_denied }\n")
 	builder.WriteString("preset_exact_granted if { some rule in data.tobari_contexts[input.principal.context_id].guardrail.baseline_grants; rule.scheme == input.request.authority.scheme; rule.host == input.request.authority.host; rule.port == input.request.authority.port; rule.method == input.request.method; rule.path == input.request.path.raw }\n\n")
-	builder.WriteString("decision := {\"allow\": false, \"reason\": \"denied by Context policy preset guardrail\", \"credential_profile\": null, \"status_code\": 403, \"learnable\": false} if {\n")
+	builder.WriteString("decision := {\"allow\": false, \"reason\": \"denied by Context policy preset guardrail\", \"status_code\": 403, \"learnable\": false} if {\n")
 	builder.WriteString("  input.schema_version == 1\n  input.principal.cluster == \"default\"\n  data.tobari_contexts[input.principal.context_id]\n  terminal_guardrail\n}\n\n")
-	builder.WriteString("decision := {\"allow\": false, \"reason\": \"denied by exact policy\", \"credential_profile\": input.authorization.requested_profile, \"status_code\": 403, \"learnable\": false} if {\n  input.schema_version == 1\n  input.principal.cluster == \"default\"\n  data.tobari_contexts[input.principal.context_id]\n  not terminal_guardrail\n  exact_denied\n}\n\n")
-	builder.WriteString("decision := {\"allow\": true, \"reason\": \"allowed by exact Context baseline\", \"credential_profile\": input.authorization.requested_profile, \"status_code\": 403, \"learnable\": false} if {\n  input.schema_version == 1\n  input.principal.cluster == \"default\"\n  data.tobari_contexts[input.principal.context_id]\n  not terminal_guardrail\n  not exact_denied\n  preset_exact_granted\n}\n\n")
+	builder.WriteString("decision := {\"allow\": false, \"reason\": \"denied by exact policy\", \"status_code\": 403, \"learnable\": false} if {\n  input.schema_version == 1\n  input.principal.cluster == \"default\"\n  data.tobari_contexts[input.principal.context_id]\n  not terminal_guardrail\n  exact_denied\n}\n\n")
+	builder.WriteString("decision := {\"allow\": true, \"reason\": \"allowed by exact Context baseline\", \"status_code\": 403, \"learnable\": false} if {\n  input.schema_version == 1\n  input.principal.cluster == \"default\"\n  data.tobari_contexts[input.principal.context_id]\n  not terminal_guardrail\n  not exact_denied\n  preset_exact_granted\n}\n\n")
 	builder.WriteString("decision := result if {\n")
 	builder.WriteString("  input.schema_version == 1\n")
 	builder.WriteString("  input.principal.cluster == \"default\"\n")

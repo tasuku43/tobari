@@ -37,17 +37,19 @@
       proves the hostile old shape cannot authorize a sibling path.
 - [ ] Remove or update fixtures, dependencies, documentation, ledgers, and
       generated architecture data owned by this retirement.
-      Evidence: code/OPA fixtures and count assertions are updated, there is no
-      dependency-file diff, and the product plus EN/JA public JSON-schema
-      tables no longer advertise `policy_compactions`. README, integration
-      flow, and generated catalog remain reserved for the integration lane.
+      Evidence: code and OPA fixtures now reject the retired `authorities`,
+      `methods`/`exclude_path_prefixes`, `credential_profiles`, and
+      `baseline_rules` shapes; the embedded production seed-domain tree is
+      removed. There is no dependency-file diff. README, integration flow,
+      ledgers, and generated catalog remain reserved for the integration lane.
 
 ## Verify and integrate
 
 - [x] Run focused Go, OPA, CLI contract, and hostile-state tests.
       Evidence: `go test ./internal/domain/tobari ./internal/app/tobaricmd
-      ./internal/cli ./internal/infra/dockerruntime ./tools/sitegen` passed;
-      pinned OPA 1.17.0 format passed and focused policy tests passed 52/52.
+      ./internal/cli ./internal/infra/dockerruntime` passed; `mise exec -- task
+      policy:test` passed with pinned OPA 1.17.0; `mise exec -- task
+      gateway:test` and canonical/embedded Gateway source equality passed.
 - [x] Review generated and dependency diffs.
       Evidence: no `go.mod`, `go.sum`, package lock, or generated-file diff is
       present in this lane; stale generated/public surfaces are listed above

@@ -1238,7 +1238,6 @@ func policyCandidateOutputFields() []OutputField {
 		{Name: "graphql_root_field", Type: OutputFieldTypeString, Description: "Exact canonical GraphQL root field; empty for HTTP."},
 		{Name: "reason", Type: OutputFieldTypeString, Description: "Bounded secret-free denial reason."},
 		{Name: "status_code", Type: OutputFieldTypeInteger, Description: "Gateway denial status."},
-		{Name: "credential_profile", Type: OutputFieldTypeString, Description: "Requested bound credential profile or null.", Nullable: true},
 		{Name: "allow_command", Type: OutputFieldTypeString, Description: "Exact reference-bound approval command."},
 		{Name: "deny_command", Type: OutputFieldTypeString, Description: "Exact reference-bound rejection command."},
 	}
@@ -1262,7 +1261,6 @@ func policyDenialOutputFields() []OutputField {
 		{Name: "reason", Type: OutputFieldTypeString, Description: "Bounded secret-free denial reason."},
 		{Name: "status_code", Type: OutputFieldTypeInteger, Description: "Gateway denial status."},
 		{Name: "learnable", Type: OutputFieldTypeBoolean, Description: "Whether one exact learned rule can close this denial."},
-		{Name: "credential_profile", Type: OutputFieldTypeString, Description: "Requested bound credential profile, or null.", Nullable: true},
 	}
 }
 

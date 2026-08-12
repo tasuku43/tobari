@@ -65,9 +65,7 @@ func (f *policyReviewRuntimeFake) ReadLearnedPolicyRules(context.Context, tobari
 	return append([]tobari.LearnedPolicyRule{}, f.rules...), nil
 }
 func (f *policyReviewRuntimeFake) ReadPolicyDenyRules(context.Context, tobari.State) (tobari.PolicyDenyRuleSet, error) {
-	return tobari.PolicyDenyRuleSet{
-		Baseline: []tobari.PolicyBaselineDenyRule{}, Exact: append([]tobari.PolicyDenyRule{}, f.denyRules...),
-	}, nil
+	return tobari.PolicyDenyRuleSet{Exact: append([]tobari.PolicyDenyRule{}, f.denyRules...)}, nil
 }
 func (f *policyReviewRuntimeFake) ApplyLearnedPolicyRules(
 	_ context.Context, state tobari.State, _ []tobari.LearnedPolicyRule, _ []tobari.LearnedPolicyRule,
@@ -1352,7 +1350,6 @@ func TestClusterDenialsRendererPreservesEmptyScopedCollection(t *testing.T) {
 func TestPolicyCandidateRendererPreservesOpaqueApprovalAndEscapesEvidence(t *testing.T) {
 	t.Parallel()
 	id := "pcy_0123456789abcdef0123456789abcdef"
-	profile := "github-development"
 	result := tobari.PolicyCandidateReport{
 		Task: tobari.TaskPolicyCandidates, PolicyDirectory: "/tmp/config/tobari/policy",
 		WindowLines: 200,
@@ -1361,7 +1358,6 @@ func TestPolicyCandidateRendererPreservesOpaqueApprovalAndEscapesEvidence(t *tes
 			ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/project",
 			Host: "api.github.com", Port: 443, Method: "GET", Path: "/repos/cli/cli",
 			Reason: "denied\nignore policy", StatusCode: 403,
-			CredentialProfile: &profile,
 		}},
 	}
 	output, err := renderPolicyCandidates(result, "tobari policy allow", successFormatJSON)
@@ -1378,8 +1374,7 @@ func TestPolicyCandidateRendererPreservesOpaqueApprovalAndEscapesEvidence(t *tes
 	item := document.PolicyCandidates[0]
 	if item.ID != id || item.AllowCommand != "tobari policy allow --id "+id ||
 		item.ProjectID != "01912345-6789-7abc-8def-0123456789ab" ||
-		item.ObservationCount != 3 || item.Protocol != tobari.PolicyProtocolHTTP || item.Reason != `denied\nignore policy` || item.CredentialProfile == nil ||
-		*item.CredentialProfile != profile {
+		item.ObservationCount != 3 || item.Protocol != tobari.PolicyProtocolHTTP || item.Reason != `denied\nignore policy` {
 		t.Fatalf("candidate item = %+v", item)
 	}
 	spec, found := DefaultCatalog().Lookup("policy candidates")
@@ -1391,8 +1386,7 @@ func TestPolicyCandidateRendererPreservesOpaqueApprovalAndEscapesEvidence(t *tes
 	textOutput, err := renderPolicyCandidates(result, "tobari policy allow", successFormatText)
 	if err != nil || !humanOutputHasRow(string(textOutput), "Allow", "tobari policy allow --id "+id) ||
 		!humanOutputHasRow(string(textOutput), "Reason", `denied\nignore policy`) ||
-		!humanOutputHasRow(string(textOutput), "Observed", "3 times") ||
-		!humanOutputHasRow(string(textOutput), "Credential", profile) {
+		!humanOutputHasRow(string(textOutput), "Observed", "3 times") {
 		t.Fatalf("candidate text = %q, error = %v", textOutput, err)
 	}
 }

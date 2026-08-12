@@ -101,10 +101,10 @@ func writePolicyDomainFixture(t *testing.T, state tobari.State, domain, allow, d
 	}
 }
 
-const minimalPolicyAllowFixture = `{"schema_version":1,"host":"api.github.com","authorities":[],"methods":{"read":["GET"],"write":[]},"graphql_endpoints":[],"credential_profiles":[],"rules":[]}
+const minimalPolicyAllowFixture = `{"schema_version":1,"host":"api.github.com","graphql_endpoints":[],"rules":[]}
 `
 
-const minimalPolicyDenyFixture = `{"schema_version":1,"host":"api.github.com","baseline_rules":[],"rules":[]}
+const minimalPolicyDenyFixture = `{"schema_version":1,"host":"api.github.com","rules":[]}
 `
 
 func writeMinimalPolicyFixture(t *testing.T, state tobari.State) {
@@ -131,8 +131,8 @@ func TestPolicyDataValidatesDeclaredGraphQLEndpoints(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			state := tobari.State{PolicyDirectory: filepath.Join(t.TempDir(), "policy")}
-			allow := `{"schema_version":1,"host":"api.example.com","authorities":[],"methods":{"read":["GET"],"write":[]},` + test.endpoints + `,"credential_profiles":[],"rules":[]}`
-			writePolicyDomainFixture(t, state, "api.example.com", allow, `{"schema_version":1,"host":"api.example.com","baseline_rules":[],"rules":[]}`)
+			allow := `{"schema_version":1,"host":"api.example.com",` + test.endpoints + `,"rules":[]}`
+			writePolicyDomainFixture(t, state, "api.example.com", allow, `{"schema_version":1,"host":"api.example.com","rules":[]}`)
 			file, err := readPolicyData(state.PolicyDirectory)
 			if test.wantError {
 				if err == nil {
@@ -679,7 +679,7 @@ func TestApplyLearnedPolicyRulesRejectsHostEditDuringPreflight(t *testing.T) {
 		if call != 1 {
 			return
 		}
-		changed := strings.Replace(minimalPolicyAllowFixture, `"credential_profiles":[]`, `"credential_profiles":[{"profile":"manual","host":"api.github.com"}]`, 1)
+		changed := strings.Replace(minimalPolicyAllowFixture, `"graphql_endpoints":[]`, `"graphql_endpoints":[{"scheme":"https","host":"api.github.com","port":443,"path":"/graphql"}]`, 1)
 		if err := os.WriteFile(dataPath, []byte(changed), 0o600); err != nil {
 			t.Fatal(err)
 		}
@@ -695,7 +695,7 @@ func TestApplyLearnedPolicyRulesRejectsHostEditDuringPreflight(t *testing.T) {
 		t.Fatalf("error = %v", err)
 	}
 	data, readErr := os.ReadFile(dataPath)
-	if readErr != nil || !bytes.Contains(data, []byte(`"manual"`)) || len(runner.outputs) != 1 {
+	if readErr != nil || !bytes.Contains(data, []byte(`"/graphql"`)) || len(runner.outputs) != 1 {
 		t.Fatalf("concurrent edit was overwritten: read=%v calls=%v data=%s", readErr, runner.outputs, data)
 	}
 }
@@ -712,7 +712,7 @@ func TestManagedPolicyDataRejectsAmbiguousOrUnsafeHostFiles(t *testing.T) {
 		"duplicate key": func(t *testing.T, state tobari.State) {
 			writeMinimalPolicyFixture(t, state)
 			path := filepath.Join(state.PolicyDirectory, policyDomainsName, "api.github.com", policyAllowFileName)
-			if err := os.WriteFile(path, []byte(`{"schema_version":1,"schema_version":1,"host":"api.github.com","authorities":[],"methods":{"read":[],"write":[]},"graphql_endpoints":[],"credential_profiles":[],"rules":[]}`), 0o600); err != nil {
+			if err := os.WriteFile(path, []byte(`{"schema_version":1,"schema_version":1,"host":"api.github.com","graphql_endpoints":[],"rules":[]}`), 0o600); err != nil {
 				t.Fatal(err)
 			}
 		},
@@ -797,15 +797,25 @@ func TestDomainPolicyJSONContractRejectsAmbiguousSources(t *testing.T) {
 			allow:  minimalPolicyAllowFixture,
 			deny:   minimalPolicyDenyFixture,
 		},
-		"authority host mismatch": {
+		"retired authorities": {
 			domain: "api.github.com",
-			allow:  strings.Replace(minimalPolicyAllowFixture, `"authorities":[]`, `"authorities":[{"scheme":"https","host":"example.com","ports":[443]}]`, 1),
+			allow:  strings.Replace(minimalPolicyAllowFixture, `"graphql_endpoints":[]`, `"authorities":[{"scheme":"https","host":"api.github.com","ports":[443]}],"graphql_endpoints":[]`, 1),
 			deny:   minimalPolicyDenyFixture,
 		},
-		"credential host mismatch": {
+		"retired methods": {
 			domain: "api.github.com",
-			allow:  strings.Replace(minimalPolicyAllowFixture, `"credential_profiles":[]`, `"credential_profiles":[{"profile":"github","host":"example.com"}]`, 1),
+			allow:  strings.Replace(minimalPolicyAllowFixture, `"graphql_endpoints":[]`, `"methods":{"read":["GET"],"write":[{"method":"POST","exclude_path_prefixes":["/repos/"]}]},"graphql_endpoints":[]`, 1),
 			deny:   minimalPolicyDenyFixture,
+		},
+		"retired credential profiles": {
+			domain: "api.github.com",
+			allow:  strings.Replace(minimalPolicyAllowFixture, `"graphql_endpoints":[]`, `"credential_profiles":[{"profile":"github","host":"api.github.com"}],"graphql_endpoints":[]`, 1),
+			deny:   minimalPolicyDenyFixture,
+		},
+		"retired baseline prefix deny": {
+			domain: "api.github.com",
+			allow:  minimalPolicyAllowFixture,
+			deny:   strings.Replace(minimalPolicyDenyFixture, `"rules":[]`, `"baseline_rules":[{"host":"api.github.com","method":"POST","path_prefix":"/repos/"}],"rules":[]`, 1),
 		},
 		"duplicate learned rule ID": {
 			domain: "api.github.com",
