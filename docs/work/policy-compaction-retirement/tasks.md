@@ -37,10 +37,10 @@
       proves the hostile old shape cannot authorize a sibling path.
 - [ ] Remove or update fixtures, dependencies, documentation, ledgers, and
       generated architecture data owned by this retirement.
-      Evidence: code/OPA fixtures and count assertions are updated and there is
-      no dependency-file diff. README, integration flow, product JSON schema
-      table, architecture-site content, and generated catalog remain reserved
-      for the integration lane.
+      Evidence: code/OPA fixtures and count assertions are updated, there is no
+      dependency-file diff, and the product plus EN/JA public JSON-schema
+      tables no longer advertise `policy_compactions`. README, integration
+      flow, and generated catalog remain reserved for the integration lane.
 
 ## Verify and integrate
 

@@ -514,7 +514,6 @@ Human output is concise text. The canonical public machine-output inventory is:
 | Policy candidates | `policy_candidates` | 1 |
 | Policy review | `policy_review` | 1 |
 | Policy rules | `policy_rules` | 1 |
-| Policy compactions | `policy_compactions` | 1 |
 | Authentication result and status | `auth` | 1 |
 | Workspace list | `tobari` | 1 |
 | Workspace status | `status` | 1 |

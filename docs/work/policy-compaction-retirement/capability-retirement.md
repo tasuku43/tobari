@@ -9,11 +9,11 @@ all supporting state and dependencies are excluded from first public V1.
 
 ## Required negative evidence
 
-- [ ] Removed command paths and aliases are unknown and absent from help.
-- [ ] No producer or consumer for `policy-compaction` remains.
-- [ ] Prefix policy state fails closed rather than loading, converting, or
+- [x] Removed command paths and aliases are unknown and absent from help.
+- [x] No producer or consumer for `policy-compaction` remains.
+- [x] Prefix policy state fails closed rather than loading, converting, or
       falling back to exact behavior.
-- [ ] OPA cannot authorize by learned path prefix.
+- [x] OPA cannot authorize by learned path prefix.
 - [ ] No dormant configuration selector, recovery path, generated entry,
       dependency, or fixture retains the capability.
 
