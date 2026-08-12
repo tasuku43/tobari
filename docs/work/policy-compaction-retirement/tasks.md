@@ -57,11 +57,11 @@
       present in this lane; stale generated/public surfaces are listed above
       for the integration lane.
 - [x] Record `task check`, `task security`, and `task public:check` evidence.
-      Evidence: `mise exec -- task check:fast` and `mise exec -- task security`
-      passed on integration HEAD on 2026-08-12. `task public:check` passed
-      repoguard and contractlint, then stopped only at the deliberate
-      unpublished Gateway digest checkpoint. The full check remains a final
-      integration gate.
+      Evidence: `mise exec -- task check` and `mise exec -- task security`
+      passed on integration HEAD on 2026-08-12, including race tests and
+      Playwright 40/40. `task public:check` passed repoguard and contractlint,
+      then stopped only at the deliberate unpublished Gateway digest
+      checkpoint.
 - [x] Commit only this packet and integrate it before policy presets.
       Evidence: retirement commits `58f811d` and `e183fc4` precede the preset
       integration commits and contain no preset feature implementation.
