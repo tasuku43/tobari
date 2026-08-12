@@ -58,7 +58,10 @@
       passed on 2026-08-12 after the Go vertical deletion.
 - [x] Review dependency, generated, and image-content diffs. Evidence: canonical
       and embedded source equality plus the Auth Broker image contract passed;
-      retired runtime modules account for the dependency reduction.
+      retired runtime modules account for the dependency reduction. The local
+      toolbox no longer fetches, installs, checks, or notices `pup`/`cwk`, whose
+      only repository ownership was the retired Datadog/Chatwork broker flows;
+      its retained tools are generic Workspace tools, not broker adapters.
 - [x] Review affected machine-output fixture authorities. Evidence: the managed
       credential check, projection name, and companion state were removed;
       `.harness/schemas.json` records the reviewed replacement byte count and

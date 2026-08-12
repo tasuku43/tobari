@@ -6,15 +6,9 @@ cd "$(dirname "$0")/.."
 source images/toolbox/versions.env
 
 tag=${TOBARI_TOOLBOX_TAG:-tobari-toolbox:local}
-for version_name in GH_VERSION AWS_CLI_VERSION KUBECTL_VERSION TWG_VERSION CWK_VERSION PUP_VERSION; do
+for version_name in GH_VERSION AWS_CLI_VERSION KUBECTL_VERSION TWG_VERSION; do
   if [[ ! ${!version_name} =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
     echo "invalid ${version_name} in images/toolbox/versions.env" >&2
-    exit 1
-  fi
-done
-for checksum_name in CWK_AMD64_SHA256 CWK_ARM64_SHA256 PUP_AMD64_SHA256 PUP_ARM64_SHA256; do
-  if [[ ! ${!checksum_name} =~ ^[0-9a-f]{64}$ ]]; then
-    echo "invalid ${checksum_name} in images/toolbox/versions.env" >&2
     exit 1
   fi
 done
@@ -27,12 +21,6 @@ docker build \
   --build-arg "AWS_CLI_VERSION=$AWS_CLI_VERSION" \
   --build-arg "KUBECTL_VERSION=$KUBECTL_VERSION" \
   --build-arg "TWG_VERSION=$TWG_VERSION" \
-  --build-arg "CWK_VERSION=$CWK_VERSION" \
-  --build-arg "CWK_AMD64_SHA256=$CWK_AMD64_SHA256" \
-  --build-arg "CWK_ARM64_SHA256=$CWK_ARM64_SHA256" \
-  --build-arg "PUP_VERSION=$PUP_VERSION" \
-  --build-arg "PUP_AMD64_SHA256=$PUP_AMD64_SHA256" \
-  --build-arg "PUP_ARM64_SHA256=$PUP_ARM64_SHA256" \
   .
 
 runtime_api=$(docker image inspect --format '{{index .Config.Labels "io.tobari.runtime-api"}}' "$tag")
@@ -57,21 +45,13 @@ entrypoint=$(docker image inspect --format '{{json .Config.Entrypoint}}' "$tag")
 }
 
 docker run --rm --entrypoint /bin/bash \
-  --env "CWK_VERSION=$CWK_VERSION" \
-  --env "PUP_VERSION=$PUP_VERSION" \
   "$tag" -ceu '
   git --version
   gh --version | head -n 1
   aws --version
   kubectl version --client=true
   twg --version
-  cwk version | grep -F "$CWK_VERSION"
-  pup --version | grep -F "$PUP_VERSION"
   test -r /usr/share/doc/tobari-toolbox/THIRD_PARTY_NOTICES.md
-  test -r /usr/share/licenses/tobari-toolbox/cwk/LICENSE
-  test -r /usr/share/licenses/tobari-toolbox/cwk/THIRD_PARTY_NOTICES
-  test -r /usr/share/licenses/tobari-toolbox/pup/LICENSE
-  test -r /usr/share/licenses/tobari-toolbox/pup/LICENSE-3rdparty.csv
   curl --version | head -n 1
   jq --version
   ssh -V

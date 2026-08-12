@@ -5,24 +5,13 @@ cd "$(dirname "$0")/.."
 # shellcheck disable=SC1091
 source images/toolbox/versions.env
 
-for version_name in GH_VERSION AWS_CLI_VERSION KUBECTL_VERSION TWG_VERSION CWK_VERSION PUP_VERSION; do
+for version_name in GH_VERSION AWS_CLI_VERSION KUBECTL_VERSION TWG_VERSION; do
   [[ ${!version_name} =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
     echo "toolbox version is not pinned: ${version_name}" >&2
     exit 1
   }
   grep -qFx "ARG ${version_name}" images/toolbox/Dockerfile || {
     echo "toolbox Dockerfile does not require ${version_name}" >&2
-    exit 1
-  }
-done
-
-for checksum_name in CWK_AMD64_SHA256 CWK_ARM64_SHA256 PUP_AMD64_SHA256 PUP_ARM64_SHA256; do
-  [[ ${!checksum_name} =~ ^[0-9a-f]{64}$ ]] || {
-    echo "toolbox checksum is not pinned: ${checksum_name}" >&2
-    exit 1
-  }
-  grep -qFx "ARG ${checksum_name}" images/toolbox/Dockerfile || {
-    echo "toolbox Dockerfile does not require ${checksum_name}" >&2
     exit 1
   }
 done
@@ -37,8 +26,8 @@ if grep -Eq '^(ENTRYPOINT|CMD)[[:space:]]' images/toolbox/Dockerfile; then
 fi
 
 for official_host in \
-  awscli.amazonaws.com dl.k8s.io github.com/cli/cli github.com/tasuku43/cwk \
-  github.com/DataDog/pup teamwork-graph.atlassian.com; do
+  awscli.amazonaws.com dl.k8s.io github.com/cli/cli \
+  teamwork-graph.atlassian.com; do
   grep -qF "$official_host" images/toolbox/Dockerfile || {
     echo "toolbox Dockerfile is missing official source: ${official_host}" >&2
     exit 1
@@ -48,15 +37,6 @@ done
 for verifier in 'sha256sum --check --strict' 'gpg --batch --verify'; do
   grep -qF "$verifier" images/toolbox/Dockerfile || {
     echo "toolbox Dockerfile is missing integrity verification: ${verifier}" >&2
-    exit 1
-  }
-done
-
-for notice in \
-  "| cwk | ${CWK_VERSION} | MIT |" \
-  "| Pup | ${PUP_VERSION} | Apache-2.0 |"; do
-  grep -qF "$notice" images/toolbox/THIRD_PARTY_NOTICES.md || {
-    echo "toolbox notice inventory is missing: ${notice}" >&2
     exit 1
   }
 done
@@ -72,15 +52,9 @@ grep -qFx \
   exit 1
 }
 
-for license_path in \
-  '/usr/share/licenses/tobari-toolbox/cwk/LICENSE' \
-  '/usr/share/licenses/tobari-toolbox/cwk/THIRD_PARTY_NOTICES' \
-  '/usr/share/licenses/tobari-toolbox/pup/LICENSE' \
-  '/usr/share/licenses/tobari-toolbox/pup/LICENSE-3rdparty.csv'; do
-  grep -qF "$license_path" images/toolbox/Dockerfile || {
-    echo "toolbox Dockerfile is missing license inventory: ${license_path}" >&2
-    exit 1
-  }
-done
+if grep -Eiq '(cwk|pup|datadog|chatwork)' images/toolbox/Dockerfile images/toolbox/versions.env images/toolbox/THIRD_PARTY_NOTICES.md; then
+  echo "toolbox retains a provider-specific helper retired from first public V1" >&2
+  exit 1
+fi
 
 bash -n scripts/build-toolbox.sh

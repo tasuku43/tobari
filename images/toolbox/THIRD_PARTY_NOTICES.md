@@ -10,11 +10,7 @@ following pinned upstream command-line tools for local use.
 | AWS CLI | 2.36.11 | Apache-2.0 | https://awscli.amazonaws.com/ |
 | kubectl | 1.36.3 | Apache-2.0 | https://dl.k8s.io/release |
 | TWG CLI | 1.1.1 | Upstream local-use terms | https://teamwork-graph.atlassian.com/cli/ |
-| cwk | 0.2.4 | MIT | https://github.com/tasuku43/cwk/releases |
-| Pup | 1.10.5 | Apache-2.0 | https://github.com/DataDog/pup/releases |
 
-The cwk and Pup archives are verified against the architecture-specific
-SHA-256 values in `versions.env` before extraction. Their upstream license and
-third-party notice files are copied into `/usr/share/licenses/tobari-toolbox/`
-inside the locally built image. The other tools retain their existing upstream
-verification paths in the toolbox Dockerfile.
+Each tool retains its upstream integrity verification path in the toolbox
+Dockerfile. The image carries no provider-specific helper owned by a retired
+brokered-authentication flow.
