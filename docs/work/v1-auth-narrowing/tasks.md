@@ -42,7 +42,11 @@
       static-only Broker now joins only the internal control network; Compose
       and reconciliation no longer give it provider egress, while Gateway
       alone retains the upstream egress interface.
-- [ ] Clarify brokered versus Workspace-owned authentication in all outputs.
+- [x] Clarify brokered versus Workspace-owned authentication in all outputs.
+      Evidence: root/scoped help, README, authentication/security contracts,
+      threat model, readiness journey, and EN/JA architecture pages distinguish
+      Workspace-owned tool state from optional static Broker handles and never
+      describe tool-owned credentials as host-managed or outside the Workspace.
 - [x] Synchronize canonical and embedded sources only after implementation
       stabilizes. Evidence: the repository sync scripts generated both embedded
       snapshots and both source-equality checks passed.
@@ -72,4 +76,14 @@
       `.harness/schemas.json` records the reviewed replacement byte count and
       SHA-256 values.
 - [ ] Record `task check`, `task security`, and `task public:check` evidence.
-- [ ] Commit only this packet, integrate, and repeat verification.
+      Evidence: `mise exec -- task check:fast` and `mise exec -- task security`
+      passed after full auth/policy/site integration on 2026-08-12.
+      `task public:check` passed repoguard and contractlint and stopped only at
+      the deliberate unpublished Gateway digest checkpoint. Full check remains
+      a final integration gate because the local Colima engine could not start
+      the new synthetic fixture container.
+- [x] Commit only this packet, integrate, and repeat verification. Evidence:
+      the auth retirement was split into public/domain, canonical runtime,
+      dormant managed-state, toolbox, and Broker-egress commits; each was
+      reviewed and focused-tested before integration. Fast/security and source
+      equality checks passed on the integration branch.
