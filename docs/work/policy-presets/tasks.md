@@ -47,7 +47,9 @@
 
 ## Implement application and CLI
 
-- [ ] Add `policy.presets` to the public capability ledger.
+- [x] Add `policy.presets` to the public capability ledger. Evidence:
+      `.harness/capabilities.json` declares the exact catalog capability and
+      the product plus EN/JA schema tables declare `policy_presets` version 1.
 - [x] Add list/show/init/validate use cases with task-owned minimal ports.
 - [x] Register complete catalog specs, dispatch, help, presentation, fixtures,
       faults, and generated architecture data.
@@ -97,9 +99,9 @@
       while its unittest suite requires the integration profile's mitmproxy
       dependency.
 - [ ] `task check` passes. Evidence:
-- [ ] `task check:fast` passes. Evidence: blocked before repository checks by
-      host Node.js v22.14.0/npm 10.9.2; repository requires Node.js v24.18.0
-      and npm 11.16.0. Focused Go suites pass.
+- [ ] `task check:fast` passes. Evidence: `mise exec -- task check:fast`
+      reaches contract lint on the integration branch; the remaining reviewed
+      fixture digest belongs to the integrated auth retirement.
 - [ ] `task security` passes. Evidence:
 - [ ] `task public:check` passes. Evidence:
 
