@@ -45,7 +45,7 @@ Maintainers should acknowledge a complete report within three business days, coo
 | Credentials and private identifiers are not committed | `tools/repoguard`, synthetic fixtures, `task security` |
 | Tobari has no direct external route | Docker topology and integration tests |
 | HTTP and HTTPS requests fail closed through Gateway and OPA | Gateway, Rego, and integration tests |
-| Managed credentials enter only after authorization | Gateway credential-binding tests and secret canaries |
+| Static brokered credentials resolve only after authorization | Gateway/Broker binding, zero-resolve-on-deny, same-revision replacement, and secret canaries |
 | A release is built from reviewed source and checked artifacts | release profile and release workflow contracts |
 | Public readiness is an explicit gate | `task public:check` |
 

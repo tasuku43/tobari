@@ -10,10 +10,8 @@ The Go CLI remains a pure-Go binary for Linux and macOS on amd64 and arm64.
 Windows CLI archives are buildable by the inherited packaging harness but the
 MVP runtime is not supported on Windows because bind mounts, Unix ownership,
 TTY behavior, and container networking have not been validated there.
-The resident credential companion is a private same-binary process identity,
-not a second executable or public Catalog command, so archives add no sibling
-binary. Runtime epoch/session keys, provider homes, and credential state are
-never packaged.
+Provider homes, credentials, handles, root keys, and vault state are never
+packaged. V1 has no resident credential companion or second executable.
 
 Every CLI artifact exposes build identity through `version` text and schema-1
 JSON. A release archive embeds the validated SemVer and full source commit,
@@ -120,14 +118,12 @@ multi-architecture build; only the main-push job can publish to GHCR.
 
 The Auth Broker workflow follows that same permission and tag split. Before
 building it verifies canonical/snapshot equality, image metadata,
-provider-CLI absence, and the private bridge/protocol suite. Pull requests run
+provider-CLI absence, and the static-only protocol suite. Pull requests run
 the Python tests and cache-only
 multi-architecture build without package-write permission. The main-push job
 alone publishes the GHCR manifest. No login, credential, account fixture,
-device or authorization code, SSO client/token state, Codex `auth.json`, Claude
-setup token, OpenAI ID/access/refresh token, role credential, signed
-authorization field, handle, root key, vault, or authenticated output is a
-release artifact.
+device or authorization code, token, handle, root key, vault, or authenticated
+output is a release artifact.
 
 The first Claude and Codex agent-image slices are build-only: their
 pull-request and main-push workflows validate the pinned parent, agent release
@@ -216,26 +212,20 @@ complete and compatible. The paired unpublished V1 image authorities make that
 gate fail intentionally until reviewed immutable V1 indexes exist; version
 diagnostics explain the same state but cannot override it.
 
-Auth Broker and companion changes additionally require the canonical source,
-image, private protocol, host-driver, and topology checks used by `task check`
+Auth Broker changes additionally require the canonical source, image, static
+protocol, GitHub host-driver, and topology checks used by `task check`
 and `task runtime:test`. The required reproducible synthetic Auth Broker proof
 is delegated explicitly to `task integration:test`;
 the manual transcript does not duplicate that synthetic manipulation. Release
-also requires the trusted-host GitHub, OpenAI Codex, Anthropic Claude, Datadog,
-and both AWS login-method scenarios in
+also requires the trusted-host GitHub scenario in
 [Agent Readiness Validation](09_agent_readiness_validation.md), including the
 no-print assertion that `gh auth token --hostname github.com` equals the exact
-projected `GH_TOKEN` handle, that console mode rejects AWS CLI older than 2.32
-before provider login, and that the three AWS credential variables equal
-one handle before the allowed API calls. OpenAI and Anthropic validation
-requires exact trusted-host Codex 0.146.0 and Claude Code 2.1.220 executables,
-respectively, an interactive terminal, and deliberate completion of each
-provider's browser flow. Those scenarios record only secret-free pass/fail
-outcomes and never become repository fixtures; OAuth tokens, setup tokens,
+projected `GH_TOKEN` handle. The scenario records only secret-free pass/fail
+outcomes and never becomes a repository fixture; tokens,
 authorization/device codes, provider credential files, handles, and raw
 authenticated transcripts are forbidden fixtures. An
 implementation handoff may report the reviewed image evidence, but release
-completion still requires those manual trusted-host scenarios and every
+completion still requires that manual trusted-host scenario and every
 release gate; image publication alone is insufficient.
 
 The first public release also requires a clean-environment Colima or Linux

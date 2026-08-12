@@ -97,13 +97,12 @@ support promises before maintainers invite external users.
 - Separate untrusted pull-request execution from privileged release jobs.
 - Do not expose secrets to forked pull requests.
 - Verify dependency integrity, licenses, and known vulnerabilities.
-- For the Auth Broker image, verify canonical/snapshot equality, bridge and
+- For the Auth Broker image, verify canonical/snapshot equality, static-only
   protocol tests, non-root construction, and absence of every provider CLI or
-  provider configuration file. Host GitHub/AWS/pup/Codex/Claude drivers are Go
-  infrastructure, not Broker image artifacts; tests and image layers must
-  contain no live SSO or console-login cache, Codex `auth.json`, Claude state,
-  setup token, OAuth token set, temporary credential, or signed-request
-  material.
+  provider configuration file. The sole GitHub host driver is Go
+  infrastructure, not a Broker image artifact; tests and image layers must
+  contain no live credential, token, handle, root key, vault, or authenticated
+  output.
 - For the public base runtime, retain its pre-change GitHub CLI and AWS CLI
   artifact, publisher, redistribution, multi-architecture, and native-smoke
   checks. Verify `kubectl`, `cwk`, `pup`, and TWG only in the explicit local
@@ -138,18 +137,13 @@ publication; it must not be described as a stable SemVer release or grant the
 image any authority beyond its declared root filesystem.
 
 The Auth Broker is a credential-bearing runtime, so its public image requires
-additional negative evidence: no credential, live account fixture, GitHub or
-AWS CLI configuration, SSO registration/client state, console login session or
-private key, Codex or Claude configuration, OpenAI ID/access/refresh token,
-Claude setup token, access or refresh token,
-role credential, root key, vault, runtime-issued handle, device code, signed
+additional negative evidence: no credential, live account fixture, GitHub CLI
+configuration, private key, token, root key, vault, runtime-issued handle, device code, signed
 authorization field, or authenticated output is present in source, layers,
 workflow artifacts, logs, or notices. Deterministic synthetic canaries are
-permitted only in tests. The CLI archive contains the private companion mode
-inside the same binary but no companion key, driver state, provider home, or
-provider executable; every epoch key is derived at runtime and enters only
-inherited stdin. Its canonical
-source/snapshot drift check, provider-CLI absence, fixed non-root labels/
+permitted only in tests. The CLI archive contains no companion mode, driver
+state, provider home, or provider executable. Its canonical source/snapshot
+drift check, provider-CLI absence, static-record-only checks, fixed non-root labels/
 entrypoint, and Linux amd64/arm64 build must pass. Pull-request
 validation is cache-only and has no package-write permission; only the
 main-push job may publish moving `latest`/`main` and immutable
