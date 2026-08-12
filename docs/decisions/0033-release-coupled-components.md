@@ -1,4 +1,4 @@
-# ADR 0032: Bind component images during CLI release assembly
+# ADR 0033: Bind component images during CLI release assembly
 
 - Status: Accepted
 - Date: 2026-08-12

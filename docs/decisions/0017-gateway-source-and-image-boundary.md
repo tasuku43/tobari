@@ -71,7 +71,7 @@ development identities to GHCR. The pull-request job is cache-only and has no
 package-write permission. No provenance or SBOM claim is added by this ADR.
 
 The original decision recorded one reviewed multi-architecture Gateway digest
-in embedded `versions.env`; ADR 0032 supersedes that release-binding mechanism
+in embedded `versions.env`; ADR 0033 supersedes that release-binding mechanism
 with a generated paired component lock consumed during routine `cluster up`.
 Startup verifies the digest, API/role labels, non-root entrypoint, and Docker
 Engine platform before policy tests or cluster resources. Contributor source
