@@ -28,6 +28,12 @@ if ! grep -F "container tobari-auth-broker already exists" "$output" >/dev/null;
   cat "$output" >&2
   exit 1
 fi
+if ! grep -F "integration phase: preflight START" "$output" >/dev/null ||
+  ! grep -F "integration: phase=preflight:" "$output" >/dev/null; then
+  echo "integration preflight fixture did not report its named failure phase" >&2
+  cat "$output" >&2
+  exit 1
+fi
 if grep -E '^(rm|network rm|volume rm|image rm|run|exec)( |$)' "$docker_log" >/dev/null; then
   echo "integration preflight rejection attempted a Docker mutation" >&2
   cat "$docker_log" >&2

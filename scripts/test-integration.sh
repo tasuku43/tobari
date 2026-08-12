@@ -24,18 +24,37 @@ runtime_image=
 official_runtime_image=
 created_dev_runtime_tag=false
 owns_shared_fixture=false
+current_phase=
+phase_started=$SECONDS
 host_docker_config=${DOCKER_CONFIG:-$HOME/.docker}
 host_docker_context=${DOCKER_CONTEXT:-$(docker context show)}
 
+begin_phase() {
+  local next_phase=$1
+  if [[ -n $current_phase ]]; then
+    echo "integration phase: $current_phase OK ($((SECONDS - phase_started))s)" >&2
+  fi
+  current_phase=$next_phase
+  phase_started=$SECONDS
+  echo "integration phase: $current_phase START" >&2
+}
+
+complete_phase() {
+  if [[ -n $current_phase ]]; then
+    echo "integration phase: $current_phase OK ($((SECONDS - phase_started))s)" >&2
+  fi
+  current_phase=
+}
+
 fail() {
-  echo "integration: $*" >&2
+  echo "integration: phase=${current_phase:-setup}: $*" >&2
   exit 1
 }
 
 report_unexpected_failure() {
   local status=$?
   if [[ $- == *e* ]]; then
-    echo "integration: unexpected command failure near lines ${BASH_LINENO[*]}" >&2
+    echo "integration: phase=${current_phase:-setup} elapsed=$((SECONDS - phase_started))s: unexpected command failure near lines ${BASH_LINENO[*]}" >&2
   fi
   return "$status"
 }
@@ -552,6 +571,7 @@ finish() {
 }
 trap finish EXIT
 
+begin_phase preflight
 command -v docker >/dev/null || fail "docker is required"
 command -v python3 >/dev/null || fail "python3 is required"
 docker version >/dev/null 2>&1 || fail "Docker Engine is unavailable"
@@ -574,6 +594,7 @@ if docker network inspect "$auth_network" >/dev/null 2>&1; then
 fi
 owns_shared_fixture=true
 
+begin_phase build-fixtures
 test_root=$(mktemp -d "$PWD/.tobari-integration.XXXXXX")
 mkdir -p \
   "$test_root/user/workspace" \
@@ -693,6 +714,7 @@ if ! docker image inspect tobari-runtime:dev >/dev/null 2>&1; then
   docker tag "$custom_base_image" tobari-runtime:dev
   created_dev_runtime_tag=true
 fi
+begin_phase contexts-and-cluster
 preset_catalog=$(run_tobari policy preset list --format json)
 PRESET_CATALOG_DOCUMENT="$preset_catalog" python3 <<'PY'
 import json
@@ -847,6 +869,7 @@ default_context=$(run_tobari context show --format json)
 assert_contains "$default_context" '"active":true' "Context selection after explicit recovery"
 default_context_id=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["context"]["id"])' <<<"$default_context")
 
+begin_phase credentials-and-workspaces
 default_auth_import=$(printf '%s' "$synthetic_default_secret" | \
   run_tobari auth import "$synthetic_provider" --context default --format json)
 restricted_auth_import=$(printf '%s' "$synthetic_restricted_secret" | \
@@ -1215,6 +1238,7 @@ wait_listening "$mock_name" 8080
 wait_network_connection tobari-gateway mock-upstream 8080
 start_cluster >/dev/null
 wait_healthy tobari-gateway
+begin_phase gateway-broker-and-transport
 docker network create --internal --subnet 11.254.43.0/24 "$auth_network" >/dev/null
 docker network connect "$auth_network" tobari-gateway
 docker network connect --alias graphql.tobari.dev "$auth_network" "$mock_name"
@@ -1546,6 +1570,7 @@ gateway_gid=$(docker exec tobari-gateway sh -c "awk '/^Gid:/{print \$2}' /proc/1
 [[ $gateway_uid == "$(id -u)" ]] || fail "Gateway runs as uid $gateway_uid instead of the host uid"
 [[ $gateway_gid == "$(id -g)" ]] || fail "Gateway runs as gid $gateway_gid instead of the host gid"
 
+begin_phase policy-review-and-activation
 policy_bundle_mount=$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/bundle"}}{{println .Name .RW}}{{end}}{{end}}' tobari-opa)
 [[ $policy_bundle_mount == 'tobari-policy-bundle false' ]] ||
   fail "OPA does not mount the exact read-only policy bundle volume: $policy_bundle_mount"
@@ -1993,6 +2018,7 @@ if run_tobari help policy compactions --format agent >/dev/null 2>&1 ||
   fail "retired policy compaction command remained invocable"
 fi
 
+begin_phase diagnostics-and-failure-modes
 final_default_auth_status=$(run_tobari auth status --context default --format json)
 final_restricted_auth_status=$(run_tobari auth status --context restricted --format json)
 final_context_status=$(run_tobari context show --format json)
@@ -2089,6 +2115,7 @@ second_pid=$!
 wait "$first_pid"
 wait "$second_pid"
 
+begin_phase lifecycle-and-runtime-build
 docker rm -f "$mock_name" >/dev/null
 set +e
 run_tobari cluster down >/dev/null 2>&1
@@ -2173,4 +2200,5 @@ if docker volume ls --filter label=io.tobari.owner=default --format '{{.Name}}' 
   fail "owned volumes remain after purge"
 fi
 
+complete_phase
 echo "integration: OK"
