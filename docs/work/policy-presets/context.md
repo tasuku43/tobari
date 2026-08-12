@@ -1,0 +1,122 @@
+# Work Context: Create Contexts from bounded policy presets
+
+## Current behavior
+
+- New Contexts copy embedded domain pairs for `api.github.com`, `example.com`,
+  and `mock-upstream`. Their authority/method entries immediately allow some
+  GET/HEAD and POST traffic, so initial authority is implicit and test-oriented.
+- The guided system evaluator defaults to deny. HTTPS requests can be eligible
+  for exact learning even without a declared authority; plain HTTP needs a
+  declared authority or GraphQL endpoint.
+- An ordinary authority/method entry is a Context-wide baseline grant.
+  Learned allow/deny rules bind stable Context and project plus exact HTTP
+  effect; baseline deny takes terminal precedence.
+- Advanced Rego is namespaced per Context, while a Tobari-owned system router
+  chooses the decision entrypoint and handles GraphQL routing.
+- Domain policy source is strict schema 1 at
+  `policy/domains/<host>/{allow,deny}.json`, uses exact canonical hosts, and is
+  promoted as one journaled complete generation.
+- Learned prefix rules and the public compaction workflow still exist in code
+  and contracts but are selected for retirement by the parent release packet.
+- There is no preset store, preset identity/revision, or preset command
+  namespace.
+
+## Relevant structure
+
+- Entry point: new `policy preset *` commands and `context create
+  --policy-preset`
+- Domain rule: new preset/guardrail types beside Context and policy vocabulary
+- Application use case: new `internal/app/policypresetcmd` task-owned ports;
+  Context create consumes one validated snapshot
+- Infrastructure boundary: owner-only preset store, embedded built-ins,
+  normalization/digest, Context snapshot creation, domain source generation,
+  aggregate/system evaluator
+- CLI catalog or presentation: new command specs/capability and Context report
+  policy fields
+- Existing tests and harness checks: policy source strict parsing, aggregate
+  atomicity, Rego tests, candidate learnability, denial zero-call canaries,
+  catalog/reference graph, public guard
+
+## Constraints
+
+- A preset must separate authority ceiling from current grants. Calling both
+  “allow” would let users misread `get-only-reviewed` as immediate GET access.
+- `get-only-reviewed` means only GET may proceed to exact review; it does not
+  mean GET is safe, private, body-free, query-free, or automatically allowed.
+- A Context-wide baseline grant applies to every project bound to that Context;
+  reports and review must make that scope explicit.
+- Project-bound learned rules cannot exceed the Context guardrail even if they
+  predate a policy change; snapshots are immutable so this is chiefly a
+  malformed-state and Advanced-bypass invariant.
+- Preset source is non-secret data but remains owner-only because changing it
+  can create future authority.
+- Existing Contexts never re-read the origin preset.
+- Exact V1 has no migration/default reader for old Context policy source.
+
+## External facts
+
+No external endpoint catalog is used. Built-ins are Tobari-owned deterministic
+data and custom presets are local owner-authored files. This avoids drift and
+licensing authority from third-party provider lists.
+
+## Unknowns
+
+- [ ] Freeze the exact custom schema after hostile-fixture review; field names
+      below are semantic requirements, not yet a published JSON contract.
+- [ ] Measure first-run denial volume for each built-in during the retained
+      agent-readiness scenarios.
+- [ ] Record which supported cloud agents fail to start under offline/GET-only
+      because their control traffic requires POST; document without adding a
+      bypass.
+
+## Thesis evidence
+
+- Repeated decision: deny-by-default needs manageable explicit policy without
+  turning observed traffic into automatic authority.
+- User outcome: name a reusable “offline,” “reviewed exact,” or “GET-only
+  reviewed” posture and attach it to a Context before entry.
+- Avoided workaround: copying/editing example policy directories or widening
+  learned rules through compaction.
+- Proposed revision: selected preset snapshot supplies the Context-wide
+  guardrail and optional baseline; exact learned decisions remain below it.
+- Downstream impact: new capability/catalog, preset store/schema, Context
+  manifest/report, system Rego, aggregate data, compaction retirement,
+  docs/harness/readiness.
+
+## Reproduction or observation
+
+```sh
+find internal/infra/runtimeassets/assets/opa/policy/domains -type f -maxdepth 2 -print
+sed -n '1,180p' internal/infra/runtimeassets/assets/opa/policy/tobari.rego
+sed -n '180,260p' internal/infra/dockerruntime/context_store.go
+go run ./cmd/tobari help policy --format agent
+```
+
+Observed 2026-08-12: example domains are copied implicitly; the evaluator has
+default deny plus exact learning and terminal baseline denies; the public
+catalog has compaction but no preset capability.
+
+## Security and public-boundary notes
+
+- Assets: outbound HTTP authority, denial/candidate semantics, Context policy
+  source, aggregate OPA bundle, custom preset files.
+- Credentials: preset contains no secret or provider credential. A terminal
+  guardrail denial remains before broker resolution.
+- New dependencies/destinations/processes: none; parser and built-ins use the
+  standard library and embedded reviewed data.
+- Side effects: preset init creates one exact owner-only local file; Context
+  create snapshots it; list/show/validate are read-only.
+- Retry/cancellation: validation makes no policy activation; Context creation
+  follows fixed-target mutation semantics; a later permission change never
+  retries the denied request.
+- Publication: synthetic domains only; no copied provider endpoint catalog.
+
+## Glossary
+
+- **Preset origin:** canonical built-in/custom selector used at Context
+  creation.
+- **Preset revision:** SHA-256 digest of canonical normalized preset bytes.
+- **Guardrail:** terminal method/destination ceiling checked before all allows.
+- **Baseline grant:** explicit Context-wide initial HTTP route grant below the
+  guardrail, distinct from project-bound learned permission.
+- **Baseline deny:** trusted terminal deny that cannot become a candidate.
