@@ -51,8 +51,8 @@ learned rules cannot express; ordinary permission growth must not require it.
 Exact policy actions and final reviewed-set Apply perform the bounded
 activation required for their own mutation.
 Denial evidence is a product output, not incidental debug noise.
-The host-issued project principal and normalized scheme are retained in denial, candidate, learned
-rule, and compaction evidence; an approval made from one current-directory
+The host-issued project principal and normalized scheme are retained in denial,
+candidate, learned-rule, and audit evidence; an approval made from one current-directory
 Tobari cannot be replayed as another project's permission.
 Ordinary request bodies are not a policy identity dimension. A body-bearing
 POST, PUT, PATCH, or other method is authorized and learned from the same
@@ -78,9 +78,8 @@ non-learnable and cannot become policy candidates.
   lifecycle and list output. It is not a second runtime resource; its identity
   remains the canonical root and its stable Tobari ID remains diagnostic.
 - **cluster:** the one installation-local Gateway, one OPA, one locked Auth
-  Broker, one resident host credential-companion lifecycle, aggregate policy
-  and provider projections, principal registry,
-  Context-scoped managed-credential projection, and CA lifecycle.
+  Broker, aggregate policy and static-provider projections, principal registry,
+  and CA lifecycle.
 - **Gateway:** the trusted HTTP/HTTPS policy enforcement point.
 - **OPA:** the trusted policy decision point.
 - **Auth Broker:** the trusted non-root credential-resolution daemon. It owns
@@ -111,60 +110,33 @@ non-learnable and cannot become policy candidates.
   is acquired or imported, stored, and later applied to one exact reviewed
   request binding. A provider is not the Workspace client that uses it.
 - **Workspace client tool:** the CLI or other client inside a Workspace that
-  receives provider-declared handle projection and emits the authenticated
-  request shape. `gh`, `aws`, `pup`, `codex`, `claude`, and `cwk` are current
-  client-tool examples; their names do not grant provider or network authority.
-- **supported Provider-Tool pairing:** one reviewed combination of credential
-  provider, Workspace client tool, acquisition mode, handle projection, and
-  exact request binding. The current built-in pairings each support one client
-  tool, so `auth login` asks for the provider and displays the sole tool as
-  automatically selected rather than requiring ceremonial second input. AWS
-  `identity-center` and `console` are acquisition methods within the AWS/`aws`
-  pairing, not separate tools. A future second tool for one provider requires
-  an explicit public selection and compatibility decision before it is
-  exposed.
-- **brokered credential:** one typed credential record owned by a stable Context
-  and provider. A static provider stores one opaque primary secret acquired
-  through protected non-terminal stdin or the reviewed host GitHub driver. The
-  AWS provider stores encrypted opaque AWS CLI state acquired through one
-  explicitly selected reviewed host flow; derived credentials are transient and are
-  never persisted.
-  The Datadog provider stores strict encrypted pup OAuth client/token state
-  acquired through the fixed US1 host flow; only a post-policy access token is
-  request-local and near-expiry state refreshes automatically.
-  The OpenAI provider stores strict encrypted Codex 0.146.0 ChatGPT OAuth state;
-  only a post-policy access token and account-routing header are request-local,
-  and near-expiry state refreshes automatically. The Anthropic provider stores
-  one Claude Code 2.1.220 inference-only setup token with no refresh state.
-- **credential companion:** one resident trusted-host process entered through
-  the current Tobari executable's private same-binary mode. It accepts only the
-  reviewed post-policy AWS refresh operation and exchanges bounded
-  authenticated frames with an unmounted Broker-private socket over a reverse
-  `docker exec` stream. Interactive GitHub/AWS/Datadog/OpenAI/Anthropic login
-  runs through direct context-bound host drivers, not companion RPC. The
-  companion has no public
-  command, host listener, provider-selected executable, or Workspace-visible
-  secret surface.
+  receives a provider-declared handle projection and emits the authenticated
+  request shape. The reviewed built-in pairing is GitHub/GitHub CLI (`gh`);
+  its name does not grant provider or network authority. Other tools use their
+  own Workspace-owned authentication or an owner static manifest where the
+  exact HTTPS/header contract can express the outcome.
+- **brokered credential:** one static primary-secret record owned by a stable
+  Context and provider, acquired through protected non-terminal stdin or the
+  reviewed host GitHub driver and stored in the encrypted Context vault. V1
+  has no dynamic record, refresh, signer, supplemental-header, or companion
+  path.
 - **Workspace credential handle:** a versioned random opaque value bound to one
   Context, project, provider, credential revision, and exact HTTP binding. It
   is not the real credential and is not authority without the trusted
   principal and OPA allow. Broker metadata never inherits a broad static
   host/method allow; the first exact L7 effect remains reviewable until an
   exact learned rule exists.
-- **provider manifest:** strict non-secret data declaring acquisition,
-  Workspace handle projections, and exact credential bindings. Owner manifests
-  are V1 static-secret/header plans. Reviewed built-ins use typed closed plans
-  within the same V1 authority; neither form
-  declares no executable shell, arbitrary route, HTTP method/path policy, or
-  provider operation semantics.
-- **credential profile:** non-secret Gateway configuration for the static
-  managed adapter; it binds a Context-scoped profile name to exact hosts and
-  project principals.
+- **provider manifest:** strict non-secret data declaring static import,
+  Workspace handle projections, and exact HTTPS/header credential bindings.
+  Owner manifests are V1 static-secret/header plans; the reviewed built-in is
+  the GitHub.com plan. Neither form declares executable shell, helper choice,
+  refresh, signing, arbitrary routes, HTTP method/path policy, or provider
+  operation semantics.
 - **Context:** one immutable host-owned capability envelope with a stable
   opaque ID and a human name. Its manifest records direct source access,
   normalized policy-preset origin and snapshot revision, and references an
-  agent profile, compatible Tobari runtime image, policy store, and managed-
-  credential stores. Its stable ID determines separately
+  agent profile, compatible Tobari runtime image, and policy store. Its stable
+  ID determines separately
   stored Context-owned Auth Broker vault state; the manifest does not contain a
   broker vault path, key, or secret. Those stores remain physically separated
   by trust boundary.
@@ -210,13 +182,13 @@ The public commands are:
 |---|---|---|---|
 | `help [selector] [--format text|agent]` | utility | read | Discover exact command contracts |
 | `version [--format text|json]` | utility | read | Print source version/commit, resolver channel, required and selected Gateway/Auth Broker APIs, and compatibility |
-| `doctor [--root PATH] [--format text|tsv|json]` | utility | read | Report read-only host, Docker, configuration, policy, provider-manifest, root-key/vault, broker/project-handle, managed-secret, port, and residue diagnostics without repairing state |
-| `cluster up` | act, fixed target | create | Validate all Context policy/provider inputs and image contracts, reconcile Gateway, OPA, and Auth Broker, unlock the broker, and start its resident host credential companion |
+| `doctor [--root PATH] [--format text|tsv|json]` | utility | read | Report read-only host, Docker, configuration, policy, provider-manifest, root-key/vault, broker/project-handle, port, and residue diagnostics without repairing state |
+| `cluster up` | act, fixed target | create | Validate all Context policy/provider inputs and image contracts, reconcile Gateway, OPA, and Auth Broker, and unlock the broker |
 | `tobari [--context NAME]` | act, fixed target | create | Choose or create the current directory's Workspace in the explicit or current Context, reconcile runtime, enter it, and leave it reusable after `exit` |
 | `status [--context NAME] [--format text|json]` | utility | read | Inspect the nearest current-directory Workspace in the explicit or current Context, its logical existence, runtime diagnostic, and attached/detached session observation |
 | `list [--format text|json]` | utility | read | List local Workspaces with Context, runtime diagnostics, and diagnostic IDs |
 | `delete [--context NAME] [--force]` | act, fixed target | write | Delete the nearest current-directory Workspace in the explicit or current Context, its owned runtime, persistent home, and tool-owned authentication state while preserving project files; `--force` overrides only the attached-session guard |
-| `cluster status [--format text|json]` | utility | read | Inspect three-service and companion health, loaded Context count, aggregate revision, policy/provider projection integrity, root-key backend, and recent errors |
+| `cluster status [--format text|json]` | utility | read | Inspect three-service health, loaded Context count, aggregate revision, policy/provider projection integrity, root-key backend, and recent errors |
 | `cluster denials [--tail N] [--format text|json]` | utility | read | Read a bounded typed denial window, exact-rule learnability, policy path, and review command |
 | `cluster logs [--component gateway|opa|auth-broker|all] [--tail N]` | utility | read | Read bounded shared logs, including policy-denial evidence, without credential or handle output |
 | `cluster down [--purge]` | act, fixed target | write | Remove shared transient resources after every logical Tobari is deleted while preserving Auth Broker vaults and the installation root key; `--purge` additionally removes shared CA and active policy-bundle volumes |
@@ -227,17 +199,15 @@ The public commands are:
 | `policy deny --id ID` | act, reference bound | write | Test, record, and activate one exact project-bound rejection |
 | `policy rules [--format text|json]` | discover | read | List every Context-scoped CLI-owned learned Allow and exact Deny decision; on a TTY, reset one explicitly |
 | `policy reset --id ID` | act, reference bound | write | Remove one learned decision and leave its effect at default deny |
-| `policy compactions [--format text|json]` | discover | read | Discover safe bounded prefix-compaction candidates and opaque IDs |
-| `policy compact --id ID` | act, reference bound | write | Test and activate one current learned-rule compaction |
 | `context list [--format text|json]` | utility | read | List persisted named Contexts and report the current selection as persisted or a display-only synthetic default |
-| `context show [--name NAME] [--format text|json]` | utility | read | Inspect one Context's explicit persistence state, immutable source access, preset origin/revision and guardrail summary, agent, policy, managed-adapter store references, and secret-free Auth Broker/provider state without returning a broker vault path/content, key, primary secret, or handle |
+| `context show [--name NAME] [--format text|json]` | utility | read | Inspect one Context's explicit persistence state, immutable source access, preset origin/revision and guardrail summary, agent, policy, and secret-free Auth Broker/provider state without returning a broker vault path/content, key, primary secret, or handle |
 | `config shell [--variable COLORTERM\|NO_COLOR\|PS1\|TERM] [--source default\|inherit\|literal] [--value VALUE] [--context NAME] [--format text\|json]` | act, fixed target | write | Configure one allowlisted shell-presentation variable directly, or stage one or more rows from the complete terminal inventory and apply them atomically |
 | `config git [--source default\|inherit\|literal] [--name NAME] [--email EMAIL] [--context NAME] [--format text\|json]` | act, fixed target | write | Configure one atomic Context Git commit-identity fallback directly, or stage and apply its source from one terminal screen |
 | `context create --name NAME [--image IMAGE] [--mode guided|advanced] [--source-access read-only\|read-write] [--policy-preset PRESET]` | act, fixed target | create | Validate and create one named immutable capability envelope with a runtime image, direct source access, normalized policy-preset snapshot, and separate owner-only stores; omission selects `read-write` and `builtin/reviewed-exact` |
 | `context use --name NAME` | act, fixed target | write | Change only the current/default Context; do not mutate existing Tobari or start/reconcile the cluster |
 | `runtime init [--format text|json]` | act, fixed target | create | Create the current Context's runtime/Dockerfile template without changing its selected image |
 | `runtime build [--format text|json]` | act, fixed target | write | Build, validate, and select the current Context's generated local runtime image |
-| `auth login [--provider PROVIDER] [--method identity-center\|console] [--context NAME] [--format text\|json]` | act, fixed target | write | Acquire one supported provider credential through a reviewed interactive trusted-host CLI driver for the explicit or current Context; provider-option omission opens a terminal selector over installed reviewed login providers, each current built-in displays its sole supported Workspace client tool as automatically selected, AWS method omission preserves the fixed IAM Identity Center device flow, `console` selects fixed cross-device AWS CLI local-development login, Datadog selects fixed default-organization US1 pup OAuth, OpenAI selects pinned Codex ChatGPT device OAuth, and Anthropic selects pinned Claude inference setup-token OAuth |
+| `auth login --provider github [--context NAME] [--format text\|json]` | act, fixed target | write | Acquire one GitHub.com credential through the reviewed interactive trusted-host GitHub CLI driver for the explicit or current Context; provider omission and every other provider are invalid |
 | `auth import PROVIDER [--context NAME] [--format text|json]` | act, fixed target | write | Import one bounded opaque provider credential only from protected non-terminal stdin |
 | `auth status [--context NAME] [--format text|json]` | utility | read | Inspect the complete installed provider collection plus bounded Context-scoped Workspace projection freshness and coverage without reading secrets |
 | `auth logout PROVIDER [--context NAME] [--format text|json]` | act, fixed target | write | Remove one local Context/provider credential and revoke its Workspace handles when present, or report confirmed `no_change` when already absent, without contacting the provider |
@@ -248,16 +218,6 @@ invocation Context may appear before or after the command path: for example,
 equivalent. Omission resolves the current Context without changing it;
 duplicate or explicit-empty placement is invalid. After name resolution, the
 stable Context ID is authoritative for the remainder of the operation.
-
-`cluster status --format json` uses output schema 1. Its `cluster` object keeps
-the three shared container components and adds always-present secret-free
-`credential_companion_state`, exactly `ready`, `prepared`, `absent`, or
-`unavailable`. The field reports the resident host process/channel
-relationship; it is not a fourth Compose
-service, provider credential state, or permission fact. `absent` means no
-prepared epoch or active session, `prepared` means Broker accepted the epoch
-and is waiting for the authenticated channel, `ready` means that channel is
-active, and `unavailable` means the Broker control observation failed.
 
 The root command is interactive and requires a TTY on stdin, stdout, and stderr.
 It does not silently create state in a non-interactive context. When the
@@ -302,15 +262,19 @@ undeclared Docker mutation by the CLI.
   trusted active policy/configuration paths are protected.
 - An explicit create choice uses the canonical current directory as root.
   Project moves and copies are not inferred or recorded in the project tree.
-- The selected root is the only project directory mounted read-write. When it
-  is below the host home, the container target preserves the relative path
+- The selected root is the only project directory mounted from the host and
+  uses the bound Context's immutable `read-only` or `read-write` access. When
+  it is below the host home, the container target preserves the relative path
   below `HOME=/var/lib/tobari`; for example, a host root of
   `$HOME/path/to` enters at `/var/lib/tobari/path/to`. A root outside
   the host home retains `/workspace/<canonical-root-without-leading-slash>`;
   thus a root at `/work` and a host CWD of `/work/root` enter at
-  `/workspace/work/root`. Tobari never mounts the host home wholesale.
+  `/workspace/work/root`. Read-only applies only to this direct live bind: it
+  is not a snapshot, host or same-root read-write Context changes remain
+  observable, no writable source alias exists, and Workspace home and tmpfs
+  remain writable. Tobari never mounts the host home wholesale.
 - Same-root Tobari in different Contexts and parent/child roots may run
-  concurrently. Runtime, home, network, policy, and managed credentials follow
+  concurrently. Runtime, home, network, policy, and broker handles follow
   their Tobari/Context boundaries, but overlapping host-file writes are visible
   to every mount of those files. Tobari provides no overlay, checkout clone,
   root lock, session exclusion, warning gate, or filesystem integrity isolation
@@ -338,39 +302,14 @@ undeclared Docker mutation by the CLI.
   validation uses `tobari-gateway:dev` and `tobari-auth-broker:dev` through
   `task build:dev` without changing the normal binary's selectors.
 - Authentication commands accept only an existing Context name and installed
-  provider ID. `auth login` accepts the provider through optional
-  `--provider`: when omitted, interactive terminal stdin and stderr present only
-  the installed reviewed built-in `github`, `aws`, `datadog`, `openai`, and
-  `anthropic` login
-  providers for the selected Context and require one explicit choice. A
-  supplied provider skips that status read and menu. The omitted-provider flow
-  binds login to the Context returned by the status snapshot, so a concurrent
-  current/default change cannot retarget the mutation. `--method` requires an
-  explicitly supplied `--provider`, remains AWS-only, and omission for explicit
-  AWS login means `identity-center`. GitHub shows its device code and the trusted
-  host opens exactly `https://github.com/login/device` when possible. AWS
-  requires explicit `identity-center` or `console` selection, with omission
-  meaning `identity-center`. Identity Center asks for one validated start URL,
-  SSO region, 12-digit account ID, and role name, then leaves the validated
-  regional device URL and one-time code. Console mode requires AWS CLI 2.32 or
-  newer, asks for one commercial AWS region, runs fixed `aws login --remote`,
-  opens only the exact region-bound AWS authorization URL when possible, and
-  leaves that same URL for manual cross-device completion. Datadog uses fixed
-  host pup OAuth for US1, with pup-owned browser consent and loopback callback
-  in an isolated file-backed home. OpenAI uses pinned Codex 0.146.0 native
-  ChatGPT device login with fixed `login --device-auth` argv plus only the
-  reviewed file-credential-store and no-update configuration overrides in an
-  isolated file-backed home. Anthropic uses pinned Claude Code 2.1.220 by
-  running exactly `claude setup-token` in an isolated private home and PTY,
-  capturing one inference token without printing it. The corresponding
-  canonical host executable must report exactly `codex-cli 0.146.0` or
-  `2.1.220 (Claude Code)`, remain non-group/world-writable, and resolve from a
-  conventional non-project trusted installation root. A Workspace binary,
-  project `PATH`, ambient provider home, or newer version is not a login
-  fallback. Auth Broker
-  configures no Git or AWS CLI state in a Workspace and contains no provider
-  CLI executable. `auth import` accepts a non-empty
-  credential of at most
+  provider ID. `auth login` requires exactly `--provider github`; omission and
+  every other provider fail before acquisition. The reviewed driver shows the
+  GitHub device code and the trusted host opens exactly
+  `https://github.com/login/device` when possible, with the same URL retained
+  for manual fallback. It runs fixed API-authentication-only GitHub CLI argv
+  from one canonical non-project executable in a private temporary home and
+  configures no Git protocol or credential helper. Auth Broker contains no
+  provider CLI executable. `auth import` accepts a non-empty credential of at most
   32 KiB from non-terminal stdin only; terminal stdin is rejected before any
   byte is read. Non-terminal bytes are read only after public Context/provider
   argument, intent, and mutation validation; infrastructure then validates the
@@ -378,31 +317,11 @@ undeclared Docker mutation by the CLI.
   readiness before broker send. The credential is never a positional/flag
   value or Tobari environment input. Every successful auth mutation requires
   existing Workspaces to be re-entered before their environment or
-  complete-file handle projection can change.
-- OpenAI projects one Tobari-owned complete `.codex/auth.json` whose exact
-  external-host `chatgptAuthTokens` compatibility shape contains fixed sentinel
-  values and the project-bound handle only as `tokens.access_token`:
-
-  ```json
-  {"auth_mode":"chatgptAuthTokens","OPENAI_API_KEY":null,"tokens":{"id_token":"e30.e30.x","access_token":"${HANDLE}","refresh_token":"","account_id":null},"last_refresh":"1970-01-01T00:00:00Z"}
-  ```
-
-  This is a deliberately unstable, version-pinned Codex 0.146.0 shim, not an
-  OpenAI credential file or an upstream compatibility promise. It binds only
-  HTTPS `chatgpt.com:443` with bearer input. Gateway removes caller-supplied
-  `Authorization`, `ChatGPT-Account-ID`, and `X-OpenAI-FedRAMP` before OPA;
-  after allow, Broker returns the same-revision access token and validated
-  non-secret account ID, and Gateway alone injects `Authorization: Bearer` and
-  `ChatGPT-Account-ID` for one upstream attempt. FedRAMP and alternate
-  authorities are rejected. Workspace Codex never receives or refreshes the
-  provider session.
-- Anthropic projects only
-  `CLAUDE_CODE_OAUTH_TOKEN=${HANDLE}`. It does not project
-  `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, the setup token, or Claude's
-  private login store. Its one exact binding is bearer HTTPS
-  `api.anthropic.com:443`; Broker resolves the static inference token only after
-  allow and never refreshes it. The supported outcome is first-party inference
-  and local MCP. Remote Control and claude.ai connectors remain unsupported.
+  handle projection can change. V1 brokered records are static primary secrets;
+  there is no refresh, signing, supplemental-header, managed-profile, or
+  companion path. Tools without the GitHub pairing authenticate inside the
+  Workspace or use an owner static manifest where its exact header binding is
+  expressible.
 - `runtime init` creates the current Context's owner-only
   `runtime/Dockerfile`. The template starts from
   `ghcr.io/tasuku43/tobari/runtime:latest`; editing that file is the supported
@@ -714,17 +633,14 @@ baseline deny rules, or exact learned deny rules. Baseline and exact denies
 remain available as audit evidence but never become pending queue items.
 Within that window, candidates aggregate by exact Context identity, project
 principal, host, port, method, normalized path, and optional GraphQL operation
-type/root field. Reason, status, request ID, timestamp, and
-credential-profile evidence do not create a second permission identity. The
+type/root field. Reason, status, request ID, timestamp, and broker-handle
+evidence do not create a second permission identity. The
 candidate retains the latest matching evidence and reports the required number
 of matching retained observations. Concurrent identical audit records therefore project to one pending
 item without a separate mutable inbox write. A current learned Allow or exact
 Deny remains the resolved history and is never updated by discovery. After an
 explicit reset, retained matching evidence may produce the same stable pending
 candidate ID again.
-Compactions are exhaustive for the current validated learned-rule file at one
-observation.
-
 ## Configuration contract
 
 Configuration is resolved from
@@ -749,9 +665,17 @@ synthetic state.
 - `contexts/<name>/policy/preset.json`: owner-only normalized schema-v1
   non-executable snapshot whose SHA-256 digest equals the manifest preset
   revision; source preset changes never rewrite it;
+  `builtin/offline` grants nothing, exposes no review-eligible effect, and
+  terminally denies all HTTP/HTTPS; `builtin/reviewed-exact` grants nothing and
+  sends only guardrail-eligible effects to exact review;
+  `builtin/get-only-reviewed` grants nothing, sends only guardrail-eligible GET
+  effects to exact review, and terminally denies HEAD and every non-GET method.
+  GET is not described as safe or read-only. Custom presets are strict
+  owner-only non-executable data with no wildcard, IP/private destination,
+  secret, shell, Rego, include, inheritance, remote fetch, refresh, or signing;
 - `contexts/<name>/policy/domains/<canonical-host>/allow.json`: strict
-  schema-v1 authority, per-domain method, exact GraphQL endpoint, credential
-  profile host-binding, and learned-Allow source for one canonical lower-case
+  schema-v1 authority, per-domain method, exact GraphQL endpoint, static
+  broker binding, and learned-Allow source for one canonical lower-case
   host;
 - `contexts/<name>/policy/domains/<canonical-host>/deny.json`: strict
   schema-v1 baseline-Deny and learned exact-Deny source for the same host;
@@ -762,10 +686,6 @@ synthetic state.
   that filename. Wildcards, IP literals, non-canonical hosts, unknown fields,
   duplicate keys or rule IDs, incomplete pairs, symlinks, unsafe permissions,
   and extra files fail closed;
-- `contexts/<name>/credentials.json`: reserved schema-v1 profile metadata for
-  the explicitly selected managed Gateway adapter;
-- `contexts/<name>/credentials/`: reserved managed-adapter secret files for
-  that Context, never mounted into a Workspace;
 - `auth/providers/*.json`: optional owner-only schema-v1 provider manifests;
   user manifests cannot replace built-ins and may use protected non-terminal stdin import
   only;
@@ -775,7 +695,6 @@ synthetic state.
   Context/project-to-owned-Workspace-and-Gateway endpoint bindings, maintained by lifecycle reconciliation
   and directory-mounted read-only into Gateway so atomic host updates remain
   visible without exposing credential files;
-The default passthrough adapter does not load managed credential files.
 
 Tool authentication state is not cluster configuration. It belongs below the
 selected instance's persistent home and is created by the tool's own login or
@@ -802,9 +721,8 @@ Shared read-only agent profiles referenced by Contexts are under
 Persisted cluster state schema 1 contains the content-addressed aggregate policy revision,
 loaded Context count, aggregate projection paths, and Docker resource names or
 identifiers, never one active Context authority or credential contents. The
-loader accepts only exact V1 state. The owner-only projection contains a
-schema-v1 Context-aware Gateway credential document and Context-ID secret
-subdirectories plus the non-secret schema-v1
+loader accepts only exact V1 state. The owner-only projection contains the
+Context-aware Gateway routing document plus the non-secret schema-v1 static
 provider projection. The per-Tobari home may contain tool credentials and
 broker handles by design, but never a brokered primary secret.
 Project and cluster mutation journals are durable recovery markers. An
@@ -903,17 +821,14 @@ normal Workspace-global and repository/worktree precedence.
 
 `cluster up` obtains and preflights the immutable Gateway and Auth Broker images and official
 runtime bases required by all Contexts, generates and validates the complete
-aggregate policy/credential/provider projection, then creates shared labeled
+aggregate policy/routing/provider projection, then creates shared labeled
 networks, configuration material, exactly one Gateway, exactly one OPA,
 exactly one Auth Broker, and CA volumes as needed. It unlocks the broker through
 the supported host root-key backend and reconnects Gateway to the shared
 networks and existing registered project networks without creating project
-state or project resources. It verifies the exact Broker container identity,
-prepares a fresh root-key-derived companion epoch, and starts one resident
-same-binary host companion over a fixed reverse `docker exec -i` channel before
-reporting ready. No host listener, host socket mount, shell, or public companion
-command is created. It then waits for all three services and the companion to
-be healthy and the broker to be ready. The root command only verifies the shared cluster is
+state or project resources. It verifies the exact Broker container identity
+and waits for all three services to be healthy and the broker to be ready. The
+root command only verifies the shared cluster is
 configured and ready, reads the indexed Workspace candidates, and waits for an
 explicit choice when the canonical current directory is below an ancestor.
 After the choice is revalidated under the lifecycle lock, it creates or reuses
@@ -951,67 +866,43 @@ work container is created with fixed CPU, memory, PID-count, and container-log
 bounds; a resource-contract change is treated as runtime drift and recreates
 only that work container. These limits do not claim a disk quota for the
 explicitly mounted root or network bandwidth shaping.
-`policy allow`, `policy deny`, `policy reset`, `policy compact`, and final TTY
-review Apply first build and test the complete candidate
+`policy allow`, `policy deny`, `policy reset`, and final TTY review Apply first
+build and test the complete candidate
 policy in a private host temporary directory. After successful tests they
 preserve unchanged source bytes, build a complete replacement `domains/`
 generation, and invoke the same activation boundary. The whole source
 generation is swapped under an in-process mutex and a cross-process lock with
 a durable recovery journal; an interrupted or externally edited transaction
-cannot expose a mixed valid generation. They never write Rego source, managed
-credential files, or tool-owned home files.
+cannot expose a mixed valid generation. They never write Rego source, broker
+vaults, or tool-owned home files.
 OPA marks a denial learnable only when its version, cluster, scheme, fixed
 request port, project-principal boundary, trusted GraphQL endpoint and parsed
-coordinate when applicable, and (when selected) managed
-credential binding already satisfy the orthogonal boundary.
+coordinate when applicable, and preset guardrail already satisfy the
+orthogonal boundary.
 Candidate
 discovery excludes other denials, preventing a successful no-op approval.
 
 `auth login`, `auth import`, and `auth logout` validate the fixed installation
 credential-catalog target and mutation impact before acquisition or vault I/O.
-Login runs the selected reviewed built-in host driver through an interactive
-trusted-host terminal. GitHub retains its purpose-limited fixed device-page
-open and no-Git behavior. AWS uses either a fixed validated IAM Identity Center
-profile/device flow or a fixed AWS CLI 2.32-or-newer console-based remote flow.
-Datadog uses fixed `pup --no-agent auth login --site datadoghq.com`, accepts
-only strict default-session state, and removes the isolated home afterward.
-OpenAI uses fixed pinned Codex device login and accepts only strict managed
-ChatGPT state. Anthropic uses fixed pinned Claude `setup-token`, captures one
-bounded inference-only token from the reviewed terminal frame, and exposes no
-refresh state. All print only bounded, control-safe guidance; their opaque
-state or selected token commits only into the encrypted Context
-vault. Neither driver reads an ambient provider home or writes project or
-Workspace CLI configuration; Auth Broker contains no provider CLI. Import
+Login requires `--provider github` and runs the sole reviewed GitHub CLI driver
+through an interactive trusted-host terminal. It retains the purpose-limited
+fixed device-page open, manual fallback, digest checks, private temporary home,
+strict bounded token capture, and no-Git behavior. It prints only bounded,
+control-safe guidance and commits the captured static token only into the
+encrypted Context vault. The driver reads no ambient provider home and writes
+no project or Workspace CLI configuration; Auth Broker contains no provider
+CLI. Import
 rejects terminal stdin before reading and reads bounded non-terminal input only
 after public argument/intent/mutation validation; infrastructure validates the
 selected Context, installed provider/acquisition mode, and broker readiness
-before broker send. Login/import atomically replace one Context/provider grant
-and revoke every prior handle. A successful built-in refresh preserves the
-same grant revision; configuration change or re-login rotates it. AWS refresh
-is invoked over the authenticated companion channel only after OPA allow. It
-uses one per-record single-flight operation with finite lock wait and without
-holding the Broker's global state lock over host/provider I/O. A same-record
-waiter may wait at most one second; expiry is a known pre-execution availability
-failure with no barrier or companion call. After acquiring the lock and before
-host execution, Broker atomically persists an encrypted task barrier; only the same
-correlated successful result clears it with refreshed state. A post-call
-revision comparison discards a result made stale by replacement or logout, and
-an unknown result requires AWS re-login rather than replay. Datadog resolve
-uses the same per-record lock and encrypted barrier after OPA allow; it returns
-a token with more than five minutes remaining or calls only the exact fixed
-US1 OAuth token endpoint without ambient proxies or redirects. An uncertain
-refresh requires Datadog re-login rather than replay. OpenAI resolve uses the
-same lock and barrier after OPA allow; it returns a token outside the
-five-minute refresh window or makes one bounded 30-second JSON POST to exactly
-`https://auth.openai.com/oauth/token`, using the fixed Codex 0.146.0 public
-client ID and refresh-token grant without ambient proxies or redirects. It
-preserves omitted token fields, requires the refreshed account identity to
-match, and atomically commits same-revision state before returning. When access
-token expiry cannot be read, eight days after `last_refresh` is the conservative
-refresh boundary. An uncertain refresh leaves the durable barrier and requires
-OpenAI re-login or logout rather than replay. Anthropic performs no refresh and
-requires explicit re-login before expiry or after provider rejection. Logout
-atomically removes that record and its handles without contacting the provider.
+before broker send. Login/import atomically replace one static
+Context/provider grant and revoke every prior handle. Gateway performs
+non-secret introspection before OPA, resolves the same revision exactly once
+only after allow, replaces the one declared header, and makes one upstream
+attempt. Dynamic records, refresh, signing, task barriers, supplemental
+headers, provider-native resolution, managed profiles, and a resident companion
+do not exist. Logout atomically removes the static record and its handles
+without contacting the provider.
 One credential is Context/provider-owned, every permanently bound project is
 eligible for a distinct handle only on its next matching Workspace entry, and
 no mutation rewrites a running session. Confirmed results are secret-free and
@@ -1050,16 +941,13 @@ sockets through its guarded transparent path;
 it does not forward raw TCP, non-HTTP TLS, UDP, QUIC, recursive DNS, Git SSH, or
 certificate-pinned traffic. A client that cannot use the Tobari CA or expose an
 unambiguous HTTP authority fails closed.
-The built-in slice supports one GitHub.com credential, one configured
-refreshable AWS CLI session, one default-organization Datadog US1 pup OAuth
-session, one pinned Codex ChatGPT OAuth session, and one pinned Claude
-inference-only setup token per Context. It does not add provider-specific policy
-semantics, multiple accounts per provider, remote revocation, Git credential
-helpers, GitHub App tokens, arbitrary or manifest-selected OAuth, manifest-selected refresh/signing,
-SigV4a, query presigning, AWS streaming signatures, custom AWS endpoints, or a
-general provider SDK/plugin executor. Standard AWS SigV4 is supported only for
-bounded requests to reviewed AWS HTTPS suffixes and is signed after OPA allow.
-The Datadog plan does not support arbitrary scopes, sites, custom gateways, or
-named organizations. The static TWG example covers only one delegated token at exact
-`api.atlassian.com:443`; general TWG login, refresh, and its other authorities
-remain unsupported.
+The built-in broker slice supports one static GitHub.com credential per
+Context. Owner manifests may express another single static primary secret only
+through the same exact HTTPS/header replacement contract and protected stdin
+import. V1 has no AWS, Datadog, OpenAI, Anthropic, or Chatwork built-in; managed
+adapter; provider selector on login; dynamic record; refresh; signer;
+supplemental-header plan; companion; exact-client-version driver; multiple
+provider accounts; provider-specific policy semantics; Git credential helper;
+or general provider SDK/plugin executor. Those tools may still authenticate
+inside their Workspace-owned home, but that state is inside the Workspace and
+is neither brokered nor a network grant.

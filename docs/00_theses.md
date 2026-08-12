@@ -457,14 +457,12 @@ Gateway errors do not authorize traffic.
   8 MiB advertised-body cap: a request or response whose `Content-Length`
   exceeds it is rejected before the ordinary addon header hook.
 - After header-time authorization, ordinary request and response bodies use
-  mitmproxy's streaming path rather than full-body retention. The reviewed AWS
-  SigV4 plan is the sole exception: after allow it retains one complete request
-  within the same 8 MiB cap only long enough to hash and sign it, then forwards
-  once. A trusted declared GraphQL endpoint is the other narrow exception: it
+  mitmproxy's streaming path rather than full-body retention. A trusted
+  declared GraphQL endpoint is the only narrow exception: it
   requires an unambiguous positive length of at most 1 MiB, retains the request
   before policy only long enough to parse generic operation/root identity, and
   forwards the original bytes once after allow. Unknown-length ordinary bodies
-  remain streaming; unsupported GraphQL and AWS streaming forms fail closed.
+  remain streaming; unsupported GraphQL forms fail closed.
 - Audit logs contain route metadata, never body content, body hashes, or secret
   values.
 
@@ -651,10 +649,11 @@ a handle selects authority without the trusted principal and OPA allow.
   validates the resulting image and promotes it into that Context without
   requiring a second image-selection command. Only Tobari bound to that Context
   observe the promoted image on their next entry while preserving their home.
-- Context creation initializes separate owner-only policy and credential
-  stores, references a read-only agent profile, and records the compatible
-  Tobari runtime image. It never accepts a secret value in an argument,
-  environment variable, or manifest.
+- Context creation initializes an owner-only policy store, references a
+  read-only agent profile, and records the compatible Tobari runtime image.
+  Auth Broker vault state remains separately keyed by stable Context ID rather
+  than referenced from the manifest. Context creation never accepts a secret
+  value in an argument, environment variable, or manifest.
 - Context policy source is grouped by exact canonical lower-case host at
   `policy/domains/<host>/allow.json` and `deny.json`. The allow document owns
   that host's authorities, methods, GraphQL endpoints, credential bindings,
@@ -665,8 +664,8 @@ a handle selects authority without the trusted principal and OPA allow.
   immutable OPA projection may use that filename internally.
 - Auth login/import affects one explicit or current Context and makes the
   Context-wide Workspace eligibility explicit. Login does not rewrite running
-  Workspaces; their next matching entry issues or refreshes project-bound
-  handles and recreates only a changed work container while preserving home.
+  Workspaces; their next matching entry issues project-bound handles and
+  recreates only a changed work container while preserving home.
 - Context source changes become active only through an explicit `cluster up` or
   policy mutation. The host serializes source mutation across processes,
   validates and swaps a complete domain generation under a durable recovery
@@ -684,12 +683,18 @@ a handle selects authority without the trusted principal and OPA allow.
   denial produces no candidate and performs no external DNS, broker resolution,
   or upstream call. Advanced Rego may further constrain generic input but
   cannot grant beyond the guardrail or redefine learned permission identity.
+- `builtin/offline` terminally denies every HTTP and HTTPS effect and makes no
+  effect review-eligible. `builtin/reviewed-exact` makes only guardrail-eligible
+  effects available for exact review. `builtin/get-only-reviewed` makes only
+  guardrail-eligible GET effects available for exact review and terminally
+  denies HEAD and every non-GET method. None grants immediate authority, and
+  the GET-specific preset makes no safe or read-only claim about GET.
 - Tobari-owned ordinary learned permission identity binds Context, project,
   scheme, host, port, method, and raw path. Query, headers, and bodies are not
   learned dimensions; GraphQL adds only operation type and root field.
-- Permission candidates, learned rules, exact denies, audits, and
-  managed credentials retain Context and Tobari identity. `policy review` and
-  `policy rules` cross all Contexts; mutations bind solely to opaque references.
+- Permission candidates, learned rules, exact denies, audits, and brokered
+  handles retain Context and Tobari identity. `policy review` and `policy
+  rules` cross all Contexts; mutations bind solely to opaque references.
 
 ### Mechanical enforcement
 
@@ -705,13 +710,13 @@ a handle selects authority without the trusted principal and OPA allow.
   exact V1 persistence, bounded host Git
   calls with an exact child-environment allowlist, lower-precedence read-only
   projection, and exclusion of authentication and executable Git settings.
-- Infrastructure tests prove exact V1 initialization, owner-only separate
-  stores, permanent Tobari bindings, aggregate read-only OPA mounts, and
-  selected agent-profile digests.
+- Infrastructure tests prove exact V1 initialization, owner-only separated
+  policy and broker-vault boundaries, permanent Tobari bindings, aggregate
+  read-only OPA mounts, and selected agent-profile digests.
 - Runtime and policy integration prove exact direct-bind access, writable
   home/tmpfs, no writable source alias, scheme-aware exact learning, and
   terminal guardrail precedence with zero candidate/DNS/Broker/upstream calls.
-- Runtime tests prove the recipe build context excludes policy and credential
+- Runtime tests prove the recipe build context excludes policy and broker-vault
   stores, the generated image is checked against the runtime contract, and a
   failed build leaves the previously selected image unchanged. Project runtime
   tests prove existing Workspaces reconcile to their bound Context image only
@@ -727,7 +732,7 @@ a handle selects authority without the trusted principal and OPA allow.
 MVP does not support multiple clusters, process-level identity, a per-project
 static baseline policy, non-HTTP forwarding or policy, recursive DNS, Git SSH,
 provider-specific policy semantics, Git-over-HTTPS credential helpers,
-arbitrary provider OAuth or signing, SigV4a, AWS presigning or streaming,
-multiple provider accounts per Context, approval workflows, general Kubernetes
-authentication or transport, filesystem overlays, GUIs, remote execution, or
-multi-tenant production use.
+dynamic provider credentials, refresh or signing, multiple provider accounts
+per Context, approval workflows, general Kubernetes authentication or
+transport, filesystem overlays, GUIs, remote execution, or multi-tenant
+production use.

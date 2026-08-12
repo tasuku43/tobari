@@ -59,7 +59,7 @@ A thesis change is not complete when only `docs/00_theses.md` changed. Its conse
 11. **External calls are bounded and secret-free above infrastructure.** Propagate one context, declare pagination/call policy, and keep OAuth tokens, PATs, and credential-bearing types inside infrastructure.
 12. **External text remains untrusted data.** Visible projection protects terminal and TSV/JSON structure by distinguishing backslashes, controls/formats, and Unicode line separators; it does not filter printable prompt-like meaning. Opaque references bypass display projection and retain their exact validated value.
 13. **Semantics precede presentation.** Before rendering, validate the declared task identity and every request dimension that the task actually carries: target, parent, and/or scope. A scoped collection's task-owned result retains its declared scope even when empty. Preserve absent versus explicit empty/zero/false and bounded uncertainty whenever those distinctions affect interpretation, and validate returned opaque values against the reference kind required by their semantic field. Each interpretation-sensitive capability supplies task-owned conformance and negative-inference tests; presentation does not invent identity, relationships, completeness, or confidence from labels, order, proximity, quoting, or indentation.
-14. **Brokered credentials remain post-policy and project-bound.** A Workspace may receive only a versioned opaque handle bound to its stable Context, project, provider, credential revision, and exact HTTP binding; it never receives the brokered primary secret or root key. Gateway removes a recognized handle, performs non-secret introspection, asks OPA about the ordinary HTTP effect, resolves exactly once only after allow, and never forwards or falls back with an invalid handle. Owner-authored provider manifests remain strict non-secret schema-v1 stdin-import data, not executable adapters or policy. Reviewed built-ins may use only the closed schema-v1/schema-v2 helper, credential, refresh, signing, and projection plans pinned independently by Domain and Gateway. Root keys, vaults, provider acquisition, handle issuance/resolution, and credential-bearing types remain infrastructure-owned.
+14. **Brokered credentials remain static, post-policy, and project-bound.** A Workspace may receive only a versioned opaque handle bound to its stable Context, project, provider, credential revision, and exact HTTPS/header binding; it never receives the brokered primary secret or root key. Gateway removes a recognized handle, performs non-secret introspection, asks OPA about the ordinary HTTP effect, resolves exactly once only after allow, and never forwards or falls back with an invalid handle. Owner-authored provider manifests remain strict non-secret schema-v1 stdin-import data, not executable adapters or policy. The sole reviewed built-in is the static GitHub.com plan acquired through the fixed GitHub CLI helper; there is no managed adapter, dynamic credential, refresh, signing, companion, or exact-client-version path in V1. Root keys, vaults, GitHub acquisition, handle issuance/resolution, and credential-bearing types remain infrastructure-owned.
 
 ## Layer responsibilities
 
@@ -148,16 +148,15 @@ Observe runtime-only behavior before changing it. Add bounded diagnostics, repro
 8. Declare `Effect`, `Intent`, `TargetRef`, and `Impact`. Bind create scope through `MutationContract.parent_input`; bind a write's existing target through `target_id_input` and any distinct scope through optional `parent_input`. Make missing, unbound, mismatched, or inconsistent values fail before the side effect.
 9. Provider-specific policy operations, arbitrary executable adapters, PAT
    discovery, and multiple-account selection remain excluded. The supported
-   owner extension boundary is the strict schema-v1 provider manifest plus
-   protected non-terminal stdin import. Helper-backed GitHub, AWS, Datadog,
-   OpenAI, and Anthropic authentication exists only as the reviewed closed
-   built-in plans, including their exact refresh, signing, or no-refresh
-   semantics. Extend the declarative exact HTTPS/header contract when it can
-   express the outcome; a new helper, credential shape, refresh/signing flow,
-   or provider API interpretation requires prior thesis, product,
-   architecture, security, public-boundary, release, and harness decisions.
-   Keep credential-bearing clients, root keys, vaults, tokens, and provider
-   acquisition types inside infrastructure.
+   owner extension boundary is the strict schema-v1 static provider manifest
+   plus protected non-terminal stdin import. Helper-backed authentication is
+   limited to the reviewed GitHub.com/GitHub CLI static plan. Extend the
+   declarative exact HTTPS/header contract when it can express the outcome; a
+   new helper, credential shape, dynamic record, refresh/signing flow,
+   companion, exact-client-version contract, or provider API interpretation
+   requires prior thesis, product, architecture, security, public-boundary,
+   release, and harness decisions. Keep credential-bearing clients, root keys,
+   vaults, tokens, and GitHub acquisition types inside infrastructure.
 10. Add unit, contract, opaque-reference round-trip, negative-path,
     hostile-output, recovery, and public-boundary tests in proportion to risk.
     For interpretation-sensitive results, include a presentation-independent

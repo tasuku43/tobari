@@ -25,10 +25,9 @@ growth easier than manually operating Docker, OPA, or host policy files.
 ## Trust boundaries
 
 Trusted components are the host OS and user, Docker Engine or its Linux VM,
-Tobari CLI, resident host credential companion, reviewed host credential
-drivers, Gateway, OPA, Rego policy, Auth Broker, host root-key provider,
-owner-controlled XDG provider manifests, encrypted Context vaults, and reserved
-host credential storage used by the managed adapter. Every Workspace and
+Tobari CLI, the reviewed GitHub host credential driver, Gateway, OPA, Rego
+policy, Auth Broker, host root-key provider, owner-controlled XDG static
+provider manifests, and encrypted Context vaults. Every Workspace and
 process in it, coding agents, project files, Workspace home, copied opaque
 handles, generated code, downloaded packages, request data, upstream responses,
 and user/provider text displayed by CLIs are untrusted.
@@ -38,30 +37,18 @@ policy-preset snapshot. They remain secret-free authority metadata in separate
 owner-only state; project files, runtime images, Workspaces, and source preset
 files cannot rewrite an existing Context envelope.
 
-The reviewed GitHub, AWS, pup, Codex, and Claude host drivers are trusted,
-purpose-limited CLI side effects. They select a canonical host executable that
+The reviewed GitHub host driver is a trusted, purpose-limited CLI side effect.
+It selects a canonical GitHub CLI executable that
 is not writable by group or world from conventional non-project installation
 roots, bind its SHA-256 identity, construct only fixed argv, use sanitized
 environments and private temporary homes, and accept no Workspace, repository,
 manifest, project `PATH`, or request-selected executable or argument. GitHub
-recognizes only the fixed
-`https://github.com/login/device` browser target. AWS runs only the explicitly
-selected fixed IAM Identity Center device flow or fixed console-based
-cross-device login, plus typed credential export. Console browser opening
-requires the selected commercial region, exact HTTPS authority/path, fixed
-OAuth values, bounded UUID state and PKCE challenge, and same-region redirect;
-neither AWS flow starts a callback listener or reads ambient AWS state.
-Datadog pup runs only fixed US1 OAuth argv with a sanitized environment and
-private file backend. pup owns the generated consent URL and loopback callback;
-Tobari accepts only the fixed port allowlist and strict default-session files.
-Codex must report exactly `codex-cli 0.146.0`, runs only fixed
-`login --device-auth` argv with reviewed file-store and no-update overrides
-under isolated `HOME` and `CODEX_HOME`, and yields only strict canonical
-ChatGPT OAuth state. Claude must report exactly
-`2.1.220 (Claude Code)`, runs only `claude setup-token` in an isolated home and
-private PTY, and yields exactly one inference setup token through a parser that
-does not forward it to visible output. Both drivers revalidate the executable
-identity after acquisition and delete the private home on every outcome.
+recognizes only the fixed `https://github.com/login/device` browser target,
+uses fixed API-authentication-only argv, requests no Git protocol, revalidates
+the executable identity after acquisition, and deletes the private home on
+every outcome. V1 has no other brokered acquisition driver, exact-client-version
+contract, dynamic record, refresh, signer, supplemental-header, managed, or
+companion trust boundary.
 
 The host Git identity reader is a separate trusted, purpose-limited CLI side
 effect. It accepts one canonical Workspace root and can request only global
@@ -73,17 +60,13 @@ entry are absent. Repository/worktree configuration, caller-selected keys, raw
 config files, source paths, and raw diagnostics cannot cross this boundary.
 
 ```text
-host root A (rw) ---> Tobari A --+
+host root A (Context-selected ro/rw) ---> Tobari A --+
                                   +--guarded HTTP(S)--> Gateway --OPA--> upstream
-host root B (rw) ---> Tobari B --+                       |
+host root B (Context-selected ro/rw) ---> Tobari B --+                       |
                 no cross-route                           +-- post-allow runtime socket
                                                                   |
 host CLI --fixed control exec/stdin--> locked Auth Broker --encrypted Context vaults
-host CLI --reviewed fixed GitHub/AWS/pup/Codex/Claude login drivers--> provider HTTPS
-host companion --encrypted reverse docker exec--> Broker-private bridge socket
-      |-- reviewed fixed AWS refresh driver --> provider HTTPS
-Auth Broker --exact proxy-free Datadog token refresh--> api.datadoghq.com:443
-Auth Broker --exact proxy-free OpenAI token refresh--> auth.openai.com:443
+host CLI --reviewed fixed GitHub CLI login driver--> GitHub HTTPS
 host CLI --two fixed global Git reads--> validated identity scalars --> Workspace fallback
 ```
 
@@ -92,9 +75,7 @@ internal control network. Gateway has separate interfaces for every Tobari
 proxy network, control, and egress. Auth Broker joins control and egress but
 has no TCP listener and never joins a Tobari network. Only Gateway mounts its
 runtime Unix socket; host control uses a separate socket through fixed
-in-container operations. The companion opens no listener and mounts no host
-socket or provider home. It holds one fixed reverse exec stream to an
-image-owned byte-pump and an unmounted Broker-private socket.
+in-container operations.
 
 Each Workspace namespace has a verified output guard and default route through
 its exact Gateway project endpoint. The Gateway namespace redirects project
@@ -109,22 +90,21 @@ packet filter is changed.
 
 - Host files outside the selected root.
 - Docker Engine and socket.
-- Tool-owned authentication state and broker handles inside a Tobari home or
-  environment, plus real brokered credentials in encrypted Context vaults,
-  the installation root key, purpose-derived companion sessions, opaque AWS
-  CLI cache state, encrypted pup OAuth state, request-local AWS role leases and
-  Datadog access tokens, encrypted Codex ChatGPT OAuth state, request-local
-  OpenAI access tokens and account-routing values, Claude inference setup
-  tokens, and reserved managed-adapter
-  material.
+- Workspace-owned authentication state and broker handles inside a Tobari home
+  or environment, plus static brokered primary secrets in encrypted Context
+  vaults and the installation root key.
 - OPA policy, decision API, and Gateway management surface.
 - Denial of direct Internet connectivity.
 - Integrity of request normalization, policy decisions, and audit records.
 - Integrity and privacy of Context-owned non-secret identity configuration;
   email is personal data even though it grants no authentication authority.
 
-Files under a read-write root are explicitly not protected from its Tobari.
-Processes can change or delete that entire mounted root. Same-root and
+Files under a read-write source bind are explicitly not protected from its
+Tobari. Processes can change or delete that entire mounted root. A read-only
+source bind denies create/change/delete and Git metadata writes through that
+bind while preserving reads and writable Workspace home/tmpfs. It is a live
+bind, not a snapshot: host writes and same-root read-write Context changes may
+be observed, and no writable alias of the source is allowed. Same-root and
 parent/child-root Tobari intentionally observe each other's overlapping host
 file changes, even across Contexts; Tobari does not provide filesystem integrity
 isolation for those files. Docker or kernel
@@ -167,7 +147,8 @@ fairness inside one shared Gateway, OPA, or Auth Broker.
 Tobari uses a non-root work user mapped to the invoking UID/GID where Docker
 supports it.
 Only the selected root and that Tobari's exact XDG-owned home directory are
-mounted writable. The project-root resolver rejects filesystem root, the user's
+mounted from the host; the root uses immutable Context-selected read-only or
+read-write access while the home stays writable. The project-root resolver rejects filesystem root, the user's
 home and its ancestors, and paths overlapping XDG configuration, state, or
 shared-profile management directories, Docker sockets, and Docker management
 paths. For a project below the host home, the selected root may be nested below
@@ -175,7 +156,7 @@ the container home path `/var/lib/tobari`, but the host home itself is never
 mounted. A bind mount masks image-layer contents at its destination without
 deleting them; runtime compatibility therefore keeps executable and package
 assets outside the mutable home. Policy source repositories remain allowed; the active host policy,
-principal registry, and reserved managed credential files are separate trusted
+principal registry, and encrypted broker vaults are separate trusted
 assets and are never selected as project roots. Publishing or applying a source
 to active policy is an explicit trusted-host operation; entering that source
 repository never changes policy.
@@ -286,7 +267,7 @@ non-root default user, entrypoint, API/role labels, dropped capabilities,
 read-only root, and no host UID baked into the image. Routine startup uses only
 the reviewed immutable multi-architecture digest; the explicit contributor dev
 image path cannot replace that authority in a normal binary. The writable Context-vault
-mount, Gateway-visible runtime-socket mount, private control/companion tmpfs,
+mount, Gateway-visible runtime-socket mount, private control tmpfs,
 and provider projection are distinct paths. The image contains no provider CLI,
 credential, provider configuration, handle, root key, or vault.
 
@@ -329,9 +310,8 @@ endpoint instead requires one positive-length body no larger than 1 MiB and
 defers policy until Gateway has derived only the selected query/mutation type
 and sorted canonical root fields. The input includes the host-issued Context/project principal, a structured request
 authority, method, path and path segments, multi-valued query, redacted headers,
-and an authorization object containing an adapter-dependent requested
-credential profile plus a non-secret broker provider ID when a handle has been
-successfully introspected. Both stable IDs are derived from the local Gateway
+and an authorization object containing only a non-secret broker provider ID
+when a handle has been successfully introspected. Both stable IDs are derived from the local Gateway
 interface address and an owner-only host registry. Caller headers, environment,
 URLs, session metadata, profile names, and supplied Context/project IDs are not
 authorization inputs. Missing, unknown, stale, ambiguous, or mismatched Context
@@ -350,17 +330,15 @@ path component, but replaces the whole path with
 `/[redacted-auth-handle]` when it contains a Tobari handle marker. Structural
 URL/header handle rejections are non-learnable and cannot enter policy
 candidate discovery. Gateway enables ordinary request streaming only after
-principal, credential binding or non-secret handle introspection, OPA decision,
-and credential application succeed. An allowed AWS SigV4 plan instead retains
-the complete request within the same 8 MiB cap, obtains one post-policy
-signature for those exact bytes, and only then forwards. It
+principal, static credential binding or non-secret handle introspection, OPA
+decision, and credential application succeed. It
 enables response streaming only for a flow that carries authorized-upstream
 audit state. A local denial therefore cannot become an upstream request.
 Mitmproxy retains an 8 MiB `body_size_limit`; a request or response with a known
 `Content-Length` above that value is rejected before the ordinary addon header
 hook. Allowed unknown-length ordinary bodies stream without a total-byte limit,
 avoiding full-body memory retention while preserving the advertised-size cap;
-unknown-length or specialized streaming AWS signing forms are rejected.
+unknown-length ordinary bodies remain streaming.
 Declared GraphQL endpoints reject unknown, ambiguous, transfer-encoded,
 compressed, non-JSON, non-UTF-8, or over-1-MiB request forms before OPA
 learning, credential resolution, and upstream I/O.
@@ -417,7 +395,12 @@ Before any baseline, learned, or Advanced allow, the Tobari-owned evaluator
 applies the immutable preset terminal guardrail. Terminal denial emits no
 permission candidate and causes zero external DNS, Auth Broker resolution, or
 upstream calls. The guardrail cannot be replaced by Context Rego, learned state,
-provider metadata, or a Workspace-supplied value.
+provider metadata, or a Workspace-supplied value. `builtin/offline` terminally
+denies all HTTP/HTTPS and creates no review candidate;
+`builtin/reviewed-exact` permits only eligible effects to enter exact review;
+`builtin/get-only-reviewed` permits only eligible GET effects to enter exact
+review and terminally denies HEAD and every non-GET method. None grants
+immediate authority, and GET is not classified as safe or read-only.
 
 ## Credentials
 
@@ -426,211 +409,78 @@ below the selected Tobari's `HOME=/var/lib/tobari`. A Context does not contain
 or copy this state. It redacts client
 authentication and cookie values from OPA input and audit, preserves them until
 policy allow, then forwards them upstream. It strips proxy and Tobari control
-headers and never reads managed credential files.
-
-The static `managed` adapter uses static bearer or fixed-header secrets
-supplied through Context-owned owner-only host files. A generated Gateway-only
-projection keys profiles and secret subdirectories by stable Context ID, so the
-same display profile name may exist in multiple Contexts. Configuration contains
-a profile type, exact allowed hosts, explicit project IDs, and a Context-scoped
-container secret path; it never contains the secret value. The host-owned
-`principal-registry/principals.json` schema 1 registry binds each Context/project
-pair to one exact owned project network, Workspace source endpoint, and Gateway
-endpoint. Gateway derives the transparent-ingress principal from the
-kernel-observed source endpoint; duplicate, missing, stale, and ambiguous
-bindings fail before OPA. Its dedicated directory is mounted
-read-only into Gateway; credential configuration and secret directories are
-not included in that mount.
+headers and never reads broker vaults. The host-owned
+`principal-registry/principals.json` schema 1 registry binds each
+Context/project pair to one exact owned project network, Workspace source
+endpoint, and Gateway endpoint. Gateway derives the transparent-ingress
+principal from the kernel-observed source endpoint; duplicate, missing, stale,
+and ambiguous bindings fail before OPA. Its dedicated directory is mounted
+read-only into Gateway; broker state is not included in that mount.
 
 In passthrough mode, `Authorization`, `X-API-Key`, cookies, and other client
-authentication are forwarded only after allow; `Proxy-Authorization`, the
-profile selector, and Tobari session control headers are removed. In managed
-mode, Gateway removes Tobari-provided `Authorization`, `Proxy-Authorization`,
-`X-API-Key`, and configured managed-secret headers. Cookie and Set-Cookie
-values may remain part of the authorized application flow but are excluded
-from OPA input and Tobari audit logs. A managed header is added only after an
-allow decision names a configured profile whose Context, project, and host bindings
-exactly match the established principal and normalized host. Gateway checks
-the Context/project binding before OPA and repeats it before reading the secret. The
-value is never returned to Tobari, OPA, CLI output, errors, or audit logs.
+authentication are forwarded only after allow; `Proxy-Authorization` and
+Tobari session control headers are removed. Cookie and Set-Cookie values may
+remain part of the authorized application flow but are excluded from OPA input
+and Tobari audit logs. There is no managed profile or secret-file fallback.
 
-The Auth Broker route stores one typed credential record per Context/provider
-in `auth/contexts/<context-id>/vault.enc`. The schema-1 AES-256-GCM envelope
-contains a schema-1 encrypted payload, uses a random 12-byte nonce, and binds
-the envelope schema plus stable Context ID as authenticated data. Opaque AWS
-host-driver state and strict Datadog OAuth-session state exist only in the schema-1 encrypted
-payload. AWS cache state remains opaque to the host lifecycle and is
-materialized only by the reviewed host driver in a private bounded temporary
-home. Identity Center and console login use distinct strict state schemas and
-driver IDs; companion refresh rejects a mismatch before provider execution.
-Datadog state is interpreted only by the fixed Broker-owned US1 plan; it is
-never materialized into a Workspace or provider CLI inside Broker.
-OpenAI state is the strict `openai_codex_oauth_session` union: schema 1,
-canonical executable path/digest/version, `auth_mode=chatgpt`, null API-key
-field, ID/access/refresh tokens, matching account ID, and RFC3339Nano refresh
-time. The namespaced ID-token account claim is mandatory, FedRAMP is rejected,
-and the executable digest must equal the record driver revision. Anthropic is a
-schema-1 primary-secret record with the fixed non-secret account label
-`claude-user-inference`; it stores only the captured inference setup token and
-no refresh state. Neither provider's primary state is materialized in a
-Workspace or Broker-side provider home.
-All parent directories, files, ownership, modes, and symlink status are checked
-before use; updates use a durable atomic replace. The broker starts locked and
-retains the 32-byte installation root key only in memory. macOS stores that key
-in Keychain service `io.tobari.auth-root.v1`, account `tobari`; Linux stores it
-as owner-only XDG state `auth/keys/root.key`. A missing key alongside a vault is
-never replaced automatically.
-Public auth results name the Linux backend `xdg_file`, while macOS uses
-`macos_keychain`; cluster status may additionally report `unavailable`.
-Cluster status schema 1 separately reports nullable unconfigured resources and
-always-present secret-free
-`credential_companion_state=ready|prepared|absent|unavailable`; this is
-process/channel readiness,
-not provider credential state.
-`linux_xdg_file` is an infrastructure/doctor diagnostic label, not a public
-auth or cluster JSON value. The complete compatibility table is in
-[Authentication handling](07_authentication.md#canonical-schemas-paths-and-backend-identifiers).
+The Auth Broker stores one static primary-secret record per Context/provider in
+`auth/contexts/<context-id>/vault.enc`. The schema-1 AES-256-GCM envelope
+contains a schema-1 payload, uses a random 12-byte nonce, and binds schema plus
+stable Context ID as authenticated data. All parent directories, files,
+ownership, modes, and symlink status are checked before use; updates use a
+durable atomic replace. The broker starts locked and retains the 32-byte
+installation root key only in memory. macOS stores that key in Keychain service
+`io.tobari.auth-root.v1`, account `tobari`; Linux stores it as owner-only XDG
+state `auth/keys/root.key`. A missing key alongside a vault is never replaced
+automatically. Public auth results name `macos_keychain` or `xdg_file`;
+`linux_xdg_file` remains an infrastructure/doctor-only label.
 
 The daemon exposes strict 64 KiB schema-1 NDJSON over separate control and
-runtime Unix sockets. Key and import bytes enter through bounded stdin after a
-declared length; they never use argv or environment. A third private socket is
-reserved for the authenticated companion reverse channel and is not mounted
-outside the Broker container. The live handle index is
-SHA-256-only. Raw handles persist only inside authenticated ciphertext and bind
-the Context, project, provider, credential revision, and the complete normalized
-header/signing binding union. Login,
-replacement, and logout atomically revoke all old handles for that
-Context/provider.
-
-`cluster up` creates a fresh companion epoch and derives a purpose-separated
-session key from the installation root key; only the derived key enters the
-companion through inherited stdin. The root key, derived key, and channel file
-descriptors never enter a provider child process. A fresh challenge derives
-direction-specific AES-GCM keys. Exact sequence numbers reject replay and gaps;
-strict framing rejects unknown message kinds, duplicate sessions, oversized
-payloads, invalid tags, and expired deadlines. Any failure closes the channel
-without logging frame content. The bridge parses, logs, and persists nothing.
-The companion is trusted host infrastructure, but its authority is limited to
-the compiled reviewed AWS refresh operation and its fixed process contract;
-interactive login is a direct context-bound host operation.
+runtime Unix sockets. Key and import/login bytes enter through bounded stdin
+after a declared length; they never use argv or environment. The live handle
+index is SHA-256-only. Raw handles persist only inside authenticated ciphertext
+and bind Context, project, provider, credential revision, exact HTTPS target,
+source header, and source format. Login, replacement, and logout atomically
+revoke every old handle for that Context/provider.
 
 Gateway recognizes exactly one handle position from the owner-only normalized
 provider projection. It rejects URL, cookie, header-name, unsupported-value,
-and ambiguous header occurrences, removes the declared placeholder fields,
-and performs non-secret introspection. OPA sees only the provider ID. For a
-static provider, denial makes zero resolve calls and allow permits exactly one
-same-revision resolve and one declared header replacement. For AWS, denial
-makes zero companion, refresh, role-credential, or signing calls; allow
-captures at most one complete 8 MiB request, hashes it, obtains one
-same-revision signature, and applies only broker-returned SigV4 headers before
-one upstream attempt. Broker takes a per-record single-flight lock, releases
-its global state lock during one bounded companion export, and bounds a
-same-record waiter to one second before a known pre-execution failure. Such a
-wait expiry creates no barrier and performs no companion call. Broker rejects stale
-results after replacement/logout, atomically persists refreshed opaque state,
-and signs locally. Before host execution it persists a task-digest barrier in
-the encrypted AWS record; only the exact correlated successful CAS clears that
-barrier while committing new state. An unobserved outcome therefore survives a
-Broker restart and performs no second host refresh until AWS re-login or logout.
-For Datadog, denial makes zero token-selection or refresh calls. After allow,
-Broker selects an access token only outside the five-minute refresh window or
-performs one same-record refresh at the exact proxy-free, no-redirect US1 token
-endpoint. It atomically commits the same-revision state before returning one
-request-local bearer value. A task-digest barrier prevents automatic replay
-when the refresh outcome is unknown.
-For OpenAI, Gateway removes caller-supplied `Authorization`,
-`ChatGPT-Account-ID`, and `X-OpenAI-FedRAMP` before non-secret introspection and
-OPA. Denial makes zero token-selection, refresh, or account-routing calls.
-After allow, Broker returns a valid same-revision access token plus exactly one
-validated non-secret `chatgpt-account-id` supplemental value. Gateway injects
-that broker-owned account header and bearer authorization only for one
-`chatgpt.com:443` upstream attempt. Broker refreshes only inside five minutes
-of a readable expiry, or eight days after `last_refresh` when expiry is
-unreadable, using one proxy-free, no-redirect POST to exactly
-`https://auth.openai.com/oauth/token` with the fixed Codex 0.146.0 public
-client ID `app_EMoamEEZ73f0CkXaXp7hrann`. One isolated fixed-argv worker receives
-only the canonical request body on stdin; the Broker parent starts the deadline
-before spawn and kills and reaps that worker at the 30-second wall-clock bound.
-It preserves omitted fields, requires ID-token account continuity, and
-atomically commits same-revision state. A
-task-digest barrier prevents automatic replay when the refresh outcome is
-unknown. For Anthropic, denial
-makes zero resolution calls and allow permits one same-revision static token
-resolution for `api.anthropic.com:443`; there is no refresh or supplemental
-header.
-A
-copied, malformed, stale, revoked, ambiguous,
-or mismatched handle returns secret-free HTTP 403
-`credential_handle_invalid`; a locked, unavailable, timed-out, or invalid
-broker returns HTTP 503 `credential_broker_unavailable`. Neither failure falls
-back to forwarding the handle. An explicit or post-dispatch transport-unknown
-AWS companion operation, Datadog refresh, or OpenAI refresh returns HTTP 409
-`credential_refresh_outcome_unknown`, which is outside automatic retry and
-likewise never forwards the request.
-Because this code also covers loss of a successful Broker response, recovery
-consults `auth status` after the request settles: `broker_state=ready` with
-the affected AWS, Datadog, or OpenAI provider `configured` permits an explicit
-user retry because Gateway made no application upstream attempt, while
-`not_configured` identifies the durable barrier and requires re-login or
-logout. More
-precisely, configured passthrough or
-managed fallback is selected only when no Tobari broker-handle marker occurs in
-any inspected URL/header position. Every Tobari-looking marker that is
-malformed, misplaced, ambiguous, or binding-mismatched fails as
-`credential_handle_invalid`; it is never forwarded and never falls back.
+and ambiguous occurrences, removes the placeholder, and performs non-secret
+introspection before OPA. Denial makes zero resolve calls. Allow permits exactly
+one same-revision resolve, one declared header replacement, and one upstream
+attempt. A copied, malformed, stale, revoked, ambiguous, or mismatched handle
+returns secret-free HTTP 403 `credential_handle_invalid`; a locked,
+unavailable, timed-out, or invalid broker returns HTTP 503
+`credential_broker_unavailable`. Neither failure forwards the handle or falls
+back to passthrough. Passthrough is selected only when no Tobari-looking marker
+exists in any inspected position.
 
 The request body is never a credential source or replacement surface. Tobari
-does not search arbitrary body bytes. Ordinary bodies stream; the reviewed AWS
-plan alone hashes an already-authorized bounded body for exact SigV4 output and
-does not expose the bytes to policy, audit, logs, or broker state.
-Because a Workspace can read its own handle, a malicious Workspace can include
-those bytes as ordinary payload when the surrounding L7 effect is allowed;
-this grants no broker authority but is outside Tobari's payload-exfiltration
-guarantee. The real primary secret remains unavailable to that Workspace.
+does not search arbitrary body bytes. Because a Workspace can read its own
+handle, a malicious Workspace can include those bytes as ordinary payload when
+the surrounding L7 effect is allowed; this grants no broker authority but is
+outside Tobari's payload-exfiltration guarantee. The real primary secret
+remains unavailable to that Workspace.
 
 Provider manifests contain no secrets or executable paths. Exact schema-1
-static providers normalize into projection schema 1. Provider schema 1 accepts
-bounded handle templates, exact HTTPS/header transformations, and enumerated
-built-in-only credential plans; it rejects target/projection collisions and
-prohibits user manifests from overriding built-ins or selecting a helper,
-refresher, signer, executable, argv, or environment. Auth Broker contains no
-provider CLI. The built-in GitHub, AWS, Datadog, OpenAI, and Anthropic drivers
-execute on the trusted host, resolve one canonical executable identity, use
-fixed argv and sanitized environments, and delete private temporary homes on
-every outcome. GitHub asks
-for no Git protocol and recognizes only its fixed device URL. AWS performs one
-fixed Identity Center device login, one fixed console-based remote login, or
-typed credential export. Broker encrypts the opaque
-AWS cache between calls; temporary role credentials exist only while Broker
-signs one authorized request. The fixed Datadog plan encrypts pup OAuth state
-and refreshes it only after allow against the exact US1 token endpoint with no
-ambient proxy or redirect. OpenAI accepts only the reviewed Codex 0.146.0 state
-and exact `chatgpt.com:443` bearer plan; Anthropic accepts only the Claude Code
-2.1.220 inference setup token and exact `api.anthropic.com:443` bearer plan.
-The OpenAI complete-file projection is the fixed external-host
-`chatgptAuthTokens` compatibility shim with only the project handle in
-`tokens.access_token`; the Anthropic projection is only
-`CLAUDE_CODE_OAUTH_TOKEN=<project handle>`. User providers use protected non-terminal
-stdin import only. A terminal stream is refused before reading. Non-terminal
-bytes are read after public Context/provider argument, intent, and mutation
-validation; infrastructure validates the selected existing Context, installed
-provider/acquisition mode, and broker readiness before sending the credential
-to the broker. Provider collections with overlapping exact
+static providers normalize into projection schema 1. The schema accepts
+bounded handle templates and exact HTTPS/header transformations; it rejects
+target/projection collisions and prohibits user manifests from overriding the
+GitHub built-in or selecting a helper, dynamic record, refresh, signer,
+supplemental header, executable, argv, environment, policy, or business
+operation. The sole built-in GitHub driver executes on the trusted host, asks
+for no Git protocol, and recognizes only its fixed device URL. Owner providers
+use protected non-terminal stdin import only. A terminal stream is refused
+before reading. Provider collections with overlapping exact
 scheme/host/port/source-header/source-format recognition fail completely as
 `ambiguous_provider_http_binding`; no partial projection becomes active.
 
-Arbitrary OAuth orchestration or request signing, multiple provider accounts
-per Context, provider SDK operation inference, remote logout/revocation, Git
-credential helpers, GitHub App tokens, SigV4a, presigning, AWS streaming
-signatures, and process-level identity are not implemented. Refreshable AWS CLI
-sessions acquired through IAM Identity Center or AWS console login plus
-standard bounded SigV4, the fixed Datadog US1 OAuth-session refresh plan, and
-the fixed Codex 0.146.0 ChatGPT OAuth-session refresh plan are the only reviewed
-dynamic plans. Claude's reviewed setup-token plan is static and inference-only;
-general TWG login/refresh remains unsupported. The
-optional `session` value remains caller
-metadata, not authentication. Gateway performs all selected credential
-handling inside the trusted infrastructure boundary. A missing, malformed,
+AWS, Datadog, OpenAI, Anthropic, Chatwork, managed profiles, dynamic records,
+refresh, signing, supplemental headers, companions, exact-client-version
+drivers, arbitrary OAuth orchestration, provider SDK inference, multiple
+provider accounts, and remote revocation are not implemented in brokered V1.
+Those tools may keep Workspace-owned login state, which is inside the
+Workspace and still receives no network authority. A missing, malformed,
 ambiguous, or stale principal registry entry denies before broker resolution,
 OPA authorization, and upstream I/O.
 
@@ -734,12 +584,8 @@ authentication, signing, provider account authority, or network permission.
 `auth login`, `auth import`, and `auth logout` are trusted-host fixed-target
 writes against the installation credential catalog. They resolve one existing
 explicit or current Context and one installed provider before acquisition or
-vault I/O. Login accepts that provider directly or requires one terminal-only
-choice from the typed installed reviewed-login-provider collection; omission
-binds the later login to the Context returned by that snapshot, while omission
-with redirected streams fails before the collection read or mutation. An AWS
-method flag requires explicit `--provider`. Login still uses only the reviewed
-built-in helper; import reads one
+vault I/O. Login requires exactly `--provider github`; omission and every other
+provider fail before acquisition. Import reads one
 bounded secret from non-terminal stdin only under the ordering above. One
 credential belongs to one Context/provider, and every permanently bound project
 is eligible for a distinct handle only on its next matching Workspace entry.
@@ -771,13 +617,13 @@ the fixed root-key backend without creating a key, broker state, vault
 integrity, and project binding consistency when the broker is ready. Doctor
 does not start/reconcile/unlock services, create or replace a key, repair a
 manifest, or mutate vault, credential, handle, or project-auth state.
-`policy allow`, `policy deny`, `policy reset`, and `policy compact` are
+`policy allow`, `policy deny`, and `policy reset` are
 access-changing writes bound to opaque references. Discovery never mutates. An
 allow reference identifies one retained validated denial that OPA marked
 exact-rule learnable; a
 deny reference identifies one retained validated denial and binds its exact
-Context/project/scheme/host/port/method/path plus optional GraphQL coordinate; a compaction reference identifies one current
-exact source-rule set; a reset reference identifies one current CLI-owned
+Context/project/scheme/host/port/method/path plus optional GraphQL coordinate;
+a reset reference identifies one current CLI-owned
 learned Allow or exact Deny and removes it, returning the effect to default
 deny. Scheme, cluster, and credential-binding failures never become permission
 candidates. Ordinary body presence and content neither disqualify nor split a
@@ -789,8 +635,8 @@ remain visible. CLI-owned exact Deny rules remain terminal in enforcement but
 are visible in `policy rules` and can be explicitly reset; reset never makes
 the request allowed.
 The mutation rejects stale or ambiguous references, unsafe policy files,
-malformed learned data, failed preflight tests, and unrecognized compaction
-shapes before the atomic policy write.
+malformed learned data, and failed preflight tests before the atomic policy
+write.
 
 Routine source writes hold both an in-process mutex and a cross-process file
 lock. Tobari writes and validates a complete sibling `domains/` generation,
@@ -803,17 +649,11 @@ the verified original. A concurrent direct host edit is never overwritten by
 guess. The generated content-addressed OPA projection may contain one internal
 `data.json`, but Workspaces cannot edit either source or projection.
 
-Learned rules never broaden a project, host, port, method, or GraphQL root
-coordinate beyond the
-explicitly approved evidence. Baseline and exact deny rules remain terminal; an
-exact deny wins over a learned allow for the same Context/project/scheme/host/port/method/path.
-Prefix compaction accepts ordinary HTTP rules only and requires three exact
-sources, keeps host, port, and method fixed, requires a multi-segment directory
-boundary, rejects percent
-encoding, backslashes, empty segments, and dot segments, retains positive
-examples, and tests its matcher against an adjacent outside-prefix canary.
-Host wildcards, method wildcards, user-supplied pattern text, and automatic
-compaction are unsupported.
+Learned rules never broaden a project, host, port, method, path, or GraphQL root
+coordinate beyond the explicitly approved exact evidence. Baseline and exact
+deny rules remain terminal; an exact deny wins over a learned allow for the
+same Context/project/scheme/host/port/method/path. Prefix learned rules,
+compaction proposals, wildcards, and observation-derived widening do not exist.
 
 ## External calls
 
@@ -823,72 +663,15 @@ may be unsafe or non-idempotent. Redirect handling remains in the proxy flow and
 each resulting request is independently authorized.
 
 Gateway applies a finite broker-socket timeout and performs at most one
-introspection plus one post-allow static resolution, AWS signing operation, or
-Datadog/OpenAI token selection/refresh operation.
-It never retries, calls the companion, resolves, refreshes, obtains role
-credentials, or signs on deny. The built-in GitHub host driver runs one fixed
+introspection plus one post-allow static resolution. It never retries or
+resolves on deny. The built-in GitHub host driver runs one fixed
 `gh auth login`, followed by one bounded active-account status capture and one
 token capture in a private configuration directory. It recognizes the one
 fixed device URL; opener failure leaves manual navigation and is not a provider
 mutation failure. The driver performs no Git configuration, pagination, or
 automatic retry; user cancellation or any failed capture preserves the
-previous Context credential.
-
-The AWS Identity Center host driver collects its four non-secret profile fields through
-canonical terminal line input whose finite readiness polling observes command
-cancellation and the login deadline without an abandoned reader. It verifies
-canonical mode before prompting and again after readiness; a noncanonical
-VMIN/VTIME mode fails closed before reading. The host resolves the actual
-terminal device from the inherited input, opens an identity-checked private
-nonblocking description, and closes it before provider execution. Readiness
-flushes therefore return to bounded polling without changing flags shared with
-the parent shell. Cancellation or timeout while a prompt is waiting starts
-neither the AWS CLI nor a Broker mutation. It then runs one fixed device-code
-`aws sso login` against a private
-rendered profile. A post-policy companion operation runs at most one
-fixed `aws configure export-credentials --format process` with finite connect,
-read, process, output, and state bounds. AWS CLI may refresh its renewable SSO
-token as part of that export; an expired overall session fails with re-login
-recovery. Broker makes no provider HTTP call itself, accepts only a typed
-temporary role tuple plus updated opaque cache, rechecks record/revision and
-driver identity, and creates one local signature. Neither driver inherits an
-ambient provider home, credential, proxy, loader, or browser selector, and
-automated tests make no live provider call.
-
-The AWS console method instead collects one validated commercial region,
-checks that the resolved host AWS CLI is at least 2.32, pre-renders one empty
-private profile, sets a private `AWS_LOGIN_CACHE_DIRECTORY`, and runs fixed
-`aws login --remote`. AWS CLI reads the returned authorization code directly
-from terminal stdin. Tobari accepts only the resulting profile's validated
-`login_session` ARN/account match and one bounded canonical JSON login cache.
-The companion later materializes that exact state and uses the same fixed
-credential export; AWS CLI owns refresh while its refresh token remains valid.
-
-The OpenAI host driver performs one five-second exact-version check and one
-bounded native `login --device-auth` attempt with the two fixed reviewed
-configuration overrides in an isolated file-backed home. It accepts only the
-canonical reviewed `auth.json`, verifies the
-namespaced account claim and non-FedRAMP state, rechecks the executable digest,
-and submits the state to Broker only after private-home cleanup succeeds.
-Broker refresh is one POST with a 64 KiB response cap at the fixed OpenAI token
-endpoint, with ambient proxies and redirects disabled. A fixed isolated worker
-has a 29-second socket bound while its parent enforces a 30-second total
-wall-clock bound, kills and reaps it on timeout, and never places the request
-body in argv, environment, stderr, or an exception. It does not retry. A
-pre-call encrypted barrier plus account-continuity and same-revision checks make
-an uncertain result require explicit OpenAI re-login or logout.
-
-The Anthropic host driver performs one exact-version check and one bounded
-`claude setup-token` attempt through a private PTY. Its parser retains all
-provider output inside the bounded terminal model through process completion;
-no raw provider bytes cross the visible boundary while the flow is active.
-After the complete transcript and reviewed success frame validate, it emits
-only fixed allowlisted synthetic guidance, returns exactly one printable token
-privately, and clears retained token bytes on every result. The setup token is
-never part of that guidance. Unknown controls, multiple candidates,
-output/state bounds, cancellation, deadline, executable change, or cleanup
-failure cause zero Broker mutation. Broker never calls Anthropic to refresh
-that token; provider rejection or expiry requires explicit re-login.
+previous Context credential. No other brokered provider helper or post-policy
+provider call exists.
 
 Inherited Git identity reconciliation performs at most two host Git calls, one
 per exact key, with one attempt and a finite timeout each. It performs no
@@ -903,10 +686,10 @@ identity values.
 Audit JSON includes timestamp, request ID, cluster, stable Context ID and name,
 project ID, safe project root, host, port, method, redacted path, an optional
 GraphQL operation type and one root field, decision,
-reason, selected credential profile name, upstream status, and duration. It
+reason, optional broker provider ID, upstream status, and duration. It
 emits no query or headers. Ordinarily the redacted path is the URL path
 component; if that component contains a Tobari handle marker, the whole value is
-`/[redacted-auth-handle]`. A profile name is non-secret metadata; secret values,
+`/[redacted-auth-handle]`. Provider identity is non-secret metadata; secret values,
 Git identity values, and raw bodies are excluded. URL/header handle-structure failures remain
 non-learnable and cannot become policy candidates.
 For brokered requests, the provider ID may be retained as non-secret adapter
@@ -916,11 +699,11 @@ does not inherit a broad static host/method allow; the brokered request remains
 a learnable denial until an exact Context/project-bound L7 rule exists.
 CLI `cluster logs` reads only a bounded component-log window and does not add
 unredacted diagnostics. `cluster denials` projects only validated deny records
-and preserves only non-secret credential-profile names. Read-only policy
+and preserves only non-secret broker provider metadata. Read-only policy
 candidate commands aggregate exact Context/project/scheme/host/port/method/path and
 optional GraphQL-coordinate proposals from
 that evidence, treating reason, status, request identity, timestamps, and
-credential-profile display evidence as non-identity fields. The latest evidence
+broker-provider display evidence as non-identity fields. The latest evidence
 and bounded observation count do not grant authority. `policy review`
 presents the same queue, stages explicit Allow-exact or Deny-exact choices only
 from each candidate's TTY detail screen, retains every unchanged opaque
@@ -929,7 +712,7 @@ is inactive authority; `policy rules`
 projects every current CLI-owned learned Allow and exact Deny, and its TTY flow
 delegates one unchanged opaque reference to `policy reset`. All redirected and
 machine-readable paths remain read-only. Observation alone never changes
-authority; every allow, deny, reset, or compaction is an explicit
+authority; every allow, deny, or reset is an explicit
 reference-bound mutation.
 
 ## Enforcement
@@ -947,13 +730,8 @@ reference-bound mutation.
 | Policy denial cannot resolve a brokered secret | Gateway call-count and ordering tests proving zero resolve calls before or on deny and exactly one after allow |
 | The broker restarts locked and cannot silently replace a missing root key | Restart/unlock tests, Keychain/XDG provider tests, and missing-key-with-vault rejection |
 | Provider manifests cannot become executable or ambiguous authority | Strict schema/collision/path/header tests, owner-only XDG loading, and built-in override rejection |
-| Provider login cannot turn visible text into arbitrary browser execution or Broker Git authority | Conventional non-project installation-root selection, canonical executable identity, fixed argv/environment, control-safe visible projection, exact fixed-URL and region-bound AWS console URL recognition, duplicate/cross-region/hostile rejection, manual fallback, checked private-home cleanup, cancellation, and no-Git-protocol tests |
-| Codex OAuth state cannot enter a Workspace or select its own authority | Exact 0.146.0 host-version/digest checks, isolated-home strict auth-state parsing, fixed complete-file shim tests, exact `chatgpt.com:443` binding, alternate-authority/FedRAMP rejection, and no-Workspace-refresh canaries |
-| OpenAI account routing cannot bypass policy or be caller controlled | Pre-OPA stripping of authorization/account/FedRAMP headers, zero resolve/refresh on deny, Broker-owned post-allow account-ID response validation, same-revision replacement, exact fixed refresh request, fixed worker argv/stdin/empty-environment and wall-clock kill/reap tests, account-continuity checks, and durable outcome-unknown tests |
-| Claude setup tokens cannot enter visible output or Workspace state | Exact 2.1.220 host-version/digest checks, private-PTY parser tests that hold all provider bytes until exact-frame validation, reject raw/redrawn/chunk-split token echoes with zero visible bytes, strict single-token framing, `CLAUDE_CODE_OAUTH_TOKEN` handle-only projection, exact `api.anthropic.com:443` binding, and no-refresh canaries |
-| AWS CLI session state and temporary credentials cannot enter a Workspace | Encrypted SSO/console opaque-driver-state tests, private-home bounds, driver/state mismatch rejection, companion refresh/revision tests, project-binding checks, and secret-free output/log canaries |
-| AWS denial cannot trigger a companion call, refresh, role acquisition, or signing | Gateway two-stage call-order tests and Broker same-revision signing checks |
-| Companion transport cannot become a host service or arbitrary executor | Same-binary bootstrap, exact container/exec argv, no-listener/no-socket-mount assertions, authenticated replay/gap/size tests, closed driver registry, and child environment/FD canaries |
+| Provider login cannot turn visible text into arbitrary browser execution or Broker Git authority | Conventional non-project GitHub CLI selection, canonical executable identity and digest recheck, fixed API-only argv/environment, control-safe visible projection, exact fixed device URL, manual fallback, checked private-home cleanup, cancellation, and no-Git-protocol tests |
+| Retired credential mechanisms cannot remain dormant | Catalog/state/dependency/image-content tests reject managed profiles, dynamic record kinds, refresh, signing, supplemental headers, companion protocols, exact-version drivers, and retired provider selectors |
 | Published tools retain reviewed identity and redistribution evidence | Base-runtime baseline checks for GitHub CLI and AWS CLI; optional local toolbox locks for kubectl, cwk, pup, and local-only TWG; Claude/Codex agent tags remain unpublished while redistribution review is pending |
 | Secret headers, queries, handle-bearing paths, and bodies stay out of logs | Gateway redacted-path/header-absence tests, non-learnable structural-rejection tests, and log scans |
 | Broker fallback cannot accept a Tobari-looking handle | Marker-absence fallback tests plus malformed, misplaced, ambiguous, and binding-mismatch fail-closed canaries |
@@ -973,14 +751,15 @@ reference-bound mutation.
 | One canonical root/Context pair has one Workspace | Pair-derived root-index hash naming, locked exact-pair checks, domain duplicate-index validation, same-root/different-Context tests, and concurrent explicit-creation tests |
 | Session exit cannot delete a Workspace | Child exit-status tests, host-stderr summary tests, and logical-state preservation after entry |
 | Gateway cannot accept caller-selected Context or project authority | Owner-only atomic schema-1 registry, exact Workspace-source and Gateway-endpoint binding, duplicate/stale rejection, forged-header/SNI/authority and unknown-principal denial, source-bind/IP_FREEBIND canaries, and multi-Context integration |
-| Managed credentials cannot cross Context/project principals | Context-scoped projections and secret paths, explicit project bindings, pre-OPA Gateway rejection, repeated injection check, same-name cross-Context tests, and integration |
+| Static broker credentials cannot cross Context/project principals | Encrypted Context vaults, explicit project-bound handles, pre-OPA introspection, same-revision post-allow replacement, cross-Context tests, and integration |
 | Unknown effects fail closed | Domain and catalog validation |
 | Denials support safe policy learning | Typed Context/project/scheme/host/port/method/path denial validation, fixed navigation-response schema, host-only session summary, secret canaries, and integration projection |
 | Learned permissions stay explicit and Context/project-bound | Context-scoped opaque-reference round trips, exact effect domain tests, Rego cross-Context/project canaries, preflight-before-aggregate activation tests, and Docker integration |
 | One bad Context cannot replace known-good policy | Strict host-paired source validation, mutex plus cross-process locking, digest-bound source journal recovery, serialized content-addressed aggregate generation, reserved namespace validation, whole-candidate OPA tests, atomic publish, rollback tests, and integration |
 | Context changes cannot mutate existing Tobari authority | Permanent instance binding, current-marker-only tests, Context-local runtime reconciliation, and restart integration |
-| Overlapping roots are not misrepresented as isolated | Product contract, direct read-write mounts, same-root/parent-child integration canaries, and absence of overlay/root-lock paths |
-| Compaction preserves declared boundaries | Three-source same-host/port/method grouping invariant, retained positive examples, outside-prefix canary, stale-reference rejection, and OPA tests |
+| Source access is exact and not a snapshot claim | Runtime spec/hash and Docker inspect tests, read-only mutation/Git-metadata failures, writable home/tmpfs canaries, no writable alias, and same-root host/read-write observation tests |
+| Preset guardrails cannot be bypassed | Offline/reviewed-exact/get-only-reviewed evaluator tests plus terminal zero-candidate/DNS/Broker/upstream call canaries above baseline, learned, and Advanced policy |
+| Overlapping roots are not misrepresented as isolated | Product contract, Context-selected direct mounts, same-root/parent-child integration canaries, and absence of overlay/root-lock paths |
 | Gateway does not retain allowed streaming bodies | Header-hook ordering unit tests plus incremental chunked-request and SSE-response integration canaries |
 | Declared oversized bodies retain the transport bound | Fixed mitmproxy body-size asset test and over-limit `Content-Length` integration request |
 | GraphQL identity cannot collapse into one HTTP route grant | Trusted exact-endpoint projection, bounded parser fixtures, OPA all-roots matching, HTTP-rule non-matching canaries, GraphQL-aware opaque-reference round trips, and zero-upstream integration tests |
@@ -991,12 +770,9 @@ Container bases distributed by Tobari and CI actions are pinned to immutable
 versions or digests recorded in source. User-selected local images are neither
 distributed nor trusted by Tobari; their selector is persisted as user
 configuration. Third-party licenses are reviewed. Tests use synthetic
-credentials, synthetic JWT claims, fake provider CLIs, fixed clocks, intercepted
-local refresh requests, and `example.com` identities only. Real OpenAI or
-Anthropic OAuth, the documented OpenAI near-expiry refresh, Claude rotation,
-logout, and stale-handle rejection are manual release checks; natural provider
-expiry and provider-generated 401 recovery are not release evidence until an
-executable procedure is accepted. Tokens, codes, handles, and authenticated
+credentials, fake GitHub CLI output, fixed clocks, and `example.com` identities
+only. Live GitHub acquisition, logout, and stale-handle rejection are manual
+release checks. Tokens, codes, handles, and authenticated
 transcripts are never repository fixtures. Publication still requires
 `task security` and `task public:check`; neither replaces a human history and
 confidentiality review. The canonical Gateway source is the public `gateway/`
@@ -1004,7 +780,7 @@ tree; its embedded snapshot is byte-checked against the current source, while
 each published image is inspected against the exact source revision that built
 it. The canonical Auth Broker source is the public `authbroker/` tree; its
 embedded snapshot is byte-checked against current source, and provider-CLI
-absence, bridge/protocol behavior, and multi-architecture metadata are checked
+absence, static-only protocol behavior, and multi-architecture metadata are checked
 for each image's recorded build revision. Pull-request image
 jobs have no package-write permission. GHCR
 moving tags are development conveniences, not a trusted runtime identity;
