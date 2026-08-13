@@ -164,25 +164,36 @@ func (r *Runtime) preparePolicyBundle(ctx context.Context, state tobari.State) e
 	if err := r.ensurePolicyBundleVolume(ctx); err != nil {
 		return err
 	}
+	if ready, _ := r.policyRevisionReady(ctx, state.AggregateRevision); ready {
+		return nil
+	}
 	return r.publishPolicyBundle(ctx, state)
+}
+
+func (r *Runtime) policyRevisionReady(ctx context.Context, revision string) (bool, []byte) {
+	if revision == "" {
+		return false, []byte("policy revision is required")
+	}
+	expression := `revision := http.send({"method":"get","url":"http://127.0.0.1:8181/v1/data/tobari/aggregate_revision"}); revision.status_code == 200; revision.body.result == ` + strconv.Quote(revision) + `; decision := http.send({"method":"post","url":"http://127.0.0.1:8181/v1/data/tobari/http/decision","headers":{"content-type":"application/json"},"body":{"input":{}}}); decision.status_code == 200; object.get(decision.body, "result", null) != null`
+	output, err := r.runner.Output(ctx, []string{
+		"exec", opaContainer, "/opa", "eval", "--fail", "--format", "raw", expression,
+	}, os.Environ())
+	return err == nil && bytes.Equal(bytes.TrimSpace(output), []byte("true")), output
 }
 
 func (r *Runtime) waitForPolicyRevision(ctx context.Context, revision string) error {
 	if revision == "" {
 		return fmt.Errorf("policy revision is required")
 	}
-	expression := `response := http.send({"method":"get","url":"http://127.0.0.1:8181/v1/data/tobari/aggregate_revision"}); response.status_code == 200; response.body.result == ` + strconv.Quote(revision)
 	deadline := time.NewTimer(10 * time.Second)
 	defer deadline.Stop()
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 	var last []byte
 	for {
-		output, err := r.runner.Output(ctx, []string{
-			"exec", opaContainer, "/opa", "eval", "--fail", "--format", "raw", expression,
-		}, os.Environ())
+		ready, output := r.policyRevisionReady(ctx, revision)
 		last = output
-		if err == nil {
+		if ready {
 			return nil
 		}
 		select {

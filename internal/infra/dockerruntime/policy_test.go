@@ -119,6 +119,45 @@ func TestApplyPolicyTestsPublishesBundleAndKeepsOPAStable(t *testing.T) {
 	}
 }
 
+func TestPreparePolicyBundleSkipsUnchangedReadyRevision(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	runner := &recordingRunner{outputQueue: [][]byte{
+		[]byte(ownerValue + "\n"),
+		[]byte("true"),
+	}}
+	runtime, _ := newRuntime(root+"/config", root+"/state", runner)
+	state := runtimeState(root)
+
+	if err := runtime.preparePolicyBundle(context.Background(), state); err != nil {
+		t.Fatal(err)
+	}
+	if len(runner.outputs) != 2 {
+		t.Fatalf("output calls = %v", runner.outputs)
+	}
+	probe := strings.Join(runner.outputs[1].args, "\n")
+	if !strings.Contains(probe, state.AggregateRevision) ||
+		!strings.Contains(probe, "/v1/data/tobari/http/decision") {
+		t.Fatalf("policy readiness probe = %v", runner.outputs[1].args)
+	}
+	for _, call := range runner.outputs {
+		if slices.Contains(call.args, "build") || strings.Contains(strings.Join(call.args, "\n"), "tobari-policy-publish") {
+			t.Fatalf("unchanged ready policy was republished: %v", call.args)
+		}
+	}
+}
+
+func TestPolicyRevisionReadyRejectsDefinedFalseResult(t *testing.T) {
+	t.Parallel()
+	runner := &recordingRunner{outputData: []byte("false\n")}
+	runtime := &Runtime{runner: runner}
+
+	ready, output := runtime.policyRevisionReady(context.Background(), strings.Repeat("a", 64))
+	if ready || string(output) != "false\n" {
+		t.Fatalf("policy readiness = %v, output = %q", ready, output)
+	}
+}
+
 func TestApplyPolicyRejectsFailedTestsBeforeBundlePublication(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()

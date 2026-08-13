@@ -158,6 +158,9 @@ func (concurrentPolicyRunner) Run(context.Context, []string, []string, io.Reader
 }
 
 func (concurrentPolicyRunner) Output(_ context.Context, args, _ []string) ([]byte, error) {
+	if len(args) >= 3 && args[0] == "exec" && args[1] == opaContainer && args[2] == "/opa" {
+		return []byte("true"), nil
+	}
 	if len(args) > 0 && (args[0] == "inspect" || (args[0] == "volume" && len(args) > 1 && args[1] == "inspect")) {
 		return []byte(ownerValue + "\n"), nil
 	}

@@ -42,13 +42,16 @@ type clusterUpProgressRunner struct {
 	events             []string
 	composeEnvironment []string
 	networkConnections []runnerCall
+	policyQueries      []runnerCall
 	companionEpoch     string
+	composed           bool
 }
 
 func (r *clusterUpProgressRunner) Run(_ context.Context, args, environment []string, _ io.Reader, out, _ io.Writer) error {
 	if len(args) > 0 && args[0] == "compose" {
 		r.events = append(r.events, "compose")
 		r.composeEnvironment = append([]string{}, environment...)
+		r.composed = true
 	}
 	if slices.Contains(args, "authbroker.control") {
 		operationIndex := slices.Index(args, "authbroker.control") + 1
@@ -68,6 +71,13 @@ func (r *clusterUpProgressRunner) Run(_ context.Context, args, environment []str
 }
 
 func (r *clusterUpProgressRunner) Output(_ context.Context, args, _ []string) ([]byte, error) {
+	if len(args) >= 3 && args[0] == "exec" && args[1] == opaContainer && args[2] == "/opa" {
+		r.policyQueries = append(r.policyQueries, runnerCall{args: append([]string{}, args...)})
+		if !r.composed {
+			return nil, errors.New("OPA is not running")
+		}
+		return []byte("true"), nil
+	}
 	if len(args) > 0 && args[0] == "run" {
 		return []byte("tobari-network-guard v1 gateway\n"), nil
 	}
@@ -141,9 +151,10 @@ func TestClusterUpWithProgressReportsEachRuntimeStageInOrder(t *testing.T) {
 	runtime.companion = &fakeCredentialCompanionLauncher{}
 	runtime.companionEntropy = bytes.NewReader(bytes.Repeat([]byte{0x42}, 32))
 	var events []tobari.ClusterUpProgress
-	if _, err := runtime.ClusterUpWithProgress(context.Background(), func(event tobari.ClusterUpProgress) {
+	state, err := runtime.ClusterUpWithProgress(context.Background(), func(event tobari.ClusterUpProgress) {
 		events = append(events, event)
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatal(err)
 	}
 	wantSteps := []tobari.ClusterUpProgressStep{
@@ -171,6 +182,14 @@ func TestClusterUpWithProgressReportsEachRuntimeStageInOrder(t *testing.T) {
 	composeIndex := slices.Index(runner.events, "compose")
 	if authIndex < 0 || gatewayIndex <= authIndex || composeIndex <= gatewayIndex {
 		t.Fatalf("shared image preparation order = %v", runner.events)
+	}
+	if len(runner.policyQueries) < 2 {
+		t.Fatalf("cluster up policy readiness queries = %v", runner.policyQueries)
+	}
+	finalPolicyQuery := strings.Join(runner.policyQueries[len(runner.policyQueries)-1].args, "\n")
+	if !strings.Contains(finalPolicyQuery, state.AggregateRevision) ||
+		!strings.Contains(finalPolicyQuery, "/v1/data/tobari/http/decision") {
+		t.Fatalf("cluster up final policy readiness query = %v", runner.policyQueries[len(runner.policyQueries)-1].args)
 	}
 	joinedEnvironment := strings.Join(runner.composeEnvironment, "\n")
 	for _, binding := range []string{
@@ -289,6 +308,10 @@ func (r *recordingRunner) Output(_ context.Context, args, _ []string) ([]byte, e
 		output := append([]byte{}, r.outputQueue[0]...)
 		r.outputQueue = r.outputQueue[1:]
 		return output, r.outputErr
+	}
+	if r.outputErr == nil && len(r.outputData) == 0 && len(args) >= 3 &&
+		args[0] == "exec" && args[1] == opaContainer && args[2] == "/opa" {
+		return []byte("true"), nil
 	}
 	if r.outputErr == nil && len(r.outputData) == 0 && len(args) > 0 &&
 		(args[0] == "inspect" || (args[0] == "volume" && len(args) > 1 && args[1] == "inspect")) {
