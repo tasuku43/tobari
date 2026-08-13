@@ -124,7 +124,7 @@ func TestPreparePolicyBundleSkipsUnchangedReadyRevision(t *testing.T) {
 	root := t.TempDir()
 	runner := &recordingRunner{outputQueue: [][]byte{
 		[]byte(ownerValue + "\n"),
-		[]byte("true"),
+		[]byte("true true true true true true\n"),
 	}}
 	runtime, _ := newRuntime(root+"/config", root+"/state", runner)
 	state := runtimeState(root)

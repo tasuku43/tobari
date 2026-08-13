@@ -178,7 +178,19 @@ func (r *Runtime) policyRevisionReady(ctx context.Context, revision string) (boo
 	output, err := r.runner.Output(ctx, []string{
 		"exec", opaContainer, "/opa", "eval", "--fail", "--format", "raw", expression,
 	}, os.Environ())
-	return err == nil && bytes.Equal(bytes.TrimSpace(output), []byte("true")), output
+	if err != nil {
+		return false, output
+	}
+	results := bytes.Fields(output)
+	if len(results) == 0 {
+		return false, output
+	}
+	for _, result := range results {
+		if !bytes.Equal(result, []byte("true")) {
+			return false, output
+		}
+	}
+	return true, output
 }
 
 func (r *Runtime) waitForPolicyRevision(ctx context.Context, revision string) error {
