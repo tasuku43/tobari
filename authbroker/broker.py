@@ -22,14 +22,6 @@ from .aws_sigv4 import (
     parse_request,
     sign,
 )
-from .datadog_oauth import (
-    PupOAuthState,
-    refresh as refresh_datadog_oauth,
-)
-from .openai_codex_oauth import (
-    CodexOAuthState,
-    refresh as refresh_openai_codex_oauth,
-)
 from .companion_protocol import (
     CompanionChannelManager,
     RefreshRequest,
@@ -52,12 +44,11 @@ from .broker_contract import (
     BrokerError,
     CompanionError,
     DatadogOAuthError,
-    DatadogRefreshSnapshot,
     HandleRecord,
     NormalizedBinding,
     OpenAICodexOAuthError,
-    OpenAIRefreshSnapshot,
     ProtocolError,
+    RenewableSessionSnapshot,
     SigV4Error,
     Target,
     _document_digest,
@@ -72,6 +63,15 @@ from .broker_contract import (
 )
 from .dispatcher import Dispatcher
 from .protocol import MAX_SECRET_BYTES, require_exact_keys
+from .renewable import (
+    OpenAIAccountSupplement,
+    RENEWABLE_CREDENTIAL_KINDS,
+    RefreshedRenewableSession,
+    RenewableSessionAdapter,
+    ReviewedRenewableSessionDependencies,
+    ResolvedRenewableSecret,
+    reviewed_renewable_session_adapters,
+)
 from .vault import (
     AWS_SSO_CREDENTIAL_KIND,
     CLAUDE_ACCOUNT_LABEL,
@@ -100,19 +100,15 @@ class BrokerState:
         sigv4_clock: Callable[[], Any] | None = None,
         refresh_clock: Callable[[], float] | None = None,
         companion: CompanionChannelManager | None = None,
-        datadog_refresh: Callable[[PupOAuthState, float], tuple[bytes, PupOAuthState]] | None = None,
-        openai_refresh: Callable[[CodexOAuthState, float], tuple[bytes, CodexOAuthState]] | None = None,
+        renewable_dependencies: ReviewedRenewableSessionDependencies | None = None,
         record_lock_timeout: float = DEFAULT_RECORD_LOCK_TIMEOUT_SECONDS,
     ):
         self._vaults = vaults
         self._sigv4_clock = sigv4_clock
         self._refresh_clock = refresh_clock
         self._companion = companion or CompanionChannelManager()
-        self._datadog_refresh = datadog_refresh or (
-            lambda state, now: refresh_datadog_oauth(state, now=now)
-        )
-        self._openai_refresh = openai_refresh or (
-            lambda state, now: refresh_openai_codex_oauth(state, now=now)
+        self._renewable_adapters = reviewed_renewable_session_adapters(
+            renewable_dependencies
         )
         if (
             isinstance(record_lock_timeout, bool)
@@ -373,7 +369,14 @@ class BrokerState:
 
         try:
             context_id = validate_context_id(context_id)
-            PupOAuthState.parse(state, driver_revision=driver_revision)
+            adapter = self._renewable_adapter_for(
+                DATADOG_OAUTH_CREDENTIAL_KIND, "datadog"
+            )
+            adapter.validate_initial_state(
+                state,
+                driver_revision=driver_revision,
+                account_label=account_label,
+            )
             record = new_datadog_oauth_record(
                 state,
                 account_label=account_label,
@@ -412,9 +415,14 @@ class BrokerState:
 
         try:
             context_id = validate_context_id(context_id)
-            parsed = CodexOAuthState.parse(state, driver_revision=driver_revision)
-            if parsed.account_id != account_label:
-                raise BrokerError("invalid_account_label")
+            adapter = self._renewable_adapter_for(
+                OPENAI_CODEX_OAUTH_CREDENTIAL_KIND, "openai"
+            )
+            adapter.validate_initial_state(
+                state,
+                driver_revision=driver_revision,
+                account_label=account_label,
+            )
             record = new_openai_codex_oauth_record(
                 state,
                 account_label=account_label,
@@ -481,10 +489,7 @@ class BrokerState:
                 record = payload["providers"].get(provider)
                 if (
                     record is not None
-                    and record.get("credential_kind") in {
-                        AWS_SSO_CREDENTIAL_KIND, DATADOG_OAUTH_CREDENTIAL_KIND,
-                        OPENAI_CODEX_OAUTH_CREDENTIAL_KIND,
-                    }
+                    and self._uses_refresh_barrier(record.get("credential_kind"))
                     and record.get("refresh_task_digest") is not None
                     and not self._refresh_barrier_is_active(
                         context_id, provider, record
@@ -532,10 +537,7 @@ class BrokerState:
                 if credential is None:
                     raise BrokerError("credential_not_found")
                 if (
-                    credential.get("credential_kind") in {
-                        AWS_SSO_CREDENTIAL_KIND, DATADOG_OAUTH_CREDENTIAL_KIND,
-                        OPENAI_CODEX_OAUTH_CREDENTIAL_KIND,
-                    }
+                    self._uses_refresh_barrier(credential.get("credential_kind"))
                     and credential.get("refresh_task_digest") is not None
                 ):
                     raise BrokerError("credential_not_found")
@@ -595,6 +597,21 @@ class BrokerState:
             raise _translate_error(error) from None
 
     @staticmethod
+    def _uses_refresh_barrier(credential_kind: Any) -> bool:
+        return (
+            credential_kind == AWS_SSO_CREDENTIAL_KIND
+            or credential_kind in RENEWABLE_CREDENTIAL_KINDS
+        )
+
+    def _renewable_adapter_for(
+        self, credential_kind: Any, provider: str
+    ) -> RenewableSessionAdapter:
+        adapter = self._renewable_adapters.get(credential_kind)
+        if adapter is None or adapter.provider_id != provider:
+            raise BrokerError("credential_not_resolvable")
+        return adapter
+
+    @staticmethod
     def _validate_credential_bindings(
         credential: dict[str, Any], bindings: tuple[NormalizedBinding, ...]
     ) -> None:
@@ -607,15 +624,9 @@ class BrokerState:
             isinstance(binding, AwsSigV4Binding) for binding in bindings
         ):
             return
-        if kind == DATADOG_OAUTH_CREDENTIAL_KIND and all(
+        if kind in RENEWABLE_CREDENTIAL_KINDS and all(
             isinstance(binding, Binding)
-            and binding.secret_field == DATADOG_OAUTH_CREDENTIAL_KIND
-            for binding in bindings
-        ):
-            return
-        if kind == OPENAI_CODEX_OAUTH_CREDENTIAL_KIND and all(
-            isinstance(binding, Binding)
-            and binding.secret_field == OPENAI_CODEX_OAUTH_CREDENTIAL_KIND
+            and binding.secret_field == kind
             for binding in bindings
         ):
             return
@@ -649,10 +660,9 @@ class BrokerState:
                     credential is not None
                     and credential["revision"] == revision
                     and not (
-                        credential.get("credential_kind") in {
-                            AWS_SSO_CREDENTIAL_KIND, DATADOG_OAUTH_CREDENTIAL_KIND,
-                            OPENAI_CODEX_OAUTH_CREDENTIAL_KIND,
-                        }
+                        self._uses_refresh_barrier(
+                            credential.get("credential_kind")
+                        )
                         and credential.get("refresh_task_digest") is not None
                         and not self._refresh_barrier_is_active(
                             context_id, provider, credential
@@ -826,7 +836,7 @@ class BrokerState:
             state=state,
         )
 
-    def _datadog_refresh_snapshot(
+    def _renewable_session_snapshot(
         self,
         *,
         handle: Any,
@@ -837,7 +847,7 @@ class BrokerState:
         target: Any,
         source_header: Any,
         source_format: Any,
-    ) -> tuple[DatadogRefreshSnapshot, Binding, Target, str, str]:
+    ) -> tuple[RenewableSessionSnapshot, Binding, Target, str, str]:
         key = self._require_key()
         record = self._handle_record(handle, context_id, project_id, provider)
         if record.revision != revision:
@@ -854,20 +864,25 @@ class BrokerState:
         ):
             self._revoke(record.context_id, provider)
             raise BrokerError("handle_revoked")
-        if credential.get("credential_kind") != DATADOG_OAUTH_CREDENTIAL_KIND:
-            raise BrokerError("credential_not_resolvable")
+        credential_kind = credential.get("credential_kind")
+        self._renewable_adapter_for(credential_kind, provider)
         if (
             credential.get("refresh_task_digest") is not None
             and not self._refresh_barrier_is_active(record.context_id, provider, credential)
         ):
             raise BrokerError("companion_outcome_unknown")
         state = decode_secret(credential["state"])
-        snapshot = DatadogRefreshSnapshot(
+        account_label = credential.get("account_label")
+        if not isinstance(account_label, str) or not account_label:
+            raise BrokerError("credential_not_resolvable")
+        snapshot = RenewableSessionSnapshot(
             context_id=record.context_id,
             project_id=record.project_id,
             provider=record.provider,
+            credential_kind=credential_kind,
             record_id=record.record_id,
             revision=record.revision,
+            account_label=account_label,
             state_generation=credential["state_generation"],
             driver_id=credential["driver_id"],
             driver_revision=credential["driver_revision"],
@@ -878,8 +893,8 @@ class BrokerState:
         return snapshot, selected, normalized_target, normalized_header, normalized_format
 
     @staticmethod
-    def _datadog_credential_matches_snapshot(
-        credential: Any, snapshot: DatadogRefreshSnapshot
+    def _renewable_credential_matches_snapshot(
+        credential: Any, snapshot: RenewableSessionSnapshot
     ) -> bool:
         if not isinstance(credential, dict):
             return False
@@ -888,111 +903,24 @@ class BrokerState:
         except (KeyError, VaultError):
             return False
         return (
-            credential.get("credential_kind") == DATADOG_OAUTH_CREDENTIAL_KIND
+            credential.get("credential_kind") == snapshot.credential_kind
             and credential.get("record_id") == snapshot.record_id
             and credential.get("revision") == snapshot.revision
+            and credential.get("account_label") == snapshot.account_label
             and credential.get("state_generation") == snapshot.state_generation
             and credential.get("driver_id") == snapshot.driver_id
             and credential.get("driver_revision") == snapshot.driver_revision
             and secrets.compare_digest(state_sha256, snapshot.state_sha256)
         )
 
-    def _persist_datadog_refresh_barrier(
-        self, snapshot: DatadogRefreshSnapshot, task_digest: str
+    def _persist_renewable_refresh_barrier(
+        self, snapshot: RenewableSessionSnapshot, task_digest: str
     ) -> None:
         key = self._require_key()
         payload = self._vaults.load(snapshot.context_id, key)
         credential = payload["providers"].get(snapshot.provider)
         if (
-            not self._datadog_credential_matches_snapshot(credential, snapshot)
-            or credential.get("refresh_task_digest") is not None
-        ):
-            raise BrokerError("handle_revoked")
-        updated_credential = dict(credential)
-        updated_credential["refresh_task_digest"] = task_digest
-        updated = {"schema_version": payload["schema_version"], "providers": dict(payload["providers"])}
-        updated["providers"][snapshot.provider] = updated_credential
-        self._vaults.save(snapshot.context_id, key, updated)
-
-    def _openai_refresh_snapshot(
-        self,
-        *,
-        handle: Any,
-        context_id: Any,
-        project_id: Any,
-        provider: str,
-        revision: str,
-        target: Any,
-        source_header: Any,
-        source_format: Any,
-    ) -> tuple[OpenAIRefreshSnapshot, Binding, Target, str, str]:
-        key = self._require_key()
-        record = self._handle_record(handle, context_id, project_id, provider)
-        if record.revision != revision:
-            raise BrokerError("handle_binding_mismatch")
-        selected, normalized_target, normalized_header, normalized_format = self._selected_binding(
-            record, target, source_header, source_format
-        )
-        payload = self._vaults.load(record.context_id, key)
-        credential = payload["providers"].get(provider)
-        if (
-            credential is None
-            or credential["record_id"] != record.record_id
-            or credential["revision"] != record.revision
-        ):
-            self._revoke(record.context_id, provider)
-            raise BrokerError("handle_revoked")
-        if credential.get("credential_kind") != OPENAI_CODEX_OAUTH_CREDENTIAL_KIND:
-            raise BrokerError("credential_not_resolvable")
-        if (
-            credential.get("refresh_task_digest") is not None
-            and not self._refresh_barrier_is_active(record.context_id, provider, credential)
-        ):
-            raise BrokerError("companion_outcome_unknown")
-        state = decode_secret(credential["state"])
-        snapshot = OpenAIRefreshSnapshot(
-            context_id=record.context_id,
-            project_id=record.project_id,
-            provider=record.provider,
-            record_id=record.record_id,
-            revision=record.revision,
-            state_generation=credential["state_generation"],
-            driver_id=credential["driver_id"],
-            driver_revision=credential["driver_revision"],
-            binding_digest=_document_digest(selected.document()),
-            state_sha256=hashlib.sha256(state).hexdigest(),
-            state=state,
-        )
-        return snapshot, selected, normalized_target, normalized_header, normalized_format
-
-    @staticmethod
-    def _openai_credential_matches_snapshot(
-        credential: Any, snapshot: OpenAIRefreshSnapshot
-    ) -> bool:
-        if not isinstance(credential, dict):
-            return False
-        try:
-            state_sha256 = hashlib.sha256(decode_secret(credential["state"])).hexdigest()
-        except (KeyError, VaultError):
-            return False
-        return (
-            credential.get("credential_kind") == OPENAI_CODEX_OAUTH_CREDENTIAL_KIND
-            and credential.get("record_id") == snapshot.record_id
-            and credential.get("revision") == snapshot.revision
-            and credential.get("state_generation") == snapshot.state_generation
-            and credential.get("driver_id") == snapshot.driver_id
-            and credential.get("driver_revision") == snapshot.driver_revision
-            and secrets.compare_digest(state_sha256, snapshot.state_sha256)
-        )
-
-    def _persist_openai_refresh_barrier(
-        self, snapshot: OpenAIRefreshSnapshot, task_digest: str
-    ) -> None:
-        key = self._require_key()
-        payload = self._vaults.load(snapshot.context_id, key)
-        credential = payload["providers"].get(snapshot.provider)
-        if (
-            not self._openai_credential_matches_snapshot(credential, snapshot)
+            not self._renewable_credential_matches_snapshot(credential, snapshot)
             or credential.get("refresh_task_digest") is not None
         ):
             raise BrokerError("handle_revoked")
@@ -1073,7 +1001,7 @@ class BrokerState:
         return True
 
     def _finish_active_refresh(
-        self, snapshot: AwsRefreshSnapshot | DatadogRefreshSnapshot | OpenAIRefreshSnapshot,
+        self, snapshot: AwsRefreshSnapshot | RenewableSessionSnapshot,
         task_digest: str,
     ) -> None:
         with self._mutex:
@@ -1084,7 +1012,7 @@ class BrokerState:
                 del self._active_refresh_tasks[snapshot.lock_key]
 
     def _record_lock(
-        self, snapshot: AwsRefreshSnapshot | DatadogRefreshSnapshot | OpenAIRefreshSnapshot
+        self, snapshot: AwsRefreshSnapshot | RenewableSessionSnapshot
     ) -> threading.Lock:
         existing = self._record_locks.get(snapshot.lock_key)
         if existing is not None:
@@ -1183,10 +1111,35 @@ class BrokerState:
         except Exception as error:
             raise _translate_error(error) from None
 
-    def _resolve_openai_after_lock(
+    @staticmethod
+    def _renewable_supplemental_headers(
+        resolved: ResolvedRenewableSecret,
+    ) -> dict[str, str] | None:
+        supplemental = resolved.supplemental
+        if supplemental is None:
+            return None
+        if isinstance(supplemental, OpenAIAccountSupplement):
+            return {"chatgpt-account-id": supplemental.account_id}
+        raise BrokerError("credential_not_resolvable")
+
+    @staticmethod
+    def _validate_renewable_resolution(
+        resolved: Any,
+    ) -> ResolvedRenewableSecret:
+        if (
+            not isinstance(resolved, ResolvedRenewableSecret)
+            or not isinstance(resolved.secret, bytes)
+            or not resolved.secret
+            or len(resolved.secret) > MAX_SECRET_BYTES
+        ):
+            raise BrokerError("credential_not_resolvable")
+        BrokerState._renewable_supplemental_headers(resolved)
+        return resolved
+
+    def _resolve_renewable_after_lock(
         self,
         *,
-        initial: OpenAIRefreshSnapshot,
+        initial: RenewableSessionSnapshot,
         handle: Any,
         context_id: Any,
         project_id: Any,
@@ -1198,7 +1151,7 @@ class BrokerState:
     ) -> dict[str, Any]:
         with self._mutex:
             snapshot, binding, normalized_target, normalized_header, normalized_format = (
-                self._openai_refresh_snapshot(
+                self._renewable_session_snapshot(
                     handle=handle,
                     context_id=context_id,
                     project_id=project_id,
@@ -1209,35 +1162,47 @@ class BrokerState:
                     source_format=source_format,
                 )
             )
-            if snapshot.lock_key != initial.lock_key:
+            if (
+                snapshot.lock_key != initial.lock_key
+                or snapshot.credential_kind != initial.credential_kind
+            ):
                 raise BrokerError("handle_revoked")
-            parsed = CodexOAuthState.parse(
-                snapshot.state, driver_revision=snapshot.driver_revision
+            adapter = self._renewable_adapter_for(
+                snapshot.credential_kind, snapshot.provider
             )
             now = self._refresh_clock() if self._refresh_clock is not None else time.time()
-            secret = parsed.access_token(now)
-            if secret is None:
+            resolved = adapter.current_secret(
+                snapshot.state,
+                driver_revision=snapshot.driver_revision,
+                account_label=snapshot.account_label,
+                now=now,
+            )
+            if resolved is None:
                 if snapshot.state_generation >= (1 << 63) - 1:
                     raise BrokerError("state_generation_exhausted")
                 task_digest = secrets.token_hex(32)
-                self._persist_openai_refresh_barrier(snapshot, task_digest)
+                self._persist_renewable_refresh_barrier(snapshot, task_digest)
                 self._active_refresh_tasks[snapshot.lock_key] = task_digest
             else:
+                resolved = self._validate_renewable_resolution(resolved)
                 task_digest = ""
 
-        if secret is None:
+        if resolved is None:
             try:
-                secret, refreshed = self._openai_refresh(parsed, now)
-                refreshed_state = refreshed.encode()
-                reparsed = CodexOAuthState.parse(
-                    refreshed_state, driver_revision=snapshot.driver_revision
+                refreshed = adapter.refresh(
+                    snapshot.state,
+                    driver_revision=snapshot.driver_revision,
+                    account_label=snapshot.account_label,
+                    now=now,
                 )
                 if (
-                    not secret
-                    or reparsed.account_id != parsed.account_id
-                    or reparsed.access_token(now) != secret
+                    not isinstance(refreshed, RefreshedRenewableSession)
+                    or not isinstance(refreshed.state, bytes)
+                    or not refreshed.state
+                    or len(refreshed.state) > MAX_SECRET_BYTES
                 ):
-                    raise BrokerError("openai_oauth_refresh_failed")
+                    raise BrokerError("credential_not_resolvable")
+                resolved = self._validate_renewable_resolution(refreshed.resolved)
             except Exception:
                 self._finish_active_refresh(snapshot, task_digest)
                 raise BrokerError("companion_outcome_unknown") from None
@@ -1247,12 +1212,14 @@ class BrokerState:
                     payload = self._vaults.load(snapshot.context_id, key)
                     current = payload["providers"].get(provider)
                     if (
-                        not self._openai_credential_matches_snapshot(current, snapshot)
+                        not self._renewable_credential_matches_snapshot(
+                            current, snapshot
+                        )
                         or current.get("refresh_task_digest") != task_digest
                     ):
                         raise BrokerError("handle_revoked")
                     updated_credential = dict(current)
-                    updated_credential["state"] = encode_secret(refreshed_state)
+                    updated_credential["state"] = encode_secret(refreshed.state)
                     updated_credential["state_generation"] = snapshot.state_generation + 1
                     updated_credential["refresh_task_digest"] = None
                     updated = {
@@ -1261,7 +1228,6 @@ class BrokerState:
                     }
                     updated["providers"][provider] = updated_credential
                     self._vaults.save(snapshot.context_id, key, updated)
-                    parsed = reparsed
             except BrokerError:
                 self._finish_active_refresh(snapshot, task_digest)
                 raise
@@ -1270,6 +1236,7 @@ class BrokerState:
                 raise BrokerError("companion_outcome_unknown") from None
             self._finish_active_refresh(snapshot, task_digest)
 
+        assert resolved is not None
         return self._resolved_secret_response(
             provider,
             revision,
@@ -1277,8 +1244,8 @@ class BrokerState:
             normalized_header,
             normalized_format,
             binding,
-            secret,
-            supplemental_headers={"chatgpt-account-id": parsed.account_id},
+            resolved.secret,
+            supplemental_headers=self._renewable_supplemental_headers(resolved),
         )
 
     def resolve(
@@ -1324,102 +1291,32 @@ class BrokerState:
                         provider, revision, normalized_target, normalized_header,
                         normalized_format, selected_binding, secret
                     )
-                if kind == OPENAI_CODEX_OAUTH_CREDENTIAL_KIND:
-                    initial, _, _, _, _ = self._openai_refresh_snapshot(
-                        handle=handle, context_id=context_id, project_id=project_id,
-                        provider=provider, revision=revision, target=target,
-                        source_header=source_header, source_format=source_format,
-                    )
-                elif kind == DATADOG_OAUTH_CREDENTIAL_KIND:
-                    initial, _, _, _, _ = self._datadog_refresh_snapshot(
-                        handle=handle, context_id=context_id, project_id=project_id,
-                        provider=provider, revision=revision, target=target,
-                        source_header=source_header, source_format=source_format,
-                    )
-                else:
-                    raise BrokerError("credential_not_resolvable")
+                self._renewable_adapter_for(kind, provider)
+                initial, _, _, _, _ = self._renewable_session_snapshot(
+                    handle=handle,
+                    context_id=context_id,
+                    project_id=project_id,
+                    provider=provider,
+                    revision=revision,
+                    target=target,
+                    source_header=source_header,
+                    source_format=source_format,
+                )
                 record_lock = self._record_lock(initial)
 
             if not record_lock.acquire(timeout=self._record_lock_timeout):
                 raise BrokerError("companion_busy")
             try:
-                if kind == OPENAI_CODEX_OAUTH_CREDENTIAL_KIND:
-                    return self._resolve_openai_after_lock(
-                        initial=initial,
-                        handle=handle,
-                        context_id=context_id,
-                        project_id=project_id,
-                        provider=provider,
-                        revision=revision,
-                        target=target,
-                        source_header=source_header,
-                        source_format=source_format,
-                    )
-                with self._mutex:
-                    snapshot, selected_binding, normalized_target, normalized_header, normalized_format = self._datadog_refresh_snapshot(
-                        handle=handle, context_id=context_id, project_id=project_id,
-                        provider=provider, revision=revision, target=target,
-                        source_header=source_header, source_format=source_format,
-                    )
-                    if snapshot.lock_key != initial.lock_key:
-                        raise BrokerError("handle_revoked")
-                    parsed = PupOAuthState.parse(
-                        snapshot.state, driver_revision=snapshot.driver_revision
-                    )
-                    now = self._refresh_clock() if self._refresh_clock is not None else time.time()
-                    secret = parsed.access_token(now)
-                    if secret is None:
-                        if snapshot.state_generation >= (1 << 63) - 1:
-                            raise BrokerError("state_generation_exhausted")
-                        task_digest = secrets.token_hex(32)
-                        self._persist_datadog_refresh_barrier(snapshot, task_digest)
-                        self._active_refresh_tasks[snapshot.lock_key] = task_digest
-                    else:
-                        task_digest = ""
-
-                if secret is None:
-                    try:
-                        secret, refreshed = self._datadog_refresh(parsed, now)
-                        refreshed_state = refreshed.encode()
-                        PupOAuthState.parse(
-                            refreshed_state, driver_revision=snapshot.driver_revision
-                        )
-                        if not secret or refreshed.access_token(now) != secret:
-                            raise BrokerError("datadog_oauth_refresh_failed")
-                    except Exception:
-                        self._finish_active_refresh(snapshot, task_digest)
-                        raise BrokerError("companion_outcome_unknown") from None
-                    try:
-                        with self._mutex:
-                            key = self._require_key()
-                            payload = self._vaults.load(snapshot.context_id, key)
-                            current = payload["providers"].get(provider)
-                            if (
-                                not self._datadog_credential_matches_snapshot(current, snapshot)
-                                or current.get("refresh_task_digest") != task_digest
-                            ):
-                                raise BrokerError("handle_revoked")
-                            updated_credential = dict(current)
-                            updated_credential["state"] = encode_secret(refreshed_state)
-                            updated_credential["state_generation"] = snapshot.state_generation + 1
-                            updated_credential["refresh_task_digest"] = None
-                            updated = {
-                                "schema_version": payload["schema_version"],
-                                "providers": dict(payload["providers"]),
-                            }
-                            updated["providers"][provider] = updated_credential
-                            self._vaults.save(snapshot.context_id, key, updated)
-                    except BrokerError:
-                        self._finish_active_refresh(snapshot, task_digest)
-                        raise
-                    except Exception:
-                        self._finish_active_refresh(snapshot, task_digest)
-                        raise BrokerError("companion_outcome_unknown") from None
-                    self._finish_active_refresh(snapshot, task_digest)
-
-                return self._resolved_secret_response(
-                    provider, revision, normalized_target, normalized_header,
-                    normalized_format, selected_binding, secret
+                return self._resolve_renewable_after_lock(
+                    initial=initial,
+                    handle=handle,
+                    context_id=context_id,
+                    project_id=project_id,
+                    provider=provider,
+                    revision=revision,
+                    target=target,
+                    source_header=source_header,
+                    source_format=source_format,
                 )
             finally:
                 record_lock.release()

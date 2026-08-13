@@ -418,31 +418,14 @@ class AwsRefreshSnapshot:
 
 
 @dataclass(frozen=True)
-class DatadogRefreshSnapshot:
+class RenewableSessionSnapshot:
     context_id: str
     project_id: str
     provider: str
+    credential_kind: str
     record_id: str
     revision: str
-    state_generation: int
-    driver_id: str
-    driver_revision: str
-    binding_digest: str
-    state_sha256: str
-    state: bytes = field(repr=False)
-
-    @property
-    def lock_key(self) -> tuple[str, str, str, str]:
-        return (self.context_id, self.provider, self.record_id, self.revision)
-
-
-@dataclass(frozen=True)
-class OpenAIRefreshSnapshot:
-    context_id: str
-    project_id: str
-    provider: str
-    record_id: str
-    revision: str
+    account_label: str
     state_generation: int
     driver_id: str
     driver_revision: str

@@ -12,6 +12,7 @@ from unittest import mock
 from authbroker.broker import BrokerError, BrokerState, Dispatcher
 from authbroker.control import _parser as control_parser, _request as control_request
 from authbroker.datadog_oauth import PupOAuthState
+from authbroker.renewable import ReviewedRenewableSessionDependencies
 from authbroker.vault import VaultStore, decode_secret, new_record
 
 
@@ -78,7 +79,11 @@ class DatadogBrokerTests(unittest.TestCase):
         self.temporary.cleanup()
 
     def state(self, **kwargs) -> BrokerState:
-        state = BrokerState(self.store, refresh_clock=lambda: float(NOW), **kwargs)
+        state = BrokerState(
+            self.store,
+            refresh_clock=lambda: float(NOW),
+            renewable_dependencies=ReviewedRenewableSessionDependencies(**kwargs),
+        )
         state.unlock(KEY)
         return state
 

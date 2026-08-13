@@ -344,6 +344,21 @@ infrastructure driver table derive from or prove parity with that closed
 vocabulary. These immutable projections do not provide runtime registration;
 the infrastructure table continues to own executable dispatch and payload
 validation for each compiled driver.
+
+Inside the Auth Broker, reviewed renewable bearer sessions use a second closed
+compile-time registry keyed by the persisted credential kind. Its provider-local
+adapters own only state parsing, freshness, the fixed refresh transport,
+refreshed-state validation, and typed supplemental values. Broker core retains
+handle and binding validation, the immutable record snapshot, per-record
+single-flight lock, durable outcome-unknown barrier, provider-call ordering,
+compare-and-swap, Vault commit, rotation, and revocation. Adapters receive no
+Vault, root-key, handle-index, lock, barrier, executable, or registration
+capability. AWS request signing and its trusted-host companion remain a
+separate reviewed capability rather than optional methods on a common Provider
+interface. Host acquisition likewise remains a distinct trusted-host boundary
+and shares only the existing strict credential-state envelope with Broker
+runtime resolution.
+
 GitHub recognizes only the fixed device URL and requests no Git protocol. No URL,
 executable, argument, environment key, or driver supplied by a provider
 manifest, repository, Workspace, request, or project `PATH` can alter that

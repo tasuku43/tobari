@@ -21,6 +21,7 @@ entrypoint.sh
 openai_codex_oauth.py
 openai_refresh_transport.py
 protocol.py
+renewable.py
 vault.py
 EOF
       ;;

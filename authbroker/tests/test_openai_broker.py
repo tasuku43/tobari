@@ -8,6 +8,7 @@ from pathlib import Path
 
 from authbroker.broker import BrokerError, BrokerState
 from authbroker.openai_codex_oauth import CodexOAuthState, OpenAICodexOAuthError
+from authbroker.renewable import ReviewedRenewableSessionDependencies
 from authbroker.tests.test_openai_codex_oauth import (
     ACCOUNT_ID,
     DRIVER_REVISION,
@@ -59,7 +60,11 @@ class OpenAIBrokerTests(unittest.TestCase):
         self.temporary.cleanup()
 
     def broker(self, **kwargs) -> BrokerState:
-        state = BrokerState(self.store, refresh_clock=lambda: float(NOW), **kwargs)
+        state = BrokerState(
+            self.store,
+            refresh_clock=lambda: float(NOW),
+            renewable_dependencies=ReviewedRenewableSessionDependencies(**kwargs),
+        )
         state.unlock(KEY)
         return state
 

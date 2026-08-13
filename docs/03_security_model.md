@@ -493,6 +493,15 @@ AWS, Datadog, OpenAI, Anthropic, and Chatwork are implemented only through the
 closed reviewed plan union. Dynamic records, Datadog/OpenAI refresh, AWS
 signing/companion, OpenAI supplemental-header ownership, and exact-version
 Codex/Claude drivers cannot be selected or extended by owner manifests.
+The renewable-session implementation is an immutable compiled registry, not a
+plugin surface: provider adapters can parse and refresh only their bounded
+state and return one typed result. Broker core alone can validate handle scope,
+persist or clear the durable execution barrier, serialize one record, compare
+the pre-call snapshot, write the Vault, rotate revisions, or revoke handles.
+Registry closure, exact membership, and the absence of Broker-state authority
+from adapters are executable test claims. AWS companion/signing and trusted-host
+acquisition stay outside this adapter contract because they cross different
+trust and request-interpretation boundaries.
 Managed profiles, arbitrary OAuth orchestration, provider SDK inference,
 multiple provider accounts, and remote revocation remain unsupported. A missing, malformed,
 ambiguous, or stale principal registry entry denies before broker resolution,
