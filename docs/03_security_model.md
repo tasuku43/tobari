@@ -524,6 +524,13 @@ code. Owner manifests cannot select these profiles: only an exact compiled
 provider/credential/helper combination can satisfy one. Gateway core retains
 all pre-policy stripping, fail-closed recognition, post-allow call ordering,
 revision matching, and final credential application.
+The cross-language reviewed-provider capability fixture is a test oracle, not
+configuration. Strict Go and Python readers reject unknown fields, membership
+drift, unregistered capability names, and mismatched boundary projections, but
+the fixture is absent from both runtime images. A provider addition must still
+change and review the relevant compiled registry, manifest, protocol/record
+shape, and capability implementation; changing the fixture alone grants no
+execution, refresh, signing, supplemental-header, Vault, or Gateway authority.
 Managed profiles, arbitrary OAuth orchestration, provider SDK inference,
 multiple provider accounts, and remote revocation remain unsupported. A missing, malformed,
 ambiguous, or stale principal registry entry denies before broker resolution,

@@ -2,6 +2,8 @@ package authproviders
 
 import (
 	"bytes"
+	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -10,6 +12,27 @@ import (
 
 	"github.com/tasuku43/tobari/internal/domain/authbroker"
 )
+
+type reviewedProviderCapabilityFixture struct {
+	SchemaVersion      int                                  `json:"schema_version"`
+	ReviewedLoginOrder []string                             `json:"reviewed_login_order"`
+	Providers          []reviewedProviderCapabilityProvider `json:"providers"`
+}
+
+type reviewedProviderCapabilityProvider struct {
+	ProviderID                string                                `json:"provider_id"`
+	HostAcquisition           reviewedProviderCapabilityAcquisition `json:"host_acquisition"`
+	ManifestCredentialKind    authbroker.CredentialKind             `json:"manifest_credential_kind"`
+	BrokerControlLogin        string                                `json:"broker_control_login"`
+	BrokerRecordKind          string                                `json:"broker_record_kind"`
+	BrokerRuntimeCapabilities []string                              `json:"broker_runtime_capabilities"`
+	GatewayReviewedProfile    bool                                  `json:"gateway_reviewed_profile"`
+}
+
+type reviewedProviderCapabilityAcquisition struct {
+	Mode   authbroker.AcquisitionMode `json:"mode"`
+	Helper string                     `json:"helper,omitempty"`
+}
 
 func TestBuiltinManifestCollectionMatchesClosedDomainRegistry(t *testing.T) {
 	projection, err := Builtins()
@@ -29,6 +52,62 @@ func TestBuiltinManifestCollectionMatchesClosedDomainRegistry(t *testing.T) {
 		!strings.Contains(err.Error(), "missing registered provider") {
 		t.Fatalf("missing-manifest parity error = %v", err)
 	}
+}
+
+func TestReviewedProviderCapabilityFixtureMatchesGoAuthorities(t *testing.T) {
+	fixture := readReviewedProviderCapabilityFixture(t)
+	if fixture.SchemaVersion != 1 {
+		t.Fatalf("fixture schema_version = %d, want 1", fixture.SchemaVersion)
+	}
+	if got, want := strings.Join(fixture.ReviewedLoginOrder, ","), strings.Join(authbroker.ReviewedLoginProviderIDs(), ","); got != want {
+		t.Fatalf("fixture reviewed login order = %q, want %q", got, want)
+	}
+
+	projection, err := Builtins()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(fixture.Providers) != len(projection.Providers) {
+		t.Fatalf("fixture providers = %d, built-ins = %d", len(fixture.Providers), len(projection.Providers))
+	}
+	for index, provider := range projection.Providers {
+		entry := fixture.Providers[index]
+		if entry.ProviderID != provider.ID {
+			t.Fatalf("fixture provider[%d] = %q, built-in = %q", index, entry.ProviderID, provider.ID)
+		}
+		if entry.HostAcquisition != (reviewedProviderCapabilityAcquisition{
+			Mode: provider.Acquisition.Mode, Helper: provider.Acquisition.Helper,
+		}) {
+			t.Fatalf("fixture acquisition for %q = %#v, built-in = %#v", provider.ID, entry.HostAcquisition, provider.Acquisition)
+		}
+		if entry.ManifestCredentialKind != provider.Credential.Kind {
+			t.Fatalf("fixture credential kind for %q = %q, built-in = %q", provider.ID, entry.ManifestCredentialKind, provider.Credential.Kind)
+		}
+		_, supportsLogin := authbroker.ReviewedLoginProviderHelper(provider.ID)
+		if got := entry.BrokerControlLogin != "none"; got != supportsLogin {
+			t.Fatalf("fixture control-login membership for %q = %t, reviewed host login = %t", provider.ID, got, supportsLogin)
+		}
+	}
+}
+
+func readReviewedProviderCapabilityFixture(t *testing.T) reviewedProviderCapabilityFixture {
+	t.Helper()
+	path := filepath.Join("..", "..", "..", "authbroker", "tests", "fixtures", "reviewed_provider_capabilities_v1.json")
+	file, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+	decoder := json.NewDecoder(file)
+	decoder.DisallowUnknownFields()
+	var fixture reviewedProviderCapabilityFixture
+	if err := decoder.Decode(&fixture); err != nil {
+		t.Fatal(err)
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		t.Fatalf("fixture has trailing JSON: %v", err)
+	}
+	return fixture
 }
 
 func TestBuiltinsPublishesExactToolContracts(t *testing.T) {

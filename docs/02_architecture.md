@@ -392,6 +392,19 @@ providers. Gateway core continues to own candidate recognition, removal of all
 secret-sensitive headers before introspection and policy, deny-before-resolution,
 one same-revision post-allow action, and exact final header/signature application.
 
+These Go and Python projections deliberately do not share a production
+registry or generated adapter interface. A versioned test-only reviewed
+provider capability fixture records only the translations that must agree
+across component boundaries. Go tests bind provider IDs, acquisition mode and
+helper, public manifest credential kind, and login membership to the domain
+registry and embedded built-ins. Python tests bind control-login shape,
+persisted record kind, renewable/signing/supplemental capabilities, and Gateway
+profile membership to the compiled Broker and Gateway registries. In
+particular, public `primary_secret` intentionally maps to persisted
+`static_primary_secret`; identical spelling is not required where the trust
+boundary owns a different representation. No production component reads this
+fixture, and updating it cannot register a provider or grant adapter authority.
+
 GitHub recognizes only the fixed device URL and requests no Git protocol. No URL,
 executable, argument, environment key, or driver supplied by a provider
 manifest, repository, Workspace, request, or project `PATH` can alter that

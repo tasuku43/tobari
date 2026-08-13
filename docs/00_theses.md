@@ -290,6 +290,10 @@ provider plan only after OPA allows the ordinary HTTP effect.
   runtime tests prove the compiled plan union, encrypted task correlation,
   durable outcome-unknown barriers, policy-before-refresh/signing, exact one-
   attempt application, and absence of arbitrary execution fallbacks.
+- One versioned test-only capability projection proves the intentional
+  translations between the Go built-in/acquisition vocabulary and the Python
+  Broker/Gateway closed unions. Production components never load that fixture,
+  so parity enforcement does not become runtime registration authority.
 - Narrow-projection tests fix every allowed scalar, bounded host read, private
   re-encoding target, precedence rule, and hostile source-file/key canary; no
   projection test treats identity as authentication authority.

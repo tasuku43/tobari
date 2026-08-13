@@ -1,0 +1,96 @@
+{
+  "schema_version": 1,
+  "reviewed_login_order": [
+    "github",
+    "aws",
+    "datadog",
+    "openai",
+    "anthropic"
+  ],
+  "providers": [
+    {
+      "provider_id": "anthropic",
+      "host_acquisition": {
+        "mode": "builtin_helper",
+        "helper": "claude-setup-token"
+      },
+      "manifest_credential_kind": "primary_secret",
+      "broker_control_login": "static_secret",
+      "broker_record_kind": "static_primary_secret",
+      "broker_runtime_capabilities": [
+        "static_secret_resolution"
+      ],
+      "gateway_reviewed_profile": true
+    },
+    {
+      "provider_id": "aws",
+      "host_acquisition": {
+        "mode": "builtin_helper",
+        "helper": "aws-sso"
+      },
+      "manifest_credential_kind": "aws_sso_session",
+      "broker_control_login": "driver_state",
+      "broker_record_kind": "aws_sso_session",
+      "broker_runtime_capabilities": [
+        "request_signing"
+      ],
+      "gateway_reviewed_profile": true
+    },
+    {
+      "provider_id": "chatwork",
+      "host_acquisition": {
+        "mode": "stdin_import"
+      },
+      "manifest_credential_kind": "primary_secret",
+      "broker_control_login": "none",
+      "broker_record_kind": "static_primary_secret",
+      "broker_runtime_capabilities": [
+        "static_secret_resolution"
+      ],
+      "gateway_reviewed_profile": false
+    },
+    {
+      "provider_id": "datadog",
+      "host_acquisition": {
+        "mode": "builtin_helper",
+        "helper": "pup-oauth"
+      },
+      "manifest_credential_kind": "datadog_oauth_session",
+      "broker_control_login": "driver_state",
+      "broker_record_kind": "datadog_oauth_session",
+      "broker_runtime_capabilities": [
+        "renewable_bearer_session"
+      ],
+      "gateway_reviewed_profile": true
+    },
+    {
+      "provider_id": "github",
+      "host_acquisition": {
+        "mode": "builtin_helper",
+        "helper": "github-gh"
+      },
+      "manifest_credential_kind": "primary_secret",
+      "broker_control_login": "static_secret",
+      "broker_record_kind": "static_primary_secret",
+      "broker_runtime_capabilities": [
+        "static_secret_resolution"
+      ],
+      "gateway_reviewed_profile": false
+    },
+    {
+      "provider_id": "openai",
+      "host_acquisition": {
+        "mode": "builtin_helper",
+        "helper": "codex-chatgpt-oauth"
+      },
+      "manifest_credential_kind": "openai_codex_oauth_session",
+      "broker_control_login": "driver_state",
+      "broker_record_kind": "openai_codex_oauth_session",
+      "broker_runtime_capabilities": [
+        "renewable_bearer_session",
+        "supplemental_header_application"
+      ],
+      "gateway_reviewed_profile": true
+    }
+  ]
+}
