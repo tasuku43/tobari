@@ -601,6 +601,27 @@ finish() {
         --mount type=volume,src=tobari-policy-bundle,dst=/bundle,readonly \
         "$diagnostic_opa_image" eval --bundle /bundle/bundle.tar.gz --format raw \
         'object.keys(data)' >&2 || true
+      local diagnostic_policy_file diagnostic_policy_directory
+      diagnostic_policy_file=$(find "$test_root/state" -path '*/policy/data.json' -print -quit)
+      if [[ -n $diagnostic_policy_file ]]; then
+        diagnostic_policy_directory=$(dirname "$diagnostic_policy_file")
+        echo "integration diagnostics: host aggregate policy keys and modes" >&2
+        python3 - "$diagnostic_policy_file" <<'PY' >&2 || true
+import json
+import os
+import sys
+
+path = sys.argv[1]
+with open(path, encoding="utf-8") as source:
+    document = json.load(source)
+print(sorted(document), oct(os.stat(path).st_mode & 0o777), oct(os.stat(os.path.dirname(path)).st_mode & 0o777))
+PY
+        echo "integration diagnostics: bind-mounted aggregate policy keys" >&2
+        docker run --rm --network none --read-only \
+          --mount "type=bind,src=$diagnostic_policy_directory,dst=/policy,readonly" \
+          "$diagnostic_opa_image" eval --data /policy/data.json --format raw \
+          'object.keys(data)' >&2 || true
+      fi
     fi
   fi
   cleanup
