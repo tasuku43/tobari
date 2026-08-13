@@ -183,6 +183,12 @@ func (r *Runtime) publishPolicyBundle(ctx context.Context, state tobari.State) e
 }
 
 func (r *Runtime) policySourceArchive(directory string) (*os.File, func(), error) {
+	sourceRoot, err := os.OpenRoot(directory)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer sourceRoot.Close()
+
 	archive, err := os.CreateTemp("", "tobari-policy-source-*.tar")
 	if err != nil {
 		return nil, nil, err
@@ -230,9 +236,18 @@ func (r *Runtime) policySourceArchive(directory string) (*os.File, func(), error
 		if info.IsDir() {
 			return nil
 		}
-		file, err := os.Open(path) // #nosec G304 -- path is a validated child of the runtime-owned aggregate directory.
+		file, err := sourceRoot.Open(relative)
 		if err != nil {
 			return err
+		}
+		openedInfo, err := file.Stat()
+		if err != nil {
+			_ = file.Close()
+			return err
+		}
+		if !openedInfo.Mode().IsRegular() || openedInfo.Mode().Perm()&0o077 != 0 || !os.SameFile(info, openedInfo) {
+			_ = file.Close()
+			return fmt.Errorf("aggregate policy archive path %q changed while being archived", relative)
 		}
 		_, copyErr := io.Copy(writer, file)
 		closeErr := file.Close()
