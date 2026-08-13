@@ -17,6 +17,7 @@ for reviewed in \
   aws_sigv4.py \
   companion_bridge.py \
   companion_protocol.py \
+  control_login.py \
   credential_records.py \
   datadog_oauth.py \
   openai_codex_oauth.py \

@@ -370,6 +370,17 @@ provider ID because strict owner manifests remain the supported declarative
 extension boundary; AWS, Datadog, and OpenAI records bind one exact reviewed
 provider and binding shape.
 
+The control-socket login vocabulary is a third closed projection with only two
+capability shapes: bounded static-secret login and bounded reviewed driver-state
+login. Its immutable plans own exact request keys, payload-length field,
+reviewed driver IDs, credential kind, and fixed record constructor. Dispatcher
+parses through that union and Broker core performs one driver-state commit
+lifecycle: Context validation, optional renewable-state validation, record
+construction, Vault save, and prior-handle revocation. A plan receives neither
+`BrokerState` nor `VaultStore` and cannot execute the host helper. The Go
+trusted-host acquisition drivers remain on the other side of the control
+socket and are not implementations of this protocol plan.
+
 GitHub recognizes only the fixed device URL and requests no Git protocol. No URL,
 executable, argument, environment key, or driver supplied by a provider
 manifest, repository, Workspace, request, or project `PATH` can alter that

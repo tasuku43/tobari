@@ -31,7 +31,6 @@ from .companion_protocol import (
 )
 from .credential_records import (
     AWS_SSO_CREDENTIAL_KIND,
-    CLAUDE_ACCOUNT_LABEL,
     DATADOG_OAUTH_CREDENTIAL_KIND,
     OPENAI_CODEX_OAUTH_CREDENTIAL_KIND,
     STATIC_CREDENTIAL_KIND,
@@ -39,12 +38,15 @@ from .credential_records import (
     decode_secret,
     empty_payload,
     encode_secret,
-    new_aws_sso_record,
-    new_datadog_oauth_record,
-    new_openai_codex_oauth_record,
     new_record,
     validate_context_id,
     validate_provider_id,
+)
+from .control_login import (
+    DriverControlLogin,
+    DriverControlLoginPlan,
+    control_login_plan,
+    is_reviewed_driver_login_provider,
 )
 from .broker_contract import (
     DEFAULT_RECORD_LOCK_TIMEOUT_SECONDS,
@@ -290,7 +292,7 @@ class BrokerState:
         try:
             context_id = validate_context_id(context_id)
             provider = validate_provider_id(provider)
-            if provider in {"aws", "datadog", "openai"}:
+            if is_reviewed_driver_login_provider(provider):
                 raise BrokerError("invalid_provider")
             if not isinstance(secret, bytes) or not secret or len(secret) > MAX_SECRET_BYTES:
                 raise BrokerError("invalid_secret")
@@ -316,6 +318,78 @@ class BrokerState:
         except Exception as error:
             raise _translate_error(error) from None
 
+    def login_driver(self, login: DriverControlLogin) -> dict[str, Any]:
+        """Commit one reviewed host-completed driver state."""
+
+        try:
+            if not isinstance(login, DriverControlLogin):
+                raise BrokerError("invalid_request")
+            reviewed = control_login_plan(login.plan.provider_id)
+            if not isinstance(reviewed, DriverControlLoginPlan) or reviewed is not login.plan:
+                raise BrokerError("invalid_provider")
+            context_id = validate_context_id(login.context_id)
+            if (
+                not isinstance(login.state, bytes)
+                or not login.state
+                or len(login.state) > MAX_SECRET_BYTES
+            ):
+                raise BrokerError("invalid_secret")
+            adapter = self._renewable_adapters.get(reviewed.credential_kind)
+            if adapter is None and reviewed.credential_kind != AWS_SSO_CREDENTIAL_KIND:
+                raise BrokerError("invalid_provider")
+            if adapter is not None:
+                if adapter.provider_id != reviewed.provider_id:
+                    raise BrokerError("invalid_provider")
+                adapter.validate_initial_state(
+                    login.state,
+                    driver_revision=login.driver_revision,
+                    account_label=login.account_label,
+                )
+            record = reviewed.new_record(login)
+            provider = reviewed.provider_id
+            with self._mutex:
+                payload = self._load_or_empty(context_id)
+                updated = {
+                    "schema_version": payload["schema_version"],
+                    "providers": dict(payload["providers"]),
+                }
+                updated["providers"][provider] = record
+                self._vaults.save(context_id, self._require_key(), updated)
+                self._revoke(context_id, provider)
+                return {
+                    "schema_version": SCHEMA_VERSION,
+                    "ok": True,
+                    "provider": provider,
+                    "revision": record["revision"],
+                    "account_label": record["account_label"],
+                }
+        except Exception as error:
+            raise _translate_error(error) from None
+
+    def _login_driver_compatibility(
+        self,
+        provider: str,
+        context_id: Any,
+        state: bytes,
+        *,
+        account_label: Any,
+        driver_id: Any,
+        driver_revision: Any,
+    ) -> dict[str, Any]:
+        plan = control_login_plan(provider)
+        if not isinstance(plan, DriverControlLoginPlan):
+            raise BrokerError("invalid_provider")
+        return self.login_driver(
+            DriverControlLogin(
+                plan=plan,
+                context_id=context_id,
+                account_label=account_label,
+                driver_id=driver_id,
+                driver_revision=driver_revision,
+                state=state,
+            )
+        )
+
     def login_aws_driver(
         self,
         context_id: Any,
@@ -325,36 +399,14 @@ class BrokerState:
         driver_id: Any,
         driver_revision: Any,
     ) -> dict[str, Any]:
-        """Commit one host-completed, executable-bound opaque AWS state."""
-
-        try:
-            context_id = validate_context_id(context_id)
-            if not isinstance(state, bytes) or not state or len(state) > MAX_SECRET_BYTES:
-                raise BrokerError("invalid_secret")
-            record = new_aws_sso_record(
-                state,
-                account_label=account_label,
-                driver_id=driver_id,
-                driver_revision=driver_revision,
-            )
-            with self._mutex:
-                payload = self._load_or_empty(context_id)
-                updated = {
-                    "schema_version": payload["schema_version"],
-                    "providers": dict(payload["providers"]),
-                }
-                updated["providers"]["aws"] = record
-                self._vaults.save(context_id, self._require_key(), updated)
-                self._revoke(context_id, "aws")
-                return {
-                    "schema_version": SCHEMA_VERSION,
-                    "ok": True,
-                    "provider": "aws",
-                    "revision": record["revision"],
-                    "account_label": record["account_label"],
-                }
-        except Exception as error:
-            raise _translate_error(error) from None
+        return self._login_driver_compatibility(
+            "aws",
+            context_id,
+            state,
+            account_label=account_label,
+            driver_id=driver_id,
+            driver_revision=driver_revision,
+        )
 
     def login_datadog_driver(
         self,
@@ -365,42 +417,14 @@ class BrokerState:
         driver_id: Any,
         driver_revision: Any,
     ) -> dict[str, Any]:
-        """Commit one host-completed, executable-bound pup OAuth session."""
-
-        try:
-            context_id = validate_context_id(context_id)
-            adapter = self._renewable_adapter_for(
-                DATADOG_OAUTH_CREDENTIAL_KIND, "datadog"
-            )
-            adapter.validate_initial_state(
-                state,
-                driver_revision=driver_revision,
-                account_label=account_label,
-            )
-            record = new_datadog_oauth_record(
-                state,
-                account_label=account_label,
-                driver_id=driver_id,
-                driver_revision=driver_revision,
-            )
-            with self._mutex:
-                payload = self._load_or_empty(context_id)
-                updated = {
-                    "schema_version": payload["schema_version"],
-                    "providers": dict(payload["providers"]),
-                }
-                updated["providers"]["datadog"] = record
-                self._vaults.save(context_id, self._require_key(), updated)
-                self._revoke(context_id, "datadog")
-                return {
-                    "schema_version": SCHEMA_VERSION,
-                    "ok": True,
-                    "provider": "datadog",
-                    "revision": record["revision"],
-                    "account_label": record["account_label"],
-                }
-        except Exception as error:
-            raise _translate_error(error) from None
+        return self._login_driver_compatibility(
+            "datadog",
+            context_id,
+            state,
+            account_label=account_label,
+            driver_id=driver_id,
+            driver_revision=driver_revision,
+        )
 
     def login_openai_driver(
         self,
@@ -411,42 +435,14 @@ class BrokerState:
         driver_id: Any,
         driver_revision: Any,
     ) -> dict[str, Any]:
-        """Commit one host-completed, executable-bound Codex OAuth session."""
-
-        try:
-            context_id = validate_context_id(context_id)
-            adapter = self._renewable_adapter_for(
-                OPENAI_CODEX_OAUTH_CREDENTIAL_KIND, "openai"
-            )
-            adapter.validate_initial_state(
-                state,
-                driver_revision=driver_revision,
-                account_label=account_label,
-            )
-            record = new_openai_codex_oauth_record(
-                state,
-                account_label=account_label,
-                driver_id=driver_id,
-                driver_revision=driver_revision,
-            )
-            with self._mutex:
-                payload = self._load_or_empty(context_id)
-                updated = {
-                    "schema_version": payload["schema_version"],
-                    "providers": dict(payload["providers"]),
-                }
-                updated["providers"]["openai"] = record
-                self._vaults.save(context_id, self._require_key(), updated)
-                self._revoke(context_id, "openai")
-                return {
-                    "schema_version": SCHEMA_VERSION,
-                    "ok": True,
-                    "provider": "openai",
-                    "revision": record["revision"],
-                    "account_label": record["account_label"],
-                }
-        except Exception as error:
-            raise _translate_error(error) from None
+        return self._login_driver_compatibility(
+            "openai",
+            context_id,
+            state,
+            account_label=account_label,
+            driver_id=driver_id,
+            driver_revision=driver_revision,
+        )
 
     def logout(self, context_id: Any, provider: Any) -> dict[str, Any]:
         try:

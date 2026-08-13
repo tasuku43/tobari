@@ -14,6 +14,7 @@ companion_bridge.py
 companion_protocol.py
 control-entrypoint.sh
 control.py
+control_login.py
 credential_records.py
 daemon.py
 datadog_oauth.py

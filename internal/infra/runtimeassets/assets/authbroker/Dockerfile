@@ -22,6 +22,7 @@ COPY openai_refresh_transport.py /opt/tobari/authbroker/openai_refresh_transport
 COPY companion_protocol.py /opt/tobari/authbroker/companion_protocol.py
 COPY companion_bridge.py /opt/tobari/authbroker/companion_bridge.py
 COPY credential_records.py /opt/tobari/authbroker/credential_records.py
+COPY control_login.py /opt/tobari/authbroker/control_login.py
 COPY broker_contract.py /opt/tobari/authbroker/broker_contract.py
 COPY renewable.py /opt/tobari/authbroker/renewable.py
 COPY broker.py /opt/tobari/authbroker/broker.py

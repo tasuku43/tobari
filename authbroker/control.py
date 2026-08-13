@@ -8,11 +8,9 @@ import sys
 from typing import Any
 
 from . import SCHEMA_VERSION
-from .credential_records import (
-    AWS_DRIVER_IDS,
-    CLAUDE_ACCOUNT_LABEL,
-    OPENAI_CODEX_DRIVER_ID,
-    PUP_DRIVER_ID,
+from .control_login import (
+    REVIEWED_CONTROL_LOGIN_PROVIDERS,
+    control_login_plan,
 )
 from .daemon import DEFAULT_CONTROL_SOCKET
 from .protocol import MAX_SECRET_BYTES, ProtocolError, call_unix_socket
@@ -58,68 +56,23 @@ def _request(arguments: argparse.Namespace) -> tuple[dict[str, Any], bytes]:
         )
         return base, secret
     if arguments.operation == "login":
-        if arguments.provider in {"github", "anthropic"}:
-            if arguments.driver_id is not None or arguments.driver_revision is not None:
-                raise ProtocolError("invalid_request")
-            if (
-                arguments.provider == "anthropic"
-                and arguments.account_label != CLAUDE_ACCOUNT_LABEL
-            ):
-                raise ProtocolError("invalid_request")
-            secret = _read_stdin(MAX_SECRET_BYTES)
-            base.update(
+        plan = control_login_plan(arguments.provider)
+        plan.validate_client_metadata(
+            arguments.account_label,
+            arguments.driver_id,
+            arguments.driver_revision,
+        )
+        payload = _read_stdin(MAX_SECRET_BYTES)
+        base.update(
+            plan.build_request(
                 context_id=arguments.context_id,
-                provider=arguments.provider,
-                secret_length=len(secret),
-                account_label=arguments.account_label,
-            )
-            return base, secret
-        if arguments.provider == "aws":
-            if (
-                arguments.driver_id not in AWS_DRIVER_IDS
-                or arguments.driver_revision is None
-            ):
-                raise ProtocolError("invalid_request")
-            state = _read_stdin(MAX_SECRET_BYTES)
-            base.update(
-                context_id=arguments.context_id,
-                provider=arguments.provider,
                 account_label=arguments.account_label,
                 driver_id=arguments.driver_id,
                 driver_revision=arguments.driver_revision,
-                state_length=len(state),
+                payload_length=len(payload),
             )
-            return base, state
-        if arguments.provider == "datadog":
-            if arguments.driver_id != PUP_DRIVER_ID or arguments.driver_revision is None:
-                raise ProtocolError("invalid_request")
-            state = _read_stdin(MAX_SECRET_BYTES)
-            base.update(
-                context_id=arguments.context_id,
-                provider=arguments.provider,
-                account_label=arguments.account_label,
-                driver_id=arguments.driver_id,
-                driver_revision=arguments.driver_revision,
-                state_length=len(state),
-            )
-            return base, state
-        if arguments.provider == "openai":
-            if (
-                arguments.driver_id != OPENAI_CODEX_DRIVER_ID
-                or arguments.driver_revision is None
-            ):
-                raise ProtocolError("invalid_request")
-            state = _read_stdin(MAX_SECRET_BYTES)
-            base.update(
-                context_id=arguments.context_id,
-                provider=arguments.provider,
-                account_label=arguments.account_label,
-                driver_id=arguments.driver_id,
-                driver_revision=arguments.driver_revision,
-                state_length=len(state),
-            )
-            return base, state
-        raise ProtocolError("invalid_provider")
+        )
+        return base, payload
     if arguments.operation == "logout":
         base.update(context_id=arguments.context_id, provider=arguments.provider)
         return base, b""
@@ -160,7 +113,7 @@ def _parser() -> argparse.ArgumentParser:
     login.add_argument(
         "--provider",
         required=True,
-        choices=("github", "aws", "datadog", "openai", "anthropic"),
+        choices=REVIEWED_CONTROL_LOGIN_PROVIDERS,
     )
     login.add_argument("--context-id", required=True)
     login.add_argument("--account-label", required=True)

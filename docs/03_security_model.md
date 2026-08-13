@@ -510,6 +510,13 @@ complete record union before encryption on save. Unknown kinds, provider-kind
 mismatches, and binding-shape mismatches fail closed. Static records remain
 provider-generic only because owner-defined schema-v1 static providers are an
 intentional non-executable extension boundary.
+Control login plans are likewise an immutable compiled union rather than an
+acquisition plugin. They may select only one fixed request shape, credential
+kind, driver allowlist, and reviewed record constructor. They receive no
+Broker/Vault authority and cannot run a helper, read an executable path, or
+perform provider I/O. The Broker independently validates the exact control
+request and raw length, validates renewable state where applicable, and alone
+serializes the resulting record mutation and handle revocation.
 Managed profiles, arbitrary OAuth orchestration, provider SDK inference,
 multiple provider accounts, and remote revocation remain unsupported. A missing, malformed,
 ambiguous, or stale principal registry entry denies before broker resolution,

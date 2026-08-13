@@ -6,7 +6,12 @@ from typing import TYPE_CHECKING, Any
 
 from . import SCHEMA_VERSION
 from .broker_contract import BrokerError, _translate_error
-from .credential_records import CLAUDE_ACCOUNT_LABEL
+from .control_login import (
+    DriverControlLogin,
+    StaticControlLogin,
+    control_login_payload_field,
+    parse_control_login,
+)
 from .protocol import MAX_SECRET_BYTES, ProtocolError, require_exact_keys
 
 if TYPE_CHECKING:
@@ -37,8 +42,8 @@ class Dispatcher:
             return 0
         if operation == "unlock":
             key = "key_length"
-        elif operation == "login" and request.get("provider") in {"aws", "datadog", "openai"}:
-            key = "state_length"
+        elif operation == "login":
+            key = control_login_payload_field(request.get("provider"))
         else:
             key = "secret_length"
         value = request.get(key)
@@ -202,88 +207,17 @@ class Dispatcher:
                 request["context_id"], request["provider"], raw_payload
             )
         if operation == "login":
-            provider = request.get("provider")
-            if provider in {"github", "anthropic"}:
-                require_exact_keys(
-                    request,
-                    {
-                        "schema_version",
-                        "op",
-                        "context_id",
-                        "provider",
-                        "secret_length",
-                        "account_label",
-                    },
-                )
-                if len(raw_payload) != request["secret_length"]:
-                    raise ProtocolError("invalid_length")
-                if (
-                    provider == "anthropic"
-                    and request["account_label"] != CLAUDE_ACCOUNT_LABEL
-                ):
-                    raise ProtocolError("invalid_request")
+            login = parse_control_login(request, raw_payload)
+            if isinstance(login, StaticControlLogin):
                 return self._state.import_secret(
-                    request["context_id"],
-                    provider,
-                    raw_payload,
-                    account_label=request["account_label"],
+                    login.context_id,
+                    login.provider_id,
+                    login.secret,
+                    account_label=login.account_label,
                 )
-            if provider == "aws":
-                require_exact_keys(
-                    request,
-                    {
-                        "schema_version",
-                        "op",
-                        "context_id",
-                        "provider",
-                        "account_label",
-                        "driver_id",
-                        "driver_revision",
-                        "state_length",
-                    },
-                )
-                if len(raw_payload) != request["state_length"]:
-                    raise ProtocolError("invalid_length")
-                return self._state.login_aws_driver(
-                    request["context_id"],
-                    raw_payload,
-                    account_label=request["account_label"],
-                    driver_id=request["driver_id"],
-                    driver_revision=request["driver_revision"],
-                )
-            if provider == "datadog":
-                require_exact_keys(
-                    request,
-                    {
-                        "schema_version", "op", "context_id", "provider",
-                        "account_label", "driver_id", "driver_revision", "state_length",
-                    },
-                )
-                if len(raw_payload) != request["state_length"]:
-                    raise ProtocolError("invalid_length")
-                return self._state.login_datadog_driver(
-                    request["context_id"], raw_payload,
-                    account_label=request["account_label"],
-                    driver_id=request["driver_id"],
-                    driver_revision=request["driver_revision"],
-                )
-            if provider == "openai":
-                require_exact_keys(
-                    request,
-                    {
-                        "schema_version", "op", "context_id", "provider",
-                        "account_label", "driver_id", "driver_revision", "state_length",
-                    },
-                )
-                if len(raw_payload) != request["state_length"]:
-                    raise ProtocolError("invalid_length")
-                return self._state.login_openai_driver(
-                    request["context_id"], raw_payload,
-                    account_label=request["account_label"],
-                    driver_id=request["driver_id"],
-                    driver_revision=request["driver_revision"],
-                )
-            raise ProtocolError("invalid_provider")
+            if isinstance(login, DriverControlLogin):
+                return self._state.login_driver(login)
+            raise ProtocolError("invalid_request")
         if operation == "logout":
             require_exact_keys(request, {"schema_version", "op", "context_id", "provider"})
             if raw_payload:
