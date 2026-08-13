@@ -16,17 +16,11 @@ from typing import Any, Callable
 # move behind one-way internal module boundaries.
 
 from . import SCHEMA_VERSION
-from .aws_sigv4 import (
-    SigV4Request,
-    parse_credentials,
-    parse_request,
-    sign,
-)
+from .aws_sigv4 import SigV4Request
 from .companion_protocol import (
     CompanionChannelManager,
     RefreshRequest,
     RefreshResult,
-    decode_refresh_secret,
     derive_epoch_key,
 )
 from .credential_records import (
@@ -91,6 +85,12 @@ from .renewable import (
     ResolvedRenewableSecret,
     reviewed_renewable_session_adapters,
 )
+from .request_signing import (
+    REQUEST_SIGNING_CREDENTIAL_KINDS,
+    RequestSigningAdapter,
+    ReviewedRequestSigningDependencies,
+    reviewed_request_signing_adapters,
+)
 from .vault import VaultStore
 
 
@@ -106,11 +106,16 @@ class BrokerState:
         record_lock_timeout: float = DEFAULT_RECORD_LOCK_TIMEOUT_SECONDS,
     ):
         self._vaults = vaults
-        self._sigv4_clock = sigv4_clock
         self._refresh_clock = refresh_clock
         self._companion = companion or CompanionChannelManager()
         self._renewable_adapters = reviewed_renewable_session_adapters(
             renewable_dependencies
+        )
+        self._request_signing_adapters = reviewed_request_signing_adapters(
+            ReviewedRequestSigningDependencies(
+                refresh_clock=refresh_clock,
+                sigv4_clock=sigv4_clock,
+            )
         )
         if (
             isinstance(record_lock_timeout, bool)
@@ -335,7 +340,10 @@ class BrokerState:
             ):
                 raise BrokerError("invalid_secret")
             adapter = self._renewable_adapters.get(reviewed.credential_kind)
-            if adapter is None and reviewed.credential_kind != AWS_SSO_CREDENTIAL_KIND:
+            signing_adapter = self._request_signing_adapters.get(
+                reviewed.credential_kind
+            )
+            if adapter is None and signing_adapter is None:
                 raise BrokerError("invalid_provider")
             if adapter is not None:
                 if adapter.provider_id != reviewed.provider_id:
@@ -345,6 +353,8 @@ class BrokerState:
                     driver_revision=login.driver_revision,
                     account_label=login.account_label,
                 )
+            elif signing_adapter.provider_id != reviewed.provider_id:
+                raise BrokerError("invalid_provider")
             record = reviewed.new_record(login)
             provider = reviewed.provider_id
             with self._mutex:
@@ -595,7 +605,7 @@ class BrokerState:
     @staticmethod
     def _uses_refresh_barrier(credential_kind: Any) -> bool:
         return (
-            credential_kind == AWS_SSO_CREDENTIAL_KIND
+            credential_kind in REQUEST_SIGNING_CREDENTIAL_KINDS
             or credential_kind in RENEWABLE_CREDENTIAL_KINDS
         )
 
@@ -607,6 +617,14 @@ class BrokerState:
             raise BrokerError("credential_not_resolvable")
         return adapter
 
+    def _request_signing_adapter_for(
+        self, credential_kind: Any, provider: str
+    ) -> RequestSigningAdapter:
+        adapter = self._request_signing_adapters.get(credential_kind)
+        if adapter is None or adapter.provider_id != provider:
+            raise BrokerError("credential_not_signable")
+        return adapter
+
     @staticmethod
     def _validate_credential_bindings(
         credential: dict[str, Any], bindings: tuple[NormalizedBinding, ...]
@@ -616,7 +634,7 @@ class BrokerState:
             isinstance(binding, Binding) for binding in bindings
         ):
             return
-        if kind == AWS_SSO_CREDENTIAL_KIND and all(
+        if kind in REQUEST_SIGNING_CREDENTIAL_KINDS and all(
             isinstance(binding, AwsSigV4Binding) for binding in bindings
         ):
             return
@@ -807,8 +825,9 @@ class BrokerState:
         ):
             self._revoke(record.context_id, provider)
             raise BrokerError("handle_revoked")
-        if credential.get("credential_kind") != AWS_SSO_CREDENTIAL_KIND:
-            raise BrokerError("credential_not_signable")
+        self._request_signing_adapter_for(
+            credential.get("credential_kind"), provider
+        )
         if (
             credential.get("refresh_task_digest") is not None
             and not self._refresh_barrier_is_active(
@@ -1082,8 +1101,9 @@ class BrokerState:
                 ):
                     self._revoke(record.context_id, provider)
                     raise BrokerError("handle_revoked")
-                if credential.get("credential_kind") != AWS_SSO_CREDENTIAL_KIND:
-                    raise BrokerError("credential_not_signable")
+                signing_adapter = self._request_signing_adapter_for(
+                    credential.get("credential_kind"), provider
+                )
                 if (
                     credential.get("refresh_task_digest") is not None
                     and not self._refresh_barrier_is_active(
@@ -1096,7 +1116,7 @@ class BrokerState:
                     "ok": True,
                     "provider": record.provider,
                     "revision": record.revision,
-                    "kind": "aws_sigv4",
+                    "kind": signing_adapter.binding_kind,
                     "target": normalized_target.document(),
                     "source": {
                         "authorization_header": selected.authorization_header,
@@ -1367,7 +1387,10 @@ class BrokerState:
             # lookup, lock acquisition, companion call, or vault mutation.
             provider = validate_provider_id(provider)
             revision = _validate_revision(revision)
-            normalized_request = parse_request(request)
+            signing_adapter = self._request_signing_adapters[
+                AWS_SSO_CREDENTIAL_KIND
+            ]
+            normalized_request = signing_adapter.parse_request(request)
             with self._mutex:
                 initial = self._aws_refresh_snapshot(
                     handle=handle,
@@ -1399,19 +1422,10 @@ class BrokerState:
                         raise BrokerError("handle_revoked")
                     if snapshot.state_generation >= (1 << 63) - 1:
                         raise BrokerError("state_generation_exhausted")
-                    refresh_request = RefreshRequest.create(
-                        context_id=snapshot.context_id,
-                        project_id=snapshot.project_id,
-                        provider=snapshot.provider,
-                        record_id=snapshot.record_id,
-                        grant_revision=snapshot.revision,
-                        state_generation=snapshot.state_generation,
-                        driver_id=snapshot.driver_id,
-                        driver_revision=snapshot.driver_revision,
-                        binding_digest=snapshot.binding_digest,
-                        request_digest=snapshot.request_digest,
-                        state=snapshot.state,
+                    signing_adapter = self._request_signing_adapter_for(
+                        AWS_SSO_CREDENTIAL_KIND, snapshot.provider
                     )
+                    refresh_request = signing_adapter.create_refresh_request(snapshot)
                     # This encrypted marker makes a Broker crash after host
                     # execution fail closed across restart. Only the exact
                     # correlated task may replace it with refreshed state.
@@ -1424,34 +1438,9 @@ class BrokerState:
 
                 try:
                     result = self.refresh_with_companion(refresh_request)
-                    if (
-                        not isinstance(result, RefreshResult)
-                        or result.request_id != refresh_request.request_id
-                        or not secrets.compare_digest(
-                            result.task_digest, refresh_request.task_digest
-                        )
-                        or result.state_generation != snapshot.state_generation
-                    ):
-                        raise BrokerError("companion_result_invalid")
-                    decode_kwargs: dict[str, Any] = {}
-                    if self._refresh_clock is not None:
-                        decode_kwargs["clock"] = self._refresh_clock
-                    refreshed = decode_refresh_secret(
-                        result.secret_payload, **decode_kwargs
+                    completed = signing_adapter.complete(
+                        normalized_request, refresh_request, result
                     )
-                    # Treat malformed temporary credentials as an unknown
-                    # refresh outcome before committing even opaque state.
-                    credentials = parse_credentials(
-                        {
-                            "access_key_id": refreshed.access_key_id,
-                            "secret_access_key": refreshed.secret_access_key,
-                            "session_token": refreshed.session_token,
-                        }
-                    )
-                    sign_kwargs: dict[str, Any] = {}
-                    if self._sigv4_clock is not None:
-                        sign_kwargs["clock"] = self._sigv4_clock
-                    signed = sign(normalized_request, credentials, **sign_kwargs)
                 except Exception as error:
                     self._finish_active_refresh(
                         snapshot, refresh_request.task_digest
@@ -1487,7 +1476,7 @@ class BrokerState:
                         ):
                             raise BrokerError("handle_revoked")
                         updated_credential = dict(credential)
-                        updated_credential["state"] = encode_secret(refreshed.state)
+                        updated_credential["state"] = encode_secret(completed.state)
                         updated_credential["state_generation"] = (
                             snapshot.state_generation + 1
                         )
@@ -1517,10 +1506,10 @@ class BrokerState:
                     "provider": provider,
                     "revision": revision,
                     "headers": {
-                        "authorization": signed.authorization,
-                        "x_amz_date": signed.amz_date,
-                        "x_amz_security_token": signed.security_token,
-                        "x_amz_content_sha256": signed.content_sha256,
+                        "authorization": completed.headers.authorization,
+                        "x_amz_date": completed.headers.amz_date,
+                        "x_amz_security_token": completed.headers.security_token,
+                        "x_amz_content_sha256": completed.headers.content_sha256,
                     },
                 }
             finally:

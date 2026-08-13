@@ -22,7 +22,8 @@ for reviewed in \
   datadog_oauth.py \
   openai_codex_oauth.py \
   openai_refresh_transport.py \
-  renewable.py; do
+  renewable.py \
+  request_signing.py; do
   grep -q "COPY $reviewed /opt/tobari/authbroker/$reviewed" "$dockerfile"
 done
 

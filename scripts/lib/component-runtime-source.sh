@@ -24,6 +24,7 @@ openai_codex_oauth.py
 openai_refresh_transport.py
 protocol.py
 renewable.py
+request_signing.py
 vault.py
 EOF
       ;;

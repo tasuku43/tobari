@@ -18,6 +18,7 @@ from authbroker.credential_records import (
     reviewed_credential_record_contracts,
 )
 from authbroker.renewable import reviewed_renewable_session_adapters
+from authbroker.request_signing import reviewed_request_signing_adapters
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -117,6 +118,7 @@ class ReviewedProviderParityTests(unittest.TestCase):
         login_plans = reviewed_control_login_plans()
         record_contracts = reviewed_credential_record_contracts()
         renewable_adapters = reviewed_renewable_session_adapters()
+        signing_adapters = reviewed_request_signing_adapters()
         gateway = _load_gateway_profiles()
         gateway_profiles = gateway.reviewed_gateway_credential_profiles()
 
@@ -137,8 +139,12 @@ class ReviewedProviderParityTests(unittest.TestCase):
         }
         self.assertEqual(renewable_by_provider, expected_renewable)
 
-        signing_providers = {
-            provider_id
+        signing_by_provider = {
+            adapter.provider_id: adapter.credential_kind
+            for adapter in signing_adapters.values()
+        }
+        expected_signing = {
+            provider_id: entry["broker_record_kind"]
             for provider_id, entry in providers.items()
             if "request_signing" in entry["broker_runtime_capabilities"]
         }
@@ -148,7 +154,7 @@ class ReviewedProviderParityTests(unittest.TestCase):
             if "supplemental_header_application"
             in entry["broker_runtime_capabilities"]
         }
-        self.assertEqual(signing_providers, {"aws"})
+        self.assertEqual(signing_by_provider, expected_signing)
         self.assertEqual(supplemental_providers, {"openai"})
 
         for provider_id, entry in providers.items():

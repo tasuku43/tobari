@@ -501,7 +501,11 @@ the pre-call snapshot, write the Vault, rotate revisions, or revoke handles.
 Registry closure, exact membership, and the absence of Broker-state authority
 from adapters are executable test claims. AWS companion/signing and trusted-host
 acquisition stay outside this adapter contract because they cross different
-trust and request-interpretation boundaries.
+trust and request-interpretation boundaries. AWS signing therefore has its own
+one-member compiled mechanics registry: it may parse and sign one bounded
+request and validate one correlated companion result, but it cannot call the
+companion, acquire a record lock, persist or clear a barrier, read or write a
+Vault, compare mutable state, or commit refreshed state.
 Persisted record validation is a separate immutable compiled union. Its
 contracts can validate and construct only bounded record data; they cannot
 open, decrypt, encrypt, replace, or locate a Vault. `VaultStore` authenticates

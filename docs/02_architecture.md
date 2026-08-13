@@ -355,7 +355,12 @@ compare-and-swap, Vault commit, rotation, and revocation. Adapters receive no
 Vault, root-key, handle-index, lock, barrier, executable, or registration
 capability. AWS request signing and its trusted-host companion remain a
 separate reviewed capability rather than optional methods on a common Provider
-interface. Host acquisition likewise remains a distinct trusted-host boundary
+interface. Its closed mechanics registry owns only SigV4 request parsing,
+companion request/result correlation, bounded temporary-credential decoding,
+and request signing. Broker core retains the companion call, per-record lock,
+durable no-replay barrier, snapshot comparison, Vault CAS, and response
+framing; the mechanics object receives none of those authorities. Host
+acquisition likewise remains a distinct trusted-host boundary
 and shares only the existing strict credential-state envelope with Broker
 runtime resolution.
 
