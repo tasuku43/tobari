@@ -537,9 +537,9 @@ actions provide the deterministic portable activation path: each locks the
 projection, tests the target Context's private source copy and the complete
 all-Context candidate, verifies the exact OPA and bundle-volume ownership
 labels, builds a revision-named archive through pinned OPA, atomically renames
-it through a fixed networkless pinned publisher, and runs both operations as
-the invoking numeric UID/GID against an owner-only bundle volume so private
-host policy remains readable without broadening its filesystem modes,
+it through a fixed networkless pinned publisher, and transfers the tested
+owner-only host projection through a bounded owner-only archive and container
+stdin into the bundle volume rather than giving container root a host bind,
 waits for the running OPA to report the exact expected revision, and rolls back
 on failure. Reducing or mixed authority first activates a deny-all transition
 revision.

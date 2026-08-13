@@ -1,6 +1,7 @@
 package dockerruntime
 
 import (
+	"archive/tar"
 	"bytes"
 	"context"
 	"crypto/sha256"
@@ -109,7 +110,7 @@ func parseGatewayDenials(data []byte) ([]tobari.PolicyDenial, error) {
 func (r *Runtime) ensurePolicyBundleVolume(ctx context.Context) error {
 	err := r.verifyOwned(ctx, "volume", policyBundleVolume)
 	if err == nil {
-		return r.ensurePolicyBundleVolumeAccess(ctx)
+		return nil
 	}
 	if !errors.Is(err, errOwnedResourceMissing) {
 		return err
@@ -123,30 +124,7 @@ func (r *Runtime) ensurePolicyBundleVolume(ctx context.Context) error {
 	if createErr != nil {
 		return fmt.Errorf("create policy bundle volume: %w: %s", createErr, boundedDiagnostic(output))
 	}
-	if err := r.verifyOwned(ctx, "volume", policyBundleVolume); err != nil {
-		return err
-	}
-	return r.ensurePolicyBundleVolumeAccess(ctx)
-}
-
-func (r *Runtime) ensurePolicyBundleVolumeAccess(ctx context.Context) error {
-	versions, err := runtimeassets.Versions()
-	if err != nil {
-		return fmt.Errorf("read embedded runtime versions: %w", err)
-	}
-	uid, gid := currentIDs()
-	identity := strconv.Itoa(uid) + ":" + strconv.Itoa(gid)
-	output, err := r.runner.Output(ctx, []string{
-		"run", "--rm", "--user", "0:0", "--network", "none", "--read-only",
-		"--cap-drop", "ALL", "--security-opt", "no-new-privileges:true",
-		"--mount", "type=volume,src=" + policyBundleVolume + ",dst=/bundle",
-		"--entrypoint", "sh", versions["DEBIAN_IMAGE"], "-eu", "-c",
-		`chown "$1" /bundle && chmod 0700 /bundle`, "tobari-policy-volume-access", identity,
-	}, os.Environ())
-	if err != nil {
-		return fmt.Errorf("prepare policy bundle volume access: %w: %s", err, boundedDiagnostic(output))
-	}
-	return nil
+	return r.verifyOwned(ctx, "volume", policyBundleVolume)
 }
 
 func (r *Runtime) publishPolicyBundle(ctx context.Context, state tobari.State) error {
@@ -157,32 +135,138 @@ func (r *Runtime) publishPolicyBundle(ctx context.Context, state tobari.State) e
 	if err != nil {
 		return fmt.Errorf("read embedded runtime versions: %w", err)
 	}
-	uid, gid := currentIDs()
-	identity := strconv.Itoa(uid) + ":" + strconv.Itoa(gid)
+	source := "/bundle/.source-" + state.AggregateRevision
 	candidate := "/bundle/.candidate-" + state.AggregateRevision + ".tar.gz"
-	output, err := r.runner.Output(ctx, []string{
-		"run", "--rm", "--user", identity, "--network", "none", "--read-only",
-		"--cap-drop", "ALL", "--security-opt", "no-new-privileges:true",
-		"--tmpfs", "/tmp:size=16m,mode=1777",
-		"--mount", "type=bind,src=" + state.PolicyDirectory + ",dst=/candidate,readonly",
-		"--mount", "type=volume,src=" + policyBundleVolume + ",dst=/bundle",
-		versions["OPA_IMAGE"], "build", "-b", "/candidate",
-		"-o", candidate, "--revision", state.AggregateRevision,
-	}, os.Environ())
+	archive, cleanupArchive, err := r.policySourceArchive(state.PolicyDirectory)
 	if err != nil {
-		return fmt.Errorf("build tested policy bundle: %w: %s", err, boundedDiagnostic(output))
+		return fmt.Errorf("archive tested policy source: %w", err)
 	}
-	output, err = r.runner.Output(ctx, []string{
-		"run", "--rm", "--user", identity, "--network", "none", "--read-only",
+	defer cleanupArchive()
+	var stageOutput bytes.Buffer
+	err = r.runner.Run(ctx, []string{
+		"run", "--rm", "--interactive", "--user", "0:0", "--network", "none", "--read-only",
 		"--cap-drop", "ALL", "--security-opt", "no-new-privileges:true",
 		"--mount", "type=volume,src=" + policyBundleVolume + ",dst=/bundle",
 		"--entrypoint", "sh", versions["DEBIAN_IMAGE"], "-eu", "-c",
-		`mv -f -- "$1" "$2"`, "tobari-policy-publish", candidate, "/bundle/bundle.tar.gz",
+		`rm -rf -- "$1" && mkdir -m 0700 -- "$1" && tar --extract --file - --directory "$1" --no-same-owner && chmod -R u=rwX,go= -- "$1"`,
+		"tobari-policy-stage", source,
+	}, os.Environ(), archive, &stageOutput, &stageOutput)
+	if err != nil {
+		return fmt.Errorf("stage tested policy source: %w: %s", err, boundedDiagnostic(stageOutput.Bytes()))
+	}
+	output, err := r.runner.Output(ctx, []string{
+		"run", "--rm", "--user", "0:0", "--network", "none", "--read-only",
+		"--cap-drop", "ALL", "--security-opt", "no-new-privileges:true",
+		"--tmpfs", "/tmp:size=16m,mode=1777",
+		"--mount", "type=volume,src=" + policyBundleVolume + ",dst=/bundle",
+		versions["OPA_IMAGE"], "build", "-b", source,
+		"-o", candidate, "--revision", state.AggregateRevision,
+	}, os.Environ())
+	if err != nil {
+		cleanupOutput, cleanupErr := r.removeStagedPolicySource(ctx, versions["DEBIAN_IMAGE"], source)
+		if cleanupErr != nil {
+			return fmt.Errorf("build tested policy bundle: %w: %s; clean staged source: %v: %s", err, boundedDiagnostic(output), cleanupErr, boundedDiagnostic(cleanupOutput))
+		}
+		return fmt.Errorf("build tested policy bundle: %w: %s", err, boundedDiagnostic(output))
+	}
+	output, err = r.runner.Output(ctx, []string{
+		"run", "--rm", "--user", "0:0", "--network", "none", "--read-only",
+		"--cap-drop", "ALL", "--security-opt", "no-new-privileges:true",
+		"--mount", "type=volume,src=" + policyBundleVolume + ",dst=/bundle",
+		"--entrypoint", "sh", versions["DEBIAN_IMAGE"], "-eu", "-c",
+		`rm -rf -- "$3" && mv -f -- "$1" "$2"`, "tobari-policy-publish", candidate, "/bundle/bundle.tar.gz", source,
 	}, os.Environ())
 	if err != nil {
 		return fmt.Errorf("atomically publish tested policy bundle: %w: %s", err, boundedDiagnostic(output))
 	}
 	return nil
+}
+
+func (r *Runtime) policySourceArchive(directory string) (*os.File, func(), error) {
+	archive, err := os.CreateTemp("", "tobari-policy-source-*.tar")
+	if err != nil {
+		return nil, nil, err
+	}
+	cleanup := func() {
+		_ = archive.Close()
+		_ = os.Remove(archive.Name())
+	}
+	if err := archive.Chmod(0o600); err != nil {
+		cleanup()
+		return nil, nil, err
+	}
+	writer := tar.NewWriter(archive)
+	err = filepath.WalkDir(directory, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if path == directory {
+			return nil
+		}
+		relative, err := filepath.Rel(directory, path)
+		if err != nil || relative == "." || relative == ".." || filepath.IsAbs(relative) {
+			return fmt.Errorf("invalid aggregate policy archive path %q", relative)
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		if entry.Type()&os.ModeSymlink != 0 || (!info.IsDir() && !info.Mode().IsRegular()) {
+			return fmt.Errorf("aggregate policy archive path %q must be a regular file or directory", relative)
+		}
+		if info.Mode().Perm()&0o077 != 0 {
+			return fmt.Errorf("aggregate policy archive path %q must remain owner-only", relative)
+		}
+		header, err := tar.FileInfoHeader(info, "")
+		if err != nil {
+			return err
+		}
+		header.Name = filepath.ToSlash(relative)
+		header.Uid = 0
+		header.Gid = 0
+		if err := writer.WriteHeader(header); err != nil {
+			return err
+		}
+		if info.IsDir() {
+			return nil
+		}
+		file, err := os.Open(path) // #nosec G304 -- path is a validated child of the runtime-owned aggregate directory.
+		if err != nil {
+			return err
+		}
+		_, copyErr := io.Copy(writer, file)
+		closeErr := file.Close()
+		if copyErr != nil {
+			return copyErr
+		}
+		return closeErr
+	})
+	if err == nil {
+		err = writer.Close()
+	} else {
+		_ = writer.Close()
+	}
+	if err == nil {
+		err = archive.Sync()
+	}
+	if err == nil {
+		_, err = archive.Seek(0, io.SeekStart)
+	}
+	if err != nil {
+		cleanup()
+		return nil, nil, err
+	}
+	return archive, cleanup, nil
+}
+
+func (r *Runtime) removeStagedPolicySource(ctx context.Context, image, source string) ([]byte, error) {
+	return r.runner.Output(ctx, []string{
+		"run", "--rm", "--user", "0:0", "--network", "none", "--read-only",
+		"--cap-drop", "ALL", "--security-opt", "no-new-privileges:true",
+		"--mount", "type=volume,src=" + policyBundleVolume + ",dst=/bundle",
+		"--entrypoint", "sh", image, "-eu", "-c", `rm -rf -- "$1"`,
+		"tobari-policy-stage-cleanup", source,
+	}, os.Environ())
 }
 
 func (r *Runtime) preparePolicyBundle(ctx context.Context, state tobari.State) error {

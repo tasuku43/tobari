@@ -1,11 +1,13 @@
 package dockerruntime
 
 import (
+	"archive/tar"
 	"context"
 	"errors"
 	"io"
+	"os"
+	"path/filepath"
 	"slices"
-	"strconv"
 	"strings"
 	"testing"
 
@@ -37,6 +39,45 @@ func (r *bundleBuildFailureRunner) Output(_ context.Context, args, _ []string) (
 const denyAuditLine = `{"schema_version":1,"cluster":"default","context":"default","context_id":"01912345-6789-7abc-8def-0123456789ad","decision":"deny","duration_ms":3,"host":"api.github.com","learnable":true,"method":"GET","path":"/repos/cli/cli","port":443,"project_id":"01912345-6789-7abc-8def-0123456789ab","project_root":"/workspace/project","protocol":"http","reason":"request did not match an allow rule","request_id":"7185da2688d7469aae9cd9068e920b0b","scheme":"https","timestamp":"2026-07-30T10:41:11Z","upstream_status":403}`
 
 const graphqlDenyAuditLine = `{"schema_version":1,"cluster":"default","context":"default","context_id":"01912345-6789-7abc-8def-0123456789ad","decision":"deny","duration_ms":3,"host":"api.github.com","learnable":true,"method":"POST","path":"/graphql","port":443,"project_id":"01912345-6789-7abc-8def-0123456789ab","project_root":"/workspace/project","protocol":"graphql","graphql_operation_type":"mutation","graphql_root_field":"updateIssue","reason":"request did not match an allow rule","request_id":"7185da2688d7469aae9cd9068e920b0b","scheme":"https","timestamp":"2026-07-30T10:41:11Z","upstream_status":403}`
+
+func writePolicyArchiveFixture(t *testing.T, state tobari.State) {
+	t.Helper()
+	if err := os.MkdirAll(state.PolicyDirectory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(state.PolicyDirectory, "data.json"), []byte(`{"tobari":{}}`+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestPolicySourceArchivePreservesOwnerOnlyProjection(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	runtime, _ := newRuntime(root+"/config", root+"/state", &recordingRunner{})
+	state := runtimeState(root)
+	writePolicyArchiveFixture(t, state)
+
+	archive, cleanup, err := runtime.policySourceArchive(state.PolicyDirectory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cleanup()
+	header, err := tar.NewReader(archive).Next()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if header.Name != "data.json" || header.Mode&0o077 != 0 || header.Uid != 0 || header.Gid != 0 {
+		t.Fatalf("policy archive header = %+v", header)
+	}
+
+	if err := os.Chmod(filepath.Join(state.PolicyDirectory, "data.json"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, cleanup, err := runtime.policySourceArchive(state.PolicyDirectory); err == nil {
+		cleanup()
+		t.Fatal("non-owner-only aggregate policy was archived")
+	}
+}
 
 func TestParseGatewayDenialsFiltersUnrelatedAndAllowedLines(t *testing.T) {
 	t.Parallel()
@@ -86,6 +127,7 @@ func TestApplyPolicyTestsPublishesBundleAndKeepsOPAStable(t *testing.T) {
 	runner := &recordingRunner{}
 	runtime, _ := newRuntime(root+"/config", root+"/state", runner)
 	state := runtimeState(root)
+	writePolicyArchiveFixture(t, state)
 	if err := runtime.ApplyPolicy(context.Background(), state); err != nil {
 		t.Fatal(err)
 	}
@@ -93,23 +135,34 @@ func TestApplyPolicyTestsPublishesBundleAndKeepsOPAStable(t *testing.T) {
 		t.Fatalf("output calls = %v", runner.outputs)
 	}
 	build := runner.outputs[9].args
-	uid, gid := currentIDs()
-	identity := strconv.Itoa(uid) + ":" + strconv.Itoa(gid)
 	for _, required := range []string{
 		"run", "--network", "none", "--read-only", "--cap-drop", "ALL",
-		"type=volume,src=tobari-policy-bundle,dst=/bundle", "build", identity,
+		"type=volume,src=tobari-policy-bundle,dst=/bundle", "build",
 		"--revision", state.AggregateRevision,
 	} {
 		if !slices.Contains(build, required) {
 			t.Fatalf("bundle build argv = %v, lacks %q", build, required)
 		}
 	}
+	if strings.Contains(strings.Join(build, "\n"), "type=bind") ||
+		!strings.Contains(strings.Join(build, "\n"), "/bundle/.source-") {
+		t.Fatalf("bundle builder consumed a host bind instead of staged policy: %v", build)
+	}
 	publish := runner.outputs[10].args
 	if !slices.Contains(publish, "--entrypoint") || !slices.Contains(publish, "sh") ||
-		!slices.Contains(publish, identity) ||
 		!slices.Contains(publish, "/bundle/bundle.tar.gz") ||
 		!strings.Contains(strings.Join(publish, "\n"), ".candidate-"+state.AggregateRevision+".tar.gz") {
 		t.Fatalf("atomic bundle publication argv = %v", publish)
+	}
+	if len(runner.runs) != 2 {
+		t.Fatalf("policy source staging calls = %v", runner.runs)
+	}
+	for _, stage := range runner.runs {
+		staging := strings.Join(stage.args, "\n")
+		if !strings.Contains(staging, "tobari-policy-stage") ||
+			!strings.Contains(staging, "--interactive") || strings.Contains(staging, "type=bind") {
+			t.Fatalf("policy source staging argv = %v", stage.args)
+		}
 	}
 	for _, call := range runner.outputs {
 		if slices.Contains(call.args, "compose") || slices.Contains(call.args, "--force-recreate") {
@@ -128,7 +181,6 @@ func TestPreparePolicyBundleSkipsUnchangedReadyRevision(t *testing.T) {
 	root := t.TempDir()
 	runner := &recordingRunner{outputQueue: [][]byte{
 		[]byte(ownerValue + "\n"),
-		nil,
 		[]byte("true true true true true true\n"),
 	}}
 	runtime, _ := newRuntime(root+"/config", root+"/state", runner)
@@ -137,18 +189,13 @@ func TestPreparePolicyBundleSkipsUnchangedReadyRevision(t *testing.T) {
 	if err := runtime.preparePolicyBundle(context.Background(), state); err != nil {
 		t.Fatal(err)
 	}
-	if len(runner.outputs) != 3 {
+	if len(runner.outputs) != 2 {
 		t.Fatalf("output calls = %v", runner.outputs)
 	}
-	access := strings.Join(runner.outputs[1].args, "\n")
-	if !strings.Contains(access, "tobari-policy-volume-access") ||
-		!strings.Contains(access, "chown") || !strings.Contains(access, "chmod 0700") {
-		t.Fatalf("policy bundle volume access = %v", runner.outputs[1].args)
-	}
-	probe := strings.Join(runner.outputs[2].args, "\n")
+	probe := strings.Join(runner.outputs[1].args, "\n")
 	if !strings.Contains(probe, state.AggregateRevision) ||
 		!strings.Contains(probe, "/v1/data/tobari/http/decision") {
-		t.Fatalf("policy readiness probe = %v", runner.outputs[2].args)
+		t.Fatalf("policy readiness probe = %v", runner.outputs[1].args)
 	}
 	for _, call := range runner.outputs {
 		if slices.Contains(call.args, "build") || strings.Contains(strings.Join(call.args, "\n"), "tobari-policy-publish") {
@@ -188,7 +235,9 @@ func TestApplyPolicyBuildFailureNeverPublishesFinalBundle(t *testing.T) {
 	root := t.TempDir()
 	runner := &bundleBuildFailureRunner{}
 	runtime, _ := newRuntime(root+"/config", root+"/state", runner)
-	if err := runtime.ApplyPolicy(context.Background(), runtimeState(root)); err == nil {
+	state := runtimeState(root)
+	writePolicyArchiveFixture(t, state)
+	if err := runtime.ApplyPolicy(context.Background(), state); err == nil {
 		t.Fatal("invalid bundle build unexpectedly succeeded")
 	}
 	foundBuild := false
