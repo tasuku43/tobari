@@ -592,6 +592,15 @@ finish() {
         --mount type=volume,src=tobari-policy-bundle,dst=/bundle,readonly \
         "$diagnostic_opa_image" eval --bundle /bundle/bundle.tar.gz --format raw \
         data.tobari.aggregate_revision >&2 || true
+      echo "integration diagnostics: policy bundle namespaces" >&2
+      docker run --rm --network none --read-only \
+        --mount type=volume,src=tobari-policy-bundle,dst=/bundle,readonly \
+        "$diagnostic_opa_image" inspect /bundle/bundle.tar.gz >&2 || true
+      echo "integration diagnostics: policy bundle top-level data keys" >&2
+      docker run --rm --network none --read-only \
+        --mount type=volume,src=tobari-policy-bundle,dst=/bundle,readonly \
+        "$diagnostic_opa_image" eval --bundle /bundle/bundle.tar.gz --format raw \
+        'object.keys(data)' >&2 || true
     fi
   fi
   cleanup
