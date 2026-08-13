@@ -584,6 +584,15 @@ finish() {
         docker logs --tail 200 "$container" >&2 || true
       fi
     done
+    if docker volume inspect tobari-policy-bundle >/dev/null 2>&1; then
+      local diagnostic_opa_image
+      diagnostic_opa_image=$(awk -F= '$1 == "OPA_IMAGE" { print $2 }' internal/infra/runtimeassets/assets/versions.env)
+      echo "integration diagnostics: policy bundle aggregate revision" >&2
+      docker run --rm --network none --read-only \
+        --mount type=volume,src=tobari-policy-bundle,dst=/bundle,readonly \
+        "$diagnostic_opa_image" eval --bundle /bundle/bundle.tar.gz --format raw \
+        data.tobari.aggregate_revision >&2 || true
+    fi
   fi
   cleanup
   if [[ -n ${test_root:-} ]]; then
