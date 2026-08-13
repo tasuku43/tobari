@@ -269,6 +269,11 @@ read-only into each Tobari. Gateway opens no root entrypoint and receives no
 added capability. Host credential files remain owner-only read-only binds, and
 Docker Desktop-specific behavior is outside the current macOS release contract.
 
+The OPA bundle volume is normalized to owner-only access for the invoking
+numeric UID/GID. The pinned networkless OPA builder and atomic publisher run as
+that identity, preserving `0700` aggregate directories and `0600` policy files
+instead of making private host policy readable to container root or other users.
+
 Auth Broker image code is likewise root-owned and read-only, with a fixed
 non-root default user, entrypoint, API/role labels, dropped capabilities,
 read-only root, and no host UID baked into the image. Routine startup uses only

@@ -109,7 +109,7 @@ func parseGatewayDenials(data []byte) ([]tobari.PolicyDenial, error) {
 func (r *Runtime) ensurePolicyBundleVolume(ctx context.Context) error {
 	err := r.verifyOwned(ctx, "volume", policyBundleVolume)
 	if err == nil {
-		return nil
+		return r.ensurePolicyBundleVolumeAccess(ctx)
 	}
 	if !errors.Is(err, errOwnedResourceMissing) {
 		return err
@@ -123,7 +123,30 @@ func (r *Runtime) ensurePolicyBundleVolume(ctx context.Context) error {
 	if createErr != nil {
 		return fmt.Errorf("create policy bundle volume: %w: %s", createErr, boundedDiagnostic(output))
 	}
-	return r.verifyOwned(ctx, "volume", policyBundleVolume)
+	if err := r.verifyOwned(ctx, "volume", policyBundleVolume); err != nil {
+		return err
+	}
+	return r.ensurePolicyBundleVolumeAccess(ctx)
+}
+
+func (r *Runtime) ensurePolicyBundleVolumeAccess(ctx context.Context) error {
+	versions, err := runtimeassets.Versions()
+	if err != nil {
+		return fmt.Errorf("read embedded runtime versions: %w", err)
+	}
+	uid, gid := currentIDs()
+	identity := strconv.Itoa(uid) + ":" + strconv.Itoa(gid)
+	output, err := r.runner.Output(ctx, []string{
+		"run", "--rm", "--user", "0:0", "--network", "none", "--read-only",
+		"--cap-drop", "ALL", "--security-opt", "no-new-privileges:true",
+		"--mount", "type=volume,src=" + policyBundleVolume + ",dst=/bundle",
+		"--entrypoint", "sh", versions["DEBIAN_IMAGE"], "-eu", "-c",
+		`chown "$1" /bundle && chmod 0700 /bundle`, "tobari-policy-volume-access", identity,
+	}, os.Environ())
+	if err != nil {
+		return fmt.Errorf("prepare policy bundle volume access: %w: %s", err, boundedDiagnostic(output))
+	}
+	return nil
 }
 
 func (r *Runtime) publishPolicyBundle(ctx context.Context, state tobari.State) error {
@@ -134,9 +157,11 @@ func (r *Runtime) publishPolicyBundle(ctx context.Context, state tobari.State) e
 	if err != nil {
 		return fmt.Errorf("read embedded runtime versions: %w", err)
 	}
+	uid, gid := currentIDs()
+	identity := strconv.Itoa(uid) + ":" + strconv.Itoa(gid)
 	candidate := "/bundle/.candidate-" + state.AggregateRevision + ".tar.gz"
 	output, err := r.runner.Output(ctx, []string{
-		"run", "--rm", "--user", "0:0", "--network", "none", "--read-only",
+		"run", "--rm", "--user", identity, "--network", "none", "--read-only",
 		"--cap-drop", "ALL", "--security-opt", "no-new-privileges:true",
 		"--tmpfs", "/tmp:size=16m,mode=1777",
 		"--mount", "type=bind,src=" + state.PolicyDirectory + ",dst=/candidate,readonly",
@@ -148,7 +173,7 @@ func (r *Runtime) publishPolicyBundle(ctx context.Context, state tobari.State) e
 		return fmt.Errorf("build tested policy bundle: %w: %s", err, boundedDiagnostic(output))
 	}
 	output, err = r.runner.Output(ctx, []string{
-		"run", "--rm", "--user", "0:0", "--network", "none", "--read-only",
+		"run", "--rm", "--user", identity, "--network", "none", "--read-only",
 		"--cap-drop", "ALL", "--security-opt", "no-new-privileges:true",
 		"--mount", "type=volume,src=" + policyBundleVolume + ",dst=/bundle",
 		"--entrypoint", "sh", versions["DEBIAN_IMAGE"], "-eu", "-c",

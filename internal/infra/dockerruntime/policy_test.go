@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -92,9 +93,11 @@ func TestApplyPolicyTestsPublishesBundleAndKeepsOPAStable(t *testing.T) {
 		t.Fatalf("output calls = %v", runner.outputs)
 	}
 	build := runner.outputs[9].args
+	uid, gid := currentIDs()
+	identity := strconv.Itoa(uid) + ":" + strconv.Itoa(gid)
 	for _, required := range []string{
 		"run", "--network", "none", "--read-only", "--cap-drop", "ALL",
-		"type=volume,src=tobari-policy-bundle,dst=/bundle", "build",
+		"type=volume,src=tobari-policy-bundle,dst=/bundle", "build", identity,
 		"--revision", state.AggregateRevision,
 	} {
 		if !slices.Contains(build, required) {
@@ -103,6 +106,7 @@ func TestApplyPolicyTestsPublishesBundleAndKeepsOPAStable(t *testing.T) {
 	}
 	publish := runner.outputs[10].args
 	if !slices.Contains(publish, "--entrypoint") || !slices.Contains(publish, "sh") ||
+		!slices.Contains(publish, identity) ||
 		!slices.Contains(publish, "/bundle/bundle.tar.gz") ||
 		!strings.Contains(strings.Join(publish, "\n"), ".candidate-"+state.AggregateRevision+".tar.gz") {
 		t.Fatalf("atomic bundle publication argv = %v", publish)
@@ -124,6 +128,7 @@ func TestPreparePolicyBundleSkipsUnchangedReadyRevision(t *testing.T) {
 	root := t.TempDir()
 	runner := &recordingRunner{outputQueue: [][]byte{
 		[]byte(ownerValue + "\n"),
+		nil,
 		[]byte("true true true true true true\n"),
 	}}
 	runtime, _ := newRuntime(root+"/config", root+"/state", runner)
@@ -132,13 +137,18 @@ func TestPreparePolicyBundleSkipsUnchangedReadyRevision(t *testing.T) {
 	if err := runtime.preparePolicyBundle(context.Background(), state); err != nil {
 		t.Fatal(err)
 	}
-	if len(runner.outputs) != 2 {
+	if len(runner.outputs) != 3 {
 		t.Fatalf("output calls = %v", runner.outputs)
 	}
-	probe := strings.Join(runner.outputs[1].args, "\n")
+	access := strings.Join(runner.outputs[1].args, "\n")
+	if !strings.Contains(access, "tobari-policy-volume-access") ||
+		!strings.Contains(access, "chown") || !strings.Contains(access, "chmod 0700") {
+		t.Fatalf("policy bundle volume access = %v", runner.outputs[1].args)
+	}
+	probe := strings.Join(runner.outputs[2].args, "\n")
 	if !strings.Contains(probe, state.AggregateRevision) ||
 		!strings.Contains(probe, "/v1/data/tobari/http/decision") {
-		t.Fatalf("policy readiness probe = %v", runner.outputs[1].args)
+		t.Fatalf("policy readiness probe = %v", runner.outputs[2].args)
 	}
 	for _, call := range runner.outputs {
 		if slices.Contains(call.args, "build") || strings.Contains(strings.Join(call.args, "\n"), "tobari-policy-publish") {
