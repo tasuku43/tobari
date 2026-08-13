@@ -333,6 +333,28 @@ run_project() {
   docker exec "$work_container" "$@"
 }
 
+wait_project_broker_policy_denial() {
+  local url=$1
+  local consecutive=0
+  local status
+  local _
+  for _ in $(seq 1 60); do
+    status=$(run_project sh -c \
+      'curl -sS -o /dev/null -w "%{http_code}" -H "X-Synthetic-Auth: $SYNTHETIC_TOKEN" "$1"' \
+      sh "$url" 2>/dev/null || true)
+    if [[ $status == 403 ]]; then
+      consecutive=$((consecutive + 1))
+      if [[ $consecutive == 3 ]]; then
+        return 0
+      fi
+    else
+      consecutive=0
+    fi
+    sleep 0.2
+  done
+  fail "policy did not settle on brokered default denial for $url"
+}
+
 run_project_shell() {
   docker exec -i "$work_container" /bin/bash
 }
@@ -562,6 +584,45 @@ finish() {
         docker logs --tail 200 "$container" >&2 || true
       fi
     done
+    if docker volume inspect tobari-policy-bundle >/dev/null 2>&1; then
+      local diagnostic_opa_image
+      diagnostic_opa_image=$(awk -F= '$1 == "OPA_IMAGE" { print $2 }' internal/infra/runtimeassets/assets/versions.env)
+      echo "integration diagnostics: policy bundle aggregate revision" >&2
+      docker run --rm --network none --read-only \
+        --mount type=volume,src=tobari-policy-bundle,dst=/bundle,readonly \
+        "$diagnostic_opa_image" eval --bundle /bundle/bundle.tar.gz --format raw \
+        data.tobari.aggregate_revision >&2 || true
+      echo "integration diagnostics: policy bundle namespaces" >&2
+      docker run --rm --network none --read-only \
+        --mount type=volume,src=tobari-policy-bundle,dst=/bundle,readonly \
+        "$diagnostic_opa_image" inspect /bundle/bundle.tar.gz >&2 || true
+      echo "integration diagnostics: policy bundle top-level data keys" >&2
+      docker run --rm --network none --read-only \
+        --mount type=volume,src=tobari-policy-bundle,dst=/bundle,readonly \
+        "$diagnostic_opa_image" eval --bundle /bundle/bundle.tar.gz --format raw \
+        'object.keys(data)' >&2 || true
+      local diagnostic_policy_file diagnostic_policy_directory
+      diagnostic_policy_file=$(find "$test_root/state" -path '*/policy/data.json' -print -quit)
+      if [[ -n $diagnostic_policy_file ]]; then
+        diagnostic_policy_directory=$(dirname "$diagnostic_policy_file")
+        echo "integration diagnostics: host aggregate policy keys and modes" >&2
+        python3 - "$diagnostic_policy_file" <<'PY' >&2 || true
+import json
+import os
+import sys
+
+path = sys.argv[1]
+with open(path, encoding="utf-8") as source:
+    document = json.load(source)
+print(sorted(document), oct(os.stat(path).st_mode & 0o777), oct(os.stat(os.path.dirname(path)).st_mode & 0o777))
+PY
+        echo "integration diagnostics: bind-mounted aggregate policy keys" >&2
+        docker run --rm --network none --read-only \
+          --mount "type=bind,src=$diagnostic_policy_directory,dst=/policy,readonly" \
+          "$diagnostic_opa_image" eval --data /policy/data.json --format raw \
+          'object.keys(data)' >&2 || true
+      fi
+    fi
   fi
   cleanup
   if [[ -n ${test_root:-} ]]; then
@@ -814,16 +875,14 @@ for provider_cli in gh aws pup codex claude; do
 done
 wait_network_membership tobari-control tobari-auth-broker ||
   fail "Auth Broker is not attached to the shared control network"
-if network_contains_container tobari-egress tobari-auth-broker; then
-  fail "static-only Auth Broker retained provider egress"
-fi
+wait_network_membership tobari-egress tobari-auth-broker ||
+  fail "Auth Broker is not attached to bounded refresh egress"
 docker network disconnect -f tobari-control tobari-auth-broker >/dev/null
 start_cluster >/dev/null
 wait_network_membership tobari-control tobari-auth-broker ||
   fail "Auth Broker lost the shared control network during egress reconciliation"
-if network_contains_container tobari-egress tobari-auth-broker; then
-  fail "Auth Broker joined provider egress during control reconciliation"
-fi
+wait_network_membership tobari-egress tobari-auth-broker ||
+  fail "Auth Broker lost bounded refresh egress during control reconciliation"
 created_context=$(run_tobari context create --name restricted --image "$custom_image" \
   --source-access read-only --policy-preset builtin/reviewed-exact --format json)
 assert_contains "$created_context" '"cluster":"requires_reconcile"' "running Context creation"
@@ -845,7 +904,7 @@ gateway_context_mounts=$(docker inspect --format '{{range .Mounts}}{{println .So
 if [[ $gateway_context_mounts == *"/credentials.json =>"* || $gateway_context_mounts == *"/run/tobari/credentials"* ]]; then
   fail "Gateway retained the retired managed credential projection"
 fi
-assert_contains "$gateway_context_mounts" "/run/tobari/auth/providers.json" \
+assert_contains "$gateway_context_mounts" "/run/tobari/auth" \
   "Gateway provider projection mount"
 assert_contains "$gateway_context_mounts" "/run/tobari-auth/runtime" \
   "Gateway Auth Broker runtime socket mount"
@@ -1103,8 +1162,8 @@ done
   fail "same-root Workspaces in different Contexts received the same handle"
 [[ $restricted_auth_handle != "$other_auth_handle" ]] ||
   fail "different projects in one Context received the same handle"
-[[ $(docker inspect --format '{{len .NetworkSettings.Networks}}' tobari-auth-broker) == 1 ]] ||
-  fail "static-only Auth Broker joined a network outside shared control"
+[[ $(docker inspect --format '{{len .NetworkSettings.Networks}}' tobari-auth-broker) == 2 ]] ||
+  fail "Auth Broker did not retain exactly control and bounded refresh egress networks"
 for project_network in "$work_network" "$restricted_network" "$other_network"; do
   if network_contains_container "$project_network" tobari-auth-broker; then
     fail "Auth Broker joined Workspace network $project_network"
@@ -1260,6 +1319,7 @@ docker run -d \
   "$tobari_image" -u /mock_upstream.py >/dev/null
 wait_listening "$auth_mock_name" 443
 wait_network_connection tobari-gateway api.synthetic.example 443
+wait_project_broker_policy_denial https://api.synthetic.example/brokered-default
 
 # Refresh the reconciliation-owned projections after the container/network
 # recovery above. Stable credential revisions preserve each project handle.

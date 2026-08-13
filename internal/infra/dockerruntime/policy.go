@@ -1,6 +1,7 @@
 package dockerruntime
 
 import (
+	"archive/tar"
 	"bytes"
 	"context"
 	"crypto/sha256"
@@ -134,17 +135,38 @@ func (r *Runtime) publishPolicyBundle(ctx context.Context, state tobari.State) e
 	if err != nil {
 		return fmt.Errorf("read embedded runtime versions: %w", err)
 	}
+	source := "/bundle/.source-" + state.AggregateRevision
 	candidate := "/bundle/.candidate-" + state.AggregateRevision + ".tar.gz"
+	archive, cleanupArchive, err := r.policySourceArchive(state.PolicyDirectory)
+	if err != nil {
+		return fmt.Errorf("archive tested policy source: %w", err)
+	}
+	defer cleanupArchive()
+	var stageOutput bytes.Buffer
+	err = r.runner.Run(ctx, []string{
+		"run", "--rm", "--interactive", "--user", "0:0", "--network", "none", "--read-only",
+		"--cap-drop", "ALL", "--security-opt", "no-new-privileges:true",
+		"--mount", "type=volume,src=" + policyBundleVolume + ",dst=/bundle",
+		"--entrypoint", "sh", versions["DEBIAN_IMAGE"], "-eu", "-c",
+		`rm -rf -- "$1" && mkdir -m 0700 -- "$1" && tar --extract --file - --directory "$1" --no-same-owner && chmod -R u=rwX,go= -- "$1"`,
+		"tobari-policy-stage", source,
+	}, os.Environ(), archive, &stageOutput, &stageOutput)
+	if err != nil {
+		return fmt.Errorf("stage tested policy source: %w: %s", err, boundedDiagnostic(stageOutput.Bytes()))
+	}
 	output, err := r.runner.Output(ctx, []string{
 		"run", "--rm", "--user", "0:0", "--network", "none", "--read-only",
 		"--cap-drop", "ALL", "--security-opt", "no-new-privileges:true",
 		"--tmpfs", "/tmp:size=16m,mode=1777",
-		"--mount", "type=bind,src=" + state.PolicyDirectory + ",dst=/candidate,readonly",
 		"--mount", "type=volume,src=" + policyBundleVolume + ",dst=/bundle",
-		versions["OPA_IMAGE"], "build", "-b", "/candidate",
+		versions["OPA_IMAGE"], "build", "-b", source,
 		"-o", candidate, "--revision", state.AggregateRevision,
 	}, os.Environ())
 	if err != nil {
+		cleanupOutput, cleanupErr := r.removeStagedPolicySource(ctx, versions["DEBIAN_IMAGE"], source)
+		if cleanupErr != nil {
+			return fmt.Errorf("build tested policy bundle: %w: %s; clean staged source: %v: %s", err, boundedDiagnostic(output), cleanupErr, boundedDiagnostic(cleanupOutput))
+		}
 		return fmt.Errorf("build tested policy bundle: %w: %s", err, boundedDiagnostic(output))
 	}
 	output, err = r.runner.Output(ctx, []string{
@@ -152,7 +174,7 @@ func (r *Runtime) publishPolicyBundle(ctx context.Context, state tobari.State) e
 		"--cap-drop", "ALL", "--security-opt", "no-new-privileges:true",
 		"--mount", "type=volume,src=" + policyBundleVolume + ",dst=/bundle",
 		"--entrypoint", "sh", versions["DEBIAN_IMAGE"], "-eu", "-c",
-		`mv -f -- "$1" "$2"`, "tobari-policy-publish", candidate, "/bundle/bundle.tar.gz",
+		`rm -rf -- "$3" && mv -f -- "$1" "$2"`, "tobari-policy-publish", candidate, "/bundle/bundle.tar.gz", source,
 	}, os.Environ())
 	if err != nil {
 		return fmt.Errorf("atomically publish tested policy bundle: %w: %s", err, boundedDiagnostic(output))
@@ -160,29 +182,154 @@ func (r *Runtime) publishPolicyBundle(ctx context.Context, state tobari.State) e
 	return nil
 }
 
+func (r *Runtime) policySourceArchive(directory string) (*os.File, func(), error) {
+	sourceRoot, err := os.OpenRoot(directory)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer sourceRoot.Close()
+
+	archive, err := os.CreateTemp("", "tobari-policy-source-*.tar")
+	if err != nil {
+		return nil, nil, err
+	}
+	cleanup := func() {
+		_ = archive.Close()
+		_ = os.Remove(archive.Name())
+	}
+	if err := archive.Chmod(0o600); err != nil {
+		cleanup()
+		return nil, nil, err
+	}
+	writer := tar.NewWriter(archive)
+	err = filepath.WalkDir(directory, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if path == directory {
+			return nil
+		}
+		relative, err := filepath.Rel(directory, path)
+		if err != nil || relative == "." || relative == ".." || filepath.IsAbs(relative) {
+			return fmt.Errorf("invalid aggregate policy archive path %q", relative)
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		if entry.Type()&os.ModeSymlink != 0 || (!info.IsDir() && !info.Mode().IsRegular()) {
+			return fmt.Errorf("aggregate policy archive path %q must be a regular file or directory", relative)
+		}
+		if info.Mode().Perm()&0o077 != 0 {
+			return fmt.Errorf("aggregate policy archive path %q must remain owner-only", relative)
+		}
+		header, err := tar.FileInfoHeader(info, "")
+		if err != nil {
+			return err
+		}
+		header.Name = filepath.ToSlash(relative)
+		header.Uid = 0
+		header.Gid = 0
+		if err := writer.WriteHeader(header); err != nil {
+			return err
+		}
+		if info.IsDir() {
+			return nil
+		}
+		file, err := sourceRoot.Open(relative)
+		if err != nil {
+			return err
+		}
+		openedInfo, err := file.Stat()
+		if err != nil {
+			_ = file.Close()
+			return err
+		}
+		if !openedInfo.Mode().IsRegular() || openedInfo.Mode().Perm()&0o077 != 0 || !os.SameFile(info, openedInfo) {
+			_ = file.Close()
+			return fmt.Errorf("aggregate policy archive path %q changed while being archived", relative)
+		}
+		_, copyErr := io.Copy(writer, file)
+		closeErr := file.Close()
+		if copyErr != nil {
+			return copyErr
+		}
+		return closeErr
+	})
+	if err == nil {
+		err = writer.Close()
+	} else {
+		_ = writer.Close()
+	}
+	if err == nil {
+		err = archive.Sync()
+	}
+	if err == nil {
+		_, err = archive.Seek(0, io.SeekStart)
+	}
+	if err != nil {
+		cleanup()
+		return nil, nil, err
+	}
+	return archive, cleanup, nil
+}
+
+func (r *Runtime) removeStagedPolicySource(ctx context.Context, image, source string) ([]byte, error) {
+	return r.runner.Output(ctx, []string{
+		"run", "--rm", "--user", "0:0", "--network", "none", "--read-only",
+		"--cap-drop", "ALL", "--security-opt", "no-new-privileges:true",
+		"--mount", "type=volume,src=" + policyBundleVolume + ",dst=/bundle",
+		"--entrypoint", "sh", image, "-eu", "-c", `rm -rf -- "$1"`,
+		"tobari-policy-stage-cleanup", source,
+	}, os.Environ())
+}
+
 func (r *Runtime) preparePolicyBundle(ctx context.Context, state tobari.State) error {
 	if err := r.ensurePolicyBundleVolume(ctx); err != nil {
 		return err
 	}
+	if ready, _ := r.policyRevisionReady(ctx, state.AggregateRevision); ready {
+		return nil
+	}
 	return r.publishPolicyBundle(ctx, state)
+}
+
+func (r *Runtime) policyRevisionReady(ctx context.Context, revision string) (bool, []byte) {
+	if revision == "" {
+		return false, []byte("policy revision is required")
+	}
+	expression := `revision := http.send({"method":"get","url":"http://127.0.0.1:8181/v1/data/tobari/aggregate_revision"}); revision.status_code == 200; revision.body.result == ` + strconv.Quote(revision) + `; decision := http.send({"method":"post","url":"http://127.0.0.1:8181/v1/data/tobari/http/decision","headers":{"content-type":"application/json"},"body":{"input":{}}}); decision.status_code == 200; object.get(decision.body, "result", null) != null`
+	output, err := r.runner.Output(ctx, []string{
+		"exec", opaContainer, "/opa", "eval", "--fail", "--format", "raw", expression,
+	}, os.Environ())
+	if err != nil {
+		return false, output
+	}
+	results := bytes.Fields(output)
+	if len(results) == 0 {
+		return false, output
+	}
+	for _, result := range results {
+		if !bytes.Equal(result, []byte("true")) {
+			return false, output
+		}
+	}
+	return true, output
 }
 
 func (r *Runtime) waitForPolicyRevision(ctx context.Context, revision string) error {
 	if revision == "" {
 		return fmt.Errorf("policy revision is required")
 	}
-	expression := `response := http.send({"method":"get","url":"http://127.0.0.1:8181/v1/data/tobari/aggregate_revision"}); response.status_code == 200; response.body.result == ` + strconv.Quote(revision)
 	deadline := time.NewTimer(10 * time.Second)
 	defer deadline.Stop()
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 	var last []byte
 	for {
-		output, err := r.runner.Output(ctx, []string{
-			"exec", opaContainer, "/opa", "eval", "--fail", "--format", "raw", expression,
-		}, os.Environ())
+		ready, output := r.policyRevisionReady(ctx, revision)
 		last = output
-		if err == nil {
+		if ready {
 			return nil
 		}
 		select {

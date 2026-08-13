@@ -187,7 +187,7 @@ The public commands are:
 | `help [selector] [--format text|agent]` | utility | read | Discover exact command contracts |
 | `version [--format text|json]` | utility | read | Print source version/commit, resolver channel, required and selected Gateway/Auth Broker APIs, and compatibility |
 | `doctor [--root PATH] [--format text|tsv|json]` | utility | read | Report read-only host, Docker, configuration, policy, provider-manifest, root-key/vault, broker/project-handle, port, and residue diagnostics without repairing state |
-| `cluster up` | act, fixed target | create | Validate all Context policy/provider inputs and image contracts, reconcile Gateway, OPA, and Auth Broker, and unlock the broker |
+| `cluster up` | act, fixed target | create | Validate all Context policy/provider inputs and image contracts, reconcile Gateway, OPA, and Auth Broker, confirm the exact aggregate policy is active, and unlock the broker |
 | `tobari [--context NAME]` | act, fixed target | create | Choose or create the current directory's Workspace in the explicit or current Context, reconcile runtime, enter it, and leave it reusable after `exit` |
 | `status [--context NAME] [--format text|json]` | utility | read | Inspect the nearest current-directory Workspace in the explicit or current Context, its logical existence, runtime diagnostic, and attached/detached session observation |
 | `list [--format text|json]` | utility | read | List local Workspaces with Context, runtime diagnostics, and diagnostic IDs |

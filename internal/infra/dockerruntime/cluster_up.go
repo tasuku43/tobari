@@ -216,6 +216,10 @@ func (r *Runtime) clusterUpWithProgressMode(
 			recordAttemptError("Cluster components did not become healthy; inspect component status.")
 			return err
 		}
+		if err := r.waitForPolicyRevision(ctx, state.AggregateRevision); err != nil {
+			recordAttemptError("OPA did not activate the expected aggregate policy; inspect OPA logs.")
+			return err
+		}
 		return nil
 	}); err != nil {
 		return tobari.State{}, err

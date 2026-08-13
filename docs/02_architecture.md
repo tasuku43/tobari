@@ -159,7 +159,10 @@ Context count, not an active enforcement Context. `cluster up` builds the
 projection from all authoritative Context policy and static-provider sources,
 validates each source and the whole candidate, publishes only a complete
 owner-only directory, and starts exactly one Gateway, one OPA, and one locked
-Auth Broker. Cluster reconciliation unlocks the broker through the host
+Auth Broker. Reconciliation is not ready on process health alone: OPA must
+serve both the exact content-addressed aggregate revision and its decision
+document. An already-ready identical revision is not republished. Cluster
+reconciliation unlocks the broker through the host
 root-key provider after its control endpoint is healthy and verifies the exact
 Broker container. Policy
 mutations serialize this same all-Context activation and preserve the previous
@@ -489,7 +492,9 @@ Explicit `cluster up` validates configuration, obtains and preflights the
 Gateway image, Auth Broker image, and every required runtime image, builds and
 tests the complete all-Context policy/provider projection, reconciles exactly
 one OPA, one Gateway, and one Auth Broker, unlocks the broker, and
-reconnects Gateway to every existing registered project network.
+reconnects Gateway to every existing registered project network. It completes
+only after OPA serves the exact aggregate revision and a defined decision
+document.
 Image preflight fails before the policy test, cluster journal, shared network,
 or service-container mutation. Local Tobari-managed image development uses
 `task build` and the source-hash development resolver instead of a public
@@ -532,7 +537,9 @@ actions provide the deterministic portable activation path: each locks the
 projection, tests the target Context's private source copy and the complete
 all-Context candidate, verifies the exact OPA and bundle-volume ownership
 labels, builds a revision-named archive through pinned OPA, atomically renames
-it through a fixed networkless pinned publisher,
+it through a fixed networkless pinned publisher, and transfers the tested
+owner-only host projection through a bounded owner-only archive and container
+stdin into the bundle volume rather than giving container root a host bind,
 waits for the running OPA to report the exact expected revision, and rolls back
 on failure. Reducing or mixed authority first activates a deny-all transition
 revision.
