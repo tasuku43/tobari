@@ -502,6 +502,14 @@ Registry closure, exact membership, and the absence of Broker-state authority
 from adapters are executable test claims. AWS companion/signing and trusted-host
 acquisition stay outside this adapter contract because they cross different
 trust and request-interpretation boundaries.
+Persisted record validation is a separate immutable compiled union. Its
+contracts can validate and construct only bounded record data; they cannot
+open, decrypt, encrypt, replace, or locate a Vault. `VaultStore` authenticates
+the Context-bound envelope before record validation on load and validates the
+complete record union before encryption on save. Unknown kinds, provider-kind
+mismatches, and binding-shape mismatches fail closed. Static records remain
+provider-generic only because owner-defined schema-v1 static providers are an
+intentional non-executable extension boundary.
 Managed profiles, arbitrary OAuth orchestration, provider SDK inference,
 multiple provider accounts, and remote revocation remain unsupported. A missing, malformed,
 ambiguous, or stale principal registry entry denies before broker resolution,

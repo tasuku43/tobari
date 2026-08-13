@@ -11,15 +11,15 @@ from typing import Any
 
 from .aws_sigv4 import SigV4Error, SigV4Request
 from .companion_protocol import CompanionError
-from .datadog_oauth import DatadogOAuthError
-from .openai_codex_oauth import OpenAICodexOAuthError
-from .protocol import ProtocolError
-from .vault import (
+from .credential_records import (
     DATADOG_OAUTH_CREDENTIAL_KIND,
     OPENAI_CODEX_OAUTH_CREDENTIAL_KIND,
     VaultError,
     validate_provider_id,
 )
+from .datadog_oauth import DatadogOAuthError
+from .openai_codex_oauth import OpenAICodexOAuthError
+from .protocol import ProtocolError
 
 PROJECT_ID_PATTERN = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"

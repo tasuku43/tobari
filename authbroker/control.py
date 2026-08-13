@@ -8,14 +8,14 @@ import sys
 from typing import Any
 
 from . import SCHEMA_VERSION
-from .daemon import DEFAULT_CONTROL_SOCKET
-from .protocol import MAX_SECRET_BYTES, ProtocolError, call_unix_socket
-from .vault import (
+from .credential_records import (
     AWS_DRIVER_IDS,
     CLAUDE_ACCOUNT_LABEL,
     OPENAI_CODEX_DRIVER_ID,
     PUP_DRIVER_ID,
 )
+from .daemon import DEFAULT_CONTROL_SOCKET
+from .protocol import MAX_SECRET_BYTES, ProtocolError, call_unix_socket
 
 
 def _read_stdin(limit: int, exact: int | None = None) -> bytes:

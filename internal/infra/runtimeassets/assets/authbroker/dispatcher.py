@@ -6,8 +6,8 @@ from typing import TYPE_CHECKING, Any
 
 from . import SCHEMA_VERSION
 from .broker_contract import BrokerError, _translate_error
+from .credential_records import CLAUDE_ACCOUNT_LABEL
 from .protocol import MAX_SECRET_BYTES, ProtocolError, require_exact_keys
-from .vault import CLAUDE_ACCOUNT_LABEL
 
 if TYPE_CHECKING:
     from .broker import BrokerState

@@ -573,8 +573,10 @@ The test suite has complementary levels:
   rehydration, same-revision static replacement, bounded AWS signing,
   Datadog/OpenAI refresh through the exact immutable renewable-adapter union,
   shared single-flight/snapshot/CAS lifecycle, durable operation barriers,
-  adapter incapability over Vault/handles/locks, and rejection of every unknown
-  record/operation. Provider network tests use local synthetic servers.
+  adapter incapability over Vault/handles/locks, the exact immutable persisted
+  record-contract union, record-contract incapability over filesystem/ciphers,
+  compatibility re-exports, and rejection of every unknown record/operation.
+  Provider network tests use local synthetic servers.
 - Acquisition UX tests split trusted-host and Broker boundaries for
   GitHub/AWS/pup/Codex/Claude: canonical executable/digest selection, fixed
   argv, sanitized environment, bounded streams/state, checked cleanup, and
@@ -768,7 +770,7 @@ Every strong statement should identify its enforcement path.
 | Agent OAuth acquisition and pinned projections | Multi-version host Codex tests require one exact compiled driver-contract revision, fixed argv/environment, canonical executable digest, and strict captured state while treating stable product version as audit metadata; exact-key/byte tests independently fix the Codex 0.146.0 Workspace `.codex/auth.json` sentinel shim with only `${HANDLE}` as `tokens.access_token`, direct synthetic Gateway bearer/account-header checks, Claude `CLAUDE_CODE_OAUTH_TOKEN=${HANDLE}`-only environment checks, API-key/auth-token absence, modified/symlinked-file refusal, and Workspace-client drift rejection; an isolated network-disabled client observation records login-status and verbatim-handle behavior but remains a required manual release replay rather than an automated artifact claim |
 | Broker fallback requires marker absence | URL/path/query/fragment/header-name/value marker canaries, malformed/ambiguous/binding-mismatch rejection, and passthrough tests with no marker anywhere inspected |
 | Post-policy credential action | Gateway call-order/count tests for handle removal, introspect-before-OPA, zero resolve/refresh/companion/signing on deny, one same-revision reviewed action after allow, exact header replacement/signing, and no-secret canaries |
-| Closed broker plan boundary | Exact static and dynamic record schemas, immutable renewable-adapter membership and adapter-incapability tests, shared Broker-owned snapshot/single-flight/barrier/CAS conformance, Context/project/provider/revision/HTTPS-header or signing introspection, bounded AWS/Datadog/OpenAI behavior, rotation/revocation, durable barriers, and no invalid-handle fallback |
+| Closed broker plan boundary | Exact static and dynamic record schemas, immutable renewable-adapter and persisted-record-contract membership, adapter-incapability tests, record/Vault import-compatibility tests, shared Broker-owned snapshot/single-flight/barrier/CAS conformance, Context/project/provider/revision/HTTPS-header or signing introspection, bounded AWS/Datadog/OpenAI behavior, rotation/revocation, durable barriers, and no invalid-handle fallback |
 | Unsupported broker capabilities stay absent | Catalog, state-parser, dependency, image-content, and hostile-header tests reject managed profiles, owner-selected dynamic plans, arbitrary helpers, compatibility readers, and provider CLIs inside Broker |
 | Protected provider acquisition | Catalog selector/method/stdin contracts, terminal rules, bounded readers, canonical GitHub/AWS/pup/Codex/Claude identity/digest checks, fixed argv/environment, control-safe output, bounded browser/PTY behavior, checked cleanup, cancellation/failure preservation, synthetic integration, and manual live validation |
 | Typed denial recovery | Strict host/port audit projection, query/header absence, whole-path handle-marker redaction, non-learnable structural rejection, fixed host-review navigation schema, host-stderr session summary, empty bounded scope, hostile-field canaries, and end-to-end JSON assertions |

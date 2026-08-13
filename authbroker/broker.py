@@ -29,6 +29,23 @@ from .companion_protocol import (
     decode_refresh_secret,
     derive_epoch_key,
 )
+from .credential_records import (
+    AWS_SSO_CREDENTIAL_KIND,
+    CLAUDE_ACCOUNT_LABEL,
+    DATADOG_OAUTH_CREDENTIAL_KIND,
+    OPENAI_CODEX_OAUTH_CREDENTIAL_KIND,
+    STATIC_CREDENTIAL_KIND,
+    VaultError,
+    decode_secret,
+    empty_payload,
+    encode_secret,
+    new_aws_sso_record,
+    new_datadog_oauth_record,
+    new_openai_codex_oauth_record,
+    new_record,
+    validate_context_id,
+    validate_provider_id,
+)
 from .broker_contract import (
     DEFAULT_RECORD_LOCK_TIMEOUT_SECONDS,
     DESTINATION_FORMATS,
@@ -72,24 +89,7 @@ from .renewable import (
     ResolvedRenewableSecret,
     reviewed_renewable_session_adapters,
 )
-from .vault import (
-    AWS_SSO_CREDENTIAL_KIND,
-    CLAUDE_ACCOUNT_LABEL,
-    DATADOG_OAUTH_CREDENTIAL_KIND,
-    OPENAI_CODEX_OAUTH_CREDENTIAL_KIND,
-    STATIC_CREDENTIAL_KIND,
-    VaultError,
-    VaultStore,
-    decode_secret,
-    empty_payload,
-    encode_secret,
-    new_aws_sso_record,
-    new_datadog_oauth_record,
-    new_openai_codex_oauth_record,
-    new_record,
-    validate_context_id,
-    validate_provider_id,
-)
+from .vault import VaultStore
 
 
 class BrokerState:

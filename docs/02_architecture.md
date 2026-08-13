@@ -359,6 +359,17 @@ interface. Host acquisition likewise remains a distinct trusted-host boundary
 and shares only the existing strict credential-state envelope with Broker
 runtime resolution.
 
+The persisted credential-record union is also separated from Vault storage
+authority. Closed record contracts own credential-kind membership, exact V1
+record and binding shapes, bounded secret/state encoding, and record
+construction. `VaultStore` alone owns root-key use, AES-GCM envelopes,
+Context-associated data, owner/mode validation, bounded file reads, and atomic
+replacement. Record contracts receive no key, path, file descriptor, cipher,
+or persistence callback. Static records deliberately accept any validated
+provider ID because strict owner manifests remain the supported declarative
+extension boundary; AWS, Datadog, and OpenAI records bind one exact reviewed
+provider and binding shape.
+
 GitHub recognizes only the fixed device URL and requests no Git protocol. No URL,
 executable, argument, environment key, or driver supplied by a provider
 manifest, repository, Workspace, request, or project `PATH` can alter that

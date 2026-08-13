@@ -7,14 +7,14 @@ from types import MappingProxyType
 from typing import Callable, Mapping, Protocol
 
 from .broker_contract import BrokerError
+from .credential_records import (
+    DATADOG_OAUTH_CREDENTIAL_KIND,
+    OPENAI_CODEX_OAUTH_CREDENTIAL_KIND,
+)
 from .datadog_oauth import PupOAuthState, refresh as refresh_datadog_oauth
 from .openai_codex_oauth import (
     CodexOAuthState,
     refresh as refresh_openai_codex_oauth,
-)
-from .vault import (
-    DATADOG_OAUTH_CREDENTIAL_KIND,
-    OPENAI_CODEX_OAUTH_CREDENTIAL_KIND,
 )
 
 
