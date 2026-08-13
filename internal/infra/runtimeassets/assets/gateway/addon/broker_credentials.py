@@ -24,6 +24,14 @@ from credential_adapters import (
     CONTROL_HEADERS, DEFAULT_SECRET_HEADERS, PROFILE_HEADER, CredentialAdapter,
     CredentialAdapterError, PreparedCredentialRequest,
 )
+from reviewed_credential_profiles import (
+    PRIMARY_SECRET_FIELD,
+    RENEWABLE_PROVIDER_IDS,
+    REVIEWED_DYNAMIC_CREDENTIAL_KINDS,
+    REVIEWED_HEADER_SECRET_FIELDS,
+    response_profile,
+    reviewed_projection_profile,
+)
 from validated_file import StatIdentityCache, ValidatedFileError
 
 
@@ -37,7 +45,6 @@ HANDLE_PATTERN = re.compile(r"^tobari-h1_[A-Za-z0-9_-]{43}$")
 HANDLE_MARKER = "tobari-h"
 PROVIDER_ID_PATTERN = re.compile(r"^[a-z0-9]+(?:[._-][a-z0-9]+)*$")
 REVISION_PATTERN = re.compile(r"^revision_[!-~]{1,119}$")
-OPENAI_ACCOUNT_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 HOST_PATTERN = re.compile(
     r"^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)"
     r"(?:\.(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?))*$"
@@ -164,11 +171,8 @@ def _validate_destination(value: Any) -> dict[str, Any]:
     output_format = destination.get("format")
     if (
         output_format not in DESTINATION_FORMATS
-        or destination.get("secret_field") not in {
-            "primary_secret",
-            "datadog_oauth_session",
-            "openai_codex_oauth_session",
-        }
+        or destination.get("secret_field")
+        not in {PRIMARY_SECRET_FIELD} | set(REVIEWED_HEADER_SECRET_FIELDS)
     ):
         raise BrokerCredentialUnavailable("provider projection is invalid")
     return {
@@ -319,12 +323,9 @@ def _validate_provider(
         raise BrokerCredentialUnavailable("provider projection is invalid")
     credential = _exact_keys(provider.get("credential"), {"kind"}, "provider credential")
     credential_kind = credential.get("kind")
-    valid_credential = credential_kind in {
-        "primary_secret",
-        "aws_sso_session",
-        "datadog_oauth_session",
-        "openai_codex_oauth_session",
-    }
+    valid_credential = credential_kind in (
+        {PRIMARY_SECRET_FIELD} | set(REVIEWED_DYNAMIC_CREDENTIAL_KINDS)
+    )
     if not valid_credential:
         raise BrokerCredentialUnavailable("provider projection is invalid")
 
@@ -421,123 +422,36 @@ def _validate_provider(
             )
     if checked_raw != raw_bindings or checked_raw != sorted(checked_raw, key=_raw_binding_sort_key):
         raise BrokerCredentialUnavailable("provider projection is invalid")
-    if credential_kind == "primary_secret" and any(
-        binding["destination"]["secret_field"] != "primary_secret"
+    if credential_kind == PRIMARY_SECRET_FIELD and any(
+        binding["destination"]["secret_field"] != PRIMARY_SECRET_FIELD
         for binding in normalized
     ):
         raise BrokerCredentialUnavailable("provider projection is invalid")
-    if provider_id == "anthropic" or acquisition.get("helper") == "claude-setup-token":
-        if (
-            provider_id != "anthropic"
-            or display_name != "Anthropic account for Claude Code"
-            or mode != "builtin_helper"
-            or acquisition.get("helper") != "claude-setup-token"
-            or credential_kind != "primary_secret"
-            or environment
-            != [
-                {
-                    "provider_id": "anthropic",
-                    "name": "CLAUDE_CODE_OAUTH_TOKEN",
-                    "template": "${HANDLE}",
-                }
-            ]
-            or complete_files
-            or normalized
-            != [
-                {
-                    "provider_id": "anthropic",
-                    "target": {
-                        "scheme": "https",
-                        "host": "api.anthropic.com",
-                        "port": 443,
-                    },
-                    "source": {
-                        "header": "authorization",
-                        "format": "bearer",
-                    },
-                    "destination": {
-                        "header": "authorization",
-                        "format": "bearer",
-                        "secret_field": "primary_secret",
-                    },
-                    "secret_headers": ["authorization"],
-                }
-            ]
-        ):
-            raise BrokerCredentialUnavailable("provider projection is invalid")
     raw_signing = provider.get("signing_bindings", [])
     if not isinstance(raw_signing, list) or len(raw_signing) > 8:
         raise BrokerCredentialUnavailable("provider projection is invalid")
     signing_bindings = [
         _validate_aws_signing_binding(item, provider_id) for item in raw_signing
     ]
-    expected_acquisition_helper = (
-        mode == "builtin_helper" and acquisition.get("helper") == "aws-sso"
+    profile = reviewed_projection_profile(
+        provider_id, credential_kind, acquisition.get("helper")
     )
-    if credential_kind == "aws_sso_session":
+    if profile is not None:
         if (
-            provider_id != "aws"
-            or not expected_acquisition_helper
-            or len(signing_bindings) != 1
-            or normalized
+            profile.provider_id != provider_id
+            or profile.credential_kind != credential_kind
+            or not profile.matches_projection(
+                display_name=display_name,
+                mode=mode,
+                helper=acquisition.get("helper"),
+                normalized=normalized,
+                signing_bindings=signing_bindings,
+                environment=environment,
+                complete_files=complete_files,
+            )
         ):
             raise BrokerCredentialUnavailable("provider projection is invalid")
-    elif credential_kind == "datadog_oauth_session":
-            if (
-                provider_id != "datadog"
-                or mode != "builtin_helper"
-                or acquisition.get("helper") != "pup-oauth"
-                or signing_bindings
-                or normalized != [{
-                    "provider_id": "datadog",
-                    "target": {"scheme": "https", "host": "api.datadoghq.com", "port": 443},
-                    "source": {"header": "authorization", "format": "bearer"},
-                    "destination": {"header": "authorization", "format": "bearer", "secret_field": "datadog_oauth_session"},
-                    "secret_headers": ["authorization"],
-                }]
-                or environment != [
-                    {"provider_id": "datadog", "name": "DD_ACCESS_TOKEN", "template": "${HANDLE}"},
-                    {"provider_id": "datadog", "name": "DD_SITE", "template": "datadoghq.com"},
-                ]
-                or complete_files
-            ):
-                raise BrokerCredentialUnavailable("provider projection is invalid")
-    elif credential_kind == "openai_codex_oauth_session":
-            if (
-                provider_id != "openai"
-                or display_name != "OpenAI account for Codex"
-                or mode != "builtin_helper"
-                or acquisition.get("helper") != "codex-chatgpt-oauth"
-                or signing_bindings
-                or normalized != [{
-                    "provider_id": "openai",
-                    "target": {"scheme": "https", "host": "chatgpt.com", "port": 443},
-                    "source": {"header": "authorization", "format": "bearer"},
-                    "destination": {
-                        "header": "authorization",
-                        "format": "bearer",
-                        "secret_field": "openai_codex_oauth_session",
-                    },
-                    "secret_headers": [
-                        "authorization",
-                        "chatgpt-account-id",
-                        "x-openai-fedramp",
-                    ],
-                }]
-                or environment
-                or complete_files != [{
-                    "provider_id": "openai",
-                    "path": ".codex/auth.json",
-                    "template": (
-                        '{"auth_mode":"chatgptAuthTokens","OPENAI_API_KEY":null,'
-                        '"tokens":{"id_token":"e30.e30.x","access_token":"${HANDLE}",'
-                        '"refresh_token":"","account_id":null},'
-                        '"last_refresh":"1970-01-01T00:00:00Z"}'
-                    ),
-                }]
-            ):
-                raise BrokerCredentialUnavailable("provider projection is invalid")
-    elif signing_bindings:
+    elif credential_kind != PRIMARY_SECRET_FIELD or signing_bindings:
         raise BrokerCredentialUnavailable("provider projection is invalid")
     if not normalized and not signing_bindings:
         raise BrokerCredentialUnavailable("provider projection is invalid")
@@ -751,7 +665,7 @@ def call_broker(path: str, request: dict[str, Any], timeout: float) -> dict[str,
 
     refresh_capable_request = request.get("op") == "sign_sigv4" or (
         request.get("op") == "resolve"
-        and request.get("provider") in {"datadog", "openai"}
+        and request.get("provider") in RENEWABLE_PROVIDER_IDS
     )
     send_started = False
     connection = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
@@ -1067,10 +981,11 @@ def _validate_broker_metadata(
     *,
     include_secret: bool,
 ) -> tuple[str, bytes | None, dict[str, str]]:
-    openai_codex = (
-        binding["provider_id"] == "openai"
-        and binding["destination"]["secret_field"]
-        == "openai_codex_oauth_session"
+    profile = response_profile(
+        binding["provider_id"], binding["destination"]["secret_field"]
+    )
+    supplemental_names = (
+        profile.supplemental_header_names if profile is not None else frozenset()
     )
     expected = {
         "schema_version",
@@ -1084,7 +999,7 @@ def _validate_broker_metadata(
     }
     if include_secret:
         expected.add("secret")
-        if openai_codex:
+        if supplemental_names:
             expected.add("supplemental_headers")
     if set(response) != expected:
         raise BrokerCredentialUnavailable("credential broker returned invalid data")
@@ -1129,19 +1044,12 @@ def _validate_broker_metadata(
     ):
         raise BrokerCredentialUnavailable("credential broker returned invalid data")
     supplemental_headers: dict[str, str] = {}
-    if openai_codex:
-        supplemental = _exact_keys(
-            response.get("supplemental_headers"),
-            {"chatgpt-account-id"},
-            "credential broker supplemental headers",
+    if supplemental_names:
+        supplemental_headers = profile.validate_supplemental_headers(  # type: ignore[union-attr]
+            response.get("supplemental_headers")
         )
-        account_id = supplemental.get("chatgpt-account-id")
-        if (
-            not isinstance(account_id, str)
-            or OPENAI_ACCOUNT_ID_PATTERN.fullmatch(account_id) is None
-        ):
+        if supplemental_headers is None:
             raise BrokerCredentialUnavailable("credential broker returned invalid data")
-        supplemental_headers = {"chatgpt-account-id": account_id}
     return revision, secret, supplemental_headers
 
 

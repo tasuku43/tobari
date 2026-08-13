@@ -517,6 +517,13 @@ Broker/Vault authority and cannot run a helper, read an executable path, or
 perform provider I/O. The Broker independently validates the exact control
 request and raw length, validates renewable state where applicable, and alone
 serializes the resulting record mutation and handle revocation.
+Gateway reviewed credential profiles are a separate immutable compiled union
+over non-secret projection and response metadata. They cannot observe or mutate
+an HTTP request, call OPA or the Broker, handle a secret, or select runtime
+code. Owner manifests cannot select these profiles: only an exact compiled
+provider/credential/helper combination can satisfy one. Gateway core retains
+all pre-policy stripping, fail-closed recognition, post-allow call ordering,
+revision matching, and final credential application.
 Managed profiles, arbitrary OAuth orchestration, provider SDK inference,
 multiple provider accounts, and remote revocation remain unsupported. A missing, malformed,
 ambiguous, or stale principal registry entry denies before broker resolution,

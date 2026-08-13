@@ -13,7 +13,17 @@ from mitmproxy import http
 from mitmproxy.test import tflow
 
 import broker_credentials as broker
+import reviewed_credential_profiles as reviewed_profiles
 import tobari_gateway as gateway
+from reviewed_credential_profiles import (
+    AWS_SSO_CREDENTIAL_KIND,
+    DATADOG_OAUTH_CREDENTIAL_KIND,
+    OPENAI_CODEX_OAUTH_CREDENTIAL_KIND,
+    AWSSigV4Profile,
+    DatadogOAuthProfile,
+    OpenAICodexOAuthProfile,
+    reviewed_gateway_credential_profiles,
+)
 from tobari_gateway_test_support import ReviewedDynamicCredentialGatewayTestCase
 
 broker_module = broker
@@ -30,6 +40,51 @@ CONTEXT = "01912345-6789-7abc-8def-0123456789ad"
 PROJECT = "01912345-6789-7abc-8def-0123456789ab"
 HANDLE = "tobari-h1_" + "A" * 43
 REVISION = "revision_static"
+
+
+class ReviewedGatewayCredentialProfileTests(unittest.TestCase):
+    def test_registry_is_the_exact_immutable_dynamic_union(self):
+        registry = reviewed_gateway_credential_profiles()
+        self.assertEqual(
+            {kind: type(profile) for kind, profile in registry.items()},
+            {
+                AWS_SSO_CREDENTIAL_KIND: AWSSigV4Profile,
+                DATADOG_OAUTH_CREDENTIAL_KIND: DatadogOAuthProfile,
+                OPENAI_CODEX_OAUTH_CREDENTIAL_KIND: OpenAICodexOAuthProfile,
+            },
+        )
+        self.assertEqual(
+            {profile.provider_id for profile in registry.values()},
+            {"aws", "datadog", "openai"},
+        )
+        with self.assertRaises(TypeError):
+            registry["owner_selected_profile"] = registry[  # type: ignore[index]
+                AWS_SSO_CREDENTIAL_KIND
+            ]
+
+    def test_profiles_expose_no_request_policy_broker_or_secret_authority(self):
+        for name in (
+            "BrokeredCredentialAdapter",
+            "TobariGateway",
+            "http",
+            "socket",
+            "subprocess",
+            "os",
+        ):
+            self.assertFalse(hasattr(reviewed_profiles, name), name)
+        forbidden = {
+            "request",
+            "policy",
+            "broker",
+            "caller",
+            "socket",
+            "secret",
+            "executor",
+        }
+        for profile in reviewed_gateway_credential_profiles().values():
+            with self.subTest(provider=profile.provider_id):
+                names = {name.lstrip("_").lower() for name in vars(profile)}
+                self.assertFalse(names & forbidden)
 
 
 def projection():

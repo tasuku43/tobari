@@ -381,6 +381,17 @@ construction, Vault save, and prior-handle revocation. A plan receives neither
 trusted-host acquisition drivers remain on the other side of the control
 socket and are not implementations of this protocol plan.
 
+Gateway keeps its own closed, non-secret credential-profile registry for the
+exact Anthropic, AWS, Datadog, and OpenAI projection constraints. Profiles see
+only already parsed projection values and may validate fixed normalized
+bindings, Workspace projections, helper identity, renewable classification,
+and typed supplemental response metadata. They receive no HTTP request,
+credential value, Broker caller, OPA client, socket, or mutation callback.
+Generic schema validation continues to accept strict owner-authored static
+providers. Gateway core continues to own candidate recognition, removal of all
+secret-sensitive headers before introspection and policy, deny-before-resolution,
+one same-revision post-allow action, and exact final header/signature application.
+
 GitHub recognizes only the fixed device URL and requests no Git protocol. No URL,
 executable, argument, environment key, or driver supplied by a provider
 manifest, repository, Workspace, request, or project `PATH` can alter that

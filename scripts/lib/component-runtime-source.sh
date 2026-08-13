@@ -35,6 +35,7 @@ THIRD_PARTY_NOTICES.md
 addon/broker_credentials.py
 addon/credential_adapters.py
 addon/graphql_request.py
+addon/reviewed_credential_profiles.py
 addon/synthetic_dns.py
 addon/tobari_gateway.py
 addon/validated_file.py
