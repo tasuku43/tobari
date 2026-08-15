@@ -30,5 +30,5 @@
 - [x] Runtime checks pass after the local-base redesign.
 - [x] Existing GHCR packages are deleted and anonymous reads confirm absence.
 - [x] Exact `v0.1.0-dev.1` dry-run and publish commands are recorded.
-- [ ] Advance the public documentation source snapshot after the implementation commit and regenerate its evidence.
+- [x] Advance the public documentation source snapshot after the implementation commit and regenerate its evidence.
 - [ ] Temporary packet is removed after durable promotion and completion.

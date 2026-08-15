@@ -42,7 +42,7 @@
 ## Unknowns
 
 - [ ] Confirm the protected `release-publication` environment is configured before the publish run.
-- [ ] Advance `docs/architecture-site/source-snapshot.txt` to the reviewed implementation commit, regenerate the site evidence, and commit that promotion before publication.
+- [x] Public documentation source snapshot advanced to implementation commit `475e201703579d4c639c37f8051cbf6d80b22a52`; generated evidence awaits the publication revision commit.
 
 ## Thesis evidence
 

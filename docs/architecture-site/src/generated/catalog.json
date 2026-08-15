@@ -1,5 +1,5 @@
 {
-  "generated_from": "committed tobari agent help schema 1 at commit ab158bde6f0d6ba9e5b3c99aebd5e4ed07b510c6",
+  "generated_from": "committed tobari agent help schema 1 at commit 475e201703579d4c639c37f8051cbf6d80b22a52",
   "root": {
     "schema_version": 1,
     "view": "index",
@@ -100,7 +100,7 @@
         "namespace": "policy",
         "summary": "Review pending network permissions",
         "capability_id": "policy.learning",
-        "outcome": "Review the bounded pending exact network-permission queue, including optional GraphQL operation/root coordinates; an interactive terminal can stage one Context's exact decisions and apply the reviewed set once",
+        "outcome": "Review pending exact HTTP or GraphQL effects and typed HTTP single-segment path-template proposals; an interactive terminal can stage one Context's explicit decisions and apply the reviewed set once",
         "effect": "read",
         "role": "discover"
       },
@@ -287,27 +287,27 @@
       {
         "path": "auth login",
         "namespace": "auth",
-        "summary": "Authenticate one Context through a reviewed host CLI driver",
+        "summary": "Configure Broker-required Context authentication through a reviewed login driver",
         "capability_id": "authentication.broker",
-        "outcome": "Acquire one GitHub credential on the trusted host for an explicit or current Context without exposing it to a Workspace",
+        "outcome": "Acquire one supported provider credential on the trusted host so declared Workspace request bindings can use only project-bound Broker handles",
         "effect": "write",
         "role": "act"
       },
       {
         "path": "auth import",
         "namespace": "auth",
-        "summary": "Import one provider credential through protected stdin",
+        "summary": "Import one Broker-required provider credential through protected stdin",
         "capability_id": "authentication.broker",
-        "outcome": "Import one bounded opaque provider credential from stdin for an explicit or current Context without accepting it in argv or environment",
+        "outcome": "Import one bounded provider credential from stdin so its declared Workspace bindings accept only project-bound Broker handles",
         "effect": "write",
         "role": "act"
       },
       {
         "path": "auth status",
         "namespace": "auth",
-        "summary": "Inspect one Context's Auth Broker state",
+        "summary": "Inspect Broker-required provider and Workspace handle state",
         "capability_id": "authentication.broker",
-        "outcome": "Inspect the complete installed provider collection and Workspace activation state for an explicit or current Context without reading secret material",
+        "outcome": "Inspect the complete Broker-required provider collection and Workspace handle activation state for an explicit or current Context without reading secret material",
         "effect": "read",
         "role": "utility"
       },
@@ -654,6 +654,7 @@
                     "auth_vault_paths",
                     "auth_root_key",
                     "auth_broker",
+                    "credential_companion",
                     "auth_vault_integrity",
                     "auth_project_handles",
                     "owned_resources"
@@ -703,6 +704,7 @@
                     "auth_vault_paths",
                     "auth_root_key",
                     "auth_broker",
+                    "credential_companion",
                     "auth_vault_integrity",
                     "auth_project_handles",
                     "owned_resources"
@@ -1618,6 +1620,14 @@
                   "enum": []
                 },
                 {
+                  "name": "capability_profile",
+                  "type": "string",
+                  "description": "Immutable capability surface: standard or experimental.",
+                  "required": true,
+                  "nullable": false,
+                  "enum": []
+                },
+                {
                   "name": "gateway_required_api",
                   "type": "integer",
                   "description": "Gateway API required by canonical source.",
@@ -2101,6 +2111,14 @@
                   "enum": []
                 },
                 {
+                  "name": "credential_companion_state",
+                  "type": "string",
+                  "description": "Observed ready, prepared, absent, or unavailable trusted-host credential companion state.",
+                  "required": true,
+                  "nullable": false,
+                  "enum": []
+                },
+                {
                   "name": "root_key_backend",
                   "type": "string",
                   "description": "Selected host root-key backend or unavailable state.",
@@ -2267,6 +2285,17 @@
                   {
                     "command": "doctor",
                     "reason": "Inspect the Auth Broker image API, digest, entrypoint, user, and architecture contract."
+                  }
+                ]
+              },
+              {
+                "code": "credential_companion_unavailable",
+                "kind": "unavailable",
+                "retryable": true,
+                "next_actions": [
+                  {
+                    "command": "cluster up",
+                    "reason": "Reconcile the shared cluster and its Auth Broker companion session."
                   }
                 ]
               },
@@ -2645,6 +2674,19 @@
                   "enum": [
                     "ready",
                     "locked",
+                    "unavailable"
+                  ]
+                },
+                {
+                  "name": "credential_companion_state",
+                  "type": "string",
+                  "description": "Observed ready, prepared, absent, or unavailable trusted-host credential companion state.",
+                  "required": true,
+                  "nullable": false,
+                  "enum": [
+                    "ready",
+                    "prepared",
+                    "absent",
                     "unavailable"
                   ]
                 },
@@ -3509,6 +3551,14 @@
                   "enum": []
                 },
                 {
+                  "name": "credential_companion_state",
+                  "type": "string",
+                  "description": "Observed ready, prepared, absent, or unavailable trusted-host credential companion state.",
+                  "required": true,
+                  "nullable": false,
+                  "enum": []
+                },
+                {
                   "name": "root_key_backend",
                   "type": "string",
                   "description": "Selected host root-key backend or unavailable state.",
@@ -4363,7 +4413,7 @@
           "role": "discover",
           "contract": {
             "capability_id": "policy.learning",
-            "outcome": "Review the bounded pending exact network-permission queue, including optional GraphQL operation/root coordinates; an interactive terminal can stage one Context's exact decisions and apply the reviewed set once",
+            "outcome": "Review pending exact HTTP or GraphQL effects and typed HTTP single-segment path-template proposals; an interactive terminal can stage one Context's explicit decisions and apply the reviewed set once",
             "inputs": [
               {
                 "name": "--tail",
@@ -9114,6 +9164,26 @@
                       ]
                     },
                     {
+                      "name": "declared_bindings",
+                      "type": "string",
+                      "description": "Authentication route for installed declared provider bindings.",
+                      "required": true,
+                      "nullable": false,
+                      "enum": [
+                        "broker_required"
+                      ]
+                    },
+                    {
+                      "name": "undeclared_bindings",
+                      "type": "string",
+                      "description": "Authentication route for bindings absent from the provider projection.",
+                      "required": true,
+                      "nullable": false,
+                      "enum": [
+                        "workspace_owned_compatibility"
+                      ]
+                    },
+                    {
                       "name": "providers",
                       "type": "array",
                       "description": "Installed provider states, or null when this mutation did not observe authentication.",
@@ -9339,7 +9409,7 @@
                 "cardinality": "single",
                 "description": "Exact built-in or custom policy preset snapshotted into the new Context.",
                 "allowed_values": [],
-                "default_value": "builtin/reviewed-exact"
+                "default_value": "builtin/agent-ready"
               },
               {
                 "name": "--format",
@@ -9695,6 +9765,26 @@
                         "ready",
                         "locked",
                         "unavailable"
+                      ]
+                    },
+                    {
+                      "name": "declared_bindings",
+                      "type": "string",
+                      "description": "Authentication route for installed declared provider bindings.",
+                      "required": true,
+                      "nullable": false,
+                      "enum": [
+                        "broker_required"
+                      ]
+                    },
+                    {
+                      "name": "undeclared_bindings",
+                      "type": "string",
+                      "description": "Authentication route for bindings absent from the provider projection.",
+                      "required": true,
+                      "nullable": false,
+                      "enum": [
+                        "workspace_owned_compatibility"
                       ]
                     },
                     {
@@ -10306,6 +10396,26 @@
                         "ready",
                         "locked",
                         "unavailable"
+                      ]
+                    },
+                    {
+                      "name": "declared_bindings",
+                      "type": "string",
+                      "description": "Authentication route for installed declared provider bindings.",
+                      "required": true,
+                      "nullable": false,
+                      "enum": [
+                        "broker_required"
+                      ]
+                    },
+                    {
+                      "name": "undeclared_bindings",
+                      "type": "string",
+                      "description": "Authentication route for bindings absent from the provider projection.",
+                      "required": true,
+                      "nullable": false,
+                      "enum": [
+                        "workspace_owned_compatibility"
                       ]
                     },
                     {
@@ -11232,6 +11342,26 @@
                       ]
                     },
                     {
+                      "name": "declared_bindings",
+                      "type": "string",
+                      "description": "Authentication route for installed declared provider bindings.",
+                      "required": true,
+                      "nullable": false,
+                      "enum": [
+                        "broker_required"
+                      ]
+                    },
+                    {
+                      "name": "undeclared_bindings",
+                      "type": "string",
+                      "description": "Authentication route for bindings absent from the provider projection.",
+                      "required": true,
+                      "nullable": false,
+                      "enum": [
+                        "workspace_owned_compatibility"
+                      ]
+                    },
+                    {
                       "name": "providers",
                       "type": "array",
                       "description": "Installed provider states, or null when this mutation did not observe authentication.",
@@ -11924,6 +12054,26 @@
                         "ready",
                         "locked",
                         "unavailable"
+                      ]
+                    },
+                    {
+                      "name": "declared_bindings",
+                      "type": "string",
+                      "description": "Authentication route for installed declared provider bindings.",
+                      "required": true,
+                      "nullable": false,
+                      "enum": [
+                        "broker_required"
+                      ]
+                    },
+                    {
+                      "name": "undeclared_bindings",
+                      "type": "string",
+                      "description": "Authentication route for bindings absent from the provider projection.",
+                      "required": true,
+                      "nullable": false,
+                      "enum": [
+                        "workspace_owned_compatibility"
                       ]
                     },
                     {
@@ -12840,6 +12990,26 @@
                       ]
                     },
                     {
+                      "name": "declared_bindings",
+                      "type": "string",
+                      "description": "Authentication route for installed declared provider bindings.",
+                      "required": true,
+                      "nullable": false,
+                      "enum": [
+                        "broker_required"
+                      ]
+                    },
+                    {
+                      "name": "undeclared_bindings",
+                      "type": "string",
+                      "description": "Authentication route for bindings absent from the provider projection.",
+                      "required": true,
+                      "nullable": false,
+                      "enum": [
+                        "workspace_owned_compatibility"
+                      ]
+                    },
+                    {
                       "name": "providers",
                       "type": "array",
                       "description": "Installed provider states, or null when this mutation did not observe authentication.",
@@ -13428,6 +13598,26 @@
                         "ready",
                         "locked",
                         "unavailable"
+                      ]
+                    },
+                    {
+                      "name": "declared_bindings",
+                      "type": "string",
+                      "description": "Authentication route for installed declared provider bindings.",
+                      "required": true,
+                      "nullable": false,
+                      "enum": [
+                        "broker_required"
+                      ]
+                    },
+                    {
+                      "name": "undeclared_bindings",
+                      "type": "string",
+                      "description": "Authentication route for bindings absent from the provider projection.",
+                      "required": true,
+                      "nullable": false,
+                      "enum": [
+                        "workspace_owned_compatibility"
                       ]
                     },
                     {
@@ -16275,24 +16465,27 @@
       "commands": [
         {
           "path": "auth login",
-          "summary": "Authenticate one Context through a reviewed host CLI driver",
-          "usage": "tobari auth login --provider=github [--context \u003cname\u003e] [--format text|json]",
-          "args": "--provider=github [--context \u003cname\u003e] [--format text|json]",
+          "summary": "Configure Broker-required Context authentication through a reviewed login driver",
+          "usage": "tobari auth login [--provider github|datadog|openai|anthropic] [--context \u003cname\u003e] [--format text|json]",
+          "args": "[--provider github|datadog|openai|anthropic] [--context \u003cname\u003e] [--format text|json]",
           "effect": "write",
           "role": "act",
           "contract": {
             "capability_id": "authentication.broker",
-            "outcome": "Acquire one GitHub credential on the trusted host for an explicit or current Context without exposing it to a Workspace",
+            "outcome": "Acquire one supported provider credential on the trusted host so declared Workspace request bindings can use only project-bound Broker handles",
             "inputs": [
               {
                 "name": "--provider",
                 "source": "flag",
-                "required": true,
+                "required": false,
                 "value_kind": "text",
                 "cardinality": "single",
-                "description": "Required reviewed provider. First public V1 supports only GitHub through GitHub CLI (gh); omission is invalid and opens no selector.",
+                "description": "Credential provider to authenticate. Omission opens an interactive selector over installed reviewed login providers. GitHub uses gh, Datadog uses a structurally compatible pup from the selected Context runtime, OpenAI uses the reviewed Codex host-login contract, and Anthropic uses Claude Code 2.1.220 from the selected Context runtime.",
                 "allowed_values": [
-                  "github"
+                  "github",
+                  "datadog",
+                  "openai",
+                  "anthropic"
                 ]
               },
               {
@@ -16635,8 +16828,10 @@
             "prerequisites": [
               "The selected Context exists.",
               "The shared Auth Broker is already running, ready, and unlocked.",
-              "The reviewed GitHub CLI executable is available through the trusted-host PATH from a conventional installation root (/bin, /usr/bin, /usr/local, /opt/homebrew, /opt/local, /nix/store, or /snap); project, temporary, and home-local executable paths are rejected.",
-              "The caller has interactive terminal streams on stdin and stderr and can complete GitHub's device flow on the trusted host."
+              "A declared provider binding rejects a real Workspace credential as broker_auth_required; re-enter affected Workspaces after login to project the current handle.",
+              "When provider is omitted, stdin and stderr are interactive terminals, error output remains human text, and the caller explicitly selects one installed reviewed login provider.",
+              "The reviewed gh and Codex executables are available through trusted-host PATH; Datadog requires a structurally compatible pup at /usr/local/bin/pup in the selected Context runtime, and Anthropic requires Claude Code 2.1.220 at /usr/local/bin/claude in that runtime.",
+              "The caller has interactive terminal streams on stdin and stderr and can complete the selected provider flow on the trusted host."
             ],
             "fixed_target": {
               "kind": "auth-credentials",
@@ -16910,6 +17105,17 @@
                 ]
               },
               {
+                "code": "auth_login_selector_unavailable",
+                "kind": "invalid_input",
+                "retryable": false,
+                "next_actions": [
+                  {
+                    "command": "help auth login",
+                    "reason": "Pass an explicit reviewed provider or use human text error output for provider selection."
+                  }
+                ]
+              },
+              {
                 "code": "auth_login_tty_required",
                 "kind": "invalid_input",
                 "retryable": false,
@@ -16950,6 +17156,193 @@
                   {
                     "command": "auth login",
                     "reason": "Retry the trusted-host GitHub login after inspecting the failure."
+                  }
+                ]
+              },
+              {
+                "code": "datadog_cli_unavailable",
+                "kind": "unavailable",
+                "retryable": false,
+                "next_actions": [
+                  {
+                    "command": "help runtime",
+                    "reason": "Install a compatible pup in the selected Context runtime, build it, and retry."
+                  }
+                ]
+              },
+              {
+                "code": "datadog_login_cancelled",
+                "kind": "rejected",
+                "retryable": false,
+                "next_actions": [
+                  {
+                    "command": "auth login",
+                    "reason": "Retry the trusted-host Datadog login when ready."
+                  }
+                ]
+              },
+              {
+                "code": "datadog_login_timeout",
+                "kind": "rejected",
+                "retryable": false,
+                "next_actions": [
+                  {
+                    "command": "auth login",
+                    "reason": "Start a new Datadog OAuth login and complete it within the bounded window."
+                  }
+                ]
+              },
+              {
+                "code": "datadog_login_failed",
+                "kind": "unavailable",
+                "retryable": false,
+                "next_actions": [
+                  {
+                    "command": "auth login",
+                    "reason": "Retry the isolated one-shot pup login after inspecting the failure."
+                  }
+                ]
+              },
+              {
+                "code": "openai_cli_unavailable",
+                "kind": "unavailable",
+                "retryable": false,
+                "next_actions": [
+                  {
+                    "command": "auth login",
+                    "reason": "Install a stable Codex CLI with the reviewed host-login contract on the trusted host and retry."
+                  }
+                ]
+              },
+              {
+                "code": "openai_login_cancelled",
+                "kind": "rejected",
+                "retryable": false,
+                "next_actions": [
+                  {
+                    "command": "auth login",
+                    "reason": "Retry the trusted-host OpenAI login when ready."
+                  }
+                ]
+              },
+              {
+                "code": "openai_login_timeout",
+                "kind": "rejected",
+                "retryable": false,
+                "next_actions": [
+                  {
+                    "command": "auth login",
+                    "reason": "Start a new Codex ChatGPT device login and complete it within the bounded window."
+                  }
+                ]
+              },
+              {
+                "code": "openai_login_failed",
+                "kind": "unavailable",
+                "retryable": false,
+                "next_actions": [
+                  {
+                    "command": "auth login",
+                    "reason": "Retry the isolated trusted-host Codex login after inspecting the failure."
+                  }
+                ]
+              },
+              {
+                "code": "anthropic_cli_unavailable",
+                "kind": "unavailable",
+                "retryable": false,
+                "next_actions": [
+                  {
+                    "command": "help runtime",
+                    "reason": "Install Claude Code 2.1.220 in the selected Context runtime, build it, and retry."
+                  }
+                ]
+              },
+              {
+                "code": "anthropic_login_cancelled",
+                "kind": "rejected",
+                "retryable": false,
+                "next_actions": [
+                  {
+                    "command": "auth login",
+                    "reason": "Retry the isolated Context-runtime Anthropic login when ready."
+                  }
+                ]
+              },
+              {
+                "code": "anthropic_login_timeout",
+                "kind": "rejected",
+                "retryable": false,
+                "next_actions": [
+                  {
+                    "command": "auth login",
+                    "reason": "Start a new native Claude account login and complete it within the bounded window."
+                  }
+                ]
+              },
+              {
+                "code": "anthropic_login_setup_failed",
+                "kind": "unavailable",
+                "retryable": false,
+                "next_actions": [
+                  {
+                    "command": "doctor",
+                    "reason": "Inspect the local Docker runtime before retrying Anthropic login."
+                  }
+                ]
+              },
+              {
+                "code": "anthropic_authorization_failed",
+                "kind": "unavailable",
+                "retryable": false,
+                "next_actions": [
+                  {
+                    "command": "auth login",
+                    "reason": "Start a new isolated Context-runtime Claude login and paste the complete browser code when prompted."
+                  }
+                ]
+              },
+              {
+                "code": "anthropic_login_output_failed",
+                "kind": "unavailable",
+                "retryable": false,
+                "next_actions": [
+                  {
+                    "command": "help runtime",
+                    "reason": "Verify the selected Context still provides the reviewed Claude Code 2.1.220 contract."
+                  }
+                ]
+              },
+              {
+                "code": "anthropic_credential_capture_failed",
+                "kind": "unavailable",
+                "retryable": false,
+                "next_actions": [
+                  {
+                    "command": "auth login",
+                    "reason": "Start a new isolated Context-runtime Claude login."
+                  }
+                ]
+              },
+              {
+                "code": "anthropic_login_cleanup_failed",
+                "kind": "unavailable",
+                "retryable": false,
+                "next_actions": [
+                  {
+                    "command": "doctor",
+                    "reason": "Inspect the local Docker runtime before retrying Anthropic login."
+                  }
+                ]
+              },
+              {
+                "code": "anthropic_login_failed",
+                "kind": "unavailable",
+                "retryable": false,
+                "next_actions": [
+                  {
+                    "command": "auth login",
+                    "reason": "Retry the isolated Context-runtime Claude login after inspecting the failure."
                   }
                 ]
               },
@@ -17032,22 +17425,22 @@
             }
           },
           "machine_invocations": {
-            "success_json": "tobari auth login --provider=\u003cprovider\u003e --format=json",
-            "error_json": "tobari --error-format=json auth login --provider=\u003cprovider\u003e --format=json"
+            "success_json": "tobari auth login --format=json",
+            "error_json": "tobari --error-format=json auth login --format=json"
           },
           "produces_refs": [],
           "consumes_refs": []
         },
         {
           "path": "auth import",
-          "summary": "Import one provider credential through protected stdin",
+          "summary": "Import one Broker-required provider credential through protected stdin",
           "usage": "tobari auth import \u003cprovider\u003e [--context \u003cname\u003e] [--format text|json]",
           "args": "\u003cprovider\u003e [--context \u003cname\u003e] [--format text|json]",
           "effect": "write",
           "role": "act",
           "contract": {
             "capability_id": "authentication.broker",
-            "outcome": "Import one bounded opaque provider credential from stdin for an explicit or current Context without accepting it in argv or environment",
+            "outcome": "Import one bounded provider credential from stdin so its declared Workspace bindings accept only project-bound Broker handles",
             "inputs": [
               {
                 "name": "provider",
@@ -17407,6 +17800,7 @@
             "prerequisites": [
               "The selected Context and provider manifest exist.",
               "The shared Auth Broker is already running, ready, and unlocked.",
+              "A declared provider binding rejects a real Workspace credential as broker_auth_required; re-enter affected Workspaces after import to project the current handle.",
               "Exactly one credential is available on piped or redirected stdin; interactive terminal stdin is rejected before any credential bytes are read."
             ],
             "fixed_target": {
@@ -17778,14 +18172,14 @@
         },
         {
           "path": "auth status",
-          "summary": "Inspect one Context's Auth Broker state",
+          "summary": "Inspect Broker-required provider and Workspace handle state",
           "usage": "tobari auth status [--context \u003cname\u003e] [--format text|json]",
           "args": "[--context \u003cname\u003e] [--format text|json]",
           "effect": "read",
           "role": "utility",
           "contract": {
             "capability_id": "authentication.broker",
-            "outcome": "Inspect the complete installed provider collection and Workspace activation state for an explicit or current Context without reading secret material",
+            "outcome": "Inspect the complete Broker-required provider collection and Workspace handle activation state for an explicit or current Context without reading secret material",
             "inputs": [
               {
                 "name": "--context",
@@ -17865,6 +18259,26 @@
                     "locked",
                     "ready",
                     "unavailable"
+                  ]
+                },
+                {
+                  "name": "declared_bindings",
+                  "type": "string",
+                  "description": "Authentication route for every installed declared provider binding.",
+                  "required": true,
+                  "nullable": false,
+                  "enum": [
+                    "broker_required"
+                  ]
+                },
+                {
+                  "name": "undeclared_bindings",
+                  "type": "string",
+                  "description": "Authentication route for request bindings absent from the provider projection.",
+                  "required": true,
+                  "nullable": false,
+                  "enum": [
+                    "workspace_owned_compatibility"
                   ]
                 },
                 {
@@ -19199,6 +19613,114 @@
       ]
     },
     {
+      "code": "anthropic_authorization_failed",
+      "kind": "unavailable",
+      "retryable": false,
+      "command": "auth login",
+      "next_actions": [
+        {
+          "command": "auth login",
+          "reason": "Start a new isolated Context-runtime Claude login and paste the complete browser code when prompted."
+        }
+      ]
+    },
+    {
+      "code": "anthropic_cli_unavailable",
+      "kind": "unavailable",
+      "retryable": false,
+      "command": "auth login",
+      "next_actions": [
+        {
+          "command": "help runtime",
+          "reason": "Install Claude Code 2.1.220 in the selected Context runtime, build it, and retry."
+        }
+      ]
+    },
+    {
+      "code": "anthropic_credential_capture_failed",
+      "kind": "unavailable",
+      "retryable": false,
+      "command": "auth login",
+      "next_actions": [
+        {
+          "command": "auth login",
+          "reason": "Start a new isolated Context-runtime Claude login."
+        }
+      ]
+    },
+    {
+      "code": "anthropic_login_cancelled",
+      "kind": "rejected",
+      "retryable": false,
+      "command": "auth login",
+      "next_actions": [
+        {
+          "command": "auth login",
+          "reason": "Retry the isolated Context-runtime Anthropic login when ready."
+        }
+      ]
+    },
+    {
+      "code": "anthropic_login_cleanup_failed",
+      "kind": "unavailable",
+      "retryable": false,
+      "command": "auth login",
+      "next_actions": [
+        {
+          "command": "doctor",
+          "reason": "Inspect the local Docker runtime before retrying Anthropic login."
+        }
+      ]
+    },
+    {
+      "code": "anthropic_login_failed",
+      "kind": "unavailable",
+      "retryable": false,
+      "command": "auth login",
+      "next_actions": [
+        {
+          "command": "auth login",
+          "reason": "Retry the isolated Context-runtime Claude login after inspecting the failure."
+        }
+      ]
+    },
+    {
+      "code": "anthropic_login_output_failed",
+      "kind": "unavailable",
+      "retryable": false,
+      "command": "auth login",
+      "next_actions": [
+        {
+          "command": "help runtime",
+          "reason": "Verify the selected Context still provides the reviewed Claude Code 2.1.220 contract."
+        }
+      ]
+    },
+    {
+      "code": "anthropic_login_setup_failed",
+      "kind": "unavailable",
+      "retryable": false,
+      "command": "auth login",
+      "next_actions": [
+        {
+          "command": "doctor",
+          "reason": "Inspect the local Docker runtime before retrying Anthropic login."
+        }
+      ]
+    },
+    {
+      "code": "anthropic_login_timeout",
+      "kind": "rejected",
+      "retryable": false,
+      "command": "auth login",
+      "next_actions": [
+        {
+          "command": "auth login",
+          "reason": "Start a new native Claude account login and complete it within the bounded window."
+        }
+      ]
+    },
+    {
       "code": "auth_broker_image_incompatible",
       "kind": "contract",
       "retryable": false,
@@ -19435,6 +19957,18 @@
         {
           "command": "doctor",
           "reason": "Inspect Auth Broker and root-key provider state."
+        }
+      ]
+    },
+    {
+      "code": "auth_login_selector_unavailable",
+      "kind": "invalid_input",
+      "retryable": false,
+      "command": "auth login",
+      "next_actions": [
+        {
+          "command": "help auth login",
+          "reason": "Pass an explicit reviewed provider or use human text error output for provider selection."
         }
       ]
     },
@@ -20551,6 +21085,66 @@
         {
           "command": "context show",
           "reason": "Inspect the current/default Context marker."
+        }
+      ]
+    },
+    {
+      "code": "credential_companion_unavailable",
+      "kind": "unavailable",
+      "retryable": true,
+      "command": "cluster up",
+      "next_actions": [
+        {
+          "command": "cluster up",
+          "reason": "Reconcile the shared cluster and its Auth Broker companion session."
+        }
+      ]
+    },
+    {
+      "code": "datadog_cli_unavailable",
+      "kind": "unavailable",
+      "retryable": false,
+      "command": "auth login",
+      "next_actions": [
+        {
+          "command": "help runtime",
+          "reason": "Install a compatible pup in the selected Context runtime, build it, and retry."
+        }
+      ]
+    },
+    {
+      "code": "datadog_login_cancelled",
+      "kind": "rejected",
+      "retryable": false,
+      "command": "auth login",
+      "next_actions": [
+        {
+          "command": "auth login",
+          "reason": "Retry the trusted-host Datadog login when ready."
+        }
+      ]
+    },
+    {
+      "code": "datadog_login_failed",
+      "kind": "unavailable",
+      "retryable": false,
+      "command": "auth login",
+      "next_actions": [
+        {
+          "command": "auth login",
+          "reason": "Retry the isolated one-shot pup login after inspecting the failure."
+        }
+      ]
+    },
+    {
+      "code": "datadog_login_timeout",
+      "kind": "rejected",
+      "retryable": false,
+      "command": "auth login",
+      "next_actions": [
+        {
+          "command": "auth login",
+          "reason": "Start a new Datadog OAuth login and complete it within the bounded window."
         }
       ]
     },
@@ -23611,6 +24205,54 @@
         {
           "command": "doctor",
           "reason": "Inspect Docker Engine network-namespace and nftables support."
+        }
+      ]
+    },
+    {
+      "code": "openai_cli_unavailable",
+      "kind": "unavailable",
+      "retryable": false,
+      "command": "auth login",
+      "next_actions": [
+        {
+          "command": "auth login",
+          "reason": "Install a stable Codex CLI with the reviewed host-login contract on the trusted host and retry."
+        }
+      ]
+    },
+    {
+      "code": "openai_login_cancelled",
+      "kind": "rejected",
+      "retryable": false,
+      "command": "auth login",
+      "next_actions": [
+        {
+          "command": "auth login",
+          "reason": "Retry the trusted-host OpenAI login when ready."
+        }
+      ]
+    },
+    {
+      "code": "openai_login_failed",
+      "kind": "unavailable",
+      "retryable": false,
+      "command": "auth login",
+      "next_actions": [
+        {
+          "command": "auth login",
+          "reason": "Retry the isolated trusted-host Codex login after inspecting the failure."
+        }
+      ]
+    },
+    {
+      "code": "openai_login_timeout",
+      "kind": "rejected",
+      "retryable": false,
+      "command": "auth login",
+      "next_actions": [
+        {
+          "command": "auth login",
+          "reason": "Start a new Codex ChatGPT device login and complete it within the bounded window."
         }
       ]
     },
