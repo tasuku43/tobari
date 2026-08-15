@@ -108,7 +108,7 @@ support promises before maintainers invite external users.
   contain no live credential, token, handle, root key, vault, or authenticated
   output.
 - For the agent-ready base runtime, retain GitHub CLI and AWS CLI checks and
-  bind Claude Code 2.1.220 and Codex 0.146.0 to their per-platform artifact
+  bind Claude Code 2.1.220 and Codex 0.147.0 to their per-platform artifact
   locks. Until both agent redistribution/license reviews are approved, the
   base declares `NOASSERTION` and its workflow must have no registry-write
   permission, login, or push. Custom Context runtime contents are outside the

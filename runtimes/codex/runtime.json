@@ -1,13 +1,13 @@
 {
   "schema_version": 1,
   "name": "codex",
-  "version": "codex.0.146.0-base.0.1.0-r1",
+  "version": "codex.0.147.0-base.0.1.0-r1",
   "package": "tobari/runtime",
   "kind": "agent",
   "parent": "ghcr.io/tasuku43/tobari/runtime@sha256:0735ac7322dcf5964d64242b1c64d4c0e64507a5c994a942e3d2a314af2b3244",
   "agent": {
     "name": "codex-cli",
-    "version": "0.146.0"
+    "version": "0.147.0"
   },
   "base": {
     "name": "base",

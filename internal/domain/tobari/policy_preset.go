@@ -15,7 +15,7 @@ const (
 	PolicyPresetSchemaVersion = 1
 	DefaultPolicyPresetOrigin = "builtin/agent-ready"
 	AgentReadyClaudeVersion   = "2.1.220"
-	AgentReadyCodexVersion    = "0.146.0"
+	AgentReadyCodexVersion    = "0.147.0"
 
 	TaskPolicyPresetList     = "policy.preset.list"
 	TaskPolicyPresetShow     = "policy.preset.show"

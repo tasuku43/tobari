@@ -94,7 +94,7 @@ the source. Editing the source preset afterward must not change the existing
 Context report or active guardrail.
 
 The canonical contributor base must run `claude --version` as 2.1.220 and
-`codex --version` as 0.146.0 after replacing `/var/lib/tobari` with a fresh
+`codex --version` as 0.147.0 after replacing `/var/lib/tobari` with a fresh
 Workspace home. The client pins and agent-ready core matrix are reviewed as one
 contract. While either artifact lock records pending redistribution review,
 verify the base workflow has no registry-write permission, login, or push.

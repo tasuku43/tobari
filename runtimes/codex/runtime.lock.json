@@ -7,19 +7,19 @@
   },
   "agent": {
     "name": "codex-cli",
-    "version": "0.146.0",
+    "version": "0.147.0",
     "source": "https://releases.openai.com/codex",
     "license_review": "pending",
     "platforms": {
       "linux/amd64": {
         "asset": "codex-package-x86_64-unknown-linux-musl.tar.gz",
-        "sha256": "3c89125af1d7c98abec8beb551292ef99daca52e204e5852a9139feae2c467e5",
-        "size": 133804522
+        "sha256": "bd758d53d56e41dc65e045f4589df79a038ed197a011adcb52a258e6ad64cfda",
+        "size": 119166922
       },
       "linux/arm64": {
         "asset": "codex-package-aarch64-unknown-linux-musl.tar.gz",
-        "sha256": "c6eb28ec19bb5615b60e6787165ef28482481c2ce2617da565b83e591bc44c13",
-        "size": 124396444
+        "sha256": "89cbf79bd5ae6f9c58da47e8079f311c84219350c9c43c070d42f3e9b2a81401",
+        "size": 110889625
       }
     }
   }

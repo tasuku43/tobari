@@ -29,7 +29,7 @@ attempt. It does not retry an arbitrary HTTP request.
 
 The immutable preset guardrail is evaluated before baseline data, learned
 exact policy, or Advanced Rego. `builtin/agent-ready` grants the exact reviewed
-Claude Code 2.1.220 and Codex 0.146.0 core model, bootstrap/catalog,
+Claude Code 2.1.220 and Codex 0.147.0 core model, bootstrap/catalog,
 account-state, and fixed first-party telemetry effects. Those are Context-wide
 HTTP effects rather than executable identity, and exact Deny remains terminal.
 Plugins, MCP, connectors, file transfer, downloads, evaluation, self-update,

@@ -232,7 +232,7 @@ policy, and registry provenance does not replace local runtime compatibility
 validation.
 
 The canonical base includes integrity-pinned Claude Code 2.1.220 and Codex
-0.146.0 and contains no credentials or agent configuration. Its ordinary Workspace
+0.147.0 and contains no credentials or agent configuration. Its ordinary Workspace
 binaries remain untrusted; only the separate mount-free Claude login container
 may treat exact Claude as a provider-only acquisition authority. Their workflows verify
 the versioned release packages against the checked-in per-architecture
@@ -421,7 +421,7 @@ upstream calls. The guardrail cannot be replaced by Context Rego, learned state,
 provider metadata, or a Workspace-supplied value. `builtin/offline` terminally
 denies all HTTP/HTTPS and creates no review candidate;
 `builtin/agent-ready` grants only the exact reviewed Claude Code 2.1.220 and
-Codex 0.146.0 core model, bootstrap/catalog, account-state, and first-party
+Codex 0.147.0 core model, bootstrap/catalog, account-state, and first-party
 telemetry effects. These are Context-wide HTTP effects, not executable
 identity. Exact Deny remains terminal, and optional plugin, MCP, connector,
 file-transfer, download, evaluation, self-update, and unmatched effects receive
@@ -934,6 +934,6 @@ digests from the release-generated component lock. Source contains no owned
 image-output fallback. The lock validator rejects partial, cross-revision,
 wrong-repository, moving, API-invalid, and incomplete-platform authorities
 before CLI packaging. A moving tag or local image is never release authority.
-Likewise, the checked combined Claude Code 2.1.220 and Codex 0.146.0 base
+Likewise, the checked combined Claude Code 2.1.220 and Codex 0.147.0 base
 establishes integrity and test identity only; the artifact remains unpublished
 while redistribution and license review is pending.

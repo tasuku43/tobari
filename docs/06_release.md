@@ -47,7 +47,7 @@ are pinned to reviewed immutable versions or digests.
 The canonical base image definition is maintained under `runtimes/base` and
 its Dockerfile/bootstrap snapshot is checked against the embedded runtime
 assets. The source includes GitHub CLI, AWS CLI, Claude Code 2.1.220, and Codex
-0.146.0 and preserves checked-in per-platform integrity metadata for each.
+0.147.0 and preserves checked-in per-platform integrity metadata for each.
 `kubectl`, `cwk`, `pup`, and TWG are not part of the canonical base artifact
 inventory. A custom Context image does not change base metadata or publication
 authority. The base workflow validates Linux

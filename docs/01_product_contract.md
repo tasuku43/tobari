@@ -449,7 +449,7 @@ undeclared Docker mutation by the CLI.
   selected image remains in force until promotion succeeds.
 - The built-in `tobari/runtime` image is the base work runtime: it preserves the
   lifecycle contract and its common-tool baseline includes Git, HTTP, JSON,
-  Python, SSH, GitHub CLI, AWS CLI, Claude Code 2.1.220, and Codex 0.146.0.
+  Python, SSH, GitHub CLI, AWS CLI, Claude Code 2.1.220, and Codex 0.147.0.
   Both agent executables live outside the mutable Workspace home; Claude
   self-update is disabled and Codex uses its pinned standalone package.
   `kubectl`, `cwk`, `pup`, and TWG are not added to the base. A selected custom
@@ -749,7 +749,7 @@ synthetic state.
 - `contexts/<name>/policy/preset.json`: owner-only normalized schema-v1
   non-executable snapshot whose SHA-256 digest equals the manifest preset
   revision; source preset changes never rewrite it; `builtin/agent-ready`
-  grants the exact reviewed Claude Code 2.1.220 and Codex 0.146.0 model,
+  grants the exact reviewed Claude Code 2.1.220 and Codex 0.147.0 model,
   bootstrap/catalog, account-state, and fixed first-party telemetry effects to
   every process in the Context. It is HTTP authority, not executable identity;
   exact Deny remains terminal, and plugins, MCP, connectors, file transfer,

@@ -258,7 +258,7 @@ resolution, and upstream I/O. Advanced modules may further constrain generic
 input but cannot bypass the guardrail or redefine the scheme-aware exact
 learned identity.
 `builtin/agent-ready` uses the reviewed-exact guardrail plus a finite exact
-baseline coupled to Claude Code 2.1.220 and Codex 0.146.0. The baseline grants
+baseline coupled to Claude Code 2.1.220 and Codex 0.147.0. The baseline grants
 model execution, bootstrap/catalog, account-state, and fixed first-party
 telemetry effects to the Context principal; it does not identify a process.
 Exact Deny precedes that grant. Optional plugins, MCP, connectors, file
@@ -515,7 +515,7 @@ resource bounds, fixed mounts, guarded internal network, and health
 check.
 
 The canonical base under `runtimes/base` now includes Claude Code 2.1.220 and
-Codex 0.146.0 beside the common tools. It downloads the pinned official agent
+Codex 0.147.0 beside the common tools. It downloads the pinned official agent
 releases, verifies their per-architecture checksums, preserves the base user,
 entrypoint, and lifetime command, and smoke-tests both version commands.
 Claude may become the provider-only acquisition executable in

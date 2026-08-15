@@ -66,7 +66,7 @@ bin/tobari version
 
 The development binary selects local source images and is not a release
 artifact. Its canonical base contains pinned Claude Code 2.1.220 and Codex
-0.146.0. Public base publication remains disabled while bundled-agent
+0.147.0. Public base publication remains disabled while bundled-agent
 redistribution/license review is pending. Routine published binaries use only
 reviewed immutable component and runtime identities.
 
@@ -139,7 +139,7 @@ the runtime spec/hash and Docker inspection.
 ### Policy presets
 
 - `builtin/agent-ready` (default): exact reviewed Claude Code 2.1.220 and
-  Codex 0.146.0 model, bootstrap/catalog, account-state, and fixed first-party
+  Codex 0.147.0 model, bootstrap/catalog, account-state, and fixed first-party
   telemetry effects are available immediately. These are Context-wide HTTP
   grants, not process identity. Exact Deny still wins; plugins, MCP,
   connectors, file transfer, downloads, evaluation, self-update, unrelated

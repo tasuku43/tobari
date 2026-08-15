@@ -739,7 +739,7 @@ OPA allow.
   or upstream call. Advanced Rego may further constrain generic input but
   cannot grant beyond the guardrail or redefine learned permission identity.
 - `builtin/agent-ready` makes guardrail-eligible effects reviewable and grants
-  only the exact reviewed Claude Code 2.1.220 and Codex 0.146.0 core effects
+  only the exact reviewed Claude Code 2.1.220 and Codex 0.147.0 core effects
   for model execution, bootstrap/catalog, account state, and fixed first-party
   telemetry. The grants are Context-wide HTTP effects, not executable identity;
   exact Deny remains terminal. Plugins, MCP, connectors, file transfer,
