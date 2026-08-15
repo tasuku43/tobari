@@ -97,9 +97,9 @@ The canonical contributor base must run `claude --version` as 2.1.220 and
 `codex --version` as 0.147.0 after replacing `/var/lib/tobari` with a fresh
 Workspace home. The client pins and agent-ready core matrix are reviewed as one
 contract. Verify the base workflow is validation-only and the protected
-Release workflow invokes the publishability check before registry login. While
-either artifact lock records pending redistribution review, that check must
-fail closed.
+Release workflow has no runtime registry login or publication path. Pending
+redistribution review remains explicit artifact metadata; it never becomes a
+dormant switch that can publish the combined base.
 
 ## Reviewed policy journey
 
@@ -222,9 +222,11 @@ Linux/Colima Quick Start.
 
 Stop for explicit approval before pushing a branch or tag, publishing an OCI
 image, creating a GitHub Release, or updating a Homebrew tap. After approval,
-the protected workflow publishes and inspects the runtime, Gateway, and Auth
-Broker indexes, generates their source-bound lock, injects it into the exact
-SemVer archives, and creates the immutable GitHub Release. A prerelease such as
-`v0.1.0-dev.1` is marked as a GitHub prerelease and must not mutate Homebrew. A stable run must then create the
+the protected workflow publishes and inspects only the Gateway and Auth Broker
+indexes, generates their source-bound lock, injects it into the exact SemVer
+archives, and creates the immutable GitHub Release. The released CLI builds
+the pinned agent-ready base locally and never obtains it from GHCR. A
+prerelease such as `v0.1.0-dev.1` is marked as a GitHub prerelease and must not
+mutate Homebrew. A stable run must then create the
 Formula-only `tasuku43/homebrew-tap` pull request from the exact audited Formula
 asset; dry runs and prereleases must not cross that boundary.

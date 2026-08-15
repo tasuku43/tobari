@@ -378,8 +378,10 @@ builder proof.
 Preparation stops for explicit approval before any external mutation. Do not
 push a branch or tag, publish OCI images, create a GitHub Release, or update a
 Homebrew tap as part of local preparation. After approval, publish and inspect
-the runtime, Gateway, and Auth Broker images first. Their generated immutable lock is injected
-into every CLI archive without a digest-pin commit. The manual release workflow
+only the Gateway and Auth Broker images first. Their generated immutable lock
+is injected into every CLI archive without a digest-pin commit. The
+agent-ready base is built locally from the released CLI's pinned recipe and is
+never published by Tobari. The manual release workflow
 then creates the immutable GitHub Release and, for a stable version, opens a
 Formula-only pull request in `tasuku43/homebrew-tap` from the exact audited
 Formula asset. Dry runs and prereleases never mutate the tap.
