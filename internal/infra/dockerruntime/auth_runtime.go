@@ -662,6 +662,14 @@ func classifyHostLoginError(err error, provider string, methods ...string) error
 		if errors.Is(err, credentialhost.ErrInvalidExecutable) {
 			return classifyHostLoginError(hostCLIUnavailableError{provider: provider, stage: hostCLIStagePupExecutableIdentity}, provider, method)
 		}
+		var brokerFailure brokerControlError
+		if errors.As(err, &brokerFailure) && brokerFailure.Code == "datadog_oauth_state_invalid" {
+			return fault.New(
+				fault.KindUnavailable, "datadog_login_failed",
+				"Datadog completed account authorization, but its canonical native credential state could not be committed; the previous Context credential remains unchanged.", false,
+				fault.NextAction{Command: "auth login", Reason: "Retry the isolated one-shot pup login after inspecting the failure."},
+			)
+		}
 		if hostLoginFailureIsCredentialDriver(err) {
 			return fault.New(
 				fault.KindUnavailable, "datadog_login_failed",

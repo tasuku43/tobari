@@ -1,8 +1,11 @@
 package credentialhost
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -54,6 +57,16 @@ func TestNewPupStateFromNativeFilesCanonicalizesReviewedUS1Session(t *testing.T)
 	defer decoded.Clear()
 	if strings.Contains(state.String(), "access-token") || strings.Contains(state.GoString(), "refresh-token") {
 		t.Fatal("pup state formatting exposed credential material")
+	}
+	fixture, err := os.ReadFile(filepath.Join(
+		"..", "..", "..", "authbroker", "tests", "fixtures", "datadog_pup_state_v1.json",
+	))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture = bytes.TrimSuffix(fixture, []byte{'\n'})
+	if !bytes.Equal(encoded, fixture) {
+		t.Fatal("Go pup state does not match the shared Auth Broker V1 fixture")
 	}
 }
 

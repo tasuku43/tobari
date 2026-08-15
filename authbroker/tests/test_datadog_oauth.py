@@ -4,6 +4,7 @@ import json
 import unittest
 import urllib.parse
 import urllib.request
+from pathlib import Path
 from unittest import mock
 
 from authbroker import datadog_oauth
@@ -44,6 +45,14 @@ def state_bytes(*, issued_at: int = 1_800_000_000, expires_in: int = 3600) -> by
 
 
 class DatadogOAuthTests(unittest.TestCase):
+    def test_accepts_shared_go_producer_fixture(self) -> None:
+        encoded = (
+            Path(__file__).parent / "fixtures" / "datadog_pup_state_v1.json"
+        ).read_bytes()
+        encoded = encoded.removesuffix(b"\n")
+        state = PupOAuthState.parse(encoded, driver_revision="d" * 64)
+        self.assertEqual(state.encode(), encoded)
+
     def test_parses_only_canonical_driver_bound_state_and_redacts_repr(self) -> None:
         state = PupOAuthState.parse(state_bytes(), driver_revision=DRIVER_REVISION)
         self.assertEqual(state.access_token(1_800_000_100), b"dummy-access-token")

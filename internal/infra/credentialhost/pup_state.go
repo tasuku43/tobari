@@ -32,11 +32,14 @@ type PupState struct {
 	payload pupStatePayload
 }
 
+// Field order is the V1 canonical wire order. It stays recursively lexical so
+// the Go producer and Auth Broker's strict canonical JSON reader share one
+// byte representation instead of accepting equivalent alternate encodings.
 type pupStatePayload struct {
+	Client        pupClientCredentials `json:"client"`
+	Executable    stateExecutable      `json:"pup_executable"`
 	SchemaVersion int                  `json:"schema_version"`
 	Site          string               `json:"site"`
-	Executable    stateExecutable      `json:"pup_executable"`
-	Client        pupClientCredentials `json:"client"`
 	Token         pupTokenSet          `json:"token"`
 }
 
@@ -50,12 +53,12 @@ type pupClientCredentials struct {
 
 type pupTokenSet struct {
 	AccessToken  string `json:"access_token"`
-	RefreshToken string `json:"refresh_token"`
-	TokenType    string `json:"token_type"`
+	ClientID     string `json:"client_id"`
 	ExpiresIn    int64  `json:"expires_in"`
 	IssuedAt     int64  `json:"issued_at"`
+	RefreshToken string `json:"refresh_token"`
 	Scope        string `json:"scope"`
-	ClientID     string `json:"client_id"`
+	TokenType    string `json:"token_type"`
 }
 
 func (s PupState) Encode() ([]byte, error) {

@@ -27,7 +27,10 @@ func TestPupLoginRelayTransfersOneBoundedCallbackOnlyThroughStdin(t *testing.T) 
 
 	responseResult := make(chan *http.Response, 1)
 	errorResult := make(chan error, 1)
-	callbackURL := "http://" + relay.expectedHost + pupCallbackPath + "?code=single-use-code-canary&state=" + strings.Repeat("s", 32)
+	callbackURL := "http://" + relay.expectedHost + pupCallbackPath +
+		"?code=single-use-code-canary&state=" + strings.Repeat("s", 32) +
+		"&client_id=synthetic-client-123&site=https%3A%2F%2Fapp.datadoghq.com" +
+		"&domain=datadoghq.com&dd_oid=synthetic-org-id&dd_org_name=Example+Org"
 	go func() {
 		response, requestErr := http.Get(callbackURL) // #nosec G107 -- local synthetic callback server.
 		if requestErr != nil {
@@ -45,8 +48,13 @@ func TestPupLoginRelayTransfersOneBoundedCallbackOnlyThroughStdin(t *testing.T) 
 	case response := <-responseResult:
 		defer response.Body.Close()
 		body, _ := io.ReadAll(response.Body)
-		if response.StatusCode != http.StatusOK || strings.Contains(string(body), "single-use-code-canary") {
+		if response.StatusCode != http.StatusOK {
 			t.Fatalf("callback response = %d %q", response.StatusCode, body)
+		}
+		for _, value := range []string{"single-use-code-canary", "synthetic-client-123", "synthetic-org-id", "Example Org"} {
+			if strings.Contains(string(body), value) {
+				t.Fatalf("callback response contains %q: %q", value, body)
+			}
 		}
 	case err := <-errorResult:
 		t.Fatal(err)
@@ -72,6 +80,7 @@ func TestPupLoginRelayRejectsMalformedOrDuplicateCallbacks(t *testing.T) {
 		"/other?code=x&state=y",
 		pupCallbackPath + "?code=x&state=y&unexpected=value",
 		pupCallbackPath + "?code=x&code=y&state=z",
+		pupCallbackPath + "?code=x&state=y&client_id=first&client_id=second",
 	} {
 		response, err := http.Get("http://" + relay.expectedHost + suffix) // #nosec G107 -- local synthetic callback server.
 		if err != nil {

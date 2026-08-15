@@ -132,7 +132,7 @@ func validPupCallbackQuery(raw string) bool {
 	}
 	allowed := map[string]int{
 		"code": 4096, "state": 512, "error": 512, "error_description": 4096,
-		"dd_oid": 512, "dd_org_name": 4096, "domain": 512, "site": 1024,
+		"client_id": 512, "dd_oid": 512, "dd_org_name": 4096, "domain": 512, "site": 1024,
 	}
 	for key, entries := range values {
 		limit, ok := allowed[key]

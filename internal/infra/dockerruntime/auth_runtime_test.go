@@ -981,6 +981,7 @@ func TestClassifyHostDatadogLoginFailuresUsesStableSecretFreeFaults(t *testing.T
 		{err: context.DeadlineExceeded, code: "datadog_login_timeout", kind: fault.KindRejected},
 		{err: credentialhost.ErrPupLoginFailed, code: "datadog_login_failed", kind: fault.KindUnavailable},
 		{err: credentialhost.ErrInvalidPupState, code: "datadog_login_failed", kind: fault.KindUnavailable},
+		{err: brokerControlError{Code: "datadog_oauth_state_invalid"}, code: "datadog_login_failed", kind: fault.KindUnavailable},
 		{err: credentialhost.ErrInvalidExecutable, code: "datadog_cli_unavailable", kind: fault.KindUnavailable},
 		{err: hostCLIUnavailableError{provider: "datadog"}, code: "datadog_cli_unavailable", kind: fault.KindUnavailable},
 	}
