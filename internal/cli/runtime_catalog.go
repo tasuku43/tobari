@@ -1119,6 +1119,8 @@ func contextReportOutput() CommandOutput {
 			{Name: "cluster", Type: OutputFieldTypeString, Description: "How this task relates to cluster activation.", Enum: []string{"not_applicable", "not_configured", "not_running", "already_ready", "reconciled", "default_updated", "requires_reconcile"}},
 			{Name: "authentication", Type: OutputFieldTypeObject, Description: "Safe Auth Broker and provider status without credential values.", Fields: []OutputField{
 				{Name: "broker_state", Type: OutputFieldTypeString, Description: "Auth Broker observation for this report.", Enum: []string{"not_applicable", "ready", "locked", "unavailable"}},
+				{Name: "declared_bindings", Type: OutputFieldTypeString, Description: "Authentication route for installed declared provider bindings.", Enum: []string{"broker_required"}},
+				{Name: "undeclared_bindings", Type: OutputFieldTypeString, Description: "Authentication route for bindings absent from the provider projection.", Enum: []string{"workspace_owned_compatibility"}},
 				{Name: "providers", Type: OutputFieldTypeArray, Description: "Installed provider states, or null when this mutation did not observe authentication.", Nullable: true, SemanticScope: "Every installed provider for the selected Context when authentication was observed.", Items: &OutputField{
 					Type: OutputFieldTypeObject, Description: "One installed provider observation.", Fields: []OutputField{
 						{Name: "provider", Type: OutputFieldTypeString, Description: "Installed provider ID."},

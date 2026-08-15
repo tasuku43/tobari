@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/tasuku43/tobari/internal/domain/authbroker"
 	"github.com/tasuku43/tobari/internal/domain/fault"
 	"github.com/tasuku43/tobari/internal/domain/operation"
 	"github.com/tasuku43/tobari/internal/domain/tobari"
@@ -410,8 +411,10 @@ type contextReportJSONProjection struct {
 }
 
 type contextAuthenticationJSONProjection struct {
-	BrokerState string                              `json:"broker_state"`
-	Providers   []contextAuthProviderJSONProjection `json:"providers"`
+	BrokerState        string                              `json:"broker_state"`
+	DeclaredBindings   authbroker.AuthenticationRoute      `json:"declared_bindings"`
+	UndeclaredBindings authbroker.AuthenticationRoute      `json:"undeclared_bindings"`
+	Providers          []contextAuthProviderJSONProjection `json:"providers"`
 }
 
 type contextAuthProviderJSONProjection struct {
@@ -443,7 +446,10 @@ func contextReportJSONDocument(result tobari.ContextReport) contextReportDocumen
 			ShellEnvironment: result.ShellEnvironment, GitIdentity: result.GitIdentity, Stores: optionalContextStores(result),
 			Runtime: result.Runtime, Cluster: result.Cluster,
 			Authentication: contextAuthenticationJSONProjection{
-				BrokerState: result.Authentication.BrokerState, Providers: providers,
+				BrokerState:        result.Authentication.BrokerState,
+				DeclaredBindings:   authbroker.AuthenticationRouteBrokerRequired,
+				UndeclaredBindings: authbroker.AuthenticationRouteWorkspaceOwnedCompatibility,
+				Providers:          providers,
 			},
 		},
 	}
@@ -562,7 +568,9 @@ func renderContextReportText(result tobari.ContextReport, color bool) []byte {
 	}
 	if result.Task == tobari.TaskContextShow {
 		writeStyledLine(&output, color, "Auth Broker:", result.Authentication.BrokerState, humanStatusToken(result.Authentication.BrokerState))
-		writeStyledLine(&output, color, "Authentication scope:", "Context-wide eligibility; each permanently bound project receives a distinct handle on its next Workspace entry.", styleText)
+		writeStyledLine(&output, color, "Declared bindings:", string(authbroker.AuthenticationRouteBrokerRequired), styleText)
+		writeStyledLine(&output, color, "Undeclared bindings:", string(authbroker.AuthenticationRouteWorkspaceOwnedCompatibility), styleText)
+		writeStyledLine(&output, color, "Authentication scope:", "Declared bindings require a project handle; each permanently bound project receives a distinct handle on its next Workspace entry.", styleText)
 		for _, provider := range result.Authentication.Providers {
 			value := provider.State
 			if provider.AccountLabel != nil {

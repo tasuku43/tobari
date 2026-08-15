@@ -814,6 +814,32 @@ func TestSyntheticContextShowUsesOmissionBasedAuthStatusRecovery(t *testing.T) {
 	}
 }
 
+func TestContextShowReportsBrokerFirstRouting(t *testing.T) {
+	report := contextCLIReport(
+		tobari.TaskContextShow, "default", true, tobari.OfficialRuntimeBase,
+		tobari.ContextPolicyModeGuided,
+	)
+	output, err := renderContextReport(report, successFormatJSON, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var document struct {
+		Context struct {
+			Authentication struct {
+				DeclaredBindings   string `json:"declared_bindings"`
+				UndeclaredBindings string `json:"undeclared_bindings"`
+			} `json:"authentication"`
+		} `json:"context"`
+	}
+	if err := json.Unmarshal(output, &document); err != nil {
+		t.Fatal(err)
+	}
+	if document.Context.Authentication.DeclaredBindings != "broker_required" ||
+		document.Context.Authentication.UndeclaredBindings != "workspace_owned_compatibility" {
+		t.Fatalf("authentication routes = %+v", document.Context.Authentication)
+	}
+}
+
 func TestContextCommandsRenderActiveContextAndRuntimeImage(t *testing.T) {
 	fake := &contextCLI{report: contextCLIReport(tobari.TaskContextShow, "default", true, tobari.OfficialRuntimeBase, tobari.ContextPolicyModeGuided)}
 	fake.list = tobari.ContextListResult{

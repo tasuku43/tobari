@@ -24,11 +24,11 @@ func authLoginSpec() CommandSpec {
 		AllowedValues: loginProviderIDs,
 	}
 	return CommandSpec{
-		Path: "auth login", Summary: "Authenticate one Context through a reviewed host CLI driver",
+		Path: "auth login", Summary: "Configure Broker-required Context authentication through a reviewed host CLI",
 		Args: "[--provider " + strings.Join(loginProviderIDs, "|") + "] [--method identity-center|console] [--context <name>] [--format text|json]", Effect: operation.EffectWrite, Role: RoleAct,
 		Agent: AgentContract{
 			CapabilityID: authCapabilityID,
-			Outcome:      "Acquire one supported provider credential on the trusted host for an explicit or current Context without exposing it to a Workspace",
+			Outcome:      "Acquire one supported provider credential on the trusted host so declared Workspace request bindings can use only project-bound Broker handles",
 			Inputs: []CommandInput{
 				provider,
 				{
@@ -45,6 +45,7 @@ func authLoginSpec() CommandSpec {
 			Prerequisites: []string{
 				"The selected Context exists.",
 				"The shared Auth Broker is already running, ready, and unlocked.",
+				"A declared provider binding rejects a real Workspace credential as broker_auth_required; re-enter affected Workspaces after login to project the current handle.",
 				"When provider is omitted, stdin and stderr are interactive terminals, error output remains human text, and the caller explicitly selects one installed reviewed login provider.",
 				"The reviewed gh, aws, pup, Codex host-login contract, or Claude Code 2.1.220 executable is available through the trusted-host PATH from a conventional installation root; project, temporary, and home-local executable paths are rejected.",
 				"The caller has interactive terminal streams on stdin and stderr and can complete the selected provider flow on the trusted host.",
@@ -90,11 +91,11 @@ func authLoginSpec() CommandSpec {
 
 func authImportSpec() CommandSpec {
 	return CommandSpec{
-		Path: "auth import", Summary: "Import one provider credential through protected stdin",
+		Path: "auth import", Summary: "Import one Broker-required provider credential through protected stdin",
 		Args: "<provider> [--context <name>] [--format text|json]", Effect: operation.EffectWrite, Role: RoleAct,
 		Agent: AgentContract{
 			CapabilityID: authCapabilityID,
-			Outcome:      "Import one bounded opaque provider credential from stdin for an explicit or current Context without accepting it in argv or environment",
+			Outcome:      "Import one bounded provider credential from stdin so its declared Workspace bindings accept only project-bound Broker handles",
 			Inputs: []CommandInput{
 				authProviderInput("Installed provider manifest whose primary credential is supplied on stdin."),
 				executionContextInput(),
@@ -109,6 +110,7 @@ func authImportSpec() CommandSpec {
 			Prerequisites: []string{
 				"The selected Context and provider manifest exist.",
 				"The shared Auth Broker is already running, ready, and unlocked.",
+				"A declared provider binding rejects a real Workspace credential as broker_auth_required; re-enter affected Workspaces after import to project the current handle.",
 				"Exactly one credential is available on piped or redirected stdin; interactive terminal stdin is rejected before any credential bytes are read.",
 			},
 			FixedTarget: fixedAuthCatalogTarget(),
@@ -124,11 +126,11 @@ func authImportSpec() CommandSpec {
 
 func authStatusSpec() CommandSpec {
 	return CommandSpec{
-		Path: "auth status", Summary: "Inspect one Context's Auth Broker state",
+		Path: "auth status", Summary: "Inspect Broker-required provider and Workspace handle state",
 		Args: "[--context <name>] [--format text|json]", Effect: operation.EffectRead, Role: RoleUtility,
 		Agent: AgentContract{
 			CapabilityID: authCapabilityID,
-			Outcome:      "Inspect the complete installed provider collection and Workspace activation state for an explicit or current Context without reading secret material",
+			Outcome:      "Inspect the complete Broker-required provider collection and Workspace handle activation state for an explicit or current Context without reading secret material",
 			Inputs:       []CommandInput{executionContextInput(), formatInput()},
 			Output:       authStatusOutput(),
 			Prerequisites: []string{
@@ -216,6 +218,8 @@ func authStatusOutput() CommandOutput {
 			{Name: "context_id", Type: OutputFieldTypeString, Description: "Stable host-resolved Context authority identity, or null before authority is persisted.", Nullable: true},
 			{Name: "storage_backend", Type: OutputFieldTypeString, Description: "Host root-key storage backend used for encrypted Context vaults.", Enum: []string{"macos_keychain", "xdg_file"}},
 			{Name: "broker_state", Type: OutputFieldTypeString, Description: "Observed locked, ready, or unavailable Auth Broker state.", Enum: []string{"locked", "ready", "unavailable"}},
+			{Name: "declared_bindings", Type: OutputFieldTypeString, Description: "Authentication route for every installed declared provider binding.", Enum: []string{"broker_required"}},
+			{Name: "undeclared_bindings", Type: OutputFieldTypeString, Description: "Authentication route for request bindings absent from the provider projection.", Enum: []string{"workspace_owned_compatibility"}},
 			{Name: "providers", Type: OutputFieldTypeArray, Description: "Complete installed provider collection with explicit configured, not_configured, or unavailable state plus configuration, account-label, and credential-revision facts.", SemanticScope: "Every installed provider for the selected Context at one observation.", Items: &OutputField{
 				Type: OutputFieldTypeObject, Description: "One installed provider status.", Fields: []OutputField{
 					{Name: "provider", Type: OutputFieldTypeString, Description: "Installed provider ID."},

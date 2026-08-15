@@ -539,6 +539,27 @@ func TestAuthStatusUsesExplicitCommandContextOverRootDefault(t *testing.T) {
 	}
 }
 
+func TestAuthStatusReportsBrokerFirstRouting(t *testing.T) {
+	result := authCLIStatusResult(true)
+	output, err := renderAuthStatus(result, successFormatJSON, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var document struct {
+		Auth struct {
+			DeclaredBindings   string `json:"declared_bindings"`
+			UndeclaredBindings string `json:"undeclared_bindings"`
+		} `json:"auth"`
+	}
+	if err := json.Unmarshal(output, &document); err != nil {
+		t.Fatal(err)
+	}
+	if document.Auth.DeclaredBindings != "broker_required" ||
+		document.Auth.UndeclaredBindings != "workspace_owned_compatibility" {
+		t.Fatalf("authentication routes = %+v", document.Auth)
+	}
+}
+
 func TestAuthHumanOutputContainsOnlySecretFreeResultFields(t *testing.T) {
 	result := authCLIResult(authbroker.TaskImport)
 	output, err := renderAuthResult(result, successFormatText, false)

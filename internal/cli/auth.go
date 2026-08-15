@@ -255,6 +255,8 @@ type authStatusProjection struct {
 	ContextID           *string                        `json:"context_id"`
 	StorageBackend      authbroker.StorageBackend      `json:"storage_backend"`
 	BrokerState         authbroker.BrokerState         `json:"broker_state"`
+	DeclaredBindings    authbroker.AuthenticationRoute `json:"declared_bindings"`
+	UndeclaredBindings  authbroker.AuthenticationRoute `json:"undeclared_bindings"`
 	Providers           []authProviderStatusProjection `json:"providers"`
 	WorkspaceActivation authbroker.WorkspaceActivation `json:"workspace_activation"`
 }
@@ -327,6 +329,8 @@ func renderAuthStatus(result authbroker.StatusResult, format successFormat, colo
 	projection := authStatusProjection{
 		ContextState: result.ContextState, Context: result.Context, ContextID: optionalString(result.ContextID),
 		StorageBackend: result.StorageBackend, BrokerState: result.BrokerState,
+		DeclaredBindings:    authbroker.AuthenticationRouteBrokerRequired,
+		UndeclaredBindings:  authbroker.AuthenticationRouteWorkspaceOwnedCompatibility,
 		Providers:           providers,
 		WorkspaceActivation: result.WorkspaceActivation,
 	}
@@ -392,6 +396,8 @@ func renderAuthStatusText(result authStatusProjection, color bool) []byte {
 	output.row("Context ID", optionalDisplay(result.ContextID, "not initialized"), styleText)
 	output.row("Storage", string(result.StorageBackend), styleText)
 	output.row("Broker", string(result.BrokerState), humanStatusToken(string(result.BrokerState)))
+	output.row("Declared bindings", string(result.DeclaredBindings), styleText)
+	output.row("Undeclared bindings", string(result.UndeclaredBindings), styleText)
 	renderWorkspaceActivation(output, result.WorkspaceActivation)
 	if len(result.Providers) == 0 {
 		output.empty("No authentication providers installed", "The Context provider collection is explicitly empty.", "", "")
