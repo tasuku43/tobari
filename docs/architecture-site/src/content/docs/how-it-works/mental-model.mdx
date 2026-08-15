@@ -71,13 +71,14 @@ The first request is not an application for automatic permission. It is an attem
 
 ## Failure behavior
 
-| Failure                    | Observable result                   | What does **not** happen                        |
-| -------------------------- | ----------------------------------- | ----------------------------------------------- |
-| No matching rule           | `403 policy_denied`                 | No upstream connection and no automatic allow   |
-| OPA unavailable or invalid | `503 policy_unavailable`            | No fallback decision                            |
-| Gateway unavailable        | Guarded connection fails            | No direct Internet fallback                     |
-| Invalid broker handle      | `403 credential_handle_invalid`     | No passthrough fallback and no upstream request |
-| Auth Broker unavailable    | `503 credential_broker_unavailable` | No resolve or upstream action                   |
+| Failure                             | Observable result                   | What does **not** happen                           |
+| ----------------------------------- | ----------------------------------- | -------------------------------------------------- |
+| No matching rule                    | `403 policy_denied`                 | No upstream connection and no automatic allow      |
+| OPA unavailable or invalid          | `503 policy_unavailable`            | No fallback decision                               |
+| Gateway unavailable                 | Guarded connection fails            | No direct Internet fallback                        |
+| Real credential at declared binding | `403 broker_auth_required`          | No policy review, passthrough, or upstream request |
+| Invalid broker handle               | `403 credential_handle_invalid`     | No passthrough fallback and no upstream request    |
+| Auth Broker unavailable             | `503 credential_broker_unavailable` | No resolve or upstream action                      |
 
 ## Guarantees and limitations
 

@@ -19,8 +19,10 @@ shared locked Auth Broker after OPA allows the ordinary HTTP effect.
 
 The primary user is a developer who wants an autonomous coding agent to edit a
 bounded source tree without receiving a real host-managed credential or
-unrestricted network egress. Tool-native authentication may be created inside
-the selected Tobari's own persistent home. The supported brokered path instead
+unrestricted network egress. For an undeclared provider binding, compatibility
+tool-native authentication may be created inside the selected Tobari's own
+persistent home. Every declared binding instead requires the supported brokered
+path, which
 acquires one credential on the trusted host for a Context, stores it in an
 encrypted vault, and gives each eligible Workspace only a distinct bound
 handle; host home and CLI authentication state are never copied in. A separate
@@ -111,7 +113,9 @@ or source build unless a Linux Homebrew Formula contract is added explicitly.
   endpoint on that project's dedicated network. Caller headers, Context names,
   SNI, request authority, and profile names are not principals.
 - **tool-owned authentication state:** files written by a tool or agent below
-  one Tobari's persistent home during its own login or configuration flow.
+  one Tobari's persistent home during its own login or configuration flow. It
+  is a compatibility credential source only for undeclared bindings and is
+  readable by every process in that Workspace.
 - **credential provider:** the external service or authority whose credential
   is acquired or imported, stored, and later applied to one exact reviewed
   request binding. A provider is not the Workspace client that uses it.
@@ -126,10 +130,11 @@ or source build unless a Linux Homebrew Formula contract is added explicitly.
   encrypted Context vault.
 - **Workspace credential handle:** a versioned random opaque value bound to one
   Context, project, provider, credential revision, and exact HTTP binding. It
-  is not the real credential and is not authority without the trusted
-  principal and OPA allow. Broker metadata never inherits a broad static
-  host/method allow; the first exact L7 effect remains reviewable until an
-  exact learned rule exists.
+  is not the real credential, but it is a scoped bearer capability that should
+  not be published or logged. It is not authority without the trusted
+  principal, exact binding, and OPA allow. Broker metadata never inherits a
+  broad static host/method allow; the first exact L7 effect remains reviewable
+  until an exact learned rule exists.
 - **provider manifest:** strict non-secret data declaring static import,
   Workspace handle projections, and exact HTTPS/header credential bindings.
   Owner manifests are V1 static-secret/header plans. Reviewed built-ins are a
@@ -207,7 +212,7 @@ The public commands are:
 | `policy preset init --name NAME [--format text\|json]` | act, fixed target | create | Create one owner-only strict custom policy preset template without overwriting |
 | `policy preset validate --name PRESET [--format text\|json]` | utility | read | Strictly validate, normalize, and digest one custom preset source without changing Context or active policy |
 | `context list [--format text|json]` | utility | read | List persisted named Contexts and report the current selection as persisted or a display-only synthetic default |
-| `context show [--name NAME] [--format text|json]` | utility | read | Inspect one Context's explicit persistence state, immutable source access, preset origin/revision and guardrail summary, agent, policy, and secret-free Auth Broker/provider state without returning a broker vault path/content, key, primary secret, or handle |
+| `context show [--name NAME] [--format text|json]` | utility | read | Inspect one Context's explicit persistence state, immutable source access, preset origin/revision and guardrail summary, agent, policy, Broker-required declared-binding/Workspace-compatibility routing, and secret-free Auth Broker/provider state without returning a broker vault path/content, key, primary secret, or handle |
 | `config shell [--variable COLORTERM\|NO_COLOR\|PS1\|TERM] [--source default\|inherit\|literal] [--value VALUE] [--context NAME] [--format text\|json]` | act, fixed target | write | Configure one allowlisted shell-presentation variable directly, or stage one or more rows from the complete terminal inventory and apply them atomically |
 | `config git [--source default\|inherit\|literal] [--name NAME] [--email EMAIL] [--context NAME] [--format text\|json]` | act, fixed target | write | Configure one atomic Context Git commit-identity fallback directly, or stage and apply its source from one terminal screen |
 | `context create --name NAME [--image IMAGE] [--mode guided|advanced] [--source-access read-only\|read-write] [--policy-preset PRESET] [--format text\|json]` | act, fixed target | create | Validate and create one named immutable capability envelope with a runtime image, direct source access, normalized policy-preset snapshot, and separate owner-only stores; omission selects `read-write` and `builtin/reviewed-exact` |
@@ -451,7 +456,9 @@ Workspace status always reports the selected Context ID/name, logical
 existence, runtime diagnostic, attachment observation, and exact Context-bound
 next argv. Context reports include a complete four-item shell-environment
 inventory, complete Git identity policy, and explicit secret-free Auth
-Broker/provider state. Every auth result uses envelope `auth`. Public
+Broker/provider state plus the fixed declared/undeclared authentication routes.
+`auth status` exposes the same `broker_required` and
+`workspace_owned_compatibility` facts. Every auth result uses envelope `auth`. Public
 authentication backend values are
 `macos_keychain` or `xdg_file`; cluster status may additionally report
 `unavailable`. Unconfigured cluster resources are `null`; unavailable
@@ -706,7 +713,9 @@ synthetic state.
 
 Tool authentication state is not cluster configuration. It belongs below the
 selected instance's persistent home and is created by the tool's own login or
-configuration flow. Brokered authentication is separate installation state:
+configuration flow, but Gateway accepts it only for an undeclared compatibility
+binding. Brokered authentication is separate installation state and is required
+for every declared provider binding:
 the normalized schema-v1 provider projection is generated below
 `auth/projection/providers.json`; schema-1-envelope/schema-1-payload Context
 vaults are below
@@ -731,8 +740,10 @@ loaded Context count, aggregate projection paths, and Docker resource names or
 identifiers, never one active Context authority or credential contents. The
 loader accepts only exact V1 state. The owner-only projection contains the
 Context-aware Gateway routing document plus the non-secret schema-v1 static
-provider projection. The per-Tobari home may contain tool credentials and
-broker handles by design, but never a brokered primary secret.
+provider projection. The per-Tobari home may contain compatibility tool
+credentials and broker handles by design, but never a brokered primary secret.
+A real Workspace credential presented at a declared binding is rejected before
+policy or external I/O.
 Project and cluster mutation journals are durable recovery markers. An
 interrupted cluster marker, aggregate revision mismatch, or failed projection
 activation makes entry and policy operations fail closed until the exact shared
@@ -954,5 +965,5 @@ exact HTTPS/header replacement contract and protected stdin import. V1 has no
 managed adapter, multiple provider accounts, provider-specific policy
 semantics, Git credential helper, manifest-selected helper, or general
 provider SDK/plugin executor. Unsupported tools may still authenticate inside
-their Workspace-owned home, but that state is neither brokered nor a network
-grant.
+their Workspace-owned home for request bindings Tobari has not declared, but
+that compatibility state is neither brokered nor a network grant.

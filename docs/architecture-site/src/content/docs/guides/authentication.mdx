@@ -1,6 +1,6 @@
 ---
 title: Authentication
-description: Choose tool-native or brokered authentication without confusing credentials with network permission.
+description: Understand Broker-required bindings and Workspace-owned compatibility without confusing credentials with network permission.
 ---
 
 import CredentialArchitectureMap from "../../../components/CredentialArchitectureMap.astro";
@@ -9,14 +9,14 @@ import SequenceExplorer from "../../../components/SequenceExplorer.astro";
 
 Authentication and network authorization are separate in Tobari. Choose one explicit authentication path for the tool, then authorize its ordinary HTTP effects separately. A successful login or import never adds a network allow rule.
 
-This guide compares the two supported paths, shows the reviewed built-in broker flows, and covers handle binding, rotation, and logout. Read [Request journey](../../how-it-works/request-journey/) and [Contexts](../contexts/) first.
+This guide compares Broker-required bindings with Workspace-owned compatibility, shows the reviewed built-in broker flows, and covers handle binding, rotation, and logout. Read [Request journey](../../how-it-works/request-journey/) and [Contexts](../contexts/) first.
 
-## Compare the two paths
+## Compare the two runtime routes
 
-| Path                    | Where the primary credential lives                              | What the Workspace can read                                             | Gateway behavior                                                                     | Main limit                                                    |
-| ----------------------- | --------------------------------------------------------------- | ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------ | ------------------------------------------------------------- |
-| Tool-native passthrough | Tool-owned state in that Workspace's persistent home or process | The real tool credential                                                | Removes auth/cookie fields from OPA and audit, then forwards after allow             | Credential is available to processes in the same Workspace    |
-| Auth Broker             | Encrypted Context vault under an installation root key          | A random project-bound handle, not static or renewable credential state | Introspects without secret, asks OPA, then resolves, refreshes, or signs after allow | Static exact bindings plus the closed reviewed built-in plans |
+| Path                          | Where the primary credential lives                              | What the Workspace can read                                             | Gateway behavior                                                                                                     | Main limit                                                      |
+| ----------------------------- | --------------------------------------------------------------- | ----------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| Workspace-owned compatibility | Tool-owned state in that Workspace's persistent home or process | The real tool credential                                                | Only for an undeclared binding: removes auth/cookie fields from OPA and audit, then forwards after allow             | Credential is available to processes in the same Workspace      |
+| Broker-required binding       | Encrypted Context vault under an installation root key          | A random project-bound handle, not static or renewable credential state | Rejects real Workspace credentials; introspects the handle, asks OPA, then resolves, refreshes, or signs after allow | Exact declared bindings plus the closed reviewed built-in plans |
 
 No path changes the OPA rule requirement. “The request is authenticated” and “this Context/project/method/path may connect” are different claims.
 
@@ -28,11 +28,11 @@ No path changes the OPA rule requirement. “The request is authenticated” and
   pinned.
 </aside>
 
-## Tool-native authentication
+## Workspace-owned compatibility
 
-Enter the Workspace and use the tool's normal supported login. Its state is stored below the Workspace's persistent home and survives `exit`, container loss, and runtime rebuild. It is isolated from other Workspace homes and removed by `tobari delete`.
+For a provider binding Tobari has not declared, enter the Workspace and use the tool's normal supported login or inject a credential through its environment/files. Its state is stored below the Workspace's persistent home and survives `exit`, container loss, and runtime rebuild. It is isolated from other Workspace homes and removed by `tobari delete`.
 
-Tobari does not copy the host home, Keychain, SSH agent, credential environment, or general CLI configuration into the Workspace. Tool-native state is readable by other processes within that same Workspace boundary.
+Tobari does not copy the host home, Keychain, SSH agent, credential environment, or general CLI configuration into the Workspace. Compatibility state is readable by other processes within that same Workspace boundary. A real credential at a declared binding is rejected as `broker_auth_required`; running a tool's local login does not override that routing rule.
 
 ## Provider first, Tool second
 
@@ -117,23 +117,24 @@ configured through `auth import chatwork`, not the interactive selector.
 ## What happens on one brokered request
 
 1. Gateway derives the Context/project principal from the kernel-observed Workspace source endpoint.
-2. It strictly recognizes the provider-declared handle in the exact source header and removes it.
-3. Broker introspection verifies Context, project, provider, credential revision, target, and header binding without returning the secret.
-4. Gateway asks OPA about the ordinary body-free HTTP effect.
-5. On deny, processing stops. There is no static resolution, Datadog/OpenAI
+2. It matches the exact provider binding. A real Workspace credential at that binding fails as non-learnable `broker_auth_required` before OPA or external I/O.
+3. It strictly recognizes the provider-declared handle in the exact source header and removes it.
+4. Broker introspection verifies Context, project, provider, credential revision, target, and header binding without returning the secret.
+5. Gateway asks OPA about the ordinary body-free HTTP effect.
+6. On deny, processing stops. There is no static resolution, Datadog/OpenAI
    token selection/refresh, AWS companion call/signing, or upstream connection.
-6. On a static allow, Gateway resolves the same revision once and replaces the
+7. On a static allow, Gateway resolves the same revision once and replaces the
    declared header.
-7. On an AWS allow, Gateway captures the complete authorized request within
+8. On an AWS allow, Gateway captures the complete authorized request within
    8 MiB. Broker uses the authenticated private host companion for one fixed
    AWS CLI credential export, rechecks/persists the revision, and signs
    standard header-based SigV4 locally.
-8. On a Datadog allow, Broker selects a sufficiently valid token or performs
+9. On a Datadog allow, Broker selects a sufficiently valid token or performs
    one same-record strict refresh at the exact proxy-free, no-redirect US1
    token endpoint and commits state before returning a bearer value.
-9. On an OpenAI allow, Broker selects or refreshes the same-account token and
-   returns only its validated account ID for the reviewed supplemental header.
-10. Gateway creates one exact HTTPS upstream connection. It does not replay.
+10. On an OpenAI allow, Broker selects or refreshes the same-account token and
+    returns only its validated account ID for the reviewed supplemental header.
+11. Gateway creates one exact HTTPS upstream connection. It does not replay.
 
 <SequenceExplorer
   title="Brokered credential paths"
@@ -181,6 +182,7 @@ Logout removes the local provider record and revokes its handles. It does not co
 - `auth_vault_invalid`: diagnose integrity without printing or rewriting vault contents.
 - `invalid_provider_manifest` or `ambiguous_provider_http_binding`: correct the entire strict manifest collection; no partial provider projection activates.
 - `credential_handle_invalid` (`403`): leave and re-enter the matching Workspace; a copied or stale handle must not be forwarded.
+- `broker_auth_required` (`403`): policy review cannot recover a real credential at a declared binding. Run `auth status`, configure the provider through `auth login` or `auth import`, and re-enter when the handle projection is missing or stale.
 - `credential_broker_unavailable` (`503`): this is a known pre-execution
   availability class. Reconcile Broker/companion state and retry only after
   readiness; no application upstream attempt was made.
@@ -193,12 +195,15 @@ Logout removes the local provider record and revokes its handles. It does not co
 
 ## Guarantees and limits
 
-The broker keeps static and renewable credential state out of Workspace
+For declared bindings, the broker keeps static and renewable credential state out of Workspace
 files/environment and OPA, binds handles to exact authority, and performs
 secret-bearing actions only after allow. It does not isolate mutually hostile
 processes inside one Workspace, stop use of an already allowed capability,
 perform remote logout, support multiple accounts per Context, or implement
-refresh/signing/OAuth beyond the closed reviewed built-in plans.
+refresh/signing/OAuth beyond the closed reviewed built-in plans. A handle is not
+the primary secret, but it is still a scoped bearer capability and should not
+be published or logged. Workspace-owned compatibility makes no
+primary-secret-isolation claim.
 
 ## Source evidence
 

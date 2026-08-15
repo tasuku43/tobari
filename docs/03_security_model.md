@@ -417,9 +417,10 @@ immediate authority, and GET is not classified as safe or read-only.
 
 ## Credentials
 
-The default `passthrough` adapter uses tool-owned authentication state created
-below the selected Tobari's `HOME=/var/lib/tobari`. A Context does not contain
-or copy this state. It redacts client
+The `passthrough` adapter is a compatibility route only for bindings absent
+from the normalized provider projection. It uses tool-owned authentication
+state created below the selected Tobari's `HOME=/var/lib/tobari`; a Context
+does not contain or copy this state. It redacts client
 authentication and cookie values from OPA input and audit, preserves them until
 policy allow, then forwards them upstream. It strips proxy and Tobari control
 headers and never reads broker vaults. The host-owned
@@ -430,7 +431,7 @@ principal from the kernel-observed source endpoint; duplicate, missing, stale,
 and ambiguous bindings fail before OPA. Its dedicated directory is mounted
 read-only into Gateway; broker state is not included in that mount.
 
-In passthrough mode, `Authorization`, `X-API-Key`, cookies, and other client
+In compatibility passthrough, `Authorization`, `X-API-Key`, cookies, and other client
 authentication are forwarded only after allow; `Proxy-Authorization` and
 Tobari session control headers are removed. Cookie and Set-Cookie values may
 remain part of the authorized application flow but are excluded from OPA input
@@ -461,19 +462,23 @@ provider projection. It rejects URL, cookie, header-name, unsupported-value,
 and ambiguous occurrences, removes the placeholder, and performs non-secret
 introspection before OPA. Denial makes zero resolve calls. Allow permits exactly
 one same-revision resolve, one declared header replacement, and one upstream
-attempt. A copied, malformed, stale, revoked, ambiguous, or mismatched handle
-returns secret-free HTTP 403 `credential_handle_invalid`; a locked,
-unavailable, timed-out, or invalid broker returns HTTP 503
+attempt. At the same declared header or AWS signing binding, a real Workspace
+credential is removed and rejected before OPA as non-learnable HTTP 403
+`broker_auth_required`. A copied, malformed, stale, revoked, ambiguous, or
+mismatched handle returns secret-free HTTP 403 `credential_handle_invalid`; a
+locked, unavailable, timed-out, or invalid broker returns HTTP 503
 `credential_broker_unavailable`. Neither failure forwards the handle or falls
-back to passthrough. Passthrough is selected only when no Tobari-looking marker
-exists in any inspected position.
+back to passthrough. Compatibility passthrough is selected only when no
+declared binding and no Tobari-looking marker exists in any inspected position.
 
 The request body is never a credential source or replacement surface. Tobari
 does not search arbitrary body bytes. Because a Workspace can read its own
 handle, a malicious Workspace can include those bytes as ordinary payload when
 the surrounding L7 effect is allowed; this grants no broker authority but is
-outside Tobari's payload-exfiltration guarantee. The real primary secret
-remains unavailable to that Workspace.
+outside Tobari's payload-exfiltration guarantee. The handle is not the primary
+secret, but it remains a scoped bearer capability that should not be logged or
+published. The real brokered primary secret remains unavailable to that
+Workspace.
 
 Provider manifests contain no secrets or executable paths. Exact schema-1
 owner static providers and the closed reviewed built-ins normalize into
@@ -793,7 +798,8 @@ reference-bound mutation.
 | Unsupported credential mechanisms cannot remain dormant | Catalog/state/dependency/image-content tests reject managed profiles, owner-selected dynamic plans, arbitrary helpers, compatibility readers, and provider CLIs inside Broker |
 | Published tools retain reviewed identity and redistribution evidence | Base-runtime baseline checks for GitHub CLI and AWS CLI; optional local toolbox locks for kubectl, cwk, pup, and local-only TWG; Claude/Codex agent tags remain unpublished while redistribution review is pending |
 | Secret headers, queries, handle-bearing paths, and bodies stay out of logs | Gateway redacted-path/header-absence tests, non-learnable structural-rejection tests, and log scans |
-| Broker fallback cannot accept a Tobari-looking handle | Marker-absence fallback tests plus malformed, misplaced, ambiguous, and binding-mismatch fail-closed canaries |
+| Declared provider bindings are Broker-required | Direct bearer/raw and SigV4 canaries return `broker_auth_required` before fallback/Broker/OPA/DNS/upstream; valid handles retain policy-before-action ordering; an undeclared binding retains compatibility passthrough |
+| Broker fallback cannot accept a Tobari-looking handle | Undeclared-binding and marker-absence fallback tests plus malformed, misplaced, ambiguous, and binding-mismatch fail-closed canaries |
 | Cluster cleanup preserves authentication authority until explicit logout | Down/purge tests proving vault and root-key preservation plus exact logout/revocation tests |
 | Doctor observes but never repairs authentication state | Fixed-DAG dependency fixtures, recording-runner Docker-argv allowlists, fresh/unsupported-tree content snapshots, and filesystem canaries for provider, root-key, vault, broker, and project-binding diagnostics |
 | Only owned Docker resources are removed | Label validation and fake-runner tests |

@@ -4,23 +4,38 @@ This document defines Tobari's reviewed authentication boundary. ADR 0031
 supersedes ADR 0030 only for provider removal and static-only authentication;
 managed profiles remain retired.
 
-## Two explicit ownership models
+## Broker-first ownership model
 
-Workspace-owned authentication is the universal default. A tool may run its
-own login inside one Workspace and persist its files below that Workspace's
-writable home. Tobari does not inherit host credentials, mount a host CLI home,
-or claim that tool-owned credentials stay outside the Workspace. Network
-authority remains separately controlled by Gateway and OPA.
+Every exact provider binding in Tobari's normalized projection is
+Broker-required. At that binding a Workspace may present only its current
+project-bound Tobari handle. A real token, session credential, or direct AWS
+signature fails before OPA as `broker_auth_required`; policy cannot convert it
+into a valid credential route.
 
-The optional brokered route keeps one typed static or reviewed renewable
+The brokered route keeps one typed static or reviewed renewable
 credential record in an encrypted Context vault. A Workspace receives only a
 random opaque handle bound to the stable Context, project, provider,
 credential revision, and exact HTTPS header/signing plan. Gateway performs
 exactly one plan-owned static resolution, token selection/refresh, or bounded
 AWS SigV4 result only after OPA allows the ordinary HTTP effect.
 
+Workspace-owned authentication remains a compatibility path only for requests
+that match no declared provider binding. A tool may then run its own login or
+receive a credential through its Workspace environment/files. That real
+credential is available to every process in the Workspace and is forwarded
+only after OPA allow. Tobari does not inherit host credentials or mount a host
+CLI home, but it also does not claim that this compatibility credential stays
+outside the Workspace.
+
 Brokered acquisition or import never grants network permission and never
 creates a policy rule.
+
+Acquisition and runtime application are separate trust boundaries. Reviewed
+host drivers acquire Context-owned state with fixed provider-specific flows;
+Gateway later owns the exact request binding. Blocking a partial list of token
+or browser endpoints cannot enforce Broker use because an already acquired
+credential can be injected. Tobari therefore enforces handle-only runtime
+bindings and does not infer authentication from a command or process name.
 
 ## Supported surface
 
@@ -77,7 +92,11 @@ intent, and mutation validation happen before the read; the selected existing
 Context, installed static provider, and ready Broker are validated before the
 secret is sent.
 
-`auth status` is read-only. `auth logout PROVIDER` removes one local
+`auth status` is read-only and reports `declared_bindings: broker_required`
+and `undeclared_bindings: workspace_owned_compatibility` beside Broker,
+provider, and Workspace activation state. `context show` reports the same
+routing contract in its authentication section and points to `auth status` for
+per-Workspace re-entry guidance. `auth logout PROVIDER` removes one local
 Context/provider record and revokes all associated handles without claiming
 remote provider revocation. Login and import replace the prior record and
 rotate every associated handle. Running Workspaces are not rewritten; they
@@ -88,6 +107,21 @@ adapters, provider-defined routes, multiple accounts, and compatibility
 readers remain unsupported. The dynamic records, refresh, signing,
 supplemental header, companion, compiled provider drivers, provider selector, and
 AWS method selector exist only in the closed reviewed built-in union above.
+
+## Runtime credential classes
+
+All declared bindings are Broker-required, but their post-policy behavior is
+not interchangeable:
+
+| Class | Providers | Broker-held state | Post-allow use | Expiry and recovery |
+|---|---|---|---|---|
+| Static replacement | GitHub, Anthropic, Chatwork, owner static providers | Primary secret | Replace one exact header once | Broker cannot refresh; replace with `auth login`/`auth import` when invalid |
+| Renewable session | Datadog, OpenAI | OAuth session state | Select a valid bearer value or refresh at one fixed endpoint, persist the new state, then apply it | Broker refreshes when possible; an invalid grant or durable unknown outcome requires trusted-host reconciliation and usually re-login |
+| Request signing | AWS | Reviewed login/session state | Obtain bounded temporary credentials and sign the exact already-authorized request | Broker/companion renew temporary state; unknown dispatch outcome is not replayed automatically |
+
+These classes describe runtime use, not acquisition. `builtin_helper` and
+`stdin_import` describe how state enters the Broker; they do not say whether
+that state is static, renewable, or request-signing.
 
 ## Static provider manifests
 
@@ -150,31 +184,38 @@ Gateway enforces this exact order:
 
 1. Derive stable Context/project authority from the kernel-observed source
    endpoint and owner-only principal registry.
-2. Reject every malformed, misplaced, ambiguous, copied, stale, revoked, or
+2. Match the normalized request against the host-owned declared header and
+   signing bindings. At a declared binding, reject a real Workspace credential
+   as non-learnable `broker_auth_required` before OPA or external I/O.
+3. Reject every malformed, misplaced, ambiguous, copied, stale, revoked, or
    binding-mismatched Tobari-looking handle marker.
-3. Remove one recognized handle and ask Broker for non-secret introspection of
+4. Remove one recognized handle and ask Broker for non-secret introspection of
    the full Context/project/provider/revision/target/header binding.
-4. Redact client authentication and control headers from OPA input and send the
+5. Only when no declared binding and no Tobari-looking marker matches, select
+   Workspace-owned compatibility passthrough.
+6. Redact client authentication and control headers from OPA input and send the
    ordinary normalized HTTP effect to OPA.
-5. On deny, stop with zero static resolution, refresh, companion call, signing,
+7. On deny, stop with zero static resolution, refresh, companion call, signing,
    external DNS, or upstream call.
-6. On a static allow, resolve the same revision exactly once and replace only
+8. On a static allow, resolve the same revision exactly once and replace only
    the declared destination header.
-7. On Datadog/OpenAI allow, select or refresh the same record once and apply
+9. On Datadog/OpenAI allow, select or refresh the same record once and apply
    only the reviewed bearer/supplemental-header result.
-8. On AWS allow, retain the complete request within 8 MiB, obtain one
+10. On AWS allow, retain the complete request within 8 MiB, obtain one
    same-revision companion export, sign locally, and apply only those headers.
-9. Make one upstream attempt. Gateway and Broker never replay the application
+11. Make one upstream attempt. Gateway and Broker never replay the application
    request.
 
-Passthrough applies only when no Tobari-looking marker exists. An invalid
-marker never falls back or reaches upstream. Gateway never searches request
-bodies for handles and never retries.
+Compatibility passthrough applies only when no declared binding and no
+Tobari-looking marker exists. An invalid marker never falls back or reaches
+upstream. Gateway never searches request bodies for handles and never retries.
 
 Opaque handles persist only inside authenticated vault ciphertext; the live
-lookup uses SHA-256 hashes. A Workspace can copy its own handle as arbitrary
-payload, but that creates no Broker authority. The real primary secret never
-enters Workspace state, OPA input, audit, denial evidence, CLI output, or logs.
+lookup uses SHA-256 hashes. A handle is not the primary secret, but it is a
+scoped bearer capability and should not be published or logged. Copying it to a
+different Workspace or binding does not create Broker authority. For declared
+bindings, the real primary secret never enters Workspace state, OPA input,
+audit, denial evidence, CLI output, or logs.
 
 ## Failure and recovery
 
@@ -186,6 +227,11 @@ an unclassified result preserves the standard non-retryable reconciliation
 contract: run `auth status` before attempting another mutation. Successful
 login/import/logout output is finalized before late cancellation can imply
 that replay is safe.
+
+A real credential at a declared binding fails as `broker_auth_required`.
+Running policy review cannot recover it. Inspect `auth status`, configure the
+provider with its reviewed `auth login` or protected `auth import` route, and
+re-enter an affected Workspace when its handle projection is missing or stale.
 
 If an AWS companion operation or Datadog refresh may have been dispatched but
 its result is unknown, Gateway returns non-retryable

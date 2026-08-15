@@ -54,8 +54,8 @@ bindings stop here, before OPA.
 
 The selected credential route prepares the request before policy:
 
-- **tool-native passthrough:** credential and cookie values are excluded from OPA input but retained for possible forwarding after allow;
-- **Auth Broker:** an exactly recognized handle is removed from the forwardable request and introspected for non-secret binding metadata.
+- **Workspace-owned compatibility:** only for an undeclared binding, credential and cookie values are excluded from OPA input but retained for possible forwarding after allow;
+- **Auth Broker:** a declared binding rejects a real Workspace credential as `broker_auth_required`; an exactly recognized handle is removed from the forwardable request and introspected for non-secret binding metadata.
 
 An invalid Tobari-looking handle fails here. It does not become passthrough traffic.
 
@@ -95,7 +95,7 @@ Only after allow may Gateway:
 4. pin the selected address so a later DNS answer cannot change the connection; and
 5. create one upstream connection and forward the authorized request.
 
-For ordinary passthrough, static-header Broker, Datadog, and OpenAI requests,
+For undeclared compatibility passthrough, static-header Broker, Datadog, and OpenAI requests,
 the body streams after allow. AWS SigV4 is the reviewed exception: Gateway
 retains the complete authorized request within 8 MiB, Broker obtains one
 private companion export and signs locally, and Gateway sends it once.

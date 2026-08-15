@@ -13,8 +13,8 @@ transcripts as repository fixtures.
 | Enter bounded work | `cluster up`, then `tobari [--context NAME]` | One selected live source bind, writable home/tmpfs, guarded network, reusable Workspace, and no direct egress |
 | Grow exact permission | `policy review`, or `policy candidates` then one exact allow/deny | Terminal guardrail precedes every candidate; explicit review activates only exact Context/project/scheme/host/port/method/path authority |
 | Inspect/reset decisions | `policy rules`, then `policy reset --id` | One current exact decision is removed through its unchanged opaque reference and returns to default deny |
-| Use Workspace-owned auth | Tool login inside the Workspace | Credential state remains inside that Workspace home and receives no network grant |
-| Use brokered auth | `auth login [--provider github|aws|datadog|openai|anthropic] [--method identity-center|console]` or `auth import PROVIDER`; `auth status`; `auth logout` | Workspace receives only a project-bound handle; OPA deny performs no secret-bearing plan action; allow applies one same-revision reviewed result |
+| Use unsupported Workspace-owned auth | Tool login or environment/file injection inside the Workspace for an undeclared binding | Credential state is readable by processes in that Workspace, receives no network grant, and is explicitly a compatibility path |
+| Use Broker-required auth | `auth login [--provider github|aws|datadog|openai|anthropic] [--method identity-center|console]` or `auth import PROVIDER`; `auth status`; `auth logout` | A declared binding accepts only a project-bound handle; a real Workspace credential fails before OPA; OPA deny performs no secret-bearing plan action; allow applies one same-revision reviewed result |
 
 Routine success must require zero undeclared external-processing steps. Reading
 a declared JSON/TSV field is consumption; a custom join/parser, provider-
@@ -125,6 +125,9 @@ fixtures, and secret canaries. It proves:
   digest checks, private homes/PTY where declared, bounded browser targets, and
   checked cleanup;
 - per-project handles bound to Context/provider/revision/target/header;
+- direct bearer/raw credentials and direct AWS signatures at declared bindings
+  fail as `broker_auth_required` with zero fallback, Broker, OPA, DNS, or
+  upstream calls, while one undeclared binding retains compatibility passthrough;
 - non-secret introspection before OPA; zero static resolution, refresh,
   companion call, or signing on deny; one same-revision reviewed action and
   one upstream attempt on allow;
@@ -140,7 +143,8 @@ fixtures, and secret canaries. It proves:
 
 Owner manifests are strict static data and cannot select a helper or policy.
 Owner manifests cannot select a reviewed dynamic plan. Tools without a
-supported pairing remain Workspace-owned authentication.
+supported binding remain Workspace-owned compatibility authentication; adding
+an exact static owner binding makes that request shape Broker-required.
 
 ## Manual reviewed-provider acquisition
 

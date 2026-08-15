@@ -240,9 +240,10 @@ Provider、Workspace client Tool、取得方式、handle projection、完全一�
 
 ### ツール固有のパススルー（tool-native passthrough）
 
-ツールが自身の永続 Workspace ホーム内でログインする、どのツールでも使えるデフォルト
-方式です。Gateway は OPA 入力と監査記録から認証情報と cookie の値を除き、ポリシー
-許可後にだけ値を変えず転送します。Workspace は、このツール管理の秘密情報を読めます。
+宣言済みの provider binding に一致しない request のための、Workspace 所有の互換経路です。
+ツールは自身の永続 Workspace ホーム内でログインします。Gateway は OPA 入力と監査記録から
+認証情報と cookie の値を除き、ポリシー許可後にだけ値を変えず転送します。Workspace は、
+このツール管理の秘密情報を読めます。宣言済み binding では `broker_auth_required` で拒否します。
 
 ### Auth Broker
 

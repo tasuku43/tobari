@@ -592,13 +592,16 @@ The test suite has complementary levels:
   in next-entry work-container reconciliation without deleting the Workspace
   home. Logout tests prove immediate revocation and next-entry environment/file
   removal; down and purge tests prove vault/root-key preservation.
-- Brokered Gateway tests prove exact target/header recognition, handle removal
+- Brokered Gateway tests prove broker-required declared header/signing
+  bindings, zero-call direct-credential rejection, undeclared-binding
+  compatibility passthrough, exact target/header recognition, handle removal
   before OPA, schema-1 provider metadata, zero resolve calls on deny, one
   same-revision resolve after allow, exact destination replacement, secret
   redaction, query/header omission and whole-path handle redaction in audit,
   copied/stale/malformed/misplaced/ambiguous/mismatched handle rejection,
   non-learnable structural denials, broker-unavailable failure, and fallback
-  only when every inspected URL/header position contains no Tobari marker.
+  only when no declared binding and no inspected URL/header position contains a
+  Tobari marker.
   Dynamic cases prove zero refresh/companion/signing on deny, exact
   same-revision results after allow, and non-retryable unknown outcomes.
   Negative cases reject managed-profile and arbitrary-plan markers before OPA.
@@ -771,7 +774,8 @@ Every strong statement should identify its enforcement path.
 | Every declared read remains observational | Dynamic public-catalog handler coverage, per-command fresh-XDG before/after snapshots, zero Docker-mutation argv, lockless fresh lifecycle reads, read-only/concurrent fixtures, unsupported-version fail-closed state, and bounded cleanup of only a pre-existing validated journal |
 | Project-bound broker handles | Full Context/project/provider/revision/target/header round trips, hash-only live index assertions, copied/stale/rotated/revoked negative tests, exact Context-wide eligibility and next-entry semantics, and Workspace projection reconciliation |
 | Agent OAuth acquisition and pinned projections | Multi-version host Codex tests require one exact compiled driver-contract revision, fixed argv/environment, canonical executable digest, and strict captured state while treating stable product version as audit metadata; exact-key/byte tests independently fix the Codex 0.146.0 Workspace `.codex/auth.json` sentinel shim with only `${HANDLE}` as `tokens.access_token`, direct synthetic Gateway bearer/account-header checks, Claude `CLAUDE_CODE_OAUTH_TOKEN=${HANDLE}`-only environment checks, API-key/auth-token absence, modified/symlinked-file refusal, and Workspace-client drift rejection; an isolated network-disabled client observation records login-status and verbatim-handle behavior but remains a required manual release replay rather than an automated artifact claim |
-| Broker fallback requires marker absence | URL/path/query/fragment/header-name/value marker canaries, malformed/ambiguous/binding-mismatch rejection, and passthrough tests with no marker anywhere inspected |
+| Declared provider bindings require Broker | Direct bearer/raw and AWS SigV4 canaries assert `broker_auth_required`, secret-header removal, and zero fallback/Broker/OPA/DNS/upstream calls; one undeclared-binding canary retains post-policy compatibility passthrough |
+| Broker fallback requires an undeclared binding and marker absence | URL/path/query/fragment/header-name/value marker canaries, malformed/ambiguous/binding-mismatch rejection, and compatibility passthrough tests with no declared binding or marker anywhere inspected |
 | Post-policy credential action | Gateway call-order/count tests for handle removal, introspect-before-OPA, zero resolve/refresh/companion/signing on deny, one same-revision reviewed action after allow, exact header replacement/signing, and no-secret canaries |
 | Closed broker plan boundary | Exact static and dynamic record schemas, immutable renewable-adapter, request-signing-mechanics, persisted-record-contract, control-login-plan, and Gateway reviewed-profile membership; one strict versioned test-only capability fixture checked from Go and Python for built-in/acquisition/manifest/login/record/runtime/Gateway parity; adapter/plan/profile incapability tests, record/Vault import compatibility, shared Broker-owned login commit and snapshot/single-flight/barrier/CAS conformance, Context/project/provider/revision/HTTPS-header or signing introspection, bounded AWS/Datadog/OpenAI behavior, rotation/revocation, durable barriers, and no invalid-handle fallback |
 | Unsupported broker capabilities stay absent | Catalog, state-parser, dependency, image-content, and hostile-header tests reject managed profiles, owner-selected dynamic plans, arbitrary helpers, compatibility readers, and provider CLIs inside Broker |

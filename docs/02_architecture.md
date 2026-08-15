@@ -741,7 +741,10 @@ client request headers
      handle marker as credential_handle_invalid
   -> strictly recognize one valid broker handle from provider projection,
      remove it, and introspect its full non-secret binding
-  -> only when no Tobari handle marker exists, select ordinary passthrough
+  -> at a declared header or AWS signing binding, reject any real Workspace
+     credential as broker_auth_required before OPA or external I/O
+  -> only when no declared binding and no Tobari handle marker exists, select
+     Workspace-owned compatibility passthrough
   -> redact client authentication and cookie headers for OPA input
   -> classify only trusted Context-declared exact GraphQL endpoints
   -> for ordinary HTTP, normalize body-free OPA input at the header hook
@@ -760,8 +763,8 @@ client request headers
      apply only its reviewed bearer/supplemental-header result
   -> on an AWS allow, retain the authorized request within 8 MiB, obtain one
      private companion export, sign locally, and apply only those headers
-  -> otherwise strip control headers and forward client authentication only
-     after allow
+  -> for the undeclared compatibility route, strip control headers and forward
+     client authentication only after allow
   -> enable ordinary request-body streaming; forward an allowed buffered
      GraphQL or signed AWS body once
   -> resolve and pin the upstream address; reject unsafe dotted-host results

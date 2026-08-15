@@ -40,8 +40,8 @@ Gateway は、カーネルが観測した Workspace の送信元エンドポイ�
 
 選択した認証方式に応じて、Gateway はポリシー判断の前にリクエストを準備します。
 
-- **ツール自身で管理（そのまま転送）:** 認証情報と Cookie の値を OPA 入力から除外し、許可後に転送できるよう保持します。
-- **Auth Broker:** 完全に認識できたハンドルを、転送対象のリクエストから削除します。その後、秘密情報を含まない結び付き情報を照合します。
+- **Workspace 所有の互換経路:** 宣言済み binding がない場合だけ、認証情報と Cookie の値を OPA 入力から除外し、許可後に転送できるよう保持します。
+- **Auth Broker:** 宣言済み binding の Workspace 実認証情報は `broker_auth_required` で拒否します。完全に認識できたハンドルは転送対象のリクエストから削除し、その後、秘密情報を含まない結び付き情報を照合します。
 
 Tobari 形式に見える不正なハンドルはここで失敗し、そのまま転送する方式には切り替わりません。
 
@@ -80,7 +80,7 @@ OPA が判断し、Gateway がその判断を通信経路へ強制します。
 4. 選択したアドレスを固定し、後の DNS 応答で接続先が変わらないようにする
 5. 接続先への接続を一つ作り、許可済みリクエストを転送する
 
-通常の passthrough と static-header Broker request は allow 後に body を stream します。static
+未宣言 binding の互換 passthrough と static-header Broker request は allow 後に body を stream します。static
 Broker resolution は manifest が宣言した header だけを、この request に対して置換します。
 
 アプリケーションリクエストの自動再試行はありません。リダイレクトは新しいリクエストとなり、再びポリシー判断を通ります。

@@ -22,8 +22,12 @@ release; immutable Gateway/Auth Broker image indexes are not yet published.
   raw path. A declared GraphQL endpoint adds operation type and root field.
 - A preset guardrail is an immutable ceiling above baseline data, learned
   policy, and Advanced Rego.
-- Tool-native login inside a Workspace is explicitly Workspace-owned.
-- Optional brokered authentication keeps a static primary secret in an
+- Every declared provider binding is Broker-required: a real Workspace
+  credential is rejected before policy, and only a project-bound handle is
+  accepted.
+- Tool-native login inside a Workspace remains explicitly Workspace-owned only
+  as compatibility for undeclared provider bindings.
+- Brokered authentication keeps static, renewable, or signing state in an
   encrypted Context vault and gives each Workspace only a project-bound handle.
 
 Tobari does not claim filesystem integrity for a read-write source or for
@@ -186,16 +190,24 @@ Tobari-owned router.
 
 ## Authentication
 
-### Workspace-owned
+### Broker-first routing
 
-The universal path is to run the tool's own login inside its Workspace. The
-files persist below that Workspace home and are available to every process in
-that Workspace. Tobari does not call them host-managed or outside the
-Workspace. Their network effects still require Gateway/OPA allow.
+For every exact provider binding Tobari declares, the Workspace must use its
+project-bound handle. A real token, session credential, or direct AWS signature
+at that binding is rejected as `broker_auth_required` before OPA or upstream
+I/O. Broker login still grants no network permission; Gateway/OPA authorize the
+ordinary HTTP effect separately.
 
-```sh
-gh auth login          # example of Workspace-owned tool login
-```
+Workspace-owned login or environment/file injection remains a compatibility
+path only for a request that matches no declared provider binding. Its files
+persist below that Workspace home and are available to every process in the
+Workspace. This path is useful for an unsupported provider, but it does not
+have the Broker's primary-secret isolation, rotation, or refresh/signing
+boundary.
+
+For an unsupported provider, use that tool's own login or credential injection
+only with the understanding that the credential is Workspace-readable and the
+compatibility route disappears if Tobari later declares the exact binding.
 
 ### Brokered reviewed providers
 
@@ -250,6 +262,14 @@ signing is not replayed automatically. Anthropic, GitHub, Chatwork, and owner
 plans remain static. Invalid, copied, stale, ambiguous, or mismatched handles
 fail without fallback. Managed Gateway profiles and arbitrary executable
 adapters remain unsupported.
+
+Acquisition and runtime use are separate boundaries. The reviewed host driver
+may run `gh`, `aws`, `pup`, Codex, or Claude to acquire Context-owned state;
+Gateway later accepts only a handle at that provider's declared request
+binding. Denying a few token endpoints alone would not enforce this boundary,
+because an already acquired token could still be injected into a Workspace.
+Tobari therefore enforces the exact runtime binding. It does not infer login
+intent from a command or process name.
 
 ## Runtime customization
 

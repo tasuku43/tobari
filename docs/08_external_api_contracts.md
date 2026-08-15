@@ -48,26 +48,31 @@ projection.
 
 Gateway follows one sequence:
 
-1. Reject malformed, misplaced, ambiguous, stale, copied, or binding-mismatched
+1. Match the request against the host-owned declared provider bindings. Reject
+   a real Workspace credential at a declared header or AWS signing binding as
+   non-learnable `broker_auth_required` before OPA or external I/O.
+2. Reject malformed, misplaced, ambiguous, stale, copied, or binding-mismatched
    Tobari-looking handle markers.
-2. Remove one recognized handle and request non-secret Broker introspection of
+3. Remove one recognized handle and request non-secret Broker introspection of
    Context, project, provider, revision, target, source header, and format.
-3. Send only normalized request identity and non-secret provider identity to
+4. Only for an undeclared binding with no marker, select Workspace-owned
+   compatibility passthrough.
+5. Send only normalized request identity and non-secret provider identity to
    OPA.
-4. On deny, stop with zero resolution, refresh, companion call, signing, or
+6. On deny, stop with zero resolution, refresh, companion call, signing, or
    upstream call.
-5. On static allow, resolve the same revision once and replace only the
+7. On static allow, resolve the same revision once and replace only the
    declared header.
-6. On Datadog/OpenAI allow, select or refresh the same record once and apply
+8. On Datadog/OpenAI allow, select or refresh the same record once and apply
    only the reviewed bearer/supplemental-header result.
-7. On AWS allow, retain at most 8 MiB, obtain one private companion export,
+9. On AWS allow, retain at most 8 MiB, obtain one private companion export,
    sign that exact authorized request locally, and apply only those headers.
-8. Make one upstream attempt without application replay.
+10. Make one upstream attempt without application replay.
 
-Passthrough applies only when no Tobari-looking marker exists. No malformed or
-stale handle is forwarded or accepted by fallback. Secret values, raw handles,
-credential revisions, queries, headers, and bodies are absent from OPA audit
-and denial output.
+Compatibility passthrough applies only when no declared binding and no
+Tobari-looking marker exists. No malformed or stale handle is forwarded or
+accepted by fallback. Secret values, raw handles, credential revisions,
+queries, headers, and bodies are absent from OPA audit and denial output.
 
 Managed adapters/profiles remain absent. Dynamic records, refresh, task
 barriers, signing, supplemental headers, the credential companion, and exact-
@@ -113,7 +118,8 @@ state and revokes handles without claiming provider-side revocation.
 
 OPA or Gateway uncertainty denies. Invalid handles return
 `credential_handle_invalid`; locked or unavailable Broker state returns
-`credential_broker_unavailable`. Neither permits fallback. Auth mutation
+`credential_broker_unavailable`; a real credential at a declared binding
+returns `broker_auth_required`. None permits fallback. Auth mutation
 uncertainty uses `auth status` reconciliation before another mutation.
 
 Automated tests use synthetic secrets and provider state, fake fixed-driver

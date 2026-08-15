@@ -5,7 +5,7 @@
 - Deciders: Tobari maintainers
 - Scope: Product, architecture, and security
 - Supersedes: [ADR 0003: Inject credentials after authorization](0003-inject-credentials-after-authorization.md)
-- Superseded by: None
+- Superseded by: [ADR 0035: Require the Auth Broker for declared provider bindings](0035-require-broker-for-declared-bindings.md)
 
 ## Context
 

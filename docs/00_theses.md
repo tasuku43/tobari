@@ -203,14 +203,17 @@ disabled, so neither path is direct egress.
 
 ## Thesis 3: Brokered authentication is closed, post-policy, and project-bound
 
-Tobari does not inherit host authentication material. Workspace-owned
-tool-native login inside one Tobari home remains the universal default. The
-optional supported Auth Broker route stores one Context-owned credential or
+Tobari does not inherit host authentication material. Every exact provider
+binding Tobari declares is Broker-required: a Workspace may use only its
+project-bound handle, never a real Workspace-owned credential, at that binding.
+The supported Auth Broker route stores one Context-owned credential or
 renewable provider session in an authenticated encrypted vault. Each eligible
 Workspace receives only a distinct random handle or handle-only client shim
 bound to its stable Context, project, provider, credential revision, and exact
 HTTP binding. Gateway resolves, refreshes, or signs through one closed reviewed
-provider plan only after OPA allows the ordinary HTTP effect.
+provider plan only after OPA allows the ordinary HTTP effect. Workspace-owned
+authentication remains an explicit compatibility path only where no declared
+provider binding matches.
 
 ### Consequences
 
@@ -223,10 +226,11 @@ provider plan only after OPA allows the ordinary HTTP effect.
   Tobari by design, survives runtime-container recreation, and is removed by
   the explicit Tobari delete operation.
 - Client authentication and cookie values are redacted from OPA input, Gateway
-  audit, denial projections, and CLI output. After policy allow, the selected
-  passthrough route forwards Workspace-owned authentication or the broker route
-  performs one exact replacement; proxy and Tobari control headers are not
-  forwarded upstream.
+  audit, denial projections, and CLI output. A declared binding rejects a real
+  Workspace credential before OPA as non-learnable `broker_auth_required`; a
+  valid handle selects the broker route and one exact post-allow action. Only an
+  undeclared binding may select Workspace-owned compatibility passthrough after
+  policy allow. Proxy and Tobari control headers are not forwarded upstream.
 - One shared Auth Broker joins the internal control network and a provider
   egress path limited to compiled reviewed refresh plans, never a Workspace
   network. Workspaces and
@@ -260,6 +264,10 @@ provider plan only after OPA allows the ordinary HTTP effect.
   closed and is never forwarded upstream. Login and logout rotate or revoke
   every associated project handle; existing sessions receive a concrete
   re-entry action because their environment cannot change retroactively.
+- A handle is not the primary credential, but it is a scoped bearer capability:
+  copying it does not broaden its Context/project/binding authority, and users
+  should not publish or log it. A real credential at a declared header or AWS
+  signing binding fails before OPA, broker resolution, DNS, or upstream I/O.
 - Brokered login does not grant network authority. OPA remains the sole
   authority for Context, project, scheme, host, port, method, and path. A
   brokered request does not inherit a broad static host/method allow; its first
@@ -275,8 +283,9 @@ provider plan only after OPA allows the ordinary HTTP effect.
 ### Mechanical enforcement
 
 - Runtime mount tests reject host-home and managed-secret mounts. Gateway tests
-  use canary secrets to prove redaction, deny-before-resolution, exact
-  replacement, and client-header forwarding only after allow.
+  use canary secrets to prove redaction, broker-required declared bindings,
+  zero-I/O direct-credential rejection, deny-before-resolution, exact
+  replacement, and compatibility client-header forwarding only after allow.
 - Integration tests prove one Tobari's tool-owned state persists through runtime
   recovery, is unavailable to another Tobari, and is removed by exact delete.
   Broker tests prove encrypted Context ownership, project-specific handles,
@@ -626,9 +635,10 @@ changing it cannot retarget or mutate existing Tobari or shared enforcement.
 Tool-native authentication state remains below each Workspace home and is not a
 Context secret. A brokered credential is owned once by the stable Context and
 enables every permanently bound Workspace to receive a different project-bound
-handle on its next reconciliation. The default passthrough adapter remains the
-universal path for tools that own their login flow; neither a provider name nor
-a handle selects authority without the trusted principal and OPA allow.
+handle on its next reconciliation. A declared provider binding is handle-only;
+Workspace-owned passthrough remains only for undeclared bindings. Neither a
+provider name nor a handle selects authority without the trusted principal and
+OPA allow.
 
 ### Consequences
 

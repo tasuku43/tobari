@@ -248,10 +248,11 @@ set; owner providers use strict stdin import and static projection.
 
 ### tool-native passthrough
 
-The universal default in which a tool logs in inside its own persistent
-Workspace home. Gateway removes authentication and cookie values from OPA
-input and audit, then forwards them unchanged only after policy allow. The
-Workspace can read these tool-owned secrets.
+The Workspace-owned compatibility route for a request that matches no declared
+provider binding. A tool logs in inside its persistent Workspace home; Gateway
+removes authentication and cookie values from OPA input and audit, then
+forwards them unchanged only after policy allow. The Workspace can read these
+tool-owned secrets. A declared binding rejects them as `broker_auth_required`.
 
 ### Auth Broker
 
