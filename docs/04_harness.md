@@ -131,6 +131,15 @@ exact OSC 8 line and no-newline paste prompt across writes. Tests prove that
 the prompt is visible before flush, successful host opening omits the long URL,
 failed opening retains it exactly once, the child owns non-echoing input,
 later provider failure/status remains visible, and owned color is optional.
+The fixture also proves Claude cursor state is not rendered as escaped text and
+ends with exactly one Tobari-owned cursor-show. Native-state tests accept
+provider-owned additive metadata only at capture, prove it is absent from the
+canonical Broker record, and continue to reject duplicate keys, missing core
+values, malformed or duplicate scope tokens, grants outside the observed
+request, refresh scope drift, and executable-identity drift while accepting
+unknown future scope names and canonicalizing scope order. Progress tests prove fixed CRLF-framed secret-free
+pre-prompt guidance and post-exit validation feedback, and prove the exact
+input reader reaches the Docker runner unchanged.
 Container argv tests require the fixed non-Workspace PID 1 and reject accidental
 dependence on the CA-waiting Workspace entrypoint. Separate
 byte-level tests reject bare LF in fixed or pass-through Claude output while
@@ -449,7 +458,8 @@ The test suite has complementary levels:
   semantic-token presentation declaration. The
   Workspace selector tests cover the dependency-free raw key state machine,
   bounded scrolling, no redraw during repeated idle VTIME polls, exactly-once
-  terminal restoration, English status rendering, and ANSI-free numbered-input
+  alternate-screen restoration, wrap-independent home-and-clear repaint with
+  no logical-row cursor movement, English status rendering, and ANSI-free numbered-input
   fallback. Catalog routing tests cover bare canonical namespace help plus no
   more than three deterministic, exact-selector typo suggestions. Interactive
   entry tests preserve the
@@ -654,7 +664,8 @@ The test suite has complementary levels:
   Apply, and pre-Apply discard. PTY tests prove
   action keys are ineffective on the list, several same-Context detail choices
   produce exactly one activation without a second yes/no prompt, a Context
-  switch requires Apply or discard, and cancellation delegates nothing. Its
+  switch requires Apply or discard, a narrow terminal with wrapping rows
+  remains one alternate-screen frame, and cancellation delegates nothing. Its
   presentation tests group by stable Context/project IDs, keep same-label
   different-ID scopes separate, preserve selection and staged order by
   candidate ID across refresh/reorder, remove stale choices without transfer,
@@ -765,7 +776,7 @@ Every strong statement should identify its enforcement path.
 | Build and resolver identity | Pure identity validation, exact version text/JSON tests, standard/dev build-tag resolver fixtures, artifact metadata inspection, and a zero-progress/zero-Docker API-mismatch preflight test |
 | Finite domain state | Types, constructors, and table-driven negative tests |
 | Catalog completeness | Whole-catalog contract tests |
-| Semantic terminal presentation | Ledger-pinned typed fixture and answer key across colored TTY, `NO_COLOR` TTY, redirected text, scoped empty, warning, failure, and neutral pre-action cancellation; exact six-token rendering tests; catalog-wide text-presentation declarations; idle-selector redraw/restoration tests; bounded catalog-derived namespace/suggestion tests; and AST lint that rejects style-dependent structure or direct ANSI SGR outside the shared style layer |
+| Semantic terminal presentation | Ledger-pinned typed fixture and answer key across colored TTY, `NO_COLOR` TTY, redirected text, scoped empty, warning, failure, and neutral pre-action cancellation; exact six-token rendering tests; catalog-wide text-presentation declarations; idle-selector redraw/restoration plus narrow-terminal wrap-independent alternate-screen tests; bounded catalog-derived namespace/suggestion tests; and AST lint that rejects style-dependent structure or direct ANSI SGR outside the shared style layer |
 | Output delivery versus collection coverage | Independent finite enums and catalog tests, including complete bounded/differential windows and paged exhaustive traversal |
 | Operationally closed supported outcome | Reviewed agent-readiness transcript with zero undeclared external reconstruction, plus task-owned deterministic-composition tests and declared field extraction |
 | Request-bound semantic result | Per-capability domain/application tests for declared task identity and every applicable request dimension, including scope, state, contextual-kind, empty-result, no-partial-result, and negative-inference fixtures where applicable |
@@ -795,7 +806,7 @@ Every strong statement should identify its enforcement path.
 | Doctor remains observational | Fixed dependency-matrix, direct-blocker, complete-report, schema-1 renderer/agent-contract, fail/warn exit, cancellation, Docker-argv allowlist, host-only policy-source validation, content-aware fresh/unsupported-version snapshots, and zero-create/zero-repair canaries across root-key, vault, provider, broker, and project-auth state |
 | Every declared read remains observational | Dynamic public-catalog handler coverage, per-command fresh-XDG before/after snapshots, zero Docker-mutation argv, lockless fresh lifecycle reads, read-only/concurrent fixtures, unsupported-version fail-closed state, and bounded cleanup of only a pre-existing validated journal |
 | Project-bound broker handles | Full Context/project/provider/revision/target/header round trips, hash-only live index assertions, copied/stale/rotated/revoked negative tests, exact Context-wide eligibility and next-entry semantics, and Workspace projection reconciliation |
-| Agent OAuth acquisition and pinned projections | Multi-version host Codex tests require one exact compiled driver-contract revision, fixed argv/environment, canonical executable digest, and strict captured state while treating stable product version as audit metadata; exact-key/byte tests independently fix the Codex 0.146.0 Workspace `.codex/auth.json` sentinel shim with only `${HANDLE}` as `tokens.access_token`; Claude tests fix exact 2.1.220 selected-image login, host-side executable hashing, no-mount container isolation, native state/refresh, and `.claude/.credentials.json` with only `${HANDLE}` as `claudeAiOauth.accessToken`; direct synthetic Gateway bearer/account-header checks, API-key/auth-token absence, modified/symlinked-file refusal, and Workspace-client drift rejection remain required |
+| Agent OAuth acquisition and pinned projections | Multi-version host Codex tests require one exact compiled driver-contract revision, fixed argv/environment, canonical executable digest, and strict captured state while treating stable product version as audit metadata; exact-key/byte tests independently fix the Codex 0.146.0 Workspace `.codex/auth.json` sentinel shim with only `${HANDLE}` as `tokens.access_token`; Claude tests fix exact 2.1.220 selected-image login, host-side executable hashing, no-mount container isolation, four-field native extraction with dynamic bounded scope-token validation, granted-subset enforcement, canonical normalization into a Tobari-owned record, secret-free capture-stage faults, fixed progress transitions, fixed-client refresh that preserves the stored set, and a minimal `.claude/.credentials.json` whose only secret-bearing value is `${HANDLE}` at `claudeAiOauth.accessToken` and whose non-secret scopes reproduce that set; direct synthetic Gateway bearer/account-header checks, API-key/auth-token absence, modified/symlinked-file refusal, and Workspace-client drift rejection remain required |
 | Declared provider bindings require Broker | Direct bearer/raw and AWS SigV4 canaries assert `broker_auth_required`, secret-header removal, and zero fallback/Broker/OPA/DNS/upstream calls; one undeclared-binding canary retains post-policy compatibility passthrough |
 | Broker fallback requires an undeclared binding and marker absence | URL/path/query/fragment/header-name/value marker canaries, malformed/ambiguous/binding-mismatch rejection, and compatibility passthrough tests with no declared binding or marker anywhere inspected |
 | Post-policy credential action | Gateway call-order/count tests for handle removal, introspect-before-OPA, zero resolve/refresh/companion/signing on deny, one same-revision reviewed action after allow, exact header replacement/signing, and no-secret canaries |

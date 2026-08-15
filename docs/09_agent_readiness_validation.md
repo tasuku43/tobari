@@ -136,7 +136,10 @@ fixtures, and secret canaries. It proves:
   one upstream attempt on allow;
 - bounded AWS SigV4 and private companion behavior, fixed
   Datadog/OpenAI/Anthropic refresh transports, OpenAI supplemental-header
-  ownership, Anthropic native session resolution/refresh, and durable
+  ownership, Anthropic four-field native extraction with dynamic bounded scope
+  validation, granted-subset enforcement, normalization, and secret-free
+  diagnostic stages into a strict Tobari-owned session, fixed-client
+  resolution/refresh preserving the stored scope set, and durable
   unknown-outcome barriers;
 - rotation, logout, revocation, Workspace re-entry, and no invalid-handle
   passthrough fallback;

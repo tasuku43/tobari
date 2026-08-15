@@ -65,8 +65,17 @@ fixed `/usr/bin/tini -- /usr/bin/sleep infinity`; this keeps PID 1 alive for the
 bounded acquisition without weakening the mount-free boundary. All fixed and control-safe
 pass-through lines use explicit CRLF while the child owns the raw Docker TTY;
 they do not depend on terminal newline post-processing to return to column one.
-Tobari then captures only the
-strict Linux renewable state and removes the container before commit. Owner
+Exact cursor hide/show events are consumed and closed with one Tobari-owned
+cursor-show. The prompt includes fixed guidance that authorization may take a
+moment after Enter, and successful child exit produces a fixed progress
+transition before credential capture. The original terminal reader reaches
+Docker unchanged so the child retains TTY identity. Tobari then extracts
+only access token, refresh token, expiry, and the dynamically granted scope set
+from the Linux file. It structurally validates OAuth scope tokens, requires the
+grant to be a subset of the exact set observed in the authorization URL,
+normalizes that set to Tobari order, canonicalizes those values with the
+observed executable identity into its own V1 record, discards all provider-owned
+optional metadata, and removes the container before commit. Owner
 manifests remain static-only and cannot select these helpers or their dynamic
 plans. Managed stores remain absent.
 
@@ -390,6 +399,15 @@ framing; the mechanics object receives none of those authorities. Host
 acquisition likewise remains a distinct trusted-host boundary
 and shares only the existing strict credential-state envelope with Broker
 runtime resolution.
+
+The Anthropic envelope is deliberately not a copy of Claude's private file
+schema. The acquisition boundary depends on four exact required fields from the
+pinned executable, while Broker persists only a strict Tobari-owned record and
+supplies its reviewed fixed client ID during refresh. Additive or account-local
+Claude metadata cannot become durable state or widen Broker behavior. Scope
+names are deliberately absent from the compiled contract: Broker refresh uses
+the persisted canonical set and rejects a changed refresh response, while the
+same non-secret set is projected beside the Workspace handle.
 
 The persisted credential-record union is also separated from Vault storage
 authority. Closed record contracts own credential-kind membership, exact V1
@@ -762,10 +780,12 @@ Human text is built in three independent stages. Task-owned typed results first
 select a `humanOutput` document containing headings, rows, sections, empty-state
 scope/bounds, and exact recovery. The style projection may then add only the
 six semantic ANSI tokens; it cannot select, remove, reorder, or rename document
-content. The terminal interaction state machine independently owns cursor
-movement, redraw eligibility, and restoration. Its reader absorbs idle VTIME
-polls without returning a render event, while input, selection changes,
-completion, and cancellation remain observable state transitions. Catalog
+content. The terminal interaction state machine independently owns alternate-
+screen entry, home-and-clear repaint, redraw eligibility, and main-screen/
+cursor restoration. It never locates a prior frame by logical line count
+because one line may occupy multiple physical rows after terminal wrapping.
+Its reader absorbs idle VTIME polls without returning a render event, while
+input, selection changes, completion, and cancellation remain observable state transitions. Catalog
 selection supplies bare-namespace normalization and deterministic typo
 suggestions, so routing and recovery do not create a second command registry.
 

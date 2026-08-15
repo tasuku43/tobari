@@ -503,6 +503,10 @@ func TestInspectSourceRejectsCLIStyleBypass(t *testing.T) {
 const danger = "\x1b[1;31m"
 const formattedDanger = "\x1b[%dm"
 const cursor = "\x1b[2K"
+const eraseDisplay = "\x1b[2J"
+const cursorHome = "\x1b[H"
+const alternateScreenEnter = "\x1b[?1049h"
+const alternateScreenExit = "\x1b[?1049l"
 `)
 	got, err := inspectSourceFile("cli", bypass)
 	if err != nil {

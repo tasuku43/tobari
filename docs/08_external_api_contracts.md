@@ -107,10 +107,14 @@ Codex reset, muted, and accent SGR vocabulary; `NO_COLOR` strips those styles
 and unknown controls remain visibly projected. OpenAI
 refreshes only the same ChatGPT account record, returning
 its validated account ID for one supplemental header. Anthropic accepts only
-the strict native state emitted by exact Claude Code 2.1.220 in the selected
-Context image, selects an unexpired bearer or refreshes the same record through
-the fixed proxy-free, no-redirect platform endpoint, and exposes only a
-project-bound handle in the Workspace credential file.
+the four required renewable-session values extracted from exact Claude Code
+2.1.220 in the selected Context image, structurally validates the dynamic
+requested and granted scope sets, rejects grants outside the observed request,
+and canonicalizes their order without compiling provider scope names, discards other native-file metadata,
+stores a strict Tobari-owned record, selects an unexpired bearer or refreshes the same record through
+the fixed proxy-free, no-redirect platform endpoint without scope drift, and
+exposes only a project-bound handle plus the same non-secret scope set in the
+Workspace credential file.
 Chatwork is a static stdin-import binding. The OpenAI Broker client ID and
 refresh endpoint and the Workspace Codex handle projection remain separately
 fixed; host product version does not select either contract.

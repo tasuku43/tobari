@@ -232,22 +232,22 @@ func TestPolicyReviewSelectorDoesNotGroupMatchingDisplayLabelsAcrossTypedScopes(
 	}
 }
 
-func TestPolicyReviewSelectorFinishDoesNotLeaveClearedRowsBehind(t *testing.T) {
+func TestPolicyReviewSelectorFinishRestoresMainScreenWithoutLogicalRowMovement(t *testing.T) {
 	t.Parallel()
 	var reviewOutput, workspaceOutput bytes.Buffer
 
 	finishPolicyReviewSelector(&reviewOutput, 3)
 	finishWorkspaceSelector(&workspaceOutput, 3)
 
-	want := "\x1b[3A\r\x1b[J\x1b[?25h"
+	want := selectorAlternateScreenExit + selectorCursorShow
 	if reviewOutput.String() != want {
 		t.Fatalf("policy review finish = %q, want %q", reviewOutput.String(), want)
 	}
 	if workspaceOutput.String() != reviewOutput.String() {
 		t.Fatalf("selector finish differs: workspace=%q review=%q", workspaceOutput.String(), reviewOutput.String())
 	}
-	if strings.Contains(reviewOutput.String(), "\n") {
-		t.Fatalf("selector finish writes blank rows: %q", reviewOutput.String())
+	if strings.Contains(reviewOutput.String(), "\n") || strings.Contains(reviewOutput.String(), "\x1b[3A") {
+		t.Fatalf("selector finish writes or moves by logical rows: %q", reviewOutput.String())
 	}
 }
 

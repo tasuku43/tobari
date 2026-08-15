@@ -8,6 +8,7 @@
     "{{CLAUDE_AUTHORIZATION_URL}}\u001b]8;;\u0007\r\n",
     "                                                                                \r↗ Opened in your default browser.\r\n     Paste code here ",
     "if prompted > ",
-    "\r\nAuthentication successful\r\n"
+    "\r\nAuthentication successful\r\n",
+    "\u001b[?25h"
   ]
 }

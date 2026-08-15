@@ -25,6 +25,7 @@ from .companion_protocol import (
 )
 from .credential_records import (
     AWS_SSO_CREDENTIAL_KIND,
+    ANTHROPIC_CLAUDE_OAUTH_CREDENTIAL_KIND,
     DATADOG_OAUTH_CREDENTIAL_KIND,
     OPENAI_CODEX_OAUTH_CREDENTIAL_KIND,
     STATIC_CREDENTIAL_KIND,
@@ -567,6 +568,9 @@ class BrokerState:
                     raise BrokerError("credential_not_found")
                 self._validate_credential_bindings(credential, normalized_bindings)
                 existing = credential["handles"].get(project_id)
+                projection_values = self._workspace_projection_values(
+                    credential, provider
+                )
                 if existing is not None:
                     existing_bindings = _parse_bindings(existing["bindings"], provider)
                     if existing_bindings == normalized_bindings:
@@ -585,6 +589,7 @@ class BrokerState:
                             "handle": handle,
                             "provider": provider,
                             "revision": credential["revision"],
+                            **projection_values,
                         }
                 raw = secrets.token_bytes(32)
                 handle = "tobari-h1_" + base64.urlsafe_b64encode(raw).rstrip(b"=").decode("ascii")
@@ -616,6 +621,7 @@ class BrokerState:
                     "handle": handle,
                     "provider": provider,
                     "revision": credential["revision"],
+                    **projection_values,
                 }
         except Exception as error:
             raise _translate_error(error) from None
@@ -634,6 +640,19 @@ class BrokerState:
         if adapter is None or adapter.provider_id != provider:
             raise BrokerError("credential_not_resolvable")
         return adapter
+
+    def _workspace_projection_values(
+        self, credential: dict[str, Any], provider: str
+    ) -> dict[str, Any]:
+        kind = credential.get("credential_kind")
+        if kind != ANTHROPIC_CLAUDE_OAUTH_CREDENTIAL_KIND:
+            return {}
+        adapter = self._renewable_adapter_for(kind, provider)
+        return adapter.workspace_projection_values(
+            decode_secret(credential["state"]),
+            driver_revision=credential["driver_revision"],
+            account_label=credential["account_label"],
+        )
 
     def _request_signing_adapter_for(
         self, credential_kind: Any, provider: str

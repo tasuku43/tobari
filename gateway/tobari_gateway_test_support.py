@@ -151,11 +151,8 @@ class ReviewedDynamicCredentialGatewayTestCase(unittest.TestCase):
                     "path": ".claude/.credentials.json",
                     "template": (
                         '{"claudeAiOauth":{"accessToken":"${HANDLE}","refreshToken":"",'
-                        '"expiresAt":4102444800000,"refreshTokenExpiresAt":null,'
-                        '"scopes":["org:create_api_key","user:profile","user:inference",'
-                        '"user:sessions:claude_code","user:mcp_servers","user:file_upload"],'
-                        '"subscriptionType":null,"rateLimitTier":null,'
-                        '"clientId":"9d1c250a-e61b-44d9-88ed-5944d1962f5e"}}'
+                        '"expiresAt":4102444800000,'
+                        '"scopes":${OAUTH_SCOPES_JSON}}}'
                     ),
                 }
             ],

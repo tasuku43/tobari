@@ -13,6 +13,7 @@ import (
 	"os"
 	"path"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -96,10 +97,15 @@ func (r *Runtime) loginClaudeInContextContainer(
 		}
 		return hostCredentialPayload{}, credentialhost.ErrClaudeLoginFailed
 	}
+	if err := writeClaudeProgress(visible, claudeLoginCaptureFeedback); err != nil {
+		return hostCredentialPayload{}, err
+	}
 	archive := &claudeArchiveBuffer{limit: maxClaudeCredentialArchive}
 	var copyErr bytes.Buffer
 	if err := r.runner.Run(ctx, []string{"container", "cp", name + ":/var/lib/tobari/.claude/.credentials.json", "-"}, os.Environ(), nil, archive, &copyErr); err != nil || archive.failure != nil {
-		return hostCredentialPayload{}, credentialhost.ErrClaudeTokenCapture
+		return hostCredentialPayload{}, credentialhost.NewClaudeCredentialCaptureError(
+			credentialhost.ClaudeCaptureFileExport, credentialhost.ErrClaudeTokenCapture,
+		)
 	}
 	authJSON, err := readClaudeCredentialArchive(archive.buffer.Bytes())
 	if err != nil {
@@ -111,6 +117,14 @@ func (r *Runtime) loginClaudeInContextContainer(
 		return hostCredentialPayload{}, err
 	}
 	defer credential.Clear()
+	if output, ok := visible.(*loginVisibleOutput); ok {
+		requested, observed := output.requestedClaudeOAuthScopes()
+		if !observed || !scopesAreSubset(credential.OAuthScopes(), requested) {
+			return hostCredentialPayload{}, credentialhost.NewClaudeCredentialCaptureError(
+				credentialhost.ClaudeCaptureOAuthScopeSet, credentialhost.ErrInvalidClaudeNativeCredential,
+			)
+		}
+	}
 	encoded, err := credential.Encode()
 	if err != nil {
 		return hostCredentialPayload{}, err
@@ -118,6 +132,15 @@ func (r *Runtime) loginClaudeInContextContainer(
 	return hostCredentialPayload{
 		secret: encoded, accountLabel: credential.AccountLabel(), driverID: credential.DriverID(), driverRevision: credential.DriverRevision(),
 	}, nil
+}
+
+func scopesAreSubset(granted, requested []string) bool {
+	for _, scope := range granted {
+		if !slices.Contains(requested, scope) {
+			return false
+		}
+	}
+	return true
 }
 
 func (r *Runtime) boundedClaudeDockerOutput(ctx context.Context, arguments []string) ([]byte, error) {
@@ -185,19 +208,38 @@ func randomClaudeLoginContainerName() (string, error) {
 func readClaudeCredentialArchive(encoded []byte) ([]byte, error) {
 	reader := tar.NewReader(bytes.NewReader(encoded))
 	header, err := reader.Next()
-	if err != nil || header.Typeflag != tar.TypeReg || header.Size <= 0 || header.Size > maxClaudeCredentialArchive || header.Mode&077 != 0 {
-		return nil, credentialhost.ErrClaudeTokenCapture
+	if err != nil || header.Typeflag != tar.TypeReg || header.Size <= 0 || header.Size > maxClaudeCredentialArchive {
+		return nil, credentialhost.NewClaudeCredentialCaptureError(
+			credentialhost.ClaudeCaptureArchiveEnvelope, credentialhost.ErrClaudeTokenCapture,
+		)
+	}
+	if header.Mode&077 != 0 {
+		return nil, credentialhost.NewClaudeCredentialCaptureError(
+			credentialhost.ClaudeCaptureFilePermissions, credentialhost.ErrClaudeTokenCapture,
+		)
 	}
 	content, err := io.ReadAll(io.LimitReader(reader, header.Size+1))
 	if err != nil || int64(len(content)) != header.Size {
 		clear(content)
-		return nil, credentialhost.ErrClaudeTokenCapture
+		return nil, credentialhost.NewClaudeCredentialCaptureError(
+			credentialhost.ClaudeCaptureArchiveEnvelope, credentialhost.ErrClaudeTokenCapture,
+		)
 	}
 	if _, err := reader.Next(); !errors.Is(err, io.EOF) {
 		clear(content)
-		return nil, credentialhost.ErrClaudeTokenCapture
+		return nil, credentialhost.NewClaudeCredentialCaptureError(
+			credentialhost.ClaudeCaptureArchiveEnvelope, credentialhost.ErrClaudeTokenCapture,
+		)
 	}
 	return content, nil
+}
+
+func writeClaudeProgress(visible io.Writer, value string) error {
+	if output, ok := visible.(*loginVisibleOutput); ok {
+		return output.writeClaudeProgress(value)
+	}
+	_, err := io.WriteString(visible, value+"\n")
+	return err
 }
 
 var claudeImageIDPattern = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)

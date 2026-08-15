@@ -51,7 +51,9 @@ the reviewed Identity Center or commercial-console flow; pup is fixed to
 Datadog US1; Codex uses its contract-checked native flow. Claude Code 2.1.220
 runs in a fresh selected-Context-image container with no mounts, project,
 persistent home, Broker socket, or Docker socket; Tobari hashes its copied
-executable bytes and captures only its strict native renewable state. Every driver revalidates executable identity and
+executable bytes, extracts only the required token, refresh, expiry, and scope
+values, and discards provider-owned optional credential metadata before
+creating a strict Tobari-owned renewable record. Every driver revalidates executable identity and
 performs checked cleanup. Managed profiles and manifest-selected helpers remain
 absent.
 
@@ -766,10 +768,22 @@ container bypasses the Workspace CA-waiting entrypoint with fixed
 `/usr/bin/tini -- /usr/bin/sleep infinity`; otherwise the deliberately absent
 CA mount would terminate acquisition after ten seconds. Its raw-TTY projection emits explicit CRLF for
 fixed and control-safe pass-through lines, preventing cursor-column state from
-changing the meaning or readability of later instructions. Timeout retains
+changing the meaning or readability of later instructions. Exact Claude cursor
+hide/show controls are consumed and closed with one Tobari-owned cursor-show;
+unknown controls remain visibly projected. Fixed pre-prompt guidance explains
+that authorization may take a moment after Enter, and fixed progress appears
+before credential capture without reflecting the pasted value. Tobari does not
+wrap, inspect, or pump Claude login stdin; the original terminal reader reaches
+Docker unchanged. Authorization-request and granted OAuth scopes are validated
+as bounded, duplicate-free RFC OAuth scope tokens, but their provider-owned
+names are not compiled into Tobari. The grant must be a subset of the observed
+request and is then normalized; response ordering grants no authority. Refresh
+and Workspace projection preserve that same set, and refresh scope drift fails
+closed. Timeout retains
 precedence when checked cleanup also fails; setup, authorization, output,
 native-state capture, and cleanup-only failures use distinct fixed faults and
-never disclose child output or credential content.
+never disclose child output or credential content. Native-state failures expose
+only one compiled diagnostic-stage name and never retain a raw provider cause.
 The shared host-CLI resolver inspects at most 256 distinct absolute PATH
 candidates. It never executes a rejected shim, accepts no relative or empty
 current-directory entry, and returns only the first candidate whose canonical

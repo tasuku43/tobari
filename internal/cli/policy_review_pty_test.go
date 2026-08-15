@@ -93,6 +93,7 @@ func TestPolicyReviewRealPTYAndReadOnlyE2E(t *testing.T) {
 	t.Run("allow through real PTY", func(t *testing.T) {
 		output := runPolicyReviewPTYChild(t, "allow", "1apy")
 		for _, want := range []string{
+			"\x1b[?1049h",
 			"Tobari · Permission Inbox",
 			"1 pending permission in 1 Tobari",
 			"default · /workspace/project",
@@ -108,6 +109,7 @@ func TestPolicyReviewRealPTYAndReadOnlyE2E(t *testing.T) {
 			"[y] Apply",
 			"Reviewed permissions applied",
 			"\x1b[?25h",
+			"\x1b[?1049l",
 			"POLICY_REVIEW_E2E case=allow code=0 apply_calls=1 deny_calls=0",
 			"source_candidate=" + candidateID,
 		} {
@@ -158,6 +160,24 @@ func TestPolicyReviewRealPTYAndReadOnlyE2E(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("wrapped rows keep one alternate-screen frame", func(t *testing.T) {
+		output := runPolicyReviewPTYChild(t, "wrapped-navigation-cancel", "\x1b[B|\x1b[A|q")
+		for _, want := range []string{
+			"PTY_META rows=40 cols=48",
+			selectorAlternateScreenEnter + selectorCursorHide + selectorCursorHome + selectorEraseDisplay,
+			selectorCursorHome + selectorEraseDisplay,
+			selectorAlternateScreenExit + selectorCursorShow,
+			"case=wrapped-navigation-cancel code=11 apply_calls=0 deny_calls=0",
+		} {
+			if !strings.Contains(output, want) {
+				t.Fatalf("wrapped PTY output lacks %q: %q", want, output)
+			}
+		}
+		if strings.Contains(output, "\x1b[13A") {
+			t.Fatalf("wrapped PTY output retained logical-row cursor movement: %q", output)
+		}
+	})
 
 	t.Run("final review back then explicit apply", func(t *testing.T) {
 		output := runPolicyReviewPTYChild(t, "final-back-apply", "1|a|p|b|p|y")
@@ -330,8 +350,9 @@ pid, master = pty.fork()
 if pid == 0:
     os.execv(args[0], args)
 
-fcntl.ioctl(master, termios.TIOCSWINSZ, struct.pack("HHHH", 40, 120, 0, 0))
-os.write(1, b"PTY_META rows=40 cols=120\n")
+columns = 48 if "wrapped" in os.environ.get("TOBARI_POLICY_REVIEW_PTY_CASE", "") else 120
+fcntl.ioctl(master, termios.TIOCSWINSZ, struct.pack("HHHH", 40, columns, 0, 0))
+os.write(1, ("PTY_META rows=40 cols=%d\n" % columns).encode())
 deadline = time.monotonic() + 10.0
 quiet_seconds = 0.05
 status = None

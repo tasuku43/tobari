@@ -7,15 +7,15 @@ import (
 	"io"
 	"regexp"
 	"slices"
-	"strings"
 	"unicode/utf8"
+
+	"github.com/tasuku43/tobari/internal/domain/authbroker"
 )
 
 const (
 	ClaudeNativeDriverID     = "anthropic_claude_native_oauth"
 	ClaudeNativeAccountLabel = "claude-user-native"
 	claudeNativeVersion      = "2.1.220"
-	claudeNativeClientID     = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
 	maxClaudeNativeState     = 32 << 10
 	maxClaudeNativeToken     = 16 << 10
 )
@@ -32,14 +32,6 @@ var (
 	ErrClaudeTokenCapture            = errors.New("Claude Code native credential capture failed")
 	ErrClaudeLoginCleanup            = errors.New("Claude Code login cleanup failed")
 	claudeImageIDPattern             = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
-	claudeNativeScopes               = []string{
-		"org:create_api_key",
-		"user:profile",
-		"user:inference",
-		"user:sessions:claude_code",
-		"user:mcp_servers",
-		"user:file_upload",
-	}
 )
 
 // ClaudeNativeCredential is the canonical encrypted-at-rest form of the
@@ -49,10 +41,66 @@ type ClaudeNativeCredential struct {
 	payload claudeNativeCredentialPayload
 }
 
+type ClaudeCredentialCaptureStage string
+
+const (
+	ClaudeCaptureFileExport       ClaudeCredentialCaptureStage = "credential_export"
+	ClaudeCaptureArchiveEnvelope  ClaudeCredentialCaptureStage = "archive_envelope"
+	ClaudeCaptureFilePermissions  ClaudeCredentialCaptureStage = "file_permissions"
+	ClaudeCaptureDocumentEncoding ClaudeCredentialCaptureStage = "document_encoding"
+	ClaudeCaptureDocumentJSON     ClaudeCredentialCaptureStage = "document_json"
+	ClaudeCaptureOAuthRecord      ClaudeCredentialCaptureStage = "oauth_record"
+	ClaudeCaptureOAuthCoreFields  ClaudeCredentialCaptureStage = "oauth_core_fields"
+	ClaudeCaptureOAuthValueShape  ClaudeCredentialCaptureStage = "oauth_token_shape"
+	ClaudeCaptureOAuthExpiry      ClaudeCredentialCaptureStage = "oauth_expiry"
+	ClaudeCaptureOAuthScopeSet    ClaudeCredentialCaptureStage = "oauth_scope_set"
+	ClaudeCaptureCanonicalRecord  ClaudeCredentialCaptureStage = "canonical_record"
+)
+
+// ClaudeCredentialCaptureError identifies only a fixed, secret-free capture
+// stage. It never retains provider output or a credential value.
+type ClaudeCredentialCaptureError struct {
+	stage ClaudeCredentialCaptureStage
+	cause error
+}
+
+func NewClaudeCredentialCaptureError(stage ClaudeCredentialCaptureStage, cause error) error {
+	if !validClaudeCredentialCaptureStage(stage) {
+		stage = ClaudeCaptureCanonicalRecord
+	}
+	safeCause := ErrInvalidClaudeNativeCredential
+	if errors.Is(cause, ErrClaudeTokenCapture) {
+		safeCause = ErrClaudeTokenCapture
+	}
+	return &ClaudeCredentialCaptureError{stage: stage, cause: safeCause}
+}
+
+func validClaudeCredentialCaptureStage(stage ClaudeCredentialCaptureStage) bool {
+	switch stage {
+	case ClaudeCaptureFileExport, ClaudeCaptureArchiveEnvelope, ClaudeCaptureFilePermissions,
+		ClaudeCaptureDocumentEncoding, ClaudeCaptureDocumentJSON, ClaudeCaptureOAuthRecord,
+		ClaudeCaptureOAuthCoreFields, ClaudeCaptureOAuthValueShape, ClaudeCaptureOAuthExpiry,
+		ClaudeCaptureOAuthScopeSet, ClaudeCaptureCanonicalRecord:
+		return true
+	default:
+		return false
+	}
+}
+
+func (e *ClaudeCredentialCaptureError) Error() string {
+	return "Claude Code native credential capture failed at diagnostic stage " + string(e.stage)
+}
+
+func (e *ClaudeCredentialCaptureError) Unwrap() error { return e.cause }
+
+func (e *ClaudeCredentialCaptureError) DiagnosticStage() ClaudeCredentialCaptureStage {
+	return e.stage
+}
+
 type claudeNativeCredentialPayload struct {
-	SchemaVersion int                    `json:"schema_version"`
-	Executable    claudeNativeExecutable `json:"claude_executable"`
-	Auth          claudeNativeAuthFile   `json:"auth"`
+	SchemaVersion int                      `json:"schema_version"`
+	Executable    claudeNativeExecutable   `json:"claude_executable"`
+	Session       claudeNativeOAuthSession `json:"session"`
 }
 
 type claudeNativeExecutable struct {
@@ -63,18 +111,16 @@ type claudeNativeExecutable struct {
 }
 
 type claudeNativeAuthFile struct {
-	OAuth claudeNativeOAuth `json:"claudeAiOauth"`
+	OAuth claudeNativeOAuthSession `json:"claudeAiOauth"`
 }
 
-type claudeNativeOAuth struct {
-	AccessToken           string   `json:"accessToken"`
-	RefreshToken          string   `json:"refreshToken"`
-	ExpiresAt             int64    `json:"expiresAt"`
-	RefreshTokenExpiresAt *int64   `json:"refreshTokenExpiresAt,omitempty"`
-	Scopes                []string `json:"scopes"`
-	SubscriptionType      *string  `json:"subscriptionType"`
-	RateLimitTier         *string  `json:"rateLimitTier"`
-	ClientID              string   `json:"clientId"`
+// claudeNativeOAuthSession is Tobari's owned at-rest subset of
+// the pinned Claude file. Provider-owned optional metadata is never persisted.
+type claudeNativeOAuthSession struct {
+	AccessToken  string   `json:"access_token"`
+	RefreshToken string   `json:"refresh_token"`
+	ExpiresAt    int64    `json:"expires_at"`
+	Scopes       []string `json:"scopes"`
 }
 
 func NewClaudeNativeCredential(
@@ -92,11 +138,11 @@ func NewClaudeNativeCredential(
 		Executable: claudeNativeExecutable{
 			ImageID: imageID, Path: "/usr/local/bin/claude", SHA256: executableDigest, Version: observedVersion,
 		},
-		Auth: auth,
+		Session: auth.OAuth,
 	}}
 	if err := validateClaudeNativeCredentialPayload(credential.payload); err != nil {
 		credential.Clear()
-		return ClaudeNativeCredential{}, err
+		return ClaudeNativeCredential{}, NewClaudeCredentialCaptureError(ClaudeCaptureCanonicalRecord, err)
 	}
 	return credential, nil
 }
@@ -142,6 +188,9 @@ func (c ClaudeNativeCredential) Encode() ([]byte, error) {
 func (c ClaudeNativeCredential) AccountLabel() string   { return ClaudeNativeAccountLabel }
 func (c ClaudeNativeCredential) DriverID() string       { return ClaudeNativeDriverID }
 func (c ClaudeNativeCredential) DriverRevision() string { return c.payload.Executable.SHA256 }
+func (c ClaudeNativeCredential) OAuthScopes() []string {
+	return append([]string(nil), c.payload.Session.Scopes...)
+}
 func (ClaudeNativeCredential) String() string {
 	return "credentialhost.ClaudeNativeCredential{redacted}"
 }
@@ -153,32 +202,65 @@ func (c *ClaudeNativeCredential) Clear() {
 	if c == nil {
 		return
 	}
-	c.payload.Auth.OAuth.AccessToken = ""
-	c.payload.Auth.OAuth.RefreshToken = ""
+	c.payload.Session.AccessToken = ""
+	c.payload.Session.RefreshToken = ""
 	c.payload = claudeNativeCredentialPayload{}
 }
 
 func parseClaudeNativeAuth(encoded []byte) (claudeNativeAuthFile, error) {
 	if len(encoded) == 0 || len(encoded) > maxClaudeNativeState || !utf8.Valid(encoded) {
-		return claudeNativeAuthFile{}, ErrInvalidClaudeNativeCredential
+		return claudeNativeAuthFile{}, NewClaudeCredentialCaptureError(ClaudeCaptureDocumentEncoding, ErrInvalidClaudeNativeCredential)
 	}
-	if _, err := decodeGitHubJSON(encoded); err != nil {
-		return claudeNativeAuthFile{}, ErrInvalidClaudeNativeCredential
+	decoded, err := decodeGitHubJSON(encoded)
+	if err != nil {
+		return claudeNativeAuthFile{}, NewClaudeCredentialCaptureError(ClaudeCaptureDocumentJSON, ErrInvalidClaudeNativeCredential)
 	}
-	var auth claudeNativeAuthFile
-	decoder := json.NewDecoder(bytes.NewReader(encoded))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&auth); err != nil {
-		return claudeNativeAuthFile{}, ErrInvalidClaudeNativeCredential
+	root, ok := decoded.(map[string]any)
+	if !ok {
+		return claudeNativeAuthFile{}, NewClaudeCredentialCaptureError(ClaudeCaptureDocumentJSON, ErrInvalidClaudeNativeCredential)
 	}
-	var trailing any
-	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
-		return claudeNativeAuthFile{}, ErrInvalidClaudeNativeCredential
+	oauthDocument, ok := root["claudeAiOauth"].(map[string]any)
+	if !ok {
+		return claudeNativeAuthFile{}, NewClaudeCredentialCaptureError(ClaudeCaptureOAuthRecord, ErrInvalidClaudeNativeCredential)
 	}
-	if err := validateClaudeNativeOAuth(auth.OAuth); err != nil {
+	auth := claudeNativeAuthFile{OAuth: claudeNativeOAuthSession{}}
+	if auth.OAuth.AccessToken, ok = oauthDocument["accessToken"].(string); !ok {
+		return claudeNativeAuthFile{}, NewClaudeCredentialCaptureError(ClaudeCaptureOAuthCoreFields, ErrInvalidClaudeNativeCredential)
+	}
+	if auth.OAuth.RefreshToken, ok = oauthDocument["refreshToken"].(string); !ok {
+		return claudeNativeAuthFile{}, NewClaudeCredentialCaptureError(ClaudeCaptureOAuthCoreFields, ErrInvalidClaudeNativeCredential)
+	}
+	if auth.OAuth.ExpiresAt, ok = claudeNativeJSONInt64(oauthDocument["expiresAt"]); !ok {
+		return claudeNativeAuthFile{}, NewClaudeCredentialCaptureError(ClaudeCaptureOAuthCoreFields, ErrInvalidClaudeNativeCredential)
+	}
+	rawScopes, ok := oauthDocument["scopes"].([]any)
+	if !ok {
 		clearClaudeNativeAuth(&auth)
-		return claudeNativeAuthFile{}, err
+		return claudeNativeAuthFile{}, NewClaudeCredentialCaptureError(ClaudeCaptureOAuthCoreFields, ErrInvalidClaudeNativeCredential)
 	}
+	auth.OAuth.Scopes = make([]string, len(rawScopes))
+	for index, rawScope := range rawScopes {
+		scope, valid := rawScope.(string)
+		if !valid {
+			clearClaudeNativeAuth(&auth)
+			return claudeNativeAuthFile{}, NewClaudeCredentialCaptureError(ClaudeCaptureOAuthCoreFields, ErrInvalidClaudeNativeCredential)
+		}
+		auth.OAuth.Scopes[index] = scope
+	}
+	if !validClaudeNativeSecret(auth.OAuth.AccessToken) || !validClaudeNativeSecret(auth.OAuth.RefreshToken) {
+		clearClaudeNativeAuth(&auth)
+		return claudeNativeAuthFile{}, NewClaudeCredentialCaptureError(ClaudeCaptureOAuthValueShape, ErrInvalidClaudeNativeCredential)
+	}
+	if auth.OAuth.ExpiresAt < 946684800000 || auth.OAuth.ExpiresAt > 7258118400000 {
+		clearClaudeNativeAuth(&auth)
+		return claudeNativeAuthFile{}, NewClaudeCredentialCaptureError(ClaudeCaptureOAuthExpiry, ErrInvalidClaudeNativeCredential)
+	}
+	normalizedScopes, err := authbroker.NormalizeOAuthScopes(auth.OAuth.Scopes)
+	if err != nil {
+		clearClaudeNativeAuth(&auth)
+		return claudeNativeAuthFile{}, NewClaudeCredentialCaptureError(ClaudeCaptureOAuthScopeSet, ErrInvalidClaudeNativeCredential)
+	}
+	auth.OAuth.Scopes = normalizedScopes
 	return cloneClaudeNativeAuth(auth), nil
 }
 
@@ -189,19 +271,30 @@ func validateClaudeNativeCredentialPayload(payload claudeNativeCredentialPayload
 		!digestPattern.MatchString(payload.Executable.SHA256) {
 		return ErrInvalidClaudeNativeCredential
 	}
-	return validateClaudeNativeOAuth(payload.Auth.OAuth)
+	return validateClaudeNativeOAuth(payload.Session)
 }
 
-func validateClaudeNativeOAuth(oauth claudeNativeOAuth) error {
+func validateClaudeNativeOAuth(oauth claudeNativeOAuthSession) error {
 	if !validClaudeNativeSecret(oauth.AccessToken) || !validClaudeNativeSecret(oauth.RefreshToken) ||
 		oauth.ExpiresAt < 946684800000 || oauth.ExpiresAt > 7258118400000 ||
-		(oauth.RefreshTokenExpiresAt != nil && (*oauth.RefreshTokenExpiresAt < oauth.ExpiresAt || *oauth.RefreshTokenExpiresAt > 7258118400000)) ||
-		!slices.Equal(oauth.Scopes, claudeNativeScopes) || oauth.ClientID != claudeNativeClientID ||
-		!validClaudeNullableEnum(oauth.SubscriptionType, "pro", "max", "team", "enterprise") ||
-		!validClaudeNullableText(oauth.RateLimitTier) {
+		!canonicalClaudeNativeScopes(oauth.Scopes) {
 		return ErrInvalidClaudeNativeCredential
 	}
 	return nil
+}
+
+func canonicalClaudeNativeScopes(scopes []string) bool {
+	normalized, err := authbroker.NormalizeOAuthScopes(scopes)
+	return err == nil && slices.Equal(scopes, normalized)
+}
+
+func claudeNativeJSONInt64(value any) (int64, bool) {
+	number, ok := value.(json.Number)
+	if !ok {
+		return 0, false
+	}
+	parsed, err := number.Int64()
+	return parsed, err == nil
 }
 
 func validClaudeNativeSecret(value string) bool {
@@ -216,19 +309,6 @@ func validClaudeNativeSecret(value string) bool {
 	return true
 }
 
-func validClaudeNullableEnum(value *string, allowed ...string) bool {
-	return value == nil || slices.Contains(allowed, *value)
-}
-
-func validClaudeNullableText(value *string) bool {
-	if value == nil {
-		return true
-	}
-	return len(*value) > 0 && len(*value) <= 128 && strings.IndexFunc(*value, func(character rune) bool {
-		return character < 0x21 || character > 0x7e
-	}) < 0
-}
-
 func clearClaudeNativeAuth(auth *claudeNativeAuthFile) {
 	if auth == nil {
 		return
@@ -239,18 +319,18 @@ func clearClaudeNativeAuth(auth *claudeNativeAuthFile) {
 
 func cloneClaudeNativePayload(payload claudeNativeCredentialPayload) claudeNativeCredentialPayload {
 	clone := payload
-	clone.Auth = cloneClaudeNativeAuth(payload.Auth)
+	clone.Session = cloneClaudeNativeOAuth(payload.Session)
 	return clone
 }
 
 func cloneClaudeNativeAuth(auth claudeNativeAuthFile) claudeNativeAuthFile {
 	clone := auth
-	clone.OAuth.Scopes = append([]string(nil), auth.OAuth.Scopes...)
-	if auth.OAuth.RefreshTokenExpiresAt != nil {
-		value := *auth.OAuth.RefreshTokenExpiresAt
-		clone.OAuth.RefreshTokenExpiresAt = &value
-	}
-	clone.OAuth.SubscriptionType = cloneStringPointer(auth.OAuth.SubscriptionType)
-	clone.OAuth.RateLimitTier = cloneStringPointer(auth.OAuth.RateLimitTier)
+	clone.OAuth = cloneClaudeNativeOAuth(auth.OAuth)
+	return clone
+}
+
+func cloneClaudeNativeOAuth(oauth claudeNativeOAuthSession) claudeNativeOAuthSession {
+	clone := oauth
+	clone.Scopes = append([]string(nil), oauth.Scopes...)
 	return clone
 }

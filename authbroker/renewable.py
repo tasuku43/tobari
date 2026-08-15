@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import Callable, Mapping, Protocol
+from typing import Any, Callable, Mapping, Protocol
 
 from .anthropic_claude_oauth import (
     ClaudeOAuthState,
@@ -67,6 +67,10 @@ class RenewableSessionAdapter(Protocol):
         account_label: str,
         now: float,
     ) -> RefreshedRenewableSession: ...
+
+    def workspace_projection_values(
+        self, state: bytes, *, driver_revision: str, account_label: str
+    ) -> dict[str, Any]: ...
 
 
 @dataclass(frozen=True)
@@ -141,6 +145,14 @@ class DatadogRenewableSessionAdapter:
             resolved=ResolvedRenewableSecret(secret=secret),
         )
 
+    def workspace_projection_values(
+        self, state: bytes, *, driver_revision: str, account_label: str
+    ) -> dict[str, Any]:
+        self.validate_initial_state(
+            state, driver_revision=driver_revision, account_label=account_label
+        )
+        return {}
+
 
 class OpenAIRenewableSessionAdapter:
     provider_id = "openai"
@@ -213,6 +225,14 @@ class OpenAIRenewableSessionAdapter:
             resolved=self._resolved(reparsed, secret),
         )
 
+    def workspace_projection_values(
+        self, state: bytes, *, driver_revision: str, account_label: str
+    ) -> dict[str, Any]:
+        self.validate_initial_state(
+            state, driver_revision=driver_revision, account_label=account_label
+        )
+        return {}
+
 
 class AnthropicRenewableSessionAdapter:
     provider_id = "anthropic"
@@ -277,6 +297,15 @@ class AnthropicRenewableSessionAdapter:
         return RefreshedRenewableSession(
             encoded, ResolvedRenewableSecret(secret=secret)
         )
+
+    def workspace_projection_values(
+        self, state: bytes, *, driver_revision: str, account_label: str
+    ) -> dict[str, Any]:
+        self.validate_initial_state(
+            state, driver_revision=driver_revision, account_label=account_label
+        )
+        parsed = ClaudeOAuthState.parse(state, driver_revision=driver_revision)
+        return {"oauth_scopes": list(parsed.oauth_scopes())}
 
 
 RENEWABLE_CREDENTIAL_KINDS = frozenset(

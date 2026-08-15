@@ -16,6 +16,7 @@ import (
 type authProjectionRunner struct {
 	handle        string
 	readyProvider string
+	oauthScopes   []string
 	calls         [][]string
 }
 
@@ -47,8 +48,34 @@ func (r *authProjectionRunner) Run(_ context.Context, args []string, _ []string,
 		response["provider"] = provider
 		response["revision"] = "revision_synthetic"
 		response["handle"] = r.handle
+		if provider == "anthropic" {
+			response["oauth_scopes"] = r.oauthScopes
+		}
 	}
 	return json.NewEncoder(out).Encode(response)
+}
+
+func TestReconcileProjectAuthProjectsDynamicClaudeOAuthScopes(t *testing.T) {
+	runner := &authProjectionRunner{
+		handle: syntheticProjectHandle("claude-project"), readyProvider: "anthropic",
+		oauthScopes: []string{"future:capability", "user:inference"},
+	}
+	runtime, err := newRuntime(filepath.Join(t.TempDir(), "config"), filepath.Join(t.TempDir(), "state"), runner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	instance := projectRuntimeInstance(t, runtime)
+	projection, err := runtime.reconcileProjectAuth(context.Background(), instance)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(projection.Files) != 1 || projection.Files[0].Path != ".claude/.credentials.json" {
+		t.Fatalf("Claude projection = %+v", projection.Files)
+	}
+	want := `{"claudeAiOauth":{"access` + `Token":"` + runner.handle + `","refreshToken":"","expiresAt":4102444800000,"scopes":["future:capability","user:inference"]}}`
+	if string(projection.Files[0].Content) != want {
+		t.Fatalf("Claude projection = %s, want %s", projection.Files[0].Content, want)
+	}
 }
 
 func (r *authProjectionRunner) Output(_ context.Context, args, _ []string) ([]byte, error) {

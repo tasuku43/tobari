@@ -40,7 +40,7 @@ func syntheticClaudeAuthorizationURL() string {
 		"client_id":             {claudeLoginClientID},
 		"response_type":         {"code"},
 		"redirect_uri":          {claudeLoginRedirectURI},
-		"scope":                 {claudeLoginScopes},
+		"scope":                 {"provider:future user:inference"},
 		"code_challenge_method": {"S256"},
 		"code_challenge":        {strings.Repeat("A", 43)},
 		"state":                 {strings.Repeat("B", 43)},
@@ -537,7 +537,7 @@ func TestLoginVisibleOutputOpensOnlyExactAWSDeviceURLOnce(t *testing.T) {
 	const target = "https://device.sso.us-east-1.amazonaws.com/"
 	var visible bytes.Buffer
 	opened := []string{}
-	filter := &loginVisibleOutput{destination: &visible, openBrowser: func(candidate string) error {
+	filter := &loginVisibleOutput{destination: &visible, provider: authbroker.BuiltinAnthropicProviderID, openBrowser: func(candidate string) error {
 		opened = append(opened, candidate)
 		return os.ErrNotExist
 	}}
@@ -610,10 +610,13 @@ func TestLoginVisibleOutputProjectsAndOpensOnlyExactClaudeHyperlinkOnce(t *testi
 	approved := claudeHyperlinkPrefix + target + "\a" + target + claudeHyperlinkClose + "\n"
 	var visible bytes.Buffer
 	opened := []string{}
-	filter := &loginVisibleOutput{destination: &visible, openBrowser: func(candidate string) error {
-		opened = append(opened, candidate)
-		return nil
-	}}
+	filter := &loginVisibleOutput{
+		destination: &visible,
+		provider:    authbroker.BuiltinAnthropicProviderID,
+		openBrowser: func(candidate string) error {
+			opened = append(opened, candidate)
+			return nil
+		}}
 	for _, line := range []string{
 		strings.Replace(approved, "claude.com", "evil.example", 2),
 		strings.Replace(approved, claudeLoginClientID, "wrong-client", 2),
@@ -631,10 +634,38 @@ func TestLoginVisibleOutputProjectsAndOpensOnlyExactClaudeHyperlinkOnce(t *testi
 	if !reflect.DeepEqual(opened, []string{target}) {
 		t.Fatalf("browser opens = %q", opened)
 	}
-	if strings.Count(visible.String(), loginBrowserOpenedFeedback) != 1 ||
-		!strings.Contains(visible.String(), "If the browser didn't open, visit: "+target) ||
+	if strings.Count(visible.String(), "✓ Opened in your default browser.") != 1 ||
 		strings.ContainsAny(visible.String(), "\x1b\a") {
 		t.Fatalf("visible output = %q", visible.String())
+	}
+	requested, observed := filter.requestedClaudeOAuthScopes()
+	if !observed || !reflect.DeepEqual(requested, []string{"provider:future", "user:inference"}) {
+		t.Fatalf("observed Claude scopes = %q, observed=%t", requested, observed)
+	}
+}
+
+func TestClaudeAuthorizationURLAcceptsDynamicScopesAndRejectsMalformedScopes(t *testing.T) {
+	target := syntheticClaudeAuthorizationURL()
+	scopes, ok := claudeLoginAuthorizationScopes(target)
+	if !ok || !reflect.DeepEqual(scopes, []string{"provider:future", "user:inference"}) {
+		t.Fatalf("dynamic scopes = %q, ok=%t", scopes, ok)
+	}
+
+	parsed, err := url.Parse(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, invalid := range []string{"", "user:inference user:inference", "unsafe\\scope", "unsafe\"scope"} {
+		query := parsed.Query()
+		query.Set("scope", invalid)
+		candidate := *parsed
+		candidate.RawQuery = query.Encode()
+		if _, accepted := claudeLoginAuthorizationScopes(candidate.String()); accepted {
+			t.Fatalf("invalid dynamic scopes %q were accepted", invalid)
+		}
+	}
+	if _, accepted := claudeLoginAuthorizationScopes(target + "&scope=user%3Aadmin"); accepted {
+		t.Fatal("duplicate scope query key was accepted")
 	}
 }
 
@@ -682,7 +713,7 @@ func TestClaudeLoginVisibleOutputUsesFixedImmediateSecretFreeUI(t *testing.T) {
 					t.Fatal(err)
 				}
 				if index+1 == fixture.PromptVisibleAfterChunk &&
-					!strings.Contains(stripLoginOwnedStyles(visible.String()), "If Claude shows a code, paste it here:\r\n> ") {
+					!strings.Contains(stripLoginOwnedStyles(visible.String()), "If Claude shows a code, paste it here:\r\nAfter you press Enter, Claude may take a moment to authorize it.\r\n> ") {
 					t.Fatalf("prompt was not visible before flush: %q", visible.String())
 				}
 			}
@@ -693,6 +724,10 @@ func TestClaudeLoginVisibleOutputUsesFixedImmediateSecretFreeUI(t *testing.T) {
 				t.Fatalf("browser opens = %q", opened)
 			}
 			rawPlain := stripLoginOwnedStyles(visible.String())
+			if strings.Count(rawPlain, loginCursorShow) != 1 || !strings.HasSuffix(rawPlain, loginCursorShow) {
+				t.Fatalf("Claude cursor restoration = %q", rawPlain)
+			}
+			rawPlain = strings.TrimSuffix(rawPlain, loginCursorShow)
 			if hasBareLF(rawPlain) {
 				t.Fatalf("Claude raw-mode output contains bare LF: %q", rawPlain)
 			}
@@ -709,6 +744,37 @@ func TestClaudeLoginVisibleOutputUsesFixedImmediateSecretFreeUI(t *testing.T) {
 			}
 			if strings.ContainsAny(plain, "\x00\x07\x1b\r") {
 				t.Fatalf("terminal controls reached fixed UI: %q", plain)
+			}
+		})
+	}
+}
+
+func TestClaudeLoginPromptGuidanceAndCaptureProgressUseOwnedRawTTYFraming(t *testing.T) {
+	for _, color := range []bool{false, true} {
+		t.Run(fmt.Sprintf("color=%t", color), func(t *testing.T) {
+			var visible bytes.Buffer
+			filter := &loginVisibleOutput{
+				destination: &visible,
+				provider:    authbroker.BuiltinAnthropicProviderID,
+				color:       color,
+			}
+			if _, err := filter.Write([]byte(claudeLoginPastePrompt)); err != nil {
+				t.Fatal(err)
+			}
+			if err := filter.writeClaudeProgress(claudeLoginCaptureFeedback); err != nil {
+				t.Fatal(err)
+			}
+			if err := filter.flush(); err != nil {
+				t.Fatal(err)
+			}
+			raw := stripLoginOwnedStyles(visible.String())
+			if hasBareLF(raw) {
+				t.Fatalf("progress output contains bare LF: %q", raw)
+			}
+			plain := strings.ReplaceAll(raw, claudeLoginTTYLineEnding, "\n")
+			want := "\nIf Claude shows a code, paste it here:\nAfter you press Enter, Claude may take a moment to authorize it.\n> \n" + claudeLoginCaptureFeedback + "\n"
+			if plain != want || strings.ContainsAny(plain, "\x00\x07\x1b\r") {
+				t.Fatalf("progress output = %q, want %q", plain, want)
 			}
 		})
 	}
@@ -733,7 +799,7 @@ func TestClaudeLoginVisibleOutputShowsExactURLOnlyWhenBrowserOpenFails(t *testin
 	rawPlain := stripLoginOwnedStyles(visible.String())
 	plain := strings.ReplaceAll(rawPlain, claudeLoginTTYLineEnding, "\n")
 	if hasBareLF(rawPlain) || strings.Count(plain, target) != 1 || !strings.Contains(plain, "! Browser did not open.\nVisit: "+target) ||
-		!strings.HasSuffix(plain, "If Claude shows a code, paste it here:\n> ") {
+		!strings.HasSuffix(plain, "If Claude shows a code, paste it here:\nAfter you press Enter, Claude may take a moment to authorize it.\n> ") {
 		t.Fatalf("fallback output = %q", plain)
 	}
 }
@@ -1022,6 +1088,16 @@ func TestClassifyAnthropicRuntimeFailuresUsesDistinctSecretFreeFaults(t *testing
 			strings.Contains(public.Error(), secretCanary) {
 			t.Fatalf("classified fault = %+v, ok=%t", public, ok)
 		}
+	}
+	diagnosticErr := credentialhost.NewClaudeCredentialCaptureError(
+		credentialhost.ClaudeCaptureOAuthScopeSet,
+		fmt.Errorf("%s: %w", secretCanary, credentialhost.ErrInvalidClaudeNativeCredential),
+	)
+	diagnosticFault, ok := fault.PublicCopy(classifyHostLoginError(diagnosticErr, "anthropic"))
+	if !ok || diagnosticFault.Code != "anthropic_credential_capture_failed" ||
+		!strings.Contains(diagnosticFault.Message, "diagnostic stage oauth_scope_set") ||
+		strings.Contains(diagnosticFault.Error(), secretCanary) {
+		t.Fatalf("diagnostic fault = %+v, ok=%t", diagnosticFault, ok)
 	}
 
 	joined := errors.Join(context.DeadlineExceeded, credentialhost.ErrClaudeLoginCleanup)

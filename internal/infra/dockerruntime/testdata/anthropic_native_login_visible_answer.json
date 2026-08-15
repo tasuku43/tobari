@@ -5,6 +5,7 @@
     "Opening Claude sign-in…",
     "✓ Opened in your default browser.",
     "If Claude shows a code, paste it here:",
+    "After you press Enter, Claude may take a moment to authorize it.",
     "> ",
     "Authentication successful"
   ],
@@ -12,6 +13,7 @@
     "Opening browser to sign in…",
     "If the browser didn't open, visit:",
     "↗ Opened in your default browser.",
-    "Paste code here if prompted >"
+    "Paste code here if prompted >",
+    "\\u001B[?25h"
   ]
 }

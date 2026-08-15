@@ -97,8 +97,13 @@ allow while returning only its validated
 account ID as the supplemental header. Anthropic requires exactly Claude Code
 2.1.220 at `/usr/local/bin/claude` in the selected Context image. A fresh
 mount-free login container runs native account login, Tobari opens only the
-validated authorization URL, and strict Linux OAuth state is captured only
-after checked cleanup. Broker selects or refreshes its bearer after allow.
+validated authorization URL, extracts only access token, refresh token, expiry,
+and the dynamically granted scope set from Linux state, validates bounded OAuth
+scope-token syntax, requires that grant to be a subset of the observed request,
+normalizes provider ordering, and discards provider-owned optional
+metadata before checked cleanup. Broker stores its own strict record and
+selects or refreshes its bearer with the fixed reviewed client and persisted
+scope set after allow. Tobari compiles no Claude scope-name catalog.
 
 `auth import PROVIDER` remains the owner extension path. It accepts one bounded
 non-empty static primary secret only from protected non-terminal stdin.

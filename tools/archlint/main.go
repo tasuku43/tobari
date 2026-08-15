@@ -546,9 +546,13 @@ func isSharedCLIStyleFile(path string) bool {
 func containsForbiddenCLIANSI(value string) bool {
 	withoutReviewedControls := strings.NewReplacer(
 		"\x1b[2K", "",
+		"\x1b[2J", "",
+		"\x1b[H", "",
 		"\x1b[%dA", "",
 		"\x1b[?25l", "",
 		"\x1b[?25h", "",
+		"\x1b[?1049h", "",
+		"\x1b[?1049l", "",
 		"\x1b[J", "",
 	).Replace(value)
 	return strings.Contains(withoutReviewedControls, "\x1b[")

@@ -750,21 +750,11 @@ func renderPolicyReviewDetailRaw(
 }
 
 func renderPolicyReviewScreen(out io.Writer, lines []string, previousLines int) int {
-	for index, line := range lines {
-		if index == 0 && previousLines > 0 {
-			if _, err := fmt.Fprintf(out, "\x1b[%dA", previousLines); err != nil {
-				return -1
-			}
-		} else if index == 0 {
-			if _, err := io.WriteString(out, "\x1b[?25l"); err != nil {
-				return -1
-			}
-		}
-		if _, err := fmt.Fprintf(out, "\x1b[2K\r%s\n", line); err != nil {
-			return -1
-		}
+	lineCount, err := renderSelectorScreen(out, lines, previousLines)
+	if err != nil {
+		return -1
 	}
-	return len(lines)
+	return lineCount
 }
 
 func finishPolicyReviewSelector(out io.Writer, lines int) {

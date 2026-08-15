@@ -171,9 +171,13 @@ func (r *Runtime) reconcileProjectAuth(
 		})
 		for _, item := range providerProjection.Environment {
 			if item.ProviderID == provider.ID {
+				rendered, renderErr := renderProviderTemplate(item.Template, issued.Handle, provider, issued.OAuthScopes)
+				if renderErr != nil {
+					return projectAuthProjection{}, renderErr
+				}
 				desired.Environment = append(
 					desired.Environment,
-					item.Name+"="+renderProviderTemplate(item.Template, issued.Handle, provider),
+					item.Name+"="+rendered,
 				)
 			}
 		}
@@ -181,7 +185,11 @@ func (r *Runtime) reconcileProjectAuth(
 			if item.ProviderID != provider.ID {
 				continue
 			}
-			content := []byte(renderProviderTemplate(item.Template, issued.Handle, provider))
+			rendered, renderErr := renderProviderTemplate(item.Template, issued.Handle, provider, issued.OAuthScopes)
+			if renderErr != nil {
+				return projectAuthProjection{}, renderErr
+			}
+			content := []byte(rendered)
 			digest := sha256.Sum256(content)
 			desired.Files = append(desired.Files, projectAuthFile{
 				Path: item.Path, Content: content, Digest: "sha256:" + hex.EncodeToString(digest[:]),

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 
 	"github.com/tasuku43/tobari/internal/domain/authbroker"
@@ -329,7 +330,11 @@ func decodeBrokerControlResponse(
 		}
 		response.Changed = &changed
 	case brokerControlIssueHandle:
-		if err := requireBrokerFields(fields, "schema_version", "ok", "provider", "revision", "handle"); err != nil {
+		expected := []string{"schema_version", "ok", "provider", "revision", "handle"}
+		if expectation.Provider == authbroker.BuiltinAnthropicProviderID {
+			expected = append(expected, "oauth_scopes")
+		}
+		if err := requireBrokerFields(fields, expected...); err != nil {
 			return brokerControlResponse{}, err
 		}
 		if err := decodeBrokerExpectedProvider(fields, expectation.Provider, &response); err != nil {
@@ -342,6 +347,13 @@ func decodeBrokerControlResponse(
 		response.Handle, err = brokerRequiredField[string](fields, "handle")
 		if err != nil || !validProjectHandle(response.Handle) {
 			return brokerControlResponse{}, fmt.Errorf("Auth Broker project handle is invalid")
+		}
+		if expectation.Provider == authbroker.BuiltinAnthropicProviderID {
+			response.OAuthScopes, err = brokerRequiredField[[]string](fields, "oauth_scopes")
+			normalized, normalizeErr := authbroker.NormalizeOAuthScopes(response.OAuthScopes)
+			if err != nil || normalizeErr != nil || !slices.Equal(response.OAuthScopes, normalized) {
+				return brokerControlResponse{}, fmt.Errorf("Auth Broker OAuth scope projection is invalid")
+			}
 		}
 	case brokerControlBindingStatus:
 		if err := requireBrokerFields(fields, "schema_version", "ok", "state", "provider", "revision"); err != nil {

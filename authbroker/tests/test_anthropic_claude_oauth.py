@@ -8,7 +8,6 @@ from unittest import mock
 from authbroker import anthropic_refresh_transport
 from authbroker.anthropic_claude_oauth import (
     CLIENT_ID,
-    SCOPES,
     TOKEN_ENDPOINT,
     AnthropicClaudeOAuthError,
     ClaudeOAuthState,
@@ -20,13 +19,22 @@ DRIVER_REVISION = "a" * 64
 NOW = 1_800_000_000
 ACCESS_TOKEN = "dummy-access-token"
 REFRESH_TOKEN = "dummy-refresh-token"
-ACCESS_FIELD = "access" + "Token"
-REFRESH_FIELD = "refresh" + "Token"
 REFRESH_REQUEST_FIELD = "refresh_" + "token"
+FULL_SCOPES = (
+    "org:create_api_key",
+    "user:profile",
+    "user:inference",
+    "user:sessions:claude_code",
+    "user:mcp_servers",
+    "user:file_upload",
+)
 
 
 def state_bytes(
-    *, access: str = ACCESS_TOKEN, expires_at: int = (NOW + 3600) * 1000
+    *,
+    access: str = ACCESS_TOKEN,
+    expires_at: int = (NOW + 3600) * 1000,
+    scopes: tuple[str, ...] = FULL_SCOPES,
 ) -> bytes:
     document = {
         "schema_version": 1,
@@ -36,17 +44,11 @@ def state_bytes(
             "sha256": DRIVER_REVISION,
             "version": "2.1.220",
         },
-        "auth": {
-            "claudeAiOauth": {
-                ACCESS_FIELD: access,
-                REFRESH_FIELD: REFRESH_TOKEN,
-                "expiresAt": expires_at,
-                "refreshTokenExpiresAt": (NOW + 7200) * 1000,
-                "scopes": list(SCOPES),
-                "subscriptionType": "max",
-                "rateLimitTier": "default_claude_max_5x",
-                "clientId": CLIENT_ID,
-            }
+        "session": {
+            "access_" + "token": access,
+            "refresh_" + "token": REFRESH_TOKEN,
+            "expires_at": expires_at,
+            "scopes": sorted(scopes),
         },
     }
     return json.dumps(document, separators=(",", ":")).encode("ascii")
@@ -63,17 +65,17 @@ class AnthropicClaudeOAuthTests(unittest.TestCase):
             (state_bytes() + b"\n", DRIVER_REVISION),
             (state_bytes(), "c" * 64),
             (
-                state_bytes().replace(b"user:file_upload", b"user:other"),
+                state_bytes().replace(b"user:file_upload", b"user other"),
                 DRIVER_REVISION,
             ),
             (
-                state_bytes().replace(CLIENT_ID.encode(), b"wrong-client"),
+                state_bytes().replace(b'"scopes":', b'"unknown":true,"scopes":'),
                 DRIVER_REVISION,
             ),
             (
                 state_bytes().replace(
-                    f'"{ACCESS_FIELD}":'.encode("ascii"),
-                    f'"{ACCESS_FIELD}":"dummy-duplicate","{ACCESS_FIELD}":'.encode("ascii"),
+                    b'"access_token":',
+                    b'"access_token":"dummy-duplicate","access_token":',
                     1,
                 ),
                 DRIVER_REVISION,
@@ -85,8 +87,9 @@ class AnthropicClaudeOAuthTests(unittest.TestCase):
                 ):
                     ClaudeOAuthState.parse(encoded, driver_revision=revision)
 
-    def test_refresh_uses_fixed_native_contract_and_replaces_only_token_state(self) -> None:
+    def test_refresh_preserves_dynamic_native_scopes_and_replaces_only_token_state(self) -> None:
         calls: list[tuple[str, str, dict[str, object], float]] = []
+        granted_scopes = ("future:capability", "user:inference")
 
         def request(outbound: urllib.request.Request, timeout: float) -> bytes:
             assert outbound.data is not None
@@ -104,7 +107,7 @@ class AnthropicClaudeOAuthTests(unittest.TestCase):
                     "refresh_token": "dummy-replacement-refresh",
                     "expires_in": 3600,
                     "refresh_token_expires_in": 7200,
-                    "scope": " ".join(SCOPES),
+                    "scope": " ".join(sorted(granted_scopes)),
                     "token_type": "Bearer",
                     "account": {
                         "uuid": "account-synthetic",
@@ -116,7 +119,9 @@ class AnthropicClaudeOAuthTests(unittest.TestCase):
             ).encode("ascii")
 
         original = ClaudeOAuthState.parse(
-            state_bytes(expires_at=(NOW + 60) * 1000),
+            state_bytes(
+                expires_at=(NOW + 60) * 1000, scopes=granted_scopes
+            ),
             driver_revision=DRIVER_REVISION,
         )
         token, updated = refresh(original, now=NOW, request=request)
@@ -131,7 +136,7 @@ class AnthropicClaudeOAuthTests(unittest.TestCase):
                         "client_id": CLIENT_ID,
                         "grant_type": "refresh_token",
                         REFRESH_REQUEST_FIELD: REFRESH_TOKEN,
-                        "scope": " ".join(SCOPES),
+                        "scope": " ".join(sorted(granted_scopes)),
                     },
                     30.0,
                 )
@@ -154,7 +159,7 @@ class AnthropicClaudeOAuthTests(unittest.TestCase):
                 {
                     "access_token": "dummy-valid-access",
                     "expires_in": 3600,
-                    "scope": " ".join(SCOPES),
+                    "scope": " ".join(sorted(FULL_SCOPES)),
                     "token_type": "MAC",
                 }
             ).encode("ascii"),
@@ -185,7 +190,7 @@ class AnthropicClaudeOAuthTests(unittest.TestCase):
                 "client_id": CLIENT_ID,
                 "grant_type": "refresh_token",
                 REFRESH_REQUEST_FIELD: REFRESH_TOKEN,
-                "scope": " ".join(SCOPES),
+                "scope": " ".join(sorted(FULL_SCOPES)),
             },
             separators=(",", ":"),
             sort_keys=True,
@@ -209,6 +214,15 @@ class AnthropicClaudeOAuthTests(unittest.TestCase):
         self.assertEqual(proxy.proxies, {})
         with self.assertRaises(anthropic_refresh_transport.TransportError):
             redirect.redirect_request(None, None, None, None, None, None)
+
+        unsorted = json.loads(body.decode("ascii"))
+        unsorted["scope"] = "user:inference future:capability"
+        with self.assertRaises(anthropic_refresh_transport.TransportError):
+            anthropic_refresh_transport.perform(
+                json.dumps(
+                    unsorted, separators=(",", ":"), sort_keys=True
+                ).encode("ascii")
+            )
 
 
 if __name__ == "__main__":

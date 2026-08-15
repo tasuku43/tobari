@@ -14,6 +14,7 @@ from authbroker.broker import BrokerError, BrokerState
 from authbroker.renewable import ReviewedRenewableSessionDependencies
 from authbroker.tests.test_anthropic_claude_oauth import (
     DRIVER_REVISION,
+    FULL_SCOPES,
     NOW,
     state_bytes,
 )
@@ -94,6 +95,8 @@ class AnthropicBrokerTests(unittest.TestCase):
         )
         login = self.login(state, encoded)
         issued = state.issue_handle(CONTEXT, PROJECT, "anthropic", [binding()])
+        self.assertEqual(issued["oauth_scopes"], sorted(FULL_SCOPES))
+        self.assertNotIn("dummy-access", repr(issued))
         metadata = state.introspect(
             issued["handle"],
             CONTEXT,

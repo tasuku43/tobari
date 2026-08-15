@@ -20,7 +20,8 @@ Vaults live at `/var/lib/tobari-auth/contexts/<stable-context-id>/vault.enc`.
 Schema-1 vaults use AES-256-GCM with a random 12-byte nonce and associated data
 binding schema plus stable Context ID. The encrypted payload accepts the closed
 reviewed record union: static primary secret, opaque AWS driver state, Datadog
-OAuth state, and OpenAI Codex OAuth state, with durable operation barriers.
+OAuth state, OpenAI Codex OAuth state, and Anthropic Claude OAuth state, with
+durable operation barriers.
 Raw project handles persist only inside authenticated ciphertext; the live
 lookup table contains SHA-256 handle hashes. Every other record kind is
 rejected.
@@ -46,6 +47,12 @@ Chatwork built-in. Login stores only bounded verified non-secret account
 metadata. Login/import replacement and logout atomically revoke all old
 handles for the Context/provider.
 
+`issue_handle` returns only ordinary handle metadata for static, Datadog,
+OpenAI, and AWS plans. For Anthropic it additionally returns the canonical
+non-secret `oauth_scopes` array from the encrypted session so the Workspace
+credential projection follows the granted set without compiling Claude scope
+names or exposing either renewable token.
+
 Runtime `introspect` has exact keys `schema_version`, `op`, `handle`,
 `context_id`, `project_id`, `provider`, `target`, `source_header`, and
 `source_format`. Post-policy operations repeat the exact credential revision
@@ -58,7 +65,7 @@ companion export and signs locally.
 The Broker starts locked and retains the installation root key only in memory.
 It contains no provider CLI. Acquisition happens on the trusted host through
 purpose-limited GitHub/AWS/pup/Codex/Claude drivers. Broker egress is limited
-to the fixed Datadog US1 and OpenAI refresh transports. Managed profiles,
+to the fixed Datadog US1, OpenAI, and Anthropic refresh transports. Managed profiles,
 manifest-selected helpers, arbitrary executables, compatibility readers, and
 unknown record kinds remain rejected without fallback.
 

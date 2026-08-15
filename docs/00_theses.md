@@ -259,6 +259,12 @@ provider binding matches.
   Anthropic driver instead executes exact Claude Code in a fresh selected-
   Context-image container with no mounts, project state, persistent home,
   Broker socket, or Docker socket; that image sees only its own provider login.
+  Provider-owned optional Claude credential metadata is not a Tobari storage
+  contract: acquisition extracts only the bounded access token, refresh token,
+  expiry, and dynamically granted scope set into a versioned Tobari-owned
+  record. Scope names are provider output, not a compiled Tobari catalog:
+  acquisition bounds their OAuth syntax, requires the granted set to be a
+  subset of the observed authorization request, and normalizes ordering.
   Browser
   targets, callback behavior, output framing, cleanup, versions where the
   client contract is pinned, and cancellation are closed per provider.

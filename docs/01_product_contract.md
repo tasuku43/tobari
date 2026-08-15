@@ -330,21 +330,35 @@ undeclared Docker mutation by the CLI.
   the instructions, while every other control remains visibly projected. The
   Anthropic driver starts a fresh project-free container from the selected
   compatible Context image, runs exact Claude Code 2.1.220 native account login,
-  validates and captures its renewable Linux state, and requires checked
+  validates the four required renewable-session values from its Linux state,
+  discards provider-owned optional metadata, canonicalizes a Tobari-owned
+  record, and requires checked
   cleanup before Broker commit. Tobari opens only the exact reviewed Claude
   authorization URL. Its fixed terminal UI reports browser-open success
   without repeating the long URL, shows that exact URL only when host opening
   fails, and emits the paste-code prompt as soon as Claude requests input even
-  though the upstream prompt has no newline. Claude's reviewed prompt owns its
+  though the upstream prompt has no newline. Before that prompt it states that
+  authorization may take a moment after Enter; after successful child exit it
+  reports bounded Context-credential validation in progress. Claude's reviewed prompt owns its
   non-echoing terminal input; Tobari emits no entered code and does not hide the
-  next child status line by guessing that it is an echo. The isolated login
+  next child status line by guessing that it is an echo. Tobari passes the
+  original terminal input stream unchanged to Docker and Claude so their TTY
+  detection remains authoritative. The isolated login
   container overrides the Workspace CA-waiting entrypoint with fixed
   `/usr/bin/tini -- /usr/bin/sleep infinity`, because the acquisition container
   deliberately has no Workspace CA mount. While Docker owns the raw interactive terminal, every Tobari-owned
   and control-safe pass-through Claude line uses explicit CRLF framing so each
-  row begins at column one. Setup, authorization, output, timeout, native
+  row begins at column one. Exact Claude cursor hide/show events are consumed
+  as presentation state and Tobari emits one owned cursor-show at completion;
+  they never appear as escaped instructions. Setup, authorization, output, timeout, native
   credential capture, and login-container cleanup remain distinct secret-free
-  failures, and each preserves the previous Context credential. The
+  failures, and each preserves the previous Context credential. A capture
+  failure includes exactly one fixed diagnostic stage covering export,
+  archive, permissions, document, OAuth core, token, expiry, scope set, or
+  canonical record; it includes no provider value or raw child cause. OAuth
+  scope names are not fixed by Tobari: it bounds and canonicalizes the observed
+  requested and granted sets, rejects a grant outside the request, and carries
+  the granted set unchanged through refresh and Workspace projection. The
   shared Tobari browser behavior never opens a URL derived from arbitrary provider text. The
   GitHub driver runs fixed API-authentication-only GitHub CLI argv
   from one canonical non-project executable in a private temporary home and
@@ -595,8 +609,10 @@ unchecked argv. A deliberate pre-action cancellation is a neutral `Canceled`
 outcome on stderr with exit 11 and no success or danger treatment. It performs
 no mutation; a confirmed mutation keeps its existing reconciliation contract.
 Raw selectors render once initially and only after an input or selection-state
-change, not for an idle terminal-read poll, and restore terminal state exactly
-once when they finish.
+change, not for an idle terminal-read poll. They use a bounded alternate screen
+and repaint from terminal home instead of moving by logical row counts, so a
+long row that wraps cannot duplicate headings or drift later redraws. Finishing
+restores the main screen and visible cursor exactly once.
 When `cluster up` runs with an interactive stderr terminal, it may also render
 bounded fixed-step startup progress on stderr. The progress uses terminal
 control sequences and color only for that terminal presentation; it carries no

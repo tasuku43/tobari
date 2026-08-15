@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/tasuku43/tobari/internal/domain/authbroker"
 	"github.com/tasuku43/tobari/internal/infra/credentialhost"
 )
 
@@ -25,10 +26,11 @@ type claudeContainerRunner struct {
 	credentialArchive []byte
 	cleanupErr        error
 	waitForLoginEnd   bool
+	loginInput        io.Reader
 }
 
 func (r *claudeContainerRunner) Run(
-	ctx context.Context, arguments, _ []string, _ io.Reader, stdout, _ io.Writer,
+	ctx context.Context, arguments, _ []string, stdin io.Reader, stdout, _ io.Writer,
 ) error {
 	r.calls = append(r.calls, append([]string(nil), arguments...))
 	switch {
@@ -39,11 +41,14 @@ func (r *claudeContainerRunner) Run(
 	case len(arguments) == 4 && arguments[0] == "container" && arguments[1] == "cp" && strings.HasSuffix(arguments[2], ":/usr/local/bin/claude"):
 		_, _ = stdout.Write(tarFixture("usr/local/bin/claude", 0o755, r.executable))
 	case len(arguments) >= 2 && arguments[0] == "container" && arguments[1] == "exec" && slices.Contains(arguments, "--claudeai"):
+		r.loginInput = stdin
 		if r.waitForLoginEnd {
 			<-ctx.Done()
 			return ctx.Err()
 		}
 		_, _ = io.WriteString(stdout, "Opening browser to sign in…\n")
+		_, _ = io.Copy(io.Discard, stdin)
+		_, _ = io.WriteString(stdout, "Login successful.\n")
 	case len(arguments) == 4 && arguments[0] == "container" && arguments[1] == "cp" && strings.HasSuffix(arguments[2], ":/var/lib/tobari/.claude/.credentials.json"):
 		_, _ = stdout.Write(r.credentialArchive)
 	case len(arguments) >= 3 && arguments[0] == "container" && arguments[1] == "rm":
@@ -69,7 +74,18 @@ func tarFixture(name string, mode int64, content []byte) []byte {
 }
 
 func claudeNativeLoginFixture() []byte {
-	return []byte(`{"claudeAiOauth":{"access` + `Token":"dummy-access-token","refresh` + `Token":"dummy-refresh-token","expiresAt":4102444800000,"refreshTokenExpiresAt":4102445800000,"scopes":["org:create_api_key","user:profile","user:inference","user:sessions:claude_code","user:mcp_servers","user:file_upload"],"subscriptionType":"max","rateLimitTier":"default_claude_max_5x","clientId":"9d1c250a-e61b-44d9-88ed-5944d1962f5e"}}`)
+	return []byte(`{"claudeAiOauth":{"access` + `Token":"dummy-access-token","refresh` + `Token":"dummy-refresh-token","expiresAt":4102444800000,"refreshTokenExpiresAt":4102445800000,"scopes":["org:create_api_key","user:profile","user:inference","user:sessions:claude_code","user:mcp_servers","user:file_upload"],"subscriptionType":"max","rateLimitTier":"default_claude_max_5x"}}`)
+}
+
+func claudeNativeLoginScopes() []string {
+	return []string{
+		"org:create_api_key",
+		"user:file_upload",
+		"user:inference",
+		"user:mcp_servers",
+		"user:profile",
+		"user:sessions:claude_code",
+	}
 }
 
 func newClaudeContainerRuntime(t *testing.T, runner *claudeContainerRunner) (*Runtime, string) {
@@ -100,8 +116,15 @@ func TestClaudeContainerLoginUsesIsolatedContextImageAndCanonicalizesNativeState
 		),
 	}
 	runtime, contextID := newClaudeContainerRuntime(t, runner)
+	var visibleBuffer bytes.Buffer
+	visible := &loginVisibleOutput{
+		destination:       &visibleBuffer,
+		provider:          authbroker.BuiltinAnthropicProviderID,
+		claudeOAuthScopes: claudeNativeLoginScopes(),
+	}
+	input := strings.NewReader("paste-code\n")
 	payload, err := runtime.loginClaudeInContextContainer(
-		context.Background(), contextID, strings.NewReader("paste-code\n"), io.Discard,
+		context.Background(), contextID, input, visible,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -115,6 +138,22 @@ func TestClaudeContainerLoginUsesIsolatedContextImageAndCanonicalizesNativeState
 	decoded, err := credentialhost.DecodeClaudeNativeCredential(payload.secret)
 	if err != nil || decoded.DriverRevision() != wantDigest {
 		t.Fatalf("canonical state=%#v error=%v", decoded, err)
+	}
+	wantProgress := []string{
+		claudeLoginOpeningFeedback,
+		"Login successful.",
+		claudeLoginCaptureFeedback,
+	}
+	position := 0
+	for _, expected := range wantProgress {
+		index := strings.Index(visibleBuffer.String()[position:], expected)
+		if index < 0 {
+			t.Fatalf("visible progress = %q; missing %q", visibleBuffer.String(), expected)
+		}
+		position += index + len(expected)
+	}
+	if runner.loginInput != input {
+		t.Fatalf("Claude login input was wrapped: got %T, want original %T", runner.loginInput, input)
 	}
 
 	var create, login, cleanup []string
@@ -142,6 +181,54 @@ func TestClaudeContainerLoginUsesIsolatedContextImageAndCanonicalizesNativeState
 		if strings.Contains(joined, forbidden) {
 			t.Fatalf("isolated create argv contains %q: %v", forbidden, create)
 		}
+	}
+}
+
+func TestClaudeContainerLoginRejectsGrantedScopeOutsideObservedRequest(t *testing.T) {
+	runner := &claudeContainerRunner{
+		executable: []byte("synthetic executable"),
+		credentialArchive: tarFixture(
+			".credentials.json", 0o600, claudeNativeLoginFixture(),
+		),
+	}
+	runtime, contextID := newClaudeContainerRuntime(t, runner)
+	visible := &loginVisibleOutput{
+		destination:       io.Discard,
+		provider:          authbroker.BuiltinAnthropicProviderID,
+		claudeOAuthScopes: []string{"user:inference"},
+	}
+	payload, err := runtime.loginClaudeInContextContainer(
+		context.Background(), contextID, strings.NewReader("code\n"), visible,
+	)
+	if len(payload.secret) != 0 || !errors.Is(err, credentialhost.ErrInvalidClaudeNativeCredential) {
+		t.Fatalf("payload=%#v error=%v", payload, err)
+	}
+	var diagnostic *credentialhost.ClaudeCredentialCaptureError
+	if !errors.As(err, &diagnostic) || diagnostic.DiagnosticStage() != credentialhost.ClaudeCaptureOAuthScopeSet {
+		t.Fatalf("diagnostic=%#v error=%v", diagnostic, err)
+	}
+}
+
+func TestClaudeCredentialArchiveReportsOnlySecretFreeDiagnosticStages(t *testing.T) {
+	tests := []struct {
+		name    string
+		archive []byte
+		stage   credentialhost.ClaudeCredentialCaptureStage
+	}{
+		{name: "invalid archive", archive: []byte("not a tar archive"), stage: credentialhost.ClaudeCaptureArchiveEnvelope},
+		{name: "public permissions", archive: tarFixture(".credentials.json", 0o644, claudeNativeLoginFixture()), stage: credentialhost.ClaudeCaptureFilePermissions},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			content, err := readClaudeCredentialArchive(test.archive)
+			if len(content) != 0 || !errors.Is(err, credentialhost.ErrClaudeTokenCapture) {
+				t.Fatalf("content=%q error=%v", content, err)
+			}
+			var diagnostic *credentialhost.ClaudeCredentialCaptureError
+			if !errors.As(err, &diagnostic) || diagnostic.DiagnosticStage() != test.stage || strings.Contains(err.Error(), "canary") {
+				t.Fatalf("diagnostic=%#v error=%v", diagnostic, err)
+			}
+		})
 	}
 }
 

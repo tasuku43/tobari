@@ -344,21 +344,11 @@ func renderWorkspaceSelector(
 	} else {
 		lines = append(lines, applyStyleToken(style, styleWarning, "! "+message))
 	}
-	for index, line := range lines {
-		if index == 0 && previousLines > 0 {
-			if _, err := fmt.Fprintf(out, "\x1b[%dA", previousLines); err != nil {
-				return -1
-			}
-		} else if index == 0 {
-			if _, err := io.WriteString(out, "\x1b[?25l"); err != nil {
-				return -1
-			}
-		}
-		if _, err := fmt.Fprintf(out, "\x1b[2K\r%s\n", line); err != nil {
-			return -1
-		}
+	lineCount, err := renderSelectorScreen(out, lines, previousLines)
+	if err != nil {
+		return -1
 	}
-	return len(lines)
+	return lineCount
 }
 
 func ansiWorkspaceOption(option workspaceSelectorOption, selected, style bool) string {
@@ -446,13 +436,6 @@ func writeSelectorLine(out io.Writer, line string) error {
 
 func finishWorkspaceSelector(out io.Writer, lines int) {
 	finishSelectorScreen(out, lines)
-}
-
-func finishSelectorScreen(out io.Writer, lines int) {
-	if lines > 0 {
-		_, _ = fmt.Fprintf(out, "\x1b[%dA\r\x1b[J", lines)
-	}
-	_, _ = io.WriteString(out, "\x1b[?25h")
 }
 
 func readSelectorKey(ctx context.Context, in io.Reader) (selectorKey, error) {

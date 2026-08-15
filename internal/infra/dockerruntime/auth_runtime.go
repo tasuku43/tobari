@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/url"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -35,17 +36,19 @@ const (
 	loginStyleMuted                 = "\x1b[38;5;250m"
 	loginStyleAccent                = "\x1b[1;38;5;45m"
 	loginStyleSuccess               = "\x1b[38;5;42m"
+	loginCursorHide                 = "\x1b[?25l"
+	loginCursorShow                 = "\x1b[?25h"
 	claudeLoginOpening              = "Opening browser to sign in…"
 	claudeLoginPastePrompt          = "Paste code here if prompted > "
 	claudeLoginBrowserOpened        = "↗ Opened in your default browser."
 	claudeLoginTTYLineEnding        = "\r\n"
 	claudeLoginOpeningFeedback      = "Opening Claude sign-in…" + claudeLoginTTYLineEnding
 	claudeLoginOpenedFeedback       = "✓ Opened in your default browser." + claudeLoginTTYLineEnding
-	claudeLoginPromptFeedback       = claudeLoginTTYLineEnding + "If Claude shows a code, paste it here:" + claudeLoginTTYLineEnding + "> "
+	claudeLoginPromptFeedback       = claudeLoginTTYLineEnding + "If Claude shows a code, paste it here:" + claudeLoginTTYLineEnding + "After you press Enter, Claude may take a moment to authorize it." + claudeLoginTTYLineEnding + "> "
+	claudeLoginCaptureFeedback      = "Authorization complete. Validating this Context credential…"
 	claudeLoginURLPrefix            = "https://claude.com/cai/oauth/authorize?"
 	claudeLoginClientID             = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
 	claudeLoginRedirectURI          = "https://platform.claude.com/oauth/code/callback"
-	claudeLoginScopes               = "org:create_api_key user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload"
 	claudeHyperlinkPrefix           = "If the browser didn't open, visit: \x1b]8;;"
 	claudeHyperlinkClose            = "\x1b]8;;\a"
 )
@@ -64,6 +67,8 @@ type loginVisibleOutput struct {
 	opened                 bool
 	claudePrompted         bool
 	claudePromptLineClosed bool
+	claudeCursorControl    bool
+	claudeOAuthScopes      []string
 	color                  bool
 	written                int
 	visible                int
@@ -127,6 +132,37 @@ func (w *loginVisibleOutput) flush() error {
 		return w.failure
 	}
 	if err := w.flushPending(); err != nil {
+		w.failure = err
+		return err
+	}
+	if w.provider == authbroker.BuiltinAnthropicProviderID && w.claudeCursorControl {
+		w.claudeCursorControl = false
+		if err := w.writeVisible(loginCursorShow); err != nil {
+			w.failure = err
+			return err
+		}
+	}
+	return nil
+}
+
+func (w *loginVisibleOutput) writeClaudeProgress(value string) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.failure != nil {
+		return w.failure
+	}
+	if w.claudePrompted && !w.claudePromptLineClosed {
+		w.claudePromptLineClosed = true
+		if err := w.writeVisible(claudeLoginTTYLineEnding); err != nil {
+			w.failure = err
+			return err
+		}
+	}
+	visible := value
+	if w.color {
+		visible = loginStyleMuted + value + loginSGRReset
+	}
+	if err := w.writeVisible(visible + claudeLoginTTYLineEnding); err != nil {
 		w.failure = err
 		return err
 	}
@@ -194,6 +230,9 @@ func (w *loginVisibleOutput) flushClaudeLoginLine(line string) (bool, error) {
 	switch trimmed {
 	case "":
 		return true, nil
+	case loginCursorHide, loginCursorShow:
+		w.claudeCursorControl = true
+		return true, nil
 	case claudeLoginOpening:
 		return true, w.writeVisible(claudeLoginOpeningFeedback)
 	case strings.TrimSpace(claudeLoginPastePrompt):
@@ -208,6 +247,15 @@ func (w *loginVisibleOutput) flushClaudeLoginLine(line string) (bool, error) {
 		return false, nil
 	}
 	target := strings.TrimPrefix(projected, "If the browser didn't open, visit: ")
+	scopes, validScopes := claudeLoginAuthorizationScopes(target)
+	if !validScopes {
+		return false, nil
+	}
+	if len(w.claudeOAuthScopes) == 0 {
+		w.claudeOAuthScopes = scopes
+	} else if !slices.Equal(w.claudeOAuthScopes, scopes) {
+		return false, nil
+	}
 	if w.opened {
 		return true, nil
 	}
@@ -345,32 +393,55 @@ func projectClaudeLoginHyperlink(line string) (string, bool) {
 }
 
 func validClaudeLoginAuthorizationURL(target string) bool {
+	_, ok := claudeLoginAuthorizationScopes(target)
+	return ok
+}
+
+func claudeLoginAuthorizationScopes(target string) ([]string, bool) {
 	parsed, err := url.Parse(target)
 	if err != nil || parsed.Scheme != "https" || parsed.Host != "claude.com" || parsed.User != nil ||
 		parsed.Path != "/cai/oauth/authorize" || parsed.RawPath != "" || parsed.ForceQuery ||
 		parsed.Fragment != "" || parsed.RawFragment != "" {
-		return false
+		return nil, false
 	}
 	query, err := url.ParseQuery(parsed.RawQuery)
 	if err != nil || len(query) != 8 {
-		return false
+		return nil, false
 	}
 	want := map[string]string{
 		"code": "true", "client_id": claudeLoginClientID, "response_type": "code",
-		"redirect_uri": claudeLoginRedirectURI, "scope": claudeLoginScopes,
+		"redirect_uri":          claudeLoginRedirectURI,
 		"code_challenge_method": "S256",
 	}
 	for key, value := range want {
 		if len(query[key]) != 1 || query.Get(key) != value {
-			return false
+			return nil, false
 		}
+	}
+	rawScopes := query.Get("scope")
+	if len(query["scope"]) != 1 {
+		return nil, false
+	}
+	scopes := strings.Split(rawScopes, " ")
+	normalizedScopes, err := authbroker.NormalizeOAuthScopes(scopes)
+	if err != nil || strings.Join(scopes, " ") != rawScopes {
+		return nil, false
 	}
 	for _, key := range []string{"code_challenge", "state"} {
 		if len(query[key]) != 1 || !claudeOAuthOpaquePattern.MatchString(query.Get(key)) {
-			return false
+			return nil, false
 		}
 	}
-	return true
+	return normalizedScopes, true
+}
+
+func (w *loginVisibleOutput) requestedClaudeOAuthScopes() ([]string, bool) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if len(w.claudeOAuthScopes) == 0 {
+		return nil, false
+	}
+	return append([]string(nil), w.claudeOAuthScopes...), true
 }
 
 func stripApprovedLoginSGR(value string) string {
@@ -610,9 +681,15 @@ func classifyHostLoginError(err error, provider string, methods ...string) error
 		}
 		if errors.Is(err, credentialhost.ErrClaudeTokenCapture) ||
 			errors.Is(err, credentialhost.ErrInvalidClaudeNativeCredential) {
+			message := "Claude completed account login, but Tobari could not validate its native credential state; the previous Context credential remains unchanged."
+			var diagnostic *credentialhost.ClaudeCredentialCaptureError
+			if errors.As(err, &diagnostic) {
+				message = "Claude completed account login, but Tobari could not validate its native credential state at diagnostic stage " +
+					string(diagnostic.DiagnosticStage()) + "; the previous Context credential remains unchanged."
+			}
 			return fault.New(
 				fault.KindUnavailable, "anthropic_credential_capture_failed",
-				"Claude completed account login, but Tobari could not validate its native credential state; the previous Context credential remains unchanged.", false,
+				message, false,
 				fault.NextAction{Command: "auth login", Reason: "Start a new isolated Context-runtime Claude login."},
 			)
 		}

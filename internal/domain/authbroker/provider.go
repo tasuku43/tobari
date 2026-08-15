@@ -274,14 +274,21 @@ func validateProvider(p Provider) error {
 		return fmt.Errorf("provider %q must declare 1..%d Workspace projections", p.ID, maxProjections)
 	}
 	handleProjections := 0
+	oauthScopeProjections := 0
 	for index, projection := range p.WorkspaceProjections {
 		if err := validateWorkspaceProjection(projection); err != nil {
 			return fmt.Errorf("provider %q Workspace projection %d: %w", p.ID, index, err)
 		}
 		handleProjections += strings.Count(projection.Template, "${HANDLE}")
+		oauthScopeProjections += strings.Count(projection.Template, "${OAUTH_SCOPES_JSON}")
 	}
 	if handleProjections == 0 {
 		return fmt.Errorf("provider %q must project ${HANDLE} at least once", p.ID)
+	}
+	if oauthScopeProjections > 0 && (p.ID != BuiltinAnthropicProviderID ||
+		p.Credential.Kind != CredentialAnthropicClaudeOAuthSession ||
+		p.Acquisition.Mode != AcquisitionBuiltinHelper || p.Acquisition.Helper != "claude-native-oauth") {
+		return fmt.Errorf("provider %q cannot use dynamic OAuth scope projection", p.ID)
 	}
 	if len(p.HeaderBindings) > maxBindings {
 		return fmt.Errorf("provider %q cannot declare more than %d header bindings", p.ID, maxBindings)
@@ -395,7 +402,7 @@ func validateCredentialPlan(p Provider) error {
 
 const openAICodexWorkspaceAuthTemplate = `{"auth_mode":"chatgptAuthTokens","OPENAI_API_KEY":null,"tokens":{"id_token":"e30.e30.x","access_token":"${HANDLE}","refresh_token":"","account_id":null},"last_refresh":"1970-01-01T00:00:00Z"}`
 
-const anthropicClaudeWorkspaceAuthTemplate = `{"claudeAiOauth":{"accessToken":"${HANDLE}","refreshToken":"","expiresAt":4102444800000,"refreshTokenExpiresAt":null,"scopes":["org:create_api_key","user:profile","user:inference","user:sessions:claude_code","user:mcp_servers","user:file_upload"],"subscriptionType":null,"rateLimitTier":null,"clientId":"9d1c250a-e61b-44d9-88ed-5944d1962f5e"}}`
+const anthropicClaudeWorkspaceAuthTemplate = `{"claudeAiOauth":{"accessToken":"${HANDLE}","refreshToken":"","expiresAt":4102444800000,"scopes":${OAUTH_SCOPES_JSON}}}`
 
 func validateOpenAICodexWorkspaceProjection(projections []WorkspaceProjection) error {
 	if len(projections) != 1 {
@@ -604,9 +611,10 @@ func validateTemplate(value string) error {
 	}
 	const maxPlaceholders = 32
 	allowed := map[string]bool{
-		"HANDLE":       true,
-		"PROVIDER_ID":  true,
-		"DISPLAY_NAME": true,
+		"HANDLE":            true,
+		"PROVIDER_ID":       true,
+		"DISPLAY_NAME":      true,
+		"OAUTH_SCOPES_JSON": true,
 	}
 	handleCount := 0
 	placeholderCount := 0

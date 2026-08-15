@@ -773,19 +773,7 @@ func renderConfigurationWizardRaw(
 }
 
 func renderConfigurationWizardLines(out io.Writer, lines []string, previousLines int) (int, error) {
-	if previousLines > 0 {
-		if _, err := fmt.Fprintf(out, "\x1b[%dA\r\x1b[J", previousLines); err != nil {
-			return 0, err
-		}
-	} else if _, err := io.WriteString(out, "\x1b[?25l"); err != nil {
-		return 0, err
-	}
-	for _, line := range lines {
-		if _, err := fmt.Fprintf(out, "\x1b[2K\r%s\n", line); err != nil {
-			return 0, err
-		}
-	}
-	return len(lines), nil
+	return renderSelectorScreen(out, lines, previousLines)
 }
 
 func selectConfigurationWizardLine(

@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"time"
 
@@ -37,15 +38,16 @@ func (e brokerControlError) Error() string {
 }
 
 type brokerControlResponse struct {
-	SchemaVersion int     `json:"schema_version"`
-	OK            bool    `json:"ok"`
-	State         string  `json:"state,omitempty"`
-	EpochID       string  `json:"epoch_id,omitempty"`
-	Provider      string  `json:"provider,omitempty"`
-	Revision      string  `json:"revision,omitempty"`
-	AccountLabel  *string `json:"account_label,omitempty"`
-	Handle        string  `json:"handle,omitempty"`
-	Changed       *bool   `json:"changed,omitempty"`
+	SchemaVersion int      `json:"schema_version"`
+	OK            bool     `json:"ok"`
+	State         string   `json:"state,omitempty"`
+	EpochID       string   `json:"epoch_id,omitempty"`
+	Provider      string   `json:"provider,omitempty"`
+	Revision      string   `json:"revision,omitempty"`
+	AccountLabel  *string  `json:"account_label,omitempty"`
+	Handle        string   `json:"handle,omitempty"`
+	OAuthScopes   []string `json:"oauth_scopes,omitempty"`
+	Changed       *bool    `json:"changed,omitempty"`
 	Error         *struct {
 		Code string `json:"code"`
 	} `json:"error,omitempty"`
@@ -451,13 +453,34 @@ func (r *Runtime) resolveAuthContext(ctx context.Context, contextName string) (t
 	return manifest, err
 }
 
-func renderProviderTemplate(template, handle string, provider authbroker.Provider) string {
+func renderProviderTemplate(
+	template, handle string, provider authbroker.Provider, oauthScopes []string,
+) (string, error) {
+	scopesJSON := ""
+	if strings.Contains(template, "${OAUTH_SCOPES_JSON}") {
+		normalized, err := authbroker.NormalizeOAuthScopes(oauthScopes)
+		if err != nil || !slices.Equal(oauthScopes, normalized) {
+			return "", fmt.Errorf("provider OAuth scope projection is invalid")
+		}
+		encoded, err := json.Marshal(normalized)
+		if err != nil {
+			return "", fmt.Errorf("encode provider OAuth scope projection: %w", err)
+		}
+		scopesJSON = string(encoded)
+	} else if len(oauthScopes) != 0 {
+		return "", fmt.Errorf("provider returned unexpected OAuth scope projection")
+	}
 	replacer := strings.NewReplacer(
 		"${HANDLE}", handle,
 		"${PROVIDER_ID}", provider.ID,
 		"${DISPLAY_NAME}", provider.DisplayName,
+		"${OAUTH_SCOPES_JSON}", scopesJSON,
 	)
-	return replacer.Replace(template)
+	rendered := replacer.Replace(template)
+	if strings.Contains(rendered, "${") {
+		return "", fmt.Errorf("provider projection retained an unresolved placeholder")
+	}
+	return rendered, nil
 }
 
 func (r *Runtime) addAuthDiagnostics(

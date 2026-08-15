@@ -20,14 +20,6 @@ TOKEN_ENDPOINT = "https://platform.claude.com/v1/oauth/token"
 MAX_STATE_BYTES = 32 * 1024
 MAX_RESPONSE_BYTES = 64 * 1024
 REFRESH_WINDOW_SECONDS = 5 * 60
-SCOPES = (
-    "org:create_api_key",
-    "user:profile",
-    "user:inference",
-    "user:sessions:claude_code",
-    "user:mcp_servers",
-    "user:file_upload",
-)
 _DIGEST = re.compile(r"^[0-9a-f]{64}$")
 _IMAGE_ID = re.compile(r"^sha256:[0-9a-f]{64}$")
 _ACCESS_RESPONSE_FIELD = "access_" + "token"
@@ -102,6 +94,38 @@ def _millis(value: Any) -> bool:
     )
 
 
+def _normalize_scopes(value: Any) -> tuple[str, ...]:
+    if not isinstance(value, list) or not 1 <= len(value) <= 32:
+        raise AnthropicClaudeOAuthError("anthropic_oauth_state_invalid")
+    scopes: list[str] = []
+    seen: set[str] = set()
+    for scope in value:
+        if (
+            not isinstance(scope, str)
+            or not 1 <= len(scope.encode("utf-8")) <= 128
+            or any(
+                character != 0x21
+                and not 0x23 <= character <= 0x5B
+                and not 0x5D <= character <= 0x7E
+                for character in map(ord, scope)
+            )
+            or scope in seen
+        ):
+            raise AnthropicClaudeOAuthError("anthropic_oauth_state_invalid")
+        seen.add(scope)
+        scopes.append(scope)
+    return tuple(sorted(scopes))
+
+
+def _normalize_scope_string(value: Any) -> tuple[str, ...]:
+    if not isinstance(value, str) or not value or "  " in value:
+        raise AnthropicClaudeOAuthError("anthropic_oauth_refresh_failed")
+    try:
+        return _normalize_scopes(value.split(" "))
+    except AnthropicClaudeOAuthError:
+        raise AnthropicClaudeOAuthError("anthropic_oauth_refresh_failed") from None
+
+
 @dataclass(frozen=True, repr=False)
 class ClaudeOAuthState:
     document: dict[str, Any]
@@ -115,10 +139,10 @@ class ClaudeOAuthState:
         if _canonical(document, code) != encoded or list(document) != [
             "schema_version",
             "claude_executable",
-            "auth",
+            "session",
         ]:
             raise AnthropicClaudeOAuthError(code)
-        executable, auth = document.get("claude_executable"), document.get("auth")
+        executable, session = document.get("claude_executable"), document.get("session")
         if (
             document.get("schema_version") != 1
             or isinstance(document.get("schema_version"), bool)
@@ -129,45 +153,26 @@ class ClaudeOAuthState:
             or _DIGEST.fullmatch(executable.get("sha256", "")) is None
             or executable.get("sha256") != driver_revision
             or executable.get("version") != "2.1.220"
-            or not isinstance(auth, dict)
-            or list(auth) != ["claudeAiOauth"]
+            or not isinstance(session, dict)
         ):
             raise AnthropicClaudeOAuthError(code)
-        oauth = auth.get("claudeAiOauth")
         expected = [
-            "accessToken",
-            "refreshToken",
-            "expiresAt",
-            "refreshTokenExpiresAt",
+            "access_token",
+            "refresh_token",
+            "expires_at",
             "scopes",
-            "subscriptionType",
-            "rateLimitTier",
-            "clientId",
         ]
-        if not isinstance(oauth, dict) or list(oauth) != expected:
+        if list(session) != expected:
             raise AnthropicClaudeOAuthError(code)
-        refresh_expiry = oauth.get("refreshTokenExpiresAt")
-        subscription = oauth.get("subscriptionType")
-        rate_tier = oauth.get("rateLimitTier")
+        try:
+            normalized_scopes = _normalize_scopes(session.get("scopes"))
+        except AnthropicClaudeOAuthError:
+            raise AnthropicClaudeOAuthError(code) from None
         if (
-            not _secret(oauth.get("accessToken"))
-            or not _secret(oauth.get("refreshToken"))
-            or not _millis(oauth.get("expiresAt"))
-            or (
-                refresh_expiry is not None
-                and (not _millis(refresh_expiry) or refresh_expiry < oauth["expiresAt"])
-            )
-            or oauth.get("scopes") != list(SCOPES)
-            or subscription not in {None, "pro", "max", "team", "enterprise"}
-            or (
-                rate_tier is not None
-                and (
-                    not isinstance(rate_tier, str)
-                    or not 1 <= len(rate_tier) <= 128
-                    or any(ord(c) < 0x21 or ord(c) > 0x7E for c in rate_tier)
-                )
-            )
-            or oauth.get("clientId") != CLIENT_ID
+            not _secret(session.get("access_token"))
+            or not _secret(session.get("refresh_token"))
+            or not _millis(session.get("expires_at"))
+            or session.get("scopes") != list(normalized_scopes)
         ):
             raise AnthropicClaudeOAuthError(code)
         return cls(document=document)
@@ -180,13 +185,16 @@ class ClaudeOAuthState:
             or now < 0
         ):
             raise AnthropicClaudeOAuthError("anthropic_oauth_state_invalid")
-        oauth = self.document["auth"]["claudeAiOauth"]
-        if now * 1000 >= oauth["expiresAt"] - REFRESH_WINDOW_SECONDS * 1000:
+        session = self.document["session"]
+        if now * 1000 >= session["expires_at"] - REFRESH_WINDOW_SECONDS * 1000:
             return None
-        return oauth["accessToken"].encode("ascii")
+        return session["access_token"].encode("ascii")
 
     def encode(self) -> bytes:
         return _canonical(self.document, "anthropic_oauth_state_invalid")
+
+    def oauth_scopes(self) -> tuple[str, ...]:
+        return tuple(self.document["session"]["scopes"])
 
 
 def _default_request(request: urllib.request.Request, timeout: float) -> bytes:
@@ -231,13 +239,13 @@ def refresh(
     current = time.time() if now is None else now
     if not isinstance(state, ClaudeOAuthState):
         raise AnthropicClaudeOAuthError("anthropic_oauth_refresh_failed")
-    oauth = state.document["auth"]["claudeAiOauth"]
+    session = state.document["session"]
     body = json.dumps(
         {
             "client_id": CLIENT_ID,
             "grant_type": "refresh_token",
-            _REFRESH_RESPONSE_FIELD: oauth["refreshToken"],
-            "scope": " ".join(SCOPES),
+            _REFRESH_RESPONSE_FIELD: session["refresh_token"],
+            "scope": " ".join(session["scopes"]),
         },
         separators=(",", ":"),
         sort_keys=True,
@@ -263,9 +271,12 @@ def refresh(
     if not set(response).issubset(allowed_response_fields):
         raise AnthropicClaudeOAuthError("anthropic_oauth_refresh_failed")
     access = response.get(_ACCESS_RESPONSE_FIELD)
-    renewal = response.get(_REFRESH_RESPONSE_FIELD, oauth["refreshToken"])
+    renewal = response.get(_REFRESH_RESPONSE_FIELD, session["refresh_token"])
     expires_in = response.get("expires_in")
-    scopes = response.get("scope")
+    try:
+        scopes = _normalize_scope_string(response.get("scope"))
+    except AnthropicClaudeOAuthError:
+        raise AnthropicClaudeOAuthError("anthropic_oauth_refresh_failed") from None
     token_type = response.get("token_type")
     account = response.get("account")
     organization = response.get("organization")
@@ -275,22 +286,21 @@ def refresh(
         or isinstance(expires_in, bool)
         or not isinstance(expires_in, int)
         or not 1 <= expires_in <= 86400
-        or scopes != " ".join(SCOPES)
+        or scopes != tuple(session["scopes"])
         or (token_type is not None and token_type != "Bearer")
         or not _valid_optional_identity(account, {"uuid", "email_address"})
         or not _valid_optional_identity(organization, {"uuid"})
     ):
         raise AnthropicClaudeOAuthError("anthropic_oauth_refresh_failed")
     updated = json.loads(json.dumps(state.document))
-    target = updated["auth"]["claudeAiOauth"]
-    target["accessToken"] = access
-    target["refreshToken"] = renewal
-    target["expiresAt"] = int(current * 1000) + expires_in * 1000
+    target = updated["session"]
+    target["access_token"] = access
+    target["refresh_token"] = renewal
+    target["expires_at"] = int(current * 1000) + expires_in * 1000
     refresh_expires = response.get(_REFRESH_EXPIRES_RESPONSE_FIELD)
     if refresh_expires is not None:
         if isinstance(refresh_expires, bool) or not isinstance(refresh_expires, int) or refresh_expires < expires_in:
             raise AnthropicClaudeOAuthError("anthropic_oauth_refresh_failed")
-        target["refreshTokenExpiresAt"] = int(current * 1000) + refresh_expires * 1000
     parsed = ClaudeOAuthState.parse(
         _canonical(updated, "anthropic_oauth_refresh_failed"),
         driver_revision=updated["claude_executable"]["sha256"],
