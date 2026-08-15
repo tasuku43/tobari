@@ -7,6 +7,8 @@
   harness, agent readiness, and release
 - Revises: The exact trusted-host Codex product-version requirement in ADR
   0025 and ADR 0031
+- Revised by: ADR 0036 replaces explicit device authentication with Codex's
+  native trusted-host browser login while retaining this contract detection
 - Superseded by: None
 
 ## Context

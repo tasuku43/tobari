@@ -61,6 +61,10 @@ Before publication:
 - Decide the inbound contribution policy, such as MIT inbound licensing, DCO, or CLA.
 - Add required notices and attribution.
 - Confirm names, logos, and examples do not imply unauthorized endorsement.
+- Before publishing the native Anthropic account-login integration, record
+  explicit legal/product review of the applicable provider terms and any
+  required provider approval. Technical interoperability and a passing local
+  login are not distribution authorization.
 
 Tobari is licensed under MIT as recorded in `LICENSE` and project metadata.
 
@@ -222,6 +226,8 @@ Minimum first-public-push checklist:
 - [ ] Codex and Claude runtime variants remain local/CI-only until their
       redistribution terms and image-layer license inventories are approved;
       a local build or passing version smoke test is not publication evidence.
+- [ ] Native Anthropic account-login distribution has explicit legal/product
+      approval and any provider approval required by the applicable terms.
 - [ ] Full history and artifacts passed secret and identifier review.
 - [ ] `task check`, `task security`, and `task public:check` passed.
 - [ ] A human reviewer approved publication.

@@ -89,13 +89,13 @@ It contains no candidate ID, query, body, headers, credential, or dynamic comman
 Only after allow may Gateway:
 
 1. perform one declared same-revision Broker action: static resolution,
-   Datadog/OpenAI token selection or refresh, or bounded AWS signing;
+   Datadog/OpenAI/Anthropic token selection or refresh, or bounded AWS signing;
 2. resolve the upstream hostname;
 3. reject unsafe non-global results for dotted hosts;
 4. pin the selected address so a later DNS answer cannot change the connection; and
 5. create one upstream connection and forward the authorized request.
 
-For undeclared compatibility passthrough, static-header Broker, Datadog, and OpenAI requests,
+For undeclared compatibility passthrough, static-header Broker, Datadog, OpenAI, and Anthropic requests,
 the body streams after allow. AWS SigV4 is the reviewed exception: Gateway
 retains the complete authorized request within 8 MiB, Broker obtains one
 private companion export and signs locally, and Gateway sends it once.

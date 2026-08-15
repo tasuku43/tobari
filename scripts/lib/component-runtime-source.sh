@@ -7,6 +7,8 @@ component_runtime_files() {
 .dockerignore
 Dockerfile
 __init__.py
+anthropic_claude_oauth.py
+anthropic_refresh_transport.py
 aws_sigv4.py
 broker.py
 broker_contract.py

@@ -7,13 +7,15 @@ from types import MappingProxyType
 from typing import Any, Callable, Mapping, Protocol
 
 from .credential_records import (
+    ANTHROPIC_CLAUDE_DRIVER_ID,
+    ANTHROPIC_CLAUDE_OAUTH_CREDENTIAL_KIND,
     AWS_DRIVER_IDS,
     AWS_SSO_CREDENTIAL_KIND,
-    CLAUDE_ACCOUNT_LABEL,
     DATADOG_OAUTH_CREDENTIAL_KIND,
     OPENAI_CODEX_DRIVER_ID,
     OPENAI_CODEX_OAUTH_CREDENTIAL_KIND,
     PUP_DRIVER_ID,
+    new_anthropic_claude_oauth_record,
     new_aws_sso_record,
     new_datadog_oauth_record,
     new_openai_codex_oauth_record,
@@ -143,13 +145,20 @@ class DriverControlLoginPlan:
     credential_kind: str
     driver_ids: frozenset[str]
     record_factory: RecordFactory
+    required_account_label: str | None = None
     payload_field: str = "state_length"
 
     def validate_client_metadata(
         self, account_label: Any, driver_id: Any, driver_revision: Any
     ) -> None:
-        del account_label
-        if driver_id not in self.driver_ids or driver_revision is None:
+        if (
+            driver_id not in self.driver_ids
+            or driver_revision is None
+            or (
+                self.required_account_label is not None
+                and account_label != self.required_account_label
+            )
+        ):
             raise ProtocolError("invalid_request")
 
     def build_request(
@@ -189,6 +198,11 @@ class DriverControlLoginPlan:
         )
         if len(raw_payload) != request["state_length"]:
             raise ProtocolError("invalid_length")
+        if (
+            self.required_account_label is not None
+            and request["account_label"] != self.required_account_label
+        ):
+            raise ProtocolError("invalid_request")
         return DriverControlLogin(
             plan=self,
             context_id=request["context_id"],
@@ -230,7 +244,13 @@ def _build_reviewed_control_login_plans() -> Mapping[str, ControlLoginPlan]:
             frozenset({OPENAI_CODEX_DRIVER_ID}),
             new_openai_codex_oauth_record,
         ),
-        StaticControlLoginPlan("anthropic", CLAUDE_ACCOUNT_LABEL),
+        DriverControlLoginPlan(
+            "anthropic",
+            ANTHROPIC_CLAUDE_OAUTH_CREDENTIAL_KIND,
+            frozenset({ANTHROPIC_CLAUDE_DRIVER_ID}),
+            new_anthropic_claude_oauth_record,
+            "claude-user-native",
+        ),
     )
     registry = {plan.provider_id: plan for plan in plans}
     if tuple(registry) != REVIEWED_CONTROL_LOGIN_PROVIDERS:

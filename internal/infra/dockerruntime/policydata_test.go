@@ -49,6 +49,60 @@ func learnedRuleFixtureForHost(t *testing.T, host, path string) tobari.LearnedPo
 	return rule
 }
 
+func pathTemplateRuleFixture(t *testing.T) tobari.LearnedPolicyRule {
+	t.Helper()
+	denials := []tobari.PolicyDenial{
+		{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Scheme: "https", Protocol: tobari.PolicyProtocolHTTP}, Timestamp: "2026-08-15T01:00:00Z", RequestID: "7185da2688d7469aae9cd9068e920b0b",
+			ContextID: "01912345-6789-7abc-8def-0123456789ad", ContextName: "default", ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/project",
+			Host: "api.github.com", Port: 443, Method: "GET", Path: "/items/123", Reason: "request did not match an allow rule", StatusCode: 403, Learnable: true},
+		{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Scheme: "https", Protocol: tobari.PolicyProtocolHTTP}, Timestamp: "2026-08-15T01:01:00Z", RequestID: "8185da2688d7469aae9cd9068e920b0b",
+			ContextID: "01912345-6789-7abc-8def-0123456789ad", ContextName: "default", ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/project",
+			Host: "api.github.com", Port: 443, Method: "GET", Path: "/items/456", Reason: "request did not match an allow rule", StatusCode: 403, Learnable: true},
+	}
+	candidates := make([]tobari.PolicyCandidate, len(denials))
+	for index, denial := range denials {
+		var err error
+		candidates[index], err = tobari.NewPolicyCandidate(denial)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	items, err := tobari.PolicyReviewItems(candidates, []tobari.LearnedPolicyRule{})
+	if err != nil || len(items) != 1 || items[0].Template == nil {
+		t.Fatalf("template review items = %+v, error = %v", items, err)
+	}
+	rule, err := tobari.NewPathTemplateLearnedPolicyRule(*items[0].Template)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return rule
+}
+
+func TestPolicyDomainAllowStrictlyRoundTripsPathTemplateRule(t *testing.T) {
+	t.Parallel()
+	rule := pathTemplateRuleFixture(t)
+	document := emptyDomainAllow("api.github.com")
+	document.Rules = []tobari.LearnedPolicyRule{rule}
+	if err := validateDomainAllow(document, "api.github.com"); err != nil {
+		t.Fatal(err)
+	}
+	data, err := marshalPolicySource(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded policyDomainAllow
+	if err := decodeStrictPolicyJSON(data, "allow.json", &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateDomainAllow(decoded, "api.github.com"); err != nil {
+		t.Fatal(err)
+	}
+	if len(decoded.Rules) != 1 || decoded.Rules[0].Match != tobari.PolicyMatchPathTemplate ||
+		decoded.Rules[0].Path != "/items/{id}" || !reflect.DeepEqual(decoded.Rules[0].Segments, []string{"items", "{id}"}) {
+		t.Fatalf("decoded path-template rule = %+v", decoded.Rules)
+	}
+}
+
 func deniedRuleFixture(t *testing.T, path string) tobari.PolicyDenyRule {
 	t.Helper()
 	candidate, err := tobari.NewPolicyCandidate(tobari.PolicyDenial{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Scheme: "https", Protocol: tobari.PolicyProtocolHTTP}, Timestamp: "2026-07-30T10:41:11Z",

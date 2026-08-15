@@ -57,6 +57,12 @@ trusted-secret-source | tobari auth import chatwork
 
 Only AWS accepts `--method`; omission selects `identity-center`. GitHub:
 
+All reviewed helper lookups inspect a finite PATH-ordered candidate set. A
+temporary integration shim may shadow a conventional installation for ordinary
+shell use, but Tobari never executes that shim during credential acquisition;
+it selects only the first later candidate whose canonical executable passes
+the existing trusted-root and mode checks.
+
 - resolves one canonical GitHub CLI executable outside the project;
 - checks that it is not group/world-writable and hashes it before the flow;
 - uses a sanitized environment and private temporary `GH_CONFIG_DIR`;
@@ -79,11 +85,20 @@ Datadog uses fixed `pup --no-agent auth login --site datadoghq.com` acquisition
 on the trusted host. Broker selects a valid US1 token or performs one strict
 same-record refresh after allow. OpenAI records a stable host Codex version
 without allowlisting it, requires the exact compiled
-`openai_codex_chatgpt_oauth` device-auth/state contract in an isolated home,
-and Broker selects or refreshes the same-account token after allow while returning only its validated
+`openai_codex_chatgpt_oauth` native-browser/state contract in an isolated home.
+The verified Codex child owns its loopback listener, dynamic authorization URL,
+browser request, PKCE state, callback, and exchange. Tobari binds no listener,
+never parses or opens that URL, and preserves Codex's bounded manual fallback
+guidance. Its bounded visible stream maps only the reviewed
+Codex reset, muted, and accent SGR sequences to Tobari-owned terminal styles;
+`NO_COLOR` emits the same guidance without styling and unknown controls remain
+visibly projected. Broker selects or refreshes the same-account token after
+allow while returning only its validated
 account ID as the supplemental header. Anthropic requires exactly Claude Code
-2.1.220 and captures one setup token through a private PTY; its Broker plan is
-static and never refreshes.
+2.1.220 at `/usr/local/bin/claude` in the selected Context image. A fresh
+mount-free login container runs native account login, Tobari opens only the
+validated authorization URL, and strict Linux OAuth state is captured only
+after checked cleanup. Broker selects or refreshes its bearer after allow.
 
 `auth import PROVIDER` remains the owner extension path. It accepts one bounded
 non-empty static primary secret only from protected non-terminal stdin.
@@ -115,8 +130,8 @@ not interchangeable:
 
 | Class | Providers | Broker-held state | Post-allow use | Expiry and recovery |
 |---|---|---|---|---|
-| Static replacement | GitHub, Anthropic, Chatwork, owner static providers | Primary secret | Replace one exact header once | Broker cannot refresh; replace with `auth login`/`auth import` when invalid |
-| Renewable session | Datadog, OpenAI | OAuth session state | Select a valid bearer value or refresh at one fixed endpoint, persist the new state, then apply it | Broker refreshes when possible; an invalid grant or durable unknown outcome requires trusted-host reconciliation and usually re-login |
+| Static replacement | GitHub, Chatwork, owner static providers | Primary secret | Replace one exact header once | Broker cannot refresh; replace with `auth login`/`auth import` when invalid |
+| Renewable session | Datadog, OpenAI, Anthropic | OAuth session state | Select a valid bearer value or refresh at one fixed endpoint, persist the new state, then apply it | Broker refreshes when possible; an invalid grant or durable unknown outcome requires trusted-host reconciliation and usually re-login |
 | Request signing | AWS | Reviewed login/session state | Obtain bounded temporary credentials and sign the exact already-authorized request | Broker/companion renew temporary state; unknown dispatch outcome is not replayed automatically |
 
 These classes describe runtime use, not acquisition. `builtin_helper` and
@@ -199,7 +214,7 @@ Gateway enforces this exact order:
    external DNS, or upstream call.
 8. On a static allow, resolve the same revision exactly once and replace only
    the declared destination header.
-9. On Datadog/OpenAI allow, select or refresh the same record once and apply
+9. On Datadog/OpenAI/Anthropic allow, select or refresh the same record once and apply
    only the reviewed bearer/supplemental-header result.
 10. On AWS allow, retain the complete request within 8 MiB, obtain one
    same-revision companion export, sign locally, and apply only those headers.

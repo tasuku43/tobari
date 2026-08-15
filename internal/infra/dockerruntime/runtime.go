@@ -63,21 +63,25 @@ func (osCommandRunner) Output(ctx context.Context, args, environment []string) (
 
 // Runtime owns filesystem state and Docker process execution.
 type Runtime struct {
-	configDirectory    string
-	stateDirectory     string
-	dataDirectory      string
-	runner             commandRunner
-	images             imageResolver
-	browser            hostBrowserOpener
-	gitIdentity        hostGitIdentityResolver
-	companion          companionruntime.Launcher
-	companionEntropy   io.Reader
-	rootKeyLoader      func(context.Context) ([]byte, error)
-	hostCLIs           hostCLIResolver
-	credentialHost     hostCredentialAcquirer
-	hostLoginProfiles  hostLoginProfileReader
-	identities         identityIssuer
-	policyProjectionMu sync.Mutex
+	configDirectory  string
+	stateDirectory   string
+	dataDirectory    string
+	runner           commandRunner
+	images           imageResolver
+	browser          hostBrowserOpener
+	gitIdentity      hostGitIdentityResolver
+	companion        companionruntime.Launcher
+	companionEntropy io.Reader
+	rootKeyLoader    func(context.Context) ([]byte, error)
+	hostCLIs         hostCLIResolver
+	credentialHost   hostCredentialAcquirer
+	// claudeContainerLogin is nil in production. Tests may replace the
+	// isolated Context-runtime acquisition without granting the generic host
+	// credential adapter authority over Claude's native state.
+	claudeContainerLogin func(context.Context, string, io.Reader, io.Writer) (hostCredentialPayload, error)
+	hostLoginProfiles    hostLoginProfileReader
+	identities           identityIssuer
+	policyProjectionMu   sync.Mutex
 	// projectStateWriter is nil in production. Tests may use it to inject a
 	// durable-state write failure after Docker reconciliation has completed.
 	projectStateWriter func(tobari.ProjectInstance) error

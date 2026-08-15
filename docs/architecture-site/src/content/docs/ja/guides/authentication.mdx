@@ -90,7 +90,7 @@ Tobari は非公開のファイル保存ホームで、固定されたホスト�
 
 <h3 id="openai-anthropic">OpenAI と Anthropic</h3>
 
-OpenAI は `tobari auth login --provider openai --context default` を安定版のホスト Codex CLI で実行します。Tobari はバージョンを記録しますが、固定 device-auth と厳密な V1 状態契約が成功した場合だけ受理します。Workspace 側の pin 済み Codex projection は別契約です。Anthropic は `tobari auth login --provider anthropic --context default` を Claude Code 2.1.220 で実行します。Claude は private PTY から setup token を取得します。Chatwork は対話セレクターではなく `auth import chatwork` で設定します。
+OpenAI は `tobari auth login --provider openai --context default` を安定版のホスト Codex CLI で実行します。Tobari はバージョンを記録し、固定された通常のブラウザーログインと厳密な V1 状態契約が成功した場合だけ受理します。localhost の listener、ブラウザー要求、PKCE 状態、callback、token exchange は検証済み Codex 子プロセスが所有し、Tobari は動的な認証 URL を解析も open もしません。Workspace 側の pin 済み Codex projection は別契約です。Anthropic は、`/usr/local/bin/claude` に Claude Code 2.1.220 を含む互換 Context を選択したうえで、`tobari auth login --provider anthropic --context default` を実行します。Tobari は mount、volume、project path、control socket を持たない新しい一時コンテナを起動し、ホスト側で実行ファイルを hash 化し、検証済みの通常認証 URL だけを開き、厳密な Linux 更新可能セッションだけを受理します。ブラウザーを開けた場合は長い URL を表示せず、失敗した場合だけ同じ URL を手動操作用に表示します。Claude がコード入力を求めたら、Tobari が安定した貼り付けプロンプトをすぐに表示します。ブラウザーに表示されたコードをそこへ貼り付けてください。Claude 自身が端末入力のエコーを止め、後続のプロバイダー状態は表示されます。コンテナの削除は Broker commit の前提です。Workspace へ入り直すと、完全な `.claude/.credentials.json` が配置されますが、access token 欄は project-bound handle だけです。実 access token と refresh token は Context 保管庫から出ません。Chatwork は対話セレクターではなく `auth import chatwork` で設定します。
 
 <CredentialArchitectureMap headingLevel={2} initial="acquisition" />
 
@@ -101,11 +101,13 @@ OpenAI は `tobari auth login --provider openai --context default` を安定版�
 3. プロバイダーが宣言した元ヘッダーでハンドルを認識し、リクエストから取り除きます。
 4. Auth Broker は秘密情報を返さずに、Context、プロジェクト、プロバイダー、認証情報のリビジョン、接続先、ヘッダーの結び付きを確認します。
 5. Gateway が、本文を含まない通常の HTTP 通信を OPA へ問い合わせます。
-6. 拒否された場合はここで停止します。認証情報の解決、Datadog／OpenAI トークンの選択・更新、AWS コンパニオンの呼び出し・署名、外部の接続先への接続は行いません。
+6. 拒否された場合はここで停止します。認証情報の解決、Datadog／OpenAI／Anthropic トークンの選択・更新、AWS コンパニオンの呼び出し・署名、外部の接続先への接続は行いません。
 7. 静的認証情報を使う許可では、Gateway が同じリビジョンを一度だけ解決し、宣言されたヘッダーを置き換えます。
 8. AWS の許可では、Gateway が完全なリクエストを 8 MiB の上限内で保持します。Auth Broker は認証済みの非公開ホスト側コンパニオンを使い、固定された AWS CLI の認証情報エクスポートを一度実行します。リビジョンを再確認して状態を保存し、標準ヘッダーを使う SigV4 署名をローカルで行います。
 9. Datadog の許可では、十分な有効期間が残るトークンを選びます。必要な場合は、プロキシとリダイレクトを使わず、完全一致する US1 トークンエンドポイントで同じレコードを一度だけ更新します。Bearer 値を返す前に状態を保存します。
-10. Gateway が完全一致する HTTPS 接続先へ一度接続します。元のリクエストを自動再実行しません。
+10. OpenAI の許可では、同じアカウントのトークンを選択または更新し、レビュー済みの補助ヘッダー用に検証済みアカウント ID だけを返します。
+11. Anthropic の許可では、同じレコードの access token を選ぶか、完全一致する組み込み token endpoint で一度だけ更新し、新しい暗号化状態を保存してから bearer 値を返します。
+12. Gateway が完全一致する HTTPS 接続先へ一度接続します。元のリクエストを自動再実行しません。
 
 <SequenceExplorer
   title="Auth Broker を使う認証情報の経路"
@@ -159,7 +161,7 @@ tobari auth status --context default
 - `credential_handle_invalid` (`403`): 対応する Workspace を退出し、入り直します。コピーしたハンドルや古いハンドルを転送しません。
 - `broker_auth_required` (`403`): 宣言済みの結び付きへ付けた実認証情報は、ポリシーレビューでは回復できません。`auth status` を確認し、`auth login` または `auth import` でプロバイダーを設定し、ハンドルの配置が欠落または古い場合は Workspace へ入り直します。
 - `credential_broker_unavailable` (`503`): 認証処理の開始前に分かった可用性障害です。Auth Broker とコンパニオンの状態を調整し、準備完了を確認してから再試行します。アプリケーション接続先への通信は行われていません。
-- `credential_refresh_outcome_unknown` (`409`): 自動再実行しません。元のリクエスト終了後に `auth status` を確認します。`ready` または `configured` なら、Gateway はアプリケーション接続先へ接続していないため、明示的に再試行できます。`not_configured` なら、AWS または Datadog へ再ログインするかログアウトし、Workspace へ入り直してから再試行します。
+- `credential_refresh_outcome_unknown` (`409`): 自動再実行しません。元のリクエスト終了後に `auth status` を確認します。`ready` または `configured` なら、Gateway はアプリケーション接続先へ接続していないため、明示的に再試行できます。`not_configured` なら、AWS、Datadog、OpenAI、または Anthropic へ再ログインするかログアウトし、Workspace へ入り直してから再試行します。
 - `auth_mutation_outcome_unknown` または変更操作後の出力障害: 別のログイン、インポート、ログアウトを行う前に `auth status` を確認します。状態を確認せずに変更操作を繰り返すと、確定済みの状態をさらに更新または削除する可能性があります。
 
 ## 保証と制限
@@ -167,6 +169,8 @@ tobari auth status --context default
 宣言済みの結び付きでは、Auth Broker は静的または更新可能な認証状態を Workspace と OPA の外に保持します。ハンドルを完全一致の権限へ結び付け、認証情報を扱う処理は OPA の許可後にだけ実行します。ハンドルは認証情報の本体ではありませんが、範囲を限定した bearer capability なので公開やログ出力を避けます。Workspace 所有の互換経路は、実認証情報を Workspace から隔離する保証を持ちません。
 
 ただし、同じ Workspace 内のプロセス同士は分離しません。すでに許可された認証済み通信を、同じ Workspace の悪意あるプロセスが使うことも防ぎません。外部サービス側のログアウト、Context ごとの複数アカウント、閉じたレビュー済み組み込み計画以外の更新、署名、OAuth には対応しません。
+
+Anthropic では、選択した Context image をこの一度の取得処理について信頼します。その image は Broker が取り込む前の新しい通常認証情報を観測できます。また、このアカウントログイン統合を公開配布するには、適用される Anthropic の条件に基づく法務・プロダクトレビューと、必要な provider approval を別途完了する必要があります。技術的に対応していること自体は、その許諾を意味しません。
 
 ## 根拠となるソース
 
@@ -179,7 +183,7 @@ tobari auth status --context default
 
 ## まとめ
 
-認証は、許可済みリクエストへ付ける認証情報を用意します。HTTP 通信そのものは、OPA のポリシーで別に制御します。Auth Broker 方式で Workspace が持つのは、用途を限定した不透明なハンドルだけです。許可された Gateway の経路だけが、宣言済みの静的認証情報の解決、AWS 署名、Datadog トークン操作を開始できます。
+認証は、許可済みリクエストへ付ける認証情報を用意します。HTTP 通信そのものは、OPA のポリシーで別に制御します。Auth Broker 方式で Workspace が持つのは、用途を限定した不透明なハンドルだけです。許可された Gateway の経路だけが、宣言済みの静的認証情報の解決、AWS 署名、Datadog／OpenAI／Anthropic トークン操作を開始できます。
 
 ## 理解を確認する
 

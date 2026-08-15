@@ -13,8 +13,8 @@ import (
 )
 
 const (
-	resumablePermissionReviewFixtureSHA256 = "27329254ecab7886be128cd05b5b24b9286146c35fe56c0e6b77054672baa0b8"
-	resumablePermissionReviewAnswerSHA256  = "f7bac748bbbb58d553af791693b3ff51073240c6f2c53ffee65adfdd44a12b92"
+	resumablePermissionReviewFixtureSHA256 = "3115feb28cbfb85c9603a2f47ccca13eeba29f6668c8edef34fa227928b7a250"
+	resumablePermissionReviewAnswerSHA256  = "800025c178b9df4960499cabc2bd7b84f32e559f6ddb4a790158e2883d4cb7f0"
 )
 
 type resumablePermissionReviewFixture struct {
@@ -124,8 +124,8 @@ func TestResumablePermissionReviewTypedCorpusClosesInterpretationBoundaries(t *t
 	}
 
 	selector := &policyReviewSelector{}
-	selector.Stage(fixture.DecisionSet.Decisions[0].CandidateID, policyReviewActionAllow)
-	selector.Stage(fixture.DecisionSet.Decisions[1].CandidateID, policyReviewActionDeny)
+	selector.Stage(fixture.DecisionSet.Decisions[0].ReviewItemID, policyReviewActionAllow)
+	selector.Stage(fixture.DecisionSet.Decisions[1].ReviewItemID, policyReviewActionDeny)
 	var review strings.Builder
 	if err := writePolicyReviewFinalLines(&review, fixture.Inbox, selector.staged, selector.stagedOrder); err != nil {
 		t.Fatal(err)
@@ -148,8 +148,8 @@ func TestResumablePermissionReviewTypedCorpusClosesInterpretationBoundaries(t *t
 
 	receipt := string(renderPolicyReviewChange(fixture.Receipt, false))
 	for _, want := range []string{
-		fixture.Receipt.ActiveRevision, fixture.Receipt.Decisions[0].CandidateID,
-		fixture.Receipt.Decisions[1].CandidateID, "1 Allow, 1 Deny", "current Workspace and agent session running",
+		fixture.Receipt.ActiveRevision, fixture.Receipt.Decisions[0].ReviewItemID,
+		fixture.Receipt.Decisions[1].ReviewItemID, "1 Allow, 1 Deny", "current Workspace and agent session running",
 	} {
 		if !strings.Contains(receipt, want) {
 			t.Fatalf("receipt %q lacks %q", receipt, want)

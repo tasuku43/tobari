@@ -16,6 +16,7 @@ import (
 	"github.com/tasuku43/tobari/internal/domain/authbroker"
 	"github.com/tasuku43/tobari/internal/infra/credentialhost"
 	"github.com/tasuku43/tobari/internal/infra/terminal"
+	"github.com/tasuku43/tobari/internal/infra/terminalstyle"
 )
 
 const (
@@ -24,6 +25,7 @@ const (
 	awsIdentityCenterMethod = "identity-center"
 	awsConsoleMethod        = "console"
 	maxAWSLoginFieldSize    = 1024
+	maxHostCLICandidates    = 256
 )
 
 type reviewedHostLoginDriverKind uint8
@@ -52,7 +54,7 @@ func reviewedHostLoginDrivers() []reviewedHostLoginDriver {
 		{providerID: authbroker.BuiltinAWSProviderID, executable: "aws", kind: reviewedHostLoginDriverAWS, persistDriverDetails: true},
 		{providerID: authbroker.BuiltinDatadogProviderID, executable: "pup", kind: reviewedHostLoginDriverDatadog, persistDriverDetails: true},
 		{providerID: authbroker.BuiltinOpenAIProviderID, executable: "codex", kind: reviewedHostLoginDriverOpenAI, persistDriverDetails: true},
-		{providerID: authbroker.BuiltinAnthropicProviderID, executable: "claude", kind: reviewedHostLoginDriverAnthropic},
+		{providerID: authbroker.BuiltinAnthropicProviderID, executable: "claude", kind: reviewedHostLoginDriverAnthropic, persistDriverDetails: true},
 	}
 }
 
@@ -82,7 +84,32 @@ var (
 	errHostCredentialResult = errors.New("host credential result is invalid")
 )
 
-type hostCLIUnavailableError struct{ provider string }
+type hostCLIUnavailableStage string
+
+// These closed stage identifiers carry only which reviewed check rejected an
+// invocation. Raw resolver and process errors never cross the public boundary.
+const (
+	hostCLIStageDriverDependency         hostCLIUnavailableStage = "driver_dependency"
+	hostCLIStageExecutableLookup         hostCLIUnavailableStage = "executable_lookup"
+	hostCLIStageExecutableSymlink        hostCLIUnavailableStage = "executable_symlink_resolution"
+	hostCLIStageExecutableCanonicalPath  hostCLIUnavailableStage = "executable_canonical_path"
+	hostCLIStageExecutableTrustedRoot    hostCLIUnavailableStage = "executable_trusted_root"
+	hostCLIStageExecutableIdentity       hostCLIUnavailableStage = "executable_identity"
+	hostCLIStageCodexChatGPTAppBundle    hostCLIUnavailableStage = "codex_chatgpt_app_bundle"
+	hostCLIStageCodexExecutableIdentity  hostCLIUnavailableStage = "codex_executable_identity"
+	hostCLIStageCodexVersionObservation  hostCLIUnavailableStage = "codex_version_observation"
+	hostCLIStageClaudeContextSelection   hostCLIUnavailableStage = "claude_context_runtime_selection"
+	hostCLIStageClaudeImageContract      hostCLIUnavailableStage = "claude_context_runtime_image_contract"
+	hostCLIStageClaudeExecutableIdentity hostCLIUnavailableStage = "claude_context_runtime_executable_identity"
+	hostCLIStageClaudeVersionObservation hostCLIUnavailableStage = "claude_context_runtime_version_observation"
+)
+
+const chatGPTAppCodexExecutable = "/Applications/ChatGPT.app/Contents/Resources/codex"
+
+type hostCLIUnavailableError struct {
+	provider string
+	stage    hostCLIUnavailableStage
+}
 
 func (hostCLIUnavailableError) Error() string { return "trusted host provider CLI is unavailable" }
 
@@ -91,11 +118,15 @@ type hostCLIResolver interface {
 }
 
 type pathHostCLIResolver struct {
-	lookPath func(string) (string, error)
+	lookPath  func(string) (string, error)
+	pathValue func() string
 }
 
 func newPathHostCLIResolver() pathHostCLIResolver {
-	return pathHostCLIResolver{lookPath: exec.LookPath}
+	return pathHostCLIResolver{
+		lookPath:  exec.LookPath,
+		pathValue: func() string { return os.Getenv("PATH") },
+	}
 }
 
 // Resolve accepts only the five source-reviewed driver names and an absolute,
@@ -104,22 +135,82 @@ func newPathHostCLIResolver() pathHostCLIResolver {
 // home-local, or temporary directory cannot become provider authority.
 func (r pathHostCLIResolver) Resolve(name string) (string, error) {
 	if _, reviewed := reviewedHostLoginDriverForExecutable(name); r.lookPath == nil || !reviewed {
-		return "", hostCLIUnavailableError{provider: name}
+		return "", hostCLIUnavailableError{provider: name, stage: hostCLIStageDriverDependency}
 	}
 	selected, err := r.lookPath(name)
-	if err != nil || !filepath.IsAbs(selected) || filepath.Base(selected) != name {
-		return "", hostCLIUnavailableError{provider: name}
+	if err != nil {
+		return "", hostCLIUnavailableError{provider: name, stage: hostCLIStageExecutableLookup}
+	}
+	canonical, rejected := resolveHostCLICandidate(name, selected)
+	if rejected == "" {
+		return canonical, nil
+	}
+	if r.pathValue != nil {
+		for _, candidate := range hostCLIPathCandidates(r.pathValue(), name) {
+			if candidate == selected {
+				continue
+			}
+			canonical, candidateRejected := resolveHostCLICandidate(name, candidate)
+			if candidateRejected == "" {
+				return canonical, nil
+			}
+		}
+	}
+	return "", hostCLIUnavailableError{provider: name, stage: rejected}
+}
+
+// resolveHostCLICandidate validates one PATH candidate without executing it.
+// Only the canonical executable that passes every existing trust check is
+// returned to the provider-specific driver.
+func resolveHostCLICandidate(name, selected string) (string, hostCLIUnavailableStage) {
+	if !filepath.IsAbs(selected) || filepath.Base(selected) != name {
+		return "", hostCLIStageExecutableLookup
 	}
 	canonical, err := filepath.EvalSymlinks(selected)
-	if err != nil || !filepath.IsAbs(canonical) || filepath.Clean(canonical) != canonical ||
-		!trustedHostCLIPath(canonical) {
-		return "", hostCLIUnavailableError{provider: name}
+	if err != nil {
+		return "", hostCLIStageExecutableSymlink
+	}
+	if !filepath.IsAbs(canonical) || filepath.Clean(canonical) != canonical {
+		return "", hostCLIStageExecutableCanonicalPath
+	}
+	if !trustedHostCLIPath(canonical) {
+		stage := hostCLIStageExecutableTrustedRoot
+		if name == "codex" && canonical == chatGPTAppCodexExecutable {
+			stage = hostCLIStageCodexChatGPTAppBundle
+		}
+		return "", stage
 	}
 	info, err := os.Stat(canonical)
 	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0o111 == 0 || info.Mode().Perm()&0o022 != 0 {
-		return "", hostCLIUnavailableError{provider: name}
+		return "", hostCLIStageExecutableIdentity
 	}
-	return canonical, nil
+	return canonical, ""
+}
+
+// hostCLIPathCandidates returns a finite PATH-ordered set of absolute
+// candidates. Empty and relative entries would name the current directory and
+// cannot participate in trusted-host authentication.
+func hostCLIPathCandidates(pathValue, name string) []string {
+	if name == "" || filepath.Base(name) != name {
+		return []string{}
+	}
+	candidates := make([]string, 0)
+	seen := make(map[string]struct{})
+	for _, directory := range filepath.SplitList(pathValue) {
+		if len(candidates) >= maxHostCLICandidates {
+			break
+		}
+		if directory == "" || !filepath.IsAbs(directory) {
+			continue
+		}
+		candidate := filepath.Join(directory, name)
+		if _, duplicate := seen[candidate]; duplicate {
+			continue
+		}
+		seen[candidate] = struct{}{}
+		candidates = append(candidates, candidate)
+	}
+	return candidates
 }
 
 // trustedHostCLIPath limits reviewed provider drivers to conventional
@@ -198,14 +289,6 @@ type hostCodexCredentialAcquirer interface {
 		context.Context,
 		string,
 		credentialhost.CodexLoginStreams,
-	) (hostCredentialPayload, error)
-}
-
-type hostClaudeCredentialAcquirer interface {
-	LoginClaude(
-		context.Context,
-		string,
-		credentialhost.ClaudeLoginStreams,
 	) (hostCredentialPayload, error)
 }
 
@@ -342,7 +425,6 @@ type osHostCredentialAcquirer struct {
 	github *credentialhost.GitHubDriver
 	aws    *credentialhost.Driver
 	codex  *credentialhost.CodexDriver
-	claude *credentialhost.ClaudeDriver
 }
 
 func newOSHostCredentialAcquirer() *osHostCredentialAcquirer {
@@ -350,7 +432,6 @@ func newOSHostCredentialAcquirer() *osHostCredentialAcquirer {
 		github: credentialhost.NewGitHubDriver(nil),
 		aws:    credentialhost.NewDriver(nil),
 		codex:  credentialhost.NewCodexDriver(nil),
-		claude: credentialhost.NewClaudeDriver(nil),
 	}
 }
 
@@ -471,25 +552,6 @@ func (a *osHostCredentialAcquirer) LoginCodex(
 	}, nil
 }
 
-func (a *osHostCredentialAcquirer) LoginClaude(
-	ctx context.Context,
-	executable string,
-	streams credentialhost.ClaudeLoginStreams,
-) (hostCredentialPayload, error) {
-	if a == nil || a.claude == nil {
-		return hostCredentialPayload{}, credentialhost.ErrClaudeLoginSetup
-	}
-	credential, err := a.claude.Login(ctx, executable, streams)
-	if err != nil {
-		return hostCredentialPayload{}, err
-	}
-	defer credential.Clear()
-	return hostCredentialPayload{
-		secret: credential.Token(), accountLabel: credential.AccountLabel(),
-		driverID: credential.DriverID(), driverRevision: credential.DriverRevision(),
-	}, nil
-}
-
 func (r *Runtime) runHostCredentialLogin(
 	ctx context.Context,
 	contextID string,
@@ -522,24 +584,36 @@ func (r *Runtime) runHostCredentialLoginOnTTY(
 	if provider == authbroker.BuiltinAWSProviderID && method == "" {
 		method = awsIdentityCenterMethod
 	}
-	if r.hostCLIs == nil || r.credentialHost == nil {
-		return brokerControlResponse{}, hostCLIUnavailableError{provider: provider}
+	if (provider != authbroker.BuiltinAnthropicProviderID && r.credentialHost == nil) ||
+		(provider != authbroker.BuiltinAnthropicProviderID && r.hostCLIs == nil) {
+		return brokerControlResponse{}, hostCLIUnavailableError{provider: provider, stage: hostCLIStageDriverDependency}
 	}
 	driver, reviewed := reviewedHostLoginDriverForProvider(provider)
 	if !reviewed {
-		return brokerControlResponse{}, hostCLIUnavailableError{provider: provider}
+		return brokerControlResponse{}, hostCLIUnavailableError{provider: provider, stage: hostCLIStageDriverDependency}
 	}
 
 	loginContext, cancel := context.WithTimeout(ctx, brokerLoginTimeout)
 	defer cancel()
-	executable, err := r.hostCLIs.Resolve(driver.executable)
+	executable := ""
+	var err error
+	if driver.kind != reviewedHostLoginDriverAnthropic {
+		executable, err = r.hostCLIs.Resolve(driver.executable)
+	}
 	if err != nil {
-		return brokerControlResponse{}, hostCLIUnavailableError{provider: provider}
+		var unavailable hostCLIUnavailableError
+		if errors.As(err, &unavailable) {
+			unavailable.provider = provider
+			return brokerControlResponse{}, unavailable
+		}
+		return brokerControlResponse{}, hostCLIUnavailableError{provider: provider, stage: hostCLIStageExecutableLookup}
 	}
 
 	visible := &loginVisibleOutput{
 		destination: errOut,
 		openBrowser: r.loginBrowserOpener(loginContext),
+		provider:    provider,
+		color:       !terminalstyle.NoColorRequested(),
 	}
 	var payload hostCredentialPayload
 	switch driver.kind {
@@ -554,7 +628,7 @@ func (r *Runtime) runHostCredentialLoginOnTTY(
 	case reviewedHostLoginDriverAWS:
 		var profile credentialhost.ProfileConfig
 		if r.hostLoginProfiles == nil {
-			return brokerControlResponse{}, hostCLIUnavailableError{provider: provider}
+			return brokerControlResponse{}, hostCLIUnavailableError{provider: provider, stage: hostCLIStageDriverDependency}
 		}
 		switch method {
 		case awsIdentityCenterMethod:
@@ -563,7 +637,7 @@ func (r *Runtime) runHostCredentialLoginOnTTY(
 			profileReader, ok := r.hostLoginProfiles.(hostConsoleProfileReader)
 			acquirer, acquirerOK := r.credentialHost.(hostConsoleCredentialAcquirer)
 			if !ok || !acquirerOK {
-				return brokerControlResponse{}, hostCLIUnavailableError{provider: provider}
+				return brokerControlResponse{}, hostCLIUnavailableError{provider: provider, stage: hostCLIStageDriverDependency}
 			}
 			var consoleProfile credentialhost.ConsoleProfileConfig
 			consoleProfile, err = profileReader.ReadAWSConsoleProfile(loginContext, input, errOut)
@@ -602,7 +676,7 @@ func (r *Runtime) runHostCredentialLoginOnTTY(
 	case reviewedHostLoginDriverDatadog:
 		acquirer, ok := r.credentialHost.(hostPupCredentialAcquirer)
 		if !ok {
-			return brokerControlResponse{}, hostCLIUnavailableError{provider: provider}
+			return brokerControlResponse{}, hostCLIUnavailableError{provider: provider, stage: hostCLIStageDriverDependency}
 		}
 		payload, err = acquirer.LoginPup(
 			loginContext, executable, input,
@@ -614,7 +688,7 @@ func (r *Runtime) runHostCredentialLoginOnTTY(
 	case reviewedHostLoginDriverOpenAI:
 		acquirer, ok := r.credentialHost.(hostCodexCredentialAcquirer)
 		if !ok {
-			return brokerControlResponse{}, hostCLIUnavailableError{provider: provider}
+			return brokerControlResponse{}, hostCLIUnavailableError{provider: provider, stage: hostCLIStageDriverDependency}
 		}
 		payload, err = acquirer.LoginCodex(
 			loginContext, executable,
@@ -623,16 +697,13 @@ func (r *Runtime) runHostCredentialLoginOnTTY(
 			},
 		)
 	case reviewedHostLoginDriverAnthropic:
-		acquirer, ok := r.credentialHost.(hostClaudeCredentialAcquirer)
-		if !ok {
-			return brokerControlResponse{}, hostCLIUnavailableError{provider: provider}
+		if r.claudeContainerLogin != nil {
+			payload, err = r.claudeContainerLogin(loginContext, contextID, input, visible)
+		} else {
+			payload, err = r.loginClaudeInContextContainer(loginContext, contextID, input, visible)
 		}
-		payload, err = acquirer.LoginClaude(
-			loginContext, executable,
-			credentialhost.ClaudeLoginStreams{Stdin: input, Output: visible},
-		)
 	default:
-		return brokerControlResponse{}, hostCLIUnavailableError{provider: provider}
+		return brokerControlResponse{}, hostCLIUnavailableError{provider: provider, stage: hostCLIStageDriverDependency}
 	}
 	flushErr := visible.flush()
 	if err != nil {
@@ -840,8 +911,8 @@ func validateHostCredentialPayload(provider string, payload hostCredentialPayloa
 			return errHostCredentialResult
 		}
 	case reviewedHostLoginDriverAnthropic:
-		if payload.accountLabel != credentialhost.ClaudeAccountLabel ||
-			payload.driverID != credentialhost.ClaudeDriverID ||
+		if payload.accountLabel != credentialhost.ClaudeNativeAccountLabel ||
+			payload.driverID != credentialhost.ClaudeNativeDriverID ||
 			!hostDriverRevisionPattern.MatchString(payload.driverRevision) {
 			return errHostCredentialResult
 		}
@@ -894,12 +965,9 @@ func hostLoginFailureIsCredentialDriver(err error) bool {
 		errors.Is(err, credentialhost.ErrClaudeExecutable) ||
 		errors.Is(err, credentialhost.ErrClaudeVersion) ||
 		errors.Is(err, credentialhost.ErrClaudeLoginSetup) ||
-		errors.Is(err, credentialhost.ErrClaudeTTYRequired) ||
 		errors.Is(err, credentialhost.ErrClaudeLoginFailed) ||
 		errors.Is(err, credentialhost.ErrClaudeOutputLimit) ||
-		errors.Is(err, credentialhost.ErrClaudeOutputFraming) ||
 		errors.Is(err, credentialhost.ErrClaudeTokenCapture) ||
-		errors.Is(err, credentialhost.ErrClaudeVisibleOutput) ||
 		errors.Is(err, credentialhost.ErrClaudeLoginCleanup) ||
 		errors.Is(err, errLoginVisibleOutputLimit) ||
 		errors.Is(err, errHostLoginPrompt) ||

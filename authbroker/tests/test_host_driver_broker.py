@@ -23,6 +23,7 @@ from authbroker.companion_protocol import (
 )
 from authbroker.control import _parser as control_parser, _request as control_request
 from authbroker.protocol import ProtocolError
+from authbroker.tests.test_anthropic_claude_oauth import state_bytes as claude_state_bytes
 from authbroker.vault import VaultError, VaultStore, decode_secret
 
 
@@ -157,17 +158,22 @@ class HostCompletedLoginTests(unittest.TestCase):
                 "--provider",
                 "anthropic",
                 "--account-label",
-                "claude-user-inference",
+                "claude-user-native",
+                "--driver-id",
+                "anthropic_claude_native_oauth",
+                "--driver-revision",
+                DRIVER_REVISION,
             ]
         )
         with mock.patch(
-            "authbroker.control.sys.stdin", BinaryInput(b"claude-token")
+            "authbroker.control.sys.stdin", BinaryInput(claude_state_bytes())
         ):
             anthropic, payload = control_request(anthropic_args)
-        self.assertEqual(payload, b"claude-token")
+        self.assertEqual(payload, claude_state_bytes())
         self.assertEqual(anthropic["provider"], "anthropic")
-        self.assertEqual(anthropic["account_label"], "claude-user-inference")
-        self.assertEqual(anthropic["secret_length"], len(payload))
+        self.assertEqual(anthropic["account_label"], "claude-user-native")
+        self.assertEqual(anthropic["state_length"], len(payload))
+        self.assertNotIn("secret_length", anthropic)
 
         aws_args = control_parser().parse_args(
             [
@@ -223,6 +229,10 @@ class HostCompletedLoginTests(unittest.TestCase):
                 "anthropic",
                 "--account-label",
                 "arbitrary-account",
+                "--driver-id",
+                "anthropic_claude_native_oauth",
+                "--driver-revision",
+                DRIVER_REVISION,
             ]
         )
         with (
@@ -251,17 +261,19 @@ class HostCompletedLoginTests(unittest.TestCase):
                 "op": "login",
                 "context_id": CONTEXT,
                 "provider": "anthropic",
-                "account_label": "claude-user-inference",
-                "secret_length": len(b"claude-token"),
+                "account_label": "claude-user-native",
+                "driver_id": "anthropic_claude_native_oauth",
+                "driver_revision": DRIVER_REVISION,
+                "state_length": len(claude_state_bytes()),
             },
-            b"claude-token",
+            claude_state_bytes(),
         )
-        self.assertEqual(anthropic["account_label"], "claude-user-inference")
+        self.assertEqual(anthropic["account_label"], "claude-user-native")
         self.assertEqual(
             decode_secret(
-                self.store.load(CONTEXT, KEY)["providers"]["anthropic"]["secret"]
+                self.store.load(CONTEXT, KEY)["providers"]["anthropic"]["state"]
             ),
-            b"claude-token",
+            claude_state_bytes(),
         )
 
         invalid_anthropic = {
@@ -270,10 +282,12 @@ class HostCompletedLoginTests(unittest.TestCase):
             "context_id": CONTEXT,
             "provider": "anthropic",
             "account_label": "arbitrary-account",
-            "secret_length": len(b"claude-token"),
+            "driver_id": "anthropic_claude_native_oauth",
+            "driver_revision": DRIVER_REVISION,
+            "state_length": len(claude_state_bytes()),
         }
         with self.assertRaisesRegex(BrokerError, "^invalid_request$"):
-            self.dispatcher.dispatch(invalid_anthropic, b"claude-token")
+            self.dispatcher.dispatch(invalid_anthropic, claude_state_bytes())
 
         aws = self.dispatcher.dispatch(
             {

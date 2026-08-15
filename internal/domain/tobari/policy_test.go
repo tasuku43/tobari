@@ -631,8 +631,8 @@ func TestPolicyCandidateRejectsControlPathAndOpaqueKindMismatch(t *testing.T) {
 func TestPolicyReviewDecisionSetRequiresBoundedUniqueOpaqueChoices(t *testing.T) {
 	t.Parallel()
 	valid := PolicyReviewDecisionSet{Decisions: []PolicyReviewDecision{
-		{CandidateID: "pcy_0123456789abcdef0123456789abcdef", Decision: PolicyDecisionAllow},
-		{CandidateID: "pcy_abcdef0123456789abcdef0123456789", Decision: PolicyDecisionDeny},
+		{ReviewItemID: "pcy_0123456789abcdef0123456789abcdef", Decision: PolicyDecisionAllow, Match: PolicyMatchExact},
+		{ReviewItemID: "pcy_abcdef0123456789abcdef0123456789", Decision: PolicyDecisionDeny, Match: PolicyMatchExact},
 	}}
 	if err := valid.Validate(); err != nil {
 		t.Fatal(err)
@@ -643,10 +643,13 @@ func TestPolicyReviewDecisionSetRequiresBoundedUniqueOpaqueChoices(t *testing.T)
 			valid.Decisions[0], valid.Decisions[0],
 		}},
 		"invalid decision": {Decisions: []PolicyReviewDecision{{
-			CandidateID: valid.Decisions[0].CandidateID, Decision: "prompt",
+			ReviewItemID: valid.Decisions[0].ReviewItemID, Decision: "prompt", Match: PolicyMatchExact,
 		}}},
 		"wrong reference kind": {Decisions: []PolicyReviewDecision{{
-			CandidateID: "plr_0123456789abcdef0123456789abcdef", Decision: PolicyDecisionAllow,
+			ReviewItemID: "plr_0123456789abcdef0123456789abcdef", Decision: PolicyDecisionAllow, Match: PolicyMatchExact,
+		}}},
+		"deny template": {Decisions: []PolicyReviewDecision{{
+			ReviewItemID: "ptp_0123456789abcdef0123456789abcdef", Decision: PolicyDecisionDeny, Match: PolicyMatchPathTemplate,
 		}}},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -664,12 +667,13 @@ func TestPolicyReviewChangeRequiresExactOrderedReceiptAndActiveRevision(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	receipt := PolicyReviewAppliedDecision{
-		CandidateID: candidate.ID, Decision: PolicyDecisionAllow,
-		ContextID: candidate.ContextID, ContextName: candidate.ContextName,
-		ProjectID: candidate.ProjectID, ProjectRoot: candidate.ProjectRoot,
-		PolicyProtocolIdentity: candidate.PolicyProtocolIdentity,
-		Host:                   candidate.Host, Port: candidate.Port, Method: candidate.Method, Path: candidate.Path,
+	rule, err := NewExactLearnedPolicyRule(candidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipt, err := NewPolicyReviewAppliedAllow(candidate.ID, rule)
+	if err != nil {
+		t.Fatal(err)
 	}
 	valid := PolicyReviewChange{
 		Task: TaskPolicyReviewApply, PolicyDirectory: "/tmp/tobari/policy",
@@ -683,8 +687,8 @@ func TestPolicyReviewChangeRequiresExactOrderedReceiptAndActiveRevision(t *testi
 		"missing decisions": func(change *PolicyReviewChange) { change.Decisions = nil },
 		"missing revision":  func(change *PolicyReviewChange) { change.ActiveRevision = "" },
 		"count mismatch":    func(change *PolicyReviewChange) { change.AllowCount = 0 },
-		"wrong reference kind": func(change *PolicyReviewChange) {
-			change.Decisions[0].CandidateID = "plr_0123456789abcdef0123456789abcdef"
+		"wrong review reference kind": func(change *PolicyReviewChange) {
+			change.Decisions[0].ReviewItemID = "plr_0123456789abcdef0123456789abcdef"
 		},
 	} {
 		t.Run(name, func(t *testing.T) {

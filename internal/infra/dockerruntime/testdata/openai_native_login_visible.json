@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "chunks": [
+    "Starting local login server on http://localhost:1455.\nIf your browser did not open, navigate to this URL to authenticate:\n\n",
+    "https://auth.openai.com/oauth/authorize?response_type=code&client_id=synthetic-client&redirect_uri=http%3A%2F%2Flocalhost%3A1455%2Fauth%2Fcallback&code_challenge=synthetic-challenge&code_challenge_method=S256&state=synthetic-state\n",
+    "\nWaiting for authentication...\n"
+  ]
+}

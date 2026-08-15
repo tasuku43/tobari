@@ -142,6 +142,17 @@ learned_rule_matches_request(rule, project_id, request) if {
 	rule.path == request.path.raw
 }
 
+learned_rule_matches_request(rule, project_id, request) if {
+	rule.match == "path_template"
+	rule.context_id == input.principal.context_id
+	rule.project_id == project_id
+	rule.scheme == request.authority.scheme
+	rule.host == request.authority.host
+	rule.port == request.authority.port
+	rule.method == request.method
+	path_template_matches(rule.segments, request.path.raw)
+}
+
 learned_rule_valid(rule) if {
 	learned_rule_base_valid(rule)
 	http_rule_protocol_valid(rule)
@@ -187,10 +198,73 @@ project_principal_valid if {
 
 learned_rule_scope_valid(rule) if {
 	rule.match == "exact"
+	object.get(rule, "segments", []) == []
 	count(rule.examples) >= 1
 	count(rule.source_candidates) >= 1
 	every example in rule.examples {
 		example == rule.path
+	}
+}
+
+learned_rule_scope_valid(rule) if {
+	rule.match == "path_template"
+	is_array(rule.segments)
+	count(rule.segments) >= 2
+	rule.path == sprintf("/%s", [concat("/", rule.segments)])
+	count([segment | some segment in rule.segments; segment == "{id}"]) == 1
+	count(rule.examples) >= 2
+	count(rule.source_candidates) >= 2
+	every segment in rule.segments {
+		path_template_rule_segment_valid(segment)
+	}
+	every example in rule.examples {
+		path_template_matches(rule.segments, example)
+	}
+}
+
+path_template_rule_segment_valid(segment) if {
+	is_string(segment)
+	segment == "{id}"
+}
+
+path_template_rule_segment_valid(segment) if {
+	is_string(segment)
+	segment != ""
+	segment != "."
+	segment != ".."
+	segment != "{id}"
+	not contains(segment, "/")
+	not contains(segment, "\\")
+	not contains(segment, "%")
+}
+
+path_template_request_segment_valid(segment) if {
+	is_string(segment)
+	segment != ""
+	segment != "."
+	segment != ".."
+	not contains(segment, "\\")
+	not contains(segment, "%")
+}
+
+path_template_segment_matches(template, actual) if {
+	template == "{id}"
+	path_template_request_segment_valid(actual)
+}
+
+path_template_segment_matches(template, actual) if {
+	template != "{id}"
+	template == actual
+}
+
+path_template_matches(template_segments, raw_path) if {
+	is_string(raw_path)
+	startswith(raw_path, "/")
+	parts := split(raw_path, "/")
+	actual_segments := array.slice(parts, 1, count(parts))
+	count(actual_segments) == count(template_segments)
+	every index, template in template_segments {
+		path_template_segment_matches(template, actual_segments[index])
 	}
 }
 

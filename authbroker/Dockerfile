@@ -19,6 +19,8 @@ COPY aws_sigv4.py /opt/tobari/authbroker/aws_sigv4.py
 COPY datadog_oauth.py /opt/tobari/authbroker/datadog_oauth.py
 COPY openai_codex_oauth.py /opt/tobari/authbroker/openai_codex_oauth.py
 COPY openai_refresh_transport.py /opt/tobari/authbroker/openai_refresh_transport.py
+COPY anthropic_claude_oauth.py /opt/tobari/authbroker/anthropic_claude_oauth.py
+COPY anthropic_refresh_transport.py /opt/tobari/authbroker/anthropic_refresh_transport.py
 COPY companion_protocol.py /opt/tobari/authbroker/companion_protocol.py
 COPY companion_bridge.py /opt/tobari/authbroker/companion_bridge.py
 COPY credential_records.py /opt/tobari/authbroker/credential_records.py

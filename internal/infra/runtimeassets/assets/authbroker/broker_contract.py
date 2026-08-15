@@ -12,6 +12,7 @@ from typing import Any
 from .aws_sigv4 import SigV4Error, SigV4Request
 from .companion_protocol import CompanionError
 from .credential_records import (
+    ANTHROPIC_CLAUDE_OAUTH_CREDENTIAL_KIND,
     DATADOG_OAUTH_CREDENTIAL_KIND,
     OPENAI_CODEX_OAUTH_CREDENTIAL_KIND,
     VaultError,
@@ -19,6 +20,7 @@ from .credential_records import (
 )
 from .datadog_oauth import DatadogOAuthError
 from .openai_codex_oauth import OpenAICodexOAuthError
+from .anthropic_claude_oauth import AnthropicClaudeOAuthError
 from .protocol import ProtocolError
 
 PROJECT_ID_PATTERN = re.compile(
@@ -55,6 +57,7 @@ def _translate_error(error: Exception) -> BrokerError:
     if isinstance(error, (
         ProtocolError, VaultError, SigV4Error, CompanionError,
         DatadogOAuthError, OpenAICodexOAuthError,
+        AnthropicClaudeOAuthError,
     )):
         return BrokerError(error.code)
     return BrokerError("internal_error")
@@ -195,7 +198,9 @@ class Binding:
             raise BrokerError("invalid_binding")
         destination_header = _validate_header(destination_header)
         if destination_format not in DESTINATION_FORMATS or secret_field not in {
-            "primary_secret", DATADOG_OAUTH_CREDENTIAL_KIND,
+            "primary_secret",
+            ANTHROPIC_CLAUDE_OAUTH_CREDENTIAL_KIND,
+            DATADOG_OAUTH_CREDENTIAL_KIND,
             OPENAI_CODEX_OAUTH_CREDENTIAL_KIND,
         }:
             raise BrokerError("invalid_binding")
@@ -249,6 +254,26 @@ class Binding:
                 "authorization", "chatgpt-account-id", "x-openai-fedramp"
             ],
         }:
+            raise BrokerError("invalid_binding")
+        if (
+            secret_field == ANTHROPIC_CLAUDE_OAUTH_CREDENTIAL_KIND
+            and result.document()
+            != {
+                "provider_id": "anthropic",
+                "target": {
+                    "scheme": "https",
+                    "host": "api.anthropic.com",
+                    "port": 443,
+                },
+                "source": {"header": "authorization", "format": "bearer"},
+                "destination": {
+                    "header": "authorization",
+                    "format": "bearer",
+                    "secret_field": ANTHROPIC_CLAUDE_OAUTH_CREDENTIAL_KIND,
+                },
+                "secret_headers": ["authorization"],
+            }
+        ):
             raise BrokerError("invalid_binding")
         return result
 

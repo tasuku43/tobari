@@ -657,7 +657,7 @@ func policyReviewSpec() CommandSpec {
 		Args: "[--tail <lines>] [--format text|json]", Effect: operation.EffectRead, Role: RoleDiscover,
 		Agent: AgentContract{
 			CapabilityID: "policy.learning",
-			Outcome:      "Review the bounded pending exact network-permission queue, including optional GraphQL operation/root coordinates; an interactive terminal can stage one Context's exact decisions and apply the reviewed set once",
+			Outcome:      "Review pending exact HTTP or GraphQL effects and typed HTTP single-segment path-template proposals; an interactive terminal can stage one Context's explicit decisions and apply the reviewed set once",
 			Inputs:       []CommandInput{reviewTailInput(), formatInput()},
 			Output: CommandOutput{
 				Formats: []OutputFormat{OutputFormatText, OutputFormatJSON}, DefaultFormat: OutputFormatText, TextPresentation: TextPresentationSemanticTokens,
@@ -681,12 +681,12 @@ func policyReviewSpec() CommandSpec {
 
 func policyApplyReviewedSpec() CommandSpec {
 	return CommandSpec{
-		Path: "policy apply-reviewed", Summary: "Apply the exact decisions staged by Permission Inbox",
+		Path: "policy apply-reviewed", Summary: "Apply decisions staged by Permission Inbox",
 		Args: "", Effect: operation.EffectWrite, Role: RoleAct,
 		Visibility: CommandVisibilityInternal,
 		Agent: AgentContract{
 			CapabilityID: "policy.learning",
-			Outcome:      "Revalidate and activate one bounded typed set of exact Allow and Deny decisions for one Context staged by interactive policy review",
+			Outcome:      "Revalidate and activate one bounded typed set of exact or single-segment-template Allows and exact Denies for one Context staged by interactive policy review",
 			Inputs:       []CommandInput{},
 			Output: CommandOutput{
 				Formats: []OutputFormat{OutputFormatText}, DefaultFormat: OutputFormatText,
@@ -694,14 +694,16 @@ func policyApplyReviewedSpec() CommandSpec {
 				Fields: []OutputField{
 					{Name: "task", Type: OutputFieldTypeString, Description: "Confirmed reviewed-set task identity."},
 					{Name: "policy", Type: OutputFieldTypeString, Description: "Host policy source associated with the confirmed aggregate."},
-					{Name: "allow_count", Type: OutputFieldTypeInteger, Description: "Number of exact Allows applied."},
+					{Name: "allow_count", Type: OutputFieldTypeInteger, Description: "Number of exact or path-template Allow rules applied."},
 					{Name: "deny_count", Type: OutputFieldTypeInteger, Description: "Number of exact Denies applied."},
 					{Name: "applied", Type: OutputFieldTypeBoolean, Description: "Always true after exact revision confirmation."},
 					{Name: "active_revision", Type: OutputFieldTypeString, Description: "Exact confirmed active aggregate revision."},
-					{Name: "decisions", Type: OutputFieldTypeArray, Description: "Ordered exact decisions repeated in the confirmed receipt.", Items: &OutputField{
+					{Name: "decisions", Type: OutputFieldTypeArray, Description: "Ordered stored rules repeated in the confirmed receipt.", Items: &OutputField{
 						Type: OutputFieldTypeObject, Description: "One freshly revalidated applied decision.", Fields: []OutputField{
-							{Name: "candidate_id", Type: OutputFieldTypeString, Description: "Unchanged opaque policy-candidate identity repeated only in the internal receipt."},
-							{Name: "decision", Type: OutputFieldTypeString, Description: "Exact applied decision.", Enum: []string{tobari.PolicyDecisionAllow, tobari.PolicyDecisionDeny}},
+							{Name: "rule_id", Type: OutputFieldTypeString, Description: "Opaque stored policy-rule identity."},
+							{Name: "review_item_id", Type: OutputFieldTypeString, Description: "Unchanged opaque exact-candidate or path-template proposal identity."},
+							{Name: "decision", Type: OutputFieldTypeString, Description: "Applied Allow or Deny decision.", Enum: []string{tobari.PolicyDecisionAllow, tobari.PolicyDecisionDeny}},
+							{Name: "match", Type: OutputFieldTypeString, Description: "Exact or single-segment path-template match.", Enum: []string{tobari.PolicyMatchExact, tobari.PolicyMatchPathTemplate}},
 							{Name: "context_id", Type: OutputFieldTypeString, Description: "Stable Context identity."},
 							{Name: "context", Type: OutputFieldTypeString, Description: "Exact Context display name."},
 							{Name: "project_id", Type: OutputFieldTypeString, Description: "Host-issued project principal."},
@@ -710,6 +712,7 @@ func policyApplyReviewedSpec() CommandSpec {
 							{Name: "port", Type: OutputFieldTypeInteger, Description: "Exact request port."},
 							{Name: "method", Type: OutputFieldTypeString, Description: "Exact uppercase HTTP method."},
 							{Name: "path", Type: OutputFieldTypeString, Description: "Exact path without query data."},
+							{Name: "source_candidates", Type: OutputFieldTypeArray, Description: "Sorted exact candidate evidence bound to the stored rule.", Items: &OutputField{Type: OutputFieldTypeString, Description: "Opaque exact policy-candidate identity."}},
 							{Name: "protocol", Type: OutputFieldTypeString, Description: "Effective policy protocol.", Enum: []string{tobari.PolicyProtocolHTTP, tobari.PolicyProtocolGraphQL}},
 							{Name: "graphql_operation_type", Type: OutputFieldTypeString, Description: "Exact GraphQL operation type; empty for HTTP."},
 							{Name: "graphql_root_field", Type: OutputFieldTypeString, Description: "Exact GraphQL root field; empty for HTTP."},
@@ -726,7 +729,7 @@ func policyApplyReviewedSpec() CommandSpec {
 			Errors: policyMutationCommandErrors("policy review", "policy review",
 				declaredCommandError(fault.KindInvalidInput, "invalid_policy_review_session", false, "policy review", "Stage decisions through an interactive Permission Inbox."),
 				declaredCommandError(fault.KindInvalidInput, "invalid_policy_review_set", false, "policy review", "Review a bounded non-empty set of exact candidates."),
-				declaredCommandError(fault.KindInvalidInput, "empty_policy_review_set", false, "policy review", "Stage at least one exact decision."),
+				declaredCommandError(fault.KindInvalidInput, "empty_policy_review_set", false, "policy review", "Stage at least one offered decision."),
 				declaredCommandError(fault.KindRejected, "policy_review_changed", false, "policy review", "Review the current pending queue again."),
 				declaredCommandError(fault.KindRejected, "policy_review_scope_mixed", false, "policy review", "Apply or discard the current Context decisions before reviewing another Context."),
 				declaredCommandError(fault.KindRejected, "policy_data_changed", false, "policy review", "Review again after the concurrent policy change."),

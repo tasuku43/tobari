@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "authorization_url_placeholder": "{{CLAUDE_AUTHORIZATION_URL}}",
+  "prompt_visible_after_chunk": 5,
+  "chunks": [
+    "Opening browser to sign in…\r\n",
+    "If the browser didn't open, visit: \u001b]8;;{{CLAUDE_AUTHORIZATION_URL}}\u0007",
+    "{{CLAUDE_AUTHORIZATION_URL}}\u001b]8;;\u0007\r\n",
+    "                                                                                \r↗ Opened in your default browser.\r\n     Paste code here ",
+    "if prompted > ",
+    "\r\nAuthentication successful\r\n"
+  ]
+}

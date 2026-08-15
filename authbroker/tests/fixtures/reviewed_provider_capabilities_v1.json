@@ -12,13 +12,13 @@
       "provider_id": "anthropic",
       "host_acquisition": {
         "mode": "builtin_helper",
-        "helper": "claude-setup-token"
+        "helper": "claude-native-oauth"
       },
-      "manifest_credential_kind": "primary_secret",
-      "broker_control_login": "static_secret",
-      "broker_record_kind": "static_primary_secret",
+      "manifest_credential_kind": "anthropic_claude_oauth_session",
+      "broker_control_login": "driver_state",
+      "broker_record_kind": "anthropic_claude_oauth_session",
       "broker_runtime_capabilities": [
-        "static_secret_resolution"
+        "renewable_bearer_session"
       ],
       "gateway_reviewed_profile": true
     },

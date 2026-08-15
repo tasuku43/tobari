@@ -87,16 +87,16 @@ func syntheticAnthropicClaudeProvider() Provider {
 		SchemaVersion: ProviderSchemaVersion,
 		ID:            "anthropic",
 		DisplayName:   "Anthropic account for Claude Code",
-		Acquisition:   Acquisition{Mode: AcquisitionBuiltinHelper, Helper: "claude-setup-token"},
-		Credential:    Credential{Kind: CredentialPrimarySecret},
+		Acquisition:   Acquisition{Mode: AcquisitionBuiltinHelper, Helper: "claude-native-oauth"},
+		Credential:    Credential{Kind: CredentialAnthropicClaudeOAuthSession},
 		WorkspaceProjections: []WorkspaceProjection{{
-			Kind: WorkspaceProjectionEnvironment, Name: "CLAUDE_CODE_OAUTH_TOKEN", Template: "${HANDLE}",
+			Kind: WorkspaceProjectionCompleteFile, Path: ".claude/.credentials.json", Template: anthropicClaudeWorkspaceAuthTemplate,
 		}},
 		HeaderBindings: []HeaderBinding{{
 			Target: BindingTarget{Scheme: "https", Host: "api.anthropic.com", Port: 443},
 			Source: BindingSource{Header: "authorization", Formats: []SourceFormat{SourceFormatBearer}},
 			Destination: BindingDestination{
-				Header: "authorization", Format: DestinationFormatBearer, SecretField: CredentialPrimarySecret,
+				Header: "authorization", Format: DestinationFormatBearer, SecretField: CredentialAnthropicClaudeOAuthSession,
 			},
 			SecretHeaders: []string{"authorization"},
 		}},
@@ -312,7 +312,7 @@ func TestOpenAICodexProviderRejectsUnreviewedPlansAndCredentialProjection(t *tes
 	}
 }
 
-func TestAnthropicClaudeProviderPublishesOnlyTheReviewedSetupTokenPlan(t *testing.T) {
+func TestAnthropicClaudeProviderPublishesOnlyTheReviewedNativeOAuthPlan(t *testing.T) {
 	provider := syntheticAnthropicClaudeProvider()
 	if err := provider.Validate(); err != nil {
 		t.Fatalf("Provider.Validate rejected reviewed Anthropic Claude plan: %v", err)
@@ -321,9 +321,10 @@ func TestAnthropicClaudeProviderPublishesOnlyTheReviewedSetupTokenPlan(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(projection.Environment) != 1 || projection.Environment[0] != (EnvironmentProjection{
-		ProviderID: "anthropic", Name: "CLAUDE_CODE_OAUTH_TOKEN", Template: "${HANDLE}",
-	}) || len(projection.CompleteFiles) != 0 {
+	if len(projection.Environment) != 0 || len(projection.CompleteFiles) != 1 ||
+		projection.CompleteFiles[0] != (CompleteFileProjection{
+			ProviderID: "anthropic", Path: ".claude/.credentials.json", Template: anthropicClaudeWorkspaceAuthTemplate,
+		}) {
 		t.Fatalf("Anthropic Workspace projection = %#v", projection)
 	}
 	if len(projection.HeaderBindings) != 1 {
@@ -334,7 +335,7 @@ func TestAnthropicClaudeProviderPublishesOnlyTheReviewedSetupTokenPlan(t *testin
 		binding.Target != (BindingTarget{Scheme: "https", Host: "api.anthropic.com", Port: 443}) ||
 		binding.Source != (NormalizedBindingSource{Header: "authorization", Format: SourceFormatBearer}) ||
 		binding.Destination != (BindingDestination{
-			Header: "authorization", Format: DestinationFormatBearer, SecretField: CredentialPrimarySecret,
+			Header: "authorization", Format: DestinationFormatBearer, SecretField: CredentialAnthropicClaudeOAuthSession,
 		}) || strings.Join(binding.SecretHeaders, ",") != "authorization" {
 		t.Fatalf("Anthropic normalized binding = %#v", binding)
 	}
@@ -346,22 +347,24 @@ func TestAnthropicClaudeProviderRejectsImpostorsAndRawSecretChannels(t *testing.
 		"different display name": func(p *Provider) { p.DisplayName = "Anthropic account" },
 		"different helper":       func(p *Provider) { p.Acquisition.Helper = "claude-login" },
 		"stdin acquisition":      func(p *Provider) { p.Acquisition = Acquisition{Mode: AcquisitionStdinImport} },
-		"OAuth session kind":     func(p *Provider) { p.Credential.Kind = CredentialOpenAICodexOAuthSession },
+		"different OAuth kind":   func(p *Provider) { p.Credential.Kind = CredentialOpenAICodexOAuthSession },
 		"additional projection":  func(p *Provider) { p.WorkspaceProjections = append(p.WorkspaceProjections, p.WorkspaceProjections[0]) },
-		"API key environment":    func(p *Provider) { p.WorkspaceProjections[0].Name = "ANTHROPIC_API_KEY" },
-		"auth token environment": func(p *Provider) { p.WorkspaceProjections[0].Name = "ANTHROPIC_AUTH_TOKEN" },
-		"raw setup token":        func(p *Provider) { p.WorkspaceProjections[0].Template = "private-canary" },
-		"credential file": func(p *Provider) {
-			p.WorkspaceProjections[0] = WorkspaceProjection{Kind: WorkspaceProjectionCompleteFile, Path: ".claude/auth.json", Template: "${HANDLE}"}
+		"API key environment": func(p *Provider) {
+			p.WorkspaceProjections[0] = WorkspaceProjection{Kind: WorkspaceProjectionEnvironment, Name: "ANTHROPIC_API_KEY", Template: "${HANDLE}"}
 		},
-		"different authority": func(p *Provider) { p.HeaderBindings[0].Target.Host = "console.anthropic.com" },
-		"insecure authority":  func(p *Provider) { p.HeaderBindings[0].Target.Scheme = "http" },
-		"custom port":         func(p *Provider) { p.HeaderBindings[0].Target.Port = 8443 },
-		"alternate source":    func(p *Provider) { p.HeaderBindings[0].Source.Header = "x-api-key" },
-		"raw source":          func(p *Provider) { p.HeaderBindings[0].Source.Formats = []SourceFormat{SourceFormatRaw} },
-		"raw destination":     func(p *Provider) { p.HeaderBindings[0].Destination.Format = DestinationFormatRaw },
-		"additional secret":   func(p *Provider) { p.HeaderBindings[0].SecretHeaders = []string{"authorization", "x-api-key"} },
-		"additional binding":  func(p *Provider) { p.HeaderBindings = append(p.HeaderBindings, p.HeaderBindings[0]) },
+		"auth token environment": func(p *Provider) {
+			p.WorkspaceProjections[0] = WorkspaceProjection{Kind: WorkspaceProjectionEnvironment, Name: "ANTHROPIC_AUTH_TOKEN", Template: "${HANDLE}"}
+		},
+		"raw native state":          func(p *Provider) { p.WorkspaceProjections[0].Template = "private-canary" },
+		"different credential file": func(p *Provider) { p.WorkspaceProjections[0].Path = ".claude/auth.json" },
+		"different authority":       func(p *Provider) { p.HeaderBindings[0].Target.Host = "console.anthropic.com" },
+		"insecure authority":        func(p *Provider) { p.HeaderBindings[0].Target.Scheme = "http" },
+		"custom port":               func(p *Provider) { p.HeaderBindings[0].Target.Port = 8443 },
+		"alternate source":          func(p *Provider) { p.HeaderBindings[0].Source.Header = "x-api-key" },
+		"raw source":                func(p *Provider) { p.HeaderBindings[0].Source.Formats = []SourceFormat{SourceFormatRaw} },
+		"raw destination":           func(p *Provider) { p.HeaderBindings[0].Destination.Format = DestinationFormatRaw },
+		"additional secret":         func(p *Provider) { p.HeaderBindings[0].SecretHeaders = []string{"authorization", "x-api-key"} },
+		"additional binding":        func(p *Provider) { p.HeaderBindings = append(p.HeaderBindings, p.HeaderBindings[0]) },
 		"signing plan": func(p *Provider) {
 			p.SigningBindings = cloneProvider(syntheticAWSProvider()).SigningBindings
 		},
@@ -371,7 +374,7 @@ func TestAnthropicClaudeProviderRejectsImpostorsAndRawSecretChannels(t *testing.
 			provider := cloneProvider(syntheticAnthropicClaudeProvider())
 			mutate(&provider)
 			if err := provider.Validate(); err == nil {
-				t.Fatal("Provider.Validate accepted an unreviewed Anthropic Claude setup-token plan")
+				t.Fatal("Provider.Validate accepted an unreviewed Anthropic Claude native OAuth plan")
 			}
 		})
 	}

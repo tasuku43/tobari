@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "tobari_browser_open_count": 0,
+  "plain_fragments": [
+    "Starting local login server on http://localhost:1455.",
+    "If your browser did not open, navigate to this URL to authenticate:",
+    "https://auth.openai.com/oauth/authorize?response_type=code&client_id=synthetic-client",
+    "Waiting for authentication..."
+  ]
+}

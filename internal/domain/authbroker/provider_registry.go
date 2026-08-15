@@ -33,7 +33,7 @@ var reviewedLoginProviders = [...]reviewedLoginProvider{
 	{id: BuiltinAWSProviderID, helper: "aws-sso"},
 	{id: BuiltinDatadogProviderID, helper: "pup-oauth"},
 	{id: BuiltinOpenAIProviderID, helper: "codex-chatgpt-oauth"},
-	{id: BuiltinAnthropicProviderID, helper: "claude-setup-token"},
+	{id: BuiltinAnthropicProviderID, helper: "claude-native-oauth"},
 }
 
 // BuiltinProviderIDs returns the complete closed built-in vocabulary in

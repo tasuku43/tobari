@@ -50,7 +50,7 @@ func (r *fakeCodexRunner) callCount() int {
 	return r.calls
 }
 
-func TestCodexLoginObservesVersionAndUsesFixedDeviceFlowEnvironmentAndCanonicalState(t *testing.T) {
+func TestCodexLoginObservesVersionAndUsesNativeBrowserFlowEnvironmentAndCanonicalState(t *testing.T) {
 	target := testCodexExecutable(t)
 	link := filepath.Join(t.TempDir(), "codex-link")
 	if err := os.Symlink(target, link); err != nil {
@@ -113,17 +113,17 @@ func TestCodexLoginObservesVersionAndUsesFixedDeviceFlowEnvironmentAndCanonicalS
 			return err
 		case 1:
 			wantArgs := []string{
-				"login", "--device-auth",
+				"login",
 				"-c", `cli_auth_credentials_store="file"`,
 				"-c", "check_for_update_on_startup=false",
 			}
 			if !reflect.DeepEqual(command.Args, wantArgs) || command.Stdin != stdin {
 				t.Fatalf("login command = %#v", command)
 			}
-			if _, err := command.Stdout.Write([]byte("Open the displayed device page\n")); err != nil {
+			if _, err := command.Stdout.Write([]byte("Starting local login server on http://localhost:1455.\n")); err != nil {
 				return err
 			}
-			if _, err := command.Stderr.Write([]byte("Enter the displayed code\n")); err != nil {
+			if _, err := command.Stderr.Write([]byte("Complete authentication in your browser\n")); err != nil {
 				return err
 			}
 			return os.WriteFile(filepath.Join(codexHome, codexAuthFileName), codexAuthFixture(t, codexAccountCanary, false), 0o600)
@@ -144,7 +144,7 @@ func TestCodexLoginObservesVersionAndUsesFixedDeviceFlowEnvironmentAndCanonicalS
 		credential.DriverRevision() != digest || credential.AccountLabel() != codexAccountCanary {
 		t.Fatalf("calls=%d driver=%q revision=%q account=%q", runner.callCount(), credential.DriverID(), credential.DriverRevision(), credential.AccountLabel())
 	}
-	if stdout.String() != "Open the displayed device page\n" || stderr.String() != "Enter the displayed code\n" {
+	if stdout.String() != "Starting local login server on http://localhost:1455.\n" || stderr.String() != "Complete authentication in your browser\n" {
 		t.Fatalf("visible output = stdout %q stderr %q", stdout.String(), stderr.String())
 	}
 	if _, err := os.Stat(home); !errors.Is(err, os.ErrNotExist) {
@@ -482,10 +482,9 @@ func TestCodexLoginTimeoutCancellationCleanupAndEnterpriseDisableAreFailClosed(t
 		}
 	})
 
-	// Some ChatGPT Enterprise administrators disable device-code login. That
-	// host policy is a normal provider failure and must never commit partial
-	// state or trigger a browser-flow fallback.
-	t.Run("enterprise device flow disabled", func(t *testing.T) {
+	// A browser-login provider or workspace-policy rejection is a normal
+	// provider failure and must never commit partial state or expose its cause.
+	t.Run("browser login rejected", func(t *testing.T) {
 		runner := &fakeCodexRunner{run: func(call int, _ context.Context, command Command) error {
 			if call == 0 {
 				_, err := command.Stdout.Write([]byte(codexVersionPrefix + testCodexVersion + "\n"))

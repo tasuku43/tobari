@@ -14,6 +14,8 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 from . import SCHEMA_VERSION
 from .credential_records import (
+    ANTHROPIC_CLAUDE_DRIVER_ID,
+    ANTHROPIC_CLAUDE_OAUTH_CREDENTIAL_KIND,
     AWS_CONSOLE_DRIVER_ID,
     AWS_DRIVER_ID,
     AWS_DRIVER_IDS,
@@ -33,6 +35,7 @@ from .credential_records import (
     empty_payload,
     encode_secret,
     new_aws_sso_record,
+    new_anthropic_claude_oauth_record,
     new_datadog_oauth_record,
     new_openai_codex_oauth_record,
     new_record,

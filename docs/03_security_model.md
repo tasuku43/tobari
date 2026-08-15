@@ -37,15 +37,21 @@ policy-preset snapshot. They remain secret-free authority metadata in separate
 owner-only state; project files, runtime images, Workspaces, and source preset
 files cannot rewrite an existing Context envelope.
 
-The reviewed GitHub, AWS, pup, Codex, and Claude host drivers are trusted,
-purpose-limited CLI side effects. Each selects a canonical executable outside
-the project, rejects group/world-writable candidates, binds SHA-256 identity,
-constructs only fixed argv, uses sanitized private state, and accepts no
+The reviewed GitHub, AWS, pup, and Codex host drivers and isolated Claude
+Context-runtime driver are trusted, purpose-limited CLI side effects. Host
+drivers select canonical executables outside the project, reject group/world-
+writable candidates, bind SHA-256 identity, construct only fixed argv, use
+sanitized private state, and accept no
 Workspace, repository, manifest, project `PATH`, or request-selected
-executable or argument. GitHub uses only its fixed device page; AWS uses only
+executable or argument. GitHub uses only its fixed device page and attempts one
+host-browser open at most once. Codex uses its native browser login: the
+verified child alone owns the loopback listener, dynamic authorization URL,
+PKCE state, callback, and exchange; Tobari never receives or opens them. AWS uses only
 the reviewed Identity Center or commercial-console flow; pup is fixed to
-Datadog US1; Codex uses its contract-checked device flow, while Claude Code
-2.1.220 uses its reviewed setup-token flow. Every driver revalidates executable identity and
+Datadog US1; Codex uses its contract-checked native flow. Claude Code 2.1.220
+runs in a fresh selected-Context-image container with no mounts, project,
+persistent home, Broker socket, or Docker socket; Tobari hashes its copied
+executable bytes and captures only its strict native renewable state. Every driver revalidates executable identity and
 performs checked cleanup. Managed profiles and manifest-selected helpers remain
 absent.
 
@@ -79,7 +85,7 @@ host CLI --two fixed global Git reads--> validated identity scalars --> Workspac
 Each Tobari joins only its dedicated internal network. OPA joins only an
 internal control network. Gateway has separate interfaces for every Tobari
 proxy network, control, and egress. Auth Broker joins control and egress, has
-no TCP listener, uses egress only for compiled Datadog/OpenAI refresh, and never
+no TCP listener, uses egress only for compiled Datadog/OpenAI/Anthropic refresh, and never
 joins a Tobari network. Only Gateway mounts its runtime Unix socket; host
 control uses a separate socket through fixed in-container operations. Provider
 acquisition runs from the trusted host rather than through Broker egress.
@@ -222,8 +228,9 @@ validation.
 
 The current Claude Code 2.1.220 and Codex 0.146.0 image slices are build-only
 and contain no credentials or agent configuration. A Context-owned custom
-recipe may compose the reviewed local artifacts, but its Workspace binaries
-remain untrusted and cannot serve as host OAuth helpers. Their workflows verify
+recipe may compose the reviewed local artifacts. Its ordinary Workspace
+binaries remain untrusted; only the separate mount-free Claude login container
+may treat exact Claude as a provider-only acquisition authority. Their workflows verify
 the versioned release packages against the checked-in per-architecture
 checksums and have no package-write permission; public publication remains
 gated on third-party redistribution and license review.
@@ -488,14 +495,15 @@ target/projection collisions and prohibits user manifests from overriding the
 any built-in or selecting a helper, dynamic record, refresh, signer,
 supplemental header, executable, argv, environment, policy, or business
 operation. Reviewed built-in drivers execute on the trusted host under their
-fixed contracts. Owner providers use protected non-terminal stdin import only.
+fixed contracts, except Anthropic's exact client runs in the isolated selected-
+Context-image login container. Owner providers use protected non-terminal stdin import only.
 A terminal stream is refused
 before reading. Provider collections with overlapping exact
 scheme/host/port/source-header/source-format recognition fail completely as
 `ambiguous_provider_http_binding`; no partial projection becomes active.
 
 AWS, Datadog, OpenAI, Anthropic, and Chatwork are implemented only through the
-closed reviewed plan union. Dynamic records, Datadog/OpenAI refresh, AWS
+closed reviewed plan union. Dynamic records, Datadog/OpenAI/Anthropic refresh, AWS
 signing/companion, OpenAI supplemental-header ownership, and exact-version
 Codex/Claude drivers cannot be selected or extended by owner manifests.
 The renewable-session implementation is an immutable compiled registry, not a
@@ -646,7 +654,8 @@ authentication, signing, provider account authority, or network permission.
 writes against the installation credential catalog. They resolve one existing
 explicit or current Context and one installed provider before acquisition or
 vault I/O. Login accepts only the installed reviewed GitHub, AWS, Datadog,
-OpenAI, or Anthropic driver union; interactive omission opens only its bounded
+OpenAI, or Anthropic driver union. Anthropic alone uses a fresh mount-free
+container from the selected compatible Context image; interactive omission opens only its bounded
 selector and AWS alone accepts `identity-center|console`. Import reads one
 bounded secret from non-terminal stdin only under the ordering above. One
 credential belongs to one Context/provider, and every permanently bound project
@@ -711,11 +720,16 @@ the verified original. A concurrent direct host edit is never overwritten by
 guess. The generated content-addressed OPA projection may contain one internal
 `data.json`, but Workspaces cannot edit either source or projection.
 
-Learned rules never broaden a project, host, port, method, path, or GraphQL root
-coordinate beyond the explicitly approved exact evidence. Baseline and exact
+Learned rules never broaden a Context, project, scheme, host, port, method, or
+GraphQL coordinate. A reviewed HTTP path template may broaden only one explicit
+non-empty raw `{id}` segment after two distinct compatible examples while
+preserving every literal segment. Baseline and exact
 deny rules remain terminal; an exact deny wins over a learned allow for the
 same Context/project/scheme/host/port/method/path. Prefix learned rules,
-compaction proposals, wildcards, and observation-derived widening do not exist.
+compaction proposals, wildcards, regexes, multiple placeholders, and automatic
+observation-derived authority do not exist. Percent-encoded segments,
+backslashes, empty/dot segments, ambiguous inference, and GraphQL templates
+fail closed.
 
 ## External calls
 
@@ -734,8 +748,32 @@ fixed device URL; opener failure leaves manual navigation and is not a provider
 mutation failure. The driver performs no Git configuration, pagination, or
 automatic retry; user cancellation or any failed capture preserves the
 previous Context credential. AWS/pup/Codex/Claude drivers and the fixed
-Datadog/OpenAI post-policy transports follow their separately bounded contracts
+Datadog/OpenAI/Anthropic post-policy transports follow their separately bounded contracts
 and never provide a general provider-call surface.
+The Codex visible-output boundary recognizes only the exact reviewed reset,
+muted, and accent SGR sequences and regenerates them from Tobari-owned styles
+for an interactive terminal. `NO_COLOR` strips that closed vocabulary, unknown
+controls remain visibly escaped, and neither presentation path changes URL
+recognition. A dynamic OpenAI authorization URL is never a Tobari browser
+target; the verified Codex child owns its open attempt and fallback guidance.
+For exact Claude 2.1.220, the separate Context-runtime boundary consumes only
+the reviewed opening, OSC 8 link, browser-result, and paste-prompt events. It
+opens the exact validated HTTPS URL once, hides it after successful host open,
+retains it on opener failure, emits the no-newline prompt immediately, and
+relies on the exact Claude prompt's non-echoing terminal mode rather than
+hiding the next child line. Tobari never emits entered input. The one-shot
+container bypasses the Workspace CA-waiting entrypoint with fixed
+`/usr/bin/tini -- /usr/bin/sleep infinity`; otherwise the deliberately absent
+CA mount would terminate acquisition after ten seconds. Its raw-TTY projection emits explicit CRLF for
+fixed and control-safe pass-through lines, preventing cursor-column state from
+changing the meaning or readability of later instructions. Timeout retains
+precedence when checked cleanup also fails; setup, authorization, output,
+native-state capture, and cleanup-only failures use distinct fixed faults and
+never disclose child output or credential content.
+The shared host-CLI resolver inspects at most 256 distinct absolute PATH
+candidates. It never executes a rejected shim, accepts no relative or empty
+current-directory entry, and returns only the first candidate whose canonical
+executable already satisfies the reviewed trusted-root and mode boundary.
 
 Inherited Git identity reconciliation performs at most two host Git calls, one
 per exact key, with one attempt and a finite timeout each. It performs no
@@ -746,6 +784,11 @@ fail before Docker mutation. Published failures contain neither raw stderr nor
 identity values.
 
 ## Logging
+
+Trusted-host login availability failures expose only a fixed diagnostic stage
+identifier through the existing CLI fault. They do not log the selected
+executable path or digest, temporary home, raw process error/stdout/stderr,
+device code, auth state, or credential material.
 
 Audit JSON includes timestamp, request ID, cluster, stable Context ID and name,
 project ID, safe project root, host, port, method, redacted path, an optional
@@ -769,9 +812,11 @@ optional GraphQL-coordinate proposals from
 that evidence, treating reason, status, request identity, timestamps, and
 broker-provider display evidence as non-identity fields. The latest evidence
 and bounded observation count do not grant authority. `policy review`
-presents the same queue, stages explicit Allow-exact or Deny-exact choices only
-from each candidate's TTY detail screen, retains every unchanged opaque
-reference, and applies the reviewed set once after final confirmation. Staging
+presents the same exact machine queue plus domain-typed inert `{id}` proposals
+after two distinct compatible HTTP paths. Its TTY detail screen stages an
+explicit template-Allow, observed-exact Allow, or pending-exact Deny, retains
+every unchanged opaque review-item reference, and applies the reviewed set once
+after final confirmation and fresh proposal reconstruction. Staging
 is inactive authority; `policy rules`
 projects every current CLI-owned learned Allow and exact Deny, and its TTY flow
 delegates one unchanged opaque reference to `policy reset`. All redirected and

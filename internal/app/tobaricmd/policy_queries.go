@@ -54,6 +54,15 @@ func (s *Service) policyCandidates(
 	result := tobari.PolicyCandidateReport{
 		Task: task, PolicyDirectory: state.PolicyDirectory, WindowLines: tail, Items: items,
 	}
+	if task == tobari.TaskPolicyReview {
+		result.ReviewItems, err = tobari.PolicyReviewItems(items, rules)
+		if err != nil {
+			return tobari.PolicyCandidateReport{}, fault.Wrap(
+				fault.KindContract, "invalid_candidate_contract",
+				"policy review items are invalid", false, err,
+			)
+		}
+	}
 	if err := result.Validate(); err != nil {
 		return tobari.PolicyCandidateReport{}, fault.Wrap(
 			fault.KindContract, "invalid_candidate_contract",

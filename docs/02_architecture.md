@@ -21,7 +21,7 @@ egress network:                         Gateway/Auth Broker --> bounded HTTPS
 Each Tobari joins only its dedicated internal network. OPA joins only the
 shared internal control network. Gateway joins every Tobari network plus
 control and egress. Auth Broker joins control and egress, has no TCP listener,
-and uses egress only for compiled Datadog/OpenAI refresh transports; Gateway
+and uses egress only for compiled Datadog/OpenAI/Anthropic refresh transports; Gateway
 reaches only its read-only mounted runtime Unix socket and host commands reach
 only fixed control operations. Reviewed host helpers run from the trusted host
 and cannot be selected by a Workspace, request, or owner manifest. Tobari and control networks
@@ -37,13 +37,36 @@ to local listeners, keeps IPv4/IPv6 forwarding disabled, and drops its forward
 chain. Neither resident process retains a network capability, and no host or
 Docker-VM-global firewall state is changed.
 
-Reviewed login drivers are the closed GitHub, AWS, pup, Codex, and Claude host
-set. Each resolves and hashes a canonical executable outside the project, runs
+Reviewed login drivers are the closed GitHub, AWS, pup, Codex, and Claude set.
+The shared host resolver for the first four rejects the first temporary, project-local, or
+home-local PATH shadow without executing it and inspects a finite PATH-ordered
+candidate set for the first canonical executable under an existing trusted
+installation root. Each hashes that accepted executable outside the project, runs
 fixed argv with a sanitized private state boundary, accepts only its bounded
 browser/PTY/output contract, rechecks executable identity, and performs checked
 cleanup. Codex additionally requires a stable observed product identity and
-the exact compiled host-login/state contract; Claude requires an exact reviewed
-version. Owner
+the exact compiled host-login/state contract. The verified child owns its
+native loopback callback listener, browser request, PKCE state, callback, and
+token exchange; Tobari owns none of those surfaces and validates only the
+resulting private file state after exit. Its stream boundary recognizes
+only the reviewed reset, muted, and accent SGR vocabulary, maps those meanings
+to Tobari-owned styles for an interactive terminal, and emits no style when
+`NO_COLOR` is present; unknown controls use the ordinary visible projection.
+Claude instead runs exact 2.1.220 from the selected Context image in a fresh
+mount-free, project-free login container. Tobari hashes the copied executable
+bytes on the host, validates the native OSC 8 authorization URL, and maps only
+the exact opening, link, browser-result, and paste-prompt events to a fixed
+Tobari UI. The no-newline prompt is emitted immediately; Claude owns its
+non-echoing terminal input, and Tobari preserves the next real child status
+line. Browser success hides the long URL, and opener failure retains the exact
+validated manual fallback. The login container replaces the ordinary
+Workspace entrypoint, whose CA wait requires a deliberately absent mount, with
+fixed `/usr/bin/tini -- /usr/bin/sleep infinity`; this keeps PID 1 alive for the
+bounded acquisition without weakening the mount-free boundary. All fixed and control-safe
+pass-through lines use explicit CRLF while the child owns the raw Docker TTY;
+they do not depend on terminal newline post-processing to return to column one.
+Tobari then captures only the
+strict Linux renewable state and removes the container before commit. Owner
 manifests remain static-only and cannot select these helpers or their dynamic
 plans. Managed stores remain absent.
 
@@ -99,12 +122,15 @@ where applicable.
 remain valid
 internal seams today. They are not permission to expose Docker, OPA, or opaque
 resource identifiers as the routine mental model. `policy review` is the
-ordinary human-facing Permission Inbox: on a TTY it composes selection, detail
-inspection, explicit Allow-exact or Deny-exact staging, and one final Apply of
+ordinary human-facing Permission Inbox: on a TTY it composes selection, typed
+exact-or-template detail inspection, explicit template-Allow or exact staging,
+and one final Apply of
 the complete reviewed set. Staging grants no authority; redirected and
 machine-readable review remains read-only. Detail actions cannot mutate from
 the list, and final Apply is a command-owned fixed-target mutation that
-revalidates every unchanged opaque candidate ID. Single-reference `policy
+revalidates every unchanged opaque review-item ID and reconstructs every
+template proposal from fresh pending evidence and current exact rules.
+Single-reference `policy
 allow` and `policy deny` remain machine and recovery actions. `policy rules` is the exhaustive current learned-decision inventory;
 on a TTY it composes selection, detail inspection, explicit reset confirmation,
 and `policy reset` for one current decision, while redirected and
@@ -203,7 +229,8 @@ remain writable, and host or same-root read-write Context changes remain
 observable. Neither path rediscovers the source preset.
 
 The system evaluator owns terminal guardrail precedence before baseline deny,
-exact learned deny, baseline grant, exact learned allow, or Advanced Rego.
+exact learned deny, baseline grant, exact or reviewed single-segment-template
+learned allow, or Advanced Rego.
 Terminal denial ends before candidate projection, external DNS, broker
 resolution, and upstream I/O. Advanced modules may further constrain generic
 input but cannot bypass the guardrail or redefine the scheme-aware exact
@@ -372,7 +399,7 @@ Context-associated data, owner/mode validation, bounded file reads, and atomic
 replacement. Record contracts receive no key, path, file descriptor, cipher,
 or persistence callback. Static records deliberately accept any validated
 provider ID because strict owner manifests remain the supported declarative
-extension boundary; AWS, Datadog, and OpenAI records bind one exact reviewed
+extension boundary; AWS, Datadog, OpenAI, and Anthropic records bind one exact reviewed
 provider and binding shape.
 
 The control-socket login vocabulary is a third closed projection with only two
@@ -410,7 +437,15 @@ particular, public `primary_secret` intentionally maps to persisted
 boundary owns a different representation. No production component reads this
 fixture, and updating it cannot register a provider or grant adapter authority.
 
-GitHub recognizes only the fixed device URL and requests no Git protocol. No URL,
+GitHub recognizes only its fixed device URL, requests one host-browser open at
+most once, retains the exact manual fallback, and requests no Git protocol.
+OpenAI delegates browser opening and the dynamic authorization URL entirely to
+the verified Codex child; Tobari visibly projects but never parses, reconstructs,
+or opens that URL. Claude recognizes only its exact pinned OSC 8 authorization
+event, opens that exact URL at most once, and otherwise treats changed provider
+text as control-safe untrusted data. Its fixed UI never projects the pasted
+authorization code and never guesses that an actual provider failure is input
+echo. No URL,
 executable, argument, environment key, or driver supplied by a provider
 manifest, repository, Workspace, request, or project `PATH` can alter that
 behavior. A Workspace copy is never an acquisition fallback. Request region is
@@ -462,8 +497,9 @@ The first Claude and Codex variants are build-only children under
 verifies its per-architecture checksum, and inherits the base user, entrypoint,
 and lifetime command. A Context-owned custom recipe may compose the reviewed
 local artifacts so both `claude --version` and `codex --version` work in the
-same Workspace; it does not turn either Workspace executable into a trusted
-host login helper. Codex uses the official standalone package, which keeps its
+same Workspace. Claude may become the provider-only acquisition executable in
+the separate mount-free login container; it never makes an ordinary Workspace
+process or image executable a general host helper. Codex uses the official standalone package, which keeps its
 CLI companion binaries and Linux sandbox resources together. Agent executables
 and package resources live in image-owned `/usr/local/bin` and `/opt/tobari`
 paths; `/var/lib/tobari` contains only per-Tobari home state and is safe to
@@ -710,8 +746,12 @@ Every catalog command that supports human text explicitly declares the shared
 semantic-token presentation. The CLI presentation layer owns the exact
 `text`, `muted`, `accent`, `success`, `warning`, and `danger` vocabulary and is
 the only production location that maps those meanings to ANSI color or
-emphasis. Command renderers select tokens by information meaning; they do not
-own escape sequences or concrete colors. Infrastructure reports terminal
+emphasis for catalog-rendered output. Command renderers select tokens by
+information meaning; they do not own escape sequences or concrete colors.
+The separate trusted-host login stream boundary may regenerate only its closed
+reviewed upstream SGR vocabulary as the same semantic styles; it visibly
+projects every unknown control and has dedicated conformance tests.
+Infrastructure reports terminal
 capability and the presence-only `NO_COLOR` environment preference. The CLI
 combines those facts per output stream, keeping redirected and machine output
 free of ANSI styling. Cursor-control sequences used by bounded interactive
@@ -759,7 +799,7 @@ client request headers
   -> deny on any invalid/unavailable decision
   -> on a static brokered allow, resolve the same revision exactly once and
      replace only the declared destination header
-  -> on a Datadog/OpenAI allow, select or refresh the same record once and
+  -> on a Datadog/OpenAI/Anthropic allow, select or refresh the same record once and
      apply only its reviewed bearer/supplemental-header result
   -> on an AWS allow, retain the authorized request within 8 MiB, obtain one
      private companion export, sign locally, and apply only those headers
@@ -913,7 +953,13 @@ the interactive process. Lifecycle operations return structured state after
 confirmed completion; unclassified post-mutation errors are non-retryable and
 direct the user to `status` for reconciliation.
 Auth mutations use the same structured-outcome rule. A failed or cancelled
-GitHub host driver leaves the previous Context credential unchanged; an
+GitHub host driver leaves the previous Context credential unchanged; a
+host-login availability rejection carries one closed
+infrastructure-owned diagnostic stage through the existing public fault code.
+The stage vocabulary distinguishes driver dependency, executable lookup,
+symlink/canonical-path/trusted-root checks, identity, a recognized ChatGPT app
+bundle selection, and Codex executable/version observation without retaining a
+raw cause, local path, digest, or provider output. An
 `auth_mutation_outcome_unknown`, `unclassified_mutation_outcome`, or
 `mutation_output_write_failed` result is non-retryable and directs the user to
 `auth status` before another auth mutation. Confirmed login/import/logout output

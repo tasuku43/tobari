@@ -454,6 +454,24 @@ class BrokerState:
             driver_revision=driver_revision,
         )
 
+    def login_anthropic_driver(
+        self,
+        context_id: Any,
+        state: bytes,
+        *,
+        account_label: Any,
+        driver_id: Any,
+        driver_revision: Any,
+    ) -> dict[str, Any]:
+        return self._login_driver_compatibility(
+            "anthropic",
+            context_id,
+            state,
+            account_label=account_label,
+            driver_id=driver_id,
+            driver_revision=driver_revision,
+        )
+
     def logout(self, context_id: Any, provider: Any) -> dict[str, Any]:
         try:
             context_id = validate_context_id(context_id)

@@ -16,10 +16,12 @@ import broker_credentials as broker
 import reviewed_credential_profiles as reviewed_profiles
 import tobari_gateway as gateway
 from reviewed_credential_profiles import (
+    ANTHROPIC_CLAUDE_OAUTH_CREDENTIAL_KIND,
     AWS_SSO_CREDENTIAL_KIND,
     DATADOG_OAUTH_CREDENTIAL_KIND,
     OPENAI_CODEX_OAUTH_CREDENTIAL_KIND,
     AWSSigV4Profile,
+    AnthropicClaudeProfile,
     DatadogOAuthProfile,
     OpenAICodexOAuthProfile,
     reviewed_gateway_credential_profiles,
@@ -49,6 +51,7 @@ class ReviewedGatewayCredentialProfileTests(unittest.TestCase):
         self.assertEqual(
             {kind: type(profile) for kind, profile in registry.items()},
             {
+                ANTHROPIC_CLAUDE_OAUTH_CREDENTIAL_KIND: AnthropicClaudeProfile,
                 AWS_SSO_CREDENTIAL_KIND: AWSSigV4Profile,
                 DATADOG_OAUTH_CREDENTIAL_KIND: DatadogOAuthProfile,
                 OPENAI_CODEX_OAUTH_CREDENTIAL_KIND: OpenAICodexOAuthProfile,
@@ -56,7 +59,7 @@ class ReviewedGatewayCredentialProfileTests(unittest.TestCase):
         )
         self.assertEqual(
             {profile.provider_id for profile in registry.values()},
-            {"aws", "datadog", "openai"},
+            {"anthropic", "aws", "datadog", "openai"},
         )
         with self.assertRaises(TypeError):
             registry["owner_selected_profile"] = registry[  # type: ignore[index]
@@ -598,16 +601,16 @@ class ReviewedDynamicCredentialGatewayTests(ReviewedDynamicCredentialGatewayTest
 
         def alternate_provider(value):
             value["providers"][0]["id"] = "anthropic-alt"
-            value["environment"][0]["provider_id"] = "anthropic-alt"
+            value["complete_files"][0]["provider_id"] = "anthropic-alt"
             value["header_bindings"][0]["provider_id"] = "anthropic-alt"
 
         def alternate_display_name(value):
             value["providers"][0]["display_name"] = "Anthropic account"
 
-        def alternate_environment(value):
+        def alternate_complete_file(value):
             provider = value["providers"][0]
-            provider["workspace_projections"][0]["name"] = "ANTHROPIC_AUTH_TOKEN"
-            value["environment"][0]["name"] = "ANTHROPIC_AUTH_TOKEN"
+            provider["workspace_projections"][0]["path"] = ".claude/other.json"
+            value["complete_files"][0]["path"] = ".claude/other.json"
 
         def alternate_host(value):
             provider_binding = value["providers"][0]["header_bindings"][0]
@@ -637,7 +640,7 @@ class ReviewedDynamicCredentialGatewayTests(ReviewedDynamicCredentialGatewayTest
             ("helper", alternate_helper),
             ("provider", alternate_provider),
             ("display name", alternate_display_name),
-            ("environment", alternate_environment),
+            ("complete file", alternate_complete_file),
             ("host", alternate_host),
             ("header", alternate_header),
             ("format", alternate_format),

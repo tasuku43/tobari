@@ -77,8 +77,8 @@
   },
   "decision_set": {
     "decisions": [
-      {"candidate_id": "pcy_0123456789abcdef0123456789abcdef", "decision": "allow"},
-      {"candidate_id": "pcy_abcdef0123456789abcdef0123456789", "decision": "deny"}
+      {"review_item_id": "pcy_0123456789abcdef0123456789abcdef", "decision": "allow", "match": "exact"},
+      {"review_item_id": "pcy_abcdef0123456789abcdef0123456789", "decision": "deny", "match": "exact"}
     ]
   },
   "zero_staged": {
@@ -95,8 +95,10 @@
       {
         "protocol": "http",
         "scheme": "https",
-        "candidate_id": "pcy_0123456789abcdef0123456789abcdef",
+        "rule_id": "plr_0123456789abcdef0123456789abcdef",
+        "review_item_id": "pcy_0123456789abcdef0123456789abcdef",
         "decision": "allow",
+        "match": "exact",
         "context_id": "01912345-6789-7abc-8def-0123456789ad",
         "context": "default",
         "project_id": "01912345-6789-7abc-8def-0123456789ab",
@@ -104,15 +106,18 @@
         "host": "api.example.com",
         "port": 443,
         "method": "POST",
-        "path": "/v1/issues"
+        "path": "/v1/issues",
+        "source_candidates": ["pcy_0123456789abcdef0123456789abcdef"]
       },
       {
         "protocol": "graphql",
         "scheme": "https",
         "graphql_operation_type": "mutation",
         "graphql_root_field": "updateIssue",
-        "candidate_id": "pcy_abcdef0123456789abcdef0123456789",
+        "rule_id": "pdr_abcdef0123456789abcdef0123456789",
+        "review_item_id": "pcy_abcdef0123456789abcdef0123456789",
         "decision": "deny",
+        "match": "exact",
         "context_id": "01912345-6789-7abc-8def-0123456789ad",
         "context": "default",
         "project_id": "01912345-6789-7abc-8def-0123456789ab",
@@ -120,7 +125,8 @@
         "host": "api.example.com",
         "port": 443,
         "method": "POST",
-        "path": "/graphql"
+        "path": "/graphql",
+        "source_candidates": ["pcy_abcdef0123456789abcdef0123456789"]
       }
     ]
   },

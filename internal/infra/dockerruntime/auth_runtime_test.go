@@ -3,6 +3,7 @@ package dockerruntime
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -31,6 +32,20 @@ func syntheticAWSConsoleAuthorizationURL(region string) string {
 		"code_challenge":        {strings.Repeat("A", 43)},
 	}
 	return "https://" + region + ".signin.aws.amazon.com/v1/authorize?" + query.Encode()
+}
+
+func syntheticClaudeAuthorizationURL() string {
+	query := url.Values{
+		"code":                  {"true"},
+		"client_id":             {claudeLoginClientID},
+		"response_type":         {"code"},
+		"redirect_uri":          {claudeLoginRedirectURI},
+		"scope":                 {claudeLoginScopes},
+		"code_challenge_method": {"S256"},
+		"code_challenge":        {strings.Repeat("A", 43)},
+		"state":                 {strings.Repeat("B", 43)},
+	}
+	return claudeLoginURLPrefix + query.Encode()
 }
 
 func TestProviderBindingCollisionUsesDistinctPublicFault(t *testing.T) {
@@ -393,9 +408,102 @@ func TestLoginVisibleOutputPreservesBoundedTTYStream(t *testing.T) {
 	if len(opened) != 1 || opened[0] != githubDeviceURL {
 		t.Fatalf("browser opens = %q", opened)
 	}
+	if strings.Count(visible.String(), loginBrowserOpenedFeedback) != 1 {
+		t.Fatalf("browser-open feedback = %q", visible.String())
+	}
 	if err := filter.flush(); err != nil {
 		t.Fatal(err)
 	}
+}
+
+type codexLoginVisibleFixture struct {
+	SchemaVersion int      `json:"schema_version"`
+	Chunks        []string `json:"chunks"`
+}
+
+type codexLoginVisibleAnswer struct {
+	SchemaVersion   int      `json:"schema_version"`
+	TobariOpenCount int      `json:"tobari_browser_open_count"`
+	PlainFragments  []string `json:"plain_fragments"`
+}
+
+func TestLoginVisibleOutputProjectsNativeCodexBrowserFlowWithoutOpeningURL(t *testing.T) {
+	var fixture codexLoginVisibleFixture
+	readLoginVisibleFixture(t, "openai_native_login_visible.json", &fixture)
+	var answer codexLoginVisibleAnswer
+	readLoginVisibleFixture(t, "openai_native_login_visible_answer.json", &answer)
+	if fixture.SchemaVersion != 1 || answer.SchemaVersion != 1 || len(fixture.Chunks) == 0 {
+		t.Fatalf("fixture/answer version or chunks are invalid: %+v %+v", fixture, answer)
+	}
+
+	for _, color := range []bool{false, true} {
+		t.Run(fmt.Sprintf("color=%t", color), func(t *testing.T) {
+			var visible bytes.Buffer
+			opened := []string{}
+			filter := &loginVisibleOutput{
+				destination: &visible,
+				color:       color,
+				openBrowser: func(target string) error {
+					opened = append(opened, target)
+					return nil
+				},
+			}
+			for _, chunk := range fixture.Chunks {
+				if _, err := filter.Write([]byte(chunk)); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := filter.flush(); err != nil {
+				t.Fatal(err)
+			}
+			if len(opened) != answer.TobariOpenCount || strings.Contains(visible.String(), loginBrowserOpenedFeedback) {
+				t.Fatalf("opened=%q visible=%q", opened, visible.String())
+			}
+			plain := stripLoginOwnedStyles(visible.String())
+			for _, fragment := range answer.PlainFragments {
+				if !strings.Contains(plain, fragment) {
+					t.Fatalf("plain output %q lacks %q", plain, fragment)
+				}
+			}
+			if strings.Contains(visible.String(), "\x1b") || strings.Contains(visible.String(), `\u001B`) {
+				t.Fatalf("plain output retained terminal controls: %q", visible.String())
+			}
+		})
+	}
+}
+
+func TestProjectLoginVisibleTextAcceptsOnlyApprovedSGR(t *testing.T) {
+	input := loginSGRUpstreamAccent + "approved" + loginSGRReset + " " + "\x1b[31munknown" + loginSGRReset
+	for _, color := range []bool{false, true} {
+		output := projectLoginVisibleText(input, color)
+		plain := stripLoginOwnedStyles(output)
+		if !strings.Contains(plain, `approved \u001B[31munknown`) || strings.Contains(plain, "\x1b") {
+			t.Fatalf("color=%t projected output = %q", color, output)
+		}
+		if color != strings.Contains(output, loginStyleAccent) {
+			t.Fatalf("color=%t accent output = %q", color, output)
+		}
+	}
+}
+
+func readLoginVisibleFixture(t *testing.T, name string, destination any) {
+	t.Helper()
+	content, err := os.ReadFile(filepath.Join("testdata", name))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(content, destination); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func stripLoginOwnedStyles(value string) string {
+	return strings.NewReplacer(
+		loginSGRReset, "",
+		loginStyleMuted, "",
+		loginStyleAccent, "",
+		loginStyleSuccess, "",
+	).Replace(value)
 }
 
 func TestLoginVisibleOutputFallsBackToOneFixedManualURL(t *testing.T) {
@@ -419,6 +527,9 @@ func TestLoginVisibleOutputFallsBackToOneFixedManualURL(t *testing.T) {
 	}
 	if strings.Count(visible.String(), githubManualBrowserFallback) != 1 || !strings.Contains(visible.String(), "https://example.com/login") {
 		t.Fatalf("visible output = %q", visible.String())
+	}
+	if strings.Contains(visible.String(), loginBrowserOpenedFeedback) {
+		t.Fatalf("failed browser open reported success: %q", visible.String())
 	}
 }
 
@@ -494,6 +605,165 @@ func TestLoginVisibleOutputOpensOnlyRegionBoundAWSConsoleURLOnce(t *testing.T) {
 	}
 }
 
+func TestLoginVisibleOutputProjectsAndOpensOnlyExactClaudeHyperlinkOnce(t *testing.T) {
+	target := syntheticClaudeAuthorizationURL()
+	approved := claudeHyperlinkPrefix + target + "\a" + target + claudeHyperlinkClose + "\n"
+	var visible bytes.Buffer
+	opened := []string{}
+	filter := &loginVisibleOutput{destination: &visible, openBrowser: func(candidate string) error {
+		opened = append(opened, candidate)
+		return nil
+	}}
+	for _, line := range []string{
+		strings.Replace(approved, "claude.com", "evil.example", 2),
+		strings.Replace(approved, claudeLoginClientID, "wrong-client", 2),
+		strings.Replace(approved, strings.Repeat("A", 43), "short", 2),
+		approved,
+		approved,
+	} {
+		if _, err := filter.Write([]byte(line)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := filter.flush(); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(opened, []string{target}) {
+		t.Fatalf("browser opens = %q", opened)
+	}
+	if strings.Count(visible.String(), loginBrowserOpenedFeedback) != 1 ||
+		!strings.Contains(visible.String(), "If the browser didn't open, visit: "+target) ||
+		strings.ContainsAny(visible.String(), "\x1b\a") {
+		t.Fatalf("visible output = %q", visible.String())
+	}
+}
+
+type claudeLoginVisibleFixture struct {
+	SchemaVersion               int      `json:"schema_version"`
+	AuthorizationURLPlaceholder string   `json:"authorization_url_placeholder"`
+	PromptVisibleAfterChunk     int      `json:"prompt_visible_after_chunk"`
+	Chunks                      []string `json:"chunks"`
+}
+
+type claudeLoginVisibleAnswer struct {
+	SchemaVersion   int      `json:"schema_version"`
+	TobariOpenCount int      `json:"tobari_browser_open_count"`
+	PlainFragments  []string `json:"plain_fragments"`
+	AbsentFragments []string `json:"absent_fragments"`
+}
+
+func TestClaudeLoginVisibleOutputUsesFixedImmediateSecretFreeUI(t *testing.T) {
+	var fixture claudeLoginVisibleFixture
+	readLoginVisibleFixture(t, "anthropic_native_login_visible.json", &fixture)
+	var answer claudeLoginVisibleAnswer
+	readLoginVisibleFixture(t, "anthropic_native_login_visible_answer.json", &answer)
+	if fixture.SchemaVersion != 1 || answer.SchemaVersion != 1 ||
+		fixture.AuthorizationURLPlaceholder == "" || fixture.PromptVisibleAfterChunk <= 0 {
+		t.Fatalf("fixture/answer is invalid: %+v %+v", fixture, answer)
+	}
+	target := syntheticClaudeAuthorizationURL()
+
+	for _, color := range []bool{false, true} {
+		t.Run(fmt.Sprintf("color=%t", color), func(t *testing.T) {
+			var visible bytes.Buffer
+			opened := []string{}
+			filter := &loginVisibleOutput{
+				destination: &visible,
+				provider:    authbroker.BuiltinAnthropicProviderID,
+				color:       color,
+				openBrowser: func(candidate string) error {
+					opened = append(opened, candidate)
+					return nil
+				},
+			}
+			for index, rawChunk := range fixture.Chunks {
+				chunk := strings.ReplaceAll(rawChunk, fixture.AuthorizationURLPlaceholder, target)
+				if _, err := filter.Write([]byte(chunk)); err != nil {
+					t.Fatal(err)
+				}
+				if index+1 == fixture.PromptVisibleAfterChunk &&
+					!strings.Contains(stripLoginOwnedStyles(visible.String()), "If Claude shows a code, paste it here:\r\n> ") {
+					t.Fatalf("prompt was not visible before flush: %q", visible.String())
+				}
+			}
+			if err := filter.flush(); err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(opened, []string{target}) || len(opened) != answer.TobariOpenCount {
+				t.Fatalf("browser opens = %q", opened)
+			}
+			rawPlain := stripLoginOwnedStyles(visible.String())
+			if hasBareLF(rawPlain) {
+				t.Fatalf("Claude raw-mode output contains bare LF: %q", rawPlain)
+			}
+			plain := strings.ReplaceAll(rawPlain, claudeLoginTTYLineEnding, "\n")
+			for _, fragment := range answer.PlainFragments {
+				if !strings.Contains(plain, fragment) {
+					t.Fatalf("plain output %q lacks %q", plain, fragment)
+				}
+			}
+			for _, fragment := range append(answer.AbsentFragments, target) {
+				if strings.Contains(plain, fragment) {
+					t.Fatalf("plain output %q contains forbidden %q", plain, fragment)
+				}
+			}
+			if strings.ContainsAny(plain, "\x00\x07\x1b\r") {
+				t.Fatalf("terminal controls reached fixed UI: %q", plain)
+			}
+		})
+	}
+}
+
+func TestClaudeLoginVisibleOutputShowsExactURLOnlyWhenBrowserOpenFails(t *testing.T) {
+	target := syntheticClaudeAuthorizationURL()
+	line := claudeHyperlinkPrefix + target + "\a" + target + claudeHyperlinkClose + "\r\n"
+	var visible bytes.Buffer
+	filter := &loginVisibleOutput{
+		destination: &visible,
+		provider:    authbroker.BuiltinAnthropicProviderID,
+		openBrowser: func(string) error {
+			return os.ErrNotExist
+		},
+	}
+	for _, chunk := range []string{"Opening browser to sign in…\r\n", line, "Paste code here if prompted > "} {
+		if _, err := filter.Write([]byte(chunk)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rawPlain := stripLoginOwnedStyles(visible.String())
+	plain := strings.ReplaceAll(rawPlain, claudeLoginTTYLineEnding, "\n")
+	if hasBareLF(rawPlain) || strings.Count(plain, target) != 1 || !strings.Contains(plain, "! Browser did not open.\nVisit: "+target) ||
+		!strings.HasSuffix(plain, "If Claude shows a code, paste it here:\n> ") {
+		t.Fatalf("fallback output = %q", plain)
+	}
+}
+
+func TestClaudeLoginVisibleOutputFramesUnrecognizedLinesForRawTTY(t *testing.T) {
+	var visible bytes.Buffer
+	filter := &loginVisibleOutput{
+		destination: &visible,
+		provider:    authbroker.BuiltinAnthropicProviderID,
+	}
+	for _, chunk := range []string{claudeLoginPastePrompt, "\r\nInvalid code. Please retry.\r\n"} {
+		if _, err := filter.Write([]byte(chunk)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	want := claudeLoginPromptFeedback + claudeLoginTTYLineEnding + "Invalid code. Please retry." + claudeLoginTTYLineEnding
+	if output := visible.String(); output != want || hasBareLF(output) {
+		t.Fatalf("raw TTY framing = %q", output)
+	}
+}
+
+func hasBareLF(value string) bool {
+	for index := 0; index < len(value); index++ {
+		if value[index] == '\n' && (index == 0 || value[index-1] != '\r') {
+			return true
+		}
+	}
+	return false
+}
+
 func TestLoginVisibleOutputProjectsHostileProviderText(t *testing.T) {
 	var visible bytes.Buffer
 	opened := []string{}
@@ -545,6 +815,7 @@ func TestHostBrowserCommandAcceptsOnlyReviewedLoginURLs(t *testing.T) {
 		{goos: "darwin", executable: "/usr/bin/open", target: "https://device.sso.us-east-1.amazonaws.com/"},
 		{goos: "linux", executable: "/usr/bin/xdg-open", target: "https://device.sso.us-gov-west-1.amazonaws.com/"},
 		{goos: "darwin", executable: "/usr/bin/open", target: syntheticAWSConsoleAuthorizationURL("ap-northeast-1")},
+		{goos: "darwin", executable: "/usr/bin/open", target: syntheticClaudeAuthorizationURL()},
 	}
 	for _, test := range tests {
 		executable, args, err := hostBrowserCommand(test.goos, test.target)
@@ -555,6 +826,8 @@ func TestHostBrowserCommandAcceptsOnlyReviewedLoginURLs(t *testing.T) {
 	for _, target := range []string{
 		"https://example.com/login",
 		githubDeviceURL + "?next=example",
+		"https://auth.openai.com/codex/device",
+		"https://auth.openai.com/oauth/authorize?response_type=code&state=synthetic",
 		"http://device.sso.us-east-1.amazonaws.com/",
 		"https://device.sso.us-east-1.amazonaws.com",
 		"https://device.sso.us-east-1.amazonaws.com/?code=secret",
@@ -565,6 +838,10 @@ func TestHostBrowserCommandAcceptsOnlyReviewedLoginURLs(t *testing.T) {
 		strings.Replace(syntheticAWSConsoleAuthorizationURL("ap-northeast-1"), "response_type=code", "response_type=token", 1),
 		syntheticAWSConsoleAuthorizationURL("ap-northeast-1") + "&scope=admin",
 		strings.Replace(syntheticAWSConsoleAuthorizationURL("ap-northeast-1"), "signin.aws.amazon.com", "signin.aws.amazon.com.evil.example", 1),
+		syntheticClaudeAuthorizationURL() + "#fragment",
+		strings.Replace(syntheticClaudeAuthorizationURL(), "claude.com", "claude.com.evil.example", 1),
+		strings.Replace(syntheticClaudeAuthorizationURL(), claudeLoginClientID, "wrong-client", 1),
+		strings.Replace(syntheticClaudeAuthorizationURL(), "code=true", "code=false", 1),
 	} {
 		if _, _, err := hostBrowserCommand("darwin", target); err == nil {
 			t.Fatalf("unsafe browser target %q was accepted", target)
@@ -647,6 +924,110 @@ func TestClassifyHostDatadogLoginFailuresUsesStableSecretFreeFaults(t *testing.T
 			strings.Contains(public.Message, test.err.Error()) {
 			t.Fatalf("Datadog fault = %+v, ok=%t", public, ok)
 		}
+	}
+}
+
+func TestClassifyHostOpenAIAvailabilityFailuresExposeOnlyFixedDiagnosticStage(t *testing.T) {
+	secretCanary := "synthetic-local-path-and-output-canary"
+	tests := []struct {
+		name  string
+		err   error
+		stage hostCLIUnavailableStage
+	}{
+		{
+			name:  "resolver",
+			err:   hostCLIUnavailableError{provider: "openai", stage: hostCLIStageCodexChatGPTAppBundle},
+			stage: hostCLIStageCodexChatGPTAppBundle,
+		},
+		{
+			name:  "executable identity",
+			err:   fmt.Errorf("%s: %w", secretCanary, credentialhost.ErrCodexExecutable),
+			stage: hostCLIStageCodexExecutableIdentity,
+		},
+		{
+			name:  "version observation",
+			err:   fmt.Errorf("%s: %w", secretCanary, credentialhost.ErrCodexVersion),
+			stage: hostCLIStageCodexVersionObservation,
+		},
+		{
+			name:  "unknown stage",
+			err:   hostCLIUnavailableError{provider: "openai", stage: hostCLIUnavailableStage(secretCanary)},
+			stage: hostCLIStageDriverDependency,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			public, ok := fault.PublicCopy(classifyHostLoginError(test.err, "openai"))
+			if !ok || public.Code != "openai_cli_unavailable" || public.Kind != fault.KindUnavailable || public.Retryable {
+				t.Fatalf("classified fault = %+v, ok=%t", public, ok)
+			}
+			if !strings.Contains(public.Message, string(test.stage)) || strings.Contains(public.Error(), secretCanary) ||
+				strings.Contains(public.Message, credentialhost.ErrCodexExecutable.Error()) ||
+				strings.Contains(public.Message, credentialhost.ErrCodexVersion.Error()) {
+				t.Fatalf("public diagnostic = %+v", public)
+			}
+		})
+	}
+}
+
+func TestClassifyAnthropicAvailabilityFailuresExposeOnlyContextRuntimeStages(t *testing.T) {
+	secretCanary := "synthetic-context-image-and-output-canary"
+	tests := []struct {
+		name  string
+		err   error
+		stage hostCLIUnavailableStage
+	}{
+		{name: "context selection", err: hostCLIUnavailableError{provider: "anthropic", stage: hostCLIStageClaudeContextSelection}, stage: hostCLIStageClaudeContextSelection},
+		{name: "image contract", err: hostCLIUnavailableError{provider: "anthropic", stage: hostCLIStageClaudeImageContract}, stage: hostCLIStageClaudeImageContract},
+		{name: "executable identity", err: fmt.Errorf("%s: %w", secretCanary, credentialhost.ErrClaudeExecutable), stage: hostCLIStageClaudeExecutableIdentity},
+		{name: "version observation", err: fmt.Errorf("%s: %w", secretCanary, credentialhost.ErrClaudeVersion), stage: hostCLIStageClaudeVersionObservation},
+		{name: "unknown stage", err: hostCLIUnavailableError{provider: "anthropic", stage: hostCLIUnavailableStage(secretCanary)}, stage: hostCLIStageDriverDependency},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			public, ok := fault.PublicCopy(classifyHostLoginError(test.err, "anthropic"))
+			if !ok || public.Code != "anthropic_cli_unavailable" || public.Kind != fault.KindUnavailable || public.Retryable {
+				t.Fatalf("classified fault = %+v, ok=%t", public, ok)
+			}
+			if !strings.Contains(public.Message, string(test.stage)) || !strings.Contains(public.Message, "Context runtime") ||
+				strings.Contains(public.Error(), secretCanary) || strings.Contains(public.Message, "trusted-host") ||
+				len(public.NextActions) != 1 || public.NextActions[0].Command != "help runtime" {
+				t.Fatalf("public diagnostic = %+v", public)
+			}
+		})
+	}
+}
+
+func TestClassifyAnthropicRuntimeFailuresUsesDistinctSecretFreeFaults(t *testing.T) {
+	secretCanary := "synthetic-claude-runtime-detail-canary"
+	tests := []struct {
+		err     error
+		code    string
+		command string
+	}{
+		{err: context.DeadlineExceeded, code: "anthropic_login_timeout", command: "auth login"},
+		{err: fmt.Errorf("%s: %w", secretCanary, credentialhost.ErrClaudeLoginSetup), code: "anthropic_login_setup_failed", command: "doctor"},
+		{err: fmt.Errorf("%s: %w", secretCanary, credentialhost.ErrClaudeLoginFailed), code: "anthropic_authorization_failed", command: "auth login"},
+		{err: fmt.Errorf("%s: %w", secretCanary, credentialhost.ErrClaudeOutputLimit), code: "anthropic_login_output_failed", command: "help runtime"},
+		{err: fmt.Errorf("%s: %w", secretCanary, errLoginVisibleOutputLimit), code: "anthropic_login_output_failed", command: "help runtime"},
+		{err: fmt.Errorf("%s: %w", secretCanary, credentialhost.ErrClaudeTokenCapture), code: "anthropic_credential_capture_failed", command: "auth login"},
+		{err: fmt.Errorf("%s: %w", secretCanary, credentialhost.ErrInvalidClaudeNativeCredential), code: "anthropic_credential_capture_failed", command: "auth login"},
+		{err: fmt.Errorf("%s: %w", secretCanary, credentialhost.ErrClaudeLoginCleanup), code: "anthropic_login_cleanup_failed", command: "doctor"},
+		{err: errHostCredentialResult, code: "anthropic_login_failed", command: "auth login"},
+	}
+	for _, test := range tests {
+		public, ok := fault.PublicCopy(classifyHostLoginError(test.err, "anthropic"))
+		if !ok || public.Code != test.code || public.Kind == "" || public.Retryable ||
+			len(public.NextActions) != 1 || public.NextActions[0].Command != test.command ||
+			strings.Contains(public.Error(), secretCanary) {
+			t.Fatalf("classified fault = %+v, ok=%t", public, ok)
+		}
+	}
+
+	joined := errors.Join(context.DeadlineExceeded, credentialhost.ErrClaudeLoginCleanup)
+	public, ok := fault.PublicCopy(classifyHostLoginError(joined, "anthropic"))
+	if !ok || public.Code != "anthropic_login_timeout" {
+		t.Fatalf("joined timeout classification = %+v, ok=%t", public, ok)
 	}
 }
 

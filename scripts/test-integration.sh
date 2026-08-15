@@ -339,6 +339,8 @@ wait_project_broker_policy_denial() {
   local status
   local _
   for _ in $(seq 1 60); do
+    # Expansion is intentionally deferred to the isolated `sh -c` process.
+    # shellcheck disable=SC2016
     status=$(run_project sh -c \
       'curl -sS -o /dev/null -w "%{http_code}" -H "X-Synthetic-Auth: $SYNTHETIC_TOKEN" "$1"' \
       sh "$url" 2>/dev/null || true)

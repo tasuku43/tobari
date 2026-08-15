@@ -6,8 +6,13 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Callable, Mapping, Protocol
 
+from .anthropic_claude_oauth import (
+    ClaudeOAuthState,
+    refresh as refresh_anthropic_oauth,
+)
 from .broker_contract import BrokerError
 from .credential_records import (
+    ANTHROPIC_CLAUDE_OAUTH_CREDENTIAL_KIND,
     DATADOG_OAUTH_CREDENTIAL_KIND,
     OPENAI_CODEX_OAUTH_CREDENTIAL_KIND,
 )
@@ -73,6 +78,9 @@ class ReviewedRenewableSessionDependencies:
     ] | None = None
     openai_refresh: Callable[
         [CodexOAuthState, float], tuple[bytes, CodexOAuthState]
+    ] | None = None
+    anthropic_refresh: Callable[
+        [ClaudeOAuthState, float], tuple[bytes, ClaudeOAuthState]
     ] | None = None
 
 
@@ -206,10 +214,76 @@ class OpenAIRenewableSessionAdapter:
         )
 
 
+class AnthropicRenewableSessionAdapter:
+    provider_id = "anthropic"
+    credential_kind = ANTHROPIC_CLAUDE_OAUTH_CREDENTIAL_KIND
+
+    def __init__(
+        self,
+        refresh: Callable[
+            [ClaudeOAuthState, float], tuple[bytes, ClaudeOAuthState]
+        ]
+        | None = None,
+    ) -> None:
+        self._refresh = refresh or (
+            lambda state, now: refresh_anthropic_oauth(state, now=now)
+        )
+
+    def validate_initial_state(
+        self, state: bytes, *, driver_revision: str, account_label: str
+    ) -> None:
+        if account_label != "claude-user-native":
+            raise BrokerError("invalid_account_label")
+        ClaudeOAuthState.parse(state, driver_revision=driver_revision)
+
+    def current_secret(
+        self,
+        state: bytes,
+        *,
+        driver_revision: str,
+        account_label: str,
+        now: float,
+    ) -> ResolvedRenewableSecret | None:
+        self.validate_initial_state(
+            state, driver_revision=driver_revision, account_label=account_label
+        )
+        secret = ClaudeOAuthState.parse(
+            state, driver_revision=driver_revision
+        ).access_token(now)
+        return None if secret is None else ResolvedRenewableSecret(secret=secret)
+
+    def refresh(
+        self,
+        state: bytes,
+        *,
+        driver_revision: str,
+        account_label: str,
+        now: float,
+    ) -> RefreshedRenewableSession:
+        self.validate_initial_state(
+            state, driver_revision=driver_revision, account_label=account_label
+        )
+        secret, refreshed = self._refresh(
+            ClaudeOAuthState.parse(state, driver_revision=driver_revision), now
+        )
+        encoded = refreshed.encode()
+        if (
+            ClaudeOAuthState.parse(
+                encoded, driver_revision=driver_revision
+            ).access_token(now)
+            != secret
+        ):
+            raise BrokerError("anthropic_oauth_refresh_failed")
+        return RefreshedRenewableSession(
+            encoded, ResolvedRenewableSecret(secret=secret)
+        )
+
+
 RENEWABLE_CREDENTIAL_KINDS = frozenset(
     {
         DATADOG_OAUTH_CREDENTIAL_KIND,
         OPENAI_CODEX_OAUTH_CREDENTIAL_KIND,
+        ANTHROPIC_CLAUDE_OAUTH_CREDENTIAL_KIND,
     }
 )
 
@@ -221,6 +295,7 @@ def reviewed_renewable_session_adapters(
 
     dependencies = dependencies or ReviewedRenewableSessionDependencies()
     adapters: tuple[RenewableSessionAdapter, ...] = (
+        AnthropicRenewableSessionAdapter(dependencies.anthropic_refresh),
         DatadogRenewableSessionAdapter(dependencies.datadog_refresh),
         OpenAIRenewableSessionAdapter(dependencies.openai_refresh),
     )

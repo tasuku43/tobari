@@ -38,18 +38,20 @@ direct egress fails, and an OPA outage fails closed.
 The core product loop is progressive policy learning: work freely in Tobari,
 observe a denied boundary effect as secret-free evidence, receive a fixed
 host-side review cue, keep the current Workspace and agent session running,
-review the pending exact permission from a separate trusted-host terminal,
+review the pending permission from a separate trusted-host terminal,
 approve the minimum rule, and retry in that same session. The normal path does
 not require writing OPA or Rego by hand:
-interactive `policy review` presents a Permission Inbox, stages explicit exact
-Allow or Deny choices from candidate detail, and applies the reviewed set once;
+interactive `policy review` presents a Permission Inbox, keeps one distinct
+HTTP path exact, proposes a single-segment `{id}` template after a second
+compatible distinct path, stages an explicit template-Allow, observed-exact
+Allow, or pending-exact Deny from detail, and applies the reviewed set once;
 its non-interactive and machine-readable path remains read-only. Staging grants
 no authority. Final Apply revalidates every unchanged opaque candidate, tests
 one complete all-Context candidate, and hot-activates one revision without
 restarting active Tobari or the shared OPA. Single-reference `policy allow` and
 `policy deny` remain available to machines and recovery workflows.
 Successful Apply reports the authoritative active revision and the ordered
-exact decision receipts; it never asks the caller to re-enter the Workspace.
+stored-rule receipts; it never asks the caller to re-enter the Workspace.
 A separate `policy rules` view makes the complete current learned Allow and
 exact Deny decisions visible, and its TTY flow can explicitly reset one
 decision to default deny. Reset never grants or retries; it makes the retained
@@ -236,7 +238,9 @@ provider binding matches.
   network. Workspaces and
   OPA cannot address its runtime socket; only Gateway mounts that socket.
   Gateway alone owns ordinary upstream egress after policy allow. Provider
-  acquisition runs through fixed trusted-host drivers, while auth control and
+  acquisition runs through fixed trusted-host drivers except that Anthropic
+  uses one fresh mount-free container from the explicitly selected compatible
+  Context image as a provider-only acquisition authority. Auth control and
   the encrypted companion use bounded fixed operations and never expose a
   public broker or host TCP API.
 - The broker starts locked and retains the installation root key only in
@@ -249,9 +253,13 @@ provider binding matches.
   projection share that version while reviewed built-ins use typed closed
   plans within it. Owner manifests still contain no secrets, executable shell,
   refresh logic, or signer and remain single-secret protected-stdin imports.
-- Provider-native executables do not enter the Auth Broker image. Every
-  reviewed acquisition driver executes fixed argv against a verified host CLI
-  identity in a private temporary home with a sanitized environment. Browser
+- Provider-native executables do not enter the Auth Broker image. Reviewed
+  host acquisition drivers execute fixed argv against verified host CLI
+  identities in private temporary homes with sanitized environments. The
+  Anthropic driver instead executes exact Claude Code in a fresh selected-
+  Context-image container with no mounts, project state, persistent home,
+  Broker socket, or Docker socket; that image sees only its own provider login.
+  Browser
   targets, callback behavior, output framing, cleanup, versions where the
   client contract is pinned, and cancellation are closed per provider.
   GitHub, AWS, Datadog, OpenAI/Codex, Anthropic/Claude, and Chatwork are the
@@ -540,25 +548,26 @@ administration project.
 ### Consequences
 
 - Every HTTP denial emits bounded structured audit metadata including host, port,
-  method, path, decision, reason, and whether an exact learned rule can resolve
+  method, path, decision, reason, and whether a reviewed learned rule can resolve
   the denial without weakening orthogonal invariants.
 - A learnable denial returns a fixed, secret-free host-side review command to
   the agent; a completed session also summarizes the pending queue on host
   stderr. Neither notification can mutate policy or trigger a retry.
 - Interactive `policy review` is the installation-wide human Permission Inbox
   over retained queues from every Context. Selection and detail inspection may
-  stage several explicit Allow-exact or Deny-exact choices, but staging grants
+  stage several explicit exact or single-segment-template choices, but staging grants
   no authority and cancellation discards the whole staged set. A choice is
   accepted only from its exact detail screen. One final Apply confirmation
   binds the complete typed snapshot and applies the staged set as one
   command-owned installation policy decision-set mutation. Every opaque
-  candidate ID is retained unchanged and revalidated against fresh evidence.
-  A manual refresh reconciles staged choices only by candidate ID: retained
+  exact candidate or path-template proposal ID is retained unchanged and
+  revalidated against fresh evidence. A manual refresh reconciles staged
+  choices only by typed review-item ID: retained
   IDs keep their decision and order, stale IDs lose Apply eligibility, and a
   matching display label never transfers authority to a replacement ID.
   Its list groups by validated stable Context/project identity, presents that
-  scope once per group, and leads each selectable row with the exact HTTP
-  effect plus bounded observation evidence. Display labels, adjacency, and
+  scope once per group, and leads each selectable row with the exact effect or
+  typed template plus bounded observation evidence. Display labels, adjacency, and
   indentation never create policy identity.
   Redirected and
   machine-readable `policy review` remains read-only. `policy candidates`
@@ -579,8 +588,11 @@ administration project.
   reset removes one current learned rule and leaves the same request at
   default deny. All three activate through the same portable OPA boundary, and
   an exact deny wins over a learned allow for the same request.
-- Learned authority remains exact. Observation count, path similarity, or
-  repeated approvals never produce a prefix, wildcard, or compaction proposal.
+- Learned authority is exact unless the human explicitly approves a typed
+  single-segment `{id}` template after two distinct compatible HTTP paths.
+  Repeated observations of one path remain one example. Templates preserve
+  every other request dimension and literal segment; prefix, wildcard, regex,
+  multi-segment, GraphQL, and ambiguous proposals remain invalid.
 - OPA watches one revisioned complete bundle mounted read-only from an exact
   owner-labeled Docker-managed volume. Exact allow, deny, reset,
   and reviewed-set actions test a private complete policy copy, atomically
@@ -597,7 +609,7 @@ administration project.
   reset remains an explicit trusted-host mutation. Machine
   actions stay opaque-reference-bound; interactive reviewed-set Apply is one
   fixed-target mutation whose typed contents are unchanged opaque references
-  selected from exact detail screens. Every candidate must pass `opa test`;
+  selected from typed detail screens. Every candidate must pass `opa test`;
   finite examples and canaries detect declared
   regressions but do not prove safety for every unknown future request.
 

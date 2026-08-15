@@ -74,7 +74,7 @@ The optional Broker stores one closed typed credential record in an AES-256-GCM
 Context vault and projects only a random handle bound to Context, project,
 provider, revision, and exact HTTPS header/signing plan. Gateway removes and
 introspects a recognized handle before OPA, then performs one same-revision
-static resolution, Datadog/OpenAI token action, or bounded AWS SigV4 action
+static resolution, Datadog/OpenAI/Anthropic token action, or bounded AWS SigV4 action
 only after allow. Malformed, copied, stale, revoked, ambiguous, or mismatched
 handles fail without passthrough fallback. Secrets, raw handles,
 credential revisions, query, headers, and bodies do not enter OPA, audit,
@@ -82,7 +82,7 @@ denial evidence, CLI output, or logs.
 
 Managed profiles remain absent. Dynamic credentials, refresh, signing,
 supplemental headers, companion calls, and task barriers exist only inside the
-closed reviewed AWS, Datadog, and OpenAI plans. Owner manifests cannot select
+closed reviewed AWS, Datadog, OpenAI, and Anthropic plans. Owner manifests cannot select
 or extend them. No authentication path grants a policy bypass.
 
 Residual risk: a Workspace can copy its own handle or Workspace-owned secret as
@@ -92,10 +92,13 @@ allowed effects is outside the guarantee.
 ### Provider helper execution
 
 The reviewed helper set is GitHub CLI, AWS CLI, pup, a contract-checked stable
-Codex CLI, and Claude Code 2.1.220. Tobari resolves canonical non-project executables, rejects unsafe
+Codex CLI, and Claude Code 2.1.220. Tobari resolves canonical non-project executables for
+the first four and exact `/usr/local/bin/claude` from the selected Context image, rejects unsafe
 identity, hashes before and after, runs only fixed argv under private state or
-PTY boundaries, accepts only bounded browser/output contracts, and performs
-checked cleanup. Codex product version is recorded rather than allowlisted;
+isolated container boundaries, accepts only bounded browser/output contracts, and performs
+checked cleanup. The Claude container receives no mount, volume, project path,
+Docker socket, or Broker socket, and its removal is a commit precondition.
+Codex product version is recorded rather than allowlisted;
 its exact compiled login/state contract determines acceptance. Owner manifests
 cannot select a helper.
 

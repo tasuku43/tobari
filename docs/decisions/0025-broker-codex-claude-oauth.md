@@ -9,7 +9,10 @@
 - Revised by: ADR 0027 places both plans and component APIs inside exact V1 and
   withholds official image authority until reviewed V1 indexes exist; ADR 0032
   replaces the trusted-host exact product-version gate with the compiled
-  host-login contract while retaining the pinned Workspace projection
+  host-login contract while retaining the pinned Workspace projection; ADR
+  0036 replaces explicit device authentication with Codex's native trusted-host
+  browser login while retaining the same captured-state contract; ADR 0038
+  replaces the Claude setup-token plan with isolated Context-runtime native login
 
 ## Context
 

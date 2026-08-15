@@ -11,6 +11,7 @@ PRIMARY_SECRET_FIELD = "primary_secret"
 AWS_SSO_CREDENTIAL_KIND = "aws_sso_session"
 DATADOG_OAUTH_CREDENTIAL_KIND = "datadog_oauth_session"
 OPENAI_CODEX_OAUTH_CREDENTIAL_KIND = "openai_codex_oauth_session"
+ANTHROPIC_CLAUDE_OAUTH_CREDENTIAL_KIND = "anthropic_claude_oauth_session"
 OPENAI_ACCOUNT_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 
 
@@ -47,7 +48,8 @@ class _BaseProfile:
 
 class AnthropicClaudeProfile(_BaseProfile):
     provider_id = "anthropic"
-    credential_kind = PRIMARY_SECRET_FIELD
+    credential_kind = ANTHROPIC_CLAUDE_OAUTH_CREDENTIAL_KIND
+    renewable = True
 
     def matches_projection(
         self,
@@ -63,17 +65,24 @@ class AnthropicClaudeProfile(_BaseProfile):
         return (
             display_name == "Anthropic account for Claude Code"
             and mode == "builtin_helper"
-            and helper == "claude-setup-token"
+            and helper == "claude-native-oauth"
             and not signing_bindings
-            and environment
+            and not environment
+            and complete_files
             == [
                 {
                     "provider_id": "anthropic",
-                    "name": "CLAUDE_CODE_OAUTH_TOKEN",
-                    "template": "${HANDLE}",
+                    "path": ".claude/.credentials.json",
+                    "template": (
+                        '{"claudeAiOauth":{"accessToken":"${HANDLE}","refreshToken":"",'
+                        '"expiresAt":4102444800000,"refreshTokenExpiresAt":null,'
+                        '"scopes":["org:create_api_key","user:profile","user:inference",'
+                        '"user:sessions:claude_code","user:mcp_servers","user:file_upload"],'
+                        '"subscriptionType":null,"rateLimitTier":null,'
+                        '"clientId":"9d1c250a-e61b-44d9-88ed-5944d1962f5e"}}'
+                    ),
                 }
             ]
-            and not complete_files
             and normalized
             == [
                 {
@@ -87,7 +96,7 @@ class AnthropicClaudeProfile(_BaseProfile):
                     "destination": {
                         "header": "authorization",
                         "format": "bearer",
-                        "secret_field": PRIMARY_SECRET_FIELD,
+                        "secret_field": ANTHROPIC_CLAUDE_OAUTH_CREDENTIAL_KIND,
                     },
                     "secret_headers": ["authorization"],
                 }
@@ -245,6 +254,7 @@ class OpenAICodexOAuthProfile(_BaseProfile):
 
 def _build_profiles() -> Mapping[str, ReviewedGatewayCredentialProfile]:
     profiles: tuple[ReviewedGatewayCredentialProfile, ...] = (
+        AnthropicClaudeProfile(),
         AWSSigV4Profile(),
         DatadogOAuthProfile(),
         OpenAICodexOAuthProfile(),
@@ -256,10 +266,9 @@ def _build_profiles() -> Mapping[str, ReviewedGatewayCredentialProfile]:
 
 
 _DYNAMIC_PROFILES = _build_profiles()
-_ANTHROPIC_PROFILE = AnthropicClaudeProfile()
 REVIEWED_DYNAMIC_CREDENTIAL_KINDS = frozenset(_DYNAMIC_PROFILES)
 REVIEWED_HEADER_SECRET_FIELDS = frozenset(
-    {DATADOG_OAUTH_CREDENTIAL_KIND, OPENAI_CODEX_OAUTH_CREDENTIAL_KIND}
+    {ANTHROPIC_CLAUDE_OAUTH_CREDENTIAL_KIND, DATADOG_OAUTH_CREDENTIAL_KIND, OPENAI_CODEX_OAUTH_CREDENTIAL_KIND}
 )
 RENEWABLE_PROVIDER_IDS = frozenset(
     profile.provider_id for profile in _DYNAMIC_PROFILES.values() if profile.renewable
@@ -275,8 +284,6 @@ def reviewed_gateway_credential_profiles() -> Mapping[
 def reviewed_projection_profile(
     provider_id: Any, credential_kind: Any, helper: Any
 ) -> ReviewedGatewayCredentialProfile | None:
-    if provider_id == _ANTHROPIC_PROFILE.provider_id or helper == "claude-setup-token":
-        return _ANTHROPIC_PROFILE
     return _DYNAMIC_PROFILES.get(credential_kind)
 
 

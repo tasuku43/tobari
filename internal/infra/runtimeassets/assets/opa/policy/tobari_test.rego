@@ -538,6 +538,48 @@ test_exact_learned_rule_does_not_allow_child_path if {
 	not result.allow
 }
 
+learned_path_template_fixture := object.union(learned_exact_fixture, {
+	"id": "plr_1123456789abcdef0123456789abcdef",
+	"match": "path_template",
+	"path": "/items/{id}",
+	"segments": ["items", "{id}"],
+	"examples": ["/items/123", "/items/456"],
+	"source_candidates": ["pcy_0123456789abcdef0123456789abcdef", "pcy_1123456789abcdef0123456789abcdef"],
+})
+
+test_path_template_learned_rule_allows_unseen_single_segment if {
+	request := object.union(request_with_path({"raw": "/items/789", "segments": ["items", "789"]}), {"method": learned_path_template_fixture.method})
+	result := decision with input as input_with_request(request)
+		with data.tobari.rules.learned_allows as [learned_path_template_fixture]
+	result.allow
+}
+
+test_path_template_learned_rule_boundary_canaries_fail_closed if {
+	every path in {"/items", "/items/", "/items/789/child", "/other/789", "/items/a%2Fb", "/items/a%5Cb", "/items/.."} {
+		request := object.union(request_with_path({"raw": path, "segments": []}), {"method": learned_path_template_fixture.method})
+		result := decision with input as input_with_request(request)
+			with data.tobari.rules.learned_allows as [learned_path_template_fixture]
+		not result.allow
+	}
+}
+
+test_path_template_learned_rule_does_not_cross_method if {
+	request := object.union(request_with_path({"raw": "/items/789", "segments": ["items", "789"]}), {"method": "POST"})
+	result := decision with input as input_with_request(request)
+		with data.tobari.rules.learned_allows as [learned_path_template_fixture]
+	not result.allow
+}
+
+test_path_template_rule_requires_two_examples_and_one_placeholder if {
+	insufficient := object.union(learned_path_template_fixture, {"examples": ["/items/123"], "source_candidates": ["pcy_0123456789abcdef0123456789abcdef"]})
+	multiple := object.union(learned_path_template_fixture, {"path": "/{id}/{id}", "segments": ["{id}", "{id}"]})
+	request := object.union(request_with_path({"raw": "/items/789", "segments": ["items", "789"]}), {"method": learned_path_template_fixture.method})
+	insufficient_result := decision with input as input_with_request(request) with data.tobari.rules.learned_allows as [insufficient]
+	multiple_result := decision with input as input_with_request(request) with data.tobari.rules.learned_allows as [multiple]
+	not insufficient_result.allow
+	not multiple_result.allow
+}
+
 test_learned_rule_does_not_cross_port if {
 	request := object.union(
 		request_with_path({"raw": learned_exact_fixture.path, "segments": ["graphql"]}),

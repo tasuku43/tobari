@@ -52,8 +52,8 @@ export const providerToolPairs: ProviderToolPair[] = [
     toolCommand: "codex",
     toolName: { en: "Codex CLI", ja: "Codex CLI" },
     acquisition: {
-      en: "Contract-checked Codex device-auth flow",
-      ja: "契約検証付き Codex device-auth フロー",
+      en: "Contract-checked native browser/loopback flow",
+      ja: "契約検証付き通常ブラウザー／loopback フロー",
     },
     mode: "login",
   },
@@ -63,8 +63,8 @@ export const providerToolPairs: ProviderToolPair[] = [
     toolCommand: "claude",
     toolName: { en: "Claude Code", ja: "Claude Code" },
     acquisition: {
-      en: "Reviewed Claude Code 2.1.220 setup-token flow",
-      ja: "レビュー済みの Claude Code 2.1.220 setup-token フロー",
+      en: "Isolated selected-runtime native Claude Code 2.1.220 login",
+      ja: "選択ランタイムで隔離する Claude Code 2.1.220 通常ログイン",
     },
     mode: "login",
   },

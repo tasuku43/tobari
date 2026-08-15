@@ -35,7 +35,7 @@ func (osHostBrowserOpener) Open(ctx context.Context, target string) error {
 	if err != nil {
 		return err
 	}
-	command := exec.CommandContext(ctx, executable, args...) // #nosec G204 -- executable is fixed and URL passes the closed GitHub/AWS login allowlist below.
+	command := exec.CommandContext(ctx, executable, args...) // #nosec G204 -- executable is fixed and URL passes the closed GitHub/AWS/Claude login allowlist below.
 	command.Stdin = nil
 	command.Stdout = io.Discard
 	command.Stderr = io.Discard
@@ -58,7 +58,7 @@ func hostBrowserCommand(goos, target string) (string, []string, error) {
 
 func validLoginBrowserTarget(target string) bool {
 	return target == githubDeviceURL || awsSSODeviceURLPattern.MatchString(target) ||
-		validAWSConsoleAuthorizationURL(target, "")
+		validAWSConsoleAuthorizationURL(target, "") || validClaudeLoginAuthorizationURL(target)
 }
 
 func validAWSConsoleAuthorizationURL(target, expectedRegion string) bool {

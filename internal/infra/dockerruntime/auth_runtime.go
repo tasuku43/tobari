@@ -6,11 +6,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
 	"time"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/tasuku43/tobari/internal/domain/authbroker"
 	"github.com/tasuku43/tobari/internal/domain/fault"
@@ -21,24 +24,50 @@ import (
 const (
 	githubEphemeralPlaintextWarning = "! Authentication credentials saved in plain text"
 	githubManualBrowserFallback     = "The host browser did not open; visit " + githubDeviceURL + " manually to continue.\n"
+	loginBrowserOpenedFeedback      = "↗ Opened in your default browser.\n"
 	awsBrowserLinePrefix            = "Open "
 	maxLoginVisibleLine             = 64 * 1024
 	maxLoginVisibleBytes            = 64 * 1024
 	hostBrowserOpenTimeout          = 5 * time.Second
+	loginSGRReset                   = "\x1b[0m"
+	loginSGRUpstreamMuted           = "\x1b[90m"
+	loginSGRUpstreamAccent          = "\x1b[94m"
+	loginStyleMuted                 = "\x1b[38;5;250m"
+	loginStyleAccent                = "\x1b[1;38;5;45m"
+	loginStyleSuccess               = "\x1b[38;5;42m"
+	claudeLoginOpening              = "Opening browser to sign in…"
+	claudeLoginPastePrompt          = "Paste code here if prompted > "
+	claudeLoginBrowserOpened        = "↗ Opened in your default browser."
+	claudeLoginTTYLineEnding        = "\r\n"
+	claudeLoginOpeningFeedback      = "Opening Claude sign-in…" + claudeLoginTTYLineEnding
+	claudeLoginOpenedFeedback       = "✓ Opened in your default browser." + claudeLoginTTYLineEnding
+	claudeLoginPromptFeedback       = claudeLoginTTYLineEnding + "If Claude shows a code, paste it here:" + claudeLoginTTYLineEnding + "> "
+	claudeLoginURLPrefix            = "https://claude.com/cai/oauth/authorize?"
+	claudeLoginClientID             = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
+	claudeLoginRedirectURI          = "https://platform.claude.com/oauth/code/callback"
+	claudeLoginScopes               = "org:create_api_key user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload"
+	claudeHyperlinkPrefix           = "If the browser didn't open, visit: \x1b]8;;"
+	claudeHyperlinkClose            = "\x1b]8;;\a"
 )
 
 var errLoginVisibleOutputLimit = errors.New("host login visible output exceeded its limit")
 
+var claudeOAuthOpaquePattern = regexp.MustCompile(`^[A-Za-z0-9_-]{43}$`)
+
 type loginVisibleOutput struct {
-	mu            sync.Mutex
-	destination   io.Writer
-	openBrowser   func(string) error
-	consoleRegion string
-	pending       []byte
-	opened        bool
-	written       int
-	visible       int
-	failure       error
+	mu                     sync.Mutex
+	destination            io.Writer
+	openBrowser            func(string) error
+	provider               string
+	consoleRegion          string
+	pending                []byte
+	opened                 bool
+	claudePrompted         bool
+	claudePromptLineClosed bool
+	color                  bool
+	written                int
+	visible                int
+	failure                error
 }
 
 func (w *loginVisibleOutput) Write(data []byte) (int, error) {
@@ -81,6 +110,11 @@ func (w *loginVisibleOutput) write(data []byte) (int, error) {
 			if err := w.flushPending(); err != nil {
 				return index + 1, err
 			}
+		} else if w.provider == authbroker.BuiltinAnthropicProviderID && claudePastePromptPending(w.pending) {
+			w.pending = nil
+			if err := w.writeClaudePastePrompt(); err != nil {
+				return index + 1, err
+			}
 		}
 	}
 	return len(data), nil
@@ -111,12 +145,25 @@ func (w *loginVisibleOutput) flushPending() error {
 	}
 	line = bytes.TrimSuffix(line, []byte{'\r'})
 	normalized := string(line)
+	if w.provider == authbroker.BuiltinAnthropicProviderID {
+		handled, err := w.flushClaudeLoginLine(normalized)
+		if handled || err != nil {
+			return err
+		}
+	}
+	if projected, ok := projectClaudeLoginHyperlink(normalized); ok {
+		normalized = projected
+	}
 	if normalized == githubEphemeralPlaintextWarning {
 		return nil
 	}
-	visible := projectLoginVisibleText(normalized)
+	visible := projectLoginVisibleText(normalized, w.color)
 	if hasNewline {
-		visible += "\n"
+		if w.provider == authbroker.BuiltinAnthropicProviderID {
+			visible += claudeLoginTTYLineEnding
+		} else {
+			visible += "\n"
+		}
 	}
 	if err := w.writeVisible(visible); err != nil {
 		return err
@@ -127,8 +174,66 @@ func (w *loginVisibleOutput) flushPending() error {
 		if err := w.openBrowser(target); err != nil {
 			return w.writeVisible(manualBrowserFallback(target))
 		}
+		return w.writeVisible(loginBrowserOpenedText(w.color))
 	}
 	return nil
+}
+
+func (w *loginVisibleOutput) flushClaudeLoginLine(line string) (bool, error) {
+	semantic := line
+	if index := strings.LastIndexByte(semantic, '\r'); index >= 0 {
+		semantic = semantic[index+1:]
+	}
+	trimmed := strings.Trim(semantic, " ")
+	if w.claudePrompted && !w.claudePromptLineClosed && trimmed != strings.TrimSpace(claudeLoginPastePrompt) {
+		w.claudePromptLineClosed = true
+		if err := w.writeVisible(claudeLoginTTYLineEnding); err != nil {
+			return true, err
+		}
+	}
+	switch trimmed {
+	case "":
+		return true, nil
+	case claudeLoginOpening:
+		return true, w.writeVisible(claudeLoginOpeningFeedback)
+	case strings.TrimSpace(claudeLoginPastePrompt):
+		return true, w.writeClaudePastePrompt()
+	case claudeLoginBrowserOpened:
+		// The reviewed browser result is Tobari's exact opener result below, not
+		// the container's cursor-oriented claim about its own environment.
+		return true, nil
+	}
+	projected, ok := projectClaudeLoginHyperlink(strings.TrimLeft(semantic, " "))
+	if !ok {
+		return false, nil
+	}
+	target := strings.TrimPrefix(projected, "If the browser didn't open, visit: ")
+	if w.opened {
+		return true, nil
+	}
+	w.opened = true
+	if w.openBrowser == nil {
+		return true, w.writeVisible(claudeManualBrowserFallback(target))
+	}
+	if err := w.openBrowser(target); err != nil {
+		return true, w.writeVisible(claudeManualBrowserFallback(target))
+	}
+	return true, w.writeVisible(claudeLoginOpenedText(w.color))
+}
+
+func (w *loginVisibleOutput) writeClaudePastePrompt() error {
+	if w.claudePrompted {
+		return nil
+	}
+	w.claudePrompted = true
+	return w.writeVisible(claudeLoginPromptFeedback)
+}
+
+func claudePastePromptPending(pending []byte) bool {
+	for len(pending) > 0 && (pending[0] == ' ' || pending[0] == '\r') {
+		pending = pending[1:]
+	}
+	return bytes.Equal(pending, []byte(claudeLoginPastePrompt))
 }
 
 func (w *loginVisibleOutput) writeVisible(value string) error {
@@ -146,9 +251,35 @@ func (w *loginVisibleOutput) writeVisible(value string) error {
 	return nil
 }
 
-func projectLoginVisibleText(value string) string {
+func projectLoginVisibleText(value string, color bool) string {
 	var output strings.Builder
-	for _, character := range value {
+	styled := false
+	for len(value) > 0 {
+		switch {
+		case strings.HasPrefix(value, loginSGRReset):
+			if color && styled {
+				output.WriteString(loginSGRReset)
+			}
+			styled = false
+			value = value[len(loginSGRReset):]
+			continue
+		case strings.HasPrefix(value, loginSGRUpstreamMuted):
+			if color {
+				output.WriteString(loginStyleMuted)
+				styled = true
+			}
+			value = value[len(loginSGRUpstreamMuted):]
+			continue
+		case strings.HasPrefix(value, loginSGRUpstreamAccent):
+			if color {
+				output.WriteString(loginStyleAccent)
+				styled = true
+			}
+			value = value[len(loginSGRUpstreamAccent):]
+			continue
+		}
+		character, size := utf8.DecodeRuneInString(value)
+		value = value[size:]
 		switch {
 		case character == '\\':
 			output.WriteString(`\\`)
@@ -162,10 +293,14 @@ func projectLoginVisibleText(value string) string {
 			output.WriteRune(character)
 		}
 	}
+	if color && styled {
+		output.WriteString(loginSGRReset)
+	}
 	return output.String()
 }
 
 func loginBrowserTarget(line, consoleRegion string) (string, bool) {
+	line = stripApprovedLoginSGR(line)
 	if strings.Contains(line, githubDeviceURL) {
 		return githubDeviceURL, true
 	}
@@ -175,6 +310,12 @@ func loginBrowserTarget(line, consoleRegion string) (string, bool) {
 	if consoleRegion != "" && validAWSConsoleAuthorizationURL(line, consoleRegion) {
 		return line, true
 	}
+	if index := strings.Index(line, claudeLoginURLPrefix); index >= 0 {
+		target := strings.TrimSpace(line[index:])
+		if validClaudeLoginAuthorizationURL(target) {
+			return target, true
+		}
+	}
 	if !strings.HasPrefix(line, awsBrowserLinePrefix) {
 		return "", false
 	}
@@ -183,6 +324,79 @@ func loginBrowserTarget(line, consoleRegion string) (string, bool) {
 		return "", false
 	}
 	return target, true
+}
+
+func projectClaudeLoginHyperlink(line string) (string, bool) {
+	if !strings.HasPrefix(line, claudeHyperlinkPrefix) || !strings.HasSuffix(line, claudeHyperlinkClose) {
+		return "", false
+	}
+	rest := strings.TrimPrefix(line, claudeHyperlinkPrefix)
+	openEnd := strings.IndexByte(rest, '\a')
+	if openEnd <= 0 {
+		return "", false
+	}
+	target := rest[:openEnd]
+	labelAndClose := rest[openEnd+1:]
+	label := strings.TrimSuffix(labelAndClose, claudeHyperlinkClose)
+	if target != label || !validClaudeLoginAuthorizationURL(target) {
+		return "", false
+	}
+	return "If the browser didn't open, visit: " + target, true
+}
+
+func validClaudeLoginAuthorizationURL(target string) bool {
+	parsed, err := url.Parse(target)
+	if err != nil || parsed.Scheme != "https" || parsed.Host != "claude.com" || parsed.User != nil ||
+		parsed.Path != "/cai/oauth/authorize" || parsed.RawPath != "" || parsed.ForceQuery ||
+		parsed.Fragment != "" || parsed.RawFragment != "" {
+		return false
+	}
+	query, err := url.ParseQuery(parsed.RawQuery)
+	if err != nil || len(query) != 8 {
+		return false
+	}
+	want := map[string]string{
+		"code": "true", "client_id": claudeLoginClientID, "response_type": "code",
+		"redirect_uri": claudeLoginRedirectURI, "scope": claudeLoginScopes,
+		"code_challenge_method": "S256",
+	}
+	for key, value := range want {
+		if len(query[key]) != 1 || query.Get(key) != value {
+			return false
+		}
+	}
+	for _, key := range []string{"code_challenge", "state"} {
+		if len(query[key]) != 1 || !claudeOAuthOpaquePattern.MatchString(query.Get(key)) {
+			return false
+		}
+	}
+	return true
+}
+
+func stripApprovedLoginSGR(value string) string {
+	return strings.NewReplacer(
+		loginSGRReset, "",
+		loginSGRUpstreamMuted, "",
+		loginSGRUpstreamAccent, "",
+	).Replace(value)
+}
+
+func loginBrowserOpenedText(color bool) string {
+	if !color {
+		return loginBrowserOpenedFeedback
+	}
+	return loginStyleSuccess + loginBrowserOpenedFeedback + loginSGRReset
+}
+
+func claudeLoginOpenedText(color bool) string {
+	if !color {
+		return claudeLoginOpenedFeedback
+	}
+	return loginStyleSuccess + claudeLoginOpenedFeedback + loginSGRReset
+}
+
+func claudeManualBrowserFallback(target string) string {
+	return "! Browser did not open." + claudeLoginTTYLineEnding + "Visit: " + target + claudeLoginTTYLineEnding
 }
 
 func manualBrowserFallback(target string) string {
@@ -263,11 +477,15 @@ func classifyHostLoginError(err error, provider string, methods ...string) error
 		} else if provider == "openai" {
 			name = "Codex"
 		} else if provider == "anthropic" {
-			name = "Claude Code"
+			return fault.New(
+				fault.KindUnavailable, code,
+				"The selected Context runtime cannot provide the reviewed Claude Code login contract at diagnostic stage "+string(normalizeHostCLIUnavailableStage(unavailable.stage))+"; the previous Context credential remains unchanged.", false,
+				fault.NextAction{Command: "help runtime", Reason: "Install Claude Code 2.1.220 in the selected Context runtime, build it, and retry login."},
+			)
 		}
 		return fault.New(
 			fault.KindUnavailable, code,
-			"The trusted-host "+name+" CLI is unavailable; the previous Context credential remains unchanged.", false,
+			"The trusted-host "+name+" CLI is unavailable at diagnostic stage "+string(normalizeHostCLIUnavailableStage(unavailable.stage))+"; the previous Context credential remains unchanged.", false,
 			fault.NextAction{Command: "auth login", Reason: "Install the reviewed host CLI and retry this login."},
 		)
 	}
@@ -280,7 +498,7 @@ func classifyHostLoginError(err error, provider string, methods ...string) error
 			)
 		}
 		if errors.Is(err, credentialhost.ErrGitHubExecutable) {
-			return classifyHostLoginError(hostCLIUnavailableError{provider: provider}, provider, method)
+			return classifyHostLoginError(hostCLIUnavailableError{provider: provider, stage: hostCLIStageExecutableIdentity}, provider, method)
 		}
 		if hostLoginFailureIsCredentialDriver(err) {
 			return fault.New(
@@ -307,7 +525,7 @@ func classifyHostLoginError(err error, provider string, methods ...string) error
 			)
 		}
 		if errors.Is(err, credentialhost.ErrInvalidExecutable) {
-			return classifyHostLoginError(hostCLIUnavailableError{provider: provider}, provider, method)
+			return classifyHostLoginError(hostCLIUnavailableError{provider: provider, stage: hostCLIStageExecutableIdentity}, provider, method)
 		}
 		if hostLoginFailureIsCredentialDriver(err) {
 			return fault.New(
@@ -333,8 +551,11 @@ func classifyHostLoginError(err error, provider string, methods ...string) error
 				fault.NextAction{Command: "auth login", Reason: "Retry the trusted-host OpenAI login when ready."},
 			)
 		}
-		if errors.Is(err, credentialhost.ErrCodexExecutable) || errors.Is(err, credentialhost.ErrCodexVersion) {
-			return classifyHostLoginError(hostCLIUnavailableError{provider: provider}, provider, method)
+		if errors.Is(err, credentialhost.ErrCodexExecutable) {
+			return classifyHostLoginError(hostCLIUnavailableError{provider: provider, stage: hostCLIStageCodexExecutableIdentity}, provider, method)
+		}
+		if errors.Is(err, credentialhost.ErrCodexVersion) {
+			return classifyHostLoginError(hostCLIUnavailableError{provider: provider, stage: hostCLIStageCodexVersionObservation}, provider, method)
 		}
 		if hostLoginFailureIsCredentialDriver(err) {
 			return fault.New(
@@ -349,25 +570,64 @@ func classifyHostLoginError(err error, provider string, methods ...string) error
 		if hostLoginTimedOut(err) {
 			return fault.New(
 				fault.KindRejected, "anthropic_login_timeout",
-				"The bounded Claude setup-token login timed out; the previous Context credential remains unchanged.", false,
+				"The bounded native Claude account login timed out; the previous Context credential remains unchanged.", false,
 				fault.NextAction{Command: "auth login", Reason: "Start a new Anthropic login and complete browser authorization within the bounded window."},
 			)
 		}
 		if hostLoginCancelled(err) {
 			return fault.New(
 				fault.KindRejected, "anthropic_login_cancelled",
-				"Claude setup-token login was cancelled; the previous Context credential remains unchanged.", false,
-				fault.NextAction{Command: "auth login", Reason: "Retry the trusted-host Anthropic login when ready."},
+				"Native Claude account login was cancelled; the previous Context credential remains unchanged.", false,
+				fault.NextAction{Command: "auth login", Reason: "Retry the isolated Context-runtime Anthropic login when ready."},
 			)
 		}
-		if errors.Is(err, credentialhost.ErrClaudeExecutable) || errors.Is(err, credentialhost.ErrClaudeVersion) {
-			return classifyHostLoginError(hostCLIUnavailableError{provider: provider}, provider, method)
+		if errors.Is(err, credentialhost.ErrClaudeExecutable) {
+			return classifyHostLoginError(hostCLIUnavailableError{provider: provider, stage: hostCLIStageClaudeExecutableIdentity}, provider, method)
+		}
+		if errors.Is(err, credentialhost.ErrClaudeVersion) {
+			return classifyHostLoginError(hostCLIUnavailableError{provider: provider, stage: hostCLIStageClaudeVersionObservation}, provider, method)
+		}
+		if errors.Is(err, credentialhost.ErrClaudeLoginSetup) {
+			return fault.New(
+				fault.KindUnavailable, "anthropic_login_setup_failed",
+				"Tobari could not start the one-shot Claude login container; the previous Context credential remains unchanged.", false,
+				fault.NextAction{Command: "doctor", Reason: "Inspect the local Docker runtime before retrying Anthropic login."},
+			)
+		}
+		if errors.Is(err, credentialhost.ErrClaudeLoginFailed) {
+			return fault.New(
+				fault.KindUnavailable, "anthropic_authorization_failed",
+				"Claude account authorization did not complete in the one-shot login container; the previous Context credential remains unchanged.", false,
+				fault.NextAction{Command: "auth login", Reason: "Start a new isolated Context-runtime Claude login and paste the complete browser code when prompted."},
+			)
+		}
+		if errors.Is(err, credentialhost.ErrClaudeOutputLimit) || errors.Is(err, errLoginVisibleOutputLimit) {
+			return fault.New(
+				fault.KindUnavailable, "anthropic_login_output_failed",
+				"Claude login exceeded Tobari's bounded control-safe output contract; the previous Context credential remains unchanged.", false,
+				fault.NextAction{Command: "help runtime", Reason: "Verify the selected Context still provides the reviewed Claude Code 2.1.220 contract."},
+			)
+		}
+		if errors.Is(err, credentialhost.ErrClaudeTokenCapture) ||
+			errors.Is(err, credentialhost.ErrInvalidClaudeNativeCredential) {
+			return fault.New(
+				fault.KindUnavailable, "anthropic_credential_capture_failed",
+				"Claude completed account login, but Tobari could not validate its native credential state; the previous Context credential remains unchanged.", false,
+				fault.NextAction{Command: "auth login", Reason: "Start a new isolated Context-runtime Claude login."},
+			)
+		}
+		if errors.Is(err, credentialhost.ErrClaudeLoginCleanup) {
+			return fault.New(
+				fault.KindUnavailable, "anthropic_login_cleanup_failed",
+				"The one-shot Claude login container could not be removed, so Tobari did not commit its credential; the previous Context credential remains unchanged.", false,
+				fault.NextAction{Command: "doctor", Reason: "Inspect the local Docker runtime before retrying Anthropic login."},
+			)
 		}
 		if hostLoginFailureIsCredentialDriver(err) {
 			return fault.New(
 				fault.KindUnavailable, "anthropic_login_failed",
-				"Claude setup-token login did not complete; the previous Context credential remains unchanged.", false,
-				fault.NextAction{Command: "auth login", Reason: "Retry the isolated trusted-host Claude Code login after inspecting the failure."},
+				"Native Claude account login did not complete; the previous Context credential remains unchanged.", false,
+				fault.NextAction{Command: "auth login", Reason: "Retry the isolated Context-runtime Claude Code login after inspecting the failure."},
 			)
 		}
 		return classifyBrokerError(err, "auth login anthropic")
@@ -405,7 +665,7 @@ func classifyHostLoginError(err error, provider string, methods ...string) error
 			)
 		}
 		if errors.Is(err, credentialhost.ErrInvalidExecutable) {
-			return classifyHostLoginError(hostCLIUnavailableError{provider: provider}, provider, method)
+			return classifyHostLoginError(hostCLIUnavailableError{provider: provider, stage: hostCLIStageExecutableIdentity}, provider, method)
 		}
 		if hostLoginFailureIsCredentialDriver(err) {
 			return fault.New(
@@ -439,7 +699,7 @@ func classifyHostLoginError(err error, provider string, methods ...string) error
 		)
 	}
 	if errors.Is(err, credentialhost.ErrInvalidExecutable) {
-		return classifyHostLoginError(hostCLIUnavailableError{provider: provider}, provider, method)
+		return classifyHostLoginError(hostCLIUnavailableError{provider: provider, stage: hostCLIStageExecutableIdentity}, provider, method)
 	}
 	if hostLoginFailureIsCredentialDriver(err) {
 		return fault.New(
@@ -449,6 +709,27 @@ func classifyHostLoginError(err error, provider string, methods ...string) error
 		)
 	}
 	return classifyBrokerError(err, "auth login aws")
+}
+
+func normalizeHostCLIUnavailableStage(stage hostCLIUnavailableStage) hostCLIUnavailableStage {
+	switch stage {
+	case hostCLIStageDriverDependency,
+		hostCLIStageExecutableLookup,
+		hostCLIStageExecutableSymlink,
+		hostCLIStageExecutableCanonicalPath,
+		hostCLIStageExecutableTrustedRoot,
+		hostCLIStageExecutableIdentity,
+		hostCLIStageCodexChatGPTAppBundle,
+		hostCLIStageCodexExecutableIdentity,
+		hostCLIStageCodexVersionObservation,
+		hostCLIStageClaudeContextSelection,
+		hostCLIStageClaudeImageContract,
+		hostCLIStageClaudeExecutableIdentity,
+		hostCLIStageClaudeVersionObservation:
+		return stage
+	default:
+		return hostCLIStageDriverDependency
+	}
 }
 
 func (r *Runtime) ImportAuth(

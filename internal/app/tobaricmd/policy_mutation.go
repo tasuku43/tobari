@@ -62,9 +62,15 @@ func (s *Service) ApplyPolicyReviewDecisionSet(
 			fault.KindContract, "invalid_candidate_contract", "policy candidates are invalid", false, err,
 		)
 	}
-	byID := make(map[string]tobari.PolicyCandidate, len(candidates))
-	for _, candidate := range candidates {
-		byID[candidate.ID] = candidate
+	reviewItems, err := tobari.PolicyReviewItems(candidates, rules)
+	if err != nil {
+		return tobari.PolicyReviewChange{}, fault.Wrap(
+			fault.KindContract, "invalid_candidate_contract", "policy review items are invalid", false, err,
+		)
+	}
+	byID := make(map[string]tobari.PolicyReviewItem, len(reviewItems))
+	for _, item := range reviewItems {
+		byID[item.ID] = item
 	}
 	updatedAllows := append([]tobari.LearnedPolicyRule{}, rules...)
 	updatedDenies := append([]tobari.PolicyDenyRule{}, denyRules.Exact...)
@@ -72,7 +78,7 @@ func (s *Service) ApplyPolicyReviewDecisionSet(
 	receipt := make([]tobari.PolicyReviewAppliedDecision, 0, len(set.Decisions))
 	reviewContextID := ""
 	for _, decision := range set.Decisions {
-		candidate, found := byID[decision.CandidateID]
+		item, found := byID[decision.ReviewItemID]
 		if !found {
 			return tobari.PolicyReviewChange{}, fault.New(
 				fault.KindRejected, "policy_review_changed",
@@ -80,38 +86,72 @@ func (s *Service) ApplyPolicyReviewDecisionSet(
 				fault.NextAction{Command: "policy review", Reason: "Review the current pending queue again."},
 			)
 		}
+		contextID := policyReviewItemContextID(item)
 		if reviewContextID == "" {
-			reviewContextID = candidate.ContextID
-		} else if candidate.ContextID != reviewContextID {
+			reviewContextID = contextID
+		} else if contextID != reviewContextID {
 			return tobari.PolicyReviewChange{}, fault.New(
 				fault.KindRejected, "policy_review_scope_mixed",
 				"one reviewed Apply cannot span multiple Context policy sources", false,
 				fault.NextAction{Command: "policy review", Reason: "Apply or discard the current Context decisions before reviewing another Context."},
 			)
 		}
-		if decision.Decision == tobari.PolicyDecisionAllow {
-			rule, ruleErr := tobari.NewExactLearnedPolicyRule(candidate)
+		if item.Match == tobari.PolicyMatchExact {
+			if decision.Match != tobari.PolicyMatchExact {
+				return tobari.PolicyReviewChange{}, policyReviewChangedFault()
+			}
+			var applyErr error
+			updatedAllows, updatedDenies, receipt, allowCount, denyCount, applyErr = applyExactPolicyReviewCandidate(
+				*item.Candidate, decision, updatedAllows, updatedDenies, receipt, allowCount, denyCount,
+			)
+			if applyErr != nil {
+				return tobari.PolicyReviewChange{}, applyErr
+			}
+			continue
+		}
+		proposal := *item.Template
+		if decision.Match == tobari.PolicyMatchPathTemplate {
+			if decision.Decision != tobari.PolicyDecisionAllow {
+				return tobari.PolicyReviewChange{}, policyReviewChangedFault()
+			}
+			remove := make(map[string]struct{}, len(proposal.SourceRuleIDs))
+			for _, id := range proposal.SourceRuleIDs {
+				remove[id] = struct{}{}
+			}
+			kept := updatedAllows[:0]
+			for _, existing := range updatedAllows {
+				if _, replaced := remove[existing.ID]; !replaced {
+					kept = append(kept, existing)
+				}
+			}
+			updatedAllows = kept
+			rule, ruleErr := tobari.NewPathTemplateLearnedPolicyRule(proposal)
 			if ruleErr != nil {
-				return tobari.PolicyReviewChange{}, fault.Wrap(fault.KindContract, "invalid_candidate_contract", "policy candidate cannot become an exact rule", false, ruleErr)
+				return tobari.PolicyReviewChange{}, fault.Wrap(fault.KindContract, "invalid_candidate_contract", "policy proposal cannot become a path-template rule", false, ruleErr)
 			}
 			updatedAllows = append(updatedAllows, rule)
-			allowCount++
-		} else {
-			rule, ruleErr := tobari.NewExactPolicyDenyRule(candidate)
-			if ruleErr != nil {
-				return tobari.PolicyReviewChange{}, fault.Wrap(fault.KindContract, "invalid_candidate_contract", "policy candidate cannot become an exact deny", false, ruleErr)
+			applied, receiptErr := tobari.NewPolicyReviewAppliedAllow(item.ID, rule)
+			if receiptErr != nil {
+				return tobari.PolicyReviewChange{}, fault.Wrap(fault.KindContract, "invalid_candidate_contract", "path-template rule cannot become a reviewed receipt", false, receiptErr)
 			}
-			updatedDenies = append(updatedDenies, rule)
-			denyCount++
+			receipt = append(receipt, applied)
+			allowCount++
+			continue
 		}
-		applied, receiptErr := tobari.NewPolicyReviewAppliedDecision(candidate, decision.Decision)
-		if receiptErr != nil {
-			return tobari.PolicyReviewChange{}, fault.Wrap(
-				fault.KindContract, "invalid_candidate_contract",
-				"policy candidate cannot become a reviewed receipt", false, receiptErr,
+		for _, candidate := range proposal.PendingCandidates {
+			var applyErr error
+			updatedAllows, updatedDenies, receipt, allowCount, denyCount, applyErr = applyExactPolicyReviewCandidate(
+				candidate, decision, updatedAllows, updatedDenies, receipt, allowCount, denyCount,
 			)
+			if applyErr != nil {
+				return tobari.PolicyReviewChange{}, applyErr
+			}
 		}
-		receipt = append(receipt, applied)
+	}
+	if allowCount+denyCount > tobari.MaxPolicyReviewDecisions {
+		return tobari.PolicyReviewChange{}, fault.New(
+			fault.KindInvalidInput, "invalid_policy_review_set", "reviewed policy decisions exceed the bounded rule count", false,
+		)
 	}
 	request := execution.Request{
 		Intent: intent, ExpectedCommand: "policy apply-reviewed", ExpectedEffect: operation.EffectWrite,
@@ -149,6 +189,51 @@ func (s *Service) ApplyPolicyReviewDecisionSet(
 		)
 	}
 	return result, nil
+}
+
+func policyReviewChangedFault() error {
+	return fault.New(
+		fault.KindRejected, "policy_review_changed",
+		"the reviewed permission set changed before Apply", false,
+		fault.NextAction{Command: "policy review", Reason: "Review the current pending queue again."},
+	)
+}
+
+func policyReviewItemContextID(item tobari.PolicyReviewItem) string {
+	if item.Candidate != nil {
+		return item.Candidate.ContextID
+	}
+	if item.Template != nil {
+		return item.Template.ContextID
+	}
+	return ""
+}
+
+func applyExactPolicyReviewCandidate(
+	candidate tobari.PolicyCandidate, decision tobari.PolicyReviewDecision,
+	allows []tobari.LearnedPolicyRule, denies []tobari.PolicyDenyRule,
+	receipts []tobari.PolicyReviewAppliedDecision, allowCount, denyCount int,
+) ([]tobari.LearnedPolicyRule, []tobari.PolicyDenyRule, []tobari.PolicyReviewAppliedDecision, int, int, error) {
+	if decision.Decision == tobari.PolicyDecisionAllow {
+		rule, err := tobari.NewExactLearnedPolicyRule(candidate)
+		if err != nil {
+			return nil, nil, nil, 0, 0, fault.Wrap(fault.KindContract, "invalid_candidate_contract", "policy candidate cannot become an exact rule", false, err)
+		}
+		applied, err := tobari.NewPolicyReviewAppliedAllow(decision.ReviewItemID, rule)
+		if err != nil {
+			return nil, nil, nil, 0, 0, fault.Wrap(fault.KindContract, "invalid_candidate_contract", "exact allow cannot become a reviewed receipt", false, err)
+		}
+		return append(allows, rule), denies, append(receipts, applied), allowCount + 1, denyCount, nil
+	}
+	rule, err := tobari.NewExactPolicyDenyRule(candidate)
+	if err != nil {
+		return nil, nil, nil, 0, 0, fault.Wrap(fault.KindContract, "invalid_candidate_contract", "policy candidate cannot become an exact deny", false, err)
+	}
+	applied, err := tobari.NewPolicyReviewAppliedDeny(decision.ReviewItemID, rule)
+	if err != nil {
+		return nil, nil, nil, 0, 0, fault.Wrap(fault.KindContract, "invalid_candidate_contract", "exact deny cannot become a reviewed receipt", false, err)
+	}
+	return allows, append(denies, rule), append(receipts, applied), allowCount, denyCount + 1, nil
 }
 
 func validatePolicyMutationTarget(intent operation.Intent, kind, id string) error {

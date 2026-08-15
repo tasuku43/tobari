@@ -197,8 +197,8 @@ func runPolicyReview(
 			if len(staged) == 0 {
 				return c.fail(ctx, fault.New(
 					fault.KindInvalidInput, "empty_policy_review_set",
-					"stage at least one exact permission before Apply", false,
-					fault.NextAction{Command: "policy review", Reason: "Inspect a permission and choose Allow exact or Deny exact."},
+					"stage at least one reviewed permission before Apply", false,
+					fault.NextAction{Command: "policy review", Reason: "Inspect a permission and stage one offered decision."},
 				))
 			}
 			apply, applyFound := c.catalog.lookupRegistered("policy apply-reviewed")
@@ -213,8 +213,12 @@ func runPolicyReview(
 				if selected.Action == policyReviewActionDeny {
 					value = tobari.PolicyDecisionDeny
 				}
+				match := tobari.PolicyMatchExact
+				if selected.Action == policyReviewActionAllowTemplate {
+					match = tobari.PolicyMatchPathTemplate
+				}
 				set.Decisions = append(set.Decisions, tobari.PolicyReviewDecision{
-					CandidateID: selected.CandidateID, Decision: value,
+					ReviewItemID: selected.CandidateID, Decision: value, Match: match,
 				})
 			}
 			intent := operation.Intent{
@@ -231,7 +235,7 @@ func runPolicyReview(
 				actionCtx, apply, renderPolicyReviewChange(change, humanStyleAllowed(actionCtx, c, c.Out)),
 			)
 		}
-		candidate, selected := policyReviewCandidateByID(result, decision.CandidateID)
+		item, selected := policyReviewItemByID(result, decision.CandidateID)
 		if !selected {
 			return c.fail(ctx, fault.New(
 				fault.KindContract, "invalid_policy_candidate_selection",
@@ -239,12 +243,12 @@ func runPolicyReview(
 				fault.NextAction{Command: "policy candidates", Reason: "Rediscover the current pending queue."},
 			))
 		}
-		if stagedContextID != "" && candidate.ContextID != stagedContextID {
+		if stagedContextID != "" && policyReviewItemContext(item) != stagedContextID {
 			selector.notice = "Apply or discard the staged decisions before switching Context."
 			continue
 		}
 
-		stagedContextID = candidate.ContextID
+		stagedContextID = policyReviewItemContext(item)
 		selector.Stage(decision.CandidateID, decision.Action)
 	}
 }
@@ -253,9 +257,36 @@ func policyReviewStagedContextID(
 	report tobari.PolicyCandidateReport, decisions []policyReviewDecision,
 ) string {
 	for _, decision := range decisions {
-		if candidate, found := policyReviewCandidateByID(report, decision.CandidateID); found {
-			return candidate.ContextID
+		if item, found := policyReviewItemByID(report, decision.CandidateID); found {
+			return policyReviewItemContext(item)
 		}
+	}
+	return ""
+}
+
+func policyReviewItemByID(result tobari.PolicyCandidateReport, id string) (tobari.PolicyReviewItem, bool) {
+	items := result.ReviewItems
+	if items == nil {
+		var err error
+		items, err = tobari.PolicyReviewItems(result.Items, []tobari.LearnedPolicyRule{})
+		if err != nil {
+			return tobari.PolicyReviewItem{}, false
+		}
+	}
+	for _, item := range items {
+		if item.ID == id {
+			return item, true
+		}
+	}
+	return tobari.PolicyReviewItem{}, false
+}
+
+func policyReviewItemContext(item tobari.PolicyReviewItem) string {
+	if item.Candidate != nil {
+		return item.Candidate.ContextID
+	}
+	if item.Template != nil {
+		return item.Template.ContextID
 	}
 	return ""
 }
@@ -982,11 +1013,12 @@ func renderPolicyReviewChange(result tobari.PolicyReviewChange, color bool) []by
 	fmt.Fprintf(&output, "  Decisions %d (%d Allow, %d Deny)\n", len(result.Decisions), result.AllowCount, result.DenyCount)
 	for index, decision := range result.Decisions {
 		fmt.Fprintln(&output)
-		fmt.Fprintf(&output, "%d. %s\n", index+1, policyReviewDecisionLabel(decision.Decision))
+		fmt.Fprintf(&output, "%d. %s\n", index+1, policyReviewDecisionLabel(decision))
 		fmt.Fprintf(&output, "   Context   %s · %s\n", safeExternalText(decision.ContextName), decision.ContextID)
 		fmt.Fprintf(&output, "   Project   %s · %s\n", safeExternalText(decision.ProjectRoot), decision.ProjectID)
 		fmt.Fprintf(&output, "   Effect    %s\n", policyReviewAppliedEffect(decision))
-		fmt.Fprintf(&output, "   Candidate %s\n", decision.CandidateID)
+		fmt.Fprintf(&output, "   Rule      %s\n", decision.RuleID)
+		fmt.Fprintf(&output, "   Review    %s\n", decision.ReviewItemID)
 	}
 	fmt.Fprintln(&output)
 	fmt.Fprintln(&output, applyStyleToken(color, styleMuted, "Next: ")+applyStyleToken(
@@ -995,9 +1027,12 @@ func renderPolicyReviewChange(result tobari.PolicyReviewChange, color bool) []by
 	return output.Bytes()
 }
 
-func policyReviewDecisionLabel(decision string) string {
-	if decision == tobari.PolicyDecisionDeny {
+func policyReviewDecisionLabel(decision tobari.PolicyReviewAppliedDecision) string {
+	if decision.Decision == tobari.PolicyDecisionDeny {
 		return "Deny exact"
+	}
+	if decision.Match == tobari.PolicyMatchPathTemplate {
+		return "Allow template"
 	}
 	return "Allow exact"
 }

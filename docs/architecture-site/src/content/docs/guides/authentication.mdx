@@ -49,7 +49,8 @@ redundant `--tool` input.
 ## Reviewed built-in authentication
 
 The reviewed helpers are GitHub, two AWS login methods, Datadog US1 pup OAuth,
-OpenAI Codex device auth, and Anthropic Claude setup-token acquisition.
+OpenAI Codex native browser login, and Anthropic native Claude account login in
+the selected Context runtime.
 Chatwork uses protected stdin import. For GitHub, on the trusted host:
 
 ```sh
@@ -105,11 +106,24 @@ replacement encrypted state. Pup is not installed in Broker.
 
 For OpenAI, run `tobari auth login --provider openai --context default` with a
 stable Codex CLI installed on the trusted host. Tobari records its version but
-accepts it only when the fixed device-auth command and strict V1 state contract
-succeed. The separately pinned Workspace Codex projection is unchanged. For Anthropic, run
-`tobari auth login --provider anthropic --context default` with exactly Claude
-Code 2.1.220. Codex uses the reviewed device-auth flow and a strict private
-auth file; Claude captures one setup token through a private PTY. Chatwork is
+accepts it only when the fixed native browser command and strict V1 state contract
+succeed. The verified Codex child owns the localhost listener, browser request,
+PKCE state, callback, and token exchange; Tobari never opens or parses its
+dynamic authorization URL. The separately pinned Workspace Codex projection is unchanged. For Anthropic,
+run `tobari auth login --provider anthropic --context default` after selecting
+a compatible Context whose image contains exactly Claude Code 2.1.220 at
+`/usr/local/bin/claude`. Tobari starts a fresh project-free container with no
+mounts, volumes, or control sockets, hashes the executable bytes on the host,
+opens only the validated native authorization URL, and accepts only the strict
+renewable Linux credential state. Tobari reports a successful browser open
+without printing the long URL; if opening fails it prints the exact manual URL.
+When Claude asks for a code, Tobari immediately displays a stable paste prompt.
+Paste the code shown by the browser there; Claude keeps that terminal input from
+echoing, while later provider status remains visible.
+The container is removed before Broker
+commit. Re-entered Workspaces receive a complete `.claude/.credentials.json`
+whose access token is only the project-bound handle; access and refresh tokens
+remain encrypted in the Context vault. Chatwork is
 configured through `auth import chatwork`, not the interactive selector.
 
 <CredentialArchitectureMap headingLevel={2} initial="acquisition" />
@@ -121,7 +135,7 @@ configured through `auth import chatwork`, not the interactive selector.
 3. It strictly recognizes the provider-declared handle in the exact source header and removes it.
 4. Broker introspection verifies Context, project, provider, credential revision, target, and header binding without returning the secret.
 5. Gateway asks OPA about the ordinary body-free HTTP effect.
-6. On deny, processing stops. There is no static resolution, Datadog/OpenAI
+6. On deny, processing stops. There is no static resolution, Datadog/OpenAI/Anthropic
    token selection/refresh, AWS companion call/signing, or upstream connection.
 7. On a static allow, Gateway resolves the same revision once and replaces the
    declared header.
@@ -134,7 +148,10 @@ configured through `auth import chatwork`, not the interactive selector.
    token endpoint and commits state before returning a bearer value.
 10. On an OpenAI allow, Broker selects or refreshes the same-account token and
     returns only its validated account ID for the reviewed supplemental header.
-11. Gateway creates one exact HTTPS upstream connection. It does not replay.
+11. On an Anthropic allow, Broker selects the same-record access token or
+    performs one bounded refresh at the exact compiled token endpoint, commits
+    the new encrypted state, and returns one bearer value.
+12. Gateway creates one exact HTTPS upstream connection. It does not replay.
 
 <SequenceExplorer
   title="Brokered credential paths"
@@ -190,7 +207,7 @@ Logout removes the local provider record and revokes its handles. It does not co
   after the original request settles, inspect `auth status`. Ready/configured
   permits an explicit retry because Gateway made no application upstream
   attempt. `not_configured` retains a durable barrier: re-login or logout the
-  affected AWS/Datadog provider, then leave and re-enter before retrying.
+  affected AWS/Datadog/OpenAI/Anthropic provider, then leave and re-enter before retrying.
 - `auth_mutation_outcome_unknown` or an output failure after mutation: inspect `auth status` before another login/import/logout. Blind replay may rotate or remove confirmed state twice.
 
 ## Guarantees and limits
@@ -204,6 +221,12 @@ refresh/signing/OAuth beyond the closed reviewed built-in plans. A handle is not
 the primary secret, but it is still a scoped bearer capability and should not
 be published or logged. Workspace-owned compatibility makes no
 primary-secret-isolation claim.
+
+The selected Anthropic Context image is trusted for this one acquisition: it
+can observe the newly issued native credential before Broker capture. Public
+distribution of this account-login integration additionally requires explicit
+legal/product review and any provider approval required by the applicable
+Anthropic terms; technical support alone does not make that authorization claim.
 
 ## Source evidence
 
@@ -219,7 +242,7 @@ primary-secret-isolation claim.
 Authentication supplies identity material; OPA authorization still controls
 each HTTP effect. Brokered Workspaces hold opaque, narrowly bound handles. Only
 an allowed Gateway path can trigger the declared static resolve, AWS signing,
-or Datadog token action.
+or Datadog/OpenAI/Anthropic token action.
 
 ## Check your understanding
 

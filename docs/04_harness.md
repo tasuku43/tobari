@@ -121,7 +121,22 @@ ordinary immutable-image checks as Gateway.
 Authentication coverage spans Go, Python, Gateway, image content, and
 dependency checks. Reviewed host-driver tests fix argv/environment, canonical
 executable identity/digest recheck, private state/PTY cleanup, bounded
-browser/output behavior, cancellation, typed capture, and redacted errors.
+browser/output behavior, cancellation, typed capture, and redacted errors. A
+versioned synthetic Codex native-login fixture and answer key prove that the
+child owns the loopback/browser flow, the dynamic authorization URL remains
+visible with zero Tobari browser-open calls, and reviewed SGR regeneration,
+`NO_COLOR` parity, and visible rejection of unknown controls remain bounded.
+The versioned synthetic Claude native-login fixture and answer key fragment the
+exact OSC 8 line and no-newline paste prompt across writes. Tests prove that
+the prompt is visible before flush, successful host opening omits the long URL,
+failed opening retains it exactly once, the child owns non-echoing input,
+later provider failure/status remains visible, and owned color is optional.
+Container argv tests require the fixed non-Workspace PID 1 and reject accidental
+dependence on the CA-waiting Workspace entrypoint. Separate
+byte-level tests reject bare LF in fixed or pass-through Claude output while
+the Docker TTY is raw. Fault tests fix deadline precedence across cleanup
+failure and distinguish setup, authorization, output, native-state capture,
+and cleanup-only failure.
 Negative tests prove managed profiles, owner-selected dynamic plans, arbitrary
 helpers, compatibility readers, and Broker provider CLIs are absent.
 
@@ -227,7 +242,8 @@ slice, not evidence that the product outcome is complete.
 
 The desired routine journey remains CWD-first: enter a reusable Tobari, work
 freely within the declared root and network boundary, receive a useful
-secret-free denial, approve the minimum exact permission through a trusted host
+secret-free denial, approve the minimum exact or reviewed single-segment
+template permission through a trusted host
 action, and retry. Human presentation may simplify this journey only while the
 catalog, opaque-reference, effect, mutation, and fail-closed contracts remain
 unchanged.
@@ -571,7 +587,7 @@ The test suite has complementary levels:
   SHA-256-only live handle lookup, deterministic handle reuse for one revision,
   cross-Context/project/binding rejection, rotation, logout, restart/unlock
   rehydration, same-revision static replacement, bounded AWS signing,
-  Datadog/OpenAI refresh through the exact immutable renewable-adapter union,
+  Datadog/OpenAI/Anthropic refresh through the exact immutable renewable-adapter union,
   shared single-flight/snapshot/CAS lifecycle, durable operation barriers,
   adapter incapability over Vault/handles/locks, the exact immutable persisted
   record-contract union, record-contract incapability over filesystem/ciphers,
@@ -580,10 +596,13 @@ The test suite has complementary levels:
   the exact immutable Gateway reviewed-profile union, Gateway-profile
   incapability over requests/policy/Broker/secrets, and rejection of every
   unknown record/operation. Provider network tests use local synthetic servers.
-- Acquisition UX tests split trusted-host and Broker boundaries for
-  GitHub/AWS/pup/Codex/Claude: canonical executable/digest selection, fixed
-  argv, sanitized environment, bounded streams/state, checked cleanup, and
-  cancellation preserve the prior credential on failure. No provider CLI
+- Acquisition UX tests split trusted-host, isolated Context-runtime, and Broker
+  boundaries for GitHub/AWS/pup/Codex/Claude: canonical executable/digest
+  selection, fixed argv, sanitized state, bounded streams/capture, checked
+  cleanup, and cancellation preserve the prior credential on failure. Claude
+  tests additionally prove a fresh mount-free selected-image container, exact
+  native authorization URL projection/opening, and strict renewable-state
+  capture. No provider CLI
   exists in the Broker image.
 - Workspace auth projection tests prove one configured Context credential
   produces distinct project-bound handles, injects only declared environment
@@ -629,8 +648,9 @@ The test suite has complementary levels:
   Docker argv, reject policy test-container creation, and compare content-aware
   fresh and unsupported-version Context trees before and after doctor.
 - The human permission path is exercised through `policy review`; its TTY
-  Permission Inbox covers bounded selection, detail inspection, staged exact
-  allow/deny choices, manual refresh, one final exact review and confirmed
+  Permission Inbox covers bounded selection, exact and `{id}` template detail
+  inspection, staged template/observed-exact/pending-deny choices, manual
+  refresh, one final typed review and confirmed
   Apply, and pre-Apply discard. PTY tests prove
   action keys are ineffective on the list, several same-Context detail choices
   produce exactly one activation without a second yes/no prompt, a Context
@@ -714,8 +734,10 @@ The test suite has complementary levels:
 - Runtime-asset and integration tests inspect the fixed shared-service CPU,
   memory-plus-swap, and PID ceilings.
 - Learned-policy integration passes opaque denial candidates unchanged into
-  exact allow and deny actions, verifies a neighboring request remains denied,
-  resets one exact decision, and rejects every prefix-rule/compaction shape.
+  exact machine allow and deny actions, proposes a single raw-segment template
+  only after two compatible distinct paths, verifies unseen safe IDs match and
+  parent/child/sibling/encoded/cross-scope canaries remain denied, resets the
+  decision, and rejects every prefix-rule/compaction shape.
 - Negative tests prove rejection before side effects.
 - Release tests inspect actual artifacts and metadata, not only workflow text.
   Archive tests cover deterministic multi-entry order, canonical metadata,
@@ -773,15 +795,15 @@ Every strong statement should identify its enforcement path.
 | Doctor remains observational | Fixed dependency-matrix, direct-blocker, complete-report, schema-1 renderer/agent-contract, fail/warn exit, cancellation, Docker-argv allowlist, host-only policy-source validation, content-aware fresh/unsupported-version snapshots, and zero-create/zero-repair canaries across root-key, vault, provider, broker, and project-auth state |
 | Every declared read remains observational | Dynamic public-catalog handler coverage, per-command fresh-XDG before/after snapshots, zero Docker-mutation argv, lockless fresh lifecycle reads, read-only/concurrent fixtures, unsupported-version fail-closed state, and bounded cleanup of only a pre-existing validated journal |
 | Project-bound broker handles | Full Context/project/provider/revision/target/header round trips, hash-only live index assertions, copied/stale/rotated/revoked negative tests, exact Context-wide eligibility and next-entry semantics, and Workspace projection reconciliation |
-| Agent OAuth acquisition and pinned projections | Multi-version host Codex tests require one exact compiled driver-contract revision, fixed argv/environment, canonical executable digest, and strict captured state while treating stable product version as audit metadata; exact-key/byte tests independently fix the Codex 0.146.0 Workspace `.codex/auth.json` sentinel shim with only `${HANDLE}` as `tokens.access_token`, direct synthetic Gateway bearer/account-header checks, Claude `CLAUDE_CODE_OAUTH_TOKEN=${HANDLE}`-only environment checks, API-key/auth-token absence, modified/symlinked-file refusal, and Workspace-client drift rejection; an isolated network-disabled client observation records login-status and verbatim-handle behavior but remains a required manual release replay rather than an automated artifact claim |
+| Agent OAuth acquisition and pinned projections | Multi-version host Codex tests require one exact compiled driver-contract revision, fixed argv/environment, canonical executable digest, and strict captured state while treating stable product version as audit metadata; exact-key/byte tests independently fix the Codex 0.146.0 Workspace `.codex/auth.json` sentinel shim with only `${HANDLE}` as `tokens.access_token`; Claude tests fix exact 2.1.220 selected-image login, host-side executable hashing, no-mount container isolation, native state/refresh, and `.claude/.credentials.json` with only `${HANDLE}` as `claudeAiOauth.accessToken`; direct synthetic Gateway bearer/account-header checks, API-key/auth-token absence, modified/symlinked-file refusal, and Workspace-client drift rejection remain required |
 | Declared provider bindings require Broker | Direct bearer/raw and AWS SigV4 canaries assert `broker_auth_required`, secret-header removal, and zero fallback/Broker/OPA/DNS/upstream calls; one undeclared-binding canary retains post-policy compatibility passthrough |
 | Broker fallback requires an undeclared binding and marker absence | URL/path/query/fragment/header-name/value marker canaries, malformed/ambiguous/binding-mismatch rejection, and compatibility passthrough tests with no declared binding or marker anywhere inspected |
 | Post-policy credential action | Gateway call-order/count tests for handle removal, introspect-before-OPA, zero resolve/refresh/companion/signing on deny, one same-revision reviewed action after allow, exact header replacement/signing, and no-secret canaries |
-| Closed broker plan boundary | Exact static and dynamic record schemas, immutable renewable-adapter, request-signing-mechanics, persisted-record-contract, control-login-plan, and Gateway reviewed-profile membership; one strict versioned test-only capability fixture checked from Go and Python for built-in/acquisition/manifest/login/record/runtime/Gateway parity; adapter/plan/profile incapability tests, record/Vault import compatibility, shared Broker-owned login commit and snapshot/single-flight/barrier/CAS conformance, Context/project/provider/revision/HTTPS-header or signing introspection, bounded AWS/Datadog/OpenAI behavior, rotation/revocation, durable barriers, and no invalid-handle fallback |
+| Closed broker plan boundary | Exact static and dynamic record schemas, immutable renewable-adapter, request-signing-mechanics, persisted-record-contract, control-login-plan, and Gateway reviewed-profile membership; one strict versioned test-only capability fixture checked from Go and Python for built-in/acquisition/manifest/login/record/runtime/Gateway parity; adapter/plan/profile incapability tests, record/Vault import compatibility, shared Broker-owned login commit and snapshot/single-flight/barrier/CAS conformance, Context/project/provider/revision/HTTPS-header or signing introspection, bounded AWS/Datadog/OpenAI/Anthropic behavior, rotation/revocation, durable barriers, and no invalid-handle fallback |
 | Unsupported broker capabilities stay absent | Catalog, state-parser, dependency, image-content, and hostile-header tests reject managed profiles, owner-selected dynamic plans, arbitrary helpers, compatibility readers, and provider CLIs inside Broker |
 | Protected provider acquisition | Catalog selector/method/stdin contracts, terminal rules, bounded readers, canonical GitHub/AWS/pup/Codex/Claude identity/digest checks, fixed argv/environment, control-safe output, bounded browser/PTY behavior, checked cleanup, cancellation/failure preservation, synthetic integration, and manual live validation |
 | Typed denial recovery | Strict host/port audit projection, query/header absence, whole-path handle-marker redaction, non-learnable structural rejection, fixed host-review navigation schema, host-stderr session summary, empty bounded scope, hostile-field canaries, and end-to-end JSON assertions |
-| Explicit policy learning | OPA scheme/port learnability classification, terminal deny exclusion, deterministic repeated/concurrent Context/project/scheme/host/port/method/path candidate aggregation with required latest/count, Context-scoped reference validation, single-reference allow/deny/reset round trips, bounded typed TTY staging with one fixed-target Apply and zero-write discard, installation-wide inventory/review, aggregate preflight ordering, and Docker retry |
+| Explicit policy learning | OPA scheme/port learnability classification, terminal deny exclusion, deterministic repeated/concurrent Context/project/scheme/host/port/method/path candidate aggregation with required latest/count, two-distinct-example single-raw-segment template inference with ambiguity and unsafe-path suppression, Context-scoped reference validation, single-reference exact allow/deny/reset round trips, bounded typed TTY staging with template/exact choices, fresh revalidation, one fixed-target Apply and zero-write discard, installation-wide inventory/review, aggregate preflight ordering, and Docker retry |
 | Declared GraphQL policy identity | Exact trusted endpoint projection, hash-pinned parser and license checks, strict bounded envelope fixtures, conservative root-fragment expansion, all-roots OPA matching, HTTP-rule non-matching canaries, per-root audit/candidate/allow/deny/reset round trips, prefix-rule rejection, raw-body privacy canaries, and zero-upstream integration |
 | Context source access | Required manifest/catalog field, omission-default tests, immutable runtime spec/hash, Docker inspect/reconciliation, read-only mutation/Git-metadata denial, writable home/tmpfs, no writable alias, and same-root observation |
 | Context policy preset | Strict normalization/digest/snapshot tests, built-in and custom schema canaries, guardrail precedence, GET-without-safe-claim contract, and terminal zero-candidate/DNS/Broker/upstream calls |

@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "tobari_browser_open_count": 1,
+  "plain_fragments": [
+    "Opening Claude sign-in…",
+    "✓ Opened in your default browser.",
+    "If Claude shows a code, paste it here:",
+    "> ",
+    "Authentication successful"
+  ],
+  "absent_fragments": [
+    "Opening browser to sign in…",
+    "If the browser didn't open, visit:",
+    "↗ Opened in your default browser.",
+    "Paste code here if prompted >"
+  ]
+}

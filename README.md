@@ -152,9 +152,9 @@ inheritance, remote fetch, refresh, signing, symlink, unsafe-mode, and unknown-
 field input. Context creation normalizes, validates, digests, and snapshots the
 preset. Later source changes affect only a newly created Context.
 
-## Exact permission workflow
+## Permission workflow
 
-When a request is eligible for exact review, Gateway retains a bounded
+When a request is eligible for review, Gateway retains a bounded
 secret-free denial and gives the child fixed trusted-host navigation. Keep the
 Workspace and agent session running, then use a separate host terminal:
 
@@ -162,11 +162,13 @@ Workspace and agent session running, then use a separate host terminal:
 tobari policy review
 ```
 
-The Permission Inbox groups by validated Context/project identity. Inspect an
-exact detail, stage Allow-exact or Deny-exact, and confirm one final Apply.
-Staging grants nothing. Refresh preserves decisions only by opaque candidate ID;
-labels, order, indentation, or similar paths never create authority. Confirmed
-Apply returns the active revision and exact decision receipts. Retry the
+The Permission Inbox groups by validated Context/project identity. One distinct
+path remains exact. After a second compatible distinct HTTP path, Inbox proposes
+a single-segment `/path/{id}` template. Inspect its examples and explicit future
+scope, then stage Allow template, Allow observed exact, or Deny pending exact
+and confirm one final Apply. Staging grants nothing. Refresh preserves decisions
+only by opaque typed review-item ID; labels, order, or indentation never create
+authority. Confirmed Apply returns the active revision and stored-rule receipts. Retry the
 original request in the same Workspace.
 
 Machine workflows use unchanged opaque references:
@@ -212,7 +214,8 @@ compatibility route disappears if Tobari later declares the exact binding.
 ### Brokered reviewed providers
 
 The reviewed built-ins are GitHub/`gh`, AWS/`aws`, Datadog/`pup`,
-OpenAI/Codex's contract-checked host login, Anthropic/Claude Code 2.1.220, and
+OpenAI/Codex's contract-checked host login, Anthropic/Claude Code 2.1.220 from
+the selected Context runtime, and
 static Chatwork/`cwk`.
 Omit `--provider` on an interactive trusted-host terminal to choose an
 installed reviewed login driver, or supply it for deterministic automation:
@@ -230,13 +233,16 @@ tobari auth status --context default
 tobari auth logout github --context default
 ```
 
-Each host driver has fixed argv, a canonical executable outside the project,
+Each acquisition driver has fixed argv, a canonical executable outside the project,
 digest checks, an isolated private home, bounded visible output and state
 capture, cancellation, and checked cleanup. GitHub remains API-only with no Git
 credential setup. AWS supports the closed IAM Identity Center and console
 cross-device methods. Datadog is fixed to default-organization US1 OAuth.
 OpenAI requires the reviewed Codex host-login contract and records its stable
-product version; Anthropic still requires the exact reviewed Claude version.
+product version. Anthropic starts a fresh mount-free container from the selected
+compatible Context image, requires exact `/usr/local/bin/claude` 2.1.220,
+opens only its validated native authorization URL, captures the resulting
+renewable session, and removes the container before commit.
 
 Chatwork and owner providers use strict schema-V1 static plans and protected
 stdin:
@@ -255,16 +261,17 @@ fetch, or provider business operation.
 Gateway removes one recognized handle, performs full non-secret
 Context/project/provider/revision/target/header introspection, and asks OPA
 about the ordinary HTTP effect. Only after allow may Broker resolve the same
-revision, refresh a fixed Datadog/OpenAI session, or sign one bounded AWS SigV4
+revision, refresh a fixed Datadog/OpenAI/Anthropic session, or sign one bounded AWS SigV4
 request. A private authenticated companion performs only the compiled AWS
 credential-export operation; it opens no listener. Outcome-unknown refresh or
-signing is not replayed automatically. Anthropic, GitHub, Chatwork, and owner
+signing is not replayed automatically. GitHub, Chatwork, and owner
 plans remain static. Invalid, copied, stale, ambiguous, or mismatched handles
 fail without fallback. Managed Gateway profiles and arbitrary executable
 adapters remain unsupported.
 
 Acquisition and runtime use are separate boundaries. The reviewed host driver
-may run `gh`, `aws`, `pup`, Codex, or Claude to acquire Context-owned state;
+may run `gh`, `aws`, `pup`, or Codex on the host, or isolated Claude from the
+selected Context image, to acquire Context-owned state;
 Gateway later accepts only a handle at that provider's declared request
 binding. Denying a few token endpoints alone would not enforce this boundary,
 because an already acquired token could still be injected into a Workspace.

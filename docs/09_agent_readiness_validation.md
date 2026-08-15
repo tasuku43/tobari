@@ -88,26 +88,29 @@ ambiguous rules. Context creation normalizes, validates, digests, and snapshots
 the source. Editing the source preset afterward must not change the existing
 Context report or active guardrail.
 
-## Exact policy journey
+## Reviewed policy journey
 
 Generate one learnable denial from a running Workspace. Verify the child sees
 only bounded secret-free host-review navigation and that no candidate ID or
 unchecked argv is embedded in the response. In a trusted-host terminal:
 
-1. Open `policy review` and inspect the exact Context/project/effect detail.
-2. Stage Allow-exact or Deny-exact; staging grants nothing.
-3. Refresh and prove decisions remain bound by candidate ID, never by label,
+1. Open `policy review`; one distinct path remains exact, while a second
+   compatible distinct HTTP path produces one typed `/path/{id}` proposal.
+2. Inspect the Context/project/effect detail. Prove the proposal states that
+   future single-segment values are included and offers Allow template, Allow
+   observed exact, and Deny pending exact. Staging grants nothing.
+3. Refresh and prove decisions remain bound by typed review-item ID, never by label,
    order, or indentation.
 4. Confirm one final ordered Apply and observe the authoritative active
    revision.
 5. Retry in the same running Workspace.
-6. Inspect `policy rules`, reset the exact rule, and prove the request returns
+6. Inspect `policy rules`, reset the exact or template rule, and prove the request returns
    to default deny and becomes reviewable again.
 
 Machine replay uses `policy candidates`, `policy allow --id`, `policy deny
 --id`, and `policy reset --id`. The ordinary identity is exact Context,
 project, scheme, host, port, method, and raw path; GraphQL adds operation type
-and root field. Query, headers, body, observation count, and path similarity do
+and root field. Query, headers, body, and repeated identical observation count do
 not widen authority. Prefix rules, compaction commands/references/state, and
 dormant prefix fallbacks must all be absent.
 
@@ -131,9 +134,10 @@ fixtures, and secret canaries. It proves:
 - non-secret introspection before OPA; zero static resolution, refresh,
   companion call, or signing on deny; one same-revision reviewed action and
   one upstream attempt on allow;
-- bounded AWS SigV4 and private companion behavior, fixed Datadog/OpenAI
-  refresh transports, OpenAI supplemental-header ownership, Anthropic static
-  resolution, and durable unknown-outcome barriers;
+- bounded AWS SigV4 and private companion behavior, fixed
+  Datadog/OpenAI/Anthropic refresh transports, OpenAI supplemental-header
+  ownership, Anthropic native session resolution/refresh, and durable
+  unknown-outcome barriers;
 - rotation, logout, revocation, Workspace re-entry, and no invalid-handle
   passthrough fallback;
 - secret-free logs/output and canonical/embedded source equality;
@@ -168,8 +172,9 @@ record the token, device code, handle, account identifier, vault, authenticated
 response, or raw transcript.
 
 Replay the AWS Identity Center and console methods, Datadog pup flow, the
-contract-checked host Codex device flow, the separately pinned Workspace Codex
-handle projection, Claude Code 2.1.220 setup-token flow, and Chatwork stdin
+contract-checked host Codex native browser/loopback flow, the separately pinned Workspace Codex
+handle projection, isolated Context-runtime Claude Code 2.1.220 native login
+and handle-only credential-file projection, and Chatwork stdin
 import separately. Record only command/observed-version, pass/fail, and secret-free
 state/revision metadata; never store provider responses or credential state.
 When the host Codex version has advanced, also verify its official source still

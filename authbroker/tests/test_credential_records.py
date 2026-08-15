@@ -5,6 +5,7 @@ import unittest
 import authbroker.credential_records as records_module
 import authbroker.vault as vault_module
 from authbroker.credential_records import (
+    ANTHROPIC_CLAUDE_OAUTH_CREDENTIAL_KIND,
     AWSSSORecordContract,
     AWS_SSO_CREDENTIAL_KIND,
     DATADOG_OAUTH_CREDENTIAL_KIND,
@@ -12,6 +13,7 @@ from authbroker.credential_records import (
     REVIEWED_CREDENTIAL_RECORD_KINDS,
     STATIC_CREDENTIAL_KIND,
     DatadogOAuthRecordContract,
+    AnthropicClaudeOAuthRecordContract,
     OpenAICodexOAuthRecordContract,
     StaticCredentialRecordContract,
     reviewed_credential_record_contracts,
@@ -33,6 +35,7 @@ class ReviewedCredentialRecordContractTests(unittest.TestCase):
                 AWS_SSO_CREDENTIAL_KIND: AWSSSORecordContract,
                 DATADOG_OAUTH_CREDENTIAL_KIND: DatadogOAuthRecordContract,
                 OPENAI_CODEX_OAUTH_CREDENTIAL_KIND: OpenAICodexOAuthRecordContract,
+                ANTHROPIC_CLAUDE_OAUTH_CREDENTIAL_KIND: AnthropicClaudeOAuthRecordContract,
             },
         )
         self.assertEqual(
@@ -45,6 +48,7 @@ class ReviewedCredentialRecordContractTests(unittest.TestCase):
                 AWS_SSO_CREDENTIAL_KIND: "aws",
                 DATADOG_OAUTH_CREDENTIAL_KIND: "datadog",
                 OPENAI_CODEX_OAUTH_CREDENTIAL_KIND: "openai",
+                ANTHROPIC_CLAUDE_OAUTH_CREDENTIAL_KIND: "anthropic",
             },
         )
         with self.assertRaises(TypeError):
@@ -79,6 +83,7 @@ class ReviewedCredentialRecordContractTests(unittest.TestCase):
             "new_aws_sso_record",
             "new_datadog_oauth_record",
             "new_openai_codex_oauth_record",
+            "new_anthropic_claude_oauth_record",
             "new_record",
             "validate_context_id",
             "validate_payload",

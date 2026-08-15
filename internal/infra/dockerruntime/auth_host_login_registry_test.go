@@ -128,7 +128,7 @@ func reviewedHostLoginDriverContract(
 	case authbroker.BuiltinOpenAIProviderID:
 		return reviewedHostLoginDriverOpenAI, "codex", true, true
 	case authbroker.BuiltinAnthropicProviderID:
-		return reviewedHostLoginDriverAnthropic, "claude", false, true
+		return reviewedHostLoginDriverAnthropic, "claude", true, true
 	default:
 		return 0, "", false, false
 	}

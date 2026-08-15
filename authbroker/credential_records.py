@@ -31,12 +31,14 @@ STATIC_CREDENTIAL_KIND = "static_primary_secret"
 AWS_SSO_CREDENTIAL_KIND = "aws_sso_session"
 DATADOG_OAUTH_CREDENTIAL_KIND = "datadog_oauth_session"
 OPENAI_CODEX_OAUTH_CREDENTIAL_KIND = "openai_codex_oauth_session"
+ANTHROPIC_CLAUDE_OAUTH_CREDENTIAL_KIND = "anthropic_claude_oauth_session"
 AWS_DRIVER_ID = "aws_cli_sso"
 AWS_CONSOLE_DRIVER_ID = "aws_cli_console_login"
 AWS_DRIVER_IDS = frozenset({AWS_DRIVER_ID, AWS_CONSOLE_DRIVER_ID})
 PUP_DRIVER_ID = "datadog_pup_oauth"
 OPENAI_CODEX_DRIVER_ID = "openai_codex_chatgpt_oauth"
-CLAUDE_ACCOUNT_LABEL = "claude-user-inference"
+ANTHROPIC_CLAUDE_DRIVER_ID = "anthropic_claude_native_oauth"
+CLAUDE_ACCOUNT_LABEL = "claude-user-native"
 
 
 class VaultError(Exception):
@@ -161,6 +163,7 @@ def _validate_stored_header_binding(binding: Any, provider: str) -> str:
             "primary_secret",
             DATADOG_OAUTH_CREDENTIAL_KIND,
             OPENAI_CODEX_OAUTH_CREDENTIAL_KIND,
+            ANTHROPIC_CLAUDE_OAUTH_CREDENTIAL_KIND,
         }
     ):
         raise VaultError("vault_invalid")
@@ -453,6 +456,36 @@ class OpenAICodexOAuthRecordContract:
             raise VaultError("vault_invalid")
 
 
+class AnthropicClaudeOAuthRecordContract:
+    credential_kind = ANTHROPIC_CLAUDE_OAUTH_CREDENTIAL_KIND
+    provider_id = "anthropic"
+
+    def validate_record(self, provider: str, record: Any) -> dict[str, Any]:
+        if provider != self.provider_id or not isinstance(record, dict) or set(record) != {
+            "credential_kind", "record_id", "revision", "account_label", "driver_id",
+            "driver_revision", "state_generation", "refresh_task_digest", "state", "handles",
+        }:
+            raise VaultError("vault_invalid")
+        account_label, handles = _validate_common_record(record)
+        if account_label != CLAUDE_ACCOUNT_LABEL or record.get("driver_id") != ANTHROPIC_CLAUDE_DRIVER_ID:
+            raise VaultError("vault_invalid")
+        _validate_driver_revision(record)
+        _validate_refresh_fields(record)
+        _validate_state(record)
+        return handles
+
+    def validate_binding(self, provider: str, binding: Any) -> None:
+        _validate_stored_header_binding(binding, provider)
+        if binding != {
+            "provider_id": "anthropic",
+            "target": {"scheme": "https", "host": "api.anthropic.com", "port": 443},
+            "source": {"header": "authorization", "format": "bearer"},
+            "destination": {"header": "authorization", "format": "bearer", "secret_field": ANTHROPIC_CLAUDE_OAUTH_CREDENTIAL_KIND},
+            "secret_headers": ["authorization"],
+        }:
+            raise VaultError("vault_invalid")
+
+
 def reviewed_credential_record_contracts() -> Mapping[str, CredentialRecordContract]:
     """Return the immutable compiled record union; there is no registration API."""
 
@@ -461,6 +494,7 @@ def reviewed_credential_record_contracts() -> Mapping[str, CredentialRecordContr
         AWSSSORecordContract(),
         DatadogOAuthRecordContract(),
         OpenAICodexOAuthRecordContract(),
+        AnthropicClaudeOAuthRecordContract(),
     )
     registry = {contract.credential_kind: contract for contract in contracts}
     if len(registry) != len(contracts):
@@ -474,6 +508,7 @@ REVIEWED_CREDENTIAL_RECORD_KINDS = frozenset(
         AWS_SSO_CREDENTIAL_KIND,
         DATADOG_OAUTH_CREDENTIAL_KIND,
         OPENAI_CODEX_OAUTH_CREDENTIAL_KIND,
+        ANTHROPIC_CLAUDE_OAUTH_CREDENTIAL_KIND,
     }
 )
 _REVIEWED_CREDENTIAL_RECORD_CONTRACTS = reviewed_credential_record_contracts()
@@ -633,6 +668,29 @@ def new_openai_codex_oauth_record(
         raise VaultError("invalid_driver_revision")
     return {
         "credential_kind": OPENAI_CODEX_OAUTH_CREDENTIAL_KIND,
+        "record_id": _new_identity("record_"),
+        "revision": _new_identity("revision_"),
+        "account_label": account_label,
+        "driver_id": driver_id,
+        "driver_revision": driver_revision,
+        "state_generation": 0,
+        "refresh_task_digest": None,
+        "state": encode_secret(state),
+        "handles": {},
+    }
+
+
+def new_anthropic_claude_oauth_record(
+    state: bytes, *, account_label: str, driver_id: str, driver_revision: str
+) -> dict[str, Any]:
+    if not isinstance(state, bytes) or not state or len(state) > MAX_DRIVER_STATE_BYTES:
+        raise VaultError("invalid_secret")
+    if account_label != CLAUDE_ACCOUNT_LABEL or driver_id != ANTHROPIC_CLAUDE_DRIVER_ID:
+        raise VaultError("invalid_driver")
+    if not isinstance(driver_revision, str) or DRIVER_REVISION_PATTERN.fullmatch(driver_revision) is None:
+        raise VaultError("invalid_driver_revision")
+    return {
+        "credential_kind": ANTHROPIC_CLAUDE_OAUTH_CREDENTIAL_KIND,
         "record_id": _new_identity("record_"),
         "revision": _new_identity("revision_"),
         "account_label": account_label,

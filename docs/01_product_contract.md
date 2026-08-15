@@ -133,8 +133,8 @@ or source build unless a Linux Homebrew Formula contract is added explicitly.
   is not the real credential, but it is a scoped bearer capability that should
   not be published or logged. It is not authority without the trusted
   principal, exact binding, and OPA allow. Broker metadata never inherits a
-  broad static host/method allow; the first exact L7 effect remains reviewable
-  until an exact learned rule exists.
+  broad static host/method allow; the first L7 effect remains reviewable until
+  an explicit exact or single-segment-template learned rule exists.
 - **provider manifest:** strict non-secret data declaring static import,
   Workspace handle projections, and exact HTTPS/header credential bindings.
   Owner manifests are V1 static-secret/header plans. Reviewed built-ins are a
@@ -202,7 +202,7 @@ The public commands are:
 | `cluster logs [--component gateway|opa|auth-broker|all] [--tail N]` | utility | read | Read bounded shared logs, including policy-denial evidence, without credential or handle output |
 | `cluster down [--purge]` | act, fixed target | write | Remove shared transient resources after every logical Tobari is deleted while preserving Auth Broker vaults and the installation root key; `--purge` additionally removes shared CA and active policy-bundle volumes |
 | `policy candidates [--tail N] [--format text|json]` | discover | read | Discover Context/project-scoped pending exact HTTP or GraphQL-root candidates and opaque IDs across the installation |
-| `policy review [--tail N] [--format text|json]` | discover plus TTY fixed-target apply | read, or one confirmed write | Review the installation-wide Permission Inbox; on a TTY, stage exact allow or deny choices from detail and apply the reviewed set once; redirected and JSON output remain read-only |
+| `policy review [--tail N] [--format text|json]` | discover plus TTY fixed-target apply | read, or one confirmed write | Review the installation-wide Permission Inbox; on a TTY, stage exact choices or a typed single-segment `{id}` template proposed after two distinct compatible paths and apply the reviewed set once; redirected and JSON output remain read-only |
 | `policy allow --id ID` | act, reference bound | write | Test, record, and activate one exact observed permission |
 | `policy deny --id ID` | act, reference bound | write | Test, record, and activate one exact project-bound rejection |
 | `policy rules [--format text|json]` | discover | read | List every Context-scoped CLI-owned learned Allow and exact Deny decision; on a TTY, reset one explicitly |
@@ -219,7 +219,7 @@ The public commands are:
 | `context use --name NAME [--format text\|json]` | act, fixed target | write | Change only the current/default Context; do not mutate existing Tobari or start/reconcile the cluster |
 | `runtime init [--format text|json]` | act, fixed target | create | Create the current Context's runtime/Dockerfile template without changing its selected image |
 | `runtime build [--format text|json]` | act, fixed target | write | Build, validate, and select the current Context's generated local runtime image |
-| `auth login [--provider github\|aws\|datadog\|openai\|anthropic] [--method identity-center\|console] [--context NAME] [--format text\|json]` | act, fixed target | write | Acquire one credential through a closed reviewed trusted-host provider driver for the explicit or current Context; interactive provider omission opens the bounded selector, while `--method` applies only to AWS |
+| `auth login [--provider github\|aws\|datadog\|openai\|anthropic] [--method identity-center\|console] [--context NAME] [--format text\|json]` | act, fixed target | write | Acquire one credential through a closed reviewed provider driver for the explicit or current Context; Anthropic uses a fresh isolated container from that Context image, interactive provider omission opens the bounded selector, and `--method` applies only to AWS |
 | `auth import PROVIDER [--context NAME] [--format text|json]` | act, fixed target | write | Import one bounded opaque provider credential only from protected non-terminal stdin |
 | `auth status [--context NAME] [--format text|json]` | utility | read | Inspect the complete installed provider collection plus bounded Context-scoped Workspace projection freshness and coverage without reading secrets |
 | `auth logout PROVIDER [--context NAME] [--format text|json]` | act, fixed target | write | Remove one local Context/provider credential and revoke its Workspace handles when present, or report confirmed `no_change` when already absent, without contacting the provider |
@@ -320,7 +320,33 @@ undeclared Docker mutation by the CLI.
   accepts `--method identity-center|console`. The GitHub driver shows the
   GitHub device code and the trusted host opens exactly
   `https://github.com/login/device` when possible, with the same URL retained
-  for manual fallback. It runs fixed API-authentication-only GitHub CLI argv
+  for manual fallback. The OpenAI driver runs Codex's native browser login;
+  the verified Codex child owns its loopback callback listener, dynamic OAuth
+  state and URL, browser request, callback, and token exchange. Tobari binds no
+  callback port and never parses or opens that dynamic URL, but preserves the
+  bounded manual guidance Codex prints. Its visible terminal stream recognizes only Codex's
+  reviewed reset, muted, and accent SGR sequences and regenerates them as
+  Tobari-owned presentation; `NO_COLOR` removes those styles without changing
+  the instructions, while every other control remains visibly projected. The
+  Anthropic driver starts a fresh project-free container from the selected
+  compatible Context image, runs exact Claude Code 2.1.220 native account login,
+  validates and captures its renewable Linux state, and requires checked
+  cleanup before Broker commit. Tobari opens only the exact reviewed Claude
+  authorization URL. Its fixed terminal UI reports browser-open success
+  without repeating the long URL, shows that exact URL only when host opening
+  fails, and emits the paste-code prompt as soon as Claude requests input even
+  though the upstream prompt has no newline. Claude's reviewed prompt owns its
+  non-echoing terminal input; Tobari emits no entered code and does not hide the
+  next child status line by guessing that it is an echo. The isolated login
+  container overrides the Workspace CA-waiting entrypoint with fixed
+  `/usr/bin/tini -- /usr/bin/sleep infinity`, because the acquisition container
+  deliberately has no Workspace CA mount. While Docker owns the raw interactive terminal, every Tobari-owned
+  and control-safe pass-through Claude line uses explicit CRLF framing so each
+  row begins at column one. Setup, authorization, output, timeout, native
+  credential capture, and login-container cleanup remain distinct secret-free
+  failures, and each preserves the previous Context credential. The
+  shared Tobari browser behavior never opens a URL derived from arbitrary provider text. The
+  GitHub driver runs fixed API-authentication-only GitHub CLI argv
   from one canonical non-project executable in a private temporary home and
   configures no Git protocol or credential helper. Auth Broker contains no
   provider CLI executable. `auth import` accepts a non-empty credential of at most
@@ -332,7 +358,7 @@ undeclared Docker mutation by the CLI.
   value or Tobari environment input. Every successful auth mutation requires
   existing Workspaces to be re-entered before their environment or
   handle projection can change. Reviewed built-ins may use bounded dynamic
-  records, Datadog/OpenAI refresh, AWS signing and the private companion, or
+  records, Datadog/OpenAI/Anthropic refresh, AWS signing and the private companion, or
   the OpenAI supplemental header. Managed profiles and owner-selected dynamic
   behavior remain absent.
 - `runtime init` creates the current Context's owner-only
@@ -507,7 +533,7 @@ When a learnable network request is denied, the Gateway's 403 response carries
 fixed secret-free host-review navigation for the agent, and an interactive
 session close may summarize the pending queue on host stderr. These are
 advisory only; the interactive `policy review` queue is the human entry point.
-It stages unchanged opaque references only from exact detail screens and uses
+It stages unchanged opaque review-item references only from typed detail screens and uses
 one final `policy apply-reviewed` fixed-target action to revalidate and activate
 one Context's set. Apply or discard is required before switching Context so the
 source change remains one atomic domain-generation replacement. `policy rules` is the
@@ -515,17 +541,19 @@ current learned-decision inventory; its TTY reset flow delegates one explicit
 opaque reference to `policy reset`. Redirected and machine-readable review and
 inventory remain read-only. The Permission Inbox groups candidates by their
 validated stable Context and project identities, renders the Context/root scope
-once per group, and leads each selectable row with the exact HTTP effect and
-observation count. A compact selected-effect preview exposes the latest retained
+once per group, and leads each selectable row with the exact HTTP effect or
+typed `{id}` template and its evidence count. A compact selected-effect preview exposes the latest retained
 observation before detail inspection. Matching display names, paths, order, or
-indentation do not merge distinct typed identities. Allow-exact and Deny-exact
-keys are inactive on the list; on the exact detail screen the chosen action is
-explicitly staged without a second yes/no prompt. Only the final Apply delegates
+indentation do not merge distinct typed identities. Action keys are inactive
+on the list. An exact detail offers Allow exact and Deny exact; a template
+detail states that unseen values are included and offers Allow template, Allow
+observed exact, and Deny pending exact. The chosen action is staged without a
+second yes/no prompt. Only the final Apply delegates
 the reviewed set to the mutation boundary. Apply is advertised only for a
-non-empty staged set, shows one final ordered exact review, and requires an
+non-empty staged set, shows one final ordered typed review, and requires an
 explicit confirmation. Refresh preserves choices by candidate ID and drops
 stale IDs rather than matching labels. Confirmed output carries the active OPA
-revision plus each ordered exact Context/project/effect/candidate decision and
+revision plus each ordered Context/project/effect/stored-rule decision and
 directs the caller to retry in the current running Workspace. The public
 read-only JSON review schema remains version 1 and does not expose this
 internal TTY Apply receipt.
@@ -656,6 +684,16 @@ item without a separate mutable inbox write. A current learned Allow or exact
 Deny remains the resolved history and is never updated by discovery. After an
 explicit reset, retained matching evidence may produce the same stable pending
 candidate ID again.
+For interactive review only, typed domain logic also considers current exact
+Allows as evidence. Two distinct compatible HTTP paths with the same Context,
+project, scheme, host, port, method, and segment count may produce one inert
+single-segment `{id}` proposal when exactly one safe raw segment differs and at
+least one source is still pending. Repeated identical observations do not meet
+that threshold. Ambiguous, shallow, percent-encoded, empty/dot-segment,
+backslash, multi-segment, and GraphQL proposals are suppressed. Proposal
+identity binds the proposed authority, while final Apply rebuilds its current
+evidence before any mutation.
+
 ## Configuration contract
 
 Configuration is resolved from
@@ -903,20 +941,28 @@ discovery excludes other denials, preventing a successful no-op approval.
 
 `auth login`, `auth import`, and `auth logout` validate the fixed installation
 credential-catalog target and mutation impact before acquisition or vault I/O.
-Login selects only the closed GitHub, AWS, Datadog, OpenAI, or Anthropic host
-driver union through an interactive trusted-host terminal. Each driver owns
+Login selects only the closed GitHub, AWS, Datadog, OpenAI, or Anthropic
+driver union through an interactive trusted-host terminal. Anthropic alone
+executes in a fresh selected-Context-image container; each driver owns
 fixed argv, canonical executable identity, private state, bounded browser/PTY
-behavior, strict typed capture, and checked cleanup. It prints only bounded,
+behavior, strict typed capture, and checked cleanup. PATH resolution inspects
+at most 256 distinct absolute candidates in order, never executes a rejected
+temporary/project/home-local shadow, and selects only the first candidate whose
+canonical executable satisfies the existing trusted-root and mode checks. It
+prints only bounded,
 control-safe guidance and commits the captured record only into the encrypted
-Context vault. Drivers read no ambient provider home and write no project or
-Workspace CLI configuration; Auth Broker contains no provider CLI. Import
+Context vault. A host-login availability failure retains its stable fault
+code and names one fixed secret-free diagnostic stage; it never publishes the
+selected local path, digest, raw process error, or captured output. Drivers
+read no ambient provider home and write no project or Workspace CLI
+configuration; Auth Broker contains no provider CLI. Import
 rejects terminal stdin before reading and reads bounded non-terminal input only
 after public argument/intent/mutation validation; infrastructure validates the
 selected Context, installed provider/acquisition mode, and broker readiness
 before broker send. Login/import atomically replace one typed
 Context/provider grant and revoke every prior handle. Gateway performs
 non-secret introspection before OPA and applies exactly one same-revision
-static resolution, Datadog/OpenAI token result, or bounded AWS SigV4 result only
+static resolution, Datadog/OpenAI/Anthropic token result, or bounded AWS SigV4 result only
 after allow. Gateway makes one upstream attempt. Managed profiles and arbitrary
 manifest-selected dynamic execution do not exist. Logout atomically removes
 the record and its handles without contacting the provider.

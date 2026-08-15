@@ -63,6 +63,48 @@ func TestPolicyReviewSelectorRawDetailActionConfirmsAndPreservesOpaqueID(t *test
 	}
 }
 
+func TestPolicyReviewSelectorRawTemplateDetailOffersExplicitFutureAndExactChoices(t *testing.T) {
+	t.Parallel()
+	report := testPolicyReviewReport()
+	makeCandidate := func(path, timestamp, requestID string) tobari.PolicyCandidate {
+		candidate, candidateErr := tobari.NewPolicyCandidate(tobari.PolicyDenial{
+			PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Scheme: "https", Protocol: tobari.PolicyProtocolHTTP},
+			Timestamp:              timestamp, RequestID: requestID,
+			ContextID: "01912345-6789-7abc-8def-0123456789ad", ContextName: "default",
+			ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/project",
+			Host: "api.example.com", Port: 443, Method: "GET", Path: path,
+			Reason: "request did not match an allow rule", StatusCode: 403, Learnable: true,
+		})
+		if candidateErr != nil {
+			t.Fatal(candidateErr)
+		}
+		return candidate
+	}
+	first := makeCandidate("/items/123", "2026-08-02T10:00:00Z", "7185da2688d7469aae9cd9068e920b0b")
+	second := makeCandidate("/items/456", "2026-08-02T10:01:00Z", "8185da2688d7469aae9cd9068e920b0b")
+	report.Items = []tobari.PolicyCandidate{first, second}
+	var err error
+	report.ReviewItems, err = tobari.PolicyReviewItems(report.Items, []tobari.LearnedPolicyRule{})
+	if err != nil || len(report.ReviewItems) != 1 || report.ReviewItems[0].Template == nil {
+		t.Fatalf("review items = %+v, error = %v", report.ReviewItems, err)
+	}
+
+	selector := &policyReviewSelector{mode: &selectorModeFake{}, style: true}
+	var output bytes.Buffer
+	decision, err := selector.Select(context.Background(), report, strings.NewReader("\rt"), &output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decision.CandidateID != report.ReviewItems[0].ID || decision.Action != policyReviewActionAllowTemplate {
+		t.Fatalf("template decision = %+v", decision)
+	}
+	for _, want := range []string{"Suggested", "/items/{id}", "2 distinct values", "[t] Allow template", "[e] Allow observed exact", "future non-empty values"} {
+		if !strings.Contains(output.String(), want) {
+			t.Fatalf("template raw output %q lacks %q", output.String(), want)
+		}
+	}
+}
+
 func TestPolicyReviewSelectorBackThenCancelDoesNotSelect(t *testing.T) {
 	t.Parallel()
 	mode := &selectorModeFake{}

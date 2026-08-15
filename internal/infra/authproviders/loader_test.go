@@ -250,17 +250,22 @@ func TestBuiltinsPublishesExactToolContracts(t *testing.T) {
 	}
 
 	anthropic := providers[BuiltinAnthropicProviderID]
+	const anthropicAuthTemplate = `{"claudeAiOauth":{"accessToken":"${HANDLE}","refreshToken":"","expiresAt":4102444800000,"refreshTokenExpiresAt":null,"scopes":["org:create_api_key","user:profile","user:inference","user:sessions:claude_code","user:mcp_servers","user:file_upload"],"subscriptionType":null,"rateLimitTier":null,"clientId":"9d1c250a-e61b-44d9-88ed-5944d1962f5e"}}`
 	if anthropic.SchemaVersion != authbroker.ProviderSchemaVersion ||
 		anthropic.DisplayName != "Anthropic account for Claude Code" ||
-		anthropic.Acquisition != (authbroker.Acquisition{Mode: authbroker.AcquisitionBuiltinHelper, Helper: "claude-setup-token"}) ||
-		anthropic.Credential.Kind != authbroker.CredentialPrimarySecret || len(anthropic.WorkspaceProjections) != 1 ||
+		anthropic.Acquisition != (authbroker.Acquisition{Mode: authbroker.AcquisitionBuiltinHelper, Helper: "claude-native-oauth"}) ||
+		anthropic.Credential.Kind != authbroker.CredentialAnthropicClaudeOAuthSession || len(anthropic.WorkspaceProjections) != 1 ||
 		anthropic.WorkspaceProjections[0] != (authbroker.WorkspaceProjection{
-			Kind: authbroker.WorkspaceProjectionEnvironment, Name: "CLAUDE_CODE_OAUTH_TOKEN", Template: "${HANDLE}",
+			Kind: authbroker.WorkspaceProjectionCompleteFile, Path: ".claude/.credentials.json", Template: anthropicAuthTemplate,
 		}) {
 		t.Fatalf("Anthropic provider plan = %#v", anthropic)
 	}
-	assertExactBearerBinding(t, projection, BuiltinAnthropicProviderID, "api.anthropic.com", authbroker.CredentialPrimarySecret,
+	assertExactBearerBinding(t, projection, BuiltinAnthropicProviderID, "api.anthropic.com", authbroker.CredentialAnthropicClaudeOAuthSession,
 		[]string{"authorization"})
+	if len(projection.CompleteFiles) != 2 || projection.CompleteFiles[0].ProviderID != BuiltinAnthropicProviderID ||
+		projection.CompleteFiles[0].Path != ".claude/.credentials.json" || projection.CompleteFiles[0].Template != anthropicAuthTemplate {
+		t.Fatalf("Anthropic complete-file projection = %#v", projection.CompleteFiles)
+	}
 
 	openai := providers[BuiltinOpenAIProviderID]
 	const openAIAuthTemplate = `{"auth_mode":"chatgptAuthTokens","OPENAI_API_KEY":null,"tokens":{"id_token":"e30.e30.x","access_token":"${HANDLE}","refresh_token":"","account_id":null},"last_refresh":"1970-01-01T00:00:00Z"}`
@@ -275,8 +280,8 @@ func TestBuiltinsPublishesExactToolContracts(t *testing.T) {
 	}
 	assertExactBearerBinding(t, projection, BuiltinOpenAIProviderID, "chatgpt.com", authbroker.CredentialOpenAICodexOAuthSession,
 		[]string{"authorization", "chatgpt-account-id", "x-openai-fedramp"})
-	if len(projection.CompleteFiles) != 1 || projection.CompleteFiles[0].ProviderID != BuiltinOpenAIProviderID ||
-		projection.CompleteFiles[0].Path != ".codex/auth.json" || projection.CompleteFiles[0].Template != openAIAuthTemplate {
+	if len(projection.CompleteFiles) != 2 || projection.CompleteFiles[1].ProviderID != BuiltinOpenAIProviderID ||
+		projection.CompleteFiles[1].Path != ".codex/auth.json" || projection.CompleteFiles[1].Template != openAIAuthTemplate {
 		t.Fatalf("OpenAI complete-file projection = %#v", projection.CompleteFiles)
 	}
 }
@@ -395,8 +400,9 @@ func TestLoaderLoadsOwnerOnlyUserProvidersAndNormalizesThem(t *testing.T) {
 		projection.Providers[5].ID != "github" || projection.Providers[6].ID != "openai" {
 		t.Fatalf("provider ordering = %#v", projection.Providers)
 	}
-	if len(projection.CompleteFiles) != 2 || projection.CompleteFiles[0].Path != ".codex/auth.json" ||
-		projection.CompleteFiles[1].Path != ".config/example/auth.toml" {
+	if len(projection.CompleteFiles) != 3 || projection.CompleteFiles[0].Path != ".claude/.credentials.json" ||
+		projection.CompleteFiles[1].Path != ".codex/auth.json" ||
+		projection.CompleteFiles[2].Path != ".config/example/auth.toml" {
 		t.Fatalf("complete-file projection = %#v", projection.CompleteFiles)
 	}
 	if strings.Join(projection.SecretHeaders, ",") != "authorization,chatgpt-account-id,x-amz-security-token,x-api-key,x-chatworktoken,x-openai-fedramp" {

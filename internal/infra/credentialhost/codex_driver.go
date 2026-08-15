@@ -42,8 +42,9 @@ var (
 )
 
 // CodexLoginStreams are the trusted-host terminal streams used by the fixed
-// device-code login. The driver bounds visible output but never interprets a
-// device code, URL, or provider diagnostic from these streams.
+// native browser login. The verified Codex child owns its loopback callback;
+// the driver bounds visible output but never interprets an authorization URL,
+// callback value, or provider diagnostic from these streams.
 type CodexLoginStreams struct {
 	Stdin  io.Reader
 	Stdout io.Writer
@@ -71,9 +72,10 @@ func NewCodexDriver(runner CommandRunner) *CodexDriver {
 	}
 }
 
-// Login runs only Codex's public device-code flow in a private file-backed
-// HOME. A result is returned after bounded version observation, executable
-// identity, state, and cleanup checks all succeed.
+// Login runs only Codex's native browser flow in a private file-backed HOME.
+// Codex owns the loopback listener and OAuth exchange. A result is returned
+// after bounded version observation, executable identity, state, and cleanup
+// checks all succeed.
 func (d *CodexDriver) Login(
 	ctx context.Context,
 	executable string,
@@ -200,7 +202,7 @@ func (d *CodexDriver) acquireCodexCredential(
 	runErr := d.runner.Run(bounded, Command{
 		Path: executable,
 		Args: []string{
-			"login", "--device-auth",
+			"login",
 			"-c", `cli_auth_credentials_store="file"`,
 			"-c", "check_for_update_on_startup=false",
 		},

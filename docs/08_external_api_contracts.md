@@ -63,7 +63,7 @@ Gateway follows one sequence:
    upstream call.
 7. On static allow, resolve the same revision once and replace only the
    declared header.
-8. On Datadog/OpenAI allow, select or refresh the same record once and apply
+8. On Datadog/OpenAI/Anthropic allow, select or refresh the same record once and apply
    only the reviewed bearer/supplemental-header result.
 9. On AWS allow, retain at most 8 MiB, obtain one private companion export,
    sign that exact authorized request locally, and apply only those headers.
@@ -91,15 +91,26 @@ Exact GitHub CLI product-version equality is not an authority boundary.
 
 ## Other reviewed acquisition and post-policy plans
 
+The shared acquisition resolver ignores untrusted PATH shadows without
+executing them and selects the first finite PATH candidate whose canonical
+executable passes the existing conventional-root and mode contract.
 AWS offers only `identity-center` and `console` host acquisition. Its opaque
 state is re-entered by a private authenticated companion after allow, and
 Broker emits one standard header-based SigV4 result for the exact bounded
 request. Datadog uses fixed US1 pup acquisition and a proxy-free,
 no-redirect, same-record refresh transport. OpenAI accepts a stable observed
-host Codex version only when the exact compiled V1 device-auth/state contract
-succeeds, and refreshes only the same ChatGPT account record, returning
-its validated account ID for one supplemental header. Anthropic requires
-Claude Code 2.1.220 and resolves one static setup token without refresh.
+host Codex version only when the exact compiled V1 native-browser/state
+contract succeeds. The verified Codex child owns the loopback listener,
+dynamic authorization URL, browser request, PKCE state, callback, and exchange;
+Tobari never binds, parses, or opens them. Tobari regenerates only the reviewed
+Codex reset, muted, and accent SGR vocabulary; `NO_COLOR` strips those styles
+and unknown controls remain visibly projected. OpenAI
+refreshes only the same ChatGPT account record, returning
+its validated account ID for one supplemental header. Anthropic accepts only
+the strict native state emitted by exact Claude Code 2.1.220 in the selected
+Context image, selects an unexpired bearer or refreshes the same record through
+the fixed proxy-free, no-redirect platform endpoint, and exposes only a
+project-bound handle in the Workspace credential file.
 Chatwork is a static stdin-import binding. The OpenAI Broker client ID and
 refresh endpoint and the Workspace Codex handle projection remain separately
 fixed; host product version does not select either contract.

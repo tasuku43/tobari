@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -52,11 +53,6 @@ type fakeHostCredentialAcquirer struct {
 	codexPath      string
 	codexStreams   credentialhost.CodexLoginStreams
 	codexCalls     int
-	claudePayload  hostCredentialPayload
-	claudeErr      error
-	claudePath     string
-	claudeStreams  credentialhost.ClaudeLoginStreams
-	claudeCalls    int
 }
 
 func (a *fakeHostCredentialAcquirer) LoginCodex(
@@ -71,20 +67,6 @@ func (a *fakeHostCredentialAcquirer) LoginCodex(
 		_, _ = streams.Stdout.Write([]byte("Complete device authorization in your browser\n"))
 	}
 	return a.codexPayload, a.codexErr
-}
-
-func (a *fakeHostCredentialAcquirer) LoginClaude(
-	_ context.Context,
-	path string,
-	streams credentialhost.ClaudeLoginStreams,
-) (hostCredentialPayload, error) {
-	a.claudeCalls++
-	a.claudePath = path
-	a.claudeStreams = streams
-	if streams.Output != nil {
-		_, _ = streams.Output.Write([]byte("Complete Claude authorization in your browser\n"))
-	}
-	return a.claudePayload, a.claudeErr
 }
 
 func (a *fakeHostCredentialAcquirer) LoginPup(
@@ -420,17 +402,25 @@ func TestHostOpenAILoginCommitsOnlyCanonicalCodexState(t *testing.T) {
 	}
 }
 
-func TestHostAnthropicLoginCommitsOnlyCapturedClaudeToken(t *testing.T) {
-	token := []byte("sk-ant-oat01-synthetic-token-canary")
+func TestContextRuntimeAnthropicLoginCommitsOnlyCanonicalClaudeState(t *testing.T) {
+	state := []byte(`{"schema_version":1,"opaque":"claude-oauth-canary"}`)
 	resolver := &fakeHostCLIResolver{path: "/usr/local/bin/claude"}
-	acquirer := &fakeHostCredentialAcquirer{claudePayload: hostCredentialPayload{
-		secret: token, accountLabel: credentialhost.ClaudeAccountLabel,
-		driverID: credentialhost.ClaudeDriverID, driverRevision: strings.Repeat("e", 64),
-	}}
-	runner := &hostLoginDockerRunner{response: `{"schema_version":1,"ok":true,"provider":"anthropic","revision":"` + strings.Repeat("b", 64) + `","account_label":"` + credentialhost.ClaudeAccountLabel + `"}`}
+	runner := &hostLoginDockerRunner{response: `{"schema_version":1,"ok":true,"provider":"anthropic","revision":"` + strings.Repeat("b", 64) + `","account_label":"` + credentialhost.ClaudeNativeAccountLabel + `"}`}
+	containerCalls := 0
 	runtime := &Runtime{
 		runner: runner, browser: &recordingBrowser{}, hostCLIs: resolver,
-		credentialHost: acquirer, hostLoginProfiles: immediateHostLoginProfileReader{},
+		credentialHost: &fakeHostCredentialAcquirer{}, hostLoginProfiles: immediateHostLoginProfileReader{},
+		claudeContainerLogin: func(_ context.Context, contextID string, input io.Reader, output io.Writer) (hostCredentialPayload, error) {
+			containerCalls++
+			if contextID != hostLoginContextID || input == nil || output == nil {
+				t.Fatalf("container login arguments = %q/%T/%T", contextID, input, output)
+			}
+			_, _ = io.WriteString(output, "Complete Claude authorization in your browser\n")
+			return hostCredentialPayload{
+				secret: state, accountLabel: credentialhost.ClaudeNativeAccountLabel,
+				driverID: credentialhost.ClaudeNativeDriverID, driverRevision: strings.Repeat("e", 64),
+			}, nil
+		},
 	}
 	var visible bytes.Buffer
 	response, err := runtime.runHostCredentialLoginOnTTY(
@@ -438,29 +428,29 @@ func TestHostAnthropicLoginCommitsOnlyCapturedClaudeToken(t *testing.T) {
 		strings.NewReader("trusted terminal input"), &visible,
 	)
 	if err != nil || response.Provider != "anthropic" || response.AccountLabel == nil ||
-		*response.AccountLabel != credentialhost.ClaudeAccountLabel {
+		*response.AccountLabel != credentialhost.ClaudeNativeAccountLabel {
 		t.Fatalf("response=%+v error=%v", response, err)
 	}
-	if !reflect.DeepEqual(resolver.names, []string{"claude"}) || acquirer.claudePath != resolver.path ||
-		acquirer.claudeCalls != 1 || acquirer.claudeStreams.Stdin == nil ||
-		acquirer.claudeStreams.Output == nil {
-		t.Fatalf("resolver=%v path=%q calls=%d streams=%+v", resolver.names, acquirer.claudePath, acquirer.claudeCalls, acquirer.claudeStreams)
+	if len(resolver.names) != 0 || containerCalls != 1 {
+		t.Fatalf("host resolver=%v container calls=%d", resolver.names, containerCalls)
 	}
 	wantTail := []string{
 		"login", "--context-id", hostLoginContextID,
-		"--provider", "anthropic", "--account-label", credentialhost.ClaudeAccountLabel,
+		"--provider", "anthropic", "--account-label", credentialhost.ClaudeNativeAccountLabel,
+		"--driver-id", credentialhost.ClaudeNativeDriverID,
+		"--driver-revision", strings.Repeat("e", 64),
 	}
 	if len(runner.args) < len(wantTail) ||
 		!reflect.DeepEqual(runner.args[len(runner.args)-len(wantTail):], wantTail) ||
-		string(runner.input) != "sk-ant-oat01-synthetic-token-canary" {
-		t.Fatalf("Anthropic Broker argv/token = %#v/%q", runner.args, runner.input)
+		string(runner.input) != `{"schema_version":1,"opaque":"claude-oauth-canary"}` {
+		t.Fatalf("Anthropic Broker argv/state = %#v/%q", runner.args, runner.input)
 	}
 	if !strings.Contains(visible.String(), "Claude authorization") ||
 		strings.Contains(visible.String(), "synthetic-token-canary") {
 		t.Fatalf("visible output = %q", visible.String())
 	}
-	if bytes.Contains(token, []byte("synthetic-token-canary")) {
-		t.Fatal("Claude setup token was not cleared after Broker commit")
+	if bytes.Contains(state, []byte("claude-oauth-canary")) {
+		t.Fatal("Claude OAuth state was not cleared after Broker commit")
 	}
 }
 
@@ -582,7 +572,7 @@ func TestHostAcquisitionFailureDoesNotBeginBrokerMutation(t *testing.T) {
 		t.Run(test.provider, func(t *testing.T) {
 			acquirer := &fakeHostCredentialAcquirer{
 				githubErr: test.failure, awsErr: test.failure, pupErr: test.failure,
-				codexErr: test.failure, claudeErr: test.failure,
+				codexErr: test.failure,
 			}
 			runner := &hostLoginDockerRunner{}
 			runtime := &Runtime{
@@ -591,6 +581,11 @@ func TestHostAcquisitionFailureDoesNotBeginBrokerMutation(t *testing.T) {
 				credentialHost:    acquirer,
 				hostLoginProfiles: immediateHostLoginProfileReader{},
 				browser:           &recordingBrowser{},
+			}
+			if test.provider == "anthropic" {
+				runtime.claudeContainerLogin = func(context.Context, string, io.Reader, io.Writer) (hostCredentialPayload, error) {
+					return hostCredentialPayload{}, test.failure
+				}
 			}
 			_, err := runtime.runHostCredentialLoginOnTTY(
 				context.Background(), hostLoginContextID, test.provider,
@@ -795,8 +790,8 @@ func TestPathHostCLIResolverAcceptsOnlyTrustedInstallationRoots(t *testing.T) {
 	resolver := pathHostCLIResolver{lookPath: func(string) (string, error) {
 		return filepath.Join("project", "bin", "aws"), nil
 	}}
-	if _, err := resolver.Resolve("aws"); err == nil {
-		t.Fatal("relative PATH-selected executable was accepted")
+	if _, err := resolver.Resolve("aws"); hostCLIStage(t, err) != hostCLIStageExecutableLookup {
+		t.Fatalf("relative PATH-selected executable stage = %q", hostCLIStage(t, err))
 	}
 
 	executable := filepath.Join(t.TempDir(), "aws")
@@ -804,8 +799,16 @@ func TestPathHostCLIResolverAcceptsOnlyTrustedInstallationRoots(t *testing.T) {
 		t.Fatal(err)
 	}
 	resolver.lookPath = func(string) (string, error) { return executable, nil }
-	if _, err := resolver.Resolve("aws"); err == nil {
-		t.Fatal("repository- or temporary-root executable was accepted")
+	if _, err := resolver.Resolve("aws"); hostCLIStage(t, err) != hostCLIStageExecutableTrustedRoot {
+		t.Fatalf("temporary-root executable stage = %q", hostCLIStage(t, err))
+	}
+	broken := filepath.Join(t.TempDir(), "aws")
+	if err := os.Symlink(filepath.Join(t.TempDir(), "missing"), broken); err != nil {
+		t.Fatal(err)
+	}
+	resolver.lookPath = func(string) (string, error) { return broken, nil }
+	if _, err := resolver.Resolve("aws"); hostCLIStage(t, err) != hostCLIStageExecutableSymlink {
+		t.Fatalf("broken symlink stage = %q", hostCLIStage(t, err))
 	}
 	trusted := "/usr/bin/true"
 	if _, err := os.Stat(trusted); err != nil {
@@ -817,9 +820,86 @@ func TestPathHostCLIResolverAcceptsOnlyTrustedInstallationRoots(t *testing.T) {
 	if !trustedHostCLIPath(trusted) {
 		t.Fatalf("trusted installation path %q was rejected", trusted)
 	}
-	if _, err := resolver.Resolve("unreviewed"); err == nil {
-		t.Fatal("unreviewed driver name was accepted")
+	if _, err := resolver.Resolve("unreviewed"); hostCLIStage(t, err) != hostCLIStageDriverDependency {
+		t.Fatalf("unreviewed driver stage = %q", hostCLIStage(t, err))
 	}
+}
+
+func TestPathHostCLIResolverSkipsUntrustedShimForLaterTrustedCandidate(t *testing.T) {
+	trusted := "/usr/bin/true"
+	if _, err := os.Stat(trusted); err != nil {
+		t.Skipf("trusted test executable is unavailable: %v", err)
+	}
+	shimDirectory := t.TempDir()
+	shim := filepath.Join(shimDirectory, "codex")
+	if err := os.WriteFile(shim, []byte("synthetic temporary shim"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	installationDirectory := t.TempDir()
+	installationLink := filepath.Join(installationDirectory, "codex")
+	if err := os.Symlink(trusted, installationLink); err != nil {
+		t.Fatal(err)
+	}
+	resolver := pathHostCLIResolver{
+		lookPath: func(string) (string, error) { return shim, nil },
+		pathValue: func() string {
+			return strings.Join([]string{shimDirectory, installationDirectory}, string(os.PathListSeparator))
+		},
+	}
+	resolved, err := resolver.Resolve("codex")
+	if err != nil || resolved != trusted {
+		t.Fatalf("resolved = %q, error = %v", resolved, err)
+	}
+}
+
+func TestHostCLIPathCandidatesAreAbsoluteDistinctAndBounded(t *testing.T) {
+	directories := []string{"", ".", "/first", "/first", "/second"}
+	for index := 0; index < maxHostCLICandidates+10; index++ {
+		directories = append(directories, filepath.Join("/bounded", fmt.Sprintf("%03d", index)))
+	}
+	candidates := hostCLIPathCandidates(strings.Join(directories, string(os.PathListSeparator)), "codex")
+	if len(candidates) != maxHostCLICandidates {
+		t.Fatalf("candidate count = %d, want %d", len(candidates), maxHostCLICandidates)
+	}
+	if !reflect.DeepEqual(candidates[:2], []string{"/first/codex", "/second/codex"}) {
+		t.Fatalf("candidate prefix = %#v", candidates[:2])
+	}
+	for _, candidate := range candidates {
+		if !filepath.IsAbs(candidate) {
+			t.Fatalf("relative candidate = %q", candidate)
+		}
+	}
+	if candidates := hostCLIPathCandidates("/trusted", "nested/codex"); len(candidates) != 0 {
+		t.Fatalf("invalid name candidates = %#v", candidates)
+	}
+}
+
+func TestHostLoginPreservesResolverDiagnosticStage(t *testing.T) {
+	runtime := &Runtime{
+		hostCLIs: &fakeHostCLIResolver{err: hostCLIUnavailableError{
+			provider: "codex",
+			stage:    hostCLIStageCodexChatGPTAppBundle,
+		}},
+		credentialHost:    &fakeHostCredentialAcquirer{},
+		hostLoginProfiles: immediateHostLoginProfileReader{},
+	}
+	_, err := runtime.runHostCredentialLoginOnTTY(
+		context.Background(), hostLoginContextID, "openai", strings.NewReader(""), io.Discard,
+	)
+	var unavailable hostCLIUnavailableError
+	if !errors.As(err, &unavailable) || unavailable.provider != "openai" ||
+		unavailable.stage != hostCLIStageCodexChatGPTAppBundle {
+		t.Fatalf("resolver diagnostic = %+v, error=%v", unavailable, err)
+	}
+}
+
+func hostCLIStage(t *testing.T, err error) hostCLIUnavailableStage {
+	t.Helper()
+	var unavailable hostCLIUnavailableError
+	if !errors.As(err, &unavailable) {
+		t.Fatalf("error %v is not a host CLI availability error", err)
+	}
+	return unavailable.stage
 }
 
 func TestLoginVisibleOutputHasAggregateBound(t *testing.T) {

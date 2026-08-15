@@ -30,6 +30,7 @@ type policyReviewAction uint8
 const (
 	policyReviewActionNone policyReviewAction = iota
 	policyReviewActionAllow
+	policyReviewActionAllowTemplate
 	policyReviewActionDeny
 )
 
@@ -68,6 +69,9 @@ func (s *policyReviewSelector) Stage(candidateID string, action policyReviewActi
 	}
 	s.staged[candidateID] = action
 	label := "Allow exact"
+	if action == policyReviewActionAllowTemplate {
+		label = "Allow template"
+	}
 	if action == policyReviewActionDeny {
 		label = "Deny exact"
 	}
@@ -78,6 +82,7 @@ func (s *policyReviewSelector) Reconcile(report tobari.PolicyCandidateReport) in
 	if s == nil {
 		return 0
 	}
+	report = groupPolicyReviewReport(report)
 	current := make(map[string]struct{}, len(report.Items))
 	for _, candidate := range report.Items {
 		current[candidate.ID] = struct{}{}
@@ -180,6 +185,8 @@ func policyReviewStagedLabel(candidateID string, staged []map[string]policyRevie
 	switch staged[0][candidateID] {
 	case policyReviewActionAllow:
 		return "Staged Allow"
+	case policyReviewActionAllowTemplate:
+		return "Staged Template"
 	case policyReviewActionDeny:
 		return "Staged Deny"
 	default:
@@ -192,7 +199,7 @@ func policyReviewStagedStyle(candidateID string, staged []map[string]policyRevie
 		return styleMuted
 	}
 	switch staged[0][candidateID] {
-	case policyReviewActionAllow:
+	case policyReviewActionAllow, policyReviewActionAllowTemplate:
 		return styleSuccess
 	case policyReviewActionDeny:
 		return styleWarning
@@ -205,7 +212,23 @@ func policyReviewActionLabel(action policyReviewAction) string {
 	if action == policyReviewActionDeny {
 		return "Deny exact"
 	}
+	if action == policyReviewActionAllowTemplate {
+		return "Allow template"
+	}
 	return "Allow exact"
+}
+
+func policyReviewActionLabelFor(report tobari.PolicyCandidateReport, id string, action policyReviewAction) string {
+	if policyReviewTemplateByID(report, id) == nil {
+		return policyReviewActionLabel(action)
+	}
+	if action == policyReviewActionDeny {
+		return "Deny pending exact"
+	}
+	if action == policyReviewActionAllowTemplate {
+		return "Allow template"
+	}
+	return "Allow observed exact"
 }
 
 func selectPolicyReviewFinalRaw(
@@ -253,7 +276,7 @@ func renderPolicyReviewFinalRaw(
 	lines := []string{
 		selectorTitle(style, "Tobari · Review staged permissions"),
 		"",
-		applyStyleToken(style, styleWarning, fmt.Sprintf("%d exact decision%s ready for one Apply", len(staged), pluralSuffix(len(staged)))),
+		applyStyleToken(style, styleWarning, policyReviewFinalCountText(report, staged)),
 		"",
 	}
 	for index, id := range stagedOrder {
@@ -263,7 +286,7 @@ func renderPolicyReviewFinalRaw(
 			continue
 		}
 		lines = append(lines,
-			applyStyleToken(style, styleAccent, fmt.Sprintf("%d. %s", index+1, policyReviewActionLabel(action))),
+			applyStyleToken(style, styleAccent, fmt.Sprintf("%d. %s", index+1, policyReviewActionLabelFor(report, id, action))),
 			selectorDetail(style, "Context", safeExternalText(candidate.ContextName)+" · "+candidate.ContextID, styleText),
 			selectorDetail(style, "Project", safeExternalText(candidate.ProjectRoot)+" · "+candidate.ProjectID, styleText),
 			selectorDetail(style, "Effect", policyReviewCandidateEffect(candidate), styleText),
@@ -286,6 +309,17 @@ func renderPolicyReviewFinalRaw(
 		lines = append(lines, applyStyleToken(style, styleWarning, "! "+message))
 	}
 	return renderPolicyReviewScreen(out, lines, previousLines)
+}
+
+func policyReviewFinalCountText(report tobari.PolicyCandidateReport, staged map[string]policyReviewAction) string {
+	label := "exact decision"
+	for id, action := range staged {
+		if action == policyReviewActionAllowTemplate && policyReviewTemplateByID(report, id) != nil {
+			label = "reviewed decision"
+			break
+		}
+	}
+	return fmt.Sprintf("%d %s%s ready for one Apply", len(staged), label, pluralSuffix(len(staged)))
 }
 
 func selectPolicyReviewRaw(
@@ -460,6 +494,29 @@ func selectPolicyReviewDetailRaw(
 		case selectorKeyNone:
 			continue
 		case selectorKeyAllow:
+			if policyReviewTemplateByID(report, candidate.ID) != nil {
+				message = "Press t to allow the template, e to allow observed exact paths, d to deny pending exact paths, or q to go back."
+				needsRender = true
+				continue
+			}
+			return policyReviewDetailRawResult{policyReviewDetailResult: policyReviewDetailResult{
+				CandidateID: candidate.ID, Action: policyReviewActionAllow, Lines: lineCount,
+			}}
+		case selectorKeyTemplate:
+			if policyReviewTemplateByID(report, candidate.ID) == nil {
+				message = "This exact permission has no template proposal."
+				needsRender = true
+				continue
+			}
+			return policyReviewDetailRawResult{policyReviewDetailResult: policyReviewDetailResult{
+				CandidateID: candidate.ID, Action: policyReviewActionAllowTemplate, Lines: lineCount,
+			}}
+		case selectorKeyExact:
+			if policyReviewTemplateByID(report, candidate.ID) == nil {
+				message = "Press a to allow exact, d to deny exact, or q to go back."
+				needsRender = true
+				continue
+			}
 			return policyReviewDetailRawResult{policyReviewDetailResult: policyReviewDetailResult{
 				CandidateID: candidate.ID, Action: policyReviewActionAllow, Lines: lineCount,
 			}}
@@ -472,7 +529,11 @@ func selectPolicyReviewDetailRaw(
 				Back: true, Lines: lineCount,
 			}}
 		default:
-			message = "Press a to allow exact, d to deny exact, or q to go back."
+			if policyReviewTemplateByID(report, candidate.ID) != nil {
+				message = "Press t to allow the template, e to allow observed exact paths, d to deny pending exact paths, or q to go back."
+			} else {
+				message = "Press a to allow exact, d to deny exact, or q to go back."
+			}
 			needsRender = true
 		}
 	}
@@ -509,6 +570,9 @@ func renderPolicyReviewListRaw(
 			prefix = "  " + applyStyleToken(style, styleText, "❯ ")
 		}
 		state := policyReviewStagedLabel(candidate.ID, staged)
+		if state == "Undecided" && policyReviewTemplateByID(report, candidate.ID) != nil {
+			state = "Suggested"
+		}
 		lines = append(lines, prefix+applyStyleToken(style, policyReviewStagedStyle(candidate.ID, staged), state)+"  "+
 			applyStyleToken(style, styleText, policyReviewCandidateListEffect(candidate))+"  "+
 			applyStyleToken(style, styleMuted, fmt.Sprintf("%d×", candidate.EffectiveObservationCount())))
@@ -523,7 +587,7 @@ func renderPolicyReviewListRaw(
 		"  "+applyStyleToken(style, styleText, policyReviewCandidateEffect(selectedCandidate)),
 		"  "+applyStyleToken(style, styleMuted, fmt.Sprintf(
 			"Observed %s · Latest %s",
-			policyCandidateObservationText(selectedCandidate), safeExternalText(selectedCandidate.ObservedAt),
+			policyReviewObservationText(report, selectedCandidate), safeExternalText(selectedCandidate.ObservedAt),
 		)),
 		"",
 	)
@@ -541,6 +605,32 @@ func renderPolicyReviewListRaw(
 }
 
 func groupPolicyReviewReport(report tobari.PolicyCandidateReport) tobari.PolicyCandidateReport {
+	reviewItems := report.ReviewItems
+	if reviewItems == nil {
+		var err error
+		reviewItems, err = tobari.PolicyReviewItems(report.Items, []tobari.LearnedPolicyRule{})
+		if err != nil {
+			return report
+		}
+	}
+	displayItems := make([]tobari.PolicyCandidate, 0, len(reviewItems))
+	for _, item := range reviewItems {
+		if item.Candidate != nil {
+			displayItems = append(displayItems, *item.Candidate)
+			continue
+		}
+		if item.Template == nil || len(item.Template.PendingCandidates) == 0 {
+			continue
+		}
+		proposal := item.Template
+		candidate := proposal.PendingCandidates[len(proposal.PendingCandidates)-1]
+		candidate.ID = proposal.ID
+		candidate.Path = proposal.Path
+		candidate.ObservationCount = len(proposal.Examples)
+		displayItems = append(displayItems, candidate)
+	}
+	report.Items = displayItems
+	report.ReviewItems = reviewItems
 	groups := make([][]tobari.PolicyCandidate, 0, len(report.Items))
 	groupIndexes := make(map[policyReviewScopeKey]int, len(report.Items))
 	for _, candidate := range report.Items {
@@ -558,6 +648,22 @@ func groupPolicyReviewReport(report tobari.PolicyCandidateReport) tobari.PolicyC
 		report.Items = append(report.Items, group...)
 	}
 	return report
+}
+
+func policyReviewTemplateByID(report tobari.PolicyCandidateReport, id string) *tobari.PolicyPathTemplateProposal {
+	for _, item := range report.ReviewItems {
+		if item.ID == id {
+			return item.Template
+		}
+	}
+	return nil
+}
+
+func policyReviewObservationText(report tobari.PolicyCandidateReport, candidate tobari.PolicyCandidate) string {
+	if proposal := policyReviewTemplateByID(report, candidate.ID); proposal != nil {
+		return fmt.Sprintf("%d distinct values", len(proposal.Examples))
+	}
+	return policyCandidateObservationText(candidate)
 }
 
 func policyReviewScopeCount(items []tobari.PolicyCandidate) int {
@@ -603,6 +709,7 @@ func renderPolicyReviewDetailRaw(
 	style bool,
 ) int {
 	candidate := report.Items[selected]
+	proposal := policyReviewTemplateByID(report, candidate.ID)
 	lines := []string{
 		selectorTitle(style, "Tobari · Permission Inbox"),
 		"",
@@ -613,16 +720,26 @@ func renderPolicyReviewDetailRaw(
 		selectorDetail(style, "Request", policyReviewCandidateRequest(candidate), styleText),
 		selectorDetail(style, "Reason", safeExternalText(candidate.Reason), styleDanger),
 		selectorDetail(style, "Status", fmt.Sprintf("%d", candidate.StatusCode), styleDanger),
-		selectorDetail(style, "Observed", policyCandidateObservationText(candidate), styleText),
+		selectorDetail(style, "Observed", policyReviewObservationText(report, candidate), styleText),
 		selectorDetail(style, "Latest", safeExternalText(candidate.ObservedAt), styleText),
 		"",
-		selectorHelp(style, "This decision applies only to this Tobari in this Context."),
-		"",
-		selectorActions(
-			styleAction(style, "[a] Allow exact", styleAccent),
-			styleAction(style, "[d] Deny exact", styleAccent),
-			styleAction(style, "[q] Back", styleMuted),
-		),
+	}
+	if proposal != nil {
+		lines = append(lines, selectorDetail(style, "Examples", strings.Join(proposal.Examples, ", "), styleText), "",
+			selectorHelp(style, "Allow template includes future non-empty values in exactly the {id} segment."), "",
+			selectorActions(
+				styleAction(style, "[t] Allow template", styleAccent),
+				styleAction(style, "[e] Allow observed exact", styleAccent),
+				styleAction(style, "[d] Deny pending exact", styleAccent),
+				styleAction(style, "[q] Back", styleMuted),
+			))
+	} else {
+		lines = append(lines, selectorHelp(style, "This decision applies only to this Tobari in this Context."), "",
+			selectorActions(
+				styleAction(style, "[a] Allow exact", styleAccent),
+				styleAction(style, "[d] Deny exact", styleAccent),
+				styleAction(style, "[q] Back", styleMuted),
+			))
 	}
 	if message == "" {
 		lines = append(lines, "")
@@ -751,8 +868,12 @@ func writePolicyReviewListLine(out io.Writer, report tobari.PolicyCandidateRepor
 		return err
 	}
 	for index, candidate := range report.Items {
+		state := policyReviewStagedLabel(candidate.ID, []map[string]policyReviewAction{staged})
+		if state == "Undecided" && policyReviewTemplateByID(report, candidate.ID) != nil {
+			state = "Suggested"
+		}
 		if _, err := fmt.Fprintf(out, "  %d. %-12s  %s  %s\n     %s\n", index+1,
-			policyReviewStagedLabel(candidate.ID, []map[string]policyReviewAction{staged}),
+			state,
 			safeExternalText(candidate.ContextName), safeExternalText(candidate.ProjectRoot), policyReviewCandidateRequest(candidate)); err != nil {
 			return err
 		}
@@ -801,7 +922,7 @@ func writePolicyReviewFinalLines(
 	out io.Writer, report tobari.PolicyCandidateReport,
 	staged map[string]policyReviewAction, stagedOrder []string,
 ) error {
-	if _, err := fmt.Fprintf(out, "Tobari · Review staged permissions\n\n%d exact decision%s ready for one Apply\n", len(staged), pluralSuffix(len(staged))); err != nil {
+	if _, err := fmt.Fprintf(out, "Tobari · Review staged permissions\n\n%s\n", policyReviewFinalCountText(report, staged)); err != nil {
 		return err
 	}
 	for index, id := range stagedOrder {
@@ -812,7 +933,7 @@ func writePolicyReviewFinalLines(
 		}
 		if _, err := fmt.Fprintf(out,
 			"\n%d. %s\n   Context   %s · %s\n   Project   %s · %s\n   Effect    %s\n   Candidate %s\n",
-			index+1, policyReviewActionLabel(action), safeExternalText(candidate.ContextName), candidate.ContextID,
+			index+1, policyReviewActionLabelFor(report, id, action), safeExternalText(candidate.ContextName), candidate.ContextID,
 			safeExternalText(candidate.ProjectRoot), candidate.ProjectID, policyReviewCandidateEffect(candidate), candidate.ID,
 		); err != nil {
 			return err
@@ -827,11 +948,16 @@ func selectPolicyReviewDetailLine(
 	reader *bufio.Reader, out io.Writer,
 ) (policyReviewDetailResult, error) {
 	candidate := report.Items[selected]
+	proposal := policyReviewTemplateByID(report, candidate.ID)
 	if err := writePolicyReviewDetailLines(out, report, selected); err != nil {
 		return policyReviewDetailResult{}, err
 	}
 	for {
-		if _, err := fmt.Fprintln(out, "\nChoose [a] to allow exact, [d] to deny exact, or [q] to go back:"); err != nil {
+		prompt := "\nChoose [a] to allow exact, [d] to deny exact, or [q] to go back:"
+		if proposal != nil {
+			prompt = "\nChoose [t] to allow the template, [e] to allow observed exact paths, [d] to deny pending exact paths, or [q] to go back:"
+		}
+		if _, err := fmt.Fprintln(out, prompt); err != nil {
 			return policyReviewDetailResult{}, err
 		}
 		if err := ctx.Err(); err != nil {
@@ -845,14 +971,29 @@ func selectPolicyReviewDetailLine(
 		switch value {
 		case "q", "quit", "esc", "b", "back":
 			return policyReviewDetailResult{Back: true}, nil
-		case "a", "allow", "d", "deny", "reject":
+		case "t", "template":
+			if proposal == nil {
+				if _, writeErr := fmt.Fprintln(out, "This exact permission has no template proposal."); writeErr != nil {
+					return policyReviewDetailResult{}, writeErr
+				}
+				continue
+			}
+			return policyReviewDetailResult{CandidateID: candidate.ID, Action: policyReviewActionAllowTemplate}, nil
+		case "a", "allow", "e", "exact", "d", "deny", "reject":
+			if (value == "e" || value == "exact") && proposal == nil {
+				continue
+			}
 			action := policyReviewActionAllow
 			if value == "d" || value == "deny" || value == "reject" {
 				action = policyReviewActionDeny
 			}
 			return policyReviewDetailResult{CandidateID: candidate.ID, Action: action}, nil
 		default:
-			if _, writeErr := fmt.Fprintln(out, "Use a to allow exact, d to deny exact, or q to go back."); writeErr != nil {
+			message := "Use a to allow exact, d to deny exact, or q to go back."
+			if proposal != nil {
+				message = "Use t to allow the template, e to allow observed exact paths, d to deny pending exact paths, or q to go back."
+			}
+			if _, writeErr := fmt.Fprintln(out, message); writeErr != nil {
 				return policyReviewDetailResult{}, writeErr
 			}
 		}
@@ -864,19 +1005,25 @@ func selectPolicyReviewDetailLine(
 
 func writePolicyReviewDetailLines(out io.Writer, report tobari.PolicyCandidateReport, selected int) error {
 	candidate := report.Items[selected]
-	return writeSelectorLines(out,
-		"Permission "+strconv.Itoa(selected+1)+" of "+strconv.Itoa(len(report.Items)),
+	lines := []string{
+		"Permission " + strconv.Itoa(selected+1) + " of " + strconv.Itoa(len(report.Items)),
 		"",
-		"Context   "+safeExternalText(candidate.ContextName),
-		"Tobari    "+safeExternalText(candidate.ProjectRoot),
-		"Request   "+policyReviewCandidateRequest(candidate),
-		"Reason    "+safeExternalText(candidate.Reason),
+		"Context   " + safeExternalText(candidate.ContextName),
+		"Tobari    " + safeExternalText(candidate.ProjectRoot),
+		"Request   " + policyReviewCandidateRequest(candidate),
+		"Reason    " + safeExternalText(candidate.Reason),
 		fmt.Sprintf("Status    %d", candidate.StatusCode),
-		"Observed  "+policyCandidateObservationText(candidate),
-		"Latest    "+safeExternalText(candidate.ObservedAt),
+		"Observed  " + policyReviewObservationText(report, candidate),
+		"Latest    " + safeExternalText(candidate.ObservedAt),
 		"",
-		"This decision applies only to this Tobari in this Context.",
-	)
+	}
+	if proposal := policyReviewTemplateByID(report, candidate.ID); proposal != nil {
+		lines = append(lines, "Examples  "+strings.Join(proposal.Examples, ", "), "",
+			"Allow template includes future non-empty values in exactly the {id} segment.")
+	} else {
+		lines = append(lines, "This decision applies only to this Tobari in this Context.")
+	}
+	return writeSelectorLines(out, lines...)
 }
 
 func policyReviewCandidateRequest(candidate tobari.PolicyCandidate) string {

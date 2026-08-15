@@ -983,7 +983,7 @@ func TestApplyPolicyReviewDecisionSetRevalidatesAndActivatesOnce(t *testing.T) {
 	allowDenial := validServiceDenial()
 	denyDenial := validServiceDenial()
 	denyDenial.RequestID = "8185da2688d7469aae9cd9068e920b0b"
-	denyDenial.Path = "/api/v1/items/two"
+	denyDenial.Path = "/fixed/other/shape"
 	allowCandidate, _ := tobari.NewPolicyCandidate(allowDenial)
 	denyCandidate, _ := tobari.NewPolicyCandidate(denyDenial)
 	runtime := &fakeRuntime{
@@ -999,8 +999,8 @@ func TestApplyPolicyReviewDecisionSetRevalidatesAndActivatesOnce(t *testing.T) {
 	}
 	result, err := New(runtime).ApplyPolicyReviewDecisionSet(
 		context.Background(), intent, tobari.PolicyReviewDecisionSet{Decisions: []tobari.PolicyReviewDecision{
-			{CandidateID: allowCandidate.ID, Decision: tobari.PolicyDecisionAllow},
-			{CandidateID: denyCandidate.ID, Decision: tobari.PolicyDecisionDeny},
+			{ReviewItemID: allowCandidate.ID, Decision: tobari.PolicyDecisionAllow, Match: tobari.PolicyMatchExact},
+			{ReviewItemID: denyCandidate.ID, Decision: tobari.PolicyDecisionDeny, Match: tobari.PolicyMatchExact},
 		}},
 	)
 	if err != nil {
@@ -1010,19 +1010,95 @@ func TestApplyPolicyReviewDecisionSetRevalidatesAndActivatesOnce(t *testing.T) {
 		result.AllowCount != 1 || result.DenyCount != 1 || !result.Applied ||
 		result.ActiveRevision != strings.Repeat("b", 64) || len(result.Decisions) != 2 ||
 		result.PolicyDirectory != runtime.policyActivationReceipt().PolicyDirectory ||
-		result.Decisions[0].CandidateID != allowCandidate.ID ||
-		result.Decisions[1].CandidateID != denyCandidate.ID {
+		result.Decisions[0].ReviewItemID != allowCandidate.ID ||
+		result.Decisions[1].ReviewItemID != denyCandidate.ID {
 		t.Fatalf("result=%+v calls=%d allows=%+v denies=%+v", result, runtime.decisionSetCalls, runtime.rules, runtime.denyRules)
 	}
 
 	stale := tobari.PolicyReviewDecisionSet{Decisions: []tobari.PolicyReviewDecision{{
-		CandidateID: "pcy_0123456789abcdef0123456789abcdef", Decision: tobari.PolicyDecisionAllow,
+		ReviewItemID: "pcy_0123456789abcdef0123456789abcdef", Decision: tobari.PolicyDecisionAllow, Match: tobari.PolicyMatchExact,
 	}}}
 	if _, err := New(runtime).ApplyPolicyReviewDecisionSet(context.Background(), intent, stale); err == nil {
 		t.Fatal("stale reviewed candidate was accepted")
 	}
 	if runtime.decisionSetCalls != 1 {
 		t.Fatalf("stale reviewed set caused a mutation: %d", runtime.decisionSetCalls)
+	}
+}
+
+func TestApplyPolicyReviewDecisionSetPromotesCurrentExactRuleAfterSecondPath(t *testing.T) {
+	t.Parallel()
+	first := validServiceDenial()
+	first.Path = "/items/123"
+	firstCandidate, err := tobari.NewPolicyCandidate(first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstRule, err := tobari.NewExactLearnedPolicyRule(firstCandidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second := first
+	second.RequestID = "8185da2688d7469aae9cd9068e920b0b"
+	second.Timestamp = "2026-08-15T01:01:00Z"
+	second.Path = "/items/456"
+	runtime := &fakeRuntime{state: testState(t.TempDir()), denials: []tobari.PolicyDenial{first, second}, rules: []tobari.LearnedPolicyRule{firstRule}}
+	service := New(runtime)
+	review, err := service.PolicyReview(context.Background(), 10_000)
+	if err != nil || len(review.Items) != 1 || len(review.ReviewItems) != 1 || review.ReviewItems[0].Template == nil {
+		t.Fatalf("review = %+v, error = %v", review, err)
+	}
+	proposal := review.ReviewItems[0].Template
+	intent := operation.Intent{Command: "policy apply-reviewed", Effect: operation.EffectWrite,
+		Target: operation.TargetRef{Kind: tobari.PolicyDecisionSetKind, ID: tobari.PolicyDecisionSetID},
+		Impact: operation.Impact{Cardinality: operation.CardinalityMany, Notification: operation.DeclarationNo, AccessChange: operation.DeclarationYes, Destructive: operation.DeclarationNo}}
+	result, err := service.ApplyPolicyReviewDecisionSet(context.Background(), intent, tobari.PolicyReviewDecisionSet{Decisions: []tobari.PolicyReviewDecision{{
+		ReviewItemID: proposal.ID, Decision: tobari.PolicyDecisionAllow, Match: tobari.PolicyMatchPathTemplate,
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runtime.decisionSetCalls != 1 || len(runtime.rules) != 1 || runtime.rules[0].Match != tobari.PolicyMatchPathTemplate ||
+		runtime.rules[0].Path != "/items/{id}" || result.AllowCount != 1 || len(result.Decisions) != 1 ||
+		result.Decisions[0].ReviewItemID != proposal.ID || result.Decisions[0].Match != tobari.PolicyMatchPathTemplate {
+		t.Fatalf("template result=%+v rules=%+v calls=%d", result, runtime.rules, runtime.decisionSetCalls)
+	}
+}
+
+func TestApplyPolicyReviewDecisionSetTemplateExactFallbackAndStaleProposalAreBounded(t *testing.T) {
+	t.Parallel()
+	first := validServiceDenial()
+	first.Path = "/items/123"
+	second := first
+	second.RequestID = "8185da2688d7469aae9cd9068e920b0b"
+	second.Timestamp = "2026-08-15T01:01:00Z"
+	second.Path = "/items/456"
+	runtime := &fakeRuntime{state: testState(t.TempDir()), denials: []tobari.PolicyDenial{first, second}}
+	service := New(runtime)
+	review, err := service.PolicyReview(context.Background(), 10_000)
+	if err != nil || len(review.ReviewItems) != 1 || review.ReviewItems[0].Template == nil {
+		t.Fatalf("review = %+v, error = %v", review, err)
+	}
+	proposalID := review.ReviewItems[0].ID
+	intent := operation.Intent{Command: "policy apply-reviewed", Effect: operation.EffectWrite,
+		Target: operation.TargetRef{Kind: tobari.PolicyDecisionSetKind, ID: tobari.PolicyDecisionSetID},
+		Impact: operation.Impact{Cardinality: operation.CardinalityMany, Notification: operation.DeclarationNo, AccessChange: operation.DeclarationYes, Destructive: operation.DeclarationNo}}
+	result, err := service.ApplyPolicyReviewDecisionSet(context.Background(), intent, tobari.PolicyReviewDecisionSet{Decisions: []tobari.PolicyReviewDecision{{
+		ReviewItemID: proposalID, Decision: tobari.PolicyDecisionAllow, Match: tobari.PolicyMatchExact,
+	}}})
+	if err != nil || result.AllowCount != 2 || len(runtime.rules) != 2 || runtime.rules[0].Match != tobari.PolicyMatchExact || runtime.rules[1].Match != tobari.PolicyMatchExact {
+		t.Fatalf("exact fallback result=%+v rules=%+v error=%v", result, runtime.rules, err)
+	}
+
+	staleRuntime := &fakeRuntime{state: testState(t.TempDir()), denials: []tobari.PolicyDenial{first, second}}
+	staleService := New(staleRuntime)
+	staleRuntime.denials[1].Path = "/other/456"
+	_, err = staleService.ApplyPolicyReviewDecisionSet(context.Background(), intent, tobari.PolicyReviewDecisionSet{Decisions: []tobari.PolicyReviewDecision{{
+		ReviewItemID: proposalID, Decision: tobari.PolicyDecisionAllow, Match: tobari.PolicyMatchPathTemplate,
+	}}})
+	public, ok := fault.PublicCopy(err)
+	if !ok || public.Code != "policy_review_changed" || staleRuntime.decisionSetCalls != 0 {
+		t.Fatalf("stale proposal fault=%#v calls=%d", public, staleRuntime.decisionSetCalls)
 	}
 }
 
@@ -1051,8 +1127,8 @@ func TestApplyPolicyReviewDecisionSetRejectsMultipleContextSources(t *testing.T)
 	}
 	_, err := New(runtime).ApplyPolicyReviewDecisionSet(
 		context.Background(), intent, tobari.PolicyReviewDecisionSet{Decisions: []tobari.PolicyReviewDecision{
-			{CandidateID: firstCandidate.ID, Decision: tobari.PolicyDecisionAllow},
-			{CandidateID: secondCandidate.ID, Decision: tobari.PolicyDecisionDeny},
+			{ReviewItemID: firstCandidate.ID, Decision: tobari.PolicyDecisionAllow, Match: tobari.PolicyMatchExact},
+			{ReviewItemID: secondCandidate.ID, Decision: tobari.PolicyDecisionDeny, Match: tobari.PolicyMatchExact},
 		}},
 	)
 	public, ok := fault.PublicCopy(err)

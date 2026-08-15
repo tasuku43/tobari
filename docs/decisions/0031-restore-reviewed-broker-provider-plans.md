@@ -7,7 +7,8 @@
 - Supersedes: The provider-removal and static-only authentication decisions in ADR 0030
 - Revises: ADR 0019, ADR 0020, Datadog ADR 0021, ADR 0023, ADR 0025, and ADR 0027
 - Revised by: ADR 0032 separates host Codex contract detection from the pinned
-  Workspace Codex projection
+  Workspace Codex projection; ADR 0038 replaces Anthropic setup-token acquisition
+  with isolated Context-runtime native login and a renewable session
 - Superseded by: None
 
 ## Context

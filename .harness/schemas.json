@@ -59,19 +59,19 @@
   {
     "id": "resumable-permission-review.fixture.v1",
     "path": "internal/cli/testdata/resumable-permission-review-fixture.json",
-    "sha256": "27329254ecab7886be128cd05b5b24b9286146c35fe56c0e6b77054672baa0b8",
-    "bytes": 4688,
+    "sha256": "3115feb28cbfb85c9603a2f47ccca13eeba29f6668c8edef34fa227928b7a250",
+    "bytes": 5044,
     "cases": 10,
-    "provenance": "Repository-authored synthetic typed fixture for resumable permission navigation, staged review, refresh reconciliation, activation failure, exact receipt, and same-session retry.",
+    "provenance": "Repository-authored synthetic typed fixture for resumable permission navigation, exact/template staged review, refresh reconciliation, activation failure, stored-rule receipt, and same-session retry.",
     "license": "MIT"
   },
   {
     "id": "resumable-permission-review.answer-key.v1",
     "path": "internal/cli/testdata/resumable-permission-review-answer-key.json",
-    "sha256": "f7bac748bbbb58d553af791693b3ff51073240c6f2c53ffee65adfdd44a12b92",
-    "bytes": 2731,
+    "sha256": "800025c178b9df4960499cabc2bd7b84f32e559f6ddb4a790158e2883d4cb7f0",
+    "bytes": 2730,
     "cases": 10,
-    "provenance": "Repository-authored presentation-independent answer key for permission navigation, zero-write cancellation, candidate-ID reconciliation, confirmed activation, and same-session retry.",
+    "provenance": "Repository-authored presentation-independent answer key for permission navigation, zero-write cancellation, typed review-item reconciliation, confirmed activation, and same-session retry.",
     "license": "MIT"
   }
 ]

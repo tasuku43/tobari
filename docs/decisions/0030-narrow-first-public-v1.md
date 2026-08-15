@@ -5,7 +5,7 @@
 - Deciders: Tobari maintainers
 - Scope: Product, architecture, security, harness, compatibility, and public boundary
 - Supersedes: ADR 0020, `0021-add-datadog-pup-oauth.md`, ADR 0023, and ADR 0025
-- Superseded by: ADR 0031 for provider removal and static-only authentication; exact-policy and managed-profile decisions remain active
+- Superseded by: ADR 0031 for provider removal and static-only authentication; ADR 0037 revises exact-only learning with reviewed single-segment path templates; managed-profile decisions remain active
 - Revises: ADR 0009, ADR 0019, ADR 0024, ADR 0027, and ADR 0029
 
 ## Context
@@ -86,10 +86,12 @@ explicitly `Workspace-owned`; Tobari does not claim those credentials remain
 outside the Workspace. Neither brokered acquisition nor import grants network
 authority or creates a policy rule.
 
-Policy learning is exact only. The ordinary identity is Context, project,
+Policy learning was reset to exact only by this decision. The ordinary identity is Context, project,
 scheme, host, port, method, and raw path plus optional GraphQL operation/root.
-There is no prefix learned-rule variant and no observation count can create
-broader authority. Policy presets integrate only after this deletion.
+There is no prefix learned-rule variant and no observation alone can create
+authority. ADR 0037 later adds a distinct explicit-review capability for one
+single raw path segment after two compatible examples; it does not restore
+prefix compaction. Policy presets integrate only after this deletion.
 
 ## Consequences
 

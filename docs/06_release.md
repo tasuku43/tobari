@@ -141,6 +141,12 @@ and development images are not release authority. Codex and Claude runtime varia
 remain local/CI-only pending their separate redistribution and image-layer
 license decisions.
 
+The native Anthropic account-login integration is also release-blocked until
+the release owner records explicit legal/product review of the applicable
+provider terms and any required provider approval. A successful synthetic or
+live login proves only technical behavior; it does not authorize third-party
+distribution or routing of Claude.ai account credentials.
+
 Tobari does not claim code signing, notarization, an SBOM attestation, or
 externally verifiable build provenance. Checksums protect selected artifact
 integrity but do not identify the builder. The SPDX document describes the
@@ -233,4 +239,5 @@ release gate; image publication alone is insufficient.
 
 The first public release also requires a clean-environment Colima or Linux
 Quick Start run and a human review of history, dependencies, licenses, and
-generated artifacts.
+generated artifacts. If native Anthropic account login is included, that review
+also records the separate legal/product/provider approval above.

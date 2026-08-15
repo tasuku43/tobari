@@ -154,7 +154,8 @@ func TestBrokerControlLoginExpectationsRequireExactProviderShape(t *testing.T) {
 	}
 	validAnthropic := []string{
 		"login", "--context-id", testBrokerContextID,
-		"--provider", "anthropic", "--account-label", credentialhost.ClaudeAccountLabel,
+		"--provider", "anthropic", "--account-label", credentialhost.ClaudeNativeAccountLabel,
+		"--driver-id", credentialhost.ClaudeNativeDriverID, "--driver-revision", testAWSDriverRevision,
 	}
 	for _, arguments := range [][]string{validGitHub, validAWS, validAWSConsole, validDatadog, validOpenAI, validAnthropic} {
 		expectation, err := brokerControlExpectationFor(arguments)
@@ -180,7 +181,8 @@ func TestBrokerControlLoginExpectationsRequireExactProviderShape(t *testing.T) {
 		{"login", "--context-id", testBrokerContextID, "--provider", "openai", "--account-label", "account-synthetic-123"},
 		{"login", "--context-id", testBrokerContextID, "--provider", "openai", "--account-label", "account-synthetic-123", "--driver-id", "other", "--driver-revision", testAWSDriverRevision},
 		{"login", "--context-id", testBrokerContextID, "--provider", "anthropic", "--account-label", "other"},
-		{"login", "--context-id", testBrokerContextID, "--provider", "anthropic", "--account-label", credentialhost.ClaudeAccountLabel, "--driver-id", credentialhost.ClaudeDriverID, "--driver-revision", testAWSDriverRevision},
+		{"login", "--context-id", testBrokerContextID, "--provider", "anthropic", "--account-label", credentialhost.ClaudeNativeAccountLabel},
+		{"login", "--context-id", testBrokerContextID, "--provider", "anthropic", "--account-label", credentialhost.ClaudeNativeAccountLabel, "--driver-id", credentialhost.ClaudeNativeDriverID + "-changed", "--driver-revision", testAWSDriverRevision},
 		{"login", "--context-id", testBrokerContextID, "--provider", "example", "--account-label", "example"},
 	} {
 		if _, err := brokerControlExpectationFor(arguments); err == nil {

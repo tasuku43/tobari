@@ -152,7 +152,9 @@ func brokerLoginControlExpectation(arguments []string) (brokerControlExpectation
 		expectation.DriverID = arguments[8]
 		expectation.DriverRevision = arguments[10]
 	case "anthropic":
-		if len(arguments) != 7 || expectation.AccountLabel != credentialhost.ClaudeAccountLabel {
+		if len(arguments) != 11 || expectation.AccountLabel != credentialhost.ClaudeNativeAccountLabel ||
+			arguments[7] != "--driver-id" || arguments[8] != credentialhost.ClaudeNativeDriverID ||
+			arguments[9] != "--driver-revision" || !hostDriverRevisionPattern.MatchString(arguments[10]) {
 			return brokerControlExpectation{}, fmt.Errorf("Auth Broker Anthropic login arguments are invalid")
 		}
 	default:

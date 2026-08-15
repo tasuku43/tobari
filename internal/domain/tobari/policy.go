@@ -15,6 +15,7 @@ import (
 var (
 	requestIDPattern         = regexp.MustCompile(`^[0-9a-f]{32}$`)
 	policyCandidateIDPattern = regexp.MustCompile(`^pcy_[0-9a-f]{32}$`)
+	policyTemplateIDPattern  = regexp.MustCompile(`^ptp_[0-9a-f]{32}$`)
 	policyDenyRuleIDPattern  = regexp.MustCompile(`^pdr_[0-9a-f]{32}$`)
 	learnedRuleIDPattern     = regexp.MustCompile(`^plr_[0-9a-f]{32}$`)
 	httpMethodPattern        = regexp.MustCompile(`^[A-Z][A-Z0-9!#$%&'*+.^_` + "`" + `|~-]{0,31}$`)
@@ -24,6 +25,7 @@ var (
 
 const (
 	PolicyMatchExact         = "exact"
+	PolicyMatchPathTemplate  = "path_template"
 	PolicyDecisionAllow      = "allow"
 	PolicyDecisionDeny       = "deny"
 	PolicyProtocolHTTP       = "http"
@@ -376,10 +378,11 @@ func (c PolicyCandidate) Validate() error {
 // PolicyCandidateReport preserves the bounded retained-log scope and supports
 // both machine discovery and the human tail projection.
 type PolicyCandidateReport struct {
-	Task            string            `json:"task"`
-	PolicyDirectory string            `json:"policy"`
-	WindowLines     int               `json:"window_lines"`
-	Items           []PolicyCandidate `json:"items"`
+	Task            string             `json:"task"`
+	PolicyDirectory string             `json:"policy"`
+	WindowLines     int                `json:"window_lines"`
+	Items           []PolicyCandidate  `json:"items"`
+	ReviewItems     []PolicyReviewItem `json:"-"`
 }
 
 func (r PolicyCandidateReport) Validate() error {
@@ -404,6 +407,18 @@ func (r PolicyCandidateReport) Validate() error {
 			return fmt.Errorf("policy candidate IDs must be unique")
 		}
 		seen[item.ID] = true
+	}
+	if r.ReviewItems != nil {
+		seenReviewItems := make(map[string]bool, len(r.ReviewItems))
+		for _, item := range r.ReviewItems {
+			if err := item.Validate(); err != nil {
+				return err
+			}
+			if seenReviewItems[item.ID] {
+				return fmt.Errorf("policy review item IDs must be unique")
+			}
+			seenReviewItems[item.ID] = true
+		}
 	}
 	return nil
 }
@@ -553,6 +568,7 @@ type LearnedPolicyRule struct {
 	Port             int      `json:"port"`
 	Method           string   `json:"method"`
 	Path             string   `json:"path"`
+	Segments         []string `json:"segments,omitempty"`
 	Examples         []string `json:"examples"`
 	SourceCandidates []string `json:"source_candidates"`
 }
@@ -597,7 +613,7 @@ func (r LearnedPolicyRule) Validate() error {
 	if !learnedRuleIDPattern.MatchString(r.ID) {
 		return fmt.Errorf("learned rule ID is invalid")
 	}
-	if r.Match != PolicyMatchExact {
+	if r.Match != PolicyMatchExact && r.Match != PolicyMatchPathTemplate {
 		return fmt.Errorf("learned rule match is invalid")
 	}
 	if err := validatePolicyScope(r.ContextID, r.ContextName, r.ProjectRoot); err != nil {
@@ -615,13 +631,21 @@ func (r LearnedPolicyRule) Validate() error {
 	if !httpMethodPattern.MatchString(r.Method) {
 		return fmt.Errorf("learned rule method is invalid")
 	}
-	if err := validatePolicyPath(r.Path); err != nil {
-		return fmt.Errorf("learned rule path is invalid")
+	if r.Match == PolicyMatchExact {
+		if err := validatePolicyPath(r.Path); err != nil {
+			return fmt.Errorf("learned rule path is invalid")
+		}
+	} else if err := validatePathTemplate(r.Path, r.Segments); err != nil {
+		return fmt.Errorf("learned rule path template is invalid: %w", err)
 	}
 	if r.Examples == nil || r.SourceCandidates == nil {
 		return fmt.Errorf("learned rule evidence is unknown")
 	}
-	if len(r.Examples) < 1 || len(r.SourceCandidates) < 1 {
+	minimumEvidence := 1
+	if r.Match == PolicyMatchPathTemplate {
+		minimumEvidence = 2
+	}
+	if len(r.Examples) < minimumEvidence || len(r.SourceCandidates) < minimumEvidence {
 		return fmt.Errorf("learned rule has insufficient evidence")
 	}
 	if err := validateSortedUniquePaths(r.Examples); err != nil {
@@ -631,9 +655,18 @@ func (r LearnedPolicyRule) Validate() error {
 		return fmt.Errorf("learned rule sources: %w", err)
 	}
 	for _, example := range r.Examples {
-		if example != r.Path {
+		if r.Match == PolicyMatchExact && example != r.Path {
 			return fmt.Errorf("exact learned rule example must equal its path")
 		}
+		if r.Match == PolicyMatchPathTemplate && !pathTemplateMatches(r.Segments, example) {
+			return fmt.Errorf("path-template learned rule example must match its template")
+		}
+	}
+	if r.Match == PolicyMatchExact && len(r.Segments) != 0 {
+		return fmt.Errorf("exact learned rule cannot contain template segments")
+	}
+	if r.Match == PolicyMatchPathTemplate && r.EffectiveProtocol() != PolicyProtocolHTTP {
+		return fmt.Errorf("GraphQL learned rules cannot use a path template")
 	}
 	if r.ID != learnedRuleIDWithIdentity(
 		r.Match, r.ContextID, r.ProjectID, r.Host, r.Port, r.Method, r.Path, r.Examples, r.SourceCandidates,
@@ -705,6 +738,7 @@ type PolicyRule struct {
 	Port             int      `json:"port"`
 	Method           string   `json:"method"`
 	Path             string   `json:"path"`
+	Segments         []string `json:"segments,omitempty"`
 	Examples         []string `json:"examples"`
 	SourceCandidates []string `json:"source_candidates"`
 }
@@ -720,7 +754,7 @@ func NewPolicyRuleFromLearned(rule LearnedPolicyRule) (PolicyRule, error) {
 		ID:                     rule.ID, Decision: PolicyDecisionAllow, Match: rule.Match,
 		ContextID: rule.ContextID, ContextName: rule.ContextName,
 		ProjectID: rule.ProjectID, ProjectRoot: rule.ProjectRoot, Host: rule.Host, Port: rule.Port, Method: rule.Method,
-		Path: rule.Path, Examples: append([]string{}, rule.Examples...),
+		Path: rule.Path, Segments: append([]string{}, rule.Segments...), Examples: append([]string{}, rule.Examples...),
 		SourceCandidates: append([]string{}, rule.SourceCandidates...),
 	}
 	if err := result.Validate(); err != nil {
@@ -762,7 +796,7 @@ func (r PolicyRule) Validate() error {
 			PolicyProtocolIdentity: r.PolicyProtocolIdentity,
 			ID:                     r.ID, Match: r.Match, ContextID: r.ContextID, ContextName: r.ContextName,
 			ProjectID: r.ProjectID, ProjectRoot: r.ProjectRoot, Host: r.Host, Port: r.Port,
-			Method: r.Method, Path: r.Path, Examples: r.Examples,
+			Method: r.Method, Path: r.Path, Segments: r.Segments, Examples: r.Examples,
 			SourceCandidates: r.SourceCandidates,
 		}
 		if err := learned.Validate(); err != nil {
@@ -942,7 +976,14 @@ func (r LearnedPolicyRule) MatchesIdentity(
 	if !r.PolicyProtocolIdentity.matches(identity) {
 		return false
 	}
-	return r.Match == PolicyMatchExact && r.Path == path
+	switch r.Match {
+	case PolicyMatchExact:
+		return r.Path == path
+	case PolicyMatchPathTemplate:
+		return pathTemplateMatches(r.Segments, path)
+	default:
+		return false
+	}
 }
 
 func PolicyCandidates(
@@ -1108,11 +1149,13 @@ type PolicyDenyChange struct {
 
 const MaxPolicyReviewDecisions = 128
 
-// PolicyReviewDecision is one explicit exact choice retained from a validated
-// review detail screen. CandidateID remains opaque and unchanged.
+// PolicyReviewDecision is one explicit choice retained from a validated review
+// detail screen. ReviewItemID remains opaque and Match states whether an Allow
+// accepts the proposed template or keeps authority exact.
 type PolicyReviewDecision struct {
-	CandidateID string `json:"candidate_id"`
-	Decision    string `json:"decision"`
+	ReviewItemID string `json:"review_item_id"`
+	Decision     string `json:"decision"`
+	Match        string `json:"match"`
 }
 
 // PolicyReviewDecisionSet is the bounded typed payload of one final human
@@ -1122,53 +1165,44 @@ type PolicyReviewDecisionSet struct {
 	Decisions []PolicyReviewDecision `json:"decisions"`
 }
 
-// PolicyReviewAppliedDecision is one exact secret-free decision repeated in
-// the confirmed receipt. Its fields are copied from the freshly revalidated
-// candidate; presentation must not reconstruct authority from labels or order.
+// PolicyReviewAppliedDecision is one secret-free stored rule repeated in the
+// confirmed receipt. RuleID identifies the actual exact or template decision;
+// ReviewItemID identifies the freshly revalidated detail choice that created it.
 type PolicyReviewAppliedDecision struct {
 	PolicyProtocolIdentity
-	CandidateID string `json:"candidate_id"`
-	Decision    string `json:"decision"`
-	ContextID   string `json:"context_id"`
-	ContextName string `json:"context"`
-	ProjectID   string `json:"project_id"`
-	ProjectRoot string `json:"project_root"`
-	Host        string `json:"host"`
-	Port        int    `json:"port"`
-	Method      string `json:"method"`
-	Path        string `json:"path"`
-}
-
-// NewPolicyReviewAppliedDecision copies only the candidate dimensions that
-// define the exact policy effect. Observation prose, credentials, headers,
-// queries, and bodies are intentionally absent from the receipt type.
-func NewPolicyReviewAppliedDecision(candidate PolicyCandidate, decision string) (PolicyReviewAppliedDecision, error) {
-	if err := candidate.Validate(); err != nil {
-		return PolicyReviewAppliedDecision{}, err
-	}
-	receipt := PolicyReviewAppliedDecision{
-		PolicyProtocolIdentity: candidate.PolicyProtocolIdentity,
-		CandidateID:            candidate.ID, Decision: decision,
-		ContextID: candidate.ContextID, ContextName: candidate.ContextName,
-		ProjectID: candidate.ProjectID, ProjectRoot: candidate.ProjectRoot,
-		Host: candidate.Host, Port: candidate.Port, Method: candidate.Method, Path: candidate.Path,
-	}
-	receipt.Protocol = candidate.EffectiveProtocol()
-	if err := receipt.Validate(); err != nil {
-		return PolicyReviewAppliedDecision{}, err
-	}
-	return receipt, nil
+	RuleID           string   `json:"rule_id"`
+	ReviewItemID     string   `json:"review_item_id"`
+	Decision         string   `json:"decision"`
+	Match            string   `json:"match"`
+	ContextID        string   `json:"context_id"`
+	ContextName      string   `json:"context"`
+	ProjectID        string   `json:"project_id"`
+	ProjectRoot      string   `json:"project_root"`
+	Host             string   `json:"host"`
+	Port             int      `json:"port"`
+	Method           string   `json:"method"`
+	Path             string   `json:"path"`
+	SourceCandidates []string `json:"source_candidates"`
 }
 
 func (d PolicyReviewAppliedDecision) Validate() error {
 	if err := d.PolicyProtocolIdentity.Validate(); err != nil {
 		return fmt.Errorf("policy review receipt protocol identity: %w", err)
 	}
-	if err := ValidatePolicyCandidateID(d.CandidateID); err != nil {
+	if err := ValidatePolicyRuleID(d.RuleID); err != nil {
+		return err
+	}
+	if err := ValidatePolicyReviewItemID(d.ReviewItemID); err != nil {
 		return err
 	}
 	if d.Decision != PolicyDecisionAllow && d.Decision != PolicyDecisionDeny {
 		return fmt.Errorf("policy review receipt decision is invalid")
+	}
+	if d.Match != PolicyMatchExact && d.Match != PolicyMatchPathTemplate {
+		return fmt.Errorf("policy review receipt match is invalid")
+	}
+	if d.Decision == PolicyDecisionDeny && d.Match != PolicyMatchExact {
+		return fmt.Errorf("policy review deny receipt must remain exact")
 	}
 	if err := validatePolicyScope(d.ContextID, d.ContextName, d.ProjectRoot); err != nil {
 		return fmt.Errorf("policy review receipt scope: %w", err)
@@ -1185,8 +1219,15 @@ func (d PolicyReviewAppliedDecision) Validate() error {
 	if !httpMethodPattern.MatchString(d.Method) {
 		return fmt.Errorf("policy review receipt method is invalid")
 	}
-	if err := validatePolicyPath(d.Path); err != nil {
-		return fmt.Errorf("policy review receipt path is invalid")
+	if d.Match == PolicyMatchExact {
+		if err := validatePolicyPath(d.Path); err != nil {
+			return fmt.Errorf("policy review receipt path is invalid")
+		}
+	} else if !strings.Contains(d.Path, PolicyPathTemplatePlaceholder) {
+		return fmt.Errorf("policy review receipt template path is invalid")
+	}
+	if err := validateSortedUniqueCandidateIDs(d.SourceCandidates); err != nil {
+		return fmt.Errorf("policy review receipt sources: %w", err)
 	}
 	return nil
 }
@@ -1197,16 +1238,22 @@ func (s PolicyReviewDecisionSet) Validate() error {
 	}
 	seen := make(map[string]struct{}, len(s.Decisions))
 	for _, decision := range s.Decisions {
-		if err := ValidatePolicyCandidateID(decision.CandidateID); err != nil {
+		if err := ValidatePolicyReviewItemID(decision.ReviewItemID); err != nil {
 			return err
 		}
 		if decision.Decision != PolicyDecisionAllow && decision.Decision != PolicyDecisionDeny {
 			return fmt.Errorf("policy review decision is invalid")
 		}
-		if _, duplicate := seen[decision.CandidateID]; duplicate {
-			return fmt.Errorf("policy review decision set contains a duplicate candidate")
+		if decision.Match != PolicyMatchExact && decision.Match != PolicyMatchPathTemplate {
+			return fmt.Errorf("policy review decision match is invalid")
 		}
-		seen[decision.CandidateID] = struct{}{}
+		if decision.Decision == PolicyDecisionDeny && decision.Match != PolicyMatchExact {
+			return fmt.Errorf("policy review deny decision must remain exact")
+		}
+		if _, duplicate := seen[decision.ReviewItemID]; duplicate {
+			return fmt.Errorf("policy review decision set contains a duplicate review item")
+		}
+		seen[decision.ReviewItemID] = struct{}{}
 	}
 	return nil
 }
@@ -1242,10 +1289,10 @@ func (c PolicyReviewChange) Validate() error {
 		if err := decision.Validate(); err != nil {
 			return err
 		}
-		if _, duplicate := seen[decision.CandidateID]; duplicate {
-			return fmt.Errorf("policy review receipt contains a duplicate candidate")
+		if _, duplicate := seen[decision.RuleID]; duplicate {
+			return fmt.Errorf("policy review receipt contains a duplicate rule")
 		}
-		seen[decision.CandidateID] = struct{}{}
+		seen[decision.RuleID] = struct{}{}
 		if decision.Decision == PolicyDecisionAllow {
 			allowCount++
 		} else {

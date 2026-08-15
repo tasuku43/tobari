@@ -135,7 +135,6 @@ class ReviewedDynamicCredentialGatewayTestCase(unittest.TestCase):
         }
 
     @staticmethod
-    @staticmethod
     def anthropic_claude_provider_projection():
         provider = {
             "schema_version": 1,
@@ -143,14 +142,21 @@ class ReviewedDynamicCredentialGatewayTestCase(unittest.TestCase):
             "display_name": "Anthropic account for Claude Code",
             "acquisition": {
                 "mode": "builtin_helper",
-                "helper": "claude-setup-token",
+                "helper": "claude-native-oauth",
             },
-            "credential": {"kind": "primary_secret"},
+            "credential": {"kind": "anthropic_claude_oauth_session"},
             "workspace_projections": [
                 {
-                    "kind": "env",
-                    "name": "CLAUDE_CODE_OAUTH_TOKEN",
-                    "template": "${HANDLE}",
+                    "kind": "complete_file",
+                    "path": ".claude/.credentials.json",
+                    "template": (
+                        '{"claudeAiOauth":{"accessToken":"${HANDLE}","refreshToken":"",'
+                        '"expiresAt":4102444800000,"refreshTokenExpiresAt":null,'
+                        '"scopes":["org:create_api_key","user:profile","user:inference",'
+                        '"user:sessions:claude_code","user:mcp_servers","user:file_upload"],'
+                        '"subscriptionType":null,"rateLimitTier":null,'
+                        '"clientId":"9d1c250a-e61b-44d9-88ed-5944d1962f5e"}}'
+                    ),
                 }
             ],
             "header_bindings": [
@@ -167,7 +173,7 @@ class ReviewedDynamicCredentialGatewayTestCase(unittest.TestCase):
                     "destination": {
                         "header": "authorization",
                         "format": "bearer",
-                        "secret_field": "primary_secret",
+                        "secret_field": "anthropic_claude_oauth_session",
                     },
                     "secret_headers": ["authorization"],
                 }
@@ -184,21 +190,21 @@ class ReviewedDynamicCredentialGatewayTestCase(unittest.TestCase):
             "destination": {
                 "header": "authorization",
                 "format": "bearer",
-                "secret_field": "primary_secret",
+                "secret_field": "anthropic_claude_oauth_session",
             },
             "secret_headers": ["authorization"],
         }
         return {
             "schema_version": 1,
             "providers": [provider],
-            "environment": [
+            "environment": [],
+            "complete_files": [
                 {
                     "provider_id": "anthropic",
-                    "name": "CLAUDE_CODE_OAUTH_TOKEN",
-                    "template": "${HANDLE}",
+                    "path": ".claude/.credentials.json",
+                    "template": provider["workspace_projections"][0]["template"],
                 }
             ],
-            "complete_files": [],
             "header_bindings": [normalized],
             "secret_headers": ["authorization"],
         }
