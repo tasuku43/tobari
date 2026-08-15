@@ -17,6 +17,31 @@ from tobari_gateway_test_support import ReviewedDynamicCredentialGatewayTestCase
 
 
 class ReviewedAWSSigV4GatewayTests(ReviewedDynamicCredentialGatewayTestCase):
+    def test_direct_aws_signature_at_declared_target_requires_broker(self):
+        self.provider_projection = self.aws_provider_projection()
+        flow = self.flow("https://sts.us-east-1.amazonaws.com/", "GET")
+        flow.request.headers["x-amz-date"] = "20260809T120000Z"
+        flow.request.headers["x-amz-security-token"] = "real-session-token-canary"
+        flow.request.headers["authorization"] = (
+            "AWS4-HMAC-SHA256 Credential=ASIAEXAMPLEKEY1234/"
+            "20260809/us-east-1/sts/aws4_request, "
+            "SignedHeaders=host;x-amz-date;x-amz-security-token, "
+            "Signature=" + "a" * 64
+        )
+        broker_call = mock.Mock()
+        addon = self.broker_gateway(broker_call)
+        with mock.patch.object(gateway, "query_opa") as query:
+            with redirect_stdout(io.StringIO()):
+                addon.requestheaders(flow)
+        query.assert_not_called()
+        broker_call.assert_not_called()
+        self.assertEqual(flow.response.status_code, 403)
+        self.assertEqual(
+            json.loads(flow.response.content), {"error": "broker_auth_required"}
+        )
+        self.assertNotIn("authorization", flow.request.headers)
+        self.assertNotIn("x-amz-security-token", flow.request.headers)
+
     def test_aws_sigv4_handle_is_signed_only_after_policy_and_complete_body(self):
         self.provider_projection = self.aws_provider_projection()
         self.assertEqual(

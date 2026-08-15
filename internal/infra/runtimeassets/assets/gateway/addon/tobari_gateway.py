@@ -23,6 +23,7 @@ from credential_adapters import (
     PassthroughCredentialAdapter,
 )
 from broker_credentials import (
+    BrokerAuthenticationRequired,
     BrokerCredentialBindingError,
     BrokerCredentialOutcomeUnknown,
     BrokerCredentialUnavailable,
@@ -863,6 +864,10 @@ class TobariGateway:
             reason = str(error)
             _deny(flow, 409, "credential_refresh_outcome_unknown")
             upstream_status = 409
+        except BrokerAuthenticationRequired as error:
+            reason = str(error)
+            _deny(flow, 403, "broker_auth_required")
+            upstream_status = 403
         except BrokerCredentialBindingError as error:
             reason = str(error)
             _deny(flow, 403, "credential_handle_invalid")
@@ -1021,6 +1026,8 @@ class TobariGateway:
             audit_failure(503, "policy_unavailable", str(error))
         except BrokerCredentialOutcomeUnknown as error:
             audit_failure(409, "credential_refresh_outcome_unknown", str(error))
+        except BrokerAuthenticationRequired as error:
+            audit_failure(403, "broker_auth_required", str(error))
         except BrokerCredentialBindingError as error:
             audit_failure(403, "credential_handle_invalid", str(error))
         except BrokerCredentialUnavailable as error:
@@ -1060,6 +1067,8 @@ class TobariGateway:
             commit_upstream_authority(flow)
         except BrokerCredentialOutcomeUnknown as error:
             deny(409, "credential_refresh_outcome_unknown", str(error))
+        except BrokerAuthenticationRequired as error:
+            deny(403, "broker_auth_required", str(error))
         except BrokerCredentialBindingError as error:
             deny(403, "broker_signing_request_invalid", str(error))
         except BrokerCredentialUnavailable as error:

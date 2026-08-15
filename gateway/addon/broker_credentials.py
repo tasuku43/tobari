@@ -84,6 +84,10 @@ class BrokerCredentialBindingError(BrokerCredentialError):
     """A Tobari-looking handle is invalid for this exact trusted principal."""
 
 
+class BrokerAuthenticationRequired(BrokerCredentialError):
+    """A declared provider binding received a Workspace-owned credential."""
+
+
 class BrokerCredentialUnavailable(BrokerCredentialError):
     """The private broker boundary is unavailable or returned an invalid frame."""
 
@@ -891,6 +895,75 @@ def _candidate(header: str, value: str) -> _HandleCandidate | None:
     return _HandleCandidate(header, "invalid", None, "")
 
 
+def _direct_source_format(value: str) -> str | None:
+    """Classify a non-handle value by the same exact source syntax as a binding."""
+
+    stripped = value.strip(" \t")
+    if not stripped:
+        return None
+    pieces = re.split(r"[ \t]+", stripped)
+    if len(pieces) == 2 and pieces[0].lower() in {"bearer", "token"} and pieces[1]:
+        return pieces[0].lower()
+    return "raw"
+
+
+def _direct_header_binding(
+    request: http.Request,
+    projection: dict[str, Any],
+    scheme: str,
+    host: str,
+    port: int,
+) -> dict[str, Any] | None:
+    target = {"scheme": scheme, "host": host, "port": port}
+    for raw_name, raw_value in request.headers.fields:
+        header = raw_name.decode("latin-1").lower()
+        source_format = _direct_source_format(raw_value.decode("latin-1"))
+        if source_format is None:
+            continue
+        matches = [
+            binding
+            for binding in projection["header_bindings"]
+            if binding["target"] == target
+            and binding["source"]
+            == {"header": header, "format": source_format}
+        ]
+        if len(matches) > 1:
+            raise BrokerCredentialUnavailable("provider projection is ambiguous")
+        if matches:
+            return matches[0]
+    return None
+
+
+def _direct_aws_binding(
+    request: http.Request,
+    projection: dict[str, Any],
+    scheme: str,
+    host: str,
+    port: int,
+) -> dict[str, Any] | None:
+    authorization_values = _header_values(request, "authorization")
+    if not any(
+        value.startswith("AWS4-HMAC-SHA256 ") for value in authorization_values
+    ):
+        return None
+    matches = [
+        binding
+        for binding in projection["signing_bindings"]
+        if binding["kind"] == "aws_sigv4"
+        and _aws_target_matches(binding, scheme, host, port)
+    ]
+    if len(matches) > 1:
+        raise BrokerCredentialUnavailable("provider projection is ambiguous")
+    return matches[0] if matches else None
+
+
+def _remove_projected_secret_headers(
+    request: http.Request, projection: dict[str, Any]
+) -> None:
+    for header in projection["secret_headers"]:
+        request.headers.pop(header, None)
+
+
 def _contains_handle_marker(value: str) -> bool:
     current = value
     for _ in range(3):
@@ -1390,7 +1463,7 @@ class _AWSSigV4Request:
 
 
 class BrokeredCredentialAdapter:
-    """Recognize broker handles per request, otherwise retain the old adapter."""
+    """Require handles at declared bindings; retain fallback only elsewhere."""
 
     name = "brokered"
 
@@ -1475,12 +1548,24 @@ class BrokeredCredentialAdapter:
                 revision=revision,
                 broker_call=self._call,
             )
+        if _direct_aws_binding(request, projection, scheme, host, port) is not None:
+            _remove_projected_secret_headers(request, projection)
+            raise BrokerAuthenticationRequired(
+                "broker authentication is required for this provider binding"
+            )
         try:
             selected = _find_candidate(request, projection, scheme, host, port)
         except BrokerCredentialBindingError:
             _remove_handle_headers(request)
             raise
         if selected is None:
+            if _direct_header_binding(
+                request, projection, scheme, host, port
+            ) is not None:
+                _remove_projected_secret_headers(request, projection)
+                raise BrokerAuthenticationRequired(
+                    "broker authentication is required for this provider binding"
+                )
             fallback = self.fallback.prepare(
                 request, scheme, host, port, context_id, project_id
             )

@@ -31,6 +31,7 @@ BrokerCredentialBindingError = broker.BrokerCredentialBindingError
 BrokerCredentialOutcomeUnknown = broker.BrokerCredentialOutcomeUnknown
 BrokerCredentialUnavailable = broker.BrokerCredentialUnavailable
 BrokeredCredentialAdapter = broker.BrokeredCredentialAdapter
+BrokerAuthenticationRequired = broker.BrokerAuthenticationRequired
 _broker_response = broker._broker_response
 call_broker = broker.call_broker
 validate_provider_projection = broker.validate_provider_projection
@@ -331,6 +332,81 @@ class ReviewedBrokerGatewayTests(unittest.TestCase):
         fallback.prepare.assert_not_called()
         self.assertNotIn("authorization", request.headers)
 
+    def test_declared_binding_rejects_direct_credential_without_fallback(self):
+        fallback = mock.Mock()
+        caller = mock.Mock()
+        adapter = broker.BrokeredCredentialAdapter(
+            fallback=fallback, projection_path="/projection.json",
+            socket_path="/broker.sock", timeout=2,
+            projection_loader=lambda _: projection(), caller=caller,
+        )
+        request = self.request(value="Bearer real-workspace-token")
+        with self.assertRaises(BrokerAuthenticationRequired):
+            adapter.prepare(
+                request, "https", "api.github.com", 443, CONTEXT, PROJECT
+            )
+        self.assertNotIn("authorization", request.headers)
+        caller.assert_not_called()
+        fallback.prepare.assert_not_called()
+
+    def test_undeclared_binding_retains_workspace_owned_fallback(self):
+        prepared = mock.Mock(secret_headers={"authorization"}, broker_provider=None)
+        fallback = mock.Mock()
+        fallback.prepare.return_value = prepared
+        caller = mock.Mock()
+        adapter = broker.BrokeredCredentialAdapter(
+            fallback=fallback, projection_path="/projection.json",
+            socket_path="/broker.sock", timeout=2,
+            projection_loader=lambda _: projection(), caller=caller,
+        )
+        request = self.request(
+            url="https://api.example.com/", value="Bearer real-workspace-token"
+        )
+        selected = adapter.prepare(
+            request, "https", "api.example.com", 443, CONTEXT, PROJECT
+        )
+        self.assertIs(selected.request, prepared)
+        self.assertEqual(request.headers["authorization"], "Bearer real-workspace-token")
+        caller.assert_not_called()
+        fallback.prepare.assert_called_once()
+
+    def test_broker_required_fault_is_terminal_before_policy(self):
+        addon = gateway.TobariGateway.__new__(gateway.TobariGateway)
+        addon.cluster = "default"
+        addon.opa_url = "http://opa.invalid/decision"
+        addon.opa_timeout = 2
+        addon.graphql_config = {}
+        addon.principal_source = mock.Mock()
+        addon.principal_source.load.return_value = {}
+        addon.credential_adapter = mock.Mock()
+        addon.credential_adapter.prepare.side_effect = BrokerAuthenticationRequired(
+            "broker authentication is required for this provider binding"
+        )
+        flow = tflow.tflow(req=self.request(value="Bearer real-workspace-token"))
+        with (
+            mock.patch.object(
+                gateway,
+                "normalize_ingress_authority",
+                return_value=("https", "api.github.com", 443),
+            ),
+            mock.patch.object(gateway, "resolve_project_principal", return_value={
+                "project_id": PROJECT, "context_id": CONTEXT,
+                "context": "default", "project_root": "/workspace/project",
+            }),
+            mock.patch.object(gateway, "query_opa") as query,
+            mock.patch.object(gateway, "commit_upstream_authority") as commit,
+            mock.patch.object(gateway, "_audit") as audit,
+        ):
+            addon.requestheaders(flow)
+        query.assert_not_called()
+        commit.assert_not_called()
+        self.assertEqual(flow.response.status_code, 403)
+        self.assertEqual(
+            json.loads(flow.response.content), {"error": "broker_auth_required"}
+        )
+        self.assertFalse(audit.call_args.kwargs["learnable"])
+        self.assertNotIn("real-workspace-token", str(audit.call_args.kwargs))
+
     def test_retired_profile_selector_fails_closed_before_broker_or_fallback(self):
         fallback = mock.Mock()
         caller = mock.Mock()
@@ -455,6 +531,33 @@ class ReviewedBrokerGatewayTests(unittest.TestCase):
 
 
 class ReviewedDynamicCredentialGatewayTests(ReviewedDynamicCredentialGatewayTestCase):
+
+    def test_declared_raw_binding_rejects_workspace_owned_secret(self):
+        provider_projection = self.static_tool_provider_projection()
+        fallback = mock.Mock()
+        caller = mock.Mock()
+        adapter = broker.BrokeredCredentialAdapter(
+            fallback=fallback, projection_path="/projection.json",
+            socket_path="/broker.sock", timeout=2,
+            projection_loader=lambda _: provider_projection, caller=caller,
+        )
+        request = http.Request.make(
+            "GET",
+            "https://api.chatwork.com/v2/me",
+            headers={"x-chatworktoken": "real-workspace-token"},
+        )
+        with self.assertRaises(BrokerAuthenticationRequired):
+            adapter.prepare(
+                request,
+                "https",
+                "api.chatwork.com",
+                443,
+                self.context_a,
+                self.project_a,
+            )
+        self.assertNotIn("x-chatworktoken", request.headers)
+        caller.assert_not_called()
+        fallback.prepare.assert_not_called()
 
     def test_provider_projection_is_strict_and_self_consistent(self):
         self.assertEqual(
