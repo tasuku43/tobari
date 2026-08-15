@@ -11,9 +11,10 @@ denied operation, and granting the minimum required permission extremely easy,
 it makes the safe execution path a more natural choice than running the agent
 directly on the host.**
 
-Every HTTP and HTTPS effect that crosses that boundary is denied by default and
-authorized as a normalized request by one shared OPA-backed Gateway. Trusted
-policy may declare an exact GraphQL endpoint whose generic L7 identity extends
+Every HTTP and HTTPS effect that crosses that boundary is authorized as a
+normalized request by one shared OPA-backed Gateway. A Context may start with a
+finite reviewed exact baseline; every effect outside that immutable snapshot is
+denied by default. Trusted policy may declare an exact GraphQL endpoint whose generic L7 identity extends
 the HTTP coordinates with one operation type and root field per effect.
 
 The primary users are developers who run Claude Code, Codex, shells, tests, and
@@ -84,6 +85,12 @@ using `tobari` leaves host execution unchanged, while `delete` and
   agent session valuable before policy customization is required. The user
   sets the boundary once; the agent is not supervised action by action inside
   it.
+- The default Context carries the pinned supported coding clients and a finite
+  reviewed baseline for their own exact core HTTP effects. Requiring the user
+  to reverse-engineer client bootstrap, model, account-status, inference, or
+  telemetry traffic before useful work is an adoption failure. Optional
+  plugins, MCP, connectors, file transfer, self-update, and project-originated
+  destinations remain outside that baseline.
 - A denied network effect should provide enough secret-free context and a
   concrete host-side review action to reach one exact, tested permission. The
   safe action may remain opaque-reference-bound internally, but the human
@@ -259,10 +266,12 @@ provider binding matches.
   Anthropic driver instead executes exact Claude Code in a fresh selected-
   Context-image container with no mounts, project state, persistent home,
   Broker socket, or Docker socket; that image sees only its own provider login.
-  Provider-owned optional Claude credential metadata is not a Tobari storage
-  contract: acquisition extracts only the bounded access token, refresh token,
-  expiry, and dynamically granted scope set into a versioned Tobari-owned
-  record. Scope names are provider output, not a compiled Tobari catalog:
+  Claude account entitlement labels needed by the pinned native client are a
+  narrow non-secret part of the Tobari storage contract: acquisition extracts
+  the bounded access token, refresh token, expiry, dynamically granted scope
+  set, subscription type, and rate-limit tier into a versioned Tobari-owned
+  record. Every other provider-owned optional field is discarded. Scope and
+  entitlement names are provider output, not compiled Tobari catalogs:
   acquisition bounds their OAuth syntax, requires the granted set to be a
   subset of the observed authorization request, and normalizes ordering.
   Browser
@@ -282,11 +291,12 @@ provider binding matches.
   copying it does not broaden its Context/project/binding authority, and users
   should not publish or log it. A real credential at a declared header or AWS
   signing binding fails before OPA, broker resolution, DNS, or upstream I/O.
-- Brokered login does not grant network authority. OPA remains the sole
+- Brokered login does not itself grant network authority. OPA remains the sole
   authority for Context, project, scheme, host, port, method, and path. A
-  brokered request does not inherit a broad static host/method allow; its first
-  exact L7 effect remains reviewable until the host installs one exact learned
-  rule.
+  brokered request receives only authority already present in the Context's
+  immutable baseline or learned rules. The default agent-ready preset includes
+  a finite exact core baseline coupled to the pinned Claude and Codex clients;
+  credentials never widen it and all unmatched effects remain reviewable.
 - Built-in broker plans are a closed typed union of static secrets, reviewed
   renewable sessions, fixed supplemental-header application, and AWS request-
   local signing. Owner manifests remain strict static-primary-secret,
@@ -375,9 +385,10 @@ directory.
 - The selected image is an environment and tool source, not the Workspace
   lifetime owner. Tobari starts the work container with its own fixed lifetime
   command; an image `CMD` such as `claude` cannot make a child-agent exit stop
-  the Workspace. The base runtime carries the common work tools required by
-  supported agents, and each published agent image adds only its agent-specific
-  tool and dependencies under the same contract.
+  the Workspace. The base runtime carries the common work tools plus the pinned
+  Codex and Claude Code clients required by the supported agent-ready Context.
+  Their binaries remain outside the mutable Workspace home and their versions
+  form one reviewed contract with the default policy baseline.
 - `tobari delete` is the only routine operation that ends a logical Tobari;
   ending a shell or losing a runtime resource leaves it existing.
 - Every process in a Tobari may modify or delete every file below that Tobari's
@@ -667,7 +678,7 @@ OPA allow.
 - Every persisted Context fixes `read-only` or `read-write` access for its one
   direct source bind and one normalized `builtin/<name>` or `custom/<name>`
   policy-preset origin plus SHA-256 snapshot revision. Creation owns the
-  `read-write` and `builtin/reviewed-exact` omission defaults. Readers never
+  `read-write` and `builtin/agent-ready` omission defaults. Readers never
   supply them for old state, source-preset edits never change an existing
   Context, and a different envelope requires a new Context.
 - Source access describes only the direct live source bind. Read-only does not
@@ -727,12 +738,20 @@ OPA allow.
   denial produces no candidate and performs no external DNS, broker resolution,
   or upstream call. Advanced Rego may further constrain generic input but
   cannot grant beyond the guardrail or redefine learned permission identity.
+- `builtin/agent-ready` makes guardrail-eligible effects reviewable and grants
+  only the exact reviewed Claude Code 2.1.220 and Codex 0.146.0 core effects
+  for model execution, bootstrap/catalog, account state, and fixed first-party
+  telemetry. The grants are Context-wide HTTP effects, not executable identity;
+  exact Deny remains terminal. Plugins, MCP, connectors, file transfer,
+  downloads, evaluation/experiment routes, self-update, and unmatched effects
+  receive no baseline authority.
 - `builtin/offline` terminally denies every HTTP and HTTPS effect and makes no
   effect review-eligible. `builtin/reviewed-exact` makes only guardrail-eligible
   effects available for exact review. `builtin/get-only-reviewed` makes only
   guardrail-eligible GET effects available for exact review and terminally
-  denies HEAD and every non-GET method. None grants immediate authority, and
-  the GET-specific preset makes no safe or read-only claim about GET.
+  denies HEAD and every non-GET method. Those three strict presets grant no
+  immediate authority, and the GET-specific preset makes no safe or read-only
+  claim about GET.
 - Tobari-owned ordinary learned permission identity binds Context, project,
   scheme, host, port, method, and raw path. Query, headers, and bodies are not
   learned dimensions; GraphQL adds only operation type and root field.
@@ -770,6 +789,9 @@ OPA allow.
   all-or-nothing, and forged or stale Context bindings fail closed.
 - Agent-readiness validation records current-default discovery, explicit
   invocation selection, and installation-wide permission review.
+- Runtime/preset compatibility tests bind both pinned agent versions to the
+  exact agent-ready grant catalog, retain strict-preset zero-grant canaries,
+  exclude optional client surfaces, and prove exact Deny precedence.
 
 ## Deliberate non-goals
 

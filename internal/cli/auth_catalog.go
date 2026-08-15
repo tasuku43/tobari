@@ -20,7 +20,7 @@ func authLoginSpec() CommandSpec {
 	provider := CommandInput{
 		Name: "--provider", Source: InputSourceFlag, Required: false,
 		ValueKind: InputValueText, Cardinality: InputCardinalitySingle,
-		Description:   "Credential provider to authenticate. Omission opens an interactive selector over installed reviewed login providers. GitHub uses gh, AWS uses aws, Datadog uses pup, OpenAI uses the reviewed Codex host-login contract, and Anthropic uses Claude Code 2.1.220 from the selected Context runtime.",
+		Description:   "Credential provider to authenticate. Omission opens an interactive selector over installed reviewed login providers. GitHub uses gh, AWS uses aws, Datadog uses a structurally compatible pup from the selected Context runtime, OpenAI uses the reviewed Codex host-login contract, and Anthropic uses Claude Code 2.1.220 from the selected Context runtime.",
 		AllowedValues: loginProviderIDs,
 	}
 	return CommandSpec{
@@ -47,7 +47,7 @@ func authLoginSpec() CommandSpec {
 				"The shared Auth Broker is already running, ready, and unlocked.",
 				"A declared provider binding rejects a real Workspace credential as broker_auth_required; re-enter affected Workspaces after login to project the current handle.",
 				"When provider is omitted, stdin and stderr are interactive terminals, error output remains human text, and the caller explicitly selects one installed reviewed login provider.",
-				"The reviewed gh, aws, pup, and Codex executables are available through trusted-host PATH; Anthropic instead requires Claude Code 2.1.220 at /usr/local/bin/claude in the selected compatible Context runtime image.",
+				"The reviewed gh, aws, and Codex executables are available through trusted-host PATH; Datadog requires a structurally compatible pup at /usr/local/bin/pup in the selected Context runtime, and Anthropic requires Claude Code 2.1.220 at /usr/local/bin/claude in that runtime.",
 				"The caller has interactive terminal streams on stdin and stderr and can complete the selected provider flow on the trusted host.",
 				"AWS identity-center login requires the access-portal URL, SSO region, 12-digit account ID, and role name; AWS console login requires AWS CLI 2.32 or newer and one commercial region.",
 			},
@@ -59,10 +59,10 @@ func authLoginSpec() CommandSpec {
 				declaredCommandError(fault.KindUnavailable, "github_cli_unavailable", false, "auth login", "Install the reviewed GitHub CLI on the trusted host and retry."),
 				declaredCommandError(fault.KindRejected, "github_login_cancelled", false, "auth login", "Retry the trusted-host GitHub login when ready."),
 				declaredCommandError(fault.KindRejected, "github_login_failed", false, "auth login", "Retry the trusted-host GitHub login after inspecting the failure."),
-				declaredCommandError(fault.KindUnavailable, "datadog_cli_unavailable", false, "auth login", "Install the reviewed pup CLI on the trusted host and retry."),
+				declaredCommandError(fault.KindUnavailable, "datadog_cli_unavailable", false, "help runtime", "Install a compatible pup in the selected Context runtime, build it, and retry."),
 				declaredCommandError(fault.KindRejected, "datadog_login_cancelled", false, "auth login", "Retry the trusted-host Datadog login when ready."),
 				declaredCommandError(fault.KindRejected, "datadog_login_timeout", false, "auth login", "Start a new Datadog OAuth login and complete it within the bounded window."),
-				declaredCommandError(fault.KindUnavailable, "datadog_login_failed", false, "auth login", "Retry the isolated trusted-host pup login after inspecting the failure."),
+				declaredCommandError(fault.KindUnavailable, "datadog_login_failed", false, "auth login", "Retry the isolated one-shot pup login after inspecting the failure."),
 				declaredCommandError(fault.KindUnavailable, "openai_cli_unavailable", false, "auth login", "Install a stable Codex CLI with the reviewed host-login contract on the trusted host and retry."),
 				declaredCommandError(fault.KindRejected, "openai_login_cancelled", false, "auth login", "Retry the trusted-host OpenAI login when ready."),
 				declaredCommandError(fault.KindRejected, "openai_login_timeout", false, "auth login", "Start a new Codex ChatGPT device login and complete it within the bounded window."),

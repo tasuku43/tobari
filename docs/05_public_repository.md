@@ -107,11 +107,12 @@ support promises before maintainers invite external users.
   infrastructure, not a Broker image artifact; tests and image layers must
   contain no live credential, token, handle, root key, vault, or authenticated
   output.
-- For the public base runtime, retain its pre-change GitHub CLI and AWS CLI
-  artifact, publisher, redistribution, multi-architecture, and native-smoke
-  checks. Verify `kubectl`, `cwk`, `pup`, and TWG only in the explicit local
-  toolbox inventory. That local build is not public redistribution evidence and
-  must not change the published-base lock or snapshot.
+- For the agent-ready base runtime, retain GitHub CLI and AWS CLI checks and
+  bind Claude Code 2.1.220 and Codex 0.146.0 to their per-platform artifact
+  locks. Until both agent redistribution/license reviews are approved, the
+  base declares `NOASSERTION` and its workflow must have no registry-write
+  permission, login, or push. Custom Context runtime contents are outside the
+  public base inventory and do not create redistribution evidence.
 - Keep the pinned `auth-provider.v1` schema fixture repository-authored,
   synthetic, MIT-licensed, and digest-matched. It must contain no real account,
   hostname, file path, or credential.
@@ -220,10 +221,9 @@ Minimum first-public-push checklist:
       contain no real account material, SSO/token/role state, device code,
       Codex or Claude credential state, signed authorization field, handle,
       key, or vault.
-- [ ] The published base's existing tool archives, checksums, licenses, notices,
-      and both architectures were reviewed; toolbox-only `kubectl`, `cwk`,
-      `pup`, and TWG are absent from published layers.
-- [ ] Codex and Claude runtime variants remain local/CI-only until their
+- [ ] The agent-ready base's tool archives, checksums, licenses, notices, and
+      both architectures were reviewed; unlisted custom-Context tools are absent.
+- [ ] The combined Codex and Claude base remains local/cache-only until both
       redistribution terms and image-layer license inventories are approved;
       a local build or passing version smoke test is not publication evidence.
 - [ ] Native Anthropic account-login distribution has explicit legal/product

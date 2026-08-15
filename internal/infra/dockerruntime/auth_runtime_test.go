@@ -993,6 +993,30 @@ func TestClassifyHostDatadogLoginFailuresUsesStableSecretFreeFaults(t *testing.T
 	}
 }
 
+func TestClassifyDatadogAvailabilityFailuresExposeOnlyContextRuntimeStages(t *testing.T) {
+	secretCanary := "synthetic-pup-runtime-detail-canary"
+	stages := []hostCLIUnavailableStage{
+		hostCLIStagePupContextSelection,
+		hostCLIStagePupImageContract,
+		hostCLIStagePupExecutableIdentity,
+		hostCLIStagePupVersionObservation,
+		hostCLIStagePupCaptureContract,
+		hostCLIStagePupStateContract,
+	}
+	for _, stage := range stages {
+		public, ok := fault.PublicCopy(classifyHostLoginError(
+			fmt.Errorf("%s: %w", secretCanary, hostCLIUnavailableError{provider: "datadog", stage: stage}),
+			"datadog",
+		))
+		if !ok || public.Code != "datadog_cli_unavailable" || public.Kind != fault.KindUnavailable || public.Retryable ||
+			!strings.Contains(public.Message, string(stage)) || !strings.Contains(public.Message, "Context runtime") ||
+			strings.Contains(public.Error(), secretCanary) || len(public.NextActions) != 1 ||
+			public.NextActions[0].Command != "help runtime" {
+			t.Fatalf("stage=%q public diagnostic=%+v ok=%t", stage, public, ok)
+		}
+	}
+}
+
 func TestClassifyHostOpenAIAvailabilityFailuresExposeOnlyFixedDiagnosticStage(t *testing.T) {
 	secretCanary := "synthetic-local-path-and-output-canary"
 	tests := []struct {

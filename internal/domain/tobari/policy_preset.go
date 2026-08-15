@@ -13,7 +13,9 @@ import (
 
 const (
 	PolicyPresetSchemaVersion = 1
-	DefaultPolicyPresetOrigin = "builtin/reviewed-exact"
+	DefaultPolicyPresetOrigin = "builtin/agent-ready"
+	AgentReadyClaudeVersion   = "2.1.220"
+	AgentReadyCodexVersion    = "0.146.0"
 
 	TaskPolicyPresetList     = "policy.preset.list"
 	TaskPolicyPresetShow     = "policy.preset.show"
@@ -274,6 +276,10 @@ func BuiltinPolicyPreset(origin string) (PolicyPreset, bool) {
 		base.Name = "offline"
 		base.Guardrail = PolicyPresetGuardrailOffline
 	case DefaultPolicyPresetOrigin:
+		base.Name = "agent-ready"
+		base.Guardrail = PolicyPresetGuardrailReviewedExact
+		base.BaselineGrants = agentReadyBaselineGrants()
+	case "builtin/reviewed-exact":
 		base.Name = "reviewed-exact"
 		base.Guardrail = PolicyPresetGuardrailReviewedExact
 	case "builtin/get-only-reviewed":
@@ -284,6 +290,33 @@ func BuiltinPolicyPreset(origin string) (PolicyPreset, bool) {
 		return PolicyPreset{}, false
 	}
 	return base, true
+}
+
+// agentReadyBaselineGrants is coupled to the Claude Code and Codex versions
+// pinned by the canonical base runtime. These are HTTP-effect grants, not
+// process identity: every process in the Context receives the same exact
+// authority/method/path decisions. Optional plugins, MCP, connectors, file
+// transfer, release downloads, evaluation, and self-update routes stay out.
+func agentReadyBaselineGrants() []PolicyPresetExactRule {
+	return []PolicyPresetExactRule{
+		{Scheme: "https", Host: "ab.chatgpt.com", Port: 443, Method: "POST", Path: "/otlp/v1/metrics"},
+		{Scheme: "https", Host: "api.anthropic.com", Port: 443, Method: "GET", Path: "/api/claude_cli/bootstrap"},
+		{Scheme: "https", Host: "api.anthropic.com", Port: 443, Method: "GET", Path: "/api/claude_code/policy_limits"},
+		{Scheme: "https", Host: "api.anthropic.com", Port: 443, Method: "GET", Path: "/api/claude_code/settings"},
+		{Scheme: "https", Host: "api.anthropic.com", Port: 443, Method: "GET", Path: "/api/hello"},
+		{Scheme: "https", Host: "api.anthropic.com", Port: 443, Method: "HEAD", Path: "/api/hello"},
+		{Scheme: "https", Host: "api.anthropic.com", Port: 443, Method: "GET", Path: "/api/oauth/profile"},
+		{Scheme: "https", Host: "api.anthropic.com", Port: 443, Method: "GET", Path: "/api/oauth/usage"},
+		{Scheme: "https", Host: "api.anthropic.com", Port: 443, Method: "POST", Path: "/api/event_logging/v2/batch"},
+		{Scheme: "https", Host: "api.anthropic.com", Port: 443, Method: "POST", Path: "/v1/messages"},
+		{Scheme: "https", Host: "chatgpt.com", Port: 443, Method: "GET", Path: "/backend-api/codex/models"},
+		{Scheme: "https", Host: "chatgpt.com", Port: 443, Method: "GET", Path: "/backend-api/codex/responses"},
+		{Scheme: "https", Host: "chatgpt.com", Port: 443, Method: "POST", Path: "/backend-api/codex/analytics-events/events"},
+		{Scheme: "https", Host: "chatgpt.com", Port: 443, Method: "POST", Path: "/backend-api/codex/responses"},
+		{Scheme: "https", Host: "chatgpt.com", Port: 443, Method: "GET", Path: "/backend-api/wham/rate-limit-reset-credits"},
+		{Scheme: "https", Host: "chatgpt.com", Port: 443, Method: "GET", Path: "/backend-api/wham/settings/user"},
+		{Scheme: "https", Host: "chatgpt.com", Port: 443, Method: "GET", Path: "/backend-api/wham/usage"},
+	}
 }
 
 func PolicyPresetRevision(p PolicyPreset) (string, error) {

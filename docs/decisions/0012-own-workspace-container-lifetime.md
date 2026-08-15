@@ -65,9 +65,9 @@ bootstrap entrypoint, and assert the
 `io.tobari.runtime-lifetime-command=sleep infinity` capability, but its `CMD`
 is not a lifecycle contract. A missing or incompatible
 image is rejected before project home, network, or container mutation. The
-minimal Tobari runtime is the compatibility foundation; future Claude, Codex,
-and toolbox images may be published as reviewed derived convenience bases, but
-publication is a separate release and public-boundary decision.
+minimal Tobari runtime is the compatibility foundation; future derived images
+may be published as reviewed convenience bases, but publication is a separate
+release and public-boundary decision.
 
 ## Consequences
 

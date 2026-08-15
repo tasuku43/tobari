@@ -58,7 +58,8 @@ func hostBrowserCommand(goos, target string) (string, []string, error) {
 
 func validLoginBrowserTarget(target string) bool {
 	return target == githubDeviceURL || awsSSODeviceURLPattern.MatchString(target) ||
-		validAWSConsoleAuthorizationURL(target, "") || validClaudeLoginAuthorizationURL(target)
+		validAWSConsoleAuthorizationURL(target, "") || validClaudeLoginAuthorizationURL(target) ||
+		validPupLoginAuthorizationURL(target)
 }
 
 func validAWSConsoleAuthorizationURL(target, expectedRegion string) bool {

@@ -28,10 +28,14 @@ CLI home, but it also does not claim that this compatibility credential stays
 outside the Workspace.
 
 Brokered acquisition or import never grants network permission and never
-creates a policy rule.
+creates a policy rule. A request may already match its Context's immutable
+baseline: the default `builtin/agent-ready` preset grants a finite exact set of
+Claude/Codex core HTTP effects. That authority exists independently from the
+credential, applies to every process in the Context, and cannot be widened by
+login, refresh, account metadata, or provider scope output.
 
 Acquisition and runtime application are separate trust boundaries. Reviewed
-host drivers acquire Context-owned state with fixed provider-specific flows;
+host and selected-Context-runtime drivers acquire Context-owned state with fixed provider-specific flows;
 Gateway later owns the exact request binding. Blocking a partial list of token
 or browser endpoints cannot enforce Broker use because an already acquired
 credential can be injected. Tobari therefore enforces handle-only runtime
@@ -82,8 +86,12 @@ one compiled AWS credential export and Broker signs the already-authorized,
 fully bounded request locally.
 
 Datadog uses fixed `pup --no-agent auth login --site datadoghq.com` acquisition
-on the trusted host. Broker selects a valid US1 token or performs one strict
-same-record refresh after allow. OpenAI records a stable host Codex version
+in a fresh mount-free container from the selected Context image. Tobari binds
+the immutable image and executable digest, accepts bounded semantic version
+syntax without an exact version allowlist, bridges one validated localhost
+callback only to pup stdin, and requires strict native status and state capture.
+Broker selects a valid US1 token or performs one strict same-record refresh
+after allow. OpenAI records a stable host Codex version
 without allowlisting it, requires the exact compiled
 `openai_codex_chatgpt_oauth` native-browser/state contract in an isolated home.
 The verified Codex child owns its loopback listener, dynamic authorization URL,
@@ -98,12 +106,26 @@ account ID as the supplemental header. Anthropic requires exactly Claude Code
 2.1.220 at `/usr/local/bin/claude` in the selected Context image. A fresh
 mount-free login container runs native account login, Tobari opens only the
 validated authorization URL, extracts only access token, refresh token, expiry,
-and the dynamically granted scope set from Linux state, validates bounded OAuth
+the dynamically granted scope set, subscription type, and rate-limit tier from
+Linux state, validates bounded OAuth
 scope-token syntax, requires that grant to be a subset of the observed request,
-normalizes provider ordering, and discards provider-owned optional
-metadata before checked cleanup. Broker stores its own strict record and
+normalizes provider ordering, structurally bounds the two non-secret
+entitlement labels without compiling provider values, and discards every other
+provider-owned optional field before checked cleanup. Broker stores its own strict record and
 selects or refreshes its bearer with the fixed reviewed client and persisted
 scope set after allow. Tobari compiles no Claude scope-name catalog.
+
+Workspace projection reproduces the scope and entitlement labels for the exact
+pinned client, uses the project-bound handle as `accessToken`, and uses the
+fixed public `dummy-value` as a local refresh-presence sentinel. That sentinel
+is not accepted as a Broker handle and cannot refresh the provider session;
+the actual renewable token never leaves Broker.
+
+The same reviewed Workspace projection merges only
+`hasCompletedOnboarding: true` into Claude's private top-level state. This
+closes the interactive first-run screen after `claude auth status` is already
+authenticated without copying account metadata or making the mutable file a
+credential source.
 
 `auth import PROVIDER` remains the owner extension path. It accepts one bounded
 non-empty static primary secret only from protected non-terminal stdin.

@@ -54,7 +54,7 @@ if [[ $status -ne 1 || $(grep -cF "check preflight: Go toolchain mismatch" <<<"$
   exit 1
 fi
 for expected in \
-  "required (go.mod): go1.26.5" \
+  "required (go.mod): go1.26.6" \
   "binary: $mismatch_root/go" \
   "go version: go version go1.26.5 darwin/arm64" \
   "go env GOVERSION: go1.26.5" \
@@ -62,7 +62,7 @@ for expected in \
   "GOTOOLDIR: $mismatch_root/fake-goroot/pkg/tool/darwin_arm64" \
   "compiler: compile version go1.26.3" \
   "GOTOOLCHAIN=local" \
-  "select go@1.26.5"; do
+  "select go@1.26.6"; do
   if [[ $output != *"$expected"* ]]; then
     echo "mixed Go diagnostic is missing: $expected" >&2
     printf '%s\n' "$output" >&2

@@ -52,11 +52,14 @@ indentation do not widen identity. Prefix learned rules and compaction do not
 exist.
 
 The immutable preset guardrail is evaluated before baseline data, learned
-rules, and Advanced Rego. `builtin/offline` terminally denies all HTTP/HTTPS;
+rules, and Advanced Rego. `builtin/agent-ready` grants a finite exact
+version-coupled Claude/Codex core matrix to every process in the Context; exact
+Deny remains terminal and optional agent surfaces remain unmatched.
+`builtin/offline` terminally denies all HTTP/HTTPS;
 `builtin/reviewed-exact` exposes only eligible exact candidates;
 `builtin/get-only-reviewed` exposes only eligible GET candidates and terminally
-denies HEAD/non-GET. None grants immediately and GET has no safe/read-only
-classification. Terminal denial creates no candidate and causes zero external
+denies HEAD/non-GET. Those three strict presets grant nothing immediately and
+GET has no safe/read-only classification. Terminal denial creates no candidate and causes zero external
 DNS, Broker resolution, or upstream call.
 
 Custom presets are strict owner-only non-executable schema-V1 data, normalized,
@@ -80,6 +83,13 @@ handles fail without passthrough fallback. Secrets, raw handles,
 credential revisions, query, headers, and bodies do not enter OPA, audit,
 denial evidence, CLI output, or logs.
 
+The Claude Workspace shim additionally contains the non-secret scope,
+subscription-type, and rate-limit-tier values captured from the pinned native
+client plus a fixed public refresh-presence sentinel. The sentinel is not a
+Broker handle and cannot resolve or renew anything; the provider refresh token
+stays encrypted in Broker. Entitlement values are structurally bounded data,
+never authority selectors or compiled policy inputs.
+
 Managed profiles remain absent. Dynamic credentials, refresh, signing,
 supplemental headers, companion calls, and task barriers exist only inside the
 closed reviewed AWS, Datadog, OpenAI, and Anthropic plans. Owner manifests cannot select
@@ -92,12 +102,14 @@ allowed effects is outside the guarantee.
 ### Provider helper execution
 
 The reviewed helper set is GitHub CLI, AWS CLI, pup, a contract-checked stable
-Codex CLI, and Claude Code 2.1.220. Tobari resolves canonical non-project executables for
-the first four and exact `/usr/local/bin/claude` from the selected Context image, rejects unsafe
-identity, hashes before and after, runs only fixed argv under private state or
-isolated container boundaries, accepts only bounded browser/output contracts, and performs
-checked cleanup. The Claude container receives no mount, volume, project path,
-Docker socket, or Broker socket, and its removal is a commit precondition.
+Codex CLI, and Claude Code 2.1.220. Tobari resolves canonical non-project
+executables for GitHub, AWS, and Codex. Pup and exact
+`/usr/local/bin/claude` run from the selected Context image; Tobari binds image
+and executable identity, runs only fixed argv under isolated container
+boundaries, accepts only bounded browser/output contracts, and performs checked
+cleanup. Neither selected-runtime login container receives a mount, volume,
+project path, Docker socket, or Broker socket, and removal is a commit
+precondition.
 Codex product version is recorded rather than allowlisted;
 its exact compiled login/state contract determines acceptance. Owner manifests
 cannot select a helper.

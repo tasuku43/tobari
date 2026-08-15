@@ -13,7 +13,12 @@
     {
       "kind": "complete_file",
       "path": ".claude/.credentials.json",
-      "template": "{\"claudeAiOauth\":{\"accessToken\":\"${HANDLE}\",\"refreshToken\":\"\",\"expiresAt\":4102444800000,\"scopes\":${OAUTH_SCOPES_JSON}}}"
+      "template": "{\"claudeAiOauth\":{\"accessToken\":\"${HANDLE}\",\"refreshToken\":\"dummy-value\",\"expiresAt\":4102444800000,\"scopes\":${OAUTH_SCOPES_JSON},\"subscriptionType\":${CLAUDE_SUBSCRIPTION_TYPE_JSON},\"rateLimitTier\":${CLAUDE_RATE_LIMIT_TIER_JSON}}}"
+    },
+    {
+      "kind": "merge_json",
+      "path": ".claude.json",
+      "template": "{\"hasCompletedOnboarding\":true}"
     }
   ],
   "header_bindings": [

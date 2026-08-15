@@ -305,7 +305,12 @@ class AnthropicRenewableSessionAdapter:
             state, driver_revision=driver_revision, account_label=account_label
         )
         parsed = ClaudeOAuthState.parse(state, driver_revision=driver_revision)
-        return {"oauth_scopes": list(parsed.oauth_scopes())}
+        subscription_type, rate_limit_tier = parsed.workspace_entitlements()
+        return {
+            "oauth_scopes": list(parsed.oauth_scopes()),
+            "claude_subscription_type": subscription_type,
+            "claude_rate_limit_tier": rate_limit_tier,
+        }
 
 
 RENEWABLE_CREDENTIAL_KINDS = frozenset(

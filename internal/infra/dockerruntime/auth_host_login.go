@@ -98,6 +98,12 @@ const (
 	hostCLIStageCodexChatGPTAppBundle    hostCLIUnavailableStage = "codex_chatgpt_app_bundle"
 	hostCLIStageCodexExecutableIdentity  hostCLIUnavailableStage = "codex_executable_identity"
 	hostCLIStageCodexVersionObservation  hostCLIUnavailableStage = "codex_version_observation"
+	hostCLIStagePupContextSelection      hostCLIUnavailableStage = "pup_context_runtime_selection"
+	hostCLIStagePupImageContract         hostCLIUnavailableStage = "pup_context_runtime_image_contract"
+	hostCLIStagePupExecutableIdentity    hostCLIUnavailableStage = "pup_context_runtime_executable_identity"
+	hostCLIStagePupVersionObservation    hostCLIUnavailableStage = "pup_context_runtime_version_observation"
+	hostCLIStagePupCaptureContract       hostCLIUnavailableStage = "pup_context_runtime_capture_contract"
+	hostCLIStagePupStateContract         hostCLIUnavailableStage = "pup_context_runtime_state_contract"
 	hostCLIStageClaudeContextSelection   hostCLIUnavailableStage = "claude_context_runtime_selection"
 	hostCLIStageClaudeImageContract      hostCLIUnavailableStage = "claude_context_runtime_image_contract"
 	hostCLIStageClaudeExecutableIdentity hostCLIUnavailableStage = "claude_context_runtime_executable_identity"
@@ -278,10 +284,6 @@ type hostConsoleCredentialAcquirer interface {
 		io.Reader,
 		credentialhost.VisibleOutput,
 	) (hostCredentialPayload, error)
-}
-
-type hostPupCredentialAcquirer interface {
-	LoginPup(context.Context, string, io.Reader, credentialhost.VisibleOutput) (hostCredentialPayload, error)
 }
 
 type hostCodexCredentialAcquirer interface {
@@ -505,30 +507,6 @@ func (a *osHostCredentialAcquirer) LoginAWSConsole(
 	}, nil
 }
 
-func (a *osHostCredentialAcquirer) LoginPup(
-	ctx context.Context,
-	executable string,
-	input io.Reader,
-	visible credentialhost.VisibleOutput,
-) (hostCredentialPayload, error) {
-	if a == nil || a.aws == nil {
-		return hostCredentialPayload{}, credentialhost.ErrPupLoginFailed
-	}
-	state, err := a.aws.PupLogin(ctx, executable, input, visible)
-	if err != nil {
-		return hostCredentialPayload{}, err
-	}
-	defer state.Clear()
-	encoded, err := state.Encode()
-	if err != nil {
-		return hostCredentialPayload{}, err
-	}
-	return hostCredentialPayload{
-		secret: encoded, accountLabel: credentialhost.PupAccountLabel, driverID: state.DriverID(),
-		driverRevision: state.DriverRevision(),
-	}, nil
-}
-
 func (a *osHostCredentialAcquirer) LoginCodex(
 	ctx context.Context,
 	executable string,
@@ -584,12 +562,12 @@ func (r *Runtime) runHostCredentialLoginOnTTY(
 	if provider == authbroker.BuiltinAWSProviderID && method == "" {
 		method = awsIdentityCenterMethod
 	}
-	if (provider != authbroker.BuiltinAnthropicProviderID && r.credentialHost == nil) ||
-		(provider != authbroker.BuiltinAnthropicProviderID && r.hostCLIs == nil) {
-		return brokerControlResponse{}, hostCLIUnavailableError{provider: provider, stage: hostCLIStageDriverDependency}
-	}
 	driver, reviewed := reviewedHostLoginDriverForProvider(provider)
 	if !reviewed {
+		return brokerControlResponse{}, hostCLIUnavailableError{provider: provider, stage: hostCLIStageDriverDependency}
+	}
+	usesContainerAcquisition := driver.kind == reviewedHostLoginDriverDatadog || driver.kind == reviewedHostLoginDriverAnthropic
+	if !usesContainerAcquisition && (r.credentialHost == nil || r.hostCLIs == nil) {
 		return brokerControlResponse{}, hostCLIUnavailableError{provider: provider, stage: hostCLIStageDriverDependency}
 	}
 
@@ -597,7 +575,7 @@ func (r *Runtime) runHostCredentialLoginOnTTY(
 	defer cancel()
 	executable := ""
 	var err error
-	if driver.kind != reviewedHostLoginDriverAnthropic {
+	if !usesContainerAcquisition {
 		executable, err = r.hostCLIs.Resolve(driver.executable)
 	}
 	if err != nil {
@@ -674,17 +652,11 @@ func (r *Runtime) runHostCredentialLoginOnTTY(
 			)
 		}
 	case reviewedHostLoginDriverDatadog:
-		acquirer, ok := r.credentialHost.(hostPupCredentialAcquirer)
-		if !ok {
-			return brokerControlResponse{}, hostCLIUnavailableError{provider: provider, stage: hostCLIStageDriverDependency}
+		if r.pupContainerLogin != nil {
+			payload, err = r.pupContainerLogin(loginContext, contextID, input, visible)
+		} else {
+			payload, err = r.loginPupInContextContainer(loginContext, contextID, input, visible)
 		}
-		payload, err = acquirer.LoginPup(
-			loginContext, executable, input,
-			func(_ credentialhost.OutputStream, content []byte) error {
-				_, writeErr := visible.Write(content)
-				return writeErr
-			},
-		)
 	case reviewedHostLoginDriverOpenAI:
 		acquirer, ok := r.credentialHost.(hostCodexCredentialAcquirer)
 		if !ok {
@@ -951,6 +923,9 @@ func hostLoginFailureIsCredentialDriver(err error) bool {
 		errors.Is(err, credentialhost.ErrInvalidState) ||
 		errors.Is(err, credentialhost.ErrInvalidCache) ||
 		errors.Is(err, credentialhost.ErrPupLoginFailed) ||
+		errors.Is(err, credentialhost.ErrPupLoginSetup) ||
+		errors.Is(err, credentialhost.ErrPupLoginCleanup) ||
+		errors.Is(err, credentialhost.ErrPupOutputLimit) ||
 		errors.Is(err, credentialhost.ErrInvalidPupState) ||
 		errors.Is(err, credentialhost.ErrCodexExecutable) ||
 		errors.Is(err, credentialhost.ErrCodexVersion) ||

@@ -46,13 +46,13 @@ are pinned to reviewed immutable versions or digests.
 
 The canonical base image definition is maintained under `runtimes/base` and
 its Dockerfile/bootstrap snapshot is checked against the embedded runtime
-assets. This capability leaves the published base at its pre-change GitHub CLI
-and AWS CLI baseline and preserves their checked-in per-platform integrity and
-redistribution checks. `kubectl`, `cwk`, `pup`, and TWG are artifacts of the
-explicit user-triggered local toolbox only; that build does not create a public
-image or change the base metadata/snapshot. The official image workflow builds
-Linux amd64 and arm64 and performs the existing offline native command smoke
-check for the workflow host's published platform.
+assets. The source includes GitHub CLI, AWS CLI, Claude Code 2.1.220, and Codex
+0.146.0 and preserves checked-in per-platform integrity metadata for each.
+`kubectl`, `cwk`, `pup`, and TWG are not part of the canonical base artifact
+inventory. A custom Context image does not change base metadata or publication
+authority. The base workflow validates Linux
+amd64 and arm64 with cache-only output while bundled-agent redistribution
+review is pending; it cannot log in to or write a registry.
 The canonical Gateway image definition is maintained under `gateway` and its
 Dockerfile, addon, entrypoint, and tests are checked against the embedded
 `internal/infra/runtimeassets/assets/gateway` snapshot. Release assembly builds
@@ -101,14 +101,12 @@ sentinels or infer missing authority.
 ## Publication
 
 Tags use `vMAJOR.MINOR.PATCH` for CLI releases. Gateway and Auth Broker are
-internal artifacts of that release; the base remains independently versioned
-as `ghcr.io/<owner>/tobari/runtime:<base-version>`, while a derived
-agent uses `<agent>.<agent-version>-base.<base-version>-r<revision>`, for example
-`claude.2.1.34-base.0.1.0-r1`. A push to `main` additionally runs the base-image
-workflow, which publishes `ghcr.io/<owner>/tobari/runtime:latest`, `:main`, and
-an immutable `sha-<commit>` tag for the exact main revision. `latest` and
-`main` are moving development channels, not stable image releases. Pull
-requests never receive package-write permission.
+internal artifacts of that release. An approved future base is independently
+versioned as `ghcr.io/<owner>/tobari/runtime:<base-version>`. The current
+agent-ready base is not publishable while its Claude/Codex artifact locks retain
+pending review. Main and pull-request base workflows are cache-only and receive
+no package-write permission. A later decision that approves redistribution may
+define stable and moving tags; no current workflow creates them.
 
 Pull-request component workflows remain validation-only and have no package
 write permission. The manual release workflow owns paired publication after
@@ -118,28 +116,25 @@ then creates the component lock before CLI packaging. No login, credential,
 account fixture, device or authorization code, token, handle, root key, vault,
 or authenticated output is a release artifact.
 
-The first Claude and Codex agent-image slices are build-only: their
-pull-request and main-push workflows validate the pinned parent, agent release
-checksums, multi-architecture build, and inherited runtime contract without
-publishing an agent tag. Their OCI/runtime metadata uses `NOASSERTION` while
-the lock records `license_review: pending`; it must not imply that the bundled
-agent layer is MIT-licensed. Public agent publication remains blocked until
-the agent redistribution terms and image-layer license review are recorded.
+The combined agent-ready base and the retained focused Claude/Codex child
+fixtures are build-only. Their workflows validate release checksums,
+multi-architecture construction, and the runtime contract without publishing.
+The combined OCI/runtime metadata uses `NOASSERTION` while both locks record
+`license_review: pending`; it must not imply that either bundled agent is
+MIT-licensed. Public base publication remains blocked until both redistribution
+terms, notices, and image-layer license reviews are recorded.
 
-The current publication boundary therefore has one supported runtime family
-edge: the base image may use its reviewed moving development channels and
-immutable commit tag, while Claude and Codex variants are local/CI build
-artifacts only. The repository does not claim a public agent image, stable
-support window, image SBOM/attestation, or redistribution approval until a new
-release decision accepts those claims. Gateway and Auth Broker source records
+The repository therefore does not currently claim a publishable agent-ready
+runtime, stable support window, image SBOM/attestation, or redistribution
+approval. A new release decision must accept those claims before restoring a
+registry-write workflow or selecting the combined base in a public resolver.
+Gateway and Auth Broker source records
 contain no release-output digest. A moving tag or standalone successful
 workflow does not make a digest runtime authority; only the paired lock
 generated during the reviewed release flow is injected into published
-archives. Build the applicable runtime separately with the
-`task runtime:codex:build` or `task runtime:claude:build` command. Moving tags
-and development images are not release authority. Codex and Claude runtime variants
-remain local/CI-only pending their separate redistribution and image-layer
-license decisions.
+archives. Contributor development builds `tobari-runtime:dev`; focused child
+commands remain integrity checks only. Moving tags and development images are
+not release authority.
 
 The native Anthropic account-login integration is also release-blocked until
 the release owner records explicit legal/product review of the applicable

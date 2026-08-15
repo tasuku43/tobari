@@ -52,6 +52,7 @@ const v1Sources = {
 for (const required of [
   "--source-access read-only",
   "read-write",
+  "builtin/agent-ready",
   "builtin/offline",
   "builtin/reviewed-exact",
   "builtin/get-only-reviewed",

@@ -1,10 +1,24 @@
 name: Runtime base
 
 on:
+  pull_request:
+    paths:
+      - runtimes/base/**
+      - runtimes/claude/runtime.lock.json
+      - runtimes/codex/runtime.lock.json
+      - runtimes/manifest.json
+      - internal/infra/runtimeassets/assets/tobari/**
+      - internal/infra/runtimeassets/assets/versions.env
+      - scripts/check-runtime-base.sh
+      - scripts/sync-runtime-base.sh
+      - tools/runtimecheck/**
+      - .github/workflows/runtime-base.yml
   push:
     branches: [main]
     paths:
       - runtimes/base/**
+      - runtimes/claude/runtime.lock.json
+      - runtimes/codex/runtime.lock.json
       - runtimes/manifest.json
       - internal/infra/runtimeassets/assets/tobari/**
       - internal/infra/runtimeassets/assets/versions.env
@@ -21,12 +35,9 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  publish:
-    name: Build and push base image
+  build:
+    name: Build agent-ready base without publishing
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -40,22 +51,10 @@ jobs:
       - name: Validate base source and embedded snapshot
         run: ./scripts/check-runtime-base.sh
 
-      - name: Log in to GHCR
-        env:
-          GHCR_TOKEN: ${{ github.token }}
+      - name: Build multi-architecture base image without publishing
         shell: bash
         run: |
           set -euo pipefail
-          printf '%s' "$GHCR_TOKEN" |
-            docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
-
-      - name: Build and push multi-architecture base image
-        env:
-          IMAGE_OWNER: ${{ github.repository_owner }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          image="ghcr.io/${IMAGE_OWNER,,}/tobari/runtime"
           base_image=$(go run ./tools/runtimecheck --print-base-image)
           builder="tobari-runtime-${GITHUB_RUN_ID}"
           docker buildx create --name "$builder" --driver docker-container --use
@@ -69,9 +68,5 @@ jobs:
             --build-arg TOBARI_GID=1000 \
             --label "org.opencontainers.image.revision=$GITHUB_SHA" \
             --label "org.opencontainers.image.version=main-${GITHUB_SHA:0:12}" \
-            --tag "$image:latest" \
-            --tag "$image:main" \
-            --tag "$image:sha-$GITHUB_SHA" \
-            --push \
+            --output type=cacheonly \
             runtimes/base
-          docker buildx imagetools inspect "$image:sha-$GITHUB_SHA"

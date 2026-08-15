@@ -89,9 +89,10 @@ func syntheticAnthropicClaudeProvider() Provider {
 		DisplayName:   "Anthropic account for Claude Code",
 		Acquisition:   Acquisition{Mode: AcquisitionBuiltinHelper, Helper: "claude-native-oauth"},
 		Credential:    Credential{Kind: CredentialAnthropicClaudeOAuthSession},
-		WorkspaceProjections: []WorkspaceProjection{{
-			Kind: WorkspaceProjectionCompleteFile, Path: ".claude/.credentials.json", Template: anthropicClaudeWorkspaceAuthTemplate,
-		}},
+		WorkspaceProjections: []WorkspaceProjection{
+			{Kind: WorkspaceProjectionCompleteFile, Path: ".claude/.credentials.json", Template: anthropicClaudeWorkspaceAuthTemplate},
+			{Kind: WorkspaceProjectionMergeJSON, Path: ".claude.json", Template: anthropicClaudeWorkspaceOnboardingTemplate},
+		},
 		HeaderBindings: []HeaderBinding{{
 			Target: BindingTarget{Scheme: "https", Host: "api.anthropic.com", Port: 443},
 			Source: BindingSource{Header: "authorization", Formats: []SourceFormat{SourceFormatBearer}},
@@ -324,7 +325,9 @@ func TestAnthropicClaudeProviderPublishesOnlyTheReviewedNativeOAuthPlan(t *testi
 	if len(projection.Environment) != 0 || len(projection.CompleteFiles) != 1 ||
 		projection.CompleteFiles[0] != (CompleteFileProjection{
 			ProviderID: "anthropic", Path: ".claude/.credentials.json", Template: anthropicClaudeWorkspaceAuthTemplate,
-		}) {
+		}) || len(projection.JSONMerges) != 1 || projection.JSONMerges[0] != (JSONMergeProjection{
+		ProviderID: "anthropic", Path: ".claude.json", Template: anthropicClaudeWorkspaceOnboardingTemplate,
+	}) {
 		t.Fatalf("Anthropic Workspace projection = %#v", projection)
 	}
 	if len(projection.HeaderBindings) != 1 {
@@ -357,14 +360,18 @@ func TestAnthropicClaudeProviderRejectsImpostorsAndRawSecretChannels(t *testing.
 		},
 		"raw native state":          func(p *Provider) { p.WorkspaceProjections[0].Template = "private-canary" },
 		"different credential file": func(p *Provider) { p.WorkspaceProjections[0].Path = ".claude/auth.json" },
-		"different authority":       func(p *Provider) { p.HeaderBindings[0].Target.Host = "console.anthropic.com" },
-		"insecure authority":        func(p *Provider) { p.HeaderBindings[0].Target.Scheme = "http" },
-		"custom port":               func(p *Provider) { p.HeaderBindings[0].Target.Port = 8443 },
-		"alternate source":          func(p *Provider) { p.HeaderBindings[0].Source.Header = "x-api-key" },
-		"raw source":                func(p *Provider) { p.HeaderBindings[0].Source.Formats = []SourceFormat{SourceFormatRaw} },
-		"raw destination":           func(p *Provider) { p.HeaderBindings[0].Destination.Format = DestinationFormatRaw },
-		"additional secret":         func(p *Provider) { p.HeaderBindings[0].SecretHeaders = []string{"authorization", "x-api-key"} },
-		"additional binding":        func(p *Provider) { p.HeaderBindings = append(p.HeaderBindings, p.HeaderBindings[0]) },
+		"different onboarding file": func(p *Provider) { p.WorkspaceProjections[1].Path = ".claude/onboarding.json" },
+		"different onboarding state": func(p *Provider) {
+			p.WorkspaceProjections[1].Template = `{"hasCompletedOnboarding":false}`
+		},
+		"different authority": func(p *Provider) { p.HeaderBindings[0].Target.Host = "console.anthropic.com" },
+		"insecure authority":  func(p *Provider) { p.HeaderBindings[0].Target.Scheme = "http" },
+		"custom port":         func(p *Provider) { p.HeaderBindings[0].Target.Port = 8443 },
+		"alternate source":    func(p *Provider) { p.HeaderBindings[0].Source.Header = "x-api-key" },
+		"raw source":          func(p *Provider) { p.HeaderBindings[0].Source.Formats = []SourceFormat{SourceFormatRaw} },
+		"raw destination":     func(p *Provider) { p.HeaderBindings[0].Destination.Format = DestinationFormatRaw },
+		"additional secret":   func(p *Provider) { p.HeaderBindings[0].SecretHeaders = []string{"authorization", "x-api-key"} },
+		"additional binding":  func(p *Provider) { p.HeaderBindings = append(p.HeaderBindings, p.HeaderBindings[0]) },
 		"signing plan": func(p *Provider) {
 			p.SigningBindings = cloneProvider(syntheticAWSProvider()).SigningBindings
 		},
@@ -388,13 +395,21 @@ func TestProviderValidatesAcquisitionCredentialAndTemplates(t *testing.T) {
 		"stdin helper":        func(p *Provider) { p.Acquisition.Helper = "github-gh" },
 		"unknown credential":  func(p *Provider) { p.Credential.Kind = "password" },
 		"unknown projection":  func(p *Provider) { p.WorkspaceProjections[0].Kind = "patch_file" },
+		"owner JSON merge": func(p *Provider) {
+			p.WorkspaceProjections[1] = WorkspaceProjection{
+				Kind: WorkspaceProjectionMergeJSON, Path: ".config/example/state.json", Template: `{"configured":true}`,
+			}
+		},
 		"reserved env":        func(p *Provider) { p.WorkspaceProjections[0].Name = "TOBARI_CONTEXT_ID" },
 		"process env":         func(p *Provider) { p.WorkspaceProjections[0].Name = "HTTPS_PROXY" },
 		"env with path":       func(p *Provider) { p.WorkspaceProjections[0].Path = ".config/x" },
 		"file with name":      func(p *Provider) { p.WorkspaceProjections[1].Name = "TOKEN" },
 		"unknown placeholder": func(p *Provider) { p.WorkspaceProjections[0].Template = "${SECRET}" },
-		"repeated handle":     func(p *Provider) { p.WorkspaceProjections[0].Template = "${HANDLE}:${HANDLE}" },
-		"env newline":         func(p *Provider) { p.WorkspaceProjections[0].Template = "${HANDLE}\n" },
+		"reserved Claude entitlement placeholder": func(p *Provider) {
+			p.WorkspaceProjections[0].Template = "${HANDLE}:${CLAUDE_SUBSCRIPTION_TYPE_JSON}"
+		},
+		"repeated handle": func(p *Provider) { p.WorkspaceProjections[0].Template = "${HANDLE}:${HANDLE}" },
+		"env newline":     func(p *Provider) { p.WorkspaceProjections[0].Template = "${HANDLE}\n" },
 		"no handle projection": func(p *Provider) {
 			p.WorkspaceProjections[0].Template = "static"
 			p.WorkspaceProjections[1].Template = "provider=${PROVIDER_ID}\n"

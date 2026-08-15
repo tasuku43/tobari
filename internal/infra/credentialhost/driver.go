@@ -16,11 +16,10 @@ import (
 )
 
 const (
-	maxVisibleOutputBytes  = 64 << 10
-	maxProcessStdoutBytes  = 64 << 10
-	maxProcessStderrBytes  = 16 << 10
-	refreshTimeout         = 45 * time.Second
-	defaultPupLoginTimeout = 5 * time.Minute
+	maxVisibleOutputBytes = 64 << 10
+	maxProcessStdoutBytes = 64 << 10
+	maxProcessStderrBytes = 16 << 10
+	refreshTimeout        = 45 * time.Second
 )
 
 var (
@@ -45,13 +44,12 @@ const (
 // owns presentation, prompt collection, and any trusted browser opening.
 type VisibleOutput func(OutputStream, []byte) error
 
-// Driver owns only reviewed trusted-host AWS/pup state and fixed process execution.
+// Driver owns only reviewed trusted-host AWS state and fixed process execution.
 type Driver struct {
-	runner     CommandRunner
-	tempRoot   string
-	now        func() time.Time
-	removeAll  func(string) error
-	pupTimeout time.Duration
+	runner    CommandRunner
+	tempRoot  string
+	now       func() time.Time
+	removeAll func(string) error
 }
 
 func NewDriver(runner CommandRunner) *Driver {
@@ -60,7 +58,6 @@ func NewDriver(runner CommandRunner) *Driver {
 	}
 	return &Driver{
 		runner: runner, now: time.Now, removeAll: os.RemoveAll,
-		pupTimeout: defaultPupLoginTimeout,
 	}
 }
 

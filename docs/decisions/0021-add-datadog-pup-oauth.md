@@ -5,7 +5,8 @@
 - Deciders: Tobari maintainers
 - Scope: Product, architecture, security, authentication, external I/O, harness, public boundary, and release
 - Extends: [ADR 0020: Add a host credential companion for renewable brokered credentials](0020-broker-reviewed-credential-plans.md)
-- Revised by: ADR 0027 places the Datadog plan inside exact V1
+- Revised by: ADR 0027 places the Datadog plan inside exact V1; ADR 0040 moves
+  pup acquisition from the trusted host into the selected Context runtime
 
 ## Context
 
@@ -65,8 +66,9 @@ re-login rotates the record and handles.
 ## Consequences
 
 - The Auth Broker image still contains no pup executable or user pup home.
-- Login requires host pup; refresh does not require the companion or a resident
-  pup process and remains automatic after OPA allow.
+- Login requires a structurally compatible pup in the selected Context runtime;
+  refresh does not require a resident pup process and remains automatic after
+  OPA allow.
 - Datadog is limited to the existing US1 authority and default organization.
 - The Broker gains one exact outbound OAuth token endpoint and strict state
   parser. Ambient proxies, redirects, provider response text, and unbounded

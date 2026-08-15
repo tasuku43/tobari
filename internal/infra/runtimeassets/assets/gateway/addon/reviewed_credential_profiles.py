@@ -31,6 +31,7 @@ class ReviewedGatewayCredentialProfile(Protocol):
         signing_bindings: list[dict[str, Any]],
         environment: list[dict[str, str]],
         complete_files: list[dict[str, str]],
+        json_merges: list[dict[str, str]],
     ) -> bool: ...
 
     def validate_supplemental_headers(
@@ -61,6 +62,7 @@ class AnthropicClaudeProfile(_BaseProfile):
         signing_bindings: list[dict[str, Any]],
         environment: list[dict[str, str]],
         complete_files: list[dict[str, str]],
+        json_merges: list[dict[str, str]],
     ) -> bool:
         return (
             display_name == "Anthropic account for Claude Code"
@@ -74,10 +76,20 @@ class AnthropicClaudeProfile(_BaseProfile):
                     "provider_id": "anthropic",
                     "path": ".claude/.credentials.json",
                     "template": (
-                        '{"claudeAiOauth":{"accessToken":"${HANDLE}","refreshToken":"",'
+                        '{"claudeAiOauth":{"accessToken":"${HANDLE}","refreshToken":"dummy-value",'
                         '"expiresAt":4102444800000,'
-                        '"scopes":${OAUTH_SCOPES_JSON}}}'
+                        '"scopes":${OAUTH_SCOPES_JSON},'
+                        '"subscriptionType":${CLAUDE_SUBSCRIPTION_TYPE_JSON},'
+                        '"rateLimitTier":${CLAUDE_RATE_LIMIT_TIER_JSON}}}'
                     ),
+                }
+            ]
+            and json_merges
+            == [
+                {
+                    "provider_id": "anthropic",
+                    "path": ".claude.json",
+                    "template": '{"hasCompletedOnboarding":true}',
                 }
             ]
             and normalized
@@ -115,6 +127,7 @@ class AWSSigV4Profile(_BaseProfile):
         signing_bindings: list[dict[str, Any]],
         environment: list[dict[str, str]],
         complete_files: list[dict[str, str]],
+        json_merges: list[dict[str, str]],
     ) -> bool:
         del display_name, environment, complete_files
         return (
@@ -122,6 +135,7 @@ class AWSSigV4Profile(_BaseProfile):
             and helper == "aws-sso"
             and len(signing_bindings) == 1
             and not normalized
+            and not json_merges
         )
 
 
@@ -140,6 +154,7 @@ class DatadogOAuthProfile(_BaseProfile):
         signing_bindings: list[dict[str, Any]],
         environment: list[dict[str, str]],
         complete_files: list[dict[str, str]],
+        json_merges: list[dict[str, str]],
     ) -> bool:
         del display_name
         return (
@@ -178,6 +193,7 @@ class DatadogOAuthProfile(_BaseProfile):
                 },
             ]
             and not complete_files
+            and not json_merges
         )
 
 
@@ -197,6 +213,7 @@ class OpenAICodexOAuthProfile(_BaseProfile):
         signing_bindings: list[dict[str, Any]],
         environment: list[dict[str, str]],
         complete_files: list[dict[str, str]],
+        json_merges: list[dict[str, str]],
     ) -> bool:
         return (
             display_name == "OpenAI account for Codex"
@@ -235,6 +252,7 @@ class OpenAICodexOAuthProfile(_BaseProfile):
                     ),
                 }
             ]
+            and not json_merges
         )
 
     def validate_supplemental_headers(self, value: Any) -> dict[str, str] | None:

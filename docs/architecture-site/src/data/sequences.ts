@@ -518,7 +518,7 @@ export const sequenceScenarios: SequenceScenario[] = [
         failure:
           "Known pre-send failure is 503; explicit or post-send ambiguity is non-retryable 409 and keeps the durable barrier.",
         explanation:
-          "Datadog refresh is Broker-owned; the trusted-host pup driver is used only during login.",
+          "Datadog refresh is Broker-owned; isolated pup from the selected Context runtime is used only during login.",
         tone: "secret",
       },
       {

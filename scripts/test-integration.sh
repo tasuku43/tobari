@@ -786,14 +786,17 @@ import os
 items = json.loads(os.environ["PRESET_CATALOG_DOCUMENT"])["policy_presets"]["items"]
 builtins = {item["origin"]: item for item in items if item["origin"].startswith("builtin/")}
 expected = {
+    "builtin/agent-ready",
     "builtin/offline",
     "builtin/reviewed-exact",
     "builtin/get-only-reviewed",
 }
 if set(builtins) != expected:
     raise SystemExit(f"unexpected built-in preset catalog: {builtins!r}")
-if any(item["immediate_grant_count"] != 0 for item in builtins.values()):
-    raise SystemExit(f"built-in preset granted authority immediately: {builtins!r}")
+if builtins["builtin/agent-ready"]["immediate_grant_count"] == 0:
+    raise SystemExit(f"agent-ready preset has no core grants: {builtins!r}")
+if any(item["immediate_grant_count"] != 0 for name, item in builtins.items() if name != "builtin/agent-ready"):
+    raise SystemExit(f"strict built-in preset granted authority immediately: {builtins!r}")
 PY
 custom_preset_init=$(run_tobari policy preset init --name snapshot --format json)
 custom_preset_path=$(python3 -c \

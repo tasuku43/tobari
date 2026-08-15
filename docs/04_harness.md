@@ -25,16 +25,13 @@ Gateway/Broker/transport, policy review/activation, diagnostics, and lifecycle
 coverage. Unexpected failures name the active phase before bounded container
 diagnostics, while one cleanup owner still controls the complete fixture.
 
-The optional `task toolbox:build` workflow is not a completion profile. It
-requires Docker and the official Tobari runtime base, downloads the
-version-pinned `kubectl`, `cwk`, `pup`, and local-only TWG artifacts, builds
-`tobari-toolbox:local`, validates inherited runtime metadata, and executes each
-named tool plus the inherited GitHub CLI and AWS CLI. The base runtime check
-continues to verify its pre-change Git, HTTP, JSON, Python, SSH, GitHub CLI, and
-AWS CLI baseline. The fast profile statically checks toolbox versions, official
-sources, per-platform integrity, local license/notices, final user, and the
-inherited entrypoint contract. It also fails if a toolbox-only tool enters the
-published base through this capability.
+The base runtime check verifies its Git, HTTP, JSON, Python, SSH, GitHub CLI,
+AWS CLI, Claude Code 2.1.220, and Codex 0.146.0 baseline. The fast profile binds
+the two agent pins to their checked artifact locks. Datadog acquisition tests
+instead prove selected-Context resolution, immutable image and executable
+identity, structural pup login/capture conformance, and absence of host/base
+fallback. While bundled-agent redistribution review is pending, runtimecheck also
+rejects registry-write permission, Docker login, or push in the base workflow.
 
 `task build` is a contributor feedback path, not a completion profile. It
 builds or reuses local Tobari-managed component images whose tags contain the
@@ -132,9 +129,11 @@ the prompt is visible before flush, successful host opening omits the long URL,
 failed opening retains it exactly once, the child owns non-echoing input,
 later provider failure/status remains visible, and owned color is optional.
 The fixture also proves Claude cursor state is not rendered as escaped text and
-ends with exactly one Tobari-owned cursor-show. Native-state tests accept
-provider-owned additive metadata only at capture, prove it is absent from the
-canonical Broker record, and continue to reject duplicate keys, missing core
+ends with exactly one Tobari-owned cursor-show. Native-state tests preserve
+only structurally bounded subscription-type and rate-limit-tier labels, accept
+other provider-owned additive metadata only at capture, prove that other
+metadata is absent from the canonical Broker record, and continue to reject
+duplicate keys, missing core or entitlement
 values, malformed or duplicate scope tokens, grants outside the observed
 request, refresh scope drift, and executable-identity drift while accepting
 unknown future scope names and canonicalizing scope order. Progress tests prove fixed CRLF-framed secret-free
@@ -149,14 +148,12 @@ and cleanup-only failure.
 Negative tests prove managed profiles, owner-selected dynamic plans, arbitrary
 helpers, compatibility readers, and Broker provider CLIs are absent.
 
-The focused Claude and Codex runtime checks validate their pinned agent
-artifacts at Claude Code 2.1.220 and Codex 0.146.0 and their inherited contract.
-Their local build fixtures also replace `/var/lib/tobari` with a temporary home
-mount and execute the agent commands, so an image-layer executable cannot
-silently depend on the persistent home. A Context custom-runtime smoke test may
-compose both local artifacts and run both version commands. None of these
-checks authorizes publication: agent tags stay local while redistribution and
-license review is pending.
+The canonical base and focused Claude/Codex runtime checks validate the pinned
+agent artifacts at Claude Code 2.1.220 and Codex 0.146.0. Local build fixtures
+replace `/var/lib/tobari` with a temporary home mount and execute both agent
+commands, so an image-layer executable cannot silently depend on persistent
+home state. None of these checks authorizes publication: the combined base
+remains build-only while redistribution and license review is pending.
 
 Direct invocation is supported for automation:
 
@@ -806,7 +803,7 @@ Every strong statement should identify its enforcement path.
 | Doctor remains observational | Fixed dependency-matrix, direct-blocker, complete-report, schema-1 renderer/agent-contract, fail/warn exit, cancellation, Docker-argv allowlist, host-only policy-source validation, content-aware fresh/unsupported-version snapshots, and zero-create/zero-repair canaries across root-key, vault, provider, broker, and project-auth state |
 | Every declared read remains observational | Dynamic public-catalog handler coverage, per-command fresh-XDG before/after snapshots, zero Docker-mutation argv, lockless fresh lifecycle reads, read-only/concurrent fixtures, unsupported-version fail-closed state, and bounded cleanup of only a pre-existing validated journal |
 | Project-bound broker handles | Full Context/project/provider/revision/target/header round trips, hash-only live index assertions, copied/stale/rotated/revoked negative tests, exact Context-wide eligibility and next-entry semantics, and Workspace projection reconciliation |
-| Agent OAuth acquisition and pinned projections | Multi-version host Codex tests require one exact compiled driver-contract revision, fixed argv/environment, canonical executable digest, and strict captured state while treating stable product version as audit metadata; exact-key/byte tests independently fix the Codex 0.146.0 Workspace `.codex/auth.json` sentinel shim with only `${HANDLE}` as `tokens.access_token`; Claude tests fix exact 2.1.220 selected-image login, host-side executable hashing, no-mount container isolation, four-field native extraction with dynamic bounded scope-token validation, granted-subset enforcement, canonical normalization into a Tobari-owned record, secret-free capture-stage faults, fixed progress transitions, fixed-client refresh that preserves the stored set, and a minimal `.claude/.credentials.json` whose only secret-bearing value is `${HANDLE}` at `claudeAiOauth.accessToken` and whose non-secret scopes reproduce that set; direct synthetic Gateway bearer/account-header checks, API-key/auth-token absence, modified/symlinked-file refusal, and Workspace-client drift rejection remain required |
+| Agent OAuth acquisition and pinned projections | Multi-version host Codex tests require one exact compiled driver-contract revision, fixed argv/environment, canonical executable digest, and strict captured state while treating stable product version as audit metadata; exact-key/byte tests independently fix the Codex 0.146.0 Workspace `.codex/auth.json` sentinel shim with only `${HANDLE}` as `tokens.access_token`; Claude tests fix exact 2.1.220 selected-image login, host-side executable hashing, no-mount container isolation, four renewable fields plus structurally bounded subscription/rate-limit labels, dynamic scope-token validation, granted-subset enforcement, canonical normalization into a Tobari-owned record, secret-free capture-stage faults, fixed progress transitions, and fixed-client refresh that preserves the stored set and labels; exact-byte Workspace tests require only `${HANDLE}` as secret-bearing material, the public `dummy-value` refresh sentinel, the captured non-secret scopes and entitlement labels, and an exact `hasCompletedOnboarding` JSON merge that preserves unrelated Claude state and rejects unsafe targets; an isolated real-client matrix proves empty refresh is reported expired while the sentinel plus captured labels restores the native account/default-model UI; direct synthetic Gateway bearer/account-header checks, API-key/auth-token absence, modified/symlinked-file refusal, and Workspace-client drift rejection remain required |
 | Declared provider bindings require Broker | Direct bearer/raw and AWS SigV4 canaries assert `broker_auth_required`, secret-header removal, and zero fallback/Broker/OPA/DNS/upstream calls; one undeclared-binding canary retains post-policy compatibility passthrough |
 | Broker fallback requires an undeclared binding and marker absence | URL/path/query/fragment/header-name/value marker canaries, malformed/ambiguous/binding-mismatch rejection, and compatibility passthrough tests with no declared binding or marker anywhere inspected |
 | Post-policy credential action | Gateway call-order/count tests for handle removal, introspect-before-OPA, zero resolve/refresh/companion/signing on deny, one same-revision reviewed action after allow, exact header replacement/signing, and no-secret canaries |
@@ -817,7 +814,7 @@ Every strong statement should identify its enforcement path.
 | Explicit policy learning | OPA scheme/port learnability classification, terminal deny exclusion, deterministic repeated/concurrent Context/project/scheme/host/port/method/path candidate aggregation with required latest/count, two-distinct-example single-raw-segment template inference with ambiguity and unsafe-path suppression, Context-scoped reference validation, single-reference exact allow/deny/reset round trips, bounded typed TTY staging with template/exact choices, fresh revalidation, one fixed-target Apply and zero-write discard, installation-wide inventory/review, aggregate preflight ordering, and Docker retry |
 | Declared GraphQL policy identity | Exact trusted endpoint projection, hash-pinned parser and license checks, strict bounded envelope fixtures, conservative root-fragment expansion, all-roots OPA matching, HTTP-rule non-matching canaries, per-root audit/candidate/allow/deny/reset round trips, prefix-rule rejection, raw-body privacy canaries, and zero-upstream integration |
 | Context source access | Required manifest/catalog field, omission-default tests, immutable runtime spec/hash, Docker inspect/reconciliation, read-only mutation/Git-metadata denial, writable home/tmpfs, no writable alias, and same-root observation |
-| Context policy preset | Strict normalization/digest/snapshot tests, built-in and custom schema canaries, guardrail precedence, GET-without-safe-claim contract, and terminal zero-candidate/DNS/Broker/upstream calls |
+| Context policy preset | Strict normalization/digest/snapshot tests, agent-ready default with exact version-coupled core grants, strict-preset zero-grant canaries, optional plugin/MCP/connector/file-transfer/update exclusions, exact-Deny precedence, built-in and custom schema canaries, GET-without-safe-claim contract, and terminal zero-candidate/DNS/Broker/upstream calls |
 | Context/project principal and credential scope | Owner-only atomic registry schema 1, exact Workspace-source/Gateway endpoint and network uniqueness, regular/transparent source derivation, forged-Context/project/SNI/authority and unknown-principal denial, source-spoof canaries, passthrough/static-broker tests, copied-handle cross-Context canaries, Rego canaries, and multi-Context Docker integration |
 | Atomic multi-Context policy activation | Source and projection locks, Context namespace rejection, complete all-Context OPA validation, content-addressed atomic publication, stale-revision rejection, known-good rollback, and invalid/concurrent mutation tests |
 | Mutation outcome classification | Structured-fault-first/cause-stripping tests, non-retryable unclassified outcome fallback, and read-only recovery validation |

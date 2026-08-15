@@ -338,6 +338,7 @@ def _validate_provider(
         raise BrokerCredentialUnavailable("provider projection is invalid")
     environment: list[dict[str, str]] = []
     complete_files: list[dict[str, str]] = []
+    json_merges: list[dict[str, str]] = []
     workspace_keys: list[tuple[str, str]] = []
     handle_count = 0
     for item in workspace:
@@ -349,7 +350,7 @@ def _validate_provider(
             "path",
             "template",
         }
-        if set(item) != expected or kind not in {"env", "complete_file"}:
+        if set(item) != expected or kind not in {"env", "complete_file", "merge_json"}:
             raise BrokerCredentialUnavailable("provider projection is invalid")
         template = item.get("template")
         if not isinstance(template, str) or not template or "\x00" in template:
@@ -372,9 +373,11 @@ def _validate_provider(
                 or len(path.encode("utf-8")) > 240
             ):
                 raise BrokerCredentialUnavailable("provider projection is invalid")
-            complete_files.append(
-                {"provider_id": provider_id, "path": path, "template": template}
-            )
+            target = {"provider_id": provider_id, "path": path, "template": template}
+            if kind == "complete_file":
+                complete_files.append(target)
+            else:
+                json_merges.append(target)
             workspace_keys.append((kind, path))
     if handle_count < 1 or handle_count > len(workspace) or workspace_keys != sorted(workspace_keys):
         raise BrokerCredentialUnavailable("provider projection is invalid")
@@ -440,6 +443,13 @@ def _validate_provider(
     profile = reviewed_projection_profile(
         provider_id, credential_kind, acquisition.get("helper")
     )
+    if json_merges and (
+        provider_id != "anthropic"
+        or credential_kind != "anthropic_claude_oauth_session"
+        or mode != "builtin_helper"
+        or acquisition.get("helper") != "claude-native-oauth"
+    ):
+        raise BrokerCredentialUnavailable("provider projection is invalid")
     if profile is not None:
         if (
             profile.provider_id != provider_id
@@ -452,6 +462,7 @@ def _validate_provider(
                 signing_bindings=signing_bindings,
                 environment=environment,
                 complete_files=complete_files,
+                json_merges=json_merges,
             )
         ):
             raise BrokerCredentialUnavailable("provider projection is invalid")
@@ -459,7 +470,7 @@ def _validate_provider(
         raise BrokerCredentialUnavailable("provider projection is invalid")
     if not normalized and not signing_bindings:
         raise BrokerCredentialUnavailable("provider projection is invalid")
-    return normalized, signing_bindings, environment, complete_files
+    return normalized, signing_bindings, environment, complete_files, json_merges
 
 
 def validate_provider_projection(document: Any) -> dict[str, Any]:
@@ -471,6 +482,7 @@ def validate_provider_projection(document: Any) -> dict[str, Any]:
         "providers",
         "environment",
         "complete_files",
+        "json_merges",
         "header_bindings",
         "secret_headers",
     }
@@ -491,14 +503,16 @@ def validate_provider_projection(document: Any) -> dict[str, Any]:
     expected_signing_bindings: list[dict[str, Any]] = []
     expected_environment: list[dict[str, str]] = []
     expected_files: list[dict[str, str]] = []
+    expected_json_merges: list[dict[str, str]] = []
     provider_ids: list[str] = []
     for provider in providers:
-        bindings, signing_bindings, environment, complete_files = _validate_provider(provider)
+        bindings, signing_bindings, environment, complete_files, json_merges = _validate_provider(provider)
         provider_ids.append(provider["id"])
         expected_bindings.extend(bindings)
         expected_signing_bindings.extend(signing_bindings)
         expected_environment.extend(environment)
         expected_files.extend(complete_files)
+        expected_json_merges.extend(json_merges)
     if provider_ids != sorted(provider_ids) or len(provider_ids) != len(set(provider_ids)):
         raise BrokerCredentialUnavailable("provider projection is invalid")
 
@@ -506,6 +520,7 @@ def validate_provider_projection(document: Any) -> dict[str, Any]:
     expected_signing_bindings.sort(key=lambda item: item["provider_id"])
     expected_environment.sort(key=lambda item: item["name"])
     expected_files.sort(key=lambda item: item["path"])
+    expected_json_merges.sort(key=lambda item: item["path"])
     expected_secrets = sorted(
         {
             header
@@ -522,6 +537,7 @@ def validate_provider_projection(document: Any) -> dict[str, Any]:
         or projection.get("signing_bindings", []) != expected_signing_bindings
         or projection.get("environment") != expected_environment
         or projection.get("complete_files") != expected_files
+        or projection.get("json_merges") != expected_json_merges
         or projection.get("secret_headers") != expected_secrets
     ):
         raise BrokerCredentialUnavailable("provider projection is inconsistent")
@@ -534,6 +550,10 @@ def validate_provider_projection(document: Any) -> dict[str, Any]:
             raise BrokerCredentialUnavailable("provider projection is ambiguous")
         environment_names.add(item["name"])
     for item in expected_files:
+        if item["path"] in file_names:
+            raise BrokerCredentialUnavailable("provider projection is ambiguous")
+        file_names.add(item["path"])
+    for item in expected_json_merges:
         if item["path"] in file_names:
             raise BrokerCredentialUnavailable("provider projection is ambiguous")
         file_names.add(item["path"])

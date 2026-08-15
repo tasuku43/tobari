@@ -332,7 +332,7 @@ func decodeBrokerControlResponse(
 	case brokerControlIssueHandle:
 		expected := []string{"schema_version", "ok", "provider", "revision", "handle"}
 		if expectation.Provider == authbroker.BuiltinAnthropicProviderID {
-			expected = append(expected, "oauth_scopes")
+			expected = append(expected, "oauth_scopes", "claude_subscription_type", "claude_rate_limit_tier")
 		}
 		if err := requireBrokerFields(fields, expected...); err != nil {
 			return brokerControlResponse{}, err
@@ -353,6 +353,14 @@ func decodeBrokerControlResponse(
 			normalized, normalizeErr := authbroker.NormalizeOAuthScopes(response.OAuthScopes)
 			if err != nil || normalizeErr != nil || !slices.Equal(response.OAuthScopes, normalized) {
 				return brokerControlResponse{}, fmt.Errorf("Auth Broker OAuth scope projection is invalid")
+			}
+			response.ClaudeSubscriptionType, err = brokerRequiredField[string](fields, "claude_subscription_type")
+			if err != nil || authbroker.ValidateSecretFreeText("Claude subscription type", response.ClaudeSubscriptionType, 128) != nil {
+				return brokerControlResponse{}, fmt.Errorf("Auth Broker Claude subscription projection is invalid")
+			}
+			response.ClaudeRateLimitTier, err = brokerRequiredField[string](fields, "claude_rate_limit_tier")
+			if err != nil || authbroker.ValidateSecretFreeText("Claude rate-limit tier", response.ClaudeRateLimitTier, 128) != nil {
+				return brokerControlResponse{}, fmt.Errorf("Auth Broker Claude rate-limit projection is invalid")
 			}
 		}
 	case brokerControlBindingStatus:

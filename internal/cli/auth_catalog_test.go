@@ -53,7 +53,7 @@ func TestAuthLoginCatalogAllowsInteractiveOmissionAndReviewedProviders(t *testin
 	if _, err := parseCommandInputs(spec, []string{"--provider=github"}); err != nil {
 		t.Fatalf("GitHub provider rejected: %v", err)
 	}
-	retired := []string{"managed", "credential_profile", "arbitrary helper"}
+	retired := []string{"managed", "credential_profile", "arbitrary helper", "tobari-toolbox", "toolbox:build"}
 	encoded := spec.Args + spec.Summary + spec.Agent.Outcome + strings.Join(spec.Agent.Prerequisites, " ")
 	for _, declared := range spec.Agent.Errors {
 		encoded += declared.Code

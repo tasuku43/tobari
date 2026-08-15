@@ -38,17 +38,19 @@ func (e brokerControlError) Error() string {
 }
 
 type brokerControlResponse struct {
-	SchemaVersion int      `json:"schema_version"`
-	OK            bool     `json:"ok"`
-	State         string   `json:"state,omitempty"`
-	EpochID       string   `json:"epoch_id,omitempty"`
-	Provider      string   `json:"provider,omitempty"`
-	Revision      string   `json:"revision,omitempty"`
-	AccountLabel  *string  `json:"account_label,omitempty"`
-	Handle        string   `json:"handle,omitempty"`
-	OAuthScopes   []string `json:"oauth_scopes,omitempty"`
-	Changed       *bool    `json:"changed,omitempty"`
-	Error         *struct {
+	SchemaVersion          int      `json:"schema_version"`
+	OK                     bool     `json:"ok"`
+	State                  string   `json:"state,omitempty"`
+	EpochID                string   `json:"epoch_id,omitempty"`
+	Provider               string   `json:"provider,omitempty"`
+	Revision               string   `json:"revision,omitempty"`
+	AccountLabel           *string  `json:"account_label,omitempty"`
+	Handle                 string   `json:"handle,omitempty"`
+	OAuthScopes            []string `json:"oauth_scopes,omitempty"`
+	ClaudeSubscriptionType string   `json:"claude_subscription_type,omitempty"`
+	ClaudeRateLimitTier    string   `json:"claude_rate_limit_tier,omitempty"`
+	Changed                *bool    `json:"changed,omitempty"`
+	Error                  *struct {
 		Code string `json:"code"`
 	} `json:"error,omitempty"`
 }
@@ -455,6 +457,7 @@ func (r *Runtime) resolveAuthContext(ctx context.Context, contextName string) (t
 
 func renderProviderTemplate(
 	template, handle string, provider authbroker.Provider, oauthScopes []string,
+	claudeSubscriptionType, claudeRateLimitTier string,
 ) (string, error) {
 	scopesJSON := ""
 	if strings.Contains(template, "${OAUTH_SCOPES_JSON}") {
@@ -470,11 +473,34 @@ func renderProviderTemplate(
 	} else if len(oauthScopes) != 0 {
 		return "", fmt.Errorf("provider returned unexpected OAuth scope projection")
 	}
+	encodeEntitlement := func(placeholder, value string) (string, error) {
+		if !strings.Contains(template, placeholder) {
+			return "", nil
+		}
+		if err := authbroker.ValidateSecretFreeText("Claude native entitlement", value, 128); err != nil {
+			return "", fmt.Errorf("provider Claude entitlement projection is invalid")
+		}
+		encoded, err := json.Marshal(value)
+		if err != nil {
+			return "", fmt.Errorf("encode provider Claude entitlement projection: %w", err)
+		}
+		return string(encoded), nil
+	}
+	subscriptionJSON, err := encodeEntitlement("${CLAUDE_SUBSCRIPTION_TYPE_JSON}", claudeSubscriptionType)
+	if err != nil {
+		return "", err
+	}
+	rateLimitJSON, err := encodeEntitlement("${CLAUDE_RATE_LIMIT_TIER_JSON}", claudeRateLimitTier)
+	if err != nil {
+		return "", err
+	}
 	replacer := strings.NewReplacer(
 		"${HANDLE}", handle,
 		"${PROVIDER_ID}", provider.ID,
 		"${DISPLAY_NAME}", provider.DisplayName,
 		"${OAUTH_SCOPES_JSON}", scopesJSON,
+		"${CLAUDE_SUBSCRIPTION_TYPE_JSON}", subscriptionJSON,
+		"${CLAUDE_RATE_LIMIT_TIER_JSON}", rateLimitJSON,
 	)
 	rendered := replacer.Replace(template)
 	if strings.Contains(rendered, "${") {

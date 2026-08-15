@@ -47,6 +47,7 @@ const (
 	claudeLoginPromptFeedback       = claudeLoginTTYLineEnding + "If Claude shows a code, paste it here:" + claudeLoginTTYLineEnding + "After you press Enter, Claude may take a moment to authorize it." + claudeLoginTTYLineEnding + "> "
 	claudeLoginCaptureFeedback      = "Authorization complete. Validating this Context credential…"
 	claudeLoginURLPrefix            = "https://claude.com/cai/oauth/authorize?"
+	pupLoginURLPrefix               = "https://app.datadoghq.com/oauth2/v1/authorize?"
 	claudeLoginClientID             = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
 	claudeLoginRedirectURI          = "https://platform.claude.com/oauth/code/callback"
 	claudeHyperlinkPrefix           = "If the browser didn't open, visit: \x1b]8;;"
@@ -56,6 +57,8 @@ const (
 var errLoginVisibleOutputLimit = errors.New("host login visible output exceeded its limit")
 
 var claudeOAuthOpaquePattern = regexp.MustCompile(`^[A-Za-z0-9_-]{43}$`)
+var pupOAuthClientIDPattern = regexp.MustCompile(`^[A-Za-z0-9._~+/=-]{8,512}$`)
+var pupOAuthStatePattern = regexp.MustCompile(`^[A-Za-z0-9_-]{32}$`)
 
 type loginVisibleOutput struct {
 	mu                     sync.Mutex
@@ -364,6 +367,12 @@ func loginBrowserTarget(line, consoleRegion string) (string, bool) {
 			return target, true
 		}
 	}
+	if index := strings.Index(line, pupLoginURLPrefix); index >= 0 {
+		target := strings.TrimSpace(line[index:])
+		if validPupLoginAuthorizationURL(target) {
+			return target, true
+		}
+	}
 	if !strings.HasPrefix(line, awsBrowserLinePrefix) {
 		return "", false
 	}
@@ -372,6 +381,57 @@ func loginBrowserTarget(line, consoleRegion string) (string, bool) {
 		return "", false
 	}
 	return target, true
+}
+
+func validPupLoginAuthorizationURL(target string) bool {
+	parsed, err := url.Parse(target)
+	if err != nil || parsed.Scheme != "https" || parsed.Host != "app.datadoghq.com" ||
+		parsed.User != nil || parsed.Path != "/oauth2/v1/authorize" || parsed.RawPath != "" ||
+		parsed.ForceQuery || parsed.Fragment != "" || parsed.RawFragment != "" {
+		return false
+	}
+	query, err := url.ParseQuery(parsed.RawQuery)
+	if err != nil || len(query) != 7 {
+		return false
+	}
+	want := map[string]string{
+		"response_type":         "code",
+		"redirect_uri":          "http://127.0.0.1:8000/oauth/callback",
+		"code_challenge_method": "S256",
+	}
+	for key, value := range want {
+		if len(query[key]) != 1 || query.Get(key) != value {
+			return false
+		}
+	}
+	if len(query["client_id"]) != 1 || !pupOAuthClientIDPattern.MatchString(query.Get("client_id")) ||
+		len(query["state"]) != 1 || !pupOAuthStatePattern.MatchString(query.Get("state")) ||
+		len(query["code_challenge"]) != 1 || !claudeOAuthOpaquePattern.MatchString(query.Get("code_challenge")) ||
+		len(query["scope"]) != 1 {
+		return false
+	}
+	return validSortedPupOAuthScopes(query.Get("scope"))
+}
+
+func validSortedPupOAuthScopes(raw string) bool {
+	scopes := strings.Split(raw, " ")
+	if len(scopes) == 0 || len(scopes) > 256 {
+		return false
+	}
+	previous := ""
+	for _, scope := range scopes {
+		if len(scope) == 0 || len(scope) > 128 || (previous != "" && scope <= previous) {
+			return false
+		}
+		for _, character := range scope {
+			if !((character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z') ||
+				(character >= '0' && character <= '9') || character == ':' || character == '_' || character == '-') {
+				return false
+			}
+		}
+		previous = scope
+	}
+	return true
 }
 
 func projectClaudeLoginHyperlink(line string) (string, bool) {
@@ -544,7 +604,11 @@ func classifyHostLoginError(err error, provider string, methods ...string) error
 		} else if provider == "aws" {
 			name = "AWS"
 		} else if provider == "datadog" {
-			name = "Datadog pup"
+			return fault.New(
+				fault.KindUnavailable, code,
+				"The selected Context runtime cannot provide the supported native pup login contract at diagnostic stage "+string(normalizeHostCLIUnavailableStage(unavailable.stage))+"; the previous Context credential remains unchanged.", false,
+				fault.NextAction{Command: "help runtime", Reason: "Install a compatible pup in the selected Context runtime, build it, and retry Datadog login."},
+			)
 		} else if provider == "openai" {
 			name = "Codex"
 		} else if provider == "anthropic" {
@@ -596,13 +660,13 @@ func classifyHostLoginError(err error, provider string, methods ...string) error
 			)
 		}
 		if errors.Is(err, credentialhost.ErrInvalidExecutable) {
-			return classifyHostLoginError(hostCLIUnavailableError{provider: provider, stage: hostCLIStageExecutableIdentity}, provider, method)
+			return classifyHostLoginError(hostCLIUnavailableError{provider: provider, stage: hostCLIStagePupExecutableIdentity}, provider, method)
 		}
 		if hostLoginFailureIsCredentialDriver(err) {
 			return fault.New(
 				fault.KindUnavailable, "datadog_login_failed",
 				"Datadog OAuth login did not complete; the previous Context credential remains unchanged.", false,
-				fault.NextAction{Command: "auth login", Reason: "Retry the isolated trusted-host pup login after inspecting the failure."},
+				fault.NextAction{Command: "auth login", Reason: "Retry the isolated one-shot pup login after inspecting the failure."},
 			)
 		}
 		return classifyBrokerError(err, "auth login datadog")
@@ -799,6 +863,12 @@ func normalizeHostCLIUnavailableStage(stage hostCLIUnavailableStage) hostCLIUnav
 		hostCLIStageCodexChatGPTAppBundle,
 		hostCLIStageCodexExecutableIdentity,
 		hostCLIStageCodexVersionObservation,
+		hostCLIStagePupContextSelection,
+		hostCLIStagePupImageContract,
+		hostCLIStagePupExecutableIdentity,
+		hostCLIStagePupVersionObservation,
+		hostCLIStagePupCaptureContract,
+		hostCLIStagePupStateContract,
 		hostCLIStageClaudeContextSelection,
 		hostCLIStageClaudeImageContract,
 		hostCLIStageClaudeExecutableIdentity,

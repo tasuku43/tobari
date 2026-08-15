@@ -215,7 +215,7 @@ The public commands are:
 | `context show [--name NAME] [--format text|json]` | utility | read | Inspect one Context's explicit persistence state, immutable source access, preset origin/revision and guardrail summary, agent, policy, Broker-required declared-binding/Workspace-compatibility routing, and secret-free Auth Broker/provider state without returning a broker vault path/content, key, primary secret, or handle |
 | `config shell [--variable COLORTERM\|NO_COLOR\|PS1\|TERM] [--source default\|inherit\|literal] [--value VALUE] [--context NAME] [--format text\|json]` | act, fixed target | write | Configure one allowlisted shell-presentation variable directly, or stage one or more rows from the complete terminal inventory and apply them atomically |
 | `config git [--source default\|inherit\|literal] [--name NAME] [--email EMAIL] [--context NAME] [--format text\|json]` | act, fixed target | write | Configure one atomic Context Git commit-identity fallback directly, or stage and apply its source from one terminal screen |
-| `context create --name NAME [--image IMAGE] [--mode guided|advanced] [--source-access read-only\|read-write] [--policy-preset PRESET] [--format text\|json]` | act, fixed target | create | Validate and create one named immutable capability envelope with a runtime image, direct source access, normalized policy-preset snapshot, and separate owner-only stores; omission selects `read-write` and `builtin/reviewed-exact` |
+| `context create --name NAME [--image IMAGE] [--mode guided|advanced] [--source-access read-only\|read-write] [--policy-preset PRESET] [--format text\|json]` | act, fixed target | create | Validate and create one named immutable capability envelope with a runtime image, direct source access, normalized policy-preset snapshot, and separate owner-only stores; omission selects `read-write` and `builtin/agent-ready` |
 | `context use --name NAME [--format text\|json]` | act, fixed target | write | Change only the current/default Context; do not mutate existing Tobari or start/reconcile the cluster |
 | `runtime init [--format text|json]` | act, fixed target | create | Create the current Context's runtime/Dockerfile template without changing its selected image |
 | `runtime build [--format text|json]` | act, fixed target | write | Build, validate, and select the current Context's generated local runtime image |
@@ -292,7 +292,11 @@ undeclared Docker mutation by the CLI.
   root lock, session exclusion, warning gate, or filesystem integrity isolation
   for this user-selected sharing.
 - The configured image accepts `builtin` or a portable OCI image reference.
-  In normal builds, `builtin` resolves to the published official runtime base.
+  In a release build, `builtin` resolves to that release's approved official
+  runtime base; contributor builds resolve to the content-addressed local
+  development base. The current combined agent-ready source is build-only
+  while bundled-agent redistribution review remains pending and therefore is
+  not a publishable release input.
   A custom image must already exist locally and preserve runtime API `1`, the
   `tobari` image user, the `io.tobari.runtime-lifetime-command` capability, and
   the Tobari entrypoint. That capability is currently `sleep infinity`, which
@@ -330,8 +334,9 @@ undeclared Docker mutation by the CLI.
   the instructions, while every other control remains visibly projected. The
   Anthropic driver starts a fresh project-free container from the selected
   compatible Context image, runs exact Claude Code 2.1.220 native account login,
-  validates the four required renewable-session values from its Linux state,
-  discards provider-owned optional metadata, canonicalizes a Tobari-owned
+  validates the four required renewable-session values plus the non-secret
+  subscription-type and rate-limit-tier labels from its Linux state, discards
+  every other provider-owned optional field, canonicalizes a Tobari-owned
   record, and requires checked
   cleanup before Broker commit. Tobari opens only the exact reviewed Claude
   authorization URL. Its fixed terminal UI reports browser-open success
@@ -354,11 +359,22 @@ undeclared Docker mutation by the CLI.
   credential capture, and login-container cleanup remain distinct secret-free
   failures, and each preserves the previous Context credential. A capture
   failure includes exactly one fixed diagnostic stage covering export,
-  archive, permissions, document, OAuth core, token, expiry, scope set, or
+  archive, permissions, document, OAuth core, token, expiry, scope set,
+  entitlement, or
   canonical record; it includes no provider value or raw child cause. OAuth
   scope names are not fixed by Tobari: it bounds and canonicalizes the observed
   requested and granted sets, rejects a grant outside the request, and carries
   the granted set unchanged through refresh and Workspace projection. The
+  Workspace credential projection gives Claude Code the project-bound handle
+  as `accessToken`, the fixed non-secret `dummy-value` refresh sentinel, the
+  dynamic scope set, and the captured subscription/rate-limit labels. The
+  sentinel has no Broker-handle shape and grants no refresh authority; the
+  primary refresh token remains Broker-only. The Workspace projection also
+  merges only the reviewed non-secret
+  `hasCompletedOnboarding: true` field into Claude's private top-level state so
+  an already authenticated interactive client does not repeat account login;
+  unrelated Claude state is preserved and the field is removed with the
+  Anthropic projection. The
   shared Tobari browser behavior never opens a URL derived from arbitrary provider text. The
   GitHub driver runs fixed API-authentication-only GitHub CLI argv
   from one canonical non-project executable in a private temporary home and
@@ -432,21 +448,20 @@ undeclared Docker mutation by the CLI.
   `tobari-context-<context>:<source>` image in the current Context. The previous
   selected image remains in force until promotion succeeds.
 - The built-in `tobari/runtime` image is the base work runtime: it preserves the
-  lifecycle contract and its existing common-tool baseline includes Git, HTTP,
-  JSON, Python, SSH, GitHub CLI, and AWS CLI. `kubectl`, `cwk`, `pup`, and TWG
-  belong to the optional locally built Context toolbox; none is added to the
-  published base by this capability. The base is
-  published on reviewed main pushes as the moving
-  `latest` and `main` development channels; registry publication is not
-  implied by local image selection, and Tobari never pulls the published image
-  implicitly during ordinary startup.
-- Agent-image recipes are complete compatible variants in the same runtime
-  family. The current local recipes pin Claude Code 2.1.220 and Codex 0.146.0;
-  a Context-owned custom recipe may compose those reviewed local artifacts so
-  both version commands work in its Workspace. They add the agent tools and
-  only their agent-specific dependencies; they do not create a second
-  authority boundary. No Claude or Codex agent tag is published until the
-  corresponding redistribution and license review is complete.
+  lifecycle contract and its common-tool baseline includes Git, HTTP, JSON,
+  Python, SSH, GitHub CLI, AWS CLI, Claude Code 2.1.220, and Codex 0.146.0.
+  Both agent executables live outside the mutable Workspace home; Claude
+  self-update is disabled and Codex uses its pinned standalone package.
+  `kubectl`, `cwk`, `pup`, and TWG are not added to the base. A selected custom
+  Context runtime must provide a structurally compatible pup before Datadog
+  login can run. The combined base declares `NOASSERTION`; while either agent artifact
+  retains pending redistribution/license review, the base workflow validates a
+  multi-architecture build without registry credentials or publication. Local
+  image selection is not publication authority.
+- The client versions and `builtin/agent-ready` exact effect catalog are one
+  compatibility contract. Updating either agent requires reviewing both the
+  artifact lock and its core control-plane effects. Separate agent-image recipes
+  remain build-only validation inputs and create no second authority boundary.
 - Project metadata does not select or alter the runtime image. Workspaces use
   their permanently bound Context image when created and again when their runtime container
   is reconciled by root entry; all selected images still pass the same
@@ -733,7 +748,13 @@ synthetic state.
   managed image build are recorded additively in `context.json`;
 - `contexts/<name>/policy/preset.json`: owner-only normalized schema-v1
   non-executable snapshot whose SHA-256 digest equals the manifest preset
-  revision; source preset changes never rewrite it;
+  revision; source preset changes never rewrite it; `builtin/agent-ready`
+  grants the exact reviewed Claude Code 2.1.220 and Codex 0.146.0 model,
+  bootstrap/catalog, account-state, and fixed first-party telemetry effects to
+  every process in the Context. It is HTTP authority, not executable identity;
+  exact Deny remains terminal, and plugins, MCP, connectors, file transfer,
+  downloads, evaluation routes, self-update, and unmatched effects receive no
+  baseline grant;
   `builtin/offline` grants nothing, exposes no review-eligible effect, and
   terminally denies all HTTP/HTTPS; `builtin/reviewed-exact` grants nothing and
   sends only guardrail-eligible effects to exact review;

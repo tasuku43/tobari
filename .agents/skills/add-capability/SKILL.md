@@ -89,6 +89,11 @@ For every external action, specify:
 - whether a Context capability changes immutable `source_access` or the
   snapshotted policy-preset origin/revision; those are creation-time envelope
   facts, not per-Workspace flags or live configuration references;
+- whether a pinned supported coding client changes its reviewed core HTTP
+  effects; the canonical base client pins and `builtin/agent-ready` exact
+  baseline are one compatibility contract. Never infer executable identity,
+  widen to a vendor host, or include plugins, MCP, connectors, file transfer,
+  downloads, evaluation, or self-update as incidental client traffic;
 - audit-safe fields and secret fields;
 - allowed network destination.
 

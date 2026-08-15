@@ -85,11 +85,12 @@ type WorkspaceProjectionKind string
 const (
 	WorkspaceProjectionEnvironment  WorkspaceProjectionKind = "env"
 	WorkspaceProjectionCompleteFile WorkspaceProjectionKind = "complete_file"
+	WorkspaceProjectionMergeJSON    WorkspaceProjectionKind = "merge_json"
 )
 
 func (k WorkspaceProjectionKind) Validate() error {
 	switch k {
-	case WorkspaceProjectionEnvironment, WorkspaceProjectionCompleteFile:
+	case WorkspaceProjectionEnvironment, WorkspaceProjectionCompleteFile, WorkspaceProjectionMergeJSON:
 		return nil
 	default:
 		return fmt.Errorf("Workspace projection kind is invalid: %q", k)
@@ -141,9 +142,10 @@ type Credential struct {
 	Kind CredentialKind `json:"kind"`
 }
 
-// WorkspaceProjection describes one complete projection into a Workspace.
-// A complete_file replaces the entire relative HOME file; it never patches an
-// existing file or escapes the Workspace HOME.
+// WorkspaceProjection describes one projection into a Workspace. A
+// complete_file replaces the entire relative HOME file. merge_json is
+// reserved to a reviewed built-in that owns exact top-level non-secret fields
+// while preserving the remaining private client state.
 type WorkspaceProjection struct {
 	Kind     WorkspaceProjectionKind `json:"kind"`
 	Name     string                  `json:"name,omitempty"`
@@ -275,12 +277,19 @@ func validateProvider(p Provider) error {
 	}
 	handleProjections := 0
 	oauthScopeProjections := 0
+	claudeEntitlementProjections := 0
+	mergeJSONProjections := 0
 	for index, projection := range p.WorkspaceProjections {
 		if err := validateWorkspaceProjection(projection); err != nil {
 			return fmt.Errorf("provider %q Workspace projection %d: %w", p.ID, index, err)
 		}
 		handleProjections += strings.Count(projection.Template, "${HANDLE}")
 		oauthScopeProjections += strings.Count(projection.Template, "${OAUTH_SCOPES_JSON}")
+		claudeEntitlementProjections += strings.Count(projection.Template, "${CLAUDE_SUBSCRIPTION_TYPE_JSON}")
+		claudeEntitlementProjections += strings.Count(projection.Template, "${CLAUDE_RATE_LIMIT_TIER_JSON}")
+		if projection.Kind == WorkspaceProjectionMergeJSON {
+			mergeJSONProjections++
+		}
 	}
 	if handleProjections == 0 {
 		return fmt.Errorf("provider %q must project ${HANDLE} at least once", p.ID)
@@ -289,6 +298,16 @@ func validateProvider(p Provider) error {
 		p.Credential.Kind != CredentialAnthropicClaudeOAuthSession ||
 		p.Acquisition.Mode != AcquisitionBuiltinHelper || p.Acquisition.Helper != "claude-native-oauth") {
 		return fmt.Errorf("provider %q cannot use dynamic OAuth scope projection", p.ID)
+	}
+	if claudeEntitlementProjections > 0 && (p.ID != BuiltinAnthropicProviderID ||
+		p.Credential.Kind != CredentialAnthropicClaudeOAuthSession ||
+		p.Acquisition.Mode != AcquisitionBuiltinHelper || p.Acquisition.Helper != "claude-native-oauth") {
+		return fmt.Errorf("provider %q cannot use Claude entitlement projection", p.ID)
+	}
+	if mergeJSONProjections > 0 && (p.ID != BuiltinAnthropicProviderID ||
+		p.Credential.Kind != CredentialAnthropicClaudeOAuthSession ||
+		p.Acquisition.Mode != AcquisitionBuiltinHelper || p.Acquisition.Helper != "claude-native-oauth") {
+		return fmt.Errorf("provider %q cannot merge mutable Workspace JSON", p.ID)
 	}
 	if len(p.HeaderBindings) > maxBindings {
 		return fmt.Errorf("provider %q cannot declare more than %d header bindings", p.ID, maxBindings)
@@ -402,7 +421,9 @@ func validateCredentialPlan(p Provider) error {
 
 const openAICodexWorkspaceAuthTemplate = `{"auth_mode":"chatgptAuthTokens","OPENAI_API_KEY":null,"tokens":{"id_token":"e30.e30.x","access_token":"${HANDLE}","refresh_token":"","account_id":null},"last_refresh":"1970-01-01T00:00:00Z"}`
 
-const anthropicClaudeWorkspaceAuthTemplate = `{"claudeAiOauth":{"accessToken":"${HANDLE}","refreshToken":"","expiresAt":4102444800000,"scopes":${OAUTH_SCOPES_JSON}}}`
+const anthropicClaudeWorkspaceAuthTemplate = `{"claudeAiOauth":{"accessToken":"${HANDLE}","refreshToken":"dummy-value","expiresAt":4102444800000,"scopes":${OAUTH_SCOPES_JSON},"subscriptionType":${CLAUDE_SUBSCRIPTION_TYPE_JSON},"rateLimitTier":${CLAUDE_RATE_LIMIT_TIER_JSON}}}`
+
+const anthropicClaudeWorkspaceOnboardingTemplate = `{"hasCompletedOnboarding":true}`
 
 func validateOpenAICodexWorkspaceProjection(projections []WorkspaceProjection) error {
 	if len(projections) != 1 {
@@ -420,13 +441,26 @@ func validateAnthropicClaudePlan(p Provider) error {
 	if p.SchemaVersion != ProviderSchemaVersion || p.ID != BuiltinAnthropicProviderID ||
 		p.DisplayName != "Anthropic account for Claude Code" ||
 		p.Acquisition != (Acquisition{Mode: AcquisitionBuiltinHelper, Helper: "claude-native-oauth"}) ||
-		p.Credential.Kind != CredentialAnthropicClaudeOAuthSession || len(p.WorkspaceProjections) != 1 ||
+		p.Credential.Kind != CredentialAnthropicClaudeOAuthSession || len(p.WorkspaceProjections) != 2 ||
 		len(p.HeaderBindings) != 1 || len(p.SigningBindings) != 0 {
 		return fmt.Errorf("Claude native OAuth must use the reviewed Anthropic built-in plan")
 	}
-	projection := p.WorkspaceProjections[0]
-	if projection.Kind != WorkspaceProjectionCompleteFile || projection.Name != "" ||
-		projection.Path != ".claude/.credentials.json" || projection.Template != anthropicClaudeWorkspaceAuthTemplate {
+	want := map[string]WorkspaceProjection{
+		"complete_file\x00.claude/.credentials.json": {
+			Kind: WorkspaceProjectionCompleteFile, Path: ".claude/.credentials.json", Template: anthropicClaudeWorkspaceAuthTemplate,
+		},
+		"merge_json\x00.claude.json": {
+			Kind: WorkspaceProjectionMergeJSON, Path: ".claude.json", Template: anthropicClaudeWorkspaceOnboardingTemplate,
+		},
+	}
+	for _, projection := range p.WorkspaceProjections {
+		expected, ok := want[projectionKey(projection)]
+		if !ok || projection != expected {
+			return fmt.Errorf("Claude native OAuth projection does not match the reviewed Workspace client-state contract")
+		}
+		delete(want, projectionKey(projection))
+	}
+	if len(want) != 0 {
 		return fmt.Errorf("Claude native OAuth projection does not match the reviewed Workspace credential-file contract")
 	}
 	binding := p.HeaderBindings[0]
@@ -570,9 +604,9 @@ func validateWorkspaceProjection(projection WorkspaceProjection) error {
 				return fmt.Errorf("env projection template contains a control character")
 			}
 		}
-	case WorkspaceProjectionCompleteFile:
+	case WorkspaceProjectionCompleteFile, WorkspaceProjectionMergeJSON:
 		if projection.Name != "" {
-			return fmt.Errorf("complete_file projection cannot declare name")
+			return fmt.Errorf("file projection cannot declare name")
 		}
 		if err := ValidateRelativeHomePath(projection.Path); err != nil {
 			return err
@@ -584,7 +618,7 @@ func validateWorkspaceProjection(projection WorkspaceProjection) error {
 			if character == '\x00' || character == '\r' ||
 				(unicode.IsControl(character) && character != '\n' && character != '\t') ||
 				character == '\u2028' || character == '\u2029' {
-				return fmt.Errorf("complete_file projection template contains an unsafe control character")
+				return fmt.Errorf("file projection template contains an unsafe control character")
 			}
 		}
 	}
@@ -611,10 +645,12 @@ func validateTemplate(value string) error {
 	}
 	const maxPlaceholders = 32
 	allowed := map[string]bool{
-		"HANDLE":            true,
-		"PROVIDER_ID":       true,
-		"DISPLAY_NAME":      true,
-		"OAUTH_SCOPES_JSON": true,
+		"HANDLE":                        true,
+		"PROVIDER_ID":                   true,
+		"DISPLAY_NAME":                  true,
+		"OAUTH_SCOPES_JSON":             true,
+		"CLAUDE_SUBSCRIPTION_TYPE_JSON": true,
+		"CLAUDE_RATE_LIMIT_TIER_JSON":   true,
 	}
 	handleCount := 0
 	placeholderCount := 0

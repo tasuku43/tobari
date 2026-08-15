@@ -96,6 +96,8 @@ class AnthropicBrokerTests(unittest.TestCase):
         login = self.login(state, encoded)
         issued = state.issue_handle(CONTEXT, PROJECT, "anthropic", [binding()])
         self.assertEqual(issued["oauth_scopes"], sorted(FULL_SCOPES))
+        self.assertEqual(issued["claude_subscription_type"], "max")
+        self.assertEqual(issued["claude_rate_limit_tier"], "example_claude_tier")
         self.assertNotIn("dummy-access", repr(issued))
         metadata = state.introspect(
             issued["handle"],

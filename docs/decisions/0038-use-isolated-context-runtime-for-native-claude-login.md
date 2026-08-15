@@ -5,6 +5,7 @@
 - Deciders: Tobari maintainers
 - Scope: Product, architecture, security, authentication, external I/O, harness, runtime images, and public boundary
 - Revises: ADR 0025, ADR 0031, and ADR 0036
+- Revised by: ADR 0041
 - Superseded by: None
 
 ## Context
@@ -37,6 +38,15 @@ Auth Broker stores the strict Tobari-owned record as `anthropic_claude_oauth_ses
 
 Gateway retains only the exact `api.anthropic.com:443` bearer binding. A Workspace receives a minimal Tobari-owned `.claude/.credentials.json` whose access token is the project-bound handle, whose refresh token is empty, whose expiry is a fixed non-secret native-shape sentinel, and whose scopes are the dynamically granted non-secret set returned with handle issuance. It receives neither the primary access token nor the renewable session. Gateway removes the handle, asks OPA about the ordinary request, and resolves one same-revision bearer only after allow.
 
+Exact Claude 2.1.220 keeps interactive onboarding completion in a separate
+private `.claude.json`; a valid credential alone makes `claude auth status`
+authenticated but does not close the first-run login-method selector. The
+Anthropic built-in therefore declares a second non-secret `merge_json`
+projection containing only `hasCompletedOnboarding: true`. Runtime preserves
+all unrelated top-level values, rejects unsafe filesystem and JSON shapes, and
+removes only that registered field when the Anthropic projection is removed.
+Owner manifests cannot select mutable JSON merging.
+
 ## Consequences
 
 ### Positive
@@ -45,11 +55,13 @@ Gateway retains only the exact `api.anthropic.com:443` bearer binding. A Workspa
 - Host Claude installation and host Claude credential-store formats are no longer part of the acquisition contract.
 - The custom runtime can carry the same pinned Claude build used by the Workspace while the one-shot login container remains project-free.
 - Workspace Claude sees its expected credential-file shape but only receives a scoped Tobari handle.
+- Authenticated interactive Claude starts directly without a redundant login-method selector.
 
 ### Negative
 
 - For Anthropic acquisition only, the operator-selected Context image becomes trusted to run the provider login and sees the newly issued native credential before Broker capture.
 - The current contract is pinned to one exact Claude version, executable path, OAuth client, four required native field names, authorization URL safety shape, OAuth scope-token grammar, and refresh response subset. Provider scope names remain dynamic. It deliberately does not pin or persist the complete private Claude file schema.
+- Interactive startup additionally pins one non-secret top-level onboarding boolean for the exact client while leaving every other mutable Claude value client-owned.
 - Browser authorization uses Claude's paste-code fallback because the isolated container callback is not exposed to the host.
 - Public distribution may require provider approval independent of technical correctness.
 
@@ -60,7 +72,7 @@ Gateway retains only the exact `api.anthropic.com:443` bearer binding. A Workspa
 - Container argv tests require fixed `/usr/bin/tini -- /usr/bin/sleep infinity` instead of the Workspace CA-waiting entrypoint. Live diagnostic evidence reproduced the old mount-free entrypoint exit and Claude exec status 137 at about ten seconds, then proved the fixed path remained input-bound until the outer bounded deadline.
 - Fault tests distinguish container setup, Claude authorization, bounded output, timeout, staged strict native-state capture, and checked cleanup. They prove each published stage remains secret-free. When timeout and cleanup both fail, the joined result retains timeout as the primary user recovery while preserving cleanup evidence internally.
 - Go and Python state tests use only synthetic tokens and prove four-field extraction, additive provider-metadata removal, duplicate/core-field rejection, dynamic scope-token bounds, future-name acceptance, granted-subset enforcement, scope-order normalization, strict Tobari canonical schema, executable binding, redaction, fixed refresh transport without scope drift, single-flight state replacement, durable unknown-outcome barriers, rotation, and logout behavior.
-- Gateway and projection tests fix the native handle-only file shape, dynamically reproduce the granted non-secret scope set, and retain the exact Anthropic bearer binding.
+- Gateway and projection tests fix the native handle-only file shape, dynamically reproduce the granted non-secret scope set, retain the exact Anthropic bearer binding, merge and remove only the onboarding field, preserve unrelated Claude values, and reject malformed, duplicate-key, oversized, symlinked, or non-private mutable state.
 - Source/snapshot checks include both Anthropic refresh modules, and Auth Broker image checks continue to prove no provider CLI exists in Broker.
 - Manual release validation records only exact version/digest and pass/fail. It never records an authorization URL, paste code, account identity, access token, refresh token, native credential file, handle, or authenticated transcript.
 

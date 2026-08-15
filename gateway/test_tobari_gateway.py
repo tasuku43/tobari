@@ -124,6 +124,7 @@ def projection():
             {"provider_id": "github", "name": "GH_TOKEN", "template": "${HANDLE}"},
         ],
         "complete_files": [],
+        "json_merges": [],
         "header_bindings": bindings,
         "secret_headers": ["authorization"],
     }
@@ -602,6 +603,7 @@ class ReviewedDynamicCredentialGatewayTests(ReviewedDynamicCredentialGatewayTest
         def alternate_provider(value):
             value["providers"][0]["id"] = "anthropic-alt"
             value["complete_files"][0]["provider_id"] = "anthropic-alt"
+            value["json_merges"][0]["provider_id"] = "anthropic-alt"
             value["header_bindings"][0]["provider_id"] = "anthropic-alt"
 
         def alternate_display_name(value):
@@ -611,6 +613,15 @@ class ReviewedDynamicCredentialGatewayTests(ReviewedDynamicCredentialGatewayTest
             provider = value["providers"][0]
             provider["workspace_projections"][0]["path"] = ".claude/other.json"
             value["complete_files"][0]["path"] = ".claude/other.json"
+
+        def alternate_onboarding_state(value):
+            provider = value["providers"][0]
+            provider["workspace_projections"][1]["template"] = (
+                '{"hasCompletedOnboarding":false}'
+            )
+            value["json_merges"][0]["template"] = (
+                '{"hasCompletedOnboarding":false}'
+            )
 
         def alternate_host(value):
             provider_binding = value["providers"][0]["header_bindings"][0]
@@ -641,6 +652,7 @@ class ReviewedDynamicCredentialGatewayTests(ReviewedDynamicCredentialGatewayTest
             ("provider", alternate_provider),
             ("display name", alternate_display_name),
             ("complete file", alternate_complete_file),
+            ("onboarding state", alternate_onboarding_state),
             ("host", alternate_host),
             ("header", alternate_header),
             ("format", alternate_format),
@@ -669,6 +681,23 @@ class ReviewedDynamicCredentialGatewayTests(ReviewedDynamicCredentialGatewayTest
                 "DD_SITE": "datadoghq.com",
             },
         )
+        invalid = json.loads(json.dumps(projection))
+        invalid["providers"][0]["workspace_projections"].append(
+            {
+                "kind": "merge_json",
+                "path": ".tool.json",
+                "template": '{"configured":true}',
+            }
+        )
+        invalid["json_merges"].append(
+            {
+                "provider_id": "chatwork",
+                "path": ".tool.json",
+                "template": '{"configured":true}',
+            }
+        )
+        with self.assertRaises(BrokerCredentialUnavailable):
+            validate_provider_projection(invalid)
 
     def test_datadog_oauth_projection_is_closed_and_self_consistent(self):
         projection = self.datadog_oauth_provider_projection()

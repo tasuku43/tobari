@@ -250,14 +250,17 @@ func TestBuiltinsPublishesExactToolContracts(t *testing.T) {
 	}
 
 	anthropic := providers[BuiltinAnthropicProviderID]
-	const anthropicAuthTemplate = `{"claudeAiOauth":{"accessToken":"${HANDLE}","refreshToken":"","expiresAt":4102444800000,"scopes":${OAUTH_SCOPES_JSON}}}`
+	const anthropicAuthTemplate = `{"claudeAiOauth":{"accessToken":"${HANDLE}","refreshToken":"dummy-value","expiresAt":4102444800000,"scopes":${OAUTH_SCOPES_JSON},"subscriptionType":${CLAUDE_SUBSCRIPTION_TYPE_JSON},"rateLimitTier":${CLAUDE_RATE_LIMIT_TIER_JSON}}}`
+	const anthropicOnboardingTemplate = `{"hasCompletedOnboarding":true}`
 	if anthropic.SchemaVersion != authbroker.ProviderSchemaVersion ||
 		anthropic.DisplayName != "Anthropic account for Claude Code" ||
 		anthropic.Acquisition != (authbroker.Acquisition{Mode: authbroker.AcquisitionBuiltinHelper, Helper: "claude-native-oauth"}) ||
-		anthropic.Credential.Kind != authbroker.CredentialAnthropicClaudeOAuthSession || len(anthropic.WorkspaceProjections) != 1 ||
+		anthropic.Credential.Kind != authbroker.CredentialAnthropicClaudeOAuthSession || len(anthropic.WorkspaceProjections) != 2 ||
 		anthropic.WorkspaceProjections[0] != (authbroker.WorkspaceProjection{
 			Kind: authbroker.WorkspaceProjectionCompleteFile, Path: ".claude/.credentials.json", Template: anthropicAuthTemplate,
-		}) {
+		}) || anthropic.WorkspaceProjections[1] != (authbroker.WorkspaceProjection{
+		Kind: authbroker.WorkspaceProjectionMergeJSON, Path: ".claude.json", Template: anthropicOnboardingTemplate,
+	}) {
 		t.Fatalf("Anthropic provider plan = %#v", anthropic)
 	}
 	assertExactBearerBinding(t, projection, BuiltinAnthropicProviderID, "api.anthropic.com", authbroker.CredentialAnthropicClaudeOAuthSession,
@@ -265,6 +268,11 @@ func TestBuiltinsPublishesExactToolContracts(t *testing.T) {
 	if len(projection.CompleteFiles) != 2 || projection.CompleteFiles[0].ProviderID != BuiltinAnthropicProviderID ||
 		projection.CompleteFiles[0].Path != ".claude/.credentials.json" || projection.CompleteFiles[0].Template != anthropicAuthTemplate {
 		t.Fatalf("Anthropic complete-file projection = %#v", projection.CompleteFiles)
+	}
+	if len(projection.JSONMerges) != 1 || projection.JSONMerges[0] != (authbroker.JSONMergeProjection{
+		ProviderID: BuiltinAnthropicProviderID, Path: ".claude.json", Template: anthropicOnboardingTemplate,
+	}) {
+		t.Fatalf("Anthropic JSON-merge projection = %#v", projection.JSONMerges)
 	}
 
 	openai := providers[BuiltinOpenAIProviderID]

@@ -315,15 +315,20 @@ func TestHostGitHubLoginCommitsOnlyAfterAcquisitionUsingNonTTYControl(t *testing
 
 func TestHostDatadogLoginCommitsOnlyCanonicalPupState(t *testing.T) {
 	state := []byte(`{"client":"oauth-canary"}`)
-	resolver := &fakeHostCLIResolver{path: "/opt/homebrew/bin/pup"}
 	acquirer := &fakeHostCredentialAcquirer{pupPayload: hostCredentialPayload{
 		secret: state, accountLabel: credentialhost.PupAccountLabel,
 		driverID: credentialhost.PupDriverID, driverRevision: strings.Repeat("d", 64),
 	}}
 	runner := &hostLoginDockerRunner{response: `{"schema_version":1,"ok":true,"provider":"datadog","revision":"` + strings.Repeat("e", 64) + `","account_label":"datadog-us1"}`}
 	runtime := &Runtime{
-		runner: runner, browser: &recordingBrowser{}, hostCLIs: resolver,
+		runner: runner, browser: &recordingBrowser{}, hostCLIs: &fakeHostCLIResolver{},
 		credentialHost: acquirer, hostLoginProfiles: immediateHostLoginProfileReader{},
+		pupContainerLogin: func(ctx context.Context, _ string, input io.Reader, visible io.Writer) (hostCredentialPayload, error) {
+			return acquirer.LoginPup(ctx, pupExecutablePath, input, func(_ credentialhost.OutputStream, content []byte) error {
+				_, err := visible.Write(content)
+				return err
+			})
+		},
 	}
 	var visible bytes.Buffer
 	response, err := runtime.runHostCredentialLoginOnTTY(
@@ -334,9 +339,8 @@ func TestHostDatadogLoginCommitsOnlyCanonicalPupState(t *testing.T) {
 		*response.AccountLabel != credentialhost.PupAccountLabel {
 		t.Fatalf("response=%+v error=%v", response, err)
 	}
-	if !reflect.DeepEqual(resolver.names, []string{"pup"}) || acquirer.pupPath != resolver.path ||
-		acquirer.pupCalls != 1 {
-		t.Fatalf("resolver=%v path=%q calls=%d", resolver.names, acquirer.pupPath, acquirer.pupCalls)
+	if acquirer.pupPath != pupExecutablePath || acquirer.pupCalls != 1 {
+		t.Fatalf("path=%q calls=%d", acquirer.pupPath, acquirer.pupCalls)
 	}
 	wantTail := []string{
 		"login", "--context-id", hostLoginContextID,
@@ -584,6 +588,11 @@ func TestHostAcquisitionFailureDoesNotBeginBrokerMutation(t *testing.T) {
 			}
 			if test.provider == "anthropic" {
 				runtime.claudeContainerLogin = func(context.Context, string, io.Reader, io.Writer) (hostCredentialPayload, error) {
+					return hostCredentialPayload{}, test.failure
+				}
+			}
+			if test.provider == "datadog" {
+				runtime.pupContainerLogin = func(context.Context, string, io.Reader, io.Writer) (hostCredentialPayload, error) {
 					return hostCredentialPayload{}, test.failure
 				}
 			}

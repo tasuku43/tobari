@@ -135,6 +135,25 @@ func TestAggregateRouterMakesPresetGuardrailTerminalBeforeAdvancedOrGuidedPolicy
 	}
 }
 
+func TestAggregateRouterMakesExactDenyTerminalOverAgentReadyBaseline(t *testing.T) {
+	t.Parallel()
+	manifest := tobari.ContextManifest{SchemaVersion: tobari.ContextSchemaVersion, ID: "01912345-6789-7abc-8def-0123456789ad", Name: "agent-ready", AgentProfile: tobari.DefaultProfile, Image: tobari.BuiltinImageSelector, PolicyMode: tobari.ContextPolicyModeGuided, SourceAccess: tobari.ContextSourceAccessReadWrite, PolicyPresetOrigin: tobari.DefaultPolicyPresetOrigin, PolicyPresetRevision: tobari.DefaultPolicyPresetRevision()}
+	router, err := aggregateRouter([]aggregateContext{{manifest: manifest}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(router)
+	deny := strings.Index(text, `decision := {"allow": false, "reason": "denied by exact policy"`)
+	grant := strings.Index(text, `decision := {"allow": true, "reason": "allowed by exact Context baseline"`)
+	if deny < 0 || grant < 0 || deny > grant {
+		t.Fatalf("exact Deny is not declared before baseline grant:\n%s", text)
+	}
+	grantClause := text[grant:]
+	if !strings.Contains(grantClause, "not exact_denied") || !strings.Contains(grantClause, "preset_exact_granted") {
+		t.Fatalf("agent-ready baseline can bypass exact Deny:\n%s", grantClause)
+	}
+}
+
 func TestAggregateRouterMakesBuiltinHTTPSCeilingTerminalBeforeAdvancedPolicy(t *testing.T) {
 	t.Parallel()
 	for _, origin := range []string{tobari.DefaultPolicyPresetOrigin, "builtin/get-only-reviewed"} {

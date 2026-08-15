@@ -49,6 +49,8 @@ def state_bytes(
             "refresh_" + "token": REFRESH_TOKEN,
             "expires_at": expires_at,
             "scopes": sorted(scopes),
+            "subscription_type": "max",
+            "rate_limit_tier": "example_claude_tier",
         },
     }
     return json.dumps(document, separators=(",", ":")).encode("ascii")
@@ -60,6 +62,7 @@ class AnthropicClaudeOAuthTests(unittest.TestCase):
             state_bytes(), driver_revision=DRIVER_REVISION
         )
         self.assertEqual(state.access_token(NOW), ACCESS_TOKEN.encode("ascii"))
+        self.assertEqual(state.workspace_entitlements(), ("max", "example_claude_tier"))
         self.assertNotIn("dummy-access", repr(state))
         for encoded, revision in (
             (state_bytes() + b"\n", DRIVER_REVISION),
@@ -70,6 +73,20 @@ class AnthropicClaudeOAuthTests(unittest.TestCase):
             ),
             (
                 state_bytes().replace(b'"scopes":', b'"unknown":true,"scopes":'),
+                DRIVER_REVISION,
+            ),
+            (
+                state_bytes().replace(
+                    b'"subscription_type":"max",', b"", 1
+                ),
+                DRIVER_REVISION,
+            ),
+            (
+                state_bytes().replace(
+                    b'"rate_limit_tier":"example_claude_tier"',
+                    b'"rate_limit_tier":"unsafe\\nvalue"',
+                    1,
+                ),
                 DRIVER_REVISION,
             ),
             (
@@ -146,6 +163,9 @@ class AnthropicClaudeOAuthTests(unittest.TestCase):
             updated.encode(), driver_revision=DRIVER_REVISION
         )
         self.assertEqual(reparsed.access_token(NOW + 1), token)
+        self.assertEqual(
+            reparsed.workspace_entitlements(), ("max", "example_claude_tier")
+        )
         self.assertNotIn(b"account-synthetic", updated.encode())
 
     def test_refresh_rejects_malformed_response_without_exposing_it(self) -> None:

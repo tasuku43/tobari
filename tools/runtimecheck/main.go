@@ -13,6 +13,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/tasuku43/tobari/internal/domain/tobari"
 )
 
 const (
@@ -29,9 +31,10 @@ const (
 	baseRuntimeJSON       = "runtimes/base/runtime.json"
 	baseLockJSON          = "runtimes/base/runtime.lock.json"
 	manifestJSON          = "runtimes/manifest.json"
+	baseWorkflow          = ".github/workflows/runtime-base.yml"
 	versionsEnv           = "internal/infra/runtimeassets/assets/versions.env"
 	canonicalSource       = "https://github.com/tasuku43/tobari"
-	canonicalLicense      = "MIT"
+	canonicalLicense      = "NOASSERTION"
 	canonicalAgentLicense = "NOASSERTION"
 	canonicalUser         = "tobari"
 	canonicalRuntime      = "1"
@@ -57,6 +60,8 @@ var canonicalBaseTools = []string{
 	"tini",
 	"gh",
 	"aws",
+	"claude",
+	"codex",
 }
 
 type runtimeMetadata struct {
@@ -257,6 +262,20 @@ func validate(root string) (string, error) {
 		!versionReference.MatchString(lock.Tools.AWSCLI.Version) || lock.Tools.AWSCLI.Source != "https://awscli.amazonaws.com/" {
 		return "", errors.New("base runtime lock does not contain the approved common CLI pins")
 	}
+	claudeLock, err := readJSON[agentRuntimeLock](root, claudeLockJSON)
+	if err != nil {
+		return "", err
+	}
+	codexLock, err := readJSON[agentRuntimeLock](root, codexLockJSON)
+	if err != nil {
+		return "", err
+	}
+	if claudeLock.Agent.Name != "claude-code" || claudeLock.Agent.Version != tobari.AgentReadyClaudeVersion || claudeLock.Agent.Source != "https://downloads.claude.ai/claude-code-releases" || claudeLock.Agent.LicenseReview != "pending" {
+		return "", errors.New("base runtime does not use the reviewed Claude artifact lock")
+	}
+	if codexLock.Agent.Name != "codex-cli" || codexLock.Agent.Version != tobari.AgentReadyCodexVersion || codexLock.Agent.Source != "https://releases.openai.com/codex" || codexLock.Agent.LicenseReview != "pending" {
+		return "", errors.New("base runtime does not use the reviewed Codex artifact lock")
+	}
 	versions, err := readRegularFile(filepath.Join(root, versionsEnv))
 	if err != nil {
 		return "", fmt.Errorf("read %s: %w", versionsEnv, err)
@@ -304,6 +323,12 @@ func validate(root string) (string, error) {
 		"FROM ${DEBIAN_IMAGE} AS fetcher",
 		"ARG GH_VERSION=" + lock.Tools.GH.Version,
 		"ARG AWS_CLI_VERSION=" + lock.Tools.AWSCLI.Version,
+		"ARG CLAUDE_CODE_VERSION=" + claudeLock.Agent.Version,
+		"ARG CLAUDE_CODE_SHA256_X64=" + claudeLock.Agent.Platforms["linux/amd64"].SHA256,
+		"ARG CLAUDE_CODE_SHA256_ARM64=" + claudeLock.Agent.Platforms["linux/arm64"].SHA256,
+		"ARG CODEX_VERSION=" + codexLock.Agent.Version,
+		"ARG CODEX_PACKAGE_SHA256_X64=" + codexLock.Agent.Platforms["linux/amd64"].SHA256,
+		"ARG CODEX_PACKAGE_SHA256_ARM64=" + codexLock.Agent.Platforms["linux/arm64"].SHA256,
 		"COPY aws-cli-public-key.asc /tmp/aws-cli-public-key.asc",
 		"io.tobari.runtime-api=\"1\"",
 		"io.tobari.runtime-lifetime-command=\"sleep infinity\"",
@@ -311,11 +336,22 @@ func validate(root string) (string, error) {
 		"org.opencontainers.image.source=\"" + canonicalSource + "\"",
 		"COPY --from=fetcher /opt/aws-cli /opt/aws-cli",
 		"COPY --from=fetcher /out/gh /usr/local/bin/gh",
+		"COPY --from=fetcher /out/claude /usr/local/bin/claude",
+		"COPY --from=fetcher /out/codex /opt/tobari/codex",
 		"https://github.com/cli/cli/releases/download/v",
 		"https://awscli.amazonaws.com/",
+		"https://downloads.claude.ai/claude-code-releases/${CLAUDE_CODE_VERSION}/manifest.json",
+		"https://downloads.claude.ai/claude-code-releases/${CLAUDE_CODE_VERSION}/${claude_platform}/claude",
+		"https://releases.openai.com/codex/releases/${CODEX_VERSION}/${codex_package}",
 		"sha256sum --check --strict",
 		"gpg --batch --verify",
+		"ENV HOME=/var/lib/tobari",
+		"ENV DISABLE_AUTOUPDATER=1",
+		"ln -s \"${codex_release_dir}/bin/codex\" /usr/local/bin/codex",
+		"ln -s \"${codex_release_dir}/bin/codex-code-mode-host\" /usr/local/bin/codex-code-mode-host",
+		"ln -s \"${codex_release_dir}/codex-path/rg\" /usr/local/bin/rg",
 		"USER tobari",
+		"RUN claude --version && codex --version",
 		"ENTRYPOINT [\"/usr/bin/tini\", \"--\", \"/usr/local/bin/tobari-entrypoint\"]",
 		"CMD [\"sleep\", \"infinity\"]",
 	} {
@@ -344,6 +380,22 @@ func validate(root string) (string, error) {
 	}
 	if !strings.Contains(spec, "ln -s /opt/aws-cli/v2/current/bin/aws /usr/local/bin/aws") {
 		return "", errors.New("base Dockerfile does not expose the AWS CLI")
+	}
+	for _, forbidden := range []string{"ENV CODEX_HOME=", "/var/lib/tobari/.local/bin/claude", "/var/lib/tobari/.codex/packages", "claude update", "codex update"} {
+		if strings.Contains(spec, forbidden) {
+			return "", fmt.Errorf("base Dockerfile contains forbidden mutable agent installation %q", forbidden)
+		}
+	}
+	workflow, err := readRegularFile(filepath.Join(root, baseWorkflow))
+	if err != nil {
+		return "", err
+	}
+	workflowText := string(workflow)
+	if strings.Contains(workflowText, "packages: write") || strings.Contains(workflowText, "--push") || strings.Contains(workflowText, "docker login") {
+		return "", errors.New("agent-ready base publication must remain disabled while bundled-agent license review is pending")
+	}
+	if !strings.Contains(workflowText, "--output type=cacheonly") {
+		return "", errors.New("agent-ready base workflow must retain build-only validation")
 	}
 
 	return lock.BaseImage.Reference, nil

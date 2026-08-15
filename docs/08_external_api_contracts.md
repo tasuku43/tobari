@@ -28,11 +28,17 @@ attempt. It does not retry an arbitrary HTTP request.
 ## Policy-preset ceiling
 
 The immutable preset guardrail is evaluated before baseline data, learned
-exact policy, or Advanced Rego. `builtin/offline` terminally denies all
-HTTP/HTTPS; `builtin/reviewed-exact` makes only eligible effects exact-review
-candidates; `builtin/get-only-reviewed` makes only eligible GET effects
-candidates and terminally denies HEAD and every non-GET. None grants immediate
-authority and GET is not classified as safe or read-only. Terminal denial
+exact policy, or Advanced Rego. `builtin/agent-ready` grants the exact reviewed
+Claude Code 2.1.220 and Codex 0.146.0 core model, bootstrap/catalog,
+account-state, and fixed first-party telemetry effects. Those are Context-wide
+HTTP effects rather than executable identity, and exact Deny remains terminal.
+Plugins, MCP, connectors, file transfer, downloads, evaluation, self-update,
+and unmatched effects receive no baseline grant. `builtin/offline` terminally
+denies all HTTP/HTTPS; `builtin/reviewed-exact` makes only eligible effects
+exact-review candidates; `builtin/get-only-reviewed` makes only eligible GET
+effects candidates and terminally denies HEAD and every non-GET. Those three
+strict presets grant no immediate authority and GET is not classified as safe
+or read-only. Terminal denial
 creates no candidate and causes zero external DNS, Broker resolution, or
 upstream calls.
 
@@ -91,14 +97,16 @@ Exact GitHub CLI product-version equality is not an authority boundary.
 
 ## Other reviewed acquisition and post-policy plans
 
-The shared acquisition resolver ignores untrusted PATH shadows without
-executing them and selects the first finite PATH candidate whose canonical
-executable passes the existing conventional-root and mode contract.
-AWS offers only `identity-center` and `console` host acquisition. Its opaque
+Host acquisition ignores untrusted PATH shadows without executing them and
+selects the first finite PATH candidate whose canonical executable passes the
+existing conventional-root and mode contract. AWS offers only
+`identity-center` and `console` host acquisition. Its opaque
 state is re-entered by a private authenticated companion after allow, and
 Broker emits one standard header-based SigV4 result for the exact bounded
-request. Datadog uses fixed US1 pup acquisition and a proxy-free,
-no-redirect, same-record refresh transport. OpenAI accepts a stable observed
+request. Datadog uses fixed US1 pup acquisition from a fresh selected-Context
+runtime container, binds immutable image/executable identity, validates
+semantic version syntax plus the fixed login/status/native-state contract, and
+uses a proxy-free, no-redirect, same-record refresh transport. OpenAI accepts a stable observed
 host Codex version only when the exact compiled V1 native-browser/state
 contract succeeds. The verified Codex child owns the loopback listener,
 dynamic authorization URL, browser request, PKCE state, callback, and exchange;
@@ -107,14 +115,20 @@ Codex reset, muted, and accent SGR vocabulary; `NO_COLOR` strips those styles
 and unknown controls remain visibly projected. OpenAI
 refreshes only the same ChatGPT account record, returning
 its validated account ID for one supplemental header. Anthropic accepts only
-the four required renewable-session values extracted from exact Claude Code
+the four required renewable-session values and two bounded non-secret
+entitlement labels extracted from exact Claude Code
 2.1.220 in the selected Context image, structurally validates the dynamic
 requested and granted scope sets, rejects grants outside the observed request,
-and canonicalizes their order without compiling provider scope names, discards other native-file metadata,
+and canonicalizes their order without compiling provider scope or entitlement
+values, discards other native-file metadata,
 stores a strict Tobari-owned record, selects an unexpired bearer or refreshes the same record through
 the fixed proxy-free, no-redirect platform endpoint without scope drift, and
-exposes only a project-bound handle plus the same non-secret scope set in the
-Workspace credential file.
+exposes only a project-bound handle, a fixed public refresh-presence sentinel,
+the same non-secret scope set, and the captured subscription/rate-limit labels
+in the Workspace credential file. The sentinel is not a renewable credential
+or a recognized handle. Its separate non-secret Workspace client-state
+projection merges exactly `hasCompletedOnboarding: true` and preserves every
+unrelated top-level Claude value; it is not a provider credential field.
 Chatwork is a static stdin-import binding. The OpenAI Broker client ID and
 refresh endpoint and the Workspace Codex handle projection remain separately
 fixed; host product version does not select either contract.

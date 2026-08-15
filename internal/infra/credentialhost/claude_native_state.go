@@ -54,6 +54,7 @@ const (
 	ClaudeCaptureOAuthValueShape  ClaudeCredentialCaptureStage = "oauth_token_shape"
 	ClaudeCaptureOAuthExpiry      ClaudeCredentialCaptureStage = "oauth_expiry"
 	ClaudeCaptureOAuthScopeSet    ClaudeCredentialCaptureStage = "oauth_scope_set"
+	ClaudeCaptureOAuthEntitlement ClaudeCredentialCaptureStage = "oauth_entitlement"
 	ClaudeCaptureCanonicalRecord  ClaudeCredentialCaptureStage = "canonical_record"
 )
 
@@ -80,7 +81,7 @@ func validClaudeCredentialCaptureStage(stage ClaudeCredentialCaptureStage) bool 
 	case ClaudeCaptureFileExport, ClaudeCaptureArchiveEnvelope, ClaudeCaptureFilePermissions,
 		ClaudeCaptureDocumentEncoding, ClaudeCaptureDocumentJSON, ClaudeCaptureOAuthRecord,
 		ClaudeCaptureOAuthCoreFields, ClaudeCaptureOAuthValueShape, ClaudeCaptureOAuthExpiry,
-		ClaudeCaptureOAuthScopeSet, ClaudeCaptureCanonicalRecord:
+		ClaudeCaptureOAuthScopeSet, ClaudeCaptureOAuthEntitlement, ClaudeCaptureCanonicalRecord:
 		return true
 	default:
 		return false
@@ -114,13 +115,16 @@ type claudeNativeAuthFile struct {
 	OAuth claudeNativeOAuthSession `json:"claudeAiOauth"`
 }
 
-// claudeNativeOAuthSession is Tobari's owned at-rest subset of
-// the pinned Claude file. Provider-owned optional metadata is never persisted.
+// claudeNativeOAuthSession is Tobari's owned at-rest subset of the pinned
+// Claude file. The two entitlement labels are non-secret native-client state;
+// account identities and refresh-expiry metadata are deliberately excluded.
 type claudeNativeOAuthSession struct {
-	AccessToken  string   `json:"access_token"`
-	RefreshToken string   `json:"refresh_token"`
-	ExpiresAt    int64    `json:"expires_at"`
-	Scopes       []string `json:"scopes"`
+	AccessToken      string   `json:"access_token"`
+	RefreshToken     string   `json:"refresh_token"`
+	ExpiresAt        int64    `json:"expires_at"`
+	Scopes           []string `json:"scopes"`
+	SubscriptionType string   `json:"subscription_type"`
+	RateLimitTier    string   `json:"rate_limit_tier"`
 }
 
 func NewClaudeNativeCredential(
@@ -247,6 +251,14 @@ func parseClaudeNativeAuth(encoded []byte) (claudeNativeAuthFile, error) {
 		}
 		auth.OAuth.Scopes[index] = scope
 	}
+	if auth.OAuth.SubscriptionType, ok = oauthDocument["subscriptionType"].(string); !ok {
+		clearClaudeNativeAuth(&auth)
+		return claudeNativeAuthFile{}, NewClaudeCredentialCaptureError(ClaudeCaptureOAuthEntitlement, ErrInvalidClaudeNativeCredential)
+	}
+	if auth.OAuth.RateLimitTier, ok = oauthDocument["rateLimitTier"].(string); !ok {
+		clearClaudeNativeAuth(&auth)
+		return claudeNativeAuthFile{}, NewClaudeCredentialCaptureError(ClaudeCaptureOAuthEntitlement, ErrInvalidClaudeNativeCredential)
+	}
 	if !validClaudeNativeSecret(auth.OAuth.AccessToken) || !validClaudeNativeSecret(auth.OAuth.RefreshToken) {
 		clearClaudeNativeAuth(&auth)
 		return claudeNativeAuthFile{}, NewClaudeCredentialCaptureError(ClaudeCaptureOAuthValueShape, ErrInvalidClaudeNativeCredential)
@@ -261,6 +273,11 @@ func parseClaudeNativeAuth(encoded []byte) (claudeNativeAuthFile, error) {
 		return claudeNativeAuthFile{}, NewClaudeCredentialCaptureError(ClaudeCaptureOAuthScopeSet, ErrInvalidClaudeNativeCredential)
 	}
 	auth.OAuth.Scopes = normalizedScopes
+	if !validClaudeNativeEntitlement(auth.OAuth.SubscriptionType) ||
+		!validClaudeNativeEntitlement(auth.OAuth.RateLimitTier) {
+		clearClaudeNativeAuth(&auth)
+		return claudeNativeAuthFile{}, NewClaudeCredentialCaptureError(ClaudeCaptureOAuthEntitlement, ErrInvalidClaudeNativeCredential)
+	}
 	return cloneClaudeNativeAuth(auth), nil
 }
 
@@ -277,10 +294,16 @@ func validateClaudeNativeCredentialPayload(payload claudeNativeCredentialPayload
 func validateClaudeNativeOAuth(oauth claudeNativeOAuthSession) error {
 	if !validClaudeNativeSecret(oauth.AccessToken) || !validClaudeNativeSecret(oauth.RefreshToken) ||
 		oauth.ExpiresAt < 946684800000 || oauth.ExpiresAt > 7258118400000 ||
-		!canonicalClaudeNativeScopes(oauth.Scopes) {
+		!canonicalClaudeNativeScopes(oauth.Scopes) ||
+		!validClaudeNativeEntitlement(oauth.SubscriptionType) ||
+		!validClaudeNativeEntitlement(oauth.RateLimitTier) {
 		return ErrInvalidClaudeNativeCredential
 	}
 	return nil
+}
+
+func validClaudeNativeEntitlement(value string) bool {
+	return authbroker.ValidateSecretFreeText("Claude native entitlement", value, 128) == nil
 }
 
 func canonicalClaudeNativeScopes(scopes []string) bool {

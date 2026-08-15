@@ -94,6 +94,19 @@ def _millis(value: Any) -> bool:
     )
 
 
+def _entitlement(value: Any) -> bool:
+    return (
+        isinstance(value, str)
+        and 1 <= len(value.encode("utf-8")) <= 128
+        and value == value.strip()
+        and all(
+            ord(character) >= 0x20
+            and ord(character) not in (0x7F, 0x2028, 0x2029)
+            for character in value
+        )
+    )
+
+
 def _normalize_scopes(value: Any) -> tuple[str, ...]:
     if not isinstance(value, list) or not 1 <= len(value) <= 32:
         raise AnthropicClaudeOAuthError("anthropic_oauth_state_invalid")
@@ -161,6 +174,8 @@ class ClaudeOAuthState:
             "refresh_token",
             "expires_at",
             "scopes",
+            "subscription_type",
+            "rate_limit_tier",
         ]
         if list(session) != expected:
             raise AnthropicClaudeOAuthError(code)
@@ -173,6 +188,8 @@ class ClaudeOAuthState:
             or not _secret(session.get("refresh_token"))
             or not _millis(session.get("expires_at"))
             or session.get("scopes") != list(normalized_scopes)
+            or not _entitlement(session.get("subscription_type"))
+            or not _entitlement(session.get("rate_limit_tier"))
         ):
             raise AnthropicClaudeOAuthError(code)
         return cls(document=document)
@@ -195,6 +212,10 @@ class ClaudeOAuthState:
 
     def oauth_scopes(self) -> tuple[str, ...]:
         return tuple(self.document["session"]["scopes"])
+
+    def workspace_entitlements(self) -> tuple[str, str]:
+        session = self.document["session"]
+        return session["subscription_type"], session["rate_limit_tier"]
 
 
 def _default_request(request: urllib.request.Request, timeout: float) -> bytes:

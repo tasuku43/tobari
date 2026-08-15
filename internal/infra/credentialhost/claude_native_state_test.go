@@ -26,9 +26,14 @@ func TestClaudeNativeCredentialCanonicalizesStrictLinuxState(t *testing.T) {
 	if err != nil || !bytes.Contains(encoded, []byte(claudeNativeAccessCanary)) || !bytes.Contains(encoded, []byte(claudeNativeRefreshCanary)) {
 		t.Fatalf("encoded credential error=%v", err)
 	}
-	for _, providerMetadata := range [][]byte{[]byte("refreshTokenExpiresAt"), []byte("subscriptionType"), []byte("rateLimitTier"), []byte("clientId"), []byte("claudeAiOauth")} {
+	for _, providerMetadata := range [][]byte{[]byte("refreshTokenExpiresAt"), []byte("clientId"), []byte("claudeAiOauth")} {
 		if bytes.Contains(encoded, providerMetadata) {
 			t.Fatalf("canonical state retained provider metadata %q", providerMetadata)
+		}
+	}
+	for _, entitlement := range [][]byte{[]byte(`"subscription_type":"max"`), []byte(`"rate_limit_tier":"default_claude_max_5x"`)} {
+		if !bytes.Contains(encoded, entitlement) {
+			t.Fatalf("canonical state dropped native entitlement %q", entitlement)
 		}
 	}
 	decoded, err := DecodeClaudeNativeCredential(encoded)
@@ -50,11 +55,13 @@ func TestClaudeNativeCredentialRejectsSchemaAndIdentityDrift(t *testing.T) {
 		encoded []byte
 		stage   ClaudeCredentialCaptureStage
 	}{
-		"duplicate field": {bytes.Replace(valid, []byte(`"access`+`Token":"`), []byte(`"access`+`Token":"dummy-duplicate","access`+`Token":"`), 1), ClaudeCaptureDocumentJSON},
-		"missing refresh": {bytes.Replace(valid, []byte(`,"refresh`+`Token":"`+claudeNativeRefreshCanary+`"`), nil, 1), ClaudeCaptureOAuthCoreFields},
-		"invalid scope":   {bytes.Replace(valid, []byte(`"user:file_upload"`), []byte(`"user other"`), 1), ClaudeCaptureOAuthScopeSet},
-		"duplicate scope": {bytes.Replace(valid, []byte(`"user:file_upload"`), []byte(`"user:profile"`), 1), ClaudeCaptureOAuthScopeSet},
-		"expired shape":   {claudeNativeAuthJSON(1), ClaudeCaptureOAuthExpiry},
+		"duplicate field":     {bytes.Replace(valid, []byte(`"access`+`Token":"`), []byte(`"access`+`Token":"dummy-duplicate","access`+`Token":"`), 1), ClaudeCaptureDocumentJSON},
+		"missing refresh":     {bytes.Replace(valid, []byte(`,"refresh`+`Token":"`+claudeNativeRefreshCanary+`"`), nil, 1), ClaudeCaptureOAuthCoreFields},
+		"invalid scope":       {bytes.Replace(valid, []byte(`"user:file_upload"`), []byte(`"user other"`), 1), ClaudeCaptureOAuthScopeSet},
+		"duplicate scope":     {bytes.Replace(valid, []byte(`"user:file_upload"`), []byte(`"user:profile"`), 1), ClaudeCaptureOAuthScopeSet},
+		"expired shape":       {claudeNativeAuthJSON(1), ClaudeCaptureOAuthExpiry},
+		"missing entitlement": {bytes.Replace(valid, []byte(`,"subscriptionType":"max"`), nil, 1), ClaudeCaptureOAuthEntitlement},
+		"unsafe entitlement":  {bytes.Replace(valid, []byte(`"subscriptionType":"max"`), []byte(`"subscriptionType":"max\nother"`), 1), ClaudeCaptureOAuthEntitlement},
 	}
 	for name, test := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -106,7 +113,7 @@ func TestClaudeNativeCredentialTreatsDynamicGrantedScopesAsASet(t *testing.T) {
 	}
 }
 
-func TestClaudeNativeCredentialDropsProviderOwnedOptionalMetadata(t *testing.T) {
+func TestClaudeNativeCredentialDropsUnneededProviderOwnedMetadata(t *testing.T) {
 	valid := claudeNativeAuthJSON(4102444800000)
 	withMetadata := bytes.Replace(
 		valid,

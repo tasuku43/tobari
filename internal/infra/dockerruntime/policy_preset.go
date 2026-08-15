@@ -141,7 +141,7 @@ func (r *Runtime) ListPolicyPresets(ctx context.Context) (tobari.PolicyPresetRes
 	if err := ctx.Err(); err != nil {
 		return tobari.PolicyPresetResult{}, err
 	}
-	origins := []string{"builtin/offline", tobari.DefaultPolicyPresetOrigin, "builtin/get-only-reviewed"}
+	origins := []string{"builtin/offline", tobari.DefaultPolicyPresetOrigin, "builtin/reviewed-exact", "builtin/get-only-reviewed"}
 	entries, err := os.ReadDir(r.policyPresetCustomDirectory())
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return tobari.PolicyPresetResult{}, err
@@ -190,7 +190,8 @@ func (r *Runtime) ValidatePolicyPreset(ctx context.Context, origin string) (toba
 }
 
 func (r *Runtime) policyPresetResult(task, origin string, preset tobari.PolicyPreset, revision string) tobari.PolicyPresetResult {
-	result := tobari.PolicyPresetResult{Task: task, Origin: origin, Revision: revision, Preset: &preset, Scope: "One Context-wide immutable network ceiling and exact baseline snapshot.", Limitations: []string{"No immediate grant is automatically safe or read-only.", "Source changes affect only future Context creation.", "The preset contains no executable policy, secret, wildcard, inheritance, include, or remote fetch."}}
+	limitations := []string{"Immediate grants are HTTP effects available to every process in the Context; they do not identify an agent executable.", "No immediate grant is automatically safe or read-only.", "Source changes affect only future Context creation.", "The preset contains no executable policy, secret, wildcard, inheritance, include, or remote fetch."}
+	result := tobari.PolicyPresetResult{Task: task, Origin: origin, Revision: revision, Preset: &preset, Scope: "One Context-wide immutable network ceiling and exact baseline snapshot.", Limitations: limitations}
 	if strings.HasPrefix(origin, "custom/") {
 		result.SourcePath = filepath.Join(r.policyPresetCustomDirectory(), strings.TrimPrefix(origin, "custom/")+".json")
 	}

@@ -37,8 +37,8 @@ policy-preset snapshot. They remain secret-free authority metadata in separate
 owner-only state; project files, runtime images, Workspaces, and source preset
 files cannot rewrite an existing Context envelope.
 
-The reviewed GitHub, AWS, pup, and Codex host drivers and isolated Claude
-Context-runtime driver are trusted, purpose-limited CLI side effects. Host
+The reviewed GitHub, AWS, and Codex host drivers and isolated pup and Claude
+Context-runtime drivers are trusted, purpose-limited CLI side effects. Host
 drivers select canonical executables outside the project, reject group/world-
 writable candidates, bind SHA-256 identity, construct only fixed argv, use
 sanitized private state, and accept no
@@ -47,12 +47,16 @@ executable or argument. GitHub uses only its fixed device page and attempts one
 host-browser open at most once. Codex uses its native browser login: the
 verified child alone owns the loopback listener, dynamic authorization URL,
 PKCE state, callback, and exchange; Tobari never receives or opens them. AWS uses only
-the reviewed Identity Center or commercial-console flow; pup is fixed to
-Datadog US1; Codex uses its contract-checked native flow. Claude Code 2.1.220
+the reviewed Identity Center or commercial-console flow; Codex uses its
+contract-checked native flow. Pup runs from the selected Context image with no
+mounts or persistent home, binds an immutable image and executable digest,
+accepts semantic version syntax without an exact version allowlist, and is
+fixed to Datadog US1 through strict login/status/state capture. Claude Code 2.1.220
 runs in a fresh selected-Context-image container with no mounts, project,
 persistent home, Broker socket, or Docker socket; Tobari hashes its copied
-executable bytes, extracts only the required token, refresh, expiry, and scope
-values, and discards provider-owned optional credential metadata before
+executable bytes, extracts only the required token, refresh, expiry, scope, and
+bounded non-secret subscription/rate-limit values, and discards every other
+provider-owned optional credential field before
 creating a strict Tobari-owned renewable record. Every driver revalidates executable identity and
 performs checked cleanup. Managed profiles and manifest-selected helpers remain
 absent.
@@ -197,9 +201,10 @@ contains no branch, dirty diff, absolute path, username, environment value,
 registry credential, or unreviewed digest. Repository-only recovery text is
 gated by the compiled development resolver metadata rather than CWD inspection.
 
-The current Context's runtime recipe is a trusted-host build input. Explicit
-`cluster up` may obtain the published official runtime base for an
-uncustomized Context; `runtime build` may obtain the declared base image only
+The current Context's runtime recipe is a trusted-host build input. An approved
+release resolver may obtain its immutable official runtime base for an
+uncustomized Context; contributor development uses the local combined base.
+`runtime build` may obtain the declared base image only
 because the user explicitly requested a host build. Docker receives the
 owner-only Context `runtime/` directory as its complete build context; policy
 files, provider manifests, credential metadata, encrypted vaults, root keys,
@@ -220,30 +225,26 @@ the explicit build also requests a refresh of the moving base. Explicit local
 or custom bases do not receive that registry-pull request; this keeps local
 development bases usable without weakening the build-context boundary.
 
-The official base runtime and derived agent images do not change this boundary.
-The base main channel is published by a protected main-branch workflow;
-derived agent variants are separate later slices in the same runtime package.
-A published Claude or Codex image is a convenience rootfs and tool bundle, not
+The base runtime does not change this boundary. Bundled Claude or Codex is a
+convenience rootfs and tool bundle, not
 a source of host mounts, host credentials, capabilities, network routes, or lifecycle
 policy, and registry provenance does not replace local runtime compatibility
 validation.
 
-The current Claude Code 2.1.220 and Codex 0.146.0 image slices are build-only
-and contain no credentials or agent configuration. A Context-owned custom
-recipe may compose the reviewed local artifacts. Its ordinary Workspace
+The canonical base includes integrity-pinned Claude Code 2.1.220 and Codex
+0.146.0 and contains no credentials or agent configuration. Its ordinary Workspace
 binaries remain untrusted; only the separate mount-free Claude login container
 may treat exact Claude as a provider-only acquisition authority. Their workflows verify
 the versioned release packages against the checked-in per-architecture
-checksums and have no package-write permission; public publication remains
-gated on third-party redistribution and license review.
+checksums. The combined base declares `NOASSERTION`; its workflow has no
+package-write permission, registry login, or push while either agent lock
+retains pending redistribution/license review.
 
-The public base retains its pre-change GitHub CLI and AWS CLI artifact
-inventory and associated integrity/license checks. `kubectl`, `cwk`, `pup`,
-and TWG are downloaded only during an explicit trusted-host local toolbox build
-with checked identities and local license inventory; that build creates no
-public redistribution claim. Both images contain no credentials, copy no host
-CLI configuration file, inherit the same untrusted runtime treatment, and
-receive no Docker socket or direct egress. A Context narrow projection is
+The base retains its GitHub CLI and AWS CLI artifact inventory and associated
+integrity/license checks. `kubectl`, `cwk`, `pup`, and TWG are not base-runtime
+artifacts. Custom Context images receive no implicit publication authority or
+trust; the selected image used for pup acquisition contains no mounted host or
+Workspace configuration and receives no Docker socket. A Context narrow projection is
 generated separately from its fixed validated non-secret scalars and never
 changes image contents.
 
@@ -419,10 +420,17 @@ permission candidate and causes zero external DNS, Auth Broker resolution, or
 upstream calls. The guardrail cannot be replaced by Context Rego, learned state,
 provider metadata, or a Workspace-supplied value. `builtin/offline` terminally
 denies all HTTP/HTTPS and creates no review candidate;
+`builtin/agent-ready` grants only the exact reviewed Claude Code 2.1.220 and
+Codex 0.146.0 core model, bootstrap/catalog, account-state, and first-party
+telemetry effects. These are Context-wide HTTP effects, not executable
+identity. Exact Deny remains terminal, and optional plugin, MCP, connector,
+file-transfer, download, evaluation, self-update, and unmatched effects receive
+no baseline authority;
 `builtin/reviewed-exact` permits only eligible effects to enter exact review;
 `builtin/get-only-reviewed` permits only eligible GET effects to enter exact
-review and terminally denies HEAD and every non-GET method. None grants
-immediate authority, and GET is not classified as safe or read-only.
+review and terminally denies HEAD and every non-GET method. Those three strict
+presets grant no immediate authority, and GET is not classified as safe or
+read-only.
 
 ## Credentials
 
@@ -779,7 +787,18 @@ as bounded, duplicate-free RFC OAuth scope tokens, but their provider-owned
 names are not compiled into Tobari. The grant must be a subset of the observed
 request and is then normalized; response ordering grants no authority. Refresh
 and Workspace projection preserve that same set, and refresh scope drift fails
-closed. Timeout retains
+closed. Capture also preserves only the bounded non-secret native
+subscription-type and rate-limit-tier labels; their values are not compiled
+into Tobari and every other optional native field is discarded. Workspace
+receives those labels plus a fixed public `dummy-value` refresh sentinel so
+Claude 2.1.220 does not misclassify the handle projection as expired. The
+sentinel is neither a secret nor a recognized handle, and the real refresh
+token remains Broker-only. Workspace reconciliation also merges only
+`hasCompletedOnboarding: true` into a private regular `.claude.json`, preserves
+all unrelated values, and removes only that registered field with the
+Anthropic projection. Malformed, duplicate-key, oversized, symlinked, or
+non-private targets fail closed, and owner manifests cannot request mutable
+JSON merging. Timeout retains
 precedence when checked cleanup also fails; setup, authorization, output,
 native-state capture, and cleanup-only failures use distinct fixed faults and
 never disclose child output or credential content. Native-state failures expose
@@ -855,7 +874,7 @@ reference-bound mutation.
 | Provider manifests cannot become executable or ambiguous authority | Strict schema/collision/path/header tests, owner-only XDG loading, and built-in override rejection |
 | Provider login cannot turn visible text into arbitrary browser execution | Conventional non-project executable selection, identity/digest recheck, fixed argv/environment, bounded browser/PTY projection, checked cleanup, cancellation, and provider-specific negative tests |
 | Unsupported credential mechanisms cannot remain dormant | Catalog/state/dependency/image-content tests reject managed profiles, owner-selected dynamic plans, arbitrary helpers, compatibility readers, and provider CLIs inside Broker |
-| Published tools retain reviewed identity and redistribution evidence | Base-runtime baseline checks for GitHub CLI and AWS CLI; optional local toolbox locks for kubectl, cwk, pup, and local-only TWG; Claude/Codex agent tags remain unpublished while redistribution review is pending |
+| Agent-ready tools retain reviewed identity without premature redistribution | Base-runtime locks/checks for GitHub CLI, AWS CLI, Claude Code, and Codex; version smokes outside Workspace home; workflow canaries reject registry write/login/push while bundled-agent review is pending |
 | Secret headers, queries, handle-bearing paths, and bodies stay out of logs | Gateway redacted-path/header-absence tests, non-learnable structural-rejection tests, and log scans |
 | Declared provider bindings are Broker-required | Direct bearer/raw and SigV4 canaries return `broker_auth_required` before fallback/Broker/OPA/DNS/upstream; valid handles retain policy-before-action ordering; an undeclared binding retains compatibility passthrough |
 | Broker fallback cannot accept a Tobari-looking handle | Undeclared-binding and marker-absence fallback tests plus malformed, misplaced, ambiguous, and binding-mismatch fail-closed canaries |
@@ -867,7 +886,7 @@ reference-bound mutation.
 | Ambiguous CWD selection cannot mutate before a valid choice | Typed candidate snapshot, locked stale-choice revalidation, and zero-call cancellation tests |
 | One Tobari cannot consume unbounded CPU, memory, PIDs, or container logs | Fixed create-argv and spec-hash tests plus runtime HostConfig assertions |
 | A custom image cannot expand its runtime specification | Compatibility inspection, fixed create-argv tests, and integration test |
-| Optional toolbox artifacts retain reviewed identity | Pinned versions, vendor checksums, explicit local build validation, and no public TWG publication claim |
+| Selected Context pup cannot become an ambient host helper | Runtime API and immutable-image checks, bounded semantic version observation, Docker-streamed executable digest, fixed argv/status/state capture, no mounts, and no host/base fallback |
 | Project metadata cannot become a second runtime boundary | Context-only image resolution, ignored-project-metadata regression test, and fixed runtime adapter |
 | OPA cannot rewrite Context policy | Read-only mount-spec test |
 | Tested host policy activates across Docker hosts | Docker-managed watched-bundle test, exact revision assertion, stable OPA identity, and Linux integration scenario |
@@ -915,7 +934,6 @@ digests from the release-generated component lock. Source contains no owned
 image-output fallback. The lock validator rejects partial, cross-revision,
 wrong-repository, moving, API-invalid, and incomplete-platform authorities
 before CLI packaging. A moving tag or local image is never release authority.
-Likewise, the checked local Claude
-Code 2.1.220 and Codex 0.146.0 runtime recipes establish integrity and test
-identity only; their agent artifacts remain unpublished while redistribution
-and license review is pending.
+Likewise, the checked combined Claude Code 2.1.220 and Codex 0.146.0 base
+establishes integrity and test identity only; the artifact remains unpublished
+while redistribution and license review is pending.

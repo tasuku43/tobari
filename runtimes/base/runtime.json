@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "name": "base",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "package": "tobari/runtime",
   "kind": "base",
   "parent": null,
@@ -27,8 +27,10 @@
     "python3",
     "tini",
     "gh",
-    "aws"
+    "aws",
+    "claude",
+    "codex"
   ],
   "source": "https://github.com/tasuku43/tobari",
-  "license": "MIT"
+  "license": "NOASSERTION"
 }

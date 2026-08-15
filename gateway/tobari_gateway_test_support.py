@@ -130,6 +130,7 @@ class ReviewedDynamicCredentialGatewayTestCase(unittest.TestCase):
                 {"provider_id": "github", "name": "GH_TOKEN", "template": "${HANDLE}"},
             ],
             "complete_files": [],
+            "json_merges": [],
             "header_bindings": bindings,
             "secret_headers": ["authorization"],
         }
@@ -150,11 +151,18 @@ class ReviewedDynamicCredentialGatewayTestCase(unittest.TestCase):
                     "kind": "complete_file",
                     "path": ".claude/.credentials.json",
                     "template": (
-                        '{"claudeAiOauth":{"accessToken":"${HANDLE}","refreshToken":"",'
+                        '{"claudeAiOauth":{"accessToken":"${HANDLE}","refreshToken":"dummy-value",'
                         '"expiresAt":4102444800000,'
-                        '"scopes":${OAUTH_SCOPES_JSON}}}'
+                        '"scopes":${OAUTH_SCOPES_JSON},'
+                        '"subscriptionType":${CLAUDE_SUBSCRIPTION_TYPE_JSON},'
+                        '"rateLimitTier":${CLAUDE_RATE_LIMIT_TIER_JSON}}}'
                     ),
-                }
+                },
+                {
+                    "kind": "merge_json",
+                    "path": ".claude.json",
+                    "template": '{"hasCompletedOnboarding":true}',
+                },
             ],
             "header_bindings": [
                 {
@@ -200,6 +208,13 @@ class ReviewedDynamicCredentialGatewayTestCase(unittest.TestCase):
                     "provider_id": "anthropic",
                     "path": ".claude/.credentials.json",
                     "template": provider["workspace_projections"][0]["template"],
+                }
+            ],
+            "json_merges": [
+                {
+                    "provider_id": "anthropic",
+                    "path": ".claude.json",
+                    "template": provider["workspace_projections"][1]["template"],
                 }
             ],
             "header_bindings": [normalized],
@@ -265,6 +280,7 @@ class ReviewedDynamicCredentialGatewayTestCase(unittest.TestCase):
                 {"provider_id": "datadog", "name": "DD_SITE", "template": "datadoghq.com"},
             ],
             "complete_files": [],
+            "json_merges": [],
             "header_bindings": [
                 {
                     "provider_id": "chatwork",
@@ -330,6 +346,7 @@ class ReviewedDynamicCredentialGatewayTestCase(unittest.TestCase):
                 {"provider_id": "datadog", "name": "DD_SITE", "template": "datadoghq.com"},
             ],
             "complete_files": [],
+            "json_merges": [],
             "header_bindings": [normalized],
             "signing_bindings": [],
             "secret_headers": ["authorization"],
@@ -410,6 +427,7 @@ class ReviewedDynamicCredentialGatewayTestCase(unittest.TestCase):
                     "template": auth_template,
                 }
             ],
+            "json_merges": [],
             "header_bindings": [normalized],
             "signing_bindings": [],
             "secret_headers": [
@@ -464,6 +482,7 @@ class ReviewedDynamicCredentialGatewayTestCase(unittest.TestCase):
                 {"provider_id": "aws", "name": "AWS_SESSION_TOKEN", "template": "${HANDLE}"},
             ],
             "complete_files": [],
+            "json_merges": [],
             "header_bindings": [],
             "signing_bindings": [normalized],
             "secret_headers": ["authorization", "x-amz-security-token"],

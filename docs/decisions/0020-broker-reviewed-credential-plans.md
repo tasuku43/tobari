@@ -7,7 +7,8 @@
 - Supersedes: [ADR 0019: Add a shared locked Auth Broker for Context credentials](0019-shared-locked-auth-broker.md)
 - Superseded by: None
 - Revised by: ADR 0027 places typed built-in plans inside exact V1 and removes
-  payload migration
+  payload migration; ADR 0040 retires the optional toolbox and moves pup
+  acquisition into the selected Context runtime
 
 ## Context
 
@@ -236,11 +237,9 @@ operation. Least-privilege IAM permissions remain required.
 
 ### Keep requested tools Context-local
 
-The published base runtime remains unchanged. `images/toolbox` is the explicit
-local derivative for a Context that wants GitHub CLI, AWS CLI, kubectl, TWG,
-cwk, pup, and diagnostic tools. Versions, per-architecture integrity, and
-license inventory are pinned and checked, but building it is a trusted-host
-local action and does not make TWG a public redistribution claim.
+ADR 0040 retired the optional toolbox artifact. A custom Context runtime now
+owns any additional tools it needs, and Datadog acquisition uses pup from that
+selected runtime without a host, base-image, or second-image fallback.
 
 Schema-v1 built-ins/examples cover exact routine paths:
 
@@ -338,8 +337,9 @@ do not enter argv, environment, logs, audit, fixtures, Gateway policy input, or
 Workspace files. Tests use synthetic tokens, accounts, roles, paths, clocks,
 and local fake processes. Live login is a manual release check, never a fixture.
 
-The toolbox is local-only. The public base, its embedded snapshot, and its
-publication inventory do not gain kubectl, cwk, TWG, or pup.
+The selected custom Context runtime, rather than a Tobari-owned toolbox,
+supplies any additional user-chosen tools. The public-base publication
+inventory does not make claims for those custom runtime contents.
 
 ## Validation
 
@@ -349,7 +349,6 @@ publication inventory do not gain kubectl, cwk, TWG, or pup.
 - `task gateway:test`
 - `task authbroker:test`
 - `task integration:test`
-- `task toolbox:build`
 - `task release:check`
 - Manual trusted-host AWS device login followed by a re-entered Workspace AWS
   read, deny-before-refresh observation, forced automatic refresh, companion

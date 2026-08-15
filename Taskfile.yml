@@ -79,11 +79,6 @@ tasks:
     cmds:
       - ./scripts/check.sh integration
 
-  toolbox:build:
-    desc: Build and validate the optional local network CLI toolbox image.
-    cmds:
-      - ./scripts/build-toolbox.sh
-
   runtime:base:check:
     desc: Validate the canonical base image and embedded runtime snapshot.
     cmds:

@@ -79,9 +79,13 @@ type Runtime struct {
 	// isolated Context-runtime acquisition without granting the generic host
 	// credential adapter authority over Claude's native state.
 	claudeContainerLogin func(context.Context, string, io.Reader, io.Writer) (hostCredentialPayload, error)
-	hostLoginProfiles    hostLoginProfileReader
-	identities           identityIssuer
-	policyProjectionMu   sync.Mutex
+	// pupContainerLogin and pupRelayFactory are nil in production. Tests may
+	// replace the isolated Context-runtime acquisition and loopback adapter.
+	pupContainerLogin  func(context.Context, string, io.Reader, io.Writer) (hostCredentialPayload, error)
+	pupRelayFactory    pupLoginRelayFactory
+	hostLoginProfiles  hostLoginProfileReader
+	identities         identityIssuer
+	policyProjectionMu sync.Mutex
 	// projectStateWriter is nil in production. Tests may use it to inject a
 	// durable-state write failure after Docker reconciliation has completed.
 	projectStateWriter func(tobari.ProjectInstance) error

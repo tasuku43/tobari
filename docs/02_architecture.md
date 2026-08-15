@@ -38,7 +38,7 @@ chain. Neither resident process retains a network capability, and no host or
 Docker-VM-global firewall state is changed.
 
 Reviewed login drivers are the closed GitHub, AWS, pup, Codex, and Claude set.
-The shared host resolver for the first four rejects the first temporary, project-local, or
+The shared host resolver for GitHub, AWS, and Codex rejects the first temporary, project-local, or
 home-local PATH shadow without executing it and inspects a finite PATH-ordered
 candidate set for the first canonical executable under an existing trusted
 installation root. Each hashes that accepted executable outside the project, runs
@@ -52,7 +52,11 @@ resulting private file state after exit. Its stream boundary recognizes
 only the reviewed reset, muted, and accent SGR vocabulary, maps those meanings
 to Tobari-owned styles for an interactive terminal, and emits no style when
 `NO_COLOR` is present; unknown controls use the ordinary visible projection.
-Claude instead runs exact 2.1.220 from the selected Context image in a fresh
+Pup and Claude instead run from the selected Context image in fresh
+mount-free containers. Pup binds the immutable image ID, observes bounded
+semantic version syntax and executable digest without a compiled version
+allowlist, then requires the fixed login, status, and native-state capture
+contract. Claude runs exact 2.1.220 from the selected Context image in a fresh
 mount-free, project-free login container. Tobari hashes the copied executable
 bytes on the host, validates the native OSC 8 authorization URL, and maps only
 the exact opening, link, browser-result, and paste-prompt events to a fixed
@@ -70,12 +74,21 @@ cursor-show. The prompt includes fixed guidance that authorization may take a
 moment after Enter, and successful child exit produces a fixed progress
 transition before credential capture. The original terminal reader reaches
 Docker unchanged so the child retains TTY identity. Tobari then extracts
-only access token, refresh token, expiry, and the dynamically granted scope set
+access token, refresh token, expiry, the dynamically granted scope set, and the
+non-secret subscription-type and rate-limit-tier labels
 from the Linux file. It structurally validates OAuth scope tokens, requires the
 grant to be a subset of the exact set observed in the authorization URL,
 normalizes that set to Tobari order, canonicalizes those values with the
-observed executable identity into its own V1 record, discards all provider-owned
-optional metadata, and removes the container before commit. Owner
+observed executable identity into its own V1 record, discards all other
+provider-owned optional metadata, and removes the container before commit.
+Workspace receives those two bounded labels and the scope set beside its
+project-bound access handle, plus a fixed non-secret refresh sentinel needed
+by the exact pinned client's local login-state check; the real renewable
+session remains Broker-only. Workspace
+reconciliation separately merges only the reviewed non-secret top-level
+`hasCompletedOnboarding` boolean into Claude's private state, preserves all
+other fields, and removes that field with the Anthropic projection. The merge
+is unavailable to owner manifests. Owner
 manifests remain static-only and cannot select these helpers or their dynamic
 plans. Managed stores remain absent.
 
@@ -227,7 +240,7 @@ is rejected rather than collapsed into the omitted current-Context selector.
 
 Context creation is the sole owner of envelope defaults. It resolves omitted
 source access to `read-write` and omitted preset to
-`builtin/reviewed-exact`, normalizes and validates the complete preset, binds
+`builtin/agent-ready`, normalizes and validates the complete preset, binds
 its owner-only snapshot by SHA-256 revision, and atomically persists both
 manifest and snapshot before returning. Observation and old-state readers never
 invent either field. Root entry carries `source_access` into the exact project
@@ -244,11 +257,19 @@ Terminal denial ends before candidate projection, external DNS, broker
 resolution, and upstream I/O. Advanced modules may further constrain generic
 input but cannot bypass the guardrail or redefine the scheme-aware exact
 learned identity.
+`builtin/agent-ready` uses the reviewed-exact guardrail plus a finite exact
+baseline coupled to Claude Code 2.1.220 and Codex 0.146.0. The baseline grants
+model execution, bootstrap/catalog, account-state, and fixed first-party
+telemetry effects to the Context principal; it does not identify a process.
+Exact Deny precedes that grant. Optional plugins, MCP, connectors, file
+transfer, downloads, evaluation routes, self-update, and unmatched effects
+continue into terminal denial or the ordinary review evaluator.
 `builtin/offline` terminally denies all HTTP/HTTPS and exposes no review
 candidate. `builtin/reviewed-exact` exposes only eligible effects to exact
 review. `builtin/get-only-reviewed` exposes only eligible GET effects to exact
 review and terminally denies HEAD and all non-GET methods; GET receives no safe
-or read-only classification. All three grant nothing immediately.
+or read-only classification. Those three strict presets grant nothing
+immediately.
 
 Project runtime infrastructure resolves only declared shell `inherit` entries
 from the launching process at child-exec time and passes exact values to Bash.
@@ -369,8 +390,8 @@ manifest contains a secret. Gateway caches a validated projection only while
 its complete stat identity remains unchanged and fails closed, without a
 last-known-good fallback, when a replacement is invalid.
 
-The reviewed host drivers keep interactive provider-native execution on the
-trusted host. Each resolves and hashes one canonical executable from
+The reviewed host drivers keep GitHub, AWS, and Codex provider-native execution
+on the trusted host. Each resolves and hashes one canonical executable from
 conventional non-project trusted installation roots, uses only its fixed argv
 and sanitized private state, and deletes temporary state on every outcome.
 The Auth Broker domain owns the complete built-in provider-ID vocabulary and
@@ -401,13 +422,18 @@ and shares only the existing strict credential-state envelope with Broker
 runtime resolution.
 
 The Anthropic envelope is deliberately not a copy of Claude's private file
-schema. The acquisition boundary depends on four exact required fields from the
-pinned executable, while Broker persists only a strict Tobari-owned record and
-supplies its reviewed fixed client ID during refresh. Additive or account-local
-Claude metadata cannot become durable state or widen Broker behavior. Scope
-names are deliberately absent from the compiled contract: Broker refresh uses
+schema. The acquisition boundary depends on four exact renewable fields and
+two bounded non-secret entitlement labels from the pinned executable, while
+Broker persists only a strict Tobari-owned record and supplies its reviewed
+fixed client ID during refresh. All other additive or account-local Claude
+metadata is discarded. Subscription and rate-limit values are structurally
+bounded provider output, not compiled value lists, and cannot widen Broker
+behavior. Scope names are likewise absent from the compiled contract: Broker refresh uses
 the persisted canonical set and rejects a changed refresh response, while the
-same non-secret set is projected beside the Workspace handle.
+same non-secret set and the two native-client entitlement labels are projected
+beside the Workspace handle. A fixed non-secret refresh sentinel prevents the
+pinned client from misreporting that projection as expired but is never
+recognized or resolved as a Broker handle.
 
 The persisted credential-record union is also separated from Vault storage
 authority. Closed record contracts own credential-kind membership, exact V1
@@ -488,41 +514,26 @@ read-only root filesystem, dropped capabilities, fixed CPU/memory/PID/log
 resource bounds, fixed mounts, guarded internal network, and health
 check.
 
-`images/toolbox` remains an optional custom derivation for Context-specific
-tools. A separate host task builds it from the official Tobari runtime base,
-adds pinned `kubectl`, `cwk`, `pup`, and local-only TWG artifacts, and leaves
-only the local `tobari-toolbox:local` tag. It inherits the base's existing
-GitHub CLI and AWS CLI. It is not embedded runtime state, an official published
-artifact, an Auth Broker layer, or an implicit cluster dependency. No inclusion
-in this toolbox changes the public-base redistribution claim.
-
-The first published family member follows the same layering: a main-branch
-push runs `.github/workflows/runtime-base.yml` and publishes the reviewed
-multi-architecture base to `ghcr.io/<owner>/tobari/runtime:latest` and `:main`
-plus an
-immutable `sha-<commit>` tag. Future agent variants use the same package with
-variant-qualified tags such as
-`ghcr.io/<owner>/tobari/runtime:codex.0.42.0-base.0.1.0-r1`. Pull requests and
-ordinary local startup do not push images. Explicit `cluster up` may pull the
-official runtime base for the selected uncustomized Context; an explicit
-`runtime build` refreshes the exact official `runtime:latest` base when the
-recipe starts from it, while explicit local or custom bases do not receive a
-registry-pull request.
-
-The first Claude and Codex variants are build-only children under
-`runtimes/claude` and `runtimes/codex`, pinned respectively to Claude Code
-2.1.220 and Codex 0.146.0. Each downloads a pinned official agent release,
-verifies its per-architecture checksum, and inherits the base user, entrypoint,
-and lifetime command. A Context-owned custom recipe may compose the reviewed
-local artifacts so both `claude --version` and `codex --version` work in the
-same Workspace. Claude may become the provider-only acquisition executable in
+The canonical base under `runtimes/base` now includes Claude Code 2.1.220 and
+Codex 0.146.0 beside the common tools. It downloads the pinned official agent
+releases, verifies their per-architecture checksums, preserves the base user,
+entrypoint, and lifetime command, and smoke-tests both version commands.
+Claude may become the provider-only acquisition executable in
 the separate mount-free login container; it never makes an ordinary Workspace
 process or image executable a general host helper. Codex uses the official standalone package, which keeps its
 CLI companion binaries and Linux sandbox resources together. Agent executables
 and package resources live in image-owned `/usr/local/bin` and `/opt/tobari`
 paths; `/var/lib/tobari` contains only per-Tobari home state and is safe to
-replace with the persistent home bind. Their workflows do not publish agent
-tags until redistribution and license review is complete.
+replace with the persistent home bind. The retained child recipes remain
+build-only integrity fixtures for each upstream artifact.
+
+The combined base declares `NOASSERTION`. While either agent lock records
+pending redistribution/license review, `.github/workflows/runtime-base.yml`
+has read-only repository permission and builds the multi-architecture source
+with cache-only output; it has no registry permission, login, or push step.
+An approved later release may restore official publication only together with
+the required notices, image-layer inventory, and explicit review decision.
+Contributor development resolves `builtin` to its local combined base.
 
 The root resolver obtains the desired image from the stored Context identity's
 strict manifest on each runtime reconciliation. A new Context selects

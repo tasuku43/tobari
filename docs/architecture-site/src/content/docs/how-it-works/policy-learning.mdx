@@ -31,7 +31,9 @@ The diagram compresses one discovery detail: Gateway's denial response and audit
 ## 1. Denial is not a permission request
 
 OPA is deny-by-default for effects that match no preset baseline grant or exact
-learned allow. All three built-in V1 presets have zero immediate grants. A
+learned allow. The default `builtin/agent-ready` has a finite exact
+version-coupled Claude/Codex core baseline; the three strict built-ins have zero
+immediate grants. A
 request may be learnable only after schema, principal, fixed-port, credential
 binding, and the immutable preset terminal guardrail validate it.
 

@@ -6,8 +6,8 @@ import (
 	"testing"
 )
 
-func TestBuiltinPolicyPresetsHaveNoImmediateGrantsAndStableRevisions(t *testing.T) {
-	for _, origin := range []string{"builtin/offline", DefaultPolicyPresetOrigin, "builtin/get-only-reviewed"} {
+func TestBuiltinPolicyPresetsHaveStableRevisions(t *testing.T) {
+	for _, origin := range []string{"builtin/offline", DefaultPolicyPresetOrigin, "builtin/reviewed-exact", "builtin/get-only-reviewed"} {
 		preset, ok := BuiltinPolicyPreset(origin)
 		if !ok {
 			t.Fatalf("missing built-in %q", origin)
@@ -17,8 +17,42 @@ func TestBuiltinPolicyPresetsHaveNoImmediateGrantsAndStableRevisions(t *testing.
 			t.Fatal(err)
 		}
 		_, second, repeated, err := NormalizePolicyPreset(normalized)
-		if err != nil || !bytes.Equal(first, second) || revision != repeated || len(normalized.BaselineGrants) != 0 || !strings.HasPrefix(revision, "sha256:") {
+		if err != nil || !bytes.Equal(first, second) || revision != repeated || !strings.HasPrefix(revision, "sha256:") {
 			t.Fatalf("built-in normalization = %q/%q grants=%d err=%v", revision, repeated, len(normalized.BaselineGrants), err)
+		}
+		if origin == DefaultPolicyPresetOrigin && len(normalized.BaselineGrants) == 0 {
+			t.Fatal("agent-ready preset has no reviewed core grants")
+		}
+		if origin != DefaultPolicyPresetOrigin && len(normalized.BaselineGrants) != 0 {
+			t.Fatalf("strict built-in %q unexpectedly grants %d effects", origin, len(normalized.BaselineGrants))
+		}
+	}
+}
+
+func TestAgentReadyPresetPinsCoreEffectsAndExcludesOptionalSurfaces(t *testing.T) {
+	preset, ok := BuiltinPolicyPreset(DefaultPolicyPresetOrigin)
+	if !ok {
+		t.Fatal("agent-ready preset is missing")
+	}
+	want := map[string]bool{
+		"GET api.anthropic.com/api/claude_cli/bootstrap": true,
+		"GET api.anthropic.com/api/oauth/usage":          true,
+		"POST api.anthropic.com/v1/messages":             true,
+		"GET chatgpt.com/backend-api/codex/models":       true,
+		"POST chatgpt.com/backend-api/codex/responses":   true,
+		"POST ab.chatgpt.com/otlp/v1/metrics":            true,
+	}
+	for _, rule := range preset.BaselineGrants {
+		delete(want, rule.Method+" "+rule.Host+rule.Path)
+	}
+	if len(want) != 0 {
+		t.Fatalf("agent-ready core grants are missing: %v", want)
+	}
+	for _, forbidden := range []string{"mcp", "plugin", "connector", "upload", "download", "eval", "penguin", "release", "update"} {
+		for _, rule := range preset.BaselineGrants {
+			if strings.Contains(strings.ToLower(rule.Host+rule.Path), forbidden) {
+				t.Fatalf("optional surface %q entered agent-ready baseline: %+v", forbidden, rule)
+			}
 		}
 	}
 }

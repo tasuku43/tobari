@@ -173,7 +173,6 @@ run_fast() {
   ./scripts/check-runtime-base.sh
   ./scripts/check-runtime-claude.sh
   ./scripts/check-runtime-codex.sh
-  ./scripts/check-toolbox.sh
   ./scripts/check-gateway-source.sh
   ./scripts/check-authbroker-source.sh
   ./scripts/check-authbroker-image.sh

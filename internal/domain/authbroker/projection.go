@@ -24,6 +24,12 @@ type CompleteFileProjection struct {
 	Template   string `json:"template"`
 }
 
+type JSONMergeProjection struct {
+	ProviderID string `json:"provider_id"`
+	Path       string `json:"path"`
+	Template   string `json:"template"`
+}
+
 type NormalizedHeaderBinding struct {
 	ProviderID    string                  `json:"provider_id"`
 	Target        BindingTarget           `json:"target"`
@@ -45,6 +51,7 @@ type Projection struct {
 	Providers       []Provider                 `json:"providers"`
 	Environment     []EnvironmentProjection    `json:"environment"`
 	CompleteFiles   []CompleteFileProjection   `json:"complete_files"`
+	JSONMerges      []JSONMergeProjection      `json:"json_merges"`
 	HeaderBindings  []NormalizedHeaderBinding  `json:"header_bindings"`
 	SigningBindings []NormalizedSigningBinding `json:"signing_bindings"`
 	SecretHeaders   []string                   `json:"secret_headers"`
@@ -101,6 +108,7 @@ func NormalizeProviders(providers []Provider) (Projection, error) {
 		Providers:       normalized,
 		Environment:     []EnvironmentProjection{},
 		CompleteFiles:   []CompleteFileProjection{},
+		JSONMerges:      []JSONMergeProjection{},
 		HeaderBindings:  []NormalizedHeaderBinding{},
 		SigningBindings: []NormalizedSigningBinding{},
 		SecretHeaders:   []string{},
@@ -137,6 +145,14 @@ func NormalizeProviders(providers []Provider) (Projection, error) {
 				}
 				fileOwners[item.Path] = provider.ID
 				projection.CompleteFiles = append(projection.CompleteFiles, CompleteFileProjection{
+					ProviderID: provider.ID, Path: item.Path, Template: item.Template,
+				})
+			case WorkspaceProjectionMergeJSON:
+				if owner, exists := fileOwners[item.Path]; exists {
+					return Projection{}, fmt.Errorf("providers %q and %q collide on Workspace file %q", owner, provider.ID, item.Path)
+				}
+				fileOwners[item.Path] = provider.ID
+				projection.JSONMerges = append(projection.JSONMerges, JSONMergeProjection{
 					ProviderID: provider.ID, Path: item.Path, Template: item.Template,
 				})
 			}
@@ -189,6 +205,9 @@ func NormalizeProviders(providers []Provider) (Projection, error) {
 	sort.Slice(projection.CompleteFiles, func(a, b int) bool {
 		return projection.CompleteFiles[a].Path < projection.CompleteFiles[b].Path
 	})
+	sort.Slice(projection.JSONMerges, func(a, b int) bool {
+		return projection.JSONMerges[a].Path < projection.JSONMerges[b].Path
+	})
 	sort.Slice(projection.HeaderBindings, func(a, b int) bool {
 		left, right := projection.HeaderBindings[a], projection.HeaderBindings[b]
 		leftKey := fmt.Sprintf("%s\x00%s\x00%05d\x00%s\x00%s\x00%s\x00%s", left.ProviderID, left.Target.Host, left.Target.Port, left.Source.Header, left.Source.Format, left.Destination.Header, left.Destination.Format)
@@ -219,7 +238,7 @@ func recognitionKey(binding HeaderBinding) string {
 
 func projectionKey(item WorkspaceProjection) string {
 	target := item.Name
-	if item.Kind == WorkspaceProjectionCompleteFile {
+	if item.Kind == WorkspaceProjectionCompleteFile || item.Kind == WorkspaceProjectionMergeJSON {
 		target = item.Path
 	}
 	return string(item.Kind) + "\x00" + target

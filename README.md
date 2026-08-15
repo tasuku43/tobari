@@ -65,7 +65,10 @@ bin/tobari version
 ```
 
 The development binary selects local source images and is not a release
-artifact. Routine published binaries use reviewed immutable component digests.
+artifact. Its canonical base contains pinned Claude Code 2.1.220 and Codex
+0.146.0. Public base publication remains disabled while bundled-agent
+redistribution/license review is pending. Routine published binaries use only
+reviewed immutable component and runtime identities.
 
 ## Quick Start
 
@@ -73,7 +76,7 @@ artifact. Routine published binaries use reviewed immutable component digests.
 # Create a named immutable capability envelope.
 tobari context create --name default \
   --source-access read-write \
-  --policy-preset builtin/reviewed-exact
+  --policy-preset builtin/agent-ready
 
 # Reconcile the one installation-local Gateway/OPA/Auth Broker cluster.
 tobari cluster up
@@ -84,7 +87,7 @@ tobari
 ```
 
 `context create` owns the omission defaults: `read-write` and
-`builtin/reviewed-exact`. Persisted exact-V1 Contexts always contain both
+`builtin/agent-ready`. Persisted exact-V1 Contexts always contain both
 source access and the normalized preset origin/revision. Readers do not invent
 defaults for old state; recreate unpublished development state after contract
 changes.
@@ -135,6 +138,12 @@ the runtime spec/hash and Docker inspection.
 
 ### Policy presets
 
+- `builtin/agent-ready` (default): exact reviewed Claude Code 2.1.220 and
+  Codex 0.146.0 model, bootstrap/catalog, account-state, and fixed first-party
+  telemetry effects are available immediately. These are Context-wide HTTP
+  grants, not process identity. Exact Deny still wins; plugins, MCP,
+  connectors, file transfer, downloads, evaluation, self-update, unrelated
+  paths, and third-party destinations remain denied or reviewable.
 - `builtin/offline`: no immediate grant, no review-eligible effect, terminally
   deny all HTTP and HTTPS.
 - `builtin/reviewed-exact`: no immediate grant; only guardrail-eligible effects
@@ -144,7 +153,7 @@ the runtime spec/hash and Docker inspection.
 
 GET is not described as safe or read-only. A terminal guardrail denial creates
 no candidate and makes zero external DNS, Broker-resolution, or upstream calls.
-There is no implicit agent/model-provider bypass.
+There is no command-name or vendor-wide bypass.
 
 Custom presets are strict owner-only schema-V1 non-executable local data. V1
 rejects wildcard, IP/private destination, secret, shell, Rego, include,
@@ -213,7 +222,8 @@ compatibility route disappears if Tobari later declares the exact binding.
 
 ### Brokered reviewed providers
 
-The reviewed built-ins are GitHub/`gh`, AWS/`aws`, Datadog/`pup`,
+The reviewed built-ins are GitHub/`gh`, AWS/`aws`, Datadog/`pup` from the
+selected Context runtime,
 OpenAI/Codex's contract-checked host login, Anthropic/Claude Code 2.1.220 from
 the selected Context runtime, and
 static Chatwork/`cwk`.
@@ -233,16 +243,20 @@ tobari auth status --context default
 tobari auth logout github --context default
 ```
 
-Each acquisition driver has fixed argv, a canonical executable outside the project,
-digest checks, an isolated private home, bounded visible output and state
-capture, cancellation, and checked cleanup. GitHub remains API-only with no Git
+Each acquisition driver has fixed argv, digest checks, an isolated private
+state boundary, bounded visible output and state capture, cancellation, and
+checked cleanup. GitHub remains API-only with no Git
 credential setup. AWS supports the closed IAM Identity Center and console
-cross-device methods. Datadog is fixed to default-organization US1 OAuth.
+cross-device methods. Datadog runs structurally compatible pup from a fresh
+mount-free selected-Context-runtime container, bridges the validated localhost
+callback only through pup stdin, and is fixed to default-organization US1 OAuth.
 OpenAI requires the reviewed Codex host-login contract and records its stable
 product version. Anthropic starts a fresh mount-free container from the selected
 compatible Context image, requires exact `/usr/local/bin/claude` 2.1.220,
 opens only its validated native authorization URL, captures the resulting
-renewable session, and removes the container before commit.
+renewable session, and removes the container before commit. Workspace entry
+projects only the scoped handle plus the non-secret Claude onboarding-complete
+field, so authenticated `claude` starts without repeating account selection.
 
 Chatwork and owner providers use strict schema-V1 static plans and protected
 stdin:
@@ -269,9 +283,9 @@ plans remain static. Invalid, copied, stale, ambiguous, or mismatched handles
 fail without fallback. Managed Gateway profiles and arbitrary executable
 adapters remain unsupported.
 
-Acquisition and runtime use are separate boundaries. The reviewed host driver
-may run `gh`, `aws`, `pup`, or Codex on the host, or isolated Claude from the
-selected Context image, to acquire Context-owned state;
+Acquisition and runtime use are separate boundaries. Reviewed host drivers may
+run `gh`, `aws`, or Codex on the host; pup and Claude run in isolated containers
+from the selected Context image to acquire Context-owned state;
 Gateway later accepts only a handle at that provider's declared request
 binding. Denying a few token endpoints alone would not enforce this boundary,
 because an already acquired token could still be injected into a Workspace.
@@ -291,10 +305,10 @@ result against runtime API 1, and promotes the image atomically. A failure
 preserves the prior selection. Existing Workspaces adopt the new bound-Context
 image on their next entry while preserving home.
 
-The public base retains Git, curl, jq, Python, SSH, GitHub CLI, and AWS CLI as
-ordinary Workspace tools. Their presence grants no broker/provider/network
-authority. Optional toolbox and Claude/Codex variants remain local/CI artifacts
-until their own redistribution and license decisions are complete.
+The public base retains Git, curl, jq, Python, SSH, GitHub CLI, AWS CLI, Claude
+Code, and Codex as ordinary Workspace tools. Their presence grants no
+broker/provider/network authority. A custom Context runtime must add pup before
+it can acquire Datadog credentials.
 
 ## Command discovery
 

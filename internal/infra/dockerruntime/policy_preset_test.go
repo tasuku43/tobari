@@ -20,14 +20,17 @@ func newPolicyPresetTestRuntime(t *testing.T) *Runtime {
 	return runtime
 }
 
-func TestPolicyPresetStoreListsThreeBuiltinsAndCreatesOwnerOnlyCustomWithoutOverwrite(t *testing.T) {
+func TestPolicyPresetStoreListsBuiltinsAndCreatesOwnerOnlyCustomWithoutOverwrite(t *testing.T) {
 	runtime := newPolicyPresetTestRuntime(t)
 	listed, err := runtime.ListPolicyPresets(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(listed.Items) != 3 {
+	if len(listed.Items) != 4 {
 		t.Fatalf("fresh preset catalog = %+v", listed.Items)
+	}
+	if listed.Items[0].Origin != tobari.DefaultPolicyPresetOrigin || listed.Items[0].ImmediateGrantCount == 0 {
+		t.Fatalf("agent-ready default is missing from preset catalog: %+v", listed.Items)
 	}
 	created, err := runtime.InitPolicyPreset(context.Background(), "restricted")
 	if err != nil {

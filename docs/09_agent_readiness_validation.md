@@ -36,7 +36,7 @@ TOBARI_BIN=bin/tobari
 "$TOBARI_BIN" help --format agent
 "$TOBARI_BIN" help context --format agent
 "$TOBARI_BIN" context create --name writable \
-  --source-access read-write --policy-preset builtin/reviewed-exact --format json
+  --source-access read-write --policy-preset builtin/agent-ready --format json
 "$TOBARI_BIN" context create --name restricted \
   --source-access read-only --policy-preset builtin/offline --format json
 "$TOBARI_BIN" context show --name writable --format json
@@ -67,8 +67,13 @@ network, policy, or broker handle state.
 
 ## Policy-preset matrix
 
-For every preset, first prove no immediate grant exists.
+For every preset, inspect and bind its immutable immediate-grant count.
 
+- `builtin/agent-ready`: the exact pinned Claude/Codex core matrix succeeds
+  without a permission candidate; exact Deny overrides one core grant; plugin,
+  MCP, connector, file-transfer, download, evaluation, self-update, unrelated
+  paths, and third-party destinations remain denied or reviewable. Prove the
+  grant applies by Context HTTP identity rather than executable name.
 - `builtin/offline`: every HTTP and HTTPS effect is a terminal denial; the
   review queue remains empty.
 - `builtin/reviewed-exact`: only guardrail-eligible effects reach exact review.
@@ -87,6 +92,12 @@ remote fetch, refresh, signing, symlinks, unsafe modes, duplicate keys, and
 ambiguous rules. Context creation normalizes, validates, digests, and snapshots
 the source. Editing the source preset afterward must not change the existing
 Context report or active guardrail.
+
+The canonical contributor base must run `claude --version` as 2.1.220 and
+`codex --version` as 0.146.0 after replacing `/var/lib/tobari` with a fresh
+Workspace home. The client pins and agent-ready core matrix are reviewed as one
+contract. While either artifact lock records pending redistribution review,
+verify the base workflow has no registry-write permission, login, or push.
 
 ## Reviewed policy journey
 
@@ -125,8 +136,8 @@ fixtures, and secret canaries. It proves:
 - omitted-provider selection is interactive, bounded to installed reviewed
   login drivers, and explicit provider selection remains deterministic;
 - fixed purpose-limited GitHub/AWS/pup/Codex/Claude argv, canonical executable
-  digest checks, private homes/PTY where declared, bounded browser targets, and
-  checked cleanup;
+  digest checks, selected-Context image binding for pup and Claude, private
+  homes/PTY where declared, bounded browser targets, and checked cleanup;
 - per-project handles bound to Context/provider/revision/target/header;
 - direct bearer/raw credentials and direct AWS signatures at declared bindings
   fail as `broker_auth_required` with zero fallback, Broker, OPA, DNS, or
@@ -136,10 +147,12 @@ fixtures, and secret canaries. It proves:
   one upstream attempt on allow;
 - bounded AWS SigV4 and private companion behavior, fixed
   Datadog/OpenAI/Anthropic refresh transports, OpenAI supplemental-header
-  ownership, Anthropic four-field native extraction with dynamic bounded scope
+  ownership, Anthropic four renewable fields plus two structurally bounded
+  non-secret entitlement labels with dynamic bounded scope
   validation, granted-subset enforcement, normalization, and secret-free
   diagnostic stages into a strict Tobari-owned session, fixed-client
-  resolution/refresh preserving the stored scope set, and durable
+  resolution/refresh preserving the stored scope set and labels, exact
+  Workspace handle/public-refresh-sentinel projection, and durable
   unknown-outcome barriers;
 - rotation, logout, revocation, Workspace re-entry, and no invalid-handle
   passthrough fallback;
@@ -174,7 +187,8 @@ pass/fail, the exact source commit/image digests, and secret-free status. Never
 record the token, device code, handle, account identifier, vault, authenticated
 response, or raw transcript.
 
-Replay the AWS Identity Center and console methods, Datadog pup flow, the
+Replay the AWS Identity Center and console methods, selected-Context-runtime
+Datadog pup flow and localhost stdin relay, the
 contract-checked host Codex native browser/loopback flow, the separately pinned Workspace Codex
 handle projection, isolated Context-runtime Claude Code 2.1.220 native login
 and handle-only credential-file projection, and Chatwork stdin
