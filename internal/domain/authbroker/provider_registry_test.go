@@ -4,16 +4,25 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/tasuku43/tobari/internal/domain/capabilityprofile"
 )
 
 func TestBuiltinProviderVocabularyAndReviewedLoginOrderAreClosed(t *testing.T) {
 	wantBuiltins := []string{"anthropic", "aws", "chatwork", "datadog", "github", "openai"}
-	wantLogin := []string{"github", "aws", "datadog", "openai", "anthropic"}
+	wantKnownLogin := []string{"github", "aws", "datadog", "openai", "anthropic"}
+	wantLogin := []string{"github", "datadog", "openai", "anthropic"}
+	if capabilityprofile.Compiled().IncludesExperimental() {
+		wantLogin = wantKnownLogin
+	}
 	if got := BuiltinProviderIDs(); !reflect.DeepEqual(got, wantBuiltins) {
 		t.Fatalf("BuiltinProviderIDs() = %v, want %v", got, wantBuiltins)
 	}
 	if got := ReviewedLoginProviderIDs(); !reflect.DeepEqual(got, wantLogin) {
 		t.Fatalf("ReviewedLoginProviderIDs() = %v, want %v", got, wantLogin)
+	}
+	if got := KnownReviewedLoginProviderIDs(); !reflect.DeepEqual(got, wantKnownLogin) {
+		t.Fatalf("KnownReviewedLoginProviderIDs() = %v, want %v", got, wantKnownLogin)
 	}
 	if SupportsReviewedLoginProvider(BuiltinChatworkProviderID) {
 		t.Fatal("Chatwork entered the reviewed host-login union")
@@ -25,6 +34,9 @@ func TestBuiltinProviderVocabularyAndReviewedLoginOrderAreClosed(t *testing.T) {
 		if helper, found := ReviewedLoginProviderHelper(providerID); !found || helper == "" {
 			t.Fatalf("reviewed provider %q helper = %q, found=%t", providerID, helper, found)
 		}
+	}
+	if !capabilityprofile.Compiled().IncludesExperimental() && SupportsReviewedLoginProvider(BuiltinAWSProviderID) {
+		t.Fatal("standard profile activated AWS login")
 	}
 	if SupportsReviewedLoginProvider("example") {
 		t.Fatal("unknown provider entered the reviewed host-login union")
@@ -96,10 +108,10 @@ func TestValidateBuiltinProviderCollectionRejectsRegistryDrift(t *testing.T) {
 }
 
 func validBuiltinProviderCollection() []Provider {
-	providers := make([]Provider, 0, len(builtinProviderIDs))
+	providers := make([]Provider, 0, len(knownBuiltinProviderIDs))
 	for _, providerID := range BuiltinProviderIDs() {
 		acquisition := Acquisition{Mode: AcquisitionStdinImport}
-		if helper, found := ReviewedLoginProviderHelper(providerID); found {
+		if helper, found := KnownReviewedLoginProviderHelper(providerID); found {
 			acquisition = Acquisition{Mode: AcquisitionBuiltinHelper, Helper: helper}
 		}
 		providers = append(providers, Provider{ID: providerID, Acquisition: acquisition})

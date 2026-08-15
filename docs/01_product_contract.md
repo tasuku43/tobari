@@ -121,8 +121,9 @@ or source build unless a Linux Homebrew Formula contract is added explicitly.
   request binding. A provider is not the Workspace client that uses it.
 - **Workspace client tool:** the CLI or other client inside a Workspace that
   receives a provider-declared handle projection and emits the authenticated
-  request shape. Reviewed pairings cover GitHub/`gh`, AWS/`aws`,
-  Datadog/`pup`, OpenAI/Codex, Anthropic/Claude, and Chatwork/`cwk`; their names
+  request shape. Standard pairings cover GitHub/`gh`, Datadog/`pup`,
+  OpenAI/Codex, Anthropic/Claude, and Chatwork/`cwk`; the experimental
+  repository profile additionally covers AWS/`aws`. Their names
   grant neither provider identity nor network authority.
 - **brokered credential:** one typed static or reviewed renewable record owned
   by a stable Context and provider, acquired through protected non-terminal
@@ -137,8 +138,9 @@ or source build unless a Linux Homebrew Formula contract is added explicitly.
   an explicit exact or single-segment-template learned rule exists.
 - **provider manifest:** strict non-secret data declaring static import,
   Workspace handle projections, and exact HTTPS/header credential bindings.
-  Owner manifests are V1 static-secret/header plans. Reviewed built-ins are a
-  closed typed union for GitHub, AWS, Datadog, OpenAI, Anthropic, and Chatwork.
+  Owner manifests are V1 static-secret/header plans. Standard reviewed
+  built-ins are a closed typed union for GitHub, Datadog, OpenAI, Anthropic,
+  and Chatwork; the experimental profile adds AWS without making it runtime configurable.
   Owner data declares no executable shell, helper choice, refresh, signing,
   arbitrary route, HTTP method/path policy, or provider operation semantics.
 - **Context:** one immutable host-owned capability envelope with a stable
@@ -219,7 +221,7 @@ The public commands are:
 | `context use --name NAME [--format text\|json]` | act, fixed target | write | Change only the current/default Context; do not mutate existing Tobari or start/reconcile the cluster |
 | `runtime init [--format text|json]` | act, fixed target | create | Create the current Context's runtime/Dockerfile template without changing its selected image |
 | `runtime build [--format text|json]` | act, fixed target | write | Build, validate, and select the current Context's generated local runtime image |
-| `auth login [--provider github\|aws\|datadog\|openai\|anthropic] [--method identity-center\|console] [--context NAME] [--format text\|json]` | act, fixed target | write | Acquire one credential through a closed reviewed provider driver for the explicit or current Context; Anthropic uses a fresh isolated container from that Context image, interactive provider omission opens the bounded selector, and `--method` applies only to AWS |
+| `auth login [--provider github\|datadog\|openai\|anthropic] [--context NAME] [--format text\|json]` | act, fixed target | write | Acquire one standard-profile credential through a closed reviewed provider driver for the explicit or current Context; Anthropic uses a fresh isolated container from that Context image and interactive provider omission opens the bounded selector |
 | `auth import PROVIDER [--context NAME] [--format text|json]` | act, fixed target | write | Import one bounded opaque provider credential only from protected non-terminal stdin |
 | `auth status [--context NAME] [--format text|json]` | utility | read | Inspect the complete installed provider collection plus bounded Context-scoped Workspace projection freshness and coverage without reading secrets |
 | `auth logout PROVIDER [--context NAME] [--format text|json]` | act, fixed target | write | Remove one local Context/provider credential and revoke its Workspace handles when present, or report confirmed `no_change` when already absent, without contacting the provider |
@@ -292,11 +294,11 @@ undeclared Docker mutation by the CLI.
   root lock, session exclusion, warning gate, or filesystem integrity isolation
   for this user-selected sharing.
 - The configured image accepts `builtin` or a portable OCI image reference.
-  In a release build, `builtin` resolves to that release's approved official
-  runtime base; contributor builds resolve to the content-addressed local
-  development base. The current combined agent-ready source is build-only
-  while bundled-agent redistribution review remains pending and therefore is
-  not a publishable release input.
+  In a release build, `builtin` resolves to a source-derived local image. When
+  absent, `cluster up` builds it from the CLI's embedded pinned recipe before
+  compatibility validation. Contributor builds resolve to the local
+  development base. The combined agent-ready base is permanently local-only
+  and is not a release registry artifact.
   A custom image must already exist locally and preserve runtime API `1`, the
   `tobari` image user, the `io.tobari.runtime-lifetime-command` capability, and
   the Tobari entrypoint. That capability is currently `sleep infinity`, which
@@ -305,23 +307,25 @@ undeclared Docker mutation by the CLI.
   the official runtime base for an uncustomized Context; custom images still
   fail closed if missing or incompatible before project runtime network or
   container mutation.
-- `cluster up` obtains the release-injected immutable Gateway digest when it is
-  not already available locally and does the same for the immutable Auth Broker
-  digest. One generated schema-1 component lock binds both images, their APIs,
-  platforms, and the CLI source revision. It validates each digest, API/role labels, non-root default user,
+- `cluster up` builds the pinned agent-ready base locally when absent and
+  obtains the release-injected immutable Gateway and Auth Broker digests. One
+  generated schema-1 component lock binds the two service images, their APIs,
+  platforms, and the CLI source revision. It validates each service digest,
+  API/role labels, non-root default user,
   entrypoint, and Docker Engine platform before running policy tests or
   creating shared networks and containers. Gateway and Auth Broker source
   development use the source-coupled `task build` path and a development
   resolver, not a public `cluster up` option.
-  Both official images are published as Linux amd64/arm64 OCI indexes and the
+  The two service images are published as Linux amd64/arm64 OCI indexes and the
   release-generated component lock contains their reviewed immutable manifest digests.
   Moving `main` and `latest` tags never become runtime authority. Contributor
   validation uses content-addressed local tags through `task build` without changing an
   installed release binary's selectors.
 - Authentication commands accept only an existing Context name and installed
-  provider ID. `auth login` accepts GitHub, AWS, Datadog, OpenAI, or Anthropic;
-  interactive omission opens a bounded reviewed-provider selector. AWS alone
-  accepts `--method identity-center|console`. The GitHub driver shows the
+  provider ID. Standard `auth login` accepts GitHub, Datadog, OpenAI, or
+  Anthropic; interactive omission opens a bounded reviewed-provider selector.
+  The experimental repository profile additionally accepts AWS and alone adds
+  `--method identity-center|console`. The GitHub driver shows the
   GitHub device code and the trusted host opens exactly
   `https://github.com/login/device` when possible, with the same URL retained
   for manual fallback. The OpenAI driver runs Codex's native browser login;
@@ -392,8 +396,9 @@ undeclared Docker mutation by the CLI.
   the OpenAI supplemental header. Managed profiles and owner-selected dynamic
   behavior remain absent.
 - `runtime init` creates the current Context's owner-only
-  `runtime/Dockerfile`. The template starts from
-  `ghcr.io/tasuku43/tobari/runtime:latest`; editing that file is the supported
+  `runtime/Dockerfile`. The template starts from the resolver-selected base:
+  the release-injected immutable runtime digest or the contributor-local
+  `tobari-runtime:dev`. Editing that file is the supported
   place to add tools and environment configuration for the Context. The
   command does not overwrite an existing recipe.
 - Direct `config shell` changes one allowlisted shell-presentation policy in
@@ -454,10 +459,9 @@ undeclared Docker mutation by the CLI.
   self-update is disabled and Codex uses its pinned standalone package.
   `kubectl`, `cwk`, `pup`, and TWG are not added to the base. A selected custom
   Context runtime must provide a structurally compatible pup before Datadog
-  login can run. The combined base declares `NOASSERTION`; while either agent artifact
-  retains pending redistribution/license review, the base workflow validates a
-  multi-architecture build without registry credentials or publication. Local
-  image selection is not publication authority.
+  login can run. The protected release workflow publishes the reviewed combined
+  base as one immutable Linux amd64/arm64 index alongside Gateway and Auth
+  Broker. A local image or standalone validation workflow is not publication authority.
 - The client versions and `builtin/agent-ready` exact effect catalog are one
   compatibility contract. Updating either agent requires reviewing both the
   artifact lock and its core control-plane effects. Separate agent-image recipes
@@ -530,7 +534,7 @@ failures are stderr.
 
 `version --format json` uses schema version 1 with envelope
 `build_identity`. Its fixed fields are `version`, `commit`,
-`resolver_channel`, `development_source`, required and selected Gateway/Auth
+`resolver_channel`, `development_source`, `capability_profile`, required and selected Gateway/Auth
 Broker APIs, `compatible`, `development_build_command`, and
 `development_binary`. An absent source commit is the explicit string
 `unknown` and makes `compatible=false`. The two repository-command fields are
@@ -846,10 +850,10 @@ entry; failed image
 validation or Docker reconciliation leaves their previous logical state and
 home in place.
 
-When the recipe's first base is the exact official
-`ghcr.io/tasuku43/tobari/runtime:latest` reference, an explicit `runtime build`
-refreshes that moving base. An explicit local or custom base is not given a
-registry-pull request, so local-only base images remain usable.
+When the recipe's first base is the exact release-injected official runtime
+digest, an explicit `runtime build` verifies/pulls that immutable base. An
+explicit local or custom base is not given a registry-pull request, so
+local-only base images remain usable.
 
 OPA reads one cluster-owned revisioned aggregate bundle with `--watch`. The
 projection has one fixed `tobari.http/decision` router, Context-ID data
@@ -890,9 +894,9 @@ unchanged.
 Existing Workspaces are not mutated by `runtime build` itself; the next root
 entry reconciles their work container to the promoted image while preserving
 the Workspace home.
-The official moving base is refreshed only for an explicit build whose recipe
-starts from the exact official `runtime:latest`; custom and local bases retain
-their local/cache-first behavior.
+The official immutable base is pulled only for an explicit build whose recipe
+starts from the exact resolver-selected release digest; custom and local bases
+retain their local/cache-first behavior.
 
 `context use` validates the target Context and atomically changes only the
 current/default marker. It never starts Docker, changes the aggregate, or
@@ -978,8 +982,9 @@ discovery excludes other denials, preventing a successful no-op approval.
 
 `auth login`, `auth import`, and `auth logout` validate the fixed installation
 credential-catalog target and mutation impact before acquisition or vault I/O.
-Login selects only the closed GitHub, AWS, Datadog, OpenAI, or Anthropic
-driver union through an interactive trusted-host terminal. Anthropic alone
+Login selects only the active profile's closed provider union through an
+interactive trusted-host terminal. Standard includes GitHub, Datadog, OpenAI,
+and Anthropic; experimental additionally includes AWS. Anthropic alone
 executes in a fresh selected-Context-image container; each driver owns
 fixed argv, canonical executable identity, private state, bounded browser/PTY
 behavior, strict typed capture, and checked cleanup. PATH resolution inspects
@@ -1027,9 +1032,11 @@ development snapshots. Development state must be removed and recreated when
 the V1 contract changes.
 
 The canonical Gateway and Auth Broker source labels are both API V1. Source
-does not record their release outputs. The release workflow builds both
-multi-architecture indexes from one requested revision and injects one paired
-component lock into every CLI archive. Contributor builds use `task build` and
+does not record any owned image release output. The release workflow builds
+both service multi-architecture indexes from one requested revision and
+injects one two-service lock into every CLI archive. The base recipe remains
+embedded and local-build-only.
+Contributor builds use `task build` and
 content-addressed local images. `cluster up` compares required and selected
 identities before state loading or any Docker call.
 
@@ -1041,8 +1048,9 @@ sockets through its guarded transparent path;
 it does not forward raw TCP, non-HTTP TLS, UDP, QUIC, recursive DNS, Git SSH, or
 certificate-pinned traffic. A client that cannot use the Tobari CA or expose an
 unambiguous HTTP authority fails closed.
-The built-in broker slice supports the closed GitHub, AWS, Datadog, OpenAI,
-Anthropic, and Chatwork plan union, one credential per Context/provider. Owner
+The standard built-in broker slice supports GitHub, Datadog, OpenAI,
+Anthropic, and Chatwork; the experimental profile adds AWS. Both retain one
+credential per Context/provider. Owner
 manifests may express another single static primary secret only through the
 exact HTTPS/header replacement contract and protected stdin import. V1 has no
 managed adapter, multiple provider accounts, provider-specific policy

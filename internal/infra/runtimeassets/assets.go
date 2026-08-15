@@ -29,7 +29,7 @@ func Version() (string, error) {
 // development image builder and resolver. versions.env is included because it
 // carries the reviewed parent images used by both component Dockerfiles.
 func ComponentVersion(component string) (string, error) {
-	if component != "gateway" && component != "authbroker" {
+	if component != "tobari" && component != "gateway" && component != "authbroker" {
 		return "", fmt.Errorf("unknown runtime component %q", component)
 	}
 	return versionForPrefixes("assets/"+component+"/", "assets/versions.env")

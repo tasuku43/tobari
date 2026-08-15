@@ -4,9 +4,12 @@ import "context"
 
 import "github.com/tasuku43/tobari/internal/domain/buildidentity"
 
+import "github.com/tasuku43/tobari/internal/domain/capabilityprofile"
+
 type testImageResolver struct {
 	runtimeImage string
 	pullRuntime  bool
+	buildRuntime bool
 	gateway      sharedImageSelection
 	authBroker   sharedImageSelection
 	identity     *buildidentity.Identity
@@ -19,8 +22,9 @@ func (r testImageResolver) BuildIdentity(version, commit string) (buildidentity.
 	return buildidentity.Identity{
 		Version: version, Commit: buildidentity.NormalizeCommit(commit),
 		ResolverChannel: buildidentity.ResolverDevelopment, DevelopmentSource: true,
-		Gateway:    buildidentity.Component{RequiredAPI: buildidentity.RequiredGatewayAPI, SelectedAPI: buildidentity.RequiredGatewayAPI},
-		AuthBroker: buildidentity.Component{RequiredAPI: buildidentity.RequiredAuthBrokerAPI, SelectedAPI: buildidentity.RequiredAuthBrokerAPI},
+		CapabilityProfile: capabilityprofile.ProfileStandard,
+		Gateway:           buildidentity.Component{RequiredAPI: buildidentity.RequiredGatewayAPI, SelectedAPI: buildidentity.RequiredGatewayAPI},
+		AuthBroker:        buildidentity.Component{RequiredAPI: buildidentity.RequiredAuthBrokerAPI, SelectedAPI: buildidentity.RequiredAuthBrokerAPI},
 	}, nil
 }
 
@@ -30,6 +34,10 @@ func (r testImageResolver) DefaultRuntimeImage() string {
 
 func (r testImageResolver) ShouldPullRuntimeImage(string) bool {
 	return r.pullRuntime
+}
+
+func (r testImageResolver) ShouldBuildRuntimeImage(string) bool {
+	return r.buildRuntime
 }
 
 func (r testImageResolver) GatewayImage(context.Context, *Runtime) (sharedImageSelection, error) {

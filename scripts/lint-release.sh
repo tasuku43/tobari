@@ -99,12 +99,35 @@ for component_workflow in .github/workflows/gateway-image.yml .github/workflows/
     echo "$component_workflow must not publish implicitly from a main-branch push" >&2
     exit 1
   fi
-  for required in 'workflow_dispatch:' 'revision:' 'publish:' 'environment: release-publication' '--sbom=true' '--provenance=mode=max' 'component evidence'; do
+  for required in 'workflow_dispatch:' 'revision:' 'type=cacheonly'; do
     if ! grep -qF -- "$required" "$component_workflow"; then
       echo "$component_workflow is missing protected component evidence: $required" >&2
       exit 1
     fi
   done
+  for forbidden in 'packages: write' 'docker login ghcr.io' '--push'; do
+    if grep -qF -- "$forbidden" "$component_workflow"; then
+      echo "$component_workflow retains a GHCR publication path: $forbidden" >&2
+      exit 1
+    fi
+  done
+done
+validation_workflow=.github/workflows/runtime-base.yml
+for forbidden in 'packages: write' 'docker login ghcr.io' '--push'; do
+  if grep -qF -- "$forbidden" "$validation_workflow"; then
+    echo "$validation_workflow retains a GHCR publication path: $forbidden" >&2
+    exit 1
+  fi
+done
+if [[ $(grep -R -l -F 'packages: write' .github/workflows | tr '\n' ' ') != ".github/workflows/release.yml " ]]; then
+	echo "only the protected Release workflow may receive package-write permission" >&2
+	exit 1
+fi
+for forbidden in 'ghcr.io/tasuku43/tobari/runtime' 'runtimecheck --require-publishable' 'Publish three components'; do
+  if grep -qF -- "$forbidden" .github/workflows/release.yml scripts/build-release-components.sh; then
+    echo "release publication still includes the local-only agent-ready base: $forbidden" >&2
+    exit 1
+  fi
 done
 
 for forbidden in 'git describe' '{{.VERSION}}' '{{.COMMIT}}'; do
@@ -115,6 +138,10 @@ for forbidden in 'git describe' '{{.VERSION}}' '{{.COMMIT}}'; do
 done
 grep -qF 'go build -tags=tobari_dev -buildvcs=false -trimpath -o bin/' Taskfile.yml || {
 	echo "local build must use fixed dev version metadata without implicit VCS stamping" >&2
+	exit 1
+}
+grep -qF "go build -tags='tobari_dev tobari_experimental'" Taskfile.yml || {
+	echo "build:dev must compile the experimental capability profile explicitly" >&2
 	exit 1
 }
 # The Taskfile must contain this literal shell expansion.
@@ -141,7 +168,7 @@ for required in \
   'require_generated_component_release_contract' \
   'component-lock.json' './tools/componentlock'; do
   grep -qF "$required" scripts/check.sh || {
-    echo "release gate is missing runtime image compatibility authority: $required" >&2
+    echo "release gate is missing generated service compatibility authority: $required" >&2
     exit 1
   }
 done
@@ -264,6 +291,14 @@ if go run ./tools/releaseversion v1.2.3+different-build >/dev/null 2>&1; then
   echo "releaseversion accepted build metadata excluded by immutable-release policy" >&2
   exit 1
 fi
+if [[ $(go run ./tools/releaseversion v0.1.0-dev.1) != $'version=0.1.0-dev.1\nstable=false' ]]; then
+	echo "releaseversion does not classify the first development prerelease" >&2
+	exit 1
+fi
+grep -qF 'args+=(--prerelease)' .github/workflows/release.yml || {
+	echo "release workflow does not publish non-stable tags as GitHub prereleases" >&2
+	exit 1
+}
 if scripts/render-formula.sh v1.2.3-rc.1 https://github.com/tasuku43/tobari /dev/null >/dev/null 2>&1; then
   echo "render-formula accepted a prerelease tag" >&2
   exit 1

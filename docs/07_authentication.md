@@ -43,23 +43,31 @@ bindings and does not infer authentication from a command or process name.
 
 ## Supported surface
 
-The closed reviewed built-in set is GitHub, AWS, Datadog, OpenAI/Codex, and
+The standard and release profile exposes GitHub, Datadog, OpenAI/Codex, and
 Anthropic/Claude for `auth login`, plus Chatwork through protected stdin
-`auth import`. Omitted `--provider` on an interactive trusted-host terminal
-opens a bounded selector over installed reviewed login drivers. Explicit
+`auth import`. The experimental profile compiled by `task build:dev` adds AWS;
+no environment variable or runtime flag can activate it in a standard binary.
+Omitted `--provider` on an interactive trusted-host terminal opens a bounded
+selector over drivers active in that compiled profile. Explicit standard
 selection remains deterministic:
 
 ```sh
 tobari auth login --provider github
-tobari auth login --provider aws --method identity-center
-tobari auth login --provider aws --method console
 tobari auth login --provider datadog
 tobari auth login --provider openai
 tobari auth login --provider anthropic
 trusted-secret-source | tobari auth import chatwork
 ```
 
-Only AWS accepts `--method`; omission selects `identity-center`. GitHub:
+The experimental binary additionally accepts:
+
+```sh
+tobari-dev auth login --provider aws --method identity-center
+tobari-dev auth login --provider aws --method console
+```
+
+Only experimental AWS accepts `--method`; omission selects
+`identity-center`. GitHub:
 
 All reviewed helper lookups inspect a finite PATH-ordered candidate set. A
 temporary integration shim may shadow a conventional installation for ordinary
@@ -79,7 +87,7 @@ the existing trusted-root and mode checks.
 Exact GitHub CLI product-version equality is not a security boundary. The
 fixed observed command contract and executable identity are.
 
-AWS uses only fixed IAM Identity Center or commercial-console acquisition
+Experimental AWS uses only fixed IAM Identity Center or commercial-console acquisition
 flows through a canonical AWS CLI. The encrypted record retains bounded opaque
 driver state. After allow, a private authenticated resident companion performs
 one compiled AWS credential export and Broker signs the already-authorized,
@@ -148,7 +156,8 @@ Managed Gateway profiles, manifest-selected helpers, arbitrary executable
 adapters, provider-defined routes, multiple accounts, and compatibility
 readers remain unsupported. The dynamic records, refresh, signing,
 supplemental header, companion, compiled provider drivers, provider selector, and
-AWS method selector exist only in the closed reviewed built-in union above.
+AWS method selector exist only in the compiled implementation union above;
+the active standard projection cannot select AWS.
 
 ## Runtime credential classes
 
@@ -159,7 +168,7 @@ not interchangeable:
 |---|---|---|---|---|
 | Static replacement | GitHub, Chatwork, owner static providers | Primary secret | Replace one exact header once | Broker cannot refresh; replace with `auth login`/`auth import` when invalid |
 | Renewable session | Datadog, OpenAI, Anthropic | OAuth session state | Select a valid bearer value or refresh at one fixed endpoint, persist the new state, then apply it | Broker refreshes when possible; an invalid grant or durable unknown outcome requires trusted-host reconciliation and usually re-login |
-| Request signing | AWS | Reviewed login/session state | Obtain bounded temporary credentials and sign the exact already-authorized request | Broker/companion renew temporary state; unknown dispatch outcome is not replayed automatically |
+| Request signing | AWS (experimental profile) | Reviewed login/session state | Obtain bounded temporary credentials and sign the exact already-authorized request | Broker/companion renew temporary state; unknown dispatch outcome is not replayed automatically |
 
 These classes describe runtime use, not acquisition. `builtin_helper` and
 `stdin_import` describe how state enters the Broker; they do not say whether

@@ -17,6 +17,7 @@ const ui = isJapanese
       defaultRuntime: "既定ランタイムの契約",
       defaultSelector: "既定の選択子",
       selectorKind: "選択子の種類",
+      localBuild: "CLI に埋め込まれた固定レシピからのローカルビルド",
       movingSelector: "更新されるタグ（不変なダイジェストではない）",
       immutableDigest: "不変なダイジェスト",
       runtimeApi: "ランタイム API",
@@ -38,6 +39,7 @@ const ui = isJapanese
       defaultRuntime: "Default runtime contract",
       defaultSelector: "Default selector",
       selectorKind: "Selector kind",
+      localBuild: "Local build from the CLI's pinned embedded recipe",
       movingSelector: "Moving tag — not an immutable digest",
       immutableDigest: "Immutable digest",
       runtimeApi: "Runtime API",
@@ -202,9 +204,11 @@ const localizeGenerated = (
       <div>
         <dt>{ui.selectorKind}</dt><dd>
           {
-            versionData.runtime.moving_selector
-              ? ui.movingSelector
-              : ui.immutableDigest
+            versionData.runtime.local_build
+              ? ui.localBuild
+              : versionData.runtime.moving_selector
+                ? ui.movingSelector
+                : ui.immutableDigest
           }
         </dd>
       </div>

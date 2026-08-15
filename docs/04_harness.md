@@ -30,26 +30,31 @@ AWS CLI, Claude Code 2.1.220, and Codex 0.147.0 baseline. The fast profile binds
 the two agent pins to their checked artifact locks. Datadog acquisition tests
 instead prove selected-Context resolution, immutable image and executable
 identity, structural pup login/capture conformance, and absence of host/base
-fallback. While bundled-agent redistribution review is pending, runtimecheck also
-rejects registry-write permission, Docker login, or push in the base workflow.
+fallback. The base workflow is always validation-only. Release tests reject
+any base-runtime GHCR reference or push path; the protected registry mutation
+publishes Gateway and Auth Broker only.
 
 `task build` is a contributor feedback path, not a completion profile. It
 builds or reuses local Tobari-managed component images whose tags contain the
 exact embedded source hash, builds `tobari-runtime:dev`, and compiles
-`bin/tobari` with the development resolver. `task build:dev` retains the
-compatibility-named `bin/tobari-dev` output. To run the integration script
-against that compatibility binary, set `TOBARI_INTEGRATION_BINARY=$PWD/bin/tobari-dev` and
+`bin/tobari` with the development resolver and standard capability profile.
+`task build:dev` produces `bin/tobari-dev` with the same resolver and the
+experimental capability profile. The standard matrix excludes AWS
+authentication; the experimental matrix adds it without a runtime activation
+flag. To run the integration script against the experimental binary, set
+`TOBARI_INTEGRATION_BINARY=$PWD/bin/tobari-dev` and
 `TOBARI_INTEGRATION_CUSTOM_BASE=tobari-runtime:dev`.
 The integration script owns its dev-resolver prerequisites: when
-`tobari-runtime:dev` is absent, it creates a temporary alias to the selected
-compatible integration base and removes only that alias during cleanup. It
+`tobari-runtime:dev` is absent, it builds the canonical base locally and
+removes only that integration-owned tag during cleanup. An explicitly selected
+compatible integration base remains usable. It
 never overwrites or deletes a contributor's pre-existing dev tag.
 
 Both repository build tasks embed only `git rev-parse --verify HEAD` as the
 source commit while retaining the fixed `dev` version; `-buildvcs=false` and
 `-trimpath` exclude implicit VCS state and local paths. Build-identity tests
 fix version JSON schema 1, require `unknown` metadata to remain incompatible,
-and compile both resolver tags. Published packaging requires one validated
+and compile the default standard plus targeted experimental matrices. Published packaging requires one validated
 component lock and exposes its selected APIs with no repository recovery value;
 the development fixture exposes matching source APIs plus exactly `task build`
 and `bin/tobari`.
@@ -58,16 +63,17 @@ The current contributor sources expect `io.tobari.gateway-api=1` and
 `io.tobari.auth-broker-api=1`, including guarded transparent routing,
 synthetic DNS, and schema-1 source principals. `task build` is the matching
 local image path. `versions.env` contains only source inputs and no generated
-Tobari-owned release output. The release profile validates strict paired lock
-generation, derives both APIs from the canonical Dockerfiles, and requires the
-same source revision for both component indexes and every CLI archive.
+Tobari-owned release output. The release profile validates strict two-service
+lock generation, derives both service APIs from the canonical Dockerfiles, and
+requires Gateway, Auth Broker, and every CLI archive to carry the same source
+revision. The local base tag is derived from the embedded runtime recipe.
 
 The focused `task runtime:base:check` workflow validates the canonical
 `runtimes/base` metadata and per-platform artifact lock, the Dockerfile's common
 tool, integrity, redistribution/license, and runtime contracts, and byte
-equality with the embedded CLI snapshot. The
-main-only runtime workflow runs this check before its package-write job and
-pushes only the base image; pull-request CI has no package-write permission.
+equality with the embedded CLI snapshot. Its pull-request and main workflow is
+cache-only and has no package-write permission. The protected Release workflow
+also cannot publish it; only Gateway and Auth Broker are registry artifacts.
 
 `task gateway:source:check` validates exact membership and byte equality for
 the canonical Gateway Dockerfile, `.dockerignore`, and Dockerfile-declared
@@ -83,10 +89,8 @@ null-versus-provider authorization
 metadata, strict decision fields, authorization-before-forward ordering,
 exact endpoint classification, bounded parser behavior, broker
 deny-before-resolution, and secret redaction. The Gateway
-image
-workflow builds both supported architectures; only its main-push publish job
-has package-write permission, and its pull-request validation job is
-cache-only. Runtime tests preflight the immutable Gateway digest, labels,
+image workflow builds both supported architectures without publishing. Runtime
+tests preflight the immutable Gateway digest, labels,
 entrypoint, default user, Docker Engine platform, and selected runtime base
 before shared resources; local source image feedback is covered by the explicit
 contributor `task build` path.
@@ -102,9 +106,7 @@ Context/project-bound handles, exact static introspection/resolution, restart
 unlock, rotation, logout, retired-operation rejection, and secret-free
 failures. The image check
 validates provider-CLI absence, Docker labels, fixed entrypoint, and non-root
-user. Its workflow builds
-both supported architectures; pull requests are validation/cache-only, while
-only the main-push job has package-write permission.
+user. Its workflow builds both supported architectures without publishing.
 `task authbroker:image:check` is the focused image metadata/artifact check, and
 `task authbroker:source:sync` is the explicit maintainer operation that
 refreshes the embedded snapshot.
@@ -152,8 +154,8 @@ The canonical base and focused Claude/Codex runtime checks validate the pinned
 agent artifacts at Claude Code 2.1.220 and Codex 0.147.0. Local build fixtures
 replace `/var/lib/tobari` with a temporary home mount and execute both agent
 commands, so an image-layer executable cannot silently depend on persistent
-home state. None of these checks authorizes publication: the combined base
-remains build-only while redistribution and license review is pending.
+home state. These checks authorize neither redistribution nor publication;
+the release workflow contains no base-image publication path.
 
 Direct invocation is supported for automation:
 
@@ -542,12 +544,12 @@ The test suite has complementary levels:
 - Context runtime tests cover non-overwriting recipe initialization, the
   owner-only Docker build context, generated image naming, compatibility and
   digest inspection, source-digest drift, and unchanged image selection after
-  build or promotion failure. They also assert that an exact official base
-  requests `--pull` while an explicit local base does not.
-- The Docker integration scenario creates the current Context recipe, runs a
-  real managed build from the public official GHCR base, verifies ready status
-  and automatic Context image promotion, then repeats the flow with the local
-  base before cleanup.
+  build or promotion failure. They assert that built-in and explicit local
+  bases do not request a registry pull.
+- The Docker integration scenario creates the current Context recipe, ensures
+  the embedded agent-ready base locally, verifies ready status and automatic
+  Context image promotion, then repeats the flow with an explicit local base
+  before cleanup.
 - Policy-learning integration projects baseline and learnable denials, proves
   baseline denies stay out of the actionable queue, and exercises exact allow,
   deny, reset, and re-review activation through reference-bound commands
@@ -569,11 +571,11 @@ The test suite has complementary levels:
   reservation, secret-sensitive revisions, complete-candidate validation,
   serialization, and known-good retention.
 - Auth domain and catalog tests fix exact schema-1 static providers and the
-  closed reviewed GitHub/AWS/Datadog/OpenAI/Anthropic login union, exact command
-  effects/inputs/outputs/failures, bounded interactive provider omission,
-  explicit-provider requirements outside that selector, the AWS-only
-  `identity-center|console` method axis, and rejection of unsupported providers
-  or inapplicable methods. They also cover Context binding, cancellation,
+  standard GitHub/Datadog/OpenAI/Anthropic login union, exact command
+  effects/inputs/outputs/failures, bounded interactive provider omission, and
+  rejection of AWS before acquisition. A targeted `tobari_experimental`
+  matrix adds AWS and its `identity-center|console` method axis while proving
+  the release/default profile remains standard. They also cover Context binding, cancellation,
   redirected zero-mutation behavior, exhaustive Context-scoped status,
   explicit locked/unavailable state, non-terminal stdin-only import and terminal
   refusal before reading, read-after-public-validation/send-after-runtime-
@@ -795,9 +797,9 @@ Every strong statement should identify its enforcement path.
 | Context configuration interaction boundary | Catalog-derived `config shell`/`config git` help and argv dependencies, complete-direct versus wholly-omitted staged-editor mode tests, explicit-empty Context plus partial direct input and redirected/non-TTY/JSON editor rejection before mutation, raw-terminal and English line fallback, complete current/pending rendering, multi-row Shell staging with one atomic write, exact task/selected-Context correlation for reads, shown-Context binding across concurrent default changes, exact task/Context/applied-setting/cluster correlation for mutation results, pre-Apply discard, terminal restoration, stdout/stderr separation, fixed-target invoker coverage, and exact schema-1 Context result keys |
 | Context shell environment boundary | Fixed allowlist and source-enum domain tests, explicit-empty preservation, exact V1 persistence, zero-I/O rejection for arbitrary names and ambiguous values, owner-only atomic update tests, complete Context report output, exact child-exec environment assertions, missing-export fallback, Bash-quote and bounded inherited-value canaries, and host-credential non-copy assertions |
 | Context Git identity boundary | Atomic pair/source domain tests, exact V1 shell-setting preservation and opt-in default initialization, exact two-key global Git argv with an absolute executable and exact `HOME`/optional `XDG_CONFIG_HOME` plus fixed-control environment allowlist, project-owned config-directory and `PATH`/loader/shell-startup canaries, timeout/output/framing/unsafe-value bounds, malicious local-include exclusion, private atomic config encoding, symlink and existing-file size checks, read-only directory mount and system-scope precedence, excluded helper/signing/auth/path keys, absent/incomplete-pair behavior, and secret-/personal-data-free faults and fixtures |
-| Context runtime build boundary | Fixed current-Context target contracts, owner-only recipe checks, bounded BuildKit plain-progress/load argv including official-base refresh versus local-base behavior, live visible-projected stdout/stderr diagnostics, syntax/RUN/base/daemon failure canaries, nonzero/zero exit assertions, compatibility/digest validation, source-digest status, previous-image preservation, atomic promotion tests, and bound-Context next-entry reconciliation coverage |
-| Gateway source and image boundary | Canonical-source/snapshot byte comparison, pinned mitmproxy parent, signed nftables/iproute dependency inventory, canonical-source unit tests, source API-1/role labels, transparent-only listener and fixed network-guard entrypoint, explicit rejection of non-transparent ingress, absence of proxy environment/port exceptions, content-addressed development selection, paired component-lock validation, immutable digest/platform/entrypoint release preflight, non-root resident process, and validation/release workflow permission separation |
-| Auth Broker source and image boundary | Canonical-source/snapshot byte comparison, canonical Python tests in the pinned image environment, provider-CLI absence including Codex/Claude, source API-1/role labels, content-addressed development selection, paired component-lock validation, immutable digest/platform/entrypoint release preflight, non-root Dockerfile, and validation/release workflow permission separation |
+| Context runtime build boundary | Fixed current-Context target contracts, owner-only recipe checks, bounded BuildKit plain-progress/load argv, embedded local-base missing/reuse behavior, no built-in registry pull, live visible-projected stdout/stderr diagnostics, syntax/RUN/base/daemon failure canaries, nonzero/zero exit assertions, compatibility/digest validation, source-digest status, previous-image preservation, atomic promotion tests, and bound-Context next-entry reconciliation coverage |
+| Gateway source and image boundary | Canonical-source/snapshot byte comparison, pinned mitmproxy parent, signed nftables/iproute dependency inventory, canonical-source unit tests, source API-1/role labels, transparent-only listener and fixed network-guard entrypoint, explicit rejection of non-transparent ingress, absence of proxy environment/port exceptions, content-addressed development selection, two-service-lock validation, immutable digest/platform/entrypoint release preflight, non-root resident process, and validation/release workflow permission separation |
+| Auth Broker source and image boundary | Canonical-source/snapshot byte comparison, canonical Python tests in the pinned image environment, provider-CLI absence including Codex/Claude, source API-1/role labels, content-addressed development selection, two-service-lock validation, immutable digest/platform/entrypoint release preflight, non-root Dockerfile, and validation/release workflow permission separation |
 | Context-owned encrypted credentials | Root-key backend tests, strict owner/mode/symlink checks, AES-GCM schema/Context AAD canaries, atomic vault replacement, missing-key-with-vault rejection, and secret-free outputs |
 | Authentication state survives cluster teardown | Exact down/purge resource assertions, preserved vault/key canaries, and subsequent cluster-up unlock/status proof |
 | Doctor remains observational | Fixed dependency-matrix, direct-blocker, complete-report, schema-1 renderer/agent-contract, fail/warn exit, cancellation, Docker-argv allowlist, host-only policy-source validation, content-aware fresh/unsupported-version snapshots, and zero-create/zero-repair canaries across root-key, vault, provider, broker, and project-auth state |

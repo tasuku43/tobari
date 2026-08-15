@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 
@@ -43,14 +44,15 @@ func TestBuiltinManifestCollectionMatchesClosedDomainRegistry(t *testing.T) {
 	for index, provider := range projection.Providers {
 		providerIDs[index] = provider.ID
 	}
-	if got, want := strings.Join(providerIDs, ","), strings.Join(authbroker.BuiltinProviderIDs(), ","); got != want {
+	if got, want := strings.Join(providerIDs, ","), strings.Join(authbroker.ActiveBuiltinProviderIDs(), ","); got != want {
 		t.Fatalf("embedded provider IDs = %q, want closed domain registry %q", got, want)
 	}
-
-	missingManifest := append([]authbroker.Provider(nil), projection.Providers[:len(projection.Providers)-1]...)
-	if err := authbroker.ValidateBuiltinProviderCollection(missingManifest); err == nil ||
-		!strings.Contains(err.Error(), "missing registered provider") {
-		t.Fatalf("missing-manifest parity error = %v", err)
+	for _, provider := range projection.Providers {
+		if provider.ID == authbroker.BuiltinAWSProviderID {
+			if !authbroker.SupportsReviewedLoginProvider(provider.ID) {
+				t.Fatal("inactive AWS manifest entered the standard projection")
+			}
+		}
 	}
 }
 
@@ -59,11 +61,15 @@ func TestReviewedProviderCapabilityFixtureMatchesGoAuthorities(t *testing.T) {
 	if fixture.SchemaVersion != 1 {
 		t.Fatalf("fixture schema_version = %d, want 1", fixture.SchemaVersion)
 	}
-	if got, want := strings.Join(fixture.ReviewedLoginOrder, ","), strings.Join(authbroker.ReviewedLoginProviderIDs(), ","); got != want {
+	if got, want := strings.Join(fixture.ReviewedLoginOrder, ","), strings.Join(authbroker.KnownReviewedLoginProviderIDs(), ","); got != want {
 		t.Fatalf("fixture reviewed login order = %q, want %q", got, want)
 	}
 
-	projection, err := Builtins()
+	providers, _, err := loadAllBuiltins()
+	if err != nil {
+		t.Fatal(err)
+	}
+	projection, err := authbroker.NormalizeProviders(providers)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,7 +89,7 @@ func TestReviewedProviderCapabilityFixtureMatchesGoAuthorities(t *testing.T) {
 		if entry.ManifestCredentialKind != provider.Credential.Kind {
 			t.Fatalf("fixture credential kind for %q = %q, built-in = %q", provider.ID, entry.ManifestCredentialKind, provider.Credential.Kind)
 		}
-		_, supportsLogin := authbroker.ReviewedLoginProviderHelper(provider.ID)
+		_, supportsLogin := authbroker.KnownReviewedLoginProviderHelper(provider.ID)
 		if got := entry.BrokerControlLogin != "none"; got != supportsLogin {
 			t.Fatalf("fixture control-login membership for %q = %t, reviewed host login = %t", provider.ID, got, supportsLogin)
 		}
@@ -111,16 +117,20 @@ func readReviewedProviderCapabilityFixture(t *testing.T) reviewedProviderCapabil
 }
 
 func TestBuiltinsPublishesExactToolContracts(t *testing.T) {
-	projection, err := Builtins()
+	providers, _, err := loadAllBuiltins()
+	if err != nil {
+		t.Fatal(err)
+	}
+	projection, err := authbroker.NormalizeProviders(providers)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if projection.SchemaVersion != authbroker.ProviderSchemaVersion || len(projection.Providers) != 6 {
 		t.Fatalf("built-in projection = %#v", projection)
 	}
-	providers := make(map[string]authbroker.Provider, len(projection.Providers))
+	providerByID := make(map[string]authbroker.Provider, len(projection.Providers))
 	for _, provider := range projection.Providers {
-		providers[provider.ID] = provider
+		providerByID[provider.ID] = provider
 	}
 	if BuiltinAnthropicProviderID != "anthropic" || BuiltinAWSProviderID != "aws" ||
 		BuiltinChatworkProviderID != "chatwork" || BuiltinDatadogProviderID != "datadog" ||
@@ -134,7 +144,7 @@ func TestBuiltinsPublishesExactToolContracts(t *testing.T) {
 	if BuiltinGitHubProviderID != "github" {
 		t.Fatalf("BuiltinGitHubProviderID = %q", BuiltinGitHubProviderID)
 	}
-	provider := providers[BuiltinGitHubProviderID]
+	provider := providerByID[BuiltinGitHubProviderID]
 	if provider.ID != BuiltinGitHubProviderID ||
 		provider.Acquisition.Mode != authbroker.AcquisitionBuiltinHelper || provider.Acquisition.Helper != "github-gh" {
 		t.Fatalf("GitHub provider identity/acquisition = %#v", provider)
@@ -165,7 +175,7 @@ func TestBuiltinsPublishesExactToolContracts(t *testing.T) {
 		t.Fatalf("GitHub normalized bindings = %#v", projection.HeaderBindings)
 	}
 
-	aws := providers[BuiltinAWSProviderID]
+	aws := providerByID[BuiltinAWSProviderID]
 	if aws.ID != BuiltinAWSProviderID || aws.SchemaVersion != authbroker.ProviderSchemaVersion ||
 		aws.Acquisition.Mode != authbroker.AcquisitionBuiltinHelper || aws.Acquisition.Helper != "aws-sso" ||
 		aws.Credential.Kind != authbroker.CredentialAWSSSOSession || len(aws.HeaderBindings) != 0 {
@@ -217,7 +227,7 @@ func TestBuiltinsPublishesExactToolContracts(t *testing.T) {
 		destinationHeader: "x-chatworktoken",
 		destinationFormat: authbroker.DestinationFormatRaw,
 	})
-	datadog := providers[BuiltinDatadogProviderID]
+	datadog := providerByID[BuiltinDatadogProviderID]
 	if datadog.SchemaVersion != authbroker.ProviderSchemaVersion ||
 		datadog.Acquisition != (authbroker.Acquisition{Mode: authbroker.AcquisitionBuiltinHelper, Helper: "pup-oauth"}) ||
 		datadog.Credential.Kind != authbroker.CredentialDatadogOAuthSession {
@@ -249,7 +259,7 @@ func TestBuiltinsPublishesExactToolContracts(t *testing.T) {
 		t.Fatalf("Datadog normalized bindings = %#v", projection.HeaderBindings)
 	}
 
-	anthropic := providers[BuiltinAnthropicProviderID]
+	anthropic := providerByID[BuiltinAnthropicProviderID]
 	const anthropicAuthTemplate = `{"claudeAiOauth":{"accessToken":"${HANDLE}","refreshToken":"dummy-value","expiresAt":4102444800000,"scopes":${OAUTH_SCOPES_JSON},"subscriptionType":${CLAUDE_SUBSCRIPTION_TYPE_JSON},"rateLimitTier":${CLAUDE_RATE_LIMIT_TIER_JSON}}}`
 	const anthropicOnboardingTemplate = `{"hasCompletedOnboarding":true}`
 	if anthropic.SchemaVersion != authbroker.ProviderSchemaVersion ||
@@ -275,7 +285,7 @@ func TestBuiltinsPublishesExactToolContracts(t *testing.T) {
 		t.Fatalf("Anthropic JSON-merge projection = %#v", projection.JSONMerges)
 	}
 
-	openai := providers[BuiltinOpenAIProviderID]
+	openai := providerByID[BuiltinOpenAIProviderID]
 	const openAIAuthTemplate = `{"auth_mode":"chatgptAuthTokens","OPENAI_API_KEY":null,"tokens":{"id_token":"e30.e30.x","access_token":"${HANDLE}","refresh_token":"","account_id":null},"last_refresh":"1970-01-01T00:00:00Z"}`
 	if openai.SchemaVersion != authbroker.ProviderSchemaVersion ||
 		openai.DisplayName != "OpenAI account for Codex" ||
@@ -402,10 +412,13 @@ func TestLoaderLoadsOwnerOnlyUserProvidersAndNormalizesThem(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(projection.Providers) != 7 || projection.Providers[0].ID != "anthropic" ||
-		projection.Providers[1].ID != "aws" || projection.Providers[2].ID != "chatwork" ||
-		projection.Providers[3].ID != "datadog" || projection.Providers[4].ID != "example-token" ||
-		projection.Providers[5].ID != "github" || projection.Providers[6].ID != "openai" {
+	wantProviders := append(authbroker.ActiveBuiltinProviderIDs(), "example-token")
+	slices.Sort(wantProviders)
+	gotProviders := make([]string, len(projection.Providers))
+	for index, provider := range projection.Providers {
+		gotProviders[index] = provider.ID
+	}
+	if !slices.Equal(gotProviders, wantProviders) {
 		t.Fatalf("provider ordering = %#v", projection.Providers)
 	}
 	if len(projection.CompleteFiles) != 3 || projection.CompleteFiles[0].Path != ".claude/.credentials.json" ||
@@ -413,7 +426,11 @@ func TestLoaderLoadsOwnerOnlyUserProvidersAndNormalizesThem(t *testing.T) {
 		projection.CompleteFiles[2].Path != ".config/example/auth.toml" {
 		t.Fatalf("complete-file projection = %#v", projection.CompleteFiles)
 	}
-	if strings.Join(projection.SecretHeaders, ",") != "authorization,chatgpt-account-id,x-amz-security-token,x-api-key,x-chatworktoken,x-openai-fedramp" {
+	wantSecretHeaders := "authorization,chatgpt-account-id,x-api-key,x-chatworktoken,x-openai-fedramp"
+	if authbroker.SupportsReviewedLoginProvider(authbroker.BuiltinAWSProviderID) {
+		wantSecretHeaders = "authorization,chatgpt-account-id,x-amz-security-token,x-api-key,x-chatworktoken,x-openai-fedramp"
+	}
+	if strings.Join(projection.SecretHeaders, ",") != wantSecretHeaders {
 		t.Fatalf("secret headers = %#v", projection.SecretHeaders)
 	}
 }
@@ -435,10 +452,11 @@ func TestLoaderUsesOnlyInjectedCanonicalDirectory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(projection.Providers) != 6 || projection.Providers[0].ID != BuiltinAnthropicProviderID ||
-		projection.Providers[1].ID != BuiltinAWSProviderID || projection.Providers[2].ID != BuiltinChatworkProviderID ||
-		projection.Providers[3].ID != BuiltinDatadogProviderID || projection.Providers[4].ID != BuiltinGitHubProviderID ||
-		projection.Providers[5].ID != BuiltinOpenAIProviderID {
+	gotProviders := make([]string, len(projection.Providers))
+	for index, provider := range projection.Providers {
+		gotProviders[index] = provider.ID
+	}
+	if !slices.Equal(gotProviders, authbroker.ActiveBuiltinProviderIDs()) {
 		t.Fatalf("missing user directory projection = %#v", projection.Providers)
 	}
 }

@@ -266,7 +266,7 @@ func TestResolveOrCreateProjectIgnoresProjectLocalDevContainerImage(t *testing.T
 	if err != nil {
 		t.Fatalf("ResolveOrCreateProject() error = %v", err)
 	}
-	if !created || instance.Image != tobari.OfficialRuntimeBase {
+	if !created || instance.Image != localBaseRuntimeImage {
 		t.Fatalf("instance = %+v, created=%t", instance, created)
 	}
 }

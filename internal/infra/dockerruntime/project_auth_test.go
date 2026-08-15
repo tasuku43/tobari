@@ -11,6 +11,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/tasuku43/tobari/internal/domain/authbroker"
 )
 
 type authProjectionRunner struct {
@@ -152,6 +154,9 @@ func TestReconcileProjectAuthProjectsOnlyHandleAndProviderMetadata(t *testing.T)
 }
 
 func TestBrokerBindingsForAWSIncludesCanonicalSigningPlanInDigest(t *testing.T) {
+	if !authbroker.SupportsReviewedLoginProvider(authbroker.BuiltinAWSProviderID) {
+		t.Skip("AWS authentication is available only in the experimental profile")
+	}
 	runtime, err := newRuntime(filepath.Join(t.TempDir(), "config"), filepath.Join(t.TempDir(), "state"), &recordingRunner{})
 	if err != nil {
 		t.Fatal(err)

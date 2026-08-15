@@ -37,7 +37,7 @@ policy-preset snapshot. They remain secret-free authority metadata in separate
 owner-only state; project files, runtime images, Workspaces, and source preset
 files cannot rewrite an existing Context envelope.
 
-The reviewed GitHub, AWS, and Codex host drivers and isolated pup and Claude
+The reviewed GitHub, AWS, and Codex host-driver implementations and isolated pup and Claude
 Context-runtime drivers are trusted, purpose-limited CLI side effects. Host
 drivers select canonical executables outside the project, reject group/world-
 writable candidates, bind SHA-256 identity, construct only fixed argv, use
@@ -201,9 +201,9 @@ contains no branch, dirty diff, absolute path, username, environment value,
 registry credential, or unreviewed digest. Repository-only recovery text is
 gated by the compiled development resolver metadata rather than CWD inspection.
 
-The current Context's runtime recipe is a trusted-host build input. An approved
-release resolver may obtain its immutable official runtime base for an
-uncustomized Context; contributor development uses the local combined base.
+The current Context's runtime recipe is a trusted-host build input. A release
+resolver ensures its pinned agent-ready base from embedded source under a
+source-derived local tag; contributor development uses the local combined base.
 `runtime build` may obtain the declared base image only
 because the user explicitly requested a host build. Docker receives the
 owner-only Context `runtime/` directory as its complete build context; policy
@@ -220,10 +220,9 @@ streams through visible projection, preserving line structure and concrete
 errors while making backslashes, terminal controls/formats, and Unicode line
 separators distinguishable. It is not copied into the stable structured fault,
 Context manifest, or audit state.
-For the exact official `ghcr.io/tasuku43/tobari/runtime:latest` first base,
-the explicit build also requests a refresh of the moving base. Explicit local
-or custom bases do not receive that registry-pull request; this keeps local
-development bases usable without weakening the build-context boundary.
+The built-in and explicit local bases receive no registry-pull request.
+Explicit remote custom bases remain Docker-owned inputs to the requested build;
+this keeps the local base boundary independent from a Tobari registry artifact.
 
 The base runtime does not change this boundary. Bundled Claude or Codex is a
 convenience rootfs and tool bundle, not
@@ -236,9 +235,9 @@ The canonical base includes integrity-pinned Claude Code 2.1.220 and Codex
 binaries remain untrusted; only the separate mount-free Claude login container
 may treat exact Claude as a provider-only acquisition authority. Their workflows verify
 the versioned release packages against the checked-in per-architecture
-checksums. The combined base declares `NOASSERTION`; its workflow has no
-package-write permission, registry login, or push while either agent lock
-retains pending redistribution/license review.
+checksums. The combined base declares `NOASSERTION`, is permanently
+local-build-only, and its workflow has no package-write permission, registry
+login, or push path.
 
 The base retains its GitHub CLI and AWS CLI artifact inventory and associated
 integrity/license checks. `kubectl`, `cwk`, `pup`, and TWG are not base-runtime
@@ -297,8 +296,9 @@ credential, provider configuration, handle, root key, or vault.
 The canonical Gateway and Auth Broker sources both declare API V1. Their labels
 make guarded transparent routing, schema-1 source-principal binding, and
 policy-before-real-resolution fail closed against any non-V1 component. The
-strict paired component lock binds their reviewed multi-architecture indexes
-to the exact CLI source revision without storing generated digests in source.
+strict two-service lock binds both reviewed service indexes to the exact CLI
+source revision without storing generated digests in source. The runtime base
+is bound by embedded recipe bytes and a source-derived local tag instead.
 
 All resources carry `io.tobari.owner=default`; per-Tobari resources also carry
 the exact stable Tobari ID and a resource role. Destructive lifecycle code
@@ -512,8 +512,9 @@ before reading. Provider collections with overlapping exact
 scheme/host/port/source-header/source-format recognition fail completely as
 `ambiguous_provider_http_binding`; no partial projection becomes active.
 
-AWS, Datadog, OpenAI, Anthropic, and Chatwork are implemented only through the
-closed reviewed plan union. Dynamic records, Datadog/OpenAI/Anthropic refresh, AWS
+Datadog, OpenAI, Anthropic, Chatwork, and the experimental AWS capability are
+implemented only through the closed reviewed plan union. Standard projection
+cannot select AWS. Dynamic records, Datadog/OpenAI/Anthropic refresh, AWS
 signing/companion, OpenAI supplemental-header ownership, and exact-version
 Codex/Claude drivers cannot be selected or extended by owner manifests.
 The renewable-session implementation is an immutable compiled registry, not a
@@ -663,10 +664,11 @@ authentication, signing, provider account authority, or network permission.
 `auth login`, `auth import`, and `auth logout` are trusted-host fixed-target
 writes against the installation credential catalog. They resolve one existing
 explicit or current Context and one installed provider before acquisition or
-vault I/O. Login accepts only the installed reviewed GitHub, AWS, Datadog,
+vault I/O. Standard login accepts only the installed reviewed GitHub, Datadog,
 OpenAI, or Anthropic driver union. Anthropic alone uses a fresh mount-free
-container from the selected compatible Context image; interactive omission opens only its bounded
-selector and AWS alone accepts `identity-center|console`. Import reads one
+container from the selected compatible Context image; interactive omission
+opens only its bounded selector. The experimental compile-time profile
+additionally activates AWS and its `identity-center|console` methods. Import reads one
 bounded secret from non-terminal stdin only under the ordering above. One
 credential belongs to one Context/provider, and every permanently bound project
 is eligible for a distinct handle only on its next matching Workspace entry.
@@ -874,7 +876,7 @@ reference-bound mutation.
 | Provider manifests cannot become executable or ambiguous authority | Strict schema/collision/path/header tests, owner-only XDG loading, and built-in override rejection |
 | Provider login cannot turn visible text into arbitrary browser execution | Conventional non-project executable selection, identity/digest recheck, fixed argv/environment, bounded browser/PTY projection, checked cleanup, cancellation, and provider-specific negative tests |
 | Unsupported credential mechanisms cannot remain dormant | Catalog/state/dependency/image-content tests reject managed profiles, owner-selected dynamic plans, arbitrary helpers, compatibility readers, and provider CLIs inside Broker |
-| Agent-ready tools retain reviewed identity without premature redistribution | Base-runtime locks/checks for GitHub CLI, AWS CLI, Claude Code, and Codex; version smokes outside Workspace home; workflow canaries reject registry write/login/push while bundled-agent review is pending |
+| Agent-ready tools retain reviewed identity without Tobari redistribution | Base-runtime locks/checks for GitHub CLI, AWS CLI, Claude Code, and Codex; version smokes outside Workspace home; local missing-image build tests; workflow and release canaries reject every base registry write/login/push path |
 | Secret headers, queries, handle-bearing paths, and bodies stay out of logs | Gateway redacted-path/header-absence tests, non-learnable structural-rejection tests, and log scans |
 | Declared provider bindings are Broker-required | Direct bearer/raw and SigV4 canaries return `broker_auth_required` before fallback/Broker/OPA/DNS/upstream; valid handles retain policy-before-action ordering; an undeclared binding retains compatibility passthrough |
 | Broker fallback cannot accept a Tobari-looking handle | Undeclared-binding and marker-absence fallback tests plus malformed, misplaced, ambiguous, and binding-mismatch fail-closed canaries |
@@ -927,13 +929,13 @@ embedded Docker build-input snapshot is checked for exact membership and bytes,
 and provider-CLI
 absence, closed-plan protocol behavior, and multi-architecture metadata are checked
 for each image's recorded build revision. Pull-request image
-jobs have no package-write permission. GHCR
-moving tags are development conveniences, not a trusted runtime identity;
-routine Gateway and Auth Broker consumption requires reviewed immutable V1
-digests from the release-generated component lock. Source contains no owned
+jobs have no package-write permission. GHCR moving tags are not a trusted
+service identity; routine Gateway and Auth Broker consumption requires reviewed
+immutable V1 digests from the release-generated component lock. The runtime
+base is built locally from embedded pinned source. Source contains no owned
 image-output fallback. The lock validator rejects partial, cross-revision,
 wrong-repository, moving, API-invalid, and incomplete-platform authorities
-before CLI packaging. A moving tag or local image is never release authority.
-Likewise, the checked combined Claude Code 2.1.220 and Codex 0.147.0 base
-establishes integrity and test identity only; the artifact remains unpublished
-while redistribution and license review is pending.
+before CLI packaging. A moving tag or local image is never service release
+authority. The checked combined Claude Code 2.1.220 and Codex 0.147.0 base
+establishes integrity and local build identity only; Tobari never publishes
+that combined image.

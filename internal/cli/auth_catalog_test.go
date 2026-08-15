@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/tasuku43/tobari/internal/domain/authbroker"
 	"github.com/tasuku43/tobari/internal/domain/fault"
 	"github.com/tasuku43/tobari/internal/domain/operation"
 )
@@ -27,28 +28,44 @@ func TestAuthLoginCatalogAllowsInteractiveOmissionAndReviewedProviders(t *testin
 	if !found {
 		t.Fatal("catalog lacks auth login")
 	}
-	if spec.Args != "[--provider github|aws|datadog|openai|anthropic] [--method identity-center|console] [--context <name>] [--format text|json]" || len(spec.Agent.Inputs) == 0 {
+	awsEnabled := authbroker.SupportsReviewedLoginProvider(authbroker.BuiltinAWSProviderID)
+	wantArgs := "[--provider github|datadog|openai|anthropic] [--context <name>] [--format text|json]"
+	wantProviders := []string{"github", "datadog", "openai", "anthropic"}
+	if awsEnabled {
+		wantArgs = "[--provider github|aws|datadog|openai|anthropic] [--method identity-center|console] [--context <name>] [--format text|json]"
+		wantProviders = []string{"github", "aws", "datadog", "openai", "anthropic"}
+	}
+	if spec.Args != wantArgs || len(spec.Agent.Inputs) == 0 {
 		t.Fatalf("auth login = %+v", spec)
 	}
 	provider := spec.Agent.Inputs[0]
-	if provider.Name != "--provider" || provider.Required || !reflect.DeepEqual(provider.AllowedValues, []string{"github", "aws", "datadog", "openai", "anthropic"}) ||
+	if provider.Name != "--provider" || provider.Required || !reflect.DeepEqual(provider.AllowedValues, wantProviders) ||
 		!strings.Contains(provider.Description, "interactive selector") {
 		t.Fatalf("provider input = %+v", provider)
-	}
-	method := spec.Agent.Inputs[1]
-	if method.Name != "--method" || !reflect.DeepEqual(method.AllowedValues, []string{"identity-center", "console"}) ||
-		!reflect.DeepEqual(method.Requires, []string{"--provider"}) {
-		t.Fatalf("method input = %+v", method)
 	}
 	inputs, err := parseCommandInputs(spec, []string{})
 	if err != nil || inputs.Provided("--provider") || inputs.One("--provider") != "" {
 		t.Fatalf("omitted provider parse = inputs:%+v error:%v", inputs, err)
 	}
-	if _, err := parseCommandInputs(spec, []string{"--provider=aws"}); err != nil {
-		t.Fatalf("AWS provider rejected: %v", err)
-	}
-	if _, err := parseCommandInputs(spec, []string{"--method=console"}); err == nil {
-		t.Fatal("method without provider was accepted")
+	if awsEnabled {
+		method := spec.Agent.Inputs[1]
+		if method.Name != "--method" || !reflect.DeepEqual(method.AllowedValues, []string{"identity-center", "console"}) ||
+			!reflect.DeepEqual(method.Requires, []string{"--provider"}) {
+			t.Fatalf("method input = %+v", method)
+		}
+		if _, err := parseCommandInputs(spec, []string{"--provider=aws"}); err != nil {
+			t.Fatalf("AWS provider rejected: %v", err)
+		}
+		if _, err := parseCommandInputs(spec, []string{"--method=console"}); err == nil {
+			t.Fatal("method without provider was accepted")
+		}
+	} else {
+		if _, err := parseCommandInputs(spec, []string{"--provider=aws"}); err == nil {
+			t.Fatal("standard profile accepted AWS provider")
+		}
+		if _, err := parseCommandInputs(spec, []string{"--method=console"}); err == nil {
+			t.Fatal("standard profile accepted experimental AWS method")
+		}
 	}
 	if _, err := parseCommandInputs(spec, []string{"--provider=github"}); err != nil {
 		t.Fatalf("GitHub provider rejected: %v", err)
@@ -63,7 +80,11 @@ func TestAuthLoginCatalogAllowsInteractiveOmissionAndReviewedProviders(t *testin
 			t.Fatalf("unsupported auth surface %q remains in login contract", value)
 		}
 	}
-	for _, code := range []string{"github_cli_unavailable", "aws_cli_unavailable", "datadog_cli_unavailable", "openai_cli_unavailable", "anthropic_cli_unavailable", "auth_login_selector_unavailable", "auth_login_tty_required"} {
+	wantCodes := []string{"github_cli_unavailable", "datadog_cli_unavailable", "openai_cli_unavailable", "anthropic_cli_unavailable", "auth_login_selector_unavailable", "auth_login_tty_required"}
+	if awsEnabled {
+		wantCodes = append(wantCodes, "aws_cli_unavailable")
+	}
+	for _, code := range wantCodes {
 		found := false
 		for _, declared := range spec.Agent.Errors {
 			if declared.Code == code {
@@ -73,6 +94,9 @@ func TestAuthLoginCatalogAllowsInteractiveOmissionAndReviewedProviders(t *testin
 		if !found {
 			t.Fatalf("auth login lacks %q", code)
 		}
+	}
+	if !awsEnabled && strings.Contains(strings.ToLower(encoded), "aws") {
+		t.Fatalf("standard auth login contract leaked AWS: %s", encoded)
 	}
 }
 

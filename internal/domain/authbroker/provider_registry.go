@@ -1,6 +1,10 @@
 package authbroker
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/tasuku43/tobari/internal/domain/capabilityprofile"
+)
 
 const (
 	BuiltinAnthropicProviderID = "anthropic"
@@ -11,7 +15,7 @@ const (
 	BuiltinOpenAIProviderID    = "openai"
 )
 
-var builtinProviderIDs = [...]string{
+var knownBuiltinProviderIDs = [...]string{
 	BuiltinAnthropicProviderID,
 	BuiltinAWSProviderID,
 	BuiltinChatworkProviderID,
@@ -28,7 +32,7 @@ type reviewedLoginProvider struct {
 // reviewedLoginProviders is the closed, presentation-ordered host-login
 // vocabulary. Chatwork is a reviewed built-in provider, but deliberately uses
 // protected stdin import and therefore does not belong to this registry.
-var reviewedLoginProviders = [...]reviewedLoginProvider{
+var knownReviewedLoginProviders = [...]reviewedLoginProvider{
 	{id: BuiltinGitHubProviderID, helper: "github-gh"},
 	{id: BuiltinAWSProviderID, helper: "aws-sso"},
 	{id: BuiltinDatadogProviderID, helper: "pup-oauth"},
@@ -36,20 +40,45 @@ var reviewedLoginProviders = [...]reviewedLoginProvider{
 	{id: BuiltinAnthropicProviderID, helper: "claude-native-oauth"},
 }
 
-// BuiltinProviderIDs returns the complete closed built-in vocabulary in
-// deterministic ID order. Each call returns a new slice so callers cannot
-// mutate the domain-owned registry.
+// BuiltinProviderIDs returns the complete implementation vocabulary. It is a
+// validation and reservation boundary, not the active product surface.
 func BuiltinProviderIDs() []string {
-	result := make([]string, len(builtinProviderIDs))
-	copy(result, builtinProviderIDs[:])
+	result := make([]string, len(knownBuiltinProviderIDs))
+	copy(result, knownBuiltinProviderIDs[:])
 	return result
 }
 
-// ReviewedLoginProviderIDs returns the closed provider union in the public
-// login-selector order. Each call returns a new slice.
+// ActiveBuiltinProviderIDs returns the built-ins exposed by this immutable
+// capability profile. AWS is experimental and cannot be activated at runtime.
+func ActiveBuiltinProviderIDs() []string {
+	result := make([]string, 0, len(knownBuiltinProviderIDs))
+	for _, providerID := range knownBuiltinProviderIDs {
+		if providerID == BuiltinAWSProviderID && !capabilityprofile.Compiled().IncludesExperimental() {
+			continue
+		}
+		result = append(result, providerID)
+	}
+	return result
+}
+
+// ReviewedLoginProviderIDs returns the active closed provider union in public
+// selector order. Each call returns a new slice.
 func ReviewedLoginProviderIDs() []string {
-	result := make([]string, len(reviewedLoginProviders))
-	for index, provider := range reviewedLoginProviders {
+	result := make([]string, 0, len(knownReviewedLoginProviders))
+	for _, provider := range knownReviewedLoginProviders {
+		if provider.id == BuiltinAWSProviderID && !capabilityprofile.Compiled().IncludesExperimental() {
+			continue
+		}
+		result = append(result, provider.id)
+	}
+	return result
+}
+
+// KnownReviewedLoginProviderIDs returns the complete reviewed implementation
+// union used to validate embedded manifests and cross-language fixtures.
+func KnownReviewedLoginProviderIDs() []string {
+	result := make([]string, len(knownReviewedLoginProviders))
+	for index, provider := range knownReviewedLoginProviders {
 		result[index] = provider.id
 	}
 	return result
@@ -58,7 +87,16 @@ func ReviewedLoginProviderIDs() []string {
 // ReviewedLoginProviderHelper returns the exact reviewed manifest helper for
 // one compiled host-login provider.
 func ReviewedLoginProviderHelper(providerID string) (string, bool) {
-	for _, provider := range reviewedLoginProviders {
+	if providerID == BuiltinAWSProviderID && !capabilityprofile.Compiled().IncludesExperimental() {
+		return "", false
+	}
+	return KnownReviewedLoginProviderHelper(providerID)
+}
+
+// KnownReviewedLoginProviderHelper returns the reviewed helper for embedded
+// implementation validation independent of the active product profile.
+func KnownReviewedLoginProviderHelper(providerID string) (string, bool) {
+	for _, provider := range knownReviewedLoginProviders {
 		if provider.id == providerID {
 			return provider.helper, true
 		}
@@ -78,8 +116,8 @@ func SupportsReviewedLoginProvider(providerID string) bool {
 // the complete domain vocabulary and the reviewed host-login helper plans.
 // Owner manifests do not cross this boundary.
 func ValidateBuiltinProviderCollection(providers []Provider) error {
-	expected := make(map[string]struct{}, len(builtinProviderIDs))
-	for _, providerID := range builtinProviderIDs {
+	expected := make(map[string]struct{}, len(knownBuiltinProviderIDs))
+	for _, providerID := range knownBuiltinProviderIDs {
 		expected[providerID] = struct{}{}
 	}
 	seen := make(map[string]struct{}, len(providers))
@@ -92,7 +130,7 @@ func ValidateBuiltinProviderCollection(providers []Provider) error {
 		}
 		seen[provider.ID] = struct{}{}
 
-		helper, supportsLogin := ReviewedLoginProviderHelper(provider.ID)
+		helper, supportsLogin := KnownReviewedLoginProviderHelper(provider.ID)
 		if supportsLogin {
 			if provider.Acquisition != (Acquisition{Mode: AcquisitionBuiltinHelper, Helper: helper}) {
 				return fmt.Errorf("built-in provider %q does not declare its reviewed login helper %q", provider.ID, helper)
@@ -103,7 +141,7 @@ func ValidateBuiltinProviderCollection(providers []Provider) error {
 			return fmt.Errorf("built-in provider %q declares a helper outside the reviewed login registry", provider.ID)
 		}
 	}
-	for _, providerID := range builtinProviderIDs {
+	for _, providerID := range knownBuiltinProviderIDs {
 		if _, found := seen[providerID]; !found {
 			return fmt.Errorf("built-in provider collection is missing registered provider %q", providerID)
 		}

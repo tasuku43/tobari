@@ -29,6 +29,24 @@ type recordingRunner struct {
 	onOutput    func(int)
 }
 
+type localBaseBuildRunner struct {
+	runs    []runnerCall
+	outputs []runnerCall
+}
+
+func (r *localBaseBuildRunner) Run(_ context.Context, args, _ []string, _ io.Reader, _, _ io.Writer) error {
+	r.runs = append(r.runs, runnerCall{args: append([]string{}, args...)})
+	return nil
+}
+
+func (r *localBaseBuildRunner) Output(_ context.Context, args, _ []string) ([]byte, error) {
+	r.outputs = append(r.outputs, runnerCall{args: append([]string{}, args...)})
+	if len(args) >= 4 && args[0] == "image" && args[1] == "inspect" && args[3] == "{{.Id}}" {
+		return nil, errors.New("image not found")
+	}
+	return compatibleImageInspection(), nil
+}
+
 type ownershipInspectFailureRunner struct {
 	outputs []runnerCall
 	runs    []runnerCall
@@ -818,7 +836,7 @@ func TestComposeEnvironmentUsesPinnedImages(t *testing.T) {
 	}
 }
 
-func TestPrepareActiveContextImagePullsAndValidatesOfficialRuntime(t *testing.T) {
+func TestPrepareActiveContextImageReusesAndValidatesLocalOfficialRuntime(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 	runner := &recordingRunner{outputData: compatibleImageInspection()}
@@ -826,11 +844,34 @@ func TestPrepareActiveContextImagePullsAndValidatesOfficialRuntime(t *testing.T)
 	if err := runtime.prepareActiveContextImage(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if len(runner.runs) != 1 || !slices.Equal(runner.runs[0].args, []string{"image", "pull", tobari.OfficialRuntimeBase}) {
-		t.Fatalf("runtime image pull calls = %v", runner.runs)
+	if len(runner.runs) != 0 {
+		t.Fatalf("runtime image mutation calls = %v", runner.runs)
 	}
-	if len(runner.outputs) != 1 || runner.outputs[0].args[0] != "image" || runner.outputs[0].args[1] != "inspect" {
+	if len(runner.outputs) != 2 || runner.outputs[0].args[0] != "image" || runner.outputs[0].args[1] != "inspect" {
 		t.Fatalf("runtime image inspect calls = %v", runner.outputs)
+	}
+}
+
+func TestPrepareActiveContextImageBuildsMissingLocalOfficialRuntime(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	runner := &localBaseBuildRunner{}
+	runtime, _ := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), runner)
+	if _, err := runtime.ListContexts(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := runtime.prepareActiveContextImage(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(runner.runs) != 1 || !slices.Equal(runner.runs[0].args[:4], []string{"buildx", "build", "--progress=plain", "--load"}) {
+		t.Fatalf("runtime image build calls = %v", runner.runs)
+	}
+	if !containsArgs(runner.runs[0].args, "--tag") || !containsArgs(runner.runs[0].args, localBaseRuntimeImage) ||
+		!containsArgs(runner.runs[0].args, "--build-arg") || !strings.Contains(strings.Join(runner.runs[0].args, "\n"), "TOBARI_UID=") {
+		t.Fatalf("runtime image build argv = %v", runner.runs[0].args)
+	}
+	if len(runner.outputs) != 2 {
+		t.Fatalf("runtime image inspection calls = %v", runner.outputs)
 	}
 }
 

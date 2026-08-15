@@ -8,19 +8,20 @@ import (
 	"strconv"
 
 	"github.com/tasuku43/tobari/internal/domain/buildidentity"
-	"github.com/tasuku43/tobari/internal/domain/tobari"
+	"github.com/tasuku43/tobari/internal/domain/capabilityprofile"
 )
 
 type officialImageResolver struct{}
 
-// Release packaging replaces these four values from one validated generated
-// component lock. Repository source deliberately contains no published digest
-// authority.
+// Release packaging replaces the two service identities and APIs from one
+// validated generated component lock. The base runtime remains a local image;
+// packaging gives its embedded recipe a source-derived tag.
 var (
 	publishedGatewayImage    = "unpublished"
 	publishedGatewayAPI      = "1"
 	publishedAuthBrokerImage = "unpublished"
 	publishedAuthBrokerAPI   = "1"
+	localBaseRuntimeImage    = "tobari-runtime:base"
 )
 
 func (officialImageResolver) BuildIdentity(version, commit string) (buildidentity.Identity, error) {
@@ -34,7 +35,8 @@ func (officialImageResolver) BuildIdentity(version, commit string) (buildidentit
 	}
 	return buildidentity.Identity{
 		Version: version, Commit: buildidentity.NormalizeCommit(commit),
-		ResolverChannel: buildidentity.ResolverPublished,
+		ResolverChannel:   buildidentity.ResolverPublished,
+		CapabilityProfile: capabilityprofile.Compiled(),
 		Gateway: buildidentity.Component{
 			RequiredAPI: buildidentity.RequiredGatewayAPI, SelectedAPI: gatewayAPI,
 		},
@@ -57,11 +59,15 @@ func newImageResolver() imageResolver {
 }
 
 func (officialImageResolver) DefaultRuntimeImage() string {
-	return tobari.OfficialRuntimeBase
+	return localBaseRuntimeImage
 }
 
-func (officialImageResolver) ShouldPullRuntimeImage(image string) bool {
-	return image == tobari.OfficialRuntimeBase
+func (officialImageResolver) ShouldPullRuntimeImage(string) bool {
+	return false
+}
+
+func (officialImageResolver) ShouldBuildRuntimeImage(image string) bool {
+	return image == localBaseRuntimeImage
 }
 
 func (officialImageResolver) GatewayImage(context.Context, *Runtime) (sharedImageSelection, error) {

@@ -75,6 +75,24 @@ func Builtins() (authbroker.Projection, error) {
 }
 
 func loadBuiltins() ([]authbroker.Provider, map[string]struct{}, error) {
+	providers, ids, err := loadAllBuiltins()
+	if err != nil {
+		return nil, nil, err
+	}
+	activeIDs := make(map[string]struct{}, len(authbroker.ActiveBuiltinProviderIDs()))
+	for _, providerID := range authbroker.ActiveBuiltinProviderIDs() {
+		activeIDs[providerID] = struct{}{}
+	}
+	active := make([]authbroker.Provider, 0, len(activeIDs))
+	for _, provider := range providers {
+		if _, enabled := activeIDs[provider.ID]; enabled {
+			active = append(active, provider)
+		}
+	}
+	return active, ids, nil
+}
+
+func loadAllBuiltins() ([]authbroker.Provider, map[string]struct{}, error) {
 	names, err := fs.Glob(builtinDocuments, "builtins/*.json")
 	if err != nil {
 		return nil, nil, fmt.Errorf("list built-in providers: %w", err)

@@ -5,7 +5,7 @@
   "name": "review",
   "active": false,
   "agent_profile": "default",
-  "image": "ghcr.io/tasuku43/tobari/runtime:latest",
+  "image": "tobari-runtime:base",
   "policy_mode": "guided",
   "source_access": "read-write",
   "policy_preset_origin": "builtin/reviewed-exact",
@@ -41,7 +41,7 @@
   "runtime": {
     "kind": "official",
     "status": "official",
-    "base_reference": "ghcr.io/tasuku43/tobari/runtime:latest"
+    "base_reference": "tobari-runtime:base"
   },
   "cluster": "not_applicable",
   "authentication": {

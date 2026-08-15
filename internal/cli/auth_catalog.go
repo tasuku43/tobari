@@ -17,78 +17,95 @@ func authCommandSpecs() []CommandSpec {
 
 func authLoginSpec() CommandSpec {
 	loginProviderIDs := authbroker.ReviewedLoginProviderIDs()
+	awsEnabled := authbroker.SupportsReviewedLoginProvider(authbroker.BuiltinAWSProviderID)
+	providerDescription := "Credential provider to authenticate. Omission opens an interactive selector over installed reviewed login providers. GitHub uses gh, Datadog uses a structurally compatible pup from the selected Context runtime, OpenAI uses the reviewed Codex host-login contract, and Anthropic uses Claude Code 2.1.220 from the selected Context runtime."
+	if awsEnabled {
+		providerDescription = "Credential provider to authenticate. Omission opens an interactive selector over installed reviewed login providers. GitHub uses gh, experimental AWS uses aws, Datadog uses a structurally compatible pup from the selected Context runtime, OpenAI uses the reviewed Codex host-login contract, and Anthropic uses Claude Code 2.1.220 from the selected Context runtime."
+	}
 	provider := CommandInput{
 		Name: "--provider", Source: InputSourceFlag, Required: false,
 		ValueKind: InputValueText, Cardinality: InputCardinalitySingle,
-		Description:   "Credential provider to authenticate. Omission opens an interactive selector over installed reviewed login providers. GitHub uses gh, AWS uses aws, Datadog uses a structurally compatible pup from the selected Context runtime, OpenAI uses the reviewed Codex host-login contract, and Anthropic uses Claude Code 2.1.220 from the selected Context runtime.",
+		Description:   providerDescription,
 		AllowedValues: loginProviderIDs,
+	}
+	args := "[--provider " + strings.Join(loginProviderIDs, "|") + "]"
+	inputs := []CommandInput{provider}
+	if awsEnabled {
+		args += " [--method identity-center|console]"
+		inputs = append(inputs, CommandInput{
+			Name: "--method", Source: InputSourceFlag, Required: false,
+			ValueKind: InputValueText, Cardinality: InputCardinalitySingle,
+			Description:   "Experimental AWS login method. Omission selects identity-center; console selects AWS CLI console login. This flag requires an explicit AWS provider.",
+			AllowedValues: []string{string(authcmd.LoginMethodIdentityCenter), string(authcmd.LoginMethodConsole)},
+			Requires:      []string{"--provider"},
+		})
+	}
+	args += " [--context <name>] [--format text|json]"
+	inputs = append(inputs, executionContextInput(), formatInput())
+	prerequisites := []string{
+		"The selected Context exists.",
+		"The shared Auth Broker is already running, ready, and unlocked.",
+		"A declared provider binding rejects a real Workspace credential as broker_auth_required; re-enter affected Workspaces after login to project the current handle.",
+		"When provider is omitted, stdin and stderr are interactive terminals, error output remains human text, and the caller explicitly selects one installed reviewed login provider.",
+		"The reviewed gh and Codex executables are available through trusted-host PATH; Datadog requires a structurally compatible pup at /usr/local/bin/pup in the selected Context runtime, and Anthropic requires Claude Code 2.1.220 at /usr/local/bin/claude in that runtime.",
+		"The caller has interactive terminal streams on stdin and stderr and can complete the selected provider flow on the trusted host.",
+	}
+	loginErrors := []CommandError{
+		declaredCommandError(fault.KindUnsupported, "provider_login_unsupported", false, "auth status", "Inspect the installed providers and their declared acquisition modes."),
+		declaredCommandError(fault.KindInvalidInput, "auth_login_selector_unavailable", false, "help auth login", "Pass an explicit reviewed provider or use human text error output for provider selection."),
+		declaredCommandError(fault.KindInvalidInput, "auth_login_tty_required", false, "help auth login", "Run trusted-host provider login from an interactive terminal."),
+		declaredCommandError(fault.KindUnavailable, "github_cli_unavailable", false, "auth login", "Install the reviewed GitHub CLI on the trusted host and retry."),
+		declaredCommandError(fault.KindRejected, "github_login_cancelled", false, "auth login", "Retry the trusted-host GitHub login when ready."),
+		declaredCommandError(fault.KindRejected, "github_login_failed", false, "auth login", "Retry the trusted-host GitHub login after inspecting the failure."),
+		declaredCommandError(fault.KindUnavailable, "datadog_cli_unavailable", false, "help runtime", "Install a compatible pup in the selected Context runtime, build it, and retry."),
+		declaredCommandError(fault.KindRejected, "datadog_login_cancelled", false, "auth login", "Retry the trusted-host Datadog login when ready."),
+		declaredCommandError(fault.KindRejected, "datadog_login_timeout", false, "auth login", "Start a new Datadog OAuth login and complete it within the bounded window."),
+		declaredCommandError(fault.KindUnavailable, "datadog_login_failed", false, "auth login", "Retry the isolated one-shot pup login after inspecting the failure."),
+		declaredCommandError(fault.KindUnavailable, "openai_cli_unavailable", false, "auth login", "Install a stable Codex CLI with the reviewed host-login contract on the trusted host and retry."),
+		declaredCommandError(fault.KindRejected, "openai_login_cancelled", false, "auth login", "Retry the trusted-host OpenAI login when ready."),
+		declaredCommandError(fault.KindRejected, "openai_login_timeout", false, "auth login", "Start a new Codex ChatGPT device login and complete it within the bounded window."),
+		declaredCommandError(fault.KindUnavailable, "openai_login_failed", false, "auth login", "Retry the isolated trusted-host Codex login after inspecting the failure."),
+		declaredCommandError(fault.KindUnavailable, "anthropic_cli_unavailable", false, "help runtime", "Install Claude Code 2.1.220 in the selected Context runtime, build it, and retry."),
+		declaredCommandError(fault.KindRejected, "anthropic_login_cancelled", false, "auth login", "Retry the isolated Context-runtime Anthropic login when ready."),
+		declaredCommandError(fault.KindRejected, "anthropic_login_timeout", false, "auth login", "Start a new native Claude account login and complete it within the bounded window."),
+		declaredCommandError(fault.KindUnavailable, "anthropic_login_setup_failed", false, "doctor", "Inspect the local Docker runtime before retrying Anthropic login."),
+		declaredCommandError(fault.KindUnavailable, "anthropic_authorization_failed", false, "auth login", "Start a new isolated Context-runtime Claude login and paste the complete browser code when prompted."),
+		declaredCommandError(fault.KindUnavailable, "anthropic_login_output_failed", false, "help runtime", "Verify the selected Context still provides the reviewed Claude Code 2.1.220 contract."),
+		declaredCommandError(fault.KindUnavailable, "anthropic_credential_capture_failed", false, "auth login", "Start a new isolated Context-runtime Claude login."),
+		declaredCommandError(fault.KindUnavailable, "anthropic_login_cleanup_failed", false, "doctor", "Inspect the local Docker runtime before retrying Anthropic login."),
+		declaredCommandError(fault.KindUnavailable, "anthropic_login_failed", false, "auth login", "Retry the isolated Context-runtime Claude login after inspecting the failure."),
+	}
+	if awsEnabled {
+		prerequisites = append(prerequisites,
+			"The reviewed AWS CLI is available through trusted-host PATH.",
+			"AWS identity-center login requires the access-portal URL, SSO region, 12-digit account ID, and role name; AWS console login requires AWS CLI 2.32 or newer and one commercial region.",
+		)
+		loginErrors = append(loginErrors,
+			declaredCommandError(fault.KindUnavailable, "aws_cli_unavailable", false, "auth login", "Install the reviewed AWS CLI on the trusted host and retry."),
+			declaredCommandError(fault.KindInvalidInput, "auth_login_method_not_applicable", false, "help auth login", "Remove --method for non-AWS providers."),
+			declaredCommandError(fault.KindUnsupported, "aws_console_login_unsupported", false, "auth login", "Install AWS CLI 2.32 or newer on the trusted host, then retry console login."),
+			declaredCommandError(fault.KindInvalidInput, "aws_console_config_invalid", false, "help auth login", "Provide a valid commercial AWS region for console login."),
+			declaredCommandError(fault.KindRejected, "aws_console_login_cancelled", false, "auth login", "Retry the trusted-host AWS console login when ready."),
+			declaredCommandError(fault.KindRejected, "aws_console_login_timeout", false, "auth login", "Start a new AWS console login and complete it within the bounded window."),
+			declaredCommandError(fault.KindUnavailable, "aws_console_login_failed", false, "auth login", "Retry the trusted-host AWS console login after inspecting the failure."),
+			declaredCommandError(fault.KindRejected, "aws_sso_login_cancelled", false, "auth login", "Retry the trusted-host AWS IAM Identity Center login when ready."),
+			declaredCommandError(fault.KindInvalidInput, "aws_sso_config_invalid", false, "help auth login", "Provide valid AWS IAM Identity Center login fields."),
+			declaredCommandError(fault.KindRejected, "aws_sso_login_timeout", false, "auth login", "Start a new AWS IAM Identity Center device login and complete it within the bounded window."),
+			declaredCommandError(fault.KindUnavailable, "aws_sso_login_failed", false, "auth login", "Retry the trusted-host AWS IAM Identity Center login after inspecting the failure."),
+		)
 	}
 	return CommandSpec{
 		Path: "auth login", Summary: "Configure Broker-required Context authentication through a reviewed login driver",
-		Args: "[--provider " + strings.Join(loginProviderIDs, "|") + "] [--method identity-center|console] [--context <name>] [--format text|json]", Effect: operation.EffectWrite, Role: RoleAct,
+		Args: args, Effect: operation.EffectWrite, Role: RoleAct,
 		Agent: AgentContract{
-			CapabilityID: authCapabilityID,
-			Outcome:      "Acquire one supported provider credential on the trusted host so declared Workspace request bindings can use only project-bound Broker handles",
-			Inputs: []CommandInput{
-				provider,
-				{
-					Name: "--method", Source: InputSourceFlag, Required: false,
-					ValueKind: InputValueText, Cardinality: InputCardinalitySingle,
-					Description:   "AWS login method. Omission selects identity-center; console selects AWS CLI console login. This flag requires an explicit provider and is invalid for other providers.",
-					AllowedValues: []string{string(authcmd.LoginMethodIdentityCenter), string(authcmd.LoginMethodConsole)},
-					Requires:      []string{"--provider"},
-				},
-				executionContextInput(),
-				formatInput(),
-			},
-			Output: authResultOutput(),
-			Prerequisites: []string{
-				"The selected Context exists.",
-				"The shared Auth Broker is already running, ready, and unlocked.",
-				"A declared provider binding rejects a real Workspace credential as broker_auth_required; re-enter affected Workspaces after login to project the current handle.",
-				"When provider is omitted, stdin and stderr are interactive terminals, error output remains human text, and the caller explicitly selects one installed reviewed login provider.",
-				"The reviewed gh, aws, and Codex executables are available through trusted-host PATH; Datadog requires a structurally compatible pup at /usr/local/bin/pup in the selected Context runtime, and Anthropic requires Claude Code 2.1.220 at /usr/local/bin/claude in that runtime.",
-				"The caller has interactive terminal streams on stdin and stderr and can complete the selected provider flow on the trusted host.",
-				"AWS identity-center login requires the access-portal URL, SSO region, 12-digit account ID, and role name; AWS console login requires AWS CLI 2.32 or newer and one commercial region.",
-			},
-			FixedTarget: fixedAuthCatalogTarget(),
-			Errors: authMutationErrors("auth login",
-				declaredCommandError(fault.KindUnsupported, "provider_login_unsupported", false, "auth status", "Inspect the installed providers and their declared acquisition modes."),
-				declaredCommandError(fault.KindInvalidInput, "auth_login_selector_unavailable", false, "help auth login", "Pass an explicit reviewed provider or use human text error output for provider selection."),
-				declaredCommandError(fault.KindInvalidInput, "auth_login_tty_required", false, "help auth login", "Run trusted-host provider login from an interactive terminal."),
-				declaredCommandError(fault.KindUnavailable, "github_cli_unavailable", false, "auth login", "Install the reviewed GitHub CLI on the trusted host and retry."),
-				declaredCommandError(fault.KindRejected, "github_login_cancelled", false, "auth login", "Retry the trusted-host GitHub login when ready."),
-				declaredCommandError(fault.KindRejected, "github_login_failed", false, "auth login", "Retry the trusted-host GitHub login after inspecting the failure."),
-				declaredCommandError(fault.KindUnavailable, "datadog_cli_unavailable", false, "help runtime", "Install a compatible pup in the selected Context runtime, build it, and retry."),
-				declaredCommandError(fault.KindRejected, "datadog_login_cancelled", false, "auth login", "Retry the trusted-host Datadog login when ready."),
-				declaredCommandError(fault.KindRejected, "datadog_login_timeout", false, "auth login", "Start a new Datadog OAuth login and complete it within the bounded window."),
-				declaredCommandError(fault.KindUnavailable, "datadog_login_failed", false, "auth login", "Retry the isolated one-shot pup login after inspecting the failure."),
-				declaredCommandError(fault.KindUnavailable, "openai_cli_unavailable", false, "auth login", "Install a stable Codex CLI with the reviewed host-login contract on the trusted host and retry."),
-				declaredCommandError(fault.KindRejected, "openai_login_cancelled", false, "auth login", "Retry the trusted-host OpenAI login when ready."),
-				declaredCommandError(fault.KindRejected, "openai_login_timeout", false, "auth login", "Start a new Codex ChatGPT device login and complete it within the bounded window."),
-				declaredCommandError(fault.KindUnavailable, "openai_login_failed", false, "auth login", "Retry the isolated trusted-host Codex login after inspecting the failure."),
-				declaredCommandError(fault.KindUnavailable, "anthropic_cli_unavailable", false, "help runtime", "Install Claude Code 2.1.220 in the selected Context runtime, build it, and retry."),
-				declaredCommandError(fault.KindRejected, "anthropic_login_cancelled", false, "auth login", "Retry the isolated Context-runtime Anthropic login when ready."),
-				declaredCommandError(fault.KindRejected, "anthropic_login_timeout", false, "auth login", "Start a new native Claude account login and complete it within the bounded window."),
-				declaredCommandError(fault.KindUnavailable, "anthropic_login_setup_failed", false, "doctor", "Inspect the local Docker runtime before retrying Anthropic login."),
-				declaredCommandError(fault.KindUnavailable, "anthropic_authorization_failed", false, "auth login", "Start a new isolated Context-runtime Claude login and paste the complete browser code when prompted."),
-				declaredCommandError(fault.KindUnavailable, "anthropic_login_output_failed", false, "help runtime", "Verify the selected Context still provides the reviewed Claude Code 2.1.220 contract."),
-				declaredCommandError(fault.KindUnavailable, "anthropic_credential_capture_failed", false, "auth login", "Start a new isolated Context-runtime Claude login."),
-				declaredCommandError(fault.KindUnavailable, "anthropic_login_cleanup_failed", false, "doctor", "Inspect the local Docker runtime before retrying Anthropic login."),
-				declaredCommandError(fault.KindUnavailable, "anthropic_login_failed", false, "auth login", "Retry the isolated Context-runtime Claude login after inspecting the failure."),
-				declaredCommandError(fault.KindUnavailable, "aws_cli_unavailable", false, "auth login", "Install the reviewed AWS CLI on the trusted host and retry."),
-				declaredCommandError(fault.KindInvalidInput, "auth_login_method_not_applicable", false, "help auth login", "Remove --method for non-AWS providers."),
-				declaredCommandError(fault.KindUnsupported, "aws_console_login_unsupported", false, "auth login", "Install AWS CLI 2.32 or newer on the trusted host, then retry console login."),
-				declaredCommandError(fault.KindInvalidInput, "aws_console_config_invalid", false, "help auth login", "Provide a valid commercial AWS region for console login."),
-				declaredCommandError(fault.KindRejected, "aws_console_login_cancelled", false, "auth login", "Retry the trusted-host AWS console login when ready."),
-				declaredCommandError(fault.KindRejected, "aws_console_login_timeout", false, "auth login", "Start a new AWS console login and complete it within the bounded window."),
-				declaredCommandError(fault.KindUnavailable, "aws_console_login_failed", false, "auth login", "Retry the trusted-host AWS console login after inspecting the failure."),
-				declaredCommandError(fault.KindRejected, "aws_sso_login_cancelled", false, "auth login", "Retry the trusted-host AWS IAM Identity Center login when ready."),
-				declaredCommandError(fault.KindInvalidInput, "aws_sso_config_invalid", false, "help auth login", "Provide valid AWS IAM Identity Center login fields."),
-				declaredCommandError(fault.KindRejected, "aws_sso_login_timeout", false, "auth login", "Start a new AWS IAM Identity Center device login and complete it within the bounded window."),
-				declaredCommandError(fault.KindUnavailable, "aws_sso_login_failed", false, "auth login", "Retry the trusted-host AWS IAM Identity Center login after inspecting the failure."),
-			),
-			Mutation: authMutationContract(),
+			CapabilityID:  authCapabilityID,
+			Outcome:       "Acquire one supported provider credential on the trusted host so declared Workspace request bindings can use only project-bound Broker handles",
+			Inputs:        inputs,
+			Output:        authResultOutput(),
+			Prerequisites: prerequisites,
+			FixedTarget:   fixedAuthCatalogTarget(),
+			Errors:        authMutationErrors("auth login", loginErrors...),
+			Mutation:      authMutationContract(),
 		},
 		handler: runAuthLogin,
 	}

@@ -277,8 +277,12 @@ provider binding matches.
   Browser
   targets, callback behavior, output framing, cleanup, versions where the
   client contract is pinned, and cancellation are closed per provider.
-  GitHub, AWS, Datadog, OpenAI/Codex, Anthropic/Claude, and Chatwork are the
-  complete first-public-V1 built-in set. No manifest-selected helper, arbitrary
+  The standard first-public-V1 built-in set is GitHub, Datadog,
+  OpenAI/Codex, Anthropic/Claude, and Chatwork. The experimental repository
+  profile additionally compiles the reviewed AWS plan; a release or standard
+  build cannot activate it through configuration, environment, or runtime
+  input. Capability maturity is one compile-time profile rather than a set of
+  per-feature escape hatches. No manifest-selected helper, arbitrary
   OAuth client, executable adapter, provider SDK inference, or provider
   business-operation command is supported.
 - The macOS root-key provider stores one installation key in Keychain. Linux
@@ -297,9 +301,10 @@ provider binding matches.
   immutable baseline or learned rules. The default agent-ready preset includes
   a finite exact core baseline coupled to the pinned Claude and Codex clients;
   credentials never widen it and all unmatched effects remain reviewable.
-- Built-in broker plans are a closed typed union of static secrets, reviewed
-  renewable sessions, fixed supplemental-header application, and AWS request-
-  local signing. Owner manifests remain strict static-primary-secret,
+- Built-in broker implementations are a closed typed union of static secrets,
+  reviewed renewable sessions, fixed supplemental-header application, and the
+  experimental AWS request-local signer. The active standard projection is a
+  strict subset of that implementation union. Owner manifests remain strict static-primary-secret,
   non-secret, non-executable local data and cannot select helpers, dynamic
   records, refresh, signing, policy, arbitrary routes, or provider business
   operations.

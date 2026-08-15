@@ -17,3 +17,11 @@ func TestOfficialImageResolverReturnsLinkInjectedAuthBrokerAuthority(t *testing.
 		t.Fatalf("Auth Broker selection = %+v", selection)
 	}
 }
+
+func TestOfficialImageResolverReturnsLocalBaseAuthority(t *testing.T) {
+	t.Parallel()
+	resolver := officialImageResolver{}
+	if got := resolver.DefaultRuntimeImage(); got != localBaseRuntimeImage || got != "tobari-runtime:base" || resolver.ShouldPullRuntimeImage(got) || !resolver.ShouldBuildRuntimeImage(got) {
+		t.Fatalf("runtime selection = %q pull=%t build=%t", got, resolver.ShouldPullRuntimeImage(got), resolver.ShouldBuildRuntimeImage(got))
+	}
+}

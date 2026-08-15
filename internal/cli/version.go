@@ -20,6 +20,7 @@ type versionJSONProjection struct {
 	Commit                  string `json:"commit"`
 	ResolverChannel         string `json:"resolver_channel"`
 	DevelopmentSource       bool   `json:"development_source"`
+	CapabilityProfile       string `json:"capability_profile"`
 	GatewayRequiredAPI      int    `json:"gateway_required_api"`
 	GatewaySelectedAPI      int    `json:"gateway_selected_api"`
 	AuthBrokerRequiredAPI   int    `json:"auth_broker_required_api"`
@@ -63,6 +64,7 @@ func renderVersion(identity buildidentity.Identity, format successFormat, color 
 			SchemaVersion: 1,
 			BuildIdentity: versionJSONProjection{Version: identity.Version, Commit: identity.Commit,
 				ResolverChannel: string(identity.ResolverChannel), DevelopmentSource: identity.DevelopmentSource,
+				CapabilityProfile:  string(identity.CapabilityProfile),
 				GatewayRequiredAPI: identity.Gateway.RequiredAPI, GatewaySelectedAPI: identity.Gateway.SelectedAPI,
 				AuthBrokerRequiredAPI: identity.AuthBroker.RequiredAPI, AuthBrokerSelectedAPI: identity.AuthBroker.SelectedAPI,
 				Compatible: identity.Compatible(), DevelopmentBuildCommand: buildCommand, DevelopmentBinary: binary,
@@ -85,6 +87,7 @@ func renderVersion(identity buildidentity.Identity, format successFormat, color 
 	output.row("Version", identity.Version, styleText)
 	output.row("Commit", identity.Commit, styleText)
 	output.row("Resolver", string(identity.ResolverChannel), styleText)
+	output.row("Capabilities", string(identity.CapabilityProfile), styleText)
 	output.row("Gateway API", fmt.Sprintf("required %d, selected %d", identity.Gateway.RequiredAPI, identity.Gateway.SelectedAPI), styleText)
 	output.row("Auth Broker API", fmt.Sprintf("required %d, selected %d", identity.AuthBroker.RequiredAPI, identity.AuthBroker.SelectedAPI), styleText)
 	output.row("Compatibility", state, token)

@@ -34,7 +34,7 @@ func TestMaterializeAndVersion(t *testing.T) {
 
 func TestComponentVersionsUseFullContentDigest(t *testing.T) {
 	t.Parallel()
-	for _, component := range []string{"gateway", "authbroker"} {
+	for _, component := range []string{"tobari", "gateway", "authbroker"} {
 		version, err := ComponentVersion(component)
 		if err != nil {
 			t.Fatal(err)

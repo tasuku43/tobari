@@ -6,6 +6,8 @@ import "context"
 
 import "github.com/tasuku43/tobari/internal/domain/buildidentity"
 
+import "github.com/tasuku43/tobari/internal/domain/capabilityprofile"
+
 import "github.com/tasuku43/tobari/internal/infra/runtimeassets"
 
 const (
@@ -18,6 +20,7 @@ func (localDevImageResolver) BuildIdentity(version, commit string) (buildidentit
 	return buildidentity.Identity{
 		Version: version, Commit: buildidentity.NormalizeCommit(commit),
 		ResolverChannel: buildidentity.ResolverDevelopment, DevelopmentSource: true,
+		CapabilityProfile: capabilityprofile.Compiled(),
 		Gateway: buildidentity.Component{
 			RequiredAPI: buildidentity.RequiredGatewayAPI,
 			SelectedAPI: buildidentity.RequiredGatewayAPI,
@@ -38,6 +41,10 @@ func (localDevImageResolver) DefaultRuntimeImage() string {
 }
 
 func (localDevImageResolver) ShouldPullRuntimeImage(string) bool {
+	return false
+}
+
+func (localDevImageResolver) ShouldBuildRuntimeImage(string) bool {
 	return false
 }
 

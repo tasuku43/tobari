@@ -2,7 +2,7 @@ version: '3'
 
 tasks:
   build:
-    desc: Build source-coupled local images and the CLI binary.
+    desc: Build source-coupled local images and the standard-profile CLI binary.
     cmds:
       - ./scripts/build-dev-images.sh
       - mkdir -p bin
@@ -12,12 +12,12 @@ tasks:
       - 'printf "Built %s\nIf this repository bin directory is not on PATH, run: install -m 0755 bin/tobari ~/.local/bin/tobari\n" bin/tobari'
 
   build:dev:
-    desc: Build the compatibility-named development CLI and local images.
+    desc: Build the experimental-profile development CLI and local images.
     cmds:
       - ./scripts/build-dev-images.sh
       - mkdir -p bin
-      - go build -tags=tobari_dev -buildvcs=false -trimpath -o bin/tobari-dev -ldflags "-X main.commit=$(git rev-parse --verify HEAD)" ./cmd/tobari
-      - 'printf "Built %s using content-addressed local component images and tobari-runtime:dev\nRun it directly, or install it with: install -m 0755 bin/tobari-dev ~/.local/bin/tobari-dev\n" bin/tobari-dev'
+      - go build -tags='tobari_dev tobari_experimental' -buildvcs=false -trimpath -o bin/tobari-dev -ldflags "-X main.commit=$(git rev-parse --verify HEAD)" ./cmd/tobari
+      - 'printf "Built %s using the experimental capability profile, content-addressed local component images, and tobari-runtime:dev\nRun it directly, or install it with: install -m 0755 bin/tobari-dev ~/.local/bin/tobari-dev\n" bin/tobari-dev'
 
   test:
     desc: Run the Go test suite.
@@ -28,6 +28,11 @@ tasks:
     desc: Run the Go test suite with the race detector.
     cmds:
       - go test -race ./...
+
+  test:experimental:
+    desc: Run the Go test suite with experimental capabilities compiled in.
+    cmds:
+      - go test -tags=tobari_experimental ./internal/app/authcmd ./internal/cli ./internal/domain/authbroker ./internal/domain/buildidentity ./internal/domain/capabilityprofile ./internal/infra/authproviders ./internal/infra/dockerruntime
 
   contracts:check:
     desc: Validate the command catalog, capability ledger, and external schema fixtures.

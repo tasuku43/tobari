@@ -7,9 +7,11 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
+	"github.com/tasuku43/tobari/internal/domain/authbroker"
 	"github.com/tasuku43/tobari/internal/domain/doctor"
 	"github.com/tasuku43/tobari/internal/domain/tobari"
 )
@@ -213,7 +215,8 @@ func TestAuthDoctorVerifiesMatchingProjectBindingWithExactHostOwnedDimensions(t 
 
 	checks := runAuthDiagnostics(fixture.runtime)
 	providerCheck := requireAuthDiagnostic(t, checks, "auth_provider_manifests", doctor.CheckStatusPass)
-	if providerCheck.Detail != "6 credential-provider manifests normalize to projection schema V1" {
+	wantProviderDetail := strconv.Itoa(len(authbroker.ActiveBuiltinProviderIDs())) + " credential-provider manifests normalize to projection schema V1"
+	if providerCheck.Detail != wantProviderDetail {
 		t.Fatalf("provider manifest diagnostic = %q", providerCheck.Detail)
 	}
 	requireAuthDiagnostic(t, checks, "auth_broker", doctor.CheckStatusPass)

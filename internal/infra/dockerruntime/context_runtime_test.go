@@ -35,7 +35,7 @@ func TestInitRuntimeCreatesActiveContextRecipeWithoutChangingImage(t *testing.T)
 	if err != nil {
 		t.Fatalf("InitRuntime() error = %v", err)
 	}
-	if result.Task != tobari.TaskRuntimeInit || result.Image != tobari.OfficialRuntimeBase ||
+	if result.Task != tobari.TaskRuntimeInit || result.Image != localBaseRuntimeImage ||
 		result.Runtime.Status != tobari.ContextRuntimeStatusPendingBuild {
 		t.Fatalf("InitRuntime() result = %+v", result)
 	}
@@ -43,7 +43,7 @@ func TestInitRuntimeCreatesActiveContextRecipeWithoutChangingImage(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(data), "FROM "+tobari.OfficialRuntimeBase) {
+	if !strings.Contains(string(data), "FROM "+localBaseRuntimeImage) {
 		t.Fatalf("runtime template = %q", data)
 	}
 	if _, err := runtime.InitRuntime(context.Background()); !errors.Is(err, tobari.ErrRuntimeRecipeExists) {
@@ -86,8 +86,8 @@ func TestBuildRuntimeValidatesAndPromotesManagedImage(t *testing.T) {
 		!containsArgs(runner.runs[0].args, filepath.Join(root, "config", "contexts", "default", "runtime")) {
 		t.Fatalf("Docker build argv = %+v", runner.runs[0].args)
 	}
-	if !containsArgs(runner.runs[0].args, "--pull") {
-		t.Fatalf("official runtime build must refresh the moving base: %+v", runner.runs[0].args)
+	if containsArgs(runner.runs[0].args, "--pull") {
+		t.Fatalf("local built-in base must not be pulled: %+v", runner.runs[0].args)
 	}
 
 	dockerfile := filepath.Join(root, "config", "contexts", "default", "runtime", "Dockerfile")
@@ -183,7 +183,7 @@ func TestBuildRuntimeDoesNotPullExplicitCustomBase(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	data = []byte(strings.Replace(string(data), "FROM "+tobari.OfficialRuntimeBase, "FROM example.com/tobari/custom-base:dev", 1))
+	data = []byte(strings.Replace(string(data), "FROM "+localBaseRuntimeImage, "FROM example.com/tobari/custom-base:dev", 1))
 	if err := os.WriteFile(dockerfile, data, 0o600); err != nil {
 		t.Fatal(err)
 	}

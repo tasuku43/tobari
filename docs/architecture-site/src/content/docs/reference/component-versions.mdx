@@ -50,7 +50,7 @@ Product-version inputs are read from the committed source snapshot, so an
 unfinished uncommitted experiment cannot silently become published version
 evidence.
 
-## Tags and digests are not interchangeable
+## Local build selectors and digests are not interchangeable
 
 The default runtime selector is:
 
@@ -58,9 +58,10 @@ The default runtime selector is:
   <code>{componentVersions.runtime.default_selector}</code>
 </pre>
 
-It is a moving development tag. The string is useful as a default source
-selector, but it is not immutable evidence. When Tobari builds a Context-owned
-runtime, it inspects and stores the resulting local image digest separately.
+For the current release contract this is a local image name, not a registry
+channel. Release packaging derives the exact local tag from the CLI's embedded
+base assets. If that image is absent, Tobari builds it locally and separately
+inspects the resulting image digest.
 
 Shared infrastructure settings for OPA, mitmproxy/Gateway, Auth Broker, and
 base images use the fields declared in `versions.env`. Where a digest is
@@ -97,8 +98,8 @@ links as evidence for local behavior.
   runtime health, policy correctness, or the absence of vulnerabilities.
 - A declared version does not prove that a local Docker cache contains that
   image. Startup preflight resolves and inspects required images.
-- The runtime selector can move between builds. Reproducible evidence must
-  retain the resolved digest.
+- A local recipe tag identifies pinned inputs, not the resulting OCI bytes.
+  Reproducible evidence must retain the inspected digest.
 - Schema versions are scoped to their surface. Do not compare them as product
   release numbers.
 
@@ -167,7 +168,7 @@ meanings separate and ties every value to this documentation commit.
 
 ## Check your understanding
 
-You should now be able to explain why displaying `runtime:latest` in an
+You should now be able to explain why displaying a local base tag in an
 “immutable identity” column would be incorrect.
 
 <details>

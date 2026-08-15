@@ -66,9 +66,11 @@ bin/tobari version
 
 The development binary selects local source images and is not a release
 artifact. Its canonical base contains pinned Claude Code 2.1.220 and Codex
-0.147.0. Public base publication remains disabled while bundled-agent
-redistribution/license review is pending. Routine published binaries use only
-reviewed immutable component and runtime identities.
+0.147.0. `task build` compiles the standard capability profile;
+`task build:dev` adds experimental capabilities such as AWS authentication.
+The agent-ready base is built locally from Tobari's pinned embedded recipe and
+is never published by Tobari. Published binaries use immutable Gateway and
+Auth Broker identities from their release lock.
 
 ## Quick Start
 
@@ -222,19 +224,18 @@ compatibility route disappears if Tobari later declares the exact binding.
 
 ### Brokered reviewed providers
 
-The reviewed built-ins are GitHub/`gh`, AWS/`aws`, Datadog/`pup` from the
+The standard reviewed built-ins are GitHub/`gh`, Datadog/`pup` from the
 selected Context runtime,
 OpenAI/Codex's contract-checked host login, Anthropic/Claude Code 2.1.220 from
 the selected Context runtime, and
-static Chatwork/`cwk`.
+static Chatwork/`cwk`. The experimental `task build:dev` profile additionally
+enables AWS/`aws`.
 Omit `--provider` on an interactive trusted-host terminal to choose an
 installed reviewed login driver, or supply it for deterministic automation:
 
 ```sh
 tobari auth login --context default
 tobari auth login --provider github --context default
-tobari auth login --provider aws --method identity-center --context default
-tobari auth login --provider aws --method console --context default
 tobari auth login --provider datadog --context default
 tobari auth login --provider openai --context default
 tobari auth login --provider anthropic --context default
@@ -242,6 +243,9 @@ tobari auth status --context default
 # Re-enter the matching Workspace to receive/rotate its project-bound handle.
 tobari auth logout github --context default
 ```
+
+Experimental AWS login uses `bin/tobari-dev auth login --provider aws` with
+`--method identity-center` or `--method console`.
 
 Each acquisition driver has fixed argv, digest checks, an isolated private
 state boundary, bounded visible output and state capture, cancellation, and
@@ -374,7 +378,7 @@ builder proof.
 Preparation stops for explicit approval before any external mutation. Do not
 push a branch or tag, publish OCI images, create a GitHub Release, or update a
 Homebrew tap as part of local preparation. After approval, publish and inspect
-the paired component images first. Their generated immutable lock is injected
+the runtime, Gateway, and Auth Broker images first. Their generated immutable lock is injected
 into every CLI archive without a digest-pin commit. The manual release workflow
 then creates the immutable GitHub Release and, for a stable version, opens a
 Formula-only pull request in `tasuku43/homebrew-tap` from the exact audited

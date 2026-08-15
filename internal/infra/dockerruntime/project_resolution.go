@@ -12,6 +12,7 @@ import (
 
 	"github.com/tasuku43/tobari/internal/domain/fault"
 	"github.com/tasuku43/tobari/internal/domain/tobari"
+	"github.com/tasuku43/tobari/internal/infra/runtimeassets"
 )
 
 // ResolveProjectRoot resolves a project root and rejects host-management paths
@@ -173,6 +174,11 @@ func (r *Runtime) prepareContextImages(ctx context.Context) error {
 				return err
 			}
 		}
+		if r.imageResolver().ShouldBuildRuntimeImage(image) {
+			if err := r.ensureLocalBaseRuntimeImage(ctx, image); err != nil {
+				return err
+			}
+		}
 		if err := r.validateCompatibleImage(ctx, image); err != nil {
 			return fmt.Errorf("Context %q runtime image: %w", manifest.Name, err)
 		}
@@ -193,7 +199,44 @@ func (r *Runtime) prepareActiveContextImage(ctx context.Context) error {
 			return err
 		}
 	}
+	if r.imageResolver().ShouldBuildRuntimeImage(image) {
+		if err := r.ensureLocalBaseRuntimeImage(ctx, image); err != nil {
+			return err
+		}
+	}
 	return r.validateCompatibleImage(ctx, image)
+}
+
+func (r *Runtime) ensureLocalBaseRuntimeImage(ctx context.Context, image string) error {
+	if _, err := r.runner.Output(ctx, []string{"image", "inspect", "--format", "{{.Id}}", image}, os.Environ()); err == nil {
+		return nil
+	}
+	version, err := runtimeassets.Version()
+	if err != nil {
+		return err
+	}
+	runtimeDirectory := filepath.Join(r.stateDirectory, "runtime", version)
+	if err := runtimeassets.Materialize(runtimeDirectory); err != nil {
+		return err
+	}
+	uid, gid := currentIDs()
+	args := []string{
+		"buildx", "build", "--progress=plain", "--load",
+		"--tag", image,
+		"--file", filepath.Join(runtimeDirectory, "tobari", "Dockerfile"),
+		"--build-arg", fmt.Sprintf("TOBARI_UID=%d", uid),
+		"--build-arg", fmt.Sprintf("TOBARI_GID=%d", gid),
+		filepath.Join(runtimeDirectory, "tobari"),
+	}
+	var output bytes.Buffer
+	if err := r.runner.Run(ctx, args, os.Environ(), nil, &output, &output); err != nil {
+		return fault.Wrap(
+			fault.KindUnavailable, "runtime_image_build_failed",
+			"the pinned agent-ready base could not be built locally", false, err,
+			fault.NextAction{Command: "doctor", Reason: "Inspect Docker build support and network access for pinned agent downloads."},
+		)
+	}
+	return nil
 }
 
 func (r *Runtime) pullOfficialRuntimeImage(ctx context.Context, image string) error {

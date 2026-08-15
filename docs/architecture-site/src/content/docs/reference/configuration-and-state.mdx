@@ -104,11 +104,10 @@ not decide whether a logical Workspace exists. Root index and instance state do.
 | Credential replacement                   | Writes a new credential revision and revokes old handles.                                                       | Workspace identity and home. Running process environments do not change; re-enter.                                                                    |
 | `runtime build`                          | Builds, validates, records an immutable local image digest, then atomically selects it for the current Context. | Existing Workspace identity, home, and current container until the next entry reconciles it. A failed build leaves the prior selection authoritative. |
 
-The default official runtime selector
-`ghcr.io/tasuku43/tobari/runtime:latest` is a **moving tag**. It is refreshed
-only by the documented explicit paths. It is not an immutable digest. A
-successful managed runtime build separately records the inspected local image
-digest in the Context manifest.
+The default official runtime is a local image built from the CLI's pinned
+embedded recipe when absent. A release-derived local tag identifies the recipe
+revision; it is not an immutable digest. A successful managed runtime build
+separately records the inspected local image digest in the Context manifest.
 
 ## Failure and recovery
 

@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/tasuku43/tobari/internal/domain/buildidentity"
+	"github.com/tasuku43/tobari/internal/domain/capabilityprofile"
 	"github.com/tasuku43/tobari/internal/domain/fault"
 	"github.com/tasuku43/tobari/internal/domain/tobari"
 )
@@ -19,9 +20,10 @@ func TestClusterUpRejectsPublishedResolverAPIMismatchBeforeRuntimeCalls(t *testi
 	}
 	identity := buildidentity.Identity{
 		Version: "dev", Commit: buildidentity.UnknownCommit,
-		ResolverChannel: buildidentity.ResolverPublished,
-		Gateway:         buildidentity.Component{RequiredAPI: 1, SelectedAPI: 2},
-		AuthBroker:      buildidentity.Component{RequiredAPI: 1, SelectedAPI: 2},
+		ResolverChannel:   buildidentity.ResolverPublished,
+		CapabilityProfile: capabilityprofile.ProfileStandard,
+		Gateway:           buildidentity.Component{RequiredAPI: 1, SelectedAPI: 2},
+		AuthBroker:        buildidentity.Component{RequiredAPI: 1, SelectedAPI: 2},
 	}
 	runtime.images = testImageResolver{identity: &identity}
 	var progress []tobari.ClusterUpProgress
@@ -48,8 +50,9 @@ func TestComponentAPIMismatchRecoveryIsChannelSpecific(t *testing.T) {
 	development := buildidentity.Identity{
 		Version: "dev", Commit: buildidentity.UnknownCommit,
 		ResolverChannel: buildidentity.ResolverDevelopment, DevelopmentSource: true,
-		Gateway:    buildidentity.Component{RequiredAPI: 1, SelectedAPI: 1},
-		AuthBroker: buildidentity.Component{RequiredAPI: 1, SelectedAPI: 1},
+		CapabilityProfile: capabilityprofile.ProfileStandard,
+		Gateway:           buildidentity.Component{RequiredAPI: 1, SelectedAPI: 1},
+		AuthBroker:        buildidentity.Component{RequiredAPI: 1, SelectedAPI: 1},
 	}
 	runtime := &Runtime{images: testImageResolver{identity: &development}}
 	public, ok := fault.PublicCopy(runtime.incompatibleComponentAPI("Gateway", 2, 1, "gateway_image_incompatible"))

@@ -109,10 +109,11 @@ support promises before maintainers invite external users.
   output.
 - For the agent-ready base runtime, retain GitHub CLI and AWS CLI checks and
   bind Claude Code 2.1.220 and Codex 0.147.0 to their per-platform artifact
-  locks. Until both agent redistribution/license reviews are approved, the
-  base declares `NOASSERTION` and its workflow must have no registry-write
-  permission, login, or push. Custom Context runtime contents are outside the
-  public base inventory and do not create redistribution evidence.
+  locks. The base workflow remains validation-only, and the protected Release
+  workflow has no base publication path. The base declares `NOASSERTION` and
+  is built by the user from the pinned embedded recipe. Custom Context runtime
+  contents are outside the public base inventory and do not create
+  redistribution evidence.
 - Keep the pinned `auth-provider.v1` schema fixture repository-authored,
   synthetic, MIT-licensed, and digest-matched. It must contain no real account,
   hostname, file path, or credential.
@@ -134,12 +135,12 @@ Before each public release, verify:
 - release notes disclose contract and security impact;
 - no artifact, Formula, URL, log, or metadata contains a forbidden identifier.
 
-For an official OCI image publication, also verify the canonical image source,
+For an official service OCI image publication, also verify the canonical image source,
 parent/base digest lock, supported architectures, runtime labels, license
-metadata, downloaded-artifact notices, and the exact moving-versus-immutable
-tag behavior. The main-channel base workflow is a continuous development
-publication; it must not be described as a stable SemVer release or grant the
-image any authority beyond its declared root filesystem.
+metadata, downloaded-artifact notices, and immutable tag behavior. Gateway and
+Auth Broker publication belongs only to the protected Release workflow;
+validation workflows never log in or push, and the runtime base is not
+published.
 
 The Auth Broker is a credential-bearing runtime, so its public image requires
 additional negative evidence: no credential, live account fixture, GitHub CLI
@@ -149,18 +150,16 @@ workflow artifacts, logs, or notices. Deterministic synthetic canaries are
 permitted only in tests. The CLI archive contains no companion mode, driver
 state, provider home, or provider executable. Its canonical source/snapshot
 drift check, provider-CLI absence, static-record-only checks, fixed non-root labels/
-entrypoint, and Linux amd64/arm64 build must pass. Pull-request
-validation is cache-only and has no package-write permission; only the
-main-push job may publish moving `latest`/`main` and immutable
-`sha-<commit>` development identities. Routine CLI startup must use a reviewed
-manifest digest rather than those moving tags.
+entrypoint, and Linux amd64/arm64 build must pass. Pull-request and standalone
+validation are cache-only and have no package-write permission. Routine CLI
+startup uses only the immutable digest injected from the reviewed lock.
 All Tobari-owned component APIs are V1. Development source records no generated
-Gateway or Auth Broker digest authority. Publication creates both indexes from
-the reviewed revision and emits one paired component lock before CLI packaging.
-Publication requires reviewed
-immutable Linux amd64/arm64 manifest digests, API/role labels, non-root
-`1000:1000` users, entrypoints, source revisions, license metadata, and
-anonymous retrieval for both components.
+Gateway or Auth Broker digest authority. Publication creates both service
+indexes from the reviewed revision and emits one two-service lock before CLI
+packaging. Publication requires reviewed immutable Linux
+amd64/arm64 manifest digests, service API/role labels, non-root `1000:1000`
+users, entrypoints, source revisions, license metadata, and anonymous retrieval
+for both services.
 
 Source-build identity may contain only the deterministic public fields above.
 Artifact and repository scans reject local absolute paths, usernames, branch
@@ -168,13 +167,13 @@ names, dirty content, credentials, or invented digest authority; the literal
 `unknown` commit remains visibly incompatible rather than becoming a release
 identity.
 
-Contributors use `task build` for content-addressed local component images and
-`bin/tobari`, but must separately build the applicable local agent runtime.
-Those local images are not release authority. New immutable V1
-multi-architecture digests require the complete image, license,
+Contributors use `task build` for the local agent-ready runtime,
+content-addressed local service images, and `bin/tobari`. Those local images
+are not release authority. New immutable V1
+multi-architecture service digests require the complete image, license,
 confidentiality, synthetic, and manual live-login review. Release packaging
-fails unless the paired lock APIs equal the canonical source Dockerfile labels,
-both image references are immutable digests, and all revisions agree.
+fails unless the lock APIs equal the canonical source Dockerfile labels, both
+service image references are immutable digests, and all revisions agree.
 
 See [Release](06_release.md) for the artifact workflow.
 
@@ -223,9 +222,9 @@ Minimum first-public-push checklist:
       key, or vault.
 - [ ] The agent-ready base's tool archives, checksums, licenses, notices, and
       both architectures were reviewed; unlisted custom-Context tools are absent.
-- [ ] The combined Codex and Claude base remains local/cache-only until both
-      redistribution terms and image-layer license inventories are approved;
-      a local build or passing version smoke test is not publication evidence.
+- [ ] The combined Codex and Claude base remains permanently local/cache-only;
+      its registry publication path is absent and a local build or passing
+      version smoke test is not redistribution evidence.
 - [ ] Native Anthropic account-login distribution has explicit legal/product
       approval and any provider approval required by the applicable terms.
 - [ ] Full history and artifacts passed secret and identifier review.

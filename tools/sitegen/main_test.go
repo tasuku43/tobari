@@ -269,8 +269,13 @@ func TestGenerateVersionsDerivesCommittedAuthorities(t *testing.T) {
 	if document.Runtime.DefaultSelector != wantSelector {
 		t.Errorf("default runtime selector = %q, want HEAD value %q", document.Runtime.DefaultSelector, wantSelector)
 	}
-	if !document.Runtime.MovingSelector || strings.Contains(document.Runtime.DefaultSelector, "@sha256:") {
-		t.Errorf("default runtime selector = %+v, want a moving non-digest selector", document.Runtime)
+	wantLocalBuild := wantSelector == "tobari-runtime:base"
+	if document.Runtime.LocalBuild != wantLocalBuild {
+		t.Errorf("default runtime selector = %+v, want local_build=%t", document.Runtime, wantLocalBuild)
+	}
+	wantMoving := !wantLocalBuild && !strings.Contains(wantSelector, "@sha256:")
+	if document.Runtime.MovingSelector != wantMoving {
+		t.Errorf("default runtime selector = %+v, want moving_selector=%t", document.Runtime, wantMoving)
 	}
 
 	tobariSource := committedForTest(t, root, "internal/domain/tobari/tobari.go")

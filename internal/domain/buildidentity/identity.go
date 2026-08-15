@@ -5,6 +5,8 @@ package buildidentity
 import (
 	"fmt"
 	"regexp"
+
+	"github.com/tasuku43/tobari/internal/domain/capabilityprofile"
 )
 
 const (
@@ -42,6 +44,7 @@ type Identity struct {
 	Commit            string
 	ResolverChannel   ResolverChannel
 	DevelopmentSource bool
+	CapabilityProfile capabilityprofile.Profile
 	Gateway           Component
 	AuthBroker        Component
 }
@@ -69,6 +72,9 @@ func (i Identity) Validate() error {
 	}
 	if i.DevelopmentSource != (i.ResolverChannel == ResolverDevelopment) {
 		return fmt.Errorf("development source metadata does not match resolver channel")
+	}
+	if err := i.CapabilityProfile.Validate(); err != nil {
+		return err
 	}
 	if i.Gateway.RequiredAPI <= 0 || i.Gateway.SelectedAPI <= 0 ||
 		i.AuthBroker.RequiredAPI <= 0 || i.AuthBroker.SelectedAPI <= 0 {

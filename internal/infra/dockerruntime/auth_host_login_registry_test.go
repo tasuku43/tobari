@@ -73,7 +73,7 @@ func TestReviewedHostLoginDriverRegistryRejectsDrift(t *testing.T) {
 }
 
 func validateReviewedHostLoginDrivers(drivers []reviewedHostLoginDriver) error {
-	expectedProviders := authbroker.ReviewedLoginProviderIDs()
+	expectedProviders := authbroker.KnownReviewedLoginProviderIDs()
 	if len(drivers) != len(expectedProviders) {
 		return fmt.Errorf("reviewed host-login driver count = %d, want %d", len(drivers), len(expectedProviders))
 	}
@@ -84,7 +84,7 @@ func validateReviewedHostLoginDrivers(drivers []reviewedHostLoginDriver) error {
 		if driver.providerID != providerID {
 			return fmt.Errorf("driver %d provider = %q, want %q", index, driver.providerID, providerID)
 		}
-		if _, found := authbroker.ReviewedLoginProviderHelper(providerID); !found {
+		if _, found := authbroker.KnownReviewedLoginProviderHelper(providerID); !found {
 			return fmt.Errorf("driver %q has no reviewed domain helper", providerID)
 		}
 		wantKind, wantExecutable, wantPersistence, found := reviewedHostLoginDriverContract(providerID)

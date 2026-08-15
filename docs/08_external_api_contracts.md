@@ -1,10 +1,11 @@
 # External API Contracts
 
 Tobari exposes no provider-specific business-operation API. It authorizes the
-ordinary HTTP/HTTPS effect that leaves a Workspace through Gateway. The closed
-reviewed brokered plans cover GitHub, AWS, Datadog, OpenAI/Codex,
-Anthropic/Claude, and Chatwork; owner manifests may add only a static primary
-secret when an exact HTTPS/header transformation expresses the outcome.
+ordinary HTTP/HTTPS effect that leaves a Workspace through Gateway. The
+standard compiled plans cover GitHub, Datadog, OpenAI/Codex,
+Anthropic/Claude, and Chatwork; the experimental profile adds AWS. Owner
+manifests may add only a static primary secret when an exact HTTPS/header
+transformation expresses the outcome.
 
 ## Generic HTTP contract
 
@@ -82,8 +83,9 @@ queries, headers, and bodies are absent from OPA audit and denial output.
 
 Managed adapters/profiles remain absent. Dynamic records, refresh, task
 barriers, signing, supplemental headers, the credential companion, and exact-
-version drivers exist only inside the closed reviewed built-in plans. Owner
-manifests cannot select or extend them.
+version drivers exist only inside the compiled reviewed built-in
+implementation union. The active standard projection cannot select AWS, and
+owner manifests cannot select or extend any dynamic plan.
 
 ## GitHub acquisition
 
@@ -99,7 +101,7 @@ Exact GitHub CLI product-version equality is not an authority boundary.
 
 Host acquisition ignores untrusted PATH shadows without executing them and
 selects the first finite PATH candidate whose canonical executable passes the
-existing conventional-root and mode contract. AWS offers only
+existing conventional-root and mode contract. Experimental AWS offers only
 `identity-center` and `console` host acquisition. Its opaque
 state is re-entered by a private authenticated companion after allow, and
 Broker emits one standard header-based SigV4 result for the exact bounded

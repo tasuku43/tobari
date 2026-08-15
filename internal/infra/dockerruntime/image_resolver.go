@@ -17,6 +17,7 @@ type imageResolver interface {
 	BuildIdentity(string, string) (buildidentity.Identity, error)
 	DefaultRuntimeImage() string
 	ShouldPullRuntimeImage(string) bool
+	ShouldBuildRuntimeImage(string) bool
 	GatewayImage(context.Context, *Runtime) (sharedImageSelection, error)
 	AuthBrokerImage(context.Context, *Runtime) (sharedImageSelection, error)
 }

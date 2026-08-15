@@ -108,6 +108,7 @@ type runtimeVersionContract struct {
 	LifetimeCommand string   `json:"lifetime_command"`
 	MetadataVersion string   `json:"metadata_version"`
 	Architectures   []string `json:"architectures"`
+	LocalBuild      bool     `json:"local_build"`
 	MovingSelector  bool     `json:"moving_selector"`
 }
 
@@ -683,6 +684,7 @@ func generateVersions(root, sourceRef string, catalog catalogDocument) (componen
 			authBrokerVersion = "unpublished V1 snapshot"
 		}
 	}
+	localBuild := defaultSelector == "tobari-runtime:base"
 	return componentVersionDocument{
 		GeneratedFrom: "committed repository authorities and executable CLI help at " + sourceRef,
 		Components: []componentVersion{
@@ -713,7 +715,8 @@ func generateVersions(root, sourceRef string, catalog catalogDocument) (componen
 			LifetimeCommand: lifetime,
 			MetadataVersion: metadata.Version,
 			Architectures:   metadata.Architectures,
-			MovingSelector:  !strings.Contains(defaultSelector, "@sha256:"),
+			LocalBuild:      localBuild,
+			MovingSelector:  !localBuild && !strings.Contains(defaultSelector, "@sha256:"),
 		},
 	}, nil
 }

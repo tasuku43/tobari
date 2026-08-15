@@ -1,5 +1,5 @@
 // Package componentlock defines the generated binding between one CLI release
-// source revision and its two Tobari-owned OCI component indexes.
+// source revision and its two published Tobari service indexes.
 package componentlock
 
 import (
@@ -79,18 +79,25 @@ func (l Lock) Validate() error {
 		{name: "Gateway", component: l.Gateway, repository: "ghcr.io/tasuku43/tobari/gateway"},
 		{name: "Auth Broker", component: l.AuthBroker, repository: "ghcr.io/tasuku43/tobari/auth-broker"},
 	} {
-		if item.component.Image != item.repository {
-			return fmt.Errorf("%s image must be %s", item.name, item.repository)
-		}
-		if !digestPattern.MatchString(item.component.Digest) || strings.Trim(item.component.Digest[7:], "0") == "" {
-			return fmt.Errorf("%s digest must be a non-zero sha256 digest", item.name)
+		if err := validateComponent(item.name, item.component.Image, item.component.Digest, item.component.Platforms, item.repository); err != nil {
+			return err
 		}
 		if item.component.API <= 0 {
 			return fmt.Errorf("%s API must be positive", item.name)
 		}
-		if !slices.Equal(item.component.Platforms, []string{"linux/amd64", "linux/arm64"}) {
-			return fmt.Errorf("%s platforms must be exactly linux/amd64 and linux/arm64", item.name)
-		}
+	}
+	return nil
+}
+
+func validateComponent(name, image, digest string, platforms []string, repository string) error {
+	if image != repository {
+		return fmt.Errorf("%s image must be %s", name, repository)
+	}
+	if !digestPattern.MatchString(digest) || strings.Trim(digest[7:], "0") == "" {
+		return fmt.Errorf("%s digest must be a non-zero sha256 digest", name)
+	}
+	if !slices.Equal(platforms, []string{"linux/amd64", "linux/arm64"}) {
+		return fmt.Errorf("%s platforms must be exactly linux/amd64 and linux/arm64", name)
 	}
 	return nil
 }

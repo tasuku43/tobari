@@ -58,7 +58,7 @@ An image cannot use labels to request another mount, credential, network
 route, Linux capability, resource limit, or policy. Project files also cannot
 select a runtime image. The bound Context is the image authority.
 
-## Official base and selector identity
+## Official base and local identity
 
 The repository's canonical base runtime metadata is schema 1 and declares:
 
@@ -68,20 +68,22 @@ The repository's canonical base runtime metadata is schema 1 and declares:
 - the exact entrypoint and `tobari` user; and
 - supported targets `linux/amd64` and `linux/arm64`.
 
-The normal official selector is:
+The source-build default is:
 
 ```text
-ghcr.io/tasuku43/tobari/runtime:latest
+tobari-runtime:base
 ```
 
-This is a **moving development tag**, not an immutable image identity. Do not
-write security evidence that calls it a digest. Published infrastructure image
-settings and a successfully inspected local runtime build have separate
-immutable digest fields where the repository records them.
+The release build replaces that name with a deterministic tag derived from the
+embedded base assets. Neither form names a registry source. If the selected
+official base is absent, Tobari materializes the CLI's pinned Dockerfile and
+assets, builds the image locally, and performs the same compatibility
+inspection used for custom images. Tobari never pulls or publishes the
+agent-ready base through GHCR.
 
-An explicit runtime build whose first base is the exact official selector may
-refresh that moving base. A custom or local base remains local/cache-first; it
-does not receive an implicit registry pull.
+The tag identifies which pinned local build should exist; it is not an OCI
+digest. Docker's inspected local image digest remains the immutable identity of
+the bytes that were actually built.
 
 ## Context-owned customization
 
@@ -119,7 +121,7 @@ project root, and Workspace home.
 
 | Condition                                            | Result                                                                                      |
 | ---------------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| Image is not locally available                       | `image_not_found`; no project runtime mutation.                                             |
+| Official base is not locally available               | Build it once from the CLI's embedded pinned assets, then inspect it.                       |
 | Required label, user, or entrypoint differs          | `incompatible_image`; no new logical Workspace for first entry, and existing state remains. |
 | Build fails                                          | Candidate is not promoted; previous Context selection remains authoritative.                |
 | Compatibility or digest inspection fails after build | Candidate is not selected; inspect the bounded build diagnostics.                           |
@@ -219,8 +221,8 @@ supported customization path.
 
 A runtime image provides tools behind an exact compatibility interface.
 Tobari—not the image `CMD`—owns the Workspace network, mounts, resource
-contract, and lifetime. The official `runtime:latest` selector is moving; an
-inspected digest is the immutable identity.
+contract, and lifetime. The official base is built locally from pinned embedded
+assets; an inspected digest is the immutable identity of the resulting bytes.
 
 ## Check your understanding
 
@@ -244,10 +246,10 @@ it, and the next Workspace entry reconciles the work container.
 </details>
 
 <details>
-  <summary>Is `ghcr.io/tasuku43/tobari/runtime:latest` immutable?</summary>
+  <summary>Does Tobari download its agent-ready base from GHCR?</summary>
 
-No. It is a moving tag. Use a recorded inspected digest when immutable image
-identity is required.
+No. The CLI builds the missing official base locally from pinned embedded
+assets and then validates the resulting image.
 
 </details>
 

@@ -37,7 +37,9 @@ to local listeners, keeps IPv4/IPv6 forwarding disabled, and drops its forward
 chain. Neither resident process retains a network capability, and no host or
 Docker-VM-global firewall state is changed.
 
-Reviewed login drivers are the closed GitHub, AWS, pup, Codex, and Claude set.
+Standard reviewed login drivers are the closed GitHub, pup, Codex, and Claude
+set. The experimental compile-time profile additionally activates the reviewed
+AWS driver; runtime data cannot change profile membership.
 The shared host resolver for GitHub, AWS, and Codex rejects the first temporary, project-local, or
 home-local PATH shadow without executing it and inspects a finite PATH-ordered
 candidate set for the first canonical executable under an existing trusted
@@ -335,10 +337,11 @@ writes generated non-secret runtime configuration, including the owner-only
 Context/project-principal registry and all-Context policy/provider projections,
 and invokes Docker through the runtime port. Compose owns only Gateway, OPA,
 Auth Broker, shared networks, and CA volumes. Cluster startup obtains the
-verified Gateway and Auth Broker images by digest and the
-official runtime base image through the runtime image resolver. The normal
-resolver uses release-injected images only; the development resolver selects
-embedded-source-hash local tags built by `task build`. The runtime adapter
+verified Gateway and Auth Broker images by digest and ensures the agent-ready
+runtime base from the embedded pinned recipe under a source-derived local tag.
+The normal resolver uses release-injected service images only; the development
+resolver selects embedded-source-hash local service tags built by `task build`.
+The runtime adapter
 creates or reconciles each logical Tobari from its bound Context image and connects Gateway to
 its dedicated network. After it has reconciled the Workspace guard, it records
 the exact owned Workspace and Gateway endpoints in the schema-1 principal
@@ -367,7 +370,7 @@ the tests or contributor documentation, at
 checks run the broker unit suite, prove that no provider CLI is installed, and
 build the fixed non-root image. Release assembly builds Linux amd64 and arm64
 and publishes the immutable commit tag beside Gateway. Routine startup uses
-the paired component-lock digest; moving tags never select runtime authority.
+the two-service lock digests; moving tags never select service authority.
 The contributor resolver uses a source-hash local tag.
 
 Both canonical sources declare component API V1. Source records only reviewed
@@ -390,12 +393,13 @@ manifest contains a secret. Gateway caches a validated projection only while
 its complete stat identity remains unchanged and fails closed, without a
 last-known-good fallback, when a replacement is invalid.
 
-The reviewed host drivers keep GitHub, AWS, and Codex provider-native execution
+The reviewed host-driver implementation union keeps GitHub, AWS, and Codex provider-native execution
 on the trusted host. Each resolves and hashes one canonical executable from
 conventional non-project trusted installation roots, uses only its fixed argv
 and sanitized private state, and deletes temporary state on every outcome.
-The Auth Broker domain owns the complete built-in provider-ID vocabulary and
-the presentation-ordered reviewed-login subset with its exact helper binding.
+The Auth Broker domain owns the complete implementation provider-ID vocabulary,
+the immutable standard or experimental active subset, and the
+presentation-ordered reviewed-login subset with its exact helper binding.
 The application service, CLI input enum, embedded-manifest loader, and fixed
 infrastructure driver table derive from or prove parity with that closed
 vocabulary. These immutable projections do not provide runtime registration;
@@ -504,7 +508,8 @@ Custom images are supported only when they preserve runtime API label
 `io.tobari.runtime-api=1`, the `tobari` image user, and the exact built-in
 entrypoint, including the `io.tobari.runtime-lifetime-command=sleep infinity`
 capability needed for Tobari's fixed Workspace lifetime command. The intended
-construction is `FROM ghcr.io/tasuku43/tobari/runtime:latest`; a runtime-API label is a
+construction uses the resolver-selected immutable release digest (or the
+contributor-local base) as `FROM`; a runtime-API label is a
 compatibility assertion, not an image provenance or trust signature. The
 selected image's `CMD` is ignored for Workspace lifetime: Docker create receives
 the explicit `sleep infinity` command after the image. Tobari validates
@@ -527,12 +532,11 @@ paths; `/var/lib/tobari` contains only per-Tobari home state and is safe to
 replace with the persistent home bind. The retained child recipes remain
 build-only integrity fixtures for each upstream artifact.
 
-The combined base declares `NOASSERTION`. While either agent lock records
-pending redistribution/license review, `.github/workflows/runtime-base.yml`
-has read-only repository permission and builds the multi-architecture source
-with cache-only output; it has no registry permission, login, or push step.
-An approved later release may restore official publication only together with
-the required notices, image-layer inventory, and explicit review decision.
+The combined base declares `NOASSERTION` and is permanently local-build-only.
+`.github/workflows/runtime-base.yml` has read-only repository permission and
+builds the multi-architecture source with cache-only output; it has no registry
+permission, login, or push step. The released CLI materializes the same recipe
+and builds it on the user's Docker host when its source-derived tag is absent.
 Contributor development resolves `builtin` to its local combined base.
 
 The root resolver obtains the desired image from the stored Context identity's
@@ -620,7 +624,7 @@ Workspace; an attached exec makes ordinary deletion fail, and `delete --force`
 is the explicit host-side override.
 
 Explicit `cluster up` validates configuration, obtains and preflights the
-Gateway image, Auth Broker image, and every required runtime image, builds and
+Gateway and Auth Broker images, locally ensures every required runtime image, builds and
 tests the complete all-Context policy/provider projection, reconciles exactly
 one OPA, one Gateway, and one Auth Broker, unlocks the broker, and
 reconnects Gateway to every existing registered project network. It completes
@@ -752,9 +756,10 @@ argument/intent/mutation validation; infrastructure then validates the selected
 existing Context, installed provider/acquisition mode, and broker readiness
 before broker send. Provider IDs are human selectors validated against the
 installed projection; they are not opaque action references or credential
-authority. Login accepts only the installed reviewed GitHub, AWS, Datadog,
-OpenAI, or Anthropic drivers; interactive omission opens the bounded selector,
-and AWS alone accepts its method axis. Import, status, and logout remain
+authority. Standard login accepts only the installed reviewed GitHub, Datadog,
+OpenAI, or Anthropic drivers; interactive omission opens the bounded selector.
+The experimental compile-time profile additionally activates AWS and its method
+axis. Import, status, and logout remain
 available for strict owner static manifests and Chatwork.
 
 `doctor` composes bounded read-only environment, Docker, policy, provider,

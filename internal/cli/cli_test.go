@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/tasuku43/tobari/internal/domain/capabilityprofile"
 	"github.com/tasuku43/tobari/internal/domain/doctor"
 	"github.com/tasuku43/tobari/internal/domain/fault"
 	"github.com/tasuku43/tobari/internal/domain/operation"
@@ -281,6 +282,7 @@ func TestVersionOutputContract(t *testing.T) {
 		"  Version        v1.2.3\n" +
 		"  Commit         0123456789abcdef0123456789abcdef01234567\n" +
 		"  Resolver       published\n" +
+		"  Capabilities   " + string(capabilityprofile.Compiled()) + "\n" +
 		"  Gateway API    required 1, selected 1\n" +
 		"  Auth Broker API required 1, selected 1\n" +
 		"  Compatibility  compatible\n"
@@ -291,7 +293,7 @@ func TestVersionOutputContract(t *testing.T) {
 	if code := runCLI(command, []string{"version", "--format", "json"}); code != ExitOK {
 		t.Fatalf("Run(version --format json) code = %d, stderr = %q", code, stderr.String())
 	}
-	wantJSON := "{\"schema_version\":1,\"build_identity\":{\"version\":\"v1.2.3\",\"commit\":\"0123456789abcdef0123456789abcdef01234567\",\"resolver_channel\":\"published\",\"development_source\":false,\"gateway_required_api\":1,\"gateway_selected_api\":1,\"auth_broker_required_api\":1,\"auth_broker_selected_api\":1,\"compatible\":true,\"development_build_command\":\"\",\"development_binary\":\"\"}}\n"
+	wantJSON := fmt.Sprintf("{\"schema_version\":1,\"build_identity\":{\"version\":\"v1.2.3\",\"commit\":\"0123456789abcdef0123456789abcdef01234567\",\"resolver_channel\":\"published\",\"development_source\":false,\"capability_profile\":%q,\"gateway_required_api\":1,\"gateway_selected_api\":1,\"auth_broker_required_api\":1,\"auth_broker_selected_api\":1,\"compatible\":true,\"development_build_command\":\"\",\"development_binary\":\"\"}}\n", capabilityprofile.Compiled())
 	if got := stdout.String(); got != wantJSON {
 		t.Fatalf("version JSON = %q, want %q", got, wantJSON)
 	}

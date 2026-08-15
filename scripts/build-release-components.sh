@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build the paired release components and create their source-bound lock.
+# Build the two published release services and create their source-bound lock.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 

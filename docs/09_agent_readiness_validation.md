@@ -14,7 +14,7 @@ transcripts as repository fixtures.
 | Grow exact permission | `policy review`, or `policy candidates` then one exact allow/deny | Terminal guardrail precedes every candidate; explicit review activates only exact Context/project/scheme/host/port/method/path authority |
 | Inspect/reset decisions | `policy rules`, then `policy reset --id` | One current exact decision is removed through its unchanged opaque reference and returns to default deny |
 | Use unsupported Workspace-owned auth | Tool login or environment/file injection inside the Workspace for an undeclared binding | Credential state is readable by processes in that Workspace, receives no network grant, and is explicitly a compatibility path |
-| Use Broker-required auth | `auth login [--provider github|aws|datadog|openai|anthropic] [--method identity-center|console]` or `auth import PROVIDER`; `auth status`; `auth logout` | A declared binding accepts only a project-bound handle; a real Workspace credential fails before OPA; OPA deny performs no secret-bearing plan action; allow applies one same-revision reviewed result |
+| Use Broker-required auth | Standard: `auth login [--provider github|datadog|openai|anthropic]` or `auth import PROVIDER`; experimental: AWS plus `--method identity-center|console`; then `auth status`/`auth logout` | A declared binding accepts only a project-bound handle; a real Workspace credential fails before OPA; OPA deny performs no secret-bearing plan action; allow applies one same-revision reviewed result |
 
 Routine success must require zero undeclared external-processing steps. Reading
 a declared JSON/TSV field is consumption; a custom join/parser, provider-
@@ -96,8 +96,10 @@ Context report or active guardrail.
 The canonical contributor base must run `claude --version` as 2.1.220 and
 `codex --version` as 0.147.0 after replacing `/var/lib/tobari` with a fresh
 Workspace home. The client pins and agent-ready core matrix are reviewed as one
-contract. While either artifact lock records pending redistribution review,
-verify the base workflow has no registry-write permission, login, or push.
+contract. Verify the base workflow is validation-only and the protected
+Release workflow invokes the publishability check before registry login. While
+either artifact lock records pending redistribution review, that check must
+fail closed.
 
 ## Reviewed policy journey
 
@@ -134,7 +136,9 @@ fixtures, and secret canaries. It proves:
 - locked startup and exact root-key/vault ownership/integrity;
 - protected stdin refusal before reading and validation before Broker send;
 - omitted-provider selection is interactive, bounded to installed reviewed
-  login drivers, and explicit provider selection remains deterministic;
+  login drivers, and explicit provider selection remains deterministic; the
+  standard matrix rejects AWS before acquisition while the experimental matrix
+  accepts its two methods;
 - fixed purpose-limited GitHub/AWS/pup/Codex/Claude argv, canonical executable
   digest checks, selected-Context image binding for pup and Claude, private
   homes/PTY where declared, bounded browser targets, and checked cleanup;
@@ -187,7 +191,9 @@ pass/fail, the exact source commit/image digests, and secret-free status. Never
 record the token, device code, handle, account identifier, vault, authenticated
 response, or raw transcript.
 
-Replay the AWS Identity Center and console methods, selected-Context-runtime
+Using the `task build:dev` experimental binary, replay the AWS Identity Center
+and console methods. With the standard binary, prove the same provider and
+method argv are rejected before acquisition. Then replay selected-Context-runtime
 Datadog pup flow and localhost stdin relay, the
 contract-checked host Codex native browser/loopback flow, the separately pinned Workspace Codex
 handle projection, isolated Context-runtime Claude Code 2.1.220 native login
@@ -216,8 +222,9 @@ Linux/Colima Quick Start.
 
 Stop for explicit approval before pushing a branch or tag, publishing an OCI
 image, creating a GitHub Release, or updating a Homebrew tap. After approval,
-the protected workflow publishes and inspects the paired component indexes,
-generates their source-bound lock, injects it into the exact SemVer archives,
-and creates the immutable GitHub Release. A stable run must then create the
+the protected workflow publishes and inspects the runtime, Gateway, and Auth
+Broker indexes, generates their source-bound lock, injects it into the exact
+SemVer archives, and creates the immutable GitHub Release. A prerelease such as
+`v0.1.0-dev.1` is marked as a GitHub prerelease and must not mutate Homebrew. A stable run must then create the
 Formula-only `tasuku43/homebrew-tap` pull request from the exact audited Formula
 asset; dry runs and prereleases must not cross that boundary.

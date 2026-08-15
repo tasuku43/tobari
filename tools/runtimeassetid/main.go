@@ -10,7 +10,7 @@ import (
 
 func main() {
 	if len(os.Args) != 2 {
-		fmt.Fprintln(os.Stderr, "usage: runtimeassetid <gateway|authbroker>")
+		fmt.Fprintln(os.Stderr, "usage: runtimeassetid <tobari|gateway|authbroker>")
 		os.Exit(2)
 	}
 	version, err := runtimeassets.ComponentVersion(os.Args[1])

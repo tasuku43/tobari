@@ -5,7 +5,7 @@
 - Deciders: Tobari maintainers
 - Scope: Product, architecture, security, policy, runtime images, harness, release, and public boundary
 - Revises: ADR 0025, ADR 0029, ADR 0038, and the default-preset consequence of Thesis 3
-- Superseded by: None; Codex client pin revised by ADR 0042
+- Superseded by: None; Codex client pin revised by ADR 0042 and runtime publication revised by ADR 0043
 
 ## Context
 
@@ -63,12 +63,10 @@ The client pins and the agent-ready effect catalog are one compatibility unit:
 updating either client requires reviewing and updating the other side in the
 same change.
 
-Because both bundled-agent locks still record `license_review: pending`, the
-base workflow builds and verifies the combined image but has no registry-write
-permission, login, or push step. The canonical runtime declares
-`NOASSERTION` for the combined layer. Public base publication remains blocked
-until explicit redistribution review, required notices, and image-layer license
-inventory are accepted in a later decision.
+The base workflow builds and verifies the combined image but has no
+registry-write permission, login, or push step. The canonical runtime declares
+`NOASSERTION` for the combined layer. ADR 0043 makes the base permanently
+local-build-only; Tobari publishes the pinned recipe rather than that image.
 
 ## Consequences
 
@@ -88,8 +86,7 @@ inventory are accepted in a later decision.
 - The fixed client versions and routes may drift together, requiring a Tobari
   update rather than silent widening.
 - The combined base is substantially larger.
-- Public base publication is unavailable until the external redistribution
-  review completes.
+- First use must build the combined base on the user's Docker host.
 
 ## Mechanical enforcement
 
@@ -100,8 +97,8 @@ inventory are accepted in a later decision.
 - Runtime checks bind base Dockerfile arguments to the exact Claude and Codex
   artifact locks, require both executables outside Workspace home, require
   self-update disablement, and smoke both versions.
-- Runtime checks reject a base workflow containing registry-write permission,
-  Docker login, or `--push` while either agent lock remains pending.
+- Runtime and release checks reject a base workflow or protected release path
+  containing registry-write permission, Docker login, or `--push`.
 - Product, architecture, security, release, harness, and readiness documents
   distinguish the agent-ready default from the three stricter presets and from
   process identity.

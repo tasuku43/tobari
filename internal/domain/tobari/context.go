@@ -32,7 +32,7 @@ const (
 	ContextRuntimeTargetKind        = "context-runtime"
 	ActiveContextRuntimeID          = "active-context-runtime"
 	ContextRuntimeRecipeFile        = "runtime/Dockerfile"
-	OfficialRuntimeBase             = "ghcr.io/tasuku43/tobari/runtime:latest"
+	OfficialRuntimeBase             = "tobari-runtime:base"
 	ContextShellTargetKind          = "context-shell-environment"
 	ContextShellTargetID            = "context-shell-environment"
 	MaxContextShellValueBytes       = 4096

@@ -3,7 +3,7 @@ set -Eeuo pipefail
 cd "$(dirname "$0")/.."
 
 binary=${TOBARI_INTEGRATION_BINARY:-$PWD/bin/tobari}
-custom_base_image=${TOBARI_INTEGRATION_CUSTOM_BASE:-ghcr.io/tasuku43/tobari/runtime:latest}
+custom_base_image=${TOBARI_INTEGRATION_CUSTOM_BASE:-tobari-runtime:dev}
 mock_name=tobari-mock-upstream
 auth_mock_name=tobari-auth-mock-upstream
 auth_network=tobari-auth-integration
@@ -769,6 +769,16 @@ work_nested_root=$work_root/root
 other_root=$work_root/child-workspace
 mkdir -p "$work_root" "$work_nested_root" "$other_root"
 printf 'host-home-canary\n' >"$test_root/user/host-home-canary"
+if [[ $custom_base_image == tobari-runtime:dev ]] && ! docker image inspect "$custom_base_image" >/dev/null 2>&1; then
+  base_image=$(go run ./tools/runtimecheck --print-base-image)
+  docker build --tag "$custom_base_image" \
+    --file runtimes/base/Dockerfile \
+    --build-arg "DEBIAN_IMAGE=$base_image" \
+    --build-arg "TOBARI_UID=$(id -u)" \
+    --build-arg "TOBARI_GID=$(id -g)" \
+    runtimes/base >/dev/null
+  created_dev_runtime_tag=true
+fi
 docker build --tag "$custom_image" \
   --file test/integration/custom-image.Dockerfile \
   --build-arg "TOBARI_RUNTIME_BASE=$custom_base_image" . >/dev/null

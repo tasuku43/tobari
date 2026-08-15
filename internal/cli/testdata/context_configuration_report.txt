@@ -1,7 +1,7 @@
 Context: review
 Context state: persisted
 Active: false
-Image: ghcr.io/tasuku43/tobari/runtime:latest
+Image: tobari-runtime:base
 Agent profile: default
 Policy mode: guided
 Source access: direct read-write
@@ -16,7 +16,7 @@ Git identity: literal
 Git user.name: Review Bot
 Git user.email: review@example.com
 Runtime: official (official)
-Runtime base: ghcr.io/tasuku43/tobari/runtime:latest
+Runtime base: tobari-runtime:base
 Tip: this Context is using the base runtime. For ongoing work, run `tobari runtime init`, edit the Dockerfile, then run `tobari runtime build` on the host.
 Next: re-enter a matching Workspace with `tobari` to reconcile its Git fallback; this command does not change running sessions.
 Policy: /config/contexts/review/policy

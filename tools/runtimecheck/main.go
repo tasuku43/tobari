@@ -270,10 +270,10 @@ func validate(root string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if claudeLock.Agent.Name != "claude-code" || claudeLock.Agent.Version != tobari.AgentReadyClaudeVersion || claudeLock.Agent.Source != "https://downloads.claude.ai/claude-code-releases" || claudeLock.Agent.LicenseReview != "pending" {
+	if claudeLock.Agent.Name != "claude-code" || claudeLock.Agent.Version != tobari.AgentReadyClaudeVersion || claudeLock.Agent.Source != "https://downloads.claude.ai/claude-code-releases" || !validLicenseReview(claudeLock.Agent.LicenseReview) {
 		return "", errors.New("base runtime does not use the reviewed Claude artifact lock")
 	}
-	if codexLock.Agent.Name != "codex-cli" || codexLock.Agent.Version != tobari.AgentReadyCodexVersion || codexLock.Agent.Source != "https://releases.openai.com/codex" || codexLock.Agent.LicenseReview != "pending" {
+	if codexLock.Agent.Name != "codex-cli" || codexLock.Agent.Version != tobari.AgentReadyCodexVersion || codexLock.Agent.Source != "https://releases.openai.com/codex" || !validLicenseReview(codexLock.Agent.LicenseReview) {
 		return "", errors.New("base runtime does not use the reviewed Codex artifact lock")
 	}
 	versions, err := readRegularFile(filepath.Join(root, versionsEnv))
@@ -392,13 +392,17 @@ func validate(root string) (string, error) {
 	}
 	workflowText := string(workflow)
 	if strings.Contains(workflowText, "packages: write") || strings.Contains(workflowText, "--push") || strings.Contains(workflowText, "docker login") {
-		return "", errors.New("agent-ready base publication must remain disabled while bundled-agent license review is pending")
+		return "", errors.New("agent-ready base workflow must remain local-build validation only")
 	}
 	if !strings.Contains(workflowText, "--output type=cacheonly") {
 		return "", errors.New("agent-ready base workflow must retain build-only validation")
 	}
 
 	return lock.BaseImage.Reference, nil
+}
+
+func validLicenseReview(status string) bool {
+	return status == "pending" || status == "approved"
 }
 
 func validateClaude(root string) (string, error) {
@@ -440,7 +444,7 @@ func validateClaude(root string) (string, error) {
 	if lock.SchemaVersion != 1 || lock.Parent.Package != canonicalPackage || lock.Parent.Version != metadata.Base.Version || !imageDigestReference.MatchString(lock.Parent.Reference) || lock.Parent.Reference != metadata.Parent {
 		return "", errors.New("Claude runtime lock does not contain the pinned Tobari parent")
 	}
-	if lock.Agent.Name != metadata.Agent.Name || lock.Agent.Version != metadata.Agent.Version || lock.Agent.Source != "https://downloads.claude.ai/claude-code-releases" || lock.Agent.LicenseReview != "pending" {
+	if lock.Agent.Name != metadata.Agent.Name || lock.Agent.Version != metadata.Agent.Version || lock.Agent.Source != "https://downloads.claude.ai/claude-code-releases" || !validLicenseReview(lock.Agent.LicenseReview) {
 		return "", errors.New("Claude runtime lock does not contain the reviewed Claude source metadata")
 	}
 	expectedPlatforms := map[string]string{
@@ -562,7 +566,7 @@ func validateCodex(root string) (string, error) {
 	if lock.SchemaVersion != 1 || lock.Parent.Package != canonicalPackage || lock.Parent.Version != metadata.Base.Version || !imageDigestReference.MatchString(lock.Parent.Reference) || lock.Parent.Reference != metadata.Parent {
 		return "", errors.New("Codex runtime lock does not contain the pinned Tobari parent")
 	}
-	if lock.Agent.Name != metadata.Agent.Name || lock.Agent.Version != metadata.Agent.Version || lock.Agent.Source != "https://releases.openai.com/codex" || lock.Agent.LicenseReview != "pending" {
+	if lock.Agent.Name != metadata.Agent.Name || lock.Agent.Version != metadata.Agent.Version || lock.Agent.Source != "https://releases.openai.com/codex" || !validLicenseReview(lock.Agent.LicenseReview) {
 		return "", errors.New("Codex runtime lock does not contain the reviewed Codex source metadata")
 	}
 	expectedPlatforms := map[string]string{

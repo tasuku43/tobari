@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/tasuku43/tobari/internal/domain/buildidentity"
+	"github.com/tasuku43/tobari/internal/domain/capabilityprofile"
 )
 
 type buildIdentityFixture struct {
@@ -17,6 +18,7 @@ type buildIdentityFixture struct {
 		Commit                string `json:"commit"`
 		ResolverChannel       string `json:"resolver_channel"`
 		DevelopmentSource     bool   `json:"development_source"`
+		CapabilityProfile     string `json:"capability_profile"`
 		GatewayRequiredAPI    int    `json:"gateway_required_api"`
 		GatewaySelectedAPI    int    `json:"gateway_selected_api"`
 		AuthBrokerRequiredAPI int    `json:"auth_broker_required_api"`
@@ -72,8 +74,9 @@ func TestBuildIdentityFrozenSemanticCorpus(t *testing.T) {
 			identity := buildidentity.Identity{
 				Version: item.Version, Commit: item.Commit,
 				ResolverChannel: buildidentity.ResolverChannel(item.ResolverChannel), DevelopmentSource: item.DevelopmentSource,
-				Gateway:    buildidentity.Component{RequiredAPI: item.GatewayRequiredAPI, SelectedAPI: item.GatewaySelectedAPI},
-				AuthBroker: buildidentity.Component{RequiredAPI: item.AuthBrokerRequiredAPI, SelectedAPI: item.AuthBrokerSelectedAPI},
+				CapabilityProfile: capabilityprofile.Profile(item.CapabilityProfile),
+				Gateway:           buildidentity.Component{RequiredAPI: item.GatewayRequiredAPI, SelectedAPI: item.GatewaySelectedAPI},
+				AuthBroker:        buildidentity.Component{RequiredAPI: item.AuthBrokerRequiredAPI, SelectedAPI: item.AuthBrokerSelectedAPI},
 			}
 			if err := identity.Validate(); err != nil {
 				t.Fatal(err)

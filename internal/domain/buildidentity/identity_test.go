@@ -1,13 +1,18 @@
 package buildidentity
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/tasuku43/tobari/internal/domain/capabilityprofile"
+)
 
 func TestIdentityRequiresCompleteTruthfulMetadataForCompatibility(t *testing.T) {
 	t.Parallel()
 	identity := Identity{
 		Version: "1.2.3", Commit: UnknownCommit, ResolverChannel: ResolverPublished,
-		Gateway:    Component{RequiredAPI: 4, SelectedAPI: 4},
-		AuthBroker: Component{RequiredAPI: 3, SelectedAPI: 3},
+		CapabilityProfile: capabilityprofile.ProfileStandard,
+		Gateway:           Component{RequiredAPI: 4, SelectedAPI: 4},
+		AuthBroker:        Component{RequiredAPI: 3, SelectedAPI: 3},
 	}
 	if err := identity.Validate(); err != nil {
 		t.Fatal(err)
@@ -27,11 +32,11 @@ func TestIdentityRequiresCompleteTruthfulMetadataForCompatibility(t *testing.T) 
 
 func TestDevelopmentRecoveryRequiresDevelopmentResolverMetadata(t *testing.T) {
 	t.Parallel()
-	identity := Identity{ResolverChannel: ResolverPublished}
+	identity := Identity{ResolverChannel: ResolverPublished, CapabilityProfile: capabilityprofile.ProfileStandard}
 	if build, binary, ok := identity.DevelopmentRecovery(); ok || build != "" || binary != "" {
 		t.Fatalf("published recovery = %q %q %t", build, binary, ok)
 	}
-	identity = Identity{ResolverChannel: ResolverDevelopment, DevelopmentSource: true}
+	identity = Identity{ResolverChannel: ResolverDevelopment, DevelopmentSource: true, CapabilityProfile: capabilityprofile.ProfileStandard}
 	build, binary, ok := identity.DevelopmentRecovery()
 	if !ok || build != "task build" || binary != "bin/tobari" {
 		t.Fatalf("development recovery = %q %q %t", build, binary, ok)
@@ -42,8 +47,9 @@ func TestIdentityRejectsCrossedChannelMetadata(t *testing.T) {
 	t.Parallel()
 	identity := Identity{
 		Version: "dev", Commit: UnknownCommit, ResolverChannel: ResolverPublished, DevelopmentSource: true,
-		Gateway:    Component{RequiredAPI: 4, SelectedAPI: 3},
-		AuthBroker: Component{RequiredAPI: 3, SelectedAPI: 2},
+		CapabilityProfile: capabilityprofile.ProfileStandard,
+		Gateway:           Component{RequiredAPI: 4, SelectedAPI: 3},
+		AuthBroker:        Component{RequiredAPI: 3, SelectedAPI: 2},
 	}
 	if err := identity.Validate(); err == nil {
 		t.Fatal("published resolver accepted development source metadata")

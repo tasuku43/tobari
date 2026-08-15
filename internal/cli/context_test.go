@@ -1087,7 +1087,7 @@ func TestRuntimeInitTextSnapshotPrioritizesNextActions(t *testing.T) {
 		"     tobari runtime build\n\n" +
 		"Details\n" +
 		"  Context        default\n" +
-		"  Base image     ghcr.io/tasuku43/tobari/runtime:latest\n" +
+		"  Base image     tobari-runtime:base\n" +
 		"  Status         pending_build\n"
 	if got := string(output); got != want {
 		t.Fatalf("runtime init text = %q, want snapshot %q", got, want)

@@ -10,8 +10,9 @@ digests. Canonical source is checked against the embedded runtime snapshots used
 by the CLI, while runtime metadata, licenses, and repository gates reject drift
 before publication or release.
 
-The default Workspace runtime selector is a different contract: it is currently
-a moving tag, not an immutable service identity. Read
+The default Workspace runtime is a different contract: the released CLI builds
+it locally from pinned embedded assets rather than publishing or pulling an
+agent-ready image. Read
 [Implementation stack](../../how-it-works/implementation-stack/) first for the
 role of each image and embedded asset.
 
@@ -27,7 +28,11 @@ The copies are not a second implementation. `check-gateway-source.sh`, `check-au
 
 `versions.env` pins OPA, mitmproxy build base, Gateway, Auth Broker, and Debian build base by `@sha256:` digest. Gateway and Auth Broker do not invent public SemVer values; their digest is the exact runtime identity. Friendly OPA/mitmproxy version strings are repository declarations paired with those digests.
 
-The official default runtime selector is currently `ghcr.io/tasuku43/tobari/runtime:latest`. It is intentionally a moving selector and must not be described as an immutable digest. Context reconciliation resolves and records the image identity it actually uses; runtime API labels and metadata gate compatibility.
+The official base uses a source-derived local tag. It is built from the CLI's
+pinned embedded Dockerfile and assets when absent, then checked for the runtime
+API, user, entrypoint, and lifetime contract. Tobari does not publish or pull
+the combined agent-ready base through GHCR. The inspected local digest records
+the bytes that reconciliation actually uses.
 
 Canonical source and a pinned runtime artifact are two separate facts. A source
 change does not alter a running or newly reconciled standard cluster until the
@@ -43,7 +48,8 @@ silently publish runtime bytes.
 
 ## Build and release controls
 
-- OCI images are built in reviewed workflows and published to GHCR.
+- Gateway and Auth Broker OCI images are built in the protected Release workflow and published to GHCR.
+- The agent-ready base is built locally from pinned embedded assets and is never published by Tobari.
 - External workflow actions are pinned to full commit SHAs.
 - Release packaging injects CLI version and commit; ordinary builds remain `dev`.
 - Base/derived runtime metadata records architecture, parent, API, lifetime command, tool source, checksum/signature, and licensing expectations.
@@ -68,9 +74,9 @@ Missing, mutable where immutable is required, incompatible, or unverifiable imag
   <h2>Not guaranteed</h2>
   <div class="prose-block">
     A digest identifies bytes; it does not prove those bytes have no
-    vulnerability. The default runtime tag is moving. The trusted registries,
-    CI, host, and reviewed dependency process remain part of the supply-chain
-    assumption.
+    vulnerability. The trusted registries, official agent artifact sources, CI,
+    host Docker builder, and reviewed dependency process remain part of the
+    supply-chain assumption.
   </div>
 </aside>
 
@@ -106,10 +112,11 @@ Missing, mutable where immutable is required, incompatible, or unverifiable imag
 
 <div class="question-list">
   <details>
-    <summary>Is `runtime:latest` immutable?</summary>
+    <summary>Why is the agent-ready base not a published digest?</summary>
     <div class="prose-block">
-      No. It is the current moving official selector. Service component digests
-      and resolved runtime identities must be described separately.
+      Tobari distributes its pinned recipe and integrity checks, then builds on
+      the user's Docker host. Gateway/Auth Broker service digests and the
+      inspected local runtime digest remain separate identities.
     </div>
   </details>
   <details>
