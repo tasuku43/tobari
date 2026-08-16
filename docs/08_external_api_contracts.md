@@ -179,7 +179,8 @@ returns `broker_auth_required`. None permits fallback. Auth mutation
 uncertainty uses `auth status` reconciliation before another mutation.
 
 Automated tests use synthetic secrets and provider state, fake fixed-driver
-results, local HTTP servers, fixed clocks, and canaries. Live reviewed-provider
-acquisition is manual release evidence and records pass/fail only; no
-credential, code, handle, vault, account identifier, authenticated response,
-or raw transcript may become a fixture.
+results, local HTTP servers, fixed clocks, and canaries. They are the required
+release evidence. Live reviewed-provider acquisition is an optional
+experimental compatibility observation and records pass/fail only; it is not a
+standard release gate, and no credential, code, handle, vault, account
+identifier, authenticated response, or raw transcript may become a fixture.

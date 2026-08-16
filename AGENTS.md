@@ -174,9 +174,11 @@ Observe runtime-only behavior before changing it. Add bounded diagnostics, repro
     deny-before-resolution, exact post-allow replacement, rotation/logout,
     Workspace re-entry, source/snapshot equality, pinned artifact licensing,
     purpose-limited fixed-URL host browser opening with manual fallback,
-    absence of Broker Git credential setup, and secret-free logs/output. Live
-    provider login remains a recorded manual release check and never supplies
-    a repository fixture.
+    absence of Broker Git credential setup, and secret-free logs/output.
+    Required release evidence uses synthetic credentials and local fixtures.
+    A maintainer may replay live provider login as an experimental compatibility
+    observation, but it is not a standard release gate and never supplies a
+    repository fixture.
 11. Propagate any thesis change through product, architecture, security, Skill, and harness documents.
 12. Run `task check` and replay the relevant agent-readiness scenario.
 

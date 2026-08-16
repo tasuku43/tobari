@@ -192,20 +192,17 @@ only; release archives use the embedded resolver and source-selected APIs.
 Auth Broker changes additionally require the canonical source, image, static
 protocol, GitHub host-driver, and topology checks used by `task check`
 and `task runtime:test`. The required reproducible synthetic Auth Broker proof
-is delegated explicitly to `task integration:test`;
-the manual transcript does not duplicate that synthetic manipulation. Release
-also requires the trusted-host GitHub scenario in
-[Agent Readiness Validation](09_agent_readiness_validation.md), including the
-no-print assertion that `gh auth token --hostname github.com` equals the exact
-projected `GH_TOKEN` handle. The scenario records only secret-free pass/fail
-outcomes and never becomes a repository fixture; tokens,
-authorization/device codes, provider credential files, handles, and raw
-authenticated transcripts are forbidden fixtures. An
-implementation handoff may report the reviewed local-image evidence, but
-release completion still requires that manual trusted-host scenario and every
-release gate.
+is delegated explicitly to `task integration:test`. The experimental `auth`
+namespace and Broker runtime are absent from standard release archives, so a
+live Broker-backed provider login is not a standard publication prerequisite.
+Maintainers may record a secret-free pass/fail compatibility observation for
+the experimental profile, but it grants no release evidence and never becomes
+a repository fixture.
 
 The first public release also requires a clean-environment Colima or Linux
 Quick Start run and a human review of history, dependencies, licenses, and
-generated artifacts. If native Anthropic account login is included, that review
-also records the separate legal/product/provider approval above.
+generated artifacts. That review confirms the standard archives contain no
+experimental provider acquisition implementation, Broker runtime, provider
+credential state, or bundled Claude/Codex binary, and separately reviews the
+native integration recipes and browser/callback behavior against applicable
+provider terms. That terms review does not require a live account login.

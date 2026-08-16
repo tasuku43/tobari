@@ -956,7 +956,8 @@ distributed nor trusted by Tobari; their selector is persisted as user
 configuration. Third-party licenses are reviewed. Tests use synthetic
 credentials, fake fixed-driver output, fixed clocks, and `example.com`
 identities only. Live reviewed-provider acquisition, logout, and stale-handle
-rejection are manual release checks. Tokens, codes, handles, and authenticated
+rejection may be replayed as experimental compatibility observations, but they
+are not standard release checks. Tokens, codes, handles, and authenticated
 transcripts are never repository fixtures. Publication still requires
 `task security` and `task public:check`; neither replaces a human history and
 confidentiality review. The canonical Gateway source is the public `gateway/`

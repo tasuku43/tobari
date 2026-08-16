@@ -237,10 +237,13 @@ Owner manifests are strict static data and cannot select a helper or policy.
 Owner manifests cannot select a reviewed dynamic plan. This section describes
 the dev-only research profile and is not a standard release-readiness outcome.
 
-## Experimental manual reviewed-provider acquisition
+## Optional experimental reviewed-provider acquisition
 
 When reviewing the experimental profile, maintainers may use disposable
-provider accounts and an interactive trusted-host terminal. The GitHub slice is:
+provider accounts and an interactive trusted-host terminal. This observation
+is not a standard release-readiness requirement because the `auth` namespace
+and Broker runtime are absent from standard archives. The optional GitHub slice
+is:
 
 ```sh
 tobari auth login --provider github --context default

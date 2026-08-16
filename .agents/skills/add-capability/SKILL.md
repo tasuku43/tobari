@@ -305,6 +305,9 @@ Add the smallest set that proves the capability:
 
 Tests must use temporary directories, fixed clocks, fake credentials, and local
 test servers. They must not require a developer account or live network.
+Experimental provider acquisition may receive an optional secret-free live
+compatibility observation, but it is not standard release evidence when the
+provider command and Broker runtime are absent from standard archives.
 
 For a significant default text or agent-presentation change, use one frozen,
 presentation-independent typed fixture and a machine-readable answer key. The

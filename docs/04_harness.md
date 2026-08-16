@@ -283,25 +283,11 @@ Auth Broker readiness is split deliberately. The required agent-readiness
 scenario delegates its reproducible synthetic authentication proof to `task
 integration:test`; that command is required evidence, not an optional adjacent
 check. It uses synthetic credentials, mocked host GitHub CLI results, and local
-HTTP fixtures and makes no live provider call. The manual transcript does not
-duplicate synthetic broker manipulation.
-
-A release candidate also receives manual trusted-host GitHub validation. Run
-`auth login --provider github` with a test account, inspect secret-free `auth status`, and
-re-enter a Context-bound Workspace. Inside it, perform the following no-print
-shape and equality checks before the allowed API request:
-
-```sh
-case "${GH_TOKEN-}" in tobari-h1_*) ;; *) exit 1 ;; esac
-test "$(gh auth token --hostname github.com)" = "$GH_TOKEN"
-gh api user --jq .login >/dev/null
-```
-
-The successful equality check proves `gh auth token` returns the exact
-projected handle, not the primary credential. Then run `auth logout github` on
-the host and prove the old handle fails. The reviewer records only pass/fail
-and secret-free outcomes outside the repository. Tokens, device codes, vaults,
-handles, and raw authenticated transcripts are prohibited evidence.
+HTTP fixtures and makes no live provider call. The experimental `auth`
+namespace and Broker are absent from standard release archives, so live
+reviewed-provider acquisition is not a standard release gate. Maintainers may
+replay it as an experimental compatibility observation; such a replay records
+only pass/fail and secret-free outcomes and never becomes a fixture.
 
 ## Harness components
 
@@ -834,7 +820,7 @@ Every strong statement should identify its enforcement path.
 | Post-policy credential action | Gateway call-order/count tests for handle removal, introspect-before-OPA, zero resolve/refresh/companion/signing on deny, one same-revision reviewed action after allow, exact header replacement/signing, and no-secret canaries |
 | Closed broker plan boundary | Exact static and dynamic record schemas, immutable renewable-adapter, request-signing-mechanics, persisted-record-contract, control-login-plan, and Gateway reviewed-profile membership; one strict versioned test-only capability fixture checked from Go and Python for built-in/acquisition/manifest/login/record/runtime/Gateway parity; adapter/plan/profile incapability tests, record/Vault import compatibility, shared Broker-owned login commit and snapshot/single-flight/barrier/CAS conformance, Context/project/provider/revision/HTTPS-header or signing introspection, bounded AWS/Datadog/OpenAI/Anthropic behavior, rotation/revocation, durable barriers, and no invalid-handle fallback |
 | Unsupported broker capabilities stay absent | Catalog, state-parser, dependency, image-content, and hostile-header tests reject managed profiles, owner-selected dynamic plans, arbitrary helpers, compatibility readers, and provider CLIs inside Broker |
-| Protected provider acquisition | Catalog selector/method/stdin contracts, terminal rules, bounded readers, canonical GitHub/AWS/pup/Codex/Claude identity/digest checks, fixed argv/environment, control-safe output, bounded browser/PTY behavior, checked cleanup, cancellation/failure preservation, synthetic integration, and manual live validation |
+| Experimental protected provider acquisition | Catalog selector/method/stdin contracts, terminal rules, bounded readers, canonical GitHub/AWS/pup/Codex/Claude identity/digest checks, fixed argv/environment, control-safe output, bounded browser/PTY behavior, checked cleanup, cancellation/failure preservation, and required synthetic integration; optional live observations make no standard publication claim |
 | Typed denial recovery | Strict host/port audit projection, query/header absence, whole-path handle-marker redaction, non-learnable structural rejection, fixed host-review navigation schema, host-stderr session summary, empty bounded scope, hostile-field canaries, and end-to-end JSON assertions |
 | Explicit policy learning | OPA scheme/port learnability classification, terminal deny exclusion, deterministic repeated/concurrent Context/project/scheme/host/port/method/path candidate aggregation with required latest/count, two-distinct-example single-raw-segment template inference with ambiguity and unsafe-path suppression, Context-scoped reference validation, single-reference exact allow/deny/reset round trips, bounded typed TTY staging with template/exact choices, fresh revalidation, one fixed-target Apply and zero-write discard, installation-wide inventory/review, aggregate preflight ordering, and Docker retry |
 | Declared GraphQL policy identity | Exact trusted endpoint projection, hash-pinned parser and license checks, strict bounded envelope fixtures, conservative root-fragment expansion, all-roots OPA matching, HTTP-rule non-matching canaries, per-root audit/candidate/allow/deny/reset round trips, prefix-rule rejection, raw-body privacy canaries, and zero-upstream integration |

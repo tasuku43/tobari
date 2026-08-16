@@ -191,7 +191,7 @@ Minimum first-public-push checklist:
 - [ ] License and contribution terms were approved.
 - [ ] Private reporting and maintainer contacts exist.
 - [ ] Fixtures and docs contain only synthetic data.
-- [ ] Auth Broker source, image layers, tests, and manual validation evidence
+- [ ] Auth Broker source, image layers, tests, and synthetic validation evidence
       contain no real account material, SSO/token/role state, device code,
       Codex or Claude credential state, signed authorization field, handle,
       key, or vault.
@@ -200,8 +200,11 @@ Minimum first-public-push checklist:
 - [ ] The combined Codex and Claude base remains permanently local/cache-only;
       its registry publication path is absent and a local build or passing
       version smoke test is not redistribution evidence.
-- [ ] Native Anthropic account-login distribution has explicit legal/product
-      approval and any provider approval required by the applicable terms.
+- [ ] Standard archives contain no provider acquisition implementation, Auth
+      Broker runtime, provider credential state, or bundled agent binary.
+- [ ] Native agent integration recipes and browser/callback behavior received
+      explicit product/legal review against applicable provider terms without
+      claiming agent-binary redistribution.
 - [ ] Full history and artifacts passed secret and identifier review.
 - [ ] `task check`, `task security`, and `task public:check` passed.
 - [ ] A human reviewer approved publication.
