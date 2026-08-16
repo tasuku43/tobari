@@ -175,11 +175,24 @@ type workspaceLoginOutputObserver struct {
 type codexLoginOutputObserver = workspaceLoginOutputObserver
 
 func (t *workspaceLoginOutputObserver) observe(line string) {
-	target, ok := workspaceAuthorizationURLFromLine(strings.TrimSuffix(line, "\r"))
+	line = strings.TrimSuffix(line, "\r")
+	if target, ok := githubBrowserURLFromNonInteractiveLine(line); ok {
+		t.observeTarget(target)
+		return
+	}
+	target, ok := workspaceAuthorizationURLFromLine(line)
 	if !ok {
 		return
 	}
 	t.observeTarget(target)
+}
+
+func githubBrowserURLFromNonInteractiveLine(line string) (string, bool) {
+	const prefix = "Open this URL to continue in your web browser: "
+	if line != prefix+githubDeviceURL {
+		return "", false
+	}
+	return githubDeviceURL, true
 }
 
 func (t *workspaceLoginOutputObserver) observeTarget(target string) {

@@ -136,6 +136,62 @@ func TestGitHubDeviceLoginPromptOpensExactHostTargetWithoutCallbackListener(t *t
 	}
 }
 
+func TestGitHubDeviceLoginNonInteractiveLineOpensExactHostTargetWithoutCallbackListener(t *testing.T) {
+	projectID := "018bcfe5-687b-7000-8000-000000000001"
+	container, _, err := tobari.ProjectResourceNames(projectID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := &codexBridgeRunner{projectID: projectID}
+	browser := &recordingBrowser{}
+	bridge := newWorkspaceLoginBridge(context.Background(), &Runtime{runner: runner, browser: browser}, container, projectID)
+	defer bridge.close()
+	listenCalls := 0
+	bridge.listen = func(string) (net.Listener, error) {
+		listenCalls++
+		return nil, fmt.Errorf("device flow must not bind a callback listener")
+	}
+
+	line := "Open this URL to continue in your web browser: " + githubDeviceURL + "\n"
+	var visible bytes.Buffer
+	_, errOut := bridge.writers(io.Discard, &visible)
+	for offset := 0; offset < len(line); {
+		end := min(offset+3, len(line))
+		if _, err := io.WriteString(errOut, line[offset:end]); err != nil {
+			t.Fatal(err)
+		}
+		offset = end
+	}
+	if visible.String() != line {
+		t.Fatalf("GitHub non-interactive line changed: got %q want %q", visible.String(), line)
+	}
+	if !reflect.DeepEqual(browser.targets, []string{githubDeviceURL}) || listenCalls != 0 {
+		t.Fatalf("browser targets/listener calls = %q/%d", browser.targets, listenCalls)
+	}
+}
+
+func TestGitHubDeviceLoginNonInteractiveLineRejectsNeighboringTextAndTargets(t *testing.T) {
+	for _, line := range []string{
+		"Open this URL to continue in your web browser: https://github.com/login/device/\n",
+		"Open this URL to continue in your web browser: https://github.com/login/device?next=example\n",
+		"Open this URL to continue in your web browser: https://github.example/login/device\n",
+		"Open this URL now: " + githubDeviceURL + "\n",
+		"prefix Open this URL to continue in your web browser: " + githubDeviceURL + "\n",
+		"Open this URL to continue in your web browser: " + githubDeviceURL + " trailing\n",
+	} {
+		var opened []string
+		observer := &workspaceLoginOutputObserver{trigger: func(target string) bool {
+			opened = append(opened, target)
+			return true
+		}}
+		writer := &workspaceLoginObservingWriter{destination: io.Discard, observer: observer}
+		_, _ = io.WriteString(writer, line)
+		if len(opened) != 0 {
+			t.Fatalf("hostile GitHub device line opened browser: %q -> %q", line, opened)
+		}
+	}
+}
+
 func TestGitHubDeviceLoginObserverRejectsNeighboringAndAmbiguousTargets(t *testing.T) {
 	for _, prompt := range []string{
 		"Press Enter to open https://github.com/login/device/ in your browser... ",

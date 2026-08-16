@@ -20,6 +20,7 @@ import (
 const (
 	baseDockerfile        = "runtimes/base/Dockerfile"
 	baseEntrypoint        = "runtimes/base/entrypoint.sh"
+	baseGitHubCLIWrapper  = "runtimes/base/gh"
 	baseAWSKey            = "runtimes/base/aws-cli-public-key.asc"
 	claudeDockerfile      = "runtimes/claude/Dockerfile"
 	claudeRuntimeJSON     = "runtimes/claude/runtime.json"
@@ -305,7 +306,7 @@ func validate(root string) (string, error) {
 		return "", errors.New("runtime manifest is missing the base image entry")
 	}
 
-	for _, relative := range []string{baseDockerfile, baseEntrypoint, baseAWSKey} {
+	for _, relative := range []string{baseDockerfile, baseEntrypoint, baseGitHubCLIWrapper, baseAWSKey} {
 		if err := compareCanonicalSnapshot(root, relative); err != nil {
 			return "", err
 		}
@@ -316,6 +317,28 @@ func validate(root string) (string, error) {
 	}
 	if !strings.Contains(string(dockerfile), "ARG DEBIAN_IMAGE="+lock.BaseImage.Reference) {
 		return "", errors.New("base Dockerfile default does not match the digest lock")
+	}
+	wrapper, err := readRegularFile(filepath.Join(root, baseGitHubCLIWrapper))
+	if err != nil {
+		return "", err
+	}
+	wrapperText := string(wrapper)
+	for _, required := range []string{
+		`real_gh=/opt/tobari/bin/gh`,
+		`if [ "$#" -eq 2 ] && [ "$1" = "auth" ] && [ "$2" = "login" ]`,
+		`GH_PROMPT_DISABLED=1 GH_BROWSER=/bin/true NO_COLOR=1`,
+		`auth login --hostname github.com --git-protocol https --web`,
+		`auth setup-git --hostname github.com`,
+		`exec "$real_gh" "$@"`,
+	} {
+		if !strings.Contains(wrapperText, required) {
+			return "", fmt.Errorf("base GitHub CLI wrapper is missing %q", required)
+		}
+	}
+	for _, forbidden := range []string{"curl ", "wget ", "xdg-open", "eval ", "sh -c", "http://", "https://"} {
+		if strings.Contains(wrapperText, forbidden) {
+			return "", fmt.Errorf("base GitHub CLI wrapper contains forbidden authority %q", forbidden)
+		}
 	}
 	spec := string(dockerfile)
 	for _, required := range []string{
@@ -335,7 +358,8 @@ func validate(root string) (string, error) {
 		"org.opencontainers.image.licenses=\"" + canonicalLicense + "\"",
 		"org.opencontainers.image.source=\"" + canonicalSource + "\"",
 		"COPY --from=fetcher /opt/aws-cli /opt/aws-cli",
-		"COPY --from=fetcher /out/gh /usr/local/bin/gh",
+		"COPY --from=fetcher /out/gh /opt/tobari/bin/gh",
+		"COPY gh /usr/local/bin/gh",
 		"COPY --from=fetcher /out/claude /usr/local/bin/claude",
 		"COPY --from=fetcher /out/codex /opt/tobari/codex",
 		"https://github.com/cli/cli/releases/download/v",

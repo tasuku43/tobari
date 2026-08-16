@@ -111,9 +111,10 @@ RUN apt-get update \
       --home-dir /var/lib/tobari --create-home --shell /bin/bash tobari
 
 COPY --from=fetcher /opt/aws-cli /opt/aws-cli
-COPY --from=fetcher /out/gh /usr/local/bin/gh
+COPY --from=fetcher /out/gh /opt/tobari/bin/gh
 COPY --from=fetcher /out/claude /usr/local/bin/claude
 COPY --from=fetcher /out/codex /opt/tobari/codex
+COPY gh /usr/local/bin/gh
 
 RUN set -eu; \
     case "${TARGETARCH}" in \
@@ -126,7 +127,8 @@ RUN set -eu; \
     ln -s /opt/aws-cli/v2/current/bin/aws_completer /usr/local/bin/aws_completer; \
     ln -s "${codex_release_dir}/bin/codex" /usr/local/bin/codex; \
     ln -s "${codex_release_dir}/bin/codex-code-mode-host" /usr/local/bin/codex-code-mode-host; \
-    ln -s "${codex_release_dir}/codex-path/rg" /usr/local/bin/rg
+    ln -s "${codex_release_dir}/codex-path/rg" /usr/local/bin/rg; \
+    chmod 0755 /usr/local/bin/gh
 
 COPY entrypoint.sh /usr/local/bin/tobari-entrypoint
 RUN chmod 0755 /usr/local/bin/tobari-entrypoint
