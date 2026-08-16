@@ -96,11 +96,14 @@ func policyPresetReservedHost(host string) bool {
 }
 
 type PolicyPresetExactRule struct {
-	Scheme string `json:"scheme"`
-	Host   string `json:"host"`
-	Port   int    `json:"port"`
-	Method string `json:"method"`
-	Path   string `json:"path"`
+	Scheme               string `json:"scheme"`
+	Host                 string `json:"host"`
+	Port                 int    `json:"port"`
+	Method               string `json:"method"`
+	Path                 string `json:"path"`
+	Protocol             string `json:"protocol,omitempty"`
+	GraphQLOperationType string `json:"graphql_operation_type,omitempty"`
+	GraphQLRootField     string `json:"graphql_root_field,omitempty"`
 }
 
 // PolicyPresetPathTemplateRule is a reviewed built-in HTTP path shape. It is
@@ -148,26 +151,6 @@ type PolicyPresetMCPRule struct {
 	MCPToolName string `json:"mcp_tool_name,omitempty"`
 }
 
-type PolicyPresetGraphQLRule struct {
-	Scheme               string `json:"scheme"`
-	Host                 string `json:"host"`
-	Port                 int    `json:"port"`
-	Method               string `json:"method"`
-	Path                 string `json:"path"`
-	GraphQLOperationType string `json:"graphql_operation_type"`
-	GraphQLRootField     string `json:"graphql_root_field"`
-}
-
-func (r PolicyPresetGraphQLRule) Validate() error {
-	if err := (PolicyPresetExactRule{Scheme: r.Scheme, Host: r.Host, Port: r.Port, Method: r.Method, Path: r.Path}).Validate(); err != nil {
-		return err
-	}
-	if r.Method != "POST" {
-		return fmt.Errorf("policy preset GraphQL transport method must be POST")
-	}
-	return (PolicyProtocolIdentity{Scheme: r.Scheme, Protocol: PolicyProtocolGraphQL, GraphQLOperationType: r.GraphQLOperationType, GraphQLRootField: r.GraphQLRootField}).Validate()
-}
-
 func (r PolicyPresetMCPRule) Validate() error {
 	if err := (PolicyPresetExactRule{Scheme: r.Scheme, Host: r.Host, Port: r.Port, Method: r.Method, Path: r.Path}).Validate(); err != nil {
 		return err
@@ -195,6 +178,18 @@ func (r PolicyPresetExactRule) Validate() error {
 	if !policyPresetMethodPattern.MatchString(r.Method) || !strings.HasPrefix(r.Path, "/") || strings.ContainsAny(r.Path, "\r\n") {
 		return fmt.Errorf("policy preset exact rule is invalid")
 	}
+	if r.Protocol == "" {
+		if r.GraphQLOperationType != "" || r.GraphQLRootField != "" {
+			return fmt.Errorf("policy preset HTTP rule has semantic fields")
+		}
+		return nil
+	}
+	if r.Protocol != PolicyProtocolGraphQL || r.Method != "POST" {
+		return fmt.Errorf("policy preset semantic exact rule is invalid")
+	}
+	if err := (PolicyProtocolIdentity{Scheme: r.Scheme, Protocol: r.Protocol, GraphQLOperationType: r.GraphQLOperationType, GraphQLRootField: r.GraphQLRootField}).Validate(); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -202,18 +197,17 @@ func (r PolicyPresetExactRule) Validate() error {
 // collections are present in normalized bytes so revisions do not depend on
 // decoder omission behavior.
 type PolicyPreset struct {
-	SchemaVersion         int                            `json:"schema_version"`
-	Name                  string                         `json:"name"`
-	Guardrail             PolicyPresetGuardrail          `json:"guardrail"`
-	DestinationCeiling    PolicyPresetDestinationCeiling `json:"destination_ceiling"`
-	MethodCeiling         PolicyPresetMethodCeiling      `json:"method_ceiling"`
-	BaselineGrants        []PolicyPresetExactRule        `json:"baseline_grants"`
-	BaselineTemplates     []PolicyPresetPathTemplateRule `json:"baseline_templates"`
-	GraphQLBaselineGrants []PolicyPresetGraphQLRule      `json:"graphql_baseline_grants"`
-	MCPBaselineGrants     []PolicyPresetMCPRule          `json:"mcp_baseline_grants"`
-	BaselineDenies        []PolicyPresetExactRule        `json:"baseline_denies"`
-	GraphQLEndpoints      []PolicyPresetExactRule        `json:"graphql_endpoints"`
-	MCPEndpoints          []PolicyPresetExactRule        `json:"mcp_endpoints"`
+	SchemaVersion      int                            `json:"schema_version"`
+	Name               string                         `json:"name"`
+	Guardrail          PolicyPresetGuardrail          `json:"guardrail"`
+	DestinationCeiling PolicyPresetDestinationCeiling `json:"destination_ceiling"`
+	MethodCeiling      PolicyPresetMethodCeiling      `json:"method_ceiling"`
+	BaselineGrants     []PolicyPresetExactRule        `json:"baseline_grants"`
+	BaselineTemplates  []PolicyPresetPathTemplateRule `json:"baseline_templates"`
+	MCPBaselineGrants  []PolicyPresetMCPRule          `json:"mcp_baseline_grants"`
+	BaselineDenies     []PolicyPresetExactRule        `json:"baseline_denies"`
+	GraphQLEndpoints   []PolicyPresetExactRule        `json:"graphql_endpoints"`
+	MCPEndpoints       []PolicyPresetExactRule        `json:"mcp_endpoints"`
 }
 
 func ValidatePolicyPresetOrigin(origin string) error {
@@ -231,7 +225,7 @@ func (p PolicyPreset) Validate() error {
 	if err := p.Guardrail.Validate(); err != nil {
 		return err
 	}
-	if p.DestinationCeiling.Authorities == nil || p.MethodCeiling.Methods == nil || p.BaselineGrants == nil || p.BaselineTemplates == nil || p.GraphQLBaselineGrants == nil || p.MCPBaselineGrants == nil || p.BaselineDenies == nil || p.GraphQLEndpoints == nil || p.MCPEndpoints == nil {
+	if p.DestinationCeiling.Authorities == nil || p.MethodCeiling.Methods == nil || p.BaselineGrants == nil || p.BaselineTemplates == nil || p.MCPBaselineGrants == nil || p.BaselineDenies == nil || p.GraphQLEndpoints == nil || p.MCPEndpoints == nil {
 		return fmt.Errorf("policy preset collections must be explicit")
 	}
 	if p.DestinationCeiling.Mode != "public_https" && p.DestinationCeiling.Mode != "exact" {
@@ -267,11 +261,41 @@ func (p PolicyPreset) Validate() error {
 		}
 		seen[method] = struct{}{}
 	}
-	for _, rules := range [][]PolicyPresetExactRule{p.BaselineGrants, p.BaselineDenies, p.GraphQLEndpoints, p.MCPEndpoints} {
+	seen = map[string]struct{}{}
+	for _, rule := range p.BaselineGrants {
+		if err := rule.Validate(); err != nil {
+			return err
+		}
+		key := fmt.Sprintf("%s\x00%s\x00%d\x00%s\x00%s\x00%s\x00%s\x00%s", rule.Scheme, rule.Host, rule.Port, rule.Method, rule.Path, rule.Protocol, rule.GraphQLOperationType, rule.GraphQLRootField)
+		if _, ok := seen[key]; ok {
+			return fmt.Errorf("policy preset grant is duplicated")
+		}
+		seen[key] = struct{}{}
+		if !policyPresetRuleInsideDestination(p.DestinationCeiling, rule) || (p.MethodCeiling.Mode == "exact" && !presetContainsMethod(p.MethodCeiling.Methods, rule.Method)) {
+			return fmt.Errorf("policy preset rule exceeds its ceiling")
+		}
+		if rule.Protocol == PolicyProtocolGraphQL {
+			endpoint := rule
+			endpoint.Protocol, endpoint.GraphQLOperationType, endpoint.GraphQLRootField = "", "", ""
+			found := false
+			for _, declared := range p.GraphQLEndpoints {
+				if declared == endpoint {
+					found = true
+				}
+			}
+			if !found {
+				return fmt.Errorf("policy preset GraphQL grant has no declared endpoint")
+			}
+		}
+	}
+	for _, rules := range [][]PolicyPresetExactRule{p.BaselineDenies, p.GraphQLEndpoints, p.MCPEndpoints} {
 		seen = map[string]struct{}{}
 		for _, rule := range rules {
 			if err := rule.Validate(); err != nil {
 				return err
+			}
+			if rule.Protocol != "" {
+				return fmt.Errorf("policy preset endpoint or deny cannot contain semantic grant identity")
 			}
 			key := fmt.Sprintf("%s\x00%s\x00%d\x00%s\x00%s", rule.Scheme, rule.Host, rule.Port, rule.Method, rule.Path)
 			if _, ok := seen[key]; ok {
@@ -299,30 +323,6 @@ func (p PolicyPreset) Validate() error {
 		seen[key] = struct{}{}
 		if !policyPresetRuleInsideDestination(p.DestinationCeiling, exact) || (p.MethodCeiling.Mode == "exact" && !presetContainsMethod(p.MethodCeiling.Methods, rule.Method)) {
 			return fmt.Errorf("policy preset path template exceeds its ceiling")
-		}
-	}
-	seen = map[string]struct{}{}
-	for _, rule := range p.GraphQLBaselineGrants {
-		if err := rule.Validate(); err != nil {
-			return err
-		}
-		exact := PolicyPresetExactRule{Scheme: rule.Scheme, Host: rule.Host, Port: rule.Port, Method: rule.Method, Path: rule.Path}
-		key := fmt.Sprintf("%s\x00%s\x00%d\x00%s\x00%s\x00%s\x00%s", rule.Scheme, rule.Host, rule.Port, rule.Method, rule.Path, rule.GraphQLOperationType, rule.GraphQLRootField)
-		if _, ok := seen[key]; ok {
-			return fmt.Errorf("policy preset GraphQL grant is duplicated")
-		}
-		seen[key] = struct{}{}
-		if !policyPresetRuleInsideDestination(p.DestinationCeiling, exact) || (p.MethodCeiling.Mode == "exact" && !presetContainsMethod(p.MethodCeiling.Methods, rule.Method)) {
-			return fmt.Errorf("policy preset GraphQL grant exceeds its ceiling")
-		}
-		found := false
-		for _, endpoint := range p.GraphQLEndpoints {
-			if endpoint == exact {
-				found = true
-			}
-		}
-		if !found {
-			return fmt.Errorf("policy preset GraphQL grant has no declared endpoint")
 		}
 	}
 	seen = map[string]struct{}{}
@@ -403,7 +403,6 @@ func NormalizePolicyPreset(p PolicyPreset) (PolicyPreset, []byte, string, error)
 	clone.MethodCeiling.Methods = append([]string{}, p.MethodCeiling.Methods...)
 	clone.BaselineGrants = append([]PolicyPresetExactRule{}, p.BaselineGrants...)
 	clone.BaselineTemplates = append([]PolicyPresetPathTemplateRule{}, p.BaselineTemplates...)
-	clone.GraphQLBaselineGrants = append([]PolicyPresetGraphQLRule{}, p.GraphQLBaselineGrants...)
 	clone.MCPBaselineGrants = append([]PolicyPresetMCPRule{}, p.MCPBaselineGrants...)
 	clone.BaselineDenies = append([]PolicyPresetExactRule{}, p.BaselineDenies...)
 	clone.GraphQLEndpoints = append([]PolicyPresetExactRule{}, p.GraphQLEndpoints...)
@@ -414,16 +413,12 @@ func NormalizePolicyPreset(p PolicyPreset) (PolicyPreset, []byte, string, error)
 	})
 	sort.Strings(clone.MethodCeiling.Methods)
 	lessRule := func(a, b PolicyPresetExactRule) bool {
-		return fmt.Sprintf("%s/%s/%05d/%s/%s", a.Scheme, a.Host, a.Port, a.Method, a.Path) < fmt.Sprintf("%s/%s/%05d/%s/%s", b.Scheme, b.Host, b.Port, b.Method, b.Path)
+		return fmt.Sprintf("%s/%s/%05d/%s/%s/%s/%s/%s", a.Scheme, a.Host, a.Port, a.Method, a.Path, a.Protocol, a.GraphQLOperationType, a.GraphQLRootField) < fmt.Sprintf("%s/%s/%05d/%s/%s/%s/%s/%s", b.Scheme, b.Host, b.Port, b.Method, b.Path, b.Protocol, b.GraphQLOperationType, b.GraphQLRootField)
 	}
 	sort.Slice(clone.BaselineGrants, func(i, j int) bool { return lessRule(clone.BaselineGrants[i], clone.BaselineGrants[j]) })
 	sort.Slice(clone.BaselineTemplates, func(i, j int) bool {
 		a, b := clone.BaselineTemplates[i], clone.BaselineTemplates[j]
 		return fmt.Sprintf("%s/%s/%05d/%s/%s", a.Scheme, a.Host, a.Port, a.Method, a.Path) < fmt.Sprintf("%s/%s/%05d/%s/%s", b.Scheme, b.Host, b.Port, b.Method, b.Path)
-	})
-	sort.Slice(clone.GraphQLBaselineGrants, func(i, j int) bool {
-		a, b := clone.GraphQLBaselineGrants[i], clone.GraphQLBaselineGrants[j]
-		return fmt.Sprintf("%s/%s/%05d/%s/%s/%s/%s", a.Scheme, a.Host, a.Port, a.Method, a.Path, a.GraphQLOperationType, a.GraphQLRootField) < fmt.Sprintf("%s/%s/%05d/%s/%s/%s/%s", b.Scheme, b.Host, b.Port, b.Method, b.Path, b.GraphQLOperationType, b.GraphQLRootField)
 	})
 	sort.Slice(clone.MCPBaselineGrants, func(i, j int) bool {
 		a, b := clone.MCPBaselineGrants[i], clone.MCPBaselineGrants[j]
@@ -442,7 +437,7 @@ func NormalizePolicyPreset(p PolicyPreset) (PolicyPreset, []byte, string, error)
 }
 
 func BuiltinPolicyPreset(origin string) (PolicyPreset, bool) {
-	base := PolicyPreset{SchemaVersion: 1, DestinationCeiling: PolicyPresetDestinationCeiling{Mode: "public_https", Authorities: []PolicyPresetAuthority{}}, MethodCeiling: PolicyPresetMethodCeiling{Mode: "all", Methods: []string{}}, BaselineGrants: []PolicyPresetExactRule{}, BaselineTemplates: []PolicyPresetPathTemplateRule{}, GraphQLBaselineGrants: []PolicyPresetGraphQLRule{}, MCPBaselineGrants: []PolicyPresetMCPRule{}, BaselineDenies: []PolicyPresetExactRule{}, GraphQLEndpoints: []PolicyPresetExactRule{}, MCPEndpoints: []PolicyPresetExactRule{}}
+	base := PolicyPreset{SchemaVersion: 1, DestinationCeiling: PolicyPresetDestinationCeiling{Mode: "public_https", Authorities: []PolicyPresetAuthority{}}, MethodCeiling: PolicyPresetMethodCeiling{Mode: "all", Methods: []string{}}, BaselineGrants: []PolicyPresetExactRule{}, BaselineTemplates: []PolicyPresetPathTemplateRule{}, MCPBaselineGrants: []PolicyPresetMCPRule{}, BaselineDenies: []PolicyPresetExactRule{}, GraphQLEndpoints: []PolicyPresetExactRule{}, MCPEndpoints: []PolicyPresetExactRule{}}
 	switch origin {
 	case "builtin/offline":
 		base.Name = "offline"
@@ -453,7 +448,6 @@ func BuiltinPolicyPreset(origin string) (PolicyPreset, bool) {
 		base.BaselineGrants = agentReadyBaselineGrants()
 		base.BaselineTemplates = agentReadyBaselineTemplates()
 		base.GraphQLEndpoints = agentReadyGraphQLEndpoints()
-		base.GraphQLBaselineGrants = agentReadyGraphQLBaselineGrants()
 		base.MCPEndpoints = agentReadyMCPEndpoints()
 		base.MCPBaselineGrants = agentReadyMCPBaselineGrants()
 	case "builtin/reviewed-exact":
@@ -473,11 +467,10 @@ func BuiltinPolicyPreset(origin string) (PolicyPreset, bool) {
 // pinned native client. The normalized preset stores only the expanded exact
 // rules: bundle names and process names never become runtime authority.
 type nativeToolAuthReadiness struct {
-	ID                    string
-	Version               string
-	BaselineGrants        []PolicyPresetExactRule
-	GraphQLEndpoints      []PolicyPresetExactRule
-	GraphQLBaselineGrants []PolicyPresetGraphQLRule
+	ID               string
+	Version          string
+	BaselineGrants   []PolicyPresetExactRule
+	GraphQLEndpoints []PolicyPresetExactRule
 }
 
 func nativeToolAuthReadinessBundles() []nativeToolAuthReadiness {
@@ -507,12 +500,10 @@ func nativeToolAuthReadinessBundles() []nativeToolAuthReadiness {
 			BaselineGrants: []PolicyPresetExactRule{
 				{Scheme: "https", Host: "github.com", Port: 443, Method: "POST", Path: "/login/device/code"},
 				{Scheme: "https", Host: "github.com", Port: 443, Method: "POST", Path: "/login/oauth/access_token"},
+				{Scheme: "https", Host: "api.github.com", Port: 443, Method: "POST", Path: "/graphql", Protocol: PolicyProtocolGraphQL, GraphQLOperationType: GraphQLOperationQuery, GraphQLRootField: "viewer"},
 			},
 			GraphQLEndpoints: []PolicyPresetExactRule{
 				{Scheme: "https", Host: "api.github.com", Port: 443, Method: "POST", Path: "/graphql"},
-			},
-			GraphQLBaselineGrants: []PolicyPresetGraphQLRule{
-				{Scheme: "https", Host: "api.github.com", Port: 443, Method: "POST", Path: "/graphql", GraphQLOperationType: GraphQLOperationQuery, GraphQLRootField: "viewer"},
 			},
 		},
 	}
@@ -569,14 +560,6 @@ func agentReadyGraphQLEndpoints() []PolicyPresetExactRule {
 		endpoints = append(endpoints, bundle.GraphQLEndpoints...)
 	}
 	return endpoints
-}
-
-func agentReadyGraphQLBaselineGrants() []PolicyPresetGraphQLRule {
-	var grants []PolicyPresetGraphQLRule
-	for _, bundle := range nativeToolAuthReadinessBundles() {
-		grants = append(grants, bundle.GraphQLBaselineGrants...)
-	}
-	return grants
 }
 
 func agentReadyMCPEndpoints() []PolicyPresetExactRule {

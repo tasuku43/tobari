@@ -167,6 +167,8 @@ func TestAggregateRouterKeepsGitHubGraphQLBaselineSemanticAndAllRootsExact(t *te
 		`rule.graphql_root_field == root_field`,
 		`count(input.request.graphql.root_fields) > 0`,
 		`every root_field in input.request.graphql.root_fields`,
+		`object.get(rule, "protocol", "http") == "http"`,
+		`some rule in data.tobari_contexts[input.principal.context_id].guardrail.baseline_grants; rule.protocol == "graphql"`,
 		`exact_denied if { learned_graphql_denied }`,
 		`preset_granted if { preset_graphql_granted }`,
 	} {

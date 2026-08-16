@@ -21,6 +21,16 @@ func policyPresetExactRuleOutput(description string) *OutputField {
 	}}
 }
 
+func policyPresetBaselineGrantOutput() *OutputField {
+	field := policyPresetExactRuleOutput("One exact HTTP or GraphQL semantic baseline grant.")
+	field.Fields = append(field.Fields,
+		OutputField{Name: "protocol", Type: OutputFieldTypeString, Description: "Exact semantic protocol when this is not an ordinary HTTP rule.", Enum: []string{"graphql"}, Optional: true},
+		OutputField{Name: "graphql_operation_type", Type: OutputFieldTypeString, Description: "Exact GraphQL operation type.", Enum: []string{"query", "mutation"}, Optional: true},
+		OutputField{Name: "graphql_root_field", Type: OutputFieldTypeString, Description: "Exact canonical GraphQL root field.", Optional: true},
+	)
+	return field
+}
+
 func policyPresetTemplateRuleOutput() *OutputField {
 	field := policyPresetExactRuleOutput("One bounded direct-child identifier template.")
 	field.Fields = append(field.Fields, OutputField{Name: "segments", Type: OutputFieldTypeArray, Description: "Exact normalized segments with one terminal {id}.", Items: &OutputField{Type: OutputFieldTypeString, Description: "One literal or {id} segment."}})
@@ -32,15 +42,6 @@ func policyPresetMCPRuleOutput() *OutputField {
 	field.Fields = append(field.Fields,
 		OutputField{Name: "mcp_method", Type: OutputFieldTypeString, Description: "Exact MCP JSON-RPC method."},
 		OutputField{Name: "mcp_tool_name", Type: OutputFieldTypeString, Description: "Exact tool name only for tools/call.", Optional: true},
-	)
-	return field
-}
-
-func policyPresetGraphQLRuleOutput() *OutputField {
-	field := policyPresetExactRuleOutput("One exact GraphQL semantic baseline grant.")
-	field.Fields = append(field.Fields,
-		OutputField{Name: "graphql_operation_type", Type: OutputFieldTypeString, Description: "Exact GraphQL operation type.", Enum: []string{"query", "mutation"}},
-		OutputField{Name: "graphql_root_field", Type: OutputFieldTypeString, Description: "Exact canonical GraphQL root field."},
 	)
 	return field
 }
@@ -72,9 +73,8 @@ func policyPresetOutput(collection bool) CommandOutput {
 					{Name: "scheme", Type: OutputFieldTypeString, Description: "Exact HTTP scheme.", Enum: []string{"http", "https"}}, {Name: "host", Type: OutputFieldTypeString, Description: "Exact canonical public host."}, {Name: "port", Type: OutputFieldTypeInteger, Description: "Exact TCP port."},
 				}}}}},
 				{Name: "method_ceiling", Type: OutputFieldTypeObject, Description: "Explicit all-eligible or exact method ceiling.", Fields: []OutputField{{Name: "mode", Type: OutputFieldTypeString, Description: "Method ceiling mode.", Enum: []string{"all", "exact"}}, {Name: "methods", Type: OutputFieldTypeArray, Description: "Explicit method ceiling.", Items: &OutputField{Type: OutputFieldTypeString, Description: "One exact HTTP method."}}}},
-				{Name: "baseline_grants", Type: OutputFieldTypeArray, Description: "Exact Context-wide grants.", Items: policyPresetExactRuleOutput("One exact grant.")},
+				{Name: "baseline_grants", Type: OutputFieldTypeArray, Description: "Exact Context-wide HTTP and GraphQL semantic grants.", Items: policyPresetBaselineGrantOutput()},
 				{Name: "baseline_templates", Type: OutputFieldTypeArray, Description: "Bounded Context-wide path-template grants.", Items: policyPresetTemplateRuleOutput()},
-				{Name: "graphql_baseline_grants", Type: OutputFieldTypeArray, Description: "Exact Context-wide GraphQL semantic grants.", Items: policyPresetGraphQLRuleOutput()},
 				{Name: "mcp_baseline_grants", Type: OutputFieldTypeArray, Description: "Exact Context-wide MCP semantic grants.", Items: policyPresetMCPRuleOutput()},
 				{Name: "baseline_denies", Type: OutputFieldTypeArray, Description: "Exact terminal baseline denials.", Items: policyPresetExactRuleOutput("One exact denial.")},
 				{Name: "graphql_endpoints", Type: OutputFieldTypeArray, Description: "Exact GraphQL classification endpoints.", Items: policyPresetExactRuleOutput("One exact endpoint.")},

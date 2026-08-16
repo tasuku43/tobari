@@ -2,6 +2,7 @@ package tobari
 
 import (
 	"bytes"
+	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -26,6 +27,26 @@ func TestBuiltinPolicyPresetsHaveStableRevisions(t *testing.T) {
 		if origin != DefaultPolicyPresetOrigin && len(normalized.BaselineGrants) != 0 {
 			t.Fatalf("strict built-in %q unexpectedly grants %d effects", origin, len(normalized.BaselineGrants))
 		}
+	}
+}
+
+func TestHTTPOnlyPresetNormalizationRemainsCompatibleWithoutSemanticKeys(t *testing.T) {
+	preset, _ := BuiltinPolicyPreset("builtin/reviewed-exact")
+	preset.BaselineGrants = []PolicyPresetExactRule{{Scheme: "https", Host: "api.github.com", Port: 443, Method: "POST", Path: "/graphql"}}
+	_, first, revision, err := NormalizePolicyPreset(preset)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(first, []byte(`"protocol"`)) || bytes.Contains(first, []byte(`"graphql_operation_type"`)) || bytes.Contains(first, []byte(`"graphql_root_field"`)) {
+		t.Fatalf("HTTP-only normalized snapshot gained semantic keys: %s", first)
+	}
+	var decoded PolicyPreset
+	if err := json.Unmarshal(first, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	_, second, repeated, err := NormalizePolicyPreset(decoded)
+	if err != nil || !bytes.Equal(first, second) || revision != repeated {
+		t.Fatalf("HTTP-only snapshot did not round trip byte-identically: revisions=%q/%q err=%v", revision, repeated, err)
 	}
 }
 
@@ -102,30 +123,35 @@ func TestAgentReadyNativeToolAuthReadinessBundlesArePinnedAndExact(t *testing.T)
 		t.Fatalf("native tool readiness bundles are missing: %v", wantVersions)
 	}
 
-	var github []PolicyPresetExactRule
+	var githubHTTP []PolicyPresetExactRule
 	var githubEndpoints []PolicyPresetExactRule
-	var githubGraphQL []PolicyPresetGraphQLRule
+	var githubGraphQL []PolicyPresetExactRule
 	for _, bundle := range bundles {
 		if bundle.ID == "gh_ready" {
-			github = bundle.BaselineGrants
+			for _, rule := range bundle.BaselineGrants {
+				if rule.Protocol == PolicyProtocolGraphQL {
+					githubGraphQL = append(githubGraphQL, rule)
+				} else {
+					githubHTTP = append(githubHTTP, rule)
+				}
+			}
 			githubEndpoints = bundle.GraphQLEndpoints
-			githubGraphQL = bundle.GraphQLBaselineGrants
 		}
 	}
 	wantGitHub := []PolicyPresetExactRule{
 		{Scheme: "https", Host: "github.com", Port: 443, Method: "POST", Path: "/login/device/code"},
 		{Scheme: "https", Host: "github.com", Port: 443, Method: "POST", Path: "/login/oauth/access_token"},
 	}
-	if len(github) != len(wantGitHub) {
-		t.Fatalf("gh_ready grants = %+v", github)
+	if len(githubHTTP) != len(wantGitHub) {
+		t.Fatalf("gh_ready HTTP grants = %+v", githubHTTP)
 	}
 	for index := range wantGitHub {
-		if github[index] != wantGitHub[index] {
-			t.Fatalf("gh_ready grant %d = %+v, want %+v", index, github[index], wantGitHub[index])
+		if githubHTTP[index] != wantGitHub[index] {
+			t.Fatalf("gh_ready HTTP grant %d = %+v, want %+v", index, githubHTTP[index], wantGitHub[index])
 		}
 	}
 	wantEndpoint := PolicyPresetExactRule{Scheme: "https", Host: "api.github.com", Port: 443, Method: "POST", Path: "/graphql"}
-	wantGraphQL := PolicyPresetGraphQLRule{Scheme: "https", Host: "api.github.com", Port: 443, Method: "POST", Path: "/graphql", GraphQLOperationType: GraphQLOperationQuery, GraphQLRootField: "viewer"}
+	wantGraphQL := PolicyPresetExactRule{Scheme: "https", Host: "api.github.com", Port: 443, Method: "POST", Path: "/graphql", Protocol: PolicyProtocolGraphQL, GraphQLOperationType: GraphQLOperationQuery, GraphQLRootField: "viewer"}
 	if len(githubEndpoints) != 1 || githubEndpoints[0] != wantEndpoint || len(githubGraphQL) != 1 || githubGraphQL[0] != wantGraphQL {
 		t.Fatalf("gh_ready semantic grants = endpoints:%+v grants:%+v", githubEndpoints, githubGraphQL)
 	}
@@ -142,16 +168,30 @@ func TestPolicyPresetGraphQLBaselineGrantRequiresExactDeclaredEndpointAndIdentit
 		t.Fatalf("agent-ready semantic grant rejected: %v", err)
 	}
 
+	semanticIndex := -1
+	for index, rule := range preset.BaselineGrants {
+		if rule.Protocol == PolicyProtocolGraphQL {
+			semanticIndex = index
+		}
+	}
+	if semanticIndex < 0 {
+		t.Fatal("agent-ready GraphQL baseline grant is missing")
+	}
 	for name, mutate := range map[string]func(*PolicyPreset){
-		"missing endpoint": func(p *PolicyPreset) { p.GraphQLEndpoints = []PolicyPresetExactRule{} },
-		"mutation":         func(p *PolicyPreset) { p.GraphQLBaselineGrants[0].GraphQLOperationType = "subscription" },
-		"invalid root":     func(p *PolicyPreset) { p.GraphQLBaselineGrants[0].GraphQLRootField = "viewer-login" },
-		"route mismatch":   func(p *PolicyPreset) { p.GraphQLBaselineGrants[0].Path = "/graphql/v2" },
+		"missing endpoint":      func(p *PolicyPreset) { p.GraphQLEndpoints = []PolicyPresetExactRule{} },
+		"unsupported operation": func(p *PolicyPreset) { p.BaselineGrants[semanticIndex].GraphQLOperationType = "subscription" },
+		"invalid root":          func(p *PolicyPreset) { p.BaselineGrants[semanticIndex].GraphQLRootField = "viewer-login" },
+		"route mismatch":        func(p *PolicyPreset) { p.BaselineGrants[semanticIndex].Path = "/graphql/v2" },
+		"semantic endpoint declaration": func(p *PolicyPreset) {
+			p.GraphQLEndpoints[0].Protocol = PolicyProtocolGraphQL
+			p.GraphQLEndpoints[0].GraphQLOperationType = GraphQLOperationQuery
+			p.GraphQLEndpoints[0].GraphQLRootField = "viewer"
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			candidate := preset
 			candidate.GraphQLEndpoints = append([]PolicyPresetExactRule{}, preset.GraphQLEndpoints...)
-			candidate.GraphQLBaselineGrants = append([]PolicyPresetGraphQLRule{}, preset.GraphQLBaselineGrants...)
+			candidate.BaselineGrants = append([]PolicyPresetExactRule{}, preset.BaselineGrants...)
 			mutate(&candidate)
 			if err := candidate.Validate(); err == nil {
 				t.Fatal("unsafe GraphQL baseline grant accepted")
@@ -186,7 +226,7 @@ func TestPolicyPresetRejectsDuplicatesAndExecutableShapedUnknownDataAtStrictDeco
 }
 
 func TestPolicyPresetRulesCannotExceedDestinationOrMethodCeilings(t *testing.T) {
-	base := PolicyPreset{SchemaVersion: 1, Name: "bounded", Guardrail: PolicyPresetGuardrailReviewedExact, DestinationCeiling: PolicyPresetDestinationCeiling{Mode: "exact", Authorities: []PolicyPresetAuthority{{Scheme: "https", Host: "api.github.com", Port: 443}}}, MethodCeiling: PolicyPresetMethodCeiling{Mode: "exact", Methods: []string{"GET", "POST"}}, BaselineGrants: []PolicyPresetExactRule{}, BaselineTemplates: []PolicyPresetPathTemplateRule{}, GraphQLBaselineGrants: []PolicyPresetGraphQLRule{}, MCPBaselineGrants: []PolicyPresetMCPRule{}, BaselineDenies: []PolicyPresetExactRule{}, GraphQLEndpoints: []PolicyPresetExactRule{}, MCPEndpoints: []PolicyPresetExactRule{}}
+	base := PolicyPreset{SchemaVersion: 1, Name: "bounded", Guardrail: PolicyPresetGuardrailReviewedExact, DestinationCeiling: PolicyPresetDestinationCeiling{Mode: "exact", Authorities: []PolicyPresetAuthority{{Scheme: "https", Host: "api.github.com", Port: 443}}}, MethodCeiling: PolicyPresetMethodCeiling{Mode: "exact", Methods: []string{"GET", "POST"}}, BaselineGrants: []PolicyPresetExactRule{}, BaselineTemplates: []PolicyPresetPathTemplateRule{}, MCPBaselineGrants: []PolicyPresetMCPRule{}, BaselineDenies: []PolicyPresetExactRule{}, GraphQLEndpoints: []PolicyPresetExactRule{}, MCPEndpoints: []PolicyPresetExactRule{}}
 	inside := PolicyPresetExactRule{Scheme: "https", Host: "api.github.com", Port: 443, Method: "GET", Path: "/user"}
 	for name, assign := range map[string]func(*PolicyPreset){
 		"grant destination": func(p *PolicyPreset) {
