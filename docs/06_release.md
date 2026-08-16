@@ -15,20 +15,18 @@ packaged. V1 has no resident credential companion or second executable.
 
 Every CLI artifact exposes build identity through `version` text and schema-1
 JSON. A release archive embeds the validated SemVer and full source commit,
-uses the published resolver channel and standard capability profile, names
+uses the embedded resolver channel and standard capability profile, names
 source-required and selected Gateway APIs, and leaves contributor command fields empty. A
 repository build retains version `dev`, embeds only the exact HEAD commit, and
 selects content-addressed local component images. `task build` compiles the
 standard profile; `task build:dev` compiles the experimental profile as
 `bin/tobari-dev`. Neither repository binary is a release candidate.
 
-One complete CLI archive matrix is accompanied by `component-lock.json` and
-three repository-generated metadata files. The strict schema-1 lock binds the
-source revision, immutable Gateway index, its API, and exact Linux platform
-set. `checksums.txt` binds the five sorted archives and the lock
-to SHA-256 digests. `sbom.spdx.json` is an SPDX 2.3 package inventory of those
-same release subjects, their release URLs, versions, declared project license,
-and SHA-256 digests; `filesAnalyzed: false` states its deliberate archive-level
+One complete five-archive CLI matrix is accompanied by three
+repository-generated metadata files. `checksums.txt` binds the five sorted
+archives to SHA-256 digests. `sbom.spdx.json` is an SPDX 2.3 package inventory
+of those same release subjects, their release URLs, versions, declared project
+license, and SHA-256 digests; `filesAnalyzed: false` states its deliberate archive-level
 coverage instead of implying a file or dependency analysis it did not perform.
 It is not a dependency, container-layer, or vulnerability inventory.
 `provenance.intoto.jsonl` is one unsigned in-toto Statement v1 with a SLSA
@@ -57,19 +55,18 @@ from its embedded pinned recipe; the protected Release workflow has no runtime
 registry path.
 The canonical Gateway image definition is maintained under `gateway` and its
 Dockerfile, addon, entrypoint, and tests are checked against the embedded
-`internal/infra/runtimeassets/assets/gateway` snapshot. Release assembly builds
-and, after approval, publishes its immutable `:sha-<commit>` Linux amd64/arm64
-index. The generated component lock supplies the digest used by routine
-startup. Contributor source development uses the source-hash tag built by
-`task build`; public `cluster up` does not build Gateway source.
+`internal/infra/runtimeassets/assets/gateway` snapshot. The released CLI builds
+the pinned snapshot on the user's Docker host under a source-derived local tag
+when it is absent, then applies the ordinary compatibility preflight.
+Contributor source development uses its own source-hash tag built by
+`task build`.
 
 The experimental Auth Broker image definition is maintained under `authbroker/`.
 Its package, Dockerfile, entrypoints, bridge/protocol, tests, and provider-CLI
 absence are byte-checked against
 `internal/infra/runtimeassets/assets/authbroker/`. `task build:dev` builds it
 locally together with the experimental Gateway layer. Release assembly never
-publishes it, the standard component lock has no Auth Broker authority, and
-public `cluster up` has no Broker startup path.
+publishes it, and standard `cluster up` has no Broker startup path.
 
 ## Pre-public V1 contract
 
@@ -94,17 +91,11 @@ sentinels or infer missing authority.
 ## Publication
 
 Tags use SemVer `vMAJOR.MINOR.PATCH` for stable releases and SemVer prerelease
-identifiers such as `v0.1.0-dev.1` for development releases. Gateway is the
-only internal OCI artifact of the CLI release and receives only the immutable
-`sha-<full-commit>` identity. Auth Broker and the agent-ready runtime are local-only.
-Main and pull-request component workflows are cache-only and receive no
-package-write permission.
-
-Pull-request and standalone component workflows remain validation-only and
-have no package-write permission. The manual release workflow owns Gateway
-publication after protected-environment approval. It verifies
-canonical/snapshot equality and image metadata, then creates the component
-lock before CLI packaging. No login, credential,
+identifiers such as `v0.1.0-dev.1` for development releases. Tobari publishes
+no OCI images. Main, pull-request, and standalone image workflows are
+validation-only, use cache-only output, and receive no package-write
+permission. The manual release workflow packages only CLI archives and their
+repository-generated metadata. No login, credential,
 account fixture, device or authorization code, token, handle, root key, vault,
 or authenticated output is a release artifact.
 
@@ -114,14 +105,9 @@ multi-architecture construction, and the runtime contract without publishing.
 The combined OCI/runtime metadata uses `NOASSERTION` while both locks record
 `license_review: pending`; it must not imply that either bundled agent is
 MIT-licensed. Tobari permanently omits public base publication and instead
-ships its pinned recipe and integrity checks inside the CLI.
-Gateway source records contain no release-output digest. A moving tag or
-standalone successful workflow does not make a digest service authority; only
-the Gateway lock
-generated during the reviewed release flow is injected into published
-archives. Contributor development builds `tobari-runtime:dev`; focused child
-commands remain integrity checks only. Moving tags and development images are
-not release authority.
+ships its pinned recipes and integrity checks inside the CLI. Gateway source
+records contain no release-output digest. Contributor development builds
+`tobari-runtime:dev`; focused child commands remain integrity checks only.
 
 Standard native Anthropic login is executed and stored by Claude Code inside
 the Workspace; Tobari ships no Anthropic acquisition or refresh adapter. The
@@ -139,19 +125,16 @@ independent proof of builder identity.
 ## Publication approval checkpoint
 
 Artifact preparation is a local, create-only operation. Before the first
-external mutation, the maintainer validates the Gateway candidate build and
-the cache-only local base construction,
-builds two independent archive matrices from the candidate lock, regenerates
+external mutation, the maintainer validates the Gateway and local base
+construction, builds two independent archive matrices, regenerates
 and verifies checksum/SBOM/provenance subjects, renders and audits the stable
 Formula, completes the required gates and manual reviews, and stops for
 explicit approval. A local preparation command never pushes a branch or tag,
-publishes an OCI image, creates a GitHub Release, or updates a Homebrew tap.
+creates a GitHub Release, or updates a Homebrew tap.
 
-After approval, the Gateway image is published and independently inspected
-first. Its real immutable index forms one generated component lock; no
-follow-up source commit is created. The exact lock is then injected into every
-CLI archive before the SemVer release is assembled. The Release
-workflow is manual `workflow_dispatch`, never a tag-push trigger. Its caller
+After approval, the Release workflow assembles the CLI matrix directly from
+the reviewed source revision. It is manual `workflow_dispatch`, never a
+tag-push trigger. Its caller
 must supply the exact tag and full reviewed revision. `publish: false` performs
 only CI assembly; `publish: true` also requires approval through the protected
 `release-publication` environment, revalidates that the existing tag points to
@@ -199,10 +182,10 @@ task authbroker:test
 task integration:test
 ```
 
-`task release:check` verifies that release packaging has no fallback component
-authority and that its generated lock is complete, source-bound, API-compatible,
-and propagated into build identity. A repository binary remains development
-only; only release packaging supplies published image authority.
+`task release:check` verifies that release packaging has no component lock,
+Tobari GHCR reference, package-write permission, registry login, image push,
+or link-injected image authority. A repository binary remains development
+only; release archives use the embedded resolver and source-selected APIs.
 
 Auth Broker changes additionally require the canonical source, image, static
 protocol, GitHub host-driver, and topology checks used by `task check`
@@ -216,9 +199,9 @@ projected `GH_TOKEN` handle. The scenario records only secret-free pass/fail
 outcomes and never becomes a repository fixture; tokens,
 authorization/device codes, provider credential files, handles, and raw
 authenticated transcripts are forbidden fixtures. An
-implementation handoff may report the reviewed image evidence, but release
-completion still requires that manual trusted-host scenario and every
-release gate; image publication alone is insufficient.
+implementation handoff may report the reviewed local-image evidence, but
+release completion still requires that manual trusted-host scenario and every
+release gate.
 
 The first public release also requires a clean-environment Colima or Linux
 Quick Start run and a human review of history, dependencies, licenses, and

@@ -23,7 +23,7 @@ const (
 type ResolverChannel string
 
 const (
-	ResolverPublished   ResolverChannel = "published"
+	ResolverEmbedded    ResolverChannel = "embedded"
 	ResolverDevelopment ResolverChannel = "development"
 )
 
@@ -67,7 +67,7 @@ func (i Identity) Validate() error {
 	if i.Commit != UnknownCommit && !commitPattern.MatchString(i.Commit) {
 		return fmt.Errorf("source commit must be unknown or a full lowercase Git SHA")
 	}
-	if i.ResolverChannel != ResolverPublished && i.ResolverChannel != ResolverDevelopment {
+	if i.ResolverChannel != ResolverEmbedded && i.ResolverChannel != ResolverDevelopment {
 		return fmt.Errorf("resolver channel is invalid")
 	}
 	if i.DevelopmentSource != (i.ResolverChannel == ResolverDevelopment) {

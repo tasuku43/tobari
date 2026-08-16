@@ -15,15 +15,15 @@
 ## Outcome
 
 The integrated V1 source has deterministic, locally verified automation for
-canonical component images, CLI archives, checksums, SBOMs, provenance,
+canonical local image inputs, CLI archives, checksums, SBOMs, provenance,
 GitHub Release assets, and the Homebrew formula. Work stops before any external
-push, tag, OCI publication, GitHub Release, or tap update and asks the
+push, tag, GitHub Release, or tap update and asks the
 maintainer for synchronous publication approval.
 
 ## Non-goals
 
 - Publishing from a partially integrated source tree.
-- Claiming a candidate image digest is published or anonymously retrievable.
+- Publishing a Tobari-owned OCI image.
 - Code signing/notarization or reproducible-build claims unless separately
   decided and proven.
 - Adding release-unrelated runtimes, providers, VM layers, or capabilities.
@@ -34,8 +34,8 @@ maintainer for synchronous publication approval.
       byte-equal after integrated auth/policy changes. Evidence: canonical
       source checks pass after the complete Docker policy/auth journey and the
       GraphQL fail-closed correction.
-- [x] Workflows build Linux amd64/arm64 component indexes and supported CLI
-      archives, emit checksums, SPDX/CycloneDX SBOMs, and CI provenance with
+- [x] Workflows validate Linux amd64/arm64 local images and build supported CLI
+      archives, emit checksums, SPDX SBOMs, and CI provenance with
       pinned permissions and reviewed dependencies. Evidence: workflow and
       release lint verify the exact subjects, pinned Actions, permissions, and
       protected publication environment without adding a dependency.
@@ -49,13 +49,12 @@ maintainer for synchronous publication approval.
       second synchronous approval before tag, Release, and stable tap pull
       request publication.
 - [x] `task check`, `task security`, `task public:check`, and
-      `task release:check` validate paired generated component authority
-      without a digest-pin commit; before approval candidate digests are not
-      described as published authority.
+      `task release:check` reject component locks and every Tobari-owned image
+      publication path.
 
 ## Completion definition
 
 This preparation packet reaches the approval checkpoint with local commits and
 synthetic evidence. The parent release remains Active until approved external
-publication, generated digest locking, final gates, release creation, and install
+publication, final gates, release creation, and install
 verification complete synchronously with the maintainer.

@@ -270,12 +270,12 @@ project state.
 
 Gateway image code is root-owned and read-only in the image, while the service
 starts directly as the invoking numeric non-root identity supplied by Compose.
-Routine startup pulls only the reviewed immutable Gateway digest injected from
-the release component lock and rejects missing labels, a root default user,
-the wrong entrypoint, or a Docker Engine platform mismatch before cluster
+Routine startup builds or reuses the reviewed embedded Gateway source under a
+content-derived local tag and rejects missing labels, a root default user, the
+wrong entrypoint, or a Docker Engine platform mismatch before cluster
 resources are created. Contributor source testing uses `task build` and a
-development resolver that selects embedded-source-hash local image tags;
-the public `cluster up` command never builds Gateway source. The image does not bake in a host UID/GID. The private CA named volume is
+development resolver with its own embedded-source-hash local image tags. The
+image does not bake in a host UID/GID. The private CA named volume is
 mounted only into Gateway and its initialization directory is writable by that
 service; the public CA named volume is written by Gateway and mounted
 read-only into each Tobari. Gateway opens no root entrypoint and receives no
@@ -928,18 +928,14 @@ transcripts are never repository fixtures. Publication still requires
 confidentiality review. The canonical Gateway source is the public `gateway/`
 tree; its embedded Docker build-input snapshot is checked for exact membership
 and bytes against the current source, while
-the published image is inspected against the exact source revision that built
-it. The experimental Auth Broker source is the public `authbroker/` tree; its
+the locally built image is inspected against the exact embedded source identity
+that built it. The experimental Auth Broker source is the public `authbroker/` tree; its
 embedded Docker build-input snapshot is checked for exact membership and bytes,
 and provider-CLI
-absence and closed-plan protocol behavior are checked in validation. Pull-request image
-jobs have no package-write permission. GHCR moving tags are not a trusted
-service identity; routine Gateway consumption requires its reviewed immutable
-V1 digest from the release-generated component lock. The runtime
-base is built locally from embedded pinned source. Source contains no owned
-image-output fallback. The lock validator rejects partial, cross-revision,
-wrong-repository, moving, API-invalid, and incomplete-platform authorities
-before CLI packaging. A moving tag or local image is never service release
-authority. The checked combined Claude Code 2.1.220 and Codex 0.147.0 base
+absence and closed-plan protocol behavior are checked in validation. Image
+workflows have no package-write permission. Gateway and the runtime base are
+built locally from embedded pinned source and validated before use. Source
+contains no owned image-output fallback, and release packaging has no registry
+or component-lock authority. The checked combined Claude Code 2.1.220 and Codex 0.147.0 base
 establishes integrity and local build identity only; Tobari never publishes
 that combined image.

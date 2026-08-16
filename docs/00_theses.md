@@ -548,10 +548,10 @@ test, lint, policy test, or integration scenario.
   resolver channel, source-required component APIs, and the APIs
   selected by that resolver. Missing source metadata or an API mismatch is
   never presented as compatible.
-- Gateway is the sole published internal service artifact of one CLI release.
-  Its immutable identity is generated from the selected source revision and
-  injected during release assembly; generated digest authority is never
-  committed back into source. Auth Broker remains local to experimental builds.
+- Tobari publishes no OCI images. Released and development CLIs derive local
+  Gateway and agent-ready image identities from their embedded pinned source,
+  build missing images on the user's Docker host, and validate them before
+  mutation. Auth Broker remains local to experimental builds.
 - `task check` is the implementation completion gate; security and public
   changes also run their named profiles.
 - Docker integration is a separate explicit profile because it requires a
@@ -561,8 +561,8 @@ test, lint, policy test, or integration scenario.
 
 - `tools/archlint`, catalog contract tests, Go unit tests, Gateway tests, OPA
   tests, and Docker integration tests cover distinct boundaries.
-- Published-lock and development build fixtures prove that release-injected
-  authorities and source-hash local tags cannot cross resolver channels, and cluster preflight
+- Embedded-release and development build fixtures prove that source-derived
+  local identities cannot cross resolver channels, and cluster preflight
   rejects an API mismatch before state or Docker mutation.
 - `.harness/capabilities.json` classifies every supported and excluded outcome.
 - CI delegates to repository scripts rather than duplicating commands.

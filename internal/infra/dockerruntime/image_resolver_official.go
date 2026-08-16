@@ -5,43 +5,23 @@ package dockerruntime
 import (
 	"context"
 	"fmt"
-	"strconv"
 
 	"github.com/tasuku43/tobari/internal/domain/buildidentity"
 	"github.com/tasuku43/tobari/internal/domain/capabilityprofile"
+	"github.com/tasuku43/tobari/internal/infra/runtimeassets"
 )
 
 type officialImageResolver struct{}
 
-// Release packaging replaces the two service identities and APIs from one
-// validated generated component lock. The base runtime remains a local image;
-// packaging gives its embedded recipe a source-derived tag.
-var (
-	publishedGatewayImage = "unpublished"
-	publishedGatewayAPI   = "1"
-)
-
 func (officialImageResolver) BuildIdentity(version, commit string) (buildidentity.Identity, error) {
-	gatewayAPI, err := selectedImageAPI(publishedGatewayAPI, "Gateway")
-	if err != nil {
-		return buildidentity.Identity{}, err
-	}
 	return buildidentity.Identity{
 		Version: version, Commit: buildidentity.NormalizeCommit(commit),
-		ResolverChannel:   buildidentity.ResolverPublished,
+		ResolverChannel:   buildidentity.ResolverEmbedded,
 		CapabilityProfile: capabilityprofile.Compiled(),
 		Gateway: buildidentity.Component{
-			RequiredAPI: buildidentity.RequiredGatewayAPI, SelectedAPI: gatewayAPI,
+			RequiredAPI: buildidentity.RequiredGatewayAPI, SelectedAPI: buildidentity.RequiredGatewayAPI,
 		},
 	}, nil
-}
-
-func selectedImageAPI(raw, component string) (int, error) {
-	value, err := strconv.Atoi(raw)
-	if err != nil || value <= 0 {
-		return 0, fmt.Errorf("injected %s API must be a positive integer", component)
-	}
-	return value, nil
 }
 
 func newImageResolver() imageResolver {
@@ -61,7 +41,11 @@ func (officialImageResolver) ShouldBuildRuntimeImage(image string) bool {
 }
 
 func (officialImageResolver) GatewayImage(context.Context, *Runtime) (sharedImageSelection, error) {
-	return sharedImageSelection{Image: publishedGatewayImage, RequireDigest: true}, nil
+	version, err := runtimeassets.ComponentVersion("gateway")
+	if err != nil {
+		return sharedImageSelection{}, err
+	}
+	return sharedImageSelection{Image: "tobari-gateway:base-" + version, BuildIfMissing: true}, nil
 }
 
 func (officialImageResolver) AuthBrokerImage(context.Context, *Runtime) (sharedImageSelection, error) {

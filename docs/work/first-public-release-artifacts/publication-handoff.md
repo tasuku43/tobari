@@ -27,15 +27,15 @@ gh workflow run release.yml --repo "$repo" --ref "$branch" \
 ```
 
 Wait for the candidate run to pass. Download its release assets and verify the
-five archives, `component-lock.json`, checksums, SPDX SBOM, unsigned provenance,
-and stable Formula. Confirm the lock carries the requested source revision,
-both canonical repositories, API V1, immutable candidate digests, and the exact
-Linux amd64/arm64 platform set.
+five archives, checksums, SPDX SBOM, unsigned provenance, and stable Formula.
+Confirm no component lock or OCI artifact is present.
 
 ```sh
 candidate_dir=$(mktemp -d)
 # Download the candidate run's release-assets artifact into $candidate_dir.
-go run ./tools/componentlock verify "$candidate_dir/component-lock.json" "$source_revision"
+go run ./tools/releaseartifacts verify-final "$release_tag" "$source_revision" \
+  "https://github.com/tasuku43/tobari/.github/workflows/release.yml@$source_revision" \
+  "<candidate-run-url>" "$candidate_dir"
 ```
 
 ## 3. Keep release outputs out of source
@@ -81,7 +81,7 @@ gh workflow run release.yml --repo "$repo" --ref "$branch" \
 ```
 
 Wait for the complete release asset artifact, download it, and independently
-verify the five archives, `component-lock.json`, `checksums.txt`, SPDX SBOM,
+verify the five archives, `checksums.txt`, SPDX SBOM,
 unsigned provenance, and stable Formula before creating a tag.
 
 ## 6. Publish only after a second synchronous approval
@@ -107,5 +107,5 @@ tobari doctor
 brew uninstall tobari
 ```
 
-Do not delete or overwrite an existing tag, component immutable tag, Release,
-or Release asset. A correction uses a new reviewed source revision and version.
+Do not delete or overwrite an existing tag, Release, or Release asset. A
+correction uses a new reviewed source revision and version.

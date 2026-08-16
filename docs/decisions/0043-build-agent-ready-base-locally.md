@@ -5,7 +5,7 @@
 - Deciders: Tobari maintainers
 - Scope: Product, architecture, security, release, public boundary, and harness
 - Revises: The runtime-publication portions of ADR 0033 and ADR 0039
-- Superseded by: ADR 0044 for Auth Broker publication and release-lock scope
+- Superseded by: ADR 0045 for all Tobari-owned image publication and release-lock scope
 
 ## Context
 

@@ -59,8 +59,7 @@ switching or recreating a Workspace requires native login there.
 `task build:dev` compiles the legacy reviewed Broker capability and its `auth`
 commands behind `tobari_experimental`. It uses a three-service Compose override
 and an experimental Gateway layer. No environment variable or runtime flag can
-activate it in a standard binary, it is not supported or published, and it has
-no standard component-lock entry.
+activate it in a standard binary, and it is not supported or published.
 
 The experimental profile accepts:
 

@@ -252,12 +252,11 @@ source equality, release archive checksums, archive-level SPDX SBOM,
 unsigned in-toto/SLSA metadata, Formula rendering, and the clean-environment
 Linux/Colima Quick Start.
 
-Stop for explicit approval before pushing a branch or tag, publishing an OCI
-image, creating a GitHub Release, or updating a Homebrew tap. After approval,
-the protected workflow publishes and inspects only the Gateway index,
-generates its source-bound lock, injects it into the exact SemVer
-archives, and creates the immutable GitHub Release. The released CLI builds
-the pinned agent-ready base locally and never obtains it from GHCR. A
+Stop for explicit approval before pushing a branch or tag, creating a GitHub
+Release, or updating a Homebrew tap. Tobari has no OCI publication step. After
+approval, the protected workflow builds the exact SemVer archives and creates
+the immutable GitHub Release. The released CLI builds the pinned Gateway and
+agent-ready base locally and never obtains either from GHCR. A
 prerelease such as `v0.1.0-dev.1` is marked as a GitHub prerelease and must not
 mutate Homebrew. A stable run must then create the
 Formula-only `tasuku43/homebrew-tap` pull request from the exact audited Formula

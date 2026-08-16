@@ -324,19 +324,17 @@ drift. Tests and contributor documentation stay canonical-only rather than
 inflating the distributed CLI or its development image identity. Compose and OPA remain under
 `internal/infra/runtimeassets/assets` because they are CLI-owned orchestration
 and policy inputs, not Gateway image contents. Pull-request workflows validate
-the canonical Linux amd64/arm64 build, while the manual release workflow
-publishes an immutable commit tag and records its digest in the generated
-component lock. Moving tags are never consumed by the CLI.
+the canonical Linux amd64/arm64 build with cache-only output. No workflow
+publishes a Tobari-owned image.
 
 The root ensure operation materializes exact embedded bytes under the Tobari state directory,
 writes generated non-secret runtime configuration, including the owner-only
 Context/project-principal registry and all-Context policy projection,
 and invokes Docker through the runtime port. Standard Compose owns only Gateway,
-OPA, shared networks, and CA volumes. Cluster startup obtains the verified
-Gateway image by digest and ensures the agent-ready
-runtime base from the embedded pinned recipe under a source-derived local tag.
-The normal resolver uses release-injected service images only; the development
-resolver selects embedded-source-hash local service tags built by `task build`.
+OPA, shared networks, and CA volumes. Cluster startup ensures the verified
+Gateway and agent-ready runtime images from embedded pinned recipes under
+source-derived local tags, building each only when absent. The release resolver
+is `embedded`; the development resolver selects its own source-hash local tags.
 The runtime adapter
 creates or reconciles each logical Tobari from its bound Context image and connects Gateway to
 its dedicated network. After it has reconciled the Workspace guard, it records
@@ -347,10 +345,9 @@ complete-file projections. A public-only CA volume is mounted read-only into
 each Tobari, whose entrypoint builds an ephemeral CA bundle.
 
 The same resolver owns a pure build-identity projection used by `version` and
-cluster preflight. Release packaging injects the published implementation's
-selected component images and APIs from one validated component lock; the
-development implementation fixes APIs to canonical source and derives image
-tags from embedded source bytes.
+cluster preflight. Both implementations fix APIs to canonical source and derive
+image tags from embedded source bytes; release packaging injects no image
+authority.
 Neither implementation can consult CWD, project metadata, environment, or a
 moving registry tag. Cluster preflight compares this projection before state
 loading, asset materialization, journals, policy tests, or Docker calls.
@@ -364,14 +361,12 @@ the tests or contributor documentation, at
 `scripts/check-authbroker-source.sh` rejects byte, membership, or Docker
 `COPY` drift. The source and image
 checks run the broker unit suite, prove that no provider CLI is installed, and
-build the fixed non-root image. It is not published or included in the standard
-component lock. The experimental contributor resolver uses a source-hash local
-tag.
+build the fixed non-root image. It is not published. The experimental
+contributor resolver uses a source-hash local tag.
 
 Both canonical sources declare component API V1. Source records only reviewed
-parent inputs; generated owned-image outputs never enter `versions.env`.
-Release assembly rejects partial, cross-revision, API-mismatched, or
-non-multi-architecture component evidence before CLI packaging.
+parent inputs; generated owned-image outputs never enter `versions.env` or
+release packaging.
 
 Compose mounts owner-only host state
 `auth/contexts` at `/var/lib/tobari-auth/contexts` and `auth/runtime` at

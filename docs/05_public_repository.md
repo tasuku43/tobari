@@ -100,8 +100,7 @@ support promises before maintainers invite external users.
 - Do not expose secrets to forked pull requests.
 - Verify dependency integrity, licenses, and known vulnerabilities.
 - Experimental Auth Broker source and tests remain subject to the public secret
-  guard, but no Broker image, component lock entry, or provider adapter is a
-  release artifact.
+  guard, but no Broker image or provider adapter is a release artifact.
 - For the agent-ready base runtime, retain GitHub CLI and AWS CLI checks and
   bind Claude Code 2.1.220 and Codex 0.147.0 to their per-platform artifact
   locks. The base workflow remains validation-only, and the protected Release
@@ -121,7 +120,7 @@ Before each public release, verify:
 - the tag points to reviewed source;
 - all required profiles pass;
 - `version --format json` reports the release version, full source commit,
-  published resolver, selected pin APIs, and compatibility expected by the
+  embedded resolver, selected pin APIs, and compatibility expected by the
   release gate, with empty repository-development recovery fields;
 - supported-platform artifacts are complete;
 - checksums and any provenance or signatures are present and verified;
@@ -130,20 +129,12 @@ Before each public release, verify:
 - release notes disclose contract and security impact;
 - no artifact, Formula, URL, log, or metadata contains a forbidden identifier.
 
-For an official service OCI image publication, also verify the canonical image source,
-parent/base digest lock, supported architectures, runtime labels, license
-metadata, downloaded-artifact notices, and immutable tag behavior. Gateway
-publication belongs only to the protected Release workflow; validation
-workflows never log in or push, and neither the runtime base nor Auth Broker is
-published. Pull-request and standalone validation are cache-only and have no
-package-write permission. Routine CLI startup uses only the immutable Gateway
-digest injected from the reviewed lock.
-All Tobari-owned component APIs are V1. Development source records no generated
-Gateway digest authority. Publication creates that service index from the
-reviewed revision and emits one Gateway-only lock before CLI packaging.
-Publication requires a reviewed immutable Linux amd64/arm64 manifest digest,
-service API/role labels, non-root `1000:1000` user, entrypoint, source revision,
-license metadata, and anonymous retrieval for Gateway.
+Tobari publishes no OCI images. Validation workflows remain cache-only and
+have no package-write, registry-login, or push path. Routine CLI startup builds
+or reuses source-derived local Gateway and runtime images, then checks their
+component API, role, non-root user, entrypoint, and architecture before use.
+All Tobari-owned component APIs are V1; source and release metadata record no
+generated image digest authority.
 
 Source-build identity may contain only the deterministic public fields above.
 Artifact and repository scans reject local absolute paths, usernames, branch
@@ -152,12 +143,9 @@ names, dirty content, credentials, or invented digest authority; the literal
 identity.
 
 Contributors use `task build` for the local agent-ready runtime,
-content-addressed local service images, and `bin/tobari`. Those local images
-are not release authority. New immutable V1
-multi-architecture Gateway digests require the complete image, license,
-confidentiality, synthetic, and manual live-login review. Release packaging
-fails unless the lock API equals the canonical source Dockerfile label, the
-Gateway image reference is an immutable digest, and all revisions agree.
+content-addressed local service images, and `bin/tobari`. Release packaging
+fails if a component lock, Tobari GHCR reference, package-write permission, or
+registry push path reappears.
 
 See [Release](06_release.md) for the artifact workflow.
 

@@ -31,9 +31,8 @@ the two agent pins to their checked artifact locks. Datadog acquisition tests
 instead prove selected-Context resolution, immutable image and executable
 identity, structural pup login/capture conformance, and absence of host/base
 fallback. The base workflow is always validation-only. Release tests reject
-any base-runtime GHCR reference or push path; the protected registry mutation
-publishes Gateway only. Auth Broker remains validation-only and local to
-`task build:dev`.
+every Tobari-owned GHCR reference, package-write permission, registry login, or
+push path. Auth Broker remains validation-only and local to `task build:dev`.
 
 `task build` is a contributor feedback path, not a completion profile. It
 builds or reuses local Tobari-managed component images whose tags contain the
@@ -55,9 +54,9 @@ Both repository build tasks embed only `git rev-parse --verify HEAD` as the
 source commit while retaining the fixed `dev` version; `-buildvcs=false` and
 `-trimpath` exclude implicit VCS state and local paths. Build-identity tests
 fix version JSON schema 1, require `unknown` metadata to remain incompatible,
-and compile the default standard plus targeted experimental matrices. Published packaging requires one validated
-component lock and exposes its selected APIs with no repository recovery value;
-the development fixture exposes matching source APIs plus exactly `task build`
+and compile the default standard plus targeted experimental matrices. Release
+packaging uses the embedded resolver and exposes source-selected APIs with no
+repository recovery value; the development fixture exposes matching source APIs plus exactly `task build`
 and `bin/tobari`.
 
 The standard contributor source expects `io.tobari.gateway-api=1`, including
@@ -65,16 +64,16 @@ guarded transparent routing, synthetic DNS, and schema-1 source principals.
 The experimental build additionally checks `io.tobari.auth-broker-api=1`.
 `task build` is the matching standard local image path. `versions.env` contains
 only source inputs and no generated Tobari-owned release output. The release
-profile validates Gateway-only lock generation and requires Gateway and every
-CLI archive to carry the same source revision. The local base tag is derived
-from the embedded runtime recipe.
+profile rejects component locks and registry publication, and verifies every
+CLI archive carries the requested source revision. Local image tags are derived
+from their embedded recipes.
 
 The focused `task runtime:base:check` workflow validates the canonical
 `runtimes/base` metadata and per-platform artifact lock, the Dockerfile's common
 tool, integrity, redistribution/license, and runtime contracts, and byte
 equality with the embedded CLI snapshot. Its pull-request and main workflow is
 cache-only and has no package-write permission. The protected Release workflow
-also cannot publish it; Gateway is the only registry artifact.
+cannot publish any Tobari-owned OCI image.
 
 `task gateway:source:check` validates exact membership and byte equality for
 the canonical Gateway Dockerfile, `.dockerignore`, and Dockerfile-declared

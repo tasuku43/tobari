@@ -11,7 +11,7 @@ import (
 	"github.com/tasuku43/tobari/internal/domain/tobari"
 )
 
-func TestClusterUpRejectsPublishedResolverAPIMismatchBeforeRuntimeCalls(t *testing.T) {
+func TestClusterUpRejectsEmbeddedResolverAPIMismatchBeforeRuntimeCalls(t *testing.T) {
 	t.Parallel()
 	runner := &recordingRunner{}
 	runtime, err := newRuntimeWithData(t.TempDir()+"/config", t.TempDir()+"/state", t.TempDir()+"/data", runner)
@@ -20,7 +20,7 @@ func TestClusterUpRejectsPublishedResolverAPIMismatchBeforeRuntimeCalls(t *testi
 	}
 	identity := buildidentity.Identity{
 		Version: "dev", Commit: buildidentity.UnknownCommit,
-		ResolverChannel:   buildidentity.ResolverPublished,
+		ResolverChannel:   buildidentity.ResolverEmbedded,
 		CapabilityProfile: capabilityprofile.ProfileStandard,
 		Gateway:           buildidentity.Component{RequiredAPI: 1, SelectedAPI: 2},
 	}
@@ -36,7 +36,7 @@ func TestClusterUpRejectsPublishedResolverAPIMismatchBeforeRuntimeCalls(t *testi
 	if !strings.Contains(public.Message, "Gateway API 2") ||
 		!strings.Contains(public.Message, "source requires Gateway API 1") ||
 		strings.Contains(public.Message, "task build") || strings.Contains(public.Message, "bin/tobari") {
-		t.Fatalf("published mismatch message = %q", public.Message)
+		t.Fatalf("embedded mismatch message = %q", public.Message)
 	}
 	if len(progress) != 0 || len(runner.runs) != 0 || len(runner.outputs) != 0 {
 		t.Fatalf("mismatch crossed preflight: progress=%+v runs=%+v outputs=%+v", progress, runner.runs, runner.outputs)
@@ -57,12 +57,12 @@ func TestComponentAPIMismatchRecoveryIsChannelSpecific(t *testing.T) {
 		t.Fatalf("development recovery = %#v", public)
 	}
 
-	published := development
-	published.ResolverChannel = buildidentity.ResolverPublished
-	published.DevelopmentSource = false
-	runtime.images = testImageResolver{identity: &published}
+	embedded := development
+	embedded.ResolverChannel = buildidentity.ResolverEmbedded
+	embedded.DevelopmentSource = false
+	runtime.images = testImageResolver{identity: &embedded}
 	public, ok = fault.PublicCopy(runtime.incompatibleComponentAPI("Gateway", 2, 1, "gateway_image_incompatible"))
 	if !ok || strings.Contains(public.Message, "task build") || strings.Contains(public.Message, "bin/tobari") {
-		t.Fatalf("published recovery leaked repository commands = %#v", public)
+		t.Fatalf("embedded recovery leaked repository commands = %#v", public)
 	}
 }

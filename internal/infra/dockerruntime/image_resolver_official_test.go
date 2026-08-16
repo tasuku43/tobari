@@ -4,6 +4,7 @@ package dockerruntime
 
 import (
 	"context"
+	"strings"
 	"testing"
 )
 
@@ -19,5 +20,16 @@ func TestOfficialImageResolverReturnsLocalBaseAuthority(t *testing.T) {
 	resolver := officialImageResolver{}
 	if got := resolver.DefaultRuntimeImage(); got != localBaseRuntimeImage || localBaseRuntimeImage != "tobari-runtime:base" || resolver.ShouldPullRuntimeImage(got) || !resolver.ShouldBuildRuntimeImage(got) {
 		t.Fatalf("runtime selection = %q pull=%t build=%t", got, resolver.ShouldPullRuntimeImage(got), resolver.ShouldBuildRuntimeImage(got))
+	}
+}
+
+func TestOfficialImageResolverReturnsEmbeddedLocalGatewayAuthority(t *testing.T) {
+	t.Parallel()
+	selection, err := (officialImageResolver{}).GatewayImage(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(selection.Image, "tobari-gateway:base-") || selection.RequireDigest || !selection.BuildIfMissing {
+		t.Fatalf("Gateway selection = %+v", selection)
 	}
 }

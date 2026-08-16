@@ -9,7 +9,7 @@ import (
 func TestIdentityRequiresCompleteTruthfulMetadataForCompatibility(t *testing.T) {
 	t.Parallel()
 	identity := Identity{
-		Version: "1.2.3", Commit: UnknownCommit, ResolverChannel: ResolverPublished,
+		Version: "1.2.3", Commit: UnknownCommit, ResolverChannel: ResolverEmbedded,
 		CapabilityProfile: capabilityprofile.ProfileStandard,
 		Gateway:           Component{RequiredAPI: 4, SelectedAPI: 4},
 	}
@@ -31,7 +31,7 @@ func TestIdentityRequiresCompleteTruthfulMetadataForCompatibility(t *testing.T) 
 
 func TestDevelopmentRecoveryRequiresDevelopmentResolverMetadata(t *testing.T) {
 	t.Parallel()
-	identity := Identity{ResolverChannel: ResolverPublished, CapabilityProfile: capabilityprofile.ProfileStandard}
+	identity := Identity{ResolverChannel: ResolverEmbedded, CapabilityProfile: capabilityprofile.ProfileStandard}
 	if build, binary, ok := identity.DevelopmentRecovery(); ok || build != "" || binary != "" {
 		t.Fatalf("published recovery = %q %q %t", build, binary, ok)
 	}
@@ -45,11 +45,11 @@ func TestDevelopmentRecoveryRequiresDevelopmentResolverMetadata(t *testing.T) {
 func TestIdentityRejectsCrossedChannelMetadata(t *testing.T) {
 	t.Parallel()
 	identity := Identity{
-		Version: "dev", Commit: UnknownCommit, ResolverChannel: ResolverPublished, DevelopmentSource: true,
+		Version: "dev", Commit: UnknownCommit, ResolverChannel: ResolverEmbedded, DevelopmentSource: true,
 		CapabilityProfile: capabilityprofile.ProfileStandard,
 		Gateway:           Component{RequiredAPI: 4, SelectedAPI: 3},
 	}
 	if err := identity.Validate(); err == nil {
-		t.Fatal("published resolver accepted development source metadata")
+		t.Fatal("embedded resolver accepted development source metadata")
 	}
 }

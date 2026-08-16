@@ -6,16 +6,17 @@
 - The compiled reviewed login order includes GitHub, AWS, Datadog, OpenAI, and Anthropic.
 - `go run ./tools/releaseversion v0.1.0-dev.1` reports `stable=false`.
 - The Release workflow marks non-stable tags as GitHub prereleases and skips the stable-only Homebrew job.
-- The generated component lock binds Gateway and Auth Broker. The accepted
-  local-base decision makes that the complete release lock rather than an
-  omission.
+- The accepted ADR 0045 decision removes the component lock and every
+  Tobari-owned OCI publication path. Released CLIs build pinned local Gateway
+  and runtime images from embedded source.
 - Anonymous GHCR inspection on 2026-08-16 found existing public `tobari/runtime`, `tobari/gateway`, `tobari/auth-broker`, and `tobari-runtime` packages. All four were permanently deleted through GitHub's authenticated package settings. The owner package page then showed zero packages and anonymous GHCR token requests returned HTTP 403 for all four names.
-- Standalone Gateway and Auth Broker workflows still contain protected manual publish jobs.
+- Standalone image workflows are validation-only and the Release workflow has
+  no package-write, registry login, or image push path.
 
 ## Relevant structure
 
 - Entry point: `Taskfile.yml` and `.github/workflows/release.yml`
-- Domain rule: `internal/domain/authbroker/provider_registry.go`, `internal/domain/componentlock`
+- Domain rule: `internal/domain/authbroker/provider_registry.go`, `internal/domain/buildidentity`
 - Application use case: existing authentication and lifecycle use cases remain unchanged
 - Infrastructure boundary: `internal/infra/authproviders`, `internal/infra/dockerruntime`
 - CLI catalog or presentation: `internal/cli/auth_catalog.go`, `internal/cli/version.go`
@@ -25,8 +26,8 @@
 
 - Profiles are compile-time authority, not a runtime escape hatch.
 - Standard capabilities cannot depend on experimental capabilities.
-- The release lock is generated from actual published digests and is never committed.
-- Gateway and Auth Broker must share one exact source revision and Linux platform set. The agent-ready base is source-bound through embedded bytes, a source-derived local tag, and local compatibility validation.
+- Gateway, Auth Broker, and the agent-ready base are source-bound through
+  embedded bytes, source-derived local tags, and local compatibility validation.
 - The first intentional publication must occur only after existing packages are removed and rechecked.
 - Credentials and live provider material never enter release fixtures or logs.
 
@@ -81,12 +82,12 @@ gh workflow run release.yml --ref main \
   -f publish=true
 ```
 
-The release workflow revalidates the full revision and publishes only Gateway
-and Auth Broker to GHCR. The agent-ready base remains local-build-only.
+The release workflow revalidates the full revision and publishes only the CLI
+archives and metadata to GitHub Releases. All Tobari-owned images remain local.
 
 ## Security and public-boundary notes
 
-- Assets and side effects involved: two public OCI packages, one GitHub prerelease, and release assets.
+- Assets and side effects involved: one GitHub prerelease and its release assets.
 - Credentials or confidential data involved: GitHub publication authority only; no provider credential material.
 - New dependencies, destinations, files, processes, or generated content: no dependency; first-use Docker build downloads pinned agent artifacts from their official sources.
 - Publication and licensing concerns: Tobari does not publish the combined agent image; native Anthropic account-login terms remain a separate manual product/legal release review.
@@ -95,4 +96,5 @@ and Auth Broker to GHCR. The agent-ready base remains local-build-only.
 
 - Standard profile: supported capabilities compiled into normal and release builds.
 - Experimental profile: standard capabilities plus development-only capabilities.
-- Component lock: generated release authority binding exact OCI digests to one source revision.
+- Embedded resolver: released-CLI authority binding local image identities to
+  the CLI's pinned source bytes.

@@ -3,23 +3,19 @@
 ## Chosen approach
 
 Prepare deterministic artifact creation and validation early with synthetic
-inputs, but defer authoritative image metadata until integrated sources stop
-changing. Separate local preparation from protected publication so local checks
+inputs. Separate local preparation from protected publication so local checks
 cannot push, tag, publish, create a Release, or update a tap.
 
 ## Artifact flow
 
 1. Finalize canonical Gateway/Auth Broker source snapshots after A-D integrate.
-2. Build/test multi-architecture image layouts locally and define the CI digest
-   handoff plus SBOM/provenance outputs.
+2. Build/test multi-architecture image layouts locally with cache-only output.
 3. Package CLI archives, checksums, SBOMs, provenance statements, and a rendered
    formula through create-only local commands.
-4. Run synthetic integrity/install audits and all gates that do not require
-   published image retrieval.
+4. Run synthetic integrity/install audits and all gates.
 5. Stop and obtain explicit approval.
-6. After approval, publish and inspect both indexes, generate their paired
-   component lock, inject it into the CLI matrix, then create the GitHub Release
-   and Homebrew update synchronously without a digest-pin commit.
+6. After approval, create the GitHub Release and stable Homebrew update from
+   the exact reviewed CLI matrix. No OCI publication or component lock exists.
 
 ## Security and ownership
 

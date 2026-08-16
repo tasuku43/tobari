@@ -19,11 +19,12 @@ type gatewayImageRunner struct {
 	metadata        string
 	server          string
 	firstInspectErr error
+	runErr          error
 }
 
 func (r *gatewayImageRunner) Run(_ context.Context, args, _ []string, _ io.Reader, _, _ io.Writer) error {
 	r.runs = append(r.runs, runnerCall{args: append([]string{}, args...)})
-	return nil
+	return r.runErr
 }
 
 func (r *gatewayImageRunner) Output(_ context.Context, args, _ []string) ([]byte, error) {
@@ -121,6 +122,76 @@ func TestPrepareGatewayImageUsesInjectedLocalResolver(t *testing.T) {
 		if len(call.args) > 0 && call.args[0] == "pull" {
 			t.Fatalf("local Gateway image was pulled: %v", runner.outputs)
 		}
+	}
+}
+
+func TestPrepareGatewayImageBuildsMissingEmbeddedGatewayBeforeValidation(t *testing.T) {
+	t.Parallel()
+	runner := &gatewayImageRunner{
+		metadata:        gatewayMetadata("arm64", ""),
+		server:          `{"Os":"linux","Arch":"arm64"}`,
+		firstInspectErr: errors.New("image is not present"),
+	}
+	runtime := &Runtime{
+		stateDirectory: t.TempDir(),
+		runner:         runner,
+		images: testImageResolver{
+			gateway: sharedImageSelection{Image: "tobari-gateway:base-example", BuildIfMissing: true},
+		},
+	}
+	image, err := runtime.prepareGatewayImage(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if image != "tobari-gateway:base-example" || len(runner.runs) != 1 {
+		t.Fatalf("Gateway preparation = image %q runs %+v", image, runner.runs)
+	}
+	joined := strings.Join(runner.runs[0].args, "\n")
+	for _, required := range []string{"buildx", "build", "--progress=plain", "--load", "--tag", image, "gateway/Dockerfile", "MITMPROXY_IMAGE=mitmproxy/mitmproxy@sha256:"} {
+		if !strings.Contains(joined, required) {
+			t.Fatalf("Gateway build argv %q lacks %q", joined, required)
+		}
+	}
+}
+
+func TestPrepareGatewayImageReusesExistingEmbeddedGateway(t *testing.T) {
+	t.Parallel()
+	runner := &gatewayImageRunner{
+		metadata: gatewayMetadata("arm64", ""),
+		server:   `{"Os":"linux","Arch":"arm64"}`,
+	}
+	runtime := &Runtime{
+		stateDirectory: t.TempDir(),
+		runner:         runner,
+		images: testImageResolver{
+			gateway: sharedImageSelection{Image: "tobari-gateway:base-example", BuildIfMissing: true},
+		},
+	}
+	if _, err := runtime.prepareGatewayImage(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(runner.runs) != 0 {
+		t.Fatalf("existing Gateway triggered builds: %+v", runner.runs)
+	}
+}
+
+func TestPrepareGatewayImageReportsEmbeddedBuildFailure(t *testing.T) {
+	t.Parallel()
+	runner := &gatewayImageRunner{
+		firstInspectErr: errors.New("image is not present"),
+		runErr:          errors.New("build failed"),
+	}
+	runtime := &Runtime{
+		stateDirectory: t.TempDir(),
+		runner:         runner,
+		images: testImageResolver{
+			gateway: sharedImageSelection{Image: "tobari-gateway:base-example", BuildIfMissing: true},
+		},
+	}
+	_, err := runtime.prepareGatewayImage(context.Background())
+	public, ok := fault.PublicCopy(err)
+	if !ok || public.Code != "gateway_image_build_failed" || public.Retryable {
+		t.Fatalf("error = %v, public = %+v", err, public)
 	}
 }
 

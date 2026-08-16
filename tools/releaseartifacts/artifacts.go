@@ -18,10 +18,9 @@ import (
 )
 
 const (
-	checksumsName     = "checksums.txt"
-	sbomName          = "sbom.spdx.json"
-	provenanceName    = "provenance.intoto.jsonl"
-	componentLockName = "component-lock.json"
+	checksumsName  = "checksums.txt"
+	sbomName       = "sbom.spdx.json"
+	provenanceName = "provenance.intoto.jsonl"
 
 	canonicalCreated = "1980-01-01T00:00:00Z"
 )
@@ -267,7 +266,7 @@ func loadSubjects(request artifactRequest) ([]releaseSubject, error) {
 }
 
 func expectedSubjectNames(binary, tag string) []string {
-	names := append(expectedArchiveNames(binary, tag), componentLockName)
+	names := expectedArchiveNames(binary, tag)
 	sort.Strings(names)
 	return names
 }

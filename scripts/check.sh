@@ -190,7 +190,7 @@ run_security() {
 }
 
 run_release() {
-	require_generated_component_release_contract
+	require_embedded_gateway_release_contract
 	./scripts/lint-release.sh
   go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7
 }
@@ -198,7 +198,7 @@ run_release() {
 run_public() {
   go run ./tools/repoguard --scope public
   go run ./tools/contractlint
-	require_generated_component_release_contract
+	require_embedded_gateway_release_contract
   ./scripts/check-site.sh public
 }
 
@@ -211,15 +211,19 @@ load_runtime_versions() {
   }
 }
 
-require_generated_component_release_contract() {
+require_embedded_gateway_release_contract() {
 	load_runtime_versions
 	if grep -Eq '^(GATEWAY|AUTH_BROKER)_IMAGE(_API)?=' internal/infra/runtimeassets/assets/versions.env; then
 		echo "Tobari-owned release outputs must not be committed to versions.env" >&2
 		return 1
 	fi
-	go test ./internal/domain/componentlock ./tools/componentlock
-	grep -qF 'component-lock.json' .github/workflows/release.yml
-	grep -qF './tools/componentlock' scripts/package-release.sh
+	go test ./internal/infra/runtimeassets ./internal/infra/dockerruntime
+	if grep -R -F 'component-lock.json' .github/workflows/release.yml scripts/package-release.sh tools/releaseartifacts >/dev/null 2>&1; then
+		echo "release path still depends on a published component lock" >&2
+		return 1
+	fi
+	grep -qF 'runtimeassets.ComponentVersion("gateway")' internal/infra/dockerruntime/image_resolver_official.go
+	grep -qF 'BuildIfMissing: true' internal/infra/dockerruntime/image_resolver_official.go
 }
 
 run_policy() {

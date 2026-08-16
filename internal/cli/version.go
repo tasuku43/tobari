@@ -104,7 +104,7 @@ func versionOutputFields() []OutputField {
 	fields := []OutputField{
 		{Name: "version", Type: OutputFieldTypeString, Description: "Release or development version embedded in the executable."},
 		{Name: "commit", Type: OutputFieldTypeString, Description: "Full source commit embedded in the executable, or unknown when unavailable."},
-		{Name: "resolver_channel", Type: OutputFieldTypeString, Description: "Compiled image authority: published or development."},
+		{Name: "resolver_channel", Type: OutputFieldTypeString, Description: "Compiled image authority: embedded or development."},
 		{Name: "development_source", Type: OutputFieldTypeBoolean, Description: "Whether build metadata proves the contributor development resolver."},
 		{Name: "capability_profile", Type: OutputFieldTypeString, Description: "Immutable capability surface: standard or experimental."},
 		{Name: "gateway_required_api", Type: OutputFieldTypeInteger, Description: "Gateway API required by canonical source."},

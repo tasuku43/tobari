@@ -297,20 +297,14 @@ undeclared Docker mutation by the CLI.
   the official runtime base for an uncustomized Context; custom images still
   fail closed if missing or incompatible before project runtime network or
   container mutation.
-- `cluster up` builds the pinned agent-ready base locally when absent and
-  obtains the release-injected immutable Gateway digest. One generated
-  schema-1 component lock binds that service image, its API, platforms, and the
-  CLI source revision. It validates the service digest,
+- `cluster up` builds the pinned agent-ready base and Gateway locally when
+  absent from the CLI's embedded source-derived image identities. It validates
   API/role labels, non-root default user,
   entrypoint, and Docker Engine platform before running policy tests or
-  creating shared networks and containers. Gateway source development uses the
-  source-coupled `task build` path and a development resolver, not a public
-  `cluster up` option. The Gateway image is published as a Linux amd64/arm64
-  OCI index and the release-generated component lock contains its reviewed
-  immutable manifest digest.
-  Moving `main` and `latest` tags never become runtime authority. Contributor
-  validation uses content-addressed local tags through `task build` without changing an
-  installed release binary's selectors.
+  creating shared networks and containers. Released and contributor binaries
+  use distinct content-addressed local tags derived from their embedded source.
+  Tobari publishes no Gateway, runtime, or Auth Broker OCI image, and moving
+  registry tags never become runtime authority.
 - Standard authentication is owned by each agent CLI in the Workspace and the
   standard catalog contains no `auth` namespace. The following legacy driver
   contract is compiled only by `task build:dev`. Its authentication commands
@@ -388,9 +382,9 @@ undeclared Docker mutation by the CLI.
   the OpenAI supplemental header. Managed profiles and owner-selected dynamic
   behavior remain absent.
 - `runtime init` creates the current Context's owner-only
-  `runtime/Dockerfile`. The template starts from the resolver-selected base:
-  the release-injected immutable runtime digest or the contributor-local
-  `tobari-runtime:dev`. Editing that file is the supported
+  `runtime/Dockerfile`. The template starts from the resolver-selected local
+  source-derived base or the contributor-local `tobari-runtime:dev`. Editing
+  that file is the supported
   place to add tools and environment configuration for the Context. The
   command does not overwrite an existing recipe.
 - Direct `config shell` changes one allowlisted shell-presentation policy in
@@ -526,7 +520,7 @@ failures are stderr.
 APIs, `compatible`, `development_build_command`, and
 `development_binary`. An absent source commit is the explicit string
 `unknown` and makes `compatible=false`. The two repository-command fields are
-empty for a published resolver and contain exactly `task build` and
+empty for an embedded resolver and contain exactly `task build` and
 `bin/tobari` only when the compiled development metadata proves that path.
 The Workspace selector is a human stderr interaction; it produces no JSON or
 stdout selection protocol. A successful choice prints an English summary before
@@ -834,10 +828,9 @@ entry; failed image
 validation or Docker reconciliation leaves their previous logical state and
 home in place.
 
-When the recipe's first base is the exact release-injected official runtime
-digest, an explicit `runtime build` verifies/pulls that immutable base. An
-explicit local or custom base is not given a registry-pull request, so
-local-only base images remain usable.
+When the recipe's first base is the resolver-selected official local runtime,
+an explicit `runtime build` verifies or builds that pinned base. An explicit
+local or custom base is not given an implicit registry-pull request.
 
 OPA reads one cluster-owned revisioned aggregate bundle with `--watch`. The
 projection has one fixed `tobari.http/decision` router, Context-ID data

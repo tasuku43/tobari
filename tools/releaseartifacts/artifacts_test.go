@@ -24,8 +24,8 @@ func TestCreateAndVerifyReleaseMetadata(t *testing.T) {
 
 	checksums := readTestArtifact(t, request.Directory, checksumsName)
 	lines := strings.Split(strings.TrimSuffix(string(checksums), "\n"), "\n")
-	if len(lines) != 6 {
-		t.Fatalf("checksum records = %d, want 6", len(lines))
+	if len(lines) != 5 {
+		t.Fatalf("checksum records = %d, want 5", len(lines))
 	}
 	for index, name := range expectedSubjectNames(request.Project.BinaryName, request.Tag) {
 		if !strings.HasSuffix(lines[index], "  "+name) {
@@ -37,7 +37,7 @@ func TestCreateAndVerifyReleaseMetadata(t *testing.T) {
 	if err := json.Unmarshal(readTestArtifact(t, request.Directory, sbomName), &sbom); err != nil {
 		t.Fatal(err)
 	}
-	if sbom.SPDXVersion != "SPDX-2.3" || len(sbom.Packages) != 6 || len(sbom.Relationships) != 6 {
+	if sbom.SPDXVersion != "SPDX-2.3" || len(sbom.Packages) != 5 || len(sbom.Relationships) != 5 {
 		t.Fatalf("SPDX shape = version %q, packages %d, relationships %d", sbom.SPDXVersion, len(sbom.Packages), len(sbom.Relationships))
 	}
 	for index, archive := range expectedSubjectNames(request.Project.BinaryName, request.Tag) {
@@ -50,7 +50,7 @@ func TestCreateAndVerifyReleaseMetadata(t *testing.T) {
 	if err := json.Unmarshal(readTestArtifact(t, request.Directory, provenanceName), &provenance); err != nil {
 		t.Fatal(err)
 	}
-	if provenance.Type != "https://in-toto.io/Statement/v1" || provenance.PredicateType != "https://slsa.dev/provenance/v1" || len(provenance.Subject) != 6 {
+	if provenance.Type != "https://in-toto.io/Statement/v1" || provenance.PredicateType != "https://slsa.dev/provenance/v1" || len(provenance.Subject) != 5 {
 		t.Fatalf("provenance shape = %#v", provenance)
 	}
 	if provenance.Predicate.RunDetails.Builder.ID != request.BuilderID || provenance.Predicate.RunDetails.Metadata.InvocationID != request.InvocationID {
@@ -212,9 +212,6 @@ func writeTestArchives(t *testing.T, request artifactRequest) {
 		if err := os.WriteFile(filepath.Join(request.Directory, name), contents, 0o644); err != nil {
 			t.Fatal(err)
 		}
-	}
-	if err := os.WriteFile(filepath.Join(request.Directory, componentLockName), []byte("{}\n"), 0o644); err != nil {
-		t.Fatal(err)
 	}
 }
 

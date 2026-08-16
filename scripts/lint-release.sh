@@ -12,7 +12,6 @@ export GOWORK=off
 
 bash -n \
   scripts/build-dev-images.sh \
-  scripts/build-release-components.sh \
   scripts/check.sh \
   scripts/package-release.sh \
   scripts/release-archive-entries.sh \
@@ -127,15 +126,18 @@ for forbidden in 'packages: write' 'docker login ghcr.io' '--push'; do
     exit 1
   fi
 done
-if [[ $(grep -R -l -F 'packages: write' .github/workflows | tr '\n' ' ') != ".github/workflows/release.yml " ]]; then
-	echo "only the protected Release workflow may receive package-write permission" >&2
+if grep -R -F 'packages: write' .github/workflows >/dev/null 2>&1; then
+	echo "no workflow may receive package-write permission" >&2
 	exit 1
 fi
-for forbidden in 'ghcr.io/tasuku43/tobari/runtime' 'runtimecheck --require-publishable' 'Publish three components'; do
-  if grep -qF -- "$forbidden" .github/workflows/release.yml scripts/build-release-components.sh; then
-    echo "release publication still includes the local-only agent-ready base: $forbidden" >&2
-    exit 1
-  fi
+for forbidden in \
+  'ghcr.io/tasuku43/tobari/' 'docker login ghcr.io' '--push' \
+  'component-lock' 'build-release-components' 'tools/componentlock' \
+  'runtimecheck --require-publishable' 'Publish three components'; do
+  if grep -qF -- "$forbidden" .github/workflows/release.yml scripts/package-release.sh; then
+		echo "release publication still includes retired OCI authority: $forbidden" >&2
+		exit 1
+	fi
 done
 
 for forbidden in 'git describe' '{{.VERSION}}' '{{.COMMIT}}'; do
@@ -173,11 +175,11 @@ scripts/test-check-environment.sh >/dev/null
 scripts/test-release-archive-entries.sh >/dev/null
 
 for required in \
-  'require_generated_component_release_contract' \
-  'component-lock.json' './tools/componentlock'; do
+  'require_embedded_gateway_release_contract' \
+  'runtimeassets.ComponentVersion("gateway")' 'BuildIfMissing: true'; do
   grep -qF "$required" scripts/check.sh || {
-    echo "release gate is missing generated service compatibility authority: $required" >&2
-    exit 1
+		echo "release gate is missing embedded Gateway compatibility authority: $required" >&2
+		exit 1
   }
 done
 
@@ -271,7 +273,7 @@ if printf '%s\n' "$homebrew_job" | grep -qF 'git push origin main'; then
   exit 1
 fi
 
-if scripts/package-release.sh bad-tag 0000000000000000000000000000000000000000 ignored linux amd64 dist >/dev/null 2>&1; then
+if scripts/package-release.sh bad-tag 0000000000000000000000000000000000000000 linux amd64 dist >/dev/null 2>&1; then
   echo "package-release accepted an invalid tag" >&2
   exit 1
 fi
@@ -285,7 +287,7 @@ ambient_output=$(env \
   GOTOOLCHAIN=definitely-invalid \
   GOWORK=/definitely/missing/go.work \
   scripts/package-release.sh \
-    v0.0.0 0000000000000000000000000000000000000000 ignored plan9 amd64 dist 2>&1) || ambient_status=$?
+    v0.0.0 0000000000000000000000000000000000000000 plan9 amd64 dist 2>&1) || ambient_status=$?
 if [[ $ambient_status -ne 2 || $ambient_output != *"unsupported release target: plan9/amd64"* ]]; then
   echo "package-release did not neutralize malicious ambient Go configuration" >&2
   printf '%s\n' "$ambient_output" >&2
@@ -397,11 +399,6 @@ reproduction_go_cache=$release_root/go-cache-reproduction
 mkdir -p "$dist" "$primary_go_cache" "$reproduction_go_cache"
 release_tag=v0.0.0
 release_revision=0000000000000000000000000000000000000000
-gateway_source_api=$(sed -n 's/.*io\.tobari\.gateway-api="\([1-9][0-9]*\)".*/\1/p' gateway/Dockerfile)
-gateway_evidence=$release_root/gateway.component.json
-printf '{"schema_version":1,"image":"ghcr.io/tasuku43/tobari/gateway","digest":"sha256:%064d","revision":"%s","platforms":["linux/amd64","linux/arm64"]}\n' 1 "$release_revision" >"$gateway_evidence"
-component_lock=$dist/component-lock.json
-go run ./tools/componentlock create "$release_revision" "$gateway_source_api" "$gateway_evidence" "$component_lock"
 targets=(
   linux/amd64/tar.gz
   linux/arm64/tar.gz
@@ -411,7 +408,6 @@ targets=(
 )
 expected_assets=$release_root/expected-assets.txt
 : >"$expected_assets"
-printf '%s\n' component-lock.json >>"$expected_assets"
 primary_inputs_before=$release_root/primary-inputs-before.txt
 primary_inputs_after=$release_root/primary-inputs-after.txt
 inputs_before_primary=$(release_input_fingerprint "$primary_inputs_before")
@@ -429,7 +425,7 @@ for target in "${targets[@]}"; do
   fi
 
   env GOCACHE="$primary_go_cache" scripts/package-release.sh \
-    "$release_tag" "$release_revision" "$component_lock" "$goos" "$goarch" "$dist" >/dev/null
+    "$release_tag" "$release_revision" "$goos" "$goarch" "$dist" >/dev/null
   archive=$dist/$asset
   test -s "$archive"
   printf '%s\n' "$asset" >>"$expected_assets"
@@ -491,7 +487,6 @@ fi
 
 repro_dist=$release_root/repro-dist
 mkdir -p "$repro_dist"
-cp "$component_lock" "$repro_dist/component-lock.json"
 reproduction_inputs_before=$release_root/reproduction-inputs-before.txt
 reproduction_inputs_after=$release_root/reproduction-inputs-after.txt
 inputs_before_reproduction=$(release_input_fingerprint "$reproduction_inputs_before")
@@ -508,7 +503,7 @@ for target in "${targets[@]}"; do
   asset=${binary}_${release_tag}_${goos}_${goarch}.${extension}
 
   env GOCACHE="$reproduction_go_cache" scripts/package-release.sh \
-    "$release_tag" "$release_revision" "$repro_dist/component-lock.json" "$goos" "$goarch" "$repro_dist" >/dev/null
+    "$release_tag" "$release_revision" "$goos" "$goarch" "$repro_dist" >/dev/null
 done
 if ! go mod verify >/dev/null; then
   echo "module inputs changed or failed verification during the reproduction archive pass" >&2
@@ -562,7 +557,7 @@ done
 # only builds performed by this profile.
 first_asset=$dist/${binary}_${release_tag}_linux_amd64.tar.gz
 first_digest_before=$(sha256_of "$first_asset")
-if scripts/package-release.sh "$release_tag" "$release_revision" "$component_lock" linux amd64 "$dist" >/dev/null 2>&1; then
+if scripts/package-release.sh "$release_tag" "$release_revision" linux amd64 "$dist" >/dev/null 2>&1; then
   echo "package-release overwrote an existing archive" >&2
   exit 1
 fi
@@ -591,8 +586,8 @@ if ! cmp -s "$metadata_digests_before" "$metadata_digests_after"; then
 fi
 
 checksums=$dist/checksums.txt
-if [[ $(wc -l <"$checksums" | tr -d ' ') -ne 6 ]]; then
-  echo "checksums.txt does not contain exactly five archives and one component lock" >&2
+if [[ $(wc -l <"$checksums" | tr -d ' ') -ne 5 ]]; then
+  echo "checksums.txt does not contain exactly five archives" >&2
   exit 1
 fi
 checksum_assets=$release_root/checksum-assets.txt

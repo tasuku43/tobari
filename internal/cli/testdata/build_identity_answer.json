@@ -2,13 +2,13 @@
   "schema_version": 1,
   "answers": [
     {
-      "name": "published-compatible",
+      "name": "embedded-compatible",
       "compatible": true,
       "development_build_command": "",
       "development_binary": ""
     },
     {
-      "name": "published-historical-pins",
+      "name": "embedded-historical-pins",
       "compatible": false,
       "development_build_command": "",
       "development_binary": ""

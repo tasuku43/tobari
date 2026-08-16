@@ -8,11 +8,13 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
 	"github.com/tasuku43/tobari/internal/domain/buildidentity"
 	"github.com/tasuku43/tobari/internal/domain/fault"
+	"github.com/tasuku43/tobari/internal/infra/runtimeassets"
 )
 
 const (
@@ -42,10 +44,49 @@ func (r *Runtime) prepareGatewayImage(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	if selection.BuildIfMissing {
+		if err := r.ensureLocalGatewayImage(ctx, selection.Image); err != nil {
+			return "", err
+		}
+	}
 	if err := r.verifyGatewayImage(ctx, selection.Image, selection.RequireDigest); err != nil {
 		return "", err
 	}
 	return selection.Image, nil
+}
+
+func (r *Runtime) ensureLocalGatewayImage(ctx context.Context, image string) error {
+	if _, err := r.runner.Output(ctx, []string{"image", "inspect", "--format", "{{.Id}}", image}, os.Environ()); err == nil {
+		return nil
+	}
+	version, err := runtimeassets.Version()
+	if err != nil {
+		return err
+	}
+	runtimeDirectory := filepath.Join(r.stateDirectory, "runtime", version)
+	if err := runtimeassets.Materialize(runtimeDirectory); err != nil {
+		return err
+	}
+	versions, err := runtimeassets.Versions()
+	if err != nil {
+		return err
+	}
+	args := []string{
+		"buildx", "build", "--progress=plain", "--load",
+		"--tag", image,
+		"--file", filepath.Join(runtimeDirectory, "gateway", "Dockerfile"),
+		"--build-arg", "MITMPROXY_IMAGE=" + versions["MITMPROXY_IMAGE"],
+		filepath.Join(runtimeDirectory, "gateway"),
+	}
+	var output bytes.Buffer
+	if err := r.runner.Run(ctx, args, os.Environ(), nil, &output, &output); err != nil {
+		return fault.Wrap(
+			fault.KindUnavailable, "gateway_image_build_failed",
+			"the pinned Gateway could not be built locally", false, err,
+			fault.NextAction{Command: "doctor", Reason: "Inspect Docker build support and network access for the pinned Gateway inputs."},
+		)
+	}
+	return nil
 }
 
 func (r *Runtime) verifyGatewayImage(ctx context.Context, image string, requireDigest bool) error {
@@ -75,7 +116,7 @@ func (r *Runtime) verifyGatewayImage(ctx context.Context, image string, requireD
 		if !requireDigest {
 			return fault.Wrap(
 				fault.KindUnavailable, "gateway_image_unavailable",
-				"The selected Gateway image could not be inspected; build the development image and retry.", true, err,
+				"The selected local Gateway image could not be inspected.", true, err,
 				fault.NextAction{Command: "doctor", Reason: "Inspect Docker image availability."},
 			)
 		}

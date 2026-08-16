@@ -9,8 +9,9 @@ import (
 )
 
 type sharedImageSelection struct {
-	Image         string
-	RequireDigest bool
+	Image          string
+	RequireDigest  bool
+	BuildIfMissing bool
 }
 
 type imageResolver interface {
@@ -84,7 +85,7 @@ func (r *Runtime) incompatibleComponentAPI(component string, selected, required 
 	return fault.New(
 		fault.KindContract, code,
 		fmt.Sprintf(
-			"The published %s image declares API %d, but this source requires API %d. Install a compatible Tobari release or wait for reviewed immutable pins to advance.",
+			"The embedded %s image source declares API %d, but this source requires API %d. Install a compatible Tobari release.",
 			component, selected, required,
 		), false,
 		fault.NextAction{Command: "doctor", Reason: "Inspect the installed executable and immutable runtime image contract."},

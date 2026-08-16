@@ -7,12 +7,10 @@
   five CLI archives plus exact checksum/SPDX/provenance/Formula subjects. A
   stable protected publication propagates the exact released Formula through
   a pull request to `tasuku43/homebrew-tap`.
-- Component workflows accept one exact revision, build both supported Linux
-  architectures, attach BuildKit SBOM/max provenance, and produce immutable
-  digest metadata plus extracted component evidence. Publication is manual and
-  environment-gated; pull-request/cache builds do not push.
-- `versions.env` contains reviewed source inputs only; the release workflow
-  generates both owned image identities and one paired component lock.
+- Component workflows accept one exact revision and validate both supported
+  Linux architectures with cache-only output. No image workflow can publish.
+- `versions.env` contains reviewed source inputs only; release packaging has no
+  owned image identity or component lock.
 - `scripts/package-release.sh`, `tools/archivepack`, formula rendering/audit,
   and release lint already provide a deterministic base.
 - Repository-owned component SBOM/provenance evidence and CLI archive-level
@@ -26,10 +24,9 @@
 
 ## Constraints
 
-- Official image source/digest/metadata is finalized only after auth/policy
-  integration. Never describe a candidate lock as published authority.
-- Pushes can trigger Pages or component publication; no push is allowed before
-  the approval checkpoint.
+- Official embedded image source/metadata is finalized only after auth/policy
+  integration. Tobari publishes no owned image.
+- Pushes can trigger Pages; no release push is allowed before the approval checkpoint.
 - Release tooling and dependencies require license, integrity, permission, and
   public-boundary review.
 - Secrets, private URLs, personal identifiers, and live provider responses
@@ -38,8 +35,8 @@
 ## Existing local evidence
 
 - `./scripts/lint-release.sh` passes at the baseline revision.
-- `task public:check` and `task release:check` validate generated paired
-  authority and the absence of owned-image outputs in committed source.
+- `task public:check` and `task release:check` reject component locks and every
+  owned-image publication path.
 - Architecture-site generation and `generate:check` pass against the final
   integrated committed source snapshot.
 

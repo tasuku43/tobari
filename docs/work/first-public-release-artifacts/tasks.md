@@ -13,8 +13,8 @@
       exact archive-subject SPDX coverage and unsigned provenance limits.
 - [x] Define the explicit publication approval checkpoint and exact operator
       handoff. Evidence: local create-only preparation precedes approval;
-      manual workflow dispatch, protected publication environment, paired image
-      publication, tag, Release, and stable tap pull request remain explicit
+      manual workflow dispatch, protected publication environment, tag,
+      Release, and stable tap pull request remain explicit
       ordered steps.
 
 ## Prepare locally
@@ -70,9 +70,9 @@
       immutability, exact review, terminal guardrails, static Broker rotation,
       logout, and re-entry.
 - [x] Record the pre-publication result of `task public:check` and
-      `task release:check`. The revised gates validate paired generated locks
-      and reject any committed owned-image output; no gate is weakened.
-- [x] Commit preparation only; perform no push, tag, OCI publication, GitHub
+      `task release:check`. The revised gates reject component locks and every
+      owned-image publication path; no gate is weakened.
+- [x] Commit preparation only; perform no push, tag, GitHub
       Release, or Homebrew tap mutation. Evidence: the packet-scoped local diff
       contains only release tooling, workflow, contract, tests, and evidence;
       no external operation was invoked.

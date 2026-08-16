@@ -11,17 +11,16 @@ export GOTOOLCHAIN=local
 export GOWORK=off
 source scripts/release-archive-entries.sh
 
-if [[ $# -ne 6 ]]; then
-  echo "usage: $0 <tag> <revision> <component-lock> <goos> <goarch> <output-dir>" >&2
+if [[ $# -ne 5 ]]; then
+  echo "usage: $0 <tag> <revision> <goos> <goarch> <output-dir>" >&2
   exit 2
 fi
 
 tag=$1
 revision=$2
-component_lock=$3
-goos=$4
-goarch=$5
-output_dir=$6
+goos=$3
+goarch=$4
+output_dir=$5
 
 go run ./tools/releaseversion "$tag" >/dev/null
 if [[ ! $revision =~ ^[0-9a-f]{40}$ ]]; then
@@ -32,8 +31,6 @@ case "$goos/$goarch" in
   linux/amd64|linux/arm64|darwin/amd64|darwin/arm64|windows/amd64) ;;
   *) echo "unsupported release target: $goos/$goarch" >&2; exit 2 ;;
 esac
-go run ./tools/componentlock verify "$component_lock" "$revision"
-
 binary=$(go run ./tools/projectmeta --field binary_name)
 module=$(go run ./tools/projectmeta --field go_module)
 version=${tag#v}
@@ -61,17 +58,15 @@ case "$goarch" in
   amd64) target_environment+=(GOAMD64=v1) ;;
   arm64) target_environment+=(GOARM64=v8.0) ;;
 esac
-gateway_image=$(go run ./tools/componentlock field "$component_lock" "$revision" gateway-image)
-gateway_api=$(go run ./tools/componentlock field "$component_lock" "$revision" gateway-api)
 gateway_source_api=$(sed -n 's/.*io\.tobari\.gateway-api="\([1-9][0-9]*\)".*/\1/p' gateway/Dockerfile)
 base_source=$(go run ./tools/runtimeassetid tobari)
 local_base_image="tobari-runtime:base-${base_source}"
-if [[ ! $gateway_source_api =~ ^[1-9][0-9]*$ || $gateway_api != "$gateway_source_api" ]]; then
-	echo "component lock API does not match the canonical Gateway source" >&2
+if [[ ! $gateway_source_api =~ ^[1-9][0-9]*$ ]]; then
+	echo "canonical Gateway source does not declare a valid API" >&2
 	exit 1
 fi
 env "${target_environment[@]}" go build -buildvcs=false -trimpath \
-  -ldflags "-s -w -X main.version=${version} -X main.commit=${revision} -X ${module}/internal/infra/dockerruntime.localBaseRuntimeImage=${local_base_image} -X ${module}/internal/infra/dockerruntime.publishedGatewayImage=${gateway_image} -X ${module}/internal/infra/dockerruntime.publishedGatewayAPI=${gateway_api}" \
+  -ldflags "-s -w -X main.version=${version} -X main.commit=${revision} -X ${module}/internal/infra/dockerruntime.localBaseRuntimeImage=${local_base_image}" \
   -o "$work_dir/$executable" "./cmd/$binary"
 
 go version -m "$work_dir/$executable" | grep -F "$module" >/dev/null
@@ -82,8 +77,8 @@ if [[ $goos == "$host_os" && $goarch == "$host_arch" ]]; then
 	# shellcheck disable=SC1091
 	compatible=true
 	actual=$("$work_dir/$executable" version --format json)
-	expected=$(printf '{"schema_version":1,"build_identity":{"version":"%s","commit":"%s","resolver_channel":"published","development_source":false,"capability_profile":"standard","gateway_required_api":%s,"gateway_selected_api":%s,"compatible":%s,"development_build_command":"","development_binary":""}}' \
-		"$version" "$revision" "$gateway_source_api" "$gateway_api" "$compatible")
+	expected=$(printf '{"schema_version":1,"build_identity":{"version":"%s","commit":"%s","resolver_channel":"embedded","development_source":false,"capability_profile":"standard","gateway_required_api":%s,"gateway_selected_api":%s,"compatible":%s,"development_build_command":"","development_binary":""}}' \
+		"$version" "$revision" "$gateway_source_api" "$gateway_source_api" "$compatible")
 	if [[ $actual != "$expected" ]]; then
 		echo "build identity output = $actual, want $expected" >&2
 		exit 1

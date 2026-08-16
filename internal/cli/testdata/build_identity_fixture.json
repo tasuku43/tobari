@@ -2,10 +2,10 @@
   "schema_version": 1,
   "cases": [
     {
-      "name": "published-compatible",
+      "name": "embedded-compatible",
       "version": "1.2.3",
       "commit": "0123456789abcdef0123456789abcdef01234567",
-      "resolver_channel": "published",
+      "resolver_channel": "embedded",
       "development_source": false,
       "capability_profile": "standard",
       "gateway_required_api": 4,
@@ -14,10 +14,10 @@
       "auth_broker_selected_api": 0
     },
     {
-      "name": "published-historical-pins",
+      "name": "embedded-historical-pins",
       "version": "dev",
       "commit": "0123456789abcdef0123456789abcdef01234567",
-      "resolver_channel": "published",
+      "resolver_channel": "embedded",
       "development_source": false,
       "capability_profile": "standard",
       "gateway_required_api": 4,

@@ -5,7 +5,7 @@
 - Deciders: Tobari maintainers
 - Scope: Product, architecture, security, release, and harness
 - Supersedes: The independent release-unit portion of ADR 0017
-- Superseded by: None
+- Superseded by: ADR 0045
 
 ## Context
 
