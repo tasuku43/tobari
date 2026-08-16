@@ -14,7 +14,7 @@ tasks:
   build:dev:
     desc: Build the experimental-profile development CLI and local images.
     cmds:
-      - ./scripts/build-dev-images.sh
+      - ./scripts/build-dev-images.sh --experimental
       - mkdir -p bin
       - go build -tags='tobari_dev tobari_experimental' -buildvcs=false -trimpath -o bin/tobari-dev -ldflags "-X main.commit=$(git rev-parse --verify HEAD)" ./cmd/tobari
       - 'printf "Built %s using the experimental capability profile, content-addressed local component images, and tobari-runtime:dev\nRun it directly, or install it with: install -m 0755 bin/tobari-dev ~/.local/bin/tobari-dev\n" bin/tobari-dev'
@@ -32,7 +32,7 @@ tasks:
   test:experimental:
     desc: Run the Go test suite with experimental capabilities compiled in.
     cmds:
-      - go test -tags=tobari_experimental ./internal/app/authcmd ./internal/cli ./internal/domain/authbroker ./internal/domain/buildidentity ./internal/domain/capabilityprofile ./internal/infra/authproviders ./internal/infra/dockerruntime
+      - go test -tags='tobari_dev tobari_experimental' ./internal/app/authcmd ./internal/cli ./internal/domain/authbroker ./internal/domain/buildidentity ./internal/domain/capabilityprofile ./internal/infra/authproviders ./internal/infra/dockerruntime
 
   contracts:check:
     desc: Validate the command catalog, capability ledger, and external schema fixtures.
@@ -80,7 +80,7 @@ tasks:
       - ./scripts/sync-authbroker-source.sh
 
   integration:test:
-    desc: Run the real four-container network, TLS, policy, credential, and lifecycle tests.
+    desc: Run the experimental Auth Broker network, TLS, policy, credential, and lifecycle tests.
     cmds:
       - ./scripts/check.sh integration
 
@@ -115,7 +115,7 @@ tasks:
       - ./scripts/build-runtime-codex.sh
 
   runtime:test:
-    desc: Run policy, Gateway, Auth Broker, and four-container integration tests.
+    desc: Run standard policy and Gateway tests plus the experimental Auth Broker integration tests.
     cmds:
       - ./scripts/check.sh runtime
 

@@ -301,6 +301,7 @@ func agentReadyBaselineGrants() []PolicyPresetExactRule {
 	return []PolicyPresetExactRule{
 		{Scheme: "https", Host: "ab.chatgpt.com", Port: 443, Method: "POST", Path: "/otlp/v1/metrics"},
 		{Scheme: "https", Host: "api.anthropic.com", Port: 443, Method: "GET", Path: "/api/claude_cli/bootstrap"},
+		{Scheme: "https", Host: "api.anthropic.com", Port: 443, Method: "GET", Path: "/api/oauth/claude_cli/roles"},
 		{Scheme: "https", Host: "api.anthropic.com", Port: 443, Method: "GET", Path: "/api/claude_code/policy_limits"},
 		{Scheme: "https", Host: "api.anthropic.com", Port: 443, Method: "GET", Path: "/api/claude_code/settings"},
 		{Scheme: "https", Host: "api.anthropic.com", Port: 443, Method: "GET", Path: "/api/hello"},
@@ -309,6 +310,9 @@ func agentReadyBaselineGrants() []PolicyPresetExactRule {
 		{Scheme: "https", Host: "api.anthropic.com", Port: 443, Method: "GET", Path: "/api/oauth/usage"},
 		{Scheme: "https", Host: "api.anthropic.com", Port: 443, Method: "POST", Path: "/api/event_logging/v2/batch"},
 		{Scheme: "https", Host: "api.anthropic.com", Port: 443, Method: "POST", Path: "/v1/messages"},
+		{Scheme: "https", Host: "auth.openai.com", Port: 443, Method: "POST", Path: "/api/accounts/deviceauth/token"},
+		{Scheme: "https", Host: "auth.openai.com", Port: 443, Method: "POST", Path: "/api/accounts/deviceauth/usercode"},
+		{Scheme: "https", Host: "auth.openai.com", Port: 443, Method: "POST", Path: "/oauth/token"},
 		{Scheme: "https", Host: "chatgpt.com", Port: 443, Method: "GET", Path: "/backend-api/codex/models"},
 		{Scheme: "https", Host: "chatgpt.com", Port: 443, Method: "GET", Path: "/backend-api/codex/responses"},
 		{Scheme: "https", Host: "chatgpt.com", Port: 443, Method: "POST", Path: "/backend-api/codex/analytics-events/events"},
@@ -316,6 +320,8 @@ func agentReadyBaselineGrants() []PolicyPresetExactRule {
 		{Scheme: "https", Host: "chatgpt.com", Port: 443, Method: "GET", Path: "/backend-api/wham/rate-limit-reset-credits"},
 		{Scheme: "https", Host: "chatgpt.com", Port: 443, Method: "GET", Path: "/backend-api/wham/settings/user"},
 		{Scheme: "https", Host: "chatgpt.com", Port: 443, Method: "GET", Path: "/backend-api/wham/usage"},
+		{Scheme: "https", Host: "platform.claude.com", Port: 443, Method: "GET", Path: "/v1/oauth/hello"},
+		{Scheme: "https", Host: "platform.claude.com", Port: 443, Method: "POST", Path: "/v1/oauth/token"},
 	}
 }
 

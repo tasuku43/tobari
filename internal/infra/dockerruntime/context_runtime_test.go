@@ -35,7 +35,8 @@ func TestInitRuntimeCreatesActiveContextRecipeWithoutChangingImage(t *testing.T)
 	if err != nil {
 		t.Fatalf("InitRuntime() error = %v", err)
 	}
-	if result.Task != tobari.TaskRuntimeInit || result.Image != localBaseRuntimeImage ||
+	defaultImage := runtime.defaultRuntimeImage()
+	if result.Task != tobari.TaskRuntimeInit || result.Image != defaultImage ||
 		result.Runtime.Status != tobari.ContextRuntimeStatusPendingBuild {
 		t.Fatalf("InitRuntime() result = %+v", result)
 	}
@@ -43,7 +44,7 @@ func TestInitRuntimeCreatesActiveContextRecipeWithoutChangingImage(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(data), "FROM "+localBaseRuntimeImage) {
+	if !strings.Contains(string(data), "FROM "+defaultImage) {
 		t.Fatalf("runtime template = %q", data)
 	}
 	if _, err := runtime.InitRuntime(context.Background()); !errors.Is(err, tobari.ErrRuntimeRecipeExists) {
@@ -183,7 +184,7 @@ func TestBuildRuntimeDoesNotPullExplicitCustomBase(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	data = []byte(strings.Replace(string(data), "FROM "+localBaseRuntimeImage, "FROM example.com/tobari/custom-base:dev", 1))
+	data = []byte(strings.Replace(string(data), "FROM "+runtime.defaultRuntimeImage(), "FROM example.com/tobari/custom-base:dev", 1))
 	if err := os.WriteFile(dockerfile, data, 0o600); err != nil {
 		t.Fatal(err)
 	}

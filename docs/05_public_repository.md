@@ -61,10 +61,8 @@ Before publication:
 - Decide the inbound contribution policy, such as MIT inbound licensing, DCO, or CLA.
 - Add required notices and attribution.
 - Confirm names, logos, and examples do not imply unauthorized endorsement.
-- Before publishing the native Anthropic account-login integration, record
-  explicit legal/product review of the applicable provider terms and any
-  required provider approval. Technical interoperability and a passing local
-  login are not distribution authorization.
+- Standard native agent login is performed by the provider's own pinned CLI;
+  Tobari publishes no provider credential acquisition or refresh adapter.
 
 Tobari is licensed under MIT as recorded in `LICENSE` and project metadata.
 
@@ -101,12 +99,9 @@ support promises before maintainers invite external users.
 - Separate untrusted pull-request execution from privileged release jobs.
 - Do not expose secrets to forked pull requests.
 - Verify dependency integrity, licenses, and known vulnerabilities.
-- For the Auth Broker image, verify canonical/snapshot equality, static-only
-  protocol tests, non-root construction, and absence of every provider CLI or
-  provider configuration file. The sole GitHub host driver is Go
-  infrastructure, not a Broker image artifact; tests and image layers must
-  contain no live credential, token, handle, root key, vault, or authenticated
-  output.
+- Experimental Auth Broker source and tests remain subject to the public secret
+  guard, but no Broker image, component lock entry, or provider adapter is a
+  release artifact.
 - For the agent-ready base runtime, retain GitHub CLI and AWS CLI checks and
   bind Claude Code 2.1.220 and Codex 0.147.0 to their per-platform artifact
   locks. The base workflow remains validation-only, and the protected Release
@@ -137,29 +132,18 @@ Before each public release, verify:
 
 For an official service OCI image publication, also verify the canonical image source,
 parent/base digest lock, supported architectures, runtime labels, license
-metadata, downloaded-artifact notices, and immutable tag behavior. Gateway and
-Auth Broker publication belongs only to the protected Release workflow;
-validation workflows never log in or push, and the runtime base is not
-published.
-
-The Auth Broker is a credential-bearing runtime, so its public image requires
-additional negative evidence: no credential, live account fixture, GitHub CLI
-configuration, private key, token, root key, vault, runtime-issued handle, device code, signed
-authorization field, or authenticated output is present in source, layers,
-workflow artifacts, logs, or notices. Deterministic synthetic canaries are
-permitted only in tests. The CLI archive contains no companion mode, driver
-state, provider home, or provider executable. Its canonical source/snapshot
-drift check, provider-CLI absence, static-record-only checks, fixed non-root labels/
-entrypoint, and Linux amd64/arm64 build must pass. Pull-request and standalone
-validation are cache-only and have no package-write permission. Routine CLI
-startup uses only the immutable digest injected from the reviewed lock.
+metadata, downloaded-artifact notices, and immutable tag behavior. Gateway
+publication belongs only to the protected Release workflow; validation
+workflows never log in or push, and neither the runtime base nor Auth Broker is
+published. Pull-request and standalone validation are cache-only and have no
+package-write permission. Routine CLI startup uses only the immutable Gateway
+digest injected from the reviewed lock.
 All Tobari-owned component APIs are V1. Development source records no generated
-Gateway or Auth Broker digest authority. Publication creates both service
-indexes from the reviewed revision and emits one two-service lock before CLI
-packaging. Publication requires reviewed immutable Linux
-amd64/arm64 manifest digests, service API/role labels, non-root `1000:1000`
-users, entrypoints, source revisions, license metadata, and anonymous retrieval
-for both services.
+Gateway digest authority. Publication creates that service index from the
+reviewed revision and emits one Gateway-only lock before CLI packaging.
+Publication requires a reviewed immutable Linux amd64/arm64 manifest digest,
+service API/role labels, non-root `1000:1000` user, entrypoint, source revision,
+license metadata, and anonymous retrieval for Gateway.
 
 Source-build identity may contain only the deterministic public fields above.
 Artifact and repository scans reject local absolute paths, usernames, branch
@@ -170,10 +154,10 @@ identity.
 Contributors use `task build` for the local agent-ready runtime,
 content-addressed local service images, and `bin/tobari`. Those local images
 are not release authority. New immutable V1
-multi-architecture service digests require the complete image, license,
+multi-architecture Gateway digests require the complete image, license,
 confidentiality, synthetic, and manual live-login review. Release packaging
-fails unless the lock APIs equal the canonical source Dockerfile labels, both
-service image references are immutable digests, and all revisions agree.
+fails unless the lock API equals the canonical source Dockerfile label, the
+Gateway image reference is an immutable digest, and all revisions agree.
 
 See [Release](06_release.md) for the artifact workflow.
 

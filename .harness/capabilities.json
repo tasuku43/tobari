@@ -51,7 +51,7 @@
   },
   {
     "id": "authentication.broker",
-    "status": "public",
-    "reason": ""
+    "status": "internal",
+    "reason": "Auth Broker is compiled only into the unsupported experimental development profile."
   }
 ]

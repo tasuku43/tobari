@@ -1,3 +1,5 @@
+//go:build tobari_experimental
+
 package cli
 
 import (

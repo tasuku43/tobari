@@ -5,7 +5,7 @@
 - Deciders: Tobari maintainers
 - Scope: Product, architecture, security, release, public boundary, and harness
 - Revises: The runtime-publication portions of ADR 0033 and ADR 0039
-- Superseded by: None
+- Superseded by: ADR 0044 for Auth Broker publication and release-lock scope
 
 ## Context
 
@@ -30,9 +30,9 @@ validating the runtime API, user, entrypoint, and lifetime contract. The build
 downloads pinned agent artifacts from their official sources and verifies the
 reviewed checksums. Custom Context recipes extend that local base.
 
-The protected Release workflow publishes exactly two internal service images:
-Gateway and Auth Broker. Its generated schema-1 component lock binds only
-those immutable multi-architecture indexes, their APIs, and their common source
+The protected Release workflow publishes exactly one internal service image:
+Gateway. Its generated schema-1 component lock binds only
+that immutable multi-architecture index, its API, and its source
 revision. CLI packaging injects those service authorities and a deterministic
 local-base tag; no runtime image digest enters the release lock.
 
@@ -47,8 +47,9 @@ because no agent-ready image publication path exists.
   network access to the pinned official artifact sources.
 - Tobari distributes the recipe and integrity policy, not the combined agent
   binary image.
-- Gateway and Auth Broker remain common reviewed bytes obtained by immutable
-  digest, while the Workspace environment is built on the user's Docker host.
+- Gateway remains common reviewed bytes obtained by immutable digest, while
+  Auth Broker is experimental/local-only and the Workspace environment is
+  built on the user's Docker host.
 - A CLI upgrade may select a new source-derived local tag; existing Context
   authority remains `builtin` and resolves through that installed CLI.
 - Release publication has one fewer privileged artifact and no dormant runtime
@@ -56,8 +57,8 @@ because no agent-ready image publication path exists.
 
 ## Mechanical enforcement
 
-- The component-lock schema rejects a `runtime` field and accepts exactly the
-  Gateway and Auth Broker authorities.
+- The component-lock schema rejects `runtime` and `auth_broker` fields and
+  accepts exactly the Gateway authority.
 - Release scripts and workflow tests reject the runtime GHCR repository,
   runtime registry push, and redistribution-gate flag.
 - The official resolver never pulls a runtime image. Missing-base tests require

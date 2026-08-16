@@ -411,9 +411,10 @@ type contextReportJSONProjection struct {
 }
 
 type contextAuthenticationJSONProjection struct {
-	BrokerState        string                              `json:"broker_state"`
-	DeclaredBindings   authbroker.AuthenticationRoute      `json:"declared_bindings"`
-	UndeclaredBindings authbroker.AuthenticationRoute      `json:"undeclared_bindings"`
+	Mode               string                              `json:"mode"`
+	BrokerState        string                              `json:"broker_state,omitempty"`
+	DeclaredBindings   authbroker.AuthenticationRoute      `json:"declared_bindings,omitempty"`
+	UndeclaredBindings authbroker.AuthenticationRoute      `json:"undeclared_bindings,omitempty"`
 	Providers          []contextAuthProviderJSONProjection `json:"providers"`
 }
 
@@ -436,6 +437,14 @@ func contextReportJSONDocument(result tobari.ContextReport) contextReportDocumen
 			})
 		}
 	}
+	authentication := contextAuthenticationJSONProjection{
+		Mode: contextAuthenticationMode(result.Authentication), BrokerState: result.Authentication.BrokerState,
+		Providers: providers,
+	}
+	if authentication.Mode == tobari.ContextAuthenticationModeBroker || authentication.Mode == tobari.ContextAuthenticationModeNotApplicable {
+		authentication.DeclaredBindings = authbroker.AuthenticationRouteBrokerRequired
+		authentication.UndeclaredBindings = authbroker.AuthenticationRouteWorkspaceOwnedCompatibility
+	}
 	return contextReportDocument{
 		SchemaVersion: 1,
 		Context: contextReportJSONProjection{
@@ -445,14 +454,19 @@ func contextReportJSONDocument(result tobari.ContextReport) contextReportDocumen
 			PolicyPresetOrigin: result.PolicyPresetOrigin, PolicyPresetRevision: result.PolicyPresetRevision, PolicyGuardrail: result.PolicyGuardrail,
 			ShellEnvironment: result.ShellEnvironment, GitIdentity: result.GitIdentity, Stores: optionalContextStores(result),
 			Runtime: result.Runtime, Cluster: result.Cluster,
-			Authentication: contextAuthenticationJSONProjection{
-				BrokerState:        result.Authentication.BrokerState,
-				DeclaredBindings:   authbroker.AuthenticationRouteBrokerRequired,
-				UndeclaredBindings: authbroker.AuthenticationRouteWorkspaceOwnedCompatibility,
-				Providers:          providers,
-			},
+			Authentication: authentication,
 		},
 	}
+}
+
+func contextAuthenticationMode(authentication tobari.ContextAuthentication) string {
+	if authentication.Mode != "" {
+		return authentication.Mode
+	}
+	if authentication.BrokerState == tobari.ContextAuthBrokerNotApplicable {
+		return tobari.ContextAuthenticationModeNotApplicable
+	}
+	return tobari.ContextAuthenticationModeBroker
 }
 
 func optionalContextStores(result tobari.ContextReport) *tobari.ContextStorePaths {
@@ -567,22 +581,27 @@ func renderContextReportText(result tobari.ContextReport, color bool) []byte {
 		writeStyledLine(&output, color, "Git user.email:", safeExternalText(*result.GitIdentity.Email), styleText)
 	}
 	if result.Task == tobari.TaskContextShow {
-		writeStyledLine(&output, color, "Auth Broker:", result.Authentication.BrokerState, humanStatusToken(result.Authentication.BrokerState))
-		writeStyledLine(&output, color, "Declared bindings:", string(authbroker.AuthenticationRouteBrokerRequired), styleText)
-		writeStyledLine(&output, color, "Undeclared bindings:", string(authbroker.AuthenticationRouteWorkspaceOwnedCompatibility), styleText)
-		writeStyledLine(&output, color, "Authentication scope:", "Declared bindings require a project handle; each permanently bound project receives a distinct handle on its next Workspace entry.", styleText)
-		for _, provider := range result.Authentication.Providers {
-			value := provider.State
-			if provider.AccountLabel != nil {
-				value += " (account " + safeExternalText(*provider.AccountLabel) + ")"
+		if contextAuthenticationMode(result.Authentication) == tobari.ContextAuthenticationModeNative {
+			writeStyledLine(&output, color, "Authentication:", "native Workspace-owned", styleSuccess)
+			writeStyledLine(&output, color, "Credential state:", "created and persisted by each agent CLI inside this Workspace home; host credentials are not inherited", styleText)
+		} else {
+			writeStyledLine(&output, color, "Auth Broker:", result.Authentication.BrokerState, humanStatusToken(result.Authentication.BrokerState))
+			writeStyledLine(&output, color, "Declared bindings:", string(authbroker.AuthenticationRouteBrokerRequired), styleText)
+			writeStyledLine(&output, color, "Undeclared bindings:", string(authbroker.AuthenticationRouteWorkspaceOwnedCompatibility), styleText)
+			writeStyledLine(&output, color, "Authentication scope:", "Declared bindings require a project handle; each permanently bound project receives a distinct handle on its next Workspace entry.", styleText)
+			for _, provider := range result.Authentication.Providers {
+				value := provider.State
+				if provider.AccountLabel != nil {
+					value += " (account " + safeExternalText(*provider.AccountLabel) + ")"
+				}
+				writeStyledLine(&output, color, "Auth provider "+safeExternalText(provider.Provider)+":", value, humanStatusToken(provider.State))
 			}
-			writeStyledLine(&output, color, "Auth provider "+safeExternalText(provider.Provider)+":", value, humanStatusToken(provider.State))
+			writeStyledLine(
+				&output, color, "Next:",
+				"run `"+safeExternalText(strings.Join(contextAuthStatusNextArgv(result), " "))+"` for activation guidance.",
+				styleText,
+			)
 		}
-		writeStyledLine(
-			&output, color, "Next:",
-			"run `"+safeExternalText(strings.Join(contextAuthStatusNextArgv(result), " "))+"` for activation guidance.",
-			styleText,
-		)
 	}
 	if result.Task == tobari.TaskContextCreate || result.Task == tobari.TaskContextUse {
 		writeStyledLine(&output, color, "Cluster:", string(result.Cluster), humanStatusToken(string(result.Cluster)))

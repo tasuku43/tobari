@@ -46,6 +46,16 @@ func (r *Runtime) validateResolverCompatibility() error {
 	if identity.APIsCompatible() {
 		return nil
 	}
+	if !identity.CapabilityProfile.IncludesExperimental() {
+		return fault.New(
+			fault.KindContract, "runtime_image_api_mismatch",
+			fmt.Sprintf(
+				"The resolver selects Gateway API %d, but this source requires Gateway API %d.",
+				identity.Gateway.SelectedAPI, identity.Gateway.RequiredAPI,
+			), false,
+			fault.NextAction{Command: "doctor", Reason: "Inspect the installed executable and immutable Gateway image pin."},
+		)
+	}
 	return fault.New(
 		fault.KindContract, "runtime_image_api_mismatch",
 		fmt.Sprintf(

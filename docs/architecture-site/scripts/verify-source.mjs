@@ -38,6 +38,10 @@ const v1Sources = {
     join(root, "src/content/docs/guides/authentication.mdx"),
     "utf8",
   ),
+  authJa: await readFile(
+    join(root, "src/content/docs/ja/guides/authentication.mdx"),
+    "utf8",
+  ),
   providerPairs: await readFile(
     join(root, "src/data/providerToolSupport.ts"),
     "utf8",
@@ -67,16 +71,20 @@ for (const required of [
   }
 }
 for (const required of [
-  "auth login --provider github",
-  "auth login --provider aws",
-  "auth login --provider datadog",
-  "auth login --provider openai",
-  "auth login --provider anthropic",
-  "auth import chatwork",
-  "tobari auth login --context default",
+  "claude",
+  "codex login",
+  "builtin/agent-ready",
+  "task build:dev",
+  "subscriptionType",
+  "rateLimitTier",
 ]) {
-  if (!v1Sources.auth.includes(required)) {
-    errors.push(`authentication guide is missing ${required}`);
+  if (
+    !v1Sources.auth.includes(required) ||
+    !v1Sources.authJa.includes(required)
+  ) {
+    errors.push(
+      `native authentication guide is missing ${required} in one locale`,
+    );
   }
 }
 for (const required of [

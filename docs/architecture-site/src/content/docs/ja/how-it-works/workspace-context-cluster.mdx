@@ -7,7 +7,7 @@ import ConceptDiagram from "../../../../components/ConceptDiagram.astro";
 
 Workspace は、一つのプロジェクトルートと Context に結び付く論理的な作業環境です。識別情報と永続ホームはランタイムコンテナより長く残り、コンテナやネットワークが失われても、保存済みの状態から作り直せます。
 
-Context は、ランタイム、ポリシー、エージェント設定、認証方式を選ぶ、ホスト管理の設定です。一つのインストール環境では Gateway、OPA、Auth Broker のクラスターを共有しますが、Workspace の識別情報、ホーム、プロジェクトネットワーク、ポリシー上のプリンシパルは共有しません。現在の Context を切り替えても、既存 Workspace が別 Context へ移ることはありません。同じプロジェクトルートに、異なる Context の Workspace を作ることもできます。ネットワーク上の配置は[システム全体像](../system-overview/)で説明します。
+Context は、ランタイム、ポリシー、エージェント設定を選ぶ、ホスト管理の設定です。一つの standard インストール環境では Gateway と OPA のクラスターを共有しますが、Workspace の識別情報、ホーム、プロジェクトネットワーク、ポリシー上のプリンシパルは共有しません。現在の Context を切り替えても、既存 Workspace が別 Context へ移ることはありません。同じプロジェクトルートに、異なる Context の Workspace を作ることもできます。ネットワーク上の配置は[システム全体像](../system-overview/)で説明します。
 
 <ConceptDiagram name="workspace-context-cluster" />
 
@@ -33,13 +33,13 @@ Context は、ランタイム、ポリシー、エージェント設定、認証
 - 読み取り専用のエージェントプロファイル
 - selected live bind の immutable `source_access`
 - normalized/digested policy preset snapshot と guided/Advanced policy source
-- 暗号化した Auth Broker 保管庫とは別に保存するプロバイダー設定
+- agent CLI が native credential を保存する独立した Workspace home
 
-Context マニフェスト自体には、ルート鍵、Auth Broker が管理する認証情報の本体、保管庫の内容は含まれません。**現在の Context** は、コマンドで `--context` を省略したときの既定値です。既存 Workspace の権限や結び付きを変更するものではありません。
+Context マニフェスト自体には native credential state は含まれません。**現在の Context** は、コマンドで `--context` を省略したときの既定値です。既存 Workspace の権限や結び付きを変更するものではありません。
 
 ### クラスター
 
-インストール環境ごとの **クラスター** には、Gateway、OPA、ロック状態の Auth Broker が一つずつあります。さらに、`control` と `egress` のネットワーク、全 Context の設定から生成したポリシーとプロバイダーの読み取り専用データ、プリンシパル登録簿、CA のライフサイクルが含まれます。
+standard のインストール環境ごとの **クラスター** には Gateway と OPA が一つずつあります。さらに、`control` と `egress` のネットワーク、全 Context から生成した policy projection、principal registry、CA lifecycle が含まれます。experimental の `task build:dev` profile は compile time に Auth Broker と credential projection を追加します。
 
 すべての Workspace がこのクラスターを共有します。共有サービスを使っても、プロジェクトの識別情報は混ざりません。Gateway はリクエストごとに Context とプロジェクトのプリンシパルを導出し、OPA は安定した Context ID を使って対応するポリシーへ振り分けます。
 
@@ -70,7 +70,7 @@ Tobari は、保存状態や Docker を扱う前に、ホスト上の現在の�
 - ホームと、ツールが管理する認証状態
 - ランタイムコンテナと内部ネットワーク
 - プロジェクトのプリンシパル
-- Context とプロジェクトに限定された学習済みルールと Auth Broker ハンドル
+- Context とプロジェクトに限定された学習済みルール
 
 一方、`/work/payments` 以下の live file は意図的に共有されます。各 Context は read-only または
 read-write source access を選べますが、read-only Context も host/read-write Context の変更を観測

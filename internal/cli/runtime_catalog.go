@@ -449,7 +449,7 @@ func deleteSpec() CommandSpec {
 }
 
 func clusterUpSpec() CommandSpec {
-	return CommandSpec{
+	spec := CommandSpec{
 		Path: "cluster up", Summary: "Start the shared Gateway, OPA, and Auth Broker",
 		Effect: operation.EffectCreate, Role: RoleAct,
 		Agent: AgentContract{
@@ -502,11 +502,21 @@ func clusterUpSpec() CommandSpec {
 		},
 		handler: runClusterUp,
 	}
+	if !buildIdentityHasBroker() {
+		spec.Summary = "Start the shared Gateway and OPA"
+		spec.Agent.Prerequisites[1] = "The routine path uses one immutable Gateway image plus the official runtime base image."
+		spec.Agent.Errors = standardClusterErrors(spec.Agent.Errors)
+	}
+	return spec
 }
 
 func clusterStatusSpec() CommandSpec {
+	summary := "Inspect the shared Gateway and OPA"
+	if buildIdentityHasBroker() {
+		summary = "Inspect the shared Gateway, OPA, and Auth Broker"
+	}
 	return CommandSpec{
-		Path: "cluster status", Summary: "Inspect the shared Gateway, OPA, and Auth Broker",
+		Path: "cluster status", Summary: summary,
 		Args: "[--format text|json]", Effect: operation.EffectRead, Role: RoleUtility,
 		Agent: AgentContract{
 			CapabilityID: "cluster.lifecycle",
@@ -514,29 +524,7 @@ func clusterStatusSpec() CommandSpec {
 			Inputs:       []CommandInput{formatInput()},
 			Output: CommandOutput{
 				Formats: []OutputFormat{OutputFormatText, OutputFormatJSON}, DefaultFormat: OutputFormatText, TextPresentation: TextPresentationSemanticTokens,
-				Fields: []OutputField{
-					{Name: "configured", Type: OutputFieldTypeBoolean, Description: "Whether schema-1 aggregate cluster state exists."},
-					{Name: "running", Type: OutputFieldTypeBoolean, Description: "Whether Gateway, OPA, and the unlocked Auth Broker are healthy."},
-					{Name: "policy", Type: OutputFieldTypeString, Description: "Canonical host XDG policy directory, or null when unconfigured.", Nullable: true},
-					{Name: "tobari_count", Type: OutputFieldTypeInteger, Description: "Number of attached Tobari."},
-					{Name: "context_count", Type: OutputFieldTypeInteger, Description: "Number of Context policies loaded in the aggregate projection."},
-					{Name: "policy_revision", Type: OutputFieldTypeString, Description: "Content-addressed aggregate policy revision, or null when unconfigured.", Nullable: true},
-					{Name: "policy_projection", Type: OutputFieldTypeString, Description: "All-Context policy projection integrity observation.", Enum: []string{"valid", "invalid", "unavailable"}},
-					{Name: "principal_registry", Type: OutputFieldTypeString, Description: "Principal registry integrity observation.", Enum: []string{"valid", "invalid", "unavailable"}},
-					{Name: "gateway_projection", Type: OutputFieldTypeString, Description: "Gateway routing projection integrity observation.", Enum: []string{"valid", "invalid", "unavailable"}},
-					{Name: "auth_provider_projection", Type: OutputFieldTypeString, Description: "Auth Broker provider projection integrity observation.", Enum: []string{"valid", "invalid", "unavailable"}},
-					{Name: "auth_broker_state", Type: OutputFieldTypeString, Description: "Observed ready, locked, or unavailable Auth Broker state.", Enum: []string{"ready", "locked", "unavailable"}},
-					{Name: "credential_companion_state", Type: OutputFieldTypeString, Description: "Observed ready, prepared, absent, or unavailable trusted-host credential companion state.", Enum: []string{"ready", "prepared", "absent", "unavailable"}},
-					{Name: "root_key_backend", Type: OutputFieldTypeString, Description: "Selected host root-key backend or unavailable state.", Enum: []string{"macos_keychain", "xdg_file", "unavailable"}},
-					{Name: "components", Type: OutputFieldTypeArray, Description: "Exact Auth Broker, Gateway, and OPA observations.", SemanticScope: "The three shared services when the cluster is configured; empty when unconfigured.", Items: &OutputField{
-						Type: OutputFieldTypeObject, Description: "One shared service observation.", Fields: []OutputField{
-							{Name: "name", Type: OutputFieldTypeString, Description: "Stable shared component name.", Enum: []string{"auth-broker", "gateway", "opa"}},
-							{Name: "state", Type: OutputFieldTypeString, Description: "Observed container state.", Enum: []string{"absent", "created", "running", "paused", "restarting", "removing", "exited", "dead"}},
-							{Name: "health", Type: OutputFieldTypeString, Description: "Observed healthcheck state.", Enum: []string{"none", "starting", "healthy", "unhealthy"}},
-						},
-					}},
-					{Name: "recent_error", Type: OutputFieldTypeString, Description: "Bounded recent runtime error, or null.", Nullable: true},
-				},
+				Fields:   clusterStatusOutputFields(),
 				Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageExhaustive,
 				JSONEnvelope: "cluster", JSONEnvelopeType: OutputFieldTypeObject, JSONSchemaVersion: 1,
 			},
@@ -554,6 +542,45 @@ func clusterStatusSpec() CommandSpec {
 		},
 		handler: runClusterStatus,
 	}
+}
+
+func clusterStatusOutputFields() []OutputField {
+	fields := []OutputField{
+		{Name: "configured", Type: OutputFieldTypeBoolean, Description: "Whether schema-1 aggregate cluster state exists."},
+		{Name: "running", Type: OutputFieldTypeBoolean, Description: "Whether the compiled shared services are healthy."},
+		{Name: "policy", Type: OutputFieldTypeString, Description: "Canonical host XDG policy directory, or null when unconfigured.", Nullable: true},
+		{Name: "tobari_count", Type: OutputFieldTypeInteger, Description: "Number of attached Tobari."},
+		{Name: "context_count", Type: OutputFieldTypeInteger, Description: "Number of Context policies loaded in the aggregate projection."},
+		{Name: "policy_revision", Type: OutputFieldTypeString, Description: "Content-addressed aggregate policy revision, or null when unconfigured.", Nullable: true},
+		{Name: "policy_projection", Type: OutputFieldTypeString, Description: "All-Context policy projection integrity observation.", Enum: []string{"valid", "invalid", "unavailable"}},
+		{Name: "principal_registry", Type: OutputFieldTypeString, Description: "Principal registry integrity observation.", Enum: []string{"valid", "invalid", "unavailable"}},
+		{Name: "gateway_projection", Type: OutputFieldTypeString, Description: "Gateway routing projection integrity observation.", Enum: []string{"valid", "invalid", "unavailable"}},
+	}
+	componentNames := []string{"gateway", "opa"}
+	componentDescription := "Exact Gateway and OPA observations."
+	componentScope := "The two shared standard services when configured; empty when unconfigured."
+	if buildIdentityHasBroker() {
+		fields = append(fields,
+			OutputField{Name: "auth_provider_projection", Type: OutputFieldTypeString, Description: "Experimental Auth Broker provider projection integrity observation.", Enum: []string{"valid", "invalid", "unavailable"}},
+			OutputField{Name: "auth_broker_state", Type: OutputFieldTypeString, Description: "Observed ready, locked, or unavailable experimental Auth Broker state.", Enum: []string{"ready", "locked", "unavailable"}},
+			OutputField{Name: "credential_companion_state", Type: OutputFieldTypeString, Description: "Observed experimental trusted-host credential companion state.", Enum: []string{"ready", "prepared", "absent", "unavailable"}},
+			OutputField{Name: "root_key_backend", Type: OutputFieldTypeString, Description: "Selected experimental host root-key backend or unavailable state.", Enum: []string{"macos_keychain", "xdg_file", "unavailable"}},
+		)
+		componentNames = []string{"auth-broker", "gateway", "opa"}
+		componentDescription = "Exact Auth Broker, Gateway, and OPA observations."
+		componentScope = "The three shared experimental services when configured; empty when unconfigured."
+	}
+	fields = append(fields,
+		OutputField{Name: "components", Type: OutputFieldTypeArray, Description: componentDescription, SemanticScope: componentScope, Items: &OutputField{
+			Type: OutputFieldTypeObject, Description: "One shared service observation.", Fields: []OutputField{
+				{Name: "name", Type: OutputFieldTypeString, Description: "Stable shared component name.", Enum: componentNames},
+				{Name: "state", Type: OutputFieldTypeString, Description: "Observed container state.", Enum: []string{"absent", "created", "running", "paused", "restarting", "removing", "exited", "dead"}},
+				{Name: "health", Type: OutputFieldTypeString, Description: "Observed healthcheck state.", Enum: []string{"none", "starting", "healthy", "unhealthy"}},
+			},
+		}},
+		OutputField{Name: "recent_error", Type: OutputFieldTypeString, Description: "Bounded recent runtime error, or null.", Nullable: true},
+	)
+	return fields
 }
 
 func clusterDenialsSpec() CommandSpec {
@@ -599,9 +626,19 @@ func clusterDenialsSpec() CommandSpec {
 }
 
 func clusterLogsSpec() CommandSpec {
+	summary := "Read Gateway and OPA logs"
+	args := "[--component gateway|opa|all] [--tail <lines>]"
+	componentDescription := "Select Gateway, OPA, or every shared component."
+	components := []string{"gateway", "opa", "all"}
+	if buildIdentityHasBroker() {
+		summary = "Read Auth Broker, Gateway, and OPA logs"
+		args = "[--component auth-broker|gateway|opa|all] [--tail <lines>]"
+		componentDescription = "Select Auth Broker, Gateway, OPA, or every shared component."
+		components = []string{"auth-broker", "gateway", "opa", "all"}
+	}
 	return CommandSpec{
-		Path: "cluster logs", Summary: "Read Auth Broker, Gateway, and OPA logs",
-		Args:   "[--component auth-broker|gateway|opa|all] [--tail <lines>]",
+		Path: "cluster logs", Summary: summary,
+		Args:   args,
 		Effect: operation.EffectRead, Role: RoleUtility,
 		Agent: AgentContract{
 			CapabilityID: "cluster.logs",
@@ -610,7 +647,7 @@ func clusterLogsSpec() CommandSpec {
 				{
 					Name: "--component", Source: InputSourceFlag, Required: false,
 					ValueKind: InputValueText, Cardinality: InputCardinalitySingle,
-					Description: "Select Auth Broker, Gateway, OPA, or every shared component.", AllowedValues: []string{"auth-broker", "gateway", "opa", "all"},
+					Description: componentDescription, AllowedValues: components,
 					DefaultValue: stringPointer("all"),
 				},
 				tailInput(),
@@ -898,7 +935,7 @@ func policyResetSpec() CommandSpec {
 }
 
 func clusterDownSpec() CommandSpec {
-	return CommandSpec{
+	spec := CommandSpec{
 		Path: "cluster down", Summary: "Remove the empty shared cluster",
 		Args: "[--purge]", Effect: operation.EffectWrite, Role: RoleAct,
 		Agent: AgentContract{
@@ -929,6 +966,11 @@ func clusterDownSpec() CommandSpec {
 		},
 		handler: runClusterDown,
 	}
+	if !buildIdentityHasBroker() {
+		spec.Agent.Outcome = "Remove shared containers and networks after every logical Workspace is deleted. With --purge, also remove shared CA volumes and the active policy-bundle volume."
+		spec.Agent.Errors = standardClusterErrors(spec.Agent.Errors)
+	}
+	return spec
 }
 
 func listSpec() CommandSpec {
@@ -1120,10 +1162,11 @@ func contextReportOutput() CommandOutput {
 				{Name: "image_digest", Type: OutputFieldTypeString, Description: "Immutable selected image digest when available.", Optional: true},
 			}},
 			{Name: "cluster", Type: OutputFieldTypeString, Description: "How this task relates to cluster activation.", Enum: []string{"not_applicable", "not_configured", "not_running", "already_ready", "reconciled", "default_updated", "requires_reconcile"}},
-			{Name: "authentication", Type: OutputFieldTypeObject, Description: "Safe Auth Broker and provider status without credential values.", Fields: []OutputField{
-				{Name: "broker_state", Type: OutputFieldTypeString, Description: "Auth Broker observation for this report.", Enum: []string{"not_applicable", "ready", "locked", "unavailable"}},
-				{Name: "declared_bindings", Type: OutputFieldTypeString, Description: "Authentication route for installed declared provider bindings.", Enum: []string{"broker_required"}},
-				{Name: "undeclared_bindings", Type: OutputFieldTypeString, Description: "Authentication route for bindings absent from the provider projection.", Enum: []string{"workspace_owned_compatibility"}},
+			{Name: "authentication", Type: OutputFieldTypeObject, Description: "Workspace-native authentication mode or experimental Broker status without credential values.", Fields: []OutputField{
+				{Name: "mode", Type: OutputFieldTypeString, Description: "Authentication ownership mode compiled into this executable.", Enum: []string{"native_workspace", "broker", "not_applicable"}},
+				{Name: "broker_state", Type: OutputFieldTypeString, Description: "Experimental Auth Broker observation.", Enum: []string{"not_applicable", "ready", "locked", "unavailable"}, Optional: true},
+				{Name: "declared_bindings", Type: OutputFieldTypeString, Description: "Experimental authentication route for installed declared provider bindings.", Enum: []string{"broker_required"}, Optional: true},
+				{Name: "undeclared_bindings", Type: OutputFieldTypeString, Description: "Experimental route for bindings absent from the provider projection.", Enum: []string{"workspace_owned_compatibility"}, Optional: true},
 				{Name: "providers", Type: OutputFieldTypeArray, Description: "Installed provider states, or null when this mutation did not observe authentication.", Nullable: true, SemanticScope: "Every installed provider for the selected Context when authentication was observed.", Items: &OutputField{
 					Type: OutputFieldTypeObject, Description: "One installed provider observation.", Fields: []OutputField{
 						{Name: "provider", Type: OutputFieldTypeString, Description: "Installed provider ID."},
@@ -1147,7 +1190,7 @@ func projectEnterErrors() []CommandError {
 			filtered = append(filtered, declared)
 		}
 	}
-	return append(filtered,
+	result := append(filtered,
 		declaredCommandError(fault.KindNotFound, "context_not_found", false, "context list", "Choose an existing Context."),
 		declaredCommandError(fault.KindContract, "invalid_context_binding", false, "context list", "Inspect the Context catalog before selecting a Workspace."),
 		declaredCommandError(fault.KindContract, "context_binding_stale", false, "doctor", "Inspect Context and Workspace state."),
@@ -1180,6 +1223,45 @@ func projectEnterErrors() []CommandError {
 		declaredCommandError(fault.KindRejected, "auth_projection_file_modified", false, "doctor", "Inspect the modified Tobari-owned Workspace authentication file."),
 		declaredCommandError(fault.KindInternal, "missing_runtime", false, "doctor", "Configure the Tobari runtime."),
 	)
+	if !buildIdentityHasBroker() {
+		return withoutBrokerErrors(result)
+	}
+	return result
+}
+
+func withoutBrokerErrors(errors []CommandError) []CommandError {
+	brokerErrors := map[string]struct{}{
+		"auth_broker_image_unavailable": {}, "auth_broker_image_incompatible": {},
+		"credential_companion_unavailable": {}, "auth_broker_unavailable": {},
+		"auth_broker_request_failed": {}, "auth_broker_unlock_failed": {}, "auth_broker_locked": {},
+		"root_key_unavailable": {}, "root_key_missing_with_vault": {}, "root_key_unsafe": {},
+		"keychain_denied": {}, "auth_vault_invalid": {}, "auth_vault_version_unsupported": {},
+		"invalid_provider_manifest": {}, "ambiguous_provider_http_binding": {},
+		"invalid_auth_handle_result": {}, "auth_projection_file_exists": {},
+		"auth_projection_file_modified": {},
+	}
+	filtered := errors[:0]
+	for _, declared := range errors {
+		if _, remove := brokerErrors[declared.Code]; !remove {
+			filtered = append(filtered, declared)
+		}
+	}
+	return filtered
+}
+
+func standardClusterErrors(errors []CommandError) []CommandError {
+	errors = withoutBrokerErrors(errors)
+	for index := range errors {
+		if errors[index].Code != "cluster_reconcile_interrupted" {
+			continue
+		}
+		for actionIndex := range errors[index].NextActions {
+			if errors[index].NextActions[actionIndex].Command == "cluster up" {
+				errors[index].NextActions[actionIndex].Reason = "Reconcile the shared Gateway and OPA cluster."
+			}
+		}
+	}
+	return errors
 }
 
 func policyReferenceInput(kind, producer string) CommandInput {
@@ -1381,21 +1463,26 @@ func noOutput() CommandOutput {
 }
 
 func textClusterStatusOutput() CommandOutput {
+	fields := []OutputField{
+		{Name: "configured", Type: OutputFieldTypeBoolean, Description: "Whether cluster state remains configured."},
+		{Name: "running", Type: OutputFieldTypeBoolean, Description: "Whether shared components are running."},
+		{Name: "context_count", Type: OutputFieldTypeInteger, Description: "Number of Context policies in the shared enforcement projection."},
+		{Name: "policy_revision", Type: OutputFieldTypeString, Description: "Content-addressed aggregate policy revision."},
+		{Name: "policy_projection", Type: OutputFieldTypeString, Description: "All-Context policy projection integrity observation."},
+		{Name: "principal_registry", Type: OutputFieldTypeString, Description: "Principal registry integrity observation."},
+		{Name: "gateway_projection", Type: OutputFieldTypeString, Description: "Gateway routing projection integrity observation."},
+	}
+	if buildIdentityHasBroker() {
+		fields = append(fields,
+			OutputField{Name: "auth_provider_projection", Type: OutputFieldTypeString, Description: "Experimental Auth Broker provider projection integrity observation."},
+			OutputField{Name: "auth_broker_state", Type: OutputFieldTypeString, Description: "Observed experimental Auth Broker state."},
+			OutputField{Name: "credential_companion_state", Type: OutputFieldTypeString, Description: "Observed experimental trusted-host credential companion state."},
+			OutputField{Name: "root_key_backend", Type: OutputFieldTypeString, Description: "Selected experimental host root-key backend."},
+		)
+	}
 	return CommandOutput{
 		Formats: []OutputFormat{OutputFormatText}, DefaultFormat: OutputFormatText, TextPresentation: TextPresentationSemanticTokens,
-		Fields: []OutputField{
-			{Name: "configured", Type: OutputFieldTypeBoolean, Description: "Whether cluster state remains configured."},
-			{Name: "running", Type: OutputFieldTypeBoolean, Description: "Whether shared components are running."},
-			{Name: "context_count", Type: OutputFieldTypeInteger, Description: "Number of Context policies in the shared enforcement projection."},
-			{Name: "policy_revision", Type: OutputFieldTypeString, Description: "Content-addressed aggregate policy revision."},
-			{Name: "policy_projection", Type: OutputFieldTypeString, Description: "All-Context policy projection integrity observation."},
-			{Name: "principal_registry", Type: OutputFieldTypeString, Description: "Principal registry integrity observation."},
-			{Name: "gateway_projection", Type: OutputFieldTypeString, Description: "Gateway routing projection integrity observation."},
-			{Name: "auth_provider_projection", Type: OutputFieldTypeString, Description: "Auth Broker provider projection integrity observation."},
-			{Name: "auth_broker_state", Type: OutputFieldTypeString, Description: "Observed ready, locked, or unavailable Auth Broker state."},
-			{Name: "credential_companion_state", Type: OutputFieldTypeString, Description: "Observed ready, prepared, absent, or unavailable trusted-host credential companion state."},
-			{Name: "root_key_backend", Type: OutputFieldTypeString, Description: "Selected host root-key backend or unavailable state."},
-		},
+		Fields:   fields,
 		Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageNotApplicable,
 	}
 }

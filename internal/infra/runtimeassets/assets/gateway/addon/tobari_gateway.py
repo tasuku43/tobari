@@ -22,14 +22,6 @@ from credential_adapters import (
     CredentialAdapterError,
     PassthroughCredentialAdapter,
 )
-from broker_credentials import (
-    BrokerAuthenticationRequired,
-    BrokerCredentialBindingError,
-    BrokerCredentialOutcomeUnknown,
-    BrokerCredentialUnavailable,
-    BrokeredCredentialAdapter,
-    redacted_audit_path,
-)
 from graphql_request import (
     GraphQLParseLimits,
     GraphQLRequestError,
@@ -62,6 +54,67 @@ class PolicyUnavailable(Exception):
 
 class CredentialError(Exception):
     """A selected credential could not be injected safely."""
+
+
+# Standard images do not contain the experimental Broker module. Distinct
+# inactive exception types keep generic adapter failures out of the
+# Broker-specific handlers until an experimental projection explicitly loads
+# and replaces them with the reviewed Broker exceptions.
+class _InactiveBrokerAuthenticationRequired(CredentialAdapterError):
+    pass
+
+
+class _InactiveBrokerCredentialBindingError(CredentialAdapterError):
+    pass
+
+
+class _InactiveBrokerCredentialOutcomeUnknown(CredentialAdapterError):
+    pass
+
+
+class _InactiveBrokerCredentialUnavailable(CredentialAdapterError):
+    pass
+
+
+BrokerAuthenticationRequired = _InactiveBrokerAuthenticationRequired
+BrokerCredentialBindingError = _InactiveBrokerCredentialBindingError
+BrokerCredentialOutcomeUnknown = _InactiveBrokerCredentialOutcomeUnknown
+BrokerCredentialUnavailable = _InactiveBrokerCredentialUnavailable
+
+
+def _experimental_broker_adapter(
+    fallback: PassthroughCredentialAdapter,
+    projection_path: str,
+    socket_path: str,
+    timeout: float,
+) -> Any:
+    import broker_credentials as broker
+
+    return broker.BrokeredCredentialAdapter(
+        fallback, projection_path, socket_path, timeout
+    )
+
+
+def _credential_error_response(
+    error: CredentialAdapterError, binding_code: str
+) -> tuple[int, str]:
+    error_name = error.__class__.__name__.removeprefix("_Inactive")
+    if error_name == "BrokerCredentialOutcomeUnknown":
+        return 409, "credential_refresh_outcome_unknown"
+    if error_name == "BrokerAuthenticationRequired":
+        return 403, "broker_auth_required"
+    if error_name == "BrokerCredentialBindingError":
+        return 403, binding_code
+    if error_name == "BrokerCredentialUnavailable":
+        return 503, "credential_broker_unavailable"
+    return 503, "credential_unavailable"
+
+
+def redacted_audit_path(url: str) -> str:
+    path = urlsplit(url).path or "/"
+    if "tobari-h" in unquote(path):
+        return "/[redacted-auth-handle]"
+    return path
 
 
 class PrincipalError(Exception):
@@ -724,7 +777,7 @@ class TobariGateway:
             _positive_int("TOBARI_AUTH_BROKER_TIMEOUT_SECONDS", 70, 70, 90)
         )
         if self.auth_provider_projection_path:
-            self.credential_adapter = BrokeredCredentialAdapter(
+            self.credential_adapter = _experimental_broker_adapter(
                 base_credential_adapter,
                 self.auth_provider_projection_path,
                 self.auth_broker_socket,
@@ -860,23 +913,13 @@ class TobariGateway:
             reason = str(error)
             _deny(flow, 503, "policy_unavailable")
             upstream_status = 503
-        except BrokerCredentialOutcomeUnknown as error:
+        except CredentialAdapterError as error:
             reason = str(error)
-            _deny(flow, 409, "credential_refresh_outcome_unknown")
-            upstream_status = 409
-        except BrokerAuthenticationRequired as error:
-            reason = str(error)
-            _deny(flow, 403, "broker_auth_required")
-            upstream_status = 403
-        except BrokerCredentialBindingError as error:
-            reason = str(error)
-            _deny(flow, 403, "credential_handle_invalid")
-            upstream_status = 403
-        except BrokerCredentialUnavailable as error:
-            reason = str(error)
-            _deny(flow, 503, "credential_broker_unavailable")
-            upstream_status = 503
-        except (CredentialAdapterError, CredentialError) as error:
+            upstream_status, code = _credential_error_response(
+                error, "credential_handle_invalid"
+            )
+            _deny(flow, upstream_status, code)
+        except CredentialError as error:
             reason = str(error)
             _deny(flow, 503, "credential_unavailable")
             upstream_status = 503
@@ -1024,15 +1067,12 @@ class TobariGateway:
             audit_failure(400, error.code, str(error))
         except PolicyUnavailable as error:
             audit_failure(503, "policy_unavailable", str(error))
-        except BrokerCredentialOutcomeUnknown as error:
-            audit_failure(409, "credential_refresh_outcome_unknown", str(error))
-        except BrokerAuthenticationRequired as error:
-            audit_failure(403, "broker_auth_required", str(error))
-        except BrokerCredentialBindingError as error:
-            audit_failure(403, "credential_handle_invalid", str(error))
-        except BrokerCredentialUnavailable as error:
-            audit_failure(503, "credential_broker_unavailable", str(error))
-        except (CredentialAdapterError, CredentialError) as error:
+        except CredentialAdapterError as error:
+            status, code = _credential_error_response(
+                error, "credential_handle_invalid"
+            )
+            audit_failure(status, code, str(error))
+        except CredentialError as error:
             audit_failure(503, "credential_unavailable", str(error))
         except AuthorityError as error:
             audit_failure(400, "request_authority_invalid", str(error))
@@ -1065,16 +1105,11 @@ class TobariGateway:
                 )
             apply_body(flow.request)
             commit_upstream_authority(flow)
-        except BrokerCredentialOutcomeUnknown as error:
-            deny(409, "credential_refresh_outcome_unknown", str(error))
-        except BrokerAuthenticationRequired as error:
-            deny(403, "broker_auth_required", str(error))
-        except BrokerCredentialBindingError as error:
-            deny(403, "broker_signing_request_invalid", str(error))
-        except BrokerCredentialUnavailable as error:
-            deny(503, "credential_broker_unavailable", str(error))
         except CredentialAdapterError as error:
-            deny(503, "credential_unavailable", str(error))
+            status, code = _credential_error_response(
+                error, "broker_signing_request_invalid"
+            )
+            deny(status, code, str(error))
         except AuthorityError as error:
             deny(400, "request_authority_invalid", str(error))
         except (RuntimeError, UnicodeError, ValueError):

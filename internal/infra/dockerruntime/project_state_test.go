@@ -266,7 +266,7 @@ func TestResolveOrCreateProjectIgnoresProjectLocalDevContainerImage(t *testing.T
 	if err != nil {
 		t.Fatalf("ResolveOrCreateProject() error = %v", err)
 	}
-	if !created || instance.Image != localBaseRuntimeImage {
+	if !created || instance.Image != runtime.defaultRuntimeImage() {
 		t.Fatalf("instance = %+v, created=%t", instance, created)
 	}
 }

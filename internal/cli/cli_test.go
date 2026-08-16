@@ -15,6 +15,7 @@ import (
 	"github.com/tasuku43/tobari/internal/domain/doctor"
 	"github.com/tasuku43/tobari/internal/domain/fault"
 	"github.com/tasuku43/tobari/internal/domain/operation"
+	"github.com/tasuku43/tobari/internal/infra/dockerruntime"
 )
 
 type cliInspector struct {
@@ -174,10 +175,7 @@ func TestLifecycleInvocationContextNormalizesPrefixAndRejectsDuplicates(t *testi
 
 func TestInvocationContextPrefixRemainsOutsideNonLifecycleCommands(t *testing.T) {
 	t.Parallel()
-	command, found := DefaultCatalog().Lookup("auth status")
-	if !found {
-		t.Fatal("auth status command is absent")
-	}
+	command := utilitySpec("probe")
 	rest := []string{"--context", "default"}
 	got := normalizeLifecycleContextInput(command, "fallback", rest)
 	if strings.Join(got, "\x00") != strings.Join(rest, "\x00") {
@@ -278,14 +276,24 @@ func TestVersionOutputContract(t *testing.T) {
 	if code := runCLI(command, []string{"version"}); code != ExitOK {
 		t.Fatalf("Run(version) code = %d, stderr = %q", code, stderr.String())
 	}
+	identity, err := dockerruntime.BuildIdentity(command.Version, command.Commit)
+	if err != nil {
+		t.Fatal(err)
+	}
 	want := "✓ Tobari build\n" +
 		"  Version        v1.2.3\n" +
 		"  Commit         0123456789abcdef0123456789abcdef01234567\n" +
-		"  Resolver       published\n" +
+		"  Resolver       " + string(identity.ResolverChannel) + "\n" +
 		"  Capabilities   " + string(capabilityprofile.Compiled()) + "\n" +
-		"  Gateway API    required 1, selected 1\n" +
-		"  Auth Broker API required 1, selected 1\n" +
-		"  Compatibility  compatible\n"
+		"  Gateway API    required 1, selected 1\n"
+	if identity.CapabilityProfile.IncludesExperimental() {
+		want += "  Auth Broker API required 1, selected 1\n"
+	}
+	want += "  Compatibility  compatible\n"
+	if build, binary, development := identity.DevelopmentRecovery(); development {
+		want += "  Build          " + build + "\n" +
+			"  Binary         " + binary + "\n"
+	}
 	if got := stdout.String(); got != want {
 		t.Fatalf("version output = %q, want %q", got, want)
 	}
@@ -293,9 +301,15 @@ func TestVersionOutputContract(t *testing.T) {
 	if code := runCLI(command, []string{"version", "--format", "json"}); code != ExitOK {
 		t.Fatalf("Run(version --format json) code = %d, stderr = %q", code, stderr.String())
 	}
-	wantJSON := fmt.Sprintf("{\"schema_version\":1,\"build_identity\":{\"version\":\"v1.2.3\",\"commit\":\"0123456789abcdef0123456789abcdef01234567\",\"resolver_channel\":\"published\",\"development_source\":false,\"capability_profile\":%q,\"gateway_required_api\":1,\"gateway_selected_api\":1,\"auth_broker_required_api\":1,\"auth_broker_selected_api\":1,\"compatible\":true,\"development_build_command\":\"\",\"development_binary\":\"\"}}\n", capabilityprofile.Compiled())
-	if got := stdout.String(); got != wantJSON {
-		t.Fatalf("version JSON = %q, want %q", got, wantJSON)
+	var document map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &document); err != nil {
+		t.Fatal(err)
+	}
+	projection := document["build_identity"].(map[string]any)
+	_, hasBrokerRequired := projection["auth_broker_required_api"]
+	_, hasBrokerSelected := projection["auth_broker_selected_api"]
+	if hasBrokerRequired != identity.CapabilityProfile.IncludesExperimental() || hasBrokerSelected != hasBrokerRequired {
+		t.Fatalf("version JSON Broker fields = %t/%t, identity = %+v", hasBrokerRequired, hasBrokerSelected, identity)
 	}
 }
 
@@ -313,7 +327,7 @@ func TestDoctorOutputContract(t *testing.T) {
 	if !strings.HasPrefix(output, "✓ Environment check\n  docker_cli     pass   runtime-version\\ttest/test\\nlocal\n") ||
 		!strings.Contains(output, "\n  proxy_port     warn   path\\\\value\\u001B\n") ||
 		!strings.Contains(output, "\n  owned_resources pass   observed\n") ||
-		len(strings.Split(strings.TrimSuffix(output, "\n"), "\n")) != len(doctor.CheckInventory())+1 {
+		len(strings.Split(strings.TrimSuffix(output, "\n"), "\n")) != len(doctorCheckIDValues())+1 {
 		t.Fatalf("doctor output = %q", output)
 	}
 	if strings.Contains(stdout.String(), "\n  Details") {
@@ -334,7 +348,7 @@ func TestDoctorTSVProjectionRemainsAvailable(t *testing.T) {
 		t.Fatalf("Run(doctor --format tsv) code = %d, stderr = %q", code, stderr.String())
 	}
 	lines := strings.Split(strings.TrimSuffix(stdout.String(), "\n"), "\n")
-	if len(lines) != len(doctor.CheckInventory())+1 ||
+	if len(lines) != len(doctorCheckIDValues())+1 ||
 		lines[0] != "CHECK\tSTATUS\tBLOCKED_BY\tDETAIL\tRECOVERY_ACTION\tNEXT_COMMAND" ||
 		lines[1] != "docker_cli\tpass\t\truntime-version\t\t" ||
 		lines[len(lines)-1] != "owned_resources\tpass\t\tobserved\t\t" {
@@ -373,7 +387,7 @@ func TestDoctorJSONPreservesBlockedAndRecoveryFacts(t *testing.T) {
 	if err := json.Unmarshal(stdout.Bytes(), &document); err != nil {
 		t.Fatalf("decode doctor JSON: %v, output = %q", err, stdout.String())
 	}
-	if document.SchemaVersion != 1 || len(document.Report) != len(doctor.CheckInventory()) {
+	if document.SchemaVersion != 1 || len(document.Report) != len(doctorCheckIDValues()) {
 		t.Fatalf("doctor document header = %+v", document)
 	}
 	root := document.Report[0]
@@ -878,7 +892,7 @@ func TestDoctorJSONSnapshotEscapesExternalCategoryC(t *testing.T) {
 	if err := json.Unmarshal(stdout.Bytes(), &document); err != nil {
 		t.Fatalf("JSON output: %v, output = %q", err, stdout.String())
 	}
-	if document.SchemaVersion != 1 || len(document.Report) != len(doctor.CheckInventory()) ||
+	if document.SchemaVersion != 1 || len(document.Report) != len(doctorCheckIDValues()) ||
 		document.Report[0].Check != "docker_cli" || document.Report[0].Detail != "line\\nESC:\\u001B bidi:\\u202E" ||
 		document.Report[0].BlockedBy != nil || document.Report[0].Recovery != nil {
 		t.Fatalf("JSON document = %+v", document)

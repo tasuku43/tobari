@@ -7,7 +7,7 @@ import SystemMap from "../../../../components/SystemMap.astro";
 
 Tobari は、コーディングエージェントをプロジェクト専用の Workspace で実行し、未許可の HTTP/HTTPS 通信を Gateway で拒否します。拒否された通信は信頼するホストでレビューし、Context、プロジェクト、宛先、ポート、メソッド、パスが一致するルールとして許可または拒否します。許可後も、元のリクエストは再送されません。
 
-Tobari は、Docker コンテナの起動を簡略化するだけのツールではありません。作業対象のディレクトリ、プロジェクト専用ネットワーク、共有の Gateway・OPA・Auth Broker を組み合わせ、ファイルへのアクセスと外部通信の権限を別々に管理します。このページでは、五つの構成要素と、Tobari が保護しない範囲を最初に整理します。読み終えたら[インストール](../install/)へ進めます。
+Tobari は、Docker コンテナの起動を簡略化するだけのツールではありません。作業対象のディレクトリ、プロジェクト専用ネットワーク、共有の Gateway・OPA を組み合わせ、ファイルへのアクセスと外部通信の権限を別々に管理します。このページでは、standard の4つの構成要素と、Tobari が保護しない範囲を最初に整理します。読み終えたら[インストール](../install/)へ進めます。
 
 ## 最初に押さえる境界
 
@@ -20,9 +20,7 @@ Tobari は、Docker コンテナの起動を簡略化するだけのツールで
 1. **Workspace** 内のプロセスが通常の HTTP/HTTPS リクエストを送ります。クライアント側のプロキシ設定を使わず、上限付きの合成 DNS 応答と閉じた出力経路が TCP をそのプロジェクトの Gateway へ届けます。
 2. **Gateway** がリクエストを受け、カーネルが観測した Workspace の送信元エンドポイントと、ホスト管理の登録簿から通信主体（プリンシパル）を特定します。
 3. **OPA** は、Context、プロジェクト、スキーム、宛先、ポート、メソッド、パスを使って通信を判断します。リクエスト本文は、ポリシーの判断項目には含まれません。
-4. **Auth Broker** は recognized handle の場合だけ参加します。policy 前は non-secret binding
-   metadata だけを扱い、allow 後に同じ static revision を一度解決します。
-5. 許可後、**Workspace** ではなく **Gateway** が外部の**接続先**へ別の接続を開きます。
+4. 許可後、**Workspace** ではなく **Gateway** が外部の**接続先**へ別の接続を開きます。native authentication は元の request に保持されますが、OPA と audit には入りません。
 
 判断を返すのは OPA です。Gateway はその判断に従って、リクエストを拒否するか、接続先への通信を開始します。
 
@@ -48,10 +46,10 @@ curl -X PUT https://example.com/quickstart
 - Docker ソケットと Docker の制御機能
 - ほかの Workspace と、その永続ホーム
 - Gateway を迂回して公開インターネットへ出る直接経路
-- Auth Broker が管理する認証情報の本体
+- 別 Workspace の native credential state
 - ホストが所有するポリシーのレビューと有効化の経路
 
-Gateway、OPA、プリンシパル登録簿、Broker の結び付けから有効な判断を確立できない場合、関連するリクエストは拒否します。OPA の障害が許可に変わることはありません。
+Gateway、OPA、プリンシパル登録簿から有効な判断を確立できない場合、関連するリクエストは拒否します。OPA の障害が許可に変わることはありません。
 
 <span id="boundary-does-not-protect"></span>
 
@@ -63,7 +61,7 @@ Tobari は次を保証しません。
 - 利用者が許可した接続先へ、Workspace のプロセスが送るデータ
 - 同じ Workspace 内にあるプロセス同士の分離
 - 重複するプロジェクトルート間で、互いのホストファイル変更が見えないこと
-- ホスト、カーネル、Docker、Gateway、OPA、Auth Broker が侵害された後の保護
+- ホスト、カーネル、Docker、Gateway、OPA が侵害された後の保護
 - 生の TCP、UDP、HTTP/3、Git over SSH など、通常の HTTP/HTTPS 以外の通信
 
 通常の直接ソケットを使うクライアントは Gateway のポリシー境界へ到達し、外部への直接経路は得られません。Tobari CA を信頼しない証明書固定の HTTPS クライアントは、Gateway を迂回せずに失敗します。
@@ -72,10 +70,9 @@ Tobari は次を保証しません。
 
 **実装済み:** reusable Context-bound Workspace、project internal network、Gateway/OPA mediation、
 immutable source access、snapshotted policy preset、完全一致 denial review、guided/advanced policy、
-Context runtime recipe、tool-native authentication、strict schema-1 の閉じた Broker plan、
-GitHub・AWS・Datadog・OpenAI・Anthropic・Chatwork のレビュー済み対応です。
+Context runtime recipe、Claude Code と Codex の tool-native authentication です。
 
-Gateway と Auth Broker は各 CLI リリースの内部成果物としてビルドされます。リリースワークフローは、レビュー済みの不変 V1 インデックスをソースリビジョンへ結び付ける一つのコンポーネントロックを生成し、`versions.env` には生成された Tobari 所有イメージを記録しません。リポジトリ開発では内容アドレス付きローカルイメージを使います。[コンポーネントのバージョン](../../reference/component-versions/)では成果物の契約を確認でき、[サプライチェーン](../../security/supply-chain/)ではソースとランタイムの識別情報を別々に確認する理由を説明しています。
+standard CLI release が公開・lock する service image は Gateway だけです。repository development は content-addressed local image を使い、experimental Auth Broker profile は `task build:dev` の背後に保持します。[コンポーネントのバージョン](../../reference/component-versions/)では成果物の契約を確認でき、[サプライチェーン](../../security/supply-chain/)ではソースとランタイムの識別情報を別々に確認する理由を説明しています。
 
 マニフェストで任意に選べる署名・更新処理、任意の OAuth ヘルパー、プロバイダー操作に対するポリシー、Git 認証情報ヘルパー、プロバイダーまたは Context ごとの複数アカウント、追加の未レビュー組み込みプランは対応外です。
 
@@ -91,7 +88,7 @@ Gateway と Auth Broker は各 CLI リリースの内部成果物としてビル
 
 ## まとめ
 
-Tobari は、作業対象のディレクトリへの読み書きを認める一方、ホスト環境と外部通信への権限を別に制御します。Workspace が自分自身へ権限を追加することはできません。ホストが Context とプロジェクトを特定し、OPA が通信を判断し、Gateway がその判断を強制します。Auth Broker は、許可された通信に限って、宣言済みの認証処理をポリシー判断後に実行します。
+Tobari は、作業対象のディレクトリへの読み書きを認める一方、ホスト環境と外部通信への権限を別に制御します。Workspace が自分自身へ権限を追加することはできません。ホストが Context とプロジェクトを特定し、OPA が通信を判断し、Gateway がその判断を強制します。native credential は Workspace に残り、許可された request でだけ転送されます。
 
 ## 理解を確認する
 

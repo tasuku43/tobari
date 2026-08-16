@@ -783,6 +783,9 @@ func TestContextExistsCatalogRecoveryRoutesToListContainingNonActiveDuplicate(t 
 }
 
 func TestSyntheticContextShowUsesOmissionBasedAuthStatusRecovery(t *testing.T) {
+	if len(authCommandSpecs()) == 0 {
+		t.Skip("Broker recovery exists only in the experimental profile")
+	}
 	t.Parallel()
 	report := tobari.ContextReport{
 		Task: tobari.TaskContextShow, ContextState: tobari.ContextObservationSyntheticDefault,
@@ -815,6 +818,9 @@ func TestSyntheticContextShowUsesOmissionBasedAuthStatusRecovery(t *testing.T) {
 }
 
 func TestContextShowReportsBrokerFirstRouting(t *testing.T) {
+	if len(authCommandSpecs()) == 0 {
+		t.Skip("Broker routing exists only in the experimental profile")
+	}
 	report := contextCLIReport(
 		tobari.TaskContextShow, "default", true, tobari.OfficialRuntimeBase,
 		tobari.ContextPolicyModeGuided,

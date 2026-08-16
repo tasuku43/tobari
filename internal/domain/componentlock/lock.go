@@ -1,5 +1,5 @@
 // Package componentlock defines the generated binding between one CLI release
-// source revision and its two published Tobari service indexes.
+// source revision and its published Gateway index.
 package componentlock
 
 import (
@@ -33,7 +33,6 @@ type Lock struct {
 	SchemaVersion  int       `json:"schema_version"`
 	SourceRevision string    `json:"source_revision"`
 	Gateway        Component `json:"gateway"`
-	AuthBroker     Component `json:"auth_broker"`
 }
 
 func Parse(data []byte) (Lock, error) {
@@ -71,20 +70,11 @@ func (l Lock) Validate() error {
 	if !revisionPattern.MatchString(l.SourceRevision) {
 		return fmt.Errorf("component lock source_revision must be a full lowercase Git SHA")
 	}
-	for _, item := range []struct {
-		name       string
-		component  Component
-		repository string
-	}{
-		{name: "Gateway", component: l.Gateway, repository: "ghcr.io/tasuku43/tobari/gateway"},
-		{name: "Auth Broker", component: l.AuthBroker, repository: "ghcr.io/tasuku43/tobari/auth-broker"},
-	} {
-		if err := validateComponent(item.name, item.component.Image, item.component.Digest, item.component.Platforms, item.repository); err != nil {
-			return err
-		}
-		if item.component.API <= 0 {
-			return fmt.Errorf("%s API must be positive", item.name)
-		}
+	if err := validateComponent("Gateway", l.Gateway.Image, l.Gateway.Digest, l.Gateway.Platforms, "ghcr.io/tasuku43/tobari/gateway"); err != nil {
+		return err
+	}
+	if l.Gateway.API <= 0 {
+		return fmt.Errorf("Gateway API must be positive")
 	}
 	return nil
 }

@@ -112,6 +112,14 @@ for component_workflow in .github/workflows/gateway-image.yml .github/workflows/
     fi
   done
 done
+# Auth Broker remains validation-only. The standard Release workflow must not
+# reference its image workflow, Dockerfile, repository, evidence, or lock API.
+for forbidden in 'authbroker-image' 'authbroker/Dockerfile' 'tobari/auth-broker' 'auth-broker.component.json' 'auth-broker-api'; do
+  if grep -qF -- "$forbidden" .github/workflows/release.yml; then
+    echo "release workflow retains experimental Auth Broker publication input: $forbidden" >&2
+    exit 1
+  fi
+done
 validation_workflow=.github/workflows/runtime-base.yml
 for forbidden in 'packages: write' 'docker login ghcr.io' '--push'; do
   if grep -qF -- "$forbidden" "$validation_workflow"; then
@@ -390,13 +398,10 @@ mkdir -p "$dist" "$primary_go_cache" "$reproduction_go_cache"
 release_tag=v0.0.0
 release_revision=0000000000000000000000000000000000000000
 gateway_source_api=$(sed -n 's/.*io\.tobari\.gateway-api="\([1-9][0-9]*\)".*/\1/p' gateway/Dockerfile)
-auth_broker_source_api=$(sed -n 's/.*io\.tobari\.auth-broker-api="\([1-9][0-9]*\)".*/\1/p' authbroker/Dockerfile)
 gateway_evidence=$release_root/gateway.component.json
-auth_broker_evidence=$release_root/auth-broker.component.json
 printf '{"schema_version":1,"image":"ghcr.io/tasuku43/tobari/gateway","digest":"sha256:%064d","revision":"%s","platforms":["linux/amd64","linux/arm64"]}\n' 1 "$release_revision" >"$gateway_evidence"
-printf '{"schema_version":1,"image":"ghcr.io/tasuku43/tobari/auth-broker","digest":"sha256:%064d","revision":"%s","platforms":["linux/amd64","linux/arm64"]}\n' 2 "$release_revision" >"$auth_broker_evidence"
 component_lock=$dist/component-lock.json
-go run ./tools/componentlock create "$release_revision" "$gateway_source_api" "$gateway_evidence" "$auth_broker_source_api" "$auth_broker_evidence" "$component_lock"
+go run ./tools/componentlock create "$release_revision" "$gateway_source_api" "$gateway_evidence" "$component_lock"
 targets=(
   linux/amd64/tar.gz
   linux/arm64/tar.gz

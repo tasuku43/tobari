@@ -44,34 +44,38 @@ func (r *Runtime) InspectCluster(ctx context.Context, state tobari.State) (tobar
 	policyIntegrity := r.inspectAggregatePolicyIntegrity(ctx, state)
 	principalIntegrity := r.inspectPrincipalRegistryIntegrity(projects)
 	gatewayIntegrity := r.inspectGatewayProjectionIntegrity(state)
-	brokerState, brokerErr := r.brokerState(ctx)
-	if brokerErr != nil {
-		brokerState = "unavailable"
-	}
-	if brokerState != "ready" {
-		running = false
-	}
-	companionState, _, companionErr := r.credentialCompanionStatus(ctx)
-	if companionErr != nil {
-		companionState = "unavailable"
-	}
-	if companionState != "ready" {
-		running = false
-	}
-	backend := "unavailable"
-	if selected, backendErr := authStorageBackend(); backendErr == nil {
-		backend = string(selected)
-	}
-	return tobari.ClusterStatus{
+	status := tobari.ClusterStatus{
 		Configured: true, Running: running,
 		Policy: state.PolicyDirectory, TobariCount: len(projects), ContextCount: state.ContextCount,
 		PolicyRevision: state.AggregateRevision, PolicyProjection: policyIntegrity,
 		PrincipalRegistry: principalIntegrity, GatewayProjection: gatewayIntegrity,
-		AuthProviderProjection: r.inspectAuthProviderProjectionIntegrity(),
-		AuthBrokerState:        string(brokerState), CredentialCompanionState: companionState,
-		RootKeyBackend: backend,
-		Components:     components, RecentError: state.RecentError,
-	}, nil
+		Components: components, RecentError: state.RecentError,
+	}
+	if brokerRuntimeEnabled {
+		brokerState, brokerErr := r.brokerState(ctx)
+		if brokerErr != nil {
+			brokerState = "unavailable"
+		}
+		if brokerState != "ready" {
+			status.Running = false
+		}
+		companionState, _, companionErr := r.credentialCompanionStatus(ctx)
+		if companionErr != nil {
+			companionState = "unavailable"
+		}
+		if companionState != "ready" {
+			status.Running = false
+		}
+		backend := "unavailable"
+		if selected, backendErr := authStorageBackend(); backendErr == nil {
+			backend = string(selected)
+		}
+		status.AuthProviderProjection = r.inspectAuthProviderProjectionIntegrity()
+		status.AuthBrokerState = string(brokerState)
+		status.CredentialCompanionState = companionState
+		status.RootKeyBackend = backend
+	}
+	return status, nil
 }
 
 func (r *Runtime) inspectAggregatePolicyIntegrity(ctx context.Context, state tobari.State) string {
@@ -206,21 +210,22 @@ func (r *Runtime) ClusterDown(ctx context.Context, state tobari.State, purge boo
 		return err
 	}
 	var output bytes.Buffer
+	composeArgs := []string{"compose", "--project-directory", state.RuntimeDirectory}
+	composeArgs = append(composeArgs, composeFileArgs(state.RuntimeDirectory)...)
+	composeArgs = append(composeArgs, "down", "--remove-orphans")
 	err = r.runner.Run(
 		ctx,
-		[]string{
-			"compose", "--project-directory", state.RuntimeDirectory,
-			"-f", filepath.Join(state.RuntimeDirectory, "compose.yaml"),
-			"down", "--remove-orphans",
-		},
+		composeArgs,
 		environment, nil, &output, &output,
 	)
 	if err != nil {
 		_ = r.recordRecentError(state, "Cluster cleanup did not complete; inspect component logs.")
 		return fmt.Errorf("docker compose down: %w: %s", err, boundedDiagnostic(output.Bytes()))
 	}
-	if err := r.waitForCredentialCompanionStopped(ctx); err != nil {
-		return err
+	if brokerRuntimeEnabled {
+		if err := r.waitForCredentialCompanionStopped(ctx); err != nil {
+			return err
+		}
 	}
 	if err := r.replaceProjectPrincipalRegistry(ctx, []projectPrincipalBinding{}); err != nil {
 		return fmt.Errorf("clear project principal registry: %w", err)

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build the two published release services and create their source-bound lock.
+# Build the published Gateway and create its source-bound lock.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -23,11 +23,9 @@ if [[ -e $output_directory/component-lock.json ]]; then
 fi
 
 mitmproxy_image=$(awk -F= '$1 == "MITMPROXY_IMAGE" { print $2 }' internal/infra/runtimeassets/assets/versions.env)
-debian_image=$(awk -F= '$1 == "DEBIAN_IMAGE" { print $2 }' internal/infra/runtimeassets/assets/versions.env)
 gateway_api=$(sed -n 's/.*io\.tobari\.gateway-api="\([1-9][0-9]*\)".*/\1/p' gateway/Dockerfile)
-auth_broker_api=$(sed -n 's/.*io\.tobari\.auth-broker-api="\([1-9][0-9]*\)".*/\1/p' authbroker/Dockerfile)
-[[ $mitmproxy_image == *@sha256:* && $debian_image == *@sha256:* ]]
-[[ $gateway_api =~ ^[1-9][0-9]*$ && $auth_broker_api =~ ^[1-9][0-9]*$ ]]
+[[ $mitmproxy_image == *@sha256:* ]]
+[[ $gateway_api =~ ^[1-9][0-9]*$ ]]
 
 builder="tobari-release-${GITHUB_RUN_ID:-local}-$$"
 docker buildx create --name "$builder" --driver docker-container --use >/dev/null
@@ -73,9 +71,7 @@ build_component() {
 
 build_component gateway ghcr.io/tasuku43/tobari/gateway gateway/Dockerfile gateway \
   "$output_directory/gateway.component.json" --build-arg "MITMPROXY_IMAGE=$mitmproxy_image"
-build_component auth-broker ghcr.io/tasuku43/tobari/auth-broker authbroker/Dockerfile authbroker \
-  "$output_directory/auth-broker.component.json" --build-arg "MITMPROXY_IMAGE=$mitmproxy_image" --build-arg "DEBIAN_IMAGE=$debian_image"
 
 go run ./tools/componentlock create "$revision" "$gateway_api" "$output_directory/gateway.component.json" \
-  "$auth_broker_api" "$output_directory/auth-broker.component.json" "$output_directory/component-lock.json"
+  "$output_directory/component-lock.json"
 go run ./tools/componentlock verify "$output_directory/component-lock.json" "$revision"

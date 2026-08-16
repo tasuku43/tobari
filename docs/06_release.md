@@ -16,7 +16,7 @@ packaged. V1 has no resident credential companion or second executable.
 Every CLI artifact exposes build identity through `version` text and schema-1
 JSON. A release archive embeds the validated SemVer and full source commit,
 uses the published resolver channel and standard capability profile, names
-source-required and selected Gateway/Auth Broker APIs, and leaves contributor command fields empty. A
+source-required and selected Gateway APIs, and leaves contributor command fields empty. A
 repository build retains version `dev`, embeds only the exact HEAD commit, and
 selects content-addressed local component images. `task build` compiles the
 standard profile; `task build:dev` compiles the experimental profile as
@@ -24,8 +24,8 @@ standard profile; `task build:dev` compiles the experimental profile as
 
 One complete CLI archive matrix is accompanied by `component-lock.json` and
 three repository-generated metadata files. The strict schema-1 lock binds the
-source revision, immutable Gateway and Auth Broker indexes, the two service
-APIs, and exact Linux platform set. `checksums.txt` binds the five sorted archives and the lock
+source revision, immutable Gateway index, its API, and exact Linux platform
+set. `checksums.txt` binds the five sorted archives and the lock
 to SHA-256 digests. `sbom.spdx.json` is an SPDX 2.3 package inventory of those
 same release subjects, their release URLs, versions, declared project license,
 and SHA-256 digests; `filesAnalyzed: false` states its deliberate archive-level
@@ -41,7 +41,7 @@ regeneration. Its normalized SPDX creation timestamp is reproducibility
 metadata, not publication time.
 
 Runtime assets are embedded in the binary and materialized into versioned state
-before Docker builds. The embedded Tobari, Gateway, Auth Broker, OPA policy, and compose
+before Docker builds. The standard embedded Tobari, Gateway, OPA policy, and compose
 inputs are therefore bound to the CLI source revision. Container base images
 are pinned to reviewed immutable versions or digests.
 
@@ -63,37 +63,28 @@ index. The generated component lock supplies the digest used by routine
 startup. Contributor source development uses the source-hash tag built by
 `task build`; public `cluster up` does not build Gateway source.
 
-The canonical Auth Broker image definition is maintained under `authbroker/`.
+The experimental Auth Broker image definition is maintained under `authbroker/`.
 Its package, Dockerfile, entrypoints, bridge/protocol, tests, and provider-CLI
 absence are byte-checked against
-`internal/infra/runtimeassets/assets/authbroker/`. Release assembly builds and,
-after approval, publishes its immutable `:sha-<commit>` Linux amd64/arm64 index
-beside Gateway. The generated component lock supplies the digest used by
-routine startup. Its anonymous registry access, platform members, image labels,
-non-root user, entrypoint, and source revision are reviewed before CLI release.
-Contributor source development uses a source-hash local tag through `task
-build`; public `cluster up` never builds broker source.
+`internal/infra/runtimeassets/assets/authbroker/`. `task build:dev` builds it
+locally together with the experimental Gateway layer. Release assembly never
+publishes it, the standard component lock has no Auth Broker authority, and
+public `cluster up` has no Broker startup path.
 
 ## Pre-public V1 contract
 
 All Tobari-owned command outputs, persisted state, configuration, OPA input and
-decisions, audits, provider/projection/vault records, private protocols, and
-Gateway/Auth Broker component APIs use V1. Readers accept exactly V1 and reject
+decisions, audits, and Gateway component API use V1. Experimental Broker state
+and protocols also use V1. Readers accept exactly V1 and reject
 every other version. Before the first public release, development snapshots
 receive no deprecation window, migration, compatibility reader, retired command
 alias, or old-state interpretation; local state must be removed and recreated
 when the contract changes.
 
-The V1 boundaries include command paths, exit meanings, Docker labels,
-configuration keys, root-key backend identifiers, the handle prefix, Unix
-socket paths, and preservation of each Tobari home volume by default. `cluster
-down` and `cluster down --purge` also preserve encrypted Context vaults and the
-installation root key; purge adds only shared CA-volume removal.
-Public auth backend values are exactly `macos_keychain|xdg_file`, while cluster
-status may additionally use `unavailable`. The `linux_xdg_file` string is an
-infrastructure/doctor diagnostic label, not a public JSON enum. The release
-review uses the complete canonical schema/path/backend table in
-[Authentication handling](07_authentication.md#canonical-schemas-paths-and-backend-identifiers).
+The standard V1 boundaries include command paths, exit meanings, Docker labels,
+configuration keys, and preservation of each Tobari home by default. Broker
+root-key identifiers, handles, sockets, and vault preservation belong only to
+the experimental profile.
 
 Every public JSON envelope uses schema 1 and exact catalog-owned recursive
 fields. Explicit `null`, empty collections, zero, false, and finite unavailable
@@ -103,18 +94,17 @@ sentinels or infer missing authority.
 ## Publication
 
 Tags use SemVer `vMAJOR.MINOR.PATCH` for stable releases and SemVer prerelease
-identifiers such as `v0.1.0-dev.1` for development releases. Gateway and Auth
-Broker are internal OCI artifacts of the CLI release and receive only the
-immutable `sha-<full-commit>` identity. The agent-ready runtime is local-only.
+identifiers such as `v0.1.0-dev.1` for development releases. Gateway is the
+only internal OCI artifact of the CLI release and receives only the immutable
+`sha-<full-commit>` identity. Auth Broker and the agent-ready runtime are local-only.
 Main and pull-request component workflows are cache-only and receive no
 package-write permission.
 
 Pull-request and standalone component workflows remain validation-only and
-have no package-write permission. The manual release workflow owns two-service
-publication after
-protected-environment approval. It verifies canonical/snapshot equality, image
-metadata, provider-CLI absence, and the closed reviewed-plan protocol suite,
-then creates the component lock before CLI packaging. No login, credential,
+have no package-write permission. The manual release workflow owns Gateway
+publication after protected-environment approval. It verifies
+canonical/snapshot equality and image metadata, then creates the component
+lock before CLI packaging. No login, credential,
 account fixture, device or authorization code, token, handle, root key, vault,
 or authenticated output is a release artifact.
 
@@ -125,19 +115,17 @@ The combined OCI/runtime metadata uses `NOASSERTION` while both locks record
 `license_review: pending`; it must not imply that either bundled agent is
 MIT-licensed. Tobari permanently omits public base publication and instead
 ships its pinned recipe and integrity checks inside the CLI.
-Gateway and Auth Broker source records
-contain no release-output digest. A moving tag or standalone successful
-workflow does not make a digest service authority; only the two-service lock
+Gateway source records contain no release-output digest. A moving tag or
+standalone successful workflow does not make a digest service authority; only
+the Gateway lock
 generated during the reviewed release flow is injected into published
 archives. Contributor development builds `tobari-runtime:dev`; focused child
 commands remain integrity checks only. Moving tags and development images are
 not release authority.
 
-The native Anthropic account-login integration is also release-blocked until
-the release owner records explicit legal/product review of the applicable
-provider terms and any required provider approval. A successful synthetic or
-live login proves only technical behavior; it does not authorize third-party
-distribution or routing of Claude.ai account credentials.
+Standard native Anthropic login is executed and stored by Claude Code inside
+the Workspace; Tobari ships no Anthropic acquisition or refresh adapter. The
+experimental Broker integration is not a release artifact.
 
 Tobari does not claim code signing, notarization, an SBOM attestation, or
 externally verifiable build provenance. Checksums protect selected artifact
@@ -151,7 +139,7 @@ independent proof of builder identity.
 ## Publication approval checkpoint
 
 Artifact preparation is a local, create-only operation. Before the first
-external mutation, the maintainer validates two-service candidate builds and
+external mutation, the maintainer validates the Gateway candidate build and
 the cache-only local base construction,
 builds two independent archive matrices from the candidate lock, regenerates
 and verifies checksum/SBOM/provenance subjects, renders and audits the stable
@@ -159,8 +147,8 @@ Formula, completes the required gates and manual reviews, and stops for
 explicit approval. A local preparation command never pushes a branch or tag,
 publishes an OCI image, creates a GitHub Release, or updates a Homebrew tap.
 
-After approval, component images are published and independently inspected
-first. Their real immutable indexes form one generated component lock; no
+After approval, the Gateway image is published and independently inspected
+first. Its real immutable index forms one generated component lock; no
 follow-up source commit is created. The exact lock is then injected into every
 CLI archive before the SemVer release is assembled. The Release
 workflow is manual `workflow_dispatch`, never a tag-push trigger. Its caller

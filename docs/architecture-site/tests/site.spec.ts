@@ -210,7 +210,7 @@ test("system map keeps positions fixed while selecting a conversation", async ({
         .querySelector(".map-stage")
         ?.getBoundingClientRect();
       if (!stage) return null;
-      return ["gateway", "broker"].map((id) => {
+      return ["gateway", "upstream"].map((id) => {
         const box = element
           .querySelector(`[data-node="${id}"]`)
           ?.getBoundingClientRect();
@@ -218,50 +218,38 @@ test("system map keeps positions fixed while selecting a conversation", async ({
       });
     });
   const positionsBefore = await componentPositions();
-  await map.locator('[data-conversation="credential"]').click();
-  await expect(map.locator('[data-conversation="credential"]')).toHaveAttribute(
+  await map.locator('[data-conversation="egress"]').click();
+  await expect(map.locator('[data-conversation="egress"]')).toHaveAttribute(
     "aria-pressed",
     "true",
   );
   await expect(
-    map.locator('[data-conversation-detail="credential"]'),
+    map.locator('[data-conversation-detail="egress"]'),
   ).toBeVisible();
   await expect(map.locator('[data-node="gateway"]')).toHaveClass(/node-active/);
-  await expect(map.locator('[data-node="broker"]')).toHaveClass(/node-active/);
+  await expect(map.locator('[data-node="upstream"]')).toHaveClass(
+    /node-active/,
+  );
+  await expect(map.locator('[data-node="broker"]')).toHaveCount(0);
   const positionsAfter = await componentPositions();
   expect(positionsAfter).toEqual(positionsBefore);
 });
 
-test("credential map follows the static V1 acquisition and request paths", async ({
+test("credential guide explains native Workspace ownership and post-policy forwarding", async ({
   page,
 }) => {
   await page.goto("how-it-works/credentials/");
-  const map = page.locator("tobari-credential-map").first();
-
-  await expect(map.locator('[data-field="route-order"] > li')).toHaveCount(5);
   await expect(
-    map.locator('[data-field="route-order"] > li').first(),
-  ).toContainText("Workspace");
-  await expect(
-    map.locator('[data-field="route-order"] > li').first(),
-  ).toContainText("Gateway");
-
-  await map.locator('[data-scenario="acquisition"]').click();
-  await expect(map.locator('[data-scenario="acquisition"]')).toHaveAttribute(
-    "aria-pressed",
-    "true",
+    page.getByRole("heading", { name: "Standard ownership" }),
+  ).toBeVisible();
+  await expect(page.locator("main")).toContainText(
+    "the standard profile has no provider binding or Auth Broker",
   );
-  await expect(map.locator('[data-field="route-order"] > li')).toHaveCount(3);
-  await expect(map.locator('[data-node="provider-login"]')).toHaveCount(1);
-
-  await map.locator('[data-scenario="static"]').focus();
-  await page.keyboard.press("Enter");
-  await expect(map.locator('[data-scenario="static"]')).toHaveAttribute(
-    "aria-pressed",
-    "true",
+  await expect(page.locator("main")).toContainText(
+    "forwards the original values only after allow",
   );
-  await expect(map.locator('[data-field="route-order"] > li')).toHaveCount(5);
-  await expect(map.locator('[data-node="provider-login"]')).toHaveCount(0);
+  await expect(page.locator("main")).toContainText("task build:dev");
+  await expect(page.locator("tobari-credential-map")).toHaveCount(0);
 });
 
 test("policy loop exposes the cycle without automatic playback", async ({
@@ -342,7 +330,7 @@ test("static sequence remains readable with JavaScript disabled", async ({
   await context.close();
 });
 
-test("credential architecture transcript remains readable with JavaScript disabled", async ({
+test("native credential contract remains readable with JavaScript disabled", async ({
   browser,
 }) => {
   const context = await browser.newContext({ javaScriptEnabled: false });
@@ -351,18 +339,19 @@ test("credential architecture transcript remains readable with JavaScript disabl
     `${testOrigin}${projectBase}how-it-works/credentials/`,
   );
   expect(response?.ok()).toBeTruthy();
-  const transcript = page.locator(".credential-map-transcript").first();
-  await expect(transcript).toHaveAttribute("open", "");
   await expect(
-    transcript.getByRole("heading", { name: "Acquire on trusted host" }),
+    page.getByRole("heading", { name: "Standard ownership" }),
   ).toBeVisible();
-  await expect(
-    transcript.getByRole("heading", { name: "Static header provider" }),
-  ).toBeVisible();
+  await expect(page.locator("main")).toContainText(
+    "Every process in the same Workspace can read that state",
+  );
+  await expect(page.locator("main")).toContainText(
+    "Deny performs no DNS or upstream connection",
+  );
   await context.close();
 });
 
-test("Provider-first support map keeps Provider, Tool, and acquisition distinct", async ({
+test("authentication guide keeps native login and experimental Broker distinct", async ({
   browser,
 }) => {
   const context = await browser.newContext({ javaScriptEnabled: false });
@@ -374,34 +363,13 @@ test("Provider-first support map keeps Provider, Tool, and acquisition distinct"
     );
     expect(response?.ok()).toBeTruthy();
 
-    const map = page.locator(".provider-tool-map");
-    await expect(map).toBeVisible();
-    await expect(map.locator(".pairing-row")).toHaveCount(6);
-
-    const expected = [
-      ["github", "GitHub CLI", "gh"],
-      ["aws", "AWS CLI", "aws"],
-      ["datadog", "pup", "pup"],
-      ["openai", "Codex CLI", "codex"],
-      ["anthropic", "Claude Code", "claude"],
-      ["chatwork", "cwk", "cwk"],
-    ];
-    for (const [provider, toolName, command] of expected) {
-      const row = map.locator(`[data-provider="${provider}"]`);
-      await expect(row).toHaveCount(1);
-      await expect(row).toContainText(toolName);
-      await expect(row.locator(".tool-card code")).toHaveText(command);
-    }
-
-    await expect(map).toContainText(
-      locale
-        ? "レビュー済みプロバイダーを選ぶ"
-        : "choose an installed reviewed provider",
-    );
-    await expect(map).toContainText("auth login --provider github");
-    await expect(map).toContainText(
-      locale ? "OPA の通信許可を追加しません" : "add no OPA network permission",
-    );
+    const main = page.locator("main");
+    await expect(main).toContainText("codex login");
+    await expect(main).toContainText("builtin/agent-ready");
+    await expect(main).toContainText("subscriptionType");
+    await expect(main).toContainText("rateLimitTier");
+    await expect(main).toContainText("task build:dev");
+    await expect(page.locator(".provider-tool-map")).toHaveCount(0);
   }
 
   await context.close();
@@ -543,7 +511,7 @@ test("360px mobile layout has no page-level horizontal overflow", async ({
     await expect(page.locator("main")).toBeVisible();
   }
 
-  await page.goto("how-it-works/credentials/");
+  await page.goto("guides/contexts/");
   const responsiveTable = page
     .locator('table[data-tobari-responsive-table="true"]')
     .first();

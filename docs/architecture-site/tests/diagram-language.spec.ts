@@ -9,16 +9,19 @@ test("mental model locates components and follows one request in time order", as
 
   await expect(map.locator(".map-scroll")).toHaveAttribute("role", "region");
   await expect(map.locator(".map-zone")).toHaveCount(3);
-  await expect(map.locator(".lifeline")).toHaveCount(5);
-  await expect(map.locator("[data-message-route]")).toHaveCount(9);
-  await expect(map.locator("[data-message-label]")).toHaveCount(9);
+  await expect(map.locator(".lifeline")).toHaveCount(4);
+  await expect(map.locator("[data-message-route]")).toHaveCount(7);
+  await expect(map.locator("[data-message-label]")).toHaveCount(7);
   await expect(map).toContainText("存在場所");
   await expect(map).toContainText("Workspace から接続先への直接経路はない");
   await expect(map).toContainText("許可または拒否");
 
-  await map.locator('[data-conversation="credential"]').click();
+  await map.locator('[data-conversation="egress"]').click();
   await expect(map.locator('[data-node="gateway"]')).toHaveClass(/node-active/);
-  await expect(map.locator('[data-node="broker"]')).toHaveClass(/node-active/);
+  await expect(map.locator('[data-node="upstream"]')).toHaveClass(
+    /node-active/,
+  );
+  await expect(map.locator('[data-node="broker"]')).toHaveCount(0);
 });
 
 test("concept diagrams put locations and route labels inside the map", async ({

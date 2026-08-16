@@ -836,16 +836,40 @@ func (p ContextAuthProvider) Validate() error {
 // ContextAuthentication is an explicit observation. not_applicable is used
 // only by mutation results whose task did not inspect the running broker.
 type ContextAuthentication struct {
-	BrokerState string                `json:"broker_state"`
+	Mode        string                `json:"mode,omitempty"`
+	BrokerState string                `json:"broker_state,omitempty"`
 	Providers   []ContextAuthProvider `json:"providers"`
 }
 
+const (
+	ContextAuthenticationModeNotApplicable = "not_applicable"
+	ContextAuthenticationModeNative        = "native_workspace"
+	ContextAuthenticationModeBroker        = "broker"
+)
+
 func (a ContextAuthentication) Validate(observed bool) error {
+	mode := a.Mode
+	if mode == "" {
+		if a.BrokerState == ContextAuthBrokerNotApplicable {
+			mode = ContextAuthenticationModeNotApplicable
+		} else if a.BrokerState != "" {
+			mode = ContextAuthenticationModeBroker
+		}
+	}
 	if !observed {
-		if a.BrokerState != ContextAuthBrokerNotApplicable || a.Providers != nil {
+		if mode != ContextAuthenticationModeNotApplicable || a.BrokerState != ContextAuthBrokerNotApplicable || a.Providers != nil {
 			return fmt.Errorf("unobserved Context authentication state is invalid")
 		}
 		return nil
+	}
+	if mode == ContextAuthenticationModeNative {
+		if a.BrokerState != "" || a.Providers == nil || len(a.Providers) != 0 {
+			return fmt.Errorf("native Workspace authentication state is invalid")
+		}
+		return nil
+	}
+	if mode != ContextAuthenticationModeBroker {
+		return fmt.Errorf("observed Context authentication mode is invalid")
 	}
 	switch a.BrokerState {
 	case ContextAuthBrokerReady, ContextAuthBrokerLocked, ContextAuthBrokerUnavailable:

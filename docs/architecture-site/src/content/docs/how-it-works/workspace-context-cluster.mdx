@@ -9,8 +9,8 @@ A Workspace is one logical, directory-bound Tobari. Its durable identity
 combines the canonical project root with a stable Context ID; the runtime
 container that happens to execute its processes is replaceable.
 
-The Context supplies host-owned runtime, policy, agent, and credential
-configuration. One installation shares a cluster of enforcement services, but
+The Context supplies host-owned runtime, policy, and agent configuration. One
+installation shares a cluster of enforcement services, but
 it does not share Workspace identity, home, or project network. This separation
 also means that switching the current Context does not retarget an existing
 Workspace, and the same project root can have a distinct Workspace under
@@ -39,14 +39,13 @@ A **Context** is a host-owned execution setup with a stable opaque ID and human 
 - a compatible runtime image;
 - a read-only agent profile;
 - immutable `source_access` for the selected live bind;
-- a normalized, digested policy preset snapshot plus guided or Advanced policy sources; and
-- provider configuration whose encrypted Broker vault is stored separately.
+- a normalized, digested policy preset snapshot plus guided or Advanced policy sources.
 
-The manifest itself contains no root key, primary broker secret, or vault content. The **current Context** is only the default used when a command omits `--context`; it is not shared enforcement authority.
+The manifest contains no native credential state. The **current Context** is only the default used when a command omits `--context`; it is not shared enforcement authority.
 
 ### cluster
 
-The installation-local **cluster** contains exactly one Gateway, one OPA, and one locked Auth Broker, plus control/egress networks, aggregate projections, the principal registry, managed-credential projection, and CA lifecycle.
+The standard installation-local **cluster** contains exactly one Gateway and one OPA, plus control/egress networks, aggregate policy projection, the principal registry, and CA lifecycle. The experimental `task build:dev` profile adds Auth Broker and its credential projection at compile time.
 
 It is shared by all Context-bound Workspaces. Shared services do not erase project identity: Gateway derives a project/Context principal for every request, and OPA routes to Context policy by stable Context ID.
 
@@ -77,7 +76,7 @@ The two Workspaces have separate:
 - homes and tool-owned authentication state;
 - runtime containers and internal networks;
 - project principals; and
-- Context-scoped learned rules and broker handles.
+- Context-scoped learned rules.
 
 They deliberately share the live files below `/work/payments`. Each Context can
 choose read-only or read-write source access, but a read-only Context still

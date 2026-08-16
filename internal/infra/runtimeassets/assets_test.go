@@ -50,6 +50,8 @@ func TestComponentSnapshotsExcludeNonImageInputs(t *testing.T) {
 	for _, name := range []string{
 		"authbroker/README.md",
 		"authbroker/tests/test_broker.py",
+		"gateway/addon/broker_credentials.py",
+		"gateway/addon/reviewed_credential_profiles.py",
 		"gateway/config.example.json",
 		"gateway/test_tobari_gateway.py",
 	} {
@@ -89,7 +91,6 @@ func TestComposeSpecOwnsOnlySharedLeastPrivilegeServices(t *testing.T) {
 	for _, required := range []string{
 		"internal: true",
 		"image: ${TOBARI_GATEWAY_IMAGE}",
-		"image: ${TOBARI_AUTH_BROKER_IMAGE}",
 		"user: \"${TOBARI_UID}:${TOBARI_GID}\"",
 		"http://127.0.0.1:8181/health",
 		"http://opa:8181/health",
@@ -101,10 +102,6 @@ func TestComposeSpecOwnsOnlySharedLeastPrivilegeServices(t *testing.T) {
 		"name: tobari-policy-bundle",
 		"${TOBARI_PRINCIPAL_DIR}:/run/tobari/principal-registry:ro",
 		"TOBARI_PRINCIPAL_REGISTRY: /run/tobari/principal-registry/principals.json",
-		"${TOBARI_AUTH_PROVIDER_DIR}:/run/tobari/auth:ro",
-		"TOBARI_AUTH_PROVIDER_PROJECTION: /run/tobari/auth/providers.json",
-		"TOBARI_AUTH_BROKER_SOCKET: /run/tobari-auth/runtime/broker.sock",
-		"TOBARI_AUTH_BROKER_TIMEOUT_SECONDS: ${TOBARI_AUTH_BROKER_TIMEOUT_SECONDS:-70}",
 	} {
 		if !strings.Contains(spec, required) {
 			t.Errorf("compose spec is missing %q", required)
@@ -122,18 +119,23 @@ func TestComposeSpecOwnsOnlySharedLeastPrivilegeServices(t *testing.T) {
 		"${TOBARI_PRINCIPAL_CONFIG}",
 		"/policy:rw",
 		"${TOBARI_POLICY_DIR}",
+		"auth-broker:",
+		"TOBARI_AUTH_PROVIDER_PROJECTION",
+		"TOBARI_AUTH_BROKER_SOCKET",
 	} {
 		if strings.Contains(spec, forbidden) {
 			t.Errorf("compose spec contains forbidden boundary %q", forbidden)
 		}
 	}
-	authBrokerStart := strings.Index(spec, "  auth-broker:\n")
-	gatewayStart := strings.Index(spec, "  gateway:\n")
-	if authBrokerStart < 0 || gatewayStart <= authBrokerStart {
-		t.Fatal("compose spec does not contain ordered Auth Broker and Gateway services")
+	experimentalData, err := Read("compose.experimental.yaml")
+	if err != nil {
+		t.Fatal(err)
 	}
-	if !strings.Contains(spec[authBrokerStart:gatewayStart], "      egress: {}") {
-		t.Error("Auth Broker is missing bounded egress for reviewed refresh transports")
+	experimental := string(experimentalData)
+	for _, required := range []string{"auth-broker:", "image: ${TOBARI_AUTH_BROKER_IMAGE}", "TOBARI_AUTH_PROVIDER_PROJECTION: /run/tobari/auth/providers.json", "TOBARI_AUTH_BROKER_SOCKET: /run/tobari-auth/runtime/broker.sock", "      egress: {}"} {
+		if !strings.Contains(experimental, required) {
+			t.Errorf("experimental compose spec is missing %q", required)
+		}
 	}
 }
 
@@ -148,8 +150,15 @@ func TestComposeSpecCapsSharedServiceLogs(t *testing.T) {
 		"      options:\n" +
 		"        max-size: \"10m\"\n" +
 		"        max-file: \"3\"\n"
-	if count := strings.Count(spec, fragment); count != 3 {
-		t.Fatalf("compose spec has %d fixed shared log blocks, want 3", count)
+	if count := strings.Count(spec, fragment); count != 2 {
+		t.Fatalf("standard compose spec has %d fixed shared log blocks, want 2", count)
+	}
+	experimental, err := Read("compose.experimental.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count := strings.Count(string(experimental), fragment); count != 1 {
+		t.Fatalf("experimental compose override has %d fixed shared log blocks, want 1", count)
 	}
 }
 
@@ -168,10 +177,6 @@ func TestComposeSpecCapsSharedServiceResources(t *testing.T) {
 			body: "    cpus: \"1.0\"\n    mem_limit: 512m\n    memswap_limit: 512m\n    pids_limit: 128\n",
 		},
 		{
-			name: "auth-broker",
-			body: "    cpus: \"1.0\"\n    mem_limit: 512m\n    memswap_limit: 512m\n    pids_limit: 128\n",
-		},
-		{
 			name: "gateway",
 			body: "    cpus: \"2.0\"\n    mem_limit: 1g\n    memswap_limit: 1g\n    pids_limit: 256\n",
 		},
@@ -183,6 +188,13 @@ func TestComposeSpecCapsSharedServiceResources(t *testing.T) {
 		if !strings.Contains(spec[serviceIndex:], service.body) {
 			t.Errorf("%s is missing fixed shared resource bounds", service.name)
 		}
+	}
+	experimental, err := Read("compose.experimental.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(experimental), "  auth-broker:\n") || !strings.Contains(string(experimental), "    cpus: \"1.0\"\n    mem_limit: 512m\n    memswap_limit: 512m\n    pids_limit: 128\n") {
+		t.Fatal("experimental Auth Broker is missing fixed shared resource bounds")
 	}
 }
 

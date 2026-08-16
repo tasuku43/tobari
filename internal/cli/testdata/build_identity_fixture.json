@@ -10,8 +10,8 @@
       "capability_profile": "standard",
       "gateway_required_api": 4,
       "gateway_selected_api": 4,
-      "auth_broker_required_api": 3,
-      "auth_broker_selected_api": 3
+      "auth_broker_required_api": 0,
+      "auth_broker_selected_api": 0
     },
     {
       "name": "published-historical-pins",
@@ -22,8 +22,8 @@
       "capability_profile": "standard",
       "gateway_required_api": 4,
       "gateway_selected_api": 3,
-      "auth_broker_required_api": 3,
-      "auth_broker_selected_api": 2
+      "auth_broker_required_api": 0,
+      "auth_broker_selected_api": 0
     },
     {
       "name": "development-compatible",
@@ -46,8 +46,8 @@
       "capability_profile": "standard",
       "gateway_required_api": 4,
       "gateway_selected_api": 4,
-      "auth_broker_required_api": 3,
-      "auth_broker_selected_api": 3
+      "auth_broker_required_api": 0,
+      "auth_broker_selected_api": 0
     }
   ]
 }

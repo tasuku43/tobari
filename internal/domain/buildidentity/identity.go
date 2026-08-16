@@ -13,7 +13,7 @@ const (
 	UnknownCommit = "unknown"
 
 	RequiredGatewayAPI    = 1
-	RequiredAuthBrokerAPI = 1
+	RequiredAuthBrokerAPI = 1 // experimental repository profile only
 
 	DevelopmentBuildCommand = "task build"
 	DevelopmentBinary       = "bin/tobari"
@@ -76,16 +76,25 @@ func (i Identity) Validate() error {
 	if err := i.CapabilityProfile.Validate(); err != nil {
 		return err
 	}
-	if i.Gateway.RequiredAPI <= 0 || i.Gateway.SelectedAPI <= 0 ||
-		i.AuthBroker.RequiredAPI <= 0 || i.AuthBroker.SelectedAPI <= 0 {
-		return fmt.Errorf("component API identities must be positive")
+	if i.Gateway.RequiredAPI <= 0 || i.Gateway.SelectedAPI <= 0 {
+		return fmt.Errorf("Gateway API identities must be positive")
+	}
+	if i.CapabilityProfile.IncludesExperimental() {
+		if i.AuthBroker.RequiredAPI <= 0 || i.AuthBroker.SelectedAPI <= 0 {
+			return fmt.Errorf("experimental Auth Broker API identities must be positive")
+		}
+	} else if i.AuthBroker != (Component{}) {
+		return fmt.Errorf("standard profile must not select an Auth Broker API")
 	}
 	return nil
 }
 
 // APIsCompatible reports compatibility independently from source-commit completeness.
 func (i Identity) APIsCompatible() bool {
-	return i.Gateway.Compatible() && i.AuthBroker.Compatible()
+	if !i.Gateway.Compatible() {
+		return false
+	}
+	return !i.CapabilityProfile.IncludesExperimental() || i.AuthBroker.Compatible()
 }
 
 // Complete reports whether the executable carries a reproducible source identity.

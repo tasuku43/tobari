@@ -169,7 +169,9 @@ func (r *Runtime) contextReport(ctx context.Context, task string, manifest tobar
 		Stores:               r.contextPaths(manifest.Name),
 		Runtime:              runtimeReport,
 		Cluster:              tobari.ContextClusterStatusNotApplicable,
-		Authentication:       tobari.ContextAuthentication{BrokerState: tobari.ContextAuthBrokerNotApplicable},
+		Authentication: tobari.ContextAuthentication{
+			Mode: tobari.ContextAuthenticationModeNotApplicable, BrokerState: tobari.ContextAuthBrokerNotApplicable,
+		},
 	}
 	preset, presetErr := r.readContextPreset(manifest)
 	if presetErr != nil {
@@ -209,9 +211,7 @@ func (r *Runtime) nonPersistedContextReport(observed observedContext, active str
 		PolicyPresetOrigin: tobari.DefaultPolicyPresetOrigin, PolicyGuardrail: tobari.PolicyPresetGuardrailReviewedExact,
 		ShellEnvironment: shellEnvironment, GitIdentity: gitIdentity,
 		Stores: tobari.ContextStorePaths{}, Runtime: runtimeReport, Cluster: tobari.ContextClusterStatusNotApplicable,
-		Authentication: tobari.ContextAuthentication{
-			BrokerState: tobari.ContextAuthBrokerUnavailable, Providers: []tobari.ContextAuthProvider{},
-		},
+		Authentication: nativeOrUnavailableContextAuthentication(),
 	}
 	if err := result.Validate(); err != nil {
 		return tobari.ContextReport{}, err
@@ -220,6 +220,11 @@ func (r *Runtime) nonPersistedContextReport(observed observedContext, active str
 }
 
 func (r *Runtime) contextAuthentication(ctx context.Context, contextID string) (tobari.ContextAuthentication, error) {
+	if !brokerRuntimeEnabled {
+		return tobari.ContextAuthentication{
+			Mode: tobari.ContextAuthenticationModeNative, Providers: []tobari.ContextAuthProvider{},
+		}, nil
+	}
 	projection, err := r.loadAuthProviders()
 	if err != nil {
 		return tobari.ContextAuthentication{}, err
@@ -227,6 +232,7 @@ func (r *Runtime) contextAuthentication(ctx context.Context, contextID string) (
 	var state authbroker.BrokerState
 	var stateErr error
 	report := tobari.ContextAuthentication{
+		Mode:        tobari.ContextAuthenticationModeBroker,
 		BrokerState: tobari.ContextAuthBrokerUnavailable,
 		Providers:   make([]tobari.ContextAuthProvider, 0, len(projection.Providers)),
 	}
@@ -291,6 +297,18 @@ func (r *Runtime) contextAuthentication(ctx context.Context, contextID string) (
 		return tobari.ContextAuthentication{}, fmt.Errorf("Context authentication report is invalid: %w", err)
 	}
 	return report, nil
+}
+
+func nativeOrUnavailableContextAuthentication() tobari.ContextAuthentication {
+	if !brokerRuntimeEnabled {
+		return tobari.ContextAuthentication{
+			Mode: tobari.ContextAuthenticationModeNative, Providers: []tobari.ContextAuthProvider{},
+		}
+	}
+	return tobari.ContextAuthentication{
+		Mode:        tobari.ContextAuthenticationModeBroker,
+		BrokerState: tobari.ContextAuthBrokerUnavailable, Providers: []tobari.ContextAuthProvider{},
+	}
 }
 
 // InitRuntime creates the active Context's recipe without changing its

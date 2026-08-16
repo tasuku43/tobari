@@ -11,21 +11,16 @@ reversible; creating a space is a CWD-local action, and customizing its network
 authority is an observe, review, approve, and retry loop rather than a
 prerequisite policy-authoring project. Every supported outbound HTTP and HTTPS
 request remains enforced through one shared Gateway and OPA policy boundary.
-When a Context-owned provider credential is useful, Tobari may project only a
-project-bound opaque handle into the Workspace and resolve the real value in a
-shared locked Auth Broker after OPA allows the ordinary HTTP effect.
+Agent CLIs authenticate natively inside their persistent Workspace home; the
+standard profile has no provider credential projection or Auth Broker.
 
 ## Primary users and owned outcome
 
 The primary user is a developer who wants an autonomous coding agent to edit a
 bounded source tree without receiving a real host-managed credential or
-unrestricted network egress. For an undeclared provider binding, compatibility
-tool-native authentication may be created inside the selected Tobari's own
-persistent home. Every declared binding instead requires the supported brokered
-path, which
-acquires one credential on the trusted host for a Context, stores it in an
-encrypted vault, and gives each eligible Workspace only a distinct bound
-handle; host home and CLI authentication state are never copied in. A separate
+unrestricted network egress. Tool-native authentication is created inside the
+selected Tobari's own persistent home and is readable by processes in that
+Workspace; host home and CLI authentication state are never copied in. A separate
 narrow-projection boundary may re-encode only thesis-declared non-secret
 scalars; it never copies their source file, directive, executable setting, or
 authentication material.
@@ -85,12 +80,12 @@ or source build unless a Linux Homebrew Formula contract is added explicitly.
 - **Workspace:** the human-facing name for one directory-bound Tobari in
   lifecycle and list output. It is not a second runtime resource; its identity
   remains the canonical root and its stable Tobari ID remains diagnostic.
-- **cluster:** the one installation-local Gateway, one OPA, one locked Auth
-  Broker, aggregate policy and static-provider projections, principal registry,
-  and CA lifecycle.
+- **cluster:** the one installation-local Gateway, one OPA, aggregate policy,
+  principal registry, and CA lifecycle. The experimental development profile
+  adds one locked Auth Broker and provider projection.
 - **Gateway:** the trusted HTTP/HTTPS policy enforcement point.
 - **OPA:** the trusted policy decision point.
-- **Auth Broker:** the trusted non-root credential-resolution daemon. It owns
+- **Auth Broker:** the experimental non-root credential-resolution daemon. It owns
   encrypted Context vault access, has no TCP listener, starts locked, and
   exposes separate control and Gateway-only runtime Unix sockets.
 - **root:** the canonical host directory selected from the current working
@@ -114,29 +109,29 @@ or source build unless a Linux Homebrew Formula contract is added explicitly.
   SNI, request authority, and profile names are not principals.
 - **tool-owned authentication state:** files written by a tool or agent below
   one Tobari's persistent home during its own login or configuration flow. It
-  is a compatibility credential source only for undeclared bindings and is
-  readable by every process in that Workspace.
-- **credential provider:** the external service or authority whose credential
+  is the standard credential source and is readable by every process in that
+  Workspace.
+- **experimental credential provider:** the external service or authority whose credential
   is acquired or imported, stored, and later applied to one exact reviewed
   request binding. A provider is not the Workspace client that uses it.
-- **Workspace client tool:** the CLI or other client inside a Workspace that
+- **experimental Workspace client tool:** the CLI or other client inside a Workspace that
   receives a provider-declared handle projection and emits the authenticated
   request shape. Standard pairings cover GitHub/`gh`, Datadog/`pup`,
   OpenAI/Codex, Anthropic/Claude, and Chatwork/`cwk`; the experimental
   repository profile additionally covers AWS/`aws`. Their names
   grant neither provider identity nor network authority.
-- **brokered credential:** one typed static or reviewed renewable record owned
+- **experimental brokered credential:** one typed static or reviewed renewable record owned
   by a stable Context and provider, acquired through protected non-terminal
   stdin or one purpose-limited reviewed host driver and stored in the
   encrypted Context vault.
-- **Workspace credential handle:** a versioned random opaque value bound to one
+- **experimental Workspace credential handle:** a versioned random opaque value bound to one
   Context, project, provider, credential revision, and exact HTTP binding. It
   is not the real credential, but it is a scoped bearer capability that should
   not be published or logged. It is not authority without the trusted
   principal, exact binding, and OPA allow. Broker metadata never inherits a
   broad static host/method allow; the first L7 effect remains reviewable until
   an explicit exact or single-segment-template learned rule exists.
-- **provider manifest:** strict non-secret data declaring static import,
+- **experimental provider manifest:** strict non-secret data declaring static import,
   Workspace handle projections, and exact HTTPS/header credential bindings.
   Owner manifests are V1 static-secret/header plans. Standard reviewed
   built-ins are a closed typed union for GitHub, Datadog, OpenAI, Anthropic,
@@ -147,10 +142,9 @@ or source build unless a Linux Homebrew Formula contract is added explicitly.
   opaque ID and a human name. Its manifest records direct source access,
   normalized policy-preset origin and snapshot revision, and references an
   agent profile, compatible Tobari runtime image, and policy store. Its stable
-  ID determines separately
-  stored Context-owned Auth Broker vault state; the manifest does not contain a
-  broker vault path, key, or secret. Those stores remain physically separated
-  by trust boundary.
+  ID determines policy and runtime ownership. Experimental builds may maintain
+  separate Context-owned Auth Broker state; the manifest contains no broker
+  vault path, key, or secret.
 - **current Context:** only the default Context used when an invocation omits
   an explicit Context; it is not shared enforcement authority.
 - **synthetic default:** the display-only `default` selection returned by an
@@ -173,10 +167,10 @@ kernel-observed Workspace source endpoint within its verified dedicated
 network binding. The registry also retains the exact Gateway endpoint and
 rejects duplicate or stale endpoints. Context policy is selected inside the
 single OPA from that trusted principal. Learned permissions are Context- and
-project-bound. Principal identity alone does not select or inject tool
-credentials. Brokered resolution additionally requires an exact provider,
-credential revision, target, and source-header binding; Context, project, and
-the allowed decision must all match.
+project-bound. Principal identity never selects or injects tool credentials.
+Standard Gateway passes one Workspace-owned credential only after the ordinary
+HTTP decision; experimental Broker resolution additionally requires its exact
+provider, revision, target, and header binding.
 
 Every Workspace uses a guarded default route and non-recursive synthetic DNS,
 so an ordinary HTTP/HTTPS client reaches Gateway transparently without proxy
@@ -192,17 +186,17 @@ The public commands are:
 | Command | Role | Effect | Outcome |
 |---|---|---|---|
 | `help [selector] [--format text|agent]` | utility | read | Discover exact command contracts |
-| `version [--format text|json]` | utility | read | Print source version/commit, resolver channel, required and selected Gateway/Auth Broker APIs, and compatibility |
-| `doctor [--root PATH] [--format text|tsv|json]` | utility | read | Report read-only host, Docker, configuration, policy, provider-manifest, root-key/vault, broker/project-handle, port, and residue diagnostics without repairing state |
-| `cluster up` | act, fixed target | create | Validate all Context policy/provider inputs and image contracts, reconcile Gateway, OPA, and Auth Broker, confirm the exact aggregate policy is active, and unlock the broker |
+| `version [--format text|json]` | utility | read | Print source version/commit, resolver channel, required and selected standard component APIs, and compatibility |
+| `doctor [--root PATH] [--format text|tsv|json]` | utility | read | Report read-only host, Docker, configuration, policy, Gateway, port, and residue diagnostics without repairing state |
+| `cluster up` | act, fixed target | create | Validate all Context policy inputs and image contracts, reconcile Gateway and OPA, and confirm the exact aggregate policy is active |
 | `tobari [--context NAME]` | act, fixed target | create | Choose or create the current directory's Workspace in the explicit or current Context, reconcile runtime, enter it, and leave it reusable after `exit` |
 | `status [--context NAME] [--format text|json]` | utility | read | Inspect the nearest current-directory Workspace in the explicit or current Context, its logical existence, runtime diagnostic, and attached/detached session observation |
 | `list [--format text|json]` | utility | read | List local Workspaces with Context, runtime diagnostics, and diagnostic IDs |
 | `delete [--context NAME] [--force]` | act, fixed target | write | Delete the nearest current-directory Workspace in the explicit or current Context, its owned runtime, persistent home, and tool-owned authentication state while preserving project files; `--force` overrides only the attached-session guard |
-| `cluster status [--format text|json]` | utility | read | Inspect three-service health, loaded Context count, aggregate revision, policy/provider projection integrity, root-key backend, and recent errors |
+| `cluster status [--format text|json]` | utility | read | Inspect Gateway/OPA health, loaded Context count, aggregate revision, policy/Gateway projection integrity, and recent errors |
 | `cluster denials [--tail N] [--format text|json]` | utility | read | Read a bounded typed denial window, exact-rule learnability, policy path, and review command |
-| `cluster logs [--component gateway|opa|auth-broker|all] [--tail N]` | utility | read | Read bounded shared logs, including policy-denial evidence, without credential or handle output |
-| `cluster down [--purge]` | act, fixed target | write | Remove shared transient resources after every logical Tobari is deleted while preserving Auth Broker vaults and the installation root key; `--purge` additionally removes shared CA and active policy-bundle volumes |
+| `cluster logs [--component gateway|opa|all] [--tail N]` | utility | read | Read bounded shared logs, including policy-denial evidence, without credential output |
+| `cluster down [--purge]` | act, fixed target | write | Remove shared transient resources after every logical Tobari is deleted; `--purge` additionally removes shared CA and active policy-bundle volumes |
 | `policy candidates [--tail N] [--format text|json]` | discover | read | Discover Context/project-scoped pending exact HTTP or GraphQL-root candidates and opaque IDs across the installation |
 | `policy review [--tail N] [--format text|json]` | discover plus TTY fixed-target apply | read, or one confirmed write | Review the installation-wide Permission Inbox; on a TTY, stage exact choices or a typed single-segment `{id}` template proposed after two distinct compatible paths and apply the reviewed set once; redirected and JSON output remain read-only |
 | `policy allow --id ID` | act, reference bound | write | Test, record, and activate one exact observed permission |
@@ -214,17 +208,13 @@ The public commands are:
 | `policy preset init --name NAME [--format text\|json]` | act, fixed target | create | Create one owner-only strict custom policy preset template without overwriting |
 | `policy preset validate --name PRESET [--format text\|json]` | utility | read | Strictly validate, normalize, and digest one custom preset source without changing Context or active policy |
 | `context list [--format text|json]` | utility | read | List persisted named Contexts and report the current selection as persisted or a display-only synthetic default |
-| `context show [--name NAME] [--format text|json]` | utility | read | Inspect one Context's explicit persistence state, immutable source access, preset origin/revision and guardrail summary, agent, policy, Broker-required declared-binding/Workspace-compatibility routing, and secret-free Auth Broker/provider state without returning a broker vault path/content, key, primary secret, or handle |
+| `context show [--name NAME] [--format text|json]` | utility | read | Inspect one Context's explicit persistence state, immutable source access, preset origin/revision and guardrail summary, agent, policy, and native Workspace-owned authentication mode without returning credential values |
 | `config shell [--variable COLORTERM\|NO_COLOR\|PS1\|TERM] [--source default\|inherit\|literal] [--value VALUE] [--context NAME] [--format text\|json]` | act, fixed target | write | Configure one allowlisted shell-presentation variable directly, or stage one or more rows from the complete terminal inventory and apply them atomically |
 | `config git [--source default\|inherit\|literal] [--name NAME] [--email EMAIL] [--context NAME] [--format text\|json]` | act, fixed target | write | Configure one atomic Context Git commit-identity fallback directly, or stage and apply its source from one terminal screen |
 | `context create --name NAME [--image IMAGE] [--mode guided|advanced] [--source-access read-only\|read-write] [--policy-preset PRESET] [--format text\|json]` | act, fixed target | create | Validate and create one named immutable capability envelope with a runtime image, direct source access, normalized policy-preset snapshot, and separate owner-only stores; omission selects `read-write` and `builtin/agent-ready` |
 | `context use --name NAME [--format text\|json]` | act, fixed target | write | Change only the current/default Context; do not mutate existing Tobari or start/reconcile the cluster |
 | `runtime init [--format text|json]` | act, fixed target | create | Create the current Context's runtime/Dockerfile template without changing its selected image |
 | `runtime build [--format text|json]` | act, fixed target | write | Build, validate, and select the current Context's generated local runtime image |
-| `auth login [--provider github\|datadog\|openai\|anthropic] [--context NAME] [--format text\|json]` | act, fixed target | write | Acquire one standard-profile credential through a closed reviewed provider driver for the explicit or current Context; Anthropic uses a fresh isolated container from that Context image and interactive provider omission opens the bounded selector |
-| `auth import PROVIDER [--context NAME] [--format text|json]` | act, fixed target | write | Import one bounded opaque provider credential only from protected non-terminal stdin |
-| `auth status [--context NAME] [--format text|json]` | utility | read | Inspect the complete installed provider collection plus bounded Context-scoped Workspace projection freshness and coverage without reading secrets |
-| `auth logout PROVIDER [--context NAME] [--format text|json]` | act, fixed target | write | Remove one local Context/provider credential and revoke its Workspace handles when present, or report confirmed `no_change` when already absent, without contacting the provider |
 
 For the CWD lifecycle commands `tobari`, `status`, and `delete`, one non-empty
 invocation Context may appear before or after the command path: for example,
@@ -308,23 +298,25 @@ undeclared Docker mutation by the CLI.
   fail closed if missing or incompatible before project runtime network or
   container mutation.
 - `cluster up` builds the pinned agent-ready base locally when absent and
-  obtains the release-injected immutable Gateway and Auth Broker digests. One
-  generated schema-1 component lock binds the two service images, their APIs,
-  platforms, and the CLI source revision. It validates each service digest,
+  obtains the release-injected immutable Gateway digest. One generated
+  schema-1 component lock binds that service image, its API, platforms, and the
+  CLI source revision. It validates the service digest,
   API/role labels, non-root default user,
   entrypoint, and Docker Engine platform before running policy tests or
-  creating shared networks and containers. Gateway and Auth Broker source
-  development use the source-coupled `task build` path and a development
-  resolver, not a public `cluster up` option.
-  The two service images are published as Linux amd64/arm64 OCI indexes and the
-  release-generated component lock contains their reviewed immutable manifest digests.
+  creating shared networks and containers. Gateway source development uses the
+  source-coupled `task build` path and a development resolver, not a public
+  `cluster up` option. The Gateway image is published as a Linux amd64/arm64
+  OCI index and the release-generated component lock contains its reviewed
+  immutable manifest digest.
   Moving `main` and `latest` tags never become runtime authority. Contributor
   validation uses content-addressed local tags through `task build` without changing an
   installed release binary's selectors.
-- Authentication commands accept only an existing Context name and installed
-  provider ID. Standard `auth login` accepts GitHub, Datadog, OpenAI, or
-  Anthropic; interactive omission opens a bounded reviewed-provider selector.
-  The experimental repository profile additionally accepts AWS and alone adds
+- Standard authentication is owned by each agent CLI in the Workspace and the
+  standard catalog contains no `auth` namespace. The following legacy driver
+  contract is compiled only by `task build:dev`. Its authentication commands
+  accept an existing Context name and installed provider ID; the experimental
+  profile accepts GitHub, Datadog, OpenAI, Anthropic, Chatwork import, and AWS.
+  AWS alone adds
   `--method identity-center|console`. The GitHub driver shows the
   GitHub device code and the trusted host opens exactly
   `https://github.com/login/device` when possible, with the same URL retained
@@ -506,7 +498,6 @@ Human output is concise text. The canonical public machine-output inventory is:
 | Policy review | `policy_review` | 1 |
 | Policy rules | `policy_rules` | 1 |
 | Policy presets | `policy_presets` | 1 |
-| Authentication result and status | `auth` | 1 |
 | Workspace list | `tobari` | 1 |
 | Workspace status | `status` | 1 |
 <!-- public-cli-json-schemas:end -->
@@ -514,13 +505,10 @@ Human output is concise text. The canonical public machine-output inventory is:
 Workspace status always reports the selected Context ID/name, logical
 existence, runtime diagnostic, attachment observation, and exact Context-bound
 next argv. Context reports include a complete four-item shell-environment
-inventory, complete Git identity policy, and explicit secret-free Auth
-Broker/provider state plus the fixed declared/undeclared authentication routes.
-`auth status` exposes the same `broker_required` and
-`workspace_owned_compatibility` facts. Every auth result uses envelope `auth`. Public
-authentication backend values are
-`macos_keychain` or `xdg_file`; cluster status may additionally report
-`unavailable`. Unconfigured cluster resources are `null`; unavailable
+inventory, complete Git identity policy, and authentication mode
+`native_workspace`. Native agent credentials are created and persisted by the
+agent CLI inside the Workspace home and never appear in CLI output.
+Unconfigured cluster resources are `null`; unavailable
 observations use declared finite values and never an empty-string sentinel.
 The infrastructure/doctor label `linux_xdg_file` is not a public
 auth or cluster JSON enum. Their items associate Context name,
@@ -534,8 +522,8 @@ failures are stderr.
 
 `version --format json` uses schema version 1 with envelope
 `build_identity`. Its fixed fields are `version`, `commit`,
-`resolver_channel`, `development_source`, `capability_profile`, required and selected Gateway/Auth
-Broker APIs, `compatible`, `development_build_command`, and
+`resolver_channel`, `development_source`, `capability_profile`, required and selected Gateway
+APIs, `compatible`, `development_build_command`, and
 `development_binary`. An absent source commit is the explicit string
 `unknown` and makes `compatible=false`. The two repository-command fields are
 empty for a published resolver and contain exactly `task build` and
@@ -768,8 +756,8 @@ synthetic state.
   owner-only non-executable data with no wildcard, IP/private destination,
   secret, shell, Rego, include, inheritance, remote fetch, refresh, or signing;
 - `contexts/<name>/policy/domains/<canonical-host>/allow.json`: strict
-  schema-v1 authority, per-domain method, exact GraphQL endpoint, static
-  broker binding, and learned-Allow source for one canonical lower-case
+  schema-v1 authority, per-domain method, exact GraphQL endpoint, and
+  learned-Allow source for one canonical lower-case
   host;
 - `contexts/<name>/policy/domains/<canonical-host>/deny.json`: strict
   schema-v1 baseline-Deny and learned exact-Deny source for the same host;
@@ -780,9 +768,8 @@ synthetic state.
   that filename. Wildcards, IP literals, non-canonical hosts, unknown fields,
   duplicate keys or rule IDs, incomplete pairs, symlinks, unsafe permissions,
   and extra files fail closed;
-- `auth/providers/*.json`: optional owner-only schema-v1 provider manifests;
-  user manifests cannot replace built-ins and may use protected non-terminal stdin import
-  only;
+- `auth/providers/*.json`: experimental-only owner provider manifests, ignored
+  by standard builds;
 - `contexts/active.json`: owner-only current/default Context
   selection; missing means `default` and the marker has no enforcement authority;
 - `principal-registry/principals.json`: owner-only host-issued schema-v1
@@ -790,11 +777,10 @@ synthetic state.
   and directory-mounted read-only into Gateway so atomic host updates remain
   visible without exposing credential files;
 
-Tool authentication state is not cluster configuration. It belongs below the
-selected instance's persistent home and is created by the tool's own login or
-configuration flow, but Gateway accepts it only for an undeclared compatibility
-binding. Brokered authentication is separate installation state and is required
-for every declared provider binding:
+Tool authentication state is not cluster configuration. In standard it belongs
+below the selected instance's persistent home, is created by the tool's own
+login, and follows the ordinary post-policy passthrough route. Experimental
+Broker state is separate installation state:
 the normalized schema-v1 provider projection is generated below
 `auth/projection/providers.json`; schema-1-envelope/schema-1-payload Context
 vaults are below
@@ -804,7 +790,7 @@ Workspace authentication file registries are below `auth/projects`. On macOS,
 the root key is instead stored in Keychain under service
 `io.tobari.auth-root.v1` and account `tobari`.
 The complete canonical schema/path/backend table is in
-[Authentication handling](07_authentication.md#canonical-schemas-paths-and-backend-identifiers).
+[Authentication handling](07_authentication.md#experimental-canonical-schemas-paths-and-backend-identifiers).
 
 Runtime state is stored under `${XDG_STATE_HOME:-$HOME/.local/state}/tobari`:
 `roots/<hash>.json` indexes `(canonical root, stable Context ID)` and
@@ -818,11 +804,9 @@ Persisted cluster state schema 1 contains the content-addressed aggregate policy
 loaded Context count, aggregate projection paths, and Docker resource names or
 identifiers, never one active Context authority or credential contents. The
 loader accepts only exact V1 state. The owner-only projection contains the
-Context-aware Gateway routing document plus the non-secret schema-v1 static
-provider projection. The per-Tobari home may contain compatibility tool
-credentials and broker handles by design, but never a brokered primary secret.
-A real Workspace credential presented at a declared binding is rejected before
-policy or external I/O.
+Context-aware Gateway routing document. The per-Tobari home may contain native
+tool credentials by design. Standard has no provider projection or declared
+credential binding.
 Project and cluster mutation journals are durable recovery markers. An
 interrupted cluster marker, aggregate revision mismatch, or failed projection
 activation makes entry and policy operations fail closed until the exact shared
@@ -917,15 +901,13 @@ identity. The file's exact directory is mounted read-only as system scope and
 includes the image system config before the Context fallback, preserving
 normal Workspace-global and repository/worktree precedence.
 
-`cluster up` obtains and preflights the immutable Gateway and Auth Broker images and official
+`cluster up` obtains and preflights the immutable Gateway image and official
 runtime bases required by all Contexts, generates and validates the complete
-aggregate policy/routing/provider projection, then creates shared labeled
-networks, configuration material, exactly one Gateway, exactly one OPA,
-exactly one Auth Broker, and CA volumes as needed. It unlocks the broker through
-the supported host root-key backend and reconnects Gateway to the shared
+aggregate policy/routing projection, then creates shared labeled networks,
+configuration material, exactly one Gateway, exactly one OPA, and CA volumes
+as needed. It reconnects Gateway to the shared
 networks and existing registered project networks without creating project
-state or project resources. It verifies the exact Broker container identity
-and waits for all three services to be healthy and the broker to be ready. The
+state or project resources and waits for both services to be healthy. The
 root command only verifies the shared cluster is
 configured and ready, reads the indexed Workspace candidates, and waits for an
 explicit choice when the canonical current directory is below an ancestor.
@@ -934,10 +916,7 @@ the selected Context-bound logical record, resolves the bound Context's narrow
 Git identity fallback for that stable root, resolves and validates its bound
 Context image before project runtime mutation, reconciles its labeled container and internal
 network, binds its XDG home, joins Gateway to that network, waits for the
-project healthcheck, reconciles configured provider handles and Tobari-owned
-complete files, and enters the resulting terminal session. A changed handle
-environment recreates only the work container; the Workspace identity, root,
-and home remain. Docker create
+project healthcheck and enters the resulting terminal session. Docker create
 appends Tobari's fixed `sleep infinity` lifetime command after the image; the
 image `CMD` is not used to own Workspace lifetime. Shells and exact agent
 commands run through child exec sessions. Each shell exec late-binds only the
@@ -980,11 +959,12 @@ orthogonal boundary.
 Candidate
 discovery excludes other denials, preventing a successful no-op approval.
 
-`auth login`, `auth import`, and `auth logout` validate the fixed installation
+In the experimental build only, `auth login`, `auth import`, and `auth logout`
+validate the fixed installation
 credential-catalog target and mutation impact before acquisition or vault I/O.
 Login selects only the active profile's closed provider union through an
-interactive trusted-host terminal. Standard includes GitHub, Datadog, OpenAI,
-and Anthropic; experimental additionally includes AWS. Anthropic alone
+interactive trusted-host terminal. It includes GitHub, Datadog, OpenAI,
+Anthropic, Chatwork import, and AWS. Anthropic alone
 executes in a fresh selected-Context-image container; each driver owns
 fixed argv, canonical executable identity, private state, bounded browser/PTY
 behavior, strict typed capture, and checked cleanup. PATH resolution inspects
@@ -1031,10 +1011,10 @@ command alias, old state interpretation, or compatibility shim for earlier
 development snapshots. Development state must be removed and recreated when
 the V1 contract changes.
 
-The canonical Gateway and Auth Broker source labels are both API V1. Source
-does not record any owned image release output. The release workflow builds
-both service multi-architecture indexes from one requested revision and
-injects one two-service lock into every CLI archive. The base recipe remains
+The canonical Gateway source label is API V1. Source does not record any owned
+image release output. The release workflow builds its multi-architecture index
+from one requested revision and injects one Gateway-only lock into every CLI
+archive. The base recipe remains
 embedded and local-build-only.
 Contributor builds use `task build` and
 content-addressed local images. `cluster up` compares required and selected
@@ -1048,13 +1028,11 @@ sockets through its guarded transparent path;
 it does not forward raw TCP, non-HTTP TLS, UDP, QUIC, recursive DNS, Git SSH, or
 certificate-pinned traffic. A client that cannot use the Tobari CA or expose an
 unambiguous HTTP authority fails closed.
-The standard built-in broker slice supports GitHub, Datadog, OpenAI,
-Anthropic, and Chatwork; the experimental profile adds AWS. Both retain one
-credential per Context/provider. Owner
+The experimental Broker slice supports GitHub, Datadog, OpenAI, Anthropic,
+Chatwork, and AWS and retains one credential per Context/provider. Owner
 manifests may express another single static primary secret only through the
 exact HTTPS/header replacement contract and protected stdin import. V1 has no
 managed adapter, multiple provider accounts, provider-specific policy
 semantics, Git credential helper, manifest-selected helper, or general
-provider SDK/plugin executor. Unsupported tools may still authenticate inside
-their Workspace-owned home for request bindings Tobari has not declared, but
-that compatibility state is neither brokered nor a network grant.
+provider SDK/plugin executor. Standard tools authenticate natively inside their
+Workspace-owned home; that state is neither brokered nor a network grant.

@@ -31,6 +31,15 @@ func runDoctor(ctx context.Context, c *CLI, command CommandSpec, intent operatio
 	if err := validateDoctorProjection(report); err != nil {
 		return c.fail(ctx, err)
 	}
+	if !buildIdentityHasBroker() {
+		checks := report.Checks[:0]
+		for _, check := range report.Checks {
+			if !isBrokerDoctorCheck(check.Name) {
+				checks = append(checks, check)
+			}
+		}
+		report.Checks = checks
+	}
 	output, err := renderDoctorReportWithColor(report, format, format == successFormatText && humanStyleAllowed(ctx, c, c.Out))
 	if err != nil {
 		return c.fail(ctx, err)

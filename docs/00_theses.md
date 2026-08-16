@@ -23,14 +23,15 @@ parts: each Tobari can host concurrent processes, cannot reach the Internet or
 another Tobari directly, never receives a real host-managed credential, and is
 selected from the canonical current directory rather than a user-managed name,
 root flag, or container identifier; and the user can reach that boundary
-without becoming a Docker or policy operator. A user may deliberately create
-tool-owned authentication state in that Tobari's own persistent home; this is
-not host credential inheritance. One installation-local cluster shares one
-Gateway, one OPA, one locked Auth Broker, an atomic all-Context policy projection, and CA state without
-sharing Tobari homes or runtime networks. Host-issued Context/project principals
-bind mutable learned permissions and brokered credential handles to the exact
-current-directory network that originated a request; they do not select a real
-credential on their own.
+without becoming a Docker or policy operator. In the standard profile, users
+authenticate the pinned agent CLI inside the Workspace and its tool-owned state
+persists only in that Workspace home; host credentials are never inherited.
+One installation-local standard cluster shares one Gateway, one OPA, an atomic
+all-Context policy projection, and CA state without sharing Workspace homes or
+runtime networks. The repository-only experimental profile may additionally
+compile the Auth Broker research boundary. Host-issued Context/project
+principals bind mutable learned permissions to the exact current-directory
+network that originated a request; they never select a credential on their own.
 
 The first testable slice is one local mock upstream reached through the
 Gateway: an allowed request succeeds, a denied request does not reach upstream,
@@ -210,19 +211,25 @@ disabled, so neither path is direct egress.
   replace the CLI-owned isolation arguments. Runtime API compatibility includes
   the bootstrap needed to execute Tobari's fixed Workspace lifetime command.
 
-## Thesis 3: Brokered authentication is closed, post-policy, and project-bound
+## Thesis 3: Native Workspace authentication is standard; brokering is experimental
 
-Tobari does not inherit host authentication material. Every exact provider
-binding Tobari declares is Broker-required: a Workspace may use only its
-project-bound handle, never a real Workspace-owned credential, at that binding.
-The supported Auth Broker route stores one Context-owned credential or
+Tobari does not inherit host authentication material. The standard profile
+declares no provider bindings, provider projection, credential handles, vault,
+root key, companion, or Auth Broker service. A pinned agent CLI performs its
+native login inside the Workspace and owns the resulting state in that
+Workspace's persistent home. Gateway removes client authentication and cookies
+from OPA input and audit, asks policy about the ordinary HTTP effect, and
+forwards the original values only after allow.
+
+The experimental development profile retains the closed Broker research path.
+That route stores one Context-owned credential or
 renewable provider session in an authenticated encrypted vault. Each eligible
 Workspace receives only a distinct random handle or handle-only client shim
 bound to its stable Context, project, provider, credential revision, and exact
 HTTP binding. Gateway resolves, refreshes, or signs through one closed reviewed
 provider plan only after OPA allows the ordinary HTTP effect. Workspace-owned
-authentication remains an explicit compatibility path only where no declared
-provider binding matches.
+authentication remains the only standard path; Broker-required declarations
+exist only when the experimental capability profile is compiled.
 
 ### Consequences
 
@@ -235,12 +242,12 @@ provider binding matches.
   Tobari by design, survives runtime-container recreation, and is removed by
   the explicit Tobari delete operation.
 - Client authentication and cookie values are redacted from OPA input, Gateway
-  audit, denial projections, and CLI output. A declared binding rejects a real
+  audit, denial projections, and CLI output. In the experimental profile, a declared binding rejects a real
   Workspace credential before OPA as non-learnable `broker_auth_required`; a
   valid handle selects the broker route and one exact post-allow action. Only an
   undeclared binding may select Workspace-owned compatibility passthrough after
   policy allow. Proxy and Tobari control headers are not forwarded upstream.
-- One shared Auth Broker joins the internal control network and a provider
+- Only in the experimental profile, one shared Auth Broker joins the internal control network and a provider
   egress path limited to compiled reviewed refresh plans, never a Workspace
   network. Workspaces and
   OPA cannot address its runtime socket; only Gateway mounts that socket.
@@ -277,11 +284,10 @@ provider binding matches.
   Browser
   targets, callback behavior, output framing, cleanup, versions where the
   client contract is pinned, and cancellation are closed per provider.
-  The standard first-public-V1 built-in set is GitHub, Datadog,
-  OpenAI/Codex, Anthropic/Claude, and Chatwork. The experimental repository
-  profile additionally compiles the reviewed AWS plan; a release or standard
-  build cannot activate it through configuration, environment, or runtime
-  input. Capability maturity is one compile-time profile rather than a set of
+  The experimental built-in set is GitHub, Datadog, OpenAI/Codex,
+  Anthropic/Claude, Chatwork, and AWS. A release or standard build cannot
+  activate any of these Broker plans through configuration, environment, or
+  runtime input. Capability maturity is one compile-time profile rather than a set of
   per-feature escape hatches. No manifest-selected helper, arbitrary
   OAuth client, executable adapter, provider SDK inference, or provider
   business-operation command is supported.
@@ -303,8 +309,8 @@ provider binding matches.
   credentials never widen it and all unmatched effects remain reviewable.
 - Built-in broker implementations are a closed typed union of static secrets,
   reviewed renewable sessions, fixed supplemental-header application, and the
-  experimental AWS request-local signer. The active standard projection is a
-  strict subset of that implementation union. Owner manifests remain strict static-primary-secret,
+  experimental AWS request-local signer. They exist only in the experimental
+  profile. Owner manifests remain strict static-primary-secret,
   non-secret, non-executable local data and cannot select helpers, dynamic
   records, refresh, signing, policy, arbitrary routes, or provider business
   operations.
@@ -339,8 +345,8 @@ provider binding matches.
 ## Thesis 4: One shared cluster hosts multiple CWD-owned Tobari
 
 MVP manages one installation-local enforcement cluster and multiple logical
-Tobari. The shared cluster contains exactly one Gateway, one OPA, and one Auth
-Broker in one host trust domain with a host-issued
+Tobari. The standard shared cluster contains exactly one Gateway and one OPA;
+the experimental development profile adds one Auth Broker. The cluster uses a host-issued
 Context/project-principal boundary: stable Tobari and Context IDs are not
 trusted merely because they appear in caller data, but the host binds both to
 the exact Gateway network interface that received the request. Context policy,
@@ -461,11 +467,12 @@ name prefix or broad Docker query as authority.
 - The project runtime spec hash includes the fixed Workspace lifetime command,
   and image compatibility is rejected before project runtime resources are
   mutated.
-- Shared Gateway, OPA, and Auth Broker services use the same fixed JSON log rotation bounds;
-  a project cannot fill their host-side Docker logs without a cap.
-- Shared Gateway, OPA, and Auth Broker services also carry fixed CPU, memory-plus-swap, and
-  PID bounds; those limits protect the Docker VM but do not promise per-project
-  fairness inside the shared service.
+- Shared Gateway and OPA services use the same fixed JSON log rotation bounds;
+  the experimental Auth Broker follows those bounds as well. A project cannot
+  fill their host-side Docker logs without a cap.
+- Shared Gateway and OPA services carry fixed CPU, memory-plus-swap, and PID
+  bounds; the experimental Auth Broker does too. Those limits protect the
+  Docker VM but do not promise per-project fairness inside shared services.
 - `status`, `list`, and `doctor` never reconcile Docker or create/delete
   runtime resources. They may perform bounded journal cleanup before selecting
   logical state so an interrupted multi-file write cannot remain authoritative.
@@ -538,13 +545,13 @@ test, lint, policy test, or integration scenario.
 - `cli.Catalog` remains the public command source of truth.
 - The four-layer dependency direction remains in force.
 - Every executable identifies its source version/commit, compiled runtime-image
-  resolver channel, source-required Gateway/Auth Broker APIs, and the APIs
+  resolver channel, source-required component APIs, and the APIs
   selected by that resolver. Missing source metadata or an API mismatch is
   never presented as compatible.
-- Gateway and Auth Broker are internal artifacts of one CLI release. Their
-  paired immutable identities are generated from the selected source revision
-  and injected during release assembly; generated digest authority is never
-  committed back into source.
+- Gateway is the sole published internal service artifact of one CLI release.
+  Its immutable identity is generated from the selected source revision and
+  injected during release assembly; generated digest authority is never
+  committed back into source. Auth Broker remains local to experimental builds.
 - `task check` is the implementation completion gate; security and public
   changes also run their named profiles.
 - Docker integration is a separate explicit profile because it requires a
@@ -662,12 +669,13 @@ stores. Each Context has a stable opaque identity; its name is a human selector,
 not authority. Each Tobari permanently records one Context identity, and the
 host derives that binding for Gateway and OPA from its network principal.
 
-The installation runs one shared Gateway, one shared OPA, and one shared locked
-Auth Broker for every Context.
+The standard installation runs one shared Gateway and one shared OPA for every
+Context. An experimental development installation additionally runs one locked
+Auth Broker.
 The current Context is only the default when a host invocation omits a Context;
 changing it cannot retarget or mutate existing Tobari or shared enforcement.
 Tool-native authentication state remains below each Workspace home and is not a
-Context secret. A brokered credential is owned once by the stable Context and
+Context secret. In the experimental profile, a brokered credential is owned once by the stable Context and
 enables every permanently bound Workspace to receive a different project-bound
 handle on its next reconciliation. A declared provider binding is handle-only;
 Workspace-owned passthrough remains only for undeclared bindings. Neither a

@@ -1346,10 +1346,10 @@ type clusterStatusOutput struct {
 	PolicyProjection         string                   `json:"policy_projection"`
 	PrincipalRegistry        string                   `json:"principal_registry"`
 	GatewayProjection        string                   `json:"gateway_projection"`
-	AuthProviderProjection   string                   `json:"auth_provider_projection"`
-	AuthBrokerState          string                   `json:"auth_broker_state"`
-	CredentialCompanionState string                   `json:"credential_companion_state"`
-	RootKeyBackend           string                   `json:"root_key_backend"`
+	AuthProviderProjection   string                   `json:"auth_provider_projection,omitempty"`
+	AuthBrokerState          string                   `json:"auth_broker_state,omitempty"`
+	CredentialCompanionState string                   `json:"credential_companion_state,omitempty"`
+	RootKeyBackend           string                   `json:"root_key_backend,omitempty"`
 	Components               []tobari.ComponentStatus `json:"components"`
 	RecentError              *string                  `json:"recent_error"`
 }
@@ -1359,21 +1359,24 @@ func renderClusterStatus(status tobari.ClusterStatus, format successFormat, colo
 		return nil, fault.Wrap(fault.KindContract, "invalid_status_contract", "cluster status is invalid", false, err)
 	}
 	if format == successFormatJSON {
+		projection := clusterStatusOutput{
+			Configured: status.Configured, Running: status.Running,
+			Policy:      optionalExternalText(status.Policy),
+			TobariCount: status.TobariCount, ContextCount: status.ContextCount,
+			PolicyRevision: optionalString(status.PolicyRevision), PolicyProjection: safeExternalText(status.PolicyProjection), PrincipalRegistry: safeExternalText(status.PrincipalRegistry),
+			GatewayProjection: safeExternalText(status.GatewayProjection),
+			Components:        append([]tobari.ComponentStatus{}, status.Components...),
+			RecentError:       optionalExternalText(status.RecentError),
+		}
+		if buildIdentityHasBroker() {
+			projection.AuthProviderProjection = safeExternalText(status.AuthProviderProjection)
+			projection.AuthBrokerState = safeExternalText(status.AuthBrokerState)
+			projection.CredentialCompanionState = safeExternalText(status.CredentialCompanionState)
+			projection.RootKeyBackend = safeExternalText(status.RootKeyBackend)
+		}
 		document := clusterStatusDocument{
 			SchemaVersion: 1,
-			Cluster: clusterStatusOutput{
-				Configured: status.Configured, Running: status.Running,
-				Policy:      optionalExternalText(status.Policy),
-				TobariCount: status.TobariCount, ContextCount: status.ContextCount,
-				PolicyRevision: optionalString(status.PolicyRevision), PolicyProjection: safeExternalText(status.PolicyProjection), PrincipalRegistry: safeExternalText(status.PrincipalRegistry),
-				GatewayProjection:        safeExternalText(status.GatewayProjection),
-				AuthProviderProjection:   safeExternalText(status.AuthProviderProjection),
-				AuthBrokerState:          safeExternalText(status.AuthBrokerState),
-				CredentialCompanionState: safeExternalText(status.CredentialCompanionState),
-				RootKeyBackend:           safeExternalText(status.RootKeyBackend),
-				Components:               append([]tobari.ComponentStatus{}, status.Components...),
-				RecentError:              optionalExternalText(status.RecentError),
-			},
+			Cluster:       projection,
 		}
 		output, err := marshalCommandJSON("cluster status", document)
 		if err != nil {
@@ -1447,7 +1450,11 @@ func renderClusterStatusTextWithColor(status tobari.ClusterStatus, color bool) [
 	)
 	if status.PolicyRevision != "" {
 		fmt.Fprintf(&output, "  %s %s\n", applyStyleToken(color, styleMuted, fmt.Sprintf("%-8s", "Revision")), status.PolicyRevision[:12])
-		fmt.Fprintf(&output, "  %s policy %s / principals %s / gateway %s / providers %s\n", applyStyleToken(color, styleMuted, fmt.Sprintf("%-8s", "Integrity")), safeExternalText(status.PolicyProjection), safeExternalText(status.PrincipalRegistry), safeExternalText(status.GatewayProjection), safeExternalText(status.AuthProviderProjection))
+		integrity := fmt.Sprintf("policy %s / principals %s / gateway %s", safeExternalText(status.PolicyProjection), safeExternalText(status.PrincipalRegistry), safeExternalText(status.GatewayProjection))
+		if status.AuthProviderProjection != "" {
+			integrity += " / providers " + safeExternalText(status.AuthProviderProjection)
+		}
+		fmt.Fprintf(&output, "  %s %s\n", applyStyleToken(color, styleMuted, fmt.Sprintf("%-8s", "Integrity")), integrity)
 	}
 	if status.AuthBrokerState != "" || status.CredentialCompanionState != "" || status.RootKeyBackend != "" {
 		fmt.Fprintf(&output, "  %s broker %s / companion %s / root key %s\n", applyStyleToken(color, styleMuted, fmt.Sprintf("%-8s", "Auth")), safeExternalText(status.AuthBrokerState), safeExternalText(status.CredentialCompanionState), safeExternalText(status.RootKeyBackend))

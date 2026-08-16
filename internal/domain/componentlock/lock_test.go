@@ -8,8 +8,7 @@ import (
 
 func TestLockRoundTripAndReferences(t *testing.T) {
 	lock := Lock{SchemaVersion: 1, SourceRevision: strings.Repeat("a", 40),
-		Gateway:    Component{Image: "ghcr.io/tasuku43/tobari/gateway", Digest: "sha256:" + strings.Repeat("1", 64), API: 1, Platforms: []string{"linux/amd64", "linux/arm64"}},
-		AuthBroker: Component{Image: "ghcr.io/tasuku43/tobari/auth-broker", Digest: "sha256:" + strings.Repeat("2", 64), API: 1, Platforms: []string{"linux/amd64", "linux/arm64"}},
+		Gateway: Component{Image: "ghcr.io/tasuku43/tobari/gateway", Digest: "sha256:" + strings.Repeat("1", 64), API: 1, Platforms: []string{"linux/amd64", "linux/arm64"}},
 	}
 	data, err := json.MarshalIndent(lock, "", "  ")
 	if err != nil {
@@ -26,7 +25,7 @@ func TestLockRoundTripAndReferences(t *testing.T) {
 }
 
 func TestLockRejectsIncompleteOrNoncanonicalAuthority(t *testing.T) {
-	base := `{"schema_version":1,"source_revision":"` + strings.Repeat("a", 40) + `","gateway":{"image":"ghcr.io/tasuku43/tobari/gateway","digest":"sha256:` + strings.Repeat("1", 64) + `","api":1,"platforms":["linux/amd64","linux/arm64"]},"auth_broker":{"image":"ghcr.io/tasuku43/tobari/auth-broker","digest":"sha256:` + strings.Repeat("2", 64) + `","api":1,"platforms":["linux/amd64","linux/arm64"]}}`
+	base := `{"schema_version":1,"source_revision":"` + strings.Repeat("a", 40) + `","gateway":{"image":"ghcr.io/tasuku43/tobari/gateway","digest":"sha256:` + strings.Repeat("1", 64) + `","api":1,"platforms":["linux/amd64","linux/arm64"]}}`
 	for name, data := range map[string]string{
 		"moving tag":        strings.Replace(base, `ghcr.io/tasuku43/tobari/gateway"`, `ghcr.io/tasuku43/tobari/gateway:main"`, 1),
 		"partial platforms": strings.Replace(base, `["linux/amd64","linux/arm64"]`, `["linux/amd64"]`, 1),

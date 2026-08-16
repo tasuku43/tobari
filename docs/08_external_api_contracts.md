@@ -1,11 +1,11 @@
 # External API Contracts
 
 Tobari exposes no provider-specific business-operation API. It authorizes the
-ordinary HTTP/HTTPS effect that leaves a Workspace through Gateway. The
-standard compiled plans cover GitHub, Datadog, OpenAI/Codex,
-Anthropic/Claude, and Chatwork; the experimental profile adds AWS. Owner
-manifests may add only a static primary secret when an exact HTTPS/header
-transformation expresses the outcome.
+ordinary HTTP/HTTPS effect that leaves a Workspace through Gateway. Standard
+has no provider-specific credential plan or binding: clients authenticate
+natively in the Workspace, and their original credentials remain absent from
+OPA/audit and are forwarded only after allow. Experimental `task build:dev`
+retains the closed Broker plan described below.
 
 ## Generic HTTP contract
 
@@ -23,7 +23,7 @@ arguments, aliases, fragments, directives, nested selections, literals, and
 body hashes never enter policy, evidence, audit, or CLI output.
 
 Gateway performs no external DNS or upstream connection before allow. It uses
-finite OPA, Broker, DNS, connect, and upstream timeouts and makes one upstream
+finite OPA, DNS, connect, and upstream timeouts and makes one upstream
 attempt. It does not retry an arbitrary HTTP request.
 
 ## Policy-preset ceiling
@@ -40,10 +40,17 @@ exact-review candidates; `builtin/get-only-reviewed` makes only eligible GET
 effects candidates and terminally denies HEAD and every non-GET. Those three
 strict presets grant no immediate authority and GET is not classified as safe
 or read-only. Terminal denial
-creates no candidate and causes zero external DNS, Broker resolution, or
-upstream calls.
+creates no candidate and causes zero external DNS or upstream calls.
 
-## Broker contract
+The native-login matrix explicitly includes Claude's platform hello/token and
+Anthropic profile/roles requests plus Codex's OAuth token and two device-auth
+requests. Exact methods, authorities, and paths are defined in
+[Authentication handling](07_authentication.md#standard-native-workspace-authentication).
+The Claude regression proves that successful token exchange cannot be followed
+by a Tobari-generated `broker_auth_required` on `/api/oauth/profile`; provider
+`subscriptionType` and `rateLimitTier` remain provider-owned response data.
+
+## Experimental Broker contract
 
 Provider schema 1 is strict non-secret, non-executable data. It declares a
 bounded Workspace handle projection and exact HTTPS target, source header,
@@ -84,10 +91,11 @@ queries, headers, and bodies are absent from OPA audit and denial output.
 Managed adapters/profiles remain absent. Dynamic records, refresh, task
 barriers, signing, supplemental headers, the credential companion, and exact-
 version drivers exist only inside the compiled reviewed built-in
-implementation union. The active standard projection cannot select AWS, and
-owner manifests cannot select or extend any dynamic plan.
+implementation union. The compiled experimental projection cannot select
+capabilities outside that union, and owner manifests cannot select or extend
+any dynamic plan.
 
-## GitHub acquisition
+## Experimental GitHub acquisition
 
 `auth login --provider github` resolves one canonical non-project GitHub CLI,
 uses fixed API-only argv and sanitized environment, runs in a private temporary
@@ -97,7 +105,7 @@ performs checked cleanup, and only then commits the static secret. It requests
 no Git protocol or credential-helper setup and reads no ambient GitHub home.
 Exact GitHub CLI product-version equality is not an authority boundary.
 
-## Other reviewed acquisition and post-policy plans
+## Other experimental acquisition and post-policy plans
 
 Host acquisition ignores untrusted PATH shadows without executing them and
 selects the first finite PATH candidate whose canonical executable passes the
@@ -145,7 +153,7 @@ public validation and before one Broker send. Terminal input is rejected before
 reading. Login/import rotate the record and all handles; logout removes local
 state and revokes handles without claiming provider-side revocation.
 
-## Faults and evidence
+## Experimental faults and evidence
 
 OPA or Gateway uncertainty denies. Invalid handles return
 `credential_handle_invalid`; locked or unavailable Broker state returns

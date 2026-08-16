@@ -14,13 +14,12 @@ and an egress interface. Ordinary HTTP/HTTPS sockets have only the guarded
 transparent path to the public Internet, which converges at Gateway.
 
 Three network scopes keep work traffic, policy control, and external egress
-separate. Gateway crosses the necessary scopes; OPA and Auth Broker have
-narrower attachments. An allowed request can leave through Gateway, while a
+separate. Gateway crosses the necessary scopes; OPA remains control-only. An allowed request can leave through Gateway, while a
 Gateway or OPA failure closes the path. The [five-part mental model](/how-it-works/mental-model/) introduces the participants shown below.
 
 <SystemMap
   title="The supported network and control map"
-  description="Workspace and Upstream remain outside the shared cluster. Gateway alone crosses the project and egress sides; OPA and Auth Broker remain separate conversations inside the host-owned cluster."
+  description="Workspace and Upstream remain outside the shared cluster. Gateway alone crosses the project and egress sides; OPA remains a separate control conversation inside the host-owned cluster."
   networkDetail
 />
 
@@ -39,22 +38,13 @@ transparent listener. Gateway exposes no separate explicit-proxy listener.
 
 OPA joins the shared `control` network, not project networks or egress. Workspace processes therefore cannot call OPA's policy endpoint directly.
 
-Gateway also joins control so it can call one fixed OPA endpoint. Auth Broker
-joins control and egress, but exposes no TCP listener. Host commands and Gateway
-reach its distinct Unix sockets through controlled mounts and fixed operations;
-neither socket is available to a Workspace or OPA. A separate Broker-private
-companion socket exists only inside the Auth Broker container namespace and is
-bridged by one authenticated reverse `docker exec -i` session to the resident
-trusted-host companion. It is not mounted into a Workspace or published on the
-host.
+Gateway also joins control so it can call one fixed OPA endpoint. Standard has
+no Auth Broker service or credential socket.
 
 ### One egress network
 
 Gateway joins `egress` so it can resolve and connect to an allowed destination.
-Auth Broker uses egress only for its compiled post-policy Datadog refresh plan
-at one exact US1 token endpoint. Interactive GitHub, AWS, and Datadog
-acquisition runs through fixed drivers directly on the trusted host, not over
-Broker egress. A work container never joins this network.
+A work container never joins this network.
 
 ## An allowed request in order
 
@@ -79,7 +69,10 @@ There is no application-layer automatic retry. Redirects are independent request
 
 <ConceptDiagram name="trust-boundaries" />
 
-The Workspace and upstream are untrusted. The host, Docker execution substrate, Gateway, OPA, Auth Broker, and their owner-controlled state are trusted enforcement infrastructure. “Trusted” means Tobari's claims depend on them; it does not mean they cannot contain bugs.
+The Workspace and upstream are untrusted. The host, Docker execution substrate,
+Gateway, OPA, and their owner-controlled state are trusted enforcement
+infrastructure. “Trusted” means Tobari's claims depend on them; it does not mean
+they cannot contain bugs.
 
 ## Concrete bypass attempts
 
@@ -110,9 +103,9 @@ Host file roots are a different boundary: two Workspaces may intentionally mount
 
 ## Guarantees and limitations
 
-**Guaranteed under the supported topology:** no direct Workspace egress; no Workspace route to OPA, Broker sockets, Docker socket, or another project network; no upstream attempt after policy failure; bounded shared-service CPU, memory, PIDs, and Docker logs.
+**Guaranteed under the supported topology:** no direct Workspace egress; no Workspace route to OPA, Docker socket, or another project network; no upstream attempt after policy failure; bounded shared-service CPU, memory, PIDs, and Docker logs.
 
-**Not guaranteed:** fair bandwidth or fair shared-service capacity between Workspaces; protection after host, Docker, kernel, Gateway, OPA, or Broker compromise; disk quota below a selected project root; general network policy for non-HTTP protocols; filesystem isolation between overlapping selected roots.
+**Not guaranteed:** fair bandwidth or fair shared-service capacity between Workspaces; protection after host, Docker, kernel, Gateway, or OPA compromise; disk quota below a selected project root; general network policy for non-HTTP protocols; filesystem isolation between overlapping selected roots.
 
 ## Source evidence
 
@@ -127,8 +120,7 @@ Host file roots are a different boundary: two Workspaces may intentionally mount
 
 Synthetic DNS, the Workspace output guard, disabled forwarding, and Gateway
 redirect rules enforce the single supported route. Gateway mediates one
-project network to policy and egress. OPA decides
-without egress, and Auth Broker is not exposed to Workspace networking.
+project network to policy and egress. OPA decides without egress.
 
 ## Check your understanding
 

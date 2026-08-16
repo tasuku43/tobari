@@ -1,73 +1,76 @@
 # Authentication handling
 
-This document defines Tobari's reviewed authentication boundary. ADR 0031
-supersedes ADR 0030 only for provider removal and static-only authentication;
-managed profiles remain retired.
+This document defines Tobari's reviewed authentication boundary. ADR 0044
+supersedes the Broker-first standard profile. The Broker implementation remains
+an experimental development capability; managed profiles remain retired.
 
-## Broker-first ownership model
+## Standard native Workspace authentication
 
-Every exact provider binding in Tobari's normalized projection is
-Broker-required. At that binding a Workspace may present only its current
-project-bound Tobari handle. A real token, session credential, or direct AWS
-signature fails before OPA as `broker_auth_required`; policy cannot convert it
-into a valid credential route.
+The standard and release profile has no provider binding, normalized provider
+projection, credential handle, vault, root key, companion, Auth Broker service,
+or `auth` command. Claude Code, Codex, and other tools run their own supported
+login inside a persistent Workspace home. Host credentials and host CLI homes
+are never inherited or copied.
 
-The brokered route keeps one typed static or reviewed renewable
-credential record in an encrypted Context vault. A Workspace receives only a
-random opaque handle bound to the stable Context, project, provider,
-credential revision, and exact HTTPS header/signing plan. Gateway performs
-exactly one plan-owned static resolution, token selection/refresh, or bounded
-AWS SigV4 result only after OPA allows the ordinary HTTP effect.
+A native credential is readable by every process in that Workspace. Gateway
+removes authentication and control headers from OPA input and audit evidence,
+asks OPA about the ordinary exact HTTP effect, and forwards the original
+credential only after allow. Tobari does not identify the process that created
+the credential and does not claim per-tool secret isolation inside one
+Workspace.
 
-Workspace-owned authentication remains a compatibility path only for requests
-that match no declared provider binding. A tool may then run its own login or
-receive a credential through its Workspace environment/files. That real
-credential is available to every process in the Workspace and is forwarded
-only after OPA allow. Tobari does not inherit host credentials or mount a host
-CLI home, but it also does not claim that this compatibility credential stays
-outside the Workspace.
+Login creates no policy rule. `builtin/agent-ready` grants only a finite exact
+set of client-bootstrap and core effects, independently from account scope or
+credential state. It includes these observed native-login effects for the
+pinned clients:
 
-Brokered acquisition or import never grants network permission and never
-creates a policy rule. A request may already match its Context's immutable
-baseline: the default `builtin/agent-ready` preset grants a finite exact set of
-Claude/Codex core HTTP effects. That authority exists independently from the
-credential, applies to every process in the Context, and cannot be widened by
-login, refresh, account metadata, or provider scope output.
+| Client | Method | Exact authority and path |
+|---|---|---|
+| Claude Code | `GET` | `https://platform.claude.com/v1/oauth/hello` |
+| Claude Code | `POST` | `https://platform.claude.com/v1/oauth/token` |
+| Claude Code | `GET` | `https://api.anthropic.com/api/oauth/claude_cli/roles` |
+| Claude Code | `GET` | `https://api.anthropic.com/api/oauth/profile` |
+| Codex | `POST` | `https://auth.openai.com/oauth/token` |
+| Codex device auth | `POST` | `https://auth.openai.com/api/accounts/deviceauth/usercode` |
+| Codex device auth | `POST` | `https://auth.openai.com/api/accounts/deviceauth/token` |
 
-Acquisition and runtime application are separate trust boundaries. Reviewed
-host and selected-Context-runtime drivers acquire Context-owned state with fixed provider-specific flows;
-Gateway later owns the exact request binding. Blocking a partial list of token
-or browser endpoints cannot enforce Broker use because an already acquired
-credential can be injected. Tobari therefore enforces handle-only runtime
-bindings and does not infer authentication from a command or process name.
+Browser navigation occurs on the host and is not a Workspace egress grant.
+Every request outside the immutable baseline remains denied or reviewable under
+the selected preset. The policy applies to every process in the Context, never
+to an executable name.
 
-## Supported surface
+Claude native login is a release regression because the previous standard
+projection allowed token exchange and then rejected Claude's authenticated
+`GET /api/oauth/profile` as `broker_auth_required`. That made
+`subscriptionType` and `rateLimitTier` null and caused `/status` to report
+`Claude API account`. Standard conformance now proves the profile request and
+the other login effects take the ordinary passthrough route, that their bearer
+value is absent from OPA input, and that it is preserved for upstream only
+after allow. Codex's browser callback and device-code variants have the same
+post-policy passthrough proof.
 
-The standard and release profile exposes GitHub, Datadog, OpenAI/Codex, and
-Anthropic/Claude for `auth login`, plus Chatwork through protected stdin
-`auth import`. The experimental profile compiled by `task build:dev` adds AWS;
-no environment variable or runtime flag can activate it in a standard binary.
-Omitted `--provider` on an interactive trusted-host terminal opens a bounded
-selector over drivers active in that compiled profile. Explicit standard
-selection remains deterministic:
+`context show` reports `authentication.mode` as `native_workspace`. The agent
+CLI itself owns credential status, refresh, logout, account metadata, and error
+presentation. Deleting the Workspace removes its native credential state;
+switching or recreating a Workspace requires native login there.
 
-```sh
-tobari auth login --provider github
-tobari auth login --provider datadog
-tobari auth login --provider openai
-tobari auth login --provider anthropic
-trusted-secret-source | tobari auth import chatwork
-```
+## Experimental Broker profile
 
-The experimental binary additionally accepts:
+`task build:dev` compiles the legacy reviewed Broker capability and its `auth`
+commands behind `tobari_experimental`. It uses a three-service Compose override
+and an experimental Gateway layer. No environment variable or runtime flag can
+activate it in a standard binary, it is not supported or published, and it has
+no standard component-lock entry.
+
+The experimental profile accepts:
 
 ```sh
 tobari-dev auth login --provider aws --method identity-center
 tobari-dev auth login --provider aws --method console
 ```
 
-Only experimental AWS accepts `--method`; omission selects
-`identity-center`. GitHub:
+Only AWS accepts `--method`; omission selects `identity-center`. The remaining
+sections describe this experimental profile only. GitHub:
 
 All reviewed helper lookups inspect a finite PATH-ordered candidate set. A
 temporary integration shim may shadow a conventional installation for ordinary
@@ -142,7 +145,7 @@ intent, and mutation validation happen before the read; the selected existing
 Context, installed static provider, and ready Broker are validated before the
 secret is sent.
 
-`auth status` is read-only and reports `declared_bindings: broker_required`
+Experimental `auth status` is read-only and reports `declared_bindings: broker_required`
 and `undeclared_bindings: workspace_owned_compatibility` beside Broker,
 provider, and Workspace activation state. `context show` reports the same
 routing contract in its authentication section and points to `auth status` for
@@ -157,9 +160,10 @@ adapters, provider-defined routes, multiple accounts, and compatibility
 readers remain unsupported. The dynamic records, refresh, signing,
 supplemental header, companion, compiled provider drivers, provider selector, and
 AWS method selector exist only in the compiled implementation union above;
-the active standard projection cannot select AWS.
+the experimental projection cannot select capabilities outside that compiled
+union.
 
-## Runtime credential classes
+## Experimental runtime credential classes
 
 All declared bindings are Broker-required, but their post-policy behavior is
 not interchangeable:
@@ -174,7 +178,7 @@ These classes describe runtime use, not acquisition. `builtin_helper` and
 `stdin_import` describe how state enters the Broker; they do not say whether
 that state is static, renewable, or request-signing.
 
-## Static provider manifests
+## Experimental static provider manifests
 
 Owner manifests are strict owner-only schema-V1 non-secret, non-executable
 local data. A manifest may declare:
@@ -193,7 +197,7 @@ are unsupported. Overlapping recognition coordinates reject the complete
 provider projection as `ambiguous_provider_http_binding`; partial authority is
 never activated.
 
-## Canonical schemas, paths, and backend identifiers
+## Experimental canonical schemas, paths, and backend identifiers
 
 All Tobari-owned authentication schemas and component APIs are exactly V1.
 Readers reject every other version without migration or fallback.
@@ -229,7 +233,7 @@ host listener or Workspace mount. Control and runtime frames are strict 64 KiB
 schema-1 NDJSON; key and credential payload bytes follow their declared length
 and never use argv or environment.
 
-## Post-policy request sequence
+## Experimental post-policy request sequence
 
 Gateway enforces this exact order:
 
@@ -268,13 +272,13 @@ different Workspace or binding does not create Broker authority. For declared
 bindings, the real primary secret never enters Workspace state, OPA input,
 audit, denial evidence, CLI output, or logs.
 
-## Failure and recovery
+## Experimental failure and recovery
 
 Locked, unavailable, timed-out, or invalid Broker state fails as
 `credential_broker_unavailable` without forwarding. A malformed, stale,
 revoked, ambiguous, or mismatched handle fails as
 `credential_handle_invalid` without fallback. Auth mutation cancellation or
-an unclassified result preserves the standard non-retryable reconciliation
+an unclassified result preserves the experimental non-retryable reconciliation
 contract: run `auth status` before attempting another mutation. Successful
 login/import/logout output is finalized before late cancellation can imply
 that replay is safe.
@@ -290,7 +294,7 @@ its result is unknown, Gateway returns non-retryable
 attempt. Reconcile with trusted-host `auth status`; a durable task barrier
 requires explicit login or logout before retry.
 
-## Verification and release evidence
+## Experimental verification evidence
 
 Automated evidence uses synthetic credentials, fake GitHub CLI output, local
 servers, fixed clocks, secret canaries, and temporary owner-only state. It
@@ -300,9 +304,9 @@ refresh/signing/companion behavior, durable unknown-outcome barriers, rotation,
 revocation, logout, no invalid-handle fallback, source/snapshot equality, and
 absence of managed-profile or manifest-selected executable paths.
 
-Before publication, reviewers replay each reviewed host acquisition against a
-disposable account without recording a token, code, handle, vault, account
-identifier, or authenticated transcript. The GitHub slice includes:
+Experimental manual validation may replay each reviewed host acquisition
+against a disposable account without recording a token, code, handle, vault,
+account identifier, or authenticated transcript. The GitHub slice includes:
 
 ```sh
 tobari auth login --provider github --context default
@@ -315,6 +319,5 @@ tobari auth logout github --context default --format json
 ```
 
 The reviewer records pass/fail and secret-free observations only, then proves
-the old handle fails. Publication requires `task check`, `task security`,
-`task public:check`, and the release gate; none permits storing live secrets as
-repository evidence.
+the old handle fails. This evidence never authorizes or accompanies standard
+publication; no gate permits storing live secrets as repository evidence.

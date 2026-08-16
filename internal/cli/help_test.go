@@ -50,11 +50,14 @@ func TestVersionHelpDeclaresBuildIdentityBeforeClusterMutation(t *testing.T) {
 	if code := runCLI(command, []string{"help", "version", "--format", "agent"}); code != ExitOK {
 		t.Fatalf("Run(help version --format agent) code = %d, stderr = %q", code, stderr.String())
 	}
-	for _, want := range []string{
+	wants := []string{
 		`"gateway_required_api"`, `"gateway_selected_api"`,
-		`"auth_broker_required_api"`, `"auth_broker_selected_api"`,
 		`"development_build_command"`, `"development_binary"`,
-	} {
+	}
+	if buildIdentityHasBroker() {
+		wants = append(wants, `"auth_broker_required_api"`, `"auth_broker_selected_api"`)
+	}
+	for _, want := range wants {
 		if !strings.Contains(stdout.String(), want) {
 			t.Errorf("version agent help lacks %q\n%s", want, stdout.String())
 		}

@@ -15,9 +15,9 @@ The harness is the executable counterpart of the theses, product contract, archi
 | `public` | `task public:check` | Public publication | Project metadata, forbidden-data, required-file, license, capability/schema contracts, public-boundary checks, generated references, and the deployable Pages artifact |
 | `policy` | `task policy:test` | Rego feedback | Pinned OPA format check and unit tests |
 | `gateway` | `task gateway:test` | Enforcement-point feedback | Source-built Gateway image with hash-locked dependencies, exact runtime-input snapshot membership/bytes, existing addon tests, and bounded GraphQL parser tests |
-| `authbroker` | `task authbroker:test` | Credential-boundary feedback | Exact runtime-input snapshot membership/bytes, strict broker/provider/root-key Go tests, Python daemon/vault/protocol tests in the pinned image environment, and Auth Broker image metadata |
-| `integration` | `task integration:test` | Real runtime boundary | One Gateway/OPA/Auth Broker shared across multiple Contexts, explicit/transparent HTTP parity, guarded routes and forwarding-off inspection, synthetic DNS and zero-pre-policy-upstream canaries, same-root and overlapping-root Tobari, Context/project source-principal and handle separation, separate network, home, runtime, policy, and credential boundaries, shared host-file visibility, typed/redacted denial, Context-local learning/reset, exact marker-absence fallback, broker restart/rotation/logout, down/purge authentication-state preservation, V1 restart, recovery, and cleanup scenarios |
-| `runtime` | `task runtime:test` | Complete container gate | Policy, Gateway, Auth Broker image/protocol, and integration coverage |
+| `authbroker` | `task authbroker:test` | Experimental credential-boundary feedback | Exact runtime-input snapshot membership/bytes, strict broker/provider/root-key Go tests, Python daemon/vault/protocol tests in the pinned image environment, and Auth Broker image metadata |
+| `integration` | `task integration:test` | Experimental real runtime boundary | The `task build:dev` three-service topology, Broker isolation, and the shared Gateway/OPA lifecycle scenarios |
+| `runtime` | `task runtime:test` | Complete experimental container gate | Policy, Gateway, Auth Broker image/protocol, and experimental integration coverage |
 
 The integration script reports named phase start/completion and elapsed time
 for preflight, fixture build, Context/cluster, credentials/Workspaces,
@@ -32,7 +32,8 @@ instead prove selected-Context resolution, immutable image and executable
 identity, structural pup login/capture conformance, and absence of host/base
 fallback. The base workflow is always validation-only. Release tests reject
 any base-runtime GHCR reference or push path; the protected registry mutation
-publishes Gateway and Auth Broker only.
+publishes Gateway only. Auth Broker remains validation-only and local to
+`task build:dev`.
 
 `task build` is a contributor feedback path, not a completion profile. It
 builds or reuses local Tobari-managed component images whose tags contain the
@@ -59,21 +60,21 @@ component lock and exposes its selected APIs with no repository recovery value;
 the development fixture exposes matching source APIs plus exactly `task build`
 and `bin/tobari`.
 
-The current contributor sources expect `io.tobari.gateway-api=1` and
-`io.tobari.auth-broker-api=1`, including guarded transparent routing,
-synthetic DNS, and schema-1 source principals. `task build` is the matching
-local image path. `versions.env` contains only source inputs and no generated
-Tobari-owned release output. The release profile validates strict two-service
-lock generation, derives both service APIs from the canonical Dockerfiles, and
-requires Gateway, Auth Broker, and every CLI archive to carry the same source
-revision. The local base tag is derived from the embedded runtime recipe.
+The standard contributor source expects `io.tobari.gateway-api=1`, including
+guarded transparent routing, synthetic DNS, and schema-1 source principals.
+The experimental build additionally checks `io.tobari.auth-broker-api=1`.
+`task build` is the matching standard local image path. `versions.env` contains
+only source inputs and no generated Tobari-owned release output. The release
+profile validates Gateway-only lock generation and requires Gateway and every
+CLI archive to carry the same source revision. The local base tag is derived
+from the embedded runtime recipe.
 
 The focused `task runtime:base:check` workflow validates the canonical
 `runtimes/base` metadata and per-platform artifact lock, the Dockerfile's common
 tool, integrity, redistribution/license, and runtime contracts, and byte
 equality with the embedded CLI snapshot. Its pull-request and main workflow is
 cache-only and has no package-write permission. The protected Release workflow
-also cannot publish it; only Gateway and Auth Broker are registry artifacts.
+also cannot publish it; Gateway is the only registry artifact.
 
 `task gateway:source:check` validates exact membership and byte equality for
 the canonical Gateway Dockerfile, `.dockerignore`, and Dockerfile-declared
@@ -798,8 +799,8 @@ Every strong statement should identify its enforcement path.
 | Context shell environment boundary | Fixed allowlist and source-enum domain tests, explicit-empty preservation, exact V1 persistence, zero-I/O rejection for arbitrary names and ambiguous values, owner-only atomic update tests, complete Context report output, exact child-exec environment assertions, missing-export fallback, Bash-quote and bounded inherited-value canaries, and host-credential non-copy assertions |
 | Context Git identity boundary | Atomic pair/source domain tests, exact V1 shell-setting preservation and opt-in default initialization, exact two-key global Git argv with an absolute executable and exact `HOME`/optional `XDG_CONFIG_HOME` plus fixed-control environment allowlist, project-owned config-directory and `PATH`/loader/shell-startup canaries, timeout/output/framing/unsafe-value bounds, malicious local-include exclusion, private atomic config encoding, symlink and existing-file size checks, read-only directory mount and system-scope precedence, excluded helper/signing/auth/path keys, absent/incomplete-pair behavior, and secret-/personal-data-free faults and fixtures |
 | Context runtime build boundary | Fixed current-Context target contracts, owner-only recipe checks, bounded BuildKit plain-progress/load argv, embedded local-base missing/reuse behavior, no built-in registry pull, live visible-projected stdout/stderr diagnostics, syntax/RUN/base/daemon failure canaries, nonzero/zero exit assertions, compatibility/digest validation, source-digest status, previous-image preservation, atomic promotion tests, and bound-Context next-entry reconciliation coverage |
-| Gateway source and image boundary | Canonical-source/snapshot byte comparison, pinned mitmproxy parent, signed nftables/iproute dependency inventory, canonical-source unit tests, source API-1/role labels, transparent-only listener and fixed network-guard entrypoint, explicit rejection of non-transparent ingress, absence of proxy environment/port exceptions, content-addressed development selection, two-service-lock validation, immutable digest/platform/entrypoint release preflight, non-root resident process, and validation/release workflow permission separation |
-| Auth Broker source and image boundary | Canonical-source/snapshot byte comparison, canonical Python tests in the pinned image environment, provider-CLI absence including Codex/Claude, source API-1/role labels, content-addressed development selection, two-service-lock validation, immutable digest/platform/entrypoint release preflight, non-root Dockerfile, and validation/release workflow permission separation |
+| Gateway source and image boundary | Canonical-source/snapshot byte comparison, pinned mitmproxy parent, signed nftables/iproute dependency inventory, canonical-source unit tests, source API-1/role labels, transparent-only listener and fixed network-guard entrypoint, explicit rejection of non-transparent ingress, absence of proxy environment/port exceptions, content-addressed development selection, Gateway-only lock validation, immutable digest/platform/entrypoint release preflight, non-root resident process, and validation/release workflow permission separation |
+| Experimental Auth Broker source and image boundary | Canonical-source/snapshot byte comparison, canonical Python tests in the pinned image environment, provider-CLI absence including Codex/Claude, source API-1/role labels, content-addressed development selection, absence from the release lock/publication workflow, non-root Dockerfile, and validation workflow permission separation |
 | Context-owned encrypted credentials | Root-key backend tests, strict owner/mode/symlink checks, AES-GCM schema/Context AAD canaries, atomic vault replacement, missing-key-with-vault rejection, and secret-free outputs |
 | Authentication state survives cluster teardown | Exact down/purge resource assertions, preserved vault/key canaries, and subsequent cluster-up unlock/status proof |
 | Doctor remains observational | Fixed dependency-matrix, direct-blocker, complete-report, schema-1 renderer/agent-contract, fail/warn exit, cancellation, Docker-argv allowlist, host-only policy-source validation, content-aware fresh/unsupported-version snapshots, and zero-create/zero-repair canaries across root-key, vault, provider, broker, and project-auth state |

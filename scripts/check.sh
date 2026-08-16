@@ -178,7 +178,7 @@ run_fast() {
   ./scripts/check-authbroker-image.sh
   ./scripts/check-site.sh fast
   go test ./...
-	go test -tags=tobari_experimental ./internal/app/authcmd ./internal/cli ./internal/domain/authbroker ./internal/domain/buildidentity ./internal/domain/capabilityprofile ./internal/infra/authproviders ./internal/infra/dockerruntime
+	go test -tags='tobari_dev tobari_experimental' ./internal/app/authcmd ./internal/cli ./internal/domain/authbroker ./internal/domain/buildidentity ./internal/domain/capabilityprofile ./internal/infra/authproviders ./internal/infra/dockerruntime
 }
 
 run_security() {

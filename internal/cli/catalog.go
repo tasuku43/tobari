@@ -561,9 +561,24 @@ func doctorCheckIDValues() []string {
 	inventory := doctor.CheckInventory()
 	values := make([]string, 0, len(inventory))
 	for _, spec := range inventory {
+		if !buildIdentityHasBroker() && isBrokerDoctorCheck(spec.ID) {
+			continue
+		}
 		values = append(values, string(spec.ID))
 	}
 	return values
+}
+
+func isBrokerDoctorCheck(id doctor.CheckID) bool {
+	switch id {
+	case doctor.CheckIDAuthProviderManifests, doctor.CheckIDAuthVaultPaths,
+		doctor.CheckIDAuthRootKey, doctor.CheckIDAuthBroker,
+		doctor.CheckIDCredentialCompanion, doctor.CheckIDAuthVaultIntegrity,
+		doctor.CheckIDAuthProjectHandles:
+		return true
+	default:
+		return false
+	}
 }
 
 func defaultCatalog() Catalog {
@@ -683,20 +698,7 @@ func defaultCatalog() Catalog {
 				Output: CommandOutput{
 					Formats:       []OutputFormat{OutputFormatText, OutputFormatJSON},
 					DefaultFormat: OutputFormatText, TextPresentation: TextPresentationSemanticTokens,
-					Fields: []OutputField{
-						{Name: "version", Type: OutputFieldTypeString, Description: "Release or development version embedded in the executable."},
-						{Name: "commit", Type: OutputFieldTypeString, Description: "Full source commit embedded in the executable, or unknown when unavailable."},
-						{Name: "resolver_channel", Type: OutputFieldTypeString, Description: "Compiled image authority: published or development."},
-						{Name: "development_source", Type: OutputFieldTypeBoolean, Description: "Whether build metadata proves the contributor development resolver."},
-						{Name: "capability_profile", Type: OutputFieldTypeString, Description: "Immutable capability surface: standard or experimental."},
-						{Name: "gateway_required_api", Type: OutputFieldTypeInteger, Description: "Gateway API required by canonical source."},
-						{Name: "gateway_selected_api", Type: OutputFieldTypeInteger, Description: "Gateway API selected by the compiled resolver."},
-						{Name: "auth_broker_required_api", Type: OutputFieldTypeInteger, Description: "Auth Broker API required by canonical source."},
-						{Name: "auth_broker_selected_api", Type: OutputFieldTypeInteger, Description: "Auth Broker API selected by the compiled resolver."},
-						{Name: "compatible", Type: OutputFieldTypeBoolean, Description: "Whether source metadata is complete and both selected APIs match source requirements."},
-						{Name: "development_build_command", Type: OutputFieldTypeString, Description: "Exact repository build command only for a proven development build; otherwise empty."},
-						{Name: "development_binary", Type: OutputFieldTypeString, Description: "Exact repository binary path only for a proven development build; otherwise empty."},
-					},
+					Fields:             versionOutputFields(),
 					Delivery:           OutputDeliveryComplete,
 					CollectionCoverage: CollectionCoverageNotApplicable,
 					JSONEnvelope:       "build_identity",

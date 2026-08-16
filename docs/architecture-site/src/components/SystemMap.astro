@@ -111,7 +111,9 @@ const participantsJa: Participant[] = [
     networks: "Gateway からだけ到達",
   },
 ];
-const participants = isJapanese ? participantsJa : participantsEn;
+const participants = (isJapanese ? participantsJa : participantsEn).filter(
+  (participant) => participant.id !== "broker",
+);
 
 const messagesEn: Message[] = [
   {
@@ -174,7 +176,7 @@ const messagesEn: Message[] = [
   },
   {
     id: "upstream-request",
-    number: "07",
+    number: "05",
     phase: "egress",
     from: "gateway",
     to: "upstream",
@@ -183,7 +185,7 @@ const messagesEn: Message[] = [
   },
   {
     id: "upstream-response",
-    number: "08",
+    number: "06",
     phase: "egress",
     from: "upstream",
     to: "gateway",
@@ -193,7 +195,7 @@ const messagesEn: Message[] = [
   },
   {
     id: "workspace-response",
-    number: "09",
+    number: "07",
     phase: "egress",
     from: "gateway",
     to: "workspace",
@@ -263,7 +265,7 @@ const messagesJa: Message[] = [
   },
   {
     id: "upstream-request",
-    number: "07",
+    number: "05",
     phase: "egress",
     from: "gateway",
     to: "upstream",
@@ -272,7 +274,7 @@ const messagesJa: Message[] = [
   },
   {
     id: "upstream-response",
-    number: "08",
+    number: "06",
     phase: "egress",
     from: "upstream",
     to: "gateway",
@@ -282,7 +284,7 @@ const messagesJa: Message[] = [
   },
   {
     id: "workspace-response",
-    number: "09",
+    number: "07",
     phase: "egress",
     from: "gateway",
     to: "workspace",
@@ -291,7 +293,9 @@ const messagesJa: Message[] = [
     response: true,
   },
 ];
-const messages = isJapanese ? messagesJa : messagesEn;
+const messages = (isJapanese ? messagesJa : messagesEn).filter(
+  (message) => message.phase !== "credential",
+);
 
 const conversationsEn: Conversation[] = [
   {
@@ -342,12 +346,12 @@ const conversationsEn: Conversation[] = [
   },
   {
     id: "egress",
-    number: "07–09",
+    number: "05–07",
     label: "Create the external connection and relay the response",
     from: "Gateway",
     to: "Destination",
     sent: "The authorized request over a separate Gateway-owned connection",
-    withheld: "Policy internals, principal registry, and broker handle",
+    withheld: "Policy internals, principal registry, and secret audit values",
     result: "The response returns through Gateway to Workspace",
     failure: "A destination error does not change policy",
   },
@@ -401,17 +405,19 @@ const conversationsJa: Conversation[] = [
   },
   {
     id: "egress",
-    number: "07–09",
+    number: "05–07",
     label: "外部接続を作り、応答を中継する",
     from: "Gateway",
     to: "接続先",
     sent: "Gateway が所有する別接続で、許可済みリクエストを送る",
-    withheld: "ポリシーの内部情報、プリンシパル登録情報、ブローカーのハンドル",
+    withheld: "ポリシーの内部情報、プリンシパル登録情報、秘密の監査値",
     result: "応答が Gateway を通って Workspace へ戻る",
     failure: "接続先のエラーはポリシーを変更しない",
   },
 ];
-const conversations = isJapanese ? conversationsJa : conversationsEn;
+const conversations = (isJapanese ? conversationsJa : conversationsEn).filter(
+  (conversation) => conversation.id !== "credential",
+);
 
 const laneX: Record<Participant["id"], number> = {
   workspace: 120,
@@ -450,7 +456,7 @@ const ui = isJapanese
       eyebrow: "通信フロー",
       scrollableMap: "横方向にスクロールできるシーケンス図",
       mapDescription:
-        "左から Workspace、Gateway、OPA、Auth Broker、外部の接続先が並び、時間は上から下へ進みます。番号付きの矢印が一つのリクエストの処理順序を示します。",
+        "左から Workspace、Gateway、OPA、外部の接続先が並び、時間は上から下へ進みます。番号付きの矢印が一つのリクエストの処理順序を示します。",
       zoneWorkspace: "プロジェクトの実行環境",
       zoneCluster: "Tobari 共有クラスター · ホスト管理",
       zoneExternal: "外部",
@@ -476,7 +482,7 @@ const ui = isJapanese
       eyebrow: "Request flow",
       scrollableMap: "Horizontally scrollable sequence diagram",
       mapDescription:
-        "Workspace, Gateway, OPA, Auth Broker, and the external destination are arranged from left to right; time moves downward. Numbered messages show one request in processing order.",
+        "Workspace, Gateway, OPA, and the external destination are arranged from left to right; time moves downward. Numbered messages show one request in processing order.",
       zoneWorkspace: "Project runtime",
       zoneCluster: "Tobari shared cluster · host-managed",
       zoneExternal: "External",

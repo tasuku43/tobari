@@ -26,10 +26,10 @@ func main() {
 	}
 	switch os.Args[1] {
 	case "create":
-		if len(os.Args) != 8 {
-			fatal(errors.New("usage: componentlock create <revision> <gateway-api> <gateway-evidence> <auth-broker-api> <auth-broker-evidence> <output>"))
+		if len(os.Args) != 6 {
+			fatal(errors.New("usage: componentlock create <revision> <gateway-api> <gateway-evidence> <output>"))
 		}
-		create(os.Args[2], os.Args[3], os.Args[4], os.Args[5], os.Args[6], os.Args[7])
+		create(os.Args[2], os.Args[3], os.Args[4], os.Args[5])
 	case "verify":
 		if len(os.Args) != 4 {
 			fatal(errors.New("usage: componentlock verify <lock> <revision>"))
@@ -40,7 +40,7 @@ func main() {
 		}
 	case "field":
 		if len(os.Args) != 5 {
-			fatal(errors.New("usage: componentlock field <lock> <revision> <gateway-image|gateway-api|auth-broker-image|auth-broker-api>"))
+			fatal(errors.New("usage: componentlock field <lock> <revision> <gateway-image|gateway-api>"))
 		}
 		lock := loadLock(os.Args[2])
 		if lock.SourceRevision != os.Args[3] {
@@ -51,10 +51,6 @@ func main() {
 			fmt.Print(lock.Gateway.Reference())
 		case "gateway-api":
 			fmt.Print(lock.Gateway.API)
-		case "auth-broker-image":
-			fmt.Print(lock.AuthBroker.Reference())
-		case "auth-broker-api":
-			fmt.Print(lock.AuthBroker.API)
 		default:
 			fatal(errors.New("unknown component lock field"))
 		}
@@ -63,7 +59,7 @@ func main() {
 	}
 }
 
-func create(revision, gatewayAPIText, gatewayPath, authAPIText, authPath, output string) {
+func create(revision, gatewayAPIText, gatewayPath, output string) {
 	if _, err := os.Lstat(output); err == nil { // #nosec G703 -- output is the exact caller-selected staging path and is created with O_EXCL below.
 		fatal(fmt.Errorf("component lock already exists; refusing to overwrite it: %s", output))
 	} else if !errors.Is(err, os.ErrNotExist) {
@@ -73,18 +69,12 @@ func create(revision, gatewayAPIText, gatewayPath, authAPIText, authPath, output
 	if err != nil {
 		fatal(errors.New("Gateway API must be an integer"))
 	}
-	authAPI, err := strconv.Atoi(authAPIText)
-	if err != nil {
-		fatal(errors.New("Auth Broker API must be an integer"))
-	}
 	gateway := loadEvidence(gatewayPath)
-	auth := loadEvidence(authPath)
-	if gateway.Revision != revision || auth.Revision != revision {
+	if gateway.Revision != revision {
 		fatal(errors.New("component evidence revision does not match requested revision"))
 	}
 	lock := componentlock.Lock{SchemaVersion: 1, SourceRevision: revision,
-		Gateway:    componentlock.Component{Image: gateway.Image, Digest: gateway.Digest, API: gatewayAPI, Platforms: gateway.Platforms},
-		AuthBroker: componentlock.Component{Image: auth.Image, Digest: auth.Digest, API: authAPI, Platforms: auth.Platforms}}
+		Gateway: componentlock.Component{Image: gateway.Image, Digest: gateway.Digest, API: gatewayAPI, Platforms: gateway.Platforms}}
 	if err := lock.Validate(); err != nil {
 		fatal(err)
 	}

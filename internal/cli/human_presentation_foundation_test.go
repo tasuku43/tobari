@@ -350,7 +350,11 @@ func TestCatalogWideHumanPresentationIsDeclared(t *testing.T) {
 	t.Parallel()
 	catalog := DefaultCatalog()
 	commands := catalog.Commands()
-	if got, want := len(commands), 34; got != want {
+	want := 30
+	if len(authCommandSpecs()) != 0 {
+		want = 34
+	}
+	if got := len(commands); got != want {
 		t.Fatalf("catalog command count = %d, want %d; update the human presentation inventory", got, want)
 	}
 	for _, command := range commands {
@@ -467,7 +471,7 @@ func TestRawSelectorsDoNotRedrawDuringIdlePollsAndRestoreTerminal(t *testing.T) 
 }
 
 func TestBareNamespacesAndUnknownSuggestionsComeOnlyFromCatalog(t *testing.T) {
-	for _, namespace := range []string{"cluster", "policy", "context", "config", "runtime", "auth"} {
+	for _, namespace := range []string{"cluster", "policy", "context", "config", "runtime"} {
 		t.Run("namespace "+namespace, func(t *testing.T) {
 			command, stdout, stderr := newTestCLI(passingInspector("ready"))
 			if code := command.RunContext(context.Background(), []string{namespace}); code != ExitOK {

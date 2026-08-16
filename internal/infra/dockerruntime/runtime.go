@@ -29,16 +29,9 @@ const (
 	opaContainer             = "tobari-opa"
 	policyBundleVolume       = "tobari-policy-bundle"
 	authBrokerContainer      = "tobari-auth-broker"
+	localBaseRuntimeImage    = "tobari-runtime:base"
 	policyTestFailureMessage = "OPA policy tests failed; check Rego syntax and ensure the XDG policy directory is accessible to the Docker Engine VM"
 )
-
-var clusterContainers = map[string]string{
-	"auth-broker": authBrokerContainer,
-	"gateway":     gatewayContainer,
-	"opa":         opaContainer,
-}
-
-var clusterComponentOrder = []string{"auth-broker", "gateway", "opa"}
 
 var errOwnedResourceMissing = errors.New("owned Docker resource is missing")
 

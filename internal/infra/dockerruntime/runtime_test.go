@@ -195,10 +195,16 @@ func TestClusterUpWithProgressReportsEachRuntimeStageInOrder(t *testing.T) {
 			t.Fatalf("stage %q events = %+v, %+v", step, start, complete)
 		}
 	}
-	authIndex := slices.Index(runner.events, "auth-broker-image")
 	gatewayIndex := slices.Index(runner.events, "gateway-image")
 	composeIndex := slices.Index(runner.events, "compose")
-	if authIndex < 0 || gatewayIndex <= authIndex || composeIndex <= gatewayIndex {
+	validOrder := gatewayIndex >= 0 && composeIndex > gatewayIndex
+	if brokerRuntimeEnabled {
+		authIndex := slices.Index(runner.events, "auth-broker-image")
+		validOrder = authIndex >= 0 && gatewayIndex > authIndex && composeIndex > gatewayIndex
+	} else if slices.Contains(runner.events, "auth-broker-image") {
+		validOrder = false
+	}
+	if !validOrder {
 		t.Fatalf("shared image preparation order = %v", runner.events)
 	}
 	if len(runner.policyQueries) < 2 {
@@ -210,19 +216,26 @@ func TestClusterUpWithProgressReportsEachRuntimeStageInOrder(t *testing.T) {
 		t.Fatalf("cluster up final policy readiness query = %v", runner.policyQueries[len(runner.policyQueries)-1].args)
 	}
 	joinedEnvironment := strings.Join(runner.composeEnvironment, "\n")
-	for _, binding := range []string{
-		"TOBARI_AUTH_BROKER_IMAGE=tobari-auth-broker:dev",
-		"TOBARI_GATEWAY_IMAGE=tobari-gateway:dev",
-	} {
+	bindings := []string{"TOBARI_GATEWAY_IMAGE=tobari-gateway:dev"}
+	if brokerRuntimeEnabled {
+		bindings = append(bindings, "TOBARI_AUTH_BROKER_IMAGE=tobari-auth-broker:dev")
+	}
+	for _, binding := range bindings {
 		if strings.Count(joinedEnvironment, binding) != 1 {
 			t.Fatalf("compose environment lacks one verified %q binding: %s", binding, joinedEnvironment)
 		}
 	}
 	wantNetworkConnections := [][]string{
 		{"network", "connect", "--alias", "gateway", "tobari-control", gatewayContainer},
-		{"network", "connect", "--alias", "auth-broker", "tobari-control", authBrokerContainer},
 		{"network", "connect", "--alias", "gateway", "tobari-egress", gatewayContainer},
-		{"network", "connect", "--alias", "auth-broker", "tobari-egress", authBrokerContainer},
+	}
+	if brokerRuntimeEnabled {
+		wantNetworkConnections = [][]string{
+			{"network", "connect", "--alias", "gateway", "tobari-control", gatewayContainer},
+			{"network", "connect", "--alias", "auth-broker", "tobari-control", authBrokerContainer},
+			{"network", "connect", "--alias", "gateway", "tobari-egress", gatewayContainer},
+			{"network", "connect", "--alias", "auth-broker", "tobari-egress", authBrokerContainer},
+		}
 	}
 	if len(runner.networkConnections) != len(wantNetworkConnections) {
 		t.Fatalf("shared network connections = %v", runner.networkConnections)
@@ -816,7 +829,7 @@ func TestComposeEnvironmentUsesPinnedImages(t *testing.T) {
 		t.Fatal(err)
 	}
 	joined := strings.Join(environment, "\n")
-	for _, key := range []string{"TOBARI_MITMPROXY_IMAGE=", "TOBARI_GATEWAY_IMAGE=", "TOBARI_AUTH_BROKER_IMAGE=", "TOBARI_OPA_IMAGE=", "TOBARI_DEBIAN_IMAGE="} {
+	for _, key := range []string{"TOBARI_MITMPROXY_IMAGE=", "TOBARI_GATEWAY_IMAGE=", "TOBARI_OPA_IMAGE=", "TOBARI_DEBIAN_IMAGE="} {
 		index := strings.LastIndex(joined, key)
 		if index < 0 || !strings.Contains(joined[index:], "@sha256:") {
 			t.Fatalf("%s is not digest pinned", key)
@@ -825,8 +838,15 @@ func TestComposeEnvironmentUsesPinnedImages(t *testing.T) {
 	if !strings.Contains(joined, "TOBARI_PRINCIPAL_DIR="+runtime.principalRegistryDirectory()) {
 		t.Fatalf("compose environment does not expose the dedicated principal directory: %s", joined)
 	}
-	if !strings.Contains(joined, "TOBARI_AUTH_PROVIDER_DIR="+runtime.authProviderProjectionDirectory()) {
-		t.Fatalf("compose environment does not expose the dedicated auth provider projection directory: %s", joined)
+	authBindings := []string{"TOBARI_AUTH_PROVIDER_DIR=", "TOBARI_AUTH_CONTEXTS_DIR=", "TOBARI_AUTH_RUNTIME_DIR=", "TOBARI_AUTH_BROKER_IMAGE="}
+	for _, binding := range authBindings {
+		present := strings.Contains(joined, binding)
+		if brokerRuntimeEnabled && !present {
+			t.Fatalf("experimental compose environment omits %q", binding)
+		}
+		if !brokerRuntimeEnabled && present {
+			t.Fatalf("standard compose environment exposes %q", binding)
+		}
 	}
 	if strings.Contains(joined, "TOBARI_PRINCIPAL_CONFIG=") {
 		t.Fatal("compose environment still exposes the single-file principal configuration")
@@ -841,6 +861,9 @@ func TestPrepareActiveContextImageReusesAndValidatesLocalOfficialRuntime(t *test
 	root := t.TempDir()
 	runner := &recordingRunner{outputData: compatibleImageInspection()}
 	runtime, _ := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), runner)
+	if runtime.defaultRuntimeImage() != localBaseRuntimeImage {
+		t.Skip("local official base build is not selected by the development resolver")
+	}
 	if err := runtime.prepareActiveContextImage(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -857,6 +880,9 @@ func TestPrepareActiveContextImageBuildsMissingLocalOfficialRuntime(t *testing.T
 	root := t.TempDir()
 	runner := &localBaseBuildRunner{}
 	runtime, _ := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), runner)
+	if runtime.defaultRuntimeImage() != localBaseRuntimeImage {
+		t.Skip("local official base build is not selected by the development resolver")
+	}
 	if _, err := runtime.ListContexts(context.Background()); err != nil {
 		t.Fatal(err)
 	}

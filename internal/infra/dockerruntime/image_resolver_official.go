@@ -17,19 +17,12 @@ type officialImageResolver struct{}
 // validated generated component lock. The base runtime remains a local image;
 // packaging gives its embedded recipe a source-derived tag.
 var (
-	publishedGatewayImage    = "unpublished"
-	publishedGatewayAPI      = "1"
-	publishedAuthBrokerImage = "unpublished"
-	publishedAuthBrokerAPI   = "1"
-	localBaseRuntimeImage    = "tobari-runtime:base"
+	publishedGatewayImage = "unpublished"
+	publishedGatewayAPI   = "1"
 )
 
 func (officialImageResolver) BuildIdentity(version, commit string) (buildidentity.Identity, error) {
 	gatewayAPI, err := selectedImageAPI(publishedGatewayAPI, "Gateway")
-	if err != nil {
-		return buildidentity.Identity{}, err
-	}
-	authBrokerAPI, err := selectedImageAPI(publishedAuthBrokerAPI, "Auth Broker")
 	if err != nil {
 		return buildidentity.Identity{}, err
 	}
@@ -39,9 +32,6 @@ func (officialImageResolver) BuildIdentity(version, commit string) (buildidentit
 		CapabilityProfile: capabilityprofile.Compiled(),
 		Gateway: buildidentity.Component{
 			RequiredAPI: buildidentity.RequiredGatewayAPI, SelectedAPI: gatewayAPI,
-		},
-		AuthBroker: buildidentity.Component{
-			RequiredAPI: buildidentity.RequiredAuthBrokerAPI, SelectedAPI: authBrokerAPI,
 		},
 	}, nil
 }
@@ -75,5 +65,5 @@ func (officialImageResolver) GatewayImage(context.Context, *Runtime) (sharedImag
 }
 
 func (officialImageResolver) AuthBrokerImage(context.Context, *Runtime) (sharedImageSelection, error) {
-	return sharedImageSelection{Image: publishedAuthBrokerImage, RequireDigest: true}, nil
+	return sharedImageSelection{}, fmt.Errorf("Auth Broker is unavailable in the standard release profile")
 }

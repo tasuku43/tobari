@@ -19,13 +19,17 @@ func (r testImageResolver) BuildIdentity(version, commit string) (buildidentity.
 	if r.identity != nil {
 		return *r.identity, nil
 	}
-	return buildidentity.Identity{
+	profile := capabilityprofile.Compiled()
+	identity := buildidentity.Identity{
 		Version: version, Commit: buildidentity.NormalizeCommit(commit),
 		ResolverChannel: buildidentity.ResolverDevelopment, DevelopmentSource: true,
-		CapabilityProfile: capabilityprofile.ProfileStandard,
+		CapabilityProfile: profile,
 		Gateway:           buildidentity.Component{RequiredAPI: buildidentity.RequiredGatewayAPI, SelectedAPI: buildidentity.RequiredGatewayAPI},
-		AuthBroker:        buildidentity.Component{RequiredAPI: buildidentity.RequiredAuthBrokerAPI, SelectedAPI: buildidentity.RequiredAuthBrokerAPI},
-	}, nil
+	}
+	if profile.IncludesExperimental() {
+		identity.AuthBroker = buildidentity.Component{RequiredAPI: buildidentity.RequiredAuthBrokerAPI, SelectedAPI: buildidentity.RequiredAuthBrokerAPI}
+	}
+	return identity, nil
 }
 
 func (r testImageResolver) DefaultRuntimeImage() string {

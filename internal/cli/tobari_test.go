@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/tasuku43/tobari/internal/app/tobaricmd"
+	"github.com/tasuku43/tobari/internal/domain/doctor"
 	"github.com/tasuku43/tobari/internal/domain/fault"
 	"github.com/tasuku43/tobari/internal/domain/operation"
 	"github.com/tasuku43/tobari/internal/domain/tobari"
@@ -89,7 +90,7 @@ func TestDoctorDefaultsRootToCurrentDirectory(t *testing.T) {
 	if code := runCLI(command, []string{"doctor"}); code != ExitOK {
 		t.Fatalf("Run(doctor) code = %d, stderr = %q", code, stderr.String())
 	}
-	if len(inspector.roots) != len(doctorCheckIDValues()) || inspector.roots[0] != "." {
+	if len(inspector.roots) != len(doctor.CheckInventory()) || inspector.roots[0] != "." {
 		t.Fatalf("doctor roots = %q, want current directory default for every check", inspector.roots)
 	}
 	if !strings.Contains(stdout.String(), "docker_cli     pass") {
@@ -105,7 +106,7 @@ func TestDoctorHonorsExplicitRoot(t *testing.T) {
 	if code := runCLI(command, []string{"doctor", "--root", "/tmp/project"}); code != ExitOK {
 		t.Fatalf("Run(doctor --root /tmp/project) code = %d, stderr = %q", code, stderr.String())
 	}
-	if len(inspector.roots) != len(doctorCheckIDValues()) || inspector.roots[0] != "/tmp/project" {
+	if len(inspector.roots) != len(doctor.CheckInventory()) || inspector.roots[0] != "/tmp/project" {
 		t.Fatalf("doctor roots = %q, want explicit root for every check", inspector.roots)
 	}
 }
@@ -665,10 +666,13 @@ func TestClusterDownCatalogDescribesLogicalWorkspaceAndPurgeBoundary(t *testing.
 	if !strings.Contains(command.Agent.Outcome, "logical Workspace") ||
 		!strings.Contains(command.Agent.Outcome, "shared CA") ||
 		!strings.Contains(command.Agent.Outcome, "active policy-bundle") ||
-		!strings.Contains(command.Agent.Outcome, "encrypted Context vaults") ||
-		!strings.Contains(command.Agent.Outcome, "installation root key") ||
 		strings.Contains(strings.ToLower(command.Agent.Outcome), "detach") {
 		t.Fatalf("cluster down outcome = %q", command.Agent.Outcome)
+	}
+	containsBrokerState := strings.Contains(command.Agent.Outcome, "encrypted Context vaults") &&
+		strings.Contains(command.Agent.Outcome, "installation root key")
+	if containsBrokerState != buildIdentityHasBroker() {
+		t.Fatalf("cluster down Broker purge boundary = %t, profile includes Broker = %t: %q", containsBrokerState, buildIdentityHasBroker(), command.Agent.Outcome)
 	}
 	if len(command.Agent.Prerequisites) != 1 ||
 		!strings.Contains(command.Agent.Prerequisites[0], "logical Workspace") ||
@@ -1240,7 +1244,10 @@ func TestClusterStatusJSONDoesNotContainTerminalColors(t *testing.T) {
 		Policy:       "/tmp/config/tobari/policy",
 		ContextCount: 1, PolicyRevision: strings.Repeat("a", 64), Components: validClusterComponentStatuses(),
 		PolicyProjection: "valid", PrincipalRegistry: "valid", GatewayProjection: "valid",
-		AuthProviderProjection: "valid", AuthBrokerState: "ready", CredentialCompanionState: "ready", RootKeyBackend: "xdg_file",
+	}
+	if buildIdentityHasBroker() {
+		status.AuthProviderProjection, status.AuthBrokerState = "valid", "ready"
+		status.CredentialCompanionState, status.RootKeyBackend = "ready", "xdg_file"
 	}
 	output, err := renderClusterStatus(status, successFormatJSON, true)
 	if err != nil {
@@ -1252,6 +1259,9 @@ func TestClusterStatusJSONDoesNotContainTerminalColors(t *testing.T) {
 }
 
 func TestClusterStatusJSONExposesAuthBrokerSemantics(t *testing.T) {
+	if !buildIdentityHasBroker() {
+		t.Skip("Auth Broker output exists only in the experimental profile")
+	}
 	t.Parallel()
 	status := tobari.ClusterStatus{
 		Task: tobari.TaskClusterStatus, Configured: true, Running: true,
@@ -1291,11 +1301,14 @@ func TestClusterStatusJSONExposesAuthBrokerSemantics(t *testing.T) {
 }
 
 func validClusterComponentStatuses() []tobari.ComponentStatus {
-	return []tobari.ComponentStatus{
-		{Name: "auth-broker", State: "running", Health: "healthy"},
+	components := []tobari.ComponentStatus{
 		{Name: "gateway", State: "running", Health: "healthy"},
 		{Name: "opa", State: "running", Health: "healthy"},
 	}
+	if buildIdentityHasBroker() {
+		components = append([]tobari.ComponentStatus{{Name: "auth-broker", State: "running", Health: "healthy"}}, components...)
+	}
+	return components
 }
 
 func TestClusterDenialsRendererClosesObservationAndActivationStep(t *testing.T) {

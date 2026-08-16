@@ -5,26 +5,19 @@
 ```text
 host
   tobari CLI ---- Docker CLI ---- Docker Engine
-      +-- fixed control exec/stdin --> tobari-auth-broker (locked)
-      |                                      |
-      |                               encrypted Context vaults
-      +-- reviewed fixed host credential drivers --> provider acquisition
-      +-- private resident AWS companion ---------> Auth Broker bridge
       +-- root A (Context-selected ro/rw) --> Tobari A -- guarded net A --+
       +-- root B (Context-selected ro/rw) --> Tobari B -- guarded net B --+--> tobari-gateway
-                                                               |      |      |
-internal control network:                              tobari-opa :8181 | Unix runtime socket
-                                                                      tobari-auth-broker
-egress network:                         Gateway/Auth Broker --> bounded HTTPS
+                                                                      |
+internal control network:                                      tobari-opa :8181
+egress network:                              Gateway --> policy-allowed HTTPS
 ```
 
 Each Tobari joins only its dedicated internal network. OPA joins only the
 shared internal control network. Gateway joins every Tobari network plus
-control and egress. Auth Broker joins control and egress, has no TCP listener,
-and uses egress only for compiled Datadog/OpenAI/Anthropic refresh transports; Gateway
-reaches only its read-only mounted runtime Unix socket and host commands reach
-only fixed control operations. Reviewed host helpers run from the trusted host
-and cannot be selected by a Workspace, request, or owner manifest. Tobari and control networks
+control and egress. Standard has no Auth Broker service, provider projection,
+credential mount, or host helper. The experimental development override adds a
+locked Auth Broker on control/egress plus its private runtime socket and trusted
+host acquisition boundary. Tobari and control networks
 use Docker's `internal` property; the egress network is the only network with
 an external route.
 
@@ -142,8 +135,8 @@ where applicable.
 
 `cluster up`, `cluster status`, `cluster denials`, `policy candidates`,
 `policy review`, `policy allow`, `policy deny`, `policy rules`,
-`policy reset`, `auth login`, `auth import`, `auth status`, and `auth logout`
-remain valid
+`policy reset` remains a valid standard seam. `auth login`, `auth import`,
+`auth status`, and `auth logout` remain experimental-only seams
 internal seams today. They are not permission to expose Docker, OPA, or opaque
 resource identifiers as the routine mental model. `policy review` is the
 ordinary human-facing Permission Inbox: on a TTY it composes selection, typed
@@ -168,18 +161,18 @@ exactly one validated opaque reference or one declared fixed target.
 Context is the user-facing immutable capability envelope for the execution
 boundary. A trusted manifest fixes direct source access and a normalized
 policy-preset origin/revision, and names the compatible runtime image, read-only agent profile,
-the Context policy directory, and the stable identity used to locate separately stored encrypted Auth Broker
-state. The manifest contains no broker vault path, root key, or primary secret.
+the Context policy directory, and its stable identity. The standard manifest
+locates no Auth Broker state. Experimental state remains separately keyed and
+the manifest contains no broker vault path, root key, or primary secret.
 It may also own one fixed `runtime/Dockerfile` recipe and its last successful
 managed build record plus narrow shell and Git identity policies. The manifest
 is not itself a mountable authority: policy
-is mounted only into OPA, brokered secrets remain in encrypted Context vaults,
-and agent configuration is
-mounted read-only into the work runtime. Tool-owned authentication remains in
-the per-Workspace home; a configured broker provider projects only a
-project-bound handle into it.
+is mounted only into OPA and agent configuration is mounted read-only into the
+work runtime. Tool-owned authentication remains in the per-Workspace home.
+Only the experimental profile has encrypted Context vaults and projects a
+project-bound handle.
 
-Credential ownership is Context-wide. Every project permanently bound to that
+Experimental Broker credential ownership is Context-wide. Every project permanently bound to that
 Context is eligible, but reconciliation issues a distinct project-bound handle
 only on the project's next matching Workspace entry; no running process is
 rewritten. Replacement revokes the previous revision. Logout removes the
@@ -205,11 +198,12 @@ project journal is the narrow exception: observation acquires the recovery
 lock, completes bounded cleanup, and then reads the remaining logical state.
 
 Cluster state records one content-addressed projection revision and loaded
-Context count, not an active enforcement Context. `cluster up` builds the
-projection from all authoritative Context policy and static-provider sources,
+Context count, not an active enforcement Context. Standard `cluster up` builds
+the projection from all authoritative Context policy sources,
 validates each source and the whole candidate, publishes only a complete
-owner-only directory, and starts exactly one Gateway, one OPA, and one locked
-Auth Broker. Reconciliation is not ready on process health alone: OPA must
+owner-only directory, and starts exactly one Gateway and one OPA. Experimental
+composition adds the provider projection and one locked Auth Broker.
+Reconciliation is not ready on process health alone: OPA must
 serve both the exact content-addressed aggregate revision and its decision
 document. An already-ready identical revision is not republished. Cluster
 reconciliation unlocks the broker through the host
@@ -217,15 +211,17 @@ root-key provider after its control endpoint is healthy and verifies the exact
 Broker container. Policy
 mutations serialize this same all-Context activation and preserve the previous
 known-good revision on any failure.
-Cluster status schema 1 projects all three component states plus
-`auth_provider_projection`, `auth_broker_state`, and `root_key_backend`.
+Standard cluster status schema 1 projects Gateway and OPA. Experimental status
+additionally projects Auth Broker, `auth_provider_projection`,
+`auth_broker_state`, and `root_key_backend`.
 Context report schema 1 exposes explicit Context
 persistence state, nullable pre-authority ID/stores, the complete Context
-shell-environment and Git identity policies, plus broker and installed-provider state without
+shell-environment and Git identity policies plus `native_workspace`
+authentication mode. Experimental output adds broker and installed-provider state without
 returning a vault path/content, root key, primary secret, or handle. Public Linux backend values are `xdg_file`; the
 infrastructure/doctor detail `linux_xdg_file` is not a public JSON enum. The
 canonical schema/path/backend table is in
-[Authentication handling](07_authentication.md#canonical-schemas-paths-and-backend-identifiers).
+[Authentication handling](07_authentication.md#experimental-canonical-schemas-paths-and-backend-identifiers).
 
 Narrow host projection is a separate composition concern, not a file or secret
 mount. Domain owns each fixed scalar inventory, `default|inherit|literal`
@@ -334,10 +330,10 @@ component lock. Moving tags are never consumed by the CLI.
 
 The root ensure operation materializes exact embedded bytes under the Tobari state directory,
 writes generated non-secret runtime configuration, including the owner-only
-Context/project-principal registry and all-Context policy/provider projections,
-and invokes Docker through the runtime port. Compose owns only Gateway, OPA,
-Auth Broker, shared networks, and CA volumes. Cluster startup obtains the
-verified Gateway and Auth Broker images by digest and ensures the agent-ready
+Context/project-principal registry and all-Context policy projection,
+and invokes Docker through the runtime port. Standard Compose owns only Gateway,
+OPA, shared networks, and CA volumes. Cluster startup obtains the verified
+Gateway image by digest and ensures the agent-ready
 runtime base from the embedded pinned recipe under a source-derived local tag.
 The normal resolver uses release-injected service images only; the development
 resolver selects embedded-source-hash local service tags built by `task build`.
@@ -359,7 +355,7 @@ Neither implementation can consult CWD, project metadata, environment, or a
 moving registry tag. Cluster preflight compares this projection before state
 loading, asset materialization, journals, policy tests, or Docker calls.
 
-Auth Broker follows the same canonical-source/runtime-input pattern as Gateway. Its
+Experimental Auth Broker follows the same canonical-source/runtime-input pattern as Gateway. Its
 editable Python package, Dockerfile, tests, and bridge/protocol source live
 under `authbroker/`; the Go binary embeds the checked Docker build inputs, not
 the tests or contributor documentation, at
@@ -368,10 +364,9 @@ the tests or contributor documentation, at
 `scripts/check-authbroker-source.sh` rejects byte, membership, or Docker
 `COPY` drift. The source and image
 checks run the broker unit suite, prove that no provider CLI is installed, and
-build the fixed non-root image. Release assembly builds Linux amd64 and arm64
-and publishes the immutable commit tag beside Gateway. Routine startup uses
-the two-service lock digests; moving tags never select service authority.
-The contributor resolver uses a source-hash local tag.
+build the fixed non-root image. It is not published or included in the standard
+component lock. The experimental contributor resolver uses a source-hash local
+tag.
 
 Both canonical sources declare component API V1. Source records only reviewed
 parent inputs; generated owned-image outputs never enter `versions.env`.
@@ -623,10 +618,10 @@ paused state. Detached `delete` removes the logical
 Workspace; an attached exec makes ordinary deletion fail, and `delete --force`
 is the explicit host-side override.
 
-Explicit `cluster up` validates configuration, obtains and preflights the
-Gateway and Auth Broker images, locally ensures every required runtime image, builds and
-tests the complete all-Context policy/provider projection, reconciles exactly
-one OPA, one Gateway, and one Auth Broker, unlocks the broker, and
+Explicit standard `cluster up` validates configuration, obtains and preflights the
+Gateway image, locally ensures every required runtime image, builds and tests
+the complete all-Context policy projection, reconciles exactly one OPA and one
+Gateway, and
 reconnects Gateway to every existing registered project network. It completes
 only after OPA serves the exact aggregate revision and a defined decision
 document.
@@ -745,7 +740,7 @@ entries are excluded from public command copies, lookup, routing, reference
 workflows, and help. Public projections also omit any interactive metadata that
 would reveal an internal completion path.
 
-The four auth commands share one catalog-declared `authentication.broker`
+In the experimental build, the four auth commands share one catalog-declared `authentication.broker`
 capability. Login, import, and logout are fixed-target writes to the one
 installation credential catalog; status is a Context-scoped read. The
 application resolves the explicit or current Context before the infrastructure
@@ -756,14 +751,14 @@ argument/intent/mutation validation; infrastructure then validates the selected
 existing Context, installed provider/acquisition mode, and broker readiness
 before broker send. Provider IDs are human selectors validated against the
 installed projection; they are not opaque action references or credential
-authority. Standard login accepts only the installed reviewed GitHub, Datadog,
-OpenAI, or Anthropic drivers; interactive omission opens the bounded selector.
-The experimental compile-time profile additionally activates AWS and its method
-axis. Import, status, and logout remain
+authority. The compiled union includes GitHub, Datadog, OpenAI, Anthropic, and
+AWS; AWS alone adds its method axis. Interactive omission opens the bounded
+selector. Import, status, and logout remain
 available for strict owner static manifests and Chatwork.
 
-`doctor` composes bounded read-only environment, Docker, policy, provider,
-root-key/vault, broker, and project-binding diagnostics. The application-owned
+Standard `doctor` composes bounded read-only environment, Docker, policy, and
+project-binding diagnostics. Experimental doctor adds provider, root-key/vault,
+and broker checks. The application-owned
 finite DAG schedules each infrastructure observation once its declared direct
 prerequisites pass, continues independent branches, and creates typed blocked
 rows for unready dependents. Infrastructure returns only pass, warning, or
@@ -806,6 +801,18 @@ selection supplies bare-namespace normalization and deterministic typo
 suggestions, so routing and recovery do not create a second command registry.
 
 ## Gateway request flow
+
+Standard Gateway establishes the source-bound Context/project principal,
+normalizes the transparent authority, redacts authentication and cookies from
+OPA/audit, asks OPA about the ordinary exact HTTP effect, and only after allow
+forwards the original Workspace-owned credential in one upstream attempt. It
+has no provider projection or Broker adapter. The Claude/Codex native-login
+regression exercises this sequence, including Claude's authenticated profile
+metadata request after token exchange.
+
+### Experimental Broker augmentation
+
+The experimental Gateway layer extends the same sequence as follows:
 
 ```text
 client request headers

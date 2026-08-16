@@ -71,6 +71,9 @@ func TestBuildIdentityFrozenSemanticCorpus(t *testing.T) {
 		item := item
 		t.Run(item.Name, func(t *testing.T) {
 			t.Parallel()
+			if (item.CapabilityProfile == string(capabilityprofile.ProfileExperimental)) != buildIdentityHasBroker() {
+				t.Skip("fixture belongs to the other compile-time capability profile")
+			}
 			identity := buildidentity.Identity{
 				Version: item.Version, Commit: item.Commit,
 				ResolverChannel: buildidentity.ResolverChannel(item.ResolverChannel), DevelopmentSource: item.DevelopmentSource,

@@ -1,0 +1,8 @@
+ARG TOBARI_GATEWAY_BASE
+FROM ${TOBARI_GATEWAY_BASE}
+
+USER 0:0
+COPY addon/broker_credentials.py /opt/tobari/broker_credentials.py
+COPY addon/reviewed_credential_profiles.py /opt/tobari/reviewed_credential_profiles.py
+RUN chmod 0444 /opt/tobari/broker_credentials.py /opt/tobari/reviewed_credential_profiles.py
+USER 1000:1000

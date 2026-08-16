@@ -35,12 +35,19 @@ func TestAgentReadyPresetPinsCoreEffectsAndExcludesOptionalSurfaces(t *testing.T
 		t.Fatal("agent-ready preset is missing")
 	}
 	want := map[string]bool{
-		"GET api.anthropic.com/api/claude_cli/bootstrap": true,
-		"GET api.anthropic.com/api/oauth/usage":          true,
-		"POST api.anthropic.com/v1/messages":             true,
-		"GET chatgpt.com/backend-api/codex/models":       true,
-		"POST chatgpt.com/backend-api/codex/responses":   true,
-		"POST ab.chatgpt.com/otlp/v1/metrics":            true,
+		"GET api.anthropic.com/api/claude_cli/bootstrap":        true,
+		"GET api.anthropic.com/api/oauth/claude_cli/roles":      true,
+		"GET api.anthropic.com/api/oauth/profile":               true,
+		"GET api.anthropic.com/api/oauth/usage":                 true,
+		"POST api.anthropic.com/v1/messages":                    true,
+		"GET platform.claude.com/v1/oauth/hello":                true,
+		"POST platform.claude.com/v1/oauth/token":               true,
+		"POST auth.openai.com/api/accounts/deviceauth/usercode": true,
+		"POST auth.openai.com/api/accounts/deviceauth/token":    true,
+		"POST auth.openai.com/oauth/token":                      true,
+		"GET chatgpt.com/backend-api/codex/models":              true,
+		"POST chatgpt.com/backend-api/codex/responses":          true,
+		"POST ab.chatgpt.com/otlp/v1/metrics":                   true,
 	}
 	for _, rule := range preset.BaselineGrants {
 		delete(want, rule.Method+" "+rule.Host+rule.Path)

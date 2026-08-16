@@ -122,10 +122,10 @@ type ClusterStatus struct {
 	PolicyProjection         string            `json:"policy_projection"`
 	PrincipalRegistry        string            `json:"principal_registry"`
 	GatewayProjection        string            `json:"gateway_projection"`
-	AuthProviderProjection   string            `json:"auth_provider_projection"`
-	AuthBrokerState          string            `json:"auth_broker_state"`
-	CredentialCompanionState string            `json:"credential_companion_state"`
-	RootKeyBackend           string            `json:"root_key_backend"`
+	AuthProviderProjection   string            `json:"auth_provider_projection,omitempty"`
+	AuthBrokerState          string            `json:"auth_broker_state,omitempty"`
+	CredentialCompanionState string            `json:"credential_companion_state,omitempty"`
+	RootKeyBackend           string            `json:"root_key_backend,omitempty"`
 	Components               []ComponentStatus `json:"components"`
 	RecentError              string            `json:"recent_error"`
 }
@@ -161,19 +161,30 @@ func (s ClusterStatus) Validate() error {
 	}
 	if !filepath.IsAbs(s.Policy) || s.TobariCount < 0 || s.ContextCount < 1 ||
 		!regexp.MustCompile(`^[0-9a-f]{64}$`).MatchString(s.PolicyRevision) || s.Components == nil ||
-		s.PolicyProjection == "" || s.PrincipalRegistry == "" || s.GatewayProjection == "" ||
-		s.AuthProviderProjection == "" || s.AuthBrokerState == "" || s.CredentialCompanionState == "" || s.RootKeyBackend == "" {
+		s.PolicyProjection == "" || s.PrincipalRegistry == "" || s.GatewayProjection == "" {
 		return fmt.Errorf("configured cluster status is incomplete")
 	}
-	if s.AuthBrokerState != "ready" && s.AuthBrokerState != "locked" && s.AuthBrokerState != "unavailable" {
-		return fmt.Errorf("configured cluster Auth Broker state is invalid")
-	}
-	if s.CredentialCompanionState != "ready" && s.CredentialCompanionState != "prepared" &&
-		s.CredentialCompanionState != "absent" && s.CredentialCompanionState != "unavailable" {
-		return fmt.Errorf("configured cluster credential companion state is invalid")
-	}
-	if s.AuthProviderProjection != "valid" && s.AuthProviderProjection != "invalid" {
-		return fmt.Errorf("configured cluster auth provider projection is invalid")
+	brokerFields := []string{s.AuthProviderProjection, s.AuthBrokerState, s.CredentialCompanionState, s.RootKeyBackend}
+	brokerEnabled := brokerFields[0] != "" || brokerFields[1] != "" || brokerFields[2] != "" || brokerFields[3] != ""
+	if brokerEnabled {
+		for _, value := range brokerFields {
+			if value == "" {
+				return fmt.Errorf("configured experimental cluster auth observation is incomplete")
+			}
+		}
+		if s.AuthBrokerState != "ready" && s.AuthBrokerState != "locked" && s.AuthBrokerState != "unavailable" {
+			return fmt.Errorf("configured cluster Auth Broker state is invalid")
+		}
+		if s.CredentialCompanionState != "ready" && s.CredentialCompanionState != "prepared" &&
+			s.CredentialCompanionState != "absent" && s.CredentialCompanionState != "unavailable" {
+			return fmt.Errorf("configured cluster credential companion state is invalid")
+		}
+		if s.AuthProviderProjection != "valid" && s.AuthProviderProjection != "invalid" {
+			return fmt.Errorf("configured cluster auth provider projection is invalid")
+		}
+		if s.RootKeyBackend != "macos_keychain" && s.RootKeyBackend != "xdg_file" && s.RootKeyBackend != "unavailable" {
+			return fmt.Errorf("configured cluster root-key backend is invalid")
+		}
 	}
 	for name, state := range map[string]string{
 		"policy projection":  s.PolicyProjection,
@@ -184,13 +195,15 @@ func (s ClusterStatus) Validate() error {
 			return fmt.Errorf("configured cluster %s is invalid", name)
 		}
 	}
-	if s.RootKeyBackend != "macos_keychain" && s.RootKeyBackend != "xdg_file" && s.RootKeyBackend != "unavailable" {
-		return fmt.Errorf("configured cluster root-key backend is invalid")
+	wantComponents := 2
+	componentNames := map[string]struct{}{"gateway": {}, "opa": {}}
+	if brokerEnabled {
+		wantComponents = 3
+		componentNames["auth-broker"] = struct{}{}
 	}
-	if len(s.Components) != 3 {
+	if len(s.Components) != wantComponents {
 		return fmt.Errorf("configured cluster component collection is incomplete")
 	}
-	componentNames := map[string]struct{}{"auth-broker": {}, "gateway": {}, "opa": {}}
 	states := map[string]struct{}{"absent": {}, "created": {}, "running": {}, "paused": {}, "restarting": {}, "removing": {}, "exited": {}, "dead": {}}
 	healthStates := map[string]struct{}{"none": {}, "starting": {}, "healthy": {}, "unhealthy": {}}
 	for _, component := range s.Components {

@@ -87,7 +87,9 @@ func TestEveryCatalogReadExecutesOnFreshXDGWithoutDurableOrExternalMutation(t *t
 		"policy preset show":     {"--name=builtin/offline", "--format=json"},
 		"policy preset validate": {"--name=custom/missing", "--format=json"},
 		"list":                   {"--format=json"},
-		"auth status":            {"--format=json"},
+	}
+	if len(authCommandSpecs()) != 0 {
+		extraArgs["auth status"] = []string{"--format=json"}
 	}
 
 	var readPaths []string

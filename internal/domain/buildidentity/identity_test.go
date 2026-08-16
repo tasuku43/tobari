@@ -12,7 +12,6 @@ func TestIdentityRequiresCompleteTruthfulMetadataForCompatibility(t *testing.T) 
 		Version: "1.2.3", Commit: UnknownCommit, ResolverChannel: ResolverPublished,
 		CapabilityProfile: capabilityprofile.ProfileStandard,
 		Gateway:           Component{RequiredAPI: 4, SelectedAPI: 4},
-		AuthBroker:        Component{RequiredAPI: 3, SelectedAPI: 3},
 	}
 	if err := identity.Validate(); err != nil {
 		t.Fatal(err)
@@ -49,7 +48,6 @@ func TestIdentityRejectsCrossedChannelMetadata(t *testing.T) {
 		Version: "dev", Commit: UnknownCommit, ResolverChannel: ResolverPublished, DevelopmentSource: true,
 		CapabilityProfile: capabilityprofile.ProfileStandard,
 		Gateway:           Component{RequiredAPI: 4, SelectedAPI: 3},
-		AuthBroker:        Component{RequiredAPI: 3, SelectedAPI: 2},
 	}
 	if err := identity.Validate(); err == nil {
 		t.Fatal("published resolver accepted development source metadata")

@@ -122,7 +122,7 @@ const protectedItems = t(
   [
     "作業対象外のホストファイルと Docker の制御機能",
     "ほかの Workspace のネットワークと永続ホーム",
-    "未許可の HTTP/HTTPS 通信と、Auth Broker が管理する認証情報の本体",
+    "未許可の HTTP/HTTPS 通信と、host から分離された Workspace 認証情報",
   ],
 );
 const excludedItems = t(
@@ -349,8 +349,8 @@ const evidence = [
           <h3>{t("Implemented now", "実装されている機能")}</h3><p>
             {
               t(
-                "Project-bound Workspace lifecycle, shared Gateway, OPA, and Auth Broker services, default-deny exact policy learning, intercepted HTTP/HTTPS, supported credential paths, and Catalog-generated CLI contracts.",
-                "プロジェクト単位の Workspace、共有の Gateway・OPA・Auth Broker、既定拒否から始まる完全一致ルール、HTTP/HTTPS の検査、対応する認証経路、Catalog から生成した CLI 契約です。",
+                "Project-bound Workspace lifecycle, shared Gateway and OPA services, default-deny exact policy learning, intercepted HTTP/HTTPS, native Workspace authentication, and Catalog-generated CLI contracts.",
+                "プロジェクト単位の Workspace、共有の Gateway・OPA、既定拒否から始まる完全一致ルール、HTTP/HTTPS の検査、Workspace ネイティブ認証、Catalog から生成した CLI 契約です。",
               )
             }
           </p>

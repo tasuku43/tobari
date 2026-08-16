@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -59,12 +58,15 @@ func (r *Runtime) clusterUpWithProgressMode(
 		})
 		return tobari.State{}, err
 	}
-	authBrokerSelection, err := r.selectAuthBrokerImage(ctx)
-	if err != nil {
-		emitClusterUpProgress(progress, tobari.ClusterUpProgress{
-			Step: tobari.ClusterUpProgressPrepare, Status: tobari.ClusterUpProgressFailed,
-		})
-		return tobari.State{}, err
+	var authBrokerSelection sharedImageSelection
+	if brokerRuntimeEnabled {
+		authBrokerSelection, err = r.selectAuthBrokerImage(ctx)
+		if err != nil {
+			emitClusterUpProgress(progress, tobari.ClusterUpProgress{
+				Step: tobari.ClusterUpProgressPrepare, Status: tobari.ClusterUpProgressFailed,
+			})
+			return tobari.State{}, err
+		}
 	}
 	state, err := r.prepareState(ctx)
 	if err != nil {
@@ -94,17 +96,20 @@ func (r *Runtime) clusterUpWithProgressMode(
 		if environmentErr != nil {
 			return
 		}
-		rollbackEnvironment = replaceEnvironmentValue(
-			rollbackEnvironment, "TOBARI_AUTH_BROKER_IMAGE", authBrokerSelection.Image,
-		)
+		if brokerRuntimeEnabled {
+			rollbackEnvironment = replaceEnvironmentValue(
+				rollbackEnvironment, "TOBARI_AUTH_BROKER_IMAGE", authBrokerSelection.Image,
+			)
+		}
 		rollbackEnvironment = replaceEnvironmentValue(
 			rollbackEnvironment, "TOBARI_GATEWAY_IMAGE", gatewayImage,
 		)
+		rollbackArgs := []string{"compose", "--project-directory", existing.RuntimeDirectory}
+		rollbackArgs = append(rollbackArgs, composeFileArgs(existing.RuntimeDirectory)...)
+		rollbackArgs = append(rollbackArgs, "up", "-d", "--no-build", "--remove-orphans", "--force-recreate", "--wait")
 		_ = r.runner.Run(
 			rollbackContext,
-			[]string{"compose", "--project-directory", existing.RuntimeDirectory,
-				"-f", filepath.Join(existing.RuntimeDirectory, "compose.yaml"),
-				"up", "-d", "--no-build", "--remove-orphans", "--force-recreate", "--wait"},
+			rollbackArgs,
 			rollbackEnvironment, nil, io.Discard, io.Discard,
 		)
 		_ = r.ensureGatewayNetworkGuard(rollbackContext)
@@ -117,13 +122,15 @@ func (r *Runtime) clusterUpWithProgressMode(
 		})
 		return tobari.State{}, err
 	}
-	if err = r.verifyAuthBrokerImage(ctx, authBrokerSelection.Image, authBrokerSelection.RequireDigest); err != nil {
-		emitClusterUpProgress(progress, tobari.ClusterUpProgress{
-			Step: tobari.ClusterUpProgressPrepare, Status: tobari.ClusterUpProgressFailed,
-		})
-		return tobari.State{}, err
+	if brokerRuntimeEnabled {
+		if err = r.verifyAuthBrokerImage(ctx, authBrokerSelection.Image, authBrokerSelection.RequireDigest); err != nil {
+			emitClusterUpProgress(progress, tobari.ClusterUpProgress{
+				Step: tobari.ClusterUpProgressPrepare, Status: tobari.ClusterUpProgressFailed,
+			})
+			return tobari.State{}, err
+		}
+		environment = replaceEnvironmentValue(environment, "TOBARI_AUTH_BROKER_IMAGE", authBrokerSelection.Image)
 	}
-	environment = replaceEnvironmentValue(environment, "TOBARI_AUTH_BROKER_IMAGE", authBrokerSelection.Image)
 	gatewayImage, err = r.prepareGatewayImage(ctx)
 	if err != nil {
 		emitClusterUpProgress(progress, tobari.ClusterUpProgress{
@@ -161,9 +168,9 @@ func (r *Runtime) clusterUpWithProgressMode(
 	if err := runClusterUpProgressStep(progress, tobari.ClusterUpProgressStartServices, func() error {
 		activationAttempted = true
 		var output bytes.Buffer
-		composeUpArgs := []string{"compose", "--project-directory", state.RuntimeDirectory,
-			"-f", filepath.Join(state.RuntimeDirectory, "compose.yaml"),
-			"up", "-d", "--no-build", "--remove-orphans"}
+		composeUpArgs := []string{"compose", "--project-directory", state.RuntimeDirectory}
+		composeUpArgs = append(composeUpArgs, composeFileArgs(state.RuntimeDirectory)...)
+		composeUpArgs = append(composeUpArgs, "up", "-d", "--no-build", "--remove-orphans")
 		if forceRecreate {
 			composeUpArgs = append(composeUpArgs, "--force-recreate")
 		}
@@ -180,15 +187,17 @@ func (r *Runtime) clusterUpWithProgressMode(
 			recordAttemptError("Gateway network guard did not become ready; inspect Docker kernel support.")
 			return err
 		}
-		rootKey, err := r.unlockAuthBroker(ctx)
-		if err != nil {
-			recordAttemptError("Auth Broker did not unlock; inspect root-key and broker state.")
-			return err
-		}
-		defer clear(rootKey)
-		if err := r.startCredentialCompanion(ctx, rootKey); err != nil {
-			recordAttemptError("Credential companion did not become ready; inspect Auth Broker and host runtime state.")
-			return err
+		if brokerRuntimeEnabled {
+			rootKey, err := r.unlockAuthBroker(ctx)
+			if err != nil {
+				recordAttemptError("Auth Broker did not unlock; inspect root-key and broker state.")
+				return err
+			}
+			defer clear(rootKey)
+			if err := r.startCredentialCompanion(ctx, rootKey); err != nil {
+				recordAttemptError("Credential companion did not become ready; inspect Auth Broker and host runtime state.")
+				return err
+			}
 		}
 		return nil
 	}); err != nil {
@@ -201,9 +210,11 @@ func (r *Runtime) clusterUpWithProgressMode(
 				recordAttemptError("Gateway did not rejoin the shared cluster network; inspect cluster status.")
 				return err
 			}
-			if err := r.ensureAuthBrokerNetwork(ctx, sharedNetwork); err != nil {
-				recordAttemptError("Auth Broker did not rejoin the shared cluster network; inspect cluster status.")
-				return err
+			if brokerRuntimeEnabled {
+				if err := r.ensureAuthBrokerNetwork(ctx, sharedNetwork); err != nil {
+					recordAttemptError("Auth Broker did not rejoin the shared cluster network; inspect cluster status.")
+					return err
+				}
 			}
 		}
 		return nil
@@ -299,11 +310,13 @@ func (r *Runtime) waitForClusterReady(
 				ready = false
 			}
 		}
-		if brokerState, err := r.brokerState(ctx); err != nil || brokerState != "ready" {
-			ready = false
-		}
-		if companionState, _, err := r.credentialCompanionStatus(ctx); err != nil || companionState != "ready" {
-			ready = false
+		if brokerRuntimeEnabled {
+			if brokerState, err := r.brokerState(ctx); err != nil || brokerState != "ready" {
+				ready = false
+			}
+			if companionState, _, err := r.credentialCompanionStatus(ctx); err != nil || companionState != "ready" {
+				ready = false
+			}
 		}
 		if ready {
 			return nil
@@ -373,17 +386,21 @@ func (r *Runtime) composeEnvironment(state tobari.State) ([]string, error) {
 		"TOBARI_POLICY_DIR="+state.PolicyDirectory,
 		"TOBARI_GATEWAY_CONFIG="+state.GatewayConfig,
 		"TOBARI_PRINCIPAL_DIR="+r.principalRegistryDirectory(),
-		"TOBARI_AUTH_PROVIDER_DIR="+r.authProviderProjectionDirectory(),
-		"TOBARI_AUTH_CONTEXTS_DIR="+r.authContextsDirectory(),
-		"TOBARI_AUTH_RUNTIME_DIR="+r.authRuntimeDirectory(),
 		"TOBARI_ASSET_VERSION="+state.AssetVersion,
 		"TOBARI_UID="+strconv.Itoa(uid), "TOBARI_GID="+strconv.Itoa(gid),
 		"TOBARI_MITMPROXY_IMAGE="+versions["MITMPROXY_IMAGE"],
 		"TOBARI_GATEWAY_IMAGE=unselected",
-		"TOBARI_AUTH_BROKER_IMAGE=unselected",
 		"TOBARI_OPA_IMAGE="+versions["OPA_IMAGE"],
 		"TOBARI_DEBIAN_IMAGE="+versions["DEBIAN_IMAGE"],
 	)
+	if brokerRuntimeEnabled {
+		environment = append(environment,
+			"TOBARI_AUTH_PROVIDER_DIR="+r.authProviderProjectionDirectory(),
+			"TOBARI_AUTH_CONTEXTS_DIR="+r.authContextsDirectory(),
+			"TOBARI_AUTH_RUNTIME_DIR="+r.authRuntimeDirectory(),
+			"TOBARI_AUTH_BROKER_IMAGE=unselected",
+		)
+	}
 	return environment, nil
 }
 

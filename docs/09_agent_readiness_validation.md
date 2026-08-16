@@ -13,8 +13,8 @@ transcripts as repository fixtures.
 | Enter bounded work | `cluster up`, then `tobari [--context NAME]` | One selected live source bind, writable home/tmpfs, guarded network, reusable Workspace, and no direct egress |
 | Grow exact permission | `policy review`, or `policy candidates` then one exact allow/deny | Terminal guardrail precedes every candidate; explicit review activates only exact Context/project/scheme/host/port/method/path authority |
 | Inspect/reset decisions | `policy rules`, then `policy reset --id` | One current exact decision is removed through its unchanged opaque reference and returns to default deny |
-| Use unsupported Workspace-owned auth | Tool login or environment/file injection inside the Workspace for an undeclared binding | Credential state is readable by processes in that Workspace, receives no network grant, and is explicitly a compatibility path |
-| Use Broker-required auth | Standard: `auth login [--provider github|datadog|openai|anthropic]` or `auth import PROVIDER`; experimental: AWS plus `--method identity-center|console`; then `auth status`/`auth logout` | A declared binding accepts only a project-bound handle; a real Workspace credential fails before OPA; OPA deny performs no secret-bearing plan action; allow applies one same-revision reviewed result |
+| Use native Workspace auth | Run the agent CLI's native login inside the Workspace | Credential state persists in that Workspace home, receives no network grant from login, and crosses Gateway only after the ordinary exact HTTP effect is allowed |
+| Exercise experimental Broker research | Build with `task build:dev`, then use its `auth` commands | No equivalent command, provider binding, projection, service, image authority, or activation switch exists in the standard binary |
 
 Routine success must require zero undeclared external-processing steps. Reading
 a declared JSON/TSV field is consumption; a custom join/parser, provider-
@@ -63,7 +63,7 @@ read-only Context must:
 
 The last observation proves a live direct bind, not a snapshot or filesystem-
 integrity boundary. Neither Context is allowed to mutate the other's home,
-network, policy, or broker handle state.
+network, or policy state. Native credentials follow the owning Workspace home.
 
 ## Policy-preset matrix
 
@@ -81,8 +81,18 @@ For every preset, inspect and bind its immutable immediate-grant count.
   review; HEAD and every non-GET are terminal denials. Do not describe GET as
   safe or read-only.
 
+The native-login subset must include exactly:
+
+- Claude: `GET platform.claude.com/v1/oauth/hello`,
+  `POST platform.claude.com/v1/oauth/token`,
+  `GET api.anthropic.com/api/oauth/claude_cli/roles`, and
+  `GET api.anthropic.com/api/oauth/profile`;
+- Codex: `POST auth.openai.com/oauth/token`,
+  `POST auth.openai.com/api/accounts/deviceauth/usercode`, and
+  `POST auth.openai.com/api/accounts/deviceauth/token`.
+
 For each terminal denial, record zero permission candidates, external DNS
-lookups, Broker resolution calls, and upstream attempts. Repeat with a learned
+lookups, and upstream attempts. Repeat with a learned
 exact allow, baseline grant, and Advanced Rego allow that would otherwise match;
 none may bypass the guardrail.
 
@@ -127,9 +137,33 @@ and root field. Query, headers, body, and repeated identical observation count d
 not widen authority. Prefix rules, compaction commands/references/state, and
 dormant prefix fallbacks must all be absent.
 
-## Broker synthetic journey
+## Standard native-login regression
 
-The required `task integration:test` evidence uses a fake GitHub CLI, synthetic
+Run Claude Code and Codex native login in a fresh standard Workspace home. The
+test boundary does not retain credentials or authenticated transcripts.
+
+For Claude, prove token exchange is followed by an allowed authenticated
+`GET /api/oauth/profile` and roles request. The regression fails if Gateway
+returns `broker_auth_required`, removes Authorization before the allowed
+upstream request, exposes it to OPA/audit, or synthesizes account metadata.
+After login, Claude `/status` must obtain provider-owned `subscriptionType` and
+`rateLimitTier` rather than null values and must not mislabel a subscription as
+`Claude API account` because of Tobari interception.
+
+For Codex, prove both the browser callback flow's token exchange and the
+device-code user-code/poll/token exchange use the same post-policy passthrough
+boundary. The exact allow is shared by every process in the Context; the test
+must not infer authority from the `codex` executable name.
+
+Automated Gateway fixtures use synthetic bearer canaries and prove the canary
+is absent from OPA input and denial evidence, preserved exactly for the single
+allowed upstream attempt, and never produces `broker_auth_required`. Live
+manual evidence records only pinned client versions, pass/fail, and the
+secret-free account-status classification.
+
+## Experimental Broker synthetic journey
+
+The experimental integration evidence uses a fake GitHub CLI, synthetic
 static provider manifests and secrets, local Broker/Gateway/OPA/upstream
 fixtures, and secret canaries. It proves:
 
@@ -137,8 +171,7 @@ fixtures, and secret canaries. It proves:
 - protected stdin refusal before reading and validation before Broker send;
 - omitted-provider selection is interactive, bounded to installed reviewed
   login drivers, and explicit provider selection remains deterministic; the
-  standard matrix rejects AWS before acquisition while the experimental matrix
-  accepts its two methods;
+  experimental matrix accepts its two methods;
 - fixed purpose-limited GitHub/AWS/pup/Codex/Claude argv, canonical executable
   digest checks, selected-Context image binding for pup and Claude, private
   homes/PTY where declared, bounded browser targets, and checked cleanup;
@@ -166,14 +199,13 @@ fixtures, and secret canaries. It proves:
   the Broker image.
 
 Owner manifests are strict static data and cannot select a helper or policy.
-Owner manifests cannot select a reviewed dynamic plan. Tools without a
-supported binding remain Workspace-owned compatibility authentication; adding
-an exact static owner binding makes that request shape Broker-required.
+Owner manifests cannot select a reviewed dynamic plan. This section describes
+the dev-only research profile and is not a standard release-readiness outcome.
 
-## Manual reviewed-provider acquisition
+## Experimental manual reviewed-provider acquisition
 
-Immediately before publication, reviewers use disposable provider accounts and
-an interactive trusted-host terminal. The GitHub slice is:
+When reviewing the experimental profile, maintainers may use disposable
+provider accounts and an interactive trusted-host terminal. The GitHub slice is:
 
 ```sh
 tobari auth login --provider github --context default
@@ -192,8 +224,8 @@ record the token, device code, handle, account identifier, vault, authenticated
 response, or raw transcript.
 
 Using the `task build:dev` experimental binary, replay the AWS Identity Center
-and console methods. With the standard binary, prove the same provider and
-method argv are rejected before acquisition. Then replay selected-Context-runtime
+and console methods. With the standard binary, prove the `auth` namespace is
+absent. Then replay selected-Context-runtime
 Datadog pup flow and localhost stdin relay, the
 contract-checked host Codex native browser/loopback flow, the separately pinned Workspace Codex
 handle projection, isolated Context-runtime Claude Code 2.1.220 native login
@@ -215,15 +247,15 @@ task public:check
 task release:check
 ```
 
-Also inspect generated diffs, dependency/license diffs, canonical Gateway/Auth
-Broker source equality, release archive checksums, archive-level SPDX SBOM,
+Also inspect generated diffs, dependency/license diffs, canonical Gateway
+source equality, release archive checksums, archive-level SPDX SBOM,
 unsigned in-toto/SLSA metadata, Formula rendering, and the clean-environment
 Linux/Colima Quick Start.
 
 Stop for explicit approval before pushing a branch or tag, publishing an OCI
 image, creating a GitHub Release, or updating a Homebrew tap. After approval,
-the protected workflow publishes and inspects only the Gateway and Auth Broker
-indexes, generates their source-bound lock, injects it into the exact SemVer
+the protected workflow publishes and inspects only the Gateway index,
+generates its source-bound lock, injects it into the exact SemVer
 archives, and creates the immutable GitHub Release. The released CLI builds
 the pinned agent-ready base locally and never obtains it from GHCR. A
 prerelease such as `v0.1.0-dev.1` is marked as a GitHub prerelease and must not

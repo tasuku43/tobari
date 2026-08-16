@@ -24,8 +24,12 @@ func TestLocalDevImageResolverSelectsAllLocalImagesWithoutPulling(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
+	gatewayPrefix := "tobari-gateway:dev-"
+	if brokerRuntimeEnabled {
+		gatewayPrefix = "tobari-gateway-experimental:dev-"
+	}
 	for name, want := range map[string]string{
-		"gateway":     "tobari-gateway:dev-" + gatewayVersion,
+		"gateway":     gatewayPrefix + gatewayVersion,
 		"auth broker": "tobari-auth-broker:dev-" + authVersion,
 	} {
 		var selection sharedImageSelection

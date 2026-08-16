@@ -9,10 +9,10 @@ Tobari makes bounded autonomous work practical: untrusted Tobari processes may
 freely execute and may modify their explicitly mounted root, but they cannot
 access other host files, another Tobari, Docker control, real host-managed
 credentials, OPA administration, or direct Internet egress through the
-supported configuration. Tool-owned credentials may exist inside one Tobari's
-exact home by explicit user action. A brokered Workspace receives only an
-opaque project-bound handle; its Context secret remains in an authenticated
-encrypted vault and is resolved by trusted infrastructure after OPA allow.
+supported configuration. In standard, tool-owned credentials exist inside one
+Tobari's exact home only by explicit user action and are forwarded only after
+OPA allow. The experimental Broker profile instead gives a Workspace an opaque
+project-bound handle and retains its Context secret in an encrypted vault.
 Every supported HTTP/HTTPS request is normalized, authorized by OPA, and
 enforced by the shared Gateway before forwarding.
 
@@ -25,9 +25,9 @@ growth easier than manually operating Docker, OPA, or host policy files.
 ## Trust boundaries
 
 Trusted components are the host OS and user, Docker Engine or its Linux VM,
-Tobari CLI, the reviewed GitHub host credential driver, Gateway, OPA, Rego
-policy, Auth Broker, host root-key provider, owner-controlled XDG static
-provider manifests, and encrypted Context vaults. Every Workspace and
+Tobari CLI, Gateway, OPA, and Rego policy. The experimental profile additionally
+trusts its reviewed provider drivers, Auth Broker, root-key provider, owner
+manifests, and encrypted Context vaults. Every Workspace and
 process in it, coding agents, project files, Workspace home, copied opaque
 handles, generated code, downloaded packages, request data, upstream responses,
 and user/provider text displayed by CLIs are untrusted.
@@ -37,7 +37,7 @@ policy-preset snapshot. They remain secret-free authority metadata in separate
 owner-only state; project files, runtime images, Workspaces, and source preset
 files cannot rewrite an existing Context envelope.
 
-The reviewed GitHub, AWS, and Codex host-driver implementations and isolated pup and Claude
+Only in the experimental profile, the reviewed GitHub, AWS, and Codex host-driver implementations and isolated pup and Claude
 Context-runtime drivers are trusted, purpose-limited CLI side effects. Host
 drivers select canonical executables outside the project, reject group/world-
 writable candidates, bind SHA-256 identity, construct only fixed argv, use
@@ -75,6 +75,9 @@ root. The child process receives only validated host `HOME` and optional
 `PATH`, loader variables, shell-startup variables, and every other ambient
 entry are absent. Repository/worktree configuration, caller-selected keys, raw
 config files, source paths, and raw diagnostics cannot cross this boundary.
+
+The following extended topology is experimental; standard omits every Broker,
+driver, companion, and vault edge:
 
 ```text
 host root A (Context-selected ro/rw) ---> Tobari A --+
@@ -159,8 +162,9 @@ specification;
 the desired resource contract is part of the spec hash, so drift or an older
 unbounded container is recreated before reuse. These bounds do not provide a
 quota for the explicitly mounted project root or shape network bandwidth.
-The shared Gateway, OPA, and Auth Broker services use fixed JSON-file log rotation of 10 MiB
+The shared Gateway and OPA services use fixed JSON-file log rotation of 10 MiB
 per file and three files, plus fixed CPU, memory-plus-swap, and PID ceilings.
+The experimental Auth Broker follows the same bounds.
 Those ceilings bound shared-service exhaustion but do not provide per-project
 fairness inside one shared Gateway, OPA, or Auth Broker.
 Tobari uses a non-root work user mapped to the invoking UID/GID where Docker
@@ -293,12 +297,13 @@ mount, Gateway-visible runtime-socket mount, private control tmpfs,
 and provider projection are distinct paths. The image contains no provider CLI,
 credential, provider configuration, handle, root key, or vault.
 
-The canonical Gateway and Auth Broker sources both declare API V1. Their labels
-make guarded transparent routing, schema-1 source-principal binding, and
-policy-before-real-resolution fail closed against any non-V1 component. The
-strict two-service lock binds both reviewed service indexes to the exact CLI
-source revision without storing generated digests in source. The runtime base
-is bound by embedded recipe bytes and a source-derived local tag instead.
+The canonical Gateway source declares API V1. Its label makes guarded
+transparent routing and schema-1 source-principal binding fail closed against a
+non-V1 component. The strict Gateway-only lock binds its reviewed service index
+to the exact CLI source revision without storing generated digests in source.
+The experimental Auth Broker separately declares API V1 but has no release
+lock entry. The runtime base is bound by embedded recipe bytes and a
+source-derived local tag instead.
 
 All resources carry `io.tobari.owner=default`; per-Tobari resources also carry
 the exact stable Tobari ID and a resource role. Destructive lifecycle code
@@ -434,10 +439,10 @@ read-only.
 
 ## Credentials
 
-The `passthrough` adapter is a compatibility route only for bindings absent
-from the normalized provider projection. It uses tool-owned authentication
-state created below the selected Tobari's `HOME=/var/lib/tobari`; a Context
-does not contain or copy this state. It redacts client
+The standard `passthrough` adapter is the only credential route. Standard has
+no normalized provider projection or declared provider binding. It uses
+tool-owned authentication state created below the selected Tobari's
+`HOME=/var/lib/tobari`; a Context does not contain or copy this state. It redacts client
 authentication and cookie values from OPA input and audit, preserves them until
 policy allow, then forwards them upstream. It strips proxy and Tobari control
 headers and never reads broker vaults. The host-owned
@@ -448,13 +453,13 @@ principal from the kernel-observed source endpoint; duplicate, missing, stale,
 and ambiguous bindings fail before OPA. Its dedicated directory is mounted
 read-only into Gateway; broker state is not included in that mount.
 
-In compatibility passthrough, `Authorization`, `X-API-Key`, cookies, and other client
+In standard passthrough, `Authorization`, `X-API-Key`, cookies, and other client
 authentication are forwarded only after allow; `Proxy-Authorization` and
 Tobari session control headers are removed. Cookie and Set-Cookie values may
 remain part of the authorized application flow but are excluded from OPA input
 and Tobari audit logs. There is no managed profile or secret-file fallback.
 
-The Auth Broker stores one static primary-secret record per Context/provider in
+The experimental development profile's Auth Broker stores one static primary-secret record per Context/provider in
 `auth/contexts/<context-id>/vault.enc`. The schema-1 AES-256-GCM envelope
 contains a schema-1 payload, uses a random 12-byte nonce, and binds schema plus
 stable Context ID as authenticated data. All parent directories, files,
@@ -474,7 +479,7 @@ and bind Context, project, provider, credential revision, exact HTTPS target,
 source header, and source format. Login, replacement, and logout atomically
 revoke every old handle for that Context/provider.
 
-Gateway recognizes exactly one handle position from the owner-only normalized
+Only in the experimental profile, Gateway recognizes exactly one handle position from the owner-only normalized
 provider projection. It rejects URL, cookie, header-name, unsupported-value,
 and ambiguous occurrences, removes the placeholder, and performs non-secret
 introspection before OPA. Denial makes zero resolve calls. Allow permits exactly
@@ -923,15 +928,14 @@ transcripts are never repository fixtures. Publication still requires
 confidentiality review. The canonical Gateway source is the public `gateway/`
 tree; its embedded Docker build-input snapshot is checked for exact membership
 and bytes against the current source, while
-each published image is inspected against the exact source revision that built
-it. The canonical Auth Broker source is the public `authbroker/` tree; its
+the published image is inspected against the exact source revision that built
+it. The experimental Auth Broker source is the public `authbroker/` tree; its
 embedded Docker build-input snapshot is checked for exact membership and bytes,
 and provider-CLI
-absence, closed-plan protocol behavior, and multi-architecture metadata are checked
-for each image's recorded build revision. Pull-request image
+absence and closed-plan protocol behavior are checked in validation. Pull-request image
 jobs have no package-write permission. GHCR moving tags are not a trusted
-service identity; routine Gateway and Auth Broker consumption requires reviewed
-immutable V1 digests from the release-generated component lock. The runtime
+service identity; routine Gateway consumption requires its reviewed immutable
+V1 digest from the release-generated component lock. The runtime
 base is built locally from embedded pinned source. Source contains no owned
 image-output fallback. The lock validator rejects partial, cross-revision,
 wrong-repository, moving, API-invalid, and incomplete-platform authorities

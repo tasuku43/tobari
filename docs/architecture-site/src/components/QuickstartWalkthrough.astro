@@ -69,7 +69,7 @@ const ui = isJapanese
           title: "空の練習用ディレクトリで共有クラスターを起動する",
           location: "信頼するホスト",
           action:
-            "空のディレクトリへ移動し、Gateway、OPA、Auth Broker からなる共有クラスターを起動します。",
+            "空のディレクトリへ移動し、Gateway と OPA からなる共有クラスターを起動します。",
           command: `mkdir -p quickstart-example
 cd quickstart-example
 tobari cluster up`,
@@ -229,7 +229,7 @@ tobari policy allow --id <exact-pcy-id-from-policy-review>`,
           title: "Create a synthetic project and start the shared cluster",
           location: "Trusted host",
           action:
-            "Move into a dedicated empty directory and start the shared Gateway, OPA, and Auth Broker cluster.",
+            "Move into a dedicated empty directory and start the shared Gateway and OPA cluster.",
           command: `mkdir -p quickstart-example
 cd quickstart-example
 tobari cluster up`,

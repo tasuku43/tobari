@@ -1,218 +1,97 @@
 ---
 title: 認証
-description: Broker 必須の結び付きと Workspace 所有の互換経路を理解し、通信ポリシーとは別に認証情報を設定します。
+description: 各エージェント CLI のネイティブログインを Workspace 内で使い、認証情報とネットワーク権限を分離します。
 ---
 
-import CredentialArchitectureMap from "../../../../components/CredentialArchitectureMap.astro";
-import ProviderToolMap from "../../../../components/ProviderToolMap.astro";
-import SequenceExplorer from "../../../../components/SequenceExplorer.astro";
+Tobari では認証とネットワーク認可は別です。ログインの成功はアカウントを
+特定しますが、HTTP effect を許可しません。
 
-Tobari では、外部サービスへの認証と HTTP 通信の許可を別々に扱います。認証方式を設定しても、OPA の通信ルールは追加されません。認証付きリクエストにも、Context、プロジェクト、宛先、ポート、メソッド、パスに一致する許可が必要です。
+## standard の認証モデル
 
-このガイドでは、Broker 必須の結び付きと Workspace 所有の互換経路、レビュー済みの組み込みプロバイダー、Auth Broker のハンドル、認証情報の置換とログアウト、障害時の確認手順を説明します。先に[リクエストの流れ](../../how-it-works/request-journey/)と[Context](../contexts/)を確認してください。
-
-## 二つの実行時経路を比較する
-
-| 方式                     | 認証情報の本体を置く場所                                  | Workspace が読めるもの                     | Gateway の動作                                                                        | 主な制限                                                       |
-| ------------------------ | --------------------------------------------------------- | ------------------------------------------ | ------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
-| Workspace 所有の互換経路 | Workspace の永続ホームまたはプロセス内                    | ツールが保存した実認証情報                 | 未宣言の結び付きだけで、OPA 入力と監査から認証情報を除外し、許可後に転送する          | 同じ Workspace 内のプロセスは認証状態を読んで利用できる        |
-| Broker 必須の結び付き    | インストール用ルート鍵で開く、暗号化済みの Context 保管庫 | プロジェクトに結び付いたランダムなハンドル | Workspace の実認証情報を拒否し、ハンドルを照合して OPA の許可後に解決・更新・署名する | 宣言済みの完全一致結び付きと、レビュー済みの組み込み処理に限る |
-
-どの方式でも OPA の許可が必要です。「リクエストへ認証情報を付けられること」と「その HTTP 通信が許可されること」は別の権限です。
-
-<aside class="warning">
-  <strong>成果物の状態:</strong> Gateway と Auth Broker の正本ソースは一組の V1
-  スナップショットですが、レビュー済みの不変な V1
-  イメージ索引はまだ公開されていません。
-  開発者ビルドはこのソースを使い、公開／リリースゲートは索引のレビューと固定が終わるまで
-  失敗します。
-</aside>
-
-## Workspace 所有の互換経路
-
-Tobari が結び付きを宣言していないプロバイダーに限り、Workspace へ入り、ツールが標準で提供するログインを使うか、環境変数／ファイルへ認証情報を注入できます。状態は Workspace の永続ホームに保存され、`exit`、コンテナの消失、ランタイムの再ビルド後も残ります。`tobari delete` を実行すると、Workspace とともに削除されます。
-
-Tobari は、ホストのホーム、Keychain、SSH エージェント、認証情報を含む環境変数、一般的な CLI 設定を Workspace へコピーしません。互換経路で Workspace 内へ保存した実認証情報は、同じ Workspace 内の別プロセスから読めます。宣言済みの結び付きへ実認証情報を付けると `broker_auth_required` で拒否され、Workspace 内のログインではこの経路選択を上書きできません。
-
-## プロバイダーとツールを分ける
-
-プロバイダーは、認証情報を発行または管理する外部サービスです。ツールは、Workspace 内でその認証設定を使い、HTTP リクエストを送るクライアントです。Tobari がサポートする単位は、取得方法、ハンドルの配置、完全一致のリクエスト結び付き、クライアントツールを合わせたレビュー済みの組み合わせです。
-
-現在の組み込みプロバイダーは、それぞれ対応ツールが一つに決まります。そのため CLI ではプロバイダーを選び、対応するツールを表示して自動選択します。`--tool` を指定する必要はありません。AWS のログイン方法は別に選びます。
-
-<ProviderToolMap />
-
-## GitHub、AWS、Datadog、OpenAI、Anthropic の組み込み認証
-
-共有クラスターを起動し、Context の認証状態を確認します。`--provider` を省略すると、インストール済みでレビュー済みのプロバイダーから選択できます。GitHub を直接指定する場合は、選択画面を省略します。
+standard profile には provider binding、credential projection、Auth Broker、
+`tobari auth` コマンドがありません。Workspace に入り、エージェント CLI の
+公式ログインを使います。
 
 ```sh
-tobari cluster up
-tobari auth status --context default
-tobari auth login --context default # choose an installed reviewed provider
-tobari auth login --provider github --context default
-tobari auth status --context default
+cd /path/to/project
+tobari
+
+# Inside the Workspace
+claude
+# or
+codex login
 ```
 
-ログインは、信頼するホストの対話型ターミナルで行います。`--provider` を省略した場合、インストール済みでレビュー済みのプロバイダーだけを表示し、各行に対応ツールも示します。`--provider` を指定すると選択画面を省略します。
+Claude Code と Codex はローカルでビルドされる agent-ready base に含まれます。
+ネイティブ認証状態はその Workspace の永続 home に保存されます。`exit` や
+container 再作成後も残り、別の Workspace とは共有されず、`tobari delete` で
+削除されます。
 
-GitHub では、識別情報を確認した GitHub CLI を、固定された引数、隔離した非公開設定、上限付きの出力、検査付きの後片付けという条件で実行します。Gateway と Auth Broker が `gh` を実行することはありません。取得した値は Auth Broker の制御境界を通して保存し、CLI 出力へは表示せず、Context 保管庫内で暗号化します。
+Tobari は host home、host CLI のログイン状態、Keychain、SSH agent、認証用
+環境変数を Workspace にコピーしません。
 
-ログイン後、その Context に結び付いた Workspace へ入り直します。
+## リクエスト境界
+
+同じ Workspace 内の全プロセスは、その Workspace の認証情報を読めます。
+Gateway はどの実行ファイルが認証情報を作成・利用したかを推測しません。
+
+1. Gateway が host 所有の Context/project principal を導出します。
+2. 認証情報と cookie を OPA input と audit から除外します。
+3. OPA が scheme、host、port、method、path の正確な effect を判断します。
+4. deny では認証情報もリクエストも upstream に到達しません。
+5. allow 後だけ元の header を一度の upstream 試行へ渡します。
+
+`builtin/agent-ready` は Claude/Codex のログイン、アカウント、model、core の
+有限な exact effect を含みます。これは Context 全体の HTTP 権限であり、
+実行ファイルの identity ではありません。plugin、connector、MCP、download、
+未定義 route は引き続き deny または review 対象です。
+
+## ネイティブログインの回帰
+
+Claude Code は platform hello と token exchange の後、Anthropic の roles と
+profile を取得します。Tobari は pinned client に必要なこれらの effect を
+明示的に許可します。認証済み profile request も通常の passthrough であり、
+bearer は OPA/audit に入らず、allow 後だけ保持されます。provider 所有の
+`subscriptionType` と `rateLimitTier` は解釈・置換されないため、`/status` は
+ネイティブの account type を表示できます。
+
+Codex の browser login は OAuth token exchange を使います。device-code 方式は
+user-code と token polling endpoint も使い、同じ post-policy passthrough 境界を
+通ります。
+
+## ログイン通信が deny された場合
+
+preset 外の effect は、別の trusted-host terminal から通常の permission loop で
+扱います。
 
 ```sh
-tobari --context default
+tobari policy review
 ```
 
-Workspace は、プロジェクトごとに異なる `tobari-h1_...` ハンドルを受け取ります。組み込み GitHub マニフェストでは、対応する GitHub CLI API 通信に使いますが、外部サービスへ送るトークンそのものではありません。Auth Broker を使った非公開 Git 通信の認証情報ヘルパーには、現在対応していません。
+正確な送信先を確認し、意図した effect だけを allow して、実行中の Workspace
+で再試行します。ログインは policy rule を作らず、policy approval はログインを
+実行しません。
 
-<h3 id="aws">AWS</h3>
+## experimental Broker 研究機能
 
-信頼するホストで、ログイン方法を一つ選びます。
+`task build:dev` は repository 研究用に compile-time experimental Auth Broker と
+`auth` コマンドを保持します。standard の catalog、Compose topology、Gateway
+image、component lock、release には含まれません。環境変数や runtime input で
+standard binary に有効化することもできません。
 
-```sh
-tobari auth login --provider aws --method identity-center --context default
-# or, with AWS CLI 2.32 or newer:
-tobari auth login --provider aws --method console --context default
-```
+## 保証と限界
 
-Identity Center 方式では、レビュー済みの商用環境用開始 URL、SSO リージョン、12 桁のアカウント ID、ロールを受け取り、固定されたデバイスログインを実行します。Console 方式では商用リージョンを一つ指定します。検証済みのデバイス間 URL だけを開き、AWS CLI はターミナルの標準入力から通信許可コードを読み取ります。
-
-どちらも隔離した一時ホームを使い、方式を区別でき、サイズに上限がある不透明な AWS 状態だけを暗号化します。Workspace へ入り直すと、三つの AWS 認証情報変数には同じプロジェクトハンドルが入り、アクセス鍵の本体は入りません。リクエスト先のリージョンは、通常の Context またはコマンド設定で指定します。
-
-<h3 id="datadog">Datadog</h3>
-
-信頼するホストで <code>tobari auth login --provider datadog --context default</code> を実行します。
-
-Tobari は非公開のファイル保存ホームで、固定されたホスト側の `pup --no-agent auth login --site datadoghq.com` を実行します。ブラウザーでの同意とループバックコールバックは `pup` が処理します。Workspace へ入り直すと、`DD_ACCESS_TOKEN=<project handle>` と固定された `DD_SITE=datadoghq.com` が入ります。
-
-実際のアクセストークンを選ぶのは、OPA の許可後です。有効期限が近い場合、Auth Broker は固定された US1 の更新を一度だけ行い、置き換えた暗号化状態を保存します。Auth Broker のコンテナに `pup` はインストールしません。
-
-<h3 id="openai-anthropic">OpenAI と Anthropic</h3>
-
-OpenAI は `tobari auth login --provider openai --context default` を安定版のホスト Codex CLI で実行します。Tobari はバージョンを記録し、固定された通常のブラウザーログインと厳密な V1 状態契約が成功した場合だけ受理します。localhost の listener、ブラウザー要求、PKCE 状態、callback、token exchange は検証済み Codex 子プロセスが所有し、Tobari は動的な認証 URL を解析も open もしません。Workspace 側の pin 済み Codex projection は別契約です。Anthropic は、`/usr/local/bin/claude` に Claude Code 2.1.220 を含む互換 Context を選択したうえで、`tobari auth login --provider anthropic --context default` を実行します。Tobari は mount、volume、project path、control socket を持たない新しい一時コンテナを起動し、ホスト側で実行ファイルを hash 化し、検証済みの通常認証 URL だけを開き、厳密な Linux 更新可能セッションだけを受理します。ブラウザーを開けた場合は長い URL を表示せず、失敗した場合だけ同じ URL を手動操作用に表示します。Claude がコード入力を求めたら、Tobari が安定した貼り付けプロンプトをすぐに表示します。ブラウザーに表示されたコードをそこへ貼り付けてください。Claude 自身が端末入力のエコーを止め、後続のプロバイダー状態は表示されます。コンテナの削除は Broker commit の前提です。Workspace へ入り直すと、完全な `.claude/.credentials.json` が配置されますが、access token 欄は project-bound handle だけです。実 access token と refresh token は Context 保管庫から出ません。Chatwork は対話セレクターではなく `auth import chatwork` で設定します。
-
-<CredentialArchitectureMap headingLevel={2} initial="acquisition" />
-
-## Auth Broker を使うリクエストの順序
-
-1. Gateway がカーネルの観測した Workspace の送信元エンドポイントから Context とプロジェクトのプリンシパルを導出します。
-2. 宣言済みの結び付きへ Workspace の実認証情報が付いている場合、OPA や外部 I/O より前に、学習対象外の `broker_auth_required` で拒否します。
-3. プロバイダーが宣言した元ヘッダーでハンドルを認識し、リクエストから取り除きます。
-4. Auth Broker は秘密情報を返さずに、Context、プロジェクト、プロバイダー、認証情報のリビジョン、接続先、ヘッダーの結び付きを確認します。
-5. Gateway が、本文を含まない通常の HTTP 通信を OPA へ問い合わせます。
-6. 拒否された場合はここで停止します。認証情報の解決、Datadog／OpenAI／Anthropic トークンの選択・更新、AWS コンパニオンの呼び出し・署名、外部の接続先への接続は行いません。
-7. 静的認証情報を使う許可では、Gateway が同じリビジョンを一度だけ解決し、宣言されたヘッダーを置き換えます。
-8. AWS の許可では、Gateway が完全なリクエストを 8 MiB の上限内で保持します。Auth Broker は認証済みの非公開ホスト側コンパニオンを使い、固定された AWS CLI の認証情報エクスポートを一度実行します。リビジョンを再確認して状態を保存し、標準ヘッダーを使う SigV4 署名をローカルで行います。
-9. Datadog の許可では、十分な有効期間が残るトークンを選びます。必要な場合は、プロキシとリダイレクトを使わず、完全一致する US1 トークンエンドポイントで同じレコードを一度だけ更新します。Bearer 値を返す前に状態を保存します。
-10. OpenAI の許可では、同じアカウントのトークンを選択または更新し、レビュー済みの補助ヘッダー用に検証済みアカウント ID だけを返します。
-11. Anthropic の許可では、同じレコードの access token を選ぶか、完全一致する組み込み token endpoint で一度だけ更新し、新しい暗号化状態を保存してから bearer 値を返します。
-12. Gateway が完全一致する HTTPS 接続先へ一度接続します。元のリクエストを自動再実行しません。
-
-<SequenceExplorer
-  title="Auth Broker を使う認証情報の経路"
-  scenarios={[
-    "broker-allowed",
-    "aws-brokered-allowed",
-    "datadog-refresh-allowed",
-    "credential-outcome-unknown",
-    "invalid-handle",
-  ]}
-  initial="broker-allowed"
-/>
-
-Workspace A の有効なハンドルを Workspace B へコピーしても、ホストから導出したプロジェクトのプリンシパルが一致しないため失敗します。認証情報の置換やログアウト後の古いリビジョンも失敗します。形式が不正、場所が誤っている、曖昧、または結び付きが一致しない Tobari 形式のハンドルは拒否し、通常の認証情報として転送しません。
-
-## スキーマ 1 プロバイダーへインポートする
-
-所有者管理のプロバイダーマニフェストは `stdin_import` を宣言できます。端末ではない、保護された標準入力から認証情報を一つ渡します。
-
-```sh
-trusted-secret-source | tobari auth import example --context default
-```
-
-`example` は、インストール済みのプロバイダー ID である必要があります。このコマンドがマニフェストを作ることはありません。標準入力がターミナルの場合、1 バイトも読み取る前に拒否します。認証情報の入力サイズには上限があり、コマンド引数、環境変数、出力からは受け取りません。
-
-利用者が用意するマニフェストでは、実行可能ヘルパー、リクエスト署名、更新、任意の通信経路、メソッドやパスのポリシーを追加できません。
-
-## 認証情報を置き換える、ログアウトする
-
-Context とプロバイダーの認証情報を置き換えると、以前に発行したハンドルはすべて無効になります。実行中のプロセスには古い環境変数が残りますが、その値は使えません。新しいハンドルを受け取るには、Workspace から退出して入り直します。
-
-ローカルの Auth Broker 状態を削除するには、次を実行します。
-
-```sh
-tobari auth logout github --context default
-tobari auth status --context default
-```
-
-ログアウトは、ローカルのプロバイダーレコードを削除し、ハンドルを無効化します。GitHub へは接続せず、外部サービス側でのトークン失効は保証しません。実行中のプロセス環境も書き換えません。次に Workspace へ入るとき、Tobari が管理する配置内容を削除します。
-
-`cluster down --purge` はログアウトの代わりにはなりません。暗号化済みの Context 保管庫とルート鍵は残ります。
-
-## 失敗時の動作
-
-- `auth_login_tty_required`: 信頼するホストの対話型ターミナルでログインします。
-- `invalid_credential_input`: 信頼できる値を一つ、端末ではない標準入力からパイプまたはリダイレクトで渡します。
-- `auth_broker_locked` / `auth_broker_unavailable`: ホストで `tobari cluster up` を実行し、`tobari auth status` を確認します。
-- `root_key_missing_with_vault`: 元のルート鍵を復元します。既存の暗号化状態に対して別の鍵を生成または代入しません。
-- `auth_vault_invalid`: 保管庫の内容を表示または書き換えず、完全性を診断します。
-- `invalid_provider_manifest` / `ambiguous_provider_http_binding`: マニフェスト一覧を全体として修正します。プロバイダー情報の一部だけを有効化しません。
-- `credential_handle_invalid` (`403`): 対応する Workspace を退出し、入り直します。コピーしたハンドルや古いハンドルを転送しません。
-- `broker_auth_required` (`403`): 宣言済みの結び付きへ付けた実認証情報は、ポリシーレビューでは回復できません。`auth status` を確認し、`auth login` または `auth import` でプロバイダーを設定し、ハンドルの配置が欠落または古い場合は Workspace へ入り直します。
-- `credential_broker_unavailable` (`503`): 認証処理の開始前に分かった可用性障害です。Auth Broker とコンパニオンの状態を調整し、準備完了を確認してから再試行します。アプリケーション接続先への通信は行われていません。
-- `credential_refresh_outcome_unknown` (`409`): 自動再実行しません。元のリクエスト終了後に `auth status` を確認します。`ready` または `configured` なら、Gateway はアプリケーション接続先へ接続していないため、明示的に再試行できます。`not_configured` なら、AWS、Datadog、OpenAI、または Anthropic へ再ログインするかログアウトし、Workspace へ入り直してから再試行します。
-- `auth_mutation_outcome_unknown` または変更操作後の出力障害: 別のログイン、インポート、ログアウトを行う前に `auth status` を確認します。状態を確認せずに変更操作を繰り返すと、確定済みの状態をさらに更新または削除する可能性があります。
-
-## 保証と制限
-
-宣言済みの結び付きでは、Auth Broker は静的または更新可能な認証状態を Workspace と OPA の外に保持します。ハンドルを完全一致の権限へ結び付け、認証情報を扱う処理は OPA の許可後にだけ実行します。ハンドルは認証情報の本体ではありませんが、範囲を限定した bearer capability なので公開やログ出力を避けます。Workspace 所有の互換経路は、実認証情報を Workspace から隔離する保証を持ちません。
-
-ただし、同じ Workspace 内のプロセス同士は分離しません。すでに許可された認証済み通信を、同じ Workspace の悪意あるプロセスが使うことも防ぎません。外部サービス側のログアウト、Context ごとの複数アカウント、閉じたレビュー済み組み込み計画以外の更新、署名、OAuth には対応しません。
-
-Anthropic では、選択した Context image をこの一度の取得処理について信頼します。その image は Broker が取り込む前の新しい通常認証情報を観測できます。また、このアカウントログイン統合を公開配布するには、適用される Anthropic の条件に基づく法務・プロダクトレビューと、必要な provider approval を別途完了する必要があります。技術的に対応していること自体は、その許諾を意味しません。
+standard Tobari は host 管理の認証情報を Workspace に入れず、Workspace の
+認証情報を OPA、audit、denial output、log に出しません。同じ Workspace 内の
+相互に敵対するプロセスの分離、すでに許可された認証済み capability の利用防止、
+remote logout、provider credential schema の解釈は提供しません。
 
 ## 根拠となるソース
 
-- [認証を規定する契約](https://github.com/tasuku43/tobari/blob/475e201703579d4c639c37f8051cbf6d80b22a52/docs/07_authentication.md)
-- [認証 Catalog の仕様](https://github.com/tasuku43/tobari/blob/475e201703579d4c639c37f8051cbf6d80b22a52/internal/cli/auth_catalog.go)
-- [V1 プロバイダードメイン](https://github.com/tasuku43/tobari/blob/475e201703579d4c639c37f8051cbf6d80b22a52/internal/domain/authbroker/provider.go)
-- [Auth Broker の実装と保管庫のテスト](https://github.com/tasuku43/tobari/tree/475e201703579d4c639c37f8051cbf6d80b22a52/authbroker)
-- [Gateway における認証情報処理順のテスト](https://github.com/tasuku43/tobari/blob/475e201703579d4c639c37f8051cbf6d80b22a52/gateway/test_tobari_gateway.py)
-- [信頼するホスト側の認証情報ドライバー](https://github.com/tasuku43/tobari/tree/475e201703579d4c639c37f8051cbf6d80b22a52/internal/infra/credentialhost)
+- [Authentication governing contract](https://github.com/tasuku43/tobari/blob/475e201703579d4c639c37f8051cbf6d80b22a52/docs/07_authentication.md)
+- [Gateway native-login regression](https://github.com/tasuku43/tobari/blob/475e201703579d4c639c37f8051cbf6d80b22a52/gateway/test_tobari_gateway.py)
 
 ## まとめ
 
-認証は、許可済みリクエストへ付ける認証情報を用意します。HTTP 通信そのものは、OPA のポリシーで別に制御します。Auth Broker 方式で Workspace が持つのは、用途を限定した不透明なハンドルだけです。許可された Gateway の経路だけが、宣言済みの静的認証情報の解決、AWS 署名、Datadog／OpenAI／Anthropic トークン操作を開始できます。
-
-## 理解を確認する
-
-<details>
-  <summary>
-    GitHub API
-    の通信が一つも許可されていない状態でログインに成功しました。最初の API
-    呼び出しはどうなりますか？
-  </summary>
-  認証情報があり、ハンドルが Workspace へ配置されていても、OPA が通常の HTTP
-  通信を拒否します。Gateway は認証情報の解決や外部の接続先への接続を行いません。
-</details>
-
-<details>
-  <summary>
-    Workspace A と B が同じ Context と接続先を使う場合、B は A
-    からコピーしたハンドルを使えますか？
-  </summary>
-  いいえ。ハンドルは A のプロジェクト ID にも結び付きます。Gateway は登録済みの
-  Workspace 送信元エンドポイントから B の別のプリンシパルを導出するため、Auth
-  Broker の検証が失敗します。
-</details>
-
-<details>
-  <summary>
-    <code>auth logout</code> は外部サービス側でトークンを失効させますか？
-  </summary>
-  いいえ。ローカルの Auth Broker 状態を削除し、Tobari
-  ハンドルを無効化します。外部サービス側での失効はコマンド契約の対象外です。
-</details>
-
-**次へ:** [拒否された通信をレビューする](../policy-review/)。
+provider 公式のログインを Workspace 内で実行します。Workspace がネイティブ
+認証情報を所有し、Gateway がその HTTP effect を外へ出せるかを決めます。

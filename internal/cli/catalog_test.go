@@ -180,6 +180,9 @@ func TestDefaultCatalogSeparatesDeliveryFromCollectionCoverage(t *testing.T) {
 }
 
 func TestSharedClusterCatalogDeclaresAuthBrokerLifecycle(t *testing.T) {
+	if !buildIdentityHasBroker() {
+		t.Skip("Auth Broker catalog exists only in the experimental profile")
+	}
 	t.Parallel()
 	catalog := DefaultCatalog()
 	up, found := catalog.Lookup("cluster up")
@@ -234,6 +237,22 @@ func TestSharedClusterCatalogDeclaresAuthBrokerLifecycle(t *testing.T) {
 	}
 }
 
+func TestStandardSharedClusterCatalogOmitsAuthBrokerLifecycle(t *testing.T) {
+	if buildIdentityHasBroker() {
+		t.Skip("standard-only catalog assertion")
+	}
+	catalog := DefaultCatalog()
+	for _, spec := range catalog.Commands() {
+		encoded, err := json.Marshal(spec.Agent)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(encoded), "auth_broker") || strings.Contains(string(encoded), "auth-broker") {
+			t.Fatalf("standard catalog exposed Auth Broker through %q: %s", spec.Path, encoded)
+		}
+	}
+}
+
 func TestDefaultCatalogRequiresSemanticTokensForEveryTextCommand(t *testing.T) {
 	for _, command := range DefaultCatalog().Commands() {
 		supportsText := false
@@ -273,8 +292,14 @@ func TestDoctorCatalogDeclaresRecursiveSchemaV2Contract(t *testing.T) {
 		recovery.Fields[0].Name != "action" || recovery.Fields[1].Name != "next_command" {
 		t.Fatalf("doctor recursive fields = check:%+v status:%+v blocked:%+v recovery:%+v", check, status, blockedBy, recovery)
 	}
-	if len(check.Enum) != len(doctor.CheckInventory()) {
-		t.Fatalf("doctor check enum = %d, inventory = %d", len(check.Enum), len(doctor.CheckInventory()))
+	wantCheckCount := 0
+	for _, item := range doctor.CheckInventory() {
+		if buildIdentityHasBroker() || !isBrokerDoctorCheck(item.ID) {
+			wantCheckCount++
+		}
+	}
+	if len(check.Enum) != wantCheckCount {
+		t.Fatalf("doctor check enum = %d, profile inventory = %d", len(check.Enum), wantCheckCount)
 	}
 	root := spec.Agent.Inputs[1]
 	if root.DefaultValue == nil || *root.DefaultValue != "." || root.MinimumLength == nil || *root.MinimumLength != 1 {

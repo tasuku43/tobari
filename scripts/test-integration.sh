@@ -727,7 +727,7 @@ chmod 0600 "$config_directory/auth/providers/$synthetic_noop_provider.json"
 if [[ -n ${TOBARI_INTEGRATION_BINARY:-} ]]; then
   [[ -x $binary ]] || fail "TOBARI_INTEGRATION_BINARY is not executable: $binary"
 else
-	  gateway_dev_tag="tobari-gateway:dev-$(go run ./tools/runtimeassetid gateway)"
+	  gateway_dev_tag="tobari-gateway-experimental:dev-$(go run ./tools/runtimeassetid gateway)"
 	  auth_broker_dev_tag="tobari-auth-broker:dev-$(go run ./tools/runtimeassetid authbroker)"
   mitmproxy_image=$(awk -F= '$1 == "MITMPROXY_IMAGE" { print $2 }' internal/infra/runtimeassets/assets/versions.env)
   debian_image=$(awk -F= '$1 == "DEBIAN_IMAGE" { print $2 }' internal/infra/runtimeassets/assets/versions.env)
@@ -762,7 +762,7 @@ else
     --build-arg "MITMPROXY_IMAGE=$mitmproxy_image" \
     --build-arg "TARGETARCH=$auth_target_arch" \
     authbroker >/dev/null
-  go build -tags=tobari_dev -buildvcs=false -trimpath -o "$binary" ./cmd/tobari
+  go build -tags='tobari_dev tobari_experimental' -buildvcs=false -trimpath -o "$binary" ./cmd/tobari
 fi
 work_root=$test_root/user/workspace
 work_nested_root=$work_root/root

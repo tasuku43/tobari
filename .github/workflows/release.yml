@@ -87,7 +87,7 @@ jobs:
           ./scripts/check.sh runtime
 
   components-candidate:
-    name: Build two-service lock candidate
+    name: Build Gateway lock candidate
     if: inputs.publish == false
     needs: preflight
     runs-on: ubuntu-latest
@@ -100,7 +100,7 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-      - name: Build Gateway, Auth Broker, and component lock without publishing
+      - name: Build Gateway and component lock without publishing
         run: ./scripts/build-release-components.sh "${{ needs.preflight.outputs.revision }}" false component-dist
       - name: Upload candidate component lock
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -110,7 +110,7 @@ jobs:
           if-no-files-found: error
 
   components-publish:
-    name: Publish Gateway, Auth Broker, and lock
+    name: Publish Gateway and lock
     if: inputs.publish == true
     needs: preflight
     runs-on: ubuntu-latest
@@ -131,7 +131,7 @@ jobs:
         env:
           GHCR_TOKEN: ${{ github.token }}
         run: printf '%s' "$GHCR_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
-      - name: Publish two services and create component lock
+      - name: Publish Gateway and create component lock
         run: ./scripts/build-release-components.sh "${{ needs.preflight.outputs.revision }}" true component-dist
       - name: Upload published component lock
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7

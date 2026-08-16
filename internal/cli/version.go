@@ -23,8 +23,8 @@ type versionJSONProjection struct {
 	CapabilityProfile       string `json:"capability_profile"`
 	GatewayRequiredAPI      int    `json:"gateway_required_api"`
 	GatewaySelectedAPI      int    `json:"gateway_selected_api"`
-	AuthBrokerRequiredAPI   int    `json:"auth_broker_required_api"`
-	AuthBrokerSelectedAPI   int    `json:"auth_broker_selected_api"`
+	AuthBrokerRequiredAPI   int    `json:"auth_broker_required_api,omitempty"`
+	AuthBrokerSelectedAPI   int    `json:"auth_broker_selected_api,omitempty"`
 	Compatible              bool   `json:"compatible"`
 	DevelopmentBuildCommand string `json:"development_build_command"`
 	DevelopmentBinary       string `json:"development_binary"`
@@ -89,11 +89,41 @@ func renderVersion(identity buildidentity.Identity, format successFormat, color 
 	output.row("Resolver", string(identity.ResolverChannel), styleText)
 	output.row("Capabilities", string(identity.CapabilityProfile), styleText)
 	output.row("Gateway API", fmt.Sprintf("required %d, selected %d", identity.Gateway.RequiredAPI, identity.Gateway.SelectedAPI), styleText)
-	output.row("Auth Broker API", fmt.Sprintf("required %d, selected %d", identity.AuthBroker.RequiredAPI, identity.AuthBroker.SelectedAPI), styleText)
+	if identity.CapabilityProfile.IncludesExperimental() {
+		output.row("Auth Broker API", fmt.Sprintf("required %d, selected %d", identity.AuthBroker.RequiredAPI, identity.AuthBroker.SelectedAPI), styleText)
+	}
 	output.row("Compatibility", state, token)
 	if development {
 		output.row("Build", buildCommand, styleAccent)
 		output.row("Binary", binary, styleAccent)
 	}
 	return output.bytes(), nil
+}
+
+func versionOutputFields() []OutputField {
+	fields := []OutputField{
+		{Name: "version", Type: OutputFieldTypeString, Description: "Release or development version embedded in the executable."},
+		{Name: "commit", Type: OutputFieldTypeString, Description: "Full source commit embedded in the executable, or unknown when unavailable."},
+		{Name: "resolver_channel", Type: OutputFieldTypeString, Description: "Compiled image authority: published or development."},
+		{Name: "development_source", Type: OutputFieldTypeBoolean, Description: "Whether build metadata proves the contributor development resolver."},
+		{Name: "capability_profile", Type: OutputFieldTypeString, Description: "Immutable capability surface: standard or experimental."},
+		{Name: "gateway_required_api", Type: OutputFieldTypeInteger, Description: "Gateway API required by canonical source."},
+		{Name: "gateway_selected_api", Type: OutputFieldTypeInteger, Description: "Gateway API selected by the compiled resolver."},
+	}
+	if buildIdentityHasBroker() {
+		fields = append(fields,
+			OutputField{Name: "auth_broker_required_api", Type: OutputFieldTypeInteger, Description: "Auth Broker API required by canonical source."},
+			OutputField{Name: "auth_broker_selected_api", Type: OutputFieldTypeInteger, Description: "Auth Broker API selected by the compiled resolver."},
+		)
+	}
+	return append(fields,
+		OutputField{Name: "compatible", Type: OutputFieldTypeBoolean, Description: "Whether source metadata is complete and selected component APIs match source requirements."},
+		OutputField{Name: "development_build_command", Type: OutputFieldTypeString, Description: "Exact repository build command only for a proven development build; otherwise empty."},
+		OutputField{Name: "development_binary", Type: OutputFieldTypeString, Description: "Exact repository binary path only for a proven development build; otherwise empty."},
+	)
+}
+
+func buildIdentityHasBroker() bool {
+	identity, err := dockerruntime.BuildIdentity("dev", buildidentity.UnknownCommit)
+	return err == nil && identity.CapabilityProfile.IncludesExperimental()
 }

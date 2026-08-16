@@ -278,6 +278,93 @@ def metadata(binding, *, secret=None):
     return result
 
 
+class StandardNativeLoginGatewayTests(unittest.TestCase):
+    def test_claude_and_codex_native_auth_bypass_broker_after_policy_allow(self):
+        cases = (
+            ("GET", "https://platform.claude.com/v1/oauth/hello"),
+            ("POST", "https://platform.claude.com/v1/oauth/token"),
+            ("GET", "https://api.anthropic.com/api/oauth/claude_cli/roles"),
+            ("GET", "https://api.anthropic.com/api/oauth/profile"),
+            ("POST", "https://auth.openai.com/oauth/token"),
+            ("POST", "https://auth.openai.com/api/accounts/deviceauth/usercode"),
+            ("POST", "https://auth.openai.com/api/accounts/deviceauth/token"),
+        )
+        for method, url in cases:
+            with self.subTest(method=method, url=url):
+                with (
+                    mock.patch.dict(
+                        os.environ,
+                        {"TOBARI_AUTH_PROVIDER_PROJECTION": ""},
+                        clear=False,
+                    ),
+                    mock.patch.object(gateway, "load_gateway_config", return_value={}),
+                ):
+                    addon = gateway.TobariGateway()
+                self.assertEqual(addon.credential_adapter.name, "passthrough")
+                addon.principal_source = mock.Mock()
+                addon.principal_source.load.return_value = {}
+                request = http.Request.make(
+                    method, url, headers={"authorization": "Bearer native-canary"}
+                )
+                flow = tflow.tflow(req=request)
+                decision_inputs = []
+
+                def allow(_url, document, _timeout):
+                    decision_inputs.append(document)
+                    return gateway.Decision(
+                        allow=True, reason="agent-ready", status_code=200,
+                        learnable=False,
+                    )
+
+                with (
+                    mock.patch.object(
+                        gateway, "normalize_ingress_authority",
+                        return_value=("https", request.host, 443),
+                    ),
+                    mock.patch.object(
+                        gateway, "resolve_project_principal", return_value={
+                            "project_id": PROJECT, "context_id": CONTEXT,
+                            "context": "default", "project_root": "/workspace/project",
+                        },
+                    ),
+                    mock.patch.object(
+                        gateway, "graphql_endpoint_declared", return_value=False
+                    ),
+                    mock.patch.object(gateway, "query_opa", side_effect=allow),
+                    mock.patch.object(gateway, "commit_upstream_authority") as commit,
+                    mock.patch.object(gateway, "_audit"),
+                ):
+                    addon.requestheaders(flow)
+
+                    if url.endswith("/api/oauth/profile"):
+                        provider_profile = {
+                            "subscriptionType": "max",
+                            "rateLimitTier": "default_claude_max_20x",
+                        }
+                        flow.response = http.Response.make(
+                            200,
+                            json.dumps(provider_profile),
+                            {"content-type": "application/json"},
+                        )
+                        addon.responseheaders(flow)
+                        addon.response(flow)
+                        self.assertEqual(
+                            json.loads(flow.response.content), provider_profile
+                        )
+
+                if not url.endswith("/api/oauth/profile"):
+                    self.assertIsNone(
+                        flow.response,
+                        flow.response.content if flow.response is not None else None,
+                    )
+                self.assertEqual(
+                    flow.request.headers["authorization"], "Bearer native-canary"
+                )
+                self.assertEqual(len(decision_inputs), 1)
+                self.assertNotIn("native-canary", json.dumps(decision_inputs[0]))
+                commit.assert_called_once_with(flow)
+
+
 class ReviewedBrokerGatewayTests(unittest.TestCase):
     def request(self, url="https://api.github.com/repos/openai/openai", value=None):
         request = http.Request.make("GET", url)

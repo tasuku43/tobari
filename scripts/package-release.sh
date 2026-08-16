@@ -63,19 +63,15 @@ case "$goarch" in
 esac
 gateway_image=$(go run ./tools/componentlock field "$component_lock" "$revision" gateway-image)
 gateway_api=$(go run ./tools/componentlock field "$component_lock" "$revision" gateway-api)
-auth_broker_image=$(go run ./tools/componentlock field "$component_lock" "$revision" auth-broker-image)
-auth_broker_api=$(go run ./tools/componentlock field "$component_lock" "$revision" auth-broker-api)
 gateway_source_api=$(sed -n 's/.*io\.tobari\.gateway-api="\([1-9][0-9]*\)".*/\1/p' gateway/Dockerfile)
-auth_broker_source_api=$(sed -n 's/.*io\.tobari\.auth-broker-api="\([1-9][0-9]*\)".*/\1/p' authbroker/Dockerfile)
 base_source=$(go run ./tools/runtimeassetid tobari)
 local_base_image="tobari-runtime:base-${base_source}"
-if [[ ! $gateway_source_api =~ ^[1-9][0-9]*$ || ! $auth_broker_source_api =~ ^[1-9][0-9]*$ ||
-      $gateway_api != "$gateway_source_api" || $auth_broker_api != "$auth_broker_source_api" ]]; then
-	echo "component lock APIs do not match the canonical Gateway/Auth Broker source" >&2
+if [[ ! $gateway_source_api =~ ^[1-9][0-9]*$ || $gateway_api != "$gateway_source_api" ]]; then
+	echo "component lock API does not match the canonical Gateway source" >&2
 	exit 1
 fi
 env "${target_environment[@]}" go build -buildvcs=false -trimpath \
-  -ldflags "-s -w -X main.version=${version} -X main.commit=${revision} -X ${module}/internal/infra/dockerruntime.localBaseRuntimeImage=${local_base_image} -X ${module}/internal/infra/dockerruntime.publishedGatewayImage=${gateway_image} -X ${module}/internal/infra/dockerruntime.publishedGatewayAPI=${gateway_api} -X ${module}/internal/infra/dockerruntime.publishedAuthBrokerImage=${auth_broker_image} -X ${module}/internal/infra/dockerruntime.publishedAuthBrokerAPI=${auth_broker_api}" \
+  -ldflags "-s -w -X main.version=${version} -X main.commit=${revision} -X ${module}/internal/infra/dockerruntime.localBaseRuntimeImage=${local_base_image} -X ${module}/internal/infra/dockerruntime.publishedGatewayImage=${gateway_image} -X ${module}/internal/infra/dockerruntime.publishedGatewayAPI=${gateway_api}" \
   -o "$work_dir/$executable" "./cmd/$binary"
 
 go version -m "$work_dir/$executable" | grep -F "$module" >/dev/null
@@ -86,8 +82,8 @@ if [[ $goos == "$host_os" && $goarch == "$host_arch" ]]; then
 	# shellcheck disable=SC1091
 	compatible=true
 	actual=$("$work_dir/$executable" version --format json)
-	expected=$(printf '{"schema_version":1,"build_identity":{"version":"%s","commit":"%s","resolver_channel":"published","development_source":false,"capability_profile":"standard","gateway_required_api":%s,"gateway_selected_api":%s,"auth_broker_required_api":%s,"auth_broker_selected_api":%s,"compatible":%s,"development_build_command":"","development_binary":""}}' \
-		"$version" "$revision" "$gateway_source_api" "$gateway_api" "$auth_broker_source_api" "$auth_broker_api" "$compatible")
+	expected=$(printf '{"schema_version":1,"build_identity":{"version":"%s","commit":"%s","resolver_channel":"published","development_source":false,"capability_profile":"standard","gateway_required_api":%s,"gateway_selected_api":%s,"compatible":%s,"development_build_command":"","development_binary":""}}' \
+		"$version" "$revision" "$gateway_source_api" "$gateway_api" "$compatible")
 	if [[ $actual != "$expected" ]]; then
 		echo "build identity output = $actual, want $expected" >&2
 		exit 1

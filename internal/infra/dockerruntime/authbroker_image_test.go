@@ -125,6 +125,9 @@ func TestAuthBrokerBootstrapMarkerFailsBeforeDocker(t *testing.T) {
 }
 
 func TestClusterStartupRejectsAuthBrokerBootstrapMarkerBeforeDockerMutation(t *testing.T) {
+	if !brokerRuntimeEnabled {
+		t.Skip("Auth Broker startup exists only in the experimental profile")
+	}
 	t.Parallel()
 	root := t.TempDir()
 	runner := &gatewayImageRunner{}

@@ -25,8 +25,10 @@ func (r *Runtime) prepareState(ctx context.Context) (tobari.State, error) {
 			return tobari.State{}, fmt.Errorf("prepare %s directory: %w", name, err)
 		}
 	}
-	if _, err := r.prepareAuthProjection(); err != nil {
-		return tobari.State{}, fmt.Errorf("prepare Auth Broker provider projection: %w", err)
+	if brokerRuntimeEnabled {
+		if _, err := r.prepareAuthProjection(); err != nil {
+			return tobari.State{}, fmt.Errorf("prepare Auth Broker provider projection: %w", err)
+		}
 	}
 	version, err := runtimeassets.Version()
 	if err != nil {
