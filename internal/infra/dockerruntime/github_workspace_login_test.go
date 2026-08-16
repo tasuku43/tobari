@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"net/url"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -92,6 +93,100 @@ func TestGitHubLoginObserverRecognizesFragmentedNoNewlinePromptWithoutChangingOu
 	}
 	if len(opened) != 1 {
 		t.Fatalf("replayed GitHub prompt reopened browser: %q", opened)
+	}
+}
+
+func TestGitHubDeviceLoginPromptOpensExactHostTargetWithoutCallbackListener(t *testing.T) {
+	projectID := "018bcfe5-687b-7000-8000-000000000001"
+	container, _, err := tobari.ProjectResourceNames(projectID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := &codexBridgeRunner{projectID: projectID}
+	browser := &recordingBrowser{}
+	bridge := newWorkspaceLoginBridge(context.Background(), &Runtime{runner: runner, browser: browser}, container, projectID)
+	defer bridge.close()
+	listenCalls := 0
+	bridge.listen = func(string) (net.Listener, error) {
+		listenCalls++
+		return nil, fmt.Errorf("device flow must not bind a callback listener")
+	}
+
+	prompt := "Press Enter to open " + githubDeviceURL + " in your browser... "
+	var visible bytes.Buffer
+	_, errOut := bridge.writers(io.Discard, &visible)
+	for offset := 0; offset < len(prompt); {
+		end := offset + 2
+		if end > len(prompt) {
+			end = len(prompt)
+		}
+		if _, err := io.WriteString(errOut, prompt[offset:end]); err != nil {
+			t.Fatal(err)
+		}
+		offset = end
+	}
+	if visible.String() != prompt {
+		t.Fatalf("GitHub device prompt changed: got %q want %q", visible.String(), prompt)
+	}
+	if !reflect.DeepEqual(browser.targets, []string{githubDeviceURL}) {
+		t.Fatalf("browser targets = %q", browser.targets)
+	}
+	if listenCalls != 0 {
+		t.Fatalf("device flow callback listener calls = %d", listenCalls)
+	}
+}
+
+func TestGitHubDeviceLoginObserverRejectsNeighboringAndAmbiguousTargets(t *testing.T) {
+	for _, prompt := range []string{
+		"Press Enter to open https://github.com/login/device/ in your browser... ",
+		"Press Enter to open https://github.com/login/device?next=example in your browser... ",
+		"Press Enter to open https://github.example/login/device in your browser... ",
+		"Press Enter to open " + githubDeviceURL + " now",
+		"Press Enter to open " + githubDeviceURL + " " + githubDeviceURL + " in your browser... ",
+	} {
+		var opened []string
+		observer := &workspaceLoginOutputObserver{trigger: func(target string) bool {
+			opened = append(opened, target)
+			return true
+		}}
+		writer := &workspaceLoginObservingWriter{destination: io.Discard, observer: observer}
+		_, _ = io.WriteString(writer, prompt)
+		if len(opened) != 0 {
+			t.Fatalf("hostile GitHub device prompt opened browser: %q -> %q", prompt, opened)
+		}
+	}
+}
+
+func TestGitHubDeviceLoginBridgeFailsClosedBeforeHostOpenOrListener(t *testing.T) {
+	projectID := "018bcfe5-687b-7000-8000-000000000001"
+	container, _, err := tobari.ProjectResourceNames(projectID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name      string
+		runner    *codexBridgeRunner
+		browser   *recordingBrowser
+		wantOpens int
+	}{
+		{name: "ownership mismatch", runner: &codexBridgeRunner{projectID: "018bcfe5-687b-7000-8000-000000000099"}, browser: &recordingBrowser{}},
+		{name: "browser failure", runner: &codexBridgeRunner{projectID: projectID}, browser: &recordingBrowser{err: fmt.Errorf("opener unavailable")}, wantOpens: 1},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			bridge := newWorkspaceLoginBridge(context.Background(), &Runtime{runner: test.runner, browser: test.browser}, container, projectID)
+			defer bridge.close()
+			listenCalls := 0
+			bridge.listen = func(string) (net.Listener, error) {
+				listenCalls++
+				return nil, fmt.Errorf("device flow must not bind a callback listener")
+			}
+			if bridge.trigger(githubDeviceURL) {
+				t.Fatal("failed device host open reported success")
+			}
+			if len(test.browser.targets) != test.wantOpens || listenCalls != 0 {
+				t.Fatalf("browser targets/listener calls = %q/%d", test.browser.targets, listenCalls)
+			}
+		})
 	}
 }
 

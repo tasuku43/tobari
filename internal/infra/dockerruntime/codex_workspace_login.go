@@ -73,15 +73,23 @@ func newCodexWorkspaceLoginBridge(ctx context.Context, runtime *Runtime, contain
 	return newWorkspaceLoginBridge(ctx, runtime, container, projectID)
 }
 
+type workspaceLoginBrowserAction struct {
+	callbackPort  int
+	relayCallback bool
+}
+
 func (b *workspaceLoginBridge) trigger(target string) bool {
-	authorization, ok := parseWorkspaceLoginAuthorizationURL(target)
+	action, ok := parseWorkspaceLoginBrowserAction(target)
 	if !ok {
 		return false
 	}
 	if err := b.runtime.verifyOwnedProjectResource(b.ctx, "container", b.container, b.projectID, projectWorkRole); err != nil {
 		return false
 	}
-	listener, err := b.listen(net.JoinHostPort("127.0.0.1", strconv.Itoa(authorization.callbackPort)))
+	if !action.relayCallback {
+		return b.runtime.browser.Open(b.ctx, target) == nil
+	}
+	listener, err := b.listen(net.JoinHostPort("127.0.0.1", strconv.Itoa(action.callbackPort)))
 	if err != nil {
 		return false
 	}
@@ -94,12 +102,23 @@ func (b *workspaceLoginBridge) trigger(target string) bool {
 	b.listener = listener
 	b.mu.Unlock()
 
-	go b.serve(listener, authorization.callbackPort)
+	go b.serve(listener, action.callbackPort)
 	if err := b.runtime.browser.Open(b.ctx, target); err != nil {
 		b.closeListener(listener)
 		return false
 	}
 	return true
+}
+
+func parseWorkspaceLoginBrowserAction(target string) (workspaceLoginBrowserAction, bool) {
+	if target == githubDeviceURL {
+		return workspaceLoginBrowserAction{}, true
+	}
+	authorization, ok := parseWorkspaceLoginAuthorizationURL(target)
+	if !ok {
+		return workspaceLoginBrowserAction{}, false
+	}
+	return workspaceLoginBrowserAction{callbackPort: authorization.callbackPort, relayCallback: true}, true
 }
 
 func (b *workspaceLoginBridge) serve(listener net.Listener, callbackPort int) {
@@ -250,28 +269,28 @@ func (w *workspaceLoginObservingWriter) observeNoNewlinePrompt() {
 	if w.discardLine || len(w.line) == 0 {
 		return
 	}
-	target, ok := githubAuthorizationURLFromNoNewlinePrompt(string(w.line))
+	target, ok := githubBrowserURLFromNoNewlinePrompt(string(w.line))
 	if ok {
 		w.observer.observeTarget(target)
 	}
 }
 
-func githubAuthorizationURLFromNoNewlinePrompt(line string) (string, bool) {
+func githubBrowserURLFromNoNewlinePrompt(line string) (string, bool) {
 	const trailer = " in your browser... "
 	if !strings.HasSuffix(line, trailer) {
 		return "", false
 	}
-	return githubAuthorizationURLFromPromptText(strings.TrimSuffix(line, trailer))
+	return githubBrowserURLFromPromptText(strings.TrimSuffix(line, trailer))
 }
 
-func githubAuthorizationURLFromPromptText(prompt string) (string, bool) {
+func githubBrowserURLFromPromptText(prompt string) (string, bool) {
 	var target string
 	urlCount := 0
 	for _, field := range strings.Fields(prompt) {
 		if strings.HasPrefix(field, "https://") || strings.HasPrefix(field, "http://") {
 			urlCount++
 		}
-		if !validGitHubLoginAuthorizationURL(field) {
+		if field != githubDeviceURL && !validGitHubLoginAuthorizationURL(field) {
 			continue
 		}
 		if target != "" {
