@@ -70,7 +70,8 @@ authority. `codex login --device-auth` is unchanged.
 For GitHub CLI 2.96.0, the attached host process recognizes the complete
 bounded no-newline browser prompt from both native GitHub.com login paths and
 the exact non-interactive fixed-device URL line emitted by Tobari's pinned
-compatibility path. The
+compatibility path, either plain or with the pinned client's exact bold-prefix
+SGR pair. The
 preferred device flow accepts only the exact
 `https://github.com/login/device` target, verifies the selected owned
 Workspace, opens it once on the host, and creates no callback listener. Tobari

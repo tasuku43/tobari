@@ -170,6 +170,40 @@ func TestGitHubDeviceLoginNonInteractiveLineOpensExactHostTargetWithoutCallbackL
 	}
 }
 
+func TestGitHubDeviceLoginStyledNonInteractiveLineOpensExactHostTargetWithoutChangingOutput(t *testing.T) {
+	projectID := "018bcfe5-687b-7000-8000-000000000001"
+	container, _, err := tobari.ProjectResourceNames(projectID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := &codexBridgeRunner{projectID: projectID}
+	browser := &recordingBrowser{}
+	bridge := newWorkspaceLoginBridge(context.Background(), &Runtime{runner: runner, browser: browser}, container, projectID)
+	defer bridge.close()
+	listenCalls := 0
+	bridge.listen = func(string) (net.Listener, error) {
+		listenCalls++
+		return nil, fmt.Errorf("device flow must not bind a callback listener")
+	}
+
+	line := "\x1b[0;1;39mOpen this URL\x1b[0m to continue in your web browser: " + githubDeviceURL + "\n"
+	var visible bytes.Buffer
+	_, errOut := bridge.writers(io.Discard, &visible)
+	for offset := 0; offset < len(line); {
+		end := min(offset+3, len(line))
+		if _, err := io.WriteString(errOut, line[offset:end]); err != nil {
+			t.Fatal(err)
+		}
+		offset = end
+	}
+	if visible.String() != line {
+		t.Fatalf("styled GitHub non-interactive line changed: got %q want %q", visible.String(), line)
+	}
+	if !reflect.DeepEqual(browser.targets, []string{githubDeviceURL}) || listenCalls != 0 {
+		t.Fatalf("browser targets/listener calls = %q/%d", browser.targets, listenCalls)
+	}
+}
+
 func TestGitHubDeviceLoginNonInteractiveLineRejectsNeighboringTextAndTargets(t *testing.T) {
 	for _, line := range []string{
 		"Open this URL to continue in your web browser: https://github.com/login/device/\n",
@@ -178,6 +212,9 @@ func TestGitHubDeviceLoginNonInteractiveLineRejectsNeighboringTextAndTargets(t *
 		"Open this URL now: " + githubDeviceURL + "\n",
 		"prefix Open this URL to continue in your web browser: " + githubDeviceURL + "\n",
 		"Open this URL to continue in your web browser: " + githubDeviceURL + " trailing\n",
+		"\x1b[1mOpen this URL\x1b[0m to continue in your web browser: " + githubDeviceURL + "\n",
+		"\x1b[0;1;39mOpen this URL to continue in your web browser: \x1b[0m" + githubDeviceURL + "\n",
+		"\x1b[0;1;39mOpen this URL\x1b[0m to continue in your web browser: " + githubDeviceURL + "\x1b[0m\n",
 	} {
 		var opened []string
 		observer := &workspaceLoginOutputObserver{trigger: func(target string) bool {

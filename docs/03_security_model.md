@@ -811,9 +811,10 @@ target; the verified Codex child owns its open attempt and fallback guidance.
 That sentence applies to the experimental host-acquisition driver. In the
 separate standard attached Workspace, ADRs 0046 and 0048 permit the strict
 Codex and GitHub CLI native-login URL union only. GitHub CLI's legacy no-newline
-prompt and pinned wrapper's exact non-interactive device line are relayed
-unchanged; its exact device URL may open once with no listener, or its strict
-callback URL may open once with one opaque relay. Exact default `gh auth login`
+prompt and pinned wrapper's exact non-interactive device line, either plain or
+with only the pinned client's exact bold-prefix SGR pair, are relayed unchanged;
+its exact device URL may open once with no listener, or its strict callback URL
+may open once with one opaque relay. Exact default `gh auth login`
 uses fixed GitHub.com HTTPS argv with prompting and the Workspace browser
 disabled, so no Enter is required; every other argv retains native input.
 Callback or provider failure remains the child's login result. GitHub

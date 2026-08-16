@@ -88,9 +88,10 @@ caller's inherited presentation choice.
 
 The standard attached-session observer accepts the exact
 `https://github.com/login/device` target from either the legacy complete bounded
-no-newline prompt or the wrapper's exact non-interactive URL line. It first
-verifies the selected owned Workspace, opens the target once through the strict
-host browser adapter, and creates no listener. It does not read, retain, relay,
+no-newline prompt or the wrapper's exact non-interactive URL line in its plain
+or pinned-client bold-prefix rendering. No general ANSI stripping occurs. It
+first verifies the selected owned Workspace, opens the target once through the
+strict host browser adapter, and creates no listener. It does not read, retain, relay,
 validate, suppress, or render the one-time code. Partial, oversized, duplicate,
 ambiguous, neighboring, queried, or non-GitHub targets open nothing.
 

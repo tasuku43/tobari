@@ -189,8 +189,8 @@ test must not infer authority from the `codex` executable name.
 
 For GitHub CLI 2.96.0, exercise the preferred GitHub.com HTTPS device-login path
 and its web-application fallback. For the device path, prove the complete
-legacy no-newline prompt and exact non-interactive device line remain
-byte-identical, the exact
+legacy no-newline prompt and exact plain or pinned-bold non-interactive device
+line remain byte-identical, neighboring SGR framing opens nothing, and the exact
 `https://github.com/login/device` target opens once on the host, the selected
 Workspace is verified, and no callback listener is created. Fragment the
 prompt and reject neighboring paths, queries, hosts, duplicates, ambiguity,

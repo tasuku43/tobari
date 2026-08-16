@@ -189,7 +189,11 @@ func (t *workspaceLoginOutputObserver) observe(line string) {
 
 func githubBrowserURLFromNonInteractiveLine(line string) (string, bool) {
 	const prefix = "Open this URL to continue in your web browser: "
-	if line != prefix+githubDeviceURL {
+	const styledPrefix = "\x1b[0;1;39mOpen this URL\x1b[0m to continue in your web browser: "
+	// GitHub CLI 2.96.0 emits either the plain prefix or this one exact
+	// mgutz/ansi Bold rendering. Do not strip arbitrary terminal controls here:
+	// output framing is compatibility evidence, not URL authority.
+	if line != prefix+githubDeviceURL && line != styledPrefix+githubDeviceURL {
 		return "", false
 	}
 	return githubDeviceURL, true
