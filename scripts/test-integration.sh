@@ -9,6 +9,7 @@ auth_mock_name=tobari-auth-mock-upstream
 auth_network=tobari-auth-integration
 custom_image="tobari-integration-custom-$$"
 gateway_base_image="tobari-gateway-integration-base-$$"
+experimental_gateway_base_image="tobari-gateway-integration-experimental-base-$$"
 test_keychain_service=
 test_root=
 work_root=
@@ -553,6 +554,7 @@ cleanup() {
     docker network rm tobari-control tobari-egress >/dev/null 2>&1 || true
     docker volume rm tobari-gateway-ca tobari-public-ca tobari-policy-bundle >/dev/null 2>&1 || true
     docker image rm -f "$custom_image" >/dev/null 2>&1 || true
+    docker image rm -f "$experimental_gateway_base_image" >/dev/null 2>&1 || true
     docker image rm -f "$gateway_base_image" >/dev/null 2>&1 || true
     if [[ -n ${runtime_image:-} ]]; then
       docker image rm -f "$runtime_image" >/dev/null 2>&1 || true
@@ -739,6 +741,9 @@ else
   esac
   docker build --tag "$gateway_base_image" --file gateway/Dockerfile \
     --build-arg "MITMPROXY_IMAGE=$mitmproxy_image" gateway >/dev/null
+  docker build --tag "$experimental_gateway_base_image" \
+    --file gateway/Dockerfile.experimental \
+    --build-arg "TOBARI_GATEWAY_BASE=$gateway_base_image" gateway >/dev/null
   docker run --rm --user "$(id -u):$(id -g)" \
     -v "$test_root/tls:/tls" \
     --entrypoint sh "$mitmproxy_image" -eu -c '
@@ -755,7 +760,7 @@ else
     '
 	  docker build --tag "$gateway_dev_tag" \
     --file test/integration/gateway-auth.Dockerfile \
-    --build-arg "TOBARI_GATEWAY_BASE=$gateway_base_image" \
+    --build-arg "TOBARI_GATEWAY_BASE=$experimental_gateway_base_image" \
     "$test_root/tls" >/dev/null
 	  docker build --tag "$auth_broker_dev_tag" --file authbroker/Dockerfile \
     --build-arg "DEBIAN_IMAGE=$debian_image" \
