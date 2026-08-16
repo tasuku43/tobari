@@ -43,7 +43,9 @@
 ## Unknowns
 
 - [ ] Confirm the protected `release-publication` environment is configured before the publish run.
-- [x] Public documentation source snapshot advanced to implementation commit `475e201703579d4c639c37f8051cbf6d80b22a52`; generated evidence awaits the publication revision commit.
+- [x] Public documentation source snapshot advanced to implementation commit
+  `381835cda72885f78f5a3c9c69868e25df9a15fd`; generated evidence is committed
+  in `459170f`.
 
 ## Thesis evidence
 
