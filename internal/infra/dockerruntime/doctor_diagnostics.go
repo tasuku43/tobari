@@ -51,6 +51,7 @@ func (r *Runtime) checkGatewayConfigAt(path string) (string, doctor.CheckStatus)
 		Contexts map[string]struct {
 			Name             string                   `json:"name"`
 			GraphQLEndpoints []tobari.GraphQLEndpoint `json:"graphql_endpoints"`
+			MCPEndpoints     []tobari.MCPEndpoint     `json:"mcp_endpoints"`
 		} `json:"contexts"`
 	}
 	if err := decodeStrictJSON(data, &document); err != nil || document.Version != "v1" || document.Contexts == nil {
@@ -69,6 +70,16 @@ func (r *Runtime) checkGatewayConfigAt(path string) (string, doctor.CheckStatus)
 				return "gateway.json contains duplicate GraphQL endpoint projections", doctor.CheckStatusFail
 			}
 			seenEndpoints[endpoint] = struct{}{}
+		}
+		seenMCPEndpoints := make(map[tobari.MCPEndpoint]struct{}, len(projected.MCPEndpoints))
+		for _, endpoint := range projected.MCPEndpoints {
+			if err := endpoint.Validate(); err != nil {
+				return "gateway.json contains an invalid MCP endpoint projection", doctor.CheckStatusFail
+			}
+			if _, duplicate := seenMCPEndpoints[endpoint]; duplicate {
+				return "gateway.json contains duplicate MCP endpoint projections", doctor.CheckStatusFail
+			}
+			seenMCPEndpoints[endpoint] = struct{}{}
 		}
 	}
 	return "Gateway routing metadata matches schema V1", doctor.CheckStatusPass
