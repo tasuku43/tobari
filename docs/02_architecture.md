@@ -265,9 +265,10 @@ input but cannot bypass the guardrail or redefine the scheme-aware exact
 learned identity.
 `builtin/agent-ready` uses the reviewed-exact guardrail plus a finite baseline
 coupled to Claude Code 2.1.220, Codex 0.147.0, and GitHub CLI 2.96.0. Named
-compile-time native-authentication readiness bundles expand into the existing
-exact HTTP rules before normalization; their names and executable names never
-enter the persisted snapshot or evaluator. Exact HTTP grants and one
+compile-time native-authentication readiness bundles expand into exact HTTP and
+declared semantic rules before normalization; their names and executable names
+never enter the persisted snapshot or evaluator. Exact HTTP grants, GitHub
+CLI's exact GraphQL `query` / `viewer` grant, and one
 direct-child evaluation template cover native model/account/bootstrap,
 first-party capability discovery, bounded evaluation, and telemetry. Trusted
 MCP endpoints are projected separately; Gateway buffers one bounded JSON-RPC
@@ -489,8 +490,11 @@ particular, public `primary_secret` intentionally maps to persisted
 boundary owns a different representation. No production component reads this
 fixture, and updating it cannot register a provider or grant adapter authority.
 
-GitHub recognizes only its fixed device URL, requests one host-browser open at
-most once, retains the exact manual fallback, and requests no Git protocol.
+GitHub recognizes only its fixed device URL and requests one host-browser open
+at most once. The standard runtime's exact-default-argv compatibility wrapper
+uses the pinned real client with fixed GitHub.com HTTPS login and Git credential
+setup argv; it disables prompts and the Workspace browser only for that path.
+Every other GitHub CLI argv passes through unchanged.
 OpenAI delegates browser opening and the dynamic authorization URL entirely to
 the verified Codex child; Tobari visibly projects but never parses, reconstructs,
 or opens that URL. Claude recognizes only its exact pinned OSC 8 authorization
@@ -985,7 +989,8 @@ otherwise restores the validated original. Unexpected external edits make the
 transaction ambiguous and fail closed instead of being overwritten.
 
 Guided Contexts use one current Tobari-owned evaluator, projected once, with
-Context-specific authorities, methods, ports, GraphQL endpoints, baseline decisions, learned
+Context-specific authorities, methods, ports, GraphQL endpoints, exact and
+semantic baseline decisions, learned
 decisions, and credential metadata supplied as data. Advanced source retains
 the editable `package tobari.http` source contract, but projection rewrites it
 to `tobari.contexts.c<uuid>.http`. Validation rejects source that claims the

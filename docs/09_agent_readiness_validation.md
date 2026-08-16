@@ -95,15 +95,17 @@ The native-login subset must include exactly:
 - Codex: `POST auth.openai.com/oauth/token`,
   `POST auth.openai.com/api/accounts/deviceauth/usercode`, and
   `POST auth.openai.com/api/accounts/deviceauth/token`;
-- GitHub CLI: `POST github.com/login/device/code` and
-  `POST github.com/login/oauth/access_token`.
+- GitHub CLI: `POST github.com/login/device/code`,
+  `POST github.com/login/oauth/access_token`, and GraphQL `query` root `viewer`
+  at declared exact endpoint `POST api.github.com/graphql`.
 
 The compile-time review bundles are exactly `claude_ready`, `codex_ready`, and
 `gh_ready`, coupled to the three pinned client versions. Prove normalized
-Context snapshots contain only expanded exact rules and no runtime bundle or
+Context snapshots contain only expanded exact and semantic rules and no runtime bundle or
 executable selector. For GitHub, neighboring methods, paths, query variants,
-GitHub API hosts, Git transport, downloads, uploads, releases, and self-update
-receive no baseline grant.
+GitHub API hosts, ordinary HTTP at `/graphql`, mutation, sibling or mixed roots,
+Git transport, downloads, uploads, releases, and self-update receive no baseline
+grant.
 
 For each terminal denial, record zero permission candidates, external DNS
 lookups, and upstream attempts. Repeat with a learned
@@ -187,23 +189,29 @@ test must not infer authority from the `codex` executable name.
 
 For GitHub CLI 2.96.0, exercise the preferred GitHub.com HTTPS device-login path
 and its web-application fallback. For the device path, prove the complete
-no-newline prompt remains byte-identical, the exact
+legacy no-newline prompt and exact non-interactive device line remain
+byte-identical, the exact
 `https://github.com/login/device` target opens once on the host, the selected
 Workspace is verified, and no callback listener is created. Fragment the
 prompt and reject neighboring paths, queries, hosts, duplicates, ambiguity,
-and oversized output. The one-time code remains provider-owned visible child
+and oversized output. Exact default `gh auth login` must use the pinned real
+client with fixed GitHub.com HTTPS login and Git credential setup argv, begin
+polling without Enter, and make no Workspace browser attempt; other argv must
+pass through unchanged. The one-time code remains provider-owned visible child
 output and never enters Tobari state, logs, policy, or fixtures.
 
 For the web-application fallback, prove one strict fixed-client URL with the
 required `repo read:org gist` scopes and optional `workflow` opens on the host, one
 opaque callback reaches the exact selected Workspace's dynamic
-`127.0.0.1/callback` port, and GitHub CLI retains its Enter input and result
-presentation. Changed client, caller-added or SSH-key-upload scope, GitHub
+`127.0.0.1/callback` port, and GitHub CLI retains its result presentation.
+Explicit non-default native login retains its own Enter input. Changed client,
+caller-added or SSH-key-upload scope, GitHub
 Enterprise host, malformed state, external/privileged callback, duplicate,
 ambiguous, oversized, replayed, port-collision, opener-failure, callback-failure,
 and session-exit cases must open or relay nothing beyond the declared one-shot
 effect. The bridge itself grants no Workspace HTTP permission; `gh_ready`
-supplies only the two exact device bootstrap/exchange POST effects. Routine
+supplies only the two exact device bootstrap/exchange POSTs and exact GraphQL
+`query` / `viewer` effect. Routine
 success uses one
 `gh auth login` invocation, no manual URL/callback transfer, and zero external
 processing.

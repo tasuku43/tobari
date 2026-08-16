@@ -38,8 +38,9 @@ The immutable preset guardrail is evaluated before baseline data, learned
 exact policy, or Advanced Rego. `builtin/agent-ready` grants the reviewed
 Claude Code 2.1.220 and Codex 0.147.0 model/account/bootstrap, first-party
 capability discovery, bounded evaluation, telemetry, and MCP initialize/list
-effects plus GitHub CLI 2.96.0's exact native device bootstrap/exchange
-effects. Compile-time `claude_ready`, `codex_ready`, and `gh_ready` bundles
+effects plus GitHub CLI 2.96.0's exact native device bootstrap/exchange effects
+and exact GraphQL `query` / `viewer` current-user lookup. Compile-time
+`claude_ready`, `codex_ready`, and `gh_ready` bundles
 expand into ordinary exact rules and are not runtime selectors. Those are
 Context-wide semantic effects rather than executable
 identity, and exact Deny remains terminal. MCP actions, file transfer,
@@ -68,10 +69,14 @@ Pinned GitHub CLI 2.96.0 normally uses its exact host-open-only device target
 with no listener, while its strict GitHub.com web-application fallback uses the
 callback transport with a fixed OAuth client, reviewed HTTPS-login scope
 ceiling, exact state shape, and dynamic non-privileged
-`127.0.0.1/callback` port. GitHub CLI continues to own the Enter input, state
-validation, exchange, and credential state. The transport adds no Workspace
-HTTP authority; `gh_ready` separately adds only `POST /login/device/code` and
-`POST /login/oauth/access_token` to the agent-ready baseline. No GitHub API,
+`127.0.0.1/callback` port. GitHub CLI continues to own state validation,
+exchange, and credential state. For exact default `gh auth login`, the pinned
+runtime compatibility path removes the Enter and Workspace-opener steps while
+preserving client-owned code, polling, persistence, and result output. The
+transport adds no Workspace HTTP authority; `gh_ready` separately adds only
+`POST /login/device/code`, `POST /login/oauth/access_token`, and GraphQL `query`
+/ `viewer` at exact `POST https://api.github.com/graphql` to the agent-ready
+baseline. No other GitHub API,
 Git transport, repository, download, upload, release, self-update, or
 neighboring authentication effect is included.
 

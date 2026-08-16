@@ -28,6 +28,16 @@ a one-time code, and requested the exact
 did not recognize that host-open-only shape, so GitHub CLI attempted a missing
 Workspace-local `xdg-open` and the native workflow still failed.
 
+A second live replay exposed two more compatibility effects. After device-token
+exchange, GitHub CLI 2.96.0 sends `query UserCurrent { viewer { login } }` to
+`POST https://api.github.com/graphql`. An existing Context with no declared
+GraphQL endpoint correctly treated that request as ordinary HTTP and therefore
+offered a route-wide exact permission, which is too broad for routine login.
+The replay also proved that opening the device URL from the observed interactive
+prompt does not complete the client interaction: GitHub CLI still waits for
+Enter and then invokes its own Workspace browser adapter, producing missing-
+opener guidance even though the host browser already succeeded.
+
 The same decision recurs for every pinned native tool: its reviewed setup must
 name the finite exact effects required for routine readiness without creating
 provider-wide authority, process identity, or a runtime extension surface.
@@ -45,21 +55,40 @@ Custom presets cannot select, extend, or define readiness bundles.
 `gh_ready` for GitHub CLI 2.96.0 grants exactly:
 
 - `POST https://github.com:443/login/device/code`; and
-- `POST https://github.com:443/login/oauth/access_token`.
+- `POST https://github.com:443/login/oauth/access_token`; and
+- GraphQL `query` root `viewer` at the declared exact endpoint `POST
+  https://api.github.com:443/graphql`.
 
-It grants no GitHub API, Git transport, repository, release, download, upload,
-self-update, host-wide, or path-prefix authority. The grants are Context-wide
-HTTP effects available to every process in the Context, and exact Deny remains
-terminal.
+The GraphQL grant is not an HTTP route grant: mutation, any sibling root, a
+mixed-root document, another operation type, ordinary HTTP at the same route,
+and a neighboring endpoint remain unmatched. It grants no general GitHub API,
+Git transport, repository, release, download, upload, self-update, host-wide,
+or path-prefix authority. The grants are Context-wide effects available to
+every process in the Context, and exact Deny remains terminal.
 
-The standard attached-session observer also accepts the exact
-`https://github.com/login/device` target only from GitHub CLI's complete bounded
-no-newline browser prompt. It first verifies the exact selected owned Workspace,
-opens the target once through the existing strict host browser adapter, creates
-no listener, and leaves the child's bytes and Enter input unchanged. It does
-not read, retain, relay, validate, or render the one-time code. Partial,
-oversized, duplicate, ambiguous, neighboring, queried, or non-GitHub targets
-open nothing.
+Strict policy-preset schema V1 adds an explicit `graphql_baseline_grants`
+collection analogous to `mcp_baseline_grants`. Each item binds one declared
+exact GraphQL endpoint, operation type, and root field. A grant without its
+matching endpoint, an incomplete identity, a duplicate, or a value outside the
+preset ceiling fails validation. OPA requires every root in one request to
+match independently before the baseline permits the request.
+
+The canonical runtime exposes a compatibility wrapper at `/usr/local/bin/gh`
+and retains the pinned real executable outside `PATH`. Only exact default argv
+`gh auth login` is adapted. The wrapper runs the fixed GitHub.com HTTPS web/device
+login with GitHub CLI prompting and its Workspace browser disabled; this makes
+the client display its provider-owned one-time code and fixed device URL, then
+begin polling without Enter or `xdg-open`. After successful acquisition it runs
+GitHub CLI's fixed Git credential setup for GitHub.com. Every other argv executes
+the real pinned binary unchanged.
+
+The standard attached-session observer accepts the exact
+`https://github.com/login/device` target from either the legacy complete bounded
+no-newline prompt or the wrapper's exact non-interactive URL line. It first
+verifies the selected owned Workspace, opens the target once through the strict
+host browser adapter, and creates no listener. It does not read, retain, relay,
+validate, suppress, or render the one-time code. Partial, oversized, duplicate,
+ambiguous, neighboring, queried, or non-GitHub targets open nothing.
 
 GitHub CLI's strict loopback web-application fallback remains a distinct branch
 of the same observer. That branch continues to validate the fixed OAuth client,
@@ -77,7 +106,8 @@ Unobserved or unmatched effects remain denied or reviewable.
 ### Positive
 
 - A fresh default Context can complete pinned GitHub CLI device login through
-  its native prompt without a permission-inbox detour or Workspace browser.
+  one `gh auth login` without a permission-inbox detour, Enter, or Workspace
+  browser executable.
 - Future pinned tools have one explicit review unit for authentication
   bootstrap without adding a provider plugin system.
 - The Gateway remains generic and effect-based; no process-name claim is added.
@@ -86,7 +116,10 @@ Unobserved or unmatched effects remain denied or reviewable.
 ### Negative
 
 - Every process in an agent-ready Context can call the two exact GitHub
-  authentication endpoints.
+  authentication endpoints and the exact GraphQL `query` / `viewer` effect.
+- Exact default `gh auth login` is a pinned compatibility workflow rather than
+  GitHub CLI's interactive choice sequence; explicit non-default argv remains
+  native and outside this ready-state promise.
 - GitHub CLI prompt or endpoint drift requires a reviewed Tobari update and
   otherwise falls back visibly to the client's native failure guidance.
 - The built-in preset revision changes. Existing immutable Context snapshots do
@@ -95,12 +128,19 @@ Unobserved or unmatched effects remain denied or reviewable.
 ## Mechanical enforcement
 
 - Domain tests fix the readiness bundle IDs, client versions, exact GitHub
-  methods/authority/paths, strict-preset zero grants, and absence of neighboring
-  GitHub baseline authority.
+  methods/authority/paths, GraphQL operation/root, strict-preset zero grants,
+  and absence of neighboring GitHub baseline authority.
 - Runtime checks bind `gh_ready` to the canonical GitHub CLI 2.96.0 artifact
   lock alongside the existing Claude and Codex pins.
-- Fragmented prompt tests preserve every child byte, open the exact device URL
-  once, and prove zero callback-listener calls.
+- Fragmented interactive-prompt and non-interactive-line tests preserve every
+  child byte, open the exact device URL once, and prove zero callback-listener
+  calls.
+- Runtime checks fix the wrapper's exact interception predicate, real executable
+  path, login/setup argv, non-interactive browser environment, pass-through,
+  source/snapshot equality, and absence of network or shell-evaluation authority.
+- OPA tests require all GraphQL roots to match, preserve GraphQL exact-Deny
+  precedence, and reject mutation, sibling, mixed-root, empty-root, ordinary
+  HTTP, and neighboring-route canaries.
 - Hostile prompt tests reject neighboring paths, query additions, other hosts,
   incomplete trailers, duplicate URLs, replay, ambiguity, and size overflow.
 - Existing loopback fallback, Codex PTY/callback, ownership, opener-failure,
@@ -110,17 +150,21 @@ Unobserved or unmatched effects remain denied or reviewable.
 
 ## Compatibility and migration
 
-No public command, flag, custom preset schema, credential schema, Gateway
-protocol, or Workspace state format changes. Existing Contexts retain their
-stored preset revision. A user who wants `gh_ready` creates a new Context or
-deletes and recreates disposable pre-public local Context state, then re-enters
-its Workspace and performs native login there.
+No public command, flag, credential schema, Gateway protocol, or Workspace state
+format changes. Strict preset schema V1 gains the required explicit
+`graphql_baseline_grants` collection; custom sources must include it, including
+an empty array when unused. Existing Contexts retain their stored preset
+revision and do not gain the declared endpoint or semantic grant. A user first
+resets any route-wide learned `POST /graphql` permission, then creates a new
+Context or deletes and recreates disposable pre-public local Context state,
+re-enters its Workspace, and performs native login there.
 
 ## Security and public-boundary impact
 
 This decision widens the default baseline by two exact unauthenticated GitHub
-authentication effects and widens the attached host observer by one exact
-host-open-only URL. It does not authorize a GitHub host, prefix, API, callback,
-or executable. Repository fixtures use synthetic prompts and effects and never
-contain a live device code, token, state, callback, account identifier, or
-authenticated transcript.
+authentication effects and one authenticated semantic GraphQL query/root. It
+widens the runtime compatibility and observer input shapes but not the one exact
+host-open-only URL. It does not authorize a GitHub host, route, mutation,
+repository operation, callback, or executable identity. Repository fixtures use
+synthetic prompts and effects and never contain a live device code, token,
+state, callback, account identifier, or authenticated transcript.

@@ -25,7 +25,7 @@ narrow-projection boundary may re-encode only thesis-declared non-secret
 scalars; it never copies their source file, directive, executable setting, or
 authentication material.
 Inside an attached session, ChatGPT sign-in from ordinary `codex` or
-`codex login` and the reviewed GitHub.com HTTPS `gh auth login` fallback
+`codex login` and the reviewed GitHub.com HTTPS `gh auth login` workflow
 additionally receive their native host-browser and localhost callback experience
 through one session-scoped, pinned-client bridge. The user supplies no port,
 URL, device mode, or manual callback transfer. Caller-added GitHub scopes,
@@ -454,10 +454,12 @@ undeclared Docker mutation by the CLI.
   login can run. The protected release workflow publishes the reviewed combined
   base as one immutable Linux amd64/arm64 index alongside Gateway and Auth
   Broker. A local image or standalone validation workflow is not publication authority.
-- The pinned client versions and `builtin/agent-ready` exact effect catalog are
+- The pinned client versions and `builtin/agent-ready` exact and semantic effect catalog are
   one compatibility contract. Its compile-time `claude_ready`, `codex_ready`,
-  and `gh_ready` bundles expand into exact native-authentication effects; they
-  are not runtime selectors or executable identity. Updating a pinned client
+  and `gh_ready` bundles expand into exact native-authentication effects;
+  GitHub CLI additionally receives only GraphQL `query` root `viewer` at its
+  declared exact API endpoint. The bundles are not runtime selectors or
+  executable identity. Updating a pinned client
   requires reviewing its artifact lock, authentication bundle, host
   interactions, and core control-plane effects. Separate agent-image recipes
   remain build-only validation inputs and create no second authority boundary.
@@ -747,9 +749,12 @@ synthetic state.
   grants the reviewed Claude Code 2.1.220 and Codex 0.147.0 native model,
   account, bootstrap, first-party capability-discovery, bounded evaluation,
   and telemetry effects plus the pinned GitHub CLI 2.96.0 exact device-login
-  bootstrap effects to every process in the Context. Compile-time
+  bootstrap and GraphQL `query` / `viewer` current-user effects to every process
+  in the Context. Compile-time
   `claude_ready`, `codex_ready`, and `gh_ready` names are review provenance and
-  are expanded before snapshot persistence. MCP initialization
+  are expanded before snapshot persistence. Strict schema V1 includes explicit
+  `graphql_baseline_grants` and `mcp_baseline_grants` collections; every semantic
+  grant requires its matching declared exact endpoint. MCP initialization
   and enumeration are baseline methods at one exact endpoint; `tools/call`
   requires exact tool-name review. Dynamic evaluation uses one safe identifier
   segment without persisting its value. It is Context authority, not executable
@@ -791,13 +796,16 @@ below the selected instance's persistent home, is created by the tool's own
 login, and follows the ordinary post-policy passthrough route.
 The attached host process may transiently validate one exact Codex or GitHub CLI
 authorization URL, open it, and relay one opaque host-loopback callback to that
-same selected Workspace. GitHub CLI's complete no-newline browser prompt is
-only stream framing; its strict URL supplies browser authority, and GitHub CLI
-continues to own the Enter input. The bridge stores no callback or OAuth value
-and creates no cluster service or durable authentication state. The observation
-path retains Docker's real terminal output, native raw-input handling, and
-resize propagation; ordinary clients therefore render the same interactive
-screen they would render without the observer.
+same selected Workspace. For exact default `gh auth login`, the canonical
+runtime's pinned compatibility wrapper selects the reviewed GitHub.com HTTPS
+device workflow, disables GitHub CLI prompting and its Workspace browser, and
+lets the client begin polling without Enter. After success it delegates fixed
+Git credential setup to the same pinned client. Other GitHub CLI argv remains
+native. The bridge recognizes the wrapper's exact fixed-device URL line as well
+as the legacy complete no-newline prompt; either is only stream framing and its
+strict URL supplies browser authority. The bridge stores no callback or OAuth
+value and creates no cluster service or durable authentication state. The
+observation path preserves child bytes and the real Docker terminal boundary.
 Experimental Broker state is separate installation state:
 the normalized schema-v1 provider projection is generated below
 `auth/projection/providers.json`; schema-1-envelope/schema-1-payload Context

@@ -457,8 +457,10 @@ downloads, file transfer, acquisition, self-update, malformed/batched MCP, and
 unmatched effects receive no baseline authority. Compile-time
 `claude_ready`, `codex_ready`, and `gh_ready` bundles add only the exact native
 authentication effects of the pinned clients, including GitHub CLI 2.96.0's
-two exact GitHub.com device bootstrap/exchange POSTs; bundle and executable
-names never enter policy.
+two exact GitHub.com device bootstrap/exchange POSTs and exact GraphQL `query`
+/ `viewer` current-user lookup. The latter is bound to a declared endpoint and
+cannot authorize ordinary HTTP, mutation, a sibling root, or a mixed-root
+document; bundle and executable names never enter policy.
 `builtin/reviewed-exact` permits only eligible effects to enter exact review;
 `builtin/get-only-reviewed` permits only eligible GET effects to enter exact
 review and terminally denies HEAD and every non-GET method. Those three strict
@@ -808,10 +810,13 @@ recognition. A dynamic OpenAI authorization URL is never a Tobari browser
 target; the verified Codex child owns its open attempt and fallback guidance.
 That sentence applies to the experimental host-acquisition driver. In the
 separate standard attached Workspace, ADRs 0046 and 0048 permit the strict
-Codex and GitHub CLI native-login URL union only. GitHub CLI's no-newline prompt
-is relayed unchanged; its exact device URL may open once with no listener, or
-its strict callback URL may open once with one opaque relay. Its Enter input
-remains child-owned, and callback or provider failure remains the child's login result. GitHub
+Codex and GitHub CLI native-login URL union only. GitHub CLI's legacy no-newline
+prompt and pinned wrapper's exact non-interactive device line are relayed
+unchanged; its exact device URL may open once with no listener, or its strict
+callback URL may open once with one opaque relay. Exact default `gh auth login`
+uses fixed GitHub.com HTTPS argv with prompting and the Workspace browser
+disabled, so no Enter is required; every other argv retains native input.
+Callback or provider failure remains the child's login result. GitHub
 Enterprise hosts, SSH-key-upload scope, and caller-added scopes cause zero
 browser/listener/relay effects.
 For exact Claude 2.1.220, the separate Context-runtime boundary consumes only
