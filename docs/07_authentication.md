@@ -82,8 +82,10 @@ runtime compatibility wrapper around the pinned real executable. It selects
 GitHub.com HTTPS web/device login with GitHub CLI prompting and its Workspace
 browser disabled. GitHub CLI therefore displays its one-time code and fixed
 device URL, begins polling without Enter, persists its own credential, and then
-performs its fixed Git credential setup. Other argv, including explicit
-non-default login options, executes the real pinned client unchanged.
+performs its fixed Git credential setup. The wrapper leaves color selection to
+GitHub CLI's native TTY detection and any inherited `NO_COLOR`. Other argv,
+including explicit non-default login options, executes the real pinned client
+unchanged.
 
 When device bootstrap is unavailable, GitHub CLI's web-application fallback
 instead requires the independent strict

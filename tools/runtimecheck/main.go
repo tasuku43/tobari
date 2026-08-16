@@ -326,7 +326,7 @@ func validate(root string) (string, error) {
 	for _, required := range []string{
 		`real_gh=/opt/tobari/bin/gh`,
 		`if [ "$#" -eq 2 ] && [ "$1" = "auth" ] && [ "$2" = "login" ]`,
-		`GH_PROMPT_DISABLED=1 GH_BROWSER=/bin/true NO_COLOR=1`,
+		`GH_PROMPT_DISABLED=1 GH_BROWSER=/bin/true`,
 		`auth login --hostname github.com --git-protocol https --web`,
 		`auth setup-git --hostname github.com`,
 		`exec "$real_gh" "$@"`,
@@ -335,7 +335,7 @@ func validate(root string) (string, error) {
 			return "", fmt.Errorf("base GitHub CLI wrapper is missing %q", required)
 		}
 	}
-	for _, forbidden := range []string{"curl ", "wget ", "xdg-open", "eval ", "sh -c", "http://", "https://"} {
+	for _, forbidden := range []string{"curl ", "wget ", "xdg-open", "eval ", "sh -c", "http://", "https://", "NO_COLOR="} {
 		if strings.Contains(wrapperText, forbidden) {
 			return "", fmt.Errorf("base GitHub CLI wrapper contains forbidden authority %q", forbidden)
 		}

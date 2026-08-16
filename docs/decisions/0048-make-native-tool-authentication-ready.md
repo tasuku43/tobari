@@ -82,7 +82,9 @@ login with GitHub CLI prompting and its Workspace browser disabled; this makes
 the client display its provider-owned one-time code and fixed device URL, then
 begin polling without Enter or `xdg-open`. After successful acquisition it runs
 GitHub CLI's fixed Git credential setup for GitHub.com. Every other argv executes
-the real pinned binary unchanged.
+the real pinned binary unchanged. The wrapper does not override `NO_COLOR` or
+force color, so GitHub CLI retains its native TTY detection and honors the
+caller's inherited presentation choice.
 
 The standard attached-session observer accepts the exact
 `https://github.com/login/device` target from either the legacy complete bounded

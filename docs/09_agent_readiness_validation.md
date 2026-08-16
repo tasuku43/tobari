@@ -197,8 +197,10 @@ prompt and reject neighboring paths, queries, hosts, duplicates, ambiguity,
 and oversized output. Exact default `gh auth login` must use the pinned real
 client with fixed GitHub.com HTTPS login and Git credential setup argv, begin
 polling without Enter, and make no Workspace browser attempt; other argv must
-pass through unchanged. The one-time code remains provider-owned visible child
-output and never enters Tobari state, logs, policy, or fixtures.
+pass through unchanged. The wrapper must not force color on or off: GitHub CLI
+retains native TTY detection and honors an inherited `NO_COLOR`. The one-time
+code remains provider-owned visible child output and never enters Tobari state,
+logs, policy, or fixtures.
 
 For the web-application fallback, prove one strict fixed-client URL with the
 required `repo read:org gist` scopes and optional `workflow` opens on the host, one
