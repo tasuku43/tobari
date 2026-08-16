@@ -154,6 +154,31 @@ func TestAggregateRouterMakesExactDenyTerminalOverAgentReadyBaseline(t *testing.
 	}
 }
 
+func TestAggregateRouterKeepsGitHubGraphQLBaselineSemanticAndAllRootsExact(t *testing.T) {
+	t.Parallel()
+	manifest := tobari.ContextManifest{SchemaVersion: tobari.ContextSchemaVersion, ID: "01912345-6789-7abc-8def-0123456789ad", Name: "agent-ready", AgentProfile: tobari.DefaultProfile, Image: tobari.BuiltinImageSelector, PolicyMode: tobari.ContextPolicyModeGuided, SourceAccess: tobari.ContextSourceAccessReadWrite, PolicyPresetOrigin: tobari.DefaultPolicyPresetOrigin, PolicyPresetRevision: tobari.DefaultPolicyPresetRevision()}
+	router, err := aggregateRouter([]aggregateContext{{manifest: manifest}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(router)
+	for _, required := range []string{
+		`rule.graphql_operation_type == input.request.graphql.operation_type`,
+		`rule.graphql_root_field == root_field`,
+		`count(input.request.graphql.root_fields) > 0`,
+		`every root_field in input.request.graphql.root_fields`,
+		`exact_denied if { learned_graphql_denied }`,
+		`preset_granted if { preset_graphql_granted }`,
+	} {
+		if !strings.Contains(text, required) {
+			t.Fatalf("GraphQL baseline router omitted %q:\n%s", required, text)
+		}
+	}
+	if strings.Contains(text, `preset_exact_granted if { some rule`) {
+		t.Fatalf("ordinary HTTP baseline lost its semantic exclusion:\n%s", text)
+	}
+}
+
 func TestAggregateRouterMakesBuiltinHTTPSCeilingTerminalBeforeAdvancedPolicy(t *testing.T) {
 	t.Parallel()
 	for _, origin := range []string{tobari.DefaultPolicyPresetOrigin, "builtin/get-only-reviewed"} {

@@ -36,6 +36,15 @@ func policyPresetMCPRuleOutput() *OutputField {
 	return field
 }
 
+func policyPresetGraphQLRuleOutput() *OutputField {
+	field := policyPresetExactRuleOutput("One exact GraphQL semantic baseline grant.")
+	field.Fields = append(field.Fields,
+		OutputField{Name: "graphql_operation_type", Type: OutputFieldTypeString, Description: "Exact GraphQL operation type.", Enum: []string{"query", "mutation"}},
+		OutputField{Name: "graphql_root_field", Type: OutputFieldTypeString, Description: "Exact canonical GraphQL root field."},
+	)
+	return field
+}
+
 func policyPresetOutput(collection bool) CommandOutput {
 	fields := []OutputField{{Name: "task", Type: OutputFieldTypeString, Description: "Declared policy-preset task identity."}}
 	if collection {
@@ -65,6 +74,7 @@ func policyPresetOutput(collection bool) CommandOutput {
 				{Name: "method_ceiling", Type: OutputFieldTypeObject, Description: "Explicit all-eligible or exact method ceiling.", Fields: []OutputField{{Name: "mode", Type: OutputFieldTypeString, Description: "Method ceiling mode.", Enum: []string{"all", "exact"}}, {Name: "methods", Type: OutputFieldTypeArray, Description: "Explicit method ceiling.", Items: &OutputField{Type: OutputFieldTypeString, Description: "One exact HTTP method."}}}},
 				{Name: "baseline_grants", Type: OutputFieldTypeArray, Description: "Exact Context-wide grants.", Items: policyPresetExactRuleOutput("One exact grant.")},
 				{Name: "baseline_templates", Type: OutputFieldTypeArray, Description: "Bounded Context-wide path-template grants.", Items: policyPresetTemplateRuleOutput()},
+				{Name: "graphql_baseline_grants", Type: OutputFieldTypeArray, Description: "Exact Context-wide GraphQL semantic grants.", Items: policyPresetGraphQLRuleOutput()},
 				{Name: "mcp_baseline_grants", Type: OutputFieldTypeArray, Description: "Exact Context-wide MCP semantic grants.", Items: policyPresetMCPRuleOutput()},
 				{Name: "baseline_denies", Type: OutputFieldTypeArray, Description: "Exact terminal baseline denials.", Items: policyPresetExactRuleOutput("One exact denial.")},
 				{Name: "graphql_endpoints", Type: OutputFieldTypeArray, Description: "Exact GraphQL classification endpoints.", Items: policyPresetExactRuleOutput("One exact endpoint.")},
