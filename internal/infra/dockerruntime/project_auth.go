@@ -20,6 +20,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/tasuku43/tobari/internal/domain/authbroker"
+	"github.com/tasuku43/tobari/internal/domain/capabilityprofile"
 	"github.com/tasuku43/tobari/internal/domain/fault"
 	"github.com/tasuku43/tobari/internal/domain/tobari"
 )
@@ -132,6 +133,12 @@ func (r *Runtime) reconcileProjectAuth(
 ) (projectAuthProjection, error) {
 	if err := instance.Validate(); err != nil {
 		return projectAuthProjection{}, err
+	}
+	if !capabilityprofile.Compiled().IncludesExperimental() {
+		return projectAuthProjection{
+			Environment: []string{}, Files: []projectAuthFile{}, JSONMerges: []projectAuthJSONMerge{},
+			Providers: []projectAuthProviderBinding{},
+		}, nil
 	}
 	if err := r.requireUnlockedAuthBroker(ctx); err != nil {
 		return projectAuthProjection{}, err

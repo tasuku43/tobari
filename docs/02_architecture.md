@@ -631,13 +631,15 @@ containing root nearest-first and the application accepts either one validated
 candidate or an explicit create-at-CWD choice. The choice is revalidated under
 the lifecycle lock before the selected logical record is created or reused. It
 then resolves the selected record's root-scoped Context Git fallback before
-Docker calls, resolves the bound Context image, requires the broker to be
-ready, reconciles the Context's configured project-bound handle projection,
-ensures one exact project network and
-work container, connects Gateway with the `gateway` alias, reconciles and
-verifies both network-namespace guards, binds the exact owned Workspace source
+Docker calls and resolves the bound Context image. Standard reconciliation
+uses an explicit empty authentication projection and neither inspects nor
+creates experimental authentication state. Experimental reconciliation
+requires the Broker to be ready and reconciles the Context's configured
+project-bound handle projection. Both profiles then ensure one exact project
+network and work container, connect Gateway with the `gateway` alias, reconcile
+and verify both network-namespace guards, bind the exact owned Workspace source
 endpoint plus Gateway endpoint to the host-issued Context/project principal,
-waits for project readiness, and enters the container. The
+wait for project readiness, and enter the container. The
 logical creation and deletion boundaries use durable journals so an interruption
 between the home, instance, index, runtime, and deletion steps is recoverable
 without treating a partial file set as a second project. Runtime convergence

@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/tasuku43/tobari/internal/domain/authbroker"
+	"github.com/tasuku43/tobari/internal/domain/capabilityprofile"
 )
 
 type authProjectionRunner struct {
@@ -62,6 +63,7 @@ func (r *authProjectionRunner) Run(_ context.Context, args []string, _ []string,
 }
 
 func TestReconcileProjectAuthProjectsDynamicClaudeOAuthScopes(t *testing.T) {
+	requireExperimentalProjectAuth(t)
 	runner := &authProjectionRunner{
 		handle: syntheticProjectHandle("claude-project"), readyProvider: "anthropic",
 		oauthScopes:            []string{"future:capability", "user:inference"},
@@ -107,7 +109,42 @@ func syntheticProjectHandle(seed string) string {
 	return "tobari-h1_" + base64.RawURLEncoding.EncodeToString(digest[:])
 }
 
+func requireExperimentalProjectAuth(t *testing.T) {
+	t.Helper()
+	if !capabilityprofile.Compiled().IncludesExperimental() {
+		t.Skip("project-bound Broker projection exists only in the experimental profile")
+	}
+}
+
+func TestReconcileProjectAuthStandardReturnsEmptyProjectionWithoutBrokerState(t *testing.T) {
+	if capabilityprofile.Compiled().IncludesExperimental() {
+		t.Skip("standard-only Workspace authentication assertion")
+	}
+	runner := &recordingRunner{}
+	runtime, err := newRuntime(filepath.Join(t.TempDir(), "config"), filepath.Join(t.TempDir(), "state"), runner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	instance := projectRuntimeInstance(t, runtime)
+
+	projection, err := runtime.reconcileProjectAuth(context.Background(), instance)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if projection.Environment == nil || projection.Files == nil || projection.JSONMerges == nil || projection.Providers == nil ||
+		len(projection.Environment) != 0 || len(projection.Files) != 0 || len(projection.JSONMerges) != 0 || len(projection.Providers) != 0 {
+		t.Fatalf("standard Workspace auth projection = %#v, want explicit empty collections", projection)
+	}
+	if len(runner.runs) != 0 || len(runner.outputs) != 0 {
+		t.Fatalf("standard Workspace auth performed Docker or Broker calls: runs=%v outputs=%v", runner.runs, runner.outputs)
+	}
+	if _, err := os.Stat(runtime.projectAuthRegistryPath(instance.ID)); !os.IsNotExist(err) {
+		t.Fatalf("standard Workspace auth registry stat error = %v, want absent", err)
+	}
+}
+
 func TestReconcileProjectAuthProjectsOnlyHandleAndProviderMetadata(t *testing.T) {
+	requireExperimentalProjectAuth(t)
 	runner := &authProjectionRunner{handle: syntheticProjectHandle("project-a"), readyProvider: "github"}
 	runtime, err := newRuntime(filepath.Join(t.TempDir(), "config"), filepath.Join(t.TempDir(), "state"), runner)
 	if err != nil {
@@ -312,6 +349,7 @@ func TestReconcileProjectAuthJSONMergeRejectsUnsafeClaudeState(t *testing.T) {
 }
 
 func TestReconcileProjectAuthCanonicalizesEmptyRegistryForRepeatedReconciliation(t *testing.T) {
+	requireExperimentalProjectAuth(t)
 	runtime, err := newRuntime(filepath.Join(t.TempDir(), "config"), filepath.Join(t.TempDir(), "state"), &authProjectionRunner{})
 	if err != nil {
 		t.Fatal(err)
