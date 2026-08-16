@@ -239,10 +239,12 @@ Workspace's persistent home. Gateway removes client authentication and cookies
 from OPA input and audit, asks policy about the ordinary HTTP effect, and
 forwards the original values only after allow.
 For pinned Codex and GitHub CLI, native local parity also includes ADR 0046's
-attached-session browser/callback bridge. Each client still owns OAuth state,
-callback parsing, exchange, and credential persistence, while Codex also owns
-PKCE. Tobari validates the provider-specific browser target and transports one
-opaque callback without logging or persisting it.
+attached-session browser/callback bridge and ADR 0048's GitHub host-open-only
+device flow. Each client still owns OAuth state, exchange, and credential
+persistence, while callback-bearing clients own callback parsing and Codex also
+owns PKCE. Tobari validates one provider-specific browser target, transports an
+opaque callback only when that target declares the reviewed loopback shape, and
+never logs or persists the target, callback, or device code.
 
 The experimental development profile retains the closed Broker research path.
 That route stores one Context-owned credential or
@@ -328,8 +330,10 @@ exist only when the experimental capability profile is compiled.
   authority for Context, project, scheme, host, port, method, and path. A
   brokered request receives only authority already present in the Context's
   immutable baseline or learned rules. The default agent-ready preset includes
-  a finite exact core baseline coupled to the pinned Claude and Codex clients;
-  credentials never widen it and all unmatched effects remain reviewable.
+  finite compile-time `claude_ready`, `codex_ready`, and `gh_ready`
+  authentication bundles coupled to the pinned clients and expanded only into
+  exact Context-wide effects. Credentials and bundle names never widen runtime
+  authority, and all unmatched effects remain reviewable.
 - Built-in broker implementations are a closed typed union of static secrets,
   reviewed renewable sessions, fixed supplemental-header application, and the
   experimental AWS request-local signer. They exist only in the experimental
@@ -775,9 +779,13 @@ OPA allow.
   or upstream call. Advanced Rego may further constrain generic input but
   cannot grant beyond the guardrail or redefine learned permission identity.
 - `builtin/agent-ready` preserves the pinned Claude Code 2.1.220 and Codex
-  0.147.0 native capability plane: model execution, account state, bootstrap,
-  first-party capability discovery, fixed telemetry, and bounded provider-owned
-  evaluation receive reviewed baseline authority. Dynamic evaluation paths use
+  0.147.0 native capability plane and the pinned GitHub CLI 2.96.0 native
+  authentication bootstrap. Compile-time `claude_ready`, `codex_ready`, and
+  `gh_ready` bundles expand into the exact authentication effects required for
+  routine native login; bundle and executable names are never policy identity.
+  Model execution, account state, bootstrap, first-party capability discovery,
+  fixed telemetry, and bounded provider-owned evaluation receive reviewed
+  baseline authority. Dynamic evaluation paths use
   one direct-child identifier template without retaining the observed
   identifier. MCP transport is classified only at a trusted exact endpoint:
   initialization and capability enumeration are baseline methods, while

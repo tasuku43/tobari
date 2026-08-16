@@ -38,7 +38,10 @@ The immutable preset guardrail is evaluated before baseline data, learned
 exact policy, or Advanced Rego. `builtin/agent-ready` grants the reviewed
 Claude Code 2.1.220 and Codex 0.147.0 model/account/bootstrap, first-party
 capability discovery, bounded evaluation, telemetry, and MCP initialize/list
-effects. Those are Context-wide semantic effects rather than executable
+effects plus GitHub CLI 2.96.0's exact native device bootstrap/exchange
+effects. Compile-time `claude_ready`, `codex_ready`, and `gh_ready` bundles
+expand into ordinary exact rules and are not runtime selectors. Those are
+Context-wide semantic effects rather than executable
 identity, and exact Deny remains terminal. MCP actions, file transfer,
 downloads, acquisition, self-update, and unmatched effects receive no baseline
 grant. `builtin/offline` terminally
@@ -50,8 +53,9 @@ or read-only. Terminal denial
 creates no candidate and causes zero external DNS or upstream calls.
 
 The native-login matrix explicitly includes Claude's platform hello/token and
-Anthropic profile/roles requests plus Codex's OAuth token and two device-auth
-requests. Exact methods, authorities, and paths are defined in
+Anthropic profile/roles requests, Codex's OAuth token and two device-auth
+requests, and GitHub CLI's two device bootstrap/exchange requests. Exact
+methods, authorities, and paths are defined in
 [Authentication handling](07_authentication.md#standard-native-workspace-authentication).
 The Claude regression proves that successful token exchange cannot be followed
 by a Tobari-generated `broker_auth_required` on `/api/oauth/profile`; provider
@@ -60,12 +64,16 @@ Codex browser login additionally uses the attached-session bridge in ADR 0046:
 one strict authorization URL may open on the host and one opaque localhost
 callback may reach the exact selected Workspace. That transport creates no
 provider operation, policy grant, Gateway bypass, or durable credential state.
-Pinned GitHub CLI 2.96.0 uses the same transport only for its strict GitHub.com
-web-application fallback: fixed OAuth client, reviewed HTTPS-login scope
+Pinned GitHub CLI 2.96.0 normally uses its exact host-open-only device target
+with no listener, while its strict GitHub.com web-application fallback uses the
+callback transport with a fixed OAuth client, reviewed HTTPS-login scope
 ceiling, exact state shape, and dynamic non-privileged
 `127.0.0.1/callback` port. GitHub CLI continues to own the Enter input, state
-validation, exchange, and credential state. The transport does not add GitHub
-device, token, or API effects to the agent-ready baseline.
+validation, exchange, and credential state. The transport adds no Workspace
+HTTP authority; `gh_ready` separately adds only `POST /login/device/code` and
+`POST /login/oauth/access_token` to the agent-ready baseline. No GitHub API,
+Git transport, repository, download, upload, release, self-update, or
+neighboring authentication effect is included.
 
 ## Experimental Broker contract
 

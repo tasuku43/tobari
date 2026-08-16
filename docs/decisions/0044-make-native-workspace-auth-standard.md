@@ -5,7 +5,7 @@
 - Deciders: Tobari maintainers
 - Scope: Product, architecture, security, authentication, release, and harness
 - Revises: ADR 0019, ADR 0025, ADR 0033, ADR 0035, ADR 0038, and ADR 0043
-- Superseded by: ADR 0045 for all Tobari-owned image publication and release-lock scope
+- Superseded by: ADR 0045 for all Tobari-owned image publication and release-lock scope; native tool authentication readiness revised by ADR 0048
 
 ## Context
 

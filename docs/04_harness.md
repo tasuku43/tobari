@@ -154,9 +154,9 @@ and cleanup-only failure.
 Negative tests prove managed profiles, owner-selected dynamic plans, arbitrary
 helpers, compatibility readers, and Broker provider CLIs are absent.
 
-The canonical base and focused Claude/Codex runtime checks validate the pinned
-agent artifacts at Claude Code 2.1.220 and Codex 0.147.0. Local build fixtures
-replace `/var/lib/tobari` with a temporary home mount and execute both agent
+The canonical base and focused runtime checks validate the pinned client
+artifacts at Claude Code 2.1.220, Codex 0.147.0, and GitHub CLI 2.96.0. Local build fixtures
+replace `/var/lib/tobari` with a temporary home mount and execute the client
 commands, so an image-layer executable cannot silently depend on persistent
 home state. These checks authorize neither redistribution nor publication;
 the release workflow contains no base-image publication path.
@@ -165,15 +165,17 @@ Standard native-login tests additionally fragment changing prose and the
 semantic authorization URL across stream writes. Codex TUI cases cross visual
 rows and accept only the two exact reviewed CLI and TUI originators; GitHub CLI
 2.96.0 cases fragment its complete no-newline browser prompt and accept only the
-fixed GitHub.com client, standard HTTPS-login scope ceiling, state shape, and
-`127.0.0.1/callback` redirect. Both preserve every child byte,
+exact host-open-only device target or the fixed GitHub.com client, standard
+HTTPS-login scope ceiling, state shape, and `127.0.0.1/callback` redirect. The
+device path proves one browser open and zero listener calls; the fallback and
+Codex paths retain one validated callback listener. All preserve every child byte,
 run a subprocess behind the production PTY relay to prove stdout remains a
 terminal, preserve exact relayed bytes, inherit its initial size, and propagate
 one resize signal,
 validate each security-significant OAuth client/scope ceiling and loopback
 callback schema, accept only each provider's reviewed syntax variation and a
 validated dynamic non-privileged port,
-and prove one host-loopback listener and one browser open target the exact
+and prove each callback flow's one host-loopback listener and browser open target the exact
 label-verified selected Workspace. Synthetic callback canaries traverse the
 fixed Docker exec relay program plus validated port without appearing in
 output, logs, files, OPA, or Gateway evidence; invalid/replayed/ambiguous or
@@ -825,9 +827,9 @@ Every strong statement should identify its enforcement path.
 | Explicit policy learning | OPA scheme/port learnability classification, terminal deny exclusion, deterministic repeated/concurrent Context/project/scheme/host/port/method/path candidate aggregation with required latest/count, two-distinct-example single-raw-segment template inference with ambiguity and unsafe-path suppression, Context-scoped reference validation, single-reference exact allow/deny/reset round trips, bounded typed TTY staging with template/exact choices, fresh revalidation, one fixed-target Apply and zero-write discard, installation-wide inventory/review, aggregate preflight ordering, and Docker retry |
 | Declared GraphQL policy identity | Exact trusted endpoint projection, hash-pinned parser and license checks, strict bounded envelope fixtures, conservative root-fragment expansion, all-roots OPA matching, HTTP-rule non-matching canaries, per-root audit/candidate/allow/deny/reset round trips, prefix-rule rejection, raw-body privacy canaries, and zero-upstream integration |
 | Context source access | Required manifest/catalog field, omission-default tests, immutable runtime spec/hash, Docker inspect/reconciliation, read-only mutation/Git-metadata denial, writable home/tmpfs, no writable alias, and same-root observation |
-| Context policy preset | Strict normalization/digest/snapshot tests, agent-ready default with version-coupled native discovery grants, one safe evaluation template, exact MCP endpoint and initialize/list baseline, exact tool-name action review with payload canaries, strict-preset zero-grant canaries, acquisition/file-transfer/update exclusions, exact-Deny precedence, built-in and custom schema canaries, GET-without-safe-claim contract, and terminal zero-candidate/DNS/Broker/upstream calls |
+| Context policy preset | Strict normalization/digest/snapshot tests, agent-ready default with version-coupled `claude_ready`, `codex_ready`, and `gh_ready` exact native-authentication grants plus native discovery grants, one safe evaluation template, exact MCP endpoint and initialize/list baseline, exact tool-name action review with payload canaries, strict-preset zero-grant canaries, neighboring-GitHub/acquisition/file-transfer/update exclusions, exact-Deny precedence, built-in and custom schema canaries, GET-without-safe-claim contract, and terminal zero-candidate/DNS/Broker/upstream calls |
 | Context/project principal and credential scope | Owner-only atomic registry schema 1, exact Workspace-source/Gateway endpoint and network uniqueness, regular/transparent source derivation, forged-Context/project/SNI/authority and unknown-principal denial, source-spoof canaries, passthrough/static-broker tests, copied-handle cross-Context canaries, Rego canaries, and multi-Context Docker integration |
-| Standard native Workspace authentication boundary | Standard-profile empty authentication-projection and full runtime-reconciliation tests prove zero Auth Broker inspection/control calls and no experimental auth-registry creation; the attached-session suite adds a closed Codex/GitHub CLI authorization union, with Codex direct-line and ANSI synchronized-frame originators and GitHub CLI's bounded no-newline prompt, exact provider clients/scope ceilings/state/callback shapes, byte- and TTY-preserving output with initial-size and resize propagation, a dynamic non-privileged host-loopback-only one-shot relay to the label-verified selected Workspace, opaque callback canaries, and cleanup; the experimental-tag suite separately retains project-bound handle and file projection coverage |
+| Standard native Workspace authentication boundary | Standard-profile empty authentication-projection and full runtime-reconciliation tests prove zero Auth Broker inspection/control calls and no experimental auth-registry creation; the attached-session suite adds a closed Codex/GitHub CLI browser union, with Codex direct-line and ANSI synchronized-frame originators and GitHub CLI's bounded no-newline prompt, exact device target, provider clients/scope ceilings/state/callback shapes, byte- and TTY-preserving output with initial-size and resize propagation, a zero-listener host-open-only device path, a dynamic non-privileged host-loopback-only one-shot callback relay to the label-verified selected Workspace, opaque callback canaries, and cleanup; the experimental-tag suite separately retains project-bound handle and file projection coverage |
 | Atomic multi-Context policy activation | Source and projection locks, Context namespace rejection, complete all-Context OPA validation, content-addressed atomic publication, stale-revision rejection, known-good rollback, and invalid/concurrent mutation tests |
 | Mutation outcome classification | Structured-fault-first/cause-stripping tests, non-retryable unclassified outcome fallback, and read-only recovery validation |
 | Confirmed mutation output | One effect-aware finalizer, late-cancellation regression, non-retryable mutation short-write fault, and read-only recovery validation |

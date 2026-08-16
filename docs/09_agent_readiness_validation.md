@@ -69,8 +69,9 @@ network, or policy state. Native credentials follow the owning Workspace home.
 
 For every preset, inspect and bind its immutable immediate-grant count.
 
-- `builtin/agent-ready`: the pinned Claude/Codex native matrix succeeds without
-  a permission candidate, including Claude capability discovery and one safe
+- `builtin/agent-ready`: the pinned Claude/Codex native matrix and GitHub CLI
+  device-auth bootstrap succeed without a permission candidate, including
+  Claude capability discovery and one safe
   `/api/eval/{id}` shape plus Codex MCP initialize/list methods. Exact Deny
   overrides baseline. A Codex `tools/call` produces one exact tool-name review
   candidate, a different tool does not reuse it, and arguments/canaries never
@@ -93,7 +94,16 @@ The native-login subset must include exactly:
   `GET api.anthropic.com/api/oauth/profile`;
 - Codex: `POST auth.openai.com/oauth/token`,
   `POST auth.openai.com/api/accounts/deviceauth/usercode`, and
-  `POST auth.openai.com/api/accounts/deviceauth/token`.
+  `POST auth.openai.com/api/accounts/deviceauth/token`;
+- GitHub CLI: `POST github.com/login/device/code` and
+  `POST github.com/login/oauth/access_token`.
+
+The compile-time review bundles are exactly `claude_ready`, `codex_ready`, and
+`gh_ready`, coupled to the three pinned client versions. Prove normalized
+Context snapshots contain only expanded exact rules and no runtime bundle or
+executable selector. For GitHub, neighboring methods, paths, query variants,
+GitHub API hosts, Git transport, downloads, uploads, releases, and self-update
+receive no baseline grant.
 
 For each terminal denial, record zero permission candidates, external DNS
 lookups, and upstream attempts. Repeat with a learned
@@ -107,9 +117,9 @@ ambiguous rules. Context creation normalizes, validates, digests, and snapshots
 the source. Editing the source preset afterward must not change the existing
 Context report or active guardrail.
 
-The canonical contributor base must run `claude --version` as 2.1.220 and
-`codex --version` as 0.147.0 after replacing `/var/lib/tobari` with a fresh
-Workspace home. The client pins and agent-ready core matrix are reviewed as one
+The canonical contributor base must run `claude --version` as 2.1.220,
+`codex --version` as 0.147.0, and `gh --version` as 2.96.0 after replacing
+`/var/lib/tobari` with a fresh Workspace home. The client pins and agent-ready core matrix are reviewed as one
 contract. Verify the base workflow is validation-only and the protected
 Release workflow has no runtime registry login or publication path. Pending
 redistribution review remains explicit artifact metadata; it never becomes a
@@ -175,18 +185,26 @@ to the selected Workspace's same port, and closes on success, failure, or
 session exit. The exact allow is shared by every process in the Context; the
 test must not infer authority from the `codex` executable name.
 
-For GitHub CLI 2.96.0, exercise the GitHub.com HTTPS browser-login path and its
-web-application fallback. Prove the complete no-newline prompt remains
-byte-identical, one strict fixed-client URL with the required
-`repo read:org gist` scopes and optional `workflow` opens on the host, one
+For GitHub CLI 2.96.0, exercise the preferred GitHub.com HTTPS device-login path
+and its web-application fallback. For the device path, prove the complete
+no-newline prompt remains byte-identical, the exact
+`https://github.com/login/device` target opens once on the host, the selected
+Workspace is verified, and no callback listener is created. Fragment the
+prompt and reject neighboring paths, queries, hosts, duplicates, ambiguity,
+and oversized output. The one-time code remains provider-owned visible child
+output and never enters Tobari state, logs, policy, or fixtures.
+
+For the web-application fallback, prove one strict fixed-client URL with the
+required `repo read:org gist` scopes and optional `workflow` opens on the host, one
 opaque callback reaches the exact selected Workspace's dynamic
 `127.0.0.1/callback` port, and GitHub CLI retains its Enter input and result
 presentation. Changed client, caller-added or SSH-key-upload scope, GitHub
 Enterprise host, malformed state, external/privileged callback, duplicate,
 ambiguous, oversized, replayed, port-collision, opener-failure, callback-failure,
 and session-exit cases must open or relay nothing beyond the declared one-shot
-effect. The bridge itself grants no GitHub HTTP permission; configure or review
-the required ordinary effects separately. Routine success uses one
+effect. The bridge itself grants no Workspace HTTP permission; `gh_ready`
+supplies only the two exact device bootstrap/exchange POST effects. Routine
+success uses one
 `gh auth login` invocation, no manual URL/callback transfer, and zero external
 processing.
 

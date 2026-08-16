@@ -173,14 +173,16 @@ Those ceilings bound shared-service exhaustion but do not provide per-project
 fairness inside one shared Gateway, OPA, or Auth Broker.
 Tobari uses a non-root work user mapped to the invoking UID/GID where Docker
 supports it.
-The attached native-login bridge changes none of those runtime settings. It is
-a host process listener on `127.0.0.1` at the validated authorization redirect's
-non-privileged port only after bounded provider-specific semantic URL
-recognition, accepts one connection, targets one label-verified Workspace
-through a fixed Docker exec relay program plus that validated port, and closes
-with that login or session. The closed union accepts only Codex's reviewed
-direct-line/TUI originators or GitHub CLI 2.96.0's complete no-newline prompt
-with its fixed GitHub.com client, standard HTTPS-login scope ceiling, exact
+The attached native-login bridge changes none of those runtime settings. After
+bounded provider-specific semantic URL recognition it first verifies one
+label-owned selected Workspace. A callback-bearing target then binds a host
+`127.0.0.1` listener at the validated non-privileged redirect port, accepts one
+connection, relays through a fixed Docker exec program plus that port, and
+closes with that login or session. GitHub CLI's exact device target instead
+performs one host browser open and creates no listener. The closed union accepts
+only Codex's reviewed direct-line/TUI originators or GitHub CLI 2.96.0's
+complete no-newline prompt with either the exact device URL or its fixed
+GitHub.com web-application client, standard HTTPS-login scope ceiling, exact
 state shape, and `127.0.0.1/callback` redirect. Its observer receives only the
 bytes copied from a session-scoped PTY master;
 the PTY adds no filesystem, network, Docker, browser, or credential authority,
@@ -452,7 +454,11 @@ and credentials remain absent. Bootstrap/enumeration methods have baseline
 authority, while actions remain exact semantic review candidates. These are
 Context-wide effects, not executable identity. Exact Deny remains terminal;
 downloads, file transfer, acquisition, self-update, malformed/batched MCP, and
-unmatched effects receive no baseline authority;
+unmatched effects receive no baseline authority. Compile-time
+`claude_ready`, `codex_ready`, and `gh_ready` bundles add only the exact native
+authentication effects of the pinned clients, including GitHub CLI 2.96.0's
+two exact GitHub.com device bootstrap/exchange POSTs; bundle and executable
+names never enter policy.
 `builtin/reviewed-exact` permits only eligible effects to enter exact review;
 `builtin/get-only-reviewed` permits only eligible GET effects to enter exact
 review and terminally denies HEAD and every non-GET method. Those three strict
@@ -480,10 +486,11 @@ authentication are forwarded only after allow; `Proxy-Authorization` and
 Tobari session control headers are removed. Cookie and Set-Cookie values may
 remain part of the authorized application flow but are excluded from OPA input
 and Tobari audit logs. There is no managed profile or secret-file fallback.
-The native-login callback bridge is transport, not a credential adapter: it
-cannot read a Workspace credential file and callback bytes never enter OPA,
-Gateway, audit, denial evidence, or durable Tobari state. The bridge itself
-grants no GitHub or OpenAI HTTP effect.
+The native-login bridge is transport, not a credential adapter: it cannot read
+a Workspace credential file, and callback bytes or device codes never enter
+OPA, Gateway, audit, denial evidence, or durable Tobari state. Its exact host
+browser effects grant no Workspace HTTP authority. Separately, the immutable
+agent-ready readiness bundles grant only their expanded exact HTTP effects.
 
 The experimental development profile's Auth Broker stores one static primary-secret record per Context/provider in
 `auth/contexts/<context-id>/vault.enc`. The schema-1 AES-256-GCM envelope
@@ -800,10 +807,11 @@ controls remain visibly escaped, and neither presentation path changes URL
 recognition. A dynamic OpenAI authorization URL is never a Tobari browser
 target; the verified Codex child owns its open attempt and fallback guidance.
 That sentence applies to the experimental host-acquisition driver. In the
-separate standard attached Workspace, ADR 0046 permits the strict Codex and
-GitHub CLI native-login URL union only. GitHub CLI's no-newline prompt is
-relayed unchanged, its strict URL may open once, its Enter input remains
-child-owned, and callback failure remains the child's login result. GitHub
+separate standard attached Workspace, ADRs 0046 and 0048 permit the strict
+Codex and GitHub CLI native-login URL union only. GitHub CLI's no-newline prompt
+is relayed unchanged; its exact device URL may open once with no listener, or
+its strict callback URL may open once with one opaque relay. Its Enter input
+remains child-owned, and callback or provider failure remains the child's login result. GitHub
 Enterprise hosts, SSH-key-upload scope, and caller-added scopes cause zero
 browser/listener/relay effects.
 For exact Claude 2.1.220, the separate Context-runtime boundary consumes only
@@ -913,7 +921,7 @@ reference-bound mutation.
 | The broker restarts locked and cannot silently replace a missing root key | Restart/unlock tests, Keychain/XDG provider tests, and missing-key-with-vault rejection |
 | Provider manifests cannot become executable or ambiguous authority | Strict schema/collision/path/header tests, owner-only XDG loading, and built-in override rejection |
 | Provider login cannot turn visible text into arbitrary browser execution | Conventional non-project executable selection, identity/digest recheck, fixed argv/environment, bounded browser/PTY projection, checked cleanup, cancellation, and provider-specific negative tests |
-| Native Workspace login cannot become generic host ingress or browser authority | Closed Codex/GitHub CLI semantic URL-schema tests with exact OAuth clients, provider-specific originators, reviewed scope ceilings, callback shapes, and state bounds; bounded direct-line, ANSI synchronized-frame, and no-newline-prompt tests; dynamic non-privileged loopback-port tests; label-verified selected container; host-loopback-only one-shot listener; fixed Docker exec relay program; byte- and TTY-preserving output with resize propagation; opaque callback canaries; malformed-control, replay, and ambiguity bounds; port-collision failure; and session cleanup |
+| Native Workspace login cannot become generic host ingress or browser authority | Closed Codex/GitHub CLI semantic URL-schema tests with the exact GitHub device target, exact OAuth clients, provider-specific originators, reviewed scope ceilings, callback shapes, and state bounds; bounded direct-line, ANSI synchronized-frame, and no-newline-prompt tests; zero-listener device-open tests; dynamic non-privileged loopback-port tests; label-verified selected container; host-loopback-only one-shot callback listener; fixed Docker exec relay program; byte- and TTY-preserving output with resize propagation; opaque callback canaries; malformed-control, replay, neighboring-target, and ambiguity bounds; port-collision failure; and session cleanup |
 | Unsupported credential mechanisms cannot remain dormant | Catalog/state/dependency/image-content tests reject managed profiles, owner-selected dynamic plans, arbitrary helpers, compatibility readers, and provider CLIs inside Broker |
 | Agent-ready tools retain reviewed identity without Tobari redistribution | Base-runtime locks/checks for GitHub CLI, AWS CLI, Claude Code, and Codex; version smokes outside Workspace home; local missing-image build tests; workflow and release canaries reject every base registry write/login/push path |
 | Secret headers, queries, handle-bearing paths, and bodies stay out of logs | Gateway redacted-path/header-absence tests, non-learnable structural-rejection tests, and log scans |

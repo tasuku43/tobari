@@ -5,7 +5,7 @@
 - Deciders: Tobari maintainers
 - Scope: Product, architecture, security, policy, runtime images, harness, release, and public boundary
 - Revises: ADR 0025, ADR 0029, ADR 0038, and the default-preset consequence of Thesis 3
-- Superseded by: Optional-surface exclusion revised by ADR 0047; Codex client pin revised by ADR 0042 and runtime publication revised by ADR 0043
+- Superseded by: Optional-surface exclusion revised by ADR 0047; Codex client pin revised by ADR 0042; runtime publication revised by ADR 0043; native tool authentication readiness revised by ADR 0048
 
 ## Context
 

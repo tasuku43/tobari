@@ -264,7 +264,10 @@ resolution, and upstream I/O. Advanced modules may further constrain generic
 input but cannot bypass the guardrail or redefine the scheme-aware exact
 learned identity.
 `builtin/agent-ready` uses the reviewed-exact guardrail plus a finite baseline
-coupled to Claude Code 2.1.220 and Codex 0.147.0. Exact HTTP grants and one
+coupled to Claude Code 2.1.220, Codex 0.147.0, and GitHub CLI 2.96.0. Named
+compile-time native-authentication readiness bundles expand into the existing
+exact HTTP rules before normalization; their names and executable names never
+enter the persisted snapshot or evaluator. Exact HTTP grants and one
 direct-child evaluation template cover native model/account/bootstrap,
 first-party capability discovery, bounded evaluation, and telemetry. Trusted
 MCP endpoints are projected separately; Gateway buffers one bounded JSON-RPC

@@ -454,9 +454,12 @@ undeclared Docker mutation by the CLI.
   login can run. The protected release workflow publishes the reviewed combined
   base as one immutable Linux amd64/arm64 index alongside Gateway and Auth
   Broker. A local image or standalone validation workflow is not publication authority.
-- The client versions and `builtin/agent-ready` exact effect catalog are one
-  compatibility contract. Updating either agent requires reviewing both the
-  artifact lock and its core control-plane effects. Separate agent-image recipes
+- The pinned client versions and `builtin/agent-ready` exact effect catalog are
+  one compatibility contract. Its compile-time `claude_ready`, `codex_ready`,
+  and `gh_ready` bundles expand into exact native-authentication effects; they
+  are not runtime selectors or executable identity. Updating a pinned client
+  requires reviewing its artifact lock, authentication bundle, host
+  interactions, and core control-plane effects. Separate agent-image recipes
   remain build-only validation inputs and create no second authority boundary.
 - Project metadata does not select or alter the runtime image. Workspaces use
   their permanently bound Context image when created and again when their runtime container
@@ -743,7 +746,10 @@ synthetic state.
   revision; source preset changes never rewrite it; `builtin/agent-ready`
   grants the reviewed Claude Code 2.1.220 and Codex 0.147.0 native model,
   account, bootstrap, first-party capability-discovery, bounded evaluation,
-  and telemetry effects to every process in the Context. MCP initialization
+  and telemetry effects plus the pinned GitHub CLI 2.96.0 exact device-login
+  bootstrap effects to every process in the Context. Compile-time
+  `claude_ready`, `codex_ready`, and `gh_ready` names are review provenance and
+  are expanded before snapshot persistence. MCP initialization
   and enumeration are baseline methods at one exact endpoint; `tools/call`
   requires exact tool-name review. Dynamic evaluation uses one safe identifier
   segment without persisting its value. It is Context authority, not executable

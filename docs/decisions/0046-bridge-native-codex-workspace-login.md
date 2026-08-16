@@ -6,7 +6,7 @@
 - Scope: Product, architecture, security, authentication, runtime, and harness
 - Revises: ADR 0036 for standard Workspace login
 - Related: ADR 0044
-- Superseded by: None
+- Superseded by: Device-flow readiness revised by ADR 0048
 
 ## Context
 
@@ -36,7 +36,7 @@ Scope order and permitted reduction, bounded dynamic state, callback port, and p
 
 The originating CLI remains the OAuth implementation and input owner. Tobari does not construct the authorization URL, inject or consume GitHub CLI's Enter input, inspect callback HTTP bytes, compare state, implement PKCE, exchange the code, read or write credentials, or log/persist the URL, callback, code, state, or token. Callback bytes exist only in the host relay's bounded in-memory stream.
 
-The bridge is not a generic browser or port-forwarding service. It is available only while the owning `tobari` process is attached, only for the reviewed Codex and GitHub CLI OAuth authority contracts, only on a URL-selected non-privileged host-loopback port, and only to the exact selected owned Workspace. Each client ID and scope ceiling remains reviewed authority: changing a client or expanding a ceiling requires an explicit compatibility/security decision. Device auth remains unchanged.
+The bridge is not a generic browser or port-forwarding service. It is available only while the owning `tobari` process is attached, only for the reviewed Codex and GitHub CLI OAuth authority contracts, only on a URL-selected non-privileged host-loopback port, and only to the exact selected owned Workspace. Each client ID and scope ceiling remains reviewed authority: changing a client or expanding a ceiling requires an explicit compatibility/security decision. ADR 0048 separately adds GitHub CLI's exact host-open-only device target and its finite Workspace authentication effects without callback authority.
 
 ## Consequences
 
@@ -62,7 +62,7 @@ The bridge is not a generic browser or port-forwarding service. It is available 
 - A subprocess PTY regression proves the observed child sees terminal stdout, exact relayed bytes, the inherited initial size, and a propagated resize.
 - Relay tests prove exact owned-container verification, URL-derived host and Workspace port equality, one listener, one browser target, fixed Docker exec program plus validated port, opaque bidirectional bytes, and listener cleanup.
 - Runtime tests prove the bridge lifetime is nested inside interactive entry and changes neither child argv nor exit status.
-- Security and agent-readiness checks keep device auth unchanged and require a manual live pinned-client pass/fail replay without retaining an authenticated transcript.
+- Security and agent-readiness checks keep callback transport separate from ADR 0048's host-open-only device flow and require a manual live pinned-client pass/fail replay without retaining an authenticated transcript.
 
 ## Compatibility and migration
 

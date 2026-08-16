@@ -33,6 +33,14 @@ pinned clients:
 | Codex | `POST` | `https://auth.openai.com/oauth/token` |
 | Codex device auth | `POST` | `https://auth.openai.com/api/accounts/deviceauth/usercode` |
 | Codex device auth | `POST` | `https://auth.openai.com/api/accounts/deviceauth/token` |
+| GitHub CLI device auth | `POST` | `https://github.com/login/device/code` |
+| GitHub CLI device auth | `POST` | `https://github.com/login/oauth/access_token` |
+
+The compile-time review sources for these exact rules are named
+`claude_ready`, `codex_ready`, and `gh_ready` and are coupled to Claude Code
+2.1.220, Codex 0.147.0, and GitHub CLI 2.96.0 respectively. Normalization
+expands the bundles into ordinary exact rules; bundle and executable names
+never enter policy and custom presets cannot select them.
 
 Browser navigation occurs on the host and is not a Workspace egress grant.
 Every request outside the immutable baseline remains denied or reviewable under
@@ -58,19 +66,29 @@ privileged callback; a port collision; or session end cannot create a lasting
 listener or generic host opener. Scope order and bounded state length are not
 authority. `codex login --device-auth` is unchanged.
 
-For GitHub CLI 2.96.0, the attached host process also recognizes the complete
-bounded no-newline browser prompt from the GitHub.com web-application fallback.
-The prompt supplies only a complete stream boundary. Browser authority requires
-the independent strict `https://github.com/login/oauth/authorize` contract:
+For GitHub CLI 2.96.0, the attached host process recognizes the complete
+bounded no-newline browser prompt from both native GitHub.com login paths. The
+preferred device flow accepts only the exact
+`https://github.com/login/device` target, verifies the selected owned
+Workspace, opens it once on the host, and creates no callback listener. Tobari
+does not read, retain, relay, validate, or render the one-time code. The prompt
+supplies only a complete stream boundary.
+
+When device bootstrap is unavailable, GitHub CLI's web-application fallback
+instead requires the independent strict
+`https://github.com/login/oauth/authorize` contract:
 fixed client `178c6fc778ccc68e1d6a`, required `repo`, `read:org`, and `gist`
 scopes, optional `workflow`, exact 20-character lowercase hexadecimal state,
 and an HTTP `127.0.0.1:<non-privileged-port>/callback` redirect. Unknown query
 keys, caller-added scopes, SSH-key-upload scope, and GitHub Enterprise hosts
 open nothing. Tobari opens the validated URL and relays one opaque callback to
 the same port in the exact selected Workspace. GitHub CLI still owns the Enter
-input, state validation, code exchange, credential persistence, and result
-presentation. The bridge adds no GitHub baseline grant; its device-code,
-authorization, token, and API effects continue through ordinary Context policy.
+input, state validation where applicable, code exchange, credential
+persistence, and result presentation. `gh_ready` grants only the two exact
+device bootstrap/exchange POSTs above. Authorization-browser GETs occur on the
+host, while GitHub API, Git transport, repository, download, upload, release,
+self-update, and every unmatched effect continue through ordinary Context
+policy.
 
 Claude native login is a release regression because the previous standard
 projection allowed token exchange and then rejected Claude's authenticated
