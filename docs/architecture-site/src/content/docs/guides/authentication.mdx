@@ -20,6 +20,8 @@ tobari
 claude
 # or
 codex login
+# or
+gh auth login
 ```
 
 Claude Code and Codex are part of the locally built agent-ready base. Their
@@ -58,6 +60,12 @@ so `/status` can report the native account type correctly.
 Codex browser login uses its OAuth token exchange. Its device-code variant also
 uses the exact user-code and token polling endpoints. Both follow the same
 post-policy passthrough boundary.
+
+For pinned GitHub CLI 2.96.0, an attached session also bridges the strict
+GitHub.com web-application fallback to the host browser and the selected
+Workspace's localhost listener. GitHub CLI still owns Enter, OAuth state,
+exchange, and credential storage. The bridge adds no policy permission;
+GitHub Enterprise, custom scopes, and SSH-key upload remain outside it.
 
 ## Login can still be denied
 

@@ -98,6 +98,8 @@ permission. The manual release workflow packages only CLI archives and their
 repository-generated metadata. No login, credential,
 account fixture, device or authorization code, token, handle, root key, vault,
 or authenticated output is a release artifact.
+Each CLI archive includes root `THIRD_PARTY_NOTICES` so the pinned
+`github.com/creack/pty` v1.1.24 MIT notice ships with the binary that uses it.
 
 The combined agent-ready base and the retained focused Claude/Codex child
 fixtures have validation-only workflows. They validate release checksums,

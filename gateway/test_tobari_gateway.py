@@ -330,6 +330,9 @@ class StandardNativeLoginGatewayTests(unittest.TestCase):
                     mock.patch.object(
                         gateway, "graphql_endpoint_declared", return_value=False
                     ),
+                    mock.patch.object(
+                        gateway, "mcp_endpoint_declared", return_value=False
+                    ),
                     mock.patch.object(gateway, "query_opa", side_effect=allow),
                     mock.patch.object(gateway, "commit_upstream_authority") as commit,
                     mock.patch.object(gateway, "_audit"),
@@ -363,6 +366,49 @@ class StandardNativeLoginGatewayTests(unittest.TestCase):
                 self.assertEqual(len(decision_inputs), 1)
                 self.assertNotIn("native-canary", json.dumps(decision_inputs[0]))
                 commit.assert_called_once_with(flow)
+
+    def test_mcp_tool_call_is_buffered_and_exposes_only_method_and_tool(self):
+        body = json.dumps({
+            "jsonrpc": "2.0", "id": 7, "method": "tools/call",
+            "params": {"name": "codex_apps.search", "arguments": {"secret": "argument-canary"}},
+        }, separators=(",", ":")).encode()
+        with (
+            mock.patch.dict(os.environ, {"TOBARI_AUTH_PROVIDER_PROJECTION": ""}, clear=False),
+            mock.patch.object(gateway, "load_gateway_config", return_value={}),
+        ):
+            addon = gateway.TobariGateway()
+        addon.principal_source = mock.Mock()
+        addon.principal_source.load.return_value = {}
+        request = http.Request.make(
+            "POST", "https://chatgpt.com/backend-api/ps/mcp", content=body,
+            headers={"content-type": "application/json", "content-length": str(len(body))},
+        )
+        flow = tflow.tflow(req=request)
+        inputs = []
+
+        def deny(_url, document, _timeout):
+            inputs.append(document)
+            return gateway.Decision(allow=False, reason="review", status_code=403, learnable=True)
+
+        with (
+            mock.patch.object(gateway, "normalize_ingress_authority", return_value=("https", "chatgpt.com", 443)),
+            mock.patch.object(gateway, "resolve_project_principal", return_value={"project_id": PROJECT, "context_id": CONTEXT, "context": "default", "project_root": "/workspace/project"}),
+            mock.patch.object(gateway, "graphql_endpoint_declared", return_value=False),
+            mock.patch.object(gateway, "mcp_endpoint_declared", return_value=True),
+            mock.patch.object(gateway, "query_opa", side_effect=deny),
+            mock.patch.object(gateway, "commit_upstream_authority") as commit,
+            mock.patch.object(gateway, "_audit") as audit,
+        ):
+            addon.requestheaders(flow)
+            self.assertIsNone(flow.response)
+            self.assertFalse(flow.request.stream)
+            addon.request(flow)
+        self.assertEqual(inputs[0]["request"]["mcp"], {"method": "tools/call", "tool_name": "codex_apps.search"})
+        self.assertNotIn("argument-canary", json.dumps(inputs[0]))
+        self.assertNotIn("argument-canary", flow.response.content.decode())
+        self.assertEqual(audit.call_args.kwargs["mcp_tool_name"], "codex_apps.search")
+        self.assertNotIn("argument-canary", json.dumps(audit.call_args.kwargs))
+        commit.assert_not_called()
 
 
 class ReviewedBrokerGatewayTests(unittest.TestCase):
@@ -542,6 +588,7 @@ class ReviewedBrokerGatewayTests(unittest.TestCase):
             with (
                 mock.patch.object(gateway, "normalize_ingress_authority", return_value=("https", "api.github.com", 443)),
                 mock.patch.object(gateway, "graphql_endpoint_declared", return_value=False),
+                mock.patch.object(gateway, "mcp_endpoint_declared", return_value=False),
                 mock.patch.object(gateway, "resolve_project_principal", return_value={
                     "project_id": PROJECT, "context_id": CONTEXT,
                     "context": "default", "project_root": "/workspace/project",

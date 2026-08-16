@@ -20,6 +20,8 @@ tobari
 claude
 # or
 codex login
+# or
+gh auth login
 ```
 
 Claude Code と Codex はローカルでビルドされる agent-ready base に含まれます。
@@ -58,6 +60,12 @@ bearer は OPA/audit に入らず、allow 後だけ保持されます。provider
 Codex の browser login は OAuth token exchange を使います。device-code 方式は
 user-code と token polling endpoint も使い、同じ post-policy passthrough 境界を
 通ります。
+
+pinned GitHub CLI 2.96.0 では、attached session が厳密な GitHub.com の web
+application fallback を host browser と選択済み Workspace の localhost listener
+へ bridge します。Enter、OAuth state、exchange、credential storage は引き続き
+GitHub CLI が所有します。この bridge は policy permission を追加しません。
+GitHub Enterprise、custom scope、SSH key upload は対象外です。
 
 ## ログイン通信が deny された場合
 

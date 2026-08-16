@@ -10,7 +10,8 @@
           "port": 443,
           "path": "/graphql"
         }
-      ]
+      ],
+      "mcp_endpoints": []
     }
   }
 }

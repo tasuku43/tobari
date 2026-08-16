@@ -2,7 +2,8 @@
 set -Eeuo pipefail
 cd "$(dirname "$0")/.."
 
-binary=${TOBARI_INTEGRATION_BINARY:-$PWD/bin/tobari}
+binary=${TOBARI_INTEGRATION_BINARY:-}
+binary_digest=
 custom_base_image=${TOBARI_INTEGRATION_CUSTOM_BASE:-tobari-runtime:dev}
 mock_name=tobari-mock-upstream
 auth_mock_name=tobari-auth-mock-upstream
@@ -136,6 +137,7 @@ wait_network_connection() {
 }
 
 run_tobari() {
+  assert_integration_binary
   env \
     HOME="$test_root/user" \
     DOCKER_CONFIG="$host_docker_config" \
@@ -155,6 +157,7 @@ run_tobari_at() {
 run_tobari_pty_at() {
   local root=$1
   shift
+  assert_integration_binary
   (
     cd "$root"
     env \
@@ -287,6 +290,13 @@ raise SystemExit(128 + os.WTERMSIG(status))
   )
 }
 
+assert_integration_binary() {
+  local current_digest
+  current_digest=$(shasum -a 256 "$binary" | awk '{print $1}')
+  [[ -n $binary_digest && $current_digest == "$binary_digest" ]] ||
+    fail "integration binary changed while the scenario was running"
+}
+
 enter_tobari_at() {
   local root=$1
   shift
@@ -417,7 +427,13 @@ create_nested_tobari_at() {
 }
 
 start_cluster() {
-  run_tobari cluster up
+  local output
+  if output=$(run_tobari cluster up 2>&1); then
+    printf '%s\n' "$output"
+    return 0
+  fi
+  printf '%s\n' "$output" >&2
+  return 1
 }
 
 assert_resource_bounds() {
@@ -579,6 +595,8 @@ finish() {
     if [[ -n ${test_root:-} && -x $binary ]]; then
       echo "integration diagnostics: cluster status" >&2
       run_tobari cluster status --format json >&2 || true
+      echo "integration diagnostics: doctor" >&2
+      run_tobari doctor --format json >&2 || true
     fi
     for container in tobari-auth-broker tobari-gateway tobari-opa "$mock_name" "$auth_mock_name" "$work_container" "$other_container" "$restricted_container"; do
       [[ -n $container ]] || continue
@@ -661,6 +679,9 @@ owns_shared_fixture=true
 
 begin_phase build-fixtures
 test_root=$(mktemp -d "$PWD/.tobari-integration.XXXXXX")
+if [[ -z $binary ]]; then
+  binary=$test_root/tobari-integration
+fi
 mkdir -p \
   "$test_root/user/workspace" \
   "$test_root/config/tobari/auth/providers" \
@@ -769,6 +790,9 @@ else
     authbroker >/dev/null
   go build -tags='tobari_dev tobari_experimental' -buildvcs=false -trimpath -o "$binary" ./cmd/tobari
 fi
+go version -m "$binary" | grep -F $'build\t-tags=tobari_dev,tobari_experimental' >/dev/null ||
+  fail "integration binary does not use the experimental capability profile"
+binary_digest=$(shasum -a 256 "$binary" | awk '{print $1}')
 work_root=$test_root/user/workspace
 work_nested_root=$work_root/root
 other_root=$work_root/child-workspace

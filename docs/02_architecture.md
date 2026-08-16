@@ -15,7 +15,15 @@ egress network:                              Gateway --> policy-allowed HTTPS
 Each Tobari joins only its dedicated internal network. OPA joins only the
 shared internal control network. Gateway joins every Tobari network plus
 control and egress. Standard has no Auth Broker service, provider projection,
-credential mount, or host helper. The experimental development override adds a
+credential mount, or credential helper. Its one session-scoped native-login
+bridge is part of interactive entry: it observes the unchanged child stream,
+selects one strict Codex or GitHub CLI authorization contract, derives a
+non-privileged port from its loopback redirect, and relays one opaque callback
+through a fixed Docker exec program plus that validated port to the exact
+selected Workspace loopback. Codex direct-line/TUI framing and GitHub CLI's
+complete no-newline prompt are bounded provider-specific originators; neither
+turns arbitrary Workspace prose into browser authority.
+It is absent when no host session is attached. The experimental development override adds a
 locked Auth Broker on control/egress plus its private runtime socket and trusted
 host acquisition boundary. Tobari and control networks
 use Docker's `internal` property; the egress network is the only network with
@@ -255,13 +263,16 @@ Terminal denial ends before candidate projection, external DNS, broker
 resolution, and upstream I/O. Advanced modules may further constrain generic
 input but cannot bypass the guardrail or redefine the scheme-aware exact
 learned identity.
-`builtin/agent-ready` uses the reviewed-exact guardrail plus a finite exact
-baseline coupled to Claude Code 2.1.220 and Codex 0.147.0. The baseline grants
-model execution, bootstrap/catalog, account-state, and fixed first-party
-telemetry effects to the Context principal; it does not identify a process.
-Exact Deny precedes that grant. Optional plugins, MCP, connectors, file
-transfer, downloads, evaluation routes, self-update, and unmatched effects
-continue into terminal denial or the ordinary review evaluator.
+`builtin/agent-ready` uses the reviewed-exact guardrail plus a finite baseline
+coupled to Claude Code 2.1.220 and Codex 0.147.0. Exact HTTP grants and one
+direct-child evaluation template cover native model/account/bootstrap,
+first-party capability discovery, bounded evaluation, and telemetry. Trusted
+MCP endpoints are projected separately; Gateway buffers one bounded JSON-RPC
+object and emits only method plus exact `tools/call` tool name to OPA. Bootstrap
+and enumeration methods are baseline grants; action methods continue to exact
+semantic review. Bodies, arguments, resource URIs, and responses never enter
+policy or audit. Exact Deny precedes the baseline, which identifies Context
+authority rather than a process.
 `builtin/offline` terminally denies all HTTP/HTTPS and exposes no review
 candidate. `builtin/reviewed-exact` exposes only eligible effects to exact
 review. `builtin/get-only-reviewed` exposes only eligible GET effects to exact
@@ -590,7 +601,24 @@ Interactive session attachment is a separate, transient process state. The
 runtime adapter starts the work container with the infrastructure-owned
 `sleep infinity` lifetime process independently of the selected image `CMD`,
 then enters it through one `docker exec -i -t ... /bin/bash` child session.
-Exact commands use the same child-exec boundary. The state model is:
+Exact commands use the same child-exec boundary.
+The attached host process also owns the optional pinned-client login bridge.
+The output observer is a byte- and TTY-preserving side channel, not
+presentation. Docker stdout remains attached to a raw intermediate PTY whose
+size follows the caller terminal; its master is relayed to the unchanged
+caller stream and bounded observer. Docker continues to own host input raw mode,
+signals, and the container PTY. Only a bounded direct line or one complete
+bounded ANSI synchronized-update frame containing exactly one semantically
+valid reviewed Codex authorization URL, or one complete bounded GitHub CLI
+no-newline browser prompt containing its independently valid URL, can start the
+one-shot listener. Surrounding account prompts, project prose, cursor positions,
+and terminal width are irrelevant to URL authority. The relay verifies the
+selected container labels, binds the URL's validated
+non-privileged loopback port, opens the reviewed host URL, and transports
+callback bytes without parsing them. Its listener is nested inside this
+attachment lifetime and never becomes Workspace or cluster state.
+
+The state model is:
 
 ```text
 Workspace absent

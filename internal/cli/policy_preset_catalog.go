@@ -21,6 +21,21 @@ func policyPresetExactRuleOutput(description string) *OutputField {
 	}}
 }
 
+func policyPresetTemplateRuleOutput() *OutputField {
+	field := policyPresetExactRuleOutput("One bounded direct-child identifier template.")
+	field.Fields = append(field.Fields, OutputField{Name: "segments", Type: OutputFieldTypeArray, Description: "Exact normalized segments with one terminal {id}.", Items: &OutputField{Type: OutputFieldTypeString, Description: "One literal or {id} segment."}})
+	return field
+}
+
+func policyPresetMCPRuleOutput() *OutputField {
+	field := policyPresetExactRuleOutput("One exact MCP semantic baseline grant.")
+	field.Fields = append(field.Fields,
+		OutputField{Name: "mcp_method", Type: OutputFieldTypeString, Description: "Exact MCP JSON-RPC method."},
+		OutputField{Name: "mcp_tool_name", Type: OutputFieldTypeString, Description: "Exact tool name only for tools/call.", Optional: true},
+	)
+	return field
+}
+
 func policyPresetOutput(collection bool) CommandOutput {
 	fields := []OutputField{{Name: "task", Type: OutputFieldTypeString, Description: "Declared policy-preset task identity."}}
 	if collection {
@@ -31,7 +46,7 @@ func policyPresetOutput(collection bool) CommandOutput {
 				{Name: "origin", Type: OutputFieldTypeString, Description: "Exact policy-preset selector."},
 				{Name: "revision", Type: OutputFieldTypeString, Description: "SHA-256 revision of normalized bytes."},
 				{Name: "guardrail", Type: OutputFieldTypeString, Description: "Terminal guardrail kind.", Enum: []string{"offline", "reviewed_exact", "get_only_reviewed"}},
-				{Name: "immediate_grant_count", Type: OutputFieldTypeInteger, Description: "Number of Context-wide exact baseline grants."},
+				{Name: "immediate_grant_count", Type: OutputFieldTypeInteger, Description: "Number of Context-wide exact, template, and semantic baseline grants."},
 				{Name: "destination_ceiling", Type: OutputFieldTypeString, Description: "Destination ceiling mode.", Enum: []string{"public_https", "exact"}}, {Name: "destination_count", Type: OutputFieldTypeInteger, Description: "Exact destination count."}, {Name: "method_ceiling", Type: OutputFieldTypeString, Description: "Method ceiling mode.", Enum: []string{"all", "exact"}}, {Name: "method_count", Type: OutputFieldTypeInteger, Description: "Exact method count."},
 			}},
 		})
@@ -49,8 +64,11 @@ func policyPresetOutput(collection bool) CommandOutput {
 				}}}}},
 				{Name: "method_ceiling", Type: OutputFieldTypeObject, Description: "Explicit all-eligible or exact method ceiling.", Fields: []OutputField{{Name: "mode", Type: OutputFieldTypeString, Description: "Method ceiling mode.", Enum: []string{"all", "exact"}}, {Name: "methods", Type: OutputFieldTypeArray, Description: "Explicit method ceiling.", Items: &OutputField{Type: OutputFieldTypeString, Description: "One exact HTTP method."}}}},
 				{Name: "baseline_grants", Type: OutputFieldTypeArray, Description: "Exact Context-wide grants.", Items: policyPresetExactRuleOutput("One exact grant.")},
+				{Name: "baseline_templates", Type: OutputFieldTypeArray, Description: "Bounded Context-wide path-template grants.", Items: policyPresetTemplateRuleOutput()},
+				{Name: "mcp_baseline_grants", Type: OutputFieldTypeArray, Description: "Exact Context-wide MCP semantic grants.", Items: policyPresetMCPRuleOutput()},
 				{Name: "baseline_denies", Type: OutputFieldTypeArray, Description: "Exact terminal baseline denials.", Items: policyPresetExactRuleOutput("One exact denial.")},
 				{Name: "graphql_endpoints", Type: OutputFieldTypeArray, Description: "Exact GraphQL classification endpoints.", Items: policyPresetExactRuleOutput("One exact endpoint.")},
+				{Name: "mcp_endpoints", Type: OutputFieldTypeArray, Description: "Exact MCP classification endpoints.", Items: policyPresetExactRuleOutput("One exact endpoint.")},
 			}},
 		)
 	}

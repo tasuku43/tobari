@@ -125,7 +125,7 @@ func TestAggregateRouterMakesPresetGuardrailTerminalBeforeAdvancedOrGuidedPolicy
 		t.Fatalf("guardrail is not declared before Advanced routing:\n%s", text)
 	}
 	advancedClause := text[strings.LastIndex(text[:advanced], "decision := result if {"):advanced]
-	for _, required := range []string{"not terminal_guardrail", "not exact_denied", "not preset_exact_granted"} {
+	for _, required := range []string{"not terminal_guardrail", "not exact_denied", "not preset_granted"} {
 		if !strings.Contains(advancedClause, required) {
 			t.Fatalf("Advanced route can bypass %q:\n%s", required, advancedClause)
 		}
@@ -149,7 +149,7 @@ func TestAggregateRouterMakesExactDenyTerminalOverAgentReadyBaseline(t *testing.
 		t.Fatalf("exact Deny is not declared before baseline grant:\n%s", text)
 	}
 	grantClause := text[grant:]
-	if !strings.Contains(grantClause, "not exact_denied") || !strings.Contains(grantClause, "preset_exact_granted") {
+	if !strings.Contains(grantClause, "not exact_denied") || !strings.Contains(grantClause, "preset_granted") {
 		t.Fatalf("agent-ready baseline can bypass exact Deny:\n%s", grantClause)
 	}
 }

@@ -24,7 +24,8 @@ func renderPolicyPreset(result tobari.PolicyPresetResult, format successFormat) 
 			fmt.Fprintf(&output, "%s  %s  guardrail=%s  destination=%s/%d  methods=%s/%d  immediate_grants=%d\n", safeExternalText(item.Origin), item.Revision, item.Guardrail, item.DestinationCeiling, item.DestinationCount, item.MethodCeiling, item.MethodCount, item.ImmediateGrantCount)
 		}
 	} else if result.Preset != nil {
-		fmt.Fprintf(&output, "Origin: %s\nRevision: %s\nGuardrail: %s\nImmediate grants: %d\n", safeExternalText(result.Origin), result.Revision, result.Preset.Guardrail, len(result.Preset.BaselineGrants))
+		grants := len(result.Preset.BaselineGrants) + len(result.Preset.BaselineTemplates) + len(result.Preset.MCPBaselineGrants)
+		fmt.Fprintf(&output, "Origin: %s\nRevision: %s\nGuardrail: %s\nImmediate grants: %d\n", safeExternalText(result.Origin), result.Revision, result.Preset.Guardrail, grants)
 		if result.SourcePath != "" {
 			fmt.Fprintf(&output, "Source: %s\n", safeExternalText(result.SourcePath))
 		}

@@ -253,6 +253,7 @@ run_gateway() {
       test_tobari_gateway.py \
       test_tobari_gateway_aws.py \
       test_graphql_request.py \
+      test_mcp_request.py \
       test_synthetic_dns.py
 }
 

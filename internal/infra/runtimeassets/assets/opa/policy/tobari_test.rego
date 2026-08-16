@@ -241,6 +241,72 @@ graphql_deny_fixture := {
 	"source_candidates": ["pcy_0123456789abcdef0123456789abcdef"],
 }
 
+mcp_endpoint_fixture := {
+	"scheme": "https",
+	"host": "api.github.com",
+	"port": 443,
+	"path": "/mcp",
+}
+
+mcp_tool_request_fixture := object.union(
+	object.union(request_with_path({"raw": "/mcp", "segments": ["mcp"]}), {"method": "POST"}),
+	{"mcp": {"method": "tools/call", "tool_name": "codex_apps.search"}},
+)
+
+mcp_tool_allow_fixture := object.union(learned_exact_fixture, {
+	"method": "POST",
+	"path": "/mcp",
+	"examples": ["/mcp"],
+	"protocol": "mcp",
+	"mcp_method": "tools/call",
+	"mcp_tool_name": "codex_apps.search",
+})
+
+test_mcp_tool_call_is_learnable_by_exact_tool_name if {
+	result := decision with input as input_with_request(mcp_tool_request_fixture)
+		with data.tobari.boundary.mcp_endpoints as [mcp_endpoint_fixture]
+	not result.allow
+	result.learnable
+}
+
+test_mcp_exact_tool_rule_allows_only_that_tool if {
+	allowed := decision with input as input_with_request(mcp_tool_request_fixture)
+		with data.tobari.boundary.mcp_endpoints as [mcp_endpoint_fixture]
+		with data.tobari.rules.learned_allows as [mcp_tool_allow_fixture]
+	other_request := object.union(mcp_tool_request_fixture, {"mcp": {"method": "tools/call", "tool_name": "codex_apps.write"}})
+	other := decision with input as input_with_request(other_request)
+		with data.tobari.boundary.mcp_endpoints as [mcp_endpoint_fixture]
+		with data.tobari.rules.learned_allows as [mcp_tool_allow_fixture]
+	allowed.allow
+	not other.allow
+	other.learnable
+}
+
+test_mcp_non_tool_method_is_exact_and_has_no_tool_name if {
+	request := object.union(object.remove(mcp_tool_request_fixture, ["mcp"]), {"mcp": {"method": "tools/list"}})
+	rule := object.remove(object.union(mcp_tool_allow_fixture, {"mcp_method": "tools/list"}), ["mcp_tool_name"])
+	result := decision with input as input_with_request(request)
+		with data.tobari.boundary.mcp_endpoints as [mcp_endpoint_fixture]
+		with data.tobari.rules.learned_allows as [rule]
+	result.allow
+}
+
+test_mcp_declared_endpoint_never_falls_back_to_http if {
+	request := object.remove(mcp_tool_request_fixture, ["mcp"])
+	result := decision with input as input_with_request(request)
+		with data.tobari.boundary.mcp_endpoints as [mcp_endpoint_fixture]
+	not result.allow
+	not result.learnable
+}
+
+test_mcp_malformed_identity_fails_closed if {
+	malformed := object.union(object.remove(mcp_tool_request_fixture, ["mcp"]), {"mcp": {"method": "tools/call"}})
+	result := decision with input as input_with_request(malformed)
+		with data.tobari.boundary.mcp_endpoints as [mcp_endpoint_fixture]
+	not result.allow
+	not result.learnable
+}
+
 test_graphql_generic_http_allow_does_not_authorize_declared_endpoint if {
 	result := decision with input as input_with_request(graphql_request_fixture)
 		with data.tobari.boundary.graphql_endpoints as [graphql_endpoint_fixture]

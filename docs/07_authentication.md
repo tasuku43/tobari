@@ -39,6 +39,39 @@ Every request outside the immutable baseline remains denied or reviewable under
 the selected preset. The policy applies to every process in the Context, never
 to an executable name.
 
+For Codex 0.147.0 browser login, the attached `tobari` host process recognizes
+one semantically valid strict OpenAI authorization URL from either a bounded
+direct line or one complete bounded ANSI synchronized-update frame in a copy
+of the unchanged child stream. It accepts only the two exact reviewed direct
+CLI and interactive-TUI originators and does not depend on surrounding native
+prose, cursor positions, or terminal width. Docker's stdout remains a real raw PTY and its size follows the caller
+terminal; Tobari observes the relayed master copy, so ordinary Codex terminal
+negotiation, raw input, rendering, and resize remain native. It derives a
+non-privileged port from the validated localhost redirect,
+binds host `127.0.0.1` only for that login, opens the validated URL, and relays
+one opaque browser callback through a fixed Docker exec program plus that port
+to Codex's same-port listener on the selected Workspace loopback. Codex owns
+state, PKCE, callback parsing, exchange, and credential storage. Tobari neither
+logs nor persists the authorization URL or callback bytes. Invalid, duplicate,
+ambiguous, or oversized output; another host/path/client/scope; an external or
+privileged callback; a port collision; or session end cannot create a lasting
+listener or generic host opener. Scope order and bounded state length are not
+authority. `codex login --device-auth` is unchanged.
+
+For GitHub CLI 2.96.0, the attached host process also recognizes the complete
+bounded no-newline browser prompt from the GitHub.com web-application fallback.
+The prompt supplies only a complete stream boundary. Browser authority requires
+the independent strict `https://github.com/login/oauth/authorize` contract:
+fixed client `178c6fc778ccc68e1d6a`, required `repo`, `read:org`, and `gist`
+scopes, optional `workflow`, exact 20-character lowercase hexadecimal state,
+and an HTTP `127.0.0.1:<non-privileged-port>/callback` redirect. Unknown query
+keys, caller-added scopes, SSH-key-upload scope, and GitHub Enterprise hosts
+open nothing. Tobari opens the validated URL and relays one opaque callback to
+the same port in the exact selected Workspace. GitHub CLI still owns the Enter
+input, state validation, code exchange, credential persistence, and result
+presentation. The bridge adds no GitHub baseline grant; its device-code,
+authorization, token, and API effects continue through ordinary Context policy.
+
 Claude native login is a release regression because the previous standard
 projection allowed token exchange and then rejected Claude's authenticated
 `GET /api/oauth/profile` as `broker_auth_required`. That made

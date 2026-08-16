@@ -22,6 +22,12 @@ forwards the original bytes once after allow. Source, operation name, variables,
 arguments, aliases, fragments, directives, nested selections, literals, and
 body hashes never enter policy, evidence, audit, or CLI output.
 
+A declared exact MCP endpoint is the second bounded exception. Gateway accepts
+one unencoded `application/json` JSON-RPC 2.0 object of at most 1 MiB, derives
+only the exact method and, for `tools/call`, exact tool name, and forwards the
+unchanged bytes once after allow. Arguments, resource URIs, responses, and body
+hashes never enter policy, evidence, audit, denial output, or stored rules.
+
 Gateway performs no external DNS or upstream connection before allow. It uses
 finite OPA, DNS, connect, and upstream timeouts and makes one upstream
 attempt. It does not retry an arbitrary HTTP request.
@@ -29,12 +35,13 @@ attempt. It does not retry an arbitrary HTTP request.
 ## Policy-preset ceiling
 
 The immutable preset guardrail is evaluated before baseline data, learned
-exact policy, or Advanced Rego. `builtin/agent-ready` grants the exact reviewed
-Claude Code 2.1.220 and Codex 0.147.0 core model, bootstrap/catalog,
-account-state, and fixed first-party telemetry effects. Those are Context-wide
-HTTP effects rather than executable identity, and exact Deny remains terminal.
-Plugins, MCP, connectors, file transfer, downloads, evaluation, self-update,
-and unmatched effects receive no baseline grant. `builtin/offline` terminally
+exact policy, or Advanced Rego. `builtin/agent-ready` grants the reviewed
+Claude Code 2.1.220 and Codex 0.147.0 model/account/bootstrap, first-party
+capability discovery, bounded evaluation, telemetry, and MCP initialize/list
+effects. Those are Context-wide semantic effects rather than executable
+identity, and exact Deny remains terminal. MCP actions, file transfer,
+downloads, acquisition, self-update, and unmatched effects receive no baseline
+grant. `builtin/offline` terminally
 denies all HTTP/HTTPS; `builtin/reviewed-exact` makes only eligible effects
 exact-review candidates; `builtin/get-only-reviewed` makes only eligible GET
 effects candidates and terminally denies HEAD and every non-GET. Those three
@@ -49,6 +56,16 @@ requests. Exact methods, authorities, and paths are defined in
 The Claude regression proves that successful token exchange cannot be followed
 by a Tobari-generated `broker_auth_required` on `/api/oauth/profile`; provider
 `subscriptionType` and `rateLimitTier` remain provider-owned response data.
+Codex browser login additionally uses the attached-session bridge in ADR 0046:
+one strict authorization URL may open on the host and one opaque localhost
+callback may reach the exact selected Workspace. That transport creates no
+provider operation, policy grant, Gateway bypass, or durable credential state.
+Pinned GitHub CLI 2.96.0 uses the same transport only for its strict GitHub.com
+web-application fallback: fixed OAuth client, reviewed HTTPS-login scope
+ceiling, exact state shape, and dynamic non-privileged
+`127.0.0.1/callback` port. GitHub CLI continues to own the Enter input, state
+validation, exchange, and credential state. The transport does not add GitHub
+device, token, or API effects to the agent-ready baseline.
 
 ## Experimental Broker contract
 

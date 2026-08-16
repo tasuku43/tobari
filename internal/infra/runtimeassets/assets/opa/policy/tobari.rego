@@ -38,6 +38,7 @@ candidate_eligible if {
 	project_principal_valid
 	transport_port_allowed
 	graphql_endpoints_valid
+	mcp_endpoints_valid
 	request_protocol_valid
 	authorization_shape_valid
 	not explicitly_denied
@@ -46,6 +47,11 @@ candidate_eligible if {
 request_allowed if {
 	ordinary_http_request
 	http_learned_rule_allowed
+}
+
+request_allowed if {
+	mcp_request
+	mcp_learned_rule_allowed
 }
 
 request_allowed if {
@@ -92,6 +98,15 @@ explicitly_denied if {
 }
 
 explicitly_denied if {
+	mcp_request
+	some rule in learned_deny_rules
+	mcp_rule_protocol_valid(rule)
+	learned_rule_matches_request(rule, input.principal.project_id, input.request)
+	rule.mcp_method == request_mcp.method
+	object.get(rule, "mcp_tool_name", "") == object.get(request_mcp, "tool_name", "")
+}
+
+explicitly_denied if {
 	graphql_request
 	some root_field in request_graphql.root_fields
 	some rule in learned_deny_rules
@@ -131,6 +146,15 @@ graphql_learned_rule_allowed(root_field) if {
 	learned_rule_matches_request(rule, input.principal.project_id, input.request)
 }
 
+mcp_learned_rule_allowed if {
+	some rule in learned_rules
+	learned_rule_valid(rule)
+	mcp_rule_protocol_valid(rule)
+	rule.mcp_method == request_mcp.method
+	object.get(rule, "mcp_tool_name", "") == object.get(request_mcp, "tool_name", "")
+	learned_rule_matches_request(rule, input.principal.project_id, input.request)
+}
+
 learned_rule_matches_request(rule, project_id, request) if {
 	rule.match == "exact"
 	rule.context_id == input.principal.context_id
@@ -156,6 +180,13 @@ learned_rule_matches_request(rule, project_id, request) if {
 learned_rule_valid(rule) if {
 	learned_rule_base_valid(rule)
 	http_rule_protocol_valid(rule)
+	learned_rule_scope_valid(rule)
+}
+
+learned_rule_valid(rule) if {
+	learned_rule_base_valid(rule)
+	mcp_rule_protocol_valid(rule)
+	rule.match == "exact"
 	learned_rule_scope_valid(rule)
 }
 
@@ -269,10 +300,13 @@ path_template_matches(template_segments, raw_path) if {
 }
 
 request_graphql := object.get(input.request, "graphql", null)
+request_mcp := object.get(input.request, "mcp", null)
 
 ordinary_http_request if {
 	request_graphql == null
+	request_mcp == null
 	not declared_graphql_endpoint
+	not declared_mcp_endpoint
 }
 
 graphql_request if {
@@ -281,12 +315,22 @@ graphql_request if {
 	graphql_request_shape_valid
 }
 
+mcp_request if {
+	declared_mcp_endpoint
+	input.request.method == "POST"
+	mcp_request_shape_valid
+}
+
 request_protocol_valid if {
 	ordinary_http_request
 }
 
 request_protocol_valid if {
 	graphql_request
+}
+
+request_protocol_valid if {
+	mcp_request
 }
 
 default graphql_endpoints := []
@@ -323,6 +367,53 @@ graphql_endpoint_valid(endpoint) if {
 	startswith(endpoint.path, "/")
 }
 
+default mcp_endpoints := []
+
+mcp_endpoints := data.tobari.boundary.mcp_endpoints
+
+declared_mcp_endpoint if {
+	mcp_endpoints_valid
+	some endpoint in mcp_endpoints
+	endpoint.scheme == input.request.authority.scheme
+	endpoint.host == input.request.authority.host
+	endpoint.port == input.request.authority.port
+	endpoint.path == input.request.path.raw
+}
+
+mcp_endpoints_valid if {
+	is_array(mcp_endpoints)
+	count(mcp_endpoints) == count({endpoint | some endpoint in mcp_endpoints})
+	every endpoint in mcp_endpoints {
+		graphql_endpoint_valid(endpoint)
+	}
+}
+
+mcp_request_shape_valid if {
+	is_object(request_mcp)
+	object.keys(request_mcp) == {"method"}
+	mcp_method_valid(request_mcp.method)
+	request_mcp.method != "tools/call"
+}
+
+mcp_request_shape_valid if {
+	is_object(request_mcp)
+	object.keys(request_mcp) == {"method", "tool_name"}
+	request_mcp.method == "tools/call"
+	mcp_tool_name_valid(request_mcp.tool_name)
+}
+
+mcp_method_valid(value) if {
+	is_string(value)
+	count(value) <= 128
+	regex.match(`^[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)*$`, value)
+}
+
+mcp_tool_name_valid(value) if {
+	is_string(value)
+	count(value) <= 256
+	regex.match(`^[A-Za-z0-9_.:/-]+$`, value)
+}
+
 graphql_request_shape_valid if {
 	is_object(request_graphql)
 	object.keys(request_graphql) == {"operation_type", "root_fields"}
@@ -346,12 +437,33 @@ http_rule_protocol_valid(rule) if {
 	rule.protocol == "http"
 	not object_has_key(rule, "graphql_operation_type")
 	not object_has_key(rule, "graphql_root_field")
+	not object_has_key(rule, "mcp_method")
+	not object_has_key(rule, "mcp_tool_name")
 }
 
 graphql_rule_protocol_valid(rule) if {
 	rule.protocol == "graphql"
 	rule.graphql_operation_type in {"query", "mutation"}
 	graphql_name_valid(rule.graphql_root_field)
+	not object_has_key(rule, "mcp_method")
+	not object_has_key(rule, "mcp_tool_name")
+}
+
+mcp_rule_protocol_valid(rule) if {
+	rule.protocol == "mcp"
+	mcp_method_valid(rule.mcp_method)
+	not object_has_key(rule, "graphql_operation_type")
+	not object_has_key(rule, "graphql_root_field")
+	rule.mcp_method != "tools/call"
+	not object_has_key(rule, "mcp_tool_name")
+}
+
+mcp_rule_protocol_valid(rule) if {
+	rule.protocol == "mcp"
+	rule.mcp_method == "tools/call"
+	mcp_tool_name_valid(rule.mcp_tool_name)
+	not object_has_key(rule, "graphql_operation_type")
+	not object_has_key(rule, "graphql_root_field")
 }
 
 object_has_key(obj, key) if {

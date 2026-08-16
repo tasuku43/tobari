@@ -1636,6 +1636,32 @@ func assertGraphQLPolicyOutput(t *testing.T, protocol, operationType, rootField 
 	}
 }
 
+func TestMCPPolicyIdentityAppearsWithoutArguments(t *testing.T) {
+	t.Parallel()
+	denial := tobari.PolicyDenial{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Scheme: "https", Protocol: tobari.PolicyProtocolMCP, MCPMethod: "tools/call", MCPToolName: "codex_apps.search"}, Timestamp: "2026-08-09T10:00:00Z", RequestID: "7185da2688d7469aae9cd9068e920b0b", ContextID: "01912345-6789-7abc-8def-0123456789ad", ContextName: "default", ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/project", Host: "chatgpt.com", Port: 443, Method: "POST", Path: "/backend-api/ps/mcp", Reason: "review", StatusCode: 403, Learnable: true}
+	candidate, err := tobari.NewPolicyCandidate(denial)
+	if err != nil {
+		t.Fatal(err)
+	}
+	report := tobari.PolicyCandidateReport{Task: tobari.TaskPolicyCandidates, PolicyDirectory: "/tmp/policy", WindowLines: 200, Items: []tobari.PolicyCandidate{candidate}}
+	encoded, err := renderPolicyCandidates(report, "tobari policy allow", successFormatJSON)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var document policyCandidatesDocument
+	if err := json.Unmarshal(encoded, &document); err != nil {
+		t.Fatal(err)
+	}
+	item := document.PolicyCandidates[0]
+	if item.Protocol != "mcp" || item.MCPMethod != "tools/call" || item.MCPToolName != "codex_apps.search" || strings.Contains(string(encoded), "arguments") {
+		t.Fatalf("MCP output = %s", encoded)
+	}
+	text, err := renderPolicyCandidates(report, "tobari policy allow", successFormatText)
+	if err != nil || !humanOutputHasRow(string(text), "MCP", "tools/call · codex_apps.search") {
+		t.Fatalf("MCP text = %q err=%v", text, err)
+	}
+}
+
 func TestPolicyDenyRendererReportsExactTerminalDecision(t *testing.T) {
 	t.Parallel()
 	candidate := tobari.PolicyCandidate{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Scheme: "https", Protocol: tobari.PolicyProtocolHTTP}, ID: "pcy_0123456789abcdef0123456789abcdef",

@@ -757,6 +757,8 @@ type policyDenialOutput struct {
 	Protocol             string `json:"protocol"`
 	GraphQLOperationType string `json:"graphql_operation_type"`
 	GraphQLRootField     string `json:"graphql_root_field"`
+	MCPMethod            string `json:"mcp_method"`
+	MCPToolName          string `json:"mcp_tool_name"`
 	Reason               string `json:"reason"`
 	StatusCode           int    `json:"status_code"`
 	Learnable            bool   `json:"learnable"`
@@ -778,6 +780,8 @@ type policyCandidateOutput struct {
 	Protocol             string `json:"protocol"`
 	GraphQLOperationType string `json:"graphql_operation_type"`
 	GraphQLRootField     string `json:"graphql_root_field"`
+	MCPMethod            string `json:"mcp_method"`
+	MCPToolName          string `json:"mcp_tool_name"`
 	Reason               string `json:"reason"`
 	StatusCode           int    `json:"status_code"`
 	AllowCommand         string `json:"allow_command"`
@@ -810,6 +814,8 @@ type policyRuleOutput struct {
 	Protocol             string   `json:"protocol"`
 	GraphQLOperationType string   `json:"graphql_operation_type"`
 	GraphQLRootField     string   `json:"graphql_root_field"`
+	MCPMethod            string   `json:"mcp_method"`
+	MCPToolName          string   `json:"mcp_tool_name"`
 	Examples             []string `json:"examples"`
 	SourceCandidates     []string `json:"source_candidates"`
 	ResetCommand         string   `json:"reset_command"`
@@ -859,11 +865,11 @@ func renderPolicyCandidatesWithColor(
 		action := allowCommand + " --id " + item.ID
 		fmt.Fprintf(
 			&output,
-			"id=%s\tobserved_at=%s\tobservation_count=%d\tcontext_id=%s\tcontext=%s\tproject_id=%s\tproject_root=%s\tscheme=%s\thost=%s\tport=%d\tmethod=%s\tpath=%s\treason=%s\tstatus_code=%d\tallow_command=%s\tdeny_command=%s\tprotocol=%s\tgraphql_operation_type=%s\tgraphql_root_field=%s\n",
+			"id=%s\tobserved_at=%s\tobservation_count=%d\tcontext_id=%s\tcontext=%s\tproject_id=%s\tproject_root=%s\tscheme=%s\thost=%s\tport=%d\tmethod=%s\tpath=%s\treason=%s\tstatus_code=%d\tallow_command=%s\tdeny_command=%s\tprotocol=%s\tgraphql_operation_type=%s\tgraphql_root_field=%s\tmcp_method=%s\tmcp_tool_name=%s\n",
 			item.ID, escapeTSVCell(item.ObservedAt), item.EffectiveObservationCount(), item.ContextID, escapeTSVCell(item.ContextName), item.ProjectID, escapeTSVCell(item.ProjectRoot), escapeTSVCell(item.Scheme),
 			escapeTSVCell(item.Host), item.Port, escapeTSVCell(item.Method), escapeTSVCell(item.Path), escapeTSVCell(item.Reason),
 			item.StatusCode, escapeTSVCell(action), escapeTSVCell(denyCommand+" --id "+item.ID),
-			escapeTSVCell(item.EffectiveProtocol()), escapeTSVCell(item.GraphQLOperationType), escapeTSVCell(item.GraphQLRootField),
+			escapeTSVCell(item.EffectiveProtocol()), escapeTSVCell(item.GraphQLOperationType), escapeTSVCell(item.GraphQLRootField), escapeTSVCell(item.MCPMethod), escapeTSVCell(item.MCPToolName),
 		)
 	}
 	return semanticTextBytes(color, output.Bytes()), nil
@@ -881,6 +887,7 @@ func policyCandidateOutputs(
 			Scheme: safeExternalText(item.Scheme), Host: safeExternalText(item.Host), Port: item.Port, Method: safeExternalText(item.Method),
 			Path: safeExternalText(item.Path), Protocol: safeExternalText(item.EffectiveProtocol()),
 			GraphQLOperationType: safeExternalText(item.GraphQLOperationType), GraphQLRootField: safeExternalText(item.GraphQLRootField),
+			MCPMethod: safeExternalText(item.MCPMethod), MCPToolName: safeExternalText(item.MCPToolName),
 			Reason:       safeExternalText(item.Reason),
 			StatusCode:   item.StatusCode,
 			AllowCommand: allowCommand + " --id " + item.ID,
@@ -1004,6 +1011,13 @@ func writePolicyGraphQLIdentity(output *humanOutput, identity tobari.PolicyProto
 	if coordinate := policyGraphQLCoordinate(identity); coordinate != "" {
 		output.row("GraphQL", coordinate, styleText)
 	}
+	if identity.EffectiveProtocol() == tobari.PolicyProtocolMCP {
+		coordinate := safeExternalText(identity.MCPMethod)
+		if identity.MCPToolName != "" {
+			coordinate += " · " + safeExternalText(identity.MCPToolName)
+		}
+		output.row("MCP", coordinate, styleText)
+	}
 }
 
 func renderPolicyReviewChange(result tobari.PolicyReviewChange, color bool) []byte {
@@ -1069,11 +1083,11 @@ func renderPolicyRulesWithCommands(
 	for _, item := range items {
 		fmt.Fprintf(
 			&output,
-			"id=%s\tdecision=%s\tmatch=%s\tcontext_id=%s\tcontext=%s\tproject_id=%s\tproject_root=%s\tscheme=%s\thost=%s\tport=%d\tmethod=%s\tpath=%s\texamples=%s\tsource_candidates=%s\treset_command=%s\tprotocol=%s\tgraphql_operation_type=%s\tgraphql_root_field=%s\n",
+			"id=%s\tdecision=%s\tmatch=%s\tcontext_id=%s\tcontext=%s\tproject_id=%s\tproject_root=%s\tscheme=%s\thost=%s\tport=%d\tmethod=%s\tpath=%s\texamples=%s\tsource_candidates=%s\treset_command=%s\tprotocol=%s\tgraphql_operation_type=%s\tgraphql_root_field=%s\tmcp_method=%s\tmcp_tool_name=%s\n",
 			item.ID, item.Decision, item.Match, item.ContextID, escapeTSVCell(item.Context), item.ProjectID, escapeTSVCell(item.ProjectRoot), escapeTSVCell(item.Scheme), escapeTSVCell(item.Host), item.Port,
 			escapeTSVCell(item.Method), escapeTSVCell(item.Path), escapeTSVCell(strings.Join(item.Examples, ",")),
 			escapeTSVCell(strings.Join(item.SourceCandidates, ",")), escapeTSVCell(item.ResetCommand), escapeTSVCell(item.Protocol),
-			escapeTSVCell(item.GraphQLOperationType), escapeTSVCell(item.GraphQLRootField),
+			escapeTSVCell(item.GraphQLOperationType), escapeTSVCell(item.GraphQLRootField), escapeTSVCell(item.MCPMethod), escapeTSVCell(item.MCPToolName),
 		)
 	}
 	return semanticTextBytes(color, output.Bytes()), nil
@@ -1092,6 +1106,7 @@ func policyRuleOutputs(result tobari.PolicyRuleReport, resetCommand string) []po
 			ProjectID: rule.ProjectID, ProjectRoot: safeExternalText(rule.ProjectRoot), Scheme: safeExternalText(rule.Scheme), Host: safeExternalText(rule.Host), Port: rule.Port,
 			Method: safeExternalText(rule.Method), Path: safeExternalText(rule.Path), Protocol: safeExternalText(rule.EffectiveProtocol()),
 			GraphQLOperationType: safeExternalText(rule.GraphQLOperationType), GraphQLRootField: safeExternalText(rule.GraphQLRootField),
+			MCPMethod: safeExternalText(rule.MCPMethod), MCPToolName: safeExternalText(rule.MCPToolName),
 			Examples: examples, SourceCandidates: append([]string{}, rule.SourceCandidates...),
 			ResetCommand: resetCommand + " --id " + rule.ID,
 		})
@@ -1258,7 +1273,7 @@ func renderClusterDenialsWithReviewCommand(
 				ProjectID: item.ProjectID, ProjectRoot: safeExternalText(item.ProjectRoot),
 				Scheme: safeExternalText(item.Scheme), Host: safeExternalText(item.Host), Port: item.Port, Method: safeExternalText(item.Method), Path: safeExternalText(item.Path),
 				Protocol: safeExternalText(item.EffectiveProtocol()), GraphQLOperationType: safeExternalText(item.GraphQLOperationType),
-				GraphQLRootField: safeExternalText(item.GraphQLRootField), Reason: safeExternalText(item.Reason), StatusCode: item.StatusCode,
+				GraphQLRootField: safeExternalText(item.GraphQLRootField), MCPMethod: safeExternalText(item.MCPMethod), MCPToolName: safeExternalText(item.MCPToolName), Reason: safeExternalText(item.Reason), StatusCode: item.StatusCode,
 				Learnable: item.Learnable,
 			})
 		}
@@ -1287,12 +1302,12 @@ func renderClusterDenialsWithReviewCommand(
 	for _, item := range result.Items {
 		fmt.Fprintf(
 			&output,
-			"denial: timestamp=%s\trequest_id=%s\tcontext=%s\tcontext_id=%s\tproject_id=%s\tproject_root=%s\tscheme=%s\thost=%s\tport=%d\tmethod=%s\tpath=%s\tstatus_code=%d\treason=%s\tprotocol=%s\tgraphql_operation_type=%s\tgraphql_root_field=%s\n",
+			"denial: timestamp=%s\trequest_id=%s\tcontext=%s\tcontext_id=%s\tproject_id=%s\tproject_root=%s\tscheme=%s\thost=%s\tport=%d\tmethod=%s\tpath=%s\tstatus_code=%d\treason=%s\tprotocol=%s\tgraphql_operation_type=%s\tgraphql_root_field=%s\tmcp_method=%s\tmcp_tool_name=%s\n",
 			escapeTSVCell(item.Timestamp), escapeTSVCell(item.RequestID),
 			escapeTSVCell(item.ContextName), item.ContextID, item.ProjectID, escapeTSVCell(item.ProjectRoot),
 			escapeTSVCell(item.Scheme), escapeTSVCell(item.Host), item.Port, escapeTSVCell(item.Method),
 			escapeTSVCell(item.Path), item.StatusCode, escapeTSVCell(item.Reason), escapeTSVCell(item.EffectiveProtocol()),
-			escapeTSVCell(item.GraphQLOperationType), escapeTSVCell(item.GraphQLRootField),
+			escapeTSVCell(item.GraphQLOperationType), escapeTSVCell(item.GraphQLRootField), escapeTSVCell(item.MCPMethod), escapeTSVCell(item.MCPToolName),
 		)
 	}
 	fmt.Fprintf(&output, "review_command: %s\n", escapeTSVCell(reviewCommand))

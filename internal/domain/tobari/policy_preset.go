@@ -102,6 +102,61 @@ type PolicyPresetExactRule struct {
 	Path   string `json:"path"`
 }
 
+// PolicyPresetPathTemplateRule is a reviewed built-in HTTP path shape. It is
+// deliberately narrower than learned templates: exactly one direct {id}
+// segment is permitted and no observed identifier is retained.
+type PolicyPresetPathTemplateRule struct {
+	Scheme   string   `json:"scheme"`
+	Host     string   `json:"host"`
+	Port     int      `json:"port"`
+	Method   string   `json:"method"`
+	Path     string   `json:"path"`
+	Segments []string `json:"segments"`
+}
+
+func (r PolicyPresetPathTemplateRule) Validate() error {
+	if err := (PolicyPresetExactRule{Scheme: r.Scheme, Host: r.Host, Port: r.Port, Method: r.Method, Path: r.Path}).Validate(); err != nil {
+		return err
+	}
+	if len(r.Segments) < 2 || len(r.Segments) > 32 || r.Path != "/"+strings.Join(r.Segments, "/") {
+		return fmt.Errorf("policy preset path template is invalid")
+	}
+	wildcards := 0
+	for _, segment := range r.Segments {
+		if segment == "{id}" {
+			wildcards++
+			continue
+		}
+		if segment == "" || segment == "." || segment == ".." || strings.ContainsAny(segment, `/\\%?#`) {
+			return fmt.Errorf("policy preset path template segment is invalid")
+		}
+	}
+	if wildcards != 1 || r.Segments[len(r.Segments)-1] != "{id}" {
+		return fmt.Errorf("policy preset path template must end in one identifier segment")
+	}
+	return nil
+}
+
+type PolicyPresetMCPRule struct {
+	Scheme      string `json:"scheme"`
+	Host        string `json:"host"`
+	Port        int    `json:"port"`
+	Method      string `json:"method"`
+	Path        string `json:"path"`
+	MCPMethod   string `json:"mcp_method"`
+	MCPToolName string `json:"mcp_tool_name,omitempty"`
+}
+
+func (r PolicyPresetMCPRule) Validate() error {
+	if err := (PolicyPresetExactRule{Scheme: r.Scheme, Host: r.Host, Port: r.Port, Method: r.Method, Path: r.Path}).Validate(); err != nil {
+		return err
+	}
+	if r.Method != "POST" {
+		return fmt.Errorf("policy preset MCP transport method must be POST")
+	}
+	return (PolicyProtocolIdentity{Scheme: r.Scheme, Protocol: PolicyProtocolMCP, MCPMethod: r.MCPMethod, MCPToolName: r.MCPToolName}).Validate()
+}
+
 type PolicyPresetMethodCeiling struct {
 	Mode    string   `json:"mode"`
 	Methods []string `json:"methods"`
@@ -132,8 +187,11 @@ type PolicyPreset struct {
 	DestinationCeiling PolicyPresetDestinationCeiling `json:"destination_ceiling"`
 	MethodCeiling      PolicyPresetMethodCeiling      `json:"method_ceiling"`
 	BaselineGrants     []PolicyPresetExactRule        `json:"baseline_grants"`
+	BaselineTemplates  []PolicyPresetPathTemplateRule `json:"baseline_templates"`
+	MCPBaselineGrants  []PolicyPresetMCPRule          `json:"mcp_baseline_grants"`
 	BaselineDenies     []PolicyPresetExactRule        `json:"baseline_denies"`
 	GraphQLEndpoints   []PolicyPresetExactRule        `json:"graphql_endpoints"`
+	MCPEndpoints       []PolicyPresetExactRule        `json:"mcp_endpoints"`
 }
 
 func ValidatePolicyPresetOrigin(origin string) error {
@@ -151,7 +209,7 @@ func (p PolicyPreset) Validate() error {
 	if err := p.Guardrail.Validate(); err != nil {
 		return err
 	}
-	if p.DestinationCeiling.Authorities == nil || p.MethodCeiling.Methods == nil || p.BaselineGrants == nil || p.BaselineDenies == nil || p.GraphQLEndpoints == nil {
+	if p.DestinationCeiling.Authorities == nil || p.MethodCeiling.Methods == nil || p.BaselineGrants == nil || p.BaselineTemplates == nil || p.MCPBaselineGrants == nil || p.BaselineDenies == nil || p.GraphQLEndpoints == nil || p.MCPEndpoints == nil {
 		return fmt.Errorf("policy preset collections must be explicit")
 	}
 	if p.DestinationCeiling.Mode != "public_https" && p.DestinationCeiling.Mode != "exact" {
@@ -187,7 +245,7 @@ func (p PolicyPreset) Validate() error {
 		}
 		seen[method] = struct{}{}
 	}
-	for _, rules := range [][]PolicyPresetExactRule{p.BaselineGrants, p.BaselineDenies, p.GraphQLEndpoints} {
+	for _, rules := range [][]PolicyPresetExactRule{p.BaselineGrants, p.BaselineDenies, p.GraphQLEndpoints, p.MCPEndpoints} {
 		seen = map[string]struct{}{}
 		for _, rule := range rules {
 			if err := rule.Validate(); err != nil {
@@ -206,9 +264,60 @@ func (p PolicyPreset) Validate() error {
 			}
 		}
 	}
+	seen = map[string]struct{}{}
+	for _, rule := range p.BaselineTemplates {
+		if err := rule.Validate(); err != nil {
+			return err
+		}
+		exact := PolicyPresetExactRule{Scheme: rule.Scheme, Host: rule.Host, Port: rule.Port, Method: rule.Method, Path: rule.Path}
+		key := fmt.Sprintf("%s\x00%s\x00%d\x00%s\x00%s", rule.Scheme, rule.Host, rule.Port, rule.Method, rule.Path)
+		if _, ok := seen[key]; ok {
+			return fmt.Errorf("policy preset path template is duplicated")
+		}
+		seen[key] = struct{}{}
+		if !policyPresetRuleInsideDestination(p.DestinationCeiling, exact) || (p.MethodCeiling.Mode == "exact" && !presetContainsMethod(p.MethodCeiling.Methods, rule.Method)) {
+			return fmt.Errorf("policy preset path template exceeds its ceiling")
+		}
+	}
+	seen = map[string]struct{}{}
+	for _, rule := range p.MCPBaselineGrants {
+		if err := rule.Validate(); err != nil {
+			return err
+		}
+		exact := PolicyPresetExactRule{Scheme: rule.Scheme, Host: rule.Host, Port: rule.Port, Method: rule.Method, Path: rule.Path}
+		key := fmt.Sprintf("%s\x00%s\x00%d\x00%s\x00%s\x00%s\x00%s", rule.Scheme, rule.Host, rule.Port, rule.Method, rule.Path, rule.MCPMethod, rule.MCPToolName)
+		if _, ok := seen[key]; ok {
+			return fmt.Errorf("policy preset MCP grant is duplicated")
+		}
+		seen[key] = struct{}{}
+		if !policyPresetRuleInsideDestination(p.DestinationCeiling, exact) || (p.MethodCeiling.Mode == "exact" && !presetContainsMethod(p.MethodCeiling.Methods, rule.Method)) {
+			return fmt.Errorf("policy preset MCP grant exceeds its ceiling")
+		}
+		found := false
+		for _, endpoint := range p.MCPEndpoints {
+			if endpoint == exact {
+				found = true
+			}
+		}
+		if !found {
+			return fmt.Errorf("policy preset MCP grant has no declared endpoint")
+		}
+	}
 	for _, endpoint := range p.GraphQLEndpoints {
 		if endpoint.Method != "POST" {
 			return fmt.Errorf("policy preset GraphQL endpoint method must be POST")
+		}
+	}
+	for _, endpoint := range p.MCPEndpoints {
+		if endpoint.Method != "POST" {
+			return fmt.Errorf("policy preset MCP endpoint method must be POST")
+		}
+	}
+	for _, graphql := range p.GraphQLEndpoints {
+		for _, mcp := range p.MCPEndpoints {
+			if graphql.Scheme == mcp.Scheme && graphql.Host == mcp.Host && graphql.Port == mcp.Port && graphql.Path == mcp.Path {
+				return fmt.Errorf("policy preset semantic endpoint is ambiguous")
+			}
 		}
 	}
 	return nil
@@ -247,8 +356,11 @@ func NormalizePolicyPreset(p PolicyPreset) (PolicyPreset, []byte, string, error)
 	clone.DestinationCeiling.Authorities = append([]PolicyPresetAuthority{}, p.DestinationCeiling.Authorities...)
 	clone.MethodCeiling.Methods = append([]string{}, p.MethodCeiling.Methods...)
 	clone.BaselineGrants = append([]PolicyPresetExactRule{}, p.BaselineGrants...)
+	clone.BaselineTemplates = append([]PolicyPresetPathTemplateRule{}, p.BaselineTemplates...)
+	clone.MCPBaselineGrants = append([]PolicyPresetMCPRule{}, p.MCPBaselineGrants...)
 	clone.BaselineDenies = append([]PolicyPresetExactRule{}, p.BaselineDenies...)
 	clone.GraphQLEndpoints = append([]PolicyPresetExactRule{}, p.GraphQLEndpoints...)
+	clone.MCPEndpoints = append([]PolicyPresetExactRule{}, p.MCPEndpoints...)
 	sort.Slice(clone.DestinationCeiling.Authorities, func(i, j int) bool {
 		a, b := clone.DestinationCeiling.Authorities[i], clone.DestinationCeiling.Authorities[j]
 		return fmt.Sprintf("%s/%s/%05d", a.Scheme, a.Host, a.Port) < fmt.Sprintf("%s/%s/%05d", b.Scheme, b.Host, b.Port)
@@ -258,8 +370,17 @@ func NormalizePolicyPreset(p PolicyPreset) (PolicyPreset, []byte, string, error)
 		return fmt.Sprintf("%s/%s/%05d/%s/%s", a.Scheme, a.Host, a.Port, a.Method, a.Path) < fmt.Sprintf("%s/%s/%05d/%s/%s", b.Scheme, b.Host, b.Port, b.Method, b.Path)
 	}
 	sort.Slice(clone.BaselineGrants, func(i, j int) bool { return lessRule(clone.BaselineGrants[i], clone.BaselineGrants[j]) })
+	sort.Slice(clone.BaselineTemplates, func(i, j int) bool {
+		a, b := clone.BaselineTemplates[i], clone.BaselineTemplates[j]
+		return fmt.Sprintf("%s/%s/%05d/%s/%s", a.Scheme, a.Host, a.Port, a.Method, a.Path) < fmt.Sprintf("%s/%s/%05d/%s/%s", b.Scheme, b.Host, b.Port, b.Method, b.Path)
+	})
+	sort.Slice(clone.MCPBaselineGrants, func(i, j int) bool {
+		a, b := clone.MCPBaselineGrants[i], clone.MCPBaselineGrants[j]
+		return fmt.Sprintf("%s/%s/%05d/%s/%s/%s/%s", a.Scheme, a.Host, a.Port, a.Method, a.Path, a.MCPMethod, a.MCPToolName) < fmt.Sprintf("%s/%s/%05d/%s/%s/%s/%s", b.Scheme, b.Host, b.Port, b.Method, b.Path, b.MCPMethod, b.MCPToolName)
+	})
 	sort.Slice(clone.BaselineDenies, func(i, j int) bool { return lessRule(clone.BaselineDenies[i], clone.BaselineDenies[j]) })
 	sort.Slice(clone.GraphQLEndpoints, func(i, j int) bool { return lessRule(clone.GraphQLEndpoints[i], clone.GraphQLEndpoints[j]) })
+	sort.Slice(clone.MCPEndpoints, func(i, j int) bool { return lessRule(clone.MCPEndpoints[i], clone.MCPEndpoints[j]) })
 	data, err := json.MarshalIndent(clone, "", "  ")
 	if err != nil {
 		return PolicyPreset{}, nil, "", err
@@ -270,7 +391,7 @@ func NormalizePolicyPreset(p PolicyPreset) (PolicyPreset, []byte, string, error)
 }
 
 func BuiltinPolicyPreset(origin string) (PolicyPreset, bool) {
-	base := PolicyPreset{SchemaVersion: 1, DestinationCeiling: PolicyPresetDestinationCeiling{Mode: "public_https", Authorities: []PolicyPresetAuthority{}}, MethodCeiling: PolicyPresetMethodCeiling{Mode: "all", Methods: []string{}}, BaselineGrants: []PolicyPresetExactRule{}, BaselineDenies: []PolicyPresetExactRule{}, GraphQLEndpoints: []PolicyPresetExactRule{}}
+	base := PolicyPreset{SchemaVersion: 1, DestinationCeiling: PolicyPresetDestinationCeiling{Mode: "public_https", Authorities: []PolicyPresetAuthority{}}, MethodCeiling: PolicyPresetMethodCeiling{Mode: "all", Methods: []string{}}, BaselineGrants: []PolicyPresetExactRule{}, BaselineTemplates: []PolicyPresetPathTemplateRule{}, MCPBaselineGrants: []PolicyPresetMCPRule{}, BaselineDenies: []PolicyPresetExactRule{}, GraphQLEndpoints: []PolicyPresetExactRule{}, MCPEndpoints: []PolicyPresetExactRule{}}
 	switch origin {
 	case "builtin/offline":
 		base.Name = "offline"
@@ -279,6 +400,9 @@ func BuiltinPolicyPreset(origin string) (PolicyPreset, bool) {
 		base.Name = "agent-ready"
 		base.Guardrail = PolicyPresetGuardrailReviewedExact
 		base.BaselineGrants = agentReadyBaselineGrants()
+		base.BaselineTemplates = agentReadyBaselineTemplates()
+		base.MCPEndpoints = agentReadyMCPEndpoints()
+		base.MCPBaselineGrants = agentReadyMCPBaselineGrants()
 	case "builtin/reviewed-exact":
 		base.Name = "reviewed-exact"
 		base.Guardrail = PolicyPresetGuardrailReviewedExact
@@ -295,8 +419,8 @@ func BuiltinPolicyPreset(origin string) (PolicyPreset, bool) {
 // agentReadyBaselineGrants is coupled to the Claude Code and Codex versions
 // pinned by the canonical base runtime. These are HTTP-effect grants, not
 // process identity: every process in the Context receives the same exact
-// authority/method/path decisions. Optional plugins, MCP, connectors, file
-// transfer, release downloads, evaluation, and self-update routes stay out.
+// authority/method/path decisions. Native first-party discovery and control
+// plane routes are included; acquisition, file transfer, and self-update stay out.
 func agentReadyBaselineGrants() []PolicyPresetExactRule {
 	return []PolicyPresetExactRule{
 		{Scheme: "https", Host: "ab.chatgpt.com", Port: 443, Method: "POST", Path: "/otlp/v1/metrics"},
@@ -304,6 +428,11 @@ func agentReadyBaselineGrants() []PolicyPresetExactRule {
 		{Scheme: "https", Host: "api.anthropic.com", Port: 443, Method: "GET", Path: "/api/oauth/claude_cli/roles"},
 		{Scheme: "https", Host: "api.anthropic.com", Port: 443, Method: "GET", Path: "/api/claude_code/policy_limits"},
 		{Scheme: "https", Host: "api.anthropic.com", Port: 443, Method: "GET", Path: "/api/claude_code/settings"},
+		{Scheme: "https", Host: "api.anthropic.com", Port: 443, Method: "GET", Path: "/api/organization/claude_code_first_token_date"},
+		{Scheme: "https", Host: "api.anthropic.com", Port: 443, Method: "GET", Path: "/api/claude_code_penguin_mode"},
+		{Scheme: "https", Host: "api.anthropic.com", Port: 443, Method: "GET", Path: "/api/claude_code/organizations/metrics_enabled"},
+		{Scheme: "https", Host: "api.anthropic.com", Port: 443, Method: "GET", Path: "/mcp-registry/v0/servers"},
+		{Scheme: "https", Host: "api.anthropic.com", Port: 443, Method: "GET", Path: "/v1/mcp_servers"},
 		{Scheme: "https", Host: "api.anthropic.com", Port: 443, Method: "GET", Path: "/api/hello"},
 		{Scheme: "https", Host: "api.anthropic.com", Port: 443, Method: "HEAD", Path: "/api/hello"},
 		{Scheme: "https", Host: "api.anthropic.com", Port: 443, Method: "GET", Path: "/api/oauth/profile"},
@@ -315,6 +444,12 @@ func agentReadyBaselineGrants() []PolicyPresetExactRule {
 		{Scheme: "https", Host: "auth.openai.com", Port: 443, Method: "POST", Path: "/oauth/token"},
 		{Scheme: "https", Host: "chatgpt.com", Port: 443, Method: "GET", Path: "/backend-api/codex/models"},
 		{Scheme: "https", Host: "chatgpt.com", Port: 443, Method: "GET", Path: "/backend-api/codex/responses"},
+		{Scheme: "https", Host: "chatgpt.com", Port: 443, Method: "GET", Path: "/backend-api/plugins/featured"},
+		{Scheme: "https", Host: "chatgpt.com", Port: 443, Method: "GET", Path: "/backend-api/plugins/export/curated"},
+		{Scheme: "https", Host: "chatgpt.com", Port: 443, Method: "GET", Path: "/backend-api/connectors/directory/list"},
+		{Scheme: "https", Host: "chatgpt.com", Port: 443, Method: "GET", Path: "/backend-api/ps/plugins/list"},
+		{Scheme: "https", Host: "chatgpt.com", Port: 443, Method: "GET", Path: "/backend-api/ps/plugins/installed"},
+		{Scheme: "https", Host: "chatgpt.com", Port: 443, Method: "GET", Path: "/backend-api/ps/plugins/suggested"},
 		{Scheme: "https", Host: "chatgpt.com", Port: 443, Method: "POST", Path: "/backend-api/codex/analytics-events/events"},
 		{Scheme: "https", Host: "chatgpt.com", Port: 443, Method: "POST", Path: "/backend-api/codex/responses"},
 		{Scheme: "https", Host: "chatgpt.com", Port: 443, Method: "GET", Path: "/backend-api/wham/rate-limit-reset-credits"},
@@ -323,6 +458,23 @@ func agentReadyBaselineGrants() []PolicyPresetExactRule {
 		{Scheme: "https", Host: "platform.claude.com", Port: 443, Method: "GET", Path: "/v1/oauth/hello"},
 		{Scheme: "https", Host: "platform.claude.com", Port: 443, Method: "POST", Path: "/v1/oauth/token"},
 	}
+}
+
+func agentReadyBaselineTemplates() []PolicyPresetPathTemplateRule {
+	return []PolicyPresetPathTemplateRule{{Scheme: "https", Host: "api.anthropic.com", Port: 443, Method: "POST", Path: "/api/eval/{id}", Segments: []string{"api", "eval", "{id}"}}}
+}
+
+func agentReadyMCPEndpoints() []PolicyPresetExactRule {
+	return []PolicyPresetExactRule{{Scheme: "https", Host: "chatgpt.com", Port: 443, Method: "POST", Path: "/backend-api/ps/mcp"}}
+}
+
+func agentReadyMCPBaselineGrants() []PolicyPresetMCPRule {
+	methods := []string{"initialize", "notifications/initialized", "ping", "tools/list", "resources/list", "resources/templates/list", "prompts/list"}
+	rules := make([]PolicyPresetMCPRule, 0, len(methods))
+	for _, method := range methods {
+		rules = append(rules, PolicyPresetMCPRule{Scheme: "https", Host: "chatgpt.com", Port: 443, Method: "POST", Path: "/backend-api/ps/mcp", MCPMethod: method})
+	}
+	return rules
 }
 
 func PolicyPresetRevision(p PolicyPreset) (string, error) {

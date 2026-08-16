@@ -471,6 +471,12 @@ func policyRuleRequest(rule tobari.PolicyRule) string {
 	if coordinate := policyGraphQLCoordinate(rule.PolicyProtocolIdentity); coordinate != "" {
 		request += " · GraphQL " + coordinate
 	}
+	if rule.EffectiveProtocol() == tobari.PolicyProtocolMCP {
+		request += " · MCP " + safeExternalText(rule.MCPMethod)
+		if rule.MCPToolName != "" {
+			request += " · " + safeExternalText(rule.MCPToolName)
+		}
+	}
 	return request
 }
 

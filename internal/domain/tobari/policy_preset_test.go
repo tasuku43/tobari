@@ -29,7 +29,7 @@ func TestBuiltinPolicyPresetsHaveStableRevisions(t *testing.T) {
 	}
 }
 
-func TestAgentReadyPresetPinsCoreEffectsAndExcludesOptionalSurfaces(t *testing.T) {
+func TestAgentReadyPresetPreservesNativeDiscoveryAndSeparatesMCPExecution(t *testing.T) {
 	preset, ok := BuiltinPolicyPreset(DefaultPolicyPresetOrigin)
 	if !ok {
 		t.Fatal("agent-ready preset is missing")
@@ -55,7 +55,27 @@ func TestAgentReadyPresetPinsCoreEffectsAndExcludesOptionalSurfaces(t *testing.T
 	if len(want) != 0 {
 		t.Fatalf("agent-ready core grants are missing: %v", want)
 	}
-	for _, forbidden := range []string{"mcp", "plugin", "connector", "upload", "download", "eval", "penguin", "release", "update"} {
+	for _, required := range []string{"GET api.anthropic.com/mcp-registry/v0/servers", "GET api.anthropic.com/api/claude_code_penguin_mode", "GET chatgpt.com/backend-api/connectors/directory/list", "GET chatgpt.com/backend-api/ps/plugins/installed"} {
+		found := false
+		for _, rule := range preset.BaselineGrants {
+			found = found || rule.Method+" "+rule.Host+rule.Path == required
+		}
+		if !found {
+			t.Fatalf("native discovery grant missing: %s", required)
+		}
+	}
+	if len(preset.BaselineTemplates) != 1 || preset.BaselineTemplates[0].Path != "/api/eval/{id}" {
+		t.Fatalf("Claude eval template = %+v", preset.BaselineTemplates)
+	}
+	if len(preset.MCPEndpoints) != 1 || len(preset.MCPBaselineGrants) == 0 {
+		t.Fatalf("MCP boundary = endpoints:%+v grants:%+v", preset.MCPEndpoints, preset.MCPBaselineGrants)
+	}
+	for _, rule := range preset.MCPBaselineGrants {
+		if rule.MCPMethod == "tools/call" || rule.MCPToolName != "" {
+			t.Fatalf("MCP action entered baseline: %+v", rule)
+		}
+	}
+	for _, forbidden := range []string{"upload", "download", "release", "update"} {
 		for _, rule := range preset.BaselineGrants {
 			if strings.Contains(strings.ToLower(rule.Host+rule.Path), forbidden) {
 				t.Fatalf("optional surface %q entered agent-ready baseline: %+v", forbidden, rule)
@@ -90,7 +110,7 @@ func TestPolicyPresetRejectsDuplicatesAndExecutableShapedUnknownDataAtStrictDeco
 }
 
 func TestPolicyPresetRulesCannotExceedDestinationOrMethodCeilings(t *testing.T) {
-	base := PolicyPreset{SchemaVersion: 1, Name: "bounded", Guardrail: PolicyPresetGuardrailReviewedExact, DestinationCeiling: PolicyPresetDestinationCeiling{Mode: "exact", Authorities: []PolicyPresetAuthority{{Scheme: "https", Host: "api.github.com", Port: 443}}}, MethodCeiling: PolicyPresetMethodCeiling{Mode: "exact", Methods: []string{"GET", "POST"}}, BaselineGrants: []PolicyPresetExactRule{}, BaselineDenies: []PolicyPresetExactRule{}, GraphQLEndpoints: []PolicyPresetExactRule{}}
+	base := PolicyPreset{SchemaVersion: 1, Name: "bounded", Guardrail: PolicyPresetGuardrailReviewedExact, DestinationCeiling: PolicyPresetDestinationCeiling{Mode: "exact", Authorities: []PolicyPresetAuthority{{Scheme: "https", Host: "api.github.com", Port: 443}}}, MethodCeiling: PolicyPresetMethodCeiling{Mode: "exact", Methods: []string{"GET", "POST"}}, BaselineGrants: []PolicyPresetExactRule{}, BaselineTemplates: []PolicyPresetPathTemplateRule{}, MCPBaselineGrants: []PolicyPresetMCPRule{}, BaselineDenies: []PolicyPresetExactRule{}, GraphQLEndpoints: []PolicyPresetExactRule{}, MCPEndpoints: []PolicyPresetExactRule{}}
 	inside := PolicyPresetExactRule{Scheme: "https", Host: "api.github.com", Port: 443, Method: "GET", Path: "/user"}
 	for name, assign := range map[string]func(*PolicyPreset){
 		"grant destination": func(p *PolicyPreset) {
@@ -142,5 +162,21 @@ func TestSchemeChangesGuidedCandidateIdentity(t *testing.T) {
 	}
 	if httpsCandidate.ID == httpCandidate.ID {
 		t.Fatal("candidate identity omitted scheme")
+	}
+}
+
+func TestMCPPolicyIdentityBindsMethodAndToolWithoutArguments(t *testing.T) {
+	base := PolicyProtocolIdentity{Scheme: "https", Protocol: PolicyProtocolMCP, MCPMethod: "tools/call", MCPToolName: "codex_apps.search"}
+	if err := base.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	for name, identity := range map[string]PolicyProtocolIdentity{
+		"missing tool": {Scheme: "https", Protocol: PolicyProtocolMCP, MCPMethod: "tools/call"},
+		"tool on list": {Scheme: "https", Protocol: PolicyProtocolMCP, MCPMethod: "tools/list", MCPToolName: "x"},
+		"unsafe tool":  {Scheme: "https", Protocol: PolicyProtocolMCP, MCPMethod: "tools/call", MCPToolName: "secret\nname"},
+	} {
+		if err := identity.Validate(); err == nil {
+			t.Fatalf("%s identity accepted", name)
+		}
 	}
 }

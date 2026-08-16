@@ -18,6 +18,7 @@ import (
 
 	"github.com/tasuku43/tobari/internal/domain/fault"
 	"github.com/tasuku43/tobari/internal/domain/tobari"
+	"github.com/tasuku43/tobari/internal/infra/terminal"
 )
 
 const (
@@ -428,7 +429,18 @@ func (r *Runtime) EnterProjectRuntime(
 		args = append(args, "--env", environment)
 	}
 	args = append(args, "--workdir", workdir, container, "/bin/bash")
-	if err := r.runner.Run(ctx, args, os.Environ(), in, out, errOut); err == nil {
+	bridge := newWorkspaceLoginBridge(ctx, r, container, instance.ID)
+	defer bridge.close()
+	observedOut, observedErr := bridge.writers(out, errOut)
+	run := func() error {
+		if terminalRunner, ok := r.runner.(terminalOutputCommandRunner); ok && terminal.IsTerminal(out) {
+			return terminalRunner.RunWithTerminalOutput(
+				ctx, args, os.Environ(), in, out, observedOut, errOut,
+			)
+		}
+		return r.runner.Run(ctx, args, os.Environ(), in, observedOut, observedErr)
+	}
+	if err := run(); err == nil {
 		return 0, nil
 	} else {
 		var exitError *exec.ExitError

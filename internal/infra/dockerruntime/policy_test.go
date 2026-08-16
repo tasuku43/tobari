@@ -40,6 +40,8 @@ const denyAuditLine = `{"schema_version":1,"cluster":"default","context":"defaul
 
 const graphqlDenyAuditLine = `{"schema_version":1,"cluster":"default","context":"default","context_id":"01912345-6789-7abc-8def-0123456789ad","decision":"deny","duration_ms":3,"host":"api.github.com","learnable":true,"method":"POST","path":"/graphql","port":443,"project_id":"01912345-6789-7abc-8def-0123456789ab","project_root":"/workspace/project","protocol":"graphql","graphql_operation_type":"mutation","graphql_root_field":"updateIssue","reason":"request did not match an allow rule","request_id":"7185da2688d7469aae9cd9068e920b0b","scheme":"https","timestamp":"2026-07-30T10:41:11Z","upstream_status":403}`
 
+const mcpDenyAuditLine = `{"schema_version":1,"cluster":"default","context":"default","context_id":"01912345-6789-7abc-8def-0123456789ad","decision":"deny","duration_ms":3,"host":"chatgpt.com","learnable":true,"method":"POST","path":"/backend-api/ps/mcp","port":443,"project_id":"01912345-6789-7abc-8def-0123456789ab","project_root":"/workspace/project","protocol":"mcp","mcp_method":"tools/call","mcp_tool_name":"codex_apps.search","reason":"request did not match an allow rule","request_id":"7185da2688d7469aae9cd9068e920b0b","scheme":"https","timestamp":"2026-07-30T10:41:11Z","upstream_status":403}`
+
 func writePolicyArchiveFixture(t *testing.T, state tobari.State) {
 	t.Helper()
 	if err := os.MkdirAll(state.PolicyDirectory, 0o700); err != nil {
@@ -108,6 +110,20 @@ func TestParseGatewayDenialsPreservesGraphQLRootIdentity(t *testing.T) {
 		items[0].GraphQLOperationType != tobari.GraphQLOperationMutation ||
 		items[0].GraphQLRootField != "updateIssue" {
 		t.Fatalf("GraphQL denial = %+v", items)
+	}
+}
+
+func TestParseGatewayDenialsPreservesOnlyMCPSemanticIdentity(t *testing.T) {
+	t.Parallel()
+	items, err := parseGatewayDenials([]byte(mcpDenyAuditLine + "\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 || items[0].EffectiveProtocol() != tobari.PolicyProtocolMCP || items[0].MCPMethod != "tools/call" || items[0].MCPToolName != "codex_apps.search" {
+		t.Fatalf("MCP denial = %+v", items)
+	}
+	if strings.Contains(mcpDenyAuditLine, "arguments") {
+		t.Fatal("MCP audit retained arguments")
 	}
 }
 

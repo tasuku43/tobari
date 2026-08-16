@@ -882,6 +882,8 @@ func TestHostBrowserCommandAcceptsOnlyReviewedLoginURLs(t *testing.T) {
 		{goos: "linux", executable: "/usr/bin/xdg-open", target: "https://device.sso.us-gov-west-1.amazonaws.com/"},
 		{goos: "darwin", executable: "/usr/bin/open", target: syntheticAWSConsoleAuthorizationURL("ap-northeast-1")},
 		{goos: "darwin", executable: "/usr/bin/open", target: syntheticClaudeAuthorizationURL()},
+		{goos: "darwin", executable: "/usr/bin/open", target: syntheticCodexAuthorizationURL(strings.Repeat("c", 43), strings.Repeat("s", 43))},
+		{goos: "darwin", executable: "/usr/bin/open", target: syntheticGitHubAuthorizationURL(37405, strings.Repeat("a", 20), githubAuthorizationScope)},
 	}
 	for _, test := range tests {
 		executable, args, err := hostBrowserCommand(test.goos, test.target)
@@ -908,6 +910,12 @@ func TestHostBrowserCommandAcceptsOnlyReviewedLoginURLs(t *testing.T) {
 		strings.Replace(syntheticClaudeAuthorizationURL(), "claude.com", "claude.com.evil.example", 1),
 		strings.Replace(syntheticClaudeAuthorizationURL(), claudeLoginClientID, "wrong-client", 1),
 		strings.Replace(syntheticClaudeAuthorizationURL(), "code=true", "code=false", 1),
+		syntheticCodexAuthorizationURL(strings.Repeat("c", 43), strings.Repeat("s", 43)) + "&scope=admin",
+		strings.Replace(syntheticCodexAuthorizationURL(strings.Repeat("c", 43), strings.Repeat("s", 43)), codexAuthorizationHost, "auth.openai.com.evil.example", 1),
+		strings.Replace(syntheticCodexAuthorizationURL(strings.Repeat("c", 43), strings.Repeat("s", 43)), codexAuthorizationClientID, "wrong-client", 1),
+		syntheticGitHubAuthorizationURL(37405, strings.Repeat("a", 20), githubAuthorizationScope) + "&scope=admin:org",
+		strings.Replace(syntheticGitHubAuthorizationURL(37405, strings.Repeat("a", 20), githubAuthorizationScope), githubAuthorizationHost, "github.com.evil.example", 1),
+		strings.Replace(syntheticGitHubAuthorizationURL(37405, strings.Repeat("a", 20), githubAuthorizationScope), githubAuthorizationClientID, "wrong-client", 1),
 	} {
 		if _, _, err := hostBrowserCommand("darwin", target); err == nil {
 			t.Fatalf("unsafe browser target %q was accepted", target)

@@ -134,7 +134,7 @@ func (r *Runtime) readContextPreset(manifest tobari.ContextManifest) (tobari.Pol
 }
 
 func policyPresetSummary(origin string, preset tobari.PolicyPreset, revision string) tobari.PolicyPresetSummary {
-	return tobari.PolicyPresetSummary{Origin: origin, Revision: revision, Guardrail: preset.Guardrail, ImmediateGrantCount: len(preset.BaselineGrants), DestinationCeiling: preset.DestinationCeiling.Mode, DestinationCount: len(preset.DestinationCeiling.Authorities), MethodCeiling: preset.MethodCeiling.Mode, MethodCount: len(preset.MethodCeiling.Methods)}
+	return tobari.PolicyPresetSummary{Origin: origin, Revision: revision, Guardrail: preset.Guardrail, ImmediateGrantCount: len(preset.BaselineGrants) + len(preset.BaselineTemplates) + len(preset.MCPBaselineGrants), DestinationCeiling: preset.DestinationCeiling.Mode, DestinationCount: len(preset.DestinationCeiling.Authorities), MethodCeiling: preset.MethodCeiling.Mode, MethodCount: len(preset.MethodCeiling.Methods)}
 }
 
 func (r *Runtime) ListPolicyPresets(ctx context.Context) (tobari.PolicyPresetResult, error) {
@@ -190,8 +190,8 @@ func (r *Runtime) ValidatePolicyPreset(ctx context.Context, origin string) (toba
 }
 
 func (r *Runtime) policyPresetResult(task, origin string, preset tobari.PolicyPreset, revision string) tobari.PolicyPresetResult {
-	limitations := []string{"Immediate grants are HTTP effects available to every process in the Context; they do not identify an agent executable.", "No immediate grant is automatically safe or read-only.", "Source changes affect only future Context creation.", "The preset contains no executable policy, secret, wildcard, inheritance, include, or remote fetch."}
-	result := tobari.PolicyPresetResult{Task: task, Origin: origin, Revision: revision, Preset: &preset, Scope: "One Context-wide immutable network ceiling and exact baseline snapshot.", Limitations: limitations}
+	limitations := []string{"Immediate grants are semantic network effects available to every process in the Context; they do not identify an agent executable.", "MCP payload arguments and responses are not authorization dimensions.", "No immediate grant is automatically safe or read-only.", "Source changes affect only future Context creation.", "The preset contains no executable policy, secret, wildcard, inheritance, include, or remote fetch."}
+	result := tobari.PolicyPresetResult{Task: task, Origin: origin, Revision: revision, Preset: &preset, Scope: "One Context-wide immutable network ceiling and normalized baseline snapshot.", Limitations: limitations}
 	if strings.HasPrefix(origin, "custom/") {
 		result.SourcePath = filepath.Join(r.policyPresetCustomDirectory(), strings.TrimPrefix(origin, "custom/")+".json")
 	}
@@ -211,7 +211,7 @@ func (r *Runtime) InitPolicyPreset(ctx context.Context, name string) (tobari.Pol
 	if err := r.ensurePrivateDirectory(r.policyPresetCustomDirectory()); err != nil {
 		return tobari.PolicyPresetResult{}, err
 	}
-	preset := tobari.PolicyPreset{SchemaVersion: 1, Name: name, Guardrail: tobari.PolicyPresetGuardrailOffline, DestinationCeiling: tobari.PolicyPresetDestinationCeiling{Mode: "public_https", Authorities: []tobari.PolicyPresetAuthority{}}, MethodCeiling: tobari.PolicyPresetMethodCeiling{Mode: "all", Methods: []string{}}, BaselineGrants: []tobari.PolicyPresetExactRule{}, BaselineDenies: []tobari.PolicyPresetExactRule{}, GraphQLEndpoints: []tobari.PolicyPresetExactRule{}}
+	preset := tobari.PolicyPreset{SchemaVersion: 1, Name: name, Guardrail: tobari.PolicyPresetGuardrailOffline, DestinationCeiling: tobari.PolicyPresetDestinationCeiling{Mode: "public_https", Authorities: []tobari.PolicyPresetAuthority{}}, MethodCeiling: tobari.PolicyPresetMethodCeiling{Mode: "all", Methods: []string{}}, BaselineGrants: []tobari.PolicyPresetExactRule{}, BaselineTemplates: []tobari.PolicyPresetPathTemplateRule{}, MCPBaselineGrants: []tobari.PolicyPresetMCPRule{}, BaselineDenies: []tobari.PolicyPresetExactRule{}, GraphQLEndpoints: []tobari.PolicyPresetExactRule{}, MCPEndpoints: []tobari.PolicyPresetExactRule{}}
 	normalizedPreset, normalized, revision, err := tobari.NormalizePolicyPreset(preset)
 	if err != nil {
 		return tobari.PolicyPresetResult{}, err

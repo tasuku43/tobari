@@ -40,6 +40,16 @@ type commandRunner interface {
 	Output(context.Context, []string, []string) ([]byte, error)
 }
 
+// terminalOutputCommandRunner preserves the attached Docker CLI's terminal
+// identity while relaying a copy of its stdout through a bounded observer.
+// The production runner implements this only on reviewed Unix hosts.
+type terminalOutputCommandRunner interface {
+	RunWithTerminalOutput(
+		context.Context, []string, []string, io.Reader,
+		io.Writer, io.Writer, io.Writer,
+	) error
+}
+
 type osCommandRunner struct{}
 
 func (osCommandRunner) Run(ctx context.Context, args, environment []string, in io.Reader, out, errOut io.Writer) error {

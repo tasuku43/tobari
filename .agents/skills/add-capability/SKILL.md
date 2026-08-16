@@ -90,10 +90,12 @@ For every external action, specify:
   snapshotted policy-preset origin/revision; those are creation-time envelope
   facts, not per-Workspace flags or live configuration references;
 - whether a pinned supported coding client changes its reviewed core HTTP
-  effects; the canonical base client pins and `builtin/agent-ready` exact
-  baseline are one compatibility contract. Never infer executable identity,
-  widen to a vendor host, or include plugins, MCP, connectors, file transfer,
-  downloads, evaluation, or self-update as incidental client traffic;
+  effects; the canonical base client pins and `builtin/agent-ready` baseline
+  are one compatibility contract. Never infer executable identity or widen to
+  a vendor host. Provider capability bootstrap may enter the finite baseline
+  only through a thesis/ADR decision that separates semantic action authority;
+  payloads, downloads, file transfer, acquisition, and self-update remain
+  excluded;
 - audit-safe fields and secret fields;
 - allowed network destination.
 

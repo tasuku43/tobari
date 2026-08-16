@@ -29,6 +29,12 @@ from graphql_request import (
     parse_graphql_post_request,
     validate_graphql_post_headers,
 )
+from mcp_request import (
+    MCPRequestError,
+    ParsedMCPRequest,
+    parse_mcp_post_request,
+    validate_mcp_post_headers,
+)
 from validated_file import StatIdentityCache, ValidatedFileError
 
 MAX_GATEWAY_CONFIG_BYTES = 256 * 1024
@@ -473,6 +479,7 @@ def build_policy_input(
     extra_secret_names: set[str],
     broker_provider: str | None = None,
     graphql: ParsedGraphQLRequest | None = None,
+    mcp: ParsedMCPRequest | None = None,
 ) -> dict[str, Any]:
     request = flow.request
     split = urlsplit(request.url)
@@ -509,6 +516,10 @@ def build_policy_input(
             "operation_type": graphql.operation_type,
             "root_fields": list(graphql.root_fields),
         }
+    if mcp is not None:
+        policy_input["request"]["mcp"] = {"method": mcp.method}
+        if mcp.tool_name is not None:
+            policy_input["request"]["mcp"]["tool_name"] = mcp.tool_name
     return policy_input
 
 
@@ -585,68 +596,75 @@ def load_gateway_config(path: str) -> dict[str, Any]:
     for context_id, context in contexts.items():
         if not isinstance(context_id, str) or not PROJECT_ID_PATTERN.fullmatch(context_id):
             raise CredentialError("Gateway Context identity is invalid")
-        if not isinstance(context, dict) or set(context) != {"name", "graphql_endpoints"}:
+        if not isinstance(context, dict) or set(context) != {"name", "graphql_endpoints", "mcp_endpoints"}:
             raise CredentialError("Gateway Context is invalid")
         name = context.get("name")
         if not isinstance(name, str) or re.fullmatch(r"[a-z][a-z0-9-]{0,62}", name) is None:
             raise CredentialError("Gateway Context name is invalid")
-        endpoints = context.get("graphql_endpoints")
-        if not isinstance(endpoints, list):
-            raise CredentialError("GraphQL endpoint configuration is invalid")
-        seen_endpoints: set[tuple[str, str, int, str]] = set()
-        for endpoint in endpoints:
-            if not isinstance(endpoint, dict) or set(endpoint) != {
-                "scheme", "host", "port", "path"
-            }:
-                raise CredentialError("GraphQL endpoint configuration is invalid")
-            scheme = endpoint.get("scheme")
-            host = endpoint.get("host")
-            port = endpoint.get("port")
-            path = endpoint.get("path")
-            if (
-                scheme not in {"http", "https"}
-                or not isinstance(host, str)
-                or not host
-                or host != host.lower()
-                or host.endswith(".")
-                or len(host) > 253
-                or any(
-                    not label
-                    or len(label) > 63
-                    or label.startswith("-")
-                    or label.endswith("-")
-                    or re.fullmatch(r"[a-z0-9-]+", label) is None
-                    for label in host.split(".")
-                )
-                or not isinstance(port, int)
-                or isinstance(port, bool)
-                or port < 1
-                or port > 65535
-                or not isinstance(path, str)
-                or not path.startswith("/")
-                or len(path) > 4096
-                or any(
-                    ord(character) < 32
-                    or ord(character) == 127
-                    or character in {"\u2028", "\u2029"}
-                    for character in path
-                )
-                or any(character in path for character in "%\\?#")
-                or "//" in path
-                or (
-                    path != "/"
-                    and any(
-                        segment in {"", ".", ".."}
-                        for segment in path.strip("/").split("/")
-                    )
-                )
-            ):
-                raise CredentialError("GraphQL endpoint configuration is invalid")
-            identity = (scheme, host, port, path)
-            if identity in seen_endpoints:
-                raise CredentialError("GraphQL endpoint configuration is ambiguous")
-            seen_endpoints.add(identity)
+        seen_protocol_endpoints: set[tuple[str, str, int, str]] = set()
+        for protocol_key in ("graphql_endpoints", "mcp_endpoints"):
+            endpoints = context.get(protocol_key)
+            if not isinstance(endpoints, list):
+                raise CredentialError("Gateway semantic endpoint configuration is invalid")
+            seen_endpoints: set[tuple[str, str, int, str]] = set()
+            for endpoint in endpoints:
+                _validate_gateway_endpoint(endpoint)
+                identity = (endpoint["scheme"], endpoint["host"], endpoint["port"], endpoint["path"])
+                if identity in seen_endpoints or identity in seen_protocol_endpoints:
+                    raise CredentialError("Gateway semantic endpoint configuration is ambiguous")
+                seen_endpoints.add(identity)
+                seen_protocol_endpoints.add(identity)
     return document
+
+
+def _validate_gateway_endpoint(endpoint: Any) -> None:
+    if not isinstance(endpoint, dict) or set(endpoint) != {
+        "scheme", "host", "port", "path"
+    }:
+        raise CredentialError("Gateway semantic endpoint configuration is invalid")
+    scheme = endpoint.get("scheme")
+    host = endpoint.get("host")
+    port = endpoint.get("port")
+    path = endpoint.get("path")
+    if (
+        scheme not in {"http", "https"}
+        or not isinstance(host, str)
+        or not host
+        or host != host.lower()
+        or host.endswith(".")
+        or len(host) > 253
+        or any(
+            not label
+            or len(label) > 63
+            or label.startswith("-")
+            or label.endswith("-")
+            or re.fullmatch(r"[a-z0-9-]+", label) is None
+            for label in host.split(".")
+        )
+        or not isinstance(port, int)
+        or isinstance(port, bool)
+        or port < 1
+        or port > 65535
+        or not isinstance(path, str)
+        or not path.startswith("/")
+        or len(path) > 4096
+        or any(
+            ord(character) < 32
+            or ord(character) == 127
+            or character in {"\u2028", "\u2029"}
+            for character in path
+        )
+        or any(character in path for character in "%\\?#")
+        or "//" in path
+        or (
+            path != "/"
+            and any(
+                segment in {"", ".", ".."}
+                for segment in path.strip("/").split("/")
+            )
+        )
+    ):
+        raise CredentialError("Gateway semantic endpoint configuration is invalid")
 
 
 def graphql_endpoint_declared(
@@ -663,6 +681,18 @@ def graphql_endpoint_declared(
     )
 
 
+def mcp_endpoint_declared(
+    config: dict[str, Any], context_id: str, scheme: str, host: str, port: int, path: str
+) -> bool:
+    context = config.get("contexts", {}).get(context_id)
+    if not isinstance(context, dict):
+        raise CredentialError("Gateway Context is not established")
+    return any(
+        endpoint == {"scheme": scheme, "host": host, "port": port, "path": path}
+        for endpoint in context.get("mcp_endpoints", [])
+    )
+
+
 def _deny(flow: http.HTTPFlow, status: int, code: str) -> None:
     body = json.dumps({"error": code}, separators=(",", ":")).encode("utf-8")
     flow.response = http.Response.make(status, body, {"content-type": "application/json"})
@@ -673,6 +703,7 @@ def _policy_denied(
     status: int,
     learnable: bool,
     graphql: ParsedGraphQLRequest | None = None,
+    mcp: ParsedMCPRequest | None = None,
 ) -> None:
     path = urlsplit(flow.request.url).path or "/"
     review_available = bool(learnable)
@@ -716,6 +747,11 @@ def _policy_denied(
         document["tobari"]["request"]["protocol"] = "graphql"
         document["tobari"]["request"]["graphql_operation_type"] = graphql.operation_type
         document["tobari"]["request"]["graphql_root_fields"] = list(graphql.root_fields)
+    if mcp is not None:
+        document["tobari"]["request"]["protocol"] = "mcp"
+        document["tobari"]["request"]["mcp_method"] = mcp.method
+        if mcp.tool_name is not None:
+            document["tobari"]["request"]["mcp_tool_name"] = mcp.tool_name
     body = json.dumps(document, separators=(",", ":")).encode("utf-8")
     flow.response = http.Response.make(status, body, {"content-type": "application/json"})
 
@@ -742,6 +778,13 @@ def _graphql_audit_events(base: dict[str, Any], parsed: ParsedGraphQLRequest) ->
         }
         for root_field in parsed.root_fields
     ]
+
+
+def _mcp_audit_event(base: dict[str, Any], parsed: ParsedMCPRequest) -> dict[str, Any]:
+    event = {**base, "protocol": "mcp", "mcp_method": parsed.method}
+    if parsed.tool_name is not None:
+        event["mcp_tool_name"] = parsed.tool_name
+    return event
 
 
 class TobariGateway:
@@ -858,6 +901,25 @@ class TobariGateway:
                     "credential_request": credential_request,
                 }
                 return
+            if mcp_endpoint_declared(
+                self.graphql_config, context_id, scheme, host, port, request_path
+            ):
+                validate_mcp_post_headers(
+                    flow.request.method.upper(), _request_header_pairs(flow.request)
+                )
+                flow.request.stream = False
+                audit_deferred = True
+                flow.metadata["tobari_mcp_pending"] = {
+                    "started": started,
+                    "request_id": request_id,
+                    "scheme": scheme,
+                    "host": host,
+                    "port": port,
+                    "audit_path": audit_path,
+                    "principal": principal,
+                    "credential_request": credential_request,
+                }
+                return
             policy_input = build_policy_input(
                 flow,
                 self.cluster,
@@ -905,7 +967,7 @@ class TobariGateway:
                 # Authorization is complete before mitmproxy forwards any body bytes.
                 # The body is deliberately opaque to policy and is never retained here.
                 flow.request.stream = True
-        except GraphQLRequestError as error:
+        except (GraphQLRequestError, MCPRequestError) as error:
             reason = str(error)
             _deny(flow, 400, error.code)
             upstream_status = 400
@@ -1081,7 +1143,81 @@ class TobariGateway:
         except Exception:
             audit_failure(502, "gateway_error", "gateway error")
 
+    def _complete_mcp_request(
+        self, flow: http.HTTPFlow, pending: dict[str, Any]
+    ) -> None:
+        started = pending["started"]
+        principal = pending["principal"]
+        credential_request = pending["credential_request"]
+        parsed: ParsedMCPRequest | None = None
+
+        def base_event(decision: str, reason: str, learnable: bool) -> dict[str, Any]:
+            return {
+                "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                "request_id": pending["request_id"], "cluster": self.cluster,
+                "project_id": principal["project_id"], "context_id": principal["context_id"],
+                "context": principal["context"], "project_root": principal["project_root"],
+                "scheme": pending["scheme"], "host": pending["host"], "port": pending["port"],
+                "method": flow.request.method.upper(), "path": pending["audit_path"],
+                "protocol": "http", "decision": decision, "reason": reason,
+                "learnable": learnable, "started": started,
+            }
+
+        def fail(status: int, code: str, reason: str, learnable: bool = False) -> None:
+            event = base_event("deny", reason, learnable)
+            event.pop("started")
+            event["upstream_status"] = status
+            event["duration_ms"] = int((time.monotonic() - started) * 1000)
+            _audit(**(_mcp_audit_event(event, parsed) if parsed is not None else event))
+            if code == "policy_denied" and parsed is not None:
+                _policy_denied(flow, status, learnable, mcp=parsed)
+            else:
+                _deny(flow, status, code)
+
+        try:
+            body = flow.request.raw_content
+            if not isinstance(body, bytes):
+                raise MCPRequestError("invalid_body", "MCP request body must be bytes")
+            parsed = parse_mcp_post_request(
+                flow.request.method.upper(), _request_header_pairs(flow.request), body
+            )
+            policy_input = build_policy_input(
+                flow, self.cluster, principal, credential_request.secret_headers,
+                credential_request.broker_provider, mcp=parsed,
+            )
+            decision = query_opa(self.opa_url, policy_input, self.opa_timeout)
+            if not decision.allow:
+                fail(decision.status_code, "policy_denied", decision.reason, decision.learnable)
+                return
+            credential_request.apply(flow.request)
+            if bool(getattr(credential_request, "deferred", False)):
+                apply_body = getattr(credential_request, "apply_body", None)
+                if not callable(apply_body):
+                    raise BrokerCredentialUnavailable("deferred credential contract is unavailable")
+                apply_body(flow.request)
+            commit_upstream_authority(flow)
+            flow.metadata["tobari_audit"] = _mcp_audit_event(
+                base_event("allow", decision.reason, False), parsed
+            )
+        except MCPRequestError as error:
+            fail(400, error.code, str(error))
+        except PolicyUnavailable as error:
+            fail(503, "policy_unavailable", str(error))
+        except CredentialAdapterError as error:
+            status, code = _credential_error_response(error, "credential_handle_invalid")
+            fail(status, code, str(error))
+        except (CredentialError, RuntimeError, UnicodeError, ValueError) as error:
+            fail(503, "credential_unavailable", str(error))
+        except AuthorityError as error:
+            fail(400, "request_authority_invalid", str(error))
+        except Exception:
+            fail(502, "gateway_error", "gateway error")
+
     def request(self, flow: http.HTTPFlow) -> None:
+        mcp_pending = flow.metadata.pop("tobari_mcp_pending", None)
+        if isinstance(mcp_pending, dict):
+            self._complete_mcp_request(flow, mcp_pending)
+            return
         graphql_pending = flow.metadata.pop("tobari_graphql_pending", None)
         if isinstance(graphql_pending, dict):
             self._complete_graphql_request(flow, graphql_pending)

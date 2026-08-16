@@ -69,11 +69,15 @@ network, or policy state. Native credentials follow the owning Workspace home.
 
 For every preset, inspect and bind its immutable immediate-grant count.
 
-- `builtin/agent-ready`: the exact pinned Claude/Codex core matrix succeeds
-  without a permission candidate; exact Deny overrides one core grant; plugin,
-  MCP, connector, file-transfer, download, evaluation, self-update, unrelated
-  paths, and third-party destinations remain denied or reviewable. Prove the
-  grant applies by Context HTTP identity rather than executable name.
+- `builtin/agent-ready`: the pinned Claude/Codex native matrix succeeds without
+  a permission candidate, including Claude capability discovery and one safe
+  `/api/eval/{id}` shape plus Codex MCP initialize/list methods. Exact Deny
+  overrides baseline. A Codex `tools/call` produces one exact tool-name review
+  candidate, a different tool does not reuse it, and arguments/canaries never
+  appear in OPA input, audit, denial, or stored policy. Downloads, acquisition,
+  file transfer, self-update, unrelated paths, and third-party destinations
+  remain denied or reviewable. Prove grants apply by Context semantic identity,
+  not executable name.
 - `builtin/offline`: every HTTP and HTTPS effect is a terminal denial; the
   review queue remains empty.
 - `builtin/reviewed-exact`: only guardrail-eligible effects reach exact review.
@@ -139,8 +143,9 @@ dormant prefix fallbacks must all be absent.
 
 ## Standard native-login regression
 
-Run Claude Code and Codex native login in a fresh standard Workspace home. The
-test boundary does not retain credentials or authenticated transcripts.
+Run Claude Code, Codex, and GitHub CLI native login in a fresh standard
+Workspace home. The test boundary does not retain credentials or authenticated
+transcripts.
 
 For Claude, prove token exchange is followed by an allowed authenticated
 `GET /api/oauth/profile` and roles request. The regression fails if Gateway
@@ -152,8 +157,38 @@ After login, Claude `/status` must obtain provider-owned `subscriptionType` and
 
 For Codex, prove both the browser callback flow's token exchange and the
 device-code user-code/poll/token exchange use the same post-policy passthrough
-boundary. The exact allow is shared by every process in the Context; the test
-must not infer authority from the `codex` executable name.
+boundary. The browser flow must run as ordinary `codex login` inside the
+attached Workspace, open the exact validated URL on the host, and complete the
+validated dynamic localhost callback without a manual URL/callback transfer or
+device-mode substitution. The same outcome must hold when ChatGPT sign-in is
+selected from ordinary `codex`: its exact reviewed TUI originator and an
+authorization URL fragmented across ANSI synchronized-update writes and visual
+rows must open once, independent of surrounding prose, cursor positions, and
+terminal width. Before login, ordinary `codex` must render its native
+interactive screen rather than block on terminal capability queries; prove the
+observed Docker child still sees a TTY and receives the caller's initial size
+and subsequent resize. Vary the surrounding client prose and callback port,
+and prove the OAuth client remains exact while scopes cannot exceed the reviewed
+ceiling.
+Prove the host listener exists only for that login, relays one opaque callback
+to the selected Workspace's same port, and closes on success, failure, or
+session exit. The exact allow is shared by every process in the Context; the
+test must not infer authority from the `codex` executable name.
+
+For GitHub CLI 2.96.0, exercise the GitHub.com HTTPS browser-login path and its
+web-application fallback. Prove the complete no-newline prompt remains
+byte-identical, one strict fixed-client URL with the required
+`repo read:org gist` scopes and optional `workflow` opens on the host, one
+opaque callback reaches the exact selected Workspace's dynamic
+`127.0.0.1/callback` port, and GitHub CLI retains its Enter input and result
+presentation. Changed client, caller-added or SSH-key-upload scope, GitHub
+Enterprise host, malformed state, external/privileged callback, duplicate,
+ambiguous, oversized, replayed, port-collision, opener-failure, callback-failure,
+and session-exit cases must open or relay nothing beyond the declared one-shot
+effect. The bridge itself grants no GitHub HTTP permission; configure or review
+the required ordinary effects separately. Routine success uses one
+`gh auth login` invocation, no manual URL/callback transfer, and zero external
+processing.
 
 Automated Gateway fixtures use synthetic bearer canaries and prove the canary
 is absent from OPA input and denial evidence, preserved exactly for the single

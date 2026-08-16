@@ -99,6 +99,9 @@ support promises before maintainers invite external users.
 - Separate untrusted pull-request execution from privileged release jobs.
 - Do not expose secrets to forked pull requests.
 - Verify dependency integrity, licenses, and known vulnerabilities.
+- Pin `github.com/creack/pty` v1.1.24 for the reviewed Unix attached-terminal
+  relay. Its MIT text is retained in root `THIRD_PARTY_NOTICES`, and release
+  archives include that file beside the project license.
 - Experimental Auth Broker source and tests remain subject to the public secret
   guard, but no Broker image or provider adapter is a release artifact.
 - For the agent-ready base runtime, retain GitHub CLI and AWS CLI checks and

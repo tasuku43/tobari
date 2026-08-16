@@ -5,7 +5,7 @@
 - Deciders: Tobari maintainers
 - Scope: Product, architecture, security, authentication, external I/O, harness, and public boundary
 - Revises: ADR 0025 and ADR 0032
-- Superseded by: None
+- Superseded by: ADR 0046 for standard Workspace login; the experimental trusted-host driver decision remains active
 
 > The Claude limitation described here is revised by ADR 0038. The Codex decision remains unchanged.
 

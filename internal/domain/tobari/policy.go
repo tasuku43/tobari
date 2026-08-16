@@ -20,6 +20,8 @@ var (
 	learnedRuleIDPattern     = regexp.MustCompile(`^plr_[0-9a-f]{32}$`)
 	httpMethodPattern        = regexp.MustCompile(`^[A-Z][A-Z0-9!#$%&'*+.^_` + "`" + `|~-]{0,31}$`)
 	graphqlNamePattern       = regexp.MustCompile(`^[_A-Za-z][_0-9A-Za-z]*$`)
+	mcpMethodPattern         = regexp.MustCompile(`^[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*$`)
+	mcpToolNamePattern       = regexp.MustCompile(`^[A-Za-z0-9_.:/-]+$`)
 	policyRevisionPattern    = regexp.MustCompile(`^[0-9a-f]{64}$`)
 )
 
@@ -30,17 +32,20 @@ const (
 	PolicyDecisionDeny       = "deny"
 	PolicyProtocolHTTP       = "http"
 	PolicyProtocolGraphQL    = "graphql"
+	PolicyProtocolMCP        = "mcp"
 	GraphQLOperationQuery    = "query"
 	GraphQLOperationMutation = "mutation"
 )
 
 // PolicyProtocolIdentity identifies one HTTP effect or refines it to exactly
-// one GraphQL root coordinate.
+// one GraphQL root coordinate or MCP method/tool coordinate.
 type PolicyProtocolIdentity struct {
 	Scheme               string `json:"scheme"`
 	Protocol             string `json:"protocol"`
 	GraphQLOperationType string `json:"graphql_operation_type,omitempty"`
 	GraphQLRootField     string `json:"graphql_root_field,omitempty"`
+	MCPMethod            string `json:"mcp_method,omitempty"`
+	MCPToolName          string `json:"mcp_tool_name,omitempty"`
 }
 
 // EffectiveProtocol returns the validated closed protocol value.
@@ -54,15 +59,32 @@ func (i PolicyProtocolIdentity) Validate() error {
 	}
 	switch i.EffectiveProtocol() {
 	case PolicyProtocolHTTP:
-		if i.GraphQLOperationType != "" || i.GraphQLRootField != "" {
-			return fmt.Errorf("HTTP policy identity cannot contain GraphQL fields")
+		if i.GraphQLOperationType != "" || i.GraphQLRootField != "" || i.MCPMethod != "" || i.MCPToolName != "" {
+			return fmt.Errorf("HTTP policy identity cannot contain protocol refinement fields")
 		}
 	case PolicyProtocolGraphQL:
+		if i.MCPMethod != "" || i.MCPToolName != "" {
+			return fmt.Errorf("GraphQL policy identity cannot contain MCP fields")
+		}
 		if i.GraphQLOperationType != GraphQLOperationQuery && i.GraphQLOperationType != GraphQLOperationMutation {
 			return fmt.Errorf("GraphQL operation type is invalid")
 		}
 		if len(i.GraphQLRootField) == 0 || len(i.GraphQLRootField) > 256 || !graphqlNamePattern.MatchString(i.GraphQLRootField) {
 			return fmt.Errorf("GraphQL root field is invalid")
+		}
+	case PolicyProtocolMCP:
+		if i.GraphQLOperationType != "" || i.GraphQLRootField != "" {
+			return fmt.Errorf("MCP policy identity cannot contain GraphQL fields")
+		}
+		if len(i.MCPMethod) == 0 || len(i.MCPMethod) > 128 || !mcpMethodPattern.MatchString(i.MCPMethod) {
+			return fmt.Errorf("MCP method is invalid")
+		}
+		if i.MCPMethod == "tools/call" {
+			if len(i.MCPToolName) == 0 || len(i.MCPToolName) > 256 || !mcpToolNamePattern.MatchString(i.MCPToolName) {
+				return fmt.Errorf("MCP tool name is invalid")
+			}
+		} else if i.MCPToolName != "" {
+			return fmt.Errorf("MCP tool name is only valid for tools/call")
 		}
 	default:
 		return fmt.Errorf("policy protocol is invalid")
@@ -74,7 +96,9 @@ func (i PolicyProtocolIdentity) matches(other PolicyProtocolIdentity) bool {
 	return i.EffectiveProtocol() == other.EffectiveProtocol() &&
 		i.Scheme == other.Scheme &&
 		i.GraphQLOperationType == other.GraphQLOperationType &&
-		i.GraphQLRootField == other.GraphQLRootField
+		i.GraphQLRootField == other.GraphQLRootField &&
+		i.MCPMethod == other.MCPMethod &&
+		i.MCPToolName == other.MCPToolName
 }
 
 func appendPolicyProtocolIdentity(material []string, identity PolicyProtocolIdentity) []string {
@@ -82,7 +106,10 @@ func appendPolicyProtocolIdentity(material []string, identity PolicyProtocolIden
 	if identity.EffectiveProtocol() == PolicyProtocolHTTP {
 		return material
 	}
-	return append(material, PolicyProtocolGraphQL, identity.GraphQLOperationType, identity.GraphQLRootField)
+	if identity.EffectiveProtocol() == PolicyProtocolGraphQL {
+		return append(material, PolicyProtocolGraphQL, identity.GraphQLOperationType, identity.GraphQLRootField)
+	}
+	return append(material, PolicyProtocolMCP, identity.MCPMethod, identity.MCPToolName)
 }
 
 // GraphQLEndpoint is one trusted exact transport location where Gateway may
@@ -147,6 +174,31 @@ func validateGraphQLEndpointPath(path string) error {
 
 func (e GraphQLEndpoint) Matches(scheme, host string, port int, path string) bool {
 	return e.Scheme == scheme && e.Host == host && e.Port == port && e.Path == path
+}
+
+// MCPEndpoint is one trusted exact transport location where Gateway may
+// classify a bounded JSON-RPC request body as MCP.
+type MCPEndpoint struct {
+	Scheme string `json:"scheme"`
+	Host   string `json:"host"`
+	Port   int    `json:"port"`
+	Path   string `json:"path"`
+}
+
+func (e MCPEndpoint) Validate() error {
+	if e.Scheme != "http" && e.Scheme != "https" {
+		return fmt.Errorf("MCP endpoint scheme is invalid")
+	}
+	if !validNormalizedPolicyHost(e.Host) {
+		return fmt.Errorf("MCP endpoint host is invalid")
+	}
+	if e.Port < 1 || e.Port > 65535 {
+		return fmt.Errorf("MCP endpoint port is invalid")
+	}
+	if err := validateGraphQLEndpointPath(e.Path); err != nil {
+		return fmt.Errorf("MCP endpoint path is invalid")
+	}
+	return nil
 }
 
 // PolicyDenial is one validated, secret-free Gateway audit decision.
@@ -666,7 +718,7 @@ func (r LearnedPolicyRule) Validate() error {
 		return fmt.Errorf("exact learned rule cannot contain template segments")
 	}
 	if r.Match == PolicyMatchPathTemplate && r.EffectiveProtocol() != PolicyProtocolHTTP {
-		return fmt.Errorf("GraphQL learned rules cannot use a path template")
+		return fmt.Errorf("non-HTTP learned rules cannot use a path template")
 	}
 	if r.ID != learnedRuleIDWithIdentity(
 		r.Match, r.ContextID, r.ProjectID, r.Host, r.Port, r.Method, r.Path, r.Examples, r.SourceCandidates,

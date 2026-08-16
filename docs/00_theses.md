@@ -26,6 +26,16 @@ root flag, or container identifier; and the user can reach that boundary
 without becoming a Docker or policy operator. In the standard profile, users
 authenticate the pinned agent CLI inside the Workspace and its tool-owned state
 persists only in that Workspace home; host credentials are never inherited.
+An attached standard session may bridge only the closed reviewed native browser
+login union for pinned Codex and GitHub CLI: after provider-specific bounded
+semantic authorization-URL validation, the host opens that URL and relays one
+opaque localhost callback on the validated URL-selected port to the selected
+Workspace's client-owned loopback listener. Prompt framing is not URL
+authority. The bridge is session-scoped and grants no general host browser,
+port-forwarding, credential, or network authority. Output observation
+must preserve terminal identity as well as bytes: Docker retains a real PTY,
+raw-input ownership, and resize propagation while Tobari reads only a relayed
+copy.
 One installation-local standard cluster shares one Gateway, one OPA, an atomic
 all-Context policy projection, and CA state without sharing Workspace homes or
 runtime networks. The repository-only experimental profile may additionally
@@ -87,11 +97,12 @@ using `tobari` leaves host execution unchanged, while `delete` and
   sets the boundary once; the agent is not supervised action by action inside
   it.
 - The default Context carries the pinned supported coding clients and a finite
-  reviewed baseline for their own exact core HTTP effects. Requiring the user
+  reviewed baseline for their native capability effects. Requiring the user
   to reverse-engineer client bootstrap, model, account-status, inference, or
-  telemetry traffic before useful work is an adoption failure. Optional
-  plugins, MCP, connectors, file transfer, self-update, and project-originated
-  destinations remain outside that baseline.
+  telemetry or first-party capability discovery before useful work is an
+  adoption failure. MCP action, downloads, file transfer, acquisition,
+  self-update, and project-originated destinations remain outside that
+  baseline.
 - A denied network effect should provide enough secret-free context and a
   concrete host-side review action to reach one exact, tested permission. The
   safe action may remain opaque-reference-bound internally, but the human
@@ -191,6 +202,13 @@ disabled, so neither path is direct egress.
   helper may receive only `CAP_NET_ADMIN` while sharing one verified container
   network namespace; it receives no mounts, secrets, executable selector, or
   Docker socket and exits before user entry.
+- Reviewed native loopback login is the separate no-capability exception: while
+  one interactive host session is attached, a strict pinned-client observer may
+  bind only a validated Codex or GitHub CLI authorization URL's non-privileged
+  host-loopback port, open only that provider's reviewed authorization shape,
+  and relay one opaque callback to the same port in the exact owned Workspace
+  loopback. It closes on completion or session exit and is not a generic ingress
+  path.
 
 ### Mechanical enforcement
 
@@ -220,6 +238,11 @@ native login inside the Workspace and owns the resulting state in that
 Workspace's persistent home. Gateway removes client authentication and cookies
 from OPA input and audit, asks policy about the ordinary HTTP effect, and
 forwards the original values only after allow.
+For pinned Codex and GitHub CLI, native local parity also includes ADR 0046's
+attached-session browser/callback bridge. Each client still owns OAuth state,
+callback parsing, exchange, and credential persistence, while Codex also owns
+PKCE. Tobari validates the provider-specific browser target and transports one
+opaque callback without logging or persisting it.
 
 The experimental development profile retains the closed Broker research path.
 That route stores one Context-owned credential or
@@ -751,13 +774,18 @@ OPA allow.
   denial produces no candidate and performs no external DNS, broker resolution,
   or upstream call. Advanced Rego may further constrain generic input but
   cannot grant beyond the guardrail or redefine learned permission identity.
-- `builtin/agent-ready` makes guardrail-eligible effects reviewable and grants
-  only the exact reviewed Claude Code 2.1.220 and Codex 0.147.0 core effects
-  for model execution, bootstrap/catalog, account state, and fixed first-party
-  telemetry. The grants are Context-wide HTTP effects, not executable identity;
-  exact Deny remains terminal. Plugins, MCP, connectors, file transfer,
-  downloads, evaluation/experiment routes, self-update, and unmatched effects
-  receive no baseline authority.
+- `builtin/agent-ready` preserves the pinned Claude Code 2.1.220 and Codex
+  0.147.0 native capability plane: model execution, account state, bootstrap,
+  first-party capability discovery, fixed telemetry, and bounded provider-owned
+  evaluation receive reviewed baseline authority. Dynamic evaluation paths use
+  one direct-child identifier template without retaining the observed
+  identifier. MCP transport is classified only at a trusted exact endpoint:
+  initialization and capability enumeration are baseline methods, while
+  `tools/call` remains reviewable by exact tool name and every other action by
+  exact JSON-RPC method. Request arguments, resource URIs, responses, downloads,
+  file transfer, acquisition, self-update, and unmatched traffic receive no
+  baseline authority. These grants are Context-wide effects, not executable
+  identity; exact Deny remains terminal.
 - `builtin/offline` terminally denies every HTTP and HTTPS effect and makes no
   effect review-eligible. `builtin/reviewed-exact` makes only guardrail-eligible
   effects available for exact review. `builtin/get-only-reviewed` makes only
@@ -767,7 +795,8 @@ OPA allow.
   claim about GET.
 - Tobari-owned ordinary learned permission identity binds Context, project,
   scheme, host, port, method, and raw path. Query, headers, and bodies are not
-  learned dimensions; GraphQL adds only operation type and root field.
+  learned dimensions; GraphQL adds only operation type and root field, while
+  MCP adds only JSON-RPC method and, for `tools/call`, exact tool name.
 - Permission candidates, learned rules, exact denies, audits, and brokered
   handles retain Context and Tobari identity. `policy review` and `policy
   rules` cross all Contexts; mutations bind solely to opaque references.
@@ -804,7 +833,8 @@ OPA allow.
   invocation selection, and installation-wide permission review.
 - Runtime/preset compatibility tests bind both pinned agent versions to the
   exact agent-ready grant catalog, retain strict-preset zero-grant canaries,
-  exclude optional client surfaces, and prove exact Deny precedence.
+  distinguish capability bootstrap from MCP action, exclude payload and
+  acquisition authority, and prove exact Deny precedence.
 
 ## Deliberate non-goals
 

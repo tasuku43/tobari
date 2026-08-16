@@ -690,6 +690,12 @@ func policyReviewCandidateListEffect(candidate tobari.PolicyCandidate) string {
 	if coordinate := policyGraphQLCoordinate(candidate.PolicyProtocolIdentity); coordinate != "" {
 		effect += " · GraphQL " + coordinate
 	}
+	if candidate.EffectiveProtocol() == tobari.PolicyProtocolMCP {
+		effect += " · MCP " + safeExternalText(candidate.MCPMethod)
+		if candidate.MCPToolName != "" {
+			effect += " · " + safeExternalText(candidate.MCPToolName)
+		}
+	}
 	return effect
 }
 
@@ -700,6 +706,12 @@ func policyReviewCandidateEffect(candidate tobari.PolicyCandidate) string {
 	)
 	if coordinate := policyGraphQLCoordinate(candidate.PolicyProtocolIdentity); coordinate != "" {
 		effect += " · GraphQL " + coordinate
+	}
+	if candidate.EffectiveProtocol() == tobari.PolicyProtocolMCP {
+		effect += " · MCP " + safeExternalText(candidate.MCPMethod)
+		if candidate.MCPToolName != "" {
+			effect += " · " + safeExternalText(candidate.MCPToolName)
+		}
 	}
 	return effect
 }
@@ -1024,6 +1036,12 @@ func policyReviewCandidateRequest(candidate tobari.PolicyCandidate) string {
 	)
 	if coordinate := policyGraphQLCoordinate(candidate.PolicyProtocolIdentity); coordinate != "" {
 		request += " · GraphQL " + coordinate
+	}
+	if candidate.EffectiveProtocol() == tobari.PolicyProtocolMCP {
+		request += " · MCP " + safeExternalText(candidate.MCPMethod)
+		if candidate.MCPToolName != "" {
+			request += " · " + safeExternalText(candidate.MCPToolName)
+		}
 	}
 	return request
 }

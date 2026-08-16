@@ -8,9 +8,27 @@ import (
 	"os/exec"
 	"regexp"
 	"runtime"
+	"strconv"
+	"strings"
 )
 
 const githubDeviceURL = "https://github.com/login/device"
+
+const (
+	githubAuthorizationHost      = "github.com"
+	githubAuthorizationPath      = "/login/oauth/authorize"
+	githubAuthorizationClientID  = "178c6fc778ccc68e1d6a"
+	githubAuthorizationScope     = "repo read:org gist workflow"
+	githubCallbackPath           = "/callback"
+	codexAuthorizationHost       = "auth.openai.com"
+	codexAuthorizationPath       = "/oauth/authorize"
+	codexAuthorizationClientID   = "app_EMoamEEZ73f0CkXaXp7hrann"
+	codexAuthorizationScope      = "openid profile email offline_access api.connectors.read api.connectors.invoke"
+	codexCallbackPath            = "/auth/callback"
+	workspaceMinimumCallbackPort = 1024
+	codexOriginatorCLI           = "codex_cli_rs"
+	codexOriginatorTUI           = "codex-tui"
+)
 
 var awsSSODeviceURLPattern = regexp.MustCompile(
 	`^https://device\.sso\.[a-z]{2}(?:-[a-z0-9]+){1,3}-[1-9][0-9]?\.amazonaws\.com/$`,
@@ -20,6 +38,8 @@ var (
 	awsConsoleRegionPattern = regexp.MustCompile(`^(?:us-(?:east|west)|eu-(?:central|north|south|west)|ap-(?:east|northeast|south|southeast)|ca-(?:central|west)|sa-east|me-(?:central|south)|af-south|il-central|mx-central|nz-north)-[0-9]+$`)
 	awsConsoleStatePattern  = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 	awsPKCEChallengePattern = regexp.MustCompile(`^[A-Za-z0-9_-]{43}$`)
+	codexOAuthStatePattern  = regexp.MustCompile(`^[A-Za-z0-9_-]{32,128}$`)
+	githubOAuthStatePattern = regexp.MustCompile(`^[0-9a-f]{20}$`)
 )
 
 const awsConsoleClientID = "arn:aws:signin:::devtools/cross-device"
@@ -35,7 +55,7 @@ func (osHostBrowserOpener) Open(ctx context.Context, target string) error {
 	if err != nil {
 		return err
 	}
-	command := exec.CommandContext(ctx, executable, args...) // #nosec G204 -- executable is fixed and URL passes the closed GitHub/AWS/Claude login allowlist below.
+	command := exec.CommandContext(ctx, executable, args...) // #nosec G204 -- executable is fixed and URL passes the closed reviewed login allowlist below.
 	command.Stdin = nil
 	command.Stdout = io.Discard
 	command.Stderr = io.Discard
@@ -59,7 +79,215 @@ func hostBrowserCommand(goos, target string) (string, []string, error) {
 func validLoginBrowserTarget(target string) bool {
 	return target == githubDeviceURL || awsSSODeviceURLPattern.MatchString(target) ||
 		validAWSConsoleAuthorizationURL(target, "") || validClaudeLoginAuthorizationURL(target) ||
-		validPupLoginAuthorizationURL(target)
+		validPupLoginAuthorizationURL(target) || validCodexLoginAuthorizationURL(target) ||
+		validGitHubLoginAuthorizationURL(target)
+}
+
+type workspaceLoginAuthorization struct {
+	callbackPort int
+}
+
+func parseWorkspaceLoginAuthorizationURL(target string) (workspaceLoginAuthorization, bool) {
+	if authorization, ok := parseCodexLoginAuthorizationURL(target); ok {
+		return workspaceLoginAuthorization{callbackPort: authorization.callbackPort}, true
+	}
+	return parseGitHubLoginAuthorizationURL(target)
+}
+
+func validGitHubLoginAuthorizationURL(target string) bool {
+	_, ok := parseGitHubLoginAuthorizationURL(target)
+	return ok
+}
+
+func parseGitHubLoginAuthorizationURL(target string) (workspaceLoginAuthorization, bool) {
+	parsed, err := url.Parse(target)
+	if err != nil || parsed.Scheme != "https" || parsed.User != nil || parsed.Host != githubAuthorizationHost ||
+		parsed.Path != githubAuthorizationPath || parsed.RawPath != "" || parsed.ForceQuery || parsed.Fragment != "" {
+		return workspaceLoginAuthorization{}, false
+	}
+	query, err := url.ParseQuery(parsed.RawQuery)
+	if err != nil || len(query) != 4 || len(query["client_id"]) != 1 ||
+		query["client_id"][0] != githubAuthorizationClientID || len(query["scope"]) != 1 ||
+		!validGitHubScopeSubset(query["scope"][0]) || len(query["state"]) != 1 ||
+		!githubOAuthStatePattern.MatchString(query["state"][0]) || len(query["redirect_uri"]) != 1 {
+		return workspaceLoginAuthorization{}, false
+	}
+	for key := range query {
+		switch key {
+		case "client_id", "redirect_uri", "scope", "state":
+		default:
+			return workspaceLoginAuthorization{}, false
+		}
+	}
+	callbackPort, ok := parseWorkspaceCallbackPort(query["redirect_uri"][0], "127.0.0.1", githubCallbackPath)
+	if !ok {
+		return workspaceLoginAuthorization{}, false
+	}
+	return workspaceLoginAuthorization{callbackPort: callbackPort}, true
+}
+
+func validGitHubScopeSubset(value string) bool {
+	return validRequiredScopeSubset(value, githubAuthorizationScope, []string{"repo", "read:org", "gist"})
+}
+
+func validRequiredScopeSubset(value, ceiling string, required []string) bool {
+	if value == "" || strings.ContainsAny(value, "\t\r\n") {
+		return false
+	}
+	allowed := make(map[string]struct{})
+	for _, scope := range strings.Split(ceiling, " ") {
+		allowed[scope] = struct{}{}
+	}
+	seen := make(map[string]struct{})
+	actual := strings.Split(value, " ")
+	if len(actual) == 0 || len(actual) > len(allowed) {
+		return false
+	}
+	for _, scope := range actual {
+		if scope == "" {
+			return false
+		}
+		if _, ok := allowed[scope]; !ok {
+			return false
+		}
+		if _, duplicate := seen[scope]; duplicate {
+			return false
+		}
+		seen[scope] = struct{}{}
+	}
+	for _, scope := range required {
+		if _, ok := seen[scope]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
+func validCodexLoginAuthorizationURL(target string) bool {
+	_, ok := parseCodexLoginAuthorizationURL(target)
+	return ok
+}
+
+type codexLoginAuthorization struct {
+	callbackPort int
+}
+
+func parseCodexLoginAuthorizationURL(target string) (codexLoginAuthorization, bool) {
+	parsed, err := url.Parse(target)
+	if err != nil || parsed.Scheme != "https" || parsed.User != nil || parsed.Host != codexAuthorizationHost ||
+		parsed.Path != codexAuthorizationPath || parsed.RawPath != "" || parsed.ForceQuery || parsed.Fragment != "" {
+		return codexLoginAuthorization{}, false
+	}
+	query, err := url.ParseQuery(parsed.RawQuery)
+	if err != nil || len(query) < 7 || len(query) > 10 {
+		return codexLoginAuthorization{}, false
+	}
+	required := map[string]string{
+		"response_type":         "code",
+		"client_id":             codexAuthorizationClientID,
+		"code_challenge_method": "S256",
+	}
+	optional := map[string]string{
+		"id_token_add_organizations": "true",
+		"codex_cli_simplified_flow":  "true",
+	}
+	for key, expected := range required {
+		if len(query[key]) != 1 || query[key][0] != expected {
+			return codexLoginAuthorization{}, false
+		}
+	}
+	for key, expected := range optional {
+		if values, present := query[key]; present && (len(values) != 1 || values[0] != expected) {
+			return codexLoginAuthorization{}, false
+		}
+	}
+	if values, present := query["originator"]; present && (len(values) != 1 ||
+		(values[0] != codexOriginatorCLI && values[0] != codexOriginatorTUI)) {
+		return codexLoginAuthorization{}, false
+	}
+	allowedKeys := map[string]struct{}{
+		"response_type": {}, "client_id": {}, "code_challenge_method": {},
+		"id_token_add_organizations": {}, "codex_cli_simplified_flow": {}, "originator": {},
+		"code_challenge": {}, "state": {}, "scope": {}, "redirect_uri": {},
+	}
+	for key := range query {
+		if _, allowed := allowedKeys[key]; !allowed {
+			return codexLoginAuthorization{}, false
+		}
+	}
+	if len(query["code_challenge"]) != 1 || !awsPKCEChallengePattern.MatchString(query["code_challenge"][0]) ||
+		len(query["state"]) != 1 || !codexOAuthStatePattern.MatchString(query["state"][0]) ||
+		len(query["scope"]) != 1 || !validCodexScopeSubset(query["scope"][0]) || len(query["redirect_uri"]) != 1 {
+		return codexLoginAuthorization{}, false
+	}
+	callbackPort, ok := parseCodexCallbackPort(query["redirect_uri"][0])
+	if !ok {
+		return codexLoginAuthorization{}, false
+	}
+	return codexLoginAuthorization{callbackPort: callbackPort}, true
+}
+
+func validCodexScopeSubset(value string) bool {
+	if value == "" || strings.ContainsAny(value, "\t\r\n") {
+		return false
+	}
+	expected := strings.Split(codexAuthorizationScope, " ")
+	actual := strings.Split(value, " ")
+	if len(actual) == 0 || len(actual) > len(expected) {
+		return false
+	}
+	remaining := make(map[string]struct{}, len(expected))
+	for _, scope := range expected {
+		remaining[scope] = struct{}{}
+	}
+	for _, scope := range actual {
+		if scope == "" {
+			return false
+		}
+		if _, ok := remaining[scope]; !ok {
+			return false
+		}
+		delete(remaining, scope)
+	}
+	_, hasOpenID := remaining["openid"]
+	return !hasOpenID
+}
+
+func parseCodexCallbackPort(target string) (int, bool) {
+	parsed, err := url.Parse(target)
+	if err != nil || parsed.Scheme != "http" || parsed.User != nil || parsed.RawPath != "" ||
+		parsed.Path != codexCallbackPath || parsed.RawQuery != "" || parsed.ForceQuery || parsed.Fragment != "" {
+		return 0, false
+	}
+	host := parsed.Hostname()
+	if host != "localhost" && host != "127.0.0.1" {
+		return 0, false
+	}
+	portText := parsed.Port()
+	port, err := strconv.Atoi(portText)
+	if err != nil || port < workspaceMinimumCallbackPort || port > 65535 || strconv.Itoa(port) != portText {
+		return 0, false
+	}
+	if parsed.Host != host+":"+portText {
+		return 0, false
+	}
+	return port, true
+}
+
+func parseWorkspaceCallbackPort(target, expectedHost, expectedPath string) (int, bool) {
+	parsed, err := url.Parse(target)
+	if err != nil || parsed.Scheme != "http" || parsed.User != nil || parsed.RawPath != "" ||
+		parsed.Path != expectedPath || parsed.RawQuery != "" || parsed.ForceQuery || parsed.Fragment != "" ||
+		parsed.Hostname() != expectedHost {
+		return 0, false
+	}
+	portText := parsed.Port()
+	port, err := strconv.Atoi(portText)
+	if err != nil || port < workspaceMinimumCallbackPort || port > 65535 || strconv.Itoa(port) != portText ||
+		parsed.Host != expectedHost+":"+portText {
+		return 0, false
+	}
+	return port, true
 }
 
 func validAWSConsoleAuthorizationURL(target, expectedRegion string) bool {

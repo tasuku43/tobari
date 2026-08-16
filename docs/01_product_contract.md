@@ -24,6 +24,12 @@ Workspace; host home and CLI authentication state are never copied in. A separat
 narrow-projection boundary may re-encode only thesis-declared non-secret
 scalars; it never copies their source file, directive, executable setting, or
 authentication material.
+Inside an attached session, ChatGPT sign-in from ordinary `codex` or
+`codex login` and the reviewed GitHub.com HTTPS `gh auth login` fallback
+additionally receive their native host-browser and localhost callback experience
+through one session-scoped, pinned-client bridge. The user supplies no port,
+URL, device mode, or manual callback transfer. Caller-added GitHub scopes,
+GitHub Enterprise hosts, and SSH-key upload remain outside that bridge.
 The user-facing entry point is the current project directory: a Tobari either
 exists or does not exist, and the user should not need to manage container
 names, network IDs, or policy internals for routine work. `cluster up` remains
@@ -735,11 +741,14 @@ synthetic state.
 - `contexts/<name>/policy/preset.json`: owner-only normalized schema-v1
   non-executable snapshot whose SHA-256 digest equals the manifest preset
   revision; source preset changes never rewrite it; `builtin/agent-ready`
-  grants the exact reviewed Claude Code 2.1.220 and Codex 0.147.0 model,
-  bootstrap/catalog, account-state, and fixed first-party telemetry effects to
-  every process in the Context. It is HTTP authority, not executable identity;
-  exact Deny remains terminal, and plugins, MCP, connectors, file transfer,
-  downloads, evaluation routes, self-update, and unmatched effects receive no
+  grants the reviewed Claude Code 2.1.220 and Codex 0.147.0 native model,
+  account, bootstrap, first-party capability-discovery, bounded evaluation,
+  and telemetry effects to every process in the Context. MCP initialization
+  and enumeration are baseline methods at one exact endpoint; `tools/call`
+  requires exact tool-name review. Dynamic evaluation uses one safe identifier
+  segment without persisting its value. It is Context authority, not executable
+  identity; exact Deny remains terminal, while payload arguments, downloads,
+  file transfer, acquisition, self-update, and unmatched effects receive no
   baseline grant;
   `builtin/offline` grants nothing, exposes no review-eligible effect, and
   terminally denies all HTTP/HTTPS; `builtin/reviewed-exact` grants nothing and
@@ -773,8 +782,17 @@ synthetic state.
 
 Tool authentication state is not cluster configuration. In standard it belongs
 below the selected instance's persistent home, is created by the tool's own
-login, and follows the ordinary post-policy passthrough route. Experimental
-Broker state is separate installation state:
+login, and follows the ordinary post-policy passthrough route.
+The attached host process may transiently validate one exact Codex or GitHub CLI
+authorization URL, open it, and relay one opaque host-loopback callback to that
+same selected Workspace. GitHub CLI's complete no-newline browser prompt is
+only stream framing; its strict URL supplies browser authority, and GitHub CLI
+continues to own the Enter input. The bridge stores no callback or OAuth value
+and creates no cluster service or durable authentication state. The observation
+path retains Docker's real terminal output, native raw-input handling, and
+resize propagation; ordinary clients therefore render the same interactive
+screen they would render without the observer.
+Experimental Broker state is separate installation state:
 the normalized schema-v1 provider projection is generated below
 `auth/projection/providers.json`; schema-1-envelope/schema-1-payload Context
 vaults are below
