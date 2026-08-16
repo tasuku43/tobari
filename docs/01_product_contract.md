@@ -752,9 +752,11 @@ synthetic state.
   bootstrap and GraphQL `query` / `viewer` current-user effects to every process
   in the Context. Compile-time
   `claude_ready`, `codex_ready`, and `gh_ready` names are review provenance and
-  are expanded before snapshot persistence. Strict schema V1 includes explicit
-  `graphql_baseline_grants` and `mcp_baseline_grants` collections; every semantic
-  grant requires its matching declared exact endpoint. MCP initialization
+  are expanded before snapshot persistence. Strict schema V1 carries optional
+  GraphQL protocol/operation/root identity on a `baseline_grants` item and keeps
+  the existing explicit `mcp_baseline_grants` collection; every semantic grant
+  requires its matching declared exact endpoint. HTTP-only normalized snapshots
+  omit those optional GraphQL keys and retain their bytes. MCP initialization
   and enumeration are baseline methods at one exact endpoint; `tools/call`
   requires exact tool-name review. Dynamic evaluation uses one safe identifier
   segment without persisting its value. It is Context authority, not executable

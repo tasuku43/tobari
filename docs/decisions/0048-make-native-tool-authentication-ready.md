@@ -66,12 +66,14 @@ Git transport, repository, release, download, upload, self-update, host-wide,
 or path-prefix authority. The grants are Context-wide effects available to
 every process in the Context, and exact Deny remains terminal.
 
-Strict policy-preset schema V1 adds an explicit `graphql_baseline_grants`
-collection analogous to `mcp_baseline_grants`. Each item binds one declared
-exact GraphQL endpoint, operation type, and root field. A grant without its
-matching endpoint, an incomplete identity, a duplicate, or a value outside the
-preset ceiling fails validation. OPA requires every root in one request to
-match independently before the baseline permits the request.
+Strict policy-preset schema V1 extends an existing `baseline_grants` item with
+optional `protocol`, `graphql_operation_type`, and `graphql_root_field` keys.
+They are omitted from ordinary HTTP items, preserving the normalized bytes and
+revision of existing HTTP-only snapshots. A GraphQL item binds one declared
+exact endpoint, operation type, and root field. A grant without its matching
+endpoint, an incomplete identity, a duplicate, or a value outside the preset
+ceiling fails validation. OPA requires every root in one request to match
+independently before the baseline permits the request.
 
 The canonical runtime exposes a compatibility wrapper at `/usr/local/bin/gh`
 and retains the pinned real executable outside `PATH`. Only exact default argv
@@ -151,10 +153,10 @@ Unobserved or unmatched effects remain denied or reviewable.
 ## Compatibility and migration
 
 No public command, flag, credential schema, Gateway protocol, or Workspace state
-format changes. Strict preset schema V1 gains the required explicit
-`graphql_baseline_grants` collection; custom sources must include it, including
-an empty array when unused. Existing Contexts retain their stored preset
-revision and do not gain the declared endpoint or semantic grant. A user first
+format changes. Strict preset schema V1 accepts optional semantic identity only
+on a `baseline_grants` item; existing HTTP-only sources and snapshots remain
+byte-identical and require no added key. Existing Contexts retain their stored
+preset revision and do not gain the declared endpoint or semantic grant. A user first
 resets any route-wide learned `POST /graphql` permission, then creates a new
 Context or deletes and recreates disposable pre-public local Context state,
 re-enters its Workspace, and performs native login there.
