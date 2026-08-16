@@ -12,10 +12,11 @@ import (
 )
 
 const (
-	PolicyPresetSchemaVersion = 1
-	DefaultPolicyPresetOrigin = "builtin/agent-ready"
-	AgentReadyClaudeVersion   = "2.1.220"
-	AgentReadyCodexVersion    = "0.147.0"
+	PolicyPresetSchemaVersion  = 1
+	DefaultPolicyPresetOrigin  = "builtin/agent-ready"
+	AgentReadyClaudeVersion    = "2.1.220"
+	AgentReadyCodexVersion     = "0.147.0"
+	AgentReadyGitHubCLIVersion = "2.96.0"
 
 	TaskPolicyPresetList     = "policy.preset.list"
 	TaskPolicyPresetShow     = "policy.preset.show"
@@ -416,16 +417,56 @@ func BuiltinPolicyPreset(origin string) (PolicyPreset, bool) {
 	return base, true
 }
 
-// agentReadyBaselineGrants is coupled to the Claude Code and Codex versions
-// pinned by the canonical base runtime. These are HTTP-effect grants, not
-// process identity: every process in the Context receives the same exact
+// nativeToolAuthReadiness is a compile-time compatibility bundle for one
+// pinned native client. The normalized preset stores only the expanded exact
+// rules: bundle names and process names never become runtime authority.
+type nativeToolAuthReadiness struct {
+	ID             string
+	Version        string
+	BaselineGrants []PolicyPresetExactRule
+}
+
+func nativeToolAuthReadinessBundles() []nativeToolAuthReadiness {
+	return []nativeToolAuthReadiness{
+		{
+			ID:      "claude_ready",
+			Version: AgentReadyClaudeVersion,
+			BaselineGrants: []PolicyPresetExactRule{
+				{Scheme: "https", Host: "api.anthropic.com", Port: 443, Method: "GET", Path: "/api/oauth/claude_cli/roles"},
+				{Scheme: "https", Host: "api.anthropic.com", Port: 443, Method: "GET", Path: "/api/oauth/profile"},
+				{Scheme: "https", Host: "platform.claude.com", Port: 443, Method: "GET", Path: "/v1/oauth/hello"},
+				{Scheme: "https", Host: "platform.claude.com", Port: 443, Method: "POST", Path: "/v1/oauth/token"},
+			},
+		},
+		{
+			ID:      "codex_ready",
+			Version: AgentReadyCodexVersion,
+			BaselineGrants: []PolicyPresetExactRule{
+				{Scheme: "https", Host: "auth.openai.com", Port: 443, Method: "POST", Path: "/api/accounts/deviceauth/token"},
+				{Scheme: "https", Host: "auth.openai.com", Port: 443, Method: "POST", Path: "/api/accounts/deviceauth/usercode"},
+				{Scheme: "https", Host: "auth.openai.com", Port: 443, Method: "POST", Path: "/oauth/token"},
+			},
+		},
+		{
+			ID:      "gh_ready",
+			Version: AgentReadyGitHubCLIVersion,
+			BaselineGrants: []PolicyPresetExactRule{
+				{Scheme: "https", Host: "github.com", Port: 443, Method: "POST", Path: "/login/device/code"},
+				{Scheme: "https", Host: "github.com", Port: 443, Method: "POST", Path: "/login/oauth/access_token"},
+			},
+		},
+	}
+}
+
+// agentReadyBaselineGrants is coupled to the pinned native tool versions in
+// the canonical base runtime. These are HTTP-effect grants, not process
+// identity: every process in the Context receives the same exact
 // authority/method/path decisions. Native first-party discovery and control
 // plane routes are included; acquisition, file transfer, and self-update stay out.
 func agentReadyBaselineGrants() []PolicyPresetExactRule {
-	return []PolicyPresetExactRule{
+	grants := []PolicyPresetExactRule{
 		{Scheme: "https", Host: "ab.chatgpt.com", Port: 443, Method: "POST", Path: "/otlp/v1/metrics"},
 		{Scheme: "https", Host: "api.anthropic.com", Port: 443, Method: "GET", Path: "/api/claude_cli/bootstrap"},
-		{Scheme: "https", Host: "api.anthropic.com", Port: 443, Method: "GET", Path: "/api/oauth/claude_cli/roles"},
 		{Scheme: "https", Host: "api.anthropic.com", Port: 443, Method: "GET", Path: "/api/claude_code/policy_limits"},
 		{Scheme: "https", Host: "api.anthropic.com", Port: 443, Method: "GET", Path: "/api/claude_code/settings"},
 		{Scheme: "https", Host: "api.anthropic.com", Port: 443, Method: "GET", Path: "/api/organization/claude_code_first_token_date"},
@@ -435,13 +476,9 @@ func agentReadyBaselineGrants() []PolicyPresetExactRule {
 		{Scheme: "https", Host: "api.anthropic.com", Port: 443, Method: "GET", Path: "/v1/mcp_servers"},
 		{Scheme: "https", Host: "api.anthropic.com", Port: 443, Method: "GET", Path: "/api/hello"},
 		{Scheme: "https", Host: "api.anthropic.com", Port: 443, Method: "HEAD", Path: "/api/hello"},
-		{Scheme: "https", Host: "api.anthropic.com", Port: 443, Method: "GET", Path: "/api/oauth/profile"},
 		{Scheme: "https", Host: "api.anthropic.com", Port: 443, Method: "GET", Path: "/api/oauth/usage"},
 		{Scheme: "https", Host: "api.anthropic.com", Port: 443, Method: "POST", Path: "/api/event_logging/v2/batch"},
 		{Scheme: "https", Host: "api.anthropic.com", Port: 443, Method: "POST", Path: "/v1/messages"},
-		{Scheme: "https", Host: "auth.openai.com", Port: 443, Method: "POST", Path: "/api/accounts/deviceauth/token"},
-		{Scheme: "https", Host: "auth.openai.com", Port: 443, Method: "POST", Path: "/api/accounts/deviceauth/usercode"},
-		{Scheme: "https", Host: "auth.openai.com", Port: 443, Method: "POST", Path: "/oauth/token"},
 		{Scheme: "https", Host: "chatgpt.com", Port: 443, Method: "GET", Path: "/backend-api/codex/models"},
 		{Scheme: "https", Host: "chatgpt.com", Port: 443, Method: "GET", Path: "/backend-api/codex/responses"},
 		{Scheme: "https", Host: "chatgpt.com", Port: 443, Method: "GET", Path: "/backend-api/plugins/featured"},
@@ -455,9 +492,11 @@ func agentReadyBaselineGrants() []PolicyPresetExactRule {
 		{Scheme: "https", Host: "chatgpt.com", Port: 443, Method: "GET", Path: "/backend-api/wham/rate-limit-reset-credits"},
 		{Scheme: "https", Host: "chatgpt.com", Port: 443, Method: "GET", Path: "/backend-api/wham/settings/user"},
 		{Scheme: "https", Host: "chatgpt.com", Port: 443, Method: "GET", Path: "/backend-api/wham/usage"},
-		{Scheme: "https", Host: "platform.claude.com", Port: 443, Method: "GET", Path: "/v1/oauth/hello"},
-		{Scheme: "https", Host: "platform.claude.com", Port: 443, Method: "POST", Path: "/v1/oauth/token"},
 	}
+	for _, bundle := range nativeToolAuthReadinessBundles() {
+		grants = append(grants, bundle.BaselineGrants...)
+	}
+	return grants
 }
 
 func agentReadyBaselineTemplates() []PolicyPresetPathTemplateRule {

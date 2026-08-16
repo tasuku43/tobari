@@ -258,7 +258,7 @@ func validate(root string) (string, error) {
 	if lock.SchemaVersion != 1 || lock.BaseImage.Name != "debian" || lock.BaseImage.Tag == "" || !digestReference.MatchString(lock.BaseImage.Reference) {
 		return "", errors.New("base runtime lock does not contain a digest-pinned Debian reference")
 	}
-	if !versionReference.MatchString(lock.Tools.GH.Version) || lock.Tools.GH.Source != "https://github.com/cli/cli/releases" ||
+	if lock.Tools.GH.Version != tobari.AgentReadyGitHubCLIVersion || lock.Tools.GH.Source != "https://github.com/cli/cli/releases" ||
 		!versionReference.MatchString(lock.Tools.AWSCLI.Version) || lock.Tools.AWSCLI.Source != "https://awscli.amazonaws.com/" {
 		return "", errors.New("base runtime lock does not contain the approved common CLI pins")
 	}

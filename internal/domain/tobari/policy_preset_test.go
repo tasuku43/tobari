@@ -84,6 +84,49 @@ func TestAgentReadyPresetPreservesNativeDiscoveryAndSeparatesMCPExecution(t *tes
 	}
 }
 
+func TestAgentReadyNativeToolAuthReadinessBundlesArePinnedAndExact(t *testing.T) {
+	bundles := nativeToolAuthReadinessBundles()
+	wantVersions := map[string]string{
+		"claude_ready": AgentReadyClaudeVersion,
+		"codex_ready":  AgentReadyCodexVersion,
+		"gh_ready":     AgentReadyGitHubCLIVersion,
+	}
+	for _, bundle := range bundles {
+		version, ok := wantVersions[bundle.ID]
+		if !ok || bundle.Version != version || len(bundle.BaselineGrants) == 0 {
+			t.Fatalf("native tool readiness bundle is not pinned: %+v", bundle)
+		}
+		delete(wantVersions, bundle.ID)
+	}
+	if len(wantVersions) != 0 {
+		t.Fatalf("native tool readiness bundles are missing: %v", wantVersions)
+	}
+
+	var github []PolicyPresetExactRule
+	for _, bundle := range bundles {
+		if bundle.ID == "gh_ready" {
+			github = bundle.BaselineGrants
+		}
+	}
+	wantGitHub := []PolicyPresetExactRule{
+		{Scheme: "https", Host: "github.com", Port: 443, Method: "POST", Path: "/login/device/code"},
+		{Scheme: "https", Host: "github.com", Port: 443, Method: "POST", Path: "/login/oauth/access_token"},
+	}
+	if len(github) != len(wantGitHub) {
+		t.Fatalf("gh_ready grants = %+v", github)
+	}
+	for index := range wantGitHub {
+		if github[index] != wantGitHub[index] {
+			t.Fatalf("gh_ready grant %d = %+v, want %+v", index, github[index], wantGitHub[index])
+		}
+	}
+	for _, rule := range agentReadyBaselineGrants() {
+		if rule.Host == "github.com" && (rule.Method != "POST" || (rule.Path != "/login/device/code" && rule.Path != "/login/oauth/access_token")) {
+			t.Fatalf("neighboring GitHub authority entered baseline: %+v", rule)
+		}
+	}
+}
+
 func TestPolicyPresetRejectsNonExactOrReservedDestinations(t *testing.T) {
 	for _, host := range []string{"mock-upstream", "*.example.com", "127.0.0.1", "::1", "localhost", "service.local", "service.internal", "service.test", "service.invalid", "service.example", "example.com", "UPPER.example.net", "bad_name.example.net", "trailing.example.net.", "é.example.net"} {
 		authority := PolicyPresetAuthority{Scheme: "https", Host: host, Port: 443}
