@@ -67,4 +67,6 @@ jobs:
           cache: true
 
       - name: Run the container runtime gate
-        run: ./scripts/check.sh runtime
+        run: |
+          ./scripts/check.sh runtime
+          ./scripts/check.sh integration
