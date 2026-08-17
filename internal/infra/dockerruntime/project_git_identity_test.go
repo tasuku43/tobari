@@ -522,8 +522,9 @@ func TestProjectContainerSelectsOnlyDirectSourceBindAccess(t *testing.T) {
 				t.Fatal(err)
 			}
 			instance := projectGitTestInstance(t, runtime)
+			state := runtimeState(base)
 			if err := runtime.ensureProjectContainerWithAuth(
-				context.Background(), runtimeState(base), instance, "/profile", "project", "network",
+				context.Background(), state, instance, "/profile", "project", "network",
 				"172.29.0.2", "image", "sha256:source", projectAuthProjection{Environment: []string{}, Files: []projectAuthFile{}}, test.access,
 			); err != nil {
 				t.Fatal(err)
@@ -546,6 +547,15 @@ func TestProjectContainerSelectsOnlyDirectSourceBindAccess(t *testing.T) {
 			if !containsConsecutiveArgs(create, "--tmpfs", "/tmp:size=512m,mode=1777") {
 				t.Fatalf("Workspace tmpfs is missing: %v", create)
 			}
+			opener := filepath.Join(state.RuntimeDirectory, "browser", "tobari-open")
+			for _, mount := range []string{
+				"type=bind,src=" + opener + ",dst=/run/tobari-open,readonly",
+				"type=bind,src=" + opener + ",dst=/usr/local/bin/xdg-open,readonly",
+			} {
+				if !containsConsecutiveArgs(create, "--mount", mount) {
+					t.Fatalf("Workspace browser mount %q is missing: %v", mount, create)
+				}
+			}
 		})
 	}
 }
@@ -558,8 +568,9 @@ func TestProjectRuntimeSpecIncludesGitFallbackEnvironmentAndMount(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
+	state := runtimeState(filepath.Dir(instance.Root))
 	spec, err := runtime.projectRuntimeSpecWithAuthAndCommand(
-		runtimeState(filepath.Dir(instance.Root)), instance, profile, "network", "image", "sha256:image",
+		state, instance, profile, "network", "image", "sha256:image",
 		projectAuthProjection{Environment: []string{}, Files: []projectAuthFile{}}, projectLifetimeCommand(),
 		tobari.ContextSourceAccessReadWrite,
 	)
@@ -573,6 +584,15 @@ func TestProjectRuntimeSpecIncludesGitFallbackEnvironmentAndMount(t *testing.T) 
 	wantMount := "bind:" + directory + "->" + projectGitContainerDirectory + ":ro"
 	if !slices.Contains(spec.Mounts, wantMount) {
 		t.Fatalf("project spec mounts = %v, want %q", spec.Mounts, wantMount)
+	}
+	opener := filepath.Join(state.RuntimeDirectory, "browser", "tobari-open")
+	for _, mount := range []string{
+		"bind:" + opener + "->/run/tobari-open:ro",
+		"bind:" + opener + "->/usr/local/bin/xdg-open:ro",
+	} {
+		if !slices.Contains(spec.Mounts, mount) {
+			t.Fatalf("project spec mounts = %v, want %q", spec.Mounts, mount)
+		}
 	}
 }
 

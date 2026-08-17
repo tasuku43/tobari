@@ -4,11 +4,10 @@ set -eu
 real_gh=/opt/tobari/bin/gh
 
 # The pinned GitHub.com HTTPS first-login path is the only compatibility case
-# Tobari owns. Disabling gh's prompts makes its device flow print the fixed URL
-# and begin polling without invoking a browser inside the Workspace.
+# Tobari owns. GH_BROWSER is inherited from the attachment-scoped Tobari opener,
+# so gh invokes it only after its native confirmation.
 if [ "$#" -eq 2 ] && [ "$1" = "auth" ] && [ "$2" = "login" ]; then
-	GH_PROMPT_DISABLED=1 GH_BROWSER=/bin/true \
-		"$real_gh" auth login --hostname github.com --git-protocol https --web
+	"$real_gh" auth login --hostname github.com --git-protocol https --web
 	GH_PROMPT_DISABLED=1 \
 		exec "$real_gh" auth setup-git --hostname github.com
 fi

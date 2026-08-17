@@ -40,14 +40,12 @@ type commandRunner interface {
 	Output(context.Context, []string, []string) ([]byte, error)
 }
 
-// terminalOutputCommandRunner preserves the attached Docker CLI's terminal
-// identity while relaying a copy of its stdout through a bounded observer.
-// The production runner implements this only on reviewed Unix hosts.
-type terminalOutputCommandRunner interface {
-	RunWithTerminalOutput(
-		context.Context, []string, []string, io.Reader,
-		io.Writer, io.Writer, io.Writer,
-	) error
+// workspaceBrowserControlRunner opts a runner into the concurrent, long-lived
+// Docker exec used only for attachment-scoped browser requests. Keeping this
+// separate from commandRunner prevents ordinary test and inspection runners
+// from accidentally being treated as interactive control transports.
+type workspaceBrowserControlRunner interface {
+	RunWorkspaceBrowserControl(context.Context, []string, []string, io.Reader, io.Writer, io.Writer) error
 }
 
 type osCommandRunner struct{}
@@ -62,6 +60,12 @@ func (osCommandRunner) Output(ctx context.Context, args, environment []string) (
 	command := exec.CommandContext(ctx, "docker", args...) // #nosec G204 -- executable and argv boundary are fixed.
 	command.Env = environment
 	return command.CombinedOutput()
+}
+
+func (runner osCommandRunner) RunWorkspaceBrowserControl(
+	ctx context.Context, args, environment []string, in io.Reader, out, errOut io.Writer,
+) error {
+	return runner.Run(ctx, args, environment, in, out, errOut)
 }
 
 // Runtime owns filesystem state and Docker process execution.

@@ -23,6 +23,13 @@ func TestMaterializeAndVersion(t *testing.T) {
 	if info.Mode().Perm() != 0o700 {
 		t.Fatalf("entrypoint mode = %o, want 700", info.Mode().Perm())
 	}
+	opener, err := os.Stat(filepath.Join(destination, "browser", "tobari-open"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if opener.Mode().Perm() != 0o700 {
+		t.Fatalf("browser opener mode = %o, want 700", opener.Mode().Perm())
+	}
 	version, err := Version()
 	if err != nil {
 		t.Fatal(err)

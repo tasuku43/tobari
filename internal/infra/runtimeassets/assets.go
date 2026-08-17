@@ -87,7 +87,7 @@ func Materialize(destination string) error {
 			return fmt.Errorf("create runtime directory: %w", err)
 		}
 		mode := os.FileMode(0o600)
-		if strings.HasSuffix(relative, ".sh") {
+		if strings.HasSuffix(relative, ".sh") || relative == "browser/tobari-open" {
 			mode = 0o700
 		}
 		if current, err := os.ReadFile(target); err == nil && string(current) == string(data) { // #nosec G304 -- target is formed only from an absolute caller state root and embed.FS-walked local asset names.

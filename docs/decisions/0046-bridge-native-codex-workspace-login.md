@@ -6,6 +6,7 @@
 - Scope: Product, architecture, security, authentication, runtime, and harness
 - Revises: ADR 0036 for standard Workspace login
 - Related: ADR 0044
+- Revised by: ADR 0053 and ADR 0055
 - Superseded by: Device-flow readiness revised by ADR 0048
 
 ## Context
@@ -34,7 +35,7 @@ Scope order and permitted reduction, bounded dynamic state, callback port, and p
 5. relays its opaque bytes through a fixed Docker exec program plus the validated port to the same port on `127.0.0.1` in the selected Workspace; and
 6. closes the listener after the connection, browser-open failure, or interactive-session end.
 
-The originating CLI remains the OAuth implementation and input owner. Tobari does not construct the authorization URL, inject or consume GitHub CLI's Enter input, inspect callback HTTP bytes, compare state, implement PKCE, exchange the code, read or write credentials, or log/persist the URL, callback, code, state, or token. Callback bytes exist only in the host relay's bounded in-memory stream. ADR 0048's later exact-default-argv device compatibility path disables the pinned client's prompt before this callback branch, so it requires no Enter injection and does not revise the relay's input ownership.
+The originating CLI remains the OAuth implementation and input owner. Tobari does not construct the authorization URL, inject or consume GitHub CLI's Enter input, inspect callback HTTP bytes, compare state, implement PKCE, exchange the code, read or write credentials, or log/persist the URL, callback, code, state, or token. Callback bytes exist only in the host relay's bounded in-memory stream. ADR 0053's later exact-default-argv device path restores GitHub CLI's native Enter handoff and uses only post-confirmation output framing, so Tobari still neither injects nor consumes that input.
 
 The bridge is not a generic browser or port-forwarding service. It is available only while the owning `tobari` process is attached, only for the reviewed Codex and GitHub CLI OAuth authority contracts, only on a URL-selected non-privileged host-loopback port, and only to the exact selected owned Workspace. Each client ID and scope ceiling remains reviewed authority: changing a client or expanding a ceiling requires an explicit compatibility/security decision. ADR 0048 separately adds GitHub CLI's exact host-open-only device target and its finite Workspace authentication effects without callback authority.
 

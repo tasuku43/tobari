@@ -6,6 +6,7 @@
 - Scope: Product, architecture, security, authentication, policy, runtime, and harness
 - Revises: ADR 0039, ADR 0044, and ADR 0046
 - Related: ADR 0047
+- Revised by: ADR 0051, ADR 0053, ADR 0054, ADR 0055, and ADR 0057
 - Superseded by: None
 
 ## Context
@@ -173,3 +174,19 @@ host-open-only URL. It does not authorize a GitHub host, route, mutation,
 repository operation, callback, or executable identity. Repository fixtures use
 synthetic prompts and effects and never contain a live device code, token,
 state, callback, account identifier, or authenticated transcript.
+
+## Revision by ADR 0051
+
+ADR 0051 replaces this record's snapshot-expansion and Context-recreation
+migration behavior. Readiness bundle rules now come from the installed trusted
+binary during aggregate projection; legacy snapshot forms are replaced without
+rewriting the snapshot, so existing exact agent-ready Contexts receive the
+current set.
+
+## Revision by ADR 0053
+
+ADR 0053 restores GitHub CLI's native Enter handoff for exact default `gh auth
+login`. The fixed Workspace browser adapter now emits post-confirmation framing;
+the host observer validates and opens the target only after that transition.
+The earlier prompt-disabled, pre-confirmation, and no-Enter behavior no longer
+applies.

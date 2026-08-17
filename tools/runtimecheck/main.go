@@ -326,7 +326,6 @@ func validate(root string) (string, error) {
 	for _, required := range []string{
 		`real_gh=/opt/tobari/bin/gh`,
 		`if [ "$#" -eq 2 ] && [ "$1" = "auth" ] && [ "$2" = "login" ]`,
-		`GH_PROMPT_DISABLED=1 GH_BROWSER=/bin/true`,
 		`auth login --hostname github.com --git-protocol https --web`,
 		`auth setup-git --hostname github.com`,
 		`exec "$real_gh" "$@"`,

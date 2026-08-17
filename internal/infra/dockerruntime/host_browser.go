@@ -8,11 +8,17 @@ import (
 	"os/exec"
 	"regexp"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 )
 
 const githubDeviceURL = "https://github.com/login/device"
+
+const (
+	twgAuthorizationHost = "auth.atlassian.com"
+	twgAuthorizationPath = "/oauth/activate"
+)
 
 const (
 	githubAuthorizationHost      = "github.com"
@@ -40,6 +46,7 @@ var (
 	awsPKCEChallengePattern = regexp.MustCompile(`^[A-Za-z0-9_-]{43}$`)
 	codexOAuthStatePattern  = regexp.MustCompile(`^[A-Za-z0-9_-]{32,128}$`)
 	githubOAuthStatePattern = regexp.MustCompile(`^[0-9a-f]{20}$`)
+	twgUserCodeQueryPattern = regexp.MustCompile(`^user_code=[A-Za-z0-9_-]{1,128}$`)
 )
 
 const awsConsoleClientID = "arn:aws:signin:::devtools/cross-device"
@@ -77,21 +84,32 @@ func hostBrowserCommand(goos, target string) (string, []string, error) {
 }
 
 func validLoginBrowserTarget(target string) bool {
-	return target == githubDeviceURL || awsSSODeviceURLPattern.MatchString(target) ||
-		validAWSConsoleAuthorizationURL(target, "") || validClaudeLoginAuthorizationURL(target) ||
-		validPupLoginAuthorizationURL(target) || validCodexLoginAuthorizationURL(target) ||
-		validGitHubLoginAuthorizationURL(target)
+	if _, ok := parseWorkspaceLoginBrowserAction(target); ok {
+		return true
+	}
+	return awsSSODeviceURLPattern.MatchString(target) || validAWSConsoleAuthorizationURL(target, "") ||
+		validClaudeLoginAuthorizationURL(target) || validPupLoginAuthorizationURL(target)
+}
+
+func validTWGWorkspaceLoginVerificationURL(target string) bool {
+	parsed, err := url.Parse(target)
+	return err == nil && parsed.Scheme == "https" && parsed.User == nil && parsed.Host == twgAuthorizationHost &&
+		parsed.Path == twgAuthorizationPath && parsed.RawPath == "" && !parsed.ForceQuery && parsed.Fragment == "" &&
+		twgUserCodeQueryPattern.MatchString(parsed.RawQuery)
+}
+
+func validWorkspaceClaudeLoginAuthorizationURL(target string) bool {
+	scopes, ok := claudeLoginAuthorizationScopes(target)
+	if !ok {
+		return false
+	}
+	want := strings.Fields(claudeWorkspaceLoginScope)
+	slices.Sort(want)
+	return slices.Equal(scopes, want)
 }
 
 type workspaceLoginAuthorization struct {
 	callbackPort int
-}
-
-func parseWorkspaceLoginAuthorizationURL(target string) (workspaceLoginAuthorization, bool) {
-	if authorization, ok := parseCodexLoginAuthorizationURL(target); ok {
-		return workspaceLoginAuthorization{callbackPort: authorization.callbackPort}, true
-	}
-	return parseGitHubLoginAuthorizationURL(target)
 }
 
 func validGitHubLoginAuthorizationURL(target string) bool {
@@ -168,19 +186,15 @@ func validCodexLoginAuthorizationURL(target string) bool {
 	return ok
 }
 
-type codexLoginAuthorization struct {
-	callbackPort int
-}
-
-func parseCodexLoginAuthorizationURL(target string) (codexLoginAuthorization, bool) {
+func parseCodexLoginAuthorizationURL(target string) (workspaceLoginAuthorization, bool) {
 	parsed, err := url.Parse(target)
 	if err != nil || parsed.Scheme != "https" || parsed.User != nil || parsed.Host != codexAuthorizationHost ||
 		parsed.Path != codexAuthorizationPath || parsed.RawPath != "" || parsed.ForceQuery || parsed.Fragment != "" {
-		return codexLoginAuthorization{}, false
+		return workspaceLoginAuthorization{}, false
 	}
 	query, err := url.ParseQuery(parsed.RawQuery)
 	if err != nil || len(query) < 7 || len(query) > 10 {
-		return codexLoginAuthorization{}, false
+		return workspaceLoginAuthorization{}, false
 	}
 	required := map[string]string{
 		"response_type":         "code",
@@ -193,17 +207,17 @@ func parseCodexLoginAuthorizationURL(target string) (codexLoginAuthorization, bo
 	}
 	for key, expected := range required {
 		if len(query[key]) != 1 || query[key][0] != expected {
-			return codexLoginAuthorization{}, false
+			return workspaceLoginAuthorization{}, false
 		}
 	}
 	for key, expected := range optional {
 		if values, present := query[key]; present && (len(values) != 1 || values[0] != expected) {
-			return codexLoginAuthorization{}, false
+			return workspaceLoginAuthorization{}, false
 		}
 	}
 	if values, present := query["originator"]; present && (len(values) != 1 ||
 		(values[0] != codexOriginatorCLI && values[0] != codexOriginatorTUI)) {
-		return codexLoginAuthorization{}, false
+		return workspaceLoginAuthorization{}, false
 	}
 	allowedKeys := map[string]struct{}{
 		"response_type": {}, "client_id": {}, "code_challenge_method": {},
@@ -212,19 +226,19 @@ func parseCodexLoginAuthorizationURL(target string) (codexLoginAuthorization, bo
 	}
 	for key := range query {
 		if _, allowed := allowedKeys[key]; !allowed {
-			return codexLoginAuthorization{}, false
+			return workspaceLoginAuthorization{}, false
 		}
 	}
 	if len(query["code_challenge"]) != 1 || !awsPKCEChallengePattern.MatchString(query["code_challenge"][0]) ||
 		len(query["state"]) != 1 || !codexOAuthStatePattern.MatchString(query["state"][0]) ||
 		len(query["scope"]) != 1 || !validCodexScopeSubset(query["scope"][0]) || len(query["redirect_uri"]) != 1 {
-		return codexLoginAuthorization{}, false
+		return workspaceLoginAuthorization{}, false
 	}
 	callbackPort, ok := parseCodexCallbackPort(query["redirect_uri"][0])
 	if !ok {
-		return codexLoginAuthorization{}, false
+		return workspaceLoginAuthorization{}, false
 	}
-	return codexLoginAuthorization{callbackPort: callbackPort}, true
+	return workspaceLoginAuthorization{callbackPort: callbackPort}, true
 }
 
 func validCodexScopeSubset(value string) bool {

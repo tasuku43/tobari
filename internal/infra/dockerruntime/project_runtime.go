@@ -18,7 +18,6 @@ import (
 
 	"github.com/tasuku43/tobari/internal/domain/fault"
 	"github.com/tasuku43/tobari/internal/domain/tobari"
-	"github.com/tasuku43/tobari/internal/infra/terminal"
 )
 
 const (
@@ -449,6 +448,16 @@ func (r *Runtime) enterProjectRuntime(
 		// forwarding; inherit the caller's streams without a shell wrapper.
 		"exec", "-i", "-t", "--user", strconv.Itoa(uid) + ":" + strconv.Itoa(gid),
 	}
+	bridge := newWorkspaceLoginBridge(ctx, r, container, instance.ID)
+	defer bridge.close()
+	browserChannel, err := r.startWorkspaceBrowserChannel(ctx, bridge, container)
+	if err != nil {
+		return 0, err
+	}
+	defer browserChannel.close()
+	for _, environment := range browserChannel.environment() {
+		args = append(args, "--env", environment)
+	}
 	for _, environment := range shellEnvironment {
 		args = append(args, "--env", environment)
 	}
@@ -456,17 +465,7 @@ func (r *Runtime) enterProjectRuntime(
 		args = append(args, "--env", environment)
 	}
 	args = append(args, "--workdir", workdir, container, "/bin/bash")
-	bridge := newWorkspaceLoginBridge(ctx, r, container, instance.ID)
-	defer bridge.close()
-	observedOut, observedErr := bridge.writers(out, errOut)
-	run := func() error {
-		if terminalRunner, ok := r.runner.(terminalOutputCommandRunner); ok && terminal.IsTerminal(out) {
-			return terminalRunner.RunWithTerminalOutput(
-				ctx, args, os.Environ(), in, out, observedOut, errOut,
-			)
-		}
-		return r.runner.Run(ctx, args, os.Environ(), in, observedOut, observedErr)
-	}
+	run := func() error { return r.runner.Run(ctx, args, os.Environ(), in, out, errOut) }
 	if err := run(); err == nil {
 		return 0, nil
 	} else {
@@ -720,6 +719,8 @@ func (r *Runtime) ensureProjectContainerWithAuth(
 		"--mount", "type=bind,src=" + filepath.Join(profile, "claude", "agents") + ",dst=/var/lib/tobari/.claude/agents,readonly",
 		"--mount", "type=bind,src=" + filepath.Join(profile, "claude", "commands") + ",dst=/var/lib/tobari/.claude/commands,readonly",
 		"--mount", "type=bind,src=" + filepath.Join(profile, "claude", "plugins.lock") + ",dst=/var/lib/tobari/.claude/plugins.lock,readonly",
+		"--mount", "type=bind,src=" + filepath.Join(state.RuntimeDirectory, "browser", "tobari-open") + ",dst=/run/tobari-open,readonly",
+		"--mount", "type=bind,src=" + filepath.Join(state.RuntimeDirectory, "browser", "tobari-open") + ",dst=/usr/local/bin/xdg-open,readonly",
 		"--mount", "type=volume,src=tobari-public-ca,dst=/run/tobari/ca-public,readonly",
 		"--workdir", workspaceRoot, "--network", network, "--dns", gatewayIP,
 		"--health-cmd", "test -f /tmp/tobari-ready", "--health-interval", "2s",
@@ -990,6 +991,8 @@ func (r *Runtime) projectRuntimeSpecWithAuthAndCommand(
 			"bind:" + filepath.Join(profile, "claude", "agents") + "->/var/lib/tobari/.claude/agents:ro",
 			"bind:" + filepath.Join(profile, "claude", "commands") + "->/var/lib/tobari/.claude/commands:ro",
 			"bind:" + filepath.Join(profile, "claude", "plugins.lock") + "->/var/lib/tobari/.claude/plugins.lock:ro",
+			"bind:" + filepath.Join(state.RuntimeDirectory, "browser", "tobari-open") + "->/run/tobari-open:ro",
+			"bind:" + filepath.Join(state.RuntimeDirectory, "browser", "tobari-open") + "->/usr/local/bin/xdg-open:ro",
 			"volume:tobari-public-ca->/run/tobari/ca-public:ro",
 		},
 		ReadOnly: true, Capabilities: "ALL", Security: "no-new-privileges:true",

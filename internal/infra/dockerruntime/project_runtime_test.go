@@ -166,6 +166,9 @@ func TestEnterProjectRuntimeMirrorsHostCWDPath(t *testing.T) {
 	}
 	wantArgs := []string{
 		"exec", "-i", "-t", "--user", strconv.Itoa(uid) + ":" + strconv.Itoa(gid),
+		"--env", "BROWSER=" + workspaceBrowserOpenerPath,
+		"--env", "GH_BROWSER=" + workspaceBrowserOpenerPath,
+		"--env", workspaceBrowserSocketEnv + "=" + browserSocketEnvironment(t, runner.runs[0].args),
 		"--env", "PS1=" + projectInteractivePrompt,
 		"--env", "PROMPT_COMMAND=PS1=" + bashSingleQuoted(projectInteractivePrompt),
 		"--env", "TOBARI_CAPABILITIES_JSON=" + string(capabilities),
@@ -183,6 +186,22 @@ func TestEnterProjectRuntimeMirrorsHostCWDPath(t *testing.T) {
 		}
 	}
 	t.Fatalf("EnterProjectRuntime() args = %v, missing --workdir", runner.runs[0].args)
+}
+
+func browserSocketEnvironment(t *testing.T, args []string) string {
+	t.Helper()
+	prefix := workspaceBrowserSocketEnv + "="
+	for _, arg := range args {
+		if strings.HasPrefix(arg, prefix) {
+			value := strings.TrimPrefix(arg, prefix)
+			if !strings.HasPrefix(value, "/run/tobari-browser-") || !strings.HasSuffix(value, ".sock") {
+				t.Fatalf("invalid Workspace browser socket environment %q", arg)
+			}
+			return value
+		}
+	}
+	t.Fatal("Workspace browser socket environment is missing")
+	return ""
 }
 
 func TestEnterProjectRuntimeSetsPromptWithoutUserName(t *testing.T) {
