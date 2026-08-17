@@ -35,10 +35,11 @@ func (s *Service) readyCluster(ctx context.Context) (tobari.State, error) {
 		return tobari.State{}, fault.Wrap(fault.KindUnavailable, "cluster_status_failed", "the shared cluster could not be inspected", false, statusErr,
 			fault.NextAction{Command: "cluster status", Reason: "Inspect the shared cluster before entering a Tobari."})
 	}
-	if !clusterStatus.Running {
+	if !clusterStatus.Running || clusterStatus.PolicyProjection != "valid" ||
+		clusterStatus.PrincipalRegistry != "valid" || clusterStatus.GatewayProjection != "valid" {
 		return tobari.State{}, fault.New(
 			fault.KindUnavailable, "cluster_not_ready",
-			"the shared cluster is not ready; repair it with an explicit cluster operation", false,
+			"the shared cluster is not ready or its projection is stale; repair it with an explicit cluster operation", false,
 			fault.NextAction{Command: "cluster up", Reason: "Reconcile the shared Gateway, OPA, and Auth Broker cluster explicitly."},
 		)
 	}

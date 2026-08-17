@@ -22,6 +22,7 @@ type fakeRuntime struct {
 	inspectCalls        int
 	configured          *bool
 	clusterReady        *bool
+	policyProjection    string
 	inspectErr          error
 	buildIdentityErr    error
 	learnedCalls        int
@@ -77,11 +78,15 @@ func (f *fakeRuntime) InspectCluster(context.Context, tobari.State) (tobari.Clus
 	if f.clusterReady != nil {
 		running = *f.clusterReady
 	}
+	policyProjection := f.policyProjection
+	if policyProjection == "" {
+		policyProjection = "valid"
+	}
 	return tobari.ClusterStatus{
 		Configured: true, Running: running,
 		Policy: f.state.PolicyDirectory, TobariCount: 0,
 		ContextCount: f.state.ContextCount, PolicyRevision: f.state.AggregateRevision,
-		PolicyProjection: "valid", PrincipalRegistry: "valid", GatewayProjection: "valid",
+		PolicyProjection: policyProjection, PrincipalRegistry: "valid", GatewayProjection: "valid",
 		AuthProviderProjection: "valid", AuthBrokerState: "ready", CredentialCompanionState: "ready", RootKeyBackend: "xdg_file",
 		Components: []tobari.ComponentStatus{
 			{Name: "auth-broker", State: "running", Health: "healthy"},
@@ -600,21 +605,24 @@ func TestEnterProjectCancellationBeforeMutation(t *testing.T) {
 func TestEnterProjectRequiresReadyConfiguredClusterBeforeProjectResolution(t *testing.T) {
 	t.Parallel()
 	for name, test := range map[string]struct {
-		configured bool
-		ready      bool
-		wantCode   string
+		configured       bool
+		ready            bool
+		policyProjection string
+		wantCode         string
 	}{
 		"unconfigured": {configured: false, ready: false, wantCode: "cluster_not_configured"},
 		"unready":      {configured: true, ready: false, wantCode: "cluster_not_ready"},
+		"stale policy": {configured: true, ready: true, policyProjection: "invalid", wantCode: "cluster_not_ready"},
 	} {
 		name, test := name, test
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			fake := &projectRuntimeFake{
 				fakeRuntime: &fakeRuntime{
-					state:        testState(t.TempDir()),
-					configured:   &test.configured,
-					clusterReady: &test.ready,
+					state:            testState(t.TempDir()),
+					configured:       &test.configured,
+					clusterReady:     &test.ready,
+					policyProjection: test.policyProjection,
 				},
 				cwd: "/tmp/project", terminal: true, project: testProjectInstance(),
 			}

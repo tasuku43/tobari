@@ -17,6 +17,8 @@ const (
 	AgentReadyClaudeVersion    = "2.1.220"
 	AgentReadyCodexVersion     = "0.147.0"
 	AgentReadyGitHubCLIVersion = "2.96.0"
+	AgentReadyPupVersion       = "1.10.7"
+	AgentReadyTWGVersion       = "1.2.5"
 
 	TaskPolicyPresetList     = "policy.preset.list"
 	TaskPolicyPresetShow     = "policy.preset.show"
@@ -464,55 +466,117 @@ func BuiltinPolicyPreset(origin string) (PolicyPreset, bool) {
 }
 
 // nativeToolAuthReadiness is a compile-time compatibility bundle for one
-// pinned native client. The normalized preset stores only the expanded exact
-// rules: bundle names and process names never become runtime authority.
+// reviewed native client. Bundle names and process names never become runtime
+// authority.
 type nativeToolAuthReadiness struct {
 	ID               string
-	Version          string
+	ClientVersion    string
+	ContractRevision int
 	BaselineGrants   []PolicyPresetExactRule
 	GraphQLEndpoints []PolicyPresetExactRule
 }
 
-func nativeToolAuthReadinessBundles() []nativeToolAuthReadiness {
-	return []nativeToolAuthReadiness{
-		{
-			ID:      "claude_ready",
-			Version: AgentReadyClaudeVersion,
-			BaselineGrants: []PolicyPresetExactRule{
-				{Scheme: "https", Host: "api.anthropic.com", Port: 443, Method: "GET", Path: "/api/oauth/claude_cli/roles"},
-				{Scheme: "https", Host: "api.anthropic.com", Port: 443, Method: "GET", Path: "/api/oauth/profile"},
-				{Scheme: "https", Host: "platform.claude.com", Port: 443, Method: "GET", Path: "/v1/oauth/hello"},
-				{Scheme: "https", Host: "platform.claude.com", Port: 443, Method: "POST", Path: "/v1/oauth/token"},
-			},
-		},
-		{
-			ID:      "codex_ready",
-			Version: AgentReadyCodexVersion,
-			BaselineGrants: []PolicyPresetExactRule{
-				{Scheme: "https", Host: "auth.openai.com", Port: 443, Method: "POST", Path: "/api/accounts/deviceauth/token"},
-				{Scheme: "https", Host: "auth.openai.com", Port: 443, Method: "POST", Path: "/api/accounts/deviceauth/usercode"},
-				{Scheme: "https", Host: "auth.openai.com", Port: 443, Method: "POST", Path: "/oauth/token"},
-			},
-		},
-		{
-			ID:      "gh_ready",
-			Version: AgentReadyGitHubCLIVersion,
-			BaselineGrants: []PolicyPresetExactRule{
-				{Scheme: "https", Host: "github.com", Port: 443, Method: "POST", Path: "/login/device/code"},
-				{Scheme: "https", Host: "github.com", Port: 443, Method: "POST", Path: "/login/oauth/access_token"},
-				{Scheme: "https", Host: "api.github.com", Port: 443, Method: "POST", Path: "/graphql", Protocol: PolicyProtocolGraphQL, GraphQLOperationType: GraphQLOperationQuery, GraphQLRootField: "viewer"},
-			},
-			GraphQLEndpoints: []PolicyPresetExactRule{
-				{Scheme: "https", Host: "api.github.com", Port: 443, Method: "POST", Path: "/graphql"},
-			},
-		},
-	}
+// nativeToolAuthReadinessFamily is the single reviewed registry entry for one
+// native client. Contracts is append-only removal metadata; the current
+// revision selects exactly one contract independently from the client pin.
+type nativeToolAuthReadinessFamily struct {
+	ID                      string
+	CurrentContractRevision int
+	Contracts               []nativeToolAuthReadiness
 }
 
-// agentReadyBaselineGrants is coupled to the pinned native tool versions in
-// the canonical base runtime. These are HTTP-effect grants, not process
-// identity: every process in the Context receives the same exact
-// authority/method/path decisions. Native first-party discovery and control
+func nativeToolAuthReadinessBundles() []nativeToolAuthReadiness {
+	var current []nativeToolAuthReadiness
+	for _, family := range nativeToolAuthReadinessCatalog() {
+		for _, bundle := range family.Contracts {
+			if bundle.ID == family.ID && bundle.ContractRevision == family.CurrentContractRevision {
+				current = append(current, bundle)
+				break
+			}
+		}
+	}
+	return current
+}
+
+func nativeToolAuthReadinessHistory() []nativeToolAuthReadiness {
+	var history []nativeToolAuthReadiness
+	for _, family := range nativeToolAuthReadinessCatalog() {
+		history = append(history, family.Contracts...)
+	}
+	return history
+}
+
+// BuiltinPolicyPresetSnapshot returns the immutable Context-owned portion of a
+// built-in preset. Native client readiness is deliberately absent: the trusted
+// binary projects its current compatibility overlay at aggregate generation.
+func BuiltinPolicyPresetSnapshot(origin string) (PolicyPreset, bool) {
+	preset, ok := BuiltinPolicyPreset(origin)
+	if !ok || origin != DefaultPolicyPresetOrigin {
+		return preset, ok
+	}
+	return withoutHistoricalNativeToolAuthReadiness(preset), true
+}
+
+// ApplyNativeToolAuthReadiness validates an immutable Context snapshot and,
+// only for builtin/agent-ready, replaces every historically snapshotted native
+// readiness rule with the current compile-time bundle set.
+func ApplyNativeToolAuthReadiness(origin string, snapshot PolicyPreset) (PolicyPreset, error) {
+	if err := ValidatePolicyPresetOrigin(origin); err != nil {
+		return PolicyPreset{}, err
+	}
+	normalized, _, _, err := NormalizePolicyPreset(snapshot)
+	if err != nil {
+		return PolicyPreset{}, err
+	}
+	if origin != DefaultPolicyPresetOrigin {
+		return normalized, nil
+	}
+	if normalized.Name != "agent-ready" || normalized.Guardrail != PolicyPresetGuardrailReviewedExact {
+		return PolicyPreset{}, fmt.Errorf("agent-ready snapshot identity is invalid")
+	}
+	effective := withoutHistoricalNativeToolAuthReadiness(normalized)
+	for _, bundle := range nativeToolAuthReadinessBundles() {
+		effective.BaselineGrants = append(effective.BaselineGrants, bundle.BaselineGrants...)
+		effective.GraphQLEndpoints = append(effective.GraphQLEndpoints, bundle.GraphQLEndpoints...)
+	}
+	effective, _, _, err = NormalizePolicyPreset(effective)
+	return effective, err
+}
+
+func withoutHistoricalNativeToolAuthReadiness(preset PolicyPreset) PolicyPreset {
+	historicalGrants := make(map[PolicyPresetExactRule]struct{})
+	historicalGraphQLEndpoints := make(map[PolicyPresetExactRule]struct{})
+	for _, bundle := range nativeToolAuthReadinessHistory() {
+		for _, rule := range bundle.BaselineGrants {
+			historicalGrants[rule] = struct{}{}
+		}
+		for _, endpoint := range bundle.GraphQLEndpoints {
+			historicalGraphQLEndpoints[endpoint] = struct{}{}
+		}
+	}
+	grants := make([]PolicyPresetExactRule, 0, len(preset.BaselineGrants))
+	for _, rule := range preset.BaselineGrants {
+		if _, historical := historicalGrants[rule]; !historical {
+			grants = append(grants, rule)
+		}
+	}
+	endpoints := make([]PolicyPresetExactRule, 0, len(preset.GraphQLEndpoints))
+	for _, endpoint := range preset.GraphQLEndpoints {
+		if _, historical := historicalGraphQLEndpoints[endpoint]; !historical {
+			endpoints = append(endpoints, endpoint)
+		}
+	}
+	preset.BaselineGrants = grants
+	preset.GraphQLEndpoints = endpoints
+	return preset
+}
+
+// agentReadyBaselineGrants is coupled to reviewed native tool versions. The
+// canonical base runtime supplies Claude Code, Codex, and GitHub CLI; TWG and
+// pup readiness apply when their pinned versions are supplied by a custom runtime.
+// These are exact HTTP or declared semantic grants, not process identity:
+// every process in the Context receives the same exact effect decisions.
+// Native first-party discovery and control
 // plane routes are included; acquisition, file transfer, and self-update stay out.
 func agentReadyBaselineGrants() []PolicyPresetExactRule {
 	grants := []PolicyPresetExactRule{
@@ -581,7 +645,7 @@ func PolicyPresetRevision(p PolicyPreset) (string, error) {
 }
 
 func DefaultPolicyPresetRevision() string {
-	preset, _ := BuiltinPolicyPreset(DefaultPolicyPresetOrigin)
+	preset, _ := BuiltinPolicyPresetSnapshot(DefaultPolicyPresetOrigin)
 	revision, _ := PolicyPresetRevision(preset)
 	return revision
 }

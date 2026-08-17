@@ -168,3 +168,169 @@ func TestDefaultContextCanReuseSnapshottedCustomPresetAfterSourceEdit(t *testing
 		t.Fatalf("reused custom preset Context = %+v", report)
 	}
 }
+
+func TestAgentReadyContextPersistsCoreSnapshotAndProjectsBinaryReadiness(t *testing.T) {
+	runtime := newPolicyPresetTestRuntime(t)
+	if _, err := runtime.CreateContext(context.Background(), "binary-ready", tobari.OfficialRuntimeBase, tobari.ContextPolicyModeGuided, tobari.ContextSourceAccessReadWrite); err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := runtime.readContextManifest("binary-ready")
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := runtime.readContextPreset(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, rule := range snapshot.BaselineGrants {
+		if rule.Host == "auth.atlassian.com" || rule.Path == "/login/device/code" || rule.Path == "/api/accounts/deviceauth/usercode" || rule.Path == "/api/oauth/claude_cli/roles" {
+			t.Fatalf("native readiness was persisted in the Context snapshot: %+v", rule)
+		}
+	}
+	if len(snapshot.GraphQLEndpoints) != 0 {
+		t.Fatalf("native readiness endpoint was persisted in the Context snapshot: %+v", snapshot.GraphQLEndpoints)
+	}
+	items, err := runtime.readAggregateContexts(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertTWGReadinessProjected(t, aggregatePresetForContext(t, items, "binary-ready"))
+	assertPupReadinessProjected(t, aggregatePresetForContext(t, items, "binary-ready"))
+}
+
+func TestExistingAgentReadySnapshotReceivesCurrentBinaryReadinessWithoutRewrite(t *testing.T) {
+	runtime := newPolicyPresetTestRuntime(t)
+	if _, err := runtime.CreateContext(context.Background(), "legacy-ready", tobari.OfficialRuntimeBase, tobari.ContextPolicyModeGuided, tobari.ContextSourceAccessReadWrite); err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := runtime.readContextManifest("legacy-ready")
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy, _ := tobari.BuiltinPolicyPreset(tobari.DefaultPolicyPresetOrigin)
+	legacyGrants := legacy.BaselineGrants[:0]
+	for _, rule := range legacy.BaselineGrants {
+		if rule.Host != "auth.atlassian.com" {
+			legacyGrants = append(legacyGrants, rule)
+		}
+	}
+	legacy.BaselineGrants = legacyGrants
+	_, legacyBytes, legacyRevision, err := tobari.NormalizePolicyPreset(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(runtime.contextPresetPath(manifest.Name), legacyBytes, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	manifest.PolicyPresetRevision = legacyRevision
+	if err := writeAtomicJSON(runtime.contextManifestPath(manifest.Name), manifest); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadFile(runtime.contextPresetPath(manifest.Name))
+	if err != nil {
+		t.Fatal(err)
+	}
+	items, err := runtime.readAggregateContexts(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertTWGReadinessProjected(t, aggregatePresetForContext(t, items, "legacy-ready"))
+	assertPupReadinessProjected(t, aggregatePresetForContext(t, items, "legacy-ready"))
+	after, err := os.ReadFile(runtime.contextPresetPath(manifest.Name))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(after) != string(before) {
+		t.Fatal("aggregate generation rewrote the legacy Context snapshot")
+	}
+}
+
+func assertTWGReadinessProjected(t *testing.T, preset tobari.PolicyPreset) {
+	t.Helper()
+	want := map[string]bool{
+		"auth.atlassian.com POST /oauth/device/code":          false,
+		"auth.atlassian.com POST /oauth/token":                false,
+		"auth.atlassian.com POST /oauth/revoke":               false,
+		"api.atlassian.com POST /accessible-products":         false,
+		"teamwork-graph.atlassian.com GET /cli/manifest.json": false,
+	}
+	for _, rule := range preset.BaselineGrants {
+		if strings.Contains(rule.Host, "atlassian") && rule.Protocol == "" {
+			if rule.Scheme != "https" || rule.Port != 443 {
+				t.Fatalf("non-canonical Atlassian rule was projected: %+v", rule)
+			}
+			key := rule.Host + " " + rule.Method + " " + rule.Path
+			if _, expected := want[key]; !expected {
+				t.Fatalf("neighboring Atlassian rule was projected: %+v", rule)
+			}
+			want[key] = true
+		}
+	}
+	for effect, found := range want {
+		if !found {
+			t.Fatalf("binary TWG readiness was not projected: %s", effect)
+		}
+	}
+	wantEndpoint := tobari.PolicyPresetExactRule{Scheme: "https", Host: "api.atlassian.com", Port: 443, Method: "POST", Path: "/graphql"}
+	foundEndpoint := false
+	for _, endpoint := range preset.GraphQLEndpoints {
+		if endpoint.Host == "api.atlassian.com" {
+			if endpoint != wantEndpoint {
+				t.Fatalf("neighboring Atlassian GraphQL endpoint was projected: %+v", endpoint)
+			}
+			foundEndpoint = true
+		}
+	}
+	if !foundEndpoint {
+		t.Fatalf("binary TWG GraphQL endpoint was not projected: %+v", preset.GraphQLEndpoints)
+	}
+	wantGraphQL := tobari.PolicyPresetExactRule{Scheme: "https", Host: "api.atlassian.com", Port: 443, Method: "POST", Path: "/graphql", Protocol: tobari.PolicyProtocolGraphQL, GraphQLOperationType: tobari.GraphQLOperationQuery, GraphQLRootField: "me"}
+	foundGraphQL := false
+	for _, rule := range preset.BaselineGrants {
+		if rule.Host == "api.atlassian.com" && rule.Protocol == tobari.PolicyProtocolGraphQL {
+			if rule != wantGraphQL {
+				t.Fatalf("neighboring Atlassian GraphQL rule was projected: %+v", rule)
+			}
+			foundGraphQL = true
+		}
+	}
+	if !foundGraphQL {
+		t.Fatal("binary TWG query/me readiness was not projected")
+	}
+}
+
+func assertPupReadinessProjected(t *testing.T, preset tobari.PolicyPreset) {
+	t.Helper()
+	want := map[string]bool{
+		"POST /api/v2/oauth2/register": false,
+		"POST /oauth2/v1/token":        false,
+	}
+	for _, rule := range preset.BaselineGrants {
+		if strings.Contains(rule.Host, "datadog") {
+			key := rule.Method + " " + rule.Path
+			if rule.Host != "api.datadoghq.com" || rule.Port != 443 || rule.Scheme != "https" || rule.Protocol != "" {
+				t.Fatalf("neighboring Datadog rule was projected: %+v", rule)
+			}
+			if _, expected := want[key]; !expected {
+				t.Fatalf("neighboring Datadog rule was projected: %+v", rule)
+			}
+			want[key] = true
+		}
+	}
+	for effect, found := range want {
+		if !found {
+			t.Fatalf("binary pup readiness was not projected: %s", effect)
+		}
+	}
+}
+
+func aggregatePresetForContext(t *testing.T, items []aggregateContext, name string) tobari.PolicyPreset {
+	t.Helper()
+	for _, item := range items {
+		if item.manifest.Name == name {
+			return item.preset
+		}
+	}
+	t.Fatalf("aggregate Context %q is missing", name)
+	return tobari.PolicyPreset{}
+}

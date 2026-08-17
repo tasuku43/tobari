@@ -339,6 +339,32 @@ func TestGuidedAggregateRejectsContextOwnedRego(t *testing.T) {
 	}
 }
 
+func TestAggregateIntegrityRejectsRevisionNotDesiredByCurrentBinary(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	runtime, _ := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), &recordingRunner{})
+	projection, err := runtime.buildAggregateProjection(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := tobari.State{
+		SchemaVersion: 1, RuntimeDirectory: filepath.Join(root, "runtime"),
+		AggregateRevision: projection.Revision, ContextCount: projection.ContextCount,
+		PolicyDirectory: projection.PolicyDirectory, GatewayConfig: projection.GatewayConfig,
+		AssetVersion: "asset",
+	}
+	if got := runtime.inspectAggregatePolicyIntegrity(context.Background(), state); got != "valid" {
+		t.Fatalf("fresh aggregate integrity = %q", got)
+	}
+	state.AggregateRevision = strings.Repeat("f", 64)
+	if state.AggregateRevision == projection.Revision {
+		state.AggregateRevision = strings.Repeat("e", 64)
+	}
+	if got := runtime.inspectAggregatePolicyIntegrity(context.Background(), state); got != "invalid" {
+		t.Fatalf("stale aggregate integrity = %q", got)
+	}
+}
+
 func TestInvalidContextPolicyDoesNotReplaceKnownGoodAggregate(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()

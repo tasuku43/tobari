@@ -46,7 +46,10 @@ func (f *policyReviewRuntimeFake) LoadState(context.Context) (tobari.State, bool
 	return f.state, true, nil
 }
 func (f *policyReviewRuntimeFake) InspectCluster(context.Context, tobari.State) (tobari.ClusterStatus, error) {
-	return tobari.ClusterStatus{Configured: true, Running: true}, nil
+	return tobari.ClusterStatus{
+		Configured: true, Running: true, PolicyProjection: "valid",
+		PrincipalRegistry: "valid", GatewayProjection: "valid",
+	}, nil
 }
 func (f *policyReviewRuntimeFake) ClusterLogs(context.Context, tobari.State, tobari.LogRequest) ([]byte, error) {
 	return nil, nil

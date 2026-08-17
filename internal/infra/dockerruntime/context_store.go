@@ -639,7 +639,7 @@ func (r *Runtime) CreateContextWithPreset(
 	if err := ctx.Err(); err != nil {
 		return tobari.ContextReport{}, err
 	}
-	_, _, presetRevision, err := r.resolvePolicyPreset(presetOrigin)
+	_, _, presetRevision, err := r.resolvePolicyPresetSnapshot(presetOrigin)
 	if err != nil {
 		return tobari.ContextReport{}, err
 	}

@@ -71,6 +71,16 @@ func (r *Runtime) resolvePolicyPreset(origin string) (tobari.PolicyPreset, []byt
 	return preset, normalized, revision, nil
 }
 
+func (r *Runtime) resolvePolicyPresetSnapshot(origin string) (tobari.PolicyPreset, []byte, string, error) {
+	if err := tobari.ValidatePolicyPresetOrigin(origin); err != nil {
+		return tobari.PolicyPreset{}, nil, "", err
+	}
+	if preset, ok := tobari.BuiltinPolicyPresetSnapshot(origin); ok {
+		return tobari.NormalizePolicyPreset(preset)
+	}
+	return r.resolvePolicyPreset(origin)
+}
+
 func (r *Runtime) contextPresetPath(name string) string {
 	return filepath.Join(r.contextPolicyDirectory(name), "preset.json")
 }
@@ -96,7 +106,7 @@ func (r *Runtime) ensureContextPreset(manifest tobari.ContextManifest) error {
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
-	_, normalized, revision, err := r.resolvePolicyPreset(manifest.PolicyPresetOrigin)
+	_, normalized, revision, err := r.resolvePolicyPresetSnapshot(manifest.PolicyPresetOrigin)
 	if err != nil {
 		return err
 	}
@@ -190,8 +200,12 @@ func (r *Runtime) ValidatePolicyPreset(ctx context.Context, origin string) (toba
 }
 
 func (r *Runtime) policyPresetResult(task, origin string, preset tobari.PolicyPreset, revision string) tobari.PolicyPresetResult {
-	limitations := []string{"Immediate grants are semantic network effects available to every process in the Context; they do not identify an agent executable.", "MCP payload arguments and responses are not authorization dimensions.", "No immediate grant is automatically safe or read-only.", "Source changes affect only future Context creation.", "The preset contains no executable policy, secret, wildcard, inheritance, include, or remote fetch."}
-	result := tobari.PolicyPresetResult{Task: task, Origin: origin, Revision: revision, Preset: &preset, Scope: "One Context-wide immutable network ceiling and normalized baseline snapshot.", Limitations: limitations}
+	limitations := []string{"Immediate grants are semantic network effects available to every process in the Context; they do not identify an agent executable.", "MCP payload arguments and responses are not authorization dimensions.", "No immediate grant is automatically safe or read-only.", "Source changes affect only future Context creation; trusted binary native-readiness updates apply to existing builtin/agent-ready Contexts.", "The preset contains no executable policy, secret, wildcard, inheritance, include, or remote fetch."}
+	scope := "One Context-wide immutable network ceiling and normalized baseline snapshot."
+	if origin == tobari.DefaultPolicyPresetOrigin {
+		scope = "The installed binary's current effective agent-ready source; Context snapshots persist the core preset and select the binary readiness overlay by exact origin."
+	}
+	result := tobari.PolicyPresetResult{Task: task, Origin: origin, Revision: revision, Preset: &preset, Scope: scope, Limitations: limitations}
 	if strings.HasPrefix(origin, "custom/") {
 		result.SourcePath = filepath.Join(r.policyPresetCustomDirectory(), strings.TrimPrefix(origin, "custom/")+".json")
 	}

@@ -3,6 +3,8 @@ package tobari
 import (
 	"bytes"
 	"encoding/json"
+	"reflect"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -106,21 +108,60 @@ func TestAgentReadyPresetPreservesNativeDiscoveryAndSeparatesMCPExecution(t *tes
 }
 
 func TestAgentReadyNativeToolAuthReadinessBundlesArePinnedAndExact(t *testing.T) {
+	catalog := nativeToolAuthReadinessCatalog()
+	seenFamilies := map[string]struct{}{}
+	for _, family := range catalog {
+		if family.ID == "" || family.CurrentContractRevision <= 0 || len(family.Contracts) == 0 {
+			t.Fatalf("native tool readiness family is incomplete: %+v", family)
+		}
+		if _, duplicate := seenFamilies[family.ID]; duplicate {
+			t.Fatalf("native tool readiness family is duplicated: %q", family.ID)
+		}
+		seenFamilies[family.ID] = struct{}{}
+		seenRevisions := map[int]struct{}{}
+		current := 0
+		lastRevision := 0
+		for _, bundle := range family.Contracts {
+			if bundle.ID != family.ID || bundle.ClientVersion == "" || bundle.ContractRevision <= 0 {
+				t.Fatalf("native tool readiness history escaped its family: family=%+v bundle=%+v", family, bundle)
+			}
+			if _, duplicate := seenRevisions[bundle.ContractRevision]; duplicate {
+				t.Fatalf("native tool readiness contract revision is duplicated: %s@%d", family.ID, bundle.ContractRevision)
+			}
+			seenRevisions[bundle.ContractRevision] = struct{}{}
+			if bundle.ContractRevision <= lastRevision {
+				t.Fatalf("native tool readiness revisions are not append-only: %s@%d after %d", family.ID, bundle.ContractRevision, lastRevision)
+			}
+			lastRevision = bundle.ContractRevision
+			if bundle.ContractRevision == family.CurrentContractRevision {
+				current++
+			}
+		}
+		if current != 1 {
+			t.Fatalf("native tool readiness family %q selects %d current contracts", family.ID, current)
+		}
+	}
+
 	bundles := nativeToolAuthReadinessBundles()
-	wantVersions := map[string]string{
-		"claude_ready": AgentReadyClaudeVersion,
-		"codex_ready":  AgentReadyCodexVersion,
-		"gh_ready":     AgentReadyGitHubCLIVersion,
+	wantContracts := map[string]struct {
+		clientVersion string
+		revision      int
+	}{
+		"claude_ready": {clientVersion: AgentReadyClaudeVersion, revision: 1},
+		"codex_ready":  {clientVersion: AgentReadyCodexVersion, revision: 1},
+		"gh_ready":     {clientVersion: AgentReadyGitHubCLIVersion, revision: 1},
+		"pup_ready":    {clientVersion: AgentReadyPupVersion, revision: 1},
+		"twg_ready":    {clientVersion: AgentReadyTWGVersion, revision: 2},
 	}
 	for _, bundle := range bundles {
-		version, ok := wantVersions[bundle.ID]
-		if !ok || bundle.Version != version || len(bundle.BaselineGrants) == 0 {
+		want, ok := wantContracts[bundle.ID]
+		if !ok || bundle.ClientVersion != want.clientVersion || bundle.ContractRevision != want.revision || len(bundle.BaselineGrants) == 0 {
 			t.Fatalf("native tool readiness bundle is not pinned: %+v", bundle)
 		}
-		delete(wantVersions, bundle.ID)
+		delete(wantContracts, bundle.ID)
 	}
-	if len(wantVersions) != 0 {
-		t.Fatalf("native tool readiness bundles are missing: %v", wantVersions)
+	if len(wantContracts) != 0 {
+		t.Fatalf("native tool readiness bundles are missing: %v", wantContracts)
 	}
 
 	var githubHTTP []PolicyPresetExactRule
@@ -159,6 +200,216 @@ func TestAgentReadyNativeToolAuthReadinessBundlesArePinnedAndExact(t *testing.T)
 		if rule.Host == "github.com" && (rule.Method != "POST" || (rule.Path != "/login/device/code" && rule.Path != "/login/oauth/access_token")) {
 			t.Fatalf("neighboring GitHub authority entered baseline: %+v", rule)
 		}
+	}
+
+	var pupRules []PolicyPresetExactRule
+	for _, bundle := range bundles {
+		if bundle.ID == "pup_ready" {
+			pupRules = append(pupRules, bundle.BaselineGrants...)
+			if len(bundle.GraphQLEndpoints) != 0 {
+				t.Fatalf("pup_ready declared semantic endpoints: %+v", bundle.GraphQLEndpoints)
+			}
+		}
+	}
+	wantPup := []PolicyPresetExactRule{
+		{Scheme: "https", Host: "api.datadoghq.com", Port: 443, Method: "POST", Path: "/api/v2/oauth2/register"},
+		{Scheme: "https", Host: "api.datadoghq.com", Port: 443, Method: "POST", Path: "/oauth2/v1/token"},
+	}
+	if !reflect.DeepEqual(pupRules, wantPup) {
+		t.Fatalf("pup_ready grants = %+v, want %+v", pupRules, wantPup)
+	}
+	for _, rule := range agentReadyBaselineGrants() {
+		if strings.Contains(rule.Host, "datadog") && (rule.Host != "api.datadoghq.com" ||
+			rule.Method != "POST" || (rule.Path != "/api/v2/oauth2/register" && rule.Path != "/oauth2/v1/token")) {
+			t.Fatalf("neighboring Datadog authority entered baseline: %+v", rule)
+		}
+	}
+
+	var twgHTTP []PolicyPresetExactRule
+	var twgGraphQL []PolicyPresetExactRule
+	var twgEndpoints []PolicyPresetExactRule
+	for _, bundle := range bundles {
+		if bundle.ID == "twg_ready" {
+			for _, rule := range bundle.BaselineGrants {
+				if rule.Protocol == PolicyProtocolGraphQL {
+					twgGraphQL = append(twgGraphQL, rule)
+				} else {
+					twgHTTP = append(twgHTTP, rule)
+				}
+			}
+			twgEndpoints = bundle.GraphQLEndpoints
+		}
+	}
+	wantTWG := []PolicyPresetExactRule{
+		{Scheme: "https", Host: "auth.atlassian.com", Port: 443, Method: "POST", Path: "/oauth/device/code"},
+		{Scheme: "https", Host: "auth.atlassian.com", Port: 443, Method: "POST", Path: "/oauth/token"},
+		{Scheme: "https", Host: "api.atlassian.com", Port: 443, Method: "POST", Path: "/accessible-products"},
+		{Scheme: "https", Host: "auth.atlassian.com", Port: 443, Method: "POST", Path: "/oauth/revoke"},
+		{Scheme: "https", Host: "teamwork-graph.atlassian.com", Port: 443, Method: "GET", Path: "/cli/manifest.json"},
+	}
+	if !reflect.DeepEqual(twgHTTP, wantTWG) {
+		t.Fatalf("twg_ready HTTP grants = %+v, want %+v", twgHTTP, wantTWG)
+	}
+	wantTWGEndpoint := PolicyPresetExactRule{Scheme: "https", Host: "api.atlassian.com", Port: 443, Method: "POST", Path: "/graphql"}
+	wantTWGGraphQL := PolicyPresetExactRule{Scheme: "https", Host: "api.atlassian.com", Port: 443, Method: "POST", Path: "/graphql", Protocol: PolicyProtocolGraphQL, GraphQLOperationType: GraphQLOperationQuery, GraphQLRootField: "me"}
+	if !reflect.DeepEqual(twgEndpoints, []PolicyPresetExactRule{wantTWGEndpoint}) || !reflect.DeepEqual(twgGraphQL, []PolicyPresetExactRule{wantTWGGraphQL}) {
+		t.Fatalf("twg_ready semantic grants = endpoints:%+v grants:%+v", twgEndpoints, twgGraphQL)
+	}
+	for _, rule := range agentReadyBaselineGrants() {
+		if rule.Host == "auth.atlassian.com" && (rule.Method != "POST" ||
+			(rule.Path != "/oauth/device/code" && rule.Path != "/oauth/token" && rule.Path != "/oauth/revoke")) {
+			t.Fatalf("neighboring Atlassian authority entered baseline: %+v", rule)
+		}
+		if rule.Host == "api.atlassian.com" && rule != wantTWGGraphQL &&
+			rule != (PolicyPresetExactRule{Scheme: "https", Host: "api.atlassian.com", Port: 443, Method: "POST", Path: "/accessible-products"}) {
+			t.Fatalf("neighboring Atlassian GraphQL authority entered baseline: %+v", rule)
+		}
+		if rule.Host == "teamwork-graph.atlassian.com" &&
+			rule != (PolicyPresetExactRule{Scheme: "https", Host: "teamwork-graph.atlassian.com", Port: 443, Method: "GET", Path: "/cli/manifest.json"}) {
+			t.Fatalf("neighboring TWG manifest authority entered baseline: %+v", rule)
+		}
+		if strings.Contains(rule.Host, "atlassian") && rule.Host != "auth.atlassian.com" && rule.Host != "api.atlassian.com" && rule.Host != "teamwork-graph.atlassian.com" {
+			t.Fatalf("unreviewed Atlassian host entered baseline: %+v", rule)
+		}
+	}
+	for _, forbidden := range []PolicyPresetExactRule{
+		{Scheme: "https", Host: "teamwork-graph.atlassian.com", Port: 443, Method: "GET", Path: "/cli/beta/manifest.json"},
+		{Scheme: "https", Host: "teamwork-graph.atlassian.com", Port: 443, Method: "GET", Path: "/cli/install"},
+		{Scheme: "https", Host: "api.atlassian.com", Port: 443, Method: "GET", Path: "/accessible-products"},
+	} {
+		if slices.Contains(agentReadyBaselineGrants(), forbidden) {
+			t.Fatalf("neighboring TWG lifecycle effect entered baseline: %+v", forbidden)
+		}
+	}
+}
+
+func TestTWGReadinessRetainsRevisionOneAsExactRemovalHistory(t *testing.T) {
+	var revisionOne nativeToolAuthReadiness
+	for _, family := range nativeToolAuthReadinessCatalog() {
+		if family.ID != "twg_ready" {
+			continue
+		}
+		for _, contract := range family.Contracts {
+			if contract.ContractRevision == 1 {
+				revisionOne = contract
+			}
+		}
+	}
+	wantGrants := []PolicyPresetExactRule{
+		nativeReadinessHTTP("POST", "auth.atlassian.com", "/oauth/device/code"),
+		nativeReadinessHTTP("POST", "auth.atlassian.com", "/oauth/token"),
+		nativeReadinessGraphQL("api.atlassian.com", "/graphql", "me"),
+	}
+	wantEndpoints := []PolicyPresetExactRule{nativeReadinessHTTP("POST", "api.atlassian.com", "/graphql")}
+	if revisionOne.ID != "twg_ready" || revisionOne.ClientVersion != AgentReadyTWGVersion ||
+		!reflect.DeepEqual(revisionOne.BaselineGrants, wantGrants) || !reflect.DeepEqual(revisionOne.GraphQLEndpoints, wantEndpoints) {
+		t.Fatalf("twg_ready revision 1 history = %+v", revisionOne)
+	}
+}
+
+func TestAgentReadySnapshotExcludesBinaryNativeReadinessAndProjectionRestoresCurrentSet(t *testing.T) {
+	effective, ok := BuiltinPolicyPreset(DefaultPolicyPresetOrigin)
+	if !ok {
+		t.Fatal("agent-ready preset is missing")
+	}
+	snapshot, ok := BuiltinPolicyPresetSnapshot(DefaultPolicyPresetOrigin)
+	if !ok {
+		t.Fatal("agent-ready snapshot source is missing")
+	}
+	stripped := withoutHistoricalNativeToolAuthReadiness(effective)
+	if !reflect.DeepEqual(snapshot, stripped) {
+		t.Fatalf("agent-ready snapshot retained binary readiness\n got: %+v\nwant: %+v", snapshot, stripped)
+	}
+	for _, bundle := range nativeToolAuthReadinessHistory() {
+		for _, rule := range bundle.BaselineGrants {
+			if slices.Contains(snapshot.BaselineGrants, rule) {
+				t.Fatalf("historical readiness grant entered snapshot: %+v", rule)
+			}
+		}
+		for _, endpoint := range bundle.GraphQLEndpoints {
+			if slices.Contains(snapshot.GraphQLEndpoints, endpoint) {
+				t.Fatalf("historical readiness endpoint entered snapshot: %+v", endpoint)
+			}
+		}
+	}
+	projected, err := ApplyNativeToolAuthReadiness(DefaultPolicyPresetOrigin, snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	normalizedEffective, _, _, err := NormalizePolicyPreset(effective)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(projected, normalizedEffective) {
+		t.Fatalf("binary readiness projection differs from current built-in\n got: %+v\nwant: %+v", projected, normalizedEffective)
+	}
+}
+
+func TestAgentReadyLegacySnapshotReadinessIsReplacedWithoutChangingSnapshot(t *testing.T) {
+	legacy, _ := BuiltinPolicyPreset(DefaultPolicyPresetOrigin)
+	legacy.BaselineDenies = append(legacy.BaselineDenies, PolicyPresetExactRule{
+		Scheme: "https", Host: "auth.atlassian.com", Port: 443, Method: "POST", Path: "/oauth/token",
+	})
+	legacyBefore, err := json.Marshal(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	projected, err := ApplyNativeToolAuthReadiness(DefaultPolicyPresetOrigin, legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacyAfter, err := json.Marshal(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(legacyAfter, legacyBefore) {
+		t.Fatal("binary readiness projection mutated the immutable snapshot")
+	}
+	current, _ := BuiltinPolicyPreset(DefaultPolicyPresetOrigin)
+	current.BaselineDenies = append(current.BaselineDenies, legacy.BaselineDenies...)
+	current, _, _, err = NormalizePolicyPreset(current)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(projected, current) {
+		t.Fatalf("legacy readiness accumulated instead of being replaced\n got: %+v\nwant: %+v", projected, current)
+	}
+	if !slices.Contains(projected.BaselineDenies, legacy.BaselineDenies[0]) {
+		t.Fatal("snapshot exact Deny was lost while replacing readiness")
+	}
+}
+
+func TestBinaryNativeReadinessAppliesOnlyToExactAgentReadyOrigin(t *testing.T) {
+	custom, _ := BuiltinPolicyPreset("builtin/reviewed-exact")
+	custom.Name = "custom-ready"
+	custom.BaselineGrants = []PolicyPresetExactRule{{
+		Scheme: "https", Host: "auth.atlassian.com", Port: 443, Method: "POST", Path: "/oauth/device/code",
+	}}
+	projected, err := ApplyNativeToolAuthReadiness("custom/custom-ready", custom)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, _, _, err := NormalizePolicyPreset(custom)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(projected, want) {
+		t.Fatalf("custom preset was changed by binary readiness: %+v", projected)
+	}
+
+	offline, _ := BuiltinPolicyPreset("builtin/offline")
+	projected, err = ApplyNativeToolAuthReadiness("builtin/offline", offline)
+	if err != nil || len(projected.BaselineGrants) != 0 {
+		t.Fatalf("offline preset received binary readiness: %+v err=%v", projected, err)
+	}
+
+	invalid := custom
+	invalid.Name = "not-agent-ready"
+	if _, err := ApplyNativeToolAuthReadiness(DefaultPolicyPresetOrigin, invalid); err == nil {
+		t.Fatal("agent-ready origin accepted a mismatched snapshot identity")
+	}
+	if _, err := ApplyNativeToolAuthReadiness("builtin/agent-ready/extra", custom); err == nil {
+		t.Fatal("binary readiness accepted an invalid origin")
 	}
 }
 

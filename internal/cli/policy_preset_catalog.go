@@ -54,7 +54,7 @@ func policyPresetOutput(collection bool) CommandOutput {
 			SemanticScope: "All installed built-in and custom policy presets at one observation.",
 			Items: &OutputField{Type: OutputFieldTypeObject, Description: "One policy preset.", Fields: []OutputField{
 				{Name: "origin", Type: OutputFieldTypeString, Description: "Exact policy-preset selector."},
-				{Name: "revision", Type: OutputFieldTypeString, Description: "SHA-256 revision of normalized bytes."},
+				{Name: "revision", Type: OutputFieldTypeString, Description: "SHA-256 revision of the currently installed normalized source."},
 				{Name: "guardrail", Type: OutputFieldTypeString, Description: "Terminal guardrail kind.", Enum: []string{"offline", "reviewed_exact", "get_only_reviewed"}},
 				{Name: "immediate_grant_count", Type: OutputFieldTypeInteger, Description: "Number of Context-wide exact, template, and semantic baseline grants."},
 				{Name: "destination_ceiling", Type: OutputFieldTypeString, Description: "Destination ceiling mode.", Enum: []string{"public_https", "exact"}}, {Name: "destination_count", Type: OutputFieldTypeInteger, Description: "Exact destination count."}, {Name: "method_ceiling", Type: OutputFieldTypeString, Description: "Method ceiling mode.", Enum: []string{"all", "exact"}}, {Name: "method_count", Type: OutputFieldTypeInteger, Description: "Exact method count."},
@@ -63,7 +63,7 @@ func policyPresetOutput(collection bool) CommandOutput {
 	} else {
 		fields = append(fields,
 			OutputField{Name: "origin", Type: OutputFieldTypeString, Description: "Exact policy-preset selector."},
-			OutputField{Name: "revision", Type: OutputFieldTypeString, Description: "SHA-256 revision of normalized bytes."},
+			OutputField{Name: "revision", Type: OutputFieldTypeString, Description: "SHA-256 revision of the currently installed normalized source."},
 			OutputField{Name: "source_path", Type: OutputFieldTypeString, Description: "Owner-only custom source path when applicable.", Optional: true}, OutputField{Name: "scope", Type: OutputFieldTypeString, Description: "Task-owned preset authority scope."}, OutputField{Name: "limitations", Type: OutputFieldTypeArray, Description: "Explicit limitations and non-claims.", Items: &OutputField{Type: OutputFieldTypeString, Description: "One limitation."}},
 			OutputField{Name: "preset", Type: OutputFieldTypeObject, Description: "Complete normalized non-executable schema-V1 preset.", Fields: []OutputField{
 				{Name: "schema_version", Type: OutputFieldTypeInteger, Description: "Preset schema version."},
@@ -97,7 +97,7 @@ func policyPresetReadErrors(path string) []CommandError {
 }
 
 func policyPresetListSpec() CommandSpec {
-	return CommandSpec{Path: "policy preset list", Summary: "List installed policy presets", Args: "[--format text|json]", Effect: operation.EffectRead, Role: RoleUtility, Agent: AgentContract{CapabilityID: "policy.presets", Outcome: "List the exhaustive installed built-in and custom policy preset catalog with immutable revisions and guardrails", Inputs: []CommandInput{formatInput()}, Output: policyPresetOutput(true), Prerequisites: []string{}, Errors: policyPresetReadErrors("policy preset list")}, handler: runPolicyPresetList}
+	return CommandSpec{Path: "policy preset list", Summary: "List installed policy presets", Args: "[--format text|json]", Effect: operation.EffectRead, Role: RoleUtility, Agent: AgentContract{CapabilityID: "policy.presets", Outcome: "List the exhaustive installed built-in and custom policy preset catalog with current content revisions and guardrails", Inputs: []CommandInput{formatInput()}, Output: policyPresetOutput(true), Prerequisites: []string{}, Errors: policyPresetReadErrors("policy preset list")}, handler: runPolicyPresetList}
 }
 
 func policyPresetShowSpec() CommandSpec {

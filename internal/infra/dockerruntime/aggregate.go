@@ -81,9 +81,13 @@ func (r *Runtime) readAggregateContextsWithTransactions(
 		if err := validateContextPolicyLayout(paths.PolicyDirectory, manifest.PolicyMode); err != nil {
 			return nil, fmt.Errorf("Context %q policy layout: %w", manifest.Name, err)
 		}
-		preset, err := r.readContextPreset(manifest)
+		presetSnapshot, err := r.readContextPreset(manifest)
 		if err != nil {
 			return nil, fmt.Errorf("Context %q policy preset: %w", manifest.Name, err)
+		}
+		preset, err := tobari.ApplyNativeToolAuthReadiness(manifest.PolicyPresetOrigin, presetSnapshot)
+		if err != nil {
+			return nil, fmt.Errorf("Context %q native readiness: %w", manifest.Name, err)
 		}
 		var document map[string]any
 		if err := json.Unmarshal(policy.source, &document); err != nil {
@@ -312,9 +316,12 @@ func (r *Runtime) buildAggregateProjectionWithTransactions(
 	if err != nil {
 		return aggregateProjection{}, err
 	}
+	revision, err := aggregateRevision(items)
+	if err != nil {
+		return aggregateProjection{}, err
+	}
 	dataContexts := map[string]any{}
 	gatewayContexts := map[string]any{}
-	hash := sha256.New()
 	validationReused := false
 	for _, item := range items {
 		preflight, err := prepareContextPolicyPreflight(item.manifest, item.paths.PolicyDirectory, item.policy)
@@ -340,21 +347,9 @@ func (r *Runtime) buildAggregateProjectionWithTransactions(
 		if testErr != nil {
 			return aggregateProjection{}, fmt.Errorf("Context %q policy tests: %w", item.manifest.Name, testErr)
 		}
-		encoded, err := json.Marshal(item.data)
-		if err != nil {
-			return aggregateProjection{}, err
-		}
-		manifestBytes, _ := json.Marshal(item.manifest)
-		hash.Write(manifestBytes)
-		hash.Write([]byte{0})
-		hash.Write(encoded)
-		hash.Write([]byte{0})
-		hash.Write(item.rego)
-		hash.Write([]byte{0})
 		dataContexts[item.manifest.ID] = item.data
 		gatewayContexts[item.manifest.ID] = rewriteGatewayProjection(item)
 	}
-	revision := hex.EncodeToString(hash.Sum(nil))
 	directory := filepath.Join(r.aggregateRoot(), revision)
 	result := aggregateProjection{
 		Revision: revision, PolicyDirectory: filepath.Join(directory, "policy"),
@@ -453,6 +448,30 @@ func (r *Runtime) buildAggregateProjectionWithTransactions(
 		}
 	}
 	return result, nil
+}
+
+// aggregateRevision is the single content identity used by both projection
+// construction and read-only freshness inspection. Items are already ordered
+// by immutable Context ID by readAggregateContextsWithTransactions.
+func aggregateRevision(items []aggregateContext) (string, error) {
+	hash := sha256.New()
+	for _, item := range items {
+		manifestBytes, err := json.Marshal(item.manifest)
+		if err != nil {
+			return "", err
+		}
+		encoded, err := json.Marshal(item.data)
+		if err != nil {
+			return "", err
+		}
+		hash.Write(manifestBytes)
+		hash.Write([]byte{0})
+		hash.Write(encoded)
+		hash.Write([]byte{0})
+		hash.Write(item.rego)
+		hash.Write([]byte{0})
+	}
+	return hex.EncodeToString(hash.Sum(nil)), nil
 }
 
 func verifyAggregatePolicySources(

@@ -83,6 +83,10 @@ func (r *Runtime) inspectAggregatePolicyIntegrity(ctx context.Context, state tob
 	if err != nil || len(contexts) != state.ContextCount {
 		return "invalid"
 	}
+	desiredRevision, err := aggregateRevision(contexts)
+	if err != nil || desiredRevision != state.AggregateRevision {
+		return "invalid"
+	}
 	if err := requirePrivateDirectory(state.PolicyDirectory); err != nil {
 		return "invalid"
 	}
@@ -95,8 +99,14 @@ func (r *Runtime) inspectAggregatePolicyIntegrity(ctx context.Context, state tob
 	}
 	var document struct {
 		Contexts map[string]json.RawMessage `json:"tobari_contexts"`
+		Tobari   struct {
+			AggregateSchemaVersion int    `json:"aggregate_schema_version"`
+			AggregateRevision      string `json:"aggregate_revision"`
+		} `json:"tobari"`
 	}
-	if err := json.Unmarshal(data, &document); err != nil || len(document.Contexts) != len(contexts) {
+	if err := json.Unmarshal(data, &document); err != nil || len(document.Contexts) != len(contexts) ||
+		document.Tobari.AggregateSchemaVersion != aggregateSchemaVersion ||
+		document.Tobari.AggregateRevision != state.AggregateRevision {
 		return "invalid"
 	}
 	for _, item := range contexts {
