@@ -162,7 +162,13 @@ home state. These checks authorize neither redistribution nor publication;
 the release workflow contains no base-image publication path.
 
 Standard native-login tests additionally fragment changing prose and the
-semantic authorization URL across stream writes. Codex TUI cases cross visual
+semantic authorization URL across stream writes. Claude Code cases accept only
+the exact pinned client, remote callback, PKCE shape, and complete reviewed
+scope set from a plain URL line or Claude's bounded OSC 8 rows that repeat the
+full target while presenting contiguous terminal-width label fragments; they
+include Claude's observed double-CR line ending, open once, preserve
+every child byte, and create no host callback listener.
+Codex TUI cases cross visual
 rows and accept only the two exact reviewed CLI and TUI originators; GitHub CLI
 2.96.0 cases fragment its complete no-newline browser prompt and exact plain or
 pinned-bold non-interactive device line, reject neighboring SGR framing, and

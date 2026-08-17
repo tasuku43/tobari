@@ -165,7 +165,13 @@ returns `broker_auth_required`, removes Authorization before the allowed
 upstream request, exposes it to OPA/audit, or synthesizes account metadata.
 After login, Claude `/status` must obtain provider-owned `subscriptionType` and
 `rateLimitTier` rather than null values and must not mislabel a subscription as
-`Claude API account` because of Tobari interception.
+`Claude API account` because of Tobari interception. Ordinary Claude Code
+2.1.220 login in an attached Workspace must open its exact validated
+authorization URL once on the host from either the plain URL line or Claude's
+bounded OSC 8 rows that repeat the full target while presenting contiguous
+terminal-width label fragments, without changing child output or creating a host callback
+listener. Changed client, redirect, scope set, PKCE shape, host,
+path, duplicate, ambiguous, or oversized output opens nothing.
 
 For Codex, prove both the browser callback flow's token exchange and the
 device-code user-code/poll/token exchange use the same post-policy passthrough

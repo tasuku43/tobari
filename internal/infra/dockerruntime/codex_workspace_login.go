@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -114,6 +115,9 @@ func parseWorkspaceLoginBrowserAction(target string) (workspaceLoginBrowserActio
 	if target == githubDeviceURL {
 		return workspaceLoginBrowserAction{}, true
 	}
+	if validWorkspaceClaudeLoginAuthorizationURL(target) {
+		return workspaceLoginBrowserAction{}, true
+	}
 	authorization, ok := parseWorkspaceLoginAuthorizationURL(target)
 	if !ok {
 		return workspaceLoginBrowserAction{}, false
@@ -167,24 +171,64 @@ func (b *workspaceLoginBridge) close() {
 }
 
 type workspaceLoginOutputObserver struct {
-	mu      sync.Mutex
-	seen    map[[sha256.Size]byte]struct{}
-	trigger func(string) bool
+	mu              sync.Mutex
+	seen            map[[sha256.Size]byte]struct{}
+	claudeCandidate string
+	trigger         func(string) bool
 }
 
 type codexLoginOutputObserver = workspaceLoginOutputObserver
 
 func (t *workspaceLoginOutputObserver) observe(line string) {
-	line = strings.TrimSuffix(line, "\r")
+	line = strings.TrimRight(line, "\r")
 	if target, ok := githubBrowserURLFromNonInteractiveLine(line); ok {
 		t.observeTarget(target)
 		return
 	}
 	target, ok := workspaceAuthorizationURLFromLine(line)
-	if !ok {
+	if ok {
+		t.observeTarget(target)
 		return
 	}
+	t.observeWrappedClaudeTarget(line)
+}
+
+func (t *workspaceLoginOutputObserver) observeWrappedClaudeTarget(line string) {
+	t.mu.Lock()
+	fragment := strings.TrimSpace(line)
+	if start := strings.Index(fragment, claudeLoginURLPrefix); start >= 0 {
+		fragment = fragment[start:]
+		t.claudeCandidate = ""
+	} else if t.claudeCandidate == "" {
+		t.mu.Unlock()
+		return
+	}
+	if fragment == "" || len(t.claudeCandidate)+len(fragment) > workspaceLoginLineLimit ||
+		!isClaudeURLFragment(fragment) {
+		t.claudeCandidate = ""
+		t.mu.Unlock()
+		return
+	}
+	t.claudeCandidate += fragment
+	if !validWorkspaceClaudeLoginAuthorizationURL(t.claudeCandidate) {
+		t.mu.Unlock()
+		return
+	}
+	target := t.claudeCandidate
+	t.claudeCandidate = ""
+	t.mu.Unlock()
 	t.observeTarget(target)
+}
+
+func isClaudeURLFragment(value string) bool {
+	for _, character := range value {
+		if (character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z') ||
+			(character >= '0' && character <= '9') || strings.ContainsRune(":/?&=+%._~-", character) {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 func githubBrowserURLFromNonInteractiveLine(line string) (string, bool) {
@@ -219,13 +263,16 @@ func codexAuthorizationURLFromLine(line string) (string, bool) {
 }
 
 func workspaceAuthorizationURLFromLine(line string) (string, bool) {
+	if target, ok := claudeWorkspaceHyperlinkTarget(line); ok {
+		return target, true
+	}
 	var target string
 	urlCount := 0
 	for _, field := range strings.Fields(line) {
 		if strings.HasPrefix(field, "https://") || strings.HasPrefix(field, "http://") {
 			urlCount++
 		}
-		if _, ok := parseWorkspaceLoginAuthorizationURL(field); !ok {
+		if _, ok := parseWorkspaceLoginAuthorizationURL(field); !ok && !validWorkspaceClaudeLoginAuthorizationURL(field) {
 			continue
 		}
 		if target != "" {
@@ -234,6 +281,68 @@ func workspaceAuthorizationURLFromLine(line string) (string, bool) {
 		target = field
 	}
 	return target, target != "" && urlCount == 1
+}
+
+func validWorkspaceClaudeLoginAuthorizationURL(target string) bool {
+	scopes, ok := claudeLoginAuthorizationScopes(target)
+	if !ok {
+		return false
+	}
+	want := strings.Fields(claudeWorkspaceLoginScope)
+	slices.Sort(want)
+	return slices.Equal(scopes, want)
+}
+
+func claudeWorkspaceHyperlinkTarget(line string) (string, bool) {
+	const open = "\x1b]8;"
+	const close = "\x1b]8;;\a"
+	if !strings.HasPrefix(line, open) || !strings.HasSuffix(line, close) || strings.Count(line, open) != 2 {
+		return "", false
+	}
+	rest := strings.TrimPrefix(line, open)
+	openEnd := strings.IndexByte(rest, '\a')
+	if openEnd <= 0 {
+		return "", false
+	}
+	header := rest[:openEnd]
+	separator := strings.IndexByte(header, ';')
+	if separator < 0 {
+		return "", false
+	}
+	parameters, target := header[:separator], header[separator+1:]
+	label := strings.TrimSuffix(rest[openEnd+1:], close)
+	if !validWorkspaceClaudeLoginAuthorizationURL(target) {
+		return "", false
+	}
+	if parameters == "" {
+		if label != target {
+			return "", false
+		}
+		return target, true
+	}
+	if !validClaudeWorkspaceHyperlinkParameters(parameters) {
+		return "", false
+	}
+	visibleLabel := strings.NewReplacer("\x1b[37m", "", "\x1b[39m", "").Replace(label)
+	if visibleLabel == "" || strings.ContainsRune(visibleLabel, '\x1b') || !strings.Contains(target, visibleLabel) {
+		return "", false
+	}
+	return target, true
+}
+
+func validClaudeWorkspaceHyperlinkParameters(value string) bool {
+	const prefix = "id="
+	if !strings.HasPrefix(value, prefix) || len(value) <= len(prefix) || len(value) > len(prefix)+32 {
+		return false
+	}
+	for _, character := range strings.TrimPrefix(value, prefix) {
+		if (character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z') ||
+			(character >= '0' && character <= '9') {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 type workspaceLoginObservingWriter struct {

@@ -11,7 +11,7 @@ access other host files, another Tobari, Docker control, real host-managed
 credentials, OPA administration, or direct Internet egress through the
 supported configuration. In standard, tool-owned credentials exist inside one
 Tobari's exact home only by explicit user action and are forwarded only after
-OPA allow. Pinned Codex and GitHub CLI native login may also use a
+OPA allow. Pinned Claude Code, Codex, and GitHub CLI native login may also use a
 session-scoped host-browser and loopback callback bridge. The host selects one
 strict reviewed provider authorization contract and transports one callback to
 the selected Workspace without inspecting or persisting its bytes. The
@@ -197,9 +197,12 @@ bounded provider-specific semantic URL recognition it first verifies one
 label-owned selected Workspace. A callback-bearing target then binds a host
 `127.0.0.1` listener at the validated non-privileged redirect port, accepts one
 connection, relays through a fixed Docker exec program plus that port, and
-closes with that login or session. GitHub CLI's exact device target instead
-performs one host browser open and creates no listener. The closed union accepts
-only Codex's reviewed direct-line/TUI originators or GitHub CLI 2.96.0's
+closes with that login or session. Claude Code's exact remote-callback target
+and GitHub CLI's exact device target instead perform one host browser open and
+create no listener. The closed union accepts only Claude Code 2.1.220's fixed
+client, redirect, PKCE shape, complete reviewed scope set, and plain-line or
+bounded target-repeating OSC 8 row framing; Codex's reviewed direct-line/TUI originators;
+or GitHub CLI 2.96.0's
 complete no-newline prompt with either the exact device URL or its fixed
 GitHub.com web-application client, standard HTTPS-login scope ceiling, exact
 state shape, and `127.0.0.1/callback` redirect. Its observer receives only the
@@ -829,7 +832,7 @@ recognition. A dynamic OpenAI authorization URL is never a Tobari browser
 target; the verified Codex child owns its open attempt and fallback guidance.
 That sentence applies to the experimental host-acquisition driver. In the
 separate standard attached Workspace, ADRs 0046 and 0048 permit the strict
-Codex and GitHub CLI native-login URL union only. GitHub CLI's legacy no-newline
+Claude Code, Codex, and GitHub CLI native-login URL union only. GitHub CLI's legacy no-newline
 prompt and pinned wrapper's exact non-interactive device line, either plain or
 with only the pinned client's exact bold-prefix SGR pair, are relayed unchanged;
 its exact device URL may open once with no listener, or its strict callback URL
@@ -946,7 +949,7 @@ reference-bound mutation.
 | The broker restarts locked and cannot silently replace a missing root key | Restart/unlock tests, Keychain/XDG provider tests, and missing-key-with-vault rejection |
 | Provider manifests cannot become executable or ambiguous authority | Strict schema/collision/path/header tests, owner-only XDG loading, and built-in override rejection |
 | Provider login cannot turn visible text into arbitrary browser execution | Conventional non-project executable selection, identity/digest recheck, fixed argv/environment, bounded browser/PTY projection, checked cleanup, cancellation, and provider-specific negative tests |
-| Native Workspace login cannot become generic host ingress or browser authority | Closed Codex/GitHub CLI semantic URL-schema tests with the exact GitHub device target, exact OAuth clients, provider-specific originators, reviewed scope ceilings, callback shapes, and state bounds; bounded direct-line, ANSI synchronized-frame, and no-newline-prompt tests; zero-listener device-open tests; dynamic non-privileged loopback-port tests; label-verified selected container; host-loopback-only one-shot callback listener; fixed Docker exec relay program; byte- and TTY-preserving output with resize propagation; opaque callback canaries; malformed-control, replay, neighboring-target, and ambiguity bounds; port-collision failure; and session cleanup |
+| Native Workspace login cannot become generic host ingress or browser authority | Closed Claude Code/Codex/GitHub CLI semantic URL-schema tests with exact OAuth clients, reviewed scope ceilings, callback shapes, and state bounds; exact GitHub device target; provider-specific originators; bounded plain-line, OSC 8, ANSI synchronized-frame, and no-newline-prompt tests; zero-listener Claude remote-callback and GitHub device opens; dynamic non-privileged loopback-port tests; label-verified selected container; host-loopback-only one-shot callback listener; fixed Docker exec relay program; byte- and TTY-preserving output with resize propagation; opaque callback canaries; malformed-control, replay, neighboring-target, and ambiguity bounds; port-collision failure; and session cleanup |
 | Unsupported credential mechanisms cannot remain dormant | Catalog/state/dependency/image-content tests reject managed profiles, owner-selected dynamic plans, arbitrary helpers, compatibility readers, and provider CLIs inside Broker |
 | Agent-ready tools retain reviewed identity without Tobari redistribution | Base-runtime locks/checks for GitHub CLI, AWS CLI, Claude Code, and Codex; version smokes outside Workspace home; local missing-image build tests; workflow and release canaries reject every base registry write/login/push path |
 | Secret headers, queries, handle-bearing paths, and bodies stay out of logs | Gateway redacted-path/header-absence tests, non-learnable structural-rejection tests, and log scans |

@@ -18,10 +18,11 @@ shared internal control network. Gateway joins every Tobari network plus
 control and egress. Standard has no Auth Broker service, provider projection,
 credential mount, or credential helper. Its one session-scoped native-login
 bridge is part of interactive entry: it observes the unchanged child stream,
-selects one strict Codex or GitHub CLI authorization contract, derives a
-non-privileged port from its loopback redirect, and relays one opaque callback
+selects one strict Claude Code, Codex, or GitHub CLI authorization contract, derives a
+non-privileged port from a callback-bearing loopback redirect, and relays one opaque callback
 through a fixed Docker exec program plus that validated port to the exact
-selected Workspace loopback. Codex direct-line/TUI framing and GitHub CLI's
+selected Workspace loopback. Claude's reviewed remote callback opens no listener.
+Claude plain-line/OSC 8 framing, Codex direct-line/TUI framing, and GitHub CLI's
 complete no-newline prompt are bounded provider-specific originators; neither
 turns arbitrary Workspace prose into browser authority.
 It is absent when no host session is attached. The experimental development override adds a

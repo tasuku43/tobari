@@ -27,10 +27,12 @@ without becoming a Docker or policy operator. In the standard profile, users
 authenticate the pinned agent CLI inside the Workspace and its tool-owned state
 persists only in that Workspace home; host credentials are never inherited.
 An attached standard session may bridge only the closed reviewed native browser
-login union for pinned Codex and GitHub CLI: after provider-specific bounded
-semantic authorization-URL validation, the host opens that URL and relays one
-opaque localhost callback on the validated URL-selected port to the selected
-Workspace's client-owned loopback listener. Prompt framing is not URL
+login union for pinned Claude Code, Codex, and GitHub CLI: after provider-specific
+bounded semantic authorization-URL validation, the host opens that URL. Only
+the reviewed Codex and GitHub callback variants relay one opaque localhost
+callback on the validated URL-selected port to the selected Workspace's
+client-owned loopback listener; Claude's remote callback and GitHub's device
+target create no listener. Prompt framing is not URL
 authority. The bridge is session-scoped and grants no general host browser,
 port-forwarding, credential, or network authority. Output observation
 must preserve terminal identity as well as bytes: Docker retains a real PTY,

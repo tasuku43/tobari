@@ -815,9 +815,12 @@ synthetic state.
 Tool authentication state is not cluster configuration. In standard it belongs
 below the selected instance's persistent home, is created by the tool's own
 login, and follows the ordinary post-policy passthrough route.
-The attached host process may transiently validate one exact Codex or GitHub CLI
-authorization URL, open it, and relay one opaque host-loopback callback to that
-same selected Workspace. For exact default `gh auth login`, the canonical
+The attached host process may transiently validate one exact Claude Code, Codex,
+or GitHub CLI authorization URL and open it. Codex and GitHub web-application
+callback variants may relay one opaque host-loopback callback to that same
+selected Workspace; Claude's remote callback and GitHub's device target create
+no listener. Claude Code 2.1.220 must use its fixed client, redirect, PKCE shape,
+and complete reviewed scope set. For exact default `gh auth login`, the canonical
 runtime's pinned compatibility wrapper selects the reviewed GitHub.com HTTPS
 device workflow, disables GitHub CLI prompting and its Workspace browser, and
 lets the client begin polling without Enter. After success it delegates fixed

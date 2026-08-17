@@ -50,6 +50,7 @@ const (
 	pupLoginURLPrefix               = "https://app.datadoghq.com/oauth2/v1/authorize?"
 	claudeLoginClientID             = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
 	claudeLoginRedirectURI          = "https://platform.claude.com/oauth/code/callback"
+	claudeWorkspaceLoginScope       = "org:create_api_key user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload"
 	claudeHyperlinkPrefix           = "If the browser didn't open, visit: \x1b]8;;"
 	claudeHyperlinkClose            = "\x1b]8;;\a"
 )
