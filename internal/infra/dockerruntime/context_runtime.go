@@ -152,6 +152,10 @@ func (r *Runtime) contextReport(ctx context.Context, task string, manifest tobar
 	if manifest.GitIdentity != nil {
 		gitIdentity = *manifest.GitIdentity
 	}
+	nativeReadiness, err := tobari.ResolveContextNativeReadiness(manifest.NativeReadiness, manifest.PolicyPresetOrigin)
+	if err != nil {
+		return tobari.ContextReport{}, err
+	}
 	result := tobari.ContextReport{
 		Task:                 task,
 		ContextState:         tobari.ContextObservationPersisted,
@@ -164,6 +168,7 @@ func (r *Runtime) contextReport(ctx context.Context, task string, manifest tobar
 		SourceAccess:         manifest.SourceAccess,
 		PolicyPresetOrigin:   manifest.PolicyPresetOrigin,
 		PolicyPresetRevision: manifest.PolicyPresetRevision,
+		NativeReadiness:      nativeReadiness,
 		ShellEnvironment:     shellEnvironment,
 		GitIdentity:          gitIdentity,
 		Stores:               r.contextPaths(manifest.Name),
@@ -209,6 +214,7 @@ func (r *Runtime) nonPersistedContextReport(observed observedContext, active str
 		Active: manifest.Name == active, AgentProfile: manifest.AgentProfile, Image: manifest.Image,
 		PolicyMode: manifest.PolicyMode, SourceAccess: manifest.SourceAccess,
 		PolicyPresetOrigin: tobari.DefaultPolicyPresetOrigin, PolicyGuardrail: tobari.PolicyPresetGuardrailReviewedExact,
+		NativeReadiness:  tobari.ContextNativeReadinessEnabled,
 		ShellEnvironment: shellEnvironment, GitIdentity: gitIdentity,
 		Stores: tobari.ContextStorePaths{}, Runtime: runtimeReport, Cluster: tobari.ContextClusterStatusNotApplicable,
 		Authentication: nativeOrUnavailableContextAuthentication(),

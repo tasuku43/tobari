@@ -82,7 +82,8 @@ Auth Broker identities from their release lock.
 # Create a named immutable capability envelope.
 tobari context create --name default \
   --source-access read-write \
-  --policy-preset builtin/agent-ready
+  --policy-preset builtin/agent-ready \
+  --native-readiness enabled
 
 # Reconcile the one installation-local Gateway/OPA/Auth Broker cluster.
 tobari cluster up
@@ -92,11 +93,11 @@ cd /path/to/project
 tobari
 ```
 
-`context create` owns the omission defaults: `read-write` and
-`builtin/agent-ready`. Persisted exact-V1 Contexts always contain both
-source access and the normalized preset origin/revision. Readers do not invent
-defaults for old state; recreate unpublished development state after contract
-changes.
+`context create` owns the omission defaults: `read-write`,
+`builtin/agent-ready`, and enabled native readiness. New Contexts persist all
+three choices. A legacy manifest without readiness preserves its former
+behavior without rewrite: enabled for `builtin/agent-ready`, disabled for every
+other preset.
 
 Leaving the child shell detaches only the session. The Workspace and persistent
 home remain available:
@@ -142,7 +143,13 @@ source bind. In both cases the Workspace home and tmpfs stay writable. Tobari
 adds no writable source alias, and reconciliation includes the access mode in
 the runtime spec/hash and Docker inspection.
 
-### Policy presets
+### Policy presets and native readiness
+
+Native readiness is an independent immutable Context capability and defaults to
+`enabled`; use `--native-readiness disabled` for an intentionally strict
+Context. Its finite exact overlay never overrides the selected preset:
+`builtin/offline` still denies everything, GET-only still denies every non-GET,
+and exact destination/method ceilings and exact Deny still win.
 
 - `builtin/agent-ready` (default): exact reviewed Claude Code 2.1.220 and
   Codex 0.147.0 model, bootstrap/catalog, account-state, and fixed first-party
@@ -173,9 +180,9 @@ rejects wildcard, IP/private destination, secret, shell, Rego, include,
 inheritance, remote fetch, refresh, signing, symlink, unsafe-mode, and unknown-
 field input. Context creation normalizes, validates, digests, and snapshots the
 preset. Later source changes affect only a newly created Context. Native-client
-readiness is the exception: exact `builtin/agent-ready` selects the installed
-binary's current reviewed overlay, so upgrading Tobari updates existing
-agent-ready Contexts without rewriting or recreating them. Run `tobari cluster
+readiness is the exception: when enabled, it selects the installed binary's
+current reviewed overlay, so upgrading Tobari updates those existing Contexts
+without rewriting or recreating them. Run `tobari cluster
 up` after the upgrade to activate that binary-owned overlay; until then status
 marks the older projection invalid and root entry fails closed with the same
 recovery command.

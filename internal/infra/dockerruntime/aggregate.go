@@ -85,7 +85,11 @@ func (r *Runtime) readAggregateContextsWithTransactions(
 		if err != nil {
 			return nil, fmt.Errorf("Context %q policy preset: %w", manifest.Name, err)
 		}
-		preset, err := tobari.ApplyNativeToolAuthReadiness(manifest.PolicyPresetOrigin, presetSnapshot)
+		readiness, err := tobari.ResolveContextNativeReadiness(manifest.NativeReadiness, manifest.PolicyPresetOrigin)
+		if err != nil {
+			return nil, fmt.Errorf("Context %q native readiness selection: %w", manifest.Name, err)
+		}
+		preset, err := tobari.ApplyNativeToolAuthReadiness(readiness == tobari.ContextNativeReadinessEnabled, manifest.PolicyPresetOrigin == tobari.DefaultPolicyPresetOrigin, presetSnapshot)
 		if err != nil {
 			return nil, fmt.Errorf("Context %q native readiness: %w", manifest.Name, err)
 		}

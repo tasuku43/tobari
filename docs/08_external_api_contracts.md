@@ -37,7 +37,7 @@ attempt. It does not retry an arbitrary HTTP request.
 ## Policy-preset ceiling
 
 The immutable preset guardrail is evaluated before baseline data, learned
-exact policy, or Advanced Rego. `builtin/agent-ready` grants the reviewed
+exact policy, or Advanced Rego. Enabled native readiness grants the reviewed
 Claude Code 2.1.220 and Codex 0.147.0 model/account/bootstrap, first-party
 capability discovery, bounded evaluation, telemetry, and MCP initialize/list
 effects plus GitHub CLI 2.96.0's exact native device bootstrap/exchange effects
@@ -47,8 +47,8 @@ exact device-code/token/revoke, site inventory, stable manifest, and GraphQL
 pup 1.10.7's exact US1 DCR registration and token exchange/refresh when
 supplied by a custom runtime. Compile-time
 `claude_ready`, `codex_ready`, `gh_ready`, `twg_ready`, and `pup_ready` bundles are projected
-from the installed trusted binary into ordinary exact rules for the exact
-`builtin/agent-ready` origin and are not runtime selectors. New snapshots omit
+from the installed trusted binary into ordinary exact rules independently of
+preset identity and are not runtime selectors. New snapshots omit
 them; legacy bundle rules are removed from the effective projection before the
 current set is added. One dedicated compile-time family catalog owns pinned
 client versions, independently selected positive contract revisions, and
@@ -56,9 +56,10 @@ append-only removal history. Observed traffic cannot extend it, and its
 effective content participates in the aggregate
 revision checked by status and Workspace entry. Those are
 Context-wide semantic effects rather than executable
-identity, and exact Deny remains terminal. MCP actions, file transfer,
+identity. Preset offline, destination, and method ceilings filter or suppress
+the overlay, and exact Deny remains terminal. MCP actions, file transfer,
 downloads, acquisition, self-update, and unmatched effects receive no baseline
-grant. `builtin/offline` terminally
+grant. Disabled readiness supplies no overlay. `builtin/offline` terminally
 denies all HTTP/HTTPS; `builtin/reviewed-exact` makes only eligible effects
 exact-review candidates; `builtin/get-only-reviewed` makes only eligible GET
 effects candidates and terminally denies HEAD and every non-GET. Those three

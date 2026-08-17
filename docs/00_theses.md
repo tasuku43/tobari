@@ -13,9 +13,10 @@ directly on the host.**
 
 Every HTTP and HTTPS effect that crosses that boundary is authorized as a
 normalized request by one shared OPA-backed Gateway. A Context may start with a
-finite reviewed exact baseline composed from its immutable preset snapshot and,
-only for `builtin/agent-ready`, the trusted binary's finite native-client
-readiness overlay; every effect outside that composition is denied by default.
+finite reviewed exact baseline composed from its immutable preset snapshot and
+its independently selected trusted-binary native-client readiness capability;
+every effect outside that composition is denied by default. The preset's
+offline, destination, and method guardrails remain terminal over readiness.
 Trusted policy may declare an exact GraphQL endpoint whose generic L7 identity extends
 the HTTP coordinates with one operation type and root field per effect.
 
@@ -769,11 +770,13 @@ OPA allow.
 - Every persisted Context fixes `read-only` or `read-write` access for its one
   direct source bind and one normalized `builtin/<name>` or `custom/<name>`
   policy-preset origin plus SHA-256 snapshot revision. The snapshot fixes the
-  owner-selected guardrail and non-readiness baseline; exact
-  `builtin/agent-ready` additionally selects the current trusted-binary native
-  readiness overlay for existing and future Contexts. Creation owns the
-  `read-write` and `builtin/agent-ready` omission defaults. Readers never
-  supply them for old state, source-preset edits never change an existing
+  owner-selected guardrail and non-readiness baseline plus an enabled or
+  disabled native-readiness capability. Readiness independently selects the
+  current trusted-binary overlay. Creation owns the `read-write`,
+  `builtin/agent-ready`, and enabled-readiness omission defaults. A missing
+  readiness field in legacy state preserves historical behavior: enabled only
+  for `builtin/agent-ready`, disabled otherwise. Readers never rewrite old
+  state, source-preset edits never change an existing
   Context, and a different envelope requires a new Context. A binary readiness
   update is a reviewed compatibility update rather than an envelope change and
   requires no Context recreation. The current binary readiness catalog is part
@@ -837,7 +840,7 @@ OPA allow.
   denial produces no candidate and performs no external DNS, broker resolution,
   or upstream call. Advanced Rego may further constrain generic input but
   cannot grant beyond the guardrail or redefine learned permission identity.
-- `builtin/agent-ready` preserves the pinned Claude Code 2.1.220 and Codex
+- Enabled native readiness preserves the pinned Claude Code 2.1.220 and Codex
   0.147.0 native capability plane, the pinned GitHub CLI 2.96.0 native
   authentication bootstrap, TWG CLI 1.2.5 native login readiness, and pup
   1.10.7 US1 native login readiness when those clients are supplied by a

@@ -276,14 +276,14 @@ and never completes a partial direct invocation. Explicit-empty Context input
 is rejected rather than collapsed into the omitted current-Context selector.
 
 Context creation is the sole owner of envelope defaults. It resolves omitted
-source access to `read-write` and omitted preset to
-`builtin/agent-ready`, normalizes and validates the complete preset, binds
+source access to `read-write`, omitted preset to `builtin/agent-ready`, and
+omitted native readiness to `enabled`; it normalizes and validates the complete preset, binds
 its owner-only snapshot by SHA-256 revision, and atomically persists both
 manifest and snapshot before returning. Observation and old-state readers never
 invent either field. Root entry carries `source_access` into the exact project
 runtime spec/hash; policy activation validates the preset snapshot, then for
-the exact `builtin/agent-ready` origin replaces every readiness rule in the
-binary's append-only compatibility history with its current compile-time set.
+enabled native readiness replaces every readiness rule in the binary's
+append-only compatibility history with its current compile-time set.
 One dedicated compile-time family catalog owns each pinned client version,
 independently revised current readiness contract, and complete append-only
 contract history. Aggregate construction and read-only cluster inspection share the
@@ -291,7 +291,9 @@ same deterministic content-revision calculation, so a binary catalog update
 makes the previously active projection observably invalid until explicit
 reconciliation.
 The effective result enters the Tobari-owned system evaluator without rewriting
-the snapshot. Strict and custom origins receive no overlay. A read-only source is the same live direct bind
+the snapshot. Any preset may receive the overlay, but its offline, destination,
+and method guardrails remain terminal. Disabled readiness receives no overlay;
+legacy manifests preserve their old preset-coupled result without rewrite. A read-only source is the same live direct bind
 with Docker read-only authority: no writable alias is added, home and tmpfs
 remain writable, and host or same-root read-write Context changes remain
 observable. Neither path rediscovers the source preset.
@@ -303,8 +305,8 @@ Terminal denial ends before candidate projection, external DNS, broker
 resolution, and upstream I/O. Advanced modules may further constrain generic
 input but cannot bypass the guardrail or redefine the scheme-aware exact
 learned identity.
-`builtin/agent-ready` uses the reviewed-exact guardrail plus a finite baseline
-coupled to Claude Code 2.1.220, Codex 0.147.0, GitHub CLI 2.96.0, TWG CLI
+The native-readiness capability uses a finite baseline coupled to Claude Code
+2.1.220, Codex 0.147.0, GitHub CLI 2.96.0, TWG CLI
 1.2.5, and pup 1.10.7 when the latter clients are supplied by a custom runtime. Named
 compile-time native-authentication readiness bundles expand into exact HTTP and
 declared semantic rules during aggregate generation; their names and executable

@@ -251,7 +251,7 @@ func runContextCreate(
 	intent.Impact = command.Agent.Mutation.Impact
 	mode := tobari.ContextPolicyMode(inputs.One("--mode"))
 	sourceAccess := tobari.ContextSourceAccess(inputs.One("--source-access"))
-	result, err := c.context.Create(ctx, intent, inputs.One("--name"), inputs.One("--image"), mode, sourceAccess, inputs.One("--policy-preset"))
+	result, err := c.context.Create(ctx, intent, inputs.One("--name"), inputs.One("--image"), mode, sourceAccess, inputs.One("--policy-preset"), inputs.One("--native-readiness"))
 	if err != nil {
 		return c.fail(ctx, err)
 	}
@@ -381,6 +381,7 @@ type contextSummaryJSONProjection struct {
 	SourceAccess         tobari.ContextSourceAccess     `json:"source_access"`
 	PolicyPresetOrigin   string                         `json:"policy_preset_origin"`
 	PolicyPresetRevision string                         `json:"policy_preset_revision"`
+	NativeReadiness      tobari.ContextNativeReadiness  `json:"native_readiness"`
 	RuntimeStatus        tobari.ContextRuntimeStatus    `json:"runtime_status,omitempty"`
 }
 
@@ -401,6 +402,7 @@ type contextReportJSONProjection struct {
 	SourceAccess         tobari.ContextSourceAccess              `json:"source_access"`
 	PolicyPresetOrigin   string                                  `json:"policy_preset_origin"`
 	PolicyPresetRevision string                                  `json:"policy_preset_revision"`
+	NativeReadiness      tobari.ContextNativeReadiness           `json:"native_readiness"`
 	PolicyGuardrail      tobari.PolicyPresetGuardrail            `json:"policy_guardrail"`
 	ShellEnvironment     []tobari.ContextShellEnvironmentSetting `json:"shell_environment"`
 	GitIdentity          tobari.ContextGitIdentitySetting        `json:"git_identity"`
@@ -426,6 +428,7 @@ type contextAuthProviderJSONProjection struct {
 }
 
 func contextReportJSONDocument(result tobari.ContextReport) contextReportDocument {
+	nativeReadiness, _ := tobari.ResolveContextNativeReadiness(result.NativeReadiness, result.PolicyPresetOrigin)
 	providers := make([]contextAuthProviderJSONProjection, 0, len(result.Authentication.Providers))
 	if result.Authentication.Providers == nil {
 		providers = nil
@@ -452,6 +455,7 @@ func contextReportJSONDocument(result tobari.ContextReport) contextReportDocumen
 			AgentProfile: result.AgentProfile, Image: result.Image, PolicyMode: result.PolicyMode,
 			SourceAccess:       result.SourceAccess,
 			PolicyPresetOrigin: result.PolicyPresetOrigin, PolicyPresetRevision: result.PolicyPresetRevision, PolicyGuardrail: result.PolicyGuardrail,
+			NativeReadiness:  nativeReadiness,
 			ShellEnvironment: result.ShellEnvironment, GitIdentity: result.GitIdentity, Stores: optionalContextStores(result),
 			Runtime: result.Runtime, Cluster: result.Cluster,
 			Authentication: authentication,
@@ -496,11 +500,13 @@ func renderContextList(result tobari.ContextListResult, format successFormat, co
 		document.Contexts.Active = result.Active
 		document.Contexts.Items = make([]contextSummaryJSONProjection, 0, len(result.Items))
 		for _, item := range result.Items {
+			nativeReadiness, _ := tobari.ResolveContextNativeReadiness(item.NativeReadiness, item.PolicyPresetOrigin)
 			document.Contexts.Items = append(document.Contexts.Items, contextSummaryJSONProjection{
 				ID: optionalString(item.ID), Name: item.Name, ContextState: item.ContextState, Active: item.Active,
 				AgentProfile: item.AgentProfile, Image: item.Image, PolicyMode: item.PolicyMode,
 				SourceAccess: item.SourceAccess, RuntimeStatus: item.RuntimeStatus,
 				PolicyPresetOrigin: item.PolicyPresetOrigin, PolicyPresetRevision: item.PolicyPresetRevision,
+				NativeReadiness: nativeReadiness,
 			})
 		}
 		output, err := marshalCommandJSON("context list", document)
@@ -564,6 +570,8 @@ func renderContextReportText(result tobari.ContextReport, color bool) []byte {
 	writeStyledLine(&output, color, "Policy mode:", string(result.PolicyMode), styleText)
 	writeStyledLine(&output, color, "Source access:", "direct "+string(result.SourceAccess), styleText)
 	writeStyledLine(&output, color, "Policy preset:", safeExternalText(result.PolicyPresetOrigin), styleText)
+	nativeReadiness, _ := tobari.ResolveContextNativeReadiness(result.NativeReadiness, result.PolicyPresetOrigin)
+	writeStyledLine(&output, color, "Native readiness:", string(nativeReadiness), styleText)
 	if result.PolicyPresetRevision != "" {
 		writeStyledLine(&output, color, "Policy preset revision:", result.PolicyPresetRevision, styleText)
 	}

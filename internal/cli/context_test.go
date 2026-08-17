@@ -637,7 +637,7 @@ func TestContextReportJSONSchemaOneDeclaresExactContextKeys(t *testing.T) {
 	if err := json.Unmarshal(outer["context"], &contextFields); err != nil {
 		t.Fatalf("context envelope = %q, error = %v", outer["context"], err)
 	}
-	want := []string{"active", "agent_profile", "authentication", "cluster", "context_state", "git_identity", "id", "image", "name", "policy_guardrail", "policy_mode", "policy_preset_origin", "policy_preset_revision", "runtime", "shell_environment", "source_access", "stores", "task"}
+	want := []string{"active", "agent_profile", "authentication", "cluster", "context_state", "git_identity", "id", "image", "name", "native_readiness", "policy_guardrail", "policy_mode", "policy_preset_origin", "policy_preset_revision", "runtime", "shell_environment", "source_access", "stores", "task"}
 	got := make([]string, 0, len(contextFields))
 	for name := range contextFields {
 		got = append(got, name)

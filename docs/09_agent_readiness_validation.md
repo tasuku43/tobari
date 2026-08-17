@@ -9,7 +9,7 @@ transcripts as repository fixtures.
 | Outcome | Public route | Success evidence |
 |---|---|---|
 | Discover capabilities | `help --format agent`, then one namespace or exact-command selector | Root remains a compact capability index; one scoped read supplies complete typed inputs, outputs, failures, and workflow |
-| Choose a Context envelope | `context list`, `context show`, `context create`, `context use` | Source access and policy-preset origin/revision are explicit before entry; changing current Context does not retarget existing Workspaces |
+| Choose a Context envelope | `context list`, `context show`, `context create`, `context use` | Source access, policy-preset origin/revision, and native-readiness configured/effective state are explicit before entry; changing current Context does not retarget existing Workspaces |
 | Enter bounded work | `cluster up`, then `tobari [--context NAME]` | One selected live source bind, writable home/tmpfs, guarded network, reusable Workspace, and no direct egress |
 | Grow exact permission | `policy review`, or `policy candidates` then one exact allow/deny | Terminal guardrail precedes every candidate; explicit review activates only exact Context/project/scheme/host/port/method/path authority |
 | Inspect/reset decisions | `policy rules`, then `policy reset --id` | One current exact decision is removed through its unchanged opaque reference and returns to default deny |
@@ -36,9 +36,11 @@ TOBARI_BIN=bin/tobari
 "$TOBARI_BIN" help --format agent
 "$TOBARI_BIN" help context --format agent
 "$TOBARI_BIN" context create --name writable \
-  --source-access read-write --policy-preset builtin/agent-ready --format json
+  --source-access read-write --policy-preset builtin/agent-ready \
+  --native-readiness enabled --format json
 "$TOBARI_BIN" context create --name restricted \
-  --source-access read-only --policy-preset builtin/offline --format json
+  --source-access read-only --policy-preset builtin/offline \
+  --native-readiness disabled --format json
 "$TOBARI_BIN" context show --name writable --format json
 "$TOBARI_BIN" context show --name restricted --format json
 ```
@@ -122,8 +124,13 @@ append-only contract revisions, and exactly one current contract per
 family. Prove the aggregate revision includes its
 effective expansion, an older active revision is reported invalid, and root
 entry returns exact `cluster up` recovery before Workspace mutation.
-Strict/custom origins receive no
-overlay. For GitHub, neighboring methods, paths, query variants,
+Create enabled and disabled readiness with every builtin preset. Enabled
+readiness is independent of preset identity, but offline suppresses it,
+GET-only filters every non-GET effect, exact destination/method ceilings filter
+outside effects, and exact Deny remains terminal. Disabled readiness supplies
+no overlay. Missing legacy state preserves the former behavior (enabled only
+for `builtin/agent-ready`) without rewriting the manifest. For GitHub,
+neighboring methods, paths, query variants,
 GitHub API hosts, ordinary HTTP at `/graphql`, mutation, sibling or mixed roots,
 Git transport, downloads, uploads, releases, and self-update receive no baseline
 grant.
@@ -163,8 +170,8 @@ remote fetch, refresh, signing, symlinks, unsafe modes, duplicate keys, and
 ambiguous rules. Context creation normalizes, validates, digests, and snapshots
 the source. Editing the source preset afterward must not change the existing
 Context report or active guardrail. Updating the trusted binary must update only
-the native-readiness overlay of existing exact agent-ready origins without
-rewriting their snapshot.
+the native-readiness overlay of existing enabled Contexts without rewriting
+their snapshot.
 
 The canonical contributor base must run `claude --version` as 2.1.220,
 `codex --version` as 0.147.0, and `gh --version` as 2.96.0 after replacing

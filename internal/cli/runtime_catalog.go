@@ -222,12 +222,12 @@ func contextShowSpec() CommandSpec {
 func contextCreateSpec() CommandSpec {
 	return CommandSpec{
 		Path: "context create", Summary: "Create a named execution Context",
-		Args:   "--name <name> [--image <image>] [--mode guided|advanced] [--source-access read-only|read-write] [--policy-preset <preset>] [--format text|json]",
+		Args:   "--name <name> [--image <image>] [--mode guided|advanced] [--source-access read-only|read-write] [--policy-preset <preset>] [--native-readiness enabled|disabled] [--format text|json]",
 		Effect: operation.EffectCreate, Role: RoleAct,
 		Agent: AgentContract{
 			CapabilityID:  "context.composition",
 			Outcome:       "Create one named Context with separate owner-only policy and brokered-authentication state",
-			Inputs:        []CommandInput{contextNameInput(), contextImageInput(), contextModeInput(), contextSourceAccessInput(), contextPolicyPresetInput(), formatInput()},
+			Inputs:        []CommandInput{contextNameInput(), contextImageInput(), contextModeInput(), contextSourceAccessInput(), contextPolicyPresetInput(), contextNativeReadinessInput(), formatInput()},
 			Output:        contextReportOutput(),
 			Prerequisites: []string{"The host Context directory is accessible."},
 			FixedTarget:   fixedContextCatalogTarget(),
@@ -1123,6 +1123,10 @@ func contextPolicyPresetInput() CommandInput {
 	return CommandInput{Name: "--policy-preset", Source: InputSourceFlag, Required: false, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, Description: "Exact built-in or custom policy preset snapshotted into the new Context.", AllowedValues: []string{}, DefaultValue: stringPointer(tobari.DefaultPolicyPresetOrigin)}
 }
 
+func contextNativeReadinessInput() CommandInput {
+	return CommandInput{Name: "--native-readiness", Source: InputSourceFlag, Required: false, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, Description: "Trusted binary native-client readiness overlay; preset guardrails and ceilings remain terminal.", AllowedValues: []string{"enabled", "disabled"}, DefaultValue: stringPointer("enabled")}
+}
+
 func contextReportOutput() CommandOutput {
 	return CommandOutput{
 		Formats: []OutputFormat{OutputFormatText, OutputFormatJSON}, DefaultFormat: OutputFormatText, TextPresentation: TextPresentationSemanticTokens,
@@ -1138,6 +1142,7 @@ func contextReportOutput() CommandOutput {
 			{Name: "source_access", Type: OutputFieldTypeString, Description: "Direct project-source bind access; this does not describe Workspace home or tmpfs.", Enum: []string{"read-only", "read-write"}},
 			{Name: "policy_preset_origin", Type: OutputFieldTypeString, Description: "Immutable normalized policy-preset origin selector."},
 			{Name: "policy_preset_revision", Type: OutputFieldTypeString, Description: "SHA-256 revision of the Context-owned normalized preset snapshot; empty only for a synthetic default."},
+			{Name: "native_readiness", Type: OutputFieldTypeString, Description: "Immutable native-client readiness capability selection; terminal preset guardrails and ceilings still bound its effects.", Enum: []string{"enabled", "disabled"}},
 			{Name: "policy_guardrail", Type: OutputFieldTypeString, Description: "System-enforced terminal policy guardrail.", Enum: []string{"offline", "reviewed_exact", "get_only_reviewed"}},
 			{Name: "shell_environment", Type: OutputFieldTypeArray, Description: "Complete allowlisted shell variable inventory with default, inherited, or literal source and an exact value only for literal.", SemanticScope: "The fixed four-variable Context shell presentation inventory.", Items: &OutputField{
 				Type: OutputFieldTypeObject, Description: "One allowlisted shell variable policy.", Fields: []OutputField{

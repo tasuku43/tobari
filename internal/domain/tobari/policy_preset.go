@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -518,26 +519,38 @@ func BuiltinPolicyPresetSnapshot(origin string) (PolicyPreset, bool) {
 }
 
 // ApplyNativeToolAuthReadiness validates an immutable Context snapshot and,
-// only for builtin/agent-ready, replaces every historically snapshotted native
-// readiness rule with the current compile-time bundle set.
-func ApplyNativeToolAuthReadiness(origin string, snapshot PolicyPreset) (PolicyPreset, error) {
-	if err := ValidatePolicyPresetOrigin(origin); err != nil {
-		return PolicyPreset{}, err
-	}
+// when enabled, replaces every historically snapshotted native readiness rule
+// with the current compile-time bundle set. The preset's terminal guardrail and
+// ceilings remain unchanged and therefore authoritative over this overlay.
+func ApplyNativeToolAuthReadiness(enabled bool, replaceHistorical bool, snapshot PolicyPreset) (PolicyPreset, error) {
 	normalized, _, _, err := NormalizePolicyPreset(snapshot)
 	if err != nil {
 		return PolicyPreset{}, err
 	}
-	if origin != DefaultPolicyPresetOrigin {
-		return normalized, nil
+	effective := normalized
+	if replaceHistorical {
+		effective = withoutHistoricalNativeToolAuthReadiness(effective)
 	}
-	if normalized.Name != "agent-ready" || normalized.Guardrail != PolicyPresetGuardrailReviewedExact {
-		return PolicyPreset{}, fmt.Errorf("agent-ready snapshot identity is invalid")
+	if !enabled {
+		return effective, nil
 	}
-	effective := withoutHistoricalNativeToolAuthReadiness(normalized)
 	for _, bundle := range nativeToolAuthReadinessBundles() {
-		effective.BaselineGrants = append(effective.BaselineGrants, bundle.BaselineGrants...)
-		effective.GraphQLEndpoints = append(effective.GraphQLEndpoints, bundle.GraphQLEndpoints...)
+		for _, rule := range bundle.BaselineGrants {
+			if policyPresetRuleInsideDestination(effective.DestinationCeiling, rule) &&
+				(effective.MethodCeiling.Mode != "exact" || presetContainsMethod(effective.MethodCeiling.Methods, rule.Method)) {
+				if !slices.Contains(effective.BaselineGrants, rule) {
+					effective.BaselineGrants = append(effective.BaselineGrants, rule)
+				}
+			}
+		}
+		for _, endpoint := range bundle.GraphQLEndpoints {
+			if policyPresetRuleInsideDestination(effective.DestinationCeiling, endpoint) &&
+				(effective.MethodCeiling.Mode != "exact" || presetContainsMethod(effective.MethodCeiling.Methods, endpoint.Method)) {
+				if !slices.Contains(effective.GraphQLEndpoints, endpoint) {
+					effective.GraphQLEndpoints = append(effective.GraphQLEndpoints, endpoint)
+				}
+			}
+		}
 	}
 	effective, _, _, err = NormalizePolicyPreset(effective)
 	return effective, err

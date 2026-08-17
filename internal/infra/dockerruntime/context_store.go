@@ -475,12 +475,17 @@ func (r *Runtime) ListContexts(ctx context.Context) (tobari.ContextListResult, e
 		if err != nil {
 			return tobari.ContextListResult{}, err
 		}
+		nativeReadiness, err := tobari.ResolveContextNativeReadiness(manifest.NativeReadiness, manifest.PolicyPresetOrigin)
+		if err != nil {
+			return tobari.ContextListResult{}, err
+		}
 		items = append(items, tobari.ContextSummary{
 			ID: manifest.ID, Name: manifest.Name, ContextState: tobari.ContextObservationPersisted, Active: manifest.Name == active,
 			AgentProfile: manifest.AgentProfile, Image: manifest.Image, PolicyMode: manifest.PolicyMode,
 			SourceAccess:         manifest.SourceAccess,
 			PolicyPresetOrigin:   manifest.PolicyPresetOrigin,
 			PolicyPresetRevision: manifest.PolicyPresetRevision,
+			NativeReadiness:      nativeReadiness,
 			RuntimeStatus:        runtimeReport.Status,
 		})
 	}
@@ -630,11 +635,11 @@ func persistedContextGitIdentity(setting tobari.ContextGitIdentitySetting) *toba
 func (r *Runtime) CreateContext(
 	ctx context.Context, name string, image string, mode tobari.ContextPolicyMode, sourceAccess tobari.ContextSourceAccess,
 ) (tobari.ContextReport, error) {
-	return r.CreateContextWithPreset(ctx, name, image, mode, sourceAccess, tobari.DefaultPolicyPresetOrigin)
+	return r.CreateContextWithPreset(ctx, name, image, mode, sourceAccess, tobari.DefaultPolicyPresetOrigin, tobari.ContextNativeReadinessEnabled)
 }
 
 func (r *Runtime) CreateContextWithPreset(
-	ctx context.Context, name string, image string, mode tobari.ContextPolicyMode, sourceAccess tobari.ContextSourceAccess, presetOrigin string,
+	ctx context.Context, name string, image string, mode tobari.ContextPolicyMode, sourceAccess tobari.ContextSourceAccess, presetOrigin string, readinessSelections ...tobari.ContextNativeReadiness,
 ) (tobari.ContextReport, error) {
 	if err := ctx.Err(); err != nil {
 		return tobari.ContextReport{}, err
@@ -643,12 +648,20 @@ func (r *Runtime) CreateContextWithPreset(
 	if err != nil {
 		return tobari.ContextReport{}, err
 	}
+	nativeReadiness := tobari.ContextNativeReadinessEnabled
+	if len(readinessSelections) > 1 {
+		return tobari.ContextReport{}, fmt.Errorf("Context native readiness selection is invalid")
+	}
+	if len(readinessSelections) == 1 {
+		nativeReadiness = readinessSelections[0]
+	}
 	manifest := tobari.ContextManifest{
 		SchemaVersion: tobari.ContextSchemaVersion, Name: name,
 		AgentProfile: tobari.DefaultProfile, Image: r.resolveBuiltinImageSelector(image), PolicyMode: mode,
 		SourceAccess:         sourceAccess,
 		PolicyPresetOrigin:   presetOrigin,
 		PolicyPresetRevision: presetRevision,
+		NativeReadiness:      nativeReadiness,
 		ShellEnvironment:     tobari.InitialContextShellEnvironment(),
 	}
 	id, err := r.identities.newContextID()

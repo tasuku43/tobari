@@ -20,6 +20,32 @@ func validContextManifest() ContextManifest {
 	}
 }
 
+func TestContextNativeReadinessCompatibility(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		value  ContextNativeReadiness
+		origin string
+		want   ContextNativeReadiness
+	}{
+		{"new enabled", ContextNativeReadinessEnabled, "builtin/offline", ContextNativeReadinessEnabled},
+		{"new disabled", ContextNativeReadinessDisabled, DefaultPolicyPresetOrigin, ContextNativeReadinessDisabled},
+		{"legacy agent-ready", "", DefaultPolicyPresetOrigin, ContextNativeReadinessEnabled},
+		{"legacy reviewed-exact", "", "builtin/reviewed-exact", ContextNativeReadinessDisabled},
+		{"legacy get-only", "", "builtin/get-only-reviewed", ContextNativeReadinessDisabled},
+		{"legacy offline", "", "builtin/offline", ContextNativeReadinessDisabled},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := ResolveContextNativeReadiness(test.value, test.origin)
+			if err != nil || got != test.want {
+				t.Fatalf("got %q, %v; want %q", got, err, test.want)
+			}
+		})
+	}
+	if _, err := ResolveContextNativeReadiness("sometimes", DefaultPolicyPresetOrigin); err == nil {
+		t.Fatal("invalid explicit native readiness was accepted")
+	}
+}
+
 func TestContextManifestValidatesRuntimeImageAndMode(t *testing.T) {
 	manifest := validContextManifest()
 	if err := manifest.Validate(); err != nil {

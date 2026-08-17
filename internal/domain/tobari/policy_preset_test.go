@@ -332,7 +332,7 @@ func TestAgentReadySnapshotExcludesBinaryNativeReadinessAndProjectionRestoresCur
 			}
 		}
 	}
-	projected, err := ApplyNativeToolAuthReadiness(DefaultPolicyPresetOrigin, snapshot)
+	projected, err := ApplyNativeToolAuthReadiness(true, true, snapshot)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -354,7 +354,7 @@ func TestAgentReadyLegacySnapshotReadinessIsReplacedWithoutChangingSnapshot(t *t
 	if err != nil {
 		t.Fatal(err)
 	}
-	projected, err := ApplyNativeToolAuthReadiness(DefaultPolicyPresetOrigin, legacy)
+	projected, err := ApplyNativeToolAuthReadiness(true, true, legacy)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -379,37 +379,40 @@ func TestAgentReadyLegacySnapshotReadinessIsReplacedWithoutChangingSnapshot(t *t
 	}
 }
 
-func TestBinaryNativeReadinessAppliesOnlyToExactAgentReadyOrigin(t *testing.T) {
+func TestBinaryNativeReadinessIsOrthogonalAndDisabledRemovesHistoricalRules(t *testing.T) {
 	custom, _ := BuiltinPolicyPreset("builtin/reviewed-exact")
 	custom.Name = "custom-ready"
 	custom.BaselineGrants = []PolicyPresetExactRule{{
 		Scheme: "https", Host: "auth.atlassian.com", Port: 443, Method: "POST", Path: "/oauth/device/code",
 	}}
-	projected, err := ApplyNativeToolAuthReadiness("custom/custom-ready", custom)
+	projected, err := ApplyNativeToolAuthReadiness(false, false, custom)
 	if err != nil {
 		t.Fatal(err)
 	}
-	want, _, _, err := NormalizePolicyPreset(custom)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !reflect.DeepEqual(projected, want) {
-		t.Fatalf("custom preset was changed by binary readiness: %+v", projected)
+	if !reflect.DeepEqual(projected.BaselineGrants, custom.BaselineGrants) {
+		t.Fatalf("disabled readiness changed custom preset authority: %+v", projected)
 	}
 
 	offline, _ := BuiltinPolicyPreset("builtin/offline")
-	projected, err = ApplyNativeToolAuthReadiness("builtin/offline", offline)
+	projected, err = ApplyNativeToolAuthReadiness(false, false, offline)
 	if err != nil || len(projected.BaselineGrants) != 0 {
 		t.Fatalf("offline preset received binary readiness: %+v err=%v", projected, err)
 	}
 
-	invalid := custom
-	invalid.Name = "not-agent-ready"
-	if _, err := ApplyNativeToolAuthReadiness(DefaultPolicyPresetOrigin, invalid); err == nil {
-		t.Fatal("agent-ready origin accepted a mismatched snapshot identity")
+	strict, _ := BuiltinPolicyPreset("builtin/reviewed-exact")
+	projected, err = ApplyNativeToolAuthReadiness(true, false, strict)
+	if err != nil || len(projected.BaselineGrants) == 0 {
+		t.Fatalf("orthogonal readiness was not applied to reviewed-exact: %+v err=%v", projected, err)
 	}
-	if _, err := ApplyNativeToolAuthReadiness("builtin/agent-ready/extra", custom); err == nil {
-		t.Fatal("binary readiness accepted an invalid origin")
+	offline, _ = BuiltinPolicyPreset("builtin/offline")
+	projected, err = ApplyNativeToolAuthReadiness(true, false, offline)
+	if err != nil || projected.Guardrail != PolicyPresetGuardrailOffline || len(projected.BaselineGrants) == 0 {
+		t.Fatalf("offline composition lost its guardrail or overlay: %+v err=%v", projected, err)
+	}
+	getOnly, _ := BuiltinPolicyPreset("builtin/get-only-reviewed")
+	projected, err = ApplyNativeToolAuthReadiness(true, false, getOnly)
+	if err != nil || projected.Guardrail != PolicyPresetGuardrailGetOnlyReviewed || !slices.Equal(projected.MethodCeiling.Methods, []string{"GET"}) {
+		t.Fatalf("GET-only composition changed its method ceiling: %+v err=%v", projected, err)
 	}
 }
 

@@ -32,7 +32,7 @@ type contextUseProgressRuntimePort interface {
 }
 
 type policyPresetContextRuntimePort interface {
-	CreateContextWithPreset(context.Context, string, string, tobari.ContextPolicyMode, tobari.ContextSourceAccess, string) (tobari.ContextReport, error)
+	CreateContextWithPreset(context.Context, string, string, tobari.ContextPolicyMode, tobari.ContextSourceAccess, string, ...tobari.ContextNativeReadiness) (tobari.ContextReport, error)
 }
 
 type contextRuntimeBuildProgressPort interface {
@@ -340,23 +340,30 @@ func (s *Service) Show(ctx context.Context, name string) (tobari.ContextReport, 
 }
 
 func (s *Service) Create(
-	ctx context.Context, intent operation.Intent, name, image string, mode tobari.ContextPolicyMode, sourceAccess tobari.ContextSourceAccess, presetOrigins ...string,
+	ctx context.Context, intent operation.Intent, name, image string, mode tobari.ContextPolicyMode, sourceAccess tobari.ContextSourceAccess, selections ...string,
 ) (tobari.ContextReport, error) {
 	if err := s.requireRuntime(); err != nil {
 		return tobari.ContextReport{}, err
 	}
 	presetOrigin := tobari.DefaultPolicyPresetOrigin
-	if len(presetOrigins) > 1 {
+	nativeReadiness := tobari.ContextNativeReadinessEnabled
+	if len(selections) > 2 {
 		return tobari.ContextReport{}, fault.New(fault.KindInvalidInput, "invalid_context", "Context policy preset selection is invalid", false)
 	}
-	if len(presetOrigins) == 1 {
-		presetOrigin = presetOrigins[0]
+	if len(selections) >= 1 {
+		presetOrigin = selections[0]
+	}
+	if len(selections) == 2 {
+		nativeReadiness = tobari.ContextNativeReadiness(selections[1])
 	}
 	if err := validateCreateInput(name, image, mode, sourceAccess); err != nil {
 		return tobari.ContextReport{}, err
 	}
 	if err := tobari.ValidatePolicyPresetOrigin(presetOrigin); err != nil {
 		return tobari.ContextReport{}, fault.Wrap(fault.KindInvalidInput, "invalid_context", "Context policy preset selection is invalid", false, err)
+	}
+	if err := nativeReadiness.Validate(); err != nil {
+		return tobari.ContextReport{}, fault.Wrap(fault.KindInvalidInput, "invalid_context", "Context native readiness selection is invalid", false, err)
 	}
 	request := execution.Request{
 		Intent: intent, ExpectedCommand: intent.Command, ExpectedEffect: operation.EffectCreate,
@@ -368,8 +375,8 @@ func (s *Service) Create(
 		var created tobari.ContextReport
 		var createErr error
 		if runtime, ok := s.runtime.(policyPresetContextRuntimePort); ok {
-			created, createErr = runtime.CreateContextWithPreset(actionContext, name, image, mode, sourceAccess, presetOrigin)
-		} else if presetOrigin == tobari.DefaultPolicyPresetOrigin {
+			created, createErr = runtime.CreateContextWithPreset(actionContext, name, image, mode, sourceAccess, presetOrigin, nativeReadiness)
+		} else if presetOrigin == tobari.DefaultPolicyPresetOrigin && nativeReadiness == tobari.ContextNativeReadinessEnabled {
 			created, createErr = s.runtime.CreateContext(actionContext, name, image, mode, sourceAccess)
 		} else {
 			createErr = errors.New("policy preset store is unavailable")
@@ -385,8 +392,12 @@ func (s *Service) Create(
 				fault.NextAction{Command: "context list", Reason: "Inspect the local Context collection."})
 		}
 		contractErr := created.Validate()
+		createdReadiness, readinessErr := tobari.ResolveContextNativeReadiness(created.NativeReadiness, created.PolicyPresetOrigin)
+		if contractErr == nil {
+			contractErr = readinessErr
+		}
 		if contractErr == nil && (created.Task != tobari.TaskContextCreate ||
-			created.Name != name || created.SourceAccess != sourceAccess || created.PolicyPresetOrigin != presetOrigin) {
+			created.Name != name || created.SourceAccess != sourceAccess || created.PolicyPresetOrigin != presetOrigin || createdReadiness != nativeReadiness) {
 			contractErr = fmt.Errorf("created Context identity or source access does not match the request")
 		}
 		if contractErr != nil {

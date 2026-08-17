@@ -41,6 +41,39 @@ const (
 	MaxContextGitIdentityValueBytes = 4096
 )
 
+// ContextNativeReadiness selects the trusted binary's finite native-client
+// compatibility overlay independently from the Context's policy preset.
+type ContextNativeReadiness string
+
+const (
+	ContextNativeReadinessEnabled  ContextNativeReadiness = "enabled"
+	ContextNativeReadinessDisabled ContextNativeReadiness = "disabled"
+)
+
+func (r ContextNativeReadiness) Validate() error {
+	switch r {
+	case ContextNativeReadinessEnabled, ContextNativeReadinessDisabled:
+		return nil
+	default:
+		return fmt.Errorf("context native readiness is invalid: %q", r)
+	}
+}
+
+// ResolveContextNativeReadiness preserves schema-v1 manifests written before
+// the capability was explicit. Their preset-coupled behavior remains unchanged.
+func ResolveContextNativeReadiness(value ContextNativeReadiness, presetOrigin string) (ContextNativeReadiness, error) {
+	if value != "" {
+		return value, value.Validate()
+	}
+	if err := ValidatePolicyPresetOrigin(presetOrigin); err != nil {
+		return "", err
+	}
+	if presetOrigin == DefaultPolicyPresetOrigin {
+		return ContextNativeReadinessEnabled, nil
+	}
+	return ContextNativeReadinessDisabled, nil
+}
+
 // ContextObservationState distinguishes durable Context authority from a
 // display-only first-use default. Only Persisted may supply authority to a mutation.
 type ContextObservationState string
@@ -609,6 +642,7 @@ type ContextManifest struct {
 	SourceAccess         ContextSourceAccess              `json:"source_access"`
 	PolicyPresetOrigin   string                           `json:"policy_preset_origin"`
 	PolicyPresetRevision string                           `json:"policy_preset_revision"`
+	NativeReadiness      ContextNativeReadiness           `json:"native_readiness,omitempty"`
 	Runtime              *ContextRuntimeRecipe            `json:"runtime,omitempty"`
 	ShellEnvironment     []ContextShellEnvironmentSetting `json:"shell_environment,omitempty"`
 	GitIdentity          *ContextGitIdentitySetting       `json:"git_identity,omitempty"`
@@ -641,6 +675,9 @@ func (m ContextManifest) Validate() error {
 	}
 	if !digestPattern.MatchString(m.PolicyPresetRevision) {
 		return fmt.Errorf("context policy preset revision is invalid")
+	}
+	if _, err := ResolveContextNativeReadiness(m.NativeReadiness, m.PolicyPresetOrigin); err != nil {
+		return err
 	}
 	if m.Runtime != nil {
 		if err := m.Runtime.Validate(); err != nil {
@@ -698,6 +735,7 @@ type ContextSummary struct {
 	SourceAccess         ContextSourceAccess     `json:"source_access"`
 	PolicyPresetOrigin   string                  `json:"policy_preset_origin"`
 	PolicyPresetRevision string                  `json:"policy_preset_revision"`
+	NativeReadiness      ContextNativeReadiness  `json:"native_readiness"`
 	RuntimeStatus        ContextRuntimeStatus    `json:"runtime_status,omitempty"`
 }
 
@@ -721,6 +759,7 @@ func (s ContextSummary) Validate() error {
 		SourceAccess:         s.SourceAccess,
 		PolicyPresetOrigin:   s.PolicyPresetOrigin,
 		PolicyPresetRevision: s.PolicyPresetRevision,
+		NativeReadiness:      s.NativeReadiness,
 	}
 	if err := manifest.Validate(); err != nil {
 		return err
@@ -908,6 +947,7 @@ type ContextReport struct {
 	SourceAccess         ContextSourceAccess              `json:"source_access"`
 	PolicyPresetOrigin   string                           `json:"policy_preset_origin"`
 	PolicyPresetRevision string                           `json:"policy_preset_revision"`
+	NativeReadiness      ContextNativeReadiness           `json:"native_readiness"`
 	PolicyGuardrail      PolicyPresetGuardrail            `json:"policy_guardrail"`
 	ShellEnvironment     []ContextShellEnvironmentSetting `json:"shell_environment"`
 	GitIdentity          ContextGitIdentitySetting        `json:"git_identity"`
@@ -929,10 +969,13 @@ func (r ContextReport) Validate() error {
 		if r.Task != TaskContextShow || r.Name != DefaultContextName || !r.Active || r.ID != "" || r.Stores != (ContextStorePaths{}) {
 			return fmt.Errorf("synthetic default Context report claims persisted authority")
 		}
-		if r.AgentProfile == "" || r.Image == "" || r.PolicyMode.Validate() != nil || r.SourceAccess.Validate() != nil || r.PolicyPresetOrigin != DefaultPolicyPresetOrigin || r.PolicyPresetRevision != "" || r.PolicyGuardrail != PolicyPresetGuardrailReviewedExact {
+		if r.AgentProfile == "" || r.Image == "" || r.PolicyMode.Validate() != nil || r.SourceAccess.Validate() != nil || r.PolicyPresetOrigin != DefaultPolicyPresetOrigin || r.PolicyPresetRevision != "" || (r.NativeReadiness != "" && r.NativeReadiness != ContextNativeReadinessEnabled) || r.PolicyGuardrail != PolicyPresetGuardrailReviewedExact {
 			return fmt.Errorf("synthetic default Context display metadata is invalid")
 		}
 	} else {
+		if _, err := ResolveContextNativeReadiness(r.NativeReadiness, r.PolicyPresetOrigin); err != nil {
+			return err
+		}
 		manifest := ContextManifest{
 			SchemaVersion:        ContextSchemaVersion,
 			ID:                   r.ID,

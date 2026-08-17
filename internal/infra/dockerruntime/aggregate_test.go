@@ -19,6 +19,27 @@ type policyContentTestRunner struct {
 	rejected int
 }
 
+func TestOrthogonalReadinessRemainsBehindTerminalGuardrails(t *testing.T) {
+	for _, origin := range []string{"builtin/offline", "builtin/get-only-reviewed"} {
+		preset, _ := tobari.BuiltinPolicyPreset(origin)
+		revision, err := tobari.PolicyPresetRevision(preset)
+		if err != nil {
+			t.Fatal(err)
+		}
+		manifest := tobari.ContextManifest{SchemaVersion: tobari.ContextSchemaVersion, ID: "01912345-6789-7abc-8def-0123456789ad", Name: "restricted", AgentProfile: tobari.DefaultProfile, Image: tobari.BuiltinImageSelector, PolicyMode: tobari.ContextPolicyModeGuided, SourceAccess: tobari.ContextSourceAccessReadWrite, PolicyPresetOrigin: origin, PolicyPresetRevision: revision, NativeReadiness: tobari.ContextNativeReadinessEnabled}
+		router, err := aggregateRouter([]aggregateContext{{manifest: manifest}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		text := string(router)
+		terminal := strings.Index(text, `decision := {"allow": false, "reason": "denied by Context policy preset guardrail"`)
+		grant := strings.Index(text, `decision := {"allow": true, "reason": "allowed by exact Context baseline"`)
+		if terminal < 0 || grant < 0 || terminal > grant {
+			t.Fatalf("%s readiness can precede terminal guardrail:\n%s", origin, text)
+		}
+	}
+}
+
 func (r *policyContentTestRunner) Output(ctx context.Context, args, environment []string) ([]byte, error) {
 	output, err := r.recordingRunner.Output(ctx, args, environment)
 	policyDirectory, ok := mountedPolicyTestDirectory(args)

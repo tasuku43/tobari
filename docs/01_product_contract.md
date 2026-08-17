@@ -173,11 +173,12 @@ or source build unless a Linux Homebrew Formula contract is added explicitly.
   arbitrary route, HTTP method/path policy, or provider operation semantics.
 - **Context:** one host-owned capability envelope with a stable
   opaque ID and a human name. Its manifest records direct source access,
-  normalized policy-preset origin and snapshot revision, and references an
+  normalized policy-preset origin and snapshot revision, an immutable
+  enabled/disabled native-readiness selection, and references an
   agent profile, compatible Tobari runtime image, and policy store. Its stable
-  ID determines policy and runtime ownership. The exact `builtin/agent-ready`
-  origin additionally selects the installed trusted binary's current native
-  readiness overlay without mutating the snapshot. Experimental builds may maintain
+  ID determines policy and runtime ownership. Enabled native readiness selects
+  the installed trusted binary's current overlay without mutating the snapshot;
+  preset guardrails and ceilings remain terminal. Experimental builds may maintain
   separate Context-owned Auth Broker state; the manifest contains no broker
   vault path, key, or secret.
 - **current Context:** only the default Context used when an invocation omits
@@ -246,7 +247,7 @@ The public commands are:
 | `context show [--name NAME] [--format text|json]` | utility | read | Inspect one Context's explicit persistence state, immutable source access, preset origin/revision and guardrail summary, agent, policy, and native Workspace-owned authentication mode without returning credential values |
 | `config shell [--variable COLORTERM\|NO_COLOR\|PS1\|TERM] [--source default\|inherit\|literal] [--value VALUE] [--context NAME] [--format text\|json]` | act, fixed target | write | Configure one allowlisted shell-presentation variable directly, or stage one or more rows from the complete terminal inventory and apply them atomically |
 | `config git [--source default\|inherit\|literal] [--name NAME] [--email EMAIL] [--context NAME] [--format text\|json]` | act, fixed target | write | Configure one atomic Context Git commit-identity fallback directly, or stage and apply its source from one terminal screen |
-| `context create --name NAME [--image IMAGE] [--mode guided|advanced] [--source-access read-only\|read-write] [--policy-preset PRESET] [--format text\|json]` | act, fixed target | create | Validate and create one named immutable capability envelope with a runtime image, direct source access, normalized policy-preset snapshot, and separate owner-only stores; omission selects `read-write` and `builtin/agent-ready` |
+| `context create --name NAME [--image IMAGE] [--mode guided|advanced] [--source-access read-only\|read-write] [--policy-preset PRESET] [--native-readiness enabled\|disabled] [--format text\|json]` | act, fixed target | create | Validate and create one named immutable capability envelope with a runtime image, direct source access, normalized policy-preset snapshot, native-readiness selection, and separate owner-only stores; omission selects `read-write`, `builtin/agent-ready`, and enabled readiness |
 | `context use --name NAME [--format text\|json]` | act, fixed target | write | Change only the current/default Context; do not mutate existing Tobari or start/reconcile the cluster |
 | `runtime init [--format text|json]` | act, fixed target | create | Create the current Context's runtime/Dockerfile template without changing its selected image |
 | `runtime build [--format text|json]` | act, fixed target | write | Build, validate, and select the current Context's generated local runtime image |
@@ -777,14 +778,14 @@ synthetic state.
   stable UUIDv7 Context ID, the named agent profile, compatible Tobari runtime
   image selector, guided/advanced policy mode, required immutable
   `source_access`, required normalized `policy_preset_origin` and
-  `policy_preset_revision`, allowlisted shell-environment
+  `policy_preset_revision`, explicit `native_readiness`, allowlisted shell-environment
   overrides, and an optional non-default Git identity policy;
 - `contexts/<name>/runtime/Dockerfile`: optional owner-only Context runtime
   recipe created by `runtime init`; its source digest and last successful
   managed image build are recorded additively in `context.json`;
 - `contexts/<name>/policy/preset.json`: owner-only normalized schema-v1
   non-executable snapshot whose SHA-256 digest equals the manifest preset
-  revision; source preset changes never rewrite it; `builtin/agent-ready`
+  revision; source preset changes never rewrite it. Enabled native readiness
   grants the reviewed Claude Code 2.1.220 and Codex 0.147.0 native model,
   account, bootstrap, first-party capability-discovery, bounded evaluation,
   and telemetry effects plus the pinned GitHub CLI 2.96.0 exact device-login
@@ -793,7 +794,8 @@ synthetic state.
   and GraphQL `query` / `me` current-user effects,
   plus pup 1.10.7 exact US1 DCR registration and token exchange/refresh when
   supplied by a custom runtime, to
-  every process in the Context. Those native readiness effects are not stored
+  every process in the Context, subject to the preset's terminal guardrail and
+  destination/method ceilings. Those native readiness effects are not stored
   in new snapshots. Compile-time `claude_ready`, `codex_ready`, `gh_ready`, and
   `twg_ready`, and `pup_ready` names are review provenance; aggregate generation strips their
   complete historical snapshot forms and projects the installed binary's

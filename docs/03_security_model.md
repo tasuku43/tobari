@@ -54,11 +54,12 @@ handles, generated code, downloaded packages, request data, upstream responses,
 and user/provider text displayed by CLIs are untrusted.
 
 The host also owns each Context's immutable source-access choice, preset origin,
-and normalized policy-preset snapshot. They remain secret-free authority
+normalized policy-preset snapshot, and enabled/disabled native-readiness choice. They remain secret-free authority
 metadata in separate owner-only state; project files, runtime images,
 Workspaces, and source preset files cannot rewrite an existing Context
-envelope. Exact `builtin/agent-ready` additionally selects the trusted binary's
-finite native-readiness overlay. A binary update can change that overlay for
+envelope. Enabled readiness independently selects the trusted binary's finite
+native-readiness overlay, still bounded by terminal preset guardrails and
+ceilings. A binary update can change that overlay for
 existing Contexts, but runtime data cannot select or define it.
 
 Only in the experimental profile, the reviewed GitHub, AWS, and Codex host-driver implementations and isolated pup and Claude
@@ -476,7 +477,7 @@ permission candidate and causes zero external DNS, Auth Broker resolution, or
 upstream calls. The guardrail cannot be replaced by Context Rego, learned state,
 provider metadata, or a Workspace-supplied value. `builtin/offline` terminally
 denies all HTTP/HTTPS and creates no review candidate;
-`builtin/agent-ready` grants the reviewed Claude Code 2.1.220 and Codex 0.147.0
+enabled native readiness grants the reviewed Claude Code 2.1.220 and Codex 0.147.0
 native model/account/bootstrap, first-party capability-discovery, bounded
 evaluation, and telemetry effects. Dynamic evaluation matches only one safe
 direct-child identifier. At exact trusted MCP endpoints, Gateway accepts one
@@ -506,8 +507,10 @@ neighboring OAuth routes remain unmatched. Bundle
 and executable names never enter policy.
 New Context snapshots omit these readiness rules. Aggregate generation removes
 every form retained in the binary's append-only compatibility history from a
-legacy agent-ready snapshot, then adds only the current binary set. Other
-preset origins are unchanged, and exact Deny remains terminal over the result.
+legacy snapshot, then, when enabled, adds only the current binary set. Offline,
+exact destination/method ceilings, GET-only non-GET denial, and exact Deny
+remain terminal. Missing legacy state preserves its former preset-coupled
+behavior without rewriting the immutable manifest.
 One reviewed dedicated compile-time family catalog owns each bundle's pinned
 client version, independent current contract revision, and append-only removal
 history. Observed candidates cannot extend it. The active aggregate revision must equal the
