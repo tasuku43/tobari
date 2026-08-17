@@ -28,6 +28,8 @@ created_dev_runtime_tag=false
 owns_shared_fixture=false
 current_phase=
 phase_started=$SECONDS
+host_service_server_pid=
+host_service_attachment_pid=
 host_docker_config=${DOCKER_CONFIG:-$HOME/.docker}
 host_docker_context=${DOCKER_CONTEXT:-$(docker context show)}
 
@@ -544,6 +546,14 @@ print(next(item["id"] for item in json.load(sys.stdin)["policy_candidates"]
 }
 
 cleanup() {
+	if [[ -n $host_service_attachment_pid ]]; then
+		kill "$host_service_attachment_pid" >/dev/null 2>&1 || true
+		wait "$host_service_attachment_pid" >/dev/null 2>&1 || true
+	fi
+	if [[ -n $host_service_server_pid ]]; then
+		kill "$host_service_server_pid" >/dev/null 2>&1 || true
+		wait "$host_service_server_pid" >/dev/null 2>&1 || true
+	fi
   if [[ $owns_shared_fixture == true ]]; then
     docker rm -f "$mock_name" >/dev/null 2>&1 || true
     docker rm -f "$auth_mock_name" >/dev/null 2>&1 || true
@@ -2087,6 +2097,151 @@ interactive_review=$(run_tobari policy review --tail 1000 --format json)
 if python3 -c 'import json,sys; sys.exit(0 if any(item["path"] == "/review-interactive" for item in json.load(sys.stdin)["policy_review"]) else 1)' <<<"$interactive_review"; then
   fail "interactive Allow did not remove the candidate from the review queue"
 fi
+
+begin_phase attachment-scoped-host-loopback
+host_service_port_file=$test_root/host-service.port
+python3 - "$host_service_port_file" <<'PY' &
+import http.server
+import pathlib
+import socketserver
+import sys
+
+class Handler(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        body = b"host-service-ok\n"
+        self.send_response(200)
+        self.send_header("Content-Type", "text/plain")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, _format, *_args):
+        pass
+
+with socketserver.TCPServer(("127.0.0.1", 0), Handler) as server:
+    pathlib.Path(sys.argv[1]).write_text(str(server.server_address[1]), encoding="ascii")
+    server.serve_forever()
+PY
+host_service_server_pid=$!
+for _ in $(seq 1 60); do
+  [[ -s $host_service_port_file ]] && break
+  sleep 0.1
+done
+[[ -s $host_service_port_file ]] || fail "physical-host HTTP fixture did not publish its port"
+host_service_port=$(<"$host_service_port_file")
+
+# Expansion is intentionally deferred to the attached Workspace shell.
+# shellcheck disable=SC2016
+host_attachment_events=$(python3 -c '
+import json
+import sys
+print(json.dumps([
+    {"after_ms": 3000, "data": """printf %s "$TOBARI_CAPABILITIES_JSON" > /var/lib/tobari/host-capabilities.json; curl -sS -o /dev/null -w "%{http_code}" http://host.tobari.test:""" + sys.argv[1] + """/health > /var/lib/tobari/host-denial-status\n"""},
+    {"after_ms": 25000, "data": "exit\n"},
+]))
+' "$host_service_port")
+TOBARI_TEST_PTY_TIMEOUT_SECONDS=40 \
+  TOBARI_TEST_PTY_EVENTS="$host_attachment_events" \
+  run_tobari_pty_at "$work_root" \
+  >"$test_root/host-attachment.out" 2>&1 &
+host_service_attachment_pid=$!
+for _ in $(seq 1 100); do
+  if run_project test -s /var/lib/tobari/host-denial-status >/dev/null 2>&1; then
+    break
+  fi
+  sleep 0.1
+done
+host_capabilities=$(run_project cat /var/lib/tobari/host-capabilities)
+HOST_CAPABILITIES="$host_capabilities" python3 <<'PY'
+import json
+import os
+
+document = json.loads(os.environ["HOST_CAPABILITIES"])
+if document != {
+    "schema_version": 1,
+    "localhost_means": "workspace",
+    "host_http": {
+        "url_template": "http://host.tobari.test:{port}",
+        "minimum_port": 1024,
+        "maximum_port": 65535,
+        "lifetime": "attachment",
+        "audience": "workspace",
+        "access": "policy_review_required",
+    },
+    "host_docker_control": "unavailable",
+}:
+    raise SystemExit(f"unexpected Host Loopback capability projection: {document!r}")
+if "relay" in os.environ["HOST_CAPABILITIES"] or "token" in os.environ["HOST_CAPABILITIES"]:
+    raise SystemExit("Host Loopback capability projection disclosed relay authority")
+PY
+host_denial_status=$(run_project cat /var/lib/tobari/host-denial-status)
+[[ $host_denial_status == 403 ]] || fail "unreviewed Host Loopback returned $host_denial_status instead of 403"
+
+host_review=
+host_review_index=
+for _ in $(seq 1 30); do
+  host_review=$(run_tobari policy review --tail 1000 --format json)
+  host_review_index=$(python3 -c '
+import json
+import sys
+items = json.load(sys.stdin)["policy_review"]
+print(next((index for index, item in enumerate(items, 1)
+            if item["host"] == "host.tobari.test" and item["port"] == int(sys.argv[1]) and item["path"] == "/health"), ""))
+' "$host_service_port" <<<"$host_review")
+  [[ -n $host_review_index ]] && break
+  sleep 0.2
+done
+[[ -n $host_review_index ]] || fail "Host Loopback denial did not reach policy review"
+assert_contains "$host_review" '"destination_kind":"host_loopback"' "Host Loopback review identity"
+assert_contains "$host_review" '"authority_lifetime":"attachment"' "Host Loopback review lifetime"
+assert_contains "$host_review" '"allow_command":""' "Host Loopback non-persistent action boundary"
+host_candidates=$(run_tobari policy candidates --tail 1000 --format json)
+if [[ $host_candidates == *'host.tobari.test'* ]]; then
+  fail "attachment-scoped Host Loopback appeared in persistent policy candidates"
+fi
+
+host_review_events=$(python3 -c '
+import json
+import sys
+selection = "\x1b[B" * (int(sys.argv[1]) - 1) + "\r"
+print(json.dumps([
+    {"after_ms": 5000, "data": selection},
+    {"after_ms": 750, "data": "a"},
+    {"after_ms": 750, "data": "p"},
+    {"after_ms": 750, "data": "y"},
+]))
+' "$host_review_index")
+if ! host_review_output=$(TOBARI_TEST_PTY_TIMEOUT_SECONDS=15 \
+  TOBARI_TEST_PTY_EVENTS="$host_review_events" \
+  run_tobari_pty_at "$work_root" policy review --tail 1000 2>&1); then
+  printf '%s\n' "$host_review_output" >&2
+  fail "interactive Host Loopback policy review failed"
+fi
+assert_contains "$host_review_output" "Host Loopback" "Host Loopback review presentation"
+assert_contains "$host_review_output" "attachment-scoped" "Host Loopback review presentation"
+host_retry=$(run_project curl -fsS "http://host.tobari.test:$host_service_port/health")
+assert_contains "$host_retry" "host-service-ok" "reviewed physical-host HTTP response"
+host_rules=$(run_tobari policy rules --format json)
+if [[ $host_rules == *'host.tobari.test'* || $host_rules == *'"pag_'* ]]; then
+  fail "Attachment Grant entered the persistent policy rule inventory"
+fi
+
+wait "$host_service_attachment_pid"
+host_service_attachment_pid=
+post_detach_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
+  "http://host.tobari.test:$host_service_port/health")
+[[ $post_detach_status == 403 ]] || fail "detached Host Loopback returned $post_detach_status instead of 403"
+python3 - "$config_directory/host-loopback/routes.json" "$config_directory/host-loopback/grants.json" <<'PY'
+import json
+import sys
+services = json.load(open(sys.argv[1], encoding="utf-8"))["routes"]
+grants = json.load(open(sys.argv[2], encoding="utf-8"))["grants"]
+if services or grants:
+    raise SystemExit(f"Host Loopback authority survived detach: routes={services!r} grants={grants!r}")
+PY
+kill "$host_service_server_pid" >/dev/null 2>&1 || true
+wait "$host_service_server_pid" >/dev/null 2>&1 || true
+host_service_server_pid=
 
 for item_path in one two three; do
   item_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' \

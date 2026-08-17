@@ -5,6 +5,7 @@
 ```text
 host
   tobari CLI ---- Docker CLI ---- Docker Engine
+      +-- authenticated attachment TCP relay --> host 127.0.0.1:PORT
       +-- root A (Context-selected ro/rw) --> Tobari A -- guarded net A --+
       +-- root B (Context-selected ro/rw) --> Tobari B -- guarded net B --+--> tobari-gateway
                                                                       |
@@ -28,6 +29,31 @@ locked Auth Broker on control/egress plus its private runtime socket and trusted
 host acquisition boundary. Tobari and control networks
 use Docker's `internal` property; the egress network is the only network with
 an external route.
+
+An ambient Host Loopback attachment adds no direct Workspace route to the host
+or Docker VM. The trusted host `tobari` process generates one Attachment Epoch,
+listens on one random host TCP port whose pre-routing handshake requires one
+256-bit attachment token and one policy-reviewed non-privileged target port,
+and publishes one strict active-route registry in the XDG
+configuration store. Gateway receives that registry through a read-only bind
+mount, derives route and epoch identity from the source Workspace and constant
+Tobari-owned hostname, and
+asks OPA before selecting a Gateway-local one-shot TCP pump as the upstream.
+The pump preserves ordinary mitmproxy request/response streaming; the host
+listener revalidates an active Allow for the requested port before connecting
+to the same physical-host IPv4 loopback port. Workspace headers,
+environment, paths, query, and DNS cannot select an epoch, relay port/token, or
+target address. The capability projection inside the attached shell is an
+advisory discovery surface and carries no routing secret or permission.
+
+Attachment Grants are runtime-owned inputs to the complete per-request OPA projection and
+are disjoint from Context `policy/domains` learned rules. Policy review binds
+one grant to Context, project, epoch, target port, and exact effect. The route is
+closed before grant and registry cleanup when entry returns or is canceled;
+therefore stale projection data is inert. One attachment owns the route per
+Workspace; concurrent attachments borrow its epoch without extending its
+lifetime or inheriting ownership. The grant is explicitly available to every
+process sharing that Workspace network principal.
 
 The host adapter uses a fixed one-shot helper to configure only a verified
 Gateway or Workspace network namespace. The helper receives root plus
@@ -610,6 +636,11 @@ runtime adapter starts the work container with the infrastructure-owned
 then enters it through one `docker exec -i -t ... /bin/bash` child session.
 Exact commands use the same child-exec boundary.
 The attached host process also owns the optional pinned-client login bridge.
+Every invocation establishes or borrows one Host Loopback Attachment Epoch,
+the strict route registry entry, advisory constant capability
+projection in `TOBARI_CAPABILITIES_JSON`, and physical loopback relays. These objects are not logical
+Workspace state. The owning invocation removes them when it exits; a borrower
+cannot remove or extend them, and loses access when the owner exits.
 The output observer is a byte- and TTY-preserving side channel, not
 presentation. Docker stdout remains attached to a raw intermediate PTY whose
 size follows the caller terminal; its master is relayed to the unchanged

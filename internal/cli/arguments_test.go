@@ -86,6 +86,13 @@ func TestCatalogOwnedParserRejectsTextBelowCatalogMinimumLength(t *testing.T) {
 	}
 }
 
+func TestProjectEntryRejectsRetiredHostHTTPDeclaration(t *testing.T) {
+	t.Parallel()
+	if _, err := parseCommandInputs(projectEnterSpec(), []string{"--host-http", "web=3000"}); err == nil || !strings.Contains(err.Error(), "unknown flag") {
+		t.Fatalf("retired --host-http error = %v", err)
+	}
+}
+
 func TestCatalogOwnedParserRejectsInvalidInvocationBeforeHandler(t *testing.T) {
 	minimum := int64(1)
 	maximum := int64(5)

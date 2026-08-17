@@ -160,10 +160,15 @@ func TestEnterProjectRuntimeMirrorsHostCWDPath(t *testing.T) {
 		t.Fatal(err)
 	}
 	uid, gid := currentIDs()
+	capabilities, err := json.Marshal(tobari.NewHostLoopbackCapabilityProjection())
+	if err != nil {
+		t.Fatal(err)
+	}
 	wantArgs := []string{
 		"exec", "-i", "-t", "--user", strconv.Itoa(uid) + ":" + strconv.Itoa(gid),
 		"--env", "PS1=" + projectInteractivePrompt,
 		"--env", "PROMPT_COMMAND=PS1=" + bashSingleQuoted(projectInteractivePrompt),
+		"--env", "TOBARI_CAPABILITIES_JSON=" + string(capabilities),
 		"--workdir", want, container, "/bin/bash",
 	}
 	if got := strings.Join(runner.runs[0].args, " "); got != strings.Join(wantArgs, " ") {
@@ -206,6 +211,40 @@ func TestEnterProjectRuntimeSetsPromptWithoutUserName(t *testing.T) {
 	}
 	if strings.Contains(projectInteractivePrompt, "\\u") {
 		t.Fatalf("projectInteractivePrompt includes username escape: %q", projectInteractivePrompt)
+	}
+}
+
+func TestEnterProjectRuntimeProjectsAmbientHostLoopbackCapabilityAndRevokesLease(t *testing.T) {
+	t.Parallel()
+	runner := &recordingRunner{}
+	runtime, err := newRuntime(filepath.Join(t.TempDir(), "config"), filepath.Join(t.TempDir(), "state"), runner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	instance := projectRuntimeInstance(t, runtime)
+	manifest := projectRuntimeContext(t, runtime, instance)
+	if _, err := runtime.EnterProjectRuntime(context.Background(), instance, manifest, instance.Root, nil, io.Discard, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if len(runner.runs) != 1 {
+		t.Fatalf("run count = %d", len(runner.runs))
+	}
+	joined := strings.Join(runner.runs[0].args, "\n")
+	for _, want := range []string{"TOBARI_CAPABILITIES_JSON=", `"url_template":"http://host.tobari.test:{port}"`, `"minimum_port":1024`, `"lifetime":"attachment"`, `"host_docker_control":"unavailable"`} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("exec args lack %q: %s", want, joined)
+		}
+	}
+	var routes tobari.HostLoopbackRegistry
+	if err := readStrictJSON(runtime.hostLoopbackRegistryPath(), &routes); err != nil {
+		t.Fatal(err)
+	}
+	var grants tobari.AttachmentGrantRegistry
+	if err := readStrictJSON(runtime.attachmentGrantRegistryPath(), &grants); err != nil {
+		t.Fatal(err)
+	}
+	if len(routes.Routes) != 0 || len(grants.Grants) != 0 {
+		t.Fatalf("lease survived exit: routes=%+v grants=%+v", routes, grants)
 	}
 }
 

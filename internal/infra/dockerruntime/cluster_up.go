@@ -386,6 +386,7 @@ func (r *Runtime) composeEnvironment(state tobari.State) ([]string, error) {
 		"TOBARI_POLICY_DIR="+state.PolicyDirectory,
 		"TOBARI_GATEWAY_CONFIG="+state.GatewayConfig,
 		"TOBARI_PRINCIPAL_DIR="+r.principalRegistryDirectory(),
+		"TOBARI_HOST_LOOPBACK_DIR="+r.hostLoopbackDirectory(),
 		"TOBARI_ASSET_VERSION="+state.AssetVersion,
 		"TOBARI_UID="+strconv.Itoa(uid), "TOBARI_GID="+strconv.Itoa(gid),
 		"TOBARI_MITMPROXY_IMAGE="+versions["MITMPROXY_IMAGE"],

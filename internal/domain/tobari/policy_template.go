@@ -262,7 +262,7 @@ func PolicyReviewItems(candidates []PolicyCandidate, rules []LearnedPolicyRule) 
 		if err := candidate.Validate(); err != nil {
 			return nil, err
 		}
-		if candidate.EffectiveProtocol() != PolicyProtocolHTTP {
+		if candidate.EffectiveProtocol() != PolicyProtocolHTTP || candidate.EffectiveDestinationKind() == PolicyDestinationHostLoopback {
 			continue
 		}
 		identity := proposalIdentityFromCandidate(candidate)
@@ -471,6 +471,28 @@ func NewPolicyReviewAppliedDeny(reviewItemID string, rule PolicyDenyRule) (Polic
 		ContextID: rule.ContextID, ContextName: rule.ContextName, ProjectID: rule.ProjectID, ProjectRoot: rule.ProjectRoot,
 		Host: rule.Host, Port: rule.Port, Method: rule.Method, Path: rule.Path,
 		SourceCandidates: append([]string{}, rule.SourceCandidates...)}
+	if err := receipt.Validate(); err != nil {
+		return PolicyReviewAppliedDecision{}, err
+	}
+	return receipt, nil
+}
+
+func NewPolicyReviewAppliedAttachment(candidate PolicyCandidate, grant AttachmentGrant) (PolicyReviewAppliedDecision, error) {
+	if err := candidate.Validate(); err != nil {
+		return PolicyReviewAppliedDecision{}, err
+	}
+	if err := grant.Validate(); err != nil {
+		return PolicyReviewAppliedDecision{}, err
+	}
+	if candidate.ID != grant.SourceCandidate {
+		return PolicyReviewAppliedDecision{}, fmt.Errorf("attachment grant source does not match review item")
+	}
+	receipt := PolicyReviewAppliedDecision{PolicyProtocolIdentity: candidate.PolicyProtocolIdentity,
+		RuleID: grant.ID, ReviewItemID: candidate.ID, Decision: grant.Decision, Match: PolicyMatchExact,
+		ContextID: candidate.ContextID, ContextName: candidate.ContextName, ProjectID: candidate.ProjectID, ProjectRoot: candidate.ProjectRoot,
+		Host: candidate.Host, Port: candidate.Port, Method: candidate.Method, Path: candidate.Path,
+		SourceCandidates: []string{candidate.ID}, DestinationKind: PolicyDestinationHostLoopback,
+		AuthorityLifetime: AuthorityLifetimeAttachment, AttachmentEpochID: candidate.AttachmentEpochID}
 	if err := receipt.Validate(); err != nil {
 		return PolicyReviewAppliedDecision{}, err
 	}

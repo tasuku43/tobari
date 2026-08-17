@@ -209,6 +209,19 @@ disabled, so neither path is direct egress.
   and relay one opaque callback to the same port in the exact owned Workspace
   loopback. It closes on completion or session exit and is not a generic ingress
   path.
+- Reviewed Host Loopback access is a distinct Workspace-to-host exception.
+  Every interactive attachment projects the constant
+  `http://host.tobari.test:{port}` capability for physical-host IPv4 loopback
+  HTTP on non-privileged ports; no entry declaration is required and the
+  projection grants no authority. An exact HTTP effect becomes reachable only
+  through Gateway and OPA after trusted-host review creates an Attachment Grant. The route and
+  grant belong to one unguessable host-derived Attachment Epoch, apply to every
+  process in that Workspace, and cannot become a durable learned rule,
+  template, preset, arbitrary time lease, raw TCP route, or Docker authority.
+  Closing the owning attachment closes the physical relay before removing its
+  registry and policy projection. Inactive, privileged-port, or mismatched
+  requests are terminally denied without host-loopback I/O. A concurrent
+  attachment may borrow the current epoch but cannot extend it or inherit ownership.
 
 ### Mechanical enforcement
 
@@ -606,6 +619,12 @@ administration project.
 - Every HTTP denial emits bounded structured audit metadata including host, port,
   method, path, decision, reason, and whether a reviewed learned rule can resolve
   the denial without weakening orthogonal invariants.
+- Every denial also declares its closed destination kind and authority
+  lifetime. Ordinary upstream candidates remain persistent learned-policy
+  proposals. A Host Loopback candidate instead binds its Context, project,
+  Attachment Epoch, target port, and exact HTTP effect and can
+  produce only an attachment-scoped decision. Matching host, port, method,
+  path, or display text cannot convert one lifetime into the other.
 - A learnable denial returns a fixed, secret-free host-side review command to
   the agent; a completed session also summarizes the pending queue on host
   stderr. Neither notification can mutate policy or trigger a retry.
@@ -634,6 +653,10 @@ administration project.
   Context/project/scheme/host/port/method/path proposals with stable opaque IDs, the latest
   retained observation time, and a retained-window observation count; the current-rule
   inventory exposes the separate rule IDs used for reset.
+  Active Attachment Grants are a separate exhaustive runtime authority
+  inventory and never appear as durable `policy rules`. Interactive review
+  labels them as Workspace-wide for the current attachment and offers only
+  attachment-scoped Allow or Deny. Detach revokes them without `policy reset`.
 - `tobari cluster denials` remains the lower-level diagnostic step: it projects
   validated denial records, reports the editable host-side policy directory,
   and points to the Permission Inbox. Raw component logs remain available.
@@ -678,6 +701,12 @@ administration project.
   summary, stage exact Allow and Deny choices through the human queue, apply
   them with one activation, exercise the allowed exact rule, and retain a
   denied boundary without restarting any Tobari or OPA.
+- Host Loopback tests bind the constant capability to a host-derived Attachment
+  Epoch, prove agent-visible discovery does not grant access, apply one exact
+  attachment decision through the same review boundary, and assert zero
+  host-loopback I/O for malformed, undeclared, stale, denied, OPA-unavailable,
+  and post-detach requests. Relay tests prove the reviewed port cannot select a
+  sibling port, route-first teardown, borrower non-ownership, and Workspace-wide authority.
 - README makes the observe-review-decide-retry loop the primary operating
   workflow, keeps routine permission growth free of hand-authored OPA/Rego,
   and keeps tested host editing as the advanced escape hatch.

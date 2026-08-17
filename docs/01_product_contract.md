@@ -30,6 +30,18 @@ additionally receive their native host-browser and localhost callback experience
 through one session-scoped, pinned-client bridge. The user supplies no port,
 URL, device mode, or manual callback transfer. Caller-added GitHub scopes,
 GitHub Enterprise hosts, and SSH-key upload remain outside that bridge.
+
+Every interactive entry exposes the constant Host Loopback capability
+`http://host.tobari.test:{port}` for physical-host IPv4 loopback HTTP on ports
+1024 through 65535. No entry flag or service declaration is required. The
+Workspace receives the URL template, bounded port range, Workspace audience,
+and explicit `attachment` lifetime; `localhost` continues to mean the
+Workspace. Capability discovery and routing metadata are not permission. The first exact
+effect follows the ordinary deny, `policy review`, decide, and retry loop, and
+the decision is available to every process in the Workspace only until the
+owning host attachment exits. Docker, Compose, host daemon state, automatic
+port discovery, raw TCP, and persistent Host Loopback grants are not part of
+this outcome.
 The user-facing entry point is the current project directory: a Tobari either
 exists or does not exist, and the user should not need to manage container
 names, network IDs, or policy internals for routine work. `cluster up` remains
@@ -91,6 +103,13 @@ or source build unless a Linux Homebrew Formula contract is added explicitly.
   adds one locked Auth Broker and provider projection.
 - **Gateway:** the trusted HTTP/HTTPS policy enforcement point.
 - **OPA:** the trusted policy decision point.
+- **Host Loopback:** the constant `host.tobari.test` HTTP destination whose URL
+  port selects the same physical-host IPv4 loopback port for an active attachment.
+- **Attachment Epoch:** one unguessable trusted-host identity owned by the
+  `tobari` process that established the active Host Loopback route.
+- **Attachment Grant:** one exact reviewed Allow or Deny bound to a Context,
+  Workspace, Attachment Epoch, target port, and exact HTTP effect. It is
+  Workspace-wide for that attachment and is not a learned policy rule.
 - **Auth Broker:** the experimental non-root credential-resolution daemon. It owns
   encrypted Context vault access, has no TCP listener, starts locked, and
   exposes separate control and Gateway-only runtime Unix sockets.
@@ -195,7 +214,7 @@ The public commands are:
 | `version [--format text|json]` | utility | read | Print source version/commit, resolver channel, required and selected standard component APIs, and compatibility |
 | `doctor [--root PATH] [--format text|tsv|json]` | utility | read | Report read-only host, Docker, configuration, policy, Gateway, port, and residue diagnostics without repairing state |
 | `cluster up` | act, fixed target | create | Validate all Context policy inputs and image contracts, reconcile Gateway and OPA, and confirm the exact aggregate policy is active |
-| `tobari [--context NAME]` | act, fixed target | create | Choose or create the current directory's Workspace in the explicit or current Context, reconcile runtime, enter it, and leave it reusable after `exit` |
+| `tobari [--context NAME]` | act, fixed target | create | Choose or create the current directory's Workspace in the explicit or current Context, reconcile runtime, enter it with a deny-by-default attachment-owned Host Loopback capability, and leave it reusable after `exit` while closing any owned route and grant |
 | `status [--context NAME] [--format text|json]` | utility | read | Inspect the nearest current-directory Workspace in the explicit or current Context, its logical existence, runtime diagnostic, and attached/detached session observation |
 | `list [--format text|json]` | utility | read | List local Workspaces with Context, runtime diagnostics, and diagnostic IDs |
 | `delete [--context NAME] [--force]` | act, fixed target | write | Delete the nearest current-directory Workspace in the explicit or current Context, its owned runtime, persistent home, and tool-owned authentication state while preserving project files; `--force` overrides only the attached-session guard |
@@ -204,7 +223,7 @@ The public commands are:
 | `cluster logs [--component gateway|opa|all] [--tail N]` | utility | read | Read bounded shared logs, including policy-denial evidence, without credential output |
 | `cluster down [--purge]` | act, fixed target | write | Remove shared transient resources after every logical Tobari is deleted; `--purge` additionally removes shared CA and active policy-bundle volumes |
 | `policy candidates [--tail N] [--format text|json]` | discover | read | Discover Context/project-scoped pending exact HTTP or GraphQL-root candidates and opaque IDs across the installation |
-| `policy review [--tail N] [--format text|json]` | discover plus TTY fixed-target apply | read, or one confirmed write | Review the installation-wide Permission Inbox; on a TTY, stage exact choices or a typed single-segment `{id}` template proposed after two distinct compatible paths and apply the reviewed set once; redirected and JSON output remain read-only |
+| `policy review [--tail N] [--format text|json]` | discover plus TTY fixed-target apply | read, or one confirmed write | Review the installation-wide Permission Inbox; on a TTY, stage persistent exact/template decisions or exact attachment-only Host Loopback decisions without changing their typed lifetime and apply the reviewed set once; redirected and JSON output remain read-only |
 | `policy allow --id ID` | act, reference bound | write | Test, record, and activate one exact observed permission |
 | `policy deny --id ID` | act, reference bound | write | Test, record, and activate one exact project-bound rejection |
 | `policy rules [--format text|json]` | discover | read | List every Context-scoped CLI-owned learned Allow and exact Deny decision; on a TTY, reset one explicitly |

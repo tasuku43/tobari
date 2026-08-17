@@ -393,6 +393,30 @@ func (r *Runtime) ProjectSessionAttached(ctx context.Context, instance tobari.Pr
 func (r *Runtime) EnterProjectRuntime(
 	ctx context.Context, instance tobari.ProjectInstance, manifest tobari.ContextManifest, cwd string,
 	in io.Reader, out, errOut io.Writer,
+) (code int, resultErr error) {
+	attachment, err := r.beginHostLoopbackAttachment(ctx, instance)
+	if err != nil {
+		return 0, err
+	}
+	defer func() {
+		if cleanupErr := attachment.Close(ctx); cleanupErr != nil && resultErr == nil {
+			resultErr = fmt.Errorf("close Host Loopback attachment: %w", cleanupErr)
+		}
+	}()
+	projection := tobari.NewHostLoopbackCapabilityProjection()
+	encoded, err := json.Marshal(projection)
+	if err != nil {
+		return 0, err
+	}
+	return r.enterProjectRuntime(
+		ctx, instance, manifest, cwd,
+		[]string{"TOBARI_CAPABILITIES_JSON=" + string(encoded)}, in, out, errOut,
+	)
+}
+
+func (r *Runtime) enterProjectRuntime(
+	ctx context.Context, instance tobari.ProjectInstance, manifest tobari.ContextManifest, cwd string,
+	extraEnvironment []string, in io.Reader, out, errOut io.Writer,
 ) (int, error) {
 	if err := instance.Validate(); err != nil {
 		return 0, err
@@ -426,6 +450,9 @@ func (r *Runtime) EnterProjectRuntime(
 		"exec", "-i", "-t", "--user", strconv.Itoa(uid) + ":" + strconv.Itoa(gid),
 	}
 	for _, environment := range shellEnvironment {
+		args = append(args, "--env", environment)
+	}
+	for _, environment := range extraEnvironment {
 		args = append(args, "--env", environment)
 	}
 	args = append(args, "--workdir", workdir, container, "/bin/bash")

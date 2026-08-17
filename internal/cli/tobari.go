@@ -762,6 +762,9 @@ type policyDenialOutput struct {
 	Reason               string `json:"reason"`
 	StatusCode           int    `json:"status_code"`
 	Learnable            bool   `json:"learnable"`
+	DestinationKind      string `json:"destination_kind"`
+	AuthorityLifetime    string `json:"authority_lifetime"`
+	AttachmentEpochID    string `json:"attachment_epoch_id"`
 }
 
 type policyCandidateOutput struct {
@@ -786,6 +789,9 @@ type policyCandidateOutput struct {
 	StatusCode           int    `json:"status_code"`
 	AllowCommand         string `json:"allow_command"`
 	DenyCommand          string `json:"deny_command"`
+	DestinationKind      string `json:"destination_kind"`
+	AuthorityLifetime    string `json:"authority_lifetime"`
+	AttachmentEpochID    string `json:"attachment_epoch_id"`
 }
 
 type policyCandidatesDocument struct {
@@ -865,11 +871,12 @@ func renderPolicyCandidatesWithColor(
 		action := allowCommand + " --id " + item.ID
 		fmt.Fprintf(
 			&output,
-			"id=%s\tobserved_at=%s\tobservation_count=%d\tcontext_id=%s\tcontext=%s\tproject_id=%s\tproject_root=%s\tscheme=%s\thost=%s\tport=%d\tmethod=%s\tpath=%s\treason=%s\tstatus_code=%d\tallow_command=%s\tdeny_command=%s\tprotocol=%s\tgraphql_operation_type=%s\tgraphql_root_field=%s\tmcp_method=%s\tmcp_tool_name=%s\n",
+			"id=%s\tobserved_at=%s\tobservation_count=%d\tcontext_id=%s\tcontext=%s\tproject_id=%s\tproject_root=%s\tscheme=%s\thost=%s\tport=%d\tmethod=%s\tpath=%s\treason=%s\tstatus_code=%d\tallow_command=%s\tdeny_command=%s\tprotocol=%s\tgraphql_operation_type=%s\tgraphql_root_field=%s\tmcp_method=%s\tmcp_tool_name=%s\tdestination_kind=%s\tauthority_lifetime=%s\tattachment_epoch_id=%s\n",
 			item.ID, escapeTSVCell(item.ObservedAt), item.EffectiveObservationCount(), item.ContextID, escapeTSVCell(item.ContextName), item.ProjectID, escapeTSVCell(item.ProjectRoot), escapeTSVCell(item.Scheme),
 			escapeTSVCell(item.Host), item.Port, escapeTSVCell(item.Method), escapeTSVCell(item.Path), escapeTSVCell(item.Reason),
 			item.StatusCode, escapeTSVCell(action), escapeTSVCell(denyCommand+" --id "+item.ID),
 			escapeTSVCell(item.EffectiveProtocol()), escapeTSVCell(item.GraphQLOperationType), escapeTSVCell(item.GraphQLRootField), escapeTSVCell(item.MCPMethod), escapeTSVCell(item.MCPToolName),
+			item.EffectiveDestinationKind(), item.EffectiveAuthorityLifetime(), item.AttachmentEpochID,
 		)
 	}
 	return semanticTextBytes(color, output.Bytes()), nil
@@ -880,6 +887,11 @@ func policyCandidateOutputs(
 ) []policyCandidateOutput {
 	items := make([]policyCandidateOutput, 0, len(result.Items))
 	for _, item := range result.Items {
+		allow := allowCommand + " --id " + item.ID
+		deny := denyCommand + " --id " + item.ID
+		if item.EffectiveDestinationKind() == tobari.PolicyDestinationHostLoopback {
+			allow, deny = "", ""
+		}
 		items = append(items, policyCandidateOutput{
 			ID: item.ID, ObservedAt: safeExternalText(item.ObservedAt), ObservationCount: item.EffectiveObservationCount(),
 			ContextID: item.ContextID, Context: safeExternalText(item.ContextName),
@@ -888,10 +900,12 @@ func policyCandidateOutputs(
 			Path: safeExternalText(item.Path), Protocol: safeExternalText(item.EffectiveProtocol()),
 			GraphQLOperationType: safeExternalText(item.GraphQLOperationType), GraphQLRootField: safeExternalText(item.GraphQLRootField),
 			MCPMethod: safeExternalText(item.MCPMethod), MCPToolName: safeExternalText(item.MCPToolName),
-			Reason:       safeExternalText(item.Reason),
-			StatusCode:   item.StatusCode,
-			AllowCommand: allowCommand + " --id " + item.ID,
-			DenyCommand:  denyCommand + " --id " + item.ID,
+			Reason:          safeExternalText(item.Reason),
+			StatusCode:      item.StatusCode,
+			AllowCommand:    allow,
+			DenyCommand:     deny,
+			DestinationKind: item.EffectiveDestinationKind(), AuthorityLifetime: item.EffectiveAuthorityLifetime(),
+			AttachmentEpochID: item.AttachmentEpochID,
 		})
 	}
 	return items
@@ -989,8 +1003,13 @@ func renderPolicyReviewHuman(
 		output.row("Latest", safeExternalText(item.ObservedAt), styleText)
 		output.row("Reason", safeExternalText(item.Reason), styleDanger)
 		output.row("Status", fmt.Sprintf("%d", item.StatusCode), styleDanger)
-		output.row("Allow exact", allowCommand+" --id "+item.ID, styleAccent)
-		output.row("Deny exact", denyCommand+" --id "+item.ID, styleAccent)
+		if item.EffectiveDestinationKind() == tobari.PolicyDestinationHostLoopback {
+			output.row("Authority", "Host Loopback · attachment-scoped · Workspace audience", styleText)
+			output.row("Decision", "Run policy review in an interactive host terminal.", styleAccent)
+		} else {
+			output.row("Allow exact", allowCommand+" --id "+item.ID, styleAccent)
+			output.row("Deny exact", denyCommand+" --id "+item.ID, styleAccent)
+		}
 	}
 	return output.bytes()
 }
@@ -1274,7 +1293,9 @@ func renderClusterDenialsWithReviewCommand(
 				Scheme: safeExternalText(item.Scheme), Host: safeExternalText(item.Host), Port: item.Port, Method: safeExternalText(item.Method), Path: safeExternalText(item.Path),
 				Protocol: safeExternalText(item.EffectiveProtocol()), GraphQLOperationType: safeExternalText(item.GraphQLOperationType),
 				GraphQLRootField: safeExternalText(item.GraphQLRootField), MCPMethod: safeExternalText(item.MCPMethod), MCPToolName: safeExternalText(item.MCPToolName), Reason: safeExternalText(item.Reason), StatusCode: item.StatusCode,
-				Learnable: item.Learnable,
+				Learnable:       item.Learnable,
+				DestinationKind: item.EffectiveDestinationKind(), AuthorityLifetime: item.EffectiveAuthorityLifetime(),
+				AttachmentEpochID: item.AttachmentEpochID,
 			})
 		}
 		output, err := marshalCommandJSON("cluster denials", clusterDenialsDocument{
@@ -1302,12 +1323,13 @@ func renderClusterDenialsWithReviewCommand(
 	for _, item := range result.Items {
 		fmt.Fprintf(
 			&output,
-			"denial: timestamp=%s\trequest_id=%s\tcontext=%s\tcontext_id=%s\tproject_id=%s\tproject_root=%s\tscheme=%s\thost=%s\tport=%d\tmethod=%s\tpath=%s\tstatus_code=%d\treason=%s\tprotocol=%s\tgraphql_operation_type=%s\tgraphql_root_field=%s\tmcp_method=%s\tmcp_tool_name=%s\n",
+			"denial: timestamp=%s\trequest_id=%s\tcontext=%s\tcontext_id=%s\tproject_id=%s\tproject_root=%s\tscheme=%s\thost=%s\tport=%d\tmethod=%s\tpath=%s\tstatus_code=%d\treason=%s\tprotocol=%s\tgraphql_operation_type=%s\tgraphql_root_field=%s\tmcp_method=%s\tmcp_tool_name=%s\tdestination_kind=%s\tauthority_lifetime=%s\tattachment_epoch_id=%s\n",
 			escapeTSVCell(item.Timestamp), escapeTSVCell(item.RequestID),
 			escapeTSVCell(item.ContextName), item.ContextID, item.ProjectID, escapeTSVCell(item.ProjectRoot),
 			escapeTSVCell(item.Scheme), escapeTSVCell(item.Host), item.Port, escapeTSVCell(item.Method),
 			escapeTSVCell(item.Path), item.StatusCode, escapeTSVCell(item.Reason), escapeTSVCell(item.EffectiveProtocol()),
 			escapeTSVCell(item.GraphQLOperationType), escapeTSVCell(item.GraphQLRootField), escapeTSVCell(item.MCPMethod), escapeTSVCell(item.MCPToolName),
+			item.EffectiveDestinationKind(), item.EffectiveAuthorityLifetime(), item.AttachmentEpochID,
 		)
 	}
 	fmt.Fprintf(&output, "review_command: %s\n", escapeTSVCell(reviewCommand))

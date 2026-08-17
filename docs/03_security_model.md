@@ -20,6 +20,22 @@ project-bound handle and retains its Context secret in an encrypted vault.
 Every supported HTTP/HTTPS request is normalized, authorized by OPA, and
 enforced by the shared Gateway before forwarding.
 
+Every interactive attachment exposes the constant physical-host loopback HTTP
+capability, but that ambient existence grants no authority. Gateway derives an
+active Attachment Epoch from host-owned registry state and OPA must allow the
+exact Host Loopback effect including URL port.
+The resulting Attachment Grant applies to every process in the Workspace and
+ends with the owning attachment. It provides no Docker, raw TCP, private-LAN,
+arbitrary socket, executable, or persistent policy authority.
+
+The host relay listens on a random TCP port for transport portability, but it
+is not an unauthenticated host-service exposure. Each connection must present
+the registry-bound 256-bit attachment token before the relay opens its one
+policy-granted `127.0.0.1:PORT` target. Only Gateway receives the owner-only registry;
+Workspace capability data, OPA input, audit, and review output never receive
+the relay port or token. Missing, malformed, stale, or unauthenticated relay
+traffic reaches no target bytes.
+
 Adoption is part of this security objective. A boundary that is too difficult
 to create or customize will be bypassed by running the agent on the host. The
 safe default therefore remains opt-in and deny-by-default, while the user
@@ -124,6 +140,9 @@ packet filter is changed.
 - Integrity of request normalization, policy decisions, and audit records.
 - Integrity and privacy of Context-owned non-secret identity configuration;
   email is personal data even though it grants no authentication authority.
+- Physical-host loopback ports reviewed for one active attachment, including
+  protection from unreviewed ports, stale attachment
+  grants, cross-Workspace reuse, and later port reassignment.
 
 Files under a read-write source bind are explicitly not protected from its
 Tobari. Processes can change or delete that entire mounted root. A read-only

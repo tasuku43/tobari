@@ -61,7 +61,52 @@ func (r *Runtime) ClusterDenials(
 	if len(data) > maxLogBytes {
 		return nil, fmt.Errorf("Gateway log output exceeds %d bytes", maxLogBytes)
 	}
-	return parseGatewayDenials(data)
+	items, err := parseGatewayDenials(data)
+	if err != nil {
+		return nil, err
+	}
+	return r.bindActiveHostLoopbackDenials(items)
+}
+
+func (r *Runtime) bindActiveHostLoopbackDenials(items []tobari.PolicyDenial) ([]tobari.PolicyDenial, error) {
+	needsRegistry := false
+	for _, item := range items {
+		needsRegistry = needsRegistry || item.Host == tobari.HostLoopbackHostname
+	}
+	if !needsRegistry {
+		return items, nil
+	}
+	var registry tobari.HostLoopbackRegistry
+	if err := readStrictJSON(r.hostLoopbackRegistryPath(), &registry); err != nil {
+		return nil, fmt.Errorf("read active Host Loopback registry: %w", err)
+	}
+	if err := registry.Validate(); err != nil {
+		return nil, err
+	}
+	bound := make([]tobari.PolicyDenial, 0, len(items))
+	for index := range items {
+		if items[index].Host != tobari.HostLoopbackHostname {
+			bound = append(bound, items[index])
+			continue
+		}
+		for _, route := range registry.Routes {
+			if route.ProjectID == items[index].ProjectID && route.ContextID == items[index].ContextID {
+				items[index].DestinationKind = tobari.PolicyDestinationHostLoopback
+				items[index].AuthorityLifetime = tobari.AuthorityLifetimeAttachment
+				items[index].AttachmentEpochID = route.EpochID
+				items[index].Learnable = true
+				break
+			}
+		}
+		if items[index].AttachmentEpochID == "" {
+			continue
+		}
+		if err := items[index].Validate(); err != nil {
+			return nil, err
+		}
+		bound = append(bound, items[index])
+	}
+	return bound, nil
 }
 
 func parseGatewayDenials(data []byte) ([]tobari.PolicyDenial, error) {

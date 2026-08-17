@@ -347,7 +347,7 @@ func projectEnterSpec() CommandSpec {
 				TargetKind: tobari.CurrentDirectoryTargetKind, TargetInputs: []string{},
 				Impact: operation.Impact{
 					Cardinality: operation.CardinalityOne, Notification: operation.DeclarationNo,
-					AccessChange: operation.DeclarationNo, Destructive: operation.DeclarationNo,
+					AccessChange: operation.DeclarationYes, Destructive: operation.DeclarationNo,
 				},
 			},
 		},
@@ -1336,8 +1336,11 @@ func policyCandidateOutputFields() []OutputField {
 		{Name: "mcp_tool_name", Type: OutputFieldTypeString, Description: "Exact MCP tool name for tools/call; empty otherwise."},
 		{Name: "reason", Type: OutputFieldTypeString, Description: "Bounded secret-free denial reason."},
 		{Name: "status_code", Type: OutputFieldTypeInteger, Description: "Gateway denial status."},
-		{Name: "allow_command", Type: OutputFieldTypeString, Description: "Exact reference-bound approval command."},
-		{Name: "deny_command", Type: OutputFieldTypeString, Description: "Exact reference-bound rejection command."},
+		{Name: "destination_kind", Type: OutputFieldTypeString, Description: "External or attachment Host Loopback destination.", Enum: []string{"external", "host_loopback"}},
+		{Name: "authority_lifetime", Type: OutputFieldTypeString, Description: "Persistent or attachment-scoped authority lifetime.", Enum: []string{"persistent", "attachment"}},
+		{Name: "attachment_epoch_id", Type: OutputFieldTypeString, Description: "Active attachment epoch for Host Loopback, otherwise empty."},
+		{Name: "allow_command", Type: OutputFieldTypeString, Description: "Exact reference-bound approval command for a persistent external candidate; empty for Host Loopback, which requires interactive review."},
+		{Name: "deny_command", Type: OutputFieldTypeString, Description: "Exact reference-bound rejection command for a persistent external candidate; empty for Host Loopback, which requires interactive review."},
 	}
 }
 
@@ -1362,6 +1365,9 @@ func policyDenialOutputFields() []OutputField {
 		{Name: "reason", Type: OutputFieldTypeString, Description: "Bounded secret-free denial reason."},
 		{Name: "status_code", Type: OutputFieldTypeInteger, Description: "Gateway denial status."},
 		{Name: "learnable", Type: OutputFieldTypeBoolean, Description: "Whether one exact learned rule can close this denial."},
+		{Name: "destination_kind", Type: OutputFieldTypeString, Description: "External or attachment Host Loopback destination.", Enum: []string{"external", "host_loopback"}},
+		{Name: "authority_lifetime", Type: OutputFieldTypeString, Description: "Persistent or attachment-scoped authority lifetime.", Enum: []string{"persistent", "attachment"}},
+		{Name: "attachment_epoch_id", Type: OutputFieldTypeString, Description: "Active attachment epoch for Host Loopback, otherwise empty."},
 	}
 }
 

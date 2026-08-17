@@ -79,11 +79,16 @@ services:
       TOBARI_UPSTREAM_TIMEOUT_SECONDS: ${TOBARI_UPSTREAM_TIMEOUT_SECONDS:-30}
       TOBARI_GATEWAY_CONFIG: /run/tobari/config/gateway.json
       TOBARI_PRINCIPAL_REGISTRY: /run/tobari/principal-registry/principals.json
+      TOBARI_HOST_LOOPBACK_REGISTRY: /run/tobari/host-loopback/routes.json
+      TOBARI_ATTACHMENT_GRANT_REGISTRY: /run/tobari/host-loopback/grants.json
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - gateway-ca:/var/lib/mitmproxy/.mitmproxy
       - public-ca:/run/tobari/ca-public
       - ${TOBARI_GATEWAY_CONFIG}:/run/tobari/config/gateway.json:ro
       - ${TOBARI_PRINCIPAL_DIR}:/run/tobari/principal-registry:ro
+      - ${TOBARI_HOST_LOOPBACK_DIR}:/run/tobari/host-loopback:ro
     networks:
       control: {}
       egress: {}

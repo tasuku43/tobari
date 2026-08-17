@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import ipaddress
+import hashlib
 import json
 import os
 import re
 import socket
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -39,6 +41,7 @@ from validated_file import StatIdentityCache, ValidatedFileError
 
 MAX_GATEWAY_CONFIG_BYTES = 256 * 1024
 MAX_PRINCIPAL_CONFIG_BYTES = 256 * 1024
+MAX_HOST_LOOPBACK_CONFIG_BYTES = 512 * 1024
 PROJECT_ID_PATTERN = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
 )
@@ -133,6 +136,10 @@ class AuthorityError(Exception):
 
 class UpstreamAddressError(Exception):
     """The upstream hostname cannot be bound to a safe resolved address."""
+
+
+class HostLoopbackError(Exception):
+    """The host-owned attachment route or grant registry is invalid."""
 
 
 def _parse_project_principals(raw: bytes) -> dict[str, dict[str, str]]:
@@ -248,6 +255,203 @@ def load_project_principals(path: str) -> dict[str, dict[str, str]]:
     """Load one registry; resident callers should retain its source."""
 
     return PrincipalRegistrySource(path).load()
+
+
+def _parse_host_loopback_routes(raw: bytes) -> list[dict[str, Any]]:
+    try:
+        document = json.loads(raw)
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise HostLoopbackError("Host Loopback registry is invalid") from error
+    if not isinstance(document, dict) or set(document) != {"schema_version", "routes"} or document.get("schema_version") != 1:
+        raise HostLoopbackError("Host Loopback registry version is invalid")
+    routes = document.get("routes")
+    if not isinstance(routes, list) or len(routes) > 128:
+        raise HostLoopbackError("Host Loopback route collection is invalid")
+    result: list[dict[str, Any]] = []
+    projects: set[str] = set()
+    for route in routes:
+        if not isinstance(route, dict) or set(route) != {
+            "id", "attachment_epoch_id", "context_id", "context", "project_id",
+            "project_root", "hostname", "relay_port", "relay_token",
+        }:
+            raise HostLoopbackError("Host Loopback route shape is invalid")
+        identity_material = "\x00".join(("tobari-host-loopback-route-v1", str(route.get("attachment_epoch_id")), str(route.get("context_id")), str(route.get("project_id"))))
+        expected_id = "hlr_" + hashlib.sha256(identity_material.encode()).hexdigest()[:32]
+        if (
+            not isinstance(route.get("id"), str)
+            or re.fullmatch(r"hlr_[0-9a-f]{32}", route["id"]) is None
+            or route["id"] != expected_id
+            or not isinstance(route.get("attachment_epoch_id"), str)
+            or re.fullmatch(r"att_[0-9a-f]{32}", route["attachment_epoch_id"]) is None
+            or not isinstance(route.get("context_id"), str)
+            or PROJECT_ID_PATTERN.fullmatch(route["context_id"]) is None
+            or not isinstance(route.get("project_id"), str)
+            or PROJECT_ID_PATTERN.fullmatch(route["project_id"]) is None
+            or route["project_id"] in projects
+            or not isinstance(route.get("context"), str)
+            or re.fullmatch(r"[a-z][a-z0-9-]{0,62}", route["context"]) is None
+            or not isinstance(route.get("project_root"), str)
+            or not route["project_root"].startswith("/")
+            or route.get("hostname") != "host.tobari.test"
+            or not isinstance(route.get("relay_port"), int)
+            or isinstance(route["relay_port"], bool)
+            or route["relay_port"] < 1024
+            or route["relay_port"] > 65535
+            or not isinstance(route.get("relay_token"), str)
+            or re.fullmatch(r"[0-9a-f]{64}", route["relay_token"]) is None
+        ):
+            raise HostLoopbackError("Host Loopback route binding is invalid")
+        projects.add(route["project_id"])
+        result.append(route)
+    return result
+
+
+def _parse_attachment_grants(raw: bytes) -> list[dict[str, Any]]:
+    try:
+        document = json.loads(raw)
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise HostLoopbackError("attachment grant registry is invalid") from error
+    if not isinstance(document, dict) or set(document) != {"schema_version", "grants"} or document.get("schema_version") != 1:
+        raise HostLoopbackError("attachment grant registry version is invalid")
+    grants = document.get("grants")
+    if not isinstance(grants, list) or len(grants) > 512:
+        raise HostLoopbackError("attachment grant collection is invalid")
+    result: list[dict[str, Any]] = []
+    for grant in grants:
+        required = {
+            "id", "decision", "lifetime", "destination_kind", "context_id", "project_id",
+            "attachment_epoch_id", "host", "target_port", "method", "path", "source_candidate",
+        }
+        material = "\x00".join(("tobari-attachment-grant-v2", str(grant.get("decision")), str(grant.get("context_id")), str(grant.get("project_id")), str(grant.get("attachment_epoch_id")), str(grant.get("host")), str(grant.get("target_port")), str(grant.get("method")), str(grant.get("path")), str(grant.get("source_candidate"))))
+        expected_id = "pag_" + hashlib.sha256(material.encode()).hexdigest()[:32]
+        if (
+            not isinstance(grant, dict)
+            or set(grant) != required
+            or grant.get("decision") not in {"allow", "deny"}
+            or grant.get("lifetime") != "attachment"
+            or grant.get("destination_kind") != "host_loopback"
+            or grant.get("id") != expected_id
+            or not isinstance(grant.get("context_id"), str)
+            or PROJECT_ID_PATTERN.fullmatch(grant["context_id"]) is None
+            or not isinstance(grant.get("project_id"), str)
+            or PROJECT_ID_PATTERN.fullmatch(grant["project_id"]) is None
+            or not isinstance(grant.get("attachment_epoch_id"), str)
+            or re.fullmatch(r"att_[0-9a-f]{32}", grant["attachment_epoch_id"]) is None
+            or grant.get("host") != "host.tobari.test"
+            or not isinstance(grant.get("target_port"), int)
+            or isinstance(grant["target_port"], bool)
+            or grant["target_port"] < 1024
+            or grant["target_port"] > 65535
+            or not isinstance(grant.get("source_candidate"), str)
+            or re.fullmatch(r"pcy_[0-9a-f]{32}", grant["source_candidate"]) is None
+            or not isinstance(grant.get("method"), str)
+            or re.fullmatch(r"[A-Z][A-Z0-9_-]{0,31}", grant["method"]) is None
+            or not isinstance(grant.get("path"), str)
+            or not grant["path"].startswith("/")
+        ):
+            raise HostLoopbackError("attachment grant is invalid")
+        result.append(grant)
+    return result
+
+
+class HostLoopbackRegistrySource:
+    def __init__(self, route_path: str, grant_path: str) -> None:
+        self._routes = StatIdentityCache(route_path, MAX_HOST_LOOPBACK_CONFIG_BYTES, _parse_host_loopback_routes)
+        self._grants = StatIdentityCache(grant_path, MAX_HOST_LOOPBACK_CONFIG_BYTES, _parse_attachment_grants)
+
+    def resolve(self, principal: dict[str, str], scheme: str, host: str, port: int) -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:
+        if host != "host.tobari.test":
+            return None, []
+        if scheme != "http" or port < 1024 or port > 65535:
+            raise HostLoopbackError("Host Loopback supports plain HTTP on non-privileged ports")
+        try:
+            routes = self._routes.load()
+            grants = self._grants.load()
+        except (ValidatedFileError, HostLoopbackError) as error:
+            raise HostLoopbackError("Host Loopback authority could not be read") from error
+        matches = [route for route in routes if route["project_id"] == principal["project_id"] and route["context_id"] == principal["context_id"]]
+        if len(matches) != 1:
+            raise HostLoopbackError("Host Loopback is not active for this Workspace")
+        route = matches[0]
+        active = [grant for grant in grants if grant["project_id"] == route["project_id"] and grant["context_id"] == route["context_id"] and grant["attachment_epoch_id"] == route["attachment_epoch_id"]]
+        return route, active
+
+
+class HostLoopbackBridges:
+    """Create one short-lived loopback listener for one authorized host relay."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._pending: set[tuple[str, int]] = set()
+
+    def open(self, relay_port: int, relay_token: str, target_port: int) -> tuple[str, int]:
+        listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        listener.bind(("127.0.0.1", 0))
+        listener.listen(1)
+        listener.settimeout(30.0)
+        address = listener.getsockname()
+        with self._lock:
+            self._pending.add(address)
+        threading.Thread(target=self._serve, args=(listener, address, relay_port, relay_token, target_port), daemon=True).start()
+        return address
+
+    def authorize(self, address: tuple[str, int]) -> bool:
+        with self._lock:
+            if address not in self._pending:
+                return False
+            self._pending.remove(address)
+            return True
+
+    def _serve(self, listener: socket.socket, address: tuple[str, int], relay_port: int, relay_token: str, target_port: int) -> None:
+        inbound: socket.socket | None = None
+        outbound: socket.socket | None = None
+        try:
+            inbound, _ = listener.accept()
+            outbound = socket.create_connection(("host.docker.internal", relay_port), 10.0)
+            outbound.sendall(b"C" + relay_token.encode("ascii") + target_port.to_bytes(2, "big"))
+            acknowledgement = b""
+            while len(acknowledgement) < 2:
+                chunk = outbound.recv(2 - len(acknowledgement))
+                if not chunk:
+                    break
+                acknowledgement += chunk
+            if acknowledgement != b"OK":
+                raise OSError("Host Loopback relay rejected the bridge")
+            outbound.settimeout(None)
+            threads = [
+                threading.Thread(target=self._copy, args=(inbound, outbound), daemon=True),
+                threading.Thread(target=self._copy, args=(outbound, inbound), daemon=True),
+            ]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join()
+        except OSError:
+            pass
+        finally:
+            with self._lock:
+                self._pending.discard(address)
+            listener.close()
+            if inbound is not None:
+                inbound.close()
+            if outbound is not None:
+                outbound.close()
+
+    @staticmethod
+    def _copy(source: socket.socket, destination: socket.socket) -> None:
+        try:
+            while chunk := source.recv(65536):
+                destination.sendall(chunk)
+        except OSError:
+            pass
+        try:
+            destination.shutdown(socket.SHUT_WR)
+        except OSError:
+            pass
+        try:
+            destination.shutdown(socket.SHUT_WR)
+        except OSError:
+            pass
 
 
 def resolve_project_principal(
@@ -480,6 +684,8 @@ def build_policy_input(
     broker_provider: str | None = None,
     graphql: ParsedGraphQLRequest | None = None,
     mcp: ParsedMCPRequest | None = None,
+    host_loopback: dict[str, Any] | None = None,
+    attachment_grants: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     request = flow.request
     split = urlsplit(request.url)
@@ -520,6 +726,12 @@ def build_policy_input(
         policy_input["request"]["mcp"] = {"method": mcp.method}
         if mcp.tool_name is not None:
             policy_input["request"]["mcp"]["tool_name"] = mcp.tool_name
+    if host_loopback is not None:
+        policy_input["destination"] = {
+            "kind": "host_loopback",
+            "attachment_epoch_id": host_loopback["attachment_epoch_id"],
+        }
+        policy_input["authorization"]["attachment_grants"] = attachment_grants or []
     return policy_input
 
 
@@ -833,11 +1045,18 @@ class TobariGateway:
             "/run/tobari/principal-registry/principals.json",
         )
         self.principal_source = PrincipalRegistrySource(self.principal_path)
+        self.host_loopback_source = HostLoopbackRegistrySource(
+            os.getenv("TOBARI_HOST_LOOPBACK_REGISTRY", "/run/tobari/host-loopback/routes.json"),
+            os.getenv("TOBARI_ATTACHMENT_GRANT_REGISTRY", "/run/tobari/host-loopback/grants.json"),
+        )
+        self.host_loopback_bridges = HostLoopbackBridges()
 
     def server_connect(self, data: Any) -> None:
         address = data.server.address
         if not address:
             data.server.error = "upstream address is missing"
+            return
+        if self.host_loopback_bridges.authorize(address):
             return
         try:
             data.server.address = resolve_upstream_address(address[0], address[1])
@@ -872,6 +1091,11 @@ class TobariGateway:
             context_id = principal["context_id"]
             context_name = principal["context"]
             project_root = principal["project_root"]
+            host_loopback, attachment_grants = None, []
+            if host == "host.tobari.test":
+                host_loopback, attachment_grants = self.host_loopback_source.resolve(
+                    principal, scheme, host, port
+                )
             credential_request = self.credential_adapter.prepare(
                 flow.request, scheme, host, port, context_id, project_id
             )
@@ -926,6 +1150,8 @@ class TobariGateway:
                 principal,
                 credential_request.secret_headers,
                 credential_request.broker_provider,
+                host_loopback=host_loopback,
+                attachment_grants=attachment_grants,
             )
             decision = query_opa(self.opa_url, policy_input, self.opa_timeout)
             reason = decision.reason
@@ -963,7 +1189,11 @@ class TobariGateway:
                 flow.metadata["tobari_deferred_credential"] = credential_request
                 flow.request.stream = False
             else:
-                commit_upstream_authority(flow)
+                if host_loopback is not None:
+                    flow.metadata.pop("tobari_transparent_authority", None)
+                    flow.server_conn.address = self.host_loopback_bridges.open(host_loopback["relay_port"], host_loopback["relay_token"], port)
+                else:
+                    commit_upstream_authority(flow)
                 # Authorization is complete before mitmproxy forwards any body bytes.
                 # The body is deliberately opaque to policy and is never retained here.
                 flow.request.stream = True
@@ -993,6 +1223,10 @@ class TobariGateway:
             reason = str(error)
             _deny(flow, 400, "request_authority_invalid")
             upstream_status = 400
+        except HostLoopbackError as error:
+            reason = str(error)
+            _deny(flow, 403, "host_loopback_unavailable")
+            upstream_status = 403
         except (RuntimeError, UnicodeError):
             reason = "credential processing failed"
             _deny(flow, 503, "credential_unavailable")

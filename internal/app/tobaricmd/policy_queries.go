@@ -51,6 +51,15 @@ func (s *Service) policyCandidates(
 			"policy candidates are invalid", false, err,
 		)
 	}
+	if task == tobari.TaskPolicyCandidates {
+		persistent := make([]tobari.PolicyCandidate, 0, len(items))
+		for _, item := range items {
+			if item.EffectiveDestinationKind() == tobari.PolicyDestinationExternal {
+				persistent = append(persistent, item)
+			}
+		}
+		items = persistent
+	}
 	result := tobari.PolicyCandidateReport{
 		Task: task, PolicyDirectory: state.PolicyDirectory, WindowLines: tail, Items: items,
 	}

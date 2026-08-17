@@ -197,6 +197,25 @@ to default deny; it does not grant or retry. V1 has no prefix learned rule,
 compaction command/reference/state, wildcard learned authority, or observation-
 derived widening.
 
+### Physical-host loopback HTTP
+
+Inside a Workspace, `localhost` means that Workspace. To reach an HTTP server
+on the physical host, use the constant Host Loopback URL and the server's
+non-privileged port:
+
+```sh
+curl http://host.tobari.test:3000/health
+```
+
+No entry flag or service declaration is needed. The first exact host, port,
+method, and path remains denied until it is approved through interactive
+`tobari policy review`. That decision is Workspace-wide only for the current
+route-owning attachment; exit revokes it, and it never appears in persistent
+`policy rules`. `TOBARI_CAPABILITIES_JSON` describes the URL template, port
+range, lifetime, and audience without exposing relay credentials. This outcome
+does not provide host Docker, Compose control, raw TCP, privileged ports, or
+private-LAN access.
+
 Advanced Contexts may add trusted-host Rego constraints, but Advanced Rego is
 beneath the preset guardrail and cannot redefine exact learned identity or the
 Tobari-owned router.

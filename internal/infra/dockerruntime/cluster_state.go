@@ -53,6 +53,9 @@ func (r *Runtime) prepareState(ctx context.Context) (tobari.State, error) {
 	if err := r.ensureProjectPrincipalRegistry(ctx); err != nil {
 		return tobari.State{}, fmt.Errorf("validate project principal registry: %w", err)
 	}
+	if err := r.ensureHostLoopbackStore(ctx); err != nil {
+		return tobari.State{}, fmt.Errorf("validate Host Loopback store: %w", err)
+	}
 	state := tobari.State{
 		SchemaVersion: 1, RuntimeDirectory: runtimeDirectory,
 		AggregateRevision: projection.Revision, ContextCount: projection.ContextCount,

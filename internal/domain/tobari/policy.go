@@ -204,19 +204,36 @@ func (e MCPEndpoint) Validate() error {
 // PolicyDenial is one validated, secret-free Gateway audit decision.
 type PolicyDenial struct {
 	PolicyProtocolIdentity
-	Timestamp   string `json:"timestamp"`
-	RequestID   string `json:"request_id"`
-	ContextID   string `json:"context_id"`
-	ContextName string `json:"context"`
-	ProjectID   string `json:"project_id"`
-	ProjectRoot string `json:"project_root"`
-	Host        string `json:"host"`
-	Port        int    `json:"port"`
-	Method      string `json:"method"`
-	Path        string `json:"path"`
-	Reason      string `json:"reason"`
-	StatusCode  int    `json:"status_code"`
-	Learnable   bool   `json:"learnable"`
+	Timestamp         string `json:"timestamp"`
+	RequestID         string `json:"request_id"`
+	ContextID         string `json:"context_id"`
+	ContextName       string `json:"context"`
+	ProjectID         string `json:"project_id"`
+	ProjectRoot       string `json:"project_root"`
+	Host              string `json:"host"`
+	Port              int    `json:"port"`
+	Method            string `json:"method"`
+	Path              string `json:"path"`
+	Reason            string `json:"reason"`
+	StatusCode        int    `json:"status_code"`
+	Learnable         bool   `json:"learnable"`
+	DestinationKind   string `json:"destination_kind,omitempty"`
+	AuthorityLifetime string `json:"authority_lifetime,omitempty"`
+	AttachmentEpochID string `json:"attachment_epoch_id,omitempty"`
+}
+
+func (d PolicyDenial) EffectiveDestinationKind() string {
+	if d.DestinationKind == "" {
+		return PolicyDestinationExternal
+	}
+	return d.DestinationKind
+}
+
+func (d PolicyDenial) EffectiveAuthorityLifetime() string {
+	if d.AuthorityLifetime == "" {
+		return AuthorityLifetimePersistent
+	}
+	return d.AuthorityLifetime
 }
 
 // Validate rejects audit-shaped data that cannot be safely interpreted as one
@@ -254,6 +271,14 @@ func (d PolicyDenial) Validate() error {
 	}
 	if d.StatusCode < 400 || d.StatusCode > 599 {
 		return fmt.Errorf("denial status code is invalid")
+	}
+	if d.EffectiveDestinationKind() == PolicyDestinationHostLoopback {
+		if d.EffectiveAuthorityLifetime() != AuthorityLifetimeAttachment || ValidateAttachmentEpochID(d.AttachmentEpochID) != nil ||
+			d.Host != HostLoopbackHostname || d.Scheme != "http" || ValidateHostLoopbackPort(d.Port) != nil {
+			return fmt.Errorf("denial Host Loopback authority is invalid")
+		}
+	} else if d.EffectiveDestinationKind() != PolicyDestinationExternal || d.EffectiveAuthorityLifetime() != AuthorityLifetimePersistent || d.AttachmentEpochID != "" {
+		return fmt.Errorf("denial destination authority is invalid")
 	}
 	return nil
 }
@@ -324,19 +349,36 @@ func (r DenialReport) Validate() error {
 // validated denial. ID is opaque and remains stable for the same exact effect.
 type PolicyCandidate struct {
 	PolicyProtocolIdentity
-	ID               string `json:"id"`
-	ObservedAt       string `json:"observed_at"`
-	ObservationCount int    `json:"observation_count"`
-	ContextID        string `json:"context_id"`
-	ContextName      string `json:"context"`
-	ProjectID        string `json:"project_id"`
-	ProjectRoot      string `json:"project_root"`
-	Host             string `json:"host"`
-	Port             int    `json:"port"`
-	Method           string `json:"method"`
-	Path             string `json:"path"`
-	Reason           string `json:"reason"`
-	StatusCode       int    `json:"status_code"`
+	ID                string `json:"id"`
+	ObservedAt        string `json:"observed_at"`
+	ObservationCount  int    `json:"observation_count"`
+	ContextID         string `json:"context_id"`
+	ContextName       string `json:"context"`
+	ProjectID         string `json:"project_id"`
+	ProjectRoot       string `json:"project_root"`
+	Host              string `json:"host"`
+	Port              int    `json:"port"`
+	Method            string `json:"method"`
+	Path              string `json:"path"`
+	Reason            string `json:"reason"`
+	StatusCode        int    `json:"status_code"`
+	DestinationKind   string `json:"destination_kind,omitempty"`
+	AuthorityLifetime string `json:"authority_lifetime,omitempty"`
+	AttachmentEpochID string `json:"attachment_epoch_id,omitempty"`
+}
+
+func (c PolicyCandidate) EffectiveDestinationKind() string {
+	if c.DestinationKind == "" {
+		return PolicyDestinationExternal
+	}
+	return c.DestinationKind
+}
+
+func (c PolicyCandidate) EffectiveAuthorityLifetime() string {
+	if c.AuthorityLifetime == "" {
+		return AuthorityLifetimePersistent
+	}
+	return c.AuthorityLifetime
 }
 
 // NewPolicyCandidate derives a kind-specific opaque reference without exposing
@@ -354,6 +396,9 @@ func NewPolicyCandidate(denial PolicyDenial) (PolicyCandidate, error) {
 		},
 		denial.PolicyProtocolIdentity,
 	)
+	if denial.EffectiveDestinationKind() == PolicyDestinationHostLoopback {
+		material = append(material, denial.EffectiveDestinationKind(), denial.EffectiveAuthorityLifetime(), denial.AttachmentEpochID)
+	}
 	sum := sha256.Sum256([]byte(strings.Join(material, "\x00")))
 	return PolicyCandidate{
 		PolicyProtocolIdentity: denial.PolicyProtocolIdentity,
@@ -362,6 +407,8 @@ func NewPolicyCandidate(denial PolicyDenial) (PolicyCandidate, error) {
 		ProjectID: denial.ProjectID, ProjectRoot: denial.ProjectRoot,
 		Host: denial.Host, Port: denial.Port, Method: denial.Method, Path: denial.Path,
 		Reason: denial.Reason, StatusCode: denial.StatusCode,
+		DestinationKind: denial.DestinationKind, AuthorityLifetime: denial.AuthorityLifetime,
+		AttachmentEpochID: denial.AttachmentEpochID,
 	}, nil
 }
 
@@ -423,6 +470,10 @@ func (c PolicyCandidate) Validate() error {
 	}
 	if c.StatusCode < 400 || c.StatusCode > 599 {
 		return fmt.Errorf("policy candidate status is invalid")
+	}
+	denial := PolicyDenial{PolicyProtocolIdentity: c.PolicyProtocolIdentity, Timestamp: c.ObservedAt, RequestID: strings.Repeat("0", 32), ContextID: c.ContextID, ContextName: c.ContextName, ProjectID: c.ProjectID, ProjectRoot: c.ProjectRoot, Host: c.Host, Port: c.Port, Method: c.Method, Path: c.Path, Reason: c.Reason, StatusCode: c.StatusCode, Learnable: true, DestinationKind: c.DestinationKind, AuthorityLifetime: c.AuthorityLifetime, AttachmentEpochID: c.AttachmentEpochID}
+	if err := denial.Validate(); err != nil {
+		return fmt.Errorf("policy candidate authority: %w", err)
 	}
 	return nil
 }
@@ -511,6 +562,9 @@ func policyDenyRuleIDWithIdentity(
 func NewExactPolicyDenyRule(candidate PolicyCandidate) (PolicyDenyRule, error) {
 	if err := candidate.Validate(); err != nil {
 		return PolicyDenyRule{}, err
+	}
+	if candidate.EffectiveDestinationKind() != PolicyDestinationExternal || candidate.EffectiveAuthorityLifetime() != AuthorityLifetimePersistent {
+		return PolicyDenyRule{}, fmt.Errorf("attachment candidate cannot become a persistent deny rule")
 	}
 	rule := PolicyDenyRule{
 		PolicyProtocolIdentity: candidate.PolicyProtocolIdentity,
@@ -643,6 +697,9 @@ func learnedRuleIDWithIdentity(
 func NewExactLearnedPolicyRule(candidate PolicyCandidate) (LearnedPolicyRule, error) {
 	if err := candidate.Validate(); err != nil {
 		return LearnedPolicyRule{}, err
+	}
+	if candidate.EffectiveDestinationKind() != PolicyDestinationExternal || candidate.EffectiveAuthorityLifetime() != AuthorityLifetimePersistent {
+		return LearnedPolicyRule{}, fmt.Errorf("attachment candidate cannot become a persistent learned rule")
 	}
 	rule := LearnedPolicyRule{
 		PolicyProtocolIdentity: candidate.PolicyProtocolIdentity,
@@ -1061,6 +1118,9 @@ func PolicyCandidatesWithDenyRules(
 		return nil, err
 	}
 	covered := func(denial PolicyDenial) bool {
+		if denial.EffectiveDestinationKind() == PolicyDestinationHostLoopback {
+			return false
+		}
 		for _, rule := range rules {
 			if rule.MatchesIdentity(
 				denial.ContextID, denial.ProjectID, denial.Host, denial.Port, denial.Method, denial.Path,
@@ -1081,6 +1141,8 @@ func PolicyCandidatesWithDenyRules(
 		protocol             string
 		graphqlOperationType string
 		graphqlRootField     string
+		destinationKind      string
+		attachmentEpochID    string
 	}
 	type aggregate struct {
 		candidate   PolicyCandidate
@@ -1092,7 +1154,8 @@ func PolicyCandidatesWithDenyRules(
 		if err := denial.Validate(); err != nil {
 			return nil, err
 		}
-		if !denial.Learnable || covered(denial) || denyRules.Matches(denial) {
+		persistentDenyCovered := denial.EffectiveDestinationKind() != PolicyDestinationHostLoopback && denyRules.Matches(denial)
+		if !denial.Learnable || covered(denial) || persistentDenyCovered {
 			continue
 		}
 		candidate, err := NewPolicyCandidate(denial)
@@ -1107,6 +1170,7 @@ func PolicyCandidatesWithDenyRules(
 			contextID: denial.ContextID, projectID: denial.ProjectID, host: denial.Host, port: denial.Port,
 			method: denial.Method, path: denial.Path, protocol: denial.EffectiveProtocol(),
 			graphqlOperationType: denial.GraphQLOperationType, graphqlRootField: denial.GraphQLRootField,
+			destinationKind: denial.EffectiveDestinationKind(), attachmentEpochID: denial.AttachmentEpochID,
 		}
 		current, found := aggregates[key]
 		if !found {
@@ -1222,27 +1286,40 @@ type PolicyReviewDecisionSet struct {
 // ReviewItemID identifies the freshly revalidated detail choice that created it.
 type PolicyReviewAppliedDecision struct {
 	PolicyProtocolIdentity
-	RuleID           string   `json:"rule_id"`
-	ReviewItemID     string   `json:"review_item_id"`
-	Decision         string   `json:"decision"`
-	Match            string   `json:"match"`
-	ContextID        string   `json:"context_id"`
-	ContextName      string   `json:"context"`
-	ProjectID        string   `json:"project_id"`
-	ProjectRoot      string   `json:"project_root"`
-	Host             string   `json:"host"`
-	Port             int      `json:"port"`
-	Method           string   `json:"method"`
-	Path             string   `json:"path"`
-	SourceCandidates []string `json:"source_candidates"`
+	RuleID            string   `json:"rule_id"`
+	ReviewItemID      string   `json:"review_item_id"`
+	Decision          string   `json:"decision"`
+	Match             string   `json:"match"`
+	ContextID         string   `json:"context_id"`
+	ContextName       string   `json:"context"`
+	ProjectID         string   `json:"project_id"`
+	ProjectRoot       string   `json:"project_root"`
+	Host              string   `json:"host"`
+	Port              int      `json:"port"`
+	Method            string   `json:"method"`
+	Path              string   `json:"path"`
+	SourceCandidates  []string `json:"source_candidates"`
+	DestinationKind   string   `json:"destination_kind,omitempty"`
+	AuthorityLifetime string   `json:"authority_lifetime,omitempty"`
+	AttachmentEpochID string   `json:"attachment_epoch_id,omitempty"`
 }
 
 func (d PolicyReviewAppliedDecision) Validate() error {
 	if err := d.PolicyProtocolIdentity.Validate(); err != nil {
 		return fmt.Errorf("policy review receipt protocol identity: %w", err)
 	}
-	if err := ValidatePolicyRuleID(d.RuleID); err != nil {
-		return err
+	attachment := d.DestinationKind == PolicyDestinationHostLoopback
+	if attachment {
+		if !attachmentGrantPattern.MatchString(d.RuleID) || d.AuthorityLifetime != AuthorityLifetimeAttachment || ValidateAttachmentEpochID(d.AttachmentEpochID) != nil || d.Host != HostLoopbackHostname || ValidateHostLoopbackPort(d.Port) != nil {
+			return fmt.Errorf("policy review attachment receipt is invalid")
+		}
+	} else {
+		if err := ValidatePolicyRuleID(d.RuleID); err != nil {
+			return err
+		}
+		if d.DestinationKind != "" || d.AuthorityLifetime != "" || d.AttachmentEpochID != "" {
+			return fmt.Errorf("persistent policy review receipt has attachment authority")
+		}
 	}
 	if err := ValidatePolicyReviewItemID(d.ReviewItemID); err != nil {
 		return err

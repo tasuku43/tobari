@@ -137,6 +137,43 @@ func TestParseGatewayDenialsRejectsMalformedDenyAudit(t *testing.T) {
 	}
 }
 
+func TestBindActiveHostLoopbackDenialAddsOnlyCurrentEpochAndPort(t *testing.T) {
+	t.Parallel()
+	runtime, err := newRuntime(filepath.Join(t.TempDir(), "config"), filepath.Join(t.TempDir(), "state"), &recordingRunner{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	project := projectRuntimeInstance(t, runtime)
+	if err := runtime.ensureHostLoopbackStore(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	route, err := tobari.NewAttachmentHostLoopbackRoute("att_0123456789abcdef0123456789abcdef", project, 43179, strings.Repeat("3", 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := writeAtomicJSON(runtime.hostLoopbackRegistryPath(), tobari.HostLoopbackRegistry{SchemaVersion: tobari.HostLoopbackRegistrySchema, Routes: []tobari.AttachmentHostLoopbackRoute{route}}); err != nil {
+		t.Fatal(err)
+	}
+	denial := tobari.PolicyDenial{
+		PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Scheme: "http", Protocol: tobari.PolicyProtocolHTTP},
+		Timestamp:              "2026-08-17T12:00:00Z", RequestID: strings.Repeat("1", 32),
+		ContextID: route.ContextID, ContextName: route.ContextName, ProjectID: route.ProjectID, ProjectRoot: route.ProjectRoot,
+		Host: tobari.HostLoopbackHostname, Port: 3000, Method: "GET", Path: "/health",
+		Reason: "review", StatusCode: 403, Learnable: true,
+	}
+	bound, err := runtime.bindActiveHostLoopbackDenials([]tobari.PolicyDenial{denial})
+	if err != nil || len(bound) != 1 || bound[0].AttachmentEpochID != route.EpochID || bound[0].Port != 3000 || bound[0].EffectiveDestinationKind() != tobari.PolicyDestinationHostLoopback {
+		t.Fatalf("bound Host Loopback denial = %+v, %v", bound, err)
+	}
+	if err := writeAtomicJSON(runtime.hostLoopbackRegistryPath(), emptyHostLoopbackRegistry()); err != nil {
+		t.Fatal(err)
+	}
+	stale, err := runtime.bindActiveHostLoopbackDenials([]tobari.PolicyDenial{denial})
+	if err != nil || len(stale) != 0 {
+		t.Fatalf("stale Host Loopback denial = %+v, %v", stale, err)
+	}
+}
+
 func TestApplyPolicyTestsPublishesBundleAndKeepsOPAStable(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()

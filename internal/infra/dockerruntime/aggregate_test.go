@@ -111,6 +111,23 @@ func TestAggregateRouterAlwaysUsesSystemEvaluatorForGraphQL(t *testing.T) {
 	}
 }
 
+func TestAggregateRouterKeepsHostLoopbackAuthorityAttachmentScoped(t *testing.T) {
+	t.Parallel()
+	router, err := aggregateRouter([]aggregateContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(router)
+	for _, required := range []string{`kind == "host_loopback"`, `host_loopback_identity_valid`, `^att_[0-9a-f]{32}$`, `grant.lifetime == "attachment"`, `grant.attachment_epoch_id == input.destination.attachment_epoch_id`, `grant.target_port == input.request.authority.port`, `"Host Loopback requires attachment policy review"`, `not host_loopback_request`} {
+		if !strings.Contains(text, required) {
+			t.Fatalf("Host Loopback router omitted %q:\n%s", required, text)
+		}
+	}
+	if strings.Contains(text, `grant.lifetime == "persistent"`) {
+		t.Fatalf("Host Loopback router accepts persistent grant:\n%s", text)
+	}
+}
+
 func TestAggregateRouterMakesPresetGuardrailTerminalBeforeAdvancedOrGuidedPolicy(t *testing.T) {
 	t.Parallel()
 	manifest := tobari.ContextManifest{SchemaVersion: tobari.ContextSchemaVersion, ID: "01912345-6789-7abc-8def-0123456789ad", Name: "restricted", AgentProfile: tobari.DefaultProfile, Image: tobari.BuiltinImageSelector, PolicyMode: tobari.ContextPolicyModeAdvanced, SourceAccess: tobari.ContextSourceAccessReadWrite, PolicyPresetOrigin: "builtin/offline", PolicyPresetRevision: tobari.DefaultPolicyPresetRevision()}

@@ -730,6 +730,7 @@ func renderPolicyReviewDetailRaw(
 		selectorDetail(style, "Context", safeExternalText(candidate.ContextName), styleText),
 		selectorDetail(style, "Tobari", safeExternalText(candidate.ProjectRoot), styleText),
 		selectorDetail(style, "Request", policyReviewCandidateRequest(candidate), styleText),
+		selectorDetail(style, "Authority", policyReviewCandidateAuthority(candidate), styleText),
 		selectorDetail(style, "Reason", safeExternalText(candidate.Reason), styleDanger),
 		selectorDetail(style, "Status", fmt.Sprintf("%d", candidate.StatusCode), styleDanger),
 		selectorDetail(style, "Observed", policyReviewObservationText(report, candidate), styleText),
@@ -746,7 +747,11 @@ func renderPolicyReviewDetailRaw(
 				styleAction(style, "[q] Back", styleMuted),
 			))
 	} else {
-		lines = append(lines, selectorHelp(style, "This decision applies only to this Tobari in this Context."), "",
+		help := "This decision applies only to this Tobari in this Context."
+		if candidate.EffectiveDestinationKind() == tobari.PolicyDestinationHostLoopback {
+			help = "This decision applies only while the current Host Loopback attachment remains active."
+		}
+		lines = append(lines, selectorHelp(style, help), "",
 			selectorActions(
 				styleAction(style, "[a] Allow exact", styleAccent),
 				styleAction(style, "[d] Deny exact", styleAccent),
@@ -759,6 +764,13 @@ func renderPolicyReviewDetailRaw(
 		lines = append(lines, applyStyleToken(style, styleWarning, "! "+message))
 	}
 	return renderPolicyReviewScreen(out, lines, previousLines)
+}
+
+func policyReviewCandidateAuthority(candidate tobari.PolicyCandidate) string {
+	if candidate.EffectiveDestinationKind() == tobari.PolicyDestinationHostLoopback {
+		return "Host Loopback · attachment-scoped · Workspace audience"
+	}
+	return "external service · persistent learned policy"
 }
 
 func renderPolicyReviewScreen(out io.Writer, lines []string, previousLines int) int {
@@ -1013,6 +1025,7 @@ func writePolicyReviewDetailLines(out io.Writer, report tobari.PolicyCandidateRe
 		"Context   " + safeExternalText(candidate.ContextName),
 		"Tobari    " + safeExternalText(candidate.ProjectRoot),
 		"Request   " + policyReviewCandidateRequest(candidate),
+		"Authority " + policyReviewCandidateAuthority(candidate),
 		"Reason    " + safeExternalText(candidate.Reason),
 		fmt.Sprintf("Status    %d", candidate.StatusCode),
 		"Observed  " + policyReviewObservationText(report, candidate),
@@ -1023,7 +1036,11 @@ func writePolicyReviewDetailLines(out io.Writer, report tobari.PolicyCandidateRe
 		lines = append(lines, "Examples  "+strings.Join(proposal.Examples, ", "), "",
 			"Allow template includes future non-empty values in exactly the {id} segment.")
 	} else {
-		lines = append(lines, "This decision applies only to this Tobari in this Context.")
+		help := "This decision applies only to this Tobari in this Context."
+		if candidate.EffectiveDestinationKind() == tobari.PolicyDestinationHostLoopback {
+			help = "This decision applies only while the current Host Loopback attachment remains active."
+		}
+		lines = append(lines, help)
 	}
 	return writeSelectorLines(out, lines...)
 }

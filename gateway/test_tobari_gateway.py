@@ -155,7 +155,111 @@ def principal_registry(workspace_ip="172.29.0.3"):
     }
 
 
+def host_loopback_registry(epoch="att_" + "1" * 32):
+    material = "\x00".join(("tobari-host-loopback-route-v1", epoch, CONTEXT, PROJECT))
+    route_id = "hlr_" + gateway.hashlib.sha256(material.encode()).hexdigest()[:32]
+    route = {
+        "id": route_id, "attachment_epoch_id": epoch, "context_id": CONTEXT,
+        "context": "default", "project_id": PROJECT, "project_root": "/workspace/project",
+        "hostname": "host.tobari.test",
+        "relay_port": 43179, "relay_token": "3" * 64,
+    }
+    return {"schema_version": 1, "routes": [route]}, route
+
+
+def attachment_grant(route, decision="allow", target_port=3000):
+    grant = {
+        "decision": decision, "lifetime": "attachment", "destination_kind": "host_loopback",
+        "context_id": CONTEXT, "project_id": PROJECT,
+        "attachment_epoch_id": route["attachment_epoch_id"],
+        "host": route["hostname"], "target_port": target_port, "method": "GET",
+        "path": "/health", "source_candidate": "pcy_" + "2" * 32,
+    }
+    material = "\x00".join(("tobari-attachment-grant-v2", grant["decision"], grant["context_id"], grant["project_id"], grant["attachment_epoch_id"], grant["host"], str(grant["target_port"]), grant["method"], grant["path"], grant["source_candidate"]))
+    grant["id"] = "pag_" + gateway.hashlib.sha256(material.encode()).hexdigest()[:32]
+    return grant
+
+
 class ValidatedRuntimeFileCacheTests(unittest.TestCase):
+
+    def test_host_loopback_source_binds_workspace_epoch_port_and_attachment_grants(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            service_path = os.path.join(temporary, "services.json")
+            grant_path = os.path.join(temporary, "grants.json")
+            registry, route = host_loopback_registry()
+            grant = attachment_grant(route)
+            atomic_json(service_path, registry)
+            atomic_json(grant_path, {"schema_version": 1, "grants": [grant]})
+            source = gateway.HostLoopbackRegistrySource(service_path, grant_path)
+            principal = {"context_id": CONTEXT, "project_id": PROJECT}
+            resolved, grants = source.resolve(principal, "http", route["hostname"], 3000)
+            self.assertEqual(resolved, route)
+            self.assertEqual(grants, [grant])
+            with self.assertRaises(gateway.HostLoopbackError):
+                source.resolve({**principal, "project_id": "01912345-6789-7abc-8def-0123456789ac"}, "http", route["hostname"], 3000)
+            with self.assertRaises(gateway.HostLoopbackError):
+                source.resolve(principal, "https", route["hostname"], 3000)
+
+    def test_host_loopback_registry_rejects_identity_or_relay_rebinding(self):
+        registry, _ = host_loopback_registry()
+        for field, value in (("context_id", "01912345-6789-7abc-8def-0123456789ac"), ("relay_token", "short")):
+            changed = copy.deepcopy(registry)
+            changed["routes"][0][field] = value
+            with self.subTest(field=field):
+                with self.assertRaises(gateway.HostLoopbackError):
+                    gateway._parse_host_loopback_routes(json.dumps(changed).encode())
+
+    def test_attachment_grant_identity_binds_target_port(self):
+        _, route = host_loopback_registry()
+        grant = attachment_grant(route, target_port=3000)
+        changed = copy.deepcopy(grant)
+        changed["target_port"] = 3001
+        with self.assertRaises(gateway.HostLoopbackError):
+            gateway._parse_attachment_grants(json.dumps({"schema_version": 1, "grants": [changed]}).encode())
+
+    def test_host_loopback_policy_precedes_port_bound_authenticated_relay_selection(self):
+        _, route = host_loopback_registry()
+        grant = attachment_grant(route)
+        for allowed in (False, True):
+            with self.subTest(allowed=allowed):
+                addon = gateway.TobariGateway.__new__(gateway.TobariGateway)
+                addon.cluster, addon.opa_url, addon.opa_timeout = "default", "http://opa.invalid", 2
+                addon.graphql_config = {}
+                addon.principal_source = mock.Mock()
+                addon.principal_source.load.return_value = {}
+                addon.host_loopback_source = mock.Mock()
+                addon.host_loopback_source.resolve.return_value = (route, [grant])
+                addon.host_loopback_bridges = mock.Mock()
+                addon.host_loopback_bridges.open.return_value = ("127.0.0.1", 45000)
+                prepared = mock.Mock(secret_headers=set(), broker_provider=None, deferred=False)
+                addon.credential_adapter = mock.Mock()
+                addon.credential_adapter.prepare.return_value = prepared
+                request = http.Request.make("GET", "http://host.tobari.test:3000/health")
+                flow = tflow.tflow(req=request)
+                captured = []
+
+                def decide(_url, document, _timeout):
+                    captured.append(document)
+                    return gateway.Decision(allow=allowed, reason="attachment", status_code=403, learnable=not allowed)
+
+                with (
+                    mock.patch.object(gateway, "normalize_ingress_authority", return_value=("http", route["hostname"], 3000)),
+                    mock.patch.object(gateway, "resolve_project_principal", return_value={"project_id": PROJECT, "context_id": CONTEXT, "context": "default", "project_root": "/workspace/project"}),
+                    mock.patch.object(gateway, "graphql_endpoint_declared", return_value=False),
+                    mock.patch.object(gateway, "mcp_endpoint_declared", return_value=False),
+                    mock.patch.object(gateway, "query_opa", side_effect=decide),
+                    mock.patch.object(gateway, "_audit"),
+                ):
+                    addon.requestheaders(flow)
+                self.assertEqual(captured[0]["destination"]["attachment_epoch_id"], route["attachment_epoch_id"])
+                self.assertEqual(captured[0]["request"]["authority"]["port"], 3000)
+                self.assertNotIn(route["relay_token"], json.dumps(captured[0]))
+                if allowed:
+                    addon.host_loopback_bridges.open.assert_called_once_with(route["relay_port"], route["relay_token"], 3000)
+                    self.assertEqual(flow.server_conn.address, ("127.0.0.1", 45000))
+                else:
+                    addon.host_loopback_bridges.open.assert_not_called()
+                    self.assertEqual(flow.response.status_code, 403)
     def test_provider_projection_caches_one_identity_and_revalidates_replacement(self):
         with tempfile.TemporaryDirectory() as temporary:
             path = os.path.join(temporary, "providers.json")

@@ -18,6 +18,10 @@ type policyDecisionSetRuntimePort interface {
 	) (tobari.PolicyActivationReceipt, error)
 }
 
+type attachmentGrantDecisionSetRuntimePort interface {
+	ApplyAttachmentGrantDecisionSet(context.Context, []tobari.AttachmentGrant) (tobari.PolicyActivationReceipt, error)
+}
+
 // ApplyPolicyReviewDecisionSet revalidates every staged opaque candidate
 // against fresh retained evidence, then records and activates the complete set
 // through one command-owned installation policy target.
@@ -71,6 +75,15 @@ func (s *Service) ApplyPolicyReviewDecisionSet(
 	byID := make(map[string]tobari.PolicyReviewItem, len(reviewItems))
 	for _, item := range reviewItems {
 		byID[item.ID] = item
+	}
+	hasAttachment := false
+	for _, decision := range set.Decisions {
+		if item, found := byID[decision.ReviewItemID]; found && item.Candidate != nil && item.Candidate.EffectiveDestinationKind() == tobari.PolicyDestinationHostLoopback {
+			hasAttachment = true
+		}
+	}
+	if hasAttachment {
+		return s.applyAttachmentPolicyReview(ctx, intent, set, byID)
 	}
 	updatedAllows := append([]tobari.LearnedPolicyRule{}, rules...)
 	updatedDenies := append([]tobari.PolicyDenyRule{}, denyRules.Exact...)
@@ -187,6 +200,64 @@ func (s *Service) ApplyPolicyReviewDecisionSet(
 		return tobari.PolicyReviewChange{}, fault.Wrap(
 			fault.KindContract, "invalid_policy_review_result", "reviewed policy result is invalid", false, err,
 		)
+	}
+	return result, nil
+}
+
+func (s *Service) applyAttachmentPolicyReview(
+	ctx context.Context, intent operation.Intent, set tobari.PolicyReviewDecisionSet,
+	byID map[string]tobari.PolicyReviewItem,
+) (tobari.PolicyReviewChange, error) {
+	runtime, ok := s.runtime.(attachmentGrantDecisionSetRuntimePort)
+	if !ok || portcheck.IsNil(runtime) {
+		return tobari.PolicyReviewChange{}, fault.New(fault.KindInternal, "missing_runtime", "attachment policy apply is not configured", false)
+	}
+	grants := make([]tobari.AttachmentGrant, 0, len(set.Decisions))
+	receipts := make([]tobari.PolicyReviewAppliedDecision, 0, len(set.Decisions))
+	allowCount, denyCount := 0, 0
+	epochID := ""
+	for _, decision := range set.Decisions {
+		item, found := byID[decision.ReviewItemID]
+		if !found || item.Match != tobari.PolicyMatchExact || item.Candidate == nil || decision.Match != tobari.PolicyMatchExact || item.Candidate.EffectiveDestinationKind() != tobari.PolicyDestinationHostLoopback {
+			return tobari.PolicyReviewChange{}, fault.New(fault.KindRejected, "policy_review_scope_mixed", "one Apply cannot mix persistent and attachment-scoped decisions", false,
+				fault.NextAction{Command: "policy review", Reason: "Apply attachment-scoped decisions separately."})
+		}
+		candidate := *item.Candidate
+		if epochID == "" {
+			epochID = candidate.AttachmentEpochID
+		} else if epochID != candidate.AttachmentEpochID {
+			return tobari.PolicyReviewChange{}, policyReviewChangedFault()
+		}
+		grant, err := tobari.NewAttachmentGrantFromCandidate(decision.Decision, candidate)
+		if err != nil {
+			return tobari.PolicyReviewChange{}, fault.Wrap(fault.KindContract, "invalid_candidate_contract", "attachment candidate cannot become a grant", false, err)
+		}
+		receipt, err := tobari.NewPolicyReviewAppliedAttachment(candidate, grant)
+		if err != nil {
+			return tobari.PolicyReviewChange{}, fault.Wrap(fault.KindContract, "invalid_candidate_contract", "attachment grant cannot become a reviewed receipt", false, err)
+		}
+		grants, receipts = append(grants, grant), append(receipts, receipt)
+		if decision.Decision == tobari.PolicyDecisionAllow {
+			allowCount++
+		} else {
+			denyCount++
+		}
+	}
+	request := execution.Request{Intent: intent, ExpectedCommand: "policy apply-reviewed", ExpectedEffect: operation.EffectWrite, ExpectedTarget: intent.Target, ExpectedImpact: intent.Impact}
+	activation := tobari.PolicyActivationReceipt{}
+	err := s.mutator.Invoke(ctx, request, func(actionContext context.Context, _ operation.Intent) error {
+		var applyErr error
+		activation, applyErr = runtime.ApplyAttachmentGrantDecisionSet(actionContext, grants)
+		return applyErr
+	})
+	if err != nil {
+		return tobari.PolicyReviewChange{}, fault.Wrap(fault.KindUnavailable, "attachment_policy_failed", "attachment policy activation did not complete", false, err,
+			fault.NextAction{Command: "policy review", Reason: "Review the still-active attachment again."})
+	}
+	result := tobari.PolicyReviewChange{Task: tobari.TaskPolicyReviewApply, PolicyDirectory: activation.PolicyDirectory,
+		AllowCount: allowCount, DenyCount: denyCount, Applied: true, ActiveRevision: activation.ActiveRevision, Decisions: receipts}
+	if err := result.Validate(); err != nil {
+		return tobari.PolicyReviewChange{}, fault.Wrap(fault.KindContract, "invalid_policy_review_result", "attachment policy result is invalid", false, err)
 	}
 	return result, nil
 }

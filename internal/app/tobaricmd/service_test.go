@@ -28,6 +28,8 @@ type fakeRuntime struct {
 	denyCalls           int
 	decisionSetCalls    int
 	decisionSetRevision string
+	attachmentCalls     int
+	attachmentGrants    []tobari.AttachmentGrant
 	activationReceipt   tobari.PolicyActivationReceipt
 	denials             []tobari.PolicyDenial
 	rules               []tobari.LearnedPolicyRule
@@ -202,6 +204,11 @@ func (f *fakeRuntime) ApplyPolicyDecisionSet(
 	receipt := f.policyActivationReceipt()
 	receipt.ActiveRevision = f.decisionSetRevision
 	return receipt, nil
+}
+func (f *fakeRuntime) ApplyAttachmentGrantDecisionSet(_ context.Context, grants []tobari.AttachmentGrant) (tobari.PolicyActivationReceipt, error) {
+	f.attachmentCalls++
+	f.attachmentGrants = append([]tobari.AttachmentGrant{}, grants...)
+	return tobari.PolicyActivationReceipt{PolicyDirectory: filepath.Join(filepath.Dir(f.state.PolicyDirectory), "host-loopback"), ActiveRevision: strings.Repeat("e", 64)}, nil
 }
 
 func (f *fakeRuntime) policyActivationReceipt() tobari.PolicyActivationReceipt {
@@ -897,6 +904,43 @@ func TestPolicyCandidatesProduceExactOpaqueReferenceAndTailTask(t *testing.T) {
 	}
 }
 
+func TestHostLoopbackCandidateIsOnlyExposedThroughPolicyReview(t *testing.T) {
+	t.Parallel()
+	project := testProjectInstance()
+	route, err := tobari.NewAttachmentHostLoopbackRoute(
+		"att_0123456789abcdef0123456789abcdef", project, 43179, strings.Repeat("3", 64),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	denial := tobari.PolicyDenial{
+		PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Scheme: "http", Protocol: tobari.PolicyProtocolHTTP},
+		Timestamp:              "2026-08-17T12:00:00Z", RequestID: "0123456789abcdef0123456789abcdef",
+		ContextID: route.ContextID, ContextName: route.ContextName,
+		ProjectID: route.ProjectID, ProjectRoot: route.ProjectRoot,
+		Host: route.Hostname, Port: 3000, Method: "GET", Path: "/health",
+		Reason: "review", StatusCode: 403, Learnable: true,
+		DestinationKind: tobari.PolicyDestinationHostLoopback, AuthorityLifetime: tobari.AuthorityLifetimeAttachment,
+		AttachmentEpochID: route.EpochID,
+	}
+	runtime := &fakeRuntime{state: testState(t.TempDir()), denials: []tobari.PolicyDenial{denial}}
+
+	candidates, err := New(runtime).PolicyCandidates(context.Background(), 75)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(candidates.Items) != 0 {
+		t.Fatalf("persistent policy candidates = %+v, want Host Loopback excluded", candidates.Items)
+	}
+	review, err := New(runtime).PolicyReview(context.Background(), 75)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(review.Items) != 1 || review.Items[0].EffectiveDestinationKind() != tobari.PolicyDestinationHostLoopback {
+		t.Fatalf("policy review = %+v, want Host Loopback candidate", review)
+	}
+}
+
 func TestServiceInteractiveRequiresTerminalStreams(t *testing.T) {
 	t.Parallel()
 	runtime := &projectRuntimeFake{fakeRuntime: &fakeRuntime{}, terminal: true}
@@ -1023,6 +1067,29 @@ func TestApplyPolicyReviewDecisionSetRevalidatesAndActivatesOnce(t *testing.T) {
 	}
 	if runtime.decisionSetCalls != 1 {
 		t.Fatalf("stale reviewed set caused a mutation: %d", runtime.decisionSetCalls)
+	}
+}
+
+func TestApplyPolicyReviewDecisionSetKeepsHostLoopbackAuthorityAttachmentScoped(t *testing.T) {
+	t.Parallel()
+	project := testProjectInstance()
+	route, err := tobari.NewAttachmentHostLoopbackRoute("att_0123456789abcdef0123456789abcdef", project, 43179, strings.Repeat("3", 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	denial := tobari.PolicyDenial{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Scheme: "http", Protocol: tobari.PolicyProtocolHTTP}, Timestamp: "2026-08-17T12:00:00Z", RequestID: "0123456789abcdef0123456789abcdef", ContextID: route.ContextID, ContextName: route.ContextName, ProjectID: route.ProjectID, ProjectRoot: route.ProjectRoot, Host: route.Hostname, Port: 3000, Method: "GET", Path: "/health", Reason: "review", StatusCode: 403, Learnable: true, DestinationKind: tobari.PolicyDestinationHostLoopback, AuthorityLifetime: tobari.AuthorityLifetimeAttachment, AttachmentEpochID: route.EpochID}
+	candidate, err := tobari.NewPolicyCandidate(denial)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime := &fakeRuntime{state: testState(t.TempDir()), denials: []tobari.PolicyDenial{denial}}
+	intent := operation.Intent{Command: "policy apply-reviewed", Effect: operation.EffectWrite, Target: operation.TargetRef{Kind: tobari.PolicyDecisionSetKind, ID: tobari.PolicyDecisionSetID}, Impact: operation.Impact{Cardinality: operation.CardinalityMany, Notification: operation.DeclarationNo, AccessChange: operation.DeclarationYes, Destructive: operation.DeclarationNo}}
+	result, err := New(runtime).ApplyPolicyReviewDecisionSet(context.Background(), intent, tobari.PolicyReviewDecisionSet{Decisions: []tobari.PolicyReviewDecision{{ReviewItemID: candidate.ID, Decision: tobari.PolicyDecisionAllow, Match: tobari.PolicyMatchExact}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runtime.attachmentCalls != 1 || runtime.decisionSetCalls != 0 || len(runtime.attachmentGrants) != 1 || runtime.attachmentGrants[0].Lifetime != tobari.AuthorityLifetimeAttachment || result.Decisions[0].AuthorityLifetime != tobari.AuthorityLifetimeAttachment {
+		t.Fatalf("result=%+v attachment_calls=%d persistent_calls=%d grants=%+v", result, runtime.attachmentCalls, runtime.decisionSetCalls, runtime.attachmentGrants)
 	}
 }
 
