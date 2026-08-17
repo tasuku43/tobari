@@ -7,7 +7,8 @@
 - Supersedes: [ADR 0006: Send generic HTTP input to OPA](0006-send-generic-http-input-to-opa.md)
 - Superseded by: None
 - Revised by: ADR 0027 places GraphQL input, audit, and policy output inside
-  exact V1
+  exact V1; ADR 0056 accepts an absent `Content-Length` under finite transport
+  and semantic body caps
 
 ## Context
 
@@ -149,3 +150,11 @@ Reconsider when supported tools require GraphQL GET, subscriptions, multipart
 uploads, persisted documents, or target-aware argument policy; when the 1 MiB
 bound rejects routine documents; or when parser/spec drift makes the accepted
 subset incompatible with common clients.
+
+## Revision by ADR 0056
+
+ADR 0056 replaces the positive-declared-length requirement. A declared
+GraphQL POST may omit `Content-Length` when transfer and content encoding are
+also absent. The fixed 8 MiB mitmproxy cap bounds receipt, and Gateway rejects
+an actual body over 1 MiB before parsing, policy, or upstream I/O. Present
+lengths retain the original positive, unique, bounded, and exact contract.

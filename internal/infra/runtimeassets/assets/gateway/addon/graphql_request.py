@@ -101,7 +101,7 @@ def validate_graphql_post_headers(
     method: str,
     headers: Iterable[tuple[str, str]],
     limits: GraphQLParseLimits,
-) -> int:
+) -> int | None:
     """Reject an unsafe GraphQL transport envelope before buffering its body."""
 
     limits.validate()
@@ -125,23 +125,6 @@ def validate_graphql_post_headers(
             "GraphQL request Content-Type must be application/json UTF-8",
         )
 
-    content_lengths = _header_values(pairs, "content-length")
-    if len(content_lengths) != 1 or not _POSITIVE_DECIMAL.fullmatch(
-        content_lengths[0].strip()
-    ):
-        _reject(
-            "invalid_content_length",
-            "GraphQL request requires one positive Content-Length",
-        )
-    raw_length = content_lengths[0].strip()
-    if len(raw_length) > 10:
-        _reject(
-            "invalid_content_length",
-            "GraphQL request Content-Length is invalid",
-        )
-    declared_length = int(raw_length)
-    if declared_length > limits.body_bytes:
-        _reject("body_too_large", "GraphQL request body exceeds its size limit")
     if _header_values(pairs, "transfer-encoding"):
         _reject(
             "unsupported_transfer_encoding",
@@ -152,6 +135,24 @@ def validate_graphql_post_headers(
             "unsupported_content_encoding",
             "GraphQL request content encoding is unsupported",
         )
+
+    content_lengths = _header_values(pairs, "content-length")
+    if not content_lengths:
+        return None
+    if len(content_lengths) != 1 or not _POSITIVE_DECIMAL.fullmatch(content_lengths[0].strip()):
+        _reject(
+            "invalid_content_length",
+            "GraphQL request Content-Length must be one positive decimal value",
+        )
+    raw_length = content_lengths[0].strip()
+    if len(raw_length) > 10:
+        _reject(
+            "invalid_content_length",
+            "GraphQL request Content-Length is invalid",
+        )
+    declared_length = int(raw_length)
+    if declared_length > limits.body_bytes:
+        _reject("body_too_large", "GraphQL request body exceeds its size limit")
     return declared_length
 
 
@@ -164,7 +165,9 @@ def _validate_transport(
     if not isinstance(body, bytes):
         _reject("invalid_body", "GraphQL request body must be bytes")
     declared_length = validate_graphql_post_headers(method, headers, limits)
-    if declared_length != len(body):
+    if len(body) > limits.body_bytes:
+        _reject("body_too_large", "GraphQL request body exceeds its size limit")
+    if declared_length is not None and declared_length != len(body):
         _reject(
             "content_length_mismatch",
             "GraphQL request Content-Length does not match its body",

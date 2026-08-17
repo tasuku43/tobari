@@ -755,6 +755,72 @@ class ReviewedBrokerGatewayTests(unittest.TestCase):
         self.assertEqual(len(audit.call_args_list), 2)
         self.assertTrue(all(call.kwargs["scheme"] == "https" for call in audit.call_args_list))
 
+    def test_lengthless_graphql_is_buffered_bounded_and_authorized_semantically(self):
+        addon = gateway.TobariGateway.__new__(gateway.TobariGateway)
+        addon.cluster = "default"
+        addon.opa_url = "http://opa.invalid/decision"
+        addon.opa_timeout = 2
+        addon.graphql_config = {}
+        addon.principal_source = mock.Mock()
+        addon.principal_source.load.return_value = {}
+        prepared = mock.Mock(secret_headers={"authorization"}, broker_provider=None, deferred=False)
+        addon.credential_adapter = mock.Mock()
+        addon.credential_adapter.prepare.return_value = prepared
+        body = b'{"query":"query TwgCLI_WhoAmIRich { me { user { name } } }"}'
+        request = http.Request.make(
+            "POST",
+            "https://api.atlassian.com/graphql",
+            content=body,
+            headers={"content-type": "application/json", "authorization": "Bearer canary"},
+        )
+        del request.headers["content-length"]
+        flow = tflow.tflow(req=request)
+        principal = {
+            "project_id": PROJECT,
+            "context_id": CONTEXT,
+            "context": "default",
+            "project_root": "/workspace/project",
+        }
+        policy_inputs = []
+
+        def allow(_url, document, _timeout):
+            policy_inputs.append(document)
+            return gateway.Decision(
+                allow=True,
+                reason="allowed by exact Context baseline",
+                status_code=200,
+                learnable=False,
+            )
+
+        with (
+            mock.patch.object(
+                gateway,
+                "normalize_ingress_authority",
+                return_value=("https", "api.atlassian.com", 443),
+            ),
+            mock.patch.object(gateway, "resolve_project_principal", return_value=principal),
+            mock.patch.object(gateway, "graphql_endpoint_declared", return_value=True),
+            mock.patch.object(gateway, "query_opa", side_effect=allow),
+            mock.patch.object(gateway, "commit_upstream_authority") as commit,
+            mock.patch.object(gateway, "_audit") as audit,
+        ):
+            addon.requestheaders(flow)
+            self.assertIsNone(flow.response)
+            self.assertFalse(flow.request.stream)
+            self.assertIn("tobari_graphql_pending", flow.metadata)
+            addon.request(flow)
+
+        self.assertEqual(len(policy_inputs), 1)
+        self.assertEqual(
+            policy_inputs[0]["request"]["graphql"],
+            {"operation_type": "query", "root_fields": ["me"]},
+        )
+        self.assertNotIn("TwgCLI_WhoAmIRich", json.dumps(policy_inputs[0]))
+        self.assertNotIn("canary", json.dumps(policy_inputs[0]))
+        prepared.apply.assert_called_once_with(flow.request)
+        commit.assert_called_once_with(flow)
+        audit.assert_not_called()
+
     def test_broker_error_maps_reviewed_dynamic_outcomes(self):
         with self.assertRaises(broker.BrokerCredentialBindingError):
             broker._broker_response(json.dumps({

@@ -108,6 +108,28 @@ class GraphQLRequestParserTests(unittest.TestCase):
         self.assertEqual(result.operation_type, renamed.operation_type)
         self.assertEqual(result.root_fields, renamed.root_fields)
 
+    def test_extracts_twg_current_user_identity_without_retaining_details(self):
+        result = self.parse(
+            """
+            query TwgCLI_WhoAmIRich {
+              me {
+                user {
+                  ... on AtlassianAccountUser {
+                    accountId
+                    email
+                    name
+                  }
+                }
+              }
+            }
+            """
+        )
+        self.assertEqual(result.operation_type, "query")
+        self.assertEqual(result.root_fields, ("me",))
+        self.assertNotIn("TwgCLI_WhoAmIRich", repr(result))
+        self.assertNotIn("accountId", repr(result))
+        self.assertNotIn("email", repr(result))
+
     def test_accepts_only_absent_null_or_empty_extensions(self):
         self.parse("{ viewer }", extensions=None)
         self.parse("{ viewer }", extensions={})
@@ -124,6 +146,16 @@ class GraphQLRequestParserTests(unittest.TestCase):
             headers=self.headers(body, "Application/JSON;Charset=UTF-8"),
             body=body,
         )
+        self.assertEqual(result.root_fields, ("viewer",))
+
+    def test_accepts_absent_content_length_after_bounded_buffering(self):
+        body = self.body("{ viewer }")
+        result = parse_graphql_post_request(
+            method="POST",
+            headers=[("Content-Type", "application/json")],
+            body=body,
+        )
+        self.assertEqual(result.operation_type, "query")
         self.assertEqual(result.root_fields, ("viewer",))
 
     def test_rejects_transport_outside_the_bounded_post_subset(self):
@@ -199,6 +231,17 @@ class GraphQLRequestParserTests(unittest.TestCase):
                     "body": body,
                 },
             ),
+            "lengthless transfer encoding": (
+                "unsupported_transfer_encoding",
+                {
+                    "method": "POST",
+                    "headers": [
+                        ("Content-Type", "application/json"),
+                        ("Transfer-Encoding", "chunked"),
+                    ],
+                    "body": body,
+                },
+            ),
             "content encoding": (
                 "unsupported_content_encoding",
                 {
@@ -223,6 +266,16 @@ class GraphQLRequestParserTests(unittest.TestCase):
                     ("Content-Type", "application/json"),
                     ("Content-Length", str(1024 * 1024 + 1)),
                 ],
+                body=body,
+            )
+        self.assertEqual(caught.exception.code, "body_too_large")
+
+    def test_rejects_oversized_lengthless_body_before_parsing(self):
+        body = b"{" + b"x" * (1024 * 1024) + b"}"
+        with self.assertRaises(GraphQLRequestError) as caught:
+            parse_graphql_post_request(
+                method="POST",
+                headers=[("Content-Type", "application/json")],
                 body=body,
             )
         self.assertEqual(caught.exception.code, "body_too_large")
