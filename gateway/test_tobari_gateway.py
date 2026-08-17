@@ -235,6 +235,7 @@ class ValidatedRuntimeFileCacheTests(unittest.TestCase):
                 addon.credential_adapter = mock.Mock()
                 addon.credential_adapter.prepare.return_value = prepared
                 request = http.Request.make("GET", "http://host.tobari.test:3000/health")
+                request.headers["Host"] = "host.tobari.test:3000"
                 flow = tflow.tflow(req=request)
                 captured = []
 
@@ -257,6 +258,8 @@ class ValidatedRuntimeFileCacheTests(unittest.TestCase):
                 if allowed:
                     addon.host_loopback_bridges.open.assert_called_once_with(route["relay_port"], route["relay_token"], 3000)
                     self.assertEqual(flow.server_conn.address, ("127.0.0.1", 45000))
+                    self.assertEqual((flow.request.host, flow.request.port), ("127.0.0.1", 45000))
+                    self.assertEqual(flow.request.host_header, "host.tobari.test:3000")
                 else:
                     addon.host_loopback_bridges.open.assert_not_called()
                     self.assertEqual(flow.response.status_code, 403)

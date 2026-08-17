@@ -2136,7 +2136,7 @@ host_attachment_events=$(python3 -c '
 import json
 import sys
 print(json.dumps([
-    {"after_ms": 3000, "data": """printf %s "$TOBARI_CAPABILITIES_JSON" > /var/lib/tobari/host-capabilities.json; curl -sS -o /dev/null -w "%{http_code}" http://host.tobari.test:""" + sys.argv[1] + """/health > /var/lib/tobari/host-denial-status\n"""},
+    {"after_ms": 3000, "data": """{ printf "%s\\n" "$TOBARI_CAPABILITIES_JSON"; curl -sS -o /dev/null -w "%{http_code}" http://host.tobari.test:""" + sys.argv[1] + """/health; curl_status=$?; printf "\\n"; test "$curl_status" -eq 0; } > /var/lib/tobari/host-probe.tmp && mv /var/lib/tobari/host-probe.tmp /var/lib/tobari/host-probe\n"""},
     {"after_ms": 25000, "data": "exit\n"},
 ]))
 ' "$host_service_port")
@@ -2145,13 +2145,24 @@ TOBARI_TEST_PTY_TIMEOUT_SECONDS=40 \
   run_tobari_pty_at "$work_root" \
   >"$test_root/host-attachment.out" 2>&1 &
 host_service_attachment_pid=$!
-for _ in $(seq 1 100); do
-  if run_project test -s /var/lib/tobari/host-denial-status >/dev/null 2>&1; then
+for _ in $(seq 1 300); do
+  if run_project test -s /var/lib/tobari/host-probe >/dev/null 2>&1; then
     break
+  fi
+  if ! kill -0 "$host_service_attachment_pid" >/dev/null 2>&1; then
+    wait "$host_service_attachment_pid" || true
+    host_service_attachment_pid=
+    cat "$test_root/host-attachment.out" >&2
+    fail "Host Loopback attachment exited before its capability probe completed"
   fi
   sleep 0.1
 done
-host_capabilities=$(run_project cat /var/lib/tobari/host-capabilities)
+if ! run_project test -s /var/lib/tobari/host-probe >/dev/null 2>&1; then
+  cat "$test_root/host-attachment.out" >&2
+  fail "Host Loopback attachment did not complete its capability probe"
+fi
+host_probe=$(run_project cat /var/lib/tobari/host-probe)
+host_capabilities=$(sed -n '1p' <<<"$host_probe")
 HOST_CAPABILITIES="$host_capabilities" python3 <<'PY'
 import json
 import os
@@ -2174,7 +2185,7 @@ if document != {
 if "relay" in os.environ["HOST_CAPABILITIES"] or "token" in os.environ["HOST_CAPABILITIES"]:
     raise SystemExit("Host Loopback capability projection disclosed relay authority")
 PY
-host_denial_status=$(run_project cat /var/lib/tobari/host-denial-status)
+host_denial_status=$(sed -n '2p' <<<"$host_probe")
 [[ $host_denial_status == 403 ]] || fail "unreviewed Host Loopback returned $host_denial_status instead of 403"
 
 host_review=
@@ -2219,6 +2230,47 @@ if ! host_review_output=$(TOBARI_TEST_PTY_TIMEOUT_SECONDS=15 \
 fi
 assert_contains "$host_review_output" "Host Loopback" "Host Loopback review presentation"
 assert_contains "$host_review_output" "attachment-scoped" "Host Loopback review presentation"
+python3 - "$config_directory/host-loopback/routes.json" "$work_id" "$host_service_port" <<'PY'
+import json
+import socket
+import sys
+
+routes = json.load(open(sys.argv[1], encoding="utf-8"))["routes"]
+route = next(item for item in routes if item["project_id"] == sys.argv[2])
+target_port = int(sys.argv[3])
+with socket.create_connection(("127.0.0.1", route["relay_port"]), timeout=3) as relay:
+    relay.sendall(b"C" + route["relay_token"].encode("ascii") + target_port.to_bytes(2, "big"))
+    if relay.recv(2) != b"OK":
+        raise SystemExit("reviewed Host Loopback relay rejected its trusted-host integration probe")
+    relay.sendall(b"GET /health HTTP/1.1\r\nHost: host.tobari.test\r\nConnection: close\r\n\r\n")
+    response = bytearray()
+    while chunk := relay.recv(65536):
+        response.extend(chunk)
+if b"host-service-ok" not in response:
+    raise SystemExit("reviewed Host Loopback relay did not forward its trusted-host integration probe")
+PY
+python3 - "$config_directory/host-loopback/routes.json" "$work_id" <<'PY' |
+import json
+import sys
+
+routes = json.load(open(sys.argv[1], encoding="utf-8"))["routes"]
+route = next(item for item in routes if item["project_id"] == sys.argv[2])
+json.dump({"relay_port": route["relay_port"], "relay_token": route["relay_token"]}, sys.stdout)
+PY
+  docker exec -i tobari-gateway python3 -c '
+import json
+import socket
+import sys
+
+route = json.load(sys.stdin)
+try:
+    with socket.create_connection(("host.docker.internal", route["relay_port"]), timeout=3) as relay:
+        relay.sendall(b"P" + route["relay_token"].encode("ascii"))
+        if relay.recv(2) != b"OK":
+            raise OSError("relay rejected probe")
+except OSError:
+    raise SystemExit("Gateway could not authenticate to the active Host Loopback relay")
+'
 host_retry=$(run_project curl -fsS "http://host.tobari.test:$host_service_port/health")
 assert_contains "$host_retry" "host-service-ok" "reviewed physical-host HTTP response"
 host_rules=$(run_tobari policy rules --format json)

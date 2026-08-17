@@ -1191,7 +1191,14 @@ class TobariGateway:
             else:
                 if host_loopback is not None:
                     flow.metadata.pop("tobari_transparent_authority", None)
-                    flow.server_conn.address = self.host_loopback_bridges.open(host_loopback["relay_port"], host_loopback["relay_token"], port)
+                    original_host_header = flow.request.host_header
+                    bridge_address = self.host_loopback_bridges.open(
+                        host_loopback["relay_port"], host_loopback["relay_token"], port
+                    )
+                    flow.request.host = bridge_address[0]
+                    flow.request.port = bridge_address[1]
+                    flow.request.host_header = original_host_header
+                    flow.server_conn.address = bridge_address
                 else:
                     commit_upstream_authority(flow)
                 # Authorization is complete before mitmproxy forwards any body bytes.
