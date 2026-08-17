@@ -30,6 +30,11 @@ additionally receive their native host-browser and localhost callback experience
 through one session-scoped, pinned-client bridge. The user supplies no port,
 URL, device mode, or manual callback transfer. Caller-added GitHub scopes,
 GitHub Enterprise hosts, and SSH-key upload remain outside that bridge.
+For GitHub and compatible custom-runtime TWG manual-code login, the native CLI
+invokes the attachment-scoped opener only after its existing confirmation, so
+the visible code can be copied first. Claude, Codex, and GitHub callback-bearing
+flows invoke it immediately. Tobari does not observe child output, consume child
+input, or provide a clipboard shortcut.
 
 Every interactive entry exposes the constant Host Loopback capability
 `http://host.tobari.test:{port}` for physical-host IPv4 loopback HTTP on ports
@@ -78,7 +83,10 @@ operation type and canonical root fields from one bounded body; each root is a
 separate exact permission. Gateway does not expose body content, body hashes,
 GraphQL source, operation names, variables, arguments, aliases, fragments,
 directives, nested selections, or literal values to OPA, retained evidence,
-policy actions, audit output, or CLI output.
+policy actions, audit output, or CLI output. A request may omit
+`Content-Length` only without transfer/content encoding; the fixed 8 MiB
+transport cap bounds receipt and Gateway rejects a complete body over 1 MiB
+before parsing or policy.
 Denial audit retains only the URL path component, never the query or headers.
 If that path contains a Tobari handle marker, the whole recorded path is the
 literal `/[redacted-auth-handle]`. Structural URL/header handle rejections are
@@ -163,11 +171,13 @@ or source build unless a Linux Homebrew Formula contract is added explicitly.
   and Chatwork; the experimental profile adds AWS without making it runtime configurable.
   Owner data declares no executable shell, helper choice, refresh, signing,
   arbitrary route, HTTP method/path policy, or provider operation semantics.
-- **Context:** one immutable host-owned capability envelope with a stable
+- **Context:** one host-owned capability envelope with a stable
   opaque ID and a human name. Its manifest records direct source access,
   normalized policy-preset origin and snapshot revision, and references an
   agent profile, compatible Tobari runtime image, and policy store. Its stable
-  ID determines policy and runtime ownership. Experimental builds may maintain
+  ID determines policy and runtime ownership. The exact `builtin/agent-ready`
+  origin additionally selects the installed trusted binary's current native
+  readiness overlay without mutating the snapshot. Experimental builds may maintain
   separate Context-owned Auth Broker state; the manifest contains no broker
   vault path, key, or secret.
 - **current Context:** only the default Context used when an invocation omits
@@ -218,7 +228,7 @@ The public commands are:
 | `status [--context NAME] [--format text|json]` | utility | read | Inspect the nearest current-directory Workspace in the explicit or current Context, its logical existence, runtime diagnostic, and attached/detached session observation |
 | `list [--format text|json]` | utility | read | List local Workspaces with Context, runtime diagnostics, and diagnostic IDs |
 | `delete [--context NAME] [--force]` | act, fixed target | write | Delete the nearest current-directory Workspace in the explicit or current Context, its owned runtime, persistent home, and tool-owned authentication state while preserving project files; `--force` overrides only the attached-session guard |
-| `cluster status [--format text|json]` | utility | read | Inspect Gateway/OPA health, loaded Context count, aggregate revision, policy/Gateway projection integrity, and recent errors |
+| `cluster status [--format text|json]` | utility | read | Inspect Gateway/OPA health, loaded Context count, aggregate revision, current-binary policy/Gateway projection integrity, and recent errors |
 | `cluster denials [--tail N] [--format text|json]` | utility | read | Read a bounded typed denial window, exact-rule learnability, policy path, and review command |
 | `cluster logs [--component gateway|opa|all] [--tail N]` | utility | read | Read bounded shared logs, including policy-denial evidence, without credential output |
 | `cluster down [--purge]` | act, fixed target | write | Remove shared transient resources after every logical Tobari is deleted; `--purge` additionally removes shared CA and active policy-bundle volumes |
@@ -228,7 +238,7 @@ The public commands are:
 | `policy deny --id ID` | act, reference bound | write | Test, record, and activate one exact project-bound rejection |
 | `policy rules [--format text|json]` | discover | read | List every Context-scoped CLI-owned learned Allow and exact Deny decision; on a TTY, reset one explicitly |
 | `policy reset --id ID` | act, reference bound | write | Remove one learned decision and leave its effect at default deny |
-| `policy preset list [--format text\|json]` | utility | read | List the exhaustive installed built-in and custom policy preset catalog with immutable revisions and guardrails |
+| `policy preset list [--format text\|json]` | utility | read | List the exhaustive installed built-in and custom policy preset catalog with current content revisions and guardrails |
 | `policy preset show --name PRESET [--format text\|json]` | utility | read | Inspect one complete normalized policy preset without activating it |
 | `policy preset init --name NAME [--format text\|json]` | act, fixed target | create | Create one owner-only strict custom policy preset template without overwriting |
 | `policy preset validate --name PRESET [--format text\|json]` | utility | read | Strictly validate, normalize, and digest one custom preset source without changing Context or active policy |
@@ -468,19 +478,29 @@ undeclared Docker mutation by the CLI.
   Python, SSH, GitHub CLI, AWS CLI, Claude Code 2.1.220, and Codex 0.147.0.
   Both agent executables live outside the mutable Workspace home; Claude
   self-update is disabled and Codex uses its pinned standalone package.
-  `kubectl`, `cwk`, `pup`, and TWG are not added to the base. A selected custom
-  Context runtime must provide a structurally compatible pup before Datadog
-  login can run. The protected release workflow publishes the reviewed combined
+  `kubectl`, `cwk`, `pup`, and TWG are not added to the base. `twg_ready`
+  supplies only TWG CLI 1.2.5 network/browser lifecycle readiness, including
+  exact site inventory, stable CLI manifest, token revoke, and GraphQL `query`
+  / `me` current-user lookup; `pup_ready` supplies only
+  pup 1.10.7 default-US1 DCR, token, browser, and callback readiness. Neither
+  bundle installs its client. A selected custom Context runtime must provide
+  the exact compatible client before its login can run. The protected release workflow publishes the reviewed combined
   base as one immutable Linux amd64/arm64 index alongside Gateway and Auth
   Broker. A local image or standalone validation workflow is not publication authority.
 - The pinned client versions and `builtin/agent-ready` exact and semantic effect catalog are
   one compatibility contract. Its compile-time `claude_ready`, `codex_ready`,
-  and `gh_ready` bundles expand into exact native-authentication effects;
-  GitHub CLI additionally receives only GraphQL `query` root `viewer` at its
-  declared exact API endpoint. The bundles are not runtime selectors or
-  executable identity. Updating a pinned client
-  requires reviewing its artifact lock, authentication bundle, host
-  interactions, and core control-plane effects. Separate agent-image recipes
+  `gh_ready`, custom-runtime `twg_ready`, and custom-runtime `pup_ready`
+  bundles are projected by the
+  installed binary into exact native-authentication effects for every existing
+  and future agent-ready Context;
+  GitHub CLI additionally receives only GraphQL `query` root `viewer`, and TWG
+  CLI receives only exact site inventory, stable CLI manifest, token revoke,
+  and GraphQL `query` root `me`, at their declared exact API endpoints;
+  pup receives only exact US1 DCR registration and token exchange/refresh.
+  The bundles are not runtime selectors or
+  executable identity. Updating a pinned client or its independent readiness
+  contract revision requires reviewing its artifact lock where changed, exact
+  effects, host interactions, and core control-plane effects. Separate agent-image recipes
   remain build-only validation inputs and create no second authority boundary.
 - Project metadata does not select or alter the runtime image. Workspaces use
   their permanently bound Context image when created and again when their runtime container
@@ -768,10 +788,21 @@ synthetic state.
   grants the reviewed Claude Code 2.1.220 and Codex 0.147.0 native model,
   account, bootstrap, first-party capability-discovery, bounded evaluation,
   and telemetry effects plus the pinned GitHub CLI 2.96.0 exact device-login
-  bootstrap and GraphQL `query` / `viewer` current-user effects to every process
-  in the Context. Compile-time
-  `claude_ready`, `codex_ready`, and `gh_ready` names are review provenance and
-  are expanded before snapshot persistence. Strict schema V1 carries optional
+  bootstrap and GraphQL `query` / `viewer` current-user effects, plus TWG CLI
+  1.2.5 exact device-code/token/revoke, site inventory, stable CLI manifest,
+  and GraphQL `query` / `me` current-user effects,
+  plus pup 1.10.7 exact US1 DCR registration and token exchange/refresh when
+  supplied by a custom runtime, to
+  every process in the Context. Those native readiness effects are not stored
+  in new snapshots. Compile-time `claude_ready`, `codex_ready`, `gh_ready`, and
+  `twg_ready`, and `pup_ready` names are review provenance; aggregate generation strips their
+  complete historical snapshot forms and projects the installed binary's
+  current set. The five families, their pinned client version, current
+  readiness contract revision, and append-only historical contracts are
+  declared in one dedicated compile-time catalog. If the active
+  aggregate revision differs from the revision desired by that catalog and
+  the current Context sources, status reports an invalid policy projection and
+  root entry requires explicit `cluster up`. Strict schema V1 carries optional
   GraphQL protocol/operation/root identity on a `baseline_grants` item and keeps
   the existing explicit `mcp_baseline_grants` collection; every semantic grant
   requires its matching declared exact endpoint. HTTP-only normalized snapshots
@@ -816,20 +847,24 @@ Tool authentication state is not cluster configuration. In standard it belongs
 below the selected instance's persistent home, is created by the tool's own
 login, and follows the ordinary post-policy passthrough route.
 The attached host process may transiently validate one exact Claude Code, Codex,
-or GitHub CLI authorization URL and open it. Codex and GitHub web-application
-callback variants may relay one opaque host-loopback callback to that same
-selected Workspace; Claude's remote callback and GitHub's device target create
-no listener. Claude Code 2.1.220 must use its fixed client, redirect, PKCE shape,
+GitHub CLI, custom-runtime TWG, or custom-runtime pup authorization URL and open
+it. Codex, GitHub web-application, and pup callback variants may relay one
+opaque host-loopback callback to that same selected Workspace; Claude's remote
+callback, GitHub's device target, and TWG's device target create no listener.
+Pup is limited to the exact US1 authorization route, a bounded DCR client ID,
+the sorted pup 1.10.7 default-scope ceiling, and exact
+`127.0.0.1:{8000,8080,8888,9000}/oauth/callback`. Claude Code 2.1.220 must use its fixed client, redirect, PKCE shape,
 and complete reviewed scope set. For exact default `gh auth login`, the canonical
 runtime's pinned compatibility wrapper selects the reviewed GitHub.com HTTPS
-device workflow, disables GitHub CLI prompting and its Workspace browser, and
-lets the client begin polling without Enter. After success it delegates fixed
+device workflow and inherits the attachment-scoped `GH_BROWSER` opener.
+The client displays its code and waits for native Enter; only then does it invoke
+that opener. After success the wrapper delegates fixed
 Git credential setup to the same pinned client. Other GitHub CLI argv remains
-native. The bridge recognizes the wrapper's exact fixed-device URL line as well
-as the legacy complete no-newline prompt; either is only stream framing and its
-strict URL supplies browser authority. The bridge stores no callback or OAuth
-value and creates no cluster service or durable authentication state. The
-observation path preserves child bytes and the real Docker terminal boundary.
+native. TWG likewise invokes the shared opener after its native browser
+confirmation. The dedicated schema-v1 request is not URL authority; the host
+independently validates the target and Workspace. The bridge stores no callback, code, credential, or
+durable authentication state and creates no cluster service. The
+attached shell retains the real Docker terminal boundary without an observation path.
 Experimental Broker state is separate installation state:
 the normalized schema-v1 provider projection is generated below
 `auth/projection/providers.json`; schema-1-envelope/schema-1-payload Context

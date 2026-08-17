@@ -16,9 +16,11 @@ Query and headers can be Advanced-Rego constraints but are not guided learned-
 permission identity. Ordinary bodies are payload and stream only after allow.
 
 A declared exact GraphQL endpoint is the bounded exception: Gateway accepts one
-unambiguous positive-length JSON body of at most 1 MiB, derives only operation
-type and canonical root fields, asks OPA for every root coordinate, and
-forwards the original bytes once after allow. Source, operation name, variables,
+unambiguous positive length of at most 1 MiB, or an absent length without
+transfer/content encoding under the fixed 8 MiB transport cap. It rejects a
+complete body over 1 MiB, derives only operation type and canonical root
+fields, asks OPA for every root coordinate, and forwards the original bytes
+once after allow. Source, operation name, variables,
 arguments, aliases, fragments, directives, nested selections, literals, and
 body hashes never enter policy, evidence, audit, or CLI output.
 
@@ -39,9 +41,20 @@ exact policy, or Advanced Rego. `builtin/agent-ready` grants the reviewed
 Claude Code 2.1.220 and Codex 0.147.0 model/account/bootstrap, first-party
 capability discovery, bounded evaluation, telemetry, and MCP initialize/list
 effects plus GitHub CLI 2.96.0's exact native device bootstrap/exchange effects
-and exact GraphQL `query` / `viewer` current-user lookup. Compile-time
-`claude_ready`, `codex_ready`, and `gh_ready` bundles
-expand into ordinary exact rules and are not runtime selectors. Those are
+and exact GraphQL `query` / `viewer` current-user lookup, and TWG CLI 1.2.5's
+exact device-code/token/revoke, site inventory, stable manifest, and GraphQL
+`query` / `me` current-user effects, plus
+pup 1.10.7's exact US1 DCR registration and token exchange/refresh when
+supplied by a custom runtime. Compile-time
+`claude_ready`, `codex_ready`, `gh_ready`, `twg_ready`, and `pup_ready` bundles are projected
+from the installed trusted binary into ordinary exact rules for the exact
+`builtin/agent-ready` origin and are not runtime selectors. New snapshots omit
+them; legacy bundle rules are removed from the effective projection before the
+current set is added. One dedicated compile-time family catalog owns pinned
+client versions, independently selected positive contract revisions, and
+append-only removal history. Observed traffic cannot extend it, and its
+effective content participates in the aggregate
+revision checked by status and Workspace entry. Those are
 Context-wide semantic effects rather than executable
 identity, and exact Deny remains terminal. MCP actions, file transfer,
 downloads, acquisition, self-update, and unmatched effects receive no baseline
@@ -55,7 +68,8 @@ creates no candidate and causes zero external DNS or upstream calls.
 
 The native-login matrix explicitly includes Claude's platform hello/token and
 Anthropic profile/roles requests, Codex's OAuth token and two device-auth
-requests, and GitHub CLI's two device bootstrap/exchange requests. Exact
+requests, GitHub CLI's two device bootstrap/exchange requests, TWG's device and
+identity effects, and pup's two exact US1 OAuth POSTs. Exact
 methods, authorities, and paths are defined in
 [Authentication handling](07_authentication.md#standard-native-workspace-authentication).
 The Claude regression proves that successful token exchange cannot be followed
@@ -79,6 +93,26 @@ transport adds no Workspace HTTP authority; `gh_ready` separately adds only
 baseline. No other GitHub API,
 Git transport, repository, download, upload, release, self-update, or
 neighboring authentication effect is included.
+
+TWG's host transport is host-open-only: one exact bounded `Visit: ` line may
+open `https://auth.atlassian.com/oauth/activate` with exactly one bounded
+unreserved `user_code`. It creates no callback listener and adds no Workspace
+HTTP authority. `twg_ready` separately adds only exact `POST
+/oauth/device/code`, `POST /oauth/token`, and `POST /oauth/revoke` at
+`auth.atlassian.com`; exact `POST /accessible-products` and GraphQL `query` /
+`me` at `api.atlassian.com`; and exact `GET /cli/manifest.json` at
+`teamwork-graph.atlassian.com`. Ordinary HTTP at the GraphQL route, mutation,
+sibling or mixed roots, REST, beta manifest, installer, checksum, artifact,
+update execution, download, telemetry, and neighboring effects are absent.
+
+Pup's host transport accepts only the exact default-US1 authorization route,
+bounded DCR/state/PKCE shapes, a sorted subset of the pup 1.10.7 compiled scope
+ceiling, and one exact `127.0.0.1:{8000,8080,8888,9000}/oauth/callback` target.
+It binds before browser open and relays one opaque callback to the selected
+Workspace. `pup_ready` separately adds only exact `POST
+/api/v2/oauth2/register` and `POST /oauth2/v1/token` at
+`api.datadoghq.com`. Product APIs, telemetry, revoke, alternate sites,
+caller-added scopes, and neighboring OAuth effects are absent.
 
 ## Experimental Broker contract
 

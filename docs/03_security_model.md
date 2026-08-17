@@ -11,7 +11,8 @@ access other host files, another Tobari, Docker control, real host-managed
 credentials, OPA administration, or direct Internet egress through the
 supported configuration. In standard, tool-owned credentials exist inside one
 Tobari's exact home only by explicit user action and are forwarded only after
-OPA allow. Pinned Claude Code, Codex, and GitHub CLI native login may also use a
+OPA allow. Pinned Claude Code, Codex, GitHub CLI, custom-runtime TWG, and
+custom-runtime pup native login may also use a
 session-scoped host-browser and loopback callback bridge. The host selects one
 strict reviewed provider authorization contract and transports one callback to
 the selected Workspace without inspecting or persisting its bytes. The
@@ -52,10 +53,13 @@ process in it, coding agents, project files, Workspace home, copied opaque
 handles, generated code, downloaded packages, request data, upstream responses,
 and user/provider text displayed by CLIs are untrusted.
 
-The host also owns each Context's immutable source-access choice and normalized
-policy-preset snapshot. They remain secret-free authority metadata in separate
-owner-only state; project files, runtime images, Workspaces, and source preset
-files cannot rewrite an existing Context envelope.
+The host also owns each Context's immutable source-access choice, preset origin,
+and normalized policy-preset snapshot. They remain secret-free authority
+metadata in separate owner-only state; project files, runtime images,
+Workspaces, and source preset files cannot rewrite an existing Context
+envelope. Exact `builtin/agent-ready` additionally selects the trusted binary's
+finite native-readiness overlay. A binary update can change that overlay for
+existing Contexts, but runtime data cannot select or define it.
 
 Only in the experimental profile, the reviewed GitHub, AWS, and Codex host-driver implementations and isolated pup and Claude
 Context-runtime drivers are trusted, purpose-limited CLI side effects. Host
@@ -197,17 +201,19 @@ bounded provider-specific semantic URL recognition it first verifies one
 label-owned selected Workspace. A callback-bearing target then binds a host
 `127.0.0.1` listener at the validated non-privileged redirect port, accepts one
 connection, relays through a fixed Docker exec program plus that port, and
-closes with that login or session. Claude Code's exact remote-callback target
-and GitHub CLI's exact device target instead perform one host browser open and
-create no listener. The closed union accepts only Claude Code 2.1.220's fixed
-client, redirect, PKCE shape, complete reviewed scope set, and plain-line or
-bounded target-repeating OSC 8 row framing; Codex's reviewed direct-line/TUI originators;
-or GitHub CLI 2.96.0's
-complete no-newline prompt with either the exact device URL or its fixed
+closes with that login or session. Claude Code's exact remote-callback target,
+GitHub CLI's exact device target, and TWG CLI's strict device-verification
+target instead perform one host browser open after their client-owned
+confirmation and create no listener. The closed union accepts only Claude Code
+2.1.220's fixed client, redirect, PKCE shape, and complete reviewed scope set;
+Codex's reviewed authorization semantics; or GitHub CLI 2.96.0's exact device URL or fixed
 GitHub.com web-application client, standard HTTPS-login scope ceiling, exact
-state shape, and `127.0.0.1/callback` redirect. Its observer receives only the
-bytes copied from a session-scoped PTY master;
-the PTY adds no filesystem, network, Docker, browser, or credential authority,
+state shape, and `127.0.0.1/callback` redirect; TWG CLI 1.2.5's strict
+Atlassian activation URL; or pup 1.10.7's exact US1 authorization route,
+bounded DCR/PKCE fields, sorted default-scope subset, and one of its four exact
+`127.0.0.1/oauth/callback` ports. A dedicated schema-v1 control stream carries the
+request while Docker directly owns the attached terminal;
+the channel adds no filesystem, network, Docker, browser, or credential authority,
 and preserves Docker's native terminal detection, raw-input cleanup, and resize
 path.
 Only the selected root and that Tobari's exact XDG-owned home directory are
@@ -375,9 +381,11 @@ rewrite source or projection.
 
 Gateway constructs normalized OPA input in mitmproxy. Ordinary HTTP remains
 body-free at the request-header hook. A trusted Context-declared exact GraphQL
-endpoint instead requires one positive-length body no larger than 1 MiB and
-defers policy until Gateway has derived only the selected query/mutation type
-and sorted canonical root fields. The input includes the host-issued Context/project principal, a structured request
+endpoint instead accepts one positive length no larger than 1 MiB, or an absent
+length without transfer/content encoding under the fixed 8 MiB transport cap.
+It rejects a complete body over 1 MiB and defers policy until Gateway has
+derived only the selected query/mutation type and sorted canonical root fields.
+The input includes the host-issued Context/project principal, a structured request
 authority, method, path and path segments, multi-valued query, redacted headers,
 and an authorization object containing only a non-secret broker provider ID
 when a handle has been successfully introspected. Both stable IDs are derived from the local Gateway
@@ -408,9 +416,11 @@ Mitmproxy retains an 8 MiB `body_size_limit`; a request or response with a known
 hook. Allowed unknown-length ordinary bodies stream without a total-byte limit,
 avoiding full-body memory retention while preserving the advertised-size cap;
 unknown-length ordinary bodies remain streaming.
-Declared GraphQL endpoints reject unknown, ambiguous, transfer-encoded,
+Declared GraphQL endpoints reject ambiguous length, transfer-encoded,
 compressed, non-JSON, non-UTF-8, or over-1-MiB request forms before OPA
-learning, credential resolution, and upstream I/O.
+learning, credential resolution, and upstream I/O. An absent length is accepted
+only without transfer/content encoding; the fixed 8 MiB transport cap bounds
+receipt before the independent 1 MiB complete-body check.
 
 OPA timeout, connection failure, non-2xx status, malformed JSON, missing
 fields, unknown decision values, and Gateway exceptions all deny. Plain HTTP
@@ -477,12 +487,33 @@ authority, while actions remain exact semantic review candidates. These are
 Context-wide effects, not executable identity. Exact Deny remains terminal;
 downloads, file transfer, acquisition, self-update, malformed/batched MCP, and
 unmatched effects receive no baseline authority. Compile-time
-`claude_ready`, `codex_ready`, and `gh_ready` bundles add only the exact native
+`claude_ready`, `codex_ready`, `gh_ready`, `twg_ready`, and `pup_ready` bundles add only the exact native
 authentication effects of the pinned clients, including GitHub CLI 2.96.0's
 two exact GitHub.com device bootstrap/exchange POSTs and exact GraphQL `query`
 / `viewer` current-user lookup. The latter is bound to a declared endpoint and
 cannot authorize ordinary HTTP, mutation, a sibling root, or a mixed-root
-document; bundle and executable names never enter policy.
+document. `twg_ready` adds only exact `POST` device-code, token, and revoke
+effects at `auth.atlassian.com`; exact `POST /accessible-products` and GraphQL
+`query` / `me` at `api.atlassian.com`; and exact `GET
+/cli/manifest.json` at `teamwork-graph.atlassian.com`. The semantic grant is at declared exact endpoint
+`POST https://api.atlassian.com/graphql`. That semantic grant cannot authorize
+ordinary HTTP, mutation, a sibling root, or a mixed-root document. Atlassian
+REST, beta manifest, installer, artifact, update execution, and download remain
+unmatched. `pup_ready` adds only exact
+US1 `POST /api/v2/oauth2/register` and `POST /oauth2/v1/token` effects at
+`api.datadoghq.com`; product APIs, telemetry, revoke, alternate sites, and
+neighboring OAuth routes remain unmatched. Bundle
+and executable names never enter policy.
+New Context snapshots omit these readiness rules. Aggregate generation removes
+every form retained in the binary's append-only compatibility history from a
+legacy agent-ready snapshot, then adds only the current binary set. Other
+preset origins are unchanged, and exact Deny remains terminal over the result.
+One reviewed dedicated compile-time family catalog owns each bundle's pinned
+client version, independent current contract revision, and append-only removal
+history. Observed candidates cannot extend it. The active aggregate revision must equal the
+revision recomputed from current Context sources and that catalog; status marks
+a mismatch invalid and Workspace entry performs no downstream reconciliation
+until explicit `cluster up` activates the complete candidate.
 `builtin/reviewed-exact` permits only eligible effects to enter exact review;
 `builtin/get-only-reviewed` permits only eligible GET effects to enter exact
 review and terminally denies HEAD and every non-GET method. Those three strict
@@ -831,17 +862,26 @@ controls remain visibly escaped, and neither presentation path changes URL
 recognition. A dynamic OpenAI authorization URL is never a Tobari browser
 target; the verified Codex child owns its open attempt and fallback guidance.
 That sentence applies to the experimental host-acquisition driver. In the
-separate standard attached Workspace, ADRs 0046 and 0048 permit the strict
-Claude Code, Codex, and GitHub CLI native-login URL union only. GitHub CLI's legacy no-newline
-prompt and pinned wrapper's exact non-interactive device line, either plain or
-with only the pinned client's exact bold-prefix SGR pair, are relayed unchanged;
-its exact device URL may open once with no listener, or its strict callback URL
+separate standard attached Workspace, ADRs 0046, 0048, 0050, and 0055 permit the strict
+Claude Code, Codex, GitHub CLI, TWG, and pup native-login URL union only. GitHub CLI's
+device prompt remains visible; GitHub CLI invokes the attachment-scoped opener
+only after native Enter, while its callback-bearing path invokes it immediately.
+Its exact validated device URL may then open once with no listener, or its strict callback URL
 may open once with one opaque relay. Exact default `gh auth login`
-uses fixed GitHub.com HTTPS argv with prompting and the Workspace browser
-disabled, so no Enter is required; every other argv retains native input.
+uses fixed GitHub.com HTTPS argv with prompting and the attachment-owned opener,
+so native Enter remains required; every other argv
+retains native input.
 Callback or provider failure remains the child's login result. GitHub
 Enterprise hosts, SSH-key-upload scope, and caller-added scopes cause zero
 browser/listener/relay effects.
+TWG accepts only a dedicated opener request carrying a strict
+`auth.atlassian.com/oauth/activate` URL with one bounded unreserved
+`user_code`; it opens once after TWG's native confirmation and never creates a listener. Tobari does not
+intercept Enter, `c`, or other child input and performs no clipboard action.
+Pup accepts only the reviewed US1 DCR/PKCE authorization shape and binds one of
+ports 8000, 8080, 8888, or 9000 before browser open; it relays one opaque
+callback only to the selected Workspace. Caller-added scopes, alternate sites,
+and changed callback targets open and relay nothing.
 For exact Claude 2.1.220, the separate Context-runtime boundary consumes only
 the reviewed opening, OSC 8 link, browser-result, and paste-prompt events. It
 opens the exact validated HTTPS URL once, hides it after successful host open,
@@ -949,7 +989,7 @@ reference-bound mutation.
 | The broker restarts locked and cannot silently replace a missing root key | Restart/unlock tests, Keychain/XDG provider tests, and missing-key-with-vault rejection |
 | Provider manifests cannot become executable or ambiguous authority | Strict schema/collision/path/header tests, owner-only XDG loading, and built-in override rejection |
 | Provider login cannot turn visible text into arbitrary browser execution | Conventional non-project executable selection, identity/digest recheck, fixed argv/environment, bounded browser/PTY projection, checked cleanup, cancellation, and provider-specific negative tests |
-| Native Workspace login cannot become generic host ingress or browser authority | Closed Claude Code/Codex/GitHub CLI semantic URL-schema tests with exact OAuth clients, reviewed scope ceilings, callback shapes, and state bounds; exact GitHub device target; provider-specific originators; bounded plain-line, OSC 8, ANSI synchronized-frame, and no-newline-prompt tests; zero-listener Claude remote-callback and GitHub device opens; dynamic non-privileged loopback-port tests; label-verified selected container; host-loopback-only one-shot callback listener; fixed Docker exec relay program; byte- and TTY-preserving output with resize propagation; opaque callback canaries; malformed-control, replay, neighboring-target, and ambiguity bounds; port-collision failure; and session cleanup |
+| Native Workspace login cannot become generic host ingress or browser authority | One fresh compile-time registry with exact driver-ID/callback-mode coverage and malformed/ambiguous-definition canaries; closed Claude Code/Codex/GitHub CLI/TWG/pup semantic URL-schema tests with exact OAuth clients, reviewed scope ceilings, callback shapes, and state bounds; complete pup 1.10.7 scope-ceiling and four-port canaries; one binary-owned read-only opener; exact `BROWSER`/`GH_BROWSER`/`xdg-open` projection; dedicated schema-v1 Unix-socket and non-TTY Docker exec protocol tests; duplicate-key, unknown-field, malformed-version, oversized-target, replay-budget, neighboring-target, and ownership canaries; zero-listener device/remote-callback opens; dynamic non-privileged host-loopback-only one-shot callback relay; opaque callback canaries; port-collision failure; direct Docker terminal ownership; and session cleanup |
 | Unsupported credential mechanisms cannot remain dormant | Catalog/state/dependency/image-content tests reject managed profiles, owner-selected dynamic plans, arbitrary helpers, compatibility readers, and provider CLIs inside Broker |
 | Agent-ready tools retain reviewed identity without Tobari redistribution | Base-runtime locks/checks for GitHub CLI, AWS CLI, Claude Code, and Codex; version smokes outside Workspace home; local missing-image build tests; workflow and release canaries reject every base registry write/login/push path |
 | Secret headers, queries, handle-bearing paths, and bodies stay out of logs | Gateway redacted-path/header-absence tests, non-learnable structural-rejection tests, and log scans |
@@ -981,7 +1021,7 @@ reference-bound mutation.
 | Preset guardrails cannot be bypassed | Offline/reviewed-exact/get-only-reviewed evaluator tests plus terminal zero-candidate/DNS/Broker/upstream call canaries above baseline, learned, and Advanced policy |
 | Overlapping roots are not misrepresented as isolated | Product contract, Context-selected direct mounts, same-root/parent-child integration canaries, and absence of overlay/root-lock paths |
 | Gateway does not retain allowed streaming bodies | Header-hook ordering unit tests plus incremental chunked-request and SSE-response integration canaries |
-| Declared oversized bodies retain the transport bound | Fixed mitmproxy body-size asset test and over-limit `Content-Length` integration request |
+| Declared oversized bodies retain the transport bound | Fixed mitmproxy body-size asset test, over-limit `Content-Length` integration request, incremental unknown-length transport-cap evidence, and complete-body semantic-cap tests |
 | GraphQL identity cannot collapse into one HTTP route grant | Trusted exact-endpoint projection, bounded parser fixtures, OPA all-roots matching, HTTP-rule non-matching canaries, GraphQL-aware opaque-reference round trips, and zero-upstream integration tests |
 
 ## Supply chain and publication

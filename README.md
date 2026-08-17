@@ -27,6 +27,10 @@ release; immutable Gateway/Auth Broker image indexes are not yet published.
   accepted.
 - Tool-native login inside a Workspace remains explicitly Workspace-owned only
   as compatibility for undeclared provider bindings.
+- Native Workspace login routes `BROWSER`, `GH_BROWSER`, and `xdg-open` through
+  one attachment-scoped Tobari opener. The host opens only a strictly validated
+  authentication target; manual-code tools retain their own confirmation and
+  copy window, and Tobari neither observes terminal output nor consumes input.
 - Brokered authentication keeps static, renewable, or signing state in an
   encrypted Context vault and gives each Workspace only a project-bound handle.
 
@@ -142,8 +146,15 @@ the runtime spec/hash and Docker inspection.
 
 - `builtin/agent-ready` (default): exact reviewed Claude Code 2.1.220 and
   Codex 0.147.0 model, bootstrap/catalog, account-state, and fixed first-party
-  telemetry effects are available immediately. These are Context-wide HTTP
-  grants, not process identity. Exact Deny still wins; plugins, MCP,
+  telemetry effects, GitHub CLI 2.96.0 native login effects, TWG CLI 1.2.5
+  native login effects, and pup 1.10.7 US1 native login effects when those
+  clients are supplied by a custom runtime are available immediately.
+  `twg_ready` and `pup_ready` do not install either client. These are
+  Context-wide exact HTTP or declared GraphQL grants, not process identity;
+  TWG receives only its device exchange, site inventory, stable CLI manifest,
+  token revoke, and GraphQL `query` / `me` current-user lookup, while pup receives only DCR registration and token
+  exchange/refresh. Exact Deny
+  still wins; plugins, MCP,
   connectors, file transfer, downloads, evaluation, self-update, unrelated
   paths, and third-party destinations remain denied or reviewable.
 - `builtin/offline`: no immediate grant, no review-eligible effect, terminally
@@ -161,7 +172,13 @@ Custom presets are strict owner-only schema-V1 non-executable local data. V1
 rejects wildcard, IP/private destination, secret, shell, Rego, include,
 inheritance, remote fetch, refresh, signing, symlink, unsafe-mode, and unknown-
 field input. Context creation normalizes, validates, digests, and snapshots the
-preset. Later source changes affect only a newly created Context.
+preset. Later source changes affect only a newly created Context. Native-client
+readiness is the exception: exact `builtin/agent-ready` selects the installed
+binary's current reviewed overlay, so upgrading Tobari updates existing
+agent-ready Contexts without rewriting or recreating them. Run `tobari cluster
+up` after the upgrade to activate that binary-owned overlay; until then status
+marks the older projection invalid and root entry fails closed with the same
+recovery command.
 
 ## Permission workflow
 

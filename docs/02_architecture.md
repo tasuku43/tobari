@@ -17,14 +17,18 @@ Each Tobari joins only its dedicated internal network. OPA joins only the
 shared internal control network. Gateway joins every Tobari network plus
 control and egress. Standard has no Auth Broker service, provider projection,
 credential mount, or credential helper. Its one session-scoped native-login
-bridge is part of interactive entry: it observes the unchanged child stream,
-selects one strict Claude Code, Codex, or GitHub CLI authorization contract, derives a
+bridge is part of interactive entry: it mounts one binary-owned opener,
+projects its attachment-local Unix socket through `BROWSER`, `GH_BROWSER`, and
+`xdg-open`, selects one strict Claude Code, Codex, GitHub CLI, custom-runtime
+TWG, or custom-runtime pup authorization contract, derives a
 non-privileged port from a callback-bearing loopback redirect, and relays one opaque callback
 through a fixed Docker exec program plus that validated port to the exact
-selected Workspace loopback. Claude's reviewed remote callback opens no listener.
-Claude plain-line/OSC 8 framing, Codex direct-line/TUI framing, and GitHub CLI's
-complete no-newline prompt are bounded provider-specific originators; neither
-turns arbitrary Workspace prose into browser authority.
+selected Workspace loopback. Pup is callback-bearing only on the four exact
+ports compiled into 1.10.7. Claude's reviewed remote callback, GitHub's device
+target, and TWG's device-verification target open no listener.
+One bounded schema-v1 request over a dedicated non-TTY Docker exec control
+stream is the only originator. The host independently validates the closed URL
+union; arbitrary Workspace prose and terminal controls have no browser effect.
 It is absent when no host session is attached. The experimental development override adds a
 locked Auth Broker on control/egress plus its private runtime socket and trusted
 host acquisition boundary. Tobari and control networks
@@ -277,8 +281,17 @@ source access to `read-write` and omitted preset to
 its owner-only snapshot by SHA-256 revision, and atomically persists both
 manifest and snapshot before returning. Observation and old-state readers never
 invent either field. Root entry carries `source_access` into the exact project
-runtime spec/hash; policy activation carries the preset snapshot into the
-Tobari-owned system evaluator. A read-only source is the same live direct bind
+runtime spec/hash; policy activation validates the preset snapshot, then for
+the exact `builtin/agent-ready` origin replaces every readiness rule in the
+binary's append-only compatibility history with its current compile-time set.
+One dedicated compile-time family catalog owns each pinned client version,
+independently revised current readiness contract, and complete append-only
+contract history. Aggregate construction and read-only cluster inspection share the
+same deterministic content-revision calculation, so a binary catalog update
+makes the previously active projection observably invalid until explicit
+reconciliation.
+The effective result enters the Tobari-owned system evaluator without rewriting
+the snapshot. Strict and custom origins receive no overlay. A read-only source is the same live direct bind
 with Docker read-only authority: no writable alias is added, home and tmpfs
 remain writable, and host or same-root read-write Context changes remain
 observable. Neither path rediscovers the source preset.
@@ -291,11 +304,16 @@ resolution, and upstream I/O. Advanced modules may further constrain generic
 input but cannot bypass the guardrail or redefine the scheme-aware exact
 learned identity.
 `builtin/agent-ready` uses the reviewed-exact guardrail plus a finite baseline
-coupled to Claude Code 2.1.220, Codex 0.147.0, and GitHub CLI 2.96.0. Named
+coupled to Claude Code 2.1.220, Codex 0.147.0, GitHub CLI 2.96.0, TWG CLI
+1.2.5, and pup 1.10.7 when the latter clients are supplied by a custom runtime. Named
 compile-time native-authentication readiness bundles expand into exact HTTP and
-declared semantic rules before normalization; their names and executable names
-never enter the persisted snapshot or evaluator. Exact HTTP grants, GitHub
-CLI's exact GraphQL `query` / `viewer` grant, and one
+declared semantic rules during aggregate generation; their names and executable
+names never enter the persisted snapshot or evaluator. New snapshots omit
+readiness rules, while legacy snapshot forms are removed before the current
+binary set is added. Exact HTTP grants, GitHub CLI's exact GraphQL `query` /
+`viewer` grant, TWG CLI's exact site-inventory, stable-manifest, token-revoke,
+and GraphQL `query` / `me` grants, pup's exact US1 DCR-registration and token
+POST grants, and one
 direct-child evaluation template cover native model/account/bootstrap,
 first-party capability discovery, bounded evaluation, and telemetry. Trusted
 MCP endpoints are projected separately; Gateway buffers one bounded JSON-RPC
@@ -518,9 +536,9 @@ boundary owns a different representation. No production component reads this
 fixture, and updating it cannot register a provider or grant adapter authority.
 
 GitHub recognizes only its fixed device URL and requests one host-browser open
-at most once. The standard runtime's exact-default-argv compatibility wrapper
+at most once after native confirmation. The standard runtime's exact-default-argv compatibility wrapper
 uses the pinned real client with fixed GitHub.com HTTPS login and Git credential
-setup argv; it disables prompts and the Workspace browser only for that path.
+setup argv; it inherits the attachment-scoped `GH_BROWSER` opener only for that path.
 Every other GitHub CLI argv passes through unchanged.
 OpenAI delegates browser opening and the dynamic authorization URL entirely to
 the verified Codex child; Tobari visibly projects but never parses, reconstructs,
@@ -642,19 +660,21 @@ the strict route registry entry, advisory constant capability
 projection in `TOBARI_CAPABILITIES_JSON`, and physical loopback relays. These objects are not logical
 Workspace state. The owning invocation removes them when it exits; a borrower
 cannot remove or extend them, and loses access when the owner exits.
-The output observer is a byte- and TTY-preserving side channel, not
-presentation. Docker stdout remains attached to a raw intermediate PTY whose
-size follows the caller terminal; its master is relayed to the unchanged
-caller stream and bounded observer. Docker continues to own host input raw mode,
-signals, and the container PTY. Only a bounded direct line or one complete
-bounded ANSI synchronized-update frame containing exactly one semantically
-valid reviewed Codex authorization URL, or one complete bounded GitHub CLI
-no-newline browser prompt containing its independently valid URL, can start the
-one-shot listener. Surrounding account prompts, project prose, cursor positions,
-and terminal width are irrelevant to URL authority. The relay verifies the
+Docker directly owns the attached shell's stdin, stdout, stderr, raw mode,
+signals, resize behavior, and container PTY. A separate Docker exec starts one
+fixed Unix-socket agent whose stdin/stdout carries bounded schema-v1 browser
+requests and boolean responses. The binary-owned opener is mounted read-only at
+the projected browser paths and emits no terminal output. The host rejects
+malformed framing, duplicate or unknown fields, requests beyond the attachment
+budget, and URLs outside the closed semantic union. One fresh compile-time
+driver registry owns that union; each entry binds a stable driver ID to one
+semantic target parser and open-only or callback-bearing mode. Selection scans
+the complete registry and rejects ambiguous matches, so order cannot widen
+authority. The relay verifies the
 selected container labels, binds the URL's validated
 non-privileged loopback port, opens the reviewed host URL, and transports
-callback bytes without parsing them. Its listener is nested inside this
+callback bytes without parsing them. Device-flow confirmation remains entirely
+inside the native CLI before it invokes the opener. The listener is nested inside this
 attachment lifetime and never becomes Workspace or cluster state.
 
 The state model is:
@@ -691,7 +711,9 @@ Image preflight fails before the policy test, cluster journal, shared network,
 or service-container mutation. Local Tobari-managed image development uses
 `task build` and the source-hash development resolver instead of a public
 cluster option.
-Root invocation only verifies that configured cluster is ready and reads the
+Root invocation verifies that the configured cluster is running and that its
+policy, Gateway, and principal projections are valid for the current binary.
+An older active aggregate fails closed with exact `cluster up` recovery. It then reads the
 canonical CWD's indexed Workspace candidates. An exact current-root record is
 selected directly; when only ancestor records exist, the CLI presents every
 containing root nearest-first and the application accepts either one validated
@@ -921,9 +943,11 @@ client request headers
 
 Ordinary body content is deliberately opaque to policy. Ordinary bodies are
 neither retained nor hashed by Gateway. A trusted exact GraphQL endpoint is a
-narrow pre-policy exception: Gateway requires a positive length no greater
-than 1 MiB, parses one strict UTF-8 JSON request, and sends only operation type
-and sorted canonical root fields to OPA. The original bytes are forwarded once
+narrow pre-policy exception: Gateway accepts one positive length no greater
+than 1 MiB, or an absent length without transfer/content encoding under the
+fixed 8 MiB transport cap. It rejects a complete body over 1 MiB, parses one
+strict UTF-8 JSON request, and sends only operation type and sorted canonical
+root fields to OPA. The original bytes are forwarded once
 after allow; source text, operation name, aliases, fragment names, directives,
 nested selections, arguments, variables, extensions, literal values, and body
 hashes never enter policy, audit, learned state, or CLI output. Client authentication can be present on the forwarded

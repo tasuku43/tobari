@@ -53,8 +53,16 @@ exist.
 
 The immutable preset guardrail is evaluated before baseline data, learned
 rules, and Advanced Rego. `builtin/agent-ready` grants a finite exact
-version-coupled Claude/Codex core matrix to every process in the Context; exact
-Deny remains terminal and optional agent surfaces remain unmatched.
+version-coupled Claude/Codex core matrix, GitHub native-auth effects, and TWG
+CLI 1.2.5 plus pup 1.10.7 native-auth effects when supplied by a custom runtime to every
+process in the Context; exact Deny remains terminal and optional agent surfaces
+remain unmatched.
+Native-auth readiness is projected from the installed trusted binary only for
+the exact agent-ready origin. New snapshots omit it; historical forms are
+removed from legacy snapshots before the current set is added. Runtime data,
+custom presets, observed candidates, and executable names cannot select it.
+Pinned client versions and append-only readiness contract revisions are
+separate identities in one compile-time catalog.
 `builtin/offline` terminally denies all HTTP/HTTPS;
 `builtin/reviewed-exact` exposes only eligible exact candidates;
 `builtin/get-only-reviewed` exposes only eligible GET candidates and terminally

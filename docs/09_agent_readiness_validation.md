@@ -69,8 +69,10 @@ network, or policy state. Native credentials follow the owning Workspace home.
 
 For every preset, inspect and bind its immutable immediate-grant count.
 
-- `builtin/agent-ready`: the pinned Claude/Codex native matrix and GitHub CLI
-  device-auth bootstrap succeed without a permission candidate, including
+- `builtin/agent-ready`: the pinned Claude/Codex native matrix, GitHub CLI
+  device-auth bootstrap, TWG CLI 1.2.5 auth/site/manifest lifecycle, and pup
+  1.10.7 default-US1 DCR/token login when supplied by a custom runtime
+  succeed without a permission candidate, including
   Claude capability discovery and one safe
   `/api/eval/{id}` shape plus Codex MCP initialize/list methods. Exact Deny
   overrides baseline. A Codex `tools/call` produces one exact tool-name review
@@ -97,15 +99,58 @@ The native-login subset must include exactly:
   `POST auth.openai.com/api/accounts/deviceauth/token`;
 - GitHub CLI: `POST github.com/login/device/code`,
   `POST github.com/login/oauth/access_token`, and GraphQL `query` root `viewer`
-  at declared exact endpoint `POST api.github.com/graphql`.
+  at declared exact endpoint `POST api.github.com/graphql`;
+- TWG CLI: `POST auth.atlassian.com/oauth/device/code`,
+  `POST auth.atlassian.com/oauth/token`, `POST
+  auth.atlassian.com/oauth/revoke`, `POST
+  api.atlassian.com/accessible-products`, GraphQL `query` root `me` at
+  declared exact endpoint `POST api.atlassian.com/graphql`, and `GET
+  teamwork-graph.atlassian.com/cli/manifest.json`;
+- pup: `POST api.datadoghq.com/api/v2/oauth2/register` and
+  `POST api.datadoghq.com/oauth2/v1/token`.
 
-The compile-time review bundles are exactly `claude_ready`, `codex_ready`, and
-`gh_ready`, coupled to the three pinned client versions. Prove normalized
-Context snapshots contain only expanded exact and semantic rules and no runtime bundle or
-executable selector. For GitHub, neighboring methods, paths, query variants,
+The compile-time review bundles are exactly `claude_ready`, `codex_ready`,
+`gh_ready`, `twg_ready`, and `pup_ready`, coupled to the five reviewed client
+versions. TWG and pup remain custom-runtime-only and the bundles are not
+installation claims.
+Prove new normalized Context snapshots contain no readiness rule, legacy
+agent-ready snapshots retain their exact bytes, aggregate generation removes
+every historical bundle form and projects only the current binary set, and no
+runtime bundle or executable selector exists. Prove the dedicated family
+catalog has unique IDs, explicit pinned client versions, positive unique
+append-only contract revisions, and exactly one current contract per
+family. Prove the aggregate revision includes its
+effective expansion, an older active revision is reported invalid, and root
+entry returns exact `cluster up` recovery before Workspace mutation.
+Strict/custom origins receive no
+overlay. For GitHub, neighboring methods, paths, query variants,
 GitHub API hosts, ordinary HTTP at `/graphql`, mutation, sibling or mixed roots,
 Git transport, downloads, uploads, releases, and self-update receive no baseline
 grant.
+
+For TWG, prove one dedicated schema-v1 opener request carries only the strict
+HTTPS Atlassian activation URL and opens once after native confirmation. Verify
+the owned Workspace and make zero callback-listener calls. Duplicate keys,
+unknown fields, malformed versions, host case, userinfo, explicit port, path,
+encoded/empty/duplicate/extra query, fragment, neighboring targets, replay past
+the attachment budget, and oversized requests open nothing. Prove only GraphQL
+`query` root `me` at the declared exact endpoint
+receives baseline authority. Ordinary HTTP at that route, mutation, sibling or
+mixed roots, REST, telemetry, and neighboring OAuth requests receive no
+baseline grant. Prove only exact `POST /accessible-products`, `POST
+/oauth/revoke`, and stable `GET /cli/manifest.json` are added by TWG contract
+revision 2; alternate methods, REST routes, beta manifest, installer, checksum,
+artifact, update execution, and download receive no baseline grant.
+
+For pup, prove the dedicated opener accepts only the exact default-US1
+authorization route, seven reviewed query fields, bounded DCR/state/PKCE
+shapes, `S256`, a sorted subset of the complete 110-scope pup 1.10.7 ceiling,
+and exact `127.0.0.1:{8000,8080,8888,9000}/oauth/callback`. Verify it binds
+before browser open and relays one opaque callback only to the selected owned
+Workspace. Reject caller-added scopes, alternate sites, host case, userinfo,
+explicit port, neighboring path, duplicate/extra query, fragment, callback
+host/path/port changes, replay, and oversized requests. Product APIs,
+telemetry, revoke, and neighboring OAuth effects receive no baseline grant.
 
 For each terminal denial, record zero permission candidates, external DNS
 lookups, and upstream attempts. Repeat with a learned
@@ -117,7 +162,9 @@ wildcards, IP/private destinations, secrets, shell, Rego, include, inheritance,
 remote fetch, refresh, signing, symlinks, unsafe modes, duplicate keys, and
 ambiguous rules. Context creation normalizes, validates, digests, and snapshots
 the source. Editing the source preset afterward must not change the existing
-Context report or active guardrail.
+Context report or active guardrail. Updating the trusted binary must update only
+the native-readiness overlay of existing exact agent-ready origins without
+rewriting their snapshot.
 
 The canonical contributor base must run `claude --version` as 2.1.220,
 `codex --version` as 0.147.0, and `gh --version` as 2.96.0 after replacing
@@ -126,6 +173,9 @@ contract. Verify the base workflow is validation-only and the protected
 Release workflow has no runtime registry login or publication path. Pending
 redistribution review remains explicit artifact metadata; it never becomes a
 dormant switch that can publish the combined base.
+TWG and pup are intentionally absent from this canonical-base assertion; a
+custom runtime claiming `twg_ready` compatibility must provide TWG CLI 1.2.5,
+and one claiming `pup_ready` compatibility must provide pup 1.10.7.
 
 ## Reviewed policy journey
 
@@ -156,7 +206,8 @@ dormant prefix fallbacks must all be absent.
 ## Standard native-login regression
 
 Run Claude Code, Codex, and GitHub CLI native login in a fresh standard
-Workspace home. The test boundary does not retain credentials or authenticated
+Workspace home, and TWG CLI 1.2.5 plus pup 1.10.7 native login in compatible
+custom-runtime Workspaces. The test boundary does not retain credentials or authenticated
 transcripts.
 
 For Claude, prove token exchange is followed by an allowed authenticated
@@ -166,12 +217,10 @@ upstream request, exposes it to OPA/audit, or synthesizes account metadata.
 After login, Claude `/status` must obtain provider-owned `subscriptionType` and
 `rateLimitTier` rather than null values and must not mislabel a subscription as
 `Claude API account` because of Tobari interception. Ordinary Claude Code
-2.1.220 login in an attached Workspace must open its exact validated
-authorization URL once on the host from either the plain URL line or Claude's
-bounded OSC 8 rows that repeat the full target while presenting contiguous
-terminal-width label fragments, without changing child output or creating a host callback
-listener. Changed client, redirect, scope set, PKCE shape, host,
-path, duplicate, ambiguous, or oversized output opens nothing.
+2.1.220 login in an attached Workspace must invoke the shared opener and open
+its exact validated authorization URL once on the host without observing child
+output or creating a host callback listener. Changed client, redirect, scope
+set, PKCE shape, host, path, duplicate, malformed, or oversized requests open nothing.
 
 For Codex, prove both the browser callback flow's token exchange and the
 device-code user-code/poll/token exchange use the same post-policy passthrough
@@ -194,25 +243,27 @@ session exit. The exact allow is shared by every process in the Context; the
 test must not infer authority from the `codex` executable name.
 
 For GitHub CLI 2.96.0, exercise the preferred GitHub.com HTTPS device-login path
-and its web-application fallback. For the device path, prove the complete
-legacy no-newline prompt and exact plain or pinned-bold non-interactive device
-line remain byte-identical, neighboring SGR framing opens nothing, and the exact
-`https://github.com/login/device` target opens once on the host, the selected
-Workspace is verified, and no callback listener is created. Fragment the
-prompt and reject neighboring paths, queries, hosts, duplicates, ambiguity,
-and oversized output. Exact default `gh auth login` must use the pinned real
-client with fixed GitHub.com HTTPS login and Git credential setup argv, begin
-polling without Enter, and make no Workspace browser attempt; other argv must
+and its web-application fallback. For the device path, prove the client retains
+native Enter, then invokes the attachment-scoped opener carrying the independently
+validated `https://github.com/login/device` target and opens once
+on the host, the selected
+Workspace is verified, and no callback listener is created. Reject neighboring
+paths, queries, hosts, duplicate keys, malformed requests, replay, and oversized
+targets. Exact default `gh auth login` must use the pinned real
+client with fixed GitHub.com HTTPS login and Git credential setup argv, retain
+native Enter, and invoke only the shared opener as its Workspace browser; other argv must
 pass through unchanged. The wrapper must not force color on or off: GitHub CLI
 retains native TTY detection and honors an inherited `NO_COLOR`. The one-time
 code remains provider-owned visible child output and never enters Tobari state,
 logs, policy, or fixtures.
 
 For the web-application fallback, prove one strict fixed-client URL with the
-required `repo read:org gist` scopes and optional `workflow` opens on the host, one
+required `repo read:org gist` scopes and optional `workflow` opens immediately
+on the host through the dedicated opener, one
 opaque callback reaches the exact selected Workspace's dynamic
 `127.0.0.1/callback` port, and GitHub CLI retains its result presentation.
-Explicit non-default native login retains its own Enter input. Changed client,
+All child input remains Docker- and client-owned; no `c` or clipboard shortcut
+is part of the bridge. Explicit non-default native login retains its own Enter input. Changed client,
 caller-added or SSH-key-upload scope, GitHub
 Enterprise host, malformed state, external/privileged callback, duplicate,
 ambiguous, oversized, replayed, port-collision, opener-failure, callback-failure,
@@ -223,6 +274,24 @@ supplies only the two exact device bootstrap/exchange POSTs and exact GraphQL
 success uses one
 `gh auth login` invocation, no manual URL/callback transfer, and zero external
 processing.
+
+For TWG CLI 1.2.5, replay the exact device-code, token, site inventory, stable
+manifest, and revoke effects plus its synthetic current-user document without `Content-Length`. Prove the
+declared GraphQL endpoint buffers it under the fixed transport cap, rejects an
+actual body over 1 MiB, and emits only `query` / `me` to policy. Client
+authentication is absent from OPA and denial evidence, the allowed upstream
+request retains it unchanged, and the identity lookup does not produce a
+route-wide HTTP grant. Routine success uses
+one `twg login` invocation and zero external processing; `twg logout` can revoke
+the token without review; later provider effects are classified separately.
+
+For pup 1.10.7, replay exact US1 DCR registration and token exchange with
+synthetic responses. Prove the strict authorization URL opens once, one opaque
+callback reaches only the selected Workspace on each of the four fixed ports,
+and the complete compiled scope ceiling plus reduced/read-only subsets remain
+accepted while caller-added scopes and alternate sites fail closed. Routine
+success uses one `pup auth login` invocation and zero external processing;
+later Datadog product effects are classified separately.
 
 Automated Gateway fixtures use synthetic bearer canaries and prove the canary
 is absent from OPA input and denial evidence, preserved exactly for the single

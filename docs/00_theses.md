@@ -13,8 +13,10 @@ directly on the host.**
 
 Every HTTP and HTTPS effect that crosses that boundary is authorized as a
 normalized request by one shared OPA-backed Gateway. A Context may start with a
-finite reviewed exact baseline; every effect outside that immutable snapshot is
-denied by default. Trusted policy may declare an exact GraphQL endpoint whose generic L7 identity extends
+finite reviewed exact baseline composed from its immutable preset snapshot and,
+only for `builtin/agent-ready`, the trusted binary's finite native-client
+readiness overlay; every effect outside that composition is denied by default.
+Trusted policy may declare an exact GraphQL endpoint whose generic L7 identity extends
 the HTTP coordinates with one operation type and root field per effect.
 
 The primary users are developers who run Claude Code, Codex, shells, tests, and
@@ -27,17 +29,24 @@ without becoming a Docker or policy operator. In the standard profile, users
 authenticate the pinned agent CLI inside the Workspace and its tool-owned state
 persists only in that Workspace home; host credentials are never inherited.
 An attached standard session may bridge only the closed reviewed native browser
-login union for pinned Claude Code, Codex, and GitHub CLI: after provider-specific
-bounded semantic authorization-URL validation, the host opens that URL. Only
-the reviewed Codex and GitHub callback variants relay one opaque localhost
+login union for pinned Claude Code, Codex, GitHub CLI, custom-runtime TWG, and
+custom-runtime pup.
+The native CLI invokes one attachment-scoped opener through `BROWSER`,
+`GH_BROWSER`, or `xdg-open`; after bounded semantic authorization-URL validation,
+the host opens that URL. Terminal presentation is never authority. Only
+the reviewed Codex, GitHub, and pup callback variants relay one opaque localhost
 callback on the validated URL-selected port to the selected Workspace's
 client-owned loopback listener; Claude's remote callback and GitHub's device
-target create no listener. Prompt framing is not URL
+target and TWG's strict device-verification target create no listener. Opener framing is not URL
 authority. The bridge is session-scoped and grants no general host browser,
 port-forwarding, credential, or network authority. Output observation
 must preserve terminal identity as well as bytes: Docker retains a real PTY,
 raw-input ownership, and resize propagation while Tobari reads only a relayed
-copy.
+copy. A manual-code target is staged only in bounded session memory and opens
+after the client-owned confirmation transition, giving the user time to copy
+the visible code; URL/callback flows with no Workspace-to-browser code transfer
+open immediately. Tobari does not intercept child input or own clipboard
+shortcuts.
 One installation-local standard cluster shares one Gateway, one OPA, an atomic
 all-Context policy projection, and CA state without sharing Workspace homes or
 runtime networks. The repository-only experimental profile may additionally
@@ -206,7 +215,8 @@ disabled, so neither path is direct egress.
   Docker socket and exits before user entry.
 - Reviewed native loopback login is the separate no-capability exception: while
   one interactive host session is attached, a strict pinned-client observer may
-  bind only a validated Codex or GitHub CLI authorization URL's non-privileged
+  bind only a validated Codex, GitHub CLI, or custom-runtime pup authorization
+  URL's reviewed non-privileged
   host-loopback port, open only that provider's reviewed authorization shape,
   and relay one opaque callback to the same port in the exact owned Workspace
   loopback. It closes on completion or session exit and is not a generic ingress
@@ -254,12 +264,15 @@ Workspace's persistent home. Gateway removes client authentication and cookies
 from OPA input and audit, asks policy about the ordinary HTTP effect, and
 forwards the original values only after allow.
 For pinned Codex and GitHub CLI, native local parity also includes ADR 0046's
-attached-session browser/callback bridge and ADR 0048's GitHub host-open-only
-device flow. Each client still owns OAuth state, exchange, and credential
+attached-session browser/callback bridge, ADR 0048's GitHub host-open-only
+device flow, and ADR 0053's provider-confirmed manual-code handoff. Each client
+still owns OAuth state, exchange, and credential
 persistence, while callback-bearing clients own callback parsing and Codex also
 owns PKCE. Tobari validates one provider-specific browser target, transports an
 opaque callback only when that target declares the reviewed loopback shape, and
-never logs or persists the target, callback, or device code.
+never logs or persists the target, callback, or device code. Manual-code targets
+may exist only in bounded session memory until confirmation, ambiguity, or
+session end; Tobari continues to observe output only.
 
 The experimental development profile retains the closed Broker research path.
 That route stores one Context-owned credential or
@@ -344,10 +357,15 @@ exist only when the experimental capability profile is compiled.
 - Brokered login does not itself grant network authority. OPA remains the sole
   authority for Context, project, scheme, host, port, method, and path. A
   brokered request receives only authority already present in the Context's
-  immutable baseline or learned rules. The default agent-ready preset includes
-  finite compile-time `claude_ready`, `codex_ready`, and `gh_ready`
-  authentication bundles coupled to the pinned clients and expanded only into
-  exact Context-wide effects. Credentials and bundle names never widen runtime
+  immutable snapshot, selected binary readiness overlay, or learned rules. The
+  default agent-ready preset includes
+  finite compile-time `claude_ready`, `codex_ready`, `gh_ready`, `twg_ready`,
+  and `pup_ready` authentication bundles coupled to reviewed client versions and expanded only into
+  exact Context-wide effects. TWG's bundle includes only its exact device
+  exchange, site inventory, stable CLI manifest, token revoke, and declared
+  GraphQL `query` / `me` current-user lookup. Pup's
+  bundle includes only exact US1 DCR registration and token exchange/refresh.
+  Credentials and bundle names never widen runtime
   authority, and all unmatched effects remain reviewable.
 - Built-in broker implementations are a closed typed union of static secrets,
   reviewed renewable sessions, fixed supplemental-header application, and the
@@ -559,10 +577,12 @@ Gateway errors do not authorize traffic.
 - After header-time authorization, ordinary request and response bodies use
   mitmproxy's streaming path rather than full-body retention. A trusted
   declared GraphQL endpoint is the only narrow exception: it
-  requires an unambiguous positive length of at most 1 MiB, retains the request
-  before policy only long enough to parse generic operation/root identity, and
-  forwards the original bytes once after allow. Unknown-length ordinary bodies
-  remain streaming; unsupported GraphQL forms fail closed.
+  accepts either one unambiguous positive length of at most 1 MiB or no length
+  and no transfer/content encoding. The fixed 8 MiB transport cap bounds an
+  arriving lengthless buffer; Gateway then rejects any complete body over 1
+  MiB before parsing generic operation/root identity or policy. It forwards the
+  original bytes once after allow. Unknown-length ordinary bodies remain
+  streaming; unsupported GraphQL forms fail closed.
 - Audit logs contain route metadata, never body content, body hashes, or secret
   values.
 
@@ -748,10 +768,18 @@ OPA allow.
   without changing that default.
 - Every persisted Context fixes `read-only` or `read-write` access for its one
   direct source bind and one normalized `builtin/<name>` or `custom/<name>`
-  policy-preset origin plus SHA-256 snapshot revision. Creation owns the
+  policy-preset origin plus SHA-256 snapshot revision. The snapshot fixes the
+  owner-selected guardrail and non-readiness baseline; exact
+  `builtin/agent-ready` additionally selects the current trusted-binary native
+  readiness overlay for existing and future Contexts. Creation owns the
   `read-write` and `builtin/agent-ready` omission defaults. Readers never
   supply them for old state, source-preset edits never change an existing
-  Context, and a different envelope requires a new Context.
+  Context, and a different envelope requires a new Context. A binary readiness
+  update is a reviewed compatibility update rather than an envelope change and
+  requires no Context recreation. The current binary readiness catalog is part
+  of the aggregate content identity: observation reports an older active
+  projection as invalid, and root entry fails closed with the explicit
+  `cluster up` recovery instead of entering against stale authority.
 - Source access describes only the direct live source bind. Read-only does not
   make the writable home or tmpfs read-only and does not provide a snapshot;
   host or same-root read-write Context changes remain observable.
@@ -810,10 +838,16 @@ OPA allow.
   or upstream call. Advanced Rego may further constrain generic input but
   cannot grant beyond the guardrail or redefine learned permission identity.
 - `builtin/agent-ready` preserves the pinned Claude Code 2.1.220 and Codex
-  0.147.0 native capability plane and the pinned GitHub CLI 2.96.0 native
-  authentication bootstrap. Compile-time `claude_ready`, `codex_ready`, and
-  `gh_ready` bundles expand into the exact authentication effects required for
-  routine native login; bundle and executable names are never policy identity.
+  0.147.0 native capability plane, the pinned GitHub CLI 2.96.0 native
+  authentication bootstrap, TWG CLI 1.2.5 native login readiness, and pup
+  1.10.7 US1 native login readiness when those clients are supplied by a
+  custom runtime. Compile-time `claude_ready`, `codex_ready`, `gh_ready`,
+  `twg_ready`, and `pup_ready` bundles expand from the trusted
+  binary into the exact authentication effects required for routine native
+  login. One dedicated compile-time catalog gives each pinned client an
+  independent append-only readiness contract revision. Aggregate generation
+  replaces historical snapshotted readiness rules with the current set; bundle
+  and executable names are never policy identity.
   Model execution, account state, bootstrap, first-party capability discovery,
   fixed telemetry, and bounded provider-owned evaluation receive reviewed
   baseline authority. Dynamic evaluation paths use
