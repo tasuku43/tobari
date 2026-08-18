@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Tobari Operator Console</title>
+  <link rel="stylesheet" href="/assets/app.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="#overview" aria-label="Tobari overview"><span class="mark">T</span><span>TOBARI</span><small>OPERATOR CONSOLE</small></a>
+    <div class="cluster-chip"><span id="cluster-dot" class="dot"></span><span id="cluster-label">CONNECTING</span></div>
+    <div class="top-actions">
+      <span id="revision" class="mono dim">REV —</span>
+      <button id="refresh" class="icon-button" type="button" title="Refresh snapshot">↻</button>
+      <button id="theme" class="icon-button" type="button" title="Toggle light and dark mode">◐</button>
+    </div>
+  </header>
+  <div class="shell">
+    <nav class="rail" aria-label="Operator Console sections">
+      <a href="#overview" data-view="overview" class="active"><span>01</span>OVERVIEW</a>
+      <a href="#review" data-view="review"><span>02</span>POLICY REVIEW <b id="review-count">0</b></a>
+      <a href="#rules" data-view="rules"><span>03</span>RULES</a>
+      <div class="rail-foot"><span>LOCAL SESSION</span><strong>127.0.0.1</strong></div>
+    </nav>
+    <main>
+      <section id="overview" class="view active">
+        <div class="section-head"><div><p class="eyebrow">INSTALLATION / LIVE</p><h1>Cluster overview</h1></div><span id="observed-at" class="mono dim"></span></div>
+        <div id="metrics" class="metrics"></div>
+        <div class="split">
+          <section class="panel"><div class="panel-head"><h2>Components</h2><span class="tag">SHARED</span></div><div id="components"></div></section>
+          <section class="panel"><div class="panel-head"><h2>Workspaces</h2><span id="workspace-count" class="tag">0 TOTAL</span></div><div id="workspaces"></div></section>
+        </div>
+      </section>
+      <section id="review" class="view">
+        <div class="section-head"><div><p class="eyebrow">PERMISSION INBOX</p><h1>Policy review</h1></div><div class="review-actions"><span id="staged-count" class="tag">0 STAGED</span><button id="apply" class="primary" type="button" disabled>REVIEW &amp; APPLY</button></div></div>
+        <div id="review-notice" class="notice hidden"></div>
+        <div id="review-list" class="review-list"></div>
+      </section>
+      <section id="rules" class="view">
+        <div class="section-head"><div><p class="eyebrow">CURRENT AUTHORITY</p><h1>Learned rules</h1></div><span id="rule-count" class="tag">0 RULES</span></div>
+        <section class="panel table-panel"><div id="rules-list"></div></section>
+      </section>
+    </main>
+  </div>
+  <dialog id="confirm-dialog">
+    <form method="dialog" class="dialog-card">
+      <p class="eyebrow">FINAL REVIEW</p><h2>Apply staged authority?</h2>
+      <p class="dim">Tobari will revalidate every opaque review item before activating one revision. This is not retried automatically.</p>
+      <div id="confirm-list" class="confirm-list"></div>
+      <div class="dialog-actions"><button value="cancel" class="secondary">CANCEL</button><button id="confirm-apply" value="default" class="primary">APPLY DECISIONS</button></div>
+    </form>
+  </dialog>
+  <div id="toast" role="status" aria-live="polite"></div>
+  <script src="/assets/app.js" defer></script>
+</body>
+</html>

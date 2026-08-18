@@ -19,6 +19,7 @@ const (
 	TaskContextList   = "context.list"
 	TaskContextShow   = "context.show"
 	TaskContextCreate = "context.create"
+	TaskContextDelete = "context.delete"
 	TaskContextUse    = "context.use"
 	TaskConfigShell   = "config.shell"
 	TaskConfigGit     = "config.git"
@@ -74,6 +75,39 @@ func ResolveContextNativeReadiness(value ContextNativeReadiness, presetOrigin st
 	return ContextNativeReadinessDisabled, nil
 }
 
+// ContextCreateComposition is the complete policy selection used to create one
+// immutable Context snapshot. MethodPolicy is nil when the selected preset's
+// method policy is retained unchanged.
+type ContextCreateComposition struct {
+	PolicyPresetOrigin string
+	NativeReadiness    ContextNativeReadiness
+	MethodPolicy       *PolicyPresetMethodPolicy
+}
+
+func (c ContextCreateComposition) Validate() error {
+	if err := ValidatePolicyPresetOrigin(c.PolicyPresetOrigin); err != nil {
+		return err
+	}
+	if err := c.NativeReadiness.Validate(); err != nil {
+		return err
+	}
+	if c.MethodPolicy != nil {
+		if err := c.MethodPolicy.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (c ContextCreateComposition) Clone() ContextCreateComposition {
+	result := c
+	if c.MethodPolicy != nil {
+		policy := c.MethodPolicy.Clone()
+		result.MethodPolicy = &policy
+	}
+	return result
+}
+
 // ContextObservationState distinguishes durable Context authority from a
 // display-only first-use default. Only Persisted may supply authority to a mutation.
 type ContextObservationState string
@@ -125,6 +159,9 @@ func (o ContextObservation) Validate() error {
 var (
 	ErrContextExists        = errors.New("Context already exists")
 	ErrContextNotFound      = errors.New("Context does not exist")
+	ErrContextActive        = errors.New("Context is current")
+	ErrContextProtected     = errors.New("Context is protected")
+	ErrContextHasWorkspaces = errors.New("Context has Workspaces")
 	ErrRuntimeRecipeExists  = errors.New("Context runtime recipe already exists")
 	ErrRuntimeRecipeMissing = errors.New("Context runtime recipe does not exist")
 )
@@ -725,18 +762,19 @@ func (p ContextStorePaths) Validate() error {
 
 // ContextSummary is one item in the complete local Context collection.
 type ContextSummary struct {
-	ID                   string                  `json:"id"`
-	Name                 string                  `json:"name"`
-	ContextState         ContextObservationState `json:"context_state"`
-	Active               bool                    `json:"active"`
-	AgentProfile         string                  `json:"agent_profile"`
-	Image                string                  `json:"image"`
-	PolicyMode           ContextPolicyMode       `json:"policy_mode"`
-	SourceAccess         ContextSourceAccess     `json:"source_access"`
-	PolicyPresetOrigin   string                  `json:"policy_preset_origin"`
-	PolicyPresetRevision string                  `json:"policy_preset_revision"`
-	NativeReadiness      ContextNativeReadiness  `json:"native_readiness"`
-	RuntimeStatus        ContextRuntimeStatus    `json:"runtime_status,omitempty"`
+	ID                   string                   `json:"id"`
+	Name                 string                   `json:"name"`
+	ContextState         ContextObservationState  `json:"context_state"`
+	Active               bool                     `json:"active"`
+	AgentProfile         string                   `json:"agent_profile"`
+	Image                string                   `json:"image"`
+	PolicyMode           ContextPolicyMode        `json:"policy_mode"`
+	SourceAccess         ContextSourceAccess      `json:"source_access"`
+	PolicyPresetOrigin   string                   `json:"policy_preset_origin"`
+	PolicyPresetRevision string                   `json:"policy_preset_revision"`
+	NativeReadiness      ContextNativeReadiness   `json:"native_readiness"`
+	MethodPolicy         PolicyPresetMethodPolicy `json:"method_policy"`
+	RuntimeStatus        ContextRuntimeStatus     `json:"runtime_status,omitempty"`
 }
 
 func (s ContextSummary) Validate() error {
@@ -769,6 +807,9 @@ func (s ContextSummary) Validate() error {
 			return err
 		}
 	}
+	if err := s.MethodPolicy.Validate(); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -780,6 +821,32 @@ type ContextListResult struct {
 	ContextState ContextObservationState `json:"context_state"`
 	Active       string                  `json:"active"`
 	Items        []ContextSummary        `json:"items"`
+}
+
+// ContextDeleteResult confirms removal without pretending the deleted Context
+// can still produce a ContextReport.
+type ContextDeleteResult struct {
+	Task    string               `json:"task"`
+	ID      string               `json:"id"`
+	Name    string               `json:"name"`
+	Deleted bool                 `json:"deleted"`
+	Cluster ContextClusterStatus `json:"cluster"`
+}
+
+func (r ContextDeleteResult) Validate() error {
+	if r.Task != TaskContextDelete || !r.Deleted {
+		return fmt.Errorf("Context deletion outcome is invalid")
+	}
+	if err := ValidateContextID(r.ID); err != nil {
+		return err
+	}
+	if err := ValidateName(r.Name); err != nil {
+		return err
+	}
+	if r.Cluster != ContextClusterStatusNotApplicable && r.Cluster != ContextClusterStatusRequiresReconcile {
+		return fmt.Errorf("Context deletion cluster outcome is invalid")
+	}
+	return nil
 }
 
 func (r ContextListResult) Validate() error {
@@ -949,6 +1016,7 @@ type ContextReport struct {
 	PolicyPresetRevision string                           `json:"policy_preset_revision"`
 	NativeReadiness      ContextNativeReadiness           `json:"native_readiness"`
 	PolicyGuardrail      PolicyPresetGuardrail            `json:"policy_guardrail"`
+	MethodPolicy         PolicyPresetMethodPolicy         `json:"method_policy"`
 	ShellEnvironment     []ContextShellEnvironmentSetting `json:"shell_environment"`
 	GitIdentity          ContextGitIdentitySetting        `json:"git_identity"`
 	Stores               ContextStorePaths                `json:"stores"`
@@ -969,7 +1037,7 @@ func (r ContextReport) Validate() error {
 		if r.Task != TaskContextShow || r.Name != DefaultContextName || !r.Active || r.ID != "" || r.Stores != (ContextStorePaths{}) {
 			return fmt.Errorf("synthetic default Context report claims persisted authority")
 		}
-		if r.AgentProfile == "" || r.Image == "" || r.PolicyMode.Validate() != nil || r.SourceAccess.Validate() != nil || r.PolicyPresetOrigin != DefaultPolicyPresetOrigin || r.PolicyPresetRevision != "" || (r.NativeReadiness != "" && r.NativeReadiness != ContextNativeReadinessEnabled) || r.PolicyGuardrail != PolicyPresetGuardrailReviewedExact {
+		if r.AgentProfile == "" || r.Image == "" || r.PolicyMode.Validate() != nil || r.SourceAccess.Validate() != nil || r.PolicyPresetOrigin != DefaultPolicyPresetOrigin || r.PolicyPresetRevision != "" || (r.NativeReadiness != "" && r.NativeReadiness != ContextNativeReadinessEnabled) || r.PolicyGuardrail != PolicyPresetGuardrailMethodPolicy {
 			return fmt.Errorf("synthetic default Context display metadata is invalid")
 		}
 	} else {
@@ -996,6 +1064,9 @@ func (r ContextReport) Validate() error {
 		if err := r.PolicyGuardrail.Validate(); err != nil {
 			return err
 		}
+	}
+	if err := r.MethodPolicy.Validate(); err != nil {
+		return err
 	}
 	if err := r.Runtime.Validate(); err != nil {
 		return err

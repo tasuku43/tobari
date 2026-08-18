@@ -183,6 +183,7 @@ func (r *Runtime) contextReport(ctx context.Context, task string, manifest tobar
 		return tobari.ContextReport{}, presetErr
 	}
 	result.PolicyGuardrail = preset.Guardrail
+	result.MethodPolicy = preset.MethodPolicy
 	if task == tobari.TaskContextShow {
 		result.Authentication, err = r.contextAuthentication(ctx, manifest.ID)
 		if err != nil {
@@ -213,8 +214,9 @@ func (r *Runtime) nonPersistedContextReport(observed observedContext, active str
 		Task: tobari.TaskContextShow, ContextState: observed.state, Name: manifest.Name,
 		Active: manifest.Name == active, AgentProfile: manifest.AgentProfile, Image: manifest.Image,
 		PolicyMode: manifest.PolicyMode, SourceAccess: manifest.SourceAccess,
-		PolicyPresetOrigin: tobari.DefaultPolicyPresetOrigin, PolicyGuardrail: tobari.PolicyPresetGuardrailReviewedExact,
+		PolicyPresetOrigin: tobari.DefaultPolicyPresetOrigin, PolicyGuardrail: tobari.PolicyPresetGuardrailMethodPolicy,
 		NativeReadiness:  tobari.ContextNativeReadinessEnabled,
+		MethodPolicy:     tobari.PolicyPresetMethodPolicy{Default: tobari.PolicyPresetMethodExactReview, Overrides: []tobari.PolicyPresetMethodOverride{}},
 		ShellEnvironment: shellEnvironment, GitIdentity: gitIdentity,
 		Stores: tobari.ContextStorePaths{}, Runtime: runtimeReport, Cluster: tobari.ContextClusterStatusNotApplicable,
 		Authentication: nativeOrUnavailableContextAuthentication(),

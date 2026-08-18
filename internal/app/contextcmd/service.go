@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"reflect"
 
 	"github.com/tasuku43/tobari/internal/app/execution"
 	"github.com/tasuku43/tobari/internal/app/portcheck"
@@ -35,6 +36,14 @@ type policyPresetContextRuntimePort interface {
 	CreateContextWithPreset(context.Context, string, string, tobari.ContextPolicyMode, tobari.ContextSourceAccess, string, ...tobari.ContextNativeReadiness) (tobari.ContextReport, error)
 }
 
+type composedContextRuntimePort interface {
+	CreateContextWithComposition(context.Context, string, string, tobari.ContextPolicyMode, tobari.ContextSourceAccess, tobari.ContextCreateComposition) (tobari.ContextReport, error)
+}
+
+type contextDeleteRuntimePort interface {
+	DeleteContext(context.Context, string) (tobari.ContextDeleteResult, error)
+}
+
 type contextRuntimeBuildProgressPort interface {
 	BuildRuntimeWithProgress(context.Context, io.Writer, tobari.RuntimeBuildProgressSink) (tobari.ContextReport, error)
 }
@@ -54,6 +63,11 @@ func (ownedPolicy) Check(_ context.Context, intent operation.Intent) error {
 	if intent.Effect == operation.EffectWrite &&
 		intent.Target.Kind == tobari.ContextTargetKind &&
 		intent.Target.ID == tobari.ActiveContextTargetID {
+		return nil
+	}
+	if intent.Effect == operation.EffectWrite &&
+		intent.Target.Kind == tobari.ContextCatalogTargetKind &&
+		intent.Target.ID == tobari.ContextCatalogTargetID {
 		return nil
 	}
 	if intent.Effect == operation.EffectWrite &&
@@ -342,9 +356,6 @@ func (s *Service) Show(ctx context.Context, name string) (tobari.ContextReport, 
 func (s *Service) Create(
 	ctx context.Context, intent operation.Intent, name, image string, mode tobari.ContextPolicyMode, sourceAccess tobari.ContextSourceAccess, selections ...string,
 ) (tobari.ContextReport, error) {
-	if err := s.requireRuntime(); err != nil {
-		return tobari.ContextReport{}, err
-	}
 	presetOrigin := tobari.DefaultPolicyPresetOrigin
 	nativeReadiness := tobari.ContextNativeReadinessEnabled
 	if len(selections) > 2 {
@@ -356,14 +367,30 @@ func (s *Service) Create(
 	if len(selections) == 2 {
 		nativeReadiness = tobari.ContextNativeReadiness(selections[1])
 	}
+	return s.CreateWithComposition(ctx, intent, name, image, mode, sourceAccess, tobari.ContextCreateComposition{
+		PolicyPresetOrigin: presetOrigin,
+		NativeReadiness:    nativeReadiness,
+	})
+}
+
+// CreateWithComposition creates one Context from a selected preset and an
+// optional complete method-policy replacement collected by the human wizard.
+func (s *Service) CreateWithComposition(
+	ctx context.Context,
+	intent operation.Intent,
+	name, image string,
+	mode tobari.ContextPolicyMode,
+	sourceAccess tobari.ContextSourceAccess,
+	composition tobari.ContextCreateComposition,
+) (tobari.ContextReport, error) {
+	if err := s.requireRuntime(); err != nil {
+		return tobari.ContextReport{}, err
+	}
 	if err := validateCreateInput(name, image, mode, sourceAccess); err != nil {
 		return tobari.ContextReport{}, err
 	}
-	if err := tobari.ValidatePolicyPresetOrigin(presetOrigin); err != nil {
+	if err := composition.Validate(); err != nil {
 		return tobari.ContextReport{}, fault.Wrap(fault.KindInvalidInput, "invalid_context", "Context policy preset selection is invalid", false, err)
-	}
-	if err := nativeReadiness.Validate(); err != nil {
-		return tobari.ContextReport{}, fault.Wrap(fault.KindInvalidInput, "invalid_context", "Context native readiness selection is invalid", false, err)
 	}
 	request := execution.Request{
 		Intent: intent, ExpectedCommand: intent.Command, ExpectedEffect: operation.EffectCreate,
@@ -374,12 +401,20 @@ func (s *Service) Create(
 	err := s.mutator.Invoke(ctx, request, func(actionContext context.Context, _ operation.Intent) error {
 		var created tobari.ContextReport
 		var createErr error
-		if runtime, ok := s.runtime.(policyPresetContextRuntimePort); ok {
-			created, createErr = runtime.CreateContextWithPreset(actionContext, name, image, mode, sourceAccess, presetOrigin, nativeReadiness)
-		} else if presetOrigin == tobari.DefaultPolicyPresetOrigin && nativeReadiness == tobari.ContextNativeReadinessEnabled {
-			created, createErr = s.runtime.CreateContext(actionContext, name, image, mode, sourceAccess)
+		if runtime, ok := s.runtime.(composedContextRuntimePort); ok {
+			created, createErr = runtime.CreateContextWithComposition(actionContext, name, image, mode, sourceAccess, composition.Clone())
+		} else if composition.MethodPolicy == nil {
+			if runtime, ok := s.runtime.(policyPresetContextRuntimePort); ok {
+				created, createErr = runtime.CreateContextWithPreset(actionContext, name, image, mode, sourceAccess, composition.PolicyPresetOrigin, composition.NativeReadiness)
+			} else if composition.PolicyPresetOrigin == tobari.DefaultPolicyPresetOrigin && composition.NativeReadiness == tobari.ContextNativeReadinessEnabled {
+				created, createErr = s.runtime.CreateContext(actionContext, name, image, mode, sourceAccess)
+			} else {
+				createErr = errors.New("policy preset store is unavailable")
+			}
+		} else if composition.PolicyPresetOrigin == tobari.DefaultPolicyPresetOrigin && composition.NativeReadiness == tobari.ContextNativeReadinessEnabled {
+			createErr = errors.New("composed policy preset store is unavailable")
 		} else {
-			createErr = errors.New("policy preset store is unavailable")
+			createErr = errors.New("composed policy preset store is unavailable")
 		}
 		if errors.Is(createErr, tobari.ErrContextExists) {
 			return fault.New(
@@ -397,8 +432,12 @@ func (s *Service) Create(
 			contractErr = readinessErr
 		}
 		if contractErr == nil && (created.Task != tobari.TaskContextCreate ||
-			created.Name != name || created.SourceAccess != sourceAccess || created.PolicyPresetOrigin != presetOrigin || createdReadiness != nativeReadiness) {
+			created.Name != name || created.SourceAccess != sourceAccess || created.PolicyPresetOrigin != composition.PolicyPresetOrigin || createdReadiness != composition.NativeReadiness) {
 			contractErr = fmt.Errorf("created Context identity or source access does not match the request")
+		}
+		if contractErr == nil && composition.MethodPolicy != nil &&
+			!reflect.DeepEqual(created.MethodPolicy, *composition.MethodPolicy) {
+			contractErr = fmt.Errorf("created Context method policy does not match the request")
 		}
 		if contractErr != nil {
 			return fault.Wrap(
@@ -417,6 +456,79 @@ func (s *Service) Create(
 
 func (s *Service) Use(ctx context.Context, intent operation.Intent, name string) (tobari.ContextReport, error) {
 	return s.UseWithProgress(ctx, intent, name, nil)
+}
+
+// Delete removes one non-current Context only after infrastructure proves no
+// logical Workspace still binds its stable authority identity.
+func (s *Service) Delete(
+	ctx context.Context, intent operation.Intent, name string,
+) (tobari.ContextDeleteResult, error) {
+	if err := s.requireRuntime(); err != nil {
+		return tobari.ContextDeleteResult{}, err
+	}
+	if err := tobari.ValidateName(name); err != nil {
+		return tobari.ContextDeleteResult{}, fault.Wrap(
+			fault.KindInvalidInput, "invalid_context_name", "Context name is invalid", false, err,
+			fault.NextAction{Command: "context list", Reason: "Choose a named Context from the local collection."},
+		)
+	}
+	runtime, ok := s.runtime.(contextDeleteRuntimePort)
+	if !ok || portcheck.IsNil(runtime) {
+		return tobari.ContextDeleteResult{}, fault.New(fault.KindInternal, "missing_runtime", "Context deletion runtime is not configured", false)
+	}
+	request := execution.Request{
+		Intent: intent, ExpectedCommand: intent.Command, ExpectedEffect: operation.EffectWrite,
+		ExpectedTarget: operation.TargetRef{Kind: tobari.ContextCatalogTargetKind, ID: tobari.ContextCatalogTargetID},
+		ExpectedImpact: intent.Impact,
+	}
+	var result tobari.ContextDeleteResult
+	err := s.withLifecycleLock(ctx, func(lifecycleContext context.Context) error {
+		return s.mutator.Invoke(lifecycleContext, request, func(actionContext context.Context, _ operation.Intent) error {
+			deleted, deleteErr := runtime.DeleteContext(actionContext, name)
+			switch {
+			case errors.Is(deleteErr, tobari.ErrContextNotFound):
+				return fault.New(
+					fault.KindNotFound, "context_not_found", "the named Context does not exist", false,
+					fault.NextAction{Command: "context list", Reason: "Choose an existing Context."},
+				)
+			case errors.Is(deleteErr, tobari.ErrContextActive):
+				return fault.New(
+					fault.KindRejected, "context_is_current", "the current/default Context cannot be deleted", false,
+					fault.NextAction{Command: "context use", Reason: "Select another Context before deleting this one."},
+				)
+			case errors.Is(deleteErr, tobari.ErrContextProtected):
+				return fault.New(
+					fault.KindRejected, "context_is_protected", "the foundational default Context cannot be deleted", false,
+					fault.NextAction{Command: "context show", Reason: "Keep the default Context and delete only additional named Contexts."},
+				)
+			case errors.Is(deleteErr, tobari.ErrContextHasWorkspaces):
+				return fault.New(
+					fault.KindRejected, "context_has_workspaces", "the Context still owns one or more Workspaces", false,
+					fault.NextAction{Command: "list", Reason: "Delete every Workspace bound to this Context first."},
+				)
+			case deleteErr != nil:
+				return fault.Wrap(
+					fault.KindRejected, "context_delete_failed", "Context could not be deleted", false, deleteErr,
+					fault.NextAction{Command: "context list", Reason: "Inspect the Context collection before retrying."},
+				)
+			}
+			if err := deleted.Validate(); err != nil || deleted.Name != name {
+				if err == nil {
+					err = fmt.Errorf("deleted Context identity does not match the request")
+				}
+				return fault.Wrap(
+					fault.KindContract, "invalid_context_delete_result", "Context deletion result is invalid", false, err,
+					fault.NextAction{Command: "context list", Reason: "Reconcile the Context collection after deletion."},
+				)
+			}
+			result = deleted
+			return nil
+		})
+	})
+	if err != nil {
+		return tobari.ContextDeleteResult{}, err
+	}
+	return result, nil
 }
 
 // UseWithProgress selects a Context and optionally forwards the bounded

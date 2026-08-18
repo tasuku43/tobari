@@ -468,11 +468,30 @@ authority only for an identical candidate ID; stale and same-label replacement
 IDs remain undecided. Confirmed Apply returns an authoritative active revision
 and exact typed receipt, after which the original running Workspace may issue a
 new request. Neither Workspace nor OPA is recreated by this activation.
+The optional Operator Console is a session-scoped trusted-host presentation,
+not a network control plane. `tobari serve` binds TCP4 only to
+`127.0.0.1:0`, accepts no remote/fixed-port option, and exits with its owning
+foreground process. A cryptographically random 256-bit bearer exists only in
+process memory and the initial URL fragment; script moves it to tab-scoped
+session storage and removes the fragment before API use. The server sets no
+cookie, serves no external asset, emits a restrictive CSP and `no-store`, and
+rejects requests unless the peer is IPv4 loopback, Host is the exact selected
+listener authority, method/path/content type are allowlisted, and Authorization
+contains the exact bearer. Mutation requests additionally require the exact
+loopback Origin, a bounded strict JSON body, and one complete decision set.
+Browser staging is inert. Apply reuses the fixed-target reviewed mutation,
+freshly validates every opaque candidate, has a bounded deadline, never retries
+automatically, and returns only the authoritative typed receipt. Opener failure
+does not widen binding or authority; the exact URL remains available for manual
+host-browser navigation.
 Session-close summaries use the same untrusted request projection
 and are best-effort host stderr output.
 
 Before any baseline, learned, or Advanced allow, the Tobari-owned evaluator
-applies the immutable preset terminal guardrail. Terminal denial emits no
+applies the immutable destination ceiling and resolves one complete method
+decision from an exact override or the preset default. Method `deny` is
+terminal; `allow` enters the preset-grant path; `exact_review` grants nothing
+by itself. Terminal denial emits no
 permission candidate and causes zero external DNS, Auth Broker resolution, or
 upstream calls. The guardrail cannot be replaced by Context Rego, learned state,
 provider metadata, or a Workspace-supplied value. `builtin/offline` terminally
@@ -507,9 +526,9 @@ neighboring OAuth routes remain unmatched. Bundle
 and executable names never enter policy.
 New Context snapshots omit these readiness rules. Aggregate generation removes
 every form retained in the binary's append-only compatibility history from a
-legacy snapshot, then, when enabled, adds only the current binary set. Offline,
-exact destination/method ceilings, GET-only non-GET denial, and exact Deny
-remain terminal. Missing legacy state preserves its former preset-coupled
+legacy snapshot, then, when enabled, adds only the current binary set.
+Destination ceilings, method Deny, and exact Deny remain terminal. Missing
+legacy state preserves its former preset-coupled
 behavior without rewriting the immutable manifest.
 One reviewed dedicated compile-time family catalog owns each bundle's pinned
 client version, independent current contract revision, and append-only removal
@@ -517,11 +536,11 @@ history. Observed candidates cannot extend it. The active aggregate revision mus
 revision recomputed from current Context sources and that catalog; status marks
 a mismatch invalid and Workspace entry performs no downstream reconciliation
 until explicit `cluster up` activates the complete candidate.
-`builtin/reviewed-exact` permits only eligible effects to enter exact review;
-`builtin/get-only-reviewed` permits only eligible GET effects to enter exact
-review and terminally denies HEAD and every non-GET method. Those three strict
-presets grant no immediate authority, and GET is not classified as safe or
-read-only.
+`builtin/reviewed-exact` defaults all methods to Exact Review;
+`builtin/get-only-reviewed` defaults to Deny with GET Exact Review;
+`builtin/public-get-reviewed` defaults to Exact Review with GET Allow. The
+three strict presets grant no immediate authority. GET is not classified as
+safe or read-only, and exact Deny remains terminal over method Allow.
 
 ## Credentials
 
@@ -720,8 +739,24 @@ volumes, not encrypted Context vaults or the installation root key.
 `context use` is also a trusted-host fixed-target write. It may select only an
 existing validated Context and atomically changes only the current/default
 marker. It does not touch Docker, the aggregate projection, an existing Tobari,
-or any enforcement authority. `context create` likewise does not start Docker;
-an explicit `cluster up` validates and activates the new all-Context candidate.
+or any enforcement authority. `context create` likewise does not start Docker.
+Its argument-free wizard is allowed only with text success/error output and
+terminal stdin/stderr; it validates the complete name, source-access, and
+method-policy selection before one mutation. Cancellation, redirected input,
+JSON mode, and terminal failure perform no mutation. A composed method Deny
+filters only positive baseline entries that would otherwise exceed the new
+method ceiling; it cannot widen the independent destination ceiling or remove
+exact Deny precedence. An explicit `cluster up` validates and activates the new
+all-Context candidate.
+
+`context delete` is a lifecycle-locked trusted-host destructive write against
+the fixed Context catalog. It rejects the foundational default, current
+Context, and any Context ID referenced by durable Workspace state before
+removal. It removes only the exact validated owner-only Context directory and
+Context-ID authentication directory. It has no force path, never chooses a new
+current Context, and never removes project roots, Workspace homes, or shared
+runtime images. Existing shared state requires explicit aggregate
+reconciliation.
 `config shell` and `config git` are trusted-host fixed-target writes to
 owner-only Context configuration. A terminal staged editor may complete a
 wholly omitted setting group, but it shows typed complete current state and
@@ -980,6 +1015,7 @@ reference-bound mutation.
 
 | Claim | Enforcement |
 |---|---|
+| Operator Console cannot become remote control or alternate policy authority | TCP4 `127.0.0.1:0` binding, exact peer/Host/Origin/bearer/method/path/content-type checks, fragment-to-sessionStorage bootstrap, no cookies/external assets, CSP/no-store headers, bounded strict bodies/timeouts, cancellation shutdown, inert staging, and one canonical reviewed-apply delegation with zero automatic retries |
 | No direct Tobari egress | Per-Tobari internal topology, forwarding-off sysctls, forward-drop and namespace-guard inspection, and Docker integration tests for raw TCP/UDP and outage paths |
 | Transparent denial performs no pre-policy external I/O | Non-recursive synthetic DNS tests plus Gateway DNS/resolver/upstream call-count canaries for denied, malformed, raw TCP, non-HTTP TLS, UDP, and QUIC traffic |
 | A network guard cannot expand into a persistent privileged service | Exact fixed helper argv, verified namespace ownership, read-only/no-mount/no-secret/no-Docker-socket assertions, sole `NET_ADMIN` capability, and guard-before-entry ordering tests |
@@ -1021,7 +1057,7 @@ reference-bound mutation.
 | One bad Context cannot replace known-good policy | Strict host-paired source validation, mutex plus cross-process locking, digest-bound source journal recovery, serialized content-addressed aggregate generation, reserved namespace validation, whole-candidate OPA tests, atomic publish, rollback tests, and integration |
 | Context changes cannot mutate existing Tobari authority | Permanent instance binding, current-marker-only tests, Context-local runtime reconciliation, and restart integration |
 | Source access is exact and not a snapshot claim | Runtime spec/hash and Docker inspect tests, read-only mutation/Git-metadata failures, writable home/tmpfs canaries, no writable alias, and same-root host/read-write observation tests |
-| Preset guardrails cannot be bypassed | Offline/reviewed-exact/get-only-reviewed evaluator tests plus terminal zero-candidate/DNS/Broker/upstream call canaries above baseline, learned, and Advanced policy |
+| Preset guardrails cannot be bypassed | Default-plus-override method-decision tests for offline/reviewed-exact/get-only-reviewed/public-get-reviewed plus destination/method terminal zero-candidate/DNS/Broker/upstream canaries and exact-Deny precedence above broad Allow, baseline, learned, and Advanced policy |
 | Overlapping roots are not misrepresented as isolated | Product contract, Context-selected direct mounts, same-root/parent-child integration canaries, and absence of overlay/root-lock paths |
 | Gateway does not retain allowed streaming bodies | Header-hook ordering unit tests plus incremental chunked-request and SSE-response integration canaries |
 | Declared oversized bodies retain the transport bound | Fixed mitmproxy body-size asset test, over-limit `Content-Length` integration request, incremental unknown-length transport-cap evidence, and complete-body semantic-cap tests |

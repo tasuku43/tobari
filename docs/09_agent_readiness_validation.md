@@ -9,7 +9,7 @@ transcripts as repository fixtures.
 | Outcome | Public route | Success evidence |
 |---|---|---|
 | Discover capabilities | `help --format agent`, then one namespace or exact-command selector | Root remains a compact capability index; one scoped read supplies complete typed inputs, outputs, failures, and workflow |
-| Choose a Context envelope | `context list`, `context show`, `context create`, `context use` | Source access, policy-preset origin/revision, and native-readiness configured/effective state are explicit before entry; changing current Context does not retarget existing Workspaces |
+| Choose and retire a Context envelope | `context list`, `context show`, `context create`, `context use`, `context delete` | Human list cards expose filesystem and complete method-policy facts; argument-free terminal creation completes name/source/method policy once, direct JSON remains deterministic, changing current does not retarget Workspaces, and deletion rejects protected/current/bound Contexts |
 | Enter bounded work | `cluster up`, then `tobari [--context NAME]` | One selected live source bind, writable home/tmpfs, guarded network, reusable Workspace, and no direct egress |
 | Grow exact permission | `policy review`, or `policy candidates` then one exact allow/deny | Terminal guardrail precedes every candidate; explicit review activates only exact Context/project/scheme/host/port/method/path authority |
 | Inspect/reset decisions | `policy rules`, then `policy reset --id` | One current exact decision is removed through its unchanged opaque reference and returns to default deny |
@@ -89,6 +89,9 @@ For every preset, inspect and bind its immutable immediate-grant count.
 - `builtin/get-only-reviewed`: only guardrail-eligible GET effects reach exact
   review; HEAD and every non-GET are terminal denials. Do not describe GET as
   safe or read-only.
+- `builtin/public-get-reviewed`: public HTTPS GET succeeds without a candidate;
+  every other public HTTPS method remains eligible only for exact review. An
+  exact Deny for the same GET remains terminal.
 
 The native-login subset must include exactly:
 
@@ -125,9 +128,10 @@ family. Prove the aggregate revision includes its
 effective expansion, an older active revision is reported invalid, and root
 entry returns exact `cluster up` recovery before Workspace mutation.
 Create enabled and disabled readiness with every builtin preset. Enabled
-readiness is independent of preset identity, but offline suppresses it,
-GET-only filters every non-GET effect, exact destination/method ceilings filter
-outside effects, and exact Deny remains terminal. Disabled readiness supplies
+readiness is independent of preset identity, but destination ceilings and
+method Deny filter it, and exact Deny remains terminal. Prove every method uses
+an exact override or the preset default, including an extension-method canary.
+Disabled readiness supplies
 no overlay. Missing legacy state preserves the former behavior (enabled only
 for `builtin/agent-ready`) without rewriting the manifest. For GitHub,
 neighboring methods, paths, query variants,

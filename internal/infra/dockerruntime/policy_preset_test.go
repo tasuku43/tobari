@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -26,17 +27,17 @@ func TestPolicyPresetStoreListsBuiltinsAndCreatesOwnerOnlyCustomWithoutOverwrite
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(listed.Items) != 4 {
+	if len(listed.Items) != 5 {
 		t.Fatalf("fresh preset catalog = %+v", listed.Items)
 	}
-	if listed.Items[0].Origin != tobari.DefaultPolicyPresetOrigin || listed.Items[0].ImmediateGrantCount == 0 {
+	if listed.Items[0].Origin != tobari.DefaultPolicyPresetOrigin || listed.Items[0].BaselineGrantCount == 0 {
 		t.Fatalf("agent-ready default is missing from preset catalog: %+v", listed.Items)
 	}
 	created, err := runtime.InitPolicyPreset(context.Background(), "restricted")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if created.Origin != "custom/restricted" || created.Preset == nil || created.Preset.Guardrail != tobari.PolicyPresetGuardrailOffline {
+	if created.Origin != "custom/restricted" || created.Preset == nil || created.Preset.Guardrail != tobari.PolicyPresetGuardrailMethodPolicy || created.Preset.MethodPolicy.Default != tobari.PolicyPresetMethodDeny {
 		t.Fatalf("created preset = %+v", created)
 	}
 	path := filepath.Join(runtime.policyPresetCustomDirectory(), "restricted.json")
@@ -119,7 +120,7 @@ func TestContextSnapshotsPresetAndIgnoresLaterSourceEdit(t *testing.T) {
 		t.Fatal(err)
 	}
 	source := filepath.Join(runtime.policyPresetCustomDirectory(), "frozen.json")
-	edited := strings.Replace(string(before), `"offline"`, `"get_only_reviewed"`, 1)
+	edited := strings.Replace(string(before), `"default": "deny"`, `"default": "exact_review"`, 1)
 	if err := os.WriteFile(source, []byte(edited), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -127,7 +128,7 @@ func TestContextSnapshotsPresetAndIgnoresLaterSourceEdit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(before) != string(after) || created.PolicyGuardrail != tobari.PolicyPresetGuardrailOffline {
+	if string(before) != string(after) || created.PolicyGuardrail != tobari.PolicyPresetGuardrailMethodPolicy {
 		t.Fatal("source edit changed Context snapshot authority")
 	}
 	manifest, err := runtime.readContextManifest("frozen-context")
@@ -135,8 +136,45 @@ func TestContextSnapshotsPresetAndIgnoresLaterSourceEdit(t *testing.T) {
 		t.Fatal(err)
 	}
 	preset, err := runtime.readContextPreset(manifest)
-	if err != nil || preset.Guardrail != tobari.PolicyPresetGuardrailOffline {
+	if err != nil || preset.Guardrail != tobari.PolicyPresetGuardrailMethodPolicy || preset.MethodPolicy.Default != tobari.PolicyPresetMethodDeny {
 		t.Fatalf("snapshotted preset = %+v, %v", preset, err)
+	}
+}
+
+func TestContextCreateCompositionReplacesOnlyMethodPolicyInImmutableSnapshot(t *testing.T) {
+	runtime := newPolicyPresetTestRuntime(t)
+	methodPolicy := tobari.PolicyPresetMethodPolicy{
+		Default: tobari.PolicyPresetMethodExactReview,
+		Overrides: []tobari.PolicyPresetMethodOverride{
+			{Method: "GET", Decision: tobari.PolicyPresetMethodAllow},
+			{Method: "POST", Decision: tobari.PolicyPresetMethodDeny},
+		},
+	}
+	created, err := runtime.CreateContextWithComposition(
+		context.Background(), "composed", tobari.OfficialRuntimeBase,
+		tobari.ContextPolicyModeGuided, tobari.ContextSourceAccessReadWrite,
+		tobari.ContextCreateComposition{
+			PolicyPresetOrigin: tobari.DefaultPolicyPresetOrigin,
+			NativeReadiness:    tobari.ContextNativeReadinessEnabled,
+			MethodPolicy:       &methodPolicy,
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(created.MethodPolicy, methodPolicy) || created.PolicyPresetRevision == tobari.DefaultPolicyPresetRevision() {
+		t.Fatalf("composed Context report = %+v", created)
+	}
+	manifest, err := runtime.readContextManifest("composed")
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := runtime.readContextPreset(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(snapshot.MethodPolicy, methodPolicy) || len(snapshot.BaselineGrants) == 0 {
+		t.Fatalf("composed snapshot replaced unrelated preset authority: %+v", snapshot)
 	}
 }
 
@@ -150,7 +188,7 @@ func TestDefaultContextCanReuseSnapshottedCustomPresetAfterSourceEdit(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	edited := strings.Replace(string(data), `"offline"`, `"reviewed_exact"`, 1)
+	edited := strings.Replace(string(data), `"default": "deny"`, `"default": "exact_review"`, 1)
 	if err := os.WriteFile(source, []byte(edited), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -164,7 +202,7 @@ func TestDefaultContextCanReuseSnapshottedCustomPresetAfterSourceEdit(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !report.Active || report.PolicyPresetOrigin != "custom/snapshot" || report.PolicyGuardrail != tobari.PolicyPresetGuardrailReviewedExact {
+	if !report.Active || report.PolicyPresetOrigin != "custom/snapshot" || report.PolicyGuardrail != tobari.PolicyPresetGuardrailMethodPolicy {
 		t.Fatalf("reused custom preset Context = %+v", report)
 	}
 }

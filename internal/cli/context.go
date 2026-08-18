@@ -247,23 +247,83 @@ func runContextCreate(
 	if c.context == nil {
 		return c.fail(ctx, missingRuntimeFault())
 	}
+	format, err := parseSuccessFormat(inputs.One("--format"))
+	if err != nil {
+		return c.failUsage(ctx, "invalid_arguments", err.Error()+"; usage: "+command.Usage(), "help context create", "Correct the command arguments.")
+	}
 	intent.Target = operation.TargetRef{Kind: tobari.ContextCatalogTargetKind, ParentID: tobari.ContextCatalogTargetID}
 	intent.Impact = command.Agent.Mutation.Impact
 	mode := tobari.ContextPolicyMode(inputs.One("--mode"))
 	sourceAccess := tobari.ContextSourceAccess(inputs.One("--source-access"))
-	result, err := c.context.Create(ctx, intent, inputs.One("--name"), inputs.One("--image"), mode, sourceAccess, inputs.One("--policy-preset"), inputs.One("--native-readiness"))
+	name := inputs.One("--name")
+	var result tobari.ContextReport
+	if contextCreateInputsOmitted(inputs) {
+		if format != successFormatText || invocationErrorFormat(ctx) == errorFormatJSON ||
+			c.tobari == nil || !c.tobari.IsInteractive(c.In, c.Err) {
+			return c.failUsage(
+				ctx,
+				"context_create_wizard_unavailable",
+				"Argument-free Context creation requires text success/error output and interactive terminal stdin and stderr; usage: "+command.Usage(),
+				"help context create",
+				"Run `tobari context create` in an interactive terminal or supply --name for direct mode.",
+			)
+		}
+		wizard := c.contextCreate
+		if wizard == nil {
+			wizard = newContextCreateWizardWithStyle(!c.noColor)
+		}
+		selection, wizardErr := wizard.Compose(ctx, c.In, c.Err)
+		if wizardErr != nil {
+			return c.fail(ctx, normalizeContextCreateWizardError(wizardErr))
+		}
+		name = selection.Name
+		sourceAccess = selection.SourceAccess
+		policy := selection.MethodPolicy.Clone()
+		result, err = c.context.CreateWithComposition(
+			ctx, intent, name, inputs.One("--image"), mode, sourceAccess,
+			tobari.ContextCreateComposition{
+				PolicyPresetOrigin: inputs.One("--policy-preset"),
+				NativeReadiness:    tobari.ContextNativeReadiness(inputs.One("--native-readiness")),
+				MethodPolicy:       &policy,
+			},
+		)
+	} else {
+		if name == "" {
+			return c.failUsage(ctx, "invalid_arguments", "--name is required in direct mode; usage: "+command.Usage(), "help context create", "Supply --name or run the command without arguments to open the wizard.")
+		}
+		result, err = c.context.Create(ctx, intent, name, inputs.One("--image"), mode, sourceAccess, inputs.One("--policy-preset"), inputs.One("--native-readiness"))
+	}
 	if err != nil {
 		return c.fail(ctx, err)
-	}
-	format, err := parseSuccessFormat(inputs.One("--format"))
-	if err != nil {
-		return c.failUsage(ctx, "invalid_arguments", err.Error()+"; usage: "+command.Usage(), "help context create", "Correct the command arguments.")
 	}
 	output, err := renderContextReport(result, format, humanStyleAllowed(ctx, c, c.Out))
 	if err != nil {
 		return c.fail(ctx, err)
 	}
 	return c.emitMutationResult(ctx, command, output)
+}
+
+func contextCreateInputsOmitted(inputs ParsedInputs) bool {
+	for _, name := range []string{"--name", "--image", "--mode", "--source-access", "--policy-preset", "--native-readiness", "--format"} {
+		if inputs.Provided(name) {
+			return false
+		}
+	}
+	return true
+}
+
+func normalizeContextCreateWizardError(err error) error {
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return err
+	}
+	return fault.Wrap(
+		fault.KindInternal,
+		"context_create_wizard_failed",
+		"The Context creation wizard failed before creating a Context.",
+		false,
+		err,
+		fault.NextAction{Command: "context create", Reason: "Retry in an interactive terminal or use direct mode with --name."},
+	)
 }
 
 func runContextUse(
@@ -297,6 +357,32 @@ func runContextUse(
 		return c.fail(ctx, err)
 	}
 	output, err := renderContextReport(result, format, format == successFormatText && humanStyleAllowed(ctx, c, c.Out))
+	if err != nil {
+		return c.fail(ctx, err)
+	}
+	return c.emitMutationResult(ctx, command, output)
+}
+
+func runContextDelete(
+	ctx context.Context, c *CLI, command CommandSpec, intent operation.Intent, inputs ParsedInputs,
+) int {
+	if c == nil {
+		return ExitInternal
+	}
+	if c.context == nil {
+		return c.fail(ctx, missingRuntimeFault())
+	}
+	format, err := parseSuccessFormat(inputs.One("--format"))
+	if err != nil {
+		return c.failUsage(ctx, "invalid_arguments", err.Error()+"; usage: "+command.Usage(), "help context delete", "Correct the command arguments.")
+	}
+	intent.Target = operation.TargetRef{Kind: tobari.ContextCatalogTargetKind, ID: tobari.ContextCatalogTargetID}
+	intent.Impact = command.Agent.Mutation.Impact
+	result, err := c.context.Delete(ctx, intent, inputs.One("--name"))
+	if err != nil {
+		return c.fail(ctx, err)
+	}
+	output, err := renderContextDelete(result, format, format == successFormatText && humanStyleAllowed(ctx, c, c.Out))
 	if err != nil {
 		return c.fail(ctx, err)
 	}
@@ -370,19 +456,48 @@ type contextListDocument struct {
 	} `json:"contexts"`
 }
 
+type contextDeleteDocument struct {
+	SchemaVersion   int                        `json:"schema_version"`
+	ContextDeletion tobari.ContextDeleteResult `json:"context_deletion"`
+}
+
+func renderContextDelete(result tobari.ContextDeleteResult, format successFormat, color bool) ([]byte, error) {
+	if err := result.Validate(); err != nil {
+		return nil, fault.Wrap(fault.KindContract, "invalid_context_delete_result", "Context deletion result is invalid", false, err)
+	}
+	if format == successFormatJSON {
+		output, err := marshalCommandJSON("context delete", contextDeleteDocument{SchemaVersion: 1, ContextDeletion: result})
+		if err != nil {
+			return nil, err
+		}
+		return append(output, '\n'), nil
+	}
+	var output strings.Builder
+	writeStyledLine(&output, color, "Context deleted:", safeExternalText(result.Name), styleSuccess)
+	writeStyledLine(&output, color, "Context ID:", result.ID, styleText)
+	writeStyledLine(&output, color, "Removed:", "Context-owned manifest, policy snapshot, runtime recipe, and authentication state", styleText)
+	writeStyledLine(&output, color, "Preserved:", "project files and shared runtime images", styleText)
+	writeStyledLine(&output, color, "Cluster:", string(result.Cluster), humanStatusToken(string(result.Cluster)))
+	if result.Cluster == tobari.ContextClusterStatusRequiresReconcile {
+		writeStyledCommandLine(&output, color, "Next:", "run ", "`tobari cluster up`", " to reconcile the shared policy aggregate.")
+	}
+	return []byte(output.String()), nil
+}
+
 type contextSummaryJSONProjection struct {
-	ID                   *string                        `json:"id"`
-	Name                 string                         `json:"name"`
-	ContextState         tobari.ContextObservationState `json:"context_state"`
-	Active               bool                           `json:"active"`
-	AgentProfile         string                         `json:"agent_profile"`
-	Image                string                         `json:"image"`
-	PolicyMode           tobari.ContextPolicyMode       `json:"policy_mode"`
-	SourceAccess         tobari.ContextSourceAccess     `json:"source_access"`
-	PolicyPresetOrigin   string                         `json:"policy_preset_origin"`
-	PolicyPresetRevision string                         `json:"policy_preset_revision"`
-	NativeReadiness      tobari.ContextNativeReadiness  `json:"native_readiness"`
-	RuntimeStatus        tobari.ContextRuntimeStatus    `json:"runtime_status,omitempty"`
+	ID                   *string                         `json:"id"`
+	Name                 string                          `json:"name"`
+	ContextState         tobari.ContextObservationState  `json:"context_state"`
+	Active               bool                            `json:"active"`
+	AgentProfile         string                          `json:"agent_profile"`
+	Image                string                          `json:"image"`
+	PolicyMode           tobari.ContextPolicyMode        `json:"policy_mode"`
+	SourceAccess         tobari.ContextSourceAccess      `json:"source_access"`
+	PolicyPresetOrigin   string                          `json:"policy_preset_origin"`
+	PolicyPresetRevision string                          `json:"policy_preset_revision"`
+	NativeReadiness      tobari.ContextNativeReadiness   `json:"native_readiness"`
+	MethodPolicy         tobari.PolicyPresetMethodPolicy `json:"method_policy"`
+	RuntimeStatus        tobari.ContextRuntimeStatus     `json:"runtime_status,omitempty"`
 }
 
 type contextReportDocument struct {
@@ -404,6 +519,7 @@ type contextReportJSONProjection struct {
 	PolicyPresetRevision string                                  `json:"policy_preset_revision"`
 	NativeReadiness      tobari.ContextNativeReadiness           `json:"native_readiness"`
 	PolicyGuardrail      tobari.PolicyPresetGuardrail            `json:"policy_guardrail"`
+	MethodPolicy         tobari.PolicyPresetMethodPolicy         `json:"method_policy"`
 	ShellEnvironment     []tobari.ContextShellEnvironmentSetting `json:"shell_environment"`
 	GitIdentity          tobari.ContextGitIdentitySetting        `json:"git_identity"`
 	Stores               *tobari.ContextStorePaths               `json:"stores"`
@@ -455,7 +571,7 @@ func contextReportJSONDocument(result tobari.ContextReport) contextReportDocumen
 			AgentProfile: result.AgentProfile, Image: result.Image, PolicyMode: result.PolicyMode,
 			SourceAccess:       result.SourceAccess,
 			PolicyPresetOrigin: result.PolicyPresetOrigin, PolicyPresetRevision: result.PolicyPresetRevision, PolicyGuardrail: result.PolicyGuardrail,
-			NativeReadiness:  nativeReadiness,
+			NativeReadiness: nativeReadiness, MethodPolicy: result.MethodPolicy,
 			ShellEnvironment: result.ShellEnvironment, GitIdentity: result.GitIdentity, Stores: optionalContextStores(result),
 			Runtime: result.Runtime, Cluster: result.Cluster,
 			Authentication: authentication,
@@ -506,7 +622,7 @@ func renderContextList(result tobari.ContextListResult, format successFormat, co
 				AgentProfile: item.AgentProfile, Image: item.Image, PolicyMode: item.PolicyMode,
 				SourceAccess: item.SourceAccess, RuntimeStatus: item.RuntimeStatus,
 				PolicyPresetOrigin: item.PolicyPresetOrigin, PolicyPresetRevision: item.PolicyPresetRevision,
-				NativeReadiness: nativeReadiness,
+				NativeReadiness: nativeReadiness, MethodPolicy: item.MethodPolicy,
 			})
 		}
 		output, err := marshalCommandJSON("context list", document)
@@ -516,11 +632,9 @@ func renderContextList(result tobari.ContextListResult, format successFormat, co
 		return append(output, '\n'), nil
 	}
 	var output strings.Builder
-	writeStyledLine(&output, color, "Current Context:", safeExternalText(result.Active), styleText)
-	writeStyledLine(&output, color, "Context state:", string(result.ContextState), humanStatusToken(string(result.ContextState)))
-	output.WriteString("\n")
-	output.WriteString(applyStyleToken(color, styleAccent, "Contexts:"))
-	output.WriteString("\n")
+	heading := fmt.Sprintf("Contexts (current: %s, %s)", safeExternalText(result.Active), result.ContextState)
+	output.WriteString(applyStyleToken(color, styleAccent, heading))
+	output.WriteString("\n\n")
 	for _, item := range result.Items {
 		marker := " "
 		markerToken := styleMuted
@@ -528,18 +642,41 @@ func renderContextList(result tobari.ContextListResult, format successFormat, co
 			marker = "*"
 			markerToken = styleAccent
 		}
-		fmt.Fprintf(
-			&output, "%s %s\t%s=%s\t%s=%s\t%s=%s\t%s=%s\t%s=%s\n",
-			applyStyleToken(color, markerToken, marker),
-			applyStyleToken(color, styleText, safeExternalText(item.Name)),
-			applyStyleToken(color, styleMuted, "mode"), applyStyleToken(color, styleText, string(item.PolicyMode)),
-			applyStyleToken(color, styleMuted, "source"), applyStyleToken(color, styleText, "direct "+string(item.SourceAccess)),
-			applyStyleToken(color, styleMuted, "image"), applyStyleToken(color, styleText, safeExternalText(item.Image)),
-			applyStyleToken(color, styleMuted, "runtime"), applyStyleToken(color, humanStatusToken(string(item.RuntimeStatus)), string(item.RuntimeStatus)),
-			applyStyleToken(color, styleMuted, "agent"), applyStyleToken(color, styleText, safeExternalText(item.AgentProfile)),
-		)
+		fmt.Fprintf(&output, "%s %s\n", applyStyleToken(color, markerToken, marker), applyStyleToken(color, styleText, safeExternalText(item.Name)))
+		writeContextCardRow(&output, color, "Filesystem", "source", "direct "+string(item.SourceAccess), styleText)
+		writeContextCardRow(&output, color, "", "home", "read-write", styleText)
+		writeContextCardRow(&output, color, "", "tmpfs", "read-write", styleText)
+		writeContextCardRow(&output, color, "Network", "default", humanMethodDecision(item.MethodPolicy.Default), methodDecisionStyle(item.MethodPolicy.Default))
+		for _, override := range item.MethodPolicy.Overrides {
+			writeContextCardRow(&output, color, "", override.Method, humanMethodDecision(override.Decision), methodDecisionStyle(override.Decision))
+		}
+		writeContextCardValue(&output, color, "Runtime", string(item.RuntimeStatus), humanStatusToken(string(item.RuntimeStatus)))
+		writeContextCardValue(&output, color, "Image", safeExternalText(item.Image), styleText)
+		writeContextCardValue(&output, color, "Profile", string(item.PolicyMode)+" · agent "+safeExternalText(item.AgentProfile), styleText)
+		output.WriteString("\n")
 	}
 	return []byte(output.String()), nil
+}
+
+func writeContextCardRow(output *strings.Builder, color bool, section, subject, value string, token styleToken) {
+	fmt.Fprintf(
+		output,
+		"    %s %s %s\n",
+		applyStyleToken(color, styleMuted, fmt.Sprintf("%-10s", section)),
+		applyStyleToken(color, styleMuted, fmt.Sprintf("%-10s", subject)),
+		applyStyleToken(color, token, value),
+	)
+}
+
+func writeContextCardValue(output *strings.Builder, color bool, label, value string, token styleToken) {
+	fmt.Fprintf(output, "    %s %s\n", applyStyleToken(color, styleMuted, fmt.Sprintf("%-10s", label)), applyStyleToken(color, token, value))
+}
+
+func humanMethodDecision(decision tobari.PolicyPresetMethodDecision) string {
+	if decision == tobari.PolicyPresetMethodExactReview {
+		return "exact-review"
+	}
+	return string(decision)
 }
 
 func renderContextReport(result tobari.ContextReport, format successFormat, color bool) ([]byte, error) {
@@ -576,6 +713,10 @@ func renderContextReportText(result tobari.ContextReport, color bool) []byte {
 		writeStyledLine(&output, color, "Policy preset revision:", result.PolicyPresetRevision, styleText)
 	}
 	writeStyledLine(&output, color, "Policy guardrail:", string(result.PolicyGuardrail), styleText)
+	writeStyledLine(&output, color, "Method default:", string(result.MethodPolicy.Default), styleText)
+	for _, override := range result.MethodPolicy.Overrides {
+		writeStyledLine(&output, color, "Method "+override.Method+":", string(override.Decision), styleText)
+	}
 	for _, setting := range result.ShellEnvironment {
 		value := string(setting.Source)
 		if setting.Source == tobari.ContextShellEnvironmentLiteral && setting.Value != nil {

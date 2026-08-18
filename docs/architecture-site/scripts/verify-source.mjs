@@ -60,6 +60,7 @@ for (const required of [
   "builtin/offline",
   "builtin/reviewed-exact",
   "builtin/get-only-reviewed",
+  "builtin/public-get-reviewed",
 ]) {
   if (
     !v1Sources.contexts.includes(required) ||

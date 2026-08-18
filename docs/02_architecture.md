@@ -174,7 +174,7 @@ where applicable.
 
 `cluster up`, `cluster status`, `cluster denials`, `policy candidates`,
 `policy review`, `policy allow`, `policy deny`, `policy rules`,
-`policy reset` remains a valid standard seam. `auth login`, `auth import`,
+`policy reset`, and `serve` remain a valid standard seam. `auth login`, `auth import`,
 `auth status`, and `auth logout` remain experimental-only seams
 internal seams today. They are not permission to expose Docker, OPA, or opaque
 resource identifiers as the routine mental model. `policy review` is the
@@ -194,6 +194,16 @@ machine-readable inventory remains read-only. `policy candidates` is the
 machine discovery surface. The catalog declares this
 composition while preserving discover/act separation: the act still consumes
 exactly one validated opaque reference or one declared fixed target.
+
+`serve` is a foreground CLI composition over the existing typed application
+tasks. Before exposing a listener it obtains one valid installation snapshot:
+cluster status, exhaustive Workspace inventory, bounded policy review, and
+learned rules. Infrastructure owns an embedded no-external-asset HTTP surface
+on `127.0.0.1:0`; it depends only on domain-shaped backend methods and makes no
+policy decision. The CLI adapter delegates snapshot reads to `tobaricmd.Service`
+and every browser Apply to the catalog-owned internal `policy apply-reviewed`
+contract. The process lifetime owns the listener, session bearer, and browser
+opener. Cancellation closes the surface without changing policy.
 
 ### Context composition
 
@@ -225,6 +235,21 @@ same root may have multiple Context-bound Tobari. `context use` changes only
 the current/default Context used when an invocation omits a selector; it does
 not mutate existing records or Docker. Project runtime reconciliation resolves
 the stored Context ID and uses that Context's runtime image and agent profile.
+
+Argument-free `context create` is a CLI-owned input-completion workflow. It
+collects a name, source-access enum, and a complete default-plus-exact-override
+method policy before calling the same application create boundary once. The
+application owns typed composition and result correlation. Infrastructure
+replaces the selected preset method policy, filters only positive baseline
+entries made unreachable by method Deny, normalizes the resulting immutable
+snapshot, and persists its digest; CLI never edits policy files directly.
+
+`context delete` is a Context-catalog write serialized by the installation
+lifecycle lock. Application maps the foundational/current/Workspace guards and
+validates the terminal deletion result. Infrastructure checks durable Workspace
+bindings by stable Context ID, then removes only the exact Context directory
+and Context-ID authentication directory. It never selects another Context or
+deletes a project root or shared image.
 
 Context and project stores expose separate observation and ensure/mutation
 paths. Observation never initializes directories, manifests, active markers,
@@ -291,14 +316,15 @@ same deterministic content-revision calculation, so a binary catalog update
 makes the previously active projection observably invalid until explicit
 reconciliation.
 The effective result enters the Tobari-owned system evaluator without rewriting
-the snapshot. Any preset may receive the overlay, but its offline, destination,
-and method guardrails remain terminal. Disabled readiness receives no overlay;
+the snapshot. Any preset may receive the overlay, but its destination ceiling
+and method Deny decisions remain terminal. Disabled readiness receives no overlay;
 legacy manifests preserve their old preset-coupled result without rewrite. A read-only source is the same live direct bind
 with Docker read-only authority: no writable alias is added, home and tmpfs
 remain writable, and host or same-root read-write Context changes remain
 observable. Neither path rediscovers the source preset.
 
-The system evaluator owns terminal guardrail precedence before baseline deny,
+The system evaluator resolves an exact method override or the preset default
+before baseline deny,
 exact learned deny, baseline grant, exact or reviewed single-segment-template
 learned allow, or Advanced Rego.
 Terminal denial ends before candidate projection, external DNS, broker
@@ -324,12 +350,13 @@ and enumeration methods are baseline grants; action methods continue to exact
 semantic review. Bodies, arguments, resource URIs, and responses never enter
 policy or audit. Exact Deny precedes the baseline, which identifies Context
 authority rather than a process.
-`builtin/offline` terminally denies all HTTP/HTTPS and exposes no review
-candidate. `builtin/reviewed-exact` exposes only eligible effects to exact
-review. `builtin/get-only-reviewed` exposes only eligible GET effects to exact
-review and terminally denies HEAD and all non-GET methods; GET receives no safe
-or read-only classification. Those three strict presets grant nothing
-immediately.
+`builtin/offline` defaults all methods to Deny. `builtin/reviewed-exact`
+defaults all methods to Exact Review. `builtin/get-only-reviewed` defaults to
+Deny with GET Exact Review. `builtin/public-get-reviewed` defaults to Exact
+Review with GET Allow. Method Allow enters the same preset-grant path as exact
+baseline grants, after destination/method Deny and exact Deny checks. GET
+receives no safe or read-only classification. The three strict presets grant
+nothing immediately.
 
 Project runtime infrastructure resolves only declared shell `inherit` entries
 from the launching process at child-exec time and passes exact values to Bash.

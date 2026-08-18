@@ -20,8 +20,10 @@ release; immutable Gateway/Auth Broker image indexes are not yet published.
   home and tmpfs remain writable.
 - Learned permission is exact Context, project, scheme, host, port, method, and
   raw path. A declared GraphQL endpoint adds operation type and root field.
-- A preset guardrail is an immutable ceiling above baseline data, learned
-  policy, and Advanced Rego.
+- A preset method policy gives every HTTP method one `allow`, `exact_review`,
+  or `deny` decision beneath an independent immutable destination ceiling.
+  Terminal destination and method Deny decisions precede baseline data,
+  learned policy, and Advanced Rego.
 - Every declared provider binding is Broker-required: a real Workspace
   credential is rejected before policy, and only a project-bound handle is
   accepted.
@@ -79,7 +81,10 @@ Auth Broker identities from their release lock.
 ## Quick Start
 
 ```sh
-# Create a named immutable capability envelope.
+# Interactively choose the name, source access, and HTTP method policy.
+tobari context create
+
+# Or create the envelope deterministically for automation.
 tobari context create --name default \
   --source-access read-write \
   --policy-preset builtin/agent-ready \
@@ -93,7 +98,13 @@ cd /path/to/project
 tobari
 ```
 
-`context create` owns the omission defaults: `read-write`,
+The argument-free command requires terminal stdin/stderr and text output. It
+asks for the Context name, source access, and `allow` / `exact_review` / `deny`
+for the extension-method default and each standard HTTP method, then creates
+once. Any explicit input selects direct mode and requires `--name`; redirected
+and JSON argument-free invocations fail before mutation.
+
+Direct `context create` owns the omission defaults: `read-write`,
 `builtin/agent-ready`, and enabled native readiness. New Contexts persist all
 three choices. A legacy manifest without readiness preserves its former
 behavior without rewrite: enabled for `builtin/agent-ready`, disabled for every
@@ -130,10 +141,16 @@ does not retarget existing Workspaces.
 tobari context list
 tobari context show --name default
 tobari context use --name default
+tobari context delete --name disposable
 
 # The same root can have another independent Context-bound Workspace.
 tobari --context restricted
 ```
+
+`context list` renders one vertical card per Context so filesystem and network
+method facts remain readable. `context delete` accepts only an additional
+non-current Context with no bound Workspace. It preserves project files and
+shared runtime images; the foundational `default` Context has no delete path.
 
 ### Source access
 
@@ -148,8 +165,12 @@ the runtime spec/hash and Docker inspection.
 Native readiness is an independent immutable Context capability and defaults to
 `enabled`; use `--native-readiness disabled` for an intentionally strict
 Context. Its finite exact overlay never overrides the selected preset:
-`builtin/offline` still denies everything, GET-only still denies every non-GET,
-and exact destination/method ceilings and exact Deny still win.
+destination and method Deny decisions filter it, and exact Deny still wins.
+
+Every preset resolves all HTTP methods from one `default` decision plus exact
+method `overrides`. Unknown and extension methods receive the default.
+`context list`, `context show`, and `policy preset list/show` expose these facts
+directly.
 
 - `builtin/agent-ready` (default): exact reviewed Claude Code 2.1.220 and
   Codex 0.147.0 model, bootstrap/catalog, account-state, and fixed first-party
@@ -170,8 +191,11 @@ and exact destination/method ceilings and exact Deny still win.
   may enter exact review.
 - `builtin/get-only-reviewed`: no immediate grant; only guardrail-eligible GET
   effects may enter exact review; HEAD and every non-GET are terminally denied.
+- `builtin/public-get-reviewed`: public HTTPS GET is immediately allowed;
+  every other public HTTPS method remains eligible only for exact review.
 
-GET is not described as safe or read-only. A terminal guardrail denial creates
+GET is not described as safe or read-only. Method Allow is Context-wide, not
+process identity, and exact Deny still overrides it. A terminal denial creates
 no candidate and makes zero external DNS, Broker-resolution, or upstream calls.
 There is no command-name or vendor-wide bypass.
 
@@ -205,6 +229,24 @@ and confirm one final Apply. Staging grants nothing. Refresh preserves decisions
 only by opaque typed review-item ID; labels, order, or indentation never create
 authority. Confirmed Apply returns the active revision and stored-rule receipts. Retry the
 original request in the same Workspace.
+
+For the same trusted-host workflow in a browser, start the foreground Operator
+Console:
+
+```sh
+tobari serve
+# or print the URL without opening the host browser
+tobari serve --no-open
+```
+
+The console combines cluster health, local Workspaces, the Permission Inbox,
+and current learned rules. Its dense Operator Console theme supports dark and
+light modes. Decisions are inert until the final review and explicit Apply,
+which reuses the same typed `policy apply-reviewed` mutation and returns the
+authoritative active revision. The server binds only a random IPv4-loopback
+port, keeps its session bearer in the URL fragment and browser tab, loads no
+external assets, and stops with the foreground process. It has no daemon,
+remote-bind, or caller-selected-port mode.
 
 Machine workflows use unchanged opaque references:
 

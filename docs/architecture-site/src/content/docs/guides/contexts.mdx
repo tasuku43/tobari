@@ -20,14 +20,26 @@ tobari context list
 tobari context show
 ```
 
-`context list` reports the complete local collection and identifies the current/default name. `context show` without `--name` inspects that default. The report includes the stable ID, image selector, agent profile, policy mode, allowlisted shell settings, store references, and runtime status. It excludes primary credentials, broker handles, root keys, and vault contents.
+`context list` reports the complete local collection as vertical cards and identifies the current/default name. Filesystem rows and the network method default/overrides remain readable without depending on terminal tab stops. `context show` without `--name` inspects that default. The report includes the stable ID, image selector, agent profile, policy mode, allowlisted shell settings, store references, and runtime status. It excludes primary credentials, broker handles, root keys, and vault contents.
 
 The display name is convenient selection text. The stable Context ID is the durable authority bound into Workspaces, policy, principals, and broker records.
 
 ## Create a Context
 
-Create a separate guided Context and make its two immutable V1 capability
-choices explicit:
+Run the command without inputs to choose the name, source access, and complete
+HTTP method policy interactively:
+
+```sh
+tobari context create
+```
+
+The wizard requires terminal stdin/stderr and text output. It asks for one
+extension-method default and every standard HTTP method as `allow`,
+`exact_review`, or `deny`, then performs one create mutation. Cancellation,
+redirected input, and JSON argument-free use perform no mutation.
+
+For deterministic direct mode, provide at least one input and always include
+`--name`:
 
 ```sh
 tobari context create --name review --mode guided \
@@ -50,15 +62,20 @@ normalizes, validates, digests, and snapshots the preset; later edits to a
 custom preset source do not alter this Context. Source access and the preset
 snapshot cannot be changed after creation.
 
-| Preset                      | Immediate grants                              | Review eligibility                                                                 | Terminal guardrail                |
-| --------------------------- | --------------------------------------------- | ---------------------------------------------------------------------------------- | --------------------------------- |
-| `builtin/agent-ready`       | Pinned Claude/Codex native capability effects | MCP actions and every other eligible effect may become an exact semantic candidate | Effects excluded by its guardrail |
-| `builtin/offline`           | None                                          | None                                                                               | Every HTTP and HTTPS effect       |
-| `builtin/reviewed-exact`    | None                                          | Eligible effects may become exact review candidates                                | Effects excluded by its guardrail |
-| `builtin/get-only-reviewed` | None                                          | Eligible `GET` effects may become exact review candidates                          | `HEAD` and every non-`GET` effect |
+When the wizard selects a method Deny, positive baseline rules for that method
+are removed from the new immutable snapshot. The preset's independent
+destination ceiling and exact Denies are unchanged.
 
-`GET` is only a method coordinate in the last preset; Tobari does not call it
-safe or read-only. The agent-ready grants are Context-wide semantic effects
+| Preset                        | Immediate grants                              | Method policy                     |
+| ----------------------------- | --------------------------------------------- | --------------------------------- |
+| `builtin/agent-ready`         | Pinned Claude/Codex native capability effects | Default Exact Review              |
+| `builtin/offline`             | None                                          | Default Deny                      |
+| `builtin/reviewed-exact`      | None                                          | Default Exact Review              |
+| `builtin/get-only-reviewed`   | None                                          | Default Deny; `GET` Exact Review  |
+| `builtin/public-get-reviewed` | Public HTTPS `GET`                            | Default Exact Review; `GET` Allow |
+
+`GET` is only a method coordinate; Tobari does not call it safe or read-only.
+Exact Deny wins over method Allow. The agent-ready grants are Context-wide semantic effects
 rather than process identity. They include bounded first-party discovery,
 evaluation, and MCP initialization/list methods, but exclude MCP actions,
 downloads, acquisition, file transfer, and self-update. No vendor-wide or
@@ -88,6 +105,19 @@ tobari context show
 ```
 
 `context use` changes one host marker. It does not start Docker, rewrite the cluster, change a Workspace's Context, move a persistent home, or rotate a credential.
+
+## Delete an unused Context
+
+```sh
+tobari context delete --name review
+```
+
+Deletion rejects the foundational `default` Context, the current Context, and
+any Context still bound to a logical Workspace. It has no force option and
+never chooses another current Context implicitly. A confirmed deletion removes
+only the exact Context-owned configuration and Context-ID authentication state;
+project files and shared runtime images are preserved. Run `tobari cluster up`
+when the result reports `requires_reconcile`.
 
 You can avoid changing the default by selecting a Context explicitly:
 
@@ -127,6 +157,10 @@ Re-enter the Workspace to start a new shell after changing a setting. Existing p
 
 - `context_not_found`: use `tobari context list` and choose an existing name.
 - `context_exists`: inspect the existing Context instead of overwriting it.
+- `context_create_wizard_unavailable`: run argument-free creation on an interactive text terminal, or use direct mode with `--name`.
+- `context_is_current`: select another Context before deletion.
+- `context_has_workspaces`: delete every Workspace bound to that Context first.
+- `context_is_protected`: the foundational `default` Context cannot be deleted.
 - `invalid_context`: correct the name, image selector, or policy mode.
 - `requires_reconcile` after create: run explicit `tobari cluster up` before using the new Context with shared services.
 - `workspace_selection_stale`: rerun `tobari`; the candidate collection changed during selection.

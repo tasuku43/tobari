@@ -10,7 +10,7 @@ import (
 )
 
 func TestBuiltinPolicyPresetsHaveStableRevisions(t *testing.T) {
-	for _, origin := range []string{"builtin/offline", DefaultPolicyPresetOrigin, "builtin/reviewed-exact", "builtin/get-only-reviewed"} {
+	for _, origin := range []string{"builtin/offline", DefaultPolicyPresetOrigin, "builtin/reviewed-exact", "builtin/get-only-reviewed", "builtin/public-get-reviewed"} {
 		preset, ok := BuiltinPolicyPreset(origin)
 		if !ok {
 			t.Fatalf("missing built-in %q", origin)
@@ -28,6 +28,56 @@ func TestBuiltinPolicyPresetsHaveStableRevisions(t *testing.T) {
 		}
 		if origin != DefaultPolicyPresetOrigin && len(normalized.BaselineGrants) != 0 {
 			t.Fatalf("strict built-in %q unexpectedly grants %d effects", origin, len(normalized.BaselineGrants))
+		}
+	}
+}
+
+func TestBuiltinMethodPoliciesResolveEveryMethodFromDefaultAndExactOverrides(t *testing.T) {
+	tests := []struct {
+		origin string
+		method string
+		want   PolicyPresetMethodDecision
+	}{
+		{"builtin/offline", "GET", PolicyPresetMethodDeny},
+		{"builtin/reviewed-exact", "PATCH", PolicyPresetMethodExactReview},
+		{"builtin/get-only-reviewed", "GET", PolicyPresetMethodExactReview},
+		{"builtin/get-only-reviewed", "HEAD", PolicyPresetMethodDeny},
+		{"builtin/public-get-reviewed", "GET", PolicyPresetMethodAllow},
+		{"builtin/public-get-reviewed", "HEAD", PolicyPresetMethodExactReview},
+		{"builtin/public-get-reviewed", "POST", PolicyPresetMethodExactReview},
+	}
+	for _, test := range tests {
+		preset, ok := BuiltinPolicyPreset(test.origin)
+		if !ok {
+			t.Fatalf("missing built-in %q", test.origin)
+		}
+		if got := preset.MethodPolicy.Decision(test.method); got != test.want {
+			t.Errorf("%s %s = %s, want %s", test.origin, test.method, got, test.want)
+		}
+	}
+}
+
+func TestMethodPolicyRejectsAmbiguousOverridesAndNormalizesOrder(t *testing.T) {
+	preset, _ := BuiltinPolicyPreset("builtin/reviewed-exact")
+	preset.MethodPolicy.Overrides = []PolicyPresetMethodOverride{
+		{Method: "POST", Decision: PolicyPresetMethodDeny},
+		{Method: "GET", Decision: PolicyPresetMethodAllow},
+	}
+	normalized, _, _, err := NormalizePolicyPreset(preset)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if normalized.MethodPolicy.Overrides[0].Method != "GET" || normalized.MethodPolicy.Overrides[1].Method != "POST" {
+		t.Fatalf("method overrides are not canonical: %+v", normalized.MethodPolicy.Overrides)
+	}
+	for _, invalid := range []PolicyPresetMethodPolicy{
+		{Default: PolicyPresetMethodExactReview, Overrides: nil},
+		{Default: PolicyPresetMethodExactReview, Overrides: []PolicyPresetMethodOverride{{Method: "GET", Decision: PolicyPresetMethodExactReview}}},
+		{Default: PolicyPresetMethodExactReview, Overrides: []PolicyPresetMethodOverride{{Method: "GET", Decision: PolicyPresetMethodAllow}, {Method: "GET", Decision: PolicyPresetMethodDeny}}},
+	} {
+		preset.MethodPolicy = invalid
+		if err := preset.Validate(); err == nil {
+			t.Fatalf("invalid method policy accepted: %+v", invalid)
 		}
 	}
 }
@@ -406,13 +456,13 @@ func TestBinaryNativeReadinessIsOrthogonalAndDisabledRemovesHistoricalRules(t *t
 	}
 	offline, _ = BuiltinPolicyPreset("builtin/offline")
 	projected, err = ApplyNativeToolAuthReadiness(true, false, offline)
-	if err != nil || projected.Guardrail != PolicyPresetGuardrailOffline || len(projected.BaselineGrants) == 0 {
+	if err != nil || projected.Guardrail != PolicyPresetGuardrailMethodPolicy || projected.MethodPolicy.Default != PolicyPresetMethodDeny || len(projected.BaselineGrants) != 0 {
 		t.Fatalf("offline composition lost its guardrail or overlay: %+v err=%v", projected, err)
 	}
 	getOnly, _ := BuiltinPolicyPreset("builtin/get-only-reviewed")
 	projected, err = ApplyNativeToolAuthReadiness(true, false, getOnly)
-	if err != nil || projected.Guardrail != PolicyPresetGuardrailGetOnlyReviewed || !slices.Equal(projected.MethodCeiling.Methods, []string{"GET"}) {
-		t.Fatalf("GET-only composition changed its method ceiling: %+v err=%v", projected, err)
+	if err != nil || projected.Guardrail != PolicyPresetGuardrailMethodPolicy || projected.MethodPolicy.Default != PolicyPresetMethodDeny || projected.MethodPolicy.Decision("GET") != PolicyPresetMethodExactReview || projected.MethodPolicy.Decision("POST") != PolicyPresetMethodDeny {
+		t.Fatalf("GET-only composition changed its method policy: %+v err=%v", projected, err)
 	}
 }
 
@@ -468,7 +518,7 @@ func TestPolicyPresetRejectsNonExactOrReservedDestinations(t *testing.T) {
 
 func TestPolicyPresetRejectsDuplicatesAndExecutableShapedUnknownDataAtStrictDecoder(t *testing.T) {
 	preset, _ := BuiltinPolicyPreset(DefaultPolicyPresetOrigin)
-	preset.MethodCeiling = PolicyPresetMethodCeiling{Mode: "exact", Methods: []string{"GET", "GET"}}
+	preset.MethodPolicy = PolicyPresetMethodPolicy{Default: PolicyPresetMethodDeny, Overrides: []PolicyPresetMethodOverride{{Method: "GET", Decision: PolicyPresetMethodExactReview}, {Method: "GET", Decision: PolicyPresetMethodAllow}}}
 	if err := preset.Validate(); err == nil {
 		t.Fatal("duplicate methods accepted")
 	}
@@ -479,8 +529,8 @@ func TestPolicyPresetRejectsDuplicatesAndExecutableShapedUnknownDataAtStrictDeco
 	}
 }
 
-func TestPolicyPresetRulesCannotExceedDestinationOrMethodCeilings(t *testing.T) {
-	base := PolicyPreset{SchemaVersion: 1, Name: "bounded", Guardrail: PolicyPresetGuardrailReviewedExact, DestinationCeiling: PolicyPresetDestinationCeiling{Mode: "exact", Authorities: []PolicyPresetAuthority{{Scheme: "https", Host: "api.github.com", Port: 443}}}, MethodCeiling: PolicyPresetMethodCeiling{Mode: "exact", Methods: []string{"GET", "POST"}}, BaselineGrants: []PolicyPresetExactRule{}, BaselineTemplates: []PolicyPresetPathTemplateRule{}, MCPBaselineGrants: []PolicyPresetMCPRule{}, BaselineDenies: []PolicyPresetExactRule{}, GraphQLEndpoints: []PolicyPresetExactRule{}, MCPEndpoints: []PolicyPresetExactRule{}}
+func TestPolicyPresetRulesCannotExceedDestinationOrDeniedMethods(t *testing.T) {
+	base := PolicyPreset{SchemaVersion: 1, Name: "bounded", Guardrail: PolicyPresetGuardrailMethodPolicy, DestinationCeiling: PolicyPresetDestinationCeiling{Mode: "exact", Authorities: []PolicyPresetAuthority{{Scheme: "https", Host: "api.github.com", Port: 443}}}, MethodPolicy: PolicyPresetMethodPolicy{Default: PolicyPresetMethodDeny, Overrides: []PolicyPresetMethodOverride{{Method: "GET", Decision: PolicyPresetMethodExactReview}, {Method: "POST", Decision: PolicyPresetMethodExactReview}}}, BaselineGrants: []PolicyPresetExactRule{}, BaselineTemplates: []PolicyPresetPathTemplateRule{}, MCPBaselineGrants: []PolicyPresetMCPRule{}, BaselineDenies: []PolicyPresetExactRule{}, GraphQLEndpoints: []PolicyPresetExactRule{}, MCPEndpoints: []PolicyPresetExactRule{}}
 	inside := PolicyPresetExactRule{Scheme: "https", Host: "api.github.com", Port: 443, Method: "GET", Path: "/user"}
 	for name, assign := range map[string]func(*PolicyPreset){
 		"grant destination": func(p *PolicyPreset) {

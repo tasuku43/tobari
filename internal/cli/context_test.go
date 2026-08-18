@@ -32,9 +32,31 @@ func (f *contextCLI) ShowContext(context.Context, string) (tobari.ContextReport,
 func (f *contextCLI) CreateContext(
 	_ context.Context, name, image string, mode tobari.ContextPolicyMode, sourceAccess tobari.ContextSourceAccess,
 ) (tobari.ContextReport, error) {
+	f.createCalls++
 	f.report = contextCLIReport(tobari.TaskContextCreate, name, false, image, mode)
 	f.report.SourceAccess = sourceAccess
 	return f.report, nil
+}
+
+func (f *contextCLI) CreateContextWithComposition(
+	_ context.Context, name, image string, mode tobari.ContextPolicyMode, sourceAccess tobari.ContextSourceAccess,
+	composition tobari.ContextCreateComposition,
+) (tobari.ContextReport, error) {
+	f.createCalls++
+	f.report = contextCLIReport(tobari.TaskContextCreate, name, false, image, mode)
+	f.report.SourceAccess = sourceAccess
+	if composition.MethodPolicy != nil {
+		f.report.MethodPolicy = composition.MethodPolicy.Clone()
+	}
+	return f.report, nil
+}
+
+func (f *contextCLI) DeleteContext(_ context.Context, name string) (tobari.ContextDeleteResult, error) {
+	f.deleteCalls++
+	return tobari.ContextDeleteResult{
+		Task: tobari.TaskContextDelete, ID: "018bcfe5-687b-7000-8000-000000000099", Name: name,
+		Deleted: true, Cluster: tobari.ContextClusterStatusNotApplicable,
+	}, f.deleteErr
 }
 
 func (f *contextCLI) UseContext(context.Context, string) (tobari.ContextReport, error) {
@@ -136,6 +158,7 @@ type fakeContextRuntime struct {
 	list              tobari.ContextListResult
 	report            tobari.ContextReport
 	useCalls          int
+	createCalls       int
 	buildCalls        int
 	buildLog          string
 	buildErr          error
@@ -143,6 +166,8 @@ type fakeContextRuntime struct {
 	configureGitCalls int
 	showCalls         int
 	showErr           error
+	deleteErr         error
+	deleteCalls       int
 	lastShellChange   tobari.ContextShellEnvironmentSetting
 	lastShellChanges  []tobari.ContextShellEnvironmentSetting
 	lastGitChange     tobari.ContextGitIdentitySetting
@@ -235,7 +260,8 @@ func contextCLIReport(task, name string, active bool, image string, mode tobari.
 	return tobari.ContextReport{
 		Task: task, ContextState: tobari.ContextObservationPersisted, ID: "018bcfe5-687b-7000-8000-000000000099", Name: name, Active: active, AgentProfile: tobari.DefaultProfile,
 		Image: image, PolicyMode: mode, SourceAccess: tobari.ContextSourceAccessReadWrite,
-		PolicyPresetOrigin: tobari.DefaultPolicyPresetOrigin, PolicyPresetRevision: tobari.DefaultPolicyPresetRevision(), PolicyGuardrail: tobari.PolicyPresetGuardrailReviewedExact,
+		PolicyPresetOrigin: tobari.DefaultPolicyPresetOrigin, PolicyPresetRevision: tobari.DefaultPolicyPresetRevision(), PolicyGuardrail: tobari.PolicyPresetGuardrailMethodPolicy,
+		MethodPolicy:     tobari.PolicyPresetMethodPolicy{Default: tobari.PolicyPresetMethodExactReview, Overrides: []tobari.PolicyPresetMethodOverride{}},
 		Cluster:          tobari.ContextClusterStatusNotApplicable,
 		ShellEnvironment: tobari.DefaultContextShellEnvironmentReport(),
 		GitIdentity:      tobari.DefaultContextGitIdentityReport(),
@@ -637,7 +663,7 @@ func TestContextReportJSONSchemaOneDeclaresExactContextKeys(t *testing.T) {
 	if err := json.Unmarshal(outer["context"], &contextFields); err != nil {
 		t.Fatalf("context envelope = %q, error = %v", outer["context"], err)
 	}
-	want := []string{"active", "agent_profile", "authentication", "cluster", "context_state", "git_identity", "id", "image", "name", "native_readiness", "policy_guardrail", "policy_mode", "policy_preset_origin", "policy_preset_revision", "runtime", "shell_environment", "source_access", "stores", "task"}
+	want := []string{"active", "agent_profile", "authentication", "cluster", "context_state", "git_identity", "id", "image", "method_policy", "name", "native_readiness", "policy_guardrail", "policy_mode", "policy_preset_origin", "policy_preset_revision", "runtime", "shell_environment", "source_access", "stores", "task"}
 	got := make([]string, 0, len(contextFields))
 	for name := range contextFields {
 		got = append(got, name)
@@ -664,7 +690,8 @@ func TestSyntheticContextJSONNeverInventsAuthority(t *testing.T) {
 		Name: tobari.DefaultContextName, Active: true, AgentProfile: tobari.DefaultProfile,
 		Image: tobari.OfficialRuntimeBase, PolicyMode: tobari.ContextPolicyModeGuided,
 		SourceAccess:       tobari.ContextSourceAccessReadWrite,
-		PolicyPresetOrigin: tobari.DefaultPolicyPresetOrigin, PolicyGuardrail: tobari.PolicyPresetGuardrailReviewedExact,
+		PolicyPresetOrigin: tobari.DefaultPolicyPresetOrigin, PolicyGuardrail: tobari.PolicyPresetGuardrailMethodPolicy,
+		MethodPolicy:     tobari.PolicyPresetMethodPolicy{Default: tobari.PolicyPresetMethodExactReview, Overrides: []tobari.PolicyPresetMethodOverride{}},
 		ShellEnvironment: tobari.DefaultContextShellEnvironmentReport(),
 		GitIdentity:      tobari.DefaultContextGitIdentityReport(),
 		Runtime: tobari.ContextRuntimeReport{
@@ -762,6 +789,7 @@ func TestContextExistsCatalogRecoveryRoutesToListContainingNonActiveDuplicate(t 
 				PolicyMode:         tobari.ContextPolicyModeGuided,
 				SourceAccess:       tobari.ContextSourceAccessReadWrite,
 				PolicyPresetOrigin: tobari.DefaultPolicyPresetOrigin, PolicyPresetRevision: tobari.DefaultPolicyPresetRevision(),
+				MethodPolicy: tobari.PolicyPresetMethodPolicy{Default: tobari.PolicyPresetMethodExactReview, Overrides: []tobari.PolicyPresetMethodOverride{}},
 			},
 			{
 				ID: "018bcfe5-687b-7000-8000-000000000100", Name: "review",
@@ -770,6 +798,7 @@ func TestContextExistsCatalogRecoveryRoutesToListContainingNonActiveDuplicate(t 
 				PolicyMode:         tobari.ContextPolicyModeGuided,
 				SourceAccess:       tobari.ContextSourceAccessReadOnly,
 				PolicyPresetOrigin: tobari.DefaultPolicyPresetOrigin, PolicyPresetRevision: tobari.DefaultPolicyPresetRevision(),
+				MethodPolicy: tobari.PolicyPresetMethodPolicy{Default: tobari.PolicyPresetMethodExactReview, Overrides: []tobari.PolicyPresetMethodOverride{}},
 			},
 		},
 	}
@@ -779,6 +808,56 @@ func TestContextExistsCatalogRecoveryRoutesToListContainingNonActiveDuplicate(t 
 	}
 	if !strings.Contains(string(output), "review") || strings.Contains(string(output), "* review") {
 		t.Fatalf("context list did not expose the non-active duplicate truthfully: %q", output)
+	}
+}
+
+func TestContextListVerticalCardsKeepSchemaOneJSONProjectionUnchanged(t *testing.T) {
+	t.Parallel()
+	result := tobari.ContextListResult{
+		Task: tobari.TaskContextList, ContextState: tobari.ContextObservationPersisted, Active: "default",
+		Items: []tobari.ContextSummary{{
+			ID: "018bcfe5-687b-7000-8000-000000000099", Name: "default",
+			ContextState: tobari.ContextObservationPersisted, Active: true,
+			AgentProfile: tobari.DefaultProfile, Image: tobari.OfficialRuntimeBase,
+			PolicyMode: tobari.ContextPolicyModeGuided, SourceAccess: tobari.ContextSourceAccessReadWrite,
+			PolicyPresetOrigin: tobari.DefaultPolicyPresetOrigin, PolicyPresetRevision: tobari.DefaultPolicyPresetRevision(),
+			NativeReadiness: tobari.ContextNativeReadinessEnabled,
+			MethodPolicy: tobari.PolicyPresetMethodPolicy{
+				Default:   tobari.PolicyPresetMethodExactReview,
+				Overrides: []tobari.PolicyPresetMethodOverride{{Method: "GET", Decision: tobari.PolicyPresetMethodAllow}},
+			},
+			RuntimeStatus: tobari.ContextRuntimeStatusOfficial,
+		}},
+	}
+	textOutput, err := renderContextList(result, successFormatText, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(textOutput), "\t") || !strings.Contains(string(textOutput), "               GET        allow") {
+		t.Fatalf("Context cards collapsed or hid override: %q", textOutput)
+	}
+	jsonOutput, err := renderContextList(result, successFormatJSON, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var document struct {
+		SchemaVersion int `json:"schema_version"`
+		Contexts      struct {
+			Active string `json:"active"`
+			Items  []struct {
+				Name         string                          `json:"name"`
+				SourceAccess tobari.ContextSourceAccess      `json:"source_access"`
+				MethodPolicy tobari.PolicyPresetMethodPolicy `json:"method_policy"`
+			} `json:"items"`
+		} `json:"contexts"`
+	}
+	if err := json.Unmarshal(jsonOutput, &document); err != nil {
+		t.Fatal(err)
+	}
+	if document.SchemaVersion != 1 || document.Contexts.Active != "default" || len(document.Contexts.Items) != 1 ||
+		document.Contexts.Items[0].Name != "default" || document.Contexts.Items[0].SourceAccess != tobari.ContextSourceAccessReadWrite ||
+		len(document.Contexts.Items[0].MethodPolicy.Overrides) != 1 {
+		t.Fatalf("Context list JSON changed with text layout: %+v", document)
 	}
 }
 
@@ -792,7 +871,8 @@ func TestSyntheticContextShowUsesOmissionBasedAuthStatusRecovery(t *testing.T) {
 		Name: tobari.DefaultContextName, Active: true, AgentProfile: tobari.DefaultProfile,
 		Image: tobari.OfficialRuntimeBase, PolicyMode: tobari.ContextPolicyModeGuided,
 		SourceAccess:       tobari.ContextSourceAccessReadWrite,
-		PolicyPresetOrigin: tobari.DefaultPolicyPresetOrigin, PolicyGuardrail: tobari.PolicyPresetGuardrailReviewedExact,
+		PolicyPresetOrigin: tobari.DefaultPolicyPresetOrigin, PolicyGuardrail: tobari.PolicyPresetGuardrailMethodPolicy,
+		MethodPolicy:     tobari.PolicyPresetMethodPolicy{Default: tobari.PolicyPresetMethodExactReview, Overrides: []tobari.PolicyPresetMethodOverride{}},
 		ShellEnvironment: tobari.DefaultContextShellEnvironmentReport(),
 		GitIdentity:      tobari.DefaultContextGitIdentityReport(),
 		Runtime: tobari.ContextRuntimeReport{
@@ -850,7 +930,7 @@ func TestContextCommandsRenderActiveContextAndRuntimeImage(t *testing.T) {
 	fake := &contextCLI{report: contextCLIReport(tobari.TaskContextShow, "default", true, tobari.OfficialRuntimeBase, tobari.ContextPolicyModeGuided)}
 	fake.list = tobari.ContextListResult{
 		Task: tobari.TaskContextList, ContextState: tobari.ContextObservationPersisted, Active: "default",
-		Items: []tobari.ContextSummary{{ID: "018bcfe5-687b-7000-8000-000000000099", Name: "default", ContextState: tobari.ContextObservationPersisted, Active: true, AgentProfile: tobari.DefaultProfile, Image: tobari.OfficialRuntimeBase, PolicyMode: tobari.ContextPolicyModeGuided, SourceAccess: tobari.ContextSourceAccessReadWrite, PolicyPresetOrigin: tobari.DefaultPolicyPresetOrigin, PolicyPresetRevision: tobari.DefaultPolicyPresetRevision()}},
+		Items: []tobari.ContextSummary{{ID: "018bcfe5-687b-7000-8000-000000000099", Name: "default", ContextState: tobari.ContextObservationPersisted, Active: true, AgentProfile: tobari.DefaultProfile, Image: tobari.OfficialRuntimeBase, PolicyMode: tobari.ContextPolicyModeGuided, SourceAccess: tobari.ContextSourceAccessReadWrite, PolicyPresetOrigin: tobari.DefaultPolicyPresetOrigin, PolicyPresetRevision: tobari.DefaultPolicyPresetRevision(), MethodPolicy: tobari.PolicyPresetMethodPolicy{Default: tobari.PolicyPresetMethodExactReview, Overrides: []tobari.PolicyPresetMethodOverride{}}}},
 	}
 	var stdout, stderr bytes.Buffer
 	command := newCLI(strings.NewReader(""), &stdout, &stderr, DefaultCatalog(), nil)
@@ -858,8 +938,9 @@ func TestContextCommandsRenderActiveContextAndRuntimeImage(t *testing.T) {
 	if code := command.RunContext(context.Background(), []string{"context", "list"}); code != ExitOK {
 		t.Fatalf("context list code = %d, stderr = %q", code, stderr.String())
 	}
-	if !strings.Contains(stdout.String(), "Current Context: default") || !strings.Contains(stdout.String(), "image="+tobari.OfficialRuntimeBase) ||
-		!strings.Contains(stdout.String(), "source=direct read-write") {
+	if !strings.Contains(stdout.String(), "Contexts (current: default, persisted)") || !strings.Contains(stdout.String(), "Image      "+tobari.OfficialRuntimeBase) ||
+		!strings.Contains(stdout.String(), "Filesystem source     direct read-write") ||
+		!strings.Contains(stdout.String(), "Network    default    exact-review") {
 		t.Fatalf("context list output = %q", stdout.String())
 	}
 
@@ -899,6 +980,50 @@ func TestContextCommandsRenderActiveContextAndRuntimeImage(t *testing.T) {
 	if err := json.Unmarshal(stdout.Bytes(), &document); err != nil ||
 		document.Context.SourceAccess != tobari.ContextSourceAccessReadOnly {
 		t.Fatalf("read-only context create document = %+v, error = %v", document.Context, err)
+	}
+}
+
+func TestContextCreateWithoutArgumentsRequiresInteractiveWizardAndDirectNameDoesNotPrompt(t *testing.T) {
+	t.Parallel()
+	fake := &contextCLI{report: contextCLIReport(tobari.TaskContextShow, "default", true, tobari.OfficialRuntimeBase, tobari.ContextPolicyModeGuided)}
+	var stdout, stderr bytes.Buffer
+	command := newCLI(strings.NewReader(""), &stdout, &stderr, DefaultCatalog(), nil)
+	command.context = contextcmd.New(fake)
+	if code := command.RunContext(context.Background(), []string{"context", "create"}); code != ExitUsage {
+		t.Fatalf("non-interactive wizard code = %d, stderr = %q", code, stderr.String())
+	}
+	if fake.createCalls != 0 || !strings.Contains(stderr.String(), "context_create_wizard_unavailable") {
+		t.Fatalf("non-interactive wizard mutated or hid recovery: calls=%d stderr=%q", fake.createCalls, stderr.String())
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if code := command.RunContext(context.Background(), []string{"context", "create", "--name", "direct"}); code != ExitOK {
+		t.Fatalf("direct create code = %d, stderr = %q", code, stderr.String())
+	}
+	if fake.createCalls != 1 || !strings.Contains(stdout.String(), "Context: direct") {
+		t.Fatalf("direct create calls/output = %d/%q", fake.createCalls, stdout.String())
+	}
+}
+
+func TestContextDeleteRendersConfirmedOutcomeAndAppearsInNamespaceHelp(t *testing.T) {
+	t.Parallel()
+	fake := &contextCLI{}
+	var stdout, stderr bytes.Buffer
+	command := newCLI(strings.NewReader(""), &stdout, &stderr, DefaultCatalog(), nil)
+	command.context = contextcmd.New(fake)
+	if code := command.RunContext(context.Background(), []string{"context", "delete", "--name", "coding"}); code != ExitOK {
+		t.Fatalf("context delete code = %d, stderr = %q", code, stderr.String())
+	}
+	if fake.deleteCalls != 1 || !strings.Contains(stdout.String(), "Context deleted: coding") ||
+		!strings.Contains(stdout.String(), "Preserved: project files and shared runtime images") {
+		t.Fatalf("context delete calls/output = %d/%q", fake.deleteCalls, stdout.String())
+	}
+	stdout.Reset()
+	if code := command.RunContext(context.Background(), []string{"context", "--help"}); code != ExitOK {
+		t.Fatalf("context help code = %d, stderr = %q", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "delete  Delete one unused non-current execution Context") {
+		t.Fatalf("context help lacks delete: %q", stdout.String())
 	}
 }
 
@@ -1061,7 +1186,8 @@ func runtimeInitReportFixture() tobari.ContextReport {
 		Image:              tobari.OfficialRuntimeBase,
 		PolicyMode:         tobari.ContextPolicyModeGuided,
 		SourceAccess:       tobari.ContextSourceAccessReadWrite,
-		PolicyPresetOrigin: tobari.DefaultPolicyPresetOrigin, PolicyPresetRevision: tobari.DefaultPolicyPresetRevision(), PolicyGuardrail: tobari.PolicyPresetGuardrailReviewedExact,
+		PolicyPresetOrigin: tobari.DefaultPolicyPresetOrigin, PolicyPresetRevision: tobari.DefaultPolicyPresetRevision(), PolicyGuardrail: tobari.PolicyPresetGuardrailMethodPolicy,
+		MethodPolicy:     tobari.PolicyPresetMethodPolicy{Default: tobari.PolicyPresetMethodExactReview, Overrides: []tobari.PolicyPresetMethodOverride{}},
 		ShellEnvironment: tobari.DefaultContextShellEnvironmentReport(),
 		GitIdentity:      tobari.DefaultContextGitIdentityReport(),
 		Stores: tobari.ContextStorePaths{

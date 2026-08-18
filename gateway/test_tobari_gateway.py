@@ -787,7 +787,7 @@ class ReviewedBrokerGatewayTests(unittest.TestCase):
             policy_inputs.append(document)
             return gateway.Decision(
                 allow=True,
-                reason="allowed by exact Context baseline",
+                reason="allowed by Context policy preset",
                 status_code=200,
                 learnable=False,
             )

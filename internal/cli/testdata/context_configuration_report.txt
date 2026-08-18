@@ -8,7 +8,8 @@ Source access: direct read-write
 Policy preset: builtin/reviewed-exact
 Native readiness: disabled
 Policy preset revision: sha256:12785007486c863a373ff05b29a1adc27fc3a2e1ad6729754c8f14bef8f009d4
-Policy guardrail: reviewed_exact
+Policy guardrail: method_policy
+Method default: exact_review
 Shell COLORTERM: default
 Shell NO_COLOR: literal ""
 Shell PS1: inherit

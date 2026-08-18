@@ -131,10 +131,14 @@ func (r *Runtime) ensureContextStoreUnlocked() error {
 // initializeContextStoreUnlocked completes mutation-owned initialization with
 // the selected default manifest. The caller must hold the Context-store lock.
 func (r *Runtime) initializeContextStoreUnlocked(defaultManifest tobari.ContextManifest) error {
+	return r.initializeContextStoreUnlockedWithPreset(defaultManifest, nil)
+}
+
+func (r *Runtime) initializeContextStoreUnlockedWithPreset(defaultManifest tobari.ContextManifest, snapshot []byte) error {
 	if err := r.ensurePrivateDirectory(r.contextsDirectory()); err != nil {
 		return fmt.Errorf("prepare Context directory: %w", err)
 	}
-	if err := r.ensureContext(defaultManifest); err != nil {
+	if err := r.ensureContextWithPresetSnapshot(defaultManifest, snapshot); err != nil {
 		return err
 	}
 	if _, err := os.Lstat(r.activeContextPath()); errors.Is(err, os.ErrNotExist) {
@@ -179,6 +183,10 @@ func (r *Runtime) withContextStoreLock(action func() error) error {
 }
 
 func (r *Runtime) ensureContext(manifest tobari.ContextManifest) error {
+	return r.ensureContextWithPresetSnapshot(manifest, nil)
+}
+
+func (r *Runtime) ensureContextWithPresetSnapshot(manifest tobari.ContextManifest, snapshot []byte) error {
 	if err := manifest.Validate(); err != nil {
 		return err
 	}
@@ -188,6 +196,16 @@ func (r *Runtime) ensureContext(manifest tobari.ContextManifest) error {
 	}
 	if err := r.ensurePrivateDirectory(r.contextPolicyDirectory(manifest.Name)); err != nil {
 		return fmt.Errorf("prepare Context %q policy: %w", manifest.Name, err)
+	}
+	if len(snapshot) > 0 {
+		path := r.contextPresetPath(manifest.Name)
+		if _, err := os.Lstat(path); errors.Is(err, os.ErrNotExist) {
+			if err := initializeBytes(path, snapshot, 0o600); err != nil {
+				return fmt.Errorf("write Context %q policy preset snapshot: %w", manifest.Name, err)
+			}
+		} else if err != nil {
+			return fmt.Errorf("inspect Context %q policy preset snapshot: %w", manifest.Name, err)
+		}
 	}
 	if err := r.ensureContextPreset(manifest); err != nil {
 		return fmt.Errorf("prepare Context %q policy preset: %w", manifest.Name, err)
@@ -479,6 +497,10 @@ func (r *Runtime) ListContexts(ctx context.Context) (tobari.ContextListResult, e
 		if err != nil {
 			return tobari.ContextListResult{}, err
 		}
+		preset, err := r.readContextPreset(manifest)
+		if err != nil {
+			return tobari.ContextListResult{}, err
+		}
 		items = append(items, tobari.ContextSummary{
 			ID: manifest.ID, Name: manifest.Name, ContextState: tobari.ContextObservationPersisted, Active: manifest.Name == active,
 			AgentProfile: manifest.AgentProfile, Image: manifest.Image, PolicyMode: manifest.PolicyMode,
@@ -486,6 +508,7 @@ func (r *Runtime) ListContexts(ctx context.Context) (tobari.ContextListResult, e
 			PolicyPresetOrigin:   manifest.PolicyPresetOrigin,
 			PolicyPresetRevision: manifest.PolicyPresetRevision,
 			NativeReadiness:      nativeReadiness,
+			MethodPolicy:         preset.MethodPolicy,
 			RuntimeStatus:        runtimeReport.Status,
 		})
 	}
@@ -641,13 +664,6 @@ func (r *Runtime) CreateContext(
 func (r *Runtime) CreateContextWithPreset(
 	ctx context.Context, name string, image string, mode tobari.ContextPolicyMode, sourceAccess tobari.ContextSourceAccess, presetOrigin string, readinessSelections ...tobari.ContextNativeReadiness,
 ) (tobari.ContextReport, error) {
-	if err := ctx.Err(); err != nil {
-		return tobari.ContextReport{}, err
-	}
-	_, _, presetRevision, err := r.resolvePolicyPresetSnapshot(presetOrigin)
-	if err != nil {
-		return tobari.ContextReport{}, err
-	}
 	nativeReadiness := tobari.ContextNativeReadinessEnabled
 	if len(readinessSelections) > 1 {
 		return tobari.ContextReport{}, fmt.Errorf("Context native readiness selection is invalid")
@@ -655,13 +671,47 @@ func (r *Runtime) CreateContextWithPreset(
 	if len(readinessSelections) == 1 {
 		nativeReadiness = readinessSelections[0]
 	}
+	return r.CreateContextWithComposition(ctx, name, image, mode, sourceAccess, tobari.ContextCreateComposition{
+		PolicyPresetOrigin: presetOrigin,
+		NativeReadiness:    nativeReadiness,
+	})
+}
+
+func (r *Runtime) CreateContextWithComposition(
+	ctx context.Context,
+	name string,
+	image string,
+	mode tobari.ContextPolicyMode,
+	sourceAccess tobari.ContextSourceAccess,
+	composition tobari.ContextCreateComposition,
+) (tobari.ContextReport, error) {
+	if err := ctx.Err(); err != nil {
+		return tobari.ContextReport{}, err
+	}
+	if err := composition.Validate(); err != nil {
+		return tobari.ContextReport{}, err
+	}
+	preset, normalizedPreset, presetRevision, err := r.resolvePolicyPresetSnapshot(composition.PolicyPresetOrigin)
+	if err != nil {
+		return tobari.ContextReport{}, err
+	}
+	if composition.MethodPolicy != nil {
+		preset, err = tobari.ComposePolicyPresetMethodPolicy(preset, composition.MethodPolicy.Clone())
+		if err != nil {
+			return tobari.ContextReport{}, err
+		}
+		preset, normalizedPreset, presetRevision, err = tobari.NormalizePolicyPreset(preset)
+		if err != nil {
+			return tobari.ContextReport{}, err
+		}
+	}
 	manifest := tobari.ContextManifest{
 		SchemaVersion: tobari.ContextSchemaVersion, Name: name,
 		AgentProfile: tobari.DefaultProfile, Image: r.resolveBuiltinImageSelector(image), PolicyMode: mode,
 		SourceAccess:         sourceAccess,
-		PolicyPresetOrigin:   presetOrigin,
+		PolicyPresetOrigin:   composition.PolicyPresetOrigin,
 		PolicyPresetRevision: presetRevision,
-		NativeReadiness:      nativeReadiness,
+		NativeReadiness:      composition.NativeReadiness,
 		ShellEnvironment:     tobari.InitialContextShellEnvironment(),
 	}
 	id, err := r.identities.newContextID()
@@ -681,14 +731,14 @@ func (r *Runtime) CreateContextWithPreset(
 		}
 
 		if name == tobari.DefaultContextName {
-			if err := r.initializeContextStoreUnlocked(manifest); err != nil {
+			if err := r.initializeContextStoreUnlockedWithPreset(manifest, normalizedPreset); err != nil {
 				return err
 			}
 		} else {
 			if err := r.ensureContextStoreUnlocked(); err != nil {
 				return err
 			}
-			if err := r.ensureContext(manifest); err != nil {
+			if err := r.ensureContextWithPresetSnapshot(manifest, normalizedPreset); err != nil {
 				return err
 			}
 		}
@@ -709,6 +759,94 @@ func (r *Runtime) CreateContextWithPreset(
 		report.Cluster = tobari.ContextClusterStatusRequiresReconcile
 	}
 	return report, report.Validate()
+}
+
+// DeleteContext removes one exact non-current Context store after proving that
+// no durable Workspace remains bound to its stable Context identity. The
+// caller holds the installation lifecycle lock across this check-and-delete.
+func (r *Runtime) DeleteContext(ctx context.Context, name string) (tobari.ContextDeleteResult, error) {
+	if err := ctx.Err(); err != nil {
+		return tobari.ContextDeleteResult{}, err
+	}
+	if err := tobari.ValidateName(name); err != nil {
+		return tobari.ContextDeleteResult{}, err
+	}
+	if name == tobari.DefaultContextName {
+		return tobari.ContextDeleteResult{}, tobari.ErrContextProtected
+	}
+	manifest, err := r.readContextManifest(name)
+	if err != nil {
+		return tobari.ContextDeleteResult{}, err
+	}
+	active, err := r.readActiveContext()
+	if err != nil {
+		return tobari.ContextDeleteResult{}, err
+	}
+	if active == name {
+		return tobari.ContextDeleteResult{}, tobari.ErrContextActive
+	}
+	projects, err := r.ListProjects(ctx)
+	if err != nil {
+		return tobari.ContextDeleteResult{}, err
+	}
+	for _, project := range projects {
+		if project.ContextID == manifest.ID || project.ContextName == name {
+			return tobari.ContextDeleteResult{}, tobari.ErrContextHasWorkspaces
+		}
+	}
+	cluster := tobari.ContextClusterStatusNotApplicable
+	if _, configured, err := r.LoadState(ctx); err != nil {
+		return tobari.ContextDeleteResult{}, err
+	} else if configured {
+		cluster = tobari.ContextClusterStatusRequiresReconcile
+	}
+	if err := r.withContextStoreLock(func() error {
+		current, err := r.readContextManifest(name)
+		if err != nil {
+			return err
+		}
+		if current.ID != manifest.ID {
+			return fmt.Errorf("Context identity changed before deletion")
+		}
+		active, err := r.readActiveContext()
+		if err != nil {
+			return err
+		}
+		if active == name {
+			return tobari.ErrContextActive
+		}
+		authDirectory := filepath.Join(r.authContextsDirectory(), manifest.ID)
+		if info, err := os.Lstat(authDirectory); err == nil {
+			if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm()&0o077 != 0 {
+				return fmt.Errorf("Context authentication state is unsafe")
+			}
+			if err := os.RemoveAll(authDirectory); err != nil { // #nosec G301 -- exact validated Context UUID child.
+				return fmt.Errorf("remove Context authentication state: %w", err)
+			}
+			if err := syncDirectoryIfPresent(r.authContextsDirectory()); err != nil {
+				return err
+			}
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("inspect Context authentication state: %w", err)
+		}
+		contextDirectory := r.contextDirectory(name)
+		if err := requirePrivateDirectory(contextDirectory); err != nil {
+			return fmt.Errorf("inspect Context store before deletion: %w", err)
+		}
+		if err := os.RemoveAll(contextDirectory); err != nil { // #nosec G301 -- exact validated owner-only Context child.
+			return fmt.Errorf("remove Context store: %w", err)
+		}
+		if err := syncDirectoryIfPresent(r.contextsDirectory()); err != nil {
+			return err
+		}
+		return nil
+	}); err != nil {
+		return tobari.ContextDeleteResult{}, err
+	}
+	result := tobari.ContextDeleteResult{
+		Task: tobari.TaskContextDelete, ID: manifest.ID, Name: manifest.Name, Deleted: true, Cluster: cluster,
+	}
+	return result, result.Validate()
 }
 
 // UseContext changes only the default used when execution omits a Context.

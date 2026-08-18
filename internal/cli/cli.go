@@ -28,15 +28,17 @@ type CLI struct {
 	Version string
 	Commit  string
 
-	catalog      Catalog
-	doctor       *doctorcmd.Service
-	tobari       *tobaricmd.Service
-	context      *contextcmd.Service
-	policyPreset *policypresetcmd.Service
-	auth         *authcmd.Service
-	config       contextConfigurationWizard
-	authLogin    authLoginProviderSelector
-	noColor      bool
+	catalog       Catalog
+	doctor        *doctorcmd.Service
+	tobari        *tobaricmd.Service
+	context       *contextcmd.Service
+	policyPreset  *policypresetcmd.Service
+	auth          *authcmd.Service
+	console       operatorConsoleRunner
+	config        contextConfigurationWizard
+	contextCreate contextCreateWizard
+	authLogin     authLoginProviderSelector
+	noColor       bool
 }
 
 // New builds the production CLI with the Docker-backed Tobari runtime.
@@ -44,7 +46,9 @@ func New(in io.Reader, out, errOut io.Writer) *CLI {
 	command := newCLI(in, out, errOut, DefaultCatalog(), systemdoctor.New())
 	command.noColor = noColorFromEnvironment()
 	command.config = newContextConfigurationWizardWithStyle(!command.noColor)
+	command.contextCreate = newContextCreateWizardWithStyle(!command.noColor)
 	command.authLogin = newAuthLoginProviderSelectorWithStyle(!command.noColor)
+	command.console = newOperatorConsoleRunner()
 	runtime, err := dockerruntime.New()
 	if err != nil {
 		command.doctor = doctorcmd.New(systemdoctor.New(err))
@@ -77,11 +81,12 @@ func newCLI(in io.Reader, out, errOut io.Writer, catalog Catalog, inspector doct
 	}
 	return &CLI{
 		In: in, Out: out, Err: errOut,
-		Version:   "dev",
-		catalog:   catalog,
-		doctor:    doctorcmd.New(inspector),
-		config:    newContextConfigurationWizard(),
-		authLogin: newAuthLoginProviderSelector(),
+		Version:       "dev",
+		catalog:       catalog,
+		doctor:        doctorcmd.New(inspector),
+		config:        newContextConfigurationWizard(),
+		contextCreate: newContextCreateWizardWithStyle(true),
+		authLogin:     newAuthLoginProviderSelector(),
 	}
 }
 

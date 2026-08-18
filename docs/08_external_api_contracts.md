@@ -56,15 +56,16 @@ append-only removal history. Observed traffic cannot extend it, and its
 effective content participates in the aggregate
 revision checked by status and Workspace entry. Those are
 Context-wide semantic effects rather than executable
-identity. Preset offline, destination, and method ceilings filter or suppress
-the overlay, and exact Deny remains terminal. MCP actions, file transfer,
+identity. Preset destination ceilings and method Deny decisions filter or
+suppress the overlay, and exact Deny remains terminal. MCP actions, file transfer,
 downloads, acquisition, self-update, and unmatched effects receive no baseline
-grant. Disabled readiness supplies no overlay. `builtin/offline` terminally
-denies all HTTP/HTTPS; `builtin/reviewed-exact` makes only eligible effects
-exact-review candidates; `builtin/get-only-reviewed` makes only eligible GET
-effects candidates and terminally denies HEAD and every non-GET. Those three
-strict presets grant no immediate authority and GET is not classified as safe
-or read-only. Terminal denial
+grant. Disabled readiness supplies no overlay. Every method resolves from a
+default plus exact overrides using Allow, Exact Review, or Deny.
+`builtin/offline` defaults to Deny; `builtin/reviewed-exact` defaults to Exact
+Review; `builtin/get-only-reviewed` defaults to Deny with GET Exact Review;
+`builtin/public-get-reviewed` defaults to Exact Review with GET Allow. The
+three strict presets grant no immediate authority. GET is not classified as
+safe or read-only, and exact Deny wins over method Allow. Terminal denial
 creates no candidate and causes zero external DNS or upstream calls.
 
 The native-login matrix explicitly includes Claude's platform hello/token and

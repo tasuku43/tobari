@@ -839,13 +839,17 @@ expected = {
     "builtin/offline",
     "builtin/reviewed-exact",
     "builtin/get-only-reviewed",
+    "builtin/public-get-reviewed",
 }
 if set(builtins) != expected:
     raise SystemExit(f"unexpected built-in preset catalog: {builtins!r}")
-if builtins["builtin/agent-ready"]["immediate_grant_count"] == 0:
+if builtins["builtin/agent-ready"]["baseline_grant_count"] == 0:
     raise SystemExit(f"agent-ready preset has no core grants: {builtins!r}")
-if any(item["immediate_grant_count"] != 0 for name, item in builtins.items() if name != "builtin/agent-ready"):
+if any(item["baseline_grant_count"] != 0 for name, item in builtins.items() if name != "builtin/agent-ready"):
     raise SystemExit(f"strict built-in preset granted authority immediately: {builtins!r}")
+public_get = builtins["builtin/public-get-reviewed"]
+if public_get["method_default"] != "exact_review" or public_get["method_override_count"] != 1:
+    raise SystemExit(f"public GET preset method policy is invalid: {public_get!r}")
 PY
 custom_preset_init=$(run_tobari policy preset init --name snapshot --format json)
 custom_preset_path=$(python3 -c \
@@ -858,7 +862,8 @@ import sys
 path = sys.argv[1]
 with open(path, encoding="utf-8") as source:
     document = json.load(source)
-document["guardrail"] = "reviewed_exact"
+document["guardrail"] = "method_policy"
+document["method_policy"] = {"default": "exact_review", "overrides": []}
 document["baseline_grants"] = []
 document["baseline_denies"] = []
 document["graphql_endpoints"] = [

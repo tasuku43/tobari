@@ -230,6 +230,7 @@ The public commands are:
 | `list [--format text|json]` | utility | read | List local Workspaces with Context, runtime diagnostics, and diagnostic IDs |
 | `delete [--context NAME] [--force]` | act, fixed target | write | Delete the nearest current-directory Workspace in the explicit or current Context, its owned runtime, persistent home, and tool-owned authentication state while preserving project files; `--force` overrides only the attached-session guard |
 | `cluster status [--format text|json]` | utility | read | Inspect Gateway/OPA health, loaded Context count, aggregate revision, current-binary policy/Gateway projection integrity, and recent errors |
+| `serve [--no-open]` | utility | read, with one separately confirmed reviewed apply | Run one foreground IPv4-loopback Operator Console for typed cluster, Workspace, Permission Inbox, and learned-rule inspection; optionally open the host browser, stage decisions without authority, and delegate one confirmed reviewed set to the canonical fixed-target apply |
 | `cluster denials [--tail N] [--format text|json]` | utility | read | Read a bounded typed denial window, exact-rule learnability, policy path, and review command |
 | `cluster logs [--component gateway|opa|all] [--tail N]` | utility | read | Read bounded shared logs, including policy-denial evidence, without credential output |
 | `cluster down [--purge]` | act, fixed target | write | Remove shared transient resources after every logical Tobari is deleted; `--purge` additionally removes shared CA and active policy-bundle volumes |
@@ -244,10 +245,11 @@ The public commands are:
 | `policy preset init --name NAME [--format text\|json]` | act, fixed target | create | Create one owner-only strict custom policy preset template without overwriting |
 | `policy preset validate --name PRESET [--format text\|json]` | utility | read | Strictly validate, normalize, and digest one custom preset source without changing Context or active policy |
 | `context list [--format text|json]` | utility | read | List persisted named Contexts and report the current selection as persisted or a display-only synthetic default |
-| `context show [--name NAME] [--format text|json]` | utility | read | Inspect one Context's explicit persistence state, immutable source access, preset origin/revision and guardrail summary, agent, policy, and native Workspace-owned authentication mode without returning credential values |
+| `context show [--name NAME] [--format text|json]` | utility | read | Inspect one Context's explicit persistence state, immutable source access, preset origin/revision, effective method default/overrides, agent, policy, and native Workspace-owned authentication mode without returning credential values |
 | `config shell [--variable COLORTERM\|NO_COLOR\|PS1\|TERM] [--source default\|inherit\|literal] [--value VALUE] [--context NAME] [--format text\|json]` | act, fixed target | write | Configure one allowlisted shell-presentation variable directly, or stage one or more rows from the complete terminal inventory and apply them atomically |
 | `config git [--source default\|inherit\|literal] [--name NAME] [--email EMAIL] [--context NAME] [--format text\|json]` | act, fixed target | write | Configure one atomic Context Git commit-identity fallback directly, or stage and apply its source from one terminal screen |
-| `context create --name NAME [--image IMAGE] [--mode guided|advanced] [--source-access read-only\|read-write] [--policy-preset PRESET] [--native-readiness enabled\|disabled] [--format text\|json]` | act, fixed target | create | Validate and create one named immutable capability envelope with a runtime image, direct source access, normalized policy-preset snapshot, native-readiness selection, and separate owner-only stores; omission selects `read-write`, `builtin/agent-ready`, and enabled readiness |
+| `context create [--name NAME] [--image IMAGE] [--mode guided|advanced] [--source-access read-only\|read-write] [--policy-preset PRESET] [--native-readiness enabled\|disabled] [--format text\|json]` | act, fixed target | create | With no inputs, collect name, source access, and a complete HTTP method policy in a terminal wizard and create once; any explicit input selects deterministic direct mode and requires `--name`; omission defaults remain `read-write`, `builtin/agent-ready`, and enabled readiness |
+| `context delete --name NAME [--format text\|json]` | act, fixed target | write | Delete one unused non-current non-default Context and its exact owner stores while preserving project files and shared runtime images |
 | `context use --name NAME [--format text\|json]` | act, fixed target | write | Change only the current/default Context; do not mutate existing Tobari or start/reconcile the cluster |
 | `runtime init [--format text|json]` | act, fixed target | create | Create the current Context's runtime/Dockerfile template without changing its selected image |
 | `runtime build [--format text|json]` | act, fixed target | write | Build, validate, and select the current Context's generated local runtime image |
@@ -461,6 +463,17 @@ undeclared Docker mutation by the CLI.
   the write. Cancellation and every wizard validation or terminal failure
   perform zero mutation.
   Prompts use stderr and the confirmed complete Context report uses stdout.
+- `context create` has two complete modes. With no command input, text success
+  and error formats plus terminal stdin/stderr are required; the wizard reads a
+  valid name, chooses direct source access, and stages `allow`, `exact_review`,
+  or `deny` for the extension-method default and each standard HTTP method.
+  Apply performs one create mutation and cancellation performs none. Any
+  explicit input, including `--format`, selects direct mode and requires
+  `--name`; defaults complete omitted direct-mode values without prompting.
+  Method Deny removes selected-preset positive baseline entries for that method
+  from the new immutable snapshot rather than leaving an invalid or misleading
+  unreachable grant. Redirected or JSON argument-free creation fails before
+  mutation.
 - `runtime build` is the explicit exception to the no-implicit-pull rule. It
   runs a host Docker build using only the Context runtime directory as build
   context; Docker may obtain a missing base image for this explicit build.
@@ -537,6 +550,7 @@ Human output is concise text. The canonical public machine-output inventory is:
 | Doctor report | `report` | 1 |
 | Context list | `contexts` | 1 |
 | Context report (show/create/use/config/runtime results) | `context` | 1 |
+| Context deletion | `context_deletion` | 1 |
 | Cluster status | `cluster` | 1 |
 | Cluster denials | `denials` | 1 |
 | Policy candidates | `policy_candidates` | 1 |
@@ -623,6 +637,20 @@ revision plus each ordered Context/project/effect/stored-rule decision and
 directs the caller to retry in the current running Workspace. The public
 read-only JSON review schema remains version 1 and does not expose this
 internal TTY Apply receipt.
+`tobari serve` exposes the same human task in one foreground Operator Console.
+It binds only a random IPv4 loopback port, issues one process-memory 256-bit
+session bearer through the initial URL fragment, and stores no cookie or
+persistent browser credential. The page removes that fragment after moving the
+bearer to tab-scoped session storage. Every API call must present the bearer;
+writes additionally require the exact loopback Origin. The console stages
+exact/template Allow or exact Deny decisions locally, shows the complete typed
+review, and requires explicit Apply before delegating to the same internal
+`policy apply-reviewed` action. Closing the page or process discards staging;
+the server never retries a mutation automatically. Success shows the
+authoritative active revision and ordered stored-rule receipts. The command is
+not a daemon, has no remote bind or caller-selected port, loads no external
+assets, and `--no-open` only suppresses the purpose-limited host-browser open
+while retaining the printed session URL.
 Human `text` output uses one shared presentation vocabulary across lifecycle,
 policy, diagnostics, help, version, and error views: an outcome-first heading,
 a small state marker, aligned detail rows, semantic style tokens, and an exact
@@ -794,8 +822,8 @@ synthetic state.
   and GraphQL `query` / `me` current-user effects,
   plus pup 1.10.7 exact US1 DCR registration and token exchange/refresh when
   supplied by a custom runtime, to
-  every process in the Context, subject to the preset's terminal guardrail and
-  destination/method ceilings. Those native readiness effects are not stored
+  every process in the Context, subject to the preset's terminal destination
+  ceiling and method decisions. Those native readiness effects are not stored
   in new snapshots. Compile-time `claude_ready`, `codex_ready`, `gh_ready`, and
   `twg_ready`, and `pup_ready` names are review provenance; aggregate generation strips their
   complete historical snapshot forms and projects the installed binary's
@@ -815,12 +843,13 @@ synthetic state.
   identity; exact Deny remains terminal, while payload arguments, downloads,
   file transfer, acquisition, self-update, and unmatched effects receive no
   baseline grant;
-  `builtin/offline` grants nothing, exposes no review-eligible effect, and
-  terminally denies all HTTP/HTTPS; `builtin/reviewed-exact` grants nothing and
-  sends only guardrail-eligible effects to exact review;
-  `builtin/get-only-reviewed` grants nothing, sends only guardrail-eligible GET
-  effects to exact review, and terminally denies HEAD and every non-GET method.
-  GET is not described as safe or read-only. Custom presets are strict
+  schema V1 requires `method_policy.default` and sorted unique exact
+  `method_policy.overrides`, each using `allow`, `exact_review`, or `deny`.
+  `builtin/offline` defaults to Deny; `builtin/reviewed-exact` defaults to
+  Exact Review; `builtin/get-only-reviewed` defaults to Deny with GET Exact
+  Review; `builtin/public-get-reviewed` defaults to Exact Review with GET
+  Allow. Exact Deny wins over method Allow. GET is not described as safe or
+  read-only. Custom presets are strict
   owner-only non-executable data with no wildcard, IP/private destination,
   secret, shell, Rego, include, inheritance, remote fetch, refresh, or signing;
 - `contexts/<name>/policy/domains/<canonical-host>/allow.json`: strict
@@ -974,6 +1003,14 @@ modifies an existing Tobari's Context, runtime, home, policy, or principal.
 Creating a Context also never starts Docker; when shared state exists, the
 result directs the user to explicit `cluster up` so the all-Context projection
 can be validated and activated.
+
+`context delete` validates one exact name under the installation lifecycle
+lock. It rejects `default`, the current marker, and any stable Context identity
+still referenced by a logical Workspace. A confirmed delete removes the exact
+owner-only Context directory and Context-ID authentication state, preserves
+project roots and shared runtime images, and reports `requires_reconcile` when
+shared state exists. V1 has no force mode and never chooses a replacement
+current Context implicitly.
 
 `config shell` and `config git` atomically update only the selected Context
 manifest after typed input, intent, target, and impact validation. The terminal

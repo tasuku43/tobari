@@ -30,6 +30,11 @@
     "reason": ""
   },
   {
+    "id": "operator.console",
+    "status": "public",
+    "reason": ""
+  },
+  {
     "id": "tobari.lifecycle",
     "status": "public",
     "reason": ""

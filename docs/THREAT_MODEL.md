@@ -63,11 +63,13 @@ removed from legacy snapshots before the current set is added. Runtime data,
 custom presets, observed candidates, and executable names cannot select it.
 Pinned client versions and append-only readiness contract revisions are
 separate identities in one compile-time catalog.
-`builtin/offline` terminally denies all HTTP/HTTPS;
-`builtin/reviewed-exact` exposes only eligible exact candidates;
-`builtin/get-only-reviewed` exposes only eligible GET candidates and terminally
-denies HEAD/non-GET. Those three strict presets grant nothing immediately and
-GET has no safe/read-only classification. Terminal denial creates no candidate and causes zero external
+Every method resolves from a default plus exact overrides using Allow, Exact
+Review, or Deny. `builtin/offline` defaults to Deny;
+`builtin/reviewed-exact` defaults to Exact Review;
+`builtin/get-only-reviewed` defaults to Deny with GET Exact Review;
+`builtin/public-get-reviewed` defaults to Exact Review with GET Allow. The
+three strict presets grant nothing immediately. GET has no safe/read-only
+classification, and exact Deny wins over method Allow. Terminal denial creates no candidate and causes zero external
 DNS, Broker resolution, or upstream call.
 
 Custom presets are strict owner-only non-executable schema-V1 data, normalized,

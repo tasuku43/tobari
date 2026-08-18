@@ -33,7 +33,7 @@ func TestOrthogonalReadinessRemainsBehindTerminalGuardrails(t *testing.T) {
 		}
 		text := string(router)
 		terminal := strings.Index(text, `decision := {"allow": false, "reason": "denied by Context policy preset guardrail"`)
-		grant := strings.Index(text, `decision := {"allow": true, "reason": "allowed by exact Context baseline"`)
+		grant := strings.Index(text, `decision := {"allow": true, "reason": "allowed by Context policy preset"`)
 		if terminal < 0 || grant < 0 || terminal > grant {
 			t.Fatalf("%s readiness can precede terminal guardrail:\n%s", origin, text)
 		}
@@ -168,8 +168,10 @@ func TestAggregateRouterMakesPresetGuardrailTerminalBeforeAdvancedOrGuidedPolicy
 			t.Fatalf("Advanced route can bypass %q:\n%s", required, advancedClause)
 		}
 	}
-	if !strings.Contains(text, `kind == "get_only_reviewed"; input.request.method != "GET"`) {
-		t.Fatalf("GET-only guardrail does not terminally reject HEAD and non-GET:\n%s", text)
+	for _, required := range []string{`preset_method_decision == "deny"`, `override.method == input.request.method`, `guardrail.method_default`} {
+		if !strings.Contains(text, required) {
+			t.Fatalf("method policy guardrail omitted %q:\n%s", required, text)
+		}
 	}
 }
 
@@ -182,7 +184,7 @@ func TestAggregateRouterMakesExactDenyTerminalOverAgentReadyBaseline(t *testing.
 	}
 	text := string(router)
 	deny := strings.Index(text, `decision := {"allow": false, "reason": "denied by exact policy"`)
-	grant := strings.Index(text, `decision := {"allow": true, "reason": "allowed by exact Context baseline"`)
+	grant := strings.Index(text, `decision := {"allow": true, "reason": "allowed by Context policy preset"`)
 	if deny < 0 || grant < 0 || deny > grant {
 		t.Fatalf("exact Deny is not declared before baseline grant:\n%s", text)
 	}

@@ -21,7 +21,7 @@ func renderPolicyPreset(result tobari.PolicyPresetResult, format successFormat) 
 	output.WriteString("Policy presets\n")
 	if result.Task == tobari.TaskPolicyPresetList {
 		for _, item := range result.Items {
-			fmt.Fprintf(&output, "%s  %s  guardrail=%s  destination=%s/%d  methods=%s/%d  immediate_grants=%d\n", safeExternalText(item.Origin), item.Revision, item.Guardrail, item.DestinationCeiling, item.DestinationCount, item.MethodCeiling, item.MethodCount, item.ImmediateGrantCount)
+			fmt.Fprintf(&output, "%s  %s  guardrail=%s  destination=%s/%d  methods=default:%s overrides:%d  baseline_grants=%d\n", safeExternalText(item.Origin), item.Revision, item.Guardrail, item.DestinationCeiling, item.DestinationCount, item.MethodDefault, item.MethodOverrideCount, item.BaselineGrantCount)
 		}
 	} else if result.Preset != nil {
 		grants := len(result.Preset.BaselineGrants) + len(result.Preset.BaselineTemplates) + len(result.Preset.MCPBaselineGrants)
@@ -30,6 +30,10 @@ func renderPolicyPreset(result tobari.PolicyPresetResult, format successFormat) 
 			fmt.Fprintf(&output, "Source: %s\n", safeExternalText(result.SourcePath))
 		}
 		fmt.Fprintf(&output, "Scope: %s\n", safeExternalText(result.Scope))
+		fmt.Fprintf(&output, "Method default: %s\n", result.Preset.MethodPolicy.Default)
+		for _, override := range result.Preset.MethodPolicy.Overrides {
+			fmt.Fprintf(&output, "Method %s: %s\n", override.Method, override.Decision)
+		}
 		for _, limitation := range result.Limitations {
 			fmt.Fprintf(&output, "Limitation: %s\n", safeExternalText(limitation))
 		}

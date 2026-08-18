@@ -17,6 +17,7 @@ type contextRuntimeFake struct {
 	listResult         tobari.ContextListResult
 	showResult         tobari.ContextReport
 	createResult       tobari.ContextReport
+	deleteResult       tobari.ContextDeleteResult
 	useResult          tobari.ContextReport
 	initResult         tobari.ContextReport
 	buildResult        tobari.ContextReport
@@ -25,12 +26,14 @@ type contextRuntimeFake struct {
 	listErr            error
 	showErr            error
 	createErr          error
+	deleteErr          error
 	useErr             error
 	initErr            error
 	buildErr           error
 	configureErr       error
 	configureGitErr    error
 	createCalls        int
+	deleteCalls        int
 	useCalls           int
 	initCalls          int
 	buildCalls         int
@@ -43,6 +46,7 @@ type contextRuntimeFake struct {
 	lastImage          string
 	lastMode           tobari.ContextPolicyMode
 	lastSourceAccess   tobari.ContextSourceAccess
+	lastComposition    tobari.ContextCreateComposition
 	lastChange         tobari.ContextShellEnvironmentSetting
 	lastChanges        []tobari.ContextShellEnvironmentSetting
 	lastGitChange      tobari.ContextGitIdentitySetting
@@ -65,6 +69,22 @@ func (f *contextRuntimeFake) CreateContext(
 	f.lastName, f.lastImage, f.lastMode = name, image, mode
 	f.lastSourceAccess = sourceAccess
 	return f.createResult, f.createErr
+}
+
+func (f *contextRuntimeFake) CreateContextWithComposition(
+	_ context.Context, name, image string, mode tobari.ContextPolicyMode, sourceAccess tobari.ContextSourceAccess,
+	composition tobari.ContextCreateComposition,
+) (tobari.ContextReport, error) {
+	f.createCalls++
+	f.lastName, f.lastImage, f.lastMode = name, image, mode
+	f.lastSourceAccess, f.lastComposition = sourceAccess, composition.Clone()
+	return f.createResult, f.createErr
+}
+
+func (f *contextRuntimeFake) DeleteContext(_ context.Context, name string) (tobari.ContextDeleteResult, error) {
+	f.deleteCalls++
+	f.lastName = name
+	return f.deleteResult, f.deleteErr
 }
 
 func (f *contextRuntimeFake) UseContext(context.Context, string) (tobari.ContextReport, error) {
@@ -133,7 +153,8 @@ func contextReport(task, name string) tobari.ContextReport {
 		SourceAccess:         tobari.ContextSourceAccessReadWrite,
 		PolicyPresetOrigin:   tobari.DefaultPolicyPresetOrigin,
 		PolicyPresetRevision: tobari.DefaultPolicyPresetRevision(),
-		PolicyGuardrail:      tobari.PolicyPresetGuardrailReviewedExact,
+		PolicyGuardrail:      tobari.PolicyPresetGuardrailMethodPolicy,
+		MethodPolicy:         tobari.PolicyPresetMethodPolicy{Default: tobari.PolicyPresetMethodExactReview, Overrides: []tobari.PolicyPresetMethodOverride{}},
 		ShellEnvironment:     tobari.DefaultContextShellEnvironmentReport(),
 		GitIdentity:          tobari.DefaultContextGitIdentityReport(),
 		Runtime: tobari.ContextRuntimeReport{
@@ -644,6 +665,69 @@ func TestCreateDuplicateRecoversThroughContextList(t *testing.T) {
 	}
 	if fake.createCalls != 1 || fake.lastName != "review" {
 		t.Fatalf("CreateContext() calls/name = %d/%q, want 1/review", fake.createCalls, fake.lastName)
+	}
+}
+
+func TestCreateWithCompositionPreservesTypedMethodSelection(t *testing.T) {
+	policy := tobari.PolicyPresetMethodPolicy{
+		Default:   tobari.PolicyPresetMethodExactReview,
+		Overrides: []tobari.PolicyPresetMethodOverride{{Method: "GET", Decision: tobari.PolicyPresetMethodAllow}},
+	}
+	report := contextReport(tobari.TaskContextCreate, "coding")
+	report.MethodPolicy = policy.Clone()
+	fake := &contextRuntimeFake{createResult: report}
+	intent := operation.Intent{
+		Command: "context create", Effect: operation.EffectCreate,
+		Target: operation.TargetRef{Kind: tobari.ContextCatalogTargetKind, ParentID: tobari.ContextCatalogTargetID},
+		Impact: contextImpact(),
+	}
+	result, err := New(fake).CreateWithComposition(
+		context.Background(), intent, "coding", tobari.OfficialRuntimeBase,
+		tobari.ContextPolicyModeGuided, tobari.ContextSourceAccessReadWrite,
+		tobari.ContextCreateComposition{
+			PolicyPresetOrigin: tobari.DefaultPolicyPresetOrigin,
+			NativeReadiness:    tobari.ContextNativeReadinessEnabled,
+			MethodPolicy:       &policy,
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Name != "coding" || fake.createCalls != 1 || fake.lastComposition.MethodPolicy == nil ||
+		fake.lastComposition.MethodPolicy.Overrides[0].Decision != tobari.PolicyPresetMethodAllow {
+		t.Fatalf("composed create result/call = %+v/%+v", result, fake.lastComposition)
+	}
+}
+
+func TestDeleteMapsCurrentWorkspaceAndConfirmedOutcomes(t *testing.T) {
+	intent := operation.Intent{
+		Command: "context delete", Effect: operation.EffectWrite,
+		Target: operation.TargetRef{Kind: tobari.ContextCatalogTargetKind, ID: tobari.ContextCatalogTargetID},
+		Impact: operation.Impact{
+			Cardinality: operation.CardinalityOne, Notification: operation.DeclarationNo,
+			AccessChange: operation.DeclarationYes, Destructive: operation.DeclarationYes,
+		},
+	}
+	fake := &contextRuntimeFake{deleteErr: tobari.ErrContextActive}
+	_, err := New(fake).Delete(context.Background(), intent, "coding")
+	public, ok := fault.PublicCopy(err)
+	if !ok || public.Code != "context_is_current" {
+		t.Fatalf("current Context delete fault = %#v, %v", public, err)
+	}
+	fake.deleteErr = tobari.ErrContextHasWorkspaces
+	_, err = New(fake).Delete(context.Background(), intent, "coding")
+	public, ok = fault.PublicCopy(err)
+	if !ok || public.Code != "context_has_workspaces" {
+		t.Fatalf("Workspace-bound Context delete fault = %#v, %v", public, err)
+	}
+	fake.deleteErr = nil
+	fake.deleteResult = tobari.ContextDeleteResult{
+		Task: tobari.TaskContextDelete, ID: "018bcfe5-687b-7000-8000-000000000099",
+		Name: "coding", Deleted: true, Cluster: tobari.ContextClusterStatusNotApplicable,
+	}
+	result, err := New(fake).Delete(context.Background(), intent, "coding")
+	if err != nil || !result.Deleted || fake.deleteCalls != 3 {
+		t.Fatalf("confirmed Context delete = %+v, calls=%d, error=%v", result, fake.deleteCalls, err)
 	}
 }
 

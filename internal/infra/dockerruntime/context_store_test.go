@@ -266,6 +266,77 @@ func TestFreshExplicitDefaultCreateSucceedsOnceAndPreservesManifestOnDuplicate(t
 	}
 }
 
+func TestContextDeleteRemovesOnlyUnusedNonCurrentOwnedState(t *testing.T) {
+	runtime := newContextSwitchRuntime(t, &contextSwitchRunner{})
+	manifest, err := runtime.readContextManifest("project-tools")
+	if err != nil {
+		t.Fatal(err)
+	}
+	authDirectory := filepath.Join(runtime.authContextsDirectory(), manifest.ID)
+	if err := os.MkdirAll(authDirectory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(authDirectory, "vault.json"), []byte("synthetic"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	result, err := runtime.DeleteContext(context.Background(), "project-tools")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Name != "project-tools" || result.ID != manifest.ID || !result.Deleted {
+		t.Fatalf("delete result = %+v", result)
+	}
+	if _, err := os.Lstat(runtime.contextDirectory("project-tools")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("Context store remains after deletion: %v", err)
+	}
+	if _, err := os.Lstat(authDirectory); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("Context auth state remains after deletion: %v", err)
+	}
+	if _, err := runtime.ShowContext(context.Background(), "project-tools"); !errors.Is(err, tobari.ErrContextNotFound) {
+		t.Fatalf("deleted Context still resolves: %v", err)
+	}
+}
+
+func TestContextDeleteRejectsFoundationalCurrentAndWorkspaceBoundContexts(t *testing.T) {
+	runtime := newContextSwitchRuntime(t, &contextSwitchRunner{})
+	if _, err := runtime.DeleteContext(context.Background(), tobari.DefaultContextName); !errors.Is(err, tobari.ErrContextProtected) {
+		t.Fatalf("default Context delete = %v, want protected", err)
+	}
+	root := t.TempDir()
+	if _, err := runtime.CreateProjectInContext(context.Background(), root, "project-tools"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runtime.DeleteContext(context.Background(), "project-tools"); !errors.Is(err, tobari.ErrContextHasWorkspaces) {
+		t.Fatalf("Workspace-bound Context delete = %v, want guard", err)
+	}
+	if _, err := runtime.UseContext(context.Background(), "project-tools"); err != nil {
+		t.Fatal(err)
+	}
+	// The Workspace guard and current guard both reject; after deleting the
+	// Workspace in a real workflow, current still remains independently guarded.
+	if _, err := runtime.DeleteContext(context.Background(), "project-tools"); !errors.Is(err, tobari.ErrContextActive) {
+		t.Fatalf("current Context delete = %v, want current guard", err)
+	}
+}
+
+func TestContextDeleteRejectsSymlinkedStoreWithoutTouchingTarget(t *testing.T) {
+	runtime := newContextSwitchRuntime(t, &contextSwitchRunner{})
+	directory := runtime.contextDirectory("project-tools")
+	outside := filepath.Join(t.TempDir(), "outside")
+	if err := os.Rename(directory, outside); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, directory); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runtime.DeleteContext(context.Background(), "project-tools"); err == nil {
+		t.Fatal("symlinked Context store was deleted")
+	}
+	if _, err := os.Lstat(filepath.Join(outside, "context.json")); err != nil {
+		t.Fatalf("symlink target changed during rejected deletion: %v", err)
+	}
+}
+
 func TestCorruptStoredContextFailsClosedWithoutWrites(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()

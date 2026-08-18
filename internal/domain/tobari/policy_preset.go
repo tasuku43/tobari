@@ -29,9 +29,11 @@ const (
 	PolicyPresetCatalogTargetKind = "policy-preset-catalog"
 	PolicyPresetCatalogTargetID   = "policy-preset-catalog"
 
-	PolicyPresetGuardrailOffline         PolicyPresetGuardrail = "offline"
-	PolicyPresetGuardrailReviewedExact   PolicyPresetGuardrail = "reviewed_exact"
-	PolicyPresetGuardrailGetOnlyReviewed PolicyPresetGuardrail = "get_only_reviewed"
+	PolicyPresetGuardrailMethodPolicy PolicyPresetGuardrail = "method_policy"
+
+	PolicyPresetMethodAllow       PolicyPresetMethodDecision = "allow"
+	PolicyPresetMethodExactReview PolicyPresetMethodDecision = "exact_review"
+	PolicyPresetMethodDeny        PolicyPresetMethodDecision = "deny"
 )
 
 var (
@@ -43,7 +45,7 @@ type PolicyPresetGuardrail string
 
 func (g PolicyPresetGuardrail) Validate() error {
 	switch g {
-	case PolicyPresetGuardrailOffline, PolicyPresetGuardrailReviewedExact, PolicyPresetGuardrailGetOnlyReviewed:
+	case PolicyPresetGuardrailMethodPolicy:
 		return nil
 	default:
 		return fmt.Errorf("policy preset guardrail is invalid")
@@ -164,9 +166,80 @@ func (r PolicyPresetMCPRule) Validate() error {
 	return (PolicyProtocolIdentity{Scheme: r.Scheme, Protocol: PolicyProtocolMCP, MCPMethod: r.MCPMethod, MCPToolName: r.MCPToolName}).Validate()
 }
 
-type PolicyPresetMethodCeiling struct {
-	Mode    string   `json:"mode"`
-	Methods []string `json:"methods"`
+type PolicyPresetMethodDecision string
+
+func (d PolicyPresetMethodDecision) Validate() error {
+	switch d {
+	case PolicyPresetMethodAllow, PolicyPresetMethodExactReview, PolicyPresetMethodDeny:
+		return nil
+	default:
+		return fmt.Errorf("policy preset method decision is invalid")
+	}
+}
+
+type PolicyPresetMethodOverride struct {
+	Method   string                     `json:"method"`
+	Decision PolicyPresetMethodDecision `json:"decision"`
+}
+
+func (o PolicyPresetMethodOverride) Validate() error {
+	if !policyPresetMethodPattern.MatchString(o.Method) {
+		return fmt.Errorf("policy preset method override is invalid")
+	}
+	return o.Decision.Validate()
+}
+
+type PolicyPresetMethodPolicy struct {
+	Default   PolicyPresetMethodDecision   `json:"default"`
+	Overrides []PolicyPresetMethodOverride `json:"overrides"`
+}
+
+func (p PolicyPresetMethodPolicy) Clone() PolicyPresetMethodPolicy {
+	return PolicyPresetMethodPolicy{
+		Default:   p.Default,
+		Overrides: append([]PolicyPresetMethodOverride(nil), p.Overrides...),
+	}
+}
+
+func NormalizePolicyPresetMethodPolicy(p PolicyPresetMethodPolicy) (PolicyPresetMethodPolicy, error) {
+	if err := p.Validate(); err != nil {
+		return PolicyPresetMethodPolicy{}, err
+	}
+	result := p.Clone()
+	sort.Slice(result.Overrides, func(i, j int) bool { return result.Overrides[i].Method < result.Overrides[j].Method })
+	return result, nil
+}
+
+func (p PolicyPresetMethodPolicy) Validate() error {
+	if err := p.Default.Validate(); err != nil {
+		return err
+	}
+	if p.Overrides == nil {
+		return fmt.Errorf("policy preset method overrides must be explicit")
+	}
+	seen := make(map[string]struct{}, len(p.Overrides))
+	for _, override := range p.Overrides {
+		if err := override.Validate(); err != nil {
+			return err
+		}
+		if override.Decision == p.Default {
+			return fmt.Errorf("policy preset method override repeats the default")
+		}
+		if _, ok := seen[override.Method]; ok {
+			return fmt.Errorf("policy preset method override is duplicated")
+		}
+		seen[override.Method] = struct{}{}
+	}
+	return nil
+}
+
+func (p PolicyPresetMethodPolicy) Decision(method string) PolicyPresetMethodDecision {
+	for _, override := range p.Overrides {
+		if override.Method == method {
+			return override.Decision
+		}
+	}
+	return p.Default
 }
 
 type PolicyPresetDestinationCeiling struct {
@@ -204,7 +277,7 @@ type PolicyPreset struct {
 	Name               string                         `json:"name"`
 	Guardrail          PolicyPresetGuardrail          `json:"guardrail"`
 	DestinationCeiling PolicyPresetDestinationCeiling `json:"destination_ceiling"`
-	MethodCeiling      PolicyPresetMethodCeiling      `json:"method_ceiling"`
+	MethodPolicy       PolicyPresetMethodPolicy       `json:"method_policy"`
 	BaselineGrants     []PolicyPresetExactRule        `json:"baseline_grants"`
 	BaselineTemplates  []PolicyPresetPathTemplateRule `json:"baseline_templates"`
 	MCPBaselineGrants  []PolicyPresetMCPRule          `json:"mcp_baseline_grants"`
@@ -228,20 +301,17 @@ func (p PolicyPreset) Validate() error {
 	if err := p.Guardrail.Validate(); err != nil {
 		return err
 	}
-	if p.DestinationCeiling.Authorities == nil || p.MethodCeiling.Methods == nil || p.BaselineGrants == nil || p.BaselineTemplates == nil || p.MCPBaselineGrants == nil || p.BaselineDenies == nil || p.GraphQLEndpoints == nil || p.MCPEndpoints == nil {
+	if p.DestinationCeiling.Authorities == nil || p.MethodPolicy.Overrides == nil || p.BaselineGrants == nil || p.BaselineTemplates == nil || p.MCPBaselineGrants == nil || p.BaselineDenies == nil || p.GraphQLEndpoints == nil || p.MCPEndpoints == nil {
 		return fmt.Errorf("policy preset collections must be explicit")
 	}
 	if p.DestinationCeiling.Mode != "public_https" && p.DestinationCeiling.Mode != "exact" {
 		return fmt.Errorf("policy preset destination ceiling mode is invalid")
 	}
-	if p.MethodCeiling.Mode != "all" && p.MethodCeiling.Mode != "exact" {
-		return fmt.Errorf("policy preset method ceiling mode is invalid")
+	if err := p.MethodPolicy.Validate(); err != nil {
+		return err
 	}
 	if p.DestinationCeiling.Mode == "public_https" && len(p.DestinationCeiling.Authorities) != 0 {
 		return fmt.Errorf("public_https destination ceiling cannot contain exact authorities")
-	}
-	if p.MethodCeiling.Mode == "all" && len(p.MethodCeiling.Methods) != 0 {
-		return fmt.Errorf("all method ceiling cannot contain exact methods")
 	}
 	seen := map[string]struct{}{}
 	for _, authority := range p.DestinationCeiling.Authorities {
@@ -255,16 +325,6 @@ func (p PolicyPreset) Validate() error {
 		seen[key] = struct{}{}
 	}
 	seen = map[string]struct{}{}
-	for _, method := range p.MethodCeiling.Methods {
-		if !policyPresetMethodPattern.MatchString(method) {
-			return fmt.Errorf("policy preset method is invalid")
-		}
-		if _, ok := seen[method]; ok {
-			return fmt.Errorf("policy preset method is duplicated")
-		}
-		seen[method] = struct{}{}
-	}
-	seen = map[string]struct{}{}
 	for _, rule := range p.BaselineGrants {
 		if err := rule.Validate(); err != nil {
 			return err
@@ -274,7 +334,7 @@ func (p PolicyPreset) Validate() error {
 			return fmt.Errorf("policy preset grant is duplicated")
 		}
 		seen[key] = struct{}{}
-		if !policyPresetRuleInsideDestination(p.DestinationCeiling, rule) || (p.MethodCeiling.Mode == "exact" && !presetContainsMethod(p.MethodCeiling.Methods, rule.Method)) {
+		if !policyPresetRuleInsideDestination(p.DestinationCeiling, rule) || p.MethodPolicy.Decision(rule.Method) == PolicyPresetMethodDeny {
 			return fmt.Errorf("policy preset rule exceeds its ceiling")
 		}
 		if rule.Protocol == PolicyProtocolGraphQL {
@@ -308,7 +368,7 @@ func (p PolicyPreset) Validate() error {
 			if !policyPresetRuleInsideDestination(p.DestinationCeiling, rule) {
 				return fmt.Errorf("policy preset rule exceeds its destination ceiling")
 			}
-			if p.MethodCeiling.Mode == "exact" && !presetContainsMethod(p.MethodCeiling.Methods, rule.Method) {
+			if p.MethodPolicy.Decision(rule.Method) == PolicyPresetMethodDeny {
 				return fmt.Errorf("policy preset rule exceeds its method ceiling")
 			}
 		}
@@ -324,7 +384,7 @@ func (p PolicyPreset) Validate() error {
 			return fmt.Errorf("policy preset path template is duplicated")
 		}
 		seen[key] = struct{}{}
-		if !policyPresetRuleInsideDestination(p.DestinationCeiling, exact) || (p.MethodCeiling.Mode == "exact" && !presetContainsMethod(p.MethodCeiling.Methods, rule.Method)) {
+		if !policyPresetRuleInsideDestination(p.DestinationCeiling, exact) || p.MethodPolicy.Decision(rule.Method) == PolicyPresetMethodDeny {
 			return fmt.Errorf("policy preset path template exceeds its ceiling")
 		}
 	}
@@ -339,7 +399,7 @@ func (p PolicyPreset) Validate() error {
 			return fmt.Errorf("policy preset MCP grant is duplicated")
 		}
 		seen[key] = struct{}{}
-		if !policyPresetRuleInsideDestination(p.DestinationCeiling, exact) || (p.MethodCeiling.Mode == "exact" && !presetContainsMethod(p.MethodCeiling.Methods, rule.Method)) {
+		if !policyPresetRuleInsideDestination(p.DestinationCeiling, exact) || p.MethodPolicy.Decision(rule.Method) == PolicyPresetMethodDeny {
 			return fmt.Errorf("policy preset MCP grant exceeds its ceiling")
 		}
 		found := false
@@ -388,22 +448,13 @@ func presetContainsAuthority(authorities []PolicyPresetAuthority, rule PolicyPre
 	return false
 }
 
-func presetContainsMethod(methods []string, method string) bool {
-	for _, candidate := range methods {
-		if candidate == method {
-			return true
-		}
-	}
-	return false
-}
-
 func NormalizePolicyPreset(p PolicyPreset) (PolicyPreset, []byte, string, error) {
 	if err := p.Validate(); err != nil {
 		return PolicyPreset{}, nil, "", err
 	}
 	clone := p
 	clone.DestinationCeiling.Authorities = append([]PolicyPresetAuthority{}, p.DestinationCeiling.Authorities...)
-	clone.MethodCeiling.Methods = append([]string{}, p.MethodCeiling.Methods...)
+	clone.MethodPolicy.Overrides = append([]PolicyPresetMethodOverride{}, p.MethodPolicy.Overrides...)
 	clone.BaselineGrants = append([]PolicyPresetExactRule{}, p.BaselineGrants...)
 	clone.BaselineTemplates = append([]PolicyPresetPathTemplateRule{}, p.BaselineTemplates...)
 	clone.MCPBaselineGrants = append([]PolicyPresetMCPRule{}, p.MCPBaselineGrants...)
@@ -414,7 +465,9 @@ func NormalizePolicyPreset(p PolicyPreset) (PolicyPreset, []byte, string, error)
 		a, b := clone.DestinationCeiling.Authorities[i], clone.DestinationCeiling.Authorities[j]
 		return fmt.Sprintf("%s/%s/%05d", a.Scheme, a.Host, a.Port) < fmt.Sprintf("%s/%s/%05d", b.Scheme, b.Host, b.Port)
 	})
-	sort.Strings(clone.MethodCeiling.Methods)
+	sort.Slice(clone.MethodPolicy.Overrides, func(i, j int) bool {
+		return clone.MethodPolicy.Overrides[i].Method < clone.MethodPolicy.Overrides[j].Method
+	})
 	lessRule := func(a, b PolicyPresetExactRule) bool {
 		return fmt.Sprintf("%s/%s/%05d/%s/%s/%s/%s/%s", a.Scheme, a.Host, a.Port, a.Method, a.Path, a.Protocol, a.GraphQLOperationType, a.GraphQLRootField) < fmt.Sprintf("%s/%s/%05d/%s/%s/%s/%s/%s", b.Scheme, b.Host, b.Port, b.Method, b.Path, b.Protocol, b.GraphQLOperationType, b.GraphQLRootField)
 	}
@@ -439,15 +492,63 @@ func NormalizePolicyPreset(p PolicyPreset) (PolicyPreset, []byte, string, error)
 	return clone, data, "sha256:" + hex.EncodeToString(digest[:]), nil
 }
 
+// ComposePolicyPresetMethodPolicy replaces one preset's complete method
+// policy and removes only positive baseline authority made unreachable by a
+// terminal method Deny. Destination ceilings and exact Denies are unchanged.
+func ComposePolicyPresetMethodPolicy(
+	preset PolicyPreset, policy PolicyPresetMethodPolicy,
+) (PolicyPreset, error) {
+	if err := policy.Validate(); err != nil {
+		return PolicyPreset{}, err
+	}
+	preset.MethodPolicy = policy.Clone()
+	grants := make([]PolicyPresetExactRule, 0, len(preset.BaselineGrants))
+	for _, rule := range preset.BaselineGrants {
+		if policy.Decision(rule.Method) != PolicyPresetMethodDeny {
+			grants = append(grants, rule)
+		}
+	}
+	preset.BaselineGrants = grants
+	templates := make([]PolicyPresetPathTemplateRule, 0, len(preset.BaselineTemplates))
+	for _, rule := range preset.BaselineTemplates {
+		if policy.Decision(rule.Method) != PolicyPresetMethodDeny {
+			templates = append(templates, rule)
+		}
+	}
+	preset.BaselineTemplates = templates
+	mcpGrants := make([]PolicyPresetMCPRule, 0, len(preset.MCPBaselineGrants))
+	for _, rule := range preset.MCPBaselineGrants {
+		if policy.Decision(rule.Method) != PolicyPresetMethodDeny {
+			mcpGrants = append(mcpGrants, rule)
+		}
+	}
+	preset.MCPBaselineGrants = mcpGrants
+	graphqlEndpoints := make([]PolicyPresetExactRule, 0, len(preset.GraphQLEndpoints))
+	for _, endpoint := range preset.GraphQLEndpoints {
+		if policy.Decision(endpoint.Method) != PolicyPresetMethodDeny {
+			graphqlEndpoints = append(graphqlEndpoints, endpoint)
+		}
+	}
+	preset.GraphQLEndpoints = graphqlEndpoints
+	mcpEndpoints := make([]PolicyPresetExactRule, 0, len(preset.MCPEndpoints))
+	for _, endpoint := range preset.MCPEndpoints {
+		if policy.Decision(endpoint.Method) != PolicyPresetMethodDeny {
+			mcpEndpoints = append(mcpEndpoints, endpoint)
+		}
+	}
+	preset.MCPEndpoints = mcpEndpoints
+	normalized, _, _, err := NormalizePolicyPreset(preset)
+	return normalized, err
+}
+
 func BuiltinPolicyPreset(origin string) (PolicyPreset, bool) {
-	base := PolicyPreset{SchemaVersion: 1, DestinationCeiling: PolicyPresetDestinationCeiling{Mode: "public_https", Authorities: []PolicyPresetAuthority{}}, MethodCeiling: PolicyPresetMethodCeiling{Mode: "all", Methods: []string{}}, BaselineGrants: []PolicyPresetExactRule{}, BaselineTemplates: []PolicyPresetPathTemplateRule{}, MCPBaselineGrants: []PolicyPresetMCPRule{}, BaselineDenies: []PolicyPresetExactRule{}, GraphQLEndpoints: []PolicyPresetExactRule{}, MCPEndpoints: []PolicyPresetExactRule{}}
+	base := PolicyPreset{SchemaVersion: 1, Guardrail: PolicyPresetGuardrailMethodPolicy, DestinationCeiling: PolicyPresetDestinationCeiling{Mode: "public_https", Authorities: []PolicyPresetAuthority{}}, MethodPolicy: PolicyPresetMethodPolicy{Default: PolicyPresetMethodExactReview, Overrides: []PolicyPresetMethodOverride{}}, BaselineGrants: []PolicyPresetExactRule{}, BaselineTemplates: []PolicyPresetPathTemplateRule{}, MCPBaselineGrants: []PolicyPresetMCPRule{}, BaselineDenies: []PolicyPresetExactRule{}, GraphQLEndpoints: []PolicyPresetExactRule{}, MCPEndpoints: []PolicyPresetExactRule{}}
 	switch origin {
 	case "builtin/offline":
 		base.Name = "offline"
-		base.Guardrail = PolicyPresetGuardrailOffline
+		base.MethodPolicy.Default = PolicyPresetMethodDeny
 	case DefaultPolicyPresetOrigin:
 		base.Name = "agent-ready"
-		base.Guardrail = PolicyPresetGuardrailReviewedExact
 		base.BaselineGrants = agentReadyBaselineGrants()
 		base.BaselineTemplates = agentReadyBaselineTemplates()
 		base.GraphQLEndpoints = agentReadyGraphQLEndpoints()
@@ -455,11 +556,12 @@ func BuiltinPolicyPreset(origin string) (PolicyPreset, bool) {
 		base.MCPBaselineGrants = agentReadyMCPBaselineGrants()
 	case "builtin/reviewed-exact":
 		base.Name = "reviewed-exact"
-		base.Guardrail = PolicyPresetGuardrailReviewedExact
 	case "builtin/get-only-reviewed":
 		base.Name = "get-only-reviewed"
-		base.Guardrail = PolicyPresetGuardrailGetOnlyReviewed
-		base.MethodCeiling = PolicyPresetMethodCeiling{Mode: "exact", Methods: []string{"GET"}}
+		base.MethodPolicy = PolicyPresetMethodPolicy{Default: PolicyPresetMethodDeny, Overrides: []PolicyPresetMethodOverride{{Method: "GET", Decision: PolicyPresetMethodExactReview}}}
+	case "builtin/public-get-reviewed":
+		base.Name = "public-get-reviewed"
+		base.MethodPolicy.Overrides = []PolicyPresetMethodOverride{{Method: "GET", Decision: PolicyPresetMethodAllow}}
 	default:
 		return PolicyPreset{}, false
 	}
@@ -521,7 +623,8 @@ func BuiltinPolicyPresetSnapshot(origin string) (PolicyPreset, bool) {
 // ApplyNativeToolAuthReadiness validates an immutable Context snapshot and,
 // when enabled, replaces every historically snapshotted native readiness rule
 // with the current compile-time bundle set. The preset's terminal guardrail and
-// ceilings remain unchanged and therefore authoritative over this overlay.
+// destination and method decisions remain unchanged and therefore
+// authoritative over this overlay.
 func ApplyNativeToolAuthReadiness(enabled bool, replaceHistorical bool, snapshot PolicyPreset) (PolicyPreset, error) {
 	normalized, _, _, err := NormalizePolicyPreset(snapshot)
 	if err != nil {
@@ -537,7 +640,7 @@ func ApplyNativeToolAuthReadiness(enabled bool, replaceHistorical bool, snapshot
 	for _, bundle := range nativeToolAuthReadinessBundles() {
 		for _, rule := range bundle.BaselineGrants {
 			if policyPresetRuleInsideDestination(effective.DestinationCeiling, rule) &&
-				(effective.MethodCeiling.Mode != "exact" || presetContainsMethod(effective.MethodCeiling.Methods, rule.Method)) {
+				effective.MethodPolicy.Decision(rule.Method) != PolicyPresetMethodDeny {
 				if !slices.Contains(effective.BaselineGrants, rule) {
 					effective.BaselineGrants = append(effective.BaselineGrants, rule)
 				}
@@ -545,7 +648,7 @@ func ApplyNativeToolAuthReadiness(enabled bool, replaceHistorical bool, snapshot
 		}
 		for _, endpoint := range bundle.GraphQLEndpoints {
 			if policyPresetRuleInsideDestination(effective.DestinationCeiling, endpoint) &&
-				(effective.MethodCeiling.Mode != "exact" || presetContainsMethod(effective.MethodCeiling.Methods, endpoint.Method)) {
+				effective.MethodPolicy.Decision(endpoint.Method) != PolicyPresetMethodDeny {
 				if !slices.Contains(effective.GraphQLEndpoints, endpoint) {
 					effective.GraphQLEndpoints = append(effective.GraphQLEndpoints, endpoint)
 				}
@@ -664,14 +767,14 @@ func DefaultPolicyPresetRevision() string {
 }
 
 type PolicyPresetSummary struct {
-	Origin              string                `json:"origin"`
-	Revision            string                `json:"revision"`
-	Guardrail           PolicyPresetGuardrail `json:"guardrail"`
-	ImmediateGrantCount int                   `json:"immediate_grant_count"`
-	DestinationCeiling  string                `json:"destination_ceiling"`
-	DestinationCount    int                   `json:"destination_count"`
-	MethodCeiling       string                `json:"method_ceiling"`
-	MethodCount         int                   `json:"method_count"`
+	Origin              string                     `json:"origin"`
+	Revision            string                     `json:"revision"`
+	Guardrail           PolicyPresetGuardrail      `json:"guardrail"`
+	BaselineGrantCount  int                        `json:"baseline_grant_count"`
+	DestinationCeiling  string                     `json:"destination_ceiling"`
+	DestinationCount    int                        `json:"destination_count"`
+	MethodDefault       PolicyPresetMethodDecision `json:"method_default"`
+	MethodOverrideCount int                        `json:"method_override_count"`
 }
 
 type PolicyPresetResult struct {

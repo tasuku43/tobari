@@ -80,6 +80,13 @@ A separate `policy rules` view makes the complete current learned Allow and
 exact Deny decisions visible, and its TTY flow can explicitly reset one
 decision to default deny. Reset never grants or retries; it makes the retained
 effect eligible for `policy review` again.
+A foreground `tobari serve` may present the same typed cluster, Workspace,
+Permission Inbox, and learned-rule tasks through a host-browser Operator
+Console. It is a trusted-host presentation alternative, not a second policy
+engine or remote control plane: the process owns one random IPv4-loopback
+session, browser staging grants no authority, and Apply delegates the complete
+reviewed set to the same fixed-target mutation and authoritative receipt used by
+the terminal flow.
 A useful denial shortens that loop without silently
 expanding authority. The loop is part of the product's adoption boundary: if
 the safe path is harder than running the agent on the host, users will bypass
@@ -129,6 +136,9 @@ using `tobari` leaves host execution unchanged, while `delete` and
   in the normal journey. On a TTY, `policy review` is the complete human
   review-to-decision flow, while `policy rules` is the complete human
   inventory-and-reset flow; neither requires a second JSON review.
+- `tobari serve` is the dense host-browser alternative for the same inspection
+  and review outcome. It starts no daemon, accepts no remote bind address, and
+  cannot bypass typed review staging, fresh validation, or final confirmation.
 - The current explicit `cluster up` bootstrap and separate denial discovery
   commands are compatibility surfaces under review against this thesis. They
   must not be mistaken for the product's central value.
@@ -763,8 +773,8 @@ OPA allow.
 
 ### Consequences
 
-- `context list`, `context show`, `context create`, and `context use` are the
-  host-facing composition surface. `context use` changes only the omitted-
+- `context list`, `context show`, `context create`, `context delete`, and
+  `context use` are the host-facing composition surface. `context use` changes only the omitted-
   Context default. `tobari --context NAME` chooses an invocation Context
   without changing that default.
 - Every persisted Context fixes `read-only` or `read-write` access for its one
@@ -772,7 +782,13 @@ OPA allow.
   policy-preset origin plus SHA-256 snapshot revision. The snapshot fixes the
   owner-selected guardrail and non-readiness baseline plus an enabled or
   disabled native-readiness capability. Readiness independently selects the
-  current trusted-binary overlay. Creation owns the `read-write`,
+  current trusted-binary overlay. Argument-free creation on an interactive
+  text terminal collects the Context name, direct source access, and one
+  complete method policy before its single mutation. Its method-Deny choices
+  remove only now-unreachable positive baseline rules from the immutable
+  selected-preset snapshot; destination ceilings and exact Denies remain
+  unchanged. Any explicit create input selects deterministic direct mode.
+  Creation owns the `read-write`,
   `builtin/agent-ready`, and enabled-readiness omission defaults. A missing
   readiness field in legacy state preserves historical behavior: enabled only
   for `builtin/agent-ready`, disabled otherwise. Readers never rewrite old
@@ -783,6 +799,12 @@ OPA allow.
   of the aggregate content identity: observation reports an older active
   projection as invalid, and root entry fails closed with the explicit
   `cluster up` recovery instead of entering against stale authority.
+- Context deletion is an explicit destructive catalog mutation. The
+  foundational `default` Context, the current Context, and every Context still
+  referenced by a logical Workspace are rejected before removal. Successful
+  deletion removes the exact owner-only Context and Context-ID authentication
+  stores, preserves project roots and shared runtime images, and requires an
+  explicit `cluster up` when shared state exists.
 - Source access describes only the direct live source bind. Read-only does not
   make the writable home or tmpfs read-only and does not provide a snapshot;
   host or same-root read-write Context changes remain observable.
@@ -835,8 +857,10 @@ OPA allow.
   policy that cannot be expressed as an exact learned rule. The projection
   namespaces Advanced modules and prevents them from claiming the Tobari-owned
   router or system packages.
-- The preset guardrail is owned by the Tobari system evaluator and precedes
-  baseline data, exact learned policy, and Advanced Rego. A terminal guardrail
+- The preset destination ceiling and complete method policy are owned by the
+  Tobari system evaluator and precede baseline data, exact learned policy, and
+  Advanced Rego. Every HTTP method resolves from one `allow`, `exact_review`,
+  or `deny` default plus exact overrides. A terminal destination or method Deny
   denial produces no candidate and performs no external DNS, broker resolution,
   or upstream call. Advanced Rego may further constrain generic input but
   cannot grant beyond the guardrail or redefine learned permission identity.
@@ -862,13 +886,13 @@ OPA allow.
   file transfer, acquisition, self-update, and unmatched traffic receive no
   baseline authority. These grants are Context-wide effects, not executable
   identity; exact Deny remains terminal.
-- `builtin/offline` terminally denies every HTTP and HTTPS effect and makes no
-  effect review-eligible. `builtin/reviewed-exact` makes only guardrail-eligible
-  effects available for exact review. `builtin/get-only-reviewed` makes only
-  guardrail-eligible GET effects available for exact review and terminally
-  denies HEAD and every non-GET method. Those three strict presets grant no
-  immediate authority, and the GET-specific preset makes no safe or read-only
-  claim about GET.
+- `builtin/offline` defaults every method to terminal Deny and makes no effect
+  review-eligible. `builtin/reviewed-exact` defaults every method to Exact
+  Review. `builtin/get-only-reviewed` defaults to Deny with an exact GET Exact
+  Review override. `builtin/public-get-reviewed` defaults to Exact Review with
+  an exact GET Allow override. The three strict presets grant no immediate
+  authority. GET receives no intrinsic safe or read-only classification, and
+  exact Deny remains terminal over method Allow.
 - Tobari-owned ordinary learned permission identity binds Context, project,
   scheme, host, port, method, and raw path. Query, headers, and bodies are not
   learned dimensions; GraphQL adds only operation type and root field, while

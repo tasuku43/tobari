@@ -46,6 +46,16 @@ func policyPresetMCPRuleOutput() *OutputField {
 	return field
 }
 
+func policyPresetMethodPolicyOutput(description string) *OutputField {
+	return &OutputField{Type: OutputFieldTypeObject, Description: description, Fields: []OutputField{
+		{Name: "default", Type: OutputFieldTypeString, Description: "Decision for every HTTP method without an exact override.", Enum: []string{"allow", "exact_review", "deny"}},
+		{Name: "overrides", Type: OutputFieldTypeArray, Description: "Exact HTTP method decision overrides.", Items: &OutputField{Type: OutputFieldTypeObject, Description: "One exact method override.", Fields: []OutputField{
+			{Name: "method", Type: OutputFieldTypeString, Description: "Exact uppercase HTTP method."},
+			{Name: "decision", Type: OutputFieldTypeString, Description: "Decision for this method.", Enum: []string{"allow", "exact_review", "deny"}},
+		}}},
+	}}
+}
+
 func policyPresetOutput(collection bool) CommandOutput {
 	fields := []OutputField{{Name: "task", Type: OutputFieldTypeString, Description: "Declared policy-preset task identity."}}
 	if collection {
@@ -55,9 +65,9 @@ func policyPresetOutput(collection bool) CommandOutput {
 			Items: &OutputField{Type: OutputFieldTypeObject, Description: "One policy preset.", Fields: []OutputField{
 				{Name: "origin", Type: OutputFieldTypeString, Description: "Exact policy-preset selector."},
 				{Name: "revision", Type: OutputFieldTypeString, Description: "SHA-256 revision of the currently installed normalized source."},
-				{Name: "guardrail", Type: OutputFieldTypeString, Description: "Terminal guardrail kind.", Enum: []string{"offline", "reviewed_exact", "get_only_reviewed"}},
-				{Name: "immediate_grant_count", Type: OutputFieldTypeInteger, Description: "Number of Context-wide exact, template, and semantic baseline grants."},
-				{Name: "destination_ceiling", Type: OutputFieldTypeString, Description: "Destination ceiling mode.", Enum: []string{"public_https", "exact"}}, {Name: "destination_count", Type: OutputFieldTypeInteger, Description: "Exact destination count."}, {Name: "method_ceiling", Type: OutputFieldTypeString, Description: "Method ceiling mode.", Enum: []string{"all", "exact"}}, {Name: "method_count", Type: OutputFieldTypeInteger, Description: "Exact method count."},
+				{Name: "guardrail", Type: OutputFieldTypeString, Description: "Terminal guardrail mechanism.", Enum: []string{"method_policy"}},
+				{Name: "baseline_grant_count", Type: OutputFieldTypeInteger, Description: "Number of Context-wide exact, template, and semantic baseline grants; inspect method_default and overrides for broad method authority."},
+				{Name: "destination_ceiling", Type: OutputFieldTypeString, Description: "Destination ceiling mode.", Enum: []string{"public_https", "exact"}}, {Name: "destination_count", Type: OutputFieldTypeInteger, Description: "Exact destination count."}, {Name: "method_default", Type: OutputFieldTypeString, Description: "Default method decision.", Enum: []string{"allow", "exact_review", "deny"}}, {Name: "method_override_count", Type: OutputFieldTypeInteger, Description: "Exact method override count."},
 			}},
 		})
 	} else {
@@ -68,11 +78,11 @@ func policyPresetOutput(collection bool) CommandOutput {
 			OutputField{Name: "preset", Type: OutputFieldTypeObject, Description: "Complete normalized non-executable schema-V1 preset.", Fields: []OutputField{
 				{Name: "schema_version", Type: OutputFieldTypeInteger, Description: "Preset schema version."},
 				{Name: "name", Type: OutputFieldTypeString, Description: "Canonical preset name."},
-				{Name: "guardrail", Type: OutputFieldTypeString, Description: "Terminal guardrail kind.", Enum: []string{"offline", "reviewed_exact", "get_only_reviewed"}},
+				{Name: "guardrail", Type: OutputFieldTypeString, Description: "Terminal guardrail mechanism.", Enum: []string{"method_policy"}},
 				{Name: "destination_ceiling", Type: OutputFieldTypeObject, Description: "Explicit public-HTTPS or exact destination ceiling.", Fields: []OutputField{{Name: "mode", Type: OutputFieldTypeString, Description: "Destination ceiling mode.", Enum: []string{"public_https", "exact"}}, {Name: "authorities", Type: OutputFieldTypeArray, Description: "Exact destination ceiling entries.", Items: &OutputField{Type: OutputFieldTypeObject, Description: "One exact authority.", Fields: []OutputField{
 					{Name: "scheme", Type: OutputFieldTypeString, Description: "Exact HTTP scheme.", Enum: []string{"http", "https"}}, {Name: "host", Type: OutputFieldTypeString, Description: "Exact canonical public host."}, {Name: "port", Type: OutputFieldTypeInteger, Description: "Exact TCP port."},
 				}}}}},
-				{Name: "method_ceiling", Type: OutputFieldTypeObject, Description: "Explicit all-eligible or exact method ceiling.", Fields: []OutputField{{Name: "mode", Type: OutputFieldTypeString, Description: "Method ceiling mode.", Enum: []string{"all", "exact"}}, {Name: "methods", Type: OutputFieldTypeArray, Description: "Explicit method ceiling.", Items: &OutputField{Type: OutputFieldTypeString, Description: "One exact HTTP method."}}}},
+				{Name: "method_policy", Type: OutputFieldTypeObject, Description: "Default decision plus exact HTTP method overrides.", Fields: policyPresetMethodPolicyOutput("Default decision plus exact HTTP method overrides.").Fields},
 				{Name: "baseline_grants", Type: OutputFieldTypeArray, Description: "Exact Context-wide HTTP and GraphQL semantic grants.", Items: policyPresetBaselineGrantOutput()},
 				{Name: "baseline_templates", Type: OutputFieldTypeArray, Description: "Bounded Context-wide path-template grants.", Items: policyPresetTemplateRuleOutput()},
 				{Name: "mcp_baseline_grants", Type: OutputFieldTypeArray, Description: "Exact Context-wide MCP semantic grants.", Items: policyPresetMCPRuleOutput()},

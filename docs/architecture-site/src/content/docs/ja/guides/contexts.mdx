@@ -20,13 +20,21 @@ tobari context list
 tobari context show
 ```
 
-`context list` はローカルにあるすべての Context と、現在のデフォルト名を示します。`context show` で `--name` を省略すると、そのデフォルトを確認します。報告には安定した ID、イメージの選択情報、エージェントプロファイル、ポリシーモード、許可済みのシェル設定、保存領域への参照、ランタイム状態が含まれます。実物の認証情報、Broker ハンドル、ルート鍵、保管庫の内容は含まれません。
+`context list` はローカルにあるすべての Context を縦型カードで表示し、現在のデフォルト名を示します。filesystem と network method の default/override はタブ幅に依存せず確認できます。`context show` で `--name` を省略すると、そのデフォルトを確認します。報告には安定した ID、イメージの選択情報、エージェントプロファイル、ポリシーモード、許可済みのシェル設定、保存領域への参照、ランタイム状態が含まれます。実物の認証情報、Broker ハンドル、ルート鍵、保管庫の内容は含まれません。
 
 表示名は Context を選ぶための読みやすい名前です。安定した Context ID は、Workspace、ポリシー、プリンシパル、Broker の記録に結び付く永続的な権限情報です。
 
 ## Context を作成する
 
-別のガイド付き Context を作り、V1 の二つの不変な capability を明示します。
+引数なしで実行すると、名前、source access、完全な HTTP method policy を対話的に選べます。
+
+```sh
+tobari context create
+```
+
+wizard には terminal stdin/stderr と text output が必要です。extension method の default と各 standard HTTP method に `allow`、`exact_review`、`deny` のいずれかを選び、最後に一度だけ create mutation を実行します。cancel、redirected input、JSON の引数なし実行では mutation を行いません。
+
+決定的な direct mode では、少なくとも一つの input と `--name` を指定します。
 
 ```sh
 tobari context create --name review --mode guided \
@@ -47,14 +55,18 @@ bind に書き込み可能な別名はありません。
 元の custom preset を後から更新しても既存 Context には反映しません。source access と
 preset snapshot は作成後に変更できません。
 
-| Preset                      | 即時許可                                         | review の対象                                            | 終端 guardrail                     |
-| --------------------------- | ------------------------------------------------ | -------------------------------------------------------- | ---------------------------------- |
-| `builtin/agent-ready`       | pin 済み Claude/Codex core effect の完全一致集合 | それ以外の対象 effect を完全一致候補として review できる | guardrail が除外する effect        |
-| `builtin/offline`           | なし                                             | なし                                                     | すべての HTTP/HTTPS effect         |
-| `builtin/reviewed-exact`    | なし                                             | 対象 effect を完全一致候補として review できる           | guardrail が除外する effect        |
-| `builtin/get-only-reviewed` | なし                                             | 対象 `GET` effect を完全一致候補として review できる     | `HEAD` とすべての non-`GET` effect |
+wizard で method Deny を選ぶと、その method の positive baseline rule は新しい immutable snapshot から除外されます。preset の独立した destination ceiling と exact Deny は変わりません。
 
-最後の preset でも `GET` は method 座標にすぎず、安全または読み取り専用とは表現しません。
+| Preset                        | 即時許可                                         | method policy                           |
+| ----------------------------- | ------------------------------------------------ | --------------------------------------- |
+| `builtin/agent-ready`         | pin 済み Claude/Codex core effect の完全一致集合 | default は Exact Review                 |
+| `builtin/offline`             | なし                                             | default は Deny                         |
+| `builtin/reviewed-exact`      | なし                                             | default は Exact Review                 |
+| `builtin/get-only-reviewed`   | なし                                             | default は Deny、`GET` は Exact Review  |
+| `builtin/public-get-reviewed` | public HTTPS `GET`                               | default は Exact Review、`GET` は Allow |
+
+`GET` は method 座標にすぎず、安全または読み取り専用とは表現しません。完全一致 Deny は
+method Allow より優先します。
 agent-ready の許可は process identity ではなく Context 全体の HTTP effect です。plugin、MCP、
 connector、file transfer、download、evaluation、self-update は含みません。vendor 全体や
 command 名による bypass もありません。custom preset は owner-only の厳格な
@@ -83,6 +95,14 @@ tobari context show
 ```
 
 `context use` が変えるのは、ホスト上のデフォルトを示す印だけです。Docker の起動、クラスターの書き換え、Workspace に結び付いた Context の変更、永続ホームの移動、認証情報のローテーションは行いません。
+
+## 未使用の Context を削除する
+
+```sh
+tobari context delete --name review
+```
+
+foundational `default` Context、current Context、論理 Workspace に結び付いた Context は削除を拒否します。force option はなく、別の current Context を暗黙に選びません。削除が確定すると、対象 Context の設定と Context-ID authentication state だけを除去し、project file と shared runtime image は保持します。結果が `requires_reconcile` の場合は `tobari cluster up` を実行します。
 
 デフォルトを変えずに Context を明示できます。
 
@@ -122,6 +142,10 @@ tobari context shell configure --context review --variable TERM --source default
 
 - `context_not_found`: `tobari context list` から既存名前を選びます。
 - `context_exists`: 上書きせず既存 Context を確認します。
+- `context_create_wizard_unavailable`: interactive text terminal で引数なし作成を実行するか、`--name` を指定した direct mode を使います。
+- `context_is_current`: 削除前に別の Context を選びます。
+- `context_has_workspaces`: その Context に結び付いたすべての Workspace を先に削除します。
+- `context_is_protected`: foundational `default` Context は削除できません。
 - `invalid_context`: 名前、イメージの選択情報、ポリシーモードを修正します。
 - 作成後の `requires_reconcile`: 新しい Context で共有サービスを使う前に、明示的な `tobari cluster up` を実行します。
 - `workspace_selection_stale`: `tobari` を再実行します。選択中に候補一覧が変わっています。
