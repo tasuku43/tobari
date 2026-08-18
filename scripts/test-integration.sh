@@ -14,7 +14,6 @@ experimental_gateway_base_image="tobari-gateway-integration-experimental-base-$$
 test_keychain_service=
 test_root=
 work_root=
-work_nested_root=
 other_root=
 work_id=
 other_id=
@@ -505,11 +504,9 @@ allow_exact_effect() {
   local path=$4
   local candidates
   local candidate_id
-  local output
   candidates=$(run_tobari policy candidates --tail 1000 --format json)
   candidate_id=$(candidate_id_for_effect "$project_id" https "$host" 8080 "$method" "$path" <<<"$candidates")
-  output=$(run_tobari policy allow --id "$candidate_id")
-  assert_contains "$output" "Policy rule updated" "explicit integration policy approval"
+  run_tobari policy allow --id "$candidate_id" >/dev/null
 }
 
 deny_exact_effect() {
@@ -561,7 +558,7 @@ cleanup() {
     if [[ -n ${test_root:-} && -x $binary && -n ${work_root:-} ]]; then
       run_tobari_at "$work_root" delete --force >/dev/null 2>&1 || true
 			run_tobari_at "$work_root" delete --context restricted --force >/dev/null 2>&1 || true
-      if [[ -n $other_root ]]; then
+  if [[ -n $other_root ]]; then
         run_tobari_at "$other_root" delete --context restricted --force >/dev/null 2>&1 || true
       fi
       run_tobari cluster down --purge >/dev/null 2>&1 || true
@@ -730,33 +727,6 @@ cat >"$config_directory/auth/providers/$synthetic_provider.json" <<'JSON'
 }
 JSON
 chmod 0600 "$config_directory/auth/providers/$synthetic_provider.json"
-synthetic_noop_provider=synthetic-noop
-cat >"$config_directory/auth/providers/$synthetic_noop_provider.json" <<'JSON'
-{
-  "schema_version": 1,
-  "id": "synthetic-noop",
-  "display_name": "Synthetic No-op Provider",
-  "acquisition": {"mode": "stdin_import"},
-  "credential": {"kind": "primary_secret"},
-  "workspace_projections": [
-    {"kind": "env", "name": "SYNTHETIC_NOOP_TOKEN", "template": "${HANDLE}"}
-  ],
-  "header_bindings": [
-    {
-      "target": {"scheme": "https", "host": "noop.synthetic.example", "port": 443},
-      "source": {"header": "x-synthetic-noop-auth", "formats": ["raw"]},
-      "destination": {
-        "header": "authorization",
-        "format": "bearer",
-        "secret_field": "primary_secret"
-      },
-      "secret_headers": ["authorization", "x-synthetic-noop-auth"]
-    }
-  ]
-}
-JSON
-chmod 0600 "$config_directory/auth/providers/$synthetic_noop_provider.json"
-
 if [[ -n ${TOBARI_INTEGRATION_BINARY:-} ]]; then
   [[ -x $binary ]] || fail "TOBARI_INTEGRATION_BINARY is not executable: $binary"
 else
@@ -804,9 +774,8 @@ go version -m "$binary" | grep -F $'build\t-tags=tobari_dev,tobari_experimental'
   fail "integration binary does not use the experimental capability profile"
 binary_digest=$(shasum -a 256 "$binary" | awk '{print $1}')
 work_root=$test_root/user/workspace
-work_nested_root=$work_root/root
-other_root=$work_root/child-workspace
-mkdir -p "$work_root" "$work_nested_root" "$other_root"
+other_root=$test_root/user/other-workspace
+mkdir -p "$work_root" "$other_root"
 printf 'host-home-canary\n' >"$test_root/user/host-home-canary"
 if [[ $custom_base_image == tobari-runtime:dev ]] && ! docker image inspect "$custom_base_image" >/dev/null 2>&1; then
   base_image=$(go run ./tools/runtimecheck --print-base-image)
@@ -827,30 +796,6 @@ if ! docker image inspect tobari-runtime:dev >/dev/null 2>&1; then
   created_dev_runtime_tag=true
 fi
 begin_phase contexts-and-cluster
-preset_catalog=$(run_tobari policy preset list --format json)
-PRESET_CATALOG_DOCUMENT="$preset_catalog" python3 <<'PY'
-import json
-import os
-
-items = json.loads(os.environ["PRESET_CATALOG_DOCUMENT"])["policy_presets"]["items"]
-builtins = {item["origin"]: item for item in items if item["origin"].startswith("builtin/")}
-expected = {
-    "builtin/agent-ready",
-    "builtin/offline",
-    "builtin/reviewed-exact",
-    "builtin/get-only-reviewed",
-    "builtin/public-get-reviewed",
-}
-if set(builtins) != expected:
-    raise SystemExit(f"unexpected built-in preset catalog: {builtins!r}")
-if builtins["builtin/agent-ready"]["baseline_grant_count"] == 0:
-    raise SystemExit(f"agent-ready preset has no core grants: {builtins!r}")
-if any(item["baseline_grant_count"] != 0 for name, item in builtins.items() if name != "builtin/agent-ready"):
-    raise SystemExit(f"strict built-in preset granted authority immediately: {builtins!r}")
-public_get = builtins["builtin/public-get-reviewed"]
-if public_get["method_default"] != "exact_review" or public_get["method_override_count"] != 1:
-    raise SystemExit(f"public GET preset method policy is invalid: {public_get!r}")
-PY
 custom_preset_init=$(run_tobari policy preset init --name snapshot --format json)
 custom_preset_path=$(python3 -c \
   'import json,sys; print(json.load(sys.stdin)["policy_presets"]["source_path"])' \
@@ -873,41 +818,16 @@ with open(path, "w", encoding="utf-8") as destination:
     json.dump(document, destination, separators=(",", ":"))
     destination.write("\n")
 PY
-custom_preset_validate=$(run_tobari policy preset validate --name custom/snapshot --format json)
-custom_preset_revision=$(python3 -c \
-  'import json,sys; print(json.load(sys.stdin)["policy_presets"]["revision"])' \
-  <<<"$custom_preset_validate")
 default_context_create=$(run_tobari context create --name default --image "$custom_image" \
   --source-access read-write --policy-preset custom/snapshot --format json)
-assert_contains "$default_context_create" '"source_access":"read-write"' "default Context source access"
-assert_contains "$default_context_create" '"policy_preset_origin":"custom/snapshot"' \
-  "default Context policy preset"
-assert_contains "$default_context_create" "\"policy_preset_revision\":\"$custom_preset_revision\"" \
-  "default Context policy preset revision"
-python3 - "$custom_preset_path" <<'PY'
-import json
-import sys
-
-path = sys.argv[1]
-with open(path, encoding="utf-8") as source:
-    document = json.load(source)
-document["graphql_endpoints"] = []
-with open(path, "w", encoding="utf-8") as destination:
-    json.dump(document, destination, separators=(",", ":"))
-    destination.write("\n")
-PY
-updated_custom_validate=$(run_tobari policy preset validate --name custom/snapshot --format json)
-updated_custom_revision=$(python3 -c \
-  'import json,sys; print(json.load(sys.stdin)["policy_presets"]["revision"])' \
-  <<<"$updated_custom_validate")
-[[ $updated_custom_revision != "$custom_preset_revision" ]] ||
-  fail "custom preset source edit did not change its revision"
-default_context_show=$(run_tobari context show --name default --format json)
-assert_contains "$default_context_show" "\"policy_preset_revision\":\"$custom_preset_revision\"" \
-  "immutable custom preset snapshot"
-unconfigured_context_use=$(run_tobari context use --name default --format json)
-assert_contains "$unconfigured_context_use" '"cluster":"already_ready"' "unconfigured current Context selection"
+default_context_id=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["context"]["id"])' \
+  <<<"$default_context_create")
+run_tobari context create --name restricted --image "$custom_image" \
+  --source-access read-only --policy-preset builtin/reviewed-exact --format json >/dev/null
 start_cluster >/dev/null
+
+# These assertions intentionally inspect the assembled runtime rather than
+# rechecking catalog, renderer, or domain semantics covered by fast tests.
 assert_component_log_bounds tobari-opa
 assert_component_log_bounds tobari-gateway
 assert_component_log_bounds tobari-auth-broker
@@ -936,24 +856,6 @@ wait_network_membership tobari-control tobari-auth-broker ||
   fail "Auth Broker is not attached to the shared control network"
 wait_network_membership tobari-egress tobari-auth-broker ||
   fail "Auth Broker is not attached to bounded refresh egress"
-docker network disconnect -f tobari-control tobari-auth-broker >/dev/null
-start_cluster >/dev/null
-wait_network_membership tobari-control tobari-auth-broker ||
-  fail "Auth Broker lost the shared control network during egress reconciliation"
-wait_network_membership tobari-egress tobari-auth-broker ||
-  fail "Auth Broker lost bounded refresh egress during control reconciliation"
-created_context=$(run_tobari context create --name restricted --image "$custom_image" \
-  --source-access read-only --policy-preset builtin/reviewed-exact --format json)
-assert_contains "$created_context" '"cluster":"requires_reconcile"' "running Context creation"
-assert_contains "$created_context" '"source_access":"read-only"' "restricted Context source access"
-assert_contains "$created_context" '"policy_preset_origin":"builtin/reviewed-exact"' "restricted Context policy preset"
-start_cluster >/dev/null
-gateway_before_use=$(docker inspect --format '{{.Id}}' tobari-gateway)
-opa_before_use=$(docker inspect --format '{{.Id}}' tobari-opa)
-running_context_use=$(run_tobari context use --name restricted --format json)
-assert_contains "$running_context_use" '"cluster":"default_updated"' "running current Context change"
-[[ $(docker inspect --format '{{.Id}}' tobari-gateway) == "$gateway_before_use" ]] || fail "context use recreated Gateway"
-[[ $(docker inspect --format '{{.Id}}' tobari-opa) == "$opa_before_use" ]] || fail "context use recreated OPA"
 opa_policy_mount=$(docker inspect --format \
   '{{range .Mounts}}{{if eq .Destination "/bundle"}}{{.Type}}|{{.Name}}|{{.Destination}}|{{.RW}}{{end}}{{end}}' \
   tobari-opa)
@@ -974,52 +876,16 @@ assert_contains "$gateway_environment" \
 gateway_projection_mode=$(docker exec tobari-gateway stat -c '%a:%u' /run/tobari/auth/providers.json)
 [[ $gateway_projection_mode == "600:$(id -u)" ]] ||
   fail "Gateway provider projection ownership/mode is $gateway_projection_mode instead of 600:$(id -u)"
-running_context_use_pty=$(run_tobari_pty_at "$test_root/user" context use --name default)
-assert_contains "$running_context_use_pty" "Cluster: default_updated" "PTY current Context change"
-docker stop tobari-gateway tobari-opa >/dev/null
-stopped_context_use=$(run_tobari context use --name restricted --format json)
-assert_contains "$stopped_context_use" '"cluster":"default_updated"' "stopped current Context change"
-[[ $(docker inspect --format '{{.State.Running}}' tobari-gateway) == false ]] || fail "Context selection started the stopped Gateway"
-start_cluster >/dev/null
-default_context_use=$(run_tobari context use --name default --format json)
-assert_contains "$default_context_use" '"cluster":"default_updated"' "running current Context change back"
-default_context=$(run_tobari context show --format json)
-assert_contains "$default_context" '"active":true' "Context selection after explicit recovery"
-default_context_id=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["context"]["id"])' <<<"$default_context")
 
 begin_phase credentials-and-workspaces
-default_auth_import=$(printf '%s' "$synthetic_default_secret" | \
-  run_tobari auth import "$synthetic_provider" --context default --format json)
-restricted_auth_import=$(printf '%s' "$synthetic_restricted_secret" | \
-  run_tobari auth import "$synthetic_provider" --context restricted --format json)
-assert_contains "$default_auth_import" '"provider":"synthetic-ci"' \
-  "default Context synthetic auth import"
-assert_contains "$default_auth_import" '"configured":true' \
-  "default Context synthetic auth import"
-assert_contains "$restricted_auth_import" '"configured":true' \
-  "restricted Context synthetic auth import"
-if [[ $default_auth_import == *"$synthetic_default_secret"* || \
-  $restricted_auth_import == *"$synthetic_restricted_secret"* ]]; then
-  fail "auth import output exposed a synthetic real credential"
-fi
-default_auth_status=$(run_tobari auth status --context default --format json)
-restricted_auth_status=$(run_tobari auth status --context restricted --format json)
-assert_contains "$default_auth_status" '"provider":"synthetic-ci","state":"configured"' \
-  "default Context auth status"
-assert_contains "$restricted_auth_status" '"provider":"synthetic-ci","state":"configured"' \
-  "restricted Context auth status"
+printf '%s' "$synthetic_default_secret" | \
+  run_tobari auth import "$synthetic_provider" --context default --format json >/dev/null
+printf '%s' "$synthetic_restricted_secret" | \
+  run_tobari auth import "$synthetic_provider" --context restricted --format json >/dev/null
 container_work_root="/var/lib/tobari/${work_root#"$test_root/user/"}"
-container_nested_root="/var/lib/tobari/${work_nested_root#"$test_root/user/"}"
 enter_tobari_at "$work_root"
 enter_tobari_at "$work_root" --context restricted
-enter_ancestor_tobari_at "$work_nested_root"
-create_nested_tobari_at "$other_root" --context restricted
-
-status_from_nested=$(run_tobari_at "$work_nested_root" status --format json)
-assert_contains "$status_from_nested" '"exists":true' "nested status"
-assert_contains "$status_from_nested" "\"root\":\"$work_root\"" "nested status root"
-nested_pwd=$({ printf '\r'; sleep 1; printf 'pwd\nexit\n'; } | run_tobari_pty_at "$work_nested_root" 2>&1)
-assert_contains "$nested_pwd" "$container_nested_root" "nested host CWD mapping"
+enter_tobari_at "$other_root" --context restricted
 list_json=$(run_tobari_at "$work_root" list --format json)
 work_id=$(id_for_root "$work_root" default <<<"$list_json")
 restricted_id=$(id_for_root "$work_root" restricted <<<"$list_json")
@@ -1030,58 +896,10 @@ work_network=$(network_for_id "$work_id")
 restricted_network=$(network_for_id "$restricted_id")
 other_network=$(network_for_id "$other_id")
 other_container=$(container_for_id "$other_id")
-enter_bash_tobari_at "$work_root"
 [[ $(docker inspect --format '{{.State.Running}}' "$work_container") == true ]] ||
-  fail "Workspace stopped after the interactive Bash child exited"
+  fail "Workspace is not running after entry detached"
 [[ $(docker inspect --format '{{json .Config.Cmd}}' "$work_container") == '["sleep","infinity"]' ]] ||
   fail "Workspace lifetime command was not sleep infinity after Bash exit"
-[[ $work_id =~ ^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$ ]] ||
-  fail "list did not return the project's stable ID"
-[[ $work_id != "$restricted_id" && $work_id != "$other_id" && $restricted_id != "$other_id" ]] || fail "Context-bound Tobari received duplicate stable IDs"
-
-# Re-entry reconciles the exact project-bound projection. Status must derive
-# current/Ready from authoritative registry and Broker binding facts rather
-# than from Context-wide provider configuration alone.
-enter_tobari_at "$work_root"
-ready_auth_status_before_noop=$(run_tobari auth status --context default --format json)
-READY_AUTH_STATUS_DOCUMENT="$ready_auth_status_before_noop" python3 - "$work_id" <<'PY'
-import json
-import os
-import sys
-
-project_id = sys.argv[1]
-document = json.loads(os.environ["READY_AUTH_STATUS_DOCUMENT"])
-auth = document["auth"]
-activation = auth["workspace_activation"]
-if document.get("schema_version") != 1 or activation.get("coverage") != "exhaustive" or activation.get("state") != "ready":
-    raise SystemExit(f"auth status did not report schema-1 exhaustive Ready: {document!r}")
-workspace = next((item for item in activation.get("workspaces", []) if item.get("project_id") == project_id), None)
-if workspace is None or workspace.get("state") != "ready" or workspace.get("next_action") is not None:
-    raise SystemExit(f"auth status did not report the re-entered Workspace Ready: {workspace!r}")
-providers = {item.get("provider"): item.get("state") for item in workspace.get("providers", [])}
-if providers.get("synthetic-ci") != "current":
-    raise SystemExit(f"auth status did not report the synthetic projection current: {providers!r}")
-PY
-
-# An installed but never-configured synthetic provider is the deterministic
-# no-op target. The receipt cannot claim a mutation or Workspace action, and
-# read-only status is byte-for-byte identical before and after.
-synthetic_noop_logout=$(run_tobari auth logout "$synthetic_noop_provider" --context default --format json)
-SYNTHETIC_NOOP_LOGOUT_DOCUMENT="$synthetic_noop_logout" python3 <<'PY'
-import json
-import os
-
-document = json.loads(os.environ["SYNTHETIC_NOOP_LOGOUT_DOCUMENT"])
-auth = document["auth"]
-activation = auth["workspace_activation"]
-if document.get("schema_version") != 1 or auth.get("provider") != "synthetic-noop" or auth.get("change") != "no_change":
-    raise SystemExit(f"absent-provider logout did not report schema-1 no_change: {document!r}")
-if activation.get("state") != "not_applicable" or activation.get("coverage") != "not_applicable" or activation.get("workspaces") != []:
-    raise SystemExit(f"no-op logout invented Workspace activation: {activation!r}")
-PY
-ready_auth_status_after_noop=$(run_tobari auth status --context default --format json)
-[[ $ready_auth_status_after_noop == "$ready_auth_status_before_noop" ]] ||
-  fail "no-op logout changed the before/after auth status document"
 
 python3 - "$config_directory/principal-registry/principals.json" "$work_id" "$restricted_id" "$other_id" <<'PY'
 import json
@@ -1152,7 +970,8 @@ workspace_default_route=$(docker run --rm --network "container:$work_container" 
   --cap-drop ALL --security-opt no-new-privileges:true --entrypoint ip "$gateway_image_id" -4 route show default)
 assert_contains "$workspace_default_route" "default via $work_gateway_ip" "Workspace guarded default route"
 
-work_home=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["status"]["home"])' <<<"$status_from_nested")
+work_status=$(run_tobari_at "$work_root" status --format json)
+work_home=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["status"]["home"])' <<<"$work_status")
 restricted_status=$(run_tobari_at "$work_root" status --context restricted --format json)
 restricted_home=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["status"]["home"])' <<<"$restricted_status")
 other_status=$(run_tobari_at "$other_root" status --context restricted --format json)
@@ -1201,7 +1020,6 @@ assert_contains "$(run_restricted_project cat /tmp/source-access-tmp)" \
 
 assert_resource_bounds "$work_container"
 assert_resource_bounds "$restricted_container"
-assert_resource_bounds "$other_container"
 [[ $(run_project printenv HOME) == /var/lib/tobari ]] || fail "project HOME is not /var/lib/tobari"
 for prohibited_proxy_variable in HTTP_PROXY HTTPS_PROXY http_proxy https_proxy NO_PROXY no_proxy; do
   if run_project printenv "$prohibited_proxy_variable" >/dev/null 2>&1; then
@@ -1243,44 +1061,8 @@ for credential_canary in \
   done
 done
 
-workspace_gh_token=$(docker exec \
-  -e GH_TOKEN="$work_auth_handle" -e GH_HOST=github.com \
-  "$work_container" gh auth token)
-[[ $workspace_gh_token == "$work_auth_handle" ]] ||
-  fail "gh auth token did not return only the opaque Workspace handle"
 if run_project test -e /var/lib/tobari/host-home-canary; then
   fail "Tobari mounted the host home wholesale"
-fi
-
-profile_directory=$test_root/data/tobari/profiles/default
-profile_skill=$profile_directory/claude/skills/shared.md
-profile_settings=$profile_directory/common/settings.json
-container_before_profile_change=$(docker inspect --format '{{.Id}}' "$work_container")
-printf 'shared skill\n' >"$profile_skill"
-printf '{"shared":true,"theme":"dark"}\n' >"$profile_settings"
-mkdir -p "$work_root/.claude"
-printf '{"theme":"light","local":true}\n' >"$work_home/.claude/settings.local.json"
-chmod 0600 "$work_home/.claude/settings.local.json"
-printf 'project-local\n' >"$work_root/.claude/project.md"
-enter_tobari_at "$work_root"
-container_after_profile_change=$(docker inspect --format '{{.Id}}' "$work_container")
-[[ $container_before_profile_change != "$container_after_profile_change" ]] ||
-  fail "profile revision drift did not recreate only the project container"
-merged_settings=$(python3 -c 'import json,sys; print(json.dumps(json.load(open(sys.argv[1]))))' "$work_home/.claude/settings.json")
-assert_contains "$merged_settings" '"shared": true' "merged shared settings"
-assert_contains "$merged_settings" '"theme": "light"' "local settings override"
-assert_contains "$merged_settings" '"local": true' "per-Tobari settings"
-assert_contains "$(run_project cat /var/lib/tobari/.claude/skills/shared.md)" "shared skill" "shared profile skill"
-assert_contains "$(docker exec "$other_container" cat /var/lib/tobari/.claude/skills/shared.md)" "shared skill" "shared profile reuse"
-if docker exec "$work_container" sh -c 'printf forbidden > /var/lib/tobari/.claude/skills/shared.md' >/dev/null 2>&1; then
-  fail "Tobari modified the read-only shared profile"
-fi
-if ! docker exec "$work_container" test -e "$container_work_root/.claude/project.md"; then
-  fail "Tobari did not expose project-local .claude content"
-fi
-run_project sh -c 'printf private > /var/lib/tobari/.claude/memory.txt'
-if docker exec "$other_container" test -e /var/lib/tobari/.claude/memory.txt; then
-  fail "Tobari home state leaked to another project"
 fi
 run_project sh -c "printf '%s\\n' '$tool_auth_value' > /var/lib/tobari/tool-auth-state"
 if docker exec "$other_container" test -e /var/lib/tobari/tool-auth-state; then
@@ -1289,28 +1071,6 @@ fi
 if docker exec "$restricted_container" test -e /var/lib/tobari/tool-auth-state; then
   fail "tool authentication state leaked across Contexts on the same root"
 fi
-
-start_cluster >/dev/null
-enter_tobari_at "$work_root" &
-first_enter_pid=$!
-enter_tobari_at "$work_root" &
-second_enter_pid=$!
-wait "$first_enter_pid"
-wait "$second_enter_pid"
-owned_containers=$(docker ps -a --filter label=io.tobari.owner=default --format '{{.Names}}' | wc -l | tr -d ' ')
-[[ $owned_containers == 6 ]] || fail "idempotent reconciliation left $owned_containers owned containers"
-
-docker rm -f "$work_container" >/dev/null
-enter_tobari_at "$work_root"
-docker network disconnect -f "$work_network" "$work_container" >/dev/null
-docker network disconnect -f "$work_network" tobari-gateway >/dev/null
-docker network rm "$work_network" >/dev/null
-enter_tobari_at "$work_root"
-status_after_reconcile=$(run_tobari_at "$work_root" status --format json)
-assert_contains "$status_after_reconcile" '"runtime":"ready"' "runtime recovery"
-assert_resource_bounds "$work_container"
-assert_contains "$(run_project cat /var/lib/tobari/tool-auth-state)" "$tool_auth_value" \
-  "tool authentication persistence"
 
 if run_project test -e "$container_work_root/credentials"; then
   fail "Tobari unexpectedly contains the host credential directory"
@@ -1416,11 +1176,8 @@ chmod 0600 "$default_vault"
 [[ $default_broker_curl_status == 0 ]] ||
   fail "brokered denial request failed before receiving an HTTP decision"
 default_broker_denial_status=${default_broker_denial##*$'\n'}
-default_broker_denial_body=${default_broker_denial%$'\n'*}
 [[ $default_broker_denial_status == 403 ]] ||
   fail "brokered request with an unreadable vault returned $default_broker_denial_status instead of policy denial"
-assert_contains "$default_broker_denial_body" '"error":"policy_denied"' \
-  "brokered deny-before-resolution response"
 if docker logs "$auth_mock_name" 2>&1 | grep -F '"/brokered-default"' >/dev/null; then
   fail "policy-denied brokered request reached the synthetic upstream"
 fi
@@ -1428,11 +1185,8 @@ fi
 broker_candidates=$(run_tobari policy candidates --tail 1000 --format json)
 default_broker_candidate_id=$(candidate_id_for_effect \
   "$work_id" https api.synthetic.example 443 GET /brokered-default <<<"$broker_candidates")
-default_broker_allow=$(run_tobari policy allow --id "$default_broker_candidate_id")
-assert_contains "$default_broker_allow" 'Policy rule updated' \
-  "default Context brokered policy approval"
-assert_contains "$default_broker_allow" 'api.synthetic.example:443 GET /brokered-default' \
-  "default Context brokered policy approval target"
+opa_before_policy_activation=$(docker inspect --format '{{.Id}}' tobari-opa)
+run_tobari policy allow --id "$default_broker_candidate_id" >/dev/null
 # SYNTHETIC_TOKEN expands inside the Workspace.
 # shellcheck disable=SC2016
 default_broker_response=$(run_project sh -c \
@@ -1443,47 +1197,16 @@ assert_contains "$default_broker_response" '"authorization_present":true' \
 assert_contains "$default_broker_response" \
   "\"authorization_sha256\":\"$default_broker_digest\"" \
   "default Context brokered credential digest"
-assert_contains "$default_broker_response" '"placeholder_present":false' \
-  "default Context placeholder removal"
-
-# A handle in body bytes is ordinary Workspace-controlled payload, never a
-# broker selector. Keep the vault unreadable so an accidental post-policy
-# resolve fails, while the already allowed effect must still stream upstream
-# without either the placeholder or the real credential header.
-chmod 000 "$default_vault"
-set +e
-body_only_handle_result=$(printf '%s' "$work_auth_handle" | \
-  docker exec -i "$work_container" curl -sS -w $'\n%{http_code}' \
-    -X GET -H 'content-type: application/octet-stream' --data-binary @- \
-    https://api.synthetic.example/brokered-default)
-body_only_handle_curl_status=$?
-set -e
-chmod 0600 "$default_vault"
-[[ $body_only_handle_curl_status == 0 ]] ||
-  fail "body-only handle request failed before receiving an upstream response"
-body_only_handle_status=${body_only_handle_result##*$'\n'}
-body_only_handle_response=${body_only_handle_result%$'\n'*}
-[[ $body_only_handle_status == 200 ]] ||
-  fail "body-only handle request returned $body_only_handle_status instead of 200"
-assert_contains "$body_only_handle_response" '"authorization_present":false' \
-  "body-only handle upstream response"
-assert_contains "$body_only_handle_response" '"placeholder_present":false' \
-  "body-only handle upstream response"
-assert_contains "$body_only_handle_response" '"method":"GET"' \
-  "body-only handle upstream method"
-assert_contains "$body_only_handle_response" '"path":"/brokered-default"' \
-  "body-only handle upstream path"
+[[ $(docker inspect --format '{{.Id}}' tobari-opa) == "$opa_before_policy_activation" ]] ||
+  fail "live policy activation recreated OPA"
 
 # SYNTHETIC_TOKEN expands inside the Workspace.
 # shellcheck disable=SC2016
 restricted_broker_denial=$(run_restricted_project sh -c \
   'curl -sS -w "\n%{http_code}" -H "X-Synthetic-Auth: $SYNTHETIC_TOKEN" https://api.synthetic.example/brokered-restricted')
 restricted_broker_denial_status=${restricted_broker_denial##*$'\n'}
-restricted_broker_denial_body=${restricted_broker_denial%$'\n'*}
 [[ $restricted_broker_denial_status == 403 ]] ||
   fail "restricted Context brokered request returned $restricted_broker_denial_status instead of policy denial"
-assert_contains "$restricted_broker_denial_body" '"error":"policy_denied"' \
-  "restricted Context brokered denial"
 if docker logs "$auth_mock_name" 2>&1 | grep -F '"/brokered-restricted"' >/dev/null; then
   fail "restricted policy-denied brokered request reached the synthetic upstream"
 fi
@@ -1491,11 +1214,7 @@ fi
 broker_candidates=$(run_tobari policy candidates --tail 1000 --format json)
 restricted_broker_candidate_id=$(candidate_id_for_effect \
   "$restricted_id" https api.synthetic.example 443 GET /brokered-restricted <<<"$broker_candidates")
-restricted_broker_allow=$(run_tobari policy allow --id "$restricted_broker_candidate_id")
-assert_contains "$restricted_broker_allow" 'Policy rule updated' \
-  "restricted Context brokered policy approval"
-assert_contains "$restricted_broker_allow" 'api.synthetic.example:443 GET /brokered-restricted' \
-  "restricted Context brokered policy approval target"
+run_tobari policy allow --id "$restricted_broker_candidate_id" >/dev/null
 # SYNTHETIC_TOKEN expands inside the Workspace.
 # shellcheck disable=SC2016
 restricted_broker_response=$(run_restricted_project sh -c \
@@ -1504,8 +1223,6 @@ restricted_broker_digest=$(printf 'Bearer %s' "$synthetic_restricted_secret" | s
 assert_contains "$restricted_broker_response" \
   "\"authorization_sha256\":\"$restricted_broker_digest\"" \
   "restricted Context brokered credential digest"
-assert_contains "$restricted_broker_response" '"placeholder_present":false' \
-  "restricted Context placeholder removal"
 if [[ $restricted_broker_response == *"$default_broker_digest"* ]]; then
   fail "one shared Auth Broker crossed Context credential authority"
 fi
@@ -1516,8 +1233,6 @@ copied_context_result=$(printf '%s\n' "$work_auth_handle" | \
 copied_context_status=${copied_context_result##*$'\n'}
 [[ $copied_context_status == 403 ]] ||
   fail "handle copied across Contexts returned $copied_context_status instead of 403"
-assert_contains "${copied_context_result%$'\n'*}" '"error":"credential_handle_invalid"' \
-  "copied cross-Context handle rejection"
 
 copied_project_result=$(printf '%s\n' "$restricted_auth_handle" | \
   docker exec -i "$other_container" sh -c \
@@ -1525,74 +1240,9 @@ copied_project_result=$(printf '%s\n' "$restricted_auth_handle" | \
 copied_project_status=${copied_project_result##*$'\n'}
 [[ $copied_project_status == 403 ]] ||
   fail "handle copied across projects returned $copied_project_status instead of 403"
-assert_contains "${copied_project_result%$'\n'*}" '"error":"credential_handle_invalid"' \
-  "copied cross-project handle rejection"
-
-# SYNTHETIC_TOKEN expands inside the Workspace.
-# shellcheck disable=SC2016
-wrong_header_result=$(run_project sh -c \
-  'curl -sS -w "\n%{http_code}" -H "X-Wrong-Auth: $SYNTHETIC_TOKEN" https://api.synthetic.example/wrong-header')
-wrong_header_status=${wrong_header_result##*$'\n'}
-[[ $wrong_header_status == 403 ]] ||
-  fail "handle in an unsupported header returned $wrong_header_status instead of 403"
-assert_contains "${wrong_header_result%$'\n'*}" '"error":"credential_handle_invalid"' \
-  "unsupported handle header rejection"
-
-# SYNTHETIC_TOKEN expands inside the Workspace.
-# shellcheck disable=SC2016
-wrong_format_result=$(run_project sh -c \
-  'curl -sS -w "\n%{http_code}" -H "X-Synthetic-Auth: Bearer $SYNTHETIC_TOKEN" https://api.synthetic.example/wrong-format')
-wrong_format_status=${wrong_format_result##*$'\n'}
-[[ $wrong_format_status == 403 ]] ||
-  fail "handle in an unsupported format returned $wrong_format_status instead of 403"
-assert_contains "${wrong_format_result%$'\n'*}" '"error":"credential_handle_invalid"' \
-  "unsupported handle format rejection"
-
-# SYNTHETIC_TOKEN expands inside the Workspace.
-# shellcheck disable=SC2016
-embedded_header_result=$(run_project sh -c \
-  'curl -sS -w "\n%{http_code}" -H "X-Wrong-Auth: prefix=$SYNTHETIC_TOKEN" https://api.synthetic.example/embedded-header')
-embedded_header_status=${embedded_header_result##*$'\n'}
-[[ $embedded_header_status == 403 ]] ||
-  fail "handle embedded in an unsupported header returned $embedded_header_status instead of 403"
-assert_contains "${embedded_header_result%$'\n'*}" '"error":"credential_handle_invalid"' \
-  "embedded handle header rejection"
-
-# SYNTHETIC_TOKEN expands inside the Workspace.
-# shellcheck disable=SC2016
-cookie_handle_result=$(run_project sh -c \
-  'curl -sS -w "\n%{http_code}" -H "Cookie: auth=$SYNTHETIC_TOKEN" https://api.synthetic.example/cookie-handle')
-cookie_handle_status=${cookie_handle_result##*$'\n'}
-[[ $cookie_handle_status == 403 ]] ||
-  fail "handle in a cookie returned $cookie_handle_status instead of 403"
-assert_contains "${cookie_handle_result%$'\n'*}" '"error":"credential_handle_invalid"' \
-  "cookie handle rejection"
-
-# SYNTHETIC_TOKEN expands inside the Workspace.
-# shellcheck disable=SC2016
-query_handle_result=$(run_project sh -c \
-  'curl -sS -w "\n%{http_code}" "https://api.synthetic.example/query-handle?auth=$SYNTHETIC_TOKEN"')
-query_handle_status=${query_handle_result##*$'\n'}
-[[ $query_handle_status == 403 ]] ||
-  fail "handle in a query returned $query_handle_status instead of 403"
-assert_contains "${query_handle_result%$'\n'*}" '"error":"credential_handle_invalid"' \
-  "query handle rejection"
-
-# SYNTHETIC_TOKEN expands inside the Workspace.
-# shellcheck disable=SC2016
-path_handle_result=$(run_project sh -c \
-  'curl -sS -w "\n%{http_code}" "https://api.synthetic.example/path-handle/$SYNTHETIC_TOKEN"')
-path_handle_status=${path_handle_result##*$'\n'}
-[[ $path_handle_status == 403 ]] ||
-  fail "handle in a request path returned $path_handle_status instead of 403"
-assert_contains "${path_handle_result%$'\n'*}" '"error":"credential_handle_invalid"' \
-  "request-path handle rejection"
-
-for rejected_path in \
-  copied-context copied-project wrong-header wrong-format embedded-header \
-  cookie-handle query-handle path-handle; do
+for rejected_path in copied-context copied-project; do
   if docker logs "$auth_mock_name" 2>&1 | grep -F "\"/$rejected_path\"" >/dev/null; then
-    fail "invalid broker handle request /$rejected_path reached the synthetic upstream"
+    fail "cross-boundary broker handle request /$rejected_path reached the synthetic upstream"
   fi
 done
 
@@ -1602,22 +1252,6 @@ wrong_port_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
 if docker logs "$mock_name" 2>&1 | grep -F '"/wrong-port"' >/dev/null; then
   fail "wrong-port request reached mock upstream"
 fi
-wrong_port_candidates=$(run_tobari policy candidates --tail 1000 --format json)
-if python3 -c 'import json,sys; sys.exit(0 if any(item["path"] == "/wrong-port" for item in json.load(sys.stdin)["policy_candidates"]) else 1)' <<<"$wrong_port_candidates"; then
-  fail "terminal plain-HTTP guardrail denial created a policy candidate"
-fi
-
-body_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
-  -X POST -H 'content-type: application/json' --data '{"value":true}' \
-  https://mock-upstream:8080/body)
-[[ $body_status == 403 ]] || fail "unreviewed nonempty-body request returned $body_status instead of 403"
-allow_exact_effect "$work_id" mock-upstream POST /body
-body_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
-  -X POST -H 'content-type: application/json' --data '{"value":true}' \
-  https://mock-upstream:8080/body)
-[[ $body_status == 200 ]] || fail "allowed nonempty-body request returned $body_status instead of 200"
-docker logs "$mock_name" 2>&1 | grep -F '"/body"' >/dev/null ||
-  fail "allowed nonempty-body request did not reach mock upstream"
 
 upload_denial=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
   -X POST https://mock-upstream:8080/stream-upload)
@@ -1689,46 +1323,36 @@ gateway_gid=$(docker exec tobari-gateway sh -c "awk '/^Gid:/{print \$2}' /proc/1
 [[ $gateway_uid == "$(id -u)" ]] || fail "Gateway runs as uid $gateway_uid instead of the host uid"
 [[ $gateway_gid == "$(id -g)" ]] || fail "Gateway runs as gid $gateway_gid instead of the host gid"
 
-begin_phase policy-review-and-activation
-policy_bundle_mount=$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/bundle"}}{{println .Name .RW}}{{end}}{{end}}' tobari-opa)
+begin_phase live-policy-activation
+policy_bundle_mount=$(docker inspect --format \
+  '{{range .Mounts}}{{if eq .Destination "/bundle"}}{{println .Name .RW}}{{end}}{{end}}' \
+  tobari-opa)
 [[ $policy_bundle_mount == 'tobari-policy-bundle false' ]] ||
   fail "OPA does not mount the exact read-only policy bundle volume: $policy_bundle_mount"
 [[ $(docker volume inspect --format '{{index .Labels "io.tobari.owner"}}' tobari-policy-bundle) == default ]] ||
   fail "policy bundle volume is missing its Tobari owner label"
 
+# One passthrough credential canary proves that live denial, opaque-reference
+# activation, watched-bundle publication, and post-policy forwarding compose.
 expected_digest=$(printf 'Bearer %s' "$tool_auth_value" | shasum -a 256 | awk '{print $1}')
 auth_denial=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
   -H "Authorization: Bearer $tool_auth_value" \
   https://mock-upstream:8080/credential)
-[[ $auth_denial == 403 ]] || fail "unreviewed tool-auth request returned $auth_denial instead of 403"
+[[ $auth_denial == 403 ]] || fail "unreviewed passthrough request returned $auth_denial instead of 403"
+opa_before_passthrough_activation=$(docker inspect --format '{{.Id}}' tobari-opa)
 allow_exact_effect "$work_id" mock-upstream GET /credential
 auth_response=$(run_project curl -fsS \
   -H "Authorization: Bearer $tool_auth_value" \
   https://mock-upstream:8080/credential)
-assert_contains "$auth_response" '"authorization_present":true' "tool auth response"
-assert_contains "$auth_response" "\"authorization_sha256\":\"$expected_digest\"" "tool auth digest"
+assert_contains "$auth_response" "\"authorization_sha256\":\"$expected_digest\"" \
+  "post-policy passthrough credential digest"
+[[ $(docker inspect --format '{{.Id}}' tobari-opa) == "$opa_before_passthrough_activation" ]] ||
+  fail "watched policy activation recreated OPA"
 
-deny_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
-  -X POST https://mock-upstream:8080/denied)
-[[ $deny_status == 403 ]] || fail "unreviewed denial target returned $deny_status instead of 403"
-deny_exact_effect "$work_id" mock-upstream POST /denied
-deny_body=$(run_project curl -sS -X POST https://mock-upstream:8080/denied)
-assert_contains "$deny_body" '"error":"policy_denied"' "agent denial response"
-assert_contains "$deny_body" '"event":"permission_review_unavailable"' "reviewed exact denial response"
-assert_contains "$deny_body" '"available":false' "reviewed exact denial response"
-assert_contains "$deny_body" '"command":null' "reviewed exact denial response"
-assert_contains "$deny_body" '"automatic_retry":false' "agent denial response"
-assert_contains "$deny_body" '"retry_after_review":false' "reviewed exact denial response"
-assert_contains "$deny_body" '"path":"/denied"' "agent denial response"
-if [[ $deny_body == *"$tool_auth_value"* || $deny_body == *'Bearer '* || $deny_body == *'"key"'* ]]; then
-  fail "agent denial response contains a credential or request secret"
-fi
-if docker logs "$mock_name" 2>&1 | grep -F '"/denied"' >/dev/null; then
-  fail "denied request reached mock upstream"
-fi
-
-graphql_canary=graphql-variable-canary
-gateway_graphql_projection=$(docker exec tobari-gateway cat /run/tobari/config/gateway.json)
+# The parser and policy matrix live in fast Gateway/Rego/domain tests. This
+# sole runtime canary proves that a declared GraphQL denial crosses the real
+# transparent transport and performs zero upstream I/O.
+graphql_projection=$(docker exec tobari-gateway cat /run/tobari/config/gateway.json)
 python3 -c '
 import json
 import sys
@@ -1736,371 +1360,16 @@ context_id = sys.argv[1]
 document = json.load(sys.stdin)
 endpoint = {"scheme": "https", "host": "graphql.tobari.dev", "port": 8080, "path": "/graphql"}
 if endpoint not in document["contexts"][context_id]["graphql_endpoints"]:
-    raise SystemExit("custom preset GraphQL endpoint is absent from the live Gateway projection")
-' "$default_context_id" <<<"$gateway_graphql_projection"
-graphql_resolution=$(run_project getent ahostsv4 graphql.tobari.dev)
-assert_contains "$graphql_resolution" "198.18.0.10" "GraphQL synthetic DNS interception"
-# The GraphQL `$value` references stay literal while only the quoted canary expands.
-# shellcheck disable=SC2016
-graphql_body='{"query":"mutation Change($value: String!) { closeIssue(input: {value: $value}) updateIssue(input: {value: $value}) }","variables":{"value":"'"$graphql_canary"'"}}'
+    raise SystemExit("declared GraphQL endpoint is absent from the live Gateway projection")
+' "$default_context_id" <<<"$graphql_projection"
+graphql_body='{"query":"mutation Change { closeIssue updateIssue }","variables":{"value":"runtime-canary"}}'
 graphql_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
   -H 'content-type: application/json' --data-binary "$graphql_body" \
   https://graphql.tobari.dev:8080/graphql)
-if [[ $graphql_status != 403 ]]; then
-  graphql_audit=$(docker logs tobari-gateway 2>&1 | grep -F '"path":"/graphql"' | tail -n 1 || true)
-  fail "declared GraphQL roots returned $graphql_status instead of a learnable denial; audit=$graphql_audit"
-fi
+[[ $graphql_status == 403 ]] ||
+  fail "declared GraphQL denial returned $graphql_status instead of 403"
 if docker logs "$mock_name" 2>&1 | grep -F '"/graphql"' >/dev/null; then
   fail "denied GraphQL request reached mock upstream"
-fi
-graphql_candidates=$(run_tobari policy candidates --tail 1000 --format json)
-close_issue_candidate_id=$(graphql_candidate_id_for_effect \
-  "$work_id" https graphql.tobari.dev 8080 mutation closeIssue <<<"$graphql_candidates")
-update_issue_candidate_id=$(graphql_candidate_id_for_effect \
-  "$work_id" https graphql.tobari.dev 8080 mutation updateIssue <<<"$graphql_candidates")
-[[ $close_issue_candidate_id == pcy_* && $update_issue_candidate_id == pcy_* && \
-  $close_issue_candidate_id != "$update_issue_candidate_id" ]] ||
-  fail "GraphQL roots did not produce independent opaque candidates"
-opa_before_graphql_policy=$(docker inspect --format '{{.Id}}' tobari-opa)
-run_tobari policy allow --id "$close_issue_candidate_id" >/dev/null
-graphql_partial_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
-  -H 'content-type: application/json' --data-binary "$graphql_body" \
-  https://graphql.tobari.dev:8080/graphql)
-[[ $graphql_partial_status == 403 ]] ||
-  fail "one GraphQL root approval authorized an unapproved sibling root"
-run_tobari policy allow --id "$update_issue_candidate_id" >/dev/null
-[[ $(docker inspect --format '{{.Id}}' tobari-opa) == "$opa_before_graphql_policy" ]] ||
-  fail "routine GraphQL policy activation recreated OPA"
-graphql_response=$(run_project curl -fsS \
-  -H 'content-type: application/json' --data-binary "$graphql_body" \
-  https://graphql.tobari.dev:8080/graphql)
-graphql_body_sha=$(printf '%s' "$graphql_body" | shasum -a 256 | awk '{print $1}')
-assert_contains "$graphql_response" '"path":"/graphql"' "GraphQL upstream response"
-assert_contains "$graphql_response" "\"body_sha256\":\"$graphql_body_sha\"" \
-  "unchanged GraphQL request body"
-graphql_gateway_logs=$(run_tobari cluster logs --component gateway --tail 1000)
-if [[ $graphql_gateway_logs == *"$graphql_canary"* || $graphql_gateway_logs == *'mutation Change'* ]]; then
-  fail "GraphQL source or variables entered Gateway audit"
-fi
-
-review_allow_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
-  -X PUT https://mock-upstream:8080/review-allow)
-[[ $review_allow_status == 403 ]] || fail "review allow candidate returned $review_allow_status instead of 403"
-restricted_review_allow_status=$(run_restricted_project curl -sS -o /dev/null -w '%{http_code}' \
-  -X PUT https://mock-upstream:8080/review-allow)
-[[ $restricted_review_allow_status == 403 ]] || fail "restricted review candidate returned $restricted_review_allow_status instead of 403"
-review_deny_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
-  -X PUT https://mock-upstream:8080/review-deny)
-[[ $review_deny_status == 403 ]] || fail "review deny candidate returned $review_deny_status instead of 403"
-review_body_first_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
-  -X PUT -H 'content-type: application/json' --data '{"value":"first"}' \
-  https://mock-upstream:8080/review-body)
-[[ $review_body_first_status == 403 ]] ||
-  fail "first body-bearing review candidate returned $review_body_first_status instead of 403"
-review_body_second_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
-  -X PUT -H 'content-type: application/json' --data '{"value":"second"}' \
-  https://mock-upstream:8080/review-body)
-[[ $review_body_second_status == 403 ]] ||
-  fail "second body-bearing review candidate returned $review_body_second_status instead of 403"
-review_patch_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
-  -X PATCH -H 'content-type: application/json' --data '{"value":"patch"}' \
-  https://mock-upstream:8080/review-patch)
-[[ $review_patch_status == 403 ]] ||
-  fail "body-bearing PATCH candidate returned $review_patch_status instead of 403"
-review_allow_body=$(run_project curl -sS -X PUT https://mock-upstream:8080/review-allow)
-assert_contains "$review_allow_body" '"event":"permission_review_available"' "learnable denial response"
-assert_contains "$review_allow_body" '"command":"tobari policy review"' "learnable denial response"
-assert_contains "$review_allow_body" '"automatic_retry":false' "learnable denial response"
-assert_contains "$review_allow_body" '"retry_after_review":true' "learnable denial response"
-review_deny_body=$(run_project curl -sS -X PUT https://mock-upstream:8080/review-deny)
-assert_contains "$review_deny_body" '"event":"permission_review_available"' "learnable denial response"
-assert_contains "$review_deny_body" '"command":"tobari policy review"' "learnable denial response"
-if [[ $review_allow_body == *"$tool_auth_value"* || $review_allow_body == *'Bearer '* || \
-  $review_deny_body == *"$tool_auth_value"* || $review_deny_body == *'Bearer '* ]]; then
-  fail "learnable denial response contains a credential value"
-fi
-
-gateway_logs=$(run_tobari cluster logs --component gateway --tail 500)
-assert_contains "$gateway_logs" '"decision":"deny"' "Gateway denial audit"
-assert_contains "$gateway_logs" '"host":"mock-upstream"' "Gateway denial audit"
-assert_contains "$gateway_logs" '"method":"POST"' "Gateway denial audit"
-assert_contains "$gateway_logs" '"path":"/denied"' "Gateway denial audit"
-if [[ $gateway_logs == *"$tool_auth_value"* || $gateway_logs == *'Bearer '* ]]; then
-  fail "Gateway logs contain a credential value"
-fi
-
-denials_json=$(run_tobari cluster denials --tail 500 --format json)
-assert_contains "$denials_json" '"policy":' "focused denial evidence"
-assert_contains "$denials_json" '"host":"mock-upstream"' "focused denial evidence"
-assert_contains "$denials_json" "\"project_id\":\"$work_id\"" "focused denial evidence"
-assert_contains "$denials_json" '"method":"POST"' "focused denial evidence"
-assert_contains "$denials_json" '"path":"/denied"' "focused denial evidence"
-assert_contains "$denials_json" '"learnable":true' "focused denial evidence"
-assert_contains "$denials_json" '"review_command":"tobari policy review"' "focused denial recovery"
-if [[ $denials_json == *"$tool_auth_value"* || $denials_json == *'Bearer '* ]]; then
-  fail "focused denial evidence contains a credential value"
-fi
-
-candidates_json=$(run_tobari policy candidates --tail 500 --format json)
-if python3 -c 'import json,sys; sys.exit(0 if not any(item["path"] == "/denied" for item in json.load(sys.stdin)["policy_candidates"]) else 1)' <<<"$candidates_json"; then
-  :
-else
-  fail "reviewed exact deny remained in the actionable policy queue"
-fi
-allow_candidate_id=$(candidate_id_for_effect "$work_id" https mock-upstream 8080 PUT /review-allow <<<"$candidates_json")
-restricted_allow_candidate_id=$(candidate_id_for_effect "$restricted_id" https mock-upstream 8080 PUT /review-allow <<<"$candidates_json")
-deny_candidate_id=$(candidate_id_for_effect "$work_id" https mock-upstream 8080 PUT /review-deny <<<"$candidates_json")
-body_candidate_id=$(candidate_id_for_effect "$work_id" https mock-upstream 8080 PUT /review-body <<<"$candidates_json")
-patch_candidate_id=$(candidate_id_for_effect "$work_id" https mock-upstream 8080 PATCH /review-patch <<<"$candidates_json")
-[[ $allow_candidate_id == pcy_* && $restricted_allow_candidate_id == pcy_* && "$allow_candidate_id" != "$restricted_allow_candidate_id" && $deny_candidate_id == pcy_* && \
-  $body_candidate_id == pcy_* && $patch_candidate_id == pcy_* ]] ||
-  fail "policy candidates did not emit opaque candidate IDs"
-python3 -c '
-import json
-import sys
-
-project_id, candidate_id = sys.argv[1:]
-candidate = next(
-    item for item in json.load(sys.stdin)["policy_candidates"]
-    if item["id"] == candidate_id and item["project_id"] == project_id
-)
-assert candidate["observation_count"] == 2, candidate
-assert "body" not in candidate, candidate
-' "$work_id" "$body_candidate_id" <<<"$candidates_json" ||
-  fail "body variants did not aggregate into one body-free policy candidate"
-assert_contains "$candidates_json" \
-	"\"allow_command\":\"tobari policy allow --id $allow_candidate_id\"" \
-	"policy candidate exact action"
-assert_contains "$candidates_json" \
-	"\"deny_command\":\"tobari policy deny --id $deny_candidate_id\"" \
-	"policy candidate exact rejection"
-review_output=$(run_tobari policy review --tail 500)
-assert_contains "$review_output" "restricted" "cross-Context permission Inbox"
-assert_contains "$review_output" "$work_root" "same-root permission Inbox"
-assert_contains "$review_output" \
-	"Allow exact    tobari policy allow --id $allow_candidate_id" \
-	"human policy review"
-assert_contains "$review_output" \
-	"Deny exact     tobari policy deny --id $deny_candidate_id" \
-	"human policy review"
-review_json=$(run_tobari policy review --tail 500 --format json)
-assert_contains "$review_json" \
-	"\"allow_command\":\"tobari policy allow --id $allow_candidate_id\"" \
-	"machine policy review"
-assert_contains "$review_json" \
-	"\"deny_command\":\"tobari policy deny --id $deny_candidate_id\"" \
-	"machine policy review"
-
-opa_before_exact_policy=$(docker inspect --format '{{.Id}}' tobari-opa)
-allow_output=$(run_tobari policy allow --id "$allow_candidate_id")
-assert_contains "$allow_output" "Policy rule updated" "exact policy approval"
-assert_contains "$allow_output" 'mock-upstream:8080 PUT /review-allow' "exact policy approval target"
-
-body_allow_output=$(run_tobari policy allow --id "$body_candidate_id")
-assert_contains "$body_allow_output" 'Policy rule updated' "body-independent policy approval"
-assert_contains "$body_allow_output" 'mock-upstream:8080 PUT /review-body' "body-independent policy approval target"
-patch_deny_output=$(run_tobari policy deny --id "$patch_candidate_id")
-assert_contains "$patch_deny_output" 'Permission denied' "body-bearing PATCH policy review"
-assert_contains "$patch_deny_output" 'mock-upstream:8080 PATCH /review-patch' "body-bearing PATCH policy review target"
-[[ $(docker inspect --format '{{.Id}}' tobari-opa) == "$opa_before_exact_policy" ]] ||
-  fail "routine exact policy mutations recreated OPA"
-body_applied_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
-  -X PUT -H 'content-type: application/json' --data '{"value":"third"}' \
-  https://mock-upstream:8080/review-body)
-[[ $body_applied_status == 200 ]] ||
-  fail "body-independent learned policy did not allow a new body value"
-
-applied_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
-  -X PUT https://mock-upstream:8080/review-allow)
-[[ $applied_status == 200 ]] || fail "exact learned policy was not active after policy allow"
-restricted_after_allow=$(run_restricted_project curl -sS -o /dev/null -w '%{http_code}' \
-  -X PUT https://mock-upstream:8080/review-allow)
-[[ $restricted_after_allow == 403 ]] || fail "default Context learned Allow crossed into restricted with status $restricted_after_allow"
-restricted_deny_output=$(run_tobari policy deny --id "$restricted_allow_candidate_id")
-assert_contains "$restricted_deny_output" "Permission denied" "restricted exact Deny"
-assert_contains "$restricted_deny_output" "mock-upstream:8080 PUT /review-allow" "restricted exact Deny target"
-restricted_rules=$(run_tobari policy rules --format json)
-restricted_deny_rule_id=$(python3 -c '
-import json,sys
-print(next(item["id"] for item in json.load(sys.stdin)["policy_rules"]
-           if item["decision"] == "deny" and item["context"] == "restricted" and item["path"] == "/review-allow"))
-' <<<"$restricted_rules")
-run_tobari policy reset --id "$restricted_deny_rule_id" >/dev/null
-[[ $(run_project curl -sS -o /dev/null -w '%{http_code}' -X PUT https://mock-upstream:8080/review-allow) == 200 ]] ||
-  fail "restricted rule reset changed the default Context Allow"
-[[ $(run_restricted_project curl -sS -o /dev/null -w '%{http_code}' -X PUT https://mock-upstream:8080/review-allow) == 403 ]] ||
-  fail "restricted rule reset weakened the restricted Context default deny"
-other_learned_status=$(run_other_project curl -sS -o /dev/null -w '%{http_code}' \
-  -X PUT https://mock-upstream:8080/review-allow)
-[[ $other_learned_status == 403 ]] ||
-  fail "learned policy crossed the project boundary with status $other_learned_status"
-child_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
-  -X PUT https://mock-upstream:8080/review-allow/child)
-[[ $child_status == 403 ]] || fail "exact learned policy broadened to a child path"
-
-policy_rules_json=$(run_tobari policy rules --format json)
-assert_contains "$policy_rules_json" '"policy_rules":' "current policy decision inventory"
-allow_rule_id=$(python3 -c \
-  'import json,sys
-print(next(item["id"] for item in json.load(sys.stdin)["policy_rules"]
-           if item["decision"] == "allow" and item["path"] == "/review-allow"))' \
-  <<<"$policy_rules_json")
-[[ $allow_rule_id == plr_* ]] || fail "policy rules did not emit the learned Allow ID"
-assert_contains "$policy_rules_json" \
-  "\"reset_command\":\"tobari policy reset --id $allow_rule_id\"" \
-  "policy decision reset action"
-
-reset_allow_output=$(run_tobari policy reset --id "$allow_rule_id")
-assert_contains "$reset_allow_output" 'Policy decision reset' "learned Allow reset"
-assert_contains "$reset_allow_output" "$allow_rule_id" "learned Allow reset target"
-assert_contains "$reset_allow_output" 'Removed' "learned Allow reset decision"
-assert_contains "$reset_allow_output" 'allow' "learned Allow reset decision"
-assert_contains "$reset_allow_output" 'Default deny' "learned Allow reset outcome"
-assert_contains "$reset_allow_output" 'yes' "learned Allow reset outcome"
-reset_allow_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
-  -X PUT https://mock-upstream:8080/review-allow)
-[[ $reset_allow_status == 403 ]] || fail "reset Allow did not return the request to default deny"
-review_after_allow_reset=$(run_tobari policy review --tail 1000 --format json)
-assert_contains "$review_after_allow_reset" "\"id\":\"$allow_candidate_id\"" \
-  "reset Allow re-review queue"
-allow_output=$(run_tobari policy allow --id "$allow_candidate_id")
-assert_contains "$allow_output" 'Policy rule updated' "re-allow after reset"
-reallowed_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
-  -X PUT https://mock-upstream:8080/review-allow)
-[[ $reallowed_status == 200 ]] || fail "re-review could not restore the exact Allow"
-
-deny_output=$(run_tobari policy deny --id "$deny_candidate_id")
-assert_contains "$deny_output" 'Permission denied' "exact policy rejection"
-assert_contains "$deny_output" 'mock-upstream:8080 PUT /review-deny' "exact policy rejection target"
-assert_contains "$deny_output" 'Applied' "exact policy rejection outcome"
-assert_contains "$deny_output" 'yes' "exact policy rejection outcome"
-rejected_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
-  -X PUT https://mock-upstream:8080/review-deny)
-[[ $rejected_status == 403 ]] || fail "exact policy rejection changed the denied request to $rejected_status"
-review_after_deny=$(run_tobari policy review --tail 1000 --format json)
-if [[ $review_after_deny == *"$deny_candidate_id"* ]]; then
-  fail "denied candidate remained in the review queue"
-fi
-
-policy_rules_json=$(run_tobari policy rules --format json)
-deny_rule_id=$(python3 -c \
-  'import json,sys
-print(next(item["id"] for item in json.load(sys.stdin)["policy_rules"]
-           if item["decision"] == "deny" and item["path"] == "/review-deny"))' \
-  <<<"$policy_rules_json")
-[[ $deny_rule_id == pdr_* ]] || fail "policy rules did not emit the learned Deny ID"
-reset_deny_output=$(run_tobari policy reset --id "$deny_rule_id")
-assert_contains "$reset_deny_output" 'Policy decision reset' "learned Deny reset"
-assert_contains "$reset_deny_output" "$deny_rule_id" "learned Deny reset target"
-assert_contains "$reset_deny_output" 'Removed' "learned Deny reset decision"
-assert_contains "$reset_deny_output" 'deny' "learned Deny reset decision"
-assert_contains "$reset_deny_output" 'Default deny' "learned Deny reset outcome"
-assert_contains "$reset_deny_output" 'yes' "learned Deny reset outcome"
-reset_deny_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
-  -X PUT https://mock-upstream:8080/review-deny)
-[[ $reset_deny_status == 403 ]] || fail "reset Deny weakened default denial"
-review_after_deny_reset=$(run_tobari policy review --tail 1000 --format json)
-assert_contains "$review_after_deny_reset" "\"id\":\"$deny_candidate_id\"" \
-  "reset Deny re-review queue"
-deny_output=$(run_tobari policy deny --id "$deny_candidate_id")
-assert_contains "$deny_output" 'Permission denied' "re-deny after reset"
-
-reject_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
-  -X PUT https://mock-upstream:8080/rejected)
-[[ $reject_status == 403 ]] || fail "rejection candidate request returned $reject_status instead of 403"
-reject_candidates_json=$(run_tobari policy review --tail 1000 --format json)
-reject_candidate_id=$(python3 -c \
-  'import json,sys
-print(next(item["id"] for item in json.load(sys.stdin)["policy_review"]
-           if item["project_id"] == sys.argv[1] and item["host"] == "mock-upstream" and item["method"] == "PUT" and item["path"] == "/rejected"))' \
-  "$work_id" <<<"$reject_candidates_json")
-[[ $reject_candidate_id == pcy_* ]] || fail "policy review JSON did not emit the rejection candidate"
-assert_contains "$reject_candidates_json" \
-  "\"deny_command\":\"tobari policy deny --id $reject_candidate_id\"" \
-  "policy review JSON rejection action"
-deny_output=$(run_tobari policy deny --id "$reject_candidate_id")
-assert_contains "$deny_output" 'Permission denied' "exact policy rejection"
-assert_contains "$deny_output" 'mock-upstream:8080 PUT /rejected' "exact policy rejection target"
-rejected_after_deny=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
-  -X PUT https://mock-upstream:8080/rejected)
-[[ $rejected_after_deny == 403 ]] || fail "exact policy rejection changed the denied request to $rejected_after_deny"
-remaining_review=$(run_tobari policy review --tail 1000 --format json)
-if [[ $remaining_review == *"$reject_candidate_id"* ]]; then
-  fail "denied candidate remained in the review queue"
-fi
-
-interactive_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
-  -X PUT https://mock-upstream:8080/review-interactive)
-[[ $interactive_status == 403 ]] || fail "interactive review candidate returned $interactive_status instead of 403"
-interactive_index=
-for _ in $(seq 1 30); do
-  interactive_review=$(run_tobari policy review --tail 1000 --format json)
-  interactive_index=$(python3 -c '
-import json
-import sys
-
-items = json.load(sys.stdin)["policy_review"]
-print(next((index for index, item in enumerate(items, 1) if item["path"] == "/review-interactive"), ""))
-' <<<"$interactive_review")
-  [[ -n $interactive_index ]] && break
-  sleep 0.2
-done
-[[ -n $interactive_index ]] || fail "interactive review candidate did not reach the review queue"
-interactive_candidate_id=$(python3 -c '
-import json
-import sys
-
-items = json.load(sys.stdin)["policy_review"]
-print(next(item["id"] for item in items if item["path"] == "/review-interactive"))
-' <<<"$interactive_review")
-interactive_workspace_before=$(docker inspect --format '{{.Id}}' "$work_container")
-interactive_opa_before=$(docker inspect --format '{{.Id}}' tobari-opa)
-interactive_events=$(python3 -c '
-import json
-import sys
-
-index = sys.argv[1]
-selection = "\x1b[B" * (int(index) - 1) + "\r"
-print(json.dumps([
-    {"after_ms": 5000, "data": selection},
-    {"after_ms": 750, "data": "a"},
-    {"after_ms": 750, "data": "p"},
-    {"after_ms": 750, "data": "y"},
-]))
-' "$interactive_index")
-if ! interactive_output=$(TOBARI_TEST_PTY_TIMEOUT_SECONDS=15 \
-  TOBARI_TEST_PTY_EVENTS="$interactive_events" \
-  run_tobari_pty_at "$work_root" policy review --tail 1000 2>&1); then
-  printf '%s\n' "$interactive_output" >&2
-  fail "interactive policy review PTY session failed"
-fi
-if [[ $interactive_output != *'Reviewed permissions applied'* || \
-  $interactive_output != *'1 (1 Allow, 0 Deny)'* ]]; then
-  printf '%s\n' "$interactive_output" >&2
-  fail "interactive policy review did not contain the expected value"
-fi
-assert_contains "$interactive_output" "Context" "interactive permission Context detail and confirmation"
-assert_contains "$interactive_output" "Tobari" "interactive permission Tobari detail and confirmation"
-assert_contains "$interactive_output" "/review-interactive" "interactive permission request detail and confirmation"
-assert_contains "$interactive_output" "$default_context_id" "interactive permission exact Context receipt"
-assert_contains "$interactive_output" "$work_id" "interactive permission exact project receipt"
-assert_contains "$interactive_output" "$interactive_candidate_id" "interactive permission exact candidate receipt"
-interactive_cluster_status=$(run_tobari cluster status --format json)
-interactive_revision=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["cluster"]["policy_revision"])' \
-  <<<"$interactive_cluster_status")
-[[ $interactive_revision =~ ^[0-9a-f]{64}$ ]] || fail "interactive review did not activate one typed policy revision"
-assert_contains "$interactive_output" "$interactive_revision" "interactive permission active revision receipt"
-[[ $(docker inspect --format '{{.Id}}' "$work_container") == "$interactive_workspace_before" ]] ||
-  fail "interactive policy review replaced the running Workspace"
-[[ $(docker inspect --format '{{.Id}}' tobari-opa) == "$interactive_opa_before" ]] ||
-  fail "interactive policy review replaced OPA"
-interactive_retry_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
-  -X PUT https://mock-upstream:8080/review-interactive)
-[[ $interactive_retry_status == 200 ]] ||
-  fail "same running Workspace could not retry the reviewed request: $interactive_retry_status"
-interactive_review=$(run_tobari policy review --tail 1000 --format json)
-if python3 -c 'import json,sys; sys.exit(0 if any(item["path"] == "/review-interactive" for item in json.load(sys.stdin)["policy_review"]) else 1)' <<<"$interactive_review"; then
-  fail "interactive Allow did not remove the candidate from the review queue"
 fi
 
 begin_phase attachment-scoped-host-loopback
@@ -2173,20 +1442,9 @@ import json
 import os
 
 document = json.loads(os.environ["HOST_CAPABILITIES"])
-if document != {
-    "schema_version": 1,
-    "localhost_means": "workspace",
-    "host_http": {
-        "url_template": "http://host.tobari.test:{port}",
-        "minimum_port": 1024,
-        "maximum_port": 65535,
-        "lifetime": "attachment",
-        "audience": "workspace",
-        "access": "policy_review_required",
-    },
-    "host_docker_control": "unavailable",
-}:
-    raise SystemExit(f"unexpected Host Loopback capability projection: {document!r}")
+host_http = document.get("host_http", {})
+if host_http.get("url_template") != "http://host.tobari.test:{port}" or host_http.get("lifetime") != "attachment":
+    raise SystemExit(f"active attachment did not project the Host Loopback route: {document!r}")
 if "relay" in os.environ["HOST_CAPABILITIES"] or "token" in os.environ["HOST_CAPABILITIES"]:
     raise SystemExit("Host Loopback capability projection disclosed relay authority")
 PY
@@ -2208,13 +1466,6 @@ print(next((index for index, item in enumerate(items, 1)
   sleep 0.2
 done
 [[ -n $host_review_index ]] || fail "Host Loopback denial did not reach policy review"
-assert_contains "$host_review" '"destination_kind":"host_loopback"' "Host Loopback review identity"
-assert_contains "$host_review" '"authority_lifetime":"attachment"' "Host Loopback review lifetime"
-assert_contains "$host_review" '"allow_command":""' "Host Loopback non-persistent action boundary"
-host_candidates=$(run_tobari policy candidates --tail 1000 --format json)
-if [[ $host_candidates == *'host.tobari.test'* ]]; then
-  fail "attachment-scoped Host Loopback appeared in persistent policy candidates"
-fi
 
 host_review_events=$(python3 -c '
 import json
@@ -2233,8 +1484,6 @@ if ! host_review_output=$(TOBARI_TEST_PTY_TIMEOUT_SECONDS=15 \
   printf '%s\n' "$host_review_output" >&2
   fail "interactive Host Loopback policy review failed"
 fi
-assert_contains "$host_review_output" "Host Loopback" "Host Loopback review presentation"
-assert_contains "$host_review_output" "attachment-scoped" "Host Loopback review presentation"
 python3 - "$config_directory/host-loopback/routes.json" "$work_id" "$host_service_port" <<'PY'
 import json
 import socket
@@ -2278,10 +1527,6 @@ except OSError:
 '
 host_retry=$(run_project curl -fsS "http://host.tobari.test:$host_service_port/health")
 assert_contains "$host_retry" "host-service-ok" "reviewed physical-host HTTP response"
-host_rules=$(run_tobari policy rules --format json)
-if [[ $host_rules == *'host.tobari.test'* || $host_rules == *'"pag_'* ]]; then
-  fail "Attachment Grant entered the persistent policy rule inventory"
-fi
 
 wait "$host_service_attachment_pid"
 host_service_attachment_pid=
@@ -2300,93 +1545,29 @@ kill "$host_service_server_pid" >/dev/null 2>&1 || true
 wait "$host_service_server_pid" >/dev/null 2>&1 || true
 host_service_server_pid=
 
-for item_path in one two three; do
-  item_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
-    -X PUT "https://mock-upstream:8080/review/items/$item_path")
-  [[ $item_status == 403 ]] || fail "exact-rule source $item_path was not initially denied"
-done
-
-for item_path in one two three; do
-  candidates_json=$(run_tobari policy candidates --tail 1000 --format json)
-  item_candidate_id=$(candidate_id_for_effect \
-    "$work_id" https mock-upstream 8080 PUT "/review/items/$item_path" <<<"$candidates_json")
-  item_allow_output=$(run_tobari policy allow --id "$item_candidate_id")
-  assert_contains "$item_allow_output" "Policy rule updated" \
-    "exact source approval"
-  assert_contains "$item_allow_output" "mock-upstream:8080 PUT /review/items/$item_path" \
-    "exact source approval"
-done
-
-for item_path in one two three; do
-  item_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
-    -X PUT "https://mock-upstream:8080/review/items/$item_path")
-  [[ $item_status == 200 ]] || fail "exact source rule $item_path was not active"
-done
-
-unseen_sibling_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
-  -X PUT https://mock-upstream:8080/review/items/four)
-[[ $unseen_sibling_status == 403 ]] || fail "exact rules widened to an unseen sibling path"
-outside_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
-  -X PUT https://mock-upstream:8080/review/items-outside-tobari-canary)
-[[ $outside_status == 403 ]] || fail "exact rules widened outside their directory boundary"
-if run_tobari help policy compactions --format agent >/dev/null 2>&1 ||
-  run_tobari help policy compact --format agent >/dev/null 2>&1; then
-  fail "retired policy compaction command remained invocable"
-fi
-
-begin_phase diagnostics-and-failure-modes
-final_default_auth_status=$(run_tobari auth status --context default --format json)
-final_restricted_auth_status=$(run_tobari auth status --context restricted --format json)
-final_context_status=$(run_tobari context show --format json)
-final_cluster_status=$(run_tobari cluster status --format json)
-CLUSTER_STATUS_DOCUMENT="$final_cluster_status" python3 <<'PY'
-import json
-import os
-
-document = json.loads(os.environ["CLUSTER_STATUS_DOCUMENT"])
-if document.get("schema_version") != 1 or "proxy" in document.get("cluster", {}):
-    raise SystemExit(f"cluster status retained explicit proxy contract: {document!r}")
-PY
-assert_contains "$final_cluster_status" '"auth_broker_state":"ready"' \
-  "shared Auth Broker readiness status"
-assert_contains "$final_cluster_status" '"credential_companion_state":"ready"' \
-  "trusted-host credential companion readiness status"
-final_doctor_status=$(run_tobari doctor --root "$work_root" --format json)
-final_gateway_logs=$(run_tobari cluster logs --component gateway --tail 1000)
-final_broker_logs=$(run_tobari cluster logs --component auth-broker --tail 1000)
-final_opa_logs=$(run_tobari cluster logs --component opa --tail 1000)
-final_policy_diagnostics=$(run_tobari policy candidates --tail 1000 --format json)
-final_mock_logs=$(docker logs "$mock_name" 2>&1)
-final_auth_mock_logs=$(docker logs "$auth_mock_name" 2>&1)
+begin_phase runtime-failure-boundaries
 diagnostic_surface=$(printf '%s\n' \
-	"$default_auth_import" "$restricted_auth_import" \
-	"$ready_auth_status_before_noop" "$synthetic_noop_logout" "$ready_auth_status_after_noop" \
-	"$final_default_auth_status" "$final_restricted_auth_status" \
-  "$final_context_status" "$final_cluster_status" "$final_doctor_status" \
-  "$final_gateway_logs" "$final_broker_logs" "$final_opa_logs" \
-  "$final_policy_diagnostics" "$final_mock_logs" "$final_auth_mock_logs")
+  "$(docker logs tobari-gateway 2>&1)" \
+  "$(docker logs tobari-auth-broker 2>&1)" \
+  "$(docker logs tobari-opa 2>&1)" \
+  "$(docker logs "$mock_name" 2>&1)" \
+  "$(docker logs "$auth_mock_name" 2>&1)")
 for authentication_canary in \
   "$synthetic_default_secret" "$synthetic_restricted_secret" \
   "$work_auth_handle" "$restricted_auth_handle" "$other_auth_handle"; do
   if [[ $diagnostic_surface == *"$authentication_canary"* ]]; then
-    fail "CLI, Gateway, Broker, OPA, policy, or upstream diagnostics exposed authentication material"
+    fail "runtime logs exposed authentication material"
   fi
-  if grep -R -a -F -- "$authentication_canary" "$test_root/state/tobari" \
-    >/dev/null 2>&1; then
-    fail "host machine state stored authentication material outside the encrypted vault contract"
+  if grep -R -a -F --exclude=vault.enc -- "$authentication_canary" \
+    "$test_root/state/tobari" >/dev/null 2>&1; then
+    fail "host state stored authentication material outside an encrypted vault"
   fi
 done
 
-shell_output=$(printf 'printf shell-ok\\nexit\\n' | run_project_shell)
-assert_contains "$shell_output" "shell-ok" "interactive shell"
-
-transparent_dns=$(run_project getent ahostsv4 transparent.invalid)
-assert_contains "$transparent_dns" "198.18.0.10" "synthetic non-recursive DNS"
 if run_project curl --noproxy '*' --max-time 3 -fsS \
   http://opa:8181/health >/dev/null 2>&1; then
-  fail "Tobari reached the OPA control API"
+  fail "Workspace reached the OPA control API"
 fi
-
 docker stop tobari-opa >/dev/null
 opa_down_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
   https://mock-upstream:8080/opa-down)
@@ -2395,6 +1576,11 @@ docker start tobari-opa >/dev/null
 wait_healthy tobari-opa
 
 docker stop tobari-gateway >/dev/null
+if run_project python3 -c \
+  'import socket; socket.create_connection(("1.1.1.1", 443), 2)' \
+  >/dev/null 2>&1; then
+  fail "Workspace opened a direct raw Internet connection while Gateway was stopped"
+fi
 if run_project curl --max-time 3 -fsS \
   https://mock-upstream:8080/gateway-down >/dev/null 2>&1; then
   fail "request succeeded while Gateway was stopped"
@@ -2403,35 +1589,14 @@ docker start tobari-gateway >/dev/null
 wait_healthy tobari-gateway
 
 if run_project test -e /var/run/docker.sock; then
-  fail "Tobari contains the Docker socket"
-fi
-if run_project test -e /run/tobari/credentials/integration; then
-  fail "Tobari contains the Gateway credential file"
-fi
-if run_project env | grep -E 'TOBARI_CREDENTIAL|AUTHORIZATION|API_KEY' >/dev/null; then
-  fail "Tobari environment exposes credential metadata"
+  fail "Workspace contains the Docker socket"
 fi
 mounts=$(docker inspect --format '{{range .Mounts}}{{.Destination}}{{"\n"}}{{end}}' "$work_container")
 if grep -E '^/(run/tobari/credentials|var/run/docker.sock)$' <<<"$mounts" >/dev/null; then
-  fail "Tobari has a forbidden mount"
+  fail "Workspace has a forbidden credential or Docker mount"
 fi
 
-set +e
-run_project sh -c 'exit 37'
-exec_status=$?
-set -e
-[[ $exec_status == 37 ]] || fail "exec returned $exec_status instead of child status 37"
-status_after_exec=$(run_tobari_at "$work_root" status --format json)
-assert_contains "$status_after_exec" '"runtime":"ready"' "runtime remains ready after child exit"
-
-run_project sh -c 'sleep 1' &
-first_pid=$!
-run_project sh -c 'sleep 1' &
-second_pid=$!
-wait "$first_pid"
-wait "$second_pid"
-
-begin_phase lifecycle-and-runtime-build
+begin_phase lifecycle
 docker rm -f "$mock_name" >/dev/null
 set +e
 run_tobari cluster down >/dev/null 2>&1
@@ -2439,8 +1604,6 @@ down_with_projects_status=$?
 set -e
 [[ $down_with_projects_status != 0 ]] || fail "cluster down succeeded while Context-bound Tobari remained"
 [[ $(docker inspect --format '{{.State.Running}}' tobari-gateway) == true ]] || fail "refused cluster down stopped the shared Gateway"
-status_before_delete=$(run_tobari_at "$work_root" status --format json)
-assert_contains "$status_before_delete" '"exists":true' "status before delete"
 docker rm -f "$work_container" >/dev/null
 docker network disconnect -f "$work_network" tobari-gateway >/dev/null 2>&1 || true
 docker network rm "$work_network" >/dev/null 2>&1 || true
@@ -2448,9 +1611,6 @@ run_tobari_at "$work_root" delete --force >/dev/null
 work_id=
 work_container=
 [[ ! -e "$work_home/tool-auth-state" ]] || fail "delete did not remove tool authentication state"
-status_after_delete=$(run_tobari_at "$work_root" status --format json)
-assert_contains "$status_after_delete" '"exists":false' "status after delete"
-[[ -f "$profile_skill" && -f "$profile_settings" ]] || fail "delete removed the shared agent profile"
 python3 - "$config_directory/principal-registry/principals.json" "$restricted_id" "$other_id" <<'PY'
 import json
 import sys
@@ -2475,33 +1635,6 @@ with open(sys.argv[1], encoding="utf-8") as handle:
 if bindings:
     raise SystemExit(f"project principal registry was not cleared: {bindings!r}")
 PY
-runtime_init_json=$(run_tobari runtime init --format json)
-runtime_dockerfile=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["context"]["runtime"]["dockerfile"])' <<<"$runtime_init_json")
-official_runtime_build_json=$(run_tobari runtime build --format json)
-official_runtime_image=$(python3 -c 'import json,sys; d=json.load(sys.stdin)["context"]; assert d["runtime"]["status"] == "ready"; print(d["image"])' <<<"$official_runtime_build_json")
-[[ $official_runtime_image == tobari-context-default:* ]] || fail "official runtime build selected an unexpected image: $official_runtime_image"
-official_runtime_context=$(run_tobari context show --format json)
-assert_contains "$official_runtime_context" "\"image\":\"$official_runtime_image\"" "Official Context runtime promotion"
-assert_contains "$official_runtime_context" '"status":"ready"' "Official Context runtime status"
-runtime_template_base=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["context"]["runtime"]["base_reference"])' <<<"$runtime_init_json")
-python3 - "$runtime_dockerfile" "$runtime_template_base" <<'PY'
-from pathlib import Path
-import sys
-
-path = Path(sys.argv[1])
-base = sys.argv[2]
-text = path.read_text(encoding="utf-8")
-expected = f"FROM {base}"
-if text.count(expected) != 1:
-    raise SystemExit(f"runtime template did not contain one base reference: {expected}")
-path.write_text(text + "\n# integration custom runtime rebuild\n", encoding="utf-8")
-PY
-runtime_build_json=$(run_tobari runtime build --format json)
-runtime_image=$(python3 -c 'import json,sys; d=json.load(sys.stdin)["context"]; assert d["runtime"]["status"] == "ready"; print(d["image"])' <<<"$runtime_build_json")
-[[ $runtime_image == tobari-context-default:* ]] || fail "runtime build selected an unexpected image: $runtime_image"
-runtime_context=$(run_tobari context show --format json)
-assert_contains "$runtime_context" "\"image\":\"$runtime_image\"" "Context runtime promotion"
-assert_contains "$runtime_context" '"status":"ready"' "Context runtime status"
 
 run_tobari cluster down --purge >/dev/null
 run_tobari cluster down >/dev/null

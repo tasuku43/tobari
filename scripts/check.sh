@@ -169,6 +169,7 @@ run_fast() {
   go run ./tools/contractlint
   python3 scripts/test-pty-evidence.py
   ./scripts/test-integration-preflight-cleanup.sh
+  ./scripts/check-integration-scope.sh
   ./scripts/test-site-workflow-ownership.sh
   ./scripts/check-runtime-base.sh
   ./scripts/check-runtime-claude.sh

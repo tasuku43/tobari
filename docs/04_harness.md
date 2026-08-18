@@ -16,14 +16,19 @@ The harness is the executable counterpart of the theses, product contract, archi
 | `policy` | `task policy:test` | Rego feedback | Pinned OPA format check and unit tests |
 | `gateway` | `task gateway:test` | Enforcement-point feedback | Source-built Gateway image with hash-locked dependencies, exact runtime-input snapshot membership/bytes, existing addon tests, and bounded GraphQL parser tests |
 | `authbroker` | `task authbroker:test` | Experimental credential-boundary feedback | Exact runtime-input snapshot membership/bytes, strict broker/provider/root-key Go tests, Python daemon/vault/protocol tests in the pinned image environment, and Auth Broker image metadata |
-| `integration` | `task integration:test` | Experimental real runtime boundary | The `task build:dev` three-service topology, Broker isolation, and the shared Gateway/OPA lifecycle scenarios |
+| `integration` | `task integration:test` | Experimental real runtime boundary | The `task build:dev` three-service topology, kernel/network enforcement, Broker isolation, live Gateway/OPA transport and activation, Host Loopback, and resource lifecycle canaries |
 | `runtime` | `task runtime:test` | Complete experimental container gate | Policy, Gateway, Auth Broker image/protocol, and experimental integration coverage |
 
 The integration script reports named phase start/completion and elapsed time
 for preflight, fixture build, Context/cluster, credentials/Workspaces,
-Gateway/Broker/transport, policy review/activation, diagnostics, and lifecycle
-coverage. Unexpected failures name the active phase before bounded container
-diagnostics, while one cleanup owner still controls the complete fixture.
+Gateway/Broker/transport, live policy activation, attachment-scoped Host
+Loopback, runtime failure boundaries, and lifecycle. It is deliberately not a
+second semantic or presentation regression suite. `check-integration-scope.sh`
+fixes the phase set, bounds script and CLI-invocation growth, rejects command
+families owned by fast tests, verifies runtime-only canary markers, and proves
+pull-request CI reaches integration exactly once through `runtime`.
+Unexpected failures name the active phase before bounded container diagnostics,
+while one cleanup owner still controls the complete fixture.
 
 The base runtime check verifies its Git, HTTP, JSON, Python, SSH, GitHub CLI,
 AWS CLI, Claude Code 2.1.220, and Codex 0.147.0 baseline. The fast profile binds
@@ -532,16 +537,15 @@ The test suite has complementary levels:
   and missing common runtime failure declarations.
 - Reference-graph tests connect discover producers to act consumers by kind and exact field/argument declarations.
 - Opaque-ID round-trip tests pass discovery output unchanged into action input.
-- CWD-owned lifecycle integration tests prove that two roots receive distinct
-  containers, networks, and XDG homes while sharing only Gateway, OPA, and
-  public CA state. They also prove canonical ancestor lookup, container/network
-  recovery, explicit ancestor Workspace selection and current-CWD creation,
-  one-Workspace-per-canonical-root behavior under repeated and concurrent
-  creation, profile/spec drift recreation, concurrent entry convergence, and
-  exact selected deletion after partial runtime cleanup. A child `exit` is
-  verified as session detachment, not Workspace deletion; detached `delete` is
-  the normal external cleanup path and `delete --force` is the explicit
-  attached-session override.
+- CWD-owned lifecycle integration creates same-root/different-Context and
+  independent-root Workspaces, then proves their actual containers, networks,
+  and XDG homes are distinct while Gateway, OPA, and public CA state are
+  shared. It retains one partial container/network cleanup followed by exact
+  public deletion, principal-registry cleanup, cluster-down refusal while
+  Workspaces remain, and final owned-resource purge. Ancestor selection,
+  repeated/concurrent creation, drift reconciliation, child exit semantics,
+  and attachment guards are owned by deterministic domain, application,
+  infrastructure, and CLI tests.
 - Lifecycle target-safety tests exercise both Context flag placements for root
   entry, status, and delete; reject duplicate, explicit-empty, unknown, and
   stale selectors before handler, Workspace, or Docker I/O; bind a force
@@ -560,8 +564,8 @@ The test suite has complementary levels:
   compatibility is checked before per-Tobari resources exist.
 - Runtime-spec tests assert fixed CPU, memory, PID-count, and container-log
   options and the Tobari-owned lifetime command, include that contract in drift
-  hashing, and the Docker integration scenario inspects those limits after
-  creation and recovery.
+  hashing, and the Docker integration scenario inspects one live instance per
+  relevant runtime shape.
 - Context image tests cover manifest selection, built-in initialization, invalid image
   rejection, and the fact that project metadata cannot override the bound Context
   runtime image.
@@ -570,14 +574,15 @@ The test suite has complementary levels:
   digest inspection, source-digest drift, and unchanged image selection after
   build or promotion failure. They assert that built-in and explicit local
   bases do not request a registry pull.
-- The Docker integration scenario creates the current Context recipe, ensures
-  the embedded agent-ready base locally, verifies ready status and automatic
-  Context image promotion, then repeats the flow with an explicit local base
-  before cleanup.
-- Policy-learning integration projects baseline and learnable denials, proves
-  baseline denies stay out of the actionable queue, and exercises exact allow,
-  deny, reset, and re-review activation through reference-bound commands
-  without restarting any Tobari.
+- Runtime recipe initialization, local-base resolution, build execution,
+  compatibility inspection, promotion, and failure preservation are owned by
+  focused infrastructure, application, and CLI contract tests. They do not
+  repeat inside the general Docker integration scenario.
+- Policy-learning domain/application/CLI tests own baseline-versus-learnable
+  classification and the allow, deny, reset, re-review, template, and output
+  matrices. Docker integration retains one opaque-reference allow followed by
+  a retry through the same Workspace and stable OPA process to prove live
+  watched-bundle composition.
 - Policy-candidate domain and CLI tests fold repeated and concurrently emitted
   exact denials into one pending item, retain the latest evidence, count the
   required bounded observations, keep
@@ -703,8 +708,8 @@ The test suite has complementary levels:
   staged set, mixed HTTP/GraphQL final review, stale refresh, activation fault,
   authoritative revision receipt, and stable Workspace/OPA identities. Its
   answer key records zero routine external processing. Container integration
-  keeps both container IDs stable, confirms the receipt revision against
-  `cluster status`, and retries through the same running Workspace.
+  separately keeps the OPA and Workspace processes stable while one reviewed
+  effect becomes active and retries through the same running Workspace.
 - Experimental-profile Operator Console tests pin one valid typed snapshot before listen, exact
   `127.0.0.1:0` ownership, 256-bit bearer generation, loopback peer and exact
   Host/Origin/authentication gates, closed routes and methods, strict bounded
@@ -737,24 +742,24 @@ The test suite has complementary levels:
   opaque IDs but preserves ANSI control sequences and the raw digest boundary.
   `python3 scripts/test-pty-evidence.py` is the executable contract test and
   runs as part of `task check:fast`.
-- Context/project-principal integration creates same-root and overlapping-root
+- Context/project-principal integration creates same-root and independent-root
   Tobari in different Contexts, checks distinct owned Workspace and Gateway
-  network endpoints and non-overlapping dedicated networks,
-  stable IDs and homes, shared host-file effects, and proves an atomically updated
-  directory-mounted registry is visible without manually recreating Gateway,
-  denies learned permission when requested by another Context/project, and
-  checks registry cleanup after restart, recovery, and exact Context-bound
-  deletion. It also rejects unprivileged source binding/IP_FREEBIND attempts
-  and proves transparent connections select the exact source-bound principal.
+  network endpoints and non-overlapping dedicated networks, distinct homes,
+  shared same-root host-file effects, cross-Context/project handle rejection,
+  and exact registry cleanup after Context-bound deletion. Source spoofing,
+  stale registry, IP_FREEBIND, restart, and recovery permutations remain in
+  focused Gateway and recording-runner tests.
   Gateway unit tests separately reject retired managed-profile selectors before
   OPA or upstream I/O.
-- Auth Broker runtime integration inspects exactly one locked broker beside one
+- Auth Broker runtime integration inspects exactly one broker beside one
   Gateway and one OPA, verifies the separate control/runtime socket mounts and
   fixed resource/log bounds, unlocks through a synthetic host root key, issues
   different handles to Context-bound projects, proves an OPA denial performs no
-  resolution, rotates and revokes handles, restarts locked, re-unlocks, and
-  confirms that primary-secret canaries never appear in Workspace files,
-  environment, OPA input, audit, CLI output, or component logs.
+  resolution, rejects copied handles across real Workspaces, and confirms that
+  primary-secret canaries never appear in Workspace files, environment, host
+  state outside encrypted vaults, or component logs. Rotation, revocation,
+  locked restart, and protocol permutations are owned by focused Broker,
+  Gateway, root-key, application, and CLI tests.
 - Policy-boundary tests prove the normalized request authority and exact
   1-65535 port are required by the structured boundary, HTTPS on a non-default
   port remains learnable, invalid ports are terminal, and learned rules do not
@@ -769,18 +774,19 @@ The test suite has complementary levels:
   policy identity, every root is required, original bytes are forwarded once,
   unsupported envelopes fail before OPA learning or upstream I/O, and source,
   variables, arguments, and aliases remain absent from policy and audit.
-- Integration tests prove body variants aggregate into one exact candidate and
-  learned rule, allowed chunked uploads and SSE responses arrive incrementally,
-  and the fixed 8 MiB advertised-body cap still rejects an over-limit request.
+- Domain and Gateway tests prove body variants aggregate into one exact
+  candidate and learned rule. Integration retains only the transport facts:
+  allowed chunked uploads and SSE responses arrive incrementally, and the fixed
+  8 MiB advertised-body cap rejects an over-limit request before upstream I/O.
 - Runtime-asset and integration tests enforce fixed JSON log rotation for the
   shared Gateway, OPA, and Auth Broker services.
 - Runtime-asset and integration tests inspect the fixed shared-service CPU,
   memory-plus-swap, and PID ceilings.
-- Learned-policy integration passes opaque denial candidates unchanged into
-  exact machine allow and deny actions, proposes a single raw-segment template
-  only after two compatible distinct paths, verifies unseen safe IDs match and
-  parent/child/sibling/encoded/cross-scope canaries remain denied, resets the
-  decision, and rejects every prefix-rule/compaction shape.
+- Learned-policy domain, application, and CLI tests pass opaque denial
+  candidates unchanged into exact allow/deny/reset actions, infer only one safe
+  raw-segment template, and reject prefix/compaction and cross-scope shapes.
+  Docker integration retains one unchanged opaque candidate-to-allow round
+  trip solely to prove live activation and retry.
 - Negative tests prove rejection before side effects.
 - Release tests inspect actual artifacts and metadata, not only workflow text.
   Archive tests cover deterministic multi-entry order, canonical metadata,

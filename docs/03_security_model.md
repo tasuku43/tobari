@@ -1047,7 +1047,7 @@ reference-bound mutation.
 | Claim | Enforcement |
 |---|---|
 | Operator Console cannot become remote control or alternate policy authority | TCP4 `127.0.0.1:0` binding, exact peer/Host/Origin/bearer/method/path/content-type checks, fragment-to-sessionStorage bootstrap, no cookies/external assets, CSP/no-store headers, bounded strict bodies/timeouts, cancellation shutdown, inert staging, and one canonical reviewed-apply delegation with zero automatic retries |
-| No direct Tobari egress | Per-Tobari internal topology, forwarding-off sysctls, forward-drop and namespace-guard inspection, and Docker integration tests for raw TCP/UDP and outage paths |
+| No direct Tobari egress | Per-Tobari internal topology, forwarding-off sysctls, forward-drop and namespace-guard inspection, Gateway raw-protocol/UDP/QUIC call-count tests, and Docker integration canaries for raw TCP, control-API reachability, and Gateway/OPA outage paths |
 | Transparent denial performs no pre-policy external I/O | Non-recursive synthetic DNS tests plus Gateway DNS/resolver/upstream call-count canaries for denied, malformed, raw TCP, non-HTTP TLS, UDP, and QUIC traffic |
 | A network guard cannot expand into a persistent privileged service | Exact fixed helper argv, verified namespace ownership, read-only/no-mount/no-secret/no-Docker-socket assertions, sole `NET_ADMIN` capability, and guard-before-entry ordering tests |
 | Tobari cannot access OPA or peers | Separate internal networks and integration test |
@@ -1076,7 +1076,7 @@ reference-bound mutation.
 | Selected Context pup cannot become an ambient host helper | Runtime API and immutable-image checks, bounded semantic version observation, Docker-streamed executable digest, fixed argv/status/state capture, no mounts, and no host/base fallback |
 | Project metadata cannot become a second runtime boundary | Context-only image resolution, ignored-project-metadata regression test, and fixed runtime adapter |
 | OPA cannot rewrite Context policy | Read-only mount-spec test |
-| Tested host policy activates across Docker hosts | Docker-managed watched-bundle test, exact revision assertion, stable OPA identity, and Linux integration scenario |
+| Tested host policy activates across Docker hosts | Docker-managed watched-bundle and exact-revision adapter tests plus a live stable-OPA allow-and-retry integration canary |
 | CWD lifecycle actions use exact Tobari identity | Canonical-root, state, and label-validation tests |
 | One canonical root/Context pair has one Workspace | Pair-derived root-index hash naming, locked exact-pair checks, domain duplicate-index validation, same-root/different-Context tests, and concurrent explicit-creation tests |
 | Session exit cannot delete a Workspace | Child exit-status tests, host-stderr summary tests, and logical-state preservation after entry |
@@ -1086,7 +1086,7 @@ reference-bound mutation.
 | Denials support safe policy learning | Typed Context/project/scheme/host/port/method/path denial validation, fixed navigation-response schema, host-only session summary, secret canaries, and integration projection |
 | Learned permissions stay explicit and Context/project-bound | Context-scoped opaque-reference round trips, exact effect domain tests, Rego cross-Context/project canaries, preflight-before-aggregate activation tests, and Docker integration |
 | One bad Context cannot replace known-good policy | Strict host-paired source validation, mutex plus cross-process locking, digest-bound source journal recovery, serialized content-addressed aggregate generation, reserved namespace validation, whole-candidate OPA tests, atomic publish, rollback tests, and integration |
-| Context changes cannot mutate existing Tobari authority | Permanent instance binding, current-marker-only tests, Context-local runtime reconciliation, and restart integration |
+| Context changes cannot mutate existing Tobari authority | Permanent instance binding, current-marker-only domain/application tests, and Context-local recording-runner restart reconciliation |
 | Source access is exact and not a snapshot claim | Runtime spec/hash and Docker inspect tests, read-only mutation/Git-metadata failures, writable home/tmpfs canaries, no writable alias, and same-root host/read-write observation tests |
 | Preset guardrails cannot be bypassed | Default-plus-override method-decision tests for offline/reviewed-exact/get-only-reviewed/public-get-reviewed plus destination/method terminal zero-candidate/DNS/Broker/upstream canaries and exact-Deny precedence above broad Allow, baseline, learned, and Advanced policy |
 | Overlapping roots are not misrepresented as isolated | Product contract, Context-selected direct mounts, same-root/parent-child integration canaries, and absence of overlay/root-lock paths |

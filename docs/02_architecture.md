@@ -1153,6 +1153,12 @@ or row order.
 ## Architecture enforcement
 
 - Go architecture lint preserves layer direction and a thin `cmd/tobari`.
+- Each claim belongs to the lowest layer that can prove it without simulating
+  the subject of the claim. Domain owns pure semantics, application owns use-
+  case ordering, infrastructure owns exact adapter requests and filesystem
+  contracts, and CLI owns parsing and presentation. A higher layer keeps only
+  one representative composition canary; it does not repeat the lower layer's
+  input or output matrix.
 - Domain and application tests prove path, state, effect, and orchestration
   invariants without Docker.
 - Infrastructure tests use a recording command runner.
@@ -1166,4 +1172,8 @@ or row order.
   contract, checked cleanup, and cancellation settlement. Negative dependency
   and image tests prove managed profiles, arbitrary helpers, and provider CLIs
   inside Broker remain absent.
-- Docker integration tests prove actual network topology and lifecycle.
+- Docker integration tests prove only actual topology, kernel enforcement,
+  mounted/runtime isolation, live Gateway/OPA/Broker transport, watched policy
+  activation, attachment-scoped host relay, and resource lifecycle. The fast
+  harness rejects semantic command matrices and unreviewed growth in that
+  scenario.

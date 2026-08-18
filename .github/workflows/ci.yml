@@ -69,4 +69,3 @@ jobs:
       - name: Run the container runtime gate
         run: |
           ./scripts/check.sh runtime
-          ./scripts/check.sh integration
