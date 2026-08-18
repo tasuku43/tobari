@@ -175,6 +175,7 @@ func (s *Service) ProjectStatusInContext(ctx context.Context, contextName string
 			Task: tobari.TaskStatus, ContextState: observed.State, Exists: false,
 			Runtime: tobari.RuntimeDiagnosticUnknown, ContextName: observed.Name,
 			Attachment: tobari.AttachmentNotApplicable,
+			Bootstrap:  tobari.WorkspaceBootstrapReport{State: tobari.WorkspaceBootstrapNotConfigured},
 		}
 		return result, result.Validate()
 	}
@@ -184,9 +185,14 @@ func (s *Service) ProjectStatusInContext(ctx context.Context, contextName string
 		return tobari.ProjectStatus{}, fault.Wrap(fault.KindInternal, "state_read_failed", "project state could not be read", false, err)
 	}
 	if !found {
+		bootstrap, bootstrapErr := tobari.ResolveWorkspaceBootstrapReport("", manifest.Bootstrap)
+		if bootstrapErr != nil {
+			return tobari.ProjectStatus{}, bootstrapErr
+		}
 		result := tobari.ProjectStatus{
 			Task: tobari.TaskStatus, ContextState: tobari.ContextObservationPersisted, Exists: false, Runtime: tobari.RuntimeDiagnosticUnknown,
 			ContextID: manifest.ID, ContextName: manifest.Name, Attachment: tobari.AttachmentNotApplicable,
+			Bootstrap: bootstrap,
 		}
 		return result, result.Validate()
 	}
@@ -216,6 +222,10 @@ func (s *Service) ProjectStatusInContext(ctx context.Context, contextName string
 		Task: tobari.TaskStatus, ContextState: tobari.ContextObservationPersisted, Exists: true, Root: instance.Root, ID: instance.ID,
 		Home: home, ContextID: instance.ContextID, ContextName: instance.ContextName, Runtime: diagnostic,
 		Attachment: attachment,
+	}
+	result.Bootstrap, err = tobari.ResolveWorkspaceBootstrapReport(instance.BootstrapRevision, manifest.Bootstrap)
+	if err != nil {
+		return tobari.ProjectStatus{}, fault.Wrap(fault.KindContract, "invalid_bootstrap_status", "Workspace bootstrap status is invalid", false, err)
 	}
 	if err := result.Validate(); err != nil {
 		return tobari.ProjectStatus{}, fault.Wrap(fault.KindContract, "invalid_status_contract", "project status is invalid", false, err)

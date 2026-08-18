@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"strings"
 	"testing"
 
@@ -15,7 +16,7 @@ func TestContextCreateWizardCollectsNameFilesystemAndEveryMethodDecision(t *test
 	wizard := &terminalContextCreateWizard{mode: nil, style: false}
 	// name, filesystem=read-write, default=exact-review, GET=allow, then
 	// inherit the exact-review default for the remaining eight standard methods.
-	input := "coding\n1\ne\na\n" + strings.Repeat("\n", len(contextCreateHTTPMethods)-1)
+	input := "coding\n1\ne\na\n" + strings.Repeat("\n", len(contextCreateHTTPMethods)-1) + "1\n"
 	var output bytes.Buffer
 	selection, err := wizard.Compose(context.Background(), strings.NewReader(input), &output)
 	if err != nil {
@@ -26,10 +27,23 @@ func TestContextCreateWizardCollectsNameFilesystemAndEveryMethodDecision(t *test
 		len(selection.MethodPolicy.Overrides) != 1 || selection.MethodPolicy.Overrides[0] != (tobari.PolicyPresetMethodOverride{Method: "GET", Decision: tobari.PolicyPresetMethodAllow}) {
 		t.Fatalf("wizard selection = %+v", selection)
 	}
-	for _, required := range []string{"Context name:", "Project source access", "Other methods (default)", "GET", "TRACE"} {
+	for _, required := range []string{"Context name:", "Project source access", "Other methods (default)", "GET", "TRACE", "Workspace bootstrap"} {
 		if !strings.Contains(output.String(), required) {
 			t.Errorf("wizard output lacks %q: %q", required, output.String())
 		}
+	}
+}
+
+func TestContextCreateWizardCanSelectAWSBootstrapProfile(t *testing.T) {
+	t.Parallel()
+	wizard := &terminalContextCreateWizard{mode: nil, style: false}
+	input := "coding\n1\ne\n" + strings.Repeat("\n", len(contextCreateHTTPMethods)) + "2\nengineering\n"
+	selection, err := wizard.Compose(context.Background(), strings.NewReader(input), io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if selection.AWSBootstrapProfile != "engineering" {
+		t.Fatalf("AWS bootstrap profile = %q", selection.AWSBootstrapProfile)
 	}
 }
 
@@ -39,12 +53,12 @@ func TestContextCreateWizardRawUsesOneFilesystemScreenAndOneMethodMatrix(t *test
 	wizard := &terminalContextCreateWizard{mode: mode, style: false}
 	var output bytes.Buffer
 	selection, err := wizard.Compose(
-		context.Background(), strings.NewReader("coding\n\r\x1b[Bap"), &output,
+		context.Background(), strings.NewReader("coding\n\r\x1b[Bap\r"), &output,
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if mode.entered != 2 || mode.restored != 2 {
+	if mode.entered != 3 || mode.restored != 3 {
 		t.Fatalf("raw mode entered/restored = %d/%d", mode.entered, mode.restored)
 	}
 	if selection.SourceAccess != tobari.ContextSourceAccessReadWrite || len(selection.MethodPolicy.Overrides) != 1 ||
@@ -78,7 +92,7 @@ func TestArgumentFreeContextCreateIsTheOnlyWizardMode(t *testing.T) {
 	if !contextCreateInputsOmitted(empty) {
 		t.Fatal("argument-free create did not select wizard mode")
 	}
-	for _, name := range []string{"--name", "--image", "--mode", "--source-access", "--policy-preset", "--native-readiness", "--format"} {
+	for _, name := range []string{"--name", "--image", "--mode", "--source-access", "--policy-preset", "--native-readiness", "--bootstrap-aws-profile", "--format"} {
 		inputs := ParsedInputs{provided: map[string]bool{name: true}}
 		if contextCreateInputsOmitted(inputs) {
 			t.Errorf("explicit %s unexpectedly selected wizard mode", name)

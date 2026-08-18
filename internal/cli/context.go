@@ -206,6 +206,91 @@ func selectedConfigurationContext(ctx context.Context, inputs ParsedInputs) (str
 	return executionContextName(ctx), nil
 }
 
+func runConfigBootstrapAWS(ctx context.Context, c *CLI, command CommandSpec, intent operation.Intent, inputs ParsedInputs) int {
+	if c == nil {
+		return ExitInternal
+	}
+	if c.context == nil {
+		return c.fail(ctx, missingRuntimeFault())
+	}
+	format, err := parseSuccessFormat(inputs.One("--format"))
+	if err != nil {
+		return c.failUsage(ctx, "invalid_arguments", err.Error()+"; usage: "+command.Usage(), "help config bootstrap aws", "Correct the command arguments.")
+	}
+	contextName, err := selectedConfigurationContext(ctx, inputs)
+	if err != nil {
+		return c.fail(ctx, err)
+	}
+	profile := inputs.One("--profile")
+	remove := inputs.Provided("--remove")
+	expectedRevision := ""
+	if !inputs.Provided("--profile") && !inputs.Provided("--refresh") && !remove {
+		if format != successFormatText || invocationErrorFormat(ctx) == errorFormatJSON || c.tobari == nil || !c.tobari.IsInteractive(c.In, c.Err) {
+			return configurationWizardUnavailable(ctx, c, command)
+		}
+		current, showErr := c.context.Show(ctx, contextName)
+		if showErr != nil {
+			return c.fail(ctx, showErr)
+		}
+		contextName = current.Name
+		chooser := newContextConfigurationWizardWithStyle(!c.noColor)
+		options := []configurationWizardOption{{label: "Configure profile", description: "Normalize a host IAM Identity Center profile.", value: "configure"}}
+		if current.Bootstrap.Resolved().State == tobari.ContextBootstrapConfigured {
+			options = append(options, configurationWizardOption{label: "Refresh snapshot", description: "Re-read the currently selected host profile.", value: "refresh"}, configurationWizardOption{label: "Remove recipe", description: "Keep existing Workspaces unchanged.", value: "remove"})
+		}
+		index, chooseErr := chooser.choose(ctx, c.In, c.Err, configurationWizardMenu{title: "Tobari · AWS bootstrap", contextName: current.Name, current: current.Bootstrap.Resolved().State, information: []string{"Only future Workspaces receive the snapshot once.", "Credentials and SSO caches are never read."}, prompt: "Action", options: options})
+		if chooseErr != nil {
+			return c.fail(ctx, normalizeConfigurationWizardError(command.Path, chooseErr))
+		}
+		action := options[index].value
+		remove = action == "remove"
+		if action == "configure" {
+			profile, err = readConfigurationWizardValue(ctx, c.In, c.Err, "AWS profile", 64)
+			if err != nil {
+				return c.fail(ctx, normalizeConfigurationWizardError(command.Path, err))
+			}
+			profile = strings.TrimSpace(profile)
+		}
+		information := []string{"Existing Workspace homes remain unchanged."}
+		if !remove {
+			preview, previewErr := c.context.PreviewAWSBootstrap(ctx, contextName, profile)
+			if previewErr != nil {
+				return c.fail(ctx, previewErr)
+			}
+			expectedRevision = preview.Candidate.Revision
+			changes := "none"
+			if len(preview.Changes) > 0 {
+				changes = strings.Join(preview.Changes, ", ")
+			}
+			currentRevision := preview.Current.Resolved().Revision
+			if currentRevision == "" {
+				currentRevision = "not configured"
+			}
+			information = append(information, "Current revision: "+currentRevision, "Candidate revision: "+preview.Candidate.Revision, "Semantic changes: "+changes)
+		} else {
+			information = append(information, "The future-Workspace recipe will be removed.")
+		}
+		confirm, confirmErr := chooser.choose(ctx, c.In, c.Err, configurationWizardMenu{title: "Tobari · Review AWS bootstrap", contextName: contextName, current: current.Bootstrap.Resolved().State, information: information, prompt: "Commit", options: []configurationWizardOption{{label: "Apply", description: "Commit this Context recipe change.", value: "apply"}, {label: "Cancel", description: "Leave the Context unchanged.", value: "cancel"}}})
+		if confirmErr != nil {
+			return c.fail(ctx, normalizeConfigurationWizardError(command.Path, confirmErr))
+		}
+		if confirm != 0 {
+			return c.fail(ctx, context.Canceled)
+		}
+	}
+	intent.Target = operation.TargetRef{Kind: tobari.ContextBootstrapTargetKind, ID: tobari.ContextBootstrapTargetID}
+	intent.Impact = command.Agent.Mutation.Impact
+	result, err := c.context.ConfigureAWSBootstrap(ctx, intent, contextName, profile, expectedRevision, remove)
+	if err != nil {
+		return c.fail(ctx, err)
+	}
+	output, err := renderContextReport(result, format, format == successFormatText && humanStyleAllowed(ctx, c, c.Out))
+	if err != nil {
+		return c.fail(ctx, err)
+	}
+	return c.emitMutationResult(ctx, command, output)
+}
+
 func shellSettingInputsOmitted(inputs ParsedInputs) bool {
 	return !inputs.Provided("--variable") && !inputs.Provided("--source") && !inputs.Provided("--value")
 }
@@ -279,19 +364,36 @@ func runContextCreate(
 		name = selection.Name
 		sourceAccess = selection.SourceAccess
 		policy := selection.MethodPolicy.Clone()
+		var bootstrap *tobari.ContextBootstrapSnapshot
+		if selection.AWSBootstrapProfile != "" {
+			prepared, prepareErr := c.context.PrepareAWSBootstrap(ctx, selection.AWSBootstrapProfile)
+			if prepareErr != nil {
+				return c.fail(ctx, prepareErr)
+			}
+			bootstrap = &prepared
+		}
 		result, err = c.context.CreateWithComposition(
 			ctx, intent, name, inputs.One("--image"), mode, sourceAccess,
 			tobari.ContextCreateComposition{
 				PolicyPresetOrigin: inputs.One("--policy-preset"),
 				NativeReadiness:    tobari.ContextNativeReadiness(inputs.One("--native-readiness")),
 				MethodPolicy:       &policy,
+				Bootstrap:          bootstrap,
 			},
 		)
 	} else {
 		if name == "" {
 			return c.failUsage(ctx, "invalid_arguments", "--name is required in direct mode; usage: "+command.Usage(), "help context create", "Supply --name or run the command without arguments to open the wizard.")
 		}
-		result, err = c.context.Create(ctx, intent, name, inputs.One("--image"), mode, sourceAccess, inputs.One("--policy-preset"), inputs.One("--native-readiness"))
+		if inputs.Provided("--bootstrap-aws-profile") {
+			prepared, prepareErr := c.context.PrepareAWSBootstrap(ctx, inputs.One("--bootstrap-aws-profile"))
+			if prepareErr != nil {
+				return c.fail(ctx, prepareErr)
+			}
+			result, err = c.context.CreateWithComposition(ctx, intent, name, inputs.One("--image"), mode, sourceAccess, tobari.ContextCreateComposition{PolicyPresetOrigin: inputs.One("--policy-preset"), NativeReadiness: tobari.ContextNativeReadiness(inputs.One("--native-readiness")), Bootstrap: &prepared})
+		} else {
+			result, err = c.context.Create(ctx, intent, name, inputs.One("--image"), mode, sourceAccess, inputs.One("--policy-preset"), inputs.One("--native-readiness"))
+		}
 	}
 	if err != nil {
 		return c.fail(ctx, err)
@@ -304,7 +406,7 @@ func runContextCreate(
 }
 
 func contextCreateInputsOmitted(inputs ParsedInputs) bool {
-	for _, name := range []string{"--name", "--image", "--mode", "--source-access", "--policy-preset", "--native-readiness", "--format"} {
+	for _, name := range []string{"--name", "--image", "--mode", "--source-access", "--policy-preset", "--native-readiness", "--bootstrap-aws-profile", "--format"} {
 		if inputs.Provided(name) {
 			return false
 		}
@@ -498,6 +600,20 @@ type contextSummaryJSONProjection struct {
 	NativeReadiness      tobari.ContextNativeReadiness   `json:"native_readiness"`
 	MethodPolicy         tobari.PolicyPresetMethodPolicy `json:"method_policy"`
 	RuntimeStatus        tobari.ContextRuntimeStatus     `json:"runtime_status,omitempty"`
+	Bootstrap            contextBootstrapJSONProjection  `json:"bootstrap"`
+}
+
+type contextBootstrapJSONProjection struct {
+	State      string   `json:"state"`
+	Generation uint64   `json:"generation"`
+	Revision   string   `json:"revision"`
+	Adapters   []string `json:"adapters"`
+	AWSProfile string   `json:"aws_profile"`
+}
+
+func contextBootstrapJSON(report tobari.ContextBootstrapReport) contextBootstrapJSONProjection {
+	report = report.Resolved()
+	return contextBootstrapJSONProjection{State: report.State, Generation: report.Generation, Revision: report.Revision, Adapters: report.Adapters, AWSProfile: report.AWSProfile}
 }
 
 type contextReportDocument struct {
@@ -526,6 +642,7 @@ type contextReportJSONProjection struct {
 	Runtime              tobari.ContextRuntimeReport             `json:"runtime"`
 	Cluster              tobari.ContextClusterStatus             `json:"cluster"`
 	Authentication       contextAuthenticationJSONProjection     `json:"authentication"`
+	Bootstrap            contextBootstrapJSONProjection          `json:"bootstrap"`
 }
 
 type contextAuthenticationJSONProjection struct {
@@ -575,6 +692,7 @@ func contextReportJSONDocument(result tobari.ContextReport) contextReportDocumen
 			ShellEnvironment: result.ShellEnvironment, GitIdentity: result.GitIdentity, Stores: optionalContextStores(result),
 			Runtime: result.Runtime, Cluster: result.Cluster,
 			Authentication: authentication,
+			Bootstrap:      contextBootstrapJSON(result.Bootstrap),
 		},
 	}
 }
@@ -601,7 +719,7 @@ func contextReportCommand(task string) string {
 	return map[string]string{
 		tobari.TaskContextShow: "context show", tobari.TaskContextCreate: "context create",
 		tobari.TaskContextUse: "context use", tobari.TaskConfigShell: "config shell",
-		tobari.TaskConfigGit: "config git", tobari.TaskRuntimeInit: "runtime init",
+		tobari.TaskConfigGit: "config git", tobari.TaskConfigBootstrapAWS: "config bootstrap aws", tobari.TaskRuntimeInit: "runtime init",
 		tobari.TaskRuntimeBuild: "runtime build",
 	}[task]
 }
@@ -623,6 +741,7 @@ func renderContextList(result tobari.ContextListResult, format successFormat, co
 				SourceAccess: item.SourceAccess, RuntimeStatus: item.RuntimeStatus,
 				PolicyPresetOrigin: item.PolicyPresetOrigin, PolicyPresetRevision: item.PolicyPresetRevision,
 				NativeReadiness: nativeReadiness, MethodPolicy: item.MethodPolicy,
+				Bootstrap: contextBootstrapJSON(item.Bootstrap),
 			})
 		}
 		output, err := marshalCommandJSON("context list", document)
@@ -653,6 +772,12 @@ func renderContextList(result tobari.ContextListResult, format successFormat, co
 		writeContextCardValue(&output, color, "Runtime", string(item.RuntimeStatus), humanStatusToken(string(item.RuntimeStatus)))
 		writeContextCardValue(&output, color, "Image", safeExternalText(item.Image), styleText)
 		writeContextCardValue(&output, color, "Profile", string(item.PolicyMode)+" · agent "+safeExternalText(item.AgentProfile), styleText)
+		bootstrap := item.Bootstrap.Resolved()
+		bootstrapValue := bootstrap.State
+		if bootstrap.State == tobari.ContextBootstrapConfigured {
+			bootstrapValue = "AWS " + safeExternalText(bootstrap.AWSProfile) + " · generation " + fmt.Sprintf("%d", bootstrap.Generation) + " · " + bootstrap.Revision[:12]
+		}
+		writeContextCardValue(&output, color, "Bootstrap", bootstrapValue, humanStatusToken(bootstrap.State))
 		output.WriteString("\n")
 	}
 	return []byte(output.String()), nil
@@ -729,6 +854,14 @@ func renderContextReportText(result tobari.ContextReport, color bool) []byte {
 		writeStyledLine(&output, color, "Git user.name:", safeExternalText(*result.GitIdentity.Name), styleText)
 		writeStyledLine(&output, color, "Git user.email:", safeExternalText(*result.GitIdentity.Email), styleText)
 	}
+	bootstrap := result.Bootstrap.Resolved()
+	writeStyledLine(&output, color, "Workspace bootstrap:", bootstrap.State, humanStatusToken(bootstrap.State))
+	if bootstrap.State == tobari.ContextBootstrapConfigured {
+		writeStyledLine(&output, color, "Bootstrap adapter:", tobari.ContextBootstrapAdapterAWS, styleText)
+		writeStyledLine(&output, color, "AWS profile:", safeExternalText(bootstrap.AWSProfile), styleText)
+		writeStyledLine(&output, color, "Bootstrap generation:", fmt.Sprintf("%d", bootstrap.Generation), styleText)
+		writeStyledLine(&output, color, "Bootstrap revision:", bootstrap.Revision, styleText)
+	}
 	if result.Task == tobari.TaskContextShow {
 		if contextAuthenticationMode(result.Authentication) == tobari.ContextAuthenticationModeNative {
 			writeStyledLine(&output, color, "Authentication:", "native Workspace-owned", styleSuccess)
@@ -794,6 +927,9 @@ func renderContextReportText(result tobari.ContextReport, color bool) []byte {
 		writeStyledCommandLine(&output, color, "Next:", "start a new session with ", "`tobari`", "; running sessions are unchanged.")
 	case tobari.TaskConfigGit:
 		writeStyledCommandLine(&output, color, "Next:", "re-enter a matching Workspace with ", "`tobari`", " to reconcile its Git fallback; this command does not change running sessions.")
+	case tobari.TaskConfigBootstrapAWS:
+		writeStyledLine(&output, color, "Scope:", "future Workspaces only; existing Workspace homes are unchanged", styleText)
+		writeStyledCommandLine(&output, color, "Next:", "create a new Workspace with ", "`tobari`", " to apply this snapshot once.")
 	case tobari.TaskRuntimeBuild:
 		writeStyledLine(&output, color, "Note:", "existing Workspaces keep their home. On the next `tobari`, Tobari recreates only the work container when this runtime image changes the spec.", styleText)
 		writeStyledCommandLine(&output, color, "Next:", "run ", "`tobari`", " from a project directory.")

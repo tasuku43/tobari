@@ -938,6 +938,23 @@ OPA allow.
 
 ## Deliberate non-goals
 
+### Typed Workspace bootstrap is a Context recipe, not host inheritance
+
+A Context may snapshot a closed, schema-versioned, secret-free subset of host
+tool configuration for one-time projection into future Workspace homes. Each
+adapter owns exact source paths, selected fields, normalization, semantic
+revision, and hostile-input tests. The first adapter accepts one AWS IAM
+Identity Center profile plus its referenced SSO session from `~/.aws/config`.
+It never reads credentials, token caches, helpers, executable selections,
+includes, arbitrary dotfiles, or alternate paths.
+
+Projection occurs only while a new logical Workspace is being created and is
+recorded before that Workspace becomes authoritative. Context refresh changes
+only the recipe for future Workspaces. Existing Workspace homes are never
+synchronized or rewritten and retain their create-time revision. This grants
+no network permission and transfers no authentication authority; native login
+remains owned by each Workspace home.
+
 MVP does not support multiple clusters, process-level identity, a per-project
 static baseline policy, non-HTTP forwarding or policy, recursive DNS, Git SSH,
 provider-specific policy semantics, Git-over-HTTPS credential helpers,

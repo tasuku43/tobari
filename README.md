@@ -83,7 +83,7 @@ Auth Broker identities from their release lock.
 ## Quick Start
 
 ```sh
-# Interactively choose the name, source access, and HTTP method policy.
+# Interactively choose the name, source access, HTTP method policy, and optional typed bootstrap.
 tobari context create
 
 # Or create the envelope deterministically for automation.
@@ -91,6 +91,9 @@ tobari context create --name default \
   --source-access read-write \
   --policy-preset builtin/agent-ready \
   --native-readiness enabled
+
+# Optionally snapshot one secret-free AWS IAM Identity Center profile for new Workspaces.
+tobari config bootstrap aws --profile engineering
 
 # Reconcile the one installation-local Gateway/OPA/Auth Broker cluster.
 tobari cluster up
@@ -102,7 +105,8 @@ tobari
 
 The argument-free command requires terminal stdin/stderr and text output. It
 asks for the Context name, source access, and `allow` / `exact_review` / `deny`
-for the extension-method default and each standard HTTP method, then creates
+for the extension-method default and each standard HTTP method, then optionally
+selects one typed AWS IAM Identity Center bootstrap profile and creates
 once. Any explicit input selects direct mode and requires `--name`; redirected
 and JSON argument-free invocations fail before mutation.
 
@@ -133,6 +137,7 @@ A Context permanently binds every Workspace created with its stable ID to:
 - one snapshotted policy-preset origin and SHA-256 revision;
 - guided or Advanced policy mode;
 - narrow shell/Git presentation fallbacks;
+- an optional secret-free create-only Workspace bootstrap snapshot;
 - separately stored policy and encrypted broker-vault boundaries.
 
 The manifest contains no secret, root key, broker vault path, or handle.
@@ -144,6 +149,7 @@ tobari context list
 tobari context show --name default
 tobari context use --name default
 tobari context delete --name disposable
+tobari config bootstrap aws --refresh --context default
 
 # The same root can have another independent Context-bound Workspace.
 tobari --context restricted

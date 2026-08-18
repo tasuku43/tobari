@@ -17,6 +17,7 @@ Shell TERM: default
 Git identity: literal
 Git user.name: Review Bot
 Git user.email: review@example.com
+Workspace bootstrap: not_configured
 Runtime: official (official)
 Runtime base: tobari-runtime:base
 Tip: this Context is using the base runtime. For ongoing work, run `tobari runtime init`, edit the Dockerfile, then run `tobari runtime build` on the host.

@@ -40,6 +40,33 @@ type composedContextRuntimePort interface {
 	CreateContextWithComposition(context.Context, string, string, tobari.ContextPolicyMode, tobari.ContextSourceAccess, tobari.ContextCreateComposition) (tobari.ContextReport, error)
 }
 
+type contextAWSBootstrapRuntimePort interface {
+	PrepareContextAWSBootstrap(context.Context, string) (tobari.ContextBootstrapSnapshot, error)
+	PreviewContextAWSBootstrap(context.Context, string, string) (tobari.ContextBootstrapPreview, error)
+	ConfigureContextAWSBootstrap(context.Context, string, string, string, bool) (tobari.ContextReport, error)
+}
+
+func (s *Service) PreviewAWSBootstrap(ctx context.Context, contextName, profile string) (tobari.ContextBootstrapPreview, error) {
+	if err := s.requireRuntime(); err != nil {
+		return tobari.ContextBootstrapPreview{}, err
+	}
+	runtime, ok := s.runtime.(contextAWSBootstrapRuntimePort)
+	if !ok {
+		return tobari.ContextBootstrapPreview{}, fault.New(fault.KindInternal, "missing_runtime", "Context bootstrap runtime is unavailable", false)
+	}
+	preview, err := runtime.PreviewContextAWSBootstrap(ctx, contextName, profile)
+	if errors.Is(err, tobari.ErrContextBootstrapNotConfigured) {
+		return tobari.ContextBootstrapPreview{}, fault.New(fault.KindNotFound, "bootstrap_not_configured", "the selected Context has no AWS bootstrap snapshot to refresh", false, fault.NextAction{Command: "help config bootstrap aws", Reason: "Configure an IAM Identity Center profile first."})
+	}
+	if err != nil {
+		return tobari.ContextBootstrapPreview{}, fault.Wrap(fault.KindRejected, "aws_bootstrap_source_rejected", "Host AWS IAM Identity Center configuration could not be normalized", false, err, fault.NextAction{Command: "help config bootstrap aws", Reason: "Use a strict IAM Identity Center profile without credentials, helpers, or unsupported directives."})
+	}
+	if err := preview.Validate(); err != nil {
+		return tobari.ContextBootstrapPreview{}, fault.Wrap(fault.KindContract, "invalid_bootstrap_preview", "AWS bootstrap preview is invalid", false, err)
+	}
+	return preview, nil
+}
+
 type contextDeleteRuntimePort interface {
 	DeleteContext(context.Context, string) (tobari.ContextDeleteResult, error)
 }
@@ -80,6 +107,11 @@ func (ownedPolicy) Check(_ context.Context, intent operation.Intent) error {
 		intent.Target.ID == tobari.ContextGitIdentityTargetID {
 		return nil
 	}
+	if intent.Effect == operation.EffectWrite &&
+		intent.Target.Kind == tobari.ContextBootstrapTargetKind &&
+		intent.Target.ID == tobari.ContextBootstrapTargetID {
+		return nil
+	}
 	if intent.Effect == operation.EffectCreate && intent.Target.Kind == tobari.ContextRuntimeTargetKind &&
 		intent.Target.ParentID == tobari.ActiveContextRuntimeID && intent.Target.ID == "" {
 		return nil
@@ -89,6 +121,82 @@ func (ownedPolicy) Check(_ context.Context, intent operation.Intent) error {
 		return nil
 	}
 	return fault.New(fault.KindRejected, "mutation_rejected", "Context mutation target is not owned by Tobari", false)
+}
+
+// PrepareAWSBootstrap normalizes one host AWS IAM Identity Center profile into
+// a secret-free snapshot suitable for Context creation. The application never
+// receives credential or token-cache bytes.
+func (s *Service) PrepareAWSBootstrap(ctx context.Context, profile string) (tobari.ContextBootstrapSnapshot, error) {
+	if err := s.requireRuntime(); err != nil {
+		return tobari.ContextBootstrapSnapshot{}, err
+	}
+	if profile == "" {
+		return tobari.ContextBootstrapSnapshot{}, fault.New(fault.KindInvalidInput, "invalid_aws_bootstrap_profile", "AWS bootstrap profile is required", false, fault.NextAction{Command: "help config bootstrap aws", Reason: "Choose one IAM Identity Center profile from the host AWS shared config."})
+	}
+	runtime, ok := s.runtime.(contextAWSBootstrapRuntimePort)
+	if !ok {
+		return tobari.ContextBootstrapSnapshot{}, fault.New(fault.KindInternal, "missing_runtime", "Context bootstrap runtime is unavailable", false, fault.NextAction{Command: "doctor", Reason: "Configure the Tobari runtime."})
+	}
+	snapshot, err := runtime.PrepareContextAWSBootstrap(ctx, profile)
+	if err != nil {
+		return tobari.ContextBootstrapSnapshot{}, fault.Wrap(fault.KindRejected, "aws_bootstrap_source_rejected", "Host AWS IAM Identity Center configuration could not be normalized", false, err, fault.NextAction{Command: "help config bootstrap aws", Reason: "Use a strict IAM Identity Center profile without credentials, helpers, or unsupported directives."})
+	}
+	if err := snapshot.Validate(); err != nil {
+		return tobari.ContextBootstrapSnapshot{}, fault.Wrap(fault.KindContract, "invalid_bootstrap_snapshot", "AWS bootstrap snapshot is invalid", false, err)
+	}
+	return snapshot, nil
+}
+
+// ConfigureAWSBootstrap replaces, refreshes, or removes the AWS recipe used by
+// future Workspaces. Existing Workspace homes are outside this mutation.
+func (s *Service) ConfigureAWSBootstrap(ctx context.Context, intent operation.Intent, contextName, profile, expectedRevision string, remove bool) (tobari.ContextReport, error) {
+	if err := s.requireRuntime(); err != nil {
+		return tobari.ContextReport{}, err
+	}
+	if contextName != "" {
+		if err := tobari.ValidateName(contextName); err != nil {
+			return tobari.ContextReport{}, fault.Wrap(fault.KindInvalidInput, "invalid_context_name", "Context name is invalid", false, err, fault.NextAction{Command: "context list", Reason: "Choose a named Context from the local collection."})
+		}
+	}
+	if remove && profile != "" {
+		return tobari.ContextReport{}, fault.New(fault.KindInvalidInput, "invalid_aws_bootstrap_change", "AWS bootstrap removal cannot select a profile", false, fault.NextAction{Command: "help config bootstrap aws", Reason: "Choose configure/refresh or remove."})
+	}
+	runtime, ok := s.runtime.(contextAWSBootstrapRuntimePort)
+	if !ok {
+		return tobari.ContextReport{}, fault.New(fault.KindInternal, "missing_runtime", "Context bootstrap runtime is unavailable", false, fault.NextAction{Command: "doctor", Reason: "Configure the Tobari runtime."})
+	}
+	request := execution.Request{Intent: intent, ExpectedCommand: intent.Command, ExpectedEffect: operation.EffectWrite, ExpectedTarget: operation.TargetRef{Kind: tobari.ContextBootstrapTargetKind, ID: tobari.ContextBootstrapTargetID}, ExpectedImpact: intent.Impact}
+	var result tobari.ContextReport
+	err := s.withLifecycleLock(ctx, func(lifecycleContext context.Context) error {
+		return s.mutator.Invoke(lifecycleContext, request, func(actionContext context.Context, _ operation.Intent) error {
+			configured, configureErr := runtime.ConfigureContextAWSBootstrap(actionContext, contextName, profile, expectedRevision, remove)
+			switch {
+			case errors.Is(configureErr, tobari.ErrContextNotFound):
+				return fault.New(fault.KindNotFound, "context_not_found", "the named Context does not exist", false, fault.NextAction{Command: "context list", Reason: "Choose an existing Context."})
+			case errors.Is(configureErr, tobari.ErrContextBootstrapNotConfigured):
+				return fault.New(fault.KindNotFound, "bootstrap_not_configured", "the selected Context has no AWS bootstrap snapshot to refresh", false, fault.NextAction{Command: "help config bootstrap aws", Reason: "Configure an IAM Identity Center profile first."})
+			case errors.Is(configureErr, tobari.ErrContextBootstrapSourceChanged):
+				return fault.New(fault.KindRejected, "bootstrap_source_changed", "Host AWS configuration changed during review; no Context change was applied", true, fault.NextAction{Command: "config bootstrap aws", Reason: "Review a fresh semantic diff before applying."})
+			case configureErr != nil:
+				return fault.Wrap(fault.KindRejected, "config_bootstrap_failed", "Context AWS bootstrap could not be changed", false, configureErr, fault.NextAction{Command: "context show", Reason: "Inspect the current future-Workspace bootstrap recipe."})
+			}
+			if configured.Task != tobari.TaskConfigBootstrapAWS || configured.ContextState != tobari.ContextObservationPersisted {
+				return fault.New(fault.KindContract, "invalid_context_report", "Context bootstrap report is invalid", false, fault.NextAction{Command: "context show", Reason: "Reconcile the confirmed Context bootstrap change."})
+			}
+			if remove && configured.Bootstrap.Resolved().State != tobari.ContextBootstrapNotConfigured {
+				return fault.New(fault.KindContract, "invalid_context_report", "Context bootstrap removal was not confirmed", false)
+			}
+			if !remove && configured.Bootstrap.Resolved().State != tobari.ContextBootstrapConfigured {
+				return fault.New(fault.KindContract, "invalid_context_report", "Context bootstrap configuration was not confirmed", false)
+			}
+			result = configured
+			return nil
+		})
+	})
+	if err != nil {
+		return tobari.ContextReport{}, err
+	}
+	return result, nil
 }
 
 // ConfigureShell changes one or more distinct allowlisted shell variable policies for one
@@ -403,7 +511,7 @@ func (s *Service) CreateWithComposition(
 		var createErr error
 		if runtime, ok := s.runtime.(composedContextRuntimePort); ok {
 			created, createErr = runtime.CreateContextWithComposition(actionContext, name, image, mode, sourceAccess, composition.Clone())
-		} else if composition.MethodPolicy == nil {
+		} else if composition.MethodPolicy == nil && composition.Bootstrap == nil {
 			if runtime, ok := s.runtime.(policyPresetContextRuntimePort); ok {
 				created, createErr = runtime.CreateContextWithPreset(actionContext, name, image, mode, sourceAccess, composition.PolicyPresetOrigin, composition.NativeReadiness)
 			} else if composition.PolicyPresetOrigin == tobari.DefaultPolicyPresetOrigin && composition.NativeReadiness == tobari.ContextNativeReadinessEnabled {
@@ -438,6 +546,10 @@ func (s *Service) CreateWithComposition(
 		if contractErr == nil && composition.MethodPolicy != nil &&
 			!reflect.DeepEqual(created.MethodPolicy, *composition.MethodPolicy) {
 			contractErr = fmt.Errorf("created Context method policy does not match the request")
+		}
+		if contractErr == nil && composition.Bootstrap != nil &&
+			!reflect.DeepEqual(created.Bootstrap.Resolved(), tobari.ContextBootstrapReportFrom(composition.Bootstrap)) {
+			contractErr = fmt.Errorf("created Context bootstrap does not match the request")
 		}
 		if contractErr != nil {
 			return fault.Wrap(

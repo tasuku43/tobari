@@ -1583,7 +1583,14 @@ type projectStatusOutput struct {
 	ContextID    *string                        `json:"context_id"`
 	Runtime      string                         `json:"runtime"`
 	Attachment   string                         `json:"attachment"`
+	Bootstrap    projectBootstrapStatusOutput   `json:"bootstrap"`
 	NextArgv     []string                       `json:"next_argv"`
+}
+
+type projectBootstrapStatusOutput struct {
+	State           string `json:"state"`
+	AppliedRevision string `json:"applied_revision"`
+	CurrentRevision string `json:"current_revision"`
 }
 
 type projectStatusDocument struct {
@@ -1603,11 +1610,13 @@ func renderProjectStatusWithColor(result tobari.ProjectStatus, format successFor
 	if result.ContextState != tobari.ContextObservationSyntheticDefault {
 		nextArgv = append(nextArgv, "--context", result.ContextName)
 	}
+	bootstrap := result.Bootstrap.Resolved()
 	value := projectStatusOutput{
 		ContextState: result.ContextState, Exists: result.Exists, Root: safeExternalText(result.Root), ID: result.ID,
 		Home: safeExternalText(result.Home), Context: safeExternalText(result.ContextName), ContextID: optionalString(result.ContextID),
 		Runtime: string(result.Runtime), Attachment: string(result.Attachment),
-		NextArgv: nextArgv,
+		Bootstrap: projectBootstrapStatusOutput{State: bootstrap.State, AppliedRevision: bootstrap.AppliedRevision, CurrentRevision: bootstrap.CurrentRevision},
+		NextArgv:  nextArgv,
 	}
 	nextCommand := strings.Join(value.NextArgv, " ")
 	nextRecovery := ProgramName
@@ -1629,6 +1638,7 @@ func renderProjectStatusWithColor(result tobari.ProjectStatus, format successFor
 			output.row("Context state", string(result.ContextState), humanStatusToken(string(result.ContextState)))
 			output.row("Context ID", optionalDisplay(value.ContextID, "not initialized"), styleText)
 			output.row("Session", string(result.Attachment), styleMuted)
+			output.row("Bootstrap", value.Bootstrap.State, humanStatusToken(value.Bootstrap.State))
 			output.next(nextRecovery, "Create or enter a Workspace in this Context.")
 			return output.bytes(), nil
 		}
@@ -1642,6 +1652,11 @@ func renderProjectStatusWithColor(result tobari.ProjectStatus, format successFor
 		output.row("Context", safeExternalText(result.ContextName), styleText)
 		output.row("Runtime", safeExternalText(string(result.Runtime)), humanStatusToken(string(result.Runtime)))
 		output.row("Session", safeExternalText(string(result.Attachment)), humanStatusToken(string(result.Attachment)))
+		bootstrapText := value.Bootstrap.State
+		if value.Bootstrap.AppliedRevision != "" {
+			bootstrapText += " · " + value.Bootstrap.AppliedRevision[:12]
+		}
+		output.row("Bootstrap", bootstrapText, humanStatusToken(value.Bootstrap.State))
 		output.row("ID", result.ID, styleText)
 		output.row("Home", safeExternalText(result.Home), styleText)
 		if result.Runtime != tobari.RuntimeDiagnosticReady {
@@ -1662,6 +1677,7 @@ func renderProjectStatusWithColor(result tobari.ProjectStatus, format successFor
 	fmt.Fprintf(&output, "Context: %s\n", escapeTSVCell(result.ContextName))
 	fmt.Fprintf(&output, "Runtime: %s\n", escapeTSVCell(string(result.Runtime)))
 	fmt.Fprintf(&output, "Session: %s\n", escapeTSVCell(string(result.Attachment)))
+	fmt.Fprintf(&output, "Bootstrap: %s\n", escapeTSVCell(value.Bootstrap.State))
 	fmt.Fprintf(&output, "Next: %s\n", nextCommand)
 	return semanticTextBytes(color, output.Bytes()), nil
 }

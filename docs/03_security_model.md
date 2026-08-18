@@ -769,6 +769,17 @@ empty Context input, partial direct input, and redirected, JSON, canceled, or
 invalid editor attempts make zero mutation calls. Direct and interactive modes
 reach the same application policy and atomic store boundary.
 
+`config bootstrap aws` is a distinct fixed-target write whose authority ends at
+one secret-free future-Workspace recipe. Infrastructure reads only exact host
+`~/.aws/config` through a bounded regular-file parser. The selected profile and
+referenced `sso-session` reject duplicate and unknown keys; credentials, SSO
+token caches, helpers, executables, includes, alternate paths, and arbitrary
+dotfiles are never read. A terminal preview exposes only semantic field names
+and revisions, and Apply rejects source drift before atomic manifest write.
+Projection creates only private `.aws/config` in a fresh Workspace home before
+publication. No refresh or reconciliation path may write an existing
+Workspace home.
+
 Shell accepts only `PS1`, `TERM`, `COLORTERM`, and `NO_COLOR`, never enumerates
 the host environment, and resolves `inherit` only when a future child shell is
 entered. `PATH`, `HOME`, `BASH_ENV`, `ENV`, `PROMPT_COMMAND`, credential names,

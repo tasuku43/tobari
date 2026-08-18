@@ -12,6 +12,12 @@ or `auth` command. Claude Code, Codex, and other tools run their own supported
 login inside a persistent Workspace home. Host credentials and host CLI homes
 are never inherited or copied.
 
+A typed Context bootstrap snapshot is not authentication state. The AWS
+adapter may project only reviewed non-secret IAM Identity Center configuration
+into a newly created Workspace home. It never reads or projects the host
+credentials file or SSO cache, and AWS CLI still creates and persists its own
+login state inside that Workspace.
+
 A native credential is readable by every process in that Workspace. Gateway
 removes authentication and control headers from OPA input and audit evidence,
 asks OPA about the ordinary exact HTTP effect, and forwards the original

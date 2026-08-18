@@ -249,7 +249,8 @@ The public commands are:
 | `context show [--name NAME] [--format text|json]` | utility | read | Inspect one Context's explicit persistence state, immutable source access, preset origin/revision, effective method default/overrides, agent, policy, and native Workspace-owned authentication mode without returning credential values |
 | `config shell [--variable COLORTERM\|NO_COLOR\|PS1\|TERM] [--source default\|inherit\|literal] [--value VALUE] [--context NAME] [--format text\|json]` | act, fixed target | write | Configure one allowlisted shell-presentation variable directly, or stage one or more rows from the complete terminal inventory and apply them atomically |
 | `config git [--source default\|inherit\|literal] [--name NAME] [--email EMAIL] [--context NAME] [--format text\|json]` | act, fixed target | write | Configure one atomic Context Git commit-identity fallback directly, or stage and apply its source from one terminal screen |
-| `context create [--name NAME] [--image IMAGE] [--mode guided|advanced] [--source-access read-only\|read-write] [--policy-preset PRESET] [--native-readiness enabled\|disabled] [--format text\|json]` | act, fixed target | create | With no inputs, collect name, source access, and a complete HTTP method policy in a terminal wizard and create once; any explicit input selects deterministic direct mode and requires `--name`; omission defaults remain `read-write`, `builtin/agent-ready`, and enabled readiness |
+| `config bootstrap aws [--profile NAME] [--refresh] [--remove] [--context NAME] [--format text\|json]` | act, fixed target | write | Normalize one strict secret-free host AWS IAM Identity Center profile for future Workspaces, refresh it after a semantic diff, or remove the future recipe; existing Workspace homes never change |
+| `context create [--name NAME] [--image IMAGE] [--mode guided|advanced] [--source-access read-only\|read-write] [--policy-preset PRESET] [--native-readiness enabled\|disabled] [--bootstrap-aws-profile NAME] [--format text\|json]` | act, fixed target | create | With no inputs, collect name, source access, a complete HTTP method policy, and optional typed Workspace bootstrap in a terminal wizard and create once; any explicit input selects deterministic direct mode and requires `--name`; omission imports no host configuration |
 | `context delete --name NAME [--format text\|json]` | act, fixed target | write | Delete one unused non-current non-default Context and its exact owner stores while preserving project files and shared runtime images |
 | `context use --name NAME [--format text\|json]` | act, fixed target | write | Change only the current/default Context; do not mutate existing Tobari or start/reconcile the cluster |
 | `runtime init [--format text|json]` | act, fixed target | create | Create the current Context's runtime/Dockerfile template without changing its selected image |
@@ -1028,6 +1029,16 @@ mutation. Failure preserves the prior file and returns no raw Git diagnostic or
 identity. The file's exact directory is mounted read-only as system scope and
 includes the image system config before the Context fallback, preserving
 normal Workspace-global and repository/worktree precedence.
+
+`config bootstrap aws` atomically updates a separate secret-free recipe in the
+selected Context. It reads only host `~/.aws/config`, accepts one strict IAM
+Identity Center profile/session subset, and reports only adapter, profile,
+generation, revision, and changed-field metadata. Configure and refresh affect
+future Workspace creation only; remove stops future projection. No variant
+reads or outputs AWS credentials or SSO cache values, invokes AWS, performs
+login, changes network policy, or rewrites an existing Workspace home. A new
+Workspace receives one canonical private `.aws/config` and records its applied
+semantic revision before logical publication.
 
 `cluster up` obtains and preflights the immutable Gateway image and official
 runtime bases required by all Contexts, generates and validates the complete

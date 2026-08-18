@@ -177,6 +177,7 @@ func (r *Runtime) contextReport(ctx context.Context, task string, manifest tobar
 		Authentication: tobari.ContextAuthentication{
 			Mode: tobari.ContextAuthenticationModeNotApplicable, BrokerState: tobari.ContextAuthBrokerNotApplicable,
 		},
+		Bootstrap: tobari.ContextBootstrapReportFrom(manifest.Bootstrap),
 	}
 	preset, presetErr := r.readContextPreset(manifest)
 	if presetErr != nil {
@@ -220,6 +221,7 @@ func (r *Runtime) nonPersistedContextReport(observed observedContext, active str
 		ShellEnvironment: shellEnvironment, GitIdentity: gitIdentity,
 		Stores: tobari.ContextStorePaths{}, Runtime: runtimeReport, Cluster: tobari.ContextClusterStatusNotApplicable,
 		Authentication: nativeOrUnavailableContextAuthentication(),
+		Bootstrap:      tobari.ContextBootstrapReportFrom(nil),
 	}
 	if err := result.Validate(); err != nil {
 		return tobari.ContextReport{}, err

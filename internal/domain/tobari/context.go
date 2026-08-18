@@ -16,15 +16,16 @@ const (
 	ContextSchemaVersion = 1
 	DefaultContextName   = "default"
 
-	TaskContextList   = "context.list"
-	TaskContextShow   = "context.show"
-	TaskContextCreate = "context.create"
-	TaskContextDelete = "context.delete"
-	TaskContextUse    = "context.use"
-	TaskConfigShell   = "config.shell"
-	TaskConfigGit     = "config.git"
-	TaskRuntimeInit   = "runtime.init"
-	TaskRuntimeBuild  = "runtime.build"
+	TaskContextList        = "context.list"
+	TaskContextShow        = "context.show"
+	TaskContextCreate      = "context.create"
+	TaskContextDelete      = "context.delete"
+	TaskContextUse         = "context.use"
+	TaskConfigShell        = "config.shell"
+	TaskConfigGit          = "config.git"
+	TaskConfigBootstrapAWS = "config.bootstrap.aws"
+	TaskRuntimeInit        = "runtime.init"
+	TaskRuntimeBuild       = "runtime.build"
 
 	ContextCatalogTargetKind        = "contexts"
 	ContextCatalogTargetID          = "context-catalog"
@@ -82,6 +83,7 @@ type ContextCreateComposition struct {
 	PolicyPresetOrigin string
 	NativeReadiness    ContextNativeReadiness
 	MethodPolicy       *PolicyPresetMethodPolicy
+	Bootstrap          *ContextBootstrapSnapshot
 }
 
 func (c ContextCreateComposition) Validate() error {
@@ -96,6 +98,11 @@ func (c ContextCreateComposition) Validate() error {
 			return err
 		}
 	}
+	if c.Bootstrap != nil {
+		if err := c.Bootstrap.Validate(); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -104,6 +111,10 @@ func (c ContextCreateComposition) Clone() ContextCreateComposition {
 	if c.MethodPolicy != nil {
 		policy := c.MethodPolicy.Clone()
 		result.MethodPolicy = &policy
+	}
+	if c.Bootstrap != nil {
+		bootstrap := c.Bootstrap.Clone()
+		result.Bootstrap = &bootstrap
 	}
 	return result
 }
@@ -157,13 +168,14 @@ func (o ContextObservation) Validate() error {
 }
 
 var (
-	ErrContextExists        = errors.New("Context already exists")
-	ErrContextNotFound      = errors.New("Context does not exist")
-	ErrContextActive        = errors.New("Context is current")
-	ErrContextProtected     = errors.New("Context is protected")
-	ErrContextHasWorkspaces = errors.New("Context has Workspaces")
-	ErrRuntimeRecipeExists  = errors.New("Context runtime recipe already exists")
-	ErrRuntimeRecipeMissing = errors.New("Context runtime recipe does not exist")
+	ErrContextExists                 = errors.New("Context already exists")
+	ErrContextNotFound               = errors.New("Context does not exist")
+	ErrContextActive                 = errors.New("Context is current")
+	ErrContextProtected              = errors.New("Context is protected")
+	ErrContextHasWorkspaces          = errors.New("Context has Workspaces")
+	ErrRuntimeRecipeExists           = errors.New("Context runtime recipe already exists")
+	ErrRuntimeRecipeMissing          = errors.New("Context runtime recipe does not exist")
+	ErrContextBootstrapNotConfigured = errors.New("Context bootstrap is not configured")
 )
 
 var digestPattern = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
@@ -683,6 +695,7 @@ type ContextManifest struct {
 	Runtime              *ContextRuntimeRecipe            `json:"runtime,omitempty"`
 	ShellEnvironment     []ContextShellEnvironmentSetting `json:"shell_environment,omitempty"`
 	GitIdentity          *ContextGitIdentitySetting       `json:"git_identity,omitempty"`
+	Bootstrap            *ContextBootstrapSnapshot        `json:"bootstrap,omitempty"`
 }
 
 func (m ContextManifest) Validate() error {
@@ -726,6 +739,11 @@ func (m ContextManifest) Validate() error {
 	}
 	if m.GitIdentity != nil {
 		if err := m.GitIdentity.Validate(false); err != nil {
+			return err
+		}
+	}
+	if m.Bootstrap != nil {
+		if err := m.Bootstrap.Validate(); err != nil {
 			return err
 		}
 	}
@@ -775,6 +793,7 @@ type ContextSummary struct {
 	NativeReadiness      ContextNativeReadiness   `json:"native_readiness"`
 	MethodPolicy         PolicyPresetMethodPolicy `json:"method_policy"`
 	RuntimeStatus        ContextRuntimeStatus     `json:"runtime_status,omitempty"`
+	Bootstrap            ContextBootstrapReport   `json:"bootstrap"`
 }
 
 func (s ContextSummary) Validate() error {
@@ -808,6 +827,9 @@ func (s ContextSummary) Validate() error {
 		}
 	}
 	if err := s.MethodPolicy.Validate(); err != nil {
+		return err
+	}
+	if err := s.Bootstrap.Validate(); err != nil {
 		return err
 	}
 	return nil
@@ -1023,11 +1045,12 @@ type ContextReport struct {
 	Runtime              ContextRuntimeReport             `json:"runtime"`
 	Cluster              ContextClusterStatus             `json:"cluster"`
 	Authentication       ContextAuthentication            `json:"authentication"`
+	Bootstrap            ContextBootstrapReport           `json:"bootstrap"`
 }
 
 func (r ContextReport) Validate() error {
 	if r.Task != TaskContextShow && r.Task != TaskContextCreate && r.Task != TaskContextUse &&
-		r.Task != TaskConfigShell && r.Task != TaskConfigGit && r.Task != TaskRuntimeInit && r.Task != TaskRuntimeBuild {
+		r.Task != TaskConfigShell && r.Task != TaskConfigGit && r.Task != TaskConfigBootstrapAWS && r.Task != TaskRuntimeInit && r.Task != TaskRuntimeBuild {
 		return fmt.Errorf("context report task is invalid")
 	}
 	if err := r.ContextState.Validate(); err != nil {
@@ -1075,6 +1098,9 @@ func (r ContextReport) Validate() error {
 		return err
 	}
 	if err := r.GitIdentity.Validate(true); err != nil {
+		return err
+	}
+	if err := r.Bootstrap.Validate(); err != nil {
 		return err
 	}
 	if err := r.Authentication.Validate(r.Task == TaskContextShow); err != nil {

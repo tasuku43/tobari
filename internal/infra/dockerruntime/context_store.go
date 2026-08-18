@@ -510,6 +510,7 @@ func (r *Runtime) ListContexts(ctx context.Context) (tobari.ContextListResult, e
 			NativeReadiness:      nativeReadiness,
 			MethodPolicy:         preset.MethodPolicy,
 			RuntimeStatus:        runtimeReport.Status,
+			Bootstrap:            tobari.ContextBootstrapReportFrom(manifest.Bootstrap),
 		})
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].Name < items[j].Name })
@@ -713,6 +714,7 @@ func (r *Runtime) CreateContextWithComposition(
 		PolicyPresetRevision: presetRevision,
 		NativeReadiness:      composition.NativeReadiness,
 		ShellEnvironment:     tobari.InitialContextShellEnvironment(),
+		Bootstrap:            composition.Bootstrap,
 	}
 	id, err := r.identities.newContextID()
 	if err != nil {

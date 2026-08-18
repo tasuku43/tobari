@@ -17,9 +17,10 @@ var contextCreateHTTPMethods = []string{
 }
 
 type contextCreateSelection struct {
-	Name         string
-	SourceAccess tobari.ContextSourceAccess
-	MethodPolicy tobari.PolicyPresetMethodPolicy
+	Name                string
+	SourceAccess        tobari.ContextSourceAccess
+	MethodPolicy        tobari.PolicyPresetMethodPolicy
+	AWSBootstrapProfile string
 }
 
 type contextCreateWizard interface {
@@ -65,7 +66,29 @@ func (w *terminalContextCreateWizard) Compose(
 	if err != nil {
 		return contextCreateSelection{}, err
 	}
-	selection := contextCreateSelection{Name: name, SourceAccess: sourceAccess, MethodPolicy: policy}
+	bootstrapIndex, err := chooser.choose(ctx, in, out, configurationWizardMenu{
+		title: "Tobari · Workspace bootstrap", contextName: name, current: "not created",
+		information: []string{"A typed snapshot is applied once only to newly created Workspace homes.", "Credentials, caches, helpers, and unknown directives are never copied."},
+		prompt:      "Bootstrap", options: []configurationWizardOption{
+			{label: "None", description: "Start future Workspace homes without imported tool configuration.", value: "none"},
+			{label: "AWS IAM Identity Center", description: "Normalize one host AWS shared-config profile.", value: "aws"},
+		},
+	})
+	if err != nil {
+		return contextCreateSelection{}, err
+	}
+	bootstrapProfile := ""
+	if bootstrapIndex == 1 {
+		bootstrapProfile, err = readConfigurationWizardValue(ctx, in, out, "AWS profile", 64)
+		if err != nil {
+			return contextCreateSelection{}, err
+		}
+		bootstrapProfile = strings.TrimSpace(bootstrapProfile)
+		if bootstrapProfile == "" {
+			return contextCreateSelection{}, fmt.Errorf("AWS profile is required")
+		}
+	}
+	selection := contextCreateSelection{Name: name, SourceAccess: sourceAccess, MethodPolicy: policy, AWSBootstrapProfile: bootstrapProfile}
 	if err := tobari.ValidateName(selection.Name); err != nil {
 		return contextCreateSelection{}, err
 	}

@@ -50,6 +50,11 @@
     "reason": ""
   },
   {
+    "id": "context.workspace-bootstrap",
+    "status": "public",
+    "reason": ""
+  },
+  {
     "id": "runtime.customization",
     "status": "public",
     "reason": ""

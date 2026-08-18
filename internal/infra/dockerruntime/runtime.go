@@ -70,18 +70,19 @@ func (runner osCommandRunner) RunWorkspaceBrowserControl(
 
 // Runtime owns filesystem state and Docker process execution.
 type Runtime struct {
-	configDirectory  string
-	stateDirectory   string
-	dataDirectory    string
-	runner           commandRunner
-	images           imageResolver
-	browser          hostBrowserOpener
-	gitIdentity      hostGitIdentityResolver
-	companion        companionruntime.Launcher
-	companionEntropy io.Reader
-	rootKeyLoader    func(context.Context) ([]byte, error)
-	hostCLIs         hostCLIResolver
-	credentialHost   hostCredentialAcquirer
+	configDirectory   string
+	stateDirectory    string
+	dataDirectory     string
+	hostHomeDirectory string
+	runner            commandRunner
+	images            imageResolver
+	browser           hostBrowserOpener
+	gitIdentity       hostGitIdentityResolver
+	companion         companionruntime.Launcher
+	companionEntropy  io.Reader
+	rootKeyLoader     func(context.Context) ([]byte, error)
+	hostCLIs          hostCLIResolver
+	credentialHost    hostCredentialAcquirer
 	// claudeContainerLogin is nil in production. Tests may replace the
 	// isolated Context-runtime acquisition without granting the generic host
 	// credential adapter authority over Claude's native state.

@@ -651,6 +651,16 @@ image, and promotes it into the existing Context image field. Future runtime
 import formats must attach to this same Context boundary rather than introduce
 a second implicit image authority.
 
+Context Workspace bootstrap is a separate create-only projection boundary.
+Domain owns the closed normalized snapshot and semantic revision; application
+owns configure/refresh/remove intent and result correlation; infrastructure
+alone reads the fixed host AWS shared-config path, parses selected sections,
+atomically replaces the Context manifest, and creates the canonical private
+Workspace file. Projection runs between fresh home creation and logical
+Workspace publication. Runtime reconciliation has no bootstrap write path.
+The Workspace record stores only the applied revision so status can compare it
+with the current Context recipe without inspecting the Workspace file.
+
 Runtime build diagnostics use two deliberately separate paths. The
 application's optional build-progress port carries a bounded, validated stage
 vocabulary and selection-state metadata for CLI presentation. A purpose-bound
@@ -666,7 +676,7 @@ The MVP owns one shared cluster `tool_local` target with stable ID
 stores a canonical root, stable Context ID, and stable internal ID at
 `$XDG_STATE_HOME/tobari/roots/<hash>.json`; each instance owns
 `instances/<id>/state.json` and `instances/<id>/home`. The instance record
-contains the stable ID, canonical root, permanent Context binding, last reconciled image, profile, and
+contains the stable ID, canonical root, permanent Context binding, last reconciled image, profile, optional create-time bootstrap revision, and
 diagnostic container or network identifiers. Logical state, not Docker
 inspection, defines whether a Tobari exists. Docker labels include:
 

@@ -363,6 +363,12 @@ func (r *Runtime) createProjectUnlocked(ctx context.Context, resolved string, ma
 	if err := r.ensurePrivateDirectory(r.projectHomePath(createdInstance.ID)); err != nil {
 		return tobari.ProjectInstance{}, r.discardUnindexedProject(createdInstance, fmt.Errorf("create project home: %w", err))
 	}
+	if err := applyProjectBootstrap(r.projectHomePath(createdInstance.ID), manifest.Bootstrap); err != nil {
+		return tobari.ProjectInstance{}, r.discardUnindexedProject(createdInstance, fmt.Errorf("apply Workspace bootstrap: %w", err))
+	}
+	if manifest.Bootstrap != nil {
+		createdInstance.BootstrapRevision = manifest.Bootstrap.Revision
+	}
 	journal.Phase = projectPhaseHome
 	if err := r.writeProjectJournal(journal); err != nil {
 		return tobari.ProjectInstance{}, err
@@ -579,7 +585,8 @@ func (r *Runtime) UpdateProjectRuntime(ctx context.Context, instance tobari.Proj
 			return err
 		}
 		if stored.ID != instance.ID || stored.Root != instance.Root || stored.ContextID != instance.ContextID ||
-			stored.ContextName != instance.ContextName || stored.Profile != instance.Profile || stored.Image != instance.Image {
+			stored.ContextName != instance.ContextName || stored.Profile != instance.Profile || stored.Image != instance.Image ||
+			stored.BootstrapRevision != instance.BootstrapRevision {
 			return fmt.Errorf("runtime update changes immutable logical Tobari state")
 		}
 		return r.writeProjectInstance(instance)

@@ -75,16 +75,17 @@ func (o AttachmentObservation) Validate(exists bool) error {
 // ProjectStatus is the CWD-scoped lifecycle result. Exists is the only
 // user-facing logical lifecycle bit; Runtime is diagnostic detail.
 type ProjectStatus struct {
-	Task         string                  `json:"task"`
-	ContextState ContextObservationState `json:"context_state"`
-	Exists       bool                    `json:"exists"`
-	Root         string                  `json:"root,omitempty"`
-	ID           string                  `json:"id,omitempty"`
-	Home         string                  `json:"home,omitempty"`
-	ContextID    string                  `json:"context_id,omitempty"`
-	ContextName  string                  `json:"context,omitempty"`
-	Runtime      RuntimeDiagnostic       `json:"runtime"`
-	Attachment   AttachmentObservation   `json:"attachment"`
+	Task         string                   `json:"task"`
+	ContextState ContextObservationState  `json:"context_state"`
+	Exists       bool                     `json:"exists"`
+	Root         string                   `json:"root,omitempty"`
+	ID           string                   `json:"id,omitempty"`
+	Home         string                   `json:"home,omitempty"`
+	ContextID    string                   `json:"context_id,omitempty"`
+	ContextName  string                   `json:"context,omitempty"`
+	Runtime      RuntimeDiagnostic        `json:"runtime"`
+	Attachment   AttachmentObservation    `json:"attachment"`
+	Bootstrap    WorkspaceBootstrapReport `json:"bootstrap"`
 }
 
 func (s ProjectStatus) Validate() error {
@@ -98,6 +99,9 @@ func (s ProjectStatus) Validate() error {
 		return err
 	}
 	if err := s.ContextState.Validate(); err != nil {
+		return err
+	}
+	if err := s.Bootstrap.Validate(); err != nil {
 		return err
 	}
 	if s.ContextState == ContextObservationSyntheticDefault {
@@ -312,14 +316,15 @@ func (r ProjectRuntime) Validate() error {
 // ProjectInstance is the durable logical Tobari record. Its existence does not
 // depend on a work container or network being present.
 type ProjectInstance struct {
-	SchemaVersion int            `json:"schema_version"`
-	ID            string         `json:"id"`
-	Root          string         `json:"root"`
-	ContextID     string         `json:"context_id"`
-	ContextName   string         `json:"context"`
-	Profile       string         `json:"profile"`
-	Image         string         `json:"image"`
-	Runtime       ProjectRuntime `json:"runtime"`
+	SchemaVersion     int            `json:"schema_version"`
+	ID                string         `json:"id"`
+	Root              string         `json:"root"`
+	ContextID         string         `json:"context_id"`
+	ContextName       string         `json:"context"`
+	Profile           string         `json:"profile"`
+	Image             string         `json:"image"`
+	Runtime           ProjectRuntime `json:"runtime"`
+	BootstrapRevision string         `json:"bootstrap_revision,omitempty"`
 	// Incomplete is an in-memory cleanup-only marker for a root index whose
 	// instance record is missing. It is never persisted or used to rebuild a
 	// runtime with guessed mutable fields.
@@ -486,6 +491,11 @@ func (p ProjectInstance) Validate() error {
 	}
 	if err := ValidateImageSelector(p.Image); err != nil {
 		return err
+	}
+	if p.BootstrapRevision != "" {
+		if err := ValidateDigest(p.BootstrapRevision); err != nil {
+			return err
+		}
 	}
 	return p.Runtime.Validate()
 }

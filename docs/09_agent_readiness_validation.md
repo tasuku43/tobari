@@ -177,6 +177,16 @@ Context report or active guardrail. Updating the trusted binary must update only
 the native-readiness overlay of existing enabled Contexts without rewriting
 their snapshot.
 
+For typed Workspace bootstrap, use only synthetic host homes. Prove the AWS
+adapter reads one fixed shared-config file, accepts one reviewed profile and
+referenced SSO session, and rejects unknown keys, helpers, duplicates,
+symlinks, unsafe modes, oversized input, credentials, and cache material. A new
+Workspace must receive exact owner-only canonical `.aws/config` bytes and an
+applied revision before publication. After a semantic Context refresh, prove
+the existing file is byte-identical and reports `older`, while a newly created
+Workspace receives the new revision and reports `current`. A staged refresh
+whose source changes before Apply must make zero Context and Workspace writes.
+
 The canonical contributor base must run `claude --version` as 2.1.220,
 `codex --version` as 0.147.0, and `gh --version` as 2.96.0 after replacing
 `/var/lib/tobari` with a fresh Workspace home. The client pins and agent-ready core matrix are reviewed as one

@@ -195,9 +195,11 @@ type PolicyPresetMethodPolicy struct {
 }
 
 func (p PolicyPresetMethodPolicy) Clone() PolicyPresetMethodPolicy {
+	overrides := make([]PolicyPresetMethodOverride, len(p.Overrides))
+	copy(overrides, p.Overrides)
 	return PolicyPresetMethodPolicy{
 		Default:   p.Default,
-		Overrides: append([]PolicyPresetMethodOverride(nil), p.Overrides...),
+		Overrides: overrides,
 	}
 }
 

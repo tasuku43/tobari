@@ -48,6 +48,50 @@ func (f *contextCLI) CreateContextWithComposition(
 	if composition.MethodPolicy != nil {
 		f.report.MethodPolicy = composition.MethodPolicy.Clone()
 	}
+	f.report.Bootstrap = tobari.ContextBootstrapReportFrom(composition.Bootstrap)
+	return f.report, nil
+}
+
+func syntheticContextAWSBootstrap(t *testing.T) tobari.ContextBootstrapSnapshot {
+	t.Helper()
+	snapshot, err := tobari.NewContextBootstrapSnapshot(1, tobari.ContextAWSBootstrap{Profile: "engineering", SSOSession: "company", SSOStartURL: "https://example.awsapps.com/start", SSORegion: "us-east-1", SSORegistrationScopes: []string{"sso:account:access"}, AccountID: "123456789012", RoleName: "Developer", Region: "ap-northeast-1", Output: "json"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return snapshot
+}
+
+func (f *contextCLI) PrepareContextAWSBootstrap(context.Context, string) (tobari.ContextBootstrapSnapshot, error) {
+	f.prepareBootstrapCalls++
+	return tobari.NewContextBootstrapSnapshot(1, tobari.ContextAWSBootstrap{Profile: "engineering", SSOSession: "company", SSOStartURL: "https://example.awsapps.com/start", SSORegion: "us-east-1", SSORegistrationScopes: []string{"sso:account:access"}, AccountID: "123456789012", RoleName: "Developer", Region: "ap-northeast-1", Output: "json"})
+}
+
+func (f *contextCLI) PreviewContextAWSBootstrap(_ context.Context, name, _ string) (tobari.ContextBootstrapPreview, error) {
+	snapshot, err := f.PrepareContextAWSBootstrap(context.Background(), "engineering")
+	if err != nil {
+		return tobari.ContextBootstrapPreview{}, err
+	}
+	return tobari.NewContextBootstrapPreview(name, nil, snapshot)
+}
+
+func (f *contextCLI) ConfigureContextAWSBootstrap(_ context.Context, name, _, _ string, remove bool) (tobari.ContextReport, error) {
+	f.configureBootstrapCalls++
+	f.report.Task = tobari.TaskConfigBootstrapAWS
+	if name != "" {
+		f.report.Name = name
+	} else {
+		f.report.Active = true
+	}
+	if remove {
+		f.report.Bootstrap = tobari.ContextBootstrapReportFrom(nil)
+	} else {
+		snapshot, err := f.PrepareContextAWSBootstrap(context.Background(), "engineering")
+		if err != nil {
+			return tobari.ContextReport{}, err
+		}
+		f.report.Bootstrap = tobari.ContextBootstrapReportFrom(&snapshot)
+	}
+	f.report.Authentication = tobari.ContextAuthentication{BrokerState: tobari.ContextAuthBrokerNotApplicable}
 	return f.report, nil
 }
 
@@ -155,24 +199,26 @@ func (f *contextCLI) BuildRuntimeWithProgress(
 }
 
 type fakeContextRuntime struct {
-	list              tobari.ContextListResult
-	report            tobari.ContextReport
-	useCalls          int
-	createCalls       int
-	buildCalls        int
-	buildLog          string
-	buildErr          error
-	configureCalls    int
-	configureGitCalls int
-	showCalls         int
-	showErr           error
-	deleteErr         error
-	deleteCalls       int
-	lastShellChange   tobari.ContextShellEnvironmentSetting
-	lastShellChanges  []tobari.ContextShellEnvironmentSetting
-	lastGitChange     tobari.ContextGitIdentitySetting
-	lastShellContext  string
-	lastGitContext    string
+	list                    tobari.ContextListResult
+	report                  tobari.ContextReport
+	useCalls                int
+	createCalls             int
+	buildCalls              int
+	buildLog                string
+	buildErr                error
+	configureCalls          int
+	configureGitCalls       int
+	configureBootstrapCalls int
+	prepareBootstrapCalls   int
+	showCalls               int
+	showErr                 error
+	deleteErr               error
+	deleteCalls             int
+	lastShellChange         tobari.ContextShellEnvironmentSetting
+	lastShellChanges        []tobari.ContextShellEnvironmentSetting
+	lastGitChange           tobari.ContextGitIdentitySetting
+	lastShellContext        string
+	lastGitContext          string
 }
 
 type contextSwitchingWizard struct {
@@ -311,9 +357,9 @@ func TestContextShellConfigurePreservesSourceAndExplicitEmptyValue(t *testing.T)
 	}
 }
 
-func TestConfigNamespacePublishesShellAndGitCommands(t *testing.T) {
+func TestConfigNamespacePublishesCompositionCommands(t *testing.T) {
 	catalog := DefaultCatalog()
-	for _, path := range []string{"config shell", "config git"} {
+	for _, path := range []string{"config shell", "config git", "config bootstrap aws"} {
 		spec, found := catalog.Lookup(path)
 		if !found || spec.Role != RoleAct || spec.Effect.String() != "write" ||
 			spec.Agent.FixedTarget == nil || spec.Agent.FixedTarget.Scope != FixedTargetScopeToolLocal {
@@ -321,8 +367,42 @@ func TestConfigNamespacePublishesShellAndGitCommands(t *testing.T) {
 		}
 	}
 	selected, exact := catalog.Select("config")
-	if exact || len(selected) != 2 {
+	if exact || len(selected) != 3 {
 		t.Fatalf("config namespace selection exact=%t commands=%+v", exact, selected)
+	}
+}
+
+func TestConfigBootstrapAWSDirectIsFutureWorkspaceOnlyAndConflictsFailBeforeMutation(t *testing.T) {
+	fake := &contextCLI{report: contextCLIReport(tobari.TaskContextShow, "default", true, tobari.OfficialRuntimeBase, tobari.ContextPolicyModeGuided)}
+	var stdout, stderr bytes.Buffer
+	command := newCLI(strings.NewReader(""), &stdout, &stderr, DefaultCatalog(), nil)
+	command.context = contextcmd.New(fake)
+	if code := command.RunContext(context.Background(), []string{"config", "bootstrap", "aws", "--profile", "engineering", "--format", "json"}); code != ExitOK {
+		t.Fatalf("config bootstrap code = %d, stderr = %q", code, stderr.String())
+	}
+	if fake.configureBootstrapCalls != 1 || fake.showCalls != 0 || !strings.Contains(stdout.String(), `"state":"configured"`) {
+		t.Fatalf("bootstrap calls=%d show=%d output=%q", fake.configureBootstrapCalls, fake.showCalls, stdout.String())
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if code := command.RunContext(context.Background(), []string{"config", "bootstrap", "aws", "--profile", "engineering", "--remove"}); code != ExitUsage {
+		t.Fatalf("conflicting bootstrap action code = %d, stderr = %q", code, stderr.String())
+	}
+	if fake.configureBootstrapCalls != 1 {
+		t.Fatalf("conflicting action reached mutation: %d", fake.configureBootstrapCalls)
+	}
+}
+
+func TestContextCreateDirectCanSnapshotOneAWSProfile(t *testing.T) {
+	fake := &contextCLI{report: contextCLIReport(tobari.TaskContextShow, "default", true, tobari.OfficialRuntimeBase, tobari.ContextPolicyModeGuided)}
+	var stdout, stderr bytes.Buffer
+	command := newCLI(strings.NewReader(""), &stdout, &stderr, DefaultCatalog(), nil)
+	command.context = contextcmd.New(fake)
+	if code := command.RunContext(context.Background(), []string{"context", "create", "--name", "coding", "--bootstrap-aws-profile", "engineering", "--format", "json"}); code != ExitOK {
+		t.Fatalf("context create with bootstrap code = %d, stderr = %q", code, stderr.String())
+	}
+	if fake.prepareBootstrapCalls != 1 || fake.createCalls != 1 || !strings.Contains(stdout.String(), `"aws_profile":"engineering"`) {
+		t.Fatalf("prepare/create=%d/%d output=%q", fake.prepareBootstrapCalls, fake.createCalls, stdout.String())
 	}
 }
 
@@ -663,7 +743,7 @@ func TestContextReportJSONSchemaOneDeclaresExactContextKeys(t *testing.T) {
 	if err := json.Unmarshal(outer["context"], &contextFields); err != nil {
 		t.Fatalf("context envelope = %q, error = %v", outer["context"], err)
 	}
-	want := []string{"active", "agent_profile", "authentication", "cluster", "context_state", "git_identity", "id", "image", "method_policy", "name", "native_readiness", "policy_guardrail", "policy_mode", "policy_preset_origin", "policy_preset_revision", "runtime", "shell_environment", "source_access", "stores", "task"}
+	want := []string{"active", "agent_profile", "authentication", "bootstrap", "cluster", "context_state", "git_identity", "id", "image", "method_policy", "name", "native_readiness", "policy_guardrail", "policy_mode", "policy_preset_origin", "policy_preset_revision", "runtime", "shell_environment", "source_access", "stores", "task"}
 	got := make([]string, 0, len(contextFields))
 	for name := range contextFields {
 		got = append(got, name)

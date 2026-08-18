@@ -29,6 +29,7 @@ func runtimeCommandSpecs() []CommandSpec {
 		contextShowSpec(),
 		configShellSpec(),
 		configGitSpec(),
+		configBootstrapAWSSpec(),
 		contextCreateSpec(),
 		contextDeleteSpec(),
 		contextUseSpec(),
@@ -40,6 +41,48 @@ func runtimeCommandSpecs() []CommandSpec {
 		deleteSpec(),
 	}
 	return append(specs, authCommandSpecs()...)
+}
+
+func configBootstrapAWSSpec() CommandSpec {
+	minimum := int64(1)
+	return CommandSpec{
+		Path: "config bootstrap aws", Summary: "Configure, refresh, or remove the AWS snapshot applied once to future Workspace homes",
+		Args:   "[--profile <name>] [--refresh] [--remove] [--context <name>] [--format text|json]",
+		Effect: operation.EffectWrite, Role: RoleAct,
+		Agent: AgentContract{
+			CapabilityID: "context.workspace-bootstrap",
+			Outcome:      "Normalize one host AWS IAM Identity Center profile into a secret-free Context snapshot for future Workspaces, refresh its semantic revision, or remove the future recipe without rewriting existing Workspace homes",
+			Inputs: []CommandInput{
+				{Name: "--profile", Source: InputSourceFlag, Required: false, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, MinimumLength: &minimum, Description: "Exact host AWS shared-config profile to normalize now; conflicts with refresh and remove.", AllowedValues: []string{}, ConflictsWith: []string{"--refresh", "--remove"}},
+				{Name: "--refresh", Source: InputSourceFlag, Required: false, ValueKind: InputValueBoolean, Cardinality: InputCardinalitySingle, Description: "Re-read the profile named by the current Context snapshot; conflicts with profile and remove.", AllowedValues: []string{}, ConflictsWith: []string{"--profile", "--remove"}},
+				{Name: "--remove", Source: InputSourceFlag, Required: false, ValueKind: InputValueBoolean, Cardinality: InputCardinalitySingle, Description: "Remove the recipe for future Workspaces; existing Workspace homes retain their create-time bytes.", AllowedValues: []string{}, ConflictsWith: []string{"--profile", "--refresh"}},
+				executionContextInput(), formatInput(),
+			},
+			Output: contextReportOutput(),
+			Prerequisites: []string{
+				"The selected Context exists and the fixed host ~/.aws/config path is a bounded regular non-symlink file not writable by group or other users.",
+				"The selected profile uses one sso_session section and only the reviewed secret-free IAM Identity Center fields; credentials and ~/.aws/sso/cache are never read.",
+				"When action flags are omitted, stdin and stderr are interactive terminals and both success and error formats are text.",
+			},
+			FixedTarget: fixedContextBootstrapTarget(),
+			Errors: mutationCommandErrors("config bootstrap aws", "context show",
+				declaredCommandError(fault.KindInvalidInput, "configuration_wizard_unavailable", false, "help config bootstrap aws", "Supply one action flag or run the wizard on interactive text streams."),
+				declaredCommandError(fault.KindInternal, "configuration_wizard_failed", false, "help config bootstrap aws", "Retry with one direct action flag or repair the interactive terminal streams."),
+				declaredCommandError(fault.KindInvalidInput, "invalid_context_name", false, "context list", "Choose a valid Context name."),
+				declaredCommandError(fault.KindInvalidInput, "invalid_aws_bootstrap_change", false, "help config bootstrap aws", "Choose exactly one configure, refresh, or remove action."),
+				declaredCommandError(fault.KindNotFound, "context_not_found", false, "context list", "Choose an existing Context."),
+				declaredCommandError(fault.KindNotFound, "bootstrap_not_configured", false, "help config bootstrap aws", "Configure a profile before refreshing."),
+				declaredCommandError(fault.KindRejected, "config_bootstrap_failed", false, "context show", "Inspect the current recipe and strict host AWS profile."),
+				declaredCommandError(fault.KindRejected, "bootstrap_source_changed", true, "config bootstrap aws", "Review a fresh semantic diff before applying."),
+				declaredCommandError(fault.KindRejected, "aws_bootstrap_source_rejected", false, "help config bootstrap aws", "Use a strict IAM Identity Center profile without credentials, helpers, or unsupported directives."),
+				declaredCommandError(fault.KindContract, "invalid_bootstrap_preview", false, "context show", "Inspect the Context recipe before retrying."),
+				declaredCommandError(fault.KindContract, "invalid_context_report", false, "context show", "Reconcile the confirmed Context bootstrap change."),
+				declaredCommandError(fault.KindInternal, "missing_runtime", false, "doctor", "Configure the Tobari runtime."),
+			),
+			Mutation: &MutationContract{TargetKind: tobari.ContextBootstrapTargetKind, TargetInputs: []string{}, Impact: operation.Impact{Cardinality: operation.CardinalityOne, Notification: operation.DeclarationNo, AccessChange: operation.DeclarationNo, Destructive: operation.DeclarationNo}},
+		},
+		handler: runConfigBootstrapAWS,
+	}
 }
 
 func configShellSpec() CommandSpec {
@@ -181,6 +224,7 @@ func contextListSpec() CommandSpec {
 							{Name: "native_readiness", Type: OutputFieldTypeString, Description: "Immutable native-client readiness selection.", Enum: []string{"enabled", "disabled"}},
 							{Name: "method_policy", Type: OutputFieldTypeObject, Description: "Effective default and exact method decisions from the Context snapshot.", Fields: policyPresetMethodPolicyOutput("Effective default and exact method decisions from the Context snapshot.").Fields},
 							{Name: "runtime_status", Type: OutputFieldTypeString, Description: "Runtime recipe status when observed.", Optional: true, Enum: []string{"official", "pending_build", "ready", "invalid"}},
+							contextBootstrapOutputField(),
 						},
 					}},
 				},
@@ -226,18 +270,19 @@ func contextShowSpec() CommandSpec {
 func contextCreateSpec() CommandSpec {
 	return CommandSpec{
 		Path: "context create", Summary: "Create a named execution Context directly or with the terminal wizard",
-		Args:   "[--name <name>] [--image <image>] [--mode guided|advanced] [--source-access read-only|read-write] [--policy-preset <preset>] [--native-readiness enabled|disabled] [--format text|json]",
+		Args:   "[--name <name>] [--image <image>] [--mode guided|advanced] [--source-access read-only|read-write] [--policy-preset <preset>] [--native-readiness enabled|disabled] [--bootstrap-aws-profile <name>] [--format text|json]",
 		Effect: operation.EffectCreate, Role: RoleAct,
 		Agent: AgentContract{
 			CapabilityID:  "context.composition",
 			Outcome:       "Create one named Context with separate owner-only policy and brokered-authentication state",
-			Inputs:        []CommandInput{contextCreateNameInput(), contextImageInput(), contextModeInput(), contextSourceAccessInput(), contextPolicyPresetInput(), contextNativeReadinessInput(), formatInput()},
+			Inputs:        []CommandInput{contextCreateNameInput(), contextImageInput(), contextModeInput(), contextSourceAccessInput(), contextPolicyPresetInput(), contextNativeReadinessInput(), contextCreateAWSBootstrapInput(), formatInput()},
 			Output:        contextReportOutput(),
 			Prerequisites: []string{"The host Context directory is accessible."},
 			FixedTarget:   fixedContextCatalogTarget(),
 			Errors: mutationCommandErrors("context create", "context list",
 				declaredCommandError(fault.KindInvalidInput, "context_create_wizard_unavailable", false, "help context create", "Run the argument-free wizard on interactive text streams or supply --name for direct mode."),
 				declaredCommandError(fault.KindInternal, "context_create_wizard_failed", false, "context create", "Retry the wizard or use direct mode with --name."),
+				declaredCommandError(fault.KindRejected, "aws_bootstrap_source_rejected", false, "help config bootstrap aws", "Choose a strict IAM Identity Center profile without credentials, helpers, or unsupported directives."),
 				declaredCommandError(fault.KindInvalidInput, "invalid_context", false, "help context create", "Correct the Context name, image, policy mode, or source access."),
 				declaredCommandError(fault.KindRejected, "context_exists", false, "context list", "List existing Contexts before choosing another name."),
 				declaredCommandError(fault.KindRejected, "context_create_failed", false, "context list", "Inspect the partially initialized Context stores."),
@@ -408,7 +453,7 @@ func statusSpec() CommandSpec {
 		Effect: operation.EffectRead, Role: RoleUtility,
 		Agent: AgentContract{
 			CapabilityID: "tobari.lifecycle",
-			Outcome:      "Report the bound Context, whether logical Workspace state exists for the current directory, its recoverable runtime diagnostic, and attached or detached session observation",
+			Outcome:      "Report the bound Context, whether logical Workspace state exists for the current directory, its recoverable runtime diagnostic, attached or detached session observation, and create-time bootstrap revision relationship",
 			Inputs:       []CommandInput{lifecycleContextInput(), formatInput()},
 			Output: CommandOutput{
 				Formats: []OutputFormat{OutputFormatText, OutputFormatJSON}, DefaultFormat: OutputFormatText, TextPresentation: TextPresentationSemanticTokens,
@@ -420,6 +465,11 @@ func statusSpec() CommandSpec {
 					{Name: "home", Type: OutputFieldTypeString, Description: "Diagnostic per-Tobari XDG home path when one exists."},
 					{Name: "runtime", Type: OutputFieldTypeString, Description: "Recoverable runtime diagnostic; incomplete means the logical state record is missing and must be deleted before recreation."},
 					{Name: "attachment", Type: OutputFieldTypeString, Description: "Transient session observation: attached or detached when the Workspace exists, and not_applicable when it does not."},
+					{Name: "bootstrap", Type: OutputFieldTypeObject, Description: "One-time future-Workspace configuration snapshot relationship; never credential state.", Fields: []OutputField{
+						{Name: "state", Type: OutputFieldTypeString, Description: "Whether no recipe exists, this Workspace never received it, its applied revision is current, or it retains an older create-time revision.", Enum: []string{"not_configured", "not_applied", "current", "older"}},
+						{Name: "applied_revision", Type: OutputFieldTypeString, Description: "Semantic revision projected when this Workspace was created, or an empty string when none was applied."},
+						{Name: "current_revision", Type: OutputFieldTypeString, Description: "Current Context recipe revision, or an empty string when the recipe was removed."},
+					}},
 					{Name: "context", Type: OutputFieldTypeString, Description: "Selected invocation Context display name, including when no Workspace exists."},
 					{Name: "context_id", Type: OutputFieldTypeString, Description: "Selected stable Context authority identity, or null before a Context is persisted.", Nullable: true},
 					{Name: "next_argv", Type: OutputFieldTypeArray, Description: "Exact argv that re-enters the persisted Context-bound lifecycle target, or uses omission-based selection when the Context is only a synthetic default.", Items: &OutputField{Type: OutputFieldTypeString, Description: "One exact argv token."}},
@@ -1153,6 +1203,10 @@ func fixedContextGitIdentityTarget() *FixedTarget {
 	}
 }
 
+func fixedContextBootstrapTarget() *FixedTarget {
+	return &FixedTarget{Kind: tobari.ContextBootstrapTargetKind, ID: tobari.ContextBootstrapTargetID, Description: "This installation's Context-owned secret-free create-only Workspace bootstrap recipe.", Scope: FixedTargetScopeToolLocal}
+}
+
 func fixedActiveContextRuntimeTarget() *FixedTarget {
 	return &FixedTarget{
 		Kind:        tobari.ContextRuntimeTargetKind,
@@ -1176,6 +1230,11 @@ func contextCreateNameInput() CommandInput {
 	input.Required = false
 	input.Description = "Portable Context name; omission together with every other input opens the terminal wizard. Any explicit input selects direct mode and requires --name."
 	return input
+}
+
+func contextCreateAWSBootstrapInput() CommandInput {
+	minimum := int64(1)
+	return CommandInput{Name: "--bootstrap-aws-profile", Source: InputSourceFlag, Required: false, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, MinimumLength: &minimum, Description: "Host AWS IAM Identity Center profile normalized into a secret-free create-only snapshot; omission imports nothing.", AllowedValues: []string{}}
 }
 
 func executionContextInput() CommandInput {
@@ -1259,6 +1318,7 @@ func contextReportOutput() CommandOutput {
 				{Name: "name", Type: OutputFieldTypeString, Description: "Literal Git user name, or null.", Nullable: true},
 				{Name: "email", Type: OutputFieldTypeString, Description: "Literal Git user email, or null.", Nullable: true},
 			}},
+			contextBootstrapOutputField(),
 			{Name: "stores", Type: OutputFieldTypeObject, Description: "Resolved paths, or null for a synthetic default; secret values are never included.", Nullable: true, Fields: []OutputField{
 				{Name: "policy_directory", Type: OutputFieldTypeString, Description: "Canonical Context policy directory."},
 				{Name: "runtime_directory", Type: OutputFieldTypeString, Description: "Canonical runtime recipe directory when initialized.", Optional: true},
@@ -1291,6 +1351,16 @@ func contextReportOutput() CommandOutput {
 		Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageNotApplicable,
 		JSONEnvelope: "context", JSONEnvelopeType: OutputFieldTypeObject, JSONSchemaVersion: 1,
 	}
+}
+
+func contextBootstrapOutputField() OutputField {
+	return OutputField{Name: "bootstrap", Type: OutputFieldTypeObject, Description: "Secret-free create-only recipe for future Workspace homes.", Fields: []OutputField{
+		{Name: "state", Type: OutputFieldTypeString, Description: "Whether a future-Workspace recipe is configured.", Enum: []string{"not_configured", "configured"}},
+		{Name: "generation", Type: OutputFieldTypeInteger, Description: "Monotonic semantic-change generation; zero when unconfigured."},
+		{Name: "revision", Type: OutputFieldTypeString, Description: "Semantic SHA-256 revision; empty when unconfigured."},
+		{Name: "adapters", Type: OutputFieldTypeArray, Description: "Closed adapter inventory; currently AWS IAM Identity Center only.", Items: &OutputField{Type: OutputFieldTypeString, Description: "One reviewed adapter ID."}},
+		{Name: "aws_profile", Type: OutputFieldTypeString, Description: "Host profile name selected as the snapshot source; empty when unconfigured."},
+	}}
 }
 
 func projectEnterErrors() []CommandError {
