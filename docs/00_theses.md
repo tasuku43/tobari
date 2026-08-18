@@ -785,8 +785,11 @@ OPA allow.
   owner-selected guardrail and non-readiness baseline plus an enabled or
   disabled native-readiness capability. Readiness independently selects the
   current trusted-binary overlay. Argument-free creation on an interactive
-  text terminal collects the Context name, direct source access, and one
-  complete method policy before its single mutation. Its method-Deny choices
+  text terminal uses one continuous five-step frame to collect the Context
+  name, direct source access, one complete method policy, and optional typed
+  Workspace bootstrap, then reviews the complete composition before its single
+  mutation. It does not leave and re-enter the interaction frame between
+  fields. Its method-Deny choices
   remove only now-unreachable positive baseline rules from the immutable
   selected-preset snapshot; destination ceilings and exact Denies remain
   unchanged. Any explicit create input selects deterministic direct mode.

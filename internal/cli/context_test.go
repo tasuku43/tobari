@@ -1085,6 +1085,29 @@ func TestContextCreateWithoutArgumentsRequiresInteractiveWizardAndDirectNameDoes
 	}
 }
 
+type canceledContextCreateWizard struct{}
+
+func (canceledContextCreateWizard) Compose(context.Context, io.Reader, io.Writer) (contextCreateSelection, error) {
+	return contextCreateSelection{}, context.Canceled
+}
+
+func TestContextCreateWizardCancellationPerformsZeroMutation(t *testing.T) {
+	t.Parallel()
+	fake := &contextCLI{report: contextCLIReport(tobari.TaskContextShow, "default", true, tobari.OfficialRuntimeBase, tobari.ContextPolicyModeGuided)}
+	var stdout, stderr bytes.Buffer
+	command := newCLI(strings.NewReader(""), &stdout, &stderr, DefaultCatalog(), nil)
+	command.context = contextcmd.New(fake)
+	command.tobari = tobaricmd.New(&policyReviewRuntimeFake{terminal: true})
+	command.contextCreate = canceledContextCreateWizard{}
+
+	if code := command.RunContext(context.Background(), []string{"context", "create"}); code != ExitCanceled {
+		t.Fatalf("canceled create wizard code = %d, stderr = %q", code, stderr.String())
+	}
+	if fake.createCalls != 0 || fake.prepareBootstrapCalls != 0 || stdout.Len() != 0 {
+		t.Fatalf("canceled create mutated: create/prepare/stdout = %d/%d/%q", fake.createCalls, fake.prepareBootstrapCalls, stdout.String())
+	}
+}
+
 func TestContextDeleteRendersConfirmedOutcomeAndAppearsInNamespaceHelp(t *testing.T) {
 	t.Parallel()
 	fake := &contextCLI{}

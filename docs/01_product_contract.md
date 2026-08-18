@@ -249,7 +249,7 @@ The public commands are:
 | `config shell [--variable COLORTERM\|NO_COLOR\|PS1\|TERM] [--source default\|inherit\|literal] [--value VALUE] [--context NAME] [--format text\|json]` | act, fixed target | write | Configure one allowlisted shell-presentation variable directly, or stage one or more rows from the complete terminal inventory and apply them atomically |
 | `config git [--source default\|inherit\|literal] [--name NAME] [--email EMAIL] [--context NAME] [--format text\|json]` | act, fixed target | write | Configure one atomic Context Git commit-identity fallback directly, or stage and apply its source from one terminal screen |
 | `config bootstrap aws [--profile NAME] [--refresh] [--remove] [--context NAME] [--format text\|json]` | act, fixed target | write | Normalize one strict secret-free host AWS IAM Identity Center profile for future Workspaces, refresh it after a semantic diff, or remove the future recipe; existing Workspace homes never change |
-| `context create [--name NAME] [--image IMAGE] [--mode guided|advanced] [--source-access read-only\|read-write] [--policy-preset PRESET] [--native-readiness enabled\|disabled] [--bootstrap-aws-profile NAME] [--format text\|json]` | act, fixed target | create | With no inputs, collect name, source access, a complete HTTP method policy, and optional typed Workspace bootstrap in a terminal wizard and create once; any explicit input selects deterministic direct mode and requires `--name`; omission imports no host configuration |
+| `context create [--name NAME] [--image IMAGE] [--mode guided|advanced] [--source-access read-only\|read-write] [--policy-preset PRESET] [--native-readiness enabled\|disabled] [--bootstrap-aws-profile NAME] [--format text\|json]` | act, fixed target | create | With no inputs, use one continuous five-step terminal frame for name, source access, a complete HTTP method policy, optional typed Workspace bootstrap, and final review, then create once; any explicit input selects deterministic direct mode and requires `--name`; omission imports no host configuration |
 | `context delete --name NAME [--format text\|json]` | act, fixed target | write | Delete one unused non-current non-default Context and its exact owner stores while preserving project files and shared runtime images |
 | `context use --name NAME [--format text\|json]` | act, fixed target | write | Change only the current/default Context; do not mutate existing Tobari or start/reconcile the cluster |
 | `runtime init [--format text|json]` | act, fixed target | create | Create the current Context's runtime/Dockerfile template without changing its selected image |
@@ -473,9 +473,14 @@ undeclared Docker mutation by the CLI.
   Prompts use stderr and the confirmed complete Context report uses stdout.
 - `context create` has two complete modes. With no command input, text success
   and error formats plus terminal stdin/stderr are required; the wizard reads a
-  valid name, chooses direct source access, and stages `allow`, `exact_review`,
-  or `deny` for the extension-method default and each standard HTTP method.
-  Apply performs one create mutation and cancellation performs none. Any
+  valid name, chooses direct source access, stages `allow`, `exact_review`, or
+  `deny` for the extension-method default and each standard HTTP method, and
+  optionally selects a typed Workspace bootstrap. On a raw-capable terminal,
+  name, filesystem, network, bootstrap, and final review share one alternate-
+  screen session; step transitions do not return to a normal line prompt and
+  Back preserves staged values. A terminal without the reviewed raw-mode
+  support uses the bounded line-mode equivalent. Final Create performs one
+  mutation and cancellation from any step performs none. Any
   explicit input, including `--format`, selects direct mode and requires
   `--name`; defaults complete omitted direct-mode values without prompting.
   Method Deny removes selected-preset positive baseline entries for that method
