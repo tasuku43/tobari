@@ -28,13 +28,13 @@ type CLI struct {
 	Version string
 	Commit  string
 
-	catalog       Catalog
-	doctor        *doctorcmd.Service
-	tobari        *tobaricmd.Service
-	context       *contextcmd.Service
-	policyPreset  *policypresetcmd.Service
-	auth          *authcmd.Service
-	console       operatorConsoleRunner
+	catalog      Catalog
+	doctor       *doctorcmd.Service
+	tobari       *tobaricmd.Service
+	context      *contextcmd.Service
+	policyPreset *policypresetcmd.Service
+	auth         *authcmd.Service
+	experimentalCLIState
 	config        contextConfigurationWizard
 	contextCreate contextCreateWizard
 	authLogin     authLoginProviderSelector
@@ -48,7 +48,7 @@ func New(in io.Reader, out, errOut io.Writer) *CLI {
 	command.config = newContextConfigurationWizardWithStyle(!command.noColor)
 	command.contextCreate = newContextCreateWizardWithStyle(!command.noColor)
 	command.authLogin = newAuthLoginProviderSelectorWithStyle(!command.noColor)
-	command.console = newOperatorConsoleRunner()
+	configureExperimentalCLI(command)
 	runtime, err := dockerruntime.New()
 	if err != nil {
 		command.doctor = doctorcmd.New(systemdoctor.New(err))

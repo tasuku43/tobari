@@ -80,7 +80,7 @@ A separate `policy rules` view makes the complete current learned Allow and
 exact Deny decisions visible, and its TTY flow can explicitly reset one
 decision to default deny. Reset never grants or retries; it makes the retained
 effect eligible for `policy review` again.
-A foreground `tobari serve` may present the same typed cluster, Workspace,
+A foreground experimental `tobari serve` may present the same typed cluster, Workspace,
 Permission Inbox, and learned-rule tasks through a host-browser Operator
 Console. It is a trusted-host presentation alternative, not a second policy
 engine or remote control plane: the process owns one random IPv4-loopback
@@ -136,9 +136,11 @@ using `tobari` leaves host execution unchanged, while `delete` and
   in the normal journey. On a TTY, `policy review` is the complete human
   review-to-decision flow, while `policy rules` is the complete human
   inventory-and-reset flow; neither requires a second JSON review.
-- `tobari serve` is the dense host-browser alternative for the same inspection
+- Experimental `tobari serve` is the dense host-browser alternative for the same inspection
   and review outcome. It starts no daemon, accepts no remote bind address, and
   cannot bypass typed review staging, fresh validation, or final confirmation.
+  It is compiled only by `task build:dev`; the standard and release command
+  catalogs omit it while the interface is evaluated.
 - The current explicit `cluster up` bootstrap and separate denial discovery
   commands are compatibility surfaces under review against this thesis. They
   must not be mistaken for the product's central value.

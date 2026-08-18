@@ -19,7 +19,10 @@ query string would expose it to ordinary URL handling.
 
 ## Decision
 
-`tobari serve` starts one foreground, process-owned operator console on an
+The Operator Console is compiled only into the unsupported experimental
+capability profile produced by `task build:dev`; standard development and
+release catalogs omit `serve`. In that profile, `tobari serve` starts one
+foreground, process-owned operator console on an
 OS-selected IPv4 `127.0.0.1` port. The command accepts no bind address, fixed
 port, remote-access, daemon, or persisted-session option. Cancellation closes
 the listener and invalidates the session.
@@ -52,6 +55,8 @@ modes; presentation never becomes authority.
 
 - The browser is a trusted-host convenience surface, not a remote control
   plane or a second policy engine.
+- Standard and release binaries carry no Operator Console command or composition
+  wiring while the interface is evaluated.
 - Browser refresh can repeat reads but cannot replay a confirmed mutation.
 - A stolen live session token can act with the user's console authority until
   the foreground command exits, so it is never logged, persisted, placed in a

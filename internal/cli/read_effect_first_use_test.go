@@ -78,7 +78,6 @@ func TestEveryCatalogReadExecutesOnFreshXDGWithoutDurableOrExternalMutation(t *t
 		"context show":           {"--format=json"},
 		"status":                 {"--format=json"},
 		"cluster status":         {"--format=json"},
-		"serve":                  {"--no-open"},
 		"cluster denials":        {"--format=json"},
 		"cluster logs":           {},
 		"policy candidates":      {"--format=json"},
@@ -88,6 +87,9 @@ func TestEveryCatalogReadExecutesOnFreshXDGWithoutDurableOrExternalMutation(t *t
 		"policy preset show":     {"--name=builtin/offline", "--format=json"},
 		"policy preset validate": {"--name=custom/missing", "--format=json"},
 		"list":                   {"--format=json"},
+	}
+	if _, found := DefaultCatalog().Lookup("serve"); found {
+		extraArgs["serve"] = []string{"--no-open"}
 	}
 	if len(authCommandSpecs()) != 0 {
 		extraArgs["auth status"] = []string{"--format=json"}

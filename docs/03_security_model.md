@@ -470,7 +470,7 @@ authority only for an identical candidate ID; stale and same-label replacement
 IDs remain undecided. Confirmed Apply returns an authoritative active revision
 and exact typed receipt, after which the original running Workspace may issue a
 new request. Neither Workspace nor OPA is recreated by this activation.
-The optional Operator Console is a session-scoped trusted-host presentation,
+The experimental-only Operator Console is a session-scoped trusted-host presentation,
 not a network control plane. `tobari serve` binds TCP4 only to
 `127.0.0.1:0`, accepts no remote/fixed-port option, and exits with its owning
 foreground process. A cryptographically random 256-bit bearer exists only in

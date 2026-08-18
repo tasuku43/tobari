@@ -40,8 +40,10 @@ exact embedded source hash, builds `tobari-runtime:dev`, and compiles
 `bin/tobari` with the development resolver and standard capability profile.
 `task build:dev` produces `bin/tobari-dev` with the same resolver and the
 experimental capability profile. The standard matrix excludes AWS
-authentication; the experimental matrix adds it without a runtime activation
-flag. To run the integration script against the experimental binary, set
+authentication and the Operator Console; the experimental matrix adds both
+without a runtime activation flag. Paired catalog tests prove that `serve` is
+unknown in the standard profile and fully declared in the experimental profile.
+To run the integration script against the experimental binary, set
 `TOBARI_INTEGRATION_BINARY=$PWD/bin/tobari-dev` and
 `TOBARI_INTEGRATION_CUSTOM_BASE=tobari-runtime:dev`.
 The integration script owns its dev-resolver prerequisites: when
@@ -703,7 +705,7 @@ The test suite has complementary levels:
   answer key records zero routine external processing. Container integration
   keeps both container IDs stable, confirms the receipt revision against
   `cluster status`, and retries through the same running Workspace.
-- Operator Console tests pin one valid typed snapshot before listen, exact
+- Experimental-profile Operator Console tests pin one valid typed snapshot before listen, exact
   `127.0.0.1:0` ownership, 256-bit bearer generation, loopback peer and exact
   Host/Origin/authentication gates, closed routes and methods, strict bounded
   JSON, CSP/no-store/no-cookie/no-external-asset responses, dark/light token
@@ -847,7 +849,7 @@ Every strong statement should identify its enforcement path.
 | Experimental protected provider acquisition | Catalog selector/method/stdin contracts, terminal rules, bounded readers, canonical GitHub/AWS/pup/Codex/Claude identity/digest checks, fixed argv/environment, control-safe output, bounded browser/PTY behavior, checked cleanup, cancellation/failure preservation, and required synthetic integration; optional live observations make no standard publication claim |
 | Typed denial recovery | Strict host/port audit projection, query/header absence, whole-path handle-marker redaction, non-learnable structural rejection, fixed host-review navigation schema, host-stderr session summary, empty bounded scope, hostile-field canaries, and end-to-end JSON assertions |
 | Explicit policy learning | OPA scheme/port learnability classification, terminal deny exclusion, deterministic repeated/concurrent Context/project/scheme/host/port/method/path candidate aggregation with required latest/count, two-distinct-example single-raw-segment template inference with ambiguity and unsafe-path suppression, Context-scoped reference validation, single-reference exact allow/deny/reset round trips, bounded typed TTY staging with template/exact choices, fresh revalidation, one fixed-target Apply and zero-write discard, installation-wide inventory/review, aggregate preflight ordering, and Docker retry |
-| Session-scoped Operator Console | Typed pre-listen snapshot conformance; TCP4 random-loopback binding; exact peer/Host/Origin/bearer/method/path/content-type and bounded-body negative tests; CSP/no-store/no-cookie/no-external-asset canaries; fragment bootstrap and dark/light browser tests; inert staging; one canonical fixed-target Apply with receipt and no retry; opener fallback and cancellation cleanup |
+| Experimental session-scoped Operator Console | Standard-catalog absence plus experimental-catalog presence; typed pre-listen snapshot conformance; TCP4 random-loopback binding; exact peer/Host/Origin/bearer/method/path/content-type and bounded-body negative tests; CSP/no-store/no-cookie/no-external-asset canaries; fragment bootstrap and dark/light browser tests; inert staging; one canonical fixed-target Apply with receipt and no retry; opener fallback and cancellation cleanup |
 | Attachment-scoped Host Loopback authority | Constant hostname/URL-template, bounded port, and destination/lifetime domain tests; host-derived epoch and Workspace-wide audience assertions; negative retired `--host-http` parsing; owner-only strict route registry and secret-free capability projection; random-port 256-bit-authenticated host relay that revalidates the reviewed IPv4-loopback target port; Gateway principal/epoch/port derivation and one-shot stream tests; OPA exact attachment Allow/Deny and lifetime/port-confusion canaries; zero host I/O for malformed, unauthenticated, unreviewed, stale, denied, unavailable, and post-detach requests; route-first teardown, borrower non-ownership, and crash reconciliation; policy-review lifetime presentation; and macOS/Linux Docker integration |
 | Declared GraphQL policy identity | Exact trusted endpoint projection, hash-pinned parser and license checks, strict bounded envelope fixtures, absent-length acceptance under fixed transport and semantic caps, positive/duplicate/mismatched length plus transfer/content encoding canaries, conservative root-fragment expansion, all-roots OPA matching, HTTP-rule non-matching canaries, per-root audit/candidate/allow/deny/reset round trips, prefix-rule rejection, raw-body privacy canaries, and zero-upstream integration |
 | Context source access | Required manifest/catalog field, omission-default tests, immutable runtime spec/hash, Docker inspect/reconciliation, read-only mutation/Git-metadata denial, writable home/tmpfs, no writable alias, and same-root observation |

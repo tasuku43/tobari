@@ -238,13 +238,15 @@ only by opaque typed review-item ID; labels, order, or indentation never create
 authority. Confirmed Apply returns the active revision and stored-rule receipts. Retry the
 original request in the same Workspace.
 
-For the same trusted-host workflow in a browser, start the foreground Operator
-Console:
+The experimental development profile also offers the same trusted-host workflow
+in a foreground browser Operator Console. Build and invoke that profile
+explicitly:
 
 ```sh
-tobari serve
+task build:dev
+./bin/tobari-dev serve
 # or print the URL without opening the host browser
-tobari serve --no-open
+./bin/tobari-dev serve --no-open
 ```
 
 The console combines cluster health, local Workspaces, the Permission Inbox,
@@ -255,6 +257,7 @@ authoritative active revision. The server binds only a random IPv4-loopback
 port, keeps its session bearer in the URL fragment and browser tab, loads no
 external assets, and stops with the foreground process. It has no daemon,
 remote-bind, or caller-selected-port mode.
+The standard `task build` binary and release archives do not expose `serve`.
 
 Machine workflows use unchanged opaque references:
 

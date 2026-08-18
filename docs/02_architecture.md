@@ -174,7 +174,7 @@ where applicable.
 
 `cluster up`, `cluster status`, `cluster denials`, `policy candidates`,
 `policy review`, `policy allow`, `policy deny`, `policy rules`,
-`policy reset`, and `serve` remain a valid standard seam. `auth login`, `auth import`,
+and `policy reset` remain a valid standard seam. `serve`, `auth login`, `auth import`,
 `auth status`, and `auth logout` remain experimental-only seams
 internal seams today. They are not permission to expose Docker, OPA, or opaque
 resource identifiers as the routine mental model. `policy review` is the
@@ -195,7 +195,7 @@ machine discovery surface. The catalog declares this
 composition while preserving discover/act separation: the act still consumes
 exactly one validated opaque reference or one declared fixed target.
 
-`serve` is a foreground CLI composition over the existing typed application
+Experimental `serve` is a foreground CLI composition over the existing typed application
 tasks. Before exposing a listener it obtains one valid installation snapshot:
 cluster status, exhaustive Workspace inventory, bounded policy review, and
 learned rules. Infrastructure owns an embedded no-external-asset HTTP surface
@@ -203,7 +203,9 @@ on `127.0.0.1:0`; it depends only on domain-shaped backend methods and makes no
 policy decision. The CLI adapter delegates snapshot reads to `tobaricmd.Service`
 and every browser Apply to the catalog-owned internal `policy apply-reviewed`
 contract. The process lifetime owns the listener, session bearer, and browser
-opener. Cancellation closes the surface without changing policy.
+opener. Cancellation closes the surface without changing policy. Build-tagged
+composition keeps its command, handler, and loopback infrastructure wiring out
+of the standard profile.
 
 ### Context composition
 

@@ -231,7 +231,6 @@ The public commands are:
 | `list [--format text|json]` | utility | read | List local Workspaces with Context, runtime diagnostics, and diagnostic IDs |
 | `delete [--context NAME] [--force]` | act, fixed target | write | Delete the nearest current-directory Workspace in the explicit or current Context, its owned runtime, persistent home, and tool-owned authentication state while preserving project files; `--force` overrides only the attached-session guard |
 | `cluster status [--format text|json]` | utility | read | Inspect Gateway/OPA health, loaded Context count, aggregate revision, current-binary policy/Gateway projection integrity, and recent errors |
-| `serve [--no-open]` | utility | read, with one separately confirmed reviewed apply | Run one foreground IPv4-loopback Operator Console for typed cluster, Workspace, Permission Inbox, and learned-rule inspection; optionally open the host browser, stage decisions without authority, and delegate one confirmed reviewed set to the canonical fixed-target apply |
 | `cluster denials [--tail N] [--format text|json]` | utility | read | Read a bounded typed denial window, exact-rule learnability, policy path, and review command |
 | `cluster logs [--component gateway|opa|all] [--tail N]` | utility | read | Read bounded shared logs, including policy-denial evidence, without credential output |
 | `cluster down [--purge]` | act, fixed target | write | Remove shared transient resources after every logical Tobari is deleted; `--purge` additionally removes shared CA and active policy-bundle volumes |
@@ -255,6 +254,13 @@ The public commands are:
 | `context use --name NAME [--format text\|json]` | act, fixed target | write | Change only the current/default Context; do not mutate existing Tobari or start/reconcile the cluster |
 | `runtime init [--format text|json]` | act, fixed target | create | Create the current Context's runtime/Dockerfile template without changing its selected image |
 | `runtime build [--format text|json]` | act, fixed target | write | Build, validate, and select the current Context's generated local runtime image |
+
+The unsupported experimental development profile built by `task build:dev`
+additionally exposes `serve [--no-open]`. It runs one foreground IPv4-loopback
+Operator Console for typed cluster, Workspace, Permission Inbox, and learned-rule
+inspection; it may open the host browser, stages decisions without authority,
+and delegates one confirmed reviewed set to the canonical fixed-target Apply.
+The standard development binary and release archives omit this command.
 
 For the CWD lifecycle commands `tobari`, `status`, and `delete`, one non-empty
 invocation Context may appear before or after the command path: for example,
@@ -639,7 +645,8 @@ revision plus each ordered Context/project/effect/stored-rule decision and
 directs the caller to retry in the current running Workspace. The public
 read-only JSON review schema remains version 1 and does not expose this
 internal TTY Apply receipt.
-`tobari serve` exposes the same human task in one foreground Operator Console.
+Experimental `tobari serve` exposes the same human task in one foreground
+Operator Console and is absent from the standard and release catalogs.
 It binds only a random IPv4 loopback port, issues one process-memory 256-bit
 session bearer through the initial URL fragment, and stores no cookie or
 persistent browser credential. The page removes that fragment after moving the

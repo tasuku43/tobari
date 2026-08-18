@@ -1,3 +1,5 @@
+//go:build tobari_experimental
+
 package cli
 
 import (
@@ -6,12 +8,23 @@ import (
 	"testing"
 
 	"github.com/tasuku43/tobari/internal/app/tobaricmd"
+	"github.com/tasuku43/tobari/internal/domain/fault"
 	"github.com/tasuku43/tobari/internal/infra/operatorconsole"
 )
 
 type operatorConsoleRunnerFake struct {
 	open  bool
 	calls int
+}
+
+type operatorConsoleFailureRunner struct {
+	err error
+}
+
+func (f operatorConsoleFailureRunner) Run(
+	_ context.Context, _ operatorconsole.Backend, _ bool, _ func(operatorconsole.Session) error,
+) error {
+	return f.err
 }
 
 func (f *operatorConsoleRunnerFake) Run(
@@ -51,6 +64,31 @@ func TestServeCatalogDeclaresClosedPublicSurface(t *testing.T) {
 	}
 	if len(spec.Agent.Inputs) != 1 || spec.Agent.Inputs[0].Name != "--no-open" {
 		t.Fatalf("serve inputs = %#v", spec.Agent.Inputs)
+	}
+}
+
+func TestServePreservesComposedSnapshotReadFaults(t *testing.T) {
+	t.Parallel()
+	failures := append([]CommandError{{
+		Kind: fault.KindUnavailable, Code: "cluster_reconcile_interrupted", Retryable: false,
+	}}, policyClusterReadinessErrors()...)
+	for _, declared := range failures {
+		declared := declared
+		t.Run(declared.Code, func(t *testing.T) {
+			t.Parallel()
+			command, _, stderr := newTestCLI(passingInspector("unused"))
+			command.tobari = tobaricmd.New(nil)
+			command.console = operatorConsoleFailureRunner{err: fault.New(
+				declared.Kind, declared.Code, "simulated operator console preflight failure", declared.Retryable,
+			)}
+			if code := runCLI(command, []string{"serve", "--no-open"}); code == ExitContract {
+				t.Fatalf("serve replaced %q with a contract fault: %q", declared.Code, stderr.String())
+			}
+			if !humanOutputHasRow(stderr.String(), "Code", declared.Code) ||
+				strings.Contains(stderr.String(), "undeclared_fault_contract") {
+				t.Fatalf("serve fault = %q", stderr.String())
+			}
+		})
 	}
 }
 
