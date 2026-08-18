@@ -22,6 +22,8 @@ claude
 codex login
 # or
 gh auth login
+# or
+aws sso login --profile your-profile
 ```
 
 Claude Code and Codex are part of the locally built agent-ready base. Their
@@ -66,6 +68,12 @@ GitHub.com web-application fallback to the host browser and the selected
 Workspace's localhost listener. GitHub CLI still owns Enter, OAuth state,
 exchange, and credential storage. The bridge adds no policy permission;
 GitHub Enterprise, custom scopes, and SSH-key upload remain outside it.
+
+For pinned AWS CLI, an attached session bridges the default IAM Identity
+Center authorization-code URL and its dynamic `127.0.0.1/oauth/callback` port
+to the selected Workspace. AWS CLI still owns PKCE, the token exchange, and its
+cache. This grants no AWS network permission. If the local callback shape is
+unavailable, retry with `aws sso login --use-device-code --profile your-profile`.
 
 ## Login can still be denied
 

@@ -159,9 +159,24 @@ grants only the two exact US1 POSTs above. Product APIs, telemetry, revoke,
 alternate sites, caller-added scopes, and neighboring OAuth routes remain
 under ordinary Context policy.
 
+For pinned AWS CLI 2.36.11, the attached host process accepts only the default
+IAM Identity Center authorization-code opener request at exact
+`https://oidc.<commercial-region>.amazonaws.com/authorize`. It requires the
+seven reviewed query keys, exact `sso:account:access` scope, bounded DCR client
+ID, lowercase UUID state, S256 PKCE challenge, and exact HTTP
+`127.0.0.1:<dynamic-non-privileged-port>/oauth/callback` redirect. Tobari binds
+the URL-selected host port before browser open and relays one opaque callback
+only to the selected owned Workspace's same port. AWS CLI owns DCR, state and
+PKCE validation, callback parsing, token exchange, cache persistence, and
+presentation. Other partitions, scopes, OIDC paths, callback targets, and
+malformed or duplicate fields open nothing. The bridge adds no AWS endpoint
+permission: SSO OIDC, portal, and AWS API effects remain under ordinary Context
+policy. `aws sso login --use-device-code` remains the AWS CLI-owned cross-device
+recovery when the reviewed local callback shape is unavailable.
+
 The bridge never consumes Enter, `c`, or any other child input and never writes
 a provider code to the host clipboard. Manual-code flows keep terminal focus
-until the provider-owned confirmation; Claude, Codex, GitHub, and pup callback flows with no
+until the provider-owned confirmation; Claude, Codex, GitHub, AWS SSO, and pup callback flows with no
 Workspace-to-browser code transfer retain immediate opening.
 
 Claude native login is a release regression because the previous standard

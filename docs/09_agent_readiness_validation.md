@@ -216,7 +216,7 @@ dormant prefix fallbacks must all be absent.
 
 ## Standard native-login regression
 
-Run Claude Code, Codex, and GitHub CLI native login in a fresh standard
+Run Claude Code, Codex, GitHub CLI, and AWS CLI native login in a fresh standard
 Workspace home, and TWG CLI 1.2.5 plus pup 1.10.7 native login in compatible
 custom-runtime Workspaces. The test boundary does not retain credentials or authenticated
 transcripts.
@@ -303,6 +303,18 @@ and the complete compiled scope ceiling plus reduced/read-only subsets remain
 accepted while caller-added scopes and alternate sites fail closed. Routine
 success uses one `pup auth login` invocation and zero external processing;
 later Datadog product effects are classified separately.
+
+For pinned AWS CLI 2.36.11, replay one synthetic default IAM Identity Center
+authorization-code opener request. Prove the exact commercial-region OIDC URL
+opens once, the host binds the URL-selected dynamic non-privileged port before
+browser open, and one opaque callback reaches only the label-verified selected
+Workspace's same `127.0.0.1/oauth/callback` listener. Reject alternate
+partitions, region/host case, explicit authority ports, neighboring paths,
+changed or duplicate query fields, non-default scopes, malformed DCR/state/PKCE
+values, and external or privileged callbacks. Prove the bridge adds no AWS
+baseline effect and retains `aws sso login --use-device-code` as provider-owned
+recovery. Routine callback success uses one `aws sso login` invocation, no
+manual URL/callback transfer, and zero external processing.
 
 Automated Gateway fixtures use synthetic bearer canaries and prove the canary
 is absent from OPA input and denial evidence, preserved exactly for the single

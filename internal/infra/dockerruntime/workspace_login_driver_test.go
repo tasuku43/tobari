@@ -20,6 +20,7 @@ func TestReviewedWorkspaceLoginDriverRegistryOwnsClosedUnion(t *testing.T) {
 		{id: "codex", relayCallback: true},
 		{id: "pup", relayCallback: true},
 		{id: "github-oauth", relayCallback: true},
+		{id: "aws-sso", relayCallback: true},
 	}
 	if len(drivers) != len(want) {
 		t.Fatalf("reviewed Workspace login driver count = %d, want %d", len(drivers), len(want))
@@ -52,6 +53,7 @@ func TestReviewedWorkspaceLoginDriverRegistrySelectsEveryProvider(t *testing.T) 
 		{id: "codex", target: syntheticCodexAuthorizationURLWithPort(strings.Repeat("c", 43), strings.Repeat("s", 43), 27890), callbackPort: 27890, relayCallback: true},
 		{id: "pup", target: syntheticPupWorkspaceAuthorizationURL(8000, "dashboards_read metrics_read"), callbackPort: 8000, relayCallback: true},
 		{id: "github-oauth", target: syntheticGitHubAuthorizationURL(37405, strings.Repeat("a", 20), githubAuthorizationScope), callbackPort: 37405, relayCallback: true},
+		{id: "aws-sso", target: syntheticAWSSSOWorkspaceAuthorizationURL(36901), callbackPort: 36901, relayCallback: true},
 	}
 	for _, test := range tests {
 		t.Run(test.id, func(t *testing.T) {

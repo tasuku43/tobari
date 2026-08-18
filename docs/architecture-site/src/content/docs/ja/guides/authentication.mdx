@@ -22,6 +22,8 @@ claude
 codex login
 # or
 gh auth login
+# or
+aws sso login --profile your-profile
 ```
 
 Claude Code と Codex はローカルでビルドされる agent-ready base に含まれます。
@@ -66,6 +68,13 @@ application fallback を host browser と選択済み Workspace の localhost li
 へ bridge します。Enter、OAuth state、exchange、credential storage は引き続き
 GitHub CLI が所有します。この bridge は policy permission を追加しません。
 GitHub Enterprise、custom scope、SSH key upload は対象外です。
+
+pinned AWS CLI では、attached session が default の IAM Identity Center
+authorization-code URL と動的な `127.0.0.1/oauth/callback` port を選択済み
+Workspace へ bridge します。PKCE、token exchange、cache は引き続き AWS CLI が
+所有し、この bridge は AWS の network permission を追加しません。local callback
+が利用できない場合は `aws sso login --use-device-code --profile your-profile` で
+再試行できます。
 
 ## ログイン通信が deny された場合
 

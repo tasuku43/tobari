@@ -32,7 +32,9 @@ release; immutable Gateway/Auth Broker image indexes are not yet published.
 - Native Workspace login routes `BROWSER`, `GH_BROWSER`, and `xdg-open` through
   one attachment-scoped Tobari opener. The host opens only a strictly validated
   authentication target; manual-code tools retain their own confirmation and
-  copy window, and Tobari neither observes terminal output nor consumes input.
+  copy window, while Codex, GitHub, AWS SSO, and pup callback variants receive
+  only their reviewed one-shot loopback relay. Tobari neither observes terminal
+  output nor consumes input.
 - Brokered authentication keeps static, renewable, or signing state in an
   encrypted Context vault and gives each Workspace only a project-bound handle.
 

@@ -20,11 +20,17 @@ claude
 codex login
 # or
 gh auth login
+# or
+aws sso login --profile your-profile
 ```
 
 The resulting state lives in this Workspace's persistent home. It survives
 ordinary `exit` and work-container replacement, but is not copied from the host
 or shared with another Workspace.
+
+Attached native AWS SSO login relays its reviewed dynamic localhost callback to
+this Workspace. If that callback mode is unavailable, use
+`aws sso login --use-device-code --profile your-profile`.
 
 ## Login and policy remain separate
 

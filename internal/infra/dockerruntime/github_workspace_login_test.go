@@ -92,6 +92,7 @@ func TestWorkspaceLoginDriverRegistryKeepsCallbackProviderContractsDisjoint(t *t
 		{id: "github-oauth", target: syntheticGitHubAuthorizationURL(37405, strings.Repeat("a", 20), githubAuthorizationScope), port: 37405},
 		{id: "codex", target: syntheticCodexAuthorizationURLWithPort(strings.Repeat("c", 43), strings.Repeat("s", 43), 27890), port: 27890},
 		{id: "pup", target: syntheticPupWorkspaceAuthorizationURL(8000, "dashboards_read metrics_read"), port: 8000},
+		{id: "aws-sso", target: syntheticAWSSSOWorkspaceAuthorizationURL(36901), port: 36901},
 	} {
 		driver, action, ok := selectWorkspaceLoginDriver(test.target, reviewedWorkspaceLoginDrivers())
 		if !ok || driver.id != test.id || !action.relayCallback || action.callbackPort != test.port {

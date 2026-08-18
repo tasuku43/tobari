@@ -11,8 +11,8 @@ access other host files, another Tobari, Docker control, real host-managed
 credentials, OPA administration, or direct Internet egress through the
 supported configuration. In standard, tool-owned credentials exist inside one
 Tobari's exact home only by explicit user action and are forwarded only after
-OPA allow. Pinned Claude Code, Codex, GitHub CLI, custom-runtime TWG, and
-custom-runtime pup native login may also use a
+OPA allow. Pinned Claude Code, Codex, GitHub CLI, AWS CLI, custom-runtime TWG,
+and custom-runtime pup native login may also use a
 session-scoped host-browser and loopback callback bridge. The host selects one
 strict reviewed provider authorization contract and transports one callback to
 the selected Workspace without inspecting or persisting its bytes. The
@@ -207,9 +207,11 @@ GitHub CLI's exact device target, and TWG CLI's strict device-verification
 target instead perform one host browser open after their client-owned
 confirmation and create no listener. The closed union accepts only Claude Code
 2.1.220's fixed client, redirect, PKCE shape, and complete reviewed scope set;
-Codex's reviewed authorization semantics; or GitHub CLI 2.96.0's exact device URL or fixed
+Codex's reviewed authorization semantics; GitHub CLI 2.96.0's exact device URL or fixed
 GitHub.com web-application client, standard HTTPS-login scope ceiling, exact
-state shape, and `127.0.0.1/callback` redirect; TWG CLI 1.2.5's strict
+state shape, and `127.0.0.1/callback` redirect; AWS CLI 2.36.11's exact
+commercial-region authorization-code shape, default scope, bounded DCR/state/PKCE
+fields, and dynamic `127.0.0.1/oauth/callback` port; TWG CLI 1.2.5's strict
 Atlassian activation URL; or pup 1.10.7's exact US1 authorization route,
 bounded DCR/PKCE fields, sorted default-scope subset, and one of its four exact
 `127.0.0.1/oauth/callback` ports. A dedicated schema-v1 control stream carries the
@@ -901,7 +903,7 @@ recognition. A dynamic OpenAI authorization URL is never a Tobari browser
 target; the verified Codex child owns its open attempt and fallback guidance.
 That sentence applies to the experimental host-acquisition driver. In the
 separate standard attached Workspace, ADRs 0046, 0048, 0050, and 0055 permit the strict
-Claude Code, Codex, GitHub CLI, TWG, and pup native-login URL union only. GitHub CLI's
+Claude Code, Codex, GitHub CLI, AWS CLI, TWG, and pup native-login URL union only. GitHub CLI's
 device prompt remains visible; GitHub CLI invokes the attachment-scoped opener
 only after native Enter, while its callback-bearing path invokes it immediately.
 Its exact validated device URL may then open once with no listener, or its strict callback URL
@@ -920,6 +922,11 @@ Pup accepts only the reviewed US1 DCR/PKCE authorization shape and binds one of
 ports 8000, 8080, 8888, or 9000 before browser open; it relays one opaque
 callback only to the selected Workspace. Caller-added scopes, alternate sites,
 and changed callback targets open and relay nothing.
+AWS SSO accepts only the pinned commercial-region authorization-code shape and
+default scope, binds its URL-selected non-privileged port before browser open,
+and relays one opaque callback to the selected Workspace. Other partitions,
+scopes, callback targets, and neighboring OIDC routes open and relay nothing;
+`--use-device-code` remains AWS CLI-owned recovery.
 For exact Claude 2.1.220, the separate Context-runtime boundary consumes only
 the reviewed opening, OSC 8 link, browser-result, and paste-prompt events. It
 opens the exact validated HTTPS URL once, hides it after successful host open,
@@ -1028,7 +1035,7 @@ reference-bound mutation.
 | The broker restarts locked and cannot silently replace a missing root key | Restart/unlock tests, Keychain/XDG provider tests, and missing-key-with-vault rejection |
 | Provider manifests cannot become executable or ambiguous authority | Strict schema/collision/path/header tests, owner-only XDG loading, and built-in override rejection |
 | Provider login cannot turn visible text into arbitrary browser execution | Conventional non-project executable selection, identity/digest recheck, fixed argv/environment, bounded browser/PTY projection, checked cleanup, cancellation, and provider-specific negative tests |
-| Native Workspace login cannot become generic host ingress or browser authority | One fresh compile-time registry with exact driver-ID/callback-mode coverage and malformed/ambiguous-definition canaries; closed Claude Code/Codex/GitHub CLI/TWG/pup semantic URL-schema tests with exact OAuth clients, reviewed scope ceilings, callback shapes, and state bounds; complete pup 1.10.7 scope-ceiling and four-port canaries; one binary-owned read-only opener; exact `BROWSER`/`GH_BROWSER`/`xdg-open` projection; dedicated schema-v1 Unix-socket and non-TTY Docker exec protocol tests; duplicate-key, unknown-field, malformed-version, oversized-target, replay-budget, neighboring-target, and ownership canaries; zero-listener device/remote-callback opens; dynamic non-privileged host-loopback-only one-shot callback relay; opaque callback canaries; port-collision failure; direct Docker terminal ownership; and session cleanup |
+| Native Workspace login cannot become generic host ingress or browser authority | One fresh compile-time registry with exact driver-ID/callback-mode coverage and malformed/ambiguous-definition canaries; closed Claude Code/Codex/GitHub CLI/AWS CLI/TWG/pup semantic URL-schema tests with exact OAuth clients or bounded DCR IDs, reviewed scope ceilings, callback shapes, and state bounds; AWS commercial-region/default-scope/partition canaries; complete pup 1.10.7 scope-ceiling and four-port canaries; one binary-owned read-only opener; exact `BROWSER`/`GH_BROWSER`/`xdg-open` projection; dedicated schema-v1 Unix-socket and non-TTY Docker exec protocol tests; duplicate-key, unknown-field, malformed-version, oversized-target, replay-budget, neighboring-target, and ownership canaries; zero-listener device/remote-callback opens; dynamic non-privileged host-loopback-only one-shot callback relay; opaque callback canaries; port-collision failure; direct Docker terminal ownership; and session cleanup |
 | Unsupported credential mechanisms cannot remain dormant | Catalog/state/dependency/image-content tests reject managed profiles, owner-selected dynamic plans, arbitrary helpers, compatibility readers, and provider CLIs inside Broker |
 | Agent-ready tools retain reviewed identity without Tobari redistribution | Base-runtime locks/checks for GitHub CLI, AWS CLI, Claude Code, and Codex; version smokes outside Workspace home; local missing-image build tests; workflow and release canaries reject every base registry write/login/push path |
 | Secret headers, queries, handle-bearing paths, and bodies stay out of logs | Gateway redacted-path/header-absence tests, non-learnable structural-rejection tests, and log scans |

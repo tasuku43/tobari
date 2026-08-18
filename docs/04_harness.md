@@ -155,7 +155,7 @@ Negative tests prove managed profiles, owner-selected dynamic plans, arbitrary
 helpers, compatibility readers, and Broker provider CLIs are absent.
 
 The canonical base and focused runtime checks validate the pinned client
-artifacts at Claude Code 2.1.220, Codex 0.147.0, and GitHub CLI 2.96.0. Local build fixtures
+artifacts at Claude Code 2.1.220, Codex 0.147.0, GitHub CLI 2.96.0, and AWS CLI 2.36.11. Local build fixtures
 replace `/var/lib/tobari` with a temporary home mount and execute the client
 commands, so an image-layer executable cannot silently depend on persistent
 home state. These checks authorize neither redistribution nor publication;
@@ -170,13 +170,16 @@ proves callers receive fresh compiled values, selects one fixture per entry,
 and rejects empty, duplicate, missing-parser, mode-inconsistent, and ambiguous
 registries.
 Claude Code cases retain the exact pinned client, remote callback, PKCE shape,
-and complete reviewed scope set. Codex, GitHub, and pup callback cases retain their
+and complete reviewed scope set. Codex, GitHub, AWS SSO, and pup callback cases retain their
 validated non-privileged listener and opaque relay. GitHub CLI 2.96.0 keeps its
 native Enter and invokes only the attachment-scoped opener for the strict device
 target; TWG likewise retains its native confirmation and strict activation URL.
 Pup 1.10.7 fixes the default-US1 authorization shape, complete 110-scope
 ceiling, four callback ports, bind-before-open ordering, and selected-Workspace
 opaque relay.
+AWS CLI 2.36.11 fixes the commercial-region authorization-code shape, default
+scope, bounded DCR/state/PKCE fields, dynamic callback port, bind-before-open
+ordering, selected-Workspace opaque relay, and device-code recovery.
 Runtime checks fix the exact-default-argv wrapper, pinned real executable,
 fixed login/setup argv, opener mounts, and pass-through. The attached shell's
 streams remain directly owned by Docker without a PTY observation relay.
@@ -849,7 +852,7 @@ Every strong statement should identify its enforcement path.
 | Context source access | Required manifest/catalog field, omission-default tests, immutable runtime spec/hash, Docker inspect/reconciliation, read-only mutation/Git-metadata denial, writable home/tmpfs, no writable alias, and same-root observation |
 | Context policy preset | Strict normalization/digest/snapshot tests, dedicated binary catalog with unique family IDs, explicit pinned client versions, positive append-only contract revisions, one current contract, core-only new agent-ready snapshots, complete historical readiness stripping, current binary projection into existing agent-ready Contexts without rewrite, `claude_ready`, `codex_ready`, `gh_ready`, custom-runtime `twg_ready`, and custom-runtime `pup_ready` exact native-authentication grants plus native discovery grants, GitHub GraphQL `query` / `viewer` endpoint/baseline with mutation/sibling/mixed-root/HTTP canaries, TWG exact device-code/token/revoke, site inventory, stable manifest, and GraphQL `query` / `me` endpoint/baseline with method/REST/beta-manifest/installer/download and neighboring-Atlassian canaries, pup exact US1 DCR/token POSTs with neighboring host/path/method/product canaries, strict/custom zero-overlay canaries, one safe evaluation template, exact MCP endpoint and initialize/list baseline, exact tool-name action review with payload canaries, acquisition/file-transfer/update exclusions, exact-Deny precedence, built-in and custom schema canaries, GET-without-safe-claim contract, and terminal zero-candidate/DNS/Broker/upstream calls |
 | Context/project principal and credential scope | Owner-only atomic registry schema 1, exact Workspace-source/Gateway endpoint and network uniqueness, regular/transparent source derivation, forged-Context/project/SNI/authority and unknown-principal denial, source-spoof canaries, passthrough/static-broker tests, copied-handle cross-Context canaries, Rego canaries, and multi-Context Docker integration |
-| Standard native Workspace authentication boundary | Standard-profile empty authentication-projection and full runtime-reconciliation tests prove zero Auth Broker inspection/control calls and no experimental auth-registry creation; the attached-session suite adds a closed Claude/Codex/GitHub CLI/TWG/pup browser union, one binary-owned read-only opener, exact `BROWSER`/`GH_BROWSER`/`xdg-open` projection, and a dedicated schema-v1 Unix-socket/non-TTY Docker exec protocol; exact device targets, provider clients/scope ceilings/state/callback shapes including pup 1.10.7's complete 110-scope ceiling and four fixed ports, direct Docker terminal ownership, fixed login/setup argv and pass-through, zero-listener device paths, dynamic non-privileged host-loopback-only callback relay to the label-verified selected Workspace, duplicate-key/unknown-field/version/size/replay/neighbor canaries, opaque callback canaries, and cleanup; the experimental-tag suite separately retains project-bound handle and file projection coverage |
+| Standard native Workspace authentication boundary | Standard-profile empty authentication-projection and full runtime-reconciliation tests prove zero Auth Broker inspection/control calls and no experimental auth-registry creation; the attached-session suite adds a closed Claude/Codex/GitHub CLI/AWS CLI/TWG/pup browser union, one binary-owned read-only opener, exact `BROWSER`/`GH_BROWSER`/`xdg-open` projection, and a dedicated schema-v1 Unix-socket/non-TTY Docker exec protocol; exact device targets, provider clients or bounded DCR IDs, scope ceilings, state/PKCE/callback shapes including AWS's commercial-region/default-scope dynamic callback and pup 1.10.7's complete 110-scope ceiling and four fixed ports, direct Docker terminal ownership, fixed login/setup argv and pass-through, zero-listener device paths, dynamic non-privileged host-loopback-only callback relay to the label-verified selected Workspace, duplicate-key/unknown-field/version/size/replay/neighbor canaries, opaque callback canaries, and cleanup; the experimental-tag suite separately retains project-bound handle and file projection coverage |
 | Atomic multi-Context policy activation | Source and projection locks, Context namespace rejection, complete all-Context OPA validation, content-addressed atomic publication, stale-revision rejection, known-good rollback, and invalid/concurrent mutation tests |
 | Mutation outcome classification | Structured-fault-first/cause-stripping tests, non-retryable unclassified outcome fallback, and read-only recovery validation |
 | Confirmed mutation output | One effect-aware finalizer, late-cancellation regression, non-retryable mutation short-write fault, and read-only recovery validation |

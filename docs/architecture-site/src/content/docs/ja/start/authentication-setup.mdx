@@ -20,11 +20,17 @@ claude
 codex login
 # or
 gh auth login
+# or
+aws sso login --profile your-profile
 ```
 
 生成された状態はこの Workspace の永続 home に保存されます。通常の `exit` や
 work container の置換後も残りますが、host からコピーされず、別 Workspace とも
 共有されません。
+
+attached native AWS SSO login では、review 済みの動的 localhost callback がこの
+Workspace へ relay されます。この callback 方式が利用できない場合は
+`aws sso login --use-device-code --profile your-profile` を使います。
 
 ## ログインと policy は別
 

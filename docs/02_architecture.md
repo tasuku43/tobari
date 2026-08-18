@@ -19,8 +19,8 @@ control and egress. Standard has no Auth Broker service, provider projection,
 credential mount, or credential helper. Its one session-scoped native-login
 bridge is part of interactive entry: it mounts one binary-owned opener,
 projects its attachment-local Unix socket through `BROWSER`, `GH_BROWSER`, and
-`xdg-open`, selects one strict Claude Code, Codex, GitHub CLI, custom-runtime
-TWG, or custom-runtime pup authorization contract, derives a
+`xdg-open`, selects one strict Claude Code, Codex, GitHub CLI, AWS CLI,
+custom-runtime TWG, or custom-runtime pup authorization contract, derives a
 non-privileged port from a callback-bearing loopback redirect, and relays one opaque callback
 through a fixed Docker exec program plus that validated port to the exact
 selected Workspace loopback. Pup is callback-bearing only on the four exact

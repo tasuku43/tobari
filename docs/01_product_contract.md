@@ -25,14 +25,15 @@ narrow-projection boundary may re-encode only thesis-declared non-secret
 scalars; it never copies their source file, directive, executable setting, or
 authentication material.
 Inside an attached session, ChatGPT sign-in from ordinary `codex` or
-`codex login` and the reviewed GitHub.com HTTPS `gh auth login` workflow
+`codex login`, the reviewed GitHub.com HTTPS `gh auth login` workflow, and
+the pinned AWS CLI `aws sso login` authorization-code flow
 additionally receive their native host-browser and localhost callback experience
 through one session-scoped, pinned-client bridge. The user supplies no port,
 URL, device mode, or manual callback transfer. Caller-added GitHub scopes,
 GitHub Enterprise hosts, and SSH-key upload remain outside that bridge.
 For GitHub and compatible custom-runtime TWG manual-code login, the native CLI
 invokes the attachment-scoped opener only after its existing confirmation, so
-the visible code can be copied first. Claude, Codex, and GitHub callback-bearing
+the visible code can be copied first. Claude, Codex, GitHub, and AWS SSO callback-bearing
 flows invoke it immediately. Tobari does not observe child output, consume child
 input, or provide a clipboard shortcut.
 
@@ -878,10 +879,14 @@ Tool authentication state is not cluster configuration. In standard it belongs
 below the selected instance's persistent home, is created by the tool's own
 login, and follows the ordinary post-policy passthrough route.
 The attached host process may transiently validate one exact Claude Code, Codex,
-GitHub CLI, custom-runtime TWG, or custom-runtime pup authorization URL and open
-it. Codex, GitHub web-application, and pup callback variants may relay one
+GitHub CLI, AWS CLI, custom-runtime TWG, or custom-runtime pup authorization URL and open
+it. Codex, GitHub web-application, AWS SSO, and pup callback variants may relay one
 opaque host-loopback callback to that same selected Workspace; Claude's remote
 callback, GitHub's device target, and TWG's device target create no listener.
+AWS SSO is limited to the pinned CLI's exact commercial-region authorization-code
+shape, default `sso:account:access` scope, bounded DCR/state/PKCE fields, and
+dynamic non-privileged `127.0.0.1/oauth/callback` port. Its documented
+`--use-device-code` option remains the cross-device recovery.
 Pup is limited to the exact US1 authorization route, a bounded DCR client ID,
 the sorted pup 1.10.7 default-scope ceiling, and exact
 `127.0.0.1:{8000,8080,8888,9000}/oauth/callback`. Claude Code 2.1.220 must use its fixed client, redirect, PKCE shape,

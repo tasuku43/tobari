@@ -27,6 +27,7 @@ func reviewedWorkspaceLoginDrivers() []workspaceLoginDriver {
 		callbackWorkspaceLoginDriver("codex", parseCodexLoginAuthorizationURL),
 		callbackWorkspaceLoginDriver("pup", parsePupWorkspaceLoginAuthorizationURL),
 		callbackWorkspaceLoginDriver("github-oauth", parseGitHubLoginAuthorizationURL),
+		callbackWorkspaceLoginDriver("aws-sso", parseAWSSSOWorkspaceAuthorizationURL),
 	}
 }
 

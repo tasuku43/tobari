@@ -30,12 +30,12 @@ without becoming a Docker or policy operator. In the standard profile, users
 authenticate the pinned agent CLI inside the Workspace and its tool-owned state
 persists only in that Workspace home; host credentials are never inherited.
 An attached standard session may bridge only the closed reviewed native browser
-login union for pinned Claude Code, Codex, GitHub CLI, custom-runtime TWG, and
-custom-runtime pup.
+login union for pinned Claude Code, Codex, GitHub CLI, AWS CLI,
+custom-runtime TWG, and custom-runtime pup.
 The native CLI invokes one attachment-scoped opener through `BROWSER`,
 `GH_BROWSER`, or `xdg-open`; after bounded semantic authorization-URL validation,
 the host opens that URL. Terminal presentation is never authority. Only
-the reviewed Codex, GitHub, and pup callback variants relay one opaque localhost
+the reviewed Codex, GitHub, AWS SSO, and pup callback variants relay one opaque localhost
 callback on the validated URL-selected port to the selected Workspace's
 client-owned loopback listener; Claude's remote callback and GitHub's device
 target and TWG's strict device-verification target create no listener. Opener framing is not URL
@@ -226,7 +226,7 @@ disabled, so neither path is direct egress.
   Docker socket and exits before user entry.
 - Reviewed native loopback login is the separate no-capability exception: while
   one interactive host session is attached, a strict pinned-client observer may
-  bind only a validated Codex, GitHub CLI, or custom-runtime pup authorization
+  bind only a validated Codex, GitHub CLI, AWS CLI, or custom-runtime pup authorization
   URL's reviewed non-privileged
   host-loopback port, open only that provider's reviewed authorization shape,
   and relay one opaque callback to the same port in the exact owned Workspace
@@ -274,7 +274,7 @@ native login inside the Workspace and owns the resulting state in that
 Workspace's persistent home. Gateway removes client authentication and cookies
 from OPA input and audit, asks policy about the ordinary HTTP effect, and
 forwards the original values only after allow.
-For pinned Codex and GitHub CLI, native local parity also includes ADR 0046's
+For pinned Codex, GitHub CLI, and AWS CLI, native local parity also includes ADR 0046's
 attached-session browser/callback bridge, ADR 0048's GitHub host-open-only
 device flow, and ADR 0053's provider-confirmed manual-code handoff. Each client
 still owns OAuth state, exchange, and credential
