@@ -947,11 +947,16 @@ OPA allow.
 
 A Context may snapshot a closed, schema-versioned, secret-free subset of host
 tool configuration for one-time projection into future Workspace homes. Each
-adapter owns exact source paths, selected fields, normalization, semantic
-revision, and hostile-input tests. The first adapter accepts one AWS IAM
-Identity Center profile plus its referenced SSO session from `~/.aws/config`.
-It never reads credentials, token caches, helpers, executable selections,
-includes, arbitrary dotfiles, or alternate paths.
+adapter owns exact source paths, selected fields, normalization, dependencies,
+semantic revision, and hostile-input tests. The first adapter accepts one AWS
+IAM Identity Center profile plus its referenced SSO session from
+`~/.aws/config`. One dependent `kubernetes_eks` adapter may select an exact
+context from fixed `~/.kube/config`, but only when it resolves to inline CA and
+commercial EKS HTTPS target data plus the reviewed `aws eks get-token` shape
+whose `AWS_PROFILE` equals that AWS adapter. Tobari canonicalizes the exec
+contract; it never copies its source bytes. Neither adapter reads credentials,
+token caches, arbitrary helpers or executable selections, includes, arbitrary
+dotfiles, or alternate paths.
 
 Projection occurs only while a new logical Workspace is being created and is
 recorded before that Workspace becomes authoritative. Context refresh changes
@@ -960,7 +965,8 @@ synchronized or rewritten and retain their create-time revision. This grants
 no network permission and transfers no authentication authority; native login
 remains owned by each Workspace home.
 
-MVP does not support multiple clusters, process-level identity, a per-project
+MVP does not support multiple clusters, non-EKS clusters or generic kubeconfig,
+process-level identity, a per-project
 static baseline policy, non-HTTP forwarding or policy, recursive DNS, Git SSH,
 provider-specific policy semantics, Git-over-HTTPS credential helpers,
 manifest-defined dynamic credentials, generic refresh or signing, multiple provider accounts

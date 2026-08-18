@@ -47,6 +47,19 @@ func TestContextCreateWizardCanSelectAWSBootstrapProfile(t *testing.T) {
 	}
 }
 
+func TestContextCreateWizardCanComposeAWSAndEKSBootstrap(t *testing.T) {
+	t.Parallel()
+	wizard := &terminalContextCreateWizard{mode: nil, style: false}
+	input := "coding\n1\ne\n" + strings.Repeat("\n", len(contextCreateHTTPMethods)) + "3\nengineering\nplatform\ny\n"
+	selection, err := wizard.Compose(context.Background(), strings.NewReader(input), io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if selection.AWSBootstrapProfile != "engineering" || selection.EKSBootstrapContext != "platform" {
+		t.Fatalf("composed bootstrap = %+v", selection)
+	}
+}
+
 func TestContextCreateWizardFallsBackToBoundedLineModeWhenRawModeIsUnavailable(t *testing.T) {
 	t.Parallel()
 	mode := &selectorModeFake{enterErr: errors.New("raw mode unavailable")}
@@ -151,6 +164,25 @@ func TestContextCreateWizardRawCollectsAWSProfileWithoutLeavingSession(t *testin
 		strings.Count(output.String(), selectorAlternateScreenEnter) != 1 ||
 		strings.Count(output.String(), selectorAlternateScreenExit) != 1 {
 		t.Fatalf("AWS profile was not collected inside one full-screen session: %q", output.String())
+	}
+}
+
+func TestContextCreateWizardRawCollectsAWSAndEKSInsideOneSession(t *testing.T) {
+	t.Parallel()
+	mode := &selectorModeFake{}
+	wizard := &terminalContextCreateWizard{mode: mode, style: false}
+	var output bytes.Buffer
+	selection, err := wizard.Compose(
+		context.Background(), strings.NewReader("coding\r\r\r\x1b[B\x1b[B\rengineering\rplatform\r\r"), &output,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if selection.AWSBootstrapProfile != "engineering" || selection.EKSBootstrapContext != "platform" {
+		t.Fatalf("composed bootstrap = %+v", selection)
+	}
+	if !strings.Contains(output.String(), "Kubernetes context:") || strings.Count(output.String(), selectorAlternateScreenEnter) != 1 || strings.Count(output.String(), selectorAlternateScreenExit) != 1 {
+		t.Fatalf("EKS bootstrap left the continuous session: %q", output.String())
 	}
 }
 

@@ -14,9 +14,12 @@ are never inherited or copied.
 
 A typed Context bootstrap snapshot is not authentication state. The AWS
 adapter may project only reviewed non-secret IAM Identity Center configuration
-into a newly created Workspace home. It never reads or projects the host
-credentials file or SSO cache, and AWS CLI still creates and persists its own
-login state inside that Workspace.
+into a newly created Workspace home. A dependent EKS target may project a
+canonical kubeconfig whose only authentication mechanism is exact `aws eks
+get-token` bound to that same profile; Tobari imports no token, client key,
+credential helper, or arbitrary exec selection. It never reads or projects the
+host credentials file or SSO cache, and AWS CLI still creates and persists its
+own login state inside that Workspace.
 
 A native credential is readable by every process in that Workspace. Gateway
 removes authentication and control headers from OPA input and audit evidence,

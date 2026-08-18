@@ -61,6 +61,9 @@ func (r *Runtime) PreviewContextAWSBootstrap(ctx context.Context, name, profile 
 		}
 		profile = manifest.Bootstrap.AWS.Profile
 	}
+	if manifest.Bootstrap != nil && manifest.Bootstrap.EKS != nil && profile != manifest.Bootstrap.AWS.Profile {
+		return tobari.ContextBootstrapPreview{}, tobari.ErrContextBootstrapDependency
+	}
 	aws, err := r.readHostAWSBootstrap(profile)
 	if err != nil {
 		return tobari.ContextBootstrapPreview{}, err
@@ -69,7 +72,12 @@ func (r *Runtime) PreviewContextAWSBootstrap(ctx context.Context, name, profile 
 	if manifest.Bootstrap != nil {
 		generation = manifest.Bootstrap.Generation + 1
 	}
-	candidate, err := tobari.NewContextBootstrapSnapshot(generation, aws)
+	var candidate tobari.ContextBootstrapSnapshot
+	if manifest.Bootstrap != nil && manifest.Bootstrap.EKS != nil {
+		candidate, err = tobari.NewContextBootstrapSnapshotWithEKS(generation, aws, *manifest.Bootstrap.EKS)
+	} else {
+		candidate, err = tobari.NewContextBootstrapSnapshot(generation, aws)
+	}
 	if err != nil {
 		return tobari.ContextBootstrapPreview{}, err
 	}
@@ -100,6 +108,9 @@ func (r *Runtime) ConfigureContextAWSBootstrap(ctx context.Context, name, profil
 			return err
 		}
 		if remove {
+			if manifest.Bootstrap != nil && manifest.Bootstrap.EKS != nil {
+				return tobari.ErrContextBootstrapDependency
+			}
 			manifest.Bootstrap = nil
 		} else {
 			if profile == "" {
@@ -107,6 +118,9 @@ func (r *Runtime) ConfigureContextAWSBootstrap(ctx context.Context, name, profil
 					return tobari.ErrContextBootstrapNotConfigured
 				}
 				profile = manifest.Bootstrap.AWS.Profile
+			}
+			if manifest.Bootstrap != nil && manifest.Bootstrap.EKS != nil && profile != manifest.Bootstrap.AWS.Profile {
+				return tobari.ErrContextBootstrapDependency
 			}
 			aws, readErr := r.readHostAWSBootstrap(profile)
 			if readErr != nil {
@@ -116,7 +130,13 @@ func (r *Runtime) ConfigureContextAWSBootstrap(ctx context.Context, name, profil
 			if manifest.Bootstrap != nil {
 				generation = manifest.Bootstrap.Generation + 1
 			}
-			candidate, createErr := tobari.NewContextBootstrapSnapshot(generation, aws)
+			var candidate tobari.ContextBootstrapSnapshot
+			var createErr error
+			if manifest.Bootstrap != nil && manifest.Bootstrap.EKS != nil {
+				candidate, createErr = tobari.NewContextBootstrapSnapshotWithEKS(generation, aws, *manifest.Bootstrap.EKS)
+			} else {
+				candidate, createErr = tobari.NewContextBootstrapSnapshot(generation, aws)
+			}
 			if createErr != nil {
 				return createErr
 			}

@@ -95,6 +95,9 @@ tobari context create --name default \
 # Optionally snapshot one secret-free AWS IAM Identity Center profile for new Workspaces.
 tobari config bootstrap aws --profile engineering
 
+# Optionally compose one reviewed EKS context using that same AWS profile.
+tobari config bootstrap kubernetes eks --kube-context engineering
+
 # Reconcile the one installation-local Gateway/OPA/Auth Broker cluster.
 tobari cluster up
 
@@ -150,6 +153,7 @@ tobari context show --name default
 tobari context use --name default
 tobari context delete --name disposable
 tobari config bootstrap aws --refresh --context default
+tobari config bootstrap kubernetes eks --refresh --context default
 
 # The same root can have another independent Context-bound Workspace.
 tobari --context restricted

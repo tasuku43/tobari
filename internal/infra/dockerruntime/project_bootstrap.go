@@ -1,6 +1,7 @@
 package dockerruntime
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -38,7 +39,32 @@ func applyProjectBootstrap(home string, snapshot *tobari.ContextBootstrapSnapsho
 	if err := initializeBytes(filepath.Join(awsDirectory, "config"), config, 0o600); err != nil {
 		return err
 	}
-	return syncDirectory(awsDirectory)
+	if err := syncDirectory(awsDirectory); err != nil {
+		return err
+	}
+	if snapshot.EKS == nil {
+		return nil
+	}
+	kubeDirectory := filepath.Join(home, ".kube")
+	if _, err := os.Lstat(kubeDirectory); err == nil {
+		return fmt.Errorf("Workspace Kubernetes bootstrap target already exists")
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	if err := os.Mkdir(kubeDirectory, 0o700); err != nil {
+		return err
+	}
+	if err := requirePrivateDirectory(kubeDirectory); err != nil {
+		return err
+	}
+	kubeconfig, err := encodeProjectEKSConfig(snapshot.AWS.Profile, *snapshot.EKS)
+	if err != nil {
+		return err
+	}
+	if err := initializeBytes(filepath.Join(kubeDirectory, "config"), kubeconfig, 0o600); err != nil {
+		return err
+	}
+	return syncDirectory(kubeDirectory)
 }
 
 func encodeProjectAWSConfig(aws tobari.ContextAWSBootstrap) ([]byte, error) {
@@ -67,4 +93,68 @@ func encodeProjectAWSConfig(aws tobari.ContextAWSBootstrap) ([]byte, error) {
 		fmt.Fprintf(&output, "sso_registration_scopes = %s\n", strings.Join(aws.SSORegistrationScopes, " "))
 	}
 	return []byte(output.String()), nil
+}
+
+func encodeProjectEKSConfig(awsProfile string, eks tobari.ContextEKSBootstrap) ([]byte, error) {
+	if err := eks.Validate(); err != nil {
+		return nil, err
+	}
+	if awsProfile == "" {
+		return nil, fmt.Errorf("AWS profile is required for EKS bootstrap")
+	}
+	type namedCluster struct {
+		Name    string `json:"name"`
+		Cluster struct {
+			CertificateAuthorityData string `json:"certificate-authority-data"`
+			Server                   string `json:"server"`
+		} `json:"cluster"`
+	}
+	type namedContext struct {
+		Name    string `json:"name"`
+		Context struct {
+			Cluster   string `json:"cluster"`
+			User      string `json:"user"`
+			Namespace string `json:"namespace,omitempty"`
+		} `json:"context"`
+	}
+	type namedUser struct {
+		Name string `json:"name"`
+		User struct {
+			Exec struct {
+				APIVersion         string              `json:"apiVersion"`
+				Args               []string            `json:"args"`
+				Command            string              `json:"command"`
+				Env                []map[string]string `json:"env"`
+				InteractiveMode    string              `json:"interactiveMode"`
+				ProvideClusterInfo bool                `json:"provideClusterInfo"`
+			} `json:"exec"`
+		} `json:"user"`
+	}
+	cluster := namedCluster{Name: eks.ContextName}
+	cluster.Cluster.CertificateAuthorityData = eks.CertificateAuthorityData
+	cluster.Cluster.Server = eks.Server
+	contextEntry := namedContext{Name: eks.ContextName}
+	contextEntry.Context.Cluster = eks.ContextName
+	contextEntry.Context.User = eks.ContextName
+	contextEntry.Context.Namespace = eks.Namespace
+	user := namedUser{Name: eks.ContextName}
+	user.User.Exec.APIVersion = "client.authentication.k8s.io/v1beta1"
+	user.User.Exec.Args = []string{"--region", eks.Region, "eks", "get-token", "--cluster-name", eks.ClusterName, "--output", "json"}
+	user.User.Exec.Command = "aws"
+	user.User.Exec.Env = []map[string]string{{"name": "AWS_PROFILE", "value": awsProfile}}
+	user.User.Exec.InteractiveMode = "IfAvailable"
+	config := struct {
+		APIVersion     string         `json:"apiVersion"`
+		Kind           string         `json:"kind"`
+		Preferences    map[string]any `json:"preferences"`
+		Clusters       []namedCluster `json:"clusters"`
+		Contexts       []namedContext `json:"contexts"`
+		Users          []namedUser    `json:"users"`
+		CurrentContext string         `json:"current-context"`
+	}{APIVersion: "v1", Kind: "Config", Preferences: map[string]any{}, Clusters: []namedCluster{cluster}, Contexts: []namedContext{contextEntry}, Users: []namedUser{user}, CurrentContext: eks.ContextName}
+	encoded, err := json.MarshalIndent(config, "", "  ")
+	if err != nil {
+		return nil, err
+	}
+	return append(encoded, '\n'), nil
 }

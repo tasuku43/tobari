@@ -291,6 +291,87 @@ func runConfigBootstrapAWS(ctx context.Context, c *CLI, command CommandSpec, int
 	return c.emitMutationResult(ctx, command, output)
 }
 
+func runConfigBootstrapEKS(ctx context.Context, c *CLI, command CommandSpec, intent operation.Intent, inputs ParsedInputs) int {
+	if c == nil {
+		return ExitInternal
+	}
+	if c.context == nil {
+		return c.fail(ctx, missingRuntimeFault())
+	}
+	format, err := parseSuccessFormat(inputs.One("--format"))
+	if err != nil {
+		return c.failUsage(ctx, "invalid_arguments", err.Error()+"; usage: "+command.Usage(), "help config bootstrap kubernetes eks", "Correct the command arguments.")
+	}
+	contextName, err := selectedConfigurationContext(ctx, inputs)
+	if err != nil {
+		return c.fail(ctx, err)
+	}
+	kubeContext := inputs.One("--kube-context")
+	remove := inputs.Provided("--remove")
+	expectedRevision := ""
+	if !inputs.Provided("--kube-context") && !inputs.Provided("--refresh") && !remove {
+		if format != successFormatText || invocationErrorFormat(ctx) == errorFormatJSON || c.tobari == nil || !c.tobari.IsInteractive(c.In, c.Err) {
+			return configurationWizardUnavailable(ctx, c, command)
+		}
+		current, showErr := c.context.Show(ctx, contextName)
+		if showErr != nil {
+			return c.fail(ctx, showErr)
+		}
+		contextName = current.Name
+		chooser := newContextConfigurationWizardWithStyle(!c.noColor)
+		options := []configurationWizardOption{{label: "Configure EKS context", description: "Normalize one AWS CLI-generated host kube context.", value: "configure"}}
+		if current.Bootstrap.EKSContext != "" {
+			options = append(options, configurationWizardOption{label: "Refresh EKS target", description: "Re-read the selected host kube context.", value: "refresh"}, configurationWizardOption{label: "Remove EKS target", description: "Preserve AWS and existing Workspaces.", value: "remove"})
+		}
+		index, chooseErr := chooser.choose(ctx, c.In, c.Err, configurationWizardMenu{title: "Tobari · EKS bootstrap", contextName: current.Name, current: current.Bootstrap.Resolved().State, information: []string{"Only future Workspaces receive the target once.", "Tokens, keys, arbitrary exec plugins, and network authority are never imported."}, prompt: "Action", options: options})
+		if chooseErr != nil {
+			return c.fail(ctx, normalizeConfigurationWizardError(command.Path, chooseErr))
+		}
+		action := options[index].value
+		remove = action == "remove"
+		if action == "configure" {
+			kubeContext, err = readConfigurationWizardValue(ctx, c.In, c.Err, "Kubernetes context", 253)
+			if err != nil {
+				return c.fail(ctx, normalizeConfigurationWizardError(command.Path, err))
+			}
+			kubeContext = strings.TrimSpace(kubeContext)
+		}
+		information := []string{"Existing Workspace homes remain unchanged."}
+		if !remove {
+			preview, previewErr := c.context.PreviewEKSBootstrap(ctx, contextName, kubeContext)
+			if previewErr != nil {
+				return c.fail(ctx, previewErr)
+			}
+			expectedRevision = preview.Candidate.Revision
+			changes := "none"
+			if len(preview.Changes) > 0 {
+				changes = strings.Join(preview.Changes, ", ")
+			}
+			information = append(information, "Candidate revision: "+preview.Candidate.Revision, "Semantic changes: "+changes)
+		} else {
+			information = append(information, "The EKS target will be removed; AWS remains configured.")
+		}
+		confirm, confirmErr := chooser.choose(ctx, c.In, c.Err, configurationWizardMenu{title: "Tobari · Review EKS bootstrap", contextName: contextName, current: current.Bootstrap.Resolved().State, information: information, prompt: "Commit", options: []configurationWizardOption{{label: "Apply", description: "Commit this Context recipe change.", value: "apply"}, {label: "Cancel", description: "Leave the Context unchanged.", value: "cancel"}}})
+		if confirmErr != nil {
+			return c.fail(ctx, normalizeConfigurationWizardError(command.Path, confirmErr))
+		}
+		if confirm != 0 {
+			return c.fail(ctx, context.Canceled)
+		}
+	}
+	intent.Target = operation.TargetRef{Kind: tobari.ContextBootstrapTargetKind, ID: tobari.ContextBootstrapTargetID}
+	intent.Impact = command.Agent.Mutation.Impact
+	result, err := c.context.ConfigureEKSBootstrap(ctx, intent, contextName, kubeContext, expectedRevision, remove)
+	if err != nil {
+		return c.fail(ctx, err)
+	}
+	output, err := renderContextReport(result, format, format == successFormatText && humanStyleAllowed(ctx, c, c.Out))
+	if err != nil {
+		return c.fail(ctx, err)
+	}
+	return c.emitMutationResult(ctx, command, output)
+}
+
 func shellSettingInputsOmitted(inputs ParsedInputs) bool {
 	return !inputs.Provided("--variable") && !inputs.Provided("--source") && !inputs.Provided("--value")
 }
@@ -370,6 +451,12 @@ func runContextCreate(
 			if prepareErr != nil {
 				return c.fail(ctx, prepareErr)
 			}
+			if selection.EKSBootstrapContext != "" {
+				prepared, prepareErr = c.context.PrepareEKSBootstrap(ctx, prepared, selection.EKSBootstrapContext)
+				if prepareErr != nil {
+					return c.fail(ctx, prepareErr)
+				}
+			}
 			bootstrap = &prepared
 		}
 		result, err = c.context.CreateWithComposition(
@@ -390,6 +477,12 @@ func runContextCreate(
 			if prepareErr != nil {
 				return c.fail(ctx, prepareErr)
 			}
+			if inputs.Provided("--bootstrap-eks-context") {
+				prepared, prepareErr = c.context.PrepareEKSBootstrap(ctx, prepared, inputs.One("--bootstrap-eks-context"))
+				if prepareErr != nil {
+					return c.fail(ctx, prepareErr)
+				}
+			}
 			result, err = c.context.CreateWithComposition(ctx, intent, name, inputs.One("--image"), mode, sourceAccess, tobari.ContextCreateComposition{PolicyPresetOrigin: inputs.One("--policy-preset"), NativeReadiness: tobari.ContextNativeReadiness(inputs.One("--native-readiness")), Bootstrap: &prepared})
 		} else {
 			result, err = c.context.Create(ctx, intent, name, inputs.One("--image"), mode, sourceAccess, inputs.One("--policy-preset"), inputs.One("--native-readiness"))
@@ -406,7 +499,7 @@ func runContextCreate(
 }
 
 func contextCreateInputsOmitted(inputs ParsedInputs) bool {
-	for _, name := range []string{"--name", "--image", "--mode", "--source-access", "--policy-preset", "--native-readiness", "--bootstrap-aws-profile", "--format"} {
+	for _, name := range []string{"--name", "--image", "--mode", "--source-access", "--policy-preset", "--native-readiness", "--bootstrap-aws-profile", "--bootstrap-eks-context", "--format"} {
 		if inputs.Provided(name) {
 			return false
 		}
@@ -609,11 +702,12 @@ type contextBootstrapJSONProjection struct {
 	Revision   string   `json:"revision"`
 	Adapters   []string `json:"adapters"`
 	AWSProfile string   `json:"aws_profile"`
+	EKSContext string   `json:"kubernetes_eks_context"`
 }
 
 func contextBootstrapJSON(report tobari.ContextBootstrapReport) contextBootstrapJSONProjection {
 	report = report.Resolved()
-	return contextBootstrapJSONProjection{State: report.State, Generation: report.Generation, Revision: report.Revision, Adapters: report.Adapters, AWSProfile: report.AWSProfile}
+	return contextBootstrapJSONProjection{State: report.State, Generation: report.Generation, Revision: report.Revision, Adapters: report.Adapters, AWSProfile: report.AWSProfile, EKSContext: report.EKSContext}
 }
 
 type contextReportDocument struct {
@@ -719,7 +813,7 @@ func contextReportCommand(task string) string {
 	return map[string]string{
 		tobari.TaskContextShow: "context show", tobari.TaskContextCreate: "context create",
 		tobari.TaskContextUse: "context use", tobari.TaskConfigShell: "config shell",
-		tobari.TaskConfigGit: "config git", tobari.TaskConfigBootstrapAWS: "config bootstrap aws", tobari.TaskRuntimeInit: "runtime init",
+		tobari.TaskConfigGit: "config git", tobari.TaskConfigBootstrapAWS: "config bootstrap aws", tobari.TaskConfigBootstrapEKS: "config bootstrap kubernetes eks", tobari.TaskRuntimeInit: "runtime init",
 		tobari.TaskRuntimeBuild: "runtime build",
 	}[task]
 }
@@ -857,8 +951,11 @@ func renderContextReportText(result tobari.ContextReport, color bool) []byte {
 	bootstrap := result.Bootstrap.Resolved()
 	writeStyledLine(&output, color, "Workspace bootstrap:", bootstrap.State, humanStatusToken(bootstrap.State))
 	if bootstrap.State == tobari.ContextBootstrapConfigured {
-		writeStyledLine(&output, color, "Bootstrap adapter:", tobari.ContextBootstrapAdapterAWS, styleText)
+		writeStyledLine(&output, color, "Bootstrap adapters:", strings.Join(bootstrap.Adapters, ", "), styleText)
 		writeStyledLine(&output, color, "AWS profile:", safeExternalText(bootstrap.AWSProfile), styleText)
+		if bootstrap.EKSContext != "" {
+			writeStyledLine(&output, color, "Kubernetes EKS context:", safeExternalText(bootstrap.EKSContext), styleText)
+		}
 		writeStyledLine(&output, color, "Bootstrap generation:", fmt.Sprintf("%d", bootstrap.Generation), styleText)
 		writeStyledLine(&output, color, "Bootstrap revision:", bootstrap.Revision, styleText)
 	}
@@ -927,7 +1024,7 @@ func renderContextReportText(result tobari.ContextReport, color bool) []byte {
 		writeStyledCommandLine(&output, color, "Next:", "start a new session with ", "`tobari`", "; running sessions are unchanged.")
 	case tobari.TaskConfigGit:
 		writeStyledCommandLine(&output, color, "Next:", "re-enter a matching Workspace with ", "`tobari`", " to reconcile its Git fallback; this command does not change running sessions.")
-	case tobari.TaskConfigBootstrapAWS:
+	case tobari.TaskConfigBootstrapAWS, tobari.TaskConfigBootstrapEKS:
 		writeStyledLine(&output, color, "Scope:", "future Workspaces only; existing Workspace homes are unchanged", styleText)
 		writeStyledCommandLine(&output, color, "Next:", "create a new Workspace with ", "`tobari`", " to apply this snapshot once.")
 	case tobari.TaskRuntimeBuild:

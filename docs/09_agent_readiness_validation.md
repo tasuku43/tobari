@@ -184,6 +184,15 @@ symlinks, unsafe modes, oversized input, credentials, and cache material. A new
 Workspace must receive exact owner-only canonical `.aws/config` bytes and an
 applied revision before publication. After a semantic Context refresh, prove
 the existing file is byte-identical and reports `older`, while a newly created
+Workspace receives the new revision. For the dependent EKS adapter, prove one
+explicit context in fixed `~/.kube/config` resolves only an inline CA,
+commercial EKS origin, optional namespace, and exact `aws eks get-token` contract
+with matching `AWS_PROFILE`. Reject tokens, keys, client certificates, auth
+providers, proxy/insecure TLS, file references, aliases, arbitrary exec/env/role
+arguments, unsafe paths, duplicates, and source drift. A composed new Workspace
+must receive canonical private `.kube/config`; removing EKS preserves AWS and
+removing AWS first is rejected. No test may perform external AWS or Kubernetes
+I/O.
 Workspace receives the new revision and reports `current`. A staged refresh
 whose source changes before Apply must make zero Context and Workspace writes.
 

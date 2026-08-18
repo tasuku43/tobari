@@ -23,6 +23,7 @@ type contextCreateSelection struct {
 	SourceAccess        tobari.ContextSourceAccess
 	MethodPolicy        tobari.PolicyPresetMethodPolicy
 	AWSBootstrapProfile string
+	EKSBootstrapContext string
 }
 
 type contextCreateWizard interface {
@@ -53,13 +54,14 @@ const (
 )
 
 type contextCreateRawDraft struct {
-	name             string
-	sourceIndex      int
-	methodSelected   int
-	methodDefault    tobari.PolicyPresetMethodDecision
-	methodOverrides  map[string]tobari.PolicyPresetMethodDecision
-	bootstrapIndex   int
-	bootstrapProfile string
+	name                string
+	sourceIndex         int
+	methodSelected      int
+	methodDefault       tobari.PolicyPresetMethodDecision
+	methodOverrides     map[string]tobari.PolicyPresetMethodDecision
+	bootstrapIndex      int
+	bootstrapProfile    string
+	bootstrapEKSContext string
 }
 
 func newContextCreateWizardWithStyle(style bool) *terminalContextCreateWizard {
@@ -123,13 +125,14 @@ func (w *terminalContextCreateWizard) composeLine(
 		prompt:      "Bootstrap", options: []configurationWizardOption{
 			{label: "None", description: "Start future Workspace homes without imported tool configuration.", value: "none"},
 			{label: "AWS IAM Identity Center", description: "Normalize one host AWS shared-config profile.", value: "aws"},
+			{label: "AWS + Amazon EKS", description: "Add one reviewed EKS context using the same AWS profile.", value: "eks"},
 		},
 	})
 	if err != nil {
 		return contextCreateSelection{}, err
 	}
 	bootstrapProfile := ""
-	if bootstrapIndex == 1 {
+	if bootstrapIndex > 0 {
 		bootstrapProfile, err = readConfigurationWizardValue(ctx, in, out, "AWS profile", 64)
 		if err != nil {
 			return contextCreateSelection{}, err
@@ -139,7 +142,18 @@ func (w *terminalContextCreateWizard) composeLine(
 			return contextCreateSelection{}, fmt.Errorf("AWS profile is required")
 		}
 	}
-	selection := contextCreateSelection{Name: name, SourceAccess: sourceAccess, MethodPolicy: policy, AWSBootstrapProfile: bootstrapProfile}
+	bootstrapEKSContext := ""
+	if bootstrapIndex == 2 {
+		bootstrapEKSContext, err = readConfigurationWizardValue(ctx, in, out, "Kubernetes context", 253)
+		if err != nil {
+			return contextCreateSelection{}, err
+		}
+		bootstrapEKSContext = strings.TrimSpace(bootstrapEKSContext)
+		if bootstrapEKSContext == "" {
+			return contextCreateSelection{}, fmt.Errorf("Kubernetes context is required")
+		}
+	}
+	selection := contextCreateSelection{Name: name, SourceAccess: sourceAccess, MethodPolicy: policy, AWSBootstrapProfile: bootstrapProfile, EKSBootstrapContext: bootstrapEKSContext}
 	if err := tobari.ValidateName(selection.Name); err != nil {
 		return contextCreateSelection{}, err
 	}
@@ -199,6 +213,7 @@ func (w *terminalContextCreateWizard) composeRaw(
 					"Workspace bootstrap", []configurationWizardOption{
 						{label: "None", description: "Start without imported tool configuration.", value: "none"},
 						{label: "AWS IAM Identity Center", description: "Normalize one host AWS shared-config profile.", value: "aws"},
+						{label: "AWS + Amazon EKS", description: "Add one reviewed EKS context using the same AWS profile.", value: "eks"},
 					}, draft.bootstrapIndex,
 				)
 				if err != nil || navigation != contextCreateNavigateNext || draft.bootstrapIndex == 0 {
@@ -214,10 +229,30 @@ func (w *terminalContextCreateWizard) composeRaw(
 						return nil
 					}, true,
 				)
-				if err != nil || navigation != contextCreateNavigateBack {
-					draft.bootstrapProfile = strings.TrimSpace(draft.bootstrapProfile)
+				draft.bootstrapProfile = strings.TrimSpace(draft.bootstrapProfile)
+				if err != nil || navigation == contextCreateNavigateCancel {
 					break
 				}
+				if navigation == contextCreateNavigateBack {
+					continue
+				}
+				if draft.bootstrapIndex == 2 {
+					draft.bootstrapEKSContext, navigation, err = editContextCreateTextRaw(
+						ctx, in, out, &lineCount, w.style, step, "Kubernetes context", draft.bootstrapEKSContext,
+						253, "Context name from fixed host ~/.kube/config.",
+						func(value string) error {
+							if strings.TrimSpace(value) == "" {
+								return fmt.Errorf("Kubernetes context is required")
+							}
+							return nil
+						}, true,
+					)
+					draft.bootstrapEKSContext = strings.TrimSpace(draft.bootstrapEKSContext)
+					if navigation == contextCreateNavigateBack {
+						continue
+					}
+				}
+				break
 			}
 		case contextCreateStepReview:
 			navigation, err = reviewContextCreateRaw(ctx, in, out, &lineCount, w.style, draft)
@@ -254,8 +289,11 @@ func (w *terminalContextCreateWizard) composeRaw(
 		}[draft.sourceIndex],
 		MethodPolicy: policy,
 	}
-	if draft.bootstrapIndex == 1 {
+	if draft.bootstrapIndex > 0 {
 		selection.AWSBootstrapProfile = draft.bootstrapProfile
+	}
+	if draft.bootstrapIndex == 2 {
+		selection.EKSBootstrapContext = draft.bootstrapEKSContext
 	}
 	return selection, nil
 }
@@ -574,6 +612,9 @@ func reviewContextCreateLine(
 	if selection.AWSBootstrapProfile != "" {
 		bootstrap = "AWS IAM Identity Center · profile " + safeExternalText(selection.AWSBootstrapProfile)
 	}
+	if selection.EKSBootstrapContext != "" {
+		bootstrap += " · EKS context " + safeExternalText(selection.EKSBootstrapContext)
+	}
 	if _, err := fmt.Fprintf(
 		out,
 		"Tobari · Create Context · Review & Create\nName: %s\nProject source: %s\nWorkspace home: read-write\nTmpfs: read-write\nNetwork default: %s\nMethod overrides: %s\nBootstrap: %s\n\nCreate this Context? [y/N]: ",
@@ -627,6 +668,8 @@ func reviewContextCreateRaw(
 	bootstrap := "none"
 	if draft.bootstrapIndex == 1 {
 		bootstrap = "AWS IAM Identity Center · profile " + safeExternalText(draft.bootstrapProfile)
+	} else if draft.bootstrapIndex == 2 {
+		bootstrap = "AWS IAM Identity Center · profile " + safeExternalText(draft.bootstrapProfile) + " · EKS context " + safeExternalText(draft.bootstrapEKSContext)
 	}
 	message := ""
 	for {

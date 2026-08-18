@@ -95,6 +95,30 @@ func (f *contextCLI) ConfigureContextAWSBootstrap(_ context.Context, name, _, _ 
 	return f.report, nil
 }
 
+func (f *contextCLI) PrepareContextEKSBootstrap(_ context.Context, base tobari.ContextBootstrapSnapshot, _ string) (tobari.ContextBootstrapSnapshot, error) {
+	f.prepareBootstrapCalls++
+	return base, nil
+}
+
+func (f *contextCLI) PreviewContextEKSBootstrap(context.Context, string, string) (tobari.ContextBootstrapPreview, error) {
+	return tobari.ContextBootstrapPreview{}, errors.New("EKS preview is not used by this fake")
+}
+
+func (f *contextCLI) ConfigureContextEKSBootstrap(_ context.Context, name, kubeContext, _ string, remove bool) (tobari.ContextReport, error) {
+	f.configureBootstrapCalls++
+	f.report.Task = tobari.TaskConfigBootstrapEKS
+	if name != "" {
+		f.report.Name = name
+	}
+	if remove {
+		f.report.Bootstrap = tobari.ContextBootstrapReport{State: tobari.ContextBootstrapConfigured, Generation: 2, Revision: "sha256:" + strings.Repeat("b", 64), Adapters: []string{tobari.ContextBootstrapAdapterAWS}, AWSProfile: "engineering"}
+	} else {
+		f.report.Bootstrap = tobari.ContextBootstrapReport{State: tobari.ContextBootstrapConfigured, Generation: 2, Revision: "sha256:" + strings.Repeat("a", 64), Adapters: []string{tobari.ContextBootstrapAdapterAWS, tobari.ContextBootstrapAdapterEKS}, AWSProfile: "engineering", EKSContext: kubeContext}
+	}
+	f.report.Authentication = tobari.ContextAuthentication{BrokerState: tobari.ContextAuthBrokerNotApplicable}
+	return f.report, nil
+}
+
 func (f *contextCLI) DeleteContext(_ context.Context, name string) (tobari.ContextDeleteResult, error) {
 	f.deleteCalls++
 	return tobari.ContextDeleteResult{
@@ -359,7 +383,7 @@ func TestContextShellConfigurePreservesSourceAndExplicitEmptyValue(t *testing.T)
 
 func TestConfigNamespacePublishesCompositionCommands(t *testing.T) {
 	catalog := DefaultCatalog()
-	for _, path := range []string{"config shell", "config git", "config bootstrap aws"} {
+	for _, path := range []string{"config shell", "config git", "config bootstrap aws", "config bootstrap kubernetes eks"} {
 		spec, found := catalog.Lookup(path)
 		if !found || spec.Role != RoleAct || spec.Effect.String() != "write" ||
 			spec.Agent.FixedTarget == nil || spec.Agent.FixedTarget.Scope != FixedTargetScopeToolLocal {
@@ -367,7 +391,7 @@ func TestConfigNamespacePublishesCompositionCommands(t *testing.T) {
 		}
 	}
 	selected, exact := catalog.Select("config")
-	if exact || len(selected) != 3 {
+	if exact || len(selected) != 4 {
 		t.Fatalf("config namespace selection exact=%t commands=%+v", exact, selected)
 	}
 }
@@ -390,6 +414,19 @@ func TestConfigBootstrapAWSDirectIsFutureWorkspaceOnlyAndConflictsFailBeforeMuta
 	}
 	if fake.configureBootstrapCalls != 1 {
 		t.Fatalf("conflicting action reached mutation: %d", fake.configureBootstrapCalls)
+	}
+}
+
+func TestConfigBootstrapEKSDirectUsesClosedContextTarget(t *testing.T) {
+	fake := &contextCLI{report: contextCLIReport(tobari.TaskContextShow, "default", true, tobari.OfficialRuntimeBase, tobari.ContextPolicyModeGuided)}
+	var stdout, stderr bytes.Buffer
+	command := newCLI(strings.NewReader(""), &stdout, &stderr, DefaultCatalog(), nil)
+	command.context = contextcmd.New(fake)
+	if code := command.RunContext(context.Background(), []string{"config", "bootstrap", "kubernetes", "eks", "--kube-context", "engineering", "--format", "json"}); code != ExitOK {
+		t.Fatalf("EKS bootstrap code = %d, stderr = %q", code, stderr.String())
+	}
+	if fake.configureBootstrapCalls != 1 || !strings.Contains(stdout.String(), `"task":"config.bootstrap.kubernetes.eks"`) || !strings.Contains(stdout.String(), `"kubernetes_eks_context":"engineering"`) {
+		t.Fatalf("EKS bootstrap calls=%d output=%s", fake.configureBootstrapCalls, stdout.String())
 	}
 }
 

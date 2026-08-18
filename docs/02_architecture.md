@@ -656,9 +656,12 @@ a second implicit image authority.
 Context Workspace bootstrap is a separate create-only projection boundary.
 Domain owns the closed normalized snapshot and semantic revision; application
 owns configure/refresh/remove intent and result correlation; infrastructure
-alone reads the fixed host AWS shared-config path, parses selected sections,
-atomically replaces the Context manifest, and creates the canonical private
-Workspace file. Projection runs between fresh home creation and logical
+alone reads fixed host AWS shared-config and kubeconfig paths, parses one closed
+AWS profile and optional dependent EKS target, atomically replaces the Context
+manifest, and creates canonical private Workspace files. The EKS parser uses an
+infrastructure-only pinned YAML dependency, resolves only one explicit context,
+and converts the reviewed source to domain values; domain and CLI remain free of
+the parser dependency. Projection runs between fresh home creation and logical
 Workspace publication. Runtime reconciliation has no bootstrap write path.
 The Workspace record stores only the applied revision so status can compare it
 with the current Context recipe without inspecting the Workspace file.

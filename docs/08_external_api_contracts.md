@@ -74,6 +74,10 @@ requests, GitHub CLI's two device bootstrap/exchange requests, TWG's device and
 identity effects, and pup's two exact US1 OAuth POSTs. Exact
 methods, authorities, and paths are defined in
 [Authentication handling](07_authentication.md#standard-native-workspace-authentication).
+Typed AWS/EKS Workspace bootstrap is not an external API capability: it parses
+only fixed bounded host files, grants no destination or method, and performs no
+AWS or Kubernetes request. Later `aws` and `kubectl` traffic remains ordinary
+Context-policy input.
 The Claude regression proves that successful token exchange cannot be followed
 by a Tobari-generated `broker_auth_required` on `/api/oauth/profile`; provider
 `subscriptionType` and `rateLimitTier` remain provider-owned response data.

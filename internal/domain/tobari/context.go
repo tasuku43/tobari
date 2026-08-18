@@ -24,6 +24,7 @@ const (
 	TaskConfigShell        = "config.shell"
 	TaskConfigGit          = "config.git"
 	TaskConfigBootstrapAWS = "config.bootstrap.aws"
+	TaskConfigBootstrapEKS = "config.bootstrap.kubernetes.eks"
 	TaskRuntimeInit        = "runtime.init"
 	TaskRuntimeBuild       = "runtime.build"
 
@@ -1050,7 +1051,7 @@ type ContextReport struct {
 
 func (r ContextReport) Validate() error {
 	if r.Task != TaskContextShow && r.Task != TaskContextCreate && r.Task != TaskContextUse &&
-		r.Task != TaskConfigShell && r.Task != TaskConfigGit && r.Task != TaskConfigBootstrapAWS && r.Task != TaskRuntimeInit && r.Task != TaskRuntimeBuild {
+		r.Task != TaskConfigShell && r.Task != TaskConfigGit && r.Task != TaskConfigBootstrapAWS && r.Task != TaskConfigBootstrapEKS && r.Task != TaskRuntimeInit && r.Task != TaskRuntimeBuild {
 		return fmt.Errorf("context report task is invalid")
 	}
 	if err := r.ContextState.Validate(); err != nil {

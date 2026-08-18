@@ -780,6 +780,19 @@ Projection creates only private `.aws/config` in a fresh Workspace home before
 publication. No refresh or reconciliation path may write an existing
 Workspace home.
 
+The dependent `kubernetes_eks` adapter applies the same boundary to fixed host
+`~/.kube/config`. Kubeconfig is untrusted executable and credential-bearing
+input, not a file-copy source. The parser resolves one explicit context and
+accepts only an inline certificate-authority bundle, one canonical commercial
+EKS HTTPS origin, optional namespace, and exact AWS CLI `eks get-token` argv
+whose sole `AWS_PROFILE` equals the Context AWS profile. Tokens, passwords,
+client keys/certificates, auth providers, proxy or insecure-TLS settings, file
+references, role arguments, aliases/anchors, unknown fields, other exec commands
+or environment, alternate paths, symlinks, and unsafe or oversized files fail
+before mutation. Projection re-encodes canonical private JSON kubeconfig; it
+does not execute or copy the host entry. This grants no Kubernetes endpoint or
+AWS API effect, and Workspace-owned AWS SSO remains the only credential source.
+
 Shell accepts only `PS1`, `TERM`, `COLORTERM`, and `NO_COLOR`, never enumerates
 the host environment, and resolves `inherit` only when a future child shell is
 entered. `PATH`, `HOME`, `BASH_ENV`, `ENV`, `PROMPT_COMMAND`, credential names,

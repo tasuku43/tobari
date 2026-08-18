@@ -46,6 +46,12 @@ type contextAWSBootstrapRuntimePort interface {
 	ConfigureContextAWSBootstrap(context.Context, string, string, string, bool) (tobari.ContextReport, error)
 }
 
+type contextEKSBootstrapRuntimePort interface {
+	PrepareContextEKSBootstrap(context.Context, tobari.ContextBootstrapSnapshot, string) (tobari.ContextBootstrapSnapshot, error)
+	PreviewContextEKSBootstrap(context.Context, string, string) (tobari.ContextBootstrapPreview, error)
+	ConfigureContextEKSBootstrap(context.Context, string, string, string, bool) (tobari.ContextReport, error)
+}
+
 func (s *Service) PreviewAWSBootstrap(ctx context.Context, contextName, profile string) (tobari.ContextBootstrapPreview, error) {
 	if err := s.requireRuntime(); err != nil {
 		return tobari.ContextBootstrapPreview{}, err
@@ -58,11 +64,35 @@ func (s *Service) PreviewAWSBootstrap(ctx context.Context, contextName, profile 
 	if errors.Is(err, tobari.ErrContextBootstrapNotConfigured) {
 		return tobari.ContextBootstrapPreview{}, fault.New(fault.KindNotFound, "bootstrap_not_configured", "the selected Context has no AWS bootstrap snapshot to refresh", false, fault.NextAction{Command: "help config bootstrap aws", Reason: "Configure an IAM Identity Center profile first."})
 	}
+	if errors.Is(err, tobari.ErrContextBootstrapDependency) {
+		return tobari.ContextBootstrapPreview{}, fault.New(fault.KindRejected, "bootstrap_dependency", "AWS profile cannot be replaced while the EKS adapter depends on it", false, fault.NextAction{Command: "config bootstrap kubernetes eks", Reason: "Remove the EKS adapter first with --remove."})
+	}
 	if err != nil {
 		return tobari.ContextBootstrapPreview{}, fault.Wrap(fault.KindRejected, "aws_bootstrap_source_rejected", "Host AWS IAM Identity Center configuration could not be normalized", false, err, fault.NextAction{Command: "help config bootstrap aws", Reason: "Use a strict IAM Identity Center profile without credentials, helpers, or unsupported directives."})
 	}
 	if err := preview.Validate(); err != nil {
 		return tobari.ContextBootstrapPreview{}, fault.Wrap(fault.KindContract, "invalid_bootstrap_preview", "AWS bootstrap preview is invalid", false, err)
+	}
+	return preview, nil
+}
+
+func (s *Service) PreviewEKSBootstrap(ctx context.Context, contextName, kubeContext string) (tobari.ContextBootstrapPreview, error) {
+	if err := s.requireRuntime(); err != nil {
+		return tobari.ContextBootstrapPreview{}, err
+	}
+	runtime, ok := s.runtime.(contextEKSBootstrapRuntimePort)
+	if !ok {
+		return tobari.ContextBootstrapPreview{}, fault.New(fault.KindInternal, "missing_runtime", "Context EKS bootstrap runtime is unavailable", false)
+	}
+	preview, err := runtime.PreviewContextEKSBootstrap(ctx, contextName, kubeContext)
+	if errors.Is(err, tobari.ErrContextBootstrapNotConfigured) {
+		return tobari.ContextBootstrapPreview{}, fault.New(fault.KindNotFound, "bootstrap_not_configured", "the selected Context has no compatible AWS or EKS bootstrap snapshot", false, fault.NextAction{Command: "help config bootstrap kubernetes eks", Reason: "Configure the AWS bootstrap and then select one EKS context."})
+	}
+	if err != nil {
+		return tobari.ContextBootstrapPreview{}, fault.Wrap(fault.KindRejected, "eks_bootstrap_source_rejected", "Host EKS kubeconfig target could not be normalized", false, err, fault.NextAction{Command: "help config bootstrap kubernetes eks", Reason: "Use an AWS CLI-generated EKS context bound to the same AWS profile."})
+	}
+	if err := preview.Validate(); err != nil {
+		return tobari.ContextBootstrapPreview{}, fault.Wrap(fault.KindContract, "invalid_bootstrap_preview", "EKS bootstrap preview is invalid", false, err)
 	}
 	return preview, nil
 }
@@ -147,6 +177,24 @@ func (s *Service) PrepareAWSBootstrap(ctx context.Context, profile string) (toba
 	return snapshot, nil
 }
 
+func (s *Service) PrepareEKSBootstrap(ctx context.Context, base tobari.ContextBootstrapSnapshot, kubeContext string) (tobari.ContextBootstrapSnapshot, error) {
+	if err := s.requireRuntime(); err != nil {
+		return tobari.ContextBootstrapSnapshot{}, err
+	}
+	if kubeContext == "" {
+		return tobari.ContextBootstrapSnapshot{}, fault.New(fault.KindInvalidInput, "invalid_eks_bootstrap_context", "Kubernetes context is required", false, fault.NextAction{Command: "help context create", Reason: "Choose one AWS CLI-generated EKS context from the host kubeconfig."})
+	}
+	runtime, ok := s.runtime.(contextEKSBootstrapRuntimePort)
+	if !ok {
+		return tobari.ContextBootstrapSnapshot{}, fault.New(fault.KindInternal, "missing_runtime", "Context EKS bootstrap runtime is unavailable", false)
+	}
+	snapshot, err := runtime.PrepareContextEKSBootstrap(ctx, base, kubeContext)
+	if err != nil {
+		return tobari.ContextBootstrapSnapshot{}, fault.Wrap(fault.KindRejected, "eks_bootstrap_source_rejected", "Host EKS kubeconfig target could not be normalized", false, err, fault.NextAction{Command: "help config bootstrap kubernetes eks", Reason: "Use an AWS CLI-generated EKS context bound to the selected AWS profile."})
+	}
+	return snapshot, nil
+}
+
 // ConfigureAWSBootstrap replaces, refreshes, or removes the AWS recipe used by
 // future Workspaces. Existing Workspace homes are outside this mutation.
 func (s *Service) ConfigureAWSBootstrap(ctx context.Context, intent operation.Intent, contextName, profile, expectedRevision string, remove bool) (tobari.ContextReport, error) {
@@ -177,6 +225,8 @@ func (s *Service) ConfigureAWSBootstrap(ctx context.Context, intent operation.In
 				return fault.New(fault.KindNotFound, "bootstrap_not_configured", "the selected Context has no AWS bootstrap snapshot to refresh", false, fault.NextAction{Command: "help config bootstrap aws", Reason: "Configure an IAM Identity Center profile first."})
 			case errors.Is(configureErr, tobari.ErrContextBootstrapSourceChanged):
 				return fault.New(fault.KindRejected, "bootstrap_source_changed", "Host AWS configuration changed during review; no Context change was applied", true, fault.NextAction{Command: "config bootstrap aws", Reason: "Review a fresh semantic diff before applying."})
+			case errors.Is(configureErr, tobari.ErrContextBootstrapDependency):
+				return fault.New(fault.KindRejected, "bootstrap_dependency", "AWS bootstrap cannot be removed while the EKS adapter depends on it", false, fault.NextAction{Command: "config bootstrap kubernetes eks", Reason: "Remove the EKS adapter first with --remove."})
 			case configureErr != nil:
 				return fault.Wrap(fault.KindRejected, "config_bootstrap_failed", "Context AWS bootstrap could not be changed", false, configureErr, fault.NextAction{Command: "context show", Reason: "Inspect the current future-Workspace bootstrap recipe."})
 			}
@@ -188,6 +238,56 @@ func (s *Service) ConfigureAWSBootstrap(ctx context.Context, intent operation.In
 			}
 			if !remove && configured.Bootstrap.Resolved().State != tobari.ContextBootstrapConfigured {
 				return fault.New(fault.KindContract, "invalid_context_report", "Context bootstrap configuration was not confirmed", false)
+			}
+			result = configured
+			return nil
+		})
+	})
+	if err != nil {
+		return tobari.ContextReport{}, err
+	}
+	return result, nil
+}
+
+func (s *Service) ConfigureEKSBootstrap(ctx context.Context, intent operation.Intent, contextName, kubeContext, expectedRevision string, remove bool) (tobari.ContextReport, error) {
+	if err := s.requireRuntime(); err != nil {
+		return tobari.ContextReport{}, err
+	}
+	if contextName != "" {
+		if err := tobari.ValidateName(contextName); err != nil {
+			return tobari.ContextReport{}, fault.Wrap(fault.KindInvalidInput, "invalid_context_name", "Context name is invalid", false, err, fault.NextAction{Command: "context list", Reason: "Choose a named Context from the local collection."})
+		}
+	}
+	if remove && kubeContext != "" {
+		return tobari.ContextReport{}, fault.New(fault.KindInvalidInput, "invalid_eks_bootstrap_change", "EKS bootstrap removal cannot select a Kubernetes context", false, fault.NextAction{Command: "help config bootstrap kubernetes eks", Reason: "Choose configure, refresh, or remove."})
+	}
+	runtime, ok := s.runtime.(contextEKSBootstrapRuntimePort)
+	if !ok {
+		return tobari.ContextReport{}, fault.New(fault.KindInternal, "missing_runtime", "Context EKS bootstrap runtime is unavailable", false)
+	}
+	request := execution.Request{Intent: intent, ExpectedCommand: intent.Command, ExpectedEffect: operation.EffectWrite, ExpectedTarget: operation.TargetRef{Kind: tobari.ContextBootstrapTargetKind, ID: tobari.ContextBootstrapTargetID}, ExpectedImpact: intent.Impact}
+	var result tobari.ContextReport
+	err := s.withLifecycleLock(ctx, func(lifecycleContext context.Context) error {
+		return s.mutator.Invoke(lifecycleContext, request, func(actionContext context.Context, _ operation.Intent) error {
+			configured, configureErr := runtime.ConfigureContextEKSBootstrap(actionContext, contextName, kubeContext, expectedRevision, remove)
+			switch {
+			case errors.Is(configureErr, tobari.ErrContextNotFound):
+				return fault.New(fault.KindNotFound, "context_not_found", "the named Context does not exist", false, fault.NextAction{Command: "context list", Reason: "Choose an existing Context."})
+			case errors.Is(configureErr, tobari.ErrContextBootstrapNotConfigured):
+				return fault.New(fault.KindNotFound, "bootstrap_not_configured", "the selected Context has no compatible AWS or EKS bootstrap snapshot", false, fault.NextAction{Command: "help config bootstrap kubernetes eks", Reason: "Configure AWS bootstrap before EKS, or select EKS before refresh/remove."})
+			case errors.Is(configureErr, tobari.ErrContextBootstrapSourceChanged):
+				return fault.New(fault.KindRejected, "bootstrap_source_changed", "Host kubeconfig changed during review; no Context change was applied", true, fault.NextAction{Command: "config bootstrap kubernetes eks", Reason: "Review a fresh semantic diff before applying."})
+			case configureErr != nil:
+				return fault.Wrap(fault.KindRejected, "config_bootstrap_failed", "Context EKS bootstrap could not be changed", false, configureErr, fault.NextAction{Command: "context show", Reason: "Inspect the current future-Workspace bootstrap recipe."})
+			}
+			if configured.Task != tobari.TaskConfigBootstrapEKS || configured.ContextState != tobari.ContextObservationPersisted {
+				return fault.New(fault.KindContract, "invalid_context_report", "Context EKS bootstrap report is invalid", false)
+			}
+			if remove && configured.Bootstrap.EKSContext != "" {
+				return fault.New(fault.KindContract, "invalid_context_report", "Context EKS bootstrap removal was not confirmed", false)
+			}
+			if !remove && configured.Bootstrap.EKSContext == "" {
+				return fault.New(fault.KindContract, "invalid_context_report", "Context EKS bootstrap configuration was not confirmed", false)
 			}
 			result = configured
 			return nil

@@ -249,7 +249,8 @@ The public commands are:
 | `config shell [--variable COLORTERM\|NO_COLOR\|PS1\|TERM] [--source default\|inherit\|literal] [--value VALUE] [--context NAME] [--format text\|json]` | act, fixed target | write | Configure one allowlisted shell-presentation variable directly, or stage one or more rows from the complete terminal inventory and apply them atomically |
 | `config git [--source default\|inherit\|literal] [--name NAME] [--email EMAIL] [--context NAME] [--format text\|json]` | act, fixed target | write | Configure one atomic Context Git commit-identity fallback directly, or stage and apply its source from one terminal screen |
 | `config bootstrap aws [--profile NAME] [--refresh] [--remove] [--context NAME] [--format text\|json]` | act, fixed target | write | Normalize one strict secret-free host AWS IAM Identity Center profile for future Workspaces, refresh it after a semantic diff, or remove the future recipe; existing Workspace homes never change |
-| `context create [--name NAME] [--image IMAGE] [--mode guided|advanced] [--source-access read-only\|read-write] [--policy-preset PRESET] [--native-readiness enabled\|disabled] [--bootstrap-aws-profile NAME] [--format text\|json]` | act, fixed target | create | With no inputs, use one continuous five-step terminal frame for name, source access, a complete HTTP method policy, optional typed Workspace bootstrap, and final review, then create once; any explicit input selects deterministic direct mode and requires `--name`; omission imports no host configuration |
+| `config bootstrap kubernetes eks [--kube-context NAME] [--refresh] [--remove] [--context NAME] [--format text\|json]` | act, fixed target | write | Compose one strict AWS CLI-generated host EKS context with the Context AWS profile, refresh it, or remove only EKS; no credential, arbitrary exec, network authority, or existing Workspace home changes |
+| `context create [--name NAME] [--image IMAGE] [--mode guided|advanced] [--source-access read-only\|read-write] [--policy-preset PRESET] [--native-readiness enabled\|disabled] [--bootstrap-aws-profile NAME] [--bootstrap-eks-context NAME] [--format text\|json]` | act, fixed target | create | With no inputs, use one continuous five-step terminal frame for name, source access, a complete HTTP method policy, optional typed Workspace bootstrap, and final review, then create once; any explicit input selects deterministic direct mode and requires `--name`; EKS requires AWS and omission imports no host configuration |
 | `context delete --name NAME [--format text\|json]` | act, fixed target | write | Delete one unused non-current non-default Context and its exact owner stores while preserving project files and shared runtime images |
 | `context use --name NAME [--format text\|json]` | act, fixed target | write | Change only the current/default Context; do not mutate existing Tobari or start/reconcile the cluster |
 | `runtime init [--format text|json]` | act, fixed target | create | Create the current Context's runtime/Dockerfile template without changing its selected image |
@@ -1051,6 +1052,18 @@ reads or outputs AWS credentials or SSO cache values, invokes AWS, performs
 login, changes network policy, or rewrites an existing Workspace home. A new
 Workspace receives one canonical private `.aws/config` and records its applied
 semantic revision before logical publication.
+
+`config bootstrap kubernetes eks` composes one additional closed adapter with
+that AWS recipe. It reads only fixed host `~/.kube/config`, selects one explicit
+context and its exact cluster/user references, and accepts only an inline CA,
+commercial EKS HTTPS origin, and the reviewed `aws eks get-token` contract with
+`AWS_PROFILE` equal to the Context AWS profile. It rejects credentials, proxy or
+insecure TLS options, file references, arbitrary exec fields, role arguments,
+unknown fields, alternate paths, and unsafe files. Projection emits canonical
+private `.kube/config` JSON in the fresh Workspace home. Removing EKS preserves
+AWS; AWS cannot be removed or changed to another profile until its dependent EKS adapter is removed. No
+configure, refresh, or create operation calls AWS or Kubernetes or grants a
+network effect.
 
 `cluster up` obtains and preflights the immutable Gateway image and official
 runtime bases required by all Contexts, generates and validates the complete

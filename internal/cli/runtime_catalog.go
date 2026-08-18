@@ -32,6 +32,7 @@ func runtimeCommandSpecs() []CommandSpec {
 		configShellSpec(),
 		configGitSpec(),
 		configBootstrapAWSSpec(),
+		configBootstrapEKSSpec(),
 		contextCreateSpec(),
 		contextDeleteSpec(),
 		contextUseSpec(),
@@ -76,6 +77,7 @@ func configBootstrapAWSSpec() CommandSpec {
 				declaredCommandError(fault.KindNotFound, "bootstrap_not_configured", false, "help config bootstrap aws", "Configure a profile before refreshing."),
 				declaredCommandError(fault.KindRejected, "config_bootstrap_failed", false, "context show", "Inspect the current recipe and strict host AWS profile."),
 				declaredCommandError(fault.KindRejected, "bootstrap_source_changed", true, "config bootstrap aws", "Review a fresh semantic diff before applying."),
+				declaredCommandError(fault.KindRejected, "bootstrap_dependency", false, "config bootstrap kubernetes eks", "Remove the dependent EKS adapter first with --remove."),
 				declaredCommandError(fault.KindRejected, "aws_bootstrap_source_rejected", false, "help config bootstrap aws", "Use a strict IAM Identity Center profile without credentials, helpers, or unsupported directives."),
 				declaredCommandError(fault.KindContract, "invalid_bootstrap_preview", false, "context show", "Inspect the Context recipe before retrying."),
 				declaredCommandError(fault.KindContract, "invalid_context_report", false, "context show", "Reconcile the confirmed Context bootstrap change."),
@@ -84,6 +86,47 @@ func configBootstrapAWSSpec() CommandSpec {
 			Mutation: &MutationContract{TargetKind: tobari.ContextBootstrapTargetKind, TargetInputs: []string{}, Impact: operation.Impact{Cardinality: operation.CardinalityOne, Notification: operation.DeclarationNo, AccessChange: operation.DeclarationNo, Destructive: operation.DeclarationNo}},
 		},
 		handler: runConfigBootstrapAWS,
+	}
+}
+
+func configBootstrapEKSSpec() CommandSpec {
+	minimum := int64(1)
+	return CommandSpec{
+		Path: "config bootstrap kubernetes eks", Summary: "Configure, refresh, or remove one reviewed EKS target for future Workspace homes",
+		Args:   "[--kube-context <name>] [--refresh] [--remove] [--context <name>] [--format text|json]",
+		Effect: operation.EffectWrite, Role: RoleAct,
+		Agent: AgentContract{
+			CapabilityID: "context.workspace-bootstrap",
+			Outcome:      "Compose one host AWS CLI-generated EKS context with the Context AWS profile, refresh it, or remove only the EKS target without rewriting existing Workspace homes",
+			Inputs: []CommandInput{
+				{Name: "--kube-context", Source: InputSourceFlag, Required: false, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, MinimumLength: &minimum, Description: "Exact context name in fixed host ~/.kube/config; conflicts with refresh and remove.", AllowedValues: []string{}, ConflictsWith: []string{"--refresh", "--remove"}},
+				{Name: "--refresh", Source: InputSourceFlag, Required: false, ValueKind: InputValueBoolean, Cardinality: InputCardinalitySingle, Description: "Re-read the currently selected host kube context; conflicts with context selection and remove.", AllowedValues: []string{}, ConflictsWith: []string{"--kube-context", "--remove"}},
+				{Name: "--remove", Source: InputSourceFlag, Required: false, ValueKind: InputValueBoolean, Cardinality: InputCardinalitySingle, Description: "Remove only the EKS adapter for future Workspaces; preserve AWS and existing Workspace homes.", AllowedValues: []string{}, ConflictsWith: []string{"--kube-context", "--refresh"}},
+				executionContextInput(), formatInput(),
+			},
+			Output: contextReportOutput(),
+			Prerequisites: []string{
+				"The selected Context already has an AWS IAM Identity Center bootstrap profile.",
+				"Fixed host ~/.kube/config is a bounded safe regular file and the selected context resolves to an inline-CA commercial EKS endpoint with the reviewed aws eks get-token exec contract and matching AWS_PROFILE.",
+				"No host credential, token cache, arbitrary exec, alternate kubeconfig path, or network authority is imported.",
+			},
+			FixedTarget: fixedContextBootstrapTarget(),
+			Errors: mutationCommandErrors("config bootstrap kubernetes eks", "context show",
+				declaredCommandError(fault.KindInvalidInput, "configuration_wizard_unavailable", false, "help config bootstrap kubernetes eks", "Supply one action flag or use interactive text streams."),
+				declaredCommandError(fault.KindInvalidInput, "invalid_context_name", false, "context list", "Choose a valid Context name."),
+				declaredCommandError(fault.KindInvalidInput, "invalid_eks_bootstrap_change", false, "help config bootstrap kubernetes eks", "Choose exactly one configure, refresh, or remove action."),
+				declaredCommandError(fault.KindNotFound, "context_not_found", false, "context list", "Choose an existing Context."),
+				declaredCommandError(fault.KindNotFound, "bootstrap_not_configured", false, "help config bootstrap kubernetes eks", "Configure AWS first, or select EKS before refresh/remove."),
+				declaredCommandError(fault.KindRejected, "eks_bootstrap_source_rejected", false, "help config bootstrap kubernetes eks", "Use a strict AWS CLI-generated EKS context bound to the Context AWS profile."),
+				declaredCommandError(fault.KindRejected, "config_bootstrap_failed", false, "context show", "Inspect the current recipe and selected kube context."),
+				declaredCommandError(fault.KindRejected, "bootstrap_source_changed", true, "config bootstrap kubernetes eks", "Review a fresh semantic diff before applying."),
+				declaredCommandError(fault.KindContract, "invalid_bootstrap_preview", false, "context show", "Inspect the Context recipe before retrying."),
+				declaredCommandError(fault.KindContract, "invalid_context_report", false, "context show", "Reconcile the confirmed Context bootstrap change."),
+				declaredCommandError(fault.KindInternal, "missing_runtime", false, "doctor", "Configure the Tobari runtime."),
+			),
+			Mutation: &MutationContract{TargetKind: tobari.ContextBootstrapTargetKind, TargetInputs: []string{}, Impact: operation.Impact{Cardinality: operation.CardinalityOne, Notification: operation.DeclarationNo, AccessChange: operation.DeclarationNo, Destructive: operation.DeclarationNo}},
+		},
+		handler: runConfigBootstrapEKS,
 	}
 }
 
@@ -272,12 +315,12 @@ func contextShowSpec() CommandSpec {
 func contextCreateSpec() CommandSpec {
 	return CommandSpec{
 		Path: "context create", Summary: "Create a named execution Context directly or with the terminal wizard",
-		Args:   "[--name <name>] [--image <image>] [--mode guided|advanced] [--source-access read-only|read-write] [--policy-preset <preset>] [--native-readiness enabled|disabled] [--bootstrap-aws-profile <name>] [--format text|json]",
+		Args:   "[--name <name>] [--image <image>] [--mode guided|advanced] [--source-access read-only|read-write] [--policy-preset <preset>] [--native-readiness enabled|disabled] [--bootstrap-aws-profile <name>] [--bootstrap-eks-context <name>] [--format text|json]",
 		Effect: operation.EffectCreate, Role: RoleAct,
 		Agent: AgentContract{
 			CapabilityID:  "context.composition",
 			Outcome:       "Create one named Context with separate owner-only policy and brokered-authentication state",
-			Inputs:        []CommandInput{contextCreateNameInput(), contextImageInput(), contextModeInput(), contextSourceAccessInput(), contextPolicyPresetInput(), contextNativeReadinessInput(), contextCreateAWSBootstrapInput(), formatInput()},
+			Inputs:        []CommandInput{contextCreateNameInput(), contextImageInput(), contextModeInput(), contextSourceAccessInput(), contextPolicyPresetInput(), contextNativeReadinessInput(), contextCreateAWSBootstrapInput(), contextCreateEKSBootstrapInput(), formatInput()},
 			Output:        contextReportOutput(),
 			Prerequisites: []string{"The host Context directory is accessible."},
 			FixedTarget:   fixedContextCatalogTarget(),
@@ -285,6 +328,7 @@ func contextCreateSpec() CommandSpec {
 				declaredCommandError(fault.KindInvalidInput, "context_create_wizard_unavailable", false, "help context create", "Run the argument-free wizard on interactive text streams or supply --name for direct mode."),
 				declaredCommandError(fault.KindInternal, "context_create_wizard_failed", false, "context create", "Retry the wizard or use direct mode with --name."),
 				declaredCommandError(fault.KindRejected, "aws_bootstrap_source_rejected", false, "help config bootstrap aws", "Choose a strict IAM Identity Center profile without credentials, helpers, or unsupported directives."),
+				declaredCommandError(fault.KindRejected, "eks_bootstrap_source_rejected", false, "help config bootstrap kubernetes eks", "Choose a strict AWS CLI-generated EKS context bound to the selected AWS profile."),
 				declaredCommandError(fault.KindInvalidInput, "invalid_context", false, "help context create", "Correct the Context name, image, policy mode, or source access."),
 				declaredCommandError(fault.KindRejected, "context_exists", false, "context list", "List existing Contexts before choosing another name."),
 				declaredCommandError(fault.KindRejected, "context_create_failed", false, "context list", "Inspect the partially initialized Context stores."),
@@ -1190,6 +1234,11 @@ func contextCreateAWSBootstrapInput() CommandInput {
 	return CommandInput{Name: "--bootstrap-aws-profile", Source: InputSourceFlag, Required: false, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, MinimumLength: &minimum, Description: "Host AWS IAM Identity Center profile normalized into a secret-free create-only snapshot; omission imports nothing.", AllowedValues: []string{}}
 }
 
+func contextCreateEKSBootstrapInput() CommandInput {
+	minimum := int64(1)
+	return CommandInput{Name: "--bootstrap-eks-context", Source: InputSourceFlag, Required: false, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, MinimumLength: &minimum, Description: "Host AWS CLI-generated EKS context composed with --bootstrap-aws-profile for create-only projection.", AllowedValues: []string{}, Requires: []string{"--bootstrap-aws-profile"}}
+}
+
 func executionContextInput() CommandInput {
 	return CommandInput{
 		Name: "--context", Source: InputSourceFlag, Required: false,
@@ -1311,8 +1360,9 @@ func contextBootstrapOutputField() OutputField {
 		{Name: "state", Type: OutputFieldTypeString, Description: "Whether a future-Workspace recipe is configured.", Enum: []string{"not_configured", "configured"}},
 		{Name: "generation", Type: OutputFieldTypeInteger, Description: "Monotonic semantic-change generation; zero when unconfigured."},
 		{Name: "revision", Type: OutputFieldTypeString, Description: "Semantic SHA-256 revision; empty when unconfigured."},
-		{Name: "adapters", Type: OutputFieldTypeArray, Description: "Closed adapter inventory; currently AWS IAM Identity Center only.", Items: &OutputField{Type: OutputFieldTypeString, Description: "One reviewed adapter ID."}},
+		{Name: "adapters", Type: OutputFieldTypeArray, Description: "Closed adapter inventory in dependency order.", Items: &OutputField{Type: OutputFieldTypeString, Description: "One reviewed adapter ID."}},
 		{Name: "aws_profile", Type: OutputFieldTypeString, Description: "Host profile name selected as the snapshot source; empty when unconfigured."},
+		{Name: "kubernetes_eks_context", Type: OutputFieldTypeString, Description: "Selected host EKS context name; empty when the EKS adapter is absent."},
 	}}
 }
 

@@ -2,6 +2,8 @@ package tobari
 
 import (
 	"crypto/sha256"
+	"crypto/x509"
+	"encoding/base64"
 	"encoding/hex"
 	"fmt"
 	"regexp"
@@ -12,6 +14,7 @@ import (
 const (
 	ContextBootstrapSchemaVersion = 1
 	ContextBootstrapAdapterAWS    = "aws_iam_identity_center"
+	ContextBootstrapAdapterEKS    = "kubernetes_eks"
 	MaxContextBootstrapValueBytes = 2048
 
 	ContextBootstrapTargetKind = "context-workspace-bootstrap"
@@ -27,15 +30,20 @@ const (
 )
 
 var ErrContextBootstrapSourceChanged = fmt.Errorf("Context bootstrap source changed during review")
+var ErrContextBootstrapDependency = fmt.Errorf("Context bootstrap adapter dependency is still configured")
 
 var (
-	awsBootstrapNamePattern     = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
-	awsBootstrapAccountPattern  = regexp.MustCompile(`^[0-9]{12}$`)
-	awsBootstrapRolePattern     = regexp.MustCompile(`^[A-Za-z0-9+=,.@_-]{1,64}$`)
-	awsBootstrapRegionPattern   = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,62}[a-z0-9]$`)
-	awsBootstrapOutputPattern   = regexp.MustCompile(`^[A-Za-z0-9_-]{1,32}$`)
-	awsBootstrapScopePattern    = regexp.MustCompile(`^[\x21\x23-\x5B\x5D-\x7E]{1,128}$`)
-	awsBootstrapStartURLPattern = regexp.MustCompile(`^https://[A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?\.awsapps\.com/start/?$`)
+	awsBootstrapNamePattern      = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
+	awsBootstrapAccountPattern   = regexp.MustCompile(`^[0-9]{12}$`)
+	awsBootstrapRolePattern      = regexp.MustCompile(`^[A-Za-z0-9+=,.@_-]{1,64}$`)
+	awsBootstrapRegionPattern    = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,62}[a-z0-9]$`)
+	awsBootstrapOutputPattern    = regexp.MustCompile(`^[A-Za-z0-9_-]{1,32}$`)
+	awsBootstrapScopePattern     = regexp.MustCompile(`^[\x21\x23-\x5B\x5D-\x7E]{1,128}$`)
+	awsBootstrapStartURLPattern  = regexp.MustCompile(`^https://[A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?\.awsapps\.com/start/?$`)
+	eksBootstrapNamePattern      = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,252}$`)
+	eksBootstrapClusterPattern   = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,99}$`)
+	eksBootstrapNamespacePattern = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9.-]{0,61}[a-z0-9])?$`)
+	eksBootstrapEndpointPattern  = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9.-]{0,250}[a-z0-9])?$`)
 )
 
 // ContextAWSBootstrap is the closed, secret-free subset of one AWS shared
@@ -109,16 +117,76 @@ func (a ContextAWSBootstrap) Clone() ContextAWSBootstrap {
 	return result
 }
 
+// ContextEKSBootstrap is the closed, secret-free service target selected from
+// one host kubeconfig. Authentication remains a canonical AWS CLI get-token
+// exec bound to the sibling AWS bootstrap profile; no source exec bytes or
+// credential material are retained.
+type ContextEKSBootstrap struct {
+	ContextName              string `json:"context_name"`
+	ClusterName              string `json:"cluster_name"`
+	Region                   string `json:"region"`
+	Server                   string `json:"server"`
+	CertificateAuthorityData string `json:"certificate_authority_data"`
+	Namespace                string `json:"namespace,omitempty"`
+}
+
+func (e ContextEKSBootstrap) Validate() error {
+	if !eksBootstrapNamePattern.MatchString(e.ContextName) || strings.Contains(e.ContextName, "..") {
+		return fmt.Errorf("EKS bootstrap context name is invalid")
+	}
+	if !eksBootstrapClusterPattern.MatchString(e.ClusterName) {
+		return fmt.Errorf("EKS bootstrap cluster name is invalid")
+	}
+	if !awsBootstrapRegionPattern.MatchString(e.Region) {
+		return fmt.Errorf("EKS bootstrap region is invalid")
+	}
+	if e.Namespace != "" && !eksBootstrapNamespacePattern.MatchString(e.Namespace) {
+		return fmt.Errorf("EKS bootstrap namespace is invalid")
+	}
+	if len(e.Server) == 0 || len(e.Server) > MaxContextBootstrapValueBytes {
+		return fmt.Errorf("EKS bootstrap server is invalid")
+	}
+	if !strings.HasPrefix(e.Server, "https://") || strings.ContainsAny(strings.TrimPrefix(e.Server, "https://"), "/@:?#") {
+		return fmt.Errorf("EKS bootstrap server must be an exact HTTPS origin")
+	}
+	host := strings.TrimPrefix(e.Server, "https://")
+	suffix := "." + e.Region + ".eks.amazonaws.com"
+	prefix := strings.TrimSuffix(host, suffix)
+	if host == "" || host != strings.ToLower(host) || !strings.HasSuffix(host, suffix) || !eksBootstrapEndpointPattern.MatchString(prefix) || strings.Contains(prefix, "..") {
+		return fmt.Errorf("EKS bootstrap server is not a canonical commercial EKS endpoint")
+	}
+	if len(e.CertificateAuthorityData) == 0 || len(e.CertificateAuthorityData) > 128*1024 {
+		return fmt.Errorf("EKS bootstrap certificate authority data is invalid")
+	}
+	certificate, err := base64.StdEncoding.DecodeString(e.CertificateAuthorityData)
+	if err != nil || len(certificate) == 0 || base64.StdEncoding.EncodeToString(certificate) != e.CertificateAuthorityData {
+		return fmt.Errorf("EKS bootstrap certificate authority data is not canonical base64")
+	}
+	if pool := x509.NewCertPool(); !pool.AppendCertsFromPEM(certificate) {
+		return fmt.Errorf("EKS bootstrap certificate authority data contains no certificate")
+	}
+	return nil
+}
+
 // ContextBootstrapSnapshot is one immutable semantic revision used only when
 // a future Workspace home is first created.
 type ContextBootstrapSnapshot struct {
-	SchemaVersion int                 `json:"schema_version"`
-	Generation    uint64              `json:"generation"`
-	Revision      string              `json:"revision"`
-	AWS           ContextAWSBootstrap `json:"aws"`
+	SchemaVersion int                  `json:"schema_version"`
+	Generation    uint64               `json:"generation"`
+	Revision      string               `json:"revision"`
+	AWS           ContextAWSBootstrap  `json:"aws"`
+	EKS           *ContextEKSBootstrap `json:"kubernetes_eks,omitempty"`
 }
 
 func NewContextBootstrapSnapshot(generation uint64, aws ContextAWSBootstrap) (ContextBootstrapSnapshot, error) {
+	return newContextBootstrapSnapshot(generation, aws, nil)
+}
+
+func NewContextBootstrapSnapshotWithEKS(generation uint64, aws ContextAWSBootstrap, eks ContextEKSBootstrap) (ContextBootstrapSnapshot, error) {
+	return newContextBootstrapSnapshot(generation, aws, &eks)
+}
+
+func newContextBootstrapSnapshot(generation uint64, aws ContextAWSBootstrap, eks *ContextEKSBootstrap) (ContextBootstrapSnapshot, error) {
 	aws.SSORegistrationScopes = append([]string{}, aws.SSORegistrationScopes...)
 	sort.Strings(aws.SSORegistrationScopes)
 	if generation == 0 {
@@ -127,7 +195,14 @@ func NewContextBootstrapSnapshot(generation uint64, aws ContextAWSBootstrap) (Co
 	if err := aws.Validate(); err != nil {
 		return ContextBootstrapSnapshot{}, err
 	}
-	snapshot := ContextBootstrapSnapshot{SchemaVersion: ContextBootstrapSchemaVersion, Generation: generation, AWS: aws}
+	if eks != nil {
+		copy := *eks
+		eks = &copy
+		if err := eks.Validate(); err != nil {
+			return ContextBootstrapSnapshot{}, err
+		}
+	}
+	snapshot := ContextBootstrapSnapshot{SchemaVersion: ContextBootstrapSchemaVersion, Generation: generation, AWS: aws, EKS: eks}
 	snapshot.Revision = snapshot.semanticRevision()
 	return snapshot, nil
 }
@@ -146,6 +221,17 @@ func (s ContextBootstrapSnapshot) semanticRevision() string {
 		"region=" + s.AWS.Region,
 		"output=" + s.AWS.Output,
 	}
+	if s.EKS != nil {
+		fields = append(fields,
+			"adapter="+ContextBootstrapAdapterEKS,
+			"eks.context_name="+s.EKS.ContextName,
+			"eks.cluster_name="+s.EKS.ClusterName,
+			"eks.region="+s.EKS.Region,
+			"eks.server="+s.EKS.Server,
+			"eks.certificate_authority_data="+s.EKS.CertificateAuthorityData,
+			"eks.namespace="+s.EKS.Namespace,
+		)
+	}
 	digest := sha256.Sum256([]byte(strings.Join(fields, "\x00")))
 	return "sha256:" + hex.EncodeToString(digest[:])
 }
@@ -157,6 +243,11 @@ func (s ContextBootstrapSnapshot) Validate() error {
 	if err := s.AWS.Validate(); err != nil {
 		return err
 	}
+	if s.EKS != nil {
+		if err := s.EKS.Validate(); err != nil {
+			return err
+		}
+	}
 	if s.Revision != s.semanticRevision() {
 		return fmt.Errorf("Context bootstrap revision does not match its semantic snapshot")
 	}
@@ -166,6 +257,10 @@ func (s ContextBootstrapSnapshot) Validate() error {
 func (s ContextBootstrapSnapshot) Clone() ContextBootstrapSnapshot {
 	result := s
 	result.AWS = s.AWS.Clone()
+	if s.EKS != nil {
+		copy := *s.EKS
+		result.EKS = &copy
+	}
 	return result
 }
 
@@ -231,6 +326,18 @@ func diffContextAWSBootstrap(current *ContextBootstrapSnapshot, candidate Contex
 	add("aws.sso_role_name", current.AWS.RoleName != candidate.AWS.RoleName)
 	add("aws.sso_session", current.AWS.SSOSession != candidate.AWS.SSOSession)
 	add("aws.sso_start_url", current.AWS.SSOStartURL != candidate.AWS.SSOStartURL)
+	if current.EKS == nil && candidate.EKS != nil {
+		changes = append(changes, "kubernetes_eks")
+	} else if current.EKS != nil && candidate.EKS == nil {
+		changes = append(changes, "kubernetes_eks")
+	} else if current.EKS != nil && candidate.EKS != nil {
+		add("kubernetes_eks.context_name", current.EKS.ContextName != candidate.EKS.ContextName)
+		add("kubernetes_eks.cluster_name", current.EKS.ClusterName != candidate.EKS.ClusterName)
+		add("kubernetes_eks.region", current.EKS.Region != candidate.EKS.Region)
+		add("kubernetes_eks.server", current.EKS.Server != candidate.EKS.Server)
+		add("kubernetes_eks.certificate_authority_data", current.EKS.CertificateAuthorityData != candidate.EKS.CertificateAuthorityData)
+		add("kubernetes_eks.namespace", current.EKS.Namespace != candidate.EKS.Namespace)
+	}
 	sort.Strings(changes)
 	return changes
 }
@@ -241,20 +348,26 @@ type ContextBootstrapReport struct {
 	Revision   string   `json:"revision,omitempty"`
 	Adapters   []string `json:"adapters"`
 	AWSProfile string   `json:"aws_profile,omitempty"`
+	EKSContext string   `json:"kubernetes_eks_context,omitempty"`
 }
 
 func ContextBootstrapReportFrom(snapshot *ContextBootstrapSnapshot) ContextBootstrapReport {
 	if snapshot == nil {
 		return ContextBootstrapReport{State: ContextBootstrapNotConfigured, Adapters: []string{}}
 	}
-	return ContextBootstrapReport{
+	report := ContextBootstrapReport{
 		State: ContextBootstrapConfigured, Generation: snapshot.Generation, Revision: snapshot.Revision,
 		Adapters: []string{ContextBootstrapAdapterAWS}, AWSProfile: snapshot.AWS.Profile,
 	}
+	if snapshot.EKS != nil {
+		report.Adapters = append(report.Adapters, ContextBootstrapAdapterEKS)
+		report.EKSContext = snapshot.EKS.ContextName
+	}
+	return report
 }
 
 func (r ContextBootstrapReport) Validate() error {
-	if r.State == "" && r.Generation == 0 && r.Revision == "" && r.AWSProfile == "" && r.Adapters == nil {
+	if r.State == "" && r.Generation == 0 && r.Revision == "" && r.AWSProfile == "" && r.EKSContext == "" && r.Adapters == nil {
 		return nil // legacy in-memory producers resolve this as not_configured
 	}
 	if r.Adapters == nil {
@@ -262,12 +375,18 @@ func (r ContextBootstrapReport) Validate() error {
 	}
 	switch r.State {
 	case ContextBootstrapNotConfigured:
-		if r.Generation != 0 || r.Revision != "" || r.AWSProfile != "" || len(r.Adapters) != 0 {
+		if r.Generation != 0 || r.Revision != "" || r.AWSProfile != "" || r.EKSContext != "" || len(r.Adapters) != 0 {
 			return fmt.Errorf("unconfigured Context bootstrap contains configured metadata")
 		}
 	case ContextBootstrapConfigured:
-		if r.Generation == 0 || ValidateDigest(r.Revision) != nil || r.AWSProfile == "" || len(r.Adapters) != 1 || r.Adapters[0] != ContextBootstrapAdapterAWS {
+		if r.Generation == 0 || ValidateDigest(r.Revision) != nil || r.AWSProfile == "" || len(r.Adapters) < 1 || len(r.Adapters) > 2 || r.Adapters[0] != ContextBootstrapAdapterAWS {
 			return fmt.Errorf("configured Context bootstrap metadata is invalid")
+		}
+		if len(r.Adapters) == 1 && r.EKSContext != "" {
+			return fmt.Errorf("configured Context bootstrap EKS metadata is inconsistent")
+		}
+		if len(r.Adapters) == 2 && (r.Adapters[1] != ContextBootstrapAdapterEKS || r.EKSContext == "") {
+			return fmt.Errorf("configured Context bootstrap EKS metadata is invalid")
 		}
 	default:
 		return fmt.Errorf("Context bootstrap state is invalid")
