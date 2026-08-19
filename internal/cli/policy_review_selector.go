@@ -393,7 +393,11 @@ func policyReviewStagedStyle(candidateID string, staged []map[string]policyRevie
 	if len(staged) == 0 || staged[0] == nil {
 		return styleMuted
 	}
-	switch staged[0][candidateID] {
+	return policyReviewActionStyle(staged[0][candidateID])
+}
+
+func policyReviewActionStyle(action policyReviewAction) styleToken {
+	switch action {
 	case policyReviewActionAllow, policyReviewActionAllowTemplate:
 		return styleSuccess
 	case policyReviewActionDeny:
@@ -481,7 +485,7 @@ func renderPolicyReviewFinalRaw(
 			continue
 		}
 		lines = append(lines,
-			applyStyleToken(style, styleAccent, fmt.Sprintf("%d. %s", index+1, policyReviewActionLabelFor(report, id, action))),
+			applyStyleToken(style, policyReviewActionStyle(action), fmt.Sprintf("%d. %s", index+1, policyReviewActionLabelFor(report, id, action))),
 			selectorDetail(style, "Context", safeExternalText(candidate.ContextName)+" · "+candidate.ContextID, styleText),
 			selectorDetail(style, "Project", safeExternalText(candidate.ProjectRoot)+" · "+candidate.ProjectID, styleText),
 			selectorDetail(style, "Effect", policyReviewCandidateEffect(candidate), styleText),

@@ -473,6 +473,25 @@ func TestPolicyReviewSelectorRawUsesSemanticColor(t *testing.T) {
 			t.Fatalf("colored detail output %q lacks %q", detailOutput.String(), want)
 		}
 	}
+
+	var finalOutput bytes.Buffer
+	staged := map[string]policyReviewAction{
+		report.Items[0].ID: policyReviewActionAllow,
+		report.Items[1].ID: policyReviewActionDeny,
+	}
+	stagedOrder := []string{report.Items[0].ID, report.Items[1].ID}
+	if lines := renderPolicyReviewFinalRaw(&finalOutput, report, staged, stagedOrder, "", 0, true); lines <= 0 {
+		t.Fatalf("final render lines = %d, output = %q", lines, finalOutput.String())
+	}
+	for _, want := range []string{
+		applyStyleToken(true, styleSuccess, "1. Allow exact"),
+		applyStyleToken(true, styleWarning, "2. Deny exact"),
+		applyStyleToken(true, styleAccent, "[y] Apply"),
+	} {
+		if !strings.Contains(finalOutput.String(), want) {
+			t.Fatalf("colored final output %q lacks %q", finalOutput.String(), want)
+		}
+	}
 }
 
 func TestPolicyReviewSelectorGroupsByStableScopeAndKeepsEffectOrderWithinGroup(t *testing.T) {

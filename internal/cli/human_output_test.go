@@ -67,8 +67,8 @@ func TestSemanticStyleTokensRenderWithAndWithoutTerminalStyles(t *testing.T) {
 	if got := ansiStyleTokens[styleMuted]; strings.Contains(got, "[2;") {
 		t.Fatalf("muted token must not use dim/faint styling: %q", got)
 	}
-	if got := ansiStyleTokens[styleAccent]; !strings.Contains(got, "[1;") {
-		t.Fatalf("accent token should own primary emphasis: %q", got)
+	if got, want := ansiStyleTokens[styleAccent], "\x1b[1;38;5;38m"; got != want {
+		t.Fatalf("accent token = %q, want calmer emphasized cyan %q", got, want)
 	}
 	for _, token := range []styleToken{styleSuccess, styleWarning, styleDanger} {
 		if got := ansiStyleTokens[token]; strings.Contains(got, "[1;") || strings.Contains(got, "[2;") {
