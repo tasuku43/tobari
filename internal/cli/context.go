@@ -417,77 +417,7 @@ func runContextCreate(
 	if err != nil {
 		return c.failUsage(ctx, "invalid_arguments", err.Error()+"; usage: "+command.Usage(), "help context create", "Correct the command arguments.")
 	}
-	intent.Target = operation.TargetRef{Kind: tobari.ContextCatalogTargetKind, ParentID: tobari.ContextCatalogTargetID}
-	intent.Impact = command.Agent.Mutation.Impact
-	mode := tobari.ContextPolicyMode(inputs.One("--mode"))
-	sourceAccess := tobari.ContextSourceAccess(inputs.One("--source-access"))
-	name := inputs.One("--name")
-	var result tobari.ContextReport
-	if contextCreateInputsOmitted(inputs) {
-		if format != successFormatText || invocationErrorFormat(ctx) == errorFormatJSON ||
-			c.tobari == nil || !c.tobari.IsInteractive(c.In, c.Err) {
-			return c.failUsage(
-				ctx,
-				"context_create_wizard_unavailable",
-				"Argument-free Context creation requires text success/error output and interactive terminal stdin and stderr; usage: "+command.Usage(),
-				"help context create",
-				"Run `tobari context create` in an interactive terminal or supply --name for direct mode.",
-			)
-		}
-		wizard := c.contextCreate
-		if wizard == nil {
-			wizard = newContextCreateWizardWithStyle(!c.noColor)
-		}
-		selection, wizardErr := wizard.Compose(ctx, c.In, c.Err)
-		if wizardErr != nil {
-			return c.fail(ctx, normalizeContextCreateWizardError(wizardErr))
-		}
-		name = selection.Name
-		sourceAccess = selection.SourceAccess
-		policy := selection.MethodPolicy.Clone()
-		var bootstrap *tobari.ContextBootstrapSnapshot
-		if selection.AWSBootstrapProfile != "" {
-			prepared, prepareErr := c.context.PrepareAWSBootstrap(ctx, selection.AWSBootstrapProfile)
-			if prepareErr != nil {
-				return c.fail(ctx, prepareErr)
-			}
-			if selection.EKSBootstrapContext != "" {
-				prepared, prepareErr = c.context.PrepareEKSBootstrap(ctx, prepared, selection.EKSBootstrapContext)
-				if prepareErr != nil {
-					return c.fail(ctx, prepareErr)
-				}
-			}
-			bootstrap = &prepared
-		}
-		result, err = c.context.CreateWithComposition(
-			ctx, intent, name, inputs.One("--image"), mode, sourceAccess,
-			tobari.ContextCreateComposition{
-				PolicyPresetOrigin: inputs.One("--policy-preset"),
-				NativeReadiness:    tobari.ContextNativeReadiness(inputs.One("--native-readiness")),
-				MethodPolicy:       &policy,
-				Bootstrap:          bootstrap,
-			},
-		)
-	} else {
-		if name == "" {
-			return c.failUsage(ctx, "invalid_arguments", "--name is required in direct mode; usage: "+command.Usage(), "help context create", "Supply --name or run the command without arguments to open the wizard.")
-		}
-		if inputs.Provided("--bootstrap-aws-profile") {
-			prepared, prepareErr := c.context.PrepareAWSBootstrap(ctx, inputs.One("--bootstrap-aws-profile"))
-			if prepareErr != nil {
-				return c.fail(ctx, prepareErr)
-			}
-			if inputs.Provided("--bootstrap-eks-context") {
-				prepared, prepareErr = c.context.PrepareEKSBootstrap(ctx, prepared, inputs.One("--bootstrap-eks-context"))
-				if prepareErr != nil {
-					return c.fail(ctx, prepareErr)
-				}
-			}
-			result, err = c.context.CreateWithComposition(ctx, intent, name, inputs.One("--image"), mode, sourceAccess, tobari.ContextCreateComposition{PolicyPresetOrigin: inputs.One("--policy-preset"), NativeReadiness: tobari.ContextNativeReadiness(inputs.One("--native-readiness")), Bootstrap: &prepared})
-		} else {
-			result, err = c.context.Create(ctx, intent, name, inputs.One("--image"), mode, sourceAccess, inputs.One("--policy-preset"), inputs.One("--native-readiness"))
-		}
-	}
+	result, err := createContext(ctx, c, command, intent, inputs, format)
 	if err != nil {
 		return c.fail(ctx, err)
 	}
@@ -496,6 +426,80 @@ func runContextCreate(
 		return c.fail(ctx, err)
 	}
 	return c.emitMutationResult(ctx, command, output)
+}
+
+func createContext(
+	ctx context.Context, c *CLI, command CommandSpec, intent operation.Intent,
+	inputs ParsedInputs, format successFormat,
+) (tobari.ContextReport, error) {
+	intent.Target = operation.TargetRef{Kind: tobari.ContextCatalogTargetKind, ParentID: tobari.ContextCatalogTargetID}
+	intent.Impact = command.Agent.Mutation.Impact
+	mode := tobari.ContextPolicyMode(inputs.One("--mode"))
+	sourceAccess := tobari.ContextSourceAccess(inputs.One("--source-access"))
+	name := inputs.One("--name")
+	if contextCreateInputsOmitted(inputs) {
+		if format != successFormatText || invocationErrorFormat(ctx) == errorFormatJSON ||
+			c.tobari == nil || !c.tobari.IsInteractive(c.In, c.Err) {
+			return tobari.ContextReport{}, fault.New(
+				fault.KindInvalidInput, "context_create_wizard_unavailable",
+				"Argument-free Context creation requires text success/error output and interactive terminal stdin and stderr; usage: "+command.Usage(), false,
+				fault.NextAction{Command: "help context create", Reason: "Run the argument-free wizard on interactive text streams or supply --name for direct mode."},
+			)
+		}
+		wizard := c.contextCreate
+		if wizard == nil {
+			wizard = newContextCreateWizardWithStyle(!c.noColor)
+		}
+		selection, wizardErr := wizard.Compose(ctx, c.In, c.Err)
+		if wizardErr != nil {
+			return tobari.ContextReport{}, normalizeContextCreateWizardError(wizardErr)
+		}
+		policy := selection.MethodPolicy.Clone()
+		var bootstrap *tobari.ContextBootstrapSnapshot
+		if selection.AWSBootstrapProfile != "" {
+			prepared, prepareErr := c.context.PrepareAWSBootstrap(ctx, selection.AWSBootstrapProfile)
+			if prepareErr != nil {
+				return tobari.ContextReport{}, prepareErr
+			}
+			if selection.EKSBootstrapContext != "" {
+				prepared, prepareErr = c.context.PrepareEKSBootstrap(ctx, prepared, selection.EKSBootstrapContext)
+				if prepareErr != nil {
+					return tobari.ContextReport{}, prepareErr
+				}
+			}
+			bootstrap = &prepared
+		}
+		return c.context.CreateWithComposition(
+			ctx, intent, selection.Name, inputs.One("--image"), mode, selection.SourceAccess,
+			tobari.ContextCreateComposition{
+				PolicyPresetOrigin: inputs.One("--policy-preset"),
+				NativeReadiness:    tobari.ContextNativeReadiness(inputs.One("--native-readiness")),
+				MethodPolicy:       &policy,
+				Bootstrap:          bootstrap,
+			},
+		)
+	}
+	if name == "" {
+		return tobari.ContextReport{}, fault.New(
+			fault.KindInvalidInput, "invalid_arguments",
+			"--name is required in direct mode; usage: "+command.Usage(), false,
+			fault.NextAction{Command: "help context create", Reason: "Supply --name or run the command without arguments to open the wizard."},
+		)
+	}
+	if inputs.Provided("--bootstrap-aws-profile") {
+		prepared, prepareErr := c.context.PrepareAWSBootstrap(ctx, inputs.One("--bootstrap-aws-profile"))
+		if prepareErr != nil {
+			return tobari.ContextReport{}, prepareErr
+		}
+		if inputs.Provided("--bootstrap-eks-context") {
+			prepared, prepareErr = c.context.PrepareEKSBootstrap(ctx, prepared, inputs.One("--bootstrap-eks-context"))
+			if prepareErr != nil {
+				return tobari.ContextReport{}, prepareErr
+			}
+		}
+		return c.context.CreateWithComposition(ctx, intent, name, inputs.One("--image"), mode, sourceAccess, tobari.ContextCreateComposition{PolicyPresetOrigin: inputs.One("--policy-preset"), NativeReadiness: tobari.ContextNativeReadiness(inputs.One("--native-readiness")), Bootstrap: &prepared})
+	}
+	return c.context.Create(ctx, intent, name, inputs.One("--image"), mode, sourceAccess, inputs.One("--policy-preset"), inputs.One("--native-readiness"))
 }
 
 func contextCreateInputsOmitted(inputs ParsedInputs) bool {
@@ -1017,7 +1021,7 @@ func renderContextReportText(result tobari.ContextReport, color bool) []byte {
 			writeStyledCommandLine(
 				&output, color, "Next:", "run ",
 				"`"+safeExternalText(strings.Join(nextArgv, " "))+"`",
-				" to load every Context into the shared cluster.",
+				" from a project directory to prepare shared services and enter a Workspace.",
 			)
 		}
 	case tobari.TaskConfigShell:
@@ -1063,7 +1067,7 @@ func contextCreateNextArgv(result tobari.ContextReport) []string {
 	}
 	switch result.Cluster {
 	case tobari.ContextClusterStatusNotApplicable, tobari.ContextClusterStatusRequiresReconcile:
-		return []string{ProgramName, "cluster", "up"}
+		return []string{ProgramName}
 	default:
 		return nil
 	}

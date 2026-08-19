@@ -130,8 +130,12 @@ using `tobari` leaves host execution unchanged, while `delete` and
 - Host-authored Rego, raw logs, Docker diagnostics, and provider-specific
   details remain available as advanced paths; they do not define the routine
   agent workflow.
-- The human first-use route starts with the explicit shared `cluster up` and
-  CWD-first `tobari` entry. Read-only `doctor`, status/list inspection, and
+- The human first-use route starts with the CWD-first `tobari` entry. On an
+  interactive terminal with no persisted Context, that one route owns the
+  ordinary Context review, composes the separately cataloged `cluster up`
+  action after confirmed creation, and offers the already-selected standard
+  runtime or optional Dockerfile preparation before the first Workspace.
+  Read-only `doctor`, status/list inspection, and
   opaque-ID policy actions remain recovery or machine paths rather than steps
   in the normal journey. On a TTY, `policy review` is the complete human
   review-to-decision flow, while `policy rules` is the complete human
@@ -141,9 +145,9 @@ using `tobari` leaves host execution unchanged, while `delete` and
   cannot bypass typed review staging, fresh validation, or final confirmation.
   It is compiled only by `task build:dev`; the standard and release command
   catalogs omit it while the interface is evaluated.
-- The current explicit `cluster up` bootstrap and separate denial discovery
-  commands are compatibility surfaces under review against this thesis. They
-  must not be mistaken for the product's central value.
+- Explicit `context create`, `cluster up`, and runtime commands remain
+  independently supported compatibility and automation surfaces. They do not
+  require a human to remember their order for the ordinary first-use route.
 
 ### Mechanical enforcement
 
@@ -434,10 +438,12 @@ directory.
 
 ### Consequences
 
-- `cluster up` explicitly creates or reconciles the shared enforcement runtime;
-  `tobari` requires that configured cluster to be ready, resolves an existing
-  canonical-root record or creates one at the current directory, reconciles
-  only the project runtime, and enters the work container on a terminal.
+- `cluster up` explicitly creates or reconciles the shared enforcement runtime.
+  Interactive `tobari` may compose that exact separately declared mutation
+  whenever the selected shared projection is not ready; on first use it does so
+  only after the ordinary Context wizard confirms creation. It then
+  resolves an existing canonical-root record or creates one at the current
+  directory, reconciles only the project runtime, and enters the work container.
 - The logical record owns a generated stable internal ID, canonical root,
   last reconciled compatible runtime image, profile, XDG home, and diagnostic
   runtime identifiers. Container or network loss never changes logical
@@ -473,6 +479,10 @@ directory.
   Codex and Claude Code clients required by the supported agent-ready Context.
   Their binaries remain outside the mutable Workspace home and their versions
   form one reviewed contract with the default policy baseline.
+- Context creation review exposes the selected standard image. Creating a
+  runtime recipe does not replace it: a pending or invalid recipe blocks root
+  entry with exact build/inspection recovery, and only successful
+  `runtime build` promotion changes the selected image.
 - `tobari delete` is the only routine operation that ends a logical Tobari;
   ending a shell or losing a runtime resource leaves it existing.
 - Every process in a Tobari may modify or delete every file below that Tobari's

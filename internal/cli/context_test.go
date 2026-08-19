@@ -21,6 +21,7 @@ import (
 type contextCLI fakeContextRuntime
 
 func (f *contextCLI) ListContexts(context.Context) (tobari.ContextListResult, error) {
+	f.listCalls++
 	return f.list, nil
 }
 
@@ -179,6 +180,7 @@ func (f *contextCLI) ConfigureContextGit(
 }
 
 func (f *contextCLI) InitRuntime(context.Context) (tobari.ContextReport, error) {
+	f.initCalls++
 	f.report.Task = tobari.TaskRuntimeInit
 	f.report.Authentication = tobari.ContextAuthentication{BrokerState: tobari.ContextAuthBrokerNotApplicable}
 	return f.report, nil
@@ -225,6 +227,8 @@ func (f *contextCLI) BuildRuntimeWithProgress(
 type fakeContextRuntime struct {
 	list                    tobari.ContextListResult
 	report                  tobari.ContextReport
+	listCalls               int
+	initCalls               int
 	useCalls                int
 	createCalls             int
 	buildCalls              int
@@ -834,7 +838,7 @@ func TestSyntheticContextJSONNeverInventsAuthority(t *testing.T) {
 	}
 }
 
-func TestContextCreateRendersRequiresReconcileAndExecutableClusterUp(t *testing.T) {
+func TestContextCreateRendersRequiresReconcileAndExecutableRootContinuation(t *testing.T) {
 	t.Parallel()
 	report := contextCLIReport(
 		tobari.TaskContextCreate, "review", false,
@@ -846,15 +850,15 @@ func TestContextCreateRendersRequiresReconcileAndExecutableClusterUp(t *testing.
 		t.Fatal(err)
 	}
 	if !strings.Contains(string(output), "Cluster: requires_reconcile") ||
-		!strings.Contains(string(output), "Next: run `tobari cluster up`") {
+		!strings.Contains(string(output), "Next: run `tobari`") {
 		t.Fatalf("Context create hides required cluster reconciliation: %q", output)
 	}
-	if routed := assertPublicNextArgvRoutes(t, contextCreateNextArgv(report)); routed.Path != "cluster up" {
+	if routed := assertPublicNextArgvRoutes(t, contextCreateNextArgv(report)); routed.Path != "tobari" {
 		t.Fatalf("Context create recovery routes to %q", routed.Path)
 	}
 }
 
-func TestContextCreateRendersAbsentClusterAndExecutableClusterUp(t *testing.T) {
+func TestContextCreateRendersAbsentClusterAndExecutableRootContinuation(t *testing.T) {
 	t.Parallel()
 	report := contextCLIReport(
 		tobari.TaskContextCreate, tobari.DefaultContextName, true,
@@ -866,10 +870,10 @@ func TestContextCreateRendersAbsentClusterAndExecutableClusterUp(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !strings.Contains(string(output), "Cluster: not_applicable") ||
-		!strings.Contains(string(output), "Next: run `tobari cluster up`") {
+		!strings.Contains(string(output), "Next: run `tobari`") {
 		t.Fatalf("Context create hides absent-cluster recovery: %q", output)
 	}
-	if routed := assertPublicNextArgvRoutes(t, contextCreateNextArgv(report)); routed.Path != "cluster up" {
+	if routed := assertPublicNextArgvRoutes(t, contextCreateNextArgv(report)); routed.Path != "tobari" {
 		t.Fatalf("Context create recovery routes to %q", routed.Path)
 	}
 }

@@ -245,6 +245,13 @@ application owns typed composition and result correlation. Infrastructure
 replaces the selected preset method policy, filters only positive baseline
 entries made unreachable by method Deny, normalizes the resulting immutable
 snapshot, and persists its digest; CLI never edits policy files directly.
+The interactive root may reuse this exact wizard only when Context observation
+returns the display-only synthetic default. After creation, CLI composition
+switches command identity before each further action: `context create`,
+`cluster up`, optional `runtime init`, and CWD Workspace entry each retain their
+own catalog effect, fixed target, impact, application invoker, and mutation-
+complete output boundary. Root never models those targets as one mutation and
+never invokes the public CLI as a subprocess.
 
 `context delete` is a Context-catalog write serialized by the installation
 lifecycle lock. Application maps the foundational/current/Workspace guards and
@@ -755,8 +762,21 @@ Image preflight fails before the policy test, cluster journal, shared network,
 or service-container mutation. Local Tobari-managed image development uses
 `task build` and the source-hash development resolver instead of a public
 cluster option.
-Root invocation verifies that the configured cluster is running and that its
-policy, Gateway, and principal projections are valid for the current binary.
+On first use, root Context observation and the ordinary Context wizard occur
+before cluster or Workspace mutation. Confirmed creation is durable; root then
+invokes the same typed cluster reconciliation used by explicit `cluster up`.
+Cluster failure leaves the Context available for another root invocation. Once
+ready, the CLI-owned runtime chooser either continues with the manifest-selected
+standard image or invokes typed `runtime init` and returns before Workspace
+creation. Subsequent root invocation blocks on `pending_build` or `invalid`
+recipe status until exact build or inspection recovery, while successful build
+promotion remains the only selected-image change.
+
+Outside that fresh-Context composition, root observes whether the configured
+cluster is running and whether its policy, Gateway, and principal projections
+are valid for the current binary. A ready observation proceeds unchanged; an
+absent, stopped, or invalid observation composes the same exact typed
+`cluster up` action before Workspace mutation.
 An older active aggregate fails closed with exact `cluster up` recovery. It then reads the
 canonical CWD's indexed Workspace candidates. An exact current-root record is
 selected directly; when only ancestor records exist, the CLI presents every

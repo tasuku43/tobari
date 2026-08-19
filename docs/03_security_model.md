@@ -709,7 +709,16 @@ The root command uses the catalog-declared current-directory fixed target to
 read and present containing Workspace candidates, then creates or reconciles
 one logical Tobari only after an explicit choice and a fresh locked check. An
 exact current-root record is reused directly; a nested root requires the
-explicit create-here choice. The command never creates shared resources.
+explicit create-here choice. During interactive entry, the CLI may precede
+that CWD mutation with the separately cataloged cluster create when observation
+is not ready; first use may also compose Context-catalog create and optional
+Context-runtime create actions. Each action enters
+its own application invoker with its own validated intent, target, impact, and
+mutation-complete output; root cannot combine or weaken them. Non-interactive
+root invocation and Context-wizard cancellation perform none of those setup
+mutations. A later-stage failure preserves an already confirmed earlier
+mutation and reports reconciliation rather than claiming the whole sequence is
+safe to replay.
 Each canonical root and stable Context pair is unique: repeated or concurrent
 explicit creation is serialized by the state lock and only one logical record
 for that pair can be committed. Same-root records in different Contexts and

@@ -37,6 +37,7 @@ type CLI struct {
 	experimentalCLIState
 	config        contextConfigurationWizard
 	contextCreate contextCreateWizard
+	runtimeChoice runtimeChoiceWizard
 	authLogin     authLoginProviderSelector
 	noColor       bool
 }
@@ -47,6 +48,7 @@ func New(in io.Reader, out, errOut io.Writer) *CLI {
 	command.noColor = noColorFromEnvironment()
 	command.config = newContextConfigurationWizardWithStyle(!command.noColor)
 	command.contextCreate = newContextCreateWizardWithStyle(!command.noColor)
+	command.runtimeChoice = newRuntimeChoiceWizardWithStyle(!command.noColor)
 	command.authLogin = newAuthLoginProviderSelectorWithStyle(!command.noColor)
 	configureExperimentalCLI(command)
 	runtime, err := dockerruntime.New()
@@ -86,6 +88,7 @@ func newCLI(in io.Reader, out, errOut io.Writer, catalog Catalog, inspector doct
 		doctor:        doctorcmd.New(inspector),
 		config:        newContextConfigurationWizard(),
 		contextCreate: newContextCreateWizardWithStyle(true),
+		runtimeChoice: newRuntimeChoiceWizardWithStyle(true),
 		authLogin:     newAuthLoginProviderSelector(),
 	}
 }

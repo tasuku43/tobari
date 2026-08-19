@@ -19,10 +19,13 @@ func TestRootHelpIsDerivedFromCatalog(t *testing.T) {
 		t.Fatalf("Run(help) code = %d, stderr = %q", code, stderr.String())
 	}
 	output := stdout.String()
-	for _, want := range []string{"Start here:", "tobari version", "Inspect build channel and runtime API compatibility", "tobari cluster up", "Enter or reuse the current project's Workspace", "doctor", "help", "version", "items", "Namespace with 2 commands"} {
+	for _, want := range []string{"Start here:", "tobari version", "Inspect build channel and runtime API compatibility", "Set up, enter, or reuse the current project's Workspace", "doctor", "help", "version", "items", "Namespace with 2 commands"} {
 		if !strings.Contains(output, want) {
 			t.Errorf("root help lacks %q\n%s", want, output)
 		}
+	}
+	if strings.Contains(strings.Split(output, "Commands:")[0], "tobari cluster up") {
+		t.Fatalf("root help still requires explicit cluster bootstrap in Start here:\n%s", output)
 	}
 	for _, unwanted := range []string{"items list", "items read"} {
 		if strings.Contains(output, unwanted) {

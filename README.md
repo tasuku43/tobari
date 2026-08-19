@@ -83,14 +83,29 @@ Auth Broker identities from their release lock.
 ## Quick Start
 
 ```sh
-# Interactively choose the name, source access, HTTP method policy, and optional typed bootstrap.
-tobari context create
+# From the project directory, start the guided first-use flow.
+cd /path/to/project
+tobari
+```
 
-# Or create the envelope deterministically for automation.
+On first use, `tobari` opens the ordinary Context wizard, shows the selected
+standard runtime in the final review, prepares the shared Gateway and OPA after
+Context confirmation, and then offers to enter with that runtime or create a
+custom Dockerfile recipe before the first Workspace. The custom path stops
+before Workspace creation and gives the exact `tobari runtime build` and
+subsequent `tobari` commands.
+
+The individual operations remain available for automation and advanced use:
+
+```sh
+# Create the envelope deterministically for automation.
 tobari context create --name default \
   --source-access read-write \
   --policy-preset builtin/agent-ready \
   --native-readiness enabled
+
+# Reconcile shared services explicitly when automation owns the sequence.
+tobari cluster up
 
 # Optionally snapshot one secret-free AWS IAM Identity Center profile for new Workspaces.
 tobari config bootstrap aws --profile engineering
@@ -98,11 +113,7 @@ tobari config bootstrap aws --profile engineering
 # Optionally compose one reviewed EKS context using that same AWS profile.
 tobari config bootstrap kubernetes eks --kube-context engineering
 
-# Reconcile the one installation-local Gateway/OPA/Auth Broker cluster.
-tobari cluster up
-
-# From the project directory, create/reuse and enter its Workspace.
-cd /path/to/project
+# Create/reuse and enter the Workspace.
 tobari
 ```
 

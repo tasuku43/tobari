@@ -27,7 +27,7 @@ func TestContextCreateWizardCollectsNameFilesystemAndEveryMethodDecision(t *test
 		len(selection.MethodPolicy.Overrides) != 1 || selection.MethodPolicy.Overrides[0] != (tobari.PolicyPresetMethodOverride{Method: "GET", Decision: tobari.PolicyPresetMethodAllow}) {
 		t.Fatalf("wizard selection = %+v", selection)
 	}
-	for _, required := range []string{"Context name:", "Project source access", "Other methods (default)", "GET", "TRACE", "Workspace bootstrap", "Review & Create"} {
+	for _, required := range []string{"Context name:", "Project source access", "Other methods (default)", "GET", "TRACE", "Workspace bootstrap", "Review & Create", "Runtime: standard Tobari runtime (builtin)"} {
 		if !strings.Contains(output.String(), required) {
 			t.Errorf("wizard output lacks %q: %q", required, output.String())
 		}
@@ -113,7 +113,7 @@ func TestContextCreateWizardRawUsesOneContinuousFiveStepSession(t *testing.T) {
 	for _, required := range []string{
 		"1 of 5 · Name", "2 of 5 · Filesystem", "3 of 5 · Network",
 		"4 of 5 · Workspace bootstrap", "5 of 5 · Review & Create",
-		"Context name:", "Other methods (default)", "Enter Create",
+		"Context name:", "Other methods (default)", "Runtime", "standard Tobari runtime (builtin)", "Enter Create",
 	} {
 		if !strings.Contains(output.String(), required) {
 			t.Errorf("raw wizard output lacks %q: %q", required, output.String())

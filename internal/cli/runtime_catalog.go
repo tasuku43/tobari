@@ -467,12 +467,12 @@ func runtimeBuildSpec() CommandSpec {
 
 func projectEnterSpec() CommandSpec {
 	return CommandSpec{
-		Path: "tobari", Summary: "Choose or create the current directory's Workspace and enter a reusable session",
+		Path: "tobari", Summary: "Set up, choose, or create the current directory's Workspace and enter a reusable session",
 		Args:   "[--context <name>]",
 		Effect: operation.EffectCreate, Role: RoleAct,
 		Agent: AgentContract{
 			CapabilityID: "tobari.lifecycle",
-			Outcome:      "Choose an ancestor Workspace or explicitly create one at the current directory, recover its runtime, and enter an interactive session; exit leaves the Workspace existing for reuse and delete removes it explicitly",
+			Outcome:      "On interactive first use, review a Context and prepare shared services; then choose or create the current directory's Workspace, reconcile its selected runtime, and enter a reusable session",
 			Inputs:       []CommandInput{lifecycleContextInput()}, Output: noOutput(),
 			Prerequisites: []string{
 				"The current directory is an accessible project directory.",
@@ -1384,6 +1384,9 @@ func projectEnterErrors() []CommandError {
 		declaredCommandError(fault.KindUnavailable, "cluster_status_failed", false, "cluster status", "Inspect the shared cluster before entering a Tobari."),
 		declaredCommandError(fault.KindUnavailable, "cluster_not_ready", false, "cluster up", "Reconcile the shared cluster explicitly before entering a Tobari."),
 		declaredCommandError(fault.KindRejected, "cluster_projection_stale", false, "cluster up", "Load the complete Context catalog into the shared cluster before entering a Tobari."),
+		declaredCommandError(fault.KindRejected, "runtime_build_required", false, "runtime build", "Build and select the staged custom runtime before entering a Workspace."),
+		declaredCommandError(fault.KindRejected, "runtime_recipe_invalid", false, "context show", "Inspect and correct the invalid custom runtime recipe before entry."),
+		declaredCommandError(fault.KindInternal, "runtime_choice_failed", false, "tobari", "Resume from the persisted Context and ready cluster."),
 		declaredCommandError(fault.KindRejected, "project_state_incomplete", false, "delete", "Review the exact delete command and confirm removal of the incomplete current-directory Tobari."),
 		declaredCommandError(fault.KindInternal, "missing_workspace_selector", false, "doctor", "Configure the Tobari terminal selector."),
 		declaredCommandError(fault.KindContract, "invalid_workspace_selection", false, "doctor", "Inspect local Workspace state."),

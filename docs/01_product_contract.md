@@ -51,8 +51,9 @@ this outcome.
 The user-facing entry point is the current project directory: a Tobari either
 exists or does not exist, and the user should not need to manage container
 names, network IDs, or policy internals for routine work. `cluster up` remains
-the current explicit owner of shared Gateway and OPA setup; reducing that
-first-use bootstrap is an adoption goal, not the reason a user adopts Tobari.
+the independently invocable owner of shared Gateway and OPA setup, while an
+interactive first-use `tobari` composes that exact action after a newly
+confirmed Context so a human need not remember the setup sequence.
 
 The primary operating loop is progressive policy learning: a Tobari workload is
 denied by default, Gateway records the rejected HTTP effect, including one
@@ -226,7 +227,7 @@ The public commands are:
 | `version [--format text|json]` | utility | read | Print source version/commit, resolver channel, required and selected standard component APIs, and compatibility |
 | `doctor [--root PATH] [--format text|tsv|json]` | utility | read | Report read-only host, Docker, configuration, policy, Gateway, port, and residue diagnostics without repairing state |
 | `cluster up` | act, fixed target | create | Validate all Context policy inputs and image contracts, reconcile Gateway and OPA, and confirm the exact aggregate policy is active |
-| `tobari [--context NAME]` | act, fixed target | create | Choose or create the current directory's Workspace in the explicit or current Context, reconcile runtime, enter it with a deny-by-default attachment-owned Host Loopback capability, and leave it reusable after `exit` while closing any owned route and grant |
+| `tobari [--context NAME]` | act, fixed target plus TTY workflow | create | On first use, complete the ordinary Context review, compose the exact Context/cluster/runtime actions under their own catalog contracts, then choose or create the current directory's Workspace in the explicit or current Context, reconcile runtime, enter it with a deny-by-default attachment-owned Host Loopback capability, and leave it reusable after `exit` while closing any owned route and grant |
 | `status [--context NAME] [--format text|json]` | utility | read | Inspect the nearest current-directory Workspace in the explicit or current Context, its logical existence, runtime diagnostic, and attached/detached session observation |
 | `list [--format text|json]` | utility | read | List local Workspaces with Context, runtime diagnostics, and diagnostic IDs |
 | `delete [--context NAME] [--force]` | act, fixed target | write | Delete the nearest current-directory Workspace in the explicit or current Context, its owned runtime, persistent home, and tool-owned authentication state while preserving project files; `--force` overrides only the attached-session guard |
@@ -250,7 +251,7 @@ The public commands are:
 | `config git [--source default\|inherit\|literal] [--name NAME] [--email EMAIL] [--context NAME] [--format text\|json]` | act, fixed target | write | Configure one atomic Context Git commit-identity fallback directly, or stage and apply its source from one terminal screen |
 | `config bootstrap aws [--profile NAME] [--refresh] [--remove] [--context NAME] [--format text\|json]` | act, fixed target | write | Normalize one strict secret-free host AWS IAM Identity Center profile for future Workspaces, refresh it after a semantic diff, or remove the future recipe; existing Workspace homes never change |
 | `config bootstrap kubernetes eks [--kube-context NAME] [--refresh] [--remove] [--context NAME] [--format text\|json]` | act, fixed target | write | Compose one strict AWS CLI-generated host EKS context with the Context AWS profile, refresh it, or remove only EKS; no credential, arbitrary exec, network authority, or existing Workspace home changes |
-| `context create [--name NAME] [--image IMAGE] [--mode guided|advanced] [--source-access read-only\|read-write] [--policy-preset PRESET] [--native-readiness enabled\|disabled] [--bootstrap-aws-profile NAME] [--bootstrap-eks-context NAME] [--format text\|json]` | act, fixed target | create | With no inputs, use one continuous five-step terminal frame for name, source access, a complete HTTP method policy, optional typed Workspace bootstrap, and final review, then create once; any explicit input selects deterministic direct mode and requires `--name`; EKS requires AWS and omission imports no host configuration |
+| `context create [--name NAME] [--image IMAGE] [--mode guided|advanced] [--source-access read-only\|read-write] [--policy-preset PRESET] [--native-readiness enabled\|disabled] [--bootstrap-aws-profile NAME] [--bootstrap-eks-context NAME] [--format text\|json]` | act, fixed target | create | With no inputs, use one continuous five-step terminal frame for name, selected standard runtime, source access, a complete HTTP method policy, optional typed Workspace bootstrap, and final review, then create once; any explicit input selects deterministic direct mode and requires `--name`; EKS requires AWS and omission imports no host configuration |
 | `context delete --name NAME [--format text\|json]` | act, fixed target | write | Delete one unused non-current non-default Context and its exact owner stores while preserving project files and shared runtime images |
 | `context use --name NAME [--format text\|json]` | act, fixed target | write | Change only the current/default Context; do not mutate existing Tobari or start/reconcile the cluster |
 | `runtime init [--format text|json]` | act, fixed target | create | Create the current Context's runtime/Dockerfile template without changing its selected image |
@@ -271,7 +272,21 @@ duplicate or explicit-empty placement is invalid. After name resolution, the
 stable Context ID is authoritative for the remainder of the operation.
 
 The root command is interactive and requires a TTY on stdin, stdout, and stderr.
-It does not silently create state in a non-interactive context. When the
+It does not silently create state in a non-interactive context. With no
+persisted Context and no explicit `--context`, it runs the same ordinary
+five-step Context wizard. Cancellation before final Create changes nothing.
+After confirmed Context creation it emits that durable success, performs the
+exact catalog-owned `cluster up` action without another confirmation, and
+retains the Context if cluster reconciliation fails. When shared services are
+ready, root offers either entry with the selected standard runtime or creation
+of the existing `runtime init` Dockerfile recipe before the first Workspace.
+The customization path creates no Workspace and exits with exact
+`runtime build` and subsequent `tobari` actions. A pending or invalid recipe
+blocks entry instead of silently falling back to the previously selected
+image. Existing persisted Contexts and explicit Context selection do not repeat
+the first-use runtime choice. If their shared projection is absent, stopped, or
+invalid, the same interactive root invocation composes exact `cluster up`
+before Workspace mutation. When the
 canonical current directory is below one or more indexed Workspace roots, the
 command presents an English selector ordered nearest-first. Arrow keys and
 Enter choose an existing Workspace; `n` chooses explicit creation at the
@@ -486,8 +501,10 @@ undeclared Docker mutation by the CLI.
   `--name`; defaults complete omitted direct-mode values without prompting.
   Method Deny removes selected-preset positive baseline entries for that method
   from the new immutable snapshot rather than leaving an invalid or misleading
-  unreachable grant. Redirected or JSON argument-free creation fails before
-  mutation.
+  unreachable grant. Final review also identifies the standard Tobari runtime
+  selected in the manifest. Redirected or JSON argument-free creation fails
+  before mutation. Standalone success points to root `tobari`, which owns the
+  remaining human setup sequence.
 - `runtime build` is the explicit exception to the no-implicit-pull rule. It
   runs a host Docker build using only the Context runtime directory as build
   context; Docker may obtain a missing base image for this explicit build.

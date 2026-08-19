@@ -617,7 +617,7 @@ func reviewContextCreateLine(
 	}
 	if _, err := fmt.Fprintf(
 		out,
-		"Tobari · Create Context · Review & Create\nName: %s\nProject source: %s\nWorkspace home: read-write\nTmpfs: read-write\nNetwork default: %s\nMethod overrides: %s\nBootstrap: %s\n\nCreate this Context? [y/N]: ",
+		"Tobari · Create Context · Review & Create\nName: %s\nRuntime: standard Tobari runtime (builtin)\nProject source: %s\nWorkspace home: read-write\nTmpfs: read-write\nNetwork default: %s\nMethod overrides: %s\nBootstrap: %s\n\nCreate this Context? [y/N]: ",
 		safeExternalText(selection.Name), selection.SourceAccess,
 		displayMethodDecision(selection.MethodPolicy.Default), overrides, bootstrap,
 	); err != nil {
@@ -681,6 +681,7 @@ func reviewContextCreateRaw(
 			selectorDetail(style, "Step", contextCreateStepLabel(contextCreateStepReview), styleText),
 			"",
 			selectorDetail(style, "Name", safeExternalText(draft.name), styleText),
+			selectorDetail(style, "Runtime", "standard Tobari runtime (builtin)", styleText),
 			selectorDetail(style, "Project source", string(sourceAccess), styleText),
 			selectorDetail(style, "Workspace home", "read-write", styleText),
 			selectorDetail(style, "Tmpfs", "read-write", styleText),

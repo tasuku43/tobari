@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -568,12 +569,15 @@ func runProjectEnter(ctx context.Context, c *CLI, command CommandSpec, _ operati
 	if c.tobari == nil {
 		return c.fail(ctx, missingRuntimeFault())
 	}
+	contextName := inputs.One("--context")
+	if code, continueEntry := prepareGuidedProjectEntry(ctx, c, contextName); !continueEntry {
+		return code
+	}
 	intent := operation.Intent{
 		Command: command.Path, Effect: command.Effect,
 		Target: operation.TargetRef{Kind: tobari.CurrentDirectoryTargetKind, ParentID: tobari.CurrentDirectoryTargetID},
 		Impact: command.Agent.Mutation.Impact,
 	}
-	contextName := inputs.One("--context")
 	code, err := c.tobari.EnterProjectInContext(ctx, intent, contextName, c.In, c.Out, c.Err)
 	if err != nil {
 		return c.fail(ctx, err)
@@ -595,6 +599,235 @@ func runProjectEnter(ctx context.Context, c *CLI, command CommandSpec, _ operati
 	}
 	_, _ = writeOnce(c.Err, message)
 	return code
+}
+
+// prepareGuidedProjectEntry composes existing catalog-owned actions only for
+// the interactive first-use state. Each mutation keeps its own command path,
+// fixed target, impact, application invoker, and completion output boundary.
+func prepareGuidedProjectEntry(
+	ctx context.Context, c *CLI, contextName string,
+) (int, bool) {
+	if c == nil || c.tobari == nil || c.context == nil ||
+		!c.tobari.IsInteractive(c.In, c.Err) || !c.tobari.IsTerminal(c.Out) {
+		return ExitOK, true
+	}
+	if contextName != "" {
+		showCtx := withCommandPath(ctx, "context show")
+		report, err := c.context.Show(showCtx, contextName)
+		if err != nil {
+			return c.fail(showCtx, err), false
+		}
+		if runtimeErr := rootRuntimeReadinessFault(report); runtimeErr != nil {
+			return c.fail(ctx, runtimeErr), false
+		}
+		if code := ensureClusterForGuidedEntry(ctx, c); code != ExitOK {
+			return code, false
+		}
+		return ExitOK, true
+	}
+	listCtx := withCommandPath(ctx, "context list")
+	contexts, err := c.context.List(listCtx)
+	if err != nil {
+		return c.fail(listCtx, err), false
+	}
+	if contexts.ContextState != tobari.ContextObservationSyntheticDefault {
+		showCtx := withCommandPath(ctx, "context show")
+		report, showErr := c.context.Show(showCtx, "")
+		if showErr != nil {
+			return c.fail(showCtx, showErr), false
+		}
+		if runtimeErr := rootRuntimeReadinessFault(report); runtimeErr != nil {
+			return c.fail(ctx, runtimeErr), false
+		}
+		if code := ensureClusterForGuidedEntry(ctx, c); code != ExitOK {
+			return code, false
+		}
+		return ExitOK, true
+	}
+
+	report, code := createContextForGuidedEntry(ctx, c)
+	if code != ExitOK {
+		return code, false
+	}
+	if code = clusterUpForGuidedEntry(ctx, c); code != ExitOK {
+		return code, false
+	}
+
+	wizard := c.runtimeChoice
+	if wizard == nil {
+		wizard = newRuntimeChoiceWizardWithStyle(!c.noColor)
+	}
+	choice, choiceErr := wizard.Choose(ctx, report, c.In, c.Err)
+	if errors.Is(choiceErr, context.Canceled) {
+		message := renderGuidedEntryPaused(report.Name, humanStyleAllowed(ctx, c, c.Err))
+		if _, writeErr := writeOnce(c.Err, message); writeErr != nil {
+			return c.fail(ctx, fault.Wrap(
+				fault.KindInternal, "runtime_choice_failed",
+				"The guided entry continuation could not be written completely.", true, writeErr,
+				fault.NextAction{Command: "tobari", Reason: "Resume setup from the persisted Context and ready cluster."},
+			)), false
+		}
+		return ExitOK, false
+	}
+	if choiceErr != nil {
+		return c.fail(ctx, fault.Wrap(
+			fault.KindInternal, "runtime_choice_failed",
+			"The runtime choice failed before creating a Workspace.", false, choiceErr,
+			fault.NextAction{Command: "tobari", Reason: "Resume from the persisted Context and ready cluster."},
+		)), false
+	}
+	if choice == runtimeChoiceCustomize {
+		return initRuntimeForGuidedEntry(ctx, c), false
+	}
+	return ExitOK, true
+}
+
+func ensureClusterForGuidedEntry(ctx context.Context, c *CLI) int {
+	statusCtx := withCommandPath(ctx, "cluster status")
+	status, err := c.tobari.ClusterStatus(statusCtx)
+	if err != nil {
+		return c.fail(statusCtx, err)
+	}
+	if status.Configured && status.Running && status.PolicyProjection == "valid" &&
+		status.PrincipalRegistry == "valid" && status.GatewayProjection == "valid" {
+		return ExitOK
+	}
+	return clusterUpForGuidedEntry(ctx, c)
+}
+
+func createContextForGuidedEntry(ctx context.Context, c *CLI) (tobari.ContextReport, int) {
+	command, found := c.catalog.lookupRegistered("context create")
+	if !found || command.Agent.Mutation == nil {
+		return tobari.ContextReport{}, c.fail(ctx, fault.New(
+			fault.KindContract, "invalid_catalog", "The guided Context creation contract is missing.", false,
+			fault.NextAction{Command: "help context create", Reason: "Repair the Context creation command contract."},
+		))
+	}
+	inputs, err := parseCommandInputs(command, nil)
+	if err != nil {
+		return tobari.ContextReport{}, c.fail(ctx, fault.Wrap(
+			fault.KindContract, "invalid_catalog", "The guided Context defaults are invalid.", false, err,
+			fault.NextAction{Command: "help context create", Reason: "Repair the Context creation input defaults."},
+		))
+	}
+	actionCtx := withCommandPath(ctx, command.Path)
+	intent := operation.Intent{Command: command.Path, Effect: command.Effect}
+	report, err := createContext(actionCtx, c, command, intent, inputs, successFormatText)
+	if err != nil {
+		return tobari.ContextReport{}, c.fail(actionCtx, err)
+	}
+	stage := renderGuidedEntryStage("Context created", report.Name, humanStyleAllowed(actionCtx, c, c.Err))
+	if code := c.emitMutationResultTo(actionCtx, command, stage, c.Err); code != ExitOK {
+		return tobari.ContextReport{}, code
+	}
+	return report, ExitOK
+}
+
+func clusterUpForGuidedEntry(ctx context.Context, c *CLI) int {
+	command, found := c.catalog.lookupRegistered("cluster up")
+	if !found || command.Agent.Mutation == nil {
+		return c.fail(ctx, fault.New(
+			fault.KindContract, "invalid_catalog", "The guided cluster startup contract is missing.", false,
+			fault.NextAction{Command: "help cluster up", Reason: "Repair the cluster startup command contract."},
+		))
+	}
+	actionCtx := withCommandPath(ctx, command.Path)
+	intent := operation.Intent{
+		Command: command.Path, Effect: command.Effect,
+		Target: operation.TargetRef{Kind: tobari.ClusterTargetKind, ParentID: tobari.ClusterTargetID},
+		Impact: command.Agent.Mutation.Impact,
+	}
+	var progress *clusterUpProgress
+	var progressSink tobari.ClusterUpProgressSink
+	if c.tobari.IsTerminal(c.Err) && clusterUpProgressAllowed(actionCtx) {
+		progress = newClusterUpProgress(c.Err, humanStyleAllowed(actionCtx, c, c.Err))
+		progress.Start()
+		progressSink = progress.Report
+	}
+	_, err := c.tobari.ClusterUpWithProgress(actionCtx, intent, progressSink)
+	if err != nil {
+		if progress != nil {
+			progress.Fail()
+			progress.Close()
+		}
+		return c.fail(actionCtx, err)
+	}
+	if progress != nil {
+		progress.Close()
+	}
+	stage := renderGuidedEntryStage("Shared services ready", "", humanStyleAllowed(actionCtx, c, c.Err))
+	return c.emitMutationResultTo(actionCtx, command, stage, c.Err)
+}
+
+func initRuntimeForGuidedEntry(ctx context.Context, c *CLI) int {
+	command, found := c.catalog.lookupRegistered("runtime init")
+	if !found || command.Agent.Mutation == nil {
+		return c.fail(ctx, fault.New(
+			fault.KindContract, "invalid_catalog", "The guided runtime initialization contract is missing.", false,
+			fault.NextAction{Command: "help runtime init", Reason: "Repair the runtime initialization command contract."},
+		))
+	}
+	actionCtx := withCommandPath(ctx, command.Path)
+	intent := operation.Intent{
+		Command: command.Path, Effect: command.Effect,
+		Target: operation.TargetRef{Kind: tobari.ContextRuntimeTargetKind, ParentID: tobari.ActiveContextRuntimeID},
+		Impact: command.Agent.Mutation.Impact,
+	}
+	report, err := c.context.InitRuntime(actionCtx, intent)
+	if err != nil {
+		return c.fail(actionCtx, err)
+	}
+	output := renderGuidedRuntimeInitialized(report, humanStyleAllowed(actionCtx, c, c.Err))
+	return c.emitMutationResultTo(actionCtx, command, output, c.Err)
+}
+
+func rootRuntimeReadinessFault(report tobari.ContextReport) error {
+	switch report.Runtime.Status {
+	case tobari.ContextRuntimeStatusPendingBuild:
+		return fault.New(
+			fault.KindRejected, "runtime_build_required",
+			"The current Context has a custom runtime recipe that must be built before creating or entering a Workspace.", false,
+			fault.NextAction{Command: "runtime build", Reason: "Build, validate, and select the current Context runtime."},
+		)
+	case tobari.ContextRuntimeStatusInvalid:
+		return fault.New(
+			fault.KindRejected, "runtime_recipe_invalid",
+			"The current Context runtime recipe is invalid and cannot be used to enter a Workspace.", false,
+			fault.NextAction{Command: "context show", Reason: "Inspect the runtime recipe and selected image before rebuilding."},
+		)
+	default:
+		return nil
+	}
+}
+
+func renderGuidedEntryStage(label, detail string, style bool) []byte {
+	var output strings.Builder
+	line := "✓ " + label
+	if detail != "" {
+		line += ": " + safeExternalText(detail)
+	}
+	fmt.Fprintln(&output, applyStyleToken(style, styleSuccess, line))
+	return []byte(output.String())
+}
+
+func renderGuidedEntryPaused(contextName string, style bool) []byte {
+	var output strings.Builder
+	output.WriteByte('\n')
+	fmt.Fprintln(&output, applyStyleToken(style, styleText, "Setup is ready; no Workspace was created."))
+	writeStyledLine(&output, style, "Context:", safeExternalText(contextName), styleText)
+	writeStyledCommandLine(&output, style, "Continue:", "run ", "`tobari`", " from the project directory.")
+	return []byte(output.String())
+}
+
+func renderGuidedRuntimeInitialized(report tobari.ContextReport, style bool) []byte {
+	var output strings.Builder
+	fmt.Fprintln(&output, applyStyleToken(style, styleSuccess, "✓ Runtime recipe created"))
+	writeStyledLine(&output, style, "Dockerfile:", safeExternalText(report.Runtime.Dockerfile), styleText)
+	output.WriteByte('\n')
+	fmt.Fprintln(&output, applyStyleToken(style, styleText, "Edit the Dockerfile, then build and select it on the host."))
+	writeStyledCommandLine(&output, style, "Build:", "run ", "`tobari runtime build`", "")
+	writeStyledCommandLine(&output, style, "After the build succeeds:", "run ", "`tobari`", " from the project directory.")
+	return []byte(output.String())
 }
 
 func renderProjectSessionClosed(style bool) []byte {
