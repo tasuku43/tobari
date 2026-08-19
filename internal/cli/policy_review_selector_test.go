@@ -394,6 +394,24 @@ func TestPolicyReviewSelectorRawTemplateDetailOffersExplicitFutureAndExactChoice
 	if err != nil || len(report.ReviewItems) != 1 || report.ReviewItems[0].Template == nil {
 		t.Fatalf("review items = %+v, error = %v", report.ReviewItems, err)
 	}
+	var pendingList, stagedList bytes.Buffer
+	if lines := renderPolicyReviewListRaw(&pendingList, report, 0, 0, "", 0, false); lines <= 0 {
+		t.Fatalf("pending template list lines = %d, output = %q", lines, pendingList.String())
+	}
+	if lines := renderPolicyReviewListRaw(
+		&stagedList, report, 0, 0, "", 0, false,
+		map[string]policyReviewAction{report.ReviewItems[0].ID: policyReviewActionAllowTemplate},
+	); lines <= 0 {
+		t.Fatalf("staged template list lines = %d, output = %q", lines, stagedList.String())
+	}
+	if !strings.Contains(pendingList.String(), "Review {id}  GET") ||
+		!strings.Contains(stagedList.String(), "Allow {id}   GET") {
+		t.Fatalf("compact template states = pending:%q staged:%q", pendingList.String(), stagedList.String())
+	}
+	if strings.Contains(pendingList.String(), "Pending · Suggested") ||
+		strings.Contains(stagedList.String(), "Allow template") {
+		t.Fatalf("list retained long template states = pending:%q staged:%q", pendingList.String(), stagedList.String())
+	}
 
 	selector := &policyReviewSelector{mode: &selectorModeFake{}, style: true}
 	var output bytes.Buffer
@@ -404,7 +422,7 @@ func TestPolicyReviewSelectorRawTemplateDetailOffersExplicitFutureAndExactChoice
 	if decision.CandidateID != report.ReviewItems[0].ID || decision.Action != policyReviewActionAllowTemplate {
 		t.Fatalf("template decision = %+v", decision)
 	}
-	for _, want := range []string{"Suggested", "/items/{id}", "2 distinct values", "[t] Allow template", "[e] Allow observed exact", "future non-empty values"} {
+	for _, want := range []string{"Review {id}", "/items/{id}", "2 distinct values", "[t] Allow template", "[e] Allow observed exact", "future non-empty values"} {
 		if !strings.Contains(output.String(), want) {
 			t.Fatalf("template raw output %q lacks %q", output.String(), want)
 		}
@@ -595,9 +613,9 @@ func TestPolicyReviewSelectorKeepsEffectColumnFixedAcrossStateCombinations(t *te
 		}
 	}
 	for _, want := range []string{
-		"    Deny exact           GET",
-		"  ❯ Pending              GET",
-		"    Allow exact          GET",
+		"    Deny exact   GET",
+		"  ❯ Pending      GET",
+		"    Allow exact  GET",
 	} {
 		if !strings.Contains(firstOutput.String(), want) {
 			t.Fatalf("fixed-width list output %q lacks %q", firstOutput.String(), want)

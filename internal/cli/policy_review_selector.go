@@ -66,9 +66,9 @@ type policyReviewSelector struct {
 const (
 	policyReviewRefreshInterval   = time.Second
 	policyReviewRefreshMaxBackoff = 8 * time.Second
-	// The longest possible list state is "Pending · Suggested". Keeping this
-	// column fixed prevents the HTTP effect from moving as decisions change.
-	policyReviewListStateWidth = 19
+	// Compact list labels fit the width of "Allow exact". Keeping this column
+	// fixed prevents the HTTP effect from moving as decisions change.
+	policyReviewListStateWidth = 11
 )
 
 // policyReviewRefreshTicker is the narrow scheduling boundary for automatic
@@ -396,8 +396,11 @@ func policyReviewListState(
 	report tobari.PolicyCandidateReport, candidate tobari.PolicyCandidate, staged []map[string]policyReviewAction,
 ) string {
 	state := policyReviewStagedLabel(candidate.ID, staged)
+	if state == "Allow template" {
+		return "Allow {id}"
+	}
 	if state == "Pending" && policyReviewTemplateByID(report, candidate.ID) != nil {
-		return "Pending · Suggested"
+		return "Review {id}"
 	}
 	return state
 }

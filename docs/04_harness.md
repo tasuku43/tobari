@@ -711,8 +711,9 @@ The test suite has complementary levels:
   bounded backoff, retain exactly one alternate-screen frame across unchanged
   timer refreshes, emit no unchanged repaint, redraw a changed typed snapshot
   inside that frame, and restore terminal state exactly once when watch stops,
-  align every visible HTTP effect behind fixed marker and longest-state-width
-  columns across staging combinations, lead rows with the exact HTTP effect, and keep
+  align every visible HTTP effect behind fixed marker and `Allow exact`-width
+  columns across exact/template staging combinations, keep compact list labels
+  distinct from full detail/Apply wording, lead rows with the exact HTTP effect, and keep
   selected observation evidence visible before inspection. The
   watch notification matrix covers `auto`, `osc9`, `bel`, and `off`, excludes
   the initial snapshot, coalesces multiple new IDs per successful refresh,
