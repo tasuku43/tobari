@@ -302,6 +302,16 @@ infrastructure/doctor detail `linux_xdg_file` is not a public JSON enum. The
 canonical schema/path/backend table is in
 [Authentication handling](07_authentication.md#experimental-canonical-schemas-paths-and-backend-identifiers).
 
+CLI projects that same validated report into two human documents for
+`context show`: the default outcome-first boundary/runtime summary and the
+explicit `--details` sectioned diagnostic. Selection happens after the one
+application read and cannot add, remove, or reinterpret a typed field in JSON.
+The summary retains every effective method override and derives a continuation
+from explicit current-Context and runtime states; an inactive named Context is
+never presented as the omitted current selection. The detailed document keeps
+host paths and revisions secondary while preserving their exact visible
+projection.
+
 Narrow host projection is a separate composition concern, not a file or secret
 mount. Domain owns each fixed scalar inventory, `default|inherit|literal`
 invariants, complete reports, and Git's atomic name/email pair. Context

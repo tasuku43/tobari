@@ -1,0 +1,41 @@
+✓ Context review
+
+Context
+  State          persisted
+  Current        no
+  Context ID     018bcfe5-687b-7000-8000-000000000099
+
+Boundary
+  Source access  direct read-write
+  Policy mode    guided
+  Policy preset  builtin/reviewed-exact
+  Native readiness disabled
+  Guardrail      method_policy
+  Method default exact-review
+  Method GET     allow
+
+Workspace
+  Agent profile  default
+  Shell COLORTERM default
+  Shell NO_COLOR literal ""
+  Shell PS1      inherit
+  Shell TERM     default
+  Git identity   literal · Review Bot <review@example.com>
+  Bootstrap      not_configured
+  Authentication native Workspace-owned
+  Credentials    agent CLI-owned in this Workspace home; host credentials are not inherited
+
+Runtime
+  Status         dockerfile · ready
+  Image          tobari-context-review:123456789abc
+  Dockerfile     /config/contexts/review/runtime/Dockerfile
+  Base image     tobari-runtime:base
+
+Stores and revisions
+  Preset revision sha256:12785007486c863a373ff05b29a1adc27fc3a2e1ad6729754c8f14bef8f009d4
+  Source digest  sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  Image digest   sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+  Policy store   /config/contexts/review/policy
+  Runtime store  /config/contexts/review/runtime
+  Runtime file   /config/contexts/review/runtime/Dockerfile
+  Next           tobari --context review — Enter or create a Workspace with this Context.

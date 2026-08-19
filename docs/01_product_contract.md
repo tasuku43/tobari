@@ -246,7 +246,7 @@ The public commands are:
 | `policy preset init --name NAME [--format text\|json]` | act, fixed target | create | Create one owner-only strict custom policy preset template without overwriting |
 | `policy preset validate --name PRESET [--format text\|json]` | utility | read | Strictly validate, normalize, and digest one custom preset source without changing Context or active policy |
 | `context list [--format text|json]` | utility | read | List persisted named Contexts and report the current selection as persisted or a display-only synthetic default |
-| `context show [--name NAME] [--format text|json]` | utility | read | Inspect one Context's explicit persistence state, immutable source access, preset origin/revision, effective method default/overrides, agent, policy, and native Workspace-owned authentication mode without returning credential values |
+| `context show [--name NAME] [--details] [--format text|json]` | utility | read | Inspect one Context's explicit persistence state, immutable source access, effective method policy, runtime, agent, and native Workspace-owned authentication mode; `--details` expands host paths and immutable revisions without returning credential values |
 | `config shell [--variable COLORTERM\|NO_COLOR\|PS1\|TERM] [--source default\|inherit\|literal] [--value VALUE] [--context NAME] [--format text\|json]` | act, fixed target | write | Configure one allowlisted shell-presentation variable directly, or stage one or more rows from the complete terminal inventory and apply them atomically |
 | `config git [--source default\|inherit\|literal] [--name NAME] [--email EMAIL] [--context NAME] [--format text\|json]` | act, fixed target | write | Configure one atomic Context Git commit-identity fallback directly, or stage and apply its source from one terminal screen |
 | `config bootstrap aws [--profile NAME] [--refresh] [--remove] [--context NAME] [--format text\|json]` | act, fixed target | write | Normalize one strict secret-free host AWS IAM Identity Center profile for future Workspaces, refresh it after a semantic diff, or remove the future recipe; existing Workspace homes never change |
@@ -603,6 +603,16 @@ next argv. Context reports include a complete four-item shell-environment
 inventory, complete Git identity policy, and authentication mode
 `native_workspace`. Native agent credentials are created and persisted by the
 agent CLI inside the Workspace home and never appear in CLI output.
+Human `context show` text defaults to an outcome-first summary containing the
+exact selected/current state, source access, effective method default and every
+override, profile, Git identity policy, runtime/image state, authentication
+mode, bootstrap state, applicable Dockerfile, an exact detailed-inspection
+command, and the Context-preserving next action. `--details` renders the same
+single typed result as `Context`, `Boundary`, `Workspace`, `Runtime`, and
+`Stores and revisions` sections, including the complete shell inventory, host
+store paths, and immutable revisions. It performs no second read. Schema-1 JSON
+is already complete, is byte-identical with or without `--details`, and remains
+the automation contract.
 Unconfigured cluster resources are `null`; unavailable
 observations use declared finite values and never an empty-string sentinel.
 The infrastructure/doctor label `linux_xdg_file` is not a public

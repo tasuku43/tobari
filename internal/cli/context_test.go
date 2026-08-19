@@ -1009,7 +1009,7 @@ func TestSyntheticContextShowUsesOmissionBasedAuthStatusRecovery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(output), "Next: run `tobari auth status`") ||
+	if !strings.Contains(string(output), "Auth status    tobari auth status") ||
 		strings.Contains(string(output), "--context default") {
 		t.Fatalf("synthetic Context show claims an explicit absent selector: %q", output)
 	}
@@ -1069,10 +1069,10 @@ func TestContextCommandsRenderActiveContextAndRuntimeImage(t *testing.T) {
 	if code := command.RunContext(context.Background(), []string{"context", "show"}); code != ExitOK {
 		t.Fatalf("context show code = %d, stderr = %q", code, stderr.String())
 	}
-	if !strings.Contains(stdout.String(), "Runtime: official (official)") ||
-		!strings.Contains(stdout.String(), "Shell PS1: default") ||
-		!strings.Contains(stdout.String(), "Source access: direct read-write") ||
-		!strings.Contains(stdout.String(), "run `tobari runtime init`") {
+	if !strings.Contains(stdout.String(), "Runtime        official · official") ||
+		!strings.Contains(stdout.String(), "Source         direct read-write") ||
+		!strings.Contains(stdout.String(), "Details        tobari context show --details") ||
+		!strings.Contains(stdout.String(), "Next           tobari") {
 		t.Fatalf("context show output = %q", stdout.String())
 	}
 
@@ -1404,9 +1404,12 @@ func TestRuntimeInitTextColorDisabledRetainsPriorityAndValueEmphasis(t *testing.
 	}
 }
 
-func TestContextShowRetainsRuntimeAndStoreDiagnostics(t *testing.T) {
+func TestContextShowPrioritizesBoundaryAndExpandsDiagnostics(t *testing.T) {
 	fixture := runtimeInitReportFixture()
 	fixture.Task = tobari.TaskContextShow
+	fixture.Runtime.Status = tobari.ContextRuntimeStatusReady
+	fixture.Stores.RuntimeDirectory = "/config/contexts/default/runtime"
+	fixture.Stores.RuntimeDockerfile = fixture.Runtime.Dockerfile
 	fixture.Authentication = tobari.ContextAuthentication{
 		BrokerState: tobari.ContextAuthBrokerReady,
 		Providers: []tobari.ContextAuthProvider{{
@@ -1422,12 +1425,57 @@ func TestContextShowRetainsRuntimeAndStoreDiagnostics(t *testing.T) {
 		t.Fatalf("context show code = %d, stderr = %q", code, stderr.String())
 	}
 	for _, retained := range []string{
+		"Context default",
+		"State          persisted · current",
+		"Source         direct read-write",
+		"Network        default exact-review",
+		"Runtime        dockerfile · ready",
+		"Details        tobari context show --details",
+		"Next           tobari",
+	} {
+		if !strings.Contains(stdout.String(), retained) {
+			t.Fatalf("context show output = %q, missing primary fact %q", stdout.String(), retained)
+		}
+	}
+	for _, diagnostic := range []string{
 		"/config/contexts/default/policy",
 		"sha256:" + strings.Repeat("a", 64),
 		"sha256:" + strings.Repeat("b", 64),
 	} {
-		if !strings.Contains(stdout.String(), retained) {
-			t.Fatalf("context show output = %q, missing retained diagnostic %q", stdout.String(), retained)
+		if strings.Contains(stdout.String(), diagnostic) {
+			t.Fatalf("context show primary output = %q, contains diagnostic %q", stdout.String(), diagnostic)
 		}
+	}
+
+	stdout.Reset()
+	if code := command.RunContext(context.Background(), []string{"context", "show", "--details"}); code != ExitOK {
+		t.Fatalf("context show --details code = %d, stderr = %q", code, stderr.String())
+	}
+	for _, retained := range []string{
+		"Boundary",
+		"Workspace",
+		"Runtime",
+		"Stores and revisions",
+		"/config/contexts/default/policy",
+		"/config/contexts/default/runtime",
+		"sha256:" + strings.Repeat("a", 64),
+		"sha256:" + strings.Repeat("b", 64),
+	} {
+		if !strings.Contains(stdout.String(), retained) {
+			t.Fatalf("context show --details output = %q, missing diagnostic %q", stdout.String(), retained)
+		}
+	}
+
+	stdout.Reset()
+	if code := command.RunContext(context.Background(), []string{"context", "show", "--format=json"}); code != ExitOK {
+		t.Fatalf("context show JSON code = %d, stderr = %q", code, stderr.String())
+	}
+	compactJSON := append([]byte(nil), stdout.Bytes()...)
+	stdout.Reset()
+	if code := command.RunContext(context.Background(), []string{"context", "show", "--details", "--format=json"}); code != ExitOK {
+		t.Fatalf("context show detailed JSON code = %d, stderr = %q", code, stderr.String())
+	}
+	if !bytes.Equal(stdout.Bytes(), compactJSON) {
+		t.Fatalf("--details changed complete JSON\n--- got ---\n%s--- want ---\n%s", stdout.Bytes(), compactJSON)
 	}
 }

@@ -1,0 +1,15 @@
+✓ Context review
+  State          persisted · not current
+  Source         direct read-write
+  Network        default exact-review
+  Network GET    allow
+  Policy         builtin/reviewed-exact · readiness disabled
+  Profile        guided · agent default
+  Git identity   literal · Review Bot <review@example.com>
+  Runtime        dockerfile · ready
+  Image          tobari-context-review:123456789abc
+  Authentication native Workspace-owned
+  Bootstrap      not_configured
+  Dockerfile     /config/contexts/review/runtime/Dockerfile
+  Details        tobari context show --name review --details
+  Next           tobari --context review — Enter or create a Workspace with this Context.

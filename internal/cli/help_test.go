@@ -67,6 +67,25 @@ func TestVersionHelpDeclaresBuildIdentityBeforeClusterMutation(t *testing.T) {
 	}
 }
 
+func TestContextShowHelpDeclaresOptionalHumanDetails(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	command := newReferenceTestCLI(strings.NewReader(""), &stdout, &stderr)
+	if code := runCLI(command, []string{"context", "show", "--help"}); code != ExitOK {
+		t.Fatalf("Run(context show --help) code = %d, stderr = %q", code, stderr.String())
+	}
+	for _, want := range []string{
+		"Usage:\n  tobari context show [--name <name>] [--details] [--format text|json]",
+		"--details",
+		"value: boolean",
+		"default when omitted: \"false\"",
+		"JSON is already complete",
+	} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Errorf("context show help lacks %q\n%s", want, stdout.String())
+		}
+	}
+}
+
 func TestRootCommandHelpUsesExecutableInvocation(t *testing.T) {
 	command, found := DefaultCatalog().Lookup(ProgramName)
 	if !found {

@@ -171,7 +171,10 @@ tobari --context restricted
 ```
 
 `context list` renders one vertical card per Context so filesystem and network
-method facts remain readable. `context delete` accepts only an additional
+method facts remain readable. `context show` keeps ordinary text focused on the
+selected boundary, runtime state, and exact next command; add `--details` for
+the complete sectioned host diagnostic. JSON is already complete and is
+unchanged by that flag. `context delete` accepts only an additional
 non-current Context with no bound Workspace. It preserves project files and
 shared runtime images; the foundational `default` Context has no delete path.
 

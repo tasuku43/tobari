@@ -290,12 +290,13 @@ func contextListSpec() CommandSpec {
 func contextShowSpec() CommandSpec {
 	return CommandSpec{
 		Path: "context show", Summary: "Inspect one execution Context",
-		Args: "[--name <name>] [--format text|json]", Effect: operation.EffectRead, Role: RoleUtility,
+		Args: "[--name <name>] [--details] [--format text|json]", Effect: operation.EffectRead, Role: RoleUtility,
 		Agent: AgentContract{
 			CapabilityID: "context.composition",
 			Outcome:      "Inspect the current Context or one named Context and its separated store references",
 			Inputs: []CommandInput{
 				{Name: "--name", Source: InputSourceFlag, Required: false, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, Description: "Named Context to inspect; omission selects the current/default Context.", AllowedValues: []string{}},
+				{Name: "--details", Source: InputSourceFlag, Required: false, ValueKind: InputValueBoolean, Cardinality: InputCardinalitySingle, Description: "Expand human text with complete Context diagnostics; JSON is already complete and remains unchanged.", AllowedValues: []string{}, DefaultValue: stringPointer("false")},
 				formatInput(),
 			},
 			Output:        contextReportOutput(),

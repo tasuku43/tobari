@@ -53,7 +53,11 @@ func runContextShow(
 	if err != nil {
 		return c.failUsage(ctx, "invalid_arguments", err.Error()+"; usage: "+command.Usage(), "help context show", "Correct the command arguments.")
 	}
-	output, err := renderContextReport(result, format, format == successFormatText && humanStyleAllowed(ctx, c, c.Out))
+	details, ok := inputs.Boolean("--details")
+	if !ok {
+		return c.failUsage(ctx, "invalid_arguments", "--details must be a boolean; usage: "+command.Usage(), "help context show", "Correct the command arguments.")
+	}
+	output, err := renderContextShowReport(result, format, format == successFormatText && humanStyleAllowed(ctx, c, c.Out), details)
 	if err != nil {
 		return c.fail(ctx, err)
 	}
@@ -923,6 +927,9 @@ func renderContextReport(result tobari.ContextReport, format successFormat, colo
 }
 
 func renderContextReportText(result tobari.ContextReport, color bool) []byte {
+	if result.Task == tobari.TaskContextShow {
+		return renderContextShowSummaryText(result, color)
+	}
 	if result.Task == tobari.TaskRuntimeInit {
 		return renderRuntimeInitReportText(result, color)
 	}
@@ -1057,6 +1064,236 @@ func renderContextReportText(result tobari.ContextReport, color bool) []byte {
 		writeStyledLine(&output, color, "Policy:", safeExternalText(result.Stores.PolicyDirectory), styleText)
 	}
 	return []byte(output.String())
+}
+
+func renderContextShowReport(result tobari.ContextReport, format successFormat, color, details bool) ([]byte, error) {
+	if result.Task != tobari.TaskContextShow {
+		return nil, fault.New(fault.KindContract, "invalid_context_report", "Context detail presentation received a different task result", false)
+	}
+	if format == successFormatJSON || !details {
+		return renderContextReport(result, format, color)
+	}
+	if err := result.Validate(); err != nil {
+		return nil, fault.Wrap(fault.KindContract, "invalid_context_report", "Context report is invalid", false, err)
+	}
+	return renderContextShowDetailsText(result, color), nil
+}
+
+func renderContextShowSummaryText(result tobari.ContextReport, color bool) []byte {
+	output := newHumanOutput(color)
+	marker, token := contextShowMarker(result)
+	output.heading(marker, "Context "+safeExternalText(result.Name), token)
+	output.row("State", contextShowState(result), styleText)
+	output.row("Source", "direct "+string(result.SourceAccess), styleText)
+	output.row("Network", "default "+humanMethodDecision(result.MethodPolicy.Default), styleText)
+	for _, override := range result.MethodPolicy.Overrides {
+		output.row("Network "+safeExternalText(override.Method), humanMethodDecision(override.Decision), styleText)
+	}
+	nativeReadiness, _ := tobari.ResolveContextNativeReadiness(result.NativeReadiness, result.PolicyPresetOrigin)
+	output.row("Policy", safeExternalText(result.PolicyPresetOrigin)+" · readiness "+string(nativeReadiness), styleText)
+	output.row("Profile", string(result.PolicyMode)+" · agent "+safeExternalText(result.AgentProfile), styleText)
+	output.row("Git identity", contextShowGitIdentity(result.GitIdentity), styleText)
+	output.row("Runtime", string(result.Runtime.Kind)+" · "+string(result.Runtime.Status), humanStatusToken(string(result.Runtime.Status)))
+	output.row("Image", safeExternalText(result.Image), styleText)
+	output.row("Authentication", contextShowAuthentication(result.Authentication), contextShowAuthenticationToken(result.Authentication))
+	if contextAuthenticationMode(result.Authentication) != tobari.ContextAuthenticationModeNative {
+		output.row("Auth status", strings.Join(contextAuthStatusNextArgv(result), " "), styleAccent)
+	}
+	output.row("Bootstrap", contextShowBootstrap(result.Bootstrap), humanStatusToken(result.Bootstrap.Resolved().State))
+	if result.Runtime.Dockerfile != "" {
+		output.row("Dockerfile", safeExternalText(result.Runtime.Dockerfile), styleText)
+	}
+	output.row("Details", recoveryCommand(contextShowDetailsCommand(result)), styleAccent)
+	nextCommand, nextReason := contextShowNext(result)
+	output.next(nextCommand, nextReason)
+	return output.bytes()
+}
+
+func renderContextShowDetailsText(result tobari.ContextReport, color bool) []byte {
+	output := newHumanOutput(color)
+	marker, token := contextShowMarker(result)
+	output.heading(marker, "Context "+safeExternalText(result.Name), token)
+
+	output.section("Context")
+	output.row("State", string(result.ContextState), styleText)
+	output.row("Current", humanBool(result.Active), humanOutcomeBoolToken(result.Active))
+	if result.ID == "" {
+		output.row("Context ID", "not assigned", styleMuted)
+	} else {
+		output.row("Context ID", result.ID, styleText)
+	}
+
+	output.section("Boundary")
+	output.row("Source access", "direct "+string(result.SourceAccess), styleText)
+	output.row("Policy mode", string(result.PolicyMode), styleText)
+	output.row("Policy preset", safeExternalText(result.PolicyPresetOrigin), styleText)
+	nativeReadiness, _ := tobari.ResolveContextNativeReadiness(result.NativeReadiness, result.PolicyPresetOrigin)
+	output.row("Native readiness", string(nativeReadiness), styleText)
+	output.row("Guardrail", string(result.PolicyGuardrail), styleText)
+	output.row("Method default", humanMethodDecision(result.MethodPolicy.Default), styleText)
+	for _, override := range result.MethodPolicy.Overrides {
+		output.row("Method "+safeExternalText(override.Method), humanMethodDecision(override.Decision), styleText)
+	}
+
+	output.section("Workspace")
+	output.row("Agent profile", safeExternalText(result.AgentProfile), styleText)
+	for _, setting := range result.ShellEnvironment {
+		value := string(setting.Source)
+		if setting.Source == tobari.ContextShellEnvironmentLiteral && setting.Value != nil {
+			value += " " + fmt.Sprintf("%q", safeExternalText(*setting.Value))
+		}
+		output.row("Shell "+setting.Variable, value, styleText)
+	}
+	output.row("Git identity", contextShowGitIdentity(result.GitIdentity), styleText)
+	writeContextShowBootstrapDetails(output, result.Bootstrap)
+	writeContextShowAuthenticationDetails(output, result)
+
+	output.section("Runtime")
+	output.row("Status", string(result.Runtime.Kind)+" · "+string(result.Runtime.Status), humanStatusToken(string(result.Runtime.Status)))
+	output.row("Image", safeExternalText(result.Image), styleText)
+	if result.Runtime.Dockerfile != "" {
+		output.row("Dockerfile", safeExternalText(result.Runtime.Dockerfile), styleText)
+	}
+	if result.Runtime.BaseReference != "" {
+		output.row("Base image", safeExternalText(result.Runtime.BaseReference), styleText)
+	}
+
+	output.section("Stores and revisions")
+	if result.PolicyPresetRevision == "" {
+		output.row("Preset revision", "not persisted", styleMuted)
+	} else {
+		output.row("Preset revision", result.PolicyPresetRevision, styleText)
+	}
+	if result.Runtime.SourceDigest != "" {
+		output.row("Source digest", safeExternalText(result.Runtime.SourceDigest), styleText)
+	}
+	if result.Runtime.ImageDigest != "" {
+		output.row("Image digest", safeExternalText(result.Runtime.ImageDigest), styleText)
+	}
+	if result.Stores.PolicyDirectory == "" {
+		output.row("Policy store", "not persisted", styleMuted)
+	} else {
+		output.row("Policy store", safeExternalText(result.Stores.PolicyDirectory), styleText)
+	}
+	if result.Stores.RuntimeDirectory != "" {
+		output.row("Runtime store", safeExternalText(result.Stores.RuntimeDirectory), styleText)
+		output.row("Runtime file", safeExternalText(result.Stores.RuntimeDockerfile), styleText)
+	}
+
+	nextCommand, nextReason := contextShowNext(result)
+	output.next(nextCommand, nextReason)
+	return output.bytes()
+}
+
+func contextShowMarker(result tobari.ContextReport) (string, styleToken) {
+	if result.ContextState == tobari.ContextObservationSyntheticDefault {
+		return "○", styleMuted
+	}
+	switch result.Runtime.Status {
+	case tobari.ContextRuntimeStatusOfficial, tobari.ContextRuntimeStatusReady:
+		return "✓", styleSuccess
+	case tobari.ContextRuntimeStatusPendingBuild, tobari.ContextRuntimeStatusInvalid:
+		return "!", styleWarning
+	default:
+		return "○", styleMuted
+	}
+}
+
+func contextShowState(result tobari.ContextReport) string {
+	selection := "not current"
+	if result.Active {
+		selection = "current"
+	}
+	return string(result.ContextState) + " · " + selection
+}
+
+func contextShowGitIdentity(identity tobari.ContextGitIdentitySetting) string {
+	value := string(identity.Source)
+	if identity.Source == tobari.ContextGitIdentityLiteral && identity.Name != nil && identity.Email != nil {
+		value += " · " + safeExternalText(*identity.Name) + " <" + safeExternalText(*identity.Email) + ">"
+	}
+	return value
+}
+
+func contextShowAuthentication(authentication tobari.ContextAuthentication) string {
+	if contextAuthenticationMode(authentication) == tobari.ContextAuthenticationModeNative {
+		return "native Workspace-owned"
+	}
+	return "broker · " + safeExternalText(authentication.BrokerState) + " · " + fmt.Sprintf("%d providers", len(authentication.Providers))
+}
+
+func contextShowAuthenticationToken(authentication tobari.ContextAuthentication) styleToken {
+	if contextAuthenticationMode(authentication) == tobari.ContextAuthenticationModeNative {
+		return styleSuccess
+	}
+	return humanStatusToken(authentication.BrokerState)
+}
+
+func contextShowBootstrap(report tobari.ContextBootstrapReport) string {
+	bootstrap := report.Resolved()
+	if bootstrap.State != tobari.ContextBootstrapConfigured {
+		return bootstrap.State
+	}
+	value := "configured · AWS " + safeExternalText(bootstrap.AWSProfile)
+	if bootstrap.EKSContext != "" {
+		value += " · EKS " + safeExternalText(bootstrap.EKSContext)
+	}
+	return value
+}
+
+func writeContextShowBootstrapDetails(output *humanOutput, report tobari.ContextBootstrapReport) {
+	bootstrap := report.Resolved()
+	output.row("Bootstrap", bootstrap.State, humanStatusToken(bootstrap.State))
+	if bootstrap.State != tobari.ContextBootstrapConfigured {
+		return
+	}
+	output.row("Adapters", strings.Join(bootstrap.Adapters, ", "), styleText)
+	output.row("AWS profile", safeExternalText(bootstrap.AWSProfile), styleText)
+	if bootstrap.EKSContext != "" {
+		output.row("EKS context", safeExternalText(bootstrap.EKSContext), styleText)
+	}
+	output.row("Generation", fmt.Sprintf("%d", bootstrap.Generation), styleText)
+	output.row("Bootstrap rev", bootstrap.Revision, styleText)
+}
+
+func writeContextShowAuthenticationDetails(output *humanOutput, result tobari.ContextReport) {
+	if contextAuthenticationMode(result.Authentication) == tobari.ContextAuthenticationModeNative {
+		output.row("Authentication", "native Workspace-owned", styleSuccess)
+		output.row("Credentials", "agent CLI-owned in this Workspace home; host credentials are not inherited", styleText)
+		return
+	}
+	output.row("Auth Broker", safeExternalText(result.Authentication.BrokerState), humanStatusToken(result.Authentication.BrokerState))
+	output.row("Declared routes", string(authbroker.AuthenticationRouteBrokerRequired), styleText)
+	output.row("Other routes", string(authbroker.AuthenticationRouteWorkspaceOwnedCompatibility), styleText)
+	for _, provider := range result.Authentication.Providers {
+		value := safeExternalText(provider.State)
+		if provider.AccountLabel != nil {
+			value += " · account " + safeExternalText(*provider.AccountLabel)
+		}
+		output.row("Auth "+safeExternalText(provider.Provider), value, humanStatusToken(provider.State))
+	}
+	output.row("Auth status", strings.Join(contextAuthStatusNextArgv(result), " "), styleAccent)
+}
+
+func contextShowDetailsCommand(result tobari.ContextReport) string {
+	command := "context show"
+	if result.ContextState != tobari.ContextObservationSyntheticDefault && !result.Active {
+		command += " --name " + safeExternalText(result.Name)
+	}
+	return command + " --details"
+}
+
+func contextShowNext(result tobari.ContextReport) (string, string) {
+	if result.ContextState != tobari.ContextObservationSyntheticDefault && !result.Active {
+		if result.Runtime.Status == tobari.ContextRuntimeStatusPendingBuild || result.Runtime.Status == tobari.ContextRuntimeStatusInvalid {
+			return "context use --name " + safeExternalText(result.Name), "Select this Context before building its runtime."
+		}
+		return "--context " + safeExternalText(result.Name), "Enter or create a Workspace with this Context."
+	}
+	if result.Runtime.Status == tobari.ContextRuntimeStatusPendingBuild || result.Runtime.Status == tobari.ContextRuntimeStatusInvalid {
+		return "runtime build", "Build and validate the current Context runtime."
+	}
+	return ProgramName, "Enter or create a Workspace from a project directory."
 }
 
 func contextAuthStatusNextArgv(result tobari.ContextReport) []string {
