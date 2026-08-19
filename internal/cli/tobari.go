@@ -126,6 +126,21 @@ func runPolicyReview(
 			"help "+command.Path, "Correct the command arguments.",
 		)
 	}
+	watch, _ := inputs.Boolean("--watch")
+	notifyMethod := inputs.One("--notify")
+	if inputs.Provided("--notify") && !watch {
+		return c.failUsage(
+			ctx, "invalid_arguments", "--notify requires --watch=true; usage: "+command.Usage(),
+			"help "+command.Path, "Use a notification method only with active watch mode.",
+		)
+	}
+	if watch && (format != successFormatText || !policyReviewInteractiveAllowed(ctx, c)) {
+		return c.fail(ctx, fault.New(
+			fault.KindInvalidInput, "policy_review_watch_requires_tty",
+			"policy review --watch requires text output and interactive terminal input and output", false,
+			fault.NextAction{Command: "help policy review", Reason: "Run watch with text output in an interactive raw terminal."},
+		))
+	}
 	result, err := c.tobari.PolicyReview(ctx, int(tail))
 	if err != nil {
 		return c.fail(ctx, err)
@@ -155,10 +170,18 @@ func runPolicyReview(
 		return c.emitResult(ctx, output)
 	}
 
-	selector := newPolicyReviewSelectorWithStyle(humanStyleAllowed(ctx, c, c.Out))
+	selectorFactory := c.policyReview
+	if selectorFactory == nil {
+		selectorFactory = newPolicyReviewSelectorWithStyle
+	}
+	selector := selectorFactory(humanStyleAllowed(ctx, c, c.Out))
+	if watch {
+		selector.EnableWatch(nil)
+	}
+	seenReviewIDs := policyReviewReportIDs(result)
 	stagedContextID := ""
 	for {
-		if len(result.Items) == 0 {
+		if len(result.Items) == 0 && !watch {
 			output, renderErr := renderPolicyReviewWithCommands(
 				result, allowCommand, denyCommand, successFormatText,
 				humanStyleAllowed(ctx, c, c.Out),
@@ -173,23 +196,46 @@ func runPolicyReview(
 			return c.fail(ctx, selectErr)
 		}
 		if decision.Canceled {
+			if watch {
+				return ExitOK
+			}
 			return c.fail(ctx, context.Canceled)
 		}
 		if decision.Refresh {
 			fresh, refreshErr := c.tobari.PolicyReview(ctx, int(tail))
 			if refreshErr != nil {
-				return c.fail(ctx, refreshErr)
+				if !watch {
+					return c.fail(ctx, refreshErr)
+				}
+				delay := selector.RefreshFailed()
+				selector.notice = fmt.Sprintf(
+					"Refresh failed · current inbox and staged decisions preserved. Retrying in %s. Run tobari cluster status if this continues.",
+					delay,
+				)
+				continue
 			}
+			previousIDs := policyReviewReportIDs(result)
+			newUnseen := policyReviewRememberNewIDs(seenReviewIDs, fresh)
+			notificationFailed := false
+			if watch && newUnseen > 0 && notifyMethod != "off" && c.policyNotify != nil {
+				notificationFailed = c.policyNotify(c.Out, notifyMethod) != nil
+			}
+			staleIDs := policyReviewStaleDecisionIDs(selector.OrderedDecisions(), fresh)
 			removed := selector.Reconcile(fresh)
 			result = fresh
+			selector.RefreshSucceeded()
 			stagedContextID = policyReviewStagedContextID(result, selector.OrderedDecisions())
+			newCount := policyReviewNewCandidateCount(previousIDs, fresh)
 			if removed > 0 {
 				selector.notice = fmt.Sprintf(
-					"Inbox refreshed · %d stale staged decision%s removed; remaining decisions preserved.",
-					removed, pluralSuffix(removed),
+					"Inbox refreshed · %d new · %d stale staged decision%s removed (%s); remaining decisions preserved.",
+					newCount, removed, pluralSuffix(removed), strings.Join(staleIDs, ", "),
 				)
 			} else {
-				selector.notice = "Inbox refreshed · staged decisions preserved by exact candidate ID."
+				selector.notice = fmt.Sprintf("Inbox refreshed · %d new · staged decisions preserved by exact candidate ID.", newCount)
+			}
+			if notificationFailed {
+				selector.notice += " Terminal notification unavailable; watch continues."
 			}
 			continue
 		}
@@ -232,9 +278,39 @@ func runPolicyReview(
 			if applyErr != nil {
 				return c.fail(actionCtx, applyErr)
 			}
-			return c.emitMutationResult(
+			code := c.emitMutationResult(
 				actionCtx, apply, renderPolicyReviewChange(change, humanStyleAllowed(actionCtx, c, c.Out)),
 			)
+			if code != ExitOK || !watch {
+				return code
+			}
+			selector.ClearAll()
+			stagedContextID = ""
+			// The pre-Apply snapshot is no longer eligible for another decision.
+			// If the immediate read fails, keep watch alive on an explicit empty
+			// snapshot instead of offering already-applied IDs again.
+			result.Items = []tobari.PolicyCandidate{}
+			result.ReviewItems = []tobari.PolicyReviewItem{}
+			fresh, refreshErr := c.tobari.PolicyReview(ctx, int(tail))
+			if refreshErr != nil {
+				delay := selector.RefreshFailed()
+				selector.notice = fmt.Sprintf(
+					"Applied successfully; refresh failed. Retrying in %s. Run tobari cluster status if this continues.", delay,
+				)
+				continue
+			}
+			newUnseen := policyReviewRememberNewIDs(seenReviewIDs, fresh)
+			notificationFailed := false
+			if newUnseen > 0 && notifyMethod != "off" && c.policyNotify != nil {
+				notificationFailed = c.policyNotify(c.Out, notifyMethod) != nil
+			}
+			result = fresh
+			selector.RefreshSucceeded()
+			selector.notice = "Applied decisions · watching for denied requests."
+			if notificationFailed {
+				selector.notice += " Terminal notification unavailable; watch continues."
+			}
+			continue
 		}
 		item, selected := policyReviewItemByID(result, decision.CandidateID)
 		if !selected {
@@ -249,9 +325,55 @@ func runPolicyReview(
 			continue
 		}
 
+		if decision.Clear {
+			selector.Clear(decision.CandidateID)
+			stagedContextID = policyReviewStagedContextID(result, selector.OrderedDecisions())
+			continue
+		}
 		stagedContextID = policyReviewItemContext(item)
 		selector.Stage(decision.CandidateID, decision.Action)
 	}
+}
+
+func policyReviewReportIDs(report tobari.PolicyCandidateReport) map[string]struct{} {
+	report = groupPolicyReviewReport(report)
+	ids := make(map[string]struct{}, len(report.Items))
+	for _, item := range report.Items {
+		ids[item.ID] = struct{}{}
+	}
+	return ids
+}
+
+func policyReviewNewCandidateCount(previous map[string]struct{}, fresh tobari.PolicyCandidateReport) int {
+	count := 0
+	for id := range policyReviewReportIDs(fresh) {
+		if _, found := previous[id]; !found {
+			count++
+		}
+	}
+	return count
+}
+
+func policyReviewRememberNewIDs(seen map[string]struct{}, fresh tobari.PolicyCandidateReport) int {
+	newCount := 0
+	for id := range policyReviewReportIDs(fresh) {
+		if _, found := seen[id]; !found {
+			newCount++
+		}
+		seen[id] = struct{}{}
+	}
+	return newCount
+}
+
+func policyReviewStaleDecisionIDs(decisions []policyReviewDecision, fresh tobari.PolicyCandidateReport) []string {
+	current := policyReviewReportIDs(fresh)
+	stale := make([]string, 0)
+	for _, decision := range decisions {
+		if _, found := current[decision.CandidateID]; !found {
+			stale = append(stale, decision.CandidateID)
+		}
+	}
+	return stale
 }
 
 func policyReviewStagedContextID(

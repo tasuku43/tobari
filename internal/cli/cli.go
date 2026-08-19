@@ -17,6 +17,7 @@ import (
 	"github.com/tasuku43/tobari/internal/domain/operation"
 	"github.com/tasuku43/tobari/internal/infra/dockerruntime"
 	"github.com/tasuku43/tobari/internal/infra/systemdoctor"
+	"github.com/tasuku43/tobari/internal/infra/terminal"
 	"github.com/tasuku43/tobari/internal/infra/terminalstyle"
 )
 
@@ -39,6 +40,8 @@ type CLI struct {
 	contextCreate contextCreateWizard
 	runtimeChoice runtimeChoiceWizard
 	authLogin     authLoginProviderSelector
+	policyReview  func(bool) *policyReviewSelector
+	policyNotify  func(io.Writer, string) error
 	noColor       bool
 }
 
@@ -50,6 +53,8 @@ func New(in io.Reader, out, errOut io.Writer) *CLI {
 	command.contextCreate = newContextCreateWizardWithStyle(!command.noColor)
 	command.runtimeChoice = newRuntimeChoiceWizardWithStyle(!command.noColor)
 	command.authLogin = newAuthLoginProviderSelectorWithStyle(!command.noColor)
+	command.policyReview = newPolicyReviewSelectorWithStyle
+	command.policyNotify = terminal.WritePermissionInboxNotification
 	configureExperimentalCLI(command)
 	runtime, err := dockerruntime.New()
 	if err != nil {
@@ -90,6 +95,8 @@ func newCLI(in io.Reader, out, errOut io.Writer, catalog Catalog, inspector doct
 		contextCreate: newContextCreateWizardWithStyle(true),
 		runtimeChoice: newRuntimeChoiceWizardWithStyle(true),
 		authLogin:     newAuthLoginProviderSelector(),
+		policyReview:  newPolicyReviewSelectorWithStyle,
+		policyNotify:  terminal.WritePermissionInboxNotification,
 	}
 }
 

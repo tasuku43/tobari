@@ -4,11 +4,39 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/tasuku43/tobari/internal/domain/fault"
 	"github.com/tasuku43/tobari/internal/domain/tobari"
 )
+
+type readyPolicyReviewTicker struct {
+	ready    bool
+	failures int
+}
+
+func (t *readyPolicyReviewTicker) Ready(context.Context) bool { return t.ready }
+func (t *readyPolicyReviewTicker) Succeeded()                 { t.failures = 0 }
+func (t *readyPolicyReviewTicker) Failed()                    { t.failures++ }
+func (t *readyPolicyReviewTicker) Delay() time.Duration {
+	return time.Duration(t.failures+1) * time.Second
+}
+
+type timeoutThenPolicyReviewReader struct {
+	remaining io.Reader
+	timedOut  bool
+}
+
+func (r *timeoutThenPolicyReviewReader) Read(value []byte) (int, error) {
+	if !r.timedOut {
+		r.timedOut = true
+		return 0, nil
+	}
+	return r.remaining.Read(value)
+}
 
 func testPolicyReviewReport() tobari.PolicyCandidateReport {
 	return tobari.PolicyCandidateReport{
@@ -60,6 +88,181 @@ func TestPolicyReviewSelectorRawDetailActionConfirmsAndPreservesOpaqueID(t *test
 	}
 	if !strings.Contains(output.String(), "\x1b[?25h") {
 		t.Fatalf("cursor restore missing: %q", output.String())
+	}
+}
+
+func TestPolicyReviewSelectorRawQuickStagesExactAndAdvancesWithoutWrap(t *testing.T) {
+	t.Parallel()
+	report := testPolicyReviewReport()
+	report.Items[1].ContextID = report.Items[0].ContextID
+	report.Items[1].ContextName = report.Items[0].ContextName
+	report.Items[1].ProjectID = report.Items[0].ProjectID
+	report.Items[1].ProjectRoot = report.Items[0].ProjectRoot
+	selector := &policyReviewSelector{mode: &selectorModeFake{}, style: false, staged: map[string]policyReviewAction{}}
+	var output bytes.Buffer
+
+	first, err := selector.Select(context.Background(), report, strings.NewReader("a"), &output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.CandidateID != report.Items[0].ID || first.SelectedID != report.Items[1].ID || first.Action != policyReviewActionAllow {
+		t.Fatalf("first quick stage = %+v", first)
+	}
+	selector.Stage(first.CandidateID, first.Action)
+	selector.selectedID = first.SelectedID
+
+	second, err := selector.Select(context.Background(), report, strings.NewReader("d"), &output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.CandidateID != report.Items[1].ID || second.SelectedID != report.Items[1].ID || second.Action != policyReviewActionDeny {
+		t.Fatalf("second quick stage wrapped or chose wrong row: %+v", second)
+	}
+	selector.Stage(second.CandidateID, second.Action)
+	selector.selectedID = second.SelectedID
+
+	overwrite, err := selector.Select(context.Background(), report, strings.NewReader("a"), &output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	selector.Stage(overwrite.CandidateID, overwrite.Action)
+	if selector.staged[report.Items[1].ID] != policyReviewActionAllow || len(selector.stagedOrder) != 2 {
+		t.Fatalf("overwrite duplicated or lost staging: staged=%+v order=%+v", selector.staged, selector.stagedOrder)
+	}
+
+	clear, err := selector.Select(context.Background(), report, strings.NewReader("x"), &output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !clear.Clear || clear.CandidateID != report.Items[1].ID {
+		t.Fatalf("clear decision = %+v", clear)
+	}
+	selector.Clear(clear.CandidateID)
+	if _, found := selector.staged[report.Items[1].ID]; found || len(selector.stagedOrder) != 1 {
+		t.Fatalf("clear retained staging: staged=%+v order=%+v", selector.staged, selector.stagedOrder)
+	}
+	for _, want := range []string{"Pending", "Allow exact", "Deny exact", "a allow exact", "x clear", "Reason:"} {
+		if !strings.Contains(output.String(), want) {
+			t.Fatalf("quick-stage output %q lacks %q", output.String(), want)
+		}
+	}
+}
+
+func TestPolicyReviewSelectorWatchEmptyWaitsAndRequestsRefresh(t *testing.T) {
+	t.Parallel()
+	ticker := &readyPolicyReviewTicker{ready: true}
+	selector := &policyReviewSelector{
+		mode: &selectorModeFake{}, style: false, staged: map[string]policyReviewAction{}, watch: true, ticker: ticker,
+	}
+	report := tobari.PolicyCandidateReport{Task: tobari.TaskPolicyReview, PolicyDirectory: "/tmp/policy", WindowLines: 10_000, Items: []tobari.PolicyCandidate{}}
+	var output bytes.Buffer
+	decision, err := selector.Select(context.Background(), report, &timeoutThenPolicyReviewReader{remaining: strings.NewReader("q")}, &output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !decision.Refresh || decision.Canceled {
+		t.Fatalf("watch decision = %+v", decision)
+	}
+	for _, want := range []string{"No requests need review.", "Watching for denied requests…", "Press q to stop."} {
+		if !strings.Contains(output.String(), want) {
+			t.Fatalf("watch empty output %q lacks %q", output.String(), want)
+		}
+	}
+}
+
+func TestPolicyReviewSelectorWatchRequiresRawMode(t *testing.T) {
+	t.Parallel()
+	selector := &policyReviewSelector{
+		mode: &selectorModeFake{enterErr: errors.New("raw unavailable")}, style: false,
+		staged: map[string]policyReviewAction{}, watch: true, ticker: &readyPolicyReviewTicker{ready: true},
+	}
+	_, err := selector.Select(context.Background(), testPolicyReviewReport(), strings.NewReader("q"), io.Discard)
+	var structured *fault.Error
+	if !errors.As(err, &structured) || structured.Code != "policy_review_watch_requires_tty" {
+		t.Fatalf("watch raw-mode error = %v", err)
+	}
+}
+
+func TestPolicyReviewSelectorWatchRestoresRawModeOnWriterFailureAndCancellation(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name string
+		ctx  func() context.Context
+		out  io.Writer
+	}{
+		{
+			name: "writer failure",
+			ctx:  context.Background,
+			out:  errorWriter{err: io.ErrClosedPipe},
+		},
+		{
+			name: "cancellation",
+			ctx: func() context.Context {
+				ctx, cancel := context.WithCancel(context.Background())
+				cancel()
+				return ctx
+			},
+			out: io.Discard,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			mode := &selectorModeFake{}
+			selector := &policyReviewSelector{
+				mode: mode, style: false, staged: map[string]policyReviewAction{},
+				watch: true, ticker: &readyPolicyReviewTicker{ready: true},
+			}
+			_, err := selector.Select(test.ctx(), testPolicyReviewReport(), strings.NewReader("q"), test.out)
+			if err == nil {
+				t.Fatal("watch selector unexpectedly succeeded")
+			}
+			if mode.entered != 1 || mode.restored != 1 {
+				t.Fatalf("raw mode calls = entered:%d restored:%d", mode.entered, mode.restored)
+			}
+		})
+	}
+}
+
+func TestPolicyReviewRefreshTickerUsesInjectedClockAndBoundedBackoff(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 8, 19, 10, 0, 0, 0, time.UTC)
+	ticker := newIntervalPolicyReviewRefreshTicker()
+	ticker.now = func() time.Time { return now }
+	if ticker.Ready(context.Background()) {
+		t.Fatal("new ticker refreshed before its first interval")
+	}
+	now = now.Add(policyReviewRefreshInterval)
+	if !ticker.Ready(context.Background()) {
+		t.Fatal("ticker did not refresh at the injected deadline")
+	}
+	for index := 0; index < 10; index++ {
+		ticker.Failed()
+	}
+	if ticker.Delay() != policyReviewRefreshMaxBackoff {
+		t.Fatalf("bounded backoff = %s, want %s", ticker.Delay(), policyReviewRefreshMaxBackoff)
+	}
+	ticker.Succeeded()
+	if ticker.Delay() != policyReviewRefreshInterval {
+		t.Fatalf("success delay = %s, want %s", ticker.Delay(), policyReviewRefreshInterval)
+	}
+}
+
+func TestPolicyReviewRefreshKeepsSelectedIDWhenNewCandidateArrives(t *testing.T) {
+	t.Parallel()
+	report := testPolicyReviewReport()
+	selector := &policyReviewSelector{staged: map[string]policyReviewAction{}, selectedID: report.Items[1].ID}
+	selector.Stage(report.Items[1].ID, policyReviewActionDeny)
+	newItem := report.Items[0]
+	newItem.ID = "pcy_11111111111111111111111111111111"
+	newItem.Path = "/new"
+	fresh := report
+	fresh.Items = append([]tobari.PolicyCandidate{newItem}, report.Items...)
+	if removed := selector.Reconcile(fresh); removed != 0 {
+		t.Fatalf("new arrival removed %d staged decisions", removed)
+	}
+	grouped := groupPolicyReviewReport(fresh)
+	selected := policyReviewSelectedIndex(grouped.Items, selector.selectedID)
+	if grouped.Items[selected].ID != report.Items[1].ID || selector.staged[report.Items[1].ID] != policyReviewActionDeny {
+		t.Fatalf("new arrival stole selection or staging: selected=%q staged=%+v", grouped.Items[selected].ID, selector.staged)
 	}
 }
 

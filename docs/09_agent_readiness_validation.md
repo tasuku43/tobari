@@ -220,15 +220,20 @@ Generate one learnable denial from a running Workspace. Verify the child sees
 only bounded secret-free host-review navigation and that no candidate ID or
 unchecked argv is embedded in the response. In a trusted-host terminal:
 
-1. Open `policy review`; one distinct path remains exact, while a second
+1. Open `policy review --watch`; prove an empty raw-terminal Inbox receives a
+   new bounded candidate without restart and emits at most one fixed trusted
+   terminal cue. Prove `--notify=off`, explicit OSC 9/BEL, conservative auto,
+   and hostile evidence isolation. One distinct path remains exact,
+   while a second
    compatible distinct HTTP path produces one typed `/path/{id}` proposal.
-2. Inspect the Context/project/effect detail. Prove the proposal states that
+2. Stage exact Allow and Deny directly from the list, clear or overwrite one,
+   and prove no mutation occurs. Inspect the Context/project/effect detail. Prove the proposal states that
    future single-segment values are included and offers Allow template, Allow
    observed exact, and Deny pending exact. Staging grants nothing.
 3. Refresh and prove decisions remain bound by typed review-item ID, never by label,
    order, or indentation.
 4. Confirm one final ordered Apply and observe the authoritative active
-   revision.
+   revision, then prove watch returns to a fresh waiting snapshot.
 5. Retry in the same running Workspace.
 6. Inspect `policy rules`, reset the exact or template rule, and prove the request returns
    to default deny and becomes reviewable again.

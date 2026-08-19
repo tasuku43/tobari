@@ -695,18 +695,28 @@ The test suite has complementary levels:
   fresh and unsupported-version Context trees before and after doctor.
 - The human permission path is exercised through `policy review`; its TTY
   Permission Inbox covers bounded selection, exact and `{id}` template detail
-  inspection, staged template/observed-exact/pending-deny choices, manual
-  refresh, one final typed review and confirmed
+  inspection, raw-list exact Allow/Deny/clear with no-wrap advance, staged
+  template/observed-exact/pending-deny choices, manual refresh, raw-terminal
+  watch empty-to-arrival and post-Apply continuation, one final typed review and confirmed
   Apply, and pre-Apply discard. PTY tests prove
-  action keys are ineffective on the list, several same-Context detail choices
-  produce exactly one activation without a second yes/no prompt, a Context
+  list quick keys never mutate before final Apply, template authority remains
+  detail-only, several same-Context choices produce exactly one activation
+  without a second yes/no prompt, a Context
   switch requires Apply or discard, a narrow terminal with wrapping rows
   remains one alternate-screen frame, and cancellation delegates nothing. Its
   presentation tests group by stable Context/project IDs, keep same-label
   different-ID scopes separate, preserve selection and staged order by
-  candidate ID across refresh/reorder, remove stale choices without transfer,
+  candidate ID across refresh/reorder and new arrival, remove stale choices
+  without transfer, retain the last valid screen across refresh failure with
+  bounded backoff,
   lead rows with the exact HTTP effect, and keep
   selected observation evidence visible before inspection. The
+  watch notification matrix covers `auto`, `osc9`, `bel`, and `off`, excludes
+  the initial snapshot, coalesces multiple new IDs per successful refresh,
+  suppresses failure/stale/known-reappearance and post-Apply-known cues, and
+  proves hostile evidence cannot enter OSC framing. A cue writer failure
+  preserves zero pre-Apply mutation and terminal restoration while watch
+  remains stoppable. The
   TTY `policy rules` path separately covers exhaustive current-decision
   inventory, explicit reset confirmation, refresh, and re-review of the
   retained denial. Neither path requires hand-editing OPA or Rego. Redirected

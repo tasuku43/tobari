@@ -6,7 +6,7 @@ description: Review retained denial evidence, stage exact choices, and activate 
 import PolicyLoopMap from "../../../components/PolicyLoopMap.astro";
 import SequenceExplorer from "../../../components/SequenceExplorer.astro";
 
-Policy review turns retained denial evidence into an explicit host-owned decision. Leave the Workspace, inspect the bounded secret-free Permission Inbox on the trusted host, stage choices from exact detail screens, and Apply one Context's reviewed set once. Approval changes policy; it never retries the denied traffic.
+Policy review turns retained denial evidence into an explicit host-owned decision. Leave the Workspace, inspect the bounded secret-free Permission Inbox on the trusted host, stage exact choices from its raw list or inspect template scope in detail, and Apply one Context's reviewed set once. Approval changes policy; it never retries the denied traffic.
 
 [First denial](../../start/first-denial/) explains how the request reaches this host-side review flow.
 
@@ -22,6 +22,9 @@ Exit the Workspace before review. Repeated retries do not increase authority; th
 
 ```sh
 tobari policy review --tail 100
+tobari policy review --watch
+# Disable or explicitly choose its terminal-emulator cue:
+tobari policy review --watch --notify=off
 ```
 
 The installation-wide TTY queue displays pending effects from its bounded Gateway-log window. Select one item, then inspect:
@@ -33,7 +36,11 @@ The installation-wide TTY queue displays pending effects from its bounded Gatewa
 - denial reason, timestamp, and retained observation count; and
 - the proposed exact allow and deny outcomes.
 
-Choose **Allow exact** or **Deny exact** only from the detail view. The choice is explicit but remains staged and grants no authority. Continue reviewing candidates from the same Context, then press **Apply** to revalidate and activate the complete set once. Canceling before Apply discards every staged choice. Apply or discard before switching Context; this keeps the source update within one journaled domain-generation replacement.
+Press **a** or **d** on the raw list to stage **Allow exact** or **Deny exact**, and **x** to clear one row. Exact staging advances only to a later undecided row and never wraps from the end. Open detail to inspect evidence or approve a proposed template's examples and future scope. Every choice remains staged and grants no authority. Continue reviewing candidates from the same Context, then press **p** and confirm **Apply** to revalidate and activate the complete set once. Canceling before Apply discards every staged choice. Apply or discard before switching Context; this keeps the source update within one journaled domain-generation replacement.
+
+`--watch` requires text output and an interactive raw terminal. It refreshes the same bounded snapshot automatically, preserves focus and staging by opaque typed ID, reports stale decisions, backs off after read failures, and stays open after confirmed Apply. It does not retry the denied request.
+
+`--notify=auto|osc9|bel|off` chooses the attention cue for a successful refresh with at least one previously unseen typed review item. The initial snapshot and known reappearance do not notify, and one refresh emits at most one cue. `auto` uses a reviewed terminal's OSC 9 support and otherwise falls back to BEL. The payload is fixed trusted ASCII and never includes denial evidence; Tobari configures no OS, tmux, or SSH passthrough.
 
 <SequenceExplorer
   title="Host-side policy review and activation"

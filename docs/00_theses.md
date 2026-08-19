@@ -674,14 +674,22 @@ administration project.
   the agent; a completed session also summarizes the pending queue on host
   stderr. Neither notification can mutate policy or trigger a retry.
 - Interactive `policy review` is the installation-wide human Permission Inbox
-  over retained queues from every Context. Selection and detail inspection may
-  stage several explicit exact or single-segment-template choices, but staging grants
-  no authority and cancellation discards the whole staged set. A choice is
-  accepted only from its exact detail screen. One final Apply confirmation
+  over retained queues from every Context. Its list can stage or clear exact
+  Allow and Deny choices directly and advances only to a later undecided row;
+  template Allow remains available only after detail inspection exposes its
+  examples and future scope. Staging grants no authority and cancellation
+  discards the whole staged set. One final Apply confirmation
   binds the complete typed snapshot and applies the staged set as one
   command-owned installation policy decision-set mutation. Every opaque
   exact candidate or path-template proposal ID is retained unchanged and
-  revalidated against fresh evidence. A manual refresh reconciles staged
+  revalidated against fresh evidence. `policy review --watch` is a human-text,
+  raw-terminal-only monitor over repeated bounded snapshots. It refreshes
+  automatically with bounded backoff, retains the last valid screen on read
+  failure, and continues watching after a successful Apply without retrying the
+  denied request. A non-initial successful refresh with at least one previously
+  unseen typed review-item ID may emit one fixed trusted terminal-emulator cue
+  through conservative `auto`, explicit OSC 9 or BEL, or `off`; denial evidence
+  never enters the control payload. A refresh reconciles staged
   choices only by typed review-item ID: retained
   IDs keep their decision and order, stale IDs lose Apply eligibility, and a
   matching display label never transfers authority to a replacement ID.

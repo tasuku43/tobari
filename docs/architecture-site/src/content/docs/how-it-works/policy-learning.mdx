@@ -67,7 +67,7 @@ The rule record itself does not store a scheme field. Current HTTP and HTTPS aut
 
 ## 4. Review and action stay separate
 
-`policy candidates` is the machine discovery surface. `policy review` is the human Permission Inbox. Redirected/machine-readable review is read-only; on a TTY, the list is still non-mutating while the user opens details and stages **Allow exact** or **Deny exact** choices for one Context.
+`policy candidates` is the machine discovery surface. `policy review` is the human Permission Inbox. Redirected/machine-readable review is read-only; on a raw TTY, exact **Allow** or **Deny** keys only stage the unchanged typed ID from the list, while template authority remains detail-only. `policy review --watch` repeats the same bounded read with bounded backoff and stays open after Apply; it is not streaming authority and never retries traffic. Its optional terminal cue uses only fixed trusted OSC 9 or BEL bytes, never denial evidence.
 
 Each staged choice retains the unchanged opaque ID. Pressing **Apply** revalidates the complete staged set and activates it once; canceling first discards every choice without a write. Apply or discard before switching Context so durable source promotion remains one journaled domain-generation replacement. Display order, indentation, label text, or a reconstructed host/path is never the target. Machine callers continue to delegate one unchanged ID to `policy allow --id …` or `policy deny --id …`.
 

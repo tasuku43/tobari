@@ -1066,14 +1066,26 @@ read projection also converges concurrent identical audit records without a
 second persisted inbox or write race. They remove effects already covered by
 the CLI-owned learned allow or deny data and trusted baseline deny rules.
 Baseline denies remain audit-only. `policy review` is the routine human text
-workflow: it stages explicit decisions over unchanged opaque candidate IDs for
-one Context and applies the complete typed set once. Apply or discard precedes
+workflow: its raw list stages exact decisions and its detail view alone stages
+template authority, always over unchanged opaque candidate IDs for one Context,
+then applies the complete typed set once. Apply or discard precedes
 switching Context, keeping source promotion to one atomic domain generation;
-redirected review is read-only. Manual refresh intersects the staged ordered
-set with the fresh queue by opaque ID. Final review repeats every exact scope,
+redirected review is read-only. The optional raw-terminal `--watch` modifier
+uses the same complete bounded application query on a one-second schedule with
+bounded exponential backoff; it is not streaming delivery or a second policy
+transport. Manual or automatic refresh intersects the staged ordered set with
+the fresh queue by opaque ID, retains selection by ID, and preserves the last
+valid snapshot on read failure. Final review repeats every exact scope,
 effect, decision, and candidate ID before one explicit confirmation. The
 infrastructure returns the revision only after the running OPA confirms it;
 the typed application receipt preserves that revision and ordered decisions.
+Watch tracks a process-memory union of successfully observed typed review-item
+IDs. Only a later successful snapshot containing an unseen ID calls the narrow
+terminal notifier once; the notifier writes fixed trusted ASCII OSC 9 or BEL,
+or nothing for `off`, and never receives denial evidence. `auto` resolves from
+a reviewed terminal identity inside infrastructure and conservatively falls
+back to BEL. Notification write failure does not change snapshot, staging,
+Apply, retry, terminal passthrough, or policy state.
 `policy rules` is the exhaustive current inventory of CLI-owned learned Allows
 and exact Denies. `policy reset --id` removes exactly one such decision through
 the same preflight, atomic-write, and OPA activation boundary, leaving the

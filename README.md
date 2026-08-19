@@ -242,16 +242,31 @@ Workspace and agent session running, then use a separate host terminal:
 
 ```sh
 tobari policy review
+# Or keep a trusted-host raw terminal waiting for new denials:
+tobari policy review --watch
+# Disable or explicitly choose its terminal-emulator cue:
+tobari policy review --watch --notify=off
 ```
 
 The Permission Inbox groups by validated Context/project identity. One distinct
 path remains exact. After a second compatible distinct HTTP path, Inbox proposes
 a single-segment `/path/{id}` template. Inspect its examples and explicit future
-scope, then stage Allow template, Allow observed exact, or Deny pending exact
+scope. Exact Allow or Deny can be staged and cleared directly from the raw list;
+template Allow remains detail-only. Stage Allow template, Allow observed exact, or Deny pending exact
 and confirm one final Apply. Staging grants nothing. Refresh preserves decisions
 only by opaque typed review-item ID; labels, order, or indentation never create
 authority. Confirmed Apply returns the active revision and stored-rule receipts. Retry the
 original request in the same Workspace.
+
+Watch refreshes the same bounded Inbox snapshot, preserves staging and focus by
+opaque typed ID, backs off after refresh failures, and stays open after Apply.
+It never retries the denied request or gives the Workspace a policy-mutation
+channel. Redirected and JSON review remain one read-only snapshot.
+By default, a successful refresh that adds at least one previously unseen typed
+review item emits one fixed terminal-emulator cue. `--notify=osc9`, `bel`, or
+`off` selects it explicitly; `auto` conservatively falls back to BEL. Tobari
+never puts denial evidence in the control payload or configures OS, tmux, or SSH
+notification passthrough.
 
 The experimental development profile also offers the same trusted-host workflow
 in a foreground browser Operator Console. Build and invoke that profile

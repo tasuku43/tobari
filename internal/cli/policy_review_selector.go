@@ -8,7 +8,9 @@ import (
 	"io"
 	"strconv"
 	"strings"
+	"time"
 
+	"github.com/tasuku43/tobari/internal/domain/fault"
 	"github.com/tasuku43/tobari/internal/domain/tobari"
 	"github.com/tasuku43/tobari/internal/infra/terminal"
 )
@@ -22,6 +24,7 @@ type policyReviewDecision struct {
 	Action      policyReviewAction
 	Apply       bool
 	Refresh     bool
+	Clear       bool
 	Canceled    bool
 }
 
@@ -42,7 +45,67 @@ type policyReviewSelector struct {
 	stagedOrder []string
 	selectedID  string
 	notice      string
+	watch       bool
+	ticker      policyReviewRefreshTicker
 }
+
+const (
+	policyReviewRefreshInterval   = time.Second
+	policyReviewRefreshMaxBackoff = 8 * time.Second
+)
+
+// policyReviewRefreshTicker is the narrow scheduling boundary for automatic
+// inbox refresh. Raw terminal reads remain bounded by the terminal adapter;
+// this ticker only decides whether one of those bounded wakeups is due.
+type policyReviewRefreshTicker interface {
+	Ready(context.Context) bool
+	Succeeded()
+	Failed()
+	Delay() time.Duration
+}
+
+type intervalPolicyReviewRefreshTicker struct {
+	now   func() time.Time
+	next  time.Time
+	delay time.Duration
+}
+
+func newIntervalPolicyReviewRefreshTicker() *intervalPolicyReviewRefreshTicker {
+	return &intervalPolicyReviewRefreshTicker{now: time.Now, delay: policyReviewRefreshInterval}
+}
+
+func (t *intervalPolicyReviewRefreshTicker) Ready(ctx context.Context) bool {
+	if ctx == nil || ctx.Err() != nil {
+		return false
+	}
+	now := t.now()
+	if t.next.IsZero() {
+		t.next = now.Add(t.delay)
+		return false
+	}
+	if now.Before(t.next) {
+		return false
+	}
+	t.next = now.Add(t.delay)
+	return true
+}
+
+func (t *intervalPolicyReviewRefreshTicker) Succeeded() {
+	t.delay = policyReviewRefreshInterval
+	t.next = t.now().Add(t.delay)
+}
+
+func (t *intervalPolicyReviewRefreshTicker) Failed() {
+	if t.delay < policyReviewRefreshMaxBackoff {
+		t.delay *= 2
+		if t.delay > policyReviewRefreshMaxBackoff {
+			t.delay = policyReviewRefreshMaxBackoff
+		}
+	}
+	t.next = t.now().Add(t.delay)
+}
+
+func (t *intervalPolicyReviewRefreshTicker) Delay() time.Duration { return t.delay }
 
 type policyReviewScopeKey struct {
 	ContextID string
@@ -55,6 +118,34 @@ func newPolicyReviewSelector() *policyReviewSelector {
 
 func newPolicyReviewSelectorWithStyle(enabled bool) *policyReviewSelector {
 	return &policyReviewSelector{mode: terminal.New(), style: enabled, staged: map[string]policyReviewAction{}}
+}
+
+func (s *policyReviewSelector) EnableWatch(ticker policyReviewRefreshTicker) {
+	if s == nil {
+		return
+	}
+	s.watch = true
+	if ticker == nil {
+		ticker = s.ticker
+	}
+	if ticker == nil {
+		ticker = newIntervalPolicyReviewRefreshTicker()
+	}
+	s.ticker = ticker
+}
+
+func (s *policyReviewSelector) RefreshSucceeded() {
+	if s != nil && s.ticker != nil {
+		s.ticker.Succeeded()
+	}
+}
+
+func (s *policyReviewSelector) RefreshFailed() time.Duration {
+	if s == nil || s.ticker == nil {
+		return 0
+	}
+	s.ticker.Failed()
+	return s.ticker.Delay()
 }
 
 func (s *policyReviewSelector) Stage(candidateID string, action policyReviewAction) {
@@ -76,6 +167,33 @@ func (s *policyReviewSelector) Stage(candidateID string, action policyReviewActi
 		label = "Deny exact"
 	}
 	s.notice = fmt.Sprintf("Staged %s · %d decision%s ready to apply.", label, len(s.staged), pluralSuffix(len(s.staged)))
+}
+
+func (s *policyReviewSelector) Clear(candidateID string) {
+	if s == nil || s.staged == nil {
+		return
+	}
+	if _, found := s.staged[candidateID]; !found {
+		s.notice = "That permission has no staged decision."
+		return
+	}
+	delete(s.staged, candidateID)
+	kept := s.stagedOrder[:0]
+	for _, id := range s.stagedOrder {
+		if id != candidateID {
+			kept = append(kept, id)
+		}
+	}
+	s.stagedOrder = kept
+	s.notice = fmt.Sprintf("Decision cleared · %d decision%s ready to apply.", len(s.staged), pluralSuffix(len(s.staged)))
+}
+
+func (s *policyReviewSelector) ClearAll() {
+	if s == nil {
+		return
+	}
+	s.staged = map[string]policyReviewAction{}
+	s.stagedOrder = nil
 }
 
 func (s *policyReviewSelector) Reconcile(report tobari.PolicyCandidateReport) int {
@@ -121,15 +239,16 @@ func (s *policyReviewSelector) Select(
 		return policyReviewDecision{}, err
 	}
 	report = groupPolicyReviewReport(report)
-	if len(report.Items) == 0 {
+	if len(report.Items) == 0 && (s == nil || !s.watch) {
 		return policyReviewDecision{Canceled: true}, nil
 	}
 
 	if s != nil && s.mode != nil {
 		restore, rawErr := s.mode.Enter(in)
 		if rawErr == nil {
-			decision, selectErr := selectPolicyReviewRaw(
+			decision, selectErr := selectPolicyReviewRawWithWatch(
 				ctx, report, in, out, s.style, s.staged, s.stagedOrder, s.selectedID, s.notice,
+				s.watch, s.ticker,
 			)
 			restoreErr := restore()
 			if selectErr != nil {
@@ -145,6 +264,13 @@ func (s *policyReviewSelector) Select(
 		}
 	}
 
+	if s.watch {
+		return policyReviewDecision{}, fault.New(
+			fault.KindInvalidInput, "policy_review_watch_requires_tty",
+			"policy review --watch requires an interactive raw terminal and text output", false,
+			fault.NextAction{Command: "help policy review", Reason: "Run watch with text output in an interactive raw terminal."},
+		)
+	}
 	if s.lineReader == nil {
 		s.lineReader = bufio.NewReader(in)
 	}
@@ -180,17 +306,17 @@ func policyReviewStagedCount(staged []map[string]policyReviewAction) int {
 
 func policyReviewStagedLabel(candidateID string, staged []map[string]policyReviewAction) string {
 	if len(staged) == 0 || staged[0] == nil {
-		return "Undecided"
+		return "Pending"
 	}
 	switch staged[0][candidateID] {
 	case policyReviewActionAllow:
-		return "Staged Allow"
+		return "Allow exact"
 	case policyReviewActionAllowTemplate:
-		return "Staged Template"
+		return "Allow template"
 	case policyReviewActionDeny:
-		return "Staged Deny"
+		return "Deny exact"
 	default:
-		return "Undecided"
+		return "Pending"
 	}
 }
 
@@ -326,12 +452,21 @@ func selectPolicyReviewRaw(
 	ctx context.Context, report tobari.PolicyCandidateReport, in io.Reader, out io.Writer,
 	style bool, staged map[string]policyReviewAction, stagedOrder []string, selectedID string, notice ...string,
 ) (policyReviewDecision, error) {
-	report = groupPolicyReviewReport(report)
-	selected := policyReviewSelectedIndex(report.Items, selectedID)
 	message := ""
 	if len(notice) > 0 {
 		message = notice[0]
 	}
+	return selectPolicyReviewRawWithWatch(ctx, report, in, out, style, staged, stagedOrder, selectedID, message, false, nil)
+}
+
+func selectPolicyReviewRawWithWatch(
+	ctx context.Context, report tobari.PolicyCandidateReport, in io.Reader, out io.Writer,
+	style bool, staged map[string]policyReviewAction, stagedOrder []string, selectedID, notice string,
+	watch bool, ticker policyReviewRefreshTicker,
+) (policyReviewDecision, error) {
+	report = groupPolicyReviewReport(report)
+	selected := policyReviewSelectedIndex(report.Items, selectedID)
+	message := notice
 	lineCount := 0
 	needsRender := true
 	for {
@@ -349,7 +484,14 @@ func selectPolicyReviewRaw(
 			lineCount = currentLines
 			needsRender = false
 		}
-		key, err := readSelectorKey(ctx, in)
+		key, err := readSelectorKeyOnce(ctx, in)
+		if errors.Is(err, errSelectorTimeout) || (err == nil && key.kind == selectorKeyNone) {
+			if watch && ticker != nil && ticker.Ready(ctx) {
+				finishPolicyReviewSelector(out, lineCount)
+				return policyReviewDecision{SelectedID: candidateIDAt(report.Items, selected), Refresh: true}, nil
+			}
+			continue
+		}
 		if err != nil {
 			finishPolicyReviewSelector(out, lineCount)
 			return policyReviewDecision{}, err
@@ -358,18 +500,30 @@ func selectPolicyReviewRaw(
 		case selectorKeyNone:
 			continue
 		case selectorKeyUp:
+			if len(report.Items) == 0 {
+				continue
+			}
 			selected = (selected - 1 + len(report.Items)) % len(report.Items)
 			message = ""
 			needsRender = true
 		case selectorKeyDown:
+			if len(report.Items) == 0 {
+				continue
+			}
 			selected = (selected + 1) % len(report.Items)
 			message = ""
 			needsRender = true
 		case selectorKeyHome:
+			if len(report.Items) == 0 {
+				continue
+			}
 			selected = 0
 			message = ""
 			needsRender = true
 		case selectorKeyEnd:
+			if len(report.Items) == 0 {
+				continue
+			}
 			selected = len(report.Items) - 1
 			message = ""
 			needsRender = true
@@ -382,6 +536,11 @@ func selectPolicyReviewRaw(
 			selected = key.index
 			fallthrough
 		case selectorKeyEnter:
+			if len(report.Items) == 0 {
+				message = "No requests need review. Watching for denied requests…"
+				needsRender = true
+				continue
+			}
 			detail := selectPolicyReviewDetailRaw(ctx, report, selected, in, out, lineCount, style)
 			if detail.err != nil {
 				return policyReviewDecision{}, detail.err
@@ -400,6 +559,27 @@ func selectPolicyReviewRaw(
 			lineCount = 0
 			message = ""
 			needsRender = true
+		case selectorKeyAllow, selectorKeyDeny:
+			if len(report.Items) == 0 {
+				continue
+			}
+			candidate := report.Items[selected]
+			action := policyReviewActionAllow
+			if key.kind == selectorKeyDeny {
+				action = policyReviewActionDeny
+			}
+			selectedID := candidate.ID
+			if next := policyReviewNextUndecidedID(report.Items, selected, staged, candidate.ID); next != "" {
+				selectedID = next
+			}
+			finishPolicyReviewSelector(out, lineCount)
+			return policyReviewDecision{CandidateID: candidate.ID, SelectedID: selectedID, Action: action}, nil
+		case selectorKeyClear:
+			if len(report.Items) == 0 {
+				continue
+			}
+			finishPolicyReviewSelector(out, lineCount)
+			return policyReviewDecision{CandidateID: report.Items[selected].ID, SelectedID: report.Items[selected].ID, Clear: true}, nil
 		case selectorKeyCancel:
 			finishPolicyReviewSelector(out, lineCount)
 			return policyReviewDecision{SelectedID: candidateIDAt(report.Items, selected), Canceled: true}, nil
@@ -431,10 +611,25 @@ func selectPolicyReviewRaw(
 				return policyReviewDecision{SelectedID: candidateIDAt(report.Items, selected), Apply: true}, nil
 			}
 		default:
-			message = "Use ↑/↓ to move, Enter to inspect, r to refresh, or q to cancel."
+			message = "Use ↑/↓ to move, a/d to stage exact, x to clear, Enter to inspect, r to refresh, or q to cancel."
 			needsRender = true
 		}
 	}
+}
+
+func policyReviewNextUndecidedID(
+	items []tobari.PolicyCandidate, selected int, staged map[string]policyReviewAction, currentID string,
+) string {
+	for index := selected + 1; index < len(items); index++ {
+		id := items[index].ID
+		if id == currentID {
+			continue
+		}
+		if _, decided := staged[id]; !decided {
+			return id
+		}
+	}
+	return ""
 }
 
 func policyReviewSelectedIndex(items []tobari.PolicyCandidate, selectedID string) int {
@@ -544,6 +739,20 @@ func renderPolicyReviewListRaw(
 	style bool, staged ...map[string]policyReviewAction,
 ) int {
 	report = groupPolicyReviewReport(report)
+	if len(report.Items) == 0 {
+		lines := []string{
+			selectorTitle(style, "Tobari · Permission Inbox"),
+			"",
+			applyStyleToken(style, styleText, "No requests need review."),
+			"",
+			applyStyleToken(style, styleMuted, "Watching for denied requests…"),
+			applyStyleToken(style, styleMuted, "Press q to stop."),
+		}
+		if message != "" {
+			lines = append(lines, "", applyStyleToken(style, styleWarning, "! "+message))
+		}
+		return renderPolicyReviewScreen(out, lines, previousLines)
+	}
 	lines := []string{
 		selectorTitle(style, "Tobari · Permission Inbox"),
 		"",
@@ -570,8 +779,8 @@ func renderPolicyReviewListRaw(
 			prefix = "  " + applyStyleToken(style, styleText, "❯ ")
 		}
 		state := policyReviewStagedLabel(candidate.ID, staged)
-		if state == "Undecided" && policyReviewTemplateByID(report, candidate.ID) != nil {
-			state = "Suggested"
+		if state == "Pending" && policyReviewTemplateByID(report, candidate.ID) != nil {
+			state = "Pending · Suggested"
 		}
 		lines = append(lines, prefix+applyStyleToken(style, policyReviewStagedStyle(candidate.ID, staged), state)+"  "+
 			applyStyleToken(style, styleText, policyReviewCandidateListEffect(candidate))+"  "+
@@ -589,19 +798,36 @@ func renderPolicyReviewListRaw(
 			"Observed %s · Latest %s",
 			policyReviewObservationText(report, selectedCandidate), safeExternalText(selectedCandidate.ObservedAt),
 		)),
+		"  "+applyStyleToken(style, styleDanger, "Reason: "+safeExternalText(selectedCandidate.Reason)),
 		"",
 	)
-	help := "↑/↓ move   Enter inspect   r refresh   q cancel"
+	help := "↑/↓ move   a allow exact   d deny exact   x clear   Enter inspect   r refresh   q cancel"
 	if policyReviewStagedCount(staged) > 0 {
-		help = "↑/↓ move   Enter inspect   r refresh   p review staged   q cancel"
+		help = "↑/↓ move   a allow exact   d deny exact   x clear   Enter inspect   p review staged   r refresh   q cancel"
 	}
 	lines = append(lines, selectorHelp(style, help))
+	stagedNotice := strings.HasPrefix(message, "Staged Allow") || strings.HasPrefix(message, "Staged Deny")
+	if policyReviewAllVisibleStaged(report.Items, staged) && (message == "" || stagedNotice) {
+		message = "All visible permissions have a staged decision. Press p to review and apply."
+	}
 	if message == "" {
 		lines = append(lines, "")
 	} else {
 		lines = append(lines, applyStyleToken(style, styleWarning, "! "+message))
 	}
 	return renderPolicyReviewScreen(out, lines, previousLines)
+}
+
+func policyReviewAllVisibleStaged(items []tobari.PolicyCandidate, staged []map[string]policyReviewAction) bool {
+	if len(items) == 0 || len(staged) == 0 || staged[0] == nil {
+		return false
+	}
+	for _, item := range items {
+		if _, found := staged[0][item.ID]; !found {
+			return false
+		}
+	}
+	return true
 }
 
 func groupPolicyReviewReport(report tobari.PolicyCandidateReport) tobari.PolicyCandidateReport {
@@ -882,7 +1108,7 @@ func writePolicyReviewListLine(out io.Writer, report tobari.PolicyCandidateRepor
 		return err
 	}
 	for index, candidate := range report.Items {
-		state := policyReviewStagedLabel(candidate.ID, []map[string]policyReviewAction{staged})
+		state := policyReviewLineStagedLabel(candidate.ID, staged)
 		if state == "Undecided" && policyReviewTemplateByID(report, candidate.ID) != nil {
 			state = "Suggested"
 		}
@@ -893,6 +1119,19 @@ func writePolicyReviewListLine(out io.Writer, report tobari.PolicyCandidateRepor
 		}
 	}
 	return nil
+}
+
+func policyReviewLineStagedLabel(candidateID string, staged map[string]policyReviewAction) string {
+	switch staged[candidateID] {
+	case policyReviewActionAllow:
+		return "Staged Allow"
+	case policyReviewActionAllowTemplate:
+		return "Staged Template"
+	case policyReviewActionDeny:
+		return "Staged Deny"
+	default:
+		return "Undecided"
+	}
 }
 
 func selectPolicyReviewFinalLine(

@@ -453,8 +453,10 @@ dynamic command argument. Non-learnable denials advertise no review command.
 The host-owned retained denial queue remains the source of truth, and only the
 reference-bound host action can change policy. Interactive `policy review`
 instead permits one command-bound fixed-target Apply over a bounded typed set:
-each entry must originate on its exact detail screen, retain its opaque ID
-unchanged, belong to one Context, and pass fresh snapshot validation. The
+an exact entry may originate from the typed raw list or detail screen, while a
+template entry must originate from its scope-bearing detail screen; every entry
+retains its opaque ID unchanged, belongs to one Context, and passes fresh
+snapshot validation. The
 one-Context bound preserves one atomic policy-source promotion even if the host
 process is interrupted. The authoritative source is one strict
 `policy/domains/<canonical-host>/allow.json` and `deny.json` pair per exact
@@ -465,11 +467,22 @@ literals, incomplete pairs, extra files, symlinks, and unsafe permissions fail
 closed. Per-domain method data is projected only into that domain's authority,
 and explicit deny retains precedence. Display position cannot create authority, staging
 writes nothing, cancellation discards the set, wildcard creation is impossible,
-and redirected or machine-readable review is read-only. Refresh retains staged
+and redirected or machine-readable review is read-only. `--watch` is accepted
+only with human text and raw terminal ownership; it repeats the bounded read,
+never grants or retries, retains the last valid snapshot on failure, and uses
+bounded backoff. Refresh retains staged
 authority only for an identical candidate ID; stale and same-label replacement
 IDs remain undecided. Confirmed Apply returns an authoritative active revision
 and exact typed receipt, after which the original running Workspace may issue a
 new request. Neither Workspace nor OPA is recreated by this activation.
+The watch attention cue is not a desktop/OS integration or policy signal. Its
+OSC 9 payload is one compile-time fixed printable-ASCII message framed by fixed
+control bytes, and BEL has no payload. The notifier never receives or
+interpolates Context names, project roots, hosts, paths, reasons, counts, or
+other external evidence, so hostile denial text cannot inject terminal control
+data. `auto` recognizes only a reviewed terminal identity and otherwise uses
+BEL; Tobari never changes tmux or SSH passthrough. Cue failure is
+non-authoritative and leaves watch active.
 The experimental-only Operator Console is a session-scoped trusted-host presentation,
 not a network control plane. `tobari serve` binds TCP4 only to
 `127.0.0.1:0`, accepts no remote/fixed-port option, and exits with its owning

@@ -236,7 +236,7 @@ The public commands are:
 | `cluster logs [--component gateway|opa|all] [--tail N]` | utility | read | Read bounded shared logs, including policy-denial evidence, without credential output |
 | `cluster down [--purge]` | act, fixed target | write | Remove shared transient resources after every logical Tobari is deleted; `--purge` additionally removes shared CA and active policy-bundle volumes |
 | `policy candidates [--tail N] [--format text|json]` | discover | read | Discover Context/project-scoped pending exact HTTP or GraphQL-root candidates and opaque IDs across the installation |
-| `policy review [--tail N] [--format text|json]` | discover plus TTY fixed-target apply | read, or one confirmed write | Review the installation-wide Permission Inbox; on a TTY, stage persistent exact/template decisions or exact attachment-only Host Loopback decisions without changing their typed lifetime and apply the reviewed set once; redirected and JSON output remain read-only |
+| `policy review [--tail N] [--format text|json] [--watch] [--notify auto|osc9|bel|off]` | discover plus TTY fixed-target apply | read, or one confirmed write | Review the installation-wide Permission Inbox; a raw TTY can stage exact decisions from the list, inspect template scope, and apply the reviewed set; `--watch` refreshes bounded snapshots and remains open after Apply, while `--notify` selects its terminal-emulator cue and redirected or JSON output remain read-only |
 | `policy allow --id ID` | act, reference bound | write | Test, record, and activate one exact observed permission |
 | `policy deny --id ID` | act, reference bound | write | Test, record, and activate one exact project-bound rejection |
 | `policy rules [--format text|json]` | discover | read | List every Context-scoped CLI-owned learned Allow and exact Deny decision; on a TTY, reset one explicitly |
@@ -659,16 +659,32 @@ inventory remain read-only. The Permission Inbox groups candidates by their
 validated stable Context and project identities, renders the Context/root scope
 once per group, and leads each selectable row with the exact HTTP effect or
 typed `{id}` template and its evidence count. A compact selected-effect preview exposes the latest retained
-observation before detail inspection. Matching display names, paths, order, or
-indentation do not merge distinct typed identities. Action keys are inactive
-on the list. An exact detail offers Allow exact and Deny exact; a template
+observation and denial reason before detail inspection. Matching display names,
+paths, order, or indentation do not merge distinct typed identities. The raw
+list stages exact Allow or Deny by unchanged typed ID, clears one staged row,
+and advances only to a later undecided row without wrapping. An exact detail
+offers the same exact decisions; a template
 detail states that unseen values are included and offers Allow template, Allow
 observed exact, and Deny pending exact. The chosen action is staged without a
 second yes/no prompt. Only the final Apply delegates
 the reviewed set to the mutation boundary. Apply is advertised only for a
 non-empty staged set, shows one final ordered typed review, and requires an
 explicit confirmation. Refresh preserves choices by candidate ID and drops
-stale IDs rather than matching labels. Confirmed output carries the active OPA
+stale IDs rather than matching labels. `--watch` requires human text on an
+interactive raw terminal, automatically repeats the same bounded read with a
+one-second interval and exponential backoff capped at eight seconds, preserves
+the last valid snapshot on refresh failure, and continues with a fresh snapshot
+after confirmed Apply. Stopping watch is a successful monitor stop. It never
+retries an HTTP request or creates an agent-side authority channel. The optional
+`--notify` value defaults to `auto`, requires `--watch`, and selects a fixed
+trusted ASCII cue: explicit `osc9`, `bel`, or `off`, while `auto` uses OSC 9
+only for a reviewed terminal identity and otherwise falls back to BEL. The
+initial snapshot, refresh failures, stale-only changes, and previously seen ID
+reappearance do not notify; one successful refresh coalesces every new ID into
+at most one cue. Tobari configures no OS, tmux, SSH, or terminal passthrough,
+and no Context, host, path, reason, or other denial evidence enters the control
+payload. A failed cue leaves watch active. Confirmed
+output carries the active OPA
 revision plus each ordered Context/project/effect/stored-rule decision and
 directs the caller to retry in the current running Workspace. The public
 read-only JSON review schema remains version 1 and does not expose this

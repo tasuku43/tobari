@@ -29,6 +29,7 @@ func TestPolicyReviewPTYChild(t *testing.T) {
 
 	caseName := os.Getenv(policyReviewPTYCaseEnv)
 	isPolicyRules := strings.HasPrefix(caseName, "policy-rules")
+	isPolicyWatch := strings.HasPrefix(caseName, "watch-")
 	terminal := caseName != "json" && caseName != "policy-rules-json"
 	runtimeFake, candidateID := newPolicyReviewPTYRuntime(terminal)
 	if isPolicyRules {
@@ -37,6 +38,19 @@ func TestPolicyReviewPTYChild(t *testing.T) {
 	command := newCLI(os.Stdin, os.Stdout, os.Stderr, DefaultCatalog(), nil)
 	command.tobari = tobaricmd.New(runtimeFake)
 	args := []string{"policy", "review"}
+	if isPolicyWatch {
+		args = append(args, "--watch", "--notify=bel")
+	}
+	if caseName == "watch-empty-arrival-apply" {
+		denials := append([]tobari.PolicyDenial{}, runtimeFake.denials...)
+		runtimeFake.denials = nil
+		runtimeFake.denialsByRead = [][]tobari.PolicyDenial{{}, denials, denials, denials}
+		command.policyReview = func(style bool) *policyReviewSelector {
+			selector := newPolicyReviewSelectorWithStyle(style)
+			selector.ticker = &readyPolicyReviewTicker{ready: true}
+			return selector
+		}
+	}
 	if isPolicyRules {
 		args = []string{"policy", "rules"}
 	}
@@ -182,12 +196,35 @@ func TestPolicyReviewRealPTYAndReadOnlyE2E(t *testing.T) {
 	t.Run("final review back then explicit apply", func(t *testing.T) {
 		output := runPolicyReviewPTYChild(t, "final-back-apply", "1|a|p|b|p|y")
 		for _, want := range []string{
-			"Review staged permissions", "Staged decisions unchanged.", "[y] Apply",
+			"Review staged permissions", "All visible permissions have a staged decision.", "[y] Apply",
 			"case=final-back-apply code=0 apply_calls=1 deny_calls=0", "source_candidate=" + candidateID,
 		} {
 			if !strings.Contains(output, want) {
 				t.Fatalf("final review back/apply output lacks %q: %q", want, output)
 			}
+		}
+	})
+
+	t.Run("watch receives an arrival applies and stops cleanly", func(t *testing.T) {
+		output := runPolicyReviewPTYChild(t, "watch-empty-arrival-apply", "<wait>|a|p|y|q")
+		for _, want := range []string{
+			"No requests need review.",
+			"Watching for denied requests…",
+			"\x07",
+			"Inbox refreshed · 1 new",
+			"Allow exact",
+			"Reviewed permissions applied",
+			"Applied decisions · watching for denied requests.",
+			selectorAlternateScreenExit + selectorCursorShow,
+			"case=watch-empty-arrival-apply code=0 apply_calls=1 deny_calls=0",
+			"source_candidate=" + candidateID,
+		} {
+			if !strings.Contains(output, want) {
+				t.Fatalf("watch PTY output lacks %q: %q", want, output)
+			}
+		}
+		if strings.Contains(output, "Canceled") {
+			t.Fatalf("watch stop was rendered as cancellation: %q", output)
 		}
 	})
 
@@ -418,6 +455,10 @@ def wait_for_output_quiescence(required=b""):
 wait_for_output_quiescence(b"\x1b[?25l")
 parts = payload.split("|")
 for index, part in enumerate(parts):
+    if part == "<wait>":
+        time.sleep(0.25)
+        wait_for_output_quiescence()
+        continue
     try:
         os.write(master, part.encode())
     except OSError as error:

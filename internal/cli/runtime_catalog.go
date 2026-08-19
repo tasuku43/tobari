@@ -834,11 +834,11 @@ func policyCandidatesSpec() CommandSpec {
 func policyReviewSpec() CommandSpec {
 	return CommandSpec{
 		Path: "policy review", Summary: "Review pending network permissions",
-		Args: "[--tail <lines>] [--format text|json]", Effect: operation.EffectRead, Role: RoleDiscover,
+		Args: "[--tail <lines>] [--format text|json] [--watch] [--notify auto|osc9|bel|off]", Effect: operation.EffectRead, Role: RoleDiscover,
 		Agent: AgentContract{
 			CapabilityID: "policy.learning",
-			Outcome:      "Review pending exact HTTP or GraphQL effects and typed HTTP single-segment path-template proposals; an interactive terminal can stage one Context's explicit decisions and apply the reviewed set once",
-			Inputs:       []CommandInput{reviewTailInput(), formatInput()},
+			Outcome:      "Review pending exact HTTP or GraphQL effects and typed HTTP single-segment path-template proposals; a raw terminal can stage exact decisions from the list, inspect template scope, apply one Context's reviewed set, and optionally watch bounded snapshots",
+			Inputs:       []CommandInput{reviewTailInput(), formatInput(), policyReviewWatchInput(), policyReviewNotifyInput()},
 			Output: CommandOutput{
 				Formats: []OutputFormat{OutputFormatText, OutputFormatJSON}, DefaultFormat: OutputFormatText, TextPresentation: TextPresentationSemanticTokens,
 				Fields:   policyCandidateOutputFields(),
@@ -846,7 +846,9 @@ func policyReviewSpec() CommandSpec {
 				JSONEnvelope: "policy_review", JSONEnvelopeType: OutputFieldTypeArray, JSONSchemaVersion: 1,
 			},
 			Prerequisites: []string{"The cluster has retained Gateway denial evidence."},
-			Errors:        policyCandidateReadErrors("policy review", true),
+			Errors: append(policyCandidateReadErrors("policy review", true),
+				declaredCommandError(fault.KindInvalidInput, "policy_review_watch_requires_tty", false, "help policy review", "Run watch with text output in an interactive raw terminal."),
+			),
 			Interactive: &InteractiveWorkflowContract{
 				ActionCommand:          "policy apply-reviewed",
 				SelectionReferenceKind: tobari.PolicyCandidateKind,
@@ -1646,6 +1648,25 @@ func reviewTailInput() CommandInput {
 		ValueKind: InputValueInteger, Cardinality: InputCardinalitySingle,
 		Description: "Maximum retained Gateway log lines inspected for pending permissions.", AllowedValues: []string{},
 		DefaultValue: stringPointer("10000"), Minimum: int64Pointer(1), Maximum: int64Pointer(10_000),
+	}
+}
+
+func policyReviewWatchInput() CommandInput {
+	return CommandInput{
+		Name: "--watch", Source: InputSourceFlag, Required: false,
+		ValueKind: InputValueBoolean, Cardinality: InputCardinalitySingle,
+		Description:   "Keep an interactive raw-terminal Permission Inbox open and refresh bounded denial snapshots automatically.",
+		AllowedValues: []string{}, DefaultValue: stringPointer("false"),
+	}
+}
+
+func policyReviewNotifyInput() CommandInput {
+	return CommandInput{
+		Name: "--notify", Source: InputSourceFlag, Required: false,
+		ValueKind: InputValueText, Cardinality: InputCardinalitySingle,
+		Description:   "Choose the terminal-emulator attention cue for newly arrived review items while watching.",
+		AllowedValues: []string{"auto", "osc9", "bel", "off"}, DefaultValue: stringPointer("auto"),
+		Requires: []string{"--watch"},
 	}
 }
 

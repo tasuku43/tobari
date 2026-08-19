@@ -94,6 +94,7 @@ const (
 	selectorKeyTemplate
 	selectorKeyExact
 	selectorKeyDeny
+	selectorKeyClear
 	selectorKeyReset
 	selectorKeyApply
 	selectorKeyConfirm
@@ -476,6 +477,8 @@ func readSelectorKeyOnce(ctx context.Context, in io.Reader) (selectorKey, error)
 		return selectorKey{kind: selectorKeyExact}, nil
 	case 'd', 'D':
 		return selectorKey{kind: selectorKeyDeny}, nil
+	case 'x', 'X':
+		return selectorKey{kind: selectorKeyClear}, nil
 	case 'r', 'R':
 		return selectorKey{kind: selectorKeyReset}, nil
 	case 'p', 'P':
