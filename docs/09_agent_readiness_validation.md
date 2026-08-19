@@ -154,12 +154,14 @@ revision 2; alternate methods, REST routes, beta manifest, installer, checksum,
 artifact, update execution, and download receive no baseline grant.
 
 For pup, prove the dedicated opener accepts only the exact default-US1
-authorization route, seven reviewed query fields, bounded DCR/state/PKCE
-shapes, `S256`, a sorted subset of the complete 110-scope pup 1.10.7 ceiling,
+authorization route, seven mandatory query fields, an optional single
+UUID-shaped `dd_oid` organization hint, bounded DCR/state/PKCE shapes, `S256`,
+a sorted subset of the complete 110-scope pup 1.10.7 ceiling,
 and exact `127.0.0.1:{8000,8080,8888,9000}/oauth/callback`. Verify it binds
 before browser open and relays one opaque callback only to the selected owned
 Workspace. Reject caller-added scopes, alternate sites, host case, userinfo,
-explicit port, neighboring path, duplicate/extra query, fragment, callback
+explicit port, neighboring path, missing mandatory fields, duplicate or
+malformed hints, unknown query fields, fragment, callback
 host/path/port changes, replay, and oversized requests. Product APIs,
 telemetry, revoke, and neighboring OAuth effects receive no baseline grant.
 
@@ -330,7 +332,9 @@ one `twg login` invocation and zero external processing; `twg logout` can revoke
 the token without review; later provider effects are classified separately.
 
 For pup 1.10.7, replay exact US1 DCR registration and token exchange with
-synthetic responses. Prove the strict authorization URL opens once, one opaque
+synthetic responses for both a first login without an organization hint and a
+repeat login with a remembered UUID-shaped `dd_oid`. Prove each strict
+authorization URL opens once, one opaque
 callback reaches only the selected Workspace on each of the four fixed ports,
 and the complete compiled scope ceiling plus reduced/read-only subsets remain
 accepted while caller-added scopes and alternate sites fail closed. Routine

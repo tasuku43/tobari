@@ -112,7 +112,8 @@ sibling or mixed roots, REST, beta manifest, installer, checksum, artifact,
 update execution, download, telemetry, and neighboring effects are absent.
 
 Pup's host transport accepts only the exact default-US1 authorization route,
-bounded DCR/state/PKCE shapes, a sorted subset of the pup 1.10.7 compiled scope
+seven mandatory query fields, an optional single UUID-shaped `dd_oid`
+organization hint, bounded DCR/state/PKCE shapes, a sorted subset of the pup 1.10.7 compiled scope
 ceiling, and one exact `127.0.0.1:{8000,8080,8888,9000}/oauth/callback` target.
 It binds before browser open and relays one opaque callback to the selected
 Workspace. `pup_ready` separately adds only exact `POST

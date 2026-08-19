@@ -15,7 +15,11 @@ import (
 )
 
 func syntheticPupWorkspaceAuthorizationURL(callbackPort int, scopes string) string {
-	return fmt.Sprintf(
+	return syntheticPupWorkspaceAuthorizationURLWithOrg(callbackPort, scopes, "")
+}
+
+func syntheticPupWorkspaceAuthorizationURLWithOrg(callbackPort int, scopes, orgUUID string) string {
+	target := fmt.Sprintf(
 		"https://%s%s?response_type=code&client_id=client-example-123&redirect_uri=%s&state=%s&scope=%s&code_challenge=%s&code_challenge_method=S256",
 		pupWorkspaceAuthorizationHost,
 		pupWorkspaceAuthorizationPath,
@@ -24,6 +28,45 @@ func syntheticPupWorkspaceAuthorizationURL(callbackPort int, scopes string) stri
 		url.QueryEscape(scopes),
 		strings.Repeat("c", 43),
 	)
+	if orgUUID != "" {
+		target += "&dd_oid=" + url.QueryEscape(orgUUID)
+	}
+	return target
+}
+
+func TestPupWorkspaceLoginAuthorizationAcceptsReviewedRememberedOrgHint(t *testing.T) {
+	for _, orgUUID := range []string{
+		"11111111-2222-3333-4444-555555555555",
+		"AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE",
+	} {
+		target := syntheticPupWorkspaceAuthorizationURLWithOrg(8000, "dashboards_read metrics_read", orgUUID)
+		authorization, ok := parsePupWorkspaceLoginAuthorizationURL(target)
+		if !ok || authorization.callbackPort != 8000 || !validLoginBrowserTarget(target) {
+			t.Fatalf("reviewed pup org target = (%+v, %t), want callback port 8000", authorization, ok)
+		}
+	}
+}
+
+func TestPupWorkspaceLoginAuthorizationRejectsUnreviewedOrgHints(t *testing.T) {
+	valid := syntheticPupWorkspaceAuthorizationURL(8000, "dashboards_read metrics_read")
+	validWithOrg := syntheticPupWorkspaceAuthorizationURLWithOrg(
+		8000, "dashboards_read metrics_read", "11111111-2222-3333-4444-555555555555",
+	)
+	for name, target := range map[string]string{
+		"empty":            valid + "&dd_oid=",
+		"short":            valid + "&dd_oid=11111111-2222-3333-4444-55555555555",
+		"non-hex":          valid + "&dd_oid=zzzzzzzz-2222-3333-4444-555555555555",
+		"missing hyphens":  valid + "&dd_oid=11111111222233334444555555555555",
+		"duplicate":        validWithOrg + "&dd_oid=aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+		"unknown neighbor": validWithOrg + "&prompt=consent",
+		"missing required": strings.Replace(validWithOrg, "response_type=code&", "", 1),
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, ok := parsePupWorkspaceLoginAuthorizationURL(target); ok {
+				t.Fatalf("unreviewed pup org target accepted: %s", target)
+			}
+		})
+	}
 }
 
 func TestPupWorkspaceLoginAuthorizationAllowsOnlyPinnedUS1Semantics(t *testing.T) {
@@ -114,7 +157,9 @@ func TestPupWorkspaceLoginBridgeRelaysOnlyToSelectedWorkspace(t *testing.T) {
 	bridge := newWorkspaceLoginBridge(context.Background(), &Runtime{runner: runner, browser: browser}, container, projectID)
 	var listenedAddress string
 	bridge.listen = func(address string) (net.Listener, error) { listenedAddress = address; return listener, nil }
-	target := syntheticPupWorkspaceAuthorizationURL(8000, "dashboards_read metrics_read")
+	target := syntheticPupWorkspaceAuthorizationURLWithOrg(
+		8000, "dashboards_read metrics_read", "11111111-2222-3333-4444-555555555555",
+	)
 	if !bridge.trigger(target) {
 		t.Fatal("valid native pup login did not start bridge")
 	}

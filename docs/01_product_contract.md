@@ -952,8 +952,9 @@ AWS SSO is limited to the pinned CLI's exact commercial-region authorization-cod
 shape, default `sso:account:access` scope, bounded DCR/state/PKCE fields, and
 dynamic non-privileged `127.0.0.1/oauth/callback` port. Its documented
 `--use-device-code` option remains the cross-device recovery.
-Pup is limited to the exact US1 authorization route, a bounded DCR client ID,
-the sorted pup 1.10.7 default-scope ceiling, and exact
+Pup is limited to the exact US1 authorization route, seven mandatory query
+fields, at most one UUID-shaped `dd_oid` organization hint, a bounded DCR
+client ID, the sorted pup 1.10.7 default-scope ceiling, and exact
 `127.0.0.1:{8000,8080,8888,9000}/oauth/callback`. Claude Code 2.1.220 must use its fixed client, redirect, PKCE shape,
 and complete reviewed scope set. For exact default `gh auth login`, the canonical
 runtime's pinned compatibility wrapper selects the reviewed GitHub.com HTTPS

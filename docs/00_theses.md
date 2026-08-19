@@ -290,6 +290,11 @@ opaque callback only when that target declares the reviewed loopback shape, and
 never logs or persists the target, callback, or device code. Manual-code targets
 may exist only in bounded session memory until confirmation, ambiguity, or
 session end; Tobari continues to observe output only.
+A browser-target contract fixes authority-bearing semantics rather than an
+incidental total query-field count. Mandatory fields remain exact; an additive
+selector is accepted only when its name, cardinality, bounded value shape, and
+security meaning are reviewed explicitly. Unknown, duplicate, or malformed
+fields still fail before browser or callback authority is created.
 
 The experimental development profile retains the closed Broker research path.
 That route stores one Context-owned credential or

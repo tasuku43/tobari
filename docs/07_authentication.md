@@ -157,8 +157,9 @@ Context policy.
 
 For pup 1.10.7, the attached host process accepts only a dedicated opener
 request carrying the exact default-US1
-`https://app.datadoghq.com/oauth2/v1/authorize` route with the seven reviewed
-query keys, bounded DCR client ID/state/PKCE fields, `S256`, and a sorted subset
+`https://app.datadoghq.com/oauth2/v1/authorize` route with seven mandatory
+query keys, at most one UUID-shaped `dd_oid` organization hint, bounded DCR
+client ID/state/PKCE fields, `S256`, and a sorted subset
 of the client's 110 compiled default scopes. The callback is exact HTTP
 `127.0.0.1`, exact `/oauth/callback`, and one of ports 8000, 8080, 8888, or
 9000. Tobari binds the port before browser open and relays one opaque callback
@@ -167,6 +168,10 @@ interpretation, exchange, refresh, persistence, and presentation. `pup_ready`
 grants only the two exact US1 POSTs above. Product APIs, telemetry, revoke,
 alternate sites, caller-added scopes, and neighboring OAuth routes remain
 under ordinary Context policy.
+The optional hint covers both a provider-confirmed UUID recalled from the
+default session and pup's explicit `--org-uuid`; it cannot change site, client,
+scope, redirect, callback, or readiness HTTP authority. Unknown query keys and
+duplicate or malformed hints open nothing.
 
 For pinned AWS CLI 2.36.11, the attached host process accepts only the default
 IAM Identity Center authorization-code opener request at exact

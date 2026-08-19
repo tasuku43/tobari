@@ -2,6 +2,7 @@ package dockerruntime
 
 import (
 	"net/url"
+	"regexp"
 	"strings"
 )
 
@@ -18,6 +19,10 @@ var pupWorkspaceCallbackPorts = map[int]struct{}{
 	8888: {},
 	9000: {},
 }
+
+var pupWorkspaceOrgUUIDPattern = regexp.MustCompile(
+	`^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$`,
+)
 
 // This is the compiled default scope ceiling of pup 1.10.7. The Workspace
 // contract accepts a sorted subset so --read-only and explicitly reduced
@@ -64,7 +69,7 @@ func parsePupWorkspaceLoginAuthorizationURL(target string) (workspaceLoginAuthor
 		return workspaceLoginAuthorization{}, false
 	}
 	query, err := url.ParseQuery(parsed.RawQuery)
-	if err != nil || len(query) != 7 {
+	if err != nil {
 		return workspaceLoginAuthorization{}, false
 	}
 	want := map[string]string{
@@ -76,12 +81,19 @@ func parsePupWorkspaceLoginAuthorizationURL(target string) (workspaceLoginAuthor
 			return workspaceLoginAuthorization{}, false
 		}
 	}
+	// Do not restore a total-field-count check here. Pup 1.10.7 adds dd_oid
+	// after it has remembered an organization; authority comes from validating
+	// every mandatory field and the finite reviewed optional set independently.
 	for key := range query {
 		switch key {
-		case "response_type", "client_id", "redirect_uri", "state", "scope", "code_challenge", "code_challenge_method":
+		case "response_type", "client_id", "redirect_uri", "state", "scope", "code_challenge", "code_challenge_method", "dd_oid":
 		default:
 			return workspaceLoginAuthorization{}, false
 		}
+	}
+	if values, present := query["dd_oid"]; present &&
+		(len(values) != 1 || !pupWorkspaceOrgUUIDPattern.MatchString(values[0])) {
+		return workspaceLoginAuthorization{}, false
 	}
 	if len(query["client_id"]) != 1 || !pupOAuthClientIDPattern.MatchString(query["client_id"][0]) ||
 		len(query["state"]) != 1 || !pupOAuthStatePattern.MatchString(query["state"][0]) ||

@@ -743,7 +743,10 @@ budget, and URLs outside the closed semantic union. One fresh compile-time
 driver registry owns that union; each entry binds a stable driver ID to one
 semantic target parser and open-only or callback-bearing mode. Selection scans
 the complete registry and rejects ambiguous matches, so order cannot widen
-authority. The relay verifies the
+authority. Each parser validates mandatory semantic fields independently from
+an explicit finite set of reviewed optional selectors; total field count is
+not a substitute for either check, and every unknown or duplicate field still
+fails closed. The relay verifies the
 selected container labels, binds the URL's validated
 non-privileged loopback port, opens the reviewed host URL, and transports
 callback bytes without parsing them. Device-flow confirmation remains entirely
