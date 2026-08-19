@@ -539,7 +539,7 @@ func TestPolicyReviewSelectorGroupsByStableScopeAndKeepsEffectOrderWithinGroup(t
 	}
 }
 
-func TestPolicyReviewSelectorAlignsVisibleEffectsWithMinimumStateWidth(t *testing.T) {
+func TestPolicyReviewSelectorKeepsEffectColumnFixedAcrossStateCombinations(t *testing.T) {
 	t.Parallel()
 	report := testPolicyReviewReport()
 	base := report.Items[0]
@@ -557,38 +557,50 @@ func TestPolicyReviewSelectorAlignsVisibleEffectsWithMinimumStateWidth(t *testin
 	allowed.ObservationCount = 1
 	report.Items = []tobari.PolicyCandidate{base, pending, allowed}
 	report.ReviewItems = nil
-	staged := map[string]policyReviewAction{
+	firstStaged := map[string]policyReviewAction{
 		base.ID:    policyReviewActionDeny,
 		allowed.ID: policyReviewActionAllow,
 	}
-
-	var output bytes.Buffer
-	if lines := renderPolicyReviewListRaw(&output, report, 1, 0, "", 0, false, staged); lines <= 0 {
-		t.Fatalf("list render lines = %d, output = %q", lines, output.String())
+	secondStaged := map[string]policyReviewAction{
+		base.ID:    policyReviewActionDeny,
+		pending.ID: policyReviewActionDeny,
 	}
 
-	rows := make([]string, 0, len(report.Items))
-	for _, line := range strings.Split(output.String(), "\n") {
-		if strings.Contains(line, "https://google") && strings.Contains(line, "×") {
-			rows = append(rows, line)
+	var firstOutput, secondOutput bytes.Buffer
+	if lines := renderPolicyReviewListRaw(&firstOutput, report, 1, 0, "", 0, false, firstStaged); lines <= 0 {
+		t.Fatalf("first list render lines = %d, output = %q", lines, firstOutput.String())
+	}
+	if lines := renderPolicyReviewListRaw(&secondOutput, report, 2, 0, "", 0, false, secondStaged); lines <= 0 {
+		t.Fatalf("second list render lines = %d, output = %q", lines, secondOutput.String())
+	}
+
+	effectRows := func(output string) []string {
+		rows := make([]string, 0, len(report.Items))
+		for _, line := range strings.Split(output, "\n") {
+			if strings.Contains(line, "https://google") && strings.Contains(line, "×") {
+				rows = append(rows, line)
+			}
+		}
+		return rows
+	}
+	firstRows := effectRows(firstOutput.String())
+	secondRows := effectRows(secondOutput.String())
+	if len(firstRows) != 3 || len(secondRows) != 3 {
+		t.Fatalf("effect rows = first:%q second:%q, want 3 rows each", firstRows, secondRows)
+	}
+	methodColumn := utf8.RuneCountInString(firstRows[0][:strings.Index(firstRows[0], "GET")])
+	for _, row := range append(firstRows, secondRows...) {
+		if column := utf8.RuneCountInString(row[:strings.Index(row, "GET")]); column != methodColumn {
+			t.Fatalf("effect column moved from %d to %d: first=%q second=%q", methodColumn, column, firstRows, secondRows)
 		}
 	}
-	if len(rows) != 3 {
-		t.Fatalf("effect rows = %q, want 3 rows in output %q", rows, output.String())
-	}
-	methodColumn := utf8.RuneCountInString(rows[0][:strings.Index(rows[0], "GET")])
-	secondMethodColumn := utf8.RuneCountInString(rows[1][:strings.Index(rows[1], "GET")])
-	thirdMethodColumn := utf8.RuneCountInString(rows[2][:strings.Index(rows[2], "GET")])
-	if methodColumn < 0 || secondMethodColumn != methodColumn || thirdMethodColumn != methodColumn {
-		t.Fatalf("effect columns are not aligned: %q", rows)
-	}
 	for _, want := range []string{
-		"    Deny exact   GET",
-		"  ❯ Pending      GET",
-		"    Allow exact  GET",
+		"    Deny exact           GET",
+		"  ❯ Pending              GET",
+		"    Allow exact          GET",
 	} {
-		if !strings.Contains(output.String(), want) {
-			t.Fatalf("minimum-width list output %q lacks %q", output.String(), want)
+		if !strings.Contains(firstOutput.String(), want) {
+			t.Fatalf("fixed-width list output %q lacks %q", firstOutput.String(), want)
 		}
 	}
 }

@@ -11,7 +11,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/tasuku43/tobari/internal/domain/fault"
 	"github.com/tasuku43/tobari/internal/domain/tobari"
@@ -67,6 +66,9 @@ type policyReviewSelector struct {
 const (
 	policyReviewRefreshInterval   = time.Second
 	policyReviewRefreshMaxBackoff = 8 * time.Second
+	// The longest possible list state is "Pending · Suggested". Keeping this
+	// column fixed prevents the HTTP effect from moving as decisions change.
+	policyReviewListStateWidth = 19
 )
 
 // policyReviewRefreshTicker is the narrow scheduling boundary for automatic
@@ -398,18 +400,6 @@ func policyReviewListState(
 		return "Pending · Suggested"
 	}
 	return state
-}
-
-func policyReviewListStateWidth(
-	report tobari.PolicyCandidateReport, items []tobari.PolicyCandidate, staged []map[string]policyReviewAction,
-) int {
-	width := 0
-	for _, candidate := range items {
-		if current := utf8.RuneCountInString(policyReviewListState(report, candidate, staged)); current > width {
-			width = current
-		}
-	}
-	return width
 }
 
 func policyReviewStagedStyle(candidateID string, staged []map[string]policyReviewAction) styleToken {
@@ -890,7 +880,6 @@ func renderPolicyReviewListRaw(
 	if end > len(report.Items) {
 		end = len(report.Items)
 	}
-	stateWidth := policyReviewListStateWidth(report, report.Items[top:end], staged)
 	for index := top; index < end; index++ {
 		candidate := report.Items[index]
 		if index == top || !samePolicyReviewScope(report.Items[index-1], candidate) {
@@ -903,7 +892,7 @@ func renderPolicyReviewListRaw(
 		if index == selected {
 			prefix = "  " + applyStyleToken(style, styleText, "❯ ")
 		}
-		state := fmt.Sprintf("%-*s", stateWidth, policyReviewListState(report, candidate, staged))
+		state := fmt.Sprintf("%-*s", policyReviewListStateWidth, policyReviewListState(report, candidate, staged))
 		lines = append(lines, prefix+applyStyleToken(style, policyReviewStagedStyle(candidate.ID, staged), state)+"  "+
 			applyStyleToken(style, styleText, policyReviewCandidateListEffect(candidate))+"  "+
 			applyStyleToken(style, styleMuted, fmt.Sprintf("%d×", candidate.EffectiveObservationCount())))
