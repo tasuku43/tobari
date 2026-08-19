@@ -672,7 +672,10 @@ typed `{id}` template and its evidence count. A compact selected-effect preview 
 observation and denial reason before detail inspection. Matching display names,
 paths, order, or indentation do not merge distinct typed identities. The raw
 list stages exact Allow or Deny by unchanged typed ID, clears one staged row,
-and advances only to a later undecided row without wrapping. An exact detail
+and advances only to a later undecided row without wrapping. Its selection
+marker has a fixed column, and its visible decision-state column uses only the
+minimum width needed by the currently visible labels so every HTTP effect
+starts at the same column without reserving a permanently wide gutter. An exact detail
 offers the same exact decisions; a template
 detail states that unseen values are included and offers Allow template, Allow
 observed exact, and Deny pending exact. The chosen action is staged without a
