@@ -450,13 +450,19 @@ func createContext(
 		if wizard == nil {
 			wizard = newContextCreateWizardWithStyle(!c.noColor)
 		}
+		if terminalWizard, ok := wizard.(*terminalContextCreateWizard); ok && terminalWizard.bootstrap == nil {
+			terminalWizard.bootstrap = c.context
+		}
 		selection, wizardErr := wizard.Compose(ctx, c.In, c.Err)
 		if wizardErr != nil {
 			return tobari.ContextReport{}, normalizeContextCreateWizardError(wizardErr)
 		}
 		policy := selection.MethodPolicy.Clone()
 		var bootstrap *tobari.ContextBootstrapSnapshot
-		if selection.AWSBootstrapProfile != "" {
+		if selection.Bootstrap != nil {
+			prepared := selection.Bootstrap.Clone()
+			bootstrap = &prepared
+		} else if selection.AWSBootstrapProfile != "" {
 			prepared, prepareErr := c.context.PrepareAWSBootstrap(ctx, selection.AWSBootstrapProfile)
 			if prepareErr != nil {
 				return tobari.ContextReport{}, prepareErr

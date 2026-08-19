@@ -86,6 +86,8 @@ const (
 	selectorKeyDown
 	selectorKeyHome
 	selectorKeyEnd
+	selectorKeyPageUp
+	selectorKeyPageDown
 	selectorKeyEnter
 	selectorKeyCreate
 	selectorKeyAllow
@@ -480,7 +482,7 @@ func readSelectorKeyOnce(ctx context.Context, in io.Reader) (selectorKey, error)
 		return selectorKey{kind: selectorKeyApply}, nil
 	case 'y', 'Y':
 		return selectorKey{kind: selectorKeyConfirm}, nil
-	case 'h', 'H':
+	case 'h', 'H', 'i', 'I':
 		return selectorKey{kind: selectorKeyInherit}, nil
 	case 'l', 'L':
 		return selectorKey{kind: selectorKeyLiteral}, nil
@@ -521,6 +523,15 @@ func readSelectorKeyOnce(ctx context.Context, in io.Reader) (selectorKey, error)
 			return selectorKey{kind: selectorKeyHome}, nil
 		case 'F':
 			return selectorKey{kind: selectorKeyEnd}, nil
+		case '5', '6':
+			terminator, terminatorErr := readSelectorByte(ctx, in)
+			if terminatorErr != nil || terminator != '~' {
+				return selectorKey{kind: selectorKeyInvalid}, nil
+			}
+			if code == '5' {
+				return selectorKey{kind: selectorKeyPageUp}, nil
+			}
+			return selectorKey{kind: selectorKeyPageDown}, nil
 		default:
 			return selectorKey{kind: selectorKeyInvalid}, nil
 		}

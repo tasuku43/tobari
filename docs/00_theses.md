@@ -795,11 +795,14 @@ OPA allow.
   owner-selected guardrail and non-readiness baseline plus an enabled or
   disabled native-readiness capability. Readiness independently selects the
   current trusted-binary overlay. Argument-free creation on an interactive
-  text terminal uses one continuous five-step frame to collect the Context
-  name, direct source access, one complete method policy, and optional typed
-  Workspace bootstrap, then reviews the complete composition before its single
-  mutation. It does not leave and re-enter the interaction frame between
-  fields. Its method-Deny choices
+  text terminal uses one continuous four-stage frame for name, direct source
+  access, effective network policy, and final review. Optional typed Workspace
+  bootstrap is edited from that review rather than stopping every user. The
+  network and final-review projections show every effective method decision,
+  reviewed routine agent traffic, and the terminal destination ceiling; only
+  customization exposes default, inherited, and override storage. One section
+  can be edited and returned directly to review before the single mutation. Its
+  method-Deny choices
   remove only now-unreachable positive baseline rules from the immutable
   selected-preset snapshot; destination ceilings and exact Denies remain
   unchanged. Any explicit create input selects deterministic direct mode.
@@ -967,6 +970,16 @@ whose `AWS_PROFILE` equals that AWS adapter. Tobari canonicalizes the exec
 contract; it never copies its source bytes. Neither adapter reads credentials,
 token caches, arbitrary helpers or executable selections, includes, arbitrary
 dotfiles, or alternate paths.
+
+Interactive Context creation inspects those fixed host files only after the
+user chooses to edit Workspace bootstrap. Read-only discovery parses each file
+once and returns typed available and unavailable candidates; presentation does
+not infer compatibility from names. AWS candidates resolve one profile through
+its referenced SSO session, and EKS candidates resolve only against the exact
+selected AWS semantic revision. Global structural or source-safety failure
+returns no partial candidates. The final Create action revalidates the selected
+semantic bundle and returns to review on drift; unrelated profile changes do
+not invalidate it. Direct command flags retain exact selector compatibility.
 
 Projection occurs only while a new logical Workspace is being created and is
 recorded before that Workspace becomes authoritative. Context refresh changes

@@ -23,6 +23,7 @@ type contextRuntimeFake struct {
 	buildResult        tobari.ContextReport
 	configureResult    tobari.ContextReport
 	configureGitResult tobari.ContextReport
+	discoverAWSResult  tobari.ContextAWSBootstrapDiscovery
 	listErr            error
 	showErr            error
 	createErr          error
@@ -32,6 +33,7 @@ type contextRuntimeFake struct {
 	buildErr           error
 	configureErr       error
 	configureGitErr    error
+	discoverAWSErr     error
 	createCalls        int
 	deleteCalls        int
 	useCalls           int
@@ -39,6 +41,7 @@ type contextRuntimeFake struct {
 	buildCalls         int
 	configureCalls     int
 	configureGitCalls  int
+	discoverAWSCalls   int
 	showCalls          int
 	buildProgressCalls int
 	lastName           string
@@ -50,6 +53,11 @@ type contextRuntimeFake struct {
 	lastChange         tobari.ContextShellEnvironmentSetting
 	lastChanges        []tobari.ContextShellEnvironmentSetting
 	lastGitChange      tobari.ContextGitIdentitySetting
+}
+
+func (f *contextRuntimeFake) DiscoverContextAWSBootstraps(context.Context) (tobari.ContextAWSBootstrapDiscovery, error) {
+	f.discoverAWSCalls++
+	return f.discoverAWSResult, f.discoverAWSErr
 }
 
 func (f *contextRuntimeFake) ListContexts(context.Context) (tobari.ContextListResult, error) {
@@ -165,6 +173,21 @@ func contextReport(task, name string) tobari.ContextReport {
 		Stores: tobari.ContextStorePaths{
 			PolicyDirectory: filepath.Join(string(filepath.Separator), "config", "contexts", name, "policy"),
 		},
+	}
+}
+
+func TestDiscoverAWSBootstrapsPreservesTypedRejectedSourceWithoutMutation(t *testing.T) {
+	t.Parallel()
+	runtime := &contextRuntimeFake{discoverAWSResult: tobari.ContextAWSBootstrapDiscovery{
+		State: tobari.ContextBootstrapDiscoveryRejected, Reason: "Host AWS shared config is unsafe.", Candidates: []tobari.ContextAWSBootstrapCandidate{},
+	}}
+	service := New(runtime)
+	result, err := service.DiscoverAWSBootstraps(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.State != tobari.ContextBootstrapDiscoveryRejected || runtime.discoverAWSCalls != 1 || runtime.createCalls != 0 || runtime.configureCalls != 0 {
+		t.Fatalf("discovery result/calls = %+v / discover=%d create=%d configure=%d", result, runtime.discoverAWSCalls, runtime.createCalls, runtime.configureCalls)
 	}
 }
 

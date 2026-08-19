@@ -789,6 +789,16 @@ Projection creates only private `.aws/config` in a fresh Workspace home before
 publication. No refresh or reconciliation path may write an existing
 Workspace home.
 
+The interactive Context wizard does not inspect host AWS configuration on its
+ordinary path. Only explicit Workspace-bootstrap editing invokes a read-only
+candidate port. Infrastructure reads the same fixed bounded file once, resolves
+each profile through its referenced SSO session with the strict preparation
+resolver, and returns no credential or cache material. Individually invalid
+profiles are non-authoritative unavailable data; malformed, duplicate, or
+unsafe whole-file state fails closed with no partial candidates. Final Create
+revalidates the selected semantic bundle before mutation and never silently
+drops a reviewed bootstrap selection.
+
 The dependent `kubernetes_eks` adapter applies the same boundary to fixed host
 `~/.kube/config`. Kubeconfig is untrusted executable and credential-bearing
 input, not a file-copy source. The parser resolves one explicit context and
@@ -801,6 +811,11 @@ or environment, alternate paths, symlinks, and unsafe or oversized files fail
 before mutation. Projection re-encodes canonical private JSON kubeconfig; it
 does not execute or copy the host entry. This grants no Kubernetes endpoint or
 AWS API effect, and Workspace-owned AWS SSO remains the only credential source.
+
+Wizard EKS discovery uses the same parser and resolver, is scoped to the exact
+reviewed AWS semantic revision, and performs no network access or execution.
+Only available typed candidates can be selected; display labels, ordering, and
+adjacency cannot establish profile compatibility.
 
 Shell accepts only `PS1`, `TERM`, `COLORTERM`, and `NO_COLOR`, never enumerates
 the host environment, and resolves `inherit` only when a future child shell is

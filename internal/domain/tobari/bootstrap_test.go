@@ -117,3 +117,28 @@ func TestContextAWSBootstrapRejectsNonAWSStartURLAndScopeExplosion(t *testing.T)
 		t.Fatal("unbounded registration scopes were accepted")
 	}
 }
+
+func TestContextAWSBootstrapDiscoveryRequiresTypedAvailabilityAndExplicitEmptyCollection(t *testing.T) {
+	t.Parallel()
+	snapshot, err := NewContextBootstrapSnapshot(1, testAWSBootstrap())
+	if err != nil {
+		t.Fatal(err)
+	}
+	valid := ContextAWSBootstrapDiscovery{State: ContextBootstrapDiscoveryAvailable, Candidates: []ContextAWSBootstrapCandidate{
+		{Profile: snapshot.AWS.Profile, State: ContextBootstrapCandidateAvailable, Snapshot: &snapshot},
+		{Profile: "broken", State: ContextBootstrapCandidateUnavailable, Reason: "Referenced SSO session does not exist."},
+	}}
+	if err := valid.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	invalid := valid
+	invalid.Candidates = nil
+	if err := invalid.Validate(); err == nil {
+		t.Fatal("absent candidate collection was accepted")
+	}
+	invalid = valid
+	invalid.Candidates[1].Snapshot = &snapshot
+	if err := invalid.Validate(); err == nil {
+		t.Fatal("unavailable candidate carried authority")
+	}
+}

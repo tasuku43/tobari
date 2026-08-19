@@ -9,7 +9,7 @@ transcripts as repository fixtures.
 | Outcome | Public route | Success evidence |
 |---|---|---|
 | Discover capabilities | `help --format agent`, then one namespace or exact-command selector | Root remains a compact capability index; one scoped read supplies complete typed inputs, outputs, failures, and workflow |
-| Choose and retire a Context envelope | `context list`, `context show`, `context create`, `context use`, `context delete` | Human list cards expose filesystem and complete method-policy facts; argument-free terminal creation completes name/source/method policy once, direct JSON remains deterministic, changing current does not retarget Workspaces, and deletion rejects protected/current/bound Contexts |
+| Choose and retire a Context envelope | `context list`, `context show`, `context create`, `context use`, `context delete` | Human list cards expose filesystem and complete method-policy facts; argument-free terminal creation shows the complete effective boundary, edits one section, discovers optional typed bootstrap candidates without selector re-entry, and creates once; direct JSON remains deterministic, changing current does not retarget Workspaces, and deletion rejects protected/current/bound Contexts |
 | Enter bounded work | `tobari [--context NAME]`; explicit `cluster up` remains available | On first use, one root route completes reviewed Context creation and exact shared-cluster reconciliation before one selected live source bind, writable home/tmpfs, guarded network, reusable Workspace, and no direct egress |
 | Grow exact permission | `policy review`, or `policy candidates` then one exact allow/deny | Terminal guardrail precedes every candidate; explicit review activates only exact Context/project/scheme/host/port/method/path authority |
 | Inspect/reset decisions | `policy rules`, then `policy reset --id` | One current exact decision is removed through its unchanged opaque reference and returns to default deny |
@@ -178,8 +178,10 @@ the native-readiness overlay of existing enabled Contexts without rewriting
 their snapshot.
 
 For typed Workspace bootstrap, use only synthetic host homes. Prove the AWS
-adapter reads one fixed shared-config file, accepts one reviewed profile and
-referenced SSO session, and rejects unknown keys, helpers, duplicates,
+adapter reads one fixed shared-config file only after explicit bootstrap
+editing, parses it once, resolves profiles through shared referenced SSO
+sessions, exposes typed available/unavailable candidates, and rejects unknown
+keys, helpers, duplicates,
 symlinks, unsafe modes, oversized input, credentials, and cache material. A new
 Workspace must receive exact owner-only canonical `.aws/config` bytes and an
 applied revision before publication. After a semantic Context refresh, prove
@@ -193,6 +195,11 @@ arguments, unsafe paths, duplicates, and source drift. A composed new Workspace
 must receive canonical private `.kube/config`; removing EKS preserves AWS and
 removing AWS first is rejected. No test may perform external AWS or Kubernetes
 I/O.
+Whole-file malformed or unsafe input must return no partial candidates;
+individual semantic incompatibility may remain visible but unselectable. Final
+Create must revalidate the selected profile/session/EKS semantic bundle, return
+the draft to review on selected-source drift, and ignore unrelated profile
+changes. The ordinary no-bootstrap path performs no host configuration read.
 Workspace receives the new revision and reports `current`. A staged refresh
 whose source changes before Apply must make zero Context and Workspace writes.
 

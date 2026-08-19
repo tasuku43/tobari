@@ -251,7 +251,7 @@ The public commands are:
 | `config git [--source default\|inherit\|literal] [--name NAME] [--email EMAIL] [--context NAME] [--format text\|json]` | act, fixed target | write | Configure one atomic Context Git commit-identity fallback directly, or stage and apply its source from one terminal screen |
 | `config bootstrap aws [--profile NAME] [--refresh] [--remove] [--context NAME] [--format text\|json]` | act, fixed target | write | Normalize one strict secret-free host AWS IAM Identity Center profile for future Workspaces, refresh it after a semantic diff, or remove the future recipe; existing Workspace homes never change |
 | `config bootstrap kubernetes eks [--kube-context NAME] [--refresh] [--remove] [--context NAME] [--format text\|json]` | act, fixed target | write | Compose one strict AWS CLI-generated host EKS context with the Context AWS profile, refresh it, or remove only EKS; no credential, arbitrary exec, network authority, or existing Workspace home changes |
-| `context create [--name NAME] [--image IMAGE] [--mode guided|advanced] [--source-access read-only\|read-write] [--policy-preset PRESET] [--native-readiness enabled\|disabled] [--bootstrap-aws-profile NAME] [--bootstrap-eks-context NAME] [--format text\|json]` | act, fixed target | create | With no inputs, use one continuous five-step terminal frame for name, selected standard runtime, source access, a complete HTTP method policy, optional typed Workspace bootstrap, and final review, then create once; any explicit input selects deterministic direct mode and requires `--name`; EKS requires AWS and omission imports no host configuration |
+| `context create [--name NAME] [--image IMAGE] [--mode guided|advanced] [--source-access read-only\|read-write] [--policy-preset PRESET] [--native-readiness enabled\|disabled] [--bootstrap-aws-profile NAME] [--bootstrap-eks-context NAME] [--format text\|json]` | act, fixed target | create | With no inputs, use one continuous four-stage terminal frame for name, source access, effective HTTP policy, and complete final review; optional typed Workspace bootstrap is edited from review through resolved host candidates, then one explicit Create mutates; any explicit input selects deterministic direct mode and requires `--name`; EKS requires AWS and omission imports no host configuration |
 | `context delete --name NAME [--format text\|json]` | act, fixed target | write | Delete one unused non-current non-default Context and its exact owner stores while preserving project files and shared runtime images |
 | `context use --name NAME [--format text\|json]` | act, fixed target | write | Change only the current/default Context; do not mutate existing Tobari or start/reconcile the cluster |
 | `runtime init [--format text|json]` | act, fixed target | create | Create the current Context's runtime/Dockerfile template without changing its selected image |
@@ -274,7 +274,7 @@ stable Context ID is authoritative for the remainder of the operation.
 The root command is interactive and requires a TTY on stdin, stdout, and stderr.
 It does not silently create state in a non-interactive context. With no
 persisted Context and no explicit `--context`, it runs the same ordinary
-five-step Context wizard. Cancellation before final Create changes nothing.
+four-stage Context wizard. Cancellation before final Create changes nothing.
 After confirmed Context creation it emits that durable success, performs the
 exact catalog-owned `cluster up` action without another confirmation, and
 retains the Context if cluster reconciliation fails. When shared services are
@@ -488,14 +488,19 @@ undeclared Docker mutation by the CLI.
   perform zero mutation.
   Prompts use stderr and the confirmed complete Context report uses stdout.
 - `context create` has two complete modes. With no command input, text success
-  and error formats plus terminal stdin/stderr are required; the wizard reads a
-  valid name, chooses direct source access, stages `allow`, `exact_review`, or
-  `deny` for the extension-method default and each standard HTTP method, and
-  optionally selects a typed Workspace bootstrap. On a raw-capable terminal,
-  name, filesystem, network, bootstrap, and final review share one alternate-
-  screen session; step transitions do not return to a normal line prompt and
-  Back preserves staged values. A terminal without the reviewed raw-mode
-  support uses the bounded line-mode equivalent. Final Create performs one
+  and error formats plus terminal stdin/stderr are required. The ordinary
+  four-stage path is name, filesystem, network, and Review & Create. Network
+  first renders reviewed routine Claude Code/Codex traffic, every standard and
+  extension-method effective decision, and the private/unsafe destination
+  ceiling. Customization alone exposes default, inherited, and override
+  sources plus inherit/reset controls. Review renders the selected standard
+  runtime and complete effective filesystem, network, and future-Workspace
+  bootstrap boundary; it can scroll and edit one section without replaying
+  later steps. Workspace bootstrap defaults to not configured and host files
+  are not inspected unless that section is opened. On a raw-capable terminal,
+  all stages share one alternate-screen session; Back preserves staged values.
+  A terminal without the reviewed raw-mode support uses the bounded line-mode
+  equivalent. Explicit Create performs one
   mutation and cancellation from any step performs none. Any
   explicit input, including `--format`, selects direct mode and requires
   `--name`; defaults complete omitted direct-mode values without prompting.
@@ -1070,6 +1075,16 @@ login, changes network policy, or rewrites an existing Workspace home. A new
 Workspace receives one canonical private `.aws/config` and records its applied
 semantic revision before logical publication.
 
+The argument-free Context wizard reuses this resolver through a read-only
+candidate boundary. It reads fixed `~/.aws/config` only after explicit
+Workspace-bootstrap editing, parses the file once, and resolves every profile
+with its referenced `sso-session`. Available candidates expose only the
+secret-free semantic fields needed to choose; individually incompatible
+profiles remain visible with a reason, while malformed, duplicate, or unsafe
+whole-file input yields no partial candidates. Final Create revalidates the
+reviewed profile/session semantic revision. A changed selected bundle returns
+to review with zero mutation; unrelated profile changes do not block.
+
 `config bootstrap kubernetes eks` composes one additional closed adapter with
 that AWS recipe. It reads only fixed host `~/.kube/config`, selects one explicit
 context and its exact cluster/user references, and accepts only an inline CA,
@@ -1081,6 +1096,12 @@ private `.kube/config` JSON in the fresh Workspace home. Removing EKS preserves
 AWS; AWS cannot be removed or changed to another profile until its dependent EKS adapter is removed. No
 configure, refresh, or create operation calls AWS or Kubernetes or grants a
 network effect.
+
+After an AWS candidate is selected, the Context wizard discovers only
+kubeconfig contexts compatible with that exact AWS profile and semantic
+revision. `Do not configure Amazon EKS` is the first explicit choice;
+incompatible contexts remain visible but unselectable. Discovery performs no
+network or subprocess call and reads no credential or cache state.
 
 `cluster up` obtains and preflights the immutable Gateway image and official
 runtime bases required by all Contexts, generates and validates the complete

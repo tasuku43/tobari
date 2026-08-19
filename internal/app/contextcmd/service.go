@@ -52,6 +52,59 @@ type contextEKSBootstrapRuntimePort interface {
 	ConfigureContextEKSBootstrap(context.Context, string, string, string, bool) (tobari.ContextReport, error)
 }
 
+type contextAWSBootstrapDiscoveryRuntimePort interface {
+	DiscoverContextAWSBootstraps(context.Context) (tobari.ContextAWSBootstrapDiscovery, error)
+}
+
+type contextEKSBootstrapDiscoveryRuntimePort interface {
+	DiscoverContextEKSBootstraps(context.Context, tobari.ContextBootstrapSnapshot) (tobari.ContextEKSBootstrapDiscovery, error)
+}
+
+// DiscoverAWSBootstraps is the read-only, wizard-owned candidate boundary. A
+// rejected source is returned as typed state so the human can explicitly
+// continue without bootstrap; infrastructure errors remain failures.
+func (s *Service) DiscoverAWSBootstraps(ctx context.Context) (tobari.ContextAWSBootstrapDiscovery, error) {
+	if err := s.requireRuntime(); err != nil {
+		return tobari.ContextAWSBootstrapDiscovery{}, err
+	}
+	runtime, ok := s.runtime.(contextAWSBootstrapDiscoveryRuntimePort)
+	if !ok {
+		return tobari.ContextAWSBootstrapDiscovery{}, fault.New(fault.KindInternal, "missing_runtime", "Context bootstrap discovery is unavailable", false)
+	}
+	result, err := runtime.DiscoverContextAWSBootstraps(ctx)
+	if err != nil {
+		return tobari.ContextAWSBootstrapDiscovery{}, fault.Wrap(fault.KindUnavailable, "bootstrap_discovery_failed", "Host AWS bootstrap candidates could not be inspected", true, err, fault.NextAction{Command: "help config bootstrap aws", Reason: "Inspect the fixed host AWS shared-config boundary."})
+	}
+	if err := result.Validate(); err != nil {
+		return tobari.ContextAWSBootstrapDiscovery{}, fault.Wrap(fault.KindContract, "invalid_bootstrap_candidates", "AWS bootstrap candidates are invalid", false, err)
+	}
+	return result, nil
+}
+
+func (s *Service) DiscoverEKSBootstraps(ctx context.Context, aws tobari.ContextBootstrapSnapshot) (tobari.ContextEKSBootstrapDiscovery, error) {
+	if err := s.requireRuntime(); err != nil {
+		return tobari.ContextEKSBootstrapDiscovery{}, err
+	}
+	if err := aws.Validate(); err != nil || aws.EKS != nil {
+		return tobari.ContextEKSBootstrapDiscovery{}, fault.New(fault.KindInvalidInput, "invalid_aws_bootstrap_candidate", "A reviewed AWS-only candidate is required before EKS discovery", false)
+	}
+	runtime, ok := s.runtime.(contextEKSBootstrapDiscoveryRuntimePort)
+	if !ok {
+		return tobari.ContextEKSBootstrapDiscovery{}, fault.New(fault.KindInternal, "missing_runtime", "Context EKS bootstrap discovery is unavailable", false)
+	}
+	result, err := runtime.DiscoverContextEKSBootstraps(ctx, aws)
+	if err != nil {
+		return tobari.ContextEKSBootstrapDiscovery{}, fault.Wrap(fault.KindUnavailable, "bootstrap_discovery_failed", "Host EKS bootstrap candidates could not be inspected", true, err, fault.NextAction{Command: "help config bootstrap kubernetes eks", Reason: "Inspect the fixed host kubeconfig boundary."})
+	}
+	if err := result.Validate(); err != nil || result.AWSRevision != aws.Revision {
+		if err == nil {
+			err = fmt.Errorf("EKS candidates do not bind the requested AWS semantic revision")
+		}
+		return tobari.ContextEKSBootstrapDiscovery{}, fault.Wrap(fault.KindContract, "invalid_bootstrap_candidates", "EKS bootstrap candidates are invalid", false, err)
+	}
+	return result, nil
+}
+
 func (s *Service) PreviewAWSBootstrap(ctx context.Context, contextName, profile string) (tobari.ContextBootstrapPreview, error) {
 	if err := s.requireRuntime(); err != nil {
 		return tobari.ContextBootstrapPreview{}, err

@@ -245,6 +245,12 @@ application owns typed composition and result correlation. Infrastructure
 replaces the selected preset method policy, filters only positive baseline
 entries made unreachable by method Deny, normalizes the resulting immutable
 snapshot, and persists its digest; CLI never edits policy files directly.
+The ordinary interaction is Name -> Filesystem -> effective Network -> Review.
+Optional Workspace-bootstrap editing calls application-owned read ports only
+from Review; infrastructure returns typed resolved candidates and the final
+action revalidates the selected semantic revision before mutation. The CLI
+renders those facts but never reads host files or infers compatibility from
+labels.
 The interactive root may reuse this exact wizard only when Context observation
 returns the display-only synthetic default. After creation, CLI composition
 switches command identity before each further action: `context create`,
@@ -670,6 +676,12 @@ infrastructure-only pinned YAML dependency, resolves only one explicit context,
 and converts the reviewed source to domain values; domain and CLI remain free of
 the parser dependency. Projection runs between fresh home creation and logical
 Workspace publication. Runtime reconciliation has no bootstrap write path.
+Wizard discovery is a read-only sibling port: infrastructure parses each fixed
+file once, shares the same resolver used by exact preparation, and returns
+explicit available/unavailable candidates. Structural or source-safety failure
+returns an explicit empty collection and no partial candidates. Candidate
+ordering or proximity is never identity; available entries carry the complete
+normalized snapshot and EKS results bind the exact AWS semantic revision.
 The Workspace record stores only the applied revision so status can compare it
 with the current Context recipe without inspecting the Workspace file.
 
