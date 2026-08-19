@@ -685,10 +685,12 @@ administration project.
   revalidated against fresh evidence. `policy review --watch` is a human-text,
   raw-terminal-only monitor over repeated bounded snapshots. It refreshes
   automatically with bounded backoff, retains the last valid screen on read
-  failure, and continues watching after a successful Apply without retrying the
-  denied request. A non-initial successful refresh with at least one previously
+  failure, retains one alternate-screen frame between Apply operations, skips
+  repaint for an unchanged successful timer refresh, and continues watching
+  after a successful Apply without retrying the denied request. A non-initial successful refresh with at least one previously
   unseen typed review-item ID may emit one fixed trusted terminal-emulator cue
-  through conservative `auto`, explicit OSC 9 or BEL, or `off`; denial evidence
+  through `auto` recognition of reviewed iTerm2 or protected cmux terminal
+  identity, explicit OSC 9 or BEL, or `off`; denial evidence
   never enters the control payload. A refresh reconciles staged
   choices only by typed review-item ID: retained
   IDs keep their decision and order, stale IDs lose Apply eligibility, and a

@@ -708,13 +708,17 @@ The test suite has complementary levels:
   different-ID scopes separate, preserve selection and staged order by
   candidate ID across refresh/reorder and new arrival, remove stale choices
   without transfer, retain the last valid screen across refresh failure with
-  bounded backoff,
+  bounded backoff, retain exactly one alternate-screen frame across unchanged
+  timer refreshes, emit no unchanged repaint, redraw a changed typed snapshot
+  inside that frame, and restore terminal state exactly once when watch stops,
   lead rows with the exact HTTP effect, and keep
   selected observation evidence visible before inspection. The
   watch notification matrix covers `auto`, `osc9`, `bel`, and `off`, excludes
   the initial snapshot, coalesces multiple new IDs per successful refresh,
   suppresses failure/stale/known-reappearance and post-Apply-known cues, and
-  proves hostile evidence cannot enter OSC framing. A cue writer failure
+  proves hostile evidence cannot enter OSC framing, selects OSC 9 only for exact
+  iTerm2 or complete protected cmux workspace/surface identity, and retains BEL
+  for incomplete or unknown identity. A cue writer failure
   preserves zero pre-Apply mutation and terminal restoration while watch
   remains stoppable. The
   TTY `policy rules` path separately covers exhaustive current-decision

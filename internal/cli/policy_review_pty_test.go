@@ -51,6 +51,15 @@ func TestPolicyReviewPTYChild(t *testing.T) {
 			return selector
 		}
 	}
+	if caseName == "watch-unchanged-stop" {
+		denials := append([]tobari.PolicyDenial{}, runtimeFake.denials...)
+		runtimeFake.denialsByRead = [][]tobari.PolicyDenial{denials, denials, denials, denials}
+		command.policyReview = func(style bool) *policyReviewSelector {
+			selector := newPolicyReviewSelectorWithStyle(style)
+			selector.ticker = &readyPolicyReviewTicker{ready: true}
+			return selector
+		}
+	}
 	if isPolicyRules {
 		args = []string{"policy", "rules"}
 	}
@@ -225,6 +234,30 @@ func TestPolicyReviewRealPTYAndReadOnlyE2E(t *testing.T) {
 		}
 		if strings.Contains(output, "Canceled") {
 			t.Fatalf("watch stop was rendered as cancellation: %q", output)
+		}
+		// Apply closes the first frame before emitting its confirmed mutation
+		// result; continued watch owns exactly one fresh frame until q.
+		if got := strings.Count(output, selectorAlternateScreenEnter); got != 2 {
+			t.Fatalf("watch Apply alternate-screen entries=%d output=%q", got, output)
+		}
+		if got := strings.Count(output, selectorAlternateScreenExit); got != 2 {
+			t.Fatalf("watch Apply alternate-screen exits=%d output=%q", got, output)
+		}
+	})
+
+	t.Run("unchanged watch keeps one alternate-screen frame", func(t *testing.T) {
+		output := runPolicyReviewPTYChild(t, "watch-unchanged-stop", "<idle>|<idle>|q")
+		if got := strings.Count(output, selectorAlternateScreenEnter); got != 1 {
+			t.Fatalf("watch alternate-screen entries=%d output=%q", got, output)
+		}
+		if got := strings.Count(output, selectorAlternateScreenExit); got != 1 {
+			t.Fatalf("watch alternate-screen exits=%d output=%q", got, output)
+		}
+		if got := strings.Count(output, "Tobari · Permission Inbox"); got != 1 {
+			t.Fatalf("unchanged watch renders=%d output=%q", got, output)
+		}
+		if !strings.Contains(output, "case=watch-unchanged-stop code=0 apply_calls=0 deny_calls=0") {
+			t.Fatalf("watch did not stop cleanly: %q", output)
 		}
 	})
 
@@ -455,6 +488,9 @@ def wait_for_output_quiescence(required=b""):
 wait_for_output_quiescence(b"\x1b[?25l")
 parts = payload.split("|")
 for index, part in enumerate(parts):
+    if part == "<idle>":
+        time.sleep(0.35)
+        continue
     if part == "<wait>":
         time.sleep(0.25)
         wait_for_output_quiescence()

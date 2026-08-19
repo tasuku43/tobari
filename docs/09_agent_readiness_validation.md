@@ -223,7 +223,9 @@ unchecked argv is embedded in the response. In a trusted-host terminal:
 1. Open `policy review --watch`; prove an empty raw-terminal Inbox receives a
    new bounded candidate without restart and emits at most one fixed trusted
    terminal cue. Prove `--notify=off`, explicit OSC 9/BEL, conservative auto,
-   and hostile evidence isolation. One distinct path remains exact,
+   identified cmux auto-selection, and hostile evidence isolation. Prove two
+   unchanged timer refreshes keep one alternate-screen frame and emit no
+   repaint, while a changed typed snapshot redraws. One distinct path remains exact,
    while a second
    compatible distinct HTTP path produces one typed `/path/{id}` proposal.
 2. Stage exact Allow and Deny directly from the list, clear or overwrite one,

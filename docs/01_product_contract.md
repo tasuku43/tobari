@@ -674,11 +674,14 @@ stale IDs rather than matching labels. `--watch` requires human text on an
 interactive raw terminal, automatically repeats the same bounded read with a
 one-second interval and exponential backoff capped at eight seconds, preserves
 the last valid snapshot on refresh failure, and continues with a fresh snapshot
-after confirmed Apply. Stopping watch is a successful monitor stop. It never
+after confirmed Apply. Between Apply operations it owns one alternate-screen
+frame; an unchanged successful timer refresh performs the read but emits no
+repaint. Stopping watch is a successful monitor stop. It never
 retries an HTTP request or creates an agent-side authority channel. The optional
 `--notify` value defaults to `auto`, requires `--watch`, and selects a fixed
 trusted ASCII cue: explicit `osc9`, `bel`, or `off`, while `auto` uses OSC 9
-only for a reviewed terminal identity and otherwise falls back to BEL. The
+for exact iTerm2 identity or for the conjunction of non-empty protected cmux
+workspace and surface identities, and otherwise falls back to BEL. The
 initial snapshot, refresh failures, stale-only changes, and previously seen ID
 reappearance do not notify; one successful refresh coalesces every new ID into
 at most one cue. Tobari configures no OS, tmux, SSH, or terminal passthrough,

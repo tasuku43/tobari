@@ -47,8 +47,16 @@ func writePermissionInboxNotification(
 
 func autoNotificationMethod(lookup func(string) (string, bool)) string {
 	if lookup != nil {
-		// iTerm2 documents OSC 9. Unknown terminals deliberately receive the
-		// portable audible/visual bell rather than an assumed escape protocol.
+		// cmux injects both protected identities into every owned terminal and
+		// documents OSC 9 as one of its notification inputs. Check only presence;
+		// identity values never enter the fixed control payload.
+		workspaceID, workspaceFound := lookup("CMUX_WORKSPACE_ID")
+		surfaceID, surfaceFound := lookup("CMUX_SURFACE_ID")
+		if workspaceFound && workspaceID != "" && surfaceFound && surfaceID != "" {
+			return NotificationOSC9
+		}
+		// iTerm2 also documents OSC 9. Unknown terminals deliberately receive
+		// the portable audible/visual bell rather than an assumed escape protocol.
 		if program, found := lookup("TERM_PROGRAM"); found && program == "iTerm.app" {
 			return NotificationOSC9
 		}

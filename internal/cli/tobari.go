@@ -226,7 +226,10 @@ func runPolicyReview(
 			selector.RefreshSucceeded()
 			stagedContextID = policyReviewStagedContextID(result, selector.OrderedDecisions())
 			newCount := policyReviewNewCandidateCount(previousIDs, fresh)
-			if removed > 0 {
+			if decision.AutomaticRefresh && removed == 0 && newCount == 0 && !notificationFailed {
+				// A successful timer poll with no semantic change is deliberately
+				// silent so the existing alternate-screen frame remains untouched.
+			} else if removed > 0 {
 				selector.notice = fmt.Sprintf(
 					"Inbox refreshed · %d new · %d stale staged decision%s removed (%s); remaining decisions preserved.",
 					newCount, removed, pluralSuffix(removed), strings.Join(staleIDs, ", "),

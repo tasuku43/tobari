@@ -260,11 +260,14 @@ original request in the same Workspace.
 
 Watch refreshes the same bounded Inbox snapshot, preserves staging and focus by
 opaque typed ID, backs off after refresh failures, and stays open after Apply.
+It keeps one alternate-screen frame between Apply operations and does not
+repaint an unchanged successful timer refresh.
 It never retries the denied request or gives the Workspace a policy-mutation
 channel. Redirected and JSON review remain one read-only snapshot.
 By default, a successful refresh that adds at least one previously unseen typed
 review item emits one fixed terminal-emulator cue. `--notify=osc9`, `bel`, or
-`off` selects it explicitly; `auto` conservatively falls back to BEL. Tobari
+`off` selects it explicitly; `auto` uses OSC 9 in an identified iTerm2 or cmux
+terminal and conservatively falls back to BEL elsewhere. Tobari
 never puts denial evidence in the control payload or configures OS, tmux, or SSH
 notification passthrough.
 

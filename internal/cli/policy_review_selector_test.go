@@ -170,6 +170,79 @@ func TestPolicyReviewSelectorWatchEmptyWaitsAndRequestsRefresh(t *testing.T) {
 	}
 }
 
+func TestPolicyReviewSelectorWatchKeepsOneUnchangedAlternateScreen(t *testing.T) {
+	t.Parallel()
+	mode := &selectorModeFake{}
+	selector := &policyReviewSelector{
+		mode: mode, style: false, staged: map[string]policyReviewAction{}, watch: true,
+		ticker: &readyPolicyReviewTicker{ready: true},
+	}
+	report := testPolicyReviewReport()
+	var output bytes.Buffer
+
+	for refresh := 0; refresh < 2; refresh++ {
+		decision, err := selector.Select(
+			context.Background(), report,
+			&timeoutThenPolicyReviewReader{remaining: strings.NewReader("q")}, &output,
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !decision.Refresh || !decision.AutomaticRefresh {
+			t.Fatalf("refresh %d decision = %+v", refresh, decision)
+		}
+		selector.RefreshSucceeded()
+	}
+	decision, err := selector.Select(context.Background(), report, strings.NewReader("q"), &output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !decision.Canceled {
+		t.Fatalf("stop decision = %+v", decision)
+	}
+	if got := strings.Count(output.String(), selectorAlternateScreenEnter); got != 1 {
+		t.Fatalf("alternate-screen entries = %d, output=%q", got, output.String())
+	}
+	if got := strings.Count(output.String(), selectorAlternateScreenExit); got != 1 {
+		t.Fatalf("alternate-screen exits = %d, output=%q", got, output.String())
+	}
+	if got := strings.Count(output.String(), "Tobari · Permission Inbox"); got != 1 {
+		t.Fatalf("unchanged watch renders = %d, output=%q", got, output.String())
+	}
+	if mode.entered != 3 || mode.restored != 3 {
+		t.Fatalf("raw mode calls = entered:%d restored:%d", mode.entered, mode.restored)
+	}
+}
+
+func TestPolicyReviewSelectorWatchRedrawsChangedSnapshotInsideExistingScreen(t *testing.T) {
+	t.Parallel()
+	selector := &policyReviewSelector{
+		mode: &selectorModeFake{}, style: false, staged: map[string]policyReviewAction{}, watch: true,
+		ticker: &readyPolicyReviewTicker{ready: true},
+	}
+	report := testPolicyReviewReport()
+	var output bytes.Buffer
+	decision, err := selector.Select(
+		context.Background(), report,
+		&timeoutThenPolicyReviewReader{remaining: strings.NewReader("q")}, &output,
+	)
+	if err != nil || !decision.Refresh {
+		t.Fatalf("initial refresh decision=%+v error=%v", decision, err)
+	}
+	selector.RefreshSucceeded()
+	report.Items[0].ObservationCount++
+	decision, err = selector.Select(context.Background(), report, strings.NewReader("q"), &output)
+	if err != nil || !decision.Canceled {
+		t.Fatalf("stop decision=%+v error=%v", decision, err)
+	}
+	if got := strings.Count(output.String(), selectorAlternateScreenEnter); got != 1 {
+		t.Fatalf("alternate-screen entries = %d, output=%q", got, output.String())
+	}
+	if got := strings.Count(output.String(), "Tobari · Permission Inbox"); got != 2 {
+		t.Fatalf("changed watch renders = %d, output=%q", got, output.String())
+	}
+}
+
 func TestPolicyReviewSelectorWatchRequiresRawMode(t *testing.T) {
 	t.Parallel()
 	selector := &policyReviewSelector{
@@ -180,6 +253,35 @@ func TestPolicyReviewSelectorWatchRequiresRawMode(t *testing.T) {
 	var structured *fault.Error
 	if !errors.As(err, &structured) || structured.Code != "policy_review_watch_requires_tty" {
 		t.Fatalf("watch raw-mode error = %v", err)
+	}
+}
+
+func TestPolicyReviewSelectorWatchClosesExistingScreenWhenRawModeBecomesUnavailable(t *testing.T) {
+	t.Parallel()
+	mode := &selectorModeFake{}
+	selector := &policyReviewSelector{
+		mode: mode, style: false, staged: map[string]policyReviewAction{}, watch: true,
+		ticker: &readyPolicyReviewTicker{ready: true},
+	}
+	var output bytes.Buffer
+	decision, err := selector.Select(
+		context.Background(), testPolicyReviewReport(),
+		&timeoutThenPolicyReviewReader{remaining: strings.NewReader("q")}, &output,
+	)
+	if err != nil || !decision.Refresh {
+		t.Fatalf("initial refresh decision=%+v error=%v", decision, err)
+	}
+	mode.enterErr = errors.New("raw unavailable after refresh")
+	_, err = selector.Select(context.Background(), testPolicyReviewReport(), strings.NewReader("q"), &output)
+	var structured *fault.Error
+	if !errors.As(err, &structured) || structured.Code != "policy_review_watch_requires_tty" {
+		t.Fatalf("second raw-mode error = %v", err)
+	}
+	if got := strings.Count(output.String(), selectorAlternateScreenExit); got != 1 {
+		t.Fatalf("screen exits=%d output=%q", got, output.String())
+	}
+	if selector.rendered || selector.screenLines != 0 {
+		t.Fatalf("selector retained closed frame: %+v", selector)
 	}
 }
 

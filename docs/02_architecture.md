@@ -1073,7 +1073,11 @@ switching Context, keeping source promotion to one atomic domain generation;
 redirected review is read-only. The optional raw-terminal `--watch` modifier
 uses the same complete bounded application query on a one-second schedule with
 bounded exponential backoff; it is not streaming delivery or a second policy
-transport. Manual or automatic refresh intersects the staged ordered set with
+transport. The selector retains one alternate-screen presentation frame across
+CLI-owned reads and quick-staging continuations, while the application use case
+still owns every bounded read. It compares the complete typed report, selected
+ID, staged-ID map, and notice before rendering, so an unchanged successful timer
+refresh writes no new frame. Manual or automatic refresh intersects the staged ordered set with
 the fresh queue by opaque ID, retains selection by ID, and preserves the last
 valid snapshot on read failure. Final review repeats every exact scope,
 effect, decision, and candidate ID before one explicit confirmation. The
@@ -1083,8 +1087,9 @@ Watch tracks a process-memory union of successfully observed typed review-item
 IDs. Only a later successful snapshot containing an unseen ID calls the narrow
 terminal notifier once; the notifier writes fixed trusted ASCII OSC 9 or BEL,
 or nothing for `off`, and never receives denial evidence. `auto` resolves from
-a reviewed terminal identity inside infrastructure and conservatively falls
-back to BEL. Notification write failure does not change snapshot, staging,
+exact iTerm2 identity or the presence of both protected cmux workspace and
+surface identities inside infrastructure, and conservatively falls back to
+BEL. Notification write failure does not change snapshot, staging,
 Apply, retry, terminal passthrough, or policy state.
 `policy rules` is the exhaustive current inventory of CLI-owned learned Allows
 and exact Denies. `policy reset --id` removes exactly one such decision through

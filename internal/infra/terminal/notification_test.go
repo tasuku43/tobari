@@ -44,13 +44,57 @@ func TestPermissionInboxNotificationMethodsUseOnlyFixedTrustedPayload(t *testing
 func TestPermissionInboxNotificationAutoFallsBackToBEL(t *testing.T) {
 	t.Parallel()
 	var output bytes.Buffer
-	if err := writePermissionInboxNotification(&output, NotificationAuto, func(string) (string, bool) {
-		return "unknown-terminal", true
+	if err := writePermissionInboxNotification(&output, NotificationAuto, func(name string) (string, bool) {
+		if name == "TERM_PROGRAM" {
+			return "unknown-terminal", true
+		}
+		return "", false
 	}); err != nil {
 		t.Fatal(err)
 	}
 	if output.String() != permissionInboxBEL {
 		t.Fatalf("auto fallback = %q", output.String())
+	}
+}
+
+func TestPermissionInboxNotificationAutoUsesOSC9InCmuxTerminal(t *testing.T) {
+	t.Parallel()
+	lookup := func(name string) (string, bool) {
+		values := map[string]string{
+			"TERM_PROGRAM":      "ghostty",
+			"CMUX_WORKSPACE_ID": "workspace:example",
+			"CMUX_SURFACE_ID":   "surface:example",
+		}
+		value, found := values[name]
+		return value, found
+	}
+	var output bytes.Buffer
+	if err := writePermissionInboxNotification(&output, NotificationAuto, lookup); err != nil {
+		t.Fatal(err)
+	}
+	if output.String() != permissionInboxOSC9 {
+		t.Fatalf("cmux auto notification = %q, want %q", output.String(), permissionInboxOSC9)
+	}
+}
+
+func TestPermissionInboxNotificationAutoRequiresCompleteCmuxIdentity(t *testing.T) {
+	t.Parallel()
+	for _, present := range []string{"CMUX_WORKSPACE_ID", "CMUX_SURFACE_ID"} {
+		present := present
+		t.Run(present, func(t *testing.T) {
+			var output bytes.Buffer
+			if err := writePermissionInboxNotification(&output, NotificationAuto, func(name string) (string, bool) {
+				if name == present {
+					return "example", true
+				}
+				return "", false
+			}); err != nil {
+				t.Fatal(err)
+			}
+			if output.String() != permissionInboxBEL {
+				t.Fatalf("partial cmux identity %s selected %q", present, output.String())
+			}
+		})
 	}
 }
 

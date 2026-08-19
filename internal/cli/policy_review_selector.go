@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
+	"reflect"
 	"strconv"
 	"strings"
 	"time"
@@ -24,8 +26,14 @@ type policyReviewDecision struct {
 	Action      policyReviewAction
 	Apply       bool
 	Refresh     bool
-	Clear       bool
-	Canceled    bool
+	// AutomaticRefresh distinguishes the watch timer from an explicit r key so
+	// unchanged timer polls can remain silent while manual refresh reports.
+	AutomaticRefresh bool
+	Clear            bool
+	Canceled         bool
+	keepScreen       bool
+	screenLines      int
+	frameNotice      string
 }
 
 type policyReviewAction uint8
@@ -47,6 +55,12 @@ type policyReviewSelector struct {
 	notice      string
 	watch       bool
 	ticker      policyReviewRefreshTicker
+	screenLines int
+	rendered    bool
+	lastReport  tobari.PolicyCandidateReport
+	lastID      string
+	lastNotice  string
+	lastStaged  map[string]policyReviewAction
 }
 
 const (
@@ -246,21 +260,42 @@ func (s *policyReviewSelector) Select(
 	if s != nil && s.mode != nil {
 		restore, rawErr := s.mode.Enter(in)
 		if rawErr == nil {
+			previousLines := 0
+			renderOnEntry := true
+			if s.watch && s.rendered {
+				previousLines = s.screenLines
+				renderOnEntry = s.watchFrameChanged(report)
+			}
 			decision, selectErr := selectPolicyReviewRawWithWatch(
 				ctx, report, in, out, s.style, s.staged, s.stagedOrder, s.selectedID, s.notice,
-				s.watch, s.ticker,
+				s.watch, s.ticker, previousLines, renderOnEntry,
 			)
 			restoreErr := restore()
 			if selectErr != nil {
+				s.resetWatchFrame()
 				return policyReviewDecision{}, selectErr
 			}
 			if restoreErr != nil {
+				if decision.keepScreen {
+					finishPolicyReviewSelector(out, decision.screenLines)
+				}
+				s.resetWatchFrame()
 				return policyReviewDecision{}, restoreErr
 			}
 			if decision.SelectedID != "" {
 				s.selectedID = decision.SelectedID
 			}
+			if decision.keepScreen {
+				s.screenLines = decision.screenLines
+				s.rememberWatchFrame(report, decision.SelectedID, decision.frameNotice)
+			} else {
+				s.resetWatchFrame()
+			}
 			return decision, nil
+		}
+		if s.watch && s.rendered {
+			finishPolicyReviewSelector(out, s.screenLines)
+			s.resetWatchFrame()
 		}
 	}
 
@@ -279,6 +314,40 @@ func (s *policyReviewSelector) Select(
 		s.selectedID = decision.SelectedID
 	}
 	return decision, err
+}
+
+func (s *policyReviewSelector) watchFrameChanged(report tobari.PolicyCandidateReport) bool {
+	if s == nil || !s.rendered {
+		return true
+	}
+	report = groupPolicyReviewReport(report)
+	return !reflect.DeepEqual(s.lastReport, report) || s.lastID != s.selectedID ||
+		s.lastNotice != s.notice || !maps.Equal(s.lastStaged, s.staged)
+}
+
+func (s *policyReviewSelector) rememberWatchFrame(
+	report tobari.PolicyCandidateReport, selectedID, notice string,
+) {
+	if s == nil {
+		return
+	}
+	s.rendered = true
+	s.lastReport = groupPolicyReviewReport(report)
+	s.lastID = selectedID
+	s.lastNotice = notice
+	s.lastStaged = maps.Clone(s.staged)
+}
+
+func (s *policyReviewSelector) resetWatchFrame() {
+	if s == nil {
+		return
+	}
+	s.screenLines = 0
+	s.rendered = false
+	s.lastReport = tobari.PolicyCandidateReport{}
+	s.lastID = ""
+	s.lastNotice = ""
+	s.lastStaged = nil
 }
 
 type policyReviewDetailResult struct {
@@ -456,19 +525,19 @@ func selectPolicyReviewRaw(
 	if len(notice) > 0 {
 		message = notice[0]
 	}
-	return selectPolicyReviewRawWithWatch(ctx, report, in, out, style, staged, stagedOrder, selectedID, message, false, nil)
+	return selectPolicyReviewRawWithWatch(ctx, report, in, out, style, staged, stagedOrder, selectedID, message, false, nil, 0, true)
 }
 
 func selectPolicyReviewRawWithWatch(
 	ctx context.Context, report tobari.PolicyCandidateReport, in io.Reader, out io.Writer,
 	style bool, staged map[string]policyReviewAction, stagedOrder []string, selectedID, notice string,
-	watch bool, ticker policyReviewRefreshTicker,
+	watch bool, ticker policyReviewRefreshTicker, previousLines int, renderOnEntry bool,
 ) (policyReviewDecision, error) {
 	report = groupPolicyReviewReport(report)
 	selected := policyReviewSelectedIndex(report.Items, selectedID)
 	message := notice
-	lineCount := 0
-	needsRender := true
+	lineCount := previousLines
+	needsRender := renderOnEntry
 	for {
 		if err := ctx.Err(); err != nil {
 			finishPolicyReviewSelector(out, lineCount)
@@ -487,8 +556,10 @@ func selectPolicyReviewRawWithWatch(
 		key, err := readSelectorKeyOnce(ctx, in)
 		if errors.Is(err, errSelectorTimeout) || (err == nil && key.kind == selectorKeyNone) {
 			if watch && ticker != nil && ticker.Ready(ctx) {
-				finishPolicyReviewSelector(out, lineCount)
-				return policyReviewDecision{SelectedID: candidateIDAt(report.Items, selected), Refresh: true}, nil
+				return policyReviewDecision{
+					SelectedID: candidateIDAt(report.Items, selected), Refresh: true, AutomaticRefresh: true,
+					keepScreen: true, screenLines: lineCount, frameNotice: message,
+				}, nil
 			}
 			continue
 		}
@@ -546,17 +617,23 @@ func selectPolicyReviewRawWithWatch(
 				return policyReviewDecision{}, detail.err
 			}
 			if detail.CandidateID != "" {
-				finishPolicyReviewSelector(out, detail.Lines)
-				return policyReviewDecision{
+				decision := policyReviewDecision{
 					CandidateID: detail.CandidateID, SelectedID: candidateIDAt(report.Items, selected), Action: detail.Action,
-				}, nil
+				}
+				if watch {
+					decision.keepScreen = true
+					decision.screenLines = detail.Lines
+					decision.frameNotice = message
+				} else {
+					finishPolicyReviewSelector(out, detail.Lines)
+				}
+				return decision, nil
 			}
 			if detail.Canceled {
 				finishPolicyReviewSelector(out, detail.Lines)
 				return policyReviewDecision{SelectedID: candidateIDAt(report.Items, selected), Canceled: true}, nil
 			}
-			finishPolicyReviewSelector(out, detail.Lines)
-			lineCount = 0
+			lineCount = detail.Lines
 			message = ""
 			needsRender = true
 		case selectorKeyAllow, selectorKeyDeny:
@@ -572,20 +649,41 @@ func selectPolicyReviewRawWithWatch(
 			if next := policyReviewNextUndecidedID(report.Items, selected, staged, candidate.ID); next != "" {
 				selectedID = next
 			}
-			finishPolicyReviewSelector(out, lineCount)
-			return policyReviewDecision{CandidateID: candidate.ID, SelectedID: selectedID, Action: action}, nil
+			decision := policyReviewDecision{CandidateID: candidate.ID, SelectedID: selectedID, Action: action}
+			if watch {
+				decision.keepScreen = true
+				decision.screenLines = lineCount
+				decision.frameNotice = message
+			} else {
+				finishPolicyReviewSelector(out, lineCount)
+			}
+			return decision, nil
 		case selectorKeyClear:
 			if len(report.Items) == 0 {
 				continue
 			}
-			finishPolicyReviewSelector(out, lineCount)
-			return policyReviewDecision{CandidateID: report.Items[selected].ID, SelectedID: report.Items[selected].ID, Clear: true}, nil
+			decision := policyReviewDecision{CandidateID: report.Items[selected].ID, SelectedID: report.Items[selected].ID, Clear: true}
+			if watch {
+				decision.keepScreen = true
+				decision.screenLines = lineCount
+				decision.frameNotice = message
+			} else {
+				finishPolicyReviewSelector(out, lineCount)
+			}
+			return decision, nil
 		case selectorKeyCancel:
 			finishPolicyReviewSelector(out, lineCount)
 			return policyReviewDecision{SelectedID: candidateIDAt(report.Items, selected), Canceled: true}, nil
 		case selectorKeyReset:
-			finishPolicyReviewSelector(out, lineCount)
-			return policyReviewDecision{SelectedID: candidateIDAt(report.Items, selected), Refresh: true}, nil
+			decision := policyReviewDecision{SelectedID: candidateIDAt(report.Items, selected), Refresh: true}
+			if watch {
+				decision.keepScreen = true
+				decision.screenLines = lineCount
+				decision.frameNotice = message
+			} else {
+				finishPolicyReviewSelector(out, lineCount)
+			}
+			return decision, nil
 		case selectorKeyApply:
 			if len(staged) == 0 {
 				message = "Inspect a permission and stage Allow exact or Deny exact first."
@@ -597,8 +695,7 @@ func selectPolicyReviewRawWithWatch(
 				return policyReviewDecision{}, final.err
 			}
 			if final.Back {
-				finishPolicyReviewSelector(out, final.Lines)
-				lineCount = 0
+				lineCount = final.Lines
 				message = "Staged decisions unchanged."
 				needsRender = true
 				continue
