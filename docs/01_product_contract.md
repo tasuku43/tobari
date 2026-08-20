@@ -460,14 +460,17 @@ undeclared Docker mutation by the CLI.
   fails before mutation. Build Review selects only a managed Runtime and shows
   its source, current successful head or draft state, and the fact that no
   Context changes. Context Runtime Review shows the exact persisted Context,
-  current binding, proposed `standard@1` or successful `NAME@ORDINAL`, and
-  next-entry timing. When Context is omitted, Review starts from the current
-  Context and may select another persisted Context; an explicit Context remains
-  fixed. The proposed binding starts at the current value, so Apply is absent
-  until it changes. Final Build or Apply reaches the same application mutation
-  boundary once. Cancellation and read, validation, or terminal failure perform
-  zero mutation. Review prompts use stderr and the confirmed complete report
-  uses stdout.
+  current binding, selectable `standard@1` or successful `NAME@ORDINAL`
+  revisions, and next-entry timing. Its unchanged editing state offers Runtime
+  selection, unlocked Context selection, or cancellation without presenting an
+  Apply action. Selecting a different Runtime enters a dedicated Review state
+  that renders the exact old-to-new binding and offers Apply, Back to the
+  Runtime list, or cancellation. When Context is omitted, editing starts from
+  the current Context and may select another persisted Context; an explicit
+  Context remains fixed. Final Build or Apply reaches the same application
+  mutation boundary once. Back, cancellation, unchanged selection, and read,
+  validation, or terminal failure perform zero mutation. Review prompts use
+  stderr and the confirmed complete report uses stdout.
 - Direct `config shell` changes one allowlisted shell-presentation policy in
   the explicit or current Context. Its terminal editor may stage several
   distinct rows and commits the complete change set with one atomic write.

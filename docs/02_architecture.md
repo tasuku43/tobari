@@ -273,8 +273,11 @@ smaller CLI-owned input-completion workflow. CLI composes existing Runtime and
 Context read use cases into a terminal Review, binds an omitted current Context
 to the exact name returned by `context show`, and passes only one selected
 managed Runtime name or ready Runtime revision into the unchanged application
-mutation. Review never reads Runtime source bytes and has no Docker or manifest
-write port. Fully specified selectors bypass Review, while machine-readable or
+mutation. Context Runtime editing and confirmation are separate presentation
+states: only a different selected binding enters the old-to-new Review with
+Apply, while Back, unchanged selection, and cancellation remain read-only.
+Review never reads Runtime source bytes and has no Docker or manifest write
+port. Fully specified selectors bypass Review, while machine-readable or
 non-interactive omission fails before the application mutation boundary.
 
 `context delete` is a Context-catalog write serialized by the installation
