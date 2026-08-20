@@ -88,12 +88,15 @@ cd /path/to/project
 tobari
 ```
 
-On first use, `tobari` opens the ordinary Context wizard, shows the selected
-standard runtime in the final review, prepares the shared Gateway and OPA after
-Context confirmation, and then offers to enter with that runtime or create a
-custom Dockerfile recipe before the first Workspace. The custom path stops
-before Workspace creation and gives the exact `tobari runtime build` and
-subsequent `tobari` commands.
+On first use, `tobari` opens the ordinary six-stage Context wizard. After
+Network, its Runtime step always presents the built-in `standard@1` revision
+and every ready managed revision. The following Workspace-bootstrap step can
+continue unconfigured without reading host files or explicitly review
+compatible AWS IAM Identity Center and Amazon EKS settings. Final Context confirmation
+prepares the shared Gateway and OPA and enters with the selected Runtime.
+Customization remains a prepare-first flow: create and build a managed Runtime,
+then select its ready revision during Context creation or through
+`context runtime set`.
 
 The individual operations remain available for automation and advanced use:
 

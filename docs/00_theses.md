@@ -134,8 +134,9 @@ using `tobari` leaves host execution unchanged, while `delete` and
   interactive terminal with no persisted Context, that one route owns the
   ordinary Context review, composes the separately cataloged `cluster up`
   action after confirmed creation, and enters the first Workspace with the
-  already-selected standard Runtime. Runtime preparation is an independent
-  host workflow performed before selection, never a post-create fork.
+  exact ready Runtime and optional future-Workspace bootstrap selected before
+  final Context review. Runtime preparation is an independent host workflow
+  performed before selection, never a post-create fork.
   Read-only `doctor`, status/list inspection, and
   opaque-ID policy actions remain recovery or machine paths rather than steps
   in the normal journey. On a TTY, `policy review` is the complete human
@@ -811,9 +812,12 @@ OPA allow.
   and fixed agent-ready compatibility baseline. Native readiness is a separate
   enabled/disabled Context setting that selects the current trusted-binary
   overlay. Argument-free creation on an interactive text terminal uses one
-  continuous four-stage frame for name, direct source access, effective network
-  policy, and final review. Optional typed Workspace bootstrap is edited from
-  that review rather than stopping every user. The network and final-review
+  continuous six-stage frame for name, direct source access, effective network
+  policy, exact ready Runtime selection, optional typed Workspace bootstrap,
+  and final review. The Runtime step is present even when `standard@1` is the
+  only ready revision. The Workspace-bootstrap step defaults to not configured
+  and reads no host configuration until the user explicitly chooses Configure
+  from host. The network and final-review
   projections show every effective method decision, reviewed routine agent
   traffic, and the terminal destination ceiling; only customization exposes
   default, inherited, and override storage. One section can be edited and

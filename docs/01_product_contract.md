@@ -250,7 +250,7 @@ The public commands are:
 | `config git [--source default\|inherit\|literal] [--name NAME] [--email EMAIL] [--context NAME] [--format text\|json]` | act, fixed target | write | Configure one atomic Context Git commit-identity fallback directly, or stage and apply its source from one terminal screen |
 | `config bootstrap aws [--profile NAME] [--refresh] [--remove] [--context NAME] [--format text\|json]` | act, fixed target | write | Normalize one strict secret-free host AWS IAM Identity Center profile for future Workspaces, refresh it after a semantic diff, or remove the future recipe; existing Workspace homes never change |
 | `config bootstrap kubernetes eks [--kube-context NAME] [--refresh] [--remove] [--context NAME] [--format text\|json]` | act, fixed target | write | Compose one strict AWS CLI-generated host EKS context with the Context AWS profile, refresh it, or remove only EKS; no credential, arbitrary exec, network authority, or existing Workspace home changes |
-| `context create [--name NAME] [--runtime RUNTIME] [--mode guided\|advanced] [--source-access read-only\|read-write] [--native-readiness enabled\|disabled] [--bootstrap-aws-profile NAME] [--bootstrap-eks-context NAME] [--format text\|json]` | act, fixed target | create | With no inputs, use one continuous four-stage terminal frame for name, source access, effective HTTP policy, and complete final review; Runtime is always visible in Review and defaults to `standard`; direct mode may select only `standard` or an existing ready `NAME@ORDINAL` revision |
+| `context create [--name NAME] [--runtime RUNTIME] [--mode guided\|advanced] [--source-access read-only\|read-write] [--native-readiness enabled\|disabled] [--bootstrap-aws-profile NAME] [--bootstrap-eks-context NAME] [--format text\|json]` | act, fixed target | create | With no inputs, use one continuous six-stage terminal frame for name, source access, effective HTTP policy, exact ready Runtime selection, optional future-Workspace bootstrap, and complete final review; Runtime defaults to `standard@1`; direct mode may select only `standard` or an existing ready `NAME@ORDINAL` revision |
 | `context delete --name NAME [--format text\|json]` | act, fixed target | write | Delete one unused non-current non-default Context and its exact owner stores while preserving project files and shared runtime images |
 | `context use --name NAME [--format text\|json]` | act, fixed target | write | Change only the current/default Context; do not mutate existing Tobari or start/reconcile the cluster |
 | `context runtime set [--runtime RUNTIME] [--context NAME] [--format text\|json]` | act, fixed target | write | Explicitly pin, upgrade, or roll back one Context to `standard` or an existing ready `NAME@ORDINAL` Runtime revision; omission opens terminal Review, and existing Workspace homes change only on next entry reconciliation |
@@ -277,7 +277,7 @@ stable Context ID is authoritative for the remainder of the operation.
 The root command is interactive and requires a TTY on stdin, stdout, and stderr.
 It does not silently create state in a non-interactive context. With no
 persisted Context and no explicit `--context`, it runs the same ordinary
-four-stage Context wizard. Cancellation before final Create changes nothing.
+six-stage Context wizard. Cancellation before final Create changes nothing.
 After confirmed Context creation it emits that durable success, performs the
 exact catalog-owned `cluster up` action without another confirmation, and
 retains the Context if cluster reconciliation fails. When shared services are
@@ -511,15 +511,19 @@ undeclared Docker mutation by the CLI.
   Prompts use stderr and the confirmed complete Context report uses stdout.
 - `context create` has two complete modes. With no command input, text success
   and error formats plus terminal stdin/stderr are required. The ordinary
-  four-stage path is name, filesystem, network, and Review & Create. Network
-  first renders reviewed routine Claude Code/Codex traffic, every standard and
-  extension-method effective decision, and the private/unsafe destination
-  ceiling. Customization alone exposes default, inherited, and override
-  sources plus inherit/reset controls. Review renders the selected standard
-  runtime and complete effective filesystem, network, and future-Workspace
-  bootstrap boundary; it can scroll and edit one section without replaying
-  later steps. Workspace bootstrap defaults to not configured and host files
-  are not inspected unless that section is opened. On a raw-capable terminal,
+  six-stage path is name, filesystem, network, Runtime, Workspace bootstrap,
+  and Review & Create.
+  Network first renders reviewed routine Claude Code/Codex traffic, every
+  standard and extension-method effective decision, and the private/unsafe
+  destination ceiling. Customization alone exposes default, inherited, and
+  override sources plus inherit/reset controls. Runtime always presents
+  `standard@1` and every ready managed revision after Network, even when
+  standard is the only choice. Workspace bootstrap always follows Runtime and
+  defaults to not configured. Entering that step performs no host read; only
+  an explicit Configure from host choice discovers compatible AWS IAM Identity
+  Center and optional Amazon EKS settings. Review mirrors the chosen
+  filesystem, network, Runtime, and future-Workspace bootstrap boundary; it can
+  scroll and edit one section without replaying later steps. On a raw-capable terminal,
   all stages share one alternate-screen session; Back preserves staged values.
   A terminal without the reviewed raw-mode support uses the bounded line-mode
   equivalent. Explicit Create performs one
@@ -528,7 +532,7 @@ undeclared Docker mutation by the CLI.
   `--name`; defaults complete omitted direct-mode values without prompting.
   Method Deny removes Context-policy positive baseline entries for that method
   from the new immutable snapshot rather than leaving an invalid or misleading
-  unreachable grant. Final review also identifies the standard Tobari runtime
+  unreachable grant. Final review also identifies the exact ready Runtime
   selected in the manifest. Redirected or JSON argument-free creation fails
   before mutation. Standalone success points to the root entry while preserving
   the created Context explicitly when it is not current; root entry owns the

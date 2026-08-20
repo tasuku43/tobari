@@ -57,6 +57,8 @@ const (
 	contextCreateStepName contextCreateRawStep = iota
 	contextCreateStepFilesystem
 	contextCreateStepNetwork
+	contextCreateStepRuntime
+	contextCreateStepBootstrap
 	contextCreateStepReview
 )
 
@@ -118,6 +120,12 @@ func (w *terminalContextCreateWizard) composeLine(
 		return contextCreateSelection{}, err
 	}
 	if err := editContextCreateNetworkLine(ctx, in, out, w.style, &draft); err != nil {
+		return contextCreateSelection{}, err
+	}
+	if err := w.editContextCreateRuntimeLine(ctx, in, out, &draft); err != nil {
+		return contextCreateSelection{}, err
+	}
+	if err := w.reviewContextCreateBootstrapLine(ctx, in, out, &draft); err != nil {
 		return contextCreateSelection{}, err
 	}
 	for {
@@ -189,6 +197,10 @@ func (w *terminalContextCreateWizard) composeRaw(
 			)
 		case contextCreateStepNetwork:
 			navigation, err = reviewContextCreateNetworkRaw(ctx, in, out, &lineCount, w.style, &draft)
+		case contextCreateStepRuntime:
+			navigation, err = w.editContextCreateRuntimeRaw(ctx, in, out, &lineCount, step, &draft)
+		case contextCreateStepBootstrap:
+			navigation, err = w.reviewContextCreateBootstrapRaw(ctx, in, out, &lineCount, step, &draft)
 		case contextCreateStepReview:
 			navigation, err = w.reviewContextCreateRaw(ctx, in, out, &lineCount, &draft)
 		default:
@@ -776,13 +788,13 @@ func contextCreateSelectionFromDraft(draft contextCreateRawDraft) (contextCreate
 
 func contextCreateReviewLines(style bool, selection contextCreateSelection) []string {
 	runtimeSelection := selection.RuntimeSelection
-	if runtimeSelection == "" || runtimeSelection == tobari.StandardRuntimeName {
-		runtimeSelection = "standard Tobari runtime"
+	if runtimeSelection == "" {
+		runtimeSelection = tobari.StandardRuntimeName
 	}
+	runtimeSelection = contextRuntimeDisplaySelection(runtimeSelection)
 	lines := []string{
 		applyStyleToken(style, styleText, "Context"),
 		selectorDetail(style, "Name", safeExternalText(selection.Name), styleText),
-		selectorDetail(style, "Runtime", safeExternalText(runtimeSelection), styleText),
 		"", applyStyleToken(style, styleText, "Filesystem"),
 		applyStyleToken(style, styleMuted, "  LOCATION                  ACCESS"),
 		fmt.Sprintf("  %-25s %s", "Project source", selection.SourceAccess),
@@ -797,6 +809,9 @@ func contextCreateReviewLines(style bool, selection contextCreateSelection) []st
 	lines = append(lines,
 		"", applyStyleToken(style, styleMuted, "  DESTINATIONS              CEILING"),
 		fmt.Sprintf("  %-25s %s", "Private and unsafe", applyStyleToken(style, styleWarning, "deny")),
+		"", applyStyleToken(style, styleText, "Runtime"),
+		applyStyleToken(style, styleMuted, "  REVISION                  STATUS"),
+		fmt.Sprintf("  %-25s %s", safeExternalText(runtimeSelection), applyStyleToken(style, styleSuccess, "ready")),
 		"", applyStyleToken(style, styleText, "Workspace bootstrap"),
 	)
 	if selection.Bootstrap == nil {
@@ -875,10 +890,8 @@ func (w *terminalContextCreateWizard) editContextCreateSettingsLine(ctx context.
 	chooser := &terminalContextConfigurationWizard{mode: nil, style: w.style}
 	options := []configurationWizardOption{
 		{label: "Context name", value: "name"}, {label: "Filesystem access", value: "filesystem"},
-		{label: "Network access", value: "network"}, {label: "Workspace bootstrap", value: "bootstrap"},
-	}
-	if len(w.readyRuntimeOptions()) > 1 {
-		options = append(options, configurationWizardOption{label: "Runtime", value: "runtime"})
+		{label: "Network access", value: "network"}, {label: "Runtime", value: "runtime"},
+		{label: "Workspace bootstrap", value: "bootstrap"},
 	}
 	options = append(options, configurationWizardOption{label: "Return to review", value: "review"})
 	index, err := chooser.choose(ctx, in, out, configurationWizardMenu{
@@ -904,7 +917,7 @@ func (w *terminalContextCreateWizard) editContextCreateSettingsLine(ctx context.
 }
 
 func (w *terminalContextCreateWizard) readyRuntimeOptions() []configurationWizardOption {
-	options := []configurationWizardOption{{label: "standard", description: "Built-in immutable Tobari Runtime.", value: tobari.StandardRuntimeName}}
+	options := []configurationWizardOption{{label: "standard@1", description: "Built-in immutable Tobari Runtime.", value: tobari.StandardRuntimeName}}
 	for _, runtime := range w.runtimes {
 		if runtime.Kind == tobari.RuntimeKindManaged && runtime.Ready {
 			selection := fmt.Sprintf("%s@%d", runtime.Name, runtime.Head)
@@ -924,12 +937,55 @@ func (w *terminalContextCreateWizard) editContextCreateRuntimeLine(ctx context.C
 		}
 	}
 	chooser := &terminalContextConfigurationWizard{mode: nil, style: w.style}
-	selected, err := chooser.choose(ctx, in, out, configurationWizardMenu{title: "Tobari · Create Context · Runtime", contextName: draft.name, current: draft.runtimeSelection, prompt: "Ready Runtime revision", options: options})
+	selected, err := chooser.choose(ctx, in, out, configurationWizardMenu{title: "Tobari · Create Context · Runtime", contextName: draft.name, current: contextRuntimeDisplaySelection(draft.runtimeSelection), information: []string{"Only already built immutable revisions can be selected."}, prompt: "Ready Runtime revision", options: options})
 	if err == nil {
 		draft.runtimeSelection = options[selected].value
 	}
 	_ = current // line-mode chooser has no independent initial cursor.
 	return err
+}
+
+func (w *terminalContextCreateWizard) reviewContextCreateBootstrapLine(ctx context.Context, in io.Reader, out io.Writer, draft *contextCreateRawDraft) error {
+	chooser := &terminalContextConfigurationWizard{mode: nil, style: w.style}
+	options := contextCreateBootstrapStepOptions(draft.bootstrap)
+	index, err := chooser.choose(ctx, in, out, configurationWizardMenu{
+		title:       "Tobari · Create Context · Workspace bootstrap",
+		contextName: draft.name,
+		current:     contextCreateBootstrapStepCurrent(draft.bootstrap),
+		information: []string{"Applied only to newly created Workspace homes.", "Host configuration is read only after Configure from host is selected."},
+		prompt:      "Workspace bootstrap",
+		options:     options,
+	})
+	if err != nil || index == 0 {
+		return err
+	}
+	if options[index].value == "remove" {
+		draft.bootstrap = nil
+		return nil
+	}
+	return w.editContextCreateBootstrapLine(ctx, in, out, draft)
+}
+
+func contextCreateBootstrapStepOptions(bootstrap *tobari.ContextBootstrapSnapshot) []configurationWizardOption {
+	options := []configurationWizardOption{
+		{label: "Continue with this setting", description: contextCreateBootstrapStepCurrent(bootstrap), value: "continue"},
+		{label: "Configure from host", description: "Review compatible AWS and optional Amazon EKS settings.", value: "configure"},
+	}
+	if bootstrap != nil {
+		options = append(options, configurationWizardOption{label: "Remove bootstrap", description: "Keep future Workspace homes unconfigured.", value: "remove"})
+	}
+	return options
+}
+
+func contextCreateBootstrapStepCurrent(bootstrap *tobari.ContextBootstrapSnapshot) string {
+	if bootstrap == nil {
+		return "not configured"
+	}
+	value := "AWS " + safeExternalText(bootstrap.AWS.Profile)
+	if bootstrap.EKS != nil {
+		value += " · EKS " + safeExternalText(bootstrap.EKS.ContextName)
+	}
+	return value
 }
 
 func (w *terminalContextCreateWizard) editContextCreateBootstrapLine(ctx context.Context, in io.Reader, out io.Writer, draft *contextCreateRawDraft) error {
@@ -1032,11 +1088,7 @@ func (w *terminalContextCreateWizard) revalidateBootstrap(ctx context.Context, r
 }
 
 func (w *terminalContextCreateWizard) editContextCreateSettingsRaw(ctx context.Context, in io.Reader, out io.Writer, lineCount *int, draft *contextCreateRawDraft) (contextCreateRawNavigation, error) {
-	options := []configurationWizardOption{{label: "Context name"}, {label: "Filesystem access"}, {label: "Network access"}, {label: "Workspace bootstrap"}, {label: "Return to review"}}
-	hasRuntime := len(w.readyRuntimeOptions()) > 1
-	if hasRuntime {
-		options = append(options[:4], append([]configurationWizardOption{{label: "Runtime"}}, options[4:]...)...)
-	}
+	options := []configurationWizardOption{{label: "Context name"}, {label: "Filesystem access"}, {label: "Network access"}, {label: "Runtime"}, {label: "Workspace bootstrap"}, {label: "Return to review"}}
 	index, navigation, err := editContextCreateChoiceRaw(ctx, in, out, lineCount, w.style, contextCreateStepReview, draft.name, nil, "What do you want to edit?", options, draft.editSection)
 	if err != nil {
 		return contextCreateNavigateCancel, err
@@ -1080,7 +1132,7 @@ func (w *terminalContextCreateWizard) editContextCreateSettingsRaw(ctx context.C
 		}
 		return navigation, nil
 	case 3:
-		navigation, err := w.editContextCreateBootstrapRaw(ctx, in, out, lineCount, &staged)
+		navigation, err := w.editContextCreateRuntimeRaw(ctx, in, out, lineCount, contextCreateStepReview, &staged)
 		if err != nil {
 			return contextCreateNavigateCancel, err
 		}
@@ -1089,28 +1141,87 @@ func (w *terminalContextCreateWizard) editContextCreateSettingsRaw(ctx context.C
 		}
 		return navigation, nil
 	case 4:
-		if !hasRuntime {
-			return contextCreateNavigateBack, nil
-		}
-		runtimeOptions := w.readyRuntimeOptions()
-		current := 0
-		for candidate := range runtimeOptions {
-			if runtimeOptions[candidate].value == staged.runtimeSelection {
-				current = candidate
-				break
-			}
-		}
-		value, navigation, err := editContextCreateChoiceRaw(ctx, in, out, lineCount, w.style, contextCreateStepReview, staged.name, []string{"Only already built immutable revisions can be selected."}, "Ready Runtime revision", runtimeOptions, current)
+		navigation, err := w.editContextCreateBootstrapRaw(ctx, in, out, lineCount, &staged)
 		if err != nil {
 			return contextCreateNavigateCancel, err
 		}
 		if navigation == contextCreateNavigateNext {
-			staged.runtimeSelection = runtimeOptions[value].value
 			*draft = staged
 		}
 		return navigation, nil
 	}
 	return contextCreateNavigateBack, nil
+}
+
+func (w *terminalContextCreateWizard) editContextCreateRuntimeRaw(
+	ctx context.Context,
+	in io.Reader,
+	out io.Writer,
+	lineCount *int,
+	step contextCreateRawStep,
+	draft *contextCreateRawDraft,
+) (contextCreateRawNavigation, error) {
+	runtimeOptions := w.readyRuntimeOptions()
+	current := 0
+	for candidate := range runtimeOptions {
+		if runtimeOptions[candidate].value == draft.runtimeSelection {
+			current = candidate
+			break
+		}
+	}
+	value, navigation, err := editContextCreateChoiceRaw(
+		ctx, in, out, lineCount, w.style, step, draft.name,
+		[]string{"Only already built immutable revisions can be selected."},
+		"Ready Runtime revision", runtimeOptions, current,
+	)
+	if err != nil {
+		return contextCreateNavigateCancel, err
+	}
+	if navigation == contextCreateNavigateNext {
+		draft.runtimeSelection = runtimeOptions[value].value
+	}
+	return navigation, nil
+}
+
+func (w *terminalContextCreateWizard) reviewContextCreateBootstrapRaw(
+	ctx context.Context,
+	in io.Reader,
+	out io.Writer,
+	lineCount *int,
+	step contextCreateRawStep,
+	draft *contextCreateRawDraft,
+) (contextCreateRawNavigation, error) {
+	for {
+		options := contextCreateBootstrapStepOptions(draft.bootstrap)
+		value, navigation, err := editContextCreateChoiceRaw(
+			ctx, in, out, lineCount, w.style, step, draft.name,
+			[]string{
+				"Current: " + contextCreateBootstrapStepCurrent(draft.bootstrap),
+				"Applied only to newly created Workspace homes.",
+				"Host configuration is read only after Configure from host is selected.",
+			},
+			"Workspace bootstrap", options, 0,
+		)
+		if err != nil || navigation != contextCreateNavigateNext {
+			return navigation, err
+		}
+		switch options[value].value {
+		case "continue":
+			return contextCreateNavigateNext, nil
+		case "remove":
+			draft.bootstrap = nil
+			return contextCreateNavigateNext, nil
+		case "configure":
+			navigation, err = w.editContextCreateBootstrapRaw(ctx, in, out, lineCount, draft)
+			if err != nil {
+				return contextCreateNavigateCancel, err
+			}
+			if navigation == contextCreateNavigateBack {
+				continue
+			}
+			return navigation, nil
+		}
+	}
 }
 
 func cloneContextCreateRawDraft(draft contextCreateRawDraft) contextCreateRawDraft {
@@ -1201,7 +1312,7 @@ func (w *terminalContextCreateWizard) editContextCreateBootstrapRaw(ctx context.
 }
 
 func contextCreateStepLabel(step contextCreateRawStep) string {
-	labels := []string{"1 of 4 · Name", "2 of 4 · Filesystem", "3 of 4 · Network", "4 of 4 · Review & Create"}
+	labels := []string{"1 of 6 · Name", "2 of 6 · Filesystem", "3 of 6 · Network", "4 of 6 · Runtime", "5 of 6 · Workspace bootstrap", "6 of 6 · Review & Create"}
 	if int(step) < 0 || int(step) >= len(labels) {
 		return "unknown"
 	}

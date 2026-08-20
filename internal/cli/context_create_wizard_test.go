@@ -128,8 +128,9 @@ func TestContextCreateWizardCollectsNameFilesystemAndEveryMethodDecision(t *test
 	t.Parallel()
 	wizard := &terminalContextCreateWizard{mode: nil, style: false}
 	// name, filesystem=read-write, customize, default=exact-review, GET=allow,
-	// inherit the default for the remaining methods, then create.
-	input := "coding\n1\n2\ne\na\n" + strings.Repeat("\n", len(contextCreateHTTPMethods)-1) + "1\n"
+	// inherit the default for the remaining methods, choose standard@1,
+	// continue without Workspace bootstrap, then create.
+	input := "coding\n1\n2\ne\na\n" + strings.Repeat("\n", len(contextCreateHTTPMethods)-1) + "1\n1\n1\n"
 	var output bytes.Buffer
 	selection, err := wizard.Compose(context.Background(), strings.NewReader(input), &output)
 	if err != nil {
@@ -140,7 +141,7 @@ func TestContextCreateWizardCollectsNameFilesystemAndEveryMethodDecision(t *test
 		len(selection.MethodPolicy.Overrides) != 1 || selection.MethodPolicy.Overrides[0] != (tobari.ContextMethodOverride{Method: "GET", Decision: tobari.ContextMethodAllow}) {
 		t.Fatalf("wizard selection = %+v", selection)
 	}
-	for _, required := range []string{"Context name:", "Project source access", "Other methods (default)", "GET", "TRACE", "Workspace bootstrap", "Review & Create", "Runtime", "standard Tobari runtime", "Claude Code and Codex routine traffic", "Private and unsafe"} {
+	for _, required := range []string{"Context name:", "Project source access", "Other methods (default)", "GET", "TRACE", "Workspace bootstrap", "Host configuration is read only after Configure from host is selected.", "Review & Create", "Ready Runtime revision", "standard@1", "Claude Code and Codex routine traffic", "Private and unsafe"} {
 		if !strings.Contains(output.String(), required) {
 			t.Errorf("wizard output lacks %q: %q", required, output.String())
 		}
@@ -151,7 +152,7 @@ func TestContextCreateWizardDoesNotInspectBootstrapOnOrdinaryPath(t *testing.T) 
 	t.Parallel()
 	bootstrap := newContextCreateBootstrapFixture(t, false)
 	wizard := &terminalContextCreateWizard{mode: nil, style: false, bootstrap: bootstrap}
-	selection, err := wizard.Compose(context.Background(), strings.NewReader("coding\n1\n1\n1\n"), io.Discard)
+	selection, err := wizard.Compose(context.Background(), strings.NewReader("coding\n1\n1\n1\n1\n1\n"), io.Discard)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -183,7 +184,7 @@ func TestContextCreateWizardCanSelectAWSBootstrapProfile(t *testing.T) {
 	t.Parallel()
 	bootstrap := newContextCreateBootstrapFixture(t, false)
 	wizard := &terminalContextCreateWizard{mode: nil, style: false, bootstrap: bootstrap}
-	input := "coding\n1\n1\n2\n4\n2\n1\n1\n"
+	input := "coding\n1\n1\n1\n2\n2\n1\n1\n"
 	selection, err := wizard.Compose(context.Background(), strings.NewReader(input), io.Discard)
 	if err != nil {
 		t.Fatal(err)
@@ -197,7 +198,7 @@ func TestContextCreateWizardCanComposeAWSAndEKSBootstrap(t *testing.T) {
 	t.Parallel()
 	bootstrap := newContextCreateBootstrapFixture(t, true)
 	wizard := &terminalContextCreateWizard{mode: nil, style: false, bootstrap: bootstrap}
-	input := "coding\n1\n1\n2\n4\n2\n2\n1\n"
+	input := "coding\n1\n1\n1\n2\n2\n2\n1\n"
 	selection, err := wizard.Compose(context.Background(), strings.NewReader(input), io.Discard)
 	if err != nil {
 		t.Fatal(err)
@@ -212,7 +213,7 @@ func TestContextCreateWizardKeepsDraftAndRequiresReviewAfterSemanticDrift(t *tes
 	fixture := &driftingContextCreateBootstrapFixture{contextCreateBootstrapFixture: newContextCreateBootstrapFixture(t, false)}
 	wizard := &terminalContextCreateWizard{mode: nil, style: false, bootstrap: fixture}
 	var output bytes.Buffer
-	selection, err := wizard.Compose(context.Background(), strings.NewReader("coding\n1\n1\n2\n4\n2\n1\n1\n1\n"), &output)
+	selection, err := wizard.Compose(context.Background(), strings.NewReader("coding\n1\n1\n1\n2\n2\n1\n1\n1\n"), &output)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -226,7 +227,7 @@ func TestContextCreateWizardCanExplicitlyContinueWithoutRejectedOptionalBootstra
 	fixture := &rejectedContextCreateBootstrapFixture{contextCreateBootstrapFixture: newContextCreateBootstrapFixture(t, false)}
 	wizard := &terminalContextCreateWizard{mode: nil, style: false, bootstrap: fixture}
 	var output bytes.Buffer
-	selection, err := wizard.Compose(context.Background(), strings.NewReader("coding\n1\n1\n2\n4\n1\n1\n"), &output)
+	selection, err := wizard.Compose(context.Background(), strings.NewReader("coding\n1\n1\n1\n2\n1\n1\n"), &output)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -241,7 +242,7 @@ func TestContextCreateWizardLineReportsKnownEmptyBootstrapCandidates(t *testing.
 		fixture := &emptyAWSContextCreateBootstrapFixture{contextCreateBootstrapFixture: newContextCreateBootstrapFixture(t, false)}
 		wizard := &terminalContextCreateWizard{mode: nil, style: false, bootstrap: fixture}
 		var output bytes.Buffer
-		if _, err := wizard.Compose(context.Background(), strings.NewReader("coding\n1\n1\n2\n4\n1\n1\n"), &output); err != nil {
+		if _, err := wizard.Compose(context.Background(), strings.NewReader("coding\n1\n1\n1\n2\n1\n1\n"), &output); err != nil {
 			t.Fatal(err)
 		}
 		if !strings.Contains(output.String(), "No compatible IAM Identity Center profiles were found.") {
@@ -252,7 +253,7 @@ func TestContextCreateWizardLineReportsKnownEmptyBootstrapCandidates(t *testing.
 		fixture := &emptyEKSContextCreateBootstrapFixture{contextCreateBootstrapFixture: newContextCreateBootstrapFixture(t, false)}
 		wizard := &terminalContextCreateWizard{mode: nil, style: false, bootstrap: fixture}
 		var output bytes.Buffer
-		if _, err := wizard.Compose(context.Background(), strings.NewReader("coding\n1\n1\n2\n4\n2\n1\n1\n"), &output); err != nil {
+		if _, err := wizard.Compose(context.Background(), strings.NewReader("coding\n1\n1\n1\n2\n2\n1\n1\n"), &output); err != nil {
 			t.Fatal(err)
 		}
 		if !strings.Contains(output.String(), "No compatible Amazon EKS contexts were found.") {
@@ -265,7 +266,7 @@ func TestContextCreateWizardFallsBackToBoundedLineModeWhenRawModeIsUnavailable(t
 	t.Parallel()
 	mode := &selectorModeFake{enterErr: errors.New("raw mode unavailable")}
 	wizard := &terminalContextCreateWizard{mode: mode, style: false}
-	input := "coding\n1\n1\n1\n"
+	input := "coding\n1\n1\n1\n1\n1\n"
 	var output bytes.Buffer
 	selection, err := wizard.Compose(context.Background(), strings.NewReader(input), &output)
 	if err != nil {
@@ -282,7 +283,7 @@ func TestContextCreateWizardFallsBackToBoundedLineModeWhenRawModeIsUnavailable(t
 func TestContextCreateWizardLineReviewCanCancelTheCompleteSelection(t *testing.T) {
 	t.Parallel()
 	wizard := &terminalContextCreateWizard{mode: nil, style: false}
-	input := "coding\n1\n1\n3\n"
+	input := "coding\n1\n1\n1\n1\n3\n"
 	var output bytes.Buffer
 	_, err := wizard.Compose(context.Background(), strings.NewReader(input), &output)
 	if !errors.Is(err, context.Canceled) {
@@ -293,13 +294,13 @@ func TestContextCreateWizardLineReviewCanCancelTheCompleteSelection(t *testing.T
 	}
 }
 
-func TestContextCreateWizardRawUsesOneContinuousFourStepSession(t *testing.T) {
+func TestContextCreateWizardRawUsesOneContinuousSixStepSession(t *testing.T) {
 	t.Parallel()
 	mode := &selectorModeFake{}
 	wizard := &terminalContextCreateWizard{mode: mode, style: false}
 	var output bytes.Buffer
 	selection, err := wizard.Compose(
-		context.Background(), strings.NewReader("coding\r\r\x1b[B\r\x1b[Ba\r\r"), &output,
+		context.Background(), strings.NewReader("coding\r\r\x1b[B\r\x1b[Ba\r\r\r\r"), &output,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -312,9 +313,9 @@ func TestContextCreateWizardRawUsesOneContinuousFourStepSession(t *testing.T) {
 		t.Fatalf("raw wizard selection = %+v", selection)
 	}
 	for _, required := range []string{
-		"1 of 4 · Name", "2 of 4 · Filesystem", "3 of 4 · Network",
-		"4 of 4 · Review & Create", "Continue with these settings", "Customize method policies",
-		"Context name:", "Other methods (default)", "SOURCE", "Runtime", "standard Tobari runtime", "Create Context", "Edit settings",
+		"1 of 6 · Name", "2 of 6 · Filesystem", "3 of 6 · Network",
+		"4 of 6 · Runtime", "5 of 6 · Workspace bootstrap", "6 of 6 · Review & Create", "Continue with these settings", "Customize method policies",
+		"Context name:", "Other methods (default)", "SOURCE", "Ready Runtime revision", "standard@1", "Create Context", "Edit settings",
 	} {
 		if !strings.Contains(output.String(), required) {
 			t.Errorf("raw wizard output lacks %q: %q", required, output.String())
@@ -329,12 +330,92 @@ func TestContextCreateWizardRawUsesOneContinuousFourStepSession(t *testing.T) {
 	}
 }
 
+func TestContextCreateWizardRawRuntimeStepSelectsOnlyReadyRevision(t *testing.T) {
+	t.Parallel()
+	wizard := &terminalContextCreateWizard{mode: &selectorModeFake{}, style: false, runtimes: []tobari.RuntimeSummary{
+		{ID: "018bcfe5-687b-7000-8000-000000000071", Name: "frontend", Kind: tobari.RuntimeKindManaged, Ready: true, Head: 4, Revision: "sha256:" + strings.Repeat("a", 64), SourcePath: "/config/runtimes/frontend/source"},
+		{ID: "018bcfe5-687b-7000-8000-000000000072", Name: "backend", Kind: tobari.RuntimeKindManaged, SourcePath: "/config/runtimes/backend/source"},
+	}}
+	var output bytes.Buffer
+	selection, err := wizard.Compose(
+		context.Background(), strings.NewReader("coding\r\r\r\x1b[B\r\r\r"), &output,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if selection.RuntimeSelection != "frontend@4" {
+		t.Fatalf("Runtime selection = %q", selection.RuntimeSelection)
+	}
+	if !strings.Contains(output.String(), "4 of 6 · Runtime") ||
+		!strings.Contains(output.String(), "standard@1") ||
+		!strings.Contains(output.String(), "frontend@4") ||
+		strings.Contains(output.String(), "backend") {
+		t.Fatalf("Runtime step output = %q", output.String())
+	}
+}
+
+func TestContextCreateWizardRawBackFromRuntimeReturnsToNetworkAndPreservesDraft(t *testing.T) {
+	t.Parallel()
+	wizard := &terminalContextCreateWizard{mode: &selectorModeFake{}, style: false}
+	var output bytes.Buffer
+	selection, err := wizard.Compose(
+		context.Background(), strings.NewReader("coding\r\x1b[B\r\rb\r\r\r\r"), &output,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if selection.SourceAccess != tobari.ContextSourceAccessReadOnly || selection.RuntimeSelection != tobari.StandardRuntimeName {
+		t.Fatalf("selection after Runtime Back = %+v", selection)
+	}
+	if strings.Count(output.String(), "3 of 6 · Network") < 2 {
+		t.Fatalf("Runtime Back did not return to Network: %q", output.String())
+	}
+}
+
+func TestContextCreateWizardRawBackFromBootstrapReturnsToRuntimeWithoutHostRead(t *testing.T) {
+	t.Parallel()
+	bootstrap := newContextCreateBootstrapFixture(t, false)
+	wizard := &terminalContextCreateWizard{mode: &selectorModeFake{}, style: false, bootstrap: bootstrap}
+	var output bytes.Buffer
+	selection, err := wizard.Compose(
+		context.Background(), strings.NewReader("coding\r\r\r\rb\r\r\r"), &output,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if selection.Bootstrap != nil || bootstrap.discoveryCalls != 0 {
+		t.Fatalf("Bootstrap Back inspected host or changed selection: %+v calls=%d", selection, bootstrap.discoveryCalls)
+	}
+	if strings.Count(output.String(), "4 of 6 · Runtime") < 2 {
+		t.Fatalf("Bootstrap Back did not return to Runtime: %q", output.String())
+	}
+}
+
+func TestContextCreateReviewMirrorsFilesystemNetworkRuntimeOrder(t *testing.T) {
+	t.Parallel()
+	lines := strings.Join(contextCreateReviewLines(false, contextCreateSelection{
+		Name: "coding", RuntimeSelection: tobari.StandardRuntimeName,
+		SourceAccess: tobari.ContextSourceAccessReadWrite,
+		MethodPolicy: tobari.ContextMethodPolicy{Default: tobari.ContextMethodExactReview},
+	}), "\n")
+	filesystem := strings.Index(lines, "Filesystem")
+	network := strings.Index(lines, "Network")
+	runtime := strings.Index(lines, "Runtime")
+	bootstrap := strings.Index(lines, "Workspace bootstrap")
+	if filesystem < 0 || network <= filesystem || runtime <= network || bootstrap <= runtime {
+		t.Fatalf("review section order is not Filesystem, Network, Runtime, Bootstrap: %q", lines)
+	}
+	if !strings.Contains(lines, "standard@1") || !strings.Contains(lines, "ready") {
+		t.Fatalf("review Runtime is not exact and ready: %q", lines)
+	}
+}
+
 func TestContextCreateWizardRawBackNavigationPreservesStagedFilesystem(t *testing.T) {
 	t.Parallel()
 	mode := &selectorModeFake{}
 	wizard := &terminalContextCreateWizard{mode: mode, style: false}
 	selection, err := wizard.Compose(
-		context.Background(), strings.NewReader("coding\r\x1b[B\rb\r\r\r\r"), io.Discard,
+		context.Background(), strings.NewReader("coding\r\x1b[B\rb\r\r\r\r\r"), io.Discard,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -352,7 +433,7 @@ func TestContextCreateWizardRawMethodEditorExposesInheritanceAndReset(t *testing
 	mode := &selectorModeFake{}
 	wizard := &terminalContextCreateWizard{mode: mode, style: false}
 	var output bytes.Buffer
-	selection, err := wizard.Compose(context.Background(), strings.NewReader("coding\r\r\x1b[B\r\x1b[Bair\r\r"), &output)
+	selection, err := wizard.Compose(context.Background(), strings.NewReader("coding\r\r\x1b[B\r\x1b[Bair\r\r\r\r"), &output)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -400,7 +481,7 @@ func TestContextCreateWizardMethodRowsRemainAlignedWhenStyled(t *testing.T) {
 func TestContextCreateWizardRawDefaultChangePreservesOnlyExactOverrides(t *testing.T) {
 	t.Parallel()
 	wizard := &terminalContextCreateWizard{mode: &selectorModeFake{}, style: false}
-	selection, err := wizard.Compose(context.Background(), strings.NewReader("coding\r\r\x1b[B\r\x1b[Ba\x1b[Ad\r\r"), io.Discard)
+	selection, err := wizard.Compose(context.Background(), strings.NewReader("coding\r\r\x1b[B\r\x1b[Ba\x1b[Ad\r\r\r\r"), io.Discard)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -413,7 +494,7 @@ func TestContextCreateWizardRawEditSectionReturnsDirectlyToReview(t *testing.T) 
 	t.Parallel()
 	mode := &selectorModeFake{}
 	wizard := &terminalContextCreateWizard{mode: mode, style: false}
-	selection, err := wizard.Compose(context.Background(), strings.NewReader("coding\r\r\r\x1b[B\r\x1b[B\r\x1b[B\r\x1b[A\r"), io.Discard)
+	selection, err := wizard.Compose(context.Background(), strings.NewReader("coding\r\r\r\r\r\x1b[B\r\x1b[B\r\x1b[B\r\x1b[A\r"), io.Discard)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -426,7 +507,7 @@ func TestContextCreateWizardRawEditNameControlCCancelsWithoutSelection(t *testin
 	t.Parallel()
 	wizard := &terminalContextCreateWizard{mode: &selectorModeFake{}, style: false}
 	selection, err := wizard.Compose(
-		context.Background(), strings.NewReader("coding\r\r\r\x1b[B\r\r\x03"), io.Discard,
+		context.Background(), strings.NewReader("coding\r\r\r\r\r\x1b[B\r\r\x03"), io.Discard,
 	)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("wizard error = %v, want canceled", err)
@@ -440,7 +521,7 @@ func TestContextCreateWizardRawEditNetworkCancelPropagates(t *testing.T) {
 	t.Parallel()
 	wizard := &terminalContextCreateWizard{mode: &selectorModeFake{}, style: false}
 	_, err := wizard.Compose(
-		context.Background(), strings.NewReader("coding\r\r\r\x1b[B\r\x1b[B\x1b[B\rq"), io.Discard,
+		context.Background(), strings.NewReader("coding\r\r\r\r\r\x1b[B\r\x1b[B\x1b[B\rq"), io.Discard,
 	)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("wizard error = %v, want canceled", err)
@@ -451,7 +532,7 @@ func TestContextCreateWizardRawEditAWSChooserCancelPropagates(t *testing.T) {
 	t.Parallel()
 	wizard := &terminalContextCreateWizard{mode: &selectorModeFake{}, style: false, bootstrap: newContextCreateBootstrapFixture(t, true)}
 	_, err := wizard.Compose(
-		context.Background(), strings.NewReader("coding\r\r\r\x1b[B\r\x1b[B\x1b[B\x1b[B\rq"), io.Discard,
+		context.Background(), strings.NewReader("coding\r\r\r\r\r\x1b[B\r\x1b[B\x1b[B\x1b[B\x1b[B\rq"), io.Discard,
 	)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("wizard error = %v, want canceled", err)
@@ -462,7 +543,7 @@ func TestContextCreateWizardRawEditEKSChooserCancelPropagates(t *testing.T) {
 	t.Parallel()
 	wizard := &terminalContextCreateWizard{mode: &selectorModeFake{}, style: false, bootstrap: newContextCreateBootstrapFixture(t, true)}
 	_, err := wizard.Compose(
-		context.Background(), strings.NewReader("coding\r\r\r\x1b[B\r\x1b[B\x1b[B\x1b[B\r\x1b[B\rq"), io.Discard,
+		context.Background(), strings.NewReader("coding\r\r\r\r\r\x1b[B\r\x1b[B\x1b[B\x1b[B\x1b[B\r\x1b[B\rq"), io.Discard,
 	)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("wizard error = %v, want canceled", err)
@@ -473,7 +554,7 @@ func TestContextCreateWizardRawEditNetworkBackDiscardsStagedPolicy(t *testing.T)
 	t.Parallel()
 	wizard := &terminalContextCreateWizard{mode: &selectorModeFake{}, style: false}
 	selection, err := wizard.Compose(
-		context.Background(), strings.NewReader("coding\r\r\r\x1b[B\r\x1b[B\x1b[B\r\x1b[B\r\x1b[Bab\x1b[A\r"), io.Discard,
+		context.Background(), strings.NewReader("coding\r\r\r\r\r\x1b[B\r\x1b[B\x1b[B\r\x1b[B\r\x1b[Bab\x1b[A\r"), io.Discard,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -488,7 +569,7 @@ func TestContextCreateWizardRawReviewCanScrollWithoutChangingAction(t *testing.T
 	mode := &selectorModeFake{}
 	wizard := &terminalContextCreateWizard{mode: mode, style: false}
 	var output bytes.Buffer
-	selection, err := wizard.Compose(context.Background(), strings.NewReader("coding\r\r\r\x1b[6~\r"), &output)
+	selection, err := wizard.Compose(context.Background(), strings.NewReader("coding\r\r\r\r\r\x1b[6~\r"), &output)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -503,7 +584,7 @@ func TestContextCreateWizardRawCollectsAWSProfileWithoutLeavingSession(t *testin
 	wizard := &terminalContextCreateWizard{mode: mode, style: false, bootstrap: newContextCreateBootstrapFixture(t, false)}
 	var output bytes.Buffer
 	selection, err := wizard.Compose(
-		context.Background(), strings.NewReader("coding\r\r\r\x1b[B\r\x1b[B\x1b[B\x1b[B\r\x1b[B\r\r\x1b[A\r"), &output,
+		context.Background(), strings.NewReader("coding\r\r\r\r\x1b[B\r\x1b[B\r\r\r"), &output,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -524,7 +605,7 @@ func TestContextCreateWizardRawCollectsAWSAndEKSInsideOneSession(t *testing.T) {
 	wizard := &terminalContextCreateWizard{mode: mode, style: false, bootstrap: newContextCreateBootstrapFixture(t, true)}
 	var output bytes.Buffer
 	selection, err := wizard.Compose(
-		context.Background(), strings.NewReader("coding\r\r\r\x1b[B\r\x1b[B\x1b[B\x1b[B\r\x1b[B\r\x1b[B\r\x1b[A\r"), &output,
+		context.Background(), strings.NewReader("coding\r\r\r\r\x1b[B\r\x1b[B\r\x1b[B\r\r"), &output,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -543,7 +624,7 @@ func TestContextCreateWizardRawReportsKnownEmptyBootstrapCandidates(t *testing.T
 		fixture := &emptyAWSContextCreateBootstrapFixture{contextCreateBootstrapFixture: newContextCreateBootstrapFixture(t, false)}
 		wizard := &terminalContextCreateWizard{mode: &selectorModeFake{}, style: false, bootstrap: fixture}
 		var output bytes.Buffer
-		if _, err := wizard.Compose(context.Background(), strings.NewReader("coding\r\r\r\x1b[B\r\x1b[B\x1b[B\x1b[B\r\r\x1b[A\r"), &output); err != nil {
+		if _, err := wizard.Compose(context.Background(), strings.NewReader("coding\r\r\r\r\x1b[B\r\r\r"), &output); err != nil {
 			t.Fatal(err)
 		}
 		if !strings.Contains(output.String(), "No compatible IAM Identity Center profiles were found.") {
@@ -554,7 +635,7 @@ func TestContextCreateWizardRawReportsKnownEmptyBootstrapCandidates(t *testing.T
 		fixture := &emptyEKSContextCreateBootstrapFixture{contextCreateBootstrapFixture: newContextCreateBootstrapFixture(t, false)}
 		wizard := &terminalContextCreateWizard{mode: &selectorModeFake{}, style: false, bootstrap: fixture}
 		var output bytes.Buffer
-		if _, err := wizard.Compose(context.Background(), strings.NewReader("coding\r\r\r\x1b[B\r\x1b[B\x1b[B\x1b[B\r\x1b[B\r\r\x1b[A\r"), &output); err != nil {
+		if _, err := wizard.Compose(context.Background(), strings.NewReader("coding\r\r\r\r\x1b[B\r\x1b[B\r\r\r"), &output); err != nil {
 			t.Fatal(err)
 		}
 		if !strings.Contains(output.String(), "No compatible Amazon EKS contexts were found.") {
@@ -589,7 +670,7 @@ func TestContextCreateWizardRawKeepsInvalidNameInsideFirstStep(t *testing.T) {
 		t.Fatalf("wizard error = %v, want canceled", err)
 	}
 	if !strings.Contains(output.String(), "name must match [a-z][a-z0-9-]{0,62}") ||
-		strings.Contains(output.String(), "2 of 4 · Filesystem") {
+		strings.Contains(output.String(), "2 of 6 · Filesystem") {
 		t.Fatalf("invalid name escaped the first step: %q", output.String())
 	}
 }

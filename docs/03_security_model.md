@@ -841,9 +841,11 @@ Projection creates only private `.aws/config` in a fresh Workspace home before
 publication. No refresh or reconciliation path may write an existing
 Workspace home.
 
-The interactive Context wizard does not inspect host AWS configuration on its
-ordinary path. Only explicit Workspace-bootstrap editing invokes a read-only
-candidate port. Infrastructure reads the same fixed bounded file once, resolves
+The interactive Context wizard's Workspace-bootstrap step does not inspect host
+AWS or Kubernetes configuration merely by being shown or continued. Only its
+explicit Configure from host choice or later Workspace-bootstrap editing
+invokes a read-only candidate port. Infrastructure reads the same fixed bounded
+file once, resolves
 each profile through its referenced SSO session with the strict preparation
 resolver, and returns no credential or cache material. Individually invalid
 profiles are non-authoritative unavailable data; malformed, duplicate, or

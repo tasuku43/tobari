@@ -52,11 +52,14 @@ a Context is one explicit Context mutation that replaces its binding with a
 validated ready revision. Existing Workspaces preserve their home and adopt
 the new selection only on their next entry through ordinary reconciliation.
 
-The first-use Context wizard remains four stages: Name, Filesystem, Network,
-and Review. Runtime is always a Review row and defaults to standard. Ready
-custom revisions can be selected by editing that row. Fresh root onboarding
-does not present a post-create Runtime chooser and does not initialize Runtime
-source implicitly. A user who needs customization first runs `runtime create`,
+The first-use Context wizard uses six stages: Name, Filesystem, Network,
+Runtime, Workspace bootstrap, and Review. Runtime always presents `standard@1`
+plus every ready custom revision after Network, even when standard is the only
+ready choice. The following bootstrap step defaults to no configuration and
+does not inspect host files until Configure from host is chosen. Fresh root
+onboarding does not present a post-create Runtime chooser and does not
+initialize Runtime source implicitly. A user who needs customization first runs
+`runtime create`,
 edits the shown managed source directory, and runs `runtime build`, then selects
 that ready revision during Context creation or a later Context Runtime change.
 
