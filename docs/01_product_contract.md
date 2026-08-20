@@ -530,7 +530,8 @@ undeclared Docker mutation by the CLI.
   from the new immutable snapshot rather than leaving an invalid or misleading
   unreachable grant. Final review also identifies the standard Tobari runtime
   selected in the manifest. Redirected or JSON argument-free creation fails
-  before mutation. Standalone success points to root `tobari`, which owns the
+  before mutation. Standalone success points to the root entry while preserving
+  the created Context explicitly when it is not current; root entry owns the
   remaining human setup sequence.
 - `runtime build` is the explicit exception to the no-implicit-pull rule. It
   runs a host Docker build using only the immutable snapshot of the selected
@@ -637,6 +638,13 @@ single typed result as `Context`, `Boundary`, `Workspace`, `Runtime`, and
 store paths, and immutable revisions. It performs no second read. Schema-1 JSON
 is already complete, is byte-identical with or without `--details`, and remains
 the automation contract.
+Successful text `context create` uses that same Context-summary row structure
+for the confirmed typed result. Its heading states creation, its explicit
+cluster row preserves whether reconciliation is required, its details command
+opens the newly created Context by name when needed, and its root continuation
+selects that same Context when it is not current. It does not infer
+authentication state that the create task did not observe. Schema-1 JSON
+remains unchanged.
 Unconfigured cluster resources are `null`; unavailable
 observations use declared finite values and never an empty-string sentinel.
 The infrastructure/doctor label `linux_xdg_file` is not a public

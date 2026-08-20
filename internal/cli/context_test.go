@@ -983,8 +983,9 @@ func TestContextCreateRendersRequiresReconcileAndExecutableRootContinuation(t *t
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(output), "Cluster: requires_reconcile") ||
-		!strings.Contains(string(output), "Next: run `tobari`") {
+	if !strings.Contains(string(output), "Context review created") ||
+		!strings.Contains(string(output), "Cluster        requires_reconcile") ||
+		!strings.Contains(string(output), "Next           tobari --context review") {
 		t.Fatalf("Context create hides required cluster reconciliation: %q", output)
 	}
 	if routed := assertPublicNextArgvRoutes(t, contextCreateNextArgv(report)); routed.Path != "tobari" {
@@ -1003,8 +1004,10 @@ func TestContextCreateRendersAbsentClusterAndExecutableRootContinuation(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(output), "Cluster: not_applicable") ||
-		!strings.Contains(string(output), "Next: run `tobari`") {
+	if !strings.Contains(string(output), "Context default created") ||
+		!strings.Contains(string(output), "Cluster        not_applicable") ||
+		!strings.Contains(string(output), "Next           tobari —") ||
+		strings.Contains(string(output), "Next           tobari --context") {
 		t.Fatalf("Context create hides absent-cluster recovery: %q", output)
 	}
 	if routed := assertPublicNextArgvRoutes(t, contextCreateNextArgv(report)); routed.Path != "tobari" {
@@ -1251,7 +1254,7 @@ func TestContextCreateWithoutArgumentsRequiresInteractiveWizardAndDirectNameDoes
 	if code := command.RunContext(context.Background(), []string{"context", "create", "--name", "direct"}); code != ExitOK {
 		t.Fatalf("direct create code = %d, stderr = %q", code, stderr.String())
 	}
-	if fake.createCalls != 1 || !strings.Contains(stdout.String(), "Context: direct") {
+	if fake.createCalls != 1 || !strings.Contains(stdout.String(), "Context direct created") {
 		t.Fatalf("direct create calls/output = %d/%q", fake.createCalls, stdout.String())
 	}
 }

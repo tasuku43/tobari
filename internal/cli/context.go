@@ -917,6 +917,9 @@ func renderContextReportText(result tobari.ContextReport, color bool) []byte {
 	if result.Task == tobari.TaskContextShow {
 		return renderContextShowSummaryText(result, color)
 	}
+	if result.Task == tobari.TaskContextCreate {
+		return renderContextCreateSummaryText(result, color)
+	}
 	if result.Task == tobari.TaskRuntimeInit {
 		return renderRuntimeInitReportText(result, color)
 	}
@@ -1069,9 +1072,52 @@ func renderContextShowReport(result tobari.ContextReport, format successFormat, 
 }
 
 func renderContextShowSummaryText(result tobari.ContextReport, color bool) []byte {
-	output := newHumanOutput(color)
 	marker, token := contextShowMarker(result)
-	output.heading(marker, "Context "+safeExternalText(result.Name), token)
+	nextCommand, nextReason := contextShowNext(result)
+	return renderContextSummaryText(result, color, contextSummaryPresentation{
+		Marker:                marker,
+		MarkerToken:           token,
+		Title:                 "Context " + safeExternalText(result.Name),
+		IncludeAuthentication: true,
+		DetailsCommand:        contextShowDetailsCommand(result),
+		NextCommand:           nextCommand,
+		NextReason:            nextReason,
+	})
+}
+
+func renderContextCreateSummaryText(result tobari.ContextReport, color bool) []byte {
+	var nextCommand string
+	if nextArgv := contextCreateNextArgv(result); len(nextArgv) > 0 {
+		nextCommand = ProgramName
+		if len(nextArgv) > 1 {
+			nextCommand = strings.Join(nextArgv[1:], " ")
+		}
+	}
+	return renderContextSummaryText(result, color, contextSummaryPresentation{
+		Marker:         "✓",
+		MarkerToken:    styleSuccess,
+		Title:          "Context " + safeExternalText(result.Name) + " created",
+		IncludeCluster: true,
+		DetailsCommand: contextShowDetailsCommand(result),
+		NextCommand:    nextCommand,
+		NextReason:     "Prepare shared services and enter a Workspace from a project directory.",
+	})
+}
+
+type contextSummaryPresentation struct {
+	Marker                string
+	MarkerToken           styleToken
+	Title                 string
+	IncludeAuthentication bool
+	IncludeCluster        bool
+	DetailsCommand        string
+	NextCommand           string
+	NextReason            string
+}
+
+func renderContextSummaryText(result tobari.ContextReport, color bool, presentation contextSummaryPresentation) []byte {
+	output := newHumanOutput(color)
+	output.heading(presentation.Marker, presentation.Title, presentation.MarkerToken)
 	output.row("State", contextShowState(result), styleText)
 	output.row("Source", "direct "+string(result.SourceAccess), styleText)
 	output.row("Network", "default "+humanMethodDecision(result.MethodPolicy.Default), styleText)
@@ -1088,17 +1134,25 @@ func renderContextShowSummaryText(result tobari.ContextReport, color bool) []byt
 	output.row("Git identity", contextShowGitIdentity(result.GitIdentity), styleText)
 	output.row("Runtime", contextRuntimeDisplay(result.Runtime), humanStatusToken(string(result.Runtime.Status)))
 	output.row("Image", safeExternalText(result.Image), styleText)
-	output.row("Authentication", contextShowAuthentication(result.Authentication), contextShowAuthenticationToken(result.Authentication))
-	if contextAuthenticationMode(result.Authentication) != tobari.ContextAuthenticationModeNative {
-		output.row("Auth status", strings.Join(contextAuthStatusNextArgv(result), " "), styleAccent)
+	if presentation.IncludeAuthentication {
+		output.row("Authentication", contextShowAuthentication(result.Authentication), contextShowAuthenticationToken(result.Authentication))
+		if contextAuthenticationMode(result.Authentication) != tobari.ContextAuthenticationModeNative {
+			output.row("Auth status", strings.Join(contextAuthStatusNextArgv(result), " "), styleAccent)
+		}
 	}
 	output.row("Bootstrap", contextShowBootstrap(result.Bootstrap), humanStatusToken(result.Bootstrap.Resolved().State))
 	if result.Runtime.Dockerfile != "" {
 		output.row("Dockerfile", safeExternalText(result.Runtime.Dockerfile), styleText)
 	}
-	output.row("Details", recoveryCommand(contextShowDetailsCommand(result)), styleAccent)
-	nextCommand, nextReason := contextShowNext(result)
-	output.next(nextCommand, nextReason)
+	if presentation.IncludeCluster {
+		output.row("Cluster", string(result.Cluster), humanStatusToken(string(result.Cluster)))
+	}
+	if presentation.DetailsCommand != "" {
+		output.row("Details", recoveryCommand(presentation.DetailsCommand), styleAccent)
+	}
+	if presentation.NextCommand != "" {
+		output.next(presentation.NextCommand, presentation.NextReason)
+	}
 	return output.bytes()
 }
 
@@ -1313,7 +1367,10 @@ func contextCreateNextArgv(result tobari.ContextReport) []string {
 	}
 	switch result.Cluster {
 	case tobari.ContextClusterStatusNotApplicable, tobari.ContextClusterStatusRequiresReconcile:
-		return []string{ProgramName}
+		if result.Active {
+			return []string{ProgramName}
+		}
+		return []string{ProgramName, "--context", result.Name}
 	default:
 		return nil
 	}
