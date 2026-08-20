@@ -593,13 +593,18 @@ func runtimeBuildSpec() CommandSpec {
 
 func projectEnterSpec() CommandSpec {
 	return CommandSpec{
-		Path: "tobari", Summary: "Set up, choose, or create the current directory's Workspace and enter a reusable session",
-		Args:   "[--context <name>]",
+		Path: "tobari", Summary: "Set up, choose, or create the current directory's Workspace and enter a reusable shell or exact command",
+		Args:   "[--context <name>] [-- <command>...]",
 		Effect: operation.EffectCreate, Role: RoleAct,
 		Agent: AgentContract{
 			CapabilityID: "tobari.lifecycle",
-			Outcome:      "On interactive first use, review a Context and prepare shared services; then choose or create the current directory's Workspace, reconcile its selected runtime, and enter a reusable session",
-			Inputs:       []CommandInput{lifecycleContextInput()}, Output: noOutput(),
+			Outcome:      "On interactive first use, review a Context and prepare shared services; then choose or create the current directory's Workspace, reconcile its selected runtime, and enter Bash or run one exact foreground command before returning to the host",
+			Inputs: []CommandInput{lifecycleContextInput(), {
+				Name: "command", Source: InputSourceArgument, Required: false,
+				ValueKind: InputValueText, Cardinality: InputCardinalityRepeatable,
+				Description:   "Exact child argv after --; the first value is the executable and later values are passed unchanged, including duplicates, dash-prefixed values, and explicit empty arguments.",
+				AllowedValues: []string{}, PositionalOnly: true,
+			}}, Output: noOutput(),
 			Prerequisites: []string{
 				"The current directory is an accessible project directory.",
 				"The caller is attached to an interactive terminal.",

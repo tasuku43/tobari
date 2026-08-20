@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -267,6 +268,7 @@ type projectRuntimeFake struct {
 	listCalls       int
 	runtimeCalls    int
 	observeErr      error
+	lastSession     tobari.WorkspaceSessionRequest
 }
 
 func (f *projectRuntimeFake) CurrentDirectory(context.Context) (string, error) {
@@ -342,8 +344,9 @@ func (f *projectRuntimeFake) ProjectSessionAttached(context.Context, tobari.Proj
 	f.sessionCalls++
 	return f.sessionAttached, f.sessionErr
 }
-func (f *projectRuntimeFake) EnterProjectRuntime(context.Context, tobari.ProjectInstance, tobari.ContextManifest, string, io.Reader, io.Writer, io.Writer) (int, error) {
+func (f *projectRuntimeFake) EnterProjectRuntime(_ context.Context, _ tobari.ProjectInstance, _ tobari.ContextManifest, _ string, session tobari.WorkspaceSessionRequest, _ io.Reader, _ io.Writer, _ io.Writer) (int, error) {
 	f.enterCalls++
+	f.lastSession = session
 	return 0, nil
 }
 func (f *projectRuntimeFake) DeleteProject(context.Context, tobari.ProjectInstance) error {
@@ -475,6 +478,28 @@ func TestEnterProjectWithoutAncestorCreatesDirectly(t *testing.T) {
 	}
 	if fake.createCalls != 1 || fake.resolveCalls != 0 || fake.ensureCalls != 1 || fake.enterCalls != 1 {
 		t.Fatalf("calls = create:%d resolve:%d ensure:%d enter:%d", fake.createCalls, fake.resolveCalls, fake.ensureCalls, fake.enterCalls)
+	}
+}
+
+func TestEnterProjectPassesExactDirectSessionThroughApplicationBoundary(t *testing.T) {
+	t.Parallel()
+	fake := &projectRuntimeFake{
+		fakeRuntime: &fakeRuntime{state: testState(t.TempDir())},
+		cwd:         "/tmp/project", terminal: true, found: false, project: testProjectInstance(),
+	}
+	session, err := tobari.NewWorkspaceDirectSession([]string{"claude", "--model", "", "--model"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	code, err := New(fake).EnterProjectSessionInContext(
+		context.Background(), projectCreateIntent("tobari"), "", session,
+		bytes.NewReader(nil), io.Discard, io.Discard,
+	)
+	if err != nil || code != 0 {
+		t.Fatalf("EnterProjectSessionInContext() = (%d, %v)", code, err)
+	}
+	if got, want := fake.lastSession.Argv(), session.Argv(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("runtime session argv = %q, want %q", got, want)
 	}
 }
 

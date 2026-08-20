@@ -35,12 +35,29 @@ func (s *Service) EnterProject(
 func (s *Service) EnterProjectInContext(
 	ctx context.Context, intent operation.Intent, contextName string, in io.Reader, out, errOut io.Writer,
 ) (int, error) {
+	return s.EnterProjectSessionInContext(
+		ctx, intent, contextName, tobari.NewWorkspaceShellSession(), in, out, errOut,
+	)
+}
+
+// EnterProjectSessionInContext enters the selected reusable Workspace with
+// either its default Bash child or one exact direct child argv.
+func (s *Service) EnterProjectSessionInContext(
+	ctx context.Context, intent operation.Intent, contextName string, session tobari.WorkspaceSessionRequest,
+	in io.Reader, out, errOut io.Writer,
+) (int, error) {
 	project, err := s.projectRuntime()
 	if err != nil {
 		return 0, err
 	}
 	if err := s.validateProjectIntent(intent, operation.EffectCreate); err != nil {
 		return 0, err
+	}
+	if err := session.Validate(); err != nil {
+		return 0, fault.Wrap(
+			fault.KindInvalidInput, "invalid_arguments", "Workspace session command is invalid", false, err,
+			fault.NextAction{Command: "help tobari", Reason: "Supply one non-empty command after the positional-only marker."},
+		)
 	}
 	if project.InsideProject(ctx) {
 		return 0, fault.New(
@@ -133,7 +150,7 @@ func (s *Service) EnterProjectInContext(
 	if err != nil {
 		return 0, err
 	}
-	code, err := project.EnterProjectRuntime(ctx, instance, manifest, cwd, in, out, errOut)
+	code, err := project.EnterProjectRuntime(ctx, instance, manifest, cwd, session, in, out, errOut)
 	if err != nil {
 		return 0, fault.Wrap(fault.KindInternal, "enter_failed", "Tobari session could not be started", false, err,
 			fault.NextAction{Command: "status", Reason: "Inspect the selected project's runtime."})

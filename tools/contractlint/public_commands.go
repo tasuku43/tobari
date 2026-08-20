@@ -17,9 +17,11 @@ type publicCommandTableRow struct {
 }
 
 type documentedCommandInput struct {
-	Required      bool
-	TakesValue    bool
-	AllowedValues []string
+	Required       bool
+	TakesValue     bool
+	AllowedValues  []string
+	Repeatable     bool
+	PositionalOnly bool
 }
 
 type documentedCommandGrammar struct {
@@ -265,9 +267,17 @@ func parseDocumentedCommandGrammar(args string, command cli.CommandSpec) (docume
 	}
 
 	var issues []string
+	positionalOnly := false
 	for index := 0; index < len(tokens); index++ {
 		token := tokens[index]
-		if strings.HasPrefix(token.Value, "--") {
+		if token.Value == "--" {
+			if positionalOnly {
+				issues = append(issues, "positional-only marker is declared more than once")
+			}
+			positionalOnly = true
+			continue
+		}
+		if !positionalOnly && strings.HasPrefix(token.Value, "--") {
 			parts := strings.SplitN(token.Value, "=", 2)
 			name := parts[0]
 			expected, known := expectedFlags[name]
@@ -303,15 +313,19 @@ func parseDocumentedCommandGrammar(args string, command cli.CommandSpec) (docume
 			continue
 		}
 
+		repeatable := strings.HasSuffix(token.Value, "...")
+		positionalValue := strings.TrimSuffix(token.Value, "...")
 		expectsEnumeration := len(grammar.Positionals) < len(expectedPositionals) && len(expectedPositionals[len(grammar.Positionals)].AllowedValues) != 0
-		allowedValues, err := documentedAllowedValues(token.Value, expectsEnumeration)
+		allowedValues, err := documentedAllowedValues(positionalValue, expectsEnumeration)
 		if err != nil {
 			issues = append(issues, fmt.Sprintf("positional argument %d: %v", len(grammar.Positionals)+1, err))
 		}
 		grammar.Positionals = append(grammar.Positionals, documentedCommandInput{
-			Required:      !token.Optional,
-			TakesValue:    true,
-			AllowedValues: allowedValues,
+			Required:       !token.Optional,
+			TakesValue:     true,
+			AllowedValues:  allowedValues,
+			Repeatable:     repeatable,
+			PositionalOnly: positionalOnly,
 		})
 	}
 	return grammar, issues
@@ -454,6 +468,12 @@ func compareDocumentedCommandGrammar(command cli.CommandSpec, actual documentedC
 		}
 		if !equalStringSets(got.AllowedValues, expected.AllowedValues) {
 			issues = append(issues, fmt.Sprintf("command %q positional argument %d (%q) allowed values %v do not match Catalog %v", command.Path, index+1, expected.Name, got.AllowedValues, expected.AllowedValues))
+		}
+		if got.Repeatable != (expected.Cardinality == cli.InputCardinalityRepeatable) {
+			issues = append(issues, fmt.Sprintf("command %q positional argument %d (%q) repeatable=%t does not match Catalog repeatable=%t", command.Path, index+1, expected.Name, got.Repeatable, expected.Cardinality == cli.InputCardinalityRepeatable))
+		}
+		if got.PositionalOnly != expected.PositionalOnly {
+			issues = append(issues, fmt.Sprintf("command %q positional argument %d (%q) positional_only=%t does not match Catalog positional_only=%t", command.Path, index+1, expected.Name, got.PositionalOnly, expected.PositionalOnly))
 		}
 	}
 	for index := commonPositionals; index < len(expectedPositionals); index++ {

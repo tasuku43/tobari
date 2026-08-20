@@ -407,7 +407,11 @@ checks. GET receives no safe or read-only classification, and a deny-only or
 GET-only posture is expressed by the Context method policy itself.
 
 Project runtime infrastructure resolves only declared shell `inherit` entries
-from the launching process at child-exec time and passes exact values to Bash.
+from the launching process at child-exec time and passes exact values to the
+child environment. The default session appends `/bin/bash`; a typed direct
+session instead appends the caller's exact argv after Docker's `--`, without
+shell construction, expansion, or reparsing. In both cases the container keeps
+the fixed `/usr/bin/sleep infinity` lifetime process as PID 1.
 It always owns `PROMPT_COMMAND` so the chosen `PS1` survives image startup
 behavior, but that hook is neither configurable nor inherited. Git inheritance
 instead uses a purpose-built host adapter during stable-root reconciliation. It
@@ -810,8 +814,9 @@ Detached session + Workspace exists
 Workspace absent
 ```
 
-The child shell's `exit`, or a nonzero exit from an exact agent command, ends
-only the exec process; it does not stop or delete the work container, logical
+The child Bash `exit`, or any exit from `tobari -- COMMAND [ARG...]`, ends only
+the foreground exec process and returns its exact status to the host; it does
+not fall through to Bash or stop or delete the work container, logical
 instance, root index, or per-Workspace home. There is no persisted stopped or
 paused state. Detached `delete` removes the logical
 Workspace; an attached exec makes ordinary deletion fail, and `delete --force`
@@ -1245,7 +1250,9 @@ The command root installs signal-aware cancellation and propagates one context.
 Pre-execution cancellation makes zero Docker calls. A child interactive session
 exit status is preserved, and the CLI emits the session-closed/resume/delete
 guidance on host stderr after the child returns. Child stdout remains owned by
-the interactive process. Lifecycle operations return structured state after
+the interactive process. The optional root delimiter and repeatable positional
+input are catalog-owned; a missing command is rejected before lifecycle side
+effects. Lifecycle operations return structured state after
 confirmed completion; unclassified post-mutation errors are non-retryable and
 direct the user to `status` for reconciliation.
 Auth mutations use the same structured-outcome rule. A failed or cancelled

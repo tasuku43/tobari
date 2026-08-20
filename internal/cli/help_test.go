@@ -126,11 +126,17 @@ func TestRootCommandHelpUsesExecutableInvocation(t *testing.T) {
 		t.Fatal("default catalog lacks the root command")
 	}
 
-	if got, want := command.Usage(), ProgramName+" [--context <name>]"; got != want {
+	if got, want := command.Usage(), ProgramName+" [--context <name>] [-- <command>...]"; got != want {
 		t.Fatalf("root command usage = %q, want %q", got, want)
 	}
-	if strings.Contains(string(renderCommandHelp(command)), ProgramName+" "+ProgramName) {
+	help := string(renderCommandHelp(command))
+	if strings.Contains(help, ProgramName+" "+ProgramName) {
 		t.Fatal("root command help repeats the executable name")
+	}
+	for _, want := range []string{"command", "cardinality: repeatable", "after --", "explicit empty arguments"} {
+		if !strings.Contains(help, want) {
+			t.Errorf("root command help lacks %q:\n%s", want, help)
+		}
 	}
 }
 
@@ -422,6 +428,9 @@ func TestAgentHelpRootAndScopedShapeSnapshots(t *testing.T) {
 				}
 				if name == "--id" {
 					keys = append(keys, "reference_kind")
+				}
+				if name == "command" {
+					keys = append(keys, "positional_only")
 				}
 				assertJSONKeys(t, input, keys)
 			}

@@ -86,6 +86,10 @@ Auth Broker identities from their release lock.
 # From the project directory, start the guided first-use flow.
 cd /path/to/project
 tobari
+
+# Or prepare the same Workspace and run one exact foreground command.
+tobari -- claude
+tobari -- codex exec "Fix the failing tests"
 ```
 
 On first use, `tobari` opens the ordinary six-stage Context wizard. After
@@ -135,8 +139,13 @@ normalized Context policy revision and the separate readiness choice. The
 agent-ready compatibility baseline is composed by the trusted binary; it is
 not a selectable profile or catalog entry.
 
-Leaving the child shell detaches only the session. The Workspace and persistent
-home remain available:
+With no command, Tobari enters Bash as before. After `--`, it passes the command
+and every argument directly to Docker without shell expansion or reparsing.
+The command is a foreground child exec, not container PID 1. When it exits,
+Tobari returns its exact status to the host shell instead of opening Bash.
+
+Leaving the child shell or direct command detaches only the session. The
+Workspace and persistent home remain available:
 
 ```sh
 tobari                 # resume

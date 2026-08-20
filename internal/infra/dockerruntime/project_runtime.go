@@ -401,8 +401,11 @@ func (r *Runtime) ProjectSessionAttached(ctx context.Context, instance tobari.Pr
 // status.
 func (r *Runtime) EnterProjectRuntime(
 	ctx context.Context, instance tobari.ProjectInstance, manifest tobari.ContextManifest, cwd string,
-	in io.Reader, out, errOut io.Writer,
+	session tobari.WorkspaceSessionRequest, in io.Reader, out, errOut io.Writer,
 ) (code int, resultErr error) {
+	if err := session.Validate(); err != nil {
+		return 0, err
+	}
 	attachment, err := r.beginHostLoopbackAttachment(ctx, instance)
 	if err != nil {
 		return 0, err
@@ -418,14 +421,14 @@ func (r *Runtime) EnterProjectRuntime(
 		return 0, err
 	}
 	return r.enterProjectRuntime(
-		ctx, instance, manifest, cwd,
+		ctx, instance, manifest, cwd, session,
 		[]string{"TOBARI_CAPABILITIES_JSON=" + string(encoded)}, in, out, errOut,
 	)
 }
 
 func (r *Runtime) enterProjectRuntime(
 	ctx context.Context, instance tobari.ProjectInstance, manifest tobari.ContextManifest, cwd string,
-	extraEnvironment []string, in io.Reader, out, errOut io.Writer,
+	session tobari.WorkspaceSessionRequest, extraEnvironment []string, in io.Reader, out, errOut io.Writer,
 ) (int, error) {
 	if err := instance.Validate(); err != nil {
 		return 0, err
@@ -474,7 +477,12 @@ func (r *Runtime) enterProjectRuntime(
 	for _, environment := range extraEnvironment {
 		args = append(args, "--env", environment)
 	}
-	args = append(args, "--workdir", workdir, container, "/bin/bash")
+	childArgv := session.Argv()
+	if !session.Direct() {
+		childArgv = []string{"/bin/bash"}
+	}
+	args = append(args, "--workdir", workdir, container)
+	args = append(args, childArgv...)
 	// Keep the existing direct stream runner as the compatibility path. The
 	// interactive runner is selected only for a real terminal presentation
 	// session, after the child environment and all attachment setup are ready.

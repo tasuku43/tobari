@@ -245,7 +245,9 @@ user, read-only root, capabilities, security options,
 mounts, guarded network, and health check. Compatibility metadata is
 not a signature or provenance claim. Tobari does not grant the image's `CMD`
 lifecycle authority: the infrastructure supplies the long-lived command and
-runs user commands through child exec sessions. Missing or incompatible image
+runs Bash or exact caller argv through foreground child exec sessions. Direct
+argv follows Docker's `--` without shell evaluation and cannot replace the
+fixed PID 1 lifetime process. Missing or incompatible image
 metadata is rejected before project home, network, or container mutation. Users
 remain responsible for image contents and should prefer immutable digest
 references.

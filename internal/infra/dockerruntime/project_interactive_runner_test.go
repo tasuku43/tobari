@@ -6,6 +6,8 @@ import (
 	"context"
 	"io"
 	"testing"
+
+	"github.com/tasuku43/tobari/internal/domain/tobari"
 )
 
 func TestEnterProjectRuntimeSelectsStructuredPresentationRunnerOnlyForTTY(t *testing.T) {
@@ -19,7 +21,7 @@ func TestEnterProjectRuntimeSelectsStructuredPresentationRunnerOnlyForTTY(t *tes
 	manifest := projectRuntimeContext(t, runtime, instance)
 	_, input := openTestPTY(t)
 	_, output := openTestPTY(t)
-	if _, err := runtime.EnterProjectRuntime(context.Background(), instance, manifest, instance.Root, input, output, io.Discard); err != nil {
+	if _, err := runtime.EnterProjectRuntime(context.Background(), instance, manifest, instance.Root, tobari.NewWorkspaceShellSession(), input, output, io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	if runner.interactiveCalls != 1 || !runner.colorize {
@@ -33,7 +35,7 @@ func TestEnterProjectRuntimeSelectsStructuredPresentationRunnerOnlyForTTY(t *tes
 	}
 	noTTYInstance := projectRuntimeInstance(t, noTTYRuntime)
 	noTTYManifest := projectRuntimeContext(t, noTTYRuntime, noTTYInstance)
-	if _, err := noTTYRuntime.EnterProjectRuntime(context.Background(), noTTYInstance, noTTYManifest, noTTYInstance.Root, nil, io.Discard, io.Discard); err != nil {
+	if _, err := noTTYRuntime.EnterProjectRuntime(context.Background(), noTTYInstance, noTTYManifest, noTTYInstance.Root, tobari.NewWorkspaceShellSession(), nil, io.Discard, io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	if noTTYRunner.interactiveCalls != 0 {

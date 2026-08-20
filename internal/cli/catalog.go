@@ -192,21 +192,22 @@ func (c InputCompletion) validate() error {
 // supplied command-line inputs. ReferenceKind is empty only when the input is
 // not an opaque reference.
 type CommandInput struct {
-	Name          string           `json:"name"`
-	Source        InputSource      `json:"source"`
-	Required      bool             `json:"required"`
-	ValueKind     InputValueKind   `json:"value_kind"`
-	Cardinality   InputCardinality `json:"cardinality"`
-	Description   string           `json:"description"`
-	AllowedValues []string         `json:"allowed_values"`
-	DefaultValue  *string          `json:"default_value,omitempty"`
-	Minimum       *int64           `json:"minimum,omitempty"`
-	Maximum       *int64           `json:"maximum,omitempty"`
-	MinimumLength *int64           `json:"minimum_length,omitempty"`
-	Requires      []string         `json:"requires,omitempty"`
-	ConflictsWith []string         `json:"conflicts_with,omitempty"`
-	ReferenceKind string           `json:"reference_kind,omitempty"`
-	Completion    InputCompletion  `json:"completion,omitempty"`
+	Name           string           `json:"name"`
+	Source         InputSource      `json:"source"`
+	Required       bool             `json:"required"`
+	ValueKind      InputValueKind   `json:"value_kind"`
+	Cardinality    InputCardinality `json:"cardinality"`
+	Description    string           `json:"description"`
+	AllowedValues  []string         `json:"allowed_values"`
+	DefaultValue   *string          `json:"default_value,omitempty"`
+	Minimum        *int64           `json:"minimum,omitempty"`
+	Maximum        *int64           `json:"maximum,omitempty"`
+	MinimumLength  *int64           `json:"minimum_length,omitempty"`
+	Requires       []string         `json:"requires,omitempty"`
+	ConflictsWith  []string         `json:"conflicts_with,omitempty"`
+	ReferenceKind  string           `json:"reference_kind,omitempty"`
+	Completion     InputCompletion  `json:"completion,omitempty"`
+	PositionalOnly bool             `json:"positional_only,omitempty"`
 }
 
 // OutputFormat identifies one stable presentation supported by a command.
@@ -666,7 +667,7 @@ func defaultCatalog() Catalog {
 		CommandSpec{
 			Path:    "help",
 			Summary: "Show human help or the agent command specification",
-			Args:    "[command] [--format text|agent]",
+			Args:    "[<command>...] [--format text|agent]",
 			Effect:  operation.EffectRead,
 			Role:    RoleUtility,
 			Agent: AgentContract{
@@ -1026,6 +1027,8 @@ func validateAgentContract(command CommandSpec) error {
 				return fmt.Errorf("agent argument input %q follows a repeatable positional input", input.Name)
 			}
 			repeatableArgumentSeen = input.Cardinality == InputCardinalityRepeatable
+		} else if input.PositionalOnly {
+			return fmt.Errorf("agent input %q requires positional-only syntax but is not an argument", input.Name)
 		}
 		if input.ValueKind != InputValueInteger && (input.Minimum != nil || input.Maximum != nil) {
 			return fmt.Errorf("agent non-integer input %q cannot declare numeric bounds", input.Name)
@@ -1129,6 +1132,13 @@ func validateAgentContract(command CommandSpec) error {
 			declaredTakesValue := declared.ValueKind != InputValueBoolean
 			if declaredTakesValue != syntax.TakesValue {
 				return fmt.Errorf("agent input %q value kind %q does not match whether argument syntax takes a value", input, declared.ValueKind)
+			}
+		} else {
+			if (declared.Cardinality == InputCardinalityRepeatable) != syntax.Repeatable {
+				return fmt.Errorf("agent positional input %q repeatability does not match argument syntax", input)
+			}
+			if declared.PositionalOnly != syntax.PositionalOnly {
+				return fmt.Errorf("agent positional input %q positional-only requirement does not match argument syntax", input)
 			}
 		}
 	}
@@ -1893,9 +1903,11 @@ func isCommandLineInput(input CommandInput) bool {
 }
 
 type argumentSyntaxInput struct {
-	Required      bool
-	AllowedValues []string
-	TakesValue    bool
+	Required       bool
+	AllowedValues  []string
+	TakesValue     bool
+	Repeatable     bool
+	PositionalOnly bool
 }
 
 type argumentSyntaxToken struct {
@@ -1935,9 +1947,21 @@ func parseArgumentSyntaxInputs(syntax string) (map[string]argumentSyntaxInput, [
 	}
 
 	optionalPositionalSeen := false
+	positionalOnly := false
+	positionalAfterMarker := false
 	for index := 0; index < len(tokens); index++ {
 		token := tokens[index]
+		if token.Value == "--" {
+			if positionalOnly {
+				return nil, nil, fmt.Errorf("argument syntax contains more than one positional-only marker")
+			}
+			positionalOnly = true
+			continue
+		}
 		if strings.HasPrefix(token.Value, "--") {
+			if positionalOnly {
+				return nil, nil, fmt.Errorf("argument syntax flag %q follows the positional-only marker", token.Value)
+			}
 			parts := strings.SplitN(token.Value, "=", 2)
 			name := parts[0]
 			if err := validateInputName(CommandInput{Name: name, Source: InputSourceFlag}); err != nil {
@@ -1961,8 +1985,10 @@ func parseArgumentSyntaxInputs(syntax string) (map[string]argumentSyntaxInput, [
 			continue
 		}
 
-		if strings.HasPrefix(token.Value, "<") && strings.HasSuffix(token.Value, ">") {
-			name := strings.Trim(token.Value, "<>")
+		repeatable := strings.HasSuffix(token.Value, "...")
+		positionalToken := strings.TrimSuffix(token.Value, "...")
+		if strings.HasPrefix(positionalToken, "<") && strings.HasSuffix(positionalToken, ">") {
+			name := strings.Trim(positionalToken, "<>")
 			if err := validateInputName(CommandInput{Name: name, Source: InputSourceArgument}); err != nil {
 				return nil, nil, fmt.Errorf("argument syntax: %w", err)
 			}
@@ -1974,23 +2000,28 @@ func parseArgumentSyntaxInputs(syntax string) (map[string]argumentSyntaxInput, [
 			}
 			optionalPositionalSeen = optionalPositionalSeen || token.Optional
 			positionals = append(positionals, name)
-			inputs[name] = argumentSyntaxInput{Required: !token.Optional, AllowedValues: []string{}, TakesValue: true}
+			inputs[name] = argumentSyntaxInput{Required: !token.Optional, AllowedValues: []string{}, TakesValue: true, Repeatable: repeatable, PositionalOnly: positionalOnly}
+			positionalAfterMarker = positionalAfterMarker || positionalOnly
 			continue
 		}
 
-		if token.Optional && !strings.ContainsAny(token.Value, "|<>=") {
-			if err := validateInputName(CommandInput{Name: token.Value, Source: InputSourceArgument}); err != nil {
+		if token.Optional && !strings.ContainsAny(positionalToken, "|<>=") {
+			if err := validateInputName(CommandInput{Name: positionalToken, Source: InputSourceArgument}); err != nil {
 				return nil, nil, fmt.Errorf("argument syntax: %w", err)
 			}
-			if _, exists := inputs[token.Value]; exists {
-				return nil, nil, fmt.Errorf("argument syntax input %q is declared more than once", token.Value)
+			if _, exists := inputs[positionalToken]; exists {
+				return nil, nil, fmt.Errorf("argument syntax input %q is declared more than once", positionalToken)
 			}
 			optionalPositionalSeen = true
-			positionals = append(positionals, token.Value)
-			inputs[token.Value] = argumentSyntaxInput{Required: false, AllowedValues: []string{}, TakesValue: true}
+			positionals = append(positionals, positionalToken)
+			inputs[positionalToken] = argumentSyntaxInput{Required: false, AllowedValues: []string{}, TakesValue: true, Repeatable: repeatable, PositionalOnly: positionalOnly}
+			positionalAfterMarker = positionalAfterMarker || positionalOnly
 			continue
 		}
 		return nil, nil, fmt.Errorf("argument syntax token %q is outside the supported grammar", token.Value)
+	}
+	if positionalOnly && !positionalAfterMarker {
+		return nil, nil, fmt.Errorf("argument syntax positional-only marker has no positional input")
 	}
 	return inputs, positionals, nil
 }

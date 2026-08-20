@@ -89,6 +89,10 @@ func parseCommandInputs(command CommandSpec, args []string) (ParsedInputs, error
 
 	positionalIndex := 0
 	positionalOnly := false
+	hasPositionalOnlyInput := false
+	for _, input := range positionals {
+		hasPositionalOnlyInput = hasPositionalOnlyInput || input.PositionalOnly
+	}
 	for index := 0; index < len(args); index++ {
 		argument := args[index]
 		if !positionalOnly && argument == "--" {
@@ -130,6 +134,9 @@ func parseCommandInputs(command CommandSpec, args []string) (ParsedInputs, error
 			return ParsedInputs{}, fmt.Errorf("unexpected argument %q", argument)
 		}
 		input := positionals[positionalIndex]
+		if input.PositionalOnly && !positionalOnly {
+			return ParsedInputs{}, fmt.Errorf("%s must follow the positional-only marker --", input.Name)
+		}
 		if !positionalOnly && strings.HasPrefix(argument, "-") && input.ValueKind != InputValueInteger {
 			return ParsedInputs{}, fmt.Errorf("unknown flag %q", argument)
 		}
@@ -138,6 +145,13 @@ func parseCommandInputs(command CommandSpec, args []string) (ParsedInputs, error
 		}
 		if input.Cardinality == InputCardinalitySingle {
 			positionalIndex++
+		}
+	}
+	if positionalOnly && hasPositionalOnlyInput {
+		for _, input := range positionals {
+			if input.PositionalOnly && !parsed.provided[input.Name] {
+				return ParsedInputs{}, fmt.Errorf("%s is required after --", input.Name)
+			}
 		}
 	}
 

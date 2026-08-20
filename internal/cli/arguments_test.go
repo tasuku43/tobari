@@ -93,6 +93,41 @@ func TestProjectEntryRejectsRetiredHostHTTPDeclaration(t *testing.T) {
 	}
 }
 
+func TestProjectEntryParserRequiresDelimiterAndPreservesExactChildArgv(t *testing.T) {
+	t.Parallel()
+	spec := projectEnterSpec()
+	argv := []string{"--context", "toolbox", "--", "claude", "--model", "", "--model", "-value", "--"}
+	inputs, err := parseCommandInputs(spec, argv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := inputs.One("--context"), "toolbox"; got != want {
+		t.Fatalf("Context = %q, want %q", got, want)
+	}
+	want := []string{"claude", "--model", "", "--model", "-value", "--"}
+	if got := inputs.Values("command"); !reflect.DeepEqual(got, want) {
+		t.Fatalf("child argv = %q, want exact %q", got, want)
+	}
+	if !inputs.Provided("command") {
+		t.Fatal("direct command is not marked provided")
+	}
+
+	for name, argv := range map[string][]string{
+		"missing delimiter": {"claude"},
+		"missing command":   {"--"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := parseCommandInputs(spec, argv); err == nil {
+				t.Fatalf("parseCommandInputs(%q) succeeded", argv)
+			}
+		})
+	}
+	shell, err := parseCommandInputs(spec, nil)
+	if err != nil || shell.Provided("command") {
+		t.Fatalf("bare shell parse = provided:%t error:%v", shell.Provided("command"), err)
+	}
+}
+
 func TestCatalogOwnedParserRejectsInvalidInvocationBeforeHandler(t *testing.T) {
 	minimum := int64(1)
 	maximum := int64(5)
@@ -249,13 +284,14 @@ func TestCatalogInputMetadataFailsClosed(t *testing.T) {
 	}
 
 	tests := map[string]func(*CommandSpec){
-		"missing value kind":  func(spec *CommandSpec) { spec.Agent.Inputs[0].ValueKind = InputValueUnknown },
-		"missing cardinality": func(spec *CommandSpec) { spec.Agent.Inputs[0].Cardinality = InputCardinalityUnknown },
-		"invalid default":     func(spec *CommandSpec) { spec.Agent.Inputs[0].DefaultValue = stringPointer("other") },
-		"unknown dependency":  func(spec *CommandSpec) { spec.Agent.Inputs[0].Requires = []string{"--missing"} },
-		"self conflict":       func(spec *CommandSpec) { spec.Agent.Inputs[0].ConflictsWith = []string{"--mode"} },
-		"unsafe name":         func(spec *CommandSpec) { spec.Agent.Inputs[0].Name = "--mo\u200bde" },
-		"translated enum":     func(spec *CommandSpec) { spec.Agent.Inputs[0].AllowedValues[0] = "高速" },
+		"missing value kind":   func(spec *CommandSpec) { spec.Agent.Inputs[0].ValueKind = InputValueUnknown },
+		"missing cardinality":  func(spec *CommandSpec) { spec.Agent.Inputs[0].Cardinality = InputCardinalityUnknown },
+		"invalid default":      func(spec *CommandSpec) { spec.Agent.Inputs[0].DefaultValue = stringPointer("other") },
+		"unknown dependency":   func(spec *CommandSpec) { spec.Agent.Inputs[0].Requires = []string{"--missing"} },
+		"self conflict":        func(spec *CommandSpec) { spec.Agent.Inputs[0].ConflictsWith = []string{"--mode"} },
+		"unsafe name":          func(spec *CommandSpec) { spec.Agent.Inputs[0].Name = "--mo\u200bde" },
+		"translated enum":      func(spec *CommandSpec) { spec.Agent.Inputs[0].AllowedValues[0] = "高速" },
+		"flag positional-only": func(spec *CommandSpec) { spec.Agent.Inputs[0].PositionalOnly = true },
 	}
 	for name, mutate := range tests {
 		t.Run(name, func(t *testing.T) {

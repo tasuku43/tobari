@@ -693,6 +693,17 @@ func runProjectEnter(ctx context.Context, c *CLI, command CommandSpec, _ operati
 	if c.tobari == nil {
 		return c.fail(ctx, missingRuntimeFault())
 	}
+	session := tobari.NewWorkspaceShellSession()
+	if inputs.Provided("command") {
+		var err error
+		session, err = tobari.NewWorkspaceDirectSession(inputs.Values("command"))
+		if err != nil {
+			return c.failUsage(
+				ctx, "invalid_arguments", err.Error()+"; usage: "+command.Usage(),
+				"help tobari", "Supply one non-empty executable and its exact arguments after --.",
+			)
+		}
+	}
 	contextName := inputs.One("--context")
 	if code, continueEntry := prepareGuidedProjectEntry(ctx, c, contextName); !continueEntry {
 		return code
@@ -702,7 +713,7 @@ func runProjectEnter(ctx context.Context, c *CLI, command CommandSpec, _ operati
 		Target: operation.TargetRef{Kind: tobari.CurrentDirectoryTargetKind, ParentID: tobari.CurrentDirectoryTargetID},
 		Impact: command.Agent.Mutation.Impact,
 	}
-	code, err := c.tobari.EnterProjectInContext(ctx, intent, contextName, c.In, c.Out, c.Err)
+	code, err := c.tobari.EnterProjectSessionInContext(ctx, intent, contextName, session, c.In, c.Out, c.Err)
 	if err != nil {
 		return c.fail(ctx, err)
 	}

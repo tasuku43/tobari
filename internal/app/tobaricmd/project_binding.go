@@ -26,7 +26,7 @@ type ProjectRuntimePort interface {
 	EnsureProjectRuntime(context.Context, tobari.State, tobari.ProjectInstance) (tobari.ProjectInstance, error)
 	InspectProjectRuntime(context.Context, tobari.ProjectInstance) (tobari.RuntimeDiagnostic, error)
 	ProjectSessionAttached(context.Context, tobari.ProjectInstance) (bool, error)
-	EnterProjectRuntime(context.Context, tobari.ProjectInstance, tobari.ContextManifest, string, io.Reader, io.Writer, io.Writer) (int, error)
+	EnterProjectRuntime(context.Context, tobari.ProjectInstance, tobari.ContextManifest, string, tobari.WorkspaceSessionRequest, io.Reader, io.Writer, io.Writer) (int, error)
 	InsideProject(context.Context) bool
 	DeleteProject(context.Context, tobari.ProjectInstance) error
 }

@@ -391,6 +391,9 @@ func renderCommandHelpWithColor(command CommandSpec, color bool) []byte {
 		if input.ReferenceKind != "" {
 			fmt.Fprintf(&output, "    %s\n", applyStyleToken(color, styleText, "opaque reference kind: "+input.ReferenceKind))
 		}
+		if input.PositionalOnly {
+			fmt.Fprintf(&output, "    %s\n", applyStyleToken(color, styleMuted, "positional-only marker required: --"))
+		}
 	}
 	if target := command.Agent.FixedTarget; target != nil {
 		fmt.Fprintf(&output, "%s\n", applyStyleToken(color, styleMuted, fmt.Sprintf("Fixed target: %s %s (%s) - %s", target.Kind, target.ID, target.Scope, target.Description)))

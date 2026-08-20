@@ -226,14 +226,14 @@ The public commands are:
 
 | Command | Role | Effect | Outcome |
 |---|---|---|---|
-| `help [selector] [--format text|agent]` | utility | read | Discover exact command contracts |
+| `help [<command>...] [--format text|agent]` | utility | read | Discover exact command contracts |
 | `completion zsh` | utility | read | Generate a thin zsh adapter that asks the current Tobari executable for typed candidates on every completion request |
 | `completion candidates --current INDEX WORD...` | utility | read | Return bounded TSV command, flag, finite-value, Context, Runtime, or directory completion records without mutation, Docker, or network access |
 | `version [--format text|json]` | utility | read | Print source version/commit, resolver channel, required and selected standard component APIs, and compatibility |
 | `doctor [--root PATH] [--format text|tsv|json]` | utility | read | Report read-only host, Docker, configuration, policy, Gateway, port, and residue diagnostics without repairing state |
 | `migrate apply [--format text|json]` | act, fixed target | write | Validate and migrate only the enumerated unpublished Context-policy/Runtime predecessor, retaining Context IDs, active selection, Workspace homes, learned rules, and credential stores |
 | `cluster up` | act, fixed target | create | Validate all Context policy inputs and image contracts, reconcile Gateway and OPA, and confirm the exact aggregate policy is active |
-| `tobari [--context NAME]` | act, fixed target plus TTY workflow | create | On first use, complete the ordinary Context review, compose the exact Context/cluster/runtime actions under their own catalog contracts, then choose or create the current directory's Workspace in the explicit or current Context, reconcile runtime, enter it with a deny-by-default attachment-owned Host Loopback capability, and leave it reusable after `exit` while closing any owned route and grant |
+| `tobari [--context <name>] [-- <command>...]` | act, fixed target plus TTY workflow | create | On first use, complete the ordinary Context review, compose the exact Context/cluster/runtime actions under their own catalog contracts, then choose or create the current directory's Workspace in the explicit or current Context, reconcile runtime, and either enter Bash or run one exact foreground child argv; child exit returns to the host with its exact status while the Workspace remains reusable and any attachment-owned route and grant close |
 | `status [--context NAME] [--format text|json]` | utility | read | Inspect the nearest current-directory Workspace in the explicit or current Context, its logical existence, runtime diagnostic, and attached/detached session observation |
 | `list [--format text|json]` | utility | read | List local Workspaces with Context, runtime diagnostics, and diagnostic IDs |
 | `delete [--context NAME] [--force]` | act, fixed target | write | Delete the nearest current-directory Workspace in the explicit or current Context, its owned runtime, persistent home, and tool-owned authentication state while preserving project files; `--force` overrides only the attached-session guard |
@@ -301,6 +301,15 @@ shell subprocess. Candidate status and path text remain meaningful without
 color. Programs inside Tobari can mutate the explicitly mounted root; that
 delegated capability is a documented security property rather than an
 undeclared Docker mutation by the CLI.
+
+An optional direct command begins only after the required positional-only
+marker: `tobari [--context NAME] -- COMMAND [ARG...]`. A bare `--`, an empty
+executable, or child argv without the marker fails before setup or Workspace
+mutation. Tobari neither invokes a shell nor expands, joins, or reparses the
+argv; order, duplicates, dash-prefixed values, and explicit empty arguments are
+preserved. The command owns the foreground terminal and signals for that exec
+session. Its exit returns to the host shell rather than entering Bash, and its
+exact status is returned without stopping the fixed Workspace lifetime process.
 
 ## Input and path contract
 
@@ -885,7 +894,7 @@ and its files remain outside deletion.
 | 10 | Policy or diagnostic rejection |
 | 11 | Caller cancellation |
 | 13 | Declared contract violation |
-| other from root entry | Exact child process exit status when Docker started the interactive work process |
+| other from root entry | Exact Bash or direct-command child process exit status when Docker started the interactive work process |
 
 Commands use complete delivery. `list` is exhaustive for local logical state at
 one observation point. `status` is a CWD-local scalar observation; cluster
@@ -1215,8 +1224,9 @@ Context image before project runtime mutation, reconciles its labeled container 
 network, binds its XDG home, joins Gateway to that network, waits for the
 project healthcheck and enters the resulting terminal session. Docker create
 appends Tobari's fixed `sleep infinity` lifetime command after the image; the
-image `CMD` is not used to own Workspace lifetime. Shells and exact agent
-commands run through child exec sessions. Each shell exec late-binds only the
+image `CMD` is not used to own Workspace lifetime. Bash and direct commands
+run through child exec sessions. A direct command is passed as exact argv after
+Docker's `--`, without a shell, and never becomes PID 1. Each child exec late-binds only the
 bound Context's declared shell-environment inheritance and applies its fixed
 fallbacks without changing container identity; ANSI color sequences in `PS1`
 remain interpreted by the attached terminal. A child command's nonzero exit is

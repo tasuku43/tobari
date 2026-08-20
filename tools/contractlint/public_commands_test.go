@@ -1,6 +1,7 @@
 package main
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/tasuku43/tobari/internal/cli"
@@ -29,6 +30,26 @@ func TestPublicCommandTableAcceptsSemanticPlaceholderAndEnumEquivalence(t *testi
 	if len(issues) != 0 {
 		t.Fatalf("public command table issues = %+v", issues)
 	}
+}
+
+func TestPublicCommandTableAcceptsAndEnforcesPositionalOnlyRepeatableArgv(t *testing.T) {
+	catalog := cli.NewCatalog(testCommandSpec("tobari", []cli.CommandInput{
+		{Name: "--context", Source: cli.InputSourceFlag, Required: false, ValueKind: cli.InputValueText, Cardinality: cli.InputCardinalitySingle, AllowedValues: []string{}},
+		{Name: "command", Source: cli.InputSourceArgument, Required: false, ValueKind: cli.InputValueText, Cardinality: cli.InputCardinalityRepeatable, AllowedValues: []string{}, PositionalOnly: true},
+	}))
+	valid := `
+| Command | Role | Effect | Outcome |
+|---|---|---|---|
+| ` + "`tobari [--context <name>] [-- <command>...]`" + ` | act | create | Enter |
+`
+	if issues := validatePublicCommandTableDocument(productContractPath, valid, catalog); len(issues) != 0 {
+		t.Fatalf("positional-only command issues = %+v", issues)
+	}
+
+	missingMarker := strings.Replace(valid, "[-- <command>...]", "[<command>...]", 1)
+	assertIssuesContain(t, validatePublicCommandTableDocument(productContractPath, missingMarker, catalog), "positional_only=false")
+	missingRepeatability := strings.Replace(valid, "<command>...", "<command>", 1)
+	assertIssuesContain(t, validatePublicCommandTableDocument(productContractPath, missingRepeatability, catalog), "repeatable=false")
 }
 
 func TestPublicCommandTableRejectsVisibilityCoverageAndGrammarDrift(t *testing.T) {

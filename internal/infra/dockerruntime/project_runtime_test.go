@@ -148,7 +148,7 @@ func TestEnterProjectRuntimeMirrorsHostCWDPath(t *testing.T) {
 	if err := os.MkdirAll(nested, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := runtime.EnterProjectRuntime(context.Background(), instance, manifest, nested, nil, nil, nil); err != nil {
+	if _, err := runtime.EnterProjectRuntime(context.Background(), instance, manifest, nested, tobari.NewWorkspaceShellSession(), nil, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	if len(runner.runs) != 1 {
@@ -204,6 +204,45 @@ func browserSocketEnvironment(t *testing.T, args []string) string {
 	return ""
 }
 
+func TestEnterProjectRuntimeRunsExactDirectArgvWithoutShell(t *testing.T) {
+	t.Parallel()
+	runner := &recordingRunner{}
+	runtime, err := newRuntime(filepath.Join(t.TempDir(), "config"), filepath.Join(t.TempDir(), "state"), runner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	instance := projectRuntimeInstance(t, runtime)
+	manifest := projectRuntimeContext(t, runtime, instance)
+	directArgv := []string{"claude", "--model", "", "--model", "-value"}
+	session, err := tobari.NewWorkspaceDirectSession(directArgv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runtime.EnterProjectRuntime(
+		context.Background(), instance, manifest, instance.Root, session, nil, io.Discard, io.Discard,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if len(runner.runs) != 1 {
+		t.Fatalf("run count = %d, want 1", len(runner.runs))
+	}
+	args := runner.runs[0].args
+	container, _, err := tobari.ProjectResourceNames(instance.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	containerIndex := slices.Index(args, container)
+	if containerIndex < 0 {
+		t.Fatalf("Docker argv lacks container %q: %q", container, args)
+	}
+	if got := args[containerIndex+1:]; !slices.Equal(got, directArgv) {
+		t.Fatalf("direct child argv = %q, want exact %q", got, directArgv)
+	}
+	if slices.Contains(args[containerIndex+1:], "/bin/bash") || slices.Contains(args[containerIndex+1:], "-c") {
+		t.Fatalf("direct child gained a shell wrapper: %q", args[containerIndex+1:])
+	}
+}
+
 func TestEnterProjectRuntimeSetsPromptWithoutUserName(t *testing.T) {
 	t.Parallel()
 	runner := &recordingRunner{}
@@ -213,7 +252,7 @@ func TestEnterProjectRuntimeSetsPromptWithoutUserName(t *testing.T) {
 	}
 	instance := projectRuntimeInstance(t, runtime)
 	manifest := projectRuntimeContext(t, runtime, instance)
-	if _, err := runtime.EnterProjectRuntime(context.Background(), instance, manifest, instance.Root, nil, nil, nil); err != nil {
+	if _, err := runtime.EnterProjectRuntime(context.Background(), instance, manifest, instance.Root, tobari.NewWorkspaceShellSession(), nil, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	if len(runner.runs) != 1 {
@@ -242,7 +281,7 @@ func TestEnterProjectRuntimeProjectsAmbientHostLoopbackCapabilityAndRevokesLease
 	}
 	instance := projectRuntimeInstance(t, runtime)
 	manifest := projectRuntimeContext(t, runtime, instance)
-	if _, err := runtime.EnterProjectRuntime(context.Background(), instance, manifest, instance.Root, nil, io.Discard, io.Discard); err != nil {
+	if _, err := runtime.EnterProjectRuntime(context.Background(), instance, manifest, instance.Root, tobari.NewWorkspaceShellSession(), nil, io.Discard, io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	if len(runner.runs) != 1 {
@@ -1454,20 +1493,32 @@ func TestEnsureProjectRuntimeStateWriteFailurePreservesLogicalState(t *testing.T
 	}
 }
 
-func TestEnterProjectRuntimePreservesChildExitStatus(t *testing.T) {
+func TestEnterProjectRuntimePreservesShellAndDirectChildExitStatus(t *testing.T) {
 	t.Parallel()
-	runtimeRoot := t.TempDir()
-	runtime, err := newRuntimeWithData(
-		filepath.Join(runtimeRoot, "config"), filepath.Join(runtimeRoot, "state"), filepath.Join(runtimeRoot, "data"),
-		&projectExitRunner{code: 37},
-	)
+	direct, err := tobari.NewWorkspaceDirectSession([]string{"claude"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	instance := projectRuntimeInstance(t, runtime)
-	manifest := projectRuntimeContext(t, runtime, instance)
-	code, err := runtime.EnterProjectRuntime(context.Background(), instance, manifest, instance.Root, nil, io.Discard, io.Discard)
-	if err != nil || code != 37 {
-		t.Fatalf("EnterProjectRuntime() = (%d, %v), want child status 37", code, err)
+	for name, session := range map[string]tobari.WorkspaceSessionRequest{
+		"shell":  tobari.NewWorkspaceShellSession(),
+		"direct": direct,
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			runtimeRoot := t.TempDir()
+			runtime, err := newRuntimeWithData(
+				filepath.Join(runtimeRoot, "config"), filepath.Join(runtimeRoot, "state"), filepath.Join(runtimeRoot, "data"),
+				&projectExitRunner{code: 37},
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			instance := projectRuntimeInstance(t, runtime)
+			manifest := projectRuntimeContext(t, runtime, instance)
+			code, err := runtime.EnterProjectRuntime(context.Background(), instance, manifest, instance.Root, session, nil, io.Discard, io.Discard)
+			if err != nil || code != 37 {
+				t.Fatalf("EnterProjectRuntime() = (%d, %v), want child status 37", code, err)
+			}
+		})
 	}
 }

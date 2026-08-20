@@ -155,6 +155,29 @@ func TestGuidedEntryCreatesContextStartsClusterAndContinuesWithoutRuntimeFork(t 
 	}
 }
 
+func TestDirectEntryRejectsEmptyExecutableBeforeGuidedSetup(t *testing.T) {
+	contextRuntime := &contextCLI{list: syntheticContextList()}
+	wizard := &guidedContextWizard{selection: guidedContextSelection()}
+	shared := &guidedEntryRuntime{policyReviewRuntimeFake: policyReviewRuntimeFake{
+		terminal: true,
+	}, configured: false}
+	command, stdout, stderr := newGuidedEntryCLI(contextRuntime, shared, &guidedRuntimeChoice{})
+	command.contextCreate = wizard
+
+	if code := command.RunContext(context.Background(), []string{"--", ""}); code != ExitUsage {
+		t.Fatalf("empty direct executable code = %d, stderr = %q", code, stderr.String())
+	}
+	if contextRuntime.listCalls != 0 || wizard.calls != 0 || shared.clusterUpCalls != 0 {
+		t.Fatalf(
+			"invalid direct entry side effects: context reads=%d wizard=%d cluster up=%d",
+			contextRuntime.listCalls, wizard.calls, shared.clusterUpCalls,
+		)
+	}
+	if stdout.Len() != 0 || !humanOutputHasRow(stderr.String(), "Code", "invalid_arguments") {
+		t.Fatalf("empty direct executable output: stdout=%q stderr=%q", stdout.String(), stderr.String())
+	}
+}
+
 func TestGuidedEntryRetainsContextWhenClusterStartupFails(t *testing.T) {
 	contextRuntime := &contextCLI{list: syntheticContextList()}
 	shared := &guidedEntryRuntime{

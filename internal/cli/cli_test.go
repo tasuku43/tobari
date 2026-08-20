@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -123,6 +124,65 @@ func TestNoArgsDispatchesThePrimaryRootOutcome(t *testing.T) {
 	if !humanOutputHasRow(stderr.String(), "Kind", "internal") || !humanOutputHasRow(stderr.String(), "Code", "missing_runtime") {
 		t.Fatalf("stderr = %q", stderr.String())
 	}
+}
+
+func TestDelimiterLedRootInvocationDispatchesExactChildArgv(t *testing.T) {
+	t.Parallel()
+	var calls int
+	var got []string
+	var gotContext string
+	spec := projectEnterSpec()
+	spec.handler = func(_ context.Context, _ *CLI, _ CommandSpec, _ operation.Intent, inputs ParsedInputs) int {
+		calls++
+		got = inputs.Values("command")
+		gotContext = inputs.One("--context")
+		return 37
+	}
+	command := newCLI(strings.NewReader(""), io.Discard, io.Discard, catalogWithProjectSpec(spec), nil)
+	argv := []string{"--context", "toolbox", "--", "claude", "--model", "", "--model", "-value"}
+	if code := command.RunContext(context.Background(), argv); code != 37 {
+		t.Fatalf("delimiter-led root exit = %d, want child 37", code)
+	}
+	want := []string{"claude", "--model", "", "--model", "-value"}
+	if calls != 1 || gotContext != "toolbox" || !reflect.DeepEqual(got, want) {
+		t.Fatalf("handler calls=%d Context=%q argv=%q, want toolbox and exact %q", calls, gotContext, got, want)
+	}
+}
+
+func TestDirectRootCommandInvalidFormsFailBeforeHandler(t *testing.T) {
+	t.Parallel()
+	var calls int
+	spec := projectEnterSpec()
+	spec.handler = func(context.Context, *CLI, CommandSpec, operation.Intent, ParsedInputs) int {
+		calls++
+		return ExitOK
+	}
+	for name, argv := range map[string][]string{
+		"bare delimiter":    {"--"},
+		"missing delimiter": {"tobari", "claude"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			var stderr bytes.Buffer
+			command := newCLI(strings.NewReader(""), io.Discard, &stderr, catalogWithProjectSpec(spec), nil)
+			if code := command.RunContext(context.Background(), argv); code != ExitUsage {
+				t.Fatalf("RunContext(%q) = %d, stderr=%q", argv, code, stderr.String())
+			}
+		})
+	}
+	if calls != 0 {
+		t.Fatalf("invalid direct invocations reached handler %d times", calls)
+	}
+}
+
+func catalogWithProjectSpec(projectSpec CommandSpec) Catalog {
+	commands := DefaultCatalog().Commands()
+	for index := range commands {
+		if commands[index].Path == "tobari" {
+			commands[index] = projectSpec
+			break
+		}
+	}
+	return NewCatalog(commands...)
 }
 
 func TestUnknownCommandUsesUsageExitCode(t *testing.T) {

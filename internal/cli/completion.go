@@ -47,7 +47,7 @@ func completionCommandSpecs() []CommandSpec {
 		},
 		{
 			Path: "completion candidates", Summary: "Return typed candidates for one bounded shell completion request",
-			Args: "--current <index> <word>", Effect: operation.EffectRead, Role: RoleUtility,
+			Args: "--current <index> <word>...", Effect: operation.EffectRead, Role: RoleUtility,
 			Agent: AgentContract{
 				CapabilityID: "cli.completion",
 				Outcome:      "Return bounded catalog-derived or validated local-state candidates for the current command word without mutation, Docker, or network access",

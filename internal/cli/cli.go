@@ -144,6 +144,10 @@ func (c *CLI) RunContext(ctx context.Context, args []string) int {
 		// The root invocation is the primary interactive outcome. Help remains
 		// explicit through `help` or `--help` and is handled before this branch.
 		commandArgs = []string{"tobari"}
+	} else if commandArgs[0] == "--" {
+		// A delimiter-led root invocation selects the existing catalog-owned
+		// root entry; the delimiter remains available to the typed parser.
+		commandArgs = append([]string{"tobari"}, commandArgs...)
 	}
 
 	commandArgs = normalizeRootAlias(commandArgs)
