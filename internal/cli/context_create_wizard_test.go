@@ -369,25 +369,31 @@ func TestContextCreateWizardRawMethodEditorExposesInheritanceAndReset(t *testing
 func TestContextCreateWizardMethodRowsRemainAlignedWhenStyled(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
-		name     string
-		marker   string
-		label    string
-		labelSty styleToken
-		decision tobari.ContextMethodDecision
-		source   string
-	}{
-		{name: "selected override", marker: "❯ ", label: "GET", labelSty: styleAccent, decision: tobari.ContextMethodAllow, source: "override"},
-		{name: "inherited row", marker: "  ", label: "HEAD", labelSty: styleText, decision: tobari.ContextMethodExactReview, source: "inherited"},
+	draft := &contextCreateRawDraft{
+		name: "coding", sourceIndex: 0, methodSelected: 1,
+		methodDefault:   tobari.ContextMethodExactReview,
+		methodOverrides: map[string]tobari.ContextMethodDecision{"GET": tobari.ContextMethodAllow},
 	}
-	for _, test := range cases {
-		t.Run(test.name, func(t *testing.T) {
-			styled := contextCreateMethodPolicyRow(true, test.marker, test.label, test.labelSty, test.decision, test.source)
-			want := fmt.Sprintf("%s%-25s %-15s %s", test.marker, test.label, displayMethodDecision(test.decision), test.source)
-			if got := stripANSIStyles(styled); got != want {
-				t.Fatalf("visible row = %q, want %q", got, want)
-			}
-		})
+	var output bytes.Buffer
+	lineCount := 0
+	navigation, err := editContextCreateMethodPolicyRaw(context.Background(), strings.NewReader("\r"), &output, &lineCount, true, draft)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if navigation != contextCreateNavigateNext {
+		t.Fatalf("method editor navigation = %v, want next", navigation)
+	}
+	if lineCount == 0 {
+		t.Fatal("method editor rendered no lines")
+	}
+	visible := stripANSIStyles(output.String())
+	for _, want := range []string{
+		fmt.Sprintf("❯ %-25s %-15s %s", "GET", "allow", "override"),
+		fmt.Sprintf("  %-25s %-15s %s", "HEAD", "exact review", "inherited"),
+	} {
+		if !strings.Contains(visible, want) {
+			t.Errorf("styled method editor lacks aligned row %q: %q", want, visible)
+		}
 	}
 }
 
