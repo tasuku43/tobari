@@ -24,6 +24,40 @@ var pupWorkspaceOrgUUIDPattern = regexp.MustCompile(
 	`^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$`,
 )
 
+var pupWorkspaceAuthorizationQuerySchema = workspaceLoginQuerySchema{
+	"response_type": {
+		required: true,
+		validate: exactWorkspaceLoginQueryValue("code"),
+	},
+	"client_id": {
+		required: true,
+		validate: pupOAuthClientIDPattern.MatchString,
+	},
+	"redirect_uri": {
+		required: true,
+		validate: nonEmptyWorkspaceLoginQueryValue,
+	},
+	"state": {
+		required: true,
+		validate: pupOAuthStatePattern.MatchString,
+	},
+	"scope": {
+		required: true,
+		validate: validPupWorkspaceScopeSubset,
+	},
+	"code_challenge": {
+		required: true,
+		validate: claudeOAuthOpaquePattern.MatchString,
+	},
+	"code_challenge_method": {
+		required: true,
+		validate: exactWorkspaceLoginQueryValue("S256"),
+	},
+	"dd_oid": {
+		validate: pupWorkspaceOrgUUIDPattern.MatchString,
+	},
+}
+
 // This is the compiled default scope ceiling of pup 1.10.7. The Workspace
 // contract accepts a sorted subset so --read-only and explicitly reduced
 // scope sets work, while caller-added future or administrative scopes fail
@@ -69,37 +103,7 @@ func parsePupWorkspaceLoginAuthorizationURL(target string) (workspaceLoginAuthor
 		return workspaceLoginAuthorization{}, false
 	}
 	query, err := url.ParseQuery(parsed.RawQuery)
-	if err != nil {
-		return workspaceLoginAuthorization{}, false
-	}
-	want := map[string]string{
-		"response_type":         "code",
-		"code_challenge_method": "S256",
-	}
-	for key, value := range want {
-		if len(query[key]) != 1 || query[key][0] != value {
-			return workspaceLoginAuthorization{}, false
-		}
-	}
-	// Do not restore a total-field-count check here. Pup 1.10.7 adds dd_oid
-	// after it has remembered an organization; authority comes from validating
-	// every mandatory field and the finite reviewed optional set independently.
-	for key := range query {
-		switch key {
-		case "response_type", "client_id", "redirect_uri", "state", "scope", "code_challenge", "code_challenge_method", "dd_oid":
-		default:
-			return workspaceLoginAuthorization{}, false
-		}
-	}
-	if values, present := query["dd_oid"]; present &&
-		(len(values) != 1 || !pupWorkspaceOrgUUIDPattern.MatchString(values[0])) {
-		return workspaceLoginAuthorization{}, false
-	}
-	if len(query["client_id"]) != 1 || !pupOAuthClientIDPattern.MatchString(query["client_id"][0]) ||
-		len(query["state"]) != 1 || !pupOAuthStatePattern.MatchString(query["state"][0]) ||
-		len(query["code_challenge"]) != 1 || !claudeOAuthOpaquePattern.MatchString(query["code_challenge"][0]) ||
-		len(query["scope"]) != 1 || !validPupWorkspaceScopeSubset(query["scope"][0]) ||
-		len(query["redirect_uri"]) != 1 {
+	if err != nil || !pupWorkspaceAuthorizationQuerySchema.valid(query) {
 		return workspaceLoginAuthorization{}, false
 	}
 	callbackPort, ok := parseWorkspaceCallbackPort(

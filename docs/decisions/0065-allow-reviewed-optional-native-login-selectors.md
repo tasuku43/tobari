@@ -27,12 +27,20 @@ repeat authentication destructive or operationally incomplete.
 ## Decision
 
 Native-login URL contracts validate semantic fields, not an incidental total
-field count. Every provider parser keeps an explicit set of mandatory fields
-and may admit only individually reviewed optional fields with their own name,
-cardinality, value shape, and security meaning. Missing mandatory fields,
-unknown fields, duplicate values, malformed optional values, and every change
-to authority, path, client, scope, redirect, callback, or provider-specific
-fixed value continue to fail closed before a host effect.
+field count. Every provider parser declares a closed query-field schema. Each
+field states whether it is mandatory and supplies its singleton-value
+validator; optional fields additionally document their security meaning.
+Missing mandatory fields, unknown fields, duplicate values, malformed optional
+values, and every change to authority, path, client, scope, redirect, callback,
+or provider-specific fixed value continue to fail closed before a host effect.
+
+A compatibility update inside an already accepted auxiliary-selector category
+does not need a new thesis or ADR. It needs pinned-client evidence, one schema
+entry, focused positive and negative tests, and an update to the relevant
+authentication contract when the accepted syntax changes. A field that can
+alter authority, site, OAuth client class, audience, resource, scope, redirect,
+callback, readiness effects, credential handling, or another host side effect
+crosses that boundary and requires a new or revised decision before code.
 
 For pup 1.10.7, keep the seven existing fields mandatory and allow one optional
 `dd_oid`. When present it must be exactly one 36-byte ASCII UUID-shaped value:
@@ -52,16 +60,24 @@ callback ports, readiness HTTP effects, or selected Workspace relay.
   callback outcome.
 - A reviewed state-dependent additive selector no longer requires a brittle
   exact query-count match.
-- Adding another optional field still requires a contract and test change; this
-  is not a general OAuth query passthrough.
+- A same-category optional compatibility field is normally one declarative
+  schema entry plus focused evidence, not a new parser branch or repository-wide
+  design exercise. This remains a closed contract, not general OAuth query
+  passthrough.
 - Caller-added scopes, alternate sites, arbitrary organization text, and
   neighboring OAuth parameters remain unsupported.
 
 ## Mechanical enforcement
 
-- The pup parser checks every query key against the seven mandatory names plus
-  `dd_oid`, then validates mandatory cardinality/value semantics and optional
-  UUID cardinality/shape independently.
+- A package-private closed query schema centralizes known-field membership,
+  requiredness, singleton cardinality, and validator dispatch. Pup and AWS use
+  it while retaining provider-owned authority, scope, redirect, callback, and
+  value semantics in their parsers.
+- The pup schema declares seven mandatory fields plus optional `dd_oid` with
+  its UUID validator.
+- Generic schema tests reject empty or malformed definitions, missing mandatory
+  fields, unknown fields, duplicate mandatory or optional values, and malformed
+  values.
 - Positive tests cover no hint, remembered lowercase UUID, uppercase UUID, all
   four callback ports, and the existing complete/reduced scope ceiling.
 - Negative tests cover missing mandatory fields, empty/malformed/duplicate

@@ -15,6 +15,37 @@ const (
 
 var awsSSOWorkspaceClientIDPattern = regexp.MustCompile(`^[A-Za-z0-9._~-]{1,256}$`)
 
+var awsSSOWorkspaceAuthorizationQuerySchema = workspaceLoginQuerySchema{
+	"response_type": {
+		required: true,
+		validate: exactWorkspaceLoginQueryValue("code"),
+	},
+	"client_id": {
+		required: true,
+		validate: awsSSOWorkspaceClientIDPattern.MatchString,
+	},
+	"redirect_uri": {
+		required: true,
+		validate: nonEmptyWorkspaceLoginQueryValue,
+	},
+	"state": {
+		required: true,
+		validate: awsConsoleStatePattern.MatchString,
+	},
+	"scopes": {
+		required: true,
+		validate: exactWorkspaceLoginQueryValue(awsSSOWorkspaceScope),
+	},
+	"code_challenge": {
+		required: true,
+		validate: awsPKCEChallengePattern.MatchString,
+	},
+	"code_challenge_method": {
+		required: true,
+		validate: exactWorkspaceLoginQueryValue("S256"),
+	},
+}
+
 func parseAWSSSOWorkspaceAuthorizationURL(target string) (workspaceLoginAuthorization, bool) {
 	parsed, err := url.Parse(target)
 	if err != nil || parsed.Scheme != "https" || parsed.User != nil || parsed.Port() != "" ||
@@ -34,30 +65,7 @@ func parseAWSSSOWorkspaceAuthorizationURL(target string) (workspaceLoginAuthoriz
 	}
 
 	query, err := url.ParseQuery(parsed.RawQuery)
-	if err != nil || len(query) != 7 {
-		return workspaceLoginAuthorization{}, false
-	}
-	want := map[string]string{
-		"response_type":         "code",
-		"code_challenge_method": "S256",
-		"scopes":                awsSSOWorkspaceScope,
-	}
-	for key, expected := range want {
-		if len(query[key]) != 1 || query[key][0] != expected {
-			return workspaceLoginAuthorization{}, false
-		}
-	}
-	for key := range query {
-		switch key {
-		case "response_type", "client_id", "redirect_uri", "state", "scopes", "code_challenge", "code_challenge_method":
-		default:
-			return workspaceLoginAuthorization{}, false
-		}
-	}
-	if len(query["client_id"]) != 1 || !awsSSOWorkspaceClientIDPattern.MatchString(query["client_id"][0]) ||
-		len(query["state"]) != 1 || !awsConsoleStatePattern.MatchString(query["state"][0]) ||
-		len(query["code_challenge"]) != 1 || !awsPKCEChallengePattern.MatchString(query["code_challenge"][0]) ||
-		len(query["redirect_uri"]) != 1 {
+	if err != nil || !awsSSOWorkspaceAuthorizationQuerySchema.valid(query) {
 		return workspaceLoginAuthorization{}, false
 	}
 	callbackPort, ok := parseWorkspaceCallbackPort(
