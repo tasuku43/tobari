@@ -262,81 +262,104 @@ func chooseContextRuntime(ctx context.Context, c *CLI, inputs ParsedInputs) (str
 	for {
 		actual := contextRuntimeSelection(current)
 		changed := selected != actual
-		actions := make([]configurationWizardOption, 0, 4)
-		if changed {
-			actions = append(actions, configurationWizardOption{label: "Apply", description: "Replace this Context's exact Runtime binding.", value: "apply"})
-		}
-		actions = append(actions, configurationWizardOption{label: "Change Runtime", description: "Choose standard or any successful immutable revision.", value: "runtime"})
-		if !contextLocked {
-			actions = append(actions, configurationWizardOption{label: "Change Context", description: "Choose another persisted Context.", value: "context"})
-		}
-		actions = append(actions, configurationWizardOption{label: "Cancel", description: "Keep every Context Runtime binding unchanged.", value: "cancel"})
 		contextLabel := current.Name
 		if current.Active {
 			contextLabel += " · current"
 		}
 		information := []string{"Existing Workspace homes remain unchanged; the selected image applies on next entry."}
-		if !changed {
-			information = append(information, "The proposed Runtime is already selected; Apply is unavailable.")
+		if changed {
+			actions := []configurationWizardOption{
+				{label: "Apply change", description: "Replace this Context's exact Runtime binding.", value: "apply"},
+				{label: "Back to Runtime list", description: "Choose another ready immutable revision.", value: "runtime"},
+				{label: "Cancel", description: "Keep every Context Runtime binding unchanged.", value: "cancel"},
+			}
+			index, reviewErr := chooser.choose(ctx, c.In, c.Err, configurationWizardMenu{
+				title: "Tobari · Set Context Runtime · Review",
+				details: []configurationWizardDetail{
+					{label: "Context", value: contextLabel},
+					{label: "Runtime", value: contextRuntimeDisplaySelection(actual) + " → " + contextRuntimeDisplaySelection(selected)},
+					{label: "Applies", value: "next Workspace entry"},
+				},
+				information: information,
+				prompt:      "Action", options: actions,
+			})
+			if reviewErr != nil {
+				return "", "", reviewErr
+			}
+			switch actions[index].value {
+			case "apply":
+				return current.Name, selected, nil
+			case "runtime":
+				// Continue below to reopen the Runtime list without mutating.
+			default:
+				return "", "", context.Canceled
+			}
+		} else {
+			actions := []configurationWizardOption{
+				{label: "Change Runtime", description: "Choose standard or any successful immutable revision.", value: "runtime"},
+			}
+			if !contextLocked {
+				actions = append(actions, configurationWizardOption{label: "Change Context", description: "Choose another persisted Context.", value: "context"})
+			}
+			actions = append(actions, configurationWizardOption{label: "Cancel", description: "Keep every Context Runtime binding unchanged.", value: "cancel"})
+			index, reviewErr := chooser.choose(ctx, c.In, c.Err, configurationWizardMenu{
+				title: "Tobari · Set Context Runtime",
+				details: []configurationWizardDetail{
+					{label: "Context", value: contextLabel},
+					{label: "Runtime", value: contextRuntimeDisplaySelection(actual)},
+					{label: "Applies", value: "next Workspace entry"},
+				},
+				information: information,
+				prompt:      "Action", options: actions,
+			})
+			if reviewErr != nil {
+				return "", "", reviewErr
+			}
+			switch actions[index].value {
+			case "runtime":
+				// Continue below to choose a Runtime.
+			case "context":
+				list, listErr := c.context.List(ctx)
+				if listErr != nil {
+					return "", "", listErr
+				}
+				if len(list.Items) == 0 {
+					return "", "", fault.New(
+						fault.KindNotFound, "context_not_found", "No persisted Context exists.", false,
+						fault.NextAction{Command: "context list", Reason: "Inspect the persisted Context collection."},
+					)
+				}
+				contextOptions := contextReviewOptions(list.Items, current.Name)
+				choice, chooseErr := chooser.choose(ctx, c.In, c.Err, configurationWizardMenu{
+					title:   "Tobari · Set Context Runtime · Context",
+					current: current.Name,
+					prompt:  "Persisted Context", options: contextOptions,
+				})
+				if chooseErr != nil {
+					return "", "", chooseErr
+				}
+				current, err = c.context.Show(ctx, contextOptions[choice].value)
+				if err != nil {
+					return "", "", err
+				}
+				selected = contextRuntimeSelection(current)
+				continue
+			default:
+				return "", "", context.Canceled
+			}
 		}
-		index, reviewErr := chooser.choose(ctx, c.In, c.Err, configurationWizardMenu{
-			title: "Tobari · Set Context Runtime",
-			details: []configurationWizardDetail{
-				{label: "Context", value: contextLabel},
-				{label: "Current", value: contextRuntimeDisplaySelection(actual)},
-				{label: "Runtime", value: contextRuntimeDisplaySelection(selected)},
-				{label: "Applies", value: "next Workspace entry"},
-			},
-			information: information,
-			prompt:      "Action", options: actions,
+		options := runtimeChoiceOptions(choices, actual, selected)
+		choice, chooseErr := chooser.choose(ctx, c.In, c.Err, configurationWizardMenu{
+			title:       "Tobari · Set Context Runtime · Runtime",
+			contextName: current.Name,
+			current:     contextRuntimeDisplaySelection(actual),
+			information: []string{"Only already built immutable revisions can be selected."},
+			prompt:      "Ready Runtime revision", options: options,
 		})
-		if reviewErr != nil {
-			return "", "", reviewErr
+		if chooseErr != nil {
+			return "", "", chooseErr
 		}
-		switch actions[index].value {
-		case "apply":
-			return current.Name, selected, nil
-		case "runtime":
-			options := runtimeChoiceOptions(choices, actual, selected)
-			choice, chooseErr := chooser.choose(ctx, c.In, c.Err, configurationWizardMenu{
-				title:       "Tobari · Set Context Runtime · Runtime",
-				contextName: current.Name,
-				current:     contextRuntimeDisplaySelection(actual),
-				information: []string{"Only already built immutable revisions can be selected."},
-				prompt:      "Ready Runtime revision", options: options,
-			})
-			if chooseErr != nil {
-				return "", "", chooseErr
-			}
-			selected = options[choice].value
-		case "context":
-			list, listErr := c.context.List(ctx)
-			if listErr != nil {
-				return "", "", listErr
-			}
-			if len(list.Items) == 0 {
-				return "", "", fault.New(
-					fault.KindNotFound, "context_not_found", "No persisted Context exists.", false,
-					fault.NextAction{Command: "context list", Reason: "Inspect the persisted Context collection."},
-				)
-			}
-			contextOptions := contextReviewOptions(list.Items, current.Name)
-			choice, chooseErr := chooser.choose(ctx, c.In, c.Err, configurationWizardMenu{
-				title:   "Tobari · Set Context Runtime · Context",
-				current: current.Name,
-				prompt:  "Persisted Context", options: contextOptions,
-			})
-			if chooseErr != nil {
-				return "", "", chooseErr
-			}
-			current, err = c.context.Show(ctx, contextOptions[choice].value)
-			if err != nil {
-				return "", "", err
-			}
-			selected = contextRuntimeSelection(current)
-		default:
-			return "", "", context.Canceled
-		}
+		selected = options[choice].value
 	}
 }
 

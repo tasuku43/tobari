@@ -1548,10 +1548,20 @@ func TestContextRuntimeReviewSelectsRevisionAndAppliesOnce(t *testing.T) {
 	if contextFake.setRuntimeCalls != 1 || contextFake.lastRuntimeContext != "web" || contextFake.lastRuntimeSelection != "frontend@1" {
 		t.Fatalf("Context Runtime Apply = %d/%q/%q", contextFake.setRuntimeCalls, contextFake.lastRuntimeContext, contextFake.lastRuntimeSelection)
 	}
-	for _, want := range []string{"Tobari · Set Context Runtime", "Context: web · current", "Current: standard@1", "Runtime: frontend@1", "next Workspace entry", "Apply"} {
+	for _, want := range []string{
+		"Tobari · Set Context Runtime · Review",
+		"Context: web · current",
+		"Runtime: standard@1 → frontend@1",
+		"next Workspace entry",
+		"Apply change",
+		"Back to Runtime list",
+	} {
 		if !strings.Contains(stderr.String(), want) {
 			t.Fatalf("Context Runtime Review stderr = %q, missing %q", stderr.String(), want)
 		}
+	}
+	if strings.Contains(stderr.String(), "Apply is unavailable") || strings.Count(stderr.String(), "Apply change") != 1 {
+		t.Fatalf("Context Runtime Review did not isolate Apply to one Review state: %q", stderr.String())
 	}
 	if !strings.Contains(stdout.String(), "frontend@1") {
 		t.Fatalf("Context Runtime confirmed stdout = %q", stdout.String())
@@ -1610,10 +1620,54 @@ func TestContextRuntimeReviewCanChangeOmittedContextBeforeApply(t *testing.T) {
 	if contextFake.listCalls != 1 || contextFake.lastRuntimeContext != "review" || contextFake.lastRuntimeSelection != tobari.StandardRuntimeName {
 		t.Fatalf("change-Context Apply = list %d context %q Runtime %q", contextFake.listCalls, contextFake.lastRuntimeContext, contextFake.lastRuntimeSelection)
 	}
-	for _, want := range []string{"Persisted Context", "review — persisted", "Context: review", "Current: frontend@1", "Runtime: standard@1"} {
+	for _, want := range []string{"Persisted Context", "review — persisted", "Context: review", "Runtime: frontend@1 → standard@1", "Tobari · Set Context Runtime · Review"} {
 		if !strings.Contains(stderr.String(), want) {
 			t.Fatalf("change-Context Review stderr = %q, missing %q", stderr.String(), want)
 		}
+	}
+}
+
+func TestContextRuntimeReviewKeepsExplicitContextFixed(t *testing.T) {
+	manifest := readyRuntimeManifest()
+	contextFake := &contextCLI{report: contextCLIReport(tobari.TaskContextShow, "web", true, tobari.OfficialRuntimeBase, tobari.ContextPolicyModeGuided)}
+	runtimeFake := &runtimeCatalogCLI{manifest: manifest, list: runtimeReviewList(manifest)}
+	var stdout, stderr bytes.Buffer
+	command := newCLI(strings.NewReader("\n2\n\n"), &stdout, &stderr, DefaultCatalog(), nil)
+	command.context = contextcmd.New(contextFake)
+	command.runtime = runtimecmd.New(runtimeFake)
+	command.tobari = tobaricmd.New(&policyReviewRuntimeFake{terminal: true})
+	command.config = &terminalContextConfigurationWizard{mode: nil, style: false}
+
+	if code := command.RunContext(context.Background(), []string{"context", "runtime", "set", "--context", "web"}); code != ExitOK {
+		t.Fatalf("explicit-Context Runtime Review code = %d, stderr = %q", code, stderr.String())
+	}
+	if contextFake.listCalls != 0 || contextFake.lastRuntimeContext != "web" || contextFake.lastRuntimeSelection != "frontend@1" {
+		t.Fatalf("explicit-Context Apply = list %d context %q Runtime %q", contextFake.listCalls, contextFake.lastRuntimeContext, contextFake.lastRuntimeSelection)
+	}
+	if strings.Contains(stderr.String(), "Change Context") || !strings.Contains(stderr.String(), "Runtime: standard@1 → frontend@1") {
+		t.Fatalf("explicit Context was not fixed through Review: %q", stderr.String())
+	}
+}
+
+func TestContextRuntimeReviewBackReopensRuntimeListWithoutApplying(t *testing.T) {
+	manifest := readyRuntimeManifest()
+	contextFake := &contextCLI{report: contextCLIReport(tobari.TaskContextShow, "web", true, tobari.OfficialRuntimeBase, tobari.ContextPolicyModeGuided)}
+	runtimeFake := &runtimeCatalogCLI{manifest: manifest, list: runtimeReviewList(manifest)}
+	var stdout, stderr bytes.Buffer
+	command := newCLI(strings.NewReader("\n2\n2\n2\n3\n"), &stdout, &stderr, DefaultCatalog(), nil)
+	command.context = contextcmd.New(contextFake)
+	command.runtime = runtimecmd.New(runtimeFake)
+	command.tobari = tobaricmd.New(&policyReviewRuntimeFake{terminal: true})
+	command.config = &terminalContextConfigurationWizard{mode: nil, style: false}
+
+	if code := command.RunContext(context.Background(), []string{"context", "runtime", "set"}); code != ExitCanceled {
+		t.Fatalf("back then cancel Context Runtime Review code = %d, stderr = %q", code, stderr.String())
+	}
+	if contextFake.setRuntimeCalls != 0 || stdout.Len() != 0 {
+		t.Fatalf("back then cancel mutation/stdout = %d/%q", contextFake.setRuntimeCalls, stdout.String())
+	}
+	if strings.Count(stderr.String(), "Ready Runtime revision:") != 2 || strings.Count(stderr.String(), "Tobari · Set Context Runtime · Review") != 1 {
+		t.Fatalf("Back did not return from one Review to the Runtime list: %q", stderr.String())
 	}
 }
 
@@ -1622,7 +1676,7 @@ func TestContextRuntimeReviewUnchangedSelectionCannotApply(t *testing.T) {
 	contextFake := &contextCLI{report: contextCLIReport(tobari.TaskContextShow, "web", true, tobari.OfficialRuntimeBase, tobari.ContextPolicyModeGuided)}
 	runtimeFake := &runtimeCatalogCLI{manifest: manifest, list: runtimeReviewList(manifest)}
 	var stdout, stderr bytes.Buffer
-	command := newCLI(strings.NewReader("3\n"), &stdout, &stderr, DefaultCatalog(), nil)
+	command := newCLI(strings.NewReader("\n\n3\n"), &stdout, &stderr, DefaultCatalog(), nil)
 	command.context = contextcmd.New(contextFake)
 	command.runtime = runtimecmd.New(runtimeFake)
 	command.tobari = tobaricmd.New(&policyReviewRuntimeFake{terminal: true})
@@ -1631,7 +1685,7 @@ func TestContextRuntimeReviewUnchangedSelectionCannotApply(t *testing.T) {
 	if code := command.RunContext(context.Background(), []string{"context", "runtime", "set"}); code != ExitCanceled {
 		t.Fatalf("unchanged Context Runtime Review code = %d, stderr = %q", code, stderr.String())
 	}
-	if contextFake.setRuntimeCalls != 0 || stdout.Len() != 0 || !strings.Contains(stderr.String(), "Apply is unavailable") {
+	if contextFake.setRuntimeCalls != 0 || stdout.Len() != 0 || strings.Contains(stderr.String(), "Apply") || strings.Contains(stderr.String(), "· Review") || strings.Count(stderr.String(), "Tobari · Set Context Runtime\n") != 2 {
 		t.Fatalf("unchanged Review mutation/stdout/stderr = %d/%q/%q", contextFake.setRuntimeCalls, stdout.String(), stderr.String())
 	}
 }
