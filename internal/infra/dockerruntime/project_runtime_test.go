@@ -603,7 +603,36 @@ type projectReconcileRunner struct {
 	containerSpec   string
 	instanceID      string
 	gatewayNetworks map[string]string
+	sourceRoot      string
+	workspaceRoot   string
 	calls           [][]string
+}
+
+type interruptedProjectReconcileRunner struct {
+	inner       *projectReconcileRunner
+	cancel      context.CancelFunc
+	onInterrupt func()
+	interrupted bool
+}
+
+func (r *interruptedProjectReconcileRunner) Run(
+	ctx context.Context, args []string, environment []string, in io.Reader, out, errOut io.Writer,
+) error {
+	return r.inner.Run(ctx, args, environment, in, out, errOut)
+}
+
+func (r *interruptedProjectReconcileRunner) Output(
+	ctx context.Context, args, environment []string,
+) ([]byte, error) {
+	if !r.interrupted && len(args) > 0 && args[0] == "run" && args[len(args)-1] == "gateway" {
+		r.interrupted = true
+		if r.onInterrupt != nil {
+			r.onInterrupt()
+		}
+		r.cancel()
+		return nil, ctx.Err()
+	}
+	return r.inner.Output(ctx, args, environment)
 }
 
 type projectSpecDriftRunner struct {
@@ -781,6 +810,15 @@ func (r *projectReconcileRunner) Output(_ context.Context, args, _ []string) ([]
 			}
 			return []byte(`{}`), nil
 		}
+		if len(args) > 2 && strings.Contains(args[2], ".HostConfig.Dns") {
+			return []byte(`["172.20.0.2"]`), nil
+		}
+		if len(args) > 2 && strings.Contains(args[2], ".Mounts") && r.sourceRoot != "" && r.workspaceRoot != "" {
+			return []byte(fmt.Sprintf(
+				`[{"Type":"bind","Source":%q,"Destination":%q,"RW":true}]`,
+				r.sourceRoot, r.workspaceRoot,
+			)), nil
+		}
 		if len(args) > 2 && strings.Contains(args[2], projectSpecLabel) {
 			if r.containerSpec != "" {
 				return []byte(r.containerSpec + "\n"), nil
@@ -909,6 +947,162 @@ func TestEnsureProjectRuntimeReconcilesActiveContextImageForExistingWorkspace(t 
 	}
 	if !removed || !created {
 		t.Fatalf("reconcile calls = %v, want drift removal and container creation", runner.calls)
+	}
+}
+
+func TestEnsureProjectRuntimeCancellationBeforeDriftPreservesPrincipal(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	ctx, cancel := context.WithCancel(context.Background())
+	inner := &projectReconcileRunner{
+		networkExists:   true,
+		containerExists: true,
+		gatewayNetworks: map[string]string{},
+	}
+	runner := &interruptedProjectReconcileRunner{inner: inner, cancel: cancel}
+	runtime, err := newRuntimeWithData(
+		filepath.Join(root, "config"), filepath.Join(root, "state"), filepath.Join(root, "data"), runner,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	projectRoot := filepath.Join(root, "project")
+	if err := os.MkdirAll(projectRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	instance, _, err := runtime.ResolveOrCreateProject(context.Background(), projectRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	inner.instanceID = instance.ID
+	_, network, err := tobari.ProjectResourceNames(instance.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	inner.gatewayNetworks[network] = "172.20.0.2"
+	inner.sourceRoot = instance.Root
+	inner.workspaceRoot, err = runtime.projectContainerRoot(instance.Root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest := projectRuntimeContext(t, runtime, instance)
+	image, err := runtime.resolveContextImageFor(context.Background(), manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	image = runtime.resolveBuiltinImageSelector(image)
+	profile, err := runtime.ensureSharedProfile(manifest.AgentProfile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	desired := instance
+	desired.Image = image
+	authProjection, err := runtime.reconcileProjectAuth(context.Background(), desired)
+	if err != nil {
+		t.Fatal(err)
+	}
+	inner.containerSpec, err = runtime.projectSpecHashWithAuthAndSourceAccess(
+		runtimeState(root), desired, profile, network, image, "sha256:compatible-image", authProjection, manifest.SourceAccess,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := runtime.updateProjectPrincipal(
+		context.Background(), instance, network, "172.20.0.3", "172.20.0.2",
+	); err != nil {
+		t.Fatal(err)
+	}
+	sawPrincipal := false
+	runner.onInterrupt = func() {
+		registry, readErr := runtime.readProjectPrincipalRegistry()
+		sawPrincipal = readErr == nil && len(registry.Bindings) == 1 && registry.Bindings[0].ProjectID == instance.ID
+	}
+
+	_, err = runtime.EnsureProjectRuntime(ctx, runtimeState(root), instance)
+	if err == nil || !errors.Is(err, context.Canceled) {
+		t.Fatalf("EnsureProjectRuntime() error = %v, want cancellation", err)
+	}
+	if !sawPrincipal {
+		t.Fatal("ordinary re-entry removed the existing principal before a Docker mutation was required")
+	}
+	registry, err := runtime.readProjectPrincipalRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(registry.Bindings) != 1 {
+		t.Fatalf("principal registry after cancellation = %+v", registry)
+	}
+	got := registry.Bindings[0]
+	if got.ProjectID != instance.ID || got.ContextID != instance.ContextID || got.ContextName != instance.ContextName ||
+		got.ProjectRoot != instance.Root || got.Network != network || got.WorkspaceIP != "172.20.0.3" || got.GatewayIP != "172.20.0.2" {
+		t.Fatalf("retained principal = %+v", got)
+	}
+	if !runner.interrupted {
+		t.Fatal("cancellation fixture did not exercise the selected project runtime")
+	}
+	for _, call := range inner.calls {
+		if len(call) > 0 && (call[0] == "rm" || call[0] == "create" || call[0] == "start") {
+			t.Fatalf("ready re-entry mutated the project runtime before cancellation: %v", call)
+		}
+	}
+}
+
+func TestEnsureProjectRuntimeDriftClosesPrincipalBeforeDockerMutation(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	runner := &projectReconcileRunner{
+		networkExists:   true,
+		containerExists: true,
+		containerSpec:   "sha256:stale",
+		gatewayNetworks: map[string]string{},
+	}
+	runtime, err := newRuntimeWithData(
+		filepath.Join(root, "config"), filepath.Join(root, "state"), filepath.Join(root, "data"), runner,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	projectRoot := filepath.Join(root, "project")
+	if err := os.MkdirAll(projectRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	instance, _, err := runtime.ResolveOrCreateProject(context.Background(), projectRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner.instanceID = instance.ID
+	_, network, err := tobari.ProjectResourceNames(instance.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner.gatewayNetworks[network] = "172.20.0.2"
+	if err := runtime.updateProjectPrincipal(
+		context.Background(), instance, network, "172.20.0.3", "172.20.0.2",
+	); err != nil {
+		t.Fatal(err)
+	}
+	sawClosed := false
+	runner.failOn = func(args []string) bool {
+		if len(args) == 0 || args[0] != "rm" {
+			return false
+		}
+		registry, readErr := runtime.readProjectPrincipalRegistry()
+		sawClosed = readErr == nil && len(registry.Bindings) == 0
+		return true
+	}
+
+	if _, err := runtime.EnsureProjectRuntime(context.Background(), runtimeState(root), instance); err == nil {
+		t.Fatal("EnsureProjectRuntime() unexpectedly completed injected drift mutation")
+	}
+	if !sawClosed {
+		t.Fatal("drifted runtime reached Docker mutation before its principal was removed")
+	}
+	registry, err := runtime.readProjectPrincipalRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(registry.Bindings) != 0 {
+		t.Fatalf("failed drift reconciliation retained authority: %+v", registry.Bindings)
 	}
 }
 

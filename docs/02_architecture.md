@@ -853,6 +853,13 @@ single-file bind mount cannot strand Gateway on an old inode or expose the
 neighboring credential configuration. Gateway caches a validated registry only
 while its complete stat identity remains unchanged and fails closed, without a
 last-known-good fallback, when a replacement is invalid.
+Project runtime reconciliation first observes the exact owned container,
+network, endpoint pair, desired runtime specification and source access,
+connectivity, and health without mutating Docker. A complete match retains the
+existing binding while the Gateway and Workspace guards are revalidated, then
+atomically refreshes the derived current endpoints. Any drift takes the slower
+path that closes the binding before a resource can change; interruption on that
+path leaves the source unregistered for explicit cluster reconciliation.
 Logical Tobari and Context IDs are not trusted when echoed by a caller; Gateway
 derives both from the kernel-observed Workspace source endpoint and the exact
 host registry binding. Exact allow, deny, and reset

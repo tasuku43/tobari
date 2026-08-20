@@ -753,6 +753,14 @@ root invocation and Context-wizard cancellation perform none of those setup
 mutations. A later-stage failure preserves an already confirmed earlier
 mutation and reports reconciliation rather than claiming the whole sequence is
 safe to replay.
+Project runtime reconciliation does not remove authority merely to prove that
+an already matching Workspace is reusable. It first performs a read-only exact
+ownership, endpoint, specification, source-access, connectivity, and health
+check. Only that complete match may retain the old binding while both guards
+are revalidated and the current binding is atomically refreshed. A mismatch
+closes the principal before Docker repair, and cancellation continues to flow
+through the one caller context; interrupted drift remains fail closed for
+explicit `cluster up` and never retries Workspace entry.
 Each canonical root and stable Context pair is unique: repeated or concurrent
 explicit creation is serialized by the state lock and only one logical record
 for that pair can be committed. Same-root records in different Contexts and

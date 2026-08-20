@@ -287,30 +287,43 @@ func (r *Runtime) replaceProjectPrincipalRegistry(ctx context.Context, bindings 
 	})
 }
 
-func (r *Runtime) containerNetworkAddress(ctx context.Context, container, network, purpose string) (string, error) {
+func (r *Runtime) containerNetworkAddressIfConnected(
+	ctx context.Context, container, network, purpose string,
+) (string, bool, error) {
 	output, err := r.runner.Output(
 		ctx,
 		[]string{"inspect", "--format", "{{json .NetworkSettings.Networks}}", container},
 		os.Environ(),
 	)
 	if err != nil {
-		return "", fmt.Errorf("inspect %s networks for project principal: %w: %s", purpose, err, boundedDiagnostic(output))
+		return "", false, fmt.Errorf("inspect %s networks for project principal: %w: %s", purpose, err, boundedDiagnostic(output))
 	}
 	var networks map[string]struct {
 		IPAddress string `json:"IPAddress"`
 	}
 	if err := json.Unmarshal(bytes.TrimSpace(output), &networks); err != nil {
-		return "", fmt.Errorf("decode %s networks for project principal: %w", purpose, err)
+		return "", false, fmt.Errorf("decode %s networks for project principal: %w", purpose, err)
 	}
 	endpoint, connected := networks[network]
 	if !connected || endpoint.IPAddress == "" {
-		return "", fmt.Errorf("%s is not attached to project network %s", purpose, network)
+		return "", false, nil
 	}
 	address := net.ParseIP(endpoint.IPAddress)
 	if address == nil || !address.IsGlobalUnicast() {
-		return "", fmt.Errorf("%s project network address is not a usable unicast address", purpose)
+		return "", false, fmt.Errorf("%s project network address is not a usable unicast address", purpose)
 	}
-	return address.String(), nil
+	return address.String(), true, nil
+}
+
+func (r *Runtime) containerNetworkAddress(ctx context.Context, container, network, purpose string) (string, error) {
+	address, connected, err := r.containerNetworkAddressIfConnected(ctx, container, network, purpose)
+	if err != nil {
+		return "", err
+	}
+	if !connected {
+		return "", fmt.Errorf("%s is not attached to project network %s", purpose, network)
+	}
+	return address, nil
 }
 
 func (r *Runtime) gatewayNetworkAddress(ctx context.Context, network string) (string, error) {

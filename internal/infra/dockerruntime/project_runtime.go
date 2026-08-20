@@ -242,14 +242,28 @@ func (r *Runtime) EnsureProjectRuntime(
 		if err != nil {
 			return err
 		}
-		if err := r.removeProjectPrincipal(ctx, stored.ID); err != nil {
-			return fmt.Errorf("close project principal before network reconciliation: %w", err)
-		}
-		if err := r.ensureProjectNetwork(ctx, network, stored.ID); err != nil {
+		specHash, err := r.projectSpecHashWithAuthAndSourceAccess(
+			state, desired, profile, network, image, imageID, authProjection, manifest.SourceAccess,
+		)
+		if err != nil {
 			return err
 		}
-		if err := r.ensureGatewayNetwork(ctx, network); err != nil {
+		ready, err := r.projectRuntimeReadyForPrincipalRefresh(
+			ctx, stored, container, network, workspaceRoot, specHash, manifest.SourceAccess,
+		)
+		if err != nil {
 			return err
+		}
+		if !ready {
+			if err := r.removeProjectPrincipal(ctx, stored.ID); err != nil {
+				return fmt.Errorf("close project principal before network reconciliation: %w", err)
+			}
+			if err := r.ensureProjectNetwork(ctx, network, stored.ID); err != nil {
+				return err
+			}
+			if err := r.ensureGatewayNetwork(ctx, network); err != nil {
+				return err
+			}
 		}
 		if err := r.ensureGatewayNetworkGuard(ctx); err != nil {
 			return err
@@ -262,16 +276,12 @@ func (r *Runtime) EnsureProjectRuntime(
 		if err != nil {
 			return err
 		}
-		specHash, err := r.projectSpecHashWithAuthAndSourceAccess(
-			state, desired, profile, network, image, imageID, authProjection, manifest.SourceAccess,
-		)
-		if err != nil {
-			return err
-		}
-		if err := r.ensureProjectContainerWithAuth(
-			ctx, state, desired, profile, container, network, gatewayIP, image, specHash, authProjection, manifest.SourceAccess,
-		); err != nil {
-			return err
+		if !ready {
+			if err := r.ensureProjectContainerWithAuth(
+				ctx, state, desired, profile, container, network, gatewayIP, image, specHash, authProjection, manifest.SourceAccess,
+			); err != nil {
+				return err
+			}
 		}
 		if err := r.ensureWorkspaceNetworkGuard(ctx, stored, container, network, subnet, gatewayIP); err != nil {
 			return err
@@ -614,6 +624,88 @@ func (r *Runtime) ensureProjectNetwork(ctx context.Context, network, id string) 
 		return fmt.Errorf("create project network: %w: %s", err, boundedDiagnostic(output))
 	}
 	return nil
+}
+
+// projectRuntimeReadyForPrincipalRefresh observes the complete endpoint-owning
+// runtime shape without mutating Docker. A ready result lets ordinary re-entry
+// keep the existing fail-closed principal in place while guards are rechecked;
+// drift takes the slower path that closes authority before changing resources.
+func (r *Runtime) projectRuntimeReadyForPrincipalRefresh(
+	ctx context.Context,
+	instance tobari.ProjectInstance,
+	container, network, workspaceRoot, specHash string,
+	sourceAccess tobari.ContextSourceAccess,
+) (bool, error) {
+	networkExists, err := r.projectResourceExists(ctx, "network", network)
+	if err != nil {
+		return false, err
+	}
+	if !networkExists {
+		return false, nil
+	}
+	if err := r.verifyOwnedProjectResource(ctx, "network", network, instance.ID, projectNetRole); err != nil {
+		return false, err
+	}
+	gatewayIP, gatewayConnected, err := r.containerNetworkAddressIfConnected(ctx, gatewayContainer, network, "Gateway")
+	if err != nil {
+		return false, err
+	}
+	if !gatewayConnected {
+		return false, nil
+	}
+	containerExists, err := r.projectResourceExists(ctx, "container", container)
+	if err != nil {
+		return false, err
+	}
+	if !containerExists {
+		return false, nil
+	}
+	if err := r.verifyOwnedProjectResource(ctx, "container", container, instance.ID, projectWorkRole); err != nil {
+		return false, err
+	}
+	observedSpec, err := r.projectContainerSpecHash(ctx, container)
+	if err != nil {
+		return false, err
+	}
+	if observedSpec != specHash {
+		return false, nil
+	}
+	observedDNS, err := r.projectContainerDNS(ctx, container)
+	if err != nil {
+		return false, err
+	}
+	if len(observedDNS) != 1 || observedDNS[0] != gatewayIP {
+		return false, nil
+	}
+	observedAccess, err := r.projectContainerSourceAccess(ctx, container, instance.Root, workspaceRoot)
+	if err != nil {
+		return false, err
+	}
+	if observedAccess != sourceAccess {
+		return false, nil
+	}
+	workspaceIP, workspaceConnected, err := r.containerNetworkAddressIfConnected(ctx, container, network, "Workspace")
+	if err != nil {
+		return false, err
+	}
+	if !workspaceConnected {
+		return false, nil
+	}
+	component, err := r.inspectContainer(ctx, projectWorkRole, container)
+	if err != nil {
+		return false, err
+	}
+	if component.State != "running" || component.Health != "healthy" {
+		return false, nil
+	}
+	subnet, err := r.projectNetworkSubnet(ctx, network)
+	if err != nil {
+		return false, err
+	}
+	if err := validateProjectNetworkEndpoints(subnet, workspaceIP, gatewayIP); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func (r *Runtime) ensureProjectContainer(

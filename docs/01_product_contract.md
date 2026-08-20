@@ -1182,6 +1182,14 @@ returned without stopping the reusable Workspace. A changed image identity,
 runtime contract, mount/security/environment/health specification, or shared
 profile revision recreates only the project container and preserves its
 logical state and home.
+Before ordinary re-entry closes a project principal, Tobari observes whether
+the exact owned network, endpoint pair, runtime specification, source access,
+health, and connectivity already match. A matching Workspace keeps its binding
+while both network guards are revalidated and the current endpoints are
+atomically refreshed, so cancellation cannot create a principal gap when no
+Docker mutation was needed. Drift still closes authority before repair and
+remains fail closed if interrupted; cancellation never retries entry or the
+child request.
 Returning from that child session, including a normal shell `exit`, performs no
 Workspace deletion: it only returns the child exit status and emits the host
 stderr guidance described above. `delete` is the separate lifecycle-ending
