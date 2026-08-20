@@ -584,6 +584,12 @@ name prefix or broad Docker query as authority.
   sole read-side mutation is bounded cleanup of a pre-existing validated
   interruption journal, which may create the project recovery lock only to
   serialize that cleanup; reads never create the journal itself.
+- Interactive shell completion is a catalog-derived read, not a separately
+  maintained command registry. A generated shell adapter asks the current
+  executable for each candidate set. Static command, flag, boolean, and enum
+  candidates come from the catalog; dynamic Context and Runtime candidates
+  cross a typed application read boundary and never parse human or JSON output.
+  Sourcing completion and pressing Tab create no Tobari state.
 
 ### Mechanical enforcement
 
@@ -595,6 +601,11 @@ name prefix or broad Docker query as authority.
   override. CLI tests prove session-exit guidance stays on host stderr,
   separate from child stdout.
 - The catalog declares every read/create/write effect and mutation impact.
+- Catalog validation owns each input's optional completion source and rejects
+  completion for non-command-line, non-text, finite-enum, or opaque-reference
+  inputs. Whole-catalog tests exercise every read on fresh XDG roots; completion
+  tests additionally fix bounded requests, safe TSV structure, and zero
+  embedded registry in the generated shell adapter.
 
 ## Thesis 6: Fail closed with bounded evidence
 

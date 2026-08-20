@@ -988,6 +988,8 @@ func TestEveryCatalogCommandDispatchesThroughItsSpec(t *testing.T) {
 				value = "smp_2f4a6c8e0b1d"
 			case "--root":
 				value = "/tmp"
+			case "--current":
+				value = "1"
 			case "command":
 				value = "true"
 			}

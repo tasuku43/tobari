@@ -152,6 +152,31 @@ func TestDefaultCatalogIsValidAndUnique(t *testing.T) {
 	}
 }
 
+func TestCatalogRejectsInvalidCompletionMetadata(t *testing.T) {
+	tests := []struct {
+		name   string
+		input  CommandInput
+		needle string
+	}{
+		{name: "unknown source", input: CommandInput{Name: "--value", Source: InputSourceFlag, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, Description: "Test value.", AllowedValues: []string{}, Completion: InputCompletion("unknown")}, needle: "completion source is invalid"},
+		{name: "non-text", input: CommandInput{Name: "--value", Source: InputSourceFlag, ValueKind: InputValueInteger, Cardinality: InputCardinalitySingle, Description: "Test value.", AllowedValues: []string{}, Completion: InputCompletionContextName}, needle: "completion requires text values"},
+		{name: "finite values", input: CommandInput{Name: "--value", Source: InputSourceFlag, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, Description: "Test value.", AllowedValues: []string{"one"}, Completion: InputCompletionContextName}, needle: "completion conflicts with finite allowed values"},
+		{name: "opaque reference", input: CommandInput{Name: "--value", Source: InputSourceFlag, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, Description: "Test value.", AllowedValues: []string{}, ReferenceKind: "test-item", Completion: InputCompletionContextName}, needle: "completion must not expose opaque references"},
+		{name: "command flag", input: CommandInput{Name: "--value", Source: InputSourceFlag, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, Description: "Test value.", AllowedValues: []string{}, Completion: InputCompletionCommand}, needle: "command completion requires a positional selector"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			spec := utilitySpec("sample")
+			spec.Args = "--value <value>"
+			spec.Agent.Inputs = []CommandInput{test.input}
+			err := NewCatalog(spec).Validate()
+			if err == nil || !strings.Contains(err.Error(), test.needle) {
+				t.Fatalf("error = %v, want %q", err, test.needle)
+			}
+		})
+	}
+}
+
 func TestDefaultCatalogSeparatesDeliveryFromCollectionCoverage(t *testing.T) {
 	wantCoverage := map[string]CollectionCoverage{
 		"doctor":          CollectionCoverageExhaustive,

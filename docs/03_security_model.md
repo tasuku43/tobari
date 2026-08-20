@@ -1132,10 +1132,22 @@ machine-readable paths remain read-only. Observation alone never changes
 authority; every allow, deny, or reset is an explicit
 reference-bound mutation.
 
+Shell completion is also observational. The generated zsh adapter performs no
+startup write and invokes only the public bounded `completion candidates`
+read. Static candidates come from validated public catalog literals. Dynamic
+candidates contain only validated Context names, Runtime names, and ready
+Runtime review selectors; they exclude credentials, opaque action references,
+store paths, manifest contents, Docker state, and network results. Candidate
+collections have fixed word, count, and byte bounds. Empty values, duplicates,
+invalid UTF-8, tabs, line breaks, NUL, and Unicode line separators fail before
+the two-column TSV boundary. The adapter discards candidate-command stderr and
+treats a failed read as no candidates, never as shell source or authority.
+
 ## Enforcement
 
 | Claim | Enforcement |
 |---|---|
+| Shell completion cannot become startup mutation, command-registry drift, or structural injection | Public read-only completion commands, catalog-owned typed sources, narrow validated Context/Runtime read port, fresh-XDG zero-write canary, bounded request/output tests, hostile TSV candidate rejection, and a static adapter with no embedded registry |
 | Operator Console cannot become remote control or alternate policy authority | TCP4 `127.0.0.1:0` binding, exact peer/Host/Origin/bearer/method/path/content-type checks, fragment-to-sessionStorage bootstrap, no cookies/external assets, CSP/no-store headers, bounded strict bodies/timeouts, cancellation shutdown, inert staging, and one canonical reviewed-apply delegation with zero automatic retries |
 | No direct Tobari egress | Per-Tobari internal topology, forwarding-off sysctls, forward-drop and namespace-guard inspection, Gateway raw-protocol/UDP/QUIC call-count tests, and Docker integration canaries for raw TCP, control-API reachability, and Gateway/OPA outage paths |
 | Transparent denial performs no pre-policy external I/O | Non-recursive synthetic DNS tests plus Gateway DNS/resolver/upstream call-count canaries for denied, malformed, raw TCP, non-HTTP TLS, UDP, and QUIC traffic |

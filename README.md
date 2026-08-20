@@ -448,6 +448,21 @@ exact command to retrieve complete typed inputs, output, failures, mutation
 facts, and workflows. `cli.Catalog` is the single public-command source of
 truth.
 
+## zsh completion
+
+Initialize zsh completion, then source Tobari's generated adapter from
+`.zshrc`:
+
+```zsh
+autoload -Uz compinit && compinit
+source <(tobari completion zsh)
+```
+
+The adapter asks the current `tobari` executable for candidates on every Tab,
+so command, flag, Context, and Runtime additions do not require regenerating a
+checked-in shell script. The read is local and creates no Tobari state. For
+example, `tobari cont<Tab>` completes to `tobari context`.
+
 ## Diagnostics
 
 ```sh

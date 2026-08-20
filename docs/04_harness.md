@@ -485,6 +485,12 @@ The test suite has complementary levels:
   XDG directories, concurrent reads, synthetic absence, unsupported-version
   and corrupt-state fail-closed behavior,
   and the sole pre-existing-journal cleanup exception without record loss.
+- Completion tests derive command and flag candidates from the public catalog,
+  validate partial command words such as `cont`, exercise finite values,
+  conflicts, directory delegation, global and command-local Context selection,
+  Runtime names and ready revision selectors, and reject malformed or
+  structurally unsafe bounded requests. The generated zsh adapter is fixed as a
+  live candidate client with no embedded command inventory.
 - CLI tests fix routing, help, rendering, exit behavior, the catalog-owned typed
   argv parser, and the distinction among absent, defaulted, and explicitly
   supplied values. Negative fixtures cover type/range/enumeration,
@@ -930,6 +936,7 @@ Every strong statement should identify its enforcement path.
 | Retry safety | Timeout/attempt/idempotency validation and adapter contract tests |
 | Rate evidence versus replay permission | Fault validation permits positive `retry_after` on non-retryable rate limits only, plus text/JSON projection tests |
 | Executable command inputs | Catalog validation, one shared typed parser, handler integration tests, and exact human/agent-help input projection |
+| Catalog-derived shell completion | Typed `InputCompletion` validation, command/flag/value planner tests, validated Context/Runtime application candidates, bounded hostile-TSV canaries, generated-adapter checks, and catalog-derived first-use zero-write coverage |
 | Agent recovery | Catalog fault declarations, exact-path/help-selector executable grammar tests, and structured error snapshots |
 | Bounded agent discovery | Fixed root-index shape, 512-byte per-command entry validation, 100-command growth/selection tests, and a derived-scale grouped-workflow whole-response budget with edge-equivalence checks |
 | Bounded-autonomy adoption | Agent-readiness first-use and denial-to-retry transcripts record command count, discovery rounds, external-processing count, and the concrete next action; a reviewed human-handoff scorecard identifies setup friction as product evidence |

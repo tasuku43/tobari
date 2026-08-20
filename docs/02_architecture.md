@@ -957,11 +957,19 @@ and extra keys fail closed. Scoped agent-help schema 1 publishes the same
 recursive declaration and exact success/error argv forms, including global
 flag placement. Root help remains an index.
 
-Interactive-only completion can remain a catalog entry with internal
-visibility so the workflow uses the same typed composition authority. Internal
-entries are excluded from public command copies, lookup, routing, reference
-workflows, and help. Public projections also omit any interactive metadata that
-would reveal an internal completion path.
+Shell completion uses two public read-only utilities under `completion`. The
+`completion zsh` handler emits a static adapter with no copied command registry.
+On each Tab, that adapter invokes `completion candidates` with the bounded
+one-based current-word index and exact shell-word vector. The CLI planner reads
+public `cli.Catalog` paths and typed inputs for command hierarchy, flags,
+booleans, finite values, conflicts, and directory directives. Inputs that need
+local values declare one closed `InputCompletion` source in their catalog
+contract. CLI maps that source to `internal/app/completioncmd`, whose narrow
+port reads validated Context lists, Runtime lists, and managed Runtime history
+from the existing infrastructure adapter. It does not invoke another command,
+parse rendered output, reach Docker or the network, inspect arbitrary paths, or
+mutate startup state. Internal catalog entries remain excluded from public
+copies, lookup, routing, reference workflows, help, and completion.
 
 In the experimental build, the four auth commands share one catalog-declared `authentication.broker`
 capability. Login, import, and logout are fixed-target writes to the one

@@ -227,6 +227,8 @@ The public commands are:
 | Command | Role | Effect | Outcome |
 |---|---|---|---|
 | `help [selector] [--format text|agent]` | utility | read | Discover exact command contracts |
+| `completion zsh` | utility | read | Generate a thin zsh adapter that asks the current Tobari executable for typed candidates on every completion request |
+| `completion candidates --current INDEX WORD...` | utility | read | Return bounded TSV command, flag, finite-value, Context, Runtime, or directory completion records without mutation, Docker, or network access |
 | `version [--format text|json]` | utility | read | Print source version/commit, resolver channel, required and selected standard component APIs, and compatibility |
 | `doctor [--root PATH] [--format text|tsv|json]` | utility | read | Report read-only host, Docker, configuration, policy, Gateway, port, and residue diagnostics without repairing state |
 | `migrate apply [--format text|json]` | act, fixed target | write | Validate and migrate only the enumerated unpublished Context-policy/Runtime predecessor, retaining Context IDs, active selection, Workspace homes, learned rules, and credential stores |
@@ -657,9 +659,12 @@ The infrastructure/doctor label `linux_xdg_file` is not a public
 auth or cluster JSON enum. Their items associate Context name,
 stable Context ID, Tobari ID, safe project root, HTTP effect, observation data
 where applicable, and one opaque mutation reference. Agent help uses the V1
-catalog schema, including recursive field declarations and executable
-success/error invocation forms in scoped help; it also keeps internal
-interactive completion commands outside public discovery and help.
+catalog schema, including recursive field declarations, typed completion
+sources, and executable success/error invocation forms in scoped help.
+`completion zsh` and `completion candidates` are ordinary public read-only
+utilities because the shell invokes them directly. Candidate output is a
+bounded two-column TSV protocol with `candidate` or `directive` in column one;
+it is not a parser for human output or another command's JSON.
 Successful data is stdout;
 failures are stderr.
 

@@ -347,7 +347,7 @@ func contextShowSpec() CommandSpec {
 			CapabilityID: "context.composition",
 			Outcome:      "Inspect the current Context or one named Context and its separated store references",
 			Inputs: []CommandInput{
-				{Name: "--name", Source: InputSourceFlag, Required: false, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, Description: "Named Context to inspect; omission selects the current/default Context.", AllowedValues: []string{}},
+				{Name: "--name", Source: InputSourceFlag, Required: false, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, Description: "Named Context to inspect; omission selects the current/default Context.", AllowedValues: []string{}, Completion: InputCompletionContextName},
 				{Name: "--details", Source: InputSourceFlag, Required: false, ValueKind: InputValueBoolean, Cardinality: InputCardinalitySingle, Description: "Expand human text with complete Context diagnostics; JSON is already complete and remains unchanged.", AllowedValues: []string{}, DefaultValue: stringPointer("false")},
 				formatInput(),
 			},
@@ -491,7 +491,7 @@ func contextRuntimeSetSpec() CommandSpec {
 	minimum := int64(1)
 	return CommandSpec{Path: "context runtime set", Summary: "Pin a Context to one ready Runtime revision", Args: "[--runtime <standard|name@ordinal>] [--context <name>] [--format text|json]", Effect: operation.EffectWrite, Role: RoleAct,
 		Agent: AgentContract{CapabilityID: "context.composition", Outcome: "Explicitly upgrade or roll back one Context Runtime binding without rebuilding or changing existing Workspace homes",
-			Inputs: []CommandInput{{Name: "--runtime", Source: InputSourceFlag, Required: false, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, MinimumLength: &minimum, Description: "Exact ready Runtime selection as standard or name@ordinal; omission opens terminal Review in text mode.", AllowedValues: []string{}}, executionContextInput(), formatInput()},
+			Inputs: []CommandInput{{Name: "--runtime", Source: InputSourceFlag, Required: false, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, MinimumLength: &minimum, Description: "Exact ready Runtime selection as standard or name@ordinal; omission opens terminal Review in text mode.", AllowedValues: []string{}, Completion: InputCompletionReadyRuntimeReference}, executionContextInput(), formatInput()},
 			Output: contextReportOutput(), Prerequisites: []string{"The selected Runtime revision already exists and is ready."}, FixedTarget: fixedContextRuntimeBindingTarget(),
 			Errors: mutationCommandErrors("context runtime set", "context show",
 				declaredCommandError(fault.KindInvalidInput, "runtime_review_unavailable", false, "help context runtime set", "Supply --runtime or use interactive text streams."),
@@ -524,7 +524,7 @@ func runtimeReadSpec(path, summary, outcome, _ string, handler commandHandler) C
 	minimum := int64(1)
 	return CommandSpec{Path: path, Summary: summary, Args: "--name <name> [--format text|json]", Effect: operation.EffectRead, Role: RoleUtility,
 		Agent: AgentContract{CapabilityID: "runtime.customization", Outcome: outcome,
-			Inputs: []CommandInput{{Name: "--name", Source: InputSourceFlag, Required: true, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, MinimumLength: &minimum, Description: "Unique local Runtime name.", AllowedValues: []string{}}, formatInput()},
+			Inputs: []CommandInput{{Name: "--name", Source: InputSourceFlag, Required: true, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, MinimumLength: &minimum, Description: "Unique local Runtime name.", AllowedValues: []string{}, Completion: InputCompletionRuntimeName}, formatInput()},
 			Output: runtimeReportOutput(), Prerequisites: []string{}, Errors: readCommandErrors(path, true,
 				declaredCommandError(fault.KindInvalidInput, "invalid_runtime_name", false, "runtime list", "Choose a Runtime from the local catalog."),
 				declaredCommandError(fault.KindNotFound, "runtime_not_found", false, "runtime list", "Choose an existing Runtime."),
@@ -559,7 +559,7 @@ func runtimeBuildSpec() CommandSpec {
 		Agent: AgentContract{
 			CapabilityID: "runtime.customization",
 			Outcome:      "Snapshot a managed source with no group/other permissions and at most 1,024 files, 256 directories, 32 MiB per file, and 64 MiB total; build and validate it; append one immutable revision without changing any Context",
-			Inputs:       []CommandInput{{Name: "--name", Source: InputSourceFlag, Required: false, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, MinimumLength: &minimum, Description: "Unique local managed Runtime name; omission opens terminal Review in text mode.", AllowedValues: []string{}}, formatInput()},
+			Inputs:       []CommandInput{{Name: "--name", Source: InputSourceFlag, Required: false, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, MinimumLength: &minimum, Description: "Unique local managed Runtime name; omission opens terminal Review in text mode.", AllowedValues: []string{}, Completion: InputCompletionManagedRuntimeName}, formatInput()},
 			Output:       runtimeReportOutput(),
 			Prerequisites: []string{
 				"The named managed Runtime exists and its source root and directories have no group/other permissions.",
@@ -1354,20 +1354,21 @@ func contextNameInput() CommandInput {
 		Name: "--name", Source: InputSourceFlag, Required: true,
 		ValueKind: InputValueText, Cardinality: InputCardinalitySingle,
 		Description:   "Portable Context name; it is a selection label, not a credential authority.",
-		AllowedValues: []string{},
+		AllowedValues: []string{}, Completion: InputCompletionContextName,
 	}
 }
 
 func contextCreateNameInput() CommandInput {
 	input := contextNameInput()
 	input.Required = false
+	input.Completion = InputCompletionNone
 	input.Description = "Portable Context name; omission together with every other input opens the terminal wizard. Any explicit input selects direct mode and requires --name."
 	return input
 }
 
 func contextCreateRuntimeInput() CommandInput {
 	minimum := int64(1)
-	return CommandInput{Name: "--runtime", Source: InputSourceFlag, Required: false, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, MinimumLength: &minimum, Description: "Ready Runtime revision as standard or name@ordinal; omission defaults to standard.", AllowedValues: []string{}, DefaultValue: stringPointer(tobari.StandardRuntimeName)}
+	return CommandInput{Name: "--runtime", Source: InputSourceFlag, Required: false, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, MinimumLength: &minimum, Description: "Ready Runtime revision as standard or name@ordinal; omission defaults to standard.", AllowedValues: []string{}, DefaultValue: stringPointer(tobari.StandardRuntimeName), Completion: InputCompletionReadyRuntimeReference}
 }
 
 func contextCreateAWSBootstrapInput() CommandInput {
@@ -1384,7 +1385,7 @@ func executionContextInput() CommandInput {
 	return CommandInput{
 		Name: "--context", Source: InputSourceFlag, Required: false,
 		ValueKind: InputValueText, Cardinality: InputCardinalitySingle,
-		Description: "Context display name for this invocation; omission uses the current Context without changing it.", AllowedValues: []string{},
+		Description: "Context display name for this invocation; omission uses the current Context without changing it.", AllowedValues: []string{}, Completion: InputCompletionContextName,
 	}
 }
 

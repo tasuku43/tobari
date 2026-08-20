@@ -5,6 +5,11 @@
     "reason": ""
   },
   {
+    "id": "cli.completion",
+    "status": "public",
+    "reason": ""
+  },
+  {
     "id": "cli.version",
     "status": "public",
     "reason": ""

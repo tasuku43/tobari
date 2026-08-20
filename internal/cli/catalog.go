@@ -158,6 +158,33 @@ func (c InputCardinality) validate() error {
 	}
 }
 
+// InputCompletion identifies a typed, side-effect-free candidate source for
+// interactive shell completion. Empty means that no candidates are declared;
+// finite AllowedValues and booleans are completed directly from their existing
+// input contract and do not need a separate source.
+type InputCompletion string
+
+const (
+	InputCompletionNone                  InputCompletion = ""
+	InputCompletionCommand               InputCompletion = "command"
+	InputCompletionContextName           InputCompletion = "context_name"
+	InputCompletionRuntimeName           InputCompletion = "runtime_name"
+	InputCompletionManagedRuntimeName    InputCompletion = "managed_runtime_name"
+	InputCompletionReadyRuntimeReference InputCompletion = "ready_runtime_reference"
+	InputCompletionDirectory             InputCompletion = "directory"
+)
+
+func (c InputCompletion) validate() error {
+	switch c {
+	case InputCompletionNone, InputCompletionCommand, InputCompletionContextName,
+		InputCompletionRuntimeName, InputCompletionManagedRuntimeName,
+		InputCompletionReadyRuntimeReference, InputCompletionDirectory:
+		return nil
+	default:
+		return fmt.Errorf("input completion source is invalid: %q", c)
+	}
+}
+
 // CommandInput is one executable machine-readable input contract.
 // DefaultValue is nil when omission has no catalog-owned default. Minimum and
 // Maximum apply only to integer values; MinimumLength applies only to text and
@@ -179,6 +206,7 @@ type CommandInput struct {
 	Requires      []string         `json:"requires,omitempty"`
 	ConflictsWith []string         `json:"conflicts_with,omitempty"`
 	ReferenceKind string           `json:"reference_kind,omitempty"`
+	Completion    InputCompletion  `json:"completion,omitempty"`
 }
 
 // OutputFormat identifies one stable presentation supported by a command.
@@ -597,7 +625,7 @@ func defaultCatalog() Catalog {
 					{
 						Name: "--root", Source: InputSourceFlag, Required: false,
 						ValueKind: InputValueText, Cardinality: InputCardinalitySingle,
-						Description: "Validate an existing host directory as a prospective Tobari root; defaults to the current directory.", AllowedValues: []string{}, DefaultValue: stringPointer("."), MinimumLength: int64Pointer(1),
+						Description: "Validate an existing host directory as a prospective Tobari root; defaults to the current directory.", AllowedValues: []string{}, DefaultValue: stringPointer("."), MinimumLength: int64Pointer(1), Completion: InputCompletionDirectory,
 					},
 				},
 				Output: CommandOutput{
@@ -648,7 +676,7 @@ func defaultCatalog() Catalog {
 					{
 						Name: "command", Source: InputSourceArgument, Required: false,
 						ValueKind: InputValueText, Cardinality: InputCardinalityRepeatable,
-						Description: "Select an exact command path or canonical command namespace as one or more path words.", AllowedValues: []string{},
+						Description: "Select an exact command path or canonical command namespace as one or more path words.", AllowedValues: []string{}, Completion: InputCompletionCommand,
 					},
 					{
 						Name: "--format", Source: InputSourceFlag, Required: false,
@@ -717,7 +745,8 @@ func defaultCatalog() Catalog {
 			handler: runVersion,
 		},
 	)
-	return NewCatalog(append(catalog.commands, runtimeCommandSpecs()...)...)
+	commands := append(catalog.commands, completionCommandSpecs()...)
+	return NewCatalog(append(commands, runtimeCommandSpecs()...)...)
 }
 
 // DefaultCatalog returns the public Tobari CLI contract.
@@ -955,6 +984,9 @@ func validateAgentContract(command CommandSpec) error {
 		if err := input.Cardinality.validate(); err != nil {
 			return fmt.Errorf("agent input %d: %w", index, err)
 		}
+		if err := input.Completion.validate(); err != nil {
+			return fmt.Errorf("agent input %d: %w", index, err)
+		}
 		if err := validateInputName(input); err != nil {
 			return fmt.Errorf("agent input %d: %w", index, err)
 		}
@@ -1009,6 +1041,23 @@ func validateAgentContract(command CommandSpec) error {
 		}
 		if input.ValueKind == InputValueBoolean && len(input.AllowedValues) != 0 {
 			return fmt.Errorf("agent boolean input %q uses the fixed true/false grammar rather than allowed values", input.Name)
+		}
+		if input.Completion != InputCompletionNone {
+			if input.Source != InputSourceArgument && input.Source != InputSourceFlag {
+				return fmt.Errorf("agent input %q completion requires a command-line input", input.Name)
+			}
+			if input.ValueKind != InputValueText {
+				return fmt.Errorf("agent input %q completion requires text values", input.Name)
+			}
+			if len(input.AllowedValues) != 0 {
+				return fmt.Errorf("agent input %q completion conflicts with finite allowed values", input.Name)
+			}
+			if input.ReferenceKind != "" {
+				return fmt.Errorf("agent input %q completion must not expose opaque references", input.Name)
+			}
+			if input.Completion == InputCompletionCommand && input.Source != InputSourceArgument {
+				return fmt.Errorf("agent input %q command completion requires a positional selector", input.Name)
+			}
 		}
 		for _, value := range input.AllowedValues {
 			if err := validateInputScalar(input, value); err != nil {

@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/tasuku43/tobari/internal/app/authcmd"
+	"github.com/tasuku43/tobari/internal/app/completioncmd"
 	"github.com/tasuku43/tobari/internal/app/contextcmd"
 	"github.com/tasuku43/tobari/internal/app/doctorcmd"
 	"github.com/tasuku43/tobari/internal/app/migrationcmd"
@@ -37,6 +38,7 @@ type CLI struct {
 	runtime    *runtimecmd.Service
 	migrate    *migrationcmd.Service
 	auth       *authcmd.Service
+	completion *completioncmd.Service
 	experimentalCLIState
 	config        contextConfigurationWizard
 	contextCreate contextCreateWizard
@@ -72,6 +74,7 @@ func New(in io.Reader, out, errOut io.Writer) *CLI {
 	command.runtime = runtimecmd.New(runtime)
 	command.migrate = migrationcmd.New(runtime)
 	command.auth = authcmd.New(runtime)
+	command.completion = completioncmd.New(runtime)
 	return command
 }
 
