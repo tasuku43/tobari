@@ -100,20 +100,22 @@ func runInteractivePTY(ctx context.Context, command *exec.Cmd, in io.Reader, out
 
 	var runErr error
 	var outputErr error
+	waitResult := waitDone
 	outputResult := outputDone
-	for runErr == nil && outputResult != nil {
+	for waitResult != nil || outputResult != nil {
 		select {
-		case runErr = <-waitDone:
+		case runErr = <-waitResult:
+			waitResult = nil
 		case outputErr = <-outputResult:
 			outputResult = nil
 			if outputErr != nil && !isPTYCloseError(outputErr) {
 				_ = command.Process.Kill()
-				runErr = <-waitDone
+				if waitResult != nil {
+					runErr = <-waitResult
+					waitResult = nil
+				}
 			}
 		}
-	}
-	if runErr == nil {
-		runErr = <-waitDone
 	}
 
 	close(resizeStop)
