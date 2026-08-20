@@ -60,8 +60,10 @@ direct pass-through.
 - Terminal-style unit tests prove token insertion, visible-byte preservation,
   fragmented writes, prompt responsiveness, bounded fallback, hostile output,
   and destination failure behavior.
-- PTY tests prove stdout-only color, stderr separation, initial window-size
-  propagation, `NO_COLOR`, non-TTY bypass, and child exit handling.
+- PTY tests prove stdout-only color, stderr separation, input forwarding after
+  idle periods, distinct polling and streaming raw-read modes with restoration,
+  initial window-size propagation, `NO_COLOR`, non-TTY bypass, and child exit
+  handling.
 - Product, architecture, security, and harness contracts keep machine,
   redirected, and non-interactive output free of new ANSI.
 - `task check` and `task security` remain the completion gates; the PTY module

@@ -26,11 +26,11 @@ func setTermios(fd uintptr, value *termios) error {
 	return nil
 }
 
-func configureRaw(value *termios) {
+func configureRaw(value *termios, minimum, timeout byte) {
 	value.Iflag &^= syscall.BRKINT | syscall.ICRNL | syscall.INPCK | syscall.ISTRIP | syscall.IXON
 	value.Oflag &^= syscall.OPOST
 	value.Cflag |= syscall.CS8
 	value.Lflag &^= syscall.ECHO | syscall.ICANON | syscall.IEXTEN | syscall.ISIG
-	value.Cc[syscall.VMIN] = 0
-	value.Cc[syscall.VTIME] = 1
+	value.Cc[syscall.VMIN] = minimum
+	value.Cc[syscall.VTIME] = timeout
 }

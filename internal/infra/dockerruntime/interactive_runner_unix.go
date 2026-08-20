@@ -46,7 +46,7 @@ func runInteractivePTY(ctx context.Context, command *exec.Cmd, in io.Reader, out
 		command.Stderr = io.Discard
 	}
 
-	restore, err := terminal.New().Enter(input)
+	restore, err := terminal.NewStream().Enter(input)
 	if err != nil {
 		return err
 	}

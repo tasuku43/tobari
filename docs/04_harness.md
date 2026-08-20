@@ -193,8 +193,10 @@ ordering, selected-Workspace opaque relay, and device-code recovery.
 Runtime checks fix the exact-default-argv wrapper, pinned real executable,
 fixed login/setup argv, opener mounts, and pass-through. The attached shell's
 streams remain Docker-owned; the structured-color case uses only the reviewed
-host-side PTY presentation relay, while the direct stream path remains covered
-for all other sessions.
+host-side PTY presentation relay, whose delayed-input test and distinct
+polling/streaming raw-mode test enforce idle-safe keyboard forwarding and
+terminal restoration, while the direct stream path remains covered for all
+other sessions.
 validate each security-significant OAuth client/scope ceiling and loopback
 callback schema, accept only each provider's reviewed syntax variation and a
 validated dynamic non-privileged port,

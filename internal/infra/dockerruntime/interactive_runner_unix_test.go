@@ -92,6 +92,44 @@ func TestRunInteractivePTYPropagatesWindowResize(t *testing.T) {
 	}
 }
 
+func TestRunInteractivePTYForwardsInputAfterIdlePeriod(t *testing.T) {
+	hostMaster, hostInput := openTestPTY(t)
+	var stdout notifyingBuffer
+	ready := make(chan struct{})
+	stdout.ready = ready
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	command := exec.CommandContext(ctx, "/bin/sh", "-c", `printf 'ready\n'; IFS= read -r value; printf 'received:%s\n' "$value"`)
+	runResult := make(chan error, 1)
+	go func() {
+		runResult <- runInteractivePTY(ctx, command, hostInput, &stdout, &bytes.Buffer{})
+	}()
+
+	select {
+	case <-ready:
+	case <-ctx.Done():
+		t.Fatal("child did not become ready for input")
+	}
+	// Exceed the selector mode's VTIME=1 idle interval. A streaming relay must
+	// keep waiting for later bytes instead of treating that timeout as EOF.
+	time.Sleep(250 * time.Millisecond)
+	if _, err := hostMaster.Write([]byte("hello\n")); err != nil {
+		t.Fatalf("write delayed host input: %v", err)
+	}
+
+	select {
+	case err := <-runResult:
+		if err != nil {
+			t.Fatalf("runInteractivePTY() error = %v", err)
+		}
+	case <-ctx.Done():
+		t.Fatal("child did not receive input after the idle period")
+	}
+	if output := stdout.String(); !strings.Contains(output, "received:hello") {
+		t.Fatalf("child output = %q, want delayed input receipt", output)
+	}
+}
+
 func TestRunInteractivePTYPreservesChildExitStatus(t *testing.T) {
 	_, hostInput := openTestPTY(t)
 	command := exec.Command("/bin/sh", "-c", "exit 37")

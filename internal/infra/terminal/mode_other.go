@@ -8,6 +8,8 @@ type unsupportedMode struct{}
 
 func New() Mode { return unsupportedMode{} }
 
+func NewStream() Mode { return unsupportedMode{} }
+
 func (unsupportedMode) Enter(io.Reader) (func() error, error) {
 	return nil, ErrUnsupported
 }
