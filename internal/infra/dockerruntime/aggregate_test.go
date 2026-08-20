@@ -20,23 +20,16 @@ type policyContentTestRunner struct {
 }
 
 func TestOrthogonalReadinessRemainsBehindTerminalGuardrails(t *testing.T) {
-	for _, origin := range []string{"builtin/offline", "builtin/get-only-reviewed"} {
-		preset, _ := tobari.BuiltinPolicyPreset(origin)
-		revision, err := tobari.PolicyPresetRevision(preset)
-		if err != nil {
-			t.Fatal(err)
-		}
-		manifest := tobari.ContextManifest{SchemaVersion: tobari.ContextSchemaVersion, ID: "01912345-6789-7abc-8def-0123456789ad", Name: "restricted", AgentProfile: tobari.DefaultProfile, Image: tobari.BuiltinImageSelector, PolicyMode: tobari.ContextPolicyModeGuided, SourceAccess: tobari.ContextSourceAccessReadWrite, PolicyPresetOrigin: origin, PolicyPresetRevision: revision, NativeReadiness: tobari.ContextNativeReadinessEnabled}
-		router, err := aggregateRouter([]aggregateContext{{manifest: manifest}})
-		if err != nil {
-			t.Fatal(err)
-		}
-		text := string(router)
-		terminal := strings.Index(text, `decision := {"allow": false, "reason": "denied by Context policy preset guardrail"`)
-		grant := strings.Index(text, `decision := {"allow": true, "reason": "allowed by Context policy preset"`)
-		if terminal < 0 || grant < 0 || terminal > grant {
-			t.Fatalf("%s readiness can precede terminal guardrail:\n%s", origin, text)
-		}
+	manifest := tobari.ContextManifest{SchemaVersion: tobari.ContextSchemaVersion, ID: "01912345-6789-7abc-8def-0123456789ad", Name: "restricted", AgentProfile: tobari.DefaultProfile, Image: tobari.BuiltinImageSelector, PolicyMode: tobari.ContextPolicyModeGuided, SourceAccess: tobari.ContextSourceAccessReadWrite, PolicyRevision: tobari.DefaultContextPolicyRevision(), NativeReadiness: tobari.ContextNativeReadinessEnabled}
+	router, err := aggregateRouter([]aggregateContext{{manifest: manifest}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(router)
+	terminal := strings.Index(text, `decision := {"allow": false, "reason": "denied by Context policy ceiling"`)
+	grant := strings.Index(text, `decision := {"allow": true, "reason": "allowed by Context policy"`)
+	if terminal < 0 || grant < 0 || terminal > grant {
+		t.Fatalf("readiness can precede terminal policy ceiling:\n%s", text)
 	}
 }
 
@@ -76,15 +69,14 @@ func TestAdvancedPolicyReceivesContextNamespaceAndCannotClaimSystemPackages(t *t
 	t.Parallel()
 	item := aggregateContext{
 		manifest: tobari.ContextManifest{
-			SchemaVersion:        tobari.ContextSchemaVersion,
-			ID:                   "01912345-6789-7abc-8def-0123456789ad",
-			Name:                 "restricted",
-			AgentProfile:         tobari.DefaultProfile,
-			PolicyMode:           tobari.ContextPolicyModeAdvanced,
-			SourceAccess:         tobari.ContextSourceAccessReadWrite,
-			PolicyPresetOrigin:   tobari.DefaultPolicyPresetOrigin,
-			PolicyPresetRevision: tobari.DefaultPolicyPresetRevision(),
-			Image:                tobari.BuiltinImageSelector,
+			SchemaVersion:  tobari.ContextSchemaVersion,
+			ID:             "01912345-6789-7abc-8def-0123456789ad",
+			Name:           "restricted",
+			AgentProfile:   tobari.DefaultProfile,
+			PolicyMode:     tobari.ContextPolicyModeAdvanced,
+			SourceAccess:   tobari.ContextSourceAccessReadWrite,
+			PolicyRevision: tobari.DefaultContextPolicyRevision(),
+			Image:          tobari.BuiltinImageSelector,
 		},
 		rego: []byte("package tobari.http\n\nimport rego.v1\ndecision := {\"allow\": false} if { input.schema_version == 1; data.tobari.schema_version == 1 }\n"),
 	}
@@ -106,15 +98,14 @@ func TestAdvancedPolicyReceivesContextNamespaceAndCannotClaimSystemPackages(t *t
 func TestAggregateRouterAlwaysUsesSystemEvaluatorForGraphQL(t *testing.T) {
 	t.Parallel()
 	item := aggregateContext{manifest: tobari.ContextManifest{
-		SchemaVersion:        tobari.ContextSchemaVersion,
-		ID:                   "01912345-6789-7abc-8def-0123456789ad",
-		Name:                 "restricted",
-		AgentProfile:         tobari.DefaultProfile,
-		PolicyMode:           tobari.ContextPolicyModeAdvanced,
-		SourceAccess:         tobari.ContextSourceAccessReadWrite,
-		PolicyPresetOrigin:   tobari.DefaultPolicyPresetOrigin,
-		PolicyPresetRevision: tobari.DefaultPolicyPresetRevision(),
-		Image:                tobari.BuiltinImageSelector,
+		SchemaVersion:  tobari.ContextSchemaVersion,
+		ID:             "01912345-6789-7abc-8def-0123456789ad",
+		Name:           "restricted",
+		AgentProfile:   tobari.DefaultProfile,
+		PolicyMode:     tobari.ContextPolicyModeAdvanced,
+		SourceAccess:   tobari.ContextSourceAccessReadWrite,
+		PolicyRevision: tobari.DefaultContextPolicyRevision(),
+		Image:          tobari.BuiltinImageSelector,
 	}}
 	router, err := aggregateRouter([]aggregateContext{item})
 	if err != nil {
@@ -149,26 +140,26 @@ func TestAggregateRouterKeepsHostLoopbackAuthorityAttachmentScoped(t *testing.T)
 	}
 }
 
-func TestAggregateRouterMakesPresetGuardrailTerminalBeforeAdvancedOrGuidedPolicy(t *testing.T) {
+func TestAggregateRouterMakesContextPolicyCeilingTerminalBeforeAdvancedOrGuidedPolicy(t *testing.T) {
 	t.Parallel()
-	manifest := tobari.ContextManifest{SchemaVersion: tobari.ContextSchemaVersion, ID: "01912345-6789-7abc-8def-0123456789ad", Name: "restricted", AgentProfile: tobari.DefaultProfile, Image: tobari.BuiltinImageSelector, PolicyMode: tobari.ContextPolicyModeAdvanced, SourceAccess: tobari.ContextSourceAccessReadWrite, PolicyPresetOrigin: "builtin/offline", PolicyPresetRevision: tobari.DefaultPolicyPresetRevision()}
+	manifest := tobari.ContextManifest{SchemaVersion: tobari.ContextSchemaVersion, ID: "01912345-6789-7abc-8def-0123456789ad", Name: "restricted", AgentProfile: tobari.DefaultProfile, Image: tobari.BuiltinImageSelector, PolicyMode: tobari.ContextPolicyModeAdvanced, SourceAccess: tobari.ContextSourceAccessReadWrite, PolicyRevision: tobari.DefaultContextPolicyRevision()}
 	router, err := aggregateRouter([]aggregateContext{{manifest: manifest}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	text := string(router)
-	terminal := strings.Index(text, `decision := {"allow": false, "reason": "denied by Context policy preset guardrail"`)
+	terminal := strings.Index(text, `decision := {"allow": false, "reason": "denied by Context policy ceiling"`)
 	advanced := strings.Index(text, `result := data.tobari.contexts.c0191234567897abc8def0123456789ad.http.decision`)
 	if terminal < 0 || advanced < 0 || terminal > advanced {
 		t.Fatalf("guardrail is not declared before Advanced routing:\n%s", text)
 	}
 	advancedClause := text[strings.LastIndex(text[:advanced], "decision := result if {"):advanced]
-	for _, required := range []string{"not terminal_guardrail", "not exact_denied", "not preset_granted"} {
+	for _, required := range []string{"not terminal_policy", "not exact_denied", "not context_policy_granted"} {
 		if !strings.Contains(advancedClause, required) {
 			t.Fatalf("Advanced route can bypass %q:\n%s", required, advancedClause)
 		}
 	}
-	for _, required := range []string{`preset_method_decision == "deny"`, `override.method == input.request.method`, `guardrail.method_default`} {
+	for _, required := range []string{`context_policy_method_decision == "deny"`, `override.method == input.request.method`, `policy.method_default`} {
 		if !strings.Contains(text, required) {
 			t.Fatalf("method policy guardrail omitted %q:\n%s", required, text)
 		}
@@ -177,26 +168,26 @@ func TestAggregateRouterMakesPresetGuardrailTerminalBeforeAdvancedOrGuidedPolicy
 
 func TestAggregateRouterMakesExactDenyTerminalOverAgentReadyBaseline(t *testing.T) {
 	t.Parallel()
-	manifest := tobari.ContextManifest{SchemaVersion: tobari.ContextSchemaVersion, ID: "01912345-6789-7abc-8def-0123456789ad", Name: "agent-ready", AgentProfile: tobari.DefaultProfile, Image: tobari.BuiltinImageSelector, PolicyMode: tobari.ContextPolicyModeGuided, SourceAccess: tobari.ContextSourceAccessReadWrite, PolicyPresetOrigin: tobari.DefaultPolicyPresetOrigin, PolicyPresetRevision: tobari.DefaultPolicyPresetRevision()}
+	manifest := tobari.ContextManifest{SchemaVersion: tobari.ContextSchemaVersion, ID: "01912345-6789-7abc-8def-0123456789ad", Name: "agent-ready", AgentProfile: tobari.DefaultProfile, Image: tobari.BuiltinImageSelector, PolicyMode: tobari.ContextPolicyModeGuided, SourceAccess: tobari.ContextSourceAccessReadWrite, PolicyRevision: tobari.DefaultContextPolicyRevision()}
 	router, err := aggregateRouter([]aggregateContext{{manifest: manifest}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	text := string(router)
 	deny := strings.Index(text, `decision := {"allow": false, "reason": "denied by exact policy"`)
-	grant := strings.Index(text, `decision := {"allow": true, "reason": "allowed by Context policy preset"`)
+	grant := strings.Index(text, `decision := {"allow": true, "reason": "allowed by Context policy"`)
 	if deny < 0 || grant < 0 || deny > grant {
 		t.Fatalf("exact Deny is not declared before baseline grant:\n%s", text)
 	}
 	grantClause := text[grant:]
-	if !strings.Contains(grantClause, "not exact_denied") || !strings.Contains(grantClause, "preset_granted") {
+	if !strings.Contains(grantClause, "not exact_denied") || !strings.Contains(grantClause, "context_policy_granted") {
 		t.Fatalf("agent-ready baseline can bypass exact Deny:\n%s", grantClause)
 	}
 }
 
 func TestAggregateRouterKeepsGitHubGraphQLBaselineSemanticAndAllRootsExact(t *testing.T) {
 	t.Parallel()
-	manifest := tobari.ContextManifest{SchemaVersion: tobari.ContextSchemaVersion, ID: "01912345-6789-7abc-8def-0123456789ad", Name: "agent-ready", AgentProfile: tobari.DefaultProfile, Image: tobari.BuiltinImageSelector, PolicyMode: tobari.ContextPolicyModeGuided, SourceAccess: tobari.ContextSourceAccessReadWrite, PolicyPresetOrigin: tobari.DefaultPolicyPresetOrigin, PolicyPresetRevision: tobari.DefaultPolicyPresetRevision()}
+	manifest := tobari.ContextManifest{SchemaVersion: tobari.ContextSchemaVersion, ID: "01912345-6789-7abc-8def-0123456789ad", Name: "agent-ready", AgentProfile: tobari.DefaultProfile, Image: tobari.BuiltinImageSelector, PolicyMode: tobari.ContextPolicyModeGuided, SourceAccess: tobari.ContextSourceAccessReadWrite, PolicyRevision: tobari.DefaultContextPolicyRevision()}
 	router, err := aggregateRouter([]aggregateContext{{manifest: manifest}})
 	if err != nil {
 		t.Fatal(err)
@@ -208,58 +199,44 @@ func TestAggregateRouterKeepsGitHubGraphQLBaselineSemanticAndAllRootsExact(t *te
 		`count(input.request.graphql.root_fields) > 0`,
 		`every root_field in input.request.graphql.root_fields`,
 		`object.get(rule, "protocol", "http") == "http"`,
-		`some rule in data.tobari_contexts[input.principal.context_id].guardrail.baseline_grants; rule.protocol == "graphql"`,
+		`some rule in data.tobari_contexts[input.principal.context_id].policy.baseline_grants; rule.protocol == "graphql"`,
 		`exact_denied if { learned_graphql_denied }`,
-		`preset_granted if { preset_graphql_granted }`,
+		`context_policy_granted if { context_policy_graphql_granted }`,
 	} {
 		if !strings.Contains(text, required) {
 			t.Fatalf("GraphQL baseline router omitted %q:\n%s", required, text)
 		}
 	}
-	if strings.Contains(text, `preset_exact_granted if { some rule`) {
+	if strings.Contains(text, `context_policy_exact_granted if { some rule`) {
 		t.Fatalf("ordinary HTTP baseline lost its semantic exclusion:\n%s", text)
 	}
 }
 
 func TestAggregateRouterMakesBuiltinHTTPSCeilingTerminalBeforeAdvancedPolicy(t *testing.T) {
 	t.Parallel()
-	for _, origin := range []string{tobari.DefaultPolicyPresetOrigin, "builtin/get-only-reviewed"} {
-		origin := origin
-		t.Run(origin, func(t *testing.T) {
-			t.Parallel()
-			preset, ok := tobari.BuiltinPolicyPreset(origin)
-			if !ok {
-				t.Fatalf("builtin preset %q not found", origin)
-			}
-			revision, err := tobari.PolicyPresetRevision(preset)
-			if err != nil {
-				t.Fatal(err)
-			}
-			manifest := tobari.ContextManifest{SchemaVersion: tobari.ContextSchemaVersion, ID: "01912345-6789-7abc-8def-0123456789ad", Name: "restricted", AgentProfile: tobari.DefaultProfile, Image: tobari.BuiltinImageSelector, PolicyMode: tobari.ContextPolicyModeAdvanced, SourceAccess: tobari.ContextSourceAccessReadWrite, PolicyPresetOrigin: origin, PolicyPresetRevision: revision}
-			router, err := aggregateRouter([]aggregateContext{{manifest: manifest}})
-			if err != nil {
-				t.Fatal(err)
-			}
-			text := string(router)
-			if strings.Contains(text, "guardrail.custom") {
-				t.Fatalf("builtin guardrail still depends on a custom-only marker:\n%s", text)
-			}
-			if !strings.Contains(text, `destination_mode == "public_https"; input.request.authority.scheme != "https"`) {
-				t.Fatalf("builtin %q does not terminally reject plain HTTP:\n%s", origin, text)
-			}
-			advanced := strings.Index(text, `result := data.tobari.contexts.c0191234567897abc8def0123456789ad.http.decision`)
-			if advanced < 0 {
-				t.Fatalf("Advanced route for builtin %q is missing:\n%s", origin, text)
-			}
-			advancedStart := strings.LastIndex(text[:advanced], "decision := result if {")
-			if advancedStart < 0 {
-				t.Fatalf("Advanced clause for builtin %q is missing:\n%s", origin, text)
-			}
-			advancedClause := text[advancedStart:advanced]
-			if !strings.Contains(advancedClause, "not terminal_guardrail") {
-				t.Fatalf("Advanced policy can bypass builtin %q HTTPS ceiling:\n%s", origin, advancedClause)
-			}
-		})
+	manifest := tobari.ContextManifest{SchemaVersion: tobari.ContextSchemaVersion, ID: "01912345-6789-7abc-8def-0123456789ad", Name: "restricted", AgentProfile: tobari.DefaultProfile, Image: tobari.BuiltinImageSelector, PolicyMode: tobari.ContextPolicyModeAdvanced, SourceAccess: tobari.ContextSourceAccessReadWrite, PolicyRevision: tobari.DefaultContextPolicyRevision()}
+	router, err := aggregateRouter([]aggregateContext{{manifest: manifest}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(router)
+	if strings.Contains(text, "guardrail.custom") {
+		t.Fatalf("default policy ceiling still depends on a custom-only marker:\n%s", text)
+	}
+	if !strings.Contains(text, `destination_mode == "public_https"; input.request.authority.scheme != "https"`) {
+		t.Fatalf("default policy does not terminally reject plain HTTP:\n%s", text)
+	}
+	advanced := strings.Index(text, `result := data.tobari.contexts.c0191234567897abc8def0123456789ad.http.decision`)
+	if advanced < 0 {
+		t.Fatalf("Advanced route is missing:\n%s", text)
+	}
+	advancedStart := strings.LastIndex(text[:advanced], "decision := result if {")
+	if advancedStart < 0 {
+		t.Fatalf("Advanced clause is missing:\n%s", text)
+	}
+	advancedClause := text[advancedStart:advanced]
+	if !strings.Contains(advancedClause, "not terminal_policy") {
+		t.Fatalf("Advanced policy can bypass the default policy ceiling:\n%s", advancedClause)
 	}
 }
 
@@ -276,15 +253,15 @@ func TestGatewayProjectionCarriesOnlyValidatedGraphQLEndpoints(t *testing.T) {
 	}
 }
 
-func TestAggregateGraphQLEndpointsIncludesPresetSnapshotInExactBoundary(t *testing.T) {
+func TestAggregateGraphQLEndpointsIncludesContextPolicySnapshotInExactBoundary(t *testing.T) {
 	t.Parallel()
 	shared := tobari.GraphQLEndpoint{Scheme: "https", Host: "api.example.com", Port: 443, Path: "/graphql"}
-	presetOnly := tobari.PolicyPresetExactRule{
+	presetOnly := tobari.ContextPolicyExactRule{
 		Scheme: "https", Host: "graphql.example.com", Port: 8443, Method: "POST", Path: "/v1/graphql",
 	}
 	endpoints, err := aggregateGraphQLEndpoints(
 		[]tobari.GraphQLEndpoint{shared},
-		[]tobari.PolicyPresetExactRule{
+		[]tobari.ContextPolicyExactRule{
 			{Scheme: shared.Scheme, Host: shared.Host, Port: shared.Port, Method: "POST", Path: shared.Path},
 			presetOnly,
 		},
@@ -299,7 +276,7 @@ func TestAggregateGraphQLEndpointsIncludesPresetSnapshotInExactBoundary(t *testi
 	if !reflect.DeepEqual(endpoints, want) {
 		t.Fatalf("aggregate GraphQL endpoints = %+v, want %+v", endpoints, want)
 	}
-	if _, err := aggregateGraphQLEndpoints(nil, []tobari.PolicyPresetExactRule{{
+	if _, err := aggregateGraphQLEndpoints(nil, []tobari.ContextPolicyExactRule{{
 		Scheme: "https", Host: "api.example.com", Port: 443, Method: "GET", Path: "/graphql",
 	}}); err == nil {
 		t.Fatal("non-POST preset GraphQL endpoint entered the aggregate boundary")
@@ -309,15 +286,14 @@ func TestAggregateGraphQLEndpointsIncludesPresetSnapshotInExactBoundary(t *testi
 func TestAggregateRejectsUnsupportedOrAmbiguousSourceInputSchema(t *testing.T) {
 	t.Parallel()
 	manifest := tobari.ContextManifest{
-		SchemaVersion:        tobari.ContextSchemaVersion,
-		ID:                   "01912345-6789-7abc-8def-0123456789ad",
-		Name:                 "restricted",
-		AgentProfile:         tobari.DefaultProfile,
-		PolicyMode:           tobari.ContextPolicyModeAdvanced,
-		SourceAccess:         tobari.ContextSourceAccessReadWrite,
-		PolicyPresetOrigin:   tobari.DefaultPolicyPresetOrigin,
-		PolicyPresetRevision: tobari.DefaultPolicyPresetRevision(),
-		Image:                tobari.BuiltinImageSelector,
+		SchemaVersion:  tobari.ContextSchemaVersion,
+		ID:             "01912345-6789-7abc-8def-0123456789ad",
+		Name:           "restricted",
+		AgentProfile:   tobari.DefaultProfile,
+		PolicyMode:     tobari.ContextPolicyModeAdvanced,
+		SourceAccess:   tobari.ContextSourceAccessReadWrite,
+		PolicyRevision: tobari.DefaultContextPolicyRevision(),
+		Image:          tobari.BuiltinImageSelector,
 	}
 	for _, source := range []string{
 		"package tobari.http\n\nimport rego.v1\ndecision := {\"allow\": false} if { input.schema_version == 2 }\n",

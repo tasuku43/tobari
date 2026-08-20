@@ -250,6 +250,26 @@ func TestDefaultCatalogPublishesCWDOwnedLifecycleWithoutActionIDs(t *testing.T) 
 	}
 }
 
+func TestPolicyPresetSurfaceIsNotAccepted(t *testing.T) {
+	t.Parallel()
+	catalog := DefaultCatalog()
+	for _, path := range []string{"policy preset list", "policy preset show", "policy preset init", "policy preset validate"} {
+		if _, found := catalog.Lookup(path); found {
+			t.Fatalf("retired policy preset command %q remains in the catalog", path)
+		}
+		if _, found := catalog.lookupRegistered(path); found {
+			t.Fatalf("retired policy preset command %q remains registered", path)
+		}
+	}
+	create, found := catalog.Lookup("context create")
+	if !found {
+		t.Fatal("context create is absent from the catalog")
+	}
+	if _, err := parseCommandInputs(create, []string{"--name", "review", "--policy-preset=builtin/agent-ready"}); err == nil || !strings.Contains(err.Error(), "unknown flag") {
+		t.Fatalf("retired --policy-preset was accepted: %v", err)
+	}
+}
+
 func TestPolicyCatalogPublishesGraphQLIdentityContracts(t *testing.T) {
 	t.Parallel()
 	wantVersions := map[string]int{

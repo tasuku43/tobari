@@ -10,6 +10,7 @@ import (
 	"encoding/base64"
 	"encoding/pem"
 	"errors"
+	"fmt"
 	"io"
 	"math/big"
 	"strings"
@@ -135,8 +136,8 @@ func TestContextCreateWizardCollectsNameFilesystemAndEveryMethodDecision(t *test
 		t.Fatal(err)
 	}
 	if selection.Name != "coding" || selection.SourceAccess != tobari.ContextSourceAccessReadWrite ||
-		selection.MethodPolicy.Default != tobari.PolicyPresetMethodExactReview ||
-		len(selection.MethodPolicy.Overrides) != 1 || selection.MethodPolicy.Overrides[0] != (tobari.PolicyPresetMethodOverride{Method: "GET", Decision: tobari.PolicyPresetMethodAllow}) {
+		selection.MethodPolicy.Default != tobari.ContextMethodExactReview ||
+		len(selection.MethodPolicy.Overrides) != 1 || selection.MethodPolicy.Overrides[0] != (tobari.ContextMethodOverride{Method: "GET", Decision: tobari.ContextMethodAllow}) {
 		t.Fatalf("wizard selection = %+v", selection)
 	}
 	for _, required := range []string{"Context name:", "Project source access", "Other methods (default)", "GET", "TRACE", "Workspace bootstrap", "Review & Create", "Runtime", "standard Tobari runtime", "Claude Code and Codex routine traffic", "Private and unsafe"} {
@@ -156,6 +157,25 @@ func TestContextCreateWizardDoesNotInspectBootstrapOnOrdinaryPath(t *testing.T) 
 	}
 	if selection.Bootstrap != nil || bootstrap.discoveryCalls != 0 {
 		t.Fatalf("ordinary path inspected bootstrap: selection=%+v calls=%d", selection, bootstrap.discoveryCalls)
+	}
+}
+
+func TestContextCreateWizardOffersOnlyReadyRuntimeRevisions(t *testing.T) {
+	t.Parallel()
+	wizard := &terminalContextCreateWizard{mode: nil, style: false, runtimes: []tobari.RuntimeSummary{
+		{ID: "018bcfe5-687b-7000-8000-000000000071", Name: "frontend", Kind: tobari.RuntimeKindManaged, Ready: true, Head: 4, Revision: "sha256:" + strings.Repeat("a", 64), SourcePath: "/config/runtimes/frontend/source"},
+		{ID: "018bcfe5-687b-7000-8000-000000000072", Name: "backend", Kind: tobari.RuntimeKindManaged, SourcePath: "/config/runtimes/backend/source"},
+	}}
+	draft := contextCreateRawDraft{name: "coding", runtimeSelection: tobari.StandardRuntimeName}
+	var output bytes.Buffer
+	if err := wizard.editContextCreateRuntimeLine(context.Background(), strings.NewReader("2\n"), &output, &draft); err != nil {
+		t.Fatal(err)
+	}
+	if draft.runtimeSelection != "frontend@4" {
+		t.Fatalf("Runtime selection = %q", draft.runtimeSelection)
+	}
+	if strings.Contains(output.String(), "backend") {
+		t.Fatalf("unready Runtime was offered: %q", output.String())
 	}
 }
 
@@ -288,7 +308,7 @@ func TestContextCreateWizardRawUsesOneContinuousFourStepSession(t *testing.T) {
 		t.Fatalf("raw mode entered/restored = %d/%d", mode.entered, mode.restored)
 	}
 	if selection.SourceAccess != tobari.ContextSourceAccessReadWrite || len(selection.MethodPolicy.Overrides) != 1 ||
-		selection.MethodPolicy.Overrides[0].Method != "GET" || selection.MethodPolicy.Overrides[0].Decision != tobari.PolicyPresetMethodAllow {
+		selection.MethodPolicy.Overrides[0].Method != "GET" || selection.MethodPolicy.Overrides[0].Decision != tobari.ContextMethodAllow {
 		t.Fatalf("raw wizard selection = %+v", selection)
 	}
 	for _, required := range []string{
@@ -336,13 +356,38 @@ func TestContextCreateWizardRawMethodEditorExposesInheritanceAndReset(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	if selection.MethodPolicy.Default != tobari.PolicyPresetMethodExactReview || len(selection.MethodPolicy.Overrides) != 0 {
+	if selection.MethodPolicy.Default != tobari.ContextMethodExactReview || len(selection.MethodPolicy.Overrides) != 0 {
 		t.Fatalf("reset method policy = %+v", selection.MethodPolicy)
 	}
 	for _, required := range []string{"METHOD", "POLICY", "SOURCE", "override", "inherited", "i inherit", "r reset defaults"} {
 		if !strings.Contains(output.String(), required) {
 			t.Errorf("method editor lacks %q: %q", required, output.String())
 		}
+	}
+}
+
+func TestContextCreateWizardMethodRowsRemainAlignedWhenStyled(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name     string
+		marker   string
+		label    string
+		labelSty styleToken
+		decision tobari.ContextMethodDecision
+		source   string
+	}{
+		{name: "selected override", marker: "❯ ", label: "GET", labelSty: styleAccent, decision: tobari.ContextMethodAllow, source: "override"},
+		{name: "inherited row", marker: "  ", label: "HEAD", labelSty: styleText, decision: tobari.ContextMethodExactReview, source: "inherited"},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			styled := contextCreateMethodPolicyRow(true, test.marker, test.label, test.labelSty, test.decision, test.source)
+			want := fmt.Sprintf("%s%-25s %-15s %s", test.marker, test.label, displayMethodDecision(test.decision), test.source)
+			if got := stripANSIStyles(styled); got != want {
+				t.Fatalf("visible row = %q, want %q", got, want)
+			}
+		})
 	}
 }
 
@@ -353,7 +398,7 @@ func TestContextCreateWizardRawDefaultChangePreservesOnlyExactOverrides(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	if selection.MethodPolicy.Default != tobari.PolicyPresetMethodDeny || len(selection.MethodPolicy.Overrides) != 1 || selection.MethodPolicy.Decision("GET") != tobari.PolicyPresetMethodAllow || selection.MethodPolicy.Decision("POST") != tobari.PolicyPresetMethodDeny {
+	if selection.MethodPolicy.Default != tobari.ContextMethodDeny || len(selection.MethodPolicy.Overrides) != 1 || selection.MethodPolicy.Decision("GET") != tobari.ContextMethodAllow || selection.MethodPolicy.Decision("POST") != tobari.ContextMethodDeny {
 		t.Fatalf("default/override policy = %+v", selection.MethodPolicy)
 	}
 }
@@ -427,7 +472,7 @@ func TestContextCreateWizardRawEditNetworkBackDiscardsStagedPolicy(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if selection.MethodPolicy.Default != tobari.PolicyPresetMethodExactReview || len(selection.MethodPolicy.Overrides) != 0 {
+	if selection.MethodPolicy.Default != tobari.ContextMethodExactReview || len(selection.MethodPolicy.Overrides) != 0 {
 		t.Fatalf("back navigation committed staged policy = %+v", selection.MethodPolicy)
 	}
 }
@@ -591,7 +636,7 @@ func TestArgumentFreeContextCreateIsTheOnlyWizardMode(t *testing.T) {
 	if !contextCreateInputsOmitted(empty) {
 		t.Fatal("argument-free create did not select wizard mode")
 	}
-	for _, name := range []string{"--name", "--image", "--mode", "--source-access", "--policy-preset", "--native-readiness", "--bootstrap-aws-profile", "--format"} {
+	for _, name := range []string{"--name", "--runtime", "--mode", "--source-access", "--native-readiness", "--bootstrap-aws-profile", "--format"} {
 		inputs := ParsedInputs{provided: map[string]bool{name: true}}
 		if contextCreateInputsOmitted(inputs) {
 			t.Errorf("explicit %s unexpectedly selected wizard mode", name)

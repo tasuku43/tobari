@@ -8,60 +8,54 @@ import (
 
 func validContextManifest() ContextManifest {
 	return ContextManifest{
-		SchemaVersion:        ContextSchemaVersion,
-		ID:                   "018bcfe5-687b-7000-8000-000000000000",
-		Name:                 "project-tools",
-		AgentProfile:         DefaultProfile,
-		Image:                OfficialRuntimeBase,
-		PolicyMode:           ContextPolicyModeAdvanced,
-		SourceAccess:         ContextSourceAccessReadWrite,
-		PolicyPresetOrigin:   DefaultPolicyPresetOrigin,
-		PolicyPresetRevision: DefaultPolicyPresetRevision(),
+		SchemaVersion:  ContextSchemaVersion,
+		ID:             "018bcfe5-687b-7000-8000-000000000000",
+		Name:           "project-tools",
+		AgentProfile:   DefaultProfile,
+		Image:          OfficialRuntimeBase,
+		PolicyMode:     ContextPolicyModeAdvanced,
+		SourceAccess:   ContextSourceAccessReadWrite,
+		PolicyRevision: DefaultContextPolicyRevision(),
 	}
 }
 
 func TestContextNativeReadinessCompatibility(t *testing.T) {
 	for _, test := range []struct {
-		name   string
-		value  ContextNativeReadiness
-		origin string
-		want   ContextNativeReadiness
+		name  string
+		value ContextNativeReadiness
+		want  ContextNativeReadiness
 	}{
-		{"new enabled", ContextNativeReadinessEnabled, "builtin/offline", ContextNativeReadinessEnabled},
-		{"new disabled", ContextNativeReadinessDisabled, DefaultPolicyPresetOrigin, ContextNativeReadinessDisabled},
-		{"legacy agent-ready", "", DefaultPolicyPresetOrigin, ContextNativeReadinessEnabled},
-		{"legacy reviewed-exact", "", "builtin/reviewed-exact", ContextNativeReadinessDisabled},
-		{"legacy get-only", "", "builtin/get-only-reviewed", ContextNativeReadinessDisabled},
-		{"legacy offline", "", "builtin/offline", ContextNativeReadinessDisabled},
+		{"enabled", ContextNativeReadinessEnabled, ContextNativeReadinessEnabled},
+		{"disabled", ContextNativeReadinessDisabled, ContextNativeReadinessDisabled},
+		{"omitted", "", ContextNativeReadinessEnabled},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			got, err := ResolveContextNativeReadiness(test.value, test.origin)
+			got, err := ResolveContextNativeReadiness(test.value)
 			if err != nil || got != test.want {
 				t.Fatalf("got %q, %v; want %q", got, err, test.want)
 			}
 		})
 	}
-	if _, err := ResolveContextNativeReadiness("sometimes", DefaultPolicyPresetOrigin); err == nil {
+	if _, err := ResolveContextNativeReadiness("sometimes"); err == nil {
 		t.Fatal("invalid explicit native readiness was accepted")
 	}
 }
 
 func TestContextCreateCompositionClonesMethodPolicyAndDeleteResultIsTerminal(t *testing.T) {
-	policy := PolicyPresetMethodPolicy{
-		Default:   PolicyPresetMethodExactReview,
-		Overrides: []PolicyPresetMethodOverride{{Method: "GET", Decision: PolicyPresetMethodAllow}},
+	policy := ContextMethodPolicy{
+		Default:   ContextMethodExactReview,
+		Overrides: []ContextMethodOverride{{Method: "GET", Decision: ContextMethodAllow}},
 	}
 	composition := ContextCreateComposition{
-		PolicyPresetOrigin: DefaultPolicyPresetOrigin,
-		NativeReadiness:    ContextNativeReadinessEnabled,
-		MethodPolicy:       &policy,
+		NativeReadiness: ContextNativeReadinessEnabled,
+		MethodPolicy:    &policy,
 	}
 	if err := composition.Validate(); err != nil {
 		t.Fatal(err)
 	}
 	clone := composition.Clone()
-	clone.MethodPolicy.Overrides[0].Decision = PolicyPresetMethodDeny
-	if composition.MethodPolicy.Overrides[0].Decision != PolicyPresetMethodAllow {
+	clone.MethodPolicy.Overrides[0].Decision = ContextMethodDeny
+	if composition.MethodPolicy.Overrides[0].Decision != ContextMethodAllow {
 		t.Fatal("Context composition clone aliases the caller's method policy")
 	}
 	result := ContextDeleteResult{
@@ -293,10 +287,9 @@ func TestContextReportAcceptsRuntimeTasksAndStatuses(t *testing.T) {
 	contextReport := ContextReport{
 		Task: TaskRuntimeBuild, ContextState: ContextObservationPersisted, ID: manifest.ID, Name: manifest.Name, Active: true,
 		AgentProfile: manifest.AgentProfile, Image: manifest.Image, PolicyMode: manifest.PolicyMode,
-		SourceAccess:       manifest.SourceAccess,
-		PolicyPresetOrigin: manifest.PolicyPresetOrigin, PolicyPresetRevision: manifest.PolicyPresetRevision, PolicyGuardrail: PolicyPresetGuardrailMethodPolicy,
-		MethodPolicy: PolicyPresetMethodPolicy{Default: PolicyPresetMethodExactReview, Overrides: []PolicyPresetMethodOverride{}},
-		Cluster:      ContextClusterStatusNotApplicable,
+		SourceAccess:   manifest.SourceAccess,
+		PolicyRevision: manifest.PolicyRevision, MethodPolicy: ContextMethodPolicy{Default: ContextMethodExactReview, Overrides: []ContextMethodOverride{}},
+		Cluster: ContextClusterStatusNotApplicable,
 		Stores: ContextStorePaths{
 			PolicyDirectory: filepath.Join(string(filepath.Separator), "config", "contexts", "default", "policy"),
 		},
@@ -315,8 +308,7 @@ func TestContextReportAcceptsConfigurationTasksAndRequiresCompleteGitIdentity(t 
 	base := ContextReport{
 		ContextState: ContextObservationPersisted, ID: manifest.ID, Name: manifest.Name, AgentProfile: manifest.AgentProfile,
 		Image: manifest.Image, PolicyMode: manifest.PolicyMode, SourceAccess: manifest.SourceAccess,
-		PolicyPresetOrigin: manifest.PolicyPresetOrigin, PolicyPresetRevision: manifest.PolicyPresetRevision, PolicyGuardrail: PolicyPresetGuardrailMethodPolicy,
-		MethodPolicy:     PolicyPresetMethodPolicy{Default: PolicyPresetMethodExactReview, Overrides: []PolicyPresetMethodOverride{}},
+		PolicyRevision: manifest.PolicyRevision, MethodPolicy: ContextMethodPolicy{Default: ContextMethodExactReview, Overrides: []ContextMethodOverride{}},
 		ShellEnvironment: mustCompleteContextShellEnvironment(t, nil),
 		GitIdentity:      DefaultContextGitIdentityReport(),
 		Stores: ContextStorePaths{
@@ -366,8 +358,8 @@ func TestContextClusterStatusValidatesKnownOutcomes(t *testing.T) {
 
 func TestContextListRequiresOneMatchingActiveItem(t *testing.T) {
 	items := []ContextSummary{
-		{ID: "018bcfe5-687b-7000-8000-000000000000", Name: "default", ContextState: ContextObservationPersisted, Active: true, AgentProfile: DefaultProfile, Image: OfficialRuntimeBase, PolicyMode: ContextPolicyModeGuided, SourceAccess: ContextSourceAccessReadWrite, PolicyPresetOrigin: DefaultPolicyPresetOrigin, PolicyPresetRevision: DefaultPolicyPresetRevision(), MethodPolicy: PolicyPresetMethodPolicy{Default: PolicyPresetMethodExactReview, Overrides: []PolicyPresetMethodOverride{}}},
-		{ID: "018bcfe5-687b-7000-8000-000000000001", Name: "project-tools", ContextState: ContextObservationPersisted, AgentProfile: DefaultProfile, Image: OfficialRuntimeBase, PolicyMode: ContextPolicyModeAdvanced, SourceAccess: ContextSourceAccessReadOnly, PolicyPresetOrigin: DefaultPolicyPresetOrigin, PolicyPresetRevision: DefaultPolicyPresetRevision(), MethodPolicy: PolicyPresetMethodPolicy{Default: PolicyPresetMethodExactReview, Overrides: []PolicyPresetMethodOverride{}}},
+		{ID: "018bcfe5-687b-7000-8000-000000000000", Name: "default", ContextState: ContextObservationPersisted, Active: true, AgentProfile: DefaultProfile, Image: OfficialRuntimeBase, PolicyMode: ContextPolicyModeGuided, SourceAccess: ContextSourceAccessReadWrite, PolicyRevision: DefaultContextPolicyRevision(), MethodPolicy: ContextMethodPolicy{Default: ContextMethodExactReview, Overrides: []ContextMethodOverride{}}},
+		{ID: "018bcfe5-687b-7000-8000-000000000001", Name: "project-tools", ContextState: ContextObservationPersisted, AgentProfile: DefaultProfile, Image: OfficialRuntimeBase, PolicyMode: ContextPolicyModeAdvanced, SourceAccess: ContextSourceAccessReadOnly, PolicyRevision: DefaultContextPolicyRevision(), MethodPolicy: ContextMethodPolicy{Default: ContextMethodExactReview, Overrides: []ContextMethodOverride{}}},
 	}
 	result := ContextListResult{Task: TaskContextList, ContextState: ContextObservationPersisted, Active: "default", Items: items}
 	if err := result.Validate(); err != nil {
@@ -426,8 +418,7 @@ func TestSyntheticContextReportCannotClaimAuthorityOrStores(t *testing.T) {
 		Task: TaskContextShow, ContextState: ContextObservationSyntheticDefault,
 		Name: DefaultContextName, Active: true, AgentProfile: DefaultProfile,
 		Image: OfficialRuntimeBase, PolicyMode: ContextPolicyModeGuided, SourceAccess: ContextSourceAccessReadWrite,
-		PolicyPresetOrigin: DefaultPolicyPresetOrigin, PolicyGuardrail: PolicyPresetGuardrailMethodPolicy,
-		MethodPolicy:     PolicyPresetMethodPolicy{Default: PolicyPresetMethodExactReview, Overrides: []PolicyPresetMethodOverride{}},
+		MethodPolicy:     ContextMethodPolicy{Default: ContextMethodExactReview, Overrides: []ContextMethodOverride{}},
 		ShellEnvironment: DefaultContextShellEnvironmentReport(),
 		GitIdentity:      DefaultContextGitIdentityReport(),
 		Runtime:          ContextRuntimeReport{Kind: ContextRuntimeKindOfficial, Status: ContextRuntimeStatusOfficial, BaseReference: OfficialRuntimeBase},

@@ -32,10 +32,6 @@ type contextUseProgressRuntimePort interface {
 	UseContextWithProgress(context.Context, string, tobari.ClusterUpProgressSink) (tobari.ContextReport, error)
 }
 
-type policyPresetContextRuntimePort interface {
-	CreateContextWithPreset(context.Context, string, string, tobari.ContextPolicyMode, tobari.ContextSourceAccess, string, ...tobari.ContextNativeReadiness) (tobari.ContextReport, error)
-}
-
 type composedContextRuntimePort interface {
 	CreateContextWithComposition(context.Context, string, string, tobari.ContextPolicyMode, tobari.ContextSourceAccess, tobari.ContextCreateComposition) (tobari.ContextReport, error)
 }
@@ -158,6 +154,10 @@ type contextRuntimeBuildProgressPort interface {
 	BuildRuntimeWithProgress(context.Context, io.Writer, tobari.RuntimeBuildProgressSink) (tobari.ContextReport, error)
 }
 
+type contextRuntimeSelectionPort interface {
+	SetContextRuntime(context.Context, string, string) (tobari.ContextReport, error)
+}
+
 type contextLifecycleRuntimePort interface {
 	WithLifecycleLock(context.Context, func(context.Context) error) error
 }
@@ -201,6 +201,10 @@ func (ownedPolicy) Check(_ context.Context, intent operation.Intent) error {
 	}
 	if intent.Effect == operation.EffectWrite && intent.Target.Kind == tobari.ContextRuntimeTargetKind &&
 		intent.Target.ID == tobari.ActiveContextRuntimeID {
+		return nil
+	}
+	if intent.Effect == operation.EffectWrite && intent.Target.Kind == tobari.ContextRuntimeBindingTargetKind &&
+		intent.Target.ID == tobari.ContextRuntimeBindingTargetID {
 		return nil
 	}
 	return fault.New(fault.KindRejected, "mutation_rejected", "Context mutation target is not owned by Tobari", false)
@@ -268,33 +272,31 @@ func (s *Service) ConfigureAWSBootstrap(ctx context.Context, intent operation.In
 	}
 	request := execution.Request{Intent: intent, ExpectedCommand: intent.Command, ExpectedEffect: operation.EffectWrite, ExpectedTarget: operation.TargetRef{Kind: tobari.ContextBootstrapTargetKind, ID: tobari.ContextBootstrapTargetID}, ExpectedImpact: intent.Impact}
 	var result tobari.ContextReport
-	err := s.withLifecycleLock(ctx, func(lifecycleContext context.Context) error {
-		return s.mutator.Invoke(lifecycleContext, request, func(actionContext context.Context, _ operation.Intent) error {
-			configured, configureErr := runtime.ConfigureContextAWSBootstrap(actionContext, contextName, profile, expectedRevision, remove)
-			switch {
-			case errors.Is(configureErr, tobari.ErrContextNotFound):
-				return fault.New(fault.KindNotFound, "context_not_found", "the named Context does not exist", false, fault.NextAction{Command: "context list", Reason: "Choose an existing Context."})
-			case errors.Is(configureErr, tobari.ErrContextBootstrapNotConfigured):
-				return fault.New(fault.KindNotFound, "bootstrap_not_configured", "the selected Context has no AWS bootstrap snapshot to refresh", false, fault.NextAction{Command: "help config bootstrap aws", Reason: "Configure an IAM Identity Center profile first."})
-			case errors.Is(configureErr, tobari.ErrContextBootstrapSourceChanged):
-				return fault.New(fault.KindRejected, "bootstrap_source_changed", "Host AWS configuration changed during review; no Context change was applied", true, fault.NextAction{Command: "config bootstrap aws", Reason: "Review a fresh semantic diff before applying."})
-			case errors.Is(configureErr, tobari.ErrContextBootstrapDependency):
-				return fault.New(fault.KindRejected, "bootstrap_dependency", "AWS bootstrap cannot be removed while the EKS adapter depends on it", false, fault.NextAction{Command: "config bootstrap kubernetes eks", Reason: "Remove the EKS adapter first with --remove."})
-			case configureErr != nil:
-				return fault.Wrap(fault.KindRejected, "config_bootstrap_failed", "Context AWS bootstrap could not be changed", false, configureErr, fault.NextAction{Command: "context show", Reason: "Inspect the current future-Workspace bootstrap recipe."})
-			}
-			if configured.Task != tobari.TaskConfigBootstrapAWS || configured.ContextState != tobari.ContextObservationPersisted {
-				return fault.New(fault.KindContract, "invalid_context_report", "Context bootstrap report is invalid", false, fault.NextAction{Command: "context show", Reason: "Reconcile the confirmed Context bootstrap change."})
-			}
-			if remove && configured.Bootstrap.Resolved().State != tobari.ContextBootstrapNotConfigured {
-				return fault.New(fault.KindContract, "invalid_context_report", "Context bootstrap removal was not confirmed", false)
-			}
-			if !remove && configured.Bootstrap.Resolved().State != tobari.ContextBootstrapConfigured {
-				return fault.New(fault.KindContract, "invalid_context_report", "Context bootstrap configuration was not confirmed", false)
-			}
-			result = configured
-			return nil
-		})
+	err := s.mutator.Invoke(ctx, request, func(actionContext context.Context, _ operation.Intent) error {
+		configured, configureErr := runtime.ConfigureContextAWSBootstrap(actionContext, contextName, profile, expectedRevision, remove)
+		switch {
+		case errors.Is(configureErr, tobari.ErrContextNotFound):
+			return fault.New(fault.KindNotFound, "context_not_found", "the named Context does not exist", false, fault.NextAction{Command: "context list", Reason: "Choose an existing Context."})
+		case errors.Is(configureErr, tobari.ErrContextBootstrapNotConfigured):
+			return fault.New(fault.KindNotFound, "bootstrap_not_configured", "the selected Context has no AWS bootstrap snapshot to refresh", false, fault.NextAction{Command: "help config bootstrap aws", Reason: "Configure an IAM Identity Center profile first."})
+		case errors.Is(configureErr, tobari.ErrContextBootstrapSourceChanged):
+			return fault.New(fault.KindRejected, "bootstrap_source_changed", "Host AWS configuration changed during review; no Context change was applied", true, fault.NextAction{Command: "config bootstrap aws", Reason: "Review a fresh semantic diff before applying."})
+		case errors.Is(configureErr, tobari.ErrContextBootstrapDependency):
+			return fault.New(fault.KindRejected, "bootstrap_dependency", "AWS bootstrap cannot be removed while the EKS adapter depends on it", false, fault.NextAction{Command: "config bootstrap kubernetes eks", Reason: "Remove the EKS adapter first with --remove."})
+		case configureErr != nil:
+			return fault.Wrap(fault.KindRejected, "config_bootstrap_failed", "Context AWS bootstrap could not be changed", false, configureErr, fault.NextAction{Command: "context show", Reason: "Inspect the current future-Workspace bootstrap recipe."})
+		}
+		if configured.Task != tobari.TaskConfigBootstrapAWS || configured.ContextState != tobari.ContextObservationPersisted {
+			return fault.New(fault.KindContract, "invalid_context_report", "Context bootstrap report is invalid", false, fault.NextAction{Command: "context show", Reason: "Reconcile the confirmed Context bootstrap change."})
+		}
+		if remove && configured.Bootstrap.Resolved().State != tobari.ContextBootstrapNotConfigured {
+			return fault.New(fault.KindContract, "invalid_context_report", "Context bootstrap removal was not confirmed", false)
+		}
+		if !remove && configured.Bootstrap.Resolved().State != tobari.ContextBootstrapConfigured {
+			return fault.New(fault.KindContract, "invalid_context_report", "Context bootstrap configuration was not confirmed", false)
+		}
+		result = configured
+		return nil
 	})
 	if err != nil {
 		return tobari.ContextReport{}, err
@@ -617,25 +619,20 @@ func (s *Service) Show(ctx context.Context, name string) (tobari.ContextReport, 
 func (s *Service) Create(
 	ctx context.Context, intent operation.Intent, name, image string, mode tobari.ContextPolicyMode, sourceAccess tobari.ContextSourceAccess, selections ...string,
 ) (tobari.ContextReport, error) {
-	presetOrigin := tobari.DefaultPolicyPresetOrigin
 	nativeReadiness := tobari.ContextNativeReadinessEnabled
-	if len(selections) > 2 {
-		return tobari.ContextReport{}, fault.New(fault.KindInvalidInput, "invalid_context", "Context policy preset selection is invalid", false)
+	if len(selections) > 1 {
+		return tobari.ContextReport{}, fault.New(fault.KindInvalidInput, "invalid_context", "Context native readiness selection is invalid", false)
 	}
-	if len(selections) >= 1 {
-		presetOrigin = selections[0]
-	}
-	if len(selections) == 2 {
-		nativeReadiness = tobari.ContextNativeReadiness(selections[1])
+	if len(selections) == 1 {
+		nativeReadiness = tobari.ContextNativeReadiness(selections[0])
 	}
 	return s.CreateWithComposition(ctx, intent, name, image, mode, sourceAccess, tobari.ContextCreateComposition{
-		PolicyPresetOrigin: presetOrigin,
-		NativeReadiness:    nativeReadiness,
+		NativeReadiness: nativeReadiness,
 	})
 }
 
-// CreateWithComposition creates one Context from a selected preset and an
-// optional complete method-policy replacement collected by the human wizard.
+// CreateWithComposition creates one Context from the fixed built-in baseline
+// and an optional complete method-policy replacement collected by the wizard.
 func (s *Service) CreateWithComposition(
 	ctx context.Context,
 	intent operation.Intent,
@@ -651,7 +648,7 @@ func (s *Service) CreateWithComposition(
 		return tobari.ContextReport{}, err
 	}
 	if err := composition.Validate(); err != nil {
-		return tobari.ContextReport{}, fault.Wrap(fault.KindInvalidInput, "invalid_context", "Context policy preset selection is invalid", false, err)
+		return tobari.ContextReport{}, fault.Wrap(fault.KindInvalidInput, "invalid_context", "Context policy selection is invalid", false, err)
 	}
 	request := execution.Request{
 		Intent: intent, ExpectedCommand: intent.Command, ExpectedEffect: operation.EffectCreate,
@@ -659,59 +656,61 @@ func (s *Service) CreateWithComposition(
 		ExpectedImpact: intent.Impact,
 	}
 	var result tobari.ContextReport
-	err := s.mutator.Invoke(ctx, request, func(actionContext context.Context, _ operation.Intent) error {
-		var created tobari.ContextReport
-		var createErr error
-		if runtime, ok := s.runtime.(composedContextRuntimePort); ok {
-			created, createErr = runtime.CreateContextWithComposition(actionContext, name, image, mode, sourceAccess, composition.Clone())
-		} else if composition.MethodPolicy == nil && composition.Bootstrap == nil {
-			if runtime, ok := s.runtime.(policyPresetContextRuntimePort); ok {
-				created, createErr = runtime.CreateContextWithPreset(actionContext, name, image, mode, sourceAccess, composition.PolicyPresetOrigin, composition.NativeReadiness)
-			} else if composition.PolicyPresetOrigin == tobari.DefaultPolicyPresetOrigin && composition.NativeReadiness == tobari.ContextNativeReadinessEnabled {
+	err := s.withLifecycleLock(ctx, func(lifecycleContext context.Context) error {
+		return s.mutator.Invoke(lifecycleContext, request, func(actionContext context.Context, _ operation.Intent) error {
+			var created tobari.ContextReport
+			var createErr error
+			if runtime, ok := s.runtime.(composedContextRuntimePort); ok {
+				created, createErr = runtime.CreateContextWithComposition(actionContext, name, image, mode, sourceAccess, composition.Clone())
+			} else if composition.MethodPolicy == nil && composition.Bootstrap == nil && composition.NativeReadiness == tobari.ContextNativeReadinessEnabled {
 				created, createErr = s.runtime.CreateContext(actionContext, name, image, mode, sourceAccess)
 			} else {
-				createErr = errors.New("policy preset store is unavailable")
+				createErr = errors.New("Context policy composition is unavailable")
 			}
-		} else if composition.PolicyPresetOrigin == tobari.DefaultPolicyPresetOrigin && composition.NativeReadiness == tobari.ContextNativeReadinessEnabled {
-			createErr = errors.New("composed policy preset store is unavailable")
-		} else {
-			createErr = errors.New("composed policy preset store is unavailable")
-		}
-		if errors.Is(createErr, tobari.ErrContextExists) {
-			return fault.New(
-				fault.KindRejected, "context_exists", "the named Context already exists", false,
-				fault.NextAction{Command: "context list", Reason: "List existing Contexts before choosing another name."},
-			)
-		}
-		if createErr != nil {
-			return fault.Wrap(fault.KindRejected, "context_create_failed", "Context could not be created", false, createErr,
-				fault.NextAction{Command: "context list", Reason: "Inspect the local Context collection."})
-		}
-		contractErr := created.Validate()
-		createdReadiness, readinessErr := tobari.ResolveContextNativeReadiness(created.NativeReadiness, created.PolicyPresetOrigin)
-		if contractErr == nil {
-			contractErr = readinessErr
-		}
-		if contractErr == nil && (created.Task != tobari.TaskContextCreate ||
-			created.Name != name || created.SourceAccess != sourceAccess || created.PolicyPresetOrigin != composition.PolicyPresetOrigin || createdReadiness != composition.NativeReadiness) {
-			contractErr = fmt.Errorf("created Context identity or source access does not match the request")
-		}
-		if contractErr == nil && composition.MethodPolicy != nil &&
-			!reflect.DeepEqual(created.MethodPolicy, *composition.MethodPolicy) {
-			contractErr = fmt.Errorf("created Context method policy does not match the request")
-		}
-		if contractErr == nil && composition.Bootstrap != nil &&
-			!reflect.DeepEqual(created.Bootstrap.Resolved(), tobari.ContextBootstrapReportFrom(composition.Bootstrap)) {
-			contractErr = fmt.Errorf("created Context bootstrap does not match the request")
-		}
-		if contractErr != nil {
-			return fault.Wrap(
-				fault.KindContract, "invalid_context_report", "Context report is invalid", false, contractErr,
-				fault.NextAction{Command: "context list", Reason: "Reconcile the confirmed Context creation."},
-			)
-		}
-		result = created
-		return nil
+			if errors.Is(createErr, tobari.ErrContextExists) {
+				return fault.New(
+					fault.KindRejected, "context_exists", "the named Context already exists", false,
+					fault.NextAction{Command: "context list", Reason: "List existing Contexts before choosing another name."},
+				)
+			}
+			if errors.Is(createErr, tobari.ErrRuntimeNotFound) {
+				return fault.New(fault.KindNotFound, "runtime_not_found", "the selected Runtime does not exist", false,
+					fault.NextAction{Command: "runtime list", Reason: "Choose an existing Runtime."})
+			}
+			if errors.Is(createErr, tobari.ErrRuntimeNotReady) {
+				return fault.New(fault.KindRejected, "runtime_revision_not_ready", "the selected Runtime revision does not exist", false,
+					fault.NextAction{Command: "runtime history", Reason: "Choose an existing successful revision."})
+			}
+			if createErr != nil {
+				return fault.Wrap(fault.KindRejected, "context_create_failed", "Context could not be created", false, createErr,
+					fault.NextAction{Command: "context list", Reason: "Inspect the local Context collection."})
+			}
+			contractErr := created.Validate()
+			createdReadiness, readinessErr := tobari.ResolveContextNativeReadiness(created.NativeReadiness)
+			if contractErr == nil {
+				contractErr = readinessErr
+			}
+			if contractErr == nil && (created.Task != tobari.TaskContextCreate ||
+				created.Name != name || created.SourceAccess != sourceAccess || createdReadiness != composition.NativeReadiness) {
+				contractErr = fmt.Errorf("created Context identity or source access does not match the request")
+			}
+			if contractErr == nil && composition.MethodPolicy != nil &&
+				!reflect.DeepEqual(created.MethodPolicy, *composition.MethodPolicy) {
+				contractErr = fmt.Errorf("created Context method policy does not match the request")
+			}
+			if contractErr == nil && composition.Bootstrap != nil &&
+				!reflect.DeepEqual(created.Bootstrap.Resolved(), tobari.ContextBootstrapReportFrom(composition.Bootstrap)) {
+				contractErr = fmt.Errorf("created Context bootstrap does not match the request")
+			}
+			if contractErr != nil {
+				return fault.Wrap(
+					fault.KindContract, "invalid_context_report", "Context report is invalid", false, contractErr,
+					fault.NextAction{Command: "context list", Reason: "Reconcile the confirmed Context creation."},
+				)
+			}
+			result = created
+			return nil
+		})
 	})
 	if err != nil {
 		return tobari.ContextReport{}, err
@@ -721,6 +720,55 @@ func (s *Service) CreateWithComposition(
 
 func (s *Service) Use(ctx context.Context, intent operation.Intent, name string) (tobari.ContextReport, error) {
 	return s.UseWithProgress(ctx, intent, name, nil)
+}
+
+// SetRuntime explicitly pins one Context to one ready Runtime revision.
+func (s *Service) SetRuntime(ctx context.Context, intent operation.Intent, contextName, selection string) (tobari.ContextReport, error) {
+	if err := s.requireRuntime(); err != nil {
+		return tobari.ContextReport{}, err
+	}
+	if contextName != "" {
+		if err := tobari.ValidateName(contextName); err != nil {
+			return tobari.ContextReport{}, fault.Wrap(fault.KindInvalidInput, "invalid_context_name", "Context name is invalid", false, err)
+		}
+	}
+	if _, _, err := tobari.ParseRuntimeSelection(selection); err != nil {
+		return tobari.ContextReport{}, fault.Wrap(fault.KindInvalidInput, "invalid_runtime_selection", "Runtime selection is invalid", false, err, fault.NextAction{Command: "runtime history", Reason: "Choose standard or one ready name@ordinal revision."})
+	}
+	runtime, ok := s.runtime.(contextRuntimeSelectionPort)
+	if !ok || portcheck.IsNil(runtime) {
+		return tobari.ContextReport{}, fault.New(fault.KindInternal, "missing_runtime", "Context Runtime selection is unavailable", false)
+	}
+	request := execution.Request{Intent: intent, ExpectedCommand: intent.Command, ExpectedEffect: operation.EffectWrite,
+		ExpectedTarget: operation.TargetRef{Kind: tobari.ContextRuntimeBindingTargetKind, ID: tobari.ContextRuntimeBindingTargetID}, ExpectedImpact: intent.Impact}
+	var result tobari.ContextReport
+	err := s.withLifecycleLock(ctx, func(lifecycleContext context.Context) error {
+		return s.mutator.Invoke(lifecycleContext, request, func(actionContext context.Context, _ operation.Intent) error {
+			updated, err := runtime.SetContextRuntime(actionContext, contextName, selection)
+			switch {
+			case errors.Is(err, tobari.ErrContextNotFound):
+				return fault.New(fault.KindNotFound, "context_not_found", "the named Context does not exist", false, fault.NextAction{Command: "context list", Reason: "Choose an existing Context."})
+			case errors.Is(err, tobari.ErrRuntimeNotFound):
+				return fault.New(fault.KindNotFound, "runtime_not_found", "the named Runtime does not exist", false, fault.NextAction{Command: "runtime list", Reason: "Choose an existing Runtime."})
+			case errors.Is(err, tobari.ErrRuntimeNotReady):
+				return fault.New(fault.KindRejected, "runtime_revision_not_ready", "the selected Runtime revision does not exist", false, fault.NextAction{Command: "runtime history", Reason: "Choose an existing successful revision."})
+			case err != nil:
+				return fault.Wrap(fault.KindRejected, "context_runtime_set_failed", "Context Runtime could not be changed", false, err, fault.NextAction{Command: "context show", Reason: "Inspect the unchanged Context Runtime binding."})
+			}
+			if err := updated.Validate(); err != nil || updated.Task != tobari.TaskContextRuntimeSet {
+				if err == nil {
+					err = fmt.Errorf("updated Context Runtime task does not match the request")
+				}
+				return fault.Wrap(fault.KindContract, "invalid_context_report", "Context report is invalid", false, err)
+			}
+			result = updated
+			return nil
+		})
+	})
+	if err != nil {
+		return tobari.ContextReport{}, err
+	}
+	return result, nil
 }
 
 // Delete removes one non-current Context only after infrastructure proves no
@@ -949,7 +997,7 @@ func validateCreateInput(name, image string, mode tobari.ContextPolicyMode, sour
 	manifest := tobari.ContextManifest{
 		SchemaVersion: tobari.ContextSchemaVersion, ID: "00000000-0000-7000-8000-000000000000", Name: name,
 		AgentProfile: tobari.DefaultProfile, Image: image, PolicyMode: mode, SourceAccess: sourceAccess,
-		PolicyPresetOrigin: tobari.DefaultPolicyPresetOrigin, PolicyPresetRevision: tobari.DefaultPolicyPresetRevision(),
+		PolicyRevision: tobari.DefaultContextPolicyRevision(),
 	}
 	if err := manifest.Validate(); err != nil {
 		return fault.Wrap(

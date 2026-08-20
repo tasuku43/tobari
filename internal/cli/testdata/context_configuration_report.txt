@@ -5,10 +5,8 @@ Image: tobari-runtime:base
 Agent profile: default
 Policy mode: guided
 Source access: direct read-write
-Policy preset: builtin/reviewed-exact
-Native readiness: disabled
-Policy preset revision: sha256:12785007486c863a373ff05b29a1adc27fc3a2e1ad6729754c8f14bef8f009d4
-Policy guardrail: method_policy
+Policy revision: sha256:1ebfdf1e67ab968a9b709b8418281e60b2d17562eeb96679cdcd5ec472e82df5
+Native readiness: enabled
 Method default: exact_review
 Shell COLORTERM: default
 Shell NO_COLOR: literal ""
@@ -18,8 +16,9 @@ Git identity: literal
 Git user.name: Review Bot
 Git user.email: review@example.com
 Workspace bootstrap: not_configured
-Runtime: official (official)
-Runtime base: tobari-runtime:base
-Tip: this Context is using the base runtime. For ongoing work, run `tobari runtime init`, edit the Dockerfile, then run `tobari runtime build` on the host.
+Runtime: standard@1
+Runtime ID: builtin/standard
+Runtime revision: sha256:0000000000000000000000000000000000000000000000000000000000000000
+Tip: create a reusable custom Runtime with `tobari runtime create`, edit its source tree, then run `tobari runtime build` and select the ready revision.
 Next: re-enter a matching Workspace with `tobari` to reconcile its Git fallback; this command does not change running sessions.
 Policy: /config/contexts/review/policy

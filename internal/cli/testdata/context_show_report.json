@@ -8,10 +8,8 @@
   "image": "tobari-context-review:123456789abc",
   "policy_mode": "guided",
   "source_access": "read-write",
-  "policy_preset_origin": "builtin/reviewed-exact",
-  "policy_preset_revision": "sha256:12785007486c863a373ff05b29a1adc27fc3a2e1ad6729754c8f14bef8f009d4",
+  "policy_revision": "sha256:1ebfdf1e67ab968a9b709b8418281e60b2d17562eeb96679cdcd5ec472e82df5",
   "native_readiness": "disabled",
-  "policy_guardrail": "method_policy",
   "method_policy": {
     "default": "exact_review",
     "overrides": [
@@ -46,17 +44,16 @@
     "email": "review@example.com"
   },
   "stores": {
-    "policy_directory": "/config/contexts/review/policy",
-    "runtime_directory": "/config/contexts/review/runtime",
-    "runtime_dockerfile": "/config/contexts/review/runtime/Dockerfile"
+    "policy_directory": "/config/contexts/review/policy"
   },
   "runtime": {
-    "kind": "dockerfile",
+    "kind": "managed",
     "status": "ready",
-    "dockerfile": "/config/contexts/review/runtime/Dockerfile",
-    "base_reference": "tobari-runtime:base",
-    "source_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-    "image_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    "image": "tobari-context-review:123456789abc",
+    "runtime_id": "018bcfe5-687b-7000-8000-000000000077",
+    "name": "frontend",
+    "revision": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "ordinal": 4
   },
   "cluster": "not_applicable",
   "authentication": {

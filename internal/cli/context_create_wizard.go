@@ -14,14 +14,20 @@ import (
 
 const maxContextCreateNameBytes = 128
 
+const (
+	contextCreateMethodLabelWidth    = 25
+	contextCreateMethodDecisionWidth = 15
+)
+
 var contextCreateHTTPMethods = []string{
 	"GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "CONNECT", "TRACE",
 }
 
 type contextCreateSelection struct {
 	Name                string
+	RuntimeSelection    string
 	SourceAccess        tobari.ContextSourceAccess
-	MethodPolicy        tobari.PolicyPresetMethodPolicy
+	MethodPolicy        tobari.ContextMethodPolicy
 	AWSBootstrapProfile string
 	EKSBootstrapContext string
 	Bootstrap           *tobari.ContextBootstrapSnapshot
@@ -35,6 +41,7 @@ type terminalContextCreateWizard struct {
 	mode      terminal.Mode
 	style     bool
 	bootstrap contextCreateBootstrapDiscovery
+	runtimes  []tobari.RuntimeSummary
 }
 
 type contextCreateBootstrapDiscovery interface {
@@ -62,15 +69,16 @@ const (
 )
 
 type contextCreateRawDraft struct {
-	name            string
-	sourceIndex     int
-	methodSelected  int
-	methodDefault   tobari.PolicyPresetMethodDecision
-	methodOverrides map[string]tobari.PolicyPresetMethodDecision
-	bootstrap       *tobari.ContextBootstrapSnapshot
-	reviewAction    int
-	reviewTop       int
-	editSection     int
+	name             string
+	sourceIndex      int
+	methodSelected   int
+	methodDefault    tobari.ContextMethodDecision
+	methodOverrides  map[string]tobari.ContextMethodDecision
+	bootstrap        *tobari.ContextBootstrapSnapshot
+	runtimeSelection string
+	reviewAction     int
+	reviewTop        int
+	editSection      int
 }
 
 func newContextCreateWizardWithStyle(style bool) *terminalContextCreateWizard {
@@ -105,7 +113,7 @@ func (w *terminalContextCreateWizard) composeLine(
 	if err != nil {
 		return contextCreateSelection{}, err
 	}
-	draft := contextCreateRawDraft{name: name, sourceIndex: 0, methodDefault: tobari.PolicyPresetMethodExactReview, methodOverrides: map[string]tobari.PolicyPresetMethodDecision{}}
+	draft := contextCreateRawDraft{name: name, runtimeSelection: tobari.StandardRuntimeName, sourceIndex: 0, methodDefault: tobari.ContextMethodExactReview, methodOverrides: map[string]tobari.ContextMethodDecision{}}
 	if err := editContextCreateFilesystemLine(ctx, in, out, w.style, &draft); err != nil {
 		return contextCreateSelection{}, err
 	}
@@ -152,9 +160,10 @@ func (w *terminalContextCreateWizard) composeRaw(
 	ctx context.Context, in io.Reader, out io.Writer,
 ) (contextCreateSelection, error) {
 	draft := contextCreateRawDraft{
-		sourceIndex:     0,
-		methodDefault:   tobari.PolicyPresetMethodExactReview,
-		methodOverrides: make(map[string]tobari.PolicyPresetMethodDecision),
+		sourceIndex:      0,
+		runtimeSelection: tobari.StandardRuntimeName,
+		methodDefault:    tobari.ContextMethodExactReview,
+		methodOverrides:  make(map[string]tobari.ContextMethodDecision),
 	}
 	step := contextCreateStepName
 	lineCount := 0
@@ -458,7 +467,7 @@ func editContextCreateMethodPolicyRaw(
 					source = "override"
 				}
 			}
-			lines = append(lines, fmt.Sprintf("%s%-25s %-15s %s", marker, applyStyleToken(style, labelToken, row), applyStyleToken(style, methodDecisionStyle(decision), displayMethodDecision(decision)), source))
+			lines = append(lines, contextCreateMethodPolicyRow(style, marker, row, labelToken, decision, source))
 		}
 		if message != "" {
 			lines = append(lines, "", applyStyleToken(style, styleWarning, message))
@@ -483,11 +492,11 @@ func editContextCreateMethodPolicyRaw(
 		case selectorKeyEnd:
 			draft.methodSelected = len(rows) - 1
 		case selectorKeyAllow, selectorKeyExact, selectorKeyDeny:
-			decision := tobari.PolicyPresetMethodExactReview
+			decision := tobari.ContextMethodExactReview
 			if key.kind == selectorKeyAllow {
-				decision = tobari.PolicyPresetMethodAllow
+				decision = tobari.ContextMethodAllow
 			} else if key.kind == selectorKeyDeny {
-				decision = tobari.PolicyPresetMethodDeny
+				decision = tobari.ContextMethodDeny
 			}
 			if draft.methodSelected == 0 {
 				draft.methodDefault = decision
@@ -503,8 +512,8 @@ func editContextCreateMethodPolicyRaw(
 				message = rows[draft.methodSelected] + " now inherits the default."
 			}
 		case selectorKeyReset:
-			draft.methodDefault = tobari.PolicyPresetMethodExactReview
-			draft.methodOverrides = make(map[string]tobari.PolicyPresetMethodDecision)
+			draft.methodDefault = tobari.ContextMethodExactReview
+			draft.methodOverrides = make(map[string]tobari.ContextMethodDecision)
 			message = "Method policies reset to the reviewed defaults."
 		case selectorKeyEnter, selectorKeyApply:
 			return contextCreateNavigateNext, nil
@@ -579,7 +588,7 @@ func reviewContextCreateNetworkRaw(
 	}
 }
 
-func contextCreateEffectiveMethodLines(style bool, policy tobari.PolicyPresetMethodPolicy, includeSource bool) []string {
+func contextCreateEffectiveMethodLines(style bool, policy tobari.ContextMethodPolicy, includeSource bool) []string {
 	rows := make([]string, 0, len(contextCreateHTTPMethods)+1)
 	for _, method := range contextCreateHTTPMethods {
 		decision := policy.Decision(method)
@@ -598,6 +607,19 @@ func contextCreateEffectiveMethodLines(style bool, policy tobari.PolicyPresetMet
 	}
 	rows = append(rows, fmt.Sprintf("  %-25s %s", "Other", applyStyleToken(style, methodDecisionStyle(policy.Default), displayMethodDecision(policy.Default))))
 	return rows
+}
+
+// contextCreateMethodPolicyRow fixes the visible column layout before applying
+// ANSI styles. Formatting a styled value directly makes the escape sequences
+// count toward %-25s/%-15s and shifts the columns only for highlighted rows.
+func contextCreateMethodPolicyRow(
+	style bool, marker, label string, labelToken styleToken, decision tobari.ContextMethodDecision, source string,
+) string {
+	labelCell := fmt.Sprintf("%-*s", contextCreateMethodLabelWidth, label)
+	decisionCell := fmt.Sprintf("%-*s", contextCreateMethodDecisionWidth, displayMethodDecision(decision))
+	return marker +
+		applyStyleToken(style, labelToken, labelCell) + " " +
+		applyStyleToken(style, methodDecisionStyle(decision), decisionCell) + " " + source
 }
 
 func reviewContextCreateLine(
@@ -734,7 +756,7 @@ func contextCreateSelectionFromDraft(draft contextCreateRawDraft) (contextCreate
 		return contextCreateSelection{}, err
 	}
 	selection := contextCreateSelection{
-		Name: draft.name,
+		Name: draft.name, RuntimeSelection: draft.runtimeSelection,
 		SourceAccess: []tobari.ContextSourceAccess{
 			tobari.ContextSourceAccessReadWrite,
 			tobari.ContextSourceAccessReadOnly,
@@ -753,10 +775,14 @@ func contextCreateSelectionFromDraft(draft contextCreateRawDraft) (contextCreate
 }
 
 func contextCreateReviewLines(style bool, selection contextCreateSelection) []string {
+	runtimeSelection := selection.RuntimeSelection
+	if runtimeSelection == "" || runtimeSelection == tobari.StandardRuntimeName {
+		runtimeSelection = "standard Tobari runtime"
+	}
 	lines := []string{
 		applyStyleToken(style, styleText, "Context"),
 		selectorDetail(style, "Name", safeExternalText(selection.Name), styleText),
-		selectorDetail(style, "Runtime", "standard Tobari runtime", styleText),
+		selectorDetail(style, "Runtime", safeExternalText(runtimeSelection), styleText),
 		"", applyStyleToken(style, styleText, "Filesystem"),
 		applyStyleToken(style, styleMuted, "  LOCATION                  ACCESS"),
 		fmt.Sprintf("  %-25s %s", "Project source", selection.SourceAccess),
@@ -838,7 +864,7 @@ func editContextCreateNetworkLine(ctx context.Context, in io.Reader, out io.Writ
 		return err
 	}
 	draft.methodDefault = selected.Default
-	draft.methodOverrides = make(map[string]tobari.PolicyPresetMethodDecision, len(selected.Overrides))
+	draft.methodOverrides = make(map[string]tobari.ContextMethodDecision, len(selected.Overrides))
 	for _, override := range selected.Overrides {
 		draft.methodOverrides[override.Method] = override.Decision
 	}
@@ -847,27 +873,62 @@ func editContextCreateNetworkLine(ctx context.Context, in io.Reader, out io.Writ
 
 func (w *terminalContextCreateWizard) editContextCreateSettingsLine(ctx context.Context, in io.Reader, out io.Writer, draft *contextCreateRawDraft) error {
 	chooser := &terminalContextConfigurationWizard{mode: nil, style: w.style}
+	options := []configurationWizardOption{
+		{label: "Context name", value: "name"}, {label: "Filesystem access", value: "filesystem"},
+		{label: "Network access", value: "network"}, {label: "Workspace bootstrap", value: "bootstrap"},
+	}
+	if len(w.readyRuntimeOptions()) > 1 {
+		options = append(options, configurationWizardOption{label: "Runtime", value: "runtime"})
+	}
+	options = append(options, configurationWizardOption{label: "Return to review", value: "review"})
 	index, err := chooser.choose(ctx, in, out, configurationWizardMenu{
 		title: "Tobari · Create Context · Edit settings", contextName: draft.name, current: "draft", prompt: "What do you want to edit?",
-		options: []configurationWizardOption{
-			{label: "Context name", value: "name"}, {label: "Filesystem access", value: "filesystem"},
-			{label: "Network access", value: "network"}, {label: "Workspace bootstrap", value: "bootstrap"},
-			{label: "Return to review", value: "review"},
-		},
+		options: options,
 	})
 	if err != nil {
 		return err
 	}
-	switch index {
-	case 0:
+	switch options[index].value {
+	case "name":
 		draft.name, err = readContextCreateName(ctx, in, out)
-	case 1:
+	case "filesystem":
 		err = editContextCreateFilesystemLine(ctx, in, out, w.style, draft)
-	case 2:
+	case "network":
 		err = editContextCreateNetworkLine(ctx, in, out, w.style, draft)
-	case 3:
+	case "bootstrap":
 		err = w.editContextCreateBootstrapLine(ctx, in, out, draft)
+	case "runtime":
+		err = w.editContextCreateRuntimeLine(ctx, in, out, draft)
 	}
+	return err
+}
+
+func (w *terminalContextCreateWizard) readyRuntimeOptions() []configurationWizardOption {
+	options := []configurationWizardOption{{label: "standard", description: "Built-in immutable Tobari Runtime.", value: tobari.StandardRuntimeName}}
+	for _, runtime := range w.runtimes {
+		if runtime.Kind == tobari.RuntimeKindManaged && runtime.Ready {
+			selection := fmt.Sprintf("%s@%d", runtime.Name, runtime.Head)
+			options = append(options, configurationWizardOption{label: selection, description: "Ready immutable revision " + runtime.Revision[:12] + ".", value: selection})
+		}
+	}
+	return options
+}
+
+func (w *terminalContextCreateWizard) editContextCreateRuntimeLine(ctx context.Context, in io.Reader, out io.Writer, draft *contextCreateRawDraft) error {
+	options := w.readyRuntimeOptions()
+	current := 0
+	for index := range options {
+		if options[index].value == draft.runtimeSelection {
+			current = index
+			break
+		}
+	}
+	chooser := &terminalContextConfigurationWizard{mode: nil, style: w.style}
+	selected, err := chooser.choose(ctx, in, out, configurationWizardMenu{title: "Tobari · Create Context · Runtime", contextName: draft.name, current: draft.runtimeSelection, prompt: "Ready Runtime revision", options: options})
+	if err == nil {
+		draft.runtimeSelection = options[selected].value
+	}
+	_ = current // line-mode chooser has no independent initial cursor.
 	return err
 }
 
@@ -972,6 +1033,10 @@ func (w *terminalContextCreateWizard) revalidateBootstrap(ctx context.Context, r
 
 func (w *terminalContextCreateWizard) editContextCreateSettingsRaw(ctx context.Context, in io.Reader, out io.Writer, lineCount *int, draft *contextCreateRawDraft) (contextCreateRawNavigation, error) {
 	options := []configurationWizardOption{{label: "Context name"}, {label: "Filesystem access"}, {label: "Network access"}, {label: "Workspace bootstrap"}, {label: "Return to review"}}
+	hasRuntime := len(w.readyRuntimeOptions()) > 1
+	if hasRuntime {
+		options = append(options[:4], append([]configurationWizardOption{{label: "Runtime"}}, options[4:]...)...)
+	}
 	index, navigation, err := editContextCreateChoiceRaw(ctx, in, out, lineCount, w.style, contextCreateStepReview, draft.name, nil, "What do you want to edit?", options, draft.editSection)
 	if err != nil {
 		return contextCreateNavigateCancel, err
@@ -979,7 +1044,7 @@ func (w *terminalContextCreateWizard) editContextCreateSettingsRaw(ctx context.C
 	if navigation == contextCreateNavigateCancel {
 		return contextCreateNavigateCancel, nil
 	}
-	if navigation == contextCreateNavigateBack || index == 4 {
+	if navigation == contextCreateNavigateBack || index == len(options)-1 {
 		return contextCreateNavigateBack, nil
 	}
 	draft.editSection = index
@@ -1023,13 +1088,34 @@ func (w *terminalContextCreateWizard) editContextCreateSettingsRaw(ctx context.C
 			*draft = staged
 		}
 		return navigation, nil
+	case 4:
+		if !hasRuntime {
+			return contextCreateNavigateBack, nil
+		}
+		runtimeOptions := w.readyRuntimeOptions()
+		current := 0
+		for candidate := range runtimeOptions {
+			if runtimeOptions[candidate].value == staged.runtimeSelection {
+				current = candidate
+				break
+			}
+		}
+		value, navigation, err := editContextCreateChoiceRaw(ctx, in, out, lineCount, w.style, contextCreateStepReview, staged.name, []string{"Only already built immutable revisions can be selected."}, "Ready Runtime revision", runtimeOptions, current)
+		if err != nil {
+			return contextCreateNavigateCancel, err
+		}
+		if navigation == contextCreateNavigateNext {
+			staged.runtimeSelection = runtimeOptions[value].value
+			*draft = staged
+		}
+		return navigation, nil
 	}
 	return contextCreateNavigateBack, nil
 }
 
 func cloneContextCreateRawDraft(draft contextCreateRawDraft) contextCreateRawDraft {
 	cloned := draft
-	cloned.methodOverrides = make(map[string]tobari.PolicyPresetMethodDecision, len(draft.methodOverrides))
+	cloned.methodOverrides = make(map[string]tobari.ContextMethodDecision, len(draft.methodOverrides))
 	for method, decision := range draft.methodOverrides {
 		cloned.methodOverrides[method] = decision
 	}
@@ -1144,19 +1230,19 @@ func selectContextCreateMethodPolicyLine(
 	out io.Writer,
 	name string,
 	sourceAccess tobari.ContextSourceAccess,
-) (tobari.PolicyPresetMethodPolicy, error) {
+) (tobari.ContextMethodPolicy, error) {
 	if _, err := fmt.Fprintf(out, "Tobari · Network method policy\nContext: %s\nFilesystem: source %s · home read-write · tmpfs read-write\n\n", safeExternalText(name), sourceAccess); err != nil {
-		return tobari.PolicyPresetMethodPolicy{}, err
+		return tobari.ContextMethodPolicy{}, err
 	}
-	defaultDecision, err := readContextCreateMethodDecision(ctx, in, out, "Other methods (default)", tobari.PolicyPresetMethodExactReview)
+	defaultDecision, err := readContextCreateMethodDecision(ctx, in, out, "Other methods (default)", tobari.ContextMethodExactReview)
 	if err != nil {
-		return tobari.PolicyPresetMethodPolicy{}, err
+		return tobari.ContextMethodPolicy{}, err
 	}
-	explicit := make(map[string]tobari.PolicyPresetMethodDecision)
+	explicit := make(map[string]tobari.ContextMethodDecision)
 	for _, method := range contextCreateHTTPMethods {
 		decision, err := readContextCreateMethodDecision(ctx, in, out, method, defaultDecision)
 		if err != nil {
-			return tobari.PolicyPresetMethodPolicy{}, err
+			return tobari.ContextMethodPolicy{}, err
 		}
 		explicit[method] = decision
 	}
@@ -1168,8 +1254,8 @@ func readContextCreateMethodDecision(
 	in io.Reader,
 	out io.Writer,
 	label string,
-	fallback tobari.PolicyPresetMethodDecision,
-) (tobari.PolicyPresetMethodDecision, error) {
+	fallback tobari.ContextMethodDecision,
+) (tobari.ContextMethodDecision, error) {
 	for {
 		if _, err := fmt.Fprintf(out, "%s [a allow, e exact review, d deny] [%s]: ", label, displayMethodDecision(fallback)); err != nil {
 			return "", err
@@ -1182,11 +1268,11 @@ func readContextCreateMethodDecision(
 		case "":
 			return fallback, nil
 		case "a", "allow":
-			return tobari.PolicyPresetMethodAllow, nil
+			return tobari.ContextMethodAllow, nil
 		case "e", "exact", "exact-review", "exact_review", "review":
-			return tobari.PolicyPresetMethodExactReview, nil
+			return tobari.ContextMethodExactReview, nil
 		case "d", "deny":
-			return tobari.PolicyPresetMethodDeny, nil
+			return tobari.ContextMethodDeny, nil
 		case "q", "quit":
 			return "", context.Canceled
 		default:
@@ -1198,30 +1284,30 @@ func readContextCreateMethodDecision(
 }
 
 func buildContextCreateMethodPolicy(
-	defaultDecision tobari.PolicyPresetMethodDecision,
-	explicit map[string]tobari.PolicyPresetMethodDecision,
-) (tobari.PolicyPresetMethodPolicy, error) {
-	policy := tobari.PolicyPresetMethodPolicy{Default: defaultDecision, Overrides: []tobari.PolicyPresetMethodOverride{}}
+	defaultDecision tobari.ContextMethodDecision,
+	explicit map[string]tobari.ContextMethodDecision,
+) (tobari.ContextMethodPolicy, error) {
+	policy := tobari.ContextMethodPolicy{Default: defaultDecision, Overrides: []tobari.ContextMethodOverride{}}
 	for _, method := range contextCreateHTTPMethods {
 		if decision, ok := explicit[method]; ok && decision != defaultDecision {
-			policy.Overrides = append(policy.Overrides, tobari.PolicyPresetMethodOverride{Method: method, Decision: decision})
+			policy.Overrides = append(policy.Overrides, tobari.ContextMethodOverride{Method: method, Decision: decision})
 		}
 	}
-	return tobari.NormalizePolicyPresetMethodPolicy(policy)
+	return tobari.NormalizeContextMethodPolicy(policy)
 }
 
-func displayMethodDecision(decision tobari.PolicyPresetMethodDecision) string {
-	if decision == tobari.PolicyPresetMethodExactReview {
+func displayMethodDecision(decision tobari.ContextMethodDecision) string {
+	if decision == tobari.ContextMethodExactReview {
 		return "exact review"
 	}
 	return string(decision)
 }
 
-func methodDecisionStyle(decision tobari.PolicyPresetMethodDecision) styleToken {
+func methodDecisionStyle(decision tobari.ContextMethodDecision) styleToken {
 	switch decision {
-	case tobari.PolicyPresetMethodAllow:
+	case tobari.ContextMethodAllow:
 		return styleSuccess
-	case tobari.PolicyPresetMethodDeny:
+	case tobari.ContextMethodDeny:
 		return styleWarning
 	default:
 		return styleText

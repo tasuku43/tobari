@@ -8,7 +8,7 @@ custom_base_image=${TOBARI_INTEGRATION_CUSTOM_BASE:-tobari-runtime:dev}
 mock_name=tobari-mock-upstream
 auth_mock_name=tobari-auth-mock-upstream
 auth_network=tobari-auth-integration
-custom_image="tobari-integration-custom-$$"
+runtime_name=integration
 gateway_base_image="tobari-gateway-integration-base-$$"
 experimental_gateway_base_image="tobari-gateway-integration-experimental-base-$$"
 test_keychain_service=
@@ -576,7 +576,6 @@ cleanup() {
     docker network rm "$auth_network" >/dev/null 2>&1 || true
     docker network rm tobari-control tobari-egress >/dev/null 2>&1 || true
     docker volume rm tobari-gateway-ca tobari-public-ca tobari-policy-bundle >/dev/null 2>&1 || true
-    docker image rm -f "$custom_image" >/dev/null 2>&1 || true
     docker image rm -f "$experimental_gateway_base_image" >/dev/null 2>&1 || true
     docker image rm -f "$gateway_base_image" >/dev/null 2>&1 || true
     if [[ -n ${runtime_image:-} ]]; then
@@ -787,43 +786,64 @@ if [[ $custom_base_image == tobari-runtime:dev ]] && ! docker image inspect "$cu
     runtimes/base >/dev/null
   created_dev_runtime_tag=true
 fi
-docker build --tag "$custom_image" \
-  --file test/integration/custom-image.Dockerfile \
-  --build-arg "TOBARI_RUNTIME_BASE=$custom_base_image" . >/dev/null
 assert_base_bash_contract "$custom_base_image"
 if ! docker image inspect tobari-runtime:dev >/dev/null 2>&1; then
   docker tag "$custom_base_image" tobari-runtime:dev
   created_dev_runtime_tag=true
 fi
 begin_phase contexts-and-cluster
-custom_preset_init=$(run_tobari policy preset init --name snapshot --format json)
-custom_preset_path=$(python3 -c \
-  'import json,sys; print(json.load(sys.stdin)["policy_presets"]["source_path"])' \
-  <<<"$custom_preset_init")
-python3 - "$custom_preset_path" <<'PY'
+runtime_create=$(run_tobari runtime create --name "$runtime_name" --format json)
+runtime_source_path=$(python3 -c \
+  'import json,sys; print(json.load(sys.stdin)["runtime"]["runtime"]["source_path"])' \
+  <<<"$runtime_create")
+python3 - "$runtime_source_path/Dockerfile" "$custom_base_image" test/integration/custom-image.Dockerfile <<'PY'
+from pathlib import Path
 import json
 import sys
 
-path = sys.argv[1]
-with open(path, encoding="utf-8") as source:
+destination, base, source_path = map(Path, sys.argv[1:])
+source = source_path.read_text(encoding="utf-8")
+lines = []
+for line in source.splitlines():
+    if line.startswith("ARG TOBARI_RUNTIME_BASE="):
+        lines.append(f"FROM {base}")
+    elif line != "FROM ${TOBARI_RUNTIME_BASE}":
+        lines.append(line)
+destination.write_text("\n".join(lines) + "\n", encoding="utf-8")
+destination.chmod(0o600)
+PY
+runtime_build=$(run_tobari runtime build --name "$runtime_name" --format json)
+runtime_image=$(python3 -c \
+  'import json,sys; print(json.load(sys.stdin)["runtime"]["runtime"]["revisions"][-1]["image"])' \
+  <<<"$runtime_build")
+runtime_selection="$runtime_name@1"
+default_context_create=$(run_tobari context create --name default --runtime "$runtime_selection" \
+  --source-access read-write --format json)
+default_context_id=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["context"]["id"])' \
+  <<<"$default_context_create")
+run_tobari context create --name restricted --runtime "$runtime_selection" \
+  --source-access read-only --format json >/dev/null
+python3 - "$config_directory/contexts/default/policy/context.json" "$config_directory/contexts/default/context.json" <<'PY'
+import hashlib
+import json
+import sys
+
+policy_path, manifest_path = sys.argv[1:]
+with open(policy_path, encoding="utf-8") as source:
     document = json.load(source)
-document["guardrail"] = "method_policy"
-document["method_policy"] = {"default": "exact_review", "overrides": []}
-document["baseline_grants"] = []
-document["baseline_denies"] = []
 document["graphql_endpoints"] = [
     {"scheme": "https", "host": "graphql.tobari.dev", "port": 8080, "method": "POST", "path": "/graphql"},
 ]
-with open(path, "w", encoding="utf-8") as destination:
-    json.dump(document, destination, separators=(",", ":"))
+payload = (json.dumps(document, ensure_ascii=False, indent=2, separators=(",", ": ")) + "\n").encode()
+with open(policy_path, "wb") as destination:
+    destination.write(payload)
+with open(manifest_path, encoding="utf-8") as source:
+    manifest = json.load(source)
+manifest["policy_revision"] = "sha256:" + hashlib.sha256(payload).hexdigest()
+with open(manifest_path, "w", encoding="utf-8") as destination:
+    json.dump(manifest, destination, ensure_ascii=False, indent=2, separators=(",", ": "))
     destination.write("\n")
 PY
-default_context_create=$(run_tobari context create --name default --image "$custom_image" \
-  --source-access read-write --policy-preset custom/snapshot --format json)
-default_context_id=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["context"]["id"])' \
-  <<<"$default_context_create")
-run_tobari context create --name restricted --image "$custom_image" \
-  --source-access read-only --policy-preset builtin/reviewed-exact --format json >/dev/null
 start_cluster >/dev/null
 
 # These assertions intentionally inspect the assembled runtime rather than
@@ -1083,11 +1103,11 @@ if [[ $peer_resolution == *"$other_workspace_ip"* ]]; then
 fi
 
 tobari_image=$(docker inspect --format '{{.Config.Image}}' "$work_container")
-[[ $tobari_image == "$custom_image" ]] ||
-  fail "custom Tobari image selector was not preserved"
-custom_image_cmd=$(docker image inspect --format '{{json .Config.Cmd}}' "$custom_image")
+[[ $tobari_image == "$runtime_image" ]] ||
+  fail "managed Runtime image selector was not preserved"
+custom_image_cmd=$(docker image inspect --format '{{json .Config.Cmd}}' "$runtime_image")
 [[ $custom_image_cmd == '["sh","-c","exit 23"]' ]] ||
-  fail "custom image fixture does not have a terminating default command: $custom_image_cmd"
+  fail "managed Runtime fixture does not have a terminating default command: $custom_image_cmd"
 work_image_cmd=$(docker inspect --format '{{json .Config.Cmd}}' "$work_container")
 [[ $work_image_cmd == '["sleep","infinity"]' ]] ||
   fail "Tobari did not override the custom image command: $work_image_cmd"

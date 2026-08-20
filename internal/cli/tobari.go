@@ -3,7 +3,6 @@ package cli
 import (
 	"bytes"
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 
@@ -713,10 +712,17 @@ func runProjectEnter(ctx context.Context, c *CLI, command CommandSpec, _ operati
 	message := renderProjectSessionClosed(style)
 	if c.context != nil {
 		if report, contextErr := c.context.Show(ctx, ""); contextErr == nil &&
-			report.Runtime.Status == tobari.ContextRuntimeStatusOfficial {
-			message = append(message, '\n')
-			message = append(message, renderRuntimeCustomizationHint(style)...)
-			message = append(message, '\n')
+			report.Runtime.Status == tobari.ContextRuntimeStatusOfficial && c.runtime != nil {
+			if runtimes, runtimeErr := c.runtime.List(ctx); runtimeErr == nil {
+				for _, item := range runtimes.Items {
+					if item.Kind == tobari.RuntimeKindManaged && item.Ready {
+						message = append(message, '\n')
+						message = append(message, renderRuntimeCustomizationHint(style)...)
+						message = append(message, '\n')
+						break
+					}
+				}
+			}
 		}
 	}
 	if pending, reviewErr := c.tobari.PolicyReview(ctx, 10_000); reviewErr == nil {
@@ -770,7 +776,7 @@ func prepareGuidedProjectEntry(
 		return ExitOK, true
 	}
 
-	report, code := createContextForGuidedEntry(ctx, c)
+	_, code := createContextForGuidedEntry(ctx, c)
 	if code != ExitOK {
 		return code, false
 	}
@@ -778,32 +784,6 @@ func prepareGuidedProjectEntry(
 		return code, false
 	}
 
-	wizard := c.runtimeChoice
-	if wizard == nil {
-		wizard = newRuntimeChoiceWizardWithStyle(!c.noColor)
-	}
-	choice, choiceErr := wizard.Choose(ctx, report, c.In, c.Err)
-	if errors.Is(choiceErr, context.Canceled) {
-		message := renderGuidedEntryPaused(report.Name, humanStyleAllowed(ctx, c, c.Err))
-		if _, writeErr := writeOnce(c.Err, message); writeErr != nil {
-			return c.fail(ctx, fault.Wrap(
-				fault.KindInternal, "runtime_choice_failed",
-				"The guided entry continuation could not be written completely.", true, writeErr,
-				fault.NextAction{Command: "tobari", Reason: "Resume setup from the persisted Context and ready cluster."},
-			)), false
-		}
-		return ExitOK, false
-	}
-	if choiceErr != nil {
-		return c.fail(ctx, fault.Wrap(
-			fault.KindInternal, "runtime_choice_failed",
-			"The runtime choice failed before creating a Workspace.", false, choiceErr,
-			fault.NextAction{Command: "tobari", Reason: "Resume from the persisted Context and ready cluster."},
-		)), false
-	}
-	if choice == runtimeChoiceCustomize {
-		return initRuntimeForGuidedEntry(ctx, c), false
-	}
 	return ExitOK, true
 }
 
@@ -882,28 +862,6 @@ func clusterUpForGuidedEntry(ctx context.Context, c *CLI) int {
 	}
 	stage := renderGuidedEntryStage("Shared services ready", "", humanStyleAllowed(actionCtx, c, c.Err))
 	return c.emitMutationResultTo(actionCtx, command, stage, c.Err)
-}
-
-func initRuntimeForGuidedEntry(ctx context.Context, c *CLI) int {
-	command, found := c.catalog.lookupRegistered("runtime init")
-	if !found || command.Agent.Mutation == nil {
-		return c.fail(ctx, fault.New(
-			fault.KindContract, "invalid_catalog", "The guided runtime initialization contract is missing.", false,
-			fault.NextAction{Command: "help runtime init", Reason: "Repair the runtime initialization command contract."},
-		))
-	}
-	actionCtx := withCommandPath(ctx, command.Path)
-	intent := operation.Intent{
-		Command: command.Path, Effect: command.Effect,
-		Target: operation.TargetRef{Kind: tobari.ContextRuntimeTargetKind, ParentID: tobari.ActiveContextRuntimeID},
-		Impact: command.Agent.Mutation.Impact,
-	}
-	report, err := c.context.InitRuntime(actionCtx, intent)
-	if err != nil {
-		return c.fail(actionCtx, err)
-	}
-	output := renderGuidedRuntimeInitialized(report, humanStyleAllowed(actionCtx, c, c.Err))
-	return c.emitMutationResultTo(actionCtx, command, output, c.Err)
 }
 
 func rootRuntimeReadinessFault(report tobari.ContextReport) error {

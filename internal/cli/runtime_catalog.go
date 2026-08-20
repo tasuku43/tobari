@@ -23,10 +23,6 @@ func runtimeCommandSpecs() []CommandSpec {
 		policyAllowSpec(),
 		policyDenySpec(),
 		policyResetSpec(),
-		policyPresetListSpec(),
-		policyPresetShowSpec(),
-		policyPresetInitSpec(),
-		policyPresetValidateSpec(),
 		contextListSpec(),
 		contextShowSpec(),
 		configShellSpec(),
@@ -36,7 +32,11 @@ func runtimeCommandSpecs() []CommandSpec {
 		contextCreateSpec(),
 		contextDeleteSpec(),
 		contextUseSpec(),
-		runtimeInitSpec(),
+		contextRuntimeSetSpec(),
+		runtimeListSpec(),
+		runtimeShowSpec(),
+		runtimeCreateSpec(),
+		runtimeHistorySpec(),
 		runtimeBuildSpec(),
 		projectEnterSpec(),
 		statusSpec(),
@@ -264,11 +264,10 @@ func contextListSpec() CommandSpec {
 							{Name: "image", Type: OutputFieldTypeString, Description: "Selected compatible runtime image."},
 							{Name: "policy_mode", Type: OutputFieldTypeString, Description: "Policy development mode.", Enum: []string{"guided", "advanced"}},
 							{Name: "source_access", Type: OutputFieldTypeString, Description: "Direct project-source bind access.", Enum: []string{"read-only", "read-write"}},
-							{Name: "policy_preset_origin", Type: OutputFieldTypeString, Description: "Immutable policy-preset origin."},
-							{Name: "policy_preset_revision", Type: OutputFieldTypeString, Description: "Immutable normalized preset snapshot revision."},
+							{Name: "policy_revision", Type: OutputFieldTypeString, Description: "Immutable revision of the Context-owned normalized policy snapshot."},
 							{Name: "native_readiness", Type: OutputFieldTypeString, Description: "Immutable native-client readiness selection.", Enum: []string{"enabled", "disabled"}},
-							{Name: "method_policy", Type: OutputFieldTypeObject, Description: "Effective default and exact method decisions from the Context snapshot.", Fields: policyPresetMethodPolicyOutput("Effective default and exact method decisions from the Context snapshot.").Fields},
-							{Name: "runtime_status", Type: OutputFieldTypeString, Description: "Runtime recipe status when observed.", Optional: true, Enum: []string{"official", "pending_build", "ready", "invalid"}},
+							{Name: "method_policy", Type: OutputFieldTypeObject, Description: "Effective default and exact method decisions owned by the Context.", Fields: contextPolicyMethodPolicyOutput("Effective default and exact method decisions owned by the Context.").Fields},
+							{Name: "runtime_status", Type: OutputFieldTypeString, Description: "Selected Runtime readiness when observed.", Optional: true, Enum: []string{"official", "ready"}},
 							contextBootstrapOutputField(),
 						},
 					}},
@@ -316,12 +315,12 @@ func contextShowSpec() CommandSpec {
 func contextCreateSpec() CommandSpec {
 	return CommandSpec{
 		Path: "context create", Summary: "Create a named execution Context directly or with the terminal wizard",
-		Args:   "[--name <name>] [--image <image>] [--mode guided|advanced] [--source-access read-only|read-write] [--policy-preset <preset>] [--native-readiness enabled|disabled] [--bootstrap-aws-profile <name>] [--bootstrap-eks-context <name>] [--format text|json]",
+		Args:   "[--name <name>] [--runtime <standard|name@ordinal>] [--mode guided|advanced] [--source-access read-only|read-write] [--native-readiness enabled|disabled] [--bootstrap-aws-profile <name>] [--bootstrap-eks-context <name>] [--format text|json]",
 		Effect: operation.EffectCreate, Role: RoleAct,
 		Agent: AgentContract{
 			CapabilityID:  "context.composition",
 			Outcome:       "Create one named Context with separate owner-only policy and brokered-authentication state",
-			Inputs:        []CommandInput{contextCreateNameInput(), contextImageInput(), contextModeInput(), contextSourceAccessInput(), contextPolicyPresetInput(), contextNativeReadinessInput(), contextCreateAWSBootstrapInput(), contextCreateEKSBootstrapInput(), formatInput()},
+			Inputs:        []CommandInput{contextCreateNameInput(), contextCreateRuntimeInput(), contextModeInput(), contextSourceAccessInput(), contextNativeReadinessInput(), contextCreateAWSBootstrapInput(), contextCreateEKSBootstrapInput(), formatInput()},
 			Output:        contextReportOutput(),
 			Prerequisites: []string{"The host Context directory is accessible."},
 			FixedTarget:   fixedContextCatalogTarget(),
@@ -332,6 +331,8 @@ func contextCreateSpec() CommandSpec {
 				declaredCommandError(fault.KindRejected, "eks_bootstrap_source_rejected", false, "help config bootstrap kubernetes eks", "Choose a strict AWS CLI-generated EKS context bound to the selected AWS profile."),
 				declaredCommandError(fault.KindInvalidInput, "invalid_context", false, "help context create", "Correct the Context name, image, policy mode, or source access."),
 				declaredCommandError(fault.KindRejected, "context_exists", false, "context list", "List existing Contexts before choosing another name."),
+				declaredCommandError(fault.KindNotFound, "runtime_not_found", false, "runtime list", "Choose an existing Runtime."),
+				declaredCommandError(fault.KindRejected, "runtime_revision_not_ready", false, "runtime history", "Choose an existing successful revision."),
 				declaredCommandError(fault.KindRejected, "context_create_failed", false, "context list", "Inspect the partially initialized Context stores."),
 				declaredCommandError(fault.KindContract, "invalid_context_report", false, "context list", "Reconcile the confirmed Context creation."),
 				declaredCommandError(fault.KindInternal, "missing_runtime", false, "doctor", "Configure the Tobari runtime."),
@@ -412,53 +413,108 @@ func contextDeleteSpec() CommandSpec {
 	}
 }
 
-func runtimeInitSpec() CommandSpec {
+func runtimeListSpec() CommandSpec {
 	return CommandSpec{
-		Path: "runtime init", Summary: "Create a runtime recipe for the current Context",
-		Args: "[--format text|json]", Effect: operation.EffectCreate, Role: RoleAct,
+		Path: "runtime list", Summary: "List reusable Runtimes and their ready head revisions",
+		Args: "[--format text|json]", Effect: operation.EffectRead, Role: RoleUtility,
 		Agent: AgentContract{
 			CapabilityID:  "runtime.customization",
-			Outcome:       "Create the current Context's owner-only Dockerfile template without changing its selected runtime image",
+			Outcome:       "List the complete installation-wide Runtime catalog and each ready head revision",
 			Inputs:        []CommandInput{formatInput()},
-			Output:        contextReportOutput(),
-			Prerequisites: []string{"A current/default Context is available on the trusted host."},
-			FixedTarget:   fixedActiveContextRuntimeTarget(),
-			Errors: mutationCommandErrors("runtime init", "context show",
-				declaredCommandError(fault.KindRejected, "runtime_recipe_exists", false, "context show", "Inspect the existing current Context runtime recipe."),
-				declaredCommandError(fault.KindRejected, "runtime_init_failed", false, "context show", "Inspect the current Context stores."),
-				declaredCommandError(fault.KindContract, "invalid_context_report", false, "context show", "Reconcile the Context runtime report."),
+			Output:        runtimeListOutput(),
+			Prerequisites: []string{},
+			Errors: readCommandErrors("runtime list", true,
+				declaredCommandError(fault.KindInternal, "runtime_read_failed", false, "doctor", "Inspect the host Runtime store."),
+				declaredCommandError(fault.KindContract, "invalid_runtime_list", false, "doctor", "Inspect the host Runtime store."),
+				declaredCommandError(fault.KindContract, "output_encoding_failed", false, "runtime list", "Repair the Runtime list JSON projection."),
 				declaredCommandError(fault.KindInternal, "missing_runtime", false, "doctor", "Configure the Tobari runtime."),
 			),
-			Mutation: &MutationContract{
-				TargetKind: tobari.ContextRuntimeTargetKind, TargetInputs: []string{},
-				Impact: operation.Impact{Cardinality: operation.CardinalityOne, Notification: operation.DeclarationNo, AccessChange: operation.DeclarationNo, Destructive: operation.DeclarationNo},
-			},
 		},
-		handler: runRuntimeInit,
+		handler: runRuntimeList,
 	}
 }
 
+func contextRuntimeSetSpec() CommandSpec {
+	minimum := int64(1)
+	return CommandSpec{Path: "context runtime set", Summary: "Pin a Context to one ready Runtime revision", Args: "--runtime <standard|name@ordinal> [--context <name>] [--format text|json]", Effect: operation.EffectWrite, Role: RoleAct,
+		Agent: AgentContract{CapabilityID: "context.composition", Outcome: "Explicitly upgrade or roll back one Context Runtime binding without rebuilding or changing existing Workspace homes",
+			Inputs: []CommandInput{{Name: "--runtime", Source: InputSourceFlag, Required: true, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, MinimumLength: &minimum, Description: "Exact ready Runtime selection as standard or name@ordinal.", AllowedValues: []string{}}, executionContextInput(), formatInput()},
+			Output: contextReportOutput(), Prerequisites: []string{"The selected Runtime revision already exists and is ready."}, FixedTarget: fixedContextRuntimeBindingTarget(),
+			Errors: mutationCommandErrors("context runtime set", "context show",
+				declaredCommandError(fault.KindInvalidInput, "invalid_context_name", false, "context list", "Choose a valid Context name."),
+				declaredCommandError(fault.KindInvalidInput, "invalid_runtime_selection", false, "runtime history", "Choose standard or one ready name@ordinal revision."),
+				declaredCommandError(fault.KindNotFound, "context_not_found", false, "context list", "Choose an existing Context."),
+				declaredCommandError(fault.KindNotFound, "runtime_not_found", false, "runtime list", "Choose an existing Runtime."),
+				declaredCommandError(fault.KindRejected, "runtime_revision_not_ready", false, "runtime history", "Choose an existing successful revision."),
+				declaredCommandError(fault.KindRejected, "context_runtime_set_failed", false, "context show", "Inspect the unchanged Context Runtime binding."),
+				declaredCommandError(fault.KindContract, "invalid_context_report", false, "context show", "Reconcile the Context Runtime binding."),
+				declaredCommandError(fault.KindInternal, "missing_runtime", false, "doctor", "Configure the Tobari runtime.")),
+			Mutation: &MutationContract{TargetKind: tobari.ContextRuntimeBindingTargetKind, TargetInputs: []string{}, Impact: operation.Impact{Cardinality: operation.CardinalityOne, Notification: operation.DeclarationNo, AccessChange: operation.DeclarationYes, Destructive: operation.DeclarationNo}}},
+		handler: runContextRuntimeSet}
+}
+
+func runtimeShowSpec() CommandSpec {
+	return runtimeReadSpec("runtime show", "Inspect one reusable Runtime", "Inspect one Runtime's source and complete successful revision inventory", tobari.TaskRuntimeShow, runRuntimeShow)
+}
+
+func runtimeHistorySpec() CommandSpec {
+	return runtimeReadSpec("runtime history", "Show one Runtime's immutable revision history", "Inspect one Runtime's ordered immutable successful revisions", tobari.TaskRuntimeHistory, runRuntimeHistory)
+}
+
+func runtimeReadSpec(path, summary, outcome, _ string, handler commandHandler) CommandSpec {
+	minimum := int64(1)
+	return CommandSpec{Path: path, Summary: summary, Args: "--name <name> [--format text|json]", Effect: operation.EffectRead, Role: RoleUtility,
+		Agent: AgentContract{CapabilityID: "runtime.customization", Outcome: outcome,
+			Inputs: []CommandInput{{Name: "--name", Source: InputSourceFlag, Required: true, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, MinimumLength: &minimum, Description: "Unique local Runtime name.", AllowedValues: []string{}}, formatInput()},
+			Output: runtimeReportOutput(), Prerequisites: []string{}, Errors: readCommandErrors(path, true,
+				declaredCommandError(fault.KindInvalidInput, "invalid_runtime_name", false, "runtime list", "Choose a Runtime from the local catalog."),
+				declaredCommandError(fault.KindNotFound, "runtime_not_found", false, "runtime list", "Choose an existing Runtime."),
+				declaredCommandError(fault.KindInternal, "runtime_read_failed", false, "doctor", "Inspect the host Runtime store."),
+				declaredCommandError(fault.KindContract, "invalid_runtime_report", false, "doctor", "Inspect the host Runtime store."),
+				declaredCommandError(fault.KindContract, "output_encoding_failed", false, path, "Repair the Runtime JSON projection."),
+				declaredCommandError(fault.KindInternal, "missing_runtime", false, "doctor", "Configure the Tobari runtime."),
+			)}, handler: handler}
+}
+
+func runtimeCreateSpec() CommandSpec {
+	minimum := int64(1)
+	return CommandSpec{Path: "runtime create", Summary: "Create a reusable Runtime source tree", Args: "--name <name> [--format text|json]", Effect: operation.EffectCreate, Role: RoleAct,
+		Agent: AgentContract{CapabilityID: "runtime.customization", Outcome: "Create one owner-only managed Runtime source tree without building or changing a Context",
+			Inputs: []CommandInput{{Name: "--name", Source: InputSourceFlag, Required: true, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, MinimumLength: &minimum, Description: "Unique local Runtime name.", AllowedValues: []string{}}, formatInput()},
+			Output: runtimeReportOutput(), Prerequisites: []string{}, FixedTarget: fixedRuntimeCatalogTarget(),
+			Errors: mutationCommandErrors("runtime create", "runtime list",
+				declaredCommandError(fault.KindInvalidInput, "invalid_runtime_name", false, "runtime list", "Choose a valid unique Runtime name."),
+				declaredCommandError(fault.KindRejected, "runtime_exists", false, "runtime show", "Inspect the existing Runtime."),
+				declaredCommandError(fault.KindRejected, "runtime_create_failed", false, "runtime list", "Inspect the local Runtime catalog."),
+				declaredCommandError(fault.KindContract, "invalid_runtime_report", false, "runtime list", "Reconcile the Runtime catalog."),
+				declaredCommandError(fault.KindInternal, "missing_runtime", false, "doctor", "Configure the Tobari runtime.")),
+			Mutation: &MutationContract{TargetKind: tobari.RuntimeCatalogTargetKind, TargetInputs: []string{}, Impact: operation.Impact{Cardinality: operation.CardinalityOne, Notification: operation.DeclarationNo, AccessChange: operation.DeclarationNo, Destructive: operation.DeclarationNo}}},
+		handler: runRuntimeCreate}
+}
+
 func runtimeBuildSpec() CommandSpec {
+	minimum := int64(1)
 	return CommandSpec{
-		Path: "runtime build", Summary: "Build and select the current Context runtime",
-		Args: "[--format text|json]", Effect: operation.EffectWrite, Role: RoleAct,
+		Path: "runtime build", Summary: "Build an immutable revision of a reusable Runtime",
+		Args: "--name <name> [--format text|json]", Effect: operation.EffectWrite, Role: RoleAct,
 		Agent: AgentContract{
 			CapabilityID:  "runtime.customization",
-			Outcome:       "Build the current Context Dockerfile with observable Docker diagnostics, validate the Tobari runtime contract, and select the generated local image",
-			Inputs:        []CommandInput{formatInput()},
-			Output:        contextReportOutput(),
-			Prerequisites: []string{"The current Context has a runtime/Dockerfile recipe.", "The trusted host Docker daemon and Buildx plugin are available."},
-			FixedTarget:   fixedActiveContextRuntimeTarget(),
-			Errors: mutationCommandErrors("runtime build", "context show",
-				declaredCommandError(fault.KindInvalidInput, "runtime_recipe_missing", false, "runtime init", "Create the current Context runtime template first."),
-				declaredCommandError(fault.KindRejected, "runtime_build_failed", false, "context show", "Inspect the unchanged selected runtime and recipe state."),
+			Outcome:       "Snapshot the complete managed source tree, build and validate it, and append one immutable semantic revision without changing any Context",
+			Inputs:        []CommandInput{{Name: "--name", Source: InputSourceFlag, Required: true, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, MinimumLength: &minimum, Description: "Unique local managed Runtime name.", AllowedValues: []string{}}, formatInput()},
+			Output:        runtimeReportOutput(),
+			Prerequisites: []string{"The named managed Runtime exists and its bounded owner-only source tree contains Dockerfile.", "The trusted host Docker daemon and Buildx plugin are available."},
+			FixedTarget:   fixedRuntimeCatalogTarget(),
+			Errors: mutationCommandErrors("runtime build", "runtime show",
+				declaredCommandError(fault.KindInvalidInput, "invalid_runtime_name", false, "runtime list", "Choose a valid managed Runtime name."),
+				declaredCommandError(fault.KindNotFound, "runtime_not_found", false, "runtime list", "Choose an existing managed Runtime."),
+				declaredCommandError(fault.KindRejected, "runtime_build_failed", false, "runtime show", "Inspect the unchanged Runtime history and source path."),
 				declaredCommandError(fault.KindUnavailable, "image_not_found", false, "runtime build", "Build or make the official base image available to Docker."),
-				declaredCommandError(fault.KindRejected, "incompatible_image", false, "context show", "Correct the Dockerfile so the selected image preserves the Tobari runtime contract."),
-				declaredCommandError(fault.KindContract, "invalid_context_report", false, "context show", "Reconcile the confirmed runtime promotion."),
+				declaredCommandError(fault.KindRejected, "incompatible_image", false, "runtime show", "Correct the source so the image preserves the Tobari runtime contract."),
+				declaredCommandError(fault.KindContract, "invalid_runtime_report", false, "runtime show", "Reconcile the confirmed Runtime build."),
 				declaredCommandError(fault.KindInternal, "missing_runtime", false, "doctor", "Configure the Tobari runtime."),
 			),
 			Mutation: &MutationContract{
-				TargetKind: tobari.ContextRuntimeTargetKind, TargetInputs: []string{},
+				TargetKind: tobari.RuntimeCatalogTargetKind, TargetInputs: []string{},
 				Impact: operation.Impact{Cardinality: operation.CardinalityOne, Notification: operation.DeclarationNo, AccessChange: operation.DeclarationYes, Destructive: operation.DeclarationNo},
 			},
 		},
@@ -1179,6 +1235,14 @@ func fixedContextCatalogTarget() *FixedTarget {
 	}
 }
 
+func fixedRuntimeCatalogTarget() *FixedTarget {
+	return &FixedTarget{Kind: tobari.RuntimeCatalogTargetKind, ID: tobari.RuntimeCatalogTargetID, Description: "This installation's host-owned reusable Runtime catalog.", Scope: FixedTargetScopeToolLocal}
+}
+
+func fixedContextRuntimeBindingTarget() *FixedTarget {
+	return &FixedTarget{Kind: tobari.ContextRuntimeBindingTargetKind, ID: tobari.ContextRuntimeBindingTargetID, Description: "One explicit or current Context's exact Runtime revision binding.", Scope: FixedTargetScopeToolLocal}
+}
+
 func fixedActiveContextTarget() *FixedTarget {
 	return &FixedTarget{
 		Kind: tobari.ContextTargetKind, ID: tobari.ActiveContextTargetID,
@@ -1230,6 +1294,11 @@ func contextCreateNameInput() CommandInput {
 	input.Required = false
 	input.Description = "Portable Context name; omission together with every other input opens the terminal wizard. Any explicit input selects direct mode and requires --name."
 	return input
+}
+
+func contextCreateRuntimeInput() CommandInput {
+	minimum := int64(1)
+	return CommandInput{Name: "--runtime", Source: InputSourceFlag, Required: false, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, MinimumLength: &minimum, Description: "Ready Runtime revision as standard or name@ordinal; omission defaults to standard.", AllowedValues: []string{}, DefaultValue: stringPointer(tobari.StandardRuntimeName)}
 }
 
 func contextCreateAWSBootstrapInput() CommandInput {
@@ -1285,12 +1354,8 @@ func contextSourceAccessInput() CommandInput {
 	}
 }
 
-func contextPolicyPresetInput() CommandInput {
-	return CommandInput{Name: "--policy-preset", Source: InputSourceFlag, Required: false, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, Description: "Exact built-in or custom policy preset snapshotted into the new Context.", AllowedValues: []string{}, DefaultValue: stringPointer(tobari.DefaultPolicyPresetOrigin)}
-}
-
 func contextNativeReadinessInput() CommandInput {
-	return CommandInput{Name: "--native-readiness", Source: InputSourceFlag, Required: false, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, Description: "Trusted binary native-client readiness overlay; preset guardrails and ceilings remain terminal.", AllowedValues: []string{"enabled", "disabled"}, DefaultValue: stringPointer("enabled")}
+	return CommandInput{Name: "--native-readiness", Source: InputSourceFlag, Required: false, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, Description: "Trusted binary native-client readiness overlay; the Context system policy ceiling remains terminal.", AllowedValues: []string{"enabled", "disabled"}, DefaultValue: stringPointer("enabled")}
 }
 
 func contextReportOutput() CommandOutput {
@@ -1306,11 +1371,9 @@ func contextReportOutput() CommandOutput {
 			{Name: "image", Type: OutputFieldTypeString, Description: "Default compatible Tobari image selector stored in the Context."},
 			{Name: "policy_mode", Type: OutputFieldTypeString, Description: "Guided or advanced policy-development mode.", Enum: []string{"guided", "advanced"}},
 			{Name: "source_access", Type: OutputFieldTypeString, Description: "Direct project-source bind access; this does not describe Workspace home or tmpfs.", Enum: []string{"read-only", "read-write"}},
-			{Name: "policy_preset_origin", Type: OutputFieldTypeString, Description: "Immutable normalized policy-preset origin selector."},
-			{Name: "policy_preset_revision", Type: OutputFieldTypeString, Description: "SHA-256 revision of the Context-owned normalized preset snapshot; empty only for a synthetic default."},
-			{Name: "native_readiness", Type: OutputFieldTypeString, Description: "Immutable native-client readiness capability selection; terminal preset guardrails and ceilings still bound its effects.", Enum: []string{"enabled", "disabled"}},
-			{Name: "policy_guardrail", Type: OutputFieldTypeString, Description: "System-enforced terminal policy mechanism.", Enum: []string{"method_policy"}},
-			{Name: "method_policy", Type: OutputFieldTypeObject, Description: "Effective default and exact HTTP method decisions from the Context snapshot.", Fields: policyPresetMethodPolicyOutput("Effective default and exact HTTP method decisions from the Context snapshot.").Fields},
+			{Name: "policy_revision", Type: OutputFieldTypeString, Description: "SHA-256 revision of the immutable Context-owned normalized policy snapshot; empty only for a synthetic default."},
+			{Name: "native_readiness", Type: OutputFieldTypeString, Description: "Immutable native-client readiness capability selection; the system policy ceiling still bounds its effects.", Enum: []string{"enabled", "disabled"}},
+			{Name: "method_policy", Type: OutputFieldTypeObject, Description: "Effective default and exact HTTP method decisions owned by the Context.", Fields: contextPolicyMethodPolicyOutput("Effective default and exact HTTP method decisions owned by the Context.").Fields},
 			{Name: "shell_environment", Type: OutputFieldTypeArray, Description: "Complete allowlisted shell variable inventory with default, inherited, or literal source and an exact value only for literal.", SemanticScope: "The fixed four-variable Context shell presentation inventory.", Items: &OutputField{
 				Type: OutputFieldTypeObject, Description: "One allowlisted shell variable policy.", Fields: []OutputField{
 					{Name: "variable", Type: OutputFieldTypeString, Description: "Allowlisted variable name.", Enum: []string{"COLORTERM", "NO_COLOR", "PS1", "TERM"}},
@@ -1326,16 +1389,15 @@ func contextReportOutput() CommandOutput {
 			contextBootstrapOutputField(),
 			{Name: "stores", Type: OutputFieldTypeObject, Description: "Resolved paths, or null for a synthetic default; secret values are never included.", Nullable: true, Fields: []OutputField{
 				{Name: "policy_directory", Type: OutputFieldTypeString, Description: "Canonical Context policy directory."},
-				{Name: "runtime_directory", Type: OutputFieldTypeString, Description: "Canonical runtime recipe directory when initialized.", Optional: true},
-				{Name: "runtime_dockerfile", Type: OutputFieldTypeString, Description: "Canonical runtime Dockerfile when initialized.", Optional: true},
 			}},
-			{Name: "runtime", Type: OutputFieldTypeObject, Description: "Selected runtime source, recipe status, source digest, and image digest.", Fields: []OutputField{
-				{Name: "kind", Type: OutputFieldTypeString, Description: "Runtime source kind.", Enum: []string{"official", "dockerfile"}},
-				{Name: "status", Type: OutputFieldTypeString, Description: "Runtime recipe status.", Enum: []string{"official", "pending_build", "ready", "invalid"}},
-				{Name: "dockerfile", Type: OutputFieldTypeString, Description: "Canonical runtime Dockerfile when initialized.", Optional: true},
-				{Name: "base_reference", Type: OutputFieldTypeString, Description: "Recipe base image when initialized.", Optional: true},
-				{Name: "source_digest", Type: OutputFieldTypeString, Description: "Immutable recipe source digest when available.", Optional: true},
-				{Name: "image_digest", Type: OutputFieldTypeString, Description: "Immutable selected image digest when available.", Optional: true},
+			{Name: "runtime", Type: OutputFieldTypeObject, Description: "Exact built-in or managed Runtime revision binding.", Fields: []OutputField{
+				{Name: "kind", Type: OutputFieldTypeString, Description: "Built-in or managed Runtime source kind.", Enum: []string{"official", "managed"}},
+				{Name: "status", Type: OutputFieldTypeString, Description: "Selected Runtime readiness.", Enum: []string{"official", "ready"}},
+				{Name: "image", Type: OutputFieldTypeString, Description: "Execution image material selected by this binding."},
+				{Name: "runtime_id", Type: OutputFieldTypeString, Description: "Stable Runtime authority identity."},
+				{Name: "name", Type: OutputFieldTypeString, Description: "Runtime name."},
+				{Name: "revision", Type: OutputFieldTypeString, Description: "Exact semantic Runtime revision."},
+				{Name: "ordinal", Type: OutputFieldTypeInteger, Description: "Human Runtime revision ordinal."},
 			}},
 			{Name: "cluster", Type: OutputFieldTypeString, Description: "How this task relates to cluster activation.", Enum: []string{"not_applicable", "not_configured", "not_running", "already_ready", "reconciled", "default_updated", "requires_reconcile"}},
 			{Name: "authentication", Type: OutputFieldTypeObject, Description: "Workspace-native authentication mode or experimental Broker status without credential values.", Fields: []OutputField{

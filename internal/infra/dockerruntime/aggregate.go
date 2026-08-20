@@ -41,7 +41,7 @@ type aggregateContext struct {
 	rego             []byte
 	graphqlEndpoints []tobari.GraphQLEndpoint
 	mcpEndpoints     []tobari.MCPEndpoint
-	preset           tobari.PolicyPreset
+	contextPolicy    tobari.ContextPolicy
 }
 
 func (r *Runtime) aggregateRoot() string {
@@ -65,15 +65,15 @@ func (r *Runtime) readAggregateContextsWithTransactions(
 		if err != nil {
 			return nil, err
 		}
-		var policy policyDataFile
+		var policySource policyDataFile
 		if transaction := transactions[paths.PolicyDirectory]; transaction != nil {
 			journal, exists, journalErr := readPolicySourceJournal(paths.PolicyDirectory)
 			if journalErr != nil || !exists || !reflect.DeepEqual(journal, transaction.journal) {
 				return nil, fmt.Errorf("Context %q policy transaction changed during aggregate generation", manifest.Name)
 			}
-			policy, err = readPolicyDataDuringTransaction(paths.PolicyDirectory)
+			policySource, err = readPolicyDataDuringTransaction(paths.PolicyDirectory)
 		} else {
-			policy, err = readPolicyData(paths.PolicyDirectory)
+			policySource, err = readPolicyData(paths.PolicyDirectory)
 		}
 		if err != nil {
 			return nil, fmt.Errorf("Context %q policy: %w", manifest.Name, err)
@@ -81,41 +81,40 @@ func (r *Runtime) readAggregateContextsWithTransactions(
 		if err := validateContextPolicyLayout(paths.PolicyDirectory, manifest.PolicyMode); err != nil {
 			return nil, fmt.Errorf("Context %q policy layout: %w", manifest.Name, err)
 		}
-		presetSnapshot, err := r.readContextPreset(manifest)
+		policySnapshot, err := r.readContextPolicy(manifest)
 		if err != nil {
-			return nil, fmt.Errorf("Context %q policy preset: %w", manifest.Name, err)
+			return nil, fmt.Errorf("Context %q context policy: %w", manifest.Name, err)
 		}
-		readiness, err := tobari.ResolveContextNativeReadiness(manifest.NativeReadiness, manifest.PolicyPresetOrigin)
+		readiness, err := tobari.ResolveContextNativeReadiness(manifest.NativeReadiness)
 		if err != nil {
 			return nil, fmt.Errorf("Context %q native readiness selection: %w", manifest.Name, err)
 		}
-		preset, err := tobari.ApplyNativeToolAuthReadiness(readiness == tobari.ContextNativeReadinessEnabled, manifest.PolicyPresetOrigin == tobari.DefaultPolicyPresetOrigin, presetSnapshot)
+		effectivePolicy, err := tobari.ApplyNativeToolAuthReadiness(readiness == tobari.ContextNativeReadinessEnabled, true, policySnapshot)
 		if err != nil {
 			return nil, fmt.Errorf("Context %q native readiness: %w", manifest.Name, err)
 		}
 		var document map[string]any
-		if err := json.Unmarshal(policy.source, &document); err != nil {
+		if err := json.Unmarshal(policySource.source, &document); err != nil {
 			return nil, err
 		}
 		contextData, ok := document["tobari"].(map[string]any)
 		if !ok {
 			return nil, fmt.Errorf("Context %q policy data has no tobari object", manifest.Name)
 		}
-		graphqlEndpoints, err := aggregateGraphQLEndpoints(policy.graphqlEndpoints, preset.GraphQLEndpoints)
+		graphqlEndpoints, err := aggregateGraphQLEndpoints(policySource.graphqlEndpoints, effectivePolicy.GraphQLEndpoints)
 		if err != nil {
 			return nil, fmt.Errorf("Context %q GraphQL endpoints: %w", manifest.Name, err)
 		}
-		mcpEndpoints, err := aggregateMCPEndpoints(preset.MCPEndpoints)
+		mcpEndpoints, err := aggregateMCPEndpoints(effectivePolicy.MCPEndpoints)
 		if err != nil {
 			return nil, fmt.Errorf("Context %q MCP endpoints: %w", manifest.Name, err)
 		}
 		contextData["boundary"] = map[string]any{"graphql_endpoints": graphqlEndpoints, "mcp_endpoints": mcpEndpoints}
-		contextData["guardrail"] = map[string]any{
-			"kind":             preset.Guardrail,
-			"destination_mode": preset.DestinationCeiling.Mode, "authorities": preset.DestinationCeiling.Authorities,
-			"method_default": preset.MethodPolicy.Default, "method_overrides": preset.MethodPolicy.Overrides,
-			"baseline_grants": preset.BaselineGrants, "baseline_templates": preset.BaselineTemplates,
-			"mcp_baseline_grants": preset.MCPBaselineGrants, "baseline_denies": preset.BaselineDenies,
+		contextData["policy"] = map[string]any{
+			"destination_mode": effectivePolicy.DestinationCeiling.Mode, "authorities": effectivePolicy.DestinationCeiling.Authorities,
+			"method_default": effectivePolicy.MethodPolicy.Default, "method_overrides": effectivePolicy.MethodPolicy.Overrides,
+			"baseline_grants": effectivePolicy.BaselineGrants, "baseline_templates": effectivePolicy.BaselineTemplates,
+			"mcp_baseline_grants": effectivePolicy.MCPBaselineGrants, "baseline_denies": effectivePolicy.BaselineDenies,
 		}
 		var rego []byte
 		if manifest.PolicyMode == tobari.ContextPolicyModeGuided {
@@ -128,10 +127,10 @@ func (r *Runtime) readAggregateContextsWithTransactions(
 		}
 		items = append(items, aggregateContext{
 			manifest: manifest, paths: paths, data: contextData,
-			policy: policy, rego: rego,
+			policy: policySource, rego: rego,
 			graphqlEndpoints: graphqlEndpoints,
 			mcpEndpoints:     mcpEndpoints,
-			preset:           preset,
+			contextPolicy:    effectivePolicy,
 		})
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].manifest.ID < items[j].manifest.ID })
@@ -139,10 +138,10 @@ func (r *Runtime) readAggregateContextsWithTransactions(
 }
 
 func aggregateGraphQLEndpoints(
-	policyEndpoints []tobari.GraphQLEndpoint, presetEndpoints []tobari.PolicyPresetExactRule,
+	policyEndpoints []tobari.GraphQLEndpoint, contextPolicyEndpoints []tobari.ContextPolicyExactRule,
 ) ([]tobari.GraphQLEndpoint, error) {
-	seen := make(map[tobari.GraphQLEndpoint]struct{}, len(policyEndpoints)+len(presetEndpoints))
-	result := make([]tobari.GraphQLEndpoint, 0, len(policyEndpoints)+len(presetEndpoints))
+	seen := make(map[tobari.GraphQLEndpoint]struct{}, len(policyEndpoints)+len(contextPolicyEndpoints))
+	result := make([]tobari.GraphQLEndpoint, 0, len(policyEndpoints)+len(contextPolicyEndpoints))
 	appendEndpoint := func(endpoint tobari.GraphQLEndpoint) error {
 		if err := endpoint.Validate(); err != nil {
 			return err
@@ -159,9 +158,9 @@ func aggregateGraphQLEndpoints(
 			return nil, err
 		}
 	}
-	for _, endpoint := range presetEndpoints {
+	for _, endpoint := range contextPolicyEndpoints {
 		if endpoint.Method != "POST" {
-			return nil, fmt.Errorf("preset GraphQL endpoint method must be POST")
+			return nil, fmt.Errorf("Context policy GraphQL endpoint method must be POST")
 		}
 		if err := appendEndpoint(tobari.GraphQLEndpoint{
 			Scheme: endpoint.Scheme, Host: endpoint.Host, Port: endpoint.Port, Path: endpoint.Path,
@@ -177,12 +176,12 @@ func aggregateGraphQLEndpoints(
 	return result, nil
 }
 
-func aggregateMCPEndpoints(presetEndpoints []tobari.PolicyPresetExactRule) ([]tobari.MCPEndpoint, error) {
-	result := make([]tobari.MCPEndpoint, 0, len(presetEndpoints))
+func aggregateMCPEndpoints(contextPolicyEndpoints []tobari.ContextPolicyExactRule) ([]tobari.MCPEndpoint, error) {
+	result := make([]tobari.MCPEndpoint, 0, len(contextPolicyEndpoints))
 	seen := map[tobari.MCPEndpoint]struct{}{}
-	for _, endpoint := range presetEndpoints {
+	for _, endpoint := range contextPolicyEndpoints {
 		if endpoint.Method != "POST" {
-			return nil, fmt.Errorf("preset MCP endpoint method must be POST")
+			return nil, fmt.Errorf("Context policy MCP endpoint method must be POST")
 		}
 		value := tobari.MCPEndpoint{Scheme: endpoint.Scheme, Host: endpoint.Host, Port: endpoint.Port, Path: endpoint.Path}
 		if err := value.Validate(); err != nil {
@@ -237,39 +236,39 @@ func aggregateRouter(items []aggregateContext) ([]byte, error) {
 	builder.WriteString("path_template_segment_matches(template, actual) if { template == \"{id}\"; path_template_request_segment_valid(actual) }\n")
 	builder.WriteString("path_template_segment_matches(template, actual) if { template != \"{id}\"; template == actual }\n")
 	builder.WriteString("path_template_matches(template_segments, raw_path) if { is_string(raw_path); startswith(raw_path, \"/\"); parts := split(raw_path, \"/\"); actual_segments := array.slice(parts, 1, count(parts)); count(actual_segments) == count(template_segments); every index, template in template_segments { path_template_segment_matches(template, actual_segments[index]) } }\n\n")
-	builder.WriteString("preset_destination_allowed if { some authority in data.tobari_contexts[input.principal.context_id].guardrail.authorities; authority.scheme == input.request.authority.scheme; authority.host == input.request.authority.host; authority.port == input.request.authority.port }\n")
-	builder.WriteString("preset_method_override_exists if { some override in data.tobari_contexts[input.principal.context_id].guardrail.method_overrides; override.method == input.request.method }\n")
-	builder.WriteString("preset_method_decision := override.decision if { some override in data.tobari_contexts[input.principal.context_id].guardrail.method_overrides; override.method == input.request.method }\n")
-	builder.WriteString("preset_method_decision := data.tobari_contexts[input.principal.context_id].guardrail.method_default if { not preset_method_override_exists }\n")
-	builder.WriteString("terminal_guardrail if { data.tobari_contexts[input.principal.context_id].guardrail.destination_mode == \"public_https\"; input.request.authority.scheme != \"https\" }\n")
-	builder.WriteString("terminal_guardrail if { data.tobari_contexts[input.principal.context_id].guardrail.destination_mode == \"exact\"; not preset_destination_allowed }\n")
-	builder.WriteString("terminal_guardrail if { preset_method_decision == \"deny\" }\n")
-	builder.WriteString("method_policy_granted if { preset_method_decision == \"allow\" }\n\n")
-	builder.WriteString("preset_exact_denied if { some rule in data.tobari_contexts[input.principal.context_id].guardrail.baseline_denies; rule.scheme == input.request.authority.scheme; rule.host == input.request.authority.host; rule.port == input.request.authority.port; rule.method == input.request.method; rule.path == input.request.path.raw }\n")
+	builder.WriteString("context_policy_destination_allowed if { some authority in data.tobari_contexts[input.principal.context_id].policy.authorities; authority.scheme == input.request.authority.scheme; authority.host == input.request.authority.host; authority.port == input.request.authority.port }\n")
+	builder.WriteString("context_policy_method_override_exists if { some override in data.tobari_contexts[input.principal.context_id].policy.method_overrides; override.method == input.request.method }\n")
+	builder.WriteString("context_policy_method_decision := override.decision if { some override in data.tobari_contexts[input.principal.context_id].policy.method_overrides; override.method == input.request.method }\n")
+	builder.WriteString("context_policy_method_decision := data.tobari_contexts[input.principal.context_id].policy.method_default if { not context_policy_method_override_exists }\n")
+	builder.WriteString("terminal_policy if { data.tobari_contexts[input.principal.context_id].policy.destination_mode == \"public_https\"; input.request.authority.scheme != \"https\" }\n")
+	builder.WriteString("terminal_policy if { data.tobari_contexts[input.principal.context_id].policy.destination_mode == \"exact\"; not context_policy_destination_allowed }\n")
+	builder.WriteString("terminal_policy if { context_policy_method_decision == \"deny\" }\n")
+	builder.WriteString("method_policy_granted if { context_policy_method_decision == \"allow\" }\n\n")
+	builder.WriteString("context_policy_exact_denied if { some rule in data.tobari_contexts[input.principal.context_id].policy.baseline_denies; rule.scheme == input.request.authority.scheme; rule.host == input.request.authority.host; rule.port == input.request.authority.port; rule.method == input.request.method; rule.path == input.request.path.raw }\n")
 	builder.WriteString("learned_exact_denied if { some rule in data.tobari_contexts[input.principal.context_id].rules.learned_denies; rule.protocol == \"http\"; rule.scheme == input.request.authority.scheme; rule.context_id == input.principal.context_id; rule.project_id == input.principal.project_id; rule.host == input.request.authority.host; rule.port == input.request.authority.port; rule.method == input.request.method; rule.path == input.request.path.raw }\n")
 	builder.WriteString("learned_graphql_denied if { some rule in data.tobari_contexts[input.principal.context_id].rules.learned_denies; some root_field in input.request.graphql.root_fields; rule.protocol == \"graphql\"; rule.scheme == input.request.authority.scheme; rule.context_id == input.principal.context_id; rule.project_id == input.principal.project_id; rule.host == input.request.authority.host; rule.port == input.request.authority.port; rule.method == input.request.method; rule.path == input.request.path.raw; rule.graphql_operation_type == input.request.graphql.operation_type; rule.graphql_root_field == root_field }\n")
 	builder.WriteString("learned_mcp_denied if { some rule in data.tobari_contexts[input.principal.context_id].rules.learned_denies; rule.protocol == \"mcp\"; rule.scheme == input.request.authority.scheme; rule.context_id == input.principal.context_id; rule.project_id == input.principal.project_id; rule.host == input.request.authority.host; rule.port == input.request.authority.port; rule.method == input.request.method; rule.path == input.request.path.raw; rule.mcp_method == input.request.mcp.method; object.get(rule, \"mcp_tool_name\", \"\") == object.get(input.request.mcp, \"tool_name\", \"\") }\n")
-	builder.WriteString("exact_denied if { preset_exact_denied }\nexact_denied if { learned_exact_denied }\nexact_denied if { learned_graphql_denied }\nexact_denied if { learned_mcp_denied }\n")
-	builder.WriteString("preset_exact_granted if { object.get(input.request, \"graphql\", null) == null; object.get(input.request, \"mcp\", null) == null; some rule in data.tobari_contexts[input.principal.context_id].guardrail.baseline_grants; object.get(rule, \"protocol\", \"http\") == \"http\"; rule.scheme == input.request.authority.scheme; rule.host == input.request.authority.host; rule.port == input.request.authority.port; rule.method == input.request.method; rule.path == input.request.path.raw }\n")
-	builder.WriteString("preset_template_granted if { object.get(input.request, \"graphql\", null) == null; object.get(input.request, \"mcp\", null) == null; some rule in data.tobari_contexts[input.principal.context_id].guardrail.baseline_templates; rule.scheme == input.request.authority.scheme; rule.host == input.request.authority.host; rule.port == input.request.authority.port; rule.method == input.request.method; path_template_matches(rule.segments, input.request.path.raw) }\n")
-	builder.WriteString("preset_graphql_root_granted(root_field) if { some rule in data.tobari_contexts[input.principal.context_id].guardrail.baseline_grants; rule.protocol == \"graphql\"; rule.scheme == input.request.authority.scheme; rule.host == input.request.authority.host; rule.port == input.request.authority.port; rule.method == input.request.method; rule.path == input.request.path.raw; rule.graphql_operation_type == input.request.graphql.operation_type; rule.graphql_root_field == root_field }\n")
-	builder.WriteString("preset_graphql_granted if { is_array(input.request.graphql.root_fields); count(input.request.graphql.root_fields) > 0; every root_field in input.request.graphql.root_fields { preset_graphql_root_granted(root_field) } }\n")
-	builder.WriteString("preset_mcp_granted if { some rule in data.tobari_contexts[input.principal.context_id].guardrail.mcp_baseline_grants; rule.scheme == input.request.authority.scheme; rule.host == input.request.authority.host; rule.port == input.request.authority.port; rule.method == input.request.method; rule.path == input.request.path.raw; rule.mcp_method == input.request.mcp.method; object.get(rule, \"mcp_tool_name\", \"\") == object.get(input.request.mcp, \"tool_name\", \"\") }\n")
-	builder.WriteString("preset_granted if { method_policy_granted }\npreset_granted if { preset_exact_granted }\npreset_granted if { preset_template_granted }\npreset_granted if { preset_graphql_granted }\npreset_granted if { preset_mcp_granted }\n\n")
+	builder.WriteString("exact_denied if { context_policy_exact_denied }\nexact_denied if { learned_exact_denied }\nexact_denied if { learned_graphql_denied }\nexact_denied if { learned_mcp_denied }\n")
+	builder.WriteString("context_policy_exact_granted if { object.get(input.request, \"graphql\", null) == null; object.get(input.request, \"mcp\", null) == null; some rule in data.tobari_contexts[input.principal.context_id].policy.baseline_grants; object.get(rule, \"protocol\", \"http\") == \"http\"; rule.scheme == input.request.authority.scheme; rule.host == input.request.authority.host; rule.port == input.request.authority.port; rule.method == input.request.method; rule.path == input.request.path.raw }\n")
+	builder.WriteString("context_policy_template_granted if { object.get(input.request, \"graphql\", null) == null; object.get(input.request, \"mcp\", null) == null; some rule in data.tobari_contexts[input.principal.context_id].policy.baseline_templates; rule.scheme == input.request.authority.scheme; rule.host == input.request.authority.host; rule.port == input.request.authority.port; rule.method == input.request.method; path_template_matches(rule.segments, input.request.path.raw) }\n")
+	builder.WriteString("context_policy_graphql_root_granted(root_field) if { some rule in data.tobari_contexts[input.principal.context_id].policy.baseline_grants; rule.protocol == \"graphql\"; rule.scheme == input.request.authority.scheme; rule.host == input.request.authority.host; rule.port == input.request.authority.port; rule.method == input.request.method; rule.path == input.request.path.raw; rule.graphql_operation_type == input.request.graphql.operation_type; rule.graphql_root_field == root_field }\n")
+	builder.WriteString("context_policy_graphql_granted if { is_array(input.request.graphql.root_fields); count(input.request.graphql.root_fields) > 0; every root_field in input.request.graphql.root_fields { context_policy_graphql_root_granted(root_field) } }\n")
+	builder.WriteString("context_policy_mcp_granted if { some rule in data.tobari_contexts[input.principal.context_id].policy.mcp_baseline_grants; rule.scheme == input.request.authority.scheme; rule.host == input.request.authority.host; rule.port == input.request.authority.port; rule.method == input.request.method; rule.path == input.request.path.raw; rule.mcp_method == input.request.mcp.method; object.get(rule, \"mcp_tool_name\", \"\") == object.get(input.request.mcp, \"tool_name\", \"\") }\n")
+	builder.WriteString("context_policy_granted if { method_policy_granted }\ncontext_policy_granted if { context_policy_exact_granted }\ncontext_policy_granted if { context_policy_template_granted }\ncontext_policy_granted if { context_policy_graphql_granted }\ncontext_policy_granted if { context_policy_mcp_granted }\n\n")
 	builder.WriteString("decision := {\"allow\": false, \"reason\": \"denied by attachment policy\", \"status_code\": 403, \"learnable\": false} if { input.schema_version == 1; input.principal.cluster == \"default\"; data.tobari_contexts[input.principal.context_id]; host_loopback_request; host_loopback_identity_valid; attachment_denied }\n\n")
 	builder.WriteString("decision := {\"allow\": true, \"reason\": \"allowed by attachment policy\", \"status_code\": 403, \"learnable\": false} if { input.schema_version == 1; input.principal.cluster == \"default\"; data.tobari_contexts[input.principal.context_id]; host_loopback_request; host_loopback_identity_valid; not attachment_denied; attachment_allowed }\n\n")
 	builder.WriteString("decision := {\"allow\": false, \"reason\": \"Host Loopback requires attachment policy review\", \"status_code\": 403, \"learnable\": true} if { input.schema_version == 1; input.principal.cluster == \"default\"; data.tobari_contexts[input.principal.context_id]; host_loopback_request; host_loopback_identity_valid; not attachment_denied; not attachment_allowed }\n\n")
-	builder.WriteString("decision := {\"allow\": false, \"reason\": \"denied by Context policy preset guardrail\", \"status_code\": 403, \"learnable\": false} if {\n")
-	builder.WriteString("  input.schema_version == 1\n  input.principal.cluster == \"default\"\n  data.tobari_contexts[input.principal.context_id]\n  not host_loopback_request\n  terminal_guardrail\n}\n\n")
-	builder.WriteString("decision := {\"allow\": false, \"reason\": \"denied by exact policy\", \"status_code\": 403, \"learnable\": false} if {\n  input.schema_version == 1\n  input.principal.cluster == \"default\"\n  data.tobari_contexts[input.principal.context_id]\n  not host_loopback_request\n  not terminal_guardrail\n  exact_denied\n}\n\n")
-	builder.WriteString("decision := {\"allow\": true, \"reason\": \"allowed by Context policy preset\", \"status_code\": 403, \"learnable\": false} if {\n  input.schema_version == 1\n  input.principal.cluster == \"default\"\n  data.tobari_contexts[input.principal.context_id]\n  not host_loopback_request\n  not terminal_guardrail\n  not exact_denied\n  preset_granted\n}\n\n")
+	builder.WriteString("decision := {\"allow\": false, \"reason\": \"denied by Context policy ceiling\", \"status_code\": 403, \"learnable\": false} if {\n")
+	builder.WriteString("  input.schema_version == 1\n  input.principal.cluster == \"default\"\n  data.tobari_contexts[input.principal.context_id]\n  not host_loopback_request\n  terminal_policy\n}\n\n")
+	builder.WriteString("decision := {\"allow\": false, \"reason\": \"denied by exact policy\", \"status_code\": 403, \"learnable\": false} if {\n  input.schema_version == 1\n  input.principal.cluster == \"default\"\n  data.tobari_contexts[input.principal.context_id]\n  not host_loopback_request\n  not terminal_policy\n  exact_denied\n}\n\n")
+	builder.WriteString("decision := {\"allow\": true, \"reason\": \"allowed by Context policy\", \"status_code\": 403, \"learnable\": false} if {\n  input.schema_version == 1\n  input.principal.cluster == \"default\"\n  data.tobari_contexts[input.principal.context_id]\n  not host_loopback_request\n  not terminal_policy\n  not exact_denied\n  context_policy_granted\n}\n\n")
 	builder.WriteString("decision := result if {\n")
 	builder.WriteString("  input.schema_version == 1\n")
 	builder.WriteString("  input.principal.cluster == \"default\"\n")
 	builder.WriteString("  data.tobari_contexts[input.principal.context_id]\n")
 	builder.WriteString("  not host_loopback_request\n")
-	builder.WriteString("  not terminal_guardrail\n")
-	builder.WriteString("  not exact_denied\n  not preset_granted\n")
+	builder.WriteString("  not terminal_policy\n")
+	builder.WriteString("  not exact_denied\n  not context_policy_granted\n")
 	builder.WriteString("  object.get(input.request, \"graphql\", null) != null\n")
 	builder.WriteString("  result := data.tobari.system.guided.decision\n")
 	builder.WriteString("}\n\n")
@@ -284,8 +283,8 @@ func aggregateRouter(items []aggregateContext) ([]byte, error) {
 		builder.WriteString(item.manifest.ID)
 		builder.WriteString("\"\n")
 		builder.WriteString("  not host_loopback_request\n")
-		builder.WriteString("  not terminal_guardrail\n")
-		builder.WriteString("  not exact_denied\n  not preset_granted\n")
+		builder.WriteString("  not terminal_policy\n")
+		builder.WriteString("  not exact_denied\n  not context_policy_granted\n")
 		builder.WriteString("  object.get(input.request, \"graphql\", null) == null\n")
 		builder.WriteString("  result := data.")
 		if item.manifest.PolicyMode == tobari.ContextPolicyModeGuided {

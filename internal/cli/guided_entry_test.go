@@ -89,9 +89,9 @@ func (w *guidedRuntimeChoice) Choose(
 func guidedContextSelection() contextCreateSelection {
 	return contextCreateSelection{
 		Name: "coding", SourceAccess: tobari.ContextSourceAccessReadWrite,
-		MethodPolicy: tobari.PolicyPresetMethodPolicy{
-			Default:   tobari.PolicyPresetMethodExactReview,
-			Overrides: []tobari.PolicyPresetMethodOverride{},
+		MethodPolicy: tobari.ContextMethodPolicy{
+			Default:   tobari.ContextMethodExactReview,
+			Overrides: []tobari.ContextMethodOverride{},
 		},
 	}
 }
@@ -110,8 +110,7 @@ func persistedContextList(report tobari.ContextReport) tobari.ContextListResult 
 		Items: []tobari.ContextSummary{{
 			ID: report.ID, Name: report.Name, ContextState: tobari.ContextObservationPersisted, Active: true,
 			AgentProfile: report.AgentProfile, Image: report.Image, PolicyMode: report.PolicyMode,
-			SourceAccess: report.SourceAccess, PolicyPresetOrigin: report.PolicyPresetOrigin,
-			PolicyPresetRevision: report.PolicyPresetRevision, NativeReadiness: tobari.ContextNativeReadinessEnabled,
+			SourceAccess: report.SourceAccess, PolicyRevision: report.PolicyRevision, NativeReadiness: tobari.ContextNativeReadinessEnabled,
 			MethodPolicy: report.MethodPolicy, RuntimeStatus: report.Runtime.Status,
 			Bootstrap: tobari.ContextBootstrapReport{State: tobari.ContextBootstrapNotConfigured, Adapters: []string{}},
 		}},
@@ -129,7 +128,7 @@ func newGuidedEntryCLI(
 	return command, stdout, stderr
 }
 
-func TestGuidedEntryCreatesContextStartsClusterAndStagesCustomRuntime(t *testing.T) {
+func TestGuidedEntryCreatesContextStartsClusterAndContinuesWithoutRuntimeFork(t *testing.T) {
 	contextRuntime := &contextCLI{list: syntheticContextList()}
 	wizard := &guidedContextWizard{selection: guidedContextSelection()}
 	choice := &guidedRuntimeChoice{choice: runtimeChoiceCustomize, runtime: contextRuntime}
@@ -140,19 +139,16 @@ func TestGuidedEntryCreatesContextStartsClusterAndStagesCustomRuntime(t *testing
 	command.contextCreate = wizard
 
 	code, continueEntry := prepareGuidedProjectEntry(context.Background(), command, "")
-	if code != ExitOK || continueEntry {
-		t.Fatalf("guided custom entry = (%d, %t), stderr = %q", code, continueEntry, stderr.String())
+	if code != ExitOK || !continueEntry {
+		t.Fatalf("guided entry = (%d, %t), stderr = %q", code, continueEntry, stderr.String())
 	}
-	if contextRuntime.createCalls != 1 || contextRuntime.initCalls != 1 || wizard.calls != 1 || choice.calls != 1 {
+	if contextRuntime.createCalls != 1 || contextRuntime.initCalls != 0 || wizard.calls != 1 || choice.calls != 0 {
 		t.Fatalf("create/init/wizard/choice calls = %d/%d/%d/%d", contextRuntime.createCalls, contextRuntime.initCalls, wizard.calls, choice.calls)
 	}
 	if stdout.Len() != 0 {
 		t.Fatalf("guided root wrote child stdout before entry: %q", stdout.String())
 	}
-	for _, expected := range []string{
-		"✓ Context created: coding", "✓ Shared services ready", "✓ Runtime recipe created",
-		"/tmp/tobari/contexts/coding/runtime/Dockerfile", "tobari runtime build", "After the build succeeds:",
-	} {
+	for _, expected := range []string{"✓ Context created: coding", "✓ Shared services ready"} {
 		if !strings.Contains(stderr.String(), expected) {
 			t.Errorf("guided transcript lacks %q: %q", expected, stderr.String())
 		}
@@ -236,7 +232,7 @@ func TestGuidedEntryStandardChoiceContinuesToExistingWorkspaceEntry(t *testing.T
 	command.contextCreate = &guidedContextWizard{selection: guidedContextSelection()}
 
 	code, continueEntry := prepareGuidedProjectEntry(context.Background(), command, "")
-	if code != ExitOK || !continueEntry || contextRuntime.initCalls != 0 || choice.calls != 1 {
+	if code != ExitOK || !continueEntry || contextRuntime.initCalls != 0 || choice.calls != 0 {
 		t.Fatalf("guided standard entry = (%d, %t), init/choice = %d/%d, stderr = %q", code, continueEntry, contextRuntime.initCalls, choice.calls, stderr.String())
 	}
 }
