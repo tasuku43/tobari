@@ -465,7 +465,17 @@ func (r *Runtime) enterProjectRuntime(
 		args = append(args, "--env", environment)
 	}
 	args = append(args, "--workdir", workdir, container, "/bin/bash")
+	// Keep the existing direct stream runner as the compatibility path. The
+	// interactive runner is selected only for a real terminal presentation
+	// session, after the child environment and all attachment setup are ready.
 	run := func() error { return r.runner.Run(ctx, args, os.Environ(), in, out, errOut) }
+	if structuredOutputColorEnabled(in, out, shellEnvironment) {
+		if interactive, ok := r.runner.(interactiveCommandRunner); ok {
+			run = func() error {
+				return interactive.RunInteractive(ctx, args, os.Environ(), in, out, errOut, true)
+			}
+		}
+	}
 	if err := run(); err == nil {
 		return 0, nil
 	} else {
