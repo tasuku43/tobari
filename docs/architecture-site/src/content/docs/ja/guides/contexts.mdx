@@ -26,22 +26,31 @@ tobari context show
 
 ## Context を作成する
 
-引数なしで実行すると、名前、source access、完全な HTTP method policy を対話的に選べます。
+対話的に実行すると、Context の境界全体を確認できます。
 
 ```sh
 tobari context create
 ```
 
-wizard には terminal stdin/stderr と text output が必要です。extension method の default と各 standard HTTP method に `allow`、`exact_review`、`deny` のいずれかを選び、最後に一度だけ create mutation を実行します。cancel、redirected input、JSON の引数なし実行では mutation を行いません。
-
-決定的な direct mode では、少なくとも一つの input と `--name` を指定します。
+wizard には terminal stdin/stderr と text output が必要です。指定済みの値は draft に入り、その初回 stage を飛ばします。省略した設定は引き続き review します。例えば次のコマンドは、名前を固定して Filesystem から始まり、Network、Runtime、Workspace bootstrap、最後の Review へ進みます。
 
 ```sh
-tobari context create --name review --mode guided \
-  --source-access read-only \
-  --native-readiness disabled
+tobari context create --name review
 tobari context show --name=review
 ```
+
+redirect または JSON の automation では、完全な direct input group を指定します。Workspace bootstrap は任意の明示的な追加設定です。
+
+```sh
+tobari context create --name review \
+  --runtime standard \
+  --mode guided \
+  --source-access read-only \
+  --native-readiness disabled \
+  --format json
+```
+
+partial machine input と cancel は mutation を行いません。
 
 保存する manifest では `source_access` が必須です。CLI で省略した場合は
 `read-write` です。`read-only` が読み取り専用にするのは、選択したプロジェクトソースの
@@ -132,7 +141,7 @@ tobari context shell configure --context review --variable TERM --source default
 
 - `context_not_found`: `tobari context list` から既存名前を選びます。
 - `context_exists`: 上書きせず既存 Context を確認します。
-- `context_create_wizard_unavailable`: interactive text terminal で引数なし作成を実行するか、`--name` を指定した direct mode を使います。
+- `context_create_wizard_unavailable`: interactive text terminal で省略した設定を補完するか、完全な direct input group を指定します。
 - `context_is_current`: 削除前に別の Context を選びます。
 - `context_has_workspaces`: その Context に結び付いたすべての Workspace を先に削除します。
 - `context_is_protected`: foundational `default` Context は削除できません。

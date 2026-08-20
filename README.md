@@ -103,6 +103,8 @@ The individual operations remain available for automation and advanced use:
 ```sh
 # Create the envelope deterministically for automation.
 tobari context create --name default \
+  --runtime standard \
+  --mode guided \
   --source-access read-write \
   --native-readiness enabled
 
@@ -119,15 +121,16 @@ tobari config bootstrap kubernetes eks --kube-context engineering
 tobari
 ```
 
-The argument-free command requires terminal stdin/stderr and text output. It
-asks for the Context name, source access, and `allow` / `exact_review` / `deny`
-for the extension-method default and each standard HTTP method, then optionally
-selects one typed AWS IAM Identity Center bootstrap profile and creates
-once. Any explicit input selects direct mode and requires `--name`; redirected
-and JSON argument-free invocations fail before mutation.
+Interactive text creation treats supplied flags as prefilled stages and asks
+only for the remaining Context boundary before Review & Create. For example,
+`--name default` starts at Filesystem rather than silently applying every
+omission default. Redirected and JSON creation never prompts and requires the
+complete direct group shown above; Workspace bootstrap remains an optional
+explicit addition.
 
-Direct `context create` owns the omission defaults: `read-write`, the fixed
-Context method policy, and enabled native readiness. New Contexts persist the
+The reviewed flow owns its visible defaults, including `read-write`, the fixed
+Context method policy, enabled native readiness, `standard@1`, and no Workspace
+bootstrap. New Contexts persist the
 normalized Context policy revision and the separate readiness choice. The
 agent-ready compatibility baseline is composed by the trusted binary; it is
 not a selectable profile or catalog entry.

@@ -161,6 +161,56 @@ func TestContextCreateWizardDoesNotInspectBootstrapOnOrdinaryPath(t *testing.T) 
 	}
 }
 
+func TestContextCreateWizardSeedPreservesSuppliedValuesAndSkipsTheirInitialStages(t *testing.T) {
+	t.Parallel()
+	wizard := &terminalContextCreateWizard{mode: nil, style: false}
+	seed := contextCreateWizardSeed{
+		Selection: contextCreateSelection{
+			Name:             "sre3",
+			SourceAccess:     tobari.ContextSourceAccessReadOnly,
+			RuntimeSelection: "frontend@4",
+			MethodPolicy: tobari.ContextMethodPolicy{
+				Default:   tobari.ContextMethodExactReview,
+				Overrides: []tobari.ContextMethodOverride{},
+			},
+		},
+		NameProvided:     true,
+		FilesystemFilled: true,
+		RuntimeProvided:  true,
+		BootstrapFilled:  true,
+	}
+	var output bytes.Buffer
+	selection, err := wizard.ComposeSeeded(context.Background(), strings.NewReader("1\n1\n"), &output, seed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if selection.Name != "sre3" || selection.SourceAccess != tobari.ContextSourceAccessReadOnly || selection.RuntimeSelection != "frontend@4" {
+		t.Fatalf("seeded wizard selection = %+v", selection)
+	}
+	for _, skipped := range []string{"Context name:", "Ready Runtime revision", "Tobari · Create Context · Workspace bootstrap"} {
+		if strings.Contains(output.String(), skipped) {
+			t.Errorf("seeded wizard replayed %q: %q", skipped, output.String())
+		}
+	}
+	if !strings.Contains(output.String(), "Tobari · Create Context · Network access") || !strings.Contains(output.String(), "Review & Create") {
+		t.Fatalf("seeded wizard omitted required stages: %q", output.String())
+	}
+}
+
+func TestContextCreateWizardStageNavigationSkipsPrefilledStages(t *testing.T) {
+	t.Parallel()
+	seed := contextCreateWizardSeed{NameProvided: true, FilesystemFilled: true, RuntimeProvided: true}
+	if got := firstContextCreateStep(seed); got != contextCreateStepNetwork {
+		t.Fatalf("first partial step = %v, want Network", got)
+	}
+	if got := nextContextCreateStep(contextCreateStepNetwork, seed); got != contextCreateStepBootstrap {
+		t.Fatalf("next partial step = %v, want Bootstrap", got)
+	}
+	if got, ok := previousContextCreateStep(contextCreateStepBootstrap, seed); !ok || got != contextCreateStepNetwork {
+		t.Fatalf("previous partial step = (%v, %t), want Network", got, ok)
+	}
+}
+
 func TestContextCreateWizardOffersOnlyReadyRuntimeRevisions(t *testing.T) {
 	t.Parallel()
 	wizard := &terminalContextCreateWizard{mode: nil, style: false, runtimes: []tobari.RuntimeSummary{
@@ -330,6 +380,41 @@ func TestContextCreateWizardRawUsesOneContinuousSixStepSession(t *testing.T) {
 	}
 }
 
+func TestContextCreateWizardRawPrefilledNameStartsAtFirstOmittedStage(t *testing.T) {
+	t.Parallel()
+	wizard := &terminalContextCreateWizard{mode: &selectorModeFake{}, style: false}
+	seed := contextCreateWizardSeed{
+		Selection: contextCreateSelection{
+			Name:             "sre3",
+			SourceAccess:     tobari.ContextSourceAccessReadWrite,
+			RuntimeSelection: tobari.StandardRuntimeName,
+			MethodPolicy: tobari.ContextMethodPolicy{
+				Default:   tobari.ContextMethodExactReview,
+				Overrides: []tobari.ContextMethodOverride{},
+			},
+		},
+		NameProvided: true,
+	}
+	var output bytes.Buffer
+	selection, err := wizard.ComposeSeeded(
+		context.Background(), strings.NewReader("\r\r\r\r\r"), &output, seed,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if selection.Name != "sre3" {
+		t.Fatalf("prefilled raw selection = %+v", selection)
+	}
+	if strings.Contains(output.String(), "1 of 6 · Name") || strings.Contains(output.String(), "Context name:") {
+		t.Fatalf("prefilled Name stage was replayed: %q", output.String())
+	}
+	for _, required := range []string{"2 of 6 · Filesystem", "3 of 6 · Network", "4 of 6 · Runtime", "5 of 6 · Workspace bootstrap", "6 of 6 · Review & Create"} {
+		if !strings.Contains(output.String(), required) {
+			t.Errorf("prefilled raw flow lacks %q: %q", required, output.String())
+		}
+	}
+}
+
 func TestContextCreateWizardRawRuntimeStepSelectsOnlyReadyRevision(t *testing.T) {
 	t.Parallel()
 	wizard := &terminalContextCreateWizard{mode: &selectorModeFake{}, style: false, runtimes: []tobari.RuntimeSummary{
@@ -407,6 +492,19 @@ func TestContextCreateReviewMirrorsFilesystemNetworkRuntimeOrder(t *testing.T) {
 	}
 	if !strings.Contains(lines, "standard@1") || !strings.Contains(lines, "ready") {
 		t.Fatalf("review Runtime is not exact and ready: %q", lines)
+	}
+}
+
+func TestContextCreateReviewDoesNotPresentDisabledNativeReadinessAsAllowed(t *testing.T) {
+	t.Parallel()
+	lines := strings.Join(contextCreateReviewLines(false, contextCreateSelection{
+		Name: "coding", RuntimeSelection: tobari.StandardRuntimeName,
+		SourceAccess:    tobari.ContextSourceAccessReadWrite,
+		NativeReadiness: tobari.ContextNativeReadinessDisabled,
+		MethodPolicy:    tobari.ContextMethodPolicy{Default: tobari.ContextMethodExactReview},
+	}), "\n")
+	if !strings.Contains(lines, "Claude/Codex routine      not pre-authorized") || strings.Contains(lines, "Claude/Codex routine      allow") {
+		t.Fatalf("disabled native readiness review = %q", lines)
 	}
 }
 
@@ -717,16 +815,27 @@ func TestContextCreateWizardRejectsInvalidNameBeforeCompositionAndCancelsWithout
 	}
 }
 
-func TestArgumentFreeContextCreateIsTheOnlyWizardMode(t *testing.T) {
+func TestContextCreateDirectInputCompletenessDistinguishesPartialCompositionFromFormat(t *testing.T) {
 	t.Parallel()
 	empty := ParsedInputs{provided: map[string]bool{}}
-	if !contextCreateInputsOmitted(empty) {
-		t.Fatal("argument-free create did not select wizard mode")
+	if contextCreateDirectInputsComplete(empty) || contextCreateCompositionInputProvided(empty) {
+		t.Fatal("argument-free create unexpectedly selected direct or prefilled mode")
 	}
-	for _, name := range []string{"--name", "--runtime", "--mode", "--source-access", "--native-readiness", "--bootstrap-aws-profile", "--format"} {
+	for _, name := range []string{"--name", "--runtime", "--mode", "--source-access", "--native-readiness", "--bootstrap-aws-profile"} {
 		inputs := ParsedInputs{provided: map[string]bool{name: true}}
-		if contextCreateInputsOmitted(inputs) {
-			t.Errorf("explicit %s unexpectedly selected wizard mode", name)
+		if contextCreateDirectInputsComplete(inputs) || !contextCreateCompositionInputProvided(inputs) {
+			t.Errorf("partial %s was not classified as an incomplete composition", name)
 		}
+	}
+	formatOnly := ParsedInputs{provided: map[string]bool{"--format": true}}
+	if contextCreateDirectInputsComplete(formatOnly) || contextCreateCompositionInputProvided(formatOnly) {
+		t.Fatal("format-only input was treated as a supplied Context boundary")
+	}
+	complete := ParsedInputs{provided: map[string]bool{
+		"--name": true, "--runtime": true, "--mode": true,
+		"--source-access": true, "--native-readiness": true,
+	}}
+	if !contextCreateDirectInputsComplete(complete) || !contextCreateCompositionInputProvided(complete) {
+		t.Fatal("complete direct group was not recognized")
 	}
 }

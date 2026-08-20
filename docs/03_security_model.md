@@ -815,10 +815,11 @@ volumes, not encrypted Context vaults or the installation root key.
 existing validated Context and atomically changes only the current/default
 marker. It does not touch Docker, the aggregate projection, an existing Tobari,
 or any enforcement authority. `context create` likewise does not start Docker.
-Its argument-free wizard is allowed only with text success/error output and
-terminal stdin/stderr; it validates the complete name, source-access, and
-method-policy selection before one mutation. Cancellation, redirected input,
-JSON mode, and terminal failure perform no mutation. A composed method Deny
+Its complete or partially prefilled wizard is allowed only with text
+success/error output and terminal stdin/stderr; supplied values remain bound
+while it validates every omitted stage before one mutation. Redirected and JSON
+creation require the complete direct input group and never prompt. Cancellation,
+partial machine input, and terminal failure perform no mutation. A composed method Deny
 filters only positive baseline entries that would otherwise exceed the new
 method ceiling; it cannot widen the independent destination ceiling or remove
 exact Deny precedence. An explicit `cluster up` validates and activates the new

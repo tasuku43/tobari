@@ -367,7 +367,7 @@ func contextShowSpec() CommandSpec {
 
 func contextCreateSpec() CommandSpec {
 	return CommandSpec{
-		Path: "context create", Summary: "Create a named execution Context directly or with the terminal wizard",
+		Path: "context create", Summary: "Create a named execution Context directly or by completing omitted settings",
 		Args:   "[--name <name>] [--runtime <standard|name@ordinal>] [--mode guided|advanced] [--source-access read-only|read-write] [--native-readiness enabled|disabled] [--bootstrap-aws-profile <name>] [--bootstrap-eks-context <name>] [--format text|json]",
 		Effect: operation.EffectCreate, Role: RoleAct,
 		Agent: AgentContract{
@@ -378,8 +378,8 @@ func contextCreateSpec() CommandSpec {
 			Prerequisites: []string{"The host Context directory is accessible."},
 			FixedTarget:   fixedContextCatalogTarget(),
 			Errors: mutationCommandErrors("context create", "context list",
-				declaredCommandError(fault.KindInvalidInput, "context_create_wizard_unavailable", false, "help context create", "Run the argument-free wizard on interactive text streams or supply --name for direct mode."),
-				declaredCommandError(fault.KindInternal, "context_create_wizard_failed", false, "context create", "Retry the wizard or use direct mode with --name."),
+				declaredCommandError(fault.KindInvalidInput, "context_create_wizard_unavailable", false, "help context create", "Complete omitted settings on interactive text streams or supply --name, --runtime, --mode, --source-access, and --native-readiness."),
+				declaredCommandError(fault.KindInternal, "context_create_wizard_failed", false, "context create", "Retry the wizard or use the complete direct input group."),
 				declaredCommandError(fault.KindRejected, "aws_bootstrap_source_rejected", false, "help config bootstrap aws", "Choose a strict IAM Identity Center profile without credentials, helpers, or unsupported directives."),
 				declaredCommandError(fault.KindRejected, "eks_bootstrap_source_rejected", false, "help config bootstrap kubernetes eks", "Choose a strict AWS CLI-generated EKS context bound to the selected AWS profile."),
 				declaredCommandError(fault.KindInvalidInput, "invalid_context", false, "help context create", "Correct the Context name, image, policy mode, or source access."),
@@ -1362,13 +1362,13 @@ func contextCreateNameInput() CommandInput {
 	input := contextNameInput()
 	input.Required = false
 	input.Completion = InputCompletionNone
-	input.Description = "Portable Context name; omission together with every other input opens the terminal wizard. Any explicit input selects direct mode and requires --name."
+	input.Description = "Portable Context name; on interactive text streams a supplied name prefills and skips the Name stage while omitted settings remain reviewed."
 	return input
 }
 
 func contextCreateRuntimeInput() CommandInput {
 	minimum := int64(1)
-	return CommandInput{Name: "--runtime", Source: InputSourceFlag, Required: false, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, MinimumLength: &minimum, Description: "Ready Runtime revision as standard or name@ordinal; omission defaults to standard.", AllowedValues: []string{}, DefaultValue: stringPointer(tobari.StandardRuntimeName), Completion: InputCompletionReadyRuntimeReference}
+	return CommandInput{Name: "--runtime", Source: InputSourceFlag, Required: false, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, MinimumLength: &minimum, Description: "Ready Runtime revision as standard or name@ordinal; interactive partial creation reviews omission, while complete direct creation requires an explicit value.", AllowedValues: []string{}, DefaultValue: stringPointer(tobari.StandardRuntimeName), Completion: InputCompletionReadyRuntimeReference}
 }
 
 func contextCreateAWSBootstrapInput() CommandInput {
@@ -1410,7 +1410,7 @@ func contextModeInput() CommandInput {
 	return CommandInput{
 		Name: "--mode", Source: InputSourceFlag, Required: false,
 		ValueKind: InputValueText, Cardinality: InputCardinalitySingle,
-		Description:   "Policy development mode: guided exact permission review or advanced trusted-host Rego.",
+		Description:   "Policy development mode: guided exact permission review or advanced trusted-host Rego; required in the complete direct input group.",
 		AllowedValues: []string{"guided", "advanced"}, DefaultValue: stringPointer("guided"),
 	}
 }
@@ -1419,13 +1419,13 @@ func contextSourceAccessInput() CommandInput {
 	return CommandInput{
 		Name: "--source-access", Source: InputSourceFlag, Required: false,
 		ValueKind: InputValueText, Cardinality: InputCardinalitySingle,
-		Description:   "Write authority for the one direct project source bind; Workspace home and tmpfs remain writable.",
+		Description:   "Write authority for the one direct project source bind; interactive partial creation reviews omission and Workspace home plus tmpfs remain writable.",
 		AllowedValues: []string{"read-only", "read-write"}, DefaultValue: stringPointer("read-write"),
 	}
 }
 
 func contextNativeReadinessInput() CommandInput {
-	return CommandInput{Name: "--native-readiness", Source: InputSourceFlag, Required: false, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, Description: "Trusted binary native-client readiness overlay; the Context system policy ceiling remains terminal.", AllowedValues: []string{"enabled", "disabled"}, DefaultValue: stringPointer("enabled")}
+	return CommandInput{Name: "--native-readiness", Source: InputSourceFlag, Required: false, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, Description: "Trusted binary native-client readiness overlay; required with --mode in the complete direct input group and the Context system policy ceiling remains terminal.", AllowedValues: []string{"enabled", "disabled"}, DefaultValue: stringPointer("enabled")}
 }
 
 func contextReportOutput() CommandOutput {

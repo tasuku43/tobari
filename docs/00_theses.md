@@ -835,11 +835,16 @@ OPA allow.
   projections show every effective method decision, reviewed routine agent
   traffic, and the terminal destination ceiling; only customization exposes
   default, inherited, and override storage. One section can be edited and
-  returned directly to review before the single mutation. Method-Deny choices
+  returned directly to review before the single mutation. Supplied interactive
+  create inputs prefill and skip only their corresponding initial stages;
+  omitted boundary settings remain reviewed. Non-interactive and JSON creation
+  never prompt and require the complete direct group of name, Runtime, policy
+  mode, source access, and native readiness; Workspace bootstrap remains an
+  optional explicit addition. Method-Deny choices
   remove only now-unreachable positive baseline rules from the Context-owned
-  snapshot; destination ceilings and exact Denies remain unchanged. Any
-  explicit create input selects deterministic direct mode. Creation owns the
-  `read-write` and enabled-readiness omission defaults. Readers never rewrite
+  snapshot; destination ceilings and exact Denies remain unchanged. The
+  reviewed flow owns the `read-write`, enabled-readiness, standard Runtime, and
+  unconfigured-bootstrap defaults. Readers never rewrite
   old state, and a different envelope requires a new Context. A binary
   readiness update is a reviewed compatibility update rather than an envelope
   change and requires no Context recreation. The current binary readiness

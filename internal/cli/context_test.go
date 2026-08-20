@@ -577,7 +577,7 @@ func TestContextCreateDirectCanSnapshotOneAWSProfile(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	command := newCLI(strings.NewReader(""), &stdout, &stderr, DefaultCatalog(), nil)
 	command.context = contextcmd.New(fake)
-	if code := command.RunContext(context.Background(), []string{"context", "create", "--name", "coding", "--bootstrap-aws-profile", "engineering", "--format", "json"}); code != ExitOK {
+	if code := command.RunContext(context.Background(), []string{"context", "create", "--name", "coding", "--runtime", "standard", "--mode", "guided", "--source-access", "read-write", "--native-readiness", "enabled", "--bootstrap-aws-profile", "engineering", "--format", "json"}); code != ExitOK {
 		t.Fatalf("context create with bootstrap code = %d, stderr = %q", code, stderr.String())
 	}
 	if fake.prepareBootstrapCalls != 1 || fake.createCalls != 1 || !strings.Contains(stdout.String(), `"aws_profile":"engineering"`) {
@@ -1210,7 +1210,7 @@ func TestContextCommandsRenderActiveContextAndRuntimeImage(t *testing.T) {
 	}
 
 	stdout.Reset()
-	if code := command.RunContext(context.Background(), []string{"context", "create", "--name", "project-tools", "--mode", "advanced", "--format", "json"}); code != ExitOK {
+	if code := command.RunContext(context.Background(), []string{"context", "create", "--name", "project-tools", "--runtime", "standard", "--mode", "advanced", "--source-access", "read-write", "--native-readiness", "enabled", "--format", "json"}); code != ExitOK {
 		t.Fatalf("context create code = %d, stderr = %q", code, stderr.String())
 	}
 	var document struct {
@@ -1227,7 +1227,8 @@ func TestContextCommandsRenderActiveContextAndRuntimeImage(t *testing.T) {
 
 	stdout.Reset()
 	if code := command.RunContext(context.Background(), []string{
-		"context", "create", "--name", "review", "--source-access", "read-only", "--format", "json",
+		"context", "create", "--name", "review", "--runtime", "standard", "--mode", "guided",
+		"--source-access", "read-only", "--native-readiness", "enabled", "--format", "json",
 	}); code != ExitOK {
 		t.Fatalf("read-only context create code = %d, stderr = %q", code, stderr.String())
 	}
@@ -1237,7 +1238,7 @@ func TestContextCommandsRenderActiveContextAndRuntimeImage(t *testing.T) {
 	}
 }
 
-func TestContextCreateWithoutArgumentsRequiresInteractiveWizardAndDirectNameDoesNotPrompt(t *testing.T) {
+func TestContextCreateIncompleteNonInteractiveInputFailsAndCompleteDirectInputDoesNotPrompt(t *testing.T) {
 	t.Parallel()
 	fake := &contextCLI{report: contextCLIReport(tobari.TaskContextShow, "default", true, tobari.OfficialRuntimeBase, tobari.ContextPolicyModeGuided)}
 	var stdout, stderr bytes.Buffer
@@ -1251,11 +1252,49 @@ func TestContextCreateWithoutArgumentsRequiresInteractiveWizardAndDirectNameDoes
 	}
 	stdout.Reset()
 	stderr.Reset()
-	if code := command.RunContext(context.Background(), []string{"context", "create", "--name", "direct"}); code != ExitOK {
+	if code := command.RunContext(context.Background(), []string{"context", "create", "--name", "partial"}); code != ExitUsage {
+		t.Fatalf("partial direct create code = %d, stderr = %q", code, stderr.String())
+	}
+	if fake.createCalls != 0 || !strings.Contains(stderr.String(), "context_create_wizard_unavailable") {
+		t.Fatalf("partial direct create mutated or hid recovery: calls=%d stderr=%q", fake.createCalls, stderr.String())
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if code := command.RunContext(context.Background(), []string{
+		"context", "create", "--name", "direct", "--runtime", "standard", "--mode", "guided",
+		"--source-access", "read-write", "--native-readiness", "enabled",
+	}); code != ExitOK {
 		t.Fatalf("direct create code = %d, stderr = %q", code, stderr.String())
 	}
 	if fake.createCalls != 1 || !strings.Contains(stdout.String(), "Context direct created") {
 		t.Fatalf("direct create calls/output = %d/%q", fake.createCalls, stdout.String())
+	}
+}
+
+func TestContextCreatePartialInteractiveInputPrefillsNameAndReviewsOmittedStages(t *testing.T) {
+	t.Parallel()
+	fake := &contextCLI{report: contextCLIReport(tobari.TaskContextShow, "default", true, tobari.OfficialRuntimeBase, tobari.ContextPolicyModeGuided)}
+	var stdout, stderr bytes.Buffer
+	command := newCLI(strings.NewReader("2\n1\n1\n1\n1\n"), &stdout, &stderr, DefaultCatalog(), nil)
+	command.context = contextcmd.New(fake)
+	command.tobari = tobaricmd.New(&policyReviewRuntimeFake{terminal: true})
+
+	if code := command.RunContext(context.Background(), []string{"context", "create", "--name", "sre3"}); code != ExitOK {
+		t.Fatalf("partial interactive create code = %d, stderr = %q", code, stderr.String())
+	}
+	if fake.createCalls != 1 || fake.prepareBootstrapCalls != 0 || fake.report.Name != "sre3" || fake.report.SourceAccess != tobari.ContextSourceAccessReadOnly {
+		t.Fatalf("partial interactive create = calls %d report %+v", fake.createCalls, fake.report)
+	}
+	if strings.Contains(stderr.String(), "Context name:") {
+		t.Fatalf("supplied Name stage was replayed: %q", stderr.String())
+	}
+	for _, required := range []string{"Project source access", "Network access", "Ready Runtime revision", "Workspace bootstrap", "Review & Create"} {
+		if !strings.Contains(stderr.String(), required) {
+			t.Errorf("partial interactive flow lacks %q: %q", required, stderr.String())
+		}
+	}
+	if !strings.Contains(stdout.String(), "Context sre3 created") {
+		t.Fatalf("partial interactive success = %q", stdout.String())
 	}
 }
 

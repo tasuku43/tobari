@@ -253,7 +253,7 @@ The public commands are:
 | `config git [--source default\|inherit\|literal] [--name NAME] [--email EMAIL] [--context NAME] [--format text\|json]` | act, fixed target | write | Configure one atomic Context Git commit-identity fallback directly, or stage and apply its source from one terminal screen |
 | `config bootstrap aws [--profile NAME] [--refresh] [--remove] [--context NAME] [--format text\|json]` | act, fixed target | write | Normalize one strict secret-free host AWS IAM Identity Center profile for future Workspaces, refresh it after a semantic diff, or remove the future recipe; existing Workspace homes never change |
 | `config bootstrap kubernetes eks [--kube-context NAME] [--refresh] [--remove] [--context NAME] [--format text\|json]` | act, fixed target | write | Compose one strict AWS CLI-generated host EKS context with the Context AWS profile, refresh it, or remove only EKS; no credential, arbitrary exec, network authority, or existing Workspace home changes |
-| `context create [--name NAME] [--runtime RUNTIME] [--mode guided\|advanced] [--source-access read-only\|read-write] [--native-readiness enabled\|disabled] [--bootstrap-aws-profile NAME] [--bootstrap-eks-context NAME] [--format text\|json]` | act, fixed target | create | With no inputs, use one continuous six-stage terminal frame for name, source access, effective HTTP policy, exact ready Runtime selection, optional future-Workspace bootstrap, and complete final review; Runtime defaults to `standard@1`; direct mode may select only `standard` or an existing ready `NAME@ORDINAL` revision |
+| `context create [--name NAME] [--runtime RUNTIME] [--mode guided\|advanced] [--source-access read-only\|read-write] [--native-readiness enabled\|disabled] [--bootstrap-aws-profile NAME] [--bootstrap-eks-context NAME] [--format text\|json]` | act, fixed target | create | On interactive text streams, prefill supplied values and review only omitted stages of the six-stage Context frame before Create; redirected or JSON creation requires the complete direct group of name, Runtime, mode, source access, and native readiness; Workspace bootstrap remains optional |
 | `context delete --name NAME [--format text\|json]` | act, fixed target | write | Delete one unused non-current non-default Context and its exact owner stores while preserving project files and shared runtime images |
 | `context use --name NAME [--format text\|json]` | act, fixed target | write | Change only the current/default Context; do not mutate existing Tobari or start/reconcile the cluster |
 | `context runtime set [--runtime RUNTIME] [--context NAME] [--format text\|json]` | act, fixed target | write | Explicitly pin, upgrade, or roll back one Context to `standard` or an existing ready `NAME@ORDINAL` Runtime revision; omission opens terminal Review, and existing Workspace homes change only on next entry reconciliation |
@@ -512,10 +512,13 @@ undeclared Docker mutation by the CLI.
   the write. Cancellation and every wizard validation or terminal failure
   perform zero mutation.
   Prompts use stderr and the confirmed complete Context report uses stdout.
-- `context create` has two complete modes. With no command input, text success
-  and error formats plus terminal stdin/stderr are required. The ordinary
-  six-stage path is name, filesystem, network, Runtime, Workspace bootstrap,
-  and Review & Create.
+- `context create` has one staged human flow and one complete direct mode. On
+  interactive text success/error streams, supplied values prefill their
+  corresponding stages and those stages are skipped on the initial pass;
+  omitted stages remain reviewed. With no supplied creation value, the
+  ordinary six-stage path is name, filesystem, network, Runtime, Workspace
+  bootstrap, and Review & Create. `--name sre3` therefore starts at Filesystem
+  with `sre3` already bound rather than creating immediately.
   Network first renders reviewed routine Claude Code/Codex traffic, every
   standard and extension-method effective decision, and the private/unsafe
   destination ceiling. Customization alone exposes default, inherited, and
@@ -530,13 +533,15 @@ undeclared Docker mutation by the CLI.
   all stages share one alternate-screen session; Back preserves staged values.
   A terminal without the reviewed raw-mode support uses the bounded line-mode
   equivalent. Explicit Create performs one
-  mutation and cancellation from any step performs none. Any
-  explicit input, including `--format`, selects direct mode and requires
-  `--name`; defaults complete omitted direct-mode values without prompting.
+  mutation and cancellation from any step performs none. Redirected or JSON
+  creation never prompts and requires explicit `--name`, `--runtime`, `--mode`,
+  `--source-access`, and `--native-readiness`; Workspace bootstrap is an
+  optional explicit addition whose omission means not configured. Partial
+  machine input fails before mutation instead of applying hidden defaults.
   Method Deny removes Context-policy positive baseline entries for that method
   from the new immutable snapshot rather than leaving an invalid or misleading
   unreachable grant. Final review also identifies the exact ready Runtime
-  selected in the manifest. Redirected or JSON argument-free creation fails
+  selected in the manifest. Redirected or JSON incomplete creation fails
   before mutation. Standalone success points to the root entry while preserving
   the created Context explicitly when it is not current; root entry owns the
   remaining human setup sequence.

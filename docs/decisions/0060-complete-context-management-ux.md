@@ -14,13 +14,14 @@ safe deletion outcome.
 
 ## Decision
 
-An argument-free `context create` is a terminal-only wizard. It collects a
-validated Context name, direct source access, and one complete HTTP method
-policy: an extension-method default plus exact standard-method decisions, each
-`allow`, `exact_review`, or `deny`. It performs one create mutation only after
-the full selection. Any explicit command input selects the existing
-deterministic direct mode and requires `--name`; redirected or JSON
-argument-free use fails before mutation.
+Interactive text `context create` is a terminal-only staged wizard. It collects
+a validated Context name, direct source access, one complete HTTP method policy,
+an exact ready Runtime, optional future-Workspace bootstrap, and final review.
+Supplied values prefill the draft and skip only their corresponding initial
+stages; omitted stages remain visible before the one create mutation. Redirected
+or JSON creation never prompts and requires the complete direct group of name,
+Runtime, policy mode, source access, and native readiness. Workspace bootstrap
+remains optional; partial machine input fails before mutation.
 
 The selected preset remains the destination and baseline source. A wizard
 method policy replaces only its method policy. Positive baseline rules made
@@ -47,7 +48,9 @@ shared runtime images, and reports whether shared policy needs reconciliation.
 ## Consequences
 
 - Humans can create a complete capability envelope without memorizing flags.
-- Automation retains a prompt-free direct path.
+- Humans can prefill known values without bypassing review of omitted boundary
+  choices.
+- Automation retains a prompt-free, completely specified direct path.
 - A method-policy choice cannot leave positive baseline authority above a
   terminal method Deny.
 - Context lifecycle cleanup is explicit and cannot orphan a Workspace binding.
@@ -58,8 +61,9 @@ shared runtime images, and reports whether shared policy needs reconciliation.
 
 ## Verification
 
-Tests cover line and raw-terminal wizard selection, invalid names,
-cancellation/non-terminal rejection before mutation, composed snapshot
+Tests cover line and raw-terminal wizard selection, partial-input seeding and
+stage skipping, invalid names, partial machine input and cancellation rejection
+before mutation, composed snapshot
 normalization, unchanged JSON, vertical text cards, catalog mutation contracts,
 protected/current/Workspace guards, exact store removal, and repository gates.
 Context-show presentation tests use one typed fixture and answer key for the

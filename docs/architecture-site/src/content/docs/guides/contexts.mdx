@@ -26,27 +26,36 @@ The display name is convenient selection text. The stable Context ID is the dura
 
 ## Create a Context
 
-Run the command without inputs to choose the name, source access, and complete
-HTTP method policy interactively:
+Run the command interactively to review the complete Context boundary:
 
 ```sh
 tobari context create
 ```
 
-The wizard requires terminal stdin/stderr and text output. It asks for one
-extension-method default and every standard HTTP method as `allow`,
-`exact_review`, or `deny`, then performs one create mutation. Cancellation,
-redirected input, and JSON argument-free use perform no mutation.
-
-For deterministic direct mode, provide at least one input and always include
-`--name`:
+The wizard requires terminal stdin/stderr and text output. Supplied values
+prefill and skip their corresponding initial stages, while omitted settings
+remain reviewed. For example, this starts at Filesystem with the name already
+bound, then continues through Network, Runtime, Workspace bootstrap, and final
+Review:
 
 ```sh
-tobari context create --name review --mode guided \
-  --source-access read-only \
-  --native-readiness disabled
+tobari context create --name review
 tobari context show --name=review
 ```
+
+For deterministic redirected or JSON automation, provide the complete direct
+group. Workspace bootstrap remains an optional explicit addition:
+
+```sh
+tobari context create --name review \
+  --runtime standard \
+  --mode guided \
+  --source-access read-only \
+  --native-readiness disabled \
+  --format json
+```
+
+Partial machine input and cancellation perform no mutation.
 
 `source_access` is required in the persisted manifest. The CLI omission default
 is `read-write`; `read-only` makes only the selected live project-source bind
@@ -146,7 +155,7 @@ Re-enter the Workspace to start a new shell after changing a setting. Existing p
 
 - `context_not_found`: use `tobari context list` and choose an existing name.
 - `context_exists`: inspect the existing Context instead of overwriting it.
-- `context_create_wizard_unavailable`: run argument-free creation on an interactive text terminal, or use direct mode with `--name`.
+- `context_create_wizard_unavailable`: complete omitted settings on an interactive text terminal, or supply the complete direct input group.
 - `context_is_current`: select another Context before deletion.
 - `context_has_workspaces`: delete every Workspace bound to that Context first.
 - `context_is_protected`: the foundational `default` Context cannot be deleted.

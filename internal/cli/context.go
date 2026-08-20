@@ -441,14 +441,18 @@ func createContext(
 	mode := tobari.ContextPolicyMode(inputs.One("--mode"))
 	sourceAccess := tobari.ContextSourceAccess(inputs.One("--source-access"))
 	name := inputs.One("--name")
-	if contextCreateInputsOmitted(inputs) {
+	if !contextCreateDirectInputsComplete(inputs) {
 		if format != successFormatText || invocationErrorFormat(ctx) == errorFormatJSON ||
 			c.tobari == nil || !c.tobari.IsInteractive(c.In, c.Err) {
 			return tobari.ContextReport{}, fault.New(
 				fault.KindInvalidInput, "context_create_wizard_unavailable",
-				"Argument-free Context creation requires text success/error output and interactive terminal stdin and stderr; usage: "+command.Usage(), false,
-				fault.NextAction{Command: "help context create", Reason: "Run the argument-free wizard on interactive text streams or supply --name for direct mode."},
+				"Incomplete Context creation requires text success/error output and interactive terminal stdin and stderr; otherwise explicitly supply --name, --runtime, --mode, --source-access, and --native-readiness; usage: "+command.Usage(), false,
+				fault.NextAction{Command: "help context create", Reason: "Complete omitted settings interactively or supply the complete direct input group."},
 			)
+		}
+		seed, seedErr := contextCreateSeedFromInputs(ctx, c, inputs)
+		if seedErr != nil {
+			return tobari.ContextReport{}, seedErr
 		}
 		wizard := c.contextCreate
 		if wizard == nil {
@@ -457,12 +461,26 @@ func createContext(
 		if terminalWizard, ok := wizard.(*terminalContextCreateWizard); ok && terminalWizard.bootstrap == nil {
 			terminalWizard.bootstrap = c.context
 		}
-		if terminalWizard, ok := wizard.(*terminalContextCreateWizard); ok && c.runtime != nil {
+		if terminalWizard, ok := wizard.(*terminalContextCreateWizard); ok && c.runtime != nil && !seed.RuntimeProvided {
 			if catalog, listErr := c.runtime.List(ctx); listErr == nil {
 				terminalWizard.runtimes = catalog.Items
 			}
 		}
-		selection, wizardErr := wizard.Compose(ctx, c.In, c.Err)
+		var selection contextCreateSelection
+		var wizardErr error
+		if contextCreateCompositionInputProvided(inputs) {
+			seeded, ok := wizard.(seededContextCreateWizard)
+			if !ok {
+				return tobari.ContextReport{}, fault.New(
+					fault.KindInternal, "context_create_wizard_failed",
+					"The Context creation wizard cannot preserve supplied partial inputs.", false,
+					fault.NextAction{Command: "context create", Reason: "Retry with the built-in terminal wizard or the complete direct input group."},
+				)
+			}
+			selection, wizardErr = seeded.ComposeSeeded(ctx, c.In, c.Err, seed)
+		} else {
+			selection, wizardErr = wizard.Compose(ctx, c.In, c.Err)
+		}
 		if wizardErr != nil {
 			return tobari.ContextReport{}, normalizeContextCreateWizardError(wizardErr)
 		}
@@ -517,13 +535,63 @@ func createContext(
 	return c.context.CreateWithComposition(ctx, intent, name, tobari.BuiltinImageSelector, mode, sourceAccess, tobari.ContextCreateComposition{NativeReadiness: tobari.ContextNativeReadiness(inputs.One("--native-readiness")), RuntimeSelection: inputs.One("--runtime")})
 }
 
-func contextCreateInputsOmitted(inputs ParsedInputs) bool {
-	for _, name := range []string{"--name", "--runtime", "--mode", "--source-access", "--native-readiness", "--bootstrap-aws-profile", "--bootstrap-eks-context", "--format"} {
-		if inputs.Provided(name) {
+func contextCreateDirectInputsComplete(inputs ParsedInputs) bool {
+	for _, name := range []string{"--name", "--runtime", "--mode", "--source-access", "--native-readiness"} {
+		if !inputs.Provided(name) {
 			return false
 		}
 	}
 	return true
+}
+
+func contextCreateCompositionInputProvided(inputs ParsedInputs) bool {
+	for _, name := range []string{"--name", "--runtime", "--mode", "--source-access", "--native-readiness", "--bootstrap-aws-profile", "--bootstrap-eks-context"} {
+		if inputs.Provided(name) {
+			return true
+		}
+	}
+	return false
+}
+
+func contextCreateSeedFromInputs(ctx context.Context, c *CLI, inputs ParsedInputs) (contextCreateWizardSeed, error) {
+	seed := contextCreateWizardSeed{
+		Selection: contextCreateSelection{
+			Name:             inputs.One("--name"),
+			RuntimeSelection: inputs.One("--runtime"),
+			SourceAccess:     tobari.ContextSourceAccess(inputs.One("--source-access")),
+			NativeReadiness:  tobari.ContextNativeReadiness(inputs.One("--native-readiness")),
+			MethodPolicy: tobari.ContextMethodPolicy{
+				Default:   tobari.ContextMethodExactReview,
+				Overrides: []tobari.ContextMethodOverride{},
+			},
+		},
+		NameProvided:     inputs.Provided("--name"),
+		FilesystemFilled: inputs.Provided("--source-access"),
+		NetworkFilled:    inputs.Provided("--mode") && inputs.Provided("--native-readiness"),
+		RuntimeProvided:  inputs.Provided("--runtime"),
+		BootstrapFilled:  inputs.Provided("--bootstrap-aws-profile"),
+	}
+	if !seed.RuntimeProvided {
+		seed.Selection.RuntimeSelection = tobari.StandardRuntimeName
+	}
+	if !seed.FilesystemFilled {
+		seed.Selection.SourceAccess = tobari.ContextSourceAccessReadWrite
+	}
+	if !seed.BootstrapFilled {
+		return seed, nil
+	}
+	prepared, err := c.context.PrepareAWSBootstrap(ctx, inputs.One("--bootstrap-aws-profile"))
+	if err != nil {
+		return contextCreateWizardSeed{}, err
+	}
+	if inputs.Provided("--bootstrap-eks-context") {
+		prepared, err = c.context.PrepareEKSBootstrap(ctx, prepared, inputs.One("--bootstrap-eks-context"))
+		if err != nil {
+			return contextCreateWizardSeed{}, err
+		}
+	}
+	seed.Selection.Bootstrap = &prepared
+	return seed, nil
 }
 
 func normalizeContextCreateWizardError(err error) error {
@@ -536,7 +604,7 @@ func normalizeContextCreateWizardError(err error) error {
 		"The Context creation wizard failed before creating a Context.",
 		false,
 		err,
-		fault.NextAction{Command: "context create", Reason: "Retry in an interactive terminal or use direct mode with --name."},
+		fault.NextAction{Command: "context create", Reason: "Retry in an interactive terminal or use the complete direct input group."},
 	)
 }
 

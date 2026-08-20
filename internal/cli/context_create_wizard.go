@@ -27,6 +27,7 @@ type contextCreateSelection struct {
 	Name                string
 	RuntimeSelection    string
 	SourceAccess        tobari.ContextSourceAccess
+	NativeReadiness     tobari.ContextNativeReadiness
 	MethodPolicy        tobari.ContextMethodPolicy
 	AWSBootstrapProfile string
 	EKSBootstrapContext string
@@ -35,6 +36,19 @@ type contextCreateSelection struct {
 
 type contextCreateWizard interface {
 	Compose(context.Context, io.Reader, io.Writer) (contextCreateSelection, error)
+}
+
+type seededContextCreateWizard interface {
+	ComposeSeeded(context.Context, io.Reader, io.Writer, contextCreateWizardSeed) (contextCreateSelection, error)
+}
+
+type contextCreateWizardSeed struct {
+	Selection        contextCreateSelection
+	NameProvided     bool
+	FilesystemFilled bool
+	NetworkFilled    bool
+	RuntimeProvided  bool
+	BootstrapFilled  bool
 }
 
 type terminalContextCreateWizard struct {
@@ -78,6 +92,7 @@ type contextCreateRawDraft struct {
 	methodOverrides  map[string]tobari.ContextMethodDecision
 	bootstrap        *tobari.ContextBootstrapSnapshot
 	runtimeSelection string
+	nativeReadiness  tobari.ContextNativeReadiness
 	reviewAction     int
 	reviewTop        int
 	editSection      int
@@ -90,10 +105,16 @@ func newContextCreateWizardWithStyle(style bool) *terminalContextCreateWizard {
 func (w *terminalContextCreateWizard) Compose(
 	ctx context.Context, in io.Reader, out io.Writer,
 ) (contextCreateSelection, error) {
+	return w.ComposeSeeded(ctx, in, out, contextCreateWizardSeed{})
+}
+
+func (w *terminalContextCreateWizard) ComposeSeeded(
+	ctx context.Context, in io.Reader, out io.Writer, seed contextCreateWizardSeed,
+) (contextCreateSelection, error) {
 	if w != nil && w.mode != nil {
 		restore, rawErr := w.mode.Enter(in)
 		if rawErr == nil {
-			selection, composeErr := w.composeRaw(ctx, in, out)
+			selection, composeErr := w.composeRaw(ctx, in, out, seed)
 			finishSelectorScreen(out, 0)
 			restoreErr := restore()
 			if composeErr != nil {
@@ -105,28 +126,39 @@ func (w *terminalContextCreateWizard) Compose(
 			return selection, nil
 		}
 	}
-	return w.composeLine(ctx, in, out)
+	return w.composeLine(ctx, in, out, seed)
 }
 
 func (w *terminalContextCreateWizard) composeLine(
-	ctx context.Context, in io.Reader, out io.Writer,
+	ctx context.Context, in io.Reader, out io.Writer, seed contextCreateWizardSeed,
 ) (contextCreateSelection, error) {
-	name, err := readContextCreateName(ctx, in, out)
-	if err != nil {
-		return contextCreateSelection{}, err
+	draft := contextCreateDraftFromSeed(seed)
+	if !seed.NameProvided {
+		name, err := readContextCreateName(ctx, in, out)
+		if err != nil {
+			return contextCreateSelection{}, err
+		}
+		draft.name = name
 	}
-	draft := contextCreateRawDraft{name: name, runtimeSelection: tobari.StandardRuntimeName, sourceIndex: 0, methodDefault: tobari.ContextMethodExactReview, methodOverrides: map[string]tobari.ContextMethodDecision{}}
-	if err := editContextCreateFilesystemLine(ctx, in, out, w.style, &draft); err != nil {
-		return contextCreateSelection{}, err
+	if !seed.FilesystemFilled {
+		if err := editContextCreateFilesystemLine(ctx, in, out, w.style, &draft); err != nil {
+			return contextCreateSelection{}, err
+		}
 	}
-	if err := editContextCreateNetworkLine(ctx, in, out, w.style, &draft); err != nil {
-		return contextCreateSelection{}, err
+	if !seed.NetworkFilled {
+		if err := editContextCreateNetworkLine(ctx, in, out, w.style, &draft); err != nil {
+			return contextCreateSelection{}, err
+		}
 	}
-	if err := w.editContextCreateRuntimeLine(ctx, in, out, &draft); err != nil {
-		return contextCreateSelection{}, err
+	if !seed.RuntimeProvided {
+		if err := w.editContextCreateRuntimeLine(ctx, in, out, &draft); err != nil {
+			return contextCreateSelection{}, err
+		}
 	}
-	if err := w.reviewContextCreateBootstrapLine(ctx, in, out, &draft); err != nil {
-		return contextCreateSelection{}, err
+	if !seed.BootstrapFilled {
+		if err := w.reviewContextCreateBootstrapLine(ctx, in, out, &draft); err != nil {
+			return contextCreateSelection{}, err
+		}
 	}
 	for {
 		selection, err := contextCreateSelectionFromDraft(draft)
@@ -165,15 +197,10 @@ func (w *terminalContextCreateWizard) composeLine(
 }
 
 func (w *terminalContextCreateWizard) composeRaw(
-	ctx context.Context, in io.Reader, out io.Writer,
+	ctx context.Context, in io.Reader, out io.Writer, seed contextCreateWizardSeed,
 ) (contextCreateSelection, error) {
-	draft := contextCreateRawDraft{
-		sourceIndex:      0,
-		runtimeSelection: tobari.StandardRuntimeName,
-		methodDefault:    tobari.ContextMethodExactReview,
-		methodOverrides:  make(map[string]tobari.ContextMethodDecision),
-	}
-	step := contextCreateStepName
+	draft := contextCreateDraftFromSeed(seed)
+	step := firstContextCreateStep(seed)
 	lineCount := 0
 	for {
 		var navigation contextCreateRawNavigation
@@ -213,18 +240,96 @@ func (w *terminalContextCreateWizard) composeRaw(
 			return contextCreateSelection{}, context.Canceled
 		}
 		if navigation == contextCreateNavigateBack {
-			if step > contextCreateStepName {
-				step--
+			if previous, ok := previousContextCreateStep(step, seed); ok {
+				step = previous
 			}
 			continue
 		}
 		if step == contextCreateStepReview {
 			break
 		}
-		step++
+		step = nextContextCreateStep(step, seed)
 	}
 
 	return contextCreateSelectionFromDraft(draft)
+}
+
+func contextCreateDraftFromSeed(seed contextCreateWizardSeed) contextCreateRawDraft {
+	draft := contextCreateRawDraft{
+		name:             seed.Selection.Name,
+		sourceIndex:      0,
+		runtimeSelection: seed.Selection.RuntimeSelection,
+		nativeReadiness:  seed.Selection.NativeReadiness,
+		methodDefault:    seed.Selection.MethodPolicy.Default,
+		methodOverrides:  make(map[string]tobari.ContextMethodDecision),
+	}
+	if draft.runtimeSelection == "" {
+		draft.runtimeSelection = tobari.StandardRuntimeName
+	}
+	if draft.nativeReadiness == "" {
+		draft.nativeReadiness = tobari.ContextNativeReadinessEnabled
+	}
+	if draft.methodDefault == "" {
+		draft.methodDefault = tobari.ContextMethodExactReview
+	}
+	for _, override := range seed.Selection.MethodPolicy.Overrides {
+		draft.methodOverrides[override.Method] = override.Decision
+	}
+	if seed.Selection.SourceAccess == tobari.ContextSourceAccessReadOnly {
+		draft.sourceIndex = 1
+	}
+	if seed.Selection.Bootstrap != nil {
+		copy := seed.Selection.Bootstrap.Clone()
+		draft.bootstrap = &copy
+	}
+	return draft
+}
+
+func firstContextCreateStep(seed contextCreateWizardSeed) contextCreateRawStep {
+	for step := contextCreateStepName; step <= contextCreateStepReview; step++ {
+		if contextCreateStepNeedsInput(step, seed) {
+			return step
+		}
+	}
+	return contextCreateStepReview
+}
+
+func nextContextCreateStep(current contextCreateRawStep, seed contextCreateWizardSeed) contextCreateRawStep {
+	for step := current + 1; step <= contextCreateStepReview; step++ {
+		if contextCreateStepNeedsInput(step, seed) {
+			return step
+		}
+	}
+	return contextCreateStepReview
+}
+
+func previousContextCreateStep(current contextCreateRawStep, seed contextCreateWizardSeed) (contextCreateRawStep, bool) {
+	for candidate := current; candidate > contextCreateStepName; {
+		candidate--
+		if contextCreateStepNeedsInput(candidate, seed) {
+			return candidate, true
+		}
+	}
+	return current, false
+}
+
+func contextCreateStepNeedsInput(step contextCreateRawStep, seed contextCreateWizardSeed) bool {
+	switch step {
+	case contextCreateStepName:
+		return !seed.NameProvided
+	case contextCreateStepFilesystem:
+		return !seed.FilesystemFilled
+	case contextCreateStepNetwork:
+		return !seed.NetworkFilled
+	case contextCreateStepRuntime:
+		return !seed.RuntimeProvided
+	case contextCreateStepBootstrap:
+		return !seed.BootstrapFilled
+	case contextCreateStepReview:
+		return true
+	default:
+		return false
+	}
 }
 
 func editContextCreateTextRaw(
@@ -554,7 +659,7 @@ func reviewContextCreateNetworkRaw(
 			selectorDetail(style, "Step", contextCreateStepLabel(contextCreateStepNetwork), styleText),
 			selectorDetail(style, "Context", safeExternalText(draft.name), styleText),
 			"", applyStyleToken(style, styleText, "Agent traffic"),
-			"  Claude Code and Codex routine traffic  " + applyStyleToken(style, styleSuccess, "allow"),
+			"  Claude Code and Codex routine traffic  " + contextCreateRoutineTrafficPolicy(style, draft.nativeReadiness),
 			"", applyStyleToken(style, styleText, "Other destinations"),
 			applyStyleToken(style, styleMuted, "  METHOD                    POLICY"),
 		}
@@ -769,6 +874,7 @@ func contextCreateSelectionFromDraft(draft contextCreateRawDraft) (contextCreate
 	}
 	selection := contextCreateSelection{
 		Name: draft.name, RuntimeSelection: draft.runtimeSelection,
+		NativeReadiness: draft.nativeReadiness,
 		SourceAccess: []tobari.ContextSourceAccess{
 			tobari.ContextSourceAccessReadWrite,
 			tobari.ContextSourceAccessReadOnly,
@@ -802,7 +908,7 @@ func contextCreateReviewLines(style bool, selection contextCreateSelection) []st
 		fmt.Sprintf("  %-25s %s", "Temporary files", "read-write"),
 		"", applyStyleToken(style, styleText, "Network"),
 		applyStyleToken(style, styleMuted, "  TRAFFIC                   POLICY"),
-		fmt.Sprintf("  %-25s %s", "Claude/Codex routine", applyStyleToken(style, styleSuccess, "allow")),
+		fmt.Sprintf("  %-25s %s", "Claude/Codex routine", contextCreateRoutineTrafficPolicy(style, selection.NativeReadiness)),
 		"", applyStyleToken(style, styleMuted, "  METHOD                    OTHER DESTINATIONS"),
 	}
 	lines = append(lines, contextCreateEffectiveMethodLines(style, selection.MethodPolicy, false)...)
@@ -834,6 +940,13 @@ func contextCreateReviewLines(style bool, selection contextCreateSelection) []st
 	}
 	lines = append(lines, selectorHelp(style, "Applied only to newly created Workspace homes."))
 	return lines
+}
+
+func contextCreateRoutineTrafficPolicy(style bool, readiness tobari.ContextNativeReadiness) string {
+	if readiness == tobari.ContextNativeReadinessDisabled {
+		return applyStyleToken(style, styleWarning, "not pre-authorized")
+	}
+	return applyStyleToken(style, styleSuccess, "allow")
 }
 
 func editContextCreateFilesystemLine(ctx context.Context, in io.Reader, out io.Writer, style bool, draft *contextCreateRawDraft) error {
