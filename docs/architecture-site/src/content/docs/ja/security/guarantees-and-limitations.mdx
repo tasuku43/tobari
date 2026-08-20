@@ -52,7 +52,7 @@ project-bound opaque handle 一つです。
 
 **仕組み。** Auth Broker は static state を Context vault で暗号化します。handle record は
 Context、project、provider、revision、完全一致 target、HTTP header binding に結び付きます。
-Gateway は handle を除去し、non-secret introspection と preset guardrail の後に OPA へ問い合わせ、
+Gateway は handle を除去し、non-secret introspection と Context policy ceiling の後に OPA へ問い合わせ、
 allow 後だけ declared static resolve を実行します。
 
 **障害時。** 不正、copy、stale、malformed、ambiguous handle は拒否し別方式へ切り替えません。

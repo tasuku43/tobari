@@ -39,7 +39,7 @@ wizard には terminal stdin/stderr と text output が必要です。extension 
 ```sh
 tobari context create --name review --mode guided \
   --source-access read-only \
-  --policy-preset builtin/offline
+  --native-readiness disabled
 tobari context show --name=review
 ```
 
@@ -50,28 +50,18 @@ clone、snapshot、overlay、Workspace 全体の読み取り専用境界を意�
 root の read-write Context による変更は read-only Context からも見えます。その source
 bind に書き込み可能な別名はありません。
 
-`policy_preset_origin` と `policy_preset_revision` も保存時の必須項目です。CLI の省略値は
-`builtin/agent-ready` です。作成時に preset を正規化、検証、digest 化、snapshot 化し、
-元の custom preset を後から更新しても既存 Context には反映しません。source access と
-preset snapshot は作成後に変更できません。
+`policy_revision` は Context が所有する正規化済み policy snapshot の保存時必須 revision
+です。固定の agent-ready baseline は trusted binary が合成するデータであり、選択可能な
+profile ではありません。source access と Context policy snapshot は作成後に変更できません。
 
-wizard で method Deny を選ぶと、その method の positive baseline rule は新しい immutable snapshot から除外されます。preset の独立した destination ceiling と exact Deny は変わりません。
-
-| Preset                        | 即時許可                                         | method policy                           |
-| ----------------------------- | ------------------------------------------------ | --------------------------------------- |
-| `builtin/agent-ready`         | pin 済み Claude/Codex core effect の完全一致集合 | default は Exact Review                 |
-| `builtin/offline`             | なし                                             | default は Deny                         |
-| `builtin/reviewed-exact`      | なし                                             | default は Exact Review                 |
-| `builtin/get-only-reviewed`   | なし                                             | default は Deny、`GET` は Exact Review  |
-| `builtin/public-get-reviewed` | public HTTPS `GET`                               | default は Exact Review、`GET` は Allow |
+wizard で method Deny を選ぶと、その method の positive baseline rule は新しい immutable
+Context snapshot から除外されます。destination ceiling と exact Deny は変わりません。
 
 `GET` は method 座標にすぎず、安全または読み取り専用とは表現しません。完全一致 Deny は
 method Allow より優先します。
 agent-ready の許可は process identity ではなく Context 全体の HTTP effect です。plugin、MCP、
 connector、file transfer、download、evaluation、self-update は含みません。vendor 全体や
-command 名による bypass もありません。custom preset は owner-only の厳格な
-非実行データです。wildcard、IP/private destination、secret、shell、Rego、include、
-inheritance、remote fetch、refresh、signing は V1 の対象外です。
+command 名による bypass もありません。
 
 作成時に所有者だけがアクセスできる Context 保存領域を初期化しますが、Docker の起動、既存 Workspace の変更、共有集約ポリシーの更新は行いません。クラスターがすでに存在する場合、結果には明示的な調整が必要であることが示されます。
 

@@ -1,33 +1,33 @@
 ---
 title: Runtime customization
-description: Build and select a compatible Context-owned runtime without changing Workspace identity or persistent home.
+description: Build reusable immutable Runtime revisions and explicitly pin Contexts without changing Workspace identity or persistent home.
 ---
 
 If you have only completed Quickstart, begin with [Prepare a custom runtime](../../start/runtime-setup/). That page covers the shortest path from the minimal base runtime to a verified coding-agent command inside a real Workspace.
 
-This page is the detailed guide to Context ownership, image promotion, compatibility, drift reconciliation, and failure recovery. Add project tools by initializing the current Context's owner-only Dockerfile recipe, editing it on the trusted host, and running an explicit `runtime build`. The next Workspace entry reconciles the work container while preserving the logical Workspace identity and persistent home.
+This page covers Runtime ownership, immutable revision history, explicit Context
+selection, drift reconciliation, and failure recovery. Runtime source is
+installation-wide and reusable; a Context stores only one exact ready revision
+binding.
 
 Before starting, identify the current Context; see [Contexts](../contexts/). A custom runtime image provides the working environment, but it does not gain authority over mounts, networking, or Workspace lifetime.
 
-## 1. Select and inspect the Context
-
-Runtime commands operate on the current/default Context. To work on a named Context, select it first:
+## 1. Create and inspect a Runtime
 
 ```sh
-tobari context use --name review
-tobari context show
+tobari runtime create --name frontend
+tobari runtime show --name frontend
 ```
 
-The Context report tells you the selected image and whether a managed recipe already exists. Existing Workspaces permanently bound to this Context will consult its current image on their next entry.
+The create report gives the owner-only `source_path`. Names are unique within
+the installation and the stable Runtime ID does not change across revisions.
 
-## 2. Initialize once
+## 2. Edit the complete source tree
 
-```sh
-tobari runtime init --format json
-tobari context show --format json
-```
-
-Use the reported runtime recipe path instead of guessing it. `runtime init` creates an owner-only `runtime/Dockerfile` template. It does not build an image, change the selected image, start Docker services, or overwrite an existing recipe.
+Use the reported path instead of guessing it. The directory is a complete
+Docker build context: manage Dockerfile-adjacent scripts, package manifests,
+and configuration there as ordinary files. Links and special files are not
+accepted. Editing source changes no Context and creates no revision.
 
 Edit the recipe on the trusted host. A minimal customization keeps the template's base and user transitions intact, for example adding a package between its existing `USER root` and `USER tobari` lines:
 
@@ -39,24 +39,37 @@ RUN apt-get update \
 
 Do not put real credentials in the Dockerfile, build context, image layers, or examples.
 
-## 3. Build, validate, and promote
+## 3. Build and validate an immutable revision
 
 ```sh
-tobari runtime build --format json
+tobari runtime build --name frontend --format json
+tobari runtime history --name frontend
 ```
 
 This is one deliberate host Docker-build boundary. Tobari:
 
-1. uses only the Context runtime directory as build context;
-2. derives a local image identity from the Context and recipe source digest;
-3. runs the Docker build with bounded, structured invocation;
+1. validates and hashes the complete bounded source tree;
+2. writes an immutable semantic snapshot;
+3. builds only that snapshot with a mechanically derived local image identity;
 4. validates the resulting image against the Tobari runtime contract;
 5. records the confirmed image digest; and
-6. atomically promotes the image selector in the Context manifest.
+6. atomically appends the successful revision to Runtime history.
 
-Editing the file alone has no effect. A failed build or failed compatibility check leaves the previous selected image authoritative. Docker/BuildKit may retain cache or an unselected candidate image; Tobari does not misreport those as active.
+Failed and unchanged builds append no revision, and every Context remains
+unchanged. Docker/BuildKit may retain cache or an unselected candidate image;
+Tobari does not misreport those as ready history.
 
-## 4. Re-enter an existing Workspace
+## 4. Explicitly pin a Context
+
+```sh
+tobari context runtime set --context review --runtime frontend@1
+tobari context show --name review
+```
+
+The same revision may be pinned by several Contexts. A later build does not
+upgrade them. Select another ordinal explicitly for upgrade or rollback.
+
+## 5. Re-enter an existing Workspace
 
 From a project bound to this Context:
 
@@ -87,17 +100,21 @@ Those controls are owned by the host lifecycle implementation, not image metadat
 
 ## Failure behavior
 
-- `runtime_recipe_exists`: inspect the existing recipe; init refuses to overwrite it.
-- `runtime_recipe_missing`: run `tobari runtime init` before build.
-- `runtime_build_failed`: correct the Dockerfile and inspect `tobari context show`; the old selection remains unless promotion already completed.
+- `runtime_exists`: inspect the existing Runtime with `tobari runtime show`.
+- `runtime_not_found`: choose a name from `tobari runtime list`.
+- `runtime_build_failed`: correct the source and inspect `tobari runtime show`; history and Contexts remain unchanged.
+- `runtime_revision_not_ready`: choose a successful ordinal from `tobari runtime history`.
 - `image_not_found`: make the declared base or selected image available, then retry the explicit build/reconcile step.
 - `incompatible_image`: restore the required user, labels/API, entrypoint, lifetime capability, and architecture.
-- An uncertain mutation outcome: inspect `tobari context show` before another build instead of assuming promotion failed.
+- An uncertain selection outcome: inspect `tobari context show` before selecting again.
 - Existing Workspace entry failure: prior logical state and home remain; fix the Context image and re-enter.
 
 ## Guarantees and limits
 
-Promotion is content-aware and Context-scoped, and failed validation does not silently replace the active selection. Compatibility validation cannot make arbitrary software inside the image trustworthy. Anything running in the Workspace can still modify the selected project and use already allowed network effects.
+History is content-aware and append-only, and failed validation cannot silently
+replace a Context binding. Compatibility validation cannot make arbitrary
+software inside the image trustworthy. Anything running in the Workspace can
+still modify the selected project and use already allowed network effects.
 
 ## Source evidence
 
@@ -109,14 +126,17 @@ Promotion is content-aware and Context-scoped, and failed validation does not si
 
 ## Summary
 
-The recipe is source, `runtime build` is the explicit validated promotion boundary, and Workspace entry is the reconciliation point. Runtime images provide tools; host lifecycle code owns authority and lifetime.
+Runtime source is mutable preparation, successful revisions are immutable,
+Context selection is explicit, and Workspace entry is the reconciliation
+point. Runtime images provide tools; host lifecycle code owns authority and lifetime.
 
 ## Check your understanding
 
 <details>
-<summary>Does editing the Dockerfile update running Workspaces?</summary>
+<summary>Does editing or building Runtime source update Workspaces?</summary>
 
-No. You must run `runtime build`; existing Workspaces observe a promoted compatible image on their next entry.
+No. Build creates history only. A Context must explicitly select the ready
+revision, and its Workspaces observe that binding on their next entry.
 
 </details>
 

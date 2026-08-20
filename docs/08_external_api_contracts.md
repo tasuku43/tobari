@@ -34,9 +34,9 @@ Gateway performs no external DNS or upstream connection before allow. It uses
 finite OPA, DNS, connect, and upstream timeouts and makes one upstream
 attempt. It does not retry an arbitrary HTTP request.
 
-## Policy-preset ceiling
+## Context policy ceiling
 
-The immutable preset guardrail is evaluated before baseline data, learned
+The immutable Context-owned policy ceiling is evaluated before baseline data, learned
 exact policy, or Advanced Rego. Enabled native readiness grants the reviewed
 Claude Code 2.1.220 and Codex 0.147.0 model/account/bootstrap, first-party
 capability discovery, bounded evaluation, telemetry, and MCP initialize/list
@@ -48,7 +48,7 @@ pup 1.10.7's exact US1 DCR registration and token exchange/refresh when
 supplied by a custom runtime. Compile-time
 `claude_ready`, `codex_ready`, `gh_ready`, `twg_ready`, and `pup_ready` bundles are projected
 from the installed trusted binary into ordinary exact rules independently of
-preset identity and are not runtime selectors. New snapshots omit
+Context policy identity and are not runtime selectors. New snapshots omit
 them; legacy bundle rules are removed from the effective projection before the
 current set is added. One dedicated compile-time family catalog owns pinned
 client versions, independently selected positive contract revisions, and
@@ -56,16 +56,16 @@ append-only removal history. Observed traffic cannot extend it, and its
 effective content participates in the aggregate
 revision checked by status and Workspace entry. Those are
 Context-wide semantic effects rather than executable
-identity. Preset destination ceilings and method Deny decisions filter or
+identity. Context policy destination ceilings and method Deny decisions filter or
 suppress the overlay, and exact Deny remains terminal. MCP actions, file transfer,
 downloads, acquisition, self-update, and unmatched effects receive no baseline
 grant. Disabled readiness supplies no overlay. Every method resolves from a
 default plus exact overrides using Allow, Exact Review, or Deny.
-`builtin/offline` defaults to Deny; `builtin/reviewed-exact` defaults to Exact
-Review; `builtin/get-only-reviewed` defaults to Deny with GET Exact Review;
-`builtin/public-get-reviewed` defaults to Exact Review with GET Allow. The
-three strict presets grant no immediate authority. GET is not classified as
-safe or read-only, and exact Deny wins over method Allow. Terminal denial
+The fixed agent-ready baseline is trusted-binary data composed into the
+Context-owned snapshot; it is not a selectable profile. Context creation
+supplies one complete method default plus exact overrides, so deny-only and
+GET-only postures are represented directly. GET is not classified as safe or
+read-only, and exact Deny wins over method Allow. Terminal denial
 creates no candidate and causes zero external DNS or upstream calls.
 
 The native-login matrix explicitly includes Claude's platform hello/token and

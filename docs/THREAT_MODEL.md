@@ -6,7 +6,7 @@ security contract is [Security Model](03_security_model.md).
 ## Assets and trust
 
 Trusted: host OS/user, Docker Engine or its Linux VM, Tobari CLI, Gateway, OPA,
-Auth Broker, host root-key provider, owner policy/preset/static-provider data,
+Auth Broker, host root-key provider, owner Context policy/static-provider data,
 encrypted Context vaults, and the reviewed GitHub host driver.
 
 Untrusted: every Workspace process, coding agent, selected source, Workspace
@@ -51,28 +51,25 @@ headers, body, observation count, labels, ordering, path similarity, and
 indentation do not widen identity. Prefix learned rules and compaction do not
 exist.
 
-The immutable preset guardrail is evaluated before baseline data, learned
+The immutable Context-owned policy ceiling is evaluated before baseline data, learned
 rules, and Advanced Rego. `builtin/agent-ready` grants a finite exact
 version-coupled Claude/Codex core matrix, GitHub native-auth effects, and TWG
 CLI 1.2.5 plus pup 1.10.7 native-auth effects when supplied by a custom runtime to every
 process in the Context; exact Deny remains terminal and optional agent surfaces
 remain unmatched.
-Native-auth readiness is projected from the installed trusted binary only for
-the exact agent-ready origin. New snapshots omit it; historical forms are
+Native-auth readiness is projected from the installed trusted binary as a
+separate Context capability. New snapshots omit it; historical forms are
 removed from legacy snapshots before the current set is added. Runtime data,
-custom presets, observed candidates, and executable names cannot select it.
+observed candidates, and executable names cannot select it.
 Pinned client versions and append-only readiness contract revisions are
 separate identities in one compile-time catalog.
 Every method resolves from a default plus exact overrides using Allow, Exact
-Review, or Deny. `builtin/offline` defaults to Deny;
-`builtin/reviewed-exact` defaults to Exact Review;
-`builtin/get-only-reviewed` defaults to Deny with GET Exact Review;
-`builtin/public-get-reviewed` defaults to Exact Review with GET Allow. The
-three strict presets grant nothing immediately. GET has no safe/read-only
+Review, or Deny. The fixed agent-ready baseline is trusted-binary data in the
+default Context policy, not a selectable profile. GET has no safe/read-only
 classification, and exact Deny wins over method Allow. Terminal denial creates no candidate and causes zero external
 DNS, Broker resolution, or upstream call.
 
-Custom presets are strict owner-only non-executable schema-V1 data, normalized,
+Context policy snapshots are strict owner-only non-executable schema-V1 data, normalized,
 validated, digested, and snapshotted at Context creation. Wildcards, IP/private
 destinations, secrets, shell, Rego, includes, inheritance, remote fetch,
 refresh, signing, symlinks, unsafe modes, and unknown fields fail closed.

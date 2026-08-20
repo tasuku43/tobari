@@ -30,13 +30,12 @@ The diagram compresses one discovery detail: Gateway's denial response and audit
 
 ## 1. Denial is not a permission request
 
-OPA is deny-by-default for effects that match no preset baseline grant or exact
-learned allow. The default `builtin/agent-ready` has a finite exact
-version-coupled Claude/Codex core baseline; the three strict built-ins have zero
-immediate grants. `builtin/public-get-reviewed` instead allows public HTTPS GET
-while leaving every other method at Exact Review. A
-request may be learnable only after schema, principal, fixed-port, credential
-binding, and the immutable preset terminal guardrail validate it.
+OPA is deny-by-default for effects that match no Context policy baseline grant
+or exact learned allow. The default Context has a finite exact
+version-coupled Claude/Codex core baseline; its complete method policy is
+Context-owned. A deny-only or GET-only posture is represented by that method
+policy. A request may be learnable only after schema, principal, fixed-port,
+credential binding, and the immutable Context policy ceiling validate it.
 
 Gateway returns `403 policy_denied`. A learnable response names only the trusted-host review location and exact visible effect. It explicitly says there is no automatic retry.
 
@@ -98,13 +97,13 @@ This matters for non-idempotent methods and bodies: Tobari cannot know whether b
 
 ## Allow, deny, and reset
 
-| Decision              | Meaning                                                                                                              |
-| --------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| Preset baseline grant | Snapshot authority, if any; all built-in V1 presets have none                                                        |
-| Preset terminal deny  | Guardrail rejection that never enters pending review and performs zero candidate/DNS/Broker/upstream work            |
-| Learned exact allow   | One Context/project/host/port/method/path capability                                                                 |
-| Learned exact deny    | One explicitly reviewed terminal rejection; it wins over an allow for that effect                                    |
-| `policy reset`        | Removes one learned allow or exact deny and returns the effect to initialized/default evaluation; it is not an allow |
+| Decision                      | Meaning                                                                                                              |
+| ----------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| Context policy baseline grant | Trusted baseline authority in the Context snapshot; the fixed agent-ready data is not a selectable profile           |
+| Context policy terminal deny  | Ceiling rejection that never enters pending review and performs zero candidate/DNS/Broker/upstream work              |
+| Learned exact allow           | One Context/project/host/port/method/path capability                                                                 |
+| Learned exact deny            | One explicitly reviewed terminal rejection; it wins over an allow for that effect                                    |
+| `policy reset`                | Removes one learned allow or exact deny and returns the effect to initialized/default evaluation; it is not an allow |
 
 ## Concrete example
 

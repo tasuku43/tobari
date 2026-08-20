@@ -36,10 +36,10 @@ TOBARI_BIN=bin/tobari
 "$TOBARI_BIN" help --format agent
 "$TOBARI_BIN" help context --format agent
 "$TOBARI_BIN" context create --name writable \
-  --source-access read-write --policy-preset builtin/agent-ready \
+  --source-access read-write \
   --native-readiness enabled --format json
 "$TOBARI_BIN" context create --name restricted \
-  --source-access read-only --policy-preset builtin/offline \
+  --source-access read-only \
   --native-readiness disabled --format json
 "$TOBARI_BIN" context show --name writable --format json
 "$TOBARI_BIN" context show --name restricted --format json
@@ -67,9 +67,11 @@ The last observation proves a live direct bind, not a snapshot or filesystem-
 integrity boundary. Neither Context is allowed to mutate the other's home,
 network, or policy state. Native credentials follow the owning Workspace home.
 
-## Policy-preset matrix
+## Context policy matrix
 
-For every preset, inspect and bind its immutable immediate-grant count.
+Inspect and bind the immutable Context policy snapshot and its complete method
+default/override set. The fixed agent-ready baseline is part of the trusted
+binary's default Context policy, not a selectable profile.
 
 - `builtin/agent-ready`: the pinned Claude/Codex native matrix, GitHub CLI
   device-auth bootstrap, TWG CLI 1.2.5 auth/site/manifest lifecycle, and pup
@@ -83,15 +85,15 @@ For every preset, inspect and bind its immutable immediate-grant count.
   file transfer, self-update, unrelated paths, and third-party destinations
   remain denied or reviewable. Prove grants apply by Context semantic identity,
   not executable name.
-- `builtin/offline`: every HTTP and HTTPS effect is a terminal denial; the
-  review queue remains empty.
-- `builtin/reviewed-exact`: only guardrail-eligible effects reach exact review.
-- `builtin/get-only-reviewed`: only guardrail-eligible GET effects reach exact
-  review; HEAD and every non-GET are terminal denials. Do not describe GET as
-  safe or read-only.
-- `builtin/public-get-reviewed`: public HTTPS GET succeeds without a candidate;
-  every other public HTTPS method remains eligible only for exact review. An
-  exact Deny for the same GET remains terminal.
+- A deny-only Context produces terminal denials for every method and leaves the
+  review queue empty.
+- An exact-review Context sends eligible effects to exact review without
+  granting immediate authority.
+- A GET-only Context uses default Deny with an exact-review `GET` override;
+  `HEAD` and every non-GET remain terminal denials. Do not describe GET as safe
+  or read-only.
+- A method-Allow Context still remains bounded by the destination ceiling and
+  exact Deny; Method Allow is Context-wide, not process identity.
 
 The native-login subset must include exactly:
 
@@ -127,13 +129,13 @@ append-only contract revisions, and exactly one current contract per
 family. Prove the aggregate revision includes its
 effective expansion, an older active revision is reported invalid, and root
 entry returns exact `cluster up` recovery before Workspace mutation.
-Create enabled and disabled readiness with every builtin preset. Enabled
-readiness is independent of preset identity, but destination ceilings and
-method Deny filter it, and exact Deny remains terminal. Prove every method uses
-an exact override or the preset default, including an extension-method canary.
-Disabled readiness supplies
-no overlay. Missing legacy state preserves the former behavior (enabled only
-for `builtin/agent-ready`) without rewriting the manifest. For GitHub,
+Create Contexts with enabled and disabled readiness while varying the complete
+Context method policy. Enabled readiness is independent of any profile name,
+but destination ceilings and method Deny filter it, and exact Deny remains
+terminal. Prove every method uses its explicit override or the Context default,
+including an extension-method canary. Disabled readiness supplies no overlay.
+An omitted readiness value resolves to the current Context default without
+rewriting the stored policy snapshot. For GitHub,
 neighboring methods, paths, query variants,
 GitHub API hosts, ordinary HTTP at `/graphql`, mutation, sibling or mixed roots,
 Git transport, downloads, uploads, releases, and self-update receive no baseline
@@ -168,14 +170,14 @@ telemetry, revoke, and neighboring OAuth effects receive no baseline grant.
 For each terminal denial, record zero permission candidates, external DNS
 lookups, and upstream attempts. Repeat with a learned
 exact allow, baseline grant, and Advanced Rego allow that would otherwise match;
-none may bypass the guardrail.
+none may bypass the Context policy ceiling.
 
-Custom-preset tests use strict owner-only schema-V1 data. Reject unknown fields,
+Context-policy tests use strict owner-only schema-V1 data. Reject unknown fields,
 wildcards, IP/private destinations, secrets, shell, Rego, include, inheritance,
 remote fetch, refresh, signing, symlinks, unsafe modes, duplicate keys, and
 ambiguous rules. Context creation normalizes, validates, digests, and snapshots
-the source. Editing the source preset afterward must not change the existing
-Context report or active guardrail. Updating the trusted binary must update only
+the Context policy. Editing policy source afterward must not change the existing
+Context report or active policy ceiling. Updating the trusted binary must update only
 the native-readiness overlay of existing enabled Contexts without rewriting
 their snapshot.
 

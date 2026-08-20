@@ -77,7 +77,7 @@ const groups = [
   group(
     "Configure a Context and runtime",
     "Context とランタイムを構成する",
-    "Create or select an execution Context, configure presentation, and build its runtime.",
+    "Create or select a Context, configure presentation, build reusable Runtime revisions, and pin one explicitly.",
     "実行に使う Context を作成・選択し、シェル設定、Git 設定、ランタイムを準備します。",
     [
       "context list",
@@ -85,8 +85,10 @@ const groups = [
       "context use",
       "config shell",
       "config git",
-      "runtime init",
+      "runtime list",
+      "runtime create",
       "runtime build",
+      "context runtime set",
     ],
   ),
   group(

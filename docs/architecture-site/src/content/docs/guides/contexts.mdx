@@ -44,7 +44,7 @@ For deterministic direct mode, provide at least one input and always include
 ```sh
 tobari context create --name review --mode guided \
   --source-access read-only \
-  --policy-preset builtin/offline
+  --native-readiness disabled
 tobari context show --name=review
 ```
 
@@ -56,32 +56,21 @@ Host changes—and changes made through a read-write Context for the same
 root—remain visible to a read-only Context. There is no writable alias for that
 source bind.
 
-`policy_preset_origin` and `policy_preset_revision` are also required persisted
-fields. The CLI omission default is `builtin/agent-ready`. Creation
-normalizes, validates, digests, and snapshots the preset; later edits to a
-custom preset source do not alter this Context. Source access and the preset
-snapshot cannot be changed after creation.
+`policy_revision` is the required persisted revision of the Context policy
+normalized policy snapshot. The fixed agent-ready baseline is composed by the
+trusted binary and is not a selectable profile. Source access and the Context
+policy snapshot cannot be changed after creation.
 
 When the wizard selects a method Deny, positive baseline rules for that method
-are removed from the new immutable snapshot. The preset's independent
-destination ceiling and exact Denies are unchanged.
-
-| Preset                        | Immediate grants                              | Method policy                     |
-| ----------------------------- | --------------------------------------------- | --------------------------------- |
-| `builtin/agent-ready`         | Pinned Claude/Codex native capability effects | Default Exact Review              |
-| `builtin/offline`             | None                                          | Default Deny                      |
-| `builtin/reviewed-exact`      | None                                          | Default Exact Review              |
-| `builtin/get-only-reviewed`   | None                                          | Default Deny; `GET` Exact Review  |
-| `builtin/public-get-reviewed` | Public HTTPS `GET`                            | Default Exact Review; `GET` Allow |
+are removed from the new immutable Context snapshot. The destination ceiling
+and exact Denies are unchanged.
 
 `GET` is only a method coordinate; Tobari does not call it safe or read-only.
-Exact Deny wins over method Allow. The agent-ready grants are Context-wide semantic effects
-rather than process identity. They include bounded first-party discovery,
-evaluation, and MCP initialization/list methods, but exclude MCP actions,
-downloads, acquisition, file transfer, and self-update. No vendor-wide or
-command-name bypass exists. A custom preset is strict owner-only, non-executable data;
-wildcards, IP/private destinations, secrets, shell, Rego, includes,
-inheritance, remote fetch, refresh, and signing are outside V1.
+Exact Deny wins over method Allow. The agent-ready grants are Context-wide
+semantic effects rather than process identity. They include bounded first-party
+discovery, evaluation, and MCP initialization/list methods, but exclude MCP
+actions, downloads, acquisition, file transfer, and self-update. No vendor-wide
+or command-name bypass exists.
 
 Creation initializes owner-only Context stores but does not start Docker, mutate existing Workspaces, or update the shared aggregate. If a cluster already exists, the result reports that explicit reconciliation is required:
 

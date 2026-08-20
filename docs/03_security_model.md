@@ -53,12 +53,13 @@ process in it, coding agents, project files, Workspace home, copied opaque
 handles, generated code, downloaded packages, request data, upstream responses,
 and user/provider text displayed by CLIs are untrusted.
 
-The host also owns each Context's immutable source-access choice, preset origin,
-normalized policy-preset snapshot, and enabled/disabled native-readiness choice. They remain secret-free authority
+The host also owns each Context's immutable source-access choice,
+normalized Context-owned policy snapshot and revision, and enabled/disabled
+native-readiness choice. They remain secret-free authority
 metadata in separate owner-only state; project files, runtime images,
-Workspaces, and source preset files cannot rewrite an existing Context
+Workspaces, and policy source files cannot rewrite an existing Context
 envelope. Enabled readiness independently selects the trusted binary's finite
-native-readiness overlay, still bounded by terminal preset guardrails and
+native-readiness overlay, still bounded by terminal Context policy ceilings and
 ceilings. A binary update can change that overlay for
 existing Contexts, but runtime data cannot select or define it.
 
@@ -256,25 +257,35 @@ contains no branch, dirty diff, absolute path, username, environment value,
 registry credential, or unreviewed digest. Repository-only recovery text is
 gated by the compiled development resolver metadata rather than CWD inspection.
 
-The current Context's runtime recipe is a trusted-host build input. A release
-resolver ensures its pinned agent-ready base from embedded source under a
-source-derived local tag; contributor development uses the local combined base.
-`runtime build` may obtain the declared base image only
-because the user explicitly requested a host build. Docker receives the
-owner-only Context `runtime/` directory as its complete build context; policy
-files, provider manifests, credential metadata, encrypted vaults, root keys,
-secret files, the host home, Docker sockets, and Workspace mounts are outside
-it. The generated image must pass the same
-compatibility inspection before its reference is promoted into the Context.
-Editing the recipe or a failed build cannot replace the last selected image.
-After promotion succeeds, only Workspaces permanently bound to that Context
+Managed Runtime source is a trusted-host build input. A release resolver
+ensures its pinned agent-ready base from embedded source under a source-derived
+local tag; contributor development uses the local combined base. `runtime
+build` may obtain that declared base only because the user explicitly requested
+a host build. Docker receives one immutable Runtime revision snapshot as its
+complete build context; Context policy, provider manifests, credential
+metadata, encrypted vaults, root keys, secret files, the host home, Docker
+sockets, and Workspace mounts are outside it. The generated image must pass the
+same compatibility inspection before history append. Editing source or a
+failed build cannot replace a Context binding. After explicit Context
+selection succeeds, only Workspaces permanently bound to that Context
 observe the selected image through their next trusted root-entry reconciliation.
 Docker/BuildKit build output is untrusted diagnostic text even though the
-Dockerfile is an owner-only host input. The explicit build forwards both Docker
+complete Runtime source tree is owner-only host input. The explicit build forwards both Docker
 streams through visible projection, preserving line structure and concrete
 errors while making backslashes, terminal controls/formats, and Unicode line
 separators distinguishable. It is not copied into the stable structured fault,
 Context manifest, or audit state.
+Attached Workspace stdout is also untrusted child text. Only the interactive
+Unix terminal path may pass one bounded, complete JSON object/array or
+conservative YAML mapping/sequence through the infrastructure syntax-color
+projection. The projection preserves the visible child bytes and whitespace,
+adds only fixed Tobari-owned SGR wrappers, rejects actual terminal controls,
+and passes ambiguous, incomplete, invalid, oversized, tagged, anchored, or
+aliased YAML through unchanged. Escaped control text inside a value is not a
+terminal control. The relay keeps Docker's child PTY and forwards input and
+resize; it never interprets output as a command, policy, URL, credential, or
+recovery action. Stderr, redirected output, machine output, and `NO_COLOR`
+remain ANSI-free.
 The built-in and explicit local bases receive no registry-pull request.
 Explicit remote custom bases remain Docker-owned inputs to the requested build;
 this keeps the local base boundary independent from a Tobari registry artifact.
@@ -510,13 +521,14 @@ and are best-effort host stderr output.
 
 Before any baseline, learned, or Advanced allow, the Tobari-owned evaluator
 applies the immutable destination ceiling and resolves one complete method
-decision from an exact override or the preset default. Method `deny` is
-terminal; `allow` enters the preset-grant path; `exact_review` grants nothing
+decision from an exact override or the Context policy default. Method `deny` is
+terminal; `allow` enters the Context-policy baseline path; `exact_review` grants nothing
 by itself. Terminal denial emits no
 permission candidate and causes zero external DNS, Auth Broker resolution, or
-upstream calls. The guardrail cannot be replaced by Context Rego, learned state,
-provider metadata, or a Workspace-supplied value. `builtin/offline` terminally
-denies all HTTP/HTTPS and creates no review candidate;
+upstream calls. The Context policy ceiling cannot be replaced by Context Rego,
+learned state, provider metadata, or a Workspace-supplied value. The fixed
+agent-ready baseline is not selectable and Context creation can choose a
+deny-only or GET-only method policy directly;
 enabled native readiness grants the reviewed Claude Code 2.1.220 and Codex 0.147.0
 native model/account/bootstrap, first-party capability-discovery, bounded
 evaluation, and telemetry effects. Dynamic evaluation matches only one safe
@@ -548,20 +560,17 @@ and executable names never enter policy.
 New Context snapshots omit these readiness rules. Aggregate generation removes
 every form retained in the binary's append-only compatibility history from a
 legacy snapshot, then, when enabled, adds only the current binary set.
-Destination ceilings, method Deny, and exact Deny remain terminal. Missing
-legacy state preserves its former preset-coupled
-behavior without rewriting the immutable manifest.
+Destination ceilings, method Deny, and exact Deny remain terminal. An omitted
+readiness value resolves to the explicit default without rewriting the
+immutable manifest.
 One reviewed dedicated compile-time family catalog owns each bundle's pinned
 client version, independent current contract revision, and append-only removal
 history. Observed candidates cannot extend it. The active aggregate revision must equal the
 revision recomputed from current Context sources and that catalog; status marks
 a mismatch invalid and Workspace entry performs no downstream reconciliation
 until explicit `cluster up` activates the complete candidate.
-`builtin/reviewed-exact` defaults all methods to Exact Review;
-`builtin/get-only-reviewed` defaults to Deny with GET Exact Review;
-`builtin/public-get-reviewed` defaults to Exact Review with GET Allow. The
-three strict presets grant no immediate authority. GET is not classified as
-safe or read-only, and exact Deny remains terminal over method Allow.
+GET is not classified as safe or read-only, and exact Deny remains terminal
+over method Allow.
 
 ## Credentials
 
@@ -712,16 +721,16 @@ project recovery lock only to serialize cleanup, but a read never creates the
 journal itself. Fresh and ordinary reads create no lock. First durable
 initialization remains behind a fully validated create/write intent.
 
-`runtime init` is a host-only create of one owner-only recipe directory.
-`runtime build` is a host-only write against the current Context runtime target;
-its Docker build context is fixed to that recipe directory, and its image
-promotion happens only after compatibility and digest checks. Neither command
-mounts the Context directory into a Workspace or accepts a secret/image-name
-override. A build failure is therefore a safe retry point: the old selected
-image and its Context authority remain unchanged. Tobari does not delete an
-older selected image, a failed candidate tag, or BuildKit cache as failure
-cleanup; the failure summary distinguishes unchanged, uncertain, and already
-promoted selection state.
+`runtime create` is a host-only create in the installation Runtime catalog.
+`runtime build` is a host-only catalog write. It rejects symlinks, special
+files, escaping paths, unsafe modes, and file-count/per-file/total-byte bounds,
+then builds only a private immutable snapshot of the complete source tree.
+Compatibility and image-digest checks complete before the successful revision
+is appended. Neither command mounts Runtime source into a Workspace, accepts a
+secret or arbitrary image-name override, or changes a Context. A build failure
+is therefore a safe retry point: history and every Context binding remain
+unchanged. `context runtime set` separately revalidates an existing ready exact
+revision before replacing one Context binding.
 
 Shared lifecycle mutations target one catalog-declared `tool_local` cluster.
 The root command uses the catalog-declared current-directory fixed target to
@@ -1102,7 +1111,7 @@ reference-bound mutation.
 | The broker restarts locked and cannot silently replace a missing root key | Restart/unlock tests, Keychain/XDG provider tests, and missing-key-with-vault rejection |
 | Provider manifests cannot become executable or ambiguous authority | Strict schema/collision/path/header tests, owner-only XDG loading, and built-in override rejection |
 | Provider login cannot turn visible text into arbitrary browser execution | Conventional non-project executable selection, identity/digest recheck, fixed argv/environment, bounded browser/PTY projection, checked cleanup, cancellation, and provider-specific negative tests |
-| Native Workspace login cannot become generic host ingress or browser authority | One fresh compile-time registry with exact driver-ID/callback-mode coverage and malformed/ambiguous-definition canaries; closed Claude Code/Codex/GitHub CLI/AWS CLI/TWG/pup semantic URL-schema tests with exact mandatory fields, individually reviewed optional selectors, exact OAuth clients or bounded DCR IDs, reviewed scope ceilings, callback shapes, and state bounds; AWS commercial-region/default-scope/partition canaries; complete pup 1.10.7 scope-ceiling, optional UUID-shaped `dd_oid`, and four-port canaries; one binary-owned read-only opener; exact `BROWSER`/`GH_BROWSER`/`xdg-open` projection; dedicated schema-v1 Unix-socket and non-TTY Docker exec protocol tests; duplicate-key, unknown-field, malformed-version, oversized-target, replay-budget, neighboring-target, and ownership canaries; zero-listener device/remote-callback opens; dynamic non-privileged host-loopback-only one-shot callback relay; opaque callback canaries; port-collision failure; direct Docker terminal ownership; and session cleanup |
+| Native Workspace login cannot become generic host ingress or browser authority | One fresh compile-time registry with exact driver-ID/callback-mode coverage and malformed/ambiguous-definition canaries; a shared closed query-field schema with invalid-definition, requiredness, singleton-cardinality, unknown-field, and validator-dispatch tests; closed Claude Code/Codex/GitHub CLI/AWS CLI/TWG/pup semantic URL-schema tests with exact mandatory fields, individually reviewed optional selectors, exact OAuth clients or bounded DCR IDs, reviewed scope ceilings, callback shapes, and state bounds; AWS commercial-region/default-scope/partition canaries; complete pup 1.10.7 scope-ceiling, optional UUID-shaped `dd_oid`, and four-port canaries; one binary-owned read-only opener; exact `BROWSER`/`GH_BROWSER`/`xdg-open` projection; dedicated schema-v1 Unix-socket and non-TTY Docker exec protocol tests; duplicate-key, unknown-field, malformed-version, oversized-target, replay-budget, neighboring-target, and ownership canaries; zero-listener device/remote-callback opens; dynamic non-privileged host-loopback-only one-shot callback relay; opaque callback canaries; port-collision failure; direct Docker terminal ownership; and session cleanup |
 | Unsupported credential mechanisms cannot remain dormant | Catalog/state/dependency/image-content tests reject managed profiles, owner-selected dynamic plans, arbitrary helpers, compatibility readers, and provider CLIs inside Broker |
 | Agent-ready tools retain reviewed identity without Tobari redistribution | Base-runtime locks/checks for GitHub CLI, AWS CLI, Claude Code, and Codex; version smokes outside Workspace home; local missing-image build tests; workflow and release canaries reject every base registry write/login/push path |
 | Secret headers, queries, handle-bearing paths, and bodies stay out of logs | Gateway redacted-path/header-absence tests, non-learnable structural-rejection tests, and log scans |
@@ -1131,7 +1140,7 @@ reference-bound mutation.
 | One bad Context cannot replace known-good policy | Strict host-paired source validation, mutex plus cross-process locking, digest-bound source journal recovery, serialized content-addressed aggregate generation, reserved namespace validation, whole-candidate OPA tests, atomic publish, rollback tests, and integration |
 | Context changes cannot mutate existing Tobari authority | Permanent instance binding, current-marker-only domain/application tests, and Context-local recording-runner restart reconciliation |
 | Source access is exact and not a snapshot claim | Runtime spec/hash and Docker inspect tests, read-only mutation/Git-metadata failures, writable home/tmpfs canaries, no writable alias, and same-root host/read-write observation tests |
-| Preset guardrails cannot be bypassed | Default-plus-override method-decision tests for offline/reviewed-exact/get-only-reviewed/public-get-reviewed plus destination/method terminal zero-candidate/DNS/Broker/upstream canaries and exact-Deny precedence above broad Allow, baseline, learned, and Advanced policy |
+| Context policy ceilings cannot be bypassed | Default-plus-override method-decision tests plus destination/method terminal zero-candidate/DNS/Broker/upstream canaries and exact-Deny precedence above broad Allow, baseline, learned, and Advanced policy |
 | Overlapping roots are not misrepresented as isolated | Product contract, Context-selected direct mounts, same-root/parent-child integration canaries, and absence of overlay/root-lock paths |
 | Gateway does not retain allowed streaming bodies | Header-hook ordering unit tests plus incremental chunked-request and SSE-response integration canaries |
 | Declared oversized bodies retain the transport bound | Fixed mitmproxy body-size asset test, over-limit `Content-Length` integration request, incremental unknown-length transport-cap evidence, and complete-body semantic-cap tests |

@@ -74,7 +74,7 @@ func TestGenerateCatalogUsesExecutableAgentHelp(t *testing.T) {
 		"cluster up", "cluster status", "cluster down",
 		"policy candidates", "policy allow", "policy deny",
 		"context list", "context show", "context use",
-		"runtime init", "runtime build",
+		"runtime list", "runtime show", "runtime create", "runtime history", "runtime build",
 		"tobari", "status", "list", "delete",
 	} {
 		if _, exists := rootPaths[required]; !exists {

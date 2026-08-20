@@ -30,10 +30,11 @@ Workspace 自身へ承認を求めることはありません。信頼するホ�
 
 ## 1. 拒否は許可の申請ではない
 
-OPA は preset baseline grant と learned exact allow のどちらにも一致しない effect を default deny
-します。三つの built-in V1 preset は immediate grant がすべてゼロです。request は schema、
-principal、fixed port、credential binding、immutable preset terminal guardrail が有効な場合だけ
-learnable になれます。
+OPA は Context policy baseline grant と learned exact allow のどちらにも一致しない effect を
+default deny します。default Context には有限の agent-ready baseline があり、完全な method
+policy は Context が所有します。deny-only や GET-only はその method policy で表します。request
+は schema、principal、fixed port、credential binding、immutable Context policy ceiling が有効な
+場合だけ learnable になれます。
 
 Gateway は `403 policy_denied` を返します。学習可能なレスポンスが示すのは、信頼するホスト上のレビュー場所と、利用者から見える完全一致の HTTP 操作だけです。自動再試行がないことも明示します。
 
@@ -95,13 +96,13 @@ Gateway は、上限付きのスキーマ 1 拒否監査を、ローテーショ
 
 ## 許可、拒否、リセット
 
-| 判断                   | 意味                                                                                                   |
-| ---------------------- | ------------------------------------------------------------------------------------------------------ |
-| preset baseline grant  | snapshot authority。三つの built-in V1 preset はすべてなし                                             |
-| preset terminal deny   | pending review に入らず candidate/DNS/Broker/upstream work がゼロの guardrail rejection                |
-| 学習済みの完全一致許可 | 一つの Context、プロジェクト、ホスト、ポート、メソッド、パスに対する権限                               |
-| 学習済みの完全一致拒否 | 明示的にレビューした終端的な拒否。その HTTP 操作では許可より優先されます                               |
-| `policy reset`         | 学習済み許可または完全一致拒否を一つ削除し、初期または既定の評価へ戻します。許可する操作ではありません |
+| 判断                          | 意味                                                                                                   |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------ |
+| Context policy baseline grant | snapshot authority。固定 agent-ready data は選択可能な profile ではありません                          |
+| Context policy terminal deny  | pending review に入らず candidate/DNS/Broker/upstream work がゼロの ceiling rejection                  |
+| 学習済みの完全一致許可        | 一つの Context、プロジェクト、ホスト、ポート、メソッド、パスに対する権限                               |
+| 学習済みの完全一致拒否        | 明示的にレビューした終端的な拒否。その HTTP 操作では許可より優先されます                               |
+| `policy reset`                | 学習済み許可または完全一致拒否を一つ削除し、初期または既定の評価へ戻します。許可する操作ではありません |
 
 ## 具体例
 

@@ -211,13 +211,14 @@ of the standard profile.
 
 Context is the user-facing immutable capability envelope for the execution
 boundary. A trusted manifest fixes direct source access and a normalized
-policy-preset origin/revision, and names the compatible runtime image, read-only agent profile,
+policy origin/revision, and binds one exact installation-wide Runtime revision
+and its compatible image plus the read-only agent profile,
 the Context policy directory, and its stable identity. The standard manifest
 locates no Auth Broker state. Experimental state remains separately keyed and
 the manifest contains no broker vault path, root key, or primary secret.
-It may also own one fixed `runtime/Dockerfile` recipe and its last successful
-managed build record plus narrow shell and Git identity policies. The manifest
-is not itself a mountable authority: policy
+Runtime source and revision history belong to the separate installation Runtime
+catalog; a Context never owns or edits build source. The manifest also owns
+narrow shell and Git identity policies. It is not itself a mountable authority: policy
 is mounted only into OPA and agent configuration is mounted read-only into the
 work runtime. Tool-owned authentication remains in the per-Workspace home.
 Only the experimental profile has encrypted Context vaults and projects a
@@ -242,7 +243,7 @@ Argument-free `context create` is a CLI-owned input-completion workflow. It
 collects a name, source-access enum, and a complete default-plus-exact-override
 method policy before calling the same application create boundary once. The
 application owns typed composition and result correlation. Infrastructure
-replaces the selected preset method policy, filters only positive baseline
+replaces the Context-owned method policy, filters only positive baseline
 entries made unreachable by method Deny, normalizes the resulting immutable
 snapshot, and persists its digest; CLI never edits policy files directly.
 The ordinary interaction is Name -> Filesystem -> effective Network -> Review.
@@ -254,7 +255,7 @@ labels.
 The interactive root may reuse this exact wizard only when Context observation
 returns the display-only synthetic default. After creation, CLI composition
 switches command identity before each further action: `context create`,
-`cluster up`, optional `runtime init`, and CWD Workspace entry each retain their
+`cluster up`, and CWD Workspace entry each retain their
 own catalog effect, fixed target, impact, application invoker, and mutation-
 complete output boundary. Root never models those targets as one mutation and
 never invokes the public CLI as a subprocess.
@@ -326,12 +327,13 @@ and never completes a partial direct invocation. Explicit-empty Context input
 is rejected rather than collapsed into the omitted current-Context selector.
 
 Context creation is the sole owner of envelope defaults. It resolves omitted
-source access to `read-write`, omitted preset to `builtin/agent-ready`, and
-omitted native readiness to `enabled`; it normalizes and validates the complete preset, binds
-its owner-only snapshot by SHA-256 revision, and atomically persists both
+source access to `read-write` and omitted native readiness to `enabled`; it
+normalizes and validates the complete Context method policy against the fixed
+agent-ready compatibility baseline, binds its owner-only snapshot by SHA-256
+revision, and atomically persists both
 manifest and snapshot before returning. Observation and old-state readers never
 invent either field. Root entry carries `source_access` into the exact project
-runtime spec/hash; policy activation validates the preset snapshot, then for
+runtime spec/hash; policy activation validates the Context policy snapshot, then for
 enabled native readiness replaces every readiness rule in the binary's
 append-only compatibility history with its current compile-time set.
 One dedicated compile-time family catalog owns each pinned client version,
@@ -341,20 +343,22 @@ same deterministic content-revision calculation, so a binary catalog update
 makes the previously active projection observably invalid until explicit
 reconciliation.
 The effective result enters the Tobari-owned system evaluator without rewriting
-the snapshot. Any preset may receive the overlay, but its destination ceiling
-and method Deny decisions remain terminal. Disabled readiness receives no overlay;
-legacy manifests preserve their old preset-coupled result without rewrite. A read-only source is the same live direct bind
+the snapshot. The fixed compatibility overlay is applied to the Context policy,
+but its destination ceiling and method Deny decisions remain terminal. Disabled
+readiness receives no overlay;
+an omitted readiness value resolves to the explicit default without rewriting the
+manifest. A read-only source is the same live direct bind
 with Docker read-only authority: no writable alias is added, home and tmpfs
 remain writable, and host or same-root read-write Context changes remain
-observable. Neither path rediscovers the source preset.
+observable.
 
-The system evaluator resolves an exact method override or the preset default
+The system evaluator resolves an exact method override or the Context policy default
 before baseline deny,
 exact learned deny, baseline grant, exact or reviewed single-segment-template
 learned allow, or Advanced Rego.
 Terminal denial ends before candidate projection, external DNS, broker
 resolution, and upstream I/O. Advanced modules may further constrain generic
-input but cannot bypass the guardrail or redefine the scheme-aware exact
+input but cannot bypass the Context policy ceiling or redefine the scheme-aware exact
 learned identity.
 The native-readiness capability uses a finite baseline coupled to Claude Code
 2.1.220, Codex 0.147.0, GitHub CLI 2.96.0, TWG CLI
@@ -375,13 +379,12 @@ and enumeration methods are baseline grants; action methods continue to exact
 semantic review. Bodies, arguments, resource URIs, and responses never enter
 policy or audit. Exact Deny precedes the baseline, which identifies Context
 authority rather than a process.
-`builtin/offline` defaults all methods to Deny. `builtin/reviewed-exact`
-defaults all methods to Exact Review. `builtin/get-only-reviewed` defaults to
-Deny with GET Exact Review. `builtin/public-get-reviewed` defaults to Exact
-Review with GET Allow. Method Allow enters the same preset-grant path as exact
-baseline grants, after destination/method Deny and exact Deny checks. GET
-receives no safe or read-only classification. The three strict presets grant
-nothing immediately.
+The fixed agent-ready baseline is part of the default Context policy and is not
+selectable as a named profile. Context creation supplies one complete method
+default plus exact overrides; Method Allow enters the same Context-policy
+baseline path as exact grants, after destination/method Deny and exact Deny
+checks. GET receives no safe or read-only classification, and a deny-only or
+GET-only posture is expressed by the Context method policy itself.
 
 Project runtime infrastructure resolves only declared shell `inherit` entries
 from the launching process at child-exec time and passes exact values to Bash.
@@ -670,11 +673,12 @@ service ceilings, not per-project fairness controls.
 Project metadata is not a runtime adapter. Tobari does not interpret
 `.devcontainer` files, invoke the Dev Container CLI, or transfer container
 creation to a second orchestrator. The supported customization adapter is the
-explicit current-Context `runtime init`/`runtime build` path: infrastructure
-builds only the owner-only Context runtime directory, validates the resulting
-image, and promotes it into the existing Context image field. Future runtime
-import formats must attach to this same Context boundary rather than introduce
-a second implicit image authority.
+installation-wide Runtime catalog: infrastructure snapshots one bounded
+owner-only source tree, builds only the immutable snapshot, validates the
+resulting image, and appends one successful semantic revision. A Context stores
+an exact Runtime ID and revision; only explicit Context selection changes that
+binding. Future import formats must attach to this Runtime boundary rather than
+introduce project or Docker-tag authority.
 
 Context Workspace bootstrap is a separate create-only projection boundary.
 Domain owns the closed normalized snapshot and semantic revision; application
@@ -692,8 +696,9 @@ explicit available/unavailable candidates. Structural or source-safety failure
 returns an explicit empty collection and no partial candidates. Candidate
 ordering or proximity is never identity; available entries carry the complete
 normalized snapshot and EKS results bind the exact AWS semantic revision.
-The Workspace record stores only the applied revision so status can compare it
-with the current Context recipe without inspecting the Workspace file.
+The Workspace record stores only the applied bootstrap revision so status can
+compare it with the current Context bootstrap recipe without inspecting the
+Workspace file.
 
 Runtime build diagnostics use two deliberately separate paths. The
 application's optional build-progress port carries a bounded, validated stage
@@ -734,7 +739,12 @@ projection in `TOBARI_CAPABILITIES_JSON`, and physical loopback relays. These ob
 Workspace state. The owning invocation removes them when it exits; a borrower
 cannot remove or extend them, and loses access when the owner exits.
 Docker directly owns the attached shell's stdin, stdout, stderr, raw mode,
-signals, resize behavior, and container PTY. A separate Docker exec starts one
+signals, resize behavior, and container PTY. On Unix, the optional structured
+stdout presentation attaches the Docker CLI to a host-side PTY relay: the
+relay preserves the child terminal identity, forwards input and window-size
+changes, and reads the PTY master only to add bounded display-only syntax
+colors. It does not parse input, change command meaning, or become authority;
+the ordinary direct stream path remains the fallback. A separate Docker exec starts one
 fixed Unix-socket agent whose stdin/stdout carries bounded schema-v1 browser
 requests and boolean responses. The binary-owned opener is mounted read-only at
 the projected browser paths and emits no terminal output. The host rejects
@@ -791,11 +801,11 @@ On first use, root Context observation and the ordinary Context wizard occur
 before cluster or Workspace mutation. Confirmed creation is durable; root then
 invokes the same typed cluster reconciliation used by explicit `cluster up`.
 Cluster failure leaves the Context available for another root invocation. Once
-ready, the CLI-owned runtime chooser either continues with the manifest-selected
-standard image or invokes typed `runtime init` and returns before Workspace
-creation. Subsequent root invocation blocks on `pending_build` or `invalid`
-recipe status until exact build or inspection recovery, while successful build
-promotion remains the only selected-image change.
+ready, root proceeds directly with the exact ready Runtime revision reviewed by
+Context creation; it has no post-create Runtime chooser. Customization is
+prepared independently through Runtime create/build before selection. Existing
+Contexts stay pinned until the explicit Context Runtime mutation replaces their
+binding.
 
 Outside that fresh-Context composition, root observes whether the configured
 cluster is running and whether its policy, Gateway, and principal projections
@@ -950,7 +960,9 @@ Every catalog command that supports human text explicitly declares the shared
 semantic-token presentation. The CLI presentation layer owns the exact
 `text`, `muted`, `accent`, `success`, `warning`, and `danger` vocabulary and is
 the only production location that maps those meanings to ANSI color or
-emphasis for catalog-rendered output. Command renderers select tokens by
+emphasis for catalog-rendered output. Attached Workspace child stdout has a
+separate infrastructure-owned syntax-color projection; it maps only bounded
+JSON/YAML token classes and never changes task-owned catalog content. Command renderers select tokens by
 information meaning; they do not own escape sequences or concrete colors.
 The separate trusted-host login stream boundary may regenerate only its closed
 reviewed upstream SGR vocabulary as the same semantic styles; it visibly
@@ -1067,7 +1079,7 @@ method, path, optional GraphQL operation/root coordinate, reason, status,
 exact-rule learnability, request identity, timestamp, the
 trusted host policy directory, and the exact review command. OPA computes
 learnability only when version, cluster, Context, scheme, fixed port,
-project-principal, and preset guardrail boundaries already pass, so an exact
+project-principal, and Context policy ceiling already pass, so an exact
 Context/project/scheme/host/port/method/path rule, plus the GraphQL coordinate when
 present, can close the request. `policy review` and
 `policy candidates` deterministically fold only that eligible retained evidence

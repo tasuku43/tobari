@@ -13,10 +13,10 @@ directly on the host.**
 
 Every HTTP and HTTPS effect that crosses that boundary is authorized as a
 normalized request by one shared OPA-backed Gateway. A Context may start with a
-finite reviewed exact baseline composed from its immutable preset snapshot and
-its independently selected trusted-binary native-client readiness capability;
-every effect outside that composition is denied by default. The preset's
-offline, destination, and method guardrails remain terminal over readiness.
+finite reviewed exact baseline composed from its immutable Context-owned policy
+snapshot and its independently selected trusted-binary native-client readiness
+capability; every effect outside that composition is denied by default. The
+Context policy's destination and method ceilings remain terminal over readiness.
 Trusted policy may declare an exact GraphQL endpoint whose generic L7 identity extends
 the HTTP coordinates with one operation type and root field per effect.
 
@@ -133,8 +133,9 @@ using `tobari` leaves host execution unchanged, while `delete` and
 - The human first-use route starts with the CWD-first `tobari` entry. On an
   interactive terminal with no persisted Context, that one route owns the
   ordinary Context review, composes the separately cataloged `cluster up`
-  action after confirmed creation, and offers the already-selected standard
-  runtime or optional Dockerfile preparation before the first Workspace.
+  action after confirmed creation, and enters the first Workspace with the
+  already-selected standard Runtime. Runtime preparation is an independent
+  host workflow performed before selection, never a post-create fork.
   Read-only `doctor`, status/list inspection, and
   opaque-ID policy actions remain recovery or machine paths rather than steps
   in the normal journey. On a TTY, `policy review` is the complete human
@@ -246,7 +247,7 @@ disabled, so neither path is direct egress.
   through Gateway and OPA after trusted-host review creates an Attachment Grant. The route and
   grant belong to one unguessable host-derived Attachment Epoch, apply to every
   process in that Workspace, and cannot become a durable learned rule,
-  template, preset, arbitrary time lease, raw TCP route, or Docker authority.
+  template, selectable profile, arbitrary time lease, raw TCP route, or Docker authority.
   Closing the owning attachment closes the physical relay before removing its
   registry and policy projection. Inactive, privileged-port, or mismatched
   requests are terminally denied without host-loopback I/O. A concurrent
@@ -380,7 +381,7 @@ exist only when the experimental capability profile is compiled.
   authority for Context, project, scheme, host, port, method, and path. A
   brokered request receives only authority already present in the Context's
   immutable snapshot, selected binary readiness overlay, or learned rules. The
-  default agent-ready preset includes
+  fixed agent-ready compatibility baseline includes
   finite compile-time `claude_ready`, `codex_ready`, `gh_ready`, `twg_ready`,
   and `pup_ready` authentication bundles coupled to reviewed client versions and expanded only into
   exact Context-wide effects. TWG's bundle includes only its exact device
@@ -474,7 +475,7 @@ directory.
   record and a typed already-exists outcome for losing callers. The same root
   may have independent Tobari in different Contexts.
 - Each logical Tobari is permanently bound to one stable Context identity. That
-  Context is the only runtime-image authority for its creation and
+  Context is the only Runtime-revision authority for its creation and
   runtime-container reconciliation; project metadata records the last
   successful image for diagnostics but does not silently override the binding.
 - The selected image is an environment and tool source, not the Workspace
@@ -484,10 +485,10 @@ directory.
   Codex and Claude Code clients required by the supported agent-ready Context.
   Their binaries remain outside the mutable Workspace home and their versions
   form one reviewed contract with the default policy baseline.
-- Context creation review exposes the selected standard image. Creating a
-  runtime recipe does not replace it: a pending or invalid recipe blocks root
-  entry with exact build/inspection recovery, and only successful
-  `runtime build` promotion changes the selected image.
+- Context creation review always exposes one exact Runtime revision and defaults
+  to the built-in standard Runtime. A Context may select only an existing ready
+  revision. Building an installation-wide Runtime never changes any Context;
+  selection and rollback are explicit Context mutations.
 - `tobari delete` is the only routine operation that ends a logical Tobari;
   ending a shell or losing a runtime resource leaves it existing.
 - Every process in a Tobari may modify or delete every file below that Tobari's
@@ -777,8 +778,8 @@ Users should choose one understandable execution setup, not assemble an agent
 profile, runtime image, policy directory, and credential configuration from
 unrelated paths.
 Tobari therefore presents a named Context as the immutable host-owned
-capability envelope for an agent's direct source access, snapshotted network
-guardrail, configuration, runtime, and credential exposure. The Context manifest
+capability envelope for an agent's direct source access, snapshotted Context
+policy, configuration, runtime, and credential exposure. The Context manifest
 is a host-owned composition record; it does not collapse the physical trust
 boundaries between read-only agent data, OPA policy, and Gateway-only secret
 stores. Each Context has a stable opaque identity; its name is a human selector,
@@ -805,33 +806,28 @@ OPA allow.
   Context default. `tobari --context NAME` chooses an invocation Context
   without changing that default.
 - Every persisted Context fixes `read-only` or `read-write` access for its one
-  direct source bind and one normalized `builtin/<name>` or `custom/<name>`
-  policy-preset origin plus SHA-256 snapshot revision. The snapshot fixes the
-  owner-selected guardrail and non-readiness baseline plus an enabled or
-  disabled native-readiness capability. Readiness independently selects the
-  current trusted-binary overlay. Argument-free creation on an interactive
-  text terminal uses one continuous four-stage frame for name, direct source
-  access, effective network policy, and final review. Optional typed Workspace
-  bootstrap is edited from that review rather than stopping every user. The
-  network and final-review projections show every effective method decision,
-  reviewed routine agent traffic, and the terminal destination ceiling; only
-  customization exposes default, inherited, and override storage. One section
-  can be edited and returned directly to review before the single mutation. Its
-  method-Deny choices
-  remove only now-unreachable positive baseline rules from the immutable
-  selected-preset snapshot; destination ceilings and exact Denies remain
-  unchanged. Any explicit create input selects deterministic direct mode.
-  Creation owns the `read-write`,
-  `builtin/agent-ready`, and enabled-readiness omission defaults. A missing
-  readiness field in legacy state preserves historical behavior: enabled only
-  for `builtin/agent-ready`, disabled otherwise. Readers never rewrite old
-  state, source-preset edits never change an existing
-  Context, and a different envelope requires a new Context. A binary readiness
-  update is a reviewed compatibility update rather than an envelope change and
-  requires no Context recreation. The current binary readiness catalog is part
-  of the aggregate content identity: observation reports an older active
-  projection as invalid, and root entry fails closed with the explicit
-  `cluster up` recovery instead of entering against stale authority.
+  direct source bind and one normalized Context-owned policy snapshot plus its
+  SHA-256 `policy_revision`. The snapshot contains the complete method policy
+  and fixed agent-ready compatibility baseline. Native readiness is a separate
+  enabled/disabled Context setting that selects the current trusted-binary
+  overlay. Argument-free creation on an interactive text terminal uses one
+  continuous four-stage frame for name, direct source access, effective network
+  policy, and final review. Optional typed Workspace bootstrap is edited from
+  that review rather than stopping every user. The network and final-review
+  projections show every effective method decision, reviewed routine agent
+  traffic, and the terminal destination ceiling; only customization exposes
+  default, inherited, and override storage. One section can be edited and
+  returned directly to review before the single mutation. Method-Deny choices
+  remove only now-unreachable positive baseline rules from the Context-owned
+  snapshot; destination ceilings and exact Denies remain unchanged. Any
+  explicit create input selects deterministic direct mode. Creation owns the
+  `read-write` and enabled-readiness omission defaults. Readers never rewrite
+  old state, and a different envelope requires a new Context. A binary
+  readiness update is a reviewed compatibility update rather than an envelope
+  change and requires no Context recreation. The current binary readiness
+  catalog is part of the aggregate content identity: observation reports an
+  older active projection as invalid, and root entry fails closed with the
+  explicit `cluster up` recovery instead of entering against stale authority.
 - Context deletion is an explicit destructive catalog mutation. The
   foundational `default` Context, the current Context, and every Context still
   referenced by a logical Workspace are rejected before removal. Successful
@@ -856,11 +852,12 @@ OPA allow.
   executable startup hook, host shell or Git file, include directive, helper,
   signing setting, arbitrary environment name, or arbitrary Git key crosses
   either boundary.
-- `runtime init` and `runtime build` are the host-facing runtime customization
-  surface. The selected Context owns one fixed `runtime/Dockerfile`; build
-  validates the resulting image and promotes it into that Context without
-  requiring a second image-selection command. Only Tobari bound to that Context
-  observe the promoted image on their next entry while preserving their home.
+- `runtime create` and `runtime build` are the host-facing runtime customization
+  surface. A Runtime is installation-wide, owns one complete owner-only Docker
+  build-context source tree, and records only immutable successful semantic
+  revisions. Contexts own exact Runtime references rather than recipes. Build
+  changes no Context; an explicit Context selection or rollback makes bound
+  Tobari adopt that revision on their next entry while preserving their home.
 - Context creation initializes an owner-only policy store, references a
   read-only agent profile, and records the compatible Tobari runtime image.
   Auth Broker vault state remains separately keyed by stable Context ID rather
@@ -890,13 +887,13 @@ OPA allow.
   policy that cannot be expressed as an exact learned rule. The projection
   namespaces Advanced modules and prevents them from claiming the Tobari-owned
   router or system packages.
-- The preset destination ceiling and complete method policy are owned by the
+- The Context policy destination ceiling and complete method policy are owned by the
   Tobari system evaluator and precede baseline data, exact learned policy, and
   Advanced Rego. Every HTTP method resolves from one `allow`, `exact_review`,
   or `deny` default plus exact overrides. A terminal destination or method Deny
   denial produces no candidate and performs no external DNS, broker resolution,
   or upstream call. Advanced Rego may further constrain generic input but
-  cannot grant beyond the guardrail or redefine learned permission identity.
+  cannot grant beyond the Context policy ceiling or redefine learned permission identity.
 - Enabled native readiness preserves the pinned Claude Code 2.1.220 and Codex
   0.147.0 native capability plane, the pinned GitHub CLI 2.96.0 native
   authentication bootstrap, TWG CLI 1.2.5 native login readiness, and pup
@@ -919,13 +916,12 @@ OPA allow.
   file transfer, acquisition, self-update, and unmatched traffic receive no
   baseline authority. These grants are Context-wide effects, not executable
   identity; exact Deny remains terminal.
-- `builtin/offline` defaults every method to terminal Deny and makes no effect
-  review-eligible. `builtin/reviewed-exact` defaults every method to Exact
-  Review. `builtin/get-only-reviewed` defaults to Deny with an exact GET Exact
-  Review override. `builtin/public-get-reviewed` defaults to Exact Review with
-  an exact GET Allow override. The three strict presets grant no immediate
-  authority. GET receives no intrinsic safe or read-only classification, and
-  exact Deny remains terminal over method Allow.
+- The fixed agent-ready baseline is part of the default Context-owned policy;
+  it is not a user-selectable profile. Context creation supplies one complete
+  method default plus exact overrides, so a user can express deny-only,
+  exact-review, GET-only, or other bounded method postures without a named
+  profile catalog. GET receives no intrinsic safe or read-only classification,
+  and exact Deny remains terminal over method Allow.
 - Tobari-owned ordinary learned permission identity binds Context, project,
   scheme, host, port, method, and raw path. Query, headers, and bodies are not
   learned dimensions; GraphQL adds only operation type and root field, while
@@ -938,7 +934,7 @@ OPA allow.
 
 - Context domain and catalog tests validate stable identity, modes, current-
   default selection, effects, fixed targets, and complete output/error contracts.
-- Envelope tests require source access and preset origin/revision in every
+- Envelope tests require source access and Context policy revision in every
   persisted manifest/report, prove creation-only defaults and immutable
   snapshot binding, and reject missing or old state without fallback.
 - Configuration tests validate the all-or-none direct/staged-editor state machine,
@@ -964,8 +960,8 @@ OPA allow.
   all-or-nothing, and forged or stale Context bindings fail closed.
 - Agent-readiness validation records current-default discovery, explicit
   invocation selection, and installation-wide permission review.
-- Runtime/preset compatibility tests bind both pinned agent versions to the
-  exact agent-ready grant catalog, retain strict-preset zero-grant canaries,
+- Runtime/Context-policy compatibility tests bind both pinned agent versions to
+  the exact agent-ready grant catalog and retain method-deny zero-grant canaries,
   distinguish capability bootstrap from MCP action, exclude payload and
   acquisition authority, and prove exact Deny precedence.
 

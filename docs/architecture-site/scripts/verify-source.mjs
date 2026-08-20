@@ -56,11 +56,8 @@ const v1Sources = {
 for (const required of [
   "--source-access read-only",
   "read-write",
-  "builtin/agent-ready",
-  "builtin/offline",
-  "builtin/reviewed-exact",
-  "builtin/get-only-reviewed",
-  "builtin/public-get-reviewed",
+  "policy_revision",
+  "Context policy",
 ]) {
   if (
     !v1Sources.contexts.includes(required) ||
@@ -74,7 +71,7 @@ for (const required of [
 for (const required of [
   "claude",
   "codex login",
-  "builtin/agent-ready",
+  "agent-ready",
   "task build:dev",
   "subscriptionType",
   "rateLimitTier",

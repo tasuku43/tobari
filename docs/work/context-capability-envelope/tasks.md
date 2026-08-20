@@ -32,7 +32,7 @@
 ## Implement
 
 - [ ] Complete every task in `../context-source-access/tasks.md`.
-- [ ] Complete every task in `../policy-presets/tasks.md`.
+- [x] Retire the public preset packet under [ADR 0066](../../decisions/0066-context-owned-policy-replaces-presets.md).
 - [x] Integrate both axes into one exact Context manifest/report validation.
       Evidence: manifest creation requires validated source access, preset
       origin/revision, and normalized snapshot; list/show/create reports and

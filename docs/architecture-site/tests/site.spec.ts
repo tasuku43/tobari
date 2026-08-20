@@ -365,7 +365,7 @@ test("authentication guide keeps native login and experimental Broker distinct",
 
     const main = page.locator("main");
     await expect(main).toContainText("codex login");
-    await expect(main).toContainText("builtin/agent-ready");
+    await expect(main).toContainText("agent-ready");
     await expect(main).toContainText("subscriptionType");
     await expect(main).toContainText("rateLimitTier");
     await expect(main).toContainText("task build:dev");
@@ -511,7 +511,7 @@ test("360px mobile layout has no page-level horizontal overflow", async ({
     await expect(page.locator("main")).toBeVisible();
   }
 
-  await page.goto("guides/contexts/");
+  await page.goto("how-it-works/state-and-recovery/");
   const responsiveTable = page
     .locator('table[data-tobari-responsive-table="true"]')
     .first();

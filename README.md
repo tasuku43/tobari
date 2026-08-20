@@ -20,7 +20,7 @@ release; immutable Gateway/Auth Broker image indexes are not yet published.
   home and tmpfs remain writable.
 - Learned permission is exact Context, project, scheme, host, port, method, and
   raw path. A declared GraphQL endpoint adds operation type and root field.
-- A preset method policy gives every HTTP method one `allow`, `exact_review`,
+- A Context method policy gives every HTTP method one `allow`, `exact_review`,
   or `deny` decision beneath an independent immutable destination ceiling.
   Terminal destination and method Deny decisions precede baseline data,
   learned policy, and Advanced Rego.
@@ -101,7 +101,6 @@ The individual operations remain available for automation and advanced use:
 # Create the envelope deterministically for automation.
 tobari context create --name default \
   --source-access read-write \
-  --policy-preset builtin/agent-ready \
   --native-readiness enabled
 
 # Reconcile shared services explicitly when automation owns the sequence.
@@ -124,11 +123,11 @@ selects one typed AWS IAM Identity Center bootstrap profile and creates
 once. Any explicit input selects direct mode and requires `--name`; redirected
 and JSON argument-free invocations fail before mutation.
 
-Direct `context create` owns the omission defaults: `read-write`,
-`builtin/agent-ready`, and enabled native readiness. New Contexts persist all
-three choices. A legacy manifest without readiness preserves its former
-behavior without rewrite: enabled for `builtin/agent-ready`, disabled for every
-other preset.
+Direct `context create` owns the omission defaults: `read-write`, the fixed
+Context method policy, and enabled native readiness. New Contexts persist the
+normalized Context policy revision and the separate readiness choice. The
+agent-ready compatibility baseline is composed by the trusted binary; it is
+not a selectable profile or catalog entry.
 
 Leaving the child shell detaches only the session. The Workspace and persistent
 home remain available:
@@ -148,7 +147,7 @@ A Context permanently binds every Workspace created with its stable ID to:
 
 - one compatible runtime image and read-only agent profile;
 - `source_access: read-only|read-write`;
-- one snapshotted policy-preset origin and SHA-256 revision;
+- one Context-owned normalized policy snapshot and SHA-256 revision;
 - guided or Advanced policy mode;
 - narrow shell/Git presentation fallbacks;
 - an optional secret-free create-only Workspace bootstrap snapshot;
@@ -186,56 +185,37 @@ source bind. In both cases the Workspace home and tmpfs stay writable. Tobari
 adds no writable source alias, and reconciliation includes the access mode in
 the runtime spec/hash and Docker inspection.
 
-### Policy presets and native readiness
+### Context policy and native readiness
 
 Native readiness is an independent immutable Context capability and defaults to
 `enabled`; use `--native-readiness disabled` for an intentionally strict
-Context. Its finite exact overlay never overrides the selected preset:
+Context. Its finite exact overlay never overrides the Context-owned policy:
 destination and method Deny decisions filter it, and exact Deny still wins.
 
-Every preset resolves all HTTP methods from one `default` decision plus exact
-method `overrides`. Unknown and extension methods receive the default.
-`context list`, `context show`, and `policy preset list/show` expose these facts
-directly.
+Context creation collects one complete HTTP method `default` plus exact
+`overrides`. Unknown and extension methods receive that default. `context list`
+and `context show` expose the effective method policy and immutable
+`policy_revision`; there is no user-selectable policy catalog.
 
-- `builtin/agent-ready` (default): exact reviewed Claude Code 2.1.220 and
-  Codex 0.147.0 model, bootstrap/catalog, account-state, and fixed first-party
-  telemetry effects, GitHub CLI 2.96.0 native login effects, TWG CLI 1.2.5
-  native login effects, and pup 1.10.7 US1 native login effects when those
-  clients are supplied by a custom runtime are available immediately.
-  `twg_ready` and `pup_ready` do not install either client. These are
-  Context-wide exact HTTP or declared GraphQL grants, not process identity;
-  TWG receives only its device exchange, site inventory, stable CLI manifest,
-  token revoke, and GraphQL `query` / `me` current-user lookup, while pup receives only DCR registration and token
-  exchange/refresh. Exact Deny
-  still wins; plugins, MCP,
-  connectors, file transfer, downloads, evaluation, self-update, unrelated
-  paths, and third-party destinations remain denied or reviewable.
-- `builtin/offline`: no immediate grant, no review-eligible effect, terminally
-  deny all HTTP and HTTPS.
-- `builtin/reviewed-exact`: no immediate grant; only guardrail-eligible effects
-  may enter exact review.
-- `builtin/get-only-reviewed`: no immediate grant; only guardrail-eligible GET
-  effects may enter exact review; HEAD and every non-GET are terminally denied.
-- `builtin/public-get-reviewed`: public HTTPS GET is immediately allowed;
-  every other public HTTPS method remains eligible only for exact review.
+The fixed agent-ready baseline is trusted-binary data composed into each new
+Context snapshot. It supplies the reviewed Claude Code, Codex, GitHub CLI, TWG,
+and pup compatibility routes when the corresponding clients are present, but
+it is not a reusable profile and does not install any client. Context method
+choices can express deny-only, exact-review, GET-only, or other bounded
+postures. Method Allow is Context-wide rather than process identity, and exact
+Deny still overrides it. A terminal denial creates no candidate and makes zero
+external DNS, Broker-resolution, or upstream calls.
 
-GET is not described as safe or read-only. Method Allow is Context-wide, not
-process identity, and exact Deny still overrides it. A terminal denial creates
-no candidate and makes zero external DNS, Broker-resolution, or upstream calls.
-There is no command-name or vendor-wide bypass.
-
-Custom presets are strict owner-only schema-V1 non-executable local data. V1
-rejects wildcard, IP/private destination, secret, shell, Rego, include,
-inheritance, remote fetch, refresh, signing, symlink, unsafe-mode, and unknown-
-field input. Context creation normalizes, validates, digests, and snapshots the
-preset. Later source changes affect only a newly created Context. Native-client
-readiness is the exception: when enabled, it selects the installed binary's
-current reviewed overlay, so upgrading Tobari updates those existing Contexts
-without rewriting or recreating them. Run `tobari cluster
-up` after the upgrade to activate that binary-owned overlay; until then status
-marks the older projection invalid and root entry fails closed with the same
-recovery command.
+Context policy snapshots are strict owner-only schema-V1 non-executable data.
+They reject wildcard, IP/private destination, secret, shell, Rego, include,
+inheritance, remote fetch, refresh, signing, symlink, unsafe-mode, and unknown
+fields. Creation normalizes, validates, digests, and stores the snapshot at
+`contexts/<name>/policy/context.json`; later changes cannot rewrite an existing
+Context. Native readiness is the exception: when enabled, it selects the
+installed binary current reviewed overlay without rewriting the snapshot.
+Run `tobari cluster up` after a binary upgrade to activate that overlay; until
+then status marks the older projection invalid and root entry fails closed with
+the same recovery command.
 
 ## Permission workflow
 
@@ -330,7 +310,7 @@ does not provide host Docker, Compose control, raw TCP, privileged ports, or
 private-LAN access.
 
 Advanced Contexts may add trusted-host Rego constraints, but Advanced Rego is
-beneath the preset guardrail and cannot redefine exact learned identity or the
+beneath the Context policy ceiling and cannot redefine exact learned identity or the
 Tobari-owned router.
 
 ## Authentication
@@ -431,15 +411,17 @@ intent from a command or process name.
 ## Runtime customization
 
 ```sh
-tobari runtime init
-# Edit the selected Context's runtime/Dockerfile.
-tobari runtime build
+tobari runtime create --name frontend
+# Edit every required file in the reported Runtime source directory.
+tobari runtime build --name frontend
+tobari context runtime set --runtime frontend@1
 ```
 
-The explicit build uses only the Context runtime directory, validates the
-result against runtime API 1, and promotes the image atomically. A failure
-preserves the prior selection. Existing Workspaces adopt the new bound-Context
-image on their next entry while preserving home.
+The explicit build snapshots the complete bounded Runtime source tree,
+validates the result against runtime API 1, and appends an immutable successful
+revision without changing any Context. Selection is a separate Context action,
+so the same revision can be reused by several Contexts. Existing Workspaces
+adopt a changed binding on their next entry while preserving home.
 
 The public base retains Git, curl, jq, Python, SSH, GitHub CLI, AWS CLI, Claude
 Code, and Codex as ordinary Workspace tools. Their presence grants no

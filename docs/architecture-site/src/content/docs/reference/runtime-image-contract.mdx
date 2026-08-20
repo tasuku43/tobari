@@ -85,34 +85,35 @@ The tag identifies which pinned local build should exist; it is not an OCI
 digest. Docker's inspected local image digest remains the immutable identity of
 the bytes that were actually built.
 
-## Context-owned customization
+## Installation-wide Runtime customization
 
-`runtime init` creates:
+`runtime create --name frontend` creates:
 
 ```text
-${XDG_CONFIG_HOME:-$HOME/.config}/tobari/contexts/<name>/runtime/Dockerfile
+${XDG_CONFIG_HOME:-$HOME/.config}/tobari/runtimes/frontend/source/
 ```
 
-The generated recipe starts from the official runtime and returns to
-`USER tobari` after the example customization section. Creating or editing the
-file does not select a candidate image.
+The owner-only source directory is a complete Docker build context. Its
+generated Dockerfile starts from the official Runtime and returns to `USER
+tobari`; scripts, manifests, and configuration may live beside it. Creating or
+editing source changes neither Runtime history nor a Context binding.
 
-`runtime build` then:
+`runtime build --name frontend` then:
 
-1. validates the current Context and bounded owner-only Dockerfile;
-2. hashes the source and derives a local candidate image name;
-3. runs one explicit host Docker build;
+1. validates the bounded owner-only source tree and rejects links and special files;
+2. hashes canonical paths, modes, and bytes and writes an immutable snapshot;
+3. derives a local image name and builds only from that snapshot;
 4. applies the exact compatibility inspection above;
 5. reads the immutable local image digest; and
-6. atomically promotes image, source digest, and build metadata in the stored
-   Context manifest.
+6. atomically appends one successful semantic revision to Runtime history.
 
-The previous image remains authoritative until promotion. A build or
-compatibility failure does not change selection. Docker BuildKit may retain
+No Context changes during build. A build or compatibility failure appends no
+revision, and rebuilding unchanged source is a successful no-op. Docker BuildKit may retain
 cache, and a post-build validation failure may leave an unselected local
-candidate image; neither is falsely reported as a selected runtime.
+candidate image; neither is falsely reported as a ready Runtime revision.
 
-Existing Workspaces are not rewritten by `runtime build`. On their next entry,
+`context runtime set --runtime frontend@1` is the separate explicit selection
+action. Existing Workspaces are not rewritten by selection. On their next entry,
 Tobari compares the desired image identity and complete runtime-spec hash,
 recreates only a drifting work container, and preserves logical identity,
 project root, and Workspace home.
@@ -123,9 +124,9 @@ project root, and Workspace home.
 | ---------------------------------------------------- | ------------------------------------------------------------------------------------------- |
 | Official base is not locally available               | Build it once from the CLI's embedded pinned assets, then inspect it.                       |
 | Required label, user, or entrypoint differs          | `incompatible_image`; no new logical Workspace for first entry, and existing state remains. |
-| Build fails                                          | Candidate is not promoted; previous Context selection remains authoritative.                |
-| Compatibility or digest inspection fails after build | Candidate is not selected; inspect the bounded build diagnostics.                           |
-| Manifest promotion is uncertain                      | Read `context show` before retrying. Do not assume either old or new selection.             |
+| Build fails                                          | History and every Context binding remain unchanged.                                         |
+| Compatibility or digest inspection fails after build | No revision is appended; inspect the bounded build diagnostics.                             |
+| Context selection is uncertain                       | Read `context show` before retrying. Do not assume either old or new binding.               |
 | Existing container has runtime-spec drift            | Next entry recreates only the exact owned work container after all validation succeeds.     |
 | Runtime container or network was lost                | Logical Workspace state and home remain; the next entry reconciles owned resources.         |
 
@@ -174,11 +175,11 @@ supported customization path.
   >
     Workspace runtime reconciliation
   </a>
-- Context build/promotion:
+- Runtime build/history:
   <a
-    href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/infra/dockerruntime/context_runtime.go`}
+    href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/infra/dockerruntime/runtime_library.go`}
   >
-    `context_runtime.go`
+    `runtime_library.go`
   </a>
 - Canonical base:
   <a
@@ -206,9 +207,9 @@ supported customization path.
   </a>
   ,
   <a
-    href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/infra/dockerruntime/context_runtime_test.go`}
+    href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/infra/dockerruntime/runtime_library_test.go`}
   >
-    build promotion tests
+    snapshot, history, and selection tests
   </a>
   , and
   <a
@@ -238,10 +239,10 @@ metadata cannot add host authority.
 </details>
 
 <details>
-  <summary>Does changing the Context Dockerfile immediately replace running Workspace containers?</summary>
+  <summary>Does building a new Runtime revision immediately replace running Workspace containers?</summary>
 
-No. Editing does not select an image. A successful build atomically promotes
-it, and the next Workspace entry reconciles the work container.
+No. Build appends history only. Explicit Context selection changes the binding,
+and the next Workspace entry reconciles the work container.
 
 </details>
 
