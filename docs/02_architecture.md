@@ -268,6 +268,15 @@ own catalog effect, fixed target, impact, application invoker, and mutation-
 complete output boundary. Root never models those targets as one mutation and
 never invokes the public CLI as a subprocess.
 
+Omitted primary selectors for `runtime build` and `context runtime set` are a
+smaller CLI-owned input-completion workflow. CLI composes existing Runtime and
+Context read use cases into a terminal Review, binds an omitted current Context
+to the exact name returned by `context show`, and passes only one selected
+managed Runtime name or ready Runtime revision into the unchanged application
+mutation. Review never reads Runtime source bytes and has no Docker or manifest
+write port. Fully specified selectors bypass Review, while machine-readable or
+non-interactive omission fails before the application mutation boundary.
+
 `context delete` is a Context-catalog write serialized by the installation
 lifecycle lock. Application maps the foundational/current/Workspace guards and
 validates the terminal deletion result. Infrastructure checks durable Workspace

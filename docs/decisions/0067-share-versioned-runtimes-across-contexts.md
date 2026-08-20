@@ -60,6 +60,16 @@ source implicitly. A user who needs customization first runs `runtime create`,
 edits the shown managed source directory, and runs `runtime build`, then selects
 that ready revision during Context creation or a later Context Runtime change.
 
+Fully specified `runtime build --name` and `context runtime set --runtime`
+remain deterministic direct actions. On interactive text streams, omission of
+the primary selector opens a CLI-owned Review. Build Review selects one managed
+Runtime and confirms that no Context changes. Context Runtime Review starts
+from the exact current binding, may change an omitted Context selector, offers
+the built-in standard revision and every successful managed revision, and
+shows that existing Workspaces adopt the choice only on next entry. Only final
+Build or Apply mutates; unavailable streams, cancellation, unchanged selection,
+and Review failure perform no mutation.
+
 This is a pre-public V1 public-contract replacement. `runtime init` has no
 public compatibility alias or implicit migration. The internal reader may
 continue to tolerate unpublished Context-owned recipe fixtures during the

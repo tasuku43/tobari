@@ -413,15 +413,18 @@ intent from a command or process name.
 ```sh
 tobari runtime create --name frontend
 # Edit every required file in the reported Runtime source directory.
-tobari runtime build --name frontend
-tobari context runtime set --runtime frontend@1
+tobari runtime build
+tobari context runtime set
 ```
 
 The explicit build snapshots the complete bounded Runtime source tree,
 validates the result against runtime API 1, and appends an immutable successful
 revision without changing any Context. Selection is a separate Context action,
 so the same revision can be reused by several Contexts. Existing Workspaces
-adopt a changed binding on their next entry while preserving home.
+adopt a changed binding on their next entry while preserving home. On an
+interactive terminal, both commands present the exact Runtime, Context, current
+binding, and impact before Build or Apply. Scripts remain deterministic by
+supplying `--name frontend` or `--runtime frontend@1` directly.
 
 The public base retains Git, curl, jq, Python, SSH, GitHub CLI, AWS CLI, Claude
 Code, and Codex as ordinary Workspace tools. Their presence grants no

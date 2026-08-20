@@ -115,10 +115,20 @@ func runRuntimeBuild(ctx context.Context, c *CLI, command CommandSpec, intent op
 	if err != nil {
 		return c.failUsage(ctx, "invalid_arguments", err.Error()+"; usage: "+command.Usage(), "help runtime build", "Correct the command arguments.")
 	}
+	name := inputs.One("--name")
+	if !inputs.Provided("--name") {
+		if !runtimeReviewAvailable(ctx, c, format) {
+			return runtimeReviewUnavailable(ctx, c, command, "--name")
+		}
+		name, err = chooseRuntimeBuild(ctx, c)
+		if err != nil {
+			return c.fail(ctx, normalizeRuntimeReviewError(command.Path, err))
+		}
+	}
 	intent.Target = operation.TargetRef{Kind: tobari.RuntimeCatalogTargetKind, ID: tobari.RuntimeCatalogTargetID}
 	intent.Impact = command.Agent.Mutation.Impact
 	buildOutput := newRuntimeBuildOutput(c.Err, humanStyleAllowed(ctx, c, c.Err))
-	result, err := c.runtime.Build(ctx, intent, inputs.One("--name"), buildOutput)
+	result, err := c.runtime.Build(ctx, intent, name, buildOutput)
 	if err != nil {
 		code := c.fail(ctx, err)
 		if invocationErrorFormat(ctx) == errorFormatText {

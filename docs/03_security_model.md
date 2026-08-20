@@ -738,6 +738,16 @@ is therefore a safe retry point: history and every Context binding remain
 unchanged. `context runtime set` separately revalidates an existing ready exact
 revision before replacing one Context binding.
 
+When their primary selector is omitted, terminal Runtime Review performs only
+typed Runtime/Context reads before explicit Build or Apply. Build candidates
+come only from managed Runtime summaries; binding candidates come only from the
+built-in standard revision or validated successful history. An omitted current
+Context is rebound to the exact persisted name shown during Review, preventing
+a concurrent current-marker change from retargeting Apply. Non-interactive,
+machine-readable, canceled, unchanged, invalid, or failed Review paths make
+zero Runtime-build and Context-binding mutation calls. Fully specified direct
+mode reaches the same application invoker without Review.
+
 Shared lifecycle mutations target one catalog-declared `tool_local` cluster.
 The root command uses the catalog-declared current-directory fixed target to
 read and present containing Workspace candidates, then creates or reconciles

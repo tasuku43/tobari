@@ -253,12 +253,12 @@ The public commands are:
 | `context create [--name NAME] [--runtime RUNTIME] [--mode guided\|advanced] [--source-access read-only\|read-write] [--native-readiness enabled\|disabled] [--bootstrap-aws-profile NAME] [--bootstrap-eks-context NAME] [--format text\|json]` | act, fixed target | create | With no inputs, use one continuous four-stage terminal frame for name, source access, effective HTTP policy, and complete final review; Runtime is always visible in Review and defaults to `standard`; direct mode may select only `standard` or an existing ready `NAME@ORDINAL` revision |
 | `context delete --name NAME [--format text\|json]` | act, fixed target | write | Delete one unused non-current non-default Context and its exact owner stores while preserving project files and shared runtime images |
 | `context use --name NAME [--format text\|json]` | act, fixed target | write | Change only the current/default Context; do not mutate existing Tobari or start/reconcile the cluster |
-| `context runtime set --runtime RUNTIME [--context NAME] [--format text\|json]` | act, fixed target | write | Explicitly pin, upgrade, or roll back one Context to `standard` or an existing ready `NAME@ORDINAL` Runtime revision; existing Workspace homes change only on next entry reconciliation |
+| `context runtime set [--runtime RUNTIME] [--context NAME] [--format text\|json]` | act, fixed target | write | Explicitly pin, upgrade, or roll back one Context to `standard` or an existing ready `NAME@ORDINAL` Runtime revision; omission opens terminal Review, and existing Workspace homes change only on next entry reconciliation |
 | `runtime list [--format text\|json]` | utility | read | List the exhaustive installation-wide Runtime catalog and each ready head revision |
 | `runtime show --name NAME [--format text\|json]` | utility | read | Inspect one Runtime's managed source path and complete successful revisions |
 | `runtime history --name NAME [--format text\|json]` | utility | read | Show one Runtime's ordered immutable successful revision history |
 | `runtime create --name NAME [--format text\|json]` | act, fixed target | create | Create one owner-only managed Docker build-context source tree without building or changing a Context |
-| `runtime build --name NAME [--format text\|json]` | act, fixed target | write | Snapshot, build, validate, and append one immutable semantic revision without changing any Context |
+| `runtime build [--name NAME] [--format text\|json]` | act, fixed target | write | Snapshot, build, validate, and append one immutable semantic revision without changing any Context; omission opens terminal Review |
 
 The unsupported experimental development profile built by `task build:dev`
 additionally exposes `serve [--no-open]`. It runs one foreground IPv4-loopback
@@ -453,6 +453,21 @@ undeclared Docker mutation by the CLI.
   permission bits; files may retain owner execute. `runtime build` streams the
   complete semantic tree into a private immutable snapshot while hashing the
   copied bytes and builds only from that snapshot.
+- `runtime build` and `context runtime set` have direct and Review modes. A
+  supplied `--name` or `--runtime` executes directly without a prompt. Omitting
+  that primary selector in text mode requires interactive stdin and stderr and
+  opens a CLI-owned Review; redirected, JSON-success, or JSON-error invocation
+  fails before mutation. Build Review selects only a managed Runtime and shows
+  its source, current successful head or draft state, and the fact that no
+  Context changes. Context Runtime Review shows the exact persisted Context,
+  current binding, proposed `standard@1` or successful `NAME@ORDINAL`, and
+  next-entry timing. When Context is omitted, Review starts from the current
+  Context and may select another persisted Context; an explicit Context remains
+  fixed. The proposed binding starts at the current value, so Apply is absent
+  until it changes. Final Build or Apply reaches the same application mutation
+  boundary once. Cancellation and read, validation, or terminal failure perform
+  zero mutation. Review prompts use stderr and the confirmed complete report
+  uses stdout.
 - Direct `config shell` changes one allowlisted shell-presentation policy in
   the explicit or current Context. Its terminal editor may stage several
   distinct rows and commits the complete change set with one atomic write.
@@ -525,9 +540,9 @@ undeclared Docker mutation by the CLI.
   stable structured mutation fault; a user does not need to rerun an equivalent
   Docker command to obtain the upstream failure.
   Tobari validates the resulting image against the same runtime contract,
-  records its immutable local image digest, and then selects the generated
-  `tobari-context-<context>:<source>` image in the current Context. The previous
-  selected image remains in force until promotion succeeds.
+  records its immutable local image digest, and appends that successful
+  immutable revision without selecting it in any Context. Existing Context
+  bindings remain in force until a separate `context runtime set` succeeds.
 - The built-in `tobari/runtime` image is the base work runtime: it preserves the
   lifecycle contract and its common-tool baseline includes Git, HTTP, JSON,
   Python, SSH, GitHub CLI, AWS CLI, Claude Code 2.1.220, and Codex 0.147.0.

@@ -436,15 +436,21 @@ func runtimeListSpec() CommandSpec {
 
 func contextRuntimeSetSpec() CommandSpec {
 	minimum := int64(1)
-	return CommandSpec{Path: "context runtime set", Summary: "Pin a Context to one ready Runtime revision", Args: "--runtime <standard|name@ordinal> [--context <name>] [--format text|json]", Effect: operation.EffectWrite, Role: RoleAct,
+	return CommandSpec{Path: "context runtime set", Summary: "Pin a Context to one ready Runtime revision", Args: "[--runtime <standard|name@ordinal>] [--context <name>] [--format text|json]", Effect: operation.EffectWrite, Role: RoleAct,
 		Agent: AgentContract{CapabilityID: "context.composition", Outcome: "Explicitly upgrade or roll back one Context Runtime binding without rebuilding or changing existing Workspace homes",
-			Inputs: []CommandInput{{Name: "--runtime", Source: InputSourceFlag, Required: true, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, MinimumLength: &minimum, Description: "Exact ready Runtime selection as standard or name@ordinal.", AllowedValues: []string{}}, executionContextInput(), formatInput()},
+			Inputs: []CommandInput{{Name: "--runtime", Source: InputSourceFlag, Required: false, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, MinimumLength: &minimum, Description: "Exact ready Runtime selection as standard or name@ordinal; omission opens terminal Review in text mode.", AllowedValues: []string{}}, executionContextInput(), formatInput()},
 			Output: contextReportOutput(), Prerequisites: []string{"The selected Runtime revision already exists and is ready."}, FixedTarget: fixedContextRuntimeBindingTarget(),
 			Errors: mutationCommandErrors("context runtime set", "context show",
+				declaredCommandError(fault.KindInvalidInput, "runtime_review_unavailable", false, "help context runtime set", "Supply --runtime or use interactive text streams."),
+				declaredCommandError(fault.KindInternal, "runtime_review_failed", false, "help context runtime set", "Retry with --runtime or repair the interactive terminal streams."),
 				declaredCommandError(fault.KindInvalidInput, "invalid_context_name", false, "context list", "Choose a valid Context name."),
 				declaredCommandError(fault.KindInvalidInput, "invalid_runtime_selection", false, "runtime history", "Choose standard or one ready name@ordinal revision."),
 				declaredCommandError(fault.KindNotFound, "context_not_found", false, "context list", "Choose an existing Context."),
 				declaredCommandError(fault.KindNotFound, "runtime_not_found", false, "runtime list", "Choose an existing Runtime."),
+				declaredCommandError(fault.KindInternal, "context_read_failed", false, "doctor", "Inspect the host Context stores."),
+				declaredCommandError(fault.KindContract, "invalid_context_list", false, "doctor", "Inspect the host Context stores."),
+				declaredCommandError(fault.KindInternal, "runtime_read_failed", false, "doctor", "Inspect the host Runtime store."),
+				declaredCommandError(fault.KindContract, "invalid_runtime_list", false, "doctor", "Inspect the host Runtime store."),
 				declaredCommandError(fault.KindRejected, "runtime_revision_not_ready", false, "runtime history", "Choose an existing successful revision."),
 				declaredCommandError(fault.KindRejected, "context_runtime_set_failed", false, "context show", "Inspect the unchanged Context Runtime binding."),
 				declaredCommandError(fault.KindContract, "invalid_context_report", false, "context show", "Reconcile the Context Runtime binding."),
@@ -496,11 +502,11 @@ func runtimeBuildSpec() CommandSpec {
 	minimum := int64(1)
 	return CommandSpec{
 		Path: "runtime build", Summary: "Build an immutable revision of a reusable Runtime",
-		Args: "--name <name> [--format text|json]", Effect: operation.EffectWrite, Role: RoleAct,
+		Args: "[--name <name>] [--format text|json]", Effect: operation.EffectWrite, Role: RoleAct,
 		Agent: AgentContract{
 			CapabilityID: "runtime.customization",
 			Outcome:      "Snapshot a managed source with no group/other permissions and at most 1,024 files, 256 directories, 32 MiB per file, and 64 MiB total; build and validate it; append one immutable revision without changing any Context",
-			Inputs:       []CommandInput{{Name: "--name", Source: InputSourceFlag, Required: true, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, MinimumLength: &minimum, Description: "Unique local managed Runtime name.", AllowedValues: []string{}}, formatInput()},
+			Inputs:       []CommandInput{{Name: "--name", Source: InputSourceFlag, Required: false, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, MinimumLength: &minimum, Description: "Unique local managed Runtime name; omission opens terminal Review in text mode.", AllowedValues: []string{}}, formatInput()},
 			Output:       runtimeReportOutput(),
 			Prerequisites: []string{
 				"The named managed Runtime exists and its source root and directories have no group/other permissions.",
@@ -509,8 +515,13 @@ func runtimeBuildSpec() CommandSpec {
 			},
 			FixedTarget: fixedRuntimeCatalogTarget(),
 			Errors: mutationCommandErrors("runtime build", "runtime show",
+				declaredCommandError(fault.KindInvalidInput, "runtime_review_unavailable", false, "help runtime build", "Supply --name or use interactive text streams."),
+				declaredCommandError(fault.KindInternal, "runtime_review_failed", false, "help runtime build", "Retry with --name or repair the interactive terminal streams."),
+				declaredCommandError(fault.KindNotFound, "managed_runtime_not_found", false, "help runtime create", "Create a managed Runtime source tree first."),
 				declaredCommandError(fault.KindInvalidInput, "invalid_runtime_name", false, "runtime list", "Choose a valid managed Runtime name."),
 				declaredCommandError(fault.KindNotFound, "runtime_not_found", false, "runtime list", "Choose an existing managed Runtime."),
+				declaredCommandError(fault.KindInternal, "runtime_read_failed", false, "doctor", "Inspect the host Runtime store."),
+				declaredCommandError(fault.KindContract, "invalid_runtime_list", false, "doctor", "Inspect the host Runtime store."),
 				declaredCommandError(fault.KindRejected, "runtime_source_invalid", false, "runtime show", "Inspect the unchanged Runtime source path and history."),
 				declaredCommandError(fault.KindRejected, "runtime_build_failed", false, "runtime show", "Inspect the unchanged Runtime history and source path."),
 				declaredCommandError(fault.KindUnavailable, "image_not_found", false, "runtime build", "Build or make the official base image available to Docker."),

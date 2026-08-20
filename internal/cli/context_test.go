@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/tasuku43/tobari/internal/app/contextcmd"
 	"github.com/tasuku43/tobari/internal/app/runtimecmd"
@@ -22,34 +23,84 @@ import (
 type contextCLI fakeContextRuntime
 
 type runtimeCatalogCLI struct {
-	buildLog string
-	buildErr error
+	buildLog     string
+	buildErr     error
+	manifest     tobari.RuntimeManifest
+	list         []tobari.RuntimeSummary
+	listCalls    int
+	showCalls    int
+	historyCalls int
+	buildCalls   int
+	lastBuild    string
 }
 
 func testRuntimeManifest() tobari.RuntimeManifest {
 	return tobari.RuntimeManifest{SchemaVersion: tobari.RuntimeSchemaVersion, ID: "018bcfe5-687b-7000-8000-000000000077", Name: "frontend", Kind: tobari.RuntimeKindManaged, SourcePath: "/config/runtimes/frontend/source", Revisions: []tobari.RuntimeRevision{}}
 }
 
+func readyRuntimeManifest() tobari.RuntimeManifest {
+	manifest := testRuntimeManifest()
+	manifest.Revisions = []tobari.RuntimeRevision{{
+		Ordinal: 1, Revision: "sha256:" + strings.Repeat("a", 64),
+		Image: "tobari-runtime-frontend:aaaaaaaaaaaa", ImageDigest: "sha256:" + strings.Repeat("b", 64),
+		CreatedAt: time.Date(2026, 8, 20, 0, 0, 0, 0, time.UTC), SnapshotPath: "/config/runtimes/frontend/snapshots/aaaaaaaaaaaa",
+	}}
+	return manifest
+}
+
+func readyRuntimeManifestWithHistory() tobari.RuntimeManifest {
+	manifest := readyRuntimeManifest()
+	manifest.Revisions = append(manifest.Revisions, tobari.RuntimeRevision{
+		Ordinal: 2, Revision: "sha256:" + strings.Repeat("c", 64),
+		Image: "tobari-runtime-frontend:cccccccccccc", ImageDigest: "sha256:" + strings.Repeat("d", 64),
+		CreatedAt: time.Date(2026, 8, 20, 1, 0, 0, 0, time.UTC), SnapshotPath: "/config/runtimes/frontend/snapshots/cccccccccccc",
+	})
+	return manifest
+}
+
+func runtimeReviewList(manifest tobari.RuntimeManifest) []tobari.RuntimeSummary {
+	return []tobari.RuntimeSummary{
+		{ID: tobari.StandardRuntimeID, Name: tobari.StandardRuntimeName, Kind: tobari.RuntimeKindBuiltin, Ready: true, Head: 1, Revision: "sha256:" + strings.Repeat("0", 64)},
+		tobari.RuntimeSummaryFrom(manifest),
+	}
+}
+
+func (f *runtimeCatalogCLI) runtimeManifest() tobari.RuntimeManifest {
+	if f.manifest.SchemaVersion != 0 {
+		return f.manifest
+	}
+	return testRuntimeManifest()
+}
+
 func (f *runtimeCatalogCLI) ListRuntimes(context.Context) (tobari.RuntimeListResult, error) {
-	return tobari.RuntimeListResult{Task: tobari.TaskRuntimeList, Items: []tobari.RuntimeSummary{}}, nil
+	f.listCalls++
+	items := f.list
+	if items == nil {
+		items = []tobari.RuntimeSummary{}
+	}
+	return tobari.RuntimeListResult{Task: tobari.TaskRuntimeList, Items: items}, nil
 }
 func (f *runtimeCatalogCLI) ShowRuntime(context.Context, string) (tobari.RuntimeReport, error) {
-	return tobari.RuntimeReport{Task: tobari.TaskRuntimeShow, Runtime: testRuntimeManifest()}, nil
+	f.showCalls++
+	return tobari.RuntimeReport{Task: tobari.TaskRuntimeShow, Runtime: f.runtimeManifest()}, nil
 }
 func (f *runtimeCatalogCLI) RuntimeHistory(context.Context, string) (tobari.RuntimeReport, error) {
-	return tobari.RuntimeReport{Task: tobari.TaskRuntimeHistory, Runtime: testRuntimeManifest()}, nil
+	f.historyCalls++
+	return tobari.RuntimeReport{Task: tobari.TaskRuntimeHistory, Runtime: f.runtimeManifest()}, nil
 }
 func (f *runtimeCatalogCLI) CreateRuntime(context.Context, string) (tobari.RuntimeReport, error) {
-	return tobari.RuntimeReport{Task: tobari.TaskRuntimeCreate, Runtime: testRuntimeManifest(), Created: true}, nil
+	return tobari.RuntimeReport{Task: tobari.TaskRuntimeCreate, Runtime: f.runtimeManifest(), Created: true}, nil
 }
-func (f *runtimeCatalogCLI) BuildManagedRuntime(_ context.Context, _ string, diagnostics io.Writer) (tobari.RuntimeReport, error) {
+func (f *runtimeCatalogCLI) BuildManagedRuntime(_ context.Context, name string, diagnostics io.Writer) (tobari.RuntimeReport, error) {
+	f.buildCalls++
+	f.lastBuild = name
 	if diagnostics != nil {
 		_, _ = io.WriteString(diagnostics, f.buildLog)
 	}
 	if f.buildErr != nil {
 		return tobari.RuntimeReport{}, f.buildErr
 	}
-	return tobari.RuntimeReport{Task: tobari.TaskRuntimeBuildV1, Runtime: testRuntimeManifest(), NoChange: true}, nil
+	return tobari.RuntimeReport{Task: tobari.TaskRuntimeBuildV1, Runtime: f.runtimeManifest(), NoChange: true}, nil
 }
 
 func (f *contextCLI) ListContexts(context.Context) (tobari.ContextListResult, error) {
@@ -57,8 +108,14 @@ func (f *contextCLI) ListContexts(context.Context) (tobari.ContextListResult, er
 	return f.list, nil
 }
 
-func (f *contextCLI) ShowContext(context.Context, string) (tobari.ContextReport, error) {
+func (f *contextCLI) ShowContext(_ context.Context, name string) (tobari.ContextReport, error) {
 	f.showCalls++
+	if f.reports != nil && name != "" {
+		if report, ok := f.reports[name]; ok {
+			f.report = report
+			return report, f.showErr
+		}
+	}
 	return f.report, f.showErr
 }
 
@@ -168,6 +225,34 @@ func (f *contextCLI) UseContext(context.Context, string) (tobari.ContextReport, 
 	return f.report, nil
 }
 
+func (f *contextCLI) SetContextRuntime(_ context.Context, name, selection string) (tobari.ContextReport, error) {
+	f.setRuntimeCalls++
+	f.lastRuntimeContext = name
+	f.lastRuntimeSelection = selection
+	f.report.Task = tobari.TaskContextRuntimeSet
+	f.report.Authentication = tobari.ContextAuthentication{BrokerState: tobari.ContextAuthBrokerNotApplicable}
+	if name != "" {
+		f.report.Name = name
+	}
+	if selection == tobari.StandardRuntimeName {
+		f.report.Runtime = standardContextRuntimeReport(tobari.OfficialRuntimeBase)
+		f.report.Image = tobari.OfficialRuntimeBase
+	} else {
+		runtimeName, ordinal, err := tobari.ParseRuntimeSelection(selection)
+		if err != nil {
+			return tobari.ContextReport{}, err
+		}
+		f.report.Runtime = tobari.ContextRuntimeReport{
+			Kind: tobari.ContextRuntimeKindManaged, Status: tobari.ContextRuntimeStatusReady,
+			Image:     "tobari-runtime-" + runtimeName + ":aaaaaaaaaaaa",
+			RuntimeID: "018bcfe5-687b-7000-8000-000000000077", Name: runtimeName,
+			Revision: "sha256:" + strings.Repeat("a", 64), Ordinal: ordinal,
+		}
+		f.report.Image = f.report.Runtime.Image
+	}
+	return f.report, nil
+}
+
 func (f *contextCLI) ConfigureContextShell(
 	_ context.Context, name string, changes []tobari.ContextShellEnvironmentSetting,
 ) (tobari.ContextReport, error) {
@@ -259,6 +344,7 @@ func (f *contextCLI) BuildRuntimeWithProgress(
 type fakeContextRuntime struct {
 	list                    tobari.ContextListResult
 	report                  tobari.ContextReport
+	reports                 map[string]tobari.ContextReport
 	listCalls               int
 	initCalls               int
 	useCalls                int
@@ -274,11 +360,14 @@ type fakeContextRuntime struct {
 	showErr                 error
 	deleteErr               error
 	deleteCalls             int
+	setRuntimeCalls         int
 	lastShellChange         tobari.ContextShellEnvironmentSetting
 	lastShellChanges        []tobari.ContextShellEnvironmentSetting
 	lastGitChange           tobari.ContextGitIdentitySetting
 	lastShellContext        string
 	lastGitContext          string
+	lastRuntimeContext      string
+	lastRuntimeSelection    string
 }
 
 type contextSwitchingWizard struct {
@@ -375,6 +464,16 @@ func contextCLIReport(task, name string, active bool, image string, mode tobari.
 		Stores: tobari.ContextStorePaths{
 			PolicyDirectory: filepath.Join(string(filepath.Separator), "config", "contexts", name, "policy"),
 		},
+	}
+}
+
+func contextSummaryFromReport(report tobari.ContextReport) tobari.ContextSummary {
+	return tobari.ContextSummary{
+		ID: report.ID, Name: report.Name, ContextState: report.ContextState, Active: report.Active,
+		AgentProfile: report.AgentProfile, Image: report.Image, PolicyMode: report.PolicyMode,
+		SourceAccess: report.SourceAccess, PolicyRevision: report.PolicyRevision,
+		NativeReadiness: report.NativeReadiness, MethodPolicy: report.MethodPolicy.Clone(),
+		RuntimeStatus: report.Runtime.Status, Bootstrap: report.Bootstrap,
 	}
 }
 
@@ -1341,15 +1440,232 @@ func TestRuntimeBuildFailureDetailsCoverDockerFailureClasses(t *testing.T) {
 	}
 }
 
-func TestRuntimeInitIsRetiredAndBuildRequiresNamedRuntime(t *testing.T) {
+func TestRuntimeInitIsRetiredAndOmittedBuildSelectorRequiresInteractiveReview(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	command := newCLI(strings.NewReader(""), &stdout, &stderr, DefaultCatalog(), nil)
 	if code := command.RunContext(context.Background(), []string{"runtime", "init"}); code != ExitUsage || !strings.Contains(stderr.String(), "Unknown command") {
 		t.Fatalf("runtime init retirement = %d/%q", code, stderr.String())
 	}
 	stderr.Reset()
-	if code := command.RunContext(context.Background(), []string{"runtime", "build"}); code != ExitUsage || !strings.Contains(stderr.String(), "--name is required") {
+	fake := &runtimeCatalogCLI{manifest: readyRuntimeManifest()}
+	command.runtime = runtimecmd.New(fake)
+	if code := command.RunContext(context.Background(), []string{"runtime", "build"}); code != ExitUsage || !strings.Contains(stderr.String(), "runtime_review_unavailable") {
 		t.Fatalf("runtime build selection = %d/%q", code, stderr.String())
+	}
+	if fake.listCalls != 0 || fake.buildCalls != 0 {
+		t.Fatalf("unavailable Review read/build calls = %d/%d, want zero", fake.listCalls, fake.buildCalls)
+	}
+}
+
+func TestRuntimeBuildReviewSelectsAndConfirmsBeforeBuild(t *testing.T) {
+	manifest := readyRuntimeManifest()
+	fake := &runtimeCatalogCLI{manifest: manifest, list: runtimeReviewList(manifest)}
+	var stdout, stderr bytes.Buffer
+	command := newCLI(strings.NewReader("\n\n"), &stdout, &stderr, DefaultCatalog(), nil)
+	command.runtime = runtimecmd.New(fake)
+	command.tobari = tobaricmd.New(&policyReviewRuntimeFake{terminal: true})
+	command.config = &terminalContextConfigurationWizard{mode: nil, style: false}
+
+	if code := command.RunContext(context.Background(), []string{"runtime", "build"}); code != ExitOK {
+		t.Fatalf("runtime build Review code = %d, stderr = %q", code, stderr.String())
+	}
+	if fake.buildCalls != 1 || fake.lastBuild != "frontend" || fake.listCalls != 1 || fake.showCalls != 1 {
+		t.Fatalf("runtime Review calls = list %d show %d build %d/%q", fake.listCalls, fake.showCalls, fake.buildCalls, fake.lastBuild)
+	}
+	for _, want := range []string{"Tobari · Build Runtime", "Runtime: frontend", "Source: /config/runtimes/frontend/source", "No Context Runtime binding will change.", "Build Runtime"} {
+		if !strings.Contains(stderr.String(), want) {
+			t.Fatalf("runtime Review stderr = %q, missing %q", stderr.String(), want)
+		}
+	}
+	if !strings.Contains(stdout.String(), "Runtime frontend") || !strings.Contains(stdout.String(), "unchanged") {
+		t.Fatalf("runtime build confirmed stdout = %q", stdout.String())
+	}
+}
+
+func TestRuntimeBuildReviewCancellationPerformsZeroBuild(t *testing.T) {
+	manifest := readyRuntimeManifest()
+	fake := &runtimeCatalogCLI{manifest: manifest, list: runtimeReviewList(manifest)}
+	var stdout, stderr bytes.Buffer
+	command := newCLI(strings.NewReader("\n3\n"), &stdout, &stderr, DefaultCatalog(), nil)
+	command.runtime = runtimecmd.New(fake)
+	command.tobari = tobaricmd.New(&policyReviewRuntimeFake{terminal: true})
+	command.config = &terminalContextConfigurationWizard{mode: nil, style: false}
+
+	if code := command.RunContext(context.Background(), []string{"runtime", "build"}); code != ExitCanceled {
+		t.Fatalf("canceled runtime Review code = %d, stderr = %q", code, stderr.String())
+	}
+	if fake.buildCalls != 0 || stdout.Len() != 0 {
+		t.Fatalf("canceled runtime Review build/stdout = %d/%q", fake.buildCalls, stdout.String())
+	}
+}
+
+func TestRuntimeBuildReviewRejectsCatalogWithoutManagedRuntimeBeforeBuild(t *testing.T) {
+	standard := runtimeReviewList(readyRuntimeManifest())[:1]
+	fake := &runtimeCatalogCLI{manifest: readyRuntimeManifest(), list: standard}
+	var stdout, stderr bytes.Buffer
+	command := newCLI(strings.NewReader(""), &stdout, &stderr, DefaultCatalog(), nil)
+	command.runtime = runtimecmd.New(fake)
+	command.tobari = tobaricmd.New(&policyReviewRuntimeFake{terminal: true})
+	command.config = &terminalContextConfigurationWizard{mode: nil, style: false}
+
+	if code := command.RunContext(context.Background(), []string{"runtime", "build"}); code != ExitNotFound || !strings.Contains(stderr.String(), "managed_runtime_not_found") {
+		t.Fatalf("managed Runtime empty state code/stderr = %d/%q", code, stderr.String())
+	}
+	if fake.buildCalls != 0 || stdout.Len() != 0 || !strings.Contains(stderr.String(), "tobari help runtime create") {
+		t.Fatalf("managed Runtime empty state build/stdout/stderr = %d/%q/%q", fake.buildCalls, stdout.String(), stderr.String())
+	}
+}
+
+func TestRuntimeBuildFullySpecifiedRemainsDirect(t *testing.T) {
+	manifest := readyRuntimeManifest()
+	fake := &runtimeCatalogCLI{manifest: manifest, list: runtimeReviewList(manifest)}
+	var stdout, stderr bytes.Buffer
+	command := newCLI(strings.NewReader(""), &stdout, &stderr, DefaultCatalog(), nil)
+	command.runtime = runtimecmd.New(fake)
+
+	if code := command.RunContext(context.Background(), []string{"runtime", "build", "--name", "frontend"}); code != ExitOK {
+		t.Fatalf("direct runtime build code = %d, stderr = %q", code, stderr.String())
+	}
+	if fake.buildCalls != 1 || fake.listCalls != 0 || fake.showCalls != 0 {
+		t.Fatalf("direct runtime build calls = build/list/show %d/%d/%d", fake.buildCalls, fake.listCalls, fake.showCalls)
+	}
+}
+
+func TestContextRuntimeReviewSelectsRevisionAndAppliesOnce(t *testing.T) {
+	manifest := readyRuntimeManifest()
+	contextFake := &contextCLI{report: contextCLIReport(tobari.TaskContextShow, "web", true, tobari.OfficialRuntimeBase, tobari.ContextPolicyModeGuided)}
+	runtimeFake := &runtimeCatalogCLI{manifest: manifest, list: runtimeReviewList(manifest)}
+	var stdout, stderr bytes.Buffer
+	command := newCLI(strings.NewReader("\n2\n\n"), &stdout, &stderr, DefaultCatalog(), nil)
+	command.context = contextcmd.New(contextFake)
+	command.runtime = runtimecmd.New(runtimeFake)
+	command.tobari = tobaricmd.New(&policyReviewRuntimeFake{terminal: true})
+	command.config = &terminalContextConfigurationWizard{mode: nil, style: false}
+
+	if code := command.RunContext(context.Background(), []string{"context", "runtime", "set"}); code != ExitOK {
+		t.Fatalf("Context Runtime Review code = %d, stderr = %q", code, stderr.String())
+	}
+	if contextFake.setRuntimeCalls != 1 || contextFake.lastRuntimeContext != "web" || contextFake.lastRuntimeSelection != "frontend@1" {
+		t.Fatalf("Context Runtime Apply = %d/%q/%q", contextFake.setRuntimeCalls, contextFake.lastRuntimeContext, contextFake.lastRuntimeSelection)
+	}
+	for _, want := range []string{"Tobari · Set Context Runtime", "Context: web · current", "Current: standard@1", "Runtime: frontend@1", "next Workspace entry", "Apply"} {
+		if !strings.Contains(stderr.String(), want) {
+			t.Fatalf("Context Runtime Review stderr = %q, missing %q", stderr.String(), want)
+		}
+	}
+	if !strings.Contains(stdout.String(), "frontend@1") {
+		t.Fatalf("Context Runtime confirmed stdout = %q", stdout.String())
+	}
+}
+
+func TestContextRuntimeReviewLoadsCompleteSuccessfulHistoryForRollback(t *testing.T) {
+	manifest := readyRuntimeManifestWithHistory()
+	runtimeFake := &runtimeCatalogCLI{manifest: manifest, list: runtimeReviewList(manifest)}
+	command := newCLI(strings.NewReader(""), io.Discard, io.Discard, DefaultCatalog(), nil)
+	command.runtime = runtimecmd.New(runtimeFake)
+
+	choices, err := loadReadyRuntimeChoices(context.Background(), command)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"standard", "frontend@2", "frontend@1"}
+	got := make([]string, 0, len(choices))
+	for _, choice := range choices {
+		got = append(got, choice.selection)
+	}
+	if !reflect.DeepEqual(got, want) || runtimeFake.historyCalls != 1 {
+		t.Fatalf("ready Runtime choices/history calls = %v/%d, want %v/1", got, runtimeFake.historyCalls, want)
+	}
+}
+
+func TestContextRuntimeReviewCanChangeOmittedContextBeforeApply(t *testing.T) {
+	manifest := readyRuntimeManifest()
+	web := contextCLIReport(tobari.TaskContextShow, "web", true, tobari.OfficialRuntimeBase, tobari.ContextPolicyModeGuided)
+	review := contextCLIReport(tobari.TaskContextShow, "review", false, manifest.Revisions[0].Image, tobari.ContextPolicyModeGuided)
+	review.ID = "018bcfe5-687b-7000-8000-000000000100"
+	review.Runtime = tobari.ContextRuntimeReport{
+		Kind: tobari.ContextRuntimeKindManaged, Status: tobari.ContextRuntimeStatusReady,
+		Image: manifest.Revisions[0].Image, RuntimeID: manifest.ID, Name: manifest.Name,
+		Revision: manifest.Revisions[0].Revision, Ordinal: 1,
+	}
+	contextFake := &contextCLI{
+		report:  web,
+		reports: map[string]tobari.ContextReport{"web": web, "review": review},
+		list: tobari.ContextListResult{
+			Task: tobari.TaskContextList, ContextState: tobari.ContextObservationPersisted, Active: "web",
+			Items: []tobari.ContextSummary{contextSummaryFromReport(web), contextSummaryFromReport(review)},
+		},
+	}
+	runtimeFake := &runtimeCatalogCLI{manifest: manifest, list: runtimeReviewList(manifest)}
+	var stdout, stderr bytes.Buffer
+	command := newCLI(strings.NewReader("2\n2\n\n2\n\n"), &stdout, &stderr, DefaultCatalog(), nil)
+	command.context = contextcmd.New(contextFake)
+	command.runtime = runtimecmd.New(runtimeFake)
+	command.tobari = tobaricmd.New(&policyReviewRuntimeFake{terminal: true})
+	command.config = &terminalContextConfigurationWizard{mode: nil, style: false}
+
+	if code := command.RunContext(context.Background(), []string{"context", "runtime", "set"}); code != ExitOK {
+		t.Fatalf("change-Context Runtime Review code = %d, stderr = %q", code, stderr.String())
+	}
+	if contextFake.listCalls != 1 || contextFake.lastRuntimeContext != "review" || contextFake.lastRuntimeSelection != tobari.StandardRuntimeName {
+		t.Fatalf("change-Context Apply = list %d context %q Runtime %q", contextFake.listCalls, contextFake.lastRuntimeContext, contextFake.lastRuntimeSelection)
+	}
+	for _, want := range []string{"Persisted Context", "review — persisted", "Context: review", "Current: frontend@1", "Runtime: standard@1"} {
+		if !strings.Contains(stderr.String(), want) {
+			t.Fatalf("change-Context Review stderr = %q, missing %q", stderr.String(), want)
+		}
+	}
+}
+
+func TestContextRuntimeReviewUnchangedSelectionCannotApply(t *testing.T) {
+	manifest := readyRuntimeManifest()
+	contextFake := &contextCLI{report: contextCLIReport(tobari.TaskContextShow, "web", true, tobari.OfficialRuntimeBase, tobari.ContextPolicyModeGuided)}
+	runtimeFake := &runtimeCatalogCLI{manifest: manifest, list: runtimeReviewList(manifest)}
+	var stdout, stderr bytes.Buffer
+	command := newCLI(strings.NewReader("3\n"), &stdout, &stderr, DefaultCatalog(), nil)
+	command.context = contextcmd.New(contextFake)
+	command.runtime = runtimecmd.New(runtimeFake)
+	command.tobari = tobaricmd.New(&policyReviewRuntimeFake{terminal: true})
+	command.config = &terminalContextConfigurationWizard{mode: nil, style: false}
+
+	if code := command.RunContext(context.Background(), []string{"context", "runtime", "set"}); code != ExitCanceled {
+		t.Fatalf("unchanged Context Runtime Review code = %d, stderr = %q", code, stderr.String())
+	}
+	if contextFake.setRuntimeCalls != 0 || stdout.Len() != 0 || !strings.Contains(stderr.String(), "Apply is unavailable") {
+		t.Fatalf("unchanged Review mutation/stdout/stderr = %d/%q/%q", contextFake.setRuntimeCalls, stdout.String(), stderr.String())
+	}
+}
+
+func TestContextRuntimeOmittedSelectorRejectsNonInteractiveAndDirectModeSkipsReads(t *testing.T) {
+	manifest := readyRuntimeManifest()
+	contextFake := &contextCLI{report: contextCLIReport(tobari.TaskContextShow, "web", true, tobari.OfficialRuntimeBase, tobari.ContextPolicyModeGuided)}
+	runtimeFake := &runtimeCatalogCLI{manifest: manifest, list: runtimeReviewList(manifest)}
+	var stdout, stderr bytes.Buffer
+	command := newCLI(strings.NewReader(""), &stdout, &stderr, DefaultCatalog(), nil)
+	command.context = contextcmd.New(contextFake)
+	command.runtime = runtimecmd.New(runtimeFake)
+
+	if code := command.RunContext(context.Background(), []string{"context", "runtime", "set"}); code != ExitUsage || !strings.Contains(stderr.String(), "runtime_review_unavailable") {
+		t.Fatalf("non-interactive Context Runtime code = %d, stderr = %q", code, stderr.String())
+	}
+	if contextFake.showCalls != 0 || contextFake.setRuntimeCalls != 0 || runtimeFake.listCalls != 0 {
+		t.Fatalf("non-interactive Review calls = show/set/list %d/%d/%d", contextFake.showCalls, contextFake.setRuntimeCalls, runtimeFake.listCalls)
+	}
+	stderr.Reset()
+	command.tobari = tobaricmd.New(&policyReviewRuntimeFake{terminal: true})
+	if code := command.RunContext(context.Background(), []string{"context", "runtime", "set", "--format", "json"}); code != ExitUsage || !strings.Contains(stderr.String(), "runtime_review_unavailable") {
+		t.Fatalf("JSON Context Runtime Review code = %d, stderr = %q", code, stderr.String())
+	}
+	if contextFake.showCalls != 0 || contextFake.setRuntimeCalls != 0 || runtimeFake.listCalls != 0 {
+		t.Fatalf("JSON Review calls = show/set/list %d/%d/%d", contextFake.showCalls, contextFake.setRuntimeCalls, runtimeFake.listCalls)
+	}
+
+	stderr.Reset()
+	if code := command.RunContext(context.Background(), []string{"context", "runtime", "set", "--runtime", "frontend@1"}); code != ExitOK {
+		t.Fatalf("direct Context Runtime code = %d, stderr = %q", code, stderr.String())
+	}
+	if contextFake.setRuntimeCalls != 1 || contextFake.showCalls != 0 || runtimeFake.listCalls != 0 {
+		t.Fatalf("direct Context Runtime calls = set/show/list %d/%d/%d", contextFake.setRuntimeCalls, contextFake.showCalls, runtimeFake.listCalls)
 	}
 }
 

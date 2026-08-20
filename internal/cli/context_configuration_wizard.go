@@ -32,6 +32,11 @@ type configurationWizardOption struct {
 	value       string
 }
 
+type configurationWizardDetail struct {
+	label string
+	value string
+}
+
 const maxConfigurationWizardChoiceBytes = 64
 
 func newContextConfigurationWizard() *terminalContextConfigurationWizard {
@@ -648,6 +653,7 @@ type configurationWizardMenu struct {
 	title       string
 	contextName string
 	current     string
+	details     []configurationWizardDetail
 	information []string
 	prompt      string
 	options     []configurationWizardOption
@@ -743,10 +749,15 @@ func selectConfigurationWizardRaw(
 func renderConfigurationWizardRaw(
 	out io.Writer, menu configurationWizardMenu, selected int, message string, previousLines int, style bool,
 ) (int, error) {
-	lines := []string{
-		selectorTitle(style, menu.title),
-		selectorDetail(style, "Context", safeExternalText(menu.contextName), styleText),
-		selectorDetail(style, "Current", safeExternalText(menu.current), styleText),
+	lines := []string{selectorTitle(style, menu.title)}
+	if menu.contextName != "" {
+		lines = append(lines, selectorDetail(style, "Context", safeExternalText(menu.contextName), styleText))
+	}
+	if menu.current != "" {
+		lines = append(lines, selectorDetail(style, "Current", safeExternalText(menu.current), styleText))
+	}
+	for _, detail := range menu.details {
+		lines = append(lines, selectorDetail(style, safeExternalText(detail.label), safeExternalText(detail.value), styleText))
 	}
 	for _, information := range menu.information {
 		lines = append(lines, selectorHelp(style, safeExternalText(information)))
@@ -779,8 +790,23 @@ func renderConfigurationWizardLines(out io.Writer, lines []string, previousLines
 func selectConfigurationWizardLine(
 	ctx context.Context, in io.Reader, out io.Writer, menu configurationWizardMenu,
 ) (int, error) {
-	if _, err := fmt.Fprintf(out, "%s\nContext: %s\nCurrent: %s\n", menu.title, safeExternalText(menu.contextName), safeExternalText(menu.current)); err != nil {
+	if _, err := fmt.Fprintln(out, menu.title); err != nil {
 		return 0, err
+	}
+	if menu.contextName != "" {
+		if _, err := fmt.Fprintf(out, "Context: %s\n", safeExternalText(menu.contextName)); err != nil {
+			return 0, err
+		}
+	}
+	if menu.current != "" {
+		if _, err := fmt.Fprintf(out, "Current: %s\n", safeExternalText(menu.current)); err != nil {
+			return 0, err
+		}
+	}
+	for _, detail := range menu.details {
+		if _, err := fmt.Fprintf(out, "%s: %s\n", safeExternalText(detail.label), safeExternalText(detail.value)); err != nil {
+			return 0, err
+		}
 	}
 	for _, information := range menu.information {
 		if _, err := fmt.Fprintln(out, safeExternalText(information)); err != nil {

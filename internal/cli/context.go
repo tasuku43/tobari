@@ -614,13 +614,28 @@ func runContextRuntimeSet(ctx context.Context, c *CLI, command CommandSpec, inte
 	if err != nil {
 		return c.failUsage(ctx, "invalid_arguments", err.Error()+"; usage: "+command.Usage(), "help context runtime set", "Correct the command arguments.")
 	}
-	contextName, err := selectedConfigurationContext(ctx, inputs)
-	if err != nil {
-		return c.fail(ctx, err)
+	contextName := ""
+	runtimeSelection := inputs.One("--runtime")
+	if !inputs.Provided("--runtime") {
+		if c.runtime == nil {
+			return c.fail(ctx, missingRuntimeFault())
+		}
+		if !runtimeReviewAvailable(ctx, c, format) {
+			return runtimeReviewUnavailable(ctx, c, command, "--runtime")
+		}
+		contextName, runtimeSelection, err = chooseContextRuntime(ctx, c, inputs)
+		if err != nil {
+			return c.fail(ctx, normalizeRuntimeReviewError(command.Path, err))
+		}
+	} else {
+		contextName, err = selectedConfigurationContext(ctx, inputs)
+		if err != nil {
+			return c.fail(ctx, err)
+		}
 	}
 	intent.Target = operation.TargetRef{Kind: tobari.ContextRuntimeBindingTargetKind, ID: tobari.ContextRuntimeBindingTargetID}
 	intent.Impact = command.Agent.Mutation.Impact
-	result, err := c.context.SetRuntime(ctx, intent, contextName, inputs.One("--runtime"))
+	result, err := c.context.SetRuntime(ctx, intent, contextName, runtimeSelection)
 	if err != nil {
 		return c.fail(ctx, err)
 	}

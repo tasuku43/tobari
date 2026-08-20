@@ -858,6 +858,11 @@ OPA allow.
   revisions. Contexts own exact Runtime references rather than recipes. Build
   changes no Context; an explicit Context selection or rollback makes bound
   Tobari adopt that revision on their next entry while preserving their home.
+  Fully specified Runtime mutations remain deterministic for agents and
+  scripts. On interactive text streams, omitting the primary selector opens a
+  CLI-owned Review that shows the exact Runtime, Context binding, and delayed
+  Workspace effect before one Build or Apply; cancellation and unavailable
+  Review streams perform no mutation.
 - Context creation initializes an owner-only policy store, references a
   read-only agent profile, and records the compatible Tobari runtime image.
   Auth Broker vault state remains separately keyed by stable Context ID rather
