@@ -31,6 +31,12 @@ composed normalized snapshot and digest are immutable Context authority.
 Human `context list` uses vertical cards with filesystem and method-policy rows;
 schema-1 JSON is unchanged.
 
+Human `context show` uses an outcome-first summary for the selected Context's
+current state, boundary, runtime, authentication, and continuation. The
+optional boolean `--details` expands the same single read into sectioned host
+diagnostics. Schema-1 JSON is complete and byte-identical for either flag
+value.
+
 `context delete --name NAME` is a destructive write to the fixed Context
 catalog. It rejects the foundational `default` Context, the current Context,
 and any Context with a durable Workspace binding. It has no force option and no
@@ -47,6 +53,8 @@ shared runtime images, and reports whether shared policy needs reconciliation.
 - Context lifecycle cleanup is explicit and cannot orphan a Workspace binding.
 - Context collections are longer vertically but remain readable as method
   overrides grow.
+- Context inspection keeps revisions and host stores available without making
+  them compete with the ordinary readiness decision.
 
 ## Verification
 
@@ -54,3 +62,6 @@ Tests cover line and raw-terminal wizard selection, invalid names,
 cancellation/non-terminal rejection before mutation, composed snapshot
 normalization, unchanged JSON, vertical text cards, catalog mutation contracts,
 protected/current/Workspace guards, exact store removal, and repository gates.
+Context-show presentation tests use one typed fixture and answer key for the
+concise and detailed goldens, exact inactive-Context continuation, complete
+method overrides, detail-only diagnostics, and identical JSON.

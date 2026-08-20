@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/tasuku43/tobari/internal/domain/fault"
@@ -14,42 +15,54 @@ import (
 )
 
 type contextRuntimeFake struct {
-	listResult         tobari.ContextListResult
-	showResult         tobari.ContextReport
-	createResult       tobari.ContextReport
-	deleteResult       tobari.ContextDeleteResult
-	useResult          tobari.ContextReport
-	initResult         tobari.ContextReport
-	buildResult        tobari.ContextReport
-	configureResult    tobari.ContextReport
-	configureGitResult tobari.ContextReport
-	listErr            error
-	showErr            error
-	createErr          error
-	deleteErr          error
-	useErr             error
-	initErr            error
-	buildErr           error
-	configureErr       error
-	configureGitErr    error
-	createCalls        int
-	deleteCalls        int
-	useCalls           int
-	initCalls          int
-	buildCalls         int
-	configureCalls     int
-	configureGitCalls  int
-	showCalls          int
-	buildProgressCalls int
-	lastName           string
-	lastShowName       string
-	lastImage          string
-	lastMode           tobari.ContextPolicyMode
-	lastSourceAccess   tobari.ContextSourceAccess
-	lastComposition    tobari.ContextCreateComposition
-	lastChange         tobari.ContextShellEnvironmentSetting
-	lastChanges        []tobari.ContextShellEnvironmentSetting
-	lastGitChange      tobari.ContextGitIdentitySetting
+	listResult           tobari.ContextListResult
+	showResult           tobari.ContextReport
+	createResult         tobari.ContextReport
+	deleteResult         tobari.ContextDeleteResult
+	useResult            tobari.ContextReport
+	initResult           tobari.ContextReport
+	buildResult          tobari.ContextReport
+	setRuntimeResult     tobari.ContextReport
+	configureResult      tobari.ContextReport
+	configureGitResult   tobari.ContextReport
+	discoverAWSResult    tobari.ContextAWSBootstrapDiscovery
+	listErr              error
+	showErr              error
+	createErr            error
+	deleteErr            error
+	useErr               error
+	initErr              error
+	buildErr             error
+	setRuntimeErr        error
+	configureErr         error
+	configureGitErr      error
+	discoverAWSErr       error
+	createCalls          int
+	deleteCalls          int
+	useCalls             int
+	initCalls            int
+	buildCalls           int
+	setRuntimeCalls      int
+	configureCalls       int
+	configureGitCalls    int
+	discoverAWSCalls     int
+	showCalls            int
+	buildProgressCalls   int
+	lastName             string
+	lastShowName         string
+	lastImage            string
+	lastMode             tobari.ContextPolicyMode
+	lastSourceAccess     tobari.ContextSourceAccess
+	lastComposition      tobari.ContextCreateComposition
+	lastChange           tobari.ContextShellEnvironmentSetting
+	lastChanges          []tobari.ContextShellEnvironmentSetting
+	lastGitChange        tobari.ContextGitIdentitySetting
+	lastRuntimeSelection string
+}
+
+func (f *contextRuntimeFake) DiscoverContextAWSBootstraps(context.Context) (tobari.ContextAWSBootstrapDiscovery, error) {
+	f.discoverAWSCalls++
+	return f.discoverAWSResult, f.discoverAWSErr
 }
 
 func (f *contextRuntimeFake) ListContexts(context.Context) (tobari.ContextListResult, error) {
@@ -122,6 +135,12 @@ func (f *contextRuntimeFake) BuildRuntime(context.Context) (tobari.ContextReport
 	return f.buildResult, f.buildErr
 }
 
+func (f *contextRuntimeFake) SetContextRuntime(_ context.Context, name, selection string) (tobari.ContextReport, error) {
+	f.setRuntimeCalls++
+	f.lastName, f.lastRuntimeSelection = name, selection
+	return f.setRuntimeResult, f.setRuntimeErr
+}
+
 func (f *contextRuntimeFake) BuildRuntimeWithProgress(
 	_ context.Context, diagnostics io.Writer, progress tobari.RuntimeBuildProgressSink,
 ) (tobari.ContextReport, error) {
@@ -149,14 +168,12 @@ func contextReport(task, name string) tobari.ContextReport {
 	return tobari.ContextReport{
 		Task: task, ContextState: tobari.ContextObservationPersisted, ID: "018bcfe5-687b-7000-8000-000000000099", Name: name, Active: task == tobari.TaskContextUse,
 		AgentProfile: tobari.DefaultProfile, Image: tobari.OfficialRuntimeBase,
-		PolicyMode:           tobari.ContextPolicyModeGuided,
-		SourceAccess:         tobari.ContextSourceAccessReadWrite,
-		PolicyPresetOrigin:   tobari.DefaultPolicyPresetOrigin,
-		PolicyPresetRevision: tobari.DefaultPolicyPresetRevision(),
-		PolicyGuardrail:      tobari.PolicyPresetGuardrailMethodPolicy,
-		MethodPolicy:         tobari.PolicyPresetMethodPolicy{Default: tobari.PolicyPresetMethodExactReview, Overrides: []tobari.PolicyPresetMethodOverride{}},
-		ShellEnvironment:     tobari.DefaultContextShellEnvironmentReport(),
-		GitIdentity:          tobari.DefaultContextGitIdentityReport(),
+		PolicyMode:       tobari.ContextPolicyModeGuided,
+		SourceAccess:     tobari.ContextSourceAccessReadWrite,
+		PolicyRevision:   tobari.DefaultContextPolicyRevision(),
+		MethodPolicy:     tobari.ContextMethodPolicy{Default: tobari.ContextMethodExactReview, Overrides: []tobari.ContextMethodOverride{}},
+		ShellEnvironment: tobari.DefaultContextShellEnvironmentReport(),
+		GitIdentity:      tobari.DefaultContextGitIdentityReport(),
 		Runtime: tobari.ContextRuntimeReport{
 			Kind: tobari.ContextRuntimeKindOfficial, Status: tobari.ContextRuntimeStatusOfficial,
 		},
@@ -165,6 +182,21 @@ func contextReport(task, name string) tobari.ContextReport {
 		Stores: tobari.ContextStorePaths{
 			PolicyDirectory: filepath.Join(string(filepath.Separator), "config", "contexts", name, "policy"),
 		},
+	}
+}
+
+func TestDiscoverAWSBootstrapsPreservesTypedRejectedSourceWithoutMutation(t *testing.T) {
+	t.Parallel()
+	runtime := &contextRuntimeFake{discoverAWSResult: tobari.ContextAWSBootstrapDiscovery{
+		State: tobari.ContextBootstrapDiscoveryRejected, Reason: "Host AWS shared config is unsafe.", Candidates: []tobari.ContextAWSBootstrapCandidate{},
+	}}
+	service := New(runtime)
+	result, err := service.DiscoverAWSBootstraps(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.State != tobari.ContextBootstrapDiscoveryRejected || runtime.discoverAWSCalls != 1 || runtime.createCalls != 0 || runtime.configureCalls != 0 {
+		t.Fatalf("discovery result/calls = %+v / discover=%d create=%d configure=%d", result, runtime.discoverAWSCalls, runtime.createCalls, runtime.configureCalls)
 	}
 }
 
@@ -669,9 +701,9 @@ func TestCreateDuplicateRecoversThroughContextList(t *testing.T) {
 }
 
 func TestCreateWithCompositionPreservesTypedMethodSelection(t *testing.T) {
-	policy := tobari.PolicyPresetMethodPolicy{
-		Default:   tobari.PolicyPresetMethodExactReview,
-		Overrides: []tobari.PolicyPresetMethodOverride{{Method: "GET", Decision: tobari.PolicyPresetMethodAllow}},
+	policy := tobari.ContextMethodPolicy{
+		Default:   tobari.ContextMethodExactReview,
+		Overrides: []tobari.ContextMethodOverride{{Method: "GET", Decision: tobari.ContextMethodAllow}},
 	}
 	report := contextReport(tobari.TaskContextCreate, "coding")
 	report.MethodPolicy = policy.Clone()
@@ -685,16 +717,15 @@ func TestCreateWithCompositionPreservesTypedMethodSelection(t *testing.T) {
 		context.Background(), intent, "coding", tobari.OfficialRuntimeBase,
 		tobari.ContextPolicyModeGuided, tobari.ContextSourceAccessReadWrite,
 		tobari.ContextCreateComposition{
-			PolicyPresetOrigin: tobari.DefaultPolicyPresetOrigin,
-			NativeReadiness:    tobari.ContextNativeReadinessEnabled,
-			MethodPolicy:       &policy,
+			NativeReadiness: tobari.ContextNativeReadinessEnabled,
+			MethodPolicy:    &policy,
 		},
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if result.Name != "coding" || fake.createCalls != 1 || fake.lastComposition.MethodPolicy == nil ||
-		fake.lastComposition.MethodPolicy.Overrides[0].Decision != tobari.PolicyPresetMethodAllow {
+		fake.lastComposition.MethodPolicy.Overrides[0].Decision != tobari.ContextMethodAllow {
 		t.Fatalf("composed create result/call = %+v/%+v", result, fake.lastComposition)
 	}
 }
@@ -811,5 +842,18 @@ func TestRuntimeBuildMapsMissingRecipeBeforePromotion(t *testing.T) {
 	}
 	if fake.buildCalls != 1 {
 		t.Fatalf("BuildRuntime() calls = %d, want 1", fake.buildCalls)
+	}
+}
+
+func TestContextRuntimeSetPinsExplicitReadyRevision(t *testing.T) {
+	result := contextReport(tobari.TaskContextRuntimeSet, "coding")
+	result.Runtime = tobari.ContextRuntimeReport{Kind: tobari.ContextRuntimeKindManaged, Status: tobari.ContextRuntimeStatusReady, Image: "tobari-runtime-frontend:aaaaaaaaaaaa", RuntimeID: "018bcfe5-687b-7000-8000-000000000077", Name: "frontend", Revision: "sha256:" + strings.Repeat("a", 64), Ordinal: 4}
+	result.Image = result.Runtime.Image
+	fake := &contextRuntimeFake{setRuntimeResult: result}
+	service := New(fake)
+	intent := operation.Intent{Command: "context runtime set", Effect: operation.EffectWrite, Target: operation.TargetRef{Kind: tobari.ContextRuntimeBindingTargetKind, ID: tobari.ContextRuntimeBindingTargetID}, Impact: operation.Impact{Cardinality: operation.CardinalityOne, Notification: operation.DeclarationNo, AccessChange: operation.DeclarationYes, Destructive: operation.DeclarationNo}}
+	updated, err := service.SetRuntime(context.Background(), intent, "coding", "frontend@4")
+	if err != nil || updated.Runtime.Ordinal != 4 || fake.setRuntimeCalls != 1 || fake.lastName != "coding" || fake.lastRuntimeSelection != "frontend@4" {
+		t.Fatalf("set Runtime = %+v/%v fake=%+v", updated, err, fake)
 	}
 }

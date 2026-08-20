@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"io"
 
 	"github.com/tasuku43/tobari/internal/domain/fault"
 	"github.com/tasuku43/tobari/internal/domain/operation"
@@ -57,6 +58,15 @@ func (c *CLI) emitResult(ctx context.Context, output []byte) int {
 // failure is also non-retryable: the mutation already succeeded, so its catalog
 // recovery must reconcile through a read rather than repeat the mutation.
 func (c *CLI) emitMutationResult(ctx context.Context, command CommandSpec, output []byte) int {
+	return c.emitMutationResultTo(ctx, command, output, c.Out)
+}
+
+// emitMutationResultTo preserves the mutation-complete output boundary for a
+// catalog-owned action embedded in an interactive workflow. Root workflow
+// progress belongs on stderr because stdout is handed to the child session.
+func (c *CLI) emitMutationResultTo(
+	ctx context.Context, command CommandSpec, output []byte, writer io.Writer,
+) int {
 	var recovery []fault.NextAction
 	for _, declared := range command.Agent.Errors {
 		if declared.Code == "mutation_output_write_failed" &&
@@ -74,7 +84,7 @@ func (c *CLI) emitMutationResult(ctx context.Context, command CommandSpec, outpu
 			fault.NextAction{Command: "help " + command.Path, Reason: "Declare non-retryable mutation output recovery through a read-only command."},
 		))
 	}
-	if _, err := writeOnce(c.Out, output); err != nil {
+	if _, err := writeOnce(writer, output); err != nil {
 		return c.fail(ctx, fault.Wrap(
 			fault.KindInternal,
 			"mutation_output_write_failed",

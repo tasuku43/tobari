@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/tasuku43/tobari/internal/app/contextcmd"
+	"github.com/tasuku43/tobari/internal/app/runtimecmd"
 	"github.com/tasuku43/tobari/internal/app/tobaricmd"
 	"github.com/tasuku43/tobari/internal/domain/fault"
 	"github.com/tasuku43/tobari/internal/domain/tobari"
@@ -20,7 +21,39 @@ import (
 
 type contextCLI fakeContextRuntime
 
+type runtimeCatalogCLI struct {
+	buildLog string
+	buildErr error
+}
+
+func testRuntimeManifest() tobari.RuntimeManifest {
+	return tobari.RuntimeManifest{SchemaVersion: tobari.RuntimeSchemaVersion, ID: "018bcfe5-687b-7000-8000-000000000077", Name: "frontend", Kind: tobari.RuntimeKindManaged, SourcePath: "/config/runtimes/frontend/source", Revisions: []tobari.RuntimeRevision{}}
+}
+
+func (f *runtimeCatalogCLI) ListRuntimes(context.Context) (tobari.RuntimeListResult, error) {
+	return tobari.RuntimeListResult{Task: tobari.TaskRuntimeList, Items: []tobari.RuntimeSummary{}}, nil
+}
+func (f *runtimeCatalogCLI) ShowRuntime(context.Context, string) (tobari.RuntimeReport, error) {
+	return tobari.RuntimeReport{Task: tobari.TaskRuntimeShow, Runtime: testRuntimeManifest()}, nil
+}
+func (f *runtimeCatalogCLI) RuntimeHistory(context.Context, string) (tobari.RuntimeReport, error) {
+	return tobari.RuntimeReport{Task: tobari.TaskRuntimeHistory, Runtime: testRuntimeManifest()}, nil
+}
+func (f *runtimeCatalogCLI) CreateRuntime(context.Context, string) (tobari.RuntimeReport, error) {
+	return tobari.RuntimeReport{Task: tobari.TaskRuntimeCreate, Runtime: testRuntimeManifest(), Created: true}, nil
+}
+func (f *runtimeCatalogCLI) BuildManagedRuntime(_ context.Context, _ string, diagnostics io.Writer) (tobari.RuntimeReport, error) {
+	if diagnostics != nil {
+		_, _ = io.WriteString(diagnostics, f.buildLog)
+	}
+	if f.buildErr != nil {
+		return tobari.RuntimeReport{}, f.buildErr
+	}
+	return tobari.RuntimeReport{Task: tobari.TaskRuntimeBuildV1, Runtime: testRuntimeManifest(), NoChange: true}, nil
+}
+
 func (f *contextCLI) ListContexts(context.Context) (tobari.ContextListResult, error) {
+	f.listCalls++
 	return f.list, nil
 }
 
@@ -179,6 +212,7 @@ func (f *contextCLI) ConfigureContextGit(
 }
 
 func (f *contextCLI) InitRuntime(context.Context) (tobari.ContextReport, error) {
+	f.initCalls++
 	f.report.Task = tobari.TaskRuntimeInit
 	f.report.Authentication = tobari.ContextAuthentication{BrokerState: tobari.ContextAuthBrokerNotApplicable}
 	return f.report, nil
@@ -225,6 +259,8 @@ func (f *contextCLI) BuildRuntimeWithProgress(
 type fakeContextRuntime struct {
 	list                    tobari.ContextListResult
 	report                  tobari.ContextReport
+	listCalls               int
+	initCalls               int
 	useCalls                int
 	createCalls             int
 	buildCalls              int
@@ -330,16 +366,23 @@ func contextCLIReport(task, name string, active bool, image string, mode tobari.
 	return tobari.ContextReport{
 		Task: task, ContextState: tobari.ContextObservationPersisted, ID: "018bcfe5-687b-7000-8000-000000000099", Name: name, Active: active, AgentProfile: tobari.DefaultProfile,
 		Image: image, PolicyMode: mode, SourceAccess: tobari.ContextSourceAccessReadWrite,
-		PolicyPresetOrigin: tobari.DefaultPolicyPresetOrigin, PolicyPresetRevision: tobari.DefaultPolicyPresetRevision(), PolicyGuardrail: tobari.PolicyPresetGuardrailMethodPolicy,
-		MethodPolicy:     tobari.PolicyPresetMethodPolicy{Default: tobari.PolicyPresetMethodExactReview, Overrides: []tobari.PolicyPresetMethodOverride{}},
+		PolicyRevision: tobari.DefaultContextPolicyRevision(), MethodPolicy: tobari.ContextMethodPolicy{Default: tobari.ContextMethodExactReview, Overrides: []tobari.ContextMethodOverride{}},
 		Cluster:          tobari.ContextClusterStatusNotApplicable,
 		ShellEnvironment: tobari.DefaultContextShellEnvironmentReport(),
 		GitIdentity:      tobari.DefaultContextGitIdentityReport(),
-		Runtime:          tobari.ContextRuntimeReport{Kind: tobari.ContextRuntimeKindOfficial, Status: tobari.ContextRuntimeStatusOfficial},
+		Runtime:          standardContextRuntimeReport(image),
 		Authentication:   authentication,
 		Stores: tobari.ContextStorePaths{
 			PolicyDirectory: filepath.Join(string(filepath.Separator), "config", "contexts", name, "policy"),
 		},
+	}
+}
+
+func standardContextRuntimeReport(image string) tobari.ContextRuntimeReport {
+	return tobari.ContextRuntimeReport{
+		Kind: tobari.ContextRuntimeKindOfficial, Status: tobari.ContextRuntimeStatusOfficial,
+		Image: image, RuntimeID: tobari.StandardRuntimeID, Name: tobari.StandardRuntimeName,
+		Revision: "sha256:" + strings.Repeat("0", 64), Ordinal: 1,
 	}
 }
 
@@ -780,7 +823,7 @@ func TestContextReportJSONSchemaOneDeclaresExactContextKeys(t *testing.T) {
 	if err := json.Unmarshal(outer["context"], &contextFields); err != nil {
 		t.Fatalf("context envelope = %q, error = %v", outer["context"], err)
 	}
-	want := []string{"active", "agent_profile", "authentication", "bootstrap", "cluster", "context_state", "git_identity", "id", "image", "method_policy", "name", "native_readiness", "policy_guardrail", "policy_mode", "policy_preset_origin", "policy_preset_revision", "runtime", "shell_environment", "source_access", "stores", "task"}
+	want := []string{"active", "agent_profile", "authentication", "bootstrap", "cluster", "context_state", "git_identity", "id", "image", "method_policy", "name", "native_readiness", "policy_mode", "policy_revision", "runtime", "shell_environment", "source_access", "stores", "task"}
 	got := make([]string, 0, len(contextFields))
 	for name := range contextFields {
 		got = append(got, name)
@@ -806,16 +849,12 @@ func TestSyntheticContextJSONNeverInventsAuthority(t *testing.T) {
 		Task: tobari.TaskContextShow, ContextState: tobari.ContextObservationSyntheticDefault,
 		Name: tobari.DefaultContextName, Active: true, AgentProfile: tobari.DefaultProfile,
 		Image: tobari.OfficialRuntimeBase, PolicyMode: tobari.ContextPolicyModeGuided,
-		SourceAccess:       tobari.ContextSourceAccessReadWrite,
-		PolicyPresetOrigin: tobari.DefaultPolicyPresetOrigin, PolicyGuardrail: tobari.PolicyPresetGuardrailMethodPolicy,
-		MethodPolicy:     tobari.PolicyPresetMethodPolicy{Default: tobari.PolicyPresetMethodExactReview, Overrides: []tobari.PolicyPresetMethodOverride{}},
+		SourceAccess:     tobari.ContextSourceAccessReadWrite,
+		MethodPolicy:     tobari.ContextMethodPolicy{Default: tobari.ContextMethodExactReview, Overrides: []tobari.ContextMethodOverride{}},
 		ShellEnvironment: tobari.DefaultContextShellEnvironmentReport(),
 		GitIdentity:      tobari.DefaultContextGitIdentityReport(),
-		Runtime: tobari.ContextRuntimeReport{
-			Kind: tobari.ContextRuntimeKindOfficial, Status: tobari.ContextRuntimeStatusOfficial,
-			BaseReference: tobari.OfficialRuntimeBase,
-		},
-		Cluster: tobari.ContextClusterStatusNotApplicable,
+		Runtime:          standardContextRuntimeReport(tobari.OfficialRuntimeBase),
+		Cluster:          tobari.ContextClusterStatusNotApplicable,
 		Authentication: tobari.ContextAuthentication{
 			BrokerState: tobari.ContextAuthBrokerUnavailable, Providers: []tobari.ContextAuthProvider{},
 		},
@@ -834,7 +873,7 @@ func TestSyntheticContextJSONNeverInventsAuthority(t *testing.T) {
 	}
 }
 
-func TestContextCreateRendersRequiresReconcileAndExecutableClusterUp(t *testing.T) {
+func TestContextCreateRendersRequiresReconcileAndExecutableRootContinuation(t *testing.T) {
 	t.Parallel()
 	report := contextCLIReport(
 		tobari.TaskContextCreate, "review", false,
@@ -846,15 +885,15 @@ func TestContextCreateRendersRequiresReconcileAndExecutableClusterUp(t *testing.
 		t.Fatal(err)
 	}
 	if !strings.Contains(string(output), "Cluster: requires_reconcile") ||
-		!strings.Contains(string(output), "Next: run `tobari cluster up`") {
+		!strings.Contains(string(output), "Next: run `tobari`") {
 		t.Fatalf("Context create hides required cluster reconciliation: %q", output)
 	}
-	if routed := assertPublicNextArgvRoutes(t, contextCreateNextArgv(report)); routed.Path != "cluster up" {
+	if routed := assertPublicNextArgvRoutes(t, contextCreateNextArgv(report)); routed.Path != "tobari" {
 		t.Fatalf("Context create recovery routes to %q", routed.Path)
 	}
 }
 
-func TestContextCreateRendersAbsentClusterAndExecutableClusterUp(t *testing.T) {
+func TestContextCreateRendersAbsentClusterAndExecutableRootContinuation(t *testing.T) {
 	t.Parallel()
 	report := contextCLIReport(
 		tobari.TaskContextCreate, tobari.DefaultContextName, true,
@@ -866,10 +905,10 @@ func TestContextCreateRendersAbsentClusterAndExecutableClusterUp(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !strings.Contains(string(output), "Cluster: not_applicable") ||
-		!strings.Contains(string(output), "Next: run `tobari cluster up`") {
+		!strings.Contains(string(output), "Next: run `tobari`") {
 		t.Fatalf("Context create hides absent-cluster recovery: %q", output)
 	}
-	if routed := assertPublicNextArgvRoutes(t, contextCreateNextArgv(report)); routed.Path != "cluster up" {
+	if routed := assertPublicNextArgvRoutes(t, contextCreateNextArgv(report)); routed.Path != "tobari" {
 		t.Fatalf("Context create recovery routes to %q", routed.Path)
 	}
 }
@@ -903,19 +942,19 @@ func TestContextExistsCatalogRecoveryRoutesToListContainingNonActiveDuplicate(t 
 				ID: "018bcfe5-687b-7000-8000-000000000099", Name: "default",
 				ContextState: tobari.ContextObservationPersisted, Active: true,
 				AgentProfile: tobari.DefaultProfile, Image: tobari.OfficialRuntimeBase,
-				PolicyMode:         tobari.ContextPolicyModeGuided,
-				SourceAccess:       tobari.ContextSourceAccessReadWrite,
-				PolicyPresetOrigin: tobari.DefaultPolicyPresetOrigin, PolicyPresetRevision: tobari.DefaultPolicyPresetRevision(),
-				MethodPolicy: tobari.PolicyPresetMethodPolicy{Default: tobari.PolicyPresetMethodExactReview, Overrides: []tobari.PolicyPresetMethodOverride{}},
+				PolicyMode:     tobari.ContextPolicyModeGuided,
+				SourceAccess:   tobari.ContextSourceAccessReadWrite,
+				PolicyRevision: tobari.DefaultContextPolicyRevision(),
+				MethodPolicy:   tobari.ContextMethodPolicy{Default: tobari.ContextMethodExactReview, Overrides: []tobari.ContextMethodOverride{}},
 			},
 			{
 				ID: "018bcfe5-687b-7000-8000-000000000100", Name: "review",
 				ContextState: tobari.ContextObservationPersisted, Active: false,
 				AgentProfile: tobari.DefaultProfile, Image: tobari.OfficialRuntimeBase,
-				PolicyMode:         tobari.ContextPolicyModeGuided,
-				SourceAccess:       tobari.ContextSourceAccessReadOnly,
-				PolicyPresetOrigin: tobari.DefaultPolicyPresetOrigin, PolicyPresetRevision: tobari.DefaultPolicyPresetRevision(),
-				MethodPolicy: tobari.PolicyPresetMethodPolicy{Default: tobari.PolicyPresetMethodExactReview, Overrides: []tobari.PolicyPresetMethodOverride{}},
+				PolicyMode:     tobari.ContextPolicyModeGuided,
+				SourceAccess:   tobari.ContextSourceAccessReadOnly,
+				PolicyRevision: tobari.DefaultContextPolicyRevision(),
+				MethodPolicy:   tobari.ContextMethodPolicy{Default: tobari.ContextMethodExactReview, Overrides: []tobari.ContextMethodOverride{}},
 			},
 		},
 	}
@@ -937,11 +976,11 @@ func TestContextListVerticalCardsKeepSchemaOneJSONProjectionUnchanged(t *testing
 			ContextState: tobari.ContextObservationPersisted, Active: true,
 			AgentProfile: tobari.DefaultProfile, Image: tobari.OfficialRuntimeBase,
 			PolicyMode: tobari.ContextPolicyModeGuided, SourceAccess: tobari.ContextSourceAccessReadWrite,
-			PolicyPresetOrigin: tobari.DefaultPolicyPresetOrigin, PolicyPresetRevision: tobari.DefaultPolicyPresetRevision(),
+			PolicyRevision:  tobari.DefaultContextPolicyRevision(),
 			NativeReadiness: tobari.ContextNativeReadinessEnabled,
-			MethodPolicy: tobari.PolicyPresetMethodPolicy{
-				Default:   tobari.PolicyPresetMethodExactReview,
-				Overrides: []tobari.PolicyPresetMethodOverride{{Method: "GET", Decision: tobari.PolicyPresetMethodAllow}},
+			MethodPolicy: tobari.ContextMethodPolicy{
+				Default:   tobari.ContextMethodExactReview,
+				Overrides: []tobari.ContextMethodOverride{{Method: "GET", Decision: tobari.ContextMethodAllow}},
 			},
 			RuntimeStatus: tobari.ContextRuntimeStatusOfficial,
 		}},
@@ -962,9 +1001,9 @@ func TestContextListVerticalCardsKeepSchemaOneJSONProjectionUnchanged(t *testing
 		Contexts      struct {
 			Active string `json:"active"`
 			Items  []struct {
-				Name         string                          `json:"name"`
-				SourceAccess tobari.ContextSourceAccess      `json:"source_access"`
-				MethodPolicy tobari.PolicyPresetMethodPolicy `json:"method_policy"`
+				Name         string                     `json:"name"`
+				SourceAccess tobari.ContextSourceAccess `json:"source_access"`
+				MethodPolicy tobari.ContextMethodPolicy `json:"method_policy"`
 			} `json:"items"`
 		} `json:"contexts"`
 	}
@@ -987,16 +1026,12 @@ func TestSyntheticContextShowUsesOmissionBasedAuthStatusRecovery(t *testing.T) {
 		Task: tobari.TaskContextShow, ContextState: tobari.ContextObservationSyntheticDefault,
 		Name: tobari.DefaultContextName, Active: true, AgentProfile: tobari.DefaultProfile,
 		Image: tobari.OfficialRuntimeBase, PolicyMode: tobari.ContextPolicyModeGuided,
-		SourceAccess:       tobari.ContextSourceAccessReadWrite,
-		PolicyPresetOrigin: tobari.DefaultPolicyPresetOrigin, PolicyGuardrail: tobari.PolicyPresetGuardrailMethodPolicy,
-		MethodPolicy:     tobari.PolicyPresetMethodPolicy{Default: tobari.PolicyPresetMethodExactReview, Overrides: []tobari.PolicyPresetMethodOverride{}},
+		SourceAccess:     tobari.ContextSourceAccessReadWrite,
+		MethodPolicy:     tobari.ContextMethodPolicy{Default: tobari.ContextMethodExactReview, Overrides: []tobari.ContextMethodOverride{}},
 		ShellEnvironment: tobari.DefaultContextShellEnvironmentReport(),
 		GitIdentity:      tobari.DefaultContextGitIdentityReport(),
-		Runtime: tobari.ContextRuntimeReport{
-			Kind: tobari.ContextRuntimeKindOfficial, Status: tobari.ContextRuntimeStatusOfficial,
-			BaseReference: tobari.OfficialRuntimeBase,
-		},
-		Cluster: tobari.ContextClusterStatusNotApplicable,
+		Runtime:          standardContextRuntimeReport(tobari.OfficialRuntimeBase),
+		Cluster:          tobari.ContextClusterStatusNotApplicable,
 		Authentication: tobari.ContextAuthentication{
 			BrokerState: tobari.ContextAuthBrokerUnavailable, Providers: []tobari.ContextAuthProvider{},
 		},
@@ -1005,7 +1040,7 @@ func TestSyntheticContextShowUsesOmissionBasedAuthStatusRecovery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(output), "Next: run `tobari auth status`") ||
+	if !strings.Contains(string(output), "Auth status    tobari auth status") ||
 		strings.Contains(string(output), "--context default") {
 		t.Fatalf("synthetic Context show claims an explicit absent selector: %q", output)
 	}
@@ -1047,7 +1082,7 @@ func TestContextCommandsRenderActiveContextAndRuntimeImage(t *testing.T) {
 	fake := &contextCLI{report: contextCLIReport(tobari.TaskContextShow, "default", true, tobari.OfficialRuntimeBase, tobari.ContextPolicyModeGuided)}
 	fake.list = tobari.ContextListResult{
 		Task: tobari.TaskContextList, ContextState: tobari.ContextObservationPersisted, Active: "default",
-		Items: []tobari.ContextSummary{{ID: "018bcfe5-687b-7000-8000-000000000099", Name: "default", ContextState: tobari.ContextObservationPersisted, Active: true, AgentProfile: tobari.DefaultProfile, Image: tobari.OfficialRuntimeBase, PolicyMode: tobari.ContextPolicyModeGuided, SourceAccess: tobari.ContextSourceAccessReadWrite, PolicyPresetOrigin: tobari.DefaultPolicyPresetOrigin, PolicyPresetRevision: tobari.DefaultPolicyPresetRevision(), MethodPolicy: tobari.PolicyPresetMethodPolicy{Default: tobari.PolicyPresetMethodExactReview, Overrides: []tobari.PolicyPresetMethodOverride{}}}},
+		Items: []tobari.ContextSummary{{ID: "018bcfe5-687b-7000-8000-000000000099", Name: "default", ContextState: tobari.ContextObservationPersisted, Active: true, AgentProfile: tobari.DefaultProfile, Image: tobari.OfficialRuntimeBase, PolicyMode: tobari.ContextPolicyModeGuided, SourceAccess: tobari.ContextSourceAccessReadWrite, PolicyRevision: tobari.DefaultContextPolicyRevision(), MethodPolicy: tobari.ContextMethodPolicy{Default: tobari.ContextMethodExactReview, Overrides: []tobari.ContextMethodOverride{}}}},
 	}
 	var stdout, stderr bytes.Buffer
 	command := newCLI(strings.NewReader(""), &stdout, &stderr, DefaultCatalog(), nil)
@@ -1065,15 +1100,15 @@ func TestContextCommandsRenderActiveContextAndRuntimeImage(t *testing.T) {
 	if code := command.RunContext(context.Background(), []string{"context", "show"}); code != ExitOK {
 		t.Fatalf("context show code = %d, stderr = %q", code, stderr.String())
 	}
-	if !strings.Contains(stdout.String(), "Runtime: official (official)") ||
-		!strings.Contains(stdout.String(), "Shell PS1: default") ||
-		!strings.Contains(stdout.String(), "Source access: direct read-write") ||
-		!strings.Contains(stdout.String(), "run `tobari runtime init`") {
+	if !strings.Contains(stdout.String(), "Runtime        standard@1") ||
+		!strings.Contains(stdout.String(), "Source         direct read-write") ||
+		!strings.Contains(stdout.String(), "Details        tobari context show --details") ||
+		!strings.Contains(stdout.String(), "Next           tobari") {
 		t.Fatalf("context show output = %q", stdout.String())
 	}
 
 	stdout.Reset()
-	if code := command.RunContext(context.Background(), []string{"context", "create", "--name", "project-tools", "--image", tobari.OfficialRuntimeBase, "--mode", "advanced", "--format", "json"}); code != ExitOK {
+	if code := command.RunContext(context.Background(), []string{"context", "create", "--name", "project-tools", "--mode", "advanced", "--format", "json"}); code != ExitOK {
 		t.Fatalf("context create code = %d, stderr = %q", code, stderr.String())
 	}
 	var document struct {
@@ -1082,7 +1117,7 @@ func TestContextCommandsRenderActiveContextAndRuntimeImage(t *testing.T) {
 	if err := json.Unmarshal(stdout.Bytes(), &document); err != nil {
 		t.Fatalf("context create JSON = %q, error = %v", stdout.String(), err)
 	}
-	if document.Context.Name != "project-tools" || document.Context.Image != tobari.OfficialRuntimeBase ||
+	if document.Context.Name != "project-tools" || document.Context.Image != tobari.BuiltinImageSelector ||
 		document.Context.PolicyMode != tobari.ContextPolicyModeAdvanced ||
 		document.Context.SourceAccess != tobari.ContextSourceAccessReadWrite {
 		t.Fatalf("context create document = %+v", document.Context)
@@ -1162,7 +1197,7 @@ func TestContextDeleteRendersConfirmedOutcomeAndAppearsInNamespaceHelp(t *testin
 	if code := command.RunContext(context.Background(), []string{"context", "--help"}); code != ExitOK {
 		t.Fatalf("context help code = %d, stderr = %q", code, stderr.String())
 	}
-	if !strings.Contains(stdout.String(), "delete  Delete one unused non-current execution Context") {
+	if !strings.Contains(stdout.String(), "delete       Delete one unused non-current execution Context") {
 		t.Fatalf("context help lacks delete: %q", stdout.String())
 	}
 }
@@ -1175,9 +1210,9 @@ func TestRuntimeBuildFailureKeepsDockerErrorAndEndsWithActionableSummary(t *test
 	}
 	var stdout, stderr bytes.Buffer
 	command := newCLI(strings.NewReader(""), &stdout, &stderr, DefaultCatalog(), nil)
-	command.context = contextcmd.New(fake)
+	command.runtime = runtimecmd.New(&runtimeCatalogCLI{buildLog: fake.buildLog, buildErr: fake.buildErr})
 
-	code := command.RunContext(context.Background(), []string{"runtime", "build"})
+	code := command.RunContext(context.Background(), []string{"runtime", "build", "--name", "frontend"})
 	if code != ExitRejected {
 		t.Fatalf("runtime build code = %d, stderr = %q", code, stderr.String())
 	}
@@ -1185,16 +1220,12 @@ func TestRuntimeBuildFailureKeepsDockerErrorAndEndsWithActionableSummary(t *test
 		t.Fatalf("runtime build failure stdout = %q", stdout.String())
 	}
 	for _, retained := range []string{
-		"Building runtime for context \"default\"...",
 		"RUN gh --version",
 		"/bin/sh: gh: not found",
-		"× Runtime build failed",
-		"Failed step:\n  RUN gh --version",
-		"Error:\n  /bin/sh: gh: not found",
-		"/config/contexts/default/runtime/Dockerfile",
-		"The previously selected runtime is unchanged.",
-		"Docker build cache may contain intermediate layers",
-		"tobari runtime build",
+		"Runtime could not be built",
+		"runtime_build_failed",
+		"tobari runtime show",
+		"unchanged Runtime history and source path",
 	} {
 		if !strings.Contains(stderr.String(), retained) {
 			t.Fatalf("runtime build stderr = %q, missing %q", stderr.String(), retained)
@@ -1202,6 +1233,50 @@ func TestRuntimeBuildFailureKeepsDockerErrorAndEndsWithActionableSummary(t *test
 	}
 	if strings.Contains(stderr.String(), "\x1b[") {
 		t.Fatalf("non-TTY runtime build stderr contains ANSI: %q", stderr.String())
+	}
+}
+
+func TestRuntimeCreateOutputDeclaresSourcePermissionAndSizeRules(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	command := newCLI(strings.NewReader(""), &stdout, &stderr, DefaultCatalog(), nil)
+	command.runtime = runtimecmd.New(&runtimeCatalogCLI{})
+	if code := command.RunContext(context.Background(), []string{"runtime", "create", "--name", "frontend"}); code != ExitOK {
+		t.Fatalf("runtime create code = %d, stderr = %q", code, stderr.String())
+	}
+	for _, want := range []string{"Source rules", "no group/other permissions", "1,024 files", "256 directories", "32 MiB/file", "64 MiB total"} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Fatalf("runtime create output = %q, missing %q", stdout.String(), want)
+		}
+	}
+}
+
+func TestRuntimeBuildSourceValidationFailureIsActionableInTextAndJSON(t *testing.T) {
+	message := "Runtime source file \"bin/tool\" is 33554433 bytes; the limit is 33554432 bytes (32 MiB)."
+	for _, test := range []struct {
+		name string
+		args []string
+		want []string
+	}{
+		{name: "text", args: []string{"runtime", "build", "--name", "frontend"}, want: []string{"runtime_source_invalid", message, "tobari runtime show", "unchanged Runtime source path and history"}},
+		{name: "json", args: []string{"--error-format", "json", "runtime", "build", "--name", "frontend"}, want: []string{`"code":"runtime_source_invalid"`, `"kind":"rejected"`, `"message":"Runtime source file \"bin/tool\" is 33554433 bytes; the limit is 33554432 bytes (32 MiB)."`, `"command":"runtime show"`}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fake := &runtimeCatalogCLI{buildErr: fault.New(fault.KindRejected, "runtime_source_invalid", message, false)}
+			var stdout, stderr bytes.Buffer
+			command := newCLI(strings.NewReader(""), &stdout, &stderr, DefaultCatalog(), nil)
+			command.runtime = runtimecmd.New(fake)
+			if code := command.RunContext(context.Background(), test.args); code != ExitRejected {
+				t.Fatalf("runtime build code = %d, stderr = %q", code, stderr.String())
+			}
+			if stdout.Len() != 0 {
+				t.Fatalf("runtime build stdout = %q", stdout.String())
+			}
+			for _, want := range test.want {
+				if !strings.Contains(stderr.String(), want) {
+					t.Fatalf("runtime build stderr = %q, missing %q", stderr.String(), want)
+				}
+			}
+		})
 	}
 }
 
@@ -1213,8 +1288,8 @@ func TestRuntimeBuildDiagnosticStreamProjectsTerminalControls(t *testing.T) {
 	}
 	var stdout, stderr bytes.Buffer
 	command := newCLI(strings.NewReader(""), &stdout, &stderr, DefaultCatalog(), nil)
-	command.context = contextcmd.New(fake)
-	if code := command.RunContext(context.Background(), []string{"runtime", "build"}); code != ExitRejected {
+	command.runtime = runtimecmd.New(&runtimeCatalogCLI{buildLog: fake.buildLog, buildErr: fake.buildErr})
+	if code := command.RunContext(context.Background(), []string{"runtime", "build", "--name", "frontend"}); code != ExitRejected {
 		t.Fatalf("runtime build code = %d", code)
 	}
 	value := stderr.String()
@@ -1266,68 +1341,30 @@ func TestRuntimeBuildFailureDetailsCoverDockerFailureClasses(t *testing.T) {
 	}
 }
 
-func TestRuntimeCommandsUseTheActiveContextWithoutAName(t *testing.T) {
-	fake := &contextCLI{report: runtimeInitReportFixture()}
+func TestRuntimeInitIsRetiredAndBuildRequiresNamedRuntime(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	command := newCLI(strings.NewReader(""), &stdout, &stderr, DefaultCatalog(), nil)
-	command.context = contextcmd.New(fake)
-
-	if code := command.RunContext(context.Background(), []string{"runtime", "init", "--format", "json"}); code != ExitOK {
-		t.Fatalf("runtime init code = %d, stderr = %q", code, stderr.String())
+	if code := command.RunContext(context.Background(), []string{"runtime", "init"}); code != ExitUsage || !strings.Contains(stderr.String(), "Unknown command") {
+		t.Fatalf("runtime init retirement = %d/%q", code, stderr.String())
 	}
-	var initDocument struct {
-		SchemaVersion int                  `json:"schema_version"`
-		Context       tobari.ContextReport `json:"context"`
-	}
-	if err := json.Unmarshal(stdout.Bytes(), &initDocument); err != nil {
-		t.Fatalf("runtime init JSON = %q, error = %v", stdout.String(), err)
-	}
-	if initDocument.SchemaVersion != 1 || initDocument.Context.Task != tobari.TaskRuntimeInit {
-		t.Fatalf("runtime init document = %+v", initDocument)
-	}
-	for _, retained := range []string{
-		"/config/contexts/default/policy",
-		"sha256:" + strings.Repeat("a", 64),
-		"sha256:" + strings.Repeat("b", 64),
-	} {
-		if !strings.Contains(stdout.String(), retained) {
-			t.Fatalf("runtime init JSON = %q, missing retained diagnostic %q", stdout.String(), retained)
-		}
-	}
-
-	stdout.Reset()
-	if code := command.RunContext(context.Background(), []string{"runtime", "init"}); code != ExitOK {
-		t.Fatalf("runtime init text code = %d, stderr = %q", code, stderr.String())
-	}
-	if !strings.Contains(stdout.String(), "Runtime Dockerfile created") ||
-		!strings.Contains(stdout.String(), "tobari runtime build") {
-		t.Fatalf("runtime init text output = %q", stdout.String())
-	}
-
-	stdout.Reset()
-	if code := command.RunContext(context.Background(), []string{"runtime", "build"}); code != ExitOK {
-		t.Fatalf("runtime build code = %d, stderr = %q", code, stderr.String())
-	}
-	if !strings.Contains(stdout.String(), "Runtime") ||
-		!strings.Contains(stdout.String(), "existing Workspaces keep their home") ||
-		!strings.Contains(stdout.String(), "Next: run `tobari` from a project directory.") {
-		t.Fatalf("runtime build output = %q", stdout.String())
+	stderr.Reset()
+	if code := command.RunContext(context.Background(), []string{"runtime", "build"}); code != ExitUsage || !strings.Contains(stderr.String(), "--name is required") {
+		t.Fatalf("runtime build selection = %d/%q", code, stderr.String())
 	}
 }
 
 func runtimeInitReportFixture() tobari.ContextReport {
 	return tobari.ContextReport{
-		Task:               tobari.TaskRuntimeInit,
-		ContextState:       tobari.ContextObservationPersisted,
-		ID:                 "018bcfe5-687b-7000-8000-000000000099",
-		Name:               "default",
-		Active:             true,
-		AgentProfile:       tobari.DefaultProfile,
-		Image:              tobari.OfficialRuntimeBase,
-		PolicyMode:         tobari.ContextPolicyModeGuided,
-		SourceAccess:       tobari.ContextSourceAccessReadWrite,
-		PolicyPresetOrigin: tobari.DefaultPolicyPresetOrigin, PolicyPresetRevision: tobari.DefaultPolicyPresetRevision(), PolicyGuardrail: tobari.PolicyPresetGuardrailMethodPolicy,
-		MethodPolicy:     tobari.PolicyPresetMethodPolicy{Default: tobari.PolicyPresetMethodExactReview, Overrides: []tobari.PolicyPresetMethodOverride{}},
+		Task:           tobari.TaskRuntimeInit,
+		ContextState:   tobari.ContextObservationPersisted,
+		ID:             "018bcfe5-687b-7000-8000-000000000099",
+		Name:           "default",
+		Active:         true,
+		AgentProfile:   tobari.DefaultProfile,
+		Image:          tobari.OfficialRuntimeBase,
+		PolicyMode:     tobari.ContextPolicyModeGuided,
+		SourceAccess:   tobari.ContextSourceAccessReadWrite,
+		PolicyRevision: tobari.DefaultContextPolicyRevision(), MethodPolicy: tobari.ContextMethodPolicy{Default: tobari.ContextMethodExactReview, Overrides: []tobari.ContextMethodOverride{}},
 		ShellEnvironment: tobari.DefaultContextShellEnvironmentReport(),
 		GitIdentity:      tobari.DefaultContextGitIdentityReport(),
 		Stores: tobari.ContextStorePaths{
@@ -1400,9 +1437,13 @@ func TestRuntimeInitTextColorDisabledRetainsPriorityAndValueEmphasis(t *testing.
 	}
 }
 
-func TestContextShowRetainsRuntimeAndStoreDiagnostics(t *testing.T) {
-	fixture := runtimeInitReportFixture()
-	fixture.Task = tobari.TaskContextShow
+func TestContextShowPrioritizesBoundaryAndExpandsDiagnostics(t *testing.T) {
+	fixture := contextCLIReport(tobari.TaskContextShow, "default", true, "tobari-runtime-frontend:aaaaaaaaaaaa", tobari.ContextPolicyModeGuided)
+	fixture.Runtime = tobari.ContextRuntimeReport{
+		Kind: tobari.ContextRuntimeKindManaged, Status: tobari.ContextRuntimeStatusReady,
+		Image: fixture.Image, RuntimeID: "018bcfe5-687b-7000-8000-000000000077", Name: "frontend",
+		Revision: "sha256:" + strings.Repeat("a", 64), Ordinal: 4,
+	}
 	fixture.Authentication = tobari.ContextAuthentication{
 		BrokerState: tobari.ContextAuthBrokerReady,
 		Providers: []tobari.ContextAuthProvider{{
@@ -1418,12 +1459,56 @@ func TestContextShowRetainsRuntimeAndStoreDiagnostics(t *testing.T) {
 		t.Fatalf("context show code = %d, stderr = %q", code, stderr.String())
 	}
 	for _, retained := range []string{
-		"/config/contexts/default/policy",
-		"sha256:" + strings.Repeat("a", 64),
-		"sha256:" + strings.Repeat("b", 64),
+		"Context default",
+		"State          persisted · current",
+		"Source         direct read-write",
+		"Network        default exact-review",
+		"Runtime        frontend@4",
+		"Details        tobari context show --details",
+		"Next           tobari",
 	} {
 		if !strings.Contains(stdout.String(), retained) {
-			t.Fatalf("context show output = %q, missing retained diagnostic %q", stdout.String(), retained)
+			t.Fatalf("context show output = %q, missing primary fact %q", stdout.String(), retained)
 		}
+	}
+	for _, diagnostic := range []string{
+		"/config/contexts/default/policy",
+		"018bcfe5-687b-7000-8000-000000000077",
+		"sha256:" + strings.Repeat("a", 64),
+	} {
+		if strings.Contains(stdout.String(), diagnostic) {
+			t.Fatalf("context show primary output = %q, contains diagnostic %q", stdout.String(), diagnostic)
+		}
+	}
+
+	stdout.Reset()
+	if code := command.RunContext(context.Background(), []string{"context", "show", "--details"}); code != ExitOK {
+		t.Fatalf("context show --details code = %d, stderr = %q", code, stderr.String())
+	}
+	for _, retained := range []string{
+		"Boundary",
+		"Workspace",
+		"Runtime",
+		"Stores and revisions",
+		"/config/contexts/default/policy",
+		"018bcfe5-687b-7000-8000-000000000077",
+		"sha256:" + strings.Repeat("a", 64),
+	} {
+		if !strings.Contains(stdout.String(), retained) {
+			t.Fatalf("context show --details output = %q, missing diagnostic %q", stdout.String(), retained)
+		}
+	}
+
+	stdout.Reset()
+	if code := command.RunContext(context.Background(), []string{"context", "show", "--format=json"}); code != ExitOK {
+		t.Fatalf("context show JSON code = %d, stderr = %q", code, stderr.String())
+	}
+	compactJSON := append([]byte(nil), stdout.Bytes()...)
+	stdout.Reset()
+	if code := command.RunContext(context.Background(), []string{"context", "show", "--details", "--format=json"}); code != ExitOK {
+		t.Fatalf("context show detailed JSON code = %d, stderr = %q", code, stderr.String())
+	}
+	if !bytes.Equal(stdout.Bytes(), compactJSON) {
+		t.Fatalf("--details changed complete JSON\n--- got ---\n%s--- want ---\n%s", stdout.Bytes(), compactJSON)
 	}
 }

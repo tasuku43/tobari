@@ -5,18 +5,18 @@ package tobari
 // current contract; prior contracts remain append-only so legacy snapshot
 // authority can be removed before the current overlay is projected.
 func nativeToolAuthReadinessCatalog() []nativeToolAuthReadinessFamily {
-	twgCoreGrants := []PolicyPresetExactRule{
+	twgCoreGrants := []ContextPolicyExactRule{
 		nativeReadinessHTTP("POST", "auth.atlassian.com", "/oauth/device/code"),
 		nativeReadinessHTTP("POST", "auth.atlassian.com", "/oauth/token"),
 		nativeReadinessGraphQL("api.atlassian.com", "/graphql", "me"),
 	}
-	twgEndpoints := []PolicyPresetExactRule{
+	twgEndpoints := []ContextPolicyExactRule{
 		nativeReadinessHTTP("POST", "api.atlassian.com", "/graphql"),
 	}
 
 	return []nativeToolAuthReadinessFamily{
 		nativeReadinessFamily("claude_ready", 1,
-			nativeReadinessContract("claude_ready", AgentReadyClaudeVersion, 1, []PolicyPresetExactRule{
+			nativeReadinessContract("claude_ready", AgentReadyClaudeVersion, 1, []ContextPolicyExactRule{
 				nativeReadinessHTTP("GET", "api.anthropic.com", "/api/oauth/claude_cli/roles"),
 				nativeReadinessHTTP("GET", "api.anthropic.com", "/api/oauth/profile"),
 				nativeReadinessHTTP("GET", "platform.claude.com", "/v1/oauth/hello"),
@@ -24,21 +24,21 @@ func nativeToolAuthReadinessCatalog() []nativeToolAuthReadinessFamily {
 			}, nil),
 		),
 		nativeReadinessFamily("codex_ready", 1,
-			nativeReadinessContract("codex_ready", AgentReadyCodexVersion, 1, []PolicyPresetExactRule{
+			nativeReadinessContract("codex_ready", AgentReadyCodexVersion, 1, []ContextPolicyExactRule{
 				nativeReadinessHTTP("POST", "auth.openai.com", "/api/accounts/deviceauth/token"),
 				nativeReadinessHTTP("POST", "auth.openai.com", "/api/accounts/deviceauth/usercode"),
 				nativeReadinessHTTP("POST", "auth.openai.com", "/oauth/token"),
 			}, nil),
 		),
 		nativeReadinessFamily("gh_ready", 1,
-			nativeReadinessContract("gh_ready", AgentReadyGitHubCLIVersion, 1, []PolicyPresetExactRule{
+			nativeReadinessContract("gh_ready", AgentReadyGitHubCLIVersion, 1, []ContextPolicyExactRule{
 				nativeReadinessHTTP("POST", "github.com", "/login/device/code"),
 				nativeReadinessHTTP("POST", "github.com", "/login/oauth/access_token"),
 				nativeReadinessGraphQL("api.github.com", "/graphql", "viewer"),
-			}, []PolicyPresetExactRule{nativeReadinessHTTP("POST", "api.github.com", "/graphql")}),
+			}, []ContextPolicyExactRule{nativeReadinessHTTP("POST", "api.github.com", "/graphql")}),
 		),
 		nativeReadinessFamily("pup_ready", 1,
-			nativeReadinessContract("pup_ready", AgentReadyPupVersion, 1, []PolicyPresetExactRule{
+			nativeReadinessContract("pup_ready", AgentReadyPupVersion, 1, []ContextPolicyExactRule{
 				nativeReadinessHTTP("POST", "api.datadoghq.com", "/api/v2/oauth2/register"),
 				nativeReadinessHTTP("POST", "api.datadoghq.com", "/oauth2/v1/token"),
 			}, nil),
@@ -61,19 +61,19 @@ func nativeReadinessFamily(id string, currentRevision int, contracts ...nativeTo
 	return nativeToolAuthReadinessFamily{ID: id, CurrentContractRevision: currentRevision, Contracts: contracts}
 }
 
-func nativeReadinessContract(id, clientVersion string, revision int, grants, endpoints []PolicyPresetExactRule) nativeToolAuthReadiness {
+func nativeReadinessContract(id, clientVersion string, revision int, grants, endpoints []ContextPolicyExactRule) nativeToolAuthReadiness {
 	return nativeToolAuthReadiness{
 		ID: id, ClientVersion: clientVersion, ContractRevision: revision,
-		BaselineGrants:   append([]PolicyPresetExactRule(nil), grants...),
-		GraphQLEndpoints: append([]PolicyPresetExactRule(nil), endpoints...),
+		BaselineGrants:   append([]ContextPolicyExactRule(nil), grants...),
+		GraphQLEndpoints: append([]ContextPolicyExactRule(nil), endpoints...),
 	}
 }
 
-func nativeReadinessHTTP(method, host, path string) PolicyPresetExactRule {
-	return PolicyPresetExactRule{Scheme: "https", Host: host, Port: 443, Method: method, Path: path}
+func nativeReadinessHTTP(method, host, path string) ContextPolicyExactRule {
+	return ContextPolicyExactRule{Scheme: "https", Host: host, Port: 443, Method: method, Path: path}
 }
 
-func nativeReadinessGraphQL(host, path, root string) PolicyPresetExactRule {
+func nativeReadinessGraphQL(host, path, root string) ContextPolicyExactRule {
 	rule := nativeReadinessHTTP("POST", host, path)
 	rule.Protocol = PolicyProtocolGraphQL
 	rule.GraphQLOperationType = GraphQLOperationQuery
@@ -81,6 +81,6 @@ func nativeReadinessGraphQL(host, path, root string) PolicyPresetExactRule {
 	return rule
 }
 
-func appendReadinessRules(base []PolicyPresetExactRule, extra ...PolicyPresetExactRule) []PolicyPresetExactRule {
-	return append(append([]PolicyPresetExactRule(nil), base...), extra...)
+func appendReadinessRules(base []ContextPolicyExactRule, extra ...ContextPolicyExactRule) []ContextPolicyExactRule {
+	return append(append([]ContextPolicyExactRule(nil), base...), extra...)
 }

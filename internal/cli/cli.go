@@ -11,12 +11,13 @@ import (
 	"github.com/tasuku43/tobari/internal/app/authcmd"
 	"github.com/tasuku43/tobari/internal/app/contextcmd"
 	"github.com/tasuku43/tobari/internal/app/doctorcmd"
-	"github.com/tasuku43/tobari/internal/app/policypresetcmd"
+	"github.com/tasuku43/tobari/internal/app/runtimecmd"
 	"github.com/tasuku43/tobari/internal/app/tobaricmd"
 	"github.com/tasuku43/tobari/internal/domain/fault"
 	"github.com/tasuku43/tobari/internal/domain/operation"
 	"github.com/tasuku43/tobari/internal/infra/dockerruntime"
 	"github.com/tasuku43/tobari/internal/infra/systemdoctor"
+	"github.com/tasuku43/tobari/internal/infra/terminal"
 	"github.com/tasuku43/tobari/internal/infra/terminalstyle"
 )
 
@@ -28,16 +29,19 @@ type CLI struct {
 	Version string
 	Commit  string
 
-	catalog      Catalog
-	doctor       *doctorcmd.Service
-	tobari       *tobaricmd.Service
-	context      *contextcmd.Service
-	policyPreset *policypresetcmd.Service
-	auth         *authcmd.Service
+	catalog Catalog
+	doctor  *doctorcmd.Service
+	tobari  *tobaricmd.Service
+	context *contextcmd.Service
+	runtime *runtimecmd.Service
+	auth    *authcmd.Service
 	experimentalCLIState
 	config        contextConfigurationWizard
 	contextCreate contextCreateWizard
+	runtimeChoice runtimeChoiceWizard
 	authLogin     authLoginProviderSelector
+	policyReview  func(bool) *policyReviewSelector
+	policyNotify  func(io.Writer, string) error
 	noColor       bool
 }
 
@@ -47,7 +51,10 @@ func New(in io.Reader, out, errOut io.Writer) *CLI {
 	command.noColor = noColorFromEnvironment()
 	command.config = newContextConfigurationWizardWithStyle(!command.noColor)
 	command.contextCreate = newContextCreateWizardWithStyle(!command.noColor)
+	command.runtimeChoice = newRuntimeChoiceWizardWithStyle(!command.noColor)
 	command.authLogin = newAuthLoginProviderSelectorWithStyle(!command.noColor)
+	command.policyReview = newPolicyReviewSelectorWithStyle
+	command.policyNotify = terminal.WritePermissionInboxNotification
 	configureExperimentalCLI(command)
 	runtime, err := dockerruntime.New()
 	if err != nil {
@@ -60,7 +67,7 @@ func New(in io.Reader, out, errOut io.Writer) *CLI {
 		newWorkspaceSelectorWithStyle(!command.noColor),
 	)
 	command.context = contextcmd.New(runtime)
-	command.policyPreset = policypresetcmd.New(runtime)
+	command.runtime = runtimecmd.New(runtime)
 	command.auth = authcmd.New(runtime)
 	return command
 }
@@ -86,7 +93,10 @@ func newCLI(in io.Reader, out, errOut io.Writer, catalog Catalog, inspector doct
 		doctor:        doctorcmd.New(inspector),
 		config:        newContextConfigurationWizard(),
 		contextCreate: newContextCreateWizardWithStyle(true),
+		runtimeChoice: newRuntimeChoiceWizardWithStyle(true),
 		authLogin:     newAuthLoginProviderSelector(),
+		policyReview:  newPolicyReviewSelectorWithStyle,
+		policyNotify:  terminal.WritePermissionInboxNotification,
 	}
 }
 

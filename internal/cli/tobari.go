@@ -125,6 +125,21 @@ func runPolicyReview(
 			"help "+command.Path, "Correct the command arguments.",
 		)
 	}
+	watch, _ := inputs.Boolean("--watch")
+	notifyMethod := inputs.One("--notify")
+	if inputs.Provided("--notify") && !watch {
+		return c.failUsage(
+			ctx, "invalid_arguments", "--notify requires --watch=true; usage: "+command.Usage(),
+			"help "+command.Path, "Use a notification method only with active watch mode.",
+		)
+	}
+	if watch && (format != successFormatText || !policyReviewInteractiveAllowed(ctx, c)) {
+		return c.fail(ctx, fault.New(
+			fault.KindInvalidInput, "policy_review_watch_requires_tty",
+			"policy review --watch requires text output and interactive terminal input and output", false,
+			fault.NextAction{Command: "help policy review", Reason: "Run watch with text output in an interactive raw terminal."},
+		))
+	}
 	result, err := c.tobari.PolicyReview(ctx, int(tail))
 	if err != nil {
 		return c.fail(ctx, err)
@@ -154,10 +169,18 @@ func runPolicyReview(
 		return c.emitResult(ctx, output)
 	}
 
-	selector := newPolicyReviewSelectorWithStyle(humanStyleAllowed(ctx, c, c.Out))
+	selectorFactory := c.policyReview
+	if selectorFactory == nil {
+		selectorFactory = newPolicyReviewSelectorWithStyle
+	}
+	selector := selectorFactory(humanStyleAllowed(ctx, c, c.Out))
+	if watch {
+		selector.EnableWatch(nil)
+	}
+	seenReviewIDs := policyReviewReportIDs(result)
 	stagedContextID := ""
 	for {
-		if len(result.Items) == 0 {
+		if len(result.Items) == 0 && !watch {
 			output, renderErr := renderPolicyReviewWithCommands(
 				result, allowCommand, denyCommand, successFormatText,
 				humanStyleAllowed(ctx, c, c.Out),
@@ -172,23 +195,49 @@ func runPolicyReview(
 			return c.fail(ctx, selectErr)
 		}
 		if decision.Canceled {
+			if watch {
+				return ExitOK
+			}
 			return c.fail(ctx, context.Canceled)
 		}
 		if decision.Refresh {
 			fresh, refreshErr := c.tobari.PolicyReview(ctx, int(tail))
 			if refreshErr != nil {
-				return c.fail(ctx, refreshErr)
+				if !watch {
+					return c.fail(ctx, refreshErr)
+				}
+				delay := selector.RefreshFailed()
+				selector.notice = fmt.Sprintf(
+					"Refresh failed · current inbox and staged decisions preserved. Retrying in %s. Run tobari cluster status if this continues.",
+					delay,
+				)
+				continue
 			}
+			previousIDs := policyReviewReportIDs(result)
+			newUnseen := policyReviewRememberNewIDs(seenReviewIDs, fresh)
+			notificationFailed := false
+			if watch && newUnseen > 0 && notifyMethod != "off" && c.policyNotify != nil {
+				notificationFailed = c.policyNotify(c.Out, notifyMethod) != nil
+			}
+			staleIDs := policyReviewStaleDecisionIDs(selector.OrderedDecisions(), fresh)
 			removed := selector.Reconcile(fresh)
 			result = fresh
+			selector.RefreshSucceeded()
 			stagedContextID = policyReviewStagedContextID(result, selector.OrderedDecisions())
-			if removed > 0 {
+			newCount := policyReviewNewCandidateCount(previousIDs, fresh)
+			if decision.AutomaticRefresh && removed == 0 && newCount == 0 && !notificationFailed {
+				// A successful timer poll with no semantic change is deliberately
+				// silent so the existing alternate-screen frame remains untouched.
+			} else if removed > 0 {
 				selector.notice = fmt.Sprintf(
-					"Inbox refreshed · %d stale staged decision%s removed; remaining decisions preserved.",
-					removed, pluralSuffix(removed),
+					"Inbox refreshed · %d new · %d stale staged decision%s removed (%s); remaining decisions preserved.",
+					newCount, removed, pluralSuffix(removed), strings.Join(staleIDs, ", "),
 				)
 			} else {
-				selector.notice = "Inbox refreshed · staged decisions preserved by exact candidate ID."
+				selector.notice = fmt.Sprintf("Inbox refreshed · %d new · staged decisions preserved by exact candidate ID.", newCount)
+			}
+			if notificationFailed {
+				selector.notice += " Terminal notification unavailable; watch continues."
 			}
 			continue
 		}
@@ -231,9 +280,39 @@ func runPolicyReview(
 			if applyErr != nil {
 				return c.fail(actionCtx, applyErr)
 			}
-			return c.emitMutationResult(
+			code := c.emitMutationResult(
 				actionCtx, apply, renderPolicyReviewChange(change, humanStyleAllowed(actionCtx, c, c.Out)),
 			)
+			if code != ExitOK || !watch {
+				return code
+			}
+			selector.ClearAll()
+			stagedContextID = ""
+			// The pre-Apply snapshot is no longer eligible for another decision.
+			// If the immediate read fails, keep watch alive on an explicit empty
+			// snapshot instead of offering already-applied IDs again.
+			result.Items = []tobari.PolicyCandidate{}
+			result.ReviewItems = []tobari.PolicyReviewItem{}
+			fresh, refreshErr := c.tobari.PolicyReview(ctx, int(tail))
+			if refreshErr != nil {
+				delay := selector.RefreshFailed()
+				selector.notice = fmt.Sprintf(
+					"Applied successfully; refresh failed. Retrying in %s. Run tobari cluster status if this continues.", delay,
+				)
+				continue
+			}
+			newUnseen := policyReviewRememberNewIDs(seenReviewIDs, fresh)
+			notificationFailed := false
+			if newUnseen > 0 && notifyMethod != "off" && c.policyNotify != nil {
+				notificationFailed = c.policyNotify(c.Out, notifyMethod) != nil
+			}
+			result = fresh
+			selector.RefreshSucceeded()
+			selector.notice = "Applied decisions · watching for denied requests."
+			if notificationFailed {
+				selector.notice += " Terminal notification unavailable; watch continues."
+			}
+			continue
 		}
 		item, selected := policyReviewItemByID(result, decision.CandidateID)
 		if !selected {
@@ -248,9 +327,55 @@ func runPolicyReview(
 			continue
 		}
 
+		if decision.Clear {
+			selector.Clear(decision.CandidateID)
+			stagedContextID = policyReviewStagedContextID(result, selector.OrderedDecisions())
+			continue
+		}
 		stagedContextID = policyReviewItemContext(item)
 		selector.Stage(decision.CandidateID, decision.Action)
 	}
+}
+
+func policyReviewReportIDs(report tobari.PolicyCandidateReport) map[string]struct{} {
+	report = groupPolicyReviewReport(report)
+	ids := make(map[string]struct{}, len(report.Items))
+	for _, item := range report.Items {
+		ids[item.ID] = struct{}{}
+	}
+	return ids
+}
+
+func policyReviewNewCandidateCount(previous map[string]struct{}, fresh tobari.PolicyCandidateReport) int {
+	count := 0
+	for id := range policyReviewReportIDs(fresh) {
+		if _, found := previous[id]; !found {
+			count++
+		}
+	}
+	return count
+}
+
+func policyReviewRememberNewIDs(seen map[string]struct{}, fresh tobari.PolicyCandidateReport) int {
+	newCount := 0
+	for id := range policyReviewReportIDs(fresh) {
+		if _, found := seen[id]; !found {
+			newCount++
+		}
+		seen[id] = struct{}{}
+	}
+	return newCount
+}
+
+func policyReviewStaleDecisionIDs(decisions []policyReviewDecision, fresh tobari.PolicyCandidateReport) []string {
+	current := policyReviewReportIDs(fresh)
+	stale := make([]string, 0)
+	for _, decision := range decisions {
+		if _, found := current[decision.CandidateID]; !found {
+			stale = append(stale, decision.CandidateID)
+		}
+	}
+	return stale
 }
 
 func policyReviewStagedContextID(
@@ -568,12 +693,15 @@ func runProjectEnter(ctx context.Context, c *CLI, command CommandSpec, _ operati
 	if c.tobari == nil {
 		return c.fail(ctx, missingRuntimeFault())
 	}
+	contextName := inputs.One("--context")
+	if code, continueEntry := prepareGuidedProjectEntry(ctx, c, contextName); !continueEntry {
+		return code
+	}
 	intent := operation.Intent{
 		Command: command.Path, Effect: command.Effect,
 		Target: operation.TargetRef{Kind: tobari.CurrentDirectoryTargetKind, ParentID: tobari.CurrentDirectoryTargetID},
 		Impact: command.Agent.Mutation.Impact,
 	}
-	contextName := inputs.One("--context")
 	code, err := c.tobari.EnterProjectInContext(ctx, intent, contextName, c.In, c.Out, c.Err)
 	if err != nil {
 		return c.fail(ctx, err)
@@ -584,10 +712,17 @@ func runProjectEnter(ctx context.Context, c *CLI, command CommandSpec, _ operati
 	message := renderProjectSessionClosed(style)
 	if c.context != nil {
 		if report, contextErr := c.context.Show(ctx, ""); contextErr == nil &&
-			report.Runtime.Status == tobari.ContextRuntimeStatusOfficial {
-			message = append(message, '\n')
-			message = append(message, renderRuntimeCustomizationHint(style)...)
-			message = append(message, '\n')
+			report.Runtime.Status == tobari.ContextRuntimeStatusOfficial && c.runtime != nil {
+			if runtimes, runtimeErr := c.runtime.List(ctx); runtimeErr == nil {
+				for _, item := range runtimes.Items {
+					if item.Kind == tobari.RuntimeKindManaged && item.Ready {
+						message = append(message, '\n')
+						message = append(message, renderRuntimeCustomizationHint(style)...)
+						message = append(message, '\n')
+						break
+					}
+				}
+			}
 		}
 	}
 	if pending, reviewErr := c.tobari.PolicyReview(ctx, 10_000); reviewErr == nil {
@@ -595,6 +730,187 @@ func runProjectEnter(ctx context.Context, c *CLI, command CommandSpec, _ operati
 	}
 	_, _ = writeOnce(c.Err, message)
 	return code
+}
+
+// prepareGuidedProjectEntry composes existing catalog-owned actions only for
+// the interactive first-use state. Each mutation keeps its own command path,
+// fixed target, impact, application invoker, and completion output boundary.
+func prepareGuidedProjectEntry(
+	ctx context.Context, c *CLI, contextName string,
+) (int, bool) {
+	if c == nil || c.tobari == nil || c.context == nil ||
+		!c.tobari.IsInteractive(c.In, c.Err) || !c.tobari.IsTerminal(c.Out) {
+		return ExitOK, true
+	}
+	if contextName != "" {
+		showCtx := withCommandPath(ctx, "context show")
+		report, err := c.context.Show(showCtx, contextName)
+		if err != nil {
+			return c.fail(showCtx, err), false
+		}
+		if runtimeErr := rootRuntimeReadinessFault(report); runtimeErr != nil {
+			return c.fail(ctx, runtimeErr), false
+		}
+		if code := ensureClusterForGuidedEntry(ctx, c); code != ExitOK {
+			return code, false
+		}
+		return ExitOK, true
+	}
+	listCtx := withCommandPath(ctx, "context list")
+	contexts, err := c.context.List(listCtx)
+	if err != nil {
+		return c.fail(listCtx, err), false
+	}
+	if contexts.ContextState != tobari.ContextObservationSyntheticDefault {
+		showCtx := withCommandPath(ctx, "context show")
+		report, showErr := c.context.Show(showCtx, "")
+		if showErr != nil {
+			return c.fail(showCtx, showErr), false
+		}
+		if runtimeErr := rootRuntimeReadinessFault(report); runtimeErr != nil {
+			return c.fail(ctx, runtimeErr), false
+		}
+		if code := ensureClusterForGuidedEntry(ctx, c); code != ExitOK {
+			return code, false
+		}
+		return ExitOK, true
+	}
+
+	_, code := createContextForGuidedEntry(ctx, c)
+	if code != ExitOK {
+		return code, false
+	}
+	if code = clusterUpForGuidedEntry(ctx, c); code != ExitOK {
+		return code, false
+	}
+
+	return ExitOK, true
+}
+
+func ensureClusterForGuidedEntry(ctx context.Context, c *CLI) int {
+	statusCtx := withCommandPath(ctx, "cluster status")
+	status, err := c.tobari.ClusterStatus(statusCtx)
+	if err != nil {
+		return c.fail(statusCtx, err)
+	}
+	if status.Configured && status.Running && status.PolicyProjection == "valid" &&
+		status.PrincipalRegistry == "valid" && status.GatewayProjection == "valid" {
+		return ExitOK
+	}
+	return clusterUpForGuidedEntry(ctx, c)
+}
+
+func createContextForGuidedEntry(ctx context.Context, c *CLI) (tobari.ContextReport, int) {
+	command, found := c.catalog.lookupRegistered("context create")
+	if !found || command.Agent.Mutation == nil {
+		return tobari.ContextReport{}, c.fail(ctx, fault.New(
+			fault.KindContract, "invalid_catalog", "The guided Context creation contract is missing.", false,
+			fault.NextAction{Command: "help context create", Reason: "Repair the Context creation command contract."},
+		))
+	}
+	inputs, err := parseCommandInputs(command, nil)
+	if err != nil {
+		return tobari.ContextReport{}, c.fail(ctx, fault.Wrap(
+			fault.KindContract, "invalid_catalog", "The guided Context defaults are invalid.", false, err,
+			fault.NextAction{Command: "help context create", Reason: "Repair the Context creation input defaults."},
+		))
+	}
+	actionCtx := withCommandPath(ctx, command.Path)
+	intent := operation.Intent{Command: command.Path, Effect: command.Effect}
+	report, err := createContext(actionCtx, c, command, intent, inputs, successFormatText)
+	if err != nil {
+		return tobari.ContextReport{}, c.fail(actionCtx, err)
+	}
+	stage := renderGuidedEntryStage("Context created", report.Name, humanStyleAllowed(actionCtx, c, c.Err))
+	if code := c.emitMutationResultTo(actionCtx, command, stage, c.Err); code != ExitOK {
+		return tobari.ContextReport{}, code
+	}
+	return report, ExitOK
+}
+
+func clusterUpForGuidedEntry(ctx context.Context, c *CLI) int {
+	command, found := c.catalog.lookupRegistered("cluster up")
+	if !found || command.Agent.Mutation == nil {
+		return c.fail(ctx, fault.New(
+			fault.KindContract, "invalid_catalog", "The guided cluster startup contract is missing.", false,
+			fault.NextAction{Command: "help cluster up", Reason: "Repair the cluster startup command contract."},
+		))
+	}
+	actionCtx := withCommandPath(ctx, command.Path)
+	intent := operation.Intent{
+		Command: command.Path, Effect: command.Effect,
+		Target: operation.TargetRef{Kind: tobari.ClusterTargetKind, ParentID: tobari.ClusterTargetID},
+		Impact: command.Agent.Mutation.Impact,
+	}
+	var progress *clusterUpProgress
+	var progressSink tobari.ClusterUpProgressSink
+	if c.tobari.IsTerminal(c.Err) && clusterUpProgressAllowed(actionCtx) {
+		progress = newClusterUpProgress(c.Err, humanStyleAllowed(actionCtx, c, c.Err))
+		progress.Start()
+		progressSink = progress.Report
+	}
+	_, err := c.tobari.ClusterUpWithProgress(actionCtx, intent, progressSink)
+	if err != nil {
+		if progress != nil {
+			progress.Fail()
+			progress.Close()
+		}
+		return c.fail(actionCtx, err)
+	}
+	if progress != nil {
+		progress.Close()
+	}
+	stage := renderGuidedEntryStage("Shared services ready", "", humanStyleAllowed(actionCtx, c, c.Err))
+	return c.emitMutationResultTo(actionCtx, command, stage, c.Err)
+}
+
+func rootRuntimeReadinessFault(report tobari.ContextReport) error {
+	switch report.Runtime.Status {
+	case tobari.ContextRuntimeStatusPendingBuild:
+		return fault.New(
+			fault.KindRejected, "runtime_build_required",
+			"The current Context has a custom runtime recipe that must be built before creating or entering a Workspace.", false,
+			fault.NextAction{Command: "runtime build", Reason: "Build, validate, and select the current Context runtime."},
+		)
+	case tobari.ContextRuntimeStatusInvalid:
+		return fault.New(
+			fault.KindRejected, "runtime_recipe_invalid",
+			"The current Context runtime recipe is invalid and cannot be used to enter a Workspace.", false,
+			fault.NextAction{Command: "context show", Reason: "Inspect the runtime recipe and selected image before rebuilding."},
+		)
+	default:
+		return nil
+	}
+}
+
+func renderGuidedEntryStage(label, detail string, style bool) []byte {
+	var output strings.Builder
+	line := "✓ " + label
+	if detail != "" {
+		line += ": " + safeExternalText(detail)
+	}
+	fmt.Fprintln(&output, applyStyleToken(style, styleSuccess, line))
+	return []byte(output.String())
+}
+
+func renderGuidedEntryPaused(contextName string, style bool) []byte {
+	var output strings.Builder
+	output.WriteByte('\n')
+	fmt.Fprintln(&output, applyStyleToken(style, styleText, "Setup is ready; no Workspace was created."))
+	writeStyledLine(&output, style, "Context:", safeExternalText(contextName), styleText)
+	writeStyledCommandLine(&output, style, "Continue:", "run ", "`tobari`", " from the project directory.")
+	return []byte(output.String())
+}
+
+func renderGuidedRuntimeInitialized(report tobari.ContextReport, style bool) []byte {
+	var output strings.Builder
+	fmt.Fprintln(&output, applyStyleToken(style, styleSuccess, "✓ Runtime recipe created"))
+	writeStyledLine(&output, style, "Dockerfile:", safeExternalText(report.Runtime.Dockerfile), styleText)
+	output.WriteByte('\n')
+	fmt.Fprintln(&output, applyStyleToken(style, styleText, "Edit the Dockerfile, then build and select it on the host."))
+	writeStyledCommandLine(&output, style, "Build:", "run ", "`tobari runtime build`", "")
+	writeStyledCommandLine(&output, style, "After the build succeeds:", "run ", "`tobari`", " from the project directory.")
+	return []byte(output.String())
 }
 
 func renderProjectSessionClosed(style bool) []byte {

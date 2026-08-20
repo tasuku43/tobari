@@ -1,0 +1,25 @@
+Context: review
+Context state: persisted
+Active: false
+Image: tobari-context-review:123456789abc
+Agent profile: default
+Policy mode: guided
+Source access: direct read-write
+Policy revision: sha256:1ebfdf1e67ab968a9b709b8418281e60b2d17562eeb96679cdcd5ec472e82df5
+Native readiness: disabled
+Method default: exact_review
+Method GET: allow
+Shell COLORTERM: default
+Shell NO_COLOR: literal ""
+Shell PS1: inherit
+Shell TERM: default
+Git identity: literal
+Git user.name: Review Bot
+Git user.email: review@example.com
+Workspace bootstrap: not_configured
+Authentication: native Workspace-owned
+Credential state: created and persisted by each agent CLI inside this Workspace home; host credentials are not inherited
+Runtime: frontend@4
+Runtime ID: 018bcfe5-687b-7000-8000-000000000077
+Runtime revision: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+Policy: /config/contexts/review/policy

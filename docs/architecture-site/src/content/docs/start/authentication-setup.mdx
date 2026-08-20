@@ -38,9 +38,10 @@ A successful login does not automatically allow an HTTP request. Gateway hides
 authentication from OPA and audit, asks OPA about the exact request effect, and
 forwards the original credential only after allow.
 
-The default `builtin/agent-ready` preset already includes the pinned
-Claude/Codex native-login and core endpoints. A new or optional endpoint can
-still be denied. From a separate trusted-host terminal, run:
+The fixed agent-ready compatibility baseline already includes the pinned
+Claude/Codex native-login and core endpoints when native readiness is enabled.
+A new or optional endpoint can still be denied. From a separate trusted-host
+terminal, run:
 
 ```sh
 tobari policy review

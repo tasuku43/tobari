@@ -67,11 +67,11 @@ static primary secret or request-local credential.
 **Enforcement point.** Auth Broker encrypts typed state in a Context vault.
 Handle records bind Context, project, provider, credential revision, exact
 target, and HTTP binding. Gateway removes the handle, introspects without a
-secret, applies the preset guardrail, asks OPA, and only after allow runs the
+secret, applies the Context policy ceiling, asks OPA, and only after allow runs the
 declared static resolve.
 
 **Failure behavior.** Wrong, copied, old, malformed, or ambiguous handles fail
-closed and never become passthrough. Terminal guardrail or OPA deny causes no
+closed and never become passthrough. Terminal Context policy denial or OPA deny causes no
 resolve, DNS, or upstream access. Broker unavailability before resolution is
 503 with no upstream attempt.
 

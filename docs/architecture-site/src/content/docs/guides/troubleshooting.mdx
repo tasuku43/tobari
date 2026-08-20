@@ -94,15 +94,19 @@ If it still fails, inspect `tobari auth status`, the exact Context selection, in
 tobari context show
 ```
 
-For a managed recipe:
+For a managed Runtime:
 
 ```sh
-tobari runtime init
-# Edit the reported Dockerfile only if no recipe existed.
-tobari runtime build
+tobari runtime list
+tobari runtime show --name frontend
+tobari runtime build --name frontend
+tobari context runtime set --runtime frontend@1
 ```
 
-`runtime init` refuses to overwrite a recipe. A failed build keeps the previous selected image unless a promotion was already confirmed. Existing logical Workspace state and home remain. Correct compatibility instead of changing host mounts, user, entrypoint, lifetime command, or network controls.
+A failed build appends no revision and changes no Context. A failed selection
+keeps the previous exact binding. Existing logical Workspace state and home
+remain. Correct compatibility instead of changing host mounts, user,
+entrypoint, lifetime command, or network controls.
 
 ## Policy activation fails
 

@@ -83,46 +83,49 @@ GHCR へ公開したりしません。
 ありません。実際にビルドしたバイト列の不変な識別情報には、Docker で検査したローカル
 イメージダイジェストを使います。
 
-## Context が管理するカスタマイズ
+## インストール全体で共有する Runtime のカスタマイズ
 
-`runtime init` は次を作成します。
+`runtime create --name frontend` は次を作成します。
 
 ```text
-${XDG_CONFIG_HOME:-$HOME/.config}/tobari/contexts/<name>/runtime/Dockerfile
+${XDG_CONFIG_HOME:-$HOME/.config}/tobari/runtimes/frontend/source/
 ```
 
-生成するレシピは公式ランタイムから始まり、カスタマイズ例のセクション後に
-`USER tobari` へ戻ります。ファイルを作成または編集しただけでは、候補イメージを
-選びません。
+所有者専用のソースディレクトリ全体が Docker ビルドコンテキストです。生成する
+Dockerfile は公式 Runtime から始まり `USER tobari` へ戻ります。隣にスクリプト、
+マニフェスト、設定ファイルを置けます。作成や編集だけでは履歴も Context 参照も変わりません。
+ルートと配下には group/other 権限ビットを付けられません。上限は通常ファイル
+1,024 件、ディレクトリ 256 件、1 ファイル 32 MiB、全体 64 MiB で、所有者だけが
+実行できる `0700` のファイルは有効です。
 
-続いて `runtime build` が次を行います。
+続いて `runtime build --name frontend` が次を行います。
 
-1. 現在の Context と、所有者だけが読める上限付きの Dockerfile を検証する
-2. ソースをハッシュし、ローカル候補イメージの名前を導出する
-3. ホストで Docker ビルドを明示的に一度実行する
+1. 数値と所有者専用の上限を検証し、リンクや特殊ファイルを拒否する
+2. 正規パス、モード、サイズ、バイト列を digest へストリームしながら不変スナップショットを作る
+3. ローカル候補イメージ名を導出し、そのスナップショットだけをビルドする
 4. 上記の完全一致互換性検査を適用する
 5. 不変なローカルイメージのダイジェストを読む
-6. 保存済みの Context マニフェストにあるイメージ、ソースダイジェスト、ビルドメタデータをアトミックに昇格する
+6. 成功した意味的リビジョンを Runtime 履歴へアトミックに追加する
 
-昇格が完了するまでは、以前のイメージが正本です。ビルドまたは互換性検査の失敗で選択は
-変わりません。Docker BuildKit がキャッシュを保持する場合や、ビルド後の検証失敗により未選択の
-ローカル候補イメージが残る場合はあります。どちらも選択済みランタイムとは報告しません。
+ビルドは Context を変えません。失敗時は履歴を追加せず、同一ソースの再ビルドは成功した
+no-op です。Docker BuildKit のキャッシュや未選択候補が残っても、準備済みリビジョンとは報告しません。
 
-`runtime build` は既存 Workspace を書き換えません。次回 Workspace に入るとき、期待する
+選択は別操作の `context runtime set --runtime frontend@1` です。次回 Workspace に入るとき、期待する
 イメージの識別情報と完全な runtime-spec ハッシュを比較します。差分がある作業コンテナだけを
 再作成し、論理的な識別情報、プロジェクトルート、Workspace ホームは保持します。
 
 ## 失敗時の動作
 
-| 条件                                             | 結果                                                                              |
-| ------------------------------------------------ | --------------------------------------------------------------------------------- |
-| 公式ベースがローカルで利用できない               | CLI の固定済み埋め込みアセットから一度ビルドし、その後に検査する                  |
-| 必須ラベル、ユーザー、エントリーポイントが異なる | `incompatible_image`。初回に入る際の新しい論理 Workspace は作らず、既存状態は残す |
-| ビルドが失敗                                     | 候補を昇格せず、以前の Context 選択を正本として保持                               |
-| ビルド後の互換性またはダイジェスト検査が失敗     | 候補を選ばず、上限付きのビルド診断を確認                                          |
-| マニフェスト昇格の結果が不明                     | 再試行前に `context show` を読む。新旧どちらが選ばれたとも決めつけない            |
-| 既存コンテナに runtime-spec の差分がある         | 検証成功後、次に入るとき、所有する作業コンテナだけを完全一致で再作成              |
-| ランタイムコンテナまたはネットワークを失った     | 論理 Workspace 状態とホームは残り、次に入るとき所有リソースを調整                 |
+| 条件                                             | 結果                                                                                     |
+| ------------------------------------------------ | ---------------------------------------------------------------------------------------- |
+| 公式ベースがローカルで利用できない               | CLI の固定済み埋め込みアセットから一度ビルドし、その後に検査する                         |
+| 必須ラベル、ユーザー、エントリーポイントが異なる | `incompatible_image`。初回に入る際の新しい論理 Workspace は作らず、既存状態は残す        |
+| source のパス、サイズ、件数、種別、モードが無効  | `runtime_source_invalid` が上限付き相対パスと具体的な修正内容を示し、Docker は実行しない |
+| ビルドが失敗                                     | 履歴とすべての Context 参照を変更しない                                                  |
+| ビルド後の互換性またはダイジェスト検査が失敗     | リビジョンを追加せず、上限付きのビルド診断を確認                                         |
+| Context 選択の結果が不明                         | 再試行前に `context show` を読み、新旧どちらとも決めつけない                             |
+| 既存コンテナに runtime-spec の差分がある         | 検証成功後、次に入るとき、所有する作業コンテナだけを完全一致で再作成                     |
+| ランタイムコンテナまたはネットワークを失った     | 論理 Workspace 状態とホームは残り、次に入るとき所有リソースを調整                        |
 
 ## 保証と制限
 
@@ -142,9 +145,9 @@ Docker Engine、ホストカーネル、イメージのビルド環境、レジ�
 - セキュリティの前提：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/docs/03_security_model.md`}>セキュリティモデル</a>
 - 純粋なランタイム定数：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/domain/tobari/tobari.go`}>ランタイム API と寿命ラベル</a>
 - 互換性検査と固定 Docker 仕様：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/infra/dockerruntime/runtime.go`}>イメージ検査</a>と <a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/infra/dockerruntime/project_runtime.go`}>Workspace ランタイムの調整</a>
-- Context のビルドと昇格：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/infra/dockerruntime/context_runtime.go`}><code>context_runtime.go</code></a>
+- Runtime のビルドと履歴：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/infra/dockerruntime/runtime_library.go`}><code>runtime_library.go</code></a>
 - 正規ベース：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/runtimes/base/runtime.json`}>ランタイムメタデータ</a>、<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/runtimes/base/Dockerfile`}>Dockerfile</a>、<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/runtimes/base/entrypoint.sh`}>エントリーポイント</a>
-- テスト：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/infra/dockerruntime/runtime_test.go`}>互換性テスト</a>、<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/infra/dockerruntime/context_runtime_test.go`}>ビルド昇格テスト</a>、<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/infra/dockerruntime/project_runtime_test.go`}>調整テスト</a>
+- テスト：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/infra/dockerruntime/runtime_test.go`}>互換性テスト</a>、<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/infra/dockerruntime/runtime_library_test.go`}>スナップショット、履歴、選択テスト</a>、<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/infra/dockerruntime/project_runtime_test.go`}>調整テスト</a>
 
 ## まとめ
 
@@ -168,12 +171,11 @@ Workspace のネットワーク、マウント、リソース契約、寿命を�
 
 <details>
   <summary>
-    Context の Dockerfile を変更すると、実行中の Workspace コンテナ
-    を即座に置き換えますか？
+    新しい Runtime リビジョンをビルドすると、実行中の Workspace
+    コンテナを即座に置き換えますか？
   </summary>
-  いいえ。編集だけではイメージを選びません。ビルド
-  に成功するとアトミックに昇格し、次に Workspace へ入るときに作業コンテナ
-  を調整します。
+  いいえ。ビルドは履歴を追加するだけです。Context へ明示的に選択した後、 次に
+  Workspace へ入るときに作業コンテナを調整します。
 </details>
 
 <details>

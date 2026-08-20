@@ -31,7 +31,7 @@ const ansiStyleReset = "\x1b[0m"
 var ansiStyleTokens = map[styleToken]string{
 	styleText:    "",
 	styleMuted:   "\x1b[38;5;250m",
-	styleAccent:  "\x1b[1;38;5;45m",
+	styleAccent:  "\x1b[1;38;5;38m",
 	styleSuccess: "\x1b[38;5;42m",
 	styleWarning: "\x1b[38;5;214m",
 	styleDanger:  "\x1b[38;5;203m",

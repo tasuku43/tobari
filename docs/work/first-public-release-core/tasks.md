@@ -6,7 +6,7 @@
 - Context decision: [context-capability-envelope](../context-capability-envelope/tasks.md)
 - Source access: [context-source-access](../context-source-access/tasks.md)
 - Policy compaction retirement: [policy-compaction-retirement](../policy-compaction-retirement/tasks.md)
-- Policy presets: [policy-presets](../policy-presets/tasks.md)
+- Context-owned policy: [ADR 0066](../../decisions/0066-context-owned-policy-replaces-presets.md)
 - Authentication narrowing: [v1-auth-narrowing](../v1-auth-narrowing/tasks.md)
 - Release artifacts: [first-public-release-artifacts](../first-public-release-artifacts/tasks.md)
 

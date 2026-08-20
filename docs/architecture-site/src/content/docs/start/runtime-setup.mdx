@@ -7,24 +7,26 @@ Quickstart deliberately used only `curl`. The standard base runtime is enough to
 
 For the first setup, keep Tobari's defaults and learn only this path:
 
-1. create the runtime Dockerfile;
+1. create a reusable Runtime source tree;
 2. add the coding agent and project tools;
 3. build and validate the image; and
-4. enter a real project and verify the agent.
+4. select its ready revision for a Context; and
+5. enter a real project and verify the agent.
 
 You do not need to learn configuration switching yet.
 
-## 1. Create the runtime Dockerfile
+## 1. Create a Runtime source tree
 
 Run this on the trusted host:
 
 ```sh
-tobari runtime init
+tobari runtime create --name coding
 ```
 
-Tobari creates its managed Dockerfile and reports the path. This command does not build an image or change the runtime in use.
-
-If the recipe already exists, keep and edit that file instead of initializing it again. The [runtime customization details](../../guides/runtime-customization/) cover recovery when you no longer know the managed path.
+Tobari creates an owner-only `source/` directory and reports its path. It
+contains a starter Dockerfile and may also contain scripts, manifests, and
+configuration copied by that Dockerfile. Creation does not build an image or
+change any Context.
 
 ## 2. Add the agent and project tools
 
@@ -53,14 +55,26 @@ Install only what the selected agent and project need. Pin versions where practi
 ## 3. Build and validate the runtime
 
 ```sh
-tobari runtime build
+tobari runtime build --name coding
 ```
 
-Tobari builds the image and verifies that it satisfies the runtime interface. A compatible successful build is used on the next Workspace entry. A failed build leaves the previous runtime in place.
+Tobari snapshots the complete source tree, builds the snapshot, verifies the
+runtime interface, and appends an immutable successful revision. A failed or
+unchanged build changes no Context.
 
 `runtime build` runs a Docker build on the host. Downloads performed by the Dockerfile do not pass through Workspace policy review, so review the base image and every download source used during the build.
 
-## 4. Enter a real project and verify the agent
+## 4. Select the revision for a Context
+
+```sh
+tobari runtime history --name coding
+tobari context runtime set --runtime coding@1
+```
+
+Selection is explicit and the same revision can be reused by several Contexts.
+Building a later revision does not roll any Context forward.
+
+## 5. Enter a real project and verify the agent
 
 The Quickstart cleanup may have stopped the shared cluster, so make sure it is running before entering the project:
 

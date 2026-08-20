@@ -30,13 +30,12 @@ The diagram compresses one discovery detail: Gateway's denial response and audit
 
 ## 1. Denial is not a permission request
 
-OPA is deny-by-default for effects that match no preset baseline grant or exact
-learned allow. The default `builtin/agent-ready` has a finite exact
-version-coupled Claude/Codex core baseline; the three strict built-ins have zero
-immediate grants. `builtin/public-get-reviewed` instead allows public HTTPS GET
-while leaving every other method at Exact Review. A
-request may be learnable only after schema, principal, fixed-port, credential
-binding, and the immutable preset terminal guardrail validate it.
+OPA is deny-by-default for effects that match no Context policy baseline grant
+or exact learned allow. The default Context has a finite exact
+version-coupled Claude/Codex core baseline; its complete method policy is
+Context-owned. A deny-only or GET-only posture is represented by that method
+policy. A request may be learnable only after schema, principal, fixed-port,
+credential binding, and the immutable Context policy ceiling validate it.
 
 Gateway returns `403 policy_denied`. A learnable response names only the trusted-host review location and exact visible effect. It explicitly says there is no automatic retry.
 
@@ -67,7 +66,7 @@ The rule record itself does not store a scheme field. Current HTTP and HTTPS aut
 
 ## 4. Review and action stay separate
 
-`policy candidates` is the machine discovery surface. `policy review` is the human Permission Inbox. Redirected/machine-readable review is read-only; on a TTY, the list is still non-mutating while the user opens details and stages **Allow exact** or **Deny exact** choices for one Context.
+`policy candidates` is the machine discovery surface. `policy review` is the human Permission Inbox. Redirected/machine-readable review is read-only; on a raw TTY, exact **Allow** or **Deny** keys only stage the unchanged typed ID from the list, while template authority remains detail-only. `policy review --watch` repeats the same bounded read with bounded backoff, keeps one alternate-screen frame across unchanged timer refreshes, and stays open after Apply; it is not streaming authority and never retries traffic. Its optional terminal cue uses only fixed trusted OSC 9 or BEL bytes, never denial evidence; `auto` recognizes exact iTerm2 or complete protected cmux terminal identity.
 
 Each staged choice retains the unchanged opaque ID. Pressing **Apply** revalidates the complete staged set and activates it once; canceling first discards every choice without a write. Apply or discard before switching Context so durable source promotion remains one journaled domain-generation replacement. Display order, indentation, label text, or a reconstructed host/path is never the target. Machine callers continue to delegate one unchanged ID to `policy allow --id …` or `policy deny --id …`.
 
@@ -98,13 +97,13 @@ This matters for non-idempotent methods and bodies: Tobari cannot know whether b
 
 ## Allow, deny, and reset
 
-| Decision              | Meaning                                                                                                              |
-| --------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| Preset baseline grant | Snapshot authority, if any; all built-in V1 presets have none                                                        |
-| Preset terminal deny  | Guardrail rejection that never enters pending review and performs zero candidate/DNS/Broker/upstream work            |
-| Learned exact allow   | One Context/project/host/port/method/path capability                                                                 |
-| Learned exact deny    | One explicitly reviewed terminal rejection; it wins over an allow for that effect                                    |
-| `policy reset`        | Removes one learned allow or exact deny and returns the effect to initialized/default evaluation; it is not an allow |
+| Decision                      | Meaning                                                                                                              |
+| ----------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| Context policy baseline grant | Trusted baseline authority in the Context snapshot; the fixed agent-ready data is not a selectable profile           |
+| Context policy terminal deny  | Ceiling rejection that never enters pending review and performs zero candidate/DNS/Broker/upstream work              |
+| Learned exact allow           | One Context/project/host/port/method/path capability                                                                 |
+| Learned exact deny            | One explicitly reviewed terminal rejection; it wins over an allow for that effect                                    |
+| `policy reset`                | Removes one learned allow or exact deny and returns the effect to initialized/default evaluation; it is not an allow |
 
 ## Concrete example
 

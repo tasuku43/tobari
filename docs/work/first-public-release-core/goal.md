@@ -15,7 +15,7 @@
 - Related work: [Context capability envelope](../context-capability-envelope/goal.md),
   [Context source access](../context-source-access/goal.md),
   [policy compaction retirement](../policy-compaction-retirement/goal.md),
-  [policy presets](../policy-presets/goal.md),
+  [Context-owned policy decision](../../decisions/0066-context-owned-policy-replaces-presets.md),
   [V1 authentication narrowing](../v1-auth-narrowing/goal.md), and
   [release artifacts](../first-public-release-artifacts/goal.md)
 

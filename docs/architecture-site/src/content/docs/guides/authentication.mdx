@@ -45,8 +45,9 @@ Gateway does not infer which executable created or uses it. For an HTTP request:
 4. On deny, the credential and request do not reach upstream.
 5. On allow, Gateway forwards the original header in one upstream attempt.
 
-The immutable `builtin/agent-ready` preset includes a finite set of exact
-Claude/Codex login, account, model, and core effects. It is Context-wide HTTP
+The fixed agent-ready compatibility baseline includes a finite set of exact
+Claude/Codex login, account, model, and core effects. Tobari composes it into
+the Context policy when native readiness is enabled. It is Context-wide HTTP
 authority—not executable identity. Plugins, connectors, MCP, downloads, and
 unmatched routes remain denied or reviewable.
 
@@ -77,7 +78,7 @@ unavailable, retry with `aws sso login --use-device-code --profile your-profile`
 
 ## Login can still be denied
 
-If an effect is outside the preset, use the normal permission loop from a
+If an effect is outside the Context policy, use the normal permission loop from a
 separate trusted-host terminal:
 
 ```sh

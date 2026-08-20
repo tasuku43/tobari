@@ -53,12 +53,13 @@ process in it, coding agents, project files, Workspace home, copied opaque
 handles, generated code, downloaded packages, request data, upstream responses,
 and user/provider text displayed by CLIs are untrusted.
 
-The host also owns each Context's immutable source-access choice, preset origin,
-normalized policy-preset snapshot, and enabled/disabled native-readiness choice. They remain secret-free authority
+The host also owns each Context's immutable source-access choice,
+normalized Context-owned policy snapshot and revision, and enabled/disabled
+native-readiness choice. They remain secret-free authority
 metadata in separate owner-only state; project files, runtime images,
-Workspaces, and source preset files cannot rewrite an existing Context
+Workspaces, and policy source files cannot rewrite an existing Context
 envelope. Enabled readiness independently selects the trusted binary's finite
-native-readiness overlay, still bounded by terminal preset guardrails and
+native-readiness overlay, still bounded by terminal Context policy ceilings and
 ceilings. A binary update can change that overlay for
 existing Contexts, but runtime data cannot select or define it.
 
@@ -213,7 +214,8 @@ state shape, and `127.0.0.1/callback` redirect; AWS CLI 2.36.11's exact
 commercial-region authorization-code shape, default scope, bounded DCR/state/PKCE
 fields, and dynamic `127.0.0.1/oauth/callback` port; TWG CLI 1.2.5's strict
 Atlassian activation URL; or pup 1.10.7's exact US1 authorization route,
-bounded DCR/PKCE fields, sorted default-scope subset, and one of its four exact
+seven mandatory query fields, an optional single UUID-shaped `dd_oid`
+organization hint, bounded DCR/PKCE fields, sorted default-scope subset, and one of its four exact
 `127.0.0.1/oauth/callback` ports. A dedicated schema-v1 control stream carries the
 request while Docker directly owns the attached terminal;
 the channel adds no filesystem, network, Docker, browser, or credential authority,
@@ -255,25 +257,35 @@ contains no branch, dirty diff, absolute path, username, environment value,
 registry credential, or unreviewed digest. Repository-only recovery text is
 gated by the compiled development resolver metadata rather than CWD inspection.
 
-The current Context's runtime recipe is a trusted-host build input. A release
-resolver ensures its pinned agent-ready base from embedded source under a
-source-derived local tag; contributor development uses the local combined base.
-`runtime build` may obtain the declared base image only
-because the user explicitly requested a host build. Docker receives the
-owner-only Context `runtime/` directory as its complete build context; policy
-files, provider manifests, credential metadata, encrypted vaults, root keys,
-secret files, the host home, Docker sockets, and Workspace mounts are outside
-it. The generated image must pass the same
-compatibility inspection before its reference is promoted into the Context.
-Editing the recipe or a failed build cannot replace the last selected image.
-After promotion succeeds, only Workspaces permanently bound to that Context
+Managed Runtime source is a trusted-host build input. A release resolver
+ensures its pinned agent-ready base from embedded source under a source-derived
+local tag; contributor development uses the local combined base. `runtime
+build` may obtain that declared base only because the user explicitly requested
+a host build. Docker receives one immutable Runtime revision snapshot as its
+complete build context; Context policy, provider manifests, credential
+metadata, encrypted vaults, root keys, secret files, the host home, Docker
+sockets, and Workspace mounts are outside it. The generated image must pass the
+same compatibility inspection before history append. Editing source or a
+failed build cannot replace a Context binding. After explicit Context
+selection succeeds, only Workspaces permanently bound to that Context
 observe the selected image through their next trusted root-entry reconciliation.
 Docker/BuildKit build output is untrusted diagnostic text even though the
-Dockerfile is an owner-only host input. The explicit build forwards both Docker
+complete Runtime source tree is owner-only host input. The explicit build forwards both Docker
 streams through visible projection, preserving line structure and concrete
 errors while making backslashes, terminal controls/formats, and Unicode line
 separators distinguishable. It is not copied into the stable structured fault,
 Context manifest, or audit state.
+Attached Workspace stdout is also untrusted child text. Only the interactive
+Unix terminal path may pass one bounded, complete JSON object/array or
+conservative YAML mapping/sequence through the infrastructure syntax-color
+projection. The projection preserves the visible child bytes and whitespace,
+adds only fixed Tobari-owned SGR wrappers, rejects actual terminal controls,
+and passes ambiguous, incomplete, invalid, oversized, tagged, anchored, or
+aliased YAML through unchanged. Escaped control text inside a value is not a
+terminal control. The relay keeps Docker's child PTY and forwards input and
+resize; it never interprets output as a command, policy, URL, credential, or
+recovery action. Stderr, redirected output, machine output, and `NO_COLOR`
+remain ANSI-free.
 The built-in and explicit local bases receive no registry-pull request.
 Explicit remote custom bases remain Docker-owned inputs to the requested build;
 this keeps the local base boundary independent from a Tobari registry artifact.
@@ -453,8 +465,10 @@ dynamic command argument. Non-learnable denials advertise no review command.
 The host-owned retained denial queue remains the source of truth, and only the
 reference-bound host action can change policy. Interactive `policy review`
 instead permits one command-bound fixed-target Apply over a bounded typed set:
-each entry must originate on its exact detail screen, retain its opaque ID
-unchanged, belong to one Context, and pass fresh snapshot validation. The
+an exact entry may originate from the typed raw list or detail screen, while a
+template entry must originate from its scope-bearing detail screen; every entry
+retains its opaque ID unchanged, belongs to one Context, and passes fresh
+snapshot validation. The
 one-Context bound preserves one atomic policy-source promotion even if the host
 process is interrupted. The authoritative source is one strict
 `policy/domains/<canonical-host>/allow.json` and `deny.json` pair per exact
@@ -465,11 +479,27 @@ literals, incomplete pairs, extra files, symlinks, and unsafe permissions fail
 closed. Per-domain method data is projected only into that domain's authority,
 and explicit deny retains precedence. Display position cannot create authority, staging
 writes nothing, cancellation discards the set, wildcard creation is impossible,
-and redirected or machine-readable review is read-only. Refresh retains staged
+and redirected or machine-readable review is read-only. `--watch` is accepted
+only with human text and raw terminal ownership; it repeats the bounded read,
+never grants or retries, retains the last valid snapshot on failure, and uses
+bounded backoff. The alternate-screen presentation remains open across watch
+reads but closes on stop, error, and before confirmed mutation output; raw input
+mode restoration remains paired at every selector boundary. Refresh retains staged
 authority only for an identical candidate ID; stale and same-label replacement
 IDs remain undecided. Confirmed Apply returns an authoritative active revision
 and exact typed receipt, after which the original running Workspace may issue a
 new request. Neither Workspace nor OPA is recreated by this activation.
+The watch attention cue is not a desktop/OS integration or policy signal. Its
+OSC 9 payload is one compile-time fixed printable-ASCII message framed by fixed
+control bytes, and BEL has no payload. The notifier never receives or
+interpolates Context names, project roots, hosts, paths, reasons, counts, or
+other external evidence, so hostile denial text cannot inject terminal control
+data. `auto` selects OSC 9 only for a reviewed terminal identity: exact iTerm2
+identity or the conjunction of protected non-empty cmux workspace and surface
+identities. Every other identity falls back to BEL. Those environment values
+are tested only for presence and never enter the
+payload. Tobari never changes tmux or SSH passthrough. Cue failure is
+non-authoritative and leaves watch active.
 The experimental-only Operator Console is a session-scoped trusted-host presentation,
 not a network control plane. `tobari serve` binds TCP4 only to
 `127.0.0.1:0`, accepts no remote/fixed-port option, and exits with its owning
@@ -491,13 +521,14 @@ and are best-effort host stderr output.
 
 Before any baseline, learned, or Advanced allow, the Tobari-owned evaluator
 applies the immutable destination ceiling and resolves one complete method
-decision from an exact override or the preset default. Method `deny` is
-terminal; `allow` enters the preset-grant path; `exact_review` grants nothing
+decision from an exact override or the Context policy default. Method `deny` is
+terminal; `allow` enters the Context-policy baseline path; `exact_review` grants nothing
 by itself. Terminal denial emits no
 permission candidate and causes zero external DNS, Auth Broker resolution, or
-upstream calls. The guardrail cannot be replaced by Context Rego, learned state,
-provider metadata, or a Workspace-supplied value. `builtin/offline` terminally
-denies all HTTP/HTTPS and creates no review candidate;
+upstream calls. The Context policy ceiling cannot be replaced by Context Rego,
+learned state, provider metadata, or a Workspace-supplied value. The fixed
+agent-ready baseline is not selectable and Context creation can choose a
+deny-only or GET-only method policy directly;
 enabled native readiness grants the reviewed Claude Code 2.1.220 and Codex 0.147.0
 native model/account/bootstrap, first-party capability-discovery, bounded
 evaluation, and telemetry effects. Dynamic evaluation matches only one safe
@@ -529,20 +560,17 @@ and executable names never enter policy.
 New Context snapshots omit these readiness rules. Aggregate generation removes
 every form retained in the binary's append-only compatibility history from a
 legacy snapshot, then, when enabled, adds only the current binary set.
-Destination ceilings, method Deny, and exact Deny remain terminal. Missing
-legacy state preserves its former preset-coupled
-behavior without rewriting the immutable manifest.
+Destination ceilings, method Deny, and exact Deny remain terminal. An omitted
+readiness value resolves to the explicit default without rewriting the
+immutable manifest.
 One reviewed dedicated compile-time family catalog owns each bundle's pinned
 client version, independent current contract revision, and append-only removal
 history. Observed candidates cannot extend it. The active aggregate revision must equal the
 revision recomputed from current Context sources and that catalog; status marks
 a mismatch invalid and Workspace entry performs no downstream reconciliation
 until explicit `cluster up` activates the complete candidate.
-`builtin/reviewed-exact` defaults all methods to Exact Review;
-`builtin/get-only-reviewed` defaults to Deny with GET Exact Review;
-`builtin/public-get-reviewed` defaults to Exact Review with GET Allow. The
-three strict presets grant no immediate authority. GET is not classified as
-safe or read-only, and exact Deny remains terminal over method Allow.
+GET is not classified as safe or read-only, and exact Deny remains terminal
+over method Allow.
 
 ## Credentials
 
@@ -693,23 +721,38 @@ project recovery lock only to serialize cleanup, but a read never creates the
 journal itself. Fresh and ordinary reads create no lock. First durable
 initialization remains behind a fully validated create/write intent.
 
-`runtime init` is a host-only create of one owner-only recipe directory.
-`runtime build` is a host-only write against the current Context runtime target;
-its Docker build context is fixed to that recipe directory, and its image
-promotion happens only after compatibility and digest checks. Neither command
-mounts the Context directory into a Workspace or accepts a secret/image-name
-override. A build failure is therefore a safe retry point: the old selected
-image and its Context authority remain unchanged. Tobari does not delete an
-older selected image, a failed candidate tag, or BuildKit cache as failure
-cleanup; the failure summary distinguishes unchanged, uncertain, and already
-promoted selection state.
+`runtime create` is a host-only create in the installation Runtime catalog.
+`runtime build` is a host-only catalog write. It rejects symlinks, special
+files, escaping paths, group/other permission bits, more than 1,024 regular
+files or 256 directories, a regular file over 32 MiB, and a total over 64 MiB,
+then builds only a private immutable snapshot of the complete source tree. The
+adapter streams source bytes into the snapshot and semantic hash with a fixed
+buffer, so the 64 MiB input ceiling is not also a whole-source heap allocation.
+Validation faults expose a bounded quoted relative path and reviewed
+actual/limit or owner-only facts, never an absolute host path, source bytes, or
+private cause.
+Compatibility and image-digest checks complete before the successful revision
+is appended. Neither command mounts Runtime source into a Workspace, accepts a
+secret or arbitrary image-name override, or changes a Context. A build failure
+is therefore a safe retry point: history and every Context binding remain
+unchanged. `context runtime set` separately revalidates an existing ready exact
+revision before replacing one Context binding.
 
 Shared lifecycle mutations target one catalog-declared `tool_local` cluster.
 The root command uses the catalog-declared current-directory fixed target to
 read and present containing Workspace candidates, then creates or reconciles
 one logical Tobari only after an explicit choice and a fresh locked check. An
 exact current-root record is reused directly; a nested root requires the
-explicit create-here choice. The command never creates shared resources.
+explicit create-here choice. During interactive entry, the CLI may precede
+that CWD mutation with the separately cataloged cluster create when observation
+is not ready; first use may also compose Context-catalog create and optional
+Context-runtime create actions. Each action enters
+its own application invoker with its own validated intent, target, impact, and
+mutation-complete output; root cannot combine or weaken them. Non-interactive
+root invocation and Context-wizard cancellation perform none of those setup
+mutations. A later-stage failure preserves an already confirmed earlier
+mutation and reports reconciliation rather than claiming the whole sequence is
+safe to replay.
 Each canonical root and stable Context pair is unique: repeated or concurrent
 explicit creation is serialized by the state lock and only one logical record
 for that pair can be committed. Same-root records in different Contexts and
@@ -780,6 +823,16 @@ Projection creates only private `.aws/config` in a fresh Workspace home before
 publication. No refresh or reconciliation path may write an existing
 Workspace home.
 
+The interactive Context wizard does not inspect host AWS configuration on its
+ordinary path. Only explicit Workspace-bootstrap editing invokes a read-only
+candidate port. Infrastructure reads the same fixed bounded file once, resolves
+each profile through its referenced SSO session with the strict preparation
+resolver, and returns no credential or cache material. Individually invalid
+profiles are non-authoritative unavailable data; malformed, duplicate, or
+unsafe whole-file state fails closed with no partial candidates. Final Create
+revalidates the selected semantic bundle before mutation and never silently
+drops a reviewed bootstrap selection.
+
 The dependent `kubernetes_eks` adapter applies the same boundary to fixed host
 `~/.kube/config`. Kubeconfig is untrusted executable and credential-bearing
 input, not a file-copy source. The parser resolves one explicit context and
@@ -792,6 +845,11 @@ or environment, alternate paths, symlinks, and unsafe or oversized files fail
 before mutation. Projection re-encodes canonical private JSON kubeconfig; it
 does not execute or copy the host entry. This grants no Kubernetes endpoint or
 AWS API effect, and Workspace-owned AWS SSO remains the only credential source.
+
+Wizard EKS discovery uses the same parser and resolver, is scoped to the exact
+reviewed AWS semantic revision, and performs no network access or execution.
+Only available typed candidates can be selected; display labels, ordering, and
+adjacency cannot establish profile compatibility.
 
 Shell accepts only `PS1`, `TERM`, `COLORTERM`, and `NO_COLOR`, never enumerates
 the host environment, and resolves `inherit` only when a future child shell is
@@ -1059,7 +1117,7 @@ reference-bound mutation.
 | The broker restarts locked and cannot silently replace a missing root key | Restart/unlock tests, Keychain/XDG provider tests, and missing-key-with-vault rejection |
 | Provider manifests cannot become executable or ambiguous authority | Strict schema/collision/path/header tests, owner-only XDG loading, and built-in override rejection |
 | Provider login cannot turn visible text into arbitrary browser execution | Conventional non-project executable selection, identity/digest recheck, fixed argv/environment, bounded browser/PTY projection, checked cleanup, cancellation, and provider-specific negative tests |
-| Native Workspace login cannot become generic host ingress or browser authority | One fresh compile-time registry with exact driver-ID/callback-mode coverage and malformed/ambiguous-definition canaries; closed Claude Code/Codex/GitHub CLI/AWS CLI/TWG/pup semantic URL-schema tests with exact OAuth clients or bounded DCR IDs, reviewed scope ceilings, callback shapes, and state bounds; AWS commercial-region/default-scope/partition canaries; complete pup 1.10.7 scope-ceiling and four-port canaries; one binary-owned read-only opener; exact `BROWSER`/`GH_BROWSER`/`xdg-open` projection; dedicated schema-v1 Unix-socket and non-TTY Docker exec protocol tests; duplicate-key, unknown-field, malformed-version, oversized-target, replay-budget, neighboring-target, and ownership canaries; zero-listener device/remote-callback opens; dynamic non-privileged host-loopback-only one-shot callback relay; opaque callback canaries; port-collision failure; direct Docker terminal ownership; and session cleanup |
+| Native Workspace login cannot become generic host ingress or browser authority | One fresh compile-time registry with exact driver-ID/callback-mode coverage and malformed/ambiguous-definition canaries; a shared closed query-field schema with invalid-definition, requiredness, singleton-cardinality, unknown-field, and validator-dispatch tests; closed Claude Code/Codex/GitHub CLI/AWS CLI/TWG/pup semantic URL-schema tests with exact mandatory fields, individually reviewed optional selectors, exact OAuth clients or bounded DCR IDs, reviewed scope ceilings, callback shapes, and state bounds; AWS commercial-region/default-scope/partition canaries; complete pup 1.10.7 scope-ceiling, optional UUID-shaped `dd_oid`, and four-port canaries; one binary-owned read-only opener; exact `BROWSER`/`GH_BROWSER`/`xdg-open` projection; dedicated schema-v1 Unix-socket and non-TTY Docker exec protocol tests; duplicate-key, unknown-field, malformed-version, oversized-target, replay-budget, neighboring-target, and ownership canaries; zero-listener device/remote-callback opens; dynamic non-privileged host-loopback-only one-shot callback relay; opaque callback canaries; port-collision failure; direct Docker terminal ownership; and session cleanup |
 | Unsupported credential mechanisms cannot remain dormant | Catalog/state/dependency/image-content tests reject managed profiles, owner-selected dynamic plans, arbitrary helpers, compatibility readers, and provider CLIs inside Broker |
 | Agent-ready tools retain reviewed identity without Tobari redistribution | Base-runtime locks/checks for GitHub CLI, AWS CLI, Claude Code, and Codex; version smokes outside Workspace home; local missing-image build tests; workflow and release canaries reject every base registry write/login/push path |
 | Secret headers, queries, handle-bearing paths, and bodies stay out of logs | Gateway redacted-path/header-absence tests, non-learnable structural-rejection tests, and log scans |
@@ -1088,7 +1146,7 @@ reference-bound mutation.
 | One bad Context cannot replace known-good policy | Strict host-paired source validation, mutex plus cross-process locking, digest-bound source journal recovery, serialized content-addressed aggregate generation, reserved namespace validation, whole-candidate OPA tests, atomic publish, rollback tests, and integration |
 | Context changes cannot mutate existing Tobari authority | Permanent instance binding, current-marker-only domain/application tests, and Context-local recording-runner restart reconciliation |
 | Source access is exact and not a snapshot claim | Runtime spec/hash and Docker inspect tests, read-only mutation/Git-metadata failures, writable home/tmpfs canaries, no writable alias, and same-root host/read-write observation tests |
-| Preset guardrails cannot be bypassed | Default-plus-override method-decision tests for offline/reviewed-exact/get-only-reviewed/public-get-reviewed plus destination/method terminal zero-candidate/DNS/Broker/upstream canaries and exact-Deny precedence above broad Allow, baseline, learned, and Advanced policy |
+| Context policy ceilings cannot be bypassed | Default-plus-override method-decision tests plus destination/method terminal zero-candidate/DNS/Broker/upstream canaries and exact-Deny precedence above broad Allow, baseline, learned, and Advanced policy |
 | Overlapping roots are not misrepresented as isolated | Product contract, Context-selected direct mounts, same-root/parent-child integration canaries, and absence of overlay/root-lock paths |
 | Gateway does not retain allowed streaming bodies | Header-hook ordering unit tests plus incremental chunked-request and SSE-response integration canaries |
 | Declared oversized bodies retain the transport bound | Fixed mitmproxy body-size asset test, over-limit `Content-Length` integration request, incremental unknown-length transport-cap evidence, and complete-body semantic-cap tests |

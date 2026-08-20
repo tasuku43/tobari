@@ -6,7 +6,7 @@ description: 保持された拒否の根拠を確認し、完全一致の判断�
 import PolicyLoopMap from "../../../../components/PolicyLoopMap.astro";
 import SequenceExplorer from "../../../../components/SequenceExplorer.astro";
 
-ポリシーレビューは、保持された拒否の根拠を、ホストが所有する明示的な判断へ変える操作です。Workspace から出て、信頼するホスト上の Permission Inbox で、量を制限した秘密情報を含まない記録を確認します。完全一致の詳細画面で判断を準備し、一つの Context についてレビュー済みの一式を一度だけ Apply します。承認はポリシーを変更しますが、拒否された通信を再試行しません。
+ポリシーレビューは、保持された拒否の根拠を、ホストが所有する明示的な判断へ変える操作です。Workspace から出て、信頼するホスト上の Permission Inbox で、量を制限した秘密情報を含まない記録を確認します。raw terminal の一覧から完全一致の判断を準備し、テンプレートは詳細画面で将来範囲を確認してから選び、一つの Context についてレビュー済みの一式を一度だけ Apply します。承認はポリシーを変更しますが、拒否された通信を再試行しません。
 
 [最初の拒否](../../start/first-denial/)では、リクエストの拒否からこのホスト側のレビューフローまでを説明しています。
 
@@ -22,6 +22,9 @@ import SequenceExplorer from "../../../../components/SequenceExplorer.astro";
 
 ```sh
 tobari policy review --tail 100
+tobari policy review --watch
+# Disable or explicitly choose its terminal-emulator cue:
+tobari policy review --watch --notify=off
 ```
 
 インストール全体を対象とする TTY キューには、取得件数を制限した Gateway ログから、保留中の通信候補が表示されます。一つを選び、次を確認します。
@@ -33,7 +36,11 @@ tobari policy review --tail 100
 - 拒否理由、時刻、保持された観測回数
 - 提案される完全一致の許可または拒否
 
-詳細画面からだけ **Allow exact** または **Deny exact** を選びます。選択を準備しただけでは権限は変わりません。同じ Context の候補を確認し、**Apply** で一式を再検証して一度だけ有効化します。Apply 前にキャンセルすると、準備した選択はすべて破棄されます。Context を切り替える前に適用または破棄するため、ソースの更新は journal で保護した一度の domain 世代置換になります。
+raw terminal の一覧で **a** または **d** を押すと **Allow exact** または **Deny exact** を準備し、**x** で一行の判断を解除します。完全一致の準備後は後方の未判断行だけへ進み、末尾から折り返しません。根拠の精査や、提案されたテンプレートの例と将来範囲の承認には詳細画面を開きます。どの選択も準備状態であり権限を与えません。同じ Context の候補を続けて確認し、最後に **p** を押して **Apply** を確認し、一式全体を再検証して一度だけ有効化します。Apply の前にキャンセルすると、準備した選択はすべて破棄されます。Context を切り替える前に Apply または破棄してください。これにより、ソース更新が一つの journal で保護された domain 世代置換に収まります。
+
+`--watch` は text 出力と対話型 raw terminal を必要とします。同じ上限付き snapshot を自動更新し、不透明な型付き ID でフォーカスと準備済み判断を保ち、古くなった判断を報告し、読み取り失敗時には backoff し、Apply 成功後も開いたままになります。Apply と Apply の間は一つの alternate-screen frame を保ち、変更のない timer refresh では再描画しません。拒否された通信を再試行することはありません。
+
+`--notify=auto|osc9|bel|off` は、以前に見ていない型付き review item が一つ以上追加された成功 refresh の注意喚起を選びます。初回 snapshot と既知 ID の再表示は通知せず、一回の refresh は最大一回だけ通知します。`auto` は iTerm2 の正確な識別、または保護された workspace identity と surface identity の両方を持つ cmux terminal では OSC 9 を使い、それ以外は BEL へ fallback します。payload は固定された信頼済み ASCII だけで、拒否の根拠を含みません。Tobari は OS、tmux、SSH の passthrough を設定しません。
 
 <SequenceExplorer
   title="ホスト側でのポリシーレビューと有効化"

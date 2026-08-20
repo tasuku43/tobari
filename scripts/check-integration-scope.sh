@@ -28,7 +28,7 @@ fi
 # Docker scenario may use only the minimal create/import/discover/act calls
 # needed to assemble and exercise real runtime boundaries.
 if grep -En \
-  'policy preset (list|validate)|policy (rules|reset)|auth (status|login|logout)|runtime (init|build)|help policy' \
+  'policy preset (list|validate)|policy (rules|reset)|auth (status|login|logout)|runtime init|help policy' \
   "$scenario" >&2; then
   echo "integration scope: semantic or presentation matrix returned to the Docker scenario" >&2
   exit 1

@@ -1,0 +1,14 @@
+✓ Context review
+  State          persisted · not current
+  Source         direct read-write
+  Network        default exact-review
+  Network GET    allow
+  Policy         revision sha256:1ebfdf1e67ab968a9b709b8418281e60b2d17562eeb96679cdcd5ec472e82df5 · readiness disabled
+  Profile        guided · agent default
+  Git identity   literal · Review Bot <review@example.com>
+  Runtime        frontend@4
+  Image          tobari-context-review:123456789abc
+  Authentication native Workspace-owned
+  Bootstrap      not_configured
+  Details        tobari context show --name review --details
+  Next           tobari --context review — Enter or create a Workspace with this Context.

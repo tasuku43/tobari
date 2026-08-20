@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/tasuku43/tobari/internal/domain/tobari"
@@ -54,55 +55,141 @@ func (r *Runtime) readHostEKSBootstrap(contextName, awsProfile string) (tobari.C
 	if contextName == "" || awsProfile == "" {
 		return tobari.ContextEKSBootstrap{}, fmt.Errorf("Kubernetes context and AWS profile are required")
 	}
-	path, err := r.hostKubeconfigPath()
+	data, err := r.readHostKubeconfigBytes()
 	if err != nil {
 		return tobari.ContextEKSBootstrap{}, err
-	}
-	parent := filepath.Dir(path)
-	parentInfo, err := os.Lstat(parent)
-	if err != nil {
-		return tobari.ContextEKSBootstrap{}, fmt.Errorf("inspect host Kubernetes configuration directory: %w", err)
-	}
-	if !parentInfo.IsDir() || parentInfo.Mode()&os.ModeSymlink != 0 || parentInfo.Mode().Perm()&0o022 != 0 {
-		return tobari.ContextEKSBootstrap{}, fmt.Errorf("host Kubernetes configuration directory is unsafe")
-	}
-	info, err := os.Lstat(path)
-	if err != nil {
-		return tobari.ContextEKSBootstrap{}, fmt.Errorf("inspect host kubeconfig: %w", err)
-	}
-	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm()&0o022 != 0 || info.Size() <= 0 || info.Size() > maxHostKubeconfigBytes {
-		return tobari.ContextEKSBootstrap{}, fmt.Errorf("host kubeconfig is unsafe")
-	}
-	data, err := os.ReadFile(path) // #nosec G304 -- exact fixed child of the resolved host home.
-	if err != nil {
-		return tobari.ContextEKSBootstrap{}, fmt.Errorf("read host kubeconfig: %w", err)
 	}
 	return parseHostEKSBootstrap(data, contextName, awsProfile)
 }
 
+// DiscoverContextEKSBootstraps resolves every kubeconfig context against the
+// exact reviewed AWS semantic bundle. It performs no command or network call.
+func (r *Runtime) DiscoverContextEKSBootstraps(ctx context.Context, aws tobari.ContextBootstrapSnapshot) (tobari.ContextEKSBootstrapDiscovery, error) {
+	if err := ctx.Err(); err != nil {
+		return tobari.ContextEKSBootstrapDiscovery{}, err
+	}
+	if err := aws.Validate(); err != nil || aws.EKS != nil {
+		return tobari.ContextEKSBootstrapDiscovery{}, fmt.Errorf("AWS bootstrap discovery scope is invalid")
+	}
+	data, err := r.readHostKubeconfigBytes()
+	if err != nil {
+		state := tobari.ContextBootstrapDiscoveryRejected
+		reason := bootstrapDiscoveryReason(err)
+		if os.IsNotExist(err) {
+			state = tobari.ContextBootstrapDiscoveryMissing
+			reason = "Host kubeconfig was not found."
+		}
+		result := tobari.ContextEKSBootstrapDiscovery{State: state, Reason: reason, AWSRevision: aws.Revision, Candidates: []tobari.ContextEKSBootstrapCandidate{}}
+		return result, result.Validate()
+	}
+	config, err := parseHostKubeconfig(data)
+	if err != nil {
+		result := tobari.ContextEKSBootstrapDiscovery{State: tobari.ContextBootstrapDiscoveryRejected, Reason: bootstrapDiscoveryReason(err), AWSRevision: aws.Revision, Candidates: []tobari.ContextEKSBootstrapCandidate{}}
+		return result, result.Validate()
+	}
+	names := make([]string, 0, len(config.Contexts))
+	for _, entry := range config.Contexts {
+		names = append(names, entry.Name)
+	}
+	sort.Strings(names)
+	candidates := make([]tobari.ContextEKSBootstrapCandidate, 0, len(names))
+	for _, name := range names {
+		eks, resolveErr := resolveHostEKSBootstrap(config, name, aws.AWS.Profile)
+		if resolveErr != nil {
+			candidates = append(candidates, tobari.ContextEKSBootstrapCandidate{ContextName: name, State: tobari.ContextBootstrapCandidateUnavailable, Reason: bootstrapDiscoveryReason(resolveErr)})
+			continue
+		}
+		composed, composeErr := tobari.NewContextBootstrapSnapshotWithEKS(aws.Generation, aws.AWS, eks)
+		if composeErr != nil {
+			candidates = append(candidates, tobari.ContextEKSBootstrapCandidate{ContextName: name, State: tobari.ContextBootstrapCandidateUnavailable, Reason: bootstrapDiscoveryReason(composeErr)})
+			continue
+		}
+		candidates = append(candidates, tobari.ContextEKSBootstrapCandidate{ContextName: name, State: tobari.ContextBootstrapCandidateAvailable, Snapshot: &composed})
+	}
+	result := tobari.ContextEKSBootstrapDiscovery{State: tobari.ContextBootstrapDiscoveryAvailable, AWSRevision: aws.Revision, Candidates: candidates}
+	return result, result.Validate()
+}
+
+func (r *Runtime) readHostKubeconfigBytes() ([]byte, error) {
+	path, err := r.hostKubeconfigPath()
+	if err != nil {
+		return nil, err
+	}
+	parent := filepath.Dir(path)
+	parentInfo, err := os.Lstat(parent)
+	if err != nil {
+		return nil, fmt.Errorf("inspect host Kubernetes configuration directory: %w", err)
+	}
+	if !parentInfo.IsDir() || parentInfo.Mode()&os.ModeSymlink != 0 || parentInfo.Mode().Perm()&0o022 != 0 {
+		return nil, fmt.Errorf("host Kubernetes configuration directory is unsafe")
+	}
+	info, err := os.Lstat(path)
+	if err != nil {
+		return nil, fmt.Errorf("inspect host kubeconfig: %w", err)
+	}
+	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm()&0o022 != 0 || info.Size() <= 0 || info.Size() > maxHostKubeconfigBytes {
+		return nil, fmt.Errorf("host kubeconfig is unsafe")
+	}
+	data, err := os.ReadFile(path) // #nosec G304 -- exact fixed child of the resolved host home.
+	if err != nil {
+		return nil, fmt.Errorf("read host kubeconfig: %w", err)
+	}
+	return data, nil
+}
+
 func parseHostEKSBootstrap(data []byte, contextName, awsProfile string) (tobari.ContextEKSBootstrap, error) {
+	config, err := parseHostKubeconfig(data)
+	if err != nil {
+		return tobari.ContextEKSBootstrap{}, err
+	}
+	return resolveHostEKSBootstrap(config, contextName, awsProfile)
+}
+
+func parseHostKubeconfig(data []byte) (hostKubeconfig, error) {
 	if len(data) == 0 || len(data) > maxHostKubeconfigBytes || bytes.IndexByte(data, 0) >= 0 {
-		return tobari.ContextEKSBootstrap{}, fmt.Errorf("host kubeconfig is empty or oversized")
+		return hostKubeconfig{}, fmt.Errorf("host kubeconfig is empty or oversized")
 	}
 	decoder := yaml.NewDecoder(bytes.NewReader(data))
 	decoder.KnownFields(true)
 	var config hostKubeconfig
 	if err := decoder.Decode(&config); err != nil {
-		return tobari.ContextEKSBootstrap{}, fmt.Errorf("decode host kubeconfig: %w", err)
+		return hostKubeconfig{}, fmt.Errorf("decode host kubeconfig: %w", err)
 	}
 	var extra any
 	if err := decoder.Decode(&extra); err != io.EOF {
-		return tobari.ContextEKSBootstrap{}, fmt.Errorf("host kubeconfig must contain one document")
+		return hostKubeconfig{}, fmt.Errorf("host kubeconfig must contain one document")
 	}
 	if config.APIVersion != "v1" || config.Kind != "Config" {
-		return tobari.ContextEKSBootstrap{}, fmt.Errorf("host kubeconfig identity is invalid")
+		return hostKubeconfig{}, fmt.Errorf("host kubeconfig identity is invalid")
 	}
 	if err := rejectYAMLAliases(config); err != nil {
-		return tobari.ContextEKSBootstrap{}, err
+		return hostKubeconfig{}, err
 	}
 	if !emptyYAMLNode(config.Extensions) || !emptyMappingNode(config.Preferences) {
-		return tobari.ContextEKSBootstrap{}, fmt.Errorf("host kubeconfig preferences or extensions are unsupported")
+		return hostKubeconfig{}, fmt.Errorf("host kubeconfig preferences or extensions are unsupported")
 	}
+	for kind, entries := range map[string][]kubeconfigNamedNode{"cluster": config.Clusters, "context": config.Contexts, "user": config.Users} {
+		seen := map[string]struct{}{}
+		for _, entry := range entries {
+			if entry.Name == "" {
+				return hostKubeconfig{}, fmt.Errorf("host kubeconfig has an unnamed %s", kind)
+			}
+			if _, duplicate := seen[entry.Name]; duplicate {
+				return hostKubeconfig{}, fmt.Errorf("host kubeconfig %s %q is duplicated", kind, entry.Name)
+			}
+			seen[entry.Name] = struct{}{}
+			validShape := (kind == "cluster" && entry.Cluster.Kind != 0 && entry.Context.Kind == 0 && entry.User.Kind == 0) ||
+				(kind == "context" && entry.Cluster.Kind == 0 && entry.Context.Kind != 0 && entry.User.Kind == 0) ||
+				(kind == "user" && entry.Cluster.Kind == 0 && entry.Context.Kind == 0 && entry.User.Kind != 0)
+			if !validShape {
+				return hostKubeconfig{}, fmt.Errorf("host kubeconfig %s %q has unsupported outer fields", kind, entry.Name)
+			}
+		}
+	}
+	return config, nil
+}
+
+func resolveHostEKSBootstrap(config hostKubeconfig, contextName, awsProfile string) (tobari.ContextEKSBootstrap, error) {
 	contextEntry, err := uniqueKubeconfigEntry(config.Contexts, contextName, "context")
 	if err != nil {
 		return tobari.ContextEKSBootstrap{}, err

@@ -354,7 +354,7 @@ func readPolicyDataDuringTransaction(policyDirectory string) (policyDataFile, er
 		return policyDataFile{}, err
 	}
 	for _, entry := range rootEntries {
-		if entry.Name() != policyDomainsName && entry.Name() != "preset.json" && entry.Name() != "tobari.rego" && entry.Name() != "tobari_test.rego" {
+		if entry.Name() != policyDomainsName && entry.Name() != "context.json" && entry.Name() != "tobari.rego" && entry.Name() != "tobari_test.rego" {
 			return policyDataFile{}, fmt.Errorf("policy directory contains unsupported entry %q", entry.Name())
 		}
 	}
@@ -367,7 +367,7 @@ func validateContextPolicyLayout(policyDirectory string, mode tobari.ContextPoli
 	if err != nil {
 		return err
 	}
-	expected := map[string]bool{policyDomainsName: true, "preset.json": true}
+	expected := map[string]bool{policyDomainsName: true, "context.json": true}
 	switch mode {
 	case tobari.ContextPolicyModeGuided:
 	case tobari.ContextPolicyModeAdvanced:

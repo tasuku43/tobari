@@ -66,11 +66,16 @@ test.describe("task-first documentation flow", () => {
     await page.goto("start/runtime-setup/");
 
     await expect(
-      page.getByRole("heading", { name: "1. Create the runtime Dockerfile" }),
+      page.getByRole("heading", { name: "1. Create a Runtime source tree" }),
     ).toBeVisible();
     await expect(
       page.getByRole("heading", {
-        name: "4. Enter a real project and verify the agent",
+        name: "4. Select the revision for a Context",
+      }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("heading", {
+        name: "5. Enter a real project and verify the agent",
       }),
     ).toBeVisible();
     await expect(page.locator(".learning-badge-step")).toHaveText("3 / 11");

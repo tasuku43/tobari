@@ -101,6 +101,21 @@ func (r *Runtime) contextRuntimeUsesRefreshableBase(name string) (bool, error) {
 }
 
 func (r *Runtime) contextRuntimeReport(manifest tobari.ContextManifest) (tobari.ContextRuntimeReport, error) {
+	if manifest.RuntimeBinding != nil {
+		binding := *manifest.RuntimeBinding
+		if err := binding.Validate(); err != nil {
+			return tobari.ContextRuntimeReport{}, err
+		}
+		kind := tobari.ContextRuntimeKindManaged
+		status := tobari.ContextRuntimeStatusReady
+		if binding.RuntimeID == tobari.StandardRuntimeID {
+			kind, status = tobari.ContextRuntimeKindOfficial, tobari.ContextRuntimeStatusOfficial
+		}
+		return tobari.ContextRuntimeReport{
+			Kind: kind, Status: status, Image: binding.Image,
+			RuntimeID: binding.RuntimeID, Name: binding.Name, Revision: binding.Revision, Ordinal: binding.Ordinal,
+		}, nil
+	}
 	if manifest.Runtime == nil {
 		return tobari.ContextRuntimeReport{
 			Kind:          tobari.ContextRuntimeKindOfficial,
@@ -152,39 +167,37 @@ func (r *Runtime) contextReport(ctx context.Context, task string, manifest tobar
 	if manifest.GitIdentity != nil {
 		gitIdentity = *manifest.GitIdentity
 	}
-	nativeReadiness, err := tobari.ResolveContextNativeReadiness(manifest.NativeReadiness, manifest.PolicyPresetOrigin)
+	nativeReadiness, err := tobari.ResolveContextNativeReadiness(manifest.NativeReadiness)
 	if err != nil {
 		return tobari.ContextReport{}, err
 	}
 	result := tobari.ContextReport{
-		Task:                 task,
-		ContextState:         tobari.ContextObservationPersisted,
-		ID:                   manifest.ID,
-		Name:                 manifest.Name,
-		Active:               manifest.Name == active,
-		AgentProfile:         manifest.AgentProfile,
-		Image:                manifest.Image,
-		PolicyMode:           manifest.PolicyMode,
-		SourceAccess:         manifest.SourceAccess,
-		PolicyPresetOrigin:   manifest.PolicyPresetOrigin,
-		PolicyPresetRevision: manifest.PolicyPresetRevision,
-		NativeReadiness:      nativeReadiness,
-		ShellEnvironment:     shellEnvironment,
-		GitIdentity:          gitIdentity,
-		Stores:               r.contextPaths(manifest.Name),
-		Runtime:              runtimeReport,
-		Cluster:              tobari.ContextClusterStatusNotApplicable,
+		Task:             task,
+		ContextState:     tobari.ContextObservationPersisted,
+		ID:               manifest.ID,
+		Name:             manifest.Name,
+		Active:           manifest.Name == active,
+		AgentProfile:     manifest.AgentProfile,
+		Image:            manifest.Image,
+		PolicyMode:       manifest.PolicyMode,
+		SourceAccess:     manifest.SourceAccess,
+		PolicyRevision:   manifest.PolicyRevision,
+		NativeReadiness:  nativeReadiness,
+		ShellEnvironment: shellEnvironment,
+		GitIdentity:      gitIdentity,
+		Stores:           r.contextPaths(manifest.Name),
+		Runtime:          runtimeReport,
+		Cluster:          tobari.ContextClusterStatusNotApplicable,
 		Authentication: tobari.ContextAuthentication{
 			Mode: tobari.ContextAuthenticationModeNotApplicable, BrokerState: tobari.ContextAuthBrokerNotApplicable,
 		},
 		Bootstrap: tobari.ContextBootstrapReportFrom(manifest.Bootstrap),
 	}
-	preset, presetErr := r.readContextPreset(manifest)
-	if presetErr != nil {
-		return tobari.ContextReport{}, presetErr
+	policy, policyErr := r.readContextPolicy(manifest)
+	if policyErr != nil {
+		return tobari.ContextReport{}, policyErr
 	}
-	result.PolicyGuardrail = preset.Guardrail
-	result.MethodPolicy = preset.MethodPolicy
+	result.MethodPolicy = policy.MethodPolicy
 	if task == tobari.TaskContextShow {
 		result.Authentication, err = r.contextAuthentication(ctx, manifest.ID)
 		if err != nil {
@@ -215,9 +228,8 @@ func (r *Runtime) nonPersistedContextReport(observed observedContext, active str
 		Task: tobari.TaskContextShow, ContextState: observed.state, Name: manifest.Name,
 		Active: manifest.Name == active, AgentProfile: manifest.AgentProfile, Image: manifest.Image,
 		PolicyMode: manifest.PolicyMode, SourceAccess: manifest.SourceAccess,
-		PolicyPresetOrigin: tobari.DefaultPolicyPresetOrigin, PolicyGuardrail: tobari.PolicyPresetGuardrailMethodPolicy,
 		NativeReadiness:  tobari.ContextNativeReadinessEnabled,
-		MethodPolicy:     tobari.PolicyPresetMethodPolicy{Default: tobari.PolicyPresetMethodExactReview, Overrides: []tobari.PolicyPresetMethodOverride{}},
+		MethodPolicy:     tobari.ContextMethodPolicy{Default: tobari.ContextMethodExactReview, Overrides: []tobari.ContextMethodOverride{}},
 		ShellEnvironment: shellEnvironment, GitIdentity: gitIdentity,
 		Stores: tobari.ContextStorePaths{}, Runtime: runtimeReport, Cluster: tobari.ContextClusterStatusNotApplicable,
 		Authentication: nativeOrUnavailableContextAuthentication(),
@@ -350,6 +362,7 @@ func (r *Runtime) InitRuntime(ctx context.Context) (tobari.ContextReport, error)
 
 		previous := manifest
 		manifest.SchemaVersion = tobari.ContextSchemaVersion
+		manifest.RuntimeBinding = nil
 		manifest.Runtime = &tobari.ContextRuntimeRecipe{
 			Kind:          tobari.ContextRuntimeKindDockerfile,
 			File:          tobari.ContextRuntimeRecipeFile,

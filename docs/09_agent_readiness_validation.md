@@ -9,8 +9,8 @@ transcripts as repository fixtures.
 | Outcome | Public route | Success evidence |
 |---|---|---|
 | Discover capabilities | `help --format agent`, then one namespace or exact-command selector | Root remains a compact capability index; one scoped read supplies complete typed inputs, outputs, failures, and workflow |
-| Choose and retire a Context envelope | `context list`, `context show`, `context create`, `context use`, `context delete` | Human list cards expose filesystem and complete method-policy facts; argument-free terminal creation completes name/source/method policy once, direct JSON remains deterministic, changing current does not retarget Workspaces, and deletion rejects protected/current/bound Contexts |
-| Enter bounded work | `cluster up`, then `tobari [--context NAME]` | One selected live source bind, writable home/tmpfs, guarded network, reusable Workspace, and no direct egress |
+| Choose and retire a Context envelope | `context list`, `context show`, `context create`, `context use`, `context delete` | Human list cards expose filesystem and complete method-policy facts; `context show` gives one concise boundary/runtime decision and an explicit `--details` diagnostic from the same read while JSON remains identical; argument-free terminal creation shows the complete effective boundary, edits one section, discovers optional typed bootstrap candidates without selector re-entry, and creates once; changing current does not retarget Workspaces, and deletion rejects protected/current/bound Contexts |
+| Enter bounded work | `tobari [--context NAME]`; explicit `cluster up` remains available | On first use, one root route completes reviewed Context creation and exact shared-cluster reconciliation before one selected live source bind, writable home/tmpfs, guarded network, reusable Workspace, and no direct egress |
 | Grow exact permission | `policy review`, or `policy candidates` then one exact allow/deny | Terminal guardrail precedes every candidate; explicit review activates only exact Context/project/scheme/host/port/method/path authority |
 | Inspect/reset decisions | `policy rules`, then `policy reset --id` | One current exact decision is removed through its unchanged opaque reference and returns to default deny |
 | Use native Workspace auth | Run the agent CLI's native login inside the Workspace | Credential state persists in that Workspace home, receives no network grant from login, and crosses Gateway only after the ordinary exact HTTP effect is allowed |
@@ -36,10 +36,10 @@ TOBARI_BIN=bin/tobari
 "$TOBARI_BIN" help --format agent
 "$TOBARI_BIN" help context --format agent
 "$TOBARI_BIN" context create --name writable \
-  --source-access read-write --policy-preset builtin/agent-ready \
+  --source-access read-write \
   --native-readiness enabled --format json
 "$TOBARI_BIN" context create --name restricted \
-  --source-access read-only --policy-preset builtin/offline \
+  --source-access read-only \
   --native-readiness disabled --format json
 "$TOBARI_BIN" context show --name writable --format json
 "$TOBARI_BIN" context show --name restricted --format json
@@ -67,9 +67,11 @@ The last observation proves a live direct bind, not a snapshot or filesystem-
 integrity boundary. Neither Context is allowed to mutate the other's home,
 network, or policy state. Native credentials follow the owning Workspace home.
 
-## Policy-preset matrix
+## Context policy matrix
 
-For every preset, inspect and bind its immutable immediate-grant count.
+Inspect and bind the immutable Context policy snapshot and its complete method
+default/override set. The fixed agent-ready baseline is part of the trusted
+binary's default Context policy, not a selectable profile.
 
 - `builtin/agent-ready`: the pinned Claude/Codex native matrix, GitHub CLI
   device-auth bootstrap, TWG CLI 1.2.5 auth/site/manifest lifecycle, and pup
@@ -83,15 +85,15 @@ For every preset, inspect and bind its immutable immediate-grant count.
   file transfer, self-update, unrelated paths, and third-party destinations
   remain denied or reviewable. Prove grants apply by Context semantic identity,
   not executable name.
-- `builtin/offline`: every HTTP and HTTPS effect is a terminal denial; the
-  review queue remains empty.
-- `builtin/reviewed-exact`: only guardrail-eligible effects reach exact review.
-- `builtin/get-only-reviewed`: only guardrail-eligible GET effects reach exact
-  review; HEAD and every non-GET are terminal denials. Do not describe GET as
-  safe or read-only.
-- `builtin/public-get-reviewed`: public HTTPS GET succeeds without a candidate;
-  every other public HTTPS method remains eligible only for exact review. An
-  exact Deny for the same GET remains terminal.
+- A deny-only Context produces terminal denials for every method and leaves the
+  review queue empty.
+- An exact-review Context sends eligible effects to exact review without
+  granting immediate authority.
+- A GET-only Context uses default Deny with an exact-review `GET` override;
+  `HEAD` and every non-GET remain terminal denials. Do not describe GET as safe
+  or read-only.
+- A method-Allow Context still remains bounded by the destination ceiling and
+  exact Deny; Method Allow is Context-wide, not process identity.
 
 The native-login subset must include exactly:
 
@@ -127,13 +129,13 @@ append-only contract revisions, and exactly one current contract per
 family. Prove the aggregate revision includes its
 effective expansion, an older active revision is reported invalid, and root
 entry returns exact `cluster up` recovery before Workspace mutation.
-Create enabled and disabled readiness with every builtin preset. Enabled
-readiness is independent of preset identity, but destination ceilings and
-method Deny filter it, and exact Deny remains terminal. Prove every method uses
-an exact override or the preset default, including an extension-method canary.
-Disabled readiness supplies
-no overlay. Missing legacy state preserves the former behavior (enabled only
-for `builtin/agent-ready`) without rewriting the manifest. For GitHub,
+Create Contexts with enabled and disabled readiness while varying the complete
+Context method policy. Enabled readiness is independent of any profile name,
+but destination ceilings and method Deny filter it, and exact Deny remains
+terminal. Prove every method uses its explicit override or the Context default,
+including an extension-method canary. Disabled readiness supplies no overlay.
+An omitted readiness value resolves to the current Context default without
+rewriting the stored policy snapshot. For GitHub,
 neighboring methods, paths, query variants,
 GitHub API hosts, ordinary HTTP at `/graphql`, mutation, sibling or mixed roots,
 Git transport, downloads, uploads, releases, and self-update receive no baseline
@@ -154,32 +156,36 @@ revision 2; alternate methods, REST routes, beta manifest, installer, checksum,
 artifact, update execution, and download receive no baseline grant.
 
 For pup, prove the dedicated opener accepts only the exact default-US1
-authorization route, seven reviewed query fields, bounded DCR/state/PKCE
-shapes, `S256`, a sorted subset of the complete 110-scope pup 1.10.7 ceiling,
+authorization route, seven mandatory query fields, an optional single
+UUID-shaped `dd_oid` organization hint, bounded DCR/state/PKCE shapes, `S256`,
+a sorted subset of the complete 110-scope pup 1.10.7 ceiling,
 and exact `127.0.0.1:{8000,8080,8888,9000}/oauth/callback`. Verify it binds
 before browser open and relays one opaque callback only to the selected owned
 Workspace. Reject caller-added scopes, alternate sites, host case, userinfo,
-explicit port, neighboring path, duplicate/extra query, fragment, callback
+explicit port, neighboring path, missing mandatory fields, duplicate or
+malformed hints, unknown query fields, fragment, callback
 host/path/port changes, replay, and oversized requests. Product APIs,
 telemetry, revoke, and neighboring OAuth effects receive no baseline grant.
 
 For each terminal denial, record zero permission candidates, external DNS
 lookups, and upstream attempts. Repeat with a learned
 exact allow, baseline grant, and Advanced Rego allow that would otherwise match;
-none may bypass the guardrail.
+none may bypass the Context policy ceiling.
 
-Custom-preset tests use strict owner-only schema-V1 data. Reject unknown fields,
+Context-policy tests use strict owner-only schema-V1 data. Reject unknown fields,
 wildcards, IP/private destinations, secrets, shell, Rego, include, inheritance,
 remote fetch, refresh, signing, symlinks, unsafe modes, duplicate keys, and
 ambiguous rules. Context creation normalizes, validates, digests, and snapshots
-the source. Editing the source preset afterward must not change the existing
-Context report or active guardrail. Updating the trusted binary must update only
+the Context policy. Editing policy source afterward must not change the existing
+Context report or active policy ceiling. Updating the trusted binary must update only
 the native-readiness overlay of existing enabled Contexts without rewriting
 their snapshot.
 
 For typed Workspace bootstrap, use only synthetic host homes. Prove the AWS
-adapter reads one fixed shared-config file, accepts one reviewed profile and
-referenced SSO session, and rejects unknown keys, helpers, duplicates,
+adapter reads one fixed shared-config file only after explicit bootstrap
+editing, parses it once, resolves profiles through shared referenced SSO
+sessions, exposes typed available/unavailable candidates, and rejects unknown
+keys, helpers, duplicates,
 symlinks, unsafe modes, oversized input, credentials, and cache material. A new
 Workspace must receive exact owner-only canonical `.aws/config` bytes and an
 applied revision before publication. After a semantic Context refresh, prove
@@ -193,6 +199,11 @@ arguments, unsafe paths, duplicates, and source drift. A composed new Workspace
 must receive canonical private `.kube/config`; removing EKS preserves AWS and
 removing AWS first is rejected. No test may perform external AWS or Kubernetes
 I/O.
+Whole-file malformed or unsafe input must return no partial candidates;
+individual semantic incompatibility may remain visible but unselectable. Final
+Create must revalidate the selected profile/session/EKS semantic bundle, return
+the draft to review on selected-source drift, and ignore unrelated profile
+changes. The ordinary no-bootstrap path performs no host configuration read.
 Workspace receives the new revision and reports `current`. A staged refresh
 whose source changes before Apply must make zero Context and Workspace writes.
 
@@ -213,15 +224,22 @@ Generate one learnable denial from a running Workspace. Verify the child sees
 only bounded secret-free host-review navigation and that no candidate ID or
 unchecked argv is embedded in the response. In a trusted-host terminal:
 
-1. Open `policy review`; one distinct path remains exact, while a second
+1. Open `policy review --watch`; prove an empty raw-terminal Inbox receives a
+   new bounded candidate without restart and emits at most one fixed trusted
+   terminal cue. Prove `--notify=off`, explicit OSC 9/BEL, conservative auto,
+   identified cmux auto-selection, and hostile evidence isolation. Prove two
+   unchanged timer refreshes keep one alternate-screen frame and emit no
+   repaint, while a changed typed snapshot redraws. One distinct path remains exact,
+   while a second
    compatible distinct HTTP path produces one typed `/path/{id}` proposal.
-2. Inspect the Context/project/effect detail. Prove the proposal states that
+2. Stage exact Allow and Deny directly from the list, clear or overwrite one,
+   and prove no mutation occurs. Inspect the Context/project/effect detail. Prove the proposal states that
    future single-segment values are included and offers Allow template, Allow
    observed exact, and Deny pending exact. Staging grants nothing.
 3. Refresh and prove decisions remain bound by typed review-item ID, never by label,
    order, or indentation.
 4. Confirm one final ordered Apply and observe the authoritative active
-   revision.
+   revision, then prove watch returns to a fresh waiting snapshot.
 5. Retry in the same running Workspace.
 6. Inspect `policy rules`, reset the exact or template rule, and prove the request returns
    to default deny and becomes reviewable again.
@@ -316,7 +334,9 @@ one `twg login` invocation and zero external processing; `twg logout` can revoke
 the token without review; later provider effects are classified separately.
 
 For pup 1.10.7, replay exact US1 DCR registration and token exchange with
-synthetic responses. Prove the strict authorization URL opens once, one opaque
+synthetic responses for both a first login without an organization hint and a
+repeat login with a remembered UUID-shaped `dd_oid`. Prove each strict
+authorization URL opens once, one opaque
 callback reaches only the selected Workspace on each of the four fixed ports,
 and the complete compiled scope ceiling plus reduced/read-only subsets remain
 accepted while caller-added scopes and alternate sites fail closed. Routine

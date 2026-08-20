@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"unicode/utf8"
 )
 
 const (
@@ -27,6 +28,12 @@ const (
 	WorkspaceBootstrapNotApplied    = "not_applied"
 	WorkspaceBootstrapCurrent       = "current"
 	WorkspaceBootstrapOlder         = "older"
+
+	ContextBootstrapDiscoveryAvailable   = "available"
+	ContextBootstrapDiscoveryMissing     = "missing"
+	ContextBootstrapDiscoveryRejected    = "rejected"
+	ContextBootstrapCandidateAvailable   = "available"
+	ContextBootstrapCandidateUnavailable = "unavailable"
 )
 
 var ErrContextBootstrapSourceChanged = fmt.Errorf("Context bootstrap source changed during review")
@@ -62,7 +69,7 @@ type ContextAWSBootstrap struct {
 }
 
 func (a ContextAWSBootstrap) Validate() error {
-	if !awsBootstrapNamePattern.MatchString(a.Profile) {
+	if err := ValidateContextAWSBootstrapProfileName(a.Profile); err != nil {
 		return fmt.Errorf("AWS bootstrap profile name is invalid")
 	}
 	if !awsBootstrapNamePattern.MatchString(a.SSOSession) {
@@ -111,10 +118,166 @@ func (a ContextAWSBootstrap) Validate() error {
 	return nil
 }
 
+func ValidateContextAWSBootstrapProfileName(value string) error {
+	if !awsBootstrapNamePattern.MatchString(value) {
+		return fmt.Errorf("AWS bootstrap profile name is invalid")
+	}
+	return nil
+}
+
 func (a ContextAWSBootstrap) Clone() ContextAWSBootstrap {
 	result := a
 	result.SSORegistrationScopes = append([]string{}, a.SSORegistrationScopes...)
 	return result
+}
+
+// ContextAWSBootstrapCandidate is one profile resolved together with its
+// referenced IAM Identity Center session. Unavailable candidates carry only a
+// selector and bounded reason; they can never be used as authority.
+type ContextAWSBootstrapCandidate struct {
+	Profile  string                    `json:"profile"`
+	State    string                    `json:"state"`
+	Reason   string                    `json:"reason,omitempty"`
+	Snapshot *ContextBootstrapSnapshot `json:"snapshot,omitempty"`
+}
+
+func (c ContextAWSBootstrapCandidate) Validate() error {
+	if !validBootstrapCandidateLabel(c.Profile, 64) {
+		return fmt.Errorf("AWS bootstrap candidate profile is invalid")
+	}
+	switch c.State {
+	case ContextBootstrapCandidateAvailable:
+		if ValidateContextAWSBootstrapProfileName(c.Profile) != nil {
+			return fmt.Errorf("available AWS bootstrap candidate profile is invalid")
+		}
+		if c.Reason != "" || c.Snapshot == nil || c.Snapshot.EKS != nil || c.Snapshot.AWS.Profile != c.Profile {
+			return fmt.Errorf("available AWS bootstrap candidate is incomplete")
+		}
+		return c.Snapshot.Validate()
+	case ContextBootstrapCandidateUnavailable:
+		if c.Snapshot != nil || !validBootstrapDiscoveryReason(c.Reason) {
+			return fmt.Errorf("unavailable AWS bootstrap candidate is invalid")
+		}
+		return nil
+	default:
+		return fmt.Errorf("AWS bootstrap candidate state is invalid")
+	}
+}
+
+// ContextEKSBootstrapCandidate is one kubeconfig context resolved against one
+// already-reviewed AWS candidate. Available candidates contain the complete
+// composed snapshot so presentation never infers compatibility from labels.
+type ContextEKSBootstrapCandidate struct {
+	ContextName string                    `json:"context_name"`
+	State       string                    `json:"state"`
+	Reason      string                    `json:"reason,omitempty"`
+	Snapshot    *ContextBootstrapSnapshot `json:"snapshot,omitempty"`
+}
+
+func (c ContextEKSBootstrapCandidate) Validate(awsRevision string) error {
+	if !validBootstrapCandidateLabel(c.ContextName, 253) {
+		return fmt.Errorf("EKS bootstrap candidate context is invalid")
+	}
+	switch c.State {
+	case ContextBootstrapCandidateAvailable:
+		if !eksBootstrapNamePattern.MatchString(c.ContextName) || strings.Contains(c.ContextName, "..") {
+			return fmt.Errorf("available EKS bootstrap candidate context is invalid")
+		}
+		if c.Reason != "" || c.Snapshot == nil || c.Snapshot.EKS == nil || c.Snapshot.EKS.ContextName != c.ContextName {
+			return fmt.Errorf("available EKS bootstrap candidate is incomplete")
+		}
+		if err := c.Snapshot.Validate(); err != nil {
+			return err
+		}
+		base, err := NewContextBootstrapSnapshot(c.Snapshot.Generation, c.Snapshot.AWS)
+		if err != nil || base.Revision != awsRevision {
+			return fmt.Errorf("EKS bootstrap candidate does not bind the selected AWS semantic revision")
+		}
+		return nil
+	case ContextBootstrapCandidateUnavailable:
+		if c.Snapshot != nil || !validBootstrapDiscoveryReason(c.Reason) {
+			return fmt.Errorf("unavailable EKS bootstrap candidate is invalid")
+		}
+		return nil
+	default:
+		return fmt.Errorf("EKS bootstrap candidate state is invalid")
+	}
+}
+
+type ContextAWSBootstrapDiscovery struct {
+	State      string                         `json:"state"`
+	Reason     string                         `json:"reason,omitempty"`
+	Candidates []ContextAWSBootstrapCandidate `json:"candidates"`
+}
+
+func (d ContextAWSBootstrapDiscovery) Validate() error {
+	if d.Candidates == nil {
+		return fmt.Errorf("AWS bootstrap candidate collection is absent")
+	}
+	if d.State != ContextBootstrapDiscoveryAvailable {
+		if (d.State != ContextBootstrapDiscoveryMissing && d.State != ContextBootstrapDiscoveryRejected) ||
+			len(d.Candidates) != 0 || !validBootstrapDiscoveryReason(d.Reason) {
+			return fmt.Errorf("AWS bootstrap discovery failure is invalid")
+		}
+		return nil
+	}
+	if d.Reason != "" {
+		return fmt.Errorf("available AWS bootstrap discovery contains a failure reason")
+	}
+	seen := map[string]struct{}{}
+	for _, candidate := range d.Candidates {
+		if err := candidate.Validate(); err != nil {
+			return err
+		}
+		if _, duplicate := seen[candidate.Profile]; duplicate {
+			return fmt.Errorf("AWS bootstrap candidate is duplicated")
+		}
+		seen[candidate.Profile] = struct{}{}
+	}
+	return nil
+}
+
+type ContextEKSBootstrapDiscovery struct {
+	State       string                         `json:"state"`
+	Reason      string                         `json:"reason,omitempty"`
+	AWSRevision string                         `json:"aws_revision"`
+	Candidates  []ContextEKSBootstrapCandidate `json:"candidates"`
+}
+
+func (d ContextEKSBootstrapDiscovery) Validate() error {
+	if d.Candidates == nil || ValidateDigest(d.AWSRevision) != nil {
+		return fmt.Errorf("EKS bootstrap discovery scope is invalid")
+	}
+	if d.State != ContextBootstrapDiscoveryAvailable {
+		if (d.State != ContextBootstrapDiscoveryMissing && d.State != ContextBootstrapDiscoveryRejected) ||
+			len(d.Candidates) != 0 || !validBootstrapDiscoveryReason(d.Reason) {
+			return fmt.Errorf("EKS bootstrap discovery failure is invalid")
+		}
+		return nil
+	}
+	if d.Reason != "" {
+		return fmt.Errorf("available EKS bootstrap discovery contains a failure reason")
+	}
+	seen := map[string]struct{}{}
+	for _, candidate := range d.Candidates {
+		if err := candidate.Validate(d.AWSRevision); err != nil {
+			return err
+		}
+		if _, duplicate := seen[candidate.ContextName]; duplicate {
+			return fmt.Errorf("EKS bootstrap candidate is duplicated")
+		}
+		seen[candidate.ContextName] = struct{}{}
+	}
+	return nil
+}
+
+func validBootstrapDiscoveryReason(value string) bool {
+	return value != "" && len(value) <= 512 && utf8.ValidString(value) && strings.IndexByte(value, 0) < 0 &&
+		strings.IndexFunc(value, func(r rune) bool { return r < ' ' || r == '\u007f' || r == '\u2028' || r == '\u2029' }) < 0
+}
+
+func validBootstrapCandidateLabel(value string, maxBytes int) bool {
+	return value != "" && len(value) <= maxBytes && utf8.ValidString(value) && strings.IndexByte(value, 0) < 0
 }
 
 // ContextEKSBootstrap is the closed, secret-free service target selected from

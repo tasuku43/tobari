@@ -94,15 +94,18 @@ tobari
 tobari context show
 ```
 
-管理対象のレシピの場合は次を実行します。
+管理対象 Runtime の場合は次を実行します。
 
 ```sh
-tobari runtime init
-# Edit the reported Dockerfile only if no recipe existed.
-tobari runtime build
+tobari runtime list
+tobari runtime show --name frontend
+tobari runtime build --name frontend
+tobari context runtime set --runtime frontend@1
 ```
 
-`runtime init` はレシピの上書きを拒否します。ビルドが失敗した場合、採用がすでに確定していない限り、以前選択されていたイメージが維持されます。既存の論理 Workspace 状態とホームも残ります。ホストマウント、利用者、エントリーポイント、生存コマンド、ネットワーク制御を変えるのではなく、互換性を修正してください。
+ビルド失敗時はリビジョンを追加せず Context も変えません。選択失敗時は以前の正確な
+参照を維持します。既存の論理 Workspace 状態とホームも残ります。ホストマウント、
+利用者、エントリーポイント、生存コマンド、ネットワーク制御ではなく互換性を修正してください。
 
 ## ポリシーの有効化に失敗する
 

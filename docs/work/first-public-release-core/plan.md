@@ -7,7 +7,7 @@
 - Retirement record: [capability-retirement.md](capability-retirement.md)
 - Context decision: [context-capability-envelope](../context-capability-envelope/plan.md)
 - Source-access implementation: [context-source-access](../context-source-access/plan.md)
-- Policy-preset implementation: [policy-presets](../policy-presets/plan.md)
+- Context-owned policy decision: [ADR 0066](../../decisions/0066-context-owned-policy-replaces-presets.md)
 
 ## Chosen approach
 
@@ -260,7 +260,7 @@ private URL is committed.
 2. **Parallel Context capabilities.** Implement
    [context-source-access](../context-source-access/plan.md) independently;
    complete [policy-compaction-retirement](../policy-compaction-retirement/plan.md),
-   then implement [policy-presets](../policy-presets/plan.md) against the
+   then apply [ADR 0066](../../decisions/0066-context-owned-policy-replaces-presets.md) against the
    exact-rule-only source model. Run
    [v1-auth-narrowing](../v1-auth-narrowing/plan.md) independently after the
    common Context decision.

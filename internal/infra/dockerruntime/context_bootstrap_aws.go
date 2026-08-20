@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -42,6 +43,61 @@ func (r *Runtime) PrepareContextAWSBootstrap(ctx context.Context, profile string
 		return tobari.ContextBootstrapSnapshot{}, err
 	}
 	return tobari.NewContextBootstrapSnapshot(1, aws)
+}
+
+// DiscoverContextAWSBootstraps returns every profile as a typed selectable or
+// unavailable candidate. It reads the fixed shared-config file once and never
+// reads credentials or SSO cache state.
+func (r *Runtime) DiscoverContextAWSBootstraps(ctx context.Context) (tobari.ContextAWSBootstrapDiscovery, error) {
+	if err := ctx.Err(); err != nil {
+		return tobari.ContextAWSBootstrapDiscovery{}, err
+	}
+	data, err := r.readHostAWSConfigBytes()
+	if err != nil {
+		state := tobari.ContextBootstrapDiscoveryRejected
+		reason := bootstrapDiscoveryReason(err)
+		if errors.Is(err, os.ErrNotExist) {
+			state = tobari.ContextBootstrapDiscoveryMissing
+			reason = "Host AWS shared config was not found."
+		}
+		result := tobari.ContextAWSBootstrapDiscovery{State: state, Reason: reason, Candidates: []tobari.ContextAWSBootstrapCandidate{}}
+		return result, result.Validate()
+	}
+	sections, err := parseHostAWSConfig(data)
+	if err != nil {
+		result := tobari.ContextAWSBootstrapDiscovery{State: tobari.ContextBootstrapDiscoveryRejected, Reason: bootstrapDiscoveryReason(err), Candidates: []tobari.ContextAWSBootstrapCandidate{}}
+		return result, result.Validate()
+	}
+	profiles := make([]string, 0)
+	for section := range sections {
+		profile := ""
+		if section == "default" {
+			profile = "default"
+		} else if strings.HasPrefix(section, "profile ") {
+			profile = strings.TrimSpace(strings.TrimPrefix(section, "profile "))
+		}
+		if profile == "" {
+			continue
+		}
+		profiles = append(profiles, profile)
+	}
+	sort.Strings(profiles)
+	candidates := make([]tobari.ContextAWSBootstrapCandidate, 0, len(profiles))
+	for _, profile := range profiles {
+		aws, resolveErr := resolveHostAWSBootstrap(sections, profile)
+		if resolveErr != nil {
+			candidates = append(candidates, tobari.ContextAWSBootstrapCandidate{Profile: profile, State: tobari.ContextBootstrapCandidateUnavailable, Reason: bootstrapDiscoveryReason(resolveErr)})
+			continue
+		}
+		snapshot, snapshotErr := tobari.NewContextBootstrapSnapshot(1, aws)
+		if snapshotErr != nil {
+			candidates = append(candidates, tobari.ContextAWSBootstrapCandidate{Profile: profile, State: tobari.ContextBootstrapCandidateUnavailable, Reason: bootstrapDiscoveryReason(snapshotErr)})
+			continue
+		}
+		candidates = append(candidates, tobari.ContextAWSBootstrapCandidate{Profile: profile, State: tobari.ContextBootstrapCandidateAvailable, Snapshot: &snapshot})
+	}
+	result := tobari.ContextAWSBootstrapDiscovery{State: tobari.ContextBootstrapDiscoveryAvailable, Candidates: candidates}
+	return result, result.Validate()
 }
 
 // ConfigureContextAWSBootstrap atomically replaces or removes the recipe used
@@ -167,35 +223,51 @@ func (r *Runtime) readHostAWSBootstrap(profile string) (tobari.ContextAWSBootstr
 	if profile == "" {
 		return tobari.ContextAWSBootstrap{}, fmt.Errorf("AWS profile is required")
 	}
-	path, err := r.hostAWSConfigPath()
+	data, err := r.readHostAWSConfigBytes()
 	if err != nil {
 		return tobari.ContextAWSBootstrap{}, err
-	}
-	parent := filepath.Dir(path)
-	parentInfo, err := os.Lstat(parent)
-	if err != nil {
-		return tobari.ContextAWSBootstrap{}, fmt.Errorf("inspect host AWS configuration directory: %w", err)
-	}
-	if !parentInfo.IsDir() || parentInfo.Mode()&os.ModeSymlink != 0 || parentInfo.Mode().Perm()&0o022 != 0 {
-		return tobari.ContextAWSBootstrap{}, fmt.Errorf("host AWS configuration directory is unsafe")
-	}
-	info, err := os.Lstat(path)
-	if err != nil {
-		return tobari.ContextAWSBootstrap{}, fmt.Errorf("inspect host AWS shared config: %w", err)
-	}
-	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm()&0o022 != 0 || info.Size() > maxHostAWSConfigBytes {
-		return tobari.ContextAWSBootstrap{}, fmt.Errorf("host AWS shared config is unsafe")
-	}
-	data, err := os.ReadFile(path) // #nosec G304 -- exact fixed child of the resolved host home.
-	if err != nil {
-		return tobari.ContextAWSBootstrap{}, fmt.Errorf("read host AWS shared config: %w", err)
 	}
 	return parseHostAWSBootstrap(data, profile)
 }
 
+func (r *Runtime) readHostAWSConfigBytes() ([]byte, error) {
+	path, err := r.hostAWSConfigPath()
+	if err != nil {
+		return nil, err
+	}
+	parent := filepath.Dir(path)
+	parentInfo, err := os.Lstat(parent)
+	if err != nil {
+		return nil, fmt.Errorf("inspect host AWS configuration directory: %w", err)
+	}
+	if !parentInfo.IsDir() || parentInfo.Mode()&os.ModeSymlink != 0 || parentInfo.Mode().Perm()&0o022 != 0 {
+		return nil, fmt.Errorf("host AWS configuration directory is unsafe")
+	}
+	info, err := os.Lstat(path)
+	if err != nil {
+		return nil, fmt.Errorf("inspect host AWS shared config: %w", err)
+	}
+	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm()&0o022 != 0 || info.Size() > maxHostAWSConfigBytes {
+		return nil, fmt.Errorf("host AWS shared config is unsafe")
+	}
+	data, err := os.ReadFile(path) // #nosec G304 -- exact fixed child of the resolved host home.
+	if err != nil {
+		return nil, fmt.Errorf("read host AWS shared config: %w", err)
+	}
+	return data, nil
+}
+
 func parseHostAWSBootstrap(data []byte, profile string) (tobari.ContextAWSBootstrap, error) {
+	sections, err := parseHostAWSConfig(data)
+	if err != nil {
+		return tobari.ContextAWSBootstrap{}, err
+	}
+	return resolveHostAWSBootstrap(sections, profile)
+}
+
+func parseHostAWSConfig(data []byte) (map[string]map[string]string, error) {
 	if len(data) == 0 || len(data) > maxHostAWSConfigBytes || bytes.IndexByte(data, 0) >= 0 {
-		return tobari.ContextAWSBootstrap{}, fmt.Errorf("host AWS shared config is empty or oversized")
+		return nil, fmt.Errorf("host AWS shared config is empty or oversized")
 	}
 	sections := make(map[string]map[string]string)
 	section := ""
@@ -209,32 +281,39 @@ func parseHostAWSBootstrap(data []byte, profile string) (tobari.ContextAWSBootst
 		if strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]") {
 			section = strings.TrimSpace(line[1 : len(line)-1])
 			if section == "" {
-				return tobari.ContextAWSBootstrap{}, fmt.Errorf("AWS config line %d has an empty section", lineNumber)
+				return nil, fmt.Errorf("AWS config line %d has an empty section", lineNumber)
 			}
 			if _, duplicate := sections[section]; duplicate {
-				return tobari.ContextAWSBootstrap{}, fmt.Errorf("AWS config section %q is duplicated", section)
+				return nil, fmt.Errorf("AWS config section %q is duplicated", section)
 			}
 			sections[section] = make(map[string]string)
 			continue
 		}
 		if section == "" {
-			return tobari.ContextAWSBootstrap{}, fmt.Errorf("AWS config line %d is outside a section", lineNumber)
+			return nil, fmt.Errorf("AWS config line %d is outside a section", lineNumber)
 		}
 		key, value, found := strings.Cut(line, "=")
 		if !found {
-			return tobari.ContextAWSBootstrap{}, fmt.Errorf("AWS config line %d is not a key/value", lineNumber)
+			return nil, fmt.Errorf("AWS config line %d is not a key/value", lineNumber)
 		}
 		key, value = strings.ToLower(strings.TrimSpace(key)), strings.TrimSpace(value)
 		if key == "" || value == "" {
-			return tobari.ContextAWSBootstrap{}, fmt.Errorf("AWS config line %d has an empty key or value", lineNumber)
+			return nil, fmt.Errorf("AWS config line %d has an empty key or value", lineNumber)
 		}
 		if _, duplicate := sections[section][key]; duplicate {
-			return tobari.ContextAWSBootstrap{}, fmt.Errorf("AWS config key %q is duplicated in section %q", key, section)
+			return nil, fmt.Errorf("AWS config key %q is duplicated in section %q", key, section)
 		}
 		sections[section][key] = value
 	}
 	if err := scanner.Err(); err != nil {
-		return tobari.ContextAWSBootstrap{}, fmt.Errorf("scan host AWS shared config: %w", err)
+		return nil, fmt.Errorf("scan host AWS shared config: %w", err)
+	}
+	return sections, nil
+}
+
+func resolveHostAWSBootstrap(sections map[string]map[string]string, profile string) (tobari.ContextAWSBootstrap, error) {
+	if err := tobari.ValidateContextAWSBootstrapProfileName(profile); err != nil {
+		return tobari.ContextAWSBootstrap{}, err
 	}
 	profileSection := "profile " + profile
 	if profile == "default" {
@@ -274,6 +353,33 @@ func parseHostAWSBootstrap(data []byte, profile string) (tobari.ContextAWSBootst
 		return tobari.ContextAWSBootstrap{}, err
 	}
 	return result, nil
+}
+
+func bootstrapDiscoveryReason(err error) string {
+	if err == nil {
+		return "Host configuration is unavailable."
+	}
+	value := strings.Map(func(r rune) rune {
+		if r < ' ' || r == '\u007f' || r == '\u2028' || r == '\u2029' {
+			return ' '
+		}
+		return r
+	}, err.Error())
+	value = strings.TrimSpace(value)
+	if len(value) > 512 {
+		var bounded strings.Builder
+		for _, r := range value {
+			if bounded.Len()+len(string(r)) > 512 {
+				break
+			}
+			bounded.WriteRune(r)
+		}
+		value = bounded.String()
+	}
+	if value == "" {
+		return "Host configuration is unavailable."
+	}
+	return value
 }
 
 func rejectUnknownAWSBootstrapKeys(section string, values map[string]string, allowed map[string]bool) error {

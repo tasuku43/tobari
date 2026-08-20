@@ -6,7 +6,7 @@
 - Scope: Product, architecture, security, authentication, policy, runtime, and harness
 - Revises: ADR 0048 and ADR 0055
 - Related: ADR 0051 and ADR 0052
-- Revised by: None
+- Revised by: ADR 0065
 - Superseded by: None
 
 ## Context
@@ -104,3 +104,10 @@ does not authorize a Datadog host, product API, arbitrary OAuth client or scope,
 generic callback ingress, credential projection, or executable identity.
 Fixtures use only synthetic values and contain no live client ID, state, code,
 token, user identity, or authenticated transcript.
+
+## Revision by ADR 0065
+
+ADR 0065 replaces the incidental exact-seven-field constraint with seven
+mandatory fields plus one reviewed optional `dd_oid` UUID-shaped organization
+hint. Unknown fields, duplicates, malformed hints, and every authority, scope,
+redirect, callback, or neighboring-target change still fail closed.

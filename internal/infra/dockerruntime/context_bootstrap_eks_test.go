@@ -117,6 +117,65 @@ func TestParseHostEKSBootstrapRejectsCredentialAndExecutableWidening(t *testing.
 	}
 }
 
+func TestDiscoverEKSBootstrapsSeparatesCompatibleAndProfileMismatchCandidates(t *testing.T) {
+	t.Parallel()
+	runtime := newProjectStateRuntime(t)
+	writeSyntheticHostAWSConfig(t, runtime, syntheticAWSSharedConfig)
+	base, err := runtime.PrepareContextAWSBootstrap(context.Background(), "engineering")
+	if err != nil {
+		t.Fatal(err)
+	}
+	home := runtime.hostHomeDirectory
+	directory := filepath.Join(home, ".kube")
+	if err := os.Mkdir(directory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	source := syntheticEKSConfig(t)
+	mismatch := strings.ReplaceAll(source, "- name: engineering\n  context:", "- name: engineering\n  context:")
+	mismatch = strings.Replace(mismatch, "contexts:\n", "contexts:\n- name: mismatch\n  context:\n    cluster: arn:aws:eks:ap-northeast-1:123456789012:cluster/platform\n    user: mismatch-user\n", 1)
+	mismatch = strings.Replace(mismatch, "users:\n", "users:\n- name: mismatch-user\n  user:\n    exec:\n      apiVersion: client.authentication.k8s.io/v1beta1\n      args: [--region, ap-northeast-1, eks, get-token, --cluster-name, platform, --output, json]\n      command: aws\n      env:\n      - name: AWS_PROFILE\n        value: other\n      interactiveMode: IfAvailable\n      provideClusterInfo: false\n", 1)
+	if err := os.WriteFile(filepath.Join(directory, "config"), []byte(mismatch), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	result, err := runtime.DiscoverContextEKSBootstraps(context.Background(), base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	states := map[string]string{}
+	for _, candidate := range result.Candidates {
+		states[candidate.ContextName] = candidate.State
+	}
+	if states["engineering"] != tobari.ContextBootstrapCandidateAvailable || states["mismatch"] != tobari.ContextBootstrapCandidateUnavailable {
+		t.Fatalf("EKS candidate states = %+v (%+v)", states, result)
+	}
+}
+
+func TestDiscoverEKSBootstrapsRejectsDuplicateWholeFileWithoutPartialCandidates(t *testing.T) {
+	t.Parallel()
+	runtime := newProjectStateRuntime(t)
+	writeSyntheticHostAWSConfig(t, runtime, syntheticAWSSharedConfig)
+	base, err := runtime.PrepareContextAWSBootstrap(context.Background(), "engineering")
+	if err != nil {
+		t.Fatal(err)
+	}
+	directory := filepath.Join(runtime.hostHomeDirectory, ".kube")
+	if err := os.Mkdir(directory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	source := syntheticEKSConfig(t)
+	source = strings.Replace(source, "contexts:\n", "contexts:\n- name: engineering\n  context:\n    cluster: duplicate\n    user: duplicate\n", 1)
+	if err := os.WriteFile(filepath.Join(directory, "config"), []byte(source), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	result, err := runtime.DiscoverContextEKSBootstraps(context.Background(), base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.State != tobari.ContextBootstrapDiscoveryRejected || len(result.Candidates) != 0 {
+		t.Fatalf("duplicate discovery = %+v", result)
+	}
+}
+
 func TestContextEKSBootstrapComposesOnceAndEnforcesAWSDependency(t *testing.T) {
 	runtime := newProjectStateRuntime(t)
 	writeSyntheticHostAWSConfig(t, runtime, syntheticAWSSharedConfig)

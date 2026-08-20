@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"reflect"
@@ -28,6 +29,24 @@ type policyReviewRuntimeFake struct {
 	terminal      bool
 	denialReads   int
 	denialsByRead [][]tobari.PolicyDenial
+	denialErrors  []error
+}
+
+type policyReviewEventReader struct {
+	events []byte
+}
+
+func (r *policyReviewEventReader) Read(value []byte) (int, error) {
+	if len(r.events) == 0 {
+		return 0, io.EOF
+	}
+	event := r.events[0]
+	r.events = r.events[1:]
+	if event == 0 {
+		return 0, nil
+	}
+	value[0] = event
+	return 1, nil
 }
 
 func (f *policyReviewRuntimeFake) CurrentDirectory(context.Context) (string, error) {
@@ -61,6 +80,9 @@ func (f *policyReviewRuntimeFake) ClusterDenials(context.Context, tobari.State, 
 			index = len(f.denialsByRead) - 1
 		}
 		f.denialReads++
+		if index < len(f.denialErrors) && f.denialErrors[index] != nil {
+			return nil, f.denialErrors[index]
+		}
 		return append([]tobari.PolicyDenial{}, f.denialsByRead[index]...), nil
 	}
 	return append([]tobari.PolicyDenial{}, f.denials...), nil
@@ -228,6 +250,26 @@ func TestDefaultCatalogPublishesCWDOwnedLifecycleWithoutActionIDs(t *testing.T) 
 	}
 }
 
+func TestPolicyPresetSurfaceIsNotAccepted(t *testing.T) {
+	t.Parallel()
+	catalog := DefaultCatalog()
+	for _, path := range []string{"policy preset list", "policy preset show", "policy preset init", "policy preset validate"} {
+		if _, found := catalog.Lookup(path); found {
+			t.Fatalf("retired policy preset command %q remains in the catalog", path)
+		}
+		if _, found := catalog.lookupRegistered(path); found {
+			t.Fatalf("retired policy preset command %q remains registered", path)
+		}
+	}
+	create, found := catalog.Lookup("context create")
+	if !found {
+		t.Fatal("context create is absent from the catalog")
+	}
+	if _, err := parseCommandInputs(create, []string{"--name", "review", "--policy-preset=builtin/agent-ready"}); err == nil || !strings.Contains(err.Error(), "unknown flag") {
+		t.Fatalf("retired --policy-preset was accepted: %v", err)
+	}
+}
+
 func TestPolicyCatalogPublishesGraphQLIdentityContracts(t *testing.T) {
 	t.Parallel()
 	wantVersions := map[string]int{
@@ -263,6 +305,48 @@ func TestPolicyCatalogPublishesGraphQLIdentityContracts(t *testing.T) {
 				t.Fatalf("%s output does not declare %q: %+v", path, name, spec.Agent.Output.Fields)
 			}
 		}
+	}
+}
+
+func TestPolicyReviewCatalogDeclaresWatchAsOptionalBoolean(t *testing.T) {
+	t.Parallel()
+	spec, found := DefaultCatalog().Lookup("policy review")
+	if !found || spec.Args != "[--tail <lines>] [--format text|json] [--watch] [--notify auto|osc9|bel|off]" {
+		t.Fatalf("policy review usage = %q, found=%t", spec.Args, found)
+	}
+	var watch CommandInput
+	for _, input := range spec.Agent.Inputs {
+		if input.Name == "--watch" {
+			watch = input
+			break
+		}
+	}
+	if watch.Name == "" || watch.Required || watch.Source != InputSourceFlag ||
+		watch.ValueKind != InputValueBoolean || watch.Cardinality != InputCardinalitySingle ||
+		watch.DefaultValue == nil || *watch.DefaultValue != "false" {
+		t.Fatalf("watch input = %+v", watch)
+	}
+	var notify CommandInput
+	for _, input := range spec.Agent.Inputs {
+		if input.Name == "--notify" {
+			notify = input
+			break
+		}
+	}
+	if notify.Name == "" || notify.Required || notify.ValueKind != InputValueText ||
+		notify.DefaultValue == nil || *notify.DefaultValue != "auto" ||
+		!reflect.DeepEqual(notify.AllowedValues, []string{"auto", "osc9", "bel", "off"}) ||
+		!reflect.DeepEqual(notify.Requires, []string{"--watch"}) {
+		t.Fatalf("notify input = %+v", notify)
+	}
+	foundFault := false
+	for _, declared := range spec.Agent.Errors {
+		if declared.Code == "policy_review_watch_requires_tty" {
+			foundFault = len(declared.NextActions) == 1 && declared.NextActions[0].Command == "help policy review"
+		}
+	}
+	if !foundFault {
+		t.Fatalf("policy review watch recovery = %+v", spec.Agent.Errors)
 	}
 }
 
@@ -359,6 +443,7 @@ func TestPolicyReviewTTYAppliesSeveralDecisionsWithOneRuntimeCall(t *testing.T) 
 	}
 	second := first
 	second.RequestID = "8185da2688d7469aae9cd9068e920b0b"
+	second.Host = "registry.example.com"
 	second.Path = "/two"
 	runtime := &policyReviewRuntimeApplyingFake{policyReviewRuntimeFake: policyReviewRuntimeFake{
 		state:   tobari.State{PolicyDirectory: "/tmp/policy"},
@@ -509,6 +594,308 @@ func TestPolicyReviewRedirectedInputStaysReadOnly(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), "Allow exact") {
 		t.Fatalf("redirected review did not remain a review queue: %q", stdout.String())
+	}
+}
+
+func TestPolicyReviewWatchRejectsJSONAndRedirectedStreamsBeforeReading(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name     string
+		terminal bool
+		args     []string
+	}{
+		{name: "json", terminal: true, args: []string{"policy", "review", "--watch", "--format=json"}},
+		{name: "redirected", terminal: false, args: []string{"policy", "review", "--watch"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			runtime := &policyReviewRuntimeApplyingFake{policyReviewRuntimeFake: policyReviewRuntimeFake{terminal: test.terminal}}
+			var stdout, stderr bytes.Buffer
+			command := newCLI(strings.NewReader("q"), &stdout, &stderr, DefaultCatalog(), nil)
+			command.tobari = tobaricmd.New(runtime)
+			if code := command.RunContext(context.Background(), test.args); code != ExitUsage {
+				t.Fatalf("watch guard code = %d, stderr = %q", code, stderr.String())
+			}
+			if runtime.denialReads != 0 || runtime.applyCalls != 0 || stdout.Len() != 0 ||
+				!humanOutputHasRow(stderr.String(), "Code", "policy_review_watch_requires_tty") ||
+				!strings.Contains(stderr.String(), "help policy review") {
+				t.Fatalf("watch guard reads=%d applies=%d stdout=%q stderr=%q", runtime.denialReads, runtime.applyCalls, stdout.String(), stderr.String())
+			}
+		})
+	}
+}
+
+func TestPolicyReviewNotifyRequiresWatchBeforeReading(t *testing.T) {
+	t.Parallel()
+	for _, args := range [][]string{
+		{"policy", "review", "--notify=off"},
+		{"policy", "review", "--watch=false", "--notify=off"},
+	} {
+		runtime := &policyReviewRuntimeApplyingFake{policyReviewRuntimeFake: policyReviewRuntimeFake{terminal: true}}
+		var stdout, stderr bytes.Buffer
+		command := newCLI(strings.NewReader("q"), &stdout, &stderr, DefaultCatalog(), nil)
+		command.tobari = tobaricmd.New(runtime)
+		if code := command.RunContext(context.Background(), args); code != ExitUsage {
+			t.Fatalf("notify dependency code=%d stderr=%q", code, stderr.String())
+		}
+		if runtime.denialReads != 0 || runtime.applyCalls != 0 || !strings.Contains(stderr.String(), "--notify requires --watch") {
+			t.Fatalf("notify dependency read or mutated: reads=%d applies=%d stderr=%q", runtime.denialReads, runtime.applyCalls, stderr.String())
+		}
+	}
+}
+
+func TestPolicyReviewWatchCoalescesNewItemsAndPassesNotificationMethod(t *testing.T) {
+	t.Parallel()
+	first := tobari.PolicyDenial{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Scheme: "https", Protocol: tobari.PolicyProtocolHTTP}, Timestamp: "2026-08-02T10:00:00Z", RequestID: "7185da2688d7469aae9cd9068e920b0b",
+		ContextID: "01912345-6789-7abc-8def-0123456789ad", ContextName: "default",
+		ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/project", Host: "api.example.com", Port: 443,
+		Method: "POST", Path: "/one", Reason: "request did not match an allow rule", StatusCode: 403, Learnable: true,
+	}
+	second := first
+	second.RequestID = "8185da2688d7469aae9cd9068e920b0b"
+	second.Path = "/two"
+	for _, method := range []string{"auto", "osc9", "bel", "off"} {
+		method := method
+		t.Run(method, func(t *testing.T) {
+			runtime := &policyReviewRuntimeApplyingFake{policyReviewRuntimeFake: policyReviewRuntimeFake{
+				state: tobari.State{PolicyDirectory: "/tmp/policy"}, terminal: true,
+				denialsByRead: [][]tobari.PolicyDenial{{}, {first, second}},
+			}}
+			var stdout, stderr bytes.Buffer
+			command := newCLI(&timeoutThenPolicyReviewReader{remaining: strings.NewReader("q")}, &stdout, &stderr, DefaultCatalog(), nil)
+			command.tobari = tobaricmd.New(runtime)
+			command.policyReview = func(style bool) *policyReviewSelector {
+				return &policyReviewSelector{mode: &selectorModeFake{}, style: style, staged: map[string]policyReviewAction{}, ticker: &readyPolicyReviewTicker{ready: true}}
+			}
+			calls := 0
+			command.policyNotify = func(_ io.Writer, got string) error {
+				calls++
+				if got != method {
+					t.Fatalf("notification method=%q want=%q", got, method)
+				}
+				return nil
+			}
+			if code := command.RunContext(context.Background(), []string{"policy", "review", "--watch", "--notify=" + method}); code != ExitOK {
+				t.Fatalf("watch code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+			}
+			wantCalls := 1
+			if method == "off" {
+				wantCalls = 0
+			}
+			if calls != wantCalls {
+				t.Fatalf("coalesced notifications=%d want=%d", calls, wantCalls)
+			}
+		})
+	}
+}
+
+func TestPolicyReviewWatchRefreshesEmptyStagesFromListAppliesAndReturnsToWaiting(t *testing.T) {
+	t.Parallel()
+	denial := tobari.PolicyDenial{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Scheme: "https", Protocol: tobari.PolicyProtocolHTTP}, Timestamp: "2026-08-02T10:00:00Z", RequestID: "7185da2688d7469aae9cd9068e920b0b",
+		ContextID: "01912345-6789-7abc-8def-0123456789ad", ContextName: "default",
+		ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/project", Host: "api.example.com", Port: 443,
+		Method: "POST", Path: "/repos/example/issues", Reason: "request did not match an allow rule", StatusCode: 403, Learnable: true,
+	}
+	runtime := &policyReviewRuntimeApplyingFake{policyReviewRuntimeFake: policyReviewRuntimeFake{
+		state: tobari.State{PolicyDirectory: "/tmp/policy"}, terminal: true,
+		denialsByRead: [][]tobari.PolicyDenial{{}, {denial}, {denial}, {denial}},
+	}}
+	input := &timeoutThenPolicyReviewReader{remaining: strings.NewReader("apyq")}
+	var stdout, stderr bytes.Buffer
+	command := newCLI(input, &stdout, &stderr, DefaultCatalog(), nil)
+	command.tobari = tobaricmd.New(runtime)
+	notifications := 0
+	command.policyNotify = func(_ io.Writer, method string) error {
+		notifications++
+		if method != "auto" {
+			t.Fatalf("notification method = %q", method)
+		}
+		return nil
+	}
+	command.policyReview = func(style bool) *policyReviewSelector {
+		return &policyReviewSelector{
+			mode: &selectorModeFake{}, style: style, staged: map[string]policyReviewAction{},
+			ticker: &readyPolicyReviewTicker{ready: true},
+		}
+	}
+	if code := command.RunContext(context.Background(), []string{"policy", "review", "--watch"}); code != ExitOK {
+		t.Fatalf("watch code = %d, stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if runtime.applyCalls != 1 || len(runtime.rules) != 1 {
+		t.Fatalf("watch Apply calls=%d rules=%+v", runtime.applyCalls, runtime.rules)
+	}
+	if notifications != 1 {
+		t.Fatalf("coalesced notification count = %d, want 1", notifications)
+	}
+	for _, want := range []string{"No requests need review.", "Watching for denied requests…", "Allow exact", "Reviewed permissions applied", "Applied decisions · watching"} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Fatalf("watch output %q lacks %q", stdout.String(), want)
+		}
+	}
+}
+
+func TestPolicyReviewWatchNotificationMethodsAndKnownReappearance(t *testing.T) {
+	t.Parallel()
+	denial := tobari.PolicyDenial{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Scheme: "https", Protocol: tobari.PolicyProtocolHTTP}, Timestamp: "2026-08-02T10:00:00Z", RequestID: "7185da2688d7469aae9cd9068e920b0b",
+		ContextID: "01912345-6789-7abc-8def-0123456789ad", ContextName: "default",
+		ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/project", Host: "api.example.com", Port: 443,
+		Method: "POST", Path: "/repos/example/issues", Reason: "\x1b]52;c;hostile\x07", StatusCode: 403, Learnable: true,
+	}
+	for _, method := range []string{"auto", "osc9", "bel", "off"} {
+		method := method
+		t.Run(method, func(t *testing.T) {
+			runtime := &policyReviewRuntimeApplyingFake{policyReviewRuntimeFake: policyReviewRuntimeFake{
+				state: tobari.State{PolicyDirectory: "/tmp/policy"}, terminal: true,
+				denialsByRead: [][]tobari.PolicyDenial{{denial}, {}, {denial}},
+			}}
+			var stdout, stderr bytes.Buffer
+			command := newCLI(strings.NewReader("rrq"), &stdout, &stderr, DefaultCatalog(), nil)
+			command.tobari = tobaricmd.New(runtime)
+			command.policyReview = func(style bool) *policyReviewSelector {
+				return &policyReviewSelector{mode: &selectorModeFake{}, style: style, staged: map[string]policyReviewAction{}, ticker: &readyPolicyReviewTicker{ready: true}}
+			}
+			calls := 0
+			command.policyNotify = func(_ io.Writer, got string) error {
+				calls++
+				if got != method {
+					t.Fatalf("notification method = %q, want %q", got, method)
+				}
+				return nil
+			}
+			args := []string{"policy", "review", "--watch", "--notify=" + method}
+			if code := command.RunContext(context.Background(), args); code != ExitOK {
+				t.Fatalf("watch code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+			}
+			// The initial item is known; removal and reappearance never notify.
+			if calls != 0 {
+				t.Fatalf("known reappearance emitted %d notifications", calls)
+			}
+		})
+	}
+}
+
+func TestPolicyReviewWatchNotificationFailureKeepsWatchAndRestoresTerminal(t *testing.T) {
+	t.Parallel()
+	denial := tobari.PolicyDenial{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Scheme: "https", Protocol: tobari.PolicyProtocolHTTP}, Timestamp: "2026-08-02T10:00:00Z", RequestID: "7185da2688d7469aae9cd9068e920b0b",
+		ContextID: "01912345-6789-7abc-8def-0123456789ad", ContextName: "default",
+		ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/project", Host: "api.example.com", Port: 443,
+		Method: "POST", Path: "/new", Reason: "request did not match an allow rule", StatusCode: 403, Learnable: true,
+	}
+	runtime := &policyReviewRuntimeApplyingFake{policyReviewRuntimeFake: policyReviewRuntimeFake{
+		state: tobari.State{PolicyDirectory: "/tmp/policy"}, terminal: true,
+		denialsByRead: [][]tobari.PolicyDenial{{}, {denial}},
+	}}
+	mode := &selectorModeFake{}
+	var stdout, stderr bytes.Buffer
+	command := newCLI(&timeoutThenPolicyReviewReader{remaining: strings.NewReader("q")}, &stdout, &stderr, DefaultCatalog(), nil)
+	command.tobari = tobaricmd.New(runtime)
+	command.policyReview = func(style bool) *policyReviewSelector {
+		return &policyReviewSelector{mode: mode, style: style, staged: map[string]policyReviewAction{}, ticker: &readyPolicyReviewTicker{ready: true}}
+	}
+	command.policyNotify = func(io.Writer, string) error { return errors.New("synthetic notification failure") }
+	if code := command.RunContext(context.Background(), []string{"policy", "review", "--watch", "--notify=osc9"}); code != ExitOK {
+		t.Fatalf("watch code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if runtime.applyCalls != 0 || mode.entered != mode.restored ||
+		!strings.Contains(stdout.String(), "Terminal notification unavailable; watch continues.") {
+		t.Fatalf("notification failure state: applies=%d mode=%d/%d stdout=%q", runtime.applyCalls, mode.entered, mode.restored, stdout.String())
+	}
+}
+
+func TestPolicyReviewWatchRefreshFailurePreservesSnapshotAndStaging(t *testing.T) {
+	t.Parallel()
+	denial := tobari.PolicyDenial{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Scheme: "https", Protocol: tobari.PolicyProtocolHTTP}, Timestamp: "2026-08-02T10:00:00Z", RequestID: "7185da2688d7469aae9cd9068e920b0b",
+		ContextID: "01912345-6789-7abc-8def-0123456789ad", ContextName: "default",
+		ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/project", Host: "api.example.com", Port: 443,
+		Method: "POST", Path: "/repos/example/issues", Reason: "request did not match an allow rule", StatusCode: 403, Learnable: true,
+	}
+	runtime := &policyReviewRuntimeApplyingFake{policyReviewRuntimeFake: policyReviewRuntimeFake{
+		state: tobari.State{PolicyDirectory: "/tmp/policy"}, terminal: true,
+		denialsByRead: [][]tobari.PolicyDenial{{denial}, {denial}},
+		denialErrors:  []error{nil, errors.New("temporary read failure")},
+	}}
+	var stdout, stderr bytes.Buffer
+	command := newCLI(strings.NewReader("arq"), &stdout, &stderr, DefaultCatalog(), nil)
+	command.tobari = tobaricmd.New(runtime)
+	command.policyReview = func(style bool) *policyReviewSelector {
+		return &policyReviewSelector{
+			mode: &selectorModeFake{}, style: style, staged: map[string]policyReviewAction{},
+			ticker: &readyPolicyReviewTicker{ready: true},
+		}
+	}
+	if code := command.RunContext(context.Background(), []string{"policy", "review", "--watch"}); code != ExitOK {
+		t.Fatalf("watch code = %d, stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if runtime.applyCalls != 0 {
+		t.Fatalf("refresh failure mutated policy %d times", runtime.applyCalls)
+	}
+	for _, want := range []string{"Refresh failed", "current inbox and staged decisions preserved", "Retrying in 2s", "Allow exact"} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Fatalf("watch output %q lacks %q", stdout.String(), want)
+		}
+	}
+}
+
+func TestPolicyReviewWatchDoesNotReofferAppliedSnapshotWhenImmediateRefreshFails(t *testing.T) {
+	t.Parallel()
+	denial := tobari.PolicyDenial{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Scheme: "https", Protocol: tobari.PolicyProtocolHTTP}, Timestamp: "2026-08-02T10:00:00Z", RequestID: "7185da2688d7469aae9cd9068e920b0b",
+		ContextID: "01912345-6789-7abc-8def-0123456789ad", ContextName: "default",
+		ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/project", Host: "api.example.com", Port: 443,
+		Method: "POST", Path: "/repos/example/issues", Reason: "request did not match an allow rule", StatusCode: 403, Learnable: true,
+	}
+	runtime := &policyReviewRuntimeApplyingFake{policyReviewRuntimeFake: policyReviewRuntimeFake{
+		state: tobari.State{PolicyDirectory: "/tmp/policy"}, terminal: true,
+		denialsByRead: [][]tobari.PolicyDenial{{denial}, {denial}, {denial}},
+		denialErrors:  []error{nil, nil, errors.New("temporary read failure")},
+	}}
+	var stdout, stderr bytes.Buffer
+	command := newCLI(strings.NewReader("apyq"), &stdout, &stderr, DefaultCatalog(), nil)
+	command.tobari = tobaricmd.New(runtime)
+	command.policyReview = func(style bool) *policyReviewSelector {
+		return &policyReviewSelector{
+			mode: &selectorModeFake{}, style: style, staged: map[string]policyReviewAction{},
+			ticker: &readyPolicyReviewTicker{ready: true},
+		}
+	}
+	if code := command.RunContext(context.Background(), []string{"policy", "review", "--watch"}); code != ExitOK {
+		t.Fatalf("watch code = %d, stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if runtime.applyCalls != 1 {
+		t.Fatalf("watch Apply calls=%d", runtime.applyCalls)
+	}
+	for _, want := range []string{"Reviewed permissions applied", "Applied successfully; refresh failed", "No requests need review."} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Fatalf("watch output %q lacks %q", stdout.String(), want)
+		}
+	}
+}
+
+func TestPolicyReviewWatchRefreshFailurePreservesSnapshotAndStagingThenStopsNormally(t *testing.T) {
+	t.Parallel()
+	denial := tobari.PolicyDenial{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Scheme: "https", Protocol: tobari.PolicyProtocolHTTP}, Timestamp: "2026-08-02T10:00:00Z", RequestID: "7185da2688d7469aae9cd9068e920b0b",
+		ContextID: "01912345-6789-7abc-8def-0123456789ad", ContextName: "default",
+		ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/project", Host: "api.example.com", Port: 443,
+		Method: "POST", Path: "/repos/example/issues", Reason: "request did not match an allow rule", StatusCode: 403, Learnable: true,
+	}
+	runtime := &policyReviewRuntimeApplyingFake{policyReviewRuntimeFake: policyReviewRuntimeFake{
+		state: tobari.State{PolicyDirectory: "/tmp/policy"}, terminal: true,
+		denialsByRead: [][]tobari.PolicyDenial{{denial}, {}}, denialErrors: []error{nil, errors.New("synthetic refresh failure")},
+	}}
+	input := &policyReviewEventReader{events: []byte{'a', 0, 'q'}}
+	var stdout, stderr bytes.Buffer
+	command := newCLI(input, &stdout, &stderr, DefaultCatalog(), nil)
+	command.tobari = tobaricmd.New(runtime)
+	command.policyReview = func(style bool) *policyReviewSelector {
+		return &policyReviewSelector{
+			mode: &selectorModeFake{}, style: style, staged: map[string]policyReviewAction{},
+			ticker: &readyPolicyReviewTicker{ready: true},
+		}
+	}
+	if code := command.RunContext(context.Background(), []string{"policy", "review", "--watch"}); code != ExitOK {
+		t.Fatalf("watch failure-stop code = %d, stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if runtime.applyCalls != 0 || !strings.Contains(stdout.String(), "current inbox and staged decisions preserved") ||
+		!strings.Contains(stdout.String(), "Retrying in 2s") || !strings.Contains(stdout.String(), "Allow exact") {
+		t.Fatalf("watch failure lost state or mutated: calls=%d stdout=%q stderr=%q", runtime.applyCalls, stdout.String(), stderr.String())
 	}
 }
 

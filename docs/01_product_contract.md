@@ -51,8 +51,9 @@ this outcome.
 The user-facing entry point is the current project directory: a Tobari either
 exists or does not exist, and the user should not need to manage container
 names, network IDs, or policy internals for routine work. `cluster up` remains
-the current explicit owner of shared Gateway and OPA setup; reducing that
-first-use bootstrap is an adoption goal, not the reason a user adopts Tobari.
+the independently invocable owner of shared Gateway and OPA setup, while an
+interactive first-use `tobari` composes that exact action after a newly
+confirmed Context so a human need not remember the setup sequence.
 
 The primary operating loop is progressive policy learning: a Tobari workload is
 denied by default, Gateway records the rejected HTTP effect, including one
@@ -174,12 +175,12 @@ or source build unless a Linux Homebrew Formula contract is added explicitly.
   arbitrary route, HTTP method/path policy, or provider operation semantics.
 - **Context:** one host-owned capability envelope with a stable
   opaque ID and a human name. Its manifest records direct source access,
-  normalized policy-preset origin and snapshot revision, an immutable
-  enabled/disabled native-readiness selection, and references an
+  one normalized Context-owned policy snapshot and `policy_revision`, an
+  immutable enabled/disabled native-readiness selection, and references an
   agent profile, compatible Tobari runtime image, and policy store. Its stable
   ID determines policy and runtime ownership. Enabled native readiness selects
   the installed trusted binary's current overlay without mutating the snapshot;
-  preset guardrails and ceilings remain terminal. Experimental builds may maintain
+  Context policy ceilings remain terminal. Experimental builds may maintain
   separate Context-owned Auth Broker state; the manifest contains no broker
   vault path, key, or secret.
 - **current Context:** only the default Context used when an invocation omits
@@ -188,10 +189,13 @@ or source build unless a Linux Homebrew Formula contract is added explicitly.
   omitted-Context read before any Context is persisted. It has no stable ID or
   store authority and cannot bind a mutation; explicitly naming an absent
   `default` Context returns not found.
-- **Context runtime recipe:** the selected Context's owner-only
-  `runtime/Dockerfile`. It is the source for an explicit host-side custom
-  runtime build; it is not project metadata and it is never mounted into a
-  Workspace.
+- **Runtime:** one installation-wide reusable environment definition. A managed
+  Runtime owns an editable bounded Docker build-context tree and immutable
+  successful semantic revisions; the built-in standard Runtime has one
+  compiled revision. Runtime source and snapshots are never Workspace mounts.
+- **Context Runtime binding:** one exact stable Runtime ID and semantic revision
+  selected by a Context. Its human `name@ordinal` form is review syntax, while
+  the persisted ID and SHA-256 revision are authority.
 - **agent profile:** read-only non-secret shared agent configuration referenced
   by a Context. It is not tool-owned login state.
 - **narrow projection:** one fixed Context-owned allowlist of validated
@@ -226,7 +230,7 @@ The public commands are:
 | `version [--format text|json]` | utility | read | Print source version/commit, resolver channel, required and selected standard component APIs, and compatibility |
 | `doctor [--root PATH] [--format text|tsv|json]` | utility | read | Report read-only host, Docker, configuration, policy, Gateway, port, and residue diagnostics without repairing state |
 | `cluster up` | act, fixed target | create | Validate all Context policy inputs and image contracts, reconcile Gateway and OPA, and confirm the exact aggregate policy is active |
-| `tobari [--context NAME]` | act, fixed target | create | Choose or create the current directory's Workspace in the explicit or current Context, reconcile runtime, enter it with a deny-by-default attachment-owned Host Loopback capability, and leave it reusable after `exit` while closing any owned route and grant |
+| `tobari [--context NAME]` | act, fixed target plus TTY workflow | create | On first use, complete the ordinary Context review, compose the exact Context/cluster/runtime actions under their own catalog contracts, then choose or create the current directory's Workspace in the explicit or current Context, reconcile runtime, enter it with a deny-by-default attachment-owned Host Loopback capability, and leave it reusable after `exit` while closing any owned route and grant |
 | `status [--context NAME] [--format text|json]` | utility | read | Inspect the nearest current-directory Workspace in the explicit or current Context, its logical existence, runtime diagnostic, and attached/detached session observation |
 | `list [--format text|json]` | utility | read | List local Workspaces with Context, runtime diagnostics, and diagnostic IDs |
 | `delete [--context NAME] [--force]` | act, fixed target | write | Delete the nearest current-directory Workspace in the explicit or current Context, its owned runtime, persistent home, and tool-owned authentication state while preserving project files; `--force` overrides only the attached-session guard |
@@ -235,26 +239,26 @@ The public commands are:
 | `cluster logs [--component gateway|opa|all] [--tail N]` | utility | read | Read bounded shared logs, including policy-denial evidence, without credential output |
 | `cluster down [--purge]` | act, fixed target | write | Remove shared transient resources after every logical Tobari is deleted; `--purge` additionally removes shared CA and active policy-bundle volumes |
 | `policy candidates [--tail N] [--format text|json]` | discover | read | Discover Context/project-scoped pending exact HTTP or GraphQL-root candidates and opaque IDs across the installation |
-| `policy review [--tail N] [--format text|json]` | discover plus TTY fixed-target apply | read, or one confirmed write | Review the installation-wide Permission Inbox; on a TTY, stage persistent exact/template decisions or exact attachment-only Host Loopback decisions without changing their typed lifetime and apply the reviewed set once; redirected and JSON output remain read-only |
+| `policy review [--tail N] [--format text|json] [--watch] [--notify auto|osc9|bel|off]` | discover plus TTY fixed-target apply | read, or one confirmed write | Review the installation-wide Permission Inbox; a raw TTY can stage exact decisions from the list, inspect template scope, and apply the reviewed set; `--watch` refreshes bounded snapshots and remains open after Apply, while `--notify` selects its terminal-emulator cue and redirected or JSON output remain read-only |
 | `policy allow --id ID` | act, reference bound | write | Test, record, and activate one exact observed permission |
 | `policy deny --id ID` | act, reference bound | write | Test, record, and activate one exact project-bound rejection |
 | `policy rules [--format text|json]` | discover | read | List every Context-scoped CLI-owned learned Allow and exact Deny decision; on a TTY, reset one explicitly |
 | `policy reset --id ID` | act, reference bound | write | Remove one learned decision and leave its effect at default deny |
-| `policy preset list [--format text\|json]` | utility | read | List the exhaustive installed built-in and custom policy preset catalog with current content revisions and guardrails |
-| `policy preset show --name PRESET [--format text\|json]` | utility | read | Inspect one complete normalized policy preset without activating it |
-| `policy preset init --name NAME [--format text\|json]` | act, fixed target | create | Create one owner-only strict custom policy preset template without overwriting |
-| `policy preset validate --name PRESET [--format text\|json]` | utility | read | Strictly validate, normalize, and digest one custom preset source without changing Context or active policy |
 | `context list [--format text|json]` | utility | read | List persisted named Contexts and report the current selection as persisted or a display-only synthetic default |
-| `context show [--name NAME] [--format text|json]` | utility | read | Inspect one Context's explicit persistence state, immutable source access, preset origin/revision, effective method default/overrides, agent, policy, and native Workspace-owned authentication mode without returning credential values |
+| `context show [--name NAME] [--details] [--format text|json]` | utility | read | Inspect one Context's explicit persistence state, immutable source access, effective method policy, runtime, agent, and native Workspace-owned authentication mode; `--details` expands host paths and immutable revisions without returning credential values |
 | `config shell [--variable COLORTERM\|NO_COLOR\|PS1\|TERM] [--source default\|inherit\|literal] [--value VALUE] [--context NAME] [--format text\|json]` | act, fixed target | write | Configure one allowlisted shell-presentation variable directly, or stage one or more rows from the complete terminal inventory and apply them atomically |
 | `config git [--source default\|inherit\|literal] [--name NAME] [--email EMAIL] [--context NAME] [--format text\|json]` | act, fixed target | write | Configure one atomic Context Git commit-identity fallback directly, or stage and apply its source from one terminal screen |
 | `config bootstrap aws [--profile NAME] [--refresh] [--remove] [--context NAME] [--format text\|json]` | act, fixed target | write | Normalize one strict secret-free host AWS IAM Identity Center profile for future Workspaces, refresh it after a semantic diff, or remove the future recipe; existing Workspace homes never change |
 | `config bootstrap kubernetes eks [--kube-context NAME] [--refresh] [--remove] [--context NAME] [--format text\|json]` | act, fixed target | write | Compose one strict AWS CLI-generated host EKS context with the Context AWS profile, refresh it, or remove only EKS; no credential, arbitrary exec, network authority, or existing Workspace home changes |
-| `context create [--name NAME] [--image IMAGE] [--mode guided|advanced] [--source-access read-only\|read-write] [--policy-preset PRESET] [--native-readiness enabled\|disabled] [--bootstrap-aws-profile NAME] [--bootstrap-eks-context NAME] [--format text\|json]` | act, fixed target | create | With no inputs, use one continuous five-step terminal frame for name, source access, a complete HTTP method policy, optional typed Workspace bootstrap, and final review, then create once; any explicit input selects deterministic direct mode and requires `--name`; EKS requires AWS and omission imports no host configuration |
+| `context create [--name NAME] [--runtime RUNTIME] [--mode guided\|advanced] [--source-access read-only\|read-write] [--native-readiness enabled\|disabled] [--bootstrap-aws-profile NAME] [--bootstrap-eks-context NAME] [--format text\|json]` | act, fixed target | create | With no inputs, use one continuous four-stage terminal frame for name, source access, effective HTTP policy, and complete final review; Runtime is always visible in Review and defaults to `standard`; direct mode may select only `standard` or an existing ready `NAME@ORDINAL` revision |
 | `context delete --name NAME [--format text\|json]` | act, fixed target | write | Delete one unused non-current non-default Context and its exact owner stores while preserving project files and shared runtime images |
 | `context use --name NAME [--format text\|json]` | act, fixed target | write | Change only the current/default Context; do not mutate existing Tobari or start/reconcile the cluster |
-| `runtime init [--format text|json]` | act, fixed target | create | Create the current Context's runtime/Dockerfile template without changing its selected image |
-| `runtime build [--format text|json]` | act, fixed target | write | Build, validate, and select the current Context's generated local runtime image |
+| `context runtime set --runtime RUNTIME [--context NAME] [--format text\|json]` | act, fixed target | write | Explicitly pin, upgrade, or roll back one Context to `standard` or an existing ready `NAME@ORDINAL` Runtime revision; existing Workspace homes change only on next entry reconciliation |
+| `runtime list [--format text\|json]` | utility | read | List the exhaustive installation-wide Runtime catalog and each ready head revision |
+| `runtime show --name NAME [--format text\|json]` | utility | read | Inspect one Runtime's managed source path and complete successful revisions |
+| `runtime history --name NAME [--format text\|json]` | utility | read | Show one Runtime's ordered immutable successful revision history |
+| `runtime create --name NAME [--format text\|json]` | act, fixed target | create | Create one owner-only managed Docker build-context source tree without building or changing a Context |
+| `runtime build --name NAME [--format text\|json]` | act, fixed target | write | Snapshot, build, validate, and append one immutable semantic revision without changing any Context |
 
 The unsupported experimental development profile built by `task build:dev`
 additionally exposes `serve [--no-open]`. It runs one foreground IPv4-loopback
@@ -271,7 +275,20 @@ duplicate or explicit-empty placement is invalid. After name resolution, the
 stable Context ID is authoritative for the remainder of the operation.
 
 The root command is interactive and requires a TTY on stdin, stdout, and stderr.
-It does not silently create state in a non-interactive context. When the
+It does not silently create state in a non-interactive context. With no
+persisted Context and no explicit `--context`, it runs the same ordinary
+four-stage Context wizard. Cancellation before final Create changes nothing.
+After confirmed Context creation it emits that durable success, performs the
+exact catalog-owned `cluster up` action without another confirmation, and
+retains the Context if cluster reconciliation fails. When shared services are
+ready, root proceeds directly to Workspace selection and entry with the exact
+Runtime revision reviewed during Context creation. Runtime customization is a
+separate prepare-first flow: `runtime create`, edit the managed source tree,
+`runtime build`, then select the ready revision during Context creation or with
+`context runtime set`. Existing persisted Contexts never receive an automatic
+upgrade prompt. If their shared projection is absent, stopped, or
+invalid, the same interactive root invocation composes exact `cluster up`
+before Workspace mutation. When the
 canonical current directory is below one or more indexed Workspace roots, the
 command presents an English selector ordered nearest-first. Arrow keys and
 Enter choose an existing Workspace; `n` chooses explicit creation at the
@@ -428,12 +445,14 @@ undeclared Docker mutation by the CLI.
   records, Datadog/OpenAI/Anthropic refresh, AWS signing and the private companion, or
   the OpenAI supplemental header. Managed profiles and owner-selected dynamic
   behavior remain absent.
-- `runtime init` creates the current Context's owner-only
-  `runtime/Dockerfile`. The template starts from the resolver-selected local
-  source-derived base or the contributor-local `tobari-runtime:dev`. Editing
-  that file is the supported
-  place to add tools and environment configuration for the Context. The
-  command does not overwrite an existing recipe.
+- `runtime create` creates one installation-owned, owner-only `source/` tree
+  with a Dockerfile template. Scripts, package manifests, and configuration
+  files, including host-acquired private binaries, may be added beside it under
+  one regular-file contract: at most 1,024 files, 256 directories, 32 MiB per
+  file, and 64 MiB total. The source root and all children have no group/other
+  permission bits; files may retain owner execute. `runtime build` streams the
+  complete semantic tree into a private immutable snapshot while hashing the
+  copied bytes and builds only from that snapshot.
 - Direct `config shell` changes one allowlisted shell-presentation policy in
   the explicit or current Context. Its terminal editor may stage several
   distinct rows and commits the complete change set with one atomic write.
@@ -473,24 +492,32 @@ undeclared Docker mutation by the CLI.
   perform zero mutation.
   Prompts use stderr and the confirmed complete Context report uses stdout.
 - `context create` has two complete modes. With no command input, text success
-  and error formats plus terminal stdin/stderr are required; the wizard reads a
-  valid name, chooses direct source access, stages `allow`, `exact_review`, or
-  `deny` for the extension-method default and each standard HTTP method, and
-  optionally selects a typed Workspace bootstrap. On a raw-capable terminal,
-  name, filesystem, network, bootstrap, and final review share one alternate-
-  screen session; step transitions do not return to a normal line prompt and
-  Back preserves staged values. A terminal without the reviewed raw-mode
-  support uses the bounded line-mode equivalent. Final Create performs one
+  and error formats plus terminal stdin/stderr are required. The ordinary
+  four-stage path is name, filesystem, network, and Review & Create. Network
+  first renders reviewed routine Claude Code/Codex traffic, every standard and
+  extension-method effective decision, and the private/unsafe destination
+  ceiling. Customization alone exposes default, inherited, and override
+  sources plus inherit/reset controls. Review renders the selected standard
+  runtime and complete effective filesystem, network, and future-Workspace
+  bootstrap boundary; it can scroll and edit one section without replaying
+  later steps. Workspace bootstrap defaults to not configured and host files
+  are not inspected unless that section is opened. On a raw-capable terminal,
+  all stages share one alternate-screen session; Back preserves staged values.
+  A terminal without the reviewed raw-mode support uses the bounded line-mode
+  equivalent. Explicit Create performs one
   mutation and cancellation from any step performs none. Any
   explicit input, including `--format`, selects direct mode and requires
   `--name`; defaults complete omitted direct-mode values without prompting.
-  Method Deny removes selected-preset positive baseline entries for that method
+  Method Deny removes Context-policy positive baseline entries for that method
   from the new immutable snapshot rather than leaving an invalid or misleading
-  unreachable grant. Redirected or JSON argument-free creation fails before
-  mutation.
+  unreachable grant. Final review also identifies the standard Tobari runtime
+  selected in the manifest. Redirected or JSON argument-free creation fails
+  before mutation. Standalone success points to root `tobari`, which owns the
+  remaining human setup sequence.
 - `runtime build` is the explicit exception to the no-implicit-pull rule. It
-  runs a host Docker build using only the Context runtime directory as build
-  context; Docker may obtain a missing base image for this explicit build.
+  runs a host Docker build using only the immutable snapshot of the selected
+  installation Runtime source tree as build context; Docker may obtain a
+  missing base image for this explicit build.
   Tobari requests plain BuildKit progress and forwards the visible-projected
   Docker stdout and stderr diagnostic stream to host stderr while the build
   runs, including in non-TTY environments. The diagnostic stream retains the
@@ -564,13 +591,14 @@ Human output is concise text. The canonical public machine-output inventory is:
 | Doctor report | `report` | 1 |
 | Context list | `contexts` | 1 |
 | Context report (show/create/use/config/runtime results) | `context` | 1 |
+| Runtime list | `runtimes` | 1 |
+| Runtime report (show/create/history/build results) | `runtime` | 1 |
 | Context deletion | `context_deletion` | 1 |
 | Cluster status | `cluster` | 1 |
 | Cluster denials | `denials` | 1 |
 | Policy candidates | `policy_candidates` | 1 |
 | Policy review | `policy_review` | 1 |
 | Policy rules | `policy_rules` | 1 |
-| Policy presets | `policy_presets` | 1 |
 | Workspace list | `tobari` | 1 |
 | Workspace status | `status` | 1 |
 <!-- public-cli-json-schemas:end -->
@@ -581,6 +609,16 @@ next argv. Context reports include a complete four-item shell-environment
 inventory, complete Git identity policy, and authentication mode
 `native_workspace`. Native agent credentials are created and persisted by the
 agent CLI inside the Workspace home and never appear in CLI output.
+Human `context show` text defaults to an outcome-first summary containing the
+exact selected/current state, source access, effective method default and every
+override, profile, Git identity policy, runtime/image state, authentication
+mode, bootstrap state, exact Runtime name and ordinal, an exact detailed-inspection
+command, and the Context-preserving next action. `--details` renders the same
+single typed result as `Context`, `Boundary`, `Workspace`, `Runtime`, and
+`Stores and revisions` sections, including the complete shell inventory, host
+store paths, and immutable revisions. It performs no second read. Schema-1 JSON
+is already complete, is byte-identical with or without `--details`, and remains
+the automation contract.
 Unconfigured cluster resources are `null`; unavailable
 observations use declared finite values and never an empty-string sentinel.
 The infrastructure/doctor label `linux_xdg_file` is not a public
@@ -637,16 +675,40 @@ inventory remain read-only. The Permission Inbox groups candidates by their
 validated stable Context and project identities, renders the Context/root scope
 once per group, and leads each selectable row with the exact HTTP effect or
 typed `{id}` template and its evidence count. A compact selected-effect preview exposes the latest retained
-observation before detail inspection. Matching display names, paths, order, or
-indentation do not merge distinct typed identities. Action keys are inactive
-on the list. An exact detail offers Allow exact and Deny exact; a template
+observation and denial reason before detail inspection. Matching display names,
+paths, order, or indentation do not merge distinct typed identities. The raw
+list stages exact Allow or Deny by unchanged typed ID, clears one staged row,
+and advances only to a later undecided row without wrapping. Its selection
+marker has a fixed column, and its visible decision-state column uses only the
+width of `Allow exact` so every HTTP effect starts at the same column and never
+moves as staging or refresh changes the visible states. Template rows use the
+compact list-only labels `Review {id}` and `Allow {id}`; detail and final Apply
+retain the full template explanation. An exact detail
+offers the same exact decisions; a template
 detail states that unseen values are included and offers Allow template, Allow
 observed exact, and Deny pending exact. The chosen action is staged without a
 second yes/no prompt. Only the final Apply delegates
 the reviewed set to the mutation boundary. Apply is advertised only for a
 non-empty staged set, shows one final ordered typed review, and requires an
 explicit confirmation. Refresh preserves choices by candidate ID and drops
-stale IDs rather than matching labels. Confirmed output carries the active OPA
+stale IDs rather than matching labels. `--watch` requires human text on an
+interactive raw terminal, automatically repeats the same bounded read with a
+one-second interval and exponential backoff capped at eight seconds, preserves
+the last valid snapshot on refresh failure, and continues with a fresh snapshot
+after confirmed Apply. Between Apply operations it owns one alternate-screen
+frame; an unchanged successful timer refresh performs the read but emits no
+repaint. Stopping watch is a successful monitor stop. It never
+retries an HTTP request or creates an agent-side authority channel. The optional
+`--notify` value defaults to `auto`, requires `--watch`, and selects a fixed
+trusted ASCII cue: explicit `osc9`, `bel`, or `off`, while `auto` uses OSC 9
+for exact iTerm2 identity or for the conjunction of non-empty protected cmux
+workspace and surface identities, and otherwise falls back to BEL. The
+initial snapshot, refresh failures, stale-only changes, and previously seen ID
+reappearance do not notify; one successful refresh coalesces every new ID into
+at most one cue. Tobari configures no OS, tmux, SSH, or terminal passthrough,
+and no Context, host, path, reason, or other denial evidence enters the control
+payload. A failed cue leaves watch active. Confirmed
+output carries the active OPA
 revision plus each ordered Context/project/effect/stored-rule decision and
 directs the caller to retry in the current running Workspace. The public
 read-only JSON review schema remains version 1 and does not expose this
@@ -684,6 +746,15 @@ invocation with `NO_COLOR` present contain no ANSI style sequences and preserve
 the exact same headings, markers, field order, scoped empty state, bounds, and
 Next guidance. `NO_COLOR` selects no alternate terse or tabular renderer.
 Markers, words, and layout carry the same status meaning without color.
+The attached Workspace shell is a separate terminal presentation surface:
+when its stdout is an interactive terminal and `NO_COLOR` is absent, Tobari
+may add fixed syntax colors to one bounded, complete JSON object/array or a
+conservative YAML mapping/sequence. This projection is color-only: it keeps
+the child's bytes, whitespace, ordering, and visible stream content intact,
+does not pretty-print or reindent, and adds no styling to stderr. Incomplete,
+invalid, oversized, control-bearing, ambiguous, or ordinary output passes
+through unchanged. Redirected or machine-readable output never enters this
+projection, and escaped controls inside a structured string remain data.
 `doctor` defaults to this human text
 view; `doctor --format tsv` remains the tab-separated projection for scripts,
 and JSON/agent help remain schema contracts. Doctor JSON schema 1 declares
@@ -818,17 +889,19 @@ malformed, or unsupported-version state fails closed instead of becoming
 synthetic state.
 
 - `contexts/<name>/context.json`: host-owned schema-v1 Context manifest with a
-  stable UUIDv7 Context ID, the named agent profile, compatible Tobari runtime
-  image selector, guided/advanced policy mode, required immutable
-  `source_access`, required normalized `policy_preset_origin` and
-  `policy_preset_revision`, explicit `native_readiness`, allowlisted shell-environment
+  stable UUIDv7 Context ID, the named agent profile, exact Runtime ID and
+  revision plus its compatible execution-image material, guided/advanced policy mode, required immutable
+  `source_access`, required normalized `policy_revision`, explicit
+  `native_readiness`, allowlisted shell-environment
   overrides, and an optional non-default Git identity policy;
-- `contexts/<name>/runtime/Dockerfile`: optional owner-only Context runtime
-  recipe created by `runtime init`; its source digest and last successful
-  managed image build are recorded additively in `context.json`;
-- `contexts/<name>/policy/preset.json`: owner-only normalized schema-v1
-  non-executable snapshot whose SHA-256 digest equals the manifest preset
-  revision; source preset changes never rewrite it. Enabled native readiness
+- `runtimes/<name>/source/`: owner-only editable managed Runtime build context;
+- `runtimes/<name>/revisions/<digest>/source/`: immutable successful source
+  snapshot built for that semantic revision;
+- `runtimes/<name>/runtime.json`: stable Runtime identity and ordered successful
+  revision inventory; drafts and failed builds are not history;
+- `contexts/<name>/policy/context.json`: owner-only normalized schema-v1
+  non-executable snapshot whose SHA-256 digest equals the manifest policy
+  revision; Context policy changes never rewrite an existing snapshot. Enabled native readiness
   grants the reviewed Claude Code 2.1.220 and Codex 0.147.0 native model,
   account, bootstrap, first-party capability-discovery, bounded evaluation,
   and telemetry effects plus the pinned GitHub CLI 2.96.0 exact device-login
@@ -837,7 +910,7 @@ synthetic state.
   and GraphQL `query` / `me` current-user effects,
   plus pup 1.10.7 exact US1 DCR registration and token exchange/refresh when
   supplied by a custom runtime, to
-  every process in the Context, subject to the preset's terminal destination
+  every process in the Context, subject to the Context policy's terminal destination
   ceiling and method decisions. Those native readiness effects are not stored
   in new snapshots. Compile-time `claude_ready`, `codex_ready`, `gh_ready`, and
   `twg_ready`, and `pup_ready` names are review provenance; aggregate generation strips their
@@ -860,11 +933,10 @@ synthetic state.
   baseline grant;
   schema V1 requires `method_policy.default` and sorted unique exact
   `method_policy.overrides`, each using `allow`, `exact_review`, or `deny`.
-  `builtin/offline` defaults to Deny; `builtin/reviewed-exact` defaults to
-  Exact Review; `builtin/get-only-reviewed` defaults to Deny with GET Exact
-  Review; `builtin/public-get-reviewed` defaults to Exact Review with GET
-  Allow. Exact Deny wins over method Allow. GET is not described as safe or
-  read-only. Custom presets are strict
+  Context creation can choose Deny, Exact Review, or Allow as the complete
+  default and add exact method overrides. Exact Deny wins over method Allow.
+  GET is not described as safe or read-only. The fixed agent-ready baseline is
+  trusted-binary data, not a selectable profile. Context-owned snapshots are strict
   owner-only non-executable data with no wildcard, IP/private destination,
   secret, shell, Rego, include, inheritance, remote fetch, refresh, or signing;
 - `contexts/<name>/policy/domains/<canonical-host>/allow.json`: strict
@@ -901,8 +973,9 @@ AWS SSO is limited to the pinned CLI's exact commercial-region authorization-cod
 shape, default `sso:account:access` scope, bounded DCR/state/PKCE fields, and
 dynamic non-privileged `127.0.0.1/oauth/callback` port. Its documented
 `--use-device-code` option remains the cross-device recovery.
-Pup is limited to the exact US1 authorization route, a bounded DCR client ID,
-the sorted pup 1.10.7 default-scope ceiling, and exact
+Pup is limited to the exact US1 authorization route, seven mandatory query
+fields, at most one UUID-shaped `dd_oid` organization hint, a bounded DCR
+client ID, the sorted pup 1.10.7 default-scope ceiling, and exact
 `127.0.0.1:{8000,8080,8888,9000}/oauth/callback`. Claude Code 2.1.220 must use its fixed client, redirect, PKCE shape,
 and complete reviewed scope set. For exact default `gh auth login`, the canonical
 runtime's pinned compatibility wrapper selects the reviewed GitHub.com HTTPS
@@ -954,24 +1027,19 @@ bounded fixed-key host-global reads for `user.name` and `user.email`. Neither
 path enumerates its source, and neither copies host credential values or source
 configuration into the runtime.
 
-Image selection uses the selected Tobari's bound Context image selector. A
-new Context uses `builtin` until its manifest selects another image. Project metadata does not override the
-Context image; the stored project image is updated only after a successful
-runtime-container reconciliation from the bound Context image.
+Image selection comes only from the exact Runtime revision binding stored by
+the selected Context. A new Context binds `standard@1`; project metadata never
+overrides that authority. `runtime build` derives a managed image selector from
+the Runtime name and semantic source digest, validates it, and appends a
+revision without changing a Context. Only `context runtime set` replaces a
+Context binding. The stored project image is updated after successful
+runtime-container reconciliation on the next root entry, preserving the
+Workspace home; failed image validation or Docker reconciliation preserves the
+previous logical state and container.
 
-The current Context recipe is a host-side customization source, not a second
-image authority. `runtime build` derives the image reference mechanically from
-the Context name and Dockerfile source digest, validates it, and atomically
-promotes it into the existing Context image field. Editing the recipe or a
-failed build leaves the previously selected image unchanged. Existing
-Workspaces bound to that Context pick up the promoted image on their next root
-entry; failed image
-validation or Docker reconciliation leaves their previous logical state and
-home in place.
-
-When the recipe's first base is the resolver-selected official local runtime,
-an explicit `runtime build` verifies or builds that pinned base. An explicit
-local or custom base is not given an implicit registry-pull request.
+When a managed source Dockerfile starts from the exact resolver-selected
+official base, the explicit build verifies or builds that pinned base. An
+explicit local or custom base is not given an implicit registry-pull request.
 
 OPA reads one cluster-owned revisioned aggregate bundle with `--watch`. The
 projection has one fixed `tobari.http/decision` router, Context-ID data
@@ -997,21 +1065,28 @@ recovery under an already existing or recovery-required lock; they never
 create state merely to observe it. Context, policy, credential, auth, project,
 and lock initialization belongs to declared create/write outcomes.
 
-`runtime init` creates the current Context's owner-only runtime directory and
-template without changing image selection. `runtime build` executes the
-explicit host Docker build, validates the generated image, and atomically
-updates only the current Context manifest after the image digest is confirmed.
+`runtime create` creates an owner-only installation Runtime source tree without
+changing a Context. `runtime build` snapshots that complete bounded tree,
+executes the explicit host Docker build, validates the generated image, and
+atomically appends a successful immutable revision after its image digest is
+confirmed. A failed or semantically unchanged build appends no revision.
+Source validation rejects links, special files, more than 1,024 regular files
+or 256 directories, a regular file over 32 MiB, a total over 64 MiB, and any
+group/other permission bit before Docker. It returns
+`runtime_source_invalid` with the safe relative path, observed size/count/mode,
+applicable limit or owner-only correction, and no private cause or absolute
+host path. The snapshot streams through a fixed buffer; the total ceiling is
+not retained as one whole-source heap allocation.
 Docker build failure exits nonzero, ends text presentation with a short summary
-of the failed stage, Dockerfile, recovery command, and retained state, and
-leaves the previous selected image authoritative. BuildKit may retain
+of the failed stage, source path, recovery command, and retained Runtime
+history, and leaves every Context binding unchanged. BuildKit may retain
 engine-owned cache layers, and a post-build validation failure may retain the
 unselected candidate image; Tobari states this instead of deleting either one.
-An uncertain promotion or post-promotion reporting failure directs the user to
-inspect the Context before retrying rather than claiming the old selection is
-unchanged.
-Existing Workspaces are not mutated by `runtime build` itself; the next root
-entry reconciles their work container to the promoted image while preserving
-the Workspace home.
+No build promotes into a Context. `context runtime set` is the only selection
+mutation and revalidates one ready `standard` or `name@ordinal` revision before
+atomically replacing the Context binding. Existing Workspaces are not mutated
+by either operation; their next root entry reconciles the work container to the
+newly selected image while preserving the Workspace home.
 The official immutable base is pulled only for an explicit build whose recipe
 starts from the exact resolver-selected release digest; custom and local bases
 retain their local/cache-first behavior.
@@ -1053,6 +1128,16 @@ login, changes network policy, or rewrites an existing Workspace home. A new
 Workspace receives one canonical private `.aws/config` and records its applied
 semantic revision before logical publication.
 
+The argument-free Context wizard reuses this resolver through a read-only
+candidate boundary. It reads fixed `~/.aws/config` only after explicit
+Workspace-bootstrap editing, parses the file once, and resolves every profile
+with its referenced `sso-session`. Available candidates expose only the
+secret-free semantic fields needed to choose; individually incompatible
+profiles remain visible with a reason, while malformed, duplicate, or unsafe
+whole-file input yields no partial candidates. Final Create revalidates the
+reviewed profile/session semantic revision. A changed selected bundle returns
+to review with zero mutation; unrelated profile changes do not block.
+
 `config bootstrap kubernetes eks` composes one additional closed adapter with
 that AWS recipe. It reads only fixed host `~/.kube/config`, selects one explicit
 context and its exact cluster/user references, and accepts only an inline CA,
@@ -1064,6 +1149,12 @@ private `.kube/config` JSON in the fresh Workspace home. Removing EKS preserves
 AWS; AWS cannot be removed or changed to another profile until its dependent EKS adapter is removed. No
 configure, refresh, or create operation calls AWS or Kubernetes or grants a
 network effect.
+
+After an AWS candidate is selected, the Context wizard discovers only
+kubeconfig contexts compatible with that exact AWS profile and semantic
+revision. `Do not configure Amazon EKS` is the first explicit choice;
+incompatible contexts remain visible but unselectable. Discovery performs no
+network or subprocess call and reads no credential or cache state.
 
 `cluster up` obtains and preflights the immutable Gateway image and official
 runtime bases required by all Contexts, generates and validates the complete
@@ -1118,7 +1209,7 @@ cannot expose a mixed valid generation. They never write Rego source, broker
 vaults, or tool-owned home files.
 OPA marks a denial learnable only when its version, cluster, scheme, fixed
 request port, project-principal boundary, trusted GraphQL endpoint and parsed
-coordinate when applicable, and preset guardrail already satisfy the
+coordinate when applicable, and the Context policy ceiling already satisfies the
 orthogonal boundary.
 Candidate
 discovery excludes other denials, preventing a successful no-op approval.

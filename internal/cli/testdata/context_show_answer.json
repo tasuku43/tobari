@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "task": "context.show",
+  "selected_context": {
+    "id": "018bcfe5-687b-7000-8000-000000000099",
+    "name": "review",
+    "active": false
+  },
+  "exact_next_argv": [
+    "tobari",
+    "--context",
+    "review"
+  ],
+  "required_summary_facts": [
+    "persisted · not current",
+    "direct read-write",
+    "default exact-review",
+    "Network GET    allow",
+    "revision sha256:1ebfdf1e67ab968a9b709b8418281e60b2d17562eeb96679cdcd5ec472e82df5 · readiness disabled",
+    "frontend@4",
+    "tobari-context-review:123456789abc",
+    "native Workspace-owned",
+    "not_configured"
+  ],
+  "detail_only_facts": [
+    "literal \"\"",
+    "018bcfe5-687b-7000-8000-000000000077",
+    "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "/config/contexts/review/policy"
+  ],
+  "routine_success": {
+    "task_invocations": 1,
+    "external_reconstruction_steps": 0
+  },
+  "unsupported_inferences": [
+    "authentication_success",
+    "provider_account",
+    "cluster_readiness",
+    "method_authority_from_indentation"
+  ]
+}

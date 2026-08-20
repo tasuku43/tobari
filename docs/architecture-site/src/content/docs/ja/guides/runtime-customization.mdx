@@ -1,33 +1,37 @@
 ---
 title: ランタイムのカスタマイズ
-description: Workspace の識別情報と永続ホームを変えずに、Context が管理する互換ランタイムをビルドして選択します。
+description: 再利用できる不変 Runtime リビジョンをビルドし、Workspace の識別情報と永続ホームを変えずに Context へ明示的に選択します。
 ---
 
 クイックスタートだけを完了した場合は、先に[カスタムランタイムを用意する](../../start/runtime-setup/)へ進んでください。最小のベースランタイムから、実際の Workspace 内でコーディングエージェントのコマンドを確認するまでを短い手順で説明します。
 
-このページでは、Context による所有、イメージの採用、互換性検査、構成差分の調整、失敗からの復旧を詳しく説明します。プロジェクトへツールを追加するには、現在の Context にある所有者専用の Dockerfile レシピを初期化します。信頼するホストで編集してから、明示的に `runtime build` を実行してください。次に Workspace へ入るときは作業コンテナだけが調整され、論理 Workspace の識別情報と永続ホームは維持されます。
+このページでは、インストール全体で共有する Runtime、成功履歴、明示的な Context
+選択、構成差分の調整、失敗からの復旧を説明します。Context が持つのは準備済み
+リビジョンへの正確な参照だけです。
 
 作業前に現在の Context を確認してください。詳しくは [Context](../contexts/)を参照してください。カスタムランタイムイメージは作業環境を提供しますが、マウント、ネットワーク、Workspace の寿命を決める権限は持ちません。
 
-## 1. Context を選択して確認する
+## 1. Runtime を作成して確認する
 
-ランタイムコマンドは現在またはデフォルトの Context に作用します。名前付きの Context を使う場合は先に選択します。
-
-```sh
-tobari context use --name review
-tobari context show
-```
-
-Context の報告には、選択したイメージと管理対象レシピの有無が示されます。この Context に恒久的に結び付いた既存 Workspace は、次の入室時に現在のイメージを参照します。
-
-## 2. 一度だけ初期化する
+Runtime の作成とビルドは Context から独立しています。
 
 ```sh
-tobari runtime init --format json
-tobari context show --format json
+tobari runtime create --name frontend
+tobari runtime show --name frontend
 ```
 
-パスを推測せず、報告されたランタイムレシピのパスを使ってください。`runtime init` は所有者だけがアクセスできる `runtime/Dockerfile` テンプレートを作ります。イメージのビルド、選択したイメージの変更、Docker サービスの起動、既存レシピの上書きは行いません。
+作成結果に所有者専用の `source_path` が表示されます。名前はインストール内で固有で、
+安定した Runtime ID はリビジョンが増えても変わりません。source 自体と配下の
+ディレクトリには group/other の権限ビットを付けられません。
+
+## 2. 完全なソースツリーを編集する
+
+報告された `source_path` 全体が Docker ビルドコンテキストです。Dockerfile の隣で
+スクリプト、パッケージマニフェスト、設定ファイルを管理できます。編集だけでは
+リビジョンも Context 参照も変わりません。上限は通常ファイル 1,024 件、
+ディレクトリ 256 件、1 ファイル 32 MiB、全体 64 MiB です。リンクと特殊ファイルは
+使えません。各ファイルから group/other 権限を外し、データは `0600`、所有者実行が
+必要なスクリプトやバイナリは `0700` にします。
 
 信頼するホストでレシピを編集します。最小限のカスタマイズでは、テンプレートのベースと利用者の切り替えを保ち、既存の `USER root` と `USER tobari` の間にパッケージを追加します。
 
@@ -39,24 +43,36 @@ RUN apt-get update \
 
 実物の認証情報を Dockerfile、ビルドコンテキスト、イメージレイヤー、例に入れないでください。
 
-## 3. ビルド、検証、昇格
+## 3. 不変リビジョンをビルドして検証する
 
 ```sh
-tobari runtime build --format json
+tobari runtime build --name frontend --format json
+tobari runtime history --name frontend
 ```
 
 これは、意図的に一か所へ限定したホスト上の Docker ビルド境界です。Tobari は次を行います。
 
-1. Context のランタイムディレクトリだけをビルドコンテキストにする
-2. Context とレシピソースダイジェストからローカルイメージ識別情報を導出する
-3. 引数と出力を制限した構造化呼び出しで Docker ビルドを実行する
+1. 完全な上限付きソースツリーを検証してハッシュする
+2. 不変な意味的スナップショットを作る
+3. 機械的に導出したローカルイメージ名で、そのスナップショットだけをビルドする
 4. 生成されたイメージを Tobari ランタイム契約で検証する
 5. 確定したイメージダイジェストを記録する
-6. Context マニフェストのイメージ選択情報をアトミックに昇格する
+6. 成功したリビジョンを Runtime 履歴へアトミックに追加する
 
-ファイルを編集しただけでは何も変わりません。ビルドまたは互換性検査に失敗すると、それまで選択されていたイメージが引き続き有効です。Docker または BuildKit がキャッシュや未選択の候補イメージを保持していても、Tobari がそれを有効なイメージとして報告することはありません。
+失敗または同一内容のビルドでは履歴を追加せず、すべての Context は変わりません。
+Docker または BuildKit がキャッシュや未選択候補を保持しても、準備済み履歴とは報告しません。
 
-## 4. 既存 Workspace へ入り直す
+## 4. Context へ明示的に選択する
+
+```sh
+tobari context runtime set --context review --runtime frontend@1
+tobari context show --name review
+```
+
+同じリビジョンを複数 Context から再利用できます。新しいビルドで自動更新はされず、
+アップグレードもロールバックも別の ordinal を明示的に選びます。
+
+## 5. 既存 Workspace へ入り直す
 
 この Context に結び付いたプロジェクトから実行します。
 
@@ -87,9 +103,13 @@ exit
 
 ## 失敗時の動作
 
-- `runtime_recipe_exists`: 既存レシピを確認します。`runtime init` は上書きしません。
-- `runtime_recipe_missing`: ビルド前に `tobari runtime init` を実行します。
-- `runtime_build_failed`: Dockerfile を直し `tobari context show` を確認します。採用が完了していない限り、以前の選択が残ります。
+- `runtime_exists`: `tobari runtime show` で既存 Runtime を確認します。
+- `runtime_not_found`: `tobari runtime list` から名前を選びます。
+- `runtime_source_invalid`: エラーが示す相対パスと実際のサイズ、件数、種別、または
+  所有者専用モードを修正します。`0755` でコピーされた source は group/other の
+  全ビットを外し、通常は `0700` にします。
+- `runtime_build_failed`: ソースを直して `tobari runtime show` を確認します。履歴と Context は変わりません。
+- `runtime_revision_not_ready`: `tobari runtime history` から成功済み ordinal を選びます。
 - `image_not_found`: 宣言されたベースイメージまたは選択したイメージを利用可能にして、明示的なビルドか調整を再試行します。
 - `incompatible_image`: 必須の利用者、ラベルと API、エントリーポイント、生存コマンドの権限、アーキテクチャを復元します。
 - 結果が不確実な変更操作: 採用に失敗したと決めつけず、別のビルドを行う前に `tobari context show` を確認します。
@@ -103,22 +123,24 @@ exit
 
 - [ランタイムカスタマイズの契約](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/docs/01_product_contract.md)
 - [ランタイム Catalog の仕様](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/internal/cli/runtime_catalog.go)
-- [Context ランタイムの実装](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/internal/infra/dockerruntime/context_runtime.go)
+- [Context Runtime 参照の実装](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/internal/infra/dockerruntime/context_runtime.go)
 - [コンテナの構成ずれを調整するテスト](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/internal/infra/dockerruntime/project_runtime_test.go)
 - [ベースランタイム契約の検査処理](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/tools/runtimecheck/main.go)
 
 ## まとめ
 
-レシピはソース、`runtime build` は明示的に検証される採用境界、Workspace への入室は調整点です。ランタイムイメージはツールを提供し、ホストのライフサイクルコードが権限と寿命を管理します。
+Runtime ソースは変更可能な準備領域、成功リビジョンは不変、Context 選択は明示的、
+Workspace への入室は調整点です。ランタイムイメージはツールを提供し、ホストの
+ライフサイクルコードが権限と寿命を管理します。
 
 ## 理解を確認する
 
 <details>
   <summary>
-    Dockerfile を編集すると実行中の Workspace は更新されますか？
+    Runtime ソースを編集またはビルドすると実行中の Workspace は更新されますか？
   </summary>
-  いいえ。`runtime build` が必要です。既存 Workspace は、昇格済みの互換
-  イメージを次の入室で利用します。
+  いいえ。ビルドは履歴を追加するだけです。準備済みリビジョンを Context へ
+  明示的に選択すると、既存 Workspace は次の入室でその参照を利用します。
 </details>
 
 <details>

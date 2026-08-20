@@ -11,7 +11,7 @@
 - Related ADRs: ADR 0024, ADR 0027, and the Context capability-envelope decision
 - Parent: [First public release core](../first-public-release-core/goal.md)
 - Prerequisite: [Context capability envelope](../context-capability-envelope/goal.md)
-- Child: [Policy presets](../policy-presets/goal.md)
+- Child decision: [ADR 0066](../../decisions/0066-context-owned-policy-replaces-presets.md)
 
 ## Outcome
 

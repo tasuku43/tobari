@@ -108,7 +108,106 @@ func TestHostAWSBootstrapRejectsSymlinkAndGroupWritableSource(t *testing.T) {
 			if _, err := runtime.PrepareContextAWSBootstrap(context.Background(), "engineering"); err == nil {
 				t.Fatal("unsafe host AWS config was accepted")
 			}
+			discovered, err := runtime.DiscoverContextAWSBootstraps(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if discovered.State != tobari.ContextBootstrapDiscoveryRejected || len(discovered.Candidates) != 0 {
+				t.Fatalf("unsafe discovery = %+v", discovered)
+			}
 		})
+	}
+}
+
+func TestDiscoverAWSBootstrapsResolvesSharedSessionAndKeepsIndividualFailuresUnavailable(t *testing.T) {
+	t.Parallel()
+	runtime := newProjectStateRuntime(t)
+	source := syntheticAWSSharedConfig + `
+[profile production]
+sso_session = company
+sso_account_id = 210987654321
+sso_role_name = ReadOnly
+region = us-east-1
+
+[profile broken]
+sso_session = removed
+sso_account_id = 123456789012
+sso_role_name = Developer
+`
+	writeSyntheticHostAWSConfig(t, runtime, source)
+	result, err := runtime.DiscoverContextAWSBootstraps(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.State != tobari.ContextBootstrapDiscoveryAvailable || len(result.Candidates) != 3 {
+		t.Fatalf("discovery = %+v", result)
+	}
+	states := map[string]string{}
+	for _, candidate := range result.Candidates {
+		states[candidate.Profile] = candidate.State
+		if candidate.State == tobari.ContextBootstrapCandidateAvailable && candidate.Snapshot.AWS.SSOSession != "company" {
+			t.Fatalf("shared session was not resolved: %+v", candidate)
+		}
+	}
+	if states["engineering"] != tobari.ContextBootstrapCandidateAvailable || states["production"] != tobari.ContextBootstrapCandidateAvailable || states["broken"] != tobari.ContextBootstrapCandidateUnavailable {
+		t.Fatalf("candidate states = %+v", states)
+	}
+}
+
+func TestDiscoverAWSBootstrapsRejectsMalformedWholeFileWithoutPartialCandidates(t *testing.T) {
+	t.Parallel()
+	runtime := newProjectStateRuntime(t)
+	writeSyntheticHostAWSConfig(t, runtime, syntheticAWSSharedConfig+"\n[profile engineering]\nsso_session = company\n")
+	result, err := runtime.DiscoverContextAWSBootstraps(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.State != tobari.ContextBootstrapDiscoveryRejected || len(result.Candidates) != 0 || result.Reason == "" {
+		t.Fatalf("malformed discovery = %+v", result)
+	}
+}
+
+func TestDiscoverAWSBootstrapsDistinguishesMissingSource(t *testing.T) {
+	t.Parallel()
+	runtime := newProjectStateRuntime(t)
+	runtime.hostHomeDirectory = t.TempDir()
+	result, err := runtime.DiscoverContextAWSBootstraps(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.State != tobari.ContextBootstrapDiscoveryMissing || len(result.Candidates) != 0 {
+		t.Fatalf("missing discovery = %+v", result)
+	}
+}
+
+func TestSelectedAWSSemanticRevisionIgnoresUnrelatedProfileChanges(t *testing.T) {
+	t.Parallel()
+	runtime := newProjectStateRuntime(t)
+	writeSyntheticHostAWSConfig(t, runtime, syntheticAWSSharedConfig)
+	reviewed, err := runtime.PrepareContextAWSBootstrap(context.Background(), "engineering")
+	if err != nil {
+		t.Fatal(err)
+	}
+	path, err := runtime.hostAWSConfigPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated := syntheticAWSSharedConfig + `
+[profile unrelated]
+sso_session = company
+sso_account_id = 210987654321
+sso_role_name = ReadOnly
+region = us-east-1
+`
+	if err := os.WriteFile(path, []byte(updated), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	refreshed, err := runtime.PrepareContextAWSBootstrap(context.Background(), "engineering")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if refreshed.Revision != reviewed.Revision {
+		t.Fatalf("unrelated profile changed selected revision: %s != %s", refreshed.Revision, reviewed.Revision)
 	}
 }
 

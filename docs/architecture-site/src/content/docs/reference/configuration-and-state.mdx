@@ -29,16 +29,18 @@ unexpected file type, ownership, or permissive modes before use.
 
 ## Host-owned configuration
 
-| Path below the configuration root                            | Contract and meaning                                                                                                                                                                                       |
-| ------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `contexts/active.json`                                       | The current/default Context name. It chooses the default for omitted selectors; it is not request authority.                                                                                               |
-| `contexts/<name>/context.json`                               | **Stored Context manifest schema 1.** It holds stable Context ID, immutable source access, preset origin/revision snapshot, agent profile, image, policy mode, shell settings, and runtime-build metadata. |
-| `contexts/<name>/runtime/Dockerfile`                         | Optional owner-only build recipe created by `runtime init`. Editing it does not select an image.                                                                                                           |
-| `contexts/<name>/policy/domains/<canonical-host>/allow.json` | Strict schema-1 authority, per-host methods, GraphQL endpoints, credential host bindings, and learned Allows for one canonical lower-case host.                                                            |
-| `contexts/<name>/policy/domains/<canonical-host>/deny.json`  | Strict schema-1 baseline and learned exact Denies for the same host. Every embedded host must match the directory.                                                                                         |
-| `contexts/<name>/policy/tobari.rego` and `tobari_test.rego`  | Present for Advanced policy. Guided policy uses the reviewed embedded evaluator.                                                                                                                           |
-| `auth/providers/*.json`                                      | Optional strict provider-manifest v1 documents.                                                                                                                                                            |
-| `principal-registry/principals.json`                         | Host-issued principal registry schema 1 with exact Workspace/Gateway endpoints, mounted read-only into Gateway by directory.                                                                               |
+| Path below the configuration root                            | Contract and meaning                                                                                                                                                                        |
+| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `contexts/active.json`                                       | The current/default Context name. It chooses the default for omitted selectors; it is not request authority.                                                                                |
+| `contexts/<name>/context.json`                               | **Stored Context manifest schema 1.** It holds stable Context ID, immutable source access, policy revision, agent profile, exact Runtime revision binding, policy mode, and shell settings. |
+| `runtimes/<name>/runtime.json`                               | Stable Runtime ID, unique name, source path, and append-only successful revision history.                                                                                                   |
+| `runtimes/<name>/source/`                                    | Owner-only mutable complete Docker build context created by `runtime create`. Editing it changes no revision or Context.                                                                    |
+| `runtimes/<name>/revisions/<digest>/`                        | Immutable source snapshot used as the exact Docker build context for one successful semantic revision.                                                                                      |
+| `contexts/<name>/policy/domains/<canonical-host>/allow.json` | Strict schema-1 authority, per-host methods, GraphQL endpoints, credential host bindings, and learned Allows for one canonical lower-case host.                                             |
+| `contexts/<name>/policy/domains/<canonical-host>/deny.json`  | Strict schema-1 baseline and learned exact Denies for the same host. Every embedded host must match the directory.                                                                          |
+| `contexts/<name>/policy/tobari.rego` and `tobari_test.rego`  | Present for Advanced policy. Guided policy uses the reviewed embedded evaluator.                                                                                                            |
+| `auth/providers/*.json`                                      | Optional strict provider-manifest v1 documents.                                                                                                                                             |
+| `principal-registry/principals.json`                         | Host-issued principal registry schema 1 with exact Workspace/Gateway endpoints, mounted read-only into Gateway by directory.                                                                |
 
 Do not confuse the stored manifest with public output. `context show` and other
 Context-result commands emit **public Context report schema 1**. That report is
@@ -92,22 +94,24 @@ not decide whether a logical Workspace exists. Root index and instance state do.
 
 ## What remains after each operation?
 
-| Operation                                | What changes                                                                                                    | What remains                                                                                                                                          |
-| ---------------------------------------- | --------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Shell `exit` or child-command completion | Only the attached exec session ends.                                                                            | Logical Workspace, work container, dedicated network, home, root index, project files, policy, and credentials.                                       |
-| `delete`                                 | Removes the exact detached Workspace container, network, root index, instance state, and home.                  | Project-root files, Context configuration/policy, cluster, vault, root key, and other Workspaces.                                                     |
-| `delete --force`                         | Performs the same deletion while overriding only the “attached exec exists” guard.                              | It does not broaden the target or delete project-root files.                                                                                          |
-| Container or project-network loss        | The next root entry reconciles the missing owned runtime resource.                                              | Logical Workspace identity, Context binding, root index, instance state, home, and project files.                                                     |
-| `cluster down`                           | Requires no logical Workspace; removes shared containers and transient shared resources.                        | Contexts, policies, provider manifests, encrypted vaults, installation root key, and Gateway CA volumes.                                              |
-| `cluster down --purge`                   | Also removes only the shared Gateway/public CA volumes.                                                         | Contexts, encrypted vaults, root key, and provider configuration. It is not logout.                                                                   |
-| `auth logout <provider>`                 | Removes one Context/provider credential and revokes its issued handles locally.                                 | Other providers, policy rules, project files, cluster CA, and root key. It does not guarantee remote revocation.                                      |
-| Credential replacement                   | Writes a new credential revision and revokes old handles.                                                       | Workspace identity and home. Running process environments do not change; re-enter.                                                                    |
-| `runtime build`                          | Builds, validates, records an immutable local image digest, then atomically selects it for the current Context. | Existing Workspace identity, home, and current container until the next entry reconciles it. A failed build leaves the prior selection authoritative. |
+| Operation                                | What changes                                                                                   | What remains                                                                                                     |
+| ---------------------------------------- | ---------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| Shell `exit` or child-command completion | Only the attached exec session ends.                                                           | Logical Workspace, work container, dedicated network, home, root index, project files, policy, and credentials.  |
+| `delete`                                 | Removes the exact detached Workspace container, network, root index, instance state, and home. | Project-root files, Context configuration/policy, cluster, vault, root key, and other Workspaces.                |
+| `delete --force`                         | Performs the same deletion while overriding only the “attached exec exists” guard.             | It does not broaden the target or delete project-root files.                                                     |
+| Container or project-network loss        | The next root entry reconciles the missing owned runtime resource.                             | Logical Workspace identity, Context binding, root index, instance state, home, and project files.                |
+| `cluster down`                           | Requires no logical Workspace; removes shared containers and transient shared resources.       | Contexts, policies, provider manifests, encrypted vaults, installation root key, and Gateway CA volumes.         |
+| `cluster down --purge`                   | Also removes only the shared Gateway/public CA volumes.                                        | Contexts, encrypted vaults, root key, and provider configuration. It is not logout.                              |
+| `auth logout <provider>`                 | Removes one Context/provider credential and revokes its issued handles locally.                | Other providers, policy rules, project files, cluster CA, and root key. It does not guarantee remote revocation. |
+| Credential replacement                   | Writes a new credential revision and revokes old handles.                                      | Workspace identity and home. Running process environments do not change; re-enter.                               |
+| `runtime build --name NAME`              | Snapshots, builds, validates, and appends one immutable Runtime revision.                      | Every Context binding and Workspace remains unchanged; failed and unchanged builds append no revision.           |
+| `context runtime set --runtime NAME@N`   | Atomically replaces one Context's exact ready Runtime binding.                                 | Existing Workspace identity, home, and current container until the next entry reconciles it.                     |
 
 The default official runtime is a local image built from the CLI's pinned
 embedded recipe when absent. A release-derived local tag identifies the recipe
-revision; it is not an immutable digest. A successful managed runtime build
-separately records the inspected local image digest in the Context manifest.
+revision; it is not an immutable digest. A successful managed Runtime build
+records the inspected local image digest in installation-wide Runtime history;
+Contexts retain only their exact revision binding.
 
 ## Failure and recovery
 

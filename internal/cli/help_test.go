@@ -19,10 +19,13 @@ func TestRootHelpIsDerivedFromCatalog(t *testing.T) {
 		t.Fatalf("Run(help) code = %d, stderr = %q", code, stderr.String())
 	}
 	output := stdout.String()
-	for _, want := range []string{"Start here:", "tobari version", "Inspect build channel and runtime API compatibility", "tobari cluster up", "Enter or reuse the current project's Workspace", "doctor", "help", "version", "items", "Namespace with 2 commands"} {
+	for _, want := range []string{"Start here:", "tobari version", "Inspect build channel and runtime API compatibility", "Set up, enter, or reuse the current project's Workspace", "doctor", "help", "version", "items", "Namespace with 2 commands"} {
 		if !strings.Contains(output, want) {
 			t.Errorf("root help lacks %q\n%s", want, output)
 		}
+	}
+	if strings.Contains(strings.Split(output, "Commands:")[0], "tobari cluster up") {
+		t.Fatalf("root help still requires explicit cluster bootstrap in Start here:\n%s", output)
 	}
 	for _, unwanted := range []string{"items list", "items read"} {
 		if strings.Contains(output, unwanted) {
@@ -60,6 +63,59 @@ func TestVersionHelpDeclaresBuildIdentityBeforeClusterMutation(t *testing.T) {
 	for _, want := range wants {
 		if !strings.Contains(stdout.String(), want) {
 			t.Errorf("version agent help lacks %q\n%s", want, stdout.String())
+		}
+	}
+}
+
+func TestRuntimeBuildHelpDeclaresCompleteSourceBoundary(t *testing.T) {
+	for _, test := range []struct {
+		args []string
+		want []string
+	}{
+		{args: []string{"runtime", "build", "--help"}, want: []string{"1,024", "256 directories", "32 MiB per file", "64 MiB total", "group/other permissions"}},
+		{args: []string{"help", "runtime", "build", "--format", "agent"}, want: []string{"1,024", "256 directories", "32 MiB per file", "64 MiB total", "group/other permissions", "runtime_source_invalid"}},
+	} {
+		var stdout, stderr bytes.Buffer
+		command := newReferenceTestCLI(strings.NewReader(""), &stdout, &stderr)
+		if code := runCLI(command, test.args); code != ExitOK {
+			t.Fatalf("Run(%v) code = %d, stderr = %q", test.args, code, stderr.String())
+		}
+		for _, want := range test.want {
+			if !strings.Contains(stdout.String(), want) {
+				t.Errorf("runtime build help %v lacks %q\n%s", test.args, want, stdout.String())
+			}
+		}
+	}
+}
+
+func TestRuntimeCreateHelpDeclaresOwnerOnlyChildren(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	command := newReferenceTestCLI(strings.NewReader(""), &stdout, &stderr)
+	if code := runCLI(command, []string{"runtime", "create", "--help"}); code != ExitOK {
+		t.Fatalf("runtime create help code = %d, stderr = %q", code, stderr.String())
+	}
+	for _, want := range []string{"future children", "no group/other permissions"} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Errorf("runtime create help lacks %q\n%s", want, stdout.String())
+		}
+	}
+}
+
+func TestContextShowHelpDeclaresOptionalHumanDetails(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	command := newReferenceTestCLI(strings.NewReader(""), &stdout, &stderr)
+	if code := runCLI(command, []string{"context", "show", "--help"}); code != ExitOK {
+		t.Fatalf("Run(context show --help) code = %d, stderr = %q", code, stderr.String())
+	}
+	for _, want := range []string{
+		"Usage:\n  tobari context show [--name <name>] [--details] [--format text|json]",
+		"--details",
+		"value: boolean",
+		"default when omitted: \"false\"",
+		"JSON is already complete",
+	} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Errorf("context show help lacks %q\n%s", want, stdout.String())
 		}
 	}
 }

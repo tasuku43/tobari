@@ -9,24 +9,24 @@ const evidenceHref = (path: string) =>
 const flow = [
   {
     from: t("Trusted host", "信頼するホスト"),
-    to: t("Context recipe", "Context のレシピ"),
-    title: t("Initialize one Dockerfile", "Dockerfile を初期化する"),
+    to: t("Runtime source", "Runtime ソース"),
+    title: t("Create one reusable Runtime", "再利用できる Runtime を作る"),
     detail: t(
-      "runtime init creates an owner-only recipe for the current Context. It does not build or select an image.",
-      "runtime init は、現在の Context に所有者専用のレシピを作ります。この時点では、イメージをビルドも選択もしません。",
+      "runtime create creates an owner-only complete build context. It does not build or change a Context.",
+      "runtime create は所有者専用の完全なビルドコンテキストを作ります。ビルドも Context の変更もしません。",
     ),
     kind: "control",
   },
   {
-    from: t("Context recipe", "Context のレシピ"),
+    from: t("Runtime source", "Runtime ソース"),
     to: t("Host Docker build", "ホストの Docker ビルド"),
     title: t(
       "Install the agent and toolchain",
       "エージェントと開発ツールを追加する",
     ),
     detail: t(
-      "Edit the generated Dockerfile on the host, then run runtime build. Only the Context runtime directory is sent as build context.",
-      "生成された Dockerfile をホストで編集し、runtime build を実行します。ビルドコンテキストには Context の runtime ディレクトリだけを渡します。",
+      "Edit Dockerfile and adjacent files, then run runtime build. Tobari validates and snapshots the complete source tree first.",
+      "Dockerfile と付属ファイルを編集し、runtime build を実行します。Tobari は完全なソースツリーを検証して先にスナップショットします。",
     ),
     kind: "trusted",
   },
@@ -42,16 +42,29 @@ const flow = [
   },
   {
     from: t("Compatibility check", "互換性検査"),
-    to: t("Context selection", "Context の選択情報"),
-    title: t("Promote only a compatible image", "互換イメージだけを採用する"),
+    to: t("Runtime history", "Runtime 履歴"),
+    title: t(
+      "Append only a compatible revision",
+      "互換リビジョンだけを追加する",
+    ),
     detail: t(
-      "A successful build atomically updates the current Context. A failed build or check leaves the previous selection active.",
-      "ビルドと検査に成功した場合だけ、現在の Context をアトミックに更新します。失敗した場合は、それまでの選択が有効なままです。",
+      "A successful build appends immutable history. Failed and unchanged builds leave history and every Context unchanged.",
+      "成功したビルドだけが不変履歴を追加します。失敗または同一内容なら履歴も全 Context も変わりません。",
     ),
     kind: "allowed",
   },
   {
-    from: t("Context selection", "Context の選択情報"),
+    from: t("Runtime history", "Runtime 履歴"),
+    to: t("Context binding", "Context の参照"),
+    title: t("Select one exact revision", "正確な一つのリビジョンを選ぶ"),
+    detail: t(
+      "context runtime set explicitly pins standard or name@ordinal. Builds never roll Contexts forward.",
+      "context runtime set で standard または name@ordinal を明示的に固定します。ビルドで Context は自動更新されません。",
+    ),
+    kind: "allowed",
+  },
+  {
+    from: t("Context binding", "Context の参照"),
     to: "Workspace",
     title: t("Reconcile on the next entry", "次の入室時に反映する"),
     detail: t(
@@ -64,73 +77,70 @@ const flow = [
 
 const steps = [
   {
-    title: t(
-      "Confirm which Context will own the runtime",
-      "ランタイムを管理する Context を確認する",
-    ),
+    title: t("Create one reusable Runtime", "再利用できる Runtime を作る"),
     location: t("Trusted host", "信頼するホスト"),
-    command: `tobari context show`,
+    command: `tobari runtime create --name coding\ntobari runtime show --name coding`,
     expected: t(
-      "The report identifies the current Context, selected image, and runtime status. All Workspaces bound to this Context use its selected runtime on their next entry.",
-      "現在の Context、選択中のイメージ、ランタイムの状態が表示されます。この Context に結び付いた Workspace は、次の入室時に選択中のランタイムを使います。",
+      "The report gives the stable Runtime ID and owner-only source path. Creation changes no Context.",
+      "安定した Runtime ID と所有者専用ソースパスが表示されます。作成では Context は変わりません。",
     ),
     note: t(
-      "Use a named Context when you need a separate agent or language toolchain. Select it before continuing with context use --name <name>.",
-      "エージェントや言語ツールチェーンを分けたい場合は、名前付き Context を使います。続行前に context use --name <name> で選択してください。",
+      "Runtime names are installation-wide. Use runtime list before choosing another unique name.",
+      "Runtime 名はインストール全体で固有です。別名を決める前に runtime list を確認します。",
     ),
   },
   {
     title: t(
-      "Create the managed Dockerfile once",
-      "管理対象の Dockerfile を一度だけ作る",
+      "Edit the complete Runtime source tree",
+      "Runtime ソースツリー全体を編集する",
     ),
     location: t("Trusted host", "信頼するホスト"),
-    command: `tobari runtime init\ntobari context show`,
-    expected: t(
-      "Tobari creates an owner-only runtime/Dockerfile and reports its exact path. It does not overwrite an existing recipe.",
-      "所有者だけが読める runtime/Dockerfile が作成され、正確なパスが表示されます。既存のレシピは上書きしません。",
-    ),
-    note: t(
-      "If runtime_recipe_exists is returned, do not initialize again. Open the Dockerfile path shown by context show.",
-      "runtime_recipe_exists が返った場合は再初期化しません。context show が表示する Dockerfile のパスを開いてください。",
-    ),
-  },
-  {
-    title: t(
-      "Add the agent and the tools it actually needs",
-      "エージェントと必要な開発ツールを追加する",
-    ),
-    location: t(
-      "Edit the reported Dockerfile on the trusted host",
-      "信頼するホストで、表示された Dockerfile を編集",
-    ),
     command: t(
-      `<editor> <dockerfile-path-shown-by-context-show>`,
-      `<エディタ> <context-show-に表示された-Dockerfile-のパス>`,
+      `<editor> <source-path>/Dockerfile`,
+      `<エディタ> <source-path>/Dockerfile`,
     ),
     expected: t(
-      "The generated FROM line, Tobari entrypoint contract, and final USER tobari remain intact. Package and agent installation commands are placed between USER root and USER tobari.",
-      "生成済みの FROM 行、Tobari のエントリーポイント契約、最後の USER tobari を維持します。パッケージとエージェントのインストール処理は USER root と USER tobari の間へ追加します。",
+      "Dockerfile, scripts, manifests, and configuration are managed together under source/. Editing creates no revision.",
+      "Dockerfile、スクリプト、マニフェスト、設定を source/ 配下で一緒に管理します。編集だけではリビジョンを作りません。",
     ),
     note: t(
-      "Pin versions where practical. Never copy access tokens, cloud credentials, host credential files, or private package-manager configuration into the image.",
-      "可能な範囲でバージョンを固定してください。アクセストークン、クラウド認証情報、ホストの認証ファイル、非公開のパッケージ設定をイメージへ入れないでください。",
+      "Never place access tokens, host credentials, or private package configuration in build source or image layers.",
+      "アクセストークン、ホスト認証情報、非公開パッケージ設定をビルドソースやイメージ層へ入れません。",
     ),
   },
   {
     title: t(
-      "Build, validate, and select the image",
-      "イメージをビルドし、検査して採用する",
+      "Build and inspect immutable history",
+      "不変履歴をビルドして確認する",
     ),
     location: t("Trusted host", "信頼するホスト"),
-    command: `tobari runtime build\ntobari context show`,
+    command: t(
+      `tobari runtime build --name coding\ntobari runtime history --name coding`,
+      `tobari runtime build --name coding\ntobari runtime history --name coding`,
+    ),
     expected: t(
-      "The build completes, compatibility is verified, and the Context reports a ready custom runtime with the selected image digest.",
-      "ビルドと互換性検査が完了し、Context に準備済みのカスタムランタイムと選択されたイメージダイジェストが表示されます。",
+      "A compatible build appends coding@1. The build uses an immutable full-tree snapshot and changes no Context.",
+      "互換ビルドが coding@1 を追加します。不変なツリー全体のスナップショットを使い、Context は変えません。",
     ),
     note: t(
-      "runtime build is a host Docker-build boundary. Network access performed by the Dockerfile is not reviewed by the Workspace HTTP policy, so review every base image and download performed during the build.",
-      "runtime build はホスト上の Docker ビルドです。Dockerfile がビルド中に行う通信は Workspace の HTTP ポリシーレビューを通らないため、ベースイメージとダウンロード先を確認してください。",
+      "A failed or unchanged build appends no ordinal. Review every base image and download used by the host build.",
+      "失敗または同一内容のビルドでは ordinal を追加しません。ホストビルドが使うベースと取得元を確認します。",
+    ),
+  },
+  {
+    title: t(
+      "Pin the ready revision to a Context",
+      "準備済みリビジョンを Context に固定する",
+    ),
+    location: t("Trusted host", "信頼するホスト"),
+    command: `tobari context runtime set --runtime coding@1\ntobari context show`,
+    expected: t(
+      "The selected Context reports coding@1. The same revision may be selected by another Context.",
+      "選択した Context に coding@1 が表示されます。同じリビジョンを別 Context でも選べます。",
+    ),
+    note: t(
+      "Building coding@2 later does not upgrade this Context. Select a different ordinal explicitly for upgrade or rollback.",
+      "後で coding@2 をビルドしてもこの Context は更新されません。更新やロールバックでは別 ordinal を明示的に選びます。",
     ),
   },
   {
@@ -173,13 +183,13 @@ const installChecklist = t(
 
 const limits = t(
   [
-    "The build context is the Context runtime directory, not the current project. COPY cannot read arbitrary project or host files.",
+    "The build context is the immutable snapshot of Runtime source/, not the current project. COPY cannot read arbitrary project or host files.",
     "Do not replace the generated base, entrypoint, final user, or required runtime labels unless you are intentionally implementing the exact runtime contract.",
     "Do not bake secrets into Dockerfile instructions, build arguments, package configuration, image layers, or shell history.",
     "A compatible image supplies tools only. Tobari still fixes mounts, network, capabilities, resources, project identity, and Workspace lifetime.",
   ],
   [
-    "ビルドコンテキストは Context の runtime ディレクトリです。現在のプロジェクトや任意のホストファイルを COPY することはできません。",
+    "ビルドコンテキストは Runtime source/ の不変スナップショットです。現在のプロジェクトや任意のホストファイルを COPY することはできません。",
     "完全なランタイム契約を意図的に実装する場合を除き、生成されたベース、エントリーポイント、最後のユーザー、必須ラベルを置き換えないでください。",
     "Dockerfile、ビルド引数、パッケージ設定、イメージレイヤー、シェル履歴へ秘密情報を入れないでください。",
     "互換イメージが提供するのはツールです。マウント、ネットワーク、capability、リソース、プロジェクトの識別、Workspace の寿命は引き続き Tobari が固定します。",
@@ -208,8 +218,8 @@ const limits = t(
     <p>
       {
         t(
-          "The standard base runtime is intentionally minimal. Quickstart uses its curl command directly so you can verify denial, review, allow, and retry without choosing an agent. Before using Tobari on a real repository, build a Context-owned runtime that contains your agent and project toolchain.",
-          "標準ベースランタイムは意図的に最小限です。クイックスタートは、その中の curl を直接使い、エージェントを選ばずに拒否、レビュー、許可、再実行を確認します。実際のリポジトリで使う前に、エージェントとプロジェクトの開発ツールを含む、Context 管理のランタイムをビルドしてください。",
+          "The standard Runtime is intentionally minimal. Quickstart uses its curl command directly so you can verify denial, review, allow, and retry without choosing an agent. For real work, build one reusable Runtime and explicitly select its ready revision for the Contexts that need it.",
+          "標準 Runtime は意図的に最小限です。クイックスタートでは curl を使い、エージェントを選ばずに拒否、レビュー、許可、再実行を確認します。実作業では再利用できる Runtime をビルドし、必要な Context へ準備済みリビジョンを明示的に選択します。",
         )
       }
     </p>
@@ -233,16 +243,16 @@ const limits = t(
     <h2>
       {
         t(
-          "Follow the image from recipe to Workspace",
-          "レシピから Workspace までを番号順に追う",
+          "Follow source, revision, binding, and Workspace",
+          "ソース、リビジョン、参照、Workspace を順に追う",
         )
       }
     </h2>
     <p class="runtime-section-intro">
       {
         t(
-          "The recipe belongs to a Context. A build candidate becomes active only after compatibility validation, and Workspaces observe it on their next entry.",
-          "レシピは Context に属します。ビルドした候補は互換性検査に成功した場合だけ有効になり、Workspace は次の入室時にその選択を反映します。",
+          "Runtime source and immutable history are installation-wide. Build never changes a Context; explicit selection pins one ready revision, and Workspaces observe it on their next entry.",
+          "Runtime ソースと不変履歴はインストール全体に属します。ビルドは Context を変えず、明示的な選択で準備済みリビジョンを固定し、Workspace は次の入室時に反映します。",
         )
       }
     </p>
@@ -280,8 +290,8 @@ const limits = t(
       >{" "}
       {
         t(
-          "promotion stops before the Context selection changes. Inspect the build output and context show; the previous runtime remains authoritative.",
-          "Context の選択情報を変える前に処理が止まります。ビルド出力と context show を確認してください。それまでのランタイムが引き続き有効です。",
+          "no revision is appended and every Context binding stays unchanged. Inspect the build output and runtime show.",
+          "リビジョンは追加されず、すべての Context 参照が変わりません。ビルド出力と runtime show を確認してください。",
         )
       }
     </p>
@@ -421,11 +431,11 @@ const limits = t(
     <ul>
       <li>
         <a
-          href={evidenceHref("internal/infra/dockerruntime/context_runtime.go")}
+          href={evidenceHref("internal/infra/dockerruntime/runtime_library.go")}
           >{
             t(
-              "Context runtime initialization, build, validation, and promotion",
-              "Context ランタイムの初期化、ビルド、検査、採用",
+              "Runtime source, snapshot, build, validation, and history",
+              "Runtime ソース、スナップショット、ビルド、検査、履歴",
             )
           }</a
         >
@@ -442,8 +452,8 @@ const limits = t(
         <a href={evidenceHref("internal/cli/runtime_catalog.go")}
           >{
             t(
-              "runtime init and runtime build command contracts",
-              "runtime init と runtime build のコマンド契約",
+              "Runtime catalog and Context selection command contracts",
+              "Runtime Catalog と Context 選択のコマンド契約",
             )
           }</a
         >

@@ -21,6 +21,7 @@ const (
 	TaskContextCreate      = "context.create"
 	TaskContextDelete      = "context.delete"
 	TaskContextUse         = "context.use"
+	TaskContextRuntimeSet  = "context.runtime.set"
 	TaskConfigShell        = "config.shell"
 	TaskConfigGit          = "config.git"
 	TaskConfigBootstrapAWS = "config.bootstrap.aws"
@@ -34,6 +35,8 @@ const (
 	ActiveContextTargetID           = "active-context"
 	ContextRuntimeTargetKind        = "context-runtime"
 	ActiveContextRuntimeID          = "active-context-runtime"
+	ContextRuntimeBindingTargetKind = "context-runtime-binding"
+	ContextRuntimeBindingTargetID   = "context-runtime-binding"
 	ContextRuntimeRecipeFile        = "runtime/Dockerfile"
 	OfficialRuntimeBase             = "tobari-runtime:base"
 	ContextShellTargetKind          = "context-shell-environment"
@@ -45,7 +48,7 @@ const (
 )
 
 // ContextNativeReadiness selects the trusted binary's finite native-client
-// compatibility overlay independently from the Context's policy preset.
+// compatibility overlay independently from the Context-owned policy snapshot.
 type ContextNativeReadiness string
 
 const (
@@ -62,35 +65,25 @@ func (r ContextNativeReadiness) Validate() error {
 	}
 }
 
-// ResolveContextNativeReadiness preserves schema-v1 manifests written before
-// the capability was explicit. Their preset-coupled behavior remains unchanged.
-func ResolveContextNativeReadiness(value ContextNativeReadiness, presetOrigin string) (ContextNativeReadiness, error) {
+// ResolveContextNativeReadiness resolves the explicit readiness setting.
+func ResolveContextNativeReadiness(value ContextNativeReadiness) (ContextNativeReadiness, error) {
 	if value != "" {
 		return value, value.Validate()
 	}
-	if err := ValidatePolicyPresetOrigin(presetOrigin); err != nil {
-		return "", err
-	}
-	if presetOrigin == DefaultPolicyPresetOrigin {
-		return ContextNativeReadinessEnabled, nil
-	}
-	return ContextNativeReadinessDisabled, nil
+	return ContextNativeReadinessEnabled, nil
 }
 
 // ContextCreateComposition is the complete policy selection used to create one
-// immutable Context snapshot. MethodPolicy is nil when the selected preset's
-// method policy is retained unchanged.
+// immutable Context snapshot. MethodPolicy is nil when direct mode retains the
+// fixed built-in default method policy.
 type ContextCreateComposition struct {
-	PolicyPresetOrigin string
-	NativeReadiness    ContextNativeReadiness
-	MethodPolicy       *PolicyPresetMethodPolicy
-	Bootstrap          *ContextBootstrapSnapshot
+	NativeReadiness  ContextNativeReadiness
+	MethodPolicy     *ContextMethodPolicy
+	Bootstrap        *ContextBootstrapSnapshot
+	RuntimeSelection string
 }
 
 func (c ContextCreateComposition) Validate() error {
-	if err := ValidatePolicyPresetOrigin(c.PolicyPresetOrigin); err != nil {
-		return err
-	}
 	if err := c.NativeReadiness.Validate(); err != nil {
 		return err
 	}
@@ -103,6 +96,9 @@ func (c ContextCreateComposition) Validate() error {
 		if err := c.Bootstrap.Validate(); err != nil {
 			return err
 		}
+	}
+	if _, _, err := ParseRuntimeSelection(c.RuntimeSelection); err != nil {
+		return err
 	}
 	return nil
 }
@@ -261,11 +257,12 @@ type ContextRuntimeKind string
 const (
 	ContextRuntimeKindOfficial   ContextRuntimeKind = "official"
 	ContextRuntimeKindDockerfile ContextRuntimeKind = "dockerfile"
+	ContextRuntimeKindManaged    ContextRuntimeKind = "managed"
 )
 
 func (k ContextRuntimeKind) Validate() error {
 	switch k {
-	case ContextRuntimeKindOfficial, ContextRuntimeKindDockerfile:
+	case ContextRuntimeKindOfficial, ContextRuntimeKindDockerfile, ContextRuntimeKindManaged:
 		return nil
 	default:
 		return fmt.Errorf("context runtime kind is invalid: %q", k)
@@ -624,16 +621,21 @@ func (r ContextRuntimeRecipe) Validate() error {
 	return nil
 }
 
-// ContextRuntimeReport is the safe projection of runtime recipe state. The
-// resolved Dockerfile path is host diagnostic metadata, never persisted in
-// the manifest or mounted into a Workspace.
+// ContextRuntimeReport is the safe projection of one Context's exact Runtime
+// binding. Legacy recipe fields remain internal-only while pre-public state is
+// rejected or recreated.
 type ContextRuntimeReport struct {
 	Kind          ContextRuntimeKind   `json:"kind"`
 	Status        ContextRuntimeStatus `json:"status"`
+	Image         string               `json:"image,omitempty"`
 	Dockerfile    string               `json:"dockerfile,omitempty"`
 	BaseReference string               `json:"base_reference,omitempty"`
 	SourceDigest  string               `json:"source_digest,omitempty"`
 	ImageDigest   string               `json:"image_digest,omitempty"`
+	RuntimeID     string               `json:"runtime_id,omitempty"`
+	Name          string               `json:"name,omitempty"`
+	Revision      string               `json:"revision,omitempty"`
+	Ordinal       int                  `json:"ordinal,omitempty"`
 }
 
 func (r ContextRuntimeReport) Validate() error {
@@ -649,11 +651,32 @@ func (r ContextRuntimeReport) Validate() error {
 	if r.Kind == ContextRuntimeKindDockerfile && r.Status == ContextRuntimeStatusOfficial {
 		return fmt.Errorf("Dockerfile runtime cannot have official status")
 	}
+	if r.RuntimeID != "" {
+		if r.Kind != ContextRuntimeKindManaged && r.Kind != ContextRuntimeKindOfficial {
+			return fmt.Errorf("revision-bound Runtime kind is invalid")
+		}
+		if r.Status != ContextRuntimeStatusReady {
+			if r.RuntimeID != StandardRuntimeID || r.Status != ContextRuntimeStatusOfficial {
+				return fmt.Errorf("Runtime reference must be ready or built-in standard")
+			}
+		}
+		binding := RuntimeBinding{RuntimeID: r.RuntimeID, Name: r.Name, Revision: r.Revision, Ordinal: r.Ordinal, Image: r.Image}
+		if err := binding.Validate(); err != nil {
+			return err
+		}
+	} else if r.Kind == ContextRuntimeKindManaged {
+		return fmt.Errorf("managed Runtime reference requires stable identity")
+	}
 	if r.Dockerfile != "" && (!filepath.IsAbs(r.Dockerfile) || filepath.Clean(r.Dockerfile) != r.Dockerfile) {
 		return fmt.Errorf("runtime Dockerfile must be a canonical absolute path")
 	}
 	if r.BaseReference != "" {
 		if err := ValidateImageSelector(r.BaseReference); err != nil {
+			return err
+		}
+	}
+	if r.Image != "" {
+		if err := ValidateImageSelector(r.Image); err != nil {
 			return err
 		}
 	}
@@ -683,20 +706,20 @@ func ValidateDigest(value string) error {
 // Paths are deliberately resolved by infrastructure rather than persisted in
 // the manifest so stores remain independently protected.
 type ContextManifest struct {
-	SchemaVersion        int                              `json:"schema_version"`
-	ID                   string                           `json:"id"`
-	Name                 string                           `json:"name"`
-	AgentProfile         string                           `json:"agent_profile"`
-	Image                string                           `json:"image"`
-	PolicyMode           ContextPolicyMode                `json:"policy_mode"`
-	SourceAccess         ContextSourceAccess              `json:"source_access"`
-	PolicyPresetOrigin   string                           `json:"policy_preset_origin"`
-	PolicyPresetRevision string                           `json:"policy_preset_revision"`
-	NativeReadiness      ContextNativeReadiness           `json:"native_readiness,omitempty"`
-	Runtime              *ContextRuntimeRecipe            `json:"runtime,omitempty"`
-	ShellEnvironment     []ContextShellEnvironmentSetting `json:"shell_environment,omitempty"`
-	GitIdentity          *ContextGitIdentitySetting       `json:"git_identity,omitempty"`
-	Bootstrap            *ContextBootstrapSnapshot        `json:"bootstrap,omitempty"`
+	SchemaVersion    int                              `json:"schema_version"`
+	ID               string                           `json:"id"`
+	Name             string                           `json:"name"`
+	AgentProfile     string                           `json:"agent_profile"`
+	Image            string                           `json:"image"`
+	PolicyMode       ContextPolicyMode                `json:"policy_mode"`
+	SourceAccess     ContextSourceAccess              `json:"source_access"`
+	PolicyRevision   string                           `json:"policy_revision"`
+	NativeReadiness  ContextNativeReadiness           `json:"native_readiness,omitempty"`
+	Runtime          *ContextRuntimeRecipe            `json:"runtime,omitempty"`
+	RuntimeBinding   *RuntimeBinding                  `json:"runtime_binding,omitempty"`
+	ShellEnvironment []ContextShellEnvironmentSetting `json:"shell_environment,omitempty"`
+	GitIdentity      *ContextGitIdentitySetting       `json:"git_identity,omitempty"`
+	Bootstrap        *ContextBootstrapSnapshot        `json:"bootstrap,omitempty"`
 }
 
 func (m ContextManifest) Validate() error {
@@ -721,18 +744,26 @@ func (m ContextManifest) Validate() error {
 	if err := m.SourceAccess.Validate(); err != nil {
 		return err
 	}
-	if err := ValidatePolicyPresetOrigin(m.PolicyPresetOrigin); err != nil {
-		return err
+	if !digestPattern.MatchString(m.PolicyRevision) {
+		return fmt.Errorf("context policy revision is invalid")
 	}
-	if !digestPattern.MatchString(m.PolicyPresetRevision) {
-		return fmt.Errorf("context policy preset revision is invalid")
-	}
-	if _, err := ResolveContextNativeReadiness(m.NativeReadiness, m.PolicyPresetOrigin); err != nil {
+	if _, err := ResolveContextNativeReadiness(m.NativeReadiness); err != nil {
 		return err
 	}
 	if m.Runtime != nil {
 		if err := m.Runtime.Validate(); err != nil {
 			return err
+		}
+	}
+	if m.RuntimeBinding != nil {
+		if m.Runtime != nil {
+			return fmt.Errorf("Context cannot own both a Runtime binding and legacy recipe")
+		}
+		if err := m.RuntimeBinding.Validate(); err != nil {
+			return err
+		}
+		if m.Image != m.RuntimeBinding.Image {
+			return fmt.Errorf("Context image does not match its Runtime binding")
 		}
 	}
 	if err := validateContextShellEnvironment(m.ShellEnvironment, false); err != nil {
@@ -781,20 +812,19 @@ func (p ContextStorePaths) Validate() error {
 
 // ContextSummary is one item in the complete local Context collection.
 type ContextSummary struct {
-	ID                   string                   `json:"id"`
-	Name                 string                   `json:"name"`
-	ContextState         ContextObservationState  `json:"context_state"`
-	Active               bool                     `json:"active"`
-	AgentProfile         string                   `json:"agent_profile"`
-	Image                string                   `json:"image"`
-	PolicyMode           ContextPolicyMode        `json:"policy_mode"`
-	SourceAccess         ContextSourceAccess      `json:"source_access"`
-	PolicyPresetOrigin   string                   `json:"policy_preset_origin"`
-	PolicyPresetRevision string                   `json:"policy_preset_revision"`
-	NativeReadiness      ContextNativeReadiness   `json:"native_readiness"`
-	MethodPolicy         PolicyPresetMethodPolicy `json:"method_policy"`
-	RuntimeStatus        ContextRuntimeStatus     `json:"runtime_status,omitempty"`
-	Bootstrap            ContextBootstrapReport   `json:"bootstrap"`
+	ID              string                  `json:"id"`
+	Name            string                  `json:"name"`
+	ContextState    ContextObservationState `json:"context_state"`
+	Active          bool                    `json:"active"`
+	AgentProfile    string                  `json:"agent_profile"`
+	Image           string                  `json:"image"`
+	PolicyMode      ContextPolicyMode       `json:"policy_mode"`
+	SourceAccess    ContextSourceAccess     `json:"source_access"`
+	PolicyRevision  string                  `json:"policy_revision"`
+	NativeReadiness ContextNativeReadiness  `json:"native_readiness"`
+	MethodPolicy    ContextMethodPolicy     `json:"method_policy"`
+	RuntimeStatus   ContextRuntimeStatus    `json:"runtime_status,omitempty"`
+	Bootstrap       ContextBootstrapReport  `json:"bootstrap"`
 }
 
 func (s ContextSummary) Validate() error {
@@ -808,16 +838,15 @@ func (s ContextSummary) Validate() error {
 		return fmt.Errorf("configured Context item must be persisted")
 	}
 	manifest := ContextManifest{
-		SchemaVersion:        ContextSchemaVersion,
-		ID:                   s.ID,
-		Name:                 s.Name,
-		AgentProfile:         s.AgentProfile,
-		Image:                s.Image,
-		PolicyMode:           s.PolicyMode,
-		SourceAccess:         s.SourceAccess,
-		PolicyPresetOrigin:   s.PolicyPresetOrigin,
-		PolicyPresetRevision: s.PolicyPresetRevision,
-		NativeReadiness:      s.NativeReadiness,
+		SchemaVersion:   ContextSchemaVersion,
+		ID:              s.ID,
+		Name:            s.Name,
+		AgentProfile:    s.AgentProfile,
+		Image:           s.Image,
+		PolicyMode:      s.PolicyMode,
+		SourceAccess:    s.SourceAccess,
+		PolicyRevision:  s.PolicyRevision,
+		NativeReadiness: s.NativeReadiness,
 	}
 	if err := manifest.Validate(); err != nil {
 		return err
@@ -1026,32 +1055,30 @@ func (a ContextAuthentication) Validate(observed bool) error {
 
 // ContextReport is the complete selected Context view.
 type ContextReport struct {
-	Task                 string                           `json:"task"`
-	ContextState         ContextObservationState          `json:"context_state"`
-	ID                   string                           `json:"id"`
-	Name                 string                           `json:"name"`
-	Active               bool                             `json:"active"`
-	AgentProfile         string                           `json:"agent_profile"`
-	Image                string                           `json:"image"`
-	PolicyMode           ContextPolicyMode                `json:"policy_mode"`
-	SourceAccess         ContextSourceAccess              `json:"source_access"`
-	PolicyPresetOrigin   string                           `json:"policy_preset_origin"`
-	PolicyPresetRevision string                           `json:"policy_preset_revision"`
-	NativeReadiness      ContextNativeReadiness           `json:"native_readiness"`
-	PolicyGuardrail      PolicyPresetGuardrail            `json:"policy_guardrail"`
-	MethodPolicy         PolicyPresetMethodPolicy         `json:"method_policy"`
-	ShellEnvironment     []ContextShellEnvironmentSetting `json:"shell_environment"`
-	GitIdentity          ContextGitIdentitySetting        `json:"git_identity"`
-	Stores               ContextStorePaths                `json:"stores"`
-	Runtime              ContextRuntimeReport             `json:"runtime"`
-	Cluster              ContextClusterStatus             `json:"cluster"`
-	Authentication       ContextAuthentication            `json:"authentication"`
-	Bootstrap            ContextBootstrapReport           `json:"bootstrap"`
+	Task             string                           `json:"task"`
+	ContextState     ContextObservationState          `json:"context_state"`
+	ID               string                           `json:"id"`
+	Name             string                           `json:"name"`
+	Active           bool                             `json:"active"`
+	AgentProfile     string                           `json:"agent_profile"`
+	Image            string                           `json:"image"`
+	PolicyMode       ContextPolicyMode                `json:"policy_mode"`
+	SourceAccess     ContextSourceAccess              `json:"source_access"`
+	PolicyRevision   string                           `json:"policy_revision"`
+	NativeReadiness  ContextNativeReadiness           `json:"native_readiness"`
+	MethodPolicy     ContextMethodPolicy              `json:"method_policy"`
+	ShellEnvironment []ContextShellEnvironmentSetting `json:"shell_environment"`
+	GitIdentity      ContextGitIdentitySetting        `json:"git_identity"`
+	Stores           ContextStorePaths                `json:"stores"`
+	Runtime          ContextRuntimeReport             `json:"runtime"`
+	Cluster          ContextClusterStatus             `json:"cluster"`
+	Authentication   ContextAuthentication            `json:"authentication"`
+	Bootstrap        ContextBootstrapReport           `json:"bootstrap"`
 }
 
 func (r ContextReport) Validate() error {
 	if r.Task != TaskContextShow && r.Task != TaskContextCreate && r.Task != TaskContextUse &&
-		r.Task != TaskConfigShell && r.Task != TaskConfigGit && r.Task != TaskConfigBootstrapAWS && r.Task != TaskConfigBootstrapEKS && r.Task != TaskRuntimeInit && r.Task != TaskRuntimeBuild {
+		r.Task != TaskConfigShell && r.Task != TaskConfigGit && r.Task != TaskConfigBootstrapAWS && r.Task != TaskConfigBootstrapEKS && r.Task != TaskContextRuntimeSet && r.Task != TaskRuntimeInit && r.Task != TaskRuntimeBuild {
 		return fmt.Errorf("context report task is invalid")
 	}
 	if err := r.ContextState.Validate(); err != nil {
@@ -1061,31 +1088,27 @@ func (r ContextReport) Validate() error {
 		if r.Task != TaskContextShow || r.Name != DefaultContextName || !r.Active || r.ID != "" || r.Stores != (ContextStorePaths{}) {
 			return fmt.Errorf("synthetic default Context report claims persisted authority")
 		}
-		if r.AgentProfile == "" || r.Image == "" || r.PolicyMode.Validate() != nil || r.SourceAccess.Validate() != nil || r.PolicyPresetOrigin != DefaultPolicyPresetOrigin || r.PolicyPresetRevision != "" || (r.NativeReadiness != "" && r.NativeReadiness != ContextNativeReadinessEnabled) || r.PolicyGuardrail != PolicyPresetGuardrailMethodPolicy {
+		if r.AgentProfile == "" || r.Image == "" || r.PolicyMode.Validate() != nil || r.SourceAccess.Validate() != nil || r.PolicyRevision != "" || (r.NativeReadiness != "" && r.NativeReadiness != ContextNativeReadinessEnabled) {
 			return fmt.Errorf("synthetic default Context display metadata is invalid")
 		}
 	} else {
-		if _, err := ResolveContextNativeReadiness(r.NativeReadiness, r.PolicyPresetOrigin); err != nil {
+		if _, err := ResolveContextNativeReadiness(r.NativeReadiness); err != nil {
 			return err
 		}
 		manifest := ContextManifest{
-			SchemaVersion:        ContextSchemaVersion,
-			ID:                   r.ID,
-			Name:                 r.Name,
-			AgentProfile:         r.AgentProfile,
-			Image:                r.Image,
-			PolicyMode:           r.PolicyMode,
-			SourceAccess:         r.SourceAccess,
-			PolicyPresetOrigin:   r.PolicyPresetOrigin,
-			PolicyPresetRevision: r.PolicyPresetRevision,
+			SchemaVersion:  ContextSchemaVersion,
+			ID:             r.ID,
+			Name:           r.Name,
+			AgentProfile:   r.AgentProfile,
+			Image:          r.Image,
+			PolicyMode:     r.PolicyMode,
+			SourceAccess:   r.SourceAccess,
+			PolicyRevision: r.PolicyRevision,
 		}
 		if err := manifest.Validate(); err != nil {
 			return err
 		}
 		if err := r.Stores.Validate(); err != nil {
-			return err
-		}
-		if err := r.PolicyGuardrail.Validate(); err != nil {
 			return err
 		}
 	}
@@ -1094,6 +1117,9 @@ func (r ContextReport) Validate() error {
 	}
 	if err := r.Runtime.Validate(); err != nil {
 		return err
+	}
+	if r.Runtime.RuntimeID != "" && r.Runtime.Image != r.Image {
+		return fmt.Errorf("Context report image does not match its Runtime binding")
 	}
 	if err := validateContextShellEnvironment(r.ShellEnvironment, true); err != nil {
 		return err

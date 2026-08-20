@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "candidate": "interactive_workspace_stdout",
+  "visible_bytes_preserved": true,
+  "allowed_tokens": [
+    "punctuation",
+    "key",
+    "string",
+    "number",
+    "keyword",
+    "comment"
+  ],
+  "machine_output_changed": false,
+  "external_processing_count": 0
+}
