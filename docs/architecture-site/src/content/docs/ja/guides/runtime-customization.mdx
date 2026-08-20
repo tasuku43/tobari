@@ -21,13 +21,17 @@ tobari runtime show --name frontend
 ```
 
 作成結果に所有者専用の `source_path` が表示されます。名前はインストール内で固有で、
-安定した Runtime ID はリビジョンが増えても変わりません。
+安定した Runtime ID はリビジョンが増えても変わりません。source 自体と配下の
+ディレクトリには group/other の権限ビットを付けられません。
 
 ## 2. 完全なソースツリーを編集する
 
 報告された `source_path` 全体が Docker ビルドコンテキストです。Dockerfile の隣で
 スクリプト、パッケージマニフェスト、設定ファイルを管理できます。編集だけでは
-リビジョンも Context 参照も変わりません。
+リビジョンも Context 参照も変わりません。上限は通常ファイル 1,024 件、
+ディレクトリ 256 件、1 ファイル 32 MiB、全体 64 MiB です。リンクと特殊ファイルは
+使えません。各ファイルから group/other 権限を外し、データは `0600`、所有者実行が
+必要なスクリプトやバイナリは `0700` にします。
 
 信頼するホストでレシピを編集します。最小限のカスタマイズでは、テンプレートのベースと利用者の切り替えを保ち、既存の `USER root` と `USER tobari` の間にパッケージを追加します。
 
@@ -101,6 +105,9 @@ exit
 
 - `runtime_exists`: `tobari runtime show` で既存 Runtime を確認します。
 - `runtime_not_found`: `tobari runtime list` から名前を選びます。
+- `runtime_source_invalid`: エラーが示す相対パスと実際のサイズ、件数、種別、または
+  所有者専用モードを修正します。`0755` でコピーされた source は group/other の
+  全ビットを外し、通常は `0700` にします。
 - `runtime_build_failed`: ソースを直して `tobari runtime show` を確認します。履歴と Context は変わりません。
 - `runtime_revision_not_ready`: `tobari runtime history` から成功済み ordinal を選びます。
 - `image_not_found`: 宣言されたベースイメージまたは選択したイメージを利用可能にして、明示的なビルドか調整を再試行します。

@@ -723,8 +723,14 @@ initialization remains behind a fully validated create/write intent.
 
 `runtime create` is a host-only create in the installation Runtime catalog.
 `runtime build` is a host-only catalog write. It rejects symlinks, special
-files, escaping paths, unsafe modes, and file-count/per-file/total-byte bounds,
-then builds only a private immutable snapshot of the complete source tree.
+files, escaping paths, group/other permission bits, more than 1,024 regular
+files or 256 directories, a regular file over 32 MiB, and a total over 64 MiB,
+then builds only a private immutable snapshot of the complete source tree. The
+adapter streams source bytes into the snapshot and semantic hash with a fixed
+buffer, so the 64 MiB input ceiling is not also a whole-source heap allocation.
+Validation faults expose a bounded quoted relative path and reviewed
+actual/limit or owner-only facts, never an absolute host path, source bytes, or
+private cause.
 Compatibility and image-digest checks complete before the successful revision
 is appended. Neither command mounts Runtime source into a Workspace, accepts a
 secret or arbitrary image-name override, or changes a Context. A build failure

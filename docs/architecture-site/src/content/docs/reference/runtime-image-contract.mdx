@@ -96,12 +96,15 @@ ${XDG_CONFIG_HOME:-$HOME/.config}/tobari/runtimes/frontend/source/
 The owner-only source directory is a complete Docker build context. Its
 generated Dockerfile starts from the official Runtime and returns to `USER
 tobari`; scripts, manifests, and configuration may live beside it. Creating or
-editing source changes neither Runtime history nor a Context binding.
+editing source changes neither Runtime history nor a Context binding. The root
+and children have no group/other permission bits. The context accepts at most
+1,024 regular files, 256 directories, 32 MiB per file, and 64 MiB total;
+owner-executable `0700` files are valid.
 
 `runtime build --name frontend` then:
 
-1. validates the bounded owner-only source tree and rejects links and special files;
-2. hashes canonical paths, modes, and bytes and writes an immutable snapshot;
+1. validates the numeric and owner-only source bounds and rejects links and special files;
+2. streams canonical paths, modes, sizes, and bytes through the digest while writing an immutable snapshot;
 3. derives a local image name and builds only from that snapshot;
 4. applies the exact compatibility inspection above;
 5. reads the immutable local image digest; and
@@ -120,15 +123,16 @@ project root, and Workspace home.
 
 ## Failure behavior
 
-| Condition                                            | Result                                                                                      |
-| ---------------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| Official base is not locally available               | Build it once from the CLI's embedded pinned assets, then inspect it.                       |
-| Required label, user, or entrypoint differs          | `incompatible_image`; no new logical Workspace for first entry, and existing state remains. |
-| Build fails                                          | History and every Context binding remain unchanged.                                         |
-| Compatibility or digest inspection fails after build | No revision is appended; inspect the bounded build diagnostics.                             |
-| Context selection is uncertain                       | Read `context show` before retrying. Do not assume either old or new binding.               |
-| Existing container has runtime-spec drift            | Next entry recreates only the exact owned work container after all validation succeeds.     |
-| Runtime container or network was lost                | Logical Workspace state and home remain; the next entry reconciles owned resources.         |
+| Condition                                            | Result                                                                                               |
+| ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| Official base is not locally available               | Build it once from the CLI's embedded pinned assets, then inspect it.                                |
+| Required label, user, or entrypoint differs          | `incompatible_image`; no new logical Workspace for first entry, and existing state remains.          |
+| Source path, size, count, kind, or mode is invalid   | `runtime_source_invalid` names the bounded relative path and concrete correction before Docker runs. |
+| Build fails                                          | History and every Context binding remain unchanged.                                                  |
+| Compatibility or digest inspection fails after build | No revision is appended; inspect the bounded build diagnostics.                                      |
+| Context selection is uncertain                       | Read `context show` before retrying. Do not assume either old or new binding.                        |
+| Existing container has runtime-spec drift            | Next entry recreates only the exact owned work container after all validation succeeds.              |
+| Runtime container or network was lost                | Logical Workspace state and home remain; the next entry reconciles owned resources.                  |
 
 ## Guarantees and limits
 

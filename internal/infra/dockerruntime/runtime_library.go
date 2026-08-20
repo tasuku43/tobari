@@ -12,9 +12,11 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/tasuku43/tobari/internal/domain/fault"
 	"github.com/tasuku43/tobari/internal/domain/tobari"
 )
 
@@ -22,8 +24,9 @@ const (
 	runtimeSourceFileMode = 0o600
 	maxRuntimeSourceFiles = 1024
 	maxRuntimeSourceDirs  = 256
-	maxRuntimeSourceFile  = 2 * 1024 * 1024
-	maxRuntimeSourceTotal = 16 * 1024 * 1024
+	maxRuntimeSourceFile  = int64(32 * 1024 * 1024)
+	maxRuntimeSourceTotal = int64(64 * 1024 * 1024)
+	runtimeSourceCopySize = 128 * 1024
 )
 
 const managedRuntimeTemplate = `# This directory is the complete build context for this Tobari Runtime.
@@ -322,17 +325,49 @@ func (r *Runtime) CreateRuntime(ctx context.Context, name string) (tobari.Runtim
 type runtimeSourceEntry struct {
 	relative string
 	mode     os.FileMode
-	data     []byte
+	size     int64
+	info     os.FileInfo
 }
 
-func (r *Runtime) readRuntimeSource(name string) ([]runtimeSourceEntry, string, error) {
+func runtimeSourceInvalid(message string) error {
+	return fault.New(
+		fault.KindRejected,
+		"runtime_source_invalid",
+		message,
+		false,
+		fault.NextAction{Command: "runtime show", Reason: "Inspect the unchanged Runtime source path and history."},
+	)
+}
+
+func runtimeSourcePathLabel(relative string) string {
+	value := filepath.ToSlash(relative)
+	quoted := strconv.QuoteToGraphic(value)
+	if len(quoted) <= 512 {
+		return quoted
+	}
+	digest := sha256.Sum256([]byte(value))
+	return fmt.Sprintf("path-sha256:%x (projected path exceeded 512 bytes)", digest)
+}
+
+func runtimeSourceSizeMessage(kind, relative string, actual, limit int64) string {
+	return fmt.Sprintf(
+		"Runtime source %s %s is %d bytes; the limit is %d bytes (%d MiB).",
+		kind,
+		runtimeSourcePathLabel(relative),
+		actual,
+		limit,
+		limit/(1024*1024),
+	)
+}
+
+func (r *Runtime) snapshotRuntimeSource(name, snapshot string) (string, error) {
 	root := r.runtimeSourceDirectory(name)
 	if err := requirePrivateDirectory(root); err != nil {
-		return nil, "", fmt.Errorf("inspect Runtime source: %w", err)
+		return "", fmt.Errorf("inspect Runtime source: %w", err)
 	}
 	sourceRoot, err := os.OpenRoot(root)
 	if err != nil {
-		return nil, "", fmt.Errorf("open Runtime source: %w", err)
+		return "", fmt.Errorf("open Runtime source: %w", err)
 	}
 	defer sourceRoot.Close()
 	entries := make([]runtimeSourceEntry, 0)
@@ -347,102 +382,135 @@ func (r *Runtime) readRuntimeSource(name string) ([]runtimeSourceEntry, string, 
 		}
 		relative, err := filepath.Rel(root, path)
 		if err != nil || relative == "." || filepath.Clean(relative) != relative || filepath.IsAbs(relative) {
-			return fmt.Errorf("Runtime source path is invalid")
+			return runtimeSourceInvalid("Runtime source contains a path that is not a canonical relative child.")
 		}
 		info, err := entry.Info()
 		if err != nil {
 			return err
 		}
 		if info.Mode()&os.ModeSymlink != 0 {
-			return fmt.Errorf("Runtime source contains a symbolic link: %s", relative)
+			return runtimeSourceInvalid(fmt.Sprintf("Runtime source path %s is a symbolic link; only regular files and directories are accepted.", runtimeSourcePathLabel(relative)))
 		}
 		if entry.IsDir() {
 			directories++
 			if directories > maxRuntimeSourceDirs {
-				return fmt.Errorf("Runtime source contains too many directories")
+				return runtimeSourceInvalid(fmt.Sprintf("Runtime source contains %d directories; the limit is %d.", directories, maxRuntimeSourceDirs))
 			}
 			if info.Mode().Perm()&0o077 != 0 {
-				return fmt.Errorf("Runtime source directory must be owner-only: %s", relative)
+				return runtimeSourceInvalid(fmt.Sprintf(
+					"Runtime source directory %s has permissions %04o; remove all group/other permissions so it is owner-only (normally 0700).",
+					runtimeSourcePathLabel(relative), info.Mode().Perm(),
+				))
 			}
 			return nil
 		}
 		if !info.Mode().IsRegular() {
-			return fmt.Errorf("Runtime source contains a special file: %s", relative)
+			return runtimeSourceInvalid(fmt.Sprintf("Runtime source path %s is a special file; only regular files and directories are accepted.", runtimeSourcePathLabel(relative)))
 		}
 		if info.Mode().Perm()&0o077 != 0 {
-			return fmt.Errorf("Runtime source file must be owner-only: %s", relative)
+			return runtimeSourceInvalid(fmt.Sprintf(
+				"Runtime source file %s has permissions %04o; remove all group/other permissions so it is owner-only (for example 0600 or 0700).",
+				runtimeSourcePathLabel(relative), info.Mode().Perm(),
+			))
 		}
 		if info.Size() < 0 || info.Size() > maxRuntimeSourceFile {
-			return fmt.Errorf("Runtime source file is too large: %s", relative)
+			return runtimeSourceInvalid(runtimeSourceSizeMessage("file", relative, info.Size(), maxRuntimeSourceFile))
 		}
 		if len(entries) >= maxRuntimeSourceFiles {
-			return fmt.Errorf("Runtime source contains too many files")
+			return runtimeSourceInvalid(fmt.Sprintf("Runtime source contains %d files; the limit is %d.", len(entries)+1, maxRuntimeSourceFiles))
 		}
 		total += info.Size()
 		if total > maxRuntimeSourceTotal {
-			return fmt.Errorf("Runtime source is too large")
+			return runtimeSourceInvalid(fmt.Sprintf(
+				"Runtime source totals %d bytes after file %s; the total limit is %d bytes (%d MiB).",
+				total, runtimeSourcePathLabel(relative), maxRuntimeSourceTotal, maxRuntimeSourceTotal/(1024*1024),
+			))
 		}
-		file, err := sourceRoot.Open(relative) // #nosec G304 -- relative is below the opened managed source root and revalidated after bounded read.
-		if err != nil {
-			return err
-		}
-		data, readErr := io.ReadAll(io.LimitReader(file, maxRuntimeSourceFile+1))
-		closeErr := file.Close()
-		if readErr != nil {
-			return readErr
-		}
-		if closeErr != nil {
-			return closeErr
-		}
-		if int64(len(data)) > maxRuntimeSourceFile {
-			return fmt.Errorf("Runtime source file is too large: %s", relative)
-		}
-		after, err := sourceRoot.Lstat(relative)
-		if err != nil {
-			return err
-		}
-		if !after.Mode().IsRegular() || after.Mode()&os.ModeSymlink != 0 || after.Size() != int64(len(data)) || after.Mode().Perm() != info.Mode().Perm() {
-			return fmt.Errorf("Runtime source changed during snapshot: %s", relative)
-		}
-		entries = append(entries, runtimeSourceEntry{relative: filepath.ToSlash(relative), mode: info.Mode().Perm(), data: data})
+		entries = append(entries, runtimeSourceEntry{relative: filepath.ToSlash(relative), mode: info.Mode().Perm(), size: info.Size(), info: info})
 		return nil
 	})
 	if err != nil {
-		return nil, "", err
+		return "", err
 	}
 	if len(entries) == 0 {
-		return nil, "", fmt.Errorf("Runtime source is empty")
+		return "", runtimeSourceInvalid("Runtime source is empty; add a regular Dockerfile before building.")
 	}
 	sort.Slice(entries, func(i, j int) bool { return entries[i].relative < entries[j].relative })
+	if err := os.Mkdir(snapshot, 0o700); err != nil {
+		return "", err
+	}
 	var digest hash.Hash = sha256.New()
 	var length [8]byte
+	buffer := make([]byte, runtimeSourceCopySize)
 	for _, entry := range entries {
 		binary.BigEndian.PutUint64(length[:], uint64(len(entry.relative)))
 		_, _ = digest.Write(length[:])
 		_, _ = digest.Write([]byte(entry.relative))
 		binary.BigEndian.PutUint64(length[:], uint64(entry.mode.Perm()))
 		_, _ = digest.Write(length[:])
-		binary.BigEndian.PutUint64(length[:], uint64(len(entry.data)))
+		binary.BigEndian.PutUint64(length[:], uint64(entry.size)) // #nosec G115 -- inventory rejects negative sizes and caps each value at 32 MiB.
 		_, _ = digest.Write(length[:])
-		_, _ = digest.Write(entry.data)
-	}
-	return entries, "sha256:" + hex.EncodeToString(digest.Sum(nil)), nil
-}
 
-func writeRuntimeSnapshot(root string, entries []runtimeSourceEntry) error {
-	if err := os.Mkdir(root, 0o700); err != nil {
-		return err
-	}
-	for _, entry := range entries {
-		path := filepath.Join(root, filepath.FromSlash(entry.relative))
-		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-			return err
+		relative := filepath.FromSlash(entry.relative)
+		beforePath, err := sourceRoot.Lstat(relative)
+		if err != nil {
+			return "", err
 		}
-		if err := initializeBytes(path, entry.data, entry.mode); err != nil {
-			return err
+		if !beforePath.Mode().IsRegular() || beforePath.Mode()&os.ModeSymlink != 0 || !os.SameFile(entry.info, beforePath) || beforePath.Size() != entry.size || beforePath.Mode().Perm() != entry.mode {
+			return "", runtimeSourceInvalid(fmt.Sprintf("Runtime source file %s changed during snapshot; wait for edits to finish and retry.", runtimeSourcePathLabel(relative)))
+		}
+		source, err := sourceRoot.Open(relative) // #nosec G304 -- os.Root confines the canonical relative child below the managed source root.
+		if err != nil {
+			return "", err
+		}
+		opened, err := source.Stat()
+		if err != nil {
+			_ = source.Close()
+			return "", err
+		}
+		if !opened.Mode().IsRegular() || !os.SameFile(beforePath, opened) || opened.Size() != entry.size || opened.Mode().Perm() != entry.mode {
+			_ = source.Close()
+			return "", runtimeSourceInvalid(fmt.Sprintf("Runtime source file %s changed during snapshot; wait for edits to finish and retry.", runtimeSourcePathLabel(relative)))
+		}
+
+		target := filepath.Join(snapshot, relative)
+		if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
+			_ = source.Close()
+			return "", err
+		}
+		destination, err := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_EXCL, entry.mode) // #nosec G304 -- target is below a new private snapshot and derives from a validated canonical relative path.
+		if err != nil {
+			_ = source.Close()
+			return "", err
+		}
+		copied, copyErr := io.CopyBuffer(io.MultiWriter(destination, digest), io.LimitReader(source, entry.size+1), buffer)
+		closeDestinationErr := destination.Close()
+		afterOpened, statErr := source.Stat()
+		closeSourceErr := source.Close()
+		if copyErr != nil {
+			return "", copyErr
+		}
+		if closeDestinationErr != nil {
+			return "", closeDestinationErr
+		}
+		if statErr != nil {
+			return "", statErr
+		}
+		if closeSourceErr != nil {
+			return "", closeSourceErr
+		}
+		afterPath, err := sourceRoot.Lstat(relative)
+		if err != nil {
+			return "", err
+		}
+		if copied != entry.size || !afterPath.Mode().IsRegular() || afterPath.Mode()&os.ModeSymlink != 0 ||
+			!os.SameFile(beforePath, afterOpened) || !os.SameFile(beforePath, afterPath) ||
+			afterOpened.Size() != entry.size || afterPath.Size() != entry.size ||
+			afterOpened.Mode().Perm() != entry.mode || afterPath.Mode().Perm() != entry.mode {
+			return "", runtimeSourceInvalid(fmt.Sprintf("Runtime source file %s changed during snapshot; wait for edits to finish and retry.", runtimeSourcePathLabel(relative)))
 		}
 	}
-	return nil
+	return "sha256:" + hex.EncodeToString(digest.Sum(nil)), nil
 }
 
 func freezeRuntimeSnapshot(root string) error {
@@ -547,16 +615,6 @@ func (r *Runtime) BuildManagedRuntime(ctx context.Context, name string, diagnost
 		if err != nil {
 			return err
 		}
-		entries, revision, err := r.readRuntimeSource(name)
-		if err != nil {
-			return err
-		}
-		for _, existing := range manifest.Revisions {
-			if existing.Revision == revision {
-				result = tobari.RuntimeReport{Task: tobari.TaskRuntimeBuildV1, Runtime: manifest, NoChange: true}
-				return result.Validate()
-			}
-		}
 		revisionsRoot := r.runtimeRevisionsDirectory(name)
 		if err := requirePrivateDirectory(revisionsRoot); err != nil {
 			return err
@@ -567,12 +625,19 @@ func (r *Runtime) BuildManagedRuntime(ctx context.Context, name string, diagnost
 		}
 		defer os.RemoveAll(temporary)
 		snapshot := filepath.Join(temporary, "source")
-		if err := writeRuntimeSnapshot(snapshot, entries); err != nil {
+		revision, err := r.snapshotRuntimeSource(name, snapshot)
+		if err != nil {
 			return err
+		}
+		for _, existing := range manifest.Revisions {
+			if existing.Revision == revision {
+				result = tobari.RuntimeReport{Task: tobari.TaskRuntimeBuildV1, Runtime: manifest, NoChange: true}
+				return result.Validate()
+			}
 		}
 		dockerfile := filepath.Join(snapshot, "Dockerfile")
 		if info, err := os.Lstat(dockerfile); err != nil || !info.Mode().IsRegular() {
-			return fmt.Errorf("Runtime source requires a regular Dockerfile")
+			return runtimeSourceInvalid("Runtime source requires a regular file named \"Dockerfile\" at its root.")
 		}
 		image := managedLibraryRuntimeImage(name, revision)
 		pullBase, err := runtimeSourceUsesRefreshableBase(dockerfile, r.defaultRuntimeImage(), r.imageResolver().ShouldPullRuntimeImage(r.defaultRuntimeImage()))

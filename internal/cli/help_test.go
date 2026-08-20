@@ -67,6 +67,40 @@ func TestVersionHelpDeclaresBuildIdentityBeforeClusterMutation(t *testing.T) {
 	}
 }
 
+func TestRuntimeBuildHelpDeclaresCompleteSourceBoundary(t *testing.T) {
+	for _, test := range []struct {
+		args []string
+		want []string
+	}{
+		{args: []string{"runtime", "build", "--help"}, want: []string{"1,024", "256 directories", "32 MiB per file", "64 MiB total", "group/other permissions"}},
+		{args: []string{"help", "runtime", "build", "--format", "agent"}, want: []string{"1,024", "256 directories", "32 MiB per file", "64 MiB total", "group/other permissions", "runtime_source_invalid"}},
+	} {
+		var stdout, stderr bytes.Buffer
+		command := newReferenceTestCLI(strings.NewReader(""), &stdout, &stderr)
+		if code := runCLI(command, test.args); code != ExitOK {
+			t.Fatalf("Run(%v) code = %d, stderr = %q", test.args, code, stderr.String())
+		}
+		for _, want := range test.want {
+			if !strings.Contains(stdout.String(), want) {
+				t.Errorf("runtime build help %v lacks %q\n%s", test.args, want, stdout.String())
+			}
+		}
+	}
+}
+
+func TestRuntimeCreateHelpDeclaresOwnerOnlyChildren(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	command := newReferenceTestCLI(strings.NewReader(""), &stdout, &stderr)
+	if code := runCLI(command, []string{"runtime", "create", "--help"}); code != ExitOK {
+		t.Fatalf("runtime create help code = %d, stderr = %q", code, stderr.String())
+	}
+	for _, want := range []string{"future children", "no group/other permissions"} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Errorf("runtime create help lacks %q\n%s", want, stdout.String())
+		}
+	}
+}
+
 func TestContextShowHelpDeclaresOptionalHumanDetails(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	command := newReferenceTestCLI(strings.NewReader(""), &stdout, &stderr)

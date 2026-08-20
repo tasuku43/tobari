@@ -447,9 +447,12 @@ undeclared Docker mutation by the CLI.
   behavior remain absent.
 - `runtime create` creates one installation-owned, owner-only `source/` tree
   with a Dockerfile template. Scripts, package manifests, and configuration
-  files may be added beside it within the bounded regular-file contract.
-  `runtime build` snapshots the complete semantic tree and builds only from
-  that immutable snapshot.
+  files, including host-acquired private binaries, may be added beside it under
+  one regular-file contract: at most 1,024 files, 256 directories, 32 MiB per
+  file, and 64 MiB total. The source root and all children have no group/other
+  permission bits; files may retain owner execute. `runtime build` streams the
+  complete semantic tree into a private immutable snapshot while hashing the
+  copied bytes and builds only from that snapshot.
 - Direct `config shell` changes one allowlisted shell-presentation policy in
   the explicit or current Context. Its terminal editor may stage several
   distinct rows and commits the complete change set with one atomic write.
@@ -1067,6 +1070,13 @@ changing a Context. `runtime build` snapshots that complete bounded tree,
 executes the explicit host Docker build, validates the generated image, and
 atomically appends a successful immutable revision after its image digest is
 confirmed. A failed or semantically unchanged build appends no revision.
+Source validation rejects links, special files, more than 1,024 regular files
+or 256 directories, a regular file over 32 MiB, a total over 64 MiB, and any
+group/other permission bit before Docker. It returns
+`runtime_source_invalid` with the safe relative path, observed size/count/mode,
+applicable limit or owner-only correction, and no private cause or absolute
+host path. The snapshot streams through a fixed buffer; the total ceiling is
+not retained as one whole-source heap allocation.
 Docker build failure exits nonzero, ends text presentation with a short summary
 of the failed stage, source path, recovery command, and retained Runtime
 history, and leaves every Context binding unchanged. BuildKit may retain

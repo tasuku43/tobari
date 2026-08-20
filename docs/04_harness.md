@@ -591,9 +591,13 @@ The test suite has complementary levels:
   initialization, ready-revision enforcement, explicit upgrade/rollback, and
   the fact that project metadata cannot override the bound Context Runtime.
 - Shared Runtime tests cover non-overwriting source initialization, complete
-  bounded regular-file snapshots, generated image naming, compatibility and
-  digest inspection, semantic no-op builds, failed-build history preservation,
-  and zero Context writes.
+  bounded regular-file snapshots, the 1,024-file/256-directory/32-MiB-file/
+  64-MiB-total limits, fixed-buffer stream copy plus digest identity, generated
+  image naming, compatibility and digest inspection, semantic no-op builds,
+  failed-build history preservation, and zero Context writes. Application and
+  CLI tests prove source validation retains a reviewed relative path and
+  actual/limit or owner-only correction while stripping private causes and
+  making zero Docker calls.
 - Runtime source, snapshot, build, history append, and explicit Context binding
   are owned by focused domain, application, infrastructure, and CLI contract
   tests. They do not repeat inside the general Docker integration scenario.

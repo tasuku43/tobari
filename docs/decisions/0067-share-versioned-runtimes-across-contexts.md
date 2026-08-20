@@ -6,7 +6,8 @@
 - Scope: Product, architecture, security, runtime, Context, onboarding, harness, and public boundary
 - Revises: ADR 0013 and ADR 0016
 - Related: ADR 0066
-- Revised by: None
+- Revised by: ADR 0069 fixes the first public source bounds, streaming snapshot,
+  and actionable validation-fault contract
 - Superseded by: None
 
 ## Context

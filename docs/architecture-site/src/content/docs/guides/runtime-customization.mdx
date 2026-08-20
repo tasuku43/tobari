@@ -21,13 +21,18 @@ tobari runtime show --name frontend
 
 The create report gives the owner-only `source_path`. Names are unique within
 the installation and the stable Runtime ID does not change across revisions.
+The source path itself and every directory below it must have no group/other
+permissions.
 
 ## 2. Edit the complete source tree
 
 Use the reported path instead of guessing it. The directory is a complete
 Docker build context: manage Dockerfile-adjacent scripts, package manifests,
 and configuration there as ordinary files. Links and special files are not
-accepted. Editing source changes no Context and creates no revision.
+accepted. The complete boundary is 1,024 regular files, 256 directories, 32
+MiB per file, and 64 MiB total. Every file must have no group/other permission
+bits; use `0600` for data or `0700` when a copied script or binary needs owner
+execute. Editing source changes no Context and creates no revision.
 
 Edit the recipe on the trusted host. A minimal customization keeps the template's base and user transitions intact, for example adding a package between its existing `USER root` and `USER tobari` lines:
 
@@ -102,6 +107,9 @@ Those controls are owned by the host lifecycle implementation, not image metadat
 
 - `runtime_exists`: inspect the existing Runtime with `tobari runtime show`.
 - `runtime_not_found`: choose a name from `tobari runtime list`.
+- `runtime_source_invalid`: correct the relative path and actual size, count,
+  entry kind, or owner-only mode named by the error. Source copied as `0755`
+  must lose all group/other bits (normally becoming `0700`).
 - `runtime_build_failed`: correct the source and inspect `tobari runtime show`; history and Contexts remain unchanged.
 - `runtime_revision_not_ready`: choose a successful ordinal from `tobari runtime history`.
 - `image_not_found`: make the declared base or selected image available, then retry the explicit build/reconcile step.

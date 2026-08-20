@@ -1236,6 +1236,50 @@ func TestRuntimeBuildFailureKeepsDockerErrorAndEndsWithActionableSummary(t *test
 	}
 }
 
+func TestRuntimeCreateOutputDeclaresSourcePermissionAndSizeRules(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	command := newCLI(strings.NewReader(""), &stdout, &stderr, DefaultCatalog(), nil)
+	command.runtime = runtimecmd.New(&runtimeCatalogCLI{})
+	if code := command.RunContext(context.Background(), []string{"runtime", "create", "--name", "frontend"}); code != ExitOK {
+		t.Fatalf("runtime create code = %d, stderr = %q", code, stderr.String())
+	}
+	for _, want := range []string{"Source rules", "no group/other permissions", "1,024 files", "256 directories", "32 MiB/file", "64 MiB total"} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Fatalf("runtime create output = %q, missing %q", stdout.String(), want)
+		}
+	}
+}
+
+func TestRuntimeBuildSourceValidationFailureIsActionableInTextAndJSON(t *testing.T) {
+	message := "Runtime source file \"bin/tool\" is 33554433 bytes; the limit is 33554432 bytes (32 MiB)."
+	for _, test := range []struct {
+		name string
+		args []string
+		want []string
+	}{
+		{name: "text", args: []string{"runtime", "build", "--name", "frontend"}, want: []string{"runtime_source_invalid", message, "tobari runtime show", "unchanged Runtime source path and history"}},
+		{name: "json", args: []string{"--error-format", "json", "runtime", "build", "--name", "frontend"}, want: []string{`"code":"runtime_source_invalid"`, `"kind":"rejected"`, `"message":"Runtime source file \"bin/tool\" is 33554433 bytes; the limit is 33554432 bytes (32 MiB)."`, `"command":"runtime show"`}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fake := &runtimeCatalogCLI{buildErr: fault.New(fault.KindRejected, "runtime_source_invalid", message, false)}
+			var stdout, stderr bytes.Buffer
+			command := newCLI(strings.NewReader(""), &stdout, &stderr, DefaultCatalog(), nil)
+			command.runtime = runtimecmd.New(fake)
+			if code := command.RunContext(context.Background(), test.args); code != ExitRejected {
+				t.Fatalf("runtime build code = %d, stderr = %q", code, stderr.String())
+			}
+			if stdout.Len() != 0 {
+				t.Fatalf("runtime build stdout = %q", stdout.String())
+			}
+			for _, want := range test.want {
+				if !strings.Contains(stderr.String(), want) {
+					t.Fatalf("runtime build stderr = %q, missing %q", stderr.String(), want)
+				}
+			}
+		})
+	}
+}
+
 func TestRuntimeBuildDiagnosticStreamProjectsTerminalControls(t *testing.T) {
 	fake := &contextCLI{
 		report:   contextCLIReport(tobari.TaskContextShow, "default", true, tobari.OfficialRuntimeBase, tobari.ContextPolicyModeGuided),

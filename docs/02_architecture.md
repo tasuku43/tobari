@@ -221,6 +221,14 @@ catalog; a Context never owns or edits build source. The manifest also owns
 narrow shell and Git identity policies. It is not itself a mountable authority: policy
 is mounted only into OPA and agent configuration is mounted read-only into the
 work runtime. Tool-owned authentication remains in the per-Workspace home.
+The Runtime adapter inventories at most 1,024 owner-only regular files and 256
+owner-only directories under one safely opened source root, with 32 MiB per
+file and 64 MiB total. It then streams canonical path/mode/size framing and the
+same bytes copied into a private temporary snapshot through SHA-256 with one
+fixed buffer. Source and opened-file identity/mode/size are revalidated around
+each copy; Docker is invoked only after the complete snapshot exists. Public
+source-contract faults carry only a bounded quoted relative path and reviewed
+actual/limit or permission facts.
 Only the experimental profile has encrypted Context vaults and projects a
 project-bound handle.
 
