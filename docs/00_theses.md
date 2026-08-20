@@ -340,7 +340,10 @@ exist only when the experimental capability profile is compiled.
   and Context ID as authenticated data.
 - All Tobari-owned schemas and component APIs are V1 before first publication.
   Readers accept exactly V1 and reject every other version; there is no legacy
-  migration or compatibility path. Owner manifests and the normalized
+  compatibility path or implicit migration. One explicit fixed-target command
+  may migrate only the enumerated unpublished Context-policy/Runtime
+  predecessor in ADR 0070; it is not a reader fallback or generic migration
+  framework. Owner manifests and the normalized
   projection share that version while reviewed built-ins use typed closed
   plans within it. Owner manifests still contain no secrets, executable shell,
   refresh logic, or signer and remain single-secret protected-stdin imports.

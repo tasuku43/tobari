@@ -247,6 +247,27 @@ func TestEveryObservedFailureReceivesTaskOwnedRecovery(t *testing.T) {
 	}
 }
 
+func TestMigrationRequiredCauseUsesExactMigrationRecovery(t *testing.T) {
+	for _, id := range []doctor.CheckID{doctor.CheckIDContext, doctor.CheckIDPolicyData} {
+		t.Run(string(id), func(t *testing.T) {
+			inspector := &fakeInspector{observations: map[doctor.CheckID]doctor.Observation{
+				id: {
+					Status: doctor.CheckStatusFail, Detail: "supported predecessor",
+					Cause: doctor.ObservationCauseMigrationRequired,
+				},
+			}}
+			report, err := New(inspector).Run(context.Background(), doctorReadIntent(), ".")
+			if err != nil {
+				t.Fatal(err)
+			}
+			check := findDoctorCheck(t, report, id)
+			if check.Recovery == nil || check.Recovery.NextCommand != "migrate apply" {
+				t.Fatalf("%s recovery = %+v", id, check.Recovery)
+			}
+		})
+	}
+}
+
 func findDoctorCheck(t *testing.T, report doctor.Report, id doctor.CheckID) doctor.Check {
 	t.Helper()
 	for _, check := range report.Checks {

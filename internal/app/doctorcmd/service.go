@@ -74,7 +74,7 @@ func (s *Service) Run(ctx context.Context, intent operation.Intent, root string)
 		}
 		check := doctor.Check{
 			Name: spec.ID, Status: observation.Status, Detail: observation.Detail,
-			Recovery: recoveryFor(spec.ID, observation.Status),
+			Recovery: recoveryFor(spec.ID, observation.Status, observation.Cause),
 		}
 		checks = append(checks, check)
 		statuses[spec.ID] = check.Status
@@ -89,7 +89,7 @@ func (s *Service) Run(ctx context.Context, intent operation.Intent, root string)
 	return report, nil
 }
 
-func recoveryFor(id doctor.CheckID, status doctor.CheckStatus) *doctor.Recovery {
+func recoveryFor(id doctor.CheckID, status doctor.CheckStatus, cause doctor.ObservationCause) *doctor.Recovery {
 	if status == doctor.CheckStatusWarn {
 		switch id {
 		case doctor.CheckIDState:
@@ -104,6 +104,12 @@ func recoveryFor(id doctor.CheckID, status doctor.CheckStatus) *doctor.Recovery 
 	}
 	if status != doctor.CheckStatusFail {
 		return nil
+	}
+	if cause == doctor.ObservationCauseMigrationRequired {
+		return &doctor.Recovery{
+			Action:      "Migrate the supported unpublished Context snapshot to current V1 state.",
+			NextCommand: "migrate apply",
+		}
 	}
 	action := map[doctor.CheckID]string{
 		doctor.CheckIDDockerCLI:             "Install a compatible Docker CLI and ensure docker is available on PATH.",

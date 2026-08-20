@@ -6,7 +6,8 @@
 - Scope: Product, architecture, security, policy, runtime, harness, and public boundary
 - Revises: ADR 0029, ADR 0039, and ADR 0059
 - Related: ADR 0060
-- Revised by: None
+- Revised by: ADR 0070 adds one explicit migration for the enumerated
+  unpublished built-in preset snapshot
 - Superseded by: None
 
 ## Context
@@ -49,10 +50,11 @@ native-readiness bundle does not mutate the stored Context method policy or
 baseline bytes. The current native readiness overlay may be applied at
 aggregate generation according to the existing reviewed contract.
 
-This is a pre-public V1 contract replacement. Existing unpublished local
-Context manifests and custom preset files are ignored, not migrated or
-silently cleaned up. A user recreates disposable Contexts under the new
-schema. No public command reads the old state.
+This is a pre-public V1 contract replacement. Current readers ignore existing
+unpublished local Context manifests and custom preset files. ADR 0070 permits
+one explicit mutation to decode only the enumerated built-in predecessor;
+arbitrary custom presets remain unsupported and no ordinary read path gains a
+fallback.
 
 ## Consequences
 
@@ -85,10 +87,10 @@ schema. No public command reads the old state.
 ## Compatibility and migration
 
 No public V1 release has shipped this capability. The old public commands,
-selector, custom files, and manifest fields are not compatibility inputs. A
-future migration, if ever needed, must be an explicit bounded command or a new
-versioned schema decision; unrelated Context reads must not delete or reinterpret
-old state.
+selector, arbitrary custom files, and unknown manifest fields are not
+compatibility inputs. ADR 0070 is the explicit bounded exception for one
+enumerated built-in predecessor; unrelated Context reads still cannot delete
+or reinterpret old state.
 
 ## Security and public-boundary impact
 

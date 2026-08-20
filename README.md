@@ -462,6 +462,12 @@ Broker, project, or Docker state. External text is untrusted and visibly
 projected; printable prompt-like meaning is not filtered. Opaque references are
 validated and passed byte-for-byte unchanged.
 
+If `doctor` identifies the one supported unpublished Context snapshot, it
+returns `tobari migrate apply` as the recovery. That explicit command creates
+an owner-only content-addressed backup and retains Context IDs, Workspace homes,
+learned rules, credentials, and the active Context while converting policy and
+Runtime authority. Other old or ambiguous state remains fail closed.
+
 ## Development and verification
 
 ```sh

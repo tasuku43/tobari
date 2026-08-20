@@ -158,6 +158,25 @@ func (r Recovery) Validate() error {
 type Observation struct {
 	Status CheckStatus
 	Detail string
+	Cause  ObservationCause
+}
+
+// ObservationCause is a closed, non-presentational reason that lets the
+// application select a catalog-owned recovery without interpreting prose.
+type ObservationCause string
+
+const (
+	ObservationCauseNone              ObservationCause = ""
+	ObservationCauseMigrationRequired ObservationCause = "migration_required"
+)
+
+func (c ObservationCause) Validate() error {
+	switch c {
+	case ObservationCauseNone, ObservationCauseMigrationRequired:
+		return nil
+	default:
+		return fmt.Errorf("unsupported doctor observation cause %q", c)
+	}
 }
 
 // Validate enforces the infrastructure observation boundary.
@@ -170,6 +189,12 @@ func (o Observation) Validate() error {
 	}
 	if !utf8.ValidString(o.Detail) {
 		return fmt.Errorf("doctor observation detail is invalid UTF-8")
+	}
+	if err := o.Cause.Validate(); err != nil {
+		return err
+	}
+	if o.Cause != ObservationCauseNone && o.Status != CheckStatusFail {
+		return fmt.Errorf("doctor observation cause requires failed status")
 	}
 	return nil
 }

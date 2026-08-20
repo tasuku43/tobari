@@ -72,11 +72,13 @@ publishes it, and standard `cluster up` has no Broker startup path.
 
 All Tobari-owned command outputs, persisted state, configuration, OPA input and
 decisions, audits, and Gateway component API use V1. Experimental Broker state
-and protocols also use V1. Readers accept exactly V1 and reject
-every other version. Before the first public release, development snapshots
-receive no deprecation window, migration, compatibility reader, retired command
-alias, or old-state interpretation; local state must be removed and recreated
-when the contract changes.
+and protocols also use V1. Readers accept exactly V1 and reject every other
+version. Before the first public release, development snapshots receive no
+deprecation window, compatibility reader, retired command alias, or implicit
+old-state interpretation. The explicit `migrate apply` command is the sole
+exception: it accepts only ADR 0070's enumerated unpublished
+Context-policy/Runtime predecessor and emits current V1 state. Every other
+development snapshot must be removed and recreated when the contract changes.
 
 The standard V1 boundaries include command paths, exit meanings, Docker labels,
 configuration keys, and preservation of each Tobari home by default. Broker

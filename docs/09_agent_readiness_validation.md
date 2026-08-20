@@ -439,6 +439,29 @@ When the host Codex version has advanced, also verify its official source still
 matches the compiled refresh client identity and replay one near-expiry refresh
 without recording tokens, account identifiers, or raw transcripts.
 
+## Enumerated predecessor migration
+
+Using the synthetic predecessor fixture, run `tobari doctor --format json` and
+verify the failed Context row names exact recovery `migrate apply`; dependent
+rows must be blocked by Context. Then run:
+
+```sh
+tobari help migrate apply --format agent
+tobari migrate apply --format json
+tobari doctor --format json
+tobari migrate apply --format json
+```
+
+The first mutation must report the complete Context collection, a private
+backup path, retained Context IDs and active selection, `standard` for the
+standard predecessor, and an exact `legacy-NAME@ORDINAL` binding for a custom
+Dockerfile predecessor. The second invocation must report `changed: false` and
+no backup. Compare synthetic Workspace-home, learned-rule, credential-store,
+project/instance-state, and running-resource canaries byte-for-byte before and
+after. Replay unknown-field, duplicate-key, unsafe-mode, symlink, digest-drift,
+and Runtime-conflict fixtures and require zero Context writes. Do not record a
+real Workspace home, credential, or private Runtime source as release evidence.
+
 ## Publication checkpoint
 
 The local release-ready handoff requires:

@@ -120,6 +120,13 @@ func (r *Runtime) observeDoctorRoot(ctx context.Context, root string) doctor.Obs
 func (r *Runtime) observeDoctorContext(ctx context.Context) doctor.Observation {
 	observation, err := r.ObserveContext(ctx, "")
 	if err != nil {
+		if r.installationMigrationRequired(ctx) {
+			return doctor.Observation{
+				Status: doctor.CheckStatusFail,
+				Detail: "the supported unpublished Context snapshot requires migration",
+				Cause:  doctor.ObservationCauseMigrationRequired,
+			}
+		}
 		return observed(doctor.CheckStatusFail, "the current Context could not be inspected")
 	}
 	if _, err := r.diagnosticContextStores(); err != nil {
@@ -245,7 +252,24 @@ func (r *Runtime) observeDoctorPolicyData(ctx context.Context) doctor.Observatio
 	if result.Status == "" {
 		return observed(doctor.CheckStatusFail, "learned policy data could not be inspected")
 	}
+	if result.Status == doctor.CheckStatusFail && r.installationMigrationRequired(ctx) {
+		result.Cause = doctor.ObservationCauseMigrationRequired
+		result.Detail = "the supported migration has residual predecessor policy state"
+	}
 	return result
+}
+
+func (r *Runtime) installationMigrationRequired(ctx context.Context) bool {
+	plans, err := r.planInstallationMigration(ctx)
+	if err != nil {
+		return false
+	}
+	for _, plan := range plans {
+		if migrationPlanChanges(plan) {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *Runtime) observeDoctorImageConfig(ctx context.Context) doctor.Observation {

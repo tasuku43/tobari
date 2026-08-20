@@ -8,6 +8,7 @@ import (
 
 func runtimeCommandSpecs() []CommandSpec {
 	specs := []CommandSpec{
+		migrationSpec(),
 		clusterUpSpec(),
 		clusterStatusSpec(),
 	}
@@ -44,6 +45,58 @@ func runtimeCommandSpecs() []CommandSpec {
 		deleteSpec(),
 	)
 	return append(specs, authCommandSpecs()...)
+}
+
+func migrationSpec() CommandSpec {
+	return CommandSpec{
+		Path: "migrate apply", Summary: "Migrate the supported unpublished Context snapshot to current V1 state",
+		Args: "[--format text|json]", Effect: operation.EffectWrite, Role: RoleAct,
+		Agent: AgentContract{
+			CapabilityID: "state.migration",
+			Outcome:      "Validate and migrate the one enumerated unpublished Context-policy and Context-owned-Runtime predecessor while retaining Context IDs, Workspace homes, learned rules, and current selection",
+			Inputs:       []CommandInput{formatInput()},
+			Output: CommandOutput{
+				Formats: []OutputFormat{OutputFormatText, OutputFormatJSON}, DefaultFormat: OutputFormatText, TextPresentation: TextPresentationSemanticTokens,
+				Fields: []OutputField{
+					{Name: "task", Type: OutputFieldTypeString, Description: "Declared migration task identity."},
+					{Name: "source", Type: OutputFieldTypeString, Description: "Exact enumerated predecessor contract.", Enum: []string{tobari.MigrationSourcePreV1ContextPolicyRuntime}},
+					{Name: "changed", Type: OutputFieldTypeBoolean, Description: "Whether at least one Context was migrated."},
+					{Name: "backup", Type: OutputFieldTypeString, Description: "Owner-only content-addressed backup path, or null for an already-current no-op.", Nullable: true},
+					{Name: "contexts", Type: OutputFieldTypeArray, Description: "Complete local Context collection and migration state.", SemanticScope: "Every locally configured Context at the committed migration observation.", Items: &OutputField{Type: OutputFieldTypeObject, Description: "One current or migrated Context.", Fields: []OutputField{
+						{Name: "id", Type: OutputFieldTypeString, Description: "Stable Context authority identity retained unchanged."},
+						{Name: "name", Type: OutputFieldTypeString, Description: "Context name."},
+						{Name: "state", Type: OutputFieldTypeString, Description: "Whether this invocation migrated the Context or observed it current.", Enum: []string{"current", "migrated"}},
+						{Name: "runtime", Type: OutputFieldTypeString, Description: "Exact current Runtime selection as standard or name@ordinal."},
+						{Name: "policy_revision", Type: OutputFieldTypeString, Description: "Normalized current Context policy revision."},
+					}}},
+				},
+				Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageExhaustive,
+				JSONEnvelope: "migration", JSONEnvelopeType: OutputFieldTypeObject, JSONSchemaVersion: 1,
+			},
+			Prerequisites: []string{
+				"The installation contains only current Contexts or the exact owner-only unpublished predecessor named by ADR 0070.",
+				"A legacy custom Runtime source and its selected local base image remain available; Docker is required only when an exact ready promoted Runtime does not already exist.",
+				"Credential stores, Workspace homes, learned domain rules, project bindings, and running containers are outside the mutation boundary.",
+			},
+			FixedTarget: &FixedTarget{Kind: tobari.MigrationTargetKind, ID: tobari.MigrationTargetID, Description: "The one installation-local Tobari Context and Runtime state collection.", Scope: FixedTargetScopeToolLocal},
+			Errors: mutationCommandErrors("migrate apply", "doctor",
+				declaredCommandError(fault.KindRejected, "migration_not_supported", false, "doctor", "Inspect the exact failed state boundary."),
+				declaredCommandError(fault.KindRejected, "migration_source_rejected", false, "doctor", "Inspect the unchanged Context state."),
+				declaredCommandError(fault.KindRejected, "migration_runtime_conflict", false, "runtime list", "Inspect the unchanged Runtime catalog."),
+				declaredCommandError(fault.KindRejected, "migration_runtime_failed", false, "runtime list", "Inspect any retained draft or ready migration Runtime."),
+				declaredCommandError(fault.KindInternal, "migration_backup_failed", false, "doctor", "Inspect the unchanged Context state and owner-only configuration paths."),
+				declaredCommandError(fault.KindRejected, "migration_source_changed", false, "doctor", "Inspect the current Context state before another migration."),
+				declaredCommandError(fault.KindContract, "migration_incomplete", false, "doctor", "Reconcile current and remaining predecessor Contexts before another mutation."),
+				declaredCommandError(fault.KindContract, "invalid_migration_report", false, "doctor", "Inspect the committed migration state."),
+				declaredCommandError(fault.KindInternal, "missing_runtime", false, "doctor", "Configure the Tobari runtime."),
+			),
+			Mutation: &MutationContract{
+				TargetKind: tobari.MigrationTargetKind, TargetInputs: []string{},
+				Impact: operation.Impact{Cardinality: operation.CardinalityMany, Notification: operation.DeclarationNo, AccessChange: operation.DeclarationYes, Destructive: operation.DeclarationYes},
+			},
+		},
+		handler: runMigration,
+	}
 }
 
 func configBootstrapAWSSpec() CommandSpec {

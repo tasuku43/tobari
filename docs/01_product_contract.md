@@ -229,6 +229,7 @@ The public commands are:
 | `help [selector] [--format text|agent]` | utility | read | Discover exact command contracts |
 | `version [--format text|json]` | utility | read | Print source version/commit, resolver channel, required and selected standard component APIs, and compatibility |
 | `doctor [--root PATH] [--format text|tsv|json]` | utility | read | Report read-only host, Docker, configuration, policy, Gateway, port, and residue diagnostics without repairing state |
+| `migrate apply [--format text|json]` | act, fixed target | write | Validate and migrate only the enumerated unpublished Context-policy/Runtime predecessor, retaining Context IDs, active selection, Workspace homes, learned rules, and credential stores |
 | `cluster up` | act, fixed target | create | Validate all Context policy inputs and image contracts, reconcile Gateway and OPA, and confirm the exact aggregate policy is active |
 | `tobari [--context NAME]` | act, fixed target plus TTY workflow | create | On first use, complete the ordinary Context review, compose the exact Context/cluster/runtime actions under their own catalog contracts, then choose or create the current directory's Workspace in the explicit or current Context, reconcile runtime, enter it with a deny-by-default attachment-owned Host Loopback capability, and leave it reusable after `exit` while closing any owned route and grant |
 | `status [--context NAME] [--format text|json]` | utility | read | Inspect the nearest current-directory Workspace in the explicit or current Context, its logical existence, runtime diagnostic, and attached/detached session observation |
@@ -612,6 +613,7 @@ Human output is concise text. The canonical public machine-output inventory is:
 | Agent help (`view: index` and input-selected `view: scope`) | `commands` | 1 |
 | Version | `build_identity` | 1 |
 | Doctor report | `report` | 1 |
+| Installation migration | `migration` | 1 |
 | Context list | `contexts` | 1 |
 | Context report (show/create/use/config/runtime results) | `context` | 1 |
 | Runtime list | `runtimes` | 1 |
@@ -1298,11 +1300,14 @@ availability uncertainty rather than inferring absence from an unreadable vault.
 
 All Tobari-owned command outputs, persisted state, OPA input and decisions,
 audits, provider/projection/vault records, private protocols, and component APIs
-use schema/API V1. Readers accept exactly V1 and fail closed on every other
-version. Tobari has not been published, so it provides no migration, retired
-command alias, old state interpretation, or compatibility shim for earlier
-development snapshots. Development state must be removed and recreated when
-the V1 contract changes.
+use schema/API V1. Ordinary readers accept exactly V1 and fail closed on every
+other version. Tobari provides no retired command alias, implicit old-state
+interpretation, or general compatibility shim. The sole exception is
+`migrate apply`: an explicit installation-local write that accepts only the
+strict unpublished predecessor named by ADR 0070. It creates an owner-only
+content-addressed backup, converts Context policy authority, and promotes an
+exact legacy custom Dockerfile through the managed Runtime build boundary.
+Every other development snapshot must be removed and recreated.
 
 The canonical Gateway source label is API V1. Source does not record any owned
 image release output. The release workflow builds its multi-architecture index

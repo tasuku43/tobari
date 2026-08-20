@@ -7,7 +7,8 @@
 - Revises: ADR 0013 and ADR 0016
 - Related: ADR 0066
 - Revised by: ADR 0069 fixes the first public source bounds, streaming snapshot,
-  and actionable validation-fault contract
+  and actionable validation-fault contract; ADR 0070 adds one explicit
+  promotion path for the enumerated Context-owned predecessor
 - Superseded by: None
 
 ## Context
@@ -74,10 +75,10 @@ Build or Apply mutates; unavailable streams, cancellation, unchanged selection,
 and Review failure perform no mutation.
 
 This is a pre-public V1 public-contract replacement. `runtime init` has no
-public compatibility alias or implicit migration. The internal reader may
-continue to tolerate unpublished Context-owned recipe fixtures during the
-transition, but every new public Context stores an exact Runtime binding and no
-public command creates or mutates the legacy recipe.
+public compatibility alias or implicit migration. Every new public Context
+stores an exact Runtime binding and no public command creates or mutates the
+legacy recipe. ADR 0070 permits one explicit migration command to promote the
+enumerated predecessor through the managed Runtime boundary.
 
 ## Consequences
 
@@ -90,7 +91,8 @@ public command creates or mutates the legacy recipe.
 - A new build consumes storage but creates no rollout. Garbage collection is a
   later explicit capability.
 - Existing unpublished Context manifests are never silently reinterpreted as
-  shared Runtimes; users recreate them before relying on the new public model.
+  shared Runtimes; only ADR 0070's explicit exact predecessor migration may
+  promote them, and every other shape must be recreated.
 
 ## Mechanical enforcement
 
@@ -113,11 +115,10 @@ public command creates or mutates the legacy recipe.
 
 ## Compatibility and migration
 
-No public V1 release has shipped the Context-owned recipe capability. The old
-shape receives no public mutation or migration workflow and is never promoted
-into the new Runtime catalog. Users recreate disposable Contexts and explicitly
-create managed Runtimes; temporary internal read tolerance exists only to keep
-pre-public fixtures observable during the transition.
+No public V1 release has shipped the Context-owned recipe capability. ADR 0070
+is the sole public mutation that may promote its exact enumerated predecessor
+into the new Runtime catalog. Unknown recipes remain unsupported; ordinary
+readers have no compatibility fallback.
 
 ## Security and public-boundary impact
 

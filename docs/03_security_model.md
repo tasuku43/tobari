@@ -721,6 +721,18 @@ project recovery lock only to serialize cleanup, but a read never creates the
 journal itself. Fresh and ordinary reads create no lock. First durable
 initialization remains behind a fully validated create/write intent.
 
+`migrate apply` is the only predecessor-state authority. It is a fixed-target
+`EffectWrite` over the installation-local Context/Runtime collection and uses
+strict JSON decoding, duplicate-key rejection, bounded owner-only regular-file
+checks, exact digests, fixed legacy identities, source-drift revalidation, and
+atomic replacement. Unknown fields or modes fail before Context writes. Its
+backup contains only the non-secret authority files it replaces or removes and remains
+owner-only. Workspace homes, project and instance records, learned domain
+rules, credential stores, running containers, and Docker networks are outside
+the mutation boundary. A legacy custom Dockerfile crosses only the existing
+bounded managed Runtime build boundary; it grants no additional execution or
+network authority.
+
 `runtime create` is a host-only create in the installation Runtime catalog.
 `runtime build` is a host-only catalog write. It rejects symlinks, special
 files, escaping paths, group/other permission bits, more than 1,024 regular

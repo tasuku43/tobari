@@ -718,6 +718,15 @@ The test suite has complementary levels:
   schema-1 recursive output. Infrastructure fixtures allowlist observational
   Docker argv, reject policy test-container creation, and compare content-aware
   fresh and unsupported-version Context trees before and after doctor.
+- Migration fixtures enumerate the sole accepted unpublished predecessor and
+  prove strict unknown-field, duplicate-key, mode, symlink, digest, source-drift,
+  Runtime-conflict, backup, cancellation, and write-failure rejection. Positive
+  fixtures cover mixed current/predecessor restartability, standard binding,
+  custom Runtime promotion, complete output, and repeat no-op. Byte comparisons
+  keep Context IDs, active selection, project/instance state, Workspace homes,
+  learned rules, credentials, and running-resource inventory outside the
+  mutation boundary; doctor maps only the exact supported cause to the exact
+  `migrate apply` recovery.
 - The human permission path is exercised through `policy review`; its TTY
   Permission Inbox covers bounded selection, exact and `{id}` template detail
   inspection, raw-list exact Allow/Deny/clear with no-wrap advance, staged

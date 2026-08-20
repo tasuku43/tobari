@@ -37,6 +37,20 @@ func TestCheckInventoryIsFiniteTopologicalDAG(t *testing.T) {
 	}
 }
 
+func TestObservationCauseIsClosedAndFailureOnly(t *testing.T) {
+	if err := (Observation{Status: CheckStatusFail, Cause: ObservationCauseMigrationRequired}).Validate(); err != nil {
+		t.Fatalf("migration-required observation rejected: %v", err)
+	}
+	for _, observation := range []Observation{
+		{Status: CheckStatusPass, Cause: ObservationCauseMigrationRequired},
+		{Status: CheckStatusFail, Cause: ObservationCause("future")},
+	} {
+		if err := observation.Validate(); err == nil {
+			t.Fatalf("invalid observation accepted: %+v", observation)
+		}
+	}
+}
+
 func TestReportValidateRequiresCompleteInventoryAndTypedDependencies(t *testing.T) {
 	valid := completePassReport()
 	if err := valid.Validate(); err != nil {

@@ -36,6 +36,7 @@ owning domain or infrastructure reader defines exact validation.
 | Agent help (`view: index` and input-selected `view: scope`)        | `commands`          |              1 |
 | Version                                                            | `build_identity`    |              1 |
 | Doctor report                                                      | `report`            |              1 |
+| Installation migration                                             | `migration`         |              1 |
 | Context list                                                       | `contexts`          |              1 |
 | Context report (`context show`, create/use/config/runtime results) | `context`           |              1 |
 | Runtime list                                                       | `runtimes`          |              1 |
@@ -96,8 +97,10 @@ JSON reader accepts or rejects an unknown field in the same way. Provider
 documents, principal state, broker frames, and critical runtime state use
 explicit fail-closed validation.
 
-There is no pre-public migration or compatibility reader. Every non-V1 value is
-unsupported, and development state must be removed and recreated.
+There is no pre-public compatibility reader or implicit migration. The sole
+exception is the explicit `tobari migrate apply` command for ADR 0070's exact
+unpublished Context-policy/Runtime predecessor. Every non-V1 or other old value
+is unsupported, and that development state must be removed and recreated.
 
 ## Gateway, OPA, audit, and broker contracts
 

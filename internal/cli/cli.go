@@ -11,6 +11,7 @@ import (
 	"github.com/tasuku43/tobari/internal/app/authcmd"
 	"github.com/tasuku43/tobari/internal/app/contextcmd"
 	"github.com/tasuku43/tobari/internal/app/doctorcmd"
+	"github.com/tasuku43/tobari/internal/app/migrationcmd"
 	"github.com/tasuku43/tobari/internal/app/runtimecmd"
 	"github.com/tasuku43/tobari/internal/app/tobaricmd"
 	"github.com/tasuku43/tobari/internal/domain/fault"
@@ -29,12 +30,13 @@ type CLI struct {
 	Version string
 	Commit  string
 
-	catalog Catalog
-	doctor  *doctorcmd.Service
-	tobari  *tobaricmd.Service
-	context *contextcmd.Service
-	runtime *runtimecmd.Service
-	auth    *authcmd.Service
+	catalog    Catalog
+	doctor     *doctorcmd.Service
+	tobari     *tobaricmd.Service
+	context    *contextcmd.Service
+	runtime    *runtimecmd.Service
+	migrate    *migrationcmd.Service
+	auth       *authcmd.Service
 	experimentalCLIState
 	config        contextConfigurationWizard
 	contextCreate contextCreateWizard
@@ -68,6 +70,7 @@ func New(in io.Reader, out, errOut io.Writer) *CLI {
 	)
 	command.context = contextcmd.New(runtime)
 	command.runtime = runtimecmd.New(runtime)
+	command.migrate = migrationcmd.New(runtime)
 	command.auth = authcmd.New(runtime)
 	return command
 }

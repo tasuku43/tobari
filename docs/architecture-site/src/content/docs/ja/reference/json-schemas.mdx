@@ -34,6 +34,7 @@ Tobari は多くの JSON 契約で、明示的な `schema_version` フィール�
 | エージェント向けヘルプ（`view: index` と入力で選ぶ `view: scope`）   | `commands`          |              1 |
 | バージョン                                                           | `build_identity`    |              1 |
 | doctor レポート                                                      | `report`            |              1 |
+| インストール状態の移行                                               | `migration`         |              1 |
 | Context 一覧                                                         | `contexts`          |              1 |
 | Context レポート（`context show`、create/use/config/runtime の結果） | `context`           |              1 |
 | Runtime 一覧                                                         | `runtimes`          |              1 |
@@ -93,8 +94,10 @@ CLI presentation
 を同じように扱うとは限りません。プロバイダー文書、プリンシパルの状態、Broker フレーム、
 重要なランタイム状態では、明示的な fail-closed 検証を使います。
 
-初回公開前の移行処理や互換読み取りはありません。V1 以外はすべて未対応として拒否し、
-開発中の状態は削除して作り直します。
+初回公開前の互換読み取りや暗黙の移行処理はありません。唯一の例外は、ADR 0070 が定める
+未公開の Context ポリシー／Runtime の厳密な旧形式だけを対象にした明示的な
+`tobari migrate apply` コマンドです。V1 以外やその他の旧形式は未対応として拒否し、
+開発中の状態を削除して作り直します。
 
 ## Gateway、OPA、監査、Auth Broker の契約
 

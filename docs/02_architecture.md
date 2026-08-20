@@ -728,6 +728,17 @@ stderr as the build runs. Upstream prose never becomes a structured fault
 field or a source of promotion-state inference; infrastructure decides state
 from completed build, compatibility, digest, and atomic manifest operations.
 
+The state-migration slice is deliberately separate from every current reader:
+`internal/app/migrationcmd` owns the fixed installation-state task,
+`internal/domain/tobari` owns its closed source identity and result, and
+`internal/infra/dockerruntime/migration.go` is the only predecessor decoder.
+It plans the complete Context collection under the lifecycle lock, prepares
+any exact managed Runtime revision, writes a content-addressed private backup,
+then commits normalized policy before its matching manifest under the Context
+store lock. Current readers never call the migration decoder. A partially
+committed collection remains restartable because current Contexts are exact
+no-ops and remaining predecessor Contexts retain their source evidence.
+
 ## Lifecycle model
 
 The MVP owns one shared cluster `tool_local` target with stable ID
