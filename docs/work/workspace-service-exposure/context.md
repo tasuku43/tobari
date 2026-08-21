@@ -20,26 +20,29 @@
 - ADR 0073 closed the proposed `Ctrl+]`, then `r` trusted-host review switch as
   a no-go because arbitrary alternate-screen restoration requires a terminal
   emulator/parser. Service exposure can no longer depend on that transition
-  and remains returned for a separate product-flow decision; it still must not
-  share policy persistence or Apply semantics.
+  and requires host review to remain in a separate terminal. The product owner
+  selected `tobari review` as the unified trusted-host inbox. Permission
+  requests retain their staged Apply semantics; service requests use immediate,
+  attachment-local `Allow once` or `Deny` decisions.
 - The root direct-command capability ends the attachment when its exact child
   exits. Therefore `tobari -- tobari-expose 3000` would immediately close an
   accepted attachment-owned exposure and is not a useful advertised workflow.
 
 ## Relevant structure
 
-- Entry point: interactive root Workspace attachment and its future Trusted
-  Host Review source selector
+- Entry point: interactive root Workspace attachment plus a separate host
+  `tobari review` process with Permission and Service request sources
 - Domain rule: attachment identity and epoch, Host Loopback capability bounds,
   typed session request, operation effect and impact, and exact project
   principal under `internal/domain/tobari`
-- Application use case: Workspace attachment lifecycle and host review
-  composition under `internal/app/tobaricmd`
+- Application use case: Workspace attachment lifecycle, live-review discovery,
+  and host-reviewed service actions under task-specific application packages
 - Infrastructure boundary: Docker attachment, non-TTY control processes,
   runtime assets, host browser bridge, loopback listeners, and bounded stream
   relays under `internal/infra/dockerruntime`
-- CLI catalog or presentation: canonical command contracts, Trusted Host
-  Review, fixed attention cue, and human output under `internal/cli`
+- CLI catalog or presentation: canonical helper and host-review command
+  contracts, fixed host instruction, source-specific actions, and human output
+  under `internal/cli`
 - Existing tests and harness checks: browser-channel framing and cleanup,
   Host Loopback grants, attachment epochs, Docker container specs, terminal
   security, capability ledger, public guard, and architecture-site generation
@@ -51,8 +54,18 @@
   select a host listener address, choose a host port, or widen relay behavior.
 - Service review is an attachment-scoped access mutation, not a learned network
   policy decision. It offers `Allow once`, not staging plus a durable Apply.
-- The terminal switch remains human-owned. Workspace socket traffic, terminal
-  output, OSC sequences, and the helper process cannot open or confirm review.
+- The separate host process remains human-owned. Workspace socket traffic,
+  terminal output, OSC sequences, registry data, and the helper process cannot
+  open, select, or confirm a reviewed action.
+- Each attachment owner publishes only bounded, secret-free routing metadata
+  for an owner-only, unpredictable host Unix rendezvous socket. The registry is
+  ephemeral discovery data, not authority or durable permission.
+- `tobari review` reads a fresh exhaustive pending-request snapshot from live
+  attachment owners. It never connects to the Workspace directly, and an
+  opaque request reference—not a label, port, or list position—binds an action.
+- The attachment process revalidates the request and remains the listener,
+  stream, and lifetime owner. Review cannot create an exposure after that owner
+  exits. Stale or forged registry records and identity mismatches fail closed.
 - The helper's attachment channel is an ambient capability available only to
   processes already inside that attached Workspace. The socket path must be
   unpredictable, owner-only, bounded, and removed during owner cleanup.
@@ -90,9 +103,10 @@
 - [ ] Does `tobari-expose stop 3000` satisfy the catalog's action target-binding
       invariant as an exact attachment-and-port selector, or must `list` and
       successful creation produce an opaque exposure reference for `stop`?
-- [ ] Which fixed protocol owns pending request creation, approval response,
-      active exposure inventory, stop, stream setup, and shutdown without
-      turning into a generic request bus?
+- [ ] Which closed Workspace-control and host-rendezvous protocols own pending
+      request creation, fresh snapshot discovery, approval response, active
+      exposure inventory, stop, stream setup, and shutdown without turning into
+      a generic request bus?
 - [ ] Do the pinned representative versions of Vite, Next.js, Storybook, and
       Jupyter accept an unpredictable `.localhost` authority and browser Origin
       without application-specific rewriting?
@@ -102,8 +116,9 @@
 - [ ] What finite header limit, setup deadline, idle policy, connection budget,
       and byte-stream backpressure preserve ordinary development without an
       unbounded host resource?
-- [ ] How should a pending request be visibly withdrawn if the helper receives
-      `Ctrl+C` while Trusted Host Review is open?
+- [ ] Which exact owner-only runtime-state location and peer/nonce handshake
+      let `tobari review` find concurrent live attachments while rejecting and
+      safely cleaning stale or forged registry records?
 
 ## Thesis evidence
 
@@ -145,7 +160,7 @@ real browser history.
 - Assets and side effects involved: one embedded Workspace helper, one
   unpredictable Unix control socket, one fixed non-TTY control process, host
   loopback listeners, bounded HTTP parsing, bidirectional relay streams, host
-  review state, and owner-ordered cleanup.
+  ephemeral host rendezvous registry, review state, and owner-ordered cleanup.
 - Credentials or confidential data involved: none by design. Application HTTP
   content is untrusted and may contain secrets, so it must not enter logs,
   policy evidence, diagnostics, fixtures, or review copy.
@@ -172,6 +187,10 @@ real browser history.
   read-only inside an attached Workspace.
 - **Control channel:** the attachment-local request and lifecycle path. It is
   not the application byte stream and grants no access by itself.
+- **Host rendezvous:** an owner-only, unpredictable Unix socket plus bounded
+  ephemeral routing record through which `tobari review` asks a live attachment
+  owner for fresh request state and returns one typed decision. It is not the
+  exposure owner or a durable policy store.
 - **Data plane:** the bounded HTTP and upgraded WebSocket streams created only
   after host approval and exact authority validation.
 - **Passive state:** a fact observed from relay ownership or connection events,

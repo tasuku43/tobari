@@ -9,15 +9,16 @@
 - Owner: Tobari maintainers
 - Target: Pre-public self-use
 - Related ADRs: ADR 0055 and ADR 0073
-- Dependency status: ADR 0073 rejected the required inline terminal switch;
-  this packet remains returned for a separate product-flow decision and cannot
-  begin mechanism implementation as written.
+- Dependency status: ADR 0073 rejected the inline terminal switch. The product
+  owner accepted a separate trusted-host terminal and unified `tobari review`
+  inbox instead; this packet incorporates that decision.
 
 ## Outcome
 
 From an attached Workspace, a user can run `tobari-expose 3000`, explicitly
-approve the exact request in Trusted Host Review, and receive one unpredictable
-host-loopback HTTP URL for the service on Workspace loopback port 3000. The
+approve the exact request from `tobari review` in a separate trusted-host
+terminal, and receive one unpredictable host-loopback HTTP URL for the service
+on Workspace loopback port 3000. The
 exposure is owned by the current attachment, remains separate from durable
 network policy, and closes with that attachment.
 
@@ -49,8 +50,8 @@ owner cleanup.
   application-visible effects.
 - Do not silently rewrite `Host`, `Origin`, redirects, cookies, WebSocket
   handshakes, or application content to manufacture compatibility.
-- Do not implement this packet until the Trusted Host Review terminal contract
-  has passed its bounded PTY experiment and is accepted durably.
+- Do not intercept attachment input, reserve a terminal prefix, emulate a
+  terminal, or render review over the Workspace terminal.
 
 ## Acceptance criteria
 
@@ -60,12 +61,16 @@ owner cleanup.
       non-privileged range through an unpredictable attachment-local channel;
       malformed, duplicate, oversized, stale, or cross-attachment requests fail
       closed before a listener or relay exists.
-- [ ] A request cannot open Trusted Host Review or approve itself. The host
-      emits a fixed attention cue, and the user must press `Ctrl+]`, then `r`.
-- [ ] Trusted Host Review identifies the Workspace, exact target
+- [ ] A request cannot open review or approve itself. The helper gives one
+      fixed instruction to run `tobari review` in a separate trusted-host
+      terminal; Workspace bytes cannot invoke or drive that command.
+- [ ] `tobari review` identifies the Workspace, exact target
       `127.0.0.1:<port>`, host-loopback-only result, automatically selected host
       port, no browser opening, and current-attachment lifetime before offering
       `Allow once`, `Deny`, and `Back`.
+- [ ] The review surface visibly separates `Permission requests`, which retain
+      the current staged Apply contract, from `Service requests`, whose
+      `Allow once` and `Deny` decisions are immediate and never persisted.
 - [ ] `Allow once` creates exactly one listener on host `127.0.0.1` with an
       unpredictable `.localhost` hostname and random available port. Every
       request must present the exact hostname and port before any byte reaches
@@ -120,8 +125,8 @@ owner cleanup.
 - Architecture or security invariant: four-layer dependency direction,
   controlled side-effect boundaries, trusted-host-only authority, exact
   attachment ownership, untrusted Workspace input, and complete cleanup
-- Existing ADR: ADR 0055 for a dedicated Workspace browser channel; the
-  Trusted Host Review terminal-ownership ADR is a prerequisite
+- Existing ADR: ADR 0055 for a dedicated Workspace browser channel and ADR
+  0073 for transparent attachment input and separate-terminal host review
 
 ## Completion definition
 

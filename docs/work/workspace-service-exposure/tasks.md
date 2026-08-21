@@ -28,8 +28,12 @@
 - [x] Choose attachment ownership, random host port, exact `.localhost`
       authority, IPv4 loopback only, no browser auto-open, and no active health
       checks.
-- [x] Identify the dependency on `trusted-host-review-switch`; do not begin
-      mechanism implementation until its PTY and ADR gates pass.
+- [x] Resolve the `trusted-host-review-switch` dependency. Evidence: ADR 0073
+      rejected inline review; the product owner selected a separate
+      trusted-host `tobari review` inbox on 2026-08-21.
+- [x] Keep Permission and Service review semantics distinct. Permission
+      requests retain staged Apply; Service requests use immediate `Allow once`
+      or `Deny` with attachment-only lifetime.
 - [ ] Confirm representative Vite, Next.js, Storybook, and Jupyter Host and
       Origin compatibility before finalizing the data-plane ADR.
 - [ ] Resolve one canonical program-scoped catalog and helper help contract
@@ -40,6 +44,9 @@
       failures, output, and cancellation contract mechanically.
 - [ ] Write and accept the service-exposure ADR and any required thesis revision
       before mechanism code.
+- [ ] Prototype and prove the live-owner host rendezvous, including concurrent
+      attachments, stale/forged registry records, peer/nonce identity, owner
+      exit during review, and safe registry cleanup.
 - [x] Obtain design approval. Evidence: the product owner accepted the complete
       service request, approval, relay, lifetime, state, and compatibility
       contract on 2026-08-21.
@@ -59,8 +66,10 @@
 - [ ] Add bidirectional HTTP and WebSocket relay with explicit concurrency,
       backpressure, half-close, timeout, cancellation, and shutdown behavior.
 - [ ] Add fixed 502 behavior for an unavailable Workspace service.
-- [ ] Compose the typed request source and `Allow once`, `Deny`, and `Back`
-      actions into Trusted Host Review without changing policy Apply semantics.
+- [ ] Add canonical service-request discovery and opaque-reference-bound
+      `Allow once` and `Deny` actions, then compose them into the separate-host
+      `tobari review` source selector without changing `policy review` or its
+      Apply semantics.
 - [ ] Add current-attachment list, idempotent repeat, and exact stop behavior.
 - [ ] Factor browser and service transport or lifecycle code only where tests
       prove the same invariant; retain separate schemas and authority.

@@ -26,15 +26,22 @@ list position, or review copy.
 workspace$ tobari-expose 3000
 Exposure requested.
 Waiting for trusted-host approval...
-
-Host review available - press Ctrl+] then r
+Review on the host:
+  tobari review
 ```
 
-Trusted Host Review:
+Separate trusted-host terminal:
 
 ```text
-Trusted Host Review
-Workspace input is paused. Review keys stay on the trusted host.
+Tobari · Review
+
+> Permission requests
+  Service requests
+  Exit
+```
+
+```text
+Tobari · Review · Service requests
 
 Workspace    /projects/app
 Service      127.0.0.1:3000
@@ -64,7 +71,8 @@ Start the service, then reload.
 ## State transitions to preserve
 
 - Pending: no listener and no data path exist.
-- Back: review closes, request remains pending, and no mutation occurs.
+- Back: review returns to the source list, request remains pending, and no
+  mutation occurs.
 - Denied: no listener exists; the waiting helper returns a distinct failure.
 - Active and listening: host listener exists; this is not an application health
   claim.
@@ -80,8 +88,13 @@ Start the service, then reload.
 - A matching target port does not let another attachment reuse or stop an
   exposure.
 - Review order and selection position do not identify a pending request.
-- Workspace terminal output that prints the host cue or review copy cannot open
-  review or approve the request.
+- Workspace terminal output that prints the host instruction or review copy
+  cannot invoke host review or approve the request.
+- A registry record or matching rendezvous path does not establish live owner
+  identity; peer, nonce, attachment, and request reference are revalidated.
+- `Ctrl+C` in host review does not deny, allow, or withdraw a request.
+- Permission staging and Apply never apply to Service requests; immediate
+  Service decisions never mutate remembered policy.
 - The `.localhost` label is not trusted by itself; exact listener ownership and
   authority validation remain required.
 - Listener open does not mean the development server is healthy.
@@ -93,7 +106,8 @@ Start the service, then reload.
 - Frozen typed fixture and answer-key file paths, hashes, and byte counts
 - Before and after human golden snapshots derived from the same fixture
 - Exact helper help and error output snapshots
-- Terminal cue, review, Back, Deny, Allow, stop, and attachment-close traces
+- Helper instruction, source selection, review, Back, Deny, Allow, stop, and
+  attachment-close traces
 - Vite, Next.js, Storybook, and Jupyter Host and Origin observations
 - HTTP and WebSocket compatibility results
 - Hostile-copy and wrong-authority rejection evidence

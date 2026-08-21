@@ -12,8 +12,9 @@ browser authority. Tobari materializes one dedicated read-only
 `tobari-expose` helper and provides it an unpredictable attachment-local Unix
 socket. A separate non-TTY Docker exec transports a closed service schema and
 stream setup. The host validates the exact attachment and target port, records
-a non-authoritative pending request, and emits a fixed cue. Only an explicit
-`Allow once` inside Trusted Host Review creates a random host-loopback listener.
+a non-authoritative pending request, and tells the user to run `tobari review`
+in a separate trusted-host terminal. Only an explicit `Allow once` from that
+host review creates a random host-loopback listener.
 
 The host listener accepts only the unpredictable `.localhost` authority shown
 to the user. It connects through the attachment-owned data path to exact
@@ -21,9 +22,13 @@ Workspace `127.0.0.1:<port>`, supports bounded HTTP/1.1 and WebSocket Upgrade,
 and otherwise fails closed. The exposure registry belongs to the attachment,
 not the foreground helper process, Workspace, Context, or cluster.
 
-The terminal switch is a hard prerequisite. If its PTY experiment does not
-ship, this packet returns for product review rather than substituting a second
-terminal flow under the same design.
+The attachment owner also exposes a separate owner-only, unpredictable host
+Unix rendezvous socket and atomically publishes bounded, secret-free ephemeral
+routing metadata. `tobari review` discovers live owners through that registry,
+obtains a fresh typed snapshot, and returns an opaque-reference-bound decision.
+It never talks to the Workspace directly or takes ownership of the listener.
+ADR 0073 remains intact: no attachment input is intercepted and no review is
+drawn over the child terminal.
 
 ## Alternatives considered
 
@@ -61,10 +66,14 @@ be factored after their common invariants are proven.
 
 - Workspace command: `tobari-expose <port>` where port is an exact validated
   non-privileged TCP port. No shell parsing or service-name lookup occurs.
-- On request, stdout reports that trusted-host approval is pending. A fixed
-  host cue says `Host review available - press Ctrl+] then r` without including
-  untrusted service text or an actionable identifier.
-- Trusted Host Review shows one typed request with fixed fields: Workspace,
+- On request, stdout reports that trusted-host approval is pending and says
+  `Review on the host: tobari review` without including untrusted service text
+  or an actionable identifier.
+- The separate host `tobari review` surface has visibly distinct `Permission
+  requests` and `Service requests` sources. Permission review retains exact or
+  template staging and one Apply; service decisions are immediate, temporary,
+  and never use Apply or persistence.
+- Service review shows one typed request with fixed fields: Workspace,
   service target, host access, host-port selection, browser behavior, and
   lifetime. The only actions are `Allow once`, `Deny`, and `Back`.
 - Successful approval returns one generated HTTP URL whose host is an
@@ -94,7 +103,9 @@ Operation classification to confirm mechanically before mechanism code:
 - review `Allow once`: create one exact attachment-owned exposure from one
   fresh opaque pending-request reference; access change is bounded and
   temporary;
-- review `Deny` or `Back`: no exposure mutation;
+- review `Deny`: write one exact pending request through its opaque reference,
+  resolving it without an exposure; `Back` is a read-only UI transition and
+  leaves the request pending;
 - list: exhaustive read of the exact current-attachment exposure scope;
 - stop: write one existing current-attachment exposure, with the final target
   binding selected by the catalog decision above.
@@ -109,13 +120,17 @@ Operation classification to confirm mechanically before mechanism code:
   attachment closure through task-specific ports. It owns ordering and ensures
   approval precedes listener creation and listener closure precedes authority
   cleanup.
-- Infrastructure: materialize and mount the helper, create the owner-only Unix
-  socket and non-TTY control process, bind host IPv4 loopback, validate bounded
-  HTTP authority, relay HTTP and WebSocket streams, generate the fixed 502, and
+- Infrastructure: materialize and mount the helper, create the owner-only
+  Workspace Unix socket and non-TTY control process, create the owner-only host
+  rendezvous socket and ephemeral registry record, validate peer, nonce, and
+  attachment identity, bind host IPv4 loopback, validate bounded HTTP
+  authority, relay HTTP and WebSocket streams, generate the fixed 502, and
   implement exact shutdown. It makes no approval or persistence decision.
-- CLI and catalog: represent the helper executable and Trusted Host Review
-  source from one canonical contract, parse exact inputs once, render fixed
-  request and result states, and keep host and helper routing separate.
+- CLI and catalog: represent the helper executable, live service-request
+  discovery, opaque-reference-bound Allow/Deny acts, and the unified
+  `tobari review` composition from canonical contracts. Existing `tobari policy
+  review [--watch]` remains policy-specific and unchanged; no hidden parallel
+  mutation path is added.
 
 ### Data and control flow
 
@@ -126,13 +141,15 @@ Workspace user
   -> fixed non-TTY service control agent
   -> host decodes and validates exact attachment plus target port
   -> pending request with opaque host identity
-  -> fixed host attention cue
+  -> fixed instruction: run tobari review on the host
 
-host keyboard: Ctrl+] then r
-  -> Trusted Host Review
-  -> fresh pending-request read
+separate trusted-host terminal
+  -> tobari review
+  -> validates live owner registry and rendezvous identity
+  -> fresh exhaustive pending-request snapshot
+  -> Service requests
   -> Allow once with exact opaque request reference
-  -> application confirms attachment still owns request
+  -> owning attachment revalidates request and lifetime
   -> infrastructure binds 127.0.0.1:<random>
   -> exact workspace-<entropy>.localhost authority becomes active
   -> reviewed result returns to tobari-expose
@@ -154,8 +171,9 @@ do not share a socket, schema, authority registry, request union, or data path.
   invalid port fail before a host listener exists.
 - `Ctrl+C` while the helper waits sends one typed withdrawal when possible and
   exits nonzero. Attachment close implicitly withdraws every pending request.
-- `Back` leaves the request pending and returns to the child. `Deny` resolves it
-  denied. Neither opens a listener.
+  `Ctrl+C` in host review exits or returns locally without mutating a request.
+- `Back` returns to the review source list and leaves the request pending.
+  `Deny` resolves it denied. Neither opens a listener.
 - A listener can be approved before the server starts. When a validated HTTP
   request cannot connect to the Workspace target, Tobari returns a bounded 502
   page: `Workspace service is not available yet. Start the service, then reload.`
@@ -180,8 +198,14 @@ do not share a socket, schema, authority registry, request union, or data path.
 - The Workspace can request only an exact non-privileged Workspace-loopback
   port. It cannot choose a host address, host port, hostname, protocol parser,
   destination address, attachment, or lifetime.
-- Only host keyboard input can enter review and only a typed reviewed action can
-  create the listener. The request channel is evidence, not authority.
+- Only a typed action from the separately invoked trusted-host review process
+  can create the listener. Workspace bytes and registry metadata are evidence,
+  not authority; the live attachment owner revalidates identity and request
+  state immediately before the side effect.
+- Host filesystem ownership and modes plus peer, nonce, and attachment checks
+  protect rendezvous. Stale or forged records fail closed and are cleaned
+  without following untrusted paths. The review process never inherits route
+  lifetime ownership.
 - Host binding is exactly IPv4 `127.0.0.1`. The random `.localhost` label and
   port form a capability-like URL, but authorization still requires exact
   listener ownership and HTTP authority validation.
@@ -197,9 +221,9 @@ do not share a socket, schema, authority registry, request union, or data path.
 
 ## Implementation slices
 
-1. Wait for the Trusted Host Review packet's PTY go decision and durable ADR.
-   Then revise the attachment-helper thesis and write a service-exposure ADR
-   before mechanism code.
+1. Treat ADR 0073 as the terminal boundary, prototype the cross-process host
+   rendezvous, revise the attachment-helper thesis, and write a
+   service-exposure ADR before mechanism code.
 2. Resolve and mechanically test the program-scoped canonical catalog,
    operation roles, effects, fixed or reference-bound targets, helper grammar,
    output, and stable failures. Return the stop selector for review if needed.
@@ -211,8 +235,9 @@ do not share a socket, schema, authority registry, request union, or data path.
 5. Add the host HTTP and WebSocket relay behind the application-owned port;
    prove exact authority, 502 behavior, backpressure, concurrency, shutdown,
    and zero data logging.
-6. Compose service requests into Trusted Host Review, add fixed cue and helper
-   presentation, and validate representative development-server compatibility.
+6. Add canonical service discovery and reviewed actions, compose them into the
+   separate-host `tobari review` source selector, add fixed helper instruction,
+   and validate representative development-server compatibility.
 7. Promote the final contract through theses, product, architecture, security,
    harness, capability ledger, README, architecture site, and agent readiness.
 
@@ -222,9 +247,9 @@ do not share a socket, schema, authority registry, request union, or data path.
   state machines, roles and effects, opaque references, exact helper grammar,
   output and exit mapping, current-attachment inventory, and stop identity.
 - Negative side-effect tests: malformed or denied requests create zero
-  listeners; Workspace bytes cannot open review or approve; wrong Host, stale
-  request, wrong attachment, wrong port, replay, and duplicate frames cannot
-  reach the Workspace server.
+  listeners; Workspace bytes cannot open review or approve; forged/stale host
+  registry records, wrong peer/nonce/Host/attachment/port, replay, and duplicate
+  frames cannot reach the Workspace server.
 - Protocol and hostile-output tests: duplicate or unknown fields, versions,
   oversize, controls, partial frames, timeouts, reconnects, application ESC and
   line separators, request smuggling boundaries, and response-before-failure.
@@ -238,8 +263,8 @@ do not share a socket, schema, authority registry, request union, or data path.
   a synthetic HTTP and WebSocket fixture using the exact unpredictable
   `.localhost` authority and Origin.
 - Agent-readiness scenario and discovery budget: a human in an attached
-  Workspace needs one helper command, one documented host prefix, and one
-  approval; no Workspace-ID lookup, Docker command, output parser, or external
+  Workspace needs one helper command, one exact host command, and one approval;
+  no Workspace-ID lookup, Docker command, output parser, or external
   reconstruction is required.
 - Required profiles: focused Go and Python tests as applicable, local Docker
   integration, `task check`, `task security`, and `task public:check`.
@@ -254,7 +279,7 @@ entry, and capability entry together. Normal attachment shutdown remains the
 cleanup path during mixed-version failure. No compatibility reader, dormant
 socket, persisted approval, Docker published port, or hidden listener remains.
 
-If the terminal switch, catalog model, Host or Origin compatibility, bounded
+If the host rendezvous, catalog model, Host or Origin compatibility, bounded
 HTTP validation, or owner cleanup cannot meet the accepted contract, no partial
 exposure ships. The existing workflow of running the server outside the
 Workspace remains the fallback while the product trade-off returns for review.
@@ -265,8 +290,9 @@ Workspace remains the fallback while the product trade-off returns for review.
   typed non-authority, trusted-host approval, exact owner, and no generic bus.
 - Add a service-exposure ADR defining catalog ownership, channel separation,
   approval, authority, HTTP and WebSocket bounds, passive state, and cleanup.
-- Update the product contract with the Workspace helper transcript, Trusted
-  Host Review source, host URL, commands, output, failures, and lifetime.
+- Update the product contract with the Workspace helper transcript, unified
+  separate-host review sources, host URL, commands, output, failures, and
+  lifetime.
 - Update architecture and security documents with the control and data planes,
   assets, threats, precedence, owner order, and why browser and service
   channels remain separate.
