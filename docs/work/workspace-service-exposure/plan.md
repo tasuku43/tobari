@@ -98,7 +98,9 @@ be factored after their common invariants are proven.
 Operation classification to confirm mechanically before mechanism code:
 
 - exposure request: create one pending item in the fixed current-attachment
-  request scope; creating the request does not itself change network access;
+  request scope; creating the request does not itself change network access.
+  This fixed-target create consumes no reference but may return confirmed child
+  request or exposure references whose kinds differ from the attachment scope;
 - review `Allow once`: create one exact attachment-owned exposure from one
   fresh opaque pending-request reference; access change is bounded and
   temporary;
@@ -130,6 +132,14 @@ Operation classification to confirm mechanically before mechanism code:
   `tobari review` composition from canonical contracts. Existing `tobari policy
   review [--watch]` remains policy-specific and unchanged; no hidden parallel
   mutation path is added.
+
+The Catalog revision is deliberately asymmetric. A fixed-target
+`EffectCreate` may produce opaque references for confirmed child resources but
+may not consume a reference or produce its fixed-target kind. Fixed-target read
+and write operations remain reference-free. Global producer/consumer closure,
+all mutation binding rules, and the confirmed mutation-output boundary remain
+unchanged. ADR 0074 and contract tests must make this exception mechanical;
+classification prose alone is insufficient.
 
 ### Data and control flow
 
@@ -226,7 +236,9 @@ do not share a socket, schema, authority registry, request union, or data path.
 2. Add and mechanically test one program-aware canonical Catalog whose global
    reference graph spans host and helper commands while routing and help are
    filtered by program. Declare operation roles, effects, reference-bound
-   targets, helper grammar, output, and stable failures.
+   targets, helper grammar, output, and stable failures. Revise the fixed-target
+   create child-reference rule narrowly in governing contracts, Skill, Catalog
+   validation, and negative canaries before relying on it.
 3. Add domain and application failing tests for request identity, approval,
    idempotence, attachment isolation, cancellation, stop, and owner cleanup.
 4. Add the dedicated runtime asset and control protocol with hostile-frame,

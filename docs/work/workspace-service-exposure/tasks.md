@@ -46,6 +46,10 @@
 - [x] Resolve the `stop` target-binding mode. Evidence: the product owner chose
       `tobari-expose stop <exposure-ref>` on 2026-08-22; creation and list
       produce that compact opaque reference and exact next command.
+- [x] Resolve fixed-scope create output identity. Evidence: the accepted narrow
+      rule lets only fixed-target `EffectCreate` produce distinct confirmed
+      child-resource refs while consuming none; fixed scope refs, fixed-target
+      Read/Write refs, and every existing mutation binding remain prohibited.
 - [ ] Declare every operation's role, effect, target, intent, impact, stable
       failures, output, and cancellation contract mechanically.
 - [ ] Write and accept the service-exposure ADR and any required thesis revision
@@ -63,6 +67,9 @@
 - [ ] Add failing domain state and operation-contract tests.
 - [ ] Add failing canonical catalog, helper grammar, help, output, and exit-code
       tests.
+- [ ] Revise AGENTS.md, add-capability Skill, architecture, harness, ADR 0074,
+      Catalog validation, and positive/negative tests for the narrow
+      fixed-target create child-reference rule.
 - [ ] Add application use cases and smallest owned ports for submit, withdraw,
       list, approve, deny, stop, relay creation, and attachment cleanup.
 - [ ] Add the binary-owned read-only helper asset and exact schema with real

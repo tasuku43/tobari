@@ -35,6 +35,15 @@
 - Catalog mutation binding requires stop to consume the opaque exposure
   reference produced by creation or list. A target port is not the identity of
   an exposure and cannot distinguish the same port in another attachment.
+- The existing Catalog rule rejects every reference produced by a fixed-target
+  act. That is too broad for this exact fixed-scope create: the current
+  attachment is an ambient `tool_local` creation scope, while the confirmed
+  exposure is a distinct child resource whose opaque identity must reach stop.
+  The accepted narrow revision permits only fixed-target `EffectCreate` to
+  produce refs whose kind differs from the fixed scope. It still consumes no
+  refs and keeps empty target inputs, no parent or target ID, exact target kind,
+  complete Impact, mutation Invoker, and confirmed output. Fixed-target reads
+  and writes remain reference-free, and the fixed scope kind cannot escape.
 - A bounded live-owner rendezvous prototype passed 20 macOS runs and Linux
   amd64 cross-compilation. It covered concurrent owners, atomic `0600` records
   under `0700` state, kernel peer identity, nonce, attachment and request
@@ -138,8 +147,9 @@
   URL from the same shell, rather than switch to a host command and restate
   Workspace identity.
 - Code workaround or exception being considered: installing the full host CLI
-  in the Runtime, using Docker port publishing, or adding an untyped operation
-  field to the browser channel.
+  in the Runtime, using Docker port publishing, adding an untyped operation
+  field to the browser channel, or misclassifying exposure creation to avoid
+  the Catalog's fixed-scope child-reference gap.
 - Current thesis that resolves it, or proposed thesis revision: the attachment
   may expose a finite set of binary-owned purpose-specific helpers whose
   requests are non-authoritative until the trusted host validates and approves
