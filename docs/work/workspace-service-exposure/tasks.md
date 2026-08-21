@@ -58,6 +58,10 @@
       attachments, stale/forged registry records, peer/nonce identity, owner
       exit during review, and safe registry cleanup. Evidence: 20 macOS runs
       and Linux amd64 cross-compilation recorded in `context.md`.
+- [x] Resolve cross-OS helper delivery. Evidence: a live macOS-to-linux/arm64
+      mount produced `exec format error`; the accepted model builds a dedicated
+      hardcoded Linux helper in the current embedded base source, extracts and
+      verifies the engine-native artifact, and mounts it into any Runtime.
 - [x] Obtain design approval. Evidence: the product owner accepted the complete
       service request, approval, relay, lifetime, state, and compatibility
       contract on 2026-08-21.
@@ -74,6 +78,9 @@
       list, approve, deny, stop, relay creation, and attachment cleanup.
 - [ ] Add the binary-owned read-only helper asset and exact schema with real
       executable protocol tests.
+- [ ] Add the dedicated hardcoded helper main, canonical/embedded base build
+      inputs, pinned builder review, engine-architecture extraction and
+      regular-file/mode/hash/ELF/source/protocol validation.
 - [ ] Add a separate non-TTY control process and unpredictable owner-only
       attachment socket.
 - [ ] Add host-loopback listener and bounded HTTP authority validation.
@@ -108,6 +115,7 @@
       Host, Origin, redirect, cookie, or content rewriting. Evidence:
 - [ ] `task check` passes. Evidence:
 - [ ] `task security` passes. Evidence:
+- [ ] `task release:check` passes. Evidence:
 - [ ] `task public:check` passes. Evidence:
 - [ ] The agent-readiness journey needs one helper command, one host prefix,
       one explicit approval, and zero undeclared external-processing steps.

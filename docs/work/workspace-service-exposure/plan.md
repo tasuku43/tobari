@@ -8,13 +8,17 @@
 ## Chosen approach
 
 Extend the attachment pattern established by ADR 0055 without extending its
-browser authority. Tobari materializes one dedicated read-only
-`tobari-expose` helper and provides it an unpredictable attachment-local Unix
-socket. A separate non-TTY Docker exec transports a closed service schema and
-stream setup. The host validates the exact attachment and target port, records
-a non-authoritative pending request, and tells the user to run `tobari review`
-in a separate trusted-host terminal. Only an explicit `Allow once` from that
-host review creates a random host-loopback listener.
+browser authority. The current embedded base-image source builds one dedicated
+Linux `tobari-expose` executable for the Docker engine architecture from the
+same global Catalog and domain code but with a hardcoded helper entrypoint. The
+host extracts it from the verified source-derived base, checks regular-file
+mode, hash, ELF architecture, source/protocol identity, and mounts it read-only
+into every selected Workspace. It then provides an unpredictable
+attachment-local Unix socket. A separate non-TTY Docker exec transports a
+closed service schema and stream setup. The host validates the exact attachment
+and target port, records a non-authoritative pending request, and tells the user
+to run `tobari review` in a separate trusted-host terminal. Only an explicit
+`Allow once` from that host review creates a random host-loopback listener.
 
 The host listener accepts only exact authority `127.0.0.1:<random-port>` shown
 to the user. It connects through the attachment-owned data path to exact
@@ -44,6 +48,10 @@ is known while keeping approval on the host.
 Most host commands have no valid meaning inside the untrusted Workspace and
 would imply authority the process does not possess. A purpose-specific helper
 keeps both vocabulary and capability narrow.
+
+The helper is not the host executable selected by argv0. Its dedicated main
+hardcodes the helper program, so copying it or spoofing argv0 cannot route host
+commands.
 
 ### Docker port publishing
 
@@ -121,10 +129,13 @@ Operation classification to confirm mechanically before mechanism code:
   attachment closure through task-specific ports. It owns ordering and ensures
   approval precedes listener creation and listener closure precedes authority
   cleanup.
-- Infrastructure: materialize and mount the helper, create the owner-only
-  Workspace Unix socket and non-TTY control process, create the owner-only host
-  rendezvous socket and ephemeral registry record, validate peer, nonce, and
-  attachment identity, bind host IPv4 loopback, validate bounded HTTP
+- Infrastructure: build the dedicated helper as a checked input of the
+  canonical and embedded base source, validate engine architecture and exact
+  helper identity, extract it through bounded Docker create/copy/remove into
+  owner-only host state, mount it read-only into any selected Runtime, create
+  the owner-only Workspace Unix socket and non-TTY control process, create the
+  owner-only host rendezvous socket and ephemeral registry record, validate
+  peer, nonce, and attachment identity, bind host IPv4 loopback, validate bounded HTTP
   authority, relay HTTP and WebSocket streams, generate the fixed 502, and
   implement exact shutdown. It makes no approval or persistence decision.
 - CLI and catalog: represent the helper executable, live service-request
@@ -242,8 +253,11 @@ do not share a socket, schema, authority registry, request union, or data path.
 3. Add domain and application failing tests for request identity, approval,
    idempotence, attachment isolation, cancellation, stop, and owner cleanup.
 4. Add the dedicated runtime asset and control protocol with hostile-frame,
-   readiness, boundedness, and cleanup tests. Factor only proven common
-   browser-channel lifecycle primitives.
+   readiness, boundedness, and cleanup tests. Build and extract the hardcoded
+   Linux helper from the embedded base source for engine amd64 and arm64;
+   reject Mach-O, wrong architecture, wrong source/protocol, non-regular files,
+   and argv0 spoofing. Factor only proven common browser-channel lifecycle
+   primitives.
 5. Add the host HTTP and WebSocket relay behind the application-owned port;
    prove exact authority, 502 behavior, backpressure, concurrency, shutdown,
    and zero data logging.
@@ -251,7 +265,8 @@ do not share a socket, schema, authority registry, request union, or data path.
    separate-host `tobari review` source selector, add fixed helper instruction,
    and validate representative development-server compatibility.
 7. Promote the final contract through theses, product, architecture, security,
-   harness, capability ledger, README, architecture site, and agent readiness.
+   harness, public/release contracts, capability ledger, README, architecture
+   site, and agent readiness.
 
 ## Verification
 
@@ -270,7 +285,9 @@ do not share a socket, schema, authority registry, request union, or data path.
   target refusal with fixed 502, stop, and attachment-close cleanup.
 - Docker and runtime tests: exact read-only mount, owner-only unpredictable
   socket, separate non-TTY exec, environment, version reconciliation, no full
-  host CLI, and custom Runtime independence.
+  host CLI, dedicated hardcoded entrypoint, amd64/arm64 ELF validation,
+  source/protocol identity, bounded extraction cleanup, and custom Runtime
+  independence.
 - Compatibility observation: pinned Vite, Next.js, Storybook, and Jupyter plus
   a synthetic HTTP and WebSocket fixture using exact numeric loopback authority
   and Origin.
@@ -279,7 +296,8 @@ do not share a socket, schema, authority registry, request union, or data path.
   no Workspace-ID lookup, Docker command, output parser, or external
   reconstruction is required.
 - Required profiles: focused Go and Python tests as applicable, local Docker
-  integration, `task check`, `task security`, and `task public:check`.
+  integration, `task check`, `task security`, `task release:check`, and
+  `task public:check`.
 - Generated checks: catalog-derived help, capability ledger, runtime asset
   manifest, architecture site, public docs, and `git diff --check`.
 
@@ -308,5 +326,8 @@ Workspace remains the fallback while the product trade-off returns for review.
 - Update architecture and security documents with the control and data planes,
   assets, threats, precedence, owner order, and why browser and service
   channels remain separate.
+- Update public/release contracts so the helper is a non-archive,
+  engine-native checked base-image input built from the same release source;
+  release archives continue to contain one host executable.
 - Add claim-to-enforcement rows, Docker and relay profiles, capability-ledger
   status, and the relevant agent-readiness journey.

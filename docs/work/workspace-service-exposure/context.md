@@ -55,6 +55,21 @@
   `127.0.0.1:<random-port>`. Jupyter's default remote-access check rejected the
   previously proposed random `.localhost` authority with 403; the product owner
   therefore selected numeric loopback authority on 2026-08-22.
+- A live linux/arm64 Docker observation proved that mounting the current
+  macOS/arm64 `os.Executable()` snapshot is invalid: the Workspace returns
+  `exec format error`. Using argv0 as the program boundary is also insufficient
+  because an untrusted Workspace can spoof it.
+- The accepted asset model is a dedicated Linux `cmd/tobari-expose` with a
+  hardcoded helper program. The current embedded base-image source builds it
+  for Docker `TARGETARCH`; the host extracts the verified engine-native helper
+  from that source-derived image into owner-only state and mounts it read-only
+  into the selected Workspace. This keeps the helper bound to the current host
+  source/protocol even when a managed revision is old or a compatible custom
+  image does not derive from Tobari's base.
+- Shipping two Linux helper binaries inside every host release archive was
+  rejected as broader: it changes the five-archive inventory, Homebrew layout,
+  SBOM/provenance, engine-versus-host architecture selection, and `go run`
+  development. A script was rejected because it duplicates parser/help logic.
 
 ## Relevant structure
 
@@ -182,8 +197,10 @@ real browser history.
   content is untrusted and may contain secrets, so it must not enter logs,
   policy evidence, diagnostics, fixtures, or review copy.
 - New dependencies, destinations, files, processes, or generated content: no
-  dependency is accepted by the packet. A parser or relay dependency requires
-  license, architecture, security, and public-boundary review before use.
+  parser or relay dependency is accepted by the packet. The engine-native
+  helper build adds one pinned Go builder to the embedded base recipe; its
+  digest, license, exact source closure, both engine architectures, and
+  extraction checks require architecture, security, public, and release review.
 - Output delivery, collection coverage, pagination, timeout, retry, idempotency,
   and cancellation facts: helper responses are one bounded complete result;
   the current-attachment list is exhaustive at one host snapshot; approval is

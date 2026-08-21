@@ -3,7 +3,9 @@
 - Status: Accepted
 - Retention: temporary
 - Retention reason: None
-- Governing contract: `docs/00_theses.md`, `docs/01_product_contract.md`, `docs/02_architecture.md`, `docs/03_security_model.md`, `docs/04_harness.md`, and the accepted ADRs required by this packet
+- Governing contract: `docs/00_theses.md` through `docs/06_release.md`,
+  `docs/09_agent_readiness_validation.md`, and the accepted ADRs required by
+  this packet
 - Review/delete trigger: Delete after durable conclusions are promoted and the change completes
 - Successor: None
 - Owner: Tobari maintainers
@@ -57,6 +59,11 @@ owner cleanup.
 
 - [ ] `tobari-expose 3000` is a Tobari-binary-owned, read-only attachment asset,
       not a Context Runtime customization and not an alias for the host CLI.
+- [ ] The helper is a dedicated Linux executable with a hardcoded helper
+      entrypoint built for the Docker engine architecture from the current
+      embedded base-image source. The host extracts and verifies that exact
+      helper into owner-only state and mounts it read-only into every selected
+      Runtime; argv0 spoofing cannot route a host command.
 - [ ] The helper submits only one exact Workspace loopback TCP port in the
       non-privileged range through an unpredictable attachment-local channel;
       malformed, duplicate, oversized, stale, or cross-attachment requests fail
@@ -112,7 +119,7 @@ owner cleanup.
       precedence, and non-authority.
 - [ ] Focused domain, application, protocol, relay, Docker, CLI-contract, and
       hostile-input tests plus `task check`, `task security`, and
-      `task public:check` pass.
+      `task release:check`, `task public:check` pass.
 
 ## Governing documents
 
