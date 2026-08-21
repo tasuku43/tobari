@@ -112,6 +112,8 @@ func TestPolicyProtocolIdentityValidationAndEffectiveProtocol(t *testing.T) {
 		{Scheme: "https", Protocol: PolicyProtocolHTTP},
 		{Scheme: "https", Protocol: PolicyProtocolGraphQL, GraphQLOperationType: GraphQLOperationQuery, GraphQLRootField: "_viewer"},
 		{Scheme: "http", Protocol: PolicyProtocolGraphQL, GraphQLOperationType: GraphQLOperationMutation, GraphQLRootField: "updateIssue"},
+		{Scheme: "https", Protocol: PolicyProtocolAWS, AWSWireProtocol: AWSWireProtocolQuery, AWSService: "sts", AWSOperation: "GetCallerIdentity"},
+		{Scheme: "https", Protocol: PolicyProtocolAWS, AWSWireProtocol: AWSWireProtocolJSON, AWSService: "dynamodb", AWSOperation: "DynamoDB_20120810.ListTables"},
 	}
 	for _, identity := range valid {
 		if err := identity.Validate(); err != nil {
@@ -131,11 +133,59 @@ func TestPolicyProtocolIdentityValidationAndEffectiveProtocol(t *testing.T) {
 		{Scheme: "https", Protocol: PolicyProtocolGraphQL, GraphQLOperationType: GraphQLOperationQuery, GraphQLRootField: "1viewer"},
 		{Scheme: "https", Protocol: PolicyProtocolGraphQL, GraphQLOperationType: GraphQLOperationQuery, GraphQLRootField: "bad-name"},
 		{Scheme: "https", Protocol: PolicyProtocolGraphQL, GraphQLOperationType: GraphQLOperationQuery, GraphQLRootField: strings.Repeat("a", 257)},
+		{Scheme: "https", Protocol: PolicyProtocolAWS, AWSWireProtocol: AWSWireProtocolQuery, AWSOperation: "GetCallerIdentity"},
+		{Scheme: "https", Protocol: PolicyProtocolAWS, AWSWireProtocol: "rest", AWSService: "sts", AWSOperation: "GetCallerIdentity"},
+		{Scheme: "https", Protocol: PolicyProtocolAWS, AWSWireProtocol: AWSWireProtocolQuery, AWSService: "STS", AWSOperation: "GetCallerIdentity"},
+		{Scheme: "https", Protocol: PolicyProtocolAWS, AWSWireProtocol: AWSWireProtocolQuery, AWSService: "sts", AWSOperation: "Get-Caller-Identity"},
+		{Scheme: "https", Protocol: PolicyProtocolAWS, AWSWireProtocol: AWSWireProtocolJSON, AWSService: "dynamodb", AWSOperation: "ListTables"},
+		{Scheme: "https", Protocol: PolicyProtocolAWS, AWSWireProtocol: AWSWireProtocolJSON, AWSService: "dynamodb", AWSOperation: "DynamoDB_20120810..ListTables"},
+		{Scheme: "https", Protocol: PolicyProtocolHTTP, AWSWireProtocol: AWSWireProtocolQuery, AWSService: "sts", AWSOperation: "GetCallerIdentity"},
 	}
 	for _, identity := range invalid {
 		if err := identity.Validate(); err == nil {
 			t.Fatalf("invalid policy protocol identity %+v was accepted", identity)
 		}
+	}
+}
+
+func TestAWSIdentityBindsCandidatesAndRulesWithoutSemanticClassification(t *testing.T) {
+	t.Parallel()
+	denial := validPolicyDenial()
+	denial.Method = "POST"
+	denial.Path = "/"
+	denial.Host = "sts.us-east-1.amazonaws.com"
+	denial.PolicyProtocolIdentity = PolicyProtocolIdentity{
+		Scheme: "https", Protocol: PolicyProtocolAWS, AWSWireProtocol: AWSWireProtocolQuery,
+		AWSService: "sts", AWSOperation: "GetCallerIdentity",
+	}
+	candidate, err := NewPolicyCandidate(denial)
+	if err != nil {
+		t.Fatal(err)
+	}
+	other := denial
+	other.AWSOperation = "AssumeRole"
+	otherCandidate, err := NewPolicyCandidate(other)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if candidate.ID == otherCandidate.ID {
+		t.Fatal("distinct AWS wire operations collapsed into one candidate")
+	}
+	allow, err := NewExactLearnedPolicyRule(candidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	deny, err := NewExactPolicyDenyRule(candidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !allow.MatchesIdentity(denial.ContextID, denial.ProjectID, denial.Host, denial.Port, denial.Method, denial.Path, denial.PolicyProtocolIdentity) ||
+		!deny.MatchesIdentity(denial.ContextID, denial.ProjectID, denial.Host, denial.Port, denial.Method, denial.Path, denial.PolicyProtocolIdentity) {
+		t.Fatal("AWS exact rules did not preserve the observed wire identity")
+	}
+	if allow.MatchesIdentity(other.ContextID, other.ProjectID, other.Host, other.Port, other.Method, other.Path, other.PolicyProtocolIdentity) ||
+		deny.MatchesIdentity(other.ContextID, other.ProjectID, other.Host, other.Port, other.Method, other.Path, other.PolicyProtocolIdentity) {
+		t.Fatal("AWS exact rules matched a different wire operation")
 	}
 }
 

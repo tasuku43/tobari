@@ -2076,6 +2076,50 @@ func TestMCPPolicyIdentityAppearsWithoutArguments(t *testing.T) {
 	}
 }
 
+func TestAWSPolicyIdentityAppearsWithoutRequestParametersOrSemanticLabels(t *testing.T) {
+	t.Parallel()
+	denial := tobari.PolicyDenial{
+		PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{
+			Scheme: "https", Protocol: tobari.PolicyProtocolAWS,
+			AWSWireProtocol: tobari.AWSWireProtocolQuery, AWSService: "sts", AWSOperation: "GetCallerIdentity",
+		},
+		Timestamp: "2026-08-21T10:00:00Z", RequestID: "7185da2688d7469aae9cd9068e920b0b",
+		ContextID: "01912345-6789-7abc-8def-0123456789ad", ContextName: "default",
+		ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/project",
+		Host: "sts.us-east-1.amazonaws.com", Port: 443, Method: "POST", Path: "/",
+		Reason: "review", StatusCode: 403, Learnable: true,
+	}
+	candidate, err := tobari.NewPolicyCandidate(denial)
+	if err != nil {
+		t.Fatal(err)
+	}
+	report := tobari.PolicyCandidateReport{Task: tobari.TaskPolicyCandidates, PolicyDirectory: "/tmp/policy", WindowLines: 200, Items: []tobari.PolicyCandidate{candidate}}
+	encoded, err := renderPolicyCandidates(report, "tobari policy allow", successFormatJSON)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var document policyCandidatesDocument
+	if err := json.Unmarshal(encoded, &document); err != nil {
+		t.Fatal(err)
+	}
+	item := document.PolicyCandidates[0]
+	if item.Protocol != tobari.PolicyProtocolAWS || item.AWSWireProtocol != tobari.AWSWireProtocolQuery || item.AWSService != "sts" || item.AWSOperation != "GetCallerIdentity" {
+		t.Fatalf("AWS output = %s", encoded)
+	}
+	for _, forbidden := range []string{"Resource", "read_only", "write", "iam_action"} {
+		if strings.Contains(string(encoded), forbidden) {
+			t.Fatalf("AWS output inferred or retained %q: %s", forbidden, encoded)
+		}
+	}
+	text, err := renderPolicyCandidates(report, "tobari policy allow", successFormatText)
+	if err != nil || !humanOutputHasRow(string(text), "AWS operation", "sts/GetCallerIdentity") || !humanOutputHasRow(string(text), "AWS protocol", "query") {
+		t.Fatalf("AWS text = %q err=%v", text, err)
+	}
+	if got := policyReviewCandidateRequest(candidate); !strings.Contains(got, "AWS sts/GetCallerIdentity") {
+		t.Fatalf("AWS selector request = %q", got)
+	}
+}
+
 func TestPolicyDenyRendererReportsExactTerminalDecision(t *testing.T) {
 	t.Parallel()
 	candidate := tobari.PolicyCandidate{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Scheme: "https", Protocol: tobari.PolicyProtocolHTTP}, ID: "pcy_0123456789abcdef0123456789abcdef",

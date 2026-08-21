@@ -477,6 +477,9 @@ func policyRuleRequest(rule tobari.PolicyRule) string {
 			request += " · " + safeExternalText(rule.MCPToolName)
 		}
 	}
+	if coordinate := policyAWSCoordinate(rule.PolicyProtocolIdentity); coordinate != "" {
+		request += " · AWS " + coordinate
+	}
 	return request
 }
 

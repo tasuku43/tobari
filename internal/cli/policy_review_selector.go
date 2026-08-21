@@ -1046,6 +1046,9 @@ func policyReviewCandidateListEffect(candidate tobari.PolicyCandidate) string {
 			effect += " · " + safeExternalText(candidate.MCPToolName)
 		}
 	}
+	if coordinate := policyAWSCoordinate(candidate.PolicyProtocolIdentity); coordinate != "" {
+		effect += " · AWS " + coordinate
+	}
 	return effect
 }
 
@@ -1062,6 +1065,9 @@ func policyReviewCandidateEffect(candidate tobari.PolicyCandidate) string {
 		if candidate.MCPToolName != "" {
 			effect += " · " + safeExternalText(candidate.MCPToolName)
 		}
+	}
+	if coordinate := policyAWSCoordinate(candidate.PolicyProtocolIdentity); coordinate != "" {
+		effect += " · AWS " + coordinate
 	}
 	return effect
 }
@@ -1427,6 +1433,9 @@ func policyReviewCandidateRequest(candidate tobari.PolicyCandidate) string {
 		if candidate.MCPToolName != "" {
 			request += " · " + safeExternalText(candidate.MCPToolName)
 		}
+	}
+	if coordinate := policyAWSCoordinate(candidate.PolicyProtocolIdentity); coordinate != "" {
+		request += " · AWS " + coordinate
 	}
 	return request
 }

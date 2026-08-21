@@ -22,6 +22,9 @@ var (
 	graphqlNamePattern       = regexp.MustCompile(`^[_A-Za-z][_0-9A-Za-z]*$`)
 	mcpMethodPattern         = regexp.MustCompile(`^[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*$`)
 	mcpToolNamePattern       = regexp.MustCompile(`^[A-Za-z0-9_.:/-]+$`)
+	awsServicePattern        = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,62}$`)
+	awsQueryOperationPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,127}$`)
+	awsJSONOperationPattern  = regexp.MustCompile(`^[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*\.[A-Za-z_][A-Za-z0-9_]{0,127}$`)
 	policyRevisionPattern    = regexp.MustCompile(`^[0-9a-f]{64}$`)
 )
 
@@ -33,12 +36,16 @@ const (
 	PolicyProtocolHTTP       = "http"
 	PolicyProtocolGraphQL    = "graphql"
 	PolicyProtocolMCP        = "mcp"
+	PolicyProtocolAWS        = "aws"
+	AWSWireProtocolQuery     = "query"
+	AWSWireProtocolJSON      = "json"
 	GraphQLOperationQuery    = "query"
 	GraphQLOperationMutation = "mutation"
 )
 
 // PolicyProtocolIdentity identifies one HTTP effect or refines it to exactly
-// one GraphQL root coordinate or MCP method/tool coordinate.
+// one GraphQL root coordinate, MCP method/tool coordinate, or dynamically
+// observed AWS wire operation. AWS identity carries no read/write semantics.
 type PolicyProtocolIdentity struct {
 	Scheme               string `json:"scheme"`
 	Protocol             string `json:"protocol"`
@@ -46,6 +53,9 @@ type PolicyProtocolIdentity struct {
 	GraphQLRootField     string `json:"graphql_root_field,omitempty"`
 	MCPMethod            string `json:"mcp_method,omitempty"`
 	MCPToolName          string `json:"mcp_tool_name,omitempty"`
+	AWSWireProtocol      string `json:"aws_wire_protocol,omitempty"`
+	AWSService           string `json:"aws_service,omitempty"`
+	AWSOperation         string `json:"aws_operation,omitempty"`
 }
 
 // EffectiveProtocol returns the validated closed protocol value.
@@ -59,11 +69,11 @@ func (i PolicyProtocolIdentity) Validate() error {
 	}
 	switch i.EffectiveProtocol() {
 	case PolicyProtocolHTTP:
-		if i.GraphQLOperationType != "" || i.GraphQLRootField != "" || i.MCPMethod != "" || i.MCPToolName != "" {
+		if i.GraphQLOperationType != "" || i.GraphQLRootField != "" || i.MCPMethod != "" || i.MCPToolName != "" || i.AWSWireProtocol != "" || i.AWSService != "" || i.AWSOperation != "" {
 			return fmt.Errorf("HTTP policy identity cannot contain protocol refinement fields")
 		}
 	case PolicyProtocolGraphQL:
-		if i.MCPMethod != "" || i.MCPToolName != "" {
+		if i.MCPMethod != "" || i.MCPToolName != "" || i.AWSWireProtocol != "" || i.AWSService != "" || i.AWSOperation != "" {
 			return fmt.Errorf("GraphQL policy identity cannot contain MCP fields")
 		}
 		if i.GraphQLOperationType != GraphQLOperationQuery && i.GraphQLOperationType != GraphQLOperationMutation {
@@ -73,7 +83,7 @@ func (i PolicyProtocolIdentity) Validate() error {
 			return fmt.Errorf("GraphQL root field is invalid")
 		}
 	case PolicyProtocolMCP:
-		if i.GraphQLOperationType != "" || i.GraphQLRootField != "" {
+		if i.GraphQLOperationType != "" || i.GraphQLRootField != "" || i.AWSWireProtocol != "" || i.AWSService != "" || i.AWSOperation != "" {
 			return fmt.Errorf("MCP policy identity cannot contain GraphQL fields")
 		}
 		if len(i.MCPMethod) == 0 || len(i.MCPMethod) > 128 || !mcpMethodPattern.MatchString(i.MCPMethod) {
@@ -85,6 +95,25 @@ func (i PolicyProtocolIdentity) Validate() error {
 			}
 		} else if i.MCPToolName != "" {
 			return fmt.Errorf("MCP tool name is only valid for tools/call")
+		}
+	case PolicyProtocolAWS:
+		if i.GraphQLOperationType != "" || i.GraphQLRootField != "" || i.MCPMethod != "" || i.MCPToolName != "" {
+			return fmt.Errorf("AWS policy identity cannot contain GraphQL or MCP fields")
+		}
+		if !awsServicePattern.MatchString(i.AWSService) {
+			return fmt.Errorf("AWS signing service is invalid")
+		}
+		switch i.AWSWireProtocol {
+		case AWSWireProtocolQuery:
+			if !awsQueryOperationPattern.MatchString(i.AWSOperation) {
+				return fmt.Errorf("AWS Query operation is invalid")
+			}
+		case AWSWireProtocolJSON:
+			if len(i.AWSOperation) > 256 || !awsJSONOperationPattern.MatchString(i.AWSOperation) {
+				return fmt.Errorf("AWS JSON operation is invalid")
+			}
+		default:
+			return fmt.Errorf("AWS wire protocol is invalid")
 		}
 	default:
 		return fmt.Errorf("policy protocol is invalid")
@@ -98,7 +127,10 @@ func (i PolicyProtocolIdentity) matches(other PolicyProtocolIdentity) bool {
 		i.GraphQLOperationType == other.GraphQLOperationType &&
 		i.GraphQLRootField == other.GraphQLRootField &&
 		i.MCPMethod == other.MCPMethod &&
-		i.MCPToolName == other.MCPToolName
+		i.MCPToolName == other.MCPToolName &&
+		i.AWSWireProtocol == other.AWSWireProtocol &&
+		i.AWSService == other.AWSService &&
+		i.AWSOperation == other.AWSOperation
 }
 
 func appendPolicyProtocolIdentity(material []string, identity PolicyProtocolIdentity) []string {
@@ -109,7 +141,10 @@ func appendPolicyProtocolIdentity(material []string, identity PolicyProtocolIden
 	if identity.EffectiveProtocol() == PolicyProtocolGraphQL {
 		return append(material, PolicyProtocolGraphQL, identity.GraphQLOperationType, identity.GraphQLRootField)
 	}
-	return append(material, PolicyProtocolMCP, identity.MCPMethod, identity.MCPToolName)
+	if identity.EffectiveProtocol() == PolicyProtocolMCP {
+		return append(material, PolicyProtocolMCP, identity.MCPMethod, identity.MCPToolName)
+	}
+	return append(material, PolicyProtocolAWS, identity.AWSWireProtocol, identity.AWSService, identity.AWSOperation)
 }
 
 // GraphQLEndpoint is one trusted exact transport location where Gateway may
