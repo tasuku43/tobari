@@ -111,13 +111,17 @@ class ReviewedAWSSigV4GatewayTests(ReviewedDynamicCredentialGatewayTestCase):
         self.assertFalse(flow.request.stream)
         self.assertNotIn("authorization", flow.request.headers)
         self.assertNotIn("x-amz-security-token", flow.request.headers)
-        self.assertNotIn("authorization", captured["request"]["headers"])
-        self.assertEqual(
-            captured["authorization"],
-            {"broker_provider": "aws"},
-        )
+        self.assertEqual(captured, {})
 
-        addon.request(flow)
+        with mock.patch.object(gateway, "query_opa", side_effect=allow):
+            addon.request(flow)
+        self.assertNotIn("authorization", captured["request"]["headers"])
+        self.assertEqual(captured["request"]["aws"], {
+            "wire_protocol": "query",
+            "service": "sts",
+            "operation": "GetCallerIdentity",
+        })
+        self.assertEqual(captured["authorization"], {"broker_provider": "aws"})
         self.assertEqual(
             [item["op"] for item in calls],
             ["introspect_signing", "sign_sigv4"],
@@ -169,8 +173,13 @@ class ReviewedAWSSigV4GatewayTests(ReviewedDynamicCredentialGatewayTestCase):
             with redirect_stdout(io.StringIO()):
                 addon.requestheaders(flow)
         self.assertIsNone(flow.response)
-        with redirect_stdout(io.StringIO()):
-            addon.request(flow)
+        with mock.patch.object(
+            gateway,
+            "query_opa",
+            return_value=gateway.Decision(True, "allowed", 403, False),
+        ):
+            with redirect_stdout(io.StringIO()):
+                addon.request(flow)
         self.assertEqual(flow.response.status_code, 409)
         self.assertEqual(
             json.loads(flow.response.content),
@@ -221,8 +230,13 @@ class ReviewedAWSSigV4GatewayTests(ReviewedDynamicCredentialGatewayTestCase):
         ):
             with redirect_stdout(io.StringIO()):
                 addon.requestheaders(flow)
-        with redirect_stdout(io.StringIO()):
-            addon.request(flow)
+        with mock.patch.object(
+            gateway,
+            "query_opa",
+            return_value=gateway.Decision(True, "allowed", 403, False),
+        ):
+            with redirect_stdout(io.StringIO()):
+                addon.request(flow)
         self.assertEqual(flow.response.status_code, 503)
         self.assertEqual(
             json.loads(flow.response.content),
@@ -271,13 +285,13 @@ class ReviewedAWSSigV4GatewayTests(ReviewedDynamicCredentialGatewayTestCase):
         self.assertNotIn("x-amz-security-token", flow.request.headers)
         self.assertEqual(flow.response.status_code, 403)
 
-    def test_aws_sigv4_rejects_request_changes_after_policy_allow(self):
+    def test_aws_query_rejects_structural_changes_before_delayed_policy(self):
         self.provider_projection = self.aws_provider_projection()
 
         def configure_flow():
             body = b"Action=GetCallerIdentity&Version=2011-06-15"
             flow = self.flow(
-                "https://sts.us-east-1.amazonaws.com/?Version=2011-06-15",
+                "https://sts.us-east-1.amazonaws.com/",
                 "POST",
             )
             flow.request.raw_content = body
@@ -300,10 +314,10 @@ class ReviewedAWSSigV4GatewayTests(ReviewedDynamicCredentialGatewayTestCase):
             flow.request.method = "PUT"
 
         def mutate_path(flow):
-            flow.request.path = "/changed?Version=2011-06-15"
+            flow.request.path = "/changed"
 
         def mutate_query(flow):
-            flow.request.path = "/?Version=changed"
+            flow.request.path = "/?Action=CreateRole"
 
         def mutate_authority(flow):
             flow.request.host = "sts.us-west-2.amazonaws.com"
@@ -311,17 +325,13 @@ class ReviewedAWSSigV4GatewayTests(ReviewedDynamicCredentialGatewayTestCase):
         def mutate_signed_header(flow):
             flow.request.headers["content-type"] = "application/json"
 
-        def mutate_policy_header(flow):
-            flow.request.headers["x-extra"] = "changed"
-
-        for name, mutation in {
-            "method": mutate_method,
-            "path": mutate_path,
-            "query": mutate_query,
-            "authority": mutate_authority,
-            "signed header": mutate_signed_header,
-            "policy-visible header": mutate_policy_header,
-        }.items():
+        for name, mutation, expected_status, expected_error in (
+            ("method", mutate_method, 400, "aws_request_changed"),
+            ("path", mutate_path, 400, "aws_request_changed"),
+            ("query", mutate_query, 400, "aws_request_changed"),
+            ("authority", mutate_authority, 400, "request_authority_invalid"),
+            ("signed header", mutate_signed_header, 400, "aws_request_changed"),
+        ):
             with self.subTest(name=name):
                 calls = []
 
@@ -350,13 +360,18 @@ class ReviewedAWSSigV4GatewayTests(ReviewedDynamicCredentialGatewayTestCase):
                     with redirect_stdout(io.StringIO()):
                         addon.requestheaders(flow)
                 mutation(flow)
-                with redirect_stdout(io.StringIO()):
-                    addon.request(flow)
+                with mock.patch.object(
+                    gateway,
+                    "query_opa",
+                    return_value=gateway.Decision(True, "allowed", 403, False),
+                ):
+                    with redirect_stdout(io.StringIO()):
+                        addon.request(flow)
                 self.assertEqual([item["op"] for item in calls], ["introspect_signing"])
-                self.assertEqual(flow.response.status_code, 403)
+                self.assertEqual(flow.response.status_code, expected_status)
                 self.assertEqual(
                     json.loads(flow.response.content),
-                    {"error": "broker_signing_request_invalid"},
+                    {"error": expected_error},
                 )
 
     def test_aws_sigv4_rejects_unbounded_or_separately_authenticated_forms(self):

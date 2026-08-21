@@ -307,6 +307,59 @@ test_mcp_malformed_identity_fails_closed if {
 	not result.learnable
 }
 
+aws_query_request_fixture := object.union(
+	object.union(
+		request_with_authority({"host": "sts.us-east-1.amazonaws.com"}),
+		{"method": "POST", "path": {"raw": "/", "segments": []}},
+	),
+	{"aws": {"wire_protocol": "query", "service": "sts", "operation": "GetCallerIdentity"}},
+)
+
+aws_query_allow_fixture := object.union(learned_exact_fixture, {
+	"host": "sts.us-east-1.amazonaws.com",
+	"method": "POST",
+	"path": "/",
+	"examples": ["/"],
+	"protocol": "aws",
+	"aws_wire_protocol": "query",
+	"aws_service": "sts",
+	"aws_operation": "GetCallerIdentity",
+})
+
+test_aws_operation_is_learnable_without_a_service_catalog if {
+	result := decision with input as input_with_request(aws_query_request_fixture)
+	not result.allow
+	result.learnable
+}
+
+test_aws_exact_rule_does_not_authorize_another_operation if {
+	allowed := decision with input as input_with_request(aws_query_request_fixture)
+		with data.tobari.rules.learned_allows as [aws_query_allow_fixture]
+	other_request := object.union(aws_query_request_fixture, {"aws": {"wire_protocol": "query", "service": "sts", "operation": "AssumeRole"}})
+	other := decision with input as input_with_request(other_request)
+		with data.tobari.rules.learned_allows as [aws_query_allow_fixture]
+	allowed.allow
+	not other.allow
+	other.learnable
+}
+
+test_http_rule_does_not_authorize_aws_operation if {
+	http_rule := object.union(learned_exact_fixture, {"host": "sts.us-east-1.amazonaws.com", "method": "POST", "path": "/", "examples": ["/"]})
+	result := decision with input as input_with_request(aws_query_request_fixture)
+		with data.tobari.rules.learned_allows as [http_rule]
+	not result.allow
+	result.learnable
+}
+
+test_aws_malformed_or_mixed_identity_fails_closed if {
+	malformed := object.union(aws_query_request_fixture, {"aws": {"wire_protocol": "query", "service": "sts", "operation": "Get-Caller-Identity"}})
+	mixed_rule := object.union(aws_query_allow_fixture, {"mcp_method": "tools/list"})
+	result := decision with input as input_with_request(malformed)
+		with data.tobari.rules.learned_allows as [mixed_rule]
+	not result.allow
+	not result.learnable
+}
+
 test_graphql_generic_http_allow_does_not_authorize_declared_endpoint if {
 	result := decision with input as input_with_request(graphql_request_fixture)
 		with data.tobari.boundary.graphql_endpoints as [graphql_endpoint_fixture]

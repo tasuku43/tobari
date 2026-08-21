@@ -55,6 +55,11 @@ request_allowed if {
 }
 
 request_allowed if {
+	aws_request
+	aws_learned_rule_allowed
+}
+
+request_allowed if {
 	graphql_request
 	every root_field in request_graphql.root_fields {
 		graphql_learned_rule_allowed(root_field)
@@ -122,6 +127,16 @@ explicitly_denied if {
 	rule.graphql_root_field == root_field
 }
 
+explicitly_denied if {
+	aws_request
+	some rule in learned_deny_rules
+	aws_rule_protocol_valid(rule)
+	learned_rule_matches_request(rule, input.principal.project_id, input.request)
+	rule.aws_wire_protocol == request_aws.wire_protocol
+	rule.aws_service == request_aws.service
+	rule.aws_operation == request_aws.operation
+}
+
 default learned_rules := []
 
 learned_rules := data.tobari.rules.learned_allows
@@ -152,6 +167,16 @@ mcp_learned_rule_allowed if {
 	mcp_rule_protocol_valid(rule)
 	rule.mcp_method == request_mcp.method
 	object.get(rule, "mcp_tool_name", "") == object.get(request_mcp, "tool_name", "")
+	learned_rule_matches_request(rule, input.principal.project_id, input.request)
+}
+
+aws_learned_rule_allowed if {
+	some rule in learned_rules
+	learned_rule_valid(rule)
+	aws_rule_protocol_valid(rule)
+	rule.aws_wire_protocol == request_aws.wire_protocol
+	rule.aws_service == request_aws.service
+	rule.aws_operation == request_aws.operation
 	learned_rule_matches_request(rule, input.principal.project_id, input.request)
 }
 
@@ -193,6 +218,13 @@ learned_rule_valid(rule) if {
 learned_rule_valid(rule) if {
 	learned_rule_base_valid(rule)
 	graphql_rule_protocol_valid(rule)
+	rule.match == "exact"
+	learned_rule_scope_valid(rule)
+}
+
+learned_rule_valid(rule) if {
+	learned_rule_base_valid(rule)
+	aws_rule_protocol_valid(rule)
 	rule.match == "exact"
 	learned_rule_scope_valid(rule)
 }
@@ -301,10 +333,12 @@ path_template_matches(template_segments, raw_path) if {
 
 request_graphql := object.get(input.request, "graphql", null)
 request_mcp := object.get(input.request, "mcp", null)
+request_aws := object.get(input.request, "aws", null)
 
 ordinary_http_request if {
 	request_graphql == null
 	request_mcp == null
+	request_aws == null
 	not declared_graphql_endpoint
 	not declared_mcp_endpoint
 }
@@ -321,6 +355,14 @@ mcp_request if {
 	mcp_request_shape_valid
 }
 
+aws_request if {
+	not declared_graphql_endpoint
+	not declared_mcp_endpoint
+	input.request.method == "POST"
+	input.request.path.raw == "/"
+	aws_request_shape_valid
+}
+
 request_protocol_valid if {
 	ordinary_http_request
 }
@@ -331,6 +373,10 @@ request_protocol_valid if {
 
 request_protocol_valid if {
 	mcp_request
+}
+
+request_protocol_valid if {
+	aws_request
 }
 
 default graphql_endpoints := []
@@ -414,6 +460,32 @@ mcp_tool_name_valid(value) if {
 	regex.match(`^[A-Za-z0-9_.:/-]+$`, value)
 }
 
+aws_request_shape_valid if {
+	is_object(request_aws)
+	object.keys(request_aws) == {"operation", "service", "wire_protocol"}
+	request_aws.wire_protocol in {"query", "json"}
+	aws_service_valid(request_aws.service)
+	aws_operation_valid(request_aws.wire_protocol, request_aws.operation)
+}
+
+aws_service_valid(value) if {
+	is_string(value)
+	count(value) <= 63
+	regex.match(`^[a-z0-9][a-z0-9-]{0,62}$`, value)
+}
+
+aws_operation_valid("query", value) if {
+	is_string(value)
+	count(value) <= 128
+	regex.match(`^[A-Za-z_][A-Za-z0-9_]{0,127}$`, value)
+}
+
+aws_operation_valid("json", value) if {
+	is_string(value)
+	count(value) <= 256
+	regex.match(`^[A-Za-z0-9_-]+(\.[A-Za-z0-9_-]+)*\.[A-Za-z_][A-Za-z0-9_]{0,127}$`, value)
+}
+
 graphql_request_shape_valid if {
 	is_object(request_graphql)
 	object.keys(request_graphql) == {"operation_type", "root_fields"}
@@ -439,6 +511,9 @@ http_rule_protocol_valid(rule) if {
 	not object_has_key(rule, "graphql_root_field")
 	not object_has_key(rule, "mcp_method")
 	not object_has_key(rule, "mcp_tool_name")
+	not object_has_key(rule, "aws_wire_protocol")
+	not object_has_key(rule, "aws_service")
+	not object_has_key(rule, "aws_operation")
 }
 
 graphql_rule_protocol_valid(rule) if {
@@ -447,6 +522,9 @@ graphql_rule_protocol_valid(rule) if {
 	graphql_name_valid(rule.graphql_root_field)
 	not object_has_key(rule, "mcp_method")
 	not object_has_key(rule, "mcp_tool_name")
+	not object_has_key(rule, "aws_wire_protocol")
+	not object_has_key(rule, "aws_service")
+	not object_has_key(rule, "aws_operation")
 }
 
 mcp_rule_protocol_valid(rule) if {
@@ -456,6 +534,9 @@ mcp_rule_protocol_valid(rule) if {
 	not object_has_key(rule, "graphql_root_field")
 	rule.mcp_method != "tools/call"
 	not object_has_key(rule, "mcp_tool_name")
+	not object_has_key(rule, "aws_wire_protocol")
+	not object_has_key(rule, "aws_service")
+	not object_has_key(rule, "aws_operation")
 }
 
 mcp_rule_protocol_valid(rule) if {
@@ -464,6 +545,20 @@ mcp_rule_protocol_valid(rule) if {
 	mcp_tool_name_valid(rule.mcp_tool_name)
 	not object_has_key(rule, "graphql_operation_type")
 	not object_has_key(rule, "graphql_root_field")
+	not object_has_key(rule, "aws_wire_protocol")
+	not object_has_key(rule, "aws_service")
+	not object_has_key(rule, "aws_operation")
+}
+
+aws_rule_protocol_valid(rule) if {
+	rule.protocol == "aws"
+	rule.aws_wire_protocol in {"query", "json"}
+	aws_service_valid(rule.aws_service)
+	aws_operation_valid(rule.aws_wire_protocol, rule.aws_operation)
+	not object_has_key(rule, "graphql_operation_type")
+	not object_has_key(rule, "graphql_root_field")
+	not object_has_key(rule, "mcp_method")
+	not object_has_key(rule, "mcp_tool_name")
 }
 
 object_has_key(obj, key) if {

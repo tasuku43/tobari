@@ -18,6 +18,13 @@ from urllib.parse import parse_qs, unquote, urlsplit
 
 from mitmproxy import http
 
+from aws_request import (
+    AWSRequestError,
+    ParsedAWSRequest,
+    PendingAWSQueryRequest,
+    classify_aws_request_headers,
+    parse_aws_query_request,
+)
 from credential_adapters import (
     CONTROL_HEADERS,
     DEFAULT_SECRET_HEADERS,
@@ -684,6 +691,7 @@ def build_policy_input(
     broker_provider: str | None = None,
     graphql: ParsedGraphQLRequest | None = None,
     mcp: ParsedMCPRequest | None = None,
+    aws: ParsedAWSRequest | None = None,
     host_loopback: dict[str, Any] | None = None,
     attachment_grants: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
@@ -726,6 +734,12 @@ def build_policy_input(
         policy_input["request"]["mcp"] = {"method": mcp.method}
         if mcp.tool_name is not None:
             policy_input["request"]["mcp"]["tool_name"] = mcp.tool_name
+    if aws is not None:
+        policy_input["request"]["aws"] = {
+            "wire_protocol": aws.wire_protocol,
+            "service": aws.service,
+            "operation": aws.operation,
+        }
     if host_loopback is not None:
         policy_input["destination"] = {
             "kind": "host_loopback",
@@ -916,6 +930,7 @@ def _policy_denied(
     learnable: bool,
     graphql: ParsedGraphQLRequest | None = None,
     mcp: ParsedMCPRequest | None = None,
+    aws: ParsedAWSRequest | None = None,
 ) -> None:
     path = urlsplit(flow.request.url).path or "/"
     review_available = bool(learnable)
@@ -964,6 +979,11 @@ def _policy_denied(
         document["tobari"]["request"]["mcp_method"] = mcp.method
         if mcp.tool_name is not None:
             document["tobari"]["request"]["mcp_tool_name"] = mcp.tool_name
+    if aws is not None:
+        document["tobari"]["request"]["protocol"] = "aws"
+        document["tobari"]["request"]["aws_wire_protocol"] = aws.wire_protocol
+        document["tobari"]["request"]["aws_service"] = aws.service
+        document["tobari"]["request"]["aws_operation"] = aws.operation
     body = json.dumps(document, separators=(",", ":")).encode("utf-8")
     flow.response = http.Response.make(status, body, {"content-type": "application/json"})
 
@@ -996,6 +1016,15 @@ def _mcp_audit_event(base: dict[str, Any], parsed: ParsedMCPRequest) -> dict[str
     event = {**base, "protocol": "mcp", "mcp_method": parsed.method}
     if parsed.tool_name is not None:
         event["mcp_tool_name"] = parsed.tool_name
+    return event
+
+
+def _aws_audit_event(base: dict[str, Any], parsed: ParsedAWSRequest) -> dict[str, Any]:
+    event = dict(base)
+    event["protocol"] = "aws"
+    event["aws_wire_protocol"] = parsed.wire_protocol
+    event["aws_service"] = parsed.service
+    event["aws_operation"] = parsed.operation
     return event
 
 
@@ -1079,6 +1108,7 @@ class TobariGateway:
         audit_valid = False
         request_path = "/"
         audit_path = "/"
+        aws_identity: ParsedAWSRequest | None = None
         try:
             scheme, host, port = normalize_ingress_authority(flow)
             request_path = urlsplit(flow.request.url).path or "/"
@@ -1096,6 +1126,7 @@ class TobariGateway:
                 host_loopback, attachment_grants = self.host_loopback_source.resolve(
                     principal, scheme, host, port
                 )
+            request_headers = _request_header_pairs(flow.request)
             credential_request = self.credential_adapter.prepare(
                 flow.request, scheme, host, port, context_id, project_id
             )
@@ -1144,12 +1175,35 @@ class TobariGateway:
                     "credential_request": credential_request,
                 }
                 return
+            aws_classification = classify_aws_request_headers(
+                flow.request.method.upper(), scheme, host, port, request_path,
+                urlsplit(flow.request.url).query,
+                request_headers,
+            )
+            if isinstance(aws_classification, PendingAWSQueryRequest):
+                flow.request.stream = False
+                audit_deferred = True
+                flow.metadata["tobari_aws_query_pending"] = {
+                    "started": started,
+                    "request_id": request_id,
+                    "scheme": scheme,
+                    "host": host,
+                    "port": port,
+                    "audit_path": audit_path,
+                    "principal": principal,
+                    "credential_request": credential_request,
+                    "classification": aws_classification,
+                }
+                return
+            if isinstance(aws_classification, ParsedAWSRequest):
+                aws_identity = aws_classification
             policy_input = build_policy_input(
                 flow,
                 self.cluster,
                 principal,
                 credential_request.secret_headers,
                 credential_request.broker_provider,
+                aws=aws_identity,
                 host_loopback=host_loopback,
                 attachment_grants=attachment_grants,
             )
@@ -1157,12 +1211,12 @@ class TobariGateway:
             reason = decision.reason
             learnable = decision.learnable
             if not decision.allow:
-                _policy_denied(flow, decision.status_code, learnable)
+                _policy_denied(flow, decision.status_code, learnable, aws=aws_identity)
                 upstream_status = decision.status_code
                 return
             credential_request.apply(flow.request)
             decision_name = "allow"
-            flow.metadata["tobari_audit"] = {
+            audit_event = {
                 "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                 "request_id": request_id,
                 "cluster": self.cluster,
@@ -1181,6 +1235,10 @@ class TobariGateway:
                 "learnable": learnable,
                 "started": started,
             }
+            flow.metadata["tobari_audit"] = (
+                _aws_audit_event(audit_event, aws_identity)
+                if aws_identity is not None else audit_event
+            )
             if bool(getattr(credential_request, "deferred", False)):
                 # AWS SigV4 needs a hash of the complete, bounded request body.
                 # Policy has already allowed the ordinary HTTP effect, but the
@@ -1204,7 +1262,7 @@ class TobariGateway:
                 # Authorization is complete before mitmproxy forwards any body bytes.
                 # The body is deliberately opaque to policy and is never retained here.
                 flow.request.stream = True
-        except (GraphQLRequestError, MCPRequestError) as error:
+        except (GraphQLRequestError, MCPRequestError, AWSRequestError) as error:
             reason = str(error)
             _deny(flow, 400, error.code)
             upstream_status = 400
@@ -1244,26 +1302,19 @@ class TobariGateway:
             upstream_status = 502
         finally:
             if decision_name != "allow" and not audit_deferred and audit_valid:
-                _audit(
-                    timestamp=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-                    request_id=request_id,
-                    cluster=self.cluster,
-                    project_id=project_id,
-                    context_id=context_id,
-                    context=context_name,
-                    project_root=project_root,
-                    scheme=scheme,
-                    host=host,
-                    port=port,
-                    method=flow.request.method.upper(),
-                    path=audit_path,
-                    protocol="http",
-                    decision=decision_name,
-                    reason=reason,
-                    learnable=learnable,
-                    upstream_status=upstream_status,
-                    duration_ms=int((time.monotonic() - started) * 1000),
-                )
+                event = {
+                    "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                    "request_id": request_id, "cluster": self.cluster,
+                    "project_id": project_id, "context_id": context_id,
+                    "context": context_name, "project_root": project_root,
+                    "scheme": scheme, "host": host, "port": port,
+                    "method": flow.request.method.upper(), "path": audit_path,
+                    "protocol": "http", "decision": decision_name,
+                    "reason": reason, "learnable": learnable,
+                    "upstream_status": upstream_status,
+                    "duration_ms": int((time.monotonic() - started) * 1000),
+                }
+                _audit(**(_aws_audit_event(event, aws_identity) if aws_identity is not None else event))
 
     def _complete_graphql_request(
         self, flow: http.HTTPFlow, pending: dict[str, Any]
@@ -1454,7 +1505,85 @@ class TobariGateway:
         except Exception:
             fail(502, "gateway_error", "gateway error")
 
+    def _complete_aws_query_request(
+        self, flow: http.HTTPFlow, pending: dict[str, Any]
+    ) -> None:
+        started = pending["started"]
+        principal = pending["principal"]
+        credential_request = pending["credential_request"]
+        parsed: ParsedAWSRequest | None = None
+
+        def base_event(decision: str, reason: str, learnable: bool) -> dict[str, Any]:
+            return {
+                "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                "request_id": pending["request_id"], "cluster": self.cluster,
+                "project_id": principal["project_id"], "context_id": principal["context_id"],
+                "context": principal["context"], "project_root": principal["project_root"],
+                "scheme": pending["scheme"], "host": pending["host"], "port": pending["port"],
+                "method": flow.request.method.upper(), "path": pending["audit_path"],
+                "protocol": "http", "decision": decision, "reason": reason,
+                "learnable": learnable, "started": started,
+            }
+
+        def fail(status: int, code: str, reason: str, learnable: bool = False) -> None:
+            event = base_event("deny", reason, learnable)
+            event.pop("started")
+            event["upstream_status"] = status
+            event["duration_ms"] = int((time.monotonic() - started) * 1000)
+            _audit(**(_aws_audit_event(event, parsed) if parsed is not None else event))
+            if code == "policy_denied" and parsed is not None:
+                _policy_denied(flow, status, learnable, aws=parsed)
+            else:
+                _deny(flow, status, code)
+
+        try:
+            body = flow.request.raw_content
+            if not isinstance(body, bytes):
+                raise AWSRequestError("aws_operation_invalid", "AWS Query request body must be bytes")
+            current_scheme, current_host, current_port = normalize_ingress_authority(flow)
+            parsed = parse_aws_query_request(
+                pending["classification"], flow.request.method.upper(),
+                current_scheme, current_host, current_port,
+                urlsplit(flow.request.url).path or "/", urlsplit(flow.request.url).query,
+                _request_header_pairs(flow.request), body,
+            )
+            policy_input = build_policy_input(
+                flow, self.cluster, principal, credential_request.secret_headers,
+                credential_request.broker_provider, aws=parsed,
+            )
+            decision = query_opa(self.opa_url, policy_input, self.opa_timeout)
+            if not decision.allow:
+                fail(decision.status_code, "policy_denied", decision.reason, decision.learnable)
+                return
+            credential_request.apply(flow.request)
+            if bool(getattr(credential_request, "deferred", False)):
+                apply_body = getattr(credential_request, "apply_body", None)
+                if not callable(apply_body):
+                    raise BrokerCredentialUnavailable("deferred credential contract is unavailable")
+                apply_body(flow.request)
+            commit_upstream_authority(flow)
+            flow.metadata["tobari_audit"] = _aws_audit_event(
+                base_event("allow", decision.reason, False), parsed
+            )
+        except AWSRequestError as error:
+            fail(400, error.code, str(error))
+        except PolicyUnavailable as error:
+            fail(503, "policy_unavailable", str(error))
+        except CredentialAdapterError as error:
+            status, code = _credential_error_response(error, "credential_handle_invalid")
+            fail(status, code, str(error))
+        except (CredentialError, RuntimeError, UnicodeError, ValueError) as error:
+            fail(503, "credential_unavailable", str(error))
+        except AuthorityError as error:
+            fail(400, "request_authority_invalid", str(error))
+        except Exception:
+            fail(502, "gateway_error", "gateway error")
+
     def request(self, flow: http.HTTPFlow) -> None:
+        aws_pending = flow.metadata.pop("tobari_aws_query_pending", None)
+        if isinstance(aws_pending, dict):
+            self._complete_aws_query_request(flow, aws_pending)
+            return
         mcp_pending = flow.metadata.pop("tobari_mcp_pending", None)
         if isinstance(mcp_pending, dict):
             self._complete_mcp_request(flow, mcp_pending)

@@ -35,6 +35,7 @@ EOF
 .dockerignore
 Dockerfile
 THIRD_PARTY_NOTICES.md
+addon/aws_request.py
 addon/credential_adapters.py
 addon/graphql_request.py
 addon/mcp_request.py
