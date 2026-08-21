@@ -818,11 +818,11 @@ runtime_image=$(python3 -c \
   <<<"$runtime_build")
 runtime_selection="$runtime_name@1"
 default_context_create=$(run_tobari context create --name default --runtime "$runtime_selection" \
-  --source-access read-write --format json)
+  --mode guided --source-access read-write --native-readiness enabled --format json)
 default_context_id=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["context"]["id"])' \
   <<<"$default_context_create")
 run_tobari context create --name restricted --runtime "$runtime_selection" \
-  --source-access read-only --format json >/dev/null
+  --mode guided --source-access read-only --native-readiness enabled --format json >/dev/null
 python3 - "$config_directory/contexts/default/policy/context.json" "$config_directory/contexts/default/context.json" <<'PY'
 import hashlib
 import json
