@@ -1,6 +1,12 @@
-# Work Context: Make Context the explicit capability envelope
+# Work Context: Make the Context Boundary explicit
 
 ## Current behavior
+
+ADR 0071 reconciles this packet's original whole-Context immutability framing:
+Context is now the stable reusable work mode, while only its creation-time
+source/network Boundary is the immutable capability envelope. The unfinished
+supported-platform source-access evidence below remains owned by this packet
+and its child.
 
 - `internal/domain/tobari.ContextManifest` schema V1 stores stable ID, name,
   agent profile, image, guided/advanced policy mode, runtime recipe record,
@@ -72,7 +78,9 @@ the source-access child packet; network semantics are owned by Tobari policy.
 - Code workaround or exception being considered: adding independent flags to
   runtime and policy paths without a shared Context invariant.
 - Current thesis that resolves it, or proposed thesis revision: Context is the
-  host-owned capability envelope, while enforcement stores stay separate.
+  stable host-owned work mode; its creation-time Boundary is the immutable
+  capability envelope, while mutable Runtime/default components and all
+  enforcement stores retain their separate lifecycles.
 - Downstream impact: manifest/report schema, create inputs, project spec hash,
   policy projection, catalog/help, security claims, harness, and readiness.
 
@@ -105,8 +113,8 @@ direct read-write root bind.
 
 ## Glossary
 
-- **Capability envelope:** the immutable host-owned composition of capabilities
-  and ceilings applied to Workspaces bound to one stable Context.
+- **Capability envelope:** the immutable creation-time source/network Boundary
+  applied to Workspaces bound to one stable Context.
 - **Authority ceiling / guardrail:** a terminal upper bound that no later allow
   source can exceed.
 - **Preset snapshot:** normalized policy-preset bytes copied into Context-owned

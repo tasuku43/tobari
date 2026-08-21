@@ -209,16 +209,20 @@ of the standard profile.
 
 ### Context composition
 
-Context is the user-facing immutable capability envelope for the execution
-boundary. A trusted manifest fixes direct source access and a normalized
-policy origin/revision, and binds one exact installation-wide Runtime revision
-and its compatible image plus the read-only agent profile,
-the Context policy directory, and its stable identity. The standard manifest
-locates no Auth Broker state. Experimental state remains separately keyed and
-the manifest contains no broker vault path, root key, or primary secret.
+Context is the user-facing stable reusable work mode. Its creation-time
+Boundary is the immutable capability envelope: a trusted manifest fixes direct
+source access, policy mode, one normalized policy snapshot/revision, complete
+destination/method ceilings, and native-readiness participation. The same
+manifest binds one exact installation-wide Runtime revision and compatible
+image that only `context runtime set` may replace, plus the read-only agent
+profile, Context policy directory, narrow session defaults, and typed
+future-Workspace creation defaults. The standard manifest locates no Auth
+Broker state. Experimental state remains separately keyed and the manifest
+contains no broker vault path, root key, or primary secret.
 Runtime source and revision history belong to the separate installation Runtime
-catalog; a Context never owns or edits build source. The manifest also owns
-narrow shell and Git identity policies. It is not itself a mountable authority: policy
+catalog; a Context never owns or edits build source. Shell and Git settings are
+late-bound session defaults, while bootstrap is a create-once default for
+future Workspace homes. The manifest is not itself a mountable authority: policy
 is mounted only into OPA and agent configuration is mounted read-only into the
 work runtime. Tool-owned authentication remains in the per-Workspace home.
 The Runtime adapter inventories at most 1,024 owner-only regular files and 256
@@ -350,8 +354,9 @@ call and one atomic manifest replacement,
 and never completes a partial direct invocation. Explicit-empty Context input
 is rejected rather than collapsed into the omitted current-Context selector.
 
-Context creation is the sole owner of envelope defaults. It resolves omitted
-source access to `read-write` and omitted native readiness to `enabled`; it
+Context creation is the sole owner of Boundary defaults and initializes the
+Runtime binding plus Workspace defaults. It resolves omitted source access to
+`read-write` and omitted native readiness to `enabled`; it
 normalizes and validates the complete Context method policy against the fixed
 agent-ready compatibility baseline, binds its owner-only snapshot by SHA-256
 revision, and atomically persists both
@@ -704,8 +709,8 @@ creation to a second orchestrator. The supported customization adapter is the
 installation-wide Runtime catalog: infrastructure snapshots one bounded
 owner-only source tree, builds only the immutable snapshot, validates the
 resulting image, and appends one successful semantic revision. A Context stores
-an exact Runtime ID and revision; only explicit Context selection changes that
-binding. Future import formats must attach to this Runtime boundary rather than
+an exact Runtime ID and revision; only the explicit Context Runtime mutation
+changes that binding. Future import formats must attach to this Runtime boundary rather than
 introduce project or Docker-tag authority.
 
 Context Workspace bootstrap is a separate create-only projection boundary.
@@ -727,6 +732,16 @@ normalized snapshot and EKS results bind the exact AWS semantic revision.
 The Workspace record stores only the applied bootstrap revision so status can
 compare it with the current Context bootstrap recipe without inspecting the
 Workspace file.
+
+The activation classes are therefore explicit:
+
+```text
+stable Context ID
+  ├─ creation-time Boundary -> source bind and terminal network ceilings
+  ├─ exact Runtime binding  -> next-entry reconciliation; home preserved
+  ├─ shell/Git defaults     -> later entry/session resolution; no home rewrite
+  └─ bootstrap defaults     -> future Workspace creation only
+```
 
 Runtime build diagnostics use two deliberately separate paths. The
 application's optional build-progress port carries a bounded, validated stage

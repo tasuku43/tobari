@@ -53,15 +53,24 @@ process in it, coding agents, project files, Workspace home, copied opaque
 handles, generated code, downloaded packages, request data, upstream responses,
 and user/provider text displayed by CLIs are untrusted.
 
-The host also owns each Context's immutable source-access choice,
-normalized Context-owned policy snapshot and revision, and enabled/disabled
-native-readiness choice. They remain secret-free authority
-metadata in separate owner-only state; project files, runtime images,
-Workspaces, and policy source files cannot rewrite an existing Context
-envelope. Enabled readiness independently selects the trusted binary's finite
-native-readiness overlay, still bounded by terminal Context policy ceilings and
-ceilings. A binary update can change that overlay for
+The host also owns each stable Context's creation-time Boundary: immutable
+source-access choice, policy mode, normalized Context-owned policy snapshot and
+revision, terminal destination/method ceilings, and enabled/disabled
+native-readiness choice. They remain secret-free authority metadata in
+separate owner-only state; project files, runtime images, Workspaces, and
+policy source files cannot rewrite that Boundary. Enabled readiness
+independently selects the trusted binary's finite native-readiness overlay,
+still bounded by the terminal Context policy ceilings. A binary update can change that overlay for
 existing Contexts, but runtime data cannot select or define it.
+
+The same stable Context deliberately has mutable non-Boundary components behind
+separate fixed-target host mutations. One exact Runtime binding changes only
+through `context runtime set` and affects bound Workspaces on next entry while
+preserving their identity and home. Shell and Git session defaults are resolved
+for later entry or child-session creation without writing the Workspace home.
+Typed bootstrap recipes affect only future Workspace creation. None of these
+paths changes source/network authority, retargets an existing Workspace, or
+changes standard Workspace-owned authentication.
 
 Only in the experimental profile, the reviewed GitHub, AWS, and Codex host-driver implementations and isolated pup and Claude
 Context-runtime drivers are trusted, purpose-limited CLI side effects. Host

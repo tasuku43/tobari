@@ -161,16 +161,20 @@ tobari delete          # remove Workspace runtime/home, preserve project files
 Use `tobari delete --force` only when intentionally terminating another
 attached session. `cluster down` requires all Workspaces to be deleted first.
 
-## Context capability envelope
+## Context work modes
 
-A Context permanently binds every Workspace created with its stable ID to:
+A Context is one stable reusable work mode. Every Workspace created with its
+stable ID stays bound to that identity. The Context contains:
 
-- one compatible runtime image and read-only agent profile;
-- `source_access: read-only|read-write`;
-- one Context-owned normalized policy snapshot and SHA-256 revision;
-- guided or Advanced policy mode;
-- narrow shell/Git presentation fallbacks;
-- an optional secret-free create-only Workspace bootstrap snapshot.
+- an immutable creation-time Boundary: `source_access: read-only|read-write`,
+  guided or Advanced policy mode, one Context-owned normalized policy snapshot
+  and SHA-256 revision, and native-readiness participation;
+- one exact Runtime binding that `context runtime set` may replace for adoption
+  on the next Workspace entry while preserving identity and home;
+- narrow shell/Git session defaults resolved on later entry or child sessions;
+- an optional secret-free bootstrap creation default applied only to future
+  Workspace homes;
+- one read-only agent profile.
 
 The manifest contains no credential or host CLI state. Native credentials are
 created later by tools inside each Workspace home.
@@ -207,9 +211,9 @@ the runtime spec/hash and Docker inspection.
 
 ### Context policy and native readiness
 
-Native readiness is an independent immutable Context capability and defaults to
-`enabled`; use `--native-readiness disabled` for an intentionally strict
-Context. Its finite exact overlay never overrides the Context-owned policy:
+Native readiness is an independent immutable creation-time Boundary choice and
+defaults to `enabled`; use `--native-readiness disabled` for an intentionally
+strict Context. Its finite exact overlay never overrides the Context-owned policy:
 destination and method Deny decisions filter it, and exact Deny still wins.
 
 Context creation collects one complete HTTP method `default` plus exact

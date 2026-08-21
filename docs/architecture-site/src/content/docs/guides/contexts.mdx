@@ -5,7 +5,7 @@ description: Create, inspect, select, and use host-owned Contexts without changi
 
 import ConceptDiagram from "../../../components/ConceptDiagram.astro";
 
-Contexts keep runtime, policy, agent-profile, and credential configuration separate. Create them on the trusted host and select one as the default for commands that omit `--context`. An existing Workspace always remains bound to the stable Context ID under which it was created, even after the default changes.
+A Context is a stable reusable work mode. Its creation-time source/network Boundary is immutable; its exact Runtime binding, shell/Git session defaults, and future-Workspace bootstrap creation default have separate explicit mutation paths and activation timing. Create Contexts on the trusted host and select one as the default for commands that omit `--context`. An existing Workspace always remains bound to the stable Context ID under which it was created, even after the default changes.
 
 For the relationship between a Context, a Workspace, and the shared cluster, see [Workspace, Context, cluster](../../how-it-works/workspace-context-cluster/).
 
@@ -20,7 +20,7 @@ tobari context list
 tobari context show
 ```
 
-`context list` reports the complete local collection as vertical cards and identifies the current/default name. Filesystem rows and the network method default/overrides remain readable without depending on terminal tab stops. `context show` without `--name` inspects that default. The report includes the stable ID, image selector, agent profile, policy mode, allowlisted shell settings, store references, and runtime status. It excludes primary credentials, broker handles, root keys, and vault contents.
+`context list` reports the complete local collection as vertical cards and identifies the current/default name. Filesystem rows and the network method default/overrides remain readable without depending on terminal tab stops. `context show` without `--name` inspects that default. The report distinguishes the immutable Boundary, exact mutable Runtime binding, shell/Git session defaults, and future-Workspace bootstrap creation default. It also includes the stable ID, agent profile, and separated store references. It excludes primary credentials, broker handles, root keys, and vault contents.
 
 The display name is convenient selection text. The stable Context ID is the durable authority bound into Workspaces, policy, principals, and broker records.
 
@@ -71,7 +71,7 @@ trusted binary and is not a selectable profile. Source access and the Context
 policy snapshot cannot be changed after creation.
 
 When the wizard selects a method Deny, positive baseline rules for that method
-are removed from the new immutable Context snapshot. The destination ceiling
+are removed from the new immutable Context policy snapshot. The destination ceiling
 and exact Denies are unchanged.
 
 `GET` is only a method coordinate; Tobari does not call it safe or read-only.

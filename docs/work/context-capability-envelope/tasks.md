@@ -1,4 +1,4 @@
-# Work Tasks: Make Context the explicit capability envelope
+# Work Tasks: Make the Context Boundary explicit
 
 - Goal: [goal.md](goal.md)
 - Plan: [plan.md](plan.md)
@@ -13,8 +13,9 @@
 
 ## Decide
 
-- [x] Select immutable Context composition over live preset references or
-      per-Workspace flags. Evidence: product-owner approval 2026-08-12.
+- [x] Select an immutable Context source/network Boundary over live policy
+      references or per-Workspace authority flags. Evidence: product-owner
+      approval 2026-08-12 and ADR 0071 reconciliation on 2026-08-21.
 - [x] Select preset guardrail precedence over guided, learned, and Advanced
       allows.
 - [x] Select `read-write` and `builtin/reviewed-exact` omission defaults.
@@ -24,6 +25,9 @@
 - [x] Add and accept the durable capability-envelope ADR. Evidence:
       `docs/decisions/0029-context-capability-envelope.md` accepted on
       2026-08-12.
+- [x] Reconcile whole-Context immutability with the existing mutable Runtime and
+      default contracts. Evidence: ADR 0071 defines Context as a stable work
+      mode and limits the immutable envelope to its creation-time Boundary.
 - [x] Propagate the thesis before completing mechanism changes. Evidence:
       theses, product, architecture, security, threat model, harness,
       readiness validation, and repository add-capability Skill updated with

@@ -185,12 +185,12 @@ func configBootstrapEKSSpec() CommandSpec {
 
 func configShellSpec() CommandSpec {
 	return CommandSpec{
-		Path: "config shell", Summary: "Configure Context shell presentation directly or with one staged terminal Apply",
+		Path: "config shell", Summary: "Configure Context shell session defaults directly or with one staged terminal Apply",
 		Args:   "[--variable COLORTERM|NO_COLOR|PS1|TERM] [--source default|inherit|literal] [--value <value>] [--context <name>] [--format text|json]",
 		Effect: operation.EffectWrite, Role: RoleAct,
 		Agent: AgentContract{
 			CapabilityID: "context.composition",
-			Outcome:      "Configure one allowlisted shell variable through complete flags, or stage several rows from the complete terminal inventory and apply them atomically",
+			Outcome:      "Configure one allowlisted shell session default through complete flags, or stage several rows and apply them atomically; later child sessions resolve it without rewriting Workspace home",
 			Inputs: []CommandInput{
 				{
 					Name: "--variable", Source: InputSourceFlag, Required: false,
@@ -240,12 +240,12 @@ func configShellSpec() CommandSpec {
 
 func configGitSpec() CommandSpec {
 	return CommandSpec{
-		Path: "config git", Summary: "Configure one Context Git identity directly or from one staged terminal screen",
+		Path: "config git", Summary: "Configure one Context Git session fallback directly or from one staged terminal screen",
 		Args:   "[--source default|inherit|literal] [--name <name>] [--email <email>] [--context <name>] [--format text|json]",
 		Effect: operation.EffectWrite, Role: RoleAct,
 		Agent: AgentContract{
 			CapabilityID: "context.composition",
-			Outcome:      "Choose no Context fallback, inherited host user.name and user.email, or one fixed Context-owned Git identity through complete flags or one staged terminal screen",
+			Outcome:      "Choose no Git session fallback, inherited host user.name and user.email, or one fixed Context-owned identity; later Workspace entry resolves it without rewriting Workspace home",
 			Inputs: []CommandInput{
 				{
 					Name: "--source", Source: InputSourceFlag, Required: false,
@@ -296,7 +296,7 @@ func configGitSpec() CommandSpec {
 
 func contextListSpec() CommandSpec {
 	return CommandSpec{
-		Path: "context list", Summary: "List named execution Contexts",
+		Path: "context list", Summary: "List named Context work modes",
 		Args: "[--format text|json]", Effect: operation.EffectRead, Role: RoleUtility,
 		Agent: AgentContract{
 			CapabilityID: "context.composition",
@@ -315,10 +315,10 @@ func contextListSpec() CommandSpec {
 							{Name: "active", Type: OutputFieldTypeBoolean, Description: "Whether this Context is the current default."},
 							{Name: "agent_profile", Type: OutputFieldTypeString, Description: "Read-only agent profile reference."},
 							{Name: "image", Type: OutputFieldTypeString, Description: "Selected compatible runtime image."},
-							{Name: "policy_mode", Type: OutputFieldTypeString, Description: "Policy development mode.", Enum: []string{"guided", "advanced"}},
-							{Name: "source_access", Type: OutputFieldTypeString, Description: "Direct project-source bind access.", Enum: []string{"read-only", "read-write"}},
+							{Name: "policy_mode", Type: OutputFieldTypeString, Description: "Creation-time immutable Boundary policy-development mode.", Enum: []string{"guided", "advanced"}},
+							{Name: "source_access", Type: OutputFieldTypeString, Description: "Creation-time immutable Boundary access for the direct project-source bind.", Enum: []string{"read-only", "read-write"}},
 							{Name: "policy_revision", Type: OutputFieldTypeString, Description: "Immutable revision of the Context-owned normalized policy snapshot."},
-							{Name: "native_readiness", Type: OutputFieldTypeString, Description: "Immutable native-client readiness selection.", Enum: []string{"enabled", "disabled"}},
+							{Name: "native_readiness", Type: OutputFieldTypeString, Description: "Creation-time immutable Boundary choice for native-client readiness participation.", Enum: []string{"enabled", "disabled"}},
 							{Name: "method_policy", Type: OutputFieldTypeObject, Description: "Effective default and exact method decisions owned by the Context.", Fields: contextPolicyMethodPolicyOutput("Effective default and exact method decisions owned by the Context.").Fields},
 							{Name: "runtime_status", Type: OutputFieldTypeString, Description: "Selected Runtime readiness when observed.", Optional: true, Enum: []string{"official", "ready"}},
 							contextBootstrapOutputField(),
@@ -341,11 +341,11 @@ func contextListSpec() CommandSpec {
 
 func contextShowSpec() CommandSpec {
 	return CommandSpec{
-		Path: "context show", Summary: "Inspect one execution Context",
+		Path: "context show", Summary: "Inspect one Context work mode",
 		Args: "[--name <name>] [--details] [--format text|json]", Effect: operation.EffectRead, Role: RoleUtility,
 		Agent: AgentContract{
 			CapabilityID: "context.composition",
-			Outcome:      "Inspect the current Context or one named Context and its separated store references",
+			Outcome:      "Inspect one stable Context work mode, including its immutable Boundary, exact mutable Runtime binding, session defaults, future-Workspace creation defaults, and separated store references",
 			Inputs: []CommandInput{
 				{Name: "--name", Source: InputSourceFlag, Required: false, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, Description: "Named Context to inspect; omission selects the current/default Context.", AllowedValues: []string{}, Completion: InputCompletionContextName},
 				{Name: "--details", Source: InputSourceFlag, Required: false, ValueKind: InputValueBoolean, Cardinality: InputCardinalitySingle, Description: "Expand human text with complete Context diagnostics; JSON is already complete and remains unchanged.", AllowedValues: []string{}, DefaultValue: stringPointer("false")},
@@ -367,12 +367,12 @@ func contextShowSpec() CommandSpec {
 
 func contextCreateSpec() CommandSpec {
 	return CommandSpec{
-		Path: "context create", Summary: "Create a named execution Context directly or by completing omitted settings",
+		Path: "context create", Summary: "Create a named Context work mode directly or by completing omitted settings",
 		Args:   "[--name <name>] [--runtime <standard|name@ordinal>] [--mode guided|advanced] [--source-access read-only|read-write] [--native-readiness enabled|disabled] [--bootstrap-aws-profile <name>] [--bootstrap-eks-context <name>] [--format text|json]",
 		Effect: operation.EffectCreate, Role: RoleAct,
 		Agent: AgentContract{
 			CapabilityID:  "context.composition",
-			Outcome:       "Create one named Context with separate owner-only policy and brokered-authentication state",
+			Outcome:       "Create one stable named work mode with an immutable source/network Boundary, exact Runtime binding, narrow Workspace defaults, and separate owner-only policy and authentication state",
 			Inputs:        []CommandInput{contextCreateNameInput(), contextCreateRuntimeInput(), contextModeInput(), contextSourceAccessInput(), contextNativeReadinessInput(), contextCreateAWSBootstrapInput(), contextCreateEKSBootstrapInput(), formatInput()},
 			Output:        contextReportOutput(),
 			Prerequisites: []string{"The host Context directory is accessible."},
@@ -489,8 +489,8 @@ func runtimeListSpec() CommandSpec {
 
 func contextRuntimeSetSpec() CommandSpec {
 	minimum := int64(1)
-	return CommandSpec{Path: "context runtime set", Summary: "Pin a Context to one ready Runtime revision", Args: "[--runtime <standard|name@ordinal>] [--context <name>] [--format text|json]", Effect: operation.EffectWrite, Role: RoleAct,
-		Agent: AgentContract{CapabilityID: "context.composition", Outcome: "Explicitly upgrade or roll back one Context Runtime binding without rebuilding or changing existing Workspace homes",
+	return CommandSpec{Path: "context runtime set", Summary: "Replace one Context Runtime binding with a ready revision", Args: "[--runtime <standard|name@ordinal>] [--context <name>] [--format text|json]", Effect: operation.EffectWrite, Role: RoleAct,
+		Agent: AgentContract{CapabilityID: "context.composition", Outcome: "Explicitly replace one Context Runtime binding; bound Workspaces adopt it on next entry without changing Context identity or existing Workspace homes",
 			Inputs: []CommandInput{{Name: "--runtime", Source: InputSourceFlag, Required: false, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, MinimumLength: &minimum, Description: "Exact ready Runtime selection as standard or name@ordinal; omission opens terminal Review in text mode.", AllowedValues: []string{}, Completion: InputCompletionReadyRuntimeReference}, executionContextInput(), formatInput()},
 			Output: contextReportOutput(), Prerequisites: []string{"The selected Runtime revision already exists and is ready."}, FixedTarget: fixedContextRuntimeBindingTarget(),
 			Errors: mutationCommandErrors("context runtime set", "context show",
@@ -1318,7 +1318,7 @@ func fixedRuntimeCatalogTarget() *FixedTarget {
 }
 
 func fixedContextRuntimeBindingTarget() *FixedTarget {
-	return &FixedTarget{Kind: tobari.ContextRuntimeBindingTargetKind, ID: tobari.ContextRuntimeBindingTargetID, Description: "One explicit or current Context's exact Runtime revision binding.", Scope: FixedTargetScopeToolLocal}
+	return &FixedTarget{Kind: tobari.ContextRuntimeBindingTargetKind, ID: tobari.ContextRuntimeBindingTargetID, Description: "One explicit or current Context's exact mutable Runtime revision binding, adopted by bound Workspaces on next entry.", Scope: FixedTargetScopeToolLocal}
 }
 
 func fixedActiveContextTarget() *FixedTarget {
@@ -1332,7 +1332,7 @@ func fixedActiveContextTarget() *FixedTarget {
 func fixedContextShellTarget() *FixedTarget {
 	return &FixedTarget{
 		Kind: tobari.ContextShellTargetKind, ID: tobari.ContextShellTargetID,
-		Description: "This installation's Context-owned allowlisted shell environment configuration.",
+		Description: "This installation's Context-owned allowlisted shell session defaults.",
 		Scope:       FixedTargetScopeToolLocal,
 	}
 }
@@ -1340,13 +1340,13 @@ func fixedContextShellTarget() *FixedTarget {
 func fixedContextGitIdentityTarget() *FixedTarget {
 	return &FixedTarget{
 		Kind: tobari.ContextGitIdentityTargetKind, ID: tobari.ContextGitIdentityTargetID,
-		Description: "This installation's Context-owned narrow Git identity configuration.",
+		Description: "This installation's Context-owned narrow Git identity session defaults.",
 		Scope:       FixedTargetScopeToolLocal,
 	}
 }
 
 func fixedContextBootstrapTarget() *FixedTarget {
-	return &FixedTarget{Kind: tobari.ContextBootstrapTargetKind, ID: tobari.ContextBootstrapTargetID, Description: "This installation's Context-owned secret-free create-only Workspace bootstrap recipe.", Scope: FixedTargetScopeToolLocal}
+	return &FixedTarget{Kind: tobari.ContextBootstrapTargetKind, ID: tobari.ContextBootstrapTargetID, Description: "This installation's Context-owned secret-free creation default applied only to future Workspace homes.", Scope: FixedTargetScopeToolLocal}
 }
 
 func fixedActiveContextRuntimeTarget() *FixedTarget {
@@ -1377,7 +1377,7 @@ func contextCreateNameInput() CommandInput {
 
 func contextCreateRuntimeInput() CommandInput {
 	minimum := int64(1)
-	return CommandInput{Name: "--runtime", Source: InputSourceFlag, Required: false, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, MinimumLength: &minimum, Description: "Ready Runtime revision as standard or name@ordinal; interactive partial creation reviews omission, while complete direct creation requires an explicit value.", AllowedValues: []string{}, DefaultValue: stringPointer(tobari.StandardRuntimeName), Completion: InputCompletionReadyRuntimeReference}
+	return CommandInput{Name: "--runtime", Source: InputSourceFlag, Required: false, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, MinimumLength: &minimum, Description: "Initial exact mutable Runtime binding as standard or name@ordinal; interactive partial creation reviews omission, while complete direct creation requires an explicit value.", AllowedValues: []string{}, DefaultValue: stringPointer(tobari.StandardRuntimeName), Completion: InputCompletionReadyRuntimeReference}
 }
 
 func contextCreateAWSBootstrapInput() CommandInput {
@@ -1419,7 +1419,7 @@ func contextModeInput() CommandInput {
 	return CommandInput{
 		Name: "--mode", Source: InputSourceFlag, Required: false,
 		ValueKind: InputValueText, Cardinality: InputCardinalitySingle,
-		Description:   "Policy development mode: guided exact permission review or advanced trusted-host Rego; required in the complete direct input group.",
+		Description:   "Creation-time immutable Boundary mode: guided exact permission review or advanced trusted-host Rego; required in the complete direct input group.",
 		AllowedValues: []string{"guided", "advanced"}, DefaultValue: stringPointer("guided"),
 	}
 }
@@ -1428,13 +1428,13 @@ func contextSourceAccessInput() CommandInput {
 	return CommandInput{
 		Name: "--source-access", Source: InputSourceFlag, Required: false,
 		ValueKind: InputValueText, Cardinality: InputCardinalitySingle,
-		Description:   "Write authority for the one direct project source bind; interactive partial creation reviews omission and Workspace home plus tmpfs remain writable.",
+		Description:   "Creation-time immutable Boundary authority for the one direct project source bind; interactive partial creation reviews omission and Workspace home plus tmpfs remain writable.",
 		AllowedValues: []string{"read-only", "read-write"}, DefaultValue: stringPointer("read-write"),
 	}
 }
 
 func contextNativeReadinessInput() CommandInput {
-	return CommandInput{Name: "--native-readiness", Source: InputSourceFlag, Required: false, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, Description: "Trusted binary native-client readiness overlay; required with --mode in the complete direct input group and the Context system policy ceiling remains terminal.", AllowedValues: []string{"enabled", "disabled"}, DefaultValue: stringPointer("enabled")}
+	return CommandInput{Name: "--native-readiness", Source: InputSourceFlag, Required: false, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, Description: "Creation-time immutable Boundary choice that admits the trusted binary's current native-client readiness overlay; required with --mode and still bounded by Context policy ceilings.", AllowedValues: []string{"enabled", "disabled"}, DefaultValue: stringPointer("enabled")}
 }
 
 func contextReportOutput() CommandOutput {
@@ -1448,19 +1448,19 @@ func contextReportOutput() CommandOutput {
 			{Name: "active", Type: OutputFieldTypeBoolean, Description: "Whether this Context is the current/default selection for omitted Context input."},
 			{Name: "agent_profile", Type: OutputFieldTypeString, Description: "Read-only shared agent profile reference."},
 			{Name: "image", Type: OutputFieldTypeString, Description: "Default compatible Tobari image selector stored in the Context."},
-			{Name: "policy_mode", Type: OutputFieldTypeString, Description: "Guided or advanced policy-development mode.", Enum: []string{"guided", "advanced"}},
-			{Name: "source_access", Type: OutputFieldTypeString, Description: "Direct project-source bind access; this does not describe Workspace home or tmpfs.", Enum: []string{"read-only", "read-write"}},
+			{Name: "policy_mode", Type: OutputFieldTypeString, Description: "Creation-time immutable Boundary policy-development mode.", Enum: []string{"guided", "advanced"}},
+			{Name: "source_access", Type: OutputFieldTypeString, Description: "Creation-time immutable Boundary access for the direct project-source bind; this does not describe Workspace home or tmpfs.", Enum: []string{"read-only", "read-write"}},
 			{Name: "policy_revision", Type: OutputFieldTypeString, Description: "SHA-256 revision of the immutable Context-owned normalized policy snapshot; empty only for a synthetic default."},
-			{Name: "native_readiness", Type: OutputFieldTypeString, Description: "Immutable native-client readiness capability selection; the system policy ceiling still bounds its effects.", Enum: []string{"enabled", "disabled"}},
+			{Name: "native_readiness", Type: OutputFieldTypeString, Description: "Creation-time immutable Boundary choice for native-client readiness participation; the system policy ceiling still bounds its effects.", Enum: []string{"enabled", "disabled"}},
 			{Name: "method_policy", Type: OutputFieldTypeObject, Description: "Effective default and exact HTTP method decisions owned by the Context.", Fields: contextPolicyMethodPolicyOutput("Effective default and exact HTTP method decisions owned by the Context.").Fields},
-			{Name: "shell_environment", Type: OutputFieldTypeArray, Description: "Complete allowlisted shell variable inventory with default, inherited, or literal source and an exact value only for literal.", SemanticScope: "The fixed four-variable Context shell presentation inventory.", Items: &OutputField{
+			{Name: "shell_environment", Type: OutputFieldTypeArray, Description: "Complete allowlisted shell session-default inventory, resolved for later child sessions without rewriting Workspace home; literal carries its exact value.", SemanticScope: "The fixed four-variable Context shell presentation inventory.", Items: &OutputField{
 				Type: OutputFieldTypeObject, Description: "One allowlisted shell variable policy.", Fields: []OutputField{
 					{Name: "variable", Type: OutputFieldTypeString, Description: "Allowlisted variable name.", Enum: []string{"COLORTERM", "NO_COLOR", "PS1", "TERM"}},
 					{Name: "source", Type: OutputFieldTypeString, Description: "Value source.", Enum: []string{"default", "inherit", "literal"}},
 					{Name: "value", Type: OutputFieldTypeString, Description: "Exact literal value, including explicit empty, only for literal source.", Optional: true},
 				},
 			}},
-			{Name: "git_identity", Type: OutputFieldTypeObject, Description: "Atomic Git identity policy with default, inherited, or literal source and exact name/email only for literal.", Fields: []OutputField{
+			{Name: "git_identity", Type: OutputFieldTypeObject, Description: "Atomic Git session-default policy resolved on later Workspace entry without rewriting Workspace home; literal carries exact name/email.", Fields: []OutputField{
 				{Name: "source", Type: OutputFieldTypeString, Description: "Identity source.", Enum: []string{"default", "inherit", "literal"}},
 				{Name: "name", Type: OutputFieldTypeString, Description: "Literal Git user name, or null.", Nullable: true},
 				{Name: "email", Type: OutputFieldTypeString, Description: "Literal Git user email, or null.", Nullable: true},
@@ -1469,7 +1469,7 @@ func contextReportOutput() CommandOutput {
 			{Name: "stores", Type: OutputFieldTypeObject, Description: "Resolved paths, or null for a synthetic default; secret values are never included.", Nullable: true, Fields: []OutputField{
 				{Name: "policy_directory", Type: OutputFieldTypeString, Description: "Canonical Context policy directory."},
 			}},
-			{Name: "runtime", Type: OutputFieldTypeObject, Description: "Exact built-in or managed Runtime revision binding.", Fields: []OutputField{
+			{Name: "runtime", Type: OutputFieldTypeObject, Description: "Exact explicitly mutable built-in or managed Runtime revision binding; bound Workspaces adopt replacements on next entry with identity and home preserved.", Fields: []OutputField{
 				{Name: "kind", Type: OutputFieldTypeString, Description: "Built-in or managed Runtime source kind.", Enum: []string{"official", "managed"}},
 				{Name: "status", Type: OutputFieldTypeString, Description: "Selected Runtime readiness.", Enum: []string{"official", "ready"}},
 				{Name: "image", Type: OutputFieldTypeString, Description: "Execution image material selected by this binding."},

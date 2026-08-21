@@ -538,6 +538,39 @@ func TestConfigNamespacePublishesCompositionCommands(t *testing.T) {
 	}
 }
 
+func TestContextCatalogKeepsBoundaryCreationOnlyAndDeclaresMutableComponents(t *testing.T) {
+	catalog := DefaultCatalog()
+	creationOnlyBoundaryInputs := map[string]struct{}{
+		"--mode": {}, "--source-access": {}, "--native-readiness": {},
+	}
+	for _, spec := range catalog.Commands() {
+		if spec.Effect.String() != "write" {
+			continue
+		}
+		for _, input := range spec.Agent.Inputs {
+			if _, boundary := creationOnlyBoundaryInputs[input.Name]; boundary {
+				t.Fatalf("existing-Context write %q accepts creation-time Boundary input %q", spec.Path, input.Name)
+			}
+		}
+	}
+
+	wantTargets := map[string]string{
+		"context runtime set":             tobari.ContextRuntimeBindingTargetKind,
+		"config shell":                    tobari.ContextShellTargetKind,
+		"config git":                      tobari.ContextGitIdentityTargetKind,
+		"config bootstrap aws":            tobari.ContextBootstrapTargetKind,
+		"config bootstrap kubernetes eks": tobari.ContextBootstrapTargetKind,
+	}
+	for path, targetKind := range wantTargets {
+		spec, found := catalog.Lookup(path)
+		if !found || spec.Effect.String() != "write" || spec.Agent.Mutation == nil ||
+			spec.Agent.Mutation.TargetKind != targetKind || spec.Agent.FixedTarget == nil ||
+			spec.Agent.FixedTarget.Kind != targetKind {
+			t.Fatalf("mutable Context component %q contract = %+v", path, spec)
+		}
+	}
+}
+
 func TestConfigBootstrapAWSDirectIsFutureWorkspaceOnlyAndConflictsFailBeforeMutation(t *testing.T) {
 	fake := &contextCLI{report: contextCLIReport(tobari.TaskContextShow, "default", true, tobari.OfficialRuntimeBase, tobari.ContextPolicyModeGuided)}
 	var stdout, stderr bytes.Buffer

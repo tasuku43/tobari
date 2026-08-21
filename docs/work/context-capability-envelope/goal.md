@@ -1,4 +1,4 @@
-# Work Goal: Make Context the explicit capability envelope
+# Work Goal: Make the Context Boundary explicit
 
 - Status: Active
 - Retention: temporary
@@ -16,19 +16,21 @@
 
 ## Outcome
 
-Users can understand a named Context as the host-owned capability envelope for
+Users can understand a named Context as one stable host-owned work mode for
 every Workspace permanently bound to it. Before Workspace creation, the
-Context makes source authority, network guardrail origin/revision, runtime,
-credential exposure, and narrow host projections explicit without collapsing
+Context makes its immutable source/network Boundary explicit while separately
+reporting the exact mutable Runtime binding, narrow session defaults, future-
+Workspace creation defaults, and authentication ownership without collapsing
 their physically separate trust boundaries.
 
 ## Why now
 
 Context already composes runtime, policy mode, credentials, agent profile,
-shell, and Git settings, but its public model does not name source access or
-the origin of its initial network authority. Adding those axes independently
-would turn Context into a bag of flags unless their immutability, precedence,
-reporting, and Workspace binding are decided first.
+shell, and Git settings. ADR 0029 named its initial source/network authority,
+and ADR 0071 later corrected the packet's whole-Context immutability language:
+Runtime and narrow defaults have intentional mutable lifecycles, while the
+creation-time Boundary, precedence, reporting, and Workspace binding remain
+fixed.
 
 ## Non-goals
 
@@ -36,8 +38,9 @@ reporting, and Workspace binding are decided first.
   physical file, directory, mount, or process.
 - Making Context names security authority; the stable Context ID remains the
   enforcement identity.
-- Mutating an existing Context's source access or preset snapshot.
-- Live propagation from a custom preset to existing Contexts.
+- Mutating an existing Context's source access, policy snapshot, method or
+  destination ceilings, policy mode, or native-readiness participation choice.
+- Live propagation from policy source to an existing Context Boundary.
 - Context inheritance, templates of templates, organization policy, or remote
   distribution.
 - Clone, overlay, apply-back, microVM, remote executor, configurable resources,
@@ -46,27 +49,35 @@ reporting, and Workspace binding are decided first.
 
 ## Acceptance criteria
 
-- [ ] A durable ADR defines Context as a logical host-owned capability envelope
-      and revises the narrower wording in ADR 0013 without weakening physical
-      store separation.
-- [ ] The envelope has explicit dimensions for direct source access, snapshotted
-      network policy, runtime, credential exposure/reporting, agent profile,
-      shell projection, and Git projection.
-- [ ] Source access and preset revision are immutable Context creation facts;
+- [x] Durable ADRs define Context as a stable logical host-owned work mode whose
+      creation-time Boundary is the immutable capability envelope, without
+      weakening physical store separation. Evidence: ADR 0029 plus ADR 0071.
+- [x] The work mode separates direct source/network Boundary, exact mutable
+      Runtime binding, authentication ownership, agent profile, shell/Git
+      session defaults, and future-Workspace bootstrap creation defaults.
+      Evidence: ADR 0071 and current catalog contracts.
+- [x] Source access and policy snapshot/revision are immutable Context Boundary
+      facts;
       `context use` changes only the omitted-input default, and an existing
-      Workspace remains bound to its stable Context ID.
-- [ ] The command contract fixes `context create --source-access
-      read-only|read-write --policy-preset PRESET`, with `read-write`,
-      `builtin/reviewed-exact`, and `guided` as omission defaults.
-- [ ] `context list` and `context show` expose typed source access and policy
-      origin/revision facts without exposing source internals, secrets, or
-      inferring whole-Workspace read-only or snapshot integrity.
-- [ ] The preset guardrail is an authority ceiling enforced before every
+      Workspace remains bound to its stable Context ID. Evidence: manifest,
+      catalog, and Workspace-key tests; supported-platform live bind evidence
+      remains in the child packet.
+- [x] The command contract fixes creation-time `--source-access`, `--mode`, and
+      `--native-readiness` Boundary inputs with the reviewed defaults, while
+      Runtime and bootstrap retain their separate initial values and later
+      mutation paths. Evidence: current catalog and ADRs 0066/0067/0071.
+- [x] `context list` and `context show` expose typed source access, policy
+      revision/method facts, Runtime binding, and defaults without exposing
+      source internals, secrets, or inferring whole-Workspace read-only or
+      snapshot integrity. Evidence: schema-1 output contract tests.
+- [x] The Context policy ceiling is enforced before every
       guided baseline/learned allow and every Advanced Rego allow.
 - [ ] The two child packets provide mechanical enforcement for every new
       manifest/report/CLI claim and pass their required checks.
-- [ ] Durable conclusions are propagated through theses, product,
+- [x] Durable lifecycle conclusions are propagated through theses, product,
       architecture, security, harness, CLI catalog, and readiness docs.
+      Evidence: ADR 0071 implementation change; supported-platform child
+      evidence remains separately unfinished.
 
 ## Governing documents
 

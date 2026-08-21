@@ -7,6 +7,9 @@
 - Supersedes: None
 - Superseded by: None
 - Revises: ADR 0010, ADR 0013, ADR 0024, ADR 0026, and ADR 0028
+- Revised by: ADR 0066 removes public policy presets and ADR 0071 limits the
+  envelope's immutability to the creation-time Boundary while retaining a
+  stable reusable Context identity
 
 ## Context
 

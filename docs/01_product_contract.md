@@ -185,11 +185,14 @@ or source build unless a Linux Homebrew Formula contract is added explicitly.
   and Chatwork; the experimental profile adds AWS without making it runtime configurable.
   Owner data declares no executable shell, helper choice, refresh, signing,
   arbitrary route, HTTP method/path policy, or provider operation semantics.
-- **Context:** one host-owned capability envelope with a stable
-  opaque ID and a human name. Its manifest records direct source access,
-  one normalized Context-owned policy snapshot and `policy_revision`, an
-  immutable enabled/disabled native-readiness selection, and references an
-  agent profile, compatible Tobari runtime image, and policy store. Its stable
+- **Context:** one stable host-owned reusable work mode with a stable opaque ID
+  and a human name. Its creation-time Boundary records direct source access,
+  one normalized Context-owned policy snapshot and `policy_revision`, complete
+  destination/method ceilings, policy mode, and an immutable enabled/disabled
+  native-readiness selection. It also references the read-only agent profile,
+  owns one exact explicitly mutable Runtime binding, and owns narrow mutable
+  Workspace defaults. Shell/Git defaults are resolved for later sessions;
+  bootstrap defaults apply once only to future Workspace creation. Its stable
   ID determines policy and runtime ownership. Enabled native readiness selects
   the installed trusted binary's current overlay without mutating the snapshot;
   Context policy ceilings remain terminal. Experimental builds may maintain
@@ -207,7 +210,9 @@ or source build unless a Linux Homebrew Formula contract is added explicitly.
   compiled revision. Runtime source and snapshots are never Workspace mounts.
 - **Context Runtime binding:** one exact stable Runtime ID and semantic revision
   selected by a Context. Its human `name@ordinal` form is review syntax, while
-  the persisted ID and SHA-256 revision are authority.
+  the persisted ID and SHA-256 revision are authority. Only `context runtime
+  set` replaces the binding; bound Workspaces adopt it on next entry without
+  changing Context identity or persistent home.
 - **agent profile:** read-only non-secret shared agent configuration referenced
   by a Context. It is not tool-owned login state.
 - **narrow projection:** one fixed Context-owned allowlist of validated
@@ -271,15 +276,15 @@ The public commands are:
 | `policy rules [--format text|json]` | discover | read | List every Context-scoped CLI-owned learned Allow and exact Deny decision; on a TTY, reset one explicitly |
 | `policy reset --id ID` | act, reference bound | write | Remove one learned decision and leave its effect at default deny |
 | `context list [--format text|json]` | utility | read | List persisted named Contexts and report the current selection as persisted or a display-only synthetic default |
-| `context show [--name NAME] [--details] [--format text|json]` | utility | read | Inspect one Context's explicit persistence state, immutable source access, effective method policy, runtime, agent, and native Workspace-owned authentication mode; `--details` expands host paths and immutable revisions without returning credential values |
-| `config shell [--variable COLORTERM\|NO_COLOR\|PS1\|TERM] [--source default\|inherit\|literal] [--value VALUE] [--context NAME] [--format text\|json]` | act, fixed target | write | Configure one allowlisted shell-presentation variable directly, or stage one or more rows from the complete terminal inventory and apply them atomically |
-| `config git [--source default\|inherit\|literal] [--name NAME] [--email EMAIL] [--context NAME] [--format text\|json]` | act, fixed target | write | Configure one atomic Context Git commit-identity fallback directly, or stage and apply its source from one terminal screen |
+| `context show [--name NAME] [--details] [--format text|json]` | utility | read | Inspect one stable work mode's immutable Boundary, exact mutable Runtime binding, session and creation defaults, persistence state, agent, and native Workspace-owned authentication mode; `--details` expands host paths and immutable revisions without returning credential values |
+| `config shell [--variable COLORTERM\|NO_COLOR\|PS1\|TERM] [--source default\|inherit\|literal] [--value VALUE] [--context NAME] [--format text\|json]` | act, fixed target | write | Configure one allowlisted shell-presentation session default directly, or stage one or more rows from the complete terminal inventory and apply them atomically; later child sessions resolve it without rewriting Workspace home |
+| `config git [--source default\|inherit\|literal] [--name NAME] [--email EMAIL] [--context NAME] [--format text\|json]` | act, fixed target | write | Configure one atomic Context Git commit-identity session fallback directly, or stage and apply its source from one terminal screen; later Workspace entry resolves it without rewriting Workspace home |
 | `config bootstrap aws [--profile NAME] [--refresh] [--remove] [--context NAME] [--format text\|json]` | act, fixed target | write | Normalize one strict secret-free host AWS IAM Identity Center profile for future Workspaces, refresh it after a semantic diff, or remove the future recipe; existing Workspace homes never change |
 | `config bootstrap kubernetes eks [--kube-context NAME] [--refresh] [--remove] [--context NAME] [--format text\|json]` | act, fixed target | write | Compose one strict AWS CLI-generated host EKS context with the Context AWS profile, refresh it, or remove only EKS; no credential, arbitrary exec, network authority, or existing Workspace home changes |
 | `context create [--name NAME] [--runtime RUNTIME] [--mode guided\|advanced] [--source-access read-only\|read-write] [--native-readiness enabled\|disabled] [--bootstrap-aws-profile NAME] [--bootstrap-eks-context NAME] [--format text\|json]` | act, fixed target | create | On interactive text streams, prefill supplied values and review only omitted stages of the six-stage Context frame before Create; redirected or JSON creation requires the complete direct group of name, Runtime, mode, source access, and native readiness; Workspace bootstrap remains optional |
 | `context delete --name NAME [--format text\|json]` | act, fixed target | write | Delete one unused non-current non-default Context and its exact owner stores while preserving project files and shared runtime images |
 | `context use --name NAME [--format text\|json]` | act, fixed target | write | Change only the current/default Context; do not mutate existing Workspaces or start/reconcile the cluster |
-| `context runtime set [--runtime RUNTIME] [--context NAME] [--format text\|json]` | act, fixed target | write | Explicitly pin, upgrade, or roll back one Context to `standard` or an existing ready `NAME@ORDINAL` Runtime revision; omission opens terminal Review, and existing Workspace homes change only on next entry reconciliation |
+| `context runtime set [--runtime RUNTIME] [--context NAME] [--format text\|json]` | act, fixed target | write | Explicitly replace one Context's exact Runtime binding with `standard` or an existing ready `NAME@ORDINAL` revision; omission opens terminal Review, and bound Workspaces adopt it on next entry while identity and home remain unchanged |
 | `runtime list [--format text\|json]` | utility | read | List the exhaustive installation-wide Runtime catalog and each ready head revision |
 | `runtime show --name NAME [--format text\|json]` | utility | read | Inspect one Runtime's managed source path and complete successful revisions |
 | `runtime history --name NAME [--format text\|json]` | utility | read | Show one Runtime's ordered immutable successful revision history |

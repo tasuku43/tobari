@@ -812,14 +812,18 @@ administration project.
 Users should choose one understandable execution setup, not assemble an agent
 profile, runtime image, policy directory, and credential configuration from
 unrelated paths.
-Tobari therefore presents a named Context as the immutable host-owned
-capability envelope for an agent's direct source access, snapshotted Context
-policy, configuration, runtime, and credential exposure. The Context manifest
-is a host-owned composition record; it does not collapse the physical trust
-boundaries between read-only agent data, OPA policy, and Gateway-only secret
-stores. Each Context has a stable opaque identity; its name is a human selector,
-not authority. Each Workspace permanently records one Context identity, and the
-host derives that binding for Gateway and OPA from its network principal.
+Tobari therefore presents a named Context as a stable host-owned reusable work
+mode. Its creation-time Boundary is the immutable capability envelope for
+direct source access, the snapshotted Context policy and its terminal ceilings,
+and native-readiness participation. The same Context holds one exact explicitly
+mutable Runtime binding plus narrow mutable Workspace defaults whose activation
+timing is part of their contract. The Context manifest is a host-owned
+composition record; it does not collapse the physical trust boundaries between
+read-only agent data, OPA policy, Runtime source, Workspace home, and
+Gateway-only secret stores. Each Context has a stable opaque identity; its name
+is a human selector, not authority. Each Workspace permanently records one
+Context identity, and the host derives that binding for Gateway and OPA from
+its network principal.
 
 The standard installation runs one shared Gateway and one shared OPA for every
 Context. An experimental development installation additionally runs one locked
@@ -864,8 +868,8 @@ OPA allow.
   remove only now-unreachable positive baseline rules from the Context-owned
   snapshot; destination ceilings and exact Denies remain unchanged. The
   reviewed flow owns the `read-write`, enabled-readiness, standard Runtime, and
-  unconfigured-bootstrap defaults. Readers never rewrite
-  old state, and a different envelope requires a new Context. A binary
+  unconfigured-bootstrap defaults. Readers never rewrite old state, and a
+  different source/network Boundary requires a new Context. A binary
   readiness update is a reviewed compatibility update rather than an envelope
   change and requires no Context recreation. The current binary readiness
   catalog is part of the aggregate content identity: observation reports an
@@ -881,7 +885,8 @@ OPA allow.
   make the writable home or tmpfs read-only and does not provide a snapshot;
   host or same-root read-write Context changes remain observable.
 - `config shell` and `config git` own the Context's narrow non-secret host
-  projections. A complete setting group is deterministic for agents and
+  session defaults. They are resolved for later Workspace entry or child
+  sessions and never rewrite the Workspace home. A complete setting group is deterministic for agents and
   scripts; wholly omitted setting flags open a terminal-only staged editor.
   Shell presents the complete fixed inventory and commits every distinct
   staged row through one atomic Apply; Git presents its complete source choice
@@ -906,6 +911,10 @@ OPA allow.
   CLI-owned Review that shows the exact Runtime, Context binding, and delayed
   Workspace effect before one Build or Apply; cancellation and unavailable
   Review streams perform no mutation.
+- A Context's typed Workspace-bootstrap snapshot is a mutable creation default,
+  not a live Workspace setting. Configure, refresh, and remove change only what
+  future Workspace creation projects once; existing Workspace homes retain
+  their create-time bytes and revision.
 - Context creation initializes an owner-only policy store, references a
   read-only agent profile, and records the compatible Tobari runtime image.
   Auth Broker vault state remains separately keyed by stable Context ID rather

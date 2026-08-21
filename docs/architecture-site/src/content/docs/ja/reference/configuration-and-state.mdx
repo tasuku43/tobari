@@ -30,18 +30,18 @@ Shared data    ${XDG_DATA_HOME:-$HOME/.local/share}/tobari
 
 ## ホストが管理する設定
 
-| 設定ルートからの相対パス                                     | 契約と意味                                                                                                                                                        |
-| ------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `contexts/active.json`                                       | 現在のデフォルト Context 名。Context 指定を省略したときの既定値を選ぶだけで、リクエストの権限にはならない                                                         |
-| `contexts/<name>/context.json`                               | **stored Context manifest schema 1**。安定した Context ID、source access、ポリシー版、agent profile、正確な Runtime リビジョン参照、policy mode、shell 設定を保持 |
-| `runtimes/<name>/runtime.json`                               | 安定した Runtime ID、固有名、ソースパス、追加専用の成功リビジョン履歴                                                                                             |
-| `runtimes/<name>/source/`                                    | `runtime create` が作る所有者専用の完全な Docker ビルドコンテキスト。編集だけではリビジョンも Context も変わらない                                                |
-| `runtimes/<name>/revisions/<digest>/`                        | 成功した一つの意味的リビジョンをビルドした、不変のソーススナップショット                                                                                          |
-| `contexts/<name>/policy/domains/<canonical-host>/allow.json` | 一つの正規化済み小文字ホストに対応する、厳格なスキーマ 1 の authority、ホスト別 HTTP メソッド、GraphQL endpoint、credential host binding、学習済み Allow          |
-| `contexts/<name>/policy/domains/<canonical-host>/deny.json`  | 同じホストに対応する、厳格なスキーマ 1 の baseline Deny と学習済み exact Deny。埋め込まれた host はディレクトリ名と完全一致する必要がある                         |
-| `contexts/<name>/policy/tobari.rego` と `tobari_test.rego`   | Advanced ポリシー用。Guided ポリシーでは、レビュー済みの組み込み評価器を使用                                                                                      |
-| `auth/providers/*.json`                                      | 任意の、厳格なプロバイダーマニフェスト v1 文書                                                                                                                    |
-| `principal-registry/principals.json`                         | Workspace と Gateway の正確なエンドポイントを含む、ホスト発行のプリンシパル台帳スキーマ 1。ディレクトリごと Gateway へ読み取り専用でマウント                      |
+| 設定ルートからの相対パス                                     | 契約と意味                                                                                                                                                                                                               |
+| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `contexts/active.json`                                       | 現在のデフォルト Context 名。Context 指定を省略したときの既定値を選ぶだけで、リクエストの権限にはならない                                                                                                                |
+| `contexts/<name>/context.json`                               | **stored Context manifest schema 1**。安定した Context ID、immutable な source/network Boundary、明示的に変更できる正確な Runtime binding、shell/Git session default、future-Workspace bootstrap creation default を保持 |
+| `runtimes/<name>/runtime.json`                               | 安定した Runtime ID、固有名、ソースパス、追加専用の成功リビジョン履歴                                                                                                                                                    |
+| `runtimes/<name>/source/`                                    | `runtime create` が作る所有者専用の完全な Docker ビルドコンテキスト。編集だけではリビジョンも Context も変わらない                                                                                                       |
+| `runtimes/<name>/revisions/<digest>/`                        | 成功した一つの意味的リビジョンをビルドした、不変のソーススナップショット                                                                                                                                                 |
+| `contexts/<name>/policy/domains/<canonical-host>/allow.json` | 一つの正規化済み小文字ホストに対応する、厳格なスキーマ 1 の authority、ホスト別 HTTP メソッド、GraphQL endpoint、credential host binding、学習済み Allow                                                                 |
+| `contexts/<name>/policy/domains/<canonical-host>/deny.json`  | 同じホストに対応する、厳格なスキーマ 1 の baseline Deny と学習済み exact Deny。埋め込まれた host はディレクトリ名と完全一致する必要がある                                                                                |
+| `contexts/<name>/policy/tobari.rego` と `tobari_test.rego`   | Advanced ポリシー用。Guided ポリシーでは、レビュー済みの組み込み評価器を使用                                                                                                                                             |
+| `auth/providers/*.json`                                      | 任意の、厳格なプロバイダーマニフェスト v1 文書                                                                                                                                                                           |
+| `principal-registry/principals.json`                         | Workspace と Gateway の正確なエンドポイントを含む、ホスト発行のプリンシパル台帳スキーマ 1。ディレクトリごと Gateway へ読み取り専用でマウント                                                                             |
 
 Context ポリシーの source は domain tree（および Advanced Rego）だけです。Tobari が
 domain ファイルを単一の内部 `data.json` へ合成するのは、不変な

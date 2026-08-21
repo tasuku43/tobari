@@ -9,7 +9,7 @@ transcripts as repository fixtures.
 | Outcome | Public route | Success evidence |
 |---|---|---|
 | Discover capabilities | `help --format agent`, then one namespace or exact-command selector | Root remains a compact capability index; one scoped read supplies complete typed inputs, outputs, failures, and workflow |
-| Choose and retire a Context envelope | `context list`, `context show`, `context create`, `context use`, `context delete` | Human list cards expose filesystem and complete method-policy facts; `context show` gives one concise boundary/runtime decision and an explicit `--details` diagnostic from the same read while JSON remains identical; argument-free terminal creation shows the complete effective boundary, edits one section, discovers optional typed bootstrap candidates without selector re-entry, and creates once; changing current does not retarget Workspaces, and deletion rejects protected/current/bound Contexts |
+| Choose and retire a Context work mode | `context list`, `context show`, `context create`, `context use`, `context delete` | Human list cards expose filesystem and complete method-policy facts; `context show` distinguishes the immutable creation-time Boundary, exact mutable Runtime binding, session defaults, and future-Workspace creation defaults while one concise boundary/runtime decision and explicit `--details` diagnostic come from the same read and JSON remains identical; argument-free terminal creation shows the complete effective boundary, edits one section, discovers optional typed bootstrap candidates without selector re-entry, and creates once; changing current does not retarget Workspaces, and deletion rejects protected/current/bound Contexts |
 | Enter bounded work | `tobari [--context NAME]` or `tobari [--context NAME] -- COMMAND [ARG...]`; explicit `cluster up` remains available | On first use, one root route completes reviewed Context creation and exact shared-cluster reconciliation before one selected live source bind, writable home/tmpfs, guarded network, reusable Workspace, and no direct egress; the direct form runs exact foreground argv without a shell, returns its status to the host, and leaves the Workspace reusable |
 | Grow exact permission | `policy review`, or `policy candidates` then one exact allow/deny | Terminal guardrail precedes every candidate; explicit review activates only exact Context/project/scheme/host/port/method/path authority |
 | Inspect/reset decisions | `policy rules`, then `policy reset --id` | One current exact decision is removed through its unchanged opaque reference and returns to default deny |
@@ -48,6 +48,15 @@ TOBARI_BIN=bin/tobari
 Record the invocation count, source of every input, output field consumed by the
 next task, and routine-success external-processing count. Verify every emitted
 opaque ID passes unchanged to its consumer.
+
+For Context lifecycle classification, retrieve `help context --format agent`
+once. Verify scoped help presents source access, complete method policy, policy
+mode, and native-readiness selection as creation-time Boundary inputs; presents
+`context runtime set` as the sole exact Runtime-binding replacement with
+next-entry adoption; presents shell/Git settings as later session defaults; and
+presents bootstrap as future-Workspace creation only. The journey must require
+no schema inference or source inspection. After each mutable operation, verify
+the stable Context ID and every bound Workspace identity/home remain unchanged.
 
 For the direct-entry route, retrieve `help tobari --format agent` once and then
 invoke one known command as `tobari -- COMMAND [ARG...]`. Record one discovery

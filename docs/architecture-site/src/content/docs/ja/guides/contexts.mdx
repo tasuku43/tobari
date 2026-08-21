@@ -5,7 +5,7 @@ description: 既存 Workspace の権限を変えずに、ホストが管理す�
 
 import ConceptDiagram from "../../../../components/ConceptDiagram.astro";
 
-Context は、ランタイム、ポリシー、エージェント設定、認証情報の設定を分けて管理する単位です。信頼するホストで作成し、`--context` を省略したコマンドが使うデフォルトを一つ選びます。デフォルトを変更しても、既存 Workspace は作成時の安定した Context ID に結び付いたままです。
+Context は、安定して再利用できる work mode です。作成時の source/network Boundary は immutable です。正確な Runtime binding、shell/Git session default、future-Workspace bootstrap creation default には、それぞれ明示的な mutation path と適用時点があります。信頼するホストで作成し、`--context` を省略したコマンドが使うデフォルトを一つ選びます。デフォルトを変更しても、既存 Workspace は作成時の安定した Context ID に結び付いたままです。
 
 Context、Workspace、共有クラスターの関係は、[Workspace、Context、cluster](../../how-it-works/workspace-context-cluster/)を参照してください。
 
@@ -20,7 +20,7 @@ tobari context list
 tobari context show
 ```
 
-`context list` はローカルにあるすべての Context を縦型カードで表示し、現在のデフォルト名を示します。filesystem と network method の default/override はタブ幅に依存せず確認できます。`context show` で `--name` を省略すると、そのデフォルトを確認します。報告には安定した ID、イメージの選択情報、エージェントプロファイル、ポリシーモード、許可済みのシェル設定、保存領域への参照、ランタイム状態が含まれます。実物の認証情報、Broker ハンドル、ルート鍵、保管庫の内容は含まれません。
+`context list` はローカルにあるすべての Context を縦型カードで表示し、現在のデフォルト名を示します。filesystem と network method の default/override はタブ幅に依存せず確認できます。`context show` で `--name` を省略すると、そのデフォルトを確認します。報告は immutable Boundary、明示的に変更できる正確な Runtime binding、shell/Git session default、future-Workspace bootstrap creation default を区別します。安定した ID、agent profile、分離された store reference も含みます。実物の認証情報、Broker ハンドル、ルート鍵、保管庫の内容は含まれません。
 
 表示名は Context を選ぶための読みやすい名前です。安定した Context ID は、Workspace、ポリシー、プリンシパル、Broker の記録に結び付く永続的な権限情報です。
 
@@ -64,7 +64,7 @@ bind に書き込み可能な別名はありません。
 profile ではありません。source access と Context policy snapshot は作成後に変更できません。
 
 wizard で method Deny を選ぶと、その method の positive baseline rule は新しい immutable
-Context snapshot から除外されます。destination ceiling と exact Deny は変わりません。
+Context policy snapshot から除外されます。destination ceiling と exact Deny は変わりません。
 
 `GET` は method 座標にすぎず、安全または読み取り専用とは表現しません。完全一致 Deny は
 method Allow より優先します。

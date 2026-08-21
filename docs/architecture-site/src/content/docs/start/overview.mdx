@@ -122,9 +122,10 @@ No. OPA returns a decision. Gateway enforces that decision and creates the upstr
 <details>
 <summary>Does Tobari protect the selected project from the agent?</summary>
 
-The immutable Context chooses `read-only` or `read-write`; CLI omission defaults
-to `read-write`. Read-only applies only to the selected live bind, not Workspace
-home/tmpfs or other writers of the host source.
+The Context's immutable creation-time Boundary chooses `read-only` or
+`read-write`; CLI omission defaults to `read-write`. Read-only applies only to
+the selected live bind, not Workspace home/tmpfs or other writers of the host
+source.
 
 </details>
 

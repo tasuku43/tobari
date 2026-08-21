@@ -9,7 +9,9 @@
 - Owner: Tobari maintainers
 - Target: Before one-screen onboarding, Context derivation, status aggregation, and service exposure
 - Related ADRs: ADR 0029, ADR 0051, ADR 0058, ADR 0060, ADR 0062, ADR 0066, ADR 0067, and ADR 0068
-- Depends on: `../public-workspace-vocabulary/`, `../context-work-mode-contract/`, and `../authority-scope-lifetime-model/`
+- Depends on: `../public-workspace-vocabulary/`,
+  [ADR 0071](../../decisions/0071-define-context-as-a-stable-work-mode.md), and
+  `../authority-scope-lifetime-model/`
 
 ## Outcome
 
