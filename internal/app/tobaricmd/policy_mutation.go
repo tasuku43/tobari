@@ -54,13 +54,13 @@ func (s *Service) ApplyPolicyReviewDecisionSet(
 	if err != nil {
 		return tobari.PolicyReviewChange{}, err
 	}
-	denials, err := s.runtime.ClusterDenials(ctx, state, 10_000)
+	denialRead, err := s.runtime.ClusterDenials(ctx, state, 10_000)
 	if err != nil {
 		return tobari.PolicyReviewChange{}, fault.Wrap(
 			fault.KindInternal, "denials_failed", "cluster denials could not be read", false, err,
 		)
 	}
-	candidates, err := tobari.PolicyCandidatesWithDenyRules(denials, rules, denyRules)
+	candidates, err := tobari.PolicyCandidatesWithDenyRules(denialRead.Items, rules, denyRules)
 	if err != nil {
 		return tobari.PolicyReviewChange{}, fault.Wrap(
 			fault.KindContract, "invalid_candidate_contract", "policy candidates are invalid", false, err,
@@ -404,13 +404,13 @@ func (s *Service) AllowPolicyCandidate(
 	if err != nil {
 		return tobari.PolicyLearningChange{}, err
 	}
-	denials, err := s.runtime.ClusterDenials(ctx, state, 10_000)
+	denialRead, err := s.runtime.ClusterDenials(ctx, state, 10_000)
 	if err != nil {
 		return tobari.PolicyLearningChange{}, fault.Wrap(
 			fault.KindInternal, "denials_failed", "cluster denials could not be read", false, err,
 		)
 	}
-	candidates, err := tobari.PolicyCandidatesWithDenyRules(denials, rules, denyRules)
+	candidates, err := tobari.PolicyCandidatesWithDenyRules(denialRead.Items, rules, denyRules)
 	if err != nil {
 		return tobari.PolicyLearningChange{}, fault.Wrap(
 			fault.KindContract, "invalid_candidate_contract",
@@ -486,13 +486,13 @@ func (s *Service) DenyPolicyCandidate(
 	if err != nil {
 		return tobari.PolicyDenyChange{}, err
 	}
-	denials, err := s.runtime.ClusterDenials(ctx, state, 10_000)
+	denialRead, err := s.runtime.ClusterDenials(ctx, state, 10_000)
 	if err != nil {
 		return tobari.PolicyDenyChange{}, fault.Wrap(
 			fault.KindInternal, "denials_failed", "cluster denials could not be read", false, err,
 		)
 	}
-	candidates, err := tobari.PolicyCandidatesWithDenyRules(denials, rules, denyRules)
+	candidates, err := tobari.PolicyCandidatesWithDenyRules(denialRead.Items, rules, denyRules)
 	if err != nil {
 		return tobari.PolicyDenyChange{}, fault.Wrap(
 			fault.KindContract, "invalid_candidate_contract",

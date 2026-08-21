@@ -386,6 +386,56 @@ def metadata(binding, *, secret=None):
 
 
 class StandardNativeLoginGatewayTests(unittest.TestCase):
+    def test_unregistered_principal_denial_audits_explicit_null_scope(self):
+        with (
+            mock.patch.dict(
+                os.environ, {"TOBARI_AUTH_PROVIDER_PROJECTION": ""}, clear=False
+            ),
+            mock.patch.object(gateway, "load_gateway_config", return_value={}),
+        ):
+            addon = gateway.TobariGateway()
+        addon.principal_source = mock.Mock()
+        addon.principal_source.load.return_value = {}
+        request = http.Request.make(
+            "POST", "https://api.anthropic.com/api/event_logging/v2/batch"
+        )
+        flow = tflow.tflow(req=request)
+        with (
+            mock.patch.object(
+                gateway,
+                "normalize_ingress_authority",
+                return_value=("https", "api.anthropic.com", 443),
+            ),
+            mock.patch.object(
+                gateway,
+                "resolve_project_principal",
+                side_effect=gateway.PrincipalError(
+                    "project principal is not registered"
+                ),
+            ),
+            mock.patch.object(gateway, "_audit") as audit,
+        ):
+            addon.requestheaders(flow)
+
+        self.assertEqual(flow.response.status_code, 403)
+        self.assertEqual(
+            {
+                name: audit.call_args.kwargs[name]
+                for name in ("context", "context_id", "project_id", "project_root")
+            },
+            {
+                "context": None,
+                "context_id": None,
+                "project_id": None,
+                "project_root": None,
+            },
+        )
+        self.assertEqual(
+            audit.call_args.kwargs["reason"],
+            "project principal is not registered",
+        )
+        self.assertFalse(audit.call_args.kwargs["learnable"])
+
     def test_claude_and_codex_native_auth_bypass_broker_after_policy_allow(self):
         cases = (
             ("GET", "https://platform.claude.com/v1/oauth/hello"),

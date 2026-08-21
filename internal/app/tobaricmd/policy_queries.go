@@ -24,7 +24,7 @@ func (s *Service) policyCandidates(
 	if err != nil {
 		return tobari.PolicyCandidateReport{}, err
 	}
-	denials, err := s.runtime.ClusterDenials(ctx, state, tail)
+	denialRead, err := s.runtime.ClusterDenials(ctx, state, tail)
 	if err != nil {
 		return tobari.PolicyCandidateReport{}, fault.Wrap(
 			fault.KindInternal, "denials_failed", "cluster denials could not be read", false, err,
@@ -44,7 +44,7 @@ func (s *Service) policyCandidates(
 			"policy deny data could not be read safely", false, err,
 		)
 	}
-	items, err := tobari.PolicyCandidatesWithDenyRules(denials, rules, denyRules)
+	items, err := tobari.PolicyCandidatesWithDenyRules(denialRead.Items, rules, denyRules)
 	if err != nil {
 		return tobari.PolicyCandidateReport{}, fault.Wrap(
 			fault.KindContract, "invalid_candidate_contract",
@@ -61,7 +61,8 @@ func (s *Service) policyCandidates(
 		items = persistent
 	}
 	result := tobari.PolicyCandidateReport{
-		Task: task, PolicyDirectory: state.PolicyDirectory, WindowLines: tail, Items: items,
+		Task: task, PolicyDirectory: state.PolicyDirectory, WindowLines: tail,
+		UnparsedLines: denialRead.UnparsedLines, Items: items,
 	}
 	if task == tobari.TaskPolicyReview {
 		result.ReviewItems, err = tobari.PolicyReviewItems(items, rules)

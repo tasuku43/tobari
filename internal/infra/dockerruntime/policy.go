@@ -21,51 +21,56 @@ import (
 
 type gatewayAuditRecord struct {
 	tobari.PolicyProtocolIdentity
-	SchemaVersion  int    `json:"schema_version"`
-	Timestamp      string `json:"timestamp"`
-	RequestID      string `json:"request_id"`
-	Cluster        string `json:"cluster"`
-	ProjectID      string `json:"project_id"`
-	ContextID      string `json:"context_id"`
-	ContextName    string `json:"context"`
-	ProjectRoot    string `json:"project_root"`
-	Host           string `json:"host"`
-	Port           int    `json:"port"`
-	Method         string `json:"method"`
-	Path           string `json:"path"`
-	Decision       string `json:"decision"`
-	Reason         string `json:"reason"`
-	Learnable      bool   `json:"learnable"`
-	UpstreamStatus int    `json:"upstream_status"`
-	DurationMS     int    `json:"duration_ms"`
+	SchemaVersion  int     `json:"schema_version"`
+	Timestamp      string  `json:"timestamp"`
+	RequestID      string  `json:"request_id"`
+	Cluster        string  `json:"cluster"`
+	ProjectID      *string `json:"project_id"`
+	ContextID      *string `json:"context_id"`
+	ContextName    *string `json:"context"`
+	ProjectRoot    *string `json:"project_root"`
+	Host           string  `json:"host"`
+	Port           int     `json:"port"`
+	Method         string  `json:"method"`
+	Path           string  `json:"path"`
+	Decision       string  `json:"decision"`
+	Reason         string  `json:"reason"`
+	Learnable      bool    `json:"learnable"`
+	UpstreamStatus int     `json:"upstream_status"`
+	DurationMS     int     `json:"duration_ms"`
 }
 
 // ClusterDenials projects only validated deny audit records from one bounded
 // Gateway log window.
 func (r *Runtime) ClusterDenials(
 	ctx context.Context, state tobari.State, tail int,
-) ([]tobari.PolicyDenial, error) {
+) (tobari.DenialRead, error) {
 	if err := state.Validate(); err != nil {
-		return nil, err
+		return tobari.DenialRead{}, err
 	}
 	request := tobari.LogRequest{Component: "gateway", Tail: tail}
 	if err := request.ValidateCluster(); err != nil {
-		return nil, err
+		return tobari.DenialRead{}, err
 	}
 	data, err := r.runner.Output(
 		ctx, []string{"logs", "--tail", strconv.Itoa(tail), gatewayContainer}, os.Environ(),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("read Gateway logs: %w: %s", err, boundedDiagnostic(data))
+		return tobari.DenialRead{}, fmt.Errorf("read Gateway logs: %w: %s", err, boundedDiagnostic(data))
 	}
 	if len(data) > maxLogBytes {
-		return nil, fmt.Errorf("Gateway log output exceeds %d bytes", maxLogBytes)
+		return tobari.DenialRead{}, fmt.Errorf("Gateway log output exceeds %d bytes", maxLogBytes)
 	}
-	items, err := parseGatewayDenials(data)
+	result := parseGatewayDenials(data)
+	items, err := r.bindActiveHostLoopbackDenials(result.Items)
 	if err != nil {
-		return nil, err
+		return tobari.DenialRead{}, err
 	}
-	return r.bindActiveHostLoopbackDenials(items)
+	result.Items = items
+	if err := result.Validate(); err != nil {
+		return tobari.DenialRead{}, err
+	}
+	return result, nil
 }
 
 func (r *Runtime) bindActiveHostLoopbackDenials(items []tobari.PolicyDenial) ([]tobari.PolicyDenial, error) {
@@ -109,9 +114,9 @@ func (r *Runtime) bindActiveHostLoopbackDenials(items []tobari.PolicyDenial) ([]
 	return bound, nil
 }
 
-func parseGatewayDenials(data []byte) ([]tobari.PolicyDenial, error) {
-	items := make([]tobari.PolicyDenial, 0)
-	for lineNumber, line := range bytes.Split(bytes.TrimSuffix(data, []byte("\n")), []byte("\n")) {
+func parseGatewayDenials(data []byte) tobari.DenialRead {
+	result := tobari.DenialRead{Items: make([]tobari.PolicyDenial, 0)}
+	for _, line := range bytes.Split(bytes.TrimSuffix(data, []byte("\n")), []byte("\n")) {
 		line = bytes.TrimSpace(line)
 		if len(line) == 0 {
 			continue
@@ -126,30 +131,41 @@ func parseGatewayDenials(data []byte) ([]tobari.PolicyDenial, error) {
 		decoder.DisallowUnknownFields()
 		var record gatewayAuditRecord
 		if err := decoder.Decode(&record); err != nil {
-			return nil, fmt.Errorf("decode Gateway denial line %d: %w", lineNumber+1, err)
+			result.UnparsedLines++
+			continue
 		}
 		var trailing any
 		if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
-			return nil, fmt.Errorf("Gateway denial line %d contains trailing data", lineNumber+1)
+			result.UnparsedLines++
+			continue
 		}
 		if record.SchemaVersion != 1 || record.Cluster != ownerValue || record.Decision != "deny" || record.DurationMS < 0 {
-			return nil, fmt.Errorf("Gateway denial line %d violates the audit contract", lineNumber+1)
+			result.UnparsedLines++
+			continue
 		}
 		item := tobari.PolicyDenial{
 			PolicyProtocolIdentity: record.PolicyProtocolIdentity,
 			Timestamp:              record.Timestamp, RequestID: record.RequestID,
-			ContextID: record.ContextID, ContextName: record.ContextName,
-			ProjectID: record.ProjectID, ProjectRoot: record.ProjectRoot,
+			ContextID: nullableAuditString(record.ContextID), ContextName: nullableAuditString(record.ContextName),
+			ProjectID: nullableAuditString(record.ProjectID), ProjectRoot: nullableAuditString(record.ProjectRoot),
 			Host: record.Host, Port: record.Port, Method: record.Method, Path: record.Path,
 			Reason: record.Reason, StatusCode: record.UpstreamStatus,
 			Learnable: record.Learnable,
 		}
 		if err := item.Validate(); err != nil {
-			return nil, fmt.Errorf("Gateway denial line %d: %w", lineNumber+1, err)
+			result.UnparsedLines++
+			continue
 		}
-		items = append(items, item)
+		result.Items = append(result.Items, item)
 	}
-	return items, nil
+	return result
+}
+
+func nullableAuditString(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
 }
 
 func (r *Runtime) ensurePolicyBundleVolume(ctx context.Context) error {

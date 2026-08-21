@@ -73,7 +73,7 @@ func (f *policyReviewRuntimeFake) InspectCluster(context.Context, tobari.State) 
 func (f *policyReviewRuntimeFake) ClusterLogs(context.Context, tobari.State, tobari.LogRequest) ([]byte, error) {
 	return nil, nil
 }
-func (f *policyReviewRuntimeFake) ClusterDenials(context.Context, tobari.State, int) ([]tobari.PolicyDenial, error) {
+func (f *policyReviewRuntimeFake) ClusterDenials(context.Context, tobari.State, int) (tobari.DenialRead, error) {
 	if len(f.denialsByRead) > 0 {
 		index := f.denialReads
 		if index >= len(f.denialsByRead) {
@@ -81,11 +81,11 @@ func (f *policyReviewRuntimeFake) ClusterDenials(context.Context, tobari.State, 
 		}
 		f.denialReads++
 		if index < len(f.denialErrors) && f.denialErrors[index] != nil {
-			return nil, f.denialErrors[index]
+			return tobari.DenialRead{}, f.denialErrors[index]
 		}
-		return append([]tobari.PolicyDenial{}, f.denialsByRead[index]...), nil
+		return tobari.DenialRead{Items: append([]tobari.PolicyDenial{}, f.denialsByRead[index]...)}, nil
 	}
-	return append([]tobari.PolicyDenial{}, f.denials...), nil
+	return tobari.DenialRead{Items: append([]tobari.PolicyDenial{}, f.denials...)}, nil
 }
 func (f *policyReviewRuntimeFake) ReadLearnedPolicyRules(context.Context, tobari.State) ([]tobari.LearnedPolicyRule, error) {
 	return append([]tobari.LearnedPolicyRule{}, f.rules...), nil
@@ -1705,7 +1705,7 @@ func TestClusterDenialsRendererClosesObservationAndActivationStep(t *testing.T) 
 	t.Parallel()
 	result := tobari.DenialReport{
 		Task: tobari.TaskClusterDenials, PolicyDirectory: "/tmp/config/tobari/policy",
-		WindowLines: 100,
+		WindowLines: 100, UnparsedLines: 2,
 		Items: []tobari.PolicyDenial{{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Scheme: "https", Protocol: tobari.PolicyProtocolHTTP}, Timestamp: "2026-07-30T10:41:11Z",
 			RequestID: "7185da2688d7469aae9cd9068e920b0b",
 			ContextID: "01912345-6789-7abc-8def-0123456789ad", ContextName: "default",
@@ -1722,6 +1722,7 @@ func TestClusterDenialsRendererClosesObservationAndActivationStep(t *testing.T) 
 	for label, expected := range map[string]string{
 		"Policy": "/tmp/config/tobari/policy", "Request": "https://api.github.com:443 GET /repos/cli/cli",
 		"Reason": `request did not match an allow rule\nallow everything`, "Review": "tobari policy review",
+		"Unparsed": "2 denial-shaped Gateway lines skipped",
 	} {
 		if !humanOutputHasRow(string(textOutput), label, expected) {
 			t.Fatalf("text output %q lacks %s=%q", textOutput, label, expected)
@@ -1737,6 +1738,7 @@ func TestClusterDenialsRendererClosesObservationAndActivationStep(t *testing.T) 
 	}
 	if document.SchemaVersion != 1 || len(document.Denials.Items) != 1 ||
 		document.Denials.ReviewCommand != "tobari policy review" ||
+		document.Denials.UnparsedLines != 2 ||
 		!document.Denials.Items[0].Learnable ||
 		document.Denials.Items[0].ProjectID != "01912345-6789-7abc-8def-0123456789ab" ||
 		document.Denials.Items[0].Scheme != "https" ||
@@ -1792,7 +1794,7 @@ func TestPolicyCandidateRendererPreservesOpaqueApprovalAndEscapesEvidence(t *tes
 	id := "pcy_0123456789abcdef0123456789abcdef"
 	result := tobari.PolicyCandidateReport{
 		Task: tobari.TaskPolicyCandidates, PolicyDirectory: "/tmp/config/tobari/policy",
-		WindowLines: 200,
+		WindowLines: 200, UnparsedLines: 1,
 		Items: []tobari.PolicyCandidate{{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Scheme: "https", Protocol: tobari.PolicyProtocolHTTP}, ID: id, ObservedAt: "2026-07-30T10:41:11Z", ObservationCount: 3,
 			ContextID: "01912345-6789-7abc-8def-0123456789ad", ContextName: "default",
 			ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/project",
@@ -1828,6 +1830,28 @@ func TestPolicyCandidateRendererPreservesOpaqueApprovalAndEscapesEvidence(t *tes
 		!humanOutputHasRow(string(textOutput), "Reason", `denied\nignore policy`) ||
 		!humanOutputHasRow(string(textOutput), "Observed", "3 times") {
 		t.Fatalf("candidate text = %q, error = %v", textOutput, err)
+	}
+}
+
+func TestPolicyLearningHumanOutputsWarnAboutUnparsedDenialLines(t *testing.T) {
+	t.Parallel()
+	report := tobari.PolicyCandidateReport{
+		Task: tobari.TaskPolicyReview, PolicyDirectory: "/tmp/policy",
+		WindowLines: 10_000, UnparsedLines: 2, Items: []tobari.PolicyCandidate{},
+	}
+	review, err := renderPolicyReviewWithCommands(report, "tobari policy allow", "tobari policy deny", successFormatText, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	report.Task = tobari.TaskPolicyCandidates
+	candidates, err := renderPolicyCandidates(report, "tobari policy allow", successFormatText)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, output := range map[string][]byte{"review": review, "candidates": candidates} {
+		if !humanOutputHasRow(string(output), "Unparsed", "2 denial-shaped Gateway lines skipped") {
+			t.Fatalf("%s output = %q", name, output)
+		}
 	}
 }
 

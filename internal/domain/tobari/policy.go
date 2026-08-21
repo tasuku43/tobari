@@ -222,6 +222,28 @@ type PolicyDenial struct {
 	AttachmentEpochID string `json:"attachment_epoch_id,omitempty"`
 }
 
+// DenialRead is one bounded Gateway-log projection. UnparsedLines counts
+// denial-shaped records that could not safely enter the typed collection.
+type DenialRead struct {
+	Items         []PolicyDenial
+	UnparsedLines int
+}
+
+func (r DenialRead) Validate() error {
+	if r.Items == nil {
+		return fmt.Errorf("denial read collection is unknown")
+	}
+	if r.UnparsedLines < 0 {
+		return fmt.Errorf("denial read unparsed line count is invalid")
+	}
+	for _, item := range r.Items {
+		if err := item.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (d PolicyDenial) EffectiveDestinationKind() string {
 	if d.DestinationKind == "" {
 		return PolicyDestinationExternal
@@ -320,6 +342,7 @@ type DenialReport struct {
 	Task            string         `json:"task"`
 	PolicyDirectory string         `json:"policy"`
 	WindowLines     int            `json:"window_lines"`
+	UnparsedLines   int            `json:"unparsed_lines"`
 	Items           []PolicyDenial `json:"items"`
 }
 
@@ -333,6 +356,9 @@ func (r DenialReport) Validate() error {
 	}
 	if r.WindowLines < 1 || r.WindowLines > 10_000 {
 		return fmt.Errorf("denial report window is invalid")
+	}
+	if r.UnparsedLines < 0 || r.UnparsedLines > r.WindowLines {
+		return fmt.Errorf("denial report unparsed line count is invalid")
 	}
 	if r.Items == nil {
 		return fmt.Errorf("denial report collection is unknown")
@@ -484,6 +510,7 @@ type PolicyCandidateReport struct {
 	Task            string             `json:"task"`
 	PolicyDirectory string             `json:"policy"`
 	WindowLines     int                `json:"window_lines"`
+	UnparsedLines   int                `json:"unparsed_lines"`
 	Items           []PolicyCandidate  `json:"items"`
 	ReviewItems     []PolicyReviewItem `json:"-"`
 }
@@ -497,6 +524,9 @@ func (r PolicyCandidateReport) Validate() error {
 	}
 	if r.WindowLines < 1 || r.WindowLines > 10_000 {
 		return fmt.Errorf("policy candidate window is invalid")
+	}
+	if r.UnparsedLines < 0 || r.UnparsedLines > r.WindowLines {
+		return fmt.Errorf("policy candidate unparsed line count is invalid")
 	}
 	if r.Items == nil {
 		return fmt.Errorf("policy candidate collection is unknown")

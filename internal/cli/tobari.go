@@ -1065,6 +1065,7 @@ type clusterDenialsDocument struct {
 type clusterDenialsOutput struct {
 	Policy        string               `json:"policy"`
 	WindowLines   int                  `json:"window_lines"`
+	UnparsedLines int                  `json:"unparsed_lines"`
 	Items         []policyDenialOutput `json:"items"`
 	ReviewCommand string               `json:"review_command"`
 }
@@ -1244,6 +1245,7 @@ func renderPolicyCandidatesHuman(result tobari.PolicyCandidateReport, allowComma
 		output.heading("○", "No policy candidates", styleMuted)
 		output.row("Policy", safeExternalText(result.PolicyDirectory), styleText)
 		output.row("Window", fmt.Sprintf("%d Gateway lines", result.WindowLines), styleText)
+		writeUnparsedDenialWarning(output, result.UnparsedLines)
 		output.row("Details", "No retained denied request is ready for approval.", styleText)
 		output.next("cluster denials", "Inspect the recent bounded denial evidence.")
 		return output.bytes()
@@ -1252,6 +1254,7 @@ func renderPolicyCandidatesHuman(result tobari.PolicyCandidateReport, allowComma
 	output.heading("✓", fmt.Sprintf("Policy candidates (%d)", len(result.Items)), styleSuccess)
 	output.row("Policy", safeExternalText(result.PolicyDirectory), styleText)
 	output.row("Window", fmt.Sprintf("%d lines", result.WindowLines), styleText)
+	writeUnparsedDenialWarning(output, result.UnparsedLines)
 	for index, item := range result.Items {
 		output.section(fmt.Sprintf("Candidate %d", index+1))
 		output.row("Context", safeExternalText(item.ContextName), styleText)
@@ -1313,12 +1316,14 @@ func renderPolicyReviewHuman(
 		output.heading("○", "No pending network permissions", styleMuted)
 		output.row("Policy", safeExternalText(result.PolicyDirectory), styleText)
 		output.row("Window", fmt.Sprintf("%d Gateway lines", result.WindowLines), styleText)
+		writeUnparsedDenialWarning(output, result.UnparsedLines)
 		output.row("Details", "No retained exact permission is waiting for host review.", styleText)
 		return output.bytes()
 	}
 	output := newHumanOutput(color)
 	output.heading("⚠", fmt.Sprintf("Pending network permissions (%d)", len(result.Items)), styleWarning)
 	output.row("Window", fmt.Sprintf("%d Gateway lines", result.WindowLines), styleText)
+	writeUnparsedDenialWarning(output, result.UnparsedLines)
 	for index, item := range result.Items {
 		output.section(fmt.Sprintf("Permission %d", index+1))
 		output.row("Context", safeExternalText(item.ContextName), styleText)
@@ -1629,7 +1634,7 @@ func renderClusterDenialsWithReviewCommand(
 			SchemaVersion: 1,
 			Denials: clusterDenialsOutput{
 				Policy: safeExternalText(result.PolicyDirectory), WindowLines: result.WindowLines,
-				Items: items, ReviewCommand: reviewCommand,
+				UnparsedLines: result.UnparsedLines, Items: items, ReviewCommand: reviewCommand,
 			},
 		})
 		if err != nil {
@@ -1646,6 +1651,7 @@ func renderClusterDenialsWithReviewCommand(
 	var output bytes.Buffer
 	fmt.Fprintf(&output, "policy: %s\n", escapeTSVCell(result.PolicyDirectory))
 	fmt.Fprintf(&output, "window_lines: %d\n", result.WindowLines)
+	fmt.Fprintf(&output, "unparsed_lines: %d\n", result.UnparsedLines)
 	fmt.Fprintf(&output, "denial_count: %d\n", len(result.Items))
 	for _, item := range result.Items {
 		fmt.Fprintf(
@@ -1669,6 +1675,7 @@ func renderClusterDenialsHuman(result tobari.DenialReport, reviewCommand string,
 		output.heading("○", "No policy denials", styleMuted)
 		output.row("Policy", safeExternalText(result.PolicyDirectory), styleText)
 		output.row("Window", fmt.Sprintf("%d Gateway lines", result.WindowLines), styleText)
+		writeUnparsedDenialWarning(output, result.UnparsedLines)
 		output.row("Details", "The selected Gateway log window contains no denied requests.", styleText)
 		output.next("policy candidates", "Check whether a new denied request has been retained.")
 		return output.bytes()
@@ -1677,6 +1684,7 @@ func renderClusterDenialsHuman(result tobari.DenialReport, reviewCommand string,
 	output.heading("!", fmt.Sprintf("Policy denials (%d)", len(result.Items)), styleDanger)
 	output.row("Policy", safeExternalText(result.PolicyDirectory), styleText)
 	output.row("Window", fmt.Sprintf("%d lines", result.WindowLines), styleText)
+	writeUnparsedDenialWarning(output, result.UnparsedLines)
 	output.row("Review", reviewCommand, styleAccent)
 	for index, item := range result.Items {
 		output.section(fmt.Sprintf("Denial %d", index+1))
@@ -1698,6 +1706,12 @@ func renderClusterDenialsHuman(result tobari.DenialReport, reviewCommand string,
 		output.row("Learnable", learnable, styleText)
 	}
 	return output.bytes()
+}
+
+func writeUnparsedDenialWarning(output *humanOutput, count int) {
+	if count > 0 {
+		output.row("Unparsed", fmt.Sprintf("%d denial-shaped Gateway line%s skipped", count, pluralSuffix(count)), styleWarning)
+	}
 }
 
 type clusterStatusOutput struct {

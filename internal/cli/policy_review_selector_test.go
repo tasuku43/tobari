@@ -155,7 +155,7 @@ func TestPolicyReviewSelectorWatchEmptyWaitsAndRequestsRefresh(t *testing.T) {
 	selector := &policyReviewSelector{
 		mode: &selectorModeFake{}, style: false, staged: map[string]policyReviewAction{}, watch: true, ticker: ticker,
 	}
-	report := tobari.PolicyCandidateReport{Task: tobari.TaskPolicyReview, PolicyDirectory: "/tmp/policy", WindowLines: 10_000, Items: []tobari.PolicyCandidate{}}
+	report := tobari.PolicyCandidateReport{Task: tobari.TaskPolicyReview, PolicyDirectory: "/tmp/policy", WindowLines: 10_000, UnparsedLines: 2, Items: []tobari.PolicyCandidate{}}
 	var output bytes.Buffer
 	decision, err := selector.Select(context.Background(), report, &timeoutThenPolicyReviewReader{remaining: strings.NewReader("q")}, &output)
 	if err != nil {
@@ -164,7 +164,7 @@ func TestPolicyReviewSelectorWatchEmptyWaitsAndRequestsRefresh(t *testing.T) {
 	if !decision.Refresh || decision.Canceled {
 		t.Fatalf("watch decision = %+v", decision)
 	}
-	for _, want := range []string{"No requests need review.", "Watching for denied requests…", "Press q to stop."} {
+	for _, want := range []string{"No requests need review.", "Watching for denied requests…", "Press q to stop.", "2 denial-shaped Gateway lines skipped"} {
 		if !strings.Contains(output.String(), want) {
 			t.Fatalf("watch empty output %q lacks %q", output.String(), want)
 		}

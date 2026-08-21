@@ -1124,11 +1124,11 @@ current Workspace and agent session running, use a separate trusted-host
 terminal, and retry in that same Workspace only after confirmed Apply. A
 non-learnable response instead names the read-only `tobari cluster denials`
 diagnostic and exposes no review command. `tobari cluster denials` parses one bounded Gateway
-log window, rejects
-malformed denial-shaped records, and returns typed Context and project principal, host, port,
+log window, isolates and counts malformed or otherwise unprojectable
+denial-shaped records, and returns every valid typed Context and project principal, host, port,
 method, path, optional GraphQL operation/root coordinate, reason, status,
 exact-rule learnability, request identity, timestamp, the
-trusted host policy directory, and the exact review command. OPA computes
+trusted host policy directory, the unparsed-record count, and the exact review command. OPA computes
 learnability only when version, cluster, Context, scheme, fixed port,
 project-principal, and Context policy ceiling already pass, so an exact
 Context/project/scheme/host/port/method/path rule, plus the GraphQL coordinate when

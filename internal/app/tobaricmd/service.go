@@ -20,7 +20,7 @@ type RuntimePort interface {
 	LoadState(context.Context) (tobari.State, bool, error)
 	InspectCluster(context.Context, tobari.State) (tobari.ClusterStatus, error)
 	ClusterLogs(context.Context, tobari.State, tobari.LogRequest) ([]byte, error)
-	ClusterDenials(context.Context, tobari.State, int) ([]tobari.PolicyDenial, error)
+	ClusterDenials(context.Context, tobari.State, int) (tobari.DenialRead, error)
 	ReadLearnedPolicyRules(context.Context, tobari.State) ([]tobari.LearnedPolicyRule, error)
 	ReadPolicyDenyRules(context.Context, tobari.State) (tobari.PolicyDenyRuleSet, error)
 	ApplyLearnedPolicyRules(
