@@ -11,6 +11,7 @@ transcripts as repository fixtures.
 | Discover capabilities | `help --format agent`, then one namespace or exact-command selector | Root remains a compact capability index; one scoped read supplies complete typed inputs, outputs, failures, and workflow |
 | Choose and retire a Context work mode | `context list`, `context show`, `context create`, `context use`, `context delete` | Human list cards expose filesystem and complete method-policy facts; `context show` distinguishes the immutable creation-time Boundary, exact mutable Runtime binding, session defaults, and future-Workspace creation defaults while one concise boundary/runtime decision and explicit `--details` diagnostic come from the same read and JSON remains identical; argument-free terminal creation shows the complete effective boundary, edits one section, discovers optional typed bootstrap candidates without selector re-entry, and creates once; changing current does not retarget Workspaces, and deletion rejects protected/current/bound Contexts |
 | Enter bounded work | `tobari [--context NAME]` or `tobari [--context NAME] -- COMMAND [ARG...]`; explicit `cluster up` remains available | On first use, one root route completes reviewed Context creation and exact shared-cluster reconciliation before one selected live source bind, writable home/tmpfs, guarded network, reusable Workspace, and no direct egress; the direct form runs exact foreground argv without a shell, returns its status to the host, and leaves the Workspace reusable |
+| Understand authority lifetime | `context show`, `policy rules`, and Host Loopback capability/review output | Routine guidance distinguishes Context Access, remembered Workspace decisions, and this-session Host Loopback access without requiring baseline, overlay, principal, epoch, or grant reconstruction; typed output retains exact destination kind and authority lifetime |
 | Grow exact permission | `policy review`, or `policy candidates` then one exact allow/deny | Terminal guardrail precedes every candidate; explicit review activates only exact Context/project/scheme/host/port/method/path authority |
 | Inspect/reset decisions | `policy rules`, then `policy reset --id` | One current exact decision is removed through its unchanged opaque reference and returns to default deny |
 | Use native Workspace auth | Run the agent CLI's native login inside the Workspace | Credential state persists in that Workspace home, receives no network grant from login, and crosses Gateway only after the ordinary exact HTTP effect is allowed |
@@ -65,6 +66,15 @@ duplicate flag, a dash-prefixed value, and an explicit empty argument; verify
 the child observes the exact argv and status, no shell is inserted, and the
 next host command runs instead of entering Workspace Bash. Also verify bare
 `--` performs no setup or Workspace mutation.
+
+For authority lifetime, read the routine permission guidance once, then inspect
+one Context, one persistent learned decision, and one Host Loopback review item.
+Classify them only as Context Access, a remembered Workspace decision, or
+this-session Host Loopback access. Verify the learned decision remains until
+`policy reset`, while the Host Loopback decision disappears when its owning
+attachment exits. Confirm `destination_kind` and `authority_lifetime` carry
+that distinction in machine output without parsing a label or reconstructing
+an Attachment Epoch. The routine-success external-processing count is zero.
 
 ## Source-access matrix
 

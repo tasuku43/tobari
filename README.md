@@ -243,6 +243,19 @@ the same recovery command.
 
 ## Permission workflow
 
+Tobari presents network authority in three user-facing layers:
+
+| Layer | What it means |
+|---|---|
+| Context Access | The creation-time destination and method Boundary, plus the routine client traffic admitted inside it |
+| Remembered Workspace decisions | Host-reviewed Allow and exact Deny choices for this Context and Workspace; they remain until `policy reset` |
+| This-session Host Loopback access | Exact access to physical-host loopback for the active attachment only; it disappears when the owning attachment exits |
+
+The third layer is a separate closed branch, not a temporary widening of
+ordinary Internet access. Ordinary Context and remembered authority cannot
+authorize Host Loopback, and Host Loopback decisions cannot authorize an
+ordinary destination.
+
 When a request is eligible for review, Gateway retains a bounded
 secret-free denial and gives the child fixed trusted-host navigation. Keep the
 Workspace and agent session running, then use a separate host terminal:

@@ -381,14 +381,15 @@ with Docker read-only authority: no writable alias is added, home and tmpfs
 remain writable, and host or same-root read-write Context changes remain
 observable.
 
-The system evaluator resolves an exact method override or the Context policy default
-before baseline deny,
-exact learned deny, baseline grant, exact or reviewed single-segment-template
-learned allow, or Advanced Rego.
+The system evaluator resolves an exact method override or the Context policy
+default before one combined exact-Deny tier containing trusted baseline Deny
+and exact learned Deny with no internal ordering. Only after that tier may a
+baseline grant, exact or reviewed single-segment-template learned Allow, or
+Advanced Rego decide an unresolved ordinary request.
 Terminal denial ends before candidate projection, external DNS, broker
-resolution, and upstream I/O. Advanced modules may further constrain generic
-input but cannot bypass the Context policy ceiling or redefine the scheme-aware exact
-learned identity.
+resolution, and upstream I/O. Advanced modules may decide generic input only at
+that unresolved tier; they cannot bypass the Context policy ceiling or exact
+Deny, or redefine the scheme-aware exact learned identity.
 The native-readiness capability uses a finite baseline coupled to Claude Code
 2.1.220, Codex 0.147.0, GitHub CLI 2.96.0, TWG CLI
 1.2.5, and pup 1.10.7 when the latter clients are supplied by a custom runtime. Named
@@ -414,6 +415,56 @@ default plus exact overrides; Method Allow enters the same Context-policy
 baseline path as exact grants, after destination/method Deny and exact Deny
 checks. GET receives no safe or read-only classification, and a deny-only or
 GET-only posture is expressed by the Context method policy itself.
+
+### HTTP authority scope, lifetime, owner, and precedence
+
+The table below is the canonical technical inventory. Rows describe inputs to
+two disjoint evaluator branches; sharing the Gateway and OPA transport does not
+make authority transferable between them.
+
+| Authority source | Scope | Lifetime | Owner | Precedence |
+|---|---|---|---|---|
+| Context destination and method Boundary | Context and ordinary external HTTP | Context lifetime | trusted host user at Context creation | terminal after principal/schema/Context validation and before every ordinary positive source |
+| trusted baseline Deny | Context and exact ordinary effect | Context snapshot or binary compatibility revision | Tobari | member of one terminal exact-Deny tier with remembered exact Deny; neither member precedes the other |
+| remembered exact Deny | Context, Workspace, and exact ordinary effect | until explicit reset | trusted host user | member of the same terminal exact-Deny tier; wins over every ordinary positive source |
+| baseline grant | Context and exact or reviewed-template ordinary effect | Context snapshot revision | Tobari | Context-policy positive tier, inside the Boundary and below the exact-Deny tier |
+| native readiness | enabled Context and current reviewed client-compatibility effects | installed binary's independently revised compatibility contract | Tobari contract, enabled by the host user at Context creation | Context-policy positive tier, inside the Boundary and below the exact-Deny tier |
+| remembered Allow | Context, Workspace, and exact or explicitly reviewed one-segment-template ordinary effect | until explicit reset | trusted host user | unresolved Guided authority only; cannot exceed the Boundary or exact-Deny tier |
+| Advanced Rego | one Advanced Context's generic ordinary request input | current owner-authored policy revision | advanced trusted host user | consulted only while ordinary authority remains unresolved; cannot exceed the Boundary or exact-Deny tier |
+| ordinary default deny or exact-review result | unresolved valid ordinary effect | per request | Tobari evaluator | final ordinary result; missing or invalid identity instead receives the non-learnable fail-closed default |
+| Attachment Deny | active principal-owned route, Context, Workspace, Attachment Epoch, and exact Host Loopback effect | owning attachment | trusted host user | first policy decision in the separate Host Loopback branch |
+| Attachment Allow | same exact Host Loopback identity | owning attachment | trusted host user; route owned by the host attachment process | after Attachment Deny and before attachment review |
+| exact attachment review | unresolved valid Host Loopback effect | owning attachment | Tobari evaluator and trusted host user | final Host Loopback result; review creates no durable learned rule |
+
+Ordinary external HTTP follows one exact order:
+
+```text
+principal, schema, and Context validity
+  -> terminal destination/method decision
+  -> trusted baseline Deny + remembered exact Deny (one tier; no internal order)
+  -> Context-policy positive authority (method Allow, baseline, native readiness)
+  -> if unresolved: Guided remembered Allow or Advanced Rego
+  -> fail closed or exact-review eligibility
+```
+
+Host Loopback follows its own complete order:
+
+```text
+active principal-owned route and Attachment Epoch
+  -> Attachment Deny
+  -> Attachment Allow
+  -> exact attachment review
+```
+
+The Gateway resolves the active route and epoch before creating the OPA input,
+and opens its authenticated one-shot bridge only after OPA Allow. The host
+relay revalidates active route, Context/Workspace principal, epoch, target port,
+and Attachment Allow before dialing `127.0.0.1`. Ordinary destination/method
+ceilings, baseline and native rules, remembered Allow/exact Deny, and Advanced
+Rego are inapplicable to this branch. Conversely, Attachment Deny, Allow, and
+review are inapplicable to ordinary traffic. Route-owner teardown closes the
+relay first, then removes route and grant projections, so stale policy bytes
+cannot reach the physical host.
 
 Project runtime infrastructure resolves only declared shell `inherit` entries
 from the launching process at child-exec time and passes exact values to the

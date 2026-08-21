@@ -101,6 +101,17 @@ expanding authority. The loop is part of the product's adoption boundary: if
 the safe path is harder than running the agent on the host, users will bypass
 the isolation that the boundary is meant to provide.
 
+Routine users reason about network authority in three layers: **Context
+Access** is the creation-time destination and method Boundary plus routine
+traffic admitted inside it; **remembered Workspace decisions** are reviewed
+Allow and exact Deny choices retained for one Context and Workspace until
+reset; and **this-session Host Loopback access** is exact attachment authority
+that ends with its owning attachment. The third layer is a separate closed
+policy branch. Ordinary Context, baseline, remembered, and Advanced authority
+cannot decide Host Loopback, and attachment authority cannot decide ordinary
+external traffic. Detailed source, owner, lifetime, and precedence remain
+available to contributors without becoming routine setup vocabulary.
+
 ## Thesis 0: Bounded autonomy must be easier than host execution
 
 Tobari's security value depends on adoption. The product is not primarily a
@@ -949,8 +960,11 @@ OPA allow.
   Advanced Rego. Every HTTP method resolves from one `allow`, `exact_review`,
   or `deny` default plus exact overrides. A terminal destination or method Deny
   denial produces no candidate and performs no external DNS, broker resolution,
-  or upstream call. Advanced Rego may further constrain generic input but
-  cannot grant beyond the Context policy ceiling or redefine learned permission identity.
+  or upstream call. Trusted baseline Deny and remembered exact Deny form one
+  terminal tier with no ordering between them and precede every positive
+  source. Advanced Rego may decide only otherwise-unresolved generic input; it
+  cannot grant beyond the Context policy ceiling or exact Deny, or redefine
+  learned permission identity.
 - Enabled native readiness preserves the pinned Claude Code 2.1.220 and Codex
   0.147.0 native capability plane, the pinned GitHub CLI 2.96.0 native
   authentication bootstrap, TWG CLI 1.2.5 native login readiness, and pup

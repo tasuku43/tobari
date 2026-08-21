@@ -48,6 +48,22 @@ the decision is available to every process in the Workspace only until the
 owning host attachment exits. Docker, Compose, host daemon state, automatic
 port discovery, raw TCP, and persistent Host Loopback grants are not part of
 this outcome.
+
+Routine permission guidance presents three layers and no implementation-source
+inventory:
+
+1. **Context Access** is the immutable creation-time destination and method
+   Boundary together with the routine client traffic admitted inside it.
+2. **Remembered Workspace decisions** are trusted-host reviewed Allow and exact
+   Deny choices bound to the Context and Workspace until explicit reset.
+3. **This-session Host Loopback access** is an exact decision bound to the
+   active attachment and removed when its owning host process exits.
+
+Host Loopback is a separate closed policy branch rather than a temporary
+widening of Context Access. Ordinary Context policy, native readiness,
+remembered decisions, and Advanced Rego neither authorize nor deny it;
+Attachment Grants neither authorize nor deny ordinary external traffic.
+
 The user-facing entry point is the current project directory: a Workspace either
 exists or does not exist, and the user should not need to manage container
 names, network IDs, or policy internals for routine work. `cluster up` remains

@@ -11,7 +11,7 @@
 - Related ADRs: ADR 0029, ADR 0051, ADR 0058, ADR 0060, ADR 0062, ADR 0066, ADR 0067, and ADR 0068
 - Depends on: `../public-workspace-vocabulary/`,
   [ADR 0071](../../decisions/0071-define-context-as-a-stable-work-mode.md), and
-  `../authority-scope-lifetime-model/`
+  the canonical [HTTP authority inventory](../../02_architecture.md#http-authority-scope-lifetime-owner-and-precedence)
 
 ## Outcome
 

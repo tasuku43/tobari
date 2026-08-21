@@ -138,6 +138,42 @@ func TestAggregateRouterKeepsHostLoopbackAuthorityAttachmentScoped(t *testing.T)
 	if strings.Contains(text, `grant.lifetime == "persistent"`) {
 		t.Fatalf("Host Loopback router accepts persistent grant:\n%s", text)
 	}
+	for _, marker := range []string{
+		`"reason": "denied by attachment policy"`,
+		`"reason": "allowed by attachment policy"`,
+		`"reason": "Host Loopback requires attachment policy review"`,
+	} {
+		position := strings.Index(text, marker)
+		if position < 0 {
+			t.Fatalf("Host Loopback decision omitted %q:\n%s", marker, text)
+		}
+		start := strings.LastIndex(text[:position], "decision :=")
+		end := strings.Index(text[position:], "\n\n")
+		if start < 0 || end < 0 {
+			t.Fatalf("Host Loopback decision framing omitted for %q:\n%s", marker, text)
+		}
+		clause := text[start : position+end]
+		for _, ordinaryAuthority := range []string{"terminal_policy", "exact_denied", "context_policy_granted", "tobari.system.guided", "tobari.contexts."} {
+			if strings.Contains(clause, ordinaryAuthority) {
+				t.Fatalf("Host Loopback decision %q imported ordinary authority %q:\n%s", marker, ordinaryAuthority, clause)
+			}
+		}
+	}
+	for _, marker := range []string{
+		`"reason": "denied by Context policy ceiling"`,
+		`"reason": "denied by exact policy"`,
+		`"reason": "allowed by Context policy"`,
+	} {
+		position := strings.Index(text, marker)
+		if position < 0 {
+			t.Fatalf("ordinary decision omitted %q:\n%s", marker, text)
+		}
+		start := strings.LastIndex(text[:position], "decision :=")
+		end := strings.Index(text[position:], "\n\n")
+		if start < 0 || end < 0 || !strings.Contains(text[start:position+end], "not host_loopback_request") {
+			t.Fatalf("ordinary decision %q can consume attachment traffic:\n%s", marker, text)
+		}
+	}
 }
 
 func TestAggregateRouterMakesContextPolicyCeilingTerminalBeforeAdvancedOrGuidedPolicy(t *testing.T) {

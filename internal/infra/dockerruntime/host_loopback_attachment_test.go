@@ -142,8 +142,19 @@ func TestHostLoopbackConcurrentAttachmentBorrowsOwnerWithoutExtendingLifetime(t 
 	if !owner.owned || borrower.owned || borrower.epochID != owner.epochID {
 		t.Fatalf("attachment ownership owner=%v borrower=%v epochs=%s/%s", owner.owned, borrower.owned, owner.epochID, borrower.epochID)
 	}
+	grant := hostLoopbackGrant(t, owner.route, 3000)
+	if _, err := runtime.ApplyAttachmentGrantDecisionSet(context.Background(), []tobari.AttachmentGrant{grant}); err != nil {
+		t.Fatal(err)
+	}
 	if err := borrower.Close(context.Background()); err != nil || !runtime.hostLoopbackRelayActive(owner.route) {
 		t.Fatalf("borrower close affected owner: %v", err)
+	}
+	var activeGrants tobari.AttachmentGrantRegistry
+	if err := readStrictJSON(runtime.attachmentGrantRegistryPath(), &activeGrants); err != nil {
+		t.Fatal(err)
+	}
+	if len(activeGrants.Grants) != 1 || activeGrants.Grants[0].ID != grant.ID {
+		t.Fatalf("borrower close changed owning attachment grants: %+v", activeGrants.Grants)
 	}
 	if err := owner.Close(context.Background()); err != nil {
 		t.Fatal(err)
@@ -157,5 +168,12 @@ func TestHostLoopbackConcurrentAttachmentBorrowsOwnerWithoutExtendingLifetime(t 
 	}
 	if len(routes.Routes) != 0 {
 		t.Fatalf("route survived owner exit: %+v", routes)
+	}
+	var grants tobari.AttachmentGrantRegistry
+	if err := readStrictJSON(runtime.attachmentGrantRegistryPath(), &grants); err != nil {
+		t.Fatal(err)
+	}
+	if len(grants.Grants) != 0 {
+		t.Fatalf("attachment grant survived owner exit: %+v", grants.Grants)
 	}
 }

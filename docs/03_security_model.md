@@ -405,6 +405,29 @@ rewrite source or projection.
 
 ## HTTP authorization boundary
 
+The complete authority inventory, including Scope, Lifetime, Owner, and
+Precedence, is canonical in
+[Architecture: HTTP authority scope, lifetime, owner, and precedence](02_architecture.md#http-authority-scope-lifetime-owner-and-precedence).
+Security enforcement preserves two closed branches.
+
+For ordinary external traffic, Gateway first establishes a valid
+principal/schema/Context. OPA then applies the terminal destination and method
+Boundary; one exact-Deny tier containing trusted baseline Deny and remembered
+exact Deny with no order between its members; the Context-policy positive tier;
+and only while unresolved either Guided remembered Allow or Advanced Rego.
+Anything still unresolved fails closed or becomes eligible for exact review.
+No lower tier can override a terminal decision.
+
+Host Loopback does not enter that order. Gateway must first resolve an active
+principal-owned route and Attachment Epoch. OPA then applies exact Attachment
+Deny, exact Attachment Allow, and exact attachment review in that order.
+Ordinary Context ceilings, baseline/native authority, remembered Allow/exact
+Deny, and Advanced Rego are inapplicable. Attachment decisions are likewise
+inapplicable to ordinary traffic. Gateway opens the bridge only after Allow;
+the relay revalidates the active principal, epoch, target port, and Allow before
+physical-host I/O. Closing the owning attachment closes the relay before route
+and grant removal, making stale or mismatched attachment material inert.
+
 Gateway constructs normalized OPA input in mitmproxy. Ordinary HTTP remains
 body-free at the request-header hook. A trusted Context-declared exact GraphQL
 endpoint instead accepts one positive length no larger than 1 MiB, or an absent
