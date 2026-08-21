@@ -901,8 +901,13 @@ one observation point. `status` is a CWD-local scalar observation; cluster
 status is exhaustive for the shared cluster scope. Logs are
 a bounded recent window of 1 through 10,000 lines per selected component.
 Denials are a fully delivered typed projection from the requested bounded
-Gateway-line window; an empty `items` collection means no valid denial occurred
-in that window, not exhaustive history.
+Gateway-line window. A denial-shaped record that cannot satisfy the strict
+Context/project-bound typed contract is isolated rather than failing the whole
+window, and `unparsed_lines` reports how many such records were skipped without
+reflecting their untrusted contents. An empty `items` collection means no valid
+denial occurred in that window, not exhaustive history; a nonzero unparsed
+count preserves the distinction between a fully interpretable empty window and
+one containing unprojectable evidence.
 Policy candidates, review, and tail are bounded by the same retained
 Gateway-line window and omit effects already covered by learned allow rules,
 baseline deny rules, or exact learned deny rules. Baseline and exact denies

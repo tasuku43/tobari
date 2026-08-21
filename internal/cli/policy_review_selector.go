@@ -865,6 +865,11 @@ func renderPolicyReviewListRaw(
 			applyStyleToken(style, styleMuted, "Watching for denied requests…"),
 			applyStyleToken(style, styleMuted, "Press q to stop."),
 		}
+		if report.UnparsedLines > 0 {
+			lines = append(lines, "", applyStyleToken(style, styleWarning, fmt.Sprintf(
+				"! %d denial-shaped Gateway line%s skipped", report.UnparsedLines, pluralSuffix(report.UnparsedLines),
+			)))
+		}
 		if message != "" {
 			lines = append(lines, "", applyStyleToken(style, styleWarning, "! "+message))
 		}
@@ -878,6 +883,11 @@ func renderPolicyReviewListRaw(
 			len(report.Items), pluralSuffix(len(report.Items)), policyReviewScopeCount(report.Items),
 		)),
 		"",
+	}
+	if report.UnparsedLines > 0 {
+		lines = append(lines, applyStyleToken(style, styleWarning, fmt.Sprintf(
+			"! %d denial-shaped Gateway line%s skipped", report.UnparsedLines, pluralSuffix(report.UnparsedLines),
+		)), "")
 	}
 	end := top + selectorMaxVisibleOptions
 	if end > len(report.Items) {
@@ -1220,6 +1230,11 @@ func writePolicyReviewListLine(out io.Writer, report tobari.PolicyCandidateRepor
 	}
 	if _, err := fmt.Fprintf(out, "%d pending permission%s\n\n", len(report.Items), pluralSuffix(len(report.Items))); err != nil {
 		return err
+	}
+	if report.UnparsedLines > 0 {
+		if _, err := fmt.Fprintf(out, "! %d denial-shaped Gateway line%s skipped\n\n", report.UnparsedLines, pluralSuffix(report.UnparsedLines)); err != nil {
+			return err
+		}
 	}
 	for index, candidate := range report.Items {
 		state := policyReviewLineStagedLabel(candidate.ID, staged)

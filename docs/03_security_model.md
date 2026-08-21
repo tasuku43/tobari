@@ -1117,7 +1117,10 @@ does not inherit a broad static host/method allow; the brokered request remains
 a learnable denial until an exact Context/project-bound L7 rule exists.
 CLI `cluster logs` reads only a bounded component-log window and does not add
 unredacted diagnostics. `cluster denials` projects only validated deny records
-and preserves only non-secret broker provider metadata. Read-only policy
+and preserves only non-secret broker provider metadata. A denial-shaped record
+that lacks a valid trusted Context/project scope or otherwise violates the
+typed audit contract is skipped and counted; its raw contents and parse cause
+are not reflected, and it cannot become a policy candidate. Read-only policy
 candidate commands aggregate exact Context/project/scheme/host/port/method/path and
 optional GraphQL-coordinate proposals from
 that evidence, treating reason, status, request identity, timestamps, and

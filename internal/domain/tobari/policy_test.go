@@ -39,6 +39,51 @@ func TestDenialReportPreservesEmptyBoundedScope(t *testing.T) {
 	}
 }
 
+func TestDenialReadAndReportsPreserveBoundedUnparsedCount(t *testing.T) {
+	t.Parallel()
+	denial := validPolicyDenial()
+	read := DenialRead{Items: []PolicyDenial{denial}, UnparsedLines: 2}
+	if err := read.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	report := DenialReport{
+		Task: TaskClusterDenials, PolicyDirectory: "/config/tobari/policy",
+		WindowLines: 10, UnparsedLines: read.UnparsedLines, Items: read.Items,
+	}
+	if err := report.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	candidates, err := PolicyCandidates(read.Items, []LearnedPolicyRule{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	candidateReport := PolicyCandidateReport{
+		Task: TaskPolicyReview, PolicyDirectory: report.PolicyDirectory,
+		WindowLines: report.WindowLines, UnparsedLines: read.UnparsedLines,
+		Items: candidates,
+	}
+	if err := candidateReport.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	for name, invalid := range map[string]func() error{
+		"negative read": func() error { return (DenialRead{Items: []PolicyDenial{}, UnparsedLines: -1}).Validate() },
+		"beyond denial window": func() error {
+			value := report
+			value.UnparsedLines = 11
+			return value.Validate()
+		},
+		"beyond candidate window": func() error {
+			value := candidateReport
+			value.UnparsedLines = 11
+			return value.Validate()
+		},
+	} {
+		if err := invalid(); err == nil {
+			t.Fatalf("%s was accepted", name)
+		}
+	}
+}
+
 func TestPolicyDenialRejectsInterpretationSensitiveFields(t *testing.T) {
 	t.Parallel()
 	tests := map[string]func(*PolicyDenial){

@@ -211,7 +211,7 @@ func (s *Service) ClusterDenials(ctx context.Context, tail int) (tobari.DenialRe
 	if err != nil {
 		return tobari.DenialReport{}, err
 	}
-	items, err := s.runtime.ClusterDenials(ctx, state, tail)
+	read, err := s.runtime.ClusterDenials(ctx, state, tail)
 	if err != nil {
 		return tobari.DenialReport{}, fault.Wrap(
 			fault.KindInternal, "denials_failed", "cluster denials could not be read", false, err,
@@ -219,7 +219,7 @@ func (s *Service) ClusterDenials(ctx context.Context, tail int) (tobari.DenialRe
 	}
 	result := tobari.DenialReport{
 		Task: tobari.TaskClusterDenials, PolicyDirectory: state.PolicyDirectory,
-		WindowLines: tail, Items: items,
+		WindowLines: tail, UnparsedLines: read.UnparsedLines, Items: read.Items,
 	}
 	if err := result.Validate(); err != nil {
 		return tobari.DenialReport{}, fault.Wrap(

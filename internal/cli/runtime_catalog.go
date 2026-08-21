@@ -874,6 +874,7 @@ func clusterDenialsSpec() CommandSpec {
 				Fields: []OutputField{
 					{Name: "policy", Type: OutputFieldTypeString, Description: "Canonical trusted-host XDG policy directory."},
 					{Name: "window_lines", Type: OutputFieldTypeInteger, Description: "Maximum recent Gateway lines inspected."},
+					{Name: "unparsed_lines", Type: OutputFieldTypeInteger, Description: "Denial-shaped Gateway lines that could not safely enter the typed projection."},
 					{
 						Name: "items", Type: OutputFieldTypeArray,
 						Description:   "Validated denials ordered oldest to newest with host-issued project principal, scheme-independent request authority (host and port), method, path, protocol, optional exact GraphQL operation/root or MCP method/tool coordinate, reason, status, and exact-rule learnability.",

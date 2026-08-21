@@ -42,6 +42,8 @@ const graphqlDenyAuditLine = `{"schema_version":1,"cluster":"default","context":
 
 const mcpDenyAuditLine = `{"schema_version":1,"cluster":"default","context":"default","context_id":"01912345-6789-7abc-8def-0123456789ad","decision":"deny","duration_ms":3,"host":"chatgpt.com","learnable":true,"method":"POST","path":"/backend-api/ps/mcp","port":443,"project_id":"01912345-6789-7abc-8def-0123456789ab","project_root":"/workspace/project","protocol":"mcp","mcp_method":"tools/call","mcp_tool_name":"codex_apps.search","reason":"request did not match an allow rule","request_id":"7185da2688d7469aae9cd9068e920b0b","scheme":"https","timestamp":"2026-07-30T10:41:11Z","upstream_status":403}`
 
+const unregisteredPrincipalDenyAuditLine = `{"cluster":"default","context":null,"context_id":null,"decision":"deny","duration_ms":0,"host":"api.anthropic.com","learnable":false,"method":"POST","path":"/api/event_logging/v2/batch","port":443,"project_id":null,"project_root":null,"protocol":"http","reason":"project principal is not registered","request_id":"7886e3bf2e4f4e4d86f6e8ef61acc718","schema_version":1,"scheme":"https","timestamp":"2026-08-21T01:02:47Z","upstream_status":403}`
+
 func writePolicyArchiveFixture(t *testing.T, state tobari.State) {
 	t.Helper()
 	if err := os.MkdirAll(state.PolicyDirectory, 0o700); err != nil {
@@ -88,52 +90,73 @@ func TestParseGatewayDenialsFiltersUnrelatedAndAllowedLines(t *testing.T) {
 			`{"decision":"allow","host":"api.github.com"}` + "\n" +
 			denyAuditLine + "\n",
 	)
-	items, err := parseGatewayDenials(data)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(items) != 1 || items[0].Host != "api.github.com" ||
-		items[0].Scheme != "https" ||
-		items[0].Path != "/repos/cli/cli" || items[0].StatusCode != 403 ||
-		!items[0].Learnable {
-		t.Fatalf("denials = %+v", items)
+	result := parseGatewayDenials(data)
+	if len(result.Items) != 1 || result.UnparsedLines != 0 || result.Items[0].Host != "api.github.com" ||
+		result.Items[0].Scheme != "https" ||
+		result.Items[0].Path != "/repos/cli/cli" || result.Items[0].StatusCode != 403 ||
+		!result.Items[0].Learnable {
+		t.Fatalf("denials = %+v", result)
 	}
 }
 
 func TestParseGatewayDenialsPreservesGraphQLRootIdentity(t *testing.T) {
 	t.Parallel()
-	items, err := parseGatewayDenials([]byte(graphqlDenyAuditLine + "\n"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(items) != 1 || items[0].EffectiveProtocol() != tobari.PolicyProtocolGraphQL ||
-		items[0].GraphQLOperationType != tobari.GraphQLOperationMutation ||
-		items[0].GraphQLRootField != "updateIssue" {
-		t.Fatalf("GraphQL denial = %+v", items)
+	result := parseGatewayDenials([]byte(graphqlDenyAuditLine + "\n"))
+	if len(result.Items) != 1 || result.UnparsedLines != 0 || result.Items[0].EffectiveProtocol() != tobari.PolicyProtocolGraphQL ||
+		result.Items[0].GraphQLOperationType != tobari.GraphQLOperationMutation ||
+		result.Items[0].GraphQLRootField != "updateIssue" {
+		t.Fatalf("GraphQL denial = %+v", result)
 	}
 }
 
 func TestParseGatewayDenialsPreservesOnlyMCPSemanticIdentity(t *testing.T) {
 	t.Parallel()
-	items, err := parseGatewayDenials([]byte(mcpDenyAuditLine + "\n"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(items) != 1 || items[0].EffectiveProtocol() != tobari.PolicyProtocolMCP || items[0].MCPMethod != "tools/call" || items[0].MCPToolName != "codex_apps.search" {
-		t.Fatalf("MCP denial = %+v", items)
+	result := parseGatewayDenials([]byte(mcpDenyAuditLine + "\n"))
+	if len(result.Items) != 1 || result.UnparsedLines != 0 || result.Items[0].EffectiveProtocol() != tobari.PolicyProtocolMCP || result.Items[0].MCPMethod != "tools/call" || result.Items[0].MCPToolName != "codex_apps.search" {
+		t.Fatalf("MCP denial = %+v", result)
 	}
 	if strings.Contains(mcpDenyAuditLine, "arguments") {
 		t.Fatal("MCP audit retained arguments")
 	}
 }
 
-func TestParseGatewayDenialsRejectsMalformedDenyAudit(t *testing.T) {
+func TestParseGatewayDenialsIsolatesUnprojectableDenialsAndKeepsValidEvidence(t *testing.T) {
 	t.Parallel()
-	_, err := parseGatewayDenials([]byte(
+	jiraComment := strings.NewReplacer(
+		`"host":"api.github.com"`, `"host":"api.atlassian.com"`,
+		`"method":"GET"`, `"method":"POST"`,
+		`"path":"/repos/cli/cli"`, `"path":"/rest/api/3/issue/EXAMPLE-1/comment"`,
+	).Replace(denyAuditLine)
+	oidcToken := strings.NewReplacer(
+		`"host":"api.github.com"`, `"host":"oidc.ap-northeast-1.amazonaws.com"`,
+		`"method":"GET"`, `"method":"POST"`,
+		`"path":"/repos/cli/cli"`, `"path":"/token"`,
+		`7185da2688d7469aae9cd9068e920b0b`, `8185da2688d7469aae9cd9068e920b0b`,
+	).Replace(denyAuditLine)
+	secondOIDCToken := strings.Replace(
+		oidcToken, `8185da2688d7469aae9cd9068e920b0b`, `9185da2688d7469aae9cd9068e920b0b`, 1,
+	)
+	result := parseGatewayDenials([]byte(
+		jiraComment + "\n" +
+			unregisteredPrincipalDenyAuditLine + "\n" +
+			oidcToken + "\n" +
+			secondOIDCToken + "\n",
+	))
+	if len(result.Items) != 3 || result.UnparsedLines != 1 ||
+		result.Items[0].Host != "api.atlassian.com" ||
+		result.Items[1].Host != "oidc.ap-northeast-1.amazonaws.com" ||
+		result.Items[2].Path != "/token" {
+		t.Fatalf("denial read = %+v", result)
+	}
+}
+
+func TestParseGatewayDenialsCountsMalformedDenyWithoutReflectingIt(t *testing.T) {
+	t.Parallel()
+	result := parseGatewayDenials([]byte(
 		`{"decision":"deny","host":"api.github.com","authorization":"secret"}` + "\n",
 	))
-	if err == nil {
-		t.Fatal("malformed deny audit was ignored")
+	if len(result.Items) != 0 || result.UnparsedLines != 1 {
+		t.Fatalf("denial read = %+v", result)
 	}
 }
 

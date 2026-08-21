@@ -34,6 +34,7 @@ type fakeRuntime struct {
 	attachmentGrants    []tobari.AttachmentGrant
 	activationReceipt   tobari.PolicyActivationReceipt
 	denials             []tobari.PolicyDenial
+	unparsedDenialLines int
 	rules               []tobari.LearnedPolicyRule
 	denyRules           []tobari.PolicyDenyRule
 }
@@ -164,11 +165,11 @@ func TestClusterUpWithProgressMarksStatusFailure(t *testing.T) {
 func (f *fakeRuntime) ClusterLogs(context.Context, tobari.State, tobari.LogRequest) ([]byte, error) {
 	return []byte("cluster\n"), nil
 }
-func (f *fakeRuntime) ClusterDenials(context.Context, tobari.State, int) ([]tobari.PolicyDenial, error) {
+func (f *fakeRuntime) ClusterDenials(context.Context, tobari.State, int) (tobari.DenialRead, error) {
 	if f.denials == nil {
-		return []tobari.PolicyDenial{}, nil
+		return tobari.DenialRead{Items: []tobari.PolicyDenial{}, UnparsedLines: f.unparsedDenialLines}, nil
 	}
-	return append([]tobari.PolicyDenial{}, f.denials...), nil
+	return tobari.DenialRead{Items: append([]tobari.PolicyDenial{}, f.denials...), UnparsedLines: f.unparsedDenialLines}, nil
 }
 func (f *fakeRuntime) ReadLearnedPolicyRules(
 	context.Context, tobari.State,
@@ -887,14 +888,14 @@ func policyLearningIntent(command, kind, id string) operation.Intent {
 
 func TestClusterDenialsReturnsPolicyAndEmptyBoundedScope(t *testing.T) {
 	t.Parallel()
-	runtime := &fakeRuntime{state: testState(t.TempDir())}
+	runtime := &fakeRuntime{state: testState(t.TempDir()), unparsedDenialLines: 2}
 	result, err := New(runtime).ClusterDenials(context.Background(), 75)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if result.Task != tobari.TaskClusterDenials ||
 		result.PolicyDirectory != runtime.state.PolicyDirectory ||
-		result.WindowLines != 75 || result.Items == nil || len(result.Items) != 0 {
+		result.WindowLines != 75 || result.UnparsedLines != 2 || result.Items == nil || len(result.Items) != 0 {
 		t.Fatalf("denial result = %+v", result)
 	}
 }
@@ -915,14 +916,14 @@ func TestPolicyCandidatesProduceExactOpaqueReferenceAndTailTask(t *testing.T) {
 	repeated := denial
 	repeated.Timestamp = "2026-07-30T10:42:11Z"
 	repeated.RequestID = "8185da2688d7469aae9cd9068e920b0b"
-	runtime := &fakeRuntime{state: testState(t.TempDir()), denials: []tobari.PolicyDenial{denial, repeated}}
+	runtime := &fakeRuntime{state: testState(t.TempDir()), denials: []tobari.PolicyDenial{denial, repeated}, unparsedDenialLines: 1}
 	result, err := New(runtime).PolicyCandidates(context.Background(), 75)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if result.Task != tobari.TaskPolicyCandidates || len(result.Items) != 1 ||
 		result.Items[0].Host != denial.Host || result.Items[0].ObservationCount != 2 ||
-		result.Items[0].ObservedAt != repeated.Timestamp {
+		result.Items[0].ObservedAt != repeated.Timestamp || result.UnparsedLines != 1 {
 		t.Fatalf("candidate result = %+v", result)
 	}
 	if err := tobari.ValidatePolicyCandidateID(result.Items[0].ID); err != nil {
@@ -932,7 +933,7 @@ func TestPolicyCandidatesProduceExactOpaqueReferenceAndTailTask(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if review.Task != tobari.TaskPolicyReview || review.Items[0].ID != result.Items[0].ID {
+	if review.Task != tobari.TaskPolicyReview || review.Items[0].ID != result.Items[0].ID || review.UnparsedLines != 1 {
 		t.Fatalf("review = %+v, candidates = %+v", review, result)
 	}
 }
