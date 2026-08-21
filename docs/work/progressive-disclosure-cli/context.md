@@ -2,7 +2,7 @@
 
 ## Current behavior
 
-- `context list --format text` renders source/home/tmpfs access, method policy,
+- `context list --format text` renders source, home, and tmpfs access, method policy,
   Runtime status, image selector, guided/agent profile, and bootstrap for every
   Context, including values that are identical or diagnostic.
 - Ordinary `context show` renders source, network default, policy revision,
