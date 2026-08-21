@@ -277,7 +277,7 @@ The public commands are:
 | `doctor [--root PATH] [--format text|tsv|json]` | utility | read | Report read-only host, Docker, configuration, policy, Gateway, port, and residue diagnostics without repairing state |
 | `migrate apply [--format text|json]` | act, fixed target | write | Validate and migrate only the enumerated unpublished Context-policy/Runtime predecessor, retaining Context IDs, active selection, Workspace homes, learned rules, and credential stores |
 | `cluster up` | act, fixed target | create | Validate all Context policy inputs and image contracts, reconcile Gateway and OPA, and confirm the exact aggregate policy is active |
-| `tobari [--context <name>] [-- <command>...]` | act, fixed target plus TTY workflow | create | On first use, complete the ordinary Context review, compose the exact Context/cluster/runtime actions under their own catalog contracts, then choose or create the current directory's Workspace in the explicit or current Context, reconcile runtime, and either enter Bash or run one exact foreground child argv; child exit returns to the host with its exact status while the Workspace remains reusable and any attachment-owned route and grant close |
+| `tobari [--context <name>] [-- <command>...]` | act, fixed target plus TTY workflow | create | On first use, review one complete recommended Context draft or choose Customize, compose the exact Context/cluster/runtime actions under their own catalog contracts, then choose or create the current directory's Workspace in the explicit or current Context, reconcile runtime, and either enter Bash or run one exact foreground child argv; child exit returns to the host with its exact status while the Workspace remains reusable and any attachment-owned route and grant close |
 | `status [--context NAME] [--format text|json]` | utility | read | Inspect the nearest current-directory Workspace in the explicit or current Context, logical existence, runtime diagnostic, attached/detached session observation, and next action; human text also shows the exact Context Runtime selection |
 | `list [--format text|json]` | utility | read | List local Workspaces with Context, runtime diagnostics, and diagnostic IDs |
 | `delete [--context NAME] [--force]` | act, fixed target | write | Delete the nearest current-directory Workspace in the explicit or current Context, its owned runtime, persistent home, and tool-owned authentication state while preserving project files; `--force` overrides only the attached-session guard |
@@ -323,8 +323,17 @@ stable Context ID is authoritative for the remainder of the operation.
 
 The root command is interactive and requires a TTY on stdin, stdout, and stderr.
 It does not silently create state in a non-interactive context. With no
-persisted Context and no explicit `--context`, it runs the same ordinary
-six-stage Context wizard. Cancellation before final Create changes nothing.
+persisted Context and no explicit `--context`, it first validates the canonical
+project root and shows one recommended draft: direct read-write project effect,
+effective routine/other/private Access, `standard@1`, no host import, and Bash
+or the safely projected direct executable. Start revalidates that the Context
+collection remains empty and `default` absent under the creation lock, then
+invokes canonical Context creation. A concurrent change fails with exact
+read-only `context list` recovery and is never adopted or overwritten.
+Customize opens the same ordinary six-stage Context wizard with recommended
+values prefilled. Cancellation, EOF, rendering, or terminal failure before
+Create changes no Context, host configuration, cluster, Docker, Workspace, or
+network state.
 After confirmed Context creation it emits that durable success, performs the
 exact catalog-owned `cluster up` action without another confirmation, and
 retains the Context if cluster reconciliation fails. When shared services are

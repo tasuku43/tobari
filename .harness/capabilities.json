@@ -37,7 +37,7 @@
   {
     "id": "tobari.lifecycle",
     "status": "public",
-    "reason": ""
+    "reason": "Includes reviewed root-only recommended first use and exact Bash or child entry."
   },
   {
     "id": "system.diagnostics",

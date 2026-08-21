@@ -910,8 +910,12 @@ Image preflight fails before the policy test, cluster journal, shared network,
 or service-container mutation. Local Tobari-managed image development uses
 `task build` and the source-hash development resolver instead of a public
 cluster option.
-On first use, root Context observation and the ordinary Context wizard occur
-before cluster or Workspace mutation. Confirmed creation is durable; root then
+On first use, root validates the canonical project root and observes a known
+empty Context collection before rendering one typed recommended draft. Start
+revalidates empty/default-absent under the Context lifecycle lock and invokes
+the same Context-create application invoker; Customize seeds the ordinary
+complete Context wizard. Neither branch duplicates Context persistence or
+imports host configuration implicitly. Confirmed creation is durable; root then
 invokes the same typed cluster reconciliation used by explicit `cluster up`.
 Cluster failure leaves the Context available for another root invocation. Once
 ready, root proceeds directly with the exact ready Runtime revision reviewed by

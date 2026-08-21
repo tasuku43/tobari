@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -705,7 +706,7 @@ func runProjectEnter(ctx context.Context, c *CLI, command CommandSpec, _ operati
 		}
 	}
 	contextName := inputs.One("--context")
-	if code, continueEntry := prepareGuidedProjectEntry(ctx, c, contextName); !continueEntry {
+	if code, continueEntry := prepareGuidedProjectEntry(ctx, c, contextName, session); !continueEntry {
 		return code
 	}
 	intent := operation.Intent{
@@ -747,7 +748,7 @@ func runProjectEnter(ctx context.Context, c *CLI, command CommandSpec, _ operati
 // the interactive first-use state. Each mutation keeps its own command path,
 // fixed target, impact, application invoker, and completion output boundary.
 func prepareGuidedProjectEntry(
-	ctx context.Context, c *CLI, contextName string,
+	ctx context.Context, c *CLI, contextName string, sessions ...tobari.WorkspaceSessionRequest,
 ) (int, bool) {
 	if c == nil || c.tobari == nil || c.context == nil ||
 		!c.tobari.IsInteractive(c.In, c.Err) || !c.tobari.IsTerminal(c.Out) {
@@ -787,7 +788,39 @@ func prepareGuidedProjectEntry(
 		return ExitOK, true
 	}
 
-	_, code := createContextForGuidedEntry(ctx, c)
+	session := tobari.NewWorkspaceShellSession()
+	if len(sessions) > 0 {
+		session = sessions[0]
+	}
+	root, rootErr := c.tobari.CurrentProjectRoot(ctx)
+	if rootErr != nil {
+		return c.fail(ctx, rootErr), false
+	}
+	draft, draftErr := tobari.NewRecommendedFirstUseDraft(root, session)
+	if draftErr != nil {
+		return c.fail(ctx, fault.Wrap(
+			fault.KindContract, "invalid_first_use_draft", "The recommended first-use draft is invalid.", false, draftErr,
+			fault.NextAction{Command: "help tobari", Reason: "Inspect the root first-use contract."},
+		)), false
+	}
+	reviewer := c.firstUse
+	if reviewer == nil {
+		reviewer = newRecommendedFirstUseReviewerWithStyle(!c.noColor)
+	}
+	action, reviewErr := reviewer.Review(ctx, draft, c.In, c.Err)
+	if reviewErr != nil {
+		if errors.Is(reviewErr, context.Canceled) || errors.Is(reviewErr, context.DeadlineExceeded) {
+			return c.fail(ctx, reviewErr), false
+		}
+		return c.fail(ctx, fault.Wrap(
+			fault.KindInternal, "first_use_review_failed", "The recommended first-use review failed before creating a Context.", false, reviewErr,
+			fault.NextAction{Command: "tobari", Reason: "Retry in an interactive terminal."},
+		)), false
+	}
+	if action == recommendedFirstUseCancel {
+		return c.fail(ctx, context.Canceled), false
+	}
+	_, code := createContextForGuidedEntry(ctx, c, draft, action == recommendedFirstUseStart)
 	if code != ExitOK {
 		return code, false
 	}
@@ -811,7 +844,9 @@ func ensureClusterForGuidedEntry(ctx context.Context, c *CLI) int {
 	return clusterUpForGuidedEntry(ctx, c)
 }
 
-func createContextForGuidedEntry(ctx context.Context, c *CLI) (tobari.ContextReport, int) {
+func createContextForGuidedEntry(
+	ctx context.Context, c *CLI, draft tobari.RecommendedFirstUseDraft, requireEmpty bool,
+) (tobari.ContextReport, int) {
 	command, found := c.catalog.lookupRegistered("context create")
 	if !found || command.Agent.Mutation == nil {
 		return tobari.ContextReport{}, c.fail(ctx, fault.New(
@@ -819,16 +854,59 @@ func createContextForGuidedEntry(ctx context.Context, c *CLI) (tobari.ContextRep
 			fault.NextAction{Command: "help context create", Reason: "Repair the Context creation command contract."},
 		))
 	}
-	inputs, err := parseCommandInputs(command, nil)
-	if err != nil {
-		return tobari.ContextReport{}, c.fail(ctx, fault.Wrap(
-			fault.KindContract, "invalid_catalog", "The guided Context defaults are invalid.", false, err,
-			fault.NextAction{Command: "help context create", Reason: "Repair the Context creation input defaults."},
-		))
-	}
 	actionCtx := withCommandPath(ctx, command.Path)
-	intent := operation.Intent{Command: command.Path, Effect: command.Effect}
-	report, err := createContext(actionCtx, c, command, intent, inputs, successFormatText)
+	intent := operation.Intent{
+		Command: command.Path, Effect: command.Effect,
+		Target: operation.TargetRef{Kind: tobari.ContextCatalogTargetKind, ParentID: tobari.ContextCatalogTargetID},
+		Impact: command.Agent.Mutation.Impact,
+	}
+	var report tobari.ContextReport
+	var err error
+	if requireEmpty {
+		report, err = c.context.CreateFirstWithComposition(
+			actionCtx, intent, draft.ContextName, tobari.BuiltinImageSelector, draft.PolicyMode,
+			draft.Access.SourceAccess, draft.Composition(),
+		)
+	} else {
+		wizard := c.contextCreate
+		if wizard == nil {
+			wizard = newContextCreateWizardWithStyle(!c.noColor)
+		}
+		seeded, ok := wizard.(seededContextCreateWizard)
+		if !ok {
+			err = fault.New(fault.KindInternal, "context_create_wizard_failed", "The Context creation wizard cannot preserve recommended settings.", false)
+		} else {
+			if terminalWizard, terminalOK := wizard.(*terminalContextCreateWizard); terminalOK {
+				if terminalWizard.bootstrap == nil {
+					terminalWizard.bootstrap = c.context
+				}
+				if c.runtime != nil {
+					if catalog, listErr := c.runtime.List(actionCtx); listErr == nil {
+						terminalWizard.runtimes = catalog.Items
+					}
+				}
+			}
+			var selection contextCreateSelection
+			selection, err = seeded.ComposeSeeded(actionCtx, c.In, c.Err, recommendedFirstUseSeed(draft))
+			if err != nil {
+				err = normalizeContextCreateWizardError(err)
+			} else {
+				policy := selection.MethodPolicy.Clone()
+				composition := tobari.ContextCreateComposition{
+					NativeReadiness: selection.NativeReadiness, MethodPolicy: &policy,
+					RuntimeSelection: selection.RuntimeSelection,
+				}
+				if selection.Bootstrap != nil {
+					bootstrap := selection.Bootstrap.Clone()
+					composition.Bootstrap = &bootstrap
+				}
+				report, err = c.context.CreateWithComposition(
+					actionCtx, intent, selection.Name, tobari.BuiltinImageSelector, draft.PolicyMode,
+					selection.SourceAccess, composition,
+				)
+			}
+		}
+	}
 	if err != nil {
 		return tobari.ContextReport{}, c.fail(actionCtx, err)
 	}

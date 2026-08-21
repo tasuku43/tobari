@@ -378,6 +378,7 @@ func contextCreateSpec() CommandSpec {
 			Prerequisites: []string{"The host Context directory is accessible."},
 			FixedTarget:   fixedContextCatalogTarget(),
 			Errors: mutationCommandErrors("context create", "context list",
+				declaredCommandError(fault.KindRejected, "context_collection_changed", true, "context list", "Inspect the current Context collection before retrying Tobari."),
 				declaredCommandError(fault.KindInvalidInput, "context_create_wizard_unavailable", false, "help context create", "Complete omitted settings on interactive text streams or supply --name, --runtime, --mode, --source-access, and --native-readiness."),
 				declaredCommandError(fault.KindInternal, "context_create_wizard_failed", false, "context create", "Retry the wizard or use the complete direct input group."),
 				declaredCommandError(fault.KindRejected, "aws_bootstrap_source_rejected", false, "help config bootstrap aws", "Choose a strict IAM Identity Center profile without credentials, helpers, or unsupported directives."),
@@ -593,12 +594,12 @@ func runtimeBuildSpec() CommandSpec {
 
 func projectEnterSpec() CommandSpec {
 	return CommandSpec{
-		Path: "tobari", Summary: "Set up, choose, or create the current directory's Workspace and enter a reusable shell or exact command",
+		Path: "tobari", Summary: "Prepare the current directory's Workspace and enter Bash or an exact command",
 		Args:   "[--context <name>] [-- <command>...]",
 		Effect: operation.EffectCreate, Role: RoleAct,
 		Agent: AgentContract{
 			CapabilityID: "tobari.lifecycle",
-			Outcome:      "On interactive first use, review a Context and prepare shared services; then choose or create the current directory's Workspace, reconcile its selected runtime, and enter Bash or run one exact foreground command before returning to the host",
+			Outcome:      "On first use, review recommended Context settings or Customize; then prepare shared services, choose or create the current directory's Workspace, reconcile Runtime, and enter Bash or one exact foreground command before returning to the host",
 			Inputs: []CommandInput{lifecycleContextInput(), {
 				Name: "command", Source: InputSourceArgument, Required: false,
 				ValueKind: InputValueText, Cardinality: InputCardinalityRepeatable,
@@ -1519,6 +1520,8 @@ func projectEnterErrors() []CommandError {
 		}
 	}
 	result := append(filtered,
+		declaredCommandError(fault.KindInternal, "first_use_review_failed", false, "tobari", "Retry in an interactive terminal."),
+		declaredCommandError(fault.KindContract, "invalid_first_use_draft", false, "help tobari", "Inspect the root first-use contract."),
 		declaredCommandError(fault.KindNotFound, "context_not_found", false, "context list", "Choose an existing Context."),
 		declaredCommandError(fault.KindContract, "invalid_context_binding", false, "context list", "Inspect the Context catalog before selecting a Workspace."),
 		declaredCommandError(fault.KindContract, "context_binding_stale", false, "doctor", "Inspect Context and Workspace state."),

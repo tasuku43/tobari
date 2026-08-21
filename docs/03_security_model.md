@@ -816,10 +816,15 @@ explicit create-here choice. During interactive entry, the CLI may precede
 that CWD mutation with the separately cataloged cluster create when observation
 is not ready; first use may also compose Context-catalog create and optional
 Context-runtime create actions. Each action enters
-its own application invoker with its own validated intent, target, impact, and
-mutation-complete output; root cannot combine or weaken them. Non-interactive
-root invocation and Context-wizard cancellation perform none of those setup
-mutations. A later-stage failure preserves an already confirmed earlier
+  its own application invoker with its own validated intent, target, impact, and
+  mutation-complete output; root cannot combine or weaken them. The root-only
+  recommended review contains the exact source, effective Access, Runtime,
+  host-import, and session consequences. Start revalidates known-empty Context
+  state under the existing owner lifecycle lock before the canonical create;
+  a concurrent change fails rather than becoming authority. Non-interactive
+  root invocation and review/wizard cancellation, EOF, or render/terminal
+  failure perform no Context, host-read, cluster, Docker, Workspace, network,
+  or attachment mutation. A later-stage failure preserves an already confirmed earlier
 mutation and reports reconciliation rather than claiming the whole sequence is
 safe to replay.
 Project runtime reconciliation does not remove authority merely to prove that

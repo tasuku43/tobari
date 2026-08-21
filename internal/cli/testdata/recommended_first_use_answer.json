@@ -1,0 +1,11 @@
+{
+  "context_name": "default",
+  "source_access": "read-write",
+  "routine_traffic": "ready",
+  "other_requests": "exact_review",
+  "private_targets": "deny",
+  "runtime_selection": "standard@1",
+  "host_import": "not_imported",
+  "session_kind": "direct",
+  "executable": "claude\nagent"
+}

@@ -134,7 +134,7 @@ func (w *terminalContextCreateWizard) composeLine(
 ) (contextCreateSelection, error) {
 	draft := contextCreateDraftFromSeed(seed)
 	if !seed.NameProvided {
-		name, err := readContextCreateName(ctx, in, out)
+		name, err := readContextCreateNameWithDefault(ctx, in, out, draft.name)
 		if err != nil {
 			return contextCreateSelection{}, err
 		}
@@ -1433,12 +1433,23 @@ func contextCreateStepLabel(step contextCreateRawStep) string {
 }
 
 func readContextCreateName(ctx context.Context, in io.Reader, out io.Writer) (string, error) {
+	return readContextCreateNameWithDefault(ctx, in, out, "")
+}
+
+func readContextCreateNameWithDefault(ctx context.Context, in io.Reader, out io.Writer, initial string) (string, error) {
 	for {
-		name, err := readConfigurationWizardValue(ctx, in, out, "Context name", maxContextCreateNameBytes)
+		label := "Context name"
+		if initial != "" {
+			label += " [" + safeExternalText(initial) + "]"
+		}
+		name, err := readConfigurationWizardValue(ctx, in, out, label, maxContextCreateNameBytes)
 		if err != nil {
 			return "", err
 		}
 		name = strings.TrimSpace(name)
+		if name == "" && initial != "" {
+			name = initial
+		}
 		if err := tobari.ValidateName(name); err == nil {
 			return name, nil
 		}

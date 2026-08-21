@@ -16,6 +16,7 @@ import (
 
 type contextRuntimeFake struct {
 	listResult           tobari.ContextListResult
+	listResults          []tobari.ContextListResult
 	showResult           tobari.ContextReport
 	createResult         tobari.ContextReport
 	deleteResult         tobari.ContextDeleteResult
@@ -38,6 +39,7 @@ type contextRuntimeFake struct {
 	configureGitErr      error
 	discoverAWSErr       error
 	createCalls          int
+	listCalls            int
 	deleteCalls          int
 	useCalls             int
 	initCalls            int
@@ -66,6 +68,10 @@ func (f *contextRuntimeFake) DiscoverContextAWSBootstraps(context.Context) (toba
 }
 
 func (f *contextRuntimeFake) ListContexts(context.Context) (tobari.ContextListResult, error) {
+	f.listCalls++
+	if len(f.listResults) >= f.listCalls {
+		return f.listResults[f.listCalls-1], f.listErr
+	}
 	return f.listResult, f.listErr
 }
 
@@ -171,11 +177,14 @@ func contextReport(task, name string) tobari.ContextReport {
 		PolicyMode:       tobari.ContextPolicyModeGuided,
 		SourceAccess:     tobari.ContextSourceAccessReadWrite,
 		PolicyRevision:   tobari.DefaultContextPolicyRevision(),
+		NativeReadiness:  tobari.ContextNativeReadinessEnabled,
 		MethodPolicy:     tobari.ContextMethodPolicy{Default: tobari.ContextMethodExactReview, Overrides: []tobari.ContextMethodOverride{}},
 		ShellEnvironment: tobari.DefaultContextShellEnvironmentReport(),
 		GitIdentity:      tobari.DefaultContextGitIdentityReport(),
 		Runtime: tobari.ContextRuntimeReport{
 			Kind: tobari.ContextRuntimeKindOfficial, Status: tobari.ContextRuntimeStatusOfficial,
+			Image: tobari.OfficialRuntimeBase, RuntimeID: tobari.StandardRuntimeID, Name: tobari.StandardRuntimeName,
+			Revision: "sha256:" + strings.Repeat("0", 64), Ordinal: 1,
 		},
 		Cluster:        tobari.ContextClusterStatusNotApplicable,
 		Authentication: authentication,
@@ -615,7 +624,9 @@ func contextImpact() operation.Impact {
 }
 
 func TestCreateValidatesIntentAndPassesRuntimeImageToPort(t *testing.T) {
-	fake := &contextRuntimeFake{createResult: contextReport(tobari.TaskContextCreate, "project-tools")}
+	created := contextReport(tobari.TaskContextCreate, "project-tools")
+	created.PolicyMode = tobari.ContextPolicyModeAdvanced
+	fake := &contextRuntimeFake{createResult: created}
 	service := New(fake)
 	intent := operation.Intent{
 		Command: "context create", Effect: operation.EffectCreate,
@@ -727,6 +738,59 @@ func TestCreateWithCompositionPreservesTypedMethodSelection(t *testing.T) {
 	if result.Name != "coding" || fake.createCalls != 1 || fake.lastComposition.MethodPolicy == nil ||
 		fake.lastComposition.MethodPolicy.Overrides[0].Decision != tobari.ContextMethodAllow {
 		t.Fatalf("composed create result/call = %+v/%+v", result, fake.lastComposition)
+	}
+}
+
+func TestCreateFirstWithCompositionRevalidatesKnownEmptyInsideLifecycle(t *testing.T) {
+	empty := tobari.ContextListResult{
+		Task: tobari.TaskContextList, ContextState: tobari.ContextObservationSyntheticDefault,
+		Active: tobari.DefaultContextName, Items: []tobari.ContextSummary{},
+	}
+	report := contextReport(tobari.TaskContextCreate, tobari.DefaultContextName)
+	fake := &contextRuntimeFake{listResult: empty, createResult: report}
+	intent := operation.Intent{
+		Command: "context create", Effect: operation.EffectCreate,
+		Target: operation.TargetRef{Kind: tobari.ContextCatalogTargetKind, ParentID: tobari.ContextCatalogTargetID},
+		Impact: contextImpact(),
+	}
+	_, err := New(fake).CreateFirstWithComposition(
+		context.Background(), intent, tobari.DefaultContextName, tobari.OfficialRuntimeBase,
+		tobari.ContextPolicyModeGuided, tobari.ContextSourceAccessReadWrite,
+		tobari.ContextCreateComposition{NativeReadiness: tobari.ContextNativeReadinessEnabled, RuntimeSelection: "standard@1"},
+	)
+	if err != nil || fake.listCalls != 1 || fake.createCalls != 1 {
+		t.Fatalf("first create error/calls = %v, list=%d create=%d", err, fake.listCalls, fake.createCalls)
+	}
+}
+
+func TestCreateFirstWithCompositionRejectsConcurrentCollectionChange(t *testing.T) {
+	persisted := tobari.ContextListResult{
+		Task: tobari.TaskContextList, ContextState: tobari.ContextObservationPersisted, Active: "other",
+		Items: []tobari.ContextSummary{{
+			ID: "018bcfe5-687b-7000-8000-000000000099", Name: "other", ContextState: tobari.ContextObservationPersisted,
+			Active: true, AgentProfile: tobari.DefaultProfile, Image: tobari.OfficialRuntimeBase,
+			PolicyMode: tobari.ContextPolicyModeGuided, SourceAccess: tobari.ContextSourceAccessReadWrite,
+			PolicyRevision: tobari.DefaultContextPolicyRevision(), NativeReadiness: tobari.ContextNativeReadinessEnabled,
+			MethodPolicy:  tobari.ContextMethodPolicy{Default: tobari.ContextMethodExactReview, Overrides: []tobari.ContextMethodOverride{}},
+			RuntimeStatus: tobari.ContextRuntimeStatusOfficial, RuntimeSelection: "standard@1",
+			Bootstrap: tobari.ContextBootstrapReport{State: tobari.ContextBootstrapNotConfigured, Adapters: []string{}},
+		}},
+	}
+	fake := &contextRuntimeFake{listResult: persisted}
+	intent := operation.Intent{
+		Command: "context create", Effect: operation.EffectCreate,
+		Target: operation.TargetRef{Kind: tobari.ContextCatalogTargetKind, ParentID: tobari.ContextCatalogTargetID},
+		Impact: contextImpact(),
+	}
+	_, err := New(fake).CreateFirstWithComposition(
+		context.Background(), intent, tobari.DefaultContextName, tobari.OfficialRuntimeBase,
+		tobari.ContextPolicyModeGuided, tobari.ContextSourceAccessReadWrite,
+		tobari.ContextCreateComposition{NativeReadiness: tobari.ContextNativeReadinessEnabled, RuntimeSelection: "standard@1"},
+	)
+	public, ok := fault.PublicCopy(err)
+	if !ok || public.Kind != fault.KindRejected || public.Code != "context_collection_changed" || !public.Retryable ||
+		len(public.NextActions) != 1 || public.NextActions[0].Command != "context list" || fake.createCalls != 0 {
+		t.Fatalf("concurrent collection fault/calls = %#v, ok=%t create=%d", public, ok, fake.createCalls)
 	}
 }
 

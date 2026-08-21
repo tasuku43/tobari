@@ -97,12 +97,14 @@ tobari -- claude
 tobari -- codex exec "Fix the failing tests"
 ```
 
-On first use, `tobari` opens the ordinary six-stage Context wizard. After
-Network, its Runtime step always presents the built-in `standard@1` revision
-and every ready managed revision. The following Workspace-bootstrap step can
-continue unconfigured without reading host files or explicitly review
-compatible AWS IAM Identity Center and Amazon EKS settings. Final Context confirmation
-prepares the shared Gateway and OPA and enters with the selected Runtime.
+On first use, `tobari` shows one recommended review for the canonical project:
+direct read-write project access, routine Claude Code and Codex traffic,
+exact review for other requests, private-destination denial, `standard@1`, no
+host import, and Bash or the exact requested executable. **Start Workspace**
+creates that reviewed `default` Context, prepares Gateway and OPA, and enters.
+**Customize** opens the complete six-stage Context wizard with those values
+prefilled; host AWS or EKS files are still read only after an explicit
+Configure from host choice.
 Customization remains a prepare-first flow: create and build a managed Runtime,
 then select its ready revision during Context creation or through
 `context runtime set`.

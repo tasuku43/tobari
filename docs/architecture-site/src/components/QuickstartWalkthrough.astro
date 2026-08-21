@@ -82,7 +82,7 @@ tobari cluster up`,
           title: "Workspace から未許可のリクエストを送る",
           location: "ホスト → Workspace → ホスト",
           action:
-            "ホストで `tobari` を実行して Workspace に入り、練習用の PUT リクエストを送ります。拒否を確認したら、`exit` でホストへ戻ります。",
+            "ホストで `tobari` を実行し、推奨されるプロジェクト・Access・Tools・セッションを確認して Start Workspace を選びます。Workspace 内で練習用の PUT リクエストを送り、拒否を確認したら `exit` でホストへ戻ります。",
           command: `tobari
 
 # Workspace 内
@@ -90,7 +90,7 @@ curl -sS -w '\\nhttp=%{http_code}\\n' \\
   -X PUT https://example.com/quickstart
 exit`,
           expected:
-            "HTTP 403 と `policy_denied` が表示され、ホスト側のレビューコマンドが案内されます。Gateway は接続先へ接続せず、リクエストを自動で許可・再送しません。`exit` 後も Workspace とその状態は残ります。",
+            "初回はホスト設定を取り込まず、確認した default Context を作成します。その後 HTTP 403 と `policy_denied` が表示され、ホスト側のレビューコマンドが案内されます。Gateway は接続先へ接続せず、リクエストを自動で許可・再送しません。`exit` 後も Workspace とその状態は残ります。",
           blocked:
             "`tobari` で Workspace に入るには、対話型ターミナルが必要です。イメージに関するエラーが出た場合は `tobari context show` を確認し、対応するランタイムを準備します。",
         },
@@ -242,7 +242,7 @@ tobari cluster up`,
           title: "Enter the Workspace and send one request that will be denied",
           location: "Host → inside Workspace → host",
           action:
-            "Run `tobari` on the host, issue the synthetic PUT request inside the Workspace, then use `exit` to return to the host after observing the denial.",
+            "Run `tobari` on the host, review the recommended project/Access/Tools/session screen and choose Start Workspace, issue the synthetic PUT request inside the Workspace, then use `exit` to return to the host after observing the denial.",
           command: `tobari
 
 # Inside the Workspace
@@ -250,7 +250,7 @@ curl -sS -w '\\nhttp=%{http_code}\\n' \\
   -X PUT https://example.com/quickstart
 exit`,
           expected:
-            "You receive HTTP 403 with `policy_denied` and a host-side review command. Tobari does not connect upstream, approve the request, or retry it. The Workspace and its state remain after `exit`.",
+            "First use creates the reviewed default Context without importing host configuration. You then receive HTTP 403 with `policy_denied` and a host-side review command. Tobari does not connect upstream, approve the request, or retry it. The Workspace and its state remain after `exit`.",
           blocked:
             "The root `tobari` entry requires an interactive terminal. For image errors, inspect `tobari context show` and prepare a compatible runtime before entering again.",
         },

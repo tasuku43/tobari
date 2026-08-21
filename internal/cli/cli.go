@@ -42,6 +42,7 @@ type CLI struct {
 	experimentalCLIState
 	config        contextConfigurationWizard
 	contextCreate contextCreateWizard
+	firstUse      recommendedFirstUseReviewer
 	runtimeChoice runtimeChoiceWizard
 	authLogin     authLoginProviderSelector
 	policyReview  func(bool) *policyReviewSelector
@@ -55,6 +56,7 @@ func New(in io.Reader, out, errOut io.Writer) *CLI {
 	command.noColor = noColorFromEnvironment()
 	command.config = newContextConfigurationWizardWithStyle(!command.noColor)
 	command.contextCreate = newContextCreateWizardWithStyle(!command.noColor)
+	command.firstUse = newRecommendedFirstUseReviewerWithStyle(!command.noColor)
 	command.runtimeChoice = newRuntimeChoiceWizardWithStyle(!command.noColor)
 	command.authLogin = newAuthLoginProviderSelectorWithStyle(!command.noColor)
 	command.policyReview = newPolicyReviewSelectorWithStyle

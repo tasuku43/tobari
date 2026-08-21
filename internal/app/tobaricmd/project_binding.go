@@ -54,6 +54,36 @@ type activeContextRuntimePort interface {
 	ActiveContextName(context.Context) (string, error)
 }
 
+type projectRootRuntimePort interface {
+	ResolveProjectRoot(context.Context, string) (string, error)
+}
+
+// CurrentProjectRoot resolves the exact protected project root before a
+// first-use review. It is read-only and deliberately performs no Workspace or
+// Docker preparation.
+func (s *Service) CurrentProjectRoot(ctx context.Context) (string, error) {
+	if err := s.requireRuntime(); err != nil {
+		return "", err
+	}
+	cwd, err := s.runtime.CurrentDirectory(ctx)
+	if err != nil {
+		return "", fault.Wrap(fault.KindInvalidInput, "invalid_root", "the current project root is unavailable", false, err)
+	}
+	resolver, ok := s.runtime.(projectRootRuntimePort)
+	if !ok || portcheck.IsNil(resolver) {
+		return "", fault.New(fault.KindInternal, "missing_runtime", "project-root validation is unavailable", false)
+	}
+	root, err := resolver.ResolveProjectRoot(ctx, cwd)
+	if err != nil {
+		return "", fault.Wrap(fault.KindInvalidInput, "invalid_root", "the current project root is not eligible for a Workspace", false, err,
+			fault.NextAction{Command: "help tobari", Reason: "Run Tobari from an accessible project directory outside protected host paths."})
+	}
+	if err := tobari.ValidateCanonicalRoot(root); err != nil {
+		return "", fault.Wrap(fault.KindContract, "invalid_root", "the resolved project root is invalid", false, err)
+	}
+	return root, nil
+}
+
 func (s *Service) projectRuntime() (ProjectRuntimePort, error) {
 	if err := s.requireRuntime(); err != nil {
 		return nil, err

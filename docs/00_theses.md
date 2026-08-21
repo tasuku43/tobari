@@ -156,10 +156,13 @@ using `tobari` leaves host execution unchanged, while `delete` and
   agent workflow.
 - The human first-use route starts with the CWD-first `tobari` entry. On an
   interactive terminal with no persisted Context, that one route owns the
-  ordinary Context review, composes the separately cataloged `cluster up`
-  action after confirmed creation, and enters the first Workspace with the
-  exact ready Runtime and optional future-Workspace bootstrap selected before
-  final Context review. Runtime preparation is an independent host workflow
+  one-screen recommended review of canonical project root, direct source
+  effect, effective Access, exact standard Runtime, absent host import, and
+  selected session. Start revalidates the empty Context collection, composes
+  the separately cataloged Context-create and `cluster up` actions after
+  confirmed review, and enters the first Workspace. Customize opens the
+  complete Context creation frame with those recommendations prefilled.
+  Runtime preparation is an independent host workflow
   performed before selection, never a post-create fork.
   Read-only `doctor`, status/list inspection, and
   opaque-ID policy actions remain recovery or machine paths rather than steps

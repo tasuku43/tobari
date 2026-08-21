@@ -310,13 +310,15 @@ action, and retry. Human presentation may simplify this journey only while the
 catalog, opaque-reference, effect, mutation, and fail-closed contracts remain
 unchanged.
 The first-use fixture starts from a synthetic-default Context observation and
-proves one interactive root invocation reuses the ordinary Context wizard,
-creates exactly once after review, reconciles the cluster under the exact
-`cluster up` contract, and chooses standard entry or runtime-recipe creation
-before any Workspace exists. Negative fixtures prove non-TTY zero setup,
-zero-mutation cancellation, durable Context retention after cluster failure,
-pending-build entry refusal, and post-build re-entry without a second runtime
-choice.
+proves one interactive root invocation renders a typed recommended draft from
+one presentation-independent fixture, revalidates the empty collection, creates
+exactly once through canonical Context creation, and only then reconciles the
+cluster under the exact `cluster up` contract. Raw and line goldens share that
+fixture; Customize seeds the complete wizard. Negative fixtures prove invalid
+root/direct-child rejection, non-TTY zero setup, cancellation/EOF/render failure
+zero later calls, concurrent collection-change rejection, durable Context
+retention after cluster failure, pending-build entry refusal, and post-build
+re-entry without a second runtime choice.
 
 Auth Broker readiness is split deliberately. The required agent-readiness
 scenario delegates its reproducible synthetic authentication proof to `task

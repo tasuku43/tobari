@@ -19,10 +19,17 @@ type guidedEntryRuntime struct {
 	clusterUpErr   error
 	clusterUpCalls int
 	configured     bool
+	rootErr        error
+	rootReads      int
 }
 
 func (f *guidedEntryRuntime) WithLifecycleLock(ctx context.Context, action func(context.Context) error) error {
 	return action(ctx)
+}
+
+func (f *guidedEntryRuntime) ResolveProjectRoot(_ context.Context, root string) (string, error) {
+	f.rootReads++
+	return root, f.rootErr
 }
 
 func (f *guidedEntryRuntime) ClusterUp(context.Context) (tobari.State, error) {
@@ -64,6 +71,27 @@ func (w *guidedContextWizard) Compose(context.Context, io.Reader, io.Writer) (co
 	return w.selection, w.err
 }
 
+func (w *guidedContextWizard) ComposeSeeded(_ context.Context, _ io.Reader, _ io.Writer, seed contextCreateWizardSeed) (contextCreateSelection, error) {
+	w.calls++
+	if w.selection.Name == "" {
+		return seed.Selection, w.err
+	}
+	return w.selection, w.err
+}
+
+type guidedFirstUseReviewer struct {
+	action recommendedFirstUseAction
+	err    error
+	calls  int
+	draft  tobari.RecommendedFirstUseDraft
+}
+
+func (r *guidedFirstUseReviewer) Review(_ context.Context, draft tobari.RecommendedFirstUseDraft, _ io.Reader, _ io.Writer) (recommendedFirstUseAction, error) {
+	r.calls++
+	r.draft = draft
+	return r.action, r.err
+}
+
 type guidedRuntimeChoice struct {
 	choice  runtimeChoice
 	err     error
@@ -89,6 +117,7 @@ func (w *guidedRuntimeChoice) Choose(
 func guidedContextSelection() contextCreateSelection {
 	return contextCreateSelection{
 		Name: "coding", SourceAccess: tobari.ContextSourceAccessReadWrite,
+		RuntimeSelection: "standard@1", NativeReadiness: tobari.ContextNativeReadinessEnabled,
 		MethodPolicy: tobari.ContextMethodPolicy{
 			Default:   tobari.ContextMethodExactReview,
 			Overrides: []tobari.ContextMethodOverride{},
@@ -130,6 +159,7 @@ func newGuidedEntryCLI(
 	command.context = contextcmd.New(contextRuntime)
 	command.tobari = tobaricmd.New(shared)
 	command.runtimeChoice = choice
+	command.firstUse = &guidedFirstUseReviewer{action: recommendedFirstUseCustomize}
 	return command, stdout, stderr
 }
 
@@ -157,6 +187,86 @@ func TestGuidedEntryCreatesContextStartsClusterAndContinuesWithoutRuntimeFork(t 
 		if !strings.Contains(stderr.String(), expected) {
 			t.Errorf("guided transcript lacks %q: %q", expected, stderr.String())
 		}
+	}
+}
+
+func TestRecommendedFirstUseStartCreatesExactDraftWithoutWizard(t *testing.T) {
+	contextRuntime := &contextCLI{list: syntheticContextList()}
+	shared := &guidedEntryRuntime{policyReviewRuntimeFake: policyReviewRuntimeFake{
+		terminal: true, state: tobari.State{SchemaVersion: 1, RuntimeDirectory: "/tmp/tobari/runtime", PolicyDirectory: "/tmp/tobari/policy", GatewayConfig: "/tmp/tobari/gateway.json", AggregateRevision: strings.Repeat("a", 64), ContextCount: 1, AssetVersion: "test"},
+	}, configured: true}
+	command, _, stderr := newGuidedEntryCLI(contextRuntime, shared, &guidedRuntimeChoice{})
+	reviewer := &guidedFirstUseReviewer{action: recommendedFirstUseStart}
+	wizard := &guidedContextWizard{}
+	command.firstUse, command.contextCreate = reviewer, wizard
+	session, err := tobari.NewWorkspaceDirectSession([]string{"claude", "--flag", ""})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	code, continueEntry := prepareGuidedProjectEntry(context.Background(), command, "", session)
+	if code != ExitOK || !continueEntry || reviewer.calls != 1 || wizard.calls != 0 ||
+		contextRuntime.listCalls != 2 || contextRuntime.createCalls != 1 || shared.clusterUpCalls != 1 {
+		t.Fatalf("start result/calls = (%d,%t), review=%d wizard=%d list=%d create=%d cluster=%d stderr=%q", code, continueEntry, reviewer.calls, wizard.calls, contextRuntime.listCalls, contextRuntime.createCalls, shared.clusterUpCalls, stderr.String())
+	}
+	if reviewer.draft.ContextName != tobari.DefaultContextName || reviewer.draft.ProjectRoot != "/tmp/project" ||
+		reviewer.draft.Session.Executable != "claude" || contextRuntime.report.Name != tobari.DefaultContextName {
+		t.Fatalf("reviewed/created draft = %+v / %+v", reviewer.draft, contextRuntime.report)
+	}
+}
+
+func TestRecommendedFirstUseCancelHasNoLaterSideEffects(t *testing.T) {
+	contextRuntime := &contextCLI{list: syntheticContextList()}
+	shared := &guidedEntryRuntime{policyReviewRuntimeFake: policyReviewRuntimeFake{terminal: true}}
+	command, _, stderr := newGuidedEntryCLI(contextRuntime, shared, &guidedRuntimeChoice{})
+	command.firstUse = &guidedFirstUseReviewer{action: recommendedFirstUseCancel}
+
+	code, continueEntry := prepareGuidedProjectEntry(context.Background(), command, "")
+	if code != ExitCanceled || continueEntry || contextRuntime.createCalls != 0 || contextRuntime.prepareBootstrapCalls != 0 || shared.clusterUpCalls != 0 {
+		t.Fatalf("cancel result/calls = (%d,%t), create=%d cluster=%d stderr=%q", code, continueEntry, contextRuntime.createCalls, shared.clusterUpCalls, stderr.String())
+	}
+}
+
+func TestRecommendedFirstUseInvalidRootFailsBeforeReviewOrMutation(t *testing.T) {
+	contextRuntime := &contextCLI{list: syntheticContextList()}
+	shared := &guidedEntryRuntime{policyReviewRuntimeFake: policyReviewRuntimeFake{terminal: true}, rootErr: errors.New("protected root")}
+	command, _, stderr := newGuidedEntryCLI(contextRuntime, shared, &guidedRuntimeChoice{})
+	reviewer := &guidedFirstUseReviewer{action: recommendedFirstUseStart}
+	command.firstUse = reviewer
+
+	code, continueEntry := prepareGuidedProjectEntry(context.Background(), command, "")
+	if code != ExitUsage || continueEntry || reviewer.calls != 0 || contextRuntime.createCalls != 0 ||
+		contextRuntime.prepareBootstrapCalls != 0 || shared.clusterUpCalls != 0 ||
+		!humanOutputHasRow(stderr.String(), "Code", "invalid_root") {
+		t.Fatalf("invalid root result/calls = (%d,%t), review=%d create=%d host=%d cluster=%d stderr=%q", code, continueEntry, reviewer.calls, contextRuntime.createCalls, contextRuntime.prepareBootstrapCalls, shared.clusterUpCalls, stderr.String())
+	}
+}
+
+func TestRecommendedFirstUseReviewFailureHasZeroMutation(t *testing.T) {
+	contextRuntime := &contextCLI{list: syntheticContextList()}
+	shared := &guidedEntryRuntime{policyReviewRuntimeFake: policyReviewRuntimeFake{terminal: true}}
+	command, _, stderr := newGuidedEntryCLI(contextRuntime, shared, &guidedRuntimeChoice{})
+	command.firstUse = &guidedFirstUseReviewer{err: errors.New("render failed")}
+
+	code, continueEntry := prepareGuidedProjectEntry(context.Background(), command, "")
+	if code != ExitInternal || continueEntry || contextRuntime.createCalls != 0 ||
+		contextRuntime.prepareBootstrapCalls != 0 || shared.clusterUpCalls != 0 ||
+		!humanOutputHasRow(stderr.String(), "Code", "first_use_review_failed") {
+		t.Fatalf("review failure result/calls = (%d,%t), create=%d host=%d cluster=%d stderr=%q", code, continueEntry, contextRuntime.createCalls, contextRuntime.prepareBootstrapCalls, shared.clusterUpCalls, stderr.String())
+	}
+}
+
+func TestRecommendedFirstUseStartRejectsConcurrentContextChange(t *testing.T) {
+	other := contextCLIReport(tobari.TaskContextShow, "other", true, tobari.BuiltinImageSelector, tobari.ContextPolicyModeGuided)
+	contextRuntime := &contextCLI{listResults: []tobari.ContextListResult{syntheticContextList(), persistedContextList(other)}}
+	shared := &guidedEntryRuntime{policyReviewRuntimeFake: policyReviewRuntimeFake{terminal: true}}
+	command, _, stderr := newGuidedEntryCLI(contextRuntime, shared, &guidedRuntimeChoice{})
+	command.firstUse = &guidedFirstUseReviewer{action: recommendedFirstUseStart}
+
+	code, continueEntry := prepareGuidedProjectEntry(context.Background(), command, "")
+	if code != ExitRejected || continueEntry || contextRuntime.createCalls != 0 || shared.clusterUpCalls != 0 ||
+		!humanOutputHasRow(stderr.String(), "Code", "context_collection_changed") {
+		t.Fatalf("race result/calls = (%d,%t), create=%d cluster=%d stderr=%q", code, continueEntry, contextRuntime.createCalls, shared.clusterUpCalls, stderr.String())
 	}
 }
 

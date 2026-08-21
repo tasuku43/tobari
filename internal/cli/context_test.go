@@ -105,6 +105,9 @@ func (f *runtimeCatalogCLI) BuildManagedRuntime(_ context.Context, name string, 
 
 func (f *contextCLI) ListContexts(context.Context) (tobari.ContextListResult, error) {
 	f.listCalls++
+	if len(f.listResults) >= f.listCalls {
+		return f.listResults[f.listCalls-1], nil
+	}
 	return f.list, nil
 }
 
@@ -343,6 +346,7 @@ func (f *contextCLI) BuildRuntimeWithProgress(
 
 type fakeContextRuntime struct {
 	list                    tobari.ContextListResult
+	listResults             []tobari.ContextListResult
 	report                  tobari.ContextReport
 	reports                 map[string]tobari.ContextReport
 	listCalls               int

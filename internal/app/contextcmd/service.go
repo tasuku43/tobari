@@ -641,6 +641,33 @@ func (s *Service) CreateWithComposition(
 	sourceAccess tobari.ContextSourceAccess,
 	composition tobari.ContextCreateComposition,
 ) (tobari.ContextReport, error) {
+	return s.createWithComposition(ctx, intent, name, image, mode, sourceAccess, composition, false)
+}
+
+// CreateFirstWithComposition creates through the canonical Context mutation
+// only while the collection is still the exact known-empty first-use state.
+// The revalidation shares the lifecycle lock with creation so concurrent
+// Context changes cannot be silently adopted or overwritten.
+func (s *Service) CreateFirstWithComposition(
+	ctx context.Context,
+	intent operation.Intent,
+	name, image string,
+	mode tobari.ContextPolicyMode,
+	sourceAccess tobari.ContextSourceAccess,
+	composition tobari.ContextCreateComposition,
+) (tobari.ContextReport, error) {
+	return s.createWithComposition(ctx, intent, name, image, mode, sourceAccess, composition, true)
+}
+
+func (s *Service) createWithComposition(
+	ctx context.Context,
+	intent operation.Intent,
+	name, image string,
+	mode tobari.ContextPolicyMode,
+	sourceAccess tobari.ContextSourceAccess,
+	composition tobari.ContextCreateComposition,
+	requireEmpty bool,
+) (tobari.ContextReport, error) {
 	if err := s.requireRuntime(); err != nil {
 		return tobari.ContextReport{}, err
 	}
@@ -657,6 +684,21 @@ func (s *Service) CreateWithComposition(
 	}
 	var result tobari.ContextReport
 	err := s.withLifecycleLock(ctx, func(lifecycleContext context.Context) error {
+		if requireEmpty {
+			observed, observeErr := s.runtime.ListContexts(lifecycleContext)
+			if observeErr != nil {
+				return fault.Wrap(fault.KindInternal, "context_read_failed", "Context collection could not be revalidated", false, observeErr,
+					fault.NextAction{Command: "context list", Reason: "Inspect the current Context collection."})
+			}
+			if validateErr := observed.Validate(); validateErr != nil {
+				return fault.Wrap(fault.KindContract, "invalid_context_list", "Context collection revalidation is invalid", false, validateErr,
+					fault.NextAction{Command: "context list", Reason: "Inspect the current Context collection."})
+			}
+			if observed.ContextState != tobari.ContextObservationSyntheticDefault || observed.Active != tobari.DefaultContextName || len(observed.Items) != 0 {
+				return fault.New(fault.KindRejected, "context_collection_changed", "Context collection changed during first-use review", true,
+					fault.NextAction{Command: "context list", Reason: "Inspect the current Context collection before retrying Tobari."})
+			}
+		}
 		return s.mutator.Invoke(lifecycleContext, request, func(actionContext context.Context, _ operation.Intent) error {
 			var created tobari.ContextReport
 			var createErr error
@@ -691,16 +733,28 @@ func (s *Service) CreateWithComposition(
 				contractErr = readinessErr
 			}
 			if contractErr == nil && (created.Task != tobari.TaskContextCreate ||
-				created.Name != name || created.SourceAccess != sourceAccess || createdReadiness != composition.NativeReadiness) {
-				contractErr = fmt.Errorf("created Context identity or source access does not match the request")
+				created.Name != name || created.PolicyMode != mode || created.SourceAccess != sourceAccess || createdReadiness != composition.NativeReadiness) {
+				contractErr = fmt.Errorf("created Context identity or Boundary does not match the request")
 			}
 			if contractErr == nil && composition.MethodPolicy != nil &&
 				!reflect.DeepEqual(created.MethodPolicy, *composition.MethodPolicy) {
 				contractErr = fmt.Errorf("created Context method policy does not match the request")
 			}
-			if contractErr == nil && composition.Bootstrap != nil &&
+			if contractErr == nil &&
 				!reflect.DeepEqual(created.Bootstrap.Resolved(), tobari.ContextBootstrapReportFrom(composition.Bootstrap)) {
 				contractErr = fmt.Errorf("created Context bootstrap does not match the request")
+			}
+			if contractErr == nil {
+				createdRuntime, runtimeErr := created.Runtime.Selection()
+				requestedRuntime, ordinal, requestedErr := tobari.ParseRuntimeSelection(composition.RuntimeSelection)
+				if runtimeErr != nil || requestedErr != nil {
+					contractErr = errors.Join(runtimeErr, requestedErr)
+				} else {
+					expectedRuntime := fmt.Sprintf("%s@%d", requestedRuntime, ordinal)
+					if createdRuntime != expectedRuntime {
+						contractErr = fmt.Errorf("created Context Runtime does not match the request")
+					}
+				}
 			}
 			if contractErr != nil {
 				return fault.Wrap(
