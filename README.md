@@ -20,6 +20,9 @@ release; immutable Gateway/Auth Broker image indexes are not yet published.
   home and tmpfs remain writable.
 - Learned permission is exact Context, project, scheme, host, port, method, and
   raw path. A declared GraphQL endpoint adds operation type and root field.
+  Signed AWS Query/JSON RPC adds only wire protocol, SigV4 service, and exact
+  operation; Tobari does not need an AWS service catalog or infer IAM/read-write
+  semantics.
 - A Context method policy gives every HTTP method one `allow`, `exact_review`,
   or `deny` decision beneath an independent immutable destination ceiling.
   Terminal destination and method Deny decisions precede baseline data,

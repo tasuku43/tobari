@@ -19,6 +19,10 @@ capability; every effect outside that composition is denied by default. The
 Context policy's destination and method ceilings remain terminal over readiness.
 Trusted policy may declare an exact GraphQL endpoint whose generic L7 identity extends
 the HTTP coordinates with one operation type and root field per effect.
+For signed AWS Query and AWS JSON RPC on exact commercial AWS authorities,
+Gateway may instead extend those coordinates with only the SigV4 service and
+wire operation. It does not load an AWS service model or infer IAM, resource,
+read, create, or write semantics.
 
 The primary users are developers who run Claude Code, Codex, shells, tests, and
 other arbitrary programs against project roots. Success has two inseparable
@@ -180,22 +184,29 @@ brand.
 - Any process that uses an ordinary HTTP or HTTPS socket receives enforcement
   through the guarded transparent path; command names and ambient or projected
   proxy-environment settings do not select policy behavior.
-- Gateway sends generic HTTP attributes and, only for a trusted exact GraphQL
-  endpoint, normalized GraphQL operation type and root-field attributes to OPA
-  rather than service-specific operations.
+- Gateway sends generic HTTP attributes plus only the bounded protocol
+  coordinates declared below: GraphQL operation/root, MCP method/tool, or
+  signed AWS wire protocol/service/operation. The AWS coordinate is structural
+  request identity, not a provider semantic classification.
 - Ordinary request bodies are payload, not permission identity. Gateway
   authorizes the project, authority, method, and path from request headers
   before forwarding body bytes; body presence and content do not split
-  approval candidates. A declared GraphQL endpoint is the narrow exception:
+  approval candidates. Declared GraphQL and MCP endpoints are narrow
+  exceptions. Signed AWS Query RPC is another narrow exception: Gateway
+  buffers at most 8 MiB and retains only one exact `Action`; AWS JSON retains
+  only one signed `X-Amz-Target`. No other AWS parameter becomes policy data.
+  A declared GraphQL endpoint
   Gateway buffers one strictly bounded body before policy and derives only its
   selected operation type and canonical root fields as additional identity.
 - Allowed ordinary request and response bodies stream through Gateway. A
-  declared GraphQL request is forwarded byte-for-byte after allow and its
+  declared GraphQL, MCP, or AWS Query request is forwarded byte-for-byte after allow and its
   response still streams. Raw bodies, body hashes, GraphQL source, operation
   names, variables, arguments, aliases, fragment names, directives, nested
   selections, and literal values never enter OPA input, retained policy
   evidence, learned rules, or audit records.
-- Provider-specific HTTP semantics are not part of policy. The first supported
+- Provider-specific business semantics are not part of policy. In particular,
+  AWS operation names are not interpreted as IAM actions or read/write effects.
+  The first supported
   Auth Broker provider uses a declarative exact host/header contract for
   GitHub.com, but Gateway and OPA still authorize only the normalized HTTP
   effect rather than a GitHub operation.
@@ -204,11 +215,11 @@ brand.
 ### Mechanical enforcement
 
 - Gateway unit tests fix the OPA input schema, secret-header redaction,
-  trusted GraphQL endpoint classification, bounded parser behavior, and
+  trusted GraphQL/MCP endpoint and signed AWS RPC classification, bounded parser behavior, and
   authorization-before-forward ordering.
 - Rego tests exercise host, port, method, path, scheme, project-principal,
-  ordinary body-independent decisions, and exact GraphQL operation/root-field
-  boundaries.
+  ordinary body-independent decisions, exact GraphQL operation/root-field and
+  MCP method/tool boundaries, and exact AWS wire-operation boundaries.
 - Docker integration tests use curl and Python rather than a named coding agent.
 
 ## Thesis 2: Network topology is an enforcement mechanism
@@ -625,21 +636,25 @@ Gateway errors do not authorize traffic.
   exceeds it is rejected before the ordinary addon header hook.
 - After header-time authorization, ordinary request and response bodies use
   mitmproxy's streaming path rather than full-body retention. A trusted
-  declared GraphQL endpoint is the only narrow exception: it
+  declared GraphQL endpoint is one narrow exception: it
   accepts either one unambiguous positive length of at most 1 MiB or no length
   and no transfer/content encoding. The fixed 8 MiB transport cap bounds an
   arriving lengthless buffer; Gateway then rejects any complete body over 1
   MiB before parsing generic operation/root identity or policy. It forwards the
   original bytes once after allow. Unknown-length ordinary bodies remain
-  streaming; unsupported GraphQL forms fail closed.
+  streaming; unsupported GraphQL forms fail closed. Signed commercial AWS
+  Query RPC is separately retained only with one exact positive length of at
+  most 8 MiB so `Action` can be extracted before policy. AWS JSON derives its
+  operation from one signed bounded `X-Amz-Target`; unsupported, ambiguous,
+  unsigned, streaming, or URL-query-mixed AWS RPC forms fail closed.
 - Audit logs contain route metadata, never body content, body hashes, or secret
   values.
 
 ### Mechanical enforcement
 
 - Gateway unit tests cover timeout, invalid decision, authorization-before-
-  stream ordering, ordinary body-free policy input, bounded GraphQL-derived
-  identity, and secret redaction. Runtime-asset
+  stream ordering, ordinary body-free policy input, bounded GraphQL/MCP-derived
+  identity, bounded AWS wire-operation identity, and secret redaction. Runtime-asset
   tests keep the advertised-body cap present; integration proves an over-limit
   declared body stops at Gateway and allowed chunked request/SSE response bytes
   arrive incrementally.
@@ -957,8 +972,9 @@ OPA allow.
   and exact Deny remains terminal over method Allow.
 - Tobari-owned ordinary learned permission identity binds Context, project,
   scheme, host, port, method, and raw path. Query, headers, and bodies are not
-  learned dimensions; GraphQL adds only operation type and root field, while
-  MCP adds only JSON-RPC method and, for `tools/call`, exact tool name.
+  learned dimensions; GraphQL adds only operation type and root field, MCP adds
+  only JSON-RPC method and, for `tools/call`, exact tool name, and signed AWS
+  RPC adds only wire protocol, SigV4 service, and exact wire operation.
 - Permission candidates, learned rules, exact denies, audits, and brokered
   handles retain Context and Workspace identity. `policy review` and `policy
   rules` cross all Contexts; mutations bind solely to opaque references.
@@ -1035,7 +1051,8 @@ remains owned by each Workspace home.
 MVP does not support multiple clusters, non-EKS clusters or generic kubeconfig,
 process-level identity, a per-project
 static baseline policy, non-HTTP forwarding or policy, recursive DNS, Git SSH,
-provider-specific policy semantics, Git-over-HTTPS credential helpers,
+provider-specific business-policy semantics or IAM/read-write inference,
+Git-over-HTTPS credential helpers,
 manifest-defined dynamic credentials, generic refresh or signing, multiple provider accounts
 per Context, approval workflows, general Kubernetes authentication or
 transport, filesystem overlays, GUIs, remote execution, or multi-tenant

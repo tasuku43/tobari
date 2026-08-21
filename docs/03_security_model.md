@@ -439,12 +439,25 @@ learning, credential resolution, and upstream I/O. An absent length is accepted
 only without transfer/content encoding; the fixed 8 MiB transport cap bounds
 receipt before the independent 1 MiB complete-body check.
 
+Signed AWS Query and AWS JSON RPC on exact commercial `*.amazonaws.com:443`
+authorities are a bounded structural exception. Gateway accepts only `POST /`
+without URL query, one complete positive `Content-Length` of at most 8 MiB, a
+strict non-streaming payload, and an exact SigV4 scope. Query RPC retains only
+wire protocol `query`, signing service, and one valid `Action`; JSON RPC retains
+only `json`, signing service, and one signed `X-Amz-Target`. It retains no access
+key, region, other form parameter, JSON body field, body, or body hash in OPA,
+audit, evidence, or CLI output. Claimed unsigned, ambiguous, changed, streaming,
+or unsupported AWS RPC fails closed before learning and upstream I/O. These
+tokens are exact request identity only: Gateway and OPA do not load AWS service
+models or infer IAM action, resource, read, create, write, idempotence, or retry
+safety.
+
 OPA timeout, connection failure, non-2xx status, malformed JSON, missing
 fields, unknown decision values, and Gateway exceptions all deny. Plain HTTP
 to non-local destinations is denied by the initialized policy. The initialized
 policy also requires an explicit port for each supported scheme; learned rules
 retain the observed Context/project/scheme/host/port/method/path and optional
-GraphQL coordinate and cannot be used on another Context, project, port, or
+GraphQL or AWS coordinate and cannot be used on another Context, project, port, or
 scheme. Query and headers may be available to Advanced Rego as additional deny
 constraints but never become guided candidate/rule identity.
 Ordinary body presence and content are not authorization or learning dimensions;
@@ -955,13 +968,14 @@ access-changing writes bound to opaque references. Discovery never mutates. An
 allow reference identifies one retained validated denial that OPA marked
 exact-rule learnable; a
 deny reference identifies one retained validated denial and binds its exact
-Context/project/scheme/host/port/method/path plus optional GraphQL coordinate;
+Context/project/scheme/host/port/method/path plus optional GraphQL or AWS coordinate;
 a reset reference identifies one current CLI-owned
 learned Allow or exact Deny and removes it, returning the effect to default
 deny. Scheme, cluster, and credential-binding failures never become permission
 candidates. Ordinary body presence and content neither disqualify nor split a
 candidate. Declared GraphQL documents split only by selected operation type and
-canonical root field; every other document and payload detail is excluded.
+canonical root field. Classified AWS RPC splits only by wire protocol, signing
+service, and exact wire operation; every other document and payload detail is excluded.
 Host-authored baseline denies are terminal, excluded from both the actionable
 queue and the reversible decision inventory, while their bounded audit records
 remain visible. CLI-owned exact Deny rules remain terminal in enforcement but
@@ -983,7 +997,7 @@ guess. The generated content-addressed OPA projection may contain one internal
 `data.json`, but Workspaces cannot edit either source or projection.
 
 Learned rules never broaden a Context, project, scheme, host, port, method, or
-GraphQL coordinate. A reviewed HTTP path template may broaden only one explicit
+GraphQL/AWS coordinate. A reviewed HTTP path template may broaden only one explicit
 non-empty raw `{id}` segment after two distinct compatible examples while
 preserving every literal segment. Baseline and exact
 deny rules remain terminal; an exact deny wins over a learned allow for the
@@ -1104,7 +1118,7 @@ device code, auth state, or credential material.
 Audit JSON includes timestamp, request ID, cluster, stable Context ID and name,
 the schema-V1 `project_id` carrying Workspace ID, safe project root, host, port,
 method, redacted path, an optional
-GraphQL operation type and one root field, decision,
+GraphQL operation type and one root field or AWS wire protocol, service, and operation, decision,
 reason, optional broker provider ID, upstream status, and duration. It
 emits no query or headers. Ordinarily the redacted path is the URL path
 component; if that component contains a Tobari handle marker, the whole value is
@@ -1123,7 +1137,7 @@ that lacks a valid trusted Context/project scope or otherwise violates the
 typed audit contract is skipped and counted; its raw contents and parse cause
 are not reflected, and it cannot become a policy candidate. Read-only policy
 candidate commands aggregate exact Context/project/scheme/host/port/method/path and
-optional GraphQL-coordinate proposals from
+optional GraphQL- or AWS-coordinate proposals from
 that evidence, treating reason, status, request identity, timestamps, and
 broker-provider display evidence as non-identity fields. The latest evidence
 and bounded observation count do not grant authority. `policy review`
@@ -1202,6 +1216,7 @@ treats a failed read as no candidates, never as shell source or authority.
 | Gateway does not retain allowed streaming bodies | Header-hook ordering unit tests plus incremental chunked-request and SSE-response integration canaries |
 | Declared oversized bodies retain the transport bound | Fixed mitmproxy body-size asset test, over-limit `Content-Length` integration request, incremental unknown-length transport-cap evidence, and complete-body semantic-cap tests |
 | GraphQL identity cannot collapse into one HTTP route grant | Trusted exact-endpoint projection, bounded parser fixtures, OPA all-roots matching, HTTP-rule non-matching canaries, GraphQL-aware opaque-reference round trips, and zero-upstream integration tests |
+| AWS RPC identity cannot collapse into one `POST /` grant or semantic guess | Exact commercial authority and SigV4 structural checks, bounded Query/JSON fixtures, unsigned/ambiguous/streaming/query-mixed fail-closed canaries, OPA exact-coordinate matching, HTTP-rule non-matching, opaque-reference round trips, and absence of service-model/IAM/read-write classification |
 
 ## Supply chain and publication
 

@@ -57,7 +57,8 @@ confirmed Context so a human need not remember the setup sequence.
 
 The primary operating loop is progressive policy learning: a Workspace workload is
 denied by default, Gateway records the rejected HTTP effect, including one
-operation-type/root-field coordinate for a declared GraphQL endpoint, and reason
+operation-type/root-field coordinate for a declared GraphQL endpoint or one
+exact signed AWS wire-operation coordinate, and reason
 without secrets, the CLI presents a bounded exact proposal and a concrete
 trusted-host next action, the user approves the minimum rule, and the same
 workload is retried. A learnable denial also gives the agent a fixed host-side
@@ -89,6 +90,15 @@ policy actions, audit output, or CLI output. A request may omit
 `Content-Length` only without transfer/content encoding; the fixed 8 MiB
 transport cap bounds receipt and Gateway rejects a complete body over 1 MiB
 before parsing or policy.
+For a commercial AWS endpoint using signed AWS Query or AWS JSON RPC, Gateway
+derives only wire protocol, SigV4 service, and exact `Action` or signed
+`X-Amz-Target`. The dynamic request supplies that coordinate; Tobari carries no
+AWS service catalog and does not classify the operation as IAM, resource, read,
+create, or write. Query parameters other than `Action` and structural
+`Version` validation, and every AWS JSON body field, remain outside policy,
+evidence, audit, and CLI output. Unsupported or ambiguous AWS RPC fails before
+policy learning or upstream I/O rather than falling back to a broad `POST /`
+candidate.
 Denial audit retains only the URL path component, never the query or headers.
 If that path contains a Tobari handle marker, the whole recorded path is the
 literal `/[redacted-auth-handle]`. Structural URL/header handle rejections are
@@ -927,7 +937,7 @@ baseline deny rules, or exact learned deny rules. Baseline and exact denies
 remain available as audit evidence but never become pending queue items.
 Within that window, candidates aggregate by exact Context identity, project
 principal, host, port, method, normalized path, and optional GraphQL operation
-type/root field. Reason, status, request ID, timestamp, and broker-handle
+type/root field or AWS wire protocol/service/operation. Reason, status, request ID, timestamp, and broker-handle
 evidence do not create a second permission identity. The
 candidate retains the latest matching evidence and reports the required number
 of matching retained observations. Concurrent identical audit records therefore project to one pending

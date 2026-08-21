@@ -1072,6 +1072,8 @@ client request headers
      Workspace-owned compatibility passthrough
   -> redact client authentication and cookie headers for OPA input
   -> classify only trusted Context-declared exact GraphQL endpoints
+  -> structurally classify signed commercial AWS Query/JSON RPC without an AWS
+     service model; reject claimed but unsupported or ambiguous RPC forms
   -> for ordinary HTTP, normalize body-free OPA input at the header hook
   -> for a declared GraphQL endpoint, require and retain one bounded request,
      parse the selected operation and canonical root fields, and normalize only
@@ -1081,6 +1083,8 @@ client request headers
   -> require every declared GraphQL root coordinate and any broker-provider
      request to have its exact learned L7 rule rather
      than inheriting a broad static host/method allow
+  -> require every classified AWS request to have its exact wire
+     protocol/service/operation rule; never infer IAM or read/write semantics
   -> deny on any invalid/unavailable decision
   -> on a static brokered allow, resolve the same revision exactly once and
      replace only the declared destination header
@@ -1106,7 +1110,14 @@ strict UTF-8 JSON request, and sends only operation type and sorted canonical
 root fields to OPA. The original bytes are forwarded once
 after allow; source text, operation name, aliases, fragment names, directives,
 nested selections, arguments, variables, extensions, literal values, and body
-hashes never enter policy, audit, learned state, or CLI output. Client authentication can be present on the forwarded
+hashes never enter policy, audit, learned state, or CLI output. Signed AWS RPC
+on exact commercial AWS authorities is a separate structural exception. Query
+RPC buffers one exact positive length of at most 8 MiB and retains only
+`query`, the SigV4 service, and one `Action`; JSON RPC retains only `json`, the
+SigV4 service, and one signed `X-Amz-Target`. The request supplies those tokens
+dynamically. Gateway has no AWS schema or IAM/read-write classifier, does not
+retain other form fields or JSON body fields, and rejects unsigned, ambiguous,
+streaming, URL-query-mixed, or unsupported RPC forms before learning. Client authentication can be present on the forwarded
 request but is absent from OPA input and audit output. No query or headers are
 emitted in audit. Audit retains the path component, except that any path
 containing a Tobari handle marker becomes `/[redacted-auth-handle]`. Structural
@@ -1130,15 +1141,15 @@ non-learnable response instead names the read-only `tobari cluster denials`
 diagnostic and exposes no review command. `tobari cluster denials` parses one bounded Gateway
 log window, isolates and counts malformed or otherwise unprojectable
 denial-shaped records, and returns every valid typed Context and project principal, host, port,
-method, path, optional GraphQL operation/root coordinate, reason, status,
+method, path, optional GraphQL operation/root or AWS wire-operation coordinate, reason, status,
 exact-rule learnability, request identity, timestamp, the
 trusted host policy directory, the unparsed-record count, and the exact review command. OPA computes
 learnability only when version, cluster, Context, scheme, fixed port,
 project-principal, and Context policy ceiling already pass, so an exact
-Context/project/scheme/host/port/method/path rule, plus the GraphQL coordinate when
+Context/project/scheme/host/port/method/path rule, plus the GraphQL or AWS coordinate when
 present, can close the request. `policy review` and
 `policy candidates` deterministically fold only that eligible retained evidence
-by the structured Context/project/scheme/host/port/method/path and optional GraphQL
+by the structured Context/project/scheme/host/port/method/path and optional GraphQL or AWS
 effect key. They emit one opaque
 exact-rule reference, the latest evidence, and an observation count for each
 pending effect; references remain stable across repeated denials. This pure
@@ -1227,9 +1238,9 @@ cluster router, `tobari.system`, another Context package, or
 `data.tobari_contexts`. This is namespace and routing enforcement within one
 OPA process, not a claim of Rego process-level confidentiality.
 
-The cluster router sends every input carrying a GraphQL coordinate through the
+The cluster router sends every input carrying a GraphQL, MCP, or AWS coordinate through the
 current Tobari-owned system evaluator, even for an Advanced Context; the
-Context's data still supplies its endpoint and rules. Only ordinary HTTP input
+Context's data still supplies its endpoints and rules. Only ordinary HTTP input
 routes to editable Advanced Rego. This prevents older or custom policy source
 from ignoring the new coordinate and accidentally authorizing it through one
 coarse HTTP rule.
@@ -1237,7 +1248,7 @@ coarse HTTP rule.
 `policy deny` resolves the same exact candidate reference and appends one
 Context/project-bound exact deny rule through the same aggregate preflight, atomic-write, and OPA
 activation boundary. Exact denies are terminal and win over learned allows for
-the same Context/project/scheme/host/port/method/path and optional GraphQL coordinate.
+the same Context/project/scheme/host/port/method/path and optional protocol coordinate.
 
 ## Docker abstraction
 

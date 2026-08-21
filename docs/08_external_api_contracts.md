@@ -6,6 +6,9 @@ has no provider-specific credential plan or binding: clients authenticate
 natively in the Workspace, and their original credentials remain absent from
 OPA/audit and are forwarded only after allow. Experimental `task build:dev`
 retains the closed Broker plan described below.
+Exact signed AWS wire-operation identity is not a provider business API:
+clients supply the service and operation on each request, and Tobari performs
+no AWS catalog lookup or IAM/read-write interpretation.
 
 ## Generic HTTP contract
 
@@ -29,6 +32,18 @@ one unencoded `application/json` JSON-RPC 2.0 object of at most 1 MiB, derives
 only the exact method and, for `tools/call`, exact tool name, and forwards the
 unchanged bytes once after allow. Arguments, resource URIs, responses, and body
 hashes never enter policy, evidence, audit, denial output, or stored rules.
+
+Signed AWS Query and AWS JSON RPC on commercial `*.amazonaws.com:443` is the
+third bounded exception. Gateway accepts only `POST /` without URL query, one
+strict complete body length of at most 8 MiB, non-streaming payload signing,
+and a valid SigV4 scope. It derives only wire protocol, signing service, and one
+exact Query `Action` or signed JSON `X-Amz-Target`. It does not load AWS service
+models or infer IAM action, resource, read, create, write, idempotence, or retry
+safety. Other Query fields and every JSON body field remain absent from policy,
+evidence, audit, and CLI output. Claimed unsigned, ambiguous, changed,
+streaming, URL-query-mixed, or unsupported AWS RPC fails closed rather than
+becoming an ordinary broad `POST /` candidate. Signed AWS REST and other
+non-RPC traffic retains the ordinary HTTP contract.
 
 Gateway performs no external DNS or upstream connection before allow. It uses
 finite OPA, DNS, connect, and upstream timeouts and makes one upstream
@@ -76,8 +91,9 @@ methods, authorities, and paths are defined in
 [Authentication handling](07_authentication.md#standard-native-workspace-authentication).
 Typed AWS/EKS Workspace bootstrap is not an external API capability: it parses
 only fixed bounded host files, grants no destination or method, and performs no
-AWS or Kubernetes request. Later `aws` and `kubectl` traffic remains ordinary
-Context-policy input.
+AWS or Kubernetes request. Later `kubectl` traffic remains ordinary
+Context-policy input. Later AWS traffic remains ordinary HTTP unless it matches
+the bounded signed Query/JSON RPC identity above.
 The Claude regression proves that successful token exchange cannot be followed
 by a Tobari-generated `broker_auth_required` on `/api/oauth/profile`; provider
 `subscriptionType` and `rateLimitTier` remain provider-owned response data.
@@ -143,7 +159,8 @@ Gateway follows one sequence:
 4. Only for an undeclared binding with no marker, select Workspace-owned
    compatibility passthrough.
 5. Send only normalized request identity and non-secret provider identity to
-   OPA.
+   OPA. A classified AWS RPC includes only its wire protocol, signing service,
+   and exact operation before any Broker resolution or signing.
 6. On deny, stop with zero resolution, refresh, companion call, signing, or
    upstream call.
 7. On static allow, resolve the same revision once and replace only the

@@ -402,7 +402,9 @@ Gateway enforces this exact order:
 5. Only when no declared binding and no Tobari-looking marker matches, select
    Workspace-owned compatibility passthrough.
 6. Redact client authentication and control headers from OPA input and send the
-   ordinary normalized HTTP effect to OPA.
+   normalized effect to OPA. Signed AWS Query/JSON RPC may add only its
+   structurally extracted wire protocol, SigV4 service, and exact operation;
+   that coordinate does not select a credential or classify IAM/read-write semantics.
 7. On deny, stop with zero static resolution, refresh, companion call, signing,
    external DNS, or upstream call.
 8. On a static allow, resolve the same revision exactly once and replace only
