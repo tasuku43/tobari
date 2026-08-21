@@ -25,28 +25,35 @@
 - [x] Choose explicit host approval rather than automatic exposure. Evidence:
       the product owner selected `Allow once` through the same Trusted Host
       Review experience as Permission Inbox.
-- [x] Choose attachment ownership, random host port, exact `.localhost`
-      authority, IPv4 loopback only, no browser auto-open, and no active health
-      checks.
+- [x] Choose attachment ownership, random host port, exact numeric IPv4
+      loopback authority, no browser auto-open, and no active health checks.
+      Evidence: random `.localhost` passed Vite, Next.js, and Storybook but
+      Jupyter Server 2.20.0 rejected it by default; all four accept exact
+      `127.0.0.1:<random-port>` without rewriting or configuration widening.
 - [x] Resolve the `trusted-host-review-switch` dependency. Evidence: ADR 0073
       rejected inline review; the product owner selected a separate
       trusted-host `tobari review` inbox on 2026-08-21.
 - [x] Keep Permission and Service review semantics distinct. Permission
       requests retain staged Apply; Service requests use immediate `Allow once`
       or `Deny` with attachment-only lifetime.
-- [ ] Confirm representative Vite, Next.js, Storybook, and Jupyter Host and
-      Origin compatibility before finalizing the data-plane ADR.
-- [ ] Resolve one canonical program-scoped catalog and helper help contract
-      without exposing the host CLI inside the Workspace.
-- [ ] Resolve the `stop` target-binding mode; return to product review if an
-      opaque exposure reference is required.
+- [x] Confirm representative Vite, Next.js, Storybook, and Jupyter Host and
+      Origin compatibility before finalizing the data-plane ADR. Evidence:
+      pinned observations recorded in `context.md` on 2026-08-22.
+- [x] Resolve one canonical program-scoped catalog and helper help contract
+      without exposing the host CLI inside the Workspace. Evidence: one global
+      program-aware Catalog validates cross-program reference flow while
+      routing and help are filtered per executable.
+- [x] Resolve the `stop` target-binding mode. Evidence: the product owner chose
+      `tobari-expose stop <exposure-ref>` on 2026-08-22; creation and list
+      produce that compact opaque reference and exact next command.
 - [ ] Declare every operation's role, effect, target, intent, impact, stable
       failures, output, and cancellation contract mechanically.
 - [ ] Write and accept the service-exposure ADR and any required thesis revision
       before mechanism code.
-- [ ] Prototype and prove the live-owner host rendezvous, including concurrent
+- [x] Prototype and prove the live-owner host rendezvous, including concurrent
       attachments, stale/forged registry records, peer/nonce identity, owner
-      exit during review, and safe registry cleanup.
+      exit during review, and safe registry cleanup. Evidence: 20 macOS runs
+      and Linux amd64 cross-compilation recorded in `context.md`.
 - [x] Obtain design approval. Evidence: the product owner accepted the complete
       service request, approval, relay, lifetime, state, and compatibility
       contract on 2026-08-21.

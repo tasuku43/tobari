@@ -11,6 +11,7 @@ workspace_label: /projects/app
 target: 127.0.0.1:3000
 host_binding: IPv4 loopback only
 host_port_selection: automatic
+host_authority: 127.0.0.1:<selected-host-port>
 browser_open: false
 lifetime: current attachment
 request_state: pending
@@ -57,8 +58,10 @@ Successful helper result:
 
 ```text
 Available on the host:
-  <generated per-attachment loopback URL>
+  http://127.0.0.1:<selected-host-port>
 Lifetime: current attachment
+Stop:
+  tobari-expose stop <opaque-exposure-ref>
 ```
 
 Unavailable service response:
@@ -95,8 +98,8 @@ Start the service, then reload.
 - `Ctrl+C` in host review does not deny, allow, or withdraw a request.
 - Permission staging and Apply never apply to Service requests; immediate
   Service decisions never mutate remembered policy.
-- The `.localhost` label is not trusted by itself; exact listener ownership and
-  authority validation remain required.
+- A matching numeric loopback Host or random port is not trusted by itself;
+  exact listener ownership and full authority validation remain required.
 - Listener open does not mean the development server is healthy.
 - An HTTP 200 does not prove application health, and an HTTP 404 or login page
   does not prove failure.

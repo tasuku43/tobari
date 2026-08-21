@@ -17,10 +17,10 @@
 
 From an attached Workspace, a user can run `tobari-expose 3000`, explicitly
 approve the exact request from `tobari review` in a separate trusted-host
-terminal, and receive one unpredictable host-loopback HTTP URL for the service
-on Workspace loopback port 3000. The
-exposure is owned by the current attachment, remains separate from durable
-network policy, and closes with that attachment.
+terminal, and receive one randomly allocated host-loopback HTTP URL for the
+service on Workspace loopback port 3000. The URL uses exact host authority
+`127.0.0.1:<random-port>`. The exposure is owned by the current attachment,
+remains separate from durable network policy, and closes with that attachment.
 
 ## Why now
 
@@ -71,10 +71,9 @@ owner cleanup.
 - [ ] The review surface visibly separates `Permission requests`, which retain
       the current staged Apply contract, from `Service requests`, whose
       `Allow once` and `Deny` decisions are immediate and never persisted.
-- [ ] `Allow once` creates exactly one listener on host `127.0.0.1` with an
-      unpredictable `.localhost` hostname and random available port. Every
-      request must present the exact hostname and port before any byte reaches
-      the Workspace service.
+- [ ] `Allow once` creates exactly one listener on host `127.0.0.1` with a
+      random available port. Every request must present exact authority
+      `127.0.0.1:<host-port>` before any byte reaches the Workspace service.
 - [ ] `Deny` and `Back` create no listener or data path. Cancellation while
       pending withdraws the request. Retrying after denial requires another
       explicit review.
@@ -86,12 +85,11 @@ owner cleanup.
       active URL without another approval. Different attachments cannot list,
       reuse, stop, or extend one another's exposure.
 - [ ] `tobari-expose list` reports only current-attachment exposures using
-      truthful passive states. `tobari-expose stop 3000` closes the matching
-      listener and active relay connections without stopping the development
-      server. Before implementation, its action identity must satisfy the
-      repository's canonical catalog and mutation-binding invariants without a
-      competing registry; if the approved port selector cannot do so, return
-      the selector for product review rather than bypassing the invariant.
+      truthful passive states and one compact opaque exposure reference.
+      Creation and list output give the exact next command
+      `tobari-expose stop <exposure-ref>`. Stop consumes that reference
+      unchanged, closes the matching listener and active relay connections,
+      and does not stop the development server.
 - [ ] When the host listener is open but the Workspace port cannot be reached,
       an HTTP request receives a fixed Tobari-owned 502 response explaining
       that the service is not available yet and may be retried after starting
@@ -104,9 +102,8 @@ owner cleanup.
       request state, channel identity, and helper routes. No stale approval or
       socket path can reactivate an exposure.
 - [ ] Representative pinned Vite, Next.js, Storybook, and Jupyter fixtures or
-      runtime observations validate the unpredictable `.localhost` Host and
-      Origin contract. An incompatibility returns for product review; it does
-      not authorize silent rewriting.
+      runtime observations validate exact `127.0.0.1:<random-port>` Host and
+      Origin without application-specific configuration or rewriting.
 - [ ] The public helper grammar and help have one canonical executable contract,
       predictable stdout, stderr, and exit status, and no hand-maintained
       parallel command registry.

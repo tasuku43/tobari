@@ -27,6 +27,25 @@
 - The root direct-command capability ends the attachment when its exact child
   exits. Therefore `tobari -- tobari-expose 3000` would immediately close an
   accepted attachment-owned exposure and is not a useful advertised workflow.
+- The canonical Catalog is currently single-program and hard-codes `tobari` in
+  usage, help, and dispatch. A separate helper catalog would break reference
+  flow across helper discovery, host review, and stop. One global Catalog with
+  an explicit program per command can validate the complete reference graph
+  while filtering routing and help for each executable.
+- Catalog mutation binding requires stop to consume the opaque exposure
+  reference produced by creation or list. A target port is not the identity of
+  an exposure and cannot distinguish the same port in another attachment.
+- A bounded live-owner rendezvous prototype passed 20 macOS runs and Linux
+  amd64 cross-compilation. It covered concurrent owners, atomic `0600` records
+  under `0700` state, kernel peer identity, nonce, attachment and request
+  revalidation, fresh snapshots, stale or forged cleanup without following
+  record paths, owner exit during review, and distinct reviewer/owner lifetime.
+- Pinned compatibility observations passed without Host, Origin, content, or
+  application-configuration rewriting for Vite 8.2.2, Next.js 16.3.2,
+  Storybook 10.5.10, and Jupyter Server 2.20.0 when host authority is exact
+  `127.0.0.1:<random-port>`. Jupyter's default remote-access check rejected the
+  previously proposed random `.localhost` authority with 403; the product owner
+  therefore selected numeric loopback authority on 2026-08-22.
 
 ## Relevant structure
 
@@ -82,9 +101,10 @@
 
 - RFC 6761, "Special-Use Domain Names," checked 2026-08-21:
   <https://www.rfc-editor.org/rfc/rfc6761#section-6.3>. Names ending in
-  `.localhost` are special-use loopback names; the product still binds and
-  validates one exact host listener and authority rather than trusting DNS
-  behavior as authorization.
+  `.localhost` are special-use loopback names. Tobari considered this form but
+  does not use it because Jupyter's default Host validation rejects the random
+  hostname; exact numeric loopback authority preserves compatibility without
+  application-specific rewriting.
 - RFC 6455, "The WebSocket Protocol," checked 2026-08-21:
   <https://www.rfc-editor.org/rfc/rfc6455>. A WebSocket begins as an HTTP Upgrade
   request and then becomes a bidirectional stream, so exact authority
@@ -96,29 +116,16 @@
 
 ## Unknowns
 
-- [ ] Can the canonical catalog represent the public `tobari-expose`
-      executable, including its helper-only routing and exact help, without
-      making the full host CLI available inside the Workspace or creating a
-      second registry?
-- [ ] Does `tobari-expose stop 3000` satisfy the catalog's action target-binding
-      invariant as an exact attachment-and-port selector, or must `list` and
-      successful creation produce an opaque exposure reference for `stop`?
 - [ ] Which closed Workspace-control and host-rendezvous protocols own pending
       request creation, fresh snapshot discovery, approval response, active
       exposure inventory, stop, stream setup, and shutdown without turning into
       a generic request bus?
-- [ ] Do the pinned representative versions of Vite, Next.js, Storybook, and
-      Jupyter accept an unpredictable `.localhost` authority and browser Origin
-      without application-specific rewriting?
 - [ ] Which HTTP versions are supported in the first slice? HTTP/1.1 and
       WebSocket Upgrade are the expected minimum; HTTP/2, TLS termination, and
       HTTPS development servers require an explicit decision.
 - [ ] What finite header limit, setup deadline, idle policy, connection budget,
       and byte-stream backpressure preserve ordinary development without an
       unbounded host resource?
-- [ ] Which exact owner-only runtime-state location and peer/nonce handshake
-      let `tobari review` find concurrent live attachments while rejecting and
-      safely cleaning stale or forged registry records?
 
 ## Thesis evidence
 
@@ -181,8 +188,9 @@ real browser history.
 
 - **Workspace service:** one server bound to Workspace loopback on an exact
   reviewed port.
-- **Exposure:** one host-loopback listener and exact `.localhost` authority
-  relayed to one Workspace service for one attachment.
+- **Exposure:** one host-loopback listener and exact
+  `127.0.0.1:<random-port>` authority relayed to one Workspace service for one
+  attachment, identified to actions by one opaque exposure reference.
 - **Exposure helper:** the binary-owned `tobari-expose` executable mounted
   read-only inside an attached Workspace.
 - **Control channel:** the attachment-local request and lifecycle path. It is
