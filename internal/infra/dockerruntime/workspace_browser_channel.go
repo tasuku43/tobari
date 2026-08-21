@@ -19,6 +19,8 @@ const (
 	workspaceBrowserMessageLimit = 20 << 10
 	workspaceBrowserSocketEnv    = "TOBARI_BROWSER_SOCKET"
 	workspaceBrowserOpenerPath   = "/run/tobari-open"
+	workspaceBrowserReadyTimeout = 5 * time.Second
+	workspaceBrowserReadyFrame   = `{"schema_version":1,"ready":true}`
 )
 
 const workspaceBrowserAgentProgram = `import json,os,select,socket,sys
@@ -28,6 +30,7 @@ if os.path.lexists(path): raise SystemExit(1)
 server=socket.socket(socket.AF_UNIX,socket.SOCK_STREAM)
 try:
  server.bind(path); os.chmod(path,0o600); server.listen(4)
+ os.write(1,b'{"schema_version":1,"ready":true}\n')
  while True:
   readable,_,_=select.select([server,sys.stdin.buffer],[],[],0.25)
   if sys.stdin.buffer in readable:
@@ -68,6 +71,9 @@ type workspaceBrowserChannel struct {
 	cancel     context.CancelFunc
 	requestIn  *io.PipeReader
 	response   *io.PipeWriter
+	ready      chan struct{}
+	readyOnce  sync.Once
+	result     chan error
 	done       chan struct{}
 	closeOnce  sync.Once
 }
@@ -91,6 +97,8 @@ func (r *Runtime) startWorkspaceBrowserChannel(
 	channel.cancel = cancel
 	channel.requestIn = requestReader
 	channel.response = responseWriter
+	channel.ready = make(chan struct{})
+	channel.result = make(chan error, 1)
 	channel.done = make(chan struct{})
 	uid, gid := currentIDs()
 	args := []string{
@@ -99,14 +107,34 @@ func (r *Runtime) startWorkspaceBrowserChannel(
 	}
 	go func() {
 		defer close(channel.done)
-		_ = runner.RunWorkspaceBrowserControl(
+		runErr := runner.RunWorkspaceBrowserControl(
 			controlContext, args, os.Environ(), responseReader, requestWriter, io.Discard,
 		)
 		_ = requestWriter.Close()
 		_ = responseReader.Close()
+		channel.result <- runErr
 	}()
 	go channel.serve(bridge)
-	return channel, nil
+	readyTimer := time.NewTimer(workspaceBrowserReadyTimeout)
+	defer readyTimer.Stop()
+	select {
+	case <-channel.ready:
+		return channel, nil
+	case runErr := <-channel.result:
+		channel.close()
+		if runErr != nil {
+			return nil, fmt.Errorf("Workspace browser control exited before readiness: %w", runErr)
+		}
+		return nil, fmt.Errorf("Workspace browser control exited before readiness")
+	case <-ctx.Done():
+		channel.close()
+		return nil, ctx.Err()
+	case <-readyTimer.C:
+		channel.close()
+		return nil, fmt.Errorf(
+			"Workspace browser control did not become ready within %s", workspaceBrowserReadyTimeout,
+		)
+	}
 }
 
 func newWorkspaceBrowserSocketPath() (string, error) {
@@ -131,10 +159,20 @@ func (c *workspaceBrowserChannel) serve(bridge *workspaceLoginBridge) {
 	}
 	scanner := bufio.NewScanner(c.requestIn)
 	scanner.Buffer(make([]byte, 4096), workspaceBrowserMessageLimit)
+	ready := false
 	for scanner.Scan() {
-		request, ok := decodeWorkspaceBrowserRequest(scanner.Bytes())
-		if ok {
-			ok = bridge.trigger(request.Target)
+		line := scanner.Bytes()
+		if !ready && bytes.Equal(line, []byte(workspaceBrowserReadyFrame)) {
+			ready = true
+			c.markReady()
+			continue
+		}
+		ok := false
+		if ready && !bytes.Equal(line, []byte(workspaceBrowserReadyFrame)) {
+			request, decoded := decodeWorkspaceBrowserRequest(line)
+			if decoded {
+				ok = bridge.trigger(request.Target)
+			}
 		}
 		encoded, err := json.Marshal(workspaceBrowserResponse{SchemaVersion: 1, OK: ok})
 		if err != nil {
@@ -145,6 +183,13 @@ func (c *workspaceBrowserChannel) serve(bridge *workspaceLoginBridge) {
 			return
 		}
 	}
+}
+
+func (c *workspaceBrowserChannel) markReady() {
+	if c.ready == nil {
+		return
+	}
+	c.readyOnce.Do(func() { close(c.ready) })
 }
 
 func decodeWorkspaceBrowserRequest(line []byte) (workspaceBrowserRequest, bool) {

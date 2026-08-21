@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -59,6 +60,7 @@ func TestWorkspaceBrowserChannelOpensValidatedTargetAndReturnsExactResponse(t *t
 	channel := &workspaceBrowserChannel{requestIn: requestReader, response: responseWriter}
 	go channel.serve(bridge)
 	defer channel.close()
+	_, _ = io.WriteString(requestWriter, workspaceBrowserReadyFrame+"\n")
 
 	for range 2 {
 		_, _ = io.WriteString(requestWriter, `{"schema_version":1,"target":"`+syntheticTWGVerificationURL+`"}`+"\n")
@@ -90,6 +92,7 @@ func TestWorkspaceBrowserChannelRejectsMalformedAndUnreviewedTargets(t *testing.
 	go channel.serve(bridge)
 	defer channel.close()
 	reader := bufio.NewReader(responseReader)
+	_, _ = io.WriteString(requestWriter, workspaceBrowserReadyFrame+"\n")
 
 	for _, request := range []string{
 		`{"schema_version":1,"target":"https://example.com/"}`,
@@ -136,9 +139,11 @@ func TestWorkspaceBrowserBridgeCapsUniqueHostOpenAttempts(t *testing.T) {
 }
 
 type recordingWorkspaceBrowserControlRunner struct {
-	mu   sync.Mutex
-	args []string
-	done chan struct{}
+	mu         sync.Mutex
+	args       []string
+	started    chan struct{}
+	release    <-chan struct{}
+	exitBefore error
 }
 
 func (r *recordingWorkspaceBrowserControlRunner) Run(
@@ -152,25 +157,36 @@ func (r *recordingWorkspaceBrowserControlRunner) Output(context.Context, []strin
 }
 
 func (r *recordingWorkspaceBrowserControlRunner) RunWorkspaceBrowserControl(
-	ctx context.Context, args, _ []string, _ io.Reader, _ io.Writer, _ io.Writer,
+	ctx context.Context, args, _ []string, _ io.Reader, out io.Writer, _ io.Writer,
 ) error {
 	r.mu.Lock()
 	r.args = append([]string(nil), args...)
 	r.mu.Unlock()
-	close(r.done)
+	close(r.started)
+	if r.release != nil {
+		select {
+		case <-r.release:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	if r.exitBefore != nil {
+		return r.exitBefore
+	}
+	_, _ = io.WriteString(out, `{"schema_version":1,"ready":true}`+"\n")
 	<-ctx.Done()
 	return ctx.Err()
 }
 
 func TestWorkspaceBrowserChannelUsesSeparateNonTTYDockerExec(t *testing.T) {
-	runner := &recordingWorkspaceBrowserControlRunner{done: make(chan struct{})}
+	runner := &recordingWorkspaceBrowserControlRunner{started: make(chan struct{})}
 	bridge := &workspaceLoginBridge{}
 	channel, err := (&Runtime{runner: runner}).startWorkspaceBrowserChannel(context.Background(), bridge, "workspace")
 	if err != nil {
 		t.Fatal(err)
 	}
 	select {
-	case <-runner.done:
+	case <-runner.started:
 	case <-time.After(time.Second):
 		t.Fatal("browser control runner did not start")
 	}
@@ -185,6 +201,52 @@ func TestWorkspaceBrowserChannelUsesSeparateNonTTYDockerExec(t *testing.T) {
 		if slicesContains(runner.args, forbidden) {
 			t.Fatalf("browser control argv contains %q: %q", forbidden, runner.args)
 		}
+	}
+}
+
+func TestWorkspaceBrowserChannelWaitsForAgentReadiness(t *testing.T) {
+	release := make(chan struct{})
+	runner := &recordingWorkspaceBrowserControlRunner{started: make(chan struct{}), release: release}
+	result := make(chan error, 1)
+	go func() {
+		channel, err := (&Runtime{runner: runner}).startWorkspaceBrowserChannel(
+			context.Background(), &workspaceLoginBridge{}, "workspace",
+		)
+		if channel != nil {
+			channel.close()
+		}
+		result <- err
+	}()
+	select {
+	case <-runner.started:
+	case <-time.After(time.Second):
+		t.Fatal("browser control runner did not start")
+	}
+	select {
+	case err := <-result:
+		t.Fatalf("channel returned before readiness: %v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(release)
+	select {
+	case err := <-result:
+		if err != nil {
+			t.Fatalf("ready channel failed: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("ready channel did not return")
+	}
+}
+
+func TestWorkspaceBrowserChannelRejectsControlExitBeforeReadiness(t *testing.T) {
+	runner := &recordingWorkspaceBrowserControlRunner{
+		started: make(chan struct{}), exitBefore: errors.New("synthetic control failure"),
+	}
+	channel, err := (&Runtime{runner: runner}).startWorkspaceBrowserChannel(
+		context.Background(), &workspaceLoginBridge{}, "workspace",
+	)
+	if err == nil || channel != nil || !strings.Contains(err.Error(), "before readiness") {
+		t.Fatalf("start result = (%+v, %v), want readiness failure", channel, err)
 	}
 }
 
@@ -217,6 +279,11 @@ func TestWorkspaceBrowserAgentRelaysOneFramedRequestAndCleansSocket(t *testing.T
 	if err := command.Start(); err != nil {
 		t.Fatal(err)
 	}
+	stdoutReader := bufio.NewReader(stdout)
+	ready, err := stdoutReader.ReadString('\n')
+	if err != nil || ready != `{"schema_version":1,"ready":true}`+"\n" {
+		t.Fatalf("agent readiness = %q, %v", ready, err)
+	}
 
 	var connection net.Conn
 	for deadline := time.Now().Add(2 * time.Second); time.Now().Before(deadline); {
@@ -231,7 +298,7 @@ func TestWorkspaceBrowserAgentRelaysOneFramedRequestAndCleansSocket(t *testing.T
 	}
 	request := `{"schema_version":1,"target":"` + syntheticTWGVerificationURL + `"}` + "\n"
 	_, _ = io.WriteString(connection, request)
-	forwarded, err := bufio.NewReader(stdout).ReadString('\n')
+	forwarded, err := stdoutReader.ReadString('\n')
 	if err != nil || forwarded != request {
 		t.Fatalf("forwarded request = %q, %v", forwarded, err)
 	}
