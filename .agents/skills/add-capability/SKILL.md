@@ -162,7 +162,7 @@ reference compatibility, the reference graph, grouped workflows, and those
 producer/consumer projections from structured input/output reference kinds.
 Fault recovery `next_actions` are not reference adjacency: declare them
 explicitly on each stable fault and validate their executable commands.
-An act command must either require at least one opaque reference or declare one complete `tool_local` fixed target, never both. A fixed-target act produces and consumes no references. Give semantically
+An act command must either require at least one opaque reference or declare one complete `tool_local` fixed target, never both. Fixed-target reads and writes produce and consume no references. A fixed-target create consumes none and may produce only confirmed child-resource references whose kinds differ from the fixed creation-scope kind. Give semantically
 different references different kinds; sharing a kind declares them
 interchangeable across every matching field/input edge. Ensure required
 reference chains lead back to a command that can run without an unresolved

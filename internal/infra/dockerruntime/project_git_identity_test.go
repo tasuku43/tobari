@@ -555,6 +555,10 @@ func TestProjectContainerSelectsOnlyDirectSourceBindAccess(t *testing.T) {
 					t.Fatalf("Workspace browser mount %q is missing: %v", mount, create)
 				}
 			}
+			helper := filepath.Join(state.RuntimeDirectory, "helpers", "tobari-expose")
+			if !containsConsecutiveArgs(create, "--mount", "type=bind,src="+helper+",dst=/usr/local/bin/tobari-expose,readonly") {
+				t.Fatalf("Workspace service helper mount is missing: %v", create)
+			}
 		})
 	}
 }
@@ -592,6 +596,10 @@ func TestProjectRuntimeSpecIncludesGitFallbackEnvironmentAndMount(t *testing.T) 
 		if !slices.Contains(spec.Mounts, mount) {
 			t.Fatalf("project spec mounts = %v, want %q", spec.Mounts, mount)
 		}
+	}
+	helper := "bind:" + filepath.Join(state.RuntimeDirectory, "helpers", "tobari-expose") + "->/usr/local/bin/tobari-expose:ro"
+	if !slices.Contains(spec.Mounts, helper) {
+		t.Fatalf("project spec mounts = %v, want %q", spec.Mounts, helper)
 	}
 }
 

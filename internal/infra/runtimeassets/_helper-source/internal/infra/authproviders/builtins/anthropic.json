@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "id": "anthropic",
+  "display_name": "Anthropic account for Claude Code",
+  "acquisition": {
+    "mode": "builtin_helper",
+    "helper": "claude-native-oauth"
+  },
+  "credential": {
+    "kind": "anthropic_claude_oauth_session"
+  },
+  "workspace_projections": [
+    {
+      "kind": "complete_file",
+      "path": ".claude/.credentials.json",
+      "template": "{\"claudeAiOauth\":{\"accessToken\":\"${HANDLE}\",\"refreshToken\":\"dummy-value\",\"expiresAt\":4102444800000,\"scopes\":${OAUTH_SCOPES_JSON},\"subscriptionType\":${CLAUDE_SUBSCRIPTION_TYPE_JSON},\"rateLimitTier\":${CLAUDE_RATE_LIMIT_TIER_JSON}}}"
+    },
+    {
+      "kind": "merge_json",
+      "path": ".claude.json",
+      "template": "{\"hasCompletedOnboarding\":true}"
+    }
+  ],
+  "header_bindings": [
+    {
+      "target": {
+        "scheme": "https",
+        "host": "api.anthropic.com",
+        "port": 443
+      },
+      "source": {
+        "header": "authorization",
+        "formats": [
+          "bearer"
+        ]
+      },
+      "destination": {
+        "header": "authorization",
+        "format": "bearer",
+        "secret_field": "anthropic_claude_oauth_session"
+      },
+      "secret_headers": [
+        "authorization"
+      ]
+    }
+  ]
+}

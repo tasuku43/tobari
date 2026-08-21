@@ -1,4 +1,24 @@
 ARG DEBIAN_IMAGE=debian@sha256:7b140f374b289a7c2befc338f42ebe6441b7ea838a042bbd5acbfca6ec875818
+ARG GO_BUILDER_IMAGE=golang@sha256:116d58cbd88c1297624acc6e967a060012422bacf9930927e23fb719189c6f36
+
+FROM --platform=$BUILDPLATFORM ${GO_BUILDER_IMAGE} AS exposure-helper-builder
+
+ARG TARGETARCH
+ARG TOBARI_EXPOSURE_HELPER_SOURCE
+WORKDIR /src
+COPY --from=helper-source . .
+RUN set -eu; \
+    test -n "${TOBARI_EXPOSURE_HELPER_SOURCE}"; \
+    mv tobari-go.mod go.mod; \
+    mv tobari-go.sum go.sum; \
+    CGO_ENABLED=0 GOOS=linux GOARCH="${TARGETARCH}" \
+      go build -tags=tobari_exposure_helper -buildvcs=false -trimpath \
+      -ldflags '-s -w' -o /out/tobari-expose ./cmd/tobari-expose; \
+    digest="$(sha256sum /out/tobari-expose | cut -d ' ' -f 1)"; \
+    printf '{"schema_version":1,"api":1,"source":"%s","architecture":"%s","sha256":"%s"}\n' \
+      "${TOBARI_EXPOSURE_HELPER_SOURCE}" "${TARGETARCH}" "${digest}" \
+      > /out/identity.json
+
 FROM ${DEBIAN_IMAGE} AS fetcher
 
 ARG TARGETARCH
@@ -90,9 +110,12 @@ ARG TOBARI_UID=1000
 ARG TOBARI_GID=1000
 ARG TARGETARCH
 ARG CODEX_VERSION=0.147.0
+ARG TOBARI_EXPOSURE_HELPER_SOURCE
 
 LABEL io.tobari.runtime-api="1" \
       io.tobari.runtime-lifetime-command="sleep infinity" \
+      io.tobari.exposure-helper-api="1" \
+      io.tobari.exposure-helper-source="${TOBARI_EXPOSURE_HELPER_SOURCE}" \
       org.opencontainers.image.title="Tobari runtime" \
       org.opencontainers.image.description="Tobari-compatible agent-ready work runtime" \
       org.opencontainers.image.source="https://github.com/tasuku43/tobari" \
@@ -115,6 +138,8 @@ COPY --from=fetcher /out/gh /opt/tobari/bin/gh
 COPY --from=fetcher /out/claude /usr/local/bin/claude
 COPY --from=fetcher /out/codex /opt/tobari/codex
 COPY gh /usr/local/bin/gh
+COPY --from=exposure-helper-builder /out/tobari-expose /opt/tobari/libexec/tobari-expose
+COPY --from=exposure-helper-builder /out/identity.json /opt/tobari/libexec/tobari-expose.identity.json
 
 RUN set -eu; \
     case "${TARGETARCH}" in \
@@ -128,7 +153,8 @@ RUN set -eu; \
     ln -s "${codex_release_dir}/bin/codex" /usr/local/bin/codex; \
     ln -s "${codex_release_dir}/bin/codex-code-mode-host" /usr/local/bin/codex-code-mode-host; \
     ln -s "${codex_release_dir}/codex-path/rg" /usr/local/bin/rg; \
-    chmod 0755 /usr/local/bin/gh
+    chmod 0755 /usr/local/bin/gh /opt/tobari/libexec/tobari-expose; \
+    chmod 0444 /opt/tobari/libexec/tobari-expose.identity.json
 
 COPY entrypoint.sh /usr/local/bin/tobari-entrypoint
 RUN chmod 0755 /usr/local/bin/tobari-entrypoint

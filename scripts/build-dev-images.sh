@@ -15,6 +15,8 @@ gateway_tag="tobari-gateway:dev-${gateway_version}"
 base_image=$(go run ./tools/runtimecheck --print-base-image)
 mitmproxy_image=$(awk -F= '$1 == "MITMPROXY_IMAGE" { print $2 }' internal/infra/runtimeassets/assets/versions.env)
 debian_image=$(awk -F= '$1 == "DEBIAN_IMAGE" { print $2 }' internal/infra/runtimeassets/assets/versions.env)
+go_builder_image=$(awk -F= '$1 == "GO_BUILDER_IMAGE" { print $2 }' internal/infra/runtimeassets/assets/versions.env)
+exposure_helper_source=$(go run ./tools/runtimeassetid exposure-helper)
 test -n "$base_image"
 test -n "$mitmproxy_image"
 test -n "$debian_image"
@@ -23,8 +25,11 @@ docker build \
   --tag "$runtime_tag" \
   --file runtimes/base/Dockerfile \
   --build-arg "DEBIAN_IMAGE=$base_image" \
+  --build-arg "GO_BUILDER_IMAGE=$go_builder_image" \
+  --build-arg "TOBARI_EXPOSURE_HELPER_SOURCE=$exposure_helper_source" \
   --build-arg "TOBARI_UID=$(id -u)" \
   --build-arg "TOBARI_GID=$(id -g)" \
+  --build-context helper-source=internal/infra/runtimeassets/_helper-source \
   runtimes/base
 
 if ! docker image inspect "$gateway_tag" >/dev/null 2>&1; then

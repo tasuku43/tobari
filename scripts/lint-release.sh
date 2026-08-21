@@ -119,6 +119,15 @@ for forbidden in 'authbroker-image' 'authbroker/Dockerfile' 'tobari/auth-broker'
     exit 1
   fi
 done
+# The Workspace helper is built into the local engine-native base image. Host
+# release archives retain exactly one executable and must never build or add the
+# helper as a second release member.
+for release_boundary in scripts/package-release.sh scripts/release-archive-entries.sh .github/workflows/release.yml; do
+  if grep -qF 'tobari-expose' "$release_boundary"; then
+    echo "$release_boundary packages the engine-native Workspace helper as a host release artifact" >&2
+    exit 1
+  fi
+done
 validation_workflow=.github/workflows/runtime-base.yml
 for forbidden in 'packages: write' 'docker login ghcr.io' '--push'; do
   if grep -qF -- "$forbidden" "$validation_workflow"; then

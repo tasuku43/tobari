@@ -11,7 +11,10 @@ Windows CLI archives are buildable by the inherited packaging harness but the
 MVP runtime is not supported on Windows because bind mounts, Unix ownership,
 TTY behavior, and container networking have not been validated there.
 Provider homes, credentials, handles, root keys, and vault state are never
-packaged. V1 has no resident credential companion or second executable.
+packaged. Every release archive has exactly one host executable; V1 has no
+resident credential companion or packaged second executable. The dedicated
+Linux `tobari-expose` helper is instead a checked input built into the local
+engine-native base image and is never an archive or Formula member.
 
 Every CLI artifact exposes build identity through `version` text and schema-1
 JSON. A release archive embeds the validated SemVer and full source commit,
@@ -53,6 +56,16 @@ authority. The base workflow always validates Linux amd64 and arm64 with
 cache-only output. The released CLI builds this base on the user's Docker host
 from its embedded pinned recipe; the protected Release workflow has no runtime
 registry path.
+
+That base recipe also builds the dedicated Linux `tobari-expose` helper for
+Docker `TARGETARCH` with a digest-pinned reviewed Go builder. The builder sees
+only the mechanically checked repository source/module dependency closure for
+the helper Program. Source/snapshot equality, licenses, Linux amd64/arm64
+construction, source/API/digest identity, Linux ELF/engine-architecture
+extraction, owner-only storage, and read-only standard/custom-Runtime mounting
+are release-gate evidence. The helper remains an input to a user-built local
+base image; Tobari publishes no helper archive and no OCI image.
+
 The canonical Gateway image definition is maintained under `gateway` and its
 Dockerfile, addon, entrypoint, and tests are checked against the embedded
 `internal/infra/runtimeassets/assets/gateway` snapshot. The released CLI builds
@@ -100,6 +113,10 @@ permission. The manual release workflow packages only CLI archives and their
 repository-generated metadata. No login, credential,
 account fixture, device or authorization code, token, handle, root key, vault,
 or authenticated output is a release artifact.
+The packaging contract admits exactly one platform host executable plus the
+reviewed license and notice files; it rejects `tobari-expose` as a second
+archive member. The engine-native helper is obtained only from the verified
+local base image at Workspace preparation time.
 Each CLI archive includes root `THIRD_PARTY_NOTICES` so the pinned
 `github.com/creack/pty` v1.1.24 MIT notice ships with the binary that uses it.
 

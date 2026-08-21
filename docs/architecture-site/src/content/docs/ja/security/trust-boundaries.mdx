@@ -47,7 +47,17 @@ Workspace へ返す拒否レスポンスは、ホスト側で実行するレビ�
 
 信頼するホスト CLI だけが、不透明なレビュー参照を変更せずに使い、許可または拒否を確定できます。Tobari はポリシー全体を検証し、完全な集約結果を有効化します。表示用のラベル、行の順番、再構成した識別子は、変更操作の権限になりません。
 
-## 境界 4：認証情報を使う権限
+## 境界 4：Workspace サービスへの attachment 所有アクセス
+
+read-only の `tobari-expose` helper は、Workspace loopback port 一つの trusted-host review を
+要求できますが、host access を開けません。別に起動した host の `tobari review` が owner の
+fresh snapshot を取得し、opaque reference 一つを live attachment owner へ渡します。その owner
+だけが exact IPv4 loopback を bind し、exact numeric HTTP authority を検証し、HTTP/1.1 または
+upgrade 済み WebSocket を relay し、attachment exit で access を閉じます。review process は
+route lifetime を所有せず、browser channel、Host Loopback policy、application bytes はいずれも
+この access を認可しません。
+
+## 境界 5：認証情報を使う権限
 
 ツール自身の認証情報は Workspace storage/environment に渡るため読めます。Broker path では、
 固定 GitHub helper または strict owner stdin import が trusted host で動きます。root-key backend
@@ -60,7 +70,7 @@ Gateway は handle、resolved credential、body を OPA へ送りません。sta
 
 <CredentialArchitectureMap headingLevel={3} initial="static" />
 
-## 境界 5：外部から入るデータ
+## 境界 6：外部から入るデータ
 
 リクエスト URL、ヘッダー、本文、外部接続先の証明書、レスポンス、プロバイダーのアカウント名、診断情報、ポリシー候補には、攻撃者が制御する文字列が含まれる可能性があります。端末表示や構造化出力では、表示形式を壊す文字をエスケープします。それでも、表示された文字列の意味まで信頼できるとは扱いません。
 

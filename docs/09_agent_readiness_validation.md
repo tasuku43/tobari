@@ -13,6 +13,7 @@ transcripts as repository fixtures.
 | Enter bounded work | `tobari [--context NAME]` or `tobari [--context NAME] -- COMMAND [ARG...]`; explicit `cluster up` remains available | On first use, one root screen reviews canonical root, direct project effect, effective Access, `standard@1`, no host import, and Bash or the direct executable; Start revalidates empty Context state, completes canonical Context creation and exact shared-cluster reconciliation, then enters one reusable Workspace; Customize retains the complete creation flow; the direct form runs exact foreground argv without a shell, returns its status to the host, and leaves the Workspace reusable |
 | Understand authority lifetime | `context show`, `policy rules`, and Host Loopback capability/review output | Routine guidance distinguishes Context Access, remembered Workspace decisions, and this-session Host Loopback access without requiring baseline, overlay, principal, epoch, or grant reconstruction; typed output retains exact destination kind and authority lifetime |
 | Grow exact permission | `policy review`, or `policy candidates` then one exact allow/deny | Terminal guardrail precedes every candidate; explicit review activates only exact Context/project/scheme/host/port/method/path authority |
+| Open one Workspace service | In the attached Workspace run `tobari-expose PORT`; in a separate host terminal run `tobari review`; later use `tobari-expose list` and `tobari-expose stop EXPOSURE_REF` | Service review shows exact Workspace and target, random host-loopback-only access, no browser opening, and attachment lifetime; Allow once returns exact numeric-loopback URL plus opaque reference; stop consumes that reference unchanged; Permission review remains staged Apply |
 | Inspect/reset decisions | `policy rules`, then `policy reset --id` | One current exact decision is removed through its unchanged opaque reference and returns to default deny |
 | Use native Workspace auth | Run the agent CLI's native login inside the Workspace | Credential state persists in that Workspace home, receives no network grant from login, and crosses Gateway only after the ordinary exact HTTP effect is allowed |
 | Exercise experimental Broker research | Build with `task build:dev`, then use its `auth` commands | No equivalent command, provider binding, projection, service, image authority, or activation switch exists in the standard binary |
@@ -75,6 +76,23 @@ this-session Host Loopback access. Verify the learned decision remains until
 attachment exits. Confirm `destination_kind` and `authority_lifetime` carry
 that distinction in machine output without parsing a label or reconstructing
 an Attachment Epoch. The routine-success external-processing count is zero.
+
+For Workspace service exposure, start a synthetic HTTP/WebSocket fixture on one
+non-privileged Workspace-loopback port. Run `tobari-expose PORT` in the attached
+shell and obtain one fresh Service snapshot through `tobari review` in another
+host terminal. Verify Back and cancellation create no listener, Deny resolves
+without access, and Allow once returns exact
+`http://127.0.0.1:<random-port>`, an opaque `exp_...` reference, and exact
+`tobari-expose stop <exposure-ref>` guidance. Use that URL without rewriting
+Host or Origin, verify WebSocket Upgrade, pass the reference unchanged through
+list and stop, and confirm attachment exit closes every listener and stream.
+Record two declared task invocations plus review, zero identifier reconstruction,
+zero automatic discovery/probing, and zero routine external-processing steps.
+Before that journey, prove the mounted helper is the dedicated hardcoded Linux
+Program extracted from the verified engine-native base: checked source/module
+snapshot, pinned-builder amd64/arm64 construction, source/API/digest and ELF
+architecture identity, owner-only host storage, read-only standard/custom-
+Runtime mounting, spoofed-`argv[0]` denial, and bounded extraction cleanup.
 
 ## Source-access matrix
 

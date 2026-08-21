@@ -11,6 +11,13 @@ from the task you want to complete, then links into the complete generated
 contract. Command inputs, outputs, prerequisites, mutations, failures, and
 recovery actions are not copied into a second hand-maintained registry.
 
+The same global Catalog also validates the attachment-local `tobari-expose`
+helper and its opaque-reference flow into trusted-host review. Routing and help
+are filtered by Program. The dedicated Linux helper main hardcodes that Program,
+so changing `argv[0]` or copying the binary never exposes the host CLI.
+Use `tobari-expose help --format agent` inside an attachment for that program's
+exact request, list, and stop contracts.
+
 <CliTaskIndex />
 
 <details>

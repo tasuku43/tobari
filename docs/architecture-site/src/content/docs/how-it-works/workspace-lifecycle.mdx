@@ -33,6 +33,14 @@ interactive `docker exec` shell.
 
 The attached shell is transient process state. It is not the Workspace lifetime process.
 
+While attached, the read-only `tobari-expose` helper can request trusted-host
+review for one exact Workspace-loopback development service. Run
+`tobari-expose PORT` inside the Workspace, then `tobari review` in a separate
+host terminal. Allow once returns exact
+`http://127.0.0.1:<random-port>` access for HTTP/1.1 and WebSocket Upgrade. The
+attachment—not the helper or reviewer—owns the listener and streams. Exit
+closes them; approval does not become Context policy or a remembered decision.
+
 ### Attached → detached but existing
 
 Shell `exit`, an exact agent command finishing, or a nonzero child exit ends only the exec process. Tobari preserves:
@@ -43,6 +51,9 @@ Shell `exit`, an exact agent command finishing, or a nonzero child exit ends onl
 - the runtime container and dedicated network;
 - learned policy scoped to that Context/project; and
 - Context-owned broker credentials and this project's current handle projection.
+
+It does not preserve pending service requests, host service listeners, or
+active service relays; those are attachment-owned and close on exit.
 
 There is no persisted “paused” state. Detached means no observed attached exec session; the logical Workspace still exists.
 

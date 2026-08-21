@@ -49,6 +49,18 @@ owning host attachment exits. Docker, Compose, host daemon state, automatic
 port discovery, raw TCP, and persistent Host Loopback grants are not part of
 this outcome.
 
+The opposite direction is one explicitly reviewed Workspace service. From a
+live attachment, `tobari-expose <port>` requests exact Workspace
+`127.0.0.1:<port>` access. A separate trusted-host `tobari review` may choose
+`Allow once` or `Deny`; only Allow once makes the owning attachment bind a
+random host IPv4-loopback port. The returned URL is exactly
+`http://127.0.0.1:<random-port>`. HTTP/1.1 and WebSocket Upgrade relay without
+rewriting Host, Origin, redirects, cookies, headers, or content. The helper can
+list current-attachment exposures and stop one only with its unchanged opaque
+reference. Attachment exit closes the listener and streams. This grants no
+Context policy, remembered decision, Host Loopback authority, LAN access,
+automatic discovery, requested host port, health probe, or browser opening.
+
 Routine permission guidance presents three layers and no implementation-source
 inventory:
 
@@ -287,6 +299,10 @@ The public commands are:
 | `cluster down [--purge]` | act, fixed target | write | Remove shared transient resources after every Workspace is deleted; `--purge` additionally removes shared CA and active policy-bundle volumes |
 | `policy candidates [--tail N] [--format text|json]` | discover | read | Discover Context/project-scoped pending exact HTTP or GraphQL-root candidates and opaque IDs across the installation |
 | `policy review [--tail N] [--format text|json] [--watch] [--notify auto|osc9|bel|off]` | discover plus TTY fixed-target apply | read, or one confirmed write | Review the installation-wide Permission Inbox; a raw TTY can stage exact decisions from the list, inspect template scope, and apply the reviewed set; `--watch` refreshes bounded snapshots and remains open after Apply, while `--notify` selects its terminal-emulator cue and redirected or JSON output remain read-only |
+| `review` | discover plus TTY reference-bound actions | read, or one confirmed create/write | In a separate trusted-host terminal, choose the unchanged Permission Inbox or a fresh live Service request; Permission decisions retain staged Apply while Service Allow once or Deny is immediate and attachment-local; redirected output is read-only |
+| `service requests` | discover | read | Return one fresh exhaustive snapshot of pending service requests from live attachment owners with opaque request references |
+| `service allow --id ID` | act, reference bound | create | Revalidate one pending request and create one attachment-owned random IPv4-loopback exposure |
+| `service deny --id ID` | act, reference bound | write | Resolve one pending request without creating host access |
 | `policy allow --id ID` | act, reference bound | write | Test, record, and activate one exact observed permission |
 | `policy deny --id ID` | act, reference bound | write | Test, record, and activate one exact project-bound rejection |
 | `policy rules [--format text|json]` | discover | read | List every Context-scoped CLI-owned learned Allow and exact Deny decision; on a TTY, reset one explicitly |
@@ -306,6 +322,19 @@ The public commands are:
 | `runtime history --name NAME [--format text\|json]` | utility | read | Show one Runtime's ordered immutable successful revision history |
 | `runtime create --name NAME [--format text\|json]` | act, fixed target | create | Create one owner-only managed Docker build-context source tree without building or changing a Context |
 | `runtime build [--name NAME] [--format text\|json]` | act, fixed target | write | Snapshot, build, validate, and append one immutable semantic revision without changing any Context; omission opens terminal Review |
+
+Every Tobari-controlled base Runtime image builds a dedicated Linux Workspace
+helper from the checked source/Catalog closure with a pinned builder. The host
+extracts and verifies that engine-native helper, then mounts it read-only only
+while attached. Its main hardcodes the helper Program; changing `argv[0]` or
+copying it cannot expose host commands:
+
+| Helper command | Role | Effect | Outcome |
+|---|---|---|---|
+| `tobari-expose <port>` | act, fixed target | create | Request trusted-host review for one exact non-privileged Workspace-loopback port; wait for the confirmed result and return its opaque exposure reference and exact stop command |
+| `tobari-expose list` | discover | read | List the exhaustive current-attachment exposure inventory and unchanged opaque references |
+| `tobari-expose stop <exposure-ref>` | act, reference bound | write | Close one exact current-attachment listener and its active relays without stopping the Workspace service |
+| `tobari-expose help [<command>...] [--format text\|agent]` | utility | read | Discover only the helper program's exact contracts |
 
 The unsupported experimental development profile built by `task build:dev`
 additionally exposes `serve [--no-open]`. It runs one foreground IPv4-loopback

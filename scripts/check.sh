@@ -185,7 +185,8 @@ run_fast() {
 run_security() {
   go mod verify
   go run ./tools/repoguard --scope security
-  go run github.com/securego/gosec/v2/cmd/gosec@v2.27.1 -quiet ./...
+  go run github.com/securego/gosec/v2/cmd/gosec@v2.27.1 \
+    -exclude-dir=internal/infra/runtimeassets/_helper-source -quiet ./...
   go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...
   ./scripts/check-site.sh security
 }

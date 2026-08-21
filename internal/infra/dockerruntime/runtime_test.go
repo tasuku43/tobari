@@ -17,6 +17,7 @@ import (
 	"github.com/tasuku43/tobari/internal/domain/doctor"
 	"github.com/tasuku43/tobari/internal/domain/fault"
 	"github.com/tasuku43/tobari/internal/domain/tobari"
+	"github.com/tasuku43/tobari/internal/infra/runtimeassets"
 )
 
 type runnerCall struct{ args []string }
@@ -96,6 +97,14 @@ type clusterUpProgressRunner struct {
 }
 
 func (r *clusterUpProgressRunner) Run(_ context.Context, args, environment []string, _ io.Reader, out, _ io.Writer) error {
+	if len(args) >= 2 && args[0] == "container" && args[1] == "cp" {
+		archive, err := exposureHelperArchiveBytes(syntheticExposureHelperELF("arm64"), "arm64", nil)
+		if err != nil {
+			return err
+		}
+		_, err = out.Write(archive)
+		return err
+	}
 	if len(args) > 0 && args[0] == "compose" {
 		r.events = append(r.events, "compose")
 		r.composeEnvironment = append([]string{}, environment...)
@@ -142,6 +151,13 @@ func (r *clusterUpProgressRunner) Output(_ context.Context, args, _ []string) ([
 	if len(args) >= 1 && args[0] == "image" {
 		if strings.Contains(strings.Join(args, " "), tobari.RuntimeImageAPILabel) {
 			return compatibleImageInspection(), nil
+		}
+		if strings.Contains(strings.Join(args, " "), exposureHelperAPILabel) {
+			source, err := runtimeassets.ExposureHelperSourceVersion()
+			if err != nil {
+				return nil, err
+			}
+			return []byte(fmt.Sprintf(`{"architecture":"arm64","os":"linux","api":"1","source":%q}`, source)), nil
 		}
 		image := args[len(args)-1]
 		switch image {

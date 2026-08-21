@@ -29,6 +29,19 @@ func TestCommandOutputKeepsDiagnosticsOutOfMachineReadableStdout(t *testing.T) {
 	}
 }
 
+func TestCheckedHelperSourceSnapshotIsNotASecondProductionTree(t *testing.T) {
+	root := t.TempDir()
+	helper := filepath.Join(root, "internal", "infra", "runtimeassets", "_helper-source")
+	if !isCheckedHelperSourceDirectory(root, helper) ||
+		!isCheckedHelperSourceDirectory(root, filepath.Join(helper, "internal", "cli")) {
+		t.Fatal("checked helper source closure was not recognized")
+	}
+	if isCheckedHelperSourceDirectory(root, filepath.Join(root, "internal", "cli")) ||
+		isCheckedHelperSourceDirectory(root, filepath.Join(root, "internal", "infra", "runtimeassets", "_helper-source-copy")) {
+		t.Fatal("production source was classified as the checked helper snapshot")
+	}
+}
+
 func TestArchlintCommandOutputHelper(t *testing.T) {
 	if os.Getenv("ARCHLINT_COMMAND_OUTPUT_HELPER") != "1" {
 		return

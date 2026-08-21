@@ -37,6 +37,38 @@ Workspace capability data, OPA input, audit, and review output never receive
 the relay port or token. Missing, malformed, stale, or unauthenticated relay
 traffic reaches no target bytes.
 
+Workspace service exposure is distinct from that Host Loopback branch. A
+Workspace may submit only one exact non-privileged loopback port through an
+unpredictable attachment-local helper socket; the request grants nothing.
+Only a separately invoked trusted-host review can create access, and the live
+attachment owner revalidates the opaque request immediately before binding
+exact IPv4 `127.0.0.1` on a random port. Every HTTP/1.1 request must carry exact
+`127.0.0.1:<host-port>` authority before a Workspace stream opens. Ambiguous
+Host, transfer framing, folded headers, and mismatched absolute targets fail
+closed. WebSocket bytes become opaque only after a validated Upgrade and `101`.
+Application bytes are never policy evidence, review text, diagnostics, or logs.
+
+The host rendezvous uses owner-only directories, regular 0600 atomic records,
+unpredictable sockets and nonces, and Darwin/Linux peer PID and UID checks.
+The reviewer owns no listener or lifetime. Stale, forged, mismatched, oversized,
+or symlink records are removed without following them. The owner bounds pending
+requests, exposures, connections, metadata, setup, and shutdown; attachment
+exit first prevents new connections, closes listeners and streams, then removes
+control and rendezvous authority. The helper has no Docker socket, host files,
+credentials, browser opener, policy writer, general executor, LAN bind, chosen
+host port, or persistence path.
+
+The helper is not the host release executable under another name. A dedicated
+Linux main hardcodes the helper Program, so spoofed `argv[0]` and copied helper
+bytes cannot select host routes. The canonical base builds it for Docker's
+target architecture from the exact checked Go source/module closure with a
+pinned builder. Host extraction accepts only a label-matched source/API
+identity, regular safe-mode files, an exact digest, and a Linux ELF matching
+the engine architecture; symlinks, special files, Mach-O, stale source/API,
+and wrong architecture fail closed. Temporary extraction state is bounded and
+removed, the retained host copy is owner-only, and the Workspace mount is
+read-only for standard and custom Runtimes.
+
 Adoption is part of this security objective. A boundary that is too difficult
 to create or customize will be bypassed by running the agent on the host. The
 safe default therefore remains opt-in and deny-by-default, while the user

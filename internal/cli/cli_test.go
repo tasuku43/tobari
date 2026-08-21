@@ -53,7 +53,7 @@ func newTestCLI(inspector *cliInspector) (*CLI, *bytes.Buffer, *bytes.Buffer) {
 
 func newReferenceTestCLI(in io.Reader, out, errOut io.Writer) *CLI {
 	command := New(in, out, errOut)
-	commands := DefaultCatalog().Commands()
+	commands := DefaultCatalog().registeredCommands()
 	list := discoverSpec("items list", "item")
 	list.Args = "[--format tsv|json]"
 	list.Agent.Inputs = []CommandInput{{
@@ -175,7 +175,7 @@ func TestDirectRootCommandInvalidFormsFailBeforeHandler(t *testing.T) {
 }
 
 func catalogWithProjectSpec(projectSpec CommandSpec) Catalog {
-	commands := DefaultCatalog().Commands()
+	commands := DefaultCatalog().registeredCommands()
 	for index := range commands {
 		if commands[index].Path == "tobari" {
 			commands[index] = projectSpec
@@ -639,7 +639,7 @@ func TestDispatchParsesCatalogInputsBeforeCallingHandler(t *testing.T) {
 		}
 		return ExitOK
 	}
-	commands := DefaultCatalog().Commands()
+	commands := DefaultCatalog().registeredCommands()
 	commands = append(commands, spec)
 	command := newCLI(strings.NewReader(""), io.Discard, io.Discard, NewCatalog(commands...), passingInspector("unused"))
 
@@ -1029,7 +1029,7 @@ func TestEveryCatalogCommandDispatchesThroughItsSpec(t *testing.T) {
 	for _, spec := range DefaultCatalog().Commands() {
 		inspector := passingInspector("test/test")
 		var stdout, stderr bytes.Buffer
-		commands := DefaultCatalog().Commands()
+		commands := DefaultCatalog().registeredCommands()
 		for index := range commands {
 			commands[index].handler = noOpHandler
 		}

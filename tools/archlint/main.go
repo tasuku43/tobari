@@ -110,6 +110,9 @@ func loadPackages(root string) (string, []listedPackage, error) {
 			if err := decoder.Decode(&item); err != nil {
 				return "", nil, fmt.Errorf("decode go list output for %s/%s: %w", target.goos, target.goarch, err)
 			}
+			if isCheckedHelperSourceDirectory(root, item.Dir) {
+				continue
+			}
 			merged[item.ImportPath] = mergeListedPackage(merged[item.ImportPath], item)
 		}
 	}
@@ -119,6 +122,12 @@ func loadPackages(root string) (string, []listedPackage, error) {
 	}
 	sort.Slice(packages, func(i, j int) bool { return packages[i].ImportPath < packages[j].ImportPath })
 	return module, packages, nil
+}
+
+func isCheckedHelperSourceDirectory(root, directory string) bool {
+	helperRoot := filepath.Join(root, "internal", "infra", "runtimeassets", "_helper-source")
+	relative, err := filepath.Rel(helperRoot, directory)
+	return err == nil && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator))
 }
 
 func runGo(root string, args ...string) ([]byte, error) {

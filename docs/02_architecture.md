@@ -51,6 +51,28 @@ environment, paths, query, and DNS cannot select an epoch, relay port/token, or
 target address. The capability projection inside the attached shell is an
 advisory discovery surface and carries no routing secret or permission.
 
+Workspace service exposure is a separate opposite-direction attachment branch.
+The canonical base recipe cross-compiles a dedicated Linux `tobari-expose`
+helper for Docker `TARGETARCH` with a pinned Go builder and an exact checked
+source/module closure. Its main hardcodes the helper Program rather than
+selecting authority from `argv[0]`. Before attachment, the host extracts the
+helper and identity record from the verified source-derived base through a
+bounded temporary container; validates source/API identity, SHA-256, regular
+file type, safe mode, Linux ELF, and engine architecture; and atomically stores
+one owner-only executable. Every selected Workspace, including one using a
+managed custom Runtime, receives that executable as the same read-only
+`/usr/local/bin/tobari-expose` mount. An unpredictable Workspace Unix socket
+connects that helper to one fixed non-TTY control process; it can submit only
+one non-privileged Workspace-loopback port, list current-attachment exposures,
+or stop one unchanged opaque reference. The live host attachment
+owns pending requests and exposes a distinct owner-only Unix rendezvous plus
+atomic ephemeral record. A separate `tobari review` process validates peer UID
+and PID, nonce, attachment identity, and a fresh snapshot, but never owns the
+listener or route lifetime. Allow once binds random host IPv4 loopback and a
+bounded HTTP/1.1/WebSocket relay to exact Workspace loopback. This channel
+shares no schema, socket, registry, authority, or data plane with browser login
+or Host Loopback access.
+
 Attachment Grants are runtime-owned inputs to the complete per-request OPA projection and
 are disjoint from Context `policy/domains` learned rules. Policy review binds
 one grant to Context, project, epoch, target port, and exact effect. The route is
@@ -193,7 +215,19 @@ and `policy reset` for one current decision, while redirected and
 machine-readable inventory remains read-only. `policy candidates` is the
 machine discovery surface. The catalog declares this
 composition while preserving discover/act separation: the act still consumes
-exactly one validated opaque reference or one declared fixed target.
+exactly one validated opaque reference or one declared fixed target. A
+fixed-target read or write remains reference-free. A fixed-target create may
+return confirmed opaque child-resource references, but consumes none and cannot
+return the fixed creation-scope kind.
+
+The Catalog spans both executable programs so the helper's produced service
+reference can close through the host actions and the exposure reference can
+close through helper stop. Validation and reference closure are global;
+dispatch, human help, and scoped agent help are filtered by exact program.
+`tobari review` composes the existing Permission source with a fresh Service
+source. Permission keeps staged Apply; Service Allow once and Deny invoke the
+canonical reference-bound actions immediately. The Workspace helper never
+receives host command routing.
 
 Experimental `serve` is a foreground CLI composition over the existing typed application
 tasks. Before exposing a listener it obtains one valid installation snapshot:

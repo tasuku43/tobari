@@ -354,6 +354,35 @@ range, lifetime, and audience without exposing relay credentials. This outcome
 does not provide host Docker, Compose control, raw TCP, privileged ports, or
 private-LAN access.
 
+### Open a Workspace development service on the host
+
+Keep the attached Workspace running. Inside it, request one exact loopback
+service:
+
+```sh
+tobari-expose 3000
+```
+
+In a separate trusted-host terminal, run `tobari review`, choose Service
+requests, inspect the exact Workspace and `127.0.0.1:3000` target, then choose
+Allow once. The waiting helper prints a random exact URL such as
+`http://127.0.0.1:54321`, its opaque exposure reference, and the exact stop
+command. Tobari does not open the browser automatically.
+
+```sh
+tobari-expose list
+tobari-expose stop exp_0123456789abcdef0123456789abcdef
+```
+
+Only exact numeric-loopback HTTP/1.1 and WebSocket Upgrade are relayed. Tobari
+does not rewrite Host, Origin, redirects, cookies, headers, or content. The
+attachment owns the listener: exit closes it and active connections. Approval
+is not saved as Context policy or a remembered Workspace decision, and the
+helper cannot choose a host port, publish to the LAN, or expose raw TCP.
+The helper is a dedicated engine-native Linux program built into Tobari's
+verified base Runtime and mounted read-only even when the Context selects a
+custom Runtime; it is not the host release executable or a second archive.
+
 Advanced Contexts may add trusted-host Rego constraints, but Advanced Rego is
 beneath the Context policy ceiling and cannot redefine exact learned identity or the
 Tobari-owned router.

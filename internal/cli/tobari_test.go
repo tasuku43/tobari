@@ -1396,7 +1396,7 @@ func TestSyntheticProjectStatusUsesOmissionBasedRootRecovery(t *testing.T) {
 func TestProjectEntryDeclaresClusterProjectionStaleRecovery(t *testing.T) {
 	t.Parallel()
 	catalog := DefaultCatalog()
-	commands := catalog.Commands()
+	commands := catalog.registeredCommands()
 	found := false
 	for index := range commands {
 		if commands[index].Path != "tobari" {

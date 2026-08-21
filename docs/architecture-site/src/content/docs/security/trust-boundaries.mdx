@@ -54,7 +54,17 @@ OPA receives a normalized, body-free view of an ordinary HTTP effect. It decides
 
 Only the trusted host CLI can take an unchanged opaque review reference, select allow or deny, validate the complete projection, and activate it. Display labels, row order, and reconstructed identifiers are not action authority.
 
-## Boundary 4: credential authority
+## Boundary 4: attachment-owned service access
+
+The read-only `tobari-expose` helper may request review of one exact
+Workspace-loopback port, but it cannot open host access. A separately invoked
+host `tobari review` obtains a fresh owner snapshot and passes one opaque
+reference back to the live attachment owner. Only that owner binds exact IPv4
+loopback, validates exact numeric HTTP authority, relays HTTP/1.1 or an upgraded
+WebSocket, and closes access on attachment exit. Review owns no route lifetime;
+the browser channel, Host Loopback policy, and application bytes grant none.
+
+## Boundary 5: credential authority
 
 Tool-native credentials deliberately cross into Workspace storage or
 environment and are readable there. In the brokered path, the fixed GitHub
@@ -68,7 +78,7 @@ the declared upstream header. On deny, resolution does not run.
 
 <CredentialArchitectureMap headingLevel={3} initial="static" />
 
-## Boundary 5: external data
+## Boundary 6: external data
 
 Request URLs, headers, bodies, upstream certificates, responses, provider account labels, diagnostics, and policy candidates can all contain attacker-controlled text. Visible projection escapes terminal/structured-output hazards. It does not claim to make printable prompt-like content trustworthy.
 

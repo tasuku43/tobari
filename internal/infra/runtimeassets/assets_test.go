@@ -76,6 +76,11 @@ func TestTobariDockerfileDeclaresRuntimeContract(t *testing.T) {
 	}
 	spec := string(data)
 	for _, required := range []string{
+		`FROM --platform=$BUILDPLATFORM ${GO_BUILDER_IMAGE} AS exposure-helper-builder`,
+		`go build -tags=tobari_exposure_helper -buildvcs=false -trimpath`,
+		`io.tobari.exposure-helper-api="1"`,
+		`io.tobari.exposure-helper-source="${TOBARI_EXPOSURE_HELPER_SOURCE}"`,
+		`COPY --from=exposure-helper-builder /out/tobari-expose /opt/tobari/libexec/tobari-expose`,
 		`io.tobari.runtime-api="1"`,
 		`io.tobari.runtime-lifetime-command="sleep infinity"`,
 		`USER tobari`,

@@ -3,6 +3,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 scenario=scripts/test-integration.sh
+workspace_service_helper=test/integration/workspace_service_exposure.sh
 
 expected_phases=$'preflight\nbuild-fixtures\ncontexts-and-cluster\ncredentials-and-workspaces\ngateway-broker-and-transport\nlive-policy-activation\nattachment-scoped-host-loopback\nruntime-failure-boundaries\nlifecycle'
 actual_phases=$(awk '/^begin_phase / { print $2 }' "$scenario")
@@ -17,8 +18,24 @@ if ((line_count > 1700)); then
   echo "integration scope: scenario grew to $line_count lines (limit 1700)" >&2
   exit 1
 fi
+helper_line_count=$(wc -l <"$workspace_service_helper" | tr -d ' ')
+if ((helper_line_count > 100)); then
+  echo "integration scope: Workspace service phase helper grew to $helper_line_count lines (limit 100)" >&2
+  exit 1
+fi
+for claim in \
+  'run_tobari service requests' \
+  'run_tobari service allow --id' \
+  'exact-authority Workspace HTTP relay' \
+  'current-attachment exposure list' \
+  'stopped Workspace service exposure remained reachable'; do
+  if ! grep -F "$claim" "$workspace_service_helper" >/dev/null; then
+    echo "integration scope: missing Workspace service boundary canary: $claim" >&2
+    exit 1
+  fi
+done
 
-cli_reference_count=$(grep -Eoc 'run_tobari(_at|_pty_at)?' "$scenario")
+cli_reference_count=$(grep -Ehoc 'run_tobari(_at|_pty_at)?' "$scenario" "$workspace_service_helper" | awk '{sum += $1} END {print sum}')
 if ((cli_reference_count > 45)); then
   echo "integration scope: scenario grew to $cli_reference_count CLI references (limit 45)" >&2
   exit 1

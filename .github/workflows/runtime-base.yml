@@ -8,9 +8,14 @@ on:
       - runtimes/codex/runtime.lock.json
       - runtimes/manifest.json
       - internal/infra/runtimeassets/assets/tobari/**
+      - internal/infra/runtimeassets/_helper-source/**
       - internal/infra/runtimeassets/assets/versions.env
       - scripts/check-runtime-base.sh
       - scripts/sync-runtime-base.sh
+      - scripts/exposure-helper-source-files.py
+      - scripts/check-exposure-helper-source.sh
+      - scripts/sync-exposure-helper-source.sh
+      - cmd/tobari-expose/**
       - tools/runtimecheck/**
       - .github/workflows/runtime-base.yml
   push:
@@ -21,9 +26,14 @@ on:
       - runtimes/codex/runtime.lock.json
       - runtimes/manifest.json
       - internal/infra/runtimeassets/assets/tobari/**
+      - internal/infra/runtimeassets/_helper-source/**
       - internal/infra/runtimeassets/assets/versions.env
       - scripts/check-runtime-base.sh
       - scripts/sync-runtime-base.sh
+      - scripts/exposure-helper-source-files.py
+      - scripts/check-exposure-helper-source.sh
+      - scripts/sync-exposure-helper-source.sh
+      - cmd/tobari-expose/**
       - tools/runtimecheck/**
       - .github/workflows/runtime-base.yml
 
@@ -64,8 +74,11 @@ jobs:
             --platform linux/amd64,linux/arm64 \
             --file runtimes/base/Dockerfile \
             --build-arg "DEBIAN_IMAGE=$base_image" \
+            --build-arg "GO_BUILDER_IMAGE=$(awk -F= '$1 == \"GO_BUILDER_IMAGE\" { print $2 }' internal/infra/runtimeassets/assets/versions.env)" \
+            --build-arg "TOBARI_EXPOSURE_HELPER_SOURCE=$(go run ./tools/runtimeassetid exposure-helper)" \
             --build-arg TOBARI_UID=1000 \
             --build-arg TOBARI_GID=1000 \
+            --build-context helper-source=internal/infra/runtimeassets/_helper-source \
             --label "org.opencontainers.image.revision=$GITHUB_SHA" \
             --label "org.opencontainers.image.version=main-${GITHUB_SHA:0:12}" \
             --output type=cacheonly \

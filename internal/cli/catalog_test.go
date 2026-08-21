@@ -152,6 +152,38 @@ func TestDefaultCatalogIsValidAndUnique(t *testing.T) {
 	}
 }
 
+func TestProgramAwareCatalogFiltersRoutingWhileClosingGlobalReferenceGraph(t *testing.T) {
+	producer := discoverSpec("requests", "service-request")
+	producer.Program = ProgramName
+	consumer := actSpec("stop", "service-request", "--id")
+	consumer.Program = ExposureProgramName
+	catalog := NewCatalog(producer, consumer)
+	if err := catalog.Validate(); err != nil {
+		t.Fatalf("cross-program catalog: %v", err)
+	}
+	if _, found := catalog.Lookup("requests"); !found {
+		t.Fatal("host producer is not routed")
+	}
+	if _, found := catalog.Lookup("stop"); found {
+		t.Fatal("helper command leaked into host routing")
+	}
+	helper := catalog.ForProgram(ExposureProgramName)
+	if _, found := helper.Lookup("stop"); !found {
+		t.Fatal("helper consumer is not routed")
+	}
+	if _, found := helper.Lookup("requests"); found {
+		t.Fatal("host command leaked into helper routing")
+	}
+	if got := helper.Commands()[0].Usage(); got != "tobari-expose stop --id <service-request-id>" {
+		t.Fatalf("helper usage = %q", got)
+	}
+
+	closed := NewCatalog(consumer)
+	if err := closed.Validate(); err == nil {
+		t.Fatal("cross-program consumer without a producer passed")
+	}
+}
+
 func TestCatalogRejectsInvalidCompletionMetadata(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -848,6 +880,46 @@ func TestFixedTargetMutationPreservesMutationSafetyContract(t *testing.T) {
 	create.Effect = operation.EffectCreate
 	if err := validateAgentContract(create); err != nil {
 		t.Fatalf("fixed target as create scope: %v", err)
+	}
+}
+
+func TestFixedTargetCreateMayProduceOnlyDistinctConfirmedChildReferences(t *testing.T) {
+	status := fixedTargetActSpec("attachments status")
+	create := fixedTargetActSpec("attachments create-child")
+	create.Effect = operation.EffectCreate
+	create.Agent.Errors = mutationErrors(create.Agent.Errors, create.Path)
+	for index := range create.Agent.Errors {
+		if create.Agent.Errors[index].Code == "unclassified_mutation_outcome" ||
+			create.Agent.Errors[index].Code == "mutation_output_write_failed" {
+			create.Agent.Errors[index].NextActions[0].Command = status.Path
+		}
+	}
+	create.Agent.Output.Fields[0].ReferenceKind = "attachment-child"
+	create.Agent.Mutation = &MutationContract{
+		TargetKind: "auth-config", TargetInputs: []string{},
+		Impact: operation.Impact{Cardinality: operation.CardinalityOne, Notification: operation.DeclarationNo, AccessChange: operation.DeclarationNo, Destructive: operation.DeclarationNo},
+	}
+	consume := actSpec("attachments stop-child", "attachment-child", "--id")
+	if err := NewCatalog(status, create, consume).Validate(); err != nil {
+		t.Fatalf("fixed-target create with confirmed child reference: %v", err)
+	}
+
+	for name, mutate := range map[string]func(*CommandSpec){
+		"scope kind escapes": func(spec *CommandSpec) { spec.Agent.Output.Fields[0].ReferenceKind = spec.Agent.FixedTarget.Kind },
+		"write produces":     func(spec *CommandSpec) { spec.Effect = operation.EffectWrite },
+		"read produces":      func(spec *CommandSpec) { spec.Effect = operation.EffectRead },
+		"create consumes": func(spec *CommandSpec) {
+			spec.Args = "--id <parent-id>"
+			spec.Agent.Inputs = []CommandInput{{Name: "--id", Source: InputSourceFlag, Required: true, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, Description: "Opaque parent.", AllowedValues: []string{}, ReferenceKind: "parent"}}
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			candidate := cloneCommandSpec(create)
+			mutate(&candidate)
+			if err := validateCommandReferenceRole(candidate); err == nil {
+				t.Fatal("invalid fixed-target reference shape passed validation")
+			}
+		})
 	}
 }
 

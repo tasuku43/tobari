@@ -342,6 +342,15 @@ func validate(root string) (string, error) {
 	spec := string(dockerfile)
 	for _, required := range []string{
 		"ARG DEBIAN_IMAGE=",
+		"ARG GO_BUILDER_IMAGE=golang@sha256:",
+		"FROM --platform=$BUILDPLATFORM ${GO_BUILDER_IMAGE} AS exposure-helper-builder",
+		"COPY --from=helper-source . .",
+		"go build -tags=tobari_exposure_helper -buildvcs=false -trimpath",
+		"-o /out/tobari-expose ./cmd/tobari-expose",
+		`io.tobari.exposure-helper-api="1"`,
+		`io.tobari.exposure-helper-source="${TOBARI_EXPOSURE_HELPER_SOURCE}"`,
+		"COPY --from=exposure-helper-builder /out/tobari-expose /opt/tobari/libexec/tobari-expose",
+		"COPY --from=exposure-helper-builder /out/identity.json /opt/tobari/libexec/tobari-expose.identity.json",
 		"FROM ${DEBIAN_IMAGE} AS fetcher",
 		"ARG GH_VERSION=" + lock.Tools.GH.Version,
 		"ARG AWS_CLI_VERSION=" + lock.Tools.AWSCLI.Version,
@@ -404,7 +413,7 @@ func validate(root string) (string, error) {
 	if !strings.Contains(spec, "ln -s /opt/aws-cli/v2/current/bin/aws /usr/local/bin/aws") {
 		return "", errors.New("base Dockerfile does not expose the AWS CLI")
 	}
-	for _, forbidden := range []string{"ENV CODEX_HOME=", "/var/lib/tobari/.local/bin/claude", "/var/lib/tobari/.codex/packages", "claude update", "codex update"} {
+	for _, forbidden := range []string{"COPY tobari-expose ", "ENV CODEX_HOME=", "/var/lib/tobari/.local/bin/claude", "/var/lib/tobari/.codex/packages", "claude update", "codex update"} {
 		if strings.Contains(spec, forbidden) {
 			return "", fmt.Errorf("base Dockerfile contains forbidden mutable agent installation %q", forbidden)
 		}
@@ -419,6 +428,16 @@ func validate(root string) (string, error) {
 	}
 	if !strings.Contains(workflowText, "--output type=cacheonly") {
 		return "", errors.New("agent-ready base workflow must retain build-only validation")
+	}
+	for _, required := range []string{
+		"--platform linux/amd64,linux/arm64",
+		"--build-context helper-source=internal/infra/runtimeassets/_helper-source",
+		"--build-arg \"GO_BUILDER_IMAGE=",
+		"--build-arg \"TOBARI_EXPOSURE_HELPER_SOURCE=",
+	} {
+		if !strings.Contains(workflowText, required) {
+			return "", fmt.Errorf("agent-ready base workflow is missing helper construction evidence %q", required)
+		}
 	}
 
 	return lock.BaseImage.Reference, nil

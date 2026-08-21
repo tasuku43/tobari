@@ -30,6 +30,16 @@
     "reason": ""
   },
   {
+    "id": "trusted-host.review",
+    "status": "public",
+    "reason": ""
+  },
+  {
+    "id": "workspace.service-exposure",
+    "status": "public",
+    "reason": ""
+  },
+  {
     "id": "terminal.inline-trusted-host-review",
     "status": "excluded",
     "reason": "V1 preserves transparent child terminal ownership; arbitrary alternate-screen restoration cannot be proved without a separately accepted terminal emulator or parser boundary."

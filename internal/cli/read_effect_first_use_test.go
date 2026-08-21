@@ -85,6 +85,8 @@ func TestEveryCatalogReadExecutesOnFreshXDGWithoutDurableOrExternalMutation(t *t
 		"policy candidates":     {"--format=json"},
 		"policy review":         {"--format=json"},
 		"policy rules":          {"--format=json"},
+		"review":                {},
+		"service requests":      {},
 		"runtime history":       {"--name=standard", "--format=json"},
 		"runtime list":          {"--format=json"},
 		"runtime show":          {"--name=standard", "--format=json"},
@@ -98,7 +100,7 @@ func TestEveryCatalogReadExecutesOnFreshXDGWithoutDurableOrExternalMutation(t *t
 	}
 
 	var readPaths []string
-	for _, spec := range DefaultCatalog().commands {
+	for _, spec := range DefaultCatalog().Commands() {
 		if spec.Effect == operation.EffectRead {
 			readPaths = append(readPaths, spec.Path)
 		}

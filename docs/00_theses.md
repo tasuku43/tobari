@@ -62,6 +62,17 @@ Permission Inbox review remains in a separate terminal. A bounded experiment
 proved prefix parsing and lossless finite-PTY backpressure but could not
 restore an arbitrary child's non-stacking alternate screen without owning a
 terminal emulator/parser, so Tobari makes no such restoration claim.
+An attachment may project a finite set of Tobari-owned, purpose-specific
+helpers; possession lets a Workspace request an exact effect but never approve
+it. The engine-native `tobari-expose` helper has a dedicated hardcoded Program,
+is built from the checked source closure into the verified base Runtime, and is
+mounted read-only; it cannot expose host routes through `argv[0]` spoofing or a
+copied binary. It requests one Workspace-loopback HTTP service, while a
+separate trusted-host `tobari review` revalidates and allows it once. The live
+attachment owns the random host-loopback listener and every relay, and removes
+them when it exits. Service exposure is neither durable Context policy nor the
+opposite-direction Host Loopback branch, and it does not create a generic
+attachment RPC, Docker publication, LAN access, or raw transport.
 One installation-local standard cluster shares one Gateway, one OPA, an atomic
 all-Context policy projection, and CA state without sharing Workspace homes or
 runtime networks. The repository-only experimental profile may additionally

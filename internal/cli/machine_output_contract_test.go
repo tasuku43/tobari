@@ -216,10 +216,16 @@ func TestInternalCatalogVisibilityExcludesCompletionFromPublicSurfaces(t *testin
 	}
 }
 
-func TestPublicCatalogProjectionRemainsSelfContained(t *testing.T) {
-	projected := NewCatalog(DefaultCatalog().Commands()...)
-	if err := projected.Validate(); err != nil {
-		t.Fatalf("public catalog projection: %v", err)
+func TestProgramFilteredCatalogProjectionRetainsGlobalReferenceClosure(t *testing.T) {
+	catalog := DefaultCatalog()
+	if err := catalog.Validate(); err != nil {
+		t.Fatalf("global catalog: %v", err)
+	}
+	if _, found := catalog.Lookup(ExposureProgramName); found {
+		t.Fatal("host projection exposes helper root")
+	}
+	if _, found := catalog.ForProgram(ExposureProgramName).Lookup("review"); found {
+		t.Fatal("helper projection exposes host review")
 	}
 }
 

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 cd "$(dirname "$0")/.."
+source test/integration/workspace_service_exposure.sh
 
 binary=${TOBARI_INTEGRATION_BINARY:-}
 binary_digest=
@@ -783,11 +784,16 @@ mkdir -p "$work_root" "$other_root"
 printf 'host-home-canary\n' >"$test_root/user/host-home-canary"
 if [[ $custom_base_image == tobari-runtime:dev ]] && ! docker image inspect "$custom_base_image" >/dev/null 2>&1; then
   base_image=$(go run ./tools/runtimecheck --print-base-image)
+  go_builder_image=$(awk -F= '$1 == "GO_BUILDER_IMAGE" { print $2 }' internal/infra/runtimeassets/assets/versions.env)
+  exposure_helper_source=$(go run ./tools/runtimeassetid exposure-helper)
   docker build --tag "$custom_base_image" \
     --file runtimes/base/Dockerfile \
     --build-arg "DEBIAN_IMAGE=$base_image" \
+    --build-arg "GO_BUILDER_IMAGE=$go_builder_image" \
+    --build-arg "TOBARI_EXPOSURE_HELPER_SOURCE=$exposure_helper_source" \
     --build-arg "TOBARI_UID=$(id -u)" \
     --build-arg "TOBARI_GID=$(id -g)" \
+    --build-context helper-source=internal/infra/runtimeassets/_helper-source \
     runtimes/base >/dev/null
   created_dev_runtime_tag=true
 fi
@@ -925,6 +931,7 @@ other_container=$(container_for_id "$other_id")
   fail "Workspace is not running after entry detached"
 [[ $(docker inspect --format '{{json .Config.Cmd}}' "$work_container") == '["sleep","infinity"]' ]] ||
   fail "Workspace lifetime command was not sleep infinity after Bash exit"
+assert_workspace_service_helper_mount "$work_container"
 
 python3 - "$config_directory/principal-registry/principals.json" "$work_id" "$restricted_id" "$other_id" <<'PY'
 import json
@@ -1436,6 +1443,7 @@ import json
 import sys
 print(json.dumps([
     {"after_ms": 3000, "data": """{ printf "%s\\n" "$TOBARI_CAPABILITIES_JSON"; curl -sS -o /dev/null -w "%{http_code}" http://host.tobari.test:""" + sys.argv[1] + """/health; curl_status=$?; printf "\\n"; test "$curl_status" -eq 0; } > /var/lib/tobari/host-probe.tmp && mv /var/lib/tobari/host-probe.tmp /var/lib/tobari/host-probe\n"""},
+  {"after_ms": 1500, "data": "python3 -m http.server 32123 --bind 127.0.0.1 >/var/lib/tobari/service-server.log 2>&1 & tobari-expose 32123 > /var/lib/tobari/service-exposure.out 2>/var/lib/tobari/service-exposure.err; printf ready > /var/lib/tobari/service-exposure-ready; while [ ! -e /var/lib/tobari/service-stop ]; do sleep 0.1; done; exposure_ref=$(sed -n '\''s/^  Exposure    //p'\'' /var/lib/tobari/service-exposure.out); tobari-expose list > /var/lib/tobari/service-exposure-list.out; tobari-expose stop \"$exposure_ref\" > /var/lib/tobari/service-stop.out; printf stopped > /var/lib/tobari/service-stopped\n"},
     {"after_ms": 25000, "data": "exit\n"},
 ]))
 ' "$host_service_port")
@@ -1552,6 +1560,8 @@ except OSError:
 '
 host_retry=$(run_project curl -fsS "http://host.tobari.test:$host_service_port/health")
 assert_contains "$host_retry" "host-service-ok" "reviewed physical-host HTTP response"
+
+verify_workspace_service_exposure
 
 wait "$host_service_attachment_pid"
 host_service_attachment_pid=

@@ -111,6 +111,12 @@ support promises before maintainers invite external users.
   is built by the user from the pinned embedded recipe. Custom Context runtime
   contents are outside the public base inventory and do not create
   redistribution evidence.
+- The base recipe builds the dedicated Linux `tobari-expose` helper with a
+  digest-pinned reviewed Go builder from the exact checked repository source
+  and module closure. Both Linux architectures, source/snapshot equality,
+  helper identity, and its licenses remain mechanically reviewed. The helper
+  is a non-archive input to the local engine-native base image, not a second
+  host executable, downloadable artifact, OCI publication, or Formula member.
 - Keep the pinned `auth-provider.v1` schema fixture repository-authored,
   synthetic, MIT-licensed, and digest-matched. It must contain no real account,
   hostname, file path, or credential.
@@ -197,6 +203,10 @@ Minimum first-public-push checklist:
       key, or vault.
 - [ ] The agent-ready base's tool archives, checksums, licenses, notices, and
       both architectures were reviewed; unlisted custom-Context tools are absent.
+- [ ] The engine-native exposure helper's checked source/module closure, pinned
+      builder, licenses, Linux amd64/arm64 construction, identity, and extraction
+      evidence were reviewed; it is absent from host release archives and no OCI
+      publication path exists.
 - [ ] The combined Codex and Claude base remains permanently local/cache-only;
       its registry publication path is absent and a local build or passing
       version smoke test is not redistribution evidence.

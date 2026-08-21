@@ -11,4 +11,6 @@ cp -- "$source_dir/gh" "$snapshot_dir/gh"
 cp -- "$source_dir/aws-cli-public-key.asc" "$snapshot_dir/aws-cli-public-key.asc"
 chmod 0755 "$snapshot_dir/entrypoint.sh" "$snapshot_dir/gh"
 
+./scripts/sync-exposure-helper-source.sh
+
 ./scripts/check-runtime-base.sh

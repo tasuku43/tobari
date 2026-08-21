@@ -1,0 +1,316 @@
+package dockerruntime
+
+import (
+	"archive/tar"
+	"bytes"
+	"context"
+	"crypto/sha256"
+	"encoding/binary"
+	"encoding/hex"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
+	"testing"
+
+	"github.com/tasuku43/tobari/internal/infra/runtimeassets"
+)
+
+type exposureHelperAssetRunner struct {
+	architecture string
+	archive      []byte
+	outputs      [][]string
+	runs         [][]string
+	copyErr      error
+}
+
+func (r *exposureHelperAssetRunner) Output(_ context.Context, args, _ []string) ([]byte, error) {
+	r.outputs = append(r.outputs, append([]string{}, args...))
+	if len(args) >= 2 && args[0] == "image" && args[1] == "inspect" {
+		source, err := runtimeassets.ExposureHelperSourceVersion()
+		if err != nil {
+			return nil, err
+		}
+		return []byte(fmt.Sprintf(`{"architecture":%q,"os":"linux","api":"1","source":%q}`, r.architecture, source)), nil
+	}
+	if len(args) >= 1 && args[0] == "version" {
+		return []byte(fmt.Sprintf(`{"Arch":%q,"Os":"linux"}`, r.architecture)), nil
+	}
+	return nil, fmt.Errorf("unexpected output argv: %v", args)
+}
+
+func (r *exposureHelperAssetRunner) Run(_ context.Context, args, _ []string, _ io.Reader, out, _ io.Writer) error {
+	r.runs = append(r.runs, append([]string{}, args...))
+	if len(args) >= 2 && args[0] == "container" && args[1] == "cp" {
+		if r.copyErr != nil {
+			return r.copyErr
+		}
+		_, err := out.Write(r.archive)
+		return err
+	}
+	if len(args) >= 2 && args[0] == "container" && (args[1] == "create" || args[1] == "start" || args[1] == "rm") {
+		return nil
+	}
+	return fmt.Errorf("unexpected run argv: %v", args)
+}
+
+func TestWorkspaceServiceHelperIsExtractedFromVerifiedEngineImageAtomically(t *testing.T) {
+	t.Parallel()
+	base := t.TempDir()
+	binary := syntheticExposureHelperELF("arm64")
+	runner := &exposureHelperAssetRunner{architecture: "arm64", archive: exposureHelperArchive(t, binary, "arm64", nil)}
+	runtime, err := newRuntimeWithData(filepath.Join(base, "config"), filepath.Join(base, "state"), filepath.Join(base, "data"), runner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	version, err := runtimeassets.Version()
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(base, "state", "runtime", version, "helpers", exposureHelperImageBinary)
+	if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(target, []byte("stale-helper"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := runtime.materializeWorkspaceExposureHelper(context.Background(), "tobari-runtime:test"); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(target)
+	if err != nil || !bytes.Equal(data, binary) {
+		t.Fatalf("helper bytes=%x err=%v", data, err)
+	}
+	info, err := os.Stat(target)
+	if err != nil || info.Mode().Perm() != 0o700 {
+		t.Fatalf("helper info=%v err=%v", info, err)
+	}
+	entries, err := os.ReadDir(filepath.Dir(target))
+	if err != nil || len(entries) != 1 || entries[0].Name() != exposureHelperImageBinary {
+		t.Fatalf("helper directory=%v err=%v", entries, err)
+	}
+	if !runnerSaw(runner.runs, "container", "create") || !runnerSaw(runner.runs, "container", "start") || !runnerSaw(runner.runs, "container", "cp") || !runnerSaw(runner.runs, "container", "rm") {
+		t.Fatalf("docker calls=%v", runner.runs)
+	}
+	create := runner.runs[0]
+	for _, required := range []string{
+		ownerLabel + "=" + ownerValue,
+		componentLabel + "=exposure-helper-extract",
+		"--rm", "--network", "none", "--read-only", "--cap-drop", "ALL",
+		"--security-opt", "no-new-privileges", "--user", "65534:65534",
+		"--entrypoint", "/bin/sleep", fmt.Sprintf("%d", exposureHelperAutoRemoveSeconds),
+	} {
+		if !slices.Contains(create, required) {
+			t.Fatalf("create argv=%v missing %q", create, required)
+		}
+	}
+}
+
+func TestWorkspaceServiceHelperExtractionRejectsUntrustedArtifactsAndAlwaysCleansContainer(t *testing.T) {
+	t.Parallel()
+	validBinary := syntheticExposureHelperELF("amd64")
+	tests := []struct {
+		name         string
+		architecture string
+		archive      func(*testing.T) []byte
+	}{
+		{name: "Mach-O host binary", architecture: "amd64", archive: func(t *testing.T) []byte { return exposureHelperArchive(t, []byte("Mach-O"), "amd64", nil) }},
+		{name: "wrong ELF architecture", architecture: "amd64", archive: func(t *testing.T) []byte {
+			return exposureHelperArchive(t, syntheticExposureHelperELF("arm64"), "amd64", nil)
+		}},
+		{name: "stale API", architecture: "amd64", archive: func(t *testing.T) []byte {
+			return exposureHelperArchive(t, validBinary, "amd64", func(identity *exposureHelperIdentity) { identity.API++ })
+		}},
+		{name: "stale source", architecture: "amd64", archive: func(t *testing.T) []byte {
+			return exposureHelperArchive(t, validBinary, "amd64", func(identity *exposureHelperIdentity) { identity.Source = strings.Repeat("0", 64) })
+		}},
+		{name: "wrong digest", architecture: "amd64", archive: func(t *testing.T) []byte {
+			return exposureHelperArchive(t, validBinary, "amd64", func(identity *exposureHelperIdentity) { identity.SHA256 = strings.Repeat("0", 64) })
+		}},
+		{name: "symlink entry", architecture: "amd64", archive: func(t *testing.T) []byte { return exposureHelperSymlinkArchive(t) }},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			base := t.TempDir()
+			runner := &exposureHelperAssetRunner{architecture: test.architecture, archive: test.archive(t)}
+			runtime, err := newRuntimeWithData(filepath.Join(base, "config"), filepath.Join(base, "state"), filepath.Join(base, "data"), runner)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := runtime.materializeWorkspaceExposureHelper(context.Background(), "tobari-runtime:test"); err == nil {
+				t.Fatal("expected verified extraction failure")
+			}
+			if !runnerSaw(runner.runs, "container", "rm") {
+				t.Fatalf("extraction container was not cleaned: %v", runner.runs)
+			}
+		})
+	}
+}
+
+func TestWorkspaceServiceHelperRejectsNonRegularExistingTargetBeforeReplacement(t *testing.T) {
+	t.Parallel()
+	base := t.TempDir()
+	binary := syntheticExposureHelperELF("amd64")
+	runner := &exposureHelperAssetRunner{architecture: "amd64", archive: exposureHelperArchive(t, binary, "amd64", nil)}
+	runtime, err := newRuntimeWithData(filepath.Join(base, "config"), filepath.Join(base, "state"), filepath.Join(base, "data"), runner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	version, _ := runtimeassets.Version()
+	target := filepath.Join(base, "state", "runtime", version, "helpers", exposureHelperImageBinary)
+	if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("elsewhere", target); err != nil {
+		t.Fatal(err)
+	}
+	if err := runtime.materializeWorkspaceExposureHelper(context.Background(), "tobari-runtime:test"); err == nil {
+		t.Fatal("expected symlink target rejection")
+	}
+	if !runnerSaw(runner.runs, "container", "rm") {
+		t.Fatalf("extraction container was not cleaned: %v", runner.runs)
+	}
+}
+
+func TestLiveWorkspaceServiceHelperExtractionAndCustomRuntimeMount(t *testing.T) {
+	if os.Getenv("TOBARI_LIVE_DOCKER_HELPER") != "1" {
+		t.Skip("set TOBARI_LIVE_DOCKER_HELPER=1 after building tobari-runtime:dev")
+	}
+	base := t.TempDir()
+	runtime, err := newRuntimeWithData(filepath.Join(base, "config"), filepath.Join(base, "state"), filepath.Join(base, "data"), osCommandRunner{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	if err := runtime.materializeWorkspaceExposureHelper(ctx, "tobari-runtime:dev"); err != nil {
+		t.Fatal(err)
+	}
+	version, err := runtimeassets.Version()
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(base, "state", "runtime", version, "helpers", exposureHelperImageBinary)
+	data, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server, err := runtime.inspectDockerServer(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, engineArchitecture := normalizePlatform(server.OS, server.Architecture)
+	if err := validateExposureHelperELF(data, engineArchitecture); err != nil {
+		t.Fatal(err)
+	}
+
+	suffix, err := randomExposureHelperExtractionName()
+	if err != nil {
+		t.Fatal(err)
+	}
+	image := "tobari-helper-live:" + strings.TrimPrefix(suffix, "tobari-helper-extract-")
+	defer func() {
+		_ = runtime.runner.Run(context.Background(), []string{"image", "rm", "--force", image}, os.Environ(), nil, io.Discard, io.Discard)
+	}()
+	dockerfile := strings.NewReader("FROM tobari-runtime:dev\nLABEL io.tobari.integration=workspace-service-helper\n")
+	if err := runtime.runner.Run(ctx, []string{"build", "--tag", image, "--file", "-", base}, os.Environ(), dockerfile, io.Discard, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if err := runtime.runner.Run(ctx, []string{
+		"run", "--rm", "--read-only", "--network", "none",
+		"--mount", "type=bind,src=" + target + ",dst=/usr/local/bin/tobari-expose,readonly",
+		"--entrypoint", "/usr/local/bin/tobari-expose", image, "help",
+	}, os.Environ(), nil, io.Discard, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if err := runtime.runner.Run(ctx, []string{
+		"run", "--rm", "--read-only", "--network", "none", "--user", "0:0",
+		"--mount", "type=bind,src=" + target + ",dst=/usr/local/bin/tobari-expose,readonly",
+		"--entrypoint", "/bin/sh", image, "-c", "printf tamper > /usr/local/bin/tobari-expose",
+	}, os.Environ(), nil, io.Discard, io.Discard); err == nil {
+		t.Fatal("read-only helper mount accepted a write")
+	}
+	containers, err := runtime.runner.Output(ctx, []string{"container", "ls", "--all", "--filter", "label=" + componentLabel + "=exposure-helper-extract", "--format", "{{.Names}}"}, os.Environ())
+	if err != nil || len(bytes.TrimSpace(containers)) != 0 {
+		t.Fatalf("extraction containers remain: %q err=%v", containers, err)
+	}
+}
+
+func runnerSaw(calls [][]string, prefix ...string) bool {
+	for _, call := range calls {
+		if len(call) >= len(prefix) && slices.Equal(call[:len(prefix)], prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func exposureHelperArchive(t *testing.T, executable []byte, architecture string, mutate func(*exposureHelperIdentity)) []byte {
+	t.Helper()
+	result, err := exposureHelperArchiveBytes(executable, architecture, mutate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return result
+}
+
+func exposureHelperArchiveBytes(executable []byte, architecture string, mutate func(*exposureHelperIdentity)) ([]byte, error) {
+	source, err := runtimeassets.ExposureHelperSourceVersion()
+	if err != nil {
+		return nil, err
+	}
+	digest := sha256.Sum256(executable)
+	identity := exposureHelperIdentity{
+		SchemaVersion: 1, API: exposureHelperAPI, Source: source,
+		Architecture: architecture, SHA256: hex.EncodeToString(digest[:]),
+	}
+	if mutate != nil {
+		mutate(&identity)
+	}
+	identityData := []byte(fmt.Sprintf(`{"schema_version":%d,"api":%d,"source":%q,"architecture":%q,"sha256":%q}`, identity.SchemaVersion, identity.API, identity.Source, identity.Architecture, identity.SHA256))
+	var result bytes.Buffer
+	archive := tar.NewWriter(&result)
+	for name, data := range map[string][]byte{exposureHelperImageBinary: executable, exposureHelperImageIdentity: identityData} {
+		if err := archive.WriteHeader(&tar.Header{Name: name, Mode: 0o700, Size: int64(len(data)), Typeflag: tar.TypeReg}); err != nil {
+			return nil, err
+		}
+		if _, err := archive.Write(data); err != nil {
+			return nil, err
+		}
+	}
+	if err := archive.Close(); err != nil {
+		return nil, err
+	}
+	return result.Bytes(), nil
+}
+
+func exposureHelperSymlinkArchive(t *testing.T) []byte {
+	t.Helper()
+	var result bytes.Buffer
+	archive := tar.NewWriter(&result)
+	if err := archive.WriteHeader(&tar.Header{Name: exposureHelperImageBinary, Typeflag: tar.TypeSymlink, Linkname: "/bin/true"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := archive.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return result.Bytes()
+}
+
+func syntheticExposureHelperELF(architecture string) []byte {
+	result := make([]byte, 64)
+	copy(result, []byte{0x7f, 'E', 'L', 'F'})
+	result[4] = byte(2)                                     // ELFCLASS64
+	result[5] = byte(1)                                     // ELFDATA2LSB
+	result[6] = byte(1)                                     // EV_CURRENT
+	binary.LittleEndian.PutUint16(result[16:18], uint16(2)) // ET_EXEC
+	machine := uint16(62)                                   // EM_X86_64
+	if architecture == "arm64" {
+		machine = 183 // EM_AARCH64
+	}
+	binary.LittleEndian.PutUint16(result[18:20], machine)
+	binary.LittleEndian.PutUint32(result[20:24], 1)
+	binary.LittleEndian.PutUint16(result[52:54], 64)
+	return result
+}
