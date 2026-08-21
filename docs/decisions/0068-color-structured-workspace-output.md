@@ -5,7 +5,7 @@
 - Deciders: Tobari maintainers
 - Scope: Product, architecture, security, terminal presentation, runtime, and harness
 - Revises: None
-- Related: ADR 0055
+- Related: ADR 0055 and ADR 0073
 - Revised by: None
 - Superseded by: None
 

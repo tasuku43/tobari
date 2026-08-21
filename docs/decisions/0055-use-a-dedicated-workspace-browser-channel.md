@@ -5,7 +5,7 @@
 - Deciders: Tobari maintainers
 - Scope: Product, architecture, security, authentication, runtime, and harness
 - Revises: ADR 0046, ADR 0048, ADR 0050, and ADR 0053
-- Related: ADR 0051 and ADR 0052
+- Related: ADR 0051, ADR 0052, and ADR 0073
 - Revised by: ADR 0057
 - Superseded by: None
 

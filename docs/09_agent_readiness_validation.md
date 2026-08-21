@@ -249,7 +249,9 @@ and one claiming `pup_ready` compatibility must provide pup 1.10.7.
 
 Generate one learnable denial from a running Workspace. Verify the child sees
 only bounded secret-free host-review navigation and that no candidate ID or
-unchecked argv is embedded in the response. In a trusted-host terminal:
+unchecked argv is embedded in the response. Keep the Workspace terminal
+attached, but use a separate trusted-host terminal for Permission Inbox;
+Tobari reserves no `Ctrl+]` or other child-input shortcut. In that terminal:
 
 1. Open `policy review --watch`; prove an empty raw-terminal Inbox receives a
    new bounded candidate without restart and emits at most one fixed trusted

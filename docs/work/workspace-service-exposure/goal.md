@@ -8,7 +8,10 @@
 - Successor: None
 - Owner: Tobari maintainers
 - Target: Pre-public self-use
-- Related ADRs: ADR 0055 and the terminal-ownership ADR required by `docs/work/trusted-host-review-switch/`
+- Related ADRs: ADR 0055 and ADR 0073
+- Dependency status: ADR 0073 rejected the required inline terminal switch;
+  this packet remains returned for a separate product-flow decision and cannot
+  begin mechanism implementation as written.
 
 ## Outcome
 

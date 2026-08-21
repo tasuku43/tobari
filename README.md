@@ -272,6 +272,10 @@ tobari policy review --watch
 tobari policy review --watch --notify=off
 ```
 
+The attached Workspace reserves no Tobari key prefix. `Ctrl+]` and all other
+input remain child-owned, so Permission Inbox stays in this separate trusted-host
+terminal rather than replacing a shell or full-screen child's presentation.
+
 The Permission Inbox groups by validated Context/Workspace identity. One distinct
 path remains exact. After a second compatible distinct HTTP path, Inbox proposes
 a single-segment `/path/{id}` template. Inspect its examples and explicit future

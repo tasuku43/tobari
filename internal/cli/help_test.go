@@ -138,6 +138,11 @@ func TestRootCommandHelpUsesExecutableInvocation(t *testing.T) {
 			t.Errorf("root command help lacks %q:\n%s", want, help)
 		}
 	}
+	for _, forbidden := range []string{"Ctrl+]", "Trusted Host Review"} {
+		if strings.Contains(help, forbidden) {
+			t.Errorf("root command help reserves excluded terminal shortcut %q:\n%s", forbidden, help)
+		}
+	}
 }
 
 func TestCommandHelpUsesCatalogMetadataAndDerivedReferences(t *testing.T) {

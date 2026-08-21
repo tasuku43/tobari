@@ -56,7 +56,12 @@ copy. A manual-code target is staged only in bounded session memory and opens
 after the client-owned confirmation transition, giving the user time to copy
 the visible code; URL/callback flows with no Workspace-to-browser code transfer
 open immediately. Tobari does not intercept child input or own clipboard
-shortcuts.
+shortcuts. V1 reserves no host prefix inside an attachment: the optional Unix
+PTY presentation relay forwards every input byte unchanged, and trusted-host
+Permission Inbox review remains in a separate terminal. A bounded experiment
+proved prefix parsing and lossless finite-PTY backpressure but could not
+restore an arbitrary child's non-stacking alternate screen without owning a
+terminal emulator/parser, so Tobari makes no such restoration claim.
 One installation-local standard cluster shares one Gateway, one OPA, an atomic
 all-Context policy projection, and CA state without sharing Workspace homes or
 runtime networks. The repository-only experimental profile may additionally
@@ -758,6 +763,10 @@ administration project.
   scope once per group, and leads each selectable row with the exact effect or
   typed template plus bounded observation evidence. Display labels, adjacency, and
   indentation never create policy identity.
+  It owns a separate trusted-host terminal rather than borrowing the attached
+  Workspace terminal. No `Ctrl+]` or other child-input prefix is reserved;
+  adopting one requires a separate decision to own terminal emulation or
+  multiplexing with full-screen compatibility evidence.
   Redirected and
   machine-readable `policy review` remains read-only. `policy candidates`
   remains the machine discovery surface. `policy rules` is the exhaustive inventory of

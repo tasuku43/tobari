@@ -130,6 +130,41 @@ func TestRunInteractivePTYForwardsInputAfterIdlePeriod(t *testing.T) {
 	}
 }
 
+func TestRunInteractivePTYForwardsLiteralCtrlRightBracketUnchanged(t *testing.T) {
+	hostMaster, hostInput := openTestPTY(t)
+	var stdout notifyingBuffer
+	ready := make(chan struct{})
+	stdout.ready = ready
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	command := exec.CommandContext(ctx, "/bin/sh", "-c", `stty raw -echo; printf ready; od -An -v -t x1 -N 1`)
+	runResult := make(chan error, 1)
+	go func() {
+		runResult <- runInteractivePTY(ctx, command, hostInput, &stdout, &bytes.Buffer{})
+	}()
+
+	select {
+	case <-ready:
+	case <-ctx.Done():
+		t.Fatal("raw child did not become ready")
+	}
+	if _, err := hostMaster.Write([]byte{0x1d}); err != nil {
+		t.Fatalf("write literal Ctrl+]: %v", err)
+	}
+
+	select {
+	case err := <-runResult:
+		if err != nil {
+			t.Fatalf("runInteractivePTY() error = %v", err)
+		}
+	case <-ctx.Done():
+		t.Fatal("raw child did not receive literal Ctrl+]")
+	}
+	if output := stdout.String(); !strings.Contains(output, "1d") {
+		t.Fatalf("raw child output = %q, want literal byte 1d", output)
+	}
+}
+
 func TestRunInteractivePTYPreservesChildExitStatus(t *testing.T) {
 	_, hostInput := openTestPTY(t)
 	command := exec.Command("/bin/sh", "-c", "exit 37")

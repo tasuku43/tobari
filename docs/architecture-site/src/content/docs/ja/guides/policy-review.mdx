@@ -8,6 +8,8 @@ import SequenceExplorer from "../../../../components/SequenceExplorer.astro";
 
 ポリシーレビューは、保持された拒否の根拠を、ホストが所有する明示的な判断へ変える操作です。Workspace から出て、信頼するホスト上の Permission Inbox で、量を制限した秘密情報を含まない記録を確認します。raw terminal の一覧から完全一致の判断を準備し、テンプレートは詳細画面で将来範囲を確認してから選び、一つの Context についてレビュー済みの一式を一度だけ Apply します。承認はポリシーを変更しますが、拒否された通信を再試行しません。
 
+Workspace の attachment は維持したまま、Permission Inbox は別の信頼するホスト端末で開きます。Tobari は `Ctrl+]` などの子プロセス入力 shortcut を予約せず、shell や full-screen program の terminal presentation を置き換えません。
+
 [最初の拒否](../../start/first-denial/)では、リクエストの拒否からこのホスト側のレビューフローまでを説明しています。
 
 <PolicyLoopMap headingLevel={2} />

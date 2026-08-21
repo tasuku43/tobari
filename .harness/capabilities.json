@@ -30,6 +30,11 @@
     "reason": ""
   },
   {
+    "id": "terminal.inline-trusted-host-review",
+    "status": "excluded",
+    "reason": "V1 preserves transparent child terminal ownership; arbitrary alternate-screen restoration cannot be proved without a separately accepted terminal emulator or parser boundary."
+  },
+  {
     "id": "operator.console",
     "status": "internal",
     "reason": "The Operator Console is compiled only into the unsupported experimental development profile."

@@ -17,10 +17,11 @@
 - `internal/infra/runtimeassets/assets/browser/tobari-open` is materialized from
   Tobari's embedded runtime assets and mounted read-only. It is not installed
   by or versioned with a user-managed Context Runtime.
-- The accepted `docs/work/trusted-host-review-switch/` packet reserves
-  `Ctrl+]`, then `r`, for an explicit trusted-host review transition. Its first
-  slice is Permission Inbox. Service exposure is the next typed review source,
-  but it must not share policy persistence or Apply semantics.
+- ADR 0073 closed the proposed `Ctrl+]`, then `r` trusted-host review switch as
+  a no-go because arbitrary alternate-screen restoration requires a terminal
+  emulator/parser. Service exposure can no longer depend on that transition
+  and remains returned for a separate product-flow decision; it still must not
+  share policy persistence or Apply semantics.
 - The root direct-command capability ends the attachment when its exact child
   exits. Therefore `tobari -- tobari-expose 3000` would immediately close an
   accepted attachment-owned exposure and is not a useful advertised workflow.

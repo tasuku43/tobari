@@ -856,7 +856,11 @@ stdout presentation attaches the Docker CLI to a host-side PTY relay: the
 relay preserves the child terminal identity, forwards input and window-size
 changes, and reads the PTY master only to add bounded display-only syntax
 colors. It does not parse input, change command meaning, or become authority;
-the ordinary direct stream path remains the fallback. A separate Docker exec starts one
+the ordinary direct stream path remains the fallback. No attachment prefix is
+reserved, including `Ctrl+]`, and Permission Inbox keeps its own trusted-host
+terminal. Restoring an arbitrary child's alternate screen would require a
+separately accepted terminal-emulation boundary rather than extending this
+relay. A separate Docker exec starts one
 fixed Unix-socket agent whose stdin/stdout carries bounded schema-v1 browser
 requests and boolean responses. The binary-owned opener is mounted read-only at
 the projected browser paths and emits no terminal output. The host rejects

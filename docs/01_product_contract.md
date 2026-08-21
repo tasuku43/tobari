@@ -363,6 +363,9 @@ argv; order, duplicates, dash-prefixed values, and explicit empty arguments are
 preserved. The command owns the foreground terminal and signals for that exec
 session. Its exit returns to the host shell rather than entering Bash, and its
 exact status is returned without stopping the fixed Workspace lifetime process.
+Neither Bash nor a direct child reserves a Tobari input prefix. In particular,
+`Ctrl+]` is forwarded to the child unchanged; trusted-host Permission Inbox
+review runs through `tobari policy review` in a separate host terminal.
 
 ## Input and path contract
 
@@ -865,7 +868,9 @@ the child's bytes, whitespace, ordering, and visible stream content intact,
 does not pretty-print or reindent, and adds no styling to stderr. Incomplete,
 invalid, oversized, control-bearing, ambiguous, or ordinary output passes
 through unchanged. Redirected or machine-readable output never enters this
-projection, and escaped controls inside a structured string remain data.
+projection, and escaped controls inside a structured string remain data. The
+presentation relay never parses or reserves input and is not a terminal
+multiplexer; every child-input byte remains pass-through.
 `doctor` defaults to this human text
 view; `doctor --format tsv` remains the tab-separated projection for scripts,
 and JSON/agent help remain schema contracts. Doctor JSON schema 1 declares

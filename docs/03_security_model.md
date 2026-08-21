@@ -229,7 +229,9 @@ organization hint, bounded DCR/PKCE fields, sorted default-scope subset, and one
 request while Docker directly owns the attached terminal;
 the channel adds no filesystem, network, Docker, browser, or credential authority,
 and preserves Docker's native terminal detection, raw-input cleanup, and resize
-path.
+path. Tobari reserves no attachment input prefix: `Ctrl+]` and every other
+input byte remain child-owned, and the browser channel cannot activate a host
+review surface.
 Only the selected root and that Workspace's exact XDG-owned home directory are
 mounted from the host; the root uses immutable Context-selected read-only or
 read-write access while the home stays writable. The project-root resolver rejects filesystem root, the user's
@@ -1220,6 +1222,7 @@ treats a failed read as no candidates, never as shell source or authority.
 | Provider manifests cannot become executable or ambiguous authority | Strict schema/collision/path/header tests, owner-only XDG loading, and built-in override rejection |
 | Provider login cannot turn visible text into arbitrary browser execution | Conventional non-project executable selection, identity/digest recheck, fixed argv/environment, bounded browser/PTY projection, checked cleanup, cancellation, and provider-specific negative tests |
 | Native Workspace login cannot become generic host ingress or browser authority | One fresh compile-time registry with exact driver-ID/callback-mode coverage and malformed/ambiguous-definition canaries; a shared closed query-field schema with invalid-definition, requiredness, singleton-cardinality, unknown-field, and validator-dispatch tests; closed Claude Code/Codex/GitHub CLI/AWS CLI/TWG/pup semantic URL-schema tests with exact mandatory fields, individually reviewed optional selectors, exact OAuth clients or bounded DCR IDs, reviewed scope ceilings, callback shapes, and state bounds; AWS commercial-region/default-scope/partition canaries; complete pup 1.10.7 scope-ceiling, optional UUID-shaped `dd_oid`, and four-port canaries; one binary-owned read-only opener; exact `BROWSER`/`GH_BROWSER`/`xdg-open` projection; dedicated schema-v1 Unix-socket and non-TTY Docker exec protocol tests; duplicate-key, unknown-field, malformed-version, oversized-target, replay-budget, neighboring-target, and ownership canaries; zero-listener device/remote-callback opens; dynamic non-privileged host-loopback-only one-shot callback relay; opaque callback canaries; port-collision failure; direct Docker terminal ownership; and session cleanup |
+| Attached child input remains transparent | Direct Docker stream ownership; Unix PTY delayed-input, literal `0x1d`, resize, exact-status, writer-failure, and restoration tests; root-help no-shortcut canary; catalog absence for same-terminal host review; and separate Permission Inbox PTY ownership |
 | Unsupported credential mechanisms cannot remain dormant | Catalog/state/dependency/image-content tests reject managed profiles, owner-selected dynamic plans, arbitrary helpers, compatibility readers, and provider CLIs inside Broker |
 | Agent-ready tools retain reviewed identity without Tobari redistribution | Base-runtime locks/checks for GitHub CLI, AWS CLI, Claude Code, and Codex; version smokes outside Workspace home; local missing-image build tests; workflow and release canaries reject every base registry write/login/push path |
 | Secret headers, queries, handle-bearing paths, and bodies stay out of logs | Gateway redacted-path/header-absence tests, non-learnable structural-rejection tests, and log scans |
