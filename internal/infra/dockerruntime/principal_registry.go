@@ -290,29 +290,43 @@ func (r *Runtime) replaceProjectPrincipalRegistry(ctx context.Context, bindings 
 func (r *Runtime) containerNetworkAddressIfConnected(
 	ctx context.Context, container, network, purpose string,
 ) (string, bool, error) {
+	networks, err := r.containerNetworkAddresses(ctx, container, purpose)
+	if err != nil {
+		return "", false, err
+	}
+	address, connected := networks[network]
+	return address, connected && address != "", nil
+}
+
+func (r *Runtime) containerNetworkAddresses(
+	ctx context.Context, container, purpose string,
+) (map[string]string, error) {
 	output, err := r.runner.Output(
 		ctx,
 		[]string{"inspect", "--format", "{{json .NetworkSettings.Networks}}", container},
 		os.Environ(),
 	)
 	if err != nil {
-		return "", false, fmt.Errorf("inspect %s networks for project principal: %w: %s", purpose, err, boundedDiagnostic(output))
+		return nil, fmt.Errorf("inspect %s networks: %w: %s", purpose, err, boundedDiagnostic(output))
 	}
 	var networks map[string]struct {
 		IPAddress string `json:"IPAddress"`
 	}
 	if err := json.Unmarshal(bytes.TrimSpace(output), &networks); err != nil {
-		return "", false, fmt.Errorf("decode %s networks for project principal: %w", purpose, err)
+		return nil, fmt.Errorf("decode %s networks: %w", purpose, err)
 	}
-	endpoint, connected := networks[network]
-	if !connected || endpoint.IPAddress == "" {
-		return "", false, nil
+	addresses := make(map[string]string, len(networks))
+	for network, endpoint := range networks {
+		if endpoint.IPAddress == "" {
+			continue
+		}
+		address := net.ParseIP(endpoint.IPAddress)
+		if address == nil || !address.IsGlobalUnicast() {
+			return nil, fmt.Errorf("%s network address is not a usable unicast address", purpose)
+		}
+		addresses[network] = address.String()
 	}
-	address := net.ParseIP(endpoint.IPAddress)
-	if address == nil || !address.IsGlobalUnicast() {
-		return "", false, fmt.Errorf("%s project network address is not a usable unicast address", purpose)
-	}
-	return address.String(), true, nil
+	return addresses, nil
 }
 
 func (r *Runtime) containerNetworkAddress(ctx context.Context, container, network, purpose string) (string, error) {

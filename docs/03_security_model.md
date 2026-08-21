@@ -1213,6 +1213,7 @@ treats a failed read as no candidates, never as shell source or authority.
 | Transparent denial performs no pre-policy external I/O | Non-recursive synthetic DNS tests plus Gateway DNS/resolver/upstream call-count canaries for denied, malformed, raw TCP, non-HTTP TLS, UDP, and QUIC traffic |
 | A network guard cannot expand into a persistent privileged service | Exact fixed helper argv, verified namespace ownership, read-only/no-mount/no-secret/no-Docker-socket assertions, sole `NET_ADMIN` capability, and guard-before-entry ordering tests |
 | A Workspace cannot access OPA or peers | Separate internal networks and integration test |
+| Runtime network drift cannot be reported as ready | Read-only exact shared-network membership and registered live endpoint comparisons, disconnected Gateway/OPA/Workspace fixtures, root ready-check reconciliation, and Docker interruption observations |
 | OPA outage denies | Gateway unit and integration tests |
 | Host-managed secrets stay outside Tobari; tool-owned state stays in its home | Mount-spec tests and integration canaries |
 | Brokered primary secrets stay outside every Workspace and OPA | Socket/mount topology tests, encrypted-vault tests, Gateway canaries, and integration log/output scans |

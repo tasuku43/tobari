@@ -42,8 +42,8 @@ func (r *Runtime) InspectCluster(ctx context.Context, state tobari.State) (tobar
 		return tobari.ClusterStatus{}, fmt.Errorf("read CWD-owned projects: %w", err)
 	}
 	policyIntegrity := r.inspectAggregatePolicyIntegrity(ctx, state)
-	principalIntegrity := r.inspectPrincipalRegistryIntegrity(projects)
-	gatewayIntegrity := r.inspectGatewayProjectionIntegrity(state)
+	principalIntegrity := r.inspectPrincipalRegistryIntegrity(ctx, projects)
+	gatewayIntegrity := r.inspectGatewayProjectionIntegrity(ctx, state)
 	status := tobari.ClusterStatus{
 		Configured: true, Running: running,
 		Policy: state.PolicyDirectory, TobariCount: len(projects), ContextCount: state.ContextCount,
@@ -117,7 +117,7 @@ func (r *Runtime) inspectAggregatePolicyIntegrity(ctx context.Context, state tob
 	return "valid"
 }
 
-func (r *Runtime) inspectPrincipalRegistryIntegrity(projects []tobari.ProjectInstance) string {
+func (r *Runtime) inspectPrincipalRegistryIntegrity(ctx context.Context, projects []tobari.ProjectInstance) string {
 	registry, err := r.readProjectPrincipalRegistry()
 	if err != nil {
 		return "invalid"
@@ -126,6 +126,7 @@ func (r *Runtime) inspectPrincipalRegistryIntegrity(projects []tobari.ProjectIns
 	for _, project := range projects {
 		byID[project.ID] = project
 	}
+	bindings := make(map[string]projectPrincipalBinding, len(registry.Bindings))
 	for _, binding := range registry.Bindings {
 		project, exists := byID[binding.ProjectID]
 		if !exists || project.ContextID != binding.ContextID || project.ContextName != binding.ContextName || project.Root != binding.ProjectRoot {
@@ -135,13 +136,114 @@ func (r *Runtime) inspectPrincipalRegistryIntegrity(projects []tobari.ProjectIns
 		if resourceErr != nil || network != binding.Network {
 			return "invalid"
 		}
+		bindings[binding.ProjectID] = binding
+	}
+	for _, project := range projects {
+		observed, ready, observeErr := r.observeProjectPrincipalRuntime(ctx, project)
+		stored, registered := bindings[project.ID]
+		if observeErr != nil || ready != registered {
+			return "invalid"
+		}
+		if ready && observed != stored {
+			return "invalid"
+		}
 	}
 	return "valid"
 }
 
-func (r *Runtime) inspectGatewayProjectionIntegrity(state tobari.State) string {
+func (r *Runtime) observeProjectPrincipalRuntime(
+	ctx context.Context, project tobari.ProjectInstance,
+) (projectPrincipalBinding, bool, error) {
+	if err := project.Validate(); err != nil {
+		return projectPrincipalBinding{}, false, err
+	}
+	if project.Incomplete {
+		return projectPrincipalBinding{}, false, nil
+	}
+	container, network, err := tobari.ProjectResourceNames(project.ID)
+	if err != nil {
+		return projectPrincipalBinding{}, false, err
+	}
+	networkExists, err := r.projectResourceExists(ctx, "network", network)
+	if err != nil || !networkExists {
+		return projectPrincipalBinding{}, false, err
+	}
+	if err := r.verifyOwnedProjectResource(ctx, "network", network, project.ID, projectNetRole); err != nil {
+		return projectPrincipalBinding{}, false, err
+	}
+	containerExists, err := r.projectResourceExists(ctx, "container", container)
+	if err != nil || !containerExists {
+		return projectPrincipalBinding{}, false, err
+	}
+	if err := r.verifyOwnedProjectResource(ctx, "container", container, project.ID, projectWorkRole); err != nil {
+		return projectPrincipalBinding{}, false, err
+	}
+	component, err := r.inspectContainer(ctx, projectWorkRole, container)
+	if err != nil {
+		return projectPrincipalBinding{}, false, err
+	}
+	if component.State != "running" || component.Health != "healthy" {
+		return projectPrincipalBinding{}, false, nil
+	}
+	gatewayAddress, gatewayConnected, err := r.containerNetworkAddressIfConnected(ctx, gatewayContainer, network, "Gateway")
+	if err != nil {
+		return projectPrincipalBinding{}, false, err
+	}
+	workspaceAddress, workspaceConnected, err := r.containerNetworkAddressIfConnected(ctx, container, network, "Workspace")
+	if err != nil {
+		return projectPrincipalBinding{}, false, err
+	}
+	if !gatewayConnected || !workspaceConnected {
+		return projectPrincipalBinding{}, false, nil
+	}
+	subnet, err := r.projectNetworkSubnet(ctx, network)
+	if err != nil {
+		return projectPrincipalBinding{}, false, err
+	}
+	if err := validateProjectNetworkEndpoints(subnet, workspaceAddress, gatewayAddress); err != nil {
+		return projectPrincipalBinding{}, false, err
+	}
+	return projectPrincipalBinding{
+		ProjectID: project.ID, ContextID: project.ContextID, ContextName: project.ContextName,
+		ProjectRoot: project.Root, WorkspaceIP: workspaceAddress, GatewayIP: gatewayAddress, Network: network,
+	}, true, nil
+}
+
+func (r *Runtime) inspectGatewayProjectionIntegrity(ctx context.Context, state tobari.State) string {
 	if _, status := r.checkGatewayConfigAt(state.GatewayConfig); status != doctor.CheckStatusPass {
 		return "invalid"
+	}
+	if r.inspectSharedClusterNetworkIntegrity(ctx) != "valid" {
+		return "invalid"
+	}
+	return "valid"
+}
+
+func (r *Runtime) inspectSharedClusterNetworkIntegrity(ctx context.Context) string {
+	type requiredNetworks struct {
+		container string
+		networks  []string
+	}
+	required := []requiredNetworks{
+		{container: gatewayContainer, networks: []string{"tobari-control", "tobari-egress"}},
+		{container: opaContainer, networks: []string{"tobari-control"}},
+	}
+	if brokerRuntimeEnabled {
+		required = append(required, requiredNetworks{
+			container: authBrokerContainer,
+			networks:  []string{"tobari-control", "tobari-egress"},
+		})
+	}
+	for _, component := range required {
+		observed, err := r.containerNetworkAddresses(ctx, component.container, "shared cluster")
+		if err != nil {
+			return "invalid"
+		}
+		for _, network := range component.networks {
+			if observed[network] == "" {
+				return "invalid"
+			}
+		}
 	}
 	return "valid"
 }

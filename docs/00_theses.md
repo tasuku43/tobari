@@ -303,6 +303,11 @@ disabled, so neither path is direct egress.
 - Integration tests prove transparent interception without proxy environment,
   zero pre-policy DNS/upstream calls, source-principal isolation, direct egress,
   direct OPA access, and traffic during Gateway or OPA failure do not succeed.
+- Read-only cluster observation validates the live Gateway/OPA shared-network
+  joins and every registered Workspace/Gateway endpoint pair. A stopped
+  component, detached required network, stale endpoint, or missing live
+  principal binding makes the projection unready so ordinary root entry
+  composes explicit cluster reconciliation before Workspace mutation.
 - Runtime specification tests reject privileged mode, host networking, Docker
   socket mounts, broad host-home mounts, and missing fixed resource bounds.
 - Runtime integration inspects CPU, memory, PID, and log limits after creation
@@ -566,6 +571,10 @@ directory.
   enter and recover the same root repeatedly, preserve the Workspace after
   session exit, and delete only the selected instance without growing owned
   resources.
+- Shared-cluster interruption and drift tests stop or remove components,
+  detach required shared and Workspace networks, and cancel reconciliation;
+  explicit recovery restores readiness without changing logical Workspace
+  identity or its persistent home.
 - Context-only image selection tests prove project metadata cannot silently
   override the execution boundary for new or existing Workspaces before Docker
   mutation.

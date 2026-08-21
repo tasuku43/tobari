@@ -907,7 +907,8 @@ Explicit standard `cluster up` validates configuration, obtains and preflights t
 Gateway image, locally ensures every required runtime image, builds and tests
 the complete all-Context policy projection, reconciles exactly one OPA and one
 Gateway, and
-reconnects Gateway to every existing registered project network. It completes
+reconnects Gateway and OPA to their required shared networks plus Gateway to
+every existing registered project network. It completes
 only after OPA serves the exact aggregate revision and a defined decision
 document.
 Image preflight fails before the policy test, cluster journal, shared network,
@@ -930,7 +931,11 @@ binding.
 
 Outside that fresh-Context composition, root observes whether the configured
 cluster is running and whether its policy, Gateway, and principal projections
-are valid for the current binary. A ready observation proceeds unchanged; an
+are valid for the current binary. Gateway projection observation includes the
+live required Gateway/OPA shared-network joins, and principal projection
+observation compares every registered endpoint with the exact currently owned
+Workspace and Gateway network addresses. These are read-only Docker inspections;
+they never reconnect a network. A ready observation proceeds unchanged; an
 absent, stopped, or invalid observation composes the same exact typed
 `cluster up` action before Workspace mutation.
 An older active aggregate fails closed with exact `cluster up` recovery. It then reads the

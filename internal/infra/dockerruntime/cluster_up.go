@@ -210,6 +210,12 @@ func (r *Runtime) clusterUpWithProgressMode(
 				recordAttemptError("Gateway did not rejoin the shared cluster network; inspect cluster status.")
 				return err
 			}
+			if sharedNetwork == "tobari-control" {
+				if err := r.ensureOPANetwork(ctx, sharedNetwork); err != nil {
+					recordAttemptError("OPA did not rejoin the shared control network; inspect cluster status.")
+					return err
+				}
+			}
 			if brokerRuntimeEnabled {
 				if err := r.ensureAuthBrokerNetwork(ctx, sharedNetwork); err != nil {
 					recordAttemptError("Auth Broker did not rejoin the shared cluster network; inspect cluster status.")
@@ -335,6 +341,10 @@ func (r *Runtime) waitForClusterReady(
 
 func (r *Runtime) ensureGatewayNetwork(ctx context.Context, network string) error {
 	return r.ensureClusterContainerNetwork(ctx, gatewayContainer, "Gateway", "gateway", network)
+}
+
+func (r *Runtime) ensureOPANetwork(ctx context.Context, network string) error {
+	return r.ensureClusterContainerNetwork(ctx, opaContainer, "OPA", "opa", network)
 }
 
 func (r *Runtime) ensureAuthBrokerNetwork(ctx context.Context, network string) error {

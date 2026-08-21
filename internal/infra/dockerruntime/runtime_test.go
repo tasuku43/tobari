@@ -52,6 +52,36 @@ type ownershipInspectFailureRunner struct {
 	runs    []runnerCall
 }
 
+type interruptedClusterDownRunner struct {
+	recordingRunner
+	interrupted bool
+}
+
+func (r *interruptedClusterDownRunner) Run(
+	ctx context.Context, args, environment []string, input io.Reader, output, errorOutput io.Writer,
+) error {
+	if !r.interrupted && len(args) > 0 && args[0] == "compose" && slices.Contains(args, "down") {
+		r.interrupted = true
+		return context.Canceled
+	}
+	return r.recordingRunner.Run(ctx, args, environment, input, output, errorOutput)
+}
+
+type interruptedClusterUpRunner struct {
+	clusterUpProgressRunner
+	interrupted bool
+}
+
+func (r *interruptedClusterUpRunner) Run(
+	ctx context.Context, args, environment []string, input io.Reader, output, errorOutput io.Writer,
+) error {
+	if !r.interrupted && len(args) > 0 && args[0] == "compose" && slices.Contains(args, "up") {
+		r.interrupted = true
+		return context.Canceled
+	}
+	return r.clusterUpProgressRunner.Run(ctx, args, environment, input, output, errorOutput)
+}
+
 type policyProbeRunner struct {
 	outputs []runnerCall
 }
@@ -227,11 +257,13 @@ func TestClusterUpWithProgressReportsEachRuntimeStageInOrder(t *testing.T) {
 	}
 	wantNetworkConnections := [][]string{
 		{"network", "connect", "--alias", "gateway", "tobari-control", gatewayContainer},
+		{"network", "connect", "--alias", "opa", "tobari-control", opaContainer},
 		{"network", "connect", "--alias", "gateway", "tobari-egress", gatewayContainer},
 	}
 	if brokerRuntimeEnabled {
 		wantNetworkConnections = [][]string{
 			{"network", "connect", "--alias", "gateway", "tobari-control", gatewayContainer},
+			{"network", "connect", "--alias", "opa", "tobari-control", opaContainer},
 			{"network", "connect", "--alias", "auth-broker", "tobari-control", authBrokerContainer},
 			{"network", "connect", "--alias", "gateway", "tobari-egress", gatewayContainer},
 			{"network", "connect", "--alias", "auth-broker", "tobari-egress", authBrokerContainer},
@@ -244,6 +276,46 @@ func TestClusterUpWithProgressReportsEachRuntimeStageInOrder(t *testing.T) {
 		if !slices.Equal(runner.networkConnections[index].args, want) {
 			t.Fatalf("shared network connection %d = %v, want %v", index, runner.networkConnections[index].args, want)
 		}
+	}
+}
+
+func TestClusterUpResumesAfterInterruptedComposeStartup(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	runner := &interruptedClusterUpRunner{}
+	runtime, err := newRuntimeWithData(
+		filepath.Join(root, "config"), filepath.Join(root, "state"), filepath.Join(root, "data"),
+		runner,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime.images = testImageResolver{
+		runtimeImage: "tobari-runtime:dev",
+		gateway:      sharedImageSelection{Image: "tobari-gateway:dev"},
+		authBroker:   sharedImageSelection{Image: "tobari-auth-broker:dev"},
+	}
+	runtime.rootKeyLoader = func(context.Context) ([]byte, error) {
+		return bytes.Repeat([]byte{0x41}, 32), nil
+	}
+	runtime.companion = &fakeCredentialCompanionLauncher{}
+	runtime.companionEntropy = bytes.NewReader(bytes.Repeat([]byte{0x42}, 32))
+
+	if _, err := runtime.ClusterUp(context.Background()); !errors.Is(err, context.Canceled) {
+		t.Fatalf("interrupted ClusterUp() error = %v, want context cancellation", err)
+	}
+	journal, exists, err := runtime.readClusterJournal()
+	if err != nil || !exists || journal.Operation != clusterOperationUp || journal.Phase != clusterPhaseStarted {
+		t.Fatalf("interrupted journal = (%+v, %t, %v)", journal, exists, err)
+	}
+	if _, err := runtime.ClusterUp(context.Background()); err != nil {
+		t.Fatalf("resumed ClusterUp() error = %v", err)
+	}
+	if _, exists, err := runtime.readClusterJournal(); err != nil || exists {
+		t.Fatalf("cluster journal after resumed startup = exists:%t error:%v", exists, err)
+	}
+	if _, exists, err := runtime.LoadState(context.Background()); err != nil || !exists {
+		t.Fatalf("cluster state after resumed startup = exists:%t error:%v", exists, err)
 	}
 }
 
@@ -637,6 +709,40 @@ func TestClusterDownPurgesMissingVolumesIdempotently(t *testing.T) {
 		if len(call.args) > 0 && call.args[0] == "volume" && slices.Contains(call.args, "rm") {
 			t.Fatalf("missing volume was sent to rm: %v", call.args)
 		}
+	}
+}
+
+func TestClusterDownResumesAfterInterruptedComposeCleanup(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	runner := &interruptedClusterDownRunner{}
+	runtime, err := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), runner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime.companion = &fakeCredentialCompanionLauncher{}
+	if err := runtime.ensureProjectPrincipalRegistry(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	state := runtimeState(root)
+	if err := runtime.writeState(state); err != nil {
+		t.Fatal(err)
+	}
+	if err := runtime.ClusterDown(context.Background(), state, false); err == nil {
+		t.Fatal("first ClusterDown() unexpectedly completed")
+	}
+	journal, exists, err := runtime.readClusterJournal()
+	if err != nil || !exists || journal.Operation != clusterOperationDown || journal.Phase != clusterPhaseStarted {
+		t.Fatalf("interrupted journal = (%+v, %t, %v)", journal, exists, err)
+	}
+	if err := runtime.ClusterDown(context.Background(), state, false); err != nil {
+		t.Fatalf("resumed ClusterDown() error = %v", err)
+	}
+	if _, exists, err := runtime.readClusterJournal(); err != nil || exists {
+		t.Fatalf("cluster journal after resumed cleanup = exists:%t error:%v", exists, err)
+	}
+	if _, exists, err := runtime.LoadState(context.Background()); err != nil || exists {
+		t.Fatalf("cluster state after resumed cleanup = exists:%t error:%v", exists, err)
 	}
 }
 

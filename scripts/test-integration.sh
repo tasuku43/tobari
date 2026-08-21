@@ -556,6 +556,11 @@ cleanup() {
     docker rm -f "$auth_mock_name" >/dev/null 2>&1 || true
     docker network rm "$auth_network" >/dev/null 2>&1 || true
     if [[ -n ${test_root:-} && -x $binary && -n ${work_root:-} ]]; then
+      # First ask the public lifecycle to settle an interruption journal and
+      # its partial shared runtime before deleting logical Workspaces.
+      if [[ -f $test_root/state/tobari/cluster-reconcile.json ]]; then
+        run_tobari cluster up >/dev/null 2>&1 || true
+      fi
       run_tobari_at "$work_root" delete --force >/dev/null 2>&1 || true
 			run_tobari_at "$work_root" delete --context restricted --force >/dev/null 2>&1 || true
   if [[ -n $other_root ]]; then
@@ -563,10 +568,10 @@ cleanup() {
       fi
       run_tobari cluster down --purge >/dev/null 2>&1 || true
     fi
-    # A failed startup may leave an interrupted reconciliation journal that
-    # prevents the public cleanup path from completing. The preflight above
-    # requires these exact shared names to be absent before ownership is set,
-    # so any survivors here were created by this integration run.
+    # Keep an exact-name Docker fallback for failures in the lifecycle code
+    # under test or abrupt harness termination. The preflight above requires
+    # these exact shared names to be absent before ownership is set, so any
+    # survivors here were created by this integration run.
     for container in \
       tobari-auth-broker tobari-gateway tobari-opa \
       "$work_container" "$other_container" "$restricted_container"; do
