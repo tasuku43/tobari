@@ -484,6 +484,10 @@ func (r *Runtime) ListContexts(ctx context.Context) (tobari.ContextListResult, e
 		if err != nil {
 			return tobari.ContextListResult{}, err
 		}
+		runtimeSelection, err := runtimeReport.Selection()
+		if err != nil {
+			return tobari.ContextListResult{}, err
+		}
 		nativeReadiness, err := tobari.ResolveContextNativeReadiness(manifest.NativeReadiness)
 		if err != nil {
 			return tobari.ContextListResult{}, err
@@ -492,15 +496,21 @@ func (r *Runtime) ListContexts(ctx context.Context) (tobari.ContextListResult, e
 		if err != nil {
 			return tobari.ContextListResult{}, err
 		}
+		routineAccess, err := tobari.SummarizeContextAccess(policy, manifest.SourceAccess, nativeReadiness)
+		if err != nil {
+			return tobari.ContextListResult{}, err
+		}
 		items = append(items, tobari.ContextSummary{
 			ID: manifest.ID, Name: manifest.Name, ContextState: tobari.ContextObservationPersisted, Active: manifest.Name == active,
 			AgentProfile: manifest.AgentProfile, Image: manifest.Image, PolicyMode: manifest.PolicyMode,
-			SourceAccess:    manifest.SourceAccess,
-			PolicyRevision:  manifest.PolicyRevision,
-			NativeReadiness: nativeReadiness,
-			MethodPolicy:    policy.MethodPolicy,
-			RuntimeStatus:   runtimeReport.Status,
-			Bootstrap:       tobari.ContextBootstrapReportFrom(manifest.Bootstrap),
+			SourceAccess:     manifest.SourceAccess,
+			PolicyRevision:   manifest.PolicyRevision,
+			NativeReadiness:  nativeReadiness,
+			MethodPolicy:     policy.MethodPolicy,
+			RoutineAccess:    &routineAccess,
+			RuntimeStatus:    runtimeReport.Status,
+			RuntimeSelection: runtimeSelection,
+			Bootstrap:        tobari.ContextBootstrapReportFrom(manifest.Bootstrap),
 		})
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].Name < items[j].Name })

@@ -23,7 +23,7 @@ import (
 
 const (
 	humanPresentationFixtureSHA256 = "cb58bff1cd33dc44622c711d649d9b2b4ba79b09e132bb1dd36b70e7931944e5"
-	humanPresentationAnswerSHA256  = "f8c08a0684e44003f09a09b819201ec5345cb08550f7e184d38eb30ee49743b1"
+	humanPresentationAnswerSHA256  = "b6c4cf1172497eb9ae29185f672c0fe8f1c07c0c8ecb034c875ccf294a7c24f0"
 )
 
 type humanPresentationFixture struct {
@@ -70,6 +70,7 @@ func readPinnedHumanPresentationCorpus(t *testing.T) (humanPresentationFixture, 
 	var answer humanPresentationAnswer
 	read("testdata/human-presentation-foundation-fixture.json", humanPresentationFixtureSHA256, &fixture)
 	read("testdata/human-presentation-foundation-answer-key.json", humanPresentationAnswerSHA256, &answer)
+	fixture.Lifecycle.RuntimeSelection = tobari.StandardRuntimeName + "@1"
 	return fixture, answer
 }
 

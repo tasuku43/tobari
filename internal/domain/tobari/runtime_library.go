@@ -162,6 +162,19 @@ type RuntimeBinding struct {
 	Image     string `json:"image"`
 }
 
+// Selection returns the exact human selection for this stable binding without
+// exposing its identity or immutable revision.
+func (b RuntimeBinding) Selection() (string, error) {
+	if err := b.Validate(); err != nil {
+		return "", err
+	}
+	selection := fmt.Sprintf("%s@%d", b.Name, b.Ordinal)
+	if _, _, err := ParseRuntimeSelection(selection); err != nil {
+		return "", err
+	}
+	return selection, nil
+}
+
 // ParseRuntimeSelection parses the human review syntax. The returned ordinal
 // is presentation input only; infrastructure resolves it to stable ID+digest
 // before a Context manifest is committed.

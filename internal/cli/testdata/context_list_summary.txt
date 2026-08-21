@@ -1,0 +1,9 @@
+Contexts
+
+* default
+    Access     Read-write · routine clients ready · other exact review · private denied
+    Runtime    standard@1
+
+  frontend
+    Access     Read-only · routine clients not enabled · other exact review · private denied
+    Runtime    frontend@4

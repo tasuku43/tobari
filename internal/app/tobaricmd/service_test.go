@@ -673,7 +673,7 @@ func TestProjectStatusPreservesExistsWhenRuntimeIsMissing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.Exists || result.Runtime != tobari.RuntimeDiagnosticMissing || result.Attachment != tobari.AttachmentDetached ||
+	if !result.Exists || result.Runtime != tobari.RuntimeDiagnosticMissing || result.RuntimeSelection != tobari.StandardRuntimeName+"@1" || result.Attachment != tobari.AttachmentDetached ||
 		fake.resolveCalls != 1 || fake.sessionCalls != 1 {
 		t.Fatalf("status=%+v calls=%d", result, fake.resolveCalls)
 	}
@@ -743,7 +743,7 @@ func TestProjectStatusPreservesRequestedContextScopeWhenWorkspaceIsAbsent(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Exists || result.ContextName != tobari.DefaultContextName || result.ContextID == "" ||
+	if result.Exists || result.ContextName != tobari.DefaultContextName || result.ContextID == "" || result.RuntimeSelection != tobari.StandardRuntimeName+"@1" ||
 		result.Attachment != tobari.AttachmentNotApplicable || result.Runtime != tobari.RuntimeDiagnosticUnknown {
 		t.Fatalf("absent scoped status = %+v", result)
 	}

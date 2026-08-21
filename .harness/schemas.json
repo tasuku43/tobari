@@ -32,8 +32,8 @@
   {
     "id": "human-presentation-foundation.answer-key.v1",
     "path": "internal/cli/testdata/human-presentation-foundation-answer-key.json",
-    "sha256": "f8c08a0684e44003f09a09b819201ec5345cb08550f7e184d38eb30ee49743b1",
-    "bytes": 1669,
+    "sha256": "b6c4cf1172497eb9ae29185f672c0fe8f1c07c0c8ecb034c875ccf294a7c24f0",
+    "bytes": 1649,
     "cases": 5,
     "provenance": "Repository-authored presentation-independent answer key for human CLI structure, exact recovery, and negative-inference canaries.",
     "license": "MIT"

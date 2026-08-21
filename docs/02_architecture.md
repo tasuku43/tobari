@@ -331,15 +331,22 @@ infrastructure/doctor detail `linux_xdg_file` is not a public JSON enum. The
 canonical schema/path/backend table is in
 [Authentication handling](07_authentication.md#experimental-canonical-schemas-paths-and-backend-identifiers).
 
-CLI projects that same validated report into two human documents for
-`context show`: the default outcome-first boundary/runtime summary and the
-explicit `--details` sectioned diagnostic. Selection happens after the one
-application read and cannot add, remove, or reinterpret a typed field in JSON.
-The summary retains every effective method override and derives a continuation
-from explicit current-Context and runtime states; an inactive named Context is
-never presented as the omitted current selection. The detailed document keeps
-host paths and revisions secondary while preserving their exact visible
-projection.
+Domain projects validated Context reports and list items into typed routine
+summaries: effective Access, routine-client availability after actual ceilings,
+exact Runtime selection and action state, summarized shell/Git/bootstrap
+defaults, and authentication ownership. CLI renders those summaries rather
+than inferring readiness or continuation from labels. `context show --details`
+projects the same application read into the complete sectioned diagnostic;
+selection cannot add, remove, or reinterpret a typed field in JSON. The default
+summary retains every effective method override, while host paths, stable IDs,
+images, profiles, and revisions remain secondary. An inactive named Context is
+never presented as the omitted current selection.
+
+Workspace status similarly carries an internal typed routine summary and exact
+Runtime selection resolved from the already selected Context manifest. Its
+schema-1 JSON retains the established complete lifecycle projection; the human
+view suppresses healthy IDs, home paths, revisions, and unchanged bootstrap
+state while retaining explicit runtime/session attention and exact recovery.
 
 Narrow host projection is a separate composition concern, not a file or secret
 mount. Domain owns each fixed scalar inventory, `default|inherit|literal`

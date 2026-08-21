@@ -2001,14 +2001,17 @@ func renderProjectStatusWithColor(result tobari.ProjectStatus, format successFor
 		return append(output, '\n'), nil
 	}
 	if format == successFormatText {
+		summary, err := result.RoutineSummary()
+		if err != nil {
+			return nil, fault.Wrap(fault.KindContract, "invalid_status_contract", "Workspace routine summary is invalid", false, err)
+		}
 		if !result.Exists {
 			output := newHumanOutput(color)
-			output.heading("○", "No Workspace in selected Context", styleMuted)
+			output.heading("○", "No Workspace", styleMuted)
 			output.row("Context", safeExternalText(result.ContextName), styleText)
-			output.row("Context state", string(result.ContextState), humanStatusToken(string(result.ContextState)))
-			output.row("Context ID", optionalDisplay(value.ContextID, "not initialized"), styleText)
-			output.row("Session", string(result.Attachment), styleMuted)
-			output.row("Bootstrap", value.Bootstrap.State, humanStatusToken(value.Bootstrap.State))
+			if result.ContextState == tobari.ContextObservationSyntheticDefault {
+				output.row("Defaults", "Recommended · not saved", styleWarning)
+			}
 			output.next(nextRecovery, "Create or enter a Workspace in this Context.")
 			return output.bytes(), nil
 		}
@@ -2018,18 +2021,19 @@ func renderProjectStatusWithColor(result tobari.ProjectStatus, format successFor
 			marker, title, token = "!", "Workspace needs attention", styleWarning
 		}
 		output.heading(marker, title, token)
-		output.row("Project root", safeExternalText(result.Root), styleText)
+		output.row("Root", safeExternalText(result.Root), styleText)
 		output.row("Context", safeExternalText(result.ContextName), styleText)
-		output.row("Runtime", safeExternalText(string(result.Runtime)), humanStatusToken(string(result.Runtime)))
-		output.row("Session", safeExternalText(string(result.Attachment)), humanStatusToken(string(result.Attachment)))
-		bootstrapText := value.Bootstrap.State
-		if value.Bootstrap.AppliedRevision != "" {
-			bootstrapText += " · " + value.Bootstrap.AppliedRevision[:12]
+		runtimeValue := safeExternalText(string(result.Runtime))
+		if summary.RuntimeSelection != "" {
+			runtimeValue = safeExternalText(summary.RuntimeSelection) + " · " + runtimeValue
 		}
-		output.row("Bootstrap", bootstrapText, humanStatusToken(value.Bootstrap.State))
-		output.row("Workspace ID", result.ID, styleText)
-		output.row("Workspace home", safeExternalText(result.Home), styleText)
-		if result.Runtime != tobari.RuntimeDiagnosticReady {
+		output.row("Runtime", runtimeValue, humanStatusToken(string(result.Runtime)))
+		output.row("Session", safeExternalText(string(result.Attachment)), humanStatusToken(string(result.Attachment)))
+		if summary.BootstrapAttention {
+			output.row("Workspace defaults", humanWorkspaceBootstrapAttention(bootstrap.State), styleWarning)
+		}
+		if summary.Action == tobari.ProjectRoutineActionInspect {
+			output.row("Action", "Inspect the local runtime", styleWarning)
 			output.next("doctor", "Inspect the local runtime before entering the project.")
 		} else {
 			output.next(nextRecovery, "Enter the current directory's Workspace.")
@@ -2050,6 +2054,13 @@ func renderProjectStatusWithColor(result tobari.ProjectStatus, format successFor
 	fmt.Fprintf(&output, "Bootstrap: %s\n", escapeTSVCell(value.Bootstrap.State))
 	fmt.Fprintf(&output, "Next: %s\n", nextCommand)
 	return semanticTextBytes(color, output.Bytes()), nil
+}
+
+func humanWorkspaceBootstrapAttention(state string) string {
+	if state == tobari.WorkspaceBootstrapNotApplied {
+		return "Not applied to this existing Workspace"
+	}
+	return "Older creation defaults retained"
 }
 
 type projectListOutput struct {

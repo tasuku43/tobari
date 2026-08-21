@@ -1291,8 +1291,9 @@ func TestProjectStatusHumanStylesLabelsStateValuesAndNextCommand(t *testing.T) {
 	result := tobari.ProjectStatus{
 		Task: tobari.TaskStatus, ContextState: tobari.ContextObservationPersisted, Exists: true, Root: "/tmp/project",
 		ID: "01912345-6789-7abc-8def-0123456789ab", Home: "/tmp/state/project/home",
-		Runtime:   tobari.RuntimeDiagnosticReady,
-		ContextID: "018bcfe5-687b-7000-8000-000000000099", ContextName: "default",
+		Runtime:          tobari.RuntimeDiagnosticReady,
+		RuntimeSelection: tobari.StandardRuntimeName + "@1",
+		ContextID:        "018bcfe5-687b-7000-8000-000000000099", ContextName: "default",
 		Attachment: tobari.AttachmentDetached,
 	}
 	output, err := renderProjectStatusWithColor(result, successFormatText, true)
@@ -1300,7 +1301,7 @@ func TestProjectStatusHumanStylesLabelsStateValuesAndNextCommand(t *testing.T) {
 		t.Fatal(err)
 	}
 	value := string(output)
-	for _, label := range []string{"Project root", "Runtime", "Session", "Workspace ID", "Workspace home", "Next"} {
+	for _, label := range []string{"Root", "Context", "Runtime", "Session", "Next"} {
 		padded := fmt.Sprintf("%-*s", humanOutputLabelWidth, label)
 		if !strings.Contains(value, applyStyleToken(true, styleMuted, padded)) {
 			t.Fatalf("status output %q lacks muted label %q", value, label)
@@ -1308,19 +1309,22 @@ func TestProjectStatusHumanStylesLabelsStateValuesAndNextCommand(t *testing.T) {
 	}
 	for _, want := range []string{
 		applyStyleToken(true, styleSuccess, "✓"),
-		applyStyleToken(true, styleSuccess, "ready"),
+		applyStyleToken(true, styleSuccess, "standard@1 · ready"),
 		applyStyleToken(true, styleAccent, "tobari --context default"),
 	} {
 		if !strings.Contains(value, want) {
 			t.Fatalf("status output %q lacks %q", value, want)
 		}
 	}
-	for _, ordinary := range []string{"Workspace ready", result.Root, result.ID, result.Home} {
+	for _, ordinary := range []string{"Workspace ready", result.Root} {
 		for _, token := range []styleToken{styleMuted, styleAccent, styleSuccess, styleWarning, styleDanger} {
 			if strings.Contains(value, applyStyleToken(true, token, ordinary)) {
 				t.Fatalf("status ordinary value %q used %s: %q", ordinary, token, value)
 			}
 		}
+	}
+	if strings.Contains(value, result.ID) || strings.Contains(value, result.Home) {
+		t.Fatalf("routine status exposed healthy diagnostic identity or home: %q", value)
 	}
 }
 

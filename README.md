@@ -193,11 +193,12 @@ tobari config bootstrap kubernetes eks --refresh --context default
 tobari --context restricted
 ```
 
-`context list` renders one vertical card per Context so filesystem and network
-method facts remain readable. `context show` keeps ordinary text focused on the
-selected boundary, runtime state, and exact next command; add `--details` for
-the complete sectioned host diagnostic. JSON is already complete and is
-unchanged by that flag. `context delete` accepts only an additional
+`context list` renders one result-first card per work mode: current marker,
+effective Access, exact Runtime, and an action marker when needed. `context
+show` keeps ordinary text focused on effective Access, Tools, Workspace
+defaults, Workspace-owned login, and exact Details/Next commands; add
+`--details` for the complete sectioned host diagnostic. JSON is already
+complete and is unchanged by that flag. `context delete` accepts only an additional
 non-current Context with no bound Workspace. It preserves project files and
 shared runtime images; the foundational `default` Context has no delete path.
 
@@ -217,9 +218,10 @@ strict Context. Its finite exact overlay never overrides the Context-owned polic
 destination and method Deny decisions filter it, and exact Deny still wins.
 
 Context creation collects one complete HTTP method `default` plus exact
-`overrides`. Unknown and extension methods receive that default. `context list`
-and `context show` expose the effective method policy and immutable
-`policy_revision`; there is no user-selectable policy catalog.
+`overrides`. Unknown and extension methods receive that default. Routine
+`context list` and `context show` text summarizes the effective decisions;
+`context show --details` and JSON retain the immutable `policy_revision` and
+complete policy diagnostics. There is no user-selectable policy catalog.
 
 The fixed agent-ready baseline is trusted-binary data composed into each new
 Context snapshot. It supplies the reviewed Claude Code, Codex, GitHub CLI, TWG,

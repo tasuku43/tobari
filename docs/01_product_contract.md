@@ -278,7 +278,7 @@ The public commands are:
 | `migrate apply [--format text|json]` | act, fixed target | write | Validate and migrate only the enumerated unpublished Context-policy/Runtime predecessor, retaining Context IDs, active selection, Workspace homes, learned rules, and credential stores |
 | `cluster up` | act, fixed target | create | Validate all Context policy inputs and image contracts, reconcile Gateway and OPA, and confirm the exact aggregate policy is active |
 | `tobari [--context <name>] [-- <command>...]` | act, fixed target plus TTY workflow | create | On first use, complete the ordinary Context review, compose the exact Context/cluster/runtime actions under their own catalog contracts, then choose or create the current directory's Workspace in the explicit or current Context, reconcile runtime, and either enter Bash or run one exact foreground child argv; child exit returns to the host with its exact status while the Workspace remains reusable and any attachment-owned route and grant close |
-| `status [--context NAME] [--format text|json]` | utility | read | Inspect the nearest current-directory Workspace in the explicit or current Context, its logical existence, runtime diagnostic, and attached/detached session observation |
+| `status [--context NAME] [--format text|json]` | utility | read | Inspect the nearest current-directory Workspace in the explicit or current Context, logical existence, runtime diagnostic, attached/detached session observation, and next action; human text also shows the exact Context Runtime selection |
 | `list [--format text|json]` | utility | read | List local Workspaces with Context, runtime diagnostics, and diagnostic IDs |
 | `delete [--context NAME] [--force]` | act, fixed target | write | Delete the nearest current-directory Workspace in the explicit or current Context, its owned runtime, persistent home, and tool-owned authentication state while preserving project files; `--force` overrides only the attached-session guard |
 | `cluster status [--format text|json]` | utility | read | Inspect Gateway/OPA health, loaded Context count, aggregate revision, current-binary policy/Gateway projection integrity, and recent errors |
@@ -291,7 +291,7 @@ The public commands are:
 | `policy deny --id ID` | act, reference bound | write | Test, record, and activate one exact project-bound rejection |
 | `policy rules [--format text|json]` | discover | read | List every Context-scoped CLI-owned learned Allow and exact Deny decision; on a TTY, reset one explicitly |
 | `policy reset --id ID` | act, reference bound | write | Remove one learned decision and leave its effect at default deny |
-| `context list [--format text|json]` | utility | read | List persisted named Contexts and report the current selection as persisted or a display-only synthetic default |
+| `context list [--format text|json]` | utility | read | List persisted named Context work modes and the current or display-only synthetic selection; human text summarizes effective Access, exact Runtime selection, and any action marker |
 | `context show [--name NAME] [--details] [--format text|json]` | utility | read | Inspect one stable work mode's immutable Boundary, exact mutable Runtime binding, session and creation defaults, persistence state, agent, and native Workspace-owned authentication mode; `--details` expands host paths and immutable revisions without returning credential values |
 | `config shell [--variable COLORTERM\|NO_COLOR\|PS1\|TERM] [--source default\|inherit\|literal] [--value VALUE] [--context NAME] [--format text\|json]` | act, fixed target | write | Configure one allowlisted shell-presentation session default directly, or stage one or more rows from the complete terminal inventory and apply them atomically; later child sessions resolve it without rewriting Workspace home |
 | `config git [--source default\|inherit\|literal] [--name NAME] [--email EMAIL] [--context NAME] [--format text\|json]` | act, fixed target | write | Configure one atomic Context Git commit-identity session fallback directly, or stage and apply its source from one terminal screen; later Workspace entry resolves it without rewriting Workspace home |
@@ -688,16 +688,23 @@ Human output is concise text. The canonical public machine-output inventory is:
 | Workspace status | `status` | 1 |
 <!-- public-cli-json-schemas:end -->
 
-Workspace status always reports the selected Context ID/name, logical
+Workspace status JSON always reports the selected Context ID/name, logical
 existence, runtime diagnostic, attachment observation, and exact Context-bound
-next argv. Context reports include a complete four-item shell-environment
+next argv. Routine human status leads with the Workspace result, root, Context,
+exact Runtime selection plus health, session state, any required action, and
+the exact next command; healthy IDs, home paths, revisions, and bootstrap state
+remain in JSON rather than the default human view. Context reports include a
+complete four-item shell-environment
 inventory, complete Git identity policy, and authentication mode
 `native_workspace`. Native agent credentials are created and persisted by the
 agent CLI inside the Workspace home and never appear in CLI output.
-Human `context show` text defaults to an outcome-first summary containing the
-exact selected/current state, source access, effective method default and every
-override, profile, Git identity policy, runtime/image state, authentication
-mode, bootstrap state, exact Runtime name and ordinal, an exact detailed-inspection
+Human `context list` text renders one result-first card per work mode: name and
+current marker, effective source/routine/other/private Access, exact Runtime
+selection, and an action marker only when required. The synthetic default says
+that recommended defaults are not saved. Human `context show` text defaults to
+an outcome-first summary containing effective Access, routine-client state,
+every method override, exact Runtime name and ordinal, summarized shell/Git and
+future-Workspace bootstrap defaults, Workspace-owned login, an exact detailed-inspection
 command, and the Context-preserving next action. `--details` renders the same
 single typed result as `Context`, `Boundary`, `Workspace`, `Runtime`, and
 `Stores and revisions` sections, including the complete shell inventory, host

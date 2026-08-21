@@ -19,7 +19,7 @@ func TestRootHelpIsDerivedFromCatalog(t *testing.T) {
 		t.Fatalf("Run(help) code = %d, stderr = %q", code, stderr.String())
 	}
 	output := stdout.String()
-	for _, want := range []string{"Start here:", "tobari version", "Inspect build channel and runtime API compatibility", "Set up, enter, or reuse the current project's Workspace", "doctor", "help", "version", "items", "Namespace with 2 commands"} {
+	for _, want := range []string{"Start here:", "tobari version", "Inspect build channel and runtime API compatibility", "Prepare Shared services and enter or reuse the current project's Workspace", "doctor", "help", "version", "items", "Namespace with 2 commands"} {
 		if !strings.Contains(output, want) {
 			t.Errorf("root help lacks %q\n%s", want, output)
 		}

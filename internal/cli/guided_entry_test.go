@@ -111,10 +111,15 @@ func persistedContextList(report tobari.ContextReport) tobari.ContextListResult 
 			ID: report.ID, Name: report.Name, ContextState: tobari.ContextObservationPersisted, Active: true,
 			AgentProfile: report.AgentProfile, Image: report.Image, PolicyMode: report.PolicyMode,
 			SourceAccess: report.SourceAccess, PolicyRevision: report.PolicyRevision, NativeReadiness: tobari.ContextNativeReadinessEnabled,
-			MethodPolicy: report.MethodPolicy, RuntimeStatus: report.Runtime.Status,
+			MethodPolicy: report.MethodPolicy, RuntimeStatus: report.Runtime.Status, RuntimeSelection: runtimeSelection(report.Runtime),
 			Bootstrap: tobari.ContextBootstrapReport{State: tobari.ContextBootstrapNotConfigured, Adapters: []string{}},
 		}},
 	}
+}
+
+func runtimeSelection(report tobari.ContextRuntimeReport) string {
+	selection, _ := report.Selection()
+	return selection
 }
 
 func newGuidedEntryCLI(

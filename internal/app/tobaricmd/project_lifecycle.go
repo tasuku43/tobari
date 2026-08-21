@@ -197,6 +197,10 @@ func (s *Service) ProjectStatusInContext(ctx context.Context, contextName string
 		return result, result.Validate()
 	}
 	manifest := *observed.Manifest
+	runtimeSelection, err := manifest.RuntimeSelection()
+	if err != nil {
+		return tobari.ProjectStatus{}, fault.Wrap(fault.KindContract, "invalid_runtime_binding", "Context Runtime selection is invalid", false, err)
+	}
 	instance, found, err := observeProjectForContext(ctx, project, cwd, manifest)
 	if err != nil {
 		return tobari.ProjectStatus{}, fault.Wrap(fault.KindInternal, "state_read_failed", "project state could not be read", false, err)
@@ -209,7 +213,7 @@ func (s *Service) ProjectStatusInContext(ctx context.Context, contextName string
 		result := tobari.ProjectStatus{
 			Task: tobari.TaskStatus, ContextState: tobari.ContextObservationPersisted, Exists: false, Runtime: tobari.RuntimeDiagnosticUnknown,
 			ContextID: manifest.ID, ContextName: manifest.Name, Attachment: tobari.AttachmentNotApplicable,
-			Bootstrap: bootstrap,
+			Bootstrap: bootstrap, RuntimeSelection: runtimeSelection,
 		}
 		return result, result.Validate()
 	}
@@ -238,7 +242,7 @@ func (s *Service) ProjectStatusInContext(ctx context.Context, contextName string
 	result := tobari.ProjectStatus{
 		Task: tobari.TaskStatus, ContextState: tobari.ContextObservationPersisted, Exists: true, Root: instance.Root, ID: instance.ID,
 		Home: home, ContextID: instance.ContextID, ContextName: instance.ContextName, Runtime: diagnostic,
-		Attachment: attachment,
+		Attachment: attachment, RuntimeSelection: runtimeSelection,
 	}
 	result.Bootstrap, err = tobari.ResolveWorkspaceBootstrapReport(instance.BootstrapRevision, manifest.Bootstrap)
 	if err != nil {

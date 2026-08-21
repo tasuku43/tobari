@@ -722,6 +722,22 @@ type ContextManifest struct {
 	Bootstrap        *ContextBootstrapSnapshot        `json:"bootstrap,omitempty"`
 }
 
+// RuntimeSelection returns the exact user-facing Runtime binding while
+// preserving a truthful label for the pre-binding Dockerfile compatibility
+// state.
+func (m ContextManifest) RuntimeSelection() (string, error) {
+	if err := m.Validate(); err != nil {
+		return "", err
+	}
+	if m.RuntimeBinding != nil {
+		return m.RuntimeBinding.Selection()
+	}
+	if m.Runtime != nil {
+		return "context-owned Dockerfile", nil
+	}
+	return StandardRuntimeName + "@1", nil
+}
+
 func (m ContextManifest) Validate() error {
 	if m.SchemaVersion != ContextSchemaVersion {
 		return fmt.Errorf("context schema version must be %d", ContextSchemaVersion)
@@ -823,8 +839,15 @@ type ContextSummary struct {
 	PolicyRevision  string                  `json:"policy_revision"`
 	NativeReadiness ContextNativeReadiness  `json:"native_readiness"`
 	MethodPolicy    ContextMethodPolicy     `json:"method_policy"`
-	RuntimeStatus   ContextRuntimeStatus    `json:"runtime_status,omitempty"`
-	Bootstrap       ContextBootstrapReport  `json:"bootstrap"`
+	// RoutineAccess is the domain-evaluated effective summary from the actual
+	// Context policy read. It does not extend schema-1 JSON.
+	RoutineAccess *ContextAccessSummary `json:"-"`
+	RuntimeStatus ContextRuntimeStatus  `json:"runtime_status,omitempty"`
+	// RuntimeSelection is a human selection token derived from the exact
+	// binding during the same read. It is intentionally outside schema-1 JSON,
+	// whose established item projection remains unchanged.
+	RuntimeSelection string                 `json:"-"`
+	Bootstrap        ContextBootstrapReport `json:"bootstrap"`
 }
 
 func (s ContextSummary) Validate() error {
@@ -856,7 +879,18 @@ func (s ContextSummary) Validate() error {
 			return err
 		}
 	}
+	if s.RuntimeSelection == "" {
+		return fmt.Errorf("Context summary requires an exact Runtime selection")
+	}
+	if s.RuntimeStatus == ContextRuntimeStatusOfficial || s.RuntimeStatus == ContextRuntimeStatusReady {
+		if err := validateRuntimeDisplaySelection(s.RuntimeSelection); err != nil {
+			return err
+		}
+	}
 	if err := s.MethodPolicy.Validate(); err != nil {
+		return err
+	}
+	if err := validateRoutineAccessProjection(s.RoutineAccess, s.SourceAccess, s.MethodPolicy); err != nil {
 		return err
 	}
 	if err := s.Bootstrap.Validate(); err != nil {
@@ -1055,18 +1089,21 @@ func (a ContextAuthentication) Validate(observed bool) error {
 
 // ContextReport is the complete selected Context view.
 type ContextReport struct {
-	Task             string                           `json:"task"`
-	ContextState     ContextObservationState          `json:"context_state"`
-	ID               string                           `json:"id"`
-	Name             string                           `json:"name"`
-	Active           bool                             `json:"active"`
-	AgentProfile     string                           `json:"agent_profile"`
-	Image            string                           `json:"image"`
-	PolicyMode       ContextPolicyMode                `json:"policy_mode"`
-	SourceAccess     ContextSourceAccess              `json:"source_access"`
-	PolicyRevision   string                           `json:"policy_revision"`
-	NativeReadiness  ContextNativeReadiness           `json:"native_readiness"`
-	MethodPolicy     ContextMethodPolicy              `json:"method_policy"`
+	Task            string                  `json:"task"`
+	ContextState    ContextObservationState `json:"context_state"`
+	ID              string                  `json:"id"`
+	Name            string                  `json:"name"`
+	Active          bool                    `json:"active"`
+	AgentProfile    string                  `json:"agent_profile"`
+	Image           string                  `json:"image"`
+	PolicyMode      ContextPolicyMode       `json:"policy_mode"`
+	SourceAccess    ContextSourceAccess     `json:"source_access"`
+	PolicyRevision  string                  `json:"policy_revision"`
+	NativeReadiness ContextNativeReadiness  `json:"native_readiness"`
+	MethodPolicy    ContextMethodPolicy     `json:"method_policy"`
+	// RoutineAccess is computed from the actual policy read and retained only
+	// for trusted-host presentation.
+	RoutineAccess    *ContextAccessSummary            `json:"-"`
 	ShellEnvironment []ContextShellEnvironmentSetting `json:"shell_environment"`
 	GitIdentity      ContextGitIdentitySetting        `json:"git_identity"`
 	Stores           ContextStorePaths                `json:"stores"`
@@ -1113,6 +1150,9 @@ func (r ContextReport) Validate() error {
 		}
 	}
 	if err := r.MethodPolicy.Validate(); err != nil {
+		return err
+	}
+	if err := validateRoutineAccessProjection(r.RoutineAccess, r.SourceAccess, r.MethodPolicy); err != nil {
 		return err
 	}
 	if err := r.Runtime.Validate(); err != nil {

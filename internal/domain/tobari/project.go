@@ -75,17 +75,20 @@ func (o AttachmentObservation) Validate(exists bool) error {
 // ProjectStatus is the CWD-scoped lifecycle result. Exists is the only
 // user-facing logical lifecycle bit; Runtime is diagnostic detail.
 type ProjectStatus struct {
-	Task         string                   `json:"task"`
-	ContextState ContextObservationState  `json:"context_state"`
-	Exists       bool                     `json:"exists"`
-	Root         string                   `json:"root,omitempty"`
-	ID           string                   `json:"id,omitempty"`
-	Home         string                   `json:"home,omitempty"`
-	ContextID    string                   `json:"context_id,omitempty"`
-	ContextName  string                   `json:"context,omitempty"`
-	Runtime      RuntimeDiagnostic        `json:"runtime"`
-	Attachment   AttachmentObservation    `json:"attachment"`
-	Bootstrap    WorkspaceBootstrapReport `json:"bootstrap"`
+	Task         string                  `json:"task"`
+	ContextState ContextObservationState `json:"context_state"`
+	Exists       bool                    `json:"exists"`
+	Root         string                  `json:"root,omitempty"`
+	ID           string                  `json:"id,omitempty"`
+	Home         string                  `json:"home,omitempty"`
+	ContextID    string                  `json:"context_id,omitempty"`
+	ContextName  string                  `json:"context,omitempty"`
+	Runtime      RuntimeDiagnostic       `json:"runtime"`
+	// RuntimeSelection is presentation metadata resolved from the bound
+	// Context. Machine schema v1 retains the existing diagnostic field.
+	RuntimeSelection string                   `json:"-"`
+	Attachment       AttachmentObservation    `json:"attachment"`
+	Bootstrap        WorkspaceBootstrapReport `json:"bootstrap"`
 }
 
 func (s ProjectStatus) Validate() error {
@@ -94,6 +97,11 @@ func (s ProjectStatus) Validate() error {
 	}
 	if err := s.Runtime.Validate(); err != nil {
 		return err
+	}
+	if s.RuntimeSelection != "" {
+		if err := validateRuntimeDisplaySelection(s.RuntimeSelection); err != nil && s.RuntimeSelection != "context-owned Dockerfile" {
+			return err
+		}
 	}
 	if err := s.Attachment.Validate(s.Exists); err != nil {
 		return err

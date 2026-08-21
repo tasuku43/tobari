@@ -20,7 +20,7 @@ tobari context list
 tobari context show
 ```
 
-`context list` reports the complete local collection as vertical cards and identifies the current/default name. Filesystem rows and the network method default/overrides remain readable without depending on terminal tab stops. `context show` without `--name` inspects that default. The report distinguishes the immutable Boundary, exact mutable Runtime binding, shell/Git session defaults, and future-Workspace bootstrap creation default. It also includes the stable ID, agent profile, and separated store references. It excludes primary credentials, broker handles, root keys, and vault contents.
+`context list` reports the complete local collection as result-first cards: work mode/current, effective Access, exact Runtime, and an action marker when needed. `context show` without `--name` inspects the default and leads with effective Access, Tools, Workspace defaults, Workspace-owned login, Details, and Next. Use `--details` for the complete immutable Boundary, stable ID, agent profile, host store references, and revisions. JSON remains complete and unchanged. Neither view includes primary credentials, broker handles, root keys, or vault contents.
 
 The display name is convenient selection text. The stable Context ID is the durable authority bound into Workspaces, policy, principals, and broker records.
 

@@ -913,37 +913,42 @@ func renderContextList(result tobari.ContextListResult, format successFormat, co
 		}
 		return append(output, '\n'), nil
 	}
+	if result.ContextState == tobari.ContextObservationSyntheticDefault {
+		output := newHumanOutput(color)
+		output.heading("○", "No saved Contexts", styleMuted)
+		output.row("Defaults", "Recommended · not saved", styleWarning)
+		output.next(ProgramName, "Review and save a Context, then enter a Workspace.")
+		return output.bytes(), nil
+	}
 	var output strings.Builder
-	heading := fmt.Sprintf("Contexts (current: %s, %s)", safeExternalText(result.Active), result.ContextState)
-	output.WriteString(applyStyleToken(color, styleAccent, heading))
+	output.WriteString(applyStyleToken(color, styleAccent, "Contexts"))
 	output.WriteString("\n\n")
 	for _, item := range result.Items {
+		summary, err := item.RoutineSummary()
+		if err != nil {
+			return nil, fault.Wrap(fault.KindContract, "invalid_context_list", "Context list routine summary is invalid", false, err)
+		}
 		marker := " "
 		markerToken := styleMuted
 		if item.Active {
 			marker = "*"
 			markerToken = styleAccent
 		}
-		fmt.Fprintf(&output, "%s %s\n", applyStyleToken(color, markerToken, marker), applyStyleToken(color, styleText, safeExternalText(item.Name)))
-		writeContextCardRow(&output, color, "Filesystem", "source", "direct "+string(item.SourceAccess), styleText)
-		writeContextCardRow(&output, color, "", "home", "read-write", styleText)
-		writeContextCardRow(&output, color, "", "tmpfs", "read-write", styleText)
-		writeContextCardRow(&output, color, "Network", "default", humanMethodDecision(item.MethodPolicy.Default), methodDecisionStyle(item.MethodPolicy.Default))
-		for _, override := range item.MethodPolicy.Overrides {
-			writeContextCardRow(&output, color, "", override.Method, humanMethodDecision(override.Decision), methodDecisionStyle(override.Decision))
+		actionMarker := ""
+		if summary.Action == tobari.ContextRoutineActionBuildRuntime || summary.Action == tobari.ContextRoutineActionSelectThenBuild {
+			actionMarker = " " + applyStyleToken(color, styleWarning, "!")
 		}
-		writeContextCardValue(&output, color, "Runtime", string(item.RuntimeStatus), humanStatusToken(string(item.RuntimeStatus)))
-		writeContextCardValue(&output, color, "Image", safeExternalText(item.Image), styleText)
-		writeContextCardValue(&output, color, "Profile", string(item.PolicyMode)+" · agent "+safeExternalText(item.AgentProfile), styleText)
-		bootstrap := item.Bootstrap.Resolved()
-		bootstrapValue := bootstrap.State
-		if bootstrap.State == tobari.ContextBootstrapConfigured {
-			bootstrapValue = "AWS " + safeExternalText(bootstrap.AWSProfile) + " · generation " + fmt.Sprintf("%d", bootstrap.Generation) + " · " + bootstrap.Revision[:12]
+		fmt.Fprintf(&output, "%s %s%s\n", applyStyleToken(color, markerToken, marker), applyStyleToken(color, styleText, safeExternalText(item.Name)), actionMarker)
+		access := humanContextSourceAccess(summary.Access.SourceAccess) + " · routine clients " + humanRoutineTraffic(summary.Access.RoutineTraffic) +
+			" · other " + humanRoutineDecision(summary.Access.MethodPolicy.Default) + " · private denied"
+		writeContextCardValue(&output, color, "Access", access, styleText)
+		for _, override := range summary.Access.MethodPolicy.Overrides {
+			writeContextCardValue(&output, color, "Access "+safeExternalText(override.Method), humanRoutineDecision(override.Decision), methodDecisionStyle(override.Decision))
 		}
-		writeContextCardValue(&output, color, "Bootstrap", bootstrapValue, humanStatusToken(bootstrap.State))
+		writeContextCardValue(&output, color, "Runtime", safeExternalText(summary.RuntimeSelection), humanStatusToken(string(summary.RuntimeStatus)))
 		output.WriteString("\n")
 	}
-	return []byte(output.String()), nil
+	return []byte(strings.TrimRight(output.String(), "\n") + "\n"), nil
 }
 
 func writeContextCardRow(output *strings.Builder, color bool, section, subject, value string, token styleToken) {
@@ -977,6 +982,13 @@ func renderContextReport(result tobari.ContextReport, format successFormat, colo
 			return nil, err
 		}
 		return append(output, '\n'), nil
+	}
+	if result.Task == tobari.TaskContextShow {
+		summary, err := result.RoutineSummary()
+		if err != nil {
+			return nil, fault.Wrap(fault.KindContract, "invalid_context_report", "Context routine summary is invalid", false, err)
+		}
+		return renderContextShowSummary(result, summary, color), nil
 	}
 	return renderContextReportText(result, color), nil
 }
@@ -1140,17 +1152,131 @@ func renderContextShowReport(result tobari.ContextReport, format successFormat, 
 }
 
 func renderContextShowSummaryText(result tobari.ContextReport, color bool) []byte {
-	marker, token := contextShowMarker(result)
-	nextCommand, nextReason := contextShowNext(result)
-	return renderContextSummaryText(result, color, contextSummaryPresentation{
-		Marker:                marker,
-		MarkerToken:           token,
-		Title:                 "Context " + safeExternalText(result.Name),
-		IncludeAuthentication: true,
-		DetailsCommand:        contextShowDetailsCommand(result),
-		NextCommand:           nextCommand,
-		NextReason:            nextReason,
-	})
+	summary, err := result.RoutineSummary()
+	if err != nil {
+		return nil
+	}
+	return renderContextShowSummary(result, summary, color)
+}
+
+func renderContextShowSummary(result tobari.ContextReport, summary tobari.ContextRoutineSummary, color bool) []byte {
+	marker, token := contextShowMarkerFromSummary(result, summary)
+	nextCommand, nextReason := contextShowNextFromSummary(result, summary)
+	output := newHumanOutput(color)
+	output.heading(marker, "Context "+safeExternalText(result.Name), token)
+	if summary.RecommendedNotSaved {
+		output.row("Defaults", "Recommended · not saved", styleWarning)
+	}
+
+	output.section("Access")
+	source := humanContextSourceAccess(summary.Access.SourceAccess)
+	if summary.Access.SourceAccess == tobari.ContextSourceAccessReadWrite {
+		source += " · changes affect this project directly"
+	}
+	output.row("Project files", source, styleText)
+	output.row("Routine clients", humanRoutineTrafficTitle(summary.Access.RoutineTraffic), humanRoutineTrafficToken(summary.Access.RoutineTraffic))
+	output.row("Other requests", humanRoutineDecisionTitle(summary.Access.MethodPolicy.Default), methodDecisionStyle(summary.Access.MethodPolicy.Default))
+	for _, override := range summary.Access.MethodPolicy.Overrides {
+		output.row(safeExternalText(override.Method)+" requests", humanRoutineDecisionTitle(override.Decision), methodDecisionStyle(override.Decision))
+	}
+	output.row("Private targets", "Denied", styleWarning)
+
+	output.section("Tools")
+	output.row("Runtime", safeExternalText(summary.RuntimeSelection), humanStatusToken(string(summary.RuntimeStatus)))
+
+	output.section("Workspace defaults")
+	output.row("Shell presentation", humanShellDefault(summary.Defaults.Shell), styleText)
+	output.row("Git identity", humanGitDefault(summary.Defaults.Git), styleText)
+	output.row("Bootstrap", humanBootstrapDefault(summary.Defaults.Bootstrap), styleText)
+
+	if summary.AuthenticationMode == tobari.ContextAuthenticationModeNative {
+		output.row("Login", "Workspace-owned · stays in each Workspace", styleSuccess)
+	} else {
+		output.row("Login", contextShowAuthentication(result.Authentication), contextShowAuthenticationToken(result.Authentication))
+		output.row("Auth status", strings.Join(contextAuthStatusNextArgv(result), " "), styleAccent)
+	}
+	output.row("Details", recoveryCommand(contextShowDetailsCommand(result)), styleAccent)
+	output.next(nextCommand, nextReason)
+	return output.bytes()
+}
+
+func humanContextSourceAccess(access tobari.ContextSourceAccess) string {
+	if access == tobari.ContextSourceAccessReadWrite {
+		return "Read-write"
+	}
+	return "Read-only"
+}
+
+func humanRoutineTraffic(state tobari.ContextRoutineTrafficState) string {
+	switch state {
+	case tobari.ContextRoutineTrafficReady:
+		return "ready"
+	case tobari.ContextRoutineTrafficLimited:
+		return "limited by Context"
+	default:
+		return "not enabled"
+	}
+}
+
+func humanRoutineTrafficTitle(state tobari.ContextRoutineTrafficState) string {
+	value := humanRoutineTraffic(state)
+	return strings.ToUpper(value[:1]) + value[1:]
+}
+
+func humanRoutineTrafficToken(state tobari.ContextRoutineTrafficState) styleToken {
+	switch state {
+	case tobari.ContextRoutineTrafficReady:
+		return styleSuccess
+	case tobari.ContextRoutineTrafficLimited:
+		return styleWarning
+	default:
+		return styleMuted
+	}
+}
+
+func humanRoutineDecision(decision tobari.ContextMethodDecision) string {
+	switch decision {
+	case tobari.ContextMethodAllow:
+		return "allowed"
+	case tobari.ContextMethodDeny:
+		return "denied"
+	default:
+		return "exact review"
+	}
+}
+
+func humanRoutineDecisionTitle(decision tobari.ContextMethodDecision) string {
+	value := humanRoutineDecision(decision)
+	return strings.ToUpper(value[:1]) + value[1:]
+}
+
+func humanShellDefault(state tobari.ContextShellDefaultState) string {
+	switch state {
+	case tobari.ContextShellDefaultInherited:
+		return "Inherited"
+	case tobari.ContextShellDefaultCustomized:
+		return "Customized"
+	default:
+		return "Standard"
+	}
+}
+
+func humanGitDefault(state tobari.ContextGitDefaultState) string {
+	switch state {
+	case tobari.ContextGitDefaultInherited:
+		return "Inherited on entry"
+	case tobari.ContextGitDefaultConfigured:
+		return "Configured"
+	default:
+		return "Not imported"
+	}
+}
+
+func humanBootstrapDefault(state tobari.ContextBootstrapDefaultState) string {
+	if state == tobari.ContextBootstrapDefaultConfigured {
+		return "Configured for new Workspaces"
+	}
+	return "None"
 }
 
 func renderContextCreateSummaryText(result tobari.ContextReport, color bool) []byte {
@@ -1311,13 +1437,21 @@ func contextRuntimeDisplay(runtime tobari.ContextRuntimeReport) string {
 }
 
 func contextShowMarker(result tobari.ContextReport) (string, styleToken) {
+	summary, err := result.RoutineSummary()
+	if err != nil {
+		return "○", styleMuted
+	}
+	return contextShowMarkerFromSummary(result, summary)
+}
+
+func contextShowMarkerFromSummary(result tobari.ContextReport, summary tobari.ContextRoutineSummary) (string, styleToken) {
 	if result.ContextState == tobari.ContextObservationSyntheticDefault {
 		return "○", styleMuted
 	}
-	switch result.Runtime.Status {
-	case tobari.ContextRuntimeStatusOfficial, tobari.ContextRuntimeStatusReady:
+	switch summary.Action {
+	case tobari.ContextRoutineActionEnterCurrent, tobari.ContextRoutineActionEnterNamed:
 		return "✓", styleSuccess
-	case tobari.ContextRuntimeStatusPendingBuild, tobari.ContextRuntimeStatusInvalid:
+	case tobari.ContextRoutineActionBuildRuntime, tobari.ContextRoutineActionSelectThenBuild:
 		return "!", styleWarning
 	default:
 		return "○", styleMuted
@@ -1409,16 +1543,24 @@ func contextShowDetailsCommand(result tobari.ContextReport) string {
 }
 
 func contextShowNext(result tobari.ContextReport) (string, string) {
-	if result.ContextState != tobari.ContextObservationSyntheticDefault && !result.Active {
-		if result.Runtime.Status == tobari.ContextRuntimeStatusPendingBuild || result.Runtime.Status == tobari.ContextRuntimeStatusInvalid {
-			return "context use --name " + safeExternalText(result.Name), "Select this Context before building its runtime."
-		}
+	summary, err := result.RoutineSummary()
+	if err != nil {
+		return "doctor", "Inspect the Context before continuing."
+	}
+	return contextShowNextFromSummary(result, summary)
+}
+
+func contextShowNextFromSummary(result tobari.ContextReport, summary tobari.ContextRoutineSummary) (string, string) {
+	switch summary.Action {
+	case tobari.ContextRoutineActionEnterNamed:
 		return "--context " + safeExternalText(result.Name), "Enter or create a Workspace with this Context."
-	}
-	if result.Runtime.Status == tobari.ContextRuntimeStatusPendingBuild || result.Runtime.Status == tobari.ContextRuntimeStatusInvalid {
+	case tobari.ContextRoutineActionBuildRuntime:
 		return "runtime build", "Build and validate the current Context runtime."
+	case tobari.ContextRoutineActionSelectThenBuild:
+		return "context use --name " + safeExternalText(result.Name), "Select this Context before building its runtime."
+	default:
+		return ProgramName, "Enter or create a Workspace from a project directory."
 	}
-	return ProgramName, "Enter or create a Workspace from a project directory."
 }
 
 func contextAuthStatusNextArgv(result tobari.ContextReport) []string {

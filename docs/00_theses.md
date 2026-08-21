@@ -130,6 +130,10 @@ using `tobari` leaves host execution unchanged, while `delete` and
 - The human journey is CWD-first. Docker resource names, stable IDs, network
   topology, and OPA syntax are implementation or advanced-policy details, not
   routine setup inputs.
+- Routine human reads lead with the work mode or Workspace result, effective
+  Access, exact Runtime selection, and one actionable continuation. Stable IDs,
+  owner-only paths, immutable revisions, and healthy implementation state stay
+  in explicit details or complete machine output.
 - The ordinary entry path should have one obvious next action, reuse an
   existing Workspace without reconfiguration, and make the first successful
   agent session valuable before policy customization is required. The user

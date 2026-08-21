@@ -231,6 +231,18 @@ func TestFreshExplicitDefaultCreateSucceedsOnceAndPreservesManifestOnDuplicate(t
 		created.Cluster != tobari.ContextClusterStatusNotApplicable {
 		t.Fatalf("created default Context = %+v", created)
 	}
+	if created.RoutineAccess == nil || created.RoutineAccess.SourceAccess != tobari.ContextSourceAccessReadOnly {
+		t.Fatalf("created Context lacks its policy-derived routine Access: %+v", created.RoutineAccess)
+	}
+	listed, err := runtime.ListContexts(context.Background())
+	if err != nil || len(listed.Items) != 1 || listed.Items[0].RoutineAccess == nil ||
+		listed.Items[0].RoutineAccess.SourceAccess != tobari.ContextSourceAccessReadOnly {
+		t.Fatalf("listed Context lacks its policy-derived routine Access: result=%+v err=%v", listed, err)
+	}
+	shown, err := runtime.ShowContext(context.Background(), "")
+	if err != nil || shown.RoutineAccess == nil || shown.RoutineAccess.SourceAccess != tobari.ContextSourceAccessReadOnly {
+		t.Fatalf("shown Context lacks its policy-derived routine Access: result=%+v err=%v", shown, err)
+	}
 	if len(runner.runs) != 0 {
 		t.Fatalf("Context create made Docker calls: %+v", runner.runs)
 	}

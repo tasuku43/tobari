@@ -1,0 +1,43 @@
+{
+  "result": {
+    "task": "context.list",
+    "context_state": "persisted",
+    "active": "default",
+    "items": [
+      {
+        "id": "018bcfe5-687b-7000-8000-000000000099",
+        "name": "default",
+        "context_state": "persisted",
+        "active": true,
+        "agent_profile": "default",
+        "image": "ghcr.io/tasuku43/tobari-runtime-base:local",
+        "policy_mode": "guided",
+        "source_access": "read-write",
+        "policy_revision": "sha256:1ebfdf1e67ab968a9b709b8418281e60b2d17562eeb96679cdcd5ec472e82df5",
+        "native_readiness": "enabled",
+        "method_policy": {"default": "exact_review", "overrides": []},
+        "runtime_status": "official",
+        "bootstrap": {"state": "not_configured", "adapters": []}
+      },
+      {
+        "id": "018bcfe5-687b-7000-8000-000000000100",
+        "name": "frontend",
+        "context_state": "persisted",
+        "active": false,
+        "agent_profile": "default",
+        "image": "tobari-runtime-frontend:123456789abc",
+        "policy_mode": "guided",
+        "source_access": "read-only",
+        "policy_revision": "sha256:1ebfdf1e67ab968a9b709b8418281e60b2d17562eeb96679cdcd5ec472e82df5",
+        "native_readiness": "disabled",
+        "method_policy": {"default": "exact_review", "overrides": []},
+        "runtime_status": "ready",
+        "bootstrap": {"state": "not_configured", "adapters": []}
+      }
+    ]
+  },
+  "runtime_selections": {
+    "default": "standard@1",
+    "frontend": "frontend@4"
+  }
+}

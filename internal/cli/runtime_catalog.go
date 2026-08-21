@@ -296,7 +296,7 @@ func configGitSpec() CommandSpec {
 
 func contextListSpec() CommandSpec {
 	return CommandSpec{
-		Path: "context list", Summary: "List named Context work modes",
+		Path: "context list", Summary: "List Context work modes with effective Access and exact Runtime",
 		Args: "[--format text|json]", Effect: operation.EffectRead, Role: RoleUtility,
 		Agent: AgentContract{
 			CapabilityID: "context.composition",
@@ -341,7 +341,7 @@ func contextListSpec() CommandSpec {
 
 func contextShowSpec() CommandSpec {
 	return CommandSpec{
-		Path: "context show", Summary: "Inspect one Context work mode",
+		Path: "context show", Summary: "Inspect one work mode's effective Access, tools, and Workspace defaults",
 		Args: "[--name <name>] [--details] [--format text|json]", Effect: operation.EffectRead, Role: RoleUtility,
 		Agent: AgentContract{
 			CapabilityID: "context.composition",
@@ -625,7 +625,7 @@ func projectEnterSpec() CommandSpec {
 
 func statusSpec() CommandSpec {
 	return CommandSpec{
-		Path: "status", Summary: "Inspect the nearest current-directory Workspace",
+		Path: "status", Summary: "Inspect the current directory's Workspace state and next action",
 		Args:   "[--context <name>] [--format text|json]",
 		Effect: operation.EffectRead, Role: RoleUtility,
 		Agent: AgentContract{

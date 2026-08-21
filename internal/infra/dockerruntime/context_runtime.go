@@ -198,6 +198,11 @@ func (r *Runtime) contextReport(ctx context.Context, task string, manifest tobar
 		return tobari.ContextReport{}, policyErr
 	}
 	result.MethodPolicy = policy.MethodPolicy
+	routineAccess, err := tobari.SummarizeContextAccess(policy, manifest.SourceAccess, nativeReadiness)
+	if err != nil {
+		return tobari.ContextReport{}, err
+	}
+	result.RoutineAccess = &routineAccess
 	if task == tobari.TaskContextShow {
 		result.Authentication, err = r.contextAuthentication(ctx, manifest.ID)
 		if err != nil {

@@ -20,7 +20,7 @@ tobari context list
 tobari context show
 ```
 
-`context list` はローカルにあるすべての Context を縦型カードで表示し、現在のデフォルト名を示します。filesystem と network method の default/override はタブ幅に依存せず確認できます。`context show` で `--name` を省略すると、そのデフォルトを確認します。報告は immutable Boundary、明示的に変更できる正確な Runtime binding、shell/Git session default、future-Workspace bootstrap creation default を区別します。安定した ID、agent profile、分離された store reference も含みます。実物の認証情報、Broker ハンドル、ルート鍵、保管庫の内容は含まれません。
+`context list` はローカルにあるすべての Context を結果優先のカードで表示し、work mode/current、effective Access、正確な Runtime、必要な場合の action marker を示します。`context show` で `--name` を省略するとデフォルトを確認し、effective Access、Tools、Workspace defaults、Workspace-owned login、Details、Next を先に表示します。完全な immutable Boundary、安定した ID、agent profile、ホスト側 store reference、revision は `--details` で確認できます。JSON は完全なままで変わりません。いずれの表示にも実物の認証情報、Broker ハンドル、ルート鍵、保管庫の内容は含まれません。
 
 表示名は Context を選ぶための読みやすい名前です。安定した Context ID は、Workspace、ポリシー、プリンシパル、Broker の記録に結び付く永続的な権限情報です。
 

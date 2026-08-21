@@ -65,6 +65,7 @@ func TestLifecyclePresentationEvidenceKeepsOneContextBoundTarget(t *testing.T) {
 	if err := fixture.Validate(); err != nil {
 		t.Fatalf("typed fixture is invalid: %v", err)
 	}
+	fixture.RuntimeSelection = tobari.StandardRuntimeName + "@1"
 
 	answerData, err := os.ReadFile(answerPath)
 	if err != nil {
@@ -118,6 +119,9 @@ func TestLifecyclePresentationEvidenceKeepsOneContextBoundTarget(t *testing.T) {
 	if document.SchemaVersion != 1 || !reflect.DeepEqual(document.Status.NextArgv, answer.ExactNextArgv) ||
 		document.Status.ContextID == nil || *document.Status.ContextID != answer.Target.ContextID || document.Status.Attachment != answer.Target.Attachment {
 		t.Fatalf("structured status lost target or recovery: %+v", document)
+	}
+	if strings.Contains(string(jsonOutput), "runtime_selection") || strings.Contains(string(jsonOutput), "standard@1") {
+		t.Fatalf("human-only exact Runtime selection changed schema-1 status JSON: %s", jsonOutput)
 	}
 
 	deleteSpec, found := DefaultCatalog().Lookup("delete")
