@@ -14,7 +14,7 @@ import (
 
 const (
 	resumablePermissionReviewFixtureSHA256 = "3115feb28cbfb85c9603a2f47ccca13eeba29f6668c8edef34fa227928b7a250"
-	resumablePermissionReviewAnswerSHA256  = "800025c178b9df4960499cabc2bd7b84f32e559f6ddb4a790158e2883d4cb7f0"
+	resumablePermissionReviewAnswerSHA256  = "70e15576723e10add44d4fc7780f79d9d6216f29faa8fe0b442ee884f77f3ed5"
 )
 
 type resumablePermissionReviewFixture struct {

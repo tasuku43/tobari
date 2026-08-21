@@ -9,7 +9,7 @@
   {
     "id": "machine-output.fixture.v1",
     "path": "internal/cli/testdata/machine-output-contract-fixture.json",
-    "sha256": "d5e93cf66b79e72bd8cb5640c14d0b9426da9baef18e823278d2d1df0f0b98d6",
+    "sha256": "55e6d265e0b877923a85922068cd61dbb66d8c0ce3c334100d934c56a8780be1",
     "provenance": "Repository-authored synthetic fixture for recursive public machine-output interpretation.",
     "license": "MIT"
   },
@@ -32,8 +32,8 @@
   {
     "id": "human-presentation-foundation.answer-key.v1",
     "path": "internal/cli/testdata/human-presentation-foundation-answer-key.json",
-    "sha256": "f2dbd3c1c819abf0da5ee05121b13178f9d2889afa9092563a4104de80e1fd32",
-    "bytes": 1666,
+    "sha256": "f8c08a0684e44003f09a09b819201ec5345cb08550f7e184d38eb30ee49743b1",
+    "bytes": 1669,
     "cases": 5,
     "provenance": "Repository-authored presentation-independent answer key for human CLI structure, exact recovery, and negative-inference canaries.",
     "license": "MIT"
@@ -41,8 +41,8 @@
   {
     "id": "truthful-auth-state.fixture.v1",
     "path": "internal/cli/testdata/truthful-auth-state-fixture.json",
-    "sha256": "3ef78e3f295b088969a64ff8609b05ccfecad331f520b422a4a21f51d52941cb",
-    "bytes": 12836,
+    "sha256": "418b3a7c136cce2d2ae308e2867ae2772ccfd6d02e7056046a6badc6270a0bfa",
+    "bytes": 12906,
     "cases": 10,
     "provenance": "Repository-authored synthetic typed fixture for Context-scoped provider status, Workspace activation truth, exact re-entry actions, and confirmed auth mutation receipts.",
     "license": "MIT"
@@ -68,8 +68,8 @@
   {
     "id": "resumable-permission-review.answer-key.v1",
     "path": "internal/cli/testdata/resumable-permission-review-answer-key.json",
-    "sha256": "800025c178b9df4960499cabc2bd7b84f32e559f6ddb4a790158e2883d4cb7f0",
-    "bytes": 2730,
+    "sha256": "70e15576723e10add44d4fc7780f79d9d6216f29faa8fe0b442ee884f77f3ed5",
+    "bytes": 2732,
     "cases": 10,
     "provenance": "Repository-authored presentation-independent answer key for permission navigation, zero-write cancellation, typed review-item reconciliation, confirmed activation, and same-session retry.",
     "license": "MIT"

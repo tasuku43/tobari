@@ -1260,19 +1260,19 @@ func TestProjectDeleteHumanRendererPreservesPlainInformationUnion(t *testing.T) 
 		ContextID: "018bcfe5-687b-7000-8000-000000000099", ContextName: "default",
 	}
 	output := string(renderProjectDeleteWithColor(result, true))
-	if !strings.Contains(output, "Tobari deleted") || !strings.Contains(output, "/tmp/project") || !strings.Contains(output, "tobari") {
+	if !strings.Contains(output, "Workspace deleted") || !strings.Contains(output, "/tmp/project") || !strings.Contains(output, "tobari") {
 		t.Fatalf("delete output lost the user-facing result: %q", output)
 	}
 	for label, want := range map[string]string{
-		"Deleted": "yes", "Root": result.Root, "Context": result.ContextName,
-		"Context ID": result.ContextID, "Diagnostic ID": result.ID, "Diagnostic home": result.Home,
+		"Deleted": "yes", "Project root": result.Root, "Context": result.ContextName,
+		"Context ID": result.ContextID, "Workspace ID": result.ID, "Workspace home": result.Home,
 	} {
 		if !humanOutputHasRow(output, label, want) {
 			t.Fatalf("delete output lost required plain fact %s=%q: %q", label, want, output)
 		}
 	}
-	if strings.Contains(output, applyStyleToken(true, styleAccent, "Tobari deleted")) ||
-		strings.Contains(output, applyStyleToken(true, styleSuccess, "Tobari deleted")) {
+	if strings.Contains(output, applyStyleToken(true, styleAccent, "Workspace deleted")) ||
+		strings.Contains(output, applyStyleToken(true, styleSuccess, "Workspace deleted")) {
 		t.Fatalf("delete output styles the full heading: %q", output)
 	}
 	for _, token := range []styleToken{styleMuted, styleAccent, styleSuccess, styleWarning, styleDanger} {
@@ -1281,7 +1281,7 @@ func TestProjectDeleteHumanRendererPreservesPlainInformationUnion(t *testing.T) 
 		}
 	}
 	if !strings.Contains(output, applyStyleToken(true, styleAccent, "tobari")) ||
-		strings.Contains(output, applyStyleToken(true, styleAccent, "— Create or enter a Tobari from this project directory.")) {
+		strings.Contains(output, applyStyleToken(true, styleAccent, "— Create or enter a Workspace from this project directory.")) {
 		t.Fatalf("delete next action does not isolate command emphasis: %q", output)
 	}
 }
@@ -1300,7 +1300,7 @@ func TestProjectStatusHumanStylesLabelsStateValuesAndNextCommand(t *testing.T) {
 		t.Fatal(err)
 	}
 	value := string(output)
-	for _, label := range []string{"Root", "Runtime", "Session", "ID", "Home", "Next"} {
+	for _, label := range []string{"Project root", "Runtime", "Session", "Workspace ID", "Workspace home", "Next"} {
 		padded := fmt.Sprintf("%-*s", humanOutputLabelWidth, label)
 		if !strings.Contains(value, applyStyleToken(true, styleMuted, padded)) {
 			t.Fatalf("status output %q lacks muted label %q", value, label)
@@ -1315,7 +1315,7 @@ func TestProjectStatusHumanStylesLabelsStateValuesAndNextCommand(t *testing.T) {
 			t.Fatalf("status output %q lacks %q", value, want)
 		}
 	}
-	for _, ordinary := range []string{"Tobari ready", result.Root, result.ID, result.Home} {
+	for _, ordinary := range []string{"Workspace ready", result.Root, result.ID, result.Home} {
 		for _, token := range []styleToken{styleMuted, styleAccent, styleSuccess, styleWarning, styleDanger} {
 			if strings.Contains(value, applyStyleToken(true, token, ordinary)) {
 				t.Fatalf("status ordinary value %q used %s: %q", ordinary, token, value)
@@ -1465,7 +1465,7 @@ func TestLifecycleScopedHelpPublishesBothContextPlacements(t *testing.T) {
 	}
 }
 
-func TestClusterStatusRendererExposesXDGPolicyAndTobariCount(t *testing.T) {
+func TestClusterStatusRendererExposesXDGPolicyAndWorkspaceCount(t *testing.T) {
 	t.Parallel()
 	status := tobari.ClusterStatus{
 		Task: tobari.TaskClusterStatus, Configured: true, Running: true,
@@ -1483,7 +1483,7 @@ func TestClusterStatusRendererExposesXDGPolicyAndTobariCount(t *testing.T) {
 	for _, expected := range []string{
 		"✓ Cluster ready", "  Auth     healthy", "  Gateway  healthy", "  OPA      healthy",
 		"providers valid", "broker ready / companion ready / root key xdg_file",
-		"  Policy   /tmp/config/tobari/policy", "  Tobari   2",
+		"  Policy   /tmp/config/tobari/policy", "  Workspaces 2",
 	} {
 		if !strings.Contains(output, expected) {
 			t.Fatalf("status output %q lacks %q", output, expected)
@@ -1574,7 +1574,7 @@ func TestClusterStatusTextUsesSemanticColorTokens(t *testing.T) {
 	for _, expected := range []string{
 		applyStyleToken(true, styleSuccess, "✓"),
 		applyStyleToken(true, styleSuccess, "healthy"),
-		ansiStyleTokens[styleMuted] + "Tobari",
+		ansiStyleTokens[styleMuted] + "Workspaces",
 		ansiStyleTokens[styleMuted] + "Policy",
 	} {
 		if !strings.Contains(output, expected) {
@@ -1740,7 +1740,7 @@ func TestClusterDenialsRendererClosesObservationAndActivationStep(t *testing.T) 
 		document.Denials.ReviewCommand != "tobari policy review" ||
 		document.Denials.UnparsedLines != 2 ||
 		!document.Denials.Items[0].Learnable ||
-		document.Denials.Items[0].ProjectID != "01912345-6789-7abc-8def-0123456789ab" ||
+		document.Denials.Items[0].WorkspaceID != "01912345-6789-7abc-8def-0123456789ab" ||
 		document.Denials.Items[0].Scheme != "https" ||
 		document.Denials.Items[0].Protocol != tobari.PolicyProtocolHTTP {
 		t.Fatalf("JSON output = %+v", document)
@@ -1815,7 +1815,7 @@ func TestPolicyCandidateRendererPreservesOpaqueApprovalAndEscapesEvidence(t *tes
 	}
 	item := document.PolicyCandidates[0]
 	if item.ID != id || item.AllowCommand != "tobari policy allow --id "+id ||
-		item.ProjectID != "01912345-6789-7abc-8def-0123456789ab" ||
+		item.WorkspaceID != "01912345-6789-7abc-8def-0123456789ab" ||
 		item.ObservationCount != 3 || item.Scheme != "https" || item.Protocol != tobari.PolicyProtocolHTTP || item.Reason != `denied\nignore policy` {
 		t.Fatalf("candidate item = %+v", item)
 	}
@@ -1871,7 +1871,7 @@ func TestPolicyReviewRendererPresentsHumanPermissionInbox(t *testing.T) {
 	for _, expected := range []string{
 		"Pending network permissions (1)",
 		"Context        default",
-		"Tobari         /workspace/project",
+		"Workspace      /workspace/project",
 		"Request        https://api.example.com:443 POST /token",
 		"Observed       3 times",
 		"Latest         2026-07-30T10:41:11Z",

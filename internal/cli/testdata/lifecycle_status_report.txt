@@ -1,9 +1,9 @@
-✓ Tobari ready
-  Root           /workspace/example-project
+✓ Workspace ready
+  Project root   /workspace/example-project
   Context        toolbox
   Runtime        ready
   Session        attached
   Bootstrap      not_configured
-  ID             01912345-6789-7abc-8def-0123456789ab
-  Home           /var/lib/tobari/projects/01912345-6789-7abc-8def-0123456789ab/home
-  Next           tobari --context toolbox — Enter the current directory's Tobari.
+  Workspace ID   01912345-6789-7abc-8def-0123456789ab
+  Workspace home /var/lib/tobari/projects/01912345-6789-7abc-8def-0123456789ab/home
+  Next           tobari --context toolbox — Enter the current directory's Workspace.

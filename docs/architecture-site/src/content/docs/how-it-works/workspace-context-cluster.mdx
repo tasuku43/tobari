@@ -1,17 +1,17 @@
 ---
 title: Workspace, Context, cluster, and runtime
-description: Separate the logical project environment from its host-owned configuration, shared services, and replaceable container.
+description: Separate a Workspace from its host-owned configuration, shared services, and replaceable container.
 ---
 
 import ConceptDiagram from "../../../components/ConceptDiagram.astro";
 
-A Workspace is one logical, directory-bound Tobari. Its durable identity
+A Workspace is one reusable isolated resource. Its durable identity
 combines the canonical project root with a stable Context ID; the runtime
 container that happens to execute its processes is replaceable.
 
 The Context supplies host-owned runtime, policy, and agent configuration. One
 installation shares a cluster of enforcement services, but
-it does not share Workspace identity, home, or project network. This separation
+it does not share Workspace identity, home, or dedicated Workspace network. This separation
 also means that switching the current Context does not retarget an existing
 Workspace, and the same project root can have a distinct Workspace under
 another Context. The surrounding network roles are introduced in the [system overview](/how-it-works/system-overview/).
@@ -22,15 +22,17 @@ another Context. The surrounding network roles are introduced in the [system ove
 
 ### Tobari and Workspace
 
-A **Tobari** is one long-lived logical untrusted execution environment. A **Workspace** is its human-facing, directory-bound name in lifecycle and list output; it is not a second resource.
+**Tobari** is the product, executable, and ownership adjective. A **Workspace**
+is the long-lived isolated resource selected by a project root and Context.
 
 Its durable identity combines:
 
 - the canonical host project root;
 - the stable Context ID; and
-- a generated stable internal Tobari/project ID used for state, labels, and principals.
+- a generated stable internal Workspace ID used for state, labels, and principals.
 
-The project ID is diagnostic rather than a routine user-supplied action target.
+The Workspace ID is diagnostic rather than a routine user-supplied action
+target. Internal schema-V1 protocols retain `project_id` for this same identity.
 
 ### Context
 
@@ -47,7 +49,9 @@ The manifest contains no native credential state. The **current Context** is onl
 
 The standard installation-local **cluster** contains exactly one Gateway and one OPA, plus control/egress networks, aggregate policy projection, the principal registry, and CA lifecycle. The experimental `task build:dev` profile adds Auth Broker and its credential projection at compile time.
 
-It is shared by all Context-bound Workspaces. Shared services do not erase project identity: Gateway derives a project/Context principal for every request, and OPA routes to Context policy by stable Context ID.
+It is shared by all Context-bound Workspaces. Shared services do not erase
+Workspace identity: Gateway derives a Workspace/Context principal for every
+request, and OPA routes to Context policy by stable Context ID.
 
 ### runtime image and container
 
@@ -72,11 +76,11 @@ Assume `/work/payments` is mounted by a Workspace in Context `default`. Running 
 
 The two Workspaces have separate:
 
-- stable project IDs;
+- stable Workspace IDs;
 - homes and tool-owned authentication state;
 - runtime containers and internal networks;
-- project principals; and
-- Context-scoped learned rules.
+- Workspace principals; and
+- Context/Workspace-scoped learned rules.
 
 They deliberately share the live files below `/work/payments`. Each Context can
 choose read-only or read-write source access, but a read-only Context still
@@ -100,7 +104,7 @@ An existing Workspace is permanently bound to its stored Context ID. A Context r
 
 ## Guarantees and limitations
 
-**Guaranteed:** stable Context/project identity survives container reconciliation; one Workspace per exact root/Context pair; Context selection and existing Workspace authority are separate; runtime `CMD` cannot replace Tobari's lifetime contract.
+**Guaranteed:** stable Context/Workspace identity survives container reconciliation; one Workspace per exact root/Context pair; Context selection and existing Workspace authority are separate; runtime `CMD` cannot replace Tobari's lifetime contract.
 
 **Not guaranteed:** filesystem isolation for same or overlapping roots; automatic inference after a project directory is moved or copied; trust in an arbitrary custom image; automatic image pulls for configured local/custom images.
 

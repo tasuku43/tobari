@@ -7,7 +7,7 @@ import ConceptDiagram from "../../../../components/ConceptDiagram.astro";
 
 Workspace は、一つのプロジェクトルートと Context に結び付く論理的な作業環境です。識別情報と永続ホームはランタイムコンテナより長く残り、コンテナやネットワークが失われても、保存済みの状態から作り直せます。
 
-Context は、ランタイム、ポリシー、エージェント設定を選ぶ、ホスト管理の設定です。一つの standard インストール環境では Gateway と OPA のクラスターを共有しますが、Workspace の識別情報、ホーム、プロジェクトネットワーク、ポリシー上のプリンシパルは共有しません。現在の Context を切り替えても、既存 Workspace が別 Context へ移ることはありません。同じプロジェクトルートに、異なる Context の Workspace を作ることもできます。ネットワーク上の配置は[システム全体像](../system-overview/)で説明します。
+Context は、ランタイム、ポリシー、エージェント設定を選ぶ、ホスト管理の設定です。一つの standard インストール環境では Gateway と OPA のクラスターを共有しますが、Workspace の識別情報、ホーム、専用 Workspace ネットワーク、ポリシー上のプリンシパルは共有しません。現在の Context を切り替えても、既存 Workspace が別 Context へ移ることはありません。同じプロジェクトルートに、異なる Context の Workspace を作ることもできます。ネットワーク上の配置は[システム全体像](../system-overview/)で説明します。
 
 <ConceptDiagram name="workspace-context-cluster" />
 
@@ -15,15 +15,15 @@ Context は、ランタイム、ポリシー、エージェント設定を選ぶ
 
 ### Tobari と Workspace
 
-内部の製品モデルでは、正規化したプロジェクトルートと安定した Context ID に結び付く、長く残る論理実行環境を **Tobari** と呼びます。利用者がライフサイクル操作や一覧で扱うときの呼び名が **Workspace** です。別々のリソースではありません。
+**Tobari** は製品、実行ファイル、所有主体を表す名前です。正規化したプロジェクトルートと安定した Context ID に結び付く、長く残る隔離リソースを **Workspace** と呼びます。
 
 永続的な識別情報は、次の組み合わせで決まります。
 
 - 正規化したホスト上のプロジェクトルート
 - 安定した Context ID
-- 状態、Docker ラベル、プリンシパルの識別に使う、生成済みの内部 Tobari ID とプロジェクト ID
+- 状態、Docker ラベル、プリンシパルの識別に使う、生成済みの内部 Workspace ID
 
-プロジェクト ID は診断と権限の結び付きに使う内部識別子であり、通常の操作で利用者が入力する対象ではありません。
+Workspace ID は診断と権限の結び付きに使う内部識別子であり、通常の操作で利用者が入力する対象ではありません。内部プロトコルの `project_id` は同じ Workspace ID を保持する schema V1 の名前です。
 
 ### Context
 
@@ -41,7 +41,7 @@ Context マニフェスト自体には native credential state は含まれま�
 
 standard のインストール環境ごとの **クラスター** には Gateway と OPA が一つずつあります。さらに、`control` と `egress` のネットワーク、全 Context から生成した policy projection、principal registry、CA lifecycle が含まれます。experimental の `task build:dev` profile は compile time に Auth Broker と credential projection を追加します。
 
-すべての Workspace がこのクラスターを共有します。共有サービスを使っても、プロジェクトの識別情報は混ざりません。Gateway はリクエストごとに Context とプロジェクトのプリンシパルを導出し、OPA は安定した Context ID を使って対応するポリシーへ振り分けます。
+すべての Workspace がこのクラスターを共有します。共有サービスを使っても、Workspace の識別情報は混ざりません。Gateway はリクエストごとに Context と Workspace のプリンシパルを導出し、OPA は安定した Context ID を使って対応するポリシーへ振り分けます。
 
 ### ランタイムイメージとコンテナ
 
@@ -66,11 +66,11 @@ Tobari は、保存状態や Docker を扱う前に、ホスト上の現在の�
 
 二つの Workspace では、次が別々です。
 
-- 安定したプロジェクト ID
+- 安定した Workspace ID
 - ホームと、ツールが管理する認証状態
 - ランタイムコンテナと内部ネットワーク
-- プロジェクトのプリンシパル
-- Context とプロジェクトに限定された学習済みルール
+- Workspace のプリンシパル
+- Context と Workspace に限定された学習済みルール
 
 一方、`/work/payments` 以下の live file は意図的に共有されます。各 Context は read-only または
 read-write source access を選べますが、read-only Context も host/read-write Context の変更を観測
@@ -93,7 +93,7 @@ read-write source access を選べますが、read-only Context も host/read-wr
 
 ## 保証と制限
 
-**保証すること:** 安定した Context とプロジェクトの識別情報は、コンテナの再作成後も維持されます。完全一致するプロジェクトルートと Context の組み合わせごとに Workspace は一つです。Context の既定値と既存 Workspace の権限は別です。ランタイムの `CMD` は、Tobari が定める寿命の契約を置き換えられません。
+**保証すること:** 安定した Context と Workspace の識別情報は、コンテナの再作成後も維持されます。完全一致するプロジェクトルートと Context の組み合わせごとに Workspace は一つです。Context の既定値と既存 Workspace の権限は別です。ランタイムの `CMD` は、Tobari が定める寿命の契約を置き換えられません。
 
 **保証しないこと:** 同じルートまたは重なるルート間のファイルシステム分離。プロジェクトディレクトリを移動またはコピーした後の自動推測。任意のカスタムイメージの信頼性。設定済みのローカルイメージやカスタムイメージの自動取得。
 

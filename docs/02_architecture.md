@@ -13,8 +13,8 @@ internal control network:                                      tobari-opa :8181
 egress network:                              Gateway --> policy-allowed HTTPS
 ```
 
-Each Tobari joins only its dedicated internal network. OPA joins only the
-shared internal control network. Gateway joins every Tobari network plus
+Each Workspace joins only its dedicated internal network. OPA joins only the
+shared internal control network. Gateway joins every Workspace network plus
 control and egress. Standard has no Auth Broker service, provider projection,
 credential mount, or credential helper. Its one session-scoped native-login
 bridge is part of interactive entry: it mounts one binary-owned opener,
@@ -232,20 +232,24 @@ actual/limit or permission facts.
 Only the experimental profile has encrypted Context vaults and projects a
 project-bound handle.
 
-Experimental Broker credential ownership is Context-wide. Every project permanently bound to that
+Experimental Broker credential ownership is Context-wide. Every Workspace permanently bound to that
 Context is eligible, but reconciliation issues a distinct project-bound handle
-only on the project's next matching Workspace entry; no running process is
+only on the Workspace's next matching entry; no running process is
 rewritten. Replacement revokes the previous revision. Logout removes the
 Context/provider credential and all handles immediately, while the next entry
 recreates the work container without the environment projection and removes
 only unchanged Tobari-owned complete files.
 
-Every Context has a stable UUIDv7 identity, and every logical Tobari permanently
+Every Context has a stable UUIDv7 identity, and every Workspace permanently
 binds one Context. `(canonical root, Context ID)` selects one record, so the
-same root may have multiple Context-bound Tobari. `context use` changes only
+same root may have multiple Context-bound Workspaces. `context use` changes only
 the current/default Context used when an invocation omits a selector; it does
 not mutate existing records or Docker. Project runtime reconciliation resolves
 the stored Context ID and uses that Context's runtime image and agent profile.
+Tobari names the product and ownership boundary; Workspace is the resource
+name. Internal `ProjectInstance`, `project_id`, root-index, Docker-label, and
+Gateway/OPA protocol names remain exact schema-V1 implementation contracts and
+carry Workspace identity rather than introducing another public resource.
 
 Argument-free `context create` is a CLI-owned input-completion workflow. It
 collects a name, source-access enum, and a complete default-plus-exact-override
@@ -477,13 +481,13 @@ Gateway and agent-ready runtime images from embedded pinned recipes under
 source-derived local tags, building each only when absent. The release resolver
 is `embedded`; the development resolver selects its own source-hash local tags.
 The runtime adapter
-creates or reconciles each logical Tobari from its bound Context image and connects Gateway to
+creates or reconciles each Workspace from its bound Context image and connects Gateway to
 its dedicated network. After it has reconciled the Workspace guard, it records
 the exact owned Workspace and Gateway endpoints in the schema-1 principal
 registry. Before project container creation, the runtime issues
 configured provider handles and renders only manifest-declared environment or
 complete-file projections. A public-only CA volume is mounted read-only into
-each Tobari, whose entrypoint builds an ephemeral CA bundle.
+each Workspace, whose entrypoint builds an ephemeral CA bundle.
 
 The same resolver owns a pure build-identity projection used by `version` and
 cluster preflight. Both implementations fix APIs to canonical source and derive
@@ -662,7 +666,7 @@ the separate mount-free login container; it never makes an ordinary Workspace
 process or image executable a general host helper. Codex uses the official standalone package, which keeps its
 CLI companion binaries and Linux sandbox resources together. Agent executables
 and package resources live in image-owned `/usr/local/bin` and `/opt/tobari`
-paths; `/var/lib/tobari` contains only per-Tobari home state and is safe to
+paths; `/var/lib/tobari` contains only per-Workspace home state and is safe to
 replace with the persistent home bind. The retained child recipes remain
 build-only integrity fixtures for each upstream artifact.
 
@@ -676,7 +680,7 @@ Contributor development resolves `builtin` to its local combined base.
 The root resolver obtains the desired image from the stored Context identity's
 strict manifest on each runtime reconciliation. A new Context selects
 `builtin`. The resolved selector, rather than the source of the
-default, is persisted on the logical Tobari only as the last successful
+default, is persisted on the Workspace only as the last successful
 runtime-container image. Project metadata is not consulted for runtime
 selection.
 
@@ -746,13 +750,13 @@ no-ops and remaining predecessor Contexts retain their source evidence.
 ## Lifecycle model
 
 The MVP owns one shared cluster `tool_local` target with stable ID
-`cluster-default` and many CWD-owned logical Tobari records. The root index
+`cluster-default` and many CWD-owned Workspace records. The root index
 stores a canonical root, stable Context ID, and stable internal ID at
 `$XDG_STATE_HOME/tobari/roots/<hash>.json`; each instance owns
 `instances/<id>/state.json` and `instances/<id>/home`. The instance record
 contains the stable ID, canonical root, permanent Context binding, last reconciled image, profile, optional create-time bootstrap revision, and
 diagnostic container or network identifiers. Logical state, not Docker
-inspection, defines whether a Tobari exists. Docker labels include:
+inspection, defines whether a Workspace exists. Docker labels include:
 
 ```text
 io.tobari.owner=default
@@ -888,7 +892,7 @@ existing binding while the Gateway and Workspace guards are revalidated, then
 atomically refreshes the derived current endpoints. Any drift takes the slower
 path that closes the binding before a resource can change; interruption on that
 path leaves the source unregistered for explicit cluster reconciliation.
-Logical Tobari and Context IDs are not trusted when echoed by a caller; Gateway
+Workspace and Context IDs are not trusted when echoed by a caller; Gateway
 derives both from the kernel-observed Workspace source endpoint and the exact
 host registry binding. Exact allow, deny, and reset
 actions provide the deterministic portable activation path: each locks the

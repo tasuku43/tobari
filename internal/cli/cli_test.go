@@ -311,9 +311,9 @@ func TestHumanRootRecoveryActionIsExecutable(t *testing.T) {
 	err := fault.New(
 		fault.KindNotFound,
 		"project_not_found",
-		"no Tobari exists for the current directory",
+		"no Workspace exists for the current directory",
 		false,
-		fault.NextAction{Command: "tobari", Reason: "Create a Tobari from the current project directory."},
+		fault.NextAction{Command: "tobari", Reason: "Create a Workspace from the current project directory."},
 	)
 	if code := command.fail(ctx, err); code != ExitNotFound {
 		t.Fatalf("fail() code = %d, want %d", code, ExitNotFound)
@@ -321,7 +321,7 @@ func TestHumanRootRecoveryActionIsExecutable(t *testing.T) {
 	if stdout.Len() != 0 {
 		t.Fatalf("stdout = %q", stdout.String())
 	}
-	if !humanOutputHasRow(stderr.String(), "Next", "tobari — Create a Tobari from the current project directory.") {
+	if !humanOutputHasRow(stderr.String(), "Next", "tobari — Create a Workspace from the current project directory.") {
 		t.Fatalf("stderr = %q, want executable root recovery", stderr.String())
 	}
 	if strings.Contains(stderr.String(), "Next           tobari tobari") {

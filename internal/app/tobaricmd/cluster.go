@@ -26,14 +26,14 @@ func (s *Service) readyCluster(ctx context.Context) (tobari.State, error) {
 	if !configured {
 		return tobari.State{}, fault.New(
 			fault.KindUnavailable, "cluster_not_configured",
-			"the shared cluster is not configured; run cluster up before entering a Tobari", false,
+			"the shared cluster is not configured; run cluster up before entering a Workspace", false,
 			fault.NextAction{Command: "cluster up", Reason: "Create the shared Gateway, OPA, and Auth Broker cluster explicitly."},
 		)
 	}
 	clusterStatus, statusErr := s.runtime.InspectCluster(ctx, state)
 	if statusErr != nil {
 		return tobari.State{}, fault.Wrap(fault.KindUnavailable, "cluster_status_failed", "the shared cluster could not be inspected", false, statusErr,
-			fault.NextAction{Command: "cluster status", Reason: "Inspect the shared cluster before entering a Tobari."})
+			fault.NextAction{Command: "cluster status", Reason: "Inspect the shared cluster before entering a Workspace."})
 	}
 	if !clusterStatus.Running || clusterStatus.PolicyProjection != "valid" ||
 		clusterStatus.PrincipalRegistry != "valid" || clusterStatus.GatewayProjection != "valid" {
@@ -149,7 +149,7 @@ func (s *Service) ClusterStatus(ctx context.Context) (tobari.ClusterStatus, erro
 	}
 	state, exists, err := s.runtime.LoadState(ctx)
 	if err != nil {
-		return tobari.ClusterStatus{}, fault.Wrap(fault.KindInternal, "state_read_failed", "Tobari state could not be read", false, err)
+		return tobari.ClusterStatus{}, fault.Wrap(fault.KindInternal, "state_read_failed", "installation state could not be read", false, err)
 	}
 	if !exists {
 		return tobari.UnconfiguredClusterStatus(tobari.TaskClusterStatus), nil
@@ -184,7 +184,7 @@ func (s *Service) ClusterLogs(ctx context.Context, request tobari.LogRequest) ([
 	}
 	state, exists, err := s.runtime.LoadState(ctx)
 	if err != nil {
-		return nil, fault.Wrap(fault.KindInternal, "state_read_failed", "Tobari state could not be read", false, err)
+		return nil, fault.Wrap(fault.KindInternal, "state_read_failed", "installation state could not be read", false, err)
 	}
 	if !exists {
 		return nil, fault.New(fault.KindUnavailable, "cluster_not_running", "cluster is not configured", false)
@@ -245,7 +245,7 @@ func (s *Service) ClusterDown(ctx context.Context, intent operation.Intent, purg
 			projects, projectErr := project.ListProjects(lifecycleContext)
 			if projectErr != nil {
 				return fault.Wrap(
-					fault.KindInternal, "state_read_failed", "CWD-owned Tobari state could not be read", false, projectErr,
+					fault.KindInternal, "state_read_failed", "CWD-selected Workspace state could not be read", false, projectErr,
 				)
 			}
 			if len(projects) != 0 {
@@ -257,7 +257,7 @@ func (s *Service) ClusterDown(ctx context.Context, intent operation.Intent, purg
 		var loadErr error
 		state, exists, loadErr = s.runtime.LoadState(lifecycleContext)
 		if loadErr != nil {
-			return fault.Wrap(fault.KindInternal, "state_read_failed", "Tobari state could not be read", false, loadErr)
+			return fault.Wrap(fault.KindInternal, "state_read_failed", "installation state could not be read", false, loadErr)
 		}
 		if !exists {
 			return nil

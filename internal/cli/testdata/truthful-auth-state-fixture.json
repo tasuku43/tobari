@@ -24,8 +24,8 @@
           "context_id": "01912345-6789-7abc-8def-0123456789ad",
           "workspaces": [
             {
-              "project_id": "01912345-6789-7abc-8def-0123456789ab",
-              "root": "/workspace/current",
+              "workspace_id": "01912345-6789-7abc-8def-0123456789ab",
+              "project_root": "/workspace/current",
               "context": "default",
               "context_id": "01912345-6789-7abc-8def-0123456789ad",
               "scope_state": "complete",
@@ -92,8 +92,8 @@
           "context_id": "01912345-6789-7abc-8def-0123456789ad",
           "workspaces": [
             {
-              "project_id": "01912345-6789-7abc-8def-0123456789ac",
-              "root": "/workspace/missing",
+              "workspace_id": "01912345-6789-7abc-8def-0123456789ac",
+              "project_root": "/workspace/missing",
               "context": "default",
               "context_id": "01912345-6789-7abc-8def-0123456789ad",
               "scope_state": "complete",
@@ -141,8 +141,8 @@
           "context_id": "01912345-6789-7abc-8def-0123456789ad",
           "workspaces": [
             {
-              "project_id": "01912345-6789-7abc-8def-0123456789ab",
-              "root": "/workspace/stale",
+              "workspace_id": "01912345-6789-7abc-8def-0123456789ab",
+              "project_root": "/workspace/stale",
               "context": "default",
               "context_id": "01912345-6789-7abc-8def-0123456789ad",
               "scope_state": "complete",
@@ -216,8 +216,8 @@
           "context_id": "01912345-6789-7abc-8def-0123456789ad",
           "workspaces": [
             {
-              "project_id": "01912345-6789-7abc-8def-0123456789ab",
-              "root": "/workspace/locked",
+              "workspace_id": "01912345-6789-7abc-8def-0123456789ab",
+              "project_root": "/workspace/locked",
               "context": "default",
               "context_id": "01912345-6789-7abc-8def-0123456789ad",
               "scope_state": "complete",
@@ -264,8 +264,8 @@
           "context_id": "01912345-6789-7abc-8def-0123456789ad",
           "workspaces": [
             {
-              "project_id": "01912345-6789-7abc-8def-0123456789ab",
-              "root": "/workspace/mixed",
+              "workspace_id": "01912345-6789-7abc-8def-0123456789ab",
+              "project_root": "/workspace/mixed",
               "context": "default",
               "context_id": "01912345-6789-7abc-8def-0123456789ad",
               "scope_state": "complete",
@@ -309,8 +309,8 @@
           "context_id": "01912345-6789-7abc-8def-0123456789ad",
           "workspaces": [
             {
-              "project_id": "01912345-6789-7abc-8def-0123456789ab",
-              "root": "/workspace/login-changed",
+              "workspace_id": "01912345-6789-7abc-8def-0123456789ab",
+              "project_root": "/workspace/login-changed",
               "context": "default",
               "context_id": "01912345-6789-7abc-8def-0123456789ad",
               "scope_state": "complete",
@@ -355,8 +355,8 @@
           "context_id": "01912345-6789-7abc-8def-0123456789ad",
           "workspaces": [
             {
-              "project_id": "01912345-6789-7abc-8def-0123456789ab",
-              "root": "/workspace/logout-changed",
+              "workspace_id": "01912345-6789-7abc-8def-0123456789ab",
+              "project_root": "/workspace/logout-changed",
               "context": "default",
               "context_id": "01912345-6789-7abc-8def-0123456789ad",
               "scope_state": "complete",

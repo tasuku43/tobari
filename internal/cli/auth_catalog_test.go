@@ -3,6 +3,7 @@
 package cli
 
 import (
+	"encoding/json"
 	"reflect"
 	"strings"
 	"testing"
@@ -22,6 +23,20 @@ func TestAuthCatalogDeclaresFixedTargetMutationAndReadOnlyStatus(t *testing.T) {
 	status, found := DefaultCatalog().Lookup("auth status")
 	if !found || status.Effect != operation.EffectRead || status.Role != RoleUtility {
 		t.Fatalf("auth status = %+v", status)
+	}
+	encoded, err := json.Marshal(status.Agent.Output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, required := range []string{`"workspace_id"`, `"project_root"`} {
+		if !strings.Contains(string(encoded), required) {
+			t.Errorf("auth status output lacks public machine field %s", required)
+		}
+	}
+	for _, retired := range []string{`"project_id"`, `"root"`} {
+		if strings.Contains(string(encoded), retired) {
+			t.Errorf("auth status output retains ambiguous public machine field %s", retired)
+		}
 	}
 }
 

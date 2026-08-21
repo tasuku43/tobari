@@ -23,7 +23,7 @@ import (
 
 const (
 	humanPresentationFixtureSHA256 = "cb58bff1cd33dc44622c711d649d9b2b4ba79b09e132bb1dd36b70e7931944e5"
-	humanPresentationAnswerSHA256  = "f2dbd3c1c819abf0da5ee05121b13178f9d2889afa9092563a4104de80e1fd32"
+	humanPresentationAnswerSHA256  = "f8c08a0684e44003f09a09b819201ec5345cb08550f7e184d38eb30ee49743b1"
 )
 
 type humanPresentationFixture struct {

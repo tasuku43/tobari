@@ -19,7 +19,7 @@ standard profile has no provider credential projection or Auth Broker.
 The primary user is a developer who wants an autonomous coding agent to edit a
 bounded source tree without receiving a real host-managed credential or
 unrestricted network egress. Tool-native authentication is created inside the
-selected Tobari's own persistent home and is readable by processes in that
+selected Workspace's own persistent home and is readable by processes in that
 Workspace; host home and CLI authentication state are never copied in. A separate
 narrow-projection boundary may re-encode only thesis-declared non-secret
 scalars; it never copies their source file, directive, executable setting, or
@@ -48,14 +48,14 @@ the decision is available to every process in the Workspace only until the
 owning host attachment exits. Docker, Compose, host daemon state, automatic
 port discovery, raw TCP, and persistent Host Loopback grants are not part of
 this outcome.
-The user-facing entry point is the current project directory: a Tobari either
+The user-facing entry point is the current project directory: a Workspace either
 exists or does not exist, and the user should not need to manage container
 names, network IDs, or policy internals for routine work. `cluster up` remains
 the independently invocable owner of shared Gateway and OPA setup, while an
 interactive first-use `tobari` composes that exact action after a newly
 confirmed Context so a human need not remember the setup sequence.
 
-The primary operating loop is progressive policy learning: a Tobari workload is
+The primary operating loop is progressive policy learning: a Workspace workload is
 denied by default, Gateway records the rejected HTTP effect, including one
 operation-type/root-field coordinate for a declared GraphQL endpoint, and reason
 without secrets, the CLI presents a bounded exact proposal and a concrete
@@ -73,9 +73,9 @@ learned rules cannot express; ordinary permission growth must not require it.
 Exact policy actions and final reviewed-set Apply perform the bounded
 activation required for their own mutation.
 Denial evidence is a product output, not incidental debug noise.
-The host-issued project principal and normalized scheme are retained in denial,
+The host-issued Workspace principal and normalized scheme are retained in denial,
 candidate, learned-rule, and audit evidence; an approval made from one current-directory
-Tobari cannot be replayed as another project's permission.
+Workspace cannot be replayed as another Workspace's permission.
 Ordinary request bodies are not a policy identity dimension. A body-bearing
 POST, PUT, PATCH, or other method is authorized and learned from the same
 project, scheme, host, port, method, and path dimensions as a body-free request.
@@ -102,12 +102,12 @@ or source build unless a Linux Homebrew Formula contract is added explicitly.
 
 ## Public vocabulary
 
-- **Tobari:** one long-lived logical untrusted execution environment selected
-  by a canonical project root and stable Context identity. Its work container
-  is recoverable runtime implementation detail.
-- **Workspace:** the human-facing name for one directory-bound Tobari in
-  lifecycle and list output. It is not a second runtime resource; its identity
-  remains the canonical root and its stable Tobari ID remains diagnostic.
+- **Tobari:** the product, executable, and ownership adjective. Tobari prepares,
+  enforces, and manages Workspaces and installation-local shared services.
+- **Project:** the selected canonical host source directory and its contents.
+- **Workspace:** one reusable isolated resource selected by a canonical project
+  root plus stable Context ID. Its work container is recoverable runtime detail;
+  the stable Workspace ID is diagnostic rather than a routine action input.
 - **cluster:** the one installation-local Gateway, one OPA, aggregate policy,
   principal registry, and CA lifecycle. The experimental development profile
   adds one locked Auth Broker and provider projection.
@@ -123,27 +123,29 @@ or source build unless a Linux Homebrew Formula contract is added explicitly.
 - **Auth Broker:** the experimental non-root credential-resolution daemon. It owns
   encrypted Context vault access, has no TCP listener, starts locked, and
   exposes separate control and Gateway-only runtime Unix sockets.
-- **root:** the canonical host directory selected from the current working
+- **project root:** the canonical host directory selected from the current working
   directory and mounted directly with the bound Context's immutable
   `read-only` or `read-write` source access. A root below the host home
   is mounted at the same relative path below `/var/lib/tobari`; a root outside
   the host home uses the mirrored `/workspace` path.
-- **Tobari home:** a per-Tobari persistent owner-only XDG state directory
+- **Workspace home:** a per-Workspace persistent owner-only XDG state directory
   mounted as the work user's home.
 - **Tobari image:** the minimal built-in runtime or one locally available
-  compatible OCI environment image selected by the Tobari's bound Context for Workspace
+  compatible OCI environment image selected by the Workspace's bound Context for Workspace
   creation and later runtime-container reconciliation. Its tools and bootstrap
   are part of the environment; its image `CMD` is not the Workspace lifetime
   command.
-- **Tobari ID:** a generated stable internal identity used for state, exact
-  resource labels, and host-issued project-principal bindings. It is diagnostic
+- **Workspace ID:** a generated stable internal identity used for state, exact
+  resource labels, and host-issued Workspace-principal bindings. It is diagnostic
   output, not a routine user action input.
-- **project principal:** a host-issued binding from one stable Tobari ID and
+- **Workspace principal:** a host-issued binding from one stable Workspace ID and
   stable Context ID to the exact owned Workspace source endpoint and Gateway
-  endpoint on that project's dedicated network. Caller headers, Context names,
+  endpoint on that Workspace's dedicated network. The internal schema-V1
+  protocol retains the field name `project_id`; that compatibility name carries
+  the Workspace ID and never identifies the project root. Caller headers, Context names,
   SNI, request authority, and profile names are not principals.
 - **tool-owned authentication state:** files written by a tool or agent below
-  one Tobari's persistent home during its own login or configuration flow. It
+  one Workspace's persistent home during its own login or configuration flow. It
   is the standard credential source and is readable by every process in that
   Workspace.
 - **experimental credential provider:** the external service or authority whose credential
@@ -202,7 +204,18 @@ or source build unless a Linux Homebrew Formula contract is added explicitly.
   non-secret scalar fallbacks. The source file, path, directives, executable
   settings, credentials, and undeclared keys never enter the Workspace.
 
-Stable Tobari and Context IDs are not trusted when supplied by a work
+Public CLI schema V1 names resource identity explicitly: lifecycle and policy
+results use `workspace_id`, project-directory facts use `project_root`, a
+persistent home uses `workspace_home`, Workspace collections use `workspaces`,
+and shared status uses `workspace_count`. Internal persistence, Docker labels,
+Gateway/OPA input, audits, and Broker protocols retain their schema-V1
+`project_id`, `root`, `instance_id`, and label keys because those exact
+host-owned contracts already bind the same Workspace identity without exposing
+a second public resource. Tobari is not yet public, so ADR 0027 defines these
+corrected CLI names as the initial V1; no legacy aliases or compatibility
+reader are introduced.
+
+Stable Workspace and Context IDs are not trusted when supplied by a work
 container. The host-owned principal registry derives both from the exact
 kernel-observed Workspace source endpoint within its verified dedicated
 network binding. The registry also retains the exact Gateway endpoint and
@@ -240,7 +253,7 @@ The public commands are:
 | `cluster status [--format text|json]` | utility | read | Inspect Gateway/OPA health, loaded Context count, aggregate revision, current-binary policy/Gateway projection integrity, and recent errors |
 | `cluster denials [--tail N] [--format text|json]` | utility | read | Read a bounded typed denial window, exact-rule learnability, policy path, and review command |
 | `cluster logs [--component gateway|opa|all] [--tail N]` | utility | read | Read bounded shared logs, including policy-denial evidence, without credential output |
-| `cluster down [--purge]` | act, fixed target | write | Remove shared transient resources after every logical Tobari is deleted; `--purge` additionally removes shared CA and active policy-bundle volumes |
+| `cluster down [--purge]` | act, fixed target | write | Remove shared transient resources after every Workspace is deleted; `--purge` additionally removes shared CA and active policy-bundle volumes |
 | `policy candidates [--tail N] [--format text|json]` | discover | read | Discover Context/project-scoped pending exact HTTP or GraphQL-root candidates and opaque IDs across the installation |
 | `policy review [--tail N] [--format text|json] [--watch] [--notify auto|osc9|bel|off]` | discover plus TTY fixed-target apply | read, or one confirmed write | Review the installation-wide Permission Inbox; a raw TTY can stage exact decisions from the list, inspect template scope, and apply the reviewed set; `--watch` refreshes bounded snapshots and remains open after Apply, while `--notify` selects its terminal-emulator cue and redirected or JSON output remain read-only |
 | `policy allow --id ID` | act, reference bound | write | Test, record, and activate one exact observed permission |
@@ -255,7 +268,7 @@ The public commands are:
 | `config bootstrap kubernetes eks [--kube-context NAME] [--refresh] [--remove] [--context NAME] [--format text\|json]` | act, fixed target | write | Compose one strict AWS CLI-generated host EKS context with the Context AWS profile, refresh it, or remove only EKS; no credential, arbitrary exec, network authority, or existing Workspace home changes |
 | `context create [--name NAME] [--runtime RUNTIME] [--mode guided\|advanced] [--source-access read-only\|read-write] [--native-readiness enabled\|disabled] [--bootstrap-aws-profile NAME] [--bootstrap-eks-context NAME] [--format text\|json]` | act, fixed target | create | On interactive text streams, prefill supplied values and review only omitted stages of the six-stage Context frame before Create; redirected or JSON creation requires the complete direct group of name, Runtime, mode, source access, and native readiness; Workspace bootstrap remains optional |
 | `context delete --name NAME [--format text\|json]` | act, fixed target | write | Delete one unused non-current non-default Context and its exact owner stores while preserving project files and shared runtime images |
-| `context use --name NAME [--format text\|json]` | act, fixed target | write | Change only the current/default Context; do not mutate existing Tobari or start/reconcile the cluster |
+| `context use --name NAME [--format text\|json]` | act, fixed target | write | Change only the current/default Context; do not mutate existing Workspaces or start/reconcile the cluster |
 | `context runtime set [--runtime RUNTIME] [--context NAME] [--format text\|json]` | act, fixed target | write | Explicitly pin, upgrade, or roll back one Context to `standard` or an existing ready `NAME@ORDINAL` Runtime revision; omission opens terminal Review, and existing Workspace homes change only on next entry reconciliation |
 | `runtime list [--format text\|json]` | utility | read | List the exhaustive installation-wide Runtime catalog and each ready head revision |
 | `runtime show --name NAME [--format text\|json]` | utility | read | Inspect one Runtime's managed source path and complete successful revisions |
@@ -298,7 +311,7 @@ Enter choose an existing Workspace; `n` chooses explicit creation at the
 current directory; `q` or Escape cancels. If raw terminal mode is unavailable,
 the same choices use numbered line input without adding a terminal module or
 shell subprocess. Candidate status and path text remain meaningful without
-color. Programs inside Tobari can mutate the explicitly mounted root; that
+color. Programs inside a Workspace can mutate the explicitly mounted root; that
 delegated capability is a documented security property rather than an
 undeclared Docker mutation by the CLI.
 
@@ -317,7 +330,7 @@ exact status is returned without stopping the fixed Workspace lifetime process.
   before state or Docker calls. An exact indexed root is reused directly. When
   only containing ancestor roots exist, `tobari` lists every valid root
   nearest-first and offers explicit creation at the current directory; it never
-  creates a nested Tobari implicitly.
+  creates a nested Workspace implicitly.
 - `doctor` validates the current directory as the prospective project root
   when `--root` is omitted. `--root PATH` exists only for diagnosing another
   host directory without changing the shell's current directory. The command
@@ -353,9 +366,9 @@ exact status is returned without stopping the fixed Workspace lifetime process.
   is not a snapshot, host or same-root read-write Context changes remain
   observable, no writable source alias exists, and Workspace home and tmpfs
   remain writable. Tobari never mounts the host home wholesale.
-- Same-root Tobari in different Contexts and parent/child roots may run
+- Same-root Workspaces in different Contexts and parent/child roots may run
   concurrently. Runtime, home, network, policy, and broker handles follow
-  their Tobari/Context boundaries, but overlapping host-file writes are visible
+  their Workspace/Context boundaries, but overlapping host-file writes are visible
   to every mount of those files. Tobari provides no overlay, checkout clone,
   root lock, session exclusion, warning gate, or filesystem integrity isolation
   for this user-selected sharing.
@@ -640,7 +653,7 @@ Human output is concise text. The canonical public machine-output inventory is:
 | Policy candidates | `policy_candidates` | 1 |
 | Policy review | `policy_review` | 1 |
 | Policy rules | `policy_rules` | 1 |
-| Workspace list | `tobari` | 1 |
+| Workspace list | `workspaces` | 1 |
 | Workspace status | `status` | 1 |
 <!-- public-cli-json-schemas:end -->
 
@@ -671,7 +684,7 @@ Unconfigured cluster resources are `null`; unavailable
 observations use declared finite values and never an empty-string sentinel.
 The infrastructure/doctor label `linux_xdg_file` is not a public
 auth or cluster JSON enum. Their items associate Context name,
-stable Context ID, Tobari ID, safe project root, HTTP effect, observation data
+stable Context ID, Workspace ID, safe project root, HTTP effect, observation data
 where applicable, and one opaque mutation reference. Agent help uses the V1
 catalog schema, including recursive field declarations, typed completion
 sources, and executable success/error invocation forms in scoped help.
@@ -723,7 +736,7 @@ source change remains one atomic domain-generation replacement. `policy rules` i
 current learned-decision inventory; its TTY reset flow delegates one explicit
 opaque reference to `policy reset`. Redirected and machine-readable review and
 inventory remain read-only. The Permission Inbox groups candidates by their
-validated stable Context and project identities, renders the Context/root scope
+validated stable Context and Workspace identities, renders the Context/project-root scope
 once per group, and leads each selectable row with the exact HTTP effect or
 typed `{id}` template and its evidence count. A compact selected-effect preview exposes the latest retained
 observation and denial reason before detail inspection. Matching display names,
@@ -842,7 +855,7 @@ as three user-facing phases: `prepare environment`, `start services`, and
 `verify readiness`. In a terminal, semantic colors distinguish active,
 healthy, warning, failed, and secondary information; labels and values remain
 otherwise plain. The ready summary prioritizes outcome, component health,
-attached Tobari count, and policy path; configured/running booleans and the
+Workspace count, and policy path; configured/running booleans and the
 full recent diagnostic remain available in JSON or failure detail. A
 successful `cluster up` additionally points to the next `tobari`
 command.
@@ -856,7 +869,7 @@ starts Docker.
 Project runtime diagnostics may report `incomplete` when a durable root index
 survives without its instance state. This preserves logical existence for safe
 cleanup, prevents runtime recreation, and directs the user to delete the exact
-current-directory Tobari before creating it again.
+current-directory Workspace before creating it again.
 
 The lifecycle state model has two dimensions:
 
@@ -1068,7 +1081,7 @@ Persisted cluster state schema 1 contains the content-addressed aggregate policy
 loaded Context count, aggregate projection paths, and Docker resource names or
 identifiers, never one active Context authority or credential contents. The
 loader accepts only exact V1 state. The owner-only projection contains the
-Context-aware Gateway routing document. The per-Tobari home may contain native
+Context-aware Gateway routing document. The per-Workspace home may contain native
 tool credentials by design. Standard has no provider projection or declared
 credential binding.
 Project and cluster mutation journals are durable recovery markers. An
@@ -1077,7 +1090,7 @@ activation makes entry and policy operations fail closed until the exact shared
 cluster operation completes.
 Environment variables select XDG locations and documented test/runtime
 overrides. Context narrow projections are the user-facing exception: at shell
-entry Tobari reads only the selected subset of `PS1`, `TERM`, `COLORTERM`, and
+on Workspace entry Tobari reads only the selected subset of `PS1`, `TERM`, `COLORTERM`, and
 `NO_COLOR`; at Workspace reconciliation Git inheritance makes at most two
 bounded fixed-key host-global reads for `user.name` and `user.email`. Neither
 path enumerates its source, and neither copies host credential values or source
@@ -1149,7 +1162,7 @@ retain their local/cache-first behavior.
 
 `context use` validates the target Context and atomically changes only the
 current/default marker. It never starts Docker, changes the aggregate, or
-modifies an existing Tobari's Context, runtime, home, policy, or principal.
+modifies an existing Workspace's Context, runtime, home, policy, or principal.
 Creating a Context also never starts Docker; when shared state exists, the
 result directs the user to explicit `cluster up` so the all-Context projection
 can be validated and activated.
@@ -1254,7 +1267,7 @@ operation. It removes only that exact label-owned container, network, root
 index, instance state, and home after confirming that no session is attached;
 `--force` overrides that one guard.
 `cluster down` rejects while any
-Tobari remains
+Workspace remains
 and removes only exact shared resources; its `--purge` also removes shared CA
 and active policy-bundle volumes. Both forms preserve every encrypted Context vault and the installation
 root key; cluster cleanup is not credential logout or revocation. No command

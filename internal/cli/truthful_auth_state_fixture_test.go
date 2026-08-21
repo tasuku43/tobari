@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	truthfulAuthStateFixtureSHA256 = "3ef78e3f295b088969a64ff8609b05ccfecad331f520b422a4a21f51d52941cb"
+	truthfulAuthStateFixtureSHA256 = "418b3a7c136cce2d2ae308e2867ae2772ccfd6d02e7056046a6badc6270a0bfa"
 	truthfulAuthStateAnswerSHA256  = "6434c5947a3c5ca9b2aa3d1de86c0c548c215e080f4d63ffcc1b6d2ab9fd7cc3"
 )
 

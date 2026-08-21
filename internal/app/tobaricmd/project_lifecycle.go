@@ -62,8 +62,8 @@ func (s *Service) EnterProjectSessionInContext(
 	if project.InsideProject(ctx) {
 		return 0, fault.New(
 			fault.KindRejected, "already_inside",
-			"This process is already inside a Tobari; nested entry is not supported", false,
-			fault.NextAction{Command: "exit", Reason: "Leave the current Tobari before entering another session."},
+			"This process is already inside a Workspace; nested entry is not supported", false,
+			fault.NextAction{Command: "exit", Reason: "Leave the current Workspace before entering another session."},
 		)
 	}
 	if !project.IsTerminal(out) || !project.IsTerminal(errOut) || !project.IsInputTerminal(in) {
@@ -136,8 +136,8 @@ func (s *Service) EnterProjectSessionInContext(
 			if instance.Incomplete {
 				return fault.New(
 					fault.KindRejected, "project_state_incomplete",
-					"the current Tobari has incomplete logical state and cannot be recreated safely", false,
-					fault.NextAction{Command: "delete", Reason: "Review the exact delete command and confirm removal of the incomplete current-directory Tobari."},
+					"the current Workspace has incomplete logical state and cannot be recreated safely", false,
+					fault.NextAction{Command: "delete", Reason: "Review the exact delete command and confirm removal of the incomplete current-directory Workspace."},
 				)
 			}
 			instance, actionErr = project.EnsureProjectRuntime(actionContext, state, instance)
@@ -152,7 +152,7 @@ func (s *Service) EnterProjectSessionInContext(
 	}
 	code, err := project.EnterProjectRuntime(ctx, instance, manifest, cwd, session, in, out, errOut)
 	if err != nil {
-		return 0, fault.Wrap(fault.KindInternal, "enter_failed", "Tobari session could not be started", false, err,
+		return 0, fault.Wrap(fault.KindInternal, "enter_failed", "Workspace session could not be started", false, err,
 			fault.NextAction{Command: "status", Reason: "Inspect the selected project's runtime."})
 	}
 	return code, nil
@@ -168,7 +168,7 @@ func classifyProjectMutationError(err error, command, recovery, message string) 
 	)
 }
 
-// ProjectStatus observes the nearest CWD-owned logical Tobari without
+// ProjectStatus observes the nearest CWD-owned Workspace without
 // creating or repairing it.
 func (s *Service) ProjectStatus(ctx context.Context) (tobari.ProjectStatus, error) {
 	return s.ProjectStatusInContext(ctx, "")
@@ -250,7 +250,7 @@ func (s *Service) ProjectStatusInContext(ctx context.Context, contextName string
 	return result, nil
 }
 
-// ProjectList observes every locally indexed logical Tobari and its runtime
+// ProjectList observes every locally indexed Workspace and its runtime
 // diagnostics. It does not create, repair, or delete any logical entry; the
 // infrastructure may only serialize bounded cleanup of a pre-existing
 // validated interruption journal.
@@ -318,7 +318,7 @@ func (s *Service) ProjectList(ctx context.Context) (tobari.ProjectListResult, er
 	return result, nil
 }
 
-// DeleteProject removes only the nearest CWD-owned logical Tobari. A detached
+// DeleteProject removes only the nearest CWD-owned Workspace. A detached
 // Workspace can be removed normally; an attached session requires force.
 func (s *Service) DeleteProject(ctx context.Context, intent operation.Intent, force bool) (tobari.ProjectDeleteResult, error) {
 	return s.DeleteProjectInContext(ctx, intent, "", force)
@@ -372,8 +372,8 @@ func (s *Service) DeleteProjectWithContextBinding(
 			return fault.Wrap(fault.KindInternal, "state_read_failed", "project state could not be read", false, resolveErr)
 		}
 		if !found {
-			return fault.New(fault.KindNotFound, "project_not_found", "no Tobari exists for the current directory", false,
-				fault.NextAction{Command: "tobari", Reason: "Create a Tobari from the current project directory."})
+			return fault.New(fault.KindNotFound, "project_not_found", "no Workspace exists for the current directory", false,
+				fault.NextAction{Command: "tobari", Reason: "Create a Workspace from the current project directory."})
 		}
 		if err := validateResolvedProjectContext(instance, manifest); err != nil {
 			return err

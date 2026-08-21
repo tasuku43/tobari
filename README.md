@@ -246,7 +246,7 @@ tobari policy review --watch
 tobari policy review --watch --notify=off
 ```
 
-The Permission Inbox groups by validated Context/project identity. One distinct
+The Permission Inbox groups by validated Context/Workspace identity. One distinct
 path remains exact. After a second compatible distinct HTTP path, Inbox proposes
 a single-segment `/path/{id}` template. Inspect its examples and explicit future
 scope. Exact Allow or Deny can be staged and cleared directly from the raw list;

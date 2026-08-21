@@ -173,8 +173,8 @@ func (s WorkspaceActivationScopeState) Validate() error {
 // ProjectID is identity; Root is a separately validated working-directory
 // fact and is never inferred from presentation order or labels.
 type WorkspaceActivationItem struct {
-	ProjectID  string                        `json:"project_id"`
-	Root       string                        `json:"root"`
+	ProjectID  string                        `json:"workspace_id"`
+	Root       string                        `json:"project_root"`
 	Context    string                        `json:"context"`
 	ContextID  string                        `json:"context_id"`
 	ScopeState WorkspaceActivationScopeState `json:"scope_state"`

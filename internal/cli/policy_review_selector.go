@@ -503,7 +503,7 @@ func renderPolicyReviewFinalRaw(
 		lines = append(lines,
 			applyStyleToken(style, policyReviewActionStyle(action), fmt.Sprintf("%d. %s", index+1, policyReviewActionLabelFor(report, id, action))),
 			selectorDetail(style, "Context", safeExternalText(candidate.ContextName)+" · "+candidate.ContextID, styleText),
-			selectorDetail(style, "Project", safeExternalText(candidate.ProjectRoot)+" · "+candidate.ProjectID, styleText),
+			selectorDetail(style, "Workspace", safeExternalText(candidate.ProjectRoot)+" · "+candidate.ProjectID, styleText),
 			selectorDetail(style, "Effect", policyReviewCandidateEffect(candidate), styleText),
 			selectorDetail(style, "Candidate", candidate.ID, styleText),
 			"",
@@ -879,8 +879,8 @@ func renderPolicyReviewListRaw(
 		selectorTitle(style, "Tobari · Permission Inbox"),
 		"",
 		applyStyleToken(style, styleWarning, fmt.Sprintf(
-			"%d pending permission%s in %d Tobari",
-			len(report.Items), pluralSuffix(len(report.Items)), policyReviewScopeCount(report.Items),
+			"%d pending permission%s in %d Workspace%s",
+			len(report.Items), pluralSuffix(len(report.Items)), policyReviewScopeCount(report.Items), pluralSuffix(policyReviewScopeCount(report.Items)),
 		)),
 		"",
 	}
@@ -1078,7 +1078,7 @@ func renderPolicyReviewDetailRaw(
 		applyStyleToken(style, styleAccent, fmt.Sprintf("Permission %d of %d", selected+1, len(report.Items))),
 		"",
 		selectorDetail(style, "Context", safeExternalText(candidate.ContextName), styleText),
-		selectorDetail(style, "Tobari", safeExternalText(candidate.ProjectRoot), styleText),
+		selectorDetail(style, "Workspace", safeExternalText(candidate.ProjectRoot), styleText),
 		selectorDetail(style, "Request", policyReviewCandidateRequest(candidate), styleText),
 		selectorDetail(style, "Authority", policyReviewCandidateAuthority(candidate), styleText),
 		selectorDetail(style, "Reason", safeExternalText(candidate.Reason), styleDanger),
@@ -1097,7 +1097,7 @@ func renderPolicyReviewDetailRaw(
 				styleAction(style, "[q] Back", styleMuted),
 			))
 	} else {
-		help := "This decision applies only to this Tobari in this Context."
+		help := "This decision applies only to this Workspace in this Context."
 		if candidate.EffectiveDestinationKind() == tobari.PolicyDestinationHostLoopback {
 			help = "This decision applies only while the current Host Loopback attachment remains active."
 		}
@@ -1314,7 +1314,7 @@ func writePolicyReviewFinalLines(
 			continue
 		}
 		if _, err := fmt.Fprintf(out,
-			"\n%d. %s\n   Context   %s · %s\n   Project   %s · %s\n   Effect    %s\n   Candidate %s\n",
+			"\n%d. %s\n   Context   %s · %s\n   Workspace %s · %s\n   Effect    %s\n   Candidate %s\n",
 			index+1, policyReviewActionLabelFor(report, id, action), safeExternalText(candidate.ContextName), candidate.ContextID,
 			safeExternalText(candidate.ProjectRoot), candidate.ProjectID, policyReviewCandidateEffect(candidate), candidate.ID,
 		); err != nil {
@@ -1391,7 +1391,7 @@ func writePolicyReviewDetailLines(out io.Writer, report tobari.PolicyCandidateRe
 		"Permission " + strconv.Itoa(selected+1) + " of " + strconv.Itoa(len(report.Items)),
 		"",
 		"Context   " + safeExternalText(candidate.ContextName),
-		"Tobari    " + safeExternalText(candidate.ProjectRoot),
+		"Workspace " + safeExternalText(candidate.ProjectRoot),
 		"Request   " + policyReviewCandidateRequest(candidate),
 		"Authority " + policyReviewCandidateAuthority(candidate),
 		"Reason    " + safeExternalText(candidate.Reason),
@@ -1404,7 +1404,7 @@ func writePolicyReviewDetailLines(out io.Writer, report tobari.PolicyCandidateRe
 		lines = append(lines, "Examples  "+strings.Join(proposal.Examples, ", "), "",
 			"Allow template includes future non-empty values in exactly the {id} segment.")
 	} else {
-		help := "This decision applies only to this Tobari in this Context."
+		help := "This decision applies only to this Workspace in this Context."
 		if candidate.EffectiveDestinationKind() == tobari.PolicyDestinationHostLoopback {
 			help = "This decision applies only while the current Host Loopback attachment remains active."
 		}

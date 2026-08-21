@@ -6,7 +6,7 @@
       "configured": false,
       "running": false,
       "policy": null,
-      "tobari_count": 0,
+      "workspace_count": 0,
       "context_count": 0,
       "policy_revision": null,
       "policy_projection": "unavailable",

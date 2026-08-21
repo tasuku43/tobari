@@ -22,13 +22,18 @@ the HTTP coordinates with one operation type and root field per effect.
 
 The primary users are developers who run Claude Code, Codex, shells, tests, and
 other arbitrary programs against project roots. Success has two inseparable
-parts: each Tobari can host concurrent processes, cannot reach the Internet or
-another Tobari directly, never receives a real host-managed credential, and is
+parts: each Workspace can host concurrent processes, cannot reach the Internet or
+another Workspace directly, never receives a real host-managed credential, and is
 selected from the canonical current directory rather than a user-managed name,
 root flag, or container identifier; and the user can reach that boundary
 without becoming a Docker or policy operator. In the standard profile, users
 authenticate the pinned agent CLI inside the Workspace and its tool-owned state
 persists only in that Workspace home; host credentials are never inherited.
+
+Tobari is the product, executable, and ownership adjective. The reusable
+isolated resource is a Workspace, selected by canonical project root plus
+stable Context ID. Project names the selected host source directory; it is not
+a second name for Workspace identity.
 An attached standard session may bridge only the closed reviewed native browser
 login union for pinned Claude Code, Codex, GitHub CLI, AWS CLI,
 custom-runtime TWG, and custom-runtime pup.
@@ -59,7 +64,7 @@ The first testable slice is one local mock upstream reached through the
 Gateway: an allowed request succeeds, a denied request does not reach upstream,
 direct egress fails, and an OPA outage fails closed.
 
-The core product loop is progressive policy learning: work freely in Tobari,
+The core product loop is progressive policy learning: work freely in a Workspace,
 observe a denied boundary effect as secret-free evidence, receive a fixed
 host-side review cue, keep the current Workspace and agent session running,
 review the pending permission from a separate trusted-host terminal,
@@ -72,7 +77,7 @@ Allow, or pending-exact Deny from detail, and applies the reviewed set once;
 its non-interactive and machine-readable path remains read-only. Staging grants
 no authority. Final Apply revalidates every unchanged opaque candidate, tests
 one complete all-Context candidate, and hot-activates one revision without
-restarting active Tobari or the shared OPA. Single-reference `policy allow` and
+restarting active Workspaces or the shared OPA. Single-reference `policy allow` and
 `policy deny` remain available to machines and recovery workflows.
 Successful Apply reports the authoritative active revision and the ordered
 stored-rule receipts; it never asks the caller to re-enter the Workspace.
@@ -166,7 +171,7 @@ using `tobari` leaves host execution unchanged, while `delete` and
 
 ## Thesis 1: Authorize effects at the isolation boundary
 
-Tobari authorizes the HTTP request that actually attempts to leave a Tobari.
+Tobari authorizes the HTTP request that actually attempts to leave a Workspace.
 It does not infer intent from a command name, process name, shell text, or agent
 brand.
 
@@ -208,9 +213,9 @@ brand.
 
 ## Thesis 2: Network topology is an enforcement mechanism
 
-Each Tobari has exactly one internal Docker network path: its dedicated Gateway
+Each Workspace has exactly one internal Docker network path: its dedicated Gateway
 interface. Ordinary HTTP/HTTPS sockets follow a guarded default route and
-terminate at the transparent listener. Gateway alone joins every Tobari network plus the shared
+terminate at the transparent listener. Gateway alone joins every Workspace network plus the shared
 control and egress networks; OPA joins only control. Kernel forwarding remains
 disabled, so neither path is direct egress.
 
@@ -220,7 +225,7 @@ disabled, so neither path is direct egress.
 - A non-recursive synthetic DNS listener supplies only the bounded address
   needed to reach transparent HTTP/TLS inspection. It performs no external
   lookup before policy allow.
-- Tobari cannot reach OPA, Gateway management interfaces, or another Tobari.
+- A Workspace cannot reach OPA, Gateway management interfaces, or another Workspace.
 - Gateway or OPA failure denies outbound traffic.
 - Each work container receives fixed CPU, memory (including total memory plus
   swap), process-count, and
@@ -256,7 +261,7 @@ disabled, so neither path is direct egress.
 
 ### Mechanical enforcement
 
-- The runtime adapter constructs one labeled internal network per Tobari, a
+- The runtime adapter constructs one labeled internal network per Workspace, a
   shared internal control network, and a separate egress network.
 - Runtime reconciliation installs and verifies exact Tobari-owned Workspace
   and Gateway namespace guards before user entry. Gateway forwarding sysctls
@@ -269,7 +274,7 @@ disabled, so neither path is direct egress.
 - Runtime integration inspects CPU, memory, PID, and log limits after creation
   and after recovery.
 - Image-selection tests require a locally available runtime-API-compatible
-  image before any per-Tobari resource is created; image configuration cannot
+  image before any per-Workspace resource is created; image configuration cannot
   replace the CLI-owned isolation arguments. Runtime API compatibility includes
   the bootstrap needed to execute Tobari's fixed Workspace lifetime command.
 
@@ -311,13 +316,13 @@ exist only when the experimental capability profile is compiled.
 ### Consequences
 
 - Host home, host CLI configuration files, keychains, SSH agents, and
-  credential environment variables are never mounted or copied into Tobari.
+  credential environment variables are never mounted or copied into a Workspace.
   A thesis-declared narrow projection may instead read and re-encode only its
   fixed non-secret scalar allowlist. It never transfers the source file, path,
   include directive, executable setting, credential, or an undeclared key.
 - Tool-owned credential state is available to every process in the same
-  Tobari by design, survives runtime-container recreation, and is removed by
-  the explicit Tobari delete operation.
+  Workspace by design, survives runtime-container recreation, and is removed by
+  the explicit Workspace delete operation.
 - Client authentication and cookie values are redacted from OPA input, Gateway
   audit, denial projections, and CLI output. In the experimental profile, a declared binding rejects a real
   Workspace credential before OPA as non-learnable `broker_auth_required`; a
@@ -408,8 +413,8 @@ exist only when the experimental capability profile is compiled.
   use canary secrets to prove redaction, broker-required declared bindings,
   zero-I/O direct-credential rejection, deny-before-resolution, exact
   replacement, and compatibility client-header forwarding only after allow.
-- Integration tests prove one Tobari's tool-owned state persists through runtime
-  recovery, is unavailable to another Tobari, and is removed by exact delete.
+- Integration tests prove one Workspace's tool-owned state persists through runtime
+  recovery, is unavailable to another Workspace, and is removed by exact delete.
   Broker tests prove encrypted Context ownership, project-specific handles,
   restart locking, rotation, revocation, and canary-free output.
 - Acquisition tests fix every reviewed host executable identity, argv,
@@ -429,20 +434,20 @@ exist only when the experimental capability profile is compiled.
   re-encoding target, precedence rule, and hostile source-file/key canary; no
   projection test treats identity as authentication authority.
 
-## Thesis 4: One shared cluster hosts multiple CWD-owned Tobari
+## Thesis 4: One shared cluster hosts multiple CWD-owned Workspaces
 
-MVP manages one installation-local enforcement cluster and multiple logical
-Tobari. The standard shared cluster contains exactly one Gateway and one OPA;
+MVP manages one installation-local enforcement cluster and multiple Workspaces.
+The standard shared cluster contains exactly one Gateway and one OPA;
 the experimental development profile adds one Auth Broker. The cluster uses a host-issued
-Context/project-principal boundary: stable Tobari and Context IDs are not
+Context/Workspace-principal boundary: stable Workspace and Context IDs are not
 trusted merely because they appear in caller data, but the host binds both to
 the exact Gateway network interface that received the request. Context policy,
 learned permissions, and broker handles cannot cross that Context/project
-binding. A Tobari is selected
+binding. A Workspace is selected
 from the canonical current directory: an exact indexed root is reused directly;
 when only ancestor roots exist, the interactive root command presents every
 containing root nearest-first and an explicit create-here option. A new nested
-root is never implicit. Every selected Tobari binds exactly one read-write
+root is never implicit. Every selected Workspace binds exactly one read-write
 root with its Context-selected access, one dedicated internal network, and one persistent XDG-owned home
 directory.
 
@@ -477,8 +482,8 @@ directory.
 - A canonical root plus stable Context identity is a unique Workspace key.
   Repeated or concurrent explicit creation for that pair must yield one logical
   record and a typed already-exists outcome for losing callers. The same root
-  may have independent Tobari in different Contexts.
-- Each logical Tobari is permanently bound to one stable Context identity. That
+  may have independent Workspaces in different Contexts.
+- Each Workspace is permanently bound to one stable Context identity. That
   Context is the only Runtime-revision authority for its creation and
   runtime-container reconciliation; project metadata records the last
   successful image for diagnostics but does not silently override the binding.
@@ -493,9 +498,9 @@ directory.
   to the built-in standard Runtime. A Context may select only an existing ready
   revision. Building an installation-wide Runtime never changes any Context;
   selection and rollback are explicit Context mutations.
-- `tobari delete` is the only routine operation that ends a logical Tobari;
+- `tobari delete` is the only routine operation that ends a Workspace;
   ending a shell or losing a runtime resource leaves it existing.
-- Every process in a Tobari may modify or delete every file below that Tobari's
+- Every process in a Workspace may modify or delete every file below that Workspace's
   mounted root.
 - The host-owned principal registry is the only source of project authority at
   Gateway. It binds the exact owned Workspace source endpoint and Gateway
@@ -507,7 +512,7 @@ directory.
   binding before the project can use the proxy.
 - Multiple clusters, overlays, clone modes, root locks, and change approval are
   non-goals. Overlapping roots intentionally expose the same mounted host-file
-  mutations even when their Tobari belong to different Contexts; Tobari does
+  mutations even when their Workspaces belong to different Contexts; Tobari does
   not claim filesystem integrity isolation between them.
 - A project root cannot be the filesystem root, the user's home or its
   ancestor, or any XDG configuration, state, or shared-profile management
@@ -522,7 +527,7 @@ directory.
   recovery at multi-file boundaries, and fail-closed handling of corrupt or
   unsupported-version state.
 - State and Docker labels identify the one installation-owned cluster and each
-  exact logical Tobari resource.
+  exact Workspace resource.
 - Lifecycle integration tests create multiple roots, prove network separation,
   enter and recover the same root repeatedly, preserve the Workspace after
   session exit, and delete only the selected instance without growing owned
@@ -550,7 +555,7 @@ name prefix or broad Docker query as authority.
   records when no session is attached. An attached session rejects ordinary
   deletion and `--force` explicitly overrides that guard. It can continue
   after partial runtime cleanup and never selects by a Docker name or prefix.
-- `cluster down` refuses to remove shared enforcement while any Tobari remains;
+- `cluster down` refuses to remove shared enforcement while any Workspace remains;
   `--purge` affects only shared CA and active policy-bundle state after the
   cluster is empty.
 - Docker CLI is behind an infrastructure port so another engine can replace it
@@ -716,7 +721,7 @@ administration project.
   choices only by typed review-item ID: retained
   IDs keep their decision and order, stale IDs lose Apply eligibility, and a
   matching display label never transfers authority to a replacement ID.
-  Its list groups by validated stable Context/project identity, presents that
+  Its list groups by validated stable Context/Workspace identity, presents that
   scope once per group, and leads each selectable row with the exact effect or
   typed template plus bounded observation evidence. Display labels, adjacency, and
   indentation never create policy identity.
@@ -776,7 +781,7 @@ administration project.
   through the CLI, assert the structured agent navigation and host-only session
   summary, stage exact Allow and Deny choices through the human queue, apply
   them with one activation, exercise the allowed exact rule, and retain a
-  denied boundary without restarting any Tobari or OPA.
+  denied boundary without restarting any Workspace or OPA.
 - Host Loopback tests bind the constant capability to a host-derived Attachment
   Epoch, prove agent-visible discovery does not grant access, apply one exact
   attachment decision through the same review boundary, and assert zero
@@ -787,7 +792,7 @@ administration project.
   workflow, keeps routine permission growth free of hand-authored OPA/Rego,
   and keeps tested host editing as the advanced escape hatch.
 
-## Thesis 9: Every Tobari belongs to one logical Context
+## Thesis 9: Every Workspace belongs to one logical Context
 
 Users should choose one understandable execution setup, not assemble an agent
 profile, runtime image, policy directory, and credential configuration from
@@ -798,14 +803,14 @@ policy, configuration, runtime, and credential exposure. The Context manifest
 is a host-owned composition record; it does not collapse the physical trust
 boundaries between read-only agent data, OPA policy, and Gateway-only secret
 stores. Each Context has a stable opaque identity; its name is a human selector,
-not authority. Each Tobari permanently records one Context identity, and the
+not authority. Each Workspace permanently records one Context identity, and the
 host derives that binding for Gateway and OPA from its network principal.
 
 The standard installation runs one shared Gateway and one shared OPA for every
 Context. An experimental development installation additionally runs one locked
 Auth Broker.
 The current Context is only the default when a host invocation omits a Context;
-changing it cannot retarget or mutate existing Tobari or shared enforcement.
+changing it cannot retarget or mutate existing Workspaces or shared enforcement.
 Tool-native authentication state remains below each Workspace home and is not a
 Context secret. In the experimental profile, a brokered credential is owned once by the stable Context and
 enables every permanently bound Workspace to receive a different project-bound
@@ -880,7 +885,7 @@ OPA allow.
   build-context source tree, and records only immutable successful semantic
   revisions. Contexts own exact Runtime references rather than recipes. Build
   changes no Context; an explicit Context selection or rollback makes bound
-  Tobari adopt that revision on their next entry while preserving their home.
+  Workspaces adopt that revision on their next entry while preserving their home.
   Fully specified Runtime mutations remain deterministic for agents and
   scripts. On interactive text streams, omitting the primary selector opens a
   CLI-owned Review that shows the exact Runtime, Context binding, and delayed
@@ -955,7 +960,7 @@ OPA allow.
   learned dimensions; GraphQL adds only operation type and root field, while
   MCP adds only JSON-RPC method and, for `tools/call`, exact tool name.
 - Permission candidates, learned rules, exact denies, audits, and brokered
-  handles retain Context and Tobari identity. `policy review` and `policy
+  handles retain Context and Workspace identity. `policy review` and `policy
   rules` cross all Contexts; mutations bind solely to opaque references.
 
 ### Mechanical enforcement
@@ -973,7 +978,7 @@ OPA allow.
   calls with an exact child-environment allowlist, lower-precedence read-only
   projection, and exclusion of authentication and executable Git settings.
 - Infrastructure tests prove exact V1 initialization, owner-only separated
-  policy and broker-vault boundaries, permanent Tobari bindings, aggregate
+  policy and broker-vault boundaries, permanent Workspace bindings, aggregate
   read-only OPA mounts, and selected agent-profile digests.
 - Runtime and policy integration prove exact direct-bind access, writable
   home/tmpfs, no writable source alias, scheme-aware exact learning, and

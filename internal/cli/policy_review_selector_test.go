@@ -80,7 +80,7 @@ func TestPolicyReviewSelectorRawDetailActionConfirmsAndPreservesOpaqueID(t *test
 	}
 	if !strings.Contains(output.String(), "Tobari · Permission Inbox") ||
 		!strings.Contains(output.String(), "Permission 2 of 2") ||
-		!strings.Contains(output.String(), "This decision applies only to this Tobari in this Context.") ||
+		!strings.Contains(output.String(), "This decision applies only to this Workspace in this Context.") ||
 		!strings.Contains(output.String(), "restricted") || !strings.Contains(output.String(), "/workspace/project") {
 		t.Fatalf("rich review output = %q", output.String())
 	}
@@ -461,7 +461,7 @@ func TestPolicyReviewSelectorRawUsesSemanticColor(t *testing.T) {
 	}
 	for _, want := range []string{
 		applyStyleToken(true, styleAccent, "Tobari · Permission Inbox"),
-		applyStyleToken(true, styleWarning, "2 pending permissions in 2 Tobari"),
+		applyStyleToken(true, styleWarning, "2 pending permissions in 2 Workspaces"),
 		applyStyleToken(true, styleText, "default · /workspace/project"),
 		"POST   https://api.github.com:443/repos/example/issues",
 		applyStyleToken(true, styleMuted, "3×"),
@@ -546,7 +546,7 @@ func TestPolicyReviewSelectorGroupsByStableScopeAndKeepsEffectOrderWithinGroup(t
 		t.Fatalf("effect order is not stable within grouped scopes: %q", text)
 	}
 	for _, want := range []string{
-		"3 pending permissions in 2 Tobari",
+		"3 pending permissions in 2 Workspaces",
 		"Selected",
 		"GET https://api.github.com:443/notifications",
 		"Observed 2 times · Latest 2026-08-02T10:02:00Z",
@@ -636,7 +636,7 @@ func TestPolicyReviewSelectorDoesNotGroupMatchingDisplayLabelsAcrossTypedScopes(
 	if got := strings.Count(output.String(), "default · /workspace/project"); got != 2 {
 		t.Fatalf("matching display labels produced %d headings, want 2: %q", got, output.String())
 	}
-	if !strings.Contains(output.String(), "2 pending permissions in 2 Tobari") {
+	if !strings.Contains(output.String(), "2 pending permissions in 2 Workspaces") {
 		t.Fatalf("typed scope count was inferred from labels: %q", output.String())
 	}
 }

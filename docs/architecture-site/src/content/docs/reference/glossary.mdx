@@ -17,14 +17,13 @@ distinction between related terms matters.
 
 ### Tobari
 
-One long-lived logical untrusted execution environment selected by a canonical
-project root and a stable Context ID. Its work container is a reconciled
-runtime resource, not its identity or lifetime.
+The product, executable, and ownership adjective. Tobari prepares, enforces,
+and manages Workspaces and installation-local shared services.
 
 ### Workspace
 
-The user-facing, directory-bound way to enter and work in one logical Tobari.
-A Workspace includes its stable logical record, selected project root,
+One reusable isolated resource selected by a canonical project root plus stable
+Context ID. A Workspace includes its stable logical record, selected project root,
 Context binding, independent home, and reconciled runtime resources. “Leaving
 the Workspace” ends a session; it does not delete the logical Workspace.
 
@@ -33,7 +32,7 @@ the Workspace” ends a session; it does not delete the logical Workspace.
 The canonical host directory selected from the current working directory and
 mounted according to immutable Context `source_access` (CLI default
 `read-write`). Tobari deliberately delegates the
-ability to read and modify this root. It does not snapshot, overlay, or protect
+ability to read and modify this root to Workspace processes. It does not snapshot, overlay, or protect
 files inside it from Workspace processes.
 
 ### Context
@@ -77,7 +76,7 @@ Workspace lifecycle state.
 
 ### Workspace home
 
-The independent writable home owned by one logical Workspace. Tool-native
+The independent writable home owned by one Workspace. Tool-native
 login state and projected broker handles may live here. It survives session
 exit and work-container recreation, and is removed by Workspace `delete`.
 
@@ -86,7 +85,7 @@ exit and work-container recreation, and is removed by Workspace `delete`.
 ### Gateway
 
 The component that accepts transparently routed Workspace HTTP traffic, terminates
-Workspace-side TLS when needed, derives the host-issued project principal,
+Workspace-side TLS when needed, derives the host-issued Workspace principal,
 redacts secrets from decision input, asks OPA once, and—only after allow—opens
 the separate upstream connection and streams the body. Gateway enforces the
 decision; OPA does not forward traffic.
@@ -107,9 +106,10 @@ Workspace-side TLS connection has terminated at Gateway.
 ### HTTP effect
 
 The normalized authorization unit:
-Context ID, project ID, host, port, HTTP method, and path, plus bounded
+Context ID, Workspace ID, host, port, HTTP method, and path, plus bounded
 non-secret protocol metadata. Request body content is not an identity dimension
-and does not split policy candidates.
+and does not split policy candidates. The internal schema field for Workspace
+identity remains `project_id`.
 
 ### TLS connection A
 
@@ -136,32 +136,35 @@ Refuse the effect when required identity, policy, broker, schema, state, or
 ownership evidence is missing, invalid, ambiguous, or unavailable. In the
 request path, this means no unauthorized upstream connection.
 
-## Project identity
+## Workspace identity
 
-### project ID
+### Workspace ID
 
-A stable host-issued opaque ID for one logical Workspace. It is not a project
-name and is not accepted from a Workspace header as authority.
+A stable host-issued opaque ID for one Workspace. It is not the project root
+and is not accepted from a Workspace header as authority. Internal persistence
+and enforcement protocols retain the schema-V1 field `project_id` for this
+same value.
 
 ### Context ID
 
 The stable host-issued UUIDv7 identity of a Context. It remains distinct from
 the mutable display name and from the current Context marker.
 
-### project principal
+### Workspace principal
 
-The trusted pairing of stable Context ID and project ID derived by Gateway from
+The trusted pairing of stable Context ID and Workspace ID derived by Gateway from
 the exact kernel-observed Workspace source endpoint on a dedicated network. It
-scopes policy and broker handles.
+scopes policy and broker handles. Internal implementation and protocol names
+retain `project principal` where required by their schema-V1 contract.
 
 ### principal registry
 
 The host-owned schema-1 mapping from exact Workspace source endpoint, Gateway
-endpoint, and dedicated network to Context/project identity. Gateway receives
+endpoint, and dedicated network to Context/Workspace identity. Gateway receives
 only this directory read-only.
 Caller-supplied `X-Tobari-*` text cannot replace the mapping.
 
-### dedicated project network
+### dedicated Workspace network
 
 One Docker internal network belonging to one Workspace. The work container and
 one Gateway interface join it. The Workspace cannot join OPA, Auth Broker, a
@@ -178,7 +181,7 @@ deny entry.
 ### learned allow
 
 An explicitly activated exact rule for one
-Context/project/host/port/method/path effect. It is created only by a trusted
+Context/Workspace/host/port/method/path effect. It is created only by a trusted
 host action after full policy validation and atomic activation.
 
 ### learned deny
@@ -257,7 +260,7 @@ tool-owned secrets. A declared binding rejects them as `broker_auth_required`.
 ### Auth Broker
 
 The shared locked service that stores typed encrypted credential state per
-Context/provider, issues project-bound opaque handles, performs non-secret
+Context/provider, issues Workspace-bound opaque handles, performs non-secret
 introspection, and performs only one same-revision reviewed static, refresh, or
 signing action after Gateway reports policy allow. Broker has Unix sockets, no
 Workspace network, and no TCP listener.
@@ -368,7 +371,7 @@ becoming a second editable implementation.
 | Context and cluster                      | Context scopes one setup and its authority; the cluster runs shared enforcement for every loaded Context. |
 | authentication and authorization         | A credential can exist while OPA still denies the HTTP effect.                                            |
 | CA trust and policy allow                | CA trust enables inspection; allow authorizes one normalized effect.                                      |
-| broker handle and credential state       | The handle is project-bound, revocable, and non-secret; the vault retains static or renewable state.      |
+| broker handle and credential state       | The handle is Workspace-bound, revocable, and non-secret; the vault retains static or renewable state.    |
 | `exit` and `delete`                      | Exit ends a child session; delete removes the logical Workspace and home.                                 |
 | `cluster down --purge` and `auth logout` | Purge removes shared runtime and CA volumes; logout removes one local credential and handles.             |
 | tag and digest                           | A tag can move; a digest identifies immutable OCI content.                                                |

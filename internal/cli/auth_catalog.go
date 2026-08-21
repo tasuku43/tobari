@@ -267,8 +267,8 @@ func workspaceActivationOutputFields() []OutputField {
 		{Name: "context_id", Type: OutputFieldTypeString, Description: "Stable Context identity bound to the observation; empty only when coverage is not_applicable."},
 		{Name: "workspaces", Type: OutputFieldTypeArray, Description: "Eligible logical Workspace observations for the exact Context when coverage is exhaustive.", SemanticScope: "Every project whose authoritative binding targets the selected Context.", Items: &OutputField{
 			Type: OutputFieldTypeObject, Description: "One project-identified Workspace activation observation.", Fields: []OutputField{
-				{Name: "project_id", Type: OutputFieldTypeString, Description: "Stable logical Workspace identity."},
-				{Name: "root", Type: OutputFieldTypeString, Description: "Separately validated canonical working directory for this observation."},
+				{Name: "workspace_id", Type: OutputFieldTypeString, Description: "Stable Workspace identity."},
+				{Name: "project_root", Type: OutputFieldTypeString, Description: "Separately validated canonical project root for this observation."},
 				{Name: "context", Type: OutputFieldTypeString, Description: "Context display name bound to this row."},
 				{Name: "context_id", Type: OutputFieldTypeString, Description: "Stable Context identity bound to this row."},
 				{Name: "scope_state", Type: OutputFieldTypeString, Description: "Whether all row authority facts were readable.", Enum: []string{"complete", "incomplete"}},

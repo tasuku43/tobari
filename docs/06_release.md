@@ -81,7 +81,7 @@ Context-policy/Runtime predecessor and emits current V1 state. Every other
 development snapshot must be removed and recreated when the contract changes.
 
 The standard V1 boundaries include command paths, exit meanings, Docker labels,
-configuration keys, and preservation of each Tobari home by default. Broker
+configuration keys, and preservation of each Workspace home by default. Broker
 root-key identifiers, handles, sockets, and vault preservation belong only to
 the experimental profile.
 

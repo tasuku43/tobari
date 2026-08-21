@@ -302,7 +302,7 @@ processing. A passing policy test with a workflow that requires users to become
 Docker or OPA operators is evidence for a thesis revision or follow-up UX
 slice, not evidence that the product outcome is complete.
 
-The desired routine journey remains CWD-first: enter a reusable Tobari, work
+The desired routine journey remains CWD-first: enter a reusable Workspace, work
 freely within the declared root and network boundary, receive a useful
 secret-free denial, approve the minimum exact or reviewed single-segment
 template permission through a trusted host
@@ -597,7 +597,7 @@ The test suite has complementary levels:
 - Custom-image tests build from the stable local Tobari base, include a fixture
   with a terminating image `CMD`, select it through bounded configuration, and
   prove the image `CMD` cannot own Workspace lifetime. They also prove
-  compatibility is checked before per-Tobari resources exist.
+  compatibility is checked before per-Workspace resources exist.
 - Runtime-spec tests assert fixed CPU, memory, PID-count, and container-log
   options and the Tobari-owned lifetime command, include that contract in drift
   hashing, and the Docker integration scenario inspects one live instance per
@@ -748,7 +748,7 @@ The test suite has complementary levels:
   without a second yes/no prompt, a Context
   switch requires Apply or discard, a narrow terminal with wrapping rows
   remains one alternate-screen frame, and cancellation delegates nothing. Its
-  presentation tests group by stable Context/project IDs, keep same-label
+  presentation tests group by stable Context/Workspace IDs, keep same-label
   different-ID scopes separate, preserve selection and staged order by
   candidate ID across refresh/reorder and new arrival, remove stale choices
   without transfer, retain the last valid screen across refresh failure with
@@ -898,7 +898,7 @@ Every strong statement should identify its enforcement path.
 | Shared runtime resource bounds | Fixed project create-argv, resource-aware spec hash, and Docker HostConfig integration assertions |
 | Context runtime boundary | Context manifest tests, compatibility validation, ignored-project-metadata regression, existing-Workspace image reconciliation tests, and failure-before-state-update tests |
 | Portable policy activation | Pre-mutation OPA tests, exact OPA and volume owner-label checks, owner-only archive/stdin staging without a host bind, fixed networkless volume-only builder and same-volume publisher argv, unchanged-ready publication skip, exact active revision plus defined decision readiness, stable OPA identity, invalid-bundle retention, and Docker integration |
-| Context composition and selection | Stable-ID manifest/domain tests, required immutable source-access, Context policy revision, and explicit native-readiness selection, reviewed creation defaults, seeded partial-input terminal creation with supplied-stage preservation, complete direct-group compatibility, partial non-TTY/JSON and cancellation zero-mutation canaries, valid name/source/complete method decisions, composed snapshot filtering/digest binding, vertical list-card presentation, one typed `context show` fixture with concise and detailed goldens, one typed `context create` fixture with legacy and shared-summary goldens, complete method-override, create-cluster-state, detailed-inspection, and Context-preserving-next-action answer keys, byte-identical JSON with or without `--details` and unchanged complete-direct JSON, catalog effect/input contracts, owner-only atomic store tests, current-default-only selection, explicit synthetic/persisted observation state, first-use zero-write and concurrent/read-only XDG canaries, permanent Tobari binding, unsupported-version fixtures, and agent-readiness transcript |
+| Context composition and selection | Stable-ID manifest/domain tests, required immutable source-access, Context policy revision, and explicit native-readiness selection, reviewed creation defaults, seeded partial-input terminal creation with supplied-stage preservation, complete direct-group compatibility, partial non-TTY/JSON and cancellation zero-mutation canaries, valid name/source/complete method decisions, composed snapshot filtering/digest binding, vertical list-card presentation, one typed `context show` fixture with concise and detailed goldens, one typed `context create` fixture with legacy and shared-summary goldens, complete method-override, create-cluster-state, detailed-inspection, and Context-preserving-next-action answer keys, byte-identical JSON with or without `--details` and unchanged complete-direct JSON, catalog effect/input contracts, owner-only atomic store tests, current-default-only selection, explicit synthetic/persisted observation state, first-use zero-write and concurrent/read-only XDG canaries, permanent Workspace binding, unsupported-version fixtures, and agent-readiness transcript |
 | Context deletion boundary | Fixed catalog-target destructive intent, exact stable-ID result correlation, lifecycle-lock coverage, protected-default/current/Workspace-bound rejection before removal, exact Context and Context-ID authentication store deletion, project-root/shared-image preservation, reconciliation status, hostile-path and symlink canaries, and text/JSON output contracts |
 | Context source-access boundary | Closed enum/default tests, exact desired-spec hash and Docker bind inspection, read/change/delete/Git-write canaries, writable home/tmpfs checks, no writable alias inventory, same-root cross-Context observation, nested home-relative roots, and unsupported-state rejection |
 | Context-owned policy ceiling | Normalized owner-only snapshot/digest tests, source-change immutability, complete default-plus-exact-override method resolution with canonical ordering and ambiguity rejection, method-deny and GET-only canaries, single-catalog current/history readiness validation, orthogonal enabled/disabled binary-readiness replacement without snapshot rewrite, stale active-revision invalidation and entry recovery, destination/method-Deny terminal canaries, exact-Deny precedence over broad method Allow, system-evaluator precedence over baseline/learned/Advanced policy, scheme-aware exact learned identity, and terminal-denial zero candidate/DNS/Broker/upstream counters |
@@ -948,6 +948,7 @@ Every strong statement should identify its enforcement path.
 | Local Go consistency | Gate preflight comparison of required/reported/compiler versions and GOROOT/GOTOOLDIR, with a mixed-installation shell fixture |
 | External text structure | Visible-projection unit/E2E tests plus scoped I/O trust metadata; printable meaning remains explicitly out of scope |
 | Documentation locale | Versioned project policy, exact schema-1 validation diagnostic, locale preservation test, and narrow English/Japanese trusted-Markdown fixtures; broader linguistic conformance remains manual |
+| Public resource vocabulary | Catalog/result exact-key tests, frozen lifecycle and policy presentation fixtures, and an AST/document vocabulary check that rejects duplicate lifecycle uses of Tobari while allowing product, executable, and ownership phrases |
 | Public-site locale parity | Source-derived English/Japanese route equality, substantive-content/heading/evidence/machine-example parity, built `html` language and alternate-link checks under root and Pages bases, plus same-topic browser navigation |
 | Public capability coverage | Exact bidirectional match between capability ledger and catalog `CapabilityID` values |
 | External schema compatibility | Vendored fixture, generator, and drift test |

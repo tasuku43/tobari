@@ -62,7 +62,7 @@ func (s *Service) projectRuntime() (ProjectRuntimePort, error) {
 	if !ok || portcheck.IsNil(project) {
 		return nil, fault.New(
 			fault.KindInternal, "missing_runtime",
-			"CWD-owned Tobari runtime is not configured", false,
+			"CWD-selected Workspace runtime is not configured", false,
 		)
 	}
 	return project, nil
