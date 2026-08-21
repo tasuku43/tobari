@@ -50,14 +50,16 @@ retain these sources:
 | Source | Scope | Lifetime | Owner | Precedence |
 |---|---|---|---|---|
 | Context destination/method Boundary | Context | Context lifetime | host user at creation | terminal before all positive authority |
-| trusted baseline deny | Context | snapshot/binary contract | Tobari | before learned and Advanced positive authority |
-| exact remembered Deny | Context + Workspace + exact effect | until reset | trusted-host user | before baseline, learned, and Advanced Allow |
-| baseline grants | Context exact reviewed effects | snapshot revision | Tobari | inside ceiling and exact Deny |
-| native readiness | enabled Context | installed compatibility revision | Tobari contract plus creation-time enablement | inside ceiling and exact Deny |
+| trusted baseline Deny | Context | snapshot/binary contract | Tobari | one combined terminal exact-deny tier with remembered exact Deny; no order inside the tier |
+| exact remembered Deny | Context + Workspace + exact effect | until reset | trusted-host user | one combined terminal exact-deny tier with trusted baseline Deny; no order inside the tier |
+| baseline grants | Context exact reviewed effects | snapshot revision | Tobari | ordinary Context-policy positive tier inside ceiling and below the combined exact-deny tier |
+| native readiness | enabled Context | installed compatibility revision | Tobari contract plus creation-time enablement | ordinary Context-policy positive tier inside ceiling and below the combined exact-deny tier |
 | remembered Allow | Context + Workspace + exact/reviewed template | until reset | trusted-host user | cannot exceed ceiling or Deny |
 | Advanced Rego | Context evaluator | host policy revision | advanced host user | cannot exceed ceiling or exact Deny |
-| Attachment Grant | Context + Workspace + epoch + exact Host Loopback effect | owning attachment | trusted-host user; route owned by host process | separate closed Host Loopback branch |
-| default deny | every unresolved effect | always | Tobari evaluator | final fail-closed result |
+| Attachment Deny | active route + Context + Workspace + epoch + exact Host Loopback effect | owning attachment | trusted-host user | first decision inside the separate Host Loopback policy branch |
+| Attachment Allow | active route + Context + Workspace + epoch + exact Host Loopback effect | owning attachment | trusted-host user; route owned by host process | after Attachment Deny and before attachment review; ordinary authority is inapplicable |
+| ordinary default deny/review | every unresolved ordinary effect | always | Tobari evaluator | final ordinary fail-closed or exact-review result |
+| attachment review | unresolved valid exact Host Loopback effect | owning attachment | Tobari evaluator and trusted-host user | final Host Loopback result; creates no durable rule |
 
 Exact wording and any order distinction are corrected from code/OPA evidence
 during implementation rather than inferred from this planning table.
@@ -77,16 +79,26 @@ during implementation rather than inferred from this planning table.
 
 ```text
 ordinary external effect
-  → validate principal and Context ceiling/method decision
-  → trusted deny / exact remembered deny
-  → baseline or native grant / remembered Allow / Advanced policy
+  → validate principal/schema/Context
+  → terminal Context destination/method decision
+  → combined trusted-baseline and remembered exact-Deny tier
+  → Context-policy positive tier
+  → if unresolved, Guided remembered Allow or Advanced Rego
   → default deny or exact-review eligibility
 
 Host Loopback effect
-  → validate active Workspace principal + Attachment Epoch + route
-  → validate Context ceiling/method decision
-  → exact attachment Allow / Deny
-  → missing, stale, or mismatched authority denies without host target I/O
+  → resolve and validate active principal-owned route + Attachment Epoch
+  → exact Attachment Deny
+  → exact Attachment Allow
+  → exact attachment review
+  → missing, stale, mismatched, or closed authority denies without host target I/O
+
+ordinary Context ceiling / durable Deny / baseline-native / remembered Allow /
+Advanced Rego
+  -X-> Host Loopback branch
+
+Attachment Deny / Allow / review
+  -X-> ordinary external branch
 ```
 
 ### Error and cancellation behavior
@@ -99,16 +111,20 @@ removal so stale projection data remains inert.
 ### Security and public boundary
 
 This packet changes security explanation and test coverage, not authority.
-Every positive source stays below Context ceilings and exact Deny. Host
-Loopback remains loopback-only, HTTP-only, exact, token-protected, and
-attachment-scoped. Public evidence retains typed lifetime and destination kind
-without secrets or transport tokens.
+Every ordinary positive source stays below ordinary Context ceilings and the
+combined exact-deny tier. Host Loopback is a separate, loopback-only,
+HTTP-only, exact, token-protected, attachment-scoped exception whose authority
+comes only from its active principal-owned route and attachment decisions.
+Neither branch imports authority or denial from the other. Public evidence
+retains typed lifetime and destination kind without secrets or transport
+tokens.
 
 ## Implementation slices
 
 1. Build an evidence matrix from evaluator code, policy, Gateway, domain, and
    integration tests.
-2. Resolve the recorded ordering/Advanced-Rego unknowns against code and ADRs.
+2. Record the combined exact-deny tier, Advanced-Rego placement, and fully
+   separate Host Loopback branch verified from code and ADRs.
 3. Promote the three-layer model and technical inventory through governing
    docs and detailed catalog descriptions.
 4. Add missing canaries and claim-to-enforcement rows.

@@ -28,8 +28,16 @@
       design on 2026-08-21.
 - [x] Keep Host Loopback on a separate attachment-scoped branch and exclude
       future `expose` design. Evidence: accepted design on 2026-08-21.
-- [ ] Decide whether evidence reveals a thesis/ADR correction before adding any
-      missing enforcement test.
+- [x] Keep ordinary Context ceilings and durable authority out of Host Loopback,
+      and keep attachment authority out of ordinary external traffic. Evidence:
+      product-owner approval after the implementation conflict audit on
+      2026-08-21.
+- [x] Treat trusted baseline Deny and remembered exact Deny as one terminal tier
+      without inventing an order between them. Evidence: aggregate evaluator
+      audit accepted by the product owner on 2026-08-21.
+- [x] Decide whether evidence reveals a thesis/ADR correction before adding any
+      missing enforcement test. Evidence: the packet was corrected to existing
+      ADR 0049 and runtime behavior; no enforcement change is authorized.
 
 ## Implement
 
@@ -48,9 +56,12 @@
 - [ ] Focused domain/policy/Gateway/attachment/catalog tests pass. Evidence:
 - [ ] Terminal destination/method decisions prove zero downstream authority and
       external I/O. Evidence:
-- [ ] Exact Deny wins over every applicable positive source. Evidence:
+- [ ] The combined ordinary exact-deny tier wins over every applicable ordinary
+      positive source. Evidence:
 - [ ] Missing, stale, mismatched, or closed attachment authority reaches no
       host target. Evidence:
+- [ ] Ordinary authority cannot decide Host Loopback, and attachment authority
+      cannot decide ordinary external traffic. Evidence:
 - [ ] Public output retains typed destination kind, lifetime, scope, and exact
       recovery without display inference. Evidence:
 - [ ] Relevant agent-readiness scenario requires zero external reconstruction.

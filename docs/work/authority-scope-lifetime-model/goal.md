@@ -52,13 +52,18 @@ lifetime boundaries.
       Scope, Lifetime, Owner, and Precedence for Context ceilings, trusted
       baseline denies/grants, native readiness, remembered Allow/exact Deny,
       Advanced Rego, Attachment Grants, and default deny.
-- [ ] The ordinary external-HTTP evaluation order is explicit: terminal
-      destination/method decision, trusted deny, exact remembered deny,
-      baseline/native grant, remembered Allow or Advanced policy, then
-      fail-closed/default review eligibility.
+- [ ] The ordinary external-HTTP evaluation order is explicit: principal and
+      Context validity, terminal destination/method decision, one combined
+      exact-deny tier containing trusted baseline Deny and remembered exact
+      Deny, Context-policy positive authority, then learned Allow or Advanced
+      Rego only when unresolved, followed by fail-closed/default review
+      eligibility.
 - [ ] Host Loopback is documented and tested as a separate closed branch bound
-      to active Workspace principal and Attachment Epoch; no display match or
-      durable rule can cross into that branch.
+      to an active principal-owned route and Attachment Epoch. Attachment Deny,
+      Attachment Allow, and exact attachment review are its complete policy
+      order; ordinary Context destination/method ceilings, durable exact Deny,
+      baseline/native authority, remembered Allow, and Advanced Rego do not
+      enter or override that branch.
 - [ ] Native readiness is explained as installed-binary compatibility authority
       admitted only inside the immutable Context ceilings, not as proof that a
       Context alone freezes the complete active aggregate revision.
@@ -78,8 +83,9 @@ lifetime boundaries.
 - Product contract section: progressive policy learning, Context configuration,
   policy candidates/rules/review, and Host Loopback vocabulary
 - Architecture or security invariant: one Gateway/OPA enforcement point,
-  terminal Context ceilings, exact-Deny precedence, project-principal binding,
-  attachment-scoped route/grant identity, and fail-closed default
+  terminal ordinary-HTTP Context ceilings, combined exact-Deny precedence,
+  project-principal binding, independently closed attachment-scoped route/grant
+  identity, and fail-closed default
 - Existing ADR: ADR 0049 attachment leases, ADR 0051/0058 native readiness,
   ADR 0059 complete method decisions, and ADR 0066 Context-owned policy
 

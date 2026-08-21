@@ -2,12 +2,17 @@
 
 ## Current behavior
 
-- Before any positive decision, the Tobari-owned evaluator applies the Context
-  destination ceiling and resolves one complete method decision. Destination
-  or method Deny is terminal before candidate, DNS, Broker, or upstream I/O.
-- The ordinary evaluator then considers trusted baseline deny, exact learned
-  deny, baseline grants, exact or reviewed-template learned Allow, and Advanced
-  Rego. Exact Deny remains terminal over baseline, learned, and Advanced Allow.
+- For ordinary external traffic, principal/schema/Context validity precedes the
+  Context destination ceiling and one complete method decision. Destination or
+  method Deny is terminal before candidate, DNS, Broker, or upstream I/O.
+- The ordinary evaluator then has one combined exact-deny tier containing
+  trusted baseline Deny and remembered HTTP, GraphQL, or MCP exact Deny. The two
+  sources have no semantic order within that tier, and both precede every
+  positive source.
+- Context-policy positive authority contains method Allow and baseline/native
+  exact, template, GraphQL, or MCP grants. Only while still unresolved may a
+  Guided remembered Allow or Advanced Rego decide the request, followed by the
+  fail-closed/default-review result.
 - Context snapshots retain immutable policy data and a `native_readiness`
   selection. Enabled readiness replaces historical readiness rules at aggregate
   generation with the installed binary's independently revisioned current
@@ -18,9 +23,17 @@
   generic request input and participate only within Tobari-owned ceilings and
   learned-identity rules.
 - Every interactive entry creates or borrows one active Attachment Epoch for
-  Host Loopback. An Attachment Grant binds Context, Workspace principal, epoch,
-  target port, and exact HTTP effect, applies Workspace-wide for that owning
-  attachment, and disappears when its route owner exits.
+  Host Loopback. Host Loopback uses a separate evaluator branch: an active
+  principal-owned route and epoch are required, then exact Attachment Deny,
+  Attachment Allow, or attachment review decides the request. Ordinary Context
+  destination/method ceilings, durable exact Deny, baseline/native authority,
+  remembered Allow, and Advanced Rego are excluded from this branch.
+- An Attachment Grant binds Context, Workspace principal, epoch, target port,
+  and exact HTTP effect, applies Workspace-wide for that owning attachment, and
+  disappears when its route owner exits. Gateway resolves the owner-bound route
+  and grants before OPA, opens the authenticated bridge only after OPA Allow,
+  and the host relay revalidates route, project, epoch, port, and Allow before
+  dialing physical loopback.
 - Attachment Grants are runtime-owned, absent from durable `policy rules`, and
   cannot become persistent learned rules, templates, arbitrary leases, raw TCP,
   or Docker authority.
@@ -50,7 +63,9 @@
 
 - Every supported HTTP/HTTPS effect crosses the one Gateway/OPA enforcement
   boundary; documentation cannot invent a second precedence implementation.
-- Context destination/method ceilings and exact Deny remain terminal.
+- Context destination/method ceilings and the combined exact-deny tier remain
+  terminal for ordinary external traffic. They neither authorize nor deny the
+  independently closed Host Loopback branch.
 - Native readiness is trusted-binary data, never agent identity, observed
   candidate growth, provider metadata, or a mutable external profile.
 - Learned rules are host-reviewed, Context/Workspace-bound, and exact or one
@@ -58,6 +73,9 @@
 - Attachment identity and authority lifetime are typed. Matching host, port,
   method, path, prose, or list position cannot convert persistent and
   attachment-scoped decisions.
+- Ordinary learned rules, baseline/native authority, Advanced Rego, and Host
+  Loopback decisions cannot be converted or copied across their policy
+  branches.
 - Host Loopback has no direct Workspace-to-host route; Gateway and OPA decide
   before the authenticated host relay connects to physical IPv4 loopback.
 - The standard profile retains Workspace-owned tool authentication and no
@@ -70,16 +88,20 @@ contracts and the accepted product-owner decision from 2026-08-21.
 
 ## Unknowns
 
-- [ ] Trace the exact current ordinary and Host Loopback evaluator branches
+- [x] Trace the exact current ordinary and Host Loopback evaluator branches
       from typed input through OPA result and record each precedence edge.
+      Evidence: implementation audit on 2026-08-21 found the separate aggregate
+      clauses and Gateway/relay revalidation described above.
 - [ ] Inventory the existing unit, policy, Gateway, integration, and security
       test that enforces each row; identify untested edges without assuming
       prose is evidence.
 - [ ] Confirm whether Advanced Rego can produce positive authority in every
       documented case or should be described only as an additional constraint
       on generic input.
-- [ ] Confirm baseline deny versus exact learned deny ordering is semantically
-      observable or only that both precede every positive decision.
+- [x] Confirm baseline deny versus exact learned deny ordering is semantically
+      observable or only that both precede every positive decision. Evidence:
+      both are members of one terminal exact-deny tier and have no semantic
+      ordering relative to each other.
 - [ ] Identify every public output that exposes `destination_kind`,
       `authority_lifetime`, epoch, or principal scope and verify the typed facts
       cannot be inferred from labels.
@@ -97,7 +119,8 @@ contracts and the accepted product-owner decision from 2026-08-21.
   model.
 - Current thesis that resolves it, or proposed thesis revision: keep existing
   enforcement and explain it as three user layers plus one complete technical
-  authority inventory.
+  authority inventory. Host Loopback is an independently closed attachment
+  exception, not a positive source underneath ordinary Context network policy.
 - Downstream product, architecture, security, Skill, catalog, and harness
   impact: glossary, policy flow, authority/lifetime output descriptions,
   claim-to-enforcement map, and missing negative canaries.
