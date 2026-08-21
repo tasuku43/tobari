@@ -218,8 +218,8 @@ activate it in a standard binary, and it is not supported or published.
 The experimental profile accepts:
 
 ```sh
-tobari-dev auth login --provider aws --method identity-center
-tobari-dev auth login --provider aws --method console
+bin/tobari-dev auth login --provider aws --method identity-center
+bin/tobari-dev auth login --provider aws --method console
 ```
 
 Only AWS accepts `--method`; omission selects `identity-center`. The remaining
@@ -464,13 +464,13 @@ against a disposable account without recording a token, code, handle, vault,
 account identifier, or authenticated transcript. The GitHub slice includes:
 
 ```sh
-tobari auth login --provider github --context default
-tobari auth status --context default --format json
+bin/tobari-dev auth login --provider github --context default
+bin/tobari-dev auth status --context default --format json
 # Re-enter the Context-bound Workspace.
 case "${GH_TOKEN-}" in tobari-h1_*) ;; *) exit 1 ;; esac
 test "$(gh auth token --hostname github.com)" = "$GH_TOKEN"
 gh api user --jq .login >/dev/null
-tobari auth logout github --context default --format json
+bin/tobari-dev auth logout github --context default --format json
 ```
 
 The reviewer records pass/fail and secret-free observations only, then proves
