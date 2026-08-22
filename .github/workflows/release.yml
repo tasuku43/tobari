@@ -3,6 +3,14 @@ name: Release
 on:
   workflow_dispatch:
     inputs:
+      operation:
+        description: "Prepare verified assets, or publish one successful preparation"
+        required: true
+        default: prepare
+        type: choice
+        options:
+          - prepare
+          - publish
       tag:
         description: "SemVer release tag (for example v0.1.0-dev.1 or v1.0.0)"
         required: true
@@ -11,13 +19,13 @@ on:
         description: "Full reviewed source commit"
         required: true
         type: string
-      publish:
-        description: "Publish the immutable GitHub Release after protected-environment approval"
-        required: true
-        default: false
-        type: boolean
+      prepared_run_id:
+        description: "Successful Release preparation run ID; required only for publish"
+        required: false
+        type: string
 
 permissions:
+  actions: read
   contents: read
 
 concurrency:
@@ -25,16 +33,19 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  preflight:
-    name: Validate requested source
+  identity:
+    name: Validate requested release identity
     runs-on: ubuntu-latest
     outputs:
+      operation: ${{ steps.release.outputs.operation }}
       revision: ${{ steps.release.outputs.revision }}
       stable: ${{ steps.release.outputs.stable }}
       tag: ${{ steps.release.outputs.tag }}
     steps:
-      - name: Validate requested revision shape
+      - name: Validate dispatch inputs
         env:
+          RELEASE_OPERATION: ${{ inputs.operation }}
+          RELEASE_PREPARED_RUN_ID: ${{ inputs.prepared_run_id }}
           RELEASE_REVISION: ${{ inputs.revision }}
         shell: bash
         run: |
@@ -42,6 +53,24 @@ jobs:
             echo "revision must be a full lowercase Git commit SHA" >&2
             exit 1
           fi
+          case "${RELEASE_OPERATION}" in
+            prepare)
+              if [[ -n "${RELEASE_PREPARED_RUN_ID}" ]]; then
+                echo "prepared_run_id must be empty for prepare" >&2
+                exit 1
+              fi
+              ;;
+            publish)
+              if [[ ! "${RELEASE_PREPARED_RUN_ID}" =~ ^[1-9][0-9]*$ ]]; then
+                echo "publish requires a positive numeric prepared_run_id" >&2
+                exit 1
+              fi
+              ;;
+            *)
+              echo "unsupported release operation: ${RELEASE_OPERATION}" >&2
+              exit 1
+              ;;
+          esac
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -54,23 +83,28 @@ jobs:
           go-version-file: go.mod
           cache: false
 
-      - uses: ./.github/actions/setup-repository-node
-
       - name: Validate release identity
         id: release
         env:
-          RELEASE_TAG: ${{ inputs.tag }}
+          RELEASE_OPERATION: ${{ inputs.operation }}
           RELEASE_REVISION: ${{ inputs.revision }}
-          RELEASE_PUBLISH: ${{ inputs.publish }}
+          RELEASE_TAG: ${{ inputs.tag }}
+          WORKFLOW_REVISION: ${{ github.sha }}
         shell: bash
         run: |
           test "$(git rev-parse HEAD)" = "${RELEASE_REVISION}"
           {
             go run ./tools/releaseversion "${RELEASE_TAG}"
+            echo "operation=${RELEASE_OPERATION}"
             echo "tag=${RELEASE_TAG}"
             echo "revision=${RELEASE_REVISION}"
           } >>"${GITHUB_OUTPUT}"
-          if [[ "${RELEASE_PUBLISH}" == true ]]; then
+          if [[ "${RELEASE_OPERATION}" == prepare ]]; then
+            if [[ "${WORKFLOW_REVISION}" != "${RELEASE_REVISION}" ]]; then
+              echo "prepare must run from the exact requested revision on main" >&2
+              exit 1
+            fi
+          else
             tag_revision=$(git rev-list -n 1 "refs/tags/${RELEASE_TAG}")
             if [[ "${tag_revision}" != "${RELEASE_REVISION}" ]]; then
               echo "published tag does not identify the requested reviewed revision" >&2
@@ -78,17 +112,79 @@ jobs:
             fi
           fi
 
-      - name: Run all required release preflight gates
+  ci-evidence:
+    name: Reuse exact-revision CI evidence
+    if: inputs.operation == 'prepare'
+    needs: identity
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wait for successful main-push CI
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_REVISION: ${{ needs.identity.outputs.revision }}
+        shell: bash
         run: |
-          ./scripts/check.sh full
-          ./scripts/check.sh security
-          ./scripts/check.sh release
-          ./scripts/check.sh public
-          ./scripts/check.sh runtime
+          deadline=$((SECONDS + 900))
+          run_id=
+          while ((SECONDS < deadline)); do
+            runs=$(gh api --method GET \
+              "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs" \
+              -f branch=main \
+              -f event=push \
+              -f head_sha="${RELEASE_REVISION}" \
+              -f per_page=100)
+            run_id=$(jq -r --arg revision "${RELEASE_REVISION}" '
+              [.workflow_runs[] |
+                select(
+                  .path == ".github/workflows/ci.yml" and
+                  .event == "push" and
+                  .head_branch == "main" and
+                  .head_sha == $revision
+                )] |
+              sort_by(.id) |
+              last |
+              .id // empty
+            ' <<<"${runs}")
+            if [[ -n "${run_id}" ]]; then
+              break
+            fi
+            sleep 5
+          done
+          if [[ -z "${run_id}" ]]; then
+            echo "no main-push CI run appeared for ${RELEASE_REVISION}" >&2
+            exit 1
+          fi
+
+          run=
+          while ((SECONDS < deadline)); do
+            run=$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}")
+            status=$(jq -r '.status' <<<"${run}")
+            if [[ "${status}" == completed ]]; then
+              break
+            fi
+            sleep 10
+          done
+          if [[ -z "${run}" ]]; then
+            echo "CI run ${run_id} could not be read before the evidence deadline" >&2
+            exit 1
+          fi
+          jq -e \
+            --arg repository "${GITHUB_REPOSITORY}" \
+            --arg revision "${RELEASE_REVISION}" '
+              .repository.full_name == $repository and
+              .path == ".github/workflows/ci.yml" and
+              .event == "push" and
+              .head_branch == "main" and
+              .head_sha == $revision and
+              .status == "completed" and
+              .conclusion == "success"
+            ' <<<"${run}" >/dev/null
+          echo "Using successful CI run ${run_id} for ${RELEASE_REVISION}."
 
   build:
     name: Build ${{ matrix.goos }} ${{ matrix.goarch }}
-    needs: preflight
+    if: inputs.operation == 'prepare'
+    needs: identity
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -107,7 +203,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: ${{ needs.preflight.outputs.revision }}
+          ref: ${{ needs.identity.outputs.revision }}
           persist-credentials: false
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -118,8 +214,8 @@ jobs:
       - name: Build and verify archive
         run: |
           ./scripts/package-release.sh \
-            "${{ needs.preflight.outputs.tag }}" \
-            "${{ needs.preflight.outputs.revision }}" \
+            "${{ needs.identity.outputs.tag }}" \
+            "${{ needs.identity.outputs.revision }}" \
             "${{ matrix.goos }}" \
             "${{ matrix.goarch }}" \
             dist
@@ -130,15 +226,17 @@ jobs:
           name: release-${{ matrix.goos }}-${{ matrix.goarch }}
           path: dist/tobari_*
           if-no-files-found: error
+          retention-days: 1
 
   assemble:
     name: Assemble verified release assets
-    needs: [preflight, build]
-    runs-on: macos-15
+    if: inputs.operation == 'prepare'
+    needs: [identity, build]
+    runs-on: ${{ needs.identity.outputs.stable == 'true' && 'macos-15' || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: ${{ needs.preflight.outputs.revision }}
+          ref: ${{ needs.identity.outputs.revision }}
           persist-credentials: false
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -155,8 +253,8 @@ jobs:
 
       - name: Create and verify checksums, SPDX SBOM, and provenance
         env:
-          RELEASE_TAG: ${{ needs.preflight.outputs.tag }}
-          RELEASE_REVISION: ${{ needs.preflight.outputs.revision }}
+          RELEASE_TAG: ${{ needs.identity.outputs.tag }}
+          RELEASE_REVISION: ${{ needs.identity.outputs.revision }}
         shell: bash
         run: |
           builder_id="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/.github/workflows/release.yml@${RELEASE_REVISION}"
@@ -168,12 +266,12 @@ jobs:
           done
 
       - name: Render and audit stable Formula
-        if: needs.preflight.outputs.stable == 'true'
+        if: needs.identity.outputs.stable == 'true'
         shell: bash
         run: |
           binary=$(go run ./tools/projectmeta --field binary_name)
           ./scripts/render-formula.sh \
-            "${{ needs.preflight.outputs.tag }}" \
+            "${{ needs.identity.outputs.tag }}" \
             "https://github.com/${GITHUB_REPOSITORY}" \
             dist/checksums.txt \
             "dist/${binary}.rb"
@@ -182,33 +280,35 @@ jobs:
 
       - name: Verify exact final release asset inventory
         env:
-          RELEASE_TAG: ${{ needs.preflight.outputs.tag }}
-          RELEASE_REVISION: ${{ needs.preflight.outputs.revision }}
+          RELEASE_TAG: ${{ needs.identity.outputs.tag }}
+          RELEASE_REVISION: ${{ needs.identity.outputs.revision }}
         shell: bash
         run: |
           builder_id="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/.github/workflows/release.yml@${RELEASE_REVISION}"
           invocation_id="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/attempts/${GITHUB_RUN_ATTEMPT}"
           go run ./tools/releaseartifacts verify-final "${RELEASE_TAG}" "${RELEASE_REVISION}" "${builder_id}" "${invocation_id}" dist
 
-      - name: Upload complete release asset set
+      - name: Upload complete prepared release asset set
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: release-assets-${{ needs.preflight.outputs.tag }}
+          name: release-assets-${{ needs.identity.outputs.tag }}
           path: dist/*
           if-no-files-found: error
+          retention-days: 7
 
   publish:
     name: Publish immutable GitHub Release
-    if: inputs.publish == true
-    needs: [preflight, assemble]
+    if: inputs.operation == 'publish'
+    needs: identity
     runs-on: ubuntu-latest
     environment: release-publication
     permissions:
+      actions: read
       contents: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: ${{ needs.preflight.outputs.revision }}
+          ref: ${{ needs.identity.outputs.revision }}
           fetch-depth: 0
           persist-credentials: false
 
@@ -217,20 +317,75 @@ jobs:
           go-version-file: go.mod
           cache: false
 
-      - name: Download complete release asset set
+      - name: Validate prepared run and exact artifact
+        id: prepared
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PREPARED_RUN_ID: ${{ inputs.prepared_run_id }}
+          RELEASE_REVISION: ${{ needs.identity.outputs.revision }}
+          RELEASE_TAG: ${{ needs.identity.outputs.tag }}
+        shell: bash
+        run: |
+          if [[ "${PREPARED_RUN_ID}" == "${GITHUB_RUN_ID}" ]]; then
+            echo "publish cannot promote its own run" >&2
+            exit 1
+          fi
+          run=$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${PREPARED_RUN_ID}")
+          jq -e \
+            --arg repository "${GITHUB_REPOSITORY}" \
+            --arg revision "${RELEASE_REVISION}" '
+              .repository.full_name == $repository and
+              .path == ".github/workflows/release.yml" and
+              .event == "workflow_dispatch" and
+              .head_branch == "main" and
+              .head_sha == $revision and
+              .status == "completed" and
+              .conclusion == "success"
+            ' <<<"${run}" >/dev/null
+          attempt=$(jq -r '.run_attempt' <<<"${run}")
+          if [[ ! "${attempt}" =~ ^[1-9][0-9]*$ ]]; then
+            echo "prepared run has an invalid attempt" >&2
+            exit 1
+          fi
+
+          jobs=$(gh api --method GET \
+            "repos/${GITHUB_REPOSITORY}/actions/runs/${PREPARED_RUN_ID}/jobs" \
+            -f filter=latest \
+            -f per_page=100)
+          assemble_count=$(jq '[.jobs[] | select(.name == "Assemble verified release assets" and .conclusion == "success")] | length' <<<"${jobs}")
+          if [[ "${assemble_count}" != 1 ]]; then
+            echo "prepared run must contain exactly one successful asset assembly job" >&2
+            exit 1
+          fi
+
+          artifacts=$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${PREPARED_RUN_ID}/artifacts?per_page=100")
+          artifact_count=$(jq --arg name "release-assets-${RELEASE_TAG}" '[.artifacts[] | select(.name == $name and .expired == false)] | length' <<<"${artifacts}")
+          if [[ "${artifact_count}" != 1 ]]; then
+            echo "prepared run must contain exactly one unexpired complete release asset set" >&2
+            exit 1
+          fi
+          echo "attempt=${attempt}" >>"${GITHUB_OUTPUT}"
+
+      - name: Download complete prepared release asset set
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
-          name: release-assets-${{ needs.preflight.outputs.tag }}
+          name: release-assets-${{ needs.identity.outputs.tag }}
           path: dist
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.prepared_run_id }}
+          digest-mismatch: error
 
-      - name: Reverify exact subjects and published tag
+      - name: Reverify exact prepared subjects and published tag
         env:
-          RELEASE_TAG: ${{ needs.preflight.outputs.tag }}
-          RELEASE_REVISION: ${{ needs.preflight.outputs.revision }}
+          PREPARED_RUN_ATTEMPT: ${{ steps.prepared.outputs.attempt }}
+          PREPARED_RUN_ID: ${{ inputs.prepared_run_id }}
+          RELEASE_TAG: ${{ needs.identity.outputs.tag }}
+          RELEASE_REVISION: ${{ needs.identity.outputs.revision }}
         shell: bash
         run: |
           builder_id="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/.github/workflows/release.yml@${RELEASE_REVISION}"
-          invocation_id="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/attempts/${GITHUB_RUN_ATTEMPT}"
+          invocation_id="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${PREPARED_RUN_ID}/attempts/${PREPARED_RUN_ATTEMPT}"
           test "$(git rev-list -n 1 "refs/tags/${RELEASE_TAG}")" = "${RELEASE_REVISION}"
           go run ./tools/releaseartifacts verify-final "${RELEASE_TAG}" "${RELEASE_REVISION}" "${builder_id}" "${invocation_id}" dist
 
@@ -238,8 +393,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          RELEASE_TAG: ${{ needs.preflight.outputs.tag }}
-          RELEASE_STABLE: ${{ needs.preflight.outputs.stable }}
+          RELEASE_STABLE: ${{ needs.identity.outputs.stable }}
+          RELEASE_TAG: ${{ needs.identity.outputs.tag }}
         shell: bash
         run: |
           args=(--verify-tag --title "${RELEASE_TAG}" --generate-notes)
@@ -254,8 +409,8 @@ jobs:
 
   homebrew-tap:
     name: Propose stable Formula in Homebrew tap
-    if: inputs.publish == true && needs.preflight.outputs.stable == 'true'
-    needs: [preflight, publish]
+    if: inputs.operation == 'publish' && needs.identity.outputs.stable == 'true'
+    needs: [identity, publish]
     runs-on: ubuntu-latest
     environment: release-publication
     permissions:
@@ -265,7 +420,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_REPOSITORY: ${{ github.repository }}
-          RELEASE_TAG: ${{ needs.preflight.outputs.tag }}
+          RELEASE_TAG: ${{ needs.identity.outputs.tag }}
         shell: bash
         run: |
           mkdir formula-dist
@@ -304,7 +459,7 @@ jobs:
         working-directory: homebrew-tap
         env:
           GH_TOKEN: ${{ steps.homebrew-token.outputs.token }}
-          RELEASE_TAG: ${{ needs.preflight.outputs.tag }}
+          RELEASE_TAG: ${{ needs.identity.outputs.tag }}
         shell: bash
         run: |
           branch="chore/homebrew-formula-${RELEASE_TAG}"

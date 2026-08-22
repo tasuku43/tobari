@@ -145,31 +145,44 @@ independent proof of builder identity.
 
 ## Publication approval checkpoint
 
-Artifact preparation is a local, create-only operation. Before the first
-external mutation, the maintainer validates the Gateway and local base
-construction, builds two independent archive matrices, regenerates
-and verifies checksum/SBOM/provenance subjects, renders and audits the stable
-Formula, completes the required gates and manual reviews, and stops for
-explicit approval. A local preparation command never pushes a branch or tag,
-creates a GitHub Release, or updates a Homebrew tap.
+Artifact preparation is a non-publishing, unprivileged operation. Main/pull-
+request CI runs `full`, `security`, `public`, `release`, and `runtime` as five
+independent parallel jobs. Before the first public-distribution mutation, the
+maintainer selects one reviewed main revision whose main-push CI run completed successfully, validates
+the Gateway and local base construction, reviews the two independent archive
+matrices produced by the release profile, completes manual review, and invokes
+Release with `operation: prepare`, the intended tag, and that full revision.
 
-After approval, the Release workflow assembles the CLI matrix directly from
-the reviewed source revision. It is manual `workflow_dispatch`, never a
-tag-push trigger. Its caller
-must supply the exact tag and full reviewed revision. `publish: false` performs
-only CI assembly; `publish: true` also requires approval through the protected
-`release-publication` environment, revalidates that the existing tag points to
-the requested revision, and creates a Release only when none exists. The
-workflow has no overwrite path. Non-stable SemVer tags create a GitHub
-prerelease; they do not render a Formula, obtain the Homebrew App token, or
-mutate the tap.
+Preparation verifies the exact repository-owned CI workflow path, push event,
+main branch, revision, completion, and success. In parallel with that bounded
+wait it builds the actual five-target release matrix once. It then generates
+and verifies checksum/SPDX/provenance subjects, renders and audits a stable
+Formula on macOS, verifies the exact final inventory, and retains one complete
+asset set for seven days. A prerelease has no Formula and assembles on Linux.
+Preparation has read-only repository and Actions API permissions. Its only
+created external state is the bounded Actions artifacts; it never pushes a
+branch or tag, creates a GitHub Release, or updates a Homebrew tap.
+
+After explicit approval, the maintainer creates the tag and invokes the same
+manual `workflow_dispatch` with `operation: publish`, the exact tag and full
+revision, and the successful preparation run ID. A tag push is never a release
+trigger. The protected `release-publication` job validates that the run belongs
+to the same repository Release workflow, main branch, and revision; that it
+completed successfully with exactly one successful assembly job and one exact
+unexpired complete asset set; and that the preparation attempt, provenance,
+tag binding, and final inventory still match. It publishes those unchanged
+bytes and has no archive or metadata build path. An absent, expired, ambiguous,
+failed, or mismatched preparation requires a new preparation rather than a
+fallback rebuild. The workflow refuses an existing Release and has no overwrite
+path. Non-stable SemVer tags create a GitHub prerelease and never obtain the
+Homebrew App token or mutate the tap.
 
 For a stable release, the audited checksum-pinned Formula is one Release asset.
 After the immutable GitHub Release succeeds, the same protected workflow
 downloads that exact published `tobari.rb`, obtains a GitHub-App token scoped
 only to `tasuku43/homebrew-tap`, and opens a Formula-only pull request that
 updates `Formula/tobari.rb`. It never pushes tap `main` directly. The tap's own
-checks and trusted-bot policy decide merge. A dry run or prerelease has no tap
+checks and trusted-bot policy decide merge. A preparation or prerelease has no tap
 write path. Stable publication is complete only when that tap pull request has
 been created successfully; installation availability follows its merge.
 
@@ -190,7 +203,7 @@ by a new version; assets for an existing tag are not overwritten.
 
 ## Required gates
 
-Before tagging:
+The exact release revision's successful main-push CI run must include:
 
 ```sh
 task check
@@ -202,6 +215,12 @@ task gateway:test
 task authbroker:test
 task integration:test
 ```
+
+CI invokes `task runtime:test`, which closes the policy, Gateway, Auth Broker,
+and integration rows above once. The individual names remain the local and
+focused review interfaces; the successful runtime profile is their automated
+release evidence. Preparation additionally requires its own exact artifact and
+metadata verification before tagging.
 
 `task release:check` verifies that release packaging has no component lock,
 Tobari GHCR reference, package-write permission, registry login, image push,

@@ -1369,3 +1369,17 @@ contains no owned image-output fallback, and release packaging has no registry
 or component-lock authority. The checked combined Claude Code 2.1.220 and Codex 0.147.0 base
 establishes integrity and local build identity only; Tobari never publishes
 that combined image.
+
+Release source evidence and publication authority remain separate. One
+successful repository-owned main-push CI run must identify the exact prepared
+revision and complete every required profile. Preparation receives read-only
+repository and Actions API access, builds one complete public asset set, and
+creates only bounded Actions artifacts retained for at most seven days; it has
+no repository-content or public-distribution write authority.
+Protected publication accepts only one successful preparation run from the
+same repository, workflow, main branch, and revision; it additionally requires
+one successful assembly job, one exact unexpired asset, the preparation attempt
+identity, the existing tag binding, deterministic metadata verification, and
+the final inventory before `contents: write` is used. Publication never rebuilds
+the approved subjects. Stable-only Homebrew authority remains a separate
+repository-scoped App token obtained after GitHub Release success.

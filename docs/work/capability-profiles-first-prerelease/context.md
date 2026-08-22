@@ -69,9 +69,9 @@ exact prerelease without publication:
 ```sh
 revision=$(git rev-parse HEAD)
 gh workflow run release.yml --ref main \
+  -f operation=prepare \
   -f tag=v0.1.0-dev.1 \
-  -f revision="$revision" \
-  -f publish=false
+  -f revision="$revision"
 ```
 
 After the protected environment exists, publish that same revision:
@@ -79,13 +79,15 @@ After the protected environment exists, publish that same revision:
 ```sh
 revision=$(git rev-parse HEAD)
 gh workflow run release.yml --ref main \
+  -f operation=publish \
   -f tag=v0.1.0-dev.1 \
   -f revision="$revision" \
-  -f publish=true
+  -f prepared_run_id="$prepared_run_id"
 ```
 
-The release workflow revalidates the full revision and publishes only the CLI
-archives and metadata to GitHub Releases. All Tobari-owned images remain local.
+The release workflow revalidates the successful preparation run, full revision,
+tag, provenance, and inventory, then publishes only those prepared CLI archives
+and metadata to GitHub Releases. All Tobari-owned images remain local.
 
 ## Security and public-boundary notes
 

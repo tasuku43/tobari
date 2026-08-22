@@ -161,8 +161,14 @@ non-learnable and cannot become policy candidates.
 Stable macOS CLI releases are distributed through
 `tasuku43/homebrew-tap`. The release outcome is not closed at GitHub asset
 creation: the exact audited Formula must reach that tap through its reviewed
-pull-request boundary. Linux remains supported through the published archive
-or source build unless a Linux Homebrew Formula contract is added explicitly.
+pull-request boundary. Release preparation is a non-publishing exact-revision
+task: it reuses one successful main-push CI result and creates one verified
+bounded-retention Actions artifact set without repository-content authority.
+Protected publication promotes only that prepared set
+after exact run, revision, tag, provenance, and inventory revalidation; it does
+not rebuild or reinterpret release subjects. Linux remains supported through
+the published archive or source build unless a Linux Homebrew Formula contract
+is added explicitly.
 
 ## Public vocabulary
 

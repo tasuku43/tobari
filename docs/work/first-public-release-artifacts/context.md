@@ -55,13 +55,15 @@
   with `filesAnalyzed: false`, not a dependency, OCI-layer, or vulnerability
   inventory. The in-toto/SLSA document is unsigned provenance metadata, not an
   attestation or signature.
-- The release workflow is now manual dispatch. Preparation and final
-  publication are separate jobs; publication requires both `publish: true`
-  and the protected `release-publication` environment, validates the existing
-  tag/revision binding, reverifies the exact final asset inventory, and refuses
-  an existing Release. Stable Formula output is audited and included as an
-  asset; only after Release creation does the protected stable path open a
-  Formula-only tap pull request with a repository-scoped GitHub App token.
+- The release workflow is manual dispatch with separate `prepare` and `publish`
+  operations. Preparation reuses exact-revision main-push CI, builds one
+  bounded-retention asset set, and has no publication authority. Publication
+  requires that successful preparation run ID and the protected
+  `release-publication` environment, validates the existing tag/revision and
+  preparation identities, reverifies the exact final asset inventory, and
+  refuses an existing Release. Stable Formula output is audited and included
+  as an asset; only after Release creation does the protected stable path open
+  a Formula-only tap pull request with a repository-scoped GitHub App token.
 - `./scripts/lint-release.sh` passed. Its synthetic dry run sets
   `GOPROXY=off GOSUMDB=off`, independently reproduces five archives and all
   three metadata files, verifies create-only collisions, renders/audits the

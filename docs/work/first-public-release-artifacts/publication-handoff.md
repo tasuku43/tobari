@@ -22,21 +22,12 @@ The first command below is the first external mutation.
 
 ```sh
 git push -u origin "$branch"
-gh workflow run release.yml --repo "$repo" --ref "$branch" \
-  -f tag="$release_tag" -f revision="$source_revision" -f publish=false
 ```
 
-Wait for the candidate run to pass. Download its release assets and verify the
-five archives, checksums, SPDX SBOM, unsigned provenance, and stable Formula.
-Confirm no component lock or OCI artifact is present.
-
-```sh
-candidate_dir=$(mktemp -d)
-# Download the candidate run's release-assets artifact into $candidate_dir.
-go run ./tools/releaseartifacts verify-final "$release_tag" "$source_revision" \
-  "https://github.com/tasuku43/tobari/.github/workflows/release.yml@$source_revision" \
-  "<candidate-run-url>" "$candidate_dir"
-```
+Wait for pull-request CI to pass. It runs full, security, public, runtime, and
+release packaging evidence as independent parallel jobs. Confirm no component lock or OCI
+artifact is present. Release preparation occurs only after the exact reviewed
+revision reaches `main` and its main-push CI succeeds.
 
 ## 3. Keep release outputs out of source
 
@@ -72,25 +63,31 @@ Also complete the documented clean Quick Start, disposable GitHub trusted-host
 login/static-import scorecards, deny/review/allow/manual-retry journey, and
 history/dependency/license/generated-artifact review without retaining secrets.
 
-## 5. Reconfirm the exact GitHub Release candidate
+## 5. Prepare the exact GitHub Release candidate once
 
 ```sh
 git push origin "$branch"
-gh workflow run release.yml --repo "$repo" --ref "$branch" \
-  -f tag="$release_tag" -f revision="$release_revision" -f publish=false
+# Merge the reviewed branch, then bind preparation to the exact main revision.
+git fetch origin main
+release_revision=$(git rev-parse origin/main)
+gh workflow run release.yml --repo "$repo" --ref main \
+  -f operation=prepare -f tag="$release_tag" -f revision="$release_revision"
 ```
 
 Wait for the complete release asset artifact, download it, and independently
 verify the five archives, `checksums.txt`, SPDX SBOM,
-unsigned provenance, and stable Formula before creating a tag.
+unsigned provenance, and stable Formula before creating a tag. Record the
+successful Release preparation run ID as `prepared_run_id`; its artifact expires
+after seven days.
 
 ## 6. Publish only after a second synchronous approval
 
 ```sh
 git tag -a "$release_tag" "$release_revision" -m "Tobari $release_tag"
 git push origin "refs/tags/$release_tag"
-gh workflow run release.yml --repo "$repo" --ref "$branch" \
-  -f tag="$release_tag" -f revision="$release_revision" -f publish=true
+gh workflow run release.yml --repo "$repo" --ref main \
+  -f operation=publish -f tag="$release_tag" -f revision="$release_revision" \
+  -f prepared_run_id="$prepared_run_id"
 ```
 
 The protected `release-publication` environment must approve the final jobs.

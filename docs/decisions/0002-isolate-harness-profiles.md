@@ -1,11 +1,11 @@
 # ADR 0002: Isolate routine and specialized harness profiles
 
-- Status: Accepted
+- Status: Superseded
 - Date: 2026-07-20
 - Deciders: Tobari maintainers
 - Scope: Local verification, CI, release preflight, and Codex automation
 - Supersedes: None
-- Superseded by: None
+- Superseded by: [ADR 0076: Promote one prepared release bundle](0076-promote-one-prepared-release-bundle.md)
 
 ## Context
 

@@ -552,20 +552,21 @@ Repository policy and architecture are documented in:
 
 ## Release checkpoint
 
-Local preparation creates the exact five CLI archives plus `checksums.txt`, an
+Release preparation creates the exact five CLI archives plus `checksums.txt`, an
 archive-subject SPDX 2.3 SBOM (`filesAnalyzed: false`), and unsigned in-toto/
 SLSA provenance metadata. These are integrity and auditable metadata, not a
 signature, dependency/layer inventory, vulnerability report, or independent
 builder proof.
 
-Preparation stops for explicit approval before any external mutation. Do not
-push a branch or tag, create a GitHub Release, or update a Homebrew tap as part
-of local preparation. Tobari publishes no OCI images. The released standard
-CLI builds the pinned Gateway and agent-ready base locally from its embedded
-recipes and contains no Auth Broker capability. The manual release workflow
+Preparation reuses the exact successful main-push CI run, retains one verified
+asset set for seven days, and stops for explicit approval before publication.
+Protected publication takes that preparation run ID and promotes only its
+reverified bytes; it does not rebuild. Tobari publishes no OCI images. The
+released standard CLI builds the pinned Gateway and agent-ready base locally
+from its embedded recipes and contains no Auth Broker capability. The manual release workflow
 creates the immutable GitHub Release and, for a stable version, opens a
 Formula-only pull request in `tasuku43/homebrew-tap` from the exact audited
-Formula asset. Dry runs and prereleases never mutate the tap.
+Formula asset. Preparation and prereleases never mutate the tap.
 
 ## Security reports
 

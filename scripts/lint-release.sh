@@ -200,9 +200,9 @@ for forbidden in 'HOMEBREW_GITHUB_API_TOKEN' 'api.github.com/repos/' 'Authorizat
 done
 
 for required in \
-  'workflow_dispatch:' 'publish:' 'environment: release-publication' \
-  './scripts/check.sh full' './scripts/check.sh security' './scripts/check.sh release' \
-  './scripts/check.sh public' './scripts/check.sh runtime' './scripts/package-release.sh' \
+  'workflow_dispatch:' 'operation:' 'prepared_run_id:' 'actions: read' \
+  "if: inputs.operation == 'prepare'" "if: inputs.operation == 'publish'" \
+  'environment: release-publication' './scripts/package-release.sh' \
   './tools/releaseartifacts create' './tools/releaseartifacts verify' './tools/releaseartifacts verify-final' \
   'checksums.txt' 'sbom.spdx.json' 'provenance.intoto.jsonl' \
   'gh release create' 'scripts/render-formula.sh'; do
@@ -211,32 +211,90 @@ for required in \
     exit 1
   }
 done
+if grep -qF './scripts/check.sh' .github/workflows/release.yml; then
+  echo "release preparation must reuse exact-revision CI evidence instead of repeating source profiles" >&2
+  exit 1
+fi
+for required in \
+  './scripts/check.sh full' './scripts/check.sh security' './scripts/check.sh release' \
+  './scripts/check.sh public' './scripts/check.sh runtime'; do
+  grep -qF "$required" .github/workflows/ci.yml || {
+    echo "parallel CI is missing required release evidence: $required" >&2
+    exit 1
+  }
+done
+ci_job() {
+  local job_name=$1
+  awk -v heading="  ${job_name}:" '
+    $0 == heading { in_job=1 }
+    in_job && $0 != heading && /^  [A-Za-z0-9_-]+:/ { exit }
+    in_job { print }
+  ' .github/workflows/ci.yml
+}
+for binding in \
+  'full:./scripts/check.sh full' \
+  'security:./scripts/check.sh security' \
+  'public:./scripts/check.sh public' \
+  'runtime:./scripts/check.sh runtime' \
+  'release:./scripts/check.sh release'; do
+  job_name=${binding%%:*}
+  profile_call=${binding#*:}
+  job=$(ci_job "$job_name")
+  if [[ -z $job ]] || ! printf '%s\n' "$job" | grep -qF "$profile_call"; then
+    echo "CI must own $profile_call in its independent $job_name job" >&2
+    exit 1
+  fi
+done
 
 assemble_job=$(awk '
   /^  assemble:/ { in_assemble=1 }
   in_assemble && !/^  assemble:/ && /^  [A-Za-z0-9_-]+:/ { exit }
   in_assemble { print }
 ' .github/workflows/release.yml)
+ci_evidence_job=$(awk '
+  /^  ci-evidence:/ { in_evidence=1 }
+  in_evidence && !/^  ci-evidence:/ && /^  [A-Za-z0-9_-]+:/ { exit }
+  in_evidence { print }
+' .github/workflows/release.yml)
 homebrew_job=$(awk '
   /^  homebrew-tap:/ { in_homebrew=1 }
   in_homebrew && !/^  homebrew-tap:/ && /^  [A-Za-z0-9_-]+:/ { exit }
   in_homebrew { print }
+' .github/workflows/release.yml)
+publish_job=$(awk '
+  /^  publish:/ { in_publish=1 }
+  in_publish && !/^  publish:/ && /^  [A-Za-z0-9_-]+:/ { exit }
+  in_publish { print }
 ' .github/workflows/release.yml)
 build_job=$(awk '
   /^  build:/ { in_build=1 }
   in_build && !/^  build:/ && /^  [A-Za-z0-9_-]+:/ { exit }
   in_build { print }
 ' .github/workflows/release.yml)
-release_revision_ref="ref: \${{ needs.preflight.outputs.revision }}"
+release_revision_ref="ref: \${{ needs.identity.outputs.revision }}"
 printf '%s\n' "$build_job" | grep -A4 -F "$release_revision_ref" | grep -qF 'persist-credentials: false' || {
-  echo "matrix build checkout is not fixed to the credential-free preflight revision" >&2
+  echo "matrix build checkout is not fixed to the credential-free release revision" >&2
   exit 1
 }
+# These are literal workflow expressions and jq programs.
+# shellcheck disable=SC2016
+for required in \
+  "if: inputs.operation == 'prepare'" 'actions/workflows/ci.yml/runs' \
+  '-f branch=main' '-f event=push' '-f head_sha="${RELEASE_REVISION}"' \
+  '.path == ".github/workflows/ci.yml"' '.head_branch == "main"' \
+  '.head_sha == $revision' '.status == "completed"' '.conclusion == "success"'; do
+  if ! printf '%s\n' "$ci_evidence_job" | grep -qF -- "$required"; then
+    echo "release CI-evidence job is missing: $required" >&2
+    exit 1
+  fi
+done
 for required in \
   "$release_revision_ref" \
-  'runs-on: macos-15' './tools/releaseartifacts create' './tools/releaseartifacts verify' './tools/releaseartifacts verify-final' \
+  "if: inputs.operation == 'prepare'" \
+  "runs-on: \${{ needs.identity.outputs.stable == 'true' && 'macos-15' || 'ubuntu-latest' }}" \
+  './tools/releaseartifacts create' './tools/releaseartifacts verify' './tools/releaseartifacts verify-final' \
   './scripts/render-formula.sh' 'ruby -c' './scripts/audit-formula.sh' \
-  'Upload complete release asset set'; do
+  'Upload complete prepared release asset set' 'retention-days: 7'; do
   if ! printf '%s\n' "$assemble_job" | grep -qF "$required"; then
     echo "release assembly job is missing its host-specific check: $required" >&2
     exit 1
@@ -247,7 +305,7 @@ printf '%s\n' "$assemble_job" | grep -A4 -F "$release_revision_ref" | grep -qF '
   exit 1
 }
 if printf '%s\n' "$assemble_job" | grep -qF './scripts/check.sh release'; then
-  echo "release assembly job must not repeat the Linux preflight release profile" >&2
+  echo "release assembly job must not repeat the CI-owned release profile" >&2
   exit 1
 fi
 release_checkout_line=$(printf '%s\n' "$assemble_job" | grep -n -m1 -F "$release_revision_ref" | cut -d: -f1)
@@ -256,7 +314,7 @@ verify_line=$(printf '%s\n' "$assemble_job" | grep -n -m1 -F './tools/releaseart
 render_line=$(printf '%s\n' "$assemble_job" | grep -n -m1 -F './scripts/render-formula.sh' | cut -d: -f1)
 audit_line=$(printf '%s\n' "$assemble_job" | grep -n -m1 -F './scripts/audit-formula.sh' | cut -d: -f1)
 final_verify_line=$(printf '%s\n' "$assemble_job" | grep -n -m1 -F './tools/releaseartifacts verify-final' | cut -d: -f1)
-upload_line=$(printf '%s\n' "$assemble_job" | grep -n -m1 -F 'Upload complete release asset set' | cut -d: -f1)
+upload_line=$(printf '%s\n' "$assemble_job" | grep -n -m1 -F 'Upload complete prepared release asset set' | cut -d: -f1)
 if ((release_checkout_line >= metadata_line || metadata_line >= verify_line || verify_line >= render_line || render_line >= audit_line || audit_line >= final_verify_line || final_verify_line >= upload_line)); then
   echo "release metadata and Formula must be generated and verified at the release revision before upload" >&2
   exit 1
@@ -265,8 +323,39 @@ fi
 # These are literal workflow expressions and shell expansions.
 # shellcheck disable=SC2016
 for required in \
-  "if: inputs.publish == true && needs.preflight.outputs.stable == 'true'" \
-  'needs: [preflight, publish]' 'environment: release-publication' \
+  "if: inputs.operation == 'publish'" 'environment: release-publication' \
+  'actions: read' 'contents: write' '.path == ".github/workflows/release.yml"' \
+  '.head_branch == "main"' '.head_sha == $revision' '.conclusion == "success"' \
+  'Assemble verified release assets' 'release-assets-${RELEASE_TAG}' \
+  'github-token: ${{ github.token }}' 'repository: ${{ github.repository }}' \
+  'run-id: ${{ inputs.prepared_run_id }}' 'digest-mismatch: error' \
+  '/actions/runs/${PREPARED_RUN_ID}/attempts/${PREPARED_RUN_ATTEMPT}' \
+  './tools/releaseartifacts verify-final' 'gh release create'; do
+  if ! printf '%s\n' "$publish_job" | grep -qF -- "$required"; then
+    echo "prepared release promotion job is missing: $required" >&2
+    exit 1
+  fi
+done
+for forbidden in './scripts/package-release.sh' './tools/releaseartifacts create'; do
+  if printf '%s\n' "$publish_job" | grep -qF "$forbidden"; then
+    echo "publication must promote prepared bytes without rebuilding: $forbidden" >&2
+    exit 1
+  fi
+done
+prepared_validation_line=$(printf '%s\n' "$publish_job" | grep -n -m1 -F 'Validate prepared run and exact artifact' | cut -d: -f1)
+prepared_download_line=$(printf '%s\n' "$publish_job" | grep -n -m1 -F 'Download complete prepared release asset set' | cut -d: -f1)
+prepared_verify_line=$(printf '%s\n' "$publish_job" | grep -n -m1 -F 'Reverify exact prepared subjects and published tag' | cut -d: -f1)
+publish_line=$(printf '%s\n' "$publish_job" | grep -n -m1 -F 'Create GitHub Release without replacement' | cut -d: -f1)
+if ((prepared_validation_line >= prepared_download_line || prepared_download_line >= prepared_verify_line || prepared_verify_line >= publish_line)); then
+  echo "prepared run validation, download, verification, and publication are out of order" >&2
+  exit 1
+fi
+
+# These are literal workflow expressions and shell expansions.
+# shellcheck disable=SC2016
+for required in \
+  "if: inputs.operation == 'publish' && needs.identity.outputs.stable == 'true'" \
+  'needs: [identity, publish]' 'environment: release-publication' \
   'actions/create-github-app-token@' 'app-id: ${{ secrets.HOMEBREW_APP_ID }}' \
   'private-key:' '${{ secrets.HOMEBREW_APP_KEY }}' 'owner: tasuku43' \
   'repositories: homebrew-tap' 'gh release download' '--pattern tobari.rb' \

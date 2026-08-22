@@ -127,7 +127,10 @@ support promises before maintainers invite external users.
 Before each public release, verify:
 
 - the tag points to reviewed source;
-- all required profiles pass;
+- one successful repository-owned main-push CI run for the exact source
+  revision completed all required profiles;
+- the selected preparation run succeeded for that revision and contains one
+  exact unexpired complete asset set;
 - `version --format json` reports the release version, full source commit,
   embedded resolver, selected pin APIs, and compatibility expected by the
   release gate, with empty repository-development recovery fields;
@@ -162,7 +165,7 @@ Stable CLI distribution targets the shared `tasuku43/homebrew-tap` repository.
 The protected release workflow propagates the exact audited Formula asset into
 a Formula-only pull request using a GitHub App token restricted to that one
 repository. It does not render a second Formula authority in the tap or push
-tap `main` directly. Dry runs and prereleases cannot obtain the tap token or
+tap `main` directly. Preparation and prereleases cannot obtain the tap token or
 create that pull request.
 
 ## Automated and manual gates

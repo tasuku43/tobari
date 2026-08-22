@@ -231,7 +231,7 @@ Every profile starts with a local-toolchain preflight after the gate sanitizes i
 
 The `fast`, `full`, `security`, and `public` profiles also require the exact
 Node.js version in `.node-version` and npm version in the public site's
-`packageManager` field. CI and release preflight provision both through one
+`packageManager` field. CI provisions both through one
 repository-owned composite action; the canonical site gate alone installs the
 locked dependencies and browser, and a fast workflow-ownership test rejects
 workflow-local duplication or a missing Node bootstrap. Site installation uses
@@ -283,9 +283,16 @@ nondeterministic and provider-specific.
 
 The canonical gate and release packager force module mode and neutralize ambient Go workspace, toolchain, experiment, FIPS, and flag settings before invoking Go. This prevents a local or CI `GOFLAGS` value from silently selecting no tests and keeps agent, developer, and workflow evidence on the same checked command set. A release fixture launches the public profile with hostile values and proves that its first Go-backed check observes only the sanitized contract.
 
-CI is the completion authority. Pull-request CI runs `full`, `runtime`, and the
-security/public boundary profiles in parallel, so the canonical full gate owns
-the pull-request site build and browser tests exactly once. The Pages workflow
+CI is the completion authority. Pull-request and main-push CI run `full`,
+`security`, `public`, `runtime`, and `release` as five independent parallel jobs,
+so the canonical full gate owns the site build and browser tests exactly once.
+One successful main-push CI run is the complete reusable automated source
+evidence for its exact revision. Release preparation validates that workflow
+path, event, branch, revision, completion, and conclusion while building the
+actual five-target matrix in parallel; it does not invoke a source profile.
+Its successful short-lived asset set is the only input accepted by protected
+publication, which reverifies the preparation run, assembly job, artifact,
+invocation identity, tag binding, and final inventory without rebuilding. The Pages workflow
 runs the same canonical site gate only for a push to `main` or a manual replay;
 only a successful push to `main` may upload `dist/` and enter the least-
 privilege Pages deploy job. The repository installs no
@@ -880,11 +887,13 @@ The test suite has complementary levels:
   Archive tests cover deterministic multi-entry order, canonical metadata,
   create-only output, regular-file identity checks, exact executable/license/
   optional-notice bytes, and independent reopen verification.
-  Release lint additionally proves that only stable protected publication may
-  cross into `tasuku43/homebrew-tap`, that its GitHub App token is scoped to
-  that repository, that the exact published Formula is propagated, and that
-  the mutation ends at a Formula-only pull request rather than a direct
-  `main` push.
+  Release lint additionally proves that parallel CI owns every source profile;
+  preparation accepts exact successful main-push CI, builds and retains one
+  verified asset set; publication promotes only one matching successful
+  preparation run and cannot rebuild; and only stable protected publication
+  may cross into `tasuku43/homebrew-tap`. The GitHub App token is scoped to that
+  repository, the exact published Formula is propagated, and the mutation ends
+  at a Formula-only pull request rather than a direct `main` push.
 - Work-packet tests retain the Accepted compatibility state; reject unsupported
   status, unchecked GFM acceptance/tasks, malformed fence evasion, template or
   cyclic successor chains, and missing successors; and retain

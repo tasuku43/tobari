@@ -23,13 +23,14 @@ reject_literal() {
 for workflow in \
   .github/workflows/ci.yml \
   .github/workflows/security.yml \
-  .github/workflows/architecture-pages.yml \
-  .github/workflows/release.yml; do
+  .github/workflows/architecture-pages.yml; do
   require_literal "$workflow" "uses: ./.github/actions/setup-repository-node"
 done
 
 reject_literal .github/workflows/ci.yml "npm ci"
 reject_literal .github/workflows/ci.yml "playwright install"
+reject_literal .github/workflows/release.yml "uses: ./.github/actions/setup-repository-node"
+reject_literal .github/workflows/release.yml "./scripts/check-site.sh"
 reject_literal .github/workflows/architecture-pages.yml "pull_request:"
 reject_literal .github/workflows/architecture-pages.yml "npm run test:static"
 reject_literal .github/workflows/architecture-pages.yml "npm run test:browser"
