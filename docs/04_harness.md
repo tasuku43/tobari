@@ -327,6 +327,12 @@ root/direct-child rejection, non-TTY zero setup, cancellation/EOF/render failure
 zero later calls, concurrent collection-change rejection, durable Context
 retention after cluster failure, pending-build entry refusal, and post-build
 re-entry without a second runtime choice.
+The same fixture proves that the closed generic Docker CLI/Engine/Context/
+Compose profile runs after review and before creation, accepts Engine 24 and
+rejects Engine 23 or malformed versions, performs no mutation on failure, and
+is not repeated by the composed cluster action. Recording runners reject
+Docker mutations, provider executable names, process managers, application
+openers, socket probes, and any argv outside the fixed read set.
 
 Auth Broker readiness is split deliberately. The required agent-readiness
 scenario delegates its reproducible synthetic authentication proof to `task
@@ -969,7 +975,7 @@ Every strong statement should identify its enforcement path.
 | Standard native Workspace authentication boundary | Standard-profile empty authentication-projection and full runtime-reconciliation tests prove zero Auth Broker inspection/control calls and no experimental auth-registry creation; the attached-session suite adds a closed Claude/Codex/GitHub CLI/AWS CLI/TWG/pup browser union, one binary-owned read-only opener, exact `BROWSER`/`GH_BROWSER`/`xdg-open` projection, and a dedicated schema-v1 Unix-socket/non-TTY Docker exec protocol; a shared closed query-field schema enforces required singleton values, rejects invalid definitions and unknown fields, and dispatches provider-owned validators; exact mandatory URL fields, individually reviewed optional selectors, device targets, provider clients or bounded DCR IDs, scope ceilings, state/PKCE/callback shapes including AWS's commercial-region/default-scope dynamic callback and pup 1.10.7's optional UUID-shaped `dd_oid`, complete 110-scope ceiling, and four fixed ports, direct Docker terminal ownership, fixed login/setup argv and pass-through, zero-listener device paths, dynamic non-privileged host-loopback-only callback relay to the label-verified selected Workspace, duplicate-key/unknown-field/version/size/replay/neighbor canaries, opaque callback canaries, and cleanup; the experimental-tag suite separately retains project-bound handle and file projection coverage |
 | Transparent attached-child terminal ownership | Direct-stream coverage plus Unix PTY literal-`0x1d`, delayed-input, resize, exact-status, output-failure, and terminal-restoration tests; root human-help rejects any `Ctrl+]` or Trusted Host Review shortcut; excluded capability/catalog absence; and independent Permission Inbox raw-terminal tests |
 | Atomic multi-Context policy activation | Source and projection locks, Context namespace rejection, complete all-Context OPA validation, content-addressed atomic publication, stale-revision rejection, known-good rollback, and invalid/concurrent mutation tests |
-| Mutation outcome classification | Structured-fault-first/cause-stripping tests, non-retryable unclassified outcome fallback, and read-only recovery validation |
+| Causal failure recovery | Closed phase/change-state validation, Catalog/runtime agreement, schema-2 text/JSON equivalence, pre-action-none and post-action-unknown cancellation, confirmed-output preservation, lifecycle unknown/confirmed classifications, provider-neutral first-use readiness with Engine 23/24 boundaries, and read-only recovery for partial/confirmed/unknown mutation state |
 | Confirmed mutation output | One effect-aware finalizer, late-cancellation regression, non-retryable mutation short-write fault, and read-only recovery validation |
 | Pagination completeness | Cursor loop/budget/cancellation tests, retryability/catalog agreement, and no-partial-result assertion |
 | Public paged continuation | Catalog validation of one exact same-kind optional input/top-level output binding, non-`not_applicable` coverage, JSON-only presentation, and agent-help/reference-workflow projection |

@@ -3,13 +3,14 @@ title: JSON schemas and versioned contracts
 description: Public JSON envelopes, persisted documents, internal protocols, and exact V1 parsers.
 ---
 
-This reference lists Tobari's V1 JSON surfaces and their exact boundaries. A
+This reference lists Tobari's versioned JSON surfaces and their exact boundaries. A
 public CLI report, persisted manifest, Gateway policy input,
 audit line, and Broker socket frame are separate contracts even when they
 describe related objects.
 
 Each schema belongs to one specific surface. Before first publication every
-Tobari-owned surface is V1. The owning parser, Catalog entry, or protocol
+Tobari-owned surface except the structured error contract is V1; structured
+errors are V2. The owning parser, Catalog entry, or protocol
 implementation is the source of truth for each surface below.
 
 ## “Schema” does not always mean JSON Schema
@@ -32,7 +33,7 @@ owning domain or infrastructure reader defines exact validation.
 
 | Surface                                                            | Envelope            | Current schema |
 | ------------------------------------------------------------------ | ------------------- | -------------: |
-| Structured error                                                   | `error`             |              1 |
+| Structured error                                                   | `error`             |              2 |
 | Agent help (`view: index` and input-selected `view: scope`)        | `commands`          |              1 |
 | Version                                                            | `build_identity`    |              1 |
 | Doctor report                                                      | `report`            |              1 |

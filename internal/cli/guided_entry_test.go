@@ -11,6 +11,7 @@ import (
 
 	"github.com/tasuku43/tobari/internal/app/contextcmd"
 	"github.com/tasuku43/tobari/internal/app/tobaricmd"
+	"github.com/tasuku43/tobari/internal/domain/doctor"
 	"github.com/tasuku43/tobari/internal/domain/tobari"
 )
 
@@ -21,6 +22,18 @@ type guidedEntryRuntime struct {
 	configured     bool
 	rootErr        error
 	rootReads      int
+	readiness      map[doctor.CheckID]doctor.Observation
+	readinessCalls []doctor.CheckID
+}
+
+func (f *guidedEntryRuntime) ObserveDoctorCheck(
+	ctx context.Context, root string, id doctor.CheckID,
+) (doctor.Observation, error) {
+	f.readinessCalls = append(f.readinessCalls, id)
+	if observation, ok := f.readiness[id]; ok {
+		return observation, nil
+	}
+	return f.policyReviewRuntimeFake.ObserveDoctorCheck(ctx, root, id)
 }
 
 func (f *guidedEntryRuntime) WithLifecycleLock(ctx context.Context, action func(context.Context) error) error {
@@ -187,6 +200,29 @@ func TestGuidedEntryCreatesContextStartsClusterAndContinuesWithoutRuntimeFork(t 
 		if !strings.Contains(stderr.String(), expected) {
 			t.Errorf("guided transcript lacks %q: %q", expected, stderr.String())
 		}
+	}
+}
+
+func TestGuidedFirstUseDockerFailurePrecedesEveryMutation(t *testing.T) {
+	contextRuntime := &contextCLI{list: syntheticContextList()}
+	shared := &guidedEntryRuntime{
+		policyReviewRuntimeFake: policyReviewRuntimeFake{terminal: true},
+		readiness: map[doctor.CheckID]doctor.Observation{
+			doctor.CheckIDDockerEngine: {Status: doctor.CheckStatusFail, Detail: "synthetic unavailable"},
+		},
+	}
+	command, stdout, stderr := newGuidedEntryCLI(contextRuntime, shared, nil)
+	command.firstUse = &guidedFirstUseReviewer{action: recommendedFirstUseStart}
+	code, continueEntry := prepareGuidedProjectEntry(context.Background(), command, "")
+	if code != ExitUnavailable || continueEntry || stdout.Len() != 0 ||
+		contextRuntime.createCalls != 0 || contextRuntime.initCalls != 0 || shared.clusterUpCalls != 0 {
+		t.Fatalf("preflight result=(%d,%t) stdout=%q create/init/cluster=%d/%d/%d stderr=%q",
+			code, continueEntry, stdout.String(), contextRuntime.createCalls, contextRuntime.initCalls, shared.clusterUpCalls, stderr.String())
+	}
+	if !humanOutputHasRow(stderr.String(), "Code", "docker_engine_unavailable") ||
+		!humanOutputHasRow(stderr.String(), "Phase", "precondition") ||
+		!humanOutputHasRow(stderr.String(), "Change state", "none") {
+		t.Fatalf("preflight failure facts = %q", stderr.String())
 	}
 }
 

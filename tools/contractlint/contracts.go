@@ -87,7 +87,7 @@ type publicCLISchema struct {
 }
 
 func validatePublicJSONSchemaTables(root string, catalog cli.Catalog) ([]issue, error) {
-	expected := map[publicCLISchema]struct{}{{Envelope: "error", Version: 1}: {}}
+	expected := map[publicCLISchema]struct{}{{Envelope: "error", Version: 2}: {}}
 	for _, command := range catalog.Commands() {
 		supportsJSON := false
 		for _, format := range command.Agent.Output.Formats {

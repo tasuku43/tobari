@@ -525,6 +525,33 @@ test("360px mobile layout has no page-level horizontal overflow", async ({
   ).toBe(true);
 });
 
+test("a pinned schema-1 snapshot names unavailable fault classifications instead of rendering blanks", async ({
+  page,
+}) => {
+  await page.goto("reference/faults-and-recovery/");
+  await page.locator(".fault-reference details summary").first().click();
+  await expect(
+    page.getByText("Not declared by this source snapshot").first(),
+  ).toBeVisible();
+  await expect(page.locator(".fault-reference code:empty")).toHaveCount(0);
+
+  await page.goto("reference/cli/");
+  await page
+    .getByText(
+      "Output, prerequisites, failures, references, and mutation contract",
+      { exact: true },
+    )
+    .first()
+    .click();
+  await expect(
+    page
+      .getByText(
+        "phase and change state are not declared by this source snapshot",
+      )
+      .first(),
+  ).toBeVisible();
+});
+
 test("project base path owns generated assets and links", async ({ page }) => {
   await page.goto("");
   const localUrls = await page

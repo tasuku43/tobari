@@ -49,6 +49,8 @@ type catalogDocument struct {
 type faultOccurrence struct {
 	Code        string       `json:"code"`
 	Kind        string       `json:"kind"`
+	Phase       string       `json:"phase,omitempty"`
+	ChangeState string       `json:"change_state,omitempty"`
 	Retryable   bool         `json:"retryable"`
 	Command     string       `json:"command"`
 	NextActions []nextAction `json:"next_actions"`
@@ -66,6 +68,8 @@ type scopeHelp struct {
 			Errors []struct {
 				Code        string       `json:"code"`
 				Kind        string       `json:"kind"`
+				Phase       string       `json:"phase"`
+				ChangeState string       `json:"change_state"`
 				Retryable   bool         `json:"retryable"`
 				NextActions []nextAction `json:"next_actions"`
 			} `json:"errors"`
@@ -75,6 +79,8 @@ type scopeHelp struct {
 		GlobalErrors []struct {
 			Code        string       `json:"code"`
 			Kind        string       `json:"kind"`
+			Phase       string       `json:"phase"`
+			ChangeState string       `json:"change_state"`
 			Retryable   bool         `json:"retryable"`
 			NextActions []nextAction `json:"next_actions"`
 		} `json:"global_errors"`
@@ -297,7 +303,7 @@ func generateCatalog(runHelp agentHelpRunner) (catalogDocument, error) {
 			seenCommands[scopedCommand.Path]++
 			for _, declared := range scopedCommand.Contract.Errors {
 				faults = append(faults, faultOccurrence{
-					Code: declared.Code, Kind: declared.Kind, Retryable: declared.Retryable,
+					Code: declared.Code, Kind: declared.Kind, Phase: declared.Phase, ChangeState: declared.ChangeState, Retryable: declared.Retryable,
 					Command: scopedCommand.Path, NextActions: declared.NextActions,
 				})
 			}
@@ -308,7 +314,7 @@ func generateCatalog(runHelp agentHelpRunner) (catalogDocument, error) {
 			}
 			seenGlobalFaults[declared.Code] = true
 			faults = append(faults, faultOccurrence{
-				Code: declared.Code, Kind: declared.Kind, Retryable: declared.Retryable,
+				Code: declared.Code, Kind: declared.Kind, Phase: declared.Phase, ChangeState: declared.ChangeState, Retryable: declared.Retryable,
 				Command: "(global)", NextActions: declared.NextActions,
 			})
 		}

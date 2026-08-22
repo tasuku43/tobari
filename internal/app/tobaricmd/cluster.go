@@ -67,6 +67,11 @@ func (s *Service) clusterUp(
 	if err := s.requireRuntime(); err != nil {
 		return tobari.ClusterStatus{}, err
 	}
+	if !workspaceStartPrerequisitesChecked(ctx) {
+		if err := s.checkWorkspaceStartPrerequisites(ctx); err != nil {
+			return tobari.ClusterStatus{}, err
+		}
+	}
 	if err := s.runtime.ValidateClusterBuildIdentity(ctx); err != nil {
 		return tobari.ClusterStatus{}, err
 	}

@@ -1074,6 +1074,22 @@ non-retryable `auth_mutation_outcome_unknown`,
 require `auth status` reconciliation before another auth mutation; none permits
 replay.
 
+Every public fault keeps upstream causes private and publishes a closed phase
+and strongest proved change state from its owning boundary. Catalog/runtime
+disagreement fails closed. A precondition failure proves `none`; a read uses
+`not_applicable`; possibility without a receipt is `unknown`, never `partial`;
+and confirmed output failure remains `confirmed`. Any mutation classified
+`partial`, `confirmed`, or `unknown` can name only a read-only reconciliation
+command as its immediate recovery.
+
+The Workspace-start prerequisite boundary is provider-neutral and read-only.
+It permits only fixed Docker CLI lookup plus bounded Engine-version, selected
+Context, and Compose-v2 observations, enforces Engine major version 24, and
+runs before first-use Context creation or direct cluster mutation. It performs
+no process inventory, socket probing, application opening, backend inference,
+or provider lifecycle command. Raw Docker output and causes never enter the
+fault envelope.
+
 `doctor` is a read-only recovery observation. It reports the full diagnostic
 set through a fixed dependency graph: only checks whose direct prerequisites
 passed cross an infrastructure boundary, while independent checks continue and

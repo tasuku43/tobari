@@ -129,6 +129,9 @@ func TestInvokerFailuresBeforeExecutionMakeZeroMutationAttempts(t *testing.T) {
 			if test.name == "canceled" && !structured.Retryable {
 				t.Fatalf("pre-action cancellation = %+v, want retryable after zero attempts", structured)
 			}
+			if structured.Phase != fault.PhasePrecondition || structured.ChangeState != fault.ChangeNone {
+				t.Fatalf("pre-action failure state = %+v", structured)
+			}
 		})
 	}
 }
@@ -186,7 +189,8 @@ func TestInvokerCollapsesUnclassifiedPostActionErrorsToUnknownOutcome(t *testing
 			}
 			var structured *fault.Error
 			if !errors.As(err, &structured) || structured.Kind != fault.KindContract ||
-				structured.Code != "unclassified_mutation_outcome" || structured.Retryable {
+				structured.Code != "unclassified_mutation_outcome" || structured.Retryable ||
+				structured.Phase != fault.PhaseMutation || structured.ChangeState != fault.ChangeUnknown {
 				t.Fatalf("structured outcome = %+v", structured)
 			}
 			if strings.Contains(err.Error(), canary) || errors.Unwrap(err) != nil || errors.Is(err, context.Canceled) {

@@ -49,25 +49,25 @@ func New(policy Policy) *Invoker {
 func (i *Invoker) Invoke(ctx context.Context, request Request, action Action) error {
 	snapshot := request
 	if err := validateRequest(snapshot); err != nil {
-		return fault.Wrap(fault.KindContract, "invalid_mutation_contract", "mutation contract is invalid", false, err)
+		return fault.WithClassification(fault.Wrap(fault.KindContract, "invalid_mutation_contract", "mutation contract is invalid", false, err), fault.PhasePrecondition, fault.ChangeNone)
 	}
 	if action == nil {
-		return fault.New(fault.KindContract, "missing_mutation_action", "mutation action is not configured", false)
+		return fault.WithClassification(fault.New(fault.KindContract, "missing_mutation_action", "mutation action is not configured", false), fault.PhasePrecondition, fault.ChangeNone)
 	}
 	if ctx == nil {
-		return fault.New(fault.KindContract, "missing_context", "mutation context is not configured", false)
+		return fault.WithClassification(fault.New(fault.KindContract, "missing_context", "mutation context is not configured", false), fault.PhasePrecondition, fault.ChangeNone)
 	}
 	if err := ctx.Err(); err != nil {
-		return fault.Wrap(fault.KindCanceled, "operation_canceled", "mutation was canceled before policy evaluation", true, err)
+		return fault.WithClassification(fault.Wrap(fault.KindCanceled, "operation_canceled", "mutation was canceled before policy evaluation", true, err), fault.PhasePrecondition, fault.ChangeNone)
 	}
 	if i == nil || portcheck.IsNil(i.policy) {
-		return fault.New(fault.KindRejected, "missing_mutation_policy", "mutation policy is not configured", false)
+		return fault.WithClassification(fault.New(fault.KindRejected, "missing_mutation_policy", "mutation policy is not configured", false), fault.PhasePrecondition, fault.ChangeNone)
 	}
 	if err := i.policy.Check(ctx, snapshot.Intent); err != nil {
-		return fault.Wrap(fault.KindRejected, "mutation_rejected", "mutation policy rejected the operation", false, err)
+		return fault.WithClassification(fault.Wrap(fault.KindRejected, "mutation_rejected", "mutation policy rejected the operation", false, err), fault.PhasePrecondition, fault.ChangeNone)
 	}
 	if err := ctx.Err(); err != nil {
-		return fault.Wrap(fault.KindCanceled, "operation_canceled", "mutation was canceled before execution", true, err)
+		return fault.WithClassification(fault.Wrap(fault.KindCanceled, "operation_canceled", "mutation was canceled before execution", true, err), fault.PhasePrecondition, fault.ChangeNone)
 	}
 	if err := action(ctx, snapshot.Intent); err != nil {
 		return sanitizeMutationOutcomeError(err)
@@ -83,12 +83,12 @@ func sanitizeMutationOutcomeError(err error) error {
 	if structured, ok := fault.PublicCopy(err); ok {
 		return structured
 	}
-	return fault.New(
+	return fault.WithClassification(fault.New(
 		fault.KindContract,
 		"unclassified_mutation_outcome",
 		"mutation action returned an unclassified outcome",
 		false,
-	)
+	), fault.PhaseMutation, fault.ChangeUnknown)
 }
 
 func validateRequest(request Request) error {

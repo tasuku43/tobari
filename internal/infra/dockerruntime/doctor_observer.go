@@ -1,19 +1,27 @@
 package dockerruntime
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/tasuku43/tobari/internal/domain/authbroker"
 	"github.com/tasuku43/tobari/internal/domain/doctor"
 	"github.com/tasuku43/tobari/internal/domain/tobari"
 	"github.com/tasuku43/tobari/internal/infra/rootkey"
 	"github.com/tasuku43/tobari/internal/infra/runtimeassets"
+)
+
+const (
+	maxDockerDoctorObservationBytes    = 4096
+	maxDockerDoctorObservationDuration = 5 * time.Second
 )
 
 // ObserveDoctorCheck performs exactly one application-selected read-only
@@ -86,15 +94,16 @@ func (r *Runtime) observeDockerCLI() doctor.Observation {
 }
 
 func (r *Runtime) observeDockerEngine(ctx context.Context) doctor.Observation {
-	output, err := r.runner.Output(ctx, []string{"version", "--format", "{{.Server.Version}}"}, os.Environ())
+	output, err := r.dockerDoctorOutput(ctx, []string{"version", "--format", "{{.Server.Version}}"})
 	if err != nil {
 		return observed(doctor.CheckStatusFail, "Docker Engine is unavailable")
 	}
-	return observed(doctor.CheckStatusPass, strings.TrimSpace(string(output)))
+	value := strings.TrimSpace(string(output))
+	return doctor.Observation{Status: doctor.CheckStatusPass, Detail: value, Value: value}
 }
 
 func (r *Runtime) observeDockerContext(ctx context.Context) doctor.Observation {
-	output, err := r.runner.Output(ctx, []string{"context", "show"}, os.Environ())
+	output, err := r.dockerDoctorOutput(ctx, []string{"context", "show"})
 	if err != nil {
 		return observed(doctor.CheckStatusFail, "Docker context could not be read")
 	}
@@ -102,11 +111,55 @@ func (r *Runtime) observeDockerContext(ctx context.Context) doctor.Observation {
 }
 
 func (r *Runtime) observeDockerCompose(ctx context.Context) doctor.Observation {
-	output, err := r.runner.Output(ctx, []string{"compose", "version", "--short"}, os.Environ())
+	output, err := r.dockerDoctorOutput(ctx, []string{"compose", "version", "--short"})
 	if err != nil {
 		return observed(doctor.CheckStatusFail, "Docker Compose v2 is unavailable")
 	}
 	return observed(doctor.CheckStatusPass, strings.TrimSpace(string(output)))
+}
+
+func (r *Runtime) dockerDoctorOutput(ctx context.Context, arguments []string) ([]byte, error) {
+	if _, production := r.runner.(osCommandRunner); !production {
+		output, err := r.runner.Output(ctx, arguments, os.Environ())
+		if err != nil || len(output) > maxDockerDoctorObservationBytes {
+			return nil, fmt.Errorf("bounded Docker readiness observation failed")
+		}
+		return output, nil
+	}
+	path, err := exec.LookPath("docker")
+	if err != nil {
+		return nil, err
+	}
+	observationContext, cancel := context.WithTimeout(ctx, maxDockerDoctorObservationDuration)
+	defer cancel()
+	command := exec.CommandContext(observationContext, path, arguments...) // #nosec G204 -- executable and argv are a closed generic Docker readiness set.
+	command.Env = os.Environ()
+	output := &boundedDoctorOutput{}
+	command.Stdout = output
+	command.Stderr = io.Discard
+	if err := command.Run(); err != nil || output.exceeded {
+		return nil, fmt.Errorf("bounded Docker readiness observation failed")
+	}
+	return append([]byte(nil), output.buffer.Bytes()...), nil
+}
+
+type boundedDoctorOutput struct {
+	buffer   bytes.Buffer
+	exceeded bool
+}
+
+func (w *boundedDoctorOutput) Write(data []byte) (int, error) {
+	remaining := maxDockerDoctorObservationBytes + 1 - w.buffer.Len()
+	if remaining > 0 {
+		if len(data) < remaining {
+			remaining = len(data)
+		}
+		_, _ = w.buffer.Write(data[:remaining])
+	}
+	if w.buffer.Len() > maxDockerDoctorObservationBytes || len(data) > remaining {
+		w.exceeded = true
+	}
+	return len(data), nil
 }
 
 func (r *Runtime) observeDoctorRoot(ctx context.Context, root string) doctor.Observation {

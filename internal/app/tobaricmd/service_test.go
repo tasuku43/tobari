@@ -44,6 +44,15 @@ func (f *fakeRuntime) CurrentDirectory(context.Context) (string, error) {
 }
 func (f *fakeRuntime) IsTerminal(io.Writer) bool { return false }
 
+func (f *fakeRuntime) ObserveDoctorCheck(_ context.Context, _ string, id doctor.CheckID) (doctor.Observation, error) {
+	observation := doctor.Observation{Status: doctor.CheckStatusPass, Detail: "available"}
+	if id == doctor.CheckIDDockerEngine {
+		observation.Detail = "24.0.0"
+		observation.Value = "24.0.0"
+	}
+	return observation, nil
+}
+
 func (f *fakeRuntime) ValidateClusterBuildIdentity(context.Context) error {
 	return f.buildIdentityErr
 }

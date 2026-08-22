@@ -428,6 +428,8 @@ type PaginationContract struct {
 type CommandError struct {
 	Code        string             `json:"code"`
 	Kind        fault.Kind         `json:"kind"`
+	Phase       fault.Phase        `json:"phase"`
+	ChangeState fault.ChangeState  `json:"change_state"`
 	Retryable   bool               `json:"retryable"`
 	NextActions []fault.NextAction `json:"next_actions"`
 }
@@ -573,8 +575,49 @@ func NewCatalog(commands ...CommandSpec) Catalog {
 	cloned := make([]CommandSpec, len(commands))
 	for index, command := range commands {
 		cloned[index] = cloneCommandSpec(command)
+		for errorIndex := range cloned[index].Agent.Errors {
+			declared := &cloned[index].Agent.Errors[errorIndex]
+			if declared.Phase == "" && declared.ChangeState == "" {
+				declared.Phase, declared.ChangeState = defaultErrorClassification(command.Effect, declared.Kind, declared.Code)
+			}
+		}
 	}
 	return Catalog{commands: cloned, program: ProgramName}
+}
+
+func defaultErrorClassification(effect operation.Effect, kind fault.Kind, code string) (fault.Phase, fault.ChangeState) {
+	if effect == operation.EffectRead {
+		if code == "output_write_failed" || code == "output_encoding_failed" || code == "output_contract_exceeded" {
+			return fault.PhasePresentation, fault.ChangeNotApplicable
+		}
+		return fault.PhaseObservation, fault.ChangeNotApplicable
+	}
+	switch code {
+	case "invalid_arguments", "operation_canceled", "invalid_mutation_contract", "missing_mutation_action", "missing_mutation_policy", "mutation_rejected", "missing_context", "test_failed":
+		return fault.PhasePrecondition, fault.ChangeNone
+	case "mutation_output_write_failed":
+		return fault.PhasePresentation, fault.ChangeConfirmed
+	case "invalid_context_report", "invalid_runtime_report", "invalid_migration_report", "status_failed":
+		return fault.PhaseVerification, fault.ChangeConfirmed
+	case "enter_failed":
+		return fault.PhaseAttachment, fault.ChangeConfirmed
+	default:
+		if strings.HasSuffix(code, "_not_configured") || strings.HasSuffix(code, "_not_found") || strings.HasSuffix(code, "_not_ready") ||
+			strings.HasSuffix(code, "_wizard_failed") || strings.HasSuffix(code, "_review_failed") || strings.HasSuffix(code, "_choice_failed") ||
+			strings.HasSuffix(code, "_stale") {
+			return fault.PhasePrecondition, fault.ChangeNone
+		}
+		switch kind {
+		case fault.KindInvalidInput, fault.KindAuthentication, fault.KindPermission,
+			fault.KindNotFound, fault.KindAmbiguous, fault.KindRejected,
+			fault.KindRateLimited, fault.KindUnsupported:
+			return fault.PhasePrecondition, fault.ChangeNone
+		}
+		if strings.HasPrefix(code, "invalid_") || strings.HasPrefix(code, "missing_") || strings.HasSuffix(code, "_invalid") {
+			return fault.PhasePrecondition, fault.ChangeNone
+		}
+		return fault.PhaseMutation, fault.ChangeUnknown
+	}
 }
 
 // ForProgram returns a routing and help view for one executable while
@@ -610,6 +653,16 @@ func declaredCommandErrorWithActions(kind fault.Kind, code string, retryable boo
 		Kind: kind, Code: code, Retryable: retryable,
 		NextActions: append([]fault.NextAction{}, actions...),
 	}
+}
+
+func classifiedCommandError(
+	kind fault.Kind, code string, retryable bool, phase fault.Phase, state fault.ChangeState,
+	command, reason string,
+) CommandError {
+	declared := declaredCommandError(kind, code, retryable, command, reason)
+	declared.Phase = phase
+	declared.ChangeState = state
+	return declared
 }
 
 func stringPointer(value string) *string {
@@ -946,8 +999,10 @@ func (c Catalog) Validate() error {
 				if err != nil {
 					return fmt.Errorf("catalog command %q error %q: %w", command.Path, declaredError.Code, err)
 				}
-				requiresReadOnlyRecovery := declaredError.Code == "unclassified_mutation_outcome" ||
-					declaredError.Code == "mutation_output_write_failed" ||
+				requiresReadOnlyRecovery := (command.Effect != operation.EffectRead &&
+					(declaredError.ChangeState == fault.ChangePartial ||
+						declaredError.ChangeState == fault.ChangeConfirmed ||
+						declaredError.ChangeState == fault.ChangeUnknown)) ||
 					(command.Effect != operation.EffectRead && declaredError.Kind == fault.KindRateLimited && !declaredError.Retryable)
 				if requiresReadOnlyRecovery && nextCommand.Effect != operation.EffectRead {
 					return fmt.Errorf("catalog command %q error %q must point to a read-only reconciliation command", command.Path, declaredError.Code)
@@ -1293,6 +1348,7 @@ func validateAgentContract(command CommandSpec) error {
 			declaredError.Retryable,
 			declaredError.NextActions...,
 		)
+		candidate = fault.WithClassification(candidate, declaredError.Phase, declaredError.ChangeState)
 		if err := candidate.Validate(); err != nil {
 			return fmt.Errorf("agent error %d: %w", index, err)
 		}

@@ -158,7 +158,28 @@ func (r Recovery) Validate() error {
 type Observation struct {
 	Status CheckStatus
 	Detail string
+	Value  string
 	Cause  ObservationCause
+}
+
+// ReadinessProfile selects one closed, application-owned subset of the Doctor
+// inventory without granting routine commands the complete diagnostic graph.
+type ReadinessProfile string
+
+const ReadinessProfileWorkspaceStart ReadinessProfile = "workspace_start"
+
+// ReadinessChecks returns a defensive copy of the smallest generic Docker
+// observations required before starting a Workspace.
+func ReadinessChecks(profile ReadinessProfile) ([]CheckID, error) {
+	if profile != ReadinessProfileWorkspaceStart {
+		return nil, fmt.Errorf("readiness profile is missing or invalid: %q", profile)
+	}
+	return []CheckID{
+		CheckIDDockerCLI,
+		CheckIDDockerEngine,
+		CheckIDDockerContext,
+		CheckIDDockerCompose,
+	}, nil
 }
 
 // ObservationCause is a closed, non-presentational reason that lets the
@@ -189,6 +210,9 @@ func (o Observation) Validate() error {
 	}
 	if !utf8.ValidString(o.Detail) {
 		return fmt.Errorf("doctor observation detail is invalid UTF-8")
+	}
+	if o.Value != "" && (len(o.Value) > 128 || invalidText(o.Value) || strings.TrimSpace(o.Value) != o.Value) {
+		return fmt.Errorf("doctor observation value is invalid")
 	}
 	if err := o.Cause.Validate(); err != nil {
 		return err

@@ -189,6 +189,10 @@ using `tobari` leaves host execution unchanged, while `delete` and
   complete Context creation frame with those recommendations prefilled.
   Runtime preparation is an independent host workflow
   performed before selection, never a post-create fork.
+  After review and before Context creation, Start performs the closed generic
+  Docker CLI/Engine/Context/Compose readiness profile required for the promised
+  Workspace outcome. Failure creates no Context or Docker state and points to
+  `doctor`; Tobari does not identify or manage the provider behind Docker.
   Read-only `doctor`, status/list inspection, and
   opaque-ID policy actions remain recovery or machine paths rather than steps
   in the normal journey. On a TTY, `review permissions` is the complete human
@@ -660,6 +664,11 @@ name prefix or broad Docker query as authority.
   prerequisite; infrastructure cannot invent blocked results or recovery.
   Policy diagnosis reads bounded owner-controlled source structure on the host
   and never creates an OPA test container.
+- Public faults keep `kind` plus command-specific `code` as causal identity and
+  additionally declare the closed phase and strongest proved change state.
+  Precondition failure is no change, read failure is not applicable, and an
+  unclassified post-action result remains unknown. Partial, confirmed, and
+  unknown mutations reconcile through a declared read before another write.
 - Every catalog-declared read is observational on first use and during ordinary
   operation: it creates no Tobari-owned configuration, state, lock, policy,
   credential, key, vault, or Docker resource. Missing state remains explicit

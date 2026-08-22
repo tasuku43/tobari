@@ -7,6 +7,7 @@ import (
 	"io"
 
 	"github.com/tasuku43/tobari/internal/domain/fault"
+	"github.com/tasuku43/tobari/internal/domain/operation"
 )
 
 // Stable process exit codes let agents classify failures without prose.
@@ -93,12 +94,14 @@ type errorPayload struct {
 	Kind        fault.Kind         `json:"kind"`
 	Code        string             `json:"code"`
 	Message     string             `json:"message"`
+	Phase       fault.Phase        `json:"phase"`
+	ChangeState fault.ChangeState  `json:"change_state"`
 	Retryable   bool               `json:"retryable"`
 	RetryAfter  *string            `json:"retry_after"`
 	NextActions []fault.NextAction `json:"next_actions"`
 }
 
-var structuredErrorContractFallback = []byte("{\"schema_version\":1,\"error\":{\"kind\":\"contract\",\"code\":\"error_output_contract_failed\",\"message\":\"The structured error output contract failed.\",\"retryable\":false,\"retry_after\":null,\"next_actions\":[{\"command\":\"help\",\"reason\":\"Inspect the command contract before retrying.\"}]}}\n")
+var structuredErrorContractFallback = []byte("{\"schema_version\":2,\"error\":{\"kind\":\"contract\",\"code\":\"error_output_contract_failed\",\"message\":\"The structured error output contract failed.\",\"phase\":\"presentation\",\"change_state\":\"not_applicable\",\"retryable\":false,\"retry_after\":null,\"next_actions\":[{\"command\":\"help\",\"reason\":\"Inspect the command contract before retrying.\"}]}}\n")
 
 func (c *CLI) failUsage(ctx context.Context, code, message, command, reason string) int {
 	return c.fail(ctx, fault.New(
@@ -116,6 +119,8 @@ func (c *CLI) fail(ctx context.Context, err error) int {
 		Kind:        structured.Kind,
 		Code:        structured.Code,
 		Message:     structured.Message,
+		Phase:       structured.Phase,
+		ChangeState: structured.ChangeState,
 		Retryable:   structured.Retryable,
 		NextActions: append([]fault.NextAction{}, structured.NextActions...),
 	}
@@ -127,7 +132,7 @@ func (c *CLI) fail(ctx context.Context, err error) int {
 	var output []byte
 	exitKind := structured.Kind
 	if invocationErrorFormat(ctx) == errorFormatJSON {
-		encoded, marshalErr := marshalErrorJSON(errorDocument{SchemaVersion: 1, Error: payload})
+		encoded, marshalErr := marshalErrorJSON(errorDocument{SchemaVersion: 2, Error: payload})
 		if marshalErr != nil {
 			output = append([]byte{}, structuredErrorContractFallback...)
 			exitKind = fault.KindContract
@@ -145,6 +150,9 @@ func (c *CLI) normalizeFault(ctx context.Context, err error) *fault.Error {
 	structured := normalizeUnboundFault(ctx, err)
 	path, bound := boundCommandPath(ctx)
 	if !bound {
+		if structured.Phase == "" && structured.ChangeState == "" {
+			return fault.WithClassification(structured, fault.PhasePrecondition, fault.ChangeNone)
+		}
 		return structured
 	}
 	command, found := c.catalog.lookupRegistered(path)
@@ -156,12 +164,17 @@ func (c *CLI) normalizeFault(ctx context.Context, err error) *fault.Error {
 			continue
 		}
 		if declared.Kind != structured.Kind || declared.Retryable != structured.Retryable {
-			return undeclaredFaultContract(path)
+			return undeclaredFaultContract(path, command.Effect)
+		}
+		if structured.Phase == "" && structured.ChangeState == "" {
+			structured = fault.WithClassification(structured, declared.Phase, declared.ChangeState)
+		} else if structured.Phase != declared.Phase || structured.ChangeState != declared.ChangeState {
+			return undeclaredFaultContract(path, command.Effect)
 		}
 		structured.NextActions = append([]fault.NextAction{}, declared.NextActions...)
 		return structured
 	}
-	return undeclaredFaultContract(path)
+	return undeclaredFaultContract(path, command.Effect)
 }
 
 func normalizeUnboundFault(ctx context.Context, err error) *fault.Error {
@@ -198,14 +211,18 @@ func normalizeUnboundFault(ctx context.Context, err error) *fault.Error {
 	)
 }
 
-func undeclaredFaultContract(path string) *fault.Error {
-	return fault.New(
+func undeclaredFaultContract(path string, effect operation.Effect) *fault.Error {
+	phase, state := fault.PhaseObservation, fault.ChangeNotApplicable
+	if effect != operation.EffectRead {
+		phase, state = fault.PhaseVerification, fault.ChangeUnknown
+	}
+	return fault.WithClassification(fault.New(
 		fault.KindContract,
 		"undeclared_fault_contract",
 		"A command emitted a failure that is not declared by its agent contract.",
 		false,
 		fault.NextAction{Command: "help " + path, Reason: "Align the runtime fault with the command catalog before retrying."},
-	)
+	), phase, state)
 }
 
 func renderTextError(payload errorPayload) []byte {
@@ -226,6 +243,8 @@ func renderTextErrorForProgram(payload errorPayload, color bool, program string)
 	output.row("Message", escapeTSVCell(payload.Message), messageToken)
 	output.row("Kind", string(payload.Kind), styleText)
 	output.row("Code", payload.Code, styleText)
+	output.row("Phase", string(payload.Phase), styleText)
+	output.row("Change state", string(payload.ChangeState), styleText)
 	retryToken := styleText
 	if payload.Retryable && payload.Kind != fault.KindCanceled {
 		retryToken = styleWarning

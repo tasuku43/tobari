@@ -96,6 +96,16 @@ func authLoginSpec() CommandSpec {
 			declaredCommandError(fault.KindUnavailable, "aws_sso_login_failed", false, "auth login", "Retry the trusted-host AWS IAM Identity Center login after inspecting the failure."),
 		)
 	}
+	for errorIndex := range loginErrors {
+		for actionIndex := range loginErrors[errorIndex].NextActions {
+			if loginErrors[errorIndex].NextActions[actionIndex].Command == "auth login" {
+				loginErrors[errorIndex].NextActions[actionIndex] = fault.NextAction{
+					Command: "auth status",
+					Reason:  "Inspect the selected Context's authentication state before another login attempt.",
+				}
+			}
+		}
+	}
 	return CommandSpec{
 		Path: "auth login", Summary: "Configure Broker-required Context authentication through a reviewed login driver",
 		Args: args, Effect: operation.EffectWrite, Role: RoleAct,
@@ -308,13 +318,13 @@ func authCommonErrors() []CommandError {
 	return []CommandError{
 		declaredCommandError(fault.KindInvalidInput, "invalid_context_name", false, "context list", "Choose an existing Context name."),
 		declaredCommandError(fault.KindNotFound, "context_not_found", false, "context list", "Choose an existing Context or create it first."),
-		declaredCommandError(fault.KindUnavailable, "auth_broker_unavailable", true, "cluster up", "Start or reconcile the shared cluster before using authentication."),
-		declaredCommandError(fault.KindUnavailable, "auth_broker_request_failed", false, "cluster up", "Reconcile the shared cluster before another Auth Broker request."),
-		declaredCommandError(fault.KindUnavailable, "auth_broker_locked", false, "cluster up", "Reconcile the shared cluster and unlock the Auth Broker."),
+		declaredCommandError(fault.KindUnavailable, "auth_broker_unavailable", true, "auth status", "Inspect Context authentication state before shared-cluster reconciliation."),
+		declaredCommandError(fault.KindUnavailable, "auth_broker_request_failed", false, "auth status", "Inspect Context authentication state before another Auth Broker request."),
+		declaredCommandError(fault.KindUnavailable, "auth_broker_locked", false, "auth status", "Inspect Context authentication state before unlocking the Auth Broker."),
 		declaredCommandError(fault.KindUnavailable, "root_key_unavailable", false, "doctor", "Inspect the host root-key provider."),
 		declaredCommandError(fault.KindRejected, "root_key_missing_with_vault", false, "doctor", "Restore the original root key or explicitly remove local authentication state."),
 		declaredCommandError(fault.KindRejected, "root_key_unsafe", false, "doctor", "Repair unsafe root-key or Auth Broker state paths."),
-		declaredCommandError(fault.KindUnavailable, "keychain_denied", false, "cluster up", "Allow trusted-host Keychain access and retry cluster reconciliation."),
+		declaredCommandError(fault.KindUnavailable, "keychain_denied", false, "auth status", "Inspect Context authentication state before cluster reconciliation."),
 		declaredCommandError(fault.KindRejected, "auth_vault_invalid", false, "doctor", "Inspect the Context vault integrity without printing its contents."),
 		declaredCommandError(fault.KindUnsupported, "auth_vault_version_unsupported", false, "doctor", "Upgrade or repair the unsupported Context vault."),
 		declaredCommandError(fault.KindRejected, "invalid_provider_manifest", false, "doctor", "Repair the owner-controlled provider manifest collection."),

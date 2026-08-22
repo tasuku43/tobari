@@ -148,12 +148,12 @@ func TestRecursiveJSONValidationRejectsShapeTypeEnumAndNullabilityDrift(t *testi
 func TestStructuredErrorFallbackIsACompleteNonRecursiveContractDocument(t *testing.T) {
 	contract := CommandOutput{
 		Fields: defaultAgentErrorFields(), JSONEnvelope: "error",
-		JSONEnvelopeType: OutputFieldTypeObject, JSONSchemaVersion: 1,
+		JSONEnvelopeType: OutputFieldTypeObject, JSONSchemaVersion: 2,
 	}
 	if err := validateJSONDocument(contract, nil, structuredErrorContractFallback); err != nil {
 		t.Fatalf("structured error fallback: %v", err)
 	}
-	_, err := marshalErrorJSON(errorDocument{SchemaVersion: 1, Error: errorPayload{Kind: "not-a-kind"}})
+	_, err := marshalErrorJSON(errorDocument{SchemaVersion: 2, Error: errorPayload{Kind: "not-a-kind"}})
 	if err == nil {
 		t.Fatal("malformed structured error unexpectedly passed the renderer contract")
 	}

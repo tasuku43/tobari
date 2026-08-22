@@ -99,6 +99,33 @@ func TestFaultRejectsIncompleteMachineContracts(t *testing.T) {
 	}
 }
 
+func TestFaultClassificationIsClosedAndCompatible(t *testing.T) {
+	valid := []*Error{
+		WithClassification(New(KindUnavailable, "precondition_failed", "precondition failed", false), PhasePrecondition, ChangeNone),
+		WithClassification(New(KindUnavailable, "read_failed", "read failed", false), PhaseObservation, ChangeNotApplicable),
+		WithClassification(New(KindUnavailable, "write_unknown", "write outcome is unknown", false), PhaseMutation, ChangeUnknown),
+		WithClassification(New(KindInternal, "write_partial", "write partially completed", false), PhaseVerification, ChangePartial),
+		WithClassification(New(KindInternal, "output_failed", "output failed", false), PhasePresentation, ChangeConfirmed),
+	}
+	for _, item := range valid {
+		if err := item.Validate(); err != nil {
+			t.Errorf("valid classification %+v: %v", item, err)
+		}
+	}
+	invalid := []*Error{
+		{Kind: KindInternal, Code: "missing_state", Message: "missing state", Phase: PhaseMutation},
+		WithClassification(New(KindInternal, "bad_observation", "bad observation", false), PhaseObservation, ChangeUnknown),
+		WithClassification(New(KindInternal, "bad_none", "bad none", false), PhaseMutation, ChangeNotApplicable),
+		WithClassification(New(KindInternal, "bad_phase", "bad phase", false), Phase("provider"), ChangeUnknown),
+		WithClassification(New(KindInternal, "bad_state", "bad state", false), PhaseMutation, ChangeState("maybe")),
+	}
+	for _, item := range invalid {
+		if err := item.Validate(); err == nil {
+			t.Errorf("invalid classification passed: %+v", item)
+		}
+	}
+}
+
 func TestRateLimitTimingDoesNotAuthorizeRetry(t *testing.T) {
 	rateLimited := &Error{
 		Kind:       KindRateLimited,

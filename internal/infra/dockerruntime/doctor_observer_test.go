@@ -170,6 +170,40 @@ func TestDoctorObserverDependencyMatrixAvoidsDockerFalseBlame(t *testing.T) {
 	}
 }
 
+func TestWorkspaceStartReadinessUsesOnlyExactGenericDockerReads(t *testing.T) {
+	fixtureRoot := t.TempDir()
+	installFakeDocker(t, fixtureRoot)
+	runner := &doctorObserverRunner{}
+	runtime, err := newRuntimeWithData(
+		filepath.Join(fixtureRoot, "config"), filepath.Join(fixtureRoot, "state"),
+		filepath.Join(fixtureRoot, "data"), runner,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	checks, _ := doctor.ReadinessChecks(doctor.ReadinessProfileWorkspaceStart)
+	for _, id := range checks {
+		observation, err := runtime.ObserveDoctorCheck(context.Background(), "", id)
+		if err != nil || observation.Status != doctor.CheckStatusPass {
+			t.Fatalf("readiness %s = %+v, %v", id, observation, err)
+		}
+	}
+	want := [][]string{
+		{"version", "--format", "{{.Server.Version}}"},
+		{"context", "show"},
+		{"compose", "version", "--short"},
+	}
+	if !reflect.DeepEqual(runner.outputs, want) || len(runner.runs) != 0 {
+		t.Fatalf("readiness Docker boundaries = outputs %v runs %v", runner.outputs, runner.runs)
+	}
+	joined := strings.ToLower(fmt.Sprint(runner.outputs))
+	for _, forbidden := range []string{"colima", "lima", "docker desktop", "rancher", "open", "systemctl", "launchctl", "socket"} {
+		if strings.Contains(joined, forbidden) {
+			t.Fatalf("readiness inferred or managed a provider through %q: %v", forbidden, runner.outputs)
+		}
+	}
+}
+
 func TestDoctorObserverKeepsInvalidPolicyDistinctFromPolicyData(t *testing.T) {
 	fixtureRoot := t.TempDir()
 	installFakeDocker(t, fixtureRoot)

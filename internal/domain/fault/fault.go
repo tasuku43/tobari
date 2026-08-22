@@ -29,6 +29,47 @@ const (
 	KindInternal       Kind = "internal"
 )
 
+// Phase identifies the closed command stage that established a failure.
+type Phase string
+
+const (
+	PhasePrecondition Phase = "precondition"
+	PhaseObservation  Phase = "observation"
+	PhaseMutation     Phase = "mutation"
+	PhaseVerification Phase = "verification"
+	PhaseAttachment   Phase = "attachment"
+	PhasePresentation Phase = "presentation"
+)
+
+func (p Phase) Validate() error {
+	switch p {
+	case PhasePrecondition, PhaseObservation, PhaseMutation, PhaseVerification, PhaseAttachment, PhasePresentation:
+		return nil
+	default:
+		return fmt.Errorf("fault phase is missing or invalid: %q", p)
+	}
+}
+
+// ChangeState is the strongest mutation-state fact proved by the owning layer.
+type ChangeState string
+
+const (
+	ChangeNotApplicable ChangeState = "not_applicable"
+	ChangeNone          ChangeState = "none"
+	ChangePartial       ChangeState = "partial"
+	ChangeConfirmed     ChangeState = "confirmed"
+	ChangeUnknown       ChangeState = "unknown"
+)
+
+func (s ChangeState) Validate() error {
+	switch s {
+	case ChangeNotApplicable, ChangeNone, ChangePartial, ChangeConfirmed, ChangeUnknown:
+		return nil
+	default:
+		return fmt.Errorf("fault change state is missing or invalid: %q", s)
+	}
+}
+
 // NextAction tells an agent which command can resolve or investigate a fault.
 type NextAction struct {
 	Command string `json:"command"`
@@ -42,6 +83,8 @@ type Error struct {
 	Kind        Kind          `json:"kind"`
 	Code        string        `json:"code"`
 	Message     string        `json:"message"`
+	Phase       Phase         `json:"phase,omitempty"`
+	ChangeState ChangeState   `json:"change_state,omitempty"`
 	Retryable   bool          `json:"retryable"`
 	RetryAfter  time.Duration `json:"-"`
 	NextActions []NextAction  `json:"next_actions"`
@@ -85,6 +128,23 @@ func (e *Error) Validate() error {
 	if !validPublicText(e.Message, 1024) {
 		return fmt.Errorf("fault message is missing or unsafe")
 	}
+	if (e.Phase == "") != (e.ChangeState == "") {
+		return fmt.Errorf("fault phase and change state must be declared together")
+	}
+	if e.Phase != "" {
+		if err := e.Phase.Validate(); err != nil {
+			return err
+		}
+		if err := e.ChangeState.Validate(); err != nil {
+			return err
+		}
+		if e.Phase == PhaseObservation && e.ChangeState != ChangeNotApplicable {
+			return fmt.Errorf("observation failure change state must be not_applicable")
+		}
+		if e.ChangeState == ChangeNotApplicable && e.Phase != PhaseObservation && e.Phase != PhasePresentation {
+			return fmt.Errorf("not_applicable change state requires observation or presentation phase")
+		}
+	}
 	if e.RetryAfter < 0 || (e.RetryAfter > 0 && !e.Retryable && e.Kind != KindRateLimited) {
 		return fmt.Errorf("retry-after requires a retryable or rate-limited fault")
 	}
@@ -94,6 +154,19 @@ func (e *Error) Validate() error {
 		}
 	}
 	return nil
+}
+
+// WithClassification returns a detached classified fault while retaining the
+// private cause only inside the trusted process.
+func WithClassification(err *Error, phase Phase, state ChangeState) *Error {
+	if err == nil {
+		return nil
+	}
+	clone := *err
+	clone.NextActions = append([]NextAction(nil), err.NextActions...)
+	clone.Phase = phase
+	clone.ChangeState = state
+	return &clone
 }
 
 func validPublicText(value string, maxBytes int) bool {

@@ -85,14 +85,14 @@ func (c *CLI) emitMutationResultTo(
 		))
 	}
 	if _, err := writeOnce(writer, output); err != nil {
-		return c.fail(ctx, fault.Wrap(
+		return c.fail(ctx, fault.WithClassification(fault.Wrap(
 			fault.KindInternal,
 			"mutation_output_write_failed",
 			"The mutation succeeded, but its output could not be written completely.",
 			false,
 			err,
 			recovery...,
-		))
+		), fault.PhasePresentation, fault.ChangeConfirmed))
 	}
 	return ExitOK
 }

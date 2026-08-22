@@ -18,15 +18,17 @@ import FaultReference from "../../../../components/FaultReference.astro";
 
 ## 公開される障害エンベロープ
 
-`--error-format json` で出力する CLI の失敗はスキーマ 1 です。
+`--error-format json` で出力する CLI の失敗はスキーマ 2 です。
 
 ```json
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "error": {
     "kind": "canceled",
     "code": "operation_canceled",
     "message": "The operation was canceled.",
+    "phase": "precondition",
+    "change_state": "none",
     "retryable": true,
     "retry_after": null,
     "next_actions": [
@@ -39,6 +41,13 @@ import FaultReference from "../../../../components/FaultReference.astro";
 `message` は、人が読むために安全化した文字列です。接続先から返されたレスポンス本文では
 ありません。実装内部では、ラップされた原因を分類に使えます。ただし、リクエスト URL、
 認証情報、安定しないプロバイダー文言を含む可能性があるため、公開出力からは除外します。
+
+`phase` は `precondition`、`observation`、`mutation`、`verification`、
+`attachment`、`presentation` のいずれかです。`change_state` は
+`not_applicable`、`none`、`partial`、`confirmed`、`unknown` のいずれかです。
+境界を所有する層が証明できた最も強い事実を表し、二つ目の原因分類ではありません。
+変更操作の `partial`、`confirmed`、`unknown` は、必ず宣言済みの読み取り専用状態確認を
+最初の復旧操作にします。
 
 ## 安定した障害の種類と終了コード
 
@@ -74,7 +83,7 @@ import FaultReference from "../../../../components/FaultReference.astro";
 
 1. 操作が読み取り専用か、変更操作かを判断する
 2. `retryable` と `retry_after` を読む
-3. 変更操作なら、構造化された結果と現在の状態を調べる
+3. 変更操作なら `phase` と `change_state` を読み、`partial`、`confirmed`、`unknown` は宣言済みの読み取りで状態確認する
 4. 宣言済みの次の操作だけに従う
 5. 前提を復元した後、明示的に再試行する
 
@@ -112,7 +121,7 @@ Workspace からは、Gateway の HTTP レスポンスまたは接続失敗と�
 
 - `invalid_fault_contract`：`kind`、`code`、`message`、時間情報、次の操作が形式不正な
   構造化障害を置き換える
-- `undeclared_fault_contract`：コマンドの Catalog 宣言と `code`、`kind`、再試行可否が
+- `undeclared_fault_contract`：コマンドの Catalog 宣言と `code`、`kind`、`phase`、変更状態、再試行可否が
   一致しない障害を置き換える
 
 これらの `code` は、安定しない内部エラーが意図せず公開 API になることを防ぎます。

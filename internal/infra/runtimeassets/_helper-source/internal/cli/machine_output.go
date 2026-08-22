@@ -33,7 +33,7 @@ func marshalErrorJSON(document errorDocument) ([]byte, error) {
 	}
 	contract := CommandOutput{
 		Fields: defaultAgentErrorFields(), JSONEnvelope: "error",
-		JSONEnvelopeType: OutputFieldTypeObject, JSONSchemaVersion: 1,
+		JSONEnvelopeType: OutputFieldTypeObject, JSONSchemaVersion: 2,
 	}
 	if err := validateJSONDocument(contract, nil, encoded); err != nil {
 		return nil, fmt.Errorf("structured error renderer violates its contract: %w", err)

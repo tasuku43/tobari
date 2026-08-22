@@ -118,6 +118,9 @@ func TestGenerateCatalogUsesExecutableAgentHelp(t *testing.T) {
 	commandFault := false
 	doctorInvalidArguments := false
 	for _, occurrence := range document.Faults {
+		if occurrence.Phase == "" || occurrence.ChangeState == "" {
+			t.Errorf("generated fault classification is incomplete: %+v", occurrence)
+		}
 		if occurrence.Code == "unknown_command" && occurrence.Command == "(global)" {
 			globalUnknown++
 			if occurrence.Kind != "invalid_input" || occurrence.Retryable {

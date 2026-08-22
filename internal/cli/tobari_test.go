@@ -54,6 +54,14 @@ func (f *policyReviewRuntimeFake) CurrentDirectory(context.Context) (string, err
 }
 func (f *policyReviewRuntimeFake) IsTerminal(io.Writer) bool      { return f.terminal }
 func (f *policyReviewRuntimeFake) IsInputTerminal(io.Reader) bool { return f.terminal }
+func (f *policyReviewRuntimeFake) ObserveDoctorCheck(_ context.Context, _ string, id doctor.CheckID) (doctor.Observation, error) {
+	observation := doctor.Observation{Status: doctor.CheckStatusPass, Detail: "available"}
+	if id == doctor.CheckIDDockerEngine {
+		observation.Detail = "24.0.0"
+		observation.Value = "24.0.0"
+	}
+	return observation, nil
+}
 func (f *policyReviewRuntimeFake) ResolveImageSelector(context.Context, string) (string, error) {
 	return "test-image", nil
 }

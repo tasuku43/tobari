@@ -73,7 +73,11 @@ func (i *Inspector) ObserveDoctorCheck(
 		}
 		return observation(doctor.CheckStatusPass, "docker is available"), nil
 	case doctor.CheckIDDockerEngine:
-		return i.observeDocker(ctx, []string{"version", "--format", "{{.Server.Version}}"}, "Docker Engine is unavailable")
+		result, err := i.observeDocker(ctx, []string{"version", "--format", "{{.Server.Version}}"}, "Docker Engine is unavailable")
+		if err == nil && result.Status == doctor.CheckStatusPass {
+			result.Value = result.Detail
+		}
+		return result, err
 	case doctor.CheckIDDockerContext:
 		return i.observeDocker(ctx, []string{"context", "show"}, "Docker context could not be read")
 	case doctor.CheckIDDockerCompose:

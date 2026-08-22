@@ -5,6 +5,25 @@ import (
 	"testing"
 )
 
+func TestWorkspaceStartReadinessProfileIsClosedAndDefensive(t *testing.T) {
+	checks, err := ReadinessChecks(ReadinessProfileWorkspaceStart)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []CheckID{CheckIDDockerCLI, CheckIDDockerEngine, CheckIDDockerContext, CheckIDDockerCompose}
+	if !reflect.DeepEqual(checks, want) {
+		t.Fatalf("readiness checks = %v, want %v", checks, want)
+	}
+	checks[0] = CheckIDRoot
+	again, _ := ReadinessChecks(ReadinessProfileWorkspaceStart)
+	if !reflect.DeepEqual(again, want) {
+		t.Fatalf("readiness profile was mutated: %v", again)
+	}
+	if _, err := ReadinessChecks("provider_backend"); err == nil {
+		t.Fatal("unknown readiness profile passed validation")
+	}
+}
+
 func TestCheckInventoryIsFiniteTopologicalDAG(t *testing.T) {
 	want := []CheckSpec{
 		{ID: CheckIDDockerCLI},

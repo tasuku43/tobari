@@ -8,6 +8,8 @@ interface Action {
 interface Occurrence {
   code: string;
   kind: string;
+  phase?: string;
+  change_state?: string;
   retryable: boolean;
   command: string;
   next_actions: Action[];
@@ -48,6 +50,8 @@ const ui = isJapanese
       logicalRetry: "条件を確認したうえで再試行できます",
       doNotRepeat: "同じ条件のまま繰り返さないでください",
       affected: "影響するコマンドと復旧手順",
+      state: "段階・変更状態",
+      stateUnavailable: "このソーススナップショットでは未宣言",
       global: "全コマンド",
       noRecovery: "復旧コマンドは定義されていません。",
     }
@@ -65,6 +69,8 @@ const ui = isJapanese
       logicalRetry: "Logical retry permitted",
       doNotRepeat: "Do not repeat unchanged",
       affected: "Affected commands and declared recovery",
+      state: "Phase and change state",
+      stateUnavailable: "Not declared by this source snapshot",
       global: "Global invocation",
       noRecovery: "No command recovery is declared.",
     };
@@ -98,7 +104,7 @@ const ui = isJapanese
     {
       faults.map((fault) => (
         <article
-          data-fault={`${fault.code} ${fault.kind} ${fault.occurrences.map(({ command }) => command).join(" ")}`.toLowerCase()}
+          data-fault={`${fault.code} ${fault.kind} ${fault.occurrences.map(({ command, phase, change_state }) => `${command} ${phase ?? ""} ${change_state ?? ""}`).join(" ")}`.toLowerCase()}
         >
           <header>
             <h3>
@@ -125,6 +131,16 @@ const ui = isJapanese
                       <code>tobari {occurrence.command}</code>
                     )}
                   </strong>
+                  {occurrence.phase && occurrence.change_state ? (
+                    <div>
+                      {ui.state}: <code>{occurrence.phase}</code> /{" "}
+                      <code>{occurrence.change_state}</code>
+                    </div>
+                  ) : (
+                    <div>
+                      {ui.state}: {ui.stateUnavailable}
+                    </div>
+                  )}
                   {occurrence.next_actions?.length ? (
                     <ul>
                       {occurrence.next_actions.map((action) => (

@@ -590,10 +590,10 @@ func supportsOutputFormat(formats []OutputFormat, wanted OutputFormat) bool {
 }
 
 func defaultAgentErrorContract() agentErrorContract {
-	return agentErrorContract{
+	contract := agentErrorContract{
 		Formats:           []string{"text", "json"},
 		DefaultFormat:     "text",
-		JSONSchemaVersion: 1,
+		JSONSchemaVersion: 2,
 		Fields:            defaultAgentErrorFields(),
 		ExitCodes: []agentExitCode{
 			{Kind: fault.KindInvalidInput, Code: ExitUsage},
@@ -619,6 +619,11 @@ func defaultAgentErrorContract() agentErrorContract {
 		},
 		CommandErrorsField: "commands[].contract.errors",
 	}
+	for index := range contract.GlobalErrors {
+		contract.GlobalErrors[index].Phase = fault.PhasePrecondition
+		contract.GlobalErrors[index].ChangeState = fault.ChangeNone
+	}
+	return contract
 }
 
 func defaultAgentErrorFields() []OutputField {
@@ -626,6 +631,8 @@ func defaultAgentErrorFields() []OutputField {
 		{Name: "kind", Type: OutputFieldTypeString, Description: "Cross-command recovery class.", Enum: []string{"invalid_input", "authentication", "permission", "not_found", "ambiguous", "rate_limited", "unavailable", "rejected", "canceled", "unsupported", "contract", "internal"}},
 		{Name: "code", Type: OutputFieldTypeString, Description: "Stable command-specific failure code."},
 		{Name: "message", Type: OutputFieldTypeString, Description: "Safe human explanation that excludes upstream causes."},
+		{Name: "phase", Type: OutputFieldTypeString, Description: "Closed command stage that established the failure.", Enum: []string{"precondition", "observation", "mutation", "verification", "attachment", "presentation"}},
+		{Name: "change_state", Type: OutputFieldTypeString, Description: "Strongest proved state of the requested change.", Enum: []string{"not_applicable", "none", "partial", "confirmed", "unknown"}},
 		{Name: "retryable", Type: OutputFieldTypeBoolean, Description: "Whether repeating the same logical command without changing intent is permitted."},
 		{Name: "retry_after", Type: OutputFieldTypeString, Description: "Authoritative rate-window duration when known, otherwise null; timing never grants logical replay permission.", Nullable: true},
 		{Name: "next_actions", Type: OutputFieldTypeArray, Description: "Structured commands and reasons for recovery.", Items: &OutputField{

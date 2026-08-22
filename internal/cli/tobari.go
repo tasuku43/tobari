@@ -820,11 +820,15 @@ func prepareGuidedProjectEntry(
 	if action == recommendedFirstUseCancel {
 		return c.fail(ctx, context.Canceled), false
 	}
-	_, code := createContextForGuidedEntry(ctx, c, draft, action == recommendedFirstUseStart)
+	readyCtx, readinessErr := c.tobari.CheckWorkspaceStartPrerequisites(ctx)
+	if readinessErr != nil {
+		return c.fail(ctx, readinessErr), false
+	}
+	_, code := createContextForGuidedEntry(readyCtx, c, draft, action == recommendedFirstUseStart)
 	if code != ExitOK {
 		return code, false
 	}
-	if code = clusterUpForGuidedEntry(ctx, c); code != ExitOK {
+	if code = clusterUpForGuidedEntry(readyCtx, c); code != ExitOK {
 		return code, false
 	}
 

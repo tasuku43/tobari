@@ -570,6 +570,8 @@ func TestEmitMutationResultStillRequiresCompleteWrite(t *testing.T) {
 		t.Fatalf("emitMutationResult() code = %d, stderr = %q", code, stderr.String())
 	}
 	if !humanOutputHasRow(stderr.String(), "Code", "mutation_output_write_failed") ||
+		!humanOutputHasRow(stderr.String(), "Phase", "presentation") ||
+		!humanOutputHasRow(stderr.String(), "Change state", "confirmed") ||
 		!humanOutputHasRow(stderr.String(), "Retryable", "no") ||
 		!humanOutputHasRow(stderr.String(), "Next", ProgramName+" items list — Reconcile the confirmed mutation result without repeating the mutation.") ||
 		humanOutputHasRow(stderr.String(), "Code", "operation_canceled") ||
@@ -614,6 +616,8 @@ func TestCatalogBoundMutationFinalizerCannotBeDowngradedByHandler(t *testing.T) 
 			t.Fatalf("RunContext() code = %d, stderr = %q", code, stderr.String())
 		}
 		if !humanOutputHasRow(stderr.String(), "Code", "mutation_output_write_failed") ||
+			!humanOutputHasRow(stderr.String(), "Phase", "presentation") ||
+			!humanOutputHasRow(stderr.String(), "Change state", "confirmed") ||
 			!humanOutputHasRow(stderr.String(), "Retryable", "no") ||
 			!humanOutputHasRow(stderr.String(), "Next", ProgramName+" items list — Reconcile the confirmed mutation result without repeating the mutation.") ||
 			humanOutputHasRow(stderr.String(), "Code", "undeclared_fault_contract") {
@@ -706,7 +710,8 @@ func TestJSONErrorIsStableAndDoesNotExposePlainCause(t *testing.T) {
 	if err := json.Unmarshal(stderr.Bytes(), &document); err != nil {
 		t.Fatalf("JSON error = %v, output = %q", err, stderr.String())
 	}
-	if document.SchemaVersion != 1 || document.Error.Kind != "internal" || document.Error.Code != "internal_error" ||
+	if document.SchemaVersion != 2 || document.Error.Kind != "internal" || document.Error.Code != "internal_error" ||
+		document.Error.Phase != fault.PhaseObservation || document.Error.ChangeState != fault.ChangeNotApplicable ||
 		document.Error.RetryAfter != nil || len(document.Error.NextActions) != 1 {
 		t.Fatalf("error document = %+v", document)
 	}
@@ -869,6 +874,14 @@ func TestRuntimeFaultMustMatchCatalogAndUsesCatalogRecovery(t *testing.T) {
 		{
 			name:     "kind mismatch fails closed",
 			runtime:  fault.New(fault.KindUnavailable, "test_failed", "A test source is unavailable.", false),
+			wantCode: "undeclared_fault_contract", wantExit: ExitContract,
+		},
+		{
+			name: "phase and change-state mismatch fails closed",
+			runtime: fault.WithClassification(
+				fault.New(fault.KindInternal, "test_failed", "A test failed.", false),
+				fault.PhasePrecondition, fault.ChangeNone,
+			),
 			wantCode: "undeclared_fault_contract", wantExit: ExitContract,
 		},
 	}

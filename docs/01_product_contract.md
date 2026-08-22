@@ -403,6 +403,14 @@ Customize opens the same ordinary six-stage Context wizard with recommended
 values prefilled. Cancellation, EOF, rendering, or terminal failure before
 Create changes no Context, host configuration, cluster, Docker, Workspace, or
 network state.
+After either review path chooses continuation and before Context creation, root
+runs the closed generic Workspace-start readiness profile: Docker CLI, selected
+Engine version, selected Docker Context, and Compose v2. Engine major versions
+below 24 fail as unsupported. Any failed or invalid observation returns one
+fixed safe fault pointing to `doctor` and performs zero Context, cluster,
+Workspace, network, or Docker mutation. The profile neither identifies nor
+manages the Docker provider. Standalone `context create` remains independent
+from Docker readiness.
 After confirmed Context creation it emits that durable success, performs the
 exact catalog-owned `cluster up` action without another confirmation, and
 retains the Context if cluster reconciliation fails. When shared services are
@@ -763,7 +771,7 @@ Human output is concise text. The canonical public machine-output inventory is:
 
 | Surface | Envelope | Schema |
 | --- | --- | ---: |
-| Structured error | `error` | 1 |
+| Structured error | `error` | 2 |
 | Agent help (`view: index` and input-selected `view: scope`) | `commands` | 1 |
 | Version | `build_identity` | 1 |
 | Doctor report | `report` | 1 |
@@ -826,6 +834,17 @@ bounded two-column TSV protocol with `candidate` or `directive` in column one;
 it is not a parser for human output or another command's JSON.
 Successful data is stdout;
 failures are stderr.
+
+Structured error schema 2 retains `kind` and command-specific `code` as the
+causal identity and requires `phase` plus `change_state`. Phase is one of
+`precondition`, `observation`, `mutation`, `verification`, `attachment`, or
+`presentation`. Change state is one of `not_applicable`, `none`, `partial`,
+`confirmed`, or `unknown`. The owning layer may publish only what it proves:
+pre-action failure is `none`, reads are `not_applicable`, unclassified
+post-action results are `unknown`, and a confirmed mutation remains
+`confirmed` if final output fails. Catalog declarations own these facts and
+the exact next actions. A mutation marked `partial`, `confirmed`, or `unknown`
+must first recover through a declared read-only reconciliation command.
 
 `version --format json` uses schema version 1 with envelope
 `build_identity`. Its fixed fields are `version`, `commit`,

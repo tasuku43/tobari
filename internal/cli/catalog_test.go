@@ -1068,6 +1068,16 @@ func TestMutationContractFailsClosedAndDeepCopies(t *testing.T) {
 			t.Fatalf("unsafe %s recovery error = %v", code, err)
 		}
 	}
+	unsafePartial := cloneCommandSpec(spec)
+	unsafePartial.Agent.Errors = append(unsafePartial.Agent.Errors, CommandError{
+		Kind: fault.KindInternal, Code: "partial_test_failure",
+		Phase: fault.PhaseVerification, ChangeState: fault.ChangePartial,
+		NextActions: []fault.NextAction{{Command: unsafePartial.Path, Reason: "Unsafe mutation replay."}},
+	})
+	if err := NewCatalog(discoverSpec("items list", "item"), unsafePartial).Validate(); err == nil ||
+		!strings.Contains(err.Error(), "read-only reconciliation") {
+		t.Fatalf("unsafe partial recovery error = %v", err)
+	}
 
 	rateLimited := cloneCommandSpec(spec)
 	rateLimited.Agent.Errors = append(rateLimited.Agent.Errors, declaredCommandError(

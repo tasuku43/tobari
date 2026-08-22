@@ -18,15 +18,17 @@ fault.
 
 ## Public fault envelope
 
-With `--error-format json`, a CLI failure is schema 1:
+With `--error-format json`, a CLI failure is schema 2:
 
 ```json
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "error": {
     "kind": "canceled",
     "code": "operation_canceled",
     "message": "The operation was canceled.",
+    "phase": "precondition",
+    "change_state": "none",
     "retryable": true,
     "retry_after": null,
     "next_actions": [
@@ -43,6 +45,13 @@ With `--error-format json`, a CLI failure is schema 1:
 remain available inside the implementation for classification but are omitted
 from the public projection because they may contain a request URL, credential,
 or unstable provider prose.
+
+`phase` is `precondition`, `observation`, `mutation`, `verification`,
+`attachment`, or `presentation`. `change_state` is `not_applicable`, `none`,
+`partial`, `confirmed`, or `unknown`. These fields report the strongest fact
+proved by the layer that owns the boundary; they do not form a second cause
+taxonomy. For a mutation, `partial`, `confirmed`, and `unknown` always lead
+first to a declared read-only reconciliation command.
 
 ## Stable kinds and exit codes
 
@@ -78,7 +87,8 @@ Use this order:
 
 1. Determine whether the operation is read-only or a mutation.
 2. Read `retryable` and any `retry_after`.
-3. For a mutation, inspect its structured outcome and current state.
+3. For a mutation, read `phase` and `change_state`; reconcile `partial`,
+   `confirmed`, or `unknown` through the declared read.
 4. Follow only the declared next action.
 5. Retry deliberately after the precondition is restored.
 
@@ -119,8 +129,9 @@ The public boundary has two last-resort contract codes:
 
 - `invalid_fault_contract` replaces a structured fault whose kind, code,
   message, timing, or next action is malformed.
-- `undeclared_fault_contract` replaces a command fault whose code, kind, or
-  retryability does not match that command's Catalog declaration.
+- `undeclared_fault_contract` replaces a command fault whose code, kind,
+  phase, change state, or retryability does not match that command's Catalog
+  declaration.
 
 These codes prevent unstable internal errors from silently becoming public API.
 They are implementation diagnostics, not provider-specific failures.

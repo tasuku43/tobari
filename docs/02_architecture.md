@@ -980,6 +980,13 @@ the same Context-create application invoker; Customize seeds the ordinary
 complete Context wizard. Neither branch duplicates Context persistence or
 imports host configuration implicitly. Confirmed creation is durable; root then
 invokes the same typed cluster reconciliation used by explicit `cluster up`.
+Before creation, the application selects the closed generic Workspace-start
+readiness profile from Doctor's typed observation inventory. Infrastructure
+executes only fixed bounded Docker CLI/Engine-version/Context/Compose reads.
+The application enforces Engine major version 24 and returns a typed context
+receipt so the composed `cluster up` does not repeat the profile. Direct
+`cluster up` performs it before the mutation invoker. No layer detects, opens,
+starts, stops, or otherwise manages the Docker provider.
 Cluster failure leaves the Context available for another root invocation. Once
 ready, root proceeds directly with the exact ready Runtime revision reviewed by
 Context creation; it has no post-create Runtime chooser. Customization is
@@ -1443,6 +1450,12 @@ input are catalog-owned; a missing command is rejected before lifecycle side
 effects. Lifecycle operations return structured state after
 confirmed completion; unclassified post-mutation errors are non-retryable and
 direct the user to `status` for reconciliation.
+The domain fault vocabulary separates causal identity (`kind` plus `code`) from
+the closed command phase and strongest proved change state. Application and
+infrastructure may strengthen state only from typed boundary evidence. Catalog
+owns the published classification and rejects runtime disagreement; mutation
+states `partial`, `confirmed`, and `unknown` recover first through a validated
+read. CLI presentation projects these facts but never infers them.
 Auth mutations use the same structured-outcome rule. A failed or cancelled
 GitHub host driver leaves the previous Context credential unchanged; a
 host-login availability rejection carries one closed

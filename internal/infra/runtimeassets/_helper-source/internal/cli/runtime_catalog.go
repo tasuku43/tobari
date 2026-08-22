@@ -751,8 +751,7 @@ func clusterUpSpec() CommandSpec {
 				declaredCommandError(fault.KindRejected, "policy_test_failed", false, "doctor", "Correct the policy or ensure its XDG directory is accessible to the Docker Engine before startup."),
 				declaredCommandError(fault.KindInternal, "status_failed", false, "cluster status", "Reconcile the confirmed startup."),
 				declaredCommandErrorWithActions(fault.KindUnavailable, "cluster_reconcile_interrupted", false,
-					fault.NextAction{Command: "cluster up", Reason: "Reconcile the shared Gateway, OPA, and Auth Broker cluster."},
-					fault.NextAction{Command: "cluster down", Reason: "Explicitly clean up the shared cluster instead."}),
+					fault.NextAction{Command: "cluster status", Reason: "Inspect shared-cluster state before choosing an explicit reconciliation action."}),
 				declaredCommandError(fault.KindContract, "invalid_status_contract", false, "cluster status", "Repair the runtime status contract."),
 				declaredCommandError(fault.KindUnavailable, "cluster_start_failed", false, "cluster status", "Reconcile partial Docker state."),
 				declaredCommandError(fault.KindUnavailable, "network_guard_failed", false, "doctor", "Inspect Docker Engine network-namespace and nftables support."),
@@ -762,14 +761,14 @@ func clusterUpSpec() CommandSpec {
 				declaredCommandError(fault.KindContract, "gateway_image_incompatible", false, "doctor", "Inspect the Gateway image API, source identity, and architecture contract."),
 				declaredCommandError(fault.KindUnavailable, "auth_broker_image_unavailable", true, "doctor", "Inspect Docker registry access before retrying the verified Auth Broker image."),
 				declaredCommandError(fault.KindContract, "auth_broker_image_incompatible", false, "doctor", "Inspect the Auth Broker image API, digest, entrypoint, user, and architecture contract."),
-				declaredCommandError(fault.KindUnavailable, "credential_companion_unavailable", true, "cluster up", "Reconcile the shared cluster and its Auth Broker companion session."),
-				declaredCommandError(fault.KindUnavailable, "auth_broker_unavailable", true, "cluster up", "Reconcile the shared cluster and retry the bounded broker control path."),
+				declaredCommandError(fault.KindUnavailable, "credential_companion_unavailable", true, "cluster status", "Inspect shared authentication-service state before reconciliation."),
+				declaredCommandError(fault.KindUnavailable, "auth_broker_unavailable", true, "cluster status", "Inspect shared-cluster state before another broker reconciliation."),
 				declaredCommandError(fault.KindUnavailable, "auth_broker_request_failed", false, "cluster status", "Inspect partial shared-cluster state before another reconcile."),
 				declaredCommandError(fault.KindContract, "auth_broker_unlock_failed", false, "doctor", "Inspect Auth Broker and root-key provider state."),
 				declaredCommandError(fault.KindUnavailable, "root_key_unavailable", false, "doctor", "Inspect the host root-key provider."),
 				declaredCommandError(fault.KindRejected, "root_key_missing_with_vault", false, "doctor", "Restore the original root key or explicitly remove local authentication state."),
 				declaredCommandError(fault.KindRejected, "root_key_unsafe", false, "doctor", "Repair unsafe root-key or Auth Broker state paths."),
-				declaredCommandError(fault.KindUnavailable, "keychain_denied", false, "cluster up", "Allow trusted-host Keychain access and retry cluster reconciliation."),
+				declaredCommandError(fault.KindUnavailable, "keychain_denied", false, "doctor", "Inspect trusted-host root-key readiness before cluster reconciliation."),
 				declaredCommandError(fault.KindRejected, "auth_vault_invalid", false, "doctor", "Inspect Context vault integrity without printing its contents."),
 				declaredCommandError(fault.KindUnsupported, "auth_vault_version_unsupported", false, "doctor", "Upgrade or repair the unsupported Context vault."),
 				declaredCommandError(fault.KindRejected, "invalid_provider_manifest", false, "doctor", "Repair the owner-controlled provider manifest collection."),
@@ -788,6 +787,7 @@ func clusterUpSpec() CommandSpec {
 		},
 		handler: runClusterUp,
 	}
+	spec.Agent.Errors = append(spec.Agent.Errors, workspaceStartReadinessErrors()...)
 	if !buildIdentityHasBroker() {
 		spec.Summary = "Start the shared Gateway and OPA"
 		spec.Agent.Prerequisites[1] = "The routine path uses one immutable Gateway image plus the official runtime base image."
@@ -819,8 +819,7 @@ func clusterStatusSpec() CommandSpec {
 				declaredCommandError(fault.KindInternal, "state_read_failed", false, "doctor", "Inspect local state."),
 				declaredCommandError(fault.KindInternal, "status_failed", false, "doctor", "Inspect Docker and cluster state."),
 				declaredCommandErrorWithActions(fault.KindUnavailable, "cluster_reconcile_interrupted", false,
-					fault.NextAction{Command: "cluster up", Reason: "Reconcile the shared Gateway, OPA, and Auth Broker cluster."},
-					fault.NextAction{Command: "cluster down", Reason: "Explicitly clean up the shared cluster instead."}),
+					fault.NextAction{Command: "cluster status", Reason: "Inspect shared-cluster state before choosing an explicit reconciliation action."}),
 				declaredCommandError(fault.KindContract, "invalid_status_contract", false, "doctor", "Repair the status contract."),
 				declaredCommandError(fault.KindContract, "output_encoding_failed", false, "cluster status", "Repair JSON projection."),
 				declaredCommandError(fault.KindInternal, "missing_runtime", false, "doctor", "Configure the Tobari runtime."),
@@ -1253,8 +1252,7 @@ func clusterDownSpec() CommandSpec {
 				declaredCommandError(fault.KindInternal, "state_read_failed", false, "doctor", "Inspect local state."),
 				declaredCommandError(fault.KindRejected, "cluster_not_empty", false, "list", "Delete every listed logical Workspace from its project directory."),
 				declaredCommandErrorWithActions(fault.KindUnavailable, "cluster_reconcile_interrupted", false,
-					fault.NextAction{Command: "cluster up", Reason: "Reconcile the shared Gateway, OPA, and Auth Broker cluster."},
-					fault.NextAction{Command: "cluster down", Reason: "Explicitly clean up the shared cluster instead."}),
+					fault.NextAction{Command: "cluster status", Reason: "Inspect shared-cluster state before choosing an explicit reconciliation action."}),
 				declaredCommandError(fault.KindUnavailable, "cluster_stop_failed", false, "cluster status", "Reconcile shared resources."),
 				declaredCommandError(fault.KindInternal, "missing_runtime", false, "doctor", "Configure the Tobari runtime."),
 			),
@@ -1549,6 +1547,9 @@ func projectEnterErrors() []CommandError {
 		}
 	}
 	result := append(filtered,
+		workspaceStartReadinessErrors()...,
+	)
+	result = append(result,
 		declaredCommandError(fault.KindInternal, "first_use_review_failed", false, "tobari", "Retry in an interactive terminal."),
 		declaredCommandError(fault.KindContract, "invalid_first_use_draft", false, "help tobari", "Inspect the root first-use contract."),
 		declaredCommandError(fault.KindNotFound, "context_not_found", false, "context list", "Choose an existing Context."),
@@ -1574,9 +1575,9 @@ func projectEnterErrors() []CommandError {
 		declaredCommandError(fault.KindUnavailable, "runtime_reconcile_failed", false, "status", "Inspect the selected project's runtime."),
 		declaredCommandError(fault.KindUnavailable, "network_guard_failed", false, "doctor", "Inspect Docker Engine network-namespace and nftables support."),
 		declaredCommandError(fault.KindInternal, "enter_failed", false, "status", "Inspect the selected project's runtime."),
-		declaredCommandError(fault.KindUnavailable, "auth_broker_unavailable", true, "cluster up", "Start or reconcile the shared cluster before projecting Context authentication."),
-		declaredCommandError(fault.KindUnavailable, "auth_broker_request_failed", false, "cluster up", "Reconcile the shared cluster before another Auth Broker request."),
-		declaredCommandError(fault.KindUnavailable, "auth_broker_locked", false, "cluster up", "Reconcile the shared cluster and unlock the Auth Broker."),
+		declaredCommandError(fault.KindUnavailable, "auth_broker_unavailable", true, "status", "Inspect Workspace and shared-cluster state before authentication reconciliation."),
+		declaredCommandError(fault.KindUnavailable, "auth_broker_request_failed", false, "status", "Inspect Workspace state before another Auth Broker request."),
+		declaredCommandError(fault.KindUnavailable, "auth_broker_locked", false, "status", "Inspect Workspace state before unlocking the Auth Broker."),
 		declaredCommandError(fault.KindRejected, "auth_vault_invalid", false, "doctor", "Inspect the Context vault integrity without printing its contents."),
 		declaredCommandError(fault.KindUnsupported, "auth_vault_version_unsupported", false, "doctor", "Upgrade or repair the unsupported Context vault."),
 		declaredCommandError(fault.KindRejected, "invalid_provider_manifest", false, "doctor", "Repair the owner-controlled provider manifest collection."),
@@ -1590,6 +1591,18 @@ func projectEnterErrors() []CommandError {
 		return withoutBrokerErrors(result)
 	}
 	return result
+}
+
+func workspaceStartReadinessErrors() []CommandError {
+	return []CommandError{
+		classifiedCommandError(fault.KindUnavailable, "docker_cli_unavailable", false, fault.PhasePrecondition, fault.ChangeNone, "doctor", "Inspect generic Docker readiness before starting a Workspace."),
+		classifiedCommandError(fault.KindUnavailable, "docker_engine_unavailable", false, fault.PhasePrecondition, fault.ChangeNone, "doctor", "Inspect generic Docker readiness before starting a Workspace."),
+		classifiedCommandError(fault.KindUnsupported, "docker_engine_incompatible", false, fault.PhasePrecondition, fault.ChangeNone, "doctor", "Inspect generic Docker readiness before starting a Workspace."),
+		classifiedCommandError(fault.KindUnavailable, "docker_context_unavailable", false, fault.PhasePrecondition, fault.ChangeNone, "doctor", "Inspect generic Docker readiness before starting a Workspace."),
+		classifiedCommandError(fault.KindUnavailable, "docker_compose_unavailable", false, fault.PhasePrecondition, fault.ChangeNone, "doctor", "Inspect generic Docker readiness before starting a Workspace."),
+		classifiedCommandError(fault.KindContract, "invalid_readiness_profile", false, fault.PhasePrecondition, fault.ChangeNone, "doctor", "Repair the generic Docker readiness contract."),
+		classifiedCommandError(fault.KindContract, "invalid_readiness_observation", false, fault.PhasePrecondition, fault.ChangeNone, "doctor", "Repair the generic Docker readiness observation contract."),
+	}
 }
 
 func withoutBrokerErrors(errors []CommandError) []CommandError {
