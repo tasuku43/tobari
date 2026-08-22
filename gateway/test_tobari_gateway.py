@@ -914,6 +914,58 @@ class ReviewedBrokerGatewayTests(unittest.TestCase):
         prepared.apply.assert_called_once_with(flow.request)
         commit.assert_called_once_with(flow)
 
+    def test_declared_kubernetes_authority_derives_watch_without_schema(self):
+        addon = gateway.TobariGateway.__new__(gateway.TobariGateway)
+        addon.cluster = "default"
+        addon.opa_url = "http://opa.invalid/decision"
+        addon.opa_timeout = 2
+        addon.graphql_config = {}
+        addon.principal_source = mock.Mock()
+        addon.principal_source.load.return_value = {}
+        prepared = mock.Mock(secret_headers={"authorization"}, broker_provider=None, deferred=False)
+        addon.credential_adapter = mock.Mock()
+        addon.credential_adapter.prepare.return_value = prepared
+        request = http.Request.make(
+            "GET",
+            "https://cluster.us-east-1.eks.amazonaws.com/apis/acme.example/v1/namespaces/team/widgets?watch=true",
+            headers={"authorization": "Bearer secret-canary"},
+        )
+        flow = tflow.tflow(req=request)
+        principal = {
+            "project_id": PROJECT, "context_id": CONTEXT,
+            "context": "default", "project_root": "/workspace/project",
+        }
+        policy_inputs = []
+
+        def deny(_url, document, _timeout):
+            policy_inputs.append(document)
+            return gateway.Decision(False, "review required", 403, True)
+
+        with (
+            mock.patch.object(gateway, "normalize_ingress_authority", return_value=("https", "cluster.us-east-1.eks.amazonaws.com", 443)),
+            mock.patch.object(gateway, "resolve_project_principal", return_value=principal),
+            mock.patch.object(gateway, "graphql_endpoint_declared", return_value=False),
+            mock.patch.object(gateway, "mcp_endpoint_declared", return_value=False),
+            mock.patch.object(gateway, "kubernetes_endpoint_declared", return_value=True),
+            mock.patch.object(gateway, "query_opa", side_effect=deny),
+            mock.patch.object(gateway, "commit_upstream_authority") as commit,
+        ):
+            addon.requestheaders(flow)
+
+        self.assertEqual(flow.response.status_code, 403)
+        commit.assert_not_called()
+        self.assertEqual(policy_inputs[0]["request"]["kubernetes"], {
+            "verb": "watch",
+            "resource": "acme.example/v1/namespaces/team/widgets",
+            "dry_run": "none",
+        })
+        denial = json.loads(flow.response.content)
+        self.assertEqual(denial["tobari"]["request"]["protocol"], "kubernetes")
+        self.assertEqual(denial["tobari"]["request"]["kubernetes_verb"], "watch")
+        self.assertEqual(denial["tobari"]["request"]["kubernetes_resource"], "acme.example/v1/namespaces/team/widgets")
+        self.assertNotIn("secret-canary", json.dumps(policy_inputs[0]))
+        self.assertNotIn("secret-canary", json.dumps(denial))
+
     def test_broker_error_maps_reviewed_dynamic_outcomes(self):
         with self.assertRaises(broker.BrokerCredentialBindingError):
             broker._broker_response(json.dumps({

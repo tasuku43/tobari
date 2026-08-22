@@ -38,6 +38,7 @@ COPY addon/tobari_gateway.py /opt/tobari/tobari_gateway.py
 COPY addon/aws_request.py /opt/tobari/aws_request.py
 COPY addon/credential_adapters.py /opt/tobari/credential_adapters.py
 COPY addon/graphql_request.py /opt/tobari/graphql_request.py
+COPY addon/kubernetes_request.py /opt/tobari/kubernetes_request.py
 COPY addon/mcp_request.py /opt/tobari/mcp_request.py
 COPY addon/synthetic_dns.py /opt/tobari/synthetic_dns.py
 COPY addon/validated_file.py /opt/tobari/validated_file.py
@@ -45,7 +46,7 @@ COPY entrypoint.sh /opt/tobari/entrypoint.sh
 COPY network-guard.sh /opt/tobari/network-guard.sh
 COPY THIRD_PARTY_NOTICES.md /usr/share/doc/tobari-gateway/THIRD_PARTY_NOTICES.md
 
-RUN chmod 0444 /opt/tobari/tobari_gateway.py /opt/tobari/aws_request.py /opt/tobari/credential_adapters.py /opt/tobari/graphql_request.py /opt/tobari/mcp_request.py /opt/tobari/synthetic_dns.py /opt/tobari/validated_file.py \
+RUN chmod 0444 /opt/tobari/tobari_gateway.py /opt/tobari/aws_request.py /opt/tobari/credential_adapters.py /opt/tobari/graphql_request.py /opt/tobari/kubernetes_request.py /opt/tobari/mcp_request.py /opt/tobari/synthetic_dns.py /opt/tobari/validated_file.py \
       /opt/tobari/requirements.txt /usr/share/doc/tobari-gateway/THIRD_PARTY_NOTICES.md \
     && chmod 0555 /opt/tobari/entrypoint.sh /opt/tobari/network-guard.sh
 

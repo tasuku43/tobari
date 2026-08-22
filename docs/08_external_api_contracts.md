@@ -95,11 +95,15 @@ requests, GitHub CLI's two device bootstrap/exchange requests, TWG's device and
 identity effects, and pup's two exact US1 OAuth POSTs. Exact
 methods, authorities, and paths are defined in
 [Authentication handling](07_authentication.md#standard-native-workspace-authentication).
-Typed AWS/EKS Workspace bootstrap is not an external API capability: it parses
-only fixed bounded host files, grants no destination or method, and performs no
-AWS or Kubernetes request. Later `kubectl` traffic remains ordinary
-Context-policy input. Later AWS traffic remains ordinary HTTP unless it matches
-the bounded signed Query/JSON RPC identity above.
+Typed AWS/EKS Workspace bootstrap parses only fixed bounded host files, grants
+no destination or method, and performs no AWS or Kubernetes request. When EKS
+is configured, its validated origin does declare the Kubernetes classification
+boundary: Gateway derives exact API verb, canonical resource/non-resource
+coordinate, and dry-run mode from the request without OpenAPI or CRD discovery.
+Object bodies stay opaque, impersonation fails locally, and exact learned
+Kubernetes identity remains required. Other Kubernetes origins remain ordinary
+HTTP. AWS traffic remains ordinary HTTP unless it matches the bounded signed
+Query/JSON RPC identity above.
 The Claude regression proves that successful token exchange cannot be followed
 by a Tobari-generated `broker_auth_required` on `/api/oauth/profile`; provider
 `subscriptionType` and `rateLimitTier` remain provider-owned response data.

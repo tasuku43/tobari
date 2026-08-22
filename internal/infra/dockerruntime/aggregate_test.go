@@ -280,12 +280,37 @@ func TestGatewayProjectionCarriesOnlyValidatedGraphQLEndpoints(t *testing.T) {
 	t.Parallel()
 	endpoint := tobari.GraphQLEndpoint{Scheme: "https", Host: "api.example.com", Port: 443, Path: "/graphql"}
 	projection := rewriteGatewayProjection(aggregateContext{
-		manifest:         tobari.ContextManifest{Name: "default", ID: "01912345-6789-7abc-8def-0123456789ad"},
-		graphqlEndpoints: []tobari.GraphQLEndpoint{endpoint},
+		manifest:            tobari.ContextManifest{Name: "default", ID: "01912345-6789-7abc-8def-0123456789ad"},
+		graphqlEndpoints:    []tobari.GraphQLEndpoint{endpoint},
+		kubernetesEndpoints: []tobari.GraphQLEndpoint{{Scheme: "https", Host: "cluster.us-east-1.eks.amazonaws.com", Port: 443, Path: "/"}},
 	})
 	endpoints, ok := projection["graphql_endpoints"].([]tobari.GraphQLEndpoint)
 	if !ok || len(endpoints) != 1 || endpoints[0] != endpoint {
 		t.Fatalf("GraphQL endpoint projection = %#v", projection["graphql_endpoints"])
+	}
+	kubernetes, ok := projection["kubernetes_endpoints"].([]tobari.GraphQLEndpoint)
+	if !ok || len(kubernetes) != 1 || kubernetes[0].Host != "cluster.us-east-1.eks.amazonaws.com" {
+		t.Fatalf("Kubernetes endpoint projection = %#v", projection["kubernetes_endpoints"])
+	}
+}
+
+func TestAggregateKubernetesEndpointsRequiresValidatedEKSBootstrap(t *testing.T) {
+	manifest := tobari.ContextManifest{Bootstrap: &tobari.ContextBootstrapSnapshot{EKS: &tobari.ContextEKSBootstrap{
+		ContextName: "engineering", ClusterName: "platform", Region: "ap-northeast-1",
+		Server: "https://abc.gr7.ap-northeast-1.eks.amazonaws.com", CertificateAuthorityData: syntheticEKSCA(t),
+	}}}
+	endpoints, err := aggregateKubernetesEndpoints(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(endpoints) != 1 || endpoints[0] != (tobari.GraphQLEndpoint{
+		Scheme: "https", Host: "abc.gr7.ap-northeast-1.eks.amazonaws.com", Port: 443, Path: "/",
+	}) {
+		t.Fatalf("Kubernetes endpoints = %#v", endpoints)
+	}
+	manifest.Bootstrap.EKS.Server = "https://proxy.example.com"
+	if _, err := aggregateKubernetesEndpoints(manifest); err == nil {
+		t.Fatal("expected non-EKS endpoint rejection")
 	}
 }
 

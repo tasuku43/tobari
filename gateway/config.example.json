@@ -11,7 +11,8 @@
           "path": "/graphql"
         }
       ],
-      "mcp_endpoints": []
+      "mcp_endpoints": [],
+      "kubernetes_endpoints": []
     }
   }
 }

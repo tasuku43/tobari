@@ -526,14 +526,21 @@ tokens are exact request identity only: Gateway and OPA do not load AWS service
 models or infer IAM action, resource, read, create, write, idempotence, or retry
 safety.
 
+An already validated EKS bootstrap adds exactly its commercial HTTPS origin to
+the Kubernetes protocol boundary. Gateway derives `verb`, canonical
+resource/non-resource coordinate, and exact `dryRun` mode from bounded request
+structure. It never parses object bodies, loads OpenAPI, discovers CRDs, or
+retains bearer credentials. Kubernetes impersonation headers and ambiguous
+watch/dry-run modes fail locally and cannot enter learning.
+
 OPA timeout, connection failure, non-2xx status, malformed JSON, missing
 fields, unknown decision values, and Gateway exceptions all deny. Plain HTTP
 to non-local destinations is denied by the initialized policy. The initialized
 policy also requires an explicit port for each supported scheme; learned rules
 retain the observed Context/project/scheme/host/port/method/path and optional
-GraphQL or AWS coordinate and cannot be used on another Context, project, port, or
-scheme. Query and headers may be available to Advanced Rego as additional deny
-constraints but never become guided candidate/rule identity.
+GraphQL, AWS, or Kubernetes coordinate and cannot be used on another Context,
+project, port, or scheme. Query and headers may be available to Advanced Rego
+as additional deny constraints but never become guided candidate/rule identity.
 Ordinary body presence and content are not authorization or learning dimensions;
 an exact learned rule covers every body value at its exact
 Context/project/scheme/host/port/method/path. Immediately before an upstream connection,

@@ -123,6 +123,13 @@ Persisted-query-only and nonempty-extension requests remain unsupported and
 fail locally with distinct diagnostics. Policy review derives `not_expected`
 for query and `possible` for mutation as evidence; exact operation/root
 identity remains the authority.
+For a Context with a validated EKS bootstrap, the exact Kubernetes API origin
+is also a trusted protocol authority. Gateway derives the API verb and one
+canonical resource or non-resource coordinate from method, path, `watch`, and
+`dryRun`; object bodies remain opaque. Core resources and CRDs use the same
+structural path contract. Read/list/watch, possible mutation, dry-run, and
+interactive connect remain visibly distinct. Impersonation headers fail
+locally rather than becoming a learnable permission.
 For a commercial AWS endpoint using signed AWS Query or AWS JSON RPC, Gateway
 derives only wire protocol, SigV4 service, and exact `Action` or signed
 `X-Amz-Target`. The dynamic request supplies that coordinate; Tobari carries no

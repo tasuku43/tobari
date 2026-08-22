@@ -1256,6 +1256,13 @@ returns no secret; policy denial performs no resolution, refresh, companion
 call, or signing. The addon has no managed or arbitrary dynamic fallback and
 never retries.
 
+The aggregate projection converts only an already validated commercial EKS
+bootstrap origin into a Kubernetes protocol authority. Gateway parses the
+standard resource path locally, sends only verb/resource/dry-run identity to
+OPA, and streams the opaque object body only after exact authorization. It
+does not load Kubernetes OpenAPI, enumerate CRDs, or call discovery endpoints
+to classify a request.
+
 Denied audit records are also the policy-development feedback interface. A
 learnable Gateway denial carries a fixed host-side `tobari review permissions`
 navigation hint, and session closure may summarize the pending queue on host

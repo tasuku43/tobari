@@ -226,6 +226,33 @@ graphql_second_allow_fixture := object.union(graphql_allow_fixture, {
 	"source_candidates": ["pcy_1123456789abcdef0123456789abcdef"],
 })
 
+kubernetes_endpoint_fixture := {
+	"scheme": "https",
+	"host": "cluster.us-east-1.eks.amazonaws.com",
+	"port": 443,
+	"path": "/",
+}
+
+kubernetes_request_fixture := object.union(
+	request_with_authority({"host": "cluster.us-east-1.eks.amazonaws.com"}),
+	{
+		"method": "GET",
+		"path": {"raw": "/api/v1/namespaces/team/pods", "segments": ["api", "v1", "namespaces", "team", "pods"]},
+		"kubernetes": {"verb": "list", "resource": "core/v1/namespaces/team/pods", "dry_run": "none"},
+	},
+)
+
+kubernetes_allow_fixture := object.union(learned_exact_fixture, {
+	"host": "cluster.us-east-1.eks.amazonaws.com",
+	"method": "GET",
+	"path": "/api/v1/namespaces/team/pods",
+	"examples": ["/api/v1/namespaces/team/pods"],
+	"protocol": "kubernetes",
+	"kubernetes_verb": "list",
+	"kubernetes_resource": "core/v1/namespaces/team/pods",
+	"kubernetes_dry_run": "none",
+})
+
 graphql_deny_fixture := {
 	"id": "pdr_0123456789abcdef0123456789abcdef",
 	"context_id": base_input.principal.context_id,
@@ -349,6 +376,36 @@ test_http_rule_does_not_authorize_aws_operation if {
 		with data.tobari.rules.learned_allows as [http_rule]
 	not result.allow
 	result.learnable
+}
+
+test_kubernetes_exact_rule_allows_without_http_fallback if {
+	http_rule := object.union(learned_exact_fixture, {
+		"host": "cluster.us-east-1.eks.amazonaws.com",
+		"method": "GET",
+		"path": "/api/v1/namespaces/team/pods",
+		"examples": ["/api/v1/namespaces/team/pods"],
+	})
+	denied := decision with input as input_with_request(kubernetes_request_fixture)
+		with data.tobari.boundary.kubernetes_endpoints as [kubernetes_endpoint_fixture]
+		with data.tobari.rules.learned_allows as [http_rule]
+	allowed := decision with input as input_with_request(kubernetes_request_fixture)
+		with data.tobari.boundary.kubernetes_endpoints as [kubernetes_endpoint_fixture]
+		with data.tobari.rules.learned_allows as [kubernetes_allow_fixture]
+	not denied.allow
+	denied.learnable
+	allowed.allow
+}
+
+test_kubernetes_verb_and_dry_run_are_exact if {
+	watch := object.union(kubernetes_request_fixture, {"kubernetes": {"verb": "watch", "resource": "core/v1/namespaces/team/pods", "dry_run": "none"}})
+	dry_run := object.union(kubernetes_request_fixture, {"kubernetes": {"verb": "list", "resource": "core/v1/namespaces/team/pods", "dry_run": "all"}})
+	every request in [watch, dry_run] {
+		result := decision with input as input_with_request(request)
+			with data.tobari.boundary.kubernetes_endpoints as [kubernetes_endpoint_fixture]
+			with data.tobari.rules.learned_allows as [kubernetes_allow_fixture]
+		not result.allow
+		result.learnable
+	}
 }
 
 test_aws_malformed_or_mixed_identity_fails_closed if {

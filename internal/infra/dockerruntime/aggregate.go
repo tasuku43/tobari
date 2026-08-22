@@ -34,14 +34,15 @@ type aggregateProjection struct {
 }
 
 type aggregateContext struct {
-	manifest         tobari.ContextManifest
-	paths            tobari.ContextStorePaths
-	data             map[string]any
-	policy           policyDataFile
-	rego             []byte
-	graphqlEndpoints []tobari.GraphQLEndpoint
-	mcpEndpoints     []tobari.MCPEndpoint
-	contextPolicy    tobari.ContextPolicy
+	manifest            tobari.ContextManifest
+	paths               tobari.ContextStorePaths
+	data                map[string]any
+	policy              policyDataFile
+	rego                []byte
+	graphqlEndpoints    []tobari.GraphQLEndpoint
+	mcpEndpoints        []tobari.MCPEndpoint
+	kubernetesEndpoints []tobari.GraphQLEndpoint
+	contextPolicy       tobari.ContextPolicy
 }
 
 func (r *Runtime) aggregateRoot() string {
@@ -109,7 +110,14 @@ func (r *Runtime) readAggregateContextsWithTransactions(
 		if err != nil {
 			return nil, fmt.Errorf("Context %q MCP endpoints: %w", manifest.Name, err)
 		}
-		contextData["boundary"] = map[string]any{"graphql_endpoints": graphqlEndpoints, "mcp_endpoints": mcpEndpoints}
+		kubernetesEndpoints, err := aggregateKubernetesEndpoints(manifest)
+		if err != nil {
+			return nil, fmt.Errorf("Context %q Kubernetes endpoint: %w", manifest.Name, err)
+		}
+		contextData["boundary"] = map[string]any{
+			"graphql_endpoints": graphqlEndpoints, "mcp_endpoints": mcpEndpoints,
+			"kubernetes_endpoints": kubernetesEndpoints,
+		}
 		contextData["policy"] = map[string]any{
 			"destination_mode": effectivePolicy.DestinationCeiling.Mode, "authorities": effectivePolicy.DestinationCeiling.Authorities,
 			"method_default": effectivePolicy.MethodPolicy.Default, "method_overrides": effectivePolicy.MethodPolicy.Overrides,
@@ -128,13 +136,30 @@ func (r *Runtime) readAggregateContextsWithTransactions(
 		items = append(items, aggregateContext{
 			manifest: manifest, paths: paths, data: contextData,
 			policy: policySource, rego: rego,
-			graphqlEndpoints: graphqlEndpoints,
-			mcpEndpoints:     mcpEndpoints,
-			contextPolicy:    effectivePolicy,
+			graphqlEndpoints:    graphqlEndpoints,
+			mcpEndpoints:        mcpEndpoints,
+			kubernetesEndpoints: kubernetesEndpoints,
+			contextPolicy:       effectivePolicy,
 		})
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].manifest.ID < items[j].manifest.ID })
 	return items, nil
+}
+
+func aggregateKubernetesEndpoints(manifest tobari.ContextManifest) ([]tobari.GraphQLEndpoint, error) {
+	if manifest.Bootstrap == nil || manifest.Bootstrap.EKS == nil {
+		return []tobari.GraphQLEndpoint{}, nil
+	}
+	if err := manifest.Bootstrap.EKS.Validate(); err != nil {
+		return nil, err
+	}
+	endpoint := tobari.GraphQLEndpoint{
+		Scheme: "https", Host: strings.TrimPrefix(manifest.Bootstrap.EKS.Server, "https://"), Port: 443, Path: "/",
+	}
+	if err := endpoint.Validate(); err != nil {
+		return nil, err
+	}
+	return []tobari.GraphQLEndpoint{endpoint}, nil
 }
 
 func aggregateGraphQLEndpoints(
@@ -248,13 +273,14 @@ func aggregateRouter(items []aggregateContext) ([]byte, error) {
 	builder.WriteString("learned_exact_denied if { some rule in data.tobari_contexts[input.principal.context_id].rules.learned_denies; rule.protocol == \"http\"; rule.scheme == input.request.authority.scheme; rule.context_id == input.principal.context_id; rule.project_id == input.principal.project_id; rule.host == input.request.authority.host; rule.port == input.request.authority.port; rule.method == input.request.method; rule.path == input.request.path.raw }\n")
 	builder.WriteString("learned_graphql_denied if { some rule in data.tobari_contexts[input.principal.context_id].rules.learned_denies; some root_field in input.request.graphql.root_fields; rule.protocol == \"graphql\"; rule.scheme == input.request.authority.scheme; rule.context_id == input.principal.context_id; rule.project_id == input.principal.project_id; rule.host == input.request.authority.host; rule.port == input.request.authority.port; rule.method == input.request.method; rule.path == input.request.path.raw; rule.graphql_operation_type == input.request.graphql.operation_type; rule.graphql_root_field == root_field }\n")
 	builder.WriteString("learned_mcp_denied if { some rule in data.tobari_contexts[input.principal.context_id].rules.learned_denies; rule.protocol == \"mcp\"; rule.scheme == input.request.authority.scheme; rule.context_id == input.principal.context_id; rule.project_id == input.principal.project_id; rule.host == input.request.authority.host; rule.port == input.request.authority.port; rule.method == input.request.method; rule.path == input.request.path.raw; rule.mcp_method == input.request.mcp.method; object.get(rule, \"mcp_tool_name\", \"\") == object.get(input.request.mcp, \"tool_name\", \"\") }\n")
-	builder.WriteString("exact_denied if { context_policy_exact_denied }\nexact_denied if { learned_exact_denied }\nexact_denied if { learned_graphql_denied }\nexact_denied if { learned_mcp_denied }\n")
-	builder.WriteString("context_policy_exact_granted if { object.get(input.request, \"graphql\", null) == null; object.get(input.request, \"mcp\", null) == null; some rule in data.tobari_contexts[input.principal.context_id].policy.baseline_grants; object.get(rule, \"protocol\", \"http\") == \"http\"; rule.scheme == input.request.authority.scheme; rule.host == input.request.authority.host; rule.port == input.request.authority.port; rule.method == input.request.method; rule.path == input.request.path.raw }\n")
-	builder.WriteString("context_policy_template_granted if { object.get(input.request, \"graphql\", null) == null; object.get(input.request, \"mcp\", null) == null; some rule in data.tobari_contexts[input.principal.context_id].policy.baseline_templates; rule.scheme == input.request.authority.scheme; rule.host == input.request.authority.host; rule.port == input.request.authority.port; rule.method == input.request.method; path_template_matches(rule.segments, input.request.path.raw) }\n")
+	builder.WriteString("learned_kubernetes_denied if { some rule in data.tobari_contexts[input.principal.context_id].rules.learned_denies; rule.protocol == \"kubernetes\"; rule.scheme == input.request.authority.scheme; rule.context_id == input.principal.context_id; rule.project_id == input.principal.project_id; rule.host == input.request.authority.host; rule.port == input.request.authority.port; rule.method == input.request.method; rule.path == input.request.path.raw; rule.kubernetes_verb == input.request.kubernetes.verb; rule.kubernetes_resource == input.request.kubernetes.resource; rule.kubernetes_dry_run == input.request.kubernetes.dry_run }\n")
+	builder.WriteString("exact_denied if { context_policy_exact_denied }\nexact_denied if { learned_exact_denied }\nexact_denied if { learned_graphql_denied }\nexact_denied if { learned_mcp_denied }\nexact_denied if { learned_kubernetes_denied }\n")
+	builder.WriteString("context_policy_exact_granted if { object.get(input.request, \"graphql\", null) == null; object.get(input.request, \"mcp\", null) == null; object.get(input.request, \"kubernetes\", null) == null; some rule in data.tobari_contexts[input.principal.context_id].policy.baseline_grants; object.get(rule, \"protocol\", \"http\") == \"http\"; rule.scheme == input.request.authority.scheme; rule.host == input.request.authority.host; rule.port == input.request.authority.port; rule.method == input.request.method; rule.path == input.request.path.raw }\n")
+	builder.WriteString("context_policy_template_granted if { object.get(input.request, \"graphql\", null) == null; object.get(input.request, \"mcp\", null) == null; object.get(input.request, \"kubernetes\", null) == null; some rule in data.tobari_contexts[input.principal.context_id].policy.baseline_templates; rule.scheme == input.request.authority.scheme; rule.host == input.request.authority.host; rule.port == input.request.authority.port; rule.method == input.request.method; path_template_matches(rule.segments, input.request.path.raw) }\n")
 	builder.WriteString("context_policy_graphql_root_granted(root_field) if { some rule in data.tobari_contexts[input.principal.context_id].policy.baseline_grants; rule.protocol == \"graphql\"; rule.scheme == input.request.authority.scheme; rule.host == input.request.authority.host; rule.port == input.request.authority.port; rule.method == input.request.method; rule.path == input.request.path.raw; rule.graphql_operation_type == input.request.graphql.operation_type; rule.graphql_root_field == root_field }\n")
 	builder.WriteString("context_policy_graphql_granted if { is_array(input.request.graphql.root_fields); count(input.request.graphql.root_fields) > 0; every root_field in input.request.graphql.root_fields { context_policy_graphql_root_granted(root_field) } }\n")
 	builder.WriteString("context_policy_mcp_granted if { some rule in data.tobari_contexts[input.principal.context_id].policy.mcp_baseline_grants; rule.scheme == input.request.authority.scheme; rule.host == input.request.authority.host; rule.port == input.request.authority.port; rule.method == input.request.method; rule.path == input.request.path.raw; rule.mcp_method == input.request.mcp.method; object.get(rule, \"mcp_tool_name\", \"\") == object.get(input.request.mcp, \"tool_name\", \"\") }\n")
-	builder.WriteString("context_policy_granted if { method_policy_granted }\ncontext_policy_granted if { context_policy_exact_granted }\ncontext_policy_granted if { context_policy_template_granted }\ncontext_policy_granted if { context_policy_graphql_granted }\ncontext_policy_granted if { context_policy_mcp_granted }\n\n")
+	builder.WriteString("context_policy_granted if { method_policy_granted; object.get(input.request, \"kubernetes\", null) == null }\ncontext_policy_granted if { context_policy_exact_granted }\ncontext_policy_granted if { context_policy_template_granted }\ncontext_policy_granted if { context_policy_graphql_granted }\ncontext_policy_granted if { context_policy_mcp_granted }\n\n")
 	builder.WriteString("decision := {\"allow\": false, \"reason\": \"denied by attachment policy\", \"status_code\": 403, \"learnable\": false} if { input.schema_version == 1; input.principal.cluster == \"default\"; data.tobari_contexts[input.principal.context_id]; host_loopback_request; host_loopback_identity_valid; attachment_denied }\n\n")
 	builder.WriteString("decision := {\"allow\": true, \"reason\": \"allowed by attachment policy\", \"status_code\": 403, \"learnable\": false} if { input.schema_version == 1; input.principal.cluster == \"default\"; data.tobari_contexts[input.principal.context_id]; host_loopback_request; host_loopback_identity_valid; not attachment_denied; attachment_allowed }\n\n")
 	builder.WriteString("decision := {\"allow\": false, \"reason\": \"Host Loopback requires attachment policy review\", \"status_code\": 403, \"learnable\": true} if { input.schema_version == 1; input.principal.cluster == \"default\"; data.tobari_contexts[input.principal.context_id]; host_loopback_request; host_loopback_identity_valid; not attachment_denied; not attachment_allowed }\n\n")
@@ -272,6 +298,7 @@ func aggregateRouter(items []aggregateContext) ([]byte, error) {
 	builder.WriteString("  object.get(input.request, \"graphql\", null) != null\n")
 	builder.WriteString("  result := data.tobari.system.guided.decision\n")
 	builder.WriteString("}\n\n")
+	builder.WriteString("decision := result if {\n  input.schema_version == 1\n  input.principal.cluster == \"default\"\n  data.tobari_contexts[input.principal.context_id]\n  not host_loopback_request\n  not terminal_policy\n  not exact_denied\n  not context_policy_granted\n  object.get(input.request, \"kubernetes\", null) != null\n  result := data.tobari.system.guided.decision\n}\n\n")
 	for _, item := range items {
 		if err := item.manifest.Validate(); err != nil {
 			return nil, err
@@ -286,6 +313,7 @@ func aggregateRouter(items []aggregateContext) ([]byte, error) {
 		builder.WriteString("  not terminal_policy\n")
 		builder.WriteString("  not exact_denied\n  not context_policy_granted\n")
 		builder.WriteString("  object.get(input.request, \"graphql\", null) == null\n")
+		builder.WriteString("  object.get(input.request, \"kubernetes\", null) == null\n")
 		builder.WriteString("  result := data.")
 		if item.manifest.PolicyMode == tobari.ContextPolicyModeGuided {
 			builder.WriteString("tobari.system.guided")
@@ -302,10 +330,12 @@ func aggregateRouter(items []aggregateContext) ([]byte, error) {
 func rewriteGatewayProjection(item aggregateContext) map[string]any {
 	endpoints := append([]tobari.GraphQLEndpoint{}, item.graphqlEndpoints...)
 	mcpEndpoints := append([]tobari.MCPEndpoint{}, item.mcpEndpoints...)
+	kubernetesEndpoints := append([]tobari.GraphQLEndpoint{}, item.kubernetesEndpoints...)
 	return map[string]any{
-		"name":              item.manifest.Name,
-		"graphql_endpoints": endpoints,
-		"mcp_endpoints":     mcpEndpoints,
+		"name":                 item.manifest.Name,
+		"graphql_endpoints":    endpoints,
+		"mcp_endpoints":        mcpEndpoints,
+		"kubernetes_endpoints": kubernetesEndpoints,
 	}
 }
 

@@ -44,6 +44,11 @@ from mcp_request import (
     parse_mcp_post_request,
     validate_mcp_post_headers,
 )
+from kubernetes_request import (
+    KubernetesRequestError,
+    ParsedKubernetesRequest,
+    parse_kubernetes_request,
+)
 from validated_file import StatIdentityCache, ValidatedFileError
 
 MAX_GATEWAY_CONFIG_BYTES = 256 * 1024
@@ -692,6 +697,7 @@ def build_policy_input(
     graphql: ParsedGraphQLRequest | None = None,
     mcp: ParsedMCPRequest | None = None,
     aws: ParsedAWSRequest | None = None,
+    kubernetes: ParsedKubernetesRequest | None = None,
     host_loopback: dict[str, Any] | None = None,
     attachment_grants: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
@@ -742,6 +748,12 @@ def build_policy_input(
             "wire_protocol": aws.wire_protocol,
             "service": aws.service,
             "operation": aws.operation,
+        }
+    if kubernetes is not None:
+        policy_input["request"]["kubernetes"] = {
+            "verb": kubernetes.verb,
+            "resource": kubernetes.resource,
+            "dry_run": kubernetes.dry_run,
         }
     if host_loopback is not None:
         policy_input["destination"] = {
@@ -825,13 +837,15 @@ def load_gateway_config(path: str) -> dict[str, Any]:
     for context_id, context in contexts.items():
         if not isinstance(context_id, str) or not PROJECT_ID_PATTERN.fullmatch(context_id):
             raise CredentialError("Gateway Context identity is invalid")
-        if not isinstance(context, dict) or set(context) != {"name", "graphql_endpoints", "mcp_endpoints"}:
+        if not isinstance(context, dict) or set(context) != {
+            "name", "graphql_endpoints", "mcp_endpoints", "kubernetes_endpoints"
+        }:
             raise CredentialError("Gateway Context is invalid")
         name = context.get("name")
         if not isinstance(name, str) or re.fullmatch(r"[a-z][a-z0-9-]{0,62}", name) is None:
             raise CredentialError("Gateway Context name is invalid")
         seen_protocol_endpoints: set[tuple[str, str, int, str]] = set()
-        for protocol_key in ("graphql_endpoints", "mcp_endpoints"):
+        for protocol_key in ("graphql_endpoints", "mcp_endpoints", "kubernetes_endpoints"):
             endpoints = context.get(protocol_key)
             if not isinstance(endpoints, list):
                 raise CredentialError("Gateway semantic endpoint configuration is invalid")
@@ -922,6 +936,18 @@ def mcp_endpoint_declared(
     )
 
 
+def kubernetes_endpoint_declared(
+    config: dict[str, Any], context_id: str, scheme: str, host: str, port: int
+) -> bool:
+    context = config.get("contexts", {}).get(context_id)
+    if not isinstance(context, dict):
+        return False
+    return any(
+        endpoint == {"scheme": scheme, "host": host, "port": port, "path": "/"}
+        for endpoint in context.get("kubernetes_endpoints", [])
+    )
+
+
 def _deny(flow: http.HTTPFlow, status: int, code: str) -> None:
     body = json.dumps({"error": code}, separators=(",", ":")).encode("utf-8")
     flow.response = http.Response.make(status, body, {"content-type": "application/json"})
@@ -934,6 +960,7 @@ def _policy_denied(
     graphql: ParsedGraphQLRequest | None = None,
     mcp: ParsedMCPRequest | None = None,
     aws: ParsedAWSRequest | None = None,
+    kubernetes: ParsedKubernetesRequest | None = None,
 ) -> None:
     path = urlsplit(flow.request.url).path or "/"
     review_available = bool(learnable)
@@ -987,6 +1014,11 @@ def _policy_denied(
         document["tobari"]["request"]["aws_wire_protocol"] = aws.wire_protocol
         document["tobari"]["request"]["aws_service"] = aws.service
         document["tobari"]["request"]["aws_operation"] = aws.operation
+    if kubernetes is not None:
+        document["tobari"]["request"]["protocol"] = "kubernetes"
+        document["tobari"]["request"]["kubernetes_verb"] = kubernetes.verb
+        document["tobari"]["request"]["kubernetes_resource"] = kubernetes.resource
+        document["tobari"]["request"]["kubernetes_dry_run"] = kubernetes.dry_run
     body = json.dumps(document, separators=(",", ":")).encode("utf-8")
     flow.response = http.Response.make(status, body, {"content-type": "application/json"})
 
@@ -1029,6 +1061,16 @@ def _aws_audit_event(base: dict[str, Any], parsed: ParsedAWSRequest) -> dict[str
     event["aws_service"] = parsed.service
     event["aws_operation"] = parsed.operation
     return event
+
+
+def _kubernetes_audit_event(base: dict[str, Any], parsed: ParsedKubernetesRequest) -> dict[str, Any]:
+    return {
+        **base,
+        "protocol": "kubernetes",
+        "kubernetes_verb": parsed.verb,
+        "kubernetes_resource": parsed.resource,
+        "kubernetes_dry_run": parsed.dry_run,
+    }
 
 
 class TobariGateway:
@@ -1112,6 +1154,7 @@ class TobariGateway:
         request_path = "/"
         audit_path = "/"
         aws_identity: ParsedAWSRequest | None = None
+        kubernetes_identity: ParsedKubernetesRequest | None = None
         try:
             scheme, host, port = normalize_ingress_authority(flow)
             request_path = urlsplit(flow.request.url).path or "/"
@@ -1179,11 +1222,22 @@ class TobariGateway:
                     "credential_request": credential_request,
                 }
                 return
-            aws_classification = classify_aws_request_headers(
-                flow.request.method.upper(), scheme, host, port, request_path,
-                urlsplit(flow.request.url).query,
-                request_headers,
-            )
+            if kubernetes_endpoint_declared(
+                self.graphql_config, context_id, scheme, host, port
+            ):
+                kubernetes_identity = parse_kubernetes_request(
+                    flow.request.method.upper(),
+                    request_path,
+                    urlsplit(flow.request.url).query,
+                    request_headers,
+                )
+            aws_classification = None
+            if kubernetes_identity is None:
+                aws_classification = classify_aws_request_headers(
+                    flow.request.method.upper(), scheme, host, port, request_path,
+                    urlsplit(flow.request.url).query,
+                    request_headers,
+                )
             if isinstance(aws_classification, PendingAWSQueryRequest):
                 flow.request.stream = False
                 audit_deferred = True
@@ -1208,6 +1262,7 @@ class TobariGateway:
                 credential_request.secret_headers,
                 credential_request.broker_provider,
                 aws=aws_identity,
+                kubernetes=kubernetes_identity,
                 host_loopback=host_loopback,
                 attachment_grants=attachment_grants,
             )
@@ -1215,7 +1270,10 @@ class TobariGateway:
             reason = decision.reason
             learnable = decision.learnable
             if not decision.allow:
-                _policy_denied(flow, decision.status_code, learnable, aws=aws_identity)
+                _policy_denied(
+                    flow, decision.status_code, learnable,
+                    aws=aws_identity, kubernetes=kubernetes_identity,
+                )
                 upstream_status = decision.status_code
                 return
             credential_request.apply(flow.request)
@@ -1239,10 +1297,15 @@ class TobariGateway:
                 "learnable": learnable,
                 "started": started,
             }
-            flow.metadata["tobari_audit"] = (
-                _aws_audit_event(audit_event, aws_identity)
-                if aws_identity is not None else audit_event
-            )
+            if kubernetes_identity is not None:
+                flow.metadata["tobari_audit"] = _kubernetes_audit_event(
+                    audit_event, kubernetes_identity
+                )
+            else:
+                flow.metadata["tobari_audit"] = (
+                    _aws_audit_event(audit_event, aws_identity)
+                    if aws_identity is not None else audit_event
+                )
             if bool(getattr(credential_request, "deferred", False)):
                 # AWS SigV4 needs a hash of the complete, bounded request body.
                 # Policy has already allowed the ordinary HTTP effect, but the
@@ -1266,7 +1329,7 @@ class TobariGateway:
                 # Authorization is complete before mitmproxy forwards any body bytes.
                 # The body is deliberately opaque to policy and is never retained here.
                 flow.request.stream = True
-        except (GraphQLRequestError, MCPRequestError, AWSRequestError) as error:
+        except (GraphQLRequestError, MCPRequestError, AWSRequestError, KubernetesRequestError) as error:
             reason = str(error)
             _deny(flow, 400, error.code)
             upstream_status = 400
@@ -1318,7 +1381,11 @@ class TobariGateway:
                     "upstream_status": upstream_status,
                     "duration_ms": int((time.monotonic() - started) * 1000),
                 }
-                _audit(**(_aws_audit_event(event, aws_identity) if aws_identity is not None else event))
+                if kubernetes_identity is not None:
+                    event = _kubernetes_audit_event(event, kubernetes_identity)
+                elif aws_identity is not None:
+                    event = _aws_audit_event(event, aws_identity)
+                _audit(**event)
 
     def _complete_graphql_request(
         self, flow: http.HTTPFlow, pending: dict[str, Any]

@@ -38,6 +38,7 @@ THIRD_PARTY_NOTICES.md
 addon/aws_request.py
 addon/credential_adapters.py
 addon/graphql_request.py
+addon/kubernetes_request.py
 addon/mcp_request.py
 addon/synthetic_dns.py
 addon/tobari_gateway.py

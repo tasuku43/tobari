@@ -49,9 +49,10 @@ func (r *Runtime) checkGatewayConfigAt(path string) (string, doctor.CheckStatus)
 	var document struct {
 		Version  string `json:"version"`
 		Contexts map[string]struct {
-			Name             string                   `json:"name"`
-			GraphQLEndpoints []tobari.GraphQLEndpoint `json:"graphql_endpoints"`
-			MCPEndpoints     []tobari.MCPEndpoint     `json:"mcp_endpoints"`
+			Name                string                   `json:"name"`
+			GraphQLEndpoints    []tobari.GraphQLEndpoint `json:"graphql_endpoints"`
+			MCPEndpoints        []tobari.MCPEndpoint     `json:"mcp_endpoints"`
+			KubernetesEndpoints []tobari.GraphQLEndpoint `json:"kubernetes_endpoints"`
 		} `json:"contexts"`
 	}
 	if err := decodeStrictJSON(data, &document); err != nil || document.Version != "v1" || document.Contexts == nil {
@@ -80,6 +81,15 @@ func (r *Runtime) checkGatewayConfigAt(path string) (string, doctor.CheckStatus)
 				return "gateway.json contains duplicate MCP endpoint projections", doctor.CheckStatusFail
 			}
 			seenMCPEndpoints[endpoint] = struct{}{}
+		}
+		for _, endpoint := range projected.KubernetesEndpoints {
+			if err := endpoint.Validate(); err != nil || endpoint.Scheme != "https" || endpoint.Port != 443 || endpoint.Path != "/" {
+				return "gateway.json contains an invalid Kubernetes endpoint projection", doctor.CheckStatusFail
+			}
+			if _, duplicate := seenEndpoints[endpoint]; duplicate {
+				return "gateway.json contains duplicate semantic endpoint projections", doctor.CheckStatusFail
+			}
+			seenEndpoints[endpoint] = struct{}{}
 		}
 	}
 	return "Gateway routing metadata matches schema V1", doctor.CheckStatusPass

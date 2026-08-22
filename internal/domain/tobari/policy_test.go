@@ -114,6 +114,9 @@ func TestPolicyProtocolIdentityValidationAndEffectiveProtocol(t *testing.T) {
 		{Scheme: "http", Protocol: PolicyProtocolGraphQL, GraphQLOperationType: GraphQLOperationMutation, GraphQLRootField: "updateIssue"},
 		{Scheme: "https", Protocol: PolicyProtocolAWS, AWSWireProtocol: AWSWireProtocolQuery, AWSService: "sts", AWSOperation: "GetCallerIdentity"},
 		{Scheme: "https", Protocol: PolicyProtocolAWS, AWSWireProtocol: AWSWireProtocolJSON, AWSService: "dynamodb", AWSOperation: "DynamoDB_20120810.ListTables"},
+		{Scheme: "https", Protocol: PolicyProtocolKubernetes, KubernetesVerb: "watch", KubernetesResource: "core/v1/namespaces/team/pods", KubernetesDryRun: "none"},
+		{Scheme: "https", Protocol: PolicyProtocolKubernetes, KubernetesVerb: "patch", KubernetesResource: "apps/v1/deployments/demo", KubernetesDryRun: "all"},
+		{Scheme: "https", Protocol: PolicyProtocolKubernetes, KubernetesVerb: "connect", KubernetesResource: "core/v1/pods/demo/exec", KubernetesDryRun: "none"},
 	}
 	for _, identity := range valid {
 		if err := identity.Validate(); err != nil {
@@ -128,6 +131,15 @@ func TestPolicyProtocolIdentityValidationAndEffectiveProtocol(t *testing.T) {
 	}
 	if got := valid[2].StateChangePotential(); got != PolicyStateChangePossible {
 		t.Fatalf("GraphQL mutation state change = %q", got)
+	}
+	if got := valid[5].StateChangePotential(); got != PolicyStateChangeNone {
+		t.Fatalf("Kubernetes watch state change = %q", got)
+	}
+	if got := valid[6].StateChangePotential(); got != PolicyStateChangeNone {
+		t.Fatalf("Kubernetes dry-run state change = %q", got)
+	}
+	if got := valid[7].StateChangePotential(); got != PolicyStateChangeInteractive {
+		t.Fatalf("Kubernetes connect state change = %q", got)
 	}
 	invalid := []PolicyProtocolIdentity{
 		{},
@@ -149,6 +161,9 @@ func TestPolicyProtocolIdentityValidationAndEffectiveProtocol(t *testing.T) {
 		{Scheme: "https", Protocol: PolicyProtocolAWS, AWSWireProtocol: AWSWireProtocolJSON, AWSService: "dynamodb", AWSOperation: "ListTables"},
 		{Scheme: "https", Protocol: PolicyProtocolAWS, AWSWireProtocol: AWSWireProtocolJSON, AWSService: "dynamodb", AWSOperation: "DynamoDB_20120810..ListTables"},
 		{Scheme: "https", Protocol: PolicyProtocolHTTP, AWSWireProtocol: AWSWireProtocolQuery, AWSService: "sts", AWSOperation: "GetCallerIdentity"},
+		{Scheme: "https", Protocol: PolicyProtocolKubernetes, KubernetesVerb: "read", KubernetesResource: "core/v1/pods", KubernetesDryRun: "none"},
+		{Scheme: "https", Protocol: PolicyProtocolKubernetes, KubernetesVerb: "get", KubernetesResource: "", KubernetesDryRun: "none"},
+		{Scheme: "https", Protocol: PolicyProtocolKubernetes, KubernetesVerb: "get", KubernetesResource: "core/v1/pods", KubernetesDryRun: "maybe"},
 	}
 	for _, identity := range invalid {
 		if err := identity.Validate(); err == nil {
@@ -195,6 +210,39 @@ func TestAWSIdentityBindsCandidatesAndRulesWithoutSemanticClassification(t *test
 	if allow.MatchesIdentity(other.ContextID, other.ProjectID, other.Host, other.Port, other.Method, other.Path, other.PolicyProtocolIdentity) ||
 		deny.MatchesIdentity(other.ContextID, other.ProjectID, other.Host, other.Port, other.Method, other.Path, other.PolicyProtocolIdentity) {
 		t.Fatal("AWS exact rules matched a different wire operation")
+	}
+}
+
+func TestKubernetesIdentityKeepsVerbsAndDryRunDistinct(t *testing.T) {
+	t.Parallel()
+	denial := validPolicyDenial()
+	denial.Method = "PATCH"
+	denial.Path = "/apis/apps/v1/namespaces/team/deployments/demo"
+	denial.Host = "abc.gr7.ap-northeast-1.eks.amazonaws.com"
+	denial.PolicyProtocolIdentity = PolicyProtocolIdentity{
+		Scheme: "https", Protocol: PolicyProtocolKubernetes, KubernetesVerb: "patch",
+		KubernetesResource: "apps/v1/namespaces/team/deployments/demo", KubernetesDryRun: "none",
+	}
+	dryRun := denial
+	dryRun.KubernetesDryRun = "all"
+	items, err := PolicyCandidates([]PolicyDenial{denial, dryRun}, []LearnedPolicyRule{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 2 || items[0].ID == items[1].ID {
+		t.Fatalf("Kubernetes effects collapsed = %+v", items)
+	}
+	candidate, err := NewPolicyCandidate(denial)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rule, err := NewExactLearnedPolicyRule(candidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !rule.MatchesIdentity(denial.ContextID, denial.ProjectID, denial.Host, denial.Port, denial.Method, denial.Path, denial.PolicyProtocolIdentity) ||
+		rule.MatchesIdentity(dryRun.ContextID, dryRun.ProjectID, dryRun.Host, dryRun.Port, dryRun.Method, dryRun.Path, dryRun.PolicyProtocolIdentity) {
+		t.Fatal("Kubernetes exact rule did not bind dry-run identity")
 	}
 }
 

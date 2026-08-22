@@ -49,7 +49,7 @@ The accepted slices are:
    operation type and canonical root fields;
 2. a trusted Kubernetes API authority, retaining resource verb, group,
    version, namespace, resource, optional name/subresource, exact dry-run mode,
-   and only the presence—not values—of impersonation headers;
+   while impersonation headers fail closed in the initial contract;
 3. Git Smart HTTP, retaining repository path and upload-pack or receive-pack
    service from exact protocol paths/query and media types;
 4. a trusted OCI Distribution registry, retaining repository, action, and

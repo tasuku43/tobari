@@ -256,7 +256,10 @@ brand.
 - HTTP methods are evidence supplied to policy, not a CLI effect classifier.
 - Review exposes `not_expected`, `possible`, `interactive`, or `unknown` only
   when the validated protocol contract supports that conclusion. GraphQL query
-  and mutation provide the first such signal. Unknown never becomes safe.
+  and mutation and Kubernetes API verbs provide such signals. Unknown never
+  becomes safe. A validated EKS bootstrap may declare its exact API authority;
+  Gateway derives Kubernetes resource identity from the request path without
+  OpenAPI, discovery calls, or CRD schemas.
 
 ### Mechanical enforcement
 

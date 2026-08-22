@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 var (
@@ -37,6 +38,7 @@ const (
 	PolicyProtocolGraphQL        = "graphql"
 	PolicyProtocolMCP            = "mcp"
 	PolicyProtocolAWS            = "aws"
+	PolicyProtocolKubernetes     = "kubernetes"
 	AWSWireProtocolQuery         = "query"
 	AWSWireProtocolJSON          = "json"
 	GraphQLOperationQuery        = "query"
@@ -60,6 +62,9 @@ type PolicyProtocolIdentity struct {
 	AWSWireProtocol      string `json:"aws_wire_protocol,omitempty"`
 	AWSService           string `json:"aws_service,omitempty"`
 	AWSOperation         string `json:"aws_operation,omitempty"`
+	KubernetesVerb       string `json:"kubernetes_verb,omitempty"`
+	KubernetesResource   string `json:"kubernetes_resource,omitempty"`
+	KubernetesDryRun     string `json:"kubernetes_dry_run,omitempty"`
 }
 
 // EffectiveProtocol returns the validated closed protocol value.
@@ -78,6 +83,15 @@ func (i PolicyProtocolIdentity) StateChangePotential() string {
 			return PolicyStateChangePossible
 		}
 	}
+	if i.EffectiveProtocol() == PolicyProtocolKubernetes {
+		if i.KubernetesVerb == "connect" {
+			return PolicyStateChangeInteractive
+		}
+		if i.KubernetesDryRun == "all" || i.KubernetesVerb == "get" || i.KubernetesVerb == "list" || i.KubernetesVerb == "watch" {
+			return PolicyStateChangeNone
+		}
+		return PolicyStateChangePossible
+	}
 	return PolicyStateChangeUnknown
 }
 
@@ -87,11 +101,11 @@ func (i PolicyProtocolIdentity) Validate() error {
 	}
 	switch i.EffectiveProtocol() {
 	case PolicyProtocolHTTP:
-		if i.GraphQLOperationType != "" || i.GraphQLRootField != "" || i.MCPMethod != "" || i.MCPToolName != "" || i.AWSWireProtocol != "" || i.AWSService != "" || i.AWSOperation != "" {
+		if i.GraphQLOperationType != "" || i.GraphQLRootField != "" || i.MCPMethod != "" || i.MCPToolName != "" || i.AWSWireProtocol != "" || i.AWSService != "" || i.AWSOperation != "" || i.KubernetesVerb != "" || i.KubernetesResource != "" || i.KubernetesDryRun != "" {
 			return fmt.Errorf("HTTP policy identity cannot contain protocol refinement fields")
 		}
 	case PolicyProtocolGraphQL:
-		if i.MCPMethod != "" || i.MCPToolName != "" || i.AWSWireProtocol != "" || i.AWSService != "" || i.AWSOperation != "" {
+		if i.MCPMethod != "" || i.MCPToolName != "" || i.AWSWireProtocol != "" || i.AWSService != "" || i.AWSOperation != "" || i.KubernetesVerb != "" || i.KubernetesResource != "" || i.KubernetesDryRun != "" {
 			return fmt.Errorf("GraphQL policy identity cannot contain MCP fields")
 		}
 		if i.GraphQLOperationType != GraphQLOperationQuery && i.GraphQLOperationType != GraphQLOperationMutation {
@@ -101,7 +115,7 @@ func (i PolicyProtocolIdentity) Validate() error {
 			return fmt.Errorf("GraphQL root field is invalid")
 		}
 	case PolicyProtocolMCP:
-		if i.GraphQLOperationType != "" || i.GraphQLRootField != "" || i.AWSWireProtocol != "" || i.AWSService != "" || i.AWSOperation != "" {
+		if i.GraphQLOperationType != "" || i.GraphQLRootField != "" || i.AWSWireProtocol != "" || i.AWSService != "" || i.AWSOperation != "" || i.KubernetesVerb != "" || i.KubernetesResource != "" || i.KubernetesDryRun != "" {
 			return fmt.Errorf("MCP policy identity cannot contain GraphQL fields")
 		}
 		if len(i.MCPMethod) == 0 || len(i.MCPMethod) > 128 || !mcpMethodPattern.MatchString(i.MCPMethod) {
@@ -115,8 +129,8 @@ func (i PolicyProtocolIdentity) Validate() error {
 			return fmt.Errorf("MCP tool name is only valid for tools/call")
 		}
 	case PolicyProtocolAWS:
-		if i.GraphQLOperationType != "" || i.GraphQLRootField != "" || i.MCPMethod != "" || i.MCPToolName != "" {
-			return fmt.Errorf("AWS policy identity cannot contain GraphQL or MCP fields")
+		if i.GraphQLOperationType != "" || i.GraphQLRootField != "" || i.MCPMethod != "" || i.MCPToolName != "" || i.KubernetesVerb != "" || i.KubernetesResource != "" || i.KubernetesDryRun != "" {
+			return fmt.Errorf("AWS policy identity cannot contain another protocol's fields")
 		}
 		if !awsServicePattern.MatchString(i.AWSService) {
 			return fmt.Errorf("AWS signing service is invalid")
@@ -133,6 +147,24 @@ func (i PolicyProtocolIdentity) Validate() error {
 		default:
 			return fmt.Errorf("AWS wire protocol is invalid")
 		}
+	case PolicyProtocolKubernetes:
+		if i.GraphQLOperationType != "" || i.GraphQLRootField != "" || i.MCPMethod != "" || i.MCPToolName != "" || i.AWSWireProtocol != "" || i.AWSService != "" || i.AWSOperation != "" {
+			return fmt.Errorf("Kubernetes policy identity cannot contain another protocol's fields")
+		}
+		if i.KubernetesVerb != "get" && i.KubernetesVerb != "list" && i.KubernetesVerb != "watch" && i.KubernetesVerb != "create" && i.KubernetesVerb != "update" && i.KubernetesVerb != "patch" && i.KubernetesVerb != "delete" && i.KubernetesVerb != "deletecollection" && i.KubernetesVerb != "connect" {
+			return fmt.Errorf("Kubernetes verb is invalid")
+		}
+		if len(i.KubernetesResource) == 0 || len(i.KubernetesResource) > 1024 || !utf8.ValidString(i.KubernetesResource) || strings.IndexByte(i.KubernetesResource, 0) >= 0 {
+			return fmt.Errorf("Kubernetes resource coordinate is invalid")
+		}
+		for _, character := range i.KubernetesResource {
+			if character < 32 || character == 127 || character == '\u2028' || character == '\u2029' {
+				return fmt.Errorf("Kubernetes resource coordinate is invalid")
+			}
+		}
+		if i.KubernetesDryRun != "none" && i.KubernetesDryRun != "empty" && i.KubernetesDryRun != "all" {
+			return fmt.Errorf("Kubernetes dry-run mode is invalid")
+		}
 	default:
 		return fmt.Errorf("policy protocol is invalid")
 	}
@@ -148,7 +180,10 @@ func (i PolicyProtocolIdentity) matches(other PolicyProtocolIdentity) bool {
 		i.MCPToolName == other.MCPToolName &&
 		i.AWSWireProtocol == other.AWSWireProtocol &&
 		i.AWSService == other.AWSService &&
-		i.AWSOperation == other.AWSOperation
+		i.AWSOperation == other.AWSOperation &&
+		i.KubernetesVerb == other.KubernetesVerb &&
+		i.KubernetesResource == other.KubernetesResource &&
+		i.KubernetesDryRun == other.KubernetesDryRun
 }
 
 func appendPolicyProtocolIdentity(material []string, identity PolicyProtocolIdentity) []string {
@@ -161,6 +196,9 @@ func appendPolicyProtocolIdentity(material []string, identity PolicyProtocolIden
 	}
 	if identity.EffectiveProtocol() == PolicyProtocolMCP {
 		return append(material, PolicyProtocolMCP, identity.MCPMethod, identity.MCPToolName)
+	}
+	if identity.EffectiveProtocol() == PolicyProtocolKubernetes {
+		return append(material, PolicyProtocolKubernetes, identity.KubernetesVerb, identity.KubernetesResource, identity.KubernetesDryRun)
 	}
 	return append(material, PolicyProtocolAWS, identity.AWSWireProtocol, identity.AWSService, identity.AWSOperation)
 }
@@ -1215,17 +1253,16 @@ func PolicyCandidatesWithDenyRules(
 		return false
 	}
 	type effectKey struct {
-		contextID            string
-		projectID            string
-		host                 string
-		port                 int
-		method               string
-		path                 string
-		protocol             string
-		graphqlOperationType string
-		graphqlRootField     string
-		destinationKind      string
-		attachmentEpochID    string
+		contextID         string
+		projectID         string
+		host              string
+		port              int
+		method            string
+		path              string
+		protocol          string
+		protocolKey       string
+		destinationKind   string
+		attachmentEpochID string
 	}
 	type aggregate struct {
 		candidate   PolicyCandidate
@@ -1252,7 +1289,7 @@ func PolicyCandidatesWithDenyRules(
 		key := effectKey{
 			contextID: denial.ContextID, projectID: denial.ProjectID, host: denial.Host, port: denial.Port,
 			method: denial.Method, path: denial.Path, protocol: denial.EffectiveProtocol(),
-			graphqlOperationType: denial.GraphQLOperationType, graphqlRootField: denial.GraphQLRootField,
+			protocolKey:     strings.Join(appendPolicyProtocolIdentity(nil, denial.PolicyProtocolIdentity), "\x00"),
 			destinationKind: denial.EffectiveDestinationKind(), attachmentEpochID: denial.AttachmentEpochID,
 		}
 		current, found := aggregates[key]

@@ -39,6 +39,7 @@ candidate_eligible if {
 	transport_port_allowed
 	graphql_endpoints_valid
 	mcp_endpoints_valid
+	kubernetes_endpoints_valid
 	request_protocol_valid
 	authorization_shape_valid
 	not explicitly_denied
@@ -57,6 +58,11 @@ request_allowed if {
 request_allowed if {
 	aws_request
 	aws_learned_rule_allowed
+}
+
+request_allowed if {
+	kubernetes_request
+	kubernetes_learned_rule_allowed
 }
 
 request_allowed if {
@@ -137,6 +143,16 @@ explicitly_denied if {
 	rule.aws_operation == request_aws.operation
 }
 
+explicitly_denied if {
+	kubernetes_request
+	some rule in learned_deny_rules
+	kubernetes_rule_protocol_valid(rule)
+	learned_rule_matches_request(rule, input.principal.project_id, input.request)
+	rule.kubernetes_verb == request_kubernetes.verb
+	rule.kubernetes_resource == request_kubernetes.resource
+	rule.kubernetes_dry_run == request_kubernetes.dry_run
+}
+
 default learned_rules := []
 
 learned_rules := data.tobari.rules.learned_allows
@@ -177,6 +193,16 @@ aws_learned_rule_allowed if {
 	rule.aws_wire_protocol == request_aws.wire_protocol
 	rule.aws_service == request_aws.service
 	rule.aws_operation == request_aws.operation
+	learned_rule_matches_request(rule, input.principal.project_id, input.request)
+}
+
+kubernetes_learned_rule_allowed if {
+	some rule in learned_rules
+	learned_rule_valid(rule)
+	kubernetes_rule_protocol_valid(rule)
+	rule.kubernetes_verb == request_kubernetes.verb
+	rule.kubernetes_resource == request_kubernetes.resource
+	rule.kubernetes_dry_run == request_kubernetes.dry_run
 	learned_rule_matches_request(rule, input.principal.project_id, input.request)
 }
 
@@ -225,6 +251,13 @@ learned_rule_valid(rule) if {
 learned_rule_valid(rule) if {
 	learned_rule_base_valid(rule)
 	aws_rule_protocol_valid(rule)
+	rule.match == "exact"
+	learned_rule_scope_valid(rule)
+}
+
+learned_rule_valid(rule) if {
+	learned_rule_base_valid(rule)
+	kubernetes_rule_protocol_valid(rule)
 	rule.match == "exact"
 	learned_rule_scope_valid(rule)
 }
@@ -334,13 +367,16 @@ path_template_matches(template_segments, raw_path) if {
 request_graphql := object.get(input.request, "graphql", null)
 request_mcp := object.get(input.request, "mcp", null)
 request_aws := object.get(input.request, "aws", null)
+request_kubernetes := object.get(input.request, "kubernetes", null)
 
 ordinary_http_request if {
 	request_graphql == null
 	request_mcp == null
 	request_aws == null
+	request_kubernetes == null
 	not declared_graphql_endpoint
 	not declared_mcp_endpoint
+	not declared_kubernetes_endpoint
 }
 
 graphql_request if {
@@ -358,9 +394,15 @@ mcp_request if {
 aws_request if {
 	not declared_graphql_endpoint
 	not declared_mcp_endpoint
+	not declared_kubernetes_endpoint
 	input.request.method == "POST"
 	input.request.path.raw == "/"
 	aws_request_shape_valid
+}
+
+kubernetes_request if {
+	declared_kubernetes_endpoint
+	kubernetes_request_shape_valid
 }
 
 request_protocol_valid if {
@@ -377,6 +419,10 @@ request_protocol_valid if {
 
 request_protocol_valid if {
 	aws_request
+}
+
+request_protocol_valid if {
+	kubernetes_request
 }
 
 default graphql_endpoints := []
@@ -432,6 +478,41 @@ mcp_endpoints_valid if {
 	every endpoint in mcp_endpoints {
 		graphql_endpoint_valid(endpoint)
 	}
+}
+
+default kubernetes_endpoints := []
+
+kubernetes_endpoints := data.tobari.boundary.kubernetes_endpoints
+
+declared_kubernetes_endpoint if {
+	kubernetes_endpoints_valid
+	some endpoint in kubernetes_endpoints
+	endpoint.scheme == input.request.authority.scheme
+	endpoint.host == input.request.authority.host
+	endpoint.port == input.request.authority.port
+	endpoint.path == "/"
+}
+
+kubernetes_endpoints_valid if {
+	is_array(kubernetes_endpoints)
+	count(kubernetes_endpoints) == count({endpoint | some endpoint in kubernetes_endpoints})
+	every endpoint in kubernetes_endpoints {
+		graphql_endpoint_valid(endpoint)
+		endpoint.scheme == "https"
+		endpoint.port == 443
+		endpoint.path == "/"
+	}
+}
+
+kubernetes_request_shape_valid if {
+	is_object(request_kubernetes)
+	object.keys(request_kubernetes) == {"dry_run", "resource", "verb"}
+	request_kubernetes.verb in {"get", "list", "watch", "create", "update", "patch", "delete", "deletecollection", "connect"}
+	request_kubernetes.dry_run in {"none", "empty", "all"}
+	is_string(request_kubernetes.resource)
+	count(request_kubernetes.resource) >= 1
+	count(request_kubernetes.resource) <= 1024
+	not regex.match(`[\x00-\x1f\x7f]`, request_kubernetes.resource)
 }
 
 mcp_request_shape_valid if {
@@ -514,6 +595,9 @@ http_rule_protocol_valid(rule) if {
 	not object_has_key(rule, "aws_wire_protocol")
 	not object_has_key(rule, "aws_service")
 	not object_has_key(rule, "aws_operation")
+	not object_has_key(rule, "kubernetes_verb")
+	not object_has_key(rule, "kubernetes_resource")
+	not object_has_key(rule, "kubernetes_dry_run")
 }
 
 graphql_rule_protocol_valid(rule) if {
@@ -525,6 +609,9 @@ graphql_rule_protocol_valid(rule) if {
 	not object_has_key(rule, "aws_wire_protocol")
 	not object_has_key(rule, "aws_service")
 	not object_has_key(rule, "aws_operation")
+	not object_has_key(rule, "kubernetes_verb")
+	not object_has_key(rule, "kubernetes_resource")
+	not object_has_key(rule, "kubernetes_dry_run")
 }
 
 mcp_rule_protocol_valid(rule) if {
@@ -537,6 +624,9 @@ mcp_rule_protocol_valid(rule) if {
 	not object_has_key(rule, "aws_wire_protocol")
 	not object_has_key(rule, "aws_service")
 	not object_has_key(rule, "aws_operation")
+	not object_has_key(rule, "kubernetes_verb")
+	not object_has_key(rule, "kubernetes_resource")
+	not object_has_key(rule, "kubernetes_dry_run")
 }
 
 mcp_rule_protocol_valid(rule) if {
@@ -548,6 +638,9 @@ mcp_rule_protocol_valid(rule) if {
 	not object_has_key(rule, "aws_wire_protocol")
 	not object_has_key(rule, "aws_service")
 	not object_has_key(rule, "aws_operation")
+	not object_has_key(rule, "kubernetes_verb")
+	not object_has_key(rule, "kubernetes_resource")
+	not object_has_key(rule, "kubernetes_dry_run")
 }
 
 aws_rule_protocol_valid(rule) if {
@@ -559,6 +652,26 @@ aws_rule_protocol_valid(rule) if {
 	not object_has_key(rule, "graphql_root_field")
 	not object_has_key(rule, "mcp_method")
 	not object_has_key(rule, "mcp_tool_name")
+	not object_has_key(rule, "kubernetes_verb")
+	not object_has_key(rule, "kubernetes_resource")
+	not object_has_key(rule, "kubernetes_dry_run")
+}
+
+kubernetes_rule_protocol_valid(rule) if {
+	rule.protocol == "kubernetes"
+	rule.kubernetes_verb in {"get", "list", "watch", "create", "update", "patch", "delete", "deletecollection", "connect"}
+	rule.kubernetes_dry_run in {"none", "empty", "all"}
+	is_string(rule.kubernetes_resource)
+	count(rule.kubernetes_resource) >= 1
+	count(rule.kubernetes_resource) <= 1024
+	not regex.match(`[\x00-\x1f\x7f]`, rule.kubernetes_resource)
+	not object_has_key(rule, "graphql_operation_type")
+	not object_has_key(rule, "graphql_root_field")
+	not object_has_key(rule, "mcp_method")
+	not object_has_key(rule, "mcp_tool_name")
+	not object_has_key(rule, "aws_wire_protocol")
+	not object_has_key(rule, "aws_service")
+	not object_has_key(rule, "aws_operation")
 }
 
 object_has_key(obj, key) if {
