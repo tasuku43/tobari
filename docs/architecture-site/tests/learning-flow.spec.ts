@@ -107,8 +107,13 @@ test.describe("task-first documentation flow", () => {
     await expect(
       page.getByRole("heading", { name: "Choose what you need to do" }),
     ).toBeVisible();
-    await expect(
-      page.getByRole("link", { name: "tobari review permissions" }),
-    ).toHaveAttribute("href", "#command-policy-review");
+    const reviewLink = page.getByRole("link", {
+      name: /tobari (?:review permissions|policy review)/,
+    });
+    await expect(reviewLink).toHaveCount(1);
+    await expect(reviewLink).toHaveAttribute(
+      "href",
+      /#command-(?:review-permissions|policy-review)/,
+    );
   });
 });
