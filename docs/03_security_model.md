@@ -468,6 +468,10 @@ endpoint instead accepts one positive length no larger than 1 MiB, or an absent
 length without transfer/content encoding under the fixed 8 MiB transport cap.
 It rejects a complete body over 1 MiB and defers policy until Gateway has
 derived only the selected query/mutation type and sorted canonical root fields.
+A declared GraphQL GET instead requires no body or content type, accepts one
+bounded strict parameter set, rejects mutation, and replaces the complete URL
+query map with an empty map before OPA. Source, variables, operation name, and
+extensions remain absent from policy and audit in both transports.
 The input includes the host-issued Context/project principal, a structured request
 authority, method, path and path segments, multi-valued query, redacted headers,
 and an authorization object containing only a non-secret broker provider ID
@@ -504,6 +508,10 @@ compressed, non-JSON, non-UTF-8, or over-1-MiB request forms before OPA
 learning, credential resolution, and upstream I/O. An absent length is accepted
 only without transfer/content encoding; the fixed 8 MiB transport cap bounds
 receipt before the independent 1 MiB complete-body check.
+Persisted-query-only and nonempty-extension forms use distinct non-learnable
+local faults. The review-only state-change projection is derived after typed
+identity validation and cannot be supplied by the caller or matched as broader
+authority.
 
 Signed AWS Query and AWS JSON RPC on exact commercial `*.amazonaws.com:443`
 authorities are a bounded structural exception. Gateway accepts only `POST /`

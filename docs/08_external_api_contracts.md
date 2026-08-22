@@ -22,10 +22,16 @@ A declared exact GraphQL endpoint is the bounded exception: Gateway accepts one
 unambiguous positive length of at most 1 MiB, or an absent length without
 transfer/content encoding under the fixed 8 MiB transport cap. It rejects a
 complete body over 1 MiB, derives only operation type and canonical root
-fields, asks OPA for every root coordinate, and forwards the original bytes
-once after allow. Source, operation name, variables,
+fields, asks OPA for every root coordinate, and forwards the original POST
+bytes once after allow. It also accepts one body-free GET query with a bounded
+strict parameter set; mutation over GET fails locally and the URL parameters
+are removed from OPA. Source, operation name, variables,
 arguments, aliases, fragments, directives, nested selections, literals, and
 body hashes never enter policy, evidence, audit, or CLI output.
+Persisted-query-only and nonempty-extension requests remain unsupported with
+distinct local faults. Query yields review evidence `state_change=not_expected`;
+mutation yields `state_change=possible`. That derived value never grants or
+matches authority independently from the exact operation/root coordinate.
 
 A declared exact MCP endpoint is the second bounded exception. Gateway accepts
 one unencoded `application/json` JSON-RPC 2.0 object of at most 1 MiB, derives

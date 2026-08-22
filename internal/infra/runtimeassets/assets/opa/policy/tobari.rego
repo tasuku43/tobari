@@ -345,7 +345,7 @@ ordinary_http_request if {
 
 graphql_request if {
 	declared_graphql_endpoint
-	input.request.method == "POST"
+	input.request.method in {"GET", "POST"}
 	graphql_request_shape_valid
 }
 

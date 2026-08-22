@@ -4,7 +4,9 @@ import unittest
 from graphql_request import (
     GraphQLParseLimits,
     GraphQLRequestError,
+    parse_graphql_request,
     parse_graphql_post_request,
+    validate_graphql_headers,
     validate_graphql_post_headers,
 )
 
@@ -134,10 +136,63 @@ class GraphQLRequestParserTests(unittest.TestCase):
         self.parse("{ viewer }", extensions=None)
         self.parse("{ viewer }", extensions={})
         self.assert_rejected(
-            "invalid_envelope",
+            "extensions_unsupported",
             "{ viewer }",
             extensions={"persistedQuery": {"sha256Hash": "example"}},
         )
+
+    def test_accepts_declared_get_query_without_retaining_url_parameters(self):
+        result = parse_graphql_request(
+            method="GET",
+            headers=[],
+            body=b"",
+            url_query="query=query%20Read%20%7B%20viewer%20%7B%20login%20%7D%20%7D&operationName=Read&variables=%7B%7D",
+        )
+        self.assertEqual(result.operation_type, "query")
+        self.assertEqual(result.root_fields, ("viewer",))
+        self.assertEqual(result.original_body, b"")
+        self.assertNotIn("login", repr(result))
+
+    def test_get_transport_is_body_free_and_mutations_fail_closed(self):
+        validate_graphql_headers("GET", [], GraphQLParseLimits())
+        validate_graphql_headers("GET", [("Content-Length", "0")], GraphQLParseLimits())
+        cases = {
+            "mutation": (
+                "mutation_over_get",
+                {"method": "GET", "headers": [], "body": b"", "url_query": "query=mutation%20%7B%20change%20%7D"},
+            ),
+            "body": (
+                "invalid_body",
+                {"method": "GET", "headers": [], "body": b"x", "url_query": "query=%7Bviewer%7D"},
+            ),
+            "content type": (
+                "invalid_content_type",
+                {"method": "GET", "headers": [("Content-Type", "application/json")], "body": b"", "url_query": "query=%7Bviewer%7D"},
+            ),
+            "duplicate query": (
+                "invalid_query_parameters",
+                {"method": "GET", "headers": [], "body": b"", "url_query": "query=%7Ba%7D&query=%7Bb%7D"},
+            ),
+            "unknown parameter": (
+                "invalid_query_parameters",
+                {"method": "GET", "headers": [], "body": b"", "url_query": "query=%7Ba%7D&other=x"},
+            ),
+            "nonempty extension": (
+                "extensions_unsupported",
+                {"method": "GET", "headers": [], "body": b"", "url_query": "query=%7Ba%7D&extensions=%7B%22x%22%3A1%7D"},
+            ),
+        }
+        for name, (code, arguments) in cases.items():
+            with self.subTest(name=name):
+                with self.assertRaises(GraphQLRequestError) as caught:
+                    parse_graphql_request(**arguments)
+                self.assertEqual(caught.exception.code, code)
+
+    def test_persisted_query_only_has_a_specific_failure(self):
+        body = b'{"extensions":{"persistedQuery":{"version":1,"sha256Hash":"synthetic"}}}'
+        with self.assertRaises(GraphQLRequestError) as caught:
+            parse_graphql_request(method="POST", headers=self.headers(body), body=body)
+        self.assertEqual(caught.exception.code, "persisted_query_unsupported")
 
     def test_accepts_utf8_charset_case_insensitively(self):
         body = self.body("{ viewer }")

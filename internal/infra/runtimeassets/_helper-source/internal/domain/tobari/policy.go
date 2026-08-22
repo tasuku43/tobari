@@ -29,18 +29,22 @@ var (
 )
 
 const (
-	PolicyMatchExact         = "exact"
-	PolicyMatchPathTemplate  = "path_template"
-	PolicyDecisionAllow      = "allow"
-	PolicyDecisionDeny       = "deny"
-	PolicyProtocolHTTP       = "http"
-	PolicyProtocolGraphQL    = "graphql"
-	PolicyProtocolMCP        = "mcp"
-	PolicyProtocolAWS        = "aws"
-	AWSWireProtocolQuery     = "query"
-	AWSWireProtocolJSON      = "json"
-	GraphQLOperationQuery    = "query"
-	GraphQLOperationMutation = "mutation"
+	PolicyMatchExact             = "exact"
+	PolicyMatchPathTemplate      = "path_template"
+	PolicyDecisionAllow          = "allow"
+	PolicyDecisionDeny           = "deny"
+	PolicyProtocolHTTP           = "http"
+	PolicyProtocolGraphQL        = "graphql"
+	PolicyProtocolMCP            = "mcp"
+	PolicyProtocolAWS            = "aws"
+	AWSWireProtocolQuery         = "query"
+	AWSWireProtocolJSON          = "json"
+	GraphQLOperationQuery        = "query"
+	GraphQLOperationMutation     = "mutation"
+	PolicyStateChangeUnknown     = "unknown"
+	PolicyStateChangeNone        = "not_expected"
+	PolicyStateChangePossible    = "possible"
+	PolicyStateChangeInteractive = "interactive"
 )
 
 // PolicyProtocolIdentity identifies one HTTP effect or refines it to exactly
@@ -61,6 +65,20 @@ type PolicyProtocolIdentity struct {
 // EffectiveProtocol returns the validated closed protocol value.
 func (i PolicyProtocolIdentity) EffectiveProtocol() string {
 	return i.Protocol
+}
+
+// StateChangePotential is conservative review evidence derived from validated
+// wire identity. It is never an independent permission or matching dimension.
+func (i PolicyProtocolIdentity) StateChangePotential() string {
+	if i.EffectiveProtocol() == PolicyProtocolGraphQL {
+		if i.GraphQLOperationType == GraphQLOperationQuery {
+			return PolicyStateChangeNone
+		}
+		if i.GraphQLOperationType == GraphQLOperationMutation {
+			return PolicyStateChangePossible
+		}
+	}
+	return PolicyStateChangeUnknown
 }
 
 func (i PolicyProtocolIdentity) Validate() error {

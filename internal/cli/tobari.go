@@ -1161,6 +1161,7 @@ type policyDenialOutput struct {
 	Method               string `json:"method"`
 	Path                 string `json:"path"`
 	Protocol             string `json:"protocol"`
+	StateChange          string `json:"state_change"`
 	GraphQLOperationType string `json:"graphql_operation_type"`
 	GraphQLRootField     string `json:"graphql_root_field"`
 	MCPMethod            string `json:"mcp_method"`
@@ -1190,6 +1191,7 @@ type policyCandidateOutput struct {
 	Method               string `json:"method"`
 	Path                 string `json:"path"`
 	Protocol             string `json:"protocol"`
+	StateChange          string `json:"state_change"`
 	GraphQLOperationType string `json:"graphql_operation_type"`
 	GraphQLRootField     string `json:"graphql_root_field"`
 	MCPMethod            string `json:"mcp_method"`
@@ -1230,6 +1232,7 @@ type policyRuleOutput struct {
 	Method               string   `json:"method"`
 	Path                 string   `json:"path"`
 	Protocol             string   `json:"protocol"`
+	StateChange          string   `json:"state_change"`
 	GraphQLOperationType string   `json:"graphql_operation_type"`
 	GraphQLRootField     string   `json:"graphql_root_field"`
 	MCPMethod            string   `json:"mcp_method"`
@@ -1286,11 +1289,11 @@ func renderPolicyCandidatesWithColor(
 		action := allowCommand + " --id " + item.ID
 		fmt.Fprintf(
 			&output,
-			"id=%s\tobserved_at=%s\tobservation_count=%d\tcontext_id=%s\tcontext=%s\tworkspace_id=%s\tproject_root=%s\tscheme=%s\thost=%s\tport=%d\tmethod=%s\tpath=%s\treason=%s\tstatus_code=%d\tallow_command=%s\tdeny_command=%s\tprotocol=%s\tgraphql_operation_type=%s\tgraphql_root_field=%s\tmcp_method=%s\tmcp_tool_name=%s\taws_wire_protocol=%s\taws_service=%s\taws_operation=%s\tdestination_kind=%s\tauthority_lifetime=%s\tattachment_epoch_id=%s\n",
+			"id=%s\tobserved_at=%s\tobservation_count=%d\tcontext_id=%s\tcontext=%s\tworkspace_id=%s\tproject_root=%s\tscheme=%s\thost=%s\tport=%d\tmethod=%s\tpath=%s\treason=%s\tstatus_code=%d\tallow_command=%s\tdeny_command=%s\tprotocol=%s\tstate_change=%s\tgraphql_operation_type=%s\tgraphql_root_field=%s\tmcp_method=%s\tmcp_tool_name=%s\taws_wire_protocol=%s\taws_service=%s\taws_operation=%s\tdestination_kind=%s\tauthority_lifetime=%s\tattachment_epoch_id=%s\n",
 			item.ID, escapeTSVCell(item.ObservedAt), item.EffectiveObservationCount(), item.ContextID, escapeTSVCell(item.ContextName), item.ProjectID, escapeTSVCell(item.ProjectRoot), escapeTSVCell(item.Scheme),
 			escapeTSVCell(item.Host), item.Port, escapeTSVCell(item.Method), escapeTSVCell(item.Path), escapeTSVCell(item.Reason),
 			item.StatusCode, escapeTSVCell(action), escapeTSVCell(denyCommand+" --id "+item.ID),
-			escapeTSVCell(item.EffectiveProtocol()), escapeTSVCell(item.GraphQLOperationType), escapeTSVCell(item.GraphQLRootField), escapeTSVCell(item.MCPMethod), escapeTSVCell(item.MCPToolName),
+			escapeTSVCell(item.EffectiveProtocol()), item.StateChangePotential(), escapeTSVCell(item.GraphQLOperationType), escapeTSVCell(item.GraphQLRootField), escapeTSVCell(item.MCPMethod), escapeTSVCell(item.MCPToolName),
 			escapeTSVCell(item.AWSWireProtocol), escapeTSVCell(item.AWSService), escapeTSVCell(item.AWSOperation),
 			item.EffectiveDestinationKind(), item.EffectiveAuthorityLifetime(), item.AttachmentEpochID,
 		)
@@ -1313,7 +1316,7 @@ func policyCandidateOutputs(
 			ContextID: item.ContextID, Context: safeExternalText(item.ContextName),
 			WorkspaceID: item.ProjectID, ProjectRoot: safeExternalText(item.ProjectRoot),
 			Scheme: safeExternalText(item.Scheme), Host: safeExternalText(item.Host), Port: item.Port, Method: safeExternalText(item.Method),
-			Path: safeExternalText(item.Path), Protocol: safeExternalText(item.EffectiveProtocol()),
+			Path: safeExternalText(item.Path), Protocol: safeExternalText(item.EffectiveProtocol()), StateChange: item.StateChangePotential(),
 			GraphQLOperationType: safeExternalText(item.GraphQLOperationType), GraphQLRootField: safeExternalText(item.GraphQLRootField),
 			MCPMethod: safeExternalText(item.MCPMethod), MCPToolName: safeExternalText(item.MCPToolName),
 			AWSWireProtocol: safeExternalText(item.AWSWireProtocol), AWSService: safeExternalText(item.AWSService), AWSOperation: safeExternalText(item.AWSOperation),
@@ -1455,6 +1458,7 @@ func policyAWSCoordinate(identity tobari.PolicyProtocolIdentity) string {
 }
 
 func writePolicyGraphQLIdentity(output *humanOutput, identity tobari.PolicyProtocolIdentity) {
+	output.row("State change", safeExternalText(identity.StateChangePotential()), styleText)
 	if coordinate := policyGraphQLCoordinate(identity); coordinate != "" {
 		output.row("GraphQL", coordinate, styleText)
 	}
@@ -1537,11 +1541,11 @@ func renderPolicyRulesWithCommands(
 	for _, item := range items {
 		fmt.Fprintf(
 			&output,
-			"id=%s\tdecision=%s\tmatch=%s\tcontext_id=%s\tcontext=%s\tworkspace_id=%s\tproject_root=%s\tscheme=%s\thost=%s\tport=%d\tmethod=%s\tpath=%s\texamples=%s\tsource_candidates=%s\treset_command=%s\tprotocol=%s\tgraphql_operation_type=%s\tgraphql_root_field=%s\tmcp_method=%s\tmcp_tool_name=%s\taws_wire_protocol=%s\taws_service=%s\taws_operation=%s\n",
+			"id=%s\tdecision=%s\tmatch=%s\tcontext_id=%s\tcontext=%s\tworkspace_id=%s\tproject_root=%s\tscheme=%s\thost=%s\tport=%d\tmethod=%s\tpath=%s\texamples=%s\tsource_candidates=%s\treset_command=%s\tprotocol=%s\tstate_change=%s\tgraphql_operation_type=%s\tgraphql_root_field=%s\tmcp_method=%s\tmcp_tool_name=%s\taws_wire_protocol=%s\taws_service=%s\taws_operation=%s\n",
 			item.ID, item.Decision, item.Match, item.ContextID, escapeTSVCell(item.Context), item.WorkspaceID, escapeTSVCell(item.ProjectRoot), escapeTSVCell(item.Scheme), escapeTSVCell(item.Host), item.Port,
 			escapeTSVCell(item.Method), escapeTSVCell(item.Path), escapeTSVCell(strings.Join(item.Examples, ",")),
 			escapeTSVCell(strings.Join(item.SourceCandidates, ",")), escapeTSVCell(item.ResetCommand), escapeTSVCell(item.Protocol),
-			escapeTSVCell(item.GraphQLOperationType), escapeTSVCell(item.GraphQLRootField), escapeTSVCell(item.MCPMethod), escapeTSVCell(item.MCPToolName),
+			item.StateChange, escapeTSVCell(item.GraphQLOperationType), escapeTSVCell(item.GraphQLRootField), escapeTSVCell(item.MCPMethod), escapeTSVCell(item.MCPToolName),
 			escapeTSVCell(item.AWSWireProtocol), escapeTSVCell(item.AWSService), escapeTSVCell(item.AWSOperation),
 		)
 	}
@@ -1559,7 +1563,7 @@ func policyRuleOutputs(result tobari.PolicyRuleReport, resetCommand string) []po
 			ID: rule.ID, Decision: rule.Decision, Match: safeExternalText(rule.Match),
 			ContextID: rule.ContextID, Context: safeExternalText(rule.ContextName),
 			WorkspaceID: rule.ProjectID, ProjectRoot: safeExternalText(rule.ProjectRoot), Scheme: safeExternalText(rule.Scheme), Host: safeExternalText(rule.Host), Port: rule.Port,
-			Method: safeExternalText(rule.Method), Path: safeExternalText(rule.Path), Protocol: safeExternalText(rule.EffectiveProtocol()),
+			Method: safeExternalText(rule.Method), Path: safeExternalText(rule.Path), Protocol: safeExternalText(rule.EffectiveProtocol()), StateChange: rule.StateChangePotential(),
 			GraphQLOperationType: safeExternalText(rule.GraphQLOperationType), GraphQLRootField: safeExternalText(rule.GraphQLRootField),
 			MCPMethod: safeExternalText(rule.MCPMethod), MCPToolName: safeExternalText(rule.MCPToolName),
 			AWSWireProtocol: safeExternalText(rule.AWSWireProtocol), AWSService: safeExternalText(rule.AWSService), AWSOperation: safeExternalText(rule.AWSOperation),
@@ -1728,7 +1732,7 @@ func renderClusterDenialsWithReviewCommand(
 				ContextID: item.ContextID, Context: safeExternalText(item.ContextName),
 				WorkspaceID: item.ProjectID, ProjectRoot: safeExternalText(item.ProjectRoot),
 				Scheme: safeExternalText(item.Scheme), Host: safeExternalText(item.Host), Port: item.Port, Method: safeExternalText(item.Method), Path: safeExternalText(item.Path),
-				Protocol: safeExternalText(item.EffectiveProtocol()), GraphQLOperationType: safeExternalText(item.GraphQLOperationType),
+				Protocol: safeExternalText(item.EffectiveProtocol()), StateChange: item.StateChangePotential(), GraphQLOperationType: safeExternalText(item.GraphQLOperationType),
 				GraphQLRootField: safeExternalText(item.GraphQLRootField), MCPMethod: safeExternalText(item.MCPMethod), MCPToolName: safeExternalText(item.MCPToolName), Reason: safeExternalText(item.Reason), StatusCode: item.StatusCode,
 				AWSWireProtocol: safeExternalText(item.AWSWireProtocol), AWSService: safeExternalText(item.AWSService), AWSOperation: safeExternalText(item.AWSOperation),
 				Learnable:       item.Learnable,
@@ -1762,12 +1766,12 @@ func renderClusterDenialsWithReviewCommand(
 	for _, item := range result.Items {
 		fmt.Fprintf(
 			&output,
-			"denial: timestamp=%s\trequest_id=%s\tcontext=%s\tcontext_id=%s\tworkspace_id=%s\tproject_root=%s\tscheme=%s\thost=%s\tport=%d\tmethod=%s\tpath=%s\tstatus_code=%d\treason=%s\tprotocol=%s\tgraphql_operation_type=%s\tgraphql_root_field=%s\tmcp_method=%s\tmcp_tool_name=%s\taws_wire_protocol=%s\taws_service=%s\taws_operation=%s\tdestination_kind=%s\tauthority_lifetime=%s\tattachment_epoch_id=%s\n",
+			"denial: timestamp=%s\trequest_id=%s\tcontext=%s\tcontext_id=%s\tworkspace_id=%s\tproject_root=%s\tscheme=%s\thost=%s\tport=%d\tmethod=%s\tpath=%s\tstatus_code=%d\treason=%s\tprotocol=%s\tstate_change=%s\tgraphql_operation_type=%s\tgraphql_root_field=%s\tmcp_method=%s\tmcp_tool_name=%s\taws_wire_protocol=%s\taws_service=%s\taws_operation=%s\tdestination_kind=%s\tauthority_lifetime=%s\tattachment_epoch_id=%s\n",
 			escapeTSVCell(item.Timestamp), escapeTSVCell(item.RequestID),
 			escapeTSVCell(item.ContextName), item.ContextID, item.ProjectID, escapeTSVCell(item.ProjectRoot),
 			escapeTSVCell(item.Scheme), escapeTSVCell(item.Host), item.Port, escapeTSVCell(item.Method),
 			escapeTSVCell(item.Path), item.StatusCode, escapeTSVCell(item.Reason), escapeTSVCell(item.EffectiveProtocol()),
-			escapeTSVCell(item.GraphQLOperationType), escapeTSVCell(item.GraphQLRootField), escapeTSVCell(item.MCPMethod), escapeTSVCell(item.MCPToolName),
+			item.StateChangePotential(), escapeTSVCell(item.GraphQLOperationType), escapeTSVCell(item.GraphQLRootField), escapeTSVCell(item.MCPMethod), escapeTSVCell(item.MCPToolName),
 			escapeTSVCell(item.AWSWireProtocol), escapeTSVCell(item.AWSService), escapeTSVCell(item.AWSOperation),
 			item.EffectiveDestinationKind(), item.EffectiveAuthorityLifetime(), item.AttachmentEpochID,
 		)

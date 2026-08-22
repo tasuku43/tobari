@@ -8,7 +8,8 @@
 - Superseded by: None
 - Revised by: ADR 0027 places GraphQL input, audit, and policy output inside
   exact V1; ADR 0056 accepts an absent `Content-Length` under finite transport
-  and semantic body caps
+  and semantic body caps; ADR 0075 accepts bounded query-only GET and names the
+  shared protocol-derived intent model
 
 ## Context
 
@@ -158,3 +159,14 @@ GraphQL POST may omit `Content-Length` when transfer and content encoding are
 also absent. The fixed 8 MiB mitmproxy cap bounds receipt, and Gateway rejects
 an actual body over 1 MiB before parsing, policy, or upstream I/O. Present
 lengths retain the original positive, unique, bounded, and exact contract.
+
+## Revision by ADR 0075
+
+A declared exact endpoint also accepts one body-free GraphQL-over-HTTP GET with
+only the bounded `query`, `operationName`, `variables`, and `extensions`
+parameter names. The selected operation must be a query. Gateway removes the
+entire URL parameter map before OPA and retains only the same operation/root
+coordinate used by POST. Persisted-query-only and nonempty-extension forms
+remain unsupported but now return distinct non-learnable local faults. Review
+derives a conservative state-change signal from the validated operation type;
+the signal is never an independent permission dimension.

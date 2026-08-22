@@ -1,9 +1,9 @@
-"""Bounded extraction of GraphQL policy identity from one HTTP POST request.
+"""Bounded extraction of GraphQL policy identity from one HTTP request.
 
 This module is deliberately independent from mitmproxy and Tobari's Gateway
 hooks.  It validates the transport envelope, parses one bounded GraphQL
 document, and returns only the operation type, canonical root field names, and
-the original bytes that a later integration must forward unchanged.
+the original POST bytes that a later integration must forward unchanged.
 """
 
 from __future__ import annotations
@@ -12,6 +12,7 @@ import json
 import re
 from dataclasses import dataclass, field
 from typing import Iterable
+from urllib.parse import parse_qsl
 
 from graphql import GraphQLSyntaxError, parse
 from graphql.language import OperationType
@@ -33,6 +34,7 @@ MAX_FRAGMENT_DEPTH = 64
 MAX_TRAVERSAL_NODES = 20_000
 
 _POSITIVE_DECIMAL = re.compile(r"^[1-9][0-9]*$")
+_NONNEGATIVE_DECIMAL = re.compile(r"^(?:0|[1-9][0-9]*)$")
 
 
 class GraphQLRequestError(ValueError):
@@ -156,6 +158,38 @@ def validate_graphql_post_headers(
     return declared_length
 
 
+def validate_graphql_headers(
+    method: str,
+    headers: Iterable[tuple[str, str]],
+    limits: GraphQLParseLimits,
+) -> int | None:
+    """Validate the declared GraphQL POST or side-effect-free GET transport."""
+
+    if method == "POST":
+        return validate_graphql_post_headers(method, headers, limits)
+    limits.validate()
+    if method != "GET":
+        _reject("unsupported_method", "GraphQL policy supports POST and GET only")
+    try:
+        pairs = list(headers)
+    except (TypeError, ValueError):
+        _reject("invalid_headers", "GraphQL request headers are invalid")
+    if _header_values(pairs, "content-type"):
+        _reject("invalid_content_type", "GraphQL GET must not declare Content-Type")
+    if _header_values(pairs, "transfer-encoding"):
+        _reject("unsupported_transfer_encoding", "GraphQL GET transfer encoding is unsupported")
+    if _header_values(pairs, "content-encoding"):
+        _reject("unsupported_content_encoding", "GraphQL GET content encoding is unsupported")
+    content_lengths = _header_values(pairs, "content-length")
+    if not content_lengths:
+        return 0
+    if len(content_lengths) != 1 or not _NONNEGATIVE_DECIMAL.fullmatch(content_lengths[0].strip()):
+        _reject("invalid_content_length", "GraphQL GET Content-Length must be absent or zero")
+    if int(content_lengths[0].strip()) != 0:
+        _reject("invalid_content_length", "GraphQL GET Content-Length must be absent or zero")
+    return 0
+
+
 def _validate_transport(
     method: str,
     headers: Iterable[tuple[str, str]],
@@ -164,7 +198,9 @@ def _validate_transport(
 ) -> None:
     if not isinstance(body, bytes):
         _reject("invalid_body", "GraphQL request body must be bytes")
-    declared_length = validate_graphql_post_headers(method, headers, limits)
+    declared_length = validate_graphql_headers(method, headers, limits)
+    if method == "GET" and body:
+        _reject("invalid_body", "GraphQL GET must not contain a request body")
     if len(body) > limits.body_bytes:
         _reject("body_too_large", "GraphQL request body exceeds its size limit")
     if declared_length is not None and declared_length != len(body):
@@ -187,7 +223,31 @@ def _reject_json_constant(_value: str) -> None:
     raise ValueError("non-finite JSON number")
 
 
-def _decode_envelope(body: bytes) -> tuple[str, str | None]:
+def _validate_envelope(envelope: object) -> tuple[str, str | None]:
+    if not isinstance(envelope, dict):
+        _reject("invalid_envelope", "GraphQL request must contain one parameter object")
+    allowed_keys = {"query", "operationName", "variables", "extensions"}
+    if set(envelope) - allowed_keys:
+        _reject("invalid_envelope", "GraphQL request contains an unknown parameter")
+
+    query = envelope.get("query")
+    extensions = envelope.get("extensions")
+    if not isinstance(query, str) or not query:
+        if isinstance(extensions, dict) and extensions.get("persistedQuery") is not None:
+            _reject("persisted_query_unsupported", "GraphQL persisted-query-only requests are unsupported")
+        _reject("invalid_envelope", "GraphQL request requires a query string")
+    operation_name = envelope.get("operationName")
+    if operation_name is not None and not isinstance(operation_name, str):
+        _reject("invalid_envelope", "GraphQL operationName must be a string or null")
+    variables = envelope.get("variables")
+    if variables is not None and not isinstance(variables, dict):
+        _reject("invalid_envelope", "GraphQL variables must be an object or null")
+    if extensions is not None and extensions != {}:
+        _reject("extensions_unsupported", "GraphQL nonempty extensions are unsupported")
+    return query, operation_name or None
+
+
+def _decode_post_envelope(body: bytes) -> tuple[str, str | None]:
     try:
         text = body.decode("utf-8", errors="strict")
         envelope = json.loads(
@@ -198,25 +258,41 @@ def _decode_envelope(body: bytes) -> tuple[str, str | None]:
     except (UnicodeDecodeError, json.JSONDecodeError, _DuplicateJSONKey, ValueError, RecursionError):
         _reject("invalid_json", "GraphQL request body is not strict UTF-8 JSON")
 
-    if not isinstance(envelope, dict):
-        _reject("invalid_envelope", "GraphQL request body must be one JSON object")
-    allowed_keys = {"query", "operationName", "variables", "extensions"}
-    if set(envelope) - allowed_keys:
-        _reject("invalid_envelope", "GraphQL request contains an unknown envelope field")
+    return _validate_envelope(envelope)
 
-    query = envelope.get("query")
-    if not isinstance(query, str):
-        _reject("invalid_envelope", "GraphQL request requires a query string")
-    operation_name = envelope.get("operationName")
-    if operation_name is not None and not isinstance(operation_name, str):
-        _reject("invalid_envelope", "GraphQL operationName must be a string or null")
-    variables = envelope.get("variables")
-    if variables is not None and not isinstance(variables, dict):
-        _reject("invalid_envelope", "GraphQL variables must be an object or null")
-    extensions = envelope.get("extensions")
-    if extensions is not None and extensions != {}:
-        _reject("invalid_envelope", "GraphQL extensions must be absent, null, or empty")
-    return query, operation_name
+
+def _decode_get_parameters(raw_query: str, limits: GraphQLParseLimits) -> tuple[str, str | None]:
+    if not isinstance(raw_query, str) or len(raw_query.encode("utf-8")) > limits.body_bytes:
+        _reject("query_too_large", "GraphQL GET query component exceeds its size limit")
+    try:
+        pairs = parse_qsl(
+            raw_query,
+            keep_blank_values=True,
+            strict_parsing=True,
+            encoding="utf-8",
+            errors="strict",
+            max_num_fields=4,
+        )
+    except (UnicodeError, ValueError):
+        _reject("invalid_query_parameters", "GraphQL GET parameters are invalid")
+    parameters: dict[str, object] = {}
+    for name, value in pairs:
+        if name in parameters or name not in {"query", "operationName", "variables", "extensions"}:
+            _reject("invalid_query_parameters", "GraphQL GET parameters are ambiguous")
+        if name in {"variables", "extensions"} and value:
+            try:
+                parameters[name] = json.loads(
+                    value,
+                    object_pairs_hook=_strict_object,
+                    parse_constant=_reject_json_constant,
+                )
+            except (json.JSONDecodeError, _DuplicateJSONKey, ValueError, RecursionError):
+                _reject("invalid_query_parameters", f"GraphQL GET {name} parameter is invalid")
+        elif name in {"variables", "extensions"}:
+            parameters[name] = None
+        else:
+            parameters[name] = value
+    return _validate_envelope(parameters)
 
 
 def _selection_nodes(
@@ -391,8 +467,10 @@ def parse_graphql_post_request(
     """Validate and extract one POST GraphQL identity without rewriting bytes."""
 
     limits.validate()
+    if method != "POST":
+        _reject("unsupported_method", "GraphQL POST parser requires POST")
     _validate_transport(method, headers, body, limits)
-    query, operation_name = _decode_envelope(body)
+    query, operation_name = _decode_post_envelope(body)
     operations, fragments = _document_parts(query, limits)
     edges = _fragment_edges(operations, fragments, limits)
     _validate_fragment_graph(edges, limits)
@@ -400,6 +478,38 @@ def parse_graphql_post_request(
     operation_type = (
         "query" if operation.operation == OperationType.QUERY else "mutation"
     )
+    return ParsedGraphQLRequest(
+        operation_type=operation_type,
+        root_fields=_root_fields(operation, fragments, limits),
+        original_body=body,
+    )
+
+
+def parse_graphql_request(
+    *,
+    method: str,
+    headers: Iterable[tuple[str, str]],
+    body: bytes,
+    url_query: str = "",
+    limits: GraphQLParseLimits = GraphQLParseLimits(),
+) -> ParsedGraphQLRequest:
+    """Validate and extract one declared GraphQL POST or GET identity."""
+
+    limits.validate()
+    _validate_transport(method, headers, body, limits)
+    if method == "POST":
+        if url_query:
+            _reject("invalid_query_parameters", "GraphQL POST URL query parameters are unsupported")
+        query, operation_name = _decode_post_envelope(body)
+    else:
+        query, operation_name = _decode_get_parameters(url_query, limits)
+    operations, fragments = _document_parts(query, limits)
+    edges = _fragment_edges(operations, fragments, limits)
+    _validate_fragment_graph(edges, limits)
+    operation = _select_operation(operations, operation_name)
+    if method == "GET" and operation.operation == OperationType.MUTATION:
+        _reject("mutation_over_get", "GraphQL mutation cannot use GET")
+    operation_type = "query" if operation.operation == OperationType.QUERY else "mutation"
     return ParsedGraphQLRequest(
         operation_type=operation_type,
         root_fields=_root_fields(operation, fragments, limits),

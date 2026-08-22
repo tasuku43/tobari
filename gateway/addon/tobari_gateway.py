@@ -35,8 +35,8 @@ from graphql_request import (
     GraphQLParseLimits,
     GraphQLRequestError,
     ParsedGraphQLRequest,
-    parse_graphql_post_request,
-    validate_graphql_post_headers,
+    parse_graphql_request,
+    validate_graphql_headers,
 )
 from mcp_request import (
     MCPRequestError,
@@ -726,6 +726,9 @@ def build_policy_input(
         },
     }
     if graphql is not None:
+        # GET transports carry the source document and variables in the URL.
+        # They are payload, never policy input, just like the POST body.
+        policy_input["request"]["query"] = {}
         policy_input["request"]["graphql"] = {
             "operation_type": graphql.operation_type,
             "root_fields": list(graphql.root_fields),
@@ -936,7 +939,7 @@ def _policy_denied(
     review_available = bool(learnable)
     review = {
         "available": review_available,
-        "command": "tobari policy review" if review_available else None,
+        "command": "tobari review permissions" if review_available else None,
         "automatic_retry": False,
         "retry_after_review": review_available,
     }
@@ -948,7 +951,7 @@ def _policy_denied(
         message = (
             "Tobari blocked this network request because it is outside the current execution boundary. "
             "Keep the current Workspace and agent session running. In a separate trusted-host terminal, "
-            "run `tobari policy review`. After Apply succeeds, retry this request in the same Workspace. "
+            "run `tobari review permissions`. After Apply succeeds, retry this request in the same Workspace. "
             "Tobari does not approve or retry automatically."
         )
     document = {
@@ -1138,7 +1141,7 @@ class TobariGateway:
                 port,
                 request_path,
             ):
-                validate_graphql_post_headers(
+                validate_graphql_headers(
                     flow.request.method.upper(),
                     _request_header_pairs(flow.request),
                     limits=GraphQLParseLimits(),
@@ -1152,6 +1155,7 @@ class TobariGateway:
                     "host": host,
                     "port": port,
                     "audit_path": audit_path,
+                    "url_query": urlsplit(flow.request.url).query,
                     "principal": principal,
                     "credential_request": credential_request,
                 }
@@ -1366,10 +1370,11 @@ class TobariGateway:
                 raise GraphQLRequestError(
                     "invalid_body", "GraphQL request body must be bytes"
                 )
-            parsed = parse_graphql_post_request(
+            parsed = parse_graphql_request(
                 method=flow.request.method.upper(),
                 headers=_request_header_pairs(flow.request),
                 body=body,
+                url_query=pending.get("url_query", ""),
             )
             policy_input = build_policy_input(
                 flow,

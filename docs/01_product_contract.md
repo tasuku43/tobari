@@ -110,14 +110,19 @@ POST, PUT, PATCH, or other method is authorized and learned from the same
 project, scheme, host, port, method, and path dimensions as a body-free request.
 Changing ordinary body content does not create another review item or rule.
 For an exact trusted GraphQL endpoint, Gateway derives only the selected
-operation type and canonical root fields from one bounded body; each root is a
-separate exact permission. Gateway does not expose body content, body hashes,
+operation type and canonical root fields from one bounded JSON POST body or
+one bounded body-free GET parameter set; each root is a separate exact
+permission. GET accepts query operations only. Gateway does not expose body content, body hashes,
 GraphQL source, operation names, variables, arguments, aliases, fragments,
 directives, nested selections, or literal values to OPA, retained evidence,
 policy actions, audit output, or CLI output. A request may omit
 `Content-Length` only without transfer/content encoding; the fixed 8 MiB
 transport cap bounds receipt and Gateway rejects a complete body over 1 MiB
 before parsing or policy.
+Persisted-query-only and nonempty-extension requests remain unsupported and
+fail locally with distinct diagnostics. Policy review derives `not_expected`
+for query and `possible` for mutation as evidence; exact operation/root
+identity remains the authority.
 For a commercial AWS endpoint using signed AWS Query or AWS JSON RPC, Gateway
 derives only wire protocol, SigV4 service, and exact `Action` or signed
 `X-Amz-Target`. The dynamic request supplies that coordinate; Tobari carries no

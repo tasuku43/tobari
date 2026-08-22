@@ -871,6 +871,49 @@ class ReviewedBrokerGatewayTests(unittest.TestCase):
         commit.assert_called_once_with(flow)
         audit.assert_not_called()
 
+    def test_declared_graphql_get_redacts_source_and_authorizes_query_roots(self):
+        addon = gateway.TobariGateway.__new__(gateway.TobariGateway)
+        addon.cluster = "default"
+        addon.opa_url = "http://opa.invalid/decision"
+        addon.opa_timeout = 2
+        addon.graphql_config = {}
+        addon.principal_source = mock.Mock()
+        addon.principal_source.load.return_value = {}
+        prepared = mock.Mock(secret_headers=set(), broker_provider=None, deferred=False)
+        addon.credential_adapter = mock.Mock()
+        addon.credential_adapter.prepare.return_value = prepared
+        request = http.Request.make(
+            "GET",
+            "https://api.example.com/graphql?query=query%20Read%20%7B%20viewer%20%7B%20secretCanary%20%7D%20%7D&operationName=Read",
+        )
+        flow = tflow.tflow(req=request)
+        principal = {
+            "project_id": PROJECT, "context_id": CONTEXT,
+            "context": "default", "project_root": "/workspace/project",
+        }
+        policy_inputs = []
+
+        def allow(_url, document, _timeout):
+            policy_inputs.append(document)
+            return gateway.Decision(allow=True, reason="allowed", status_code=403, learnable=False)
+
+        with (
+            mock.patch.object(gateway, "normalize_ingress_authority", return_value=("https", "api.example.com", 443)),
+            mock.patch.object(gateway, "resolve_project_principal", return_value=principal),
+            mock.patch.object(gateway, "graphql_endpoint_declared", return_value=True),
+            mock.patch.object(gateway, "query_opa", side_effect=allow),
+            mock.patch.object(gateway, "commit_upstream_authority") as commit,
+        ):
+            addon.requestheaders(flow)
+            self.assertIn("tobari_graphql_pending", flow.metadata)
+            addon.request(flow)
+
+        self.assertEqual(policy_inputs[0]["request"]["graphql"], {"operation_type": "query", "root_fields": ["viewer"]})
+        self.assertEqual(policy_inputs[0]["request"]["query"], {})
+        self.assertNotIn("secretCanary", json.dumps(policy_inputs[0]))
+        prepared.apply.assert_called_once_with(flow.request)
+        commit.assert_called_once_with(flow)
+
     def test_broker_error_maps_reviewed_dynamic_outcomes(self):
         with self.assertRaises(broker.BrokerCredentialBindingError):
             broker._broker_response(json.dumps({

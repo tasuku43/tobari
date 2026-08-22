@@ -392,6 +392,21 @@ test_graphql_exact_root_rule_allows_declared_endpoint if {
 	result.allow
 }
 
+test_graphql_exact_get_root_rule_allows_without_http_fallback if {
+	request := object.union(graphql_request_fixture, {"method": "GET"})
+	allow_rule := object.union(graphql_allow_fixture, {"method": "GET"})
+	http_rule := object.union(learned_exact_fixture, {"method": "GET", "path": "/graphql", "examples": ["/graphql"]})
+	denied := decision with input as input_with_request(request)
+		with data.tobari.boundary.graphql_endpoints as [graphql_endpoint_fixture]
+		with data.tobari.rules.learned_allows as [http_rule]
+	allowed := decision with input as input_with_request(request)
+		with data.tobari.boundary.graphql_endpoints as [graphql_endpoint_fixture]
+		with data.tobari.rules.learned_allows as [allow_rule]
+	not denied.allow
+	denied.learnable
+	allowed.allow
+}
+
 test_graphql_exact_mutation_rule_allows_declared_endpoint if {
 	request := object.union(graphql_request_fixture, {"graphql": {"operation_type": "mutation", "root_fields": ["updateIssue"]}})
 	allow_rule := object.union(graphql_allow_fixture, {
@@ -572,8 +587,8 @@ test_graphql_identity_requires_exact_declared_endpoint if {
 	}
 }
 
-test_graphql_rejects_non_post_method if {
-	request := object.union(graphql_request_fixture, {"method": "GET"})
+test_graphql_rejects_unsupported_method if {
+	request := object.union(graphql_request_fixture, {"method": "PUT"})
 	result := decision with input as input_with_request(request)
 		with data.tobari.boundary.graphql_endpoints as [graphql_endpoint_fixture]
 	not result.allow

@@ -120,6 +120,15 @@ func TestPolicyProtocolIdentityValidationAndEffectiveProtocol(t *testing.T) {
 			t.Fatalf("valid policy protocol identity %+v was rejected: %v", identity, err)
 		}
 	}
+	if got := valid[0].StateChangePotential(); got != PolicyStateChangeUnknown {
+		t.Fatalf("HTTP state change = %q", got)
+	}
+	if got := valid[1].StateChangePotential(); got != PolicyStateChangeNone {
+		t.Fatalf("GraphQL query state change = %q", got)
+	}
+	if got := valid[2].StateChangePotential(); got != PolicyStateChangePossible {
+		t.Fatalf("GraphQL mutation state change = %q", got)
+	}
 	invalid := []PolicyProtocolIdentity{
 		{},
 		{Protocol: PolicyProtocolHTTP},

@@ -19,6 +19,10 @@ capability; every effect outside that composition is denied by default. The
 Context policy's destination and method ceilings remain terminal over readiness.
 Trusted policy may declare an exact GraphQL endpoint whose generic L7 identity extends
 the HTTP coordinates with one operation type and root field per effect.
+Tobari calls such bounded request-carried refinement **protocol-derived
+intent**. Review may derive a conservative state-change signal from a validated
+protocol coordinate, but that signal is evidence only and never an independent
+or wildcard authority dimension.
 For signed AWS Query and AWS JSON RPC on exact commercial AWS authorities,
 Gateway may instead extend those coordinates with only the SigV4 service and
 wire operation. It does not load an AWS service model or infer IAM, resource,
@@ -223,7 +227,7 @@ brand.
 - Any process that uses an ordinary HTTP or HTTPS socket receives enforcement
   through the guarded transparent path; command names and ambient or projected
   proxy-environment settings do not select policy behavior.
-- Gateway sends generic HTTP attributes plus only the bounded protocol
+- Gateway sends generic HTTP attributes plus only the bounded protocol-derived
   coordinates declared below: GraphQL operation/root, MCP method/tool, or
   signed AWS wire protocol/service/operation. The AWS coordinate is structural
   request identity, not a provider semantic classification.
@@ -250,6 +254,9 @@ brand.
   GitHub.com, but Gateway and OPA still authorize only the normalized HTTP
   effect rather than a GitHub operation.
 - HTTP methods are evidence supplied to policy, not a CLI effect classifier.
+- Review exposes `not_expected`, `possible`, `interactive`, or `unknown` only
+  when the validated protocol contract supports that conclusion. GraphQL query
+  and mutation provide the first such signal. Unknown never becomes safe.
 
 ### Mechanical enforcement
 
@@ -690,7 +697,11 @@ Gateway errors do not authorize traffic.
   arriving lengthless buffer; Gateway then rejects any complete body over 1
   MiB before parsing generic operation/root identity or policy. It forwards the
   original bytes once after allow. Unknown-length ordinary bodies remain
-  streaming; unsupported GraphQL forms fail closed. Signed commercial AWS
+  streaming. A declared body-free GraphQL GET may carry one bounded query
+  operation in strict URL parameters; Gateway removes the source, variables,
+  operation name, and extensions from OPA and audit, and rejects mutation over
+  GET. Persisted-query-only, nonempty-extension, and other unsupported GraphQL
+  forms fail closed with distinct local diagnostics. Signed commercial AWS
   Query RPC is separately retained only with one exact positive length of at
   most 8 MiB so `Action` can be extracted before policy. AWS JSON derives its
   operation from one signed bounded `X-Amz-Target`; unsupported, ambiguous,

@@ -1229,7 +1229,9 @@ narrow pre-policy exception: Gateway accepts one positive length no greater
 than 1 MiB, or an absent length without transfer/content encoding under the
 fixed 8 MiB transport cap. It rejects a complete body over 1 MiB, parses one
 strict UTF-8 JSON request, and sends only operation type and sorted canonical
-root fields to OPA. The original bytes are forwarded once
+root fields to OPA. It also accepts one body-free GET with a bounded strict
+GraphQL parameter set, rejects mutation over GET, and removes every URL
+parameter from OPA before policy. The original POST bytes are forwarded once
 after allow; source text, operation name, aliases, fragment names, directives,
 nested selections, arguments, variables, extensions, literal values, and body
 hashes never enter policy, audit, learned state, or CLI output. Signed AWS RPC
@@ -1242,7 +1244,9 @@ retain other form fields or JSON body fields, and rejects unsigned, ambiguous,
 streaming, URL-query-mixed, or unsupported RPC forms before learning. Client authentication can be present on the forwarded
 request but is absent from OPA input and audit output. No query or headers are
 emitted in audit. Audit retains the path component, except that any path
-containing a Tobari handle marker becomes `/[redacted-auth-handle]`. Structural
+containing a Tobari handle marker becomes `/[redacted-auth-handle]`. The
+protocol-derived state-change value is a deterministic review projection of
+validated identity and is never sent back as an authorization selector. Structural
 URL/header handle rejections are non-learnable and cannot become policy
 candidates. Any Tobari-looking handle marker either enters the exact valid
 broker route or fails as `credential_handle_invalid`; only complete marker
