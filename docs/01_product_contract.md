@@ -620,6 +620,11 @@ review runs through `tobari review permissions` in a separate host terminal.
   mutation boundary once. Back, cancellation, unchanged selection, and read,
   validation, or terminal failure perform zero mutation. Review prompts use
   stderr and the confirmed complete report uses stdout.
+  Successful human text closes the prepare-first handoff without composing the
+  mutations: create reports the exact named build command, build reports the
+  exact ready `NAME@ORDINAL` selection command, and Context selection reports
+  the exact next Workspace entry command. For the current Context that entry is
+  the ordinary CWD-first `tobari`; a non-current Context remains explicit.
 - Direct `config shell` changes one allowlisted shell-presentation policy in
   the explicit or current Context. Its terminal editor may stage several
   distinct rows and commits the complete change set with one atomic write.

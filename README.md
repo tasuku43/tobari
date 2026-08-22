@@ -188,6 +188,10 @@ tobari context list
 tobari context show --name default
 tobari context use --name default
 tobari context delete --name disposable
+
+# Start one standalone Context draft from the current default work mode.
+tobari context create --base default --name restricted
+
 tobari config bootstrap aws --refresh --context default
 tobari config bootstrap kubernetes eks --refresh --context default
 
@@ -455,8 +459,12 @@ for its detailed research contract.
 ```sh
 tobari runtime create --name frontend
 # Edit every required file in the reported Runtime source directory.
-tobari runtime build
-tobari context runtime set
+tobari runtime build --name frontend
+tobari context runtime set --runtime frontend@1
+tobari
+
+# Or initialize another standalone source from frontend's current editable source.
+tobari runtime create --base frontend --name frontend-node22
 ```
 
 The explicit build snapshots the complete bounded Runtime source tree,
@@ -467,6 +475,12 @@ adopt a changed binding on their next entry while preserving home. On an
 interactive terminal, both commands present the exact Runtime, Context, current
 binding, and impact before Build or Apply. Scripts remain deterministic by
 supplying `--name frontend` or `--runtime frontend@1` directly.
+
+Both Context and Runtime Bases are one-time draft initializers. A Runtime Base
+copies the current editable source, not an immutable successful revision; its
+revisions, history, and lineage are not copied. A Context Base likewise retains
+no inheritance or lineage and copies no Workspace, login, learned permission,
+attachment authority, or current selection.
 
 The public base retains Git, curl, jq, Python, SSH, GitHub CLI, AWS CLI, Claude
 Code, and Codex as ordinary Workspace tools. Their presence grants no

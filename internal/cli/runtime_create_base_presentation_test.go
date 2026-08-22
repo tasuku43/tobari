@@ -17,7 +17,7 @@ import (
 
 const (
 	runtimeCreateBaseFixtureSHA256 = "16537101698b82e21f489cb13e1f2202fda7e4fc4132387232481a5897f9822e"
-	runtimeCreateBaseAnswerSHA256  = "9f35d9115b7157758fe43c546a898ee2242d9519ea76e353d0c6e4838a3fa464"
+	runtimeCreateBaseAnswerSHA256  = "e7024e72d14f81d1eb38ffdd33a06396b3ee38fef926756e6ce81f453a3a0b26"
 )
 
 type runtimeCreateBaseFixture struct {
@@ -27,16 +27,17 @@ type runtimeCreateBaseFixture struct {
 }
 
 type runtimeCreateBaseAnswer struct {
-	SchemaVersion  int      `json:"schema_version"`
-	Task           string   `json:"task"`
-	NewRuntime     string   `json:"new_runtime"`
-	BaseCandidates []string `json:"base_candidates"`
-	InitialBase    string   `json:"initial_base"`
-	ExactNextArgv  []string `json:"exact_next_argv"`
-	RequiredFacts  []string `json:"required_summary_facts"`
-	ChooserFacts   []string `json:"chooser_facts"`
-	Unsupported    []string `json:"unsupported_inferences"`
-	RoutineSuccess struct {
+	SchemaVersion      int      `json:"schema_version"`
+	Task               string   `json:"task"`
+	NewRuntime         string   `json:"new_runtime"`
+	BaseCandidates     []string `json:"base_candidates"`
+	InitialBase        string   `json:"initial_base"`
+	ExactNextArgv      []string `json:"exact_next_argv"`
+	RequiredFacts      []string `json:"required_summary_facts"`
+	ChooserFacts       []string `json:"chooser_facts"`
+	ChooserUnsupported []string `json:"chooser_unsupported_inferences"`
+	Unsupported        []string `json:"unsupported_inferences"`
+	RoutineSuccess     struct {
 		TaskInvocations             int `json:"task_invocations"`
 		ExternalReconstructionSteps int `json:"external_reconstruction_steps"`
 	} `json:"routine_success"`
@@ -122,6 +123,11 @@ func TestRuntimeCreateBasePinnedPresentationHasNoLineageInference(t *testing.T) 
 	for _, fact := range answer.ChooserFacts {
 		if !strings.Contains(output.String(), fact) {
 			t.Errorf("chooser lacks %q: %q", fact, output.String())
+		}
+	}
+	for _, unsupported := range answer.ChooserUnsupported {
+		if strings.Contains(output.String(), unsupported) {
+			t.Errorf("chooser invents %q: %q", unsupported, output.String())
 		}
 	}
 	if got := []string{fixture.Candidates[0].Name, fixture.Candidates[1].Name, fixture.Candidates[2].Name}; !slices.Equal(got, answer.BaseCandidates) {

@@ -339,6 +339,11 @@ Apply, while Back, unchanged selection, and cancellation remain read-only.
 Review never reads Runtime source bytes and has no Docker or manifest write
 port. Fully specified selectors bypass Review, while machine-readable or
 non-interactive omission fails before the application mutation boundary.
+The Runtime Base chooser names the managed candidate as its current editable
+source and does not present the latest successful head as copy identity.
+Confirmed human results compose the separate catalog operations only through
+exact next argv derived from the validated Runtime binding and Context current
+marker; no renderer performs discovery or changes an effect.
 
 `context delete` is a Context-catalog write serialized by the installation
 lifecycle lock. Application maps the foundational/current/Workspace guards and

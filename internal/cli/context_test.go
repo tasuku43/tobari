@@ -1879,6 +1879,9 @@ func TestRuntimeBuildFullySpecifiedRemainsDirect(t *testing.T) {
 	if fake.buildCalls != 1 || fake.listCalls != 0 || fake.showCalls != 0 {
 		t.Fatalf("direct runtime build calls = build/list/show %d/%d/%d", fake.buildCalls, fake.listCalls, fake.showCalls)
 	}
+	if !strings.Contains(stdout.String(), "tobari context runtime set --runtime frontend@1") {
+		t.Fatalf("direct runtime build output lacks exact selection handoff: %q", stdout.String())
+	}
 }
 
 func TestContextRuntimeReviewSelectsRevisionAndAppliesOnce(t *testing.T) {
@@ -1913,8 +1916,26 @@ func TestContextRuntimeReviewSelectsRevisionAndAppliesOnce(t *testing.T) {
 	if strings.Contains(stderr.String(), "Apply is unavailable") || strings.Count(stderr.String(), "Apply change") != 1 {
 		t.Fatalf("Context Runtime Review did not isolate Apply to one Review state: %q", stderr.String())
 	}
-	if !strings.Contains(stdout.String(), "frontend@1") {
+	if !strings.Contains(stdout.String(), "frontend@1") ||
+		!strings.Contains(stdout.String(), applyStyleToken(true, styleAccent, "`tobari`")) ||
+		!strings.Contains(stdout.String(), "from the project directory to adopt the selected Runtime on entry") {
 		t.Fatalf("Context Runtime confirmed stdout = %q", stdout.String())
+	}
+}
+
+func TestContextRuntimeSetNonCurrentHandoffKeepsExactContext(t *testing.T) {
+	manifest := readyRuntimeManifest()
+	report := contextCLIReport(tobari.TaskContextShow, "web", false, tobari.OfficialRuntimeBase, tobari.ContextPolicyModeGuided)
+	contextFake := &contextCLI{report: report}
+	var stdout, stderr bytes.Buffer
+	command := newCLI(strings.NewReader(""), &stdout, &stderr, DefaultCatalog(), nil)
+	command.context = contextcmd.New(contextFake)
+
+	if code := command.RunContext(context.Background(), []string{"context", "runtime", "set", "--context", "web", "--runtime", manifest.Name + "@1"}); code != ExitOK {
+		t.Fatalf("non-current Context Runtime set code = %d, stderr = %q", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "Next: run `tobari --context web` from the project directory") {
+		t.Fatalf("non-current Context Runtime handoff = %q", stdout.String())
 	}
 }
 

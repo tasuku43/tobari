@@ -208,7 +208,10 @@ func renderRuntimeReport(path string, result tobari.RuntimeReport, format succes
 		}
 	}
 	if len(manifest.Revisions) == 0 {
-		writeContextCardValue(&output, color, "Status", "draft · edit source, then runtime build --name "+safeExternalText(manifest.Name), styleWarning)
+		writeContextCardValue(&output, color, "Status", "draft · edit the current source", styleWarning)
+		if path == "runtime create" {
+			writeContextCardValue(&output, color, "Next", ProgramName+" runtime build --name "+safeExternalText(manifest.Name), styleAccent)
+		}
 	} else {
 		for _, revision := range manifest.Revisions {
 			value := fmt.Sprintf("%s@%d · %s · %s", safeExternalText(manifest.Name), revision.Ordinal, revision.Revision[:12], revision.CreatedAt.Format("2006-01-02 15:04 UTC"))
@@ -220,6 +223,19 @@ func renderRuntimeReport(path string, result tobari.RuntimeReport, format succes
 	}
 	if result.Built {
 		writeContextCardValue(&output, color, "Build", "revision created · no Context changed", styleAccent)
+	}
+	if path == "runtime build" {
+		if head, ok := manifest.Head(); ok {
+			binding, bindingErr := manifest.Binding(head.Ordinal)
+			if bindingErr != nil {
+				return nil, fault.Wrap(fault.KindContract, "invalid_runtime_report", "Runtime report is invalid", false, bindingErr)
+			}
+			selection, selectionErr := binding.Selection()
+			if selectionErr != nil {
+				return nil, fault.Wrap(fault.KindContract, "invalid_runtime_report", "Runtime report is invalid", false, selectionErr)
+			}
+			writeContextCardValue(&output, color, "Next", ProgramName+" context runtime set --runtime "+safeExternalText(selection), styleAccent)
+		}
 	}
 	return []byte(output.String()), nil
 }

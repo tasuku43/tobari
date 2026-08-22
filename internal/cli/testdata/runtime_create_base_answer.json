@@ -10,15 +10,23 @@
     "managed",
     "/tmp/tobari-test/runtimes/mobile/source",
     "no group/other permissions",
-    "draft · edit source, then runtime build --name mobile"
+    "draft · edit the current source",
+    "tobari runtime build --name mobile"
   ],
   "chooser_facts": [
     "Source Base",
     "standard",
     "frontend",
     "backend",
+    "Current editable source",
+    "build history is not copied",
+    "Revisions, history, and lineage are not copied",
     "standalone",
     "no Context binding changes"
+  ],
+  "chooser_unsupported_inferences": [
+    "head frontend@2",
+    "matches frontend@2"
   ],
   "routine_success": {
     "task_invocations": 1,

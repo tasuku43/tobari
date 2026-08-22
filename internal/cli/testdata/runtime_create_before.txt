@@ -3,4 +3,5 @@ Runtime mobile
     Kind       managed
     Source     /tmp/tobari-test/runtimes/mobile/source
     Source rules no group/other permissions · 1,024 files · 256 directories · 32 MiB/file · 64 MiB total
-    Status     draft · edit source, then runtime build --name mobile
+    Status     draft · edit the current source
+    Next       tobari runtime build --name mobile

@@ -1262,6 +1262,14 @@ func renderContextReportText(result tobari.ContextReport, color bool) []byte {
 	case tobari.TaskRuntimeBuild:
 		writeStyledLine(&output, color, "Note:", "existing Workspaces keep their home. On the next `tobari`, Tobari recreates only the work container when this runtime image changes the spec.", styleText)
 		writeStyledCommandLine(&output, color, "Next:", "run ", "`tobari`", " from a project directory.")
+	case tobari.TaskContextRuntimeSet:
+		if nextArgv := contextRuntimeSetNextArgv(result); len(nextArgv) > 0 {
+			writeStyledCommandLine(
+				&output, color, "Next:", "run ",
+				"`"+safeExternalText(strings.Join(nextArgv, " "))+"`",
+				" from the project directory to adopt the selected Runtime on entry.",
+			)
+		}
 	case tobari.TaskContextUse:
 		switch result.Cluster {
 		case tobari.ContextClusterStatusDefaultUpdated:
@@ -1727,6 +1735,16 @@ func contextCreateNextArgv(result tobari.ContextReport) []string {
 	default:
 		return nil
 	}
+}
+
+func contextRuntimeSetNextArgv(result tobari.ContextReport) []string {
+	if result.Task != tobari.TaskContextRuntimeSet {
+		return nil
+	}
+	if result.Active {
+		return []string{ProgramName}
+	}
+	return []string{ProgramName, "--context", result.Name}
 }
 
 func renderRuntimeInitReportText(result tobari.ContextReport, color bool) []byte {
