@@ -32,7 +32,7 @@ Suppose an agent in `/work/example` tries:
 curl -X PUT https://example.com/quickstart
 ```
 
-If no rule covers that exact effect, Gateway returns a learnable `403`. It retains bounded, secret-free evidence and tells the agent where the trusted host can review it. Nothing is approved automatically. The person leaves the Workspace, runs `tobari policy review`, chooses allow or deny for the exact effect, and retries only after a confirmed decision.
+If no rule covers that exact effect, Gateway returns a learnable `403`. It retains bounded, secret-free evidence and tells the agent where the trusted host can review it. Nothing is approved automatically. The person leaves the Workspace, runs `tobari review permissions`, chooses allow or deny for the exact effect, and retries only after a confirmed decision.
 
 The rule does not mean “the agent may use example.com.” It remains bound to the stable Context, project principal, HTTPS destination and port, HTTP method, and path represented by the reviewed effect.
 

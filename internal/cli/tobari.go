@@ -90,10 +90,10 @@ func runClusterDenials(
 			"help cluster denials", "Correct the command arguments.",
 		)
 	}
-	review, found := c.catalog.Lookup("policy review")
+	review, found := c.catalog.Lookup("review permissions")
 	if !found {
 		return c.fail(ctx, fault.New(
-			fault.KindContract, "invalid_catalog", "policy review command is missing", false,
+			fault.KindContract, "invalid_catalog", "review permissions command is missing", false,
 		))
 	}
 	output, err := renderClusterDenialsWithReviewCommand(
@@ -137,8 +137,8 @@ func runPolicyReview(
 	if watch && (format != successFormatText || !policyReviewInteractiveAllowed(ctx, c)) {
 		return c.fail(ctx, fault.New(
 			fault.KindInvalidInput, "policy_review_watch_requires_tty",
-			"policy review --watch requires text output and interactive terminal input and output", false,
-			fault.NextAction{Command: "help policy review", Reason: "Run watch with text output in an interactive raw terminal."},
+			"review permissions --watch requires text output and interactive terminal input and output", false,
+			fault.NextAction{Command: "help review permissions", Reason: "Run watch with text output in an interactive raw terminal."},
 		))
 	}
 	result, err := c.tobari.PolicyReview(ctx, int(tail))
@@ -248,7 +248,7 @@ func runPolicyReview(
 				return c.fail(ctx, fault.New(
 					fault.KindInvalidInput, "empty_policy_review_set",
 					"stage at least one reviewed permission before Apply", false,
-					fault.NextAction{Command: "policy review", Reason: "Inspect a permission and stage one offered decision."},
+					fault.NextAction{Command: "review permissions", Reason: "Inspect a permission and stage one offered decision."},
 				))
 			}
 			apply, applyFound := c.catalog.lookupRegistered("policy apply-reviewed")
@@ -474,7 +474,7 @@ func runPolicyRules(
 		if !policyRuleContainsID(result, decision.RuleID) {
 			return c.fail(ctx, fault.New(
 				fault.KindContract, "invalid_policy_rule_selection",
-				"the interactive policy review selected an ID outside its validated snapshot", false,
+				"the interactive Permission Inbox selected an ID outside its validated snapshot", false,
 				fault.NextAction{Command: "policy rules", Reason: "Rediscover the current learned decisions."},
 			))
 		}
@@ -574,8 +574,8 @@ func runPolicyApplyReviewed(
 ) int {
 	return c.failUsage(
 		ctx, "invalid_policy_review_session",
-		command.Path+" is owned by the interactive policy review session",
-		"policy review", "Stage exact decisions in the Permission Inbox and use its final Apply action.",
+		command.Path+" is owned by the interactive Permission Inbox session",
+		"review permissions", "Stage exact decisions in the Permission Inbox and use its final Apply action.",
 	)
 }
 
@@ -1033,7 +1033,7 @@ func renderPendingPolicyNotification(result tobari.PolicyCandidateReport, style 
 		safeExternalText(latest.Host), latest.Port, safeExternalText(latest.Method), safeExternalText(latest.Path),
 	)
 	fmt.Fprintln(&output, applyStyleToken(style, styleText, request))
-	writeStyledCommandLine(&output, style, "Review on the host:", "", "tobari policy review", "")
+	writeStyledCommandLine(&output, style, "Review on the host:", "", "tobari review permissions", "")
 	return []byte(output.String())
 }
 
@@ -1372,7 +1372,7 @@ func renderPolicyReviewWithColor(
 		result, allowCommand, pairedPolicyCommand(allowCommand, "allow", "deny"), successFormatText, color,
 	)
 	if err != nil {
-		return []byte("policy review: output encoding failed\n")
+		return []byte("review permissions: output encoding failed\n")
 	}
 	return output
 }
@@ -1383,13 +1383,13 @@ func renderPolicyReviewWithCommands(
 ) ([]byte, error) {
 	items := policyCandidateOutputs(result, allowCommand, denyCommand)
 	if format == successFormatJSON {
-		output, err := marshalCommandJSON("policy review", policyReviewDocument{
+		output, err := marshalCommandJSON("review permissions", policyReviewDocument{
 			SchemaVersion: 1, PolicyReview: items,
 		})
 		if err != nil {
 			return nil, fault.Wrap(
 				fault.KindContract, "output_encoding_failed",
-				"policy review JSON could not be encoded", false, err,
+				"review permissions JSON could not be encoded", false, err,
 			)
 		}
 		return append(output, '\n'), nil
@@ -1426,7 +1426,7 @@ func renderPolicyReviewHuman(
 		output.row("Status", fmt.Sprintf("%d", item.StatusCode), styleDanger)
 		if item.EffectiveDestinationKind() == tobari.PolicyDestinationHostLoopback {
 			output.row("Authority", "Host Loopback · attachment-scoped · Workspace audience", styleText)
-			output.row("Decision", "Run policy review in an interactive host terminal.", styleAccent)
+			output.row("Decision", "Run review permissions in an interactive host terminal.", styleAccent)
 		} else {
 			output.row("Allow exact", allowCommand+" --id "+item.ID, styleAccent)
 			output.row("Deny exact", denyCommand+" --id "+item.ID, styleAccent)
@@ -1576,7 +1576,7 @@ func renderPolicyRulesHuman(result tobari.PolicyRuleReport, resetCommand string,
 		output.heading("○", "No learned policy decisions", styleMuted)
 		output.row("Policy", safeExternalText(result.PolicyDirectory), styleText)
 		output.row("Details", "No current Allow or exact Deny decision is active.", styleText)
-		output.next("policy review", "Review retained denied permissions when one needs a decision.")
+		output.next("review permissions", "Review retained denied permissions when one needs a decision.")
 		return output.bytes()
 	}
 	output := newHumanOutput(color)
@@ -1633,7 +1633,7 @@ func renderPolicyRuleResetWithColor(result tobari.PolicyRuleReset, color bool) [
 	output.row("Target", result.TargetID, styleText)
 	output.row("Removed", safeExternalText(result.Decision), styleText)
 	output.row("Default deny", humanBool(result.Applied), humanOutcomeBoolToken(result.Applied))
-	output.next("policy review", "Review the retained denied effect again before granting a new decision.")
+	output.next("review permissions", "Review the retained denied effect again before granting a new decision.")
 	return output.bytes()
 }
 

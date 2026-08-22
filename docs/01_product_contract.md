@@ -43,7 +43,7 @@ Every interactive entry exposes the constant Host Loopback capability
 Workspace receives the URL template, bounded port range, Workspace audience,
 and explicit `attachment` lifetime; `localhost` continues to mean the
 Workspace. Capability discovery and routing metadata are not permission. The first exact
-effect follows the ordinary deny, `policy review`, decide, and retry loop, and
+effect follows the ordinary deny, `review permissions`, decide, and retry loop, and
 the decision is available to every process in the Workspace only until the
 owning host attachment exits. Docker, Compose, host daemon state, automatic
 port discovery, raw TCP, and persistent Host Loopback grants are not part of
@@ -51,7 +51,7 @@ this outcome.
 
 The opposite direction is one explicitly reviewed Workspace service. From a
 live attachment, `tobari-expose <port>` requests exact Workspace
-`127.0.0.1:<port>` access. A separate trusted-host `tobari review` may choose
+`127.0.0.1:<port>` access. A separate trusted-host `tobari review services` may choose
 `Allow once` or `Deny`; only Allow once makes the owning attachment bind a
 random host IPv4-loopback port. The returned URL is exactly
 `http://127.0.0.1:<random-port>`. HTTP/1.1 and WebSocket Upgrade relay without
@@ -90,7 +90,7 @@ exact signed AWS wire-operation coordinate, and reason
 without secrets, the CLI presents a bounded exact proposal and a concrete
 trusted-host next action, the user approves the minimum rule, and the same
 workload is retried. A learnable denial also gives the agent a fixed host-side
-review command, and the human path enters through `policy review`; machine
+review command, and the human path enters through `review permissions`; machine
 discovery remains `policy candidates`. Exact opaque references remain the
 safety boundary for `policy allow --id` and `policy deny --id`, while the TTY
 may stage several unchanged references and apply the reviewed set once.
@@ -298,8 +298,8 @@ The public commands are:
 | `cluster logs [--component gateway|opa|all] [--tail N]` | utility | read | Read bounded shared logs, including policy-denial evidence, without credential output |
 | `cluster down [--purge]` | act, fixed target | write | Remove shared transient resources after every Workspace is deleted; `--purge` additionally removes shared CA and active policy-bundle volumes |
 | `policy candidates [--tail N] [--format text|json]` | discover | read | Discover Context/project-scoped pending exact HTTP or GraphQL-root candidates and opaque IDs across the installation |
-| `policy review [--tail N] [--format text|json] [--watch] [--notify auto|osc9|bel|off]` | discover plus TTY fixed-target apply | read, or one confirmed write | Review the installation-wide Permission Inbox; a raw TTY can stage exact decisions from the list, inspect template scope, and apply the reviewed set; `--watch` refreshes bounded snapshots and remains open after Apply, while `--notify` selects its terminal-emulator cue and redirected or JSON output remain read-only |
-| `review` | discover plus TTY reference-bound actions | read, or one confirmed create/write | In a separate trusted-host terminal, choose the unchanged Permission Inbox or a fresh live Service request; Permission decisions retain staged Apply while Service Allow once or Deny is immediate and attachment-local; redirected output is read-only |
+| `review permissions [--tail N] [--format text|json] [--watch] [--notify auto|osc9|bel|off]` | discover plus TTY fixed-target apply | read, or one confirmed write | Review the installation-wide Permission Inbox; a raw TTY can stage exact decisions from the list, inspect template scope, and apply the reviewed set; `--watch` refreshes bounded snapshots and remains open after Apply, while `--notify` selects its terminal-emulator cue and redirected or JSON output remain read-only |
+| `review services` | discover plus TTY reference-bound actions | read, or one confirmed create/write | In a separate trusted-host terminal, review a fresh live Service request; Allow once or Deny is immediate and attachment-local, while redirected output is read-only |
 | `service requests` | discover | read | Return one fresh exhaustive snapshot of pending service requests from live attachment owners with opaque request references |
 | `service allow --id ID` | act, reference bound | create | Revalidate one pending request and create one attachment-owned random IPv4-loopback exposure |
 | `service deny --id ID` | act, reference bound | write | Resolve one pending request without creating host access |
@@ -322,6 +322,14 @@ The public commands are:
 | `runtime history --name NAME [--format text\|json]` | utility | read | Show one Runtime's ordered immutable successful revision history |
 | `runtime create --name NAME [--format text\|json]` | act, fixed target | create | Create one owner-only managed Docker build-context source tree without building or changing a Context |
 | `runtime build [--name NAME] [--format text\|json]` | act, fixed target | write | Snapshot, build, validate, and append one immutable semantic revision without changing any Context; omission opens terminal Review |
+
+Bare `tobari review` is a pure Catalog namespace listing with exactly the
+public task leaves `permissions` and `services`; it performs no task read or
+mutation and has no registered selector handler. `review permissions` retains
+bounded, durable staged Apply. `review services` retains fresh exhaustive
+discovery and immediate attachment-local Allow once or Deny. The pre-public
+`policy review` path and registered root `review` selector have no alias or
+fallback; persisted policy and attachment state need no migration.
 
 Every Tobari-controlled base Runtime image builds a dedicated Linux Workspace
 helper from the checked source/Catalog closure with a pinned builder. The host
@@ -394,7 +402,7 @@ session. Its exit returns to the host shell rather than entering Bash, and its
 exact status is returned without stopping the fixed Workspace lifetime process.
 Neither Bash nor a direct child reserves a Tobari input prefix. In particular,
 `Ctrl+]` is forwarded to the child unchanged; trusted-host Permission Inbox
-review runs through `tobari policy review` in a separate host terminal.
+review runs through `tobari review permissions` in a separate host terminal.
 
 ## Input and path contract
 
@@ -807,7 +815,7 @@ changed candidate set fails closed and asks the user to run `tobari` again.
 When a learnable network request is denied, the Gateway's 403 response carries
 fixed secret-free host-review navigation for the agent, and an interactive
 session close may summarize the pending queue on host stderr. These are
-advisory only; the interactive `policy review` queue is the human entry point.
+advisory only; the interactive `review permissions` queue is the human entry point.
 It stages unchanged opaque review-item references only from typed detail screens and uses
 one final `policy apply-reviewed` fixed-target action to revalidate and activate
 one Context's set. Apply or discard is required before switching Context so the

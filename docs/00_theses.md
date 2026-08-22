@@ -68,11 +68,16 @@ it. The engine-native `tobari-expose` helper has a dedicated hardcoded Program,
 is built from the checked source closure into the verified base Runtime, and is
 mounted read-only; it cannot expose host routes through `argv[0]` spoofing or a
 copied binary. It requests one Workspace-loopback HTTP service, while a
-separate trusted-host `tobari review` revalidates and allows it once. The live
+separate trusted-host `tobari review services` revalidates and allows it once. The live
 attachment owns the random host-loopback listener and every relay, and removes
 them when it exits. Service exposure is neither durable Context policy nor the
 opposite-direction Host Loopback branch, and it does not create a generic
 attachment RPC, Docker publication, LAN access, or raw transport.
+Trusted-host decisions share one task-first `review` namespace, but not one
+selector or authority: bare `tobari review` is catalog-derived discovery only,
+`review permissions` owns durable staged Permission Inbox Apply, and `review
+services` owns immediate attachment-local Allow once or Deny. The lower-level
+`policy` and `service` namespaces retain resource discovery and exact actions.
 One installation-local standard cluster shares one Gateway, one OPA, an atomic
 all-Context policy projection, and CA state without sharing Workspace homes or
 runtime networks. The repository-only experimental profile may additionally
@@ -90,7 +95,7 @@ host-side review cue, keep the current Workspace and agent session running,
 review the pending permission from a separate trusted-host terminal,
 approve the minimum rule, and retry in that same session. The normal path does
 not require writing OPA or Rego by hand:
-interactive `policy review` presents a Permission Inbox, keeps one distinct
+interactive `review permissions` presents a Permission Inbox, keeps one distinct
 HTTP path exact, proposes a single-segment `{id}` template after a second
 compatible distinct path, stages an explicit template-Allow, observed-exact
 Allow, or pending-exact Deny from detail, and applies the reviewed set once;
@@ -104,7 +109,7 @@ stored-rule receipts; it never asks the caller to re-enter the Workspace.
 A separate `policy rules` view makes the complete current learned Allow and
 exact Deny decisions visible, and its TTY flow can explicitly reset one
 decision to default deny. Reset never grants or retries; it makes the retained
-effect eligible for `policy review` again.
+effect eligible for `review permissions` again.
 A foreground experimental `tobari serve` may present the same typed cluster, Workspace,
 Permission Inbox, and learned-rule tasks through a host-browser Operator
 Console. It is a trusted-host presentation alternative, not a second policy
@@ -182,7 +187,7 @@ using `tobari` leaves host execution unchanged, while `delete` and
   performed before selection, never a post-create fork.
   Read-only `doctor`, status/list inspection, and
   opaque-ID policy actions remain recovery or machine paths rather than steps
-  in the normal journey. On a TTY, `policy review` is the complete human
+  in the normal journey. On a TTY, `review permissions` is the complete human
   review-to-decision flow, while `policy rules` is the complete human
   inventory-and-reset flow; neither requires a second JSON review.
 - Experimental `tobari serve` is the dense host-browser alternative for the same inspection
@@ -757,7 +762,7 @@ administration project.
 - A learnable denial returns a fixed, secret-free host-side review command to
   the agent; a completed session also summarizes the pending queue on host
   stderr. Neither notification can mutate policy or trigger a retry.
-- Interactive `policy review` is the installation-wide human Permission Inbox
+- Interactive `review permissions` is the installation-wide human Permission Inbox
   over retained queues from every Context. Its list can stage or clear exact
   Allow and Deny choices directly and advances only to a later undecided row;
   template Allow remains available only after detail inspection exposes its
@@ -766,7 +771,7 @@ administration project.
   binds the complete typed snapshot and applies the staged set as one
   command-owned installation policy decision-set mutation. Every opaque
   exact candidate or path-template proposal ID is retained unchanged and
-  revalidated against fresh evidence. `policy review --watch` is a human-text,
+  revalidated against fresh evidence. `review permissions --watch` is a human-text,
   raw-terminal-only monitor over repeated bounded snapshots. It refreshes
   automatically with bounded backoff, retains the last valid screen on read
   failure, retains one alternate-screen frame between Apply operations, skips
@@ -788,7 +793,7 @@ administration project.
   adopting one requires a separate decision to own terminal emulation or
   multiplexing with full-screen compatibility evidence.
   Redirected and
-  machine-readable `policy review` remains read-only. `policy candidates`
+  machine-readable `review permissions` remains read-only. `policy candidates`
   remains the machine discovery surface. `policy rules` is the exhaustive inventory of
   current CLI-owned learned decisions; `policy reset --id` removes exactly one
   Allow or exact Deny and returns that effect to default deny. The discovery
@@ -1035,7 +1040,7 @@ OPA allow.
   only JSON-RPC method and, for `tools/call`, exact tool name, and signed AWS
   RPC adds only wire protocol, SigV4 service, and exact wire operation.
 - Permission candidates, learned rules, exact denies, audits, and brokered
-  handles retain Context and Workspace identity. `policy review` and `policy
+  handles retain Context and Workspace identity. `review permissions` and `policy
   rules` cross all Contexts; mutations bind solely to opaque references.
 
 ### Mechanical enforcement

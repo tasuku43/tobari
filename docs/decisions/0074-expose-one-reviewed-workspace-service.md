@@ -44,9 +44,10 @@ source/API/digest identity and Linux ELF engine architecture, and retains one
 owner-only copy for read-only mounting into standard and custom Runtimes.
 `tobari-expose <port>` requests review of one exact
 non-privileged Workspace-loopback port. It neither chooses nor opens host
-access. A separate host terminal runs `tobari review`, chooses the Service
-source, and immediately applies one reference-bound `Allow once` or `Deny`.
-The existing `tobari policy review [--watch]` and its staged Apply remain
+access. A separate host terminal runs `tobari review services` and immediately
+applies one reference-bound `Allow once` or `Deny`. Bare `tobari review` is
+only the Catalog-derived namespace listing; it owns no selector or authority.
+The existing `tobari review permissions [--watch]` and its staged Apply remain
 unchanged.
 
 Allow once makes the live attachment owner bind one random IPv4-loopback host

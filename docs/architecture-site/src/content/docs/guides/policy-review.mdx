@@ -16,17 +16,17 @@ Keep the Workspace attached and open Permission Inbox in a separate trusted-host
 
 ## 1. Stop retrying and leave the Workspace
 
-A learnable Gateway `403` contains fixed guidance to run `tobari policy review` on the host. It contains no candidate ID and gives the agent no way to approve itself.
+A learnable Gateway `403` contains fixed guidance to run `tobari review permissions` on the host. It contains no candidate ID and gives the agent no way to approve itself.
 
 Exit the Workspace before review. Repeated retries do not increase authority; they only refresh bounded evidence for the same effect.
 
 ## 2. Open the human review flow
 
 ```sh
-tobari policy review --tail 100
-tobari policy review --watch
+tobari review permissions --tail 100
+tobari review permissions --watch
 # Disable or explicitly choose its terminal-emulator cue:
-tobari policy review --watch --notify=off
+tobari review permissions --watch --notify=off
 ```
 
 The installation-wide TTY queue displays pending effects from its bounded Gateway-log window. Select one item, then inspect:
@@ -55,7 +55,7 @@ Press **a** or **d** on the raw list to stage **Allow exact** or **Deny exact**,
 Redirected review is read-only:
 
 ```sh
-tobari policy review --tail 100 --format json
+tobari review permissions --tail 100 --format json
 ```
 
 Copy the emitted opaque `pcy_...` ID unchanged into one action:

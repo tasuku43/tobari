@@ -43,7 +43,7 @@ tobari auth status
 
 まずレスポンスコードを特定します。
 
-- `policy_denied`: Workspace を出て `tobari policy review` を実行します。一つの Context について完全一致の判断を確認して準備し、レビュー済みの一式を一度だけ Apply してから、意図的に再試行します。
+- `policy_denied`: Workspace を出て `tobari review permissions` を実行します。一つの Context について完全一致の判断を確認して準備し、レビュー済みの一式を一度だけ Apply してから、意図的に再試行します。
 - `credential_handle_invalid`: 同じ Context に結び付いた Workspace を出て、もう一度入室します。古いハンドル、コピーしたハンドル、形式や配置、結び付けが不正なハンドルを転送してはいけません。
 - 基本拒否または学習済みの完全一致拒否: 保留中の候補ではなく、確定したポリシーです。`tobari policy rules` を確認し、その判断を意図的に変更する場合だけリセットします。
 

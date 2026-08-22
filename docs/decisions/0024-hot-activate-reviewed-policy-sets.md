@@ -10,7 +10,7 @@
 
 ## Context
 
-Interactive `policy review` currently closes one exact decision at a time.
+Interactive `review permissions` currently closes one exact decision at a time.
 Every choice tests policy, rebuilds the complete all-Context projection,
 recreates OPA, waits for health, and then rereads the queue. This preserves a
 strong activation boundary but makes several ordinary exact permissions pay
@@ -49,7 +49,7 @@ revision A, replaced the volume bundle with revision B, and observed exact
 revision B from the same OPA container. Linux CI retains independent integration
 coverage before the mechanism is complete.
 
-The terminal `policy review` workflow may stage several exact Allow or Deny
+The terminal `review permissions` workflow may stage several exact Allow or Deny
 choices. Staging is not authority and writes no policy source. Apply is one
 command-bound fixed-target mutation against the installation decision set. It
 revalidates the complete snapshot and every unchanged opaque candidate ID,
@@ -58,7 +58,7 @@ tests the affected Context sources and complete all-Context candidate, promotes
 the source update under the projection lock, and activates one complete bundle.
 Cancellation discards the set and performs no mutation.
 
-Redirected and machine-readable `policy review` remain read-only. Existing
+Redirected and machine-readable `review permissions` remain read-only. Existing
 `policy candidates`, `policy allow --id`, and `policy deny --id` retain the
 single-reference discover/act workflow.
 

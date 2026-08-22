@@ -80,8 +80,8 @@ Denials, candidates, learned allows, exact denies, compactions, rule inventory,
 audit, and opaque references retain Context and project identity. Reference-
 bound mutations derive the complete target from one opaque reference; a
 Context flag is never combined with the reference to construct authority.
-`policy review` and `policy rules` are installation-wide views, so the fixed
-denial recovery command remains `tobari policy review`. Human list, detail, and
+`review permissions` and `policy rules` are installation-wide views, so the fixed
+denial recovery command remains `tobari review permissions`. Human list, detail, and
 confirmation views show Context, project root, and request. Machine output also
 returns stable Context and project identities.
 

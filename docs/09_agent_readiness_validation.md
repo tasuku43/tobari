@@ -12,8 +12,8 @@ transcripts as repository fixtures.
 | Choose and retire a Context work mode | `context list`, `context show`, `context create`, `context use`, `context delete` | Human list cards lead with work mode/current, effective Access, exact Runtime, and action marker; `context show` leads with effective Access, Tools, Workspace defaults, Workspace-owned login, exact Details, and exact Next while `--details` retains complete diagnostics from the same read and JSON remains identical; a synthetic default says recommended defaults are not saved; argument-free terminal creation shows the complete effective boundary, edits one section, discovers optional typed bootstrap candidates without selector re-entry, and creates once; changing current does not retarget Workspaces, and deletion rejects protected/current/bound Contexts |
 | Enter bounded work | `tobari [--context NAME]` or `tobari [--context NAME] -- COMMAND [ARG...]`; explicit `cluster up` remains available | On first use, one root screen reviews canonical root, direct project effect, effective Access, `standard@1`, no host import, and Bash or the direct executable; Start revalidates empty Context state, completes canonical Context creation and exact shared-cluster reconciliation, then enters one reusable Workspace; Customize retains the complete creation flow; the direct form runs exact foreground argv without a shell, returns its status to the host, and leaves the Workspace reusable |
 | Understand authority lifetime | `context show`, `policy rules`, and Host Loopback capability/review output | Routine guidance distinguishes Context Access, remembered Workspace decisions, and this-session Host Loopback access without requiring baseline, overlay, principal, epoch, or grant reconstruction; typed output retains exact destination kind and authority lifetime |
-| Grow exact permission | `policy review`, or `policy candidates` then one exact allow/deny | Terminal guardrail precedes every candidate; explicit review activates only exact Context/project/scheme/host/port/method/path authority |
-| Open one Workspace service | In the attached Workspace run `tobari-expose PORT`; in a separate host terminal run `tobari review`; later use `tobari-expose list` and `tobari-expose stop EXPOSURE_REF` | Service review shows exact Workspace and target, random host-loopback-only access, no browser opening, and attachment lifetime; Allow once returns exact numeric-loopback URL plus opaque reference; stop consumes that reference unchanged; Permission review remains staged Apply |
+| Grow exact permission | `review permissions`, or `policy candidates` then one exact allow/deny | Terminal guardrail precedes every candidate; explicit review activates only exact Context/project/scheme/host/port/method/path authority |
+| Open one Workspace service | In the attached Workspace run `tobari-expose PORT`; in a separate host terminal run `tobari review services`; later use `tobari-expose list` and `tobari-expose stop EXPOSURE_REF` | Service review shows exact Workspace and target, random host-loopback-only access, no browser opening, and attachment lifetime; Allow once returns exact numeric-loopback URL plus opaque reference; stop consumes that reference unchanged; Permission review remains staged Apply |
 | Inspect/reset decisions | `policy rules`, then `policy reset --id` | One current exact decision is removed through its unchanged opaque reference and returns to default deny |
 | Use native Workspace auth | Run the agent CLI's native login inside the Workspace | Credential state persists in that Workspace home, receives no network grant from login, and crosses Gateway only after the ordinary exact HTTP effect is allowed |
 | Exercise experimental Broker research | Build with `task build:dev`, then use its `auth` commands | No equivalent command, provider binding, projection, service, image authority, or activation switch exists in the standard binary |
@@ -22,6 +22,13 @@ Routine success must require zero undeclared external-processing steps. Reading
 a declared JSON/TSV field is consumption; a custom join/parser, provider-
 notation decoder, source inspection, or exploratory request is reconstruction
 and fails the supported-outcome claim.
+
+For trusted-host review discovery, one `help review --format agent` lookup
+must return exactly `review permissions` and `review services`. A caller that
+already knows either leaf needs one exact scoped-help lookup and then one task
+invocation, with zero command guesses, selector interaction, or external
+processing. Bare `tobari review` is the equivalent human namespace listing and
+must perform no Permission or Service read.
 
 ## Reproducible local scenario
 
@@ -79,7 +86,7 @@ an Attachment Epoch. The routine-success external-processing count is zero.
 
 For Workspace service exposure, start a synthetic HTTP/WebSocket fixture on one
 non-privileged Workspace-loopback port. Run `tobari-expose PORT` in the attached
-shell and obtain one fresh Service snapshot through `tobari review` in another
+shell and obtain one fresh Service snapshot through `tobari review services` in another
 host terminal. Verify Back and cancellation create no listener, Deny resolves
 without access, and Allow once returns exact
 `http://127.0.0.1:<random-port>`, an opaque `exp_...` reference, and exact
@@ -271,7 +278,7 @@ unchecked argv is embedded in the response. Keep the Workspace terminal
 attached, but use a separate trusted-host terminal for Permission Inbox;
 Tobari reserves no `Ctrl+]` or other child-input shortcut. In that terminal:
 
-1. Open `policy review --watch`; prove an empty raw-terminal Inbox receives a
+1. Open `review permissions --watch`; prove an empty raw-terminal Inbox receives a
    new bounded candidate without restart and emits at most one fixed trusted
    terminal cue. Prove `--notify=off`, explicit OSC 9/BEL, conservative auto,
    identified cmux auto-selection, and hostile evidence isolation. Prove two

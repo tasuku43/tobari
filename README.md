@@ -265,11 +265,11 @@ secret-free denial and gives the child fixed trusted-host navigation. Keep the
 Workspace and agent session running, then use a separate host terminal:
 
 ```sh
-tobari policy review
+tobari review permissions
 # Or keep a trusted-host raw terminal waiting for new denials:
-tobari policy review --watch
+tobari review permissions --watch
 # Disable or explicitly choose its terminal-emulator cue:
-tobari policy review --watch --notify=off
+tobari review permissions --watch --notify=off
 ```
 
 The attached Workspace reserves no Tobari key prefix. `Ctrl+]` and all other
@@ -347,7 +347,7 @@ curl http://host.tobari.test:3000/health
 
 No entry flag or service declaration is needed. The first exact host, port,
 method, and path remains denied until it is approved through interactive
-`tobari policy review`. That decision is Workspace-wide only for the current
+`tobari review permissions`. That decision is Workspace-wide only for the current
 route-owning attachment; exit revokes it, and it never appears in persistent
 `policy rules`. `TOBARI_CAPABILITIES_JSON` describes the URL template, port
 range, lifetime, and audience without exposing relay credentials. This outcome
@@ -363,9 +363,9 @@ service:
 tobari-expose 3000
 ```
 
-In a separate trusted-host terminal, run `tobari review`, choose Service
-requests, inspect the exact Workspace and `127.0.0.1:3000` target, then choose
-Allow once. The waiting helper prints a random exact URL such as
+In a separate trusted-host terminal, run `tobari review services`, inspect the
+exact Workspace and `127.0.0.1:3000` target, then choose Allow once. The waiting
+helper prints a random exact URL such as
 `http://127.0.0.1:54321`, its opaque exposure reference, and the exact stop
 command. Tobari does not open the browser automatically.
 
@@ -479,7 +479,8 @@ it can acquire Datadog credentials.
 tobari help
 tobari help --format agent
 tobari help context --format agent
-tobari help policy review --format agent
+tobari help review --format agent
+tobari help review permissions --format agent
 ```
 
 The root agent form is a bounded capability index. Select one namespace or

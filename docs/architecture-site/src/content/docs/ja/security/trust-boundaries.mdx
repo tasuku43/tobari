@@ -50,7 +50,7 @@ Workspace へ返す拒否レスポンスは、ホスト側で実行するレビ�
 ## 境界 4：Workspace サービスへの attachment 所有アクセス
 
 read-only の `tobari-expose` helper は、Workspace loopback port 一つの trusted-host review を
-要求できますが、host access を開けません。別に起動した host の `tobari review` が owner の
+要求できますが、host access を開けません。別に起動した host の `tobari review services` が owner の
 fresh snapshot を取得し、opaque reference 一つを live attachment owner へ渡します。その owner
 だけが exact IPv4 loopback を bind し、exact numeric HTTP authority を検証し、HTTP/1.1 または
 upgrade 済み WebSocket を relay し、attachment exit で access を閉じます。review process は

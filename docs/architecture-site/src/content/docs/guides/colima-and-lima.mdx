@@ -61,7 +61,7 @@ Do not use repeated root entry as a repair mechanism. The root `tobari` command 
 | Symptom                                                 | Likely boundary                               | What to inspect                                                                 |
 | ------------------------------------------------------- | --------------------------------------------- | ------------------------------------------------------------------------------- |
 | Docker says bind source does not exist or is not shared | VM filesystem sharing                         | Project and resolved XDG parents                                                |
-| Workspace starts, but an HTTP request returns `403`     | Gateway/OPA policy or credential binding      | `tobari policy review`, not VM mounts                                           |
+| Workspace starts, but an HTTP request returns `403`     | Gateway/OPA policy or credential binding      | `tobari review permissions`, not VM mounts                                      |
 | Workspace cannot trust Gateway TLS                      | Client CA/proxy behavior                      | Tool honors injected CA variables; certificate pinning may reject intentionally |
 | Cluster component cannot see policy/projection          | XDG config/state bind visibility or ownership | `doctor`, `cluster status`, component logs                                      |
 | Registry image unavailable                              | Docker VM registry/network path               | Docker context and registry access; do not change policy rules                  |

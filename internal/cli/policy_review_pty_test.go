@@ -37,7 +37,7 @@ func TestPolicyReviewPTYChild(t *testing.T) {
 	}
 	command := newCLI(os.Stdin, os.Stdout, os.Stderr, DefaultCatalog(), nil)
 	command.tobari = tobaricmd.New(runtimeFake)
-	args := []string{"policy", "review"}
+	args := []string{"review", "permissions"}
 	if isPolicyWatch {
 		args = append(args, "--watch", "--notify=bel")
 	}
@@ -96,7 +96,7 @@ func TestPolicyReviewPTYChild(t *testing.T) {
 		wantCode = ExitCanceled
 	}
 	if code != wantCode {
-		t.Fatalf("policy review returned %d, want %d", code, wantCode)
+		t.Fatalf("review permissions returned %d, want %d", code, wantCode)
 	}
 }
 

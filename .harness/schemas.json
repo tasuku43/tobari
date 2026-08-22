@@ -23,8 +23,8 @@
   {
     "id": "human-presentation-foundation.fixture.v1",
     "path": "internal/cli/testdata/human-presentation-foundation-fixture.json",
-    "sha256": "cb58bff1cd33dc44622c711d649d9b2b4ba79b09e132bb1dd36b70e7931944e5",
-    "bytes": 3301,
+    "sha256": "f9e3da163a0f73622be9639b24af9e1a8a5837b210a9fd9ab710f90eb39321c2",
+    "bytes": 3306,
     "cases": 5,
     "provenance": "Repository-authored synthetic typed fixture for human presentation across styled, NO_COLOR, redirected, empty, warning, failure, and cancellation modes.",
     "license": "MIT"
@@ -32,8 +32,8 @@
   {
     "id": "human-presentation-foundation.answer-key.v1",
     "path": "internal/cli/testdata/human-presentation-foundation-answer-key.json",
-    "sha256": "b6c4cf1172497eb9ae29185f672c0fe8f1c07c0c8ecb034c875ccf294a7c24f0",
-    "bytes": 1649,
+    "sha256": "9548b10801b9f55449c529d524f776edade08e56db71b15e459cb1167b902427",
+    "bytes": 1659,
     "cases": 5,
     "provenance": "Repository-authored presentation-independent answer key for human CLI structure, exact recovery, and negative-inference canaries.",
     "license": "MIT"
@@ -59,8 +59,8 @@
   {
     "id": "resumable-permission-review.fixture.v1",
     "path": "internal/cli/testdata/resumable-permission-review-fixture.json",
-    "sha256": "3115feb28cbfb85c9603a2f47ccca13eeba29f6668c8edef34fa227928b7a250",
-    "bytes": 5044,
+    "sha256": "16b1dbb4fc4c6d8ffa3e8a25f6f41efcac3feac815ca8a898fa42daf039301d4",
+    "bytes": 5049,
     "cases": 10,
     "provenance": "Repository-authored synthetic typed fixture for resumable permission navigation, exact/template staged review, refresh reconciliation, activation failure, stored-rule receipt, and same-session retry.",
     "license": "MIT"
@@ -68,8 +68,8 @@
   {
     "id": "resumable-permission-review.answer-key.v1",
     "path": "internal/cli/testdata/resumable-permission-review-answer-key.json",
-    "sha256": "70e15576723e10add44d4fc7780f79d9d6216f29faa8fe0b442ee884f77f3ed5",
-    "bytes": 2732,
+    "sha256": "48f877c83c3a496772f92d526aee3cec9e86f3ae02c4e3a98530786625c75437",
+    "bytes": 2737,
     "cases": 10,
     "provenance": "Repository-authored presentation-independent answer key for permission navigation, zero-write cancellation, typed review-item reconciliation, confirmed activation, and same-session retry.",
     "license": "MIT"

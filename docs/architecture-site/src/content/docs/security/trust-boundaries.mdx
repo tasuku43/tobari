@@ -58,7 +58,7 @@ Only the trusted host CLI can take an unchanged opaque review reference, select 
 
 The read-only `tobari-expose` helper may request review of one exact
 Workspace-loopback port, but it cannot open host access. A separately invoked
-host `tobari review` obtains a fresh owner snapshot and passes one opaque
+host `tobari review services` obtains a fresh owner snapshot and passes one opaque
 reference back to the live attachment owner. Only that owner binds exact IPv4
 loopback, validates exact numeric HTTP authority, relays HTTP/1.1 or an upgraded
 WebSocket, and closes access on attachment exit. Review owns no route lifetime;

@@ -22,8 +22,8 @@ import (
 )
 
 const (
-	humanPresentationFixtureSHA256 = "cb58bff1cd33dc44622c711d649d9b2b4ba79b09e132bb1dd36b70e7931944e5"
-	humanPresentationAnswerSHA256  = "b6c4cf1172497eb9ae29185f672c0fe8f1c07c0c8ecb034c875ccf294a7c24f0"
+	humanPresentationFixtureSHA256 = "f9e3da163a0f73622be9639b24af9e1a8a5837b210a9fd9ab710f90eb39321c2"
+	humanPresentationAnswerSHA256  = "9548b10801b9f55449c529d524f776edade08e56db71b15e459cb1167b902427"
 )
 
 type humanPresentationFixture struct {
@@ -322,11 +322,11 @@ func TestEveryTextCollectionHasAnExplicitScopedEmptyState(t *testing.T) {
 	}
 	candidatePlain, _ := renderPolicyCandidatesWithColor(candidates, "tobari policy allow", successFormatText, false)
 	candidateStyled, _ := renderPolicyCandidatesWithColor(candidates, "tobari policy allow", successFormatText, true)
-	denialPlain, _ := renderClusterDenialsWithColor(denials, "tobari policy review", successFormatText, false)
-	denialStyled, _ := renderClusterDenialsWithColor(denials, "tobari policy review", successFormatText, true)
+	denialPlain, _ := renderClusterDenialsWithColor(denials, "tobari review permissions", successFormatText, false)
+	denialStyled, _ := renderClusterDenialsWithColor(denials, "tobari review permissions", successFormatText, true)
 	cases := []emptyCase{
 		{name: "policy candidates", plain: candidatePlain, styled: candidateStyled, required: []string{"No policy candidates", policyDirectory, "200 Gateway lines"}},
-		{name: "policy review", plain: renderPolicyReviewHuman(review, "tobari policy allow", "tobari policy deny", false), styled: renderPolicyReviewHuman(review, "tobari policy allow", "tobari policy deny", true), required: []string{"No pending network permissions", policyDirectory, "200 Gateway lines"}},
+		{name: "review permissions", plain: renderPolicyReviewHuman(review, "tobari policy allow", "tobari policy deny", false), styled: renderPolicyReviewHuman(review, "tobari policy allow", "tobari policy deny", true), required: []string{"No pending network permissions", policyDirectory, "200 Gateway lines"}},
 		{name: "policy rules", plain: renderPolicyRulesHuman(rules, "tobari policy reset", false), styled: renderPolicyRulesHuman(rules, "tobari policy reset", true), required: []string{"No learned policy decisions", policyDirectory}},
 		{name: "cluster denials", plain: denialPlain, styled: denialStyled, required: []string{"No policy denials", policyDirectory, "200 Gateway lines"}},
 		{name: "Workspaces", plain: projectPlain, styled: projectStyled, required: []string{"No Workspaces", "No Workspace state is configured"}},
@@ -528,7 +528,7 @@ func TestPreActionPolicyCancellationIsNeutralExit11WithZeroAction(t *testing.T) 
 		args  []string
 		rules []tobari.LearnedPolicyRule
 	}{
-		{name: "permission review", args: []string{"policy", "review"}},
+		{name: "permission review", args: []string{"review", "permissions"}},
 		{name: "policy rules", args: []string{"policy", "rules"}, rules: []tobari.LearnedPolicyRule{rule}},
 	} {
 		t.Run(test.name, func(t *testing.T) {

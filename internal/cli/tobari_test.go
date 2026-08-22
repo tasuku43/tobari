@@ -195,7 +195,7 @@ func TestDefaultCatalogPublishesCWDOwnedLifecycleWithoutActionIDs(t *testing.T) 
 		}
 	}
 
-	for _, path := range []string{"policy candidates", "policy review"} {
+	for _, path := range []string{"policy candidates", "review permissions"} {
 		command, found := catalog.Lookup(path)
 		want := []ProducedRef{{Kind: tobari.PolicyCandidateKind, Field: "id"}}
 		if !found || command.Role != RoleDiscover || !reflect.DeepEqual(command.ProducedRefs(), want) {
@@ -217,18 +217,18 @@ func TestDefaultCatalogPublishesCWDOwnedLifecycleWithoutActionIDs(t *testing.T) 
 		reset.Agent.Mutation.TargetIDInput != "--id" {
 		t.Fatalf("policy reset reference contract = %+v", reset)
 	}
-	review, found := catalog.Lookup("policy review")
+	review, found := catalog.Lookup("review permissions")
 	if !found || review.Agent.Interactive != nil {
-		t.Fatalf("policy review interactive workflow = %+v", review.Agent.Interactive)
+		t.Fatalf("review permissions interactive workflow = %+v", review.Agent.Interactive)
 	}
-	internalReview, found := catalog.lookupRegistered("policy review")
+	internalReview, found := catalog.lookupRegistered("review permissions")
 	if !found || internalReview.Agent.Interactive == nil ||
 		internalReview.Agent.Interactive.ActionCommand != "policy apply-reviewed" ||
 		internalReview.Agent.Interactive.SelectionReferenceKind != tobari.PolicyCandidateKind ||
 		internalReview.Agent.Interactive.SelectionOutputField != "id" ||
 		internalReview.Agent.Interactive.Confirmation != "explicit_yes" ||
 		internalReview.Agent.Interactive.NonInteractiveBehavior != "read_only" {
-		t.Fatalf("registered policy review workflow = %+v", internalReview.Agent.Interactive)
+		t.Fatalf("registered review permissions workflow = %+v", internalReview.Agent.Interactive)
 	}
 	allow, found := catalog.Lookup("policy allow")
 	if !found || allow.Role != RoleAct ||
@@ -273,10 +273,10 @@ func TestPolicyPresetSurfaceIsNotAccepted(t *testing.T) {
 func TestPolicyCatalogPublishesGraphQLIdentityContracts(t *testing.T) {
 	t.Parallel()
 	wantVersions := map[string]int{
-		"cluster denials":   1,
-		"policy candidates": 1,
-		"policy review":     1,
-		"policy rules":      1,
+		"cluster denials":    1,
+		"policy candidates":  1,
+		"review permissions": 1,
+		"policy rules":       1,
 	}
 	for path, version := range wantVersions {
 		spec, found := DefaultCatalog().Lookup(path)
@@ -291,7 +291,7 @@ func TestPolicyCatalogPublishesGraphQLIdentityContracts(t *testing.T) {
 		}
 	}
 
-	for _, path := range []string{"policy candidates", "policy review", "policy rules", "policy allow", "policy deny"} {
+	for _, path := range []string{"policy candidates", "review permissions", "policy rules", "policy allow", "policy deny"} {
 		spec, found := DefaultCatalog().Lookup(path)
 		if !found {
 			t.Fatalf("catalog lacks %q", path)
@@ -310,9 +310,9 @@ func TestPolicyCatalogPublishesGraphQLIdentityContracts(t *testing.T) {
 
 func TestPolicyReviewCatalogDeclaresWatchAsOptionalBoolean(t *testing.T) {
 	t.Parallel()
-	spec, found := DefaultCatalog().Lookup("policy review")
+	spec, found := DefaultCatalog().Lookup("review permissions")
 	if !found || spec.Args != "[--tail <lines>] [--format text|json] [--watch] [--notify auto|osc9|bel|off]" {
-		t.Fatalf("policy review usage = %q, found=%t", spec.Args, found)
+		t.Fatalf("review permissions usage = %q, found=%t", spec.Args, found)
 	}
 	var watch CommandInput
 	for _, input := range spec.Agent.Inputs {
@@ -342,11 +342,11 @@ func TestPolicyReviewCatalogDeclaresWatchAsOptionalBoolean(t *testing.T) {
 	foundFault := false
 	for _, declared := range spec.Agent.Errors {
 		if declared.Code == "policy_review_watch_requires_tty" {
-			foundFault = len(declared.NextActions) == 1 && declared.NextActions[0].Command == "help policy review"
+			foundFault = len(declared.NextActions) == 1 && declared.NextActions[0].Command == "help review permissions"
 		}
 	}
 	if !foundFault {
-		t.Fatalf("policy review watch recovery = %+v", spec.Agent.Errors)
+		t.Fatalf("review permissions watch recovery = %+v", spec.Agent.Errors)
 	}
 }
 
@@ -382,8 +382,8 @@ func TestPolicyReviewTTYStagesExactAllowAndAppliesOnce(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	command := newCLI(strings.NewReader("1\na\np\ny\n"), &stdout, &stderr, DefaultCatalog(), nil)
 	command.tobari = tobaricmd.New(runtime)
-	if code := command.RunContext(context.Background(), []string{"policy", "review"}); code != ExitOK {
-		t.Fatalf("policy review code = %d, stderr = %q", code, stderr.String())
+	if code := command.RunContext(context.Background(), []string{"review", "permissions"}); code != ExitOK {
+		t.Fatalf("review permissions code = %d, stderr = %q", code, stderr.String())
 	}
 	if runtime.applyCalls != 1 || len(runtime.rules) != 1 ||
 		len(runtime.rules[0].SourceCandidates) != 1 || runtime.rules[0].SourceCandidates[0] != candidate.ID {
@@ -415,8 +415,8 @@ func TestPolicyReviewTTYProposesTemplateOnSecondDistinctPathAndAppliesItOnce(t *
 	var stdout, stderr bytes.Buffer
 	command := newCLI(strings.NewReader("1\nt\np\ny\n"), &stdout, &stderr, DefaultCatalog(), nil)
 	command.tobari = tobaricmd.New(runtime)
-	if code := command.RunContext(context.Background(), []string{"policy", "review"}); code != ExitOK {
-		t.Fatalf("policy review code = %d, stdout = %q, stderr = %q", code, stdout.String(), stderr.String())
+	if code := command.RunContext(context.Background(), []string{"review", "permissions"}); code != ExitOK {
+		t.Fatalf("review permissions code = %d, stdout = %q, stderr = %q", code, stdout.String(), stderr.String())
 	}
 	if runtime.applyCalls != 1 || len(runtime.rules) != 1 || runtime.rules[0].Match != tobari.PolicyMatchPathTemplate ||
 		runtime.rules[0].Path != "/items/{id}" || len(runtime.rules[0].Examples) != 2 {
@@ -452,8 +452,8 @@ func TestPolicyReviewTTYAppliesSeveralDecisionsWithOneRuntimeCall(t *testing.T) 
 	var stdout, stderr bytes.Buffer
 	command := newCLI(strings.NewReader("1\na\n2\nd\np\ny\n"), &stdout, &stderr, DefaultCatalog(), nil)
 	command.tobari = tobaricmd.New(runtime)
-	if code := command.RunContext(context.Background(), []string{"policy", "review"}); code != ExitOK {
-		t.Fatalf("policy review code = %d, stderr = %q", code, stderr.String())
+	if code := command.RunContext(context.Background(), []string{"review", "permissions"}); code != ExitOK {
+		t.Fatalf("review permissions code = %d, stderr = %q", code, stderr.String())
 	}
 	if runtime.applyCalls != 1 || len(runtime.rules) != 1 || len(runtime.denyRules) != 1 {
 		t.Fatalf("reviewed set calls=%d allows=%+v denies=%+v", runtime.applyCalls, runtime.rules, runtime.denyRules)
@@ -490,8 +490,8 @@ func TestPolicyReviewTTYRefreshReconcilesStagedDecisionsByCandidateID(t *testing
 	var stdout, stderr bytes.Buffer
 	command := newCLI(strings.NewReader("1\na\n2\nd\nr\np\ny\n"), &stdout, &stderr, DefaultCatalog(), nil)
 	command.tobari = tobaricmd.New(runtime)
-	if code := command.RunContext(context.Background(), []string{"policy", "review"}); code != ExitOK {
-		t.Fatalf("policy review code = %d, stderr = %q", code, stderr.String())
+	if code := command.RunContext(context.Background(), []string{"review", "permissions"}); code != ExitOK {
+		t.Fatalf("review permissions code = %d, stderr = %q", code, stderr.String())
 	}
 	if runtime.applyCalls != 1 || len(runtime.rules) != 0 || len(runtime.denyRules) != 1 ||
 		len(runtime.denyRules[0].SourceCandidates) != 1 || runtime.denyRules[0].SourceCandidates[0] != secondCandidate.ID {
@@ -522,8 +522,8 @@ func TestPolicyReviewTTYRefreshDoesNotTransferStageToDifferentCandidateWithMatch
 	var stdout, stderr bytes.Buffer
 	command := newCLI(strings.NewReader("1\na\nr\np\nq\n"), &stdout, &stderr, DefaultCatalog(), nil)
 	command.tobari = tobaricmd.New(runtime)
-	if code := command.RunContext(context.Background(), []string{"policy", "review"}); code != ExitCanceled {
-		t.Fatalf("policy review code = %d, stderr = %q", code, stderr.String())
+	if code := command.RunContext(context.Background(), []string{"review", "permissions"}); code != ExitCanceled {
+		t.Fatalf("review permissions code = %d, stderr = %q", code, stderr.String())
 	}
 	if runtime.applyCalls != 0 || len(runtime.rules) != 0 || len(runtime.denyRules) != 0 {
 		t.Fatalf("replacement candidate inherited authority: calls=%d allows=%+v denies=%+v", runtime.applyCalls, runtime.rules, runtime.denyRules)
@@ -557,8 +557,8 @@ func TestPolicyReviewTTYKeepsOneContextPerStagedApply(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	command := newCLI(strings.NewReader("1\na\n2\nd\np\ny\n"), &stdout, &stderr, DefaultCatalog(), nil)
 	command.tobari = tobaricmd.New(runtime)
-	if code := command.RunContext(context.Background(), []string{"policy", "review"}); code != ExitOK {
-		t.Fatalf("policy review code = %d, stderr = %q", code, stderr.String())
+	if code := command.RunContext(context.Background(), []string{"review", "permissions"}); code != ExitOK {
+		t.Fatalf("review permissions code = %d, stderr = %q", code, stderr.String())
 	}
 	if runtime.applyCalls != 1 || len(runtime.rules)+len(runtime.denyRules) != 1 {
 		t.Fatalf("mixed Context staging calls=%d allows=%+v denies=%+v", runtime.applyCalls, runtime.rules, runtime.denyRules)
@@ -586,8 +586,8 @@ func TestPolicyReviewRedirectedInputStaysReadOnly(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	command := newCLI(strings.NewReader("1\na\n"), &stdout, &stderr, DefaultCatalog(), nil)
 	command.tobari = tobaricmd.New(runtime)
-	if code := command.RunContext(context.Background(), []string{"policy", "review"}); code != ExitOK {
-		t.Fatalf("redirected policy review code = %d, stderr = %q", code, stderr.String())
+	if code := command.RunContext(context.Background(), []string{"review", "permissions"}); code != ExitOK {
+		t.Fatalf("redirected review permissions code = %d, stderr = %q", code, stderr.String())
 	}
 	if runtime.applyCalls != 0 || len(runtime.rules) != 0 {
 		t.Fatalf("redirected review mutated policy: calls:%d rules:%+v", runtime.applyCalls, runtime.rules)
@@ -604,8 +604,8 @@ func TestPolicyReviewWatchRejectsJSONAndRedirectedStreamsBeforeReading(t *testin
 		terminal bool
 		args     []string
 	}{
-		{name: "json", terminal: true, args: []string{"policy", "review", "--watch", "--format=json"}},
-		{name: "redirected", terminal: false, args: []string{"policy", "review", "--watch"}},
+		{name: "json", terminal: true, args: []string{"review", "permissions", "--watch", "--format=json"}},
+		{name: "redirected", terminal: false, args: []string{"review", "permissions", "--watch"}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			runtime := &policyReviewRuntimeApplyingFake{policyReviewRuntimeFake: policyReviewRuntimeFake{terminal: test.terminal}}
@@ -617,7 +617,7 @@ func TestPolicyReviewWatchRejectsJSONAndRedirectedStreamsBeforeReading(t *testin
 			}
 			if runtime.denialReads != 0 || runtime.applyCalls != 0 || stdout.Len() != 0 ||
 				!humanOutputHasRow(stderr.String(), "Code", "policy_review_watch_requires_tty") ||
-				!strings.Contains(stderr.String(), "help policy review") {
+				!strings.Contains(stderr.String(), "help review permissions") {
 				t.Fatalf("watch guard reads=%d applies=%d stdout=%q stderr=%q", runtime.denialReads, runtime.applyCalls, stdout.String(), stderr.String())
 			}
 		})
@@ -627,8 +627,8 @@ func TestPolicyReviewWatchRejectsJSONAndRedirectedStreamsBeforeReading(t *testin
 func TestPolicyReviewNotifyRequiresWatchBeforeReading(t *testing.T) {
 	t.Parallel()
 	for _, args := range [][]string{
-		{"policy", "review", "--notify=off"},
-		{"policy", "review", "--watch=false", "--notify=off"},
+		{"review", "permissions", "--notify=off"},
+		{"review", "permissions", "--watch=false", "--notify=off"},
 	} {
 		runtime := &policyReviewRuntimeApplyingFake{policyReviewRuntimeFake: policyReviewRuntimeFake{terminal: true}}
 		var stdout, stderr bytes.Buffer
@@ -674,7 +674,7 @@ func TestPolicyReviewWatchCoalescesNewItemsAndPassesNotificationMethod(t *testin
 				}
 				return nil
 			}
-			if code := command.RunContext(context.Background(), []string{"policy", "review", "--watch", "--notify=" + method}); code != ExitOK {
+			if code := command.RunContext(context.Background(), []string{"review", "permissions", "--watch", "--notify=" + method}); code != ExitOK {
 				t.Fatalf("watch code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 			}
 			wantCalls := 1
@@ -717,7 +717,7 @@ func TestPolicyReviewWatchRefreshesEmptyStagesFromListAppliesAndReturnsToWaiting
 			ticker: &readyPolicyReviewTicker{ready: true},
 		}
 	}
-	if code := command.RunContext(context.Background(), []string{"policy", "review", "--watch"}); code != ExitOK {
+	if code := command.RunContext(context.Background(), []string{"review", "permissions", "--watch"}); code != ExitOK {
 		t.Fatalf("watch code = %d, stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
 	if runtime.applyCalls != 1 || len(runtime.rules) != 1 {
@@ -761,7 +761,7 @@ func TestPolicyReviewWatchNotificationMethodsAndKnownReappearance(t *testing.T) 
 				}
 				return nil
 			}
-			args := []string{"policy", "review", "--watch", "--notify=" + method}
+			args := []string{"review", "permissions", "--watch", "--notify=" + method}
 			if code := command.RunContext(context.Background(), args); code != ExitOK {
 				t.Fatalf("watch code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 			}
@@ -792,7 +792,7 @@ func TestPolicyReviewWatchNotificationFailureKeepsWatchAndRestoresTerminal(t *te
 		return &policyReviewSelector{mode: mode, style: style, staged: map[string]policyReviewAction{}, ticker: &readyPolicyReviewTicker{ready: true}}
 	}
 	command.policyNotify = func(io.Writer, string) error { return errors.New("synthetic notification failure") }
-	if code := command.RunContext(context.Background(), []string{"policy", "review", "--watch", "--notify=osc9"}); code != ExitOK {
+	if code := command.RunContext(context.Background(), []string{"review", "permissions", "--watch", "--notify=osc9"}); code != ExitOK {
 		t.Fatalf("watch code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
 	if runtime.applyCalls != 0 || mode.entered != mode.restored ||
@@ -822,7 +822,7 @@ func TestPolicyReviewWatchRefreshFailurePreservesSnapshotAndStaging(t *testing.T
 			ticker: &readyPolicyReviewTicker{ready: true},
 		}
 	}
-	if code := command.RunContext(context.Background(), []string{"policy", "review", "--watch"}); code != ExitOK {
+	if code := command.RunContext(context.Background(), []string{"review", "permissions", "--watch"}); code != ExitOK {
 		t.Fatalf("watch code = %d, stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
 	if runtime.applyCalls != 0 {
@@ -856,7 +856,7 @@ func TestPolicyReviewWatchDoesNotReofferAppliedSnapshotWhenImmediateRefreshFails
 			ticker: &readyPolicyReviewTicker{ready: true},
 		}
 	}
-	if code := command.RunContext(context.Background(), []string{"policy", "review", "--watch"}); code != ExitOK {
+	if code := command.RunContext(context.Background(), []string{"review", "permissions", "--watch"}); code != ExitOK {
 		t.Fatalf("watch code = %d, stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
 	if runtime.applyCalls != 1 {
@@ -890,7 +890,7 @@ func TestPolicyReviewWatchRefreshFailurePreservesSnapshotAndStagingThenStopsNorm
 			ticker: &readyPolicyReviewTicker{ready: true},
 		}
 	}
-	if code := command.RunContext(context.Background(), []string{"policy", "review", "--watch"}); code != ExitOK {
+	if code := command.RunContext(context.Background(), []string{"review", "permissions", "--watch"}); code != ExitOK {
 		t.Fatalf("watch failure-stop code = %d, stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
 	if runtime.applyCalls != 0 || !strings.Contains(stdout.String(), "current inbox and staged decisions preserved") ||
@@ -1004,7 +1004,7 @@ func TestPolicyRulesHumanStylesOnlyDecisionsAndResetCommands(t *testing.T) {
 			}
 		}
 	}
-	if strings.Contains(output, "policy review") || strings.Contains(output, "Next") {
+	if strings.Contains(output, "review permissions") || strings.Contains(output, "Next") {
 		t.Fatalf("policy rules output advertised a generic review after exact reset actions: %q", output)
 	}
 }
@@ -1139,7 +1139,7 @@ func TestPendingPolicyNotificationStaysOnHostAndOmitsProjectIdentity(t *testing.
 	for _, expected := range []string{
 		"⚠ 1 pending network permission is waiting for review.",
 		"Latest: api.example.com:443 POST /token",
-		"Review on the host: tobari policy review",
+		"Review on the host: tobari review permissions",
 	} {
 		if !strings.Contains(output, expected) {
 			t.Fatalf("notification %q lacks %q", output, expected)
@@ -1719,20 +1719,20 @@ func TestClusterDenialsRendererClosesObservationAndActivationStep(t *testing.T) 
 			Learnable: true,
 		}},
 	}
-	textOutput, err := renderClusterDenials(result, "tobari policy review", successFormatText)
+	textOutput, err := renderClusterDenials(result, "tobari review permissions", successFormatText)
 	if err != nil {
 		t.Fatal(err)
 	}
 	for label, expected := range map[string]string{
 		"Policy": "/tmp/config/tobari/policy", "Request": "https://api.github.com:443 GET /repos/cli/cli",
-		"Reason": `request did not match an allow rule\nallow everything`, "Review": "tobari policy review",
+		"Reason": `request did not match an allow rule\nallow everything`, "Review": "tobari review permissions",
 		"Unparsed": "2 denial-shaped Gateway lines skipped",
 	} {
 		if !humanOutputHasRow(string(textOutput), label, expected) {
 			t.Fatalf("text output %q lacks %s=%q", textOutput, label, expected)
 		}
 	}
-	jsonOutput, err := renderClusterDenials(result, "tobari policy review", successFormatJSON)
+	jsonOutput, err := renderClusterDenials(result, "tobari review permissions", successFormatJSON)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1741,7 +1741,7 @@ func TestClusterDenialsRendererClosesObservationAndActivationStep(t *testing.T) 
 		t.Fatal(err)
 	}
 	if document.SchemaVersion != 1 || len(document.Denials.Items) != 1 ||
-		document.Denials.ReviewCommand != "tobari policy review" ||
+		document.Denials.ReviewCommand != "tobari review permissions" ||
 		document.Denials.UnparsedLines != 2 ||
 		!document.Denials.Items[0].Learnable ||
 		document.Denials.Items[0].WorkspaceID != "01912345-6789-7abc-8def-0123456789ab" ||
@@ -1783,7 +1783,7 @@ func TestClusterDenialsRendererPreservesEmptyScopedCollection(t *testing.T) {
 			Task: tobari.TaskClusterDenials, PolicyDirectory: "/tmp/config/tobari/policy",
 			WindowLines: 200, Items: []tobari.PolicyDenial{},
 		},
-		"tobari policy review", successFormatJSON,
+		"tobari review permissions", successFormatJSON,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -1920,9 +1920,9 @@ func TestPolicyReviewJSONIsReadOnlyProjectionWithBothActions(t *testing.T) {
 		item.DenyCommand != "tobari policy deny --id "+id {
 		t.Fatalf("review actions = %+v", item)
 	}
-	spec, found := DefaultCatalog().Lookup("policy review")
+	spec, found := DefaultCatalog().Lookup("review permissions")
 	if !found {
-		t.Fatal("policy review is absent")
+		t.Fatal("review permissions is absent")
 	}
 	assertJSONItemFieldsMatchCatalog(t, output, spec)
 }
@@ -1958,7 +1958,7 @@ func TestGraphQLPolicyIdentityAppearsAcrossPublicPolicyOutputs(t *testing.T) {
 
 	denialJSON, err := renderClusterDenials(tobari.DenialReport{
 		Task: tobari.TaskClusterDenials, PolicyDirectory: "/tmp/policy", WindowLines: 200, Items: []tobari.PolicyDenial{denial},
-	}, "tobari policy review", successFormatJSON)
+	}, "tobari review permissions", successFormatJSON)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2150,7 +2150,7 @@ func TestPolicyDenyRendererReportsExactTerminalDecision(t *testing.T) {
 		}
 	}
 	if !humanOutputHasRow(output, "Next", "tobari policy rules — Inspect the active exact Deny decision.") ||
-		strings.Contains(output, "policy review") {
+		strings.Contains(output, "review permissions") {
 		t.Fatalf("deny output did not point to the active exact decision: %q", output)
 	}
 }

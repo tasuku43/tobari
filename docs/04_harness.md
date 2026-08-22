@@ -745,7 +745,7 @@ The test suite has complementary levels:
   learned rules, credentials, and running-resource inventory outside the
   mutation boundary; doctor maps only the exact supported cause to the exact
   `migrate apply` recovery.
-- The human permission path is exercised through `policy review`; its TTY
+- The human permission path is exercised through `review permissions`; its TTY
   Permission Inbox covers bounded selection, exact and `{id}` template detail
   inspection, raw-list exact Allow/Deny/clear with no-wrap advance, staged
   template/observed-exact/pending-deny choices, manual refresh, raw-terminal
@@ -780,6 +780,13 @@ The test suite has complementary levels:
   retained denial. Neither path requires hand-editing OPA or Rego. Redirected
   review and inventory stay read-only; exact reference-bound allow, deny, and
   reset actions are the routine policy mutations.
+- Catalog retirement canaries prove bare `review` is a generic namespace with
+  exactly `permissions` and `services`, performs zero task calls, and is not a
+  registered command. Exact-path tests reject the retired `policy review` and
+  former selector route without an alias or handler fallback. The two leaf
+  contracts retain their distinct staged versus immediate workflows, output
+  schemas, reference kinds, collection coverage, and redirected read-only
+  behavior.
 - The resumable-permission corpus pins a typed inbox, scoped empty queue, zero
   staged set, mixed HTTP/GraphQL final review, stale refresh, activation fault,
   authoritative revision receipt, and stable Workspace/OPA identities. Its

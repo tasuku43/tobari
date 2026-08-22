@@ -110,7 +110,7 @@ func runServe(
 	if !found || apply.Agent.Mutation == nil || apply.Agent.FixedTarget == nil {
 		return c.fail(ctx, fault.New(
 			fault.KindContract, "invalid_catalog", "The reviewed policy Apply contract is missing.", false,
-			fault.NextAction{Command: "help policy review", Reason: "Repair the catalog-owned review workflow."},
+			fault.NextAction{Command: "help review permissions", Reason: "Repair the catalog-owned review workflow."},
 		))
 	}
 	noOpen, _ := inputs.Boolean("--no-open")

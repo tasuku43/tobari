@@ -60,9 +60,11 @@ Permission Inbox:
 - the ordinary attached streams remain Docker-owned, and the optional Unix PTY
   relay remains display-only and forwards every input byte unchanged;
 - a user keeps the Workspace and agent session running, opens a separate
-  trusted-host terminal, runs `tobari policy review` or
-  `tobari policy review --watch`, confirms any decision there, and deliberately
+  trusted-host terminal, runs `tobari review permissions` or
+  `tobari review permissions --watch`, confirms any decision there, and deliberately
   retries the original request in the same Workspace;
+- bare `tobari review` remains Catalog-derived namespace discovery rather than
+  a terminal switch, selector, or policy operation;
 - Tobari adds no terminal emulator, terminal-output parser, shortcut, command,
   configurable binding, dependency, policy path, or new trust boundary for
   same-terminal review; and

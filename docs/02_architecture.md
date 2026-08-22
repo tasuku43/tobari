@@ -66,7 +66,7 @@ connects that helper to one fixed non-TTY control process; it can submit only
 one non-privileged Workspace-loopback port, list current-attachment exposures,
 or stop one unchanged opaque reference. The live host attachment
 owns pending requests and exposes a distinct owner-only Unix rendezvous plus
-atomic ephemeral record. A separate `tobari review` process validates peer UID
+atomic ephemeral record. A separate `tobari review services` process validates peer UID
 and PID, nonce, attachment identity, and a fresh snapshot, but never owns the
 listener or route lifetime. Allow once binds random host IPv4 loopback and a
 bounded HTTP/1.1/WebSocket relay to exact Workspace loopback. This channel
@@ -195,11 +195,11 @@ path remains catalog-owned, effect-declared, and failure-before-side-effect
 where applicable.
 
 `cluster up`, `cluster status`, `cluster denials`, `policy candidates`,
-`policy review`, `policy allow`, `policy deny`, `policy rules`,
+`review permissions`, `policy allow`, `policy deny`, `policy rules`,
 and `policy reset` remain a valid standard seam. `serve`, `auth login`, `auth import`,
 `auth status`, and `auth logout` remain experimental-only seams
 internal seams today. They are not permission to expose Docker, OPA, or opaque
-resource identifiers as the routine mental model. `policy review` is the
+resource identifiers as the routine mental model. `review permissions` is the
 ordinary human-facing Permission Inbox: on a TTY it composes selection, typed
 exact-or-template detail inspection, explicit template-Allow or exact staging,
 and one final Apply of
@@ -224,10 +224,12 @@ The Catalog spans both executable programs so the helper's produced service
 reference can close through the host actions and the exposure reference can
 close through helper stop. Validation and reference closure are global;
 dispatch, human help, and scoped agent help are filtered by exact program.
-`tobari review` composes the existing Permission source with a fresh Service
-source. Permission keeps staged Apply; Service Allow once and Deny invoke the
-canonical reference-bound actions immediately. The Workspace helper never
-receives host command routing.
+The pure `review` Catalog namespace has two host-only leaves. `review
+permissions` delegates to the existing Permission Inbox read and fixed-target
+staged Apply path. `review services` delegates directly to the fresh Service
+snapshot and invokes canonical reference-bound Allow once or Deny immediately.
+Bare namespace dispatch is generic Catalog help and calls neither application
+port. The Workspace helper never receives host command routing.
 
 Experimental `serve` is a foreground CLI composition over the existing typed application
 tasks. Before exposing a listener it obtains one valid installation snapshot:
@@ -1251,7 +1253,7 @@ call, or signing. The addon has no managed or arbitrary dynamic fallback and
 never retries.
 
 Denied audit records are also the policy-development feedback interface. A
-learnable Gateway denial carries a fixed host-side `tobari policy review`
+learnable Gateway denial carries a fixed host-side `tobari review permissions`
 navigation hint, and session closure may summarize the pending queue on host
 stderr. These are advisory only: they contain no action reference and cannot
 approve or retry a request. The learnable response tells the caller to keep the
@@ -1267,7 +1269,7 @@ trusted host policy directory, the unparsed-record count, and the exact review c
 learnability only when version, cluster, Context, scheme, fixed port,
 project-principal, and Context policy ceiling already pass, so an exact
 Context/project/scheme/host/port/method/path rule, plus the GraphQL or AWS coordinate when
-present, can close the request. `policy review` and
+present, can close the request. `review permissions` and
 `policy candidates` deterministically fold only that eligible retained evidence
 by the structured Context/project/scheme/host/port/method/path and optional GraphQL or AWS
 effect key. They emit one opaque
@@ -1276,7 +1278,7 @@ pending effect; references remain stable across repeated denials. This pure
 read projection also converges concurrent identical audit records without a
 second persisted inbox or write race. They remove effects already covered by
 the CLI-owned learned allow or deny data and trusted baseline deny rules.
-Baseline denies remain audit-only. `policy review` is the routine human text
+Baseline denies remain audit-only. `review permissions` is the routine human text
 workflow: its raw list stages exact decisions and its detail view alone stages
 template authority, always over unchanged opaque candidate IDs for one Context,
 then applies the complete typed set once. Apply or discard precedes
@@ -1305,7 +1307,7 @@ Apply, retry, terminal passthrough, or policy state.
 `policy rules` is the exhaustive current inventory of CLI-owned learned Allows
 and exact Denies. `policy reset --id` removes exactly one such decision through
 the same preflight, atomic-write, and OPA activation boundary, leaving the
-matching effect at default deny so the retained denial can enter `policy review`
+matching effect at default deny so the retained denial can enter `review permissions`
 again. It never edits baseline policy, grants permission, or retries a request.
 Raw `cluster logs` remains the component-debugging interface.
 

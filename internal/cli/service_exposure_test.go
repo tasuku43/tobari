@@ -13,12 +13,13 @@ import (
 )
 
 type cliServiceExposurePort struct {
-	requestPort int
-	stopped     string
-	allowed     string
-	denied      string
-	exposure    tobari.ServiceExposure
-	requests    tobari.ServiceRequestList
+	requestPort  int
+	pendingCalls int
+	stopped      string
+	allowed      string
+	denied       string
+	exposure     tobari.ServiceExposure
+	requests     tobari.ServiceRequestList
 }
 
 func cliExposureFixture() tobari.ServiceExposure {
@@ -37,6 +38,7 @@ func (p *cliServiceExposurePort) StopServiceExposure(_ context.Context, id strin
 	return nil
 }
 func (p *cliServiceExposurePort) ListServiceRequests(context.Context) (tobari.ServiceRequestList, error) {
+	p.pendingCalls++
 	return p.requests, nil
 }
 
@@ -47,6 +49,59 @@ func (p *cliServiceExposurePort) AllowServiceRequest(_ context.Context, id strin
 func (p *cliServiceExposurePort) DenyServiceRequest(_ context.Context, id string) error {
 	p.denied = id
 	return nil
+}
+
+func TestReviewIsPureCatalogNamespaceAndRetiredPathsHaveNoFallback(t *testing.T) {
+	port := &cliServiceExposurePort{}
+	var stdout, stderr bytes.Buffer
+	command := newCLI(strings.NewReader("s\n"), &stdout, &stderr, DefaultCatalog(), systemdoctor.New())
+	command.serviceExposure = serviceexposurecmd.New(port)
+
+	if code := command.RunContext(context.Background(), []string{"review"}); code != ExitOK {
+		t.Fatalf("review namespace code=%d stderr=%q", code, stderr.String())
+	}
+	for _, want := range []string{"Commands in namespace review:", "permissions", "services"} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Fatalf("review namespace missing %q: %q", want, stdout.String())
+		}
+	}
+	if port.pendingCalls != 0 || port.allowed != "" || port.denied != "" {
+		t.Fatalf("bare namespace reached service adapter: %+v", port)
+	}
+	if _, found := DefaultCatalog().lookupRegistered("review"); found {
+		t.Fatal("review remains a registered selector")
+	}
+	if _, found := DefaultCatalog().lookupRegistered("policy review"); found {
+		t.Fatal("policy review remains registered")
+	}
+	selected, exact := DefaultCatalog().Select("review")
+	if exact || len(selected) != 2 || selected[0].Path != "review permissions" || selected[1].Path != "review services" {
+		t.Fatalf("review namespace exact=%t commands=%+v", exact, selected)
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if code := command.RunContext(context.Background(), []string{"help", "review", "--format=agent"}); code != ExitOK {
+		t.Fatalf("review agent help code=%d stderr=%q", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), `"path":"review permissions"`) ||
+		!strings.Contains(stdout.String(), `"path":"review services"`) ||
+		strings.Contains(stdout.String(), `"path":"policy review"`) {
+		t.Fatalf("review agent help=%q", stdout.String())
+	}
+	if port.pendingCalls != 0 {
+		t.Fatalf("review help reached service adapter %d times", port.pendingCalls)
+	}
+
+	for _, args := range [][]string{{"policy", "review"}, {"review", "unknown"}} {
+		stdout.Reset()
+		stderr.Reset()
+		if code := command.RunContext(context.Background(), args); code != ExitUsage {
+			t.Fatalf("retired/unknown path %q code=%d stdout=%q stderr=%q", args, code, stdout.String(), stderr.String())
+		}
+	}
+	if port.pendingCalls != 0 || port.allowed != "" || port.denied != "" {
+		t.Fatalf("retired paths reached service adapter: %+v", port)
+	}
 }
 
 func TestServiceExposureCatalogSeparatesProgramsAndClosesReferenceFlows(t *testing.T) {
@@ -74,7 +129,7 @@ func TestServiceExposureCatalogSeparatesProgramsAndClosesReferenceFlows(t *testi
 	if stop.Agent.Mutation == nil || stop.Agent.Mutation.TargetIDInput != "exposure-ref" || len(stop.ConsumedRefs()) != 1 {
 		t.Fatalf("stop contract = %+v", stop.Agent)
 	}
-	review, _ := catalog.lookupRegistered("review")
+	review, _ := catalog.lookupRegistered("review services")
 	if review.Agent.Interactive == nil || strings.Join(review.Agent.Interactive.ActionCommands, ",") != "service allow,service deny" {
 		t.Fatalf("review workflow = %+v", review.Agent.Interactive)
 	}
@@ -89,7 +144,7 @@ func TestExposureHelperPreservesOpaqueReferenceAndDoesNotRouteHostCLI(t *testing
 	if code := command.RunContext(context.Background(), []string{"3000"}); code != ExitOK {
 		t.Fatalf("request code = %d stderr=%q", code, stderr.String())
 	}
-	if port.requestPort != 3000 || !strings.Contains(stdout.String(), exposure.ID) || !strings.Contains(stdout.String(), "tobari-expose stop "+exposure.ID) || !strings.Contains(stderr.String(), "tobari review") {
+	if port.requestPort != 3000 || !strings.Contains(stdout.String(), exposure.ID) || !strings.Contains(stdout.String(), "tobari-expose stop "+exposure.ID) || !strings.Contains(stderr.String(), "tobari review services") {
 		t.Fatalf("request output=%q stderr=%q port=%d", stdout.String(), stderr.String(), port.requestPort)
 	}
 	stdout.Reset()
@@ -97,7 +152,7 @@ func TestExposureHelperPreservesOpaqueReferenceAndDoesNotRouteHostCLI(t *testing
 	if code := command.RunContext(context.Background(), []string{"stop", exposure.ID}); code != ExitOK || port.stopped != exposure.ID {
 		t.Fatalf("stop code=%d id=%q stderr=%q", code, port.stopped, stderr.String())
 	}
-	if code := command.RunContext(context.Background(), []string{"review"}); code != ExitUsage {
+	if code := command.RunContext(context.Background(), []string{"review", "services"}); code != ExitUsage {
 		t.Fatalf("host command routed by helper: %d", code)
 	}
 }
@@ -115,7 +170,7 @@ func TestExposureHelperRejectsInvalidPortBeforeChannelCall(t *testing.T) {
 	}
 }
 
-func TestUnifiedServiceReviewUsesFreshOpaqueSelectionAndImmediateDecision(t *testing.T) {
+func TestServiceReviewUsesFreshOpaqueSelectionAndImmediateDecision(t *testing.T) {
 	exposure := cliExposureFixture()
 	request := tobari.ServiceRequest{SchemaVersion: 1, ID: exposure.RequestID, AttachmentID: exposure.AttachmentID, ProjectID: exposure.ProjectID, ContextID: exposure.ContextID, Workspace: exposure.Workspace, TargetPort: exposure.TargetPort, State: tobari.ServiceStatePending}
 	for _, test := range []struct {
@@ -146,14 +201,14 @@ func TestUnifiedServiceReviewUsesFreshOpaqueSelectionAndImmediateDecision(t *tes
 	}
 }
 
-func TestRedirectedUnifiedReviewIsReadOnlyAndExhaustive(t *testing.T) {
+func TestRedirectedServiceReviewIsReadOnlyAndExhaustive(t *testing.T) {
 	exposure := cliExposureFixture()
 	request := tobari.ServiceRequest{SchemaVersion: 1, ID: exposure.RequestID, AttachmentID: exposure.AttachmentID, ProjectID: exposure.ProjectID, ContextID: exposure.ContextID, Workspace: exposure.Workspace, TargetPort: exposure.TargetPort, State: tobari.ServiceStatePending}
 	port := &cliServiceExposurePort{exposure: exposure, requests: tobari.ServiceRequestList{Scope: "live_attachments", Requests: []tobari.ServiceRequest{request}}}
 	var output bytes.Buffer
 	command := newCLI(strings.NewReader("1\na\ny\n"), &output, &bytes.Buffer{}, DefaultCatalog(), systemdoctor.New())
 	command.serviceExposure = serviceexposurecmd.New(port)
-	if code := command.RunContext(context.Background(), []string{"review"}); code != ExitOK {
+	if code := command.RunContext(context.Background(), []string{"review", "services"}); code != ExitOK {
 		t.Fatalf("redirected review code=%d", code)
 	}
 	if port.allowed != "" || port.denied != "" || !strings.Contains(output.String(), request.ID) {

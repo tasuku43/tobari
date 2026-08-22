@@ -69,7 +69,7 @@ func (s *Service) ApplyPolicyReviewDecisionSet(
 	reviewItems, err := tobari.PolicyReviewItems(candidates, rules)
 	if err != nil {
 		return tobari.PolicyReviewChange{}, fault.Wrap(
-			fault.KindContract, "invalid_candidate_contract", "policy review items are invalid", false, err,
+			fault.KindContract, "invalid_candidate_contract", "review permissions items are invalid", false, err,
 		)
 	}
 	byID := make(map[string]tobari.PolicyReviewItem, len(reviewItems))
@@ -96,7 +96,7 @@ func (s *Service) ApplyPolicyReviewDecisionSet(
 			return tobari.PolicyReviewChange{}, fault.New(
 				fault.KindRejected, "policy_review_changed",
 				"the reviewed permission set changed before Apply", false,
-				fault.NextAction{Command: "policy review", Reason: "Review the current pending queue again."},
+				fault.NextAction{Command: "review permissions", Reason: "Review the current pending queue again."},
 			)
 		}
 		contextID := policyReviewItemContextID(item)
@@ -106,7 +106,7 @@ func (s *Service) ApplyPolicyReviewDecisionSet(
 			return tobari.PolicyReviewChange{}, fault.New(
 				fault.KindRejected, "policy_review_scope_mixed",
 				"one reviewed Apply cannot span multiple Context policy sources", false,
-				fault.NextAction{Command: "policy review", Reason: "Apply or discard the current Context decisions before reviewing another Context."},
+				fault.NextAction{Command: "review permissions", Reason: "Apply or discard the current Context decisions before reviewing another Context."},
 			)
 		}
 		if item.Match == tobari.PolicyMatchExact {
@@ -220,7 +220,7 @@ func (s *Service) applyAttachmentPolicyReview(
 		item, found := byID[decision.ReviewItemID]
 		if !found || item.Match != tobari.PolicyMatchExact || item.Candidate == nil || decision.Match != tobari.PolicyMatchExact || item.Candidate.EffectiveDestinationKind() != tobari.PolicyDestinationHostLoopback {
 			return tobari.PolicyReviewChange{}, fault.New(fault.KindRejected, "policy_review_scope_mixed", "one Apply cannot mix persistent and attachment-scoped decisions", false,
-				fault.NextAction{Command: "policy review", Reason: "Apply attachment-scoped decisions separately."})
+				fault.NextAction{Command: "review permissions", Reason: "Apply attachment-scoped decisions separately."})
 		}
 		candidate := *item.Candidate
 		if epochID == "" {
@@ -252,7 +252,7 @@ func (s *Service) applyAttachmentPolicyReview(
 	})
 	if err != nil {
 		return tobari.PolicyReviewChange{}, fault.Wrap(fault.KindUnavailable, "attachment_policy_failed", "attachment policy activation did not complete", false, err,
-			fault.NextAction{Command: "policy review", Reason: "Review the still-active attachment again."})
+			fault.NextAction{Command: "review permissions", Reason: "Review the still-active attachment again."})
 	}
 	result := tobari.PolicyReviewChange{Task: tobari.TaskPolicyReviewApply, PolicyDirectory: activation.PolicyDirectory,
 		AllowCount: allowCount, DenyCount: denyCount, Applied: true, ActiveRevision: activation.ActiveRevision, Decisions: receipts}
@@ -266,7 +266,7 @@ func policyReviewChangedFault() error {
 	return fault.New(
 		fault.KindRejected, "policy_review_changed",
 		"the reviewed permission set changed before Apply", false,
-		fault.NextAction{Command: "policy review", Reason: "Review the current pending queue again."},
+		fault.NextAction{Command: "review permissions", Reason: "Review the current pending queue again."},
 	)
 }
 

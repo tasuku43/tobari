@@ -32,13 +32,13 @@ import SequenceExplorer from "../../../../components/SequenceExplorer.astro";
 信頼するホストで実行します。
 
 ```sh
-tobari policy review
+tobari review permissions
 ```
 
 対話型ターミナルでは、保留中の通信を確認し、一つの Context に対する完全一致の判断を準備します。一式をレビューした後に一度だけ **Apply** を押してください。Apply 前にキャンセルすると何も変わりません。出力をリダイレクトした場合、レビューは読み取り専用です。
 
 ```sh
-tobari policy review --format json
+tobari review permissions --format json
 ```
 
 プログラムから使う場合は、不透明な `pcy_...` 参照を変更せず、そのまま一つの操作へ渡します。

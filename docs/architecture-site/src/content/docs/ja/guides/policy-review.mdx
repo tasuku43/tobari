@@ -16,17 +16,17 @@ Workspace の attachment は維持したまま、Permission Inbox は別の信�
 
 ## 1. 再試行を止め、Workspace から出る
 
-学習可能な Gateway `403` は、ホストで `tobari policy review` を実行する固定案内を含みます。候補 ID はなく、エージェント自身を承認する手段を与えません。
+学習可能な Gateway `403` は、ホストで `tobari review permissions` を実行する固定案内を含みます。候補 ID はなく、エージェント自身を承認する手段を与えません。
 
 レビュー前に Workspace を出ます。繰り返しの再試行は権限を増やさず、同じ許可対象の上限のある根拠を更新するだけです。
 
 ## 2. 人向けのレビューフローを開く
 
 ```sh
-tobari policy review --tail 100
-tobari policy review --watch
+tobari review permissions --tail 100
+tobari review permissions --watch
 # Disable or explicitly choose its terminal-emulator cue:
-tobari policy review --watch --notify=off
+tobari review permissions --watch --notify=off
 ```
 
 インストール全体を対象とする TTY キューには、取得件数を制限した Gateway ログから、保留中の通信候補が表示されます。一つを選び、次を確認します。
@@ -55,7 +55,7 @@ raw terminal の一覧で **a** または **d** を押すと **Allow exact** ま
 リダイレクトされた環境でのレビューは読み取り専用です。
 
 ```sh
-tobari policy review --tail 100 --format json
+tobari review permissions --tail 100 --format json
 ```
 
 出力された不透明な `pcy_...` ID を変更せず、一つの操作へコピーします。

@@ -140,7 +140,7 @@
     ]
   },
   "navigation": {
-    "learnable_command": "tobari policy review",
+    "learnable_command": "tobari review permissions",
     "diagnostic_command": "tobari cluster denials",
     "workspace_container_before": "workspace-container-synthetic",
     "workspace_container_after": "workspace-container-synthetic",

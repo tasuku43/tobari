@@ -32,13 +32,13 @@ This page follows the denial through host review and deliberate retry. Complete 
 On the trusted host:
 
 ```sh
-tobari policy review
+tobari review permissions
 ```
 
 The TTY flow lets you inspect pending effects, stage exact choices for one Context, and press **Apply** once after reviewing the set. Canceling before Apply changes nothing. A redirected review is read-only:
 
 ```sh
-tobari policy review --format json
+tobari review permissions --format json
 ```
 
 Machine callers copy the opaque `pcy_...` reference unchanged into exactly one action:

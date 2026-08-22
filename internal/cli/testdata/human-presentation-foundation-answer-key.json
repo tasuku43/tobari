@@ -35,9 +35,9 @@
     },
     {
       "name": "cancel",
-      "task": "policy review",
+      "task": "review permissions",
       "required_facts": ["Canceled", "operation_canceled", "canceled"],
-      "exact_next_argv": ["tobari", "policy", "review"],
+      "exact_next_argv": ["tobari", "review", "permissions"],
       "unsupported_inferences": ["the operation succeeded", "a mutation was attempted"]
     }
   ]

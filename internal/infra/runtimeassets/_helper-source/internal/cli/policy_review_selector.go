@@ -305,8 +305,8 @@ func (s *policyReviewSelector) Select(
 	if s.watch {
 		return policyReviewDecision{}, fault.New(
 			fault.KindInvalidInput, "policy_review_watch_requires_tty",
-			"policy review --watch requires an interactive raw terminal and text output", false,
-			fault.NextAction{Command: "help policy review", Reason: "Run watch with text output in an interactive raw terminal."},
+			"review permissions --watch requires an interactive raw terminal and text output", false,
+			fault.NextAction{Command: "help review permissions", Reason: "Run watch with text output in an interactive raw terminal."},
 		)
 	}
 	if s.lineReader == nil {
@@ -461,7 +461,7 @@ func selectPolicyReviewFinalRaw(
 		if needsRender {
 			lineCount = renderPolicyReviewFinalRaw(out, report, staged, stagedOrder, message, lineCount, style)
 			if lineCount < 0 {
-				return policyReviewFinalResult{err: fmt.Errorf("render final policy review")}
+				return policyReviewFinalResult{err: fmt.Errorf("render final review permissions")}
 			}
 			needsRender = false
 		}
@@ -568,7 +568,7 @@ func selectPolicyReviewRawWithWatch(
 			currentLines := renderPolicyReviewListRaw(out, report, selected, top, message, lineCount, style, staged)
 			if currentLines < 0 {
 				finishPolicyReviewSelector(out, lineCount)
-				return policyReviewDecision{}, fmt.Errorf("render policy review selector")
+				return policyReviewDecision{}, fmt.Errorf("render review permissions selector")
 			}
 			lineCount = currentLines
 			needsRender = false

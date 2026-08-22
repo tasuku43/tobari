@@ -1487,7 +1487,7 @@ host_denial_status=$(sed -n '2p' <<<"$host_probe")
 host_review=
 host_review_index=
 for _ in $(seq 1 30); do
-  host_review=$(run_tobari policy review --tail 1000 --format json)
+  host_review=$(run_tobari review permissions --tail 1000 --format json)
   host_review_index=$(python3 -c '
 import json
 import sys
@@ -1498,7 +1498,7 @@ print(next((index for index, item in enumerate(items, 1)
   [[ -n $host_review_index ]] && break
   sleep 0.2
 done
-[[ -n $host_review_index ]] || fail "Host Loopback denial did not reach policy review"
+[[ -n $host_review_index ]] || fail "Host Loopback denial did not reach review permissions"
 
 host_review_events=$(python3 -c '
 import json
@@ -1513,9 +1513,9 @@ print(json.dumps([
 ' "$host_review_index")
 if ! host_review_output=$(TOBARI_TEST_PTY_TIMEOUT_SECONDS=15 \
   TOBARI_TEST_PTY_EVENTS="$host_review_events" \
-  run_tobari_pty_at "$work_root" policy review --tail 1000 2>&1); then
+  run_tobari_pty_at "$work_root" review permissions --tail 1000 2>&1); then
   printf '%s\n' "$host_review_output" >&2
-  fail "interactive Host Loopback policy review failed"
+  fail "interactive Host Loopback review permissions failed"
 fi
 python3 - "$config_directory/host-loopback/routes.json" "$work_id" "$host_service_port" <<'PY'
 import json

@@ -9,7 +9,7 @@ The trusted-host permission workflow is complete in the terminal, but users
 also need one browser surface that makes shared-cluster health, local
 Workspaces, pending permission evidence, and current learned decisions visible.
 The most important browser task is the same staged Permission Inbox Apply that
-already exists in `policy review`; a second policy mutation mechanism would
+already exists in `review permissions`; a second policy mutation mechanism would
 weaken the product and security contracts.
 
 A browser surface introduces a new local HTTP trust boundary. Binding only to

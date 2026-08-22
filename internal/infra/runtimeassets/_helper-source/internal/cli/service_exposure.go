@@ -40,7 +40,7 @@ func runExposureRequest(ctx context.Context, c *CLI, command CommandSpec, _ oper
 	if !ok {
 		return c.failUsage(ctx, "invalid_arguments", "Workspace service port is invalid", "help "+ExposureProgramName, "Choose an exact non-privileged port.")
 	}
-	instruction := []byte("Waiting for trusted-host review.\nRun on the host: tobari review\n")
+	instruction := []byte("Waiting for trusted-host review.\nRun on the host: tobari review services\n")
 	if _, err := writeOnce(c.Err, instruction); err != nil {
 		return c.fail(ctx, fault.Wrap(fault.KindInternal, "service_instruction_write_failed", "The trusted-host review instruction could not be written.", false, err, fault.NextAction{Command: "list", Reason: "Retry with a writable terminal before another request."}))
 	}
@@ -166,49 +166,18 @@ func readBoundedReviewLine(input io.Reader) (string, error) {
 	return "", fmt.Errorf("review input is too long")
 }
 
-func runUnifiedReview(ctx context.Context, c *CLI, _ CommandSpec, _ operation.Intent, _ ParsedInputs) int {
+func runServiceReview(ctx context.Context, c *CLI, _ CommandSpec, _ operation.Intent, _ ParsedInputs) int {
 	if code := c.requireServiceExposure(ctx); code != ExitOK {
 		return code
 	}
-	pending, err := c.serviceExposure.Pending(ctx)
-	if err != nil {
-		return c.fail(ctx, err)
-	}
 	if !terminal.IsTerminal(c.In) || !terminal.IsTerminal(c.Out) {
+		pending, err := c.serviceExposure.Pending(ctx)
+		if err != nil {
+			return c.fail(ctx, err)
+		}
 		return c.emitResult(ctx, renderServiceRequests(pending))
 	}
-	for {
-		if _, err := fmt.Fprint(c.Out, "Tobari · Trusted host review\n\n[p] Permission requests\n[s] Service requests\n[q] Exit\n> "); err != nil {
-			return c.fail(ctx, err)
-		}
-		choice, err := readBoundedReviewLine(c.In)
-		if err != nil {
-			if err == io.EOF {
-				return ExitOK
-			}
-			return c.fail(ctx, err)
-		}
-		switch strings.ToLower(choice) {
-		case "q":
-			return ExitOK
-		case "p":
-			spec, found := c.catalog.lookupRegistered("policy review")
-			if !found {
-				return c.fail(ctx, fault.New(fault.KindContract, "invalid_catalog", "Policy review command is missing.", false))
-			}
-			inputs, parseErr := parseCommandInputs(spec, nil)
-			if parseErr != nil {
-				return c.fail(ctx, parseErr)
-			}
-			if code := runPolicyReview(ctx, c, spec, operation.Intent{Command: spec.Path, Effect: spec.Effect}, inputs); code != ExitOK {
-				return code
-			}
-		case "s":
-			if code := runServiceReviewLoop(ctx, c); code != ExitOK {
-				return code
-			}
-		}
-	}
+	return runServiceReviewLoop(ctx, c)
 }
 
 func runServiceReviewLoop(ctx context.Context, c *CLI) int {

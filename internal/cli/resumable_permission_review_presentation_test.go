@@ -13,8 +13,8 @@ import (
 )
 
 const (
-	resumablePermissionReviewFixtureSHA256 = "3115feb28cbfb85c9603a2f47ccca13eeba29f6668c8edef34fa227928b7a250"
-	resumablePermissionReviewAnswerSHA256  = "70e15576723e10add44d4fc7780f79d9d6216f29faa8fe0b442ee884f77f3ed5"
+	resumablePermissionReviewFixtureSHA256 = "16b1dbb4fc4c6d8ffa3e8a25f6f41efcac3feac815ca8a898fa42daf039301d4"
+	resumablePermissionReviewAnswerSHA256  = "48f877c83c3a496772f92d526aee3cec9e86f3ae02c4e3a98530786625c75437"
 )
 
 type resumablePermissionReviewFixture struct {
@@ -158,7 +158,7 @@ func TestResumablePermissionReviewTypedCorpusClosesInterpretationBoundaries(t *t
 	if strings.Contains(receipt, "Re-enter") {
 		t.Fatalf("receipt requires session replacement: %q", receipt)
 	}
-	if fixture.Navigation.LearnableCommand != "tobari policy review" || fixture.Navigation.DiagnosticCommand != "tobari cluster denials" ||
+	if fixture.Navigation.LearnableCommand != "tobari review permissions" || fixture.Navigation.DiagnosticCommand != "tobari cluster denials" ||
 		fixture.Navigation.WorkspaceContainerBefore != fixture.Navigation.WorkspaceContainerAfter ||
 		fixture.Navigation.OPAContainerBefore != fixture.Navigation.OPAContainerAfter {
 		t.Fatalf("navigation/session answer = %+v", fixture.Navigation)

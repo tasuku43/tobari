@@ -536,7 +536,7 @@ names remain an explicit policy-controlled local exception for the Docker
 integration shape.
 
 A learnable policy denial returns a fixed, secret-free navigation object that
-names the trusted host and `tobari policy review`, keeps the current Workspace
+names the trusted host and `tobari review permissions`, keeps the current Workspace
 running, and requires a separate trusted-host terminal. A non-learnable denial
 offers only `tobari cluster denials` as a read-only diagnostic and no review
 command. The object is advisory data
@@ -544,7 +544,7 @@ for the child process, not an authorization token or an instruction to retry;
 it contains no candidate ID, query, body, header, credential, policy path, or
 dynamic command argument. Non-learnable denials advertise no review command.
 The host-owned retained denial queue remains the source of truth, and only the
-reference-bound host action can change policy. Interactive `policy review`
+reference-bound host action can change policy. Interactive `review permissions`
 instead permits one command-bound fixed-target Apply over a bounded typed set:
 an exact entry may originate from the typed raw list or detail screen, while a
 template entry must originate from its scope-bearing detail screen; every entry
@@ -570,6 +570,12 @@ authority only for an identical candidate ID; stale and same-label replacement
 IDs remain undecided. Confirmed Apply returns an authoritative active revision
 and exact typed receipt, after which the original running Workspace may issue a
 new request. Neither Workspace nor OPA is recreated by this activation.
+
+The shared `review` word is navigation only. Bare `tobari review` is a
+Catalog-derived namespace read with no application call. `review permissions`
+can reach only the existing durable reviewed-set authority; `review services`
+can reach only the existing live-owner, attachment-local service authority.
+Neither leaf can consume the other branch's references or lifetime.
 The watch attention cue is not a desktop/OS integration or policy signal. Its
 OSC 9 payload is one compile-time fixed printable-ASCII message framed by fixed
 control bytes, and BEL has no payload. The notifier never receives or
@@ -1211,7 +1217,7 @@ candidate commands aggregate exact Context/project/scheme/host/port/method/path 
 optional GraphQL- or AWS-coordinate proposals from
 that evidence, treating reason, status, request identity, timestamps, and
 broker-provider display evidence as non-identity fields. The latest evidence
-and bounded observation count do not grant authority. `policy review`
+and bounded observation count do not grant authority. `review permissions`
 presents the same exact machine queue plus domain-typed inert `{id}` proposals
 after two distinct compatible HTTP paths. Its TTY detail screen stages an
 explicit template-Allow, observed-exact Allow, or pending-exact Deny, retains

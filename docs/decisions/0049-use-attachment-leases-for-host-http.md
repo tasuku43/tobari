@@ -48,7 +48,7 @@ the Workspace, `localhost` continues to mean the Workspace itself.
 The trusted host process establishes an unguessable Attachment Epoch and owns
 one authenticated relay. Capability projection and routing grant no authority.
 The first exact effect passes through Gateway and OPA and remains denied until
-interactive `policy review` creates an exact Attachment Grant Allow or Deny.
+interactive `review permissions` creates an exact Attachment Grant Allow or Deny.
 The grant binds Context, Workspace, Attachment Epoch, host, target port, method,
 and path. It is a separate domain and store from durable learned rules and can
 never become a template, baseline, preset, or persistent policy rule.

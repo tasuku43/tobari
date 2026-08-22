@@ -8,7 +8,7 @@
     {
       "name": "learnable_denial_navigation",
       "required_facts": ["keep current Workspace", "trusted-host terminal", "Apply", "retry same request"],
-      "exact_next_argv": ["tobari", "policy", "review"],
+      "exact_next_argv": ["tobari", "review", "permissions"],
       "unsupported_inferences": ["leave or recreate the Workspace", "Tobari approves or retries automatically"]
     },
     {

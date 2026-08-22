@@ -177,7 +177,7 @@ func TestPublicMachineVocabularySeparatesWorkspaceIdentityFromProjectRoot(t *tes
 		}
 	}
 
-	for _, path := range []string{"status", "list", "cluster status", "cluster denials", "policy candidates", "policy review", "policy rules"} {
+	for _, path := range []string{"status", "list", "cluster status", "cluster denials", "policy candidates", "review permissions", "policy rules"} {
 		command, found := DefaultCatalog().Lookup(path)
 		if !found {
 			t.Fatalf("catalog lacks %q", path)

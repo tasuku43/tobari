@@ -35,7 +35,7 @@ The attached shell is transient process state. It is not the Workspace lifetime 
 
 While attached, the read-only `tobari-expose` helper can request trusted-host
 review for one exact Workspace-loopback development service. Run
-`tobari-expose PORT` inside the Workspace, then `tobari review` in a separate
+`tobari-expose PORT` inside the Workspace, then `tobari review services` in a separate
 host terminal. Allow once returns exact
 `http://127.0.0.1:<random-port>` access for HTTP/1.1 and WebSocket Upgrade. The
 attachment—not the helper or reviewer—owns the listener and streams. Exit

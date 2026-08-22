@@ -99,7 +99,7 @@ exit`,
           location: "信頼するホスト",
           action:
             "レビュー画面で Context、プロジェクト、ホスト、ポート、メソッド、パスを確認し、この通信条件だけを許可します。",
-          command: `tobari policy review --tail 100`,
+          command: `tobari review permissions --tail 100`,
           expected:
             "選択した通信条件の完全一致ルールが、ポリシー全体の検証後に有効になります。許可操作は、拒否された HTTP リクエストそのものを再送しません。",
           blocked:
@@ -119,7 +119,7 @@ exit`,
           expected:
             "今回は外部の接続先から HTTP 応答が返ります。`example.com` が返すステータスコード自体は保証しません。ここで確認するのは、許可した通信条件が外部への経路へ進んだことです。",
           blocked:
-            "再び 403 になった場合は、Context、プロジェクト、ホスト、ポート、メソッド、パスが許可した条件と一致しているか確認し、`tobari policy review --tail 100` を実行します。",
+            "再び 403 になった場合は、Context、プロジェクト、ホスト、ポート、メソッド、パスが許可した条件と一致しているか確認し、`tobari review permissions --tail 100` を実行します。",
         },
         {
           title: "状態を確認して、練習用リソースを削除する",
@@ -153,7 +153,7 @@ tobari cluster down --purge`,
       scriptSummary: "JSON の参照値を使って許可・拒否する",
       scriptIntro:
         "対話画面を使わない場合は、JSON に出力された不透明な ID を変更せず、そのまま許可・拒否コマンドへ渡します。表示順やリクエスト文字列から ID を再構成しないでください。",
-      scriptCommand: `tobari policy review --tail 100 --format json
+      scriptCommand: `tobari review permissions --tail 100 --format json
 tobari policy allow --id <exact-pcy-id-from-policy-review>`,
       scriptDeny:
         "拒否を確定する場合は、レビュー画面の拒否操作か `tobari policy deny --id <exact-pcy-id-from-policy-review>` を使います。",
@@ -259,7 +259,7 @@ exit`,
           location: "Trusted host",
           action:
             "Inspect the Context, project, host, port, method, and path in the review screen, then allow only this exact communication.",
-          command: `tobari policy review --tail 100`,
+          command: `tobari review permissions --tail 100`,
           expected:
             "The exact rule becomes active after the complete policy is validated. The allow action does not replay the denied HTTP request.",
           blocked:
@@ -279,7 +279,7 @@ exit`,
           expected:
             "The HTTP response now comes from the upstream. Tobari does not promise a particular status from `example.com`; this step shows that the authorized exact effect can reach the upstream path.",
           blocked:
-            "If you receive 403 again, check that Context, project, host, port, method, and path match the reviewed effect, then run `tobari policy review --tail 100`.",
+            "If you receive 403 again, check that Context, project, host, port, method, and path match the reviewed effect, then run `tobari review permissions --tail 100`.",
         },
         {
           title: "Inspect state and remove the synthetic resources",
@@ -317,7 +317,7 @@ tobari cluster down --purge`,
         "Use the JSON reference flow instead of the interactive screen",
       scriptIntro:
         "For redirected or scripted review, copy the opaque ID from JSON unchanged into the action. Do not derive an ID from row order or reconstruct it from request text.",
-      scriptCommand: `tobari policy review --tail 100 --format json
+      scriptCommand: `tobari review permissions --tail 100 --format json
 tobari policy allow --id <exact-pcy-id-from-policy-review>`,
       scriptDeny:
         "To keep the effect blocked, use the review UI's deny action or `tobari policy deny --id <exact-pcy-id-from-policy-review>`.",

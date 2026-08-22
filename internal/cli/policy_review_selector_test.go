@@ -650,7 +650,7 @@ func TestPolicyReviewSelectorFinishRestoresMainScreenWithoutLogicalRowMovement(t
 
 	want := selectorAlternateScreenExit + selectorCursorShow
 	if reviewOutput.String() != want {
-		t.Fatalf("policy review finish = %q, want %q", reviewOutput.String(), want)
+		t.Fatalf("review permissions finish = %q, want %q", reviewOutput.String(), want)
 	}
 	if workspaceOutput.String() != reviewOutput.String() {
 		t.Fatalf("selector finish differs: workspace=%q review=%q", workspaceOutput.String(), reviewOutput.String())
