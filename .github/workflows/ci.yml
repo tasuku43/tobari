@@ -32,8 +32,8 @@ jobs:
       - name: Run the canonical full gate
         run: ./scripts/check.sh full
 
-  boundary:
-    name: Security and public boundary gates
+  security:
+    name: Security gate
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -48,10 +48,27 @@ jobs:
 
       - uses: ./.github/actions/setup-repository-node
 
-      - name: Run boundary gates
-        run: |
-          ./scripts/check.sh security
-          ./scripts/check.sh public
+      - name: Run the canonical security gate
+        run: ./scripts/check.sh security
+
+  public:
+    name: Public boundary gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - uses: ./.github/actions/setup-repository-node
+
+      - name: Run the canonical public boundary gate
+        run: ./scripts/check.sh public
 
   runtime:
     name: Container policy and integration gate
@@ -69,3 +86,20 @@ jobs:
       - name: Run the container runtime gate
         run: |
           ./scripts/check.sh runtime
+
+  release:
+    name: Release packaging and workflow gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Run the canonical release gate
+        run: ./scripts/check.sh release
