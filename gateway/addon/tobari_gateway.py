@@ -49,6 +49,7 @@ from kubernetes_request import (
     ParsedKubernetesRequest,
     parse_kubernetes_request,
 )
+from git_request import GitRequestError, ParsedGitRequest, classify_git_request
 from validated_file import StatIdentityCache, ValidatedFileError
 
 MAX_GATEWAY_CONFIG_BYTES = 256 * 1024
@@ -698,6 +699,7 @@ def build_policy_input(
     mcp: ParsedMCPRequest | None = None,
     aws: ParsedAWSRequest | None = None,
     kubernetes: ParsedKubernetesRequest | None = None,
+    git: ParsedGitRequest | None = None,
     host_loopback: dict[str, Any] | None = None,
     attachment_grants: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
@@ -754,6 +756,11 @@ def build_policy_input(
             "verb": kubernetes.verb,
             "resource": kubernetes.resource,
             "dry_run": kubernetes.dry_run,
+        }
+    if git is not None:
+        policy_input["request"]["git"] = {
+            "service": git.service,
+            "repository": git.repository,
         }
     if host_loopback is not None:
         policy_input["destination"] = {
@@ -961,6 +968,7 @@ def _policy_denied(
     mcp: ParsedMCPRequest | None = None,
     aws: ParsedAWSRequest | None = None,
     kubernetes: ParsedKubernetesRequest | None = None,
+    git: ParsedGitRequest | None = None,
 ) -> None:
     path = urlsplit(flow.request.url).path or "/"
     review_available = bool(learnable)
@@ -1019,6 +1027,10 @@ def _policy_denied(
         document["tobari"]["request"]["kubernetes_verb"] = kubernetes.verb
         document["tobari"]["request"]["kubernetes_resource"] = kubernetes.resource
         document["tobari"]["request"]["kubernetes_dry_run"] = kubernetes.dry_run
+    if git is not None:
+        document["tobari"]["request"]["protocol"] = "git"
+        document["tobari"]["request"]["git_service"] = git.service
+        document["tobari"]["request"]["git_repository"] = git.repository
     body = json.dumps(document, separators=(",", ":")).encode("utf-8")
     flow.response = http.Response.make(status, body, {"content-type": "application/json"})
 
@@ -1070,6 +1082,15 @@ def _kubernetes_audit_event(base: dict[str, Any], parsed: ParsedKubernetesReques
         "kubernetes_verb": parsed.verb,
         "kubernetes_resource": parsed.resource,
         "kubernetes_dry_run": parsed.dry_run,
+    }
+
+
+def _git_audit_event(base: dict[str, Any], parsed: ParsedGitRequest) -> dict[str, Any]:
+    return {
+        **base,
+        "protocol": "git",
+        "git_service": parsed.service,
+        "git_repository": parsed.repository,
     }
 
 
@@ -1155,6 +1176,7 @@ class TobariGateway:
         audit_path = "/"
         aws_identity: ParsedAWSRequest | None = None
         kubernetes_identity: ParsedKubernetesRequest | None = None
+        git_identity: ParsedGitRequest | None = None
         try:
             scheme, host, port = normalize_ingress_authority(flow)
             request_path = urlsplit(flow.request.url).path or "/"
@@ -1231,8 +1253,13 @@ class TobariGateway:
                     urlsplit(flow.request.url).query,
                     request_headers,
                 )
-            aws_classification = None
             if kubernetes_identity is None:
+                git_identity = classify_git_request(
+                    flow.request.method.upper(), request_path,
+                    urlsplit(flow.request.url).query, request_headers,
+                )
+            aws_classification = None
+            if kubernetes_identity is None and git_identity is None:
                 aws_classification = classify_aws_request_headers(
                     flow.request.method.upper(), scheme, host, port, request_path,
                     urlsplit(flow.request.url).query,
@@ -1263,6 +1290,7 @@ class TobariGateway:
                 credential_request.broker_provider,
                 aws=aws_identity,
                 kubernetes=kubernetes_identity,
+                git=git_identity,
                 host_loopback=host_loopback,
                 attachment_grants=attachment_grants,
             )
@@ -1272,7 +1300,7 @@ class TobariGateway:
             if not decision.allow:
                 _policy_denied(
                     flow, decision.status_code, learnable,
-                    aws=aws_identity, kubernetes=kubernetes_identity,
+                    aws=aws_identity, kubernetes=kubernetes_identity, git=git_identity,
                 )
                 upstream_status = decision.status_code
                 return
@@ -1297,7 +1325,9 @@ class TobariGateway:
                 "learnable": learnable,
                 "started": started,
             }
-            if kubernetes_identity is not None:
+            if git_identity is not None:
+                flow.metadata["tobari_audit"] = _git_audit_event(audit_event, git_identity)
+            elif kubernetes_identity is not None:
                 flow.metadata["tobari_audit"] = _kubernetes_audit_event(
                     audit_event, kubernetes_identity
                 )
@@ -1329,7 +1359,7 @@ class TobariGateway:
                 # Authorization is complete before mitmproxy forwards any body bytes.
                 # The body is deliberately opaque to policy and is never retained here.
                 flow.request.stream = True
-        except (GraphQLRequestError, MCPRequestError, AWSRequestError, KubernetesRequestError) as error:
+        except (GraphQLRequestError, MCPRequestError, AWSRequestError, KubernetesRequestError, GitRequestError) as error:
             reason = str(error)
             _deny(flow, 400, error.code)
             upstream_status = 400
@@ -1381,7 +1411,9 @@ class TobariGateway:
                     "upstream_status": upstream_status,
                     "duration_ms": int((time.monotonic() - started) * 1000),
                 }
-                if kubernetes_identity is not None:
+                if git_identity is not None:
+                    event = _git_audit_event(event, git_identity)
+                elif kubernetes_identity is not None:
                     event = _kubernetes_audit_event(event, kubernetes_identity)
                 elif aws_identity is not None:
                     event = _aws_audit_event(event, aws_identity)

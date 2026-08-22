@@ -408,6 +408,66 @@ test_kubernetes_verb_and_dry_run_are_exact if {
 	}
 }
 
+git_receive_request_fixture := object.union(
+	object.union(
+		request_with_authority({"host": "git.example.com"}),
+		{"method": "POST", "path": {"raw": "/team/repo.git/git-receive-pack", "segments": ["team", "repo.git", "git-receive-pack"]}},
+	),
+	{"git": {"service": "receive-pack", "repository": "/team/repo.git"}},
+)
+
+git_receive_allow_fixture := object.union(learned_exact_fixture, {
+	"host": "git.example.com",
+	"method": "POST",
+	"path": "/team/repo.git/git-receive-pack",
+	"examples": ["/team/repo.git/git-receive-pack"],
+	"protocol": "git",
+	"git_service": "receive-pack",
+	"git_repository": "/team/repo.git",
+})
+
+test_git_exact_rule_allows_receive_without_http_fallback if {
+	http_rule := object.union(learned_exact_fixture, {
+		"host": "git.example.com", "method": "POST", "path": "/team/repo.git/git-receive-pack",
+		"examples": ["/team/repo.git/git-receive-pack"],
+	})
+	denied := decision with input as input_with_request(git_receive_request_fixture)
+		with data.tobari.rules.learned_allows as [http_rule]
+	allowed := decision with input as input_with_request(git_receive_request_fixture)
+		with data.tobari.rules.learned_allows as [git_receive_allow_fixture]
+	not denied.allow
+	denied.learnable
+	allowed.allow
+}
+
+test_git_discovery_binds_service_query_and_repository if {
+	discovery := object.union(git_receive_request_fixture, {
+		"method": "GET",
+		"path": {"raw": "/team/repo.git/info/refs", "segments": ["team", "repo.git", "info", "refs"]},
+		"query": {"service": ["git-upload-pack"]},
+		"git": {"service": "upload-pack", "repository": "/team/repo.git"},
+	})
+	result := decision with input as input_with_request(discovery)
+	not result.allow
+	result.learnable
+
+	wrong_query := object.union(discovery, {"query": {"service": ["git-receive-pack"]}})
+	invalid := decision with input as input_with_request(wrong_query)
+	not invalid.allow
+	not invalid.learnable
+}
+
+test_git_service_and_repository_are_exact if {
+	wrong_service := object.union(git_receive_request_fixture, {"git": {"service": "upload-pack", "repository": "/team/repo.git"}})
+	wrong_repository := object.union(git_receive_request_fixture, {"git": {"service": "receive-pack", "repository": "/other/repo.git"}})
+	every request in [wrong_service, wrong_repository] {
+		result := decision with input as input_with_request(request)
+			with data.tobari.rules.learned_allows as [git_receive_allow_fixture]
+		not result.allow
+		not result.learnable
+	}
+}
+
 test_aws_malformed_or_mixed_identity_fails_closed if {
 	malformed := object.union(aws_query_request_fixture, {"aws": {"wire_protocol": "query", "service": "sts", "operation": "Get-Caller-Identity"}})
 	mixed_rule := object.union(aws_query_allow_fixture, {"mcp_method": "tools/list"})

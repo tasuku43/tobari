@@ -260,6 +260,9 @@ brand.
   becomes safe. A validated EKS bootstrap may declare its exact API authority;
   Gateway derives Kubernetes resource identity from the request path without
   OpenAPI, discovery calls, or CRD schemas.
+- Git Smart HTTP is self-describing only at its exact discovery and RPC
+  transports. Repository plus `upload-pack` or `receive-pack` is review
+  authority; pack contents and repository-name guesses are not.
 
 ### Mechanical enforcement
 

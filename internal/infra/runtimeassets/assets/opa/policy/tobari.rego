@@ -66,6 +66,11 @@ request_allowed if {
 }
 
 request_allowed if {
+	git_request
+	git_learned_rule_allowed
+}
+
+request_allowed if {
 	graphql_request
 	every root_field in request_graphql.root_fields {
 		graphql_learned_rule_allowed(root_field)
@@ -153,6 +158,15 @@ explicitly_denied if {
 	rule.kubernetes_dry_run == request_kubernetes.dry_run
 }
 
+explicitly_denied if {
+	git_request
+	some rule in learned_deny_rules
+	git_rule_protocol_valid(rule)
+	learned_rule_matches_request(rule, input.principal.project_id, input.request)
+	rule.git_service == request_git.service
+	rule.git_repository == request_git.repository
+}
+
 default learned_rules := []
 
 learned_rules := data.tobari.rules.learned_allows
@@ -203,6 +217,15 @@ kubernetes_learned_rule_allowed if {
 	rule.kubernetes_verb == request_kubernetes.verb
 	rule.kubernetes_resource == request_kubernetes.resource
 	rule.kubernetes_dry_run == request_kubernetes.dry_run
+	learned_rule_matches_request(rule, input.principal.project_id, input.request)
+}
+
+git_learned_rule_allowed if {
+	some rule in learned_rules
+	learned_rule_valid(rule)
+	git_rule_protocol_valid(rule)
+	rule.git_service == request_git.service
+	rule.git_repository == request_git.repository
 	learned_rule_matches_request(rule, input.principal.project_id, input.request)
 }
 
@@ -258,6 +281,13 @@ learned_rule_valid(rule) if {
 learned_rule_valid(rule) if {
 	learned_rule_base_valid(rule)
 	kubernetes_rule_protocol_valid(rule)
+	rule.match == "exact"
+	learned_rule_scope_valid(rule)
+}
+
+learned_rule_valid(rule) if {
+	learned_rule_base_valid(rule)
+	git_rule_protocol_valid(rule)
 	rule.match == "exact"
 	learned_rule_scope_valid(rule)
 }
@@ -368,12 +398,14 @@ request_graphql := object.get(input.request, "graphql", null)
 request_mcp := object.get(input.request, "mcp", null)
 request_aws := object.get(input.request, "aws", null)
 request_kubernetes := object.get(input.request, "kubernetes", null)
+request_git := object.get(input.request, "git", null)
 
 ordinary_http_request if {
 	request_graphql == null
 	request_mcp == null
 	request_aws == null
 	request_kubernetes == null
+	request_git == null
 	not declared_graphql_endpoint
 	not declared_mcp_endpoint
 	not declared_kubernetes_endpoint
@@ -395,6 +427,7 @@ aws_request if {
 	not declared_graphql_endpoint
 	not declared_mcp_endpoint
 	not declared_kubernetes_endpoint
+	request_git == null
 	input.request.method == "POST"
 	input.request.path.raw == "/"
 	aws_request_shape_valid
@@ -403,6 +436,26 @@ aws_request if {
 kubernetes_request if {
 	declared_kubernetes_endpoint
 	kubernetes_request_shape_valid
+}
+
+git_request if {
+	not declared_graphql_endpoint
+	not declared_mcp_endpoint
+	not declared_kubernetes_endpoint
+	git_request_shape_valid
+	input.request.method == "GET"
+	input.request.path.raw == sprintf("%s/info/refs", [request_git.repository])
+	input.request.query == {"service": [sprintf("git-%s", [request_git.service])]}
+}
+
+git_request if {
+	not declared_graphql_endpoint
+	not declared_mcp_endpoint
+	not declared_kubernetes_endpoint
+	git_request_shape_valid
+	input.request.method == "POST"
+	input.request.path.raw == sprintf("%s/git-%s", [request_git.repository, request_git.service])
+	input.request.query == {}
 }
 
 request_protocol_valid if {
@@ -423,6 +476,10 @@ request_protocol_valid if {
 
 request_protocol_valid if {
 	kubernetes_request
+}
+
+request_protocol_valid if {
+	git_request
 }
 
 default graphql_endpoints := []
@@ -515,6 +572,30 @@ kubernetes_request_shape_valid if {
 	not regex.match(`[\x00-\x1f\x7f]`, request_kubernetes.resource)
 }
 
+git_request_shape_valid if {
+	is_object(request_git)
+	object.keys(request_git) == {"repository", "service"}
+	request_git.service in {"upload-pack", "receive-pack"}
+	git_repository_valid(request_git.repository)
+}
+
+git_repository_valid(repository) if {
+	is_string(repository)
+	count(repository) >= 2
+	count(repository) <= 1024
+	startswith(repository, "/")
+	not contains(repository, "//")
+	not contains(repository, "\\")
+	not contains(repository, "%")
+	not regex.match(`[\x00-\x1f\x7f]`, repository)
+	parts := array.slice(split(repository, "/"), 1, count(split(repository, "/")))
+	every part in parts {
+		part != ""
+		part != "."
+		part != ".."
+	}
+}
+
 mcp_request_shape_valid if {
 	is_object(request_mcp)
 	object.keys(request_mcp) == {"method"}
@@ -598,6 +679,8 @@ http_rule_protocol_valid(rule) if {
 	not object_has_key(rule, "kubernetes_verb")
 	not object_has_key(rule, "kubernetes_resource")
 	not object_has_key(rule, "kubernetes_dry_run")
+	not object_has_key(rule, "git_service")
+	not object_has_key(rule, "git_repository")
 }
 
 graphql_rule_protocol_valid(rule) if {
@@ -612,6 +695,8 @@ graphql_rule_protocol_valid(rule) if {
 	not object_has_key(rule, "kubernetes_verb")
 	not object_has_key(rule, "kubernetes_resource")
 	not object_has_key(rule, "kubernetes_dry_run")
+	not object_has_key(rule, "git_service")
+	not object_has_key(rule, "git_repository")
 }
 
 mcp_rule_protocol_valid(rule) if {
@@ -627,6 +712,8 @@ mcp_rule_protocol_valid(rule) if {
 	not object_has_key(rule, "kubernetes_verb")
 	not object_has_key(rule, "kubernetes_resource")
 	not object_has_key(rule, "kubernetes_dry_run")
+	not object_has_key(rule, "git_service")
+	not object_has_key(rule, "git_repository")
 }
 
 mcp_rule_protocol_valid(rule) if {
@@ -641,6 +728,8 @@ mcp_rule_protocol_valid(rule) if {
 	not object_has_key(rule, "kubernetes_verb")
 	not object_has_key(rule, "kubernetes_resource")
 	not object_has_key(rule, "kubernetes_dry_run")
+	not object_has_key(rule, "git_service")
+	not object_has_key(rule, "git_repository")
 }
 
 aws_rule_protocol_valid(rule) if {
@@ -655,6 +744,8 @@ aws_rule_protocol_valid(rule) if {
 	not object_has_key(rule, "kubernetes_verb")
 	not object_has_key(rule, "kubernetes_resource")
 	not object_has_key(rule, "kubernetes_dry_run")
+	not object_has_key(rule, "git_service")
+	not object_has_key(rule, "git_repository")
 }
 
 kubernetes_rule_protocol_valid(rule) if {
@@ -672,6 +763,24 @@ kubernetes_rule_protocol_valid(rule) if {
 	not object_has_key(rule, "aws_wire_protocol")
 	not object_has_key(rule, "aws_service")
 	not object_has_key(rule, "aws_operation")
+	not object_has_key(rule, "git_service")
+	not object_has_key(rule, "git_repository")
+}
+
+git_rule_protocol_valid(rule) if {
+	rule.protocol == "git"
+	rule.git_service in {"upload-pack", "receive-pack"}
+	git_repository_valid(rule.git_repository)
+	not object_has_key(rule, "graphql_operation_type")
+	not object_has_key(rule, "graphql_root_field")
+	not object_has_key(rule, "mcp_method")
+	not object_has_key(rule, "mcp_tool_name")
+	not object_has_key(rule, "aws_wire_protocol")
+	not object_has_key(rule, "aws_service")
+	not object_has_key(rule, "aws_operation")
+	not object_has_key(rule, "kubernetes_verb")
+	not object_has_key(rule, "kubernetes_resource")
+	not object_has_key(rule, "kubernetes_dry_run")
 }
 
 object_has_key(obj, key) if {

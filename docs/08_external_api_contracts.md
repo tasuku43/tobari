@@ -104,6 +104,10 @@ Object bodies stay opaque, impersonation fails locally, and exact learned
 Kubernetes identity remains required. Other Kubernetes origins remain ordinary
 HTTP. AWS traffic remains ordinary HTTP unless it matches the bounded signed
 Query/JSON RPC identity above.
+Git Smart HTTP is recognized from its standard discovery query or RPC
+path/media type without a provider declaration. This classification retains
+only repository and upload/receive service and grants no authority by itself;
+Git SSH and credential acquisition remain outside this contract.
 The Claude regression proves that successful token exchange cannot be followed
 by a Tobari-generated `broker_auth_required` on `/api/oauth/profile`; provider
 `subscriptionType` and `rateLimitTier` remain provider-owned response data.

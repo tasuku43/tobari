@@ -1172,6 +1172,8 @@ type policyDenialOutput struct {
 	KubernetesVerb       string `json:"kubernetes_verb"`
 	KubernetesResource   string `json:"kubernetes_resource"`
 	KubernetesDryRun     string `json:"kubernetes_dry_run"`
+	GitService           string `json:"git_service"`
+	GitRepository        string `json:"git_repository"`
 	Reason               string `json:"reason"`
 	StatusCode           int    `json:"status_code"`
 	Learnable            bool   `json:"learnable"`
@@ -1205,6 +1207,8 @@ type policyCandidateOutput struct {
 	KubernetesVerb       string `json:"kubernetes_verb"`
 	KubernetesResource   string `json:"kubernetes_resource"`
 	KubernetesDryRun     string `json:"kubernetes_dry_run"`
+	GitService           string `json:"git_service"`
+	GitRepository        string `json:"git_repository"`
 	Reason               string `json:"reason"`
 	StatusCode           int    `json:"status_code"`
 	AllowCommand         string `json:"allow_command"`
@@ -1249,6 +1253,8 @@ type policyRuleOutput struct {
 	KubernetesVerb       string   `json:"kubernetes_verb"`
 	KubernetesResource   string   `json:"kubernetes_resource"`
 	KubernetesDryRun     string   `json:"kubernetes_dry_run"`
+	GitService           string   `json:"git_service"`
+	GitRepository        string   `json:"git_repository"`
 	Examples             []string `json:"examples"`
 	SourceCandidates     []string `json:"source_candidates"`
 	ResetCommand         string   `json:"reset_command"`
@@ -1298,13 +1304,14 @@ func renderPolicyCandidatesWithColor(
 		action := allowCommand + " --id " + item.ID
 		fmt.Fprintf(
 			&output,
-			"id=%s\tobserved_at=%s\tobservation_count=%d\tcontext_id=%s\tcontext=%s\tworkspace_id=%s\tproject_root=%s\tscheme=%s\thost=%s\tport=%d\tmethod=%s\tpath=%s\treason=%s\tstatus_code=%d\tallow_command=%s\tdeny_command=%s\tprotocol=%s\tstate_change=%s\tgraphql_operation_type=%s\tgraphql_root_field=%s\tmcp_method=%s\tmcp_tool_name=%s\taws_wire_protocol=%s\taws_service=%s\taws_operation=%s\tkubernetes_verb=%s\tkubernetes_resource=%s\tkubernetes_dry_run=%s\tdestination_kind=%s\tauthority_lifetime=%s\tattachment_epoch_id=%s\n",
+			"id=%s\tobserved_at=%s\tobservation_count=%d\tcontext_id=%s\tcontext=%s\tworkspace_id=%s\tproject_root=%s\tscheme=%s\thost=%s\tport=%d\tmethod=%s\tpath=%s\treason=%s\tstatus_code=%d\tallow_command=%s\tdeny_command=%s\tprotocol=%s\tstate_change=%s\tgraphql_operation_type=%s\tgraphql_root_field=%s\tmcp_method=%s\tmcp_tool_name=%s\taws_wire_protocol=%s\taws_service=%s\taws_operation=%s\tkubernetes_verb=%s\tkubernetes_resource=%s\tkubernetes_dry_run=%s\tgit_service=%s\tgit_repository=%s\tdestination_kind=%s\tauthority_lifetime=%s\tattachment_epoch_id=%s\n",
 			item.ID, escapeTSVCell(item.ObservedAt), item.EffectiveObservationCount(), item.ContextID, escapeTSVCell(item.ContextName), item.ProjectID, escapeTSVCell(item.ProjectRoot), escapeTSVCell(item.Scheme),
 			escapeTSVCell(item.Host), item.Port, escapeTSVCell(item.Method), escapeTSVCell(item.Path), escapeTSVCell(item.Reason),
 			item.StatusCode, escapeTSVCell(action), escapeTSVCell(denyCommand+" --id "+item.ID),
 			escapeTSVCell(item.EffectiveProtocol()), item.StateChangePotential(), escapeTSVCell(item.GraphQLOperationType), escapeTSVCell(item.GraphQLRootField), escapeTSVCell(item.MCPMethod), escapeTSVCell(item.MCPToolName),
 			escapeTSVCell(item.AWSWireProtocol), escapeTSVCell(item.AWSService), escapeTSVCell(item.AWSOperation),
 			escapeTSVCell(item.KubernetesVerb), escapeTSVCell(item.KubernetesResource), escapeTSVCell(item.KubernetesDryRun),
+			escapeTSVCell(item.GitService), escapeTSVCell(item.GitRepository),
 			item.EffectiveDestinationKind(), item.EffectiveAuthorityLifetime(), item.AttachmentEpochID,
 		)
 	}
@@ -1331,6 +1338,7 @@ func policyCandidateOutputs(
 			MCPMethod: safeExternalText(item.MCPMethod), MCPToolName: safeExternalText(item.MCPToolName),
 			AWSWireProtocol: safeExternalText(item.AWSWireProtocol), AWSService: safeExternalText(item.AWSService), AWSOperation: safeExternalText(item.AWSOperation),
 			KubernetesVerb: safeExternalText(item.KubernetesVerb), KubernetesResource: safeExternalText(item.KubernetesResource), KubernetesDryRun: safeExternalText(item.KubernetesDryRun),
+			GitService: safeExternalText(item.GitService), GitRepository: safeExternalText(item.GitRepository),
 			Reason:          safeExternalText(item.Reason),
 			StatusCode:      item.StatusCode,
 			AllowCommand:    allow,
@@ -1488,6 +1496,9 @@ func writePolicyGraphQLIdentity(output *humanOutput, identity tobari.PolicyProto
 		output.row("Kubernetes", safeExternalText(identity.KubernetesVerb+" "+identity.KubernetesResource), styleText)
 		output.row("Dry run", safeExternalText(identity.KubernetesDryRun), styleText)
 	}
+	if identity.EffectiveProtocol() == tobari.PolicyProtocolGit {
+		output.row("Git", safeExternalText(identity.GitService+" "+identity.GitRepository), styleText)
+	}
 }
 
 func renderPolicyReviewChange(result tobari.PolicyReviewChange, color bool) []byte {
@@ -1538,6 +1549,9 @@ func policyReviewAppliedEffect(decision tobari.PolicyReviewAppliedDecision) stri
 			effect += " · dry-run"
 		}
 	}
+	if decision.EffectiveProtocol() == tobari.PolicyProtocolGit {
+		effect += " · Git " + safeExternalText(decision.GitService) + " " + safeExternalText(decision.GitRepository)
+	}
 	return effect
 }
 
@@ -1562,13 +1576,14 @@ func renderPolicyRulesWithCommands(
 	for _, item := range items {
 		fmt.Fprintf(
 			&output,
-			"id=%s\tdecision=%s\tmatch=%s\tcontext_id=%s\tcontext=%s\tworkspace_id=%s\tproject_root=%s\tscheme=%s\thost=%s\tport=%d\tmethod=%s\tpath=%s\texamples=%s\tsource_candidates=%s\treset_command=%s\tprotocol=%s\tstate_change=%s\tgraphql_operation_type=%s\tgraphql_root_field=%s\tmcp_method=%s\tmcp_tool_name=%s\taws_wire_protocol=%s\taws_service=%s\taws_operation=%s\tkubernetes_verb=%s\tkubernetes_resource=%s\tkubernetes_dry_run=%s\n",
+			"id=%s\tdecision=%s\tmatch=%s\tcontext_id=%s\tcontext=%s\tworkspace_id=%s\tproject_root=%s\tscheme=%s\thost=%s\tport=%d\tmethod=%s\tpath=%s\texamples=%s\tsource_candidates=%s\treset_command=%s\tprotocol=%s\tstate_change=%s\tgraphql_operation_type=%s\tgraphql_root_field=%s\tmcp_method=%s\tmcp_tool_name=%s\taws_wire_protocol=%s\taws_service=%s\taws_operation=%s\tkubernetes_verb=%s\tkubernetes_resource=%s\tkubernetes_dry_run=%s\tgit_service=%s\tgit_repository=%s\n",
 			item.ID, item.Decision, item.Match, item.ContextID, escapeTSVCell(item.Context), item.WorkspaceID, escapeTSVCell(item.ProjectRoot), escapeTSVCell(item.Scheme), escapeTSVCell(item.Host), item.Port,
 			escapeTSVCell(item.Method), escapeTSVCell(item.Path), escapeTSVCell(strings.Join(item.Examples, ",")),
 			escapeTSVCell(strings.Join(item.SourceCandidates, ",")), escapeTSVCell(item.ResetCommand), escapeTSVCell(item.Protocol),
 			item.StateChange, escapeTSVCell(item.GraphQLOperationType), escapeTSVCell(item.GraphQLRootField), escapeTSVCell(item.MCPMethod), escapeTSVCell(item.MCPToolName),
 			escapeTSVCell(item.AWSWireProtocol), escapeTSVCell(item.AWSService), escapeTSVCell(item.AWSOperation),
 			escapeTSVCell(item.KubernetesVerb), escapeTSVCell(item.KubernetesResource), escapeTSVCell(item.KubernetesDryRun),
+			escapeTSVCell(item.GitService), escapeTSVCell(item.GitRepository),
 		)
 	}
 	return semanticTextBytes(color, output.Bytes()), nil
@@ -1590,6 +1605,7 @@ func policyRuleOutputs(result tobari.PolicyRuleReport, resetCommand string) []po
 			MCPMethod: safeExternalText(rule.MCPMethod), MCPToolName: safeExternalText(rule.MCPToolName),
 			AWSWireProtocol: safeExternalText(rule.AWSWireProtocol), AWSService: safeExternalText(rule.AWSService), AWSOperation: safeExternalText(rule.AWSOperation),
 			KubernetesVerb: safeExternalText(rule.KubernetesVerb), KubernetesResource: safeExternalText(rule.KubernetesResource), KubernetesDryRun: safeExternalText(rule.KubernetesDryRun),
+			GitService: safeExternalText(rule.GitService), GitRepository: safeExternalText(rule.GitRepository),
 			Examples: examples, SourceCandidates: append([]string{}, rule.SourceCandidates...),
 			ResetCommand: resetCommand + " --id " + rule.ID,
 		})
@@ -1759,6 +1775,7 @@ func renderClusterDenialsWithReviewCommand(
 				GraphQLRootField: safeExternalText(item.GraphQLRootField), MCPMethod: safeExternalText(item.MCPMethod), MCPToolName: safeExternalText(item.MCPToolName), Reason: safeExternalText(item.Reason), StatusCode: item.StatusCode,
 				AWSWireProtocol: safeExternalText(item.AWSWireProtocol), AWSService: safeExternalText(item.AWSService), AWSOperation: safeExternalText(item.AWSOperation),
 				KubernetesVerb: safeExternalText(item.KubernetesVerb), KubernetesResource: safeExternalText(item.KubernetesResource), KubernetesDryRun: safeExternalText(item.KubernetesDryRun),
+				GitService: safeExternalText(item.GitService), GitRepository: safeExternalText(item.GitRepository),
 				Learnable:       item.Learnable,
 				DestinationKind: item.EffectiveDestinationKind(), AuthorityLifetime: item.EffectiveAuthorityLifetime(),
 				AttachmentEpochID: item.AttachmentEpochID,
@@ -1790,7 +1807,7 @@ func renderClusterDenialsWithReviewCommand(
 	for _, item := range result.Items {
 		fmt.Fprintf(
 			&output,
-			"denial: timestamp=%s\trequest_id=%s\tcontext=%s\tcontext_id=%s\tworkspace_id=%s\tproject_root=%s\tscheme=%s\thost=%s\tport=%d\tmethod=%s\tpath=%s\tstatus_code=%d\treason=%s\tprotocol=%s\tstate_change=%s\tgraphql_operation_type=%s\tgraphql_root_field=%s\tmcp_method=%s\tmcp_tool_name=%s\taws_wire_protocol=%s\taws_service=%s\taws_operation=%s\tkubernetes_verb=%s\tkubernetes_resource=%s\tkubernetes_dry_run=%s\tdestination_kind=%s\tauthority_lifetime=%s\tattachment_epoch_id=%s\n",
+			"denial: timestamp=%s\trequest_id=%s\tcontext=%s\tcontext_id=%s\tworkspace_id=%s\tproject_root=%s\tscheme=%s\thost=%s\tport=%d\tmethod=%s\tpath=%s\tstatus_code=%d\treason=%s\tprotocol=%s\tstate_change=%s\tgraphql_operation_type=%s\tgraphql_root_field=%s\tmcp_method=%s\tmcp_tool_name=%s\taws_wire_protocol=%s\taws_service=%s\taws_operation=%s\tkubernetes_verb=%s\tkubernetes_resource=%s\tkubernetes_dry_run=%s\tgit_service=%s\tgit_repository=%s\tdestination_kind=%s\tauthority_lifetime=%s\tattachment_epoch_id=%s\n",
 			escapeTSVCell(item.Timestamp), escapeTSVCell(item.RequestID),
 			escapeTSVCell(item.ContextName), item.ContextID, item.ProjectID, escapeTSVCell(item.ProjectRoot),
 			escapeTSVCell(item.Scheme), escapeTSVCell(item.Host), item.Port, escapeTSVCell(item.Method),
@@ -1798,6 +1815,7 @@ func renderClusterDenialsWithReviewCommand(
 			item.StateChangePotential(), escapeTSVCell(item.GraphQLOperationType), escapeTSVCell(item.GraphQLRootField), escapeTSVCell(item.MCPMethod), escapeTSVCell(item.MCPToolName),
 			escapeTSVCell(item.AWSWireProtocol), escapeTSVCell(item.AWSService), escapeTSVCell(item.AWSOperation),
 			escapeTSVCell(item.KubernetesVerb), escapeTSVCell(item.KubernetesResource), escapeTSVCell(item.KubernetesDryRun),
+			escapeTSVCell(item.GitService), escapeTSVCell(item.GitRepository),
 			item.EffectiveDestinationKind(), item.EffectiveAuthorityLifetime(), item.AttachmentEpochID,
 		)
 	}

@@ -248,6 +248,27 @@ func TestAggregateRouterKeepsGitHubGraphQLBaselineSemanticAndAllRootsExact(t *te
 	}
 }
 
+func TestAggregateRouterKeepsGitSmartHTTPOutsideBroadHTTPAuthority(t *testing.T) {
+	t.Parallel()
+	manifest := tobari.ContextManifest{SchemaVersion: tobari.ContextSchemaVersion, ID: "01912345-6789-7abc-8def-0123456789ad", Name: "agent-ready", AgentProfile: tobari.DefaultProfile, Image: tobari.BuiltinImageSelector, PolicyMode: tobari.ContextPolicyModeGuided, SourceAccess: tobari.ContextSourceAccessReadWrite, PolicyRevision: tobari.DefaultContextPolicyRevision()}
+	router, err := aggregateRouter([]aggregateContext{{manifest: manifest}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(router)
+	for _, required := range []string{
+		`object.get(input.request, "git", null) == null`,
+		`exact_denied if { learned_git_denied }`,
+		`object.get(input.request, "git", null) != null`,
+		`rule.git_service == input.request.git.service`,
+		`rule.git_repository == input.request.git.repository`,
+	} {
+		if !strings.Contains(text, required) {
+			t.Fatalf("Git Smart HTTP router omitted %q:\n%s", required, text)
+		}
+	}
+}
+
 func TestAggregateRouterMakesBuiltinHTTPSCeilingTerminalBeforeAdvancedPolicy(t *testing.T) {
 	t.Parallel()
 	manifest := tobari.ContextManifest{SchemaVersion: tobari.ContextSchemaVersion, ID: "01912345-6789-7abc-8def-0123456789ad", Name: "restricted", AgentProfile: tobari.DefaultProfile, Image: tobari.BuiltinImageSelector, PolicyMode: tobari.ContextPolicyModeAdvanced, SourceAccess: tobari.ContextSourceAccessReadWrite, PolicyRevision: tobari.DefaultContextPolicyRevision()}

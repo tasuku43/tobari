@@ -39,6 +39,7 @@ const (
 	PolicyProtocolMCP            = "mcp"
 	PolicyProtocolAWS            = "aws"
 	PolicyProtocolKubernetes     = "kubernetes"
+	PolicyProtocolGit            = "git"
 	AWSWireProtocolQuery         = "query"
 	AWSWireProtocolJSON          = "json"
 	GraphQLOperationQuery        = "query"
@@ -50,8 +51,8 @@ const (
 )
 
 // PolicyProtocolIdentity identifies one HTTP effect or refines it to exactly
-// one GraphQL root coordinate, MCP method/tool coordinate, or dynamically
-// observed AWS wire operation. AWS identity carries no read/write semantics.
+// one bounded protocol coordinate. AWS identity carries no read/write
+// semantics; the other refinements derive only their documented signal.
 type PolicyProtocolIdentity struct {
 	Scheme               string `json:"scheme"`
 	Protocol             string `json:"protocol"`
@@ -65,6 +66,8 @@ type PolicyProtocolIdentity struct {
 	KubernetesVerb       string `json:"kubernetes_verb,omitempty"`
 	KubernetesResource   string `json:"kubernetes_resource,omitempty"`
 	KubernetesDryRun     string `json:"kubernetes_dry_run,omitempty"`
+	GitService           string `json:"git_service,omitempty"`
+	GitRepository        string `json:"git_repository,omitempty"`
 }
 
 // EffectiveProtocol returns the validated closed protocol value.
@@ -92,6 +95,12 @@ func (i PolicyProtocolIdentity) StateChangePotential() string {
 		}
 		return PolicyStateChangePossible
 	}
+	if i.EffectiveProtocol() == PolicyProtocolGit {
+		if i.GitService == "upload-pack" {
+			return PolicyStateChangeNone
+		}
+		return PolicyStateChangePossible
+	}
 	return PolicyStateChangeUnknown
 }
 
@@ -101,11 +110,11 @@ func (i PolicyProtocolIdentity) Validate() error {
 	}
 	switch i.EffectiveProtocol() {
 	case PolicyProtocolHTTP:
-		if i.GraphQLOperationType != "" || i.GraphQLRootField != "" || i.MCPMethod != "" || i.MCPToolName != "" || i.AWSWireProtocol != "" || i.AWSService != "" || i.AWSOperation != "" || i.KubernetesVerb != "" || i.KubernetesResource != "" || i.KubernetesDryRun != "" {
+		if i.GraphQLOperationType != "" || i.GraphQLRootField != "" || i.MCPMethod != "" || i.MCPToolName != "" || i.AWSWireProtocol != "" || i.AWSService != "" || i.AWSOperation != "" || i.KubernetesVerb != "" || i.KubernetesResource != "" || i.KubernetesDryRun != "" || i.GitService != "" || i.GitRepository != "" {
 			return fmt.Errorf("HTTP policy identity cannot contain protocol refinement fields")
 		}
 	case PolicyProtocolGraphQL:
-		if i.MCPMethod != "" || i.MCPToolName != "" || i.AWSWireProtocol != "" || i.AWSService != "" || i.AWSOperation != "" || i.KubernetesVerb != "" || i.KubernetesResource != "" || i.KubernetesDryRun != "" {
+		if i.MCPMethod != "" || i.MCPToolName != "" || i.AWSWireProtocol != "" || i.AWSService != "" || i.AWSOperation != "" || i.KubernetesVerb != "" || i.KubernetesResource != "" || i.KubernetesDryRun != "" || i.GitService != "" || i.GitRepository != "" {
 			return fmt.Errorf("GraphQL policy identity cannot contain MCP fields")
 		}
 		if i.GraphQLOperationType != GraphQLOperationQuery && i.GraphQLOperationType != GraphQLOperationMutation {
@@ -115,7 +124,7 @@ func (i PolicyProtocolIdentity) Validate() error {
 			return fmt.Errorf("GraphQL root field is invalid")
 		}
 	case PolicyProtocolMCP:
-		if i.GraphQLOperationType != "" || i.GraphQLRootField != "" || i.AWSWireProtocol != "" || i.AWSService != "" || i.AWSOperation != "" || i.KubernetesVerb != "" || i.KubernetesResource != "" || i.KubernetesDryRun != "" {
+		if i.GraphQLOperationType != "" || i.GraphQLRootField != "" || i.AWSWireProtocol != "" || i.AWSService != "" || i.AWSOperation != "" || i.KubernetesVerb != "" || i.KubernetesResource != "" || i.KubernetesDryRun != "" || i.GitService != "" || i.GitRepository != "" {
 			return fmt.Errorf("MCP policy identity cannot contain GraphQL fields")
 		}
 		if len(i.MCPMethod) == 0 || len(i.MCPMethod) > 128 || !mcpMethodPattern.MatchString(i.MCPMethod) {
@@ -129,7 +138,7 @@ func (i PolicyProtocolIdentity) Validate() error {
 			return fmt.Errorf("MCP tool name is only valid for tools/call")
 		}
 	case PolicyProtocolAWS:
-		if i.GraphQLOperationType != "" || i.GraphQLRootField != "" || i.MCPMethod != "" || i.MCPToolName != "" || i.KubernetesVerb != "" || i.KubernetesResource != "" || i.KubernetesDryRun != "" {
+		if i.GraphQLOperationType != "" || i.GraphQLRootField != "" || i.MCPMethod != "" || i.MCPToolName != "" || i.KubernetesVerb != "" || i.KubernetesResource != "" || i.KubernetesDryRun != "" || i.GitService != "" || i.GitRepository != "" {
 			return fmt.Errorf("AWS policy identity cannot contain another protocol's fields")
 		}
 		if !awsServicePattern.MatchString(i.AWSService) {
@@ -148,7 +157,7 @@ func (i PolicyProtocolIdentity) Validate() error {
 			return fmt.Errorf("AWS wire protocol is invalid")
 		}
 	case PolicyProtocolKubernetes:
-		if i.GraphQLOperationType != "" || i.GraphQLRootField != "" || i.MCPMethod != "" || i.MCPToolName != "" || i.AWSWireProtocol != "" || i.AWSService != "" || i.AWSOperation != "" {
+		if i.GraphQLOperationType != "" || i.GraphQLRootField != "" || i.MCPMethod != "" || i.MCPToolName != "" || i.AWSWireProtocol != "" || i.AWSService != "" || i.AWSOperation != "" || i.GitService != "" || i.GitRepository != "" {
 			return fmt.Errorf("Kubernetes policy identity cannot contain another protocol's fields")
 		}
 		if i.KubernetesVerb != "get" && i.KubernetesVerb != "list" && i.KubernetesVerb != "watch" && i.KubernetesVerb != "create" && i.KubernetesVerb != "update" && i.KubernetesVerb != "patch" && i.KubernetesVerb != "delete" && i.KubernetesVerb != "deletecollection" && i.KubernetesVerb != "connect" {
@@ -164,6 +173,26 @@ func (i PolicyProtocolIdentity) Validate() error {
 		}
 		if i.KubernetesDryRun != "none" && i.KubernetesDryRun != "empty" && i.KubernetesDryRun != "all" {
 			return fmt.Errorf("Kubernetes dry-run mode is invalid")
+		}
+	case PolicyProtocolGit:
+		if i.GraphQLOperationType != "" || i.GraphQLRootField != "" || i.MCPMethod != "" || i.MCPToolName != "" || i.AWSWireProtocol != "" || i.AWSService != "" || i.AWSOperation != "" || i.KubernetesVerb != "" || i.KubernetesResource != "" || i.KubernetesDryRun != "" {
+			return fmt.Errorf("Git policy identity cannot contain another protocol's fields")
+		}
+		if i.GitService != "upload-pack" && i.GitService != "receive-pack" {
+			return fmt.Errorf("Git service is invalid")
+		}
+		if len(i.GitRepository) < 2 || len(i.GitRepository) > 1024 || i.GitRepository[0] != '/' || !utf8.ValidString(i.GitRepository) || strings.Contains(i.GitRepository, "//") || strings.ContainsAny(i.GitRepository, "%\\") {
+			return fmt.Errorf("Git repository path is invalid")
+		}
+		for _, segment := range strings.Split(i.GitRepository[1:], "/") {
+			if segment == "" || segment == "." || segment == ".." {
+				return fmt.Errorf("Git repository path is invalid")
+			}
+		}
+		for _, character := range i.GitRepository {
+			if character < 32 || character == 127 || character == '\u2028' || character == '\u2029' {
+				return fmt.Errorf("Git repository path is invalid")
+			}
 		}
 	default:
 		return fmt.Errorf("policy protocol is invalid")
@@ -183,7 +212,9 @@ func (i PolicyProtocolIdentity) matches(other PolicyProtocolIdentity) bool {
 		i.AWSOperation == other.AWSOperation &&
 		i.KubernetesVerb == other.KubernetesVerb &&
 		i.KubernetesResource == other.KubernetesResource &&
-		i.KubernetesDryRun == other.KubernetesDryRun
+		i.KubernetesDryRun == other.KubernetesDryRun &&
+		i.GitService == other.GitService &&
+		i.GitRepository == other.GitRepository
 }
 
 func appendPolicyProtocolIdentity(material []string, identity PolicyProtocolIdentity) []string {
@@ -199,6 +230,9 @@ func appendPolicyProtocolIdentity(material []string, identity PolicyProtocolIden
 	}
 	if identity.EffectiveProtocol() == PolicyProtocolKubernetes {
 		return append(material, PolicyProtocolKubernetes, identity.KubernetesVerb, identity.KubernetesResource, identity.KubernetesDryRun)
+	}
+	if identity.EffectiveProtocol() == PolicyProtocolGit {
+		return append(material, PolicyProtocolGit, identity.GitService, identity.GitRepository)
 	}
 	return append(material, PolicyProtocolAWS, identity.AWSWireProtocol, identity.AWSService, identity.AWSOperation)
 }

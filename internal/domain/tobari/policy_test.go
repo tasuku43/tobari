@@ -117,6 +117,8 @@ func TestPolicyProtocolIdentityValidationAndEffectiveProtocol(t *testing.T) {
 		{Scheme: "https", Protocol: PolicyProtocolKubernetes, KubernetesVerb: "watch", KubernetesResource: "core/v1/namespaces/team/pods", KubernetesDryRun: "none"},
 		{Scheme: "https", Protocol: PolicyProtocolKubernetes, KubernetesVerb: "patch", KubernetesResource: "apps/v1/deployments/demo", KubernetesDryRun: "all"},
 		{Scheme: "https", Protocol: PolicyProtocolKubernetes, KubernetesVerb: "connect", KubernetesResource: "core/v1/pods/demo/exec", KubernetesDryRun: "none"},
+		{Scheme: "https", Protocol: PolicyProtocolGit, GitService: "upload-pack", GitRepository: "/team/repo.git"},
+		{Scheme: "https", Protocol: PolicyProtocolGit, GitService: "receive-pack", GitRepository: "/team/repo.git"},
 	}
 	for _, identity := range valid {
 		if err := identity.Validate(); err != nil {
@@ -141,6 +143,12 @@ func TestPolicyProtocolIdentityValidationAndEffectiveProtocol(t *testing.T) {
 	if got := valid[7].StateChangePotential(); got != PolicyStateChangeInteractive {
 		t.Fatalf("Kubernetes connect state change = %q", got)
 	}
+	if got := valid[8].StateChangePotential(); got != PolicyStateChangeNone {
+		t.Fatalf("Git upload-pack state change = %q", got)
+	}
+	if got := valid[9].StateChangePotential(); got != PolicyStateChangePossible {
+		t.Fatalf("Git receive-pack state change = %q", got)
+	}
 	invalid := []PolicyProtocolIdentity{
 		{},
 		{Protocol: PolicyProtocolHTTP},
@@ -164,6 +172,8 @@ func TestPolicyProtocolIdentityValidationAndEffectiveProtocol(t *testing.T) {
 		{Scheme: "https", Protocol: PolicyProtocolKubernetes, KubernetesVerb: "read", KubernetesResource: "core/v1/pods", KubernetesDryRun: "none"},
 		{Scheme: "https", Protocol: PolicyProtocolKubernetes, KubernetesVerb: "get", KubernetesResource: "", KubernetesDryRun: "none"},
 		{Scheme: "https", Protocol: PolicyProtocolKubernetes, KubernetesVerb: "get", KubernetesResource: "core/v1/pods", KubernetesDryRun: "maybe"},
+		{Scheme: "https", Protocol: PolicyProtocolGit, GitService: "fetch", GitRepository: "/team/repo.git"},
+		{Scheme: "https", Protocol: PolicyProtocolGit, GitService: "upload-pack", GitRepository: "/team/../repo.git"},
 	}
 	for _, identity := range invalid {
 		if err := identity.Validate(); err == nil {
@@ -243,6 +253,40 @@ func TestKubernetesIdentityKeepsVerbsAndDryRunDistinct(t *testing.T) {
 	if !rule.MatchesIdentity(denial.ContextID, denial.ProjectID, denial.Host, denial.Port, denial.Method, denial.Path, denial.PolicyProtocolIdentity) ||
 		rule.MatchesIdentity(dryRun.ContextID, dryRun.ProjectID, dryRun.Host, dryRun.Port, dryRun.Method, dryRun.Path, dryRun.PolicyProtocolIdentity) {
 		t.Fatal("Kubernetes exact rule did not bind dry-run identity")
+	}
+}
+
+func TestGitIdentityKeepsUploadAndReceiveDistinct(t *testing.T) {
+	t.Parallel()
+	denial := validPolicyDenial()
+	denial.Method = "POST"
+	denial.Path = "/team/repo.git/git-upload-pack"
+	denial.Host = "git.example.com"
+	denial.PolicyProtocolIdentity = PolicyProtocolIdentity{
+		Scheme: "https", Protocol: PolicyProtocolGit,
+		GitService: "upload-pack", GitRepository: "/team/repo.git",
+	}
+	receive := denial
+	receive.Path = "/team/repo.git/git-receive-pack"
+	receive.GitService = "receive-pack"
+	uploadCandidate, err := NewPolicyCandidate(denial)
+	if err != nil {
+		t.Fatal(err)
+	}
+	receiveCandidate, err := NewPolicyCandidate(receive)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if uploadCandidate.ID == receiveCandidate.ID {
+		t.Fatal("Git upload and receive effects collapsed")
+	}
+	rule, err := NewExactLearnedPolicyRule(uploadCandidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !rule.MatchesIdentity(denial.ContextID, denial.ProjectID, denial.Host, denial.Port, denial.Method, denial.Path, denial.PolicyProtocolIdentity) ||
+		rule.MatchesIdentity(receive.ContextID, receive.ProjectID, receive.Host, receive.Port, receive.Method, receive.Path, receive.PolicyProtocolIdentity) {
+		t.Fatal("Git exact rule did not bind service and repository identity")
 	}
 }
 

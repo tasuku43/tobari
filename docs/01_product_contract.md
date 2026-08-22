@@ -130,6 +130,12 @@ canonical resource or non-resource coordinate from method, path, `watch`, and
 structural path contract. Read/list/watch, possible mutation, dry-run, and
 interactive connect remain visibly distinct. Impersonation headers fail
 locally rather than becoming a learnable permission.
+Git Smart HTTP discovery and RPC requests are reviewed as an exact repository
+path plus `upload-pack` or `receive-pack` service when the standard path/query
+or path/media-type contract identifies them. Upload-pack is reported as
+`not_expected`; receive-pack is `possible`. Pack bodies and authentication
+headers stay opaque, malformed Smart HTTP claims fail locally, and ordinary
+HTTP rules cannot authorize a classified Git request.
 For a commercial AWS endpoint using signed AWS Query or AWS JSON RPC, Gateway
 derives only wire protocol, SigV4 service, and exact `Action` or signed
 `X-Amz-Target`. The dynamic request supplies that coordinate; Tobari carries no

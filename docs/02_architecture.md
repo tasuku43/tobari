@@ -1263,6 +1263,12 @@ OPA, and streams the opaque object body only after exact authorization. It
 does not load Kubernetes OpenAPI, enumerate CRDs, or call discovery endpoints
 to classify a request.
 
+Git Smart HTTP needs no endpoint catalog. Gateway recognizes only the exact
+`info/refs?service=git-{upload,receive}-pack` discovery form and the matching
+POST RPC path/media type. It projects repository and service, leaves the pack
+stream opaque, and prevents classified traffic from re-entering ordinary HTTP
+or AWS routing.
+
 Denied audit records are also the policy-development feedback interface. A
 learnable Gateway denial carries a fixed host-side `tobari review permissions`
 navigation hint, and session closure may summarize the pending queue on host

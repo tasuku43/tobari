@@ -533,14 +533,22 @@ structure. It never parses object bodies, loads OpenAPI, discovers CRDs, or
 retains bearer credentials. Kubernetes impersonation headers and ambiguous
 watch/dry-run modes fail locally and cannot enter learning.
 
+Git Smart HTTP classification is bounded to exact discovery query and RPC
+media-type evidence. Repository paths reject ambiguous encoded, repeated,
+relative, control, and overlong forms. Gateway retains only repository and
+upload/receive service; request pack bodies and authentication remain opaque.
+An exact Git rule is required, so a broad HTTP rule cannot authorize the same
+transport.
+
 OPA timeout, connection failure, non-2xx status, malformed JSON, missing
 fields, unknown decision values, and Gateway exceptions all deny. Plain HTTP
 to non-local destinations is denied by the initialized policy. The initialized
 policy also requires an explicit port for each supported scheme; learned rules
 retain the observed Context/project/scheme/host/port/method/path and optional
-GraphQL, AWS, or Kubernetes coordinate and cannot be used on another Context,
-project, port, or scheme. Query and headers may be available to Advanced Rego
-as additional deny constraints but never become guided candidate/rule identity.
+GraphQL, AWS, Kubernetes, or Git coordinate and cannot be used on another
+Context, project, port, or scheme. Query and headers may be available to
+Advanced Rego as additional deny constraints but never become guided
+candidate/rule identity.
 Ordinary body presence and content are not authorization or learning dimensions;
 an exact learned rule covers every body value at its exact
 Context/project/scheme/host/port/method/path. Immediately before an upstream connection,
