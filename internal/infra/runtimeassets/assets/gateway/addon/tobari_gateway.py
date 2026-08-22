@@ -50,6 +50,7 @@ from kubernetes_request import (
     parse_kubernetes_request,
 )
 from git_request import GitRequestError, ParsedGitRequest, classify_git_request
+from oci_request import OCIRequestError, ParsedOCIRequest, parse_oci_request
 from validated_file import StatIdentityCache, ValidatedFileError
 
 MAX_GATEWAY_CONFIG_BYTES = 256 * 1024
@@ -700,6 +701,7 @@ def build_policy_input(
     aws: ParsedAWSRequest | None = None,
     kubernetes: ParsedKubernetesRequest | None = None,
     git: ParsedGitRequest | None = None,
+    oci: ParsedOCIRequest | None = None,
     host_loopback: dict[str, Any] | None = None,
     attachment_grants: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
@@ -761,6 +763,13 @@ def build_policy_input(
         policy_input["request"]["git"] = {
             "service": git.service,
             "repository": git.repository,
+        }
+    if oci is not None:
+        policy_input["request"]["query"] = {}
+        policy_input["request"]["oci"] = {
+            "action": oci.action,
+            "repository": oci.repository,
+            "object": oci.object,
         }
     if host_loopback is not None:
         policy_input["destination"] = {
@@ -969,6 +978,7 @@ def _policy_denied(
     aws: ParsedAWSRequest | None = None,
     kubernetes: ParsedKubernetesRequest | None = None,
     git: ParsedGitRequest | None = None,
+    oci: ParsedOCIRequest | None = None,
 ) -> None:
     path = urlsplit(flow.request.url).path or "/"
     review_available = bool(learnable)
@@ -1031,6 +1041,11 @@ def _policy_denied(
         document["tobari"]["request"]["protocol"] = "git"
         document["tobari"]["request"]["git_service"] = git.service
         document["tobari"]["request"]["git_repository"] = git.repository
+    if oci is not None:
+        document["tobari"]["request"]["protocol"] = "oci"
+        document["tobari"]["request"]["oci_action"] = oci.action
+        document["tobari"]["request"]["oci_repository"] = oci.repository
+        document["tobari"]["request"]["oci_object"] = oci.object
     body = json.dumps(document, separators=(",", ":")).encode("utf-8")
     flow.response = http.Response.make(status, body, {"content-type": "application/json"})
 
@@ -1091,6 +1106,16 @@ def _git_audit_event(base: dict[str, Any], parsed: ParsedGitRequest) -> dict[str
         "protocol": "git",
         "git_service": parsed.service,
         "git_repository": parsed.repository,
+    }
+
+
+def _oci_audit_event(base: dict[str, Any], parsed: ParsedOCIRequest) -> dict[str, Any]:
+    return {
+        **base,
+        "protocol": "oci",
+        "oci_action": parsed.action,
+        "oci_repository": parsed.repository,
+        "oci_object": parsed.object,
     }
 
 
@@ -1177,6 +1202,7 @@ class TobariGateway:
         aws_identity: ParsedAWSRequest | None = None
         kubernetes_identity: ParsedKubernetesRequest | None = None
         git_identity: ParsedGitRequest | None = None
+        oci_identity: ParsedOCIRequest | None = None
         try:
             scheme, host, port = normalize_ingress_authority(flow)
             request_path = urlsplit(flow.request.url).path or "/"
@@ -1254,12 +1280,17 @@ class TobariGateway:
                     request_headers,
                 )
             if kubernetes_identity is None:
+                oci_identity = parse_oci_request(
+                    flow.request.method.upper(), request_path,
+                    urlsplit(flow.request.url).query,
+                )
+            if kubernetes_identity is None and oci_identity is None:
                 git_identity = classify_git_request(
                     flow.request.method.upper(), request_path,
                     urlsplit(flow.request.url).query, request_headers,
                 )
             aws_classification = None
-            if kubernetes_identity is None and git_identity is None:
+            if kubernetes_identity is None and git_identity is None and oci_identity is None:
                 aws_classification = classify_aws_request_headers(
                     flow.request.method.upper(), scheme, host, port, request_path,
                     urlsplit(flow.request.url).query,
@@ -1291,6 +1322,7 @@ class TobariGateway:
                 aws=aws_identity,
                 kubernetes=kubernetes_identity,
                 git=git_identity,
+                oci=oci_identity,
                 host_loopback=host_loopback,
                 attachment_grants=attachment_grants,
             )
@@ -1300,7 +1332,8 @@ class TobariGateway:
             if not decision.allow:
                 _policy_denied(
                     flow, decision.status_code, learnable,
-                    aws=aws_identity, kubernetes=kubernetes_identity, git=git_identity,
+                    aws=aws_identity, kubernetes=kubernetes_identity,
+                    git=git_identity, oci=oci_identity,
                 )
                 upstream_status = decision.status_code
                 return
@@ -1325,7 +1358,9 @@ class TobariGateway:
                 "learnable": learnable,
                 "started": started,
             }
-            if git_identity is not None:
+            if oci_identity is not None:
+                flow.metadata["tobari_audit"] = _oci_audit_event(audit_event, oci_identity)
+            elif git_identity is not None:
                 flow.metadata["tobari_audit"] = _git_audit_event(audit_event, git_identity)
             elif kubernetes_identity is not None:
                 flow.metadata["tobari_audit"] = _kubernetes_audit_event(
@@ -1359,7 +1394,7 @@ class TobariGateway:
                 # Authorization is complete before mitmproxy forwards any body bytes.
                 # The body is deliberately opaque to policy and is never retained here.
                 flow.request.stream = True
-        except (GraphQLRequestError, MCPRequestError, AWSRequestError, KubernetesRequestError, GitRequestError) as error:
+        except (GraphQLRequestError, MCPRequestError, AWSRequestError, KubernetesRequestError, GitRequestError, OCIRequestError) as error:
             reason = str(error)
             _deny(flow, 400, error.code)
             upstream_status = 400
@@ -1411,7 +1446,9 @@ class TobariGateway:
                     "upstream_status": upstream_status,
                     "duration_ms": int((time.monotonic() - started) * 1000),
                 }
-                if git_identity is not None:
+                if oci_identity is not None:
+                    event = _oci_audit_event(event, oci_identity)
+                elif git_identity is not None:
                     event = _git_audit_event(event, git_identity)
                 elif kubernetes_identity is not None:
                     event = _kubernetes_audit_event(event, kubernetes_identity)

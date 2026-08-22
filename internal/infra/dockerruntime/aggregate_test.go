@@ -269,6 +269,28 @@ func TestAggregateRouterKeepsGitSmartHTTPOutsideBroadHTTPAuthority(t *testing.T)
 	}
 }
 
+func TestAggregateRouterKeepsOCIDistributionOutsideBroadHTTPAuthority(t *testing.T) {
+	t.Parallel()
+	manifest := tobari.ContextManifest{SchemaVersion: tobari.ContextSchemaVersion, ID: "01912345-6789-7abc-8def-0123456789ad", Name: "agent-ready", AgentProfile: tobari.DefaultProfile, Image: tobari.BuiltinImageSelector, PolicyMode: tobari.ContextPolicyModeGuided, SourceAccess: tobari.ContextSourceAccessReadWrite, PolicyRevision: tobari.DefaultContextPolicyRevision()}
+	router, err := aggregateRouter([]aggregateContext{{manifest: manifest}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(router)
+	for _, required := range []string{
+		`object.get(input.request, "oci", null) == null`,
+		`exact_denied if { learned_oci_denied }`,
+		`object.get(input.request, "oci", null) != null`,
+		`rule.oci_action == input.request.oci.action`,
+		`rule.oci_repository == input.request.oci.repository`,
+		`rule.oci_object == input.request.oci.object`,
+	} {
+		if !strings.Contains(text, required) {
+			t.Fatalf("OCI Distribution router omitted %q:\n%s", required, text)
+		}
+	}
+}
+
 func TestAggregateRouterMakesBuiltinHTTPSCeilingTerminalBeforeAdvancedPolicy(t *testing.T) {
 	t.Parallel()
 	manifest := tobari.ContextManifest{SchemaVersion: tobari.ContextSchemaVersion, ID: "01912345-6789-7abc-8def-0123456789ad", Name: "restricted", AgentProfile: tobari.DefaultProfile, Image: tobari.BuiltinImageSelector, PolicyMode: tobari.ContextPolicyModeAdvanced, SourceAccess: tobari.ContextSourceAccessReadWrite, PolicyRevision: tobari.DefaultContextPolicyRevision()}

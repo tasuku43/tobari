@@ -1196,6 +1196,9 @@ client request headers
   -> classify only trusted Context-declared exact GraphQL endpoints
   -> structurally classify signed commercial AWS Query/JSON RPC without an AWS
      service model; reject claimed but unsupported or ambiguous RPC forms
+  -> classify a validated EKS origin as Kubernetes, exact Git Smart HTTP
+     transports as Git, and only distinctive OCI Distribution object routes
+     as OCI; retain no object or pack body
   -> for ordinary HTTP, normalize body-free OPA input at the header hook
   -> for a declared GraphQL endpoint, require and retain one bounded request,
      parse the selected operation and canonical root fields, and normalize only
@@ -1268,6 +1271,15 @@ Git Smart HTTP needs no endpoint catalog. Gateway recognizes only the exact
 POST RPC path/media type. It projects repository and service, leaves the pack
 stream opaque, and prevents classified traffic from re-entering ordinary HTTP
 or AWS routing.
+
+OCI Distribution likewise needs no registry catalog or repository schema.
+Gateway recognizes distinctive standard catalog, tag, manifest, blob,
+referrer, and upload routes under `/v2/`, then projects only repository,
+action, and object identity. Cross-repository mount identity retains both its
+digest and source repository. Bodies, authentication, and raw query values
+remain opaque. The base `/v2/` probe and unsupported `/v2/*` paths stay on the
+ordinary HTTP path to avoid claiming unrelated versioned APIs; once an object
+route is classified, it cannot re-enter ordinary HTTP or AWS routing.
 
 Denied audit records are also the policy-development feedback interface. A
 learnable Gateway denial carries a fixed host-side `tobari review permissions`

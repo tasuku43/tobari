@@ -540,12 +540,21 @@ upload/receive service; request pack bodies and authentication remain opaque.
 An exact Git rule is required, so a broad HTTP rule cannot authorize the same
 transport.
 
+OCI Distribution classification is bounded to distinctive standard catalog,
+tag, manifest, blob, referrer, and upload object routes under `/v2/`. Gateway
+retains only repository, action, and object coordinates; cross-repository
+mounts retain both digest and source repository. Bodies, authorization
+headers, and raw query values remain outside policy and audit. Malformed
+recognized shapes fail locally, and an exact OCI rule is required. The base
+`/v2/` probe, token routes, and unsupported paths such as `/v2/me` remain
+ordinary HTTP, preventing generic versioned APIs from being claimed as OCI.
+
 OPA timeout, connection failure, non-2xx status, malformed JSON, missing
 fields, unknown decision values, and Gateway exceptions all deny. Plain HTTP
 to non-local destinations is denied by the initialized policy. The initialized
 policy also requires an explicit port for each supported scheme; learned rules
 retain the observed Context/project/scheme/host/port/method/path and optional
-GraphQL, AWS, Kubernetes, or Git coordinate and cannot be used on another
+GraphQL, AWS, Kubernetes, Git, or OCI coordinate and cannot be used on another
 Context, project, port, or scheme. Query and headers may be available to
 Advanced Rego as additional deny constraints but never become guided
 candidate/rule identity.

@@ -228,9 +228,10 @@ brand.
   through the guarded transparent path; command names and ambient or projected
   proxy-environment settings do not select policy behavior.
 - Gateway sends generic HTTP attributes plus only the bounded protocol-derived
-  coordinates declared below: GraphQL operation/root, MCP method/tool, or
-  signed AWS wire protocol/service/operation. The AWS coordinate is structural
-  request identity, not a provider semantic classification.
+  coordinates declared below: GraphQL operation/root, MCP method/tool, signed
+  AWS wire protocol/service/operation, Kubernetes verb/resource/dry-run, Git
+  repository/service, or OCI repository/action/object. These coordinates are
+  structural request identity, not provider semantic classifications.
 - Ordinary request bodies are payload, not permission identity. Gateway
   authorizes the project, authority, method, and path from request headers
   before forwarding body bytes; body presence and content do not split
@@ -263,15 +264,20 @@ brand.
 - Git Smart HTTP is self-describing only at its exact discovery and RPC
   transports. Repository plus `upload-pack` or `receive-pack` is review
   authority; pack contents and repository-name guesses are not.
+- OCI Distribution is self-describing only at distinctive standard object
+  routes under `/v2/`. Repository, action, and object coordinate are exact
+  review authority. The base `/v2/` probe, token routes, and unsupported
+  `/v2/*` paths remain ordinary HTTP so unrelated versioned APIs are not
+  claimed; manifest/blob bodies and authorization query values stay opaque.
 
 ### Mechanical enforcement
 
 - Gateway unit tests fix the OPA input schema, secret-header redaction,
-  trusted GraphQL/MCP endpoint and signed AWS RPC classification, bounded parser behavior, and
-  authorization-before-forward ordering.
+  trusted GraphQL/MCP endpoint, signed AWS RPC, Kubernetes, Git, and distinctive
+  OCI route classification, bounded parser behavior, and authorization-before-forward ordering.
 - Rego tests exercise host, port, method, path, scheme, project-principal,
   ordinary body-independent decisions, exact GraphQL operation/root-field and
-  MCP method/tool boundaries, and exact AWS wire-operation boundaries.
+  MCP method/tool, AWS wire-operation, Kubernetes, Git, and OCI boundaries.
 - Docker integration tests use curl and Python rather than a named coding agent.
 
 ## Thesis 2: Network topology is an enforcement mechanism

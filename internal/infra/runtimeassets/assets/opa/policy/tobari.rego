@@ -71,6 +71,11 @@ request_allowed if {
 }
 
 request_allowed if {
+	oci_request
+	oci_learned_rule_allowed
+}
+
+request_allowed if {
 	graphql_request
 	every root_field in request_graphql.root_fields {
 		graphql_learned_rule_allowed(root_field)
@@ -167,6 +172,16 @@ explicitly_denied if {
 	rule.git_repository == request_git.repository
 }
 
+explicitly_denied if {
+	oci_request
+	some rule in learned_deny_rules
+	oci_rule_protocol_valid(rule)
+	learned_rule_matches_request(rule, input.principal.project_id, input.request)
+	rule.oci_action == request_oci.action
+	rule.oci_repository == request_oci.repository
+	rule.oci_object == request_oci.object
+}
+
 default learned_rules := []
 
 learned_rules := data.tobari.rules.learned_allows
@@ -229,6 +244,16 @@ git_learned_rule_allowed if {
 	learned_rule_matches_request(rule, input.principal.project_id, input.request)
 }
 
+oci_learned_rule_allowed if {
+	some rule in learned_rules
+	learned_rule_valid(rule)
+	oci_rule_protocol_valid(rule)
+	rule.oci_action == request_oci.action
+	rule.oci_repository == request_oci.repository
+	rule.oci_object == request_oci.object
+	learned_rule_matches_request(rule, input.principal.project_id, input.request)
+}
+
 learned_rule_matches_request(rule, project_id, request) if {
 	rule.match == "exact"
 	rule.context_id == input.principal.context_id
@@ -288,6 +313,13 @@ learned_rule_valid(rule) if {
 learned_rule_valid(rule) if {
 	learned_rule_base_valid(rule)
 	git_rule_protocol_valid(rule)
+	rule.match == "exact"
+	learned_rule_scope_valid(rule)
+}
+
+learned_rule_valid(rule) if {
+	learned_rule_base_valid(rule)
+	oci_rule_protocol_valid(rule)
 	rule.match == "exact"
 	learned_rule_scope_valid(rule)
 }
@@ -399,6 +431,7 @@ request_mcp := object.get(input.request, "mcp", null)
 request_aws := object.get(input.request, "aws", null)
 request_kubernetes := object.get(input.request, "kubernetes", null)
 request_git := object.get(input.request, "git", null)
+request_oci := object.get(input.request, "oci", null)
 
 ordinary_http_request if {
 	request_graphql == null
@@ -406,6 +439,7 @@ ordinary_http_request if {
 	request_aws == null
 	request_kubernetes == null
 	request_git == null
+	request_oci == null
 	not declared_graphql_endpoint
 	not declared_mcp_endpoint
 	not declared_kubernetes_endpoint
@@ -428,6 +462,7 @@ aws_request if {
 	not declared_mcp_endpoint
 	not declared_kubernetes_endpoint
 	request_git == null
+	request_oci == null
 	input.request.method == "POST"
 	input.request.path.raw == "/"
 	aws_request_shape_valid
@@ -446,6 +481,16 @@ git_request if {
 	input.request.method == "GET"
 	input.request.path.raw == sprintf("%s/info/refs", [request_git.repository])
 	input.request.query == {"service": [sprintf("git-%s", [request_git.service])]}
+}
+
+oci_request if {
+	not declared_graphql_endpoint
+	not declared_mcp_endpoint
+	not declared_kubernetes_endpoint
+	request_git == null
+	oci_request_shape_valid
+	oci_request_transport_valid
+	input.request.query == {}
 }
 
 git_request if {
@@ -480,6 +525,10 @@ request_protocol_valid if {
 
 request_protocol_valid if {
 	git_request
+}
+
+request_protocol_valid if {
+	oci_request
 }
 
 default graphql_endpoints := []
@@ -596,6 +645,163 @@ git_repository_valid(repository) if {
 	}
 }
 
+oci_request_shape_valid if {
+	is_object(request_oci)
+	object.keys(request_oci) == {"action", "object", "repository"}
+	request_oci.action in {"list", "pull", "push", "delete", "start_upload", "upload_status", "upload_chunk", "complete_upload", "mount", "cancel_upload"}
+	protocol_coordinate_valid(request_oci.repository, true)
+	protocol_coordinate_valid(request_oci.object, false)
+	oci_action_coordinate_valid(request_oci.action, request_oci.repository, request_oci.object)
+}
+
+oci_action_coordinate_valid("list", "", "catalog") := true
+
+oci_action_coordinate_valid("list", repository, "tags") if {
+	repository != ""
+}
+
+oci_action_coordinate_valid(action, repository, object) if {
+	action == "pull"
+	repository != ""
+	some prefix in {"manifest:", "blob:", "referrers:"}
+	startswith(object, prefix)
+	trim_prefix(object, prefix) != ""
+}
+
+oci_action_coordinate_valid(action, repository, object) if {
+	action == "push"
+	repository != ""
+	startswith(object, "manifest:")
+	trim_prefix(object, "manifest:") != ""
+}
+
+oci_action_coordinate_valid(action, repository, object) if {
+	action == "delete"
+	repository != ""
+	some prefix in {"manifest:", "blob:"}
+	startswith(object, prefix)
+	trim_prefix(object, prefix) != ""
+}
+
+oci_action_coordinate_valid("start_upload", repository, "upload") if {
+	repository != ""
+}
+
+oci_action_coordinate_valid(action, repository, object) if {
+	action in {"upload_status", "upload_chunk", "cancel_upload"}
+	repository != ""
+	startswith(object, "upload:")
+	trim_prefix(object, "upload:") != ""
+}
+
+oci_action_coordinate_valid(action, repository, object) if {
+	action == "complete_upload"
+	repository != ""
+	startswith(object, "blob:")
+	trim_prefix(object, "blob:") != ""
+}
+
+oci_action_coordinate_valid(action, repository, object) if {
+	action == "mount"
+	repository != ""
+	startswith(object, "mount:")
+	parts := split(trim_prefix(object, "mount:"), ":from:")
+	count(parts) == 2
+	parts[0] != ""
+	parts[1] != ""
+}
+
+protocol_coordinate_valid(value, true) if {
+	is_string(value)
+	count(value) <= 1024
+	not regex.match(`[\x00-\x1f\x7f]`, value)
+}
+
+protocol_coordinate_valid(value, false) if {
+	is_string(value)
+	count(value) >= 1
+	count(value) <= 1024
+	not regex.match(`[\x00-\x1f\x7f]`, value)
+}
+
+oci_action_method(action, method) if {
+	[action, method] in {
+		["pull", "GET"], ["pull", "HEAD"], ["push", "PUT"], ["delete", "DELETE"],
+		["upload_status", "GET"], ["upload_chunk", "PATCH"], ["cancel_upload", "DELETE"],
+	}
+}
+
+oci_request_transport_valid if {
+	request_oci.action == "list"
+	input.request.method == "GET"
+	request_oci.repository == ""
+	request_oci.object == "catalog"
+	input.request.path.raw == "/v2/_catalog"
+}
+
+oci_request_transport_valid if {
+	request_oci.action == "list"
+	input.request.method == "GET"
+	request_oci.repository != ""
+	request_oci.object == "tags"
+	input.request.path.raw == sprintf("/v2/%s/tags/list", [request_oci.repository])
+}
+
+oci_request_transport_valid if {
+	request_oci.action in {"pull", "push", "delete"}
+	oci_action_method(request_oci.action, input.request.method)
+	startswith(request_oci.object, "manifest:")
+	input.request.path.raw == sprintf("/v2/%s/manifests/%s", [request_oci.repository, trim_prefix(request_oci.object, "manifest:")])
+}
+
+oci_request_transport_valid if {
+	request_oci.action in {"pull", "delete"}
+	oci_action_method(request_oci.action, input.request.method)
+	startswith(request_oci.object, "blob:")
+	input.request.path.raw == sprintf("/v2/%s/blobs/%s", [request_oci.repository, trim_prefix(request_oci.object, "blob:")])
+}
+
+oci_request_transport_valid if {
+	request_oci.action == "pull"
+	input.request.method == "GET"
+	startswith(request_oci.object, "referrers:")
+	input.request.path.raw == sprintf("/v2/%s/referrers/%s", [request_oci.repository, trim_prefix(request_oci.object, "referrers:")])
+}
+
+oci_upload_collection_path if {
+	input.request.path.raw in {
+		sprintf("/v2/%s/blobs/uploads", [request_oci.repository]),
+		sprintf("/v2/%s/blobs/uploads/", [request_oci.repository]),
+	}
+}
+
+oci_request_transport_valid if {
+	request_oci.action in {"start_upload", "mount"}
+	input.request.method == "POST"
+	oci_upload_collection_path
+}
+
+oci_request_transport_valid if {
+	request_oci.action == "complete_upload"
+	input.request.method == "POST"
+	oci_upload_collection_path
+	startswith(request_oci.object, "blob:")
+}
+
+oci_request_transport_valid if {
+	request_oci.action in {"upload_status", "upload_chunk", "cancel_upload"}
+	oci_action_method(request_oci.action, input.request.method)
+	startswith(request_oci.object, "upload:")
+	input.request.path.raw == sprintf("/v2/%s/blobs/uploads/%s", [request_oci.repository, trim_prefix(request_oci.object, "upload:")])
+}
+
+oci_request_transport_valid if {
+	request_oci.action == "complete_upload"
+	input.request.method == "PUT"
+	startswith(request_oci.object, "blob:")
+	startswith(input.request.path.raw, sprintf("/v2/%s/blobs/uploads/", [request_oci.repository]))
+}
+
 mcp_request_shape_valid if {
 	is_object(request_mcp)
 	object.keys(request_mcp) == {"method"}
@@ -681,6 +887,9 @@ http_rule_protocol_valid(rule) if {
 	not object_has_key(rule, "kubernetes_dry_run")
 	not object_has_key(rule, "git_service")
 	not object_has_key(rule, "git_repository")
+	not object_has_key(rule, "oci_action")
+	not object_has_key(rule, "oci_repository")
+	not object_has_key(rule, "oci_object")
 }
 
 graphql_rule_protocol_valid(rule) if {
@@ -697,6 +906,9 @@ graphql_rule_protocol_valid(rule) if {
 	not object_has_key(rule, "kubernetes_dry_run")
 	not object_has_key(rule, "git_service")
 	not object_has_key(rule, "git_repository")
+	not object_has_key(rule, "oci_action")
+	not object_has_key(rule, "oci_repository")
+	not object_has_key(rule, "oci_object")
 }
 
 mcp_rule_protocol_valid(rule) if {
@@ -714,6 +926,9 @@ mcp_rule_protocol_valid(rule) if {
 	not object_has_key(rule, "kubernetes_dry_run")
 	not object_has_key(rule, "git_service")
 	not object_has_key(rule, "git_repository")
+	not object_has_key(rule, "oci_action")
+	not object_has_key(rule, "oci_repository")
+	not object_has_key(rule, "oci_object")
 }
 
 mcp_rule_protocol_valid(rule) if {
@@ -730,6 +945,9 @@ mcp_rule_protocol_valid(rule) if {
 	not object_has_key(rule, "kubernetes_dry_run")
 	not object_has_key(rule, "git_service")
 	not object_has_key(rule, "git_repository")
+	not object_has_key(rule, "oci_action")
+	not object_has_key(rule, "oci_repository")
+	not object_has_key(rule, "oci_object")
 }
 
 aws_rule_protocol_valid(rule) if {
@@ -746,6 +964,9 @@ aws_rule_protocol_valid(rule) if {
 	not object_has_key(rule, "kubernetes_dry_run")
 	not object_has_key(rule, "git_service")
 	not object_has_key(rule, "git_repository")
+	not object_has_key(rule, "oci_action")
+	not object_has_key(rule, "oci_repository")
+	not object_has_key(rule, "oci_object")
 }
 
 kubernetes_rule_protocol_valid(rule) if {
@@ -765,6 +986,9 @@ kubernetes_rule_protocol_valid(rule) if {
 	not object_has_key(rule, "aws_operation")
 	not object_has_key(rule, "git_service")
 	not object_has_key(rule, "git_repository")
+	not object_has_key(rule, "oci_action")
+	not object_has_key(rule, "oci_repository")
+	not object_has_key(rule, "oci_object")
 }
 
 git_rule_protocol_valid(rule) if {
@@ -781,6 +1005,29 @@ git_rule_protocol_valid(rule) if {
 	not object_has_key(rule, "kubernetes_verb")
 	not object_has_key(rule, "kubernetes_resource")
 	not object_has_key(rule, "kubernetes_dry_run")
+	not object_has_key(rule, "oci_action")
+	not object_has_key(rule, "oci_repository")
+	not object_has_key(rule, "oci_object")
+}
+
+oci_rule_protocol_valid(rule) if {
+	rule.protocol == "oci"
+	rule.oci_action in {"list", "pull", "push", "delete", "start_upload", "upload_status", "upload_chunk", "complete_upload", "mount", "cancel_upload"}
+	protocol_coordinate_valid(rule.oci_repository, true)
+	protocol_coordinate_valid(rule.oci_object, false)
+	oci_action_coordinate_valid(rule.oci_action, rule.oci_repository, rule.oci_object)
+	not object_has_key(rule, "graphql_operation_type")
+	not object_has_key(rule, "graphql_root_field")
+	not object_has_key(rule, "mcp_method")
+	not object_has_key(rule, "mcp_tool_name")
+	not object_has_key(rule, "aws_wire_protocol")
+	not object_has_key(rule, "aws_service")
+	not object_has_key(rule, "aws_operation")
+	not object_has_key(rule, "kubernetes_verb")
+	not object_has_key(rule, "kubernetes_resource")
+	not object_has_key(rule, "kubernetes_dry_run")
+	not object_has_key(rule, "git_service")
+	not object_has_key(rule, "git_repository")
 }
 
 object_has_key(obj, key) if {

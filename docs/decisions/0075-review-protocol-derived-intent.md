@@ -52,14 +52,18 @@ The accepted slices are:
    while impersonation headers fail closed in the initial contract;
 3. Git Smart HTTP, retaining repository path and upload-pack or receive-pack
    service from exact protocol paths/query and media types;
-4. a trusted OCI Distribution registry, retaining repository, action, and
-   object class from the standardized `/v2/` request shape.
+4. distinctive OCI Distribution object routes, retaining repository, action,
+   and object coordinate from standardized `/v2/` catalog, tag, manifest,
+   blob, referrer, and upload shapes.
 
-Trusted declarations come only from Context-owned policy or an already
-validated typed EKS bootstrap. Request data cannot declare an arbitrary
-endpoint to be GraphQL, Kubernetes, or OCI. Git is self-identifying only when
-its complete path/query/media-type contract is present. Ambiguous or malformed
-classified traffic fails locally and is not learnable.
+Trusted declarations for GraphQL and Kubernetes come only from Context-owned
+policy or an already validated typed EKS bootstrap. Request data cannot declare
+an arbitrary endpoint to be GraphQL or Kubernetes. Git and OCI object requests
+are self-identifying only when their complete distinctive path/query/media-type
+contract is present. OCI's base `/v2/` probe, token routes, and unsupported
+`/v2/*` paths remain ordinary HTTP to avoid collisions with unrelated versioned
+APIs. Ambiguous or malformed classified traffic fails locally and is not
+learnable.
 
 ## Consequences
 
@@ -70,6 +74,8 @@ classified traffic fails locally and is not learnable.
   not labeled safe or low-risk.
 - Protocol parsers and their limits become security-critical Gateway code.
 - Existing ordinary HTTP rules cannot authorize a newly classified effect.
+- A standard-looking prefix alone is insufficient classification evidence;
+  exact distinctive routes must survive collision canaries.
 
 ## Mechanical enforcement
 

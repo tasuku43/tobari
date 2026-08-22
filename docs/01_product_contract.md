@@ -136,6 +136,14 @@ or path/media-type contract identifies them. Upload-pack is reported as
 `not_expected`; receive-pack is `possible`. Pack bodies and authentication
 headers stay opaque, malformed Smart HTTP claims fail locally, and ordinary
 HTTP rules cannot authorize a classified Git request.
+Distinctive OCI Distribution object routes under `/v2/` are reviewed as an
+exact repository, action, and object coordinate. Catalog/tag listing, pulls,
+and upload-status checks are `not_expected`; manifest pushes, deletes, upload
+steps, and cross-repository mounts are `possible`. A mount retains both digest
+and source repository. Blob and manifest bodies, credentials, and raw query
+values remain outside policy and audit. The base `/v2/` probe, token routes,
+and unsupported `/v2/*` paths remain ordinary HTTP, while a classified OCI
+request cannot inherit an ordinary HTTP rule.
 For a commercial AWS endpoint using signed AWS Query or AWS JSON RPC, Gateway
 derives only wire protocol, SigV4 service, and exact `Action` or signed
 `X-Amz-Target`. The dynamic request supplies that coordinate; Tobari carries no

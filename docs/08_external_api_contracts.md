@@ -108,6 +108,13 @@ Git Smart HTTP is recognized from its standard discovery query or RPC
 path/media type without a provider declaration. This classification retains
 only repository and upload/receive service and grants no authority by itself;
 Git SSH and credential acquisition remain outside this contract.
+Distinctive OCI Distribution object routes are recognized from the standard
+`/v2/` catalog, tag, manifest, blob, referrer, and upload shapes without a
+registry declaration. Classification retains only repository, action, and
+object identity, including both digest and source repository for a mount, and
+grants no authority by itself. The base probe, token issuance, registry
+discovery, credential acquisition, and unsupported `/v2/*` routes remain
+ordinary HTTP; manifest and blob interpretation are outside this contract.
 The Claude regression proves that successful token exchange cannot be followed
 by a Tobari-generated `broker_auth_required` on `/api/oauth/profile`; provider
 `subscriptionType` and `rateLimitTier` remain provider-owned response data.

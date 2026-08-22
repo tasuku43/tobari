@@ -258,6 +258,7 @@ run_gateway() {
       test_graphql_request.py \
       test_git_request.py \
       test_kubernetes_request.py \
+      test_oci_request.py \
       test_mcp_request.py \
       test_synthetic_dns.py
 }

@@ -40,6 +40,7 @@ const (
 	PolicyProtocolAWS            = "aws"
 	PolicyProtocolKubernetes     = "kubernetes"
 	PolicyProtocolGit            = "git"
+	PolicyProtocolOCI            = "oci"
 	AWSWireProtocolQuery         = "query"
 	AWSWireProtocolJSON          = "json"
 	GraphQLOperationQuery        = "query"
@@ -68,6 +69,9 @@ type PolicyProtocolIdentity struct {
 	KubernetesDryRun     string `json:"kubernetes_dry_run,omitempty"`
 	GitService           string `json:"git_service,omitempty"`
 	GitRepository        string `json:"git_repository,omitempty"`
+	OCIAction            string `json:"oci_action,omitempty"`
+	OCIRepository        string `json:"oci_repository,omitempty"`
+	OCIObject            string `json:"oci_object,omitempty"`
 }
 
 // EffectiveProtocol returns the validated closed protocol value.
@@ -101,6 +105,12 @@ func (i PolicyProtocolIdentity) StateChangePotential() string {
 		}
 		return PolicyStateChangePossible
 	}
+	if i.EffectiveProtocol() == PolicyProtocolOCI {
+		if i.OCIAction == "list" || i.OCIAction == "pull" || i.OCIAction == "upload_status" {
+			return PolicyStateChangeNone
+		}
+		return PolicyStateChangePossible
+	}
 	return PolicyStateChangeUnknown
 }
 
@@ -110,11 +120,11 @@ func (i PolicyProtocolIdentity) Validate() error {
 	}
 	switch i.EffectiveProtocol() {
 	case PolicyProtocolHTTP:
-		if i.GraphQLOperationType != "" || i.GraphQLRootField != "" || i.MCPMethod != "" || i.MCPToolName != "" || i.AWSWireProtocol != "" || i.AWSService != "" || i.AWSOperation != "" || i.KubernetesVerb != "" || i.KubernetesResource != "" || i.KubernetesDryRun != "" || i.GitService != "" || i.GitRepository != "" {
+		if i.GraphQLOperationType != "" || i.GraphQLRootField != "" || i.MCPMethod != "" || i.MCPToolName != "" || i.AWSWireProtocol != "" || i.AWSService != "" || i.AWSOperation != "" || i.KubernetesVerb != "" || i.KubernetesResource != "" || i.KubernetesDryRun != "" || i.GitService != "" || i.GitRepository != "" || i.OCIAction != "" || i.OCIRepository != "" || i.OCIObject != "" {
 			return fmt.Errorf("HTTP policy identity cannot contain protocol refinement fields")
 		}
 	case PolicyProtocolGraphQL:
-		if i.MCPMethod != "" || i.MCPToolName != "" || i.AWSWireProtocol != "" || i.AWSService != "" || i.AWSOperation != "" || i.KubernetesVerb != "" || i.KubernetesResource != "" || i.KubernetesDryRun != "" || i.GitService != "" || i.GitRepository != "" {
+		if i.MCPMethod != "" || i.MCPToolName != "" || i.AWSWireProtocol != "" || i.AWSService != "" || i.AWSOperation != "" || i.KubernetesVerb != "" || i.KubernetesResource != "" || i.KubernetesDryRun != "" || i.GitService != "" || i.GitRepository != "" || i.OCIAction != "" || i.OCIRepository != "" || i.OCIObject != "" {
 			return fmt.Errorf("GraphQL policy identity cannot contain MCP fields")
 		}
 		if i.GraphQLOperationType != GraphQLOperationQuery && i.GraphQLOperationType != GraphQLOperationMutation {
@@ -124,7 +134,7 @@ func (i PolicyProtocolIdentity) Validate() error {
 			return fmt.Errorf("GraphQL root field is invalid")
 		}
 	case PolicyProtocolMCP:
-		if i.GraphQLOperationType != "" || i.GraphQLRootField != "" || i.AWSWireProtocol != "" || i.AWSService != "" || i.AWSOperation != "" || i.KubernetesVerb != "" || i.KubernetesResource != "" || i.KubernetesDryRun != "" || i.GitService != "" || i.GitRepository != "" {
+		if i.GraphQLOperationType != "" || i.GraphQLRootField != "" || i.AWSWireProtocol != "" || i.AWSService != "" || i.AWSOperation != "" || i.KubernetesVerb != "" || i.KubernetesResource != "" || i.KubernetesDryRun != "" || i.GitService != "" || i.GitRepository != "" || i.OCIAction != "" || i.OCIRepository != "" || i.OCIObject != "" {
 			return fmt.Errorf("MCP policy identity cannot contain GraphQL fields")
 		}
 		if len(i.MCPMethod) == 0 || len(i.MCPMethod) > 128 || !mcpMethodPattern.MatchString(i.MCPMethod) {
@@ -138,7 +148,7 @@ func (i PolicyProtocolIdentity) Validate() error {
 			return fmt.Errorf("MCP tool name is only valid for tools/call")
 		}
 	case PolicyProtocolAWS:
-		if i.GraphQLOperationType != "" || i.GraphQLRootField != "" || i.MCPMethod != "" || i.MCPToolName != "" || i.KubernetesVerb != "" || i.KubernetesResource != "" || i.KubernetesDryRun != "" || i.GitService != "" || i.GitRepository != "" {
+		if i.GraphQLOperationType != "" || i.GraphQLRootField != "" || i.MCPMethod != "" || i.MCPToolName != "" || i.KubernetesVerb != "" || i.KubernetesResource != "" || i.KubernetesDryRun != "" || i.GitService != "" || i.GitRepository != "" || i.OCIAction != "" || i.OCIRepository != "" || i.OCIObject != "" {
 			return fmt.Errorf("AWS policy identity cannot contain another protocol's fields")
 		}
 		if !awsServicePattern.MatchString(i.AWSService) {
@@ -157,7 +167,7 @@ func (i PolicyProtocolIdentity) Validate() error {
 			return fmt.Errorf("AWS wire protocol is invalid")
 		}
 	case PolicyProtocolKubernetes:
-		if i.GraphQLOperationType != "" || i.GraphQLRootField != "" || i.MCPMethod != "" || i.MCPToolName != "" || i.AWSWireProtocol != "" || i.AWSService != "" || i.AWSOperation != "" || i.GitService != "" || i.GitRepository != "" {
+		if i.GraphQLOperationType != "" || i.GraphQLRootField != "" || i.MCPMethod != "" || i.MCPToolName != "" || i.AWSWireProtocol != "" || i.AWSService != "" || i.AWSOperation != "" || i.GitService != "" || i.GitRepository != "" || i.OCIAction != "" || i.OCIRepository != "" || i.OCIObject != "" {
 			return fmt.Errorf("Kubernetes policy identity cannot contain another protocol's fields")
 		}
 		if i.KubernetesVerb != "get" && i.KubernetesVerb != "list" && i.KubernetesVerb != "watch" && i.KubernetesVerb != "create" && i.KubernetesVerb != "update" && i.KubernetesVerb != "patch" && i.KubernetesVerb != "delete" && i.KubernetesVerb != "deletecollection" && i.KubernetesVerb != "connect" {
@@ -175,7 +185,7 @@ func (i PolicyProtocolIdentity) Validate() error {
 			return fmt.Errorf("Kubernetes dry-run mode is invalid")
 		}
 	case PolicyProtocolGit:
-		if i.GraphQLOperationType != "" || i.GraphQLRootField != "" || i.MCPMethod != "" || i.MCPToolName != "" || i.AWSWireProtocol != "" || i.AWSService != "" || i.AWSOperation != "" || i.KubernetesVerb != "" || i.KubernetesResource != "" || i.KubernetesDryRun != "" {
+		if i.GraphQLOperationType != "" || i.GraphQLRootField != "" || i.MCPMethod != "" || i.MCPToolName != "" || i.AWSWireProtocol != "" || i.AWSService != "" || i.AWSOperation != "" || i.KubernetesVerb != "" || i.KubernetesResource != "" || i.KubernetesDryRun != "" || i.OCIAction != "" || i.OCIRepository != "" || i.OCIObject != "" {
 			return fmt.Errorf("Git policy identity cannot contain another protocol's fields")
 		}
 		if i.GitService != "upload-pack" && i.GitService != "receive-pack" {
@@ -193,6 +203,39 @@ func (i PolicyProtocolIdentity) Validate() error {
 			if character < 32 || character == 127 || character == '\u2028' || character == '\u2029' {
 				return fmt.Errorf("Git repository path is invalid")
 			}
+		}
+	case PolicyProtocolOCI:
+		if i.GraphQLOperationType != "" || i.GraphQLRootField != "" || i.MCPMethod != "" || i.MCPToolName != "" || i.AWSWireProtocol != "" || i.AWSService != "" || i.AWSOperation != "" || i.KubernetesVerb != "" || i.KubernetesResource != "" || i.KubernetesDryRun != "" || i.GitService != "" || i.GitRepository != "" {
+			return fmt.Errorf("OCI policy identity cannot contain another protocol's fields")
+		}
+		if i.OCIAction != "list" && i.OCIAction != "pull" && i.OCIAction != "push" && i.OCIAction != "delete" && i.OCIAction != "start_upload" && i.OCIAction != "upload_status" && i.OCIAction != "upload_chunk" && i.OCIAction != "complete_upload" && i.OCIAction != "mount" && i.OCIAction != "cancel_upload" {
+			return fmt.Errorf("OCI action is invalid")
+		}
+		if !validProtocolCoordinate(i.OCIRepository, 1024, true) || !validProtocolCoordinate(i.OCIObject, 1024, false) {
+			return fmt.Errorf("OCI coordinate is invalid")
+		}
+		validCoordinate := false
+		switch i.OCIAction {
+		case "list":
+			validCoordinate = (i.OCIRepository == "" && i.OCIObject == "catalog") || (i.OCIRepository != "" && i.OCIObject == "tags")
+		case "pull":
+			validCoordinate = i.OCIRepository != "" && (strings.HasPrefix(i.OCIObject, "manifest:") || strings.HasPrefix(i.OCIObject, "blob:") || strings.HasPrefix(i.OCIObject, "referrers:"))
+		case "push":
+			validCoordinate = i.OCIRepository != "" && strings.HasPrefix(i.OCIObject, "manifest:")
+		case "delete":
+			validCoordinate = i.OCIRepository != "" && (strings.HasPrefix(i.OCIObject, "manifest:") || strings.HasPrefix(i.OCIObject, "blob:"))
+		case "start_upload":
+			validCoordinate = i.OCIRepository != "" && i.OCIObject == "upload"
+		case "upload_status", "upload_chunk", "cancel_upload":
+			validCoordinate = i.OCIRepository != "" && strings.HasPrefix(i.OCIObject, "upload:")
+		case "complete_upload":
+			validCoordinate = i.OCIRepository != "" && strings.HasPrefix(i.OCIObject, "blob:")
+		case "mount":
+			mountParts := strings.SplitN(strings.TrimPrefix(i.OCIObject, "mount:"), ":from:", 2)
+			validCoordinate = i.OCIRepository != "" && strings.HasPrefix(i.OCIObject, "mount:") && len(mountParts) == 2 && mountParts[0] != "" && mountParts[1] != ""
+		}
+		if !validCoordinate || strings.HasSuffix(i.OCIObject, ":") {
+			return fmt.Errorf("OCI action coordinate is invalid")
 		}
 	default:
 		return fmt.Errorf("policy protocol is invalid")
@@ -214,7 +257,10 @@ func (i PolicyProtocolIdentity) matches(other PolicyProtocolIdentity) bool {
 		i.KubernetesResource == other.KubernetesResource &&
 		i.KubernetesDryRun == other.KubernetesDryRun &&
 		i.GitService == other.GitService &&
-		i.GitRepository == other.GitRepository
+		i.GitRepository == other.GitRepository &&
+		i.OCIAction == other.OCIAction &&
+		i.OCIRepository == other.OCIRepository &&
+		i.OCIObject == other.OCIObject
 }
 
 func appendPolicyProtocolIdentity(material []string, identity PolicyProtocolIdentity) []string {
@@ -234,7 +280,22 @@ func appendPolicyProtocolIdentity(material []string, identity PolicyProtocolIden
 	if identity.EffectiveProtocol() == PolicyProtocolGit {
 		return append(material, PolicyProtocolGit, identity.GitService, identity.GitRepository)
 	}
+	if identity.EffectiveProtocol() == PolicyProtocolOCI {
+		return append(material, PolicyProtocolOCI, identity.OCIAction, identity.OCIRepository, identity.OCIObject)
+	}
 	return append(material, PolicyProtocolAWS, identity.AWSWireProtocol, identity.AWSService, identity.AWSOperation)
+}
+
+func validProtocolCoordinate(value string, maxBytes int, allowEmpty bool) bool {
+	if (!allowEmpty && value == "") || len(value) > maxBytes || !utf8.ValidString(value) || strings.IndexByte(value, 0) >= 0 {
+		return false
+	}
+	for _, character := range value {
+		if character < 32 || character == 127 || character == '\u2028' || character == '\u2029' {
+			return false
+		}
+	}
+	return true
 }
 
 // GraphQLEndpoint is one trusted exact transport location where Gateway may

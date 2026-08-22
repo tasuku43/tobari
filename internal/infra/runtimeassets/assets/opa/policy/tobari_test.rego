@@ -468,6 +468,60 @@ test_git_service_and_repository_are_exact if {
 	}
 }
 
+oci_push_request_fixture := object.union(
+	object.union(
+		request_with_authority({"host": "registry.example.com"}),
+		{"method": "PUT", "path": {"raw": "/v2/team/app/manifests/latest", "segments": ["v2", "team", "app", "manifests", "latest"]}},
+	),
+	{"oci": {"action": "push", "repository": "team/app", "object": "manifest:latest"}},
+)
+
+oci_push_allow_fixture := object.union(learned_exact_fixture, {
+	"host": "registry.example.com",
+	"method": "PUT",
+	"path": "/v2/team/app/manifests/latest",
+	"examples": ["/v2/team/app/manifests/latest"],
+	"protocol": "oci",
+	"oci_action": "push",
+	"oci_repository": "team/app",
+	"oci_object": "manifest:latest",
+})
+
+test_oci_exact_rule_allows_push_without_http_fallback if {
+	http_rule := object.union(learned_exact_fixture, {
+		"host": "registry.example.com", "method": "PUT", "path": "/v2/team/app/manifests/latest",
+		"examples": ["/v2/team/app/manifests/latest"],
+	})
+	denied := decision with input as input_with_request(oci_push_request_fixture)
+		with data.tobari.rules.learned_allows as [http_rule]
+	allowed := decision with input as input_with_request(oci_push_request_fixture)
+		with data.tobari.rules.learned_allows as [oci_push_allow_fixture]
+	not denied.allow
+	denied.learnable
+	allowed.allow
+}
+
+test_oci_action_repository_and_object_are_exact if {
+	pull := object.union(oci_push_request_fixture, {
+		"method": "GET",
+		"oci": {"action": "pull", "repository": "team/app", "object": "manifest:latest"},
+	})
+	pull_result := decision with input as input_with_request(pull)
+	not pull_result.allow
+	pull_result.learnable
+
+	wrong_object := object.union(oci_push_request_fixture, {"oci": {"action": "push", "repository": "team/app", "object": "manifest:other"}})
+	invalid := decision with input as input_with_request(wrong_object)
+		with data.tobari.rules.learned_allows as [oci_push_allow_fixture]
+	not invalid.allow
+	not invalid.learnable
+}
+
+test_oci_mount_requires_source_repository if {
+	oci_action_coordinate_valid("mount", "team/app", "mount:sha256%3Aabc:from:shared%2Fbase")
+	not oci_action_coordinate_valid("mount", "team/app", "mount:sha256%3Aabc:from:")
+}
+
 test_aws_malformed_or_mixed_identity_fails_closed if {
 	malformed := object.union(aws_query_request_fixture, {"aws": {"wire_protocol": "query", "service": "sts", "operation": "Get-Caller-Identity"}})
 	mixed_rule := object.union(aws_query_allow_fixture, {"mcp_method": "tools/list"})

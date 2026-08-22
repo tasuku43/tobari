@@ -41,6 +41,7 @@ addon/graphql_request.py
 addon/git_request.py
 addon/kubernetes_request.py
 addon/mcp_request.py
+addon/oci_request.py
 addon/synthetic_dns.py
 addon/tobari_gateway.py
 addon/validated_file.py
