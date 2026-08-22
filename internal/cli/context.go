@@ -1319,7 +1319,7 @@ func renderContextShowSummary(result tobari.ContextReport, summary tobari.Contex
 		output.row("Defaults", "Recommended · not saved", styleWarning)
 	}
 
-	output.section("Access")
+	output.section("Boundary · fixed for this Context")
 	source := humanContextSourceAccess(summary.Access.SourceAccess)
 	if summary.Access.SourceAccess == tobari.ContextSourceAccessReadWrite {
 		source += " · changes affect this project directly"
@@ -1332,20 +1332,25 @@ func renderContextShowSummary(result tobari.ContextReport, summary tobari.Contex
 	}
 	output.row("Private targets", "Denied", styleWarning)
 
-	output.section("Tools")
-	output.row("Runtime", safeExternalText(summary.RuntimeSelection), humanStatusToken(string(summary.RuntimeStatus)))
+	output.section("Runtime binding · adopted on next Workspace entry")
+	output.row("Selected", safeExternalText(summary.RuntimeSelection), humanStatusToken(string(summary.RuntimeStatus)))
 
 	output.section("Workspace defaults")
-	output.row("Shell presentation", humanShellDefault(summary.Defaults.Shell), styleText)
-	output.row("Git identity", humanGitDefault(summary.Defaults.Git), styleText)
-	output.row("Bootstrap", humanBootstrapDefault(summary.Defaults.Bootstrap), styleText)
+	output.subsection("Later entries and sessions")
+	output.nestedRow("Shell", humanShellDefault(summary.Defaults.Shell), styleText)
+	output.nestedRow("Git identity", humanGitDefault(summary.Defaults.Git), styleText)
+	output.subsection("New Workspace homes only · existing homes unchanged")
+	writeContextShowWorkspaceSetupDetails(output, result.Bootstrap)
 
+	output.section("Login ownership")
 	if summary.AuthenticationMode == tobari.ContextAuthenticationModeNative {
-		output.row("Login", "Workspace-owned · stays in each Workspace", styleSuccess)
+		output.row("Owner", "Workspace tools · stays in each Workspace", styleSuccess)
 	} else {
-		output.row("Login", contextShowAuthentication(result.Authentication), contextShowAuthenticationToken(result.Authentication))
+		output.row("Owner", contextShowAuthentication(result.Authentication), contextShowAuthenticationToken(result.Authentication))
 		output.row("Auth status", strings.Join(contextAuthStatusNextArgv(result), " "), styleAccent)
 	}
+
+	output.section("Actions")
 	output.row("Details", recoveryCommand(contextShowDetailsCommand(result)), styleAccent)
 	output.next(nextCommand, nextReason)
 	return output.bytes()
@@ -1509,13 +1514,14 @@ func renderContextShowDetailsText(result tobari.ContextReport, color bool) []byt
 	output.section("Context")
 	output.row("State", string(result.ContextState), styleText)
 	output.row("Current", humanBool(result.Active), humanOutcomeBoolToken(result.Active))
+	output.row("Agent profile", safeExternalText(result.AgentProfile), styleText)
 	if result.ID == "" {
 		output.row("Context ID", "not assigned", styleMuted)
 	} else {
 		output.row("Context ID", result.ID, styleText)
 	}
 
-	output.section("Boundary")
+	output.section("Boundary · fixed for this Context")
 	output.row("Source access", "direct "+string(result.SourceAccess), styleText)
 	output.row("Policy mode", string(result.PolicyMode), styleText)
 	output.row("Policy revision", result.PolicyRevision, styleText)
@@ -1526,20 +1532,7 @@ func renderContextShowDetailsText(result tobari.ContextReport, color bool) []byt
 		output.row("Method "+safeExternalText(override.Method), humanMethodDecision(override.Decision), styleText)
 	}
 
-	output.section("Workspace")
-	output.row("Agent profile", safeExternalText(result.AgentProfile), styleText)
-	for _, setting := range result.ShellEnvironment {
-		value := string(setting.Source)
-		if setting.Source == tobari.ContextShellEnvironmentLiteral && setting.Value != nil {
-			value += " " + fmt.Sprintf("%q", safeExternalText(*setting.Value))
-		}
-		output.row("Shell "+setting.Variable, value, styleText)
-	}
-	output.row("Git identity", contextShowGitIdentity(result.GitIdentity), styleText)
-	writeContextShowBootstrapDetails(output, result.Bootstrap)
-	writeContextShowAuthenticationDetails(output, result)
-
-	output.section("Runtime")
+	output.section("Runtime binding · adopted on next Workspace entry")
 	output.row("Selection", contextRuntimeDisplay(result.Runtime), humanStatusToken(string(result.Runtime.Status)))
 	output.row("Image", safeExternalText(result.Image), styleText)
 	if result.Runtime.Dockerfile != "" {
@@ -1552,6 +1545,22 @@ func renderContextShowDetailsText(result tobari.ContextReport, color bool) []byt
 		output.row("Runtime ID", safeExternalText(result.Runtime.RuntimeID), styleText)
 		output.row("Revision", safeExternalText(result.Runtime.Revision), styleText)
 	}
+
+	output.section("Workspace defaults")
+	output.subsection("Later entries and sessions")
+	for _, setting := range result.ShellEnvironment {
+		value := string(setting.Source)
+		if setting.Source == tobari.ContextShellEnvironmentLiteral && setting.Value != nil {
+			value += " " + fmt.Sprintf("%q", safeExternalText(*setting.Value))
+		}
+		output.nestedRow("Shell "+setting.Variable, value, styleText)
+	}
+	output.nestedRow("Git identity", contextShowGitIdentity(result.GitIdentity), styleText)
+	output.subsection("New Workspace homes only · existing homes unchanged")
+	writeContextShowWorkspaceSetupDetails(output, result.Bootstrap)
+
+	output.section("Login ownership")
+	writeContextShowAuthenticationDetails(output, result)
 
 	output.section("Stores and revisions")
 	if result.PolicyRevision == "" {
@@ -1575,6 +1584,7 @@ func renderContextShowDetailsText(result tobari.ContextReport, color bool) []byt
 		output.row("Runtime file", safeExternalText(result.Stores.RuntimeDockerfile), styleText)
 	}
 
+	output.section("Actions")
 	nextCommand, nextReason := contextShowNext(result)
 	output.next(nextCommand, nextReason)
 	return output.bytes()
@@ -1651,27 +1661,31 @@ func contextShowBootstrap(report tobari.ContextBootstrapReport) string {
 	return value
 }
 
-func writeContextShowBootstrapDetails(output *humanOutput, report tobari.ContextBootstrapReport) {
+func writeContextShowWorkspaceSetupDetails(output *humanOutput, report tobari.ContextBootstrapReport) {
 	bootstrap := report.Resolved()
-	output.row("Bootstrap", bootstrap.State, humanStatusToken(bootstrap.State))
+	aws, eks := "Not configured", "Not configured"
 	if bootstrap.State != tobari.ContextBootstrapConfigured {
+		output.nestedRow("AWS", aws, styleMuted)
+		output.nestedRow("Kubernetes EKS", eks, styleMuted)
 		return
 	}
-	output.row("Adapters", strings.Join(bootstrap.Adapters, ", "), styleText)
-	output.row("AWS profile", safeExternalText(bootstrap.AWSProfile), styleText)
+	aws = safeExternalText(bootstrap.AWSProfile)
 	if bootstrap.EKSContext != "" {
-		output.row("EKS context", safeExternalText(bootstrap.EKSContext), styleText)
+		eks = safeExternalText(bootstrap.EKSContext)
 	}
-	output.row("Generation", fmt.Sprintf("%d", bootstrap.Generation), styleText)
-	output.row("Bootstrap rev", bootstrap.Revision, styleText)
+	output.nestedRow("AWS", aws, styleText)
+	output.nestedRow("Kubernetes EKS", eks, styleText)
+	output.nestedRow("Generation", fmt.Sprintf("%d", bootstrap.Generation), styleText)
+	output.nestedRow("Setup revision", bootstrap.Revision, styleText)
 }
 
 func writeContextShowAuthenticationDetails(output *humanOutput, result tobari.ContextReport) {
 	if contextAuthenticationMode(result.Authentication) == tobari.ContextAuthenticationModeNative {
-		output.row("Authentication", "native Workspace-owned", styleSuccess)
+		output.row("Owner", "Workspace tools", styleSuccess)
 		output.row("Credentials", "agent CLI-owned in this Workspace home; host credentials are not inherited", styleText)
 		return
 	}
+	output.row("Owner", "experimental Broker", styleWarning)
 	output.row("Auth Broker", safeExternalText(result.Authentication.BrokerState), humanStatusToken(result.Authentication.BrokerState))
 	output.row("Declared routes", string(authbroker.AuthenticationRouteBrokerRequired), styleText)
 	output.row("Other routes", string(authbroker.AuthenticationRouteWorkspaceOwnedCompatibility), styleText)

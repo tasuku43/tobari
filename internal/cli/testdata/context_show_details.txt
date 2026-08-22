@@ -3,9 +3,10 @@
 Context
   State          persisted
   Current        no
+  Agent profile  default
   Context ID     018bcfe5-687b-7000-8000-000000000099
 
-Boundary
+Boundary · fixed for this Context
   Source access  direct read-write
   Policy mode    guided
   Policy revision sha256:1ebfdf1e67ab968a9b709b8418281e60b2d17562eeb96679cdcd5ec472e82df5
@@ -13,24 +14,30 @@ Boundary
   Method default exact-review
   Method GET     allow
 
-Workspace
-  Agent profile  default
-  Shell COLORTERM default
-  Shell NO_COLOR literal ""
-  Shell PS1      inherit
-  Shell TERM     default
-  Git identity   literal · Review Bot <review@example.com>
-  Bootstrap      not_configured
-  Authentication native Workspace-owned
-  Credentials    agent CLI-owned in this Workspace home; host credentials are not inherited
-
-Runtime
+Runtime binding · adopted on next Workspace entry
   Selection      frontend@4
   Image          tobari-context-review:123456789abc
   Runtime ID     018bcfe5-687b-7000-8000-000000000077
   Revision       sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 
+Workspace defaults
+  Later entries and sessions
+    Shell COLORTERM default
+    Shell NO_COLOR literal ""
+    Shell PS1      inherit
+    Shell TERM     default
+    Git identity   literal · Review Bot <review@example.com>
+  New Workspace homes only · existing homes unchanged
+    AWS            Not configured
+    Kubernetes EKS Not configured
+
+Login ownership
+  Owner          Workspace tools
+  Credentials    agent CLI-owned in this Workspace home; host credentials are not inherited
+
 Stores and revisions
   Policy revision sha256:1ebfdf1e67ab968a9b709b8418281e60b2d17562eeb96679cdcd5ec472e82df5
   Policy store   /config/contexts/review/policy
+
+Actions
   Next           tobari --context review — Enter or create a Workspace with this Context.

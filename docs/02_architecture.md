@@ -405,6 +405,13 @@ schema-1 JSON retains the established complete lifecycle projection; the human
 view suppresses healthy IDs, home paths, revisions, and unchanged bootstrap
 state while retaining explicit runtime/session attention and exact recovery.
 
+Context show presentation projects the same report through ADR 0071 lifecycle
+classes. Boundary and Runtime binding are top-level timing groups. Shell/Git
+and new-home AWS/EKS setup stay nested inside one Workspace-defaults group,
+while login ownership remains outside those defaults. The renderer performs no
+second observation and never turns the selected Runtime into an active-
+Workspace claim or the create-only setup into existing-home state.
+
 Narrow host projection is a separate composition concern, not a file or secret
 mount. Domain owns each fixed scalar inventory, `default|inherit|literal`
 invariants, complete reports, and Git's atomic name/email pair. Context

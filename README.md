@@ -201,8 +201,9 @@ tobari --context restricted
 
 `context list` renders one result-first card per work mode: current marker,
 effective Access, exact Runtime, and an action marker when needed. `context
-show` keeps ordinary text focused on effective Access, Tools, Workspace
-defaults, Workspace-owned login, and exact Details/Next commands; add
+show` keeps ordinary text focused on fixed Boundary, next-entry Runtime,
+later-entry/session and new-home-only Workspace defaults, Workspace-tool login
+ownership, and exact Details/Next commands; add
 `--details` for the complete sectioned host diagnostic. JSON is already
 complete and is unchanged by that flag. `context delete` accepts only an additional
 non-current Context with no bound Workspace. It preserves project files and

@@ -809,13 +809,14 @@ Human `context list` text renders one result-first card per work mode: name and
 current marker, effective source/routine/other/private Access, exact Runtime
 selection, and an action marker only when required. The synthetic default says
 that recommended defaults are not saved. Human `context show` text defaults to
-an outcome-first summary containing effective Access, routine-client state,
-every method override, exact Runtime name and ordinal, summarized shell/Git and
-future-Workspace bootstrap defaults, Workspace-owned login, an exact detailed-inspection
-command, and the Context-preserving next action. `--details` renders the same
-single typed result as `Context`, `Boundary`, `Workspace`, `Runtime`, and
-`Stores and revisions` sections, including the complete shell inventory, host
-store paths, and immutable revisions. It performs no second read. Schema-1 JSON
+an outcome-first lifecycle summary: fixed Boundary and effective request
+posture; the exact Runtime binding adopted on next entry; Workspace defaults
+split between later entries/sessions and new Workspace homes only; separate
+Workspace-tool login ownership; an exact detailed-inspection command; and the
+Context-preserving next action. `--details` renders the same single typed result
+with complete values under those lifecycle headings plus Context identity and
+stores/revisions. Human new-Workspace setup names AWS and Kubernetes EKS rather
+than presenting bootstrap as current Workspace state. It performs no second read. Schema-1 JSON
 is already complete, is byte-identical with or without `--details`, and remains
 the automation contract.
 Successful text `context create` uses that same Context-summary row structure

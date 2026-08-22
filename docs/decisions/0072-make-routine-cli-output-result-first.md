@@ -7,7 +7,7 @@
   and harness
 - Revises: The routine Context list/show presentation in ADR 0060
 - Related: ADR 0051, ADR 0058, ADR 0062, ADR 0066, ADR 0067, ADR 0068, and ADR 0071
-- Revised by: None
+- Revised by: ADR 0078
 - Superseded by: None
 
 ## Context

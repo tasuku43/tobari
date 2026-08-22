@@ -1301,7 +1301,7 @@ func TestContextCommandsRenderActiveContextAndRuntimeImage(t *testing.T) {
 	if code := command.RunContext(context.Background(), []string{"context", "show"}); code != ExitOK {
 		t.Fatalf("context show code = %d, stderr = %q", code, stderr.String())
 	}
-	if !strings.Contains(stdout.String(), "Runtime        standard@1") ||
+	if !strings.Contains(stdout.String(), "Selected       standard@1") ||
 		!strings.Contains(stdout.String(), "Project files  Read-write · changes affect this project directly") ||
 		!strings.Contains(stdout.String(), "Details        tobari context show --details") ||
 		!strings.Contains(stdout.String(), "Next           tobari") {
@@ -2201,14 +2201,17 @@ func TestContextShowPrioritizesBoundaryAndExpandsDiagnostics(t *testing.T) {
 	}
 	for _, retained := range []string{
 		"Context default",
-		"Access",
+		"Boundary · fixed for this Context",
 		"Project files  Read-write · changes affect this project directly",
 		"Routine clients Ready",
 		"Other requests Exact review",
 		"Private targets Denied",
-		"Tools",
-		"Runtime        frontend@4",
+		"Runtime binding · adopted on next Workspace entry",
+		"Selected       frontend@4",
 		"Workspace defaults",
+		"Later entries and sessions",
+		"New Workspace homes only · existing homes unchanged",
+		"Login ownership",
 		"Details        tobari context show --details",
 		"Next           tobari",
 	} {
@@ -2231,9 +2234,10 @@ func TestContextShowPrioritizesBoundaryAndExpandsDiagnostics(t *testing.T) {
 		t.Fatalf("context show --details code = %d, stderr = %q", code, stderr.String())
 	}
 	for _, retained := range []string{
-		"Boundary",
-		"Workspace",
-		"Runtime",
+		"Boundary · fixed for this Context",
+		"Runtime binding · adopted on next Workspace entry",
+		"Workspace defaults",
+		"Login ownership",
 		"Stores and revisions",
 		"/config/contexts/default/policy",
 		"018bcfe5-687b-7000-8000-000000000077",
@@ -2255,5 +2259,34 @@ func TestContextShowPrioritizesBoundaryAndExpandsDiagnostics(t *testing.T) {
 	}
 	if !bytes.Equal(stdout.Bytes(), compactJSON) {
 		t.Fatalf("--details changed complete JSON\n--- got ---\n%s--- want ---\n%s", stdout.Bytes(), compactJSON)
+	}
+}
+
+func TestContextShowNamesConfiguredNewWorkspaceSetupWithoutClaimingCurrentState(t *testing.T) {
+	fixture := contextCLIReport(tobari.TaskContextShow, "default", true, tobari.OfficialRuntimeBase, tobari.ContextPolicyModeGuided)
+	fixture.Bootstrap = tobari.ContextBootstrapReport{
+		State: tobari.ContextBootstrapConfigured, Generation: 3,
+		Revision:   "sha256:" + strings.Repeat("c", 64),
+		Adapters:   []string{tobari.ContextBootstrapAdapterAWS, tobari.ContextBootstrapAdapterEKS},
+		AWSProfile: "engineering", EKSContext: "platform",
+	}
+
+	for _, rendered := range [][]byte{
+		renderContextShowSummaryText(fixture, false),
+		renderContextShowDetailsText(fixture, false),
+	} {
+		text := string(rendered)
+		for _, want := range []string{
+			"New Workspace homes only · existing homes unchanged",
+			"AWS            engineering",
+			"Kubernetes EKS platform",
+		} {
+			if !strings.Contains(text, want) {
+				t.Fatalf("configured new-Workspace setup = %q, missing %q", text, want)
+			}
+		}
+		if strings.Contains(text, "Bootstrap") || strings.Contains(text, "currently applied") {
+			t.Fatalf("configured new-Workspace setup invents current state: %q", text)
+		}
 	}
 }

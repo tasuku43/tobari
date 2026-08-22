@@ -37,11 +37,20 @@ func (o *humanOutput) sectionWithToken(title string, token styleToken) {
 	fmt.Fprintln(&o.Buffer, applyStyleToken(o.color, token, title))
 }
 
+func (o *humanOutput) subsection(title string) {
+	fmt.Fprintf(&o.Buffer, "  %s\n", applyStyleToken(o.color, styleAccent, title))
+}
+
 // row aligns the label before applying color so ANSI escape bytes never affect
 // the visible column layout.
 func (o *humanOutput) row(label, value string, token styleToken) {
 	padded := fmt.Sprintf("%-*s", humanOutputLabelWidth, label)
 	fmt.Fprintf(&o.Buffer, "  %s %s\n", applyStyleToken(o.color, styleMuted, padded), applyStyleToken(o.color, token, value))
+}
+
+func (o *humanOutput) nestedRow(label, value string, token styleToken) {
+	padded := fmt.Sprintf("%-*s", humanOutputLabelWidth, label)
+	fmt.Fprintf(&o.Buffer, "    %s %s\n", applyStyleToken(o.color, styleMuted, padded), applyStyleToken(o.color, token, value))
 }
 
 func (o *humanOutput) text(value string) {
