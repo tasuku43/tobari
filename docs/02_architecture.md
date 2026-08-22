@@ -291,7 +291,13 @@ name. Internal `ProjectInstance`, `project_id`, root-index, Docker-label, and
 Gateway/OPA protocol names remain exact schema-V1 implementation contracts and
 carry Workspace identity rather than introducing another public resource.
 
-Argument-free `context create` is a CLI-owned input-completion workflow. It
+Argument-free `context create` is a CLI-owned input-completion workflow. When
+persisted Contexts exist, CLI first reads the exhaustive local collection and
+chooses one Base snapshot, with the current Context initially selected; zero
+persisted Contexts skip that step. The application exposes the exact validated
+copyable Context-owned snapshot, and infrastructure binds creation to its
+content revision. Base is a one-time draft initializer, not a target, parent,
+reference, live inheritance source, or persisted lineage. The workflow then
 collects a name, source-access enum, and a complete default-plus-exact-override
 method policy before calling the same application create boundary once. The
 application owns typed composition and result correlation. Infrastructure
@@ -403,7 +409,13 @@ Runtime binding plus Workspace defaults. It resolves omitted source access to
 normalizes and validates the complete Context method policy against the fixed
 agent-ready compatibility baseline, binds its owner-only snapshot by SHA-256
 revision, and atomically persists both
-manifest and snapshot before returning. Observation and old-state readers never
+manifest and snapshot before returning. Creation may instead seed those values
+from one exact Base revision. Infrastructure copies only Boundary, exact
+Runtime binding, shell/Git defaults, future-Workspace bootstrap, and Advanced
+policy source; it publishes the complete new Context with one catalog-local
+rename and starts learned decisions empty. Workspace homes, authentication,
+Attachment state, current selection, and Base identity never cross that
+boundary. Observation and old-state readers never
 invent either field. Root entry carries `source_access` into the exact project
 runtime spec/hash; policy activation validates the Context policy snapshot, then for
 enabled native readiness replaces every readiness rule in the binary's

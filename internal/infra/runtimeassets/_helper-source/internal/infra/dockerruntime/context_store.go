@@ -3,6 +3,7 @@ package dockerruntime
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	"github.com/tasuku43/tobari/internal/domain/tobari"
+	"github.com/tasuku43/tobari/internal/infra/runtimeassets"
 )
 
 const (
@@ -221,6 +223,86 @@ func (r *Runtime) ensureContextWithPolicySnapshot(manifest tobari.ContextManifes
 		return fmt.Errorf("inspect Context manifest: %w", err)
 	}
 	return nil
+}
+
+// installContextWithCreationSnapshot stages every Context-owned creation file
+// beside the Context catalog and publishes the complete standalone Context
+// with one same-filesystem rename. The staging tree is never visible to a
+// concurrent Context collection read.
+func (r *Runtime) installContextWithCreationSnapshot(
+	manifest tobari.ContextManifest, snapshot []byte, advanced map[string][]byte,
+) error {
+	if err := manifest.Validate(); err != nil {
+		return err
+	}
+	if len(snapshot) == 0 {
+		_, generated, _, err := defaultContextPolicyBytes()
+		if err != nil {
+			return err
+		}
+		snapshot = generated
+	}
+	_, normalized, revision, err := decodeContextPolicy(snapshot)
+	if err != nil || revision != manifest.PolicyRevision || !bytes.Equal(snapshot, normalized) {
+		return fmt.Errorf("Context creation policy snapshot is invalid")
+	}
+	advancedSources := map[string][]byte{}
+	if manifest.PolicyMode == tobari.ContextPolicyModeAdvanced {
+		for _, name := range []string{"tobari.rego", "tobari_test.rego"} {
+			var source []byte
+			if advanced != nil {
+				source = advanced[name]
+				if len(source) == 0 || len(source) > maxPolicyPreflight {
+					return fmt.Errorf("advanced Context Base policy source is invalid")
+				}
+			} else {
+				source, err = runtimeassets.Read("opa/policy/" + name)
+				if err != nil {
+					return err
+				}
+			}
+			advancedSources[name] = source
+		}
+	}
+	if err := r.ensurePrivateDirectory(r.contextsDirectory()); err != nil {
+		return fmt.Errorf("prepare Context directory: %w", err)
+	}
+	staging, err := os.MkdirTemp(r.configDirectory, ".context-create-")
+	if err != nil {
+		return fmt.Errorf("stage Context creation: %w", err)
+	}
+	defer func() { _ = os.RemoveAll(staging) }()     // #nosec G301 -- exact MkdirTemp-owned staging child.
+	if err := os.Chmod(staging, 0o700); err != nil { // #nosec G302 -- owner-only directory requires traversal.
+		return fmt.Errorf("protect staged Context: %w", err)
+	}
+	policyDirectory := filepath.Join(staging, "policy")
+	if err := os.Mkdir(policyDirectory, 0o700); err != nil {
+		return fmt.Errorf("stage Context policy: %w", err)
+	}
+	if err := initializeBytes(filepath.Join(policyDirectory, "context.json"), normalized, 0o600); err != nil {
+		return err
+	}
+	if err := os.Mkdir(filepath.Join(policyDirectory, policyDomainsName), 0o700); err != nil {
+		return fmt.Errorf("stage Context learned-policy directory: %w", err)
+	}
+	for name, source := range advancedSources {
+		if err := initializeBytes(filepath.Join(policyDirectory, name), source, 0o600); err != nil {
+			return err
+		}
+	}
+	if err := writeAtomicJSON(filepath.Join(staging, "context.json"), manifest); err != nil {
+		return fmt.Errorf("stage Context manifest: %w", err)
+	}
+	target := r.contextDirectory(manifest.Name)
+	if _, err := os.Lstat(target); err == nil {
+		return tobari.ErrContextExists
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	if err := os.Rename(staging, target); err != nil {
+		return fmt.Errorf("publish Context creation: %w", err)
+	}
+	return syncDirectoryIfPresent(r.contextsDirectory())
 }
 
 func (r *Runtime) readContextManifestRaw(name string) (tobari.ContextManifest, error) {
@@ -547,6 +629,86 @@ func (r *Runtime) ShowContext(ctx context.Context, name string) (tobari.ContextR
 	return r.nonPersistedContextReport(observed, active)
 }
 
+// ContextCreateBase returns only the complete Context-owned settings whose
+// lifetime permits initializing another standalone Context. Workspace homes,
+// authentication, learned domain decisions, attachment state, and current
+// selection never enter this snapshot.
+func (r *Runtime) ContextCreateBase(ctx context.Context, name string) (tobari.ContextCreateBase, error) {
+	if err := ctx.Err(); err != nil {
+		return tobari.ContextCreateBase{}, err
+	}
+	manifest, err := r.readContextManifest(name)
+	if err != nil {
+		return tobari.ContextCreateBase{}, err
+	}
+	policy, _, _, _, baseRevision, err := r.contextCreateBaseMaterial(manifest)
+	if err != nil {
+		return tobari.ContextCreateBase{}, err
+	}
+	runtimeReport, err := r.contextRuntimeReport(manifest)
+	if err != nil {
+		return tobari.ContextCreateBase{}, err
+	}
+	runtimeSelection, err := runtimeReport.Selection()
+	if err != nil {
+		return tobari.ContextCreateBase{}, err
+	}
+	shell, err := tobari.CompleteContextShellEnvironment(manifest.ShellEnvironment)
+	if err != nil {
+		return tobari.ContextCreateBase{}, err
+	}
+	gitIdentity := tobari.DefaultContextGitIdentityReport()
+	if manifest.GitIdentity != nil {
+		gitIdentity = *manifest.GitIdentity
+	}
+	readiness, err := tobari.ResolveContextNativeReadiness(manifest.NativeReadiness)
+	if err != nil {
+		return tobari.ContextCreateBase{}, err
+	}
+	base := tobari.ContextCreateBase{
+		ID: manifest.ID, Name: manifest.Name, Revision: baseRevision,
+		PolicyMode: manifest.PolicyMode, SourceAccess: manifest.SourceAccess,
+		NativeReadiness: readiness, MethodPolicy: policy.MethodPolicy,
+		RuntimeSelection: runtimeSelection, ShellEnvironment: shell,
+		GitIdentity: gitIdentity, Bootstrap: manifest.Bootstrap,
+	}
+	return base.Clone(), base.Validate()
+}
+
+func (r *Runtime) contextCreateBaseMaterial(
+	manifest tobari.ContextManifest,
+) (tobari.ContextPolicy, []byte, map[string][]byte, string, string, error) {
+	policyPath := r.contextPolicyPath(manifest.Name)
+	policyBytes, err := readOwnerPolicyFile(policyPath, maxContextPolicyBytes)
+	if err != nil {
+		return tobari.ContextPolicy{}, nil, nil, "", "", err
+	}
+	policy, normalized, revision, err := decodeContextPolicy(policyBytes)
+	if err != nil || revision != manifest.PolicyRevision || !bytes.Equal(policyBytes, normalized) {
+		return tobari.ContextPolicy{}, nil, nil, "", "", fmt.Errorf("Context create Base policy is invalid")
+	}
+	advanced := map[string][]byte{}
+	if manifest.PolicyMode == tobari.ContextPolicyModeAdvanced {
+		for _, name := range []string{"tobari.rego", "tobari_test.rego"} {
+			data, readErr := readOwnerPolicyFile(filepath.Join(r.contextPolicyDirectory(manifest.Name), name), maxPolicyPreflight)
+			if readErr != nil {
+				return tobari.ContextPolicy{}, nil, nil, "", "", readErr
+			}
+			advanced[name] = data
+		}
+	}
+	manifestBytes, err := json.Marshal(manifest)
+	if err != nil {
+		return tobari.ContextPolicy{}, nil, nil, "", "", err
+	}
+	hash := sha256.New()
+	for _, data := range [][]byte{manifestBytes, normalized, advanced["tobari.rego"], advanced["tobari_test.rego"]} {
+		_, _ = fmt.Fprintf(hash, "%d\x00", len(data))
+		_, _ = hash.Write(data)
+	}
+	return policy, normalized, advanced, revision, fmt.Sprintf("sha256:%x", hash.Sum(nil)), nil
+}
+
 // ConfigureContextShell atomically updates one staged set of distinct
 // allowlisted shell environment settings in an explicit or current Context. Inherited values are deliberately
 // resolved later at session entry rather than persisted here.
@@ -655,6 +817,34 @@ func persistedContextGitIdentity(setting tobari.ContextGitIdentitySetting) *toba
 	return &result
 }
 
+func cloneShellEnvironmentManifest(settings []tobari.ContextShellEnvironmentSetting) []tobari.ContextShellEnvironmentSetting {
+	result := make([]tobari.ContextShellEnvironmentSetting, len(settings))
+	for index, setting := range settings {
+		result[index] = setting
+		if setting.Value != nil {
+			value := *setting.Value
+			result[index].Value = &value
+		}
+	}
+	return result
+}
+
+func cloneGitIdentityManifest(setting *tobari.ContextGitIdentitySetting) *tobari.ContextGitIdentitySetting {
+	if setting == nil {
+		return nil
+	}
+	result := *setting
+	if setting.Name != nil {
+		value := *setting.Name
+		result.Name = &value
+	}
+	if setting.Email != nil {
+		value := *setting.Email
+		result.Email = &value
+	}
+	return &result
+}
+
 // CreateContext initializes one named Context without accepting any secret.
 func (r *Runtime) CreateContext(
 	ctx context.Context, name string, image string, mode tobari.ContextPolicyMode, sourceAccess tobari.ContextSourceAccess,
@@ -695,7 +885,19 @@ func (r *Runtime) CreateContextWithComposition(
 	if err != nil {
 		return tobari.ContextReport{}, err
 	}
+	var baseManifest tobari.ContextManifest
+	var advancedPolicy map[string][]byte
 	policy, normalizedPolicy, policyRevision, err := defaultContextPolicyBytes()
+	if composition.Base != nil {
+		baseManifest, err = r.readContextManifest(composition.Base.Name)
+		if err == nil {
+			var baseRevision string
+			policy, normalizedPolicy, advancedPolicy, policyRevision, baseRevision, err = r.contextCreateBaseMaterial(baseManifest)
+			if err == nil && (baseManifest.ID != composition.Base.ID || baseRevision != composition.Base.Revision) {
+				err = tobari.ErrContextBaseChanged
+			}
+		}
+	}
 	if err != nil {
 		return tobari.ContextReport{}, err
 	}
@@ -709,15 +911,25 @@ func (r *Runtime) CreateContextWithComposition(
 			return tobari.ContextReport{}, err
 		}
 	}
+	if mode != tobari.ContextPolicyModeAdvanced || baseManifest.PolicyMode != tobari.ContextPolicyModeAdvanced {
+		advancedPolicy = nil
+	}
 	manifest := tobari.ContextManifest{
 		SchemaVersion: tobari.ContextSchemaVersion, Name: name,
 		AgentProfile: tobari.DefaultProfile, Image: runtimeBinding.Image, PolicyMode: mode,
 		SourceAccess:     sourceAccess,
 		PolicyRevision:   policyRevision,
 		NativeReadiness:  composition.NativeReadiness,
-		ShellEnvironment: tobari.InitialContextShellEnvironment(),
-		Bootstrap:        composition.Bootstrap,
-		RuntimeBinding:   &runtimeBinding,
+		ShellEnvironment: tobari.InitialContextShellEnvironment(), Bootstrap: composition.Bootstrap,
+		RuntimeBinding: &runtimeBinding,
+	}
+	if composition.Base != nil {
+		manifest.ShellEnvironment = cloneShellEnvironmentManifest(baseManifest.ShellEnvironment)
+		manifest.GitIdentity = cloneGitIdentityManifest(baseManifest.GitIdentity)
+		if composition.Bootstrap == nil && baseManifest.Bootstrap != nil {
+			bootstrap := baseManifest.Bootstrap.Clone()
+			manifest.Bootstrap = &bootstrap
+		}
 	}
 	id, err := r.identities.newContextID()
 	if err != nil {
@@ -729,6 +941,19 @@ func (r *Runtime) CreateContextWithComposition(
 	}
 	var active string
 	if err := r.withContextStoreLock(func() error {
+		if composition.Base != nil {
+			current, readErr := r.readContextManifest(composition.Base.Name)
+			if readErr != nil {
+				return readErr
+			}
+			_, _, _, _, revision, readErr := r.contextCreateBaseMaterial(current)
+			if readErr != nil {
+				return readErr
+			}
+			if current.ID != composition.Base.ID || revision != composition.Base.Revision {
+				return tobari.ErrContextBaseChanged
+			}
+		}
 		if _, err := os.Lstat(r.contextManifestPath(name)); err == nil {
 			return tobari.ErrContextExists
 		} else if !errors.Is(err, os.ErrNotExist) {
@@ -736,14 +961,17 @@ func (r *Runtime) CreateContextWithComposition(
 		}
 
 		if name == tobari.DefaultContextName {
-			if err := r.initializeContextStoreUnlockedWithPolicy(manifest, normalizedPolicy); err != nil {
+			if err := r.installContextWithCreationSnapshot(manifest, normalizedPolicy, advancedPolicy); err != nil {
+				return err
+			}
+			if err := r.writeActiveContext(tobari.DefaultContextName); err != nil {
 				return err
 			}
 		} else {
 			if err := r.ensureContextStoreUnlocked(); err != nil {
 				return err
 			}
-			if err := r.ensureContextWithPolicySnapshot(manifest, normalizedPolicy); err != nil {
+			if err := r.installContextWithCreationSnapshot(manifest, normalizedPolicy, advancedPolicy); err != nil {
 				return err
 			}
 		}

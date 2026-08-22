@@ -48,6 +48,9 @@
     "authentication_success",
     "provider_account",
     "cluster_reconciled",
-    "method_authority_from_indentation"
+    "method_authority_from_indentation",
+    "base_context",
+    "parent_context",
+    "inherits_from"
   ]
 }

@@ -368,18 +368,21 @@ func contextShowSpec() CommandSpec {
 func contextCreateSpec() CommandSpec {
 	return CommandSpec{
 		Path: "context create", Summary: "Create a named Context work mode directly or by completing omitted settings",
-		Args:   "[--name <name>] [--runtime <standard|name@ordinal>] [--mode guided|advanced] [--source-access read-only|read-write] [--native-readiness enabled|disabled] [--bootstrap-aws-profile <name>] [--bootstrap-eks-context <name>] [--format text|json]",
+		Args:   "[--base <context-name>] [--name <name>] [--runtime <standard|name@ordinal>] [--mode guided|advanced] [--source-access read-only|read-write] [--native-readiness enabled|disabled] [--bootstrap-aws-profile <name>] [--bootstrap-eks-context <name>] [--format text|json]",
 		Effect: operation.EffectCreate, Role: RoleAct,
 		Agent: AgentContract{
 			CapabilityID:  "context.composition",
 			Outcome:       "Create one stable named work mode with an immutable source/network Boundary, exact Runtime binding, narrow Workspace defaults, and separate owner-only policy and authentication state",
-			Inputs:        []CommandInput{contextCreateNameInput(), contextCreateRuntimeInput(), contextModeInput(), contextSourceAccessInput(), contextNativeReadinessInput(), contextCreateAWSBootstrapInput(), contextCreateEKSBootstrapInput(), formatInput()},
+			Inputs:        []CommandInput{contextCreateBaseInput(), contextCreateNameInput(), contextCreateRuntimeInput(), contextModeInput(), contextSourceAccessInput(), contextNativeReadinessInput(), contextCreateAWSBootstrapInput(), contextCreateEKSBootstrapInput(), formatInput()},
 			Output:        contextReportOutput(),
 			Prerequisites: []string{"The host Context directory is accessible."},
 			FixedTarget:   fixedContextCatalogTarget(),
 			Errors: mutationCommandErrors("context create", "context list",
+				declaredCommandError(fault.KindInvalidInput, "invalid_context_base", false, "context list", "Choose one existing Context as the Base."),
+				declaredCommandError(fault.KindNotFound, "context_base_not_found", false, "context list", "Choose one existing Context as the Base."),
+				declaredCommandError(fault.KindRejected, "context_base_changed", true, "context list", "Review the current Base settings before creating."),
 				declaredCommandError(fault.KindRejected, "context_collection_changed", true, "context list", "Inspect the current Context collection before retrying Tobari."),
-				declaredCommandError(fault.KindInvalidInput, "context_create_wizard_unavailable", false, "help context create", "Complete omitted settings on interactive text streams or supply --name, --runtime, --mode, --source-access, and --native-readiness."),
+				declaredCommandError(fault.KindInvalidInput, "context_create_wizard_unavailable", false, "help context create", "Complete omitted settings interactively, supply --base with --name, or supply the complete direct input group."),
 				declaredCommandError(fault.KindInternal, "context_create_wizard_failed", false, "context create", "Retry the wizard or use the complete direct input group."),
 				declaredCommandError(fault.KindRejected, "aws_bootstrap_source_rejected", false, "help config bootstrap aws", "Choose a strict IAM Identity Center profile without credentials, helpers, or unsupported directives."),
 				declaredCommandError(fault.KindRejected, "eks_bootstrap_source_rejected", false, "help config bootstrap kubernetes eks", "Choose a strict AWS CLI-generated EKS context bound to the selected AWS profile."),
@@ -1382,6 +1385,16 @@ func contextCreateNameInput() CommandInput {
 	input.Completion = InputCompletionNone
 	input.Description = "Portable Context name; on interactive text streams a supplied name prefills and skips the Name stage while omitted settings remain reviewed."
 	return input
+}
+
+func contextCreateBaseInput() CommandInput {
+	minimum := int64(1)
+	return CommandInput{
+		Name: "--base", Source: InputSourceFlag, Required: false,
+		ValueKind: InputValueText, Cardinality: InputCardinalitySingle, MinimumLength: &minimum,
+		Description:   "Existing Context used only to initialize a standalone creation draft; no lineage or authority relationship is persisted.",
+		AllowedValues: []string{}, Completion: InputCompletionContextName,
+	}
 }
 
 func contextCreateRuntimeInput() CommandInput {

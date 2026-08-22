@@ -1,6 +1,7 @@
 package dockerruntime
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -677,6 +678,122 @@ func TestConfigureContextGitPersistsAtomicPairAndDefaultRemovesOverride(t *testi
 	}
 	if len(runner.runs) != 0 {
 		t.Fatalf("Git configuration touched Docker: %+v", runner.runs)
+	}
+}
+
+func TestContextCreateBaseCopiesOnlyStandaloneWorkModeSettings(t *testing.T) {
+	t.Parallel()
+	runtime := newContextSwitchRuntime(t, &contextSwitchRunner{})
+	literal := "base-prompt"
+	if _, err := runtime.ConfigureContextShell(context.Background(), "project-tools", []tobari.ContextShellEnvironmentSetting{{
+		Variable: "PS1", Source: tobari.ContextShellEnvironmentLiteral, Value: &literal,
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	gitName, gitEmail := "Example User", "user@example.com"
+	if _, err := runtime.ConfigureContextGit(context.Background(), "project-tools", tobari.ContextGitIdentitySetting{
+		Source: tobari.ContextGitIdentityLiteral, Name: &gitName, Email: &gitEmail,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	bootstrap, err := tobari.NewContextBootstrapSnapshot(1, tobari.ContextAWSBootstrap{
+		Profile: "engineering", SSOSession: "example", SSOStartURL: "https://example.awsapps.com/start",
+		SSORegion: "us-east-1", SSORegistrationScopes: []string{"sso:account:access"},
+		AccountID: "123456789012", RoleName: "Developer", Region: "us-west-2", Output: "json",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := runtime.readContextManifest("project-tools")
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest.Bootstrap = &bootstrap
+	if err := writeAtomicJSON(runtime.contextManifestPath(manifest.Name), manifest); err != nil {
+		t.Fatal(err)
+	}
+	advanced := map[string][]byte{
+		"tobari.rego":      []byte("package tobari\nallow := true\n"),
+		"tobari_test.rego": []byte("package tobari\ntest_allow { allow }\n"),
+	}
+	for name, source := range advanced {
+		if err := os.WriteFile(filepath.Join(runtime.contextPolicyDirectory(manifest.Name), name), source, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	learnedPath := filepath.Join(runtime.contextPolicyDirectory(manifest.Name), policyDomainsName, "learned.example.json")
+	if err := os.WriteFile(learnedPath, []byte(`{"decision":"allow"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	base, err := runtime.ContextCreateBase(context.Background(), manifest.Name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	baseTree := snapshotOwnedTree(t, runtime.contextDirectory(manifest.Name))
+	policy := base.MethodPolicy.Clone()
+	created, err := runtime.CreateContextWithComposition(
+		context.Background(), "standalone", tobari.BuiltinImageSelector, base.PolicyMode, base.SourceAccess,
+		tobari.ContextCreateComposition{
+			NativeReadiness: base.NativeReadiness, MethodPolicy: &policy,
+			RuntimeSelection: base.RuntimeSelection, Base: &base,
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if created.ID == base.ID || created.Name != "standalone" || created.PolicyMode != base.PolicyMode ||
+		created.SourceAccess != base.SourceAccess || !reflect.DeepEqual(created.ShellEnvironment, base.ShellEnvironment) ||
+		!reflect.DeepEqual(created.GitIdentity, base.GitIdentity) ||
+		!reflect.DeepEqual(created.Bootstrap.Resolved(), tobari.ContextBootstrapReportFrom(base.Bootstrap)) {
+		t.Fatalf("standalone Context did not copy the reviewed Base: %+v", created)
+	}
+	if after := snapshotOwnedTree(t, runtime.contextDirectory(manifest.Name)); !reflect.DeepEqual(after, baseTree) {
+		t.Fatal("creating from a Base changed the Base Context")
+	}
+	for name, want := range advanced {
+		got, readErr := os.ReadFile(filepath.Join(runtime.contextPolicyDirectory("standalone"), name))
+		if readErr != nil || !bytes.Equal(got, want) {
+			t.Fatalf("copied advanced policy %s = %q, %v", name, got, readErr)
+		}
+	}
+	entries, err := os.ReadDir(filepath.Join(runtime.contextPolicyDirectory("standalone"), policyDomainsName))
+	if err != nil || len(entries) != 0 {
+		t.Fatalf("learned decisions crossed the Base boundary: entries=%v err=%v", entries, err)
+	}
+}
+
+func TestContextCreateRejectsChangedBaseWithoutPartialTarget(t *testing.T) {
+	t.Parallel()
+	runtime := newContextSwitchRuntime(t, &contextSwitchRunner{})
+	base, err := runtime.ContextCreateBase(context.Background(), "project-tools")
+	if err != nil {
+		t.Fatal(err)
+	}
+	literal := "changed-after-review"
+	if _, err := runtime.ConfigureContextShell(context.Background(), "project-tools", []tobari.ContextShellEnvironmentSetting{{
+		Variable: "PS1", Source: tobari.ContextShellEnvironmentLiteral, Value: &literal,
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	policy := base.MethodPolicy.Clone()
+	_, err = runtime.CreateContextWithComposition(
+		context.Background(), "must-not-exist", tobari.BuiltinImageSelector, base.PolicyMode, base.SourceAccess,
+		tobari.ContextCreateComposition{NativeReadiness: base.NativeReadiness, MethodPolicy: &policy, RuntimeSelection: base.RuntimeSelection, Base: &base},
+	)
+	if !errors.Is(err, tobari.ErrContextBaseChanged) {
+		t.Fatalf("changed Base creation error = %v", err)
+	}
+	if _, err := os.Lstat(runtime.contextDirectory("must-not-exist")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("changed Base left a target Context: %v", err)
+	}
+	entries, err := os.ReadDir(runtime.configDirectory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), ".context-create-") {
+			t.Fatalf("changed Base left staging state: %s", entry.Name())
+		}
 	}
 }
 

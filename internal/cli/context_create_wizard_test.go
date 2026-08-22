@@ -37,6 +37,19 @@ type emptyAWSContextCreateBootstrapFixture struct{ *contextCreateBootstrapFixtur
 
 type emptyEKSContextCreateBootstrapFixture struct{ *contextCreateBootstrapFixture }
 
+type contextCreateBaseFixture struct {
+	base  tobari.ContextCreateBase
+	calls int
+}
+
+func (f *contextCreateBaseFixture) CreationBase(_ context.Context, name string) (tobari.ContextCreateBase, error) {
+	f.calls++
+	if name != f.base.Name {
+		return tobari.ContextCreateBase{}, tobari.ErrContextNotFound
+	}
+	return f.base.Clone(), nil
+}
+
 func (f *rejectedContextCreateBootstrapFixture) DiscoverAWSBootstraps(context.Context) (tobari.ContextAWSBootstrapDiscovery, error) {
 	return tobari.ContextAWSBootstrapDiscovery{State: tobari.ContextBootstrapDiscoveryRejected, Reason: "Host AWS shared config has unsafe permissions.", Candidates: []tobari.ContextAWSBootstrapCandidate{}}, nil
 }
@@ -78,6 +91,81 @@ func newContextCreateBootstrapFixture(t *testing.T, withEKS bool) *contextCreate
 		fixture.eks = &composed
 	}
 	return fixture
+}
+
+func contextCreateResetBaseFixture() tobari.ContextCreateBase {
+	return tobari.ContextCreateBase{
+		ID: "018bcfe5-687b-7000-8000-000000000120", Name: "engineering",
+		Revision: "sha256:" + strings.Repeat("a", 64), PolicyMode: tobari.ContextPolicyModeAdvanced,
+		SourceAccess: tobari.ContextSourceAccessReadOnly, NativeReadiness: tobari.ContextNativeReadinessDisabled,
+		MethodPolicy:     tobari.ContextMethodPolicy{Default: tobari.ContextMethodDeny, Overrides: []tobari.ContextMethodOverride{{Method: "GET", Decision: tobari.ContextMethodAllow}}},
+		RuntimeSelection: "standard@1", ShellEnvironment: tobari.DefaultContextShellEnvironmentReport(), GitIdentity: tobari.DefaultContextGitIdentityReport(),
+	}
+}
+
+func customizedContextCreateDraft() contextCreateRawDraft {
+	return contextCreateRawDraft{
+		name: "standalone", policyMode: tobari.ContextPolicyModeGuided, sourceIndex: 0,
+		methodDefault: tobari.ContextMethodAllow, methodOverrides: map[string]tobari.ContextMethodDecision{"POST": tobari.ContextMethodDeny},
+		runtimeSelection: "standard", nativeReadiness: tobari.ContextNativeReadinessEnabled,
+	}
+}
+
+func assertDraftResetToBase(t *testing.T, draft contextCreateRawDraft, base tobari.ContextCreateBase) {
+	t.Helper()
+	selection, err := contextCreateSelectionFromDraft(draft)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if selection.Name != "standalone" || selection.Base == nil || selection.Base.Revision != base.Revision ||
+		selection.PolicyMode != base.PolicyMode || selection.SourceAccess != base.SourceAccess ||
+		selection.NativeReadiness != base.NativeReadiness || selection.RuntimeSelection != base.RuntimeSelection ||
+		selection.MethodPolicy.Default != base.MethodPolicy.Default || len(selection.MethodPolicy.Overrides) != len(base.MethodPolicy.Overrides) {
+		t.Fatalf("draft was not wholly reset from Base: %+v", selection)
+	}
+}
+
+func TestContextCreateBaseResetLineRequiresConfirmationAndReplacesDraft(t *testing.T) {
+	base := contextCreateResetBaseFixture()
+	reader := &contextCreateBaseFixture{base: base}
+	wizard := &terminalContextCreateWizard{
+		mode: nil, style: false, baseRead: reader,
+		bases: []tobari.ContextSummary{{Name: base.Name}},
+	}
+	draft := customizedContextCreateDraft()
+	if err := wizard.editContextCreateBaseLine(context.Background(), strings.NewReader("2\n2\n"), io.Discard, &draft); err != nil {
+		t.Fatal(err)
+	}
+	if reader.calls != 0 || draft.base != nil || draft.methodDefault != tobari.ContextMethodAllow {
+		t.Fatalf("declined Base reset changed draft: calls=%d draft=%+v", reader.calls, draft)
+	}
+	if err := wizard.editContextCreateBaseLine(context.Background(), strings.NewReader("2\n1\n"), io.Discard, &draft); err != nil {
+		t.Fatal(err)
+	}
+	if reader.calls != 1 {
+		t.Fatalf("confirmed Base reset reads = %d", reader.calls)
+	}
+	assertDraftResetToBase(t, draft, base)
+}
+
+func TestContextCreateBaseResetRawRequiresExplicitReset(t *testing.T) {
+	base := contextCreateResetBaseFixture()
+	reader := &contextCreateBaseFixture{base: base}
+	wizard := &terminalContextCreateWizard{
+		mode: nil, style: false, baseRead: reader,
+		bases: []tobari.ContextSummary{{Name: base.Name}},
+	}
+	draft := customizedContextCreateDraft()
+	lineCount := 0
+	keys := "\r\x1b[B\r\x1b[A\r"
+	navigation, err := wizard.editContextCreateSettingsRaw(context.Background(), strings.NewReader(keys), io.Discard, &lineCount, &draft)
+	if err != nil || navigation != contextCreateNavigateNext {
+		t.Fatalf("raw Base reset navigation/error = %v/%v", navigation, err)
+	}
+	if reader.calls != 1 {
+		t.Fatalf("raw Base reset reads = %d", reader.calls)
+	}
+	assertDraftResetToBase(t, draft, base)
 }
 
 func (f *contextCreateBootstrapFixture) DiscoverAWSBootstraps(context.Context) (tobari.ContextAWSBootstrapDiscovery, error) {

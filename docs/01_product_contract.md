@@ -339,7 +339,7 @@ The public commands are:
 | `config git [--source default\|inherit\|literal] [--name NAME] [--email EMAIL] [--context NAME] [--format text\|json]` | act, fixed target | write | Configure one atomic Context Git commit-identity session fallback directly, or stage and apply its source from one terminal screen; later Workspace entry resolves it without rewriting Workspace home |
 | `config bootstrap aws [--profile NAME] [--refresh] [--remove] [--context NAME] [--format text\|json]` | act, fixed target | write | Normalize one strict secret-free host AWS IAM Identity Center profile for future Workspaces, refresh it after a semantic diff, or remove the future recipe; existing Workspace homes never change |
 | `config bootstrap kubernetes eks [--kube-context NAME] [--refresh] [--remove] [--context NAME] [--format text\|json]` | act, fixed target | write | Compose one strict AWS CLI-generated host EKS context with the Context AWS profile, refresh it, or remove only EKS; no credential, arbitrary exec, network authority, or existing Workspace home changes |
-| `context create [--name NAME] [--runtime RUNTIME] [--mode guided\|advanced] [--source-access read-only\|read-write] [--native-readiness enabled\|disabled] [--bootstrap-aws-profile NAME] [--bootstrap-eks-context NAME] [--format text\|json]` | act, fixed target | create | On interactive text streams, prefill supplied values and review only omitted stages of the six-stage Context frame before Create; redirected or JSON creation requires the complete direct group of name, Runtime, mode, source access, and native readiness; Workspace bootstrap remains optional |
+| `context create [--base NAME] [--name NAME] [--runtime RUNTIME] [--mode guided\|advanced] [--source-access read-only\|read-write] [--native-readiness enabled\|disabled] [--bootstrap-aws-profile NAME] [--bootstrap-eks-context NAME] [--format text\|json]` | act, fixed target | create | With persisted Contexts, interactive omission chooses a Base before the six-stage frame, initially selecting the current Context; `--base` initializes one standalone draft without lineage and makes `--name` the only required direct value; without a Base, redirected or JSON creation requires the complete direct group; Workspace bootstrap remains optional |
 | `context delete --name NAME [--format text\|json]` | act, fixed target | write | Delete one unused non-current non-default Context and its exact owner stores while preserving project files and shared runtime images |
 | `context use --name NAME [--format text\|json]` | act, fixed target | write | Change only the current/default Context; do not mutate existing Workspaces or start/reconcile the cluster |
 | `context runtime set [--runtime RUNTIME] [--context NAME] [--format text\|json]` | act, fixed target | write | Explicitly replace one Context's exact Runtime binding with `standard` or an existing ready `NAME@ORDINAL` revision; omission opens terminal Review, and bound Workspaces adopt it on next entry while identity and home remain unchanged |
@@ -643,8 +643,14 @@ review runs through `tobari review permissions` in a separate host terminal.
 - `context create` has one staged human flow and one complete direct mode. On
   interactive text success/error streams, supplied values prefill their
   corresponding stages and those stages are skipped on the initial pass;
-  omitted stages remain reviewed. With no supplied creation value, the
-  ordinary six-stage path is name, filesystem, network, Runtime, Workspace
+  omitted stages remain reviewed. When persisted Contexts exist and `--base`
+  is omitted, a dedicated Base step precedes Name, initially selects the
+  current Context, and also offers Tobari recommended settings. Base copies the
+  Boundary, exact Runtime binding, shell/Git defaults, and future-Workspace
+  bootstrap into one standalone draft; it copies no Workspace, authentication,
+  remembered permission, Attachment, current selection, or lineage. Changing
+  Base after editing requires an explicit whole-draft reset. With no persisted
+  Context, the chooser is skipped. The ordinary six-stage path is name, filesystem, network, Runtime, Workspace
   bootstrap, and Review & Create. `--name sre3` therefore starts at Filesystem
   with `sre3` already bound rather than creating immediately.
   Network first renders reviewed routine Claude Code/Codex traffic, every
@@ -662,9 +668,12 @@ review runs through `tobari review permissions` in a separate host terminal.
   A terminal without the reviewed raw-mode support uses the bounded line-mode
   equivalent. Explicit Create performs one
   mutation and cancellation from any step performs none. Redirected or JSON
-  creation never prompts and requires explicit `--name`, `--runtime`, `--mode`,
+  creation never prompts and, without `--base`, requires explicit `--name`, `--runtime`, `--mode`,
   `--source-access`, and `--native-readiness`; Workspace bootstrap is an
-  optional explicit addition whose omission means not configured. Partial
+  optional explicit addition whose omission means not configured. An exact
+  `--base NAME --name NAME` is complete because omitted work-mode values come
+  from the reviewed Base snapshot; supplied values replace the corresponding
+  draft values. Partial
   machine input fails before mutation instead of applying hidden defaults.
   Method Deny removes Context-policy positive baseline entries for that method
   from the new immutable snapshot rather than leaving an invalid or misleading

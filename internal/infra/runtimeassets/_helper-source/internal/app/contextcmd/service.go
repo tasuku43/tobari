@@ -36,6 +36,10 @@ type composedContextRuntimePort interface {
 	CreateContextWithComposition(context.Context, string, string, tobari.ContextPolicyMode, tobari.ContextSourceAccess, tobari.ContextCreateComposition) (tobari.ContextReport, error)
 }
 
+type contextCreateBaseRuntimePort interface {
+	ContextCreateBase(context.Context, string) (tobari.ContextCreateBase, error)
+}
+
 type contextAWSBootstrapRuntimePort interface {
 	PrepareContextAWSBootstrap(context.Context, string) (tobari.ContextBootstrapSnapshot, error)
 	PreviewContextAWSBootstrap(context.Context, string, string) (tobari.ContextBootstrapPreview, error)
@@ -616,6 +620,45 @@ func (s *Service) Show(ctx context.Context, name string) (tobari.ContextReport, 
 	return result, nil
 }
 
+// CreationBase reads one exact Context-owned work-mode snapshot for draft
+// initialization. The returned revision must be presented back at creation so
+// mutable defaults cannot change silently during review.
+func (s *Service) CreationBase(ctx context.Context, name string) (tobari.ContextCreateBase, error) {
+	if err := s.requireRuntime(); err != nil {
+		return tobari.ContextCreateBase{}, err
+	}
+	if err := tobari.ValidateName(name); err != nil {
+		return tobari.ContextCreateBase{}, fault.Wrap(
+			fault.KindInvalidInput, "invalid_context_base", "Context creation Base is invalid", false, err,
+			fault.NextAction{Command: "context list", Reason: "Choose one existing Context as the Base."},
+		)
+	}
+	runtime, ok := s.runtime.(contextCreateBaseRuntimePort)
+	if !ok {
+		return tobari.ContextCreateBase{}, fault.New(fault.KindInternal, "missing_runtime", "Context creation Base runtime is unavailable", false)
+	}
+	base, err := runtime.ContextCreateBase(ctx, name)
+	if errors.Is(err, tobari.ErrContextNotFound) {
+		return tobari.ContextCreateBase{}, fault.New(
+			fault.KindNotFound, "context_base_not_found", "Context creation Base does not exist", false,
+			fault.NextAction{Command: "context list", Reason: "Choose one existing Context as the Base."},
+		)
+	}
+	if err != nil {
+		return tobari.ContextCreateBase{}, s.readError(err)
+	}
+	if err := base.Validate(); err != nil || base.Name != name {
+		if err == nil {
+			err = fmt.Errorf("Context creation Base name does not match the request")
+		}
+		return tobari.ContextCreateBase{}, fault.Wrap(
+			fault.KindContract, "invalid_context_base", "Context creation Base is invalid", false, err,
+			fault.NextAction{Command: "context list", Reason: "Inspect the local Context collection."},
+		)
+	}
+	return base.Clone(), nil
+}
+
 func (s *Service) Create(
 	ctx context.Context, intent operation.Intent, name, image string, mode tobari.ContextPolicyMode, sourceAccess tobari.ContextSourceAccess, selections ...string,
 ) (tobari.ContextReport, error) {
@@ -723,6 +766,10 @@ func (s *Service) createWithComposition(
 				return fault.New(fault.KindRejected, "runtime_revision_not_ready", "the selected Runtime revision does not exist", false,
 					fault.NextAction{Command: "runtime history", Reason: "Choose an existing successful revision."})
 			}
+			if errors.Is(createErr, tobari.ErrContextBaseChanged) || (errors.Is(createErr, tobari.ErrContextNotFound) && composition.Base != nil) {
+				return fault.New(fault.KindRejected, "context_base_changed", "Context creation Base changed during review", true,
+					fault.NextAction{Command: "context list", Reason: "Review the current Base settings before creating."})
+			}
 			if createErr != nil {
 				return fault.Wrap(fault.KindRejected, "context_create_failed", "Context could not be created", false, createErr,
 					fault.NextAction{Command: "context list", Reason: "Inspect the local Context collection."})
@@ -740,9 +787,18 @@ func (s *Service) createWithComposition(
 				!reflect.DeepEqual(created.MethodPolicy, *composition.MethodPolicy) {
 				contractErr = fmt.Errorf("created Context method policy does not match the request")
 			}
+			expectedBootstrap := composition.Bootstrap
+			if expectedBootstrap == nil && composition.Base != nil {
+				expectedBootstrap = composition.Base.Bootstrap
+			}
 			if contractErr == nil &&
-				!reflect.DeepEqual(created.Bootstrap.Resolved(), tobari.ContextBootstrapReportFrom(composition.Bootstrap)) {
+				!reflect.DeepEqual(created.Bootstrap.Resolved(), tobari.ContextBootstrapReportFrom(expectedBootstrap)) {
 				contractErr = fmt.Errorf("created Context bootstrap does not match the request")
+			}
+			if contractErr == nil && composition.Base != nil && (created.ID == composition.Base.ID ||
+				!reflect.DeepEqual(created.ShellEnvironment, composition.Base.ShellEnvironment) ||
+				!reflect.DeepEqual(created.GitIdentity, composition.Base.GitIdentity)) {
+				contractErr = fmt.Errorf("created Context copied invalid Base identity or Workspace defaults")
 			}
 			if contractErr == nil {
 				createdRuntime, runtimeErr := created.Runtime.Selection()

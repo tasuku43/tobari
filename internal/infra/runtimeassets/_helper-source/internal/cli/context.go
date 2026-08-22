@@ -441,16 +441,46 @@ func createContext(
 	mode := tobari.ContextPolicyMode(inputs.One("--mode"))
 	sourceAccess := tobari.ContextSourceAccess(inputs.One("--source-access"))
 	name := inputs.One("--name")
+	var base *tobari.ContextCreateBase
+	if inputs.Provided("--base") {
+		observed, baseErr := c.context.CreationBase(ctx, inputs.One("--base"))
+		if baseErr != nil {
+			return tobari.ContextReport{}, baseErr
+		}
+		base = &observed
+		if !inputs.Provided("--mode") {
+			mode = base.PolicyMode
+		}
+	}
 	if !contextCreateDirectInputsComplete(inputs) {
 		if format != successFormatText || invocationErrorFormat(ctx) == errorFormatJSON ||
 			c.tobari == nil || !c.tobari.IsInteractive(c.In, c.Err) {
 			return tobari.ContextReport{}, fault.New(
 				fault.KindInvalidInput, "context_create_wizard_unavailable",
-				"Incomplete Context creation requires text success/error output and interactive terminal stdin and stderr; otherwise explicitly supply --name, --runtime, --mode, --source-access, and --native-readiness; usage: "+command.Usage(), false,
+				"Incomplete Context creation requires text success/error output and interactive terminal stdin and stderr; otherwise supply --base with --name, or explicitly supply --name, --runtime, --mode, --source-access, and --native-readiness; usage: "+command.Usage(), false,
 				fault.NextAction{Command: "help context create", Reason: "Complete omitted settings interactively or supply the complete direct input group."},
 			)
 		}
-		seed, seedErr := contextCreateSeedFromInputs(ctx, c, inputs)
+		var availableBases []tobari.ContextSummary
+		if base == nil && !inputs.Provided("--base") {
+			selectedBase, summaries, selectErr := selectContextCreateBase(ctx, c)
+			if selectErr != nil {
+				return tobari.ContextReport{}, selectErr
+			}
+			base = selectedBase
+			availableBases = summaries
+			if base != nil && !inputs.Provided("--mode") {
+				mode = base.PolicyMode
+			}
+		}
+		if base != nil && len(availableBases) == 0 {
+			listed, listErr := c.context.List(ctx)
+			if listErr != nil {
+				return tobari.ContextReport{}, listErr
+			}
+			availableBases = listed.Items
+		}
+		seed, seedErr := contextCreateSeedFromInputs(ctx, c, inputs, base)
 		if seedErr != nil {
 			return tobari.ContextReport{}, seedErr
 		}
@@ -461,6 +491,10 @@ func createContext(
 		if terminalWizard, ok := wizard.(*terminalContextCreateWizard); ok && terminalWizard.bootstrap == nil {
 			terminalWizard.bootstrap = c.context
 		}
+		if terminalWizard, ok := wizard.(*terminalContextCreateWizard); ok {
+			terminalWizard.bases = availableBases
+			terminalWizard.baseRead = c.context
+		}
 		if terminalWizard, ok := wizard.(*terminalContextCreateWizard); ok && c.runtime != nil && !seed.RuntimeProvided {
 			if catalog, listErr := c.runtime.List(ctx); listErr == nil {
 				terminalWizard.runtimes = catalog.Items
@@ -468,7 +502,7 @@ func createContext(
 		}
 		var selection contextCreateSelection
 		var wizardErr error
-		if contextCreateCompositionInputProvided(inputs) {
+		if contextCreateCompositionInputProvided(inputs) || seed.Selection.Base != nil {
 			seeded, ok := wizard.(seededContextCreateWizard)
 			if !ok {
 				return tobari.ContextReport{}, fault.New(
@@ -503,12 +537,13 @@ func createContext(
 			bootstrap = &prepared
 		}
 		return c.context.CreateWithComposition(
-			ctx, intent, selection.Name, tobari.BuiltinImageSelector, mode, selection.SourceAccess,
+			ctx, intent, selection.Name, tobari.BuiltinImageSelector, selection.PolicyMode, selection.SourceAccess,
 			tobari.ContextCreateComposition{
-				NativeReadiness:  tobari.ContextNativeReadiness(inputs.One("--native-readiness")),
+				NativeReadiness:  selection.NativeReadiness,
 				MethodPolicy:     &policy,
 				Bootstrap:        bootstrap,
 				RuntimeSelection: selection.RuntimeSelection,
+				Base:             selection.Base,
 			},
 		)
 	}
@@ -518,6 +553,43 @@ func createContext(
 			"--name is required in direct mode; usage: "+command.Usage(), false,
 			fault.NextAction{Command: "help context create", Reason: "Supply --name or run the command without arguments to open the wizard."},
 		)
+	}
+	if base != nil {
+		mode = base.PolicyMode
+		if inputs.Provided("--mode") {
+			mode = tobari.ContextPolicyMode(inputs.One("--mode"))
+		}
+		sourceAccess = base.SourceAccess
+		if inputs.Provided("--source-access") {
+			sourceAccess = tobari.ContextSourceAccess(inputs.One("--source-access"))
+		}
+		readiness := base.NativeReadiness
+		if inputs.Provided("--native-readiness") {
+			readiness = tobari.ContextNativeReadiness(inputs.One("--native-readiness"))
+		}
+		runtimeSelection := base.RuntimeSelection
+		if inputs.Provided("--runtime") {
+			runtimeSelection = inputs.One("--runtime")
+		}
+		policy := base.MethodPolicy.Clone()
+		bootstrap := base.Bootstrap
+		if inputs.Provided("--bootstrap-aws-profile") {
+			prepared, prepareErr := c.context.PrepareAWSBootstrap(ctx, inputs.One("--bootstrap-aws-profile"))
+			if prepareErr != nil {
+				return tobari.ContextReport{}, prepareErr
+			}
+			if inputs.Provided("--bootstrap-eks-context") {
+				prepared, prepareErr = c.context.PrepareEKSBootstrap(ctx, prepared, inputs.One("--bootstrap-eks-context"))
+				if prepareErr != nil {
+					return tobari.ContextReport{}, prepareErr
+				}
+			}
+			bootstrap = &prepared
+		}
+		return c.context.CreateWithComposition(ctx, intent, name, tobari.BuiltinImageSelector, mode, sourceAccess, tobari.ContextCreateComposition{
+			NativeReadiness: readiness, MethodPolicy: &policy, Bootstrap: bootstrap,
+			RuntimeSelection: runtimeSelection, Base: base,
+		})
 	}
 	if inputs.Provided("--bootstrap-aws-profile") {
 		prepared, prepareErr := c.context.PrepareAWSBootstrap(ctx, inputs.One("--bootstrap-aws-profile"))
@@ -536,6 +608,9 @@ func createContext(
 }
 
 func contextCreateDirectInputsComplete(inputs ParsedInputs) bool {
+	if inputs.Provided("--base") {
+		return inputs.Provided("--name")
+	}
 	for _, name := range []string{"--name", "--runtime", "--mode", "--source-access", "--native-readiness"} {
 		if !inputs.Provided(name) {
 			return false
@@ -545,7 +620,7 @@ func contextCreateDirectInputsComplete(inputs ParsedInputs) bool {
 }
 
 func contextCreateCompositionInputProvided(inputs ParsedInputs) bool {
-	for _, name := range []string{"--name", "--runtime", "--mode", "--source-access", "--native-readiness", "--bootstrap-aws-profile", "--bootstrap-eks-context"} {
+	for _, name := range []string{"--base", "--name", "--runtime", "--mode", "--source-access", "--native-readiness", "--bootstrap-aws-profile", "--bootstrap-eks-context"} {
 		if inputs.Provided(name) {
 			return true
 		}
@@ -553,33 +628,58 @@ func contextCreateCompositionInputProvided(inputs ParsedInputs) bool {
 	return false
 }
 
-func contextCreateSeedFromInputs(ctx context.Context, c *CLI, inputs ParsedInputs) (contextCreateWizardSeed, error) {
-	seed := contextCreateWizardSeed{
-		Selection: contextCreateSelection{
-			Name:             inputs.One("--name"),
-			RuntimeSelection: inputs.One("--runtime"),
-			SourceAccess:     tobari.ContextSourceAccess(inputs.One("--source-access")),
-			NativeReadiness:  tobari.ContextNativeReadiness(inputs.One("--native-readiness")),
-			MethodPolicy: tobari.ContextMethodPolicy{
-				Default:   tobari.ContextMethodExactReview,
-				Overrides: []tobari.ContextMethodOverride{},
+func contextCreateSeedFromInputs(
+	ctx context.Context, c *CLI, inputs ParsedInputs, observedBase *tobari.ContextCreateBase,
+) (contextCreateWizardSeed, error) {
+	seed := contextCreateWizardSeed{Selection: contextCreateSelection{PolicyMode: tobari.ContextPolicyModeGuided}}
+	if observedBase != nil {
+		base := observedBase.Clone()
+		var bootstrap *tobari.ContextBootstrapSnapshot
+		if base.Bootstrap != nil {
+			copy := base.Bootstrap.Clone()
+			bootstrap = &copy
+		}
+		seed = contextCreateWizardSeed{
+			Selection: contextCreateSelection{
+				Base: &base, PolicyMode: base.PolicyMode, RuntimeSelection: base.RuntimeSelection,
+				SourceAccess: base.SourceAccess, NativeReadiness: base.NativeReadiness,
+				MethodPolicy: base.MethodPolicy.Clone(), Bootstrap: bootstrap,
 			},
-		},
-		NameProvided:     inputs.Provided("--name"),
-		FilesystemFilled: inputs.Provided("--source-access"),
-		NetworkFilled:    inputs.Provided("--mode") && inputs.Provided("--native-readiness"),
-		RuntimeProvided:  inputs.Provided("--runtime"),
-		BootstrapFilled:  inputs.Provided("--bootstrap-aws-profile"),
+			FilesystemFilled: true, NetworkFilled: true, RuntimeProvided: true, BootstrapFilled: true,
+		}
 	}
-	if !seed.RuntimeProvided {
+	seed.Selection.Name = inputs.One("--name")
+	seed.NameProvided = inputs.Provided("--name")
+	if seed.Selection.MethodPolicy.Overrides == nil {
+		seed.Selection.MethodPolicy = tobari.ContextMethodPolicy{Default: tobari.ContextMethodExactReview, Overrides: []tobari.ContextMethodOverride{}}
+	}
+	if inputs.Provided("--runtime") {
+		seed.Selection.RuntimeSelection = inputs.One("--runtime")
+		seed.RuntimeProvided = true
+	}
+	if inputs.Provided("--mode") {
+		seed.Selection.PolicyMode = tobari.ContextPolicyMode(inputs.One("--mode"))
+	}
+	if inputs.Provided("--source-access") {
+		seed.Selection.SourceAccess = tobari.ContextSourceAccess(inputs.One("--source-access"))
+		seed.FilesystemFilled = true
+	}
+	if inputs.Provided("--native-readiness") {
+		seed.Selection.NativeReadiness = tobari.ContextNativeReadiness(inputs.One("--native-readiness"))
+	}
+	if inputs.Provided("--mode") && inputs.Provided("--native-readiness") {
+		seed.NetworkFilled = true
+	}
+	if seed.Selection.RuntimeSelection == "" {
 		seed.Selection.RuntimeSelection = tobari.StandardRuntimeName
 	}
-	if !seed.FilesystemFilled {
+	if seed.Selection.SourceAccess == "" {
 		seed.Selection.SourceAccess = tobari.ContextSourceAccessReadWrite
 	}
-	if !seed.BootstrapFilled {
+	if !inputs.Provided("--bootstrap-aws-profile") {
 		return seed, nil
 	}
+	seed.BootstrapFilled = true
 	prepared, err := c.context.PrepareAWSBootstrap(ctx, inputs.One("--bootstrap-aws-profile"))
 	if err != nil {
 		return contextCreateWizardSeed{}, err
@@ -592,6 +692,49 @@ func contextCreateSeedFromInputs(ctx context.Context, c *CLI, inputs ParsedInput
 	}
 	seed.Selection.Bootstrap = &prepared
 	return seed, nil
+}
+
+func selectContextCreateBase(
+	ctx context.Context, c *CLI,
+) (*tobari.ContextCreateBase, []tobari.ContextSummary, error) {
+	listed, err := c.context.List(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	if len(listed.Items) == 0 {
+		return nil, nil, nil
+	}
+	options := []configurationWizardOption{{
+		label: "Tobari recommended settings", description: "Start from the stable product defaults.", value: "",
+	}}
+	initial := 0
+	for _, item := range listed.Items {
+		description := "Initialize a standalone draft from this Context."
+		if item.Active {
+			description = "Current Context; initialize a standalone draft."
+			initial = len(options)
+		}
+		options = append(options, configurationWizardOption{
+			label: safeExternalText(item.Name), description: description, value: item.Name,
+		})
+	}
+	chooser := newContextConfigurationWizardWithStyle(!c.noColor)
+	selected, err := chooser.choose(ctx, c.In, c.Err, configurationWizardMenu{
+		title: "Tobari · Create Context · Base", current: safeExternalText(listed.Active),
+		information: []string{"Base initializes this draft once; it creates no lineage or inheritance."},
+		prompt:      "Base", options: options, initial: initial,
+	})
+	if err != nil {
+		return nil, listed.Items, normalizeContextCreateWizardError(err)
+	}
+	if options[selected].value == "" {
+		return nil, listed.Items, nil
+	}
+	base, err := c.context.CreationBase(ctx, options[selected].value)
+	if err != nil {
+		return nil, listed.Items, err
+	}
+	return &base, listed.Items, nil
 }
 
 func normalizeContextCreateWizardError(err error) error {

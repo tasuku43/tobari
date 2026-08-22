@@ -60,7 +60,13 @@ separate and keyed by stable Context ID. Neither authentication model becomes a
 mutable Boundary field.
 
 Context creation owns all Boundary defaults and the initial Runtime/default
-values. After creation, only catalog-owned Runtime, shell, Git, and bootstrap
+values. It may initialize one standalone draft from the exact copyable
+work-mode snapshot of another Context. This Base creates no parent, target,
+reference, inheritance, or persisted lineage; the new Context receives a new
+stable ID. Copyable state is limited to Boundary, exact Runtime binding,
+shell/Git defaults, future-Workspace bootstrap, and Advanced policy source.
+Learned permissions, Workspace homes, authentication, Attachment authority,
+and current selection are excluded. After creation, only catalog-owned Runtime, shell, Git, and bootstrap
 mutations may change their respective Context components. `context use` changes
 only the omitted-input default. No Context mutation retargets an existing
 Workspace, changes its stable Context ID, widens its Boundary, or silently
@@ -106,6 +112,9 @@ change would add per-Workspace selection and divergence.
   and read-only Git projections rather than Workspace-home mutation.
 - Bootstrap tests prove refresh/removal affects only future Workspace creation
   and preserves existing home bytes.
+- Base tests bind creation to one content revision, prove atomic standalone
+  publication and a distinct stable ID, and prove excluded lower-lifetime state
+  is absent from the new Context.
 
 ## Compatibility and migration
 

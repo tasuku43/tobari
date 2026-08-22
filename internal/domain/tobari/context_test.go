@@ -71,6 +71,42 @@ func TestContextCreateCompositionClonesMethodPolicyAndDeleteResultIsTerminal(t *
 	}
 }
 
+func TestContextCreateBaseIsCompleteValidatedAndDeepCloned(t *testing.T) {
+	literal := "prompt"
+	base := ContextCreateBase{
+		ID: "018bcfe5-687b-7000-8000-000000000123", Name: "engineering",
+		Revision: "sha256:" + strings.Repeat("a", 64), PolicyMode: ContextPolicyModeAdvanced,
+		SourceAccess: ContextSourceAccessReadOnly, NativeReadiness: ContextNativeReadinessDisabled,
+		MethodPolicy:     ContextMethodPolicy{Default: ContextMethodDeny, Overrides: []ContextMethodOverride{{Method: "GET", Decision: ContextMethodAllow}}},
+		RuntimeSelection: StandardRuntimeName,
+		ShellEnvironment: DefaultContextShellEnvironmentReport(), GitIdentity: DefaultContextGitIdentityReport(),
+	}
+	base.ShellEnvironment[2] = ContextShellEnvironmentSetting{Variable: "PS1", Source: ContextShellEnvironmentLiteral, Value: &literal}
+	if err := base.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	clone := base.Clone()
+	*clone.ShellEnvironment[2].Value = "changed"
+	clone.MethodPolicy.Overrides[0].Decision = ContextMethodDeny
+	if *base.ShellEnvironment[2].Value != literal || base.MethodPolicy.Overrides[0].Decision != ContextMethodAllow {
+		t.Fatal("Context creation Base clone aliases copyable settings")
+	}
+	for name, mutate := range map[string]func(*ContextCreateBase){
+		"identity": func(value *ContextCreateBase) { value.ID = "engineering" },
+		"revision": func(value *ContextCreateBase) { value.Revision = DefaultContextPolicyRevision()[:20] },
+		"runtime":  func(value *ContextCreateBase) { value.RuntimeSelection = "missing@0" },
+		"shell":    func(value *ContextCreateBase) { value.ShellEnvironment = value.ShellEnvironment[:1] },
+	} {
+		t.Run(name, func(t *testing.T) {
+			candidate := base.Clone()
+			mutate(&candidate)
+			if err := candidate.Validate(); err == nil {
+				t.Fatalf("invalid Context creation Base was accepted: %+v", candidate)
+			}
+		})
+	}
+}
+
 func TestContextManifestValidatesRuntimeImageAndMode(t *testing.T) {
 	manifest := validContextManifest()
 	if err := manifest.Validate(); err != nil {

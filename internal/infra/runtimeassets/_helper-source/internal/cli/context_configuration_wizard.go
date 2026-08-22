@@ -657,6 +657,7 @@ type configurationWizardMenu struct {
 	information []string
 	prompt      string
 	options     []configurationWizardOption
+	initial     int
 }
 
 func (w *terminalContextConfigurationWizard) choose(
@@ -685,7 +686,10 @@ func (w *terminalContextConfigurationWizard) choose(
 func selectConfigurationWizardRaw(
 	ctx context.Context, in io.Reader, out io.Writer, menu configurationWizardMenu, style bool,
 ) (int, error) {
-	selected := 0
+	selected := menu.initial
+	if selected < 0 || selected >= len(menu.options) {
+		selected = 0
+	}
 	message := ""
 	lineCount := 0
 	needsRender := true
@@ -790,6 +794,10 @@ func renderConfigurationWizardLines(out io.Writer, lines []string, previousLines
 func selectConfigurationWizardLine(
 	ctx context.Context, in io.Reader, out io.Writer, menu configurationWizardMenu,
 ) (int, error) {
+	initial := menu.initial
+	if initial < 0 || initial >= len(menu.options) {
+		initial = 0
+	}
 	if _, err := fmt.Fprintln(out, menu.title); err != nil {
 		return 0, err
 	}
@@ -829,7 +837,7 @@ func selectConfigurationWizardLine(
 			return 0, err
 		}
 	}
-	if _, err := fmt.Fprint(out, "Choose a number, or q to cancel [1]: "); err != nil {
+	if _, err := fmt.Fprintf(out, "Choose a number, or q to cancel [%d]: ", initial+1); err != nil {
 		return 0, err
 	}
 	for {
@@ -839,7 +847,7 @@ func selectConfigurationWizardLine(
 		}
 		value := strings.TrimSpace(line)
 		if value == "" {
-			return 0, nil
+			return initial, nil
 		}
 		if strings.EqualFold(value, "q") || strings.EqualFold(value, "quit") || strings.EqualFold(value, "esc") {
 			return 0, context.Canceled

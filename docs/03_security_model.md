@@ -939,6 +939,13 @@ volumes, not encrypted Context vaults or the installation root key.
 existing validated Context and atomically changes only the current/default
 marker. It does not touch Docker, the aggregate projection, an existing Workspace,
 or any enforcement authority. `context create` likewise does not start Docker.
+Its optional Base read is limited to one validated owner-only Context work-mode
+snapshot and exact content revision. It copies Boundary, Runtime binding,
+shell/Git defaults, future-Workspace bootstrap, and Advanced policy source into
+a separately identified Context, while excluding learned permissions,
+Workspace homes, Workspace-owned or broker authentication, Attachment
+authority, and current selection. The Base is revalidated under the creation
+lock and stale material fails before the staged Context is published.
 Its complete or partially prefilled wizard is allowed only with text
 success/error output and terminal stdin/stderr; supplied values remain bound
 while it validates every omitted stage before one mutation. Redirected and JSON

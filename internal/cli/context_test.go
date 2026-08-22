@@ -108,6 +108,12 @@ func (f *contextCLI) ListContexts(context.Context) (tobari.ContextListResult, er
 	if len(f.listResults) >= f.listCalls {
 		return f.listResults[f.listCalls-1], nil
 	}
+	if f.list.Task == "" {
+		return tobari.ContextListResult{
+			Task: tobari.TaskContextList, ContextState: tobari.ContextObservationSyntheticDefault,
+			Active: tobari.DefaultContextName, Items: []tobari.ContextSummary{},
+		}, nil
+	}
 	return f.list, nil
 }
 
@@ -136,10 +142,17 @@ func (f *contextCLI) CreateContextWithComposition(
 	composition tobari.ContextCreateComposition,
 ) (tobari.ContextReport, error) {
 	f.createCalls++
+	f.lastComposition = composition.Clone()
 	f.report = contextCLIReport(tobari.TaskContextCreate, name, false, image, mode)
 	f.report.SourceAccess = sourceAccess
+	f.report.NativeReadiness = composition.NativeReadiness
 	if composition.MethodPolicy != nil {
 		f.report.MethodPolicy = composition.MethodPolicy.Clone()
+	}
+	if composition.Base != nil {
+		base := composition.Base.Clone()
+		f.report.ShellEnvironment = base.ShellEnvironment
+		f.report.GitIdentity = base.GitIdentity
 	}
 	f.report.Bootstrap = tobari.ContextBootstrapReportFrom(composition.Bootstrap)
 	return f.report, nil
@@ -372,6 +385,17 @@ type fakeContextRuntime struct {
 	lastGitContext          string
 	lastRuntimeContext      string
 	lastRuntimeSelection    string
+	base                    tobari.ContextCreateBase
+	baseCalls               int
+	lastComposition         tobari.ContextCreateComposition
+}
+
+func (f *contextCLI) ContextCreateBase(_ context.Context, name string) (tobari.ContextCreateBase, error) {
+	f.baseCalls++
+	if f.base.Name == "" || f.base.Name != name {
+		return tobari.ContextCreateBase{}, tobari.ErrContextNotFound
+	}
+	return f.base.Clone(), nil
 }
 
 type contextSwitchingWizard struct {
@@ -1334,6 +1358,132 @@ func TestContextCreateIncompleteNonInteractiveInputFailsAndCompleteDirectInputDo
 	}
 	if fake.createCalls != 1 || !strings.Contains(stdout.String(), "Context direct created") {
 		t.Fatalf("direct create calls/output = %d/%q", fake.createCalls, stdout.String())
+	}
+}
+
+func testContextCreateBase() tobari.ContextCreateBase {
+	return tobari.ContextCreateBase{
+		ID: "018bcfe5-687b-7000-8000-000000000120", Name: "engineering",
+		Revision: "sha256:" + strings.Repeat("a", 64), PolicyMode: tobari.ContextPolicyModeAdvanced,
+		SourceAccess: tobari.ContextSourceAccessReadOnly, NativeReadiness: tobari.ContextNativeReadinessDisabled,
+		MethodPolicy:     tobari.ContextMethodPolicy{Default: tobari.ContextMethodDeny, Overrides: []tobari.ContextMethodOverride{{Method: "GET", Decision: tobari.ContextMethodAllow}}},
+		RuntimeSelection: "standard@1", ShellEnvironment: tobari.DefaultContextShellEnvironmentReport(), GitIdentity: tobari.DefaultContextGitIdentityReport(),
+	}
+}
+
+func testContextCreateBaseList(base tobari.ContextCreateBase) tobari.ContextListResult {
+	return tobari.ContextListResult{
+		Task: tobari.TaskContextList, ContextState: tobari.ContextObservationPersisted, Active: base.Name,
+		Items: []tobari.ContextSummary{{
+			ID: base.ID, Name: base.Name, ContextState: tobari.ContextObservationPersisted, Active: true,
+			AgentProfile: tobari.DefaultProfile, Image: tobari.OfficialRuntimeBase,
+			PolicyMode: base.PolicyMode, SourceAccess: base.SourceAccess, PolicyRevision: tobari.DefaultContextPolicyRevision(),
+			NativeReadiness: base.NativeReadiness, MethodPolicy: base.MethodPolicy.Clone(),
+			RuntimeStatus: tobari.ContextRuntimeStatusOfficial, RuntimeSelection: base.RuntimeSelection,
+			Bootstrap: tobari.ContextBootstrapReportFrom(nil),
+		}},
+	}
+}
+
+func TestContextCreateExplicitBaseIsDirectAndProducesStandaloneContext(t *testing.T) {
+	t.Parallel()
+	base := testContextCreateBase()
+	fake := &contextCLI{base: base}
+	var stdout, stderr bytes.Buffer
+	command := newCLI(strings.NewReader(""), &stdout, &stderr, DefaultCatalog(), nil)
+	command.context = contextcmd.New(fake)
+	if code := command.RunContext(context.Background(), []string{"context", "create", "--base", base.Name, "--name", "standalone", "--format", "json"}); code != ExitOK {
+		t.Fatalf("explicit Base create code = %d, stderr = %q", code, stderr.String())
+	}
+	if fake.baseCalls != 1 || fake.createCalls != 1 || fake.listCalls != 0 || fake.lastComposition.Base == nil ||
+		fake.lastComposition.Base.Revision != base.Revision || fake.report.ID == base.ID ||
+		fake.report.PolicyMode != base.PolicyMode || fake.report.SourceAccess != base.SourceAccess {
+		t.Fatalf("explicit Base create calls/composition/report = base:%d list:%d create:%d %+v %+v", fake.baseCalls, fake.listCalls, fake.createCalls, fake.lastComposition, fake.report)
+	}
+	for _, forbidden := range []string{`"base_context"`, `"parent_context"`, `"inherits_from"`} {
+		if strings.Contains(stdout.String(), forbidden) {
+			t.Fatalf("standalone Context output persisted inferred lineage %s: %s", forbidden, stdout.String())
+		}
+	}
+}
+
+func TestContextCreateMissingExplicitBaseFailsBeforeMutation(t *testing.T) {
+	t.Parallel()
+	fake := &contextCLI{}
+	var stdout, stderr bytes.Buffer
+	command := newCLI(strings.NewReader(""), &stdout, &stderr, DefaultCatalog(), nil)
+	command.context = contextcmd.New(fake)
+	if code := command.RunContext(context.Background(), []string{"context", "create", "--base", "missing", "--name", "standalone"}); code != ExitNotFound {
+		t.Fatalf("missing Base create code = %d, stderr = %q", code, stderr.String())
+	}
+	if fake.baseCalls != 1 || fake.createCalls != 0 || stdout.Len() != 0 || !strings.Contains(stderr.String(), "context_base_not_found") {
+		t.Fatalf("missing Base mutation/output = base:%d create:%d stdout:%q stderr:%q", fake.baseCalls, fake.createCalls, stdout.String(), stderr.String())
+	}
+}
+
+func TestContextCreateExplicitBaseAppliesSuppliedDraftOverrides(t *testing.T) {
+	t.Parallel()
+	base := testContextCreateBase()
+	fake := &contextCLI{base: base}
+	var stdout, stderr bytes.Buffer
+	command := newCLI(strings.NewReader(""), &stdout, &stderr, DefaultCatalog(), nil)
+	command.context = contextcmd.New(fake)
+	if code := command.RunContext(context.Background(), []string{
+		"context", "create", "--base", base.Name, "--name", "overridden",
+		"--mode", "guided", "--source-access", "read-write", "--native-readiness", "enabled",
+	}); code != ExitOK {
+		t.Fatalf("overridden Base create code = %d, stderr = %q", code, stderr.String())
+	}
+	if fake.report.PolicyMode != tobari.ContextPolicyModeGuided || fake.report.SourceAccess != tobari.ContextSourceAccessReadWrite ||
+		fake.lastComposition.NativeReadiness != tobari.ContextNativeReadinessEnabled || fake.lastComposition.Base == nil ||
+		fake.lastComposition.MethodPolicy == nil || fake.lastComposition.MethodPolicy.Default != base.MethodPolicy.Default {
+		t.Fatalf("Base overrides lost reviewed values: report=%+v composition=%+v", fake.report, fake.lastComposition)
+	}
+}
+
+func TestContextCreateOmittedBaseChoosesCurrentBeforeNameAndShowsInitializer(t *testing.T) {
+	base := testContextCreateBase()
+	fake := &contextCLI{base: base, list: testContextCreateBaseList(base)}
+	var stdout, stderr bytes.Buffer
+	command := newCLI(strings.NewReader("\nstandalone\n1\n"), &stdout, &stderr, DefaultCatalog(), nil)
+	command.context = contextcmd.New(fake)
+	command.tobari = tobaricmd.New(&policyReviewRuntimeFake{terminal: true})
+	if code := command.RunContext(context.Background(), []string{"context", "create"}); code != ExitOK {
+		t.Fatalf("implicit Base create code = %d, stderr = %q", code, stderr.String())
+	}
+	basePosition, namePosition := strings.Index(stderr.String(), "Create Context · Base"), strings.Index(stderr.String(), "Context name")
+	if basePosition < 0 || namePosition < 0 || basePosition >= namePosition ||
+		!strings.Contains(stderr.String(), "engineering (draft initializer only)") ||
+		!strings.Contains(stderr.String(), "no lineage or inheritance") {
+		t.Fatalf("implicit Base ordering/review = %q", stderr.String())
+	}
+	if fake.listCalls != 1 || fake.baseCalls != 1 || fake.createCalls != 1 || fake.lastComposition.Base == nil || fake.lastComposition.Base.Name != base.Name {
+		t.Fatalf("implicit Base calls/composition = list:%d base:%d create:%d %+v", fake.listCalls, fake.baseCalls, fake.createCalls, fake.lastComposition)
+	}
+}
+
+func TestContextCreateCatalogUsesBaseWithoutLineageOrFromAlias(t *testing.T) {
+	command, ok := DefaultCatalog().Lookup("context create")
+	if !ok {
+		t.Fatal("context create is absent")
+	}
+	var base CommandInput
+	found := false
+	for _, input := range command.Agent.Inputs {
+		if input.Name == "--base" {
+			base, found = input, true
+		}
+	}
+	if !found || base.Required || base.ReferenceKind != "" || base.Completion != InputCompletionContextName || base.Cardinality != InputCardinalitySingle {
+		t.Fatalf("--base catalog input = %+v, found=%t", base, found)
+	}
+	for _, input := range command.Agent.Inputs {
+		if input.Name == "--from" {
+			t.Fatal("context create exposed the rejected --from lineage vocabulary")
+		}
+	}
+	if strings.Contains(command.Args, "--from") {
+		t.Fatal("context create exposed the rejected --from lineage vocabulary")
 	}
 }
 

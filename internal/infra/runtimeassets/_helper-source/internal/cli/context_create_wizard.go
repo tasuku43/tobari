@@ -24,6 +24,8 @@ var contextCreateHTTPMethods = []string{
 }
 
 type contextCreateSelection struct {
+	Base                *tobari.ContextCreateBase
+	PolicyMode          tobari.ContextPolicyMode
 	Name                string
 	RuntimeSelection    string
 	SourceAccess        tobari.ContextSourceAccess
@@ -56,6 +58,10 @@ type terminalContextCreateWizard struct {
 	style     bool
 	bootstrap contextCreateBootstrapDiscovery
 	runtimes  []tobari.RuntimeSummary
+	bases     []tobari.ContextSummary
+	baseRead  interface {
+		CreationBase(context.Context, string) (tobari.ContextCreateBase, error)
+	}
 }
 
 type contextCreateBootstrapDiscovery interface {
@@ -85,6 +91,8 @@ const (
 )
 
 type contextCreateRawDraft struct {
+	base             *tobari.ContextCreateBase
+	policyMode       tobari.ContextPolicyMode
 	name             string
 	sourceIndex      int
 	methodSelected   int
@@ -256,6 +264,8 @@ func (w *terminalContextCreateWizard) composeRaw(
 
 func contextCreateDraftFromSeed(seed contextCreateWizardSeed) contextCreateRawDraft {
 	draft := contextCreateRawDraft{
+		base:             seed.Selection.Base,
+		policyMode:       seed.Selection.PolicyMode,
 		name:             seed.Selection.Name,
 		sourceIndex:      0,
 		runtimeSelection: seed.Selection.RuntimeSelection,
@@ -265,6 +275,9 @@ func contextCreateDraftFromSeed(seed contextCreateWizardSeed) contextCreateRawDr
 	}
 	if draft.runtimeSelection == "" {
 		draft.runtimeSelection = tobari.StandardRuntimeName
+	}
+	if draft.policyMode == "" {
+		draft.policyMode = tobari.ContextPolicyModeGuided
 	}
 	if draft.nativeReadiness == "" {
 		draft.nativeReadiness = tobari.ContextNativeReadinessEnabled
@@ -283,6 +296,28 @@ func contextCreateDraftFromSeed(seed contextCreateWizardSeed) contextCreateRawDr
 		draft.bootstrap = &copy
 	}
 	return draft
+}
+
+func resetContextCreateDraftBase(draft *contextCreateRawDraft, base *tobari.ContextCreateBase) {
+	name := draft.name
+	reviewAction, reviewTop, editSection := draft.reviewAction, draft.reviewTop, draft.editSection
+	seed := contextCreateWizardSeed{}
+	if base != nil {
+		copy := base.Clone()
+		seed.Selection = contextCreateSelection{
+			Base: &copy, PolicyMode: copy.PolicyMode, RuntimeSelection: copy.RuntimeSelection,
+			SourceAccess: copy.SourceAccess, NativeReadiness: copy.NativeReadiness,
+			MethodPolicy: copy.MethodPolicy.Clone(),
+		}
+		if copy.Bootstrap != nil {
+			bootstrap := copy.Bootstrap.Clone()
+			seed.Selection.Bootstrap = &bootstrap
+		}
+	}
+	replacement := contextCreateDraftFromSeed(seed)
+	replacement.name = name
+	replacement.reviewAction, replacement.reviewTop, replacement.editSection = reviewAction, reviewTop, editSection
+	*draft = replacement
 }
 
 func firstContextCreateStep(seed contextCreateWizardSeed) contextCreateRawStep {
@@ -873,7 +908,9 @@ func contextCreateSelectionFromDraft(draft contextCreateRawDraft) (contextCreate
 		return contextCreateSelection{}, err
 	}
 	selection := contextCreateSelection{
-		Name: draft.name, RuntimeSelection: draft.runtimeSelection,
+		Base:       draft.base,
+		PolicyMode: draft.policyMode,
+		Name:       draft.name, RuntimeSelection: draft.runtimeSelection,
 		NativeReadiness: draft.nativeReadiness,
 		SourceAccess: []tobari.ContextSourceAccess{
 			tobari.ContextSourceAccessReadWrite,
@@ -900,7 +937,9 @@ func contextCreateReviewLines(style bool, selection contextCreateSelection) []st
 	runtimeSelection = contextRuntimeDisplaySelection(runtimeSelection)
 	lines := []string{
 		applyStyleToken(style, styleText, "Context"),
+		selectorDetail(style, "Base", contextCreateBaseDisplay(selection.Base), styleText),
 		selectorDetail(style, "Name", safeExternalText(selection.Name), styleText),
+		selectorDetail(style, "Policy mode", string(selection.PolicyMode), styleText),
 		"", applyStyleToken(style, styleText, "Filesystem"),
 		applyStyleToken(style, styleMuted, "  LOCATION                  ACCESS"),
 		fmt.Sprintf("  %-25s %s", "Project source", selection.SourceAccess),
@@ -940,6 +979,13 @@ func contextCreateReviewLines(style bool, selection contextCreateSelection) []st
 	}
 	lines = append(lines, selectorHelp(style, "Applied only to newly created Workspace homes."))
 	return lines
+}
+
+func contextCreateBaseDisplay(base *tobari.ContextCreateBase) string {
+	if base == nil {
+		return "Tobari recommended settings"
+	}
+	return safeExternalText(base.Name) + " (draft initializer only)"
 }
 
 func contextCreateRoutineTrafficPolicy(style bool, readiness tobari.ContextNativeReadiness) string {
@@ -1001,11 +1047,17 @@ func editContextCreateNetworkLine(ctx context.Context, in io.Reader, out io.Writ
 
 func (w *terminalContextCreateWizard) editContextCreateSettingsLine(ctx context.Context, in io.Reader, out io.Writer, draft *contextCreateRawDraft) error {
 	chooser := &terminalContextConfigurationWizard{mode: nil, style: w.style}
-	options := []configurationWizardOption{
-		{label: "Context name", value: "name"}, {label: "Filesystem access", value: "filesystem"},
-		{label: "Network access", value: "network"}, {label: "Runtime", value: "runtime"},
-		{label: "Workspace bootstrap", value: "bootstrap"},
+	options := []configurationWizardOption{}
+	if len(w.bases) > 0 {
+		options = append(options, configurationWizardOption{label: "Base", description: "Reset all Base-owned draft settings.", value: "base"})
 	}
+	options = append(options,
+		configurationWizardOption{label: "Context name", value: "name"},
+		configurationWizardOption{label: "Filesystem access", value: "filesystem"},
+		configurationWizardOption{label: "Network access", value: "network"},
+		configurationWizardOption{label: "Runtime", value: "runtime"},
+		configurationWizardOption{label: "Workspace bootstrap", value: "bootstrap"},
+	)
 	options = append(options, configurationWizardOption{label: "Return to review", value: "review"})
 	index, err := chooser.choose(ctx, in, out, configurationWizardMenu{
 		title: "Tobari · Create Context · Edit settings", contextName: draft.name, current: "draft", prompt: "What do you want to edit?",
@@ -1015,6 +1067,8 @@ func (w *terminalContextCreateWizard) editContextCreateSettingsLine(ctx context.
 		return err
 	}
 	switch options[index].value {
+	case "base":
+		err = w.editContextCreateBaseLine(ctx, in, out, draft)
 	case "name":
 		draft.name, err = readContextCreateName(ctx, in, out)
 	case "filesystem":
@@ -1027,6 +1081,68 @@ func (w *terminalContextCreateWizard) editContextCreateSettingsLine(ctx context.
 		err = w.editContextCreateRuntimeLine(ctx, in, out, draft)
 	}
 	return err
+}
+
+func (w *terminalContextCreateWizard) contextCreateBaseOptions(current *tobari.ContextCreateBase) ([]configurationWizardOption, int) {
+	options := []configurationWizardOption{{label: "Tobari recommended settings", description: "Reset to the stable product defaults.", value: ""}}
+	initial := 0
+	for _, item := range w.bases {
+		if current != nil && item.Name == current.Name {
+			initial = len(options)
+		}
+		options = append(options, configurationWizardOption{
+			label: safeExternalText(item.Name), description: "Initialize a standalone draft; no lineage is created.", value: item.Name,
+		})
+	}
+	return options, initial
+}
+
+func (w *terminalContextCreateWizard) editContextCreateBaseLine(
+	ctx context.Context, in io.Reader, out io.Writer, draft *contextCreateRawDraft,
+) error {
+	options, initial := w.contextCreateBaseOptions(draft.base)
+	chooser := &terminalContextConfigurationWizard{mode: nil, style: w.style}
+	selected, err := chooser.choose(ctx, in, out, configurationWizardMenu{
+		title: "Tobari · Create Context · Base", contextName: draft.name,
+		current: contextCreateBaseDisplay(draft.base), prompt: "Base", options: options, initial: initial,
+	})
+	if err != nil {
+		return err
+	}
+	name := options[selected].value
+	if (draft.base == nil && name == "") || (draft.base != nil && draft.base.Name == name) {
+		return nil
+	}
+	confirmed, err := chooser.choose(ctx, in, out, configurationWizardMenu{
+		title: "Tobari · Create Context · Reset Base", contextName: draft.name,
+		information: []string{"Changing Base replaces every Base-owned draft setting, including prior customizations."},
+		prompt:      "Reset draft", options: []configurationWizardOption{
+			{label: "Reset draft", description: "Replace settings with the selected Base.", value: "reset"},
+			{label: "Keep current draft", description: "Return without changing settings.", value: "keep"},
+		}, initial: 1,
+	})
+	if err != nil || confirmed != 0 {
+		return err
+	}
+	return w.applyContextCreateBase(ctx, draft, name)
+}
+
+func (w *terminalContextCreateWizard) applyContextCreateBase(
+	ctx context.Context, draft *contextCreateRawDraft, name string,
+) error {
+	if name == "" {
+		resetContextCreateDraftBase(draft, nil)
+		return nil
+	}
+	if w.baseRead == nil {
+		return fmt.Errorf("Context creation Base reader is unavailable")
+	}
+	base, err := w.baseRead.CreationBase(ctx, name)
+	if err != nil {
+		return err
+	}
+	resetContextCreateDraftBase(draft, &base)
+	return nil
 }
 
 func (w *terminalContextCreateWizard) readyRuntimeOptions() []configurationWizardOption {
@@ -1201,7 +1317,18 @@ func (w *terminalContextCreateWizard) revalidateBootstrap(ctx context.Context, r
 }
 
 func (w *terminalContextCreateWizard) editContextCreateSettingsRaw(ctx context.Context, in io.Reader, out io.Writer, lineCount *int, draft *contextCreateRawDraft) (contextCreateRawNavigation, error) {
-	options := []configurationWizardOption{{label: "Context name"}, {label: "Filesystem access"}, {label: "Network access"}, {label: "Runtime"}, {label: "Workspace bootstrap"}, {label: "Return to review"}}
+	options := []configurationWizardOption{}
+	if len(w.bases) > 0 {
+		options = append(options, configurationWizardOption{label: "Base", value: "base"})
+	}
+	options = append(options,
+		configurationWizardOption{label: "Context name", value: "name"},
+		configurationWizardOption{label: "Filesystem access", value: "filesystem"},
+		configurationWizardOption{label: "Network access", value: "network"},
+		configurationWizardOption{label: "Runtime", value: "runtime"},
+		configurationWizardOption{label: "Workspace bootstrap", value: "bootstrap"},
+		configurationWizardOption{label: "Return to review", value: "review"},
+	)
 	index, navigation, err := editContextCreateChoiceRaw(ctx, in, out, lineCount, w.style, contextCreateStepReview, draft.name, nil, "What do you want to edit?", options, draft.editSection)
 	if err != nil {
 		return contextCreateNavigateCancel, err
@@ -1214,8 +1341,27 @@ func (w *terminalContextCreateWizard) editContextCreateSettingsRaw(ctx context.C
 	}
 	draft.editSection = index
 	staged := cloneContextCreateRawDraft(*draft)
-	switch index {
-	case 0:
+	switch options[index].value {
+	case "base":
+		baseOptions, initial := w.contextCreateBaseOptions(staged.base)
+		value, navigation, err := editContextCreateChoiceRaw(ctx, in, out, lineCount, w.style, contextCreateStepReview, staged.name, []string{"Changing Base replaces every Base-owned draft setting after confirmation."}, "Base", baseOptions, initial)
+		if err != nil || navigation != contextCreateNavigateNext {
+			return navigation, err
+		}
+		name := baseOptions[value].value
+		if (staged.base == nil && name == "") || (staged.base != nil && staged.base.Name == name) {
+			return contextCreateNavigateNext, nil
+		}
+		confirm, navigation, err := editContextCreateChoiceRaw(ctx, in, out, lineCount, w.style, contextCreateStepReview, staged.name, []string{"Every Base-owned customization in this draft will be replaced."}, "Reset draft", []configurationWizardOption{{label: "Reset draft"}, {label: "Keep current draft"}}, 1)
+		if err != nil || navigation != contextCreateNavigateNext || confirm != 0 {
+			return navigation, err
+		}
+		if err := w.applyContextCreateBase(ctx, &staged, name); err != nil {
+			return contextCreateNavigateCancel, err
+		}
+		*draft = staged
+		return contextCreateNavigateNext, nil
+	case "name":
 		value, navigation, err := editContextCreateTextRaw(ctx, in, out, lineCount, w.style, contextCreateStepReview, "Context name", staged.name, maxContextCreateNameBytes, "Must match [a-z][a-z0-9-]{0,62}.", func(value string) error { return tobari.ValidateName(strings.TrimSpace(value)) }, true)
 		if err != nil {
 			return contextCreateNavigateCancel, err
@@ -1225,7 +1371,7 @@ func (w *terminalContextCreateWizard) editContextCreateSettingsRaw(ctx context.C
 			*draft = staged
 		}
 		return navigation, nil
-	case 1:
+	case "filesystem":
 		value, navigation, err := editContextCreateChoiceRaw(ctx, in, out, lineCount, w.style, contextCreateStepReview, staged.name, []string{"Workspace home and temporary files stay read-write."}, "Project source access", []configurationWizardOption{{label: "Read-write", description: "Allow direct project-source changes."}, {label: "Read-only", description: "Prevent direct project-source changes."}}, staged.sourceIndex)
 		if err != nil {
 			return contextCreateNavigateCancel, err
@@ -1235,7 +1381,7 @@ func (w *terminalContextCreateWizard) editContextCreateSettingsRaw(ctx context.C
 			*draft = staged
 		}
 		return navigation, nil
-	case 2:
+	case "network":
 		navigation, err := reviewContextCreateNetworkRaw(ctx, in, out, lineCount, w.style, &staged)
 		if err != nil {
 			return contextCreateNavigateCancel, err
@@ -1244,7 +1390,7 @@ func (w *terminalContextCreateWizard) editContextCreateSettingsRaw(ctx context.C
 			*draft = staged
 		}
 		return navigation, nil
-	case 3:
+	case "runtime":
 		navigation, err := w.editContextCreateRuntimeRaw(ctx, in, out, lineCount, contextCreateStepReview, &staged)
 		if err != nil {
 			return contextCreateNavigateCancel, err
@@ -1253,7 +1399,7 @@ func (w *terminalContextCreateWizard) editContextCreateSettingsRaw(ctx context.C
 			*draft = staged
 		}
 		return navigation, nil
-	case 4:
+	case "bootstrap":
 		navigation, err := w.editContextCreateBootstrapRaw(ctx, in, out, lineCount, &staged)
 		if err != nil {
 			return contextCreateNavigateCancel, err

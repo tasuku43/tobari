@@ -27,6 +27,7 @@ type contextRuntimeFake struct {
 	configureResult      tobari.ContextReport
 	configureGitResult   tobari.ContextReport
 	discoverAWSResult    tobari.ContextAWSBootstrapDiscovery
+	baseResult           tobari.ContextCreateBase
 	listErr              error
 	showErr              error
 	createErr            error
@@ -38,6 +39,7 @@ type contextRuntimeFake struct {
 	configureErr         error
 	configureGitErr      error
 	discoverAWSErr       error
+	baseErr              error
 	createCalls          int
 	listCalls            int
 	deleteCalls          int
@@ -48,6 +50,7 @@ type contextRuntimeFake struct {
 	configureCalls       int
 	configureGitCalls    int
 	discoverAWSCalls     int
+	baseCalls            int
 	showCalls            int
 	buildProgressCalls   int
 	lastName             string
@@ -60,6 +63,12 @@ type contextRuntimeFake struct {
 	lastChanges          []tobari.ContextShellEnvironmentSetting
 	lastGitChange        tobari.ContextGitIdentitySetting
 	lastRuntimeSelection string
+}
+
+func (f *contextRuntimeFake) ContextCreateBase(_ context.Context, name string) (tobari.ContextCreateBase, error) {
+	f.baseCalls++
+	f.lastName = name
+	return f.baseResult.Clone(), f.baseErr
 }
 
 func (f *contextRuntimeFake) DiscoverContextAWSBootstraps(context.Context) (tobari.ContextAWSBootstrapDiscovery, error) {
@@ -738,6 +747,65 @@ func TestCreateWithCompositionPreservesTypedMethodSelection(t *testing.T) {
 	if result.Name != "coding" || fake.createCalls != 1 || fake.lastComposition.MethodPolicy == nil ||
 		fake.lastComposition.MethodPolicy.Overrides[0].Decision != tobari.ContextMethodAllow {
 		t.Fatalf("composed create result/call = %+v/%+v", result, fake.lastComposition)
+	}
+}
+
+func TestCreationBaseAndCreatePreserveReviewedStandaloneComposition(t *testing.T) {
+	base := tobari.ContextCreateBase{
+		ID: "018bcfe5-687b-7000-8000-000000000120", Name: "engineering",
+		Revision: "sha256:" + strings.Repeat("a", 64), PolicyMode: tobari.ContextPolicyModeAdvanced,
+		SourceAccess: tobari.ContextSourceAccessReadOnly, NativeReadiness: tobari.ContextNativeReadinessDisabled,
+		MethodPolicy:     tobari.ContextMethodPolicy{Default: tobari.ContextMethodDeny, Overrides: []tobari.ContextMethodOverride{{Method: "GET", Decision: tobari.ContextMethodAllow}}},
+		RuntimeSelection: "standard@1", ShellEnvironment: tobari.DefaultContextShellEnvironmentReport(),
+		GitIdentity: tobari.DefaultContextGitIdentityReport(),
+	}
+	report := contextReport(tobari.TaskContextCreate, "standalone")
+	report.ID = "018bcfe5-687b-7000-8000-000000000121"
+	report.PolicyMode, report.SourceAccess, report.NativeReadiness = base.PolicyMode, base.SourceAccess, base.NativeReadiness
+	report.MethodPolicy, report.ShellEnvironment, report.GitIdentity = base.MethodPolicy.Clone(), base.ShellEnvironment, base.GitIdentity
+	fake := &contextRuntimeFake{baseResult: base, createResult: report}
+	service := New(fake)
+	observed, err := service.CreationBase(context.Background(), base.Name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	observed.MethodPolicy.Overrides[0].Decision = tobari.ContextMethodDeny
+	if fake.baseResult.MethodPolicy.Overrides[0].Decision != tobari.ContextMethodAllow {
+		t.Fatal("application Base result aliases the infrastructure snapshot")
+	}
+	observed = base.Clone()
+	policy := observed.MethodPolicy.Clone()
+	intent := operation.Intent{
+		Command: "context create", Effect: operation.EffectCreate,
+		Target: operation.TargetRef{Kind: tobari.ContextCatalogTargetKind, ParentID: tobari.ContextCatalogTargetID}, Impact: contextImpact(),
+	}
+	_, err = service.CreateWithComposition(
+		context.Background(), intent, report.Name, tobari.BuiltinImageSelector, observed.PolicyMode, observed.SourceAccess,
+		tobari.ContextCreateComposition{NativeReadiness: observed.NativeReadiness, MethodPolicy: &policy, RuntimeSelection: observed.RuntimeSelection, Base: &observed},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fake.baseCalls != 1 || fake.createCalls != 1 || fake.lastComposition.Base == nil || fake.lastComposition.Base.Revision != base.Revision {
+		t.Fatalf("Base observation/create calls = base %d create %d composition %+v", fake.baseCalls, fake.createCalls, fake.lastComposition)
+	}
+}
+
+func TestCreateMapsChangedBaseToRetryableReviewFault(t *testing.T) {
+	base := tobari.ContextCreateBase{
+		ID: "018bcfe5-687b-7000-8000-000000000120", Name: "engineering",
+		Revision: "sha256:" + strings.Repeat("a", 64), PolicyMode: tobari.ContextPolicyModeGuided,
+		SourceAccess: tobari.ContextSourceAccessReadWrite, NativeReadiness: tobari.ContextNativeReadinessEnabled,
+		MethodPolicy:     tobari.ContextMethodPolicy{Default: tobari.ContextMethodExactReview, Overrides: []tobari.ContextMethodOverride{}},
+		RuntimeSelection: "standard@1", ShellEnvironment: tobari.DefaultContextShellEnvironmentReport(), GitIdentity: tobari.DefaultContextGitIdentityReport(),
+	}
+	fake := &contextRuntimeFake{createErr: tobari.ErrContextBaseChanged}
+	intent := operation.Intent{Command: "context create", Effect: operation.EffectCreate, Target: operation.TargetRef{Kind: tobari.ContextCatalogTargetKind, ParentID: tobari.ContextCatalogTargetID}, Impact: contextImpact()}
+	policy := base.MethodPolicy.Clone()
+	_, err := New(fake).CreateWithComposition(context.Background(), intent, "standalone", tobari.BuiltinImageSelector, base.PolicyMode, base.SourceAccess, tobari.ContextCreateComposition{NativeReadiness: base.NativeReadiness, MethodPolicy: &policy, RuntimeSelection: base.RuntimeSelection, Base: &base})
+	public, ok := fault.PublicCopy(err)
+	if !ok || public.Code != "context_base_changed" || !public.Retryable || len(public.NextActions) != 1 || public.NextActions[0].Command != "context list" {
+		t.Fatalf("changed Base fault = %#v, ok=%t", public, ok)
 	}
 }
 

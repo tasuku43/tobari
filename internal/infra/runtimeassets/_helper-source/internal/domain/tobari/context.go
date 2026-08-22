@@ -81,6 +81,7 @@ type ContextCreateComposition struct {
 	MethodPolicy     *ContextMethodPolicy
 	Bootstrap        *ContextBootstrapSnapshot
 	RuntimeSelection string
+	Base             *ContextCreateBase
 }
 
 func (c ContextCreateComposition) Validate() error {
@@ -100,6 +101,11 @@ func (c ContextCreateComposition) Validate() error {
 	if _, _, err := ParseRuntimeSelection(c.RuntimeSelection); err != nil {
 		return err
 	}
+	if c.Base != nil {
+		if err := c.Base.Validate(); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -112,6 +118,103 @@ func (c ContextCreateComposition) Clone() ContextCreateComposition {
 	if c.Bootstrap != nil {
 		bootstrap := c.Bootstrap.Clone()
 		result.Bootstrap = &bootstrap
+	}
+	if c.Base != nil {
+		base := c.Base.Clone()
+		result.Base = &base
+	}
+	return result
+}
+
+// ContextCreateBase is a validated, read-only snapshot used to initialize a
+// standalone Context draft. Revision binds creation to all copyable Base bytes;
+// it is not persisted as lineage in the created Context.
+type ContextCreateBase struct {
+	ID               string
+	Name             string
+	Revision         string
+	PolicyMode       ContextPolicyMode
+	SourceAccess     ContextSourceAccess
+	NativeReadiness  ContextNativeReadiness
+	MethodPolicy     ContextMethodPolicy
+	RuntimeSelection string
+	ShellEnvironment []ContextShellEnvironmentSetting
+	GitIdentity      ContextGitIdentitySetting
+	Bootstrap        *ContextBootstrapSnapshot
+}
+
+func (b ContextCreateBase) Validate() error {
+	if err := ValidateContextID(b.ID); err != nil {
+		return err
+	}
+	if err := ValidateName(b.Name); err != nil {
+		return err
+	}
+	if !digestPattern.MatchString(b.Revision) {
+		return fmt.Errorf("Context create Base revision is invalid")
+	}
+	if err := b.PolicyMode.Validate(); err != nil {
+		return err
+	}
+	if err := b.SourceAccess.Validate(); err != nil {
+		return err
+	}
+	if err := b.NativeReadiness.Validate(); err != nil {
+		return err
+	}
+	if err := b.MethodPolicy.Validate(); err != nil {
+		return err
+	}
+	if _, _, err := ParseRuntimeSelection(b.RuntimeSelection); err != nil {
+		return err
+	}
+	if err := validateContextShellEnvironment(b.ShellEnvironment, true); err != nil {
+		return err
+	}
+	if err := b.GitIdentity.Validate(true); err != nil {
+		return err
+	}
+	if b.Bootstrap != nil {
+		if err := b.Bootstrap.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (b ContextCreateBase) Clone() ContextCreateBase {
+	result := b
+	result.MethodPolicy = b.MethodPolicy.Clone()
+	result.ShellEnvironment = cloneContextShellEnvironment(b.ShellEnvironment)
+	result.GitIdentity = cloneContextGitIdentitySetting(b.GitIdentity)
+	if b.Bootstrap != nil {
+		bootstrap := b.Bootstrap.Clone()
+		result.Bootstrap = &bootstrap
+	}
+	return result
+}
+
+func cloneContextShellEnvironment(settings []ContextShellEnvironmentSetting) []ContextShellEnvironmentSetting {
+	result := make([]ContextShellEnvironmentSetting, len(settings))
+	for index, setting := range settings {
+		result[index] = setting
+		if setting.Value != nil {
+			value := *setting.Value
+			result[index].Value = &value
+		}
+	}
+	return result
+}
+
+func cloneContextGitIdentitySetting(setting ContextGitIdentitySetting) ContextGitIdentitySetting {
+	result := setting
+	if setting.Name != nil {
+		value := *setting.Name
+		result.Name = &value
+	}
+	if setting.Email != nil {
+		value := *setting.Email
+		result.Email = &value
 	}
 	return result
 }
@@ -170,6 +273,7 @@ var (
 	ErrContextActive                 = errors.New("Context is current")
 	ErrContextProtected              = errors.New("Context is protected")
 	ErrContextHasWorkspaces          = errors.New("Context has Workspaces")
+	ErrContextBaseChanged            = errors.New("Context creation Base changed")
 	ErrRuntimeRecipeExists           = errors.New("Context runtime recipe already exists")
 	ErrRuntimeRecipeMissing          = errors.New("Context runtime recipe does not exist")
 	ErrContextBootstrapNotConfigured = errors.New("Context bootstrap is not configured")
