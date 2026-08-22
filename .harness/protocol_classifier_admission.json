@@ -1,0 +1,99 @@
+{
+  "schema_version": 1,
+  "required_dimensions": [
+    "positive",
+    "collision",
+    "malformed_local_failure",
+    "minimal_policy_projection",
+    "privacy_exclusion",
+    "no_ordinary_http_fallback",
+    "zero_downstream",
+    "bounded_adversarial_corpus"
+  ],
+  "classifiers": {
+    "aws": {
+      "source": "gateway/addon/aws_request.py",
+      "parser_functions": ["classify_aws_request_headers", "parse_aws_query_request"],
+      "evidence": {
+        "positive": ["python:gateway/test_aws_request.py::AWSRequestIdentityTests::test_query_extracts_only_action_after_complete_body"],
+        "collision": ["python:gateway/test_aws_request.py::AWSRequestIdentityTests::test_non_aws_and_non_rpc_requests_remain_unclassified"],
+        "malformed_local_failure": ["python:gateway/test_aws_request.py::AWSRequestIdentityTests::test_ambiguous_or_changed_query_fails_closed"],
+        "minimal_policy_projection": ["python:gateway/test_tobari_gateway_aws.py::ReviewedAWSSigV4GatewayTests::test_aws_sigv4_handle_is_signed_only_after_policy_and_complete_body"],
+        "privacy_exclusion": ["python:gateway/test_tobari_gateway_aws.py::ReviewedAWSSigV4GatewayTests::test_aws_sigv4_handle_is_signed_only_after_policy_and_complete_body"],
+        "no_ordinary_http_fallback": ["rego:internal/infra/runtimeassets/assets/opa/policy/tobari_test.rego::test_http_rule_does_not_authorize_aws_operation"],
+        "zero_downstream": ["python:gateway/test_tobari_gateway_aws.py::ReviewedAWSSigV4GatewayTests::test_aws_sigv4_denial_never_signs_or_retains_handle"],
+        "bounded_adversarial_corpus": ["python:gateway/test_aws_request.py::AWSRequestIdentityTests::test_ambiguous_or_changed_query_fails_closed"]
+      }
+    },
+    "graphql": {
+      "source": "gateway/addon/graphql_request.py",
+      "parser_functions": ["parse_graphql_request"],
+      "evidence": {
+        "positive": ["python:gateway/test_graphql_request.py::GraphQLRequestParserTests::test_extracts_mutation_root_fields_sorted_and_unique"],
+        "collision": ["python:gateway/test_tobari_gateway.py::ProtocolEndpointDeclarationTests::test_semantic_endpoint_declarations_are_exact_and_cross_protocol_collisions_fail"],
+        "malformed_local_failure": ["python:gateway/test_graphql_request.py::GraphQLRequestParserTests::test_rejects_transport_outside_the_bounded_post_subset"],
+        "minimal_policy_projection": ["python:gateway/test_tobari_gateway.py::ReviewedBrokerGatewayTests::test_lengthless_graphql_is_buffered_bounded_and_authorized_semantically"],
+        "privacy_exclusion": ["python:gateway/test_tobari_gateway.py::ReviewedBrokerGatewayTests::test_lengthless_graphql_is_buffered_bounded_and_authorized_semantically"],
+        "no_ordinary_http_fallback": ["rego:internal/infra/runtimeassets/assets/opa/policy/tobari_test.rego::test_graphql_generic_http_allow_does_not_authorize_declared_endpoint"],
+        "zero_downstream": ["python:gateway/test_tobari_gateway.py::ReviewedBrokerGatewayTests::test_graphql_policy_denial_preserves_scheme_and_never_commits_upstream"],
+        "bounded_adversarial_corpus": ["python:gateway/test_graphql_request.py::GraphQLRequestParserTests::test_rejects_transport_outside_the_bounded_post_subset"]
+      }
+    },
+    "git": {
+      "source": "gateway/addon/git_request.py",
+      "parser_functions": ["classify_git_request"],
+      "evidence": {
+        "positive": ["python:gateway/test_git_request.py::GitRequestTests::test_discovery_identifies_upload_and_receive_without_payload"],
+        "collision": ["python:gateway/test_git_request.py::GitRequestTests::test_unrelated_http_is_not_claimed"],
+        "malformed_local_failure": ["python:gateway/test_git_request.py::GitRequestTests::test_malformed_claims_fail_closed"],
+        "minimal_policy_projection": ["python:gateway/test_tobari_gateway.py::ReviewedBrokerGatewayTests::test_git_smart_http_receive_pack_is_exact_and_body_opaque"],
+        "privacy_exclusion": ["python:gateway/test_tobari_gateway.py::ReviewedBrokerGatewayTests::test_git_smart_http_receive_pack_is_exact_and_body_opaque"],
+        "no_ordinary_http_fallback": ["rego:internal/infra/runtimeassets/assets/opa/policy/tobari_test.rego::test_git_exact_rule_allows_receive_without_http_fallback"],
+        "zero_downstream": ["python:gateway/test_tobari_gateway.py::ReviewedBrokerGatewayTests::test_git_smart_http_receive_pack_is_exact_and_body_opaque"],
+        "bounded_adversarial_corpus": ["python:gateway/test_git_request.py::GitRequestTests::test_malformed_claims_fail_closed"]
+      }
+    },
+    "kubernetes": {
+      "source": "gateway/addon/kubernetes_request.py",
+      "parser_functions": ["parse_kubernetes_request"],
+      "evidence": {
+        "positive": ["python:gateway/test_kubernetes_request.py::KubernetesRequestTests::test_core_and_crd_resources_need_no_schema"],
+        "collision": ["python:gateway/test_tobari_gateway.py::ProtocolEndpointDeclarationTests::test_semantic_endpoint_declarations_are_exact_and_cross_protocol_collisions_fail"],
+        "malformed_local_failure": ["python:gateway/test_kubernetes_request.py::KubernetesRequestTests::test_impersonation_and_ambiguous_modes_fail_closed"],
+        "minimal_policy_projection": ["python:gateway/test_tobari_gateway.py::ReviewedBrokerGatewayTests::test_declared_kubernetes_authority_derives_watch_without_schema"],
+        "privacy_exclusion": ["python:gateway/test_tobari_gateway.py::ReviewedBrokerGatewayTests::test_declared_kubernetes_authority_derives_watch_without_schema"],
+        "no_ordinary_http_fallback": ["rego:internal/infra/runtimeassets/assets/opa/policy/tobari_test.rego::test_kubernetes_exact_rule_allows_without_http_fallback"],
+        "zero_downstream": ["python:gateway/test_tobari_gateway.py::ReviewedBrokerGatewayTests::test_declared_kubernetes_authority_derives_watch_without_schema"],
+        "bounded_adversarial_corpus": ["python:gateway/test_kubernetes_request.py::KubernetesRequestTests::test_impersonation_and_ambiguous_modes_fail_closed"]
+      }
+    },
+    "mcp": {
+      "source": "gateway/addon/mcp_request.py",
+      "parser_functions": ["parse_mcp_post_request"],
+      "evidence": {
+        "positive": ["python:gateway/test_mcp_request.py::MCPRequestTest::test_tools_call_retains_only_exact_tool_name"],
+        "collision": ["python:gateway/test_tobari_gateway.py::ProtocolEndpointDeclarationTests::test_semantic_endpoint_declarations_are_exact_and_cross_protocol_collisions_fail"],
+        "malformed_local_failure": ["python:gateway/test_mcp_request.py::MCPRequestTest::test_rejects_batch_unknown_shape_and_encoded_body"],
+        "minimal_policy_projection": ["python:gateway/test_tobari_gateway.py::StandardNativeLoginGatewayTests::test_mcp_tool_call_is_buffered_and_exposes_only_method_and_tool"],
+        "privacy_exclusion": ["python:gateway/test_tobari_gateway.py::StandardNativeLoginGatewayTests::test_mcp_tool_call_is_buffered_and_exposes_only_method_and_tool"],
+        "no_ordinary_http_fallback": ["rego:internal/infra/runtimeassets/assets/opa/policy/tobari_test.rego::test_mcp_declared_endpoint_never_falls_back_to_http"],
+        "zero_downstream": ["python:gateway/test_tobari_gateway.py::StandardNativeLoginGatewayTests::test_mcp_tool_call_is_buffered_and_exposes_only_method_and_tool"],
+        "bounded_adversarial_corpus": ["python:gateway/test_mcp_request.py::MCPRequestTest::test_rejects_batch_unknown_shape_and_encoded_body"]
+      }
+    },
+    "oci": {
+      "source": "gateway/addon/oci_request.py",
+      "parser_functions": ["parse_oci_request"],
+      "evidence": {
+        "positive": ["python:gateway/test_oci_request.py::OCIRequestTests::test_read_routes_keep_repository_and_object_exact"],
+        "collision": ["python:gateway/test_oci_request.py::OCIRequestTests::test_unrelated_http_is_not_claimed"],
+        "malformed_local_failure": ["python:gateway/test_oci_request.py::OCIRequestTests::test_malformed_or_unsupported_distribution_routes_fail_closed"],
+        "minimal_policy_projection": ["python:gateway/test_tobari_gateway.py::ReviewedBrokerGatewayTests::test_oci_manifest_push_is_exact_and_body_opaque"],
+        "privacy_exclusion": ["python:gateway/test_tobari_gateway.py::ReviewedBrokerGatewayTests::test_oci_manifest_push_is_exact_and_body_opaque"],
+        "no_ordinary_http_fallback": ["rego:internal/infra/runtimeassets/assets/opa/policy/tobari_test.rego::test_oci_exact_rule_allows_push_without_http_fallback"],
+        "zero_downstream": ["python:gateway/test_tobari_gateway.py::ReviewedBrokerGatewayTests::test_oci_manifest_push_is_exact_and_body_opaque"],
+        "bounded_adversarial_corpus": ["python:gateway/test_oci_request.py::OCIRequestTests::test_malformed_or_unsupported_distribution_routes_fail_closed"]
+      }
+    }
+  }
+}

@@ -26,6 +26,9 @@ preflight_commands() {
   if [[ $selected_profile == fast || $selected_profile == full ]]; then
     required_commands+=(python3 node npm)
   fi
+  if [[ $selected_profile == gateway || $selected_profile == runtime ]]; then
+    required_commands+=(python3)
+  fi
   if [[ $selected_profile == security || $selected_profile == public ]]; then
     required_commands+=(node npm)
   fi
@@ -167,6 +170,8 @@ run_fast() {
   ./scripts/test-decision-records.sh
   go run ./tools/archlint
   go run ./tools/contractlint
+  python3 scripts/protocol_classifier_admission.py
+  python3 scripts/test-protocol-classifier-admission.py
   python3 scripts/test-pty-evidence.py
   ./scripts/test-integration-preflight-cleanup.sh
   ./scripts/check-integration-scope.sh
@@ -240,6 +245,8 @@ run_policy() {
 }
 
 run_gateway() {
+  python3 scripts/protocol_classifier_admission.py
+  python3 scripts/test-protocol-classifier-admission.py
   load_runtime_versions
   docker version >/dev/null
   local gateway_test_image

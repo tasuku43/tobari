@@ -81,8 +81,16 @@ learnable.
 
 - Domain validation owns every closed protocol field, exact matching, opaque
   ID material, and derived state-change value.
-- Gateway tests cover positive, ambiguous, hostile, privacy, and zero-upstream
-  paths for each protocol.
+- `.harness/protocol_classifier_admission.json` is the exact classifier-source
+  inventory. A dependency-free gate discovers every top-level
+  `gateway/addon/*_request.py` module and rejects an unregistered or stale row.
+- Every row must resolve executable evidence for positive classification,
+  collision resistance, malformed local failure, minimal policy projection,
+  privacy exclusion, no ordinary-HTTP fallback, zero downstream, and a finite
+  deterministic adversarial corpus of at least three cases.
+- The same gate rejects parser imports or direct calls that add network, file,
+  dynamic-code, or executable I/O. Optional randomized fuzzing may supplement
+  the deterministic corpus but is not completion evidence.
 - OPA tests prove protocol rules match exactly and broad HTTP rules do not.
 - CLI contracts expose exact coordinates and state-change evidence without raw
   payloads, query documents, credentials, or impersonated identities.
@@ -99,6 +107,7 @@ outside OPA, learned policy, audit, and CLI output.
 ## Validation
 
 ```sh
+python3 scripts/protocol_classifier_admission.py
 task gateway:test
 task policy:test
 task check

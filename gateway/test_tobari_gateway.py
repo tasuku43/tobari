@@ -180,6 +180,54 @@ def attachment_grant(route, decision="allow", target_port=3000):
     return grant
 
 
+class ProtocolEndpointDeclarationTests(unittest.TestCase):
+
+    def test_semantic_endpoint_declarations_are_exact_and_cross_protocol_collisions_fail(self):
+        graphql = {"scheme": "https", "host": "api.example.com", "port": 443, "path": "/graphql"}
+        mcp = {"scheme": "https", "host": "api.example.com", "port": 443, "path": "/mcp"}
+        kubernetes = {"scheme": "https", "host": "cluster.example.com", "port": 443, "path": "/"}
+        document = {
+            "version": "v1",
+            "contexts": {
+                CONTEXT: {
+                    "name": "default",
+                    "graphql_endpoints": [graphql],
+                    "mcp_endpoints": [mcp],
+                    "kubernetes_endpoints": [kubernetes],
+                }
+            },
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            path = os.path.join(temporary, "gateway.json")
+            atomic_json(path, document)
+            loaded = gateway.load_gateway_config(path)
+
+            self.assertTrue(gateway.graphql_endpoint_declared(
+                loaded, CONTEXT, "https", "api.example.com", 443, "/graphql"
+            ))
+            self.assertFalse(gateway.graphql_endpoint_declared(
+                loaded, CONTEXT, "https", "api.example.com", 443, "/graphql/child"
+            ))
+            self.assertTrue(gateway.mcp_endpoint_declared(
+                loaded, CONTEXT, "https", "api.example.com", 443, "/mcp"
+            ))
+            self.assertFalse(gateway.mcp_endpoint_declared(
+                loaded, CONTEXT, "https", "other.example.com", 443, "/mcp"
+            ))
+            self.assertTrue(gateway.kubernetes_endpoint_declared(
+                loaded, CONTEXT, "https", "cluster.example.com", 443
+            ))
+            self.assertFalse(gateway.kubernetes_endpoint_declared(
+                loaded, CONTEXT, "https", "cluster.example.com", 8443
+            ))
+
+            colliding = copy.deepcopy(document)
+            colliding["contexts"][CONTEXT]["mcp_endpoints"] = [graphql]
+            atomic_json(path, colliding)
+            with self.assertRaises(gateway.CredentialError):
+                gateway.load_gateway_config(path)
+
+
 class ValidatedRuntimeFileCacheTests(unittest.TestCase):
 
     def test_host_loopback_source_binds_workspace_epoch_port_and_attachment_grants(self):

@@ -1300,6 +1300,16 @@ returns no secret; policy denial performs no resolution, refresh, companion
 call, or signing. The addon has no managed or arbitrary dynamic fallback and
 never retries.
 
+Protocol classifier admission is inventory-driven without becoming a runtime
+registry. Canonical top-level classifier modules use the
+`gateway/addon/<protocol>_request.py` shape, while a harness-owned matrix names
+their Gateway entry functions and executable evidence. Routine lint discovers
+those modules, requires an exact matrix row, rejects parser I/O, and requires
+all collision, local-failure, projection, privacy, fallback, downstream, and
+finite-corpus dimensions before a new module can pass. Production routing and
+each protocol's parser types remain explicit; no common parser abstraction is
+introduced.
+
 The aggregate projection converts only an already validated commercial EKS
 bootstrap origin into a Kubernetes protocol authority. Gateway parses the
 standard resource path locally, sends only verb/resource/dry-run identity to

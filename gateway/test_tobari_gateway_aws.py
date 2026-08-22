@@ -272,14 +272,18 @@ class ReviewedAWSSigV4GatewayTests(ReviewedDynamicCredentialGatewayTestCase):
             }
 
         addon = self.broker_gateway(broker_call)
-        with mock.patch.object(
-            gateway,
-            "query_opa",
-            return_value=gateway.Decision(False, "denied", 403, False),
+        with (
+            mock.patch.object(
+                gateway,
+                "query_opa",
+                return_value=gateway.Decision(False, "denied", 403, False),
+            ),
+            mock.patch.object(gateway, "commit_upstream_authority") as commit,
         ):
             with redirect_stdout(io.StringIO()):
                 addon.requestheaders(flow)
         self.assertEqual([item["op"] for item in calls], ["introspect_signing"])
+        commit.assert_not_called()
         self.assertNotIn("tobari_deferred_credential", flow.metadata)
         self.assertNotIn("authorization", flow.request.headers)
         self.assertNotIn("x-amz-security-token", flow.request.headers)
