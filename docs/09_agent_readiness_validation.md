@@ -10,6 +10,7 @@ transcripts as repository fixtures.
 |---|---|---|
 | Discover capabilities | `help --format agent`, then one namespace or exact-command selector | Root remains a compact capability index; one scoped read supplies complete typed inputs, outputs, failures, and workflow |
 | Choose and retire a Context work mode | `context list`, `context show`, `context create`, `context use`, `context delete` | Human list cards lead with work mode/current, effective Access, exact Runtime, and action marker; `context show` leads with effective Access, Tools, Workspace defaults, Workspace-owned login, exact Details, and exact Next while `--details` retains complete diagnostics from the same read and JSON remains identical; a synthetic default says recommended defaults are not saved; persisted Contexts add a Base-before-Name creation step with current preselected, while `--base NAME --name NAME` creates the same standalone draft directly and exposes no lineage; argument-free terminal creation shows the complete effective boundary, edits one section, discovers optional typed bootstrap candidates without selector re-entry, and creates once; changing current does not retarget Workspaces, and deletion rejects protected/current/bound Contexts |
+| Prepare a reusable Runtime source | `runtime list`, then `runtime create --base NAME --name NAME` | Scoped help identifies `standard` or one managed editable source as a one-time Base; creation returns a fresh standalone Runtime with empty history and no lineage, performs no build or Context change, and needs zero revision decoding or source reconstruction |
 | Enter bounded work | `tobari [--context NAME]` or `tobari [--context NAME] -- COMMAND [ARG...]`; explicit `cluster up` remains available | On first use, one root screen reviews canonical root, direct project effect, effective Access, `standard@1`, no host import, and Bash or the direct executable; Start revalidates empty Context state, completes canonical Context creation and exact shared-cluster reconciliation, then enters one reusable Workspace; Customize retains the complete creation flow; the direct form runs exact foreground argv without a shell, returns its status to the host, and leaves the Workspace reusable |
 | Understand authority lifetime | `context show`, `policy rules`, and Host Loopback capability/review output | Routine guidance distinguishes Context Access, remembered Workspace decisions, and this-session Host Loopback access without requiring baseline, overlay, principal, epoch, or grant reconstruction; typed output retains exact destination kind and authority lifetime |
 | Grow exact permission | `review permissions`, or `policy candidates` then one exact allow/deny | Terminal guardrail precedes every candidate; explicit review activates only exact Context/project/scheme/host/port/method/path authority |
@@ -69,6 +70,13 @@ the stable Context ID and every bound Workspace identity/home remain unchanged.
 Also create one Context with `--base` and verify the new stable ID differs, the
 Base remains unchanged, the reviewed Boundary/Runtime/defaults match, and
 neither typed output nor catalog reference flow claims ancestry or inheritance.
+
+For Runtime source creation, retrieve `help runtime create --format agent`
+once, use `standard` or one exact managed name returned by `runtime list`, and
+create one new Runtime. Verify the target has a distinct stable ID, empty
+history, independent editable bytes/modes, no Base field or reference flow, and
+that neither Docker nor any Context mutation ran. The known-path journey uses
+one scoped-help read, one create invocation, and zero external processing.
 
 For the direct-entry route, retrieve `help tobari --format agent` once and then
 invoke one known command as `tobari -- COMMAND [ARG...]`. Record one discovery

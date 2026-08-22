@@ -289,7 +289,7 @@ func TestInstallationMigrationRejectsRuntimeConflictBeforeContextWrites(t *testi
 		t.Fatal(err)
 	}
 	installLegacyMigrationContext(t, runtime, "default", true)
-	if _, err := runtime.CreateRuntime(context.Background(), "legacy-default"); err != nil {
+	if _, err := runtime.CreateRuntime(context.Background(), "legacy-default", tobari.RuntimeSourceBase(tobari.StandardRuntimeName)); err != nil {
 		t.Fatal(err)
 	}
 	if err := writeAtomicBytes(filepath.Join(runtime.runtimeSourceDirectory("legacy-default"), "Dockerfile"), []byte("FROM example.invalid/other:1\n")); err != nil {

@@ -14,10 +14,12 @@ import (
 )
 
 type runtimeFake struct {
-	manifest tobari.RuntimeManifest
-	creates  int
-	builds   int
-	buildErr error
+	manifest  tobari.RuntimeManifest
+	creates   int
+	base      tobari.RuntimeSourceBase
+	builds    int
+	buildErr  error
+	createErr error
 }
 
 func runtimeFixture() tobari.RuntimeManifest {
@@ -33,8 +35,12 @@ func (f *runtimeFake) ShowRuntime(context.Context, string) (tobari.RuntimeReport
 func (f *runtimeFake) RuntimeHistory(context.Context, string) (tobari.RuntimeReport, error) {
 	return tobari.RuntimeReport{Task: tobari.TaskRuntimeHistory, Runtime: f.manifest}, nil
 }
-func (f *runtimeFake) CreateRuntime(context.Context, string) (tobari.RuntimeReport, error) {
+func (f *runtimeFake) CreateRuntime(_ context.Context, _ string, base tobari.RuntimeSourceBase) (tobari.RuntimeReport, error) {
 	f.creates++
+	f.base = base
+	if f.createErr != nil {
+		return tobari.RuntimeReport{}, f.createErr
+	}
 	manifest := f.manifest
 	manifest.Revisions = []tobari.RuntimeRevision{}
 	return tobari.RuntimeReport{Task: tobari.TaskRuntimeCreate, Runtime: manifest, Created: true}, nil
@@ -54,9 +60,9 @@ func TestRuntimeCreateAndBuildUseCatalogFixedTargets(t *testing.T) {
 	fake := &runtimeFake{manifest: runtimeFixture()}
 	service := New(fake)
 	createIntent := operation.Intent{Command: "runtime create", Effect: operation.EffectCreate, Target: operation.TargetRef{Kind: tobari.RuntimeCatalogTargetKind, ParentID: tobari.RuntimeCatalogTargetID}, Impact: operation.Impact{Cardinality: operation.CardinalityOne, Notification: operation.DeclarationNo, AccessChange: operation.DeclarationNo, Destructive: operation.DeclarationNo}}
-	created, err := service.Create(context.Background(), createIntent, "frontend")
-	if err != nil || !created.Created || fake.creates != 1 {
-		t.Fatalf("create = %+v/%v calls=%d", created, err, fake.creates)
+	created, err := service.Create(context.Background(), createIntent, "frontend", "standard")
+	if err != nil || !created.Created || fake.creates != 1 || fake.base != tobari.RuntimeSourceBase("standard") {
+		t.Fatalf("create = %+v/%v calls=%d base=%q", created, err, fake.creates, fake.base)
 	}
 
 	buildIntent := operation.Intent{Command: "runtime build", Effect: operation.EffectWrite, Target: operation.TargetRef{Kind: tobari.RuntimeCatalogTargetKind, ID: tobari.RuntimeCatalogTargetID}, Impact: operation.Impact{Cardinality: operation.CardinalityOne, Notification: operation.DeclarationNo, AccessChange: operation.DeclarationYes, Destructive: operation.DeclarationNo}}
@@ -64,6 +70,38 @@ func TestRuntimeCreateAndBuildUseCatalogFixedTargets(t *testing.T) {
 	built, err := service.Build(context.Background(), buildIntent, "frontend", &diagnostics)
 	if err != nil || !built.Built || fake.builds != 1 || diagnostics.String() != "build\n" {
 		t.Fatalf("build = %+v/%v calls=%d diagnostics=%q", built, err, fake.builds, diagnostics.String())
+	}
+}
+
+func TestRuntimeCreateRejectsInvalidBaseBeforeAdapter(t *testing.T) {
+	fake := &runtimeFake{manifest: runtimeFixture()}
+	service := New(fake)
+	intent := operation.Intent{Command: "runtime create", Effect: operation.EffectCreate, Target: operation.TargetRef{Kind: tobari.RuntimeCatalogTargetKind, ParentID: tobari.RuntimeCatalogTargetID}, Impact: operation.Impact{Cardinality: operation.CardinalityOne, Notification: operation.DeclarationNo, AccessChange: operation.DeclarationNo, Destructive: operation.DeclarationNo}}
+	_, err := service.Create(context.Background(), intent, "frontend", "frontend@1")
+	public, ok := fault.PublicCopy(err)
+	if !ok || public.Code != "invalid_runtime_base" || fake.creates != 0 {
+		t.Fatalf("invalid Base fault/calls = %+v/%v/%d", public, err, fake.creates)
+	}
+}
+
+func TestRuntimeCreateClassifiesMissingBaseAndPreservesSourceFault(t *testing.T) {
+	intent := operation.Intent{Command: "runtime create", Effect: operation.EffectCreate, Target: operation.TargetRef{Kind: tobari.RuntimeCatalogTargetKind, ParentID: tobari.RuntimeCatalogTargetID}, Impact: operation.Impact{Cardinality: operation.CardinalityOne, Notification: operation.DeclarationNo, AccessChange: operation.DeclarationNo, Destructive: operation.DeclarationNo}}
+	for _, test := range []struct {
+		name string
+		err  error
+		code string
+	}{
+		{name: "missing", err: tobari.ErrRuntimeNotFound, code: "runtime_base_not_found"},
+		{name: "invalid source", err: fault.New(fault.KindRejected, "runtime_source_invalid", "Runtime source changed during copy.", false), code: "runtime_source_invalid"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fake := &runtimeFake{manifest: runtimeFixture(), createErr: test.err}
+			_, err := New(fake).Create(context.Background(), intent, "mobile", "frontend")
+			public, ok := fault.PublicCopy(err)
+			if !ok || public.Code != test.code {
+				t.Fatalf("create fault = %+v/%v", public, err)
+			}
+		})
 	}
 }
 

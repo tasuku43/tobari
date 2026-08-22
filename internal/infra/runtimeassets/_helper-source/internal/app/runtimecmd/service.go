@@ -18,7 +18,7 @@ type RuntimePort interface {
 	ListRuntimes(context.Context) (tobari.RuntimeListResult, error)
 	ShowRuntime(context.Context, string) (tobari.RuntimeReport, error)
 	RuntimeHistory(context.Context, string) (tobari.RuntimeReport, error)
-	CreateRuntime(context.Context, string) (tobari.RuntimeReport, error)
+	CreateRuntime(context.Context, string, tobari.RuntimeSourceBase) (tobari.RuntimeReport, error)
 	BuildManagedRuntime(context.Context, string, io.Writer) (tobari.RuntimeReport, error)
 }
 
@@ -106,25 +106,36 @@ func (s *Service) read(ctx context.Context, name string, history bool) (tobari.R
 	return result, nil
 }
 
-func (s *Service) Create(ctx context.Context, intent operation.Intent, name string) (tobari.RuntimeReport, error) {
+func (s *Service) Create(ctx context.Context, intent operation.Intent, name, baseValue string) (tobari.RuntimeReport, error) {
 	if err := s.requireRuntime(); err != nil {
 		return tobari.RuntimeReport{}, err
 	}
 	if err := tobari.ValidateName(name); err != nil {
 		return tobari.RuntimeReport{}, fault.Wrap(fault.KindInvalidInput, "invalid_runtime_name", "Runtime name is invalid", false, err)
 	}
+	base, err := tobari.ParseRuntimeSourceBase(baseValue)
+	if err != nil {
+		return tobari.RuntimeReport{}, fault.Wrap(fault.KindInvalidInput, "invalid_runtime_base", "Runtime source Base is invalid", false, err, fault.NextAction{Command: "runtime list", Reason: "Choose standard or an existing managed Runtime name."})
+	}
 	request := execution.Request{Intent: intent, ExpectedCommand: intent.Command, ExpectedEffect: operation.EffectCreate,
 		ExpectedTarget: operation.TargetRef{Kind: tobari.RuntimeCatalogTargetKind, ParentID: tobari.RuntimeCatalogTargetID}, ExpectedImpact: intent.Impact}
 	var result tobari.RuntimeReport
-	err := s.mutator.Invoke(ctx, request, func(actionContext context.Context, _ operation.Intent) error {
-		created, err := s.runtime.CreateRuntime(actionContext, name)
+	err = s.mutator.Invoke(ctx, request, func(actionContext context.Context, _ operation.Intent) error {
+		created, err := s.runtime.CreateRuntime(actionContext, name, base)
 		if errors.Is(err, tobari.ErrRuntimeExists) {
 			return fault.New(fault.KindRejected, "runtime_exists", "the named Runtime already exists", false, fault.NextAction{Command: "runtime show", Reason: "Inspect the existing Runtime before editing it."})
 		}
+		if errors.Is(err, tobari.ErrRuntimeNotFound) {
+			return fault.New(fault.KindNotFound, "runtime_base_not_found", "the named Runtime source Base does not exist", false, fault.NextAction{Command: "runtime list", Reason: "Choose standard or an existing managed Runtime name."})
+		}
 		if err != nil {
+			if structured, ok := fault.PublicCopy(err); ok {
+				return structured
+			}
 			return fault.Wrap(fault.KindRejected, "runtime_create_failed", "Runtime source could not be created", false, err, fault.NextAction{Command: "runtime list", Reason: "Inspect the local Runtime catalog."})
 		}
-		if err := created.Validate(); err != nil || created.Task != tobari.TaskRuntimeCreate || created.Runtime.Name != name || !created.Created {
+		if err := created.Validate(); err != nil || created.Task != tobari.TaskRuntimeCreate || created.Runtime.Name != name ||
+			created.Runtime.Kind != tobari.RuntimeKindManaged || len(created.Runtime.Revisions) != 0 || !created.Created {
 			if err == nil {
 				err = fmt.Errorf("created Runtime does not match the request")
 			}

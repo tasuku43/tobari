@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "report": {
+    "task": "runtime.create",
+    "runtime": {
+      "schema_version": 1,
+      "id": "018bcfe5-687b-7000-8000-000000000088",
+      "name": "mobile",
+      "kind": "managed",
+      "source_path": "/tmp/tobari-test/runtimes/mobile/source",
+      "revisions": []
+    },
+    "created": true
+  },
+  "candidates": [
+    {
+      "id": "builtin/standard",
+      "name": "standard",
+      "kind": "builtin",
+      "ready": true,
+      "head": 1,
+      "revision": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "id": "018bcfe5-687b-7000-8000-000000000077",
+      "name": "frontend",
+      "kind": "managed",
+      "ready": true,
+      "head": 2,
+      "revision": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "source_path": "/tmp/tobari-test/runtimes/frontend/source"
+    },
+    {
+      "id": "018bcfe5-687b-7000-8000-000000000066",
+      "name": "backend",
+      "kind": "managed",
+      "ready": false,
+      "source_path": "/tmp/tobari-test/runtimes/backend/source"
+    }
+  ]
+}

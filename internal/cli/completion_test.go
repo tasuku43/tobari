@@ -152,6 +152,7 @@ func TestCatalogDeclaresTypedCompletionSources(t *testing.T) {
 		"context create":      {"--base": InputCompletionContextName, "--name": InputCompletionNone, "--runtime": InputCompletionReadyRuntimeReference},
 		"context runtime set": {"--runtime": InputCompletionReadyRuntimeReference, "--context": InputCompletionContextName},
 		"runtime show":        {"--name": InputCompletionRuntimeName},
+		"runtime create":      {"--base": InputCompletionRuntimeName},
 		"runtime build":       {"--name": InputCompletionManagedRuntimeName},
 	}
 	for path, expected := range tests {

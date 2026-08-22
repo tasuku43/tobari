@@ -91,9 +91,19 @@ func runRuntimeCreate(ctx context.Context, c *CLI, command CommandSpec, intent o
 	if err != nil {
 		return c.failUsage(ctx, "invalid_arguments", err.Error()+"; usage: "+command.Usage(), "help runtime create", "Correct the command arguments.")
 	}
+	base := inputs.One("--base")
+	if !inputs.Provided("--base") {
+		base = tobari.StandardRuntimeName
+		if runtimeReviewAvailable(ctx, c, format) {
+			base, err = chooseRuntimeCreateBase(ctx, c, inputs.One("--name"))
+			if err != nil {
+				return c.fail(ctx, normalizeRuntimeReviewError(command.Path, err))
+			}
+		}
+	}
 	intent.Target = operation.TargetRef{Kind: tobari.RuntimeCatalogTargetKind, ParentID: tobari.RuntimeCatalogTargetID}
 	intent.Impact = command.Agent.Mutation.Impact
-	result, err := c.runtime.Create(ctx, intent, inputs.One("--name"))
+	result, err := c.runtime.Create(ctx, intent, inputs.One("--name"), base)
 	if err != nil {
 		return c.fail(ctx, err)
 	}

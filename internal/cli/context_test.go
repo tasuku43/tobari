@@ -32,6 +32,9 @@ type runtimeCatalogCLI struct {
 	historyCalls int
 	buildCalls   int
 	lastBuild    string
+	createCalls  int
+	lastCreate   string
+	lastBase     tobari.RuntimeSourceBase
 }
 
 func testRuntimeManifest() tobari.RuntimeManifest {
@@ -88,8 +91,14 @@ func (f *runtimeCatalogCLI) RuntimeHistory(context.Context, string) (tobari.Runt
 	f.historyCalls++
 	return tobari.RuntimeReport{Task: tobari.TaskRuntimeHistory, Runtime: f.runtimeManifest()}, nil
 }
-func (f *runtimeCatalogCLI) CreateRuntime(context.Context, string) (tobari.RuntimeReport, error) {
-	return tobari.RuntimeReport{Task: tobari.TaskRuntimeCreate, Runtime: f.runtimeManifest(), Created: true}, nil
+func (f *runtimeCatalogCLI) CreateRuntime(_ context.Context, name string, base tobari.RuntimeSourceBase) (tobari.RuntimeReport, error) {
+	f.createCalls++
+	f.lastCreate = name
+	f.lastBase = base
+	manifest := f.runtimeManifest()
+	manifest.Name = name
+	manifest.Revisions = []tobari.RuntimeRevision{}
+	return tobari.RuntimeReport{Task: tobari.TaskRuntimeCreate, Runtime: manifest, Created: true}, nil
 }
 func (f *runtimeCatalogCLI) BuildManagedRuntime(_ context.Context, name string, diagnostics io.Writer) (tobari.RuntimeReport, error) {
 	f.buildCalls++
@@ -1604,6 +1613,89 @@ func TestRuntimeCreateOutputDeclaresSourcePermissionAndSizeRules(t *testing.T) {
 		if !strings.Contains(stdout.String(), want) {
 			t.Fatalf("runtime create output = %q, missing %q", stdout.String(), want)
 		}
+	}
+}
+
+func TestRuntimeCreateExplicitAndNonInteractiveBaseSelection(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		args []string
+		base tobari.RuntimeSourceBase
+	}{
+		{name: "explicit managed", args: []string{"runtime", "create", "--base", "frontend", "--name", "mobile"}, base: "frontend"},
+		{name: "redirected omission", args: []string{"runtime", "create", "--name", "mobile"}, base: tobari.RuntimeSourceBase(tobari.StandardRuntimeName)},
+		{name: "JSON omission", args: []string{"runtime", "create", "--name", "mobile", "--format", "json"}, base: tobari.RuntimeSourceBase(tobari.StandardRuntimeName)},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fake := &runtimeCatalogCLI{list: runtimeReviewList(readyRuntimeManifest())}
+			var stdout, stderr bytes.Buffer
+			command := newCLI(strings.NewReader(""), &stdout, &stderr, DefaultCatalog(), nil)
+			command.runtime = runtimecmd.New(fake)
+			if code := command.RunContext(context.Background(), test.args); code != ExitOK {
+				t.Fatalf("runtime create code = %d, stderr = %q", code, stderr.String())
+			}
+			if fake.createCalls != 1 || fake.lastCreate != "mobile" || fake.lastBase != test.base || fake.listCalls != 0 {
+				t.Fatalf("create/list calls = %d %q %q / %d", fake.createCalls, fake.lastCreate, fake.lastBase, fake.listCalls)
+			}
+			if strings.Contains(stdout.String(), `"base"`) || strings.Contains(stdout.String(), "Base:") {
+				t.Fatalf("Runtime result persisted or presented lineage: %q", stdout.String())
+			}
+		})
+	}
+}
+
+func TestRuntimeCreateInteractiveBaseSelectionAndStandardOnlySkip(t *testing.T) {
+	manifest := readyRuntimeManifest()
+	for _, test := range []struct {
+		name     string
+		items    []tobari.RuntimeSummary
+		input    string
+		raw      bool
+		wantBase tobari.RuntimeSourceBase
+		wantMenu bool
+	}{
+		{name: "standard only", items: runtimeReviewList(manifest)[:1], wantBase: tobari.RuntimeSourceBase(tobari.StandardRuntimeName)},
+		{name: "line managed", items: runtimeReviewList(manifest), input: "2\n", wantBase: "frontend", wantMenu: true},
+		{name: "raw managed", items: runtimeReviewList(manifest), input: "\x1b[B\n", raw: true, wantBase: "frontend", wantMenu: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fake := &runtimeCatalogCLI{manifest: manifest, list: test.items}
+			var stdout, stderr bytes.Buffer
+			command := newCLI(strings.NewReader(test.input), &stdout, &stderr, DefaultCatalog(), nil)
+			command.runtime = runtimecmd.New(fake)
+			command.tobari = tobaricmd.New(&policyReviewRuntimeFake{terminal: true})
+			chooser := &terminalContextConfigurationWizard{mode: nil, style: false}
+			if test.raw {
+				chooser.mode = &selectorModeFake{}
+			}
+			command.config = chooser
+			if code := command.RunContext(context.Background(), []string{"runtime", "create", "--name", "mobile"}); code != ExitOK {
+				t.Fatalf("runtime create code = %d, stderr = %q", code, stderr.String())
+			}
+			if fake.listCalls != 1 || fake.createCalls != 1 || fake.lastBase != test.wantBase {
+				t.Fatalf("interactive create calls/base = list %d create %d base %q", fake.listCalls, fake.createCalls, fake.lastBase)
+			}
+			shown := strings.Contains(stderr.String(), "Tobari · Create Runtime · Base")
+			if shown != test.wantMenu {
+				t.Fatalf("Base menu shown = %t, want %t: %q", shown, test.wantMenu, stderr.String())
+			}
+		})
+	}
+}
+
+func TestRuntimeCreateBaseChooserCancellationCreatesNothing(t *testing.T) {
+	manifest := readyRuntimeManifest()
+	fake := &runtimeCatalogCLI{manifest: manifest, list: runtimeReviewList(manifest)}
+	var stdout, stderr bytes.Buffer
+	command := newCLI(strings.NewReader("q\n"), &stdout, &stderr, DefaultCatalog(), nil)
+	command.runtime = runtimecmd.New(fake)
+	command.tobari = tobaricmd.New(&policyReviewRuntimeFake{terminal: true})
+	command.config = &terminalContextConfigurationWizard{mode: nil, style: false}
+	if code := command.RunContext(context.Background(), []string{"runtime", "create", "--name", "mobile"}); code != ExitCanceled {
+		t.Fatalf("canceled Runtime create code = %d, stderr = %q", code, stderr.String())
+	}
+	if fake.createCalls != 0 || stdout.Len() != 0 {
+		t.Fatalf("canceled Runtime create calls/output = %d/%q", fake.createCalls, stdout.String())
 	}
 }
 

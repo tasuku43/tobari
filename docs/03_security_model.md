@@ -852,7 +852,14 @@ the mutation boundary. A legacy custom Dockerfile crosses only the existing
 bounded managed Runtime build boundary; it grants no additional execution or
 network authority.
 
-`runtime create` is a host-only create in the installation Runtime catalog.
+`runtime create` is a host-only create in the installation Runtime catalog. A
+managed Base exposes only its current owner-only editable source to the same
+bounded inventory and streamed-copy checks used by build. The adapter preserves
+validated owner modes and bytes in a private stage, then atomically publishes a
+fresh-ID Runtime with empty history. Missing, invalid, changing, canceled, or
+colliding input leaves no visible target. It copies no revision snapshot,
+image/history identity, Context or Workspace state, credentials, absolute path,
+or lineage. `standard` generates only the canonical built-in starter.
 `runtime build` is a host-only catalog write. It rejects symlinks, special
 files, escaping paths, group/other permission bits, more than 1,024 regular
 files or 256 directories, a regular file over 32 MiB, and a total over 64 MiB,

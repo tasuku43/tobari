@@ -40,6 +40,20 @@ func TestRuntimeSelectionIsHumanSyntaxNotAuthority(t *testing.T) {
 	}
 }
 
+func TestRuntimeSourceBaseAcceptsOnlyStandardOrManagedNameSyntax(t *testing.T) {
+	for _, value := range []string{StandardRuntimeName, "frontend", "project-tools"} {
+		base, err := ParseRuntimeSourceBase(value)
+		if err != nil || string(base) != value {
+			t.Fatalf("ParseRuntimeSourceBase(%q) = %q/%v", value, base, err)
+		}
+	}
+	for _, value := range []string{"", "frontend@1", "../frontend", "standard@1"} {
+		if _, err := ParseRuntimeSourceBase(value); err == nil {
+			t.Errorf("invalid Runtime source Base %q accepted", value)
+		}
+	}
+}
+
 func TestRuntimeBindingRequiresStableIDAndSemanticRevision(t *testing.T) {
 	binding := RuntimeBinding{RuntimeID: "018bcfe5-687b-7000-8000-000000000077", Name: "frontend", Revision: "sha256:" + strings.Repeat("a", 64), Ordinal: 4, Image: "tobari-runtime-frontend:aaaaaaaaaaaa"}
 	if err := binding.Validate(); err != nil {

@@ -2,6 +2,7 @@ package dockerruntime
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -27,7 +28,7 @@ func TestManagedRuntimeBuildCreatesImmutableRevisionWithoutChangingContext(t *te
 		t.Fatal(err)
 	}
 
-	created, err := runtime.CreateRuntime(context.Background(), "frontend")
+	created, err := runtime.CreateRuntime(context.Background(), "frontend", tobari.RuntimeSourceBase(tobari.StandardRuntimeName))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,6 +68,117 @@ func TestManagedRuntimeBuildCreatesImmutableRevisionWithoutChangingContext(t *te
 	}
 }
 
+func TestRuntimeCreateCopiesManagedEditableBaseAsStandaloneSource(t *testing.T) {
+	root := t.TempDir()
+	runner := &recordingRunner{outputQueue: [][]byte{compatibleImageInspection(), imageDigestInspection()}}
+	runtime, err := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), runner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	base, err := runtime.CreateRuntime(context.Background(), "frontend", tobari.RuntimeSourceBase(tobari.StandardRuntimeName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	bin := filepath.Join(base.Runtime.SourcePath, "bin")
+	if err := os.Mkdir(bin, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	tool := filepath.Join(bin, "tool")
+	if err := os.WriteFile(tool, []byte("synthetic executable\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	empty := filepath.Join(base.Runtime.SourcePath, "empty")
+	if err := os.Mkdir(empty, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runtime.BuildManagedRuntime(context.Background(), "frontend", nil); err != nil {
+		t.Fatal(err)
+	}
+
+	created, err := runtime.CreateRuntime(context.Background(), "mobile", tobari.RuntimeSourceBase("frontend"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !created.Created || created.Runtime.ID == base.Runtime.ID || created.Runtime.Name != "mobile" ||
+		len(created.Runtime.Revisions) != 0 || created.Runtime.SourcePath == base.Runtime.SourcePath {
+		t.Fatalf("standalone created Runtime = %+v, base = %+v", created, base)
+	}
+	copiedTool := filepath.Join(created.Runtime.SourcePath, "bin", "tool")
+	data, err := os.ReadFile(copiedTool)
+	if err != nil || string(data) != "synthetic executable\n" {
+		t.Fatalf("copied tool = %q/%v", data, err)
+	}
+	if info, err := os.Stat(copiedTool); err != nil || info.Mode().Perm() != 0o700 {
+		t.Fatalf("copied tool mode = %v/%v", info, err)
+	}
+	if info, err := os.Stat(filepath.Join(created.Runtime.SourcePath, "empty")); err != nil || info.Mode().Perm() != 0o500 {
+		t.Fatalf("copied empty directory mode = %v/%v", info, err)
+	}
+	if err := os.WriteFile(tool, []byte("later Base edit\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	data, err = os.ReadFile(copiedTool)
+	if err != nil || string(data) != "synthetic executable\n" {
+		t.Fatalf("target changed after Base edit = %q/%v", data, err)
+	}
+}
+
+func TestRuntimeCreateFromMissingOrInvalidBasePublishesNoTarget(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		setup func(*testing.T, *Runtime)
+		base  tobari.RuntimeSourceBase
+		code  string
+	}{
+		{name: "missing", setup: func(*testing.T, *Runtime) {}, base: "missing"},
+		{name: "invalid source", setup: func(t *testing.T, runtime *Runtime) {
+			created, err := runtime.CreateRuntime(context.Background(), "frontend", tobari.RuntimeSourceBase(tobari.StandardRuntimeName))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink("Dockerfile", filepath.Join(created.Runtime.SourcePath, "link")); err != nil {
+				t.Fatal(err)
+			}
+		}, base: "frontend", code: "runtime_source_invalid"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			runtime, err := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), &recordingRunner{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			test.setup(t, runtime)
+			_, err = runtime.CreateRuntime(context.Background(), "mobile", test.base)
+			if test.code == "" {
+				if !errors.Is(err, tobari.ErrRuntimeNotFound) {
+					t.Fatalf("missing Base error = %v", err)
+				}
+			} else if public, ok := fault.PublicCopy(err); !ok || public.Code != test.code {
+				t.Fatalf("invalid Base source fault = %+v/%v", public, err)
+			}
+			if _, statErr := os.Lstat(runtime.runtimeDirectory("mobile")); !errors.Is(statErr, os.ErrNotExist) {
+				t.Fatalf("failed creation published target: %v", statErr)
+			}
+		})
+	}
+}
+
+func TestRuntimeCreateCancellationPublishesNoTarget(t *testing.T) {
+	root := t.TempDir()
+	runtime, err := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), &recordingRunner{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := runtime.CreateRuntime(ctx, "mobile", tobari.RuntimeSourceBase(tobari.StandardRuntimeName)); !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled create error = %v", err)
+	}
+	if _, err := os.Lstat(runtime.runtimeDirectory("mobile")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("canceled creation published target: %v", err)
+	}
+}
+
 func TestContextRuntimeSetPinsExactReadyRevision(t *testing.T) {
 	root := t.TempDir()
 	runner := &recordingRunner{outputQueue: [][]byte{compatibleImageInspection(), imageDigestInspection()}}
@@ -77,7 +189,7 @@ func TestContextRuntimeSetPinsExactReadyRevision(t *testing.T) {
 	if err := runtime.ensureContextStore(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := runtime.CreateRuntime(context.Background(), "frontend"); err != nil {
+	if _, err := runtime.CreateRuntime(context.Background(), "frontend", tobari.RuntimeSourceBase(tobari.StandardRuntimeName)); err != nil {
 		t.Fatal(err)
 	}
 	built, err := runtime.BuildManagedRuntime(context.Background(), "frontend", nil)
@@ -110,7 +222,7 @@ func TestRuntimeSourceRejectsSymlinksBeforeDocker(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	created, err := runtime.CreateRuntime(context.Background(), "unsafe")
+	created, err := runtime.CreateRuntime(context.Background(), "unsafe", tobari.RuntimeSourceBase(tobari.StandardRuntimeName))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -132,7 +244,7 @@ func TestRuntimeSourceAcceptsPrivateBinaryWithinStreamedBounds(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	created, err := runtime.CreateRuntime(context.Background(), "binary")
+	created, err := runtime.CreateRuntime(context.Background(), "binary", tobari.RuntimeSourceBase(tobari.StandardRuntimeName))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -170,7 +282,7 @@ func TestRuntimeSourceSizeFailureReportsPathActualAndLimitBeforeDocker(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	created, err := runtime.CreateRuntime(context.Background(), "oversized")
+	created, err := runtime.CreateRuntime(context.Background(), "oversized", tobari.RuntimeSourceBase(tobari.StandardRuntimeName))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -206,7 +318,7 @@ func TestRuntimeSourcePermissionFailureReportsCorrectionBeforeDocker(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	created, err := runtime.CreateRuntime(context.Background(), "permissions")
+	created, err := runtime.CreateRuntime(context.Background(), "permissions", tobari.RuntimeSourceBase(tobari.StandardRuntimeName))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -237,7 +349,7 @@ func TestRuntimeSourceDirectoryPermissionFailureReportsCorrectionBeforeDocker(t 
 	if err != nil {
 		t.Fatal(err)
 	}
-	created, err := runtime.CreateRuntime(context.Background(), "directory-permissions")
+	created, err := runtime.CreateRuntime(context.Background(), "directory-permissions", tobari.RuntimeSourceBase(tobari.StandardRuntimeName))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -268,7 +380,7 @@ func TestRuntimeSourceTotalFailureReportsActualAndLimitBeforeDocker(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	created, err := runtime.CreateRuntime(context.Background(), "total")
+	created, err := runtime.CreateRuntime(context.Background(), "total", tobari.RuntimeSourceBase(tobari.StandardRuntimeName))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -344,7 +456,7 @@ func TestRuntimeSourceCountBoundsRejectBeforeDocker(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			created, err := runtime.CreateRuntime(context.Background(), test.name)
+			created, err := runtime.CreateRuntime(context.Background(), test.name, tobari.RuntimeSourceBase(tobari.StandardRuntimeName))
 			if err != nil {
 				t.Fatal(err)
 			}

@@ -53,6 +53,13 @@ a Context is one explicit Context mutation that replaces its binding with a
 validated ready revision. Existing Workspaces preserve their home and adopt
 the new selection only on their next entry through ordinary reconciliation.
 
+Runtime source creation may use `standard` or another managed Runtime's current
+editable source as a one-time Base. It copies the bounded owner-only source into
+a fresh-ID Runtime with empty history and persists no parent, inheritance, or
+lineage. Immutable `name@ordinal` snapshots are not Base candidates because
+freezing removes the original editable owner-mode facts. Building and Context
+selection remain later explicit mutations.
+
 The first-use Context wizard uses six stages: Name, Filesystem, Network,
 Runtime, Workspace bootstrap, and Review. Runtime always presents `standard@1`
 plus every ready custom revision after Network, even when standard is the only

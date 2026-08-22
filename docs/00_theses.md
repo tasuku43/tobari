@@ -978,7 +978,10 @@ OPA allow.
 - `runtime create` and `runtime build` are the host-facing runtime customization
   surface. A Runtime is installation-wide, owns one complete owner-only Docker
   build-context source tree, and records only immutable successful semantic
-  revisions. Contexts own exact Runtime references rather than recipes. Build
+  revisions. Creation may initialize one standalone editable source from the
+  built-in standard starter or another managed Runtime's current editable
+  source; it never copies immutable history or retains lineage. Contexts own
+  exact Runtime references rather than recipes. Build
   changes no Context; an explicit Context selection or rollback makes bound
   Workspaces adopt that revision on their next entry while preserving their home.
   Fully specified Runtime mutations remain deterministic for agents and

@@ -346,7 +346,7 @@ The public commands are:
 | `runtime list [--format text\|json]` | utility | read | List the exhaustive installation-wide Runtime catalog and each ready head revision |
 | `runtime show --name NAME [--format text\|json]` | utility | read | Inspect one Runtime's managed source path and complete successful revisions |
 | `runtime history --name NAME [--format text\|json]` | utility | read | Show one Runtime's ordered immutable successful revision history |
-| `runtime create --name NAME [--format text\|json]` | act, fixed target | create | Create one owner-only managed Docker build-context source tree without building or changing a Context |
+| `runtime create [--base RUNTIME] --name NAME [--format text\|json]` | act, fixed target | create | Create one standalone owner-only managed Docker build-context source from the standard starter or another managed Runtime's current editable source, without building, retaining lineage, or changing a Context |
 | `runtime build [--name NAME] [--format text\|json]` | act, fixed target | write | Snapshot, build, validate, and append one immutable semantic revision without changing any Context; omission opens terminal Review |
 
 Bare `tobari review` is a pure Catalog namespace listing with exactly the
@@ -576,8 +576,12 @@ review runs through `tobari review permissions` in a separate host terminal.
   records, Datadog/OpenAI/Anthropic refresh, AWS signing and the private companion, or
   the OpenAI supplemental header. Managed profiles and owner-selected dynamic
   behavior remain absent.
-- `runtime create` creates one installation-owned, owner-only `source/` tree
-  with a Dockerfile template. Scripts, package manifests, and configuration
+- `runtime create` creates one installation-owned, owner-only `source/` tree.
+  `--base standard` uses the built-in Dockerfile starter; `--base NAME` copies
+  that managed Runtime's current editable source through the same bounded,
+  drift-checked stream contract used by build. The copy preserves relative
+  paths, bytes, and owner permission bits, receives a fresh Runtime ID and
+  empty history, and retains no Base identity or inheritance. Scripts, package manifests, and configuration
   files, including host-acquired private binaries, may be added beside it under
   one regular-file contract: at most 1,024 files, 256 directories, 32 MiB per
   file, and 64 MiB total. The source root and all children have no group/other
@@ -1259,7 +1263,12 @@ create state merely to observe it. Context, policy, credential, auth, project,
 and lock initialization belongs to declared create/write outcomes.
 
 `runtime create` creates an owner-only installation Runtime source tree without
-changing a Context. `runtime build` snapshots that complete bounded tree,
+changing a Context. On interactive text streams, omitted `--base` lists source
+Bases only when at least one managed Runtime exists, with `standard` selected
+first; explicit Base, redirected, and JSON calls never prompt, and omission on
+those streams retains the standard starter behavior. Managed Base validation,
+drift, cancellation, or target collision publishes no partial Runtime.
+`runtime build` snapshots that complete bounded tree,
 executes the explicit host Docker build, validates the generated image, and
 atomically appends a successful immutable revision after its image digest is
 confirmed. A failed or semantically unchanged build appends no revision.

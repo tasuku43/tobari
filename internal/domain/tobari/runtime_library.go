@@ -49,6 +49,27 @@ func (k RuntimeKind) Validate() error {
 	}
 }
 
+// RuntimeSourceBase identifies the editable source used once to initialize a
+// standalone managed Runtime. It is selection input, not persisted lineage.
+type RuntimeSourceBase string
+
+func ParseRuntimeSourceBase(value string) (RuntimeSourceBase, error) {
+	if value == "" {
+		return "", fmt.Errorf("Runtime source Base is required")
+	}
+	if value != StandardRuntimeName {
+		if err := ValidateName(value); err != nil {
+			return "", fmt.Errorf("Runtime source Base: %w", err)
+		}
+	}
+	return RuntimeSourceBase(value), nil
+}
+
+func (b RuntimeSourceBase) Validate() error {
+	_, err := ParseRuntimeSourceBase(string(b))
+	return err
+}
+
 // RuntimeRevision is one immutable successful semantic build.
 type RuntimeRevision struct {
 	Ordinal      int       `json:"ordinal"`

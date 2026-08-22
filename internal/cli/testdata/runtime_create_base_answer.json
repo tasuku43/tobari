@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "task": "runtime.create",
+  "new_runtime": "mobile",
+  "base_candidates": ["standard", "frontend", "backend"],
+  "initial_base": "standard",
+  "exact_next_argv": ["tobari", "runtime", "build", "--name", "mobile"],
+  "required_summary_facts": [
+    "Runtime mobile",
+    "managed",
+    "/tmp/tobari-test/runtimes/mobile/source",
+    "no group/other permissions",
+    "draft · edit source, then runtime build --name mobile"
+  ],
+  "chooser_facts": [
+    "Source Base",
+    "standard",
+    "frontend",
+    "backend",
+    "standalone",
+    "no Context binding changes"
+  ],
+  "routine_success": {
+    "task_invocations": 1,
+    "external_reconstruction_steps": 0
+  },
+  "unsupported_inferences": [
+    "Base:",
+    "parent_runtime",
+    "inherits_from",
+    "frontend@2"
+  ]
+}

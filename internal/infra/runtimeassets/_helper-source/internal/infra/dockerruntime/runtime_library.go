@@ -259,12 +259,16 @@ func (r *Runtime) RuntimeHistory(ctx context.Context, name string) (tobari.Runti
 	return report, report.Validate()
 }
 
-// CreateRuntime initializes one managed source tree without building it.
-func (r *Runtime) CreateRuntime(ctx context.Context, name string) (tobari.RuntimeReport, error) {
+// CreateRuntime initializes one standalone managed source tree from an exact
+// source Base without building it or retaining Base lineage.
+func (r *Runtime) CreateRuntime(ctx context.Context, name string, base tobari.RuntimeSourceBase) (tobari.RuntimeReport, error) {
 	if err := ctx.Err(); err != nil {
 		return tobari.RuntimeReport{}, err
 	}
 	if err := tobari.ValidateName(name); err != nil {
+		return tobari.RuntimeReport{}, err
+	}
+	if err := base.Validate(); err != nil {
 		return tobari.RuntimeReport{}, err
 	}
 	if name == tobari.StandardRuntimeName {
@@ -280,19 +284,13 @@ func (r *Runtime) CreateRuntime(ctx context.Context, name string) (tobari.Runtim
 		if err := r.ensurePrivateDirectory(r.runtimesDirectory()); err != nil {
 			return err
 		}
-		committed := false
-		defer func() {
-			if !committed {
-				_ = os.RemoveAll(r.runtimeDirectory(name))
-			}
-		}()
-		if err := r.ensurePrivateDirectory(r.runtimeDirectory(name)); err != nil {
+		staging, err := os.MkdirTemp(r.configDirectory, ".runtime-create-")
+		if err != nil {
 			return err
 		}
-		if err := r.ensurePrivateDirectory(r.runtimeSourceDirectory(name)); err != nil {
-			return err
-		}
-		if err := r.ensurePrivateDirectory(r.runtimeRevisionsDirectory(name)); err != nil {
+		defer func() { _ = os.RemoveAll(staging) }() // #nosec G301 -- exact MkdirTemp-owned staging child.
+		stagedSource := filepath.Join(staging, "source")
+		if err := os.Mkdir(filepath.Join(staging, "revisions"), 0o700); err != nil {
 			return err
 		}
 		id, err := r.identities.newRuntimeID()
@@ -306,13 +304,34 @@ func (r *Runtime) CreateRuntime(ctx context.Context, name string) (tobari.Runtim
 		if err := manifest.Validate(); err != nil {
 			return err
 		}
-		if err := initializeBytes(filepath.Join(manifest.SourcePath, "Dockerfile"), []byte(fmt.Sprintf(managedRuntimeTemplate, r.defaultRuntimeImage())), runtimeSourceFileMode); err != nil {
+		if base == tobari.RuntimeSourceBase(tobari.StandardRuntimeName) {
+			if err := os.Mkdir(stagedSource, 0o700); err != nil {
+				return err
+			}
+			if err := initializeBytes(filepath.Join(stagedSource, "Dockerfile"), []byte(fmt.Sprintf(managedRuntimeTemplate, r.defaultRuntimeImage())), runtimeSourceFileMode); err != nil {
+				return err
+			}
+		} else {
+			baseManifest, err := r.readRuntimeManifest(string(base))
+			if err != nil {
+				return err
+			}
+			if _, err := copyRuntimeSource(ctx, baseManifest.SourcePath, stagedSource); err != nil {
+				return err
+			}
+		}
+		if err := writeAtomicJSON(filepath.Join(staging, "runtime.json"), manifest); err != nil {
 			return err
 		}
-		if err := writeAtomicJSON(r.runtimeManifestPath(name), manifest); err != nil {
+		if err := ctx.Err(); err != nil {
 			return err
 		}
-		committed = true
+		if err := os.Rename(staging, r.runtimeDirectory(name)); err != nil {
+			if errors.Is(err, os.ErrExist) {
+				return tobari.ErrRuntimeExists
+			}
+			return err
+		}
 		result = tobari.RuntimeReport{Task: tobari.TaskRuntimeCreate, Runtime: manifest, Created: true}
 		return result.Validate()
 	})
@@ -327,6 +346,24 @@ type runtimeSourceEntry struct {
 	mode     os.FileMode
 	size     int64
 	info     os.FileInfo
+}
+
+type runtimeSourceDirectoryEntry struct {
+	relative string
+	mode     os.FileMode
+	info     os.FileInfo
+}
+
+type contextCheckedReader struct {
+	ctx    context.Context
+	reader io.Reader
+}
+
+func (r contextCheckedReader) Read(buffer []byte) (int, error) {
+	if err := r.ctx.Err(); err != nil {
+		return 0, err
+	}
+	return r.reader.Read(buffer)
 }
 
 func runtimeSourceInvalid(message string) error {
@@ -360,8 +397,10 @@ func runtimeSourceSizeMessage(kind, relative string, actual, limit int64) string
 	)
 }
 
-func (r *Runtime) snapshotRuntimeSource(name, snapshot string) (string, error) {
-	root := r.runtimeSourceDirectory(name)
+func copyRuntimeSource(ctx context.Context, root, snapshot string) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
 	if err := requirePrivateDirectory(root); err != nil {
 		return "", fmt.Errorf("inspect Runtime source: %w", err)
 	}
@@ -371,9 +410,12 @@ func (r *Runtime) snapshotRuntimeSource(name, snapshot string) (string, error) {
 	}
 	defer sourceRoot.Close()
 	entries := make([]runtimeSourceEntry, 0)
-	directories := 0
+	directoryEntries := make([]runtimeSourceDirectoryEntry, 0)
 	total := int64(0)
 	err = filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if walkErr != nil {
 			return walkErr
 		}
@@ -392,9 +434,8 @@ func (r *Runtime) snapshotRuntimeSource(name, snapshot string) (string, error) {
 			return runtimeSourceInvalid(fmt.Sprintf("Runtime source path %s is a symbolic link; only regular files and directories are accepted.", runtimeSourcePathLabel(relative)))
 		}
 		if entry.IsDir() {
-			directories++
-			if directories > maxRuntimeSourceDirs {
-				return runtimeSourceInvalid(fmt.Sprintf("Runtime source contains %d directories; the limit is %d.", directories, maxRuntimeSourceDirs))
+			if len(directoryEntries) >= maxRuntimeSourceDirs {
+				return runtimeSourceInvalid(fmt.Sprintf("Runtime source contains %d directories; the limit is %d.", len(directoryEntries)+1, maxRuntimeSourceDirs))
 			}
 			if info.Mode().Perm()&0o077 != 0 {
 				return runtimeSourceInvalid(fmt.Sprintf(
@@ -402,6 +443,7 @@ func (r *Runtime) snapshotRuntimeSource(name, snapshot string) (string, error) {
 					runtimeSourcePathLabel(relative), info.Mode().Perm(),
 				))
 			}
+			directoryEntries = append(directoryEntries, runtimeSourceDirectoryEntry{relative: filepath.ToSlash(relative), mode: info.Mode().Perm(), info: info})
 			return nil
 		}
 		if !info.Mode().IsRegular() {
@@ -439,10 +481,29 @@ func (r *Runtime) snapshotRuntimeSource(name, snapshot string) (string, error) {
 	if err := os.Mkdir(snapshot, 0o700); err != nil {
 		return "", err
 	}
+	for _, entry := range directoryEntries {
+		if err := ctx.Err(); err != nil {
+			return "", err
+		}
+		relative := filepath.FromSlash(entry.relative)
+		current, err := sourceRoot.Lstat(relative)
+		if err != nil {
+			return "", err
+		}
+		if !current.IsDir() || current.Mode()&os.ModeSymlink != 0 || !os.SameFile(entry.info, current) || current.Mode().Perm() != entry.mode {
+			return "", runtimeSourceInvalid(fmt.Sprintf("Runtime source directory %s changed during snapshot; wait for edits to finish and retry.", runtimeSourcePathLabel(relative)))
+		}
+		if err := os.Mkdir(filepath.Join(snapshot, relative), 0o700); err != nil { // #nosec G301 -- final exact owner mode is restored after all children are copied.
+			return "", err
+		}
+	}
 	var digest hash.Hash = sha256.New()
 	var length [8]byte
 	buffer := make([]byte, runtimeSourceCopySize)
 	for _, entry := range entries {
+		if err := ctx.Err(); err != nil {
+			return "", err
+		}
 		binary.BigEndian.PutUint64(length[:], uint64(len(entry.relative)))
 		_, _ = digest.Write(length[:])
 		_, _ = digest.Write([]byte(entry.relative))
@@ -483,7 +544,7 @@ func (r *Runtime) snapshotRuntimeSource(name, snapshot string) (string, error) {
 			_ = source.Close()
 			return "", err
 		}
-		copied, copyErr := io.CopyBuffer(io.MultiWriter(destination, digest), io.LimitReader(source, entry.size+1), buffer)
+		copied, copyErr := io.CopyBuffer(io.MultiWriter(destination, digest), contextCheckedReader{ctx: ctx, reader: io.LimitReader(source, entry.size+1)}, buffer)
 		closeDestinationErr := destination.Close()
 		afterOpened, statErr := source.Stat()
 		closeSourceErr := source.Close()
@@ -508,6 +569,15 @@ func (r *Runtime) snapshotRuntimeSource(name, snapshot string) (string, error) {
 			afterOpened.Size() != entry.size || afterPath.Size() != entry.size ||
 			afterOpened.Mode().Perm() != entry.mode || afterPath.Mode().Perm() != entry.mode {
 			return "", runtimeSourceInvalid(fmt.Sprintf("Runtime source file %s changed during snapshot; wait for edits to finish and retry.", runtimeSourcePathLabel(relative)))
+		}
+		if err := os.Chmod(target, entry.mode); err != nil { // #nosec G302 -- validated owner-only source mode is copied exactly.
+			return "", err
+		}
+	}
+	for index := len(directoryEntries) - 1; index >= 0; index-- {
+		entry := directoryEntries[index]
+		if err := os.Chmod(filepath.Join(snapshot, filepath.FromSlash(entry.relative)), entry.mode); err != nil { // #nosec G302 -- validated owner-only source mode is copied exactly.
+			return "", err
 		}
 	}
 	return "sha256:" + hex.EncodeToString(digest.Sum(nil)), nil
@@ -625,7 +695,7 @@ func (r *Runtime) BuildManagedRuntime(ctx context.Context, name string, diagnost
 		}
 		defer os.RemoveAll(temporary)
 		snapshot := filepath.Join(temporary, "source")
-		revision, err := r.snapshotRuntimeSource(name, snapshot)
+		revision, err := copyRuntimeSource(ctx, r.runtimeSourceDirectory(name), snapshot)
 		if err != nil {
 			return err
 		}

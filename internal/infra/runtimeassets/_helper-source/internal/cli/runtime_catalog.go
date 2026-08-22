@@ -541,12 +541,20 @@ func runtimeReadSpec(path, summary, outcome, _ string, handler commandHandler) C
 
 func runtimeCreateSpec() CommandSpec {
 	minimum := int64(1)
-	return CommandSpec{Path: "runtime create", Summary: "Create a reusable Runtime source tree", Args: "--name <name> [--format text|json]", Effect: operation.EffectCreate, Role: RoleAct,
-		Agent: AgentContract{CapabilityID: "runtime.customization", Outcome: "Create one managed Runtime source tree whose root and future children must have no group/other permissions, without building or changing a Context",
-			Inputs: []CommandInput{{Name: "--name", Source: InputSourceFlag, Required: true, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, MinimumLength: &minimum, Description: "Unique local Runtime name.", AllowedValues: []string{}}, formatInput()},
-			Output: runtimeReportOutput(), Prerequisites: []string{}, FixedTarget: fixedRuntimeCatalogTarget(),
+	return CommandSpec{Path: "runtime create", Summary: "Create a reusable Runtime source tree from one Base", Args: "[--base <runtime-name>] --name <name> [--format text|json]", Effect: operation.EffectCreate, Role: RoleAct,
+		Agent: AgentContract{CapabilityID: "runtime.customization", Outcome: "Create one standalone managed Runtime source tree from the built-in standard starter or another managed Runtime's current editable source; its root and future children must have no group/other permissions; do not build, retain inheritance, or change a Context",
+			Inputs: []CommandInput{
+				{Name: "--base", Source: InputSourceFlag, Required: false, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, MinimumLength: &minimum, Description: "One-time source initializer: standard or an existing managed Runtime name; interactive text omission chooses when managed sources exist, while redirected or JSON omission uses standard.", AllowedValues: []string{}, DefaultValue: stringPointer(tobari.StandardRuntimeName), Completion: InputCompletionRuntimeName},
+				{Name: "--name", Source: InputSourceFlag, Required: true, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, MinimumLength: &minimum, Description: "Unique local Runtime name.", AllowedValues: []string{}}, formatInput()},
+			Output: runtimeReportOutput(), Prerequisites: []string{"A managed Base source must remain an owner-only bounded tree throughout the copy; immutable name@ordinal revisions are not source Bases."}, FixedTarget: fixedRuntimeCatalogTarget(),
 			Errors: mutationCommandErrors("runtime create", "runtime list",
 				declaredCommandError(fault.KindInvalidInput, "invalid_runtime_name", false, "runtime list", "Choose a valid unique Runtime name."),
+				declaredCommandError(fault.KindInvalidInput, "invalid_runtime_base", false, "runtime list", "Choose standard or an existing managed Runtime name, not a name@ordinal revision."),
+				declaredCommandError(fault.KindNotFound, "runtime_base_not_found", false, "runtime list", "Choose standard or an existing managed Runtime name."),
+				declaredCommandError(fault.KindInternal, "runtime_read_failed", false, "doctor", "Inspect the host Runtime store before retrying interactive Base selection."),
+				declaredCommandError(fault.KindContract, "invalid_runtime_list", false, "doctor", "Inspect the host Runtime store before retrying interactive Base selection."),
+				declaredCommandError(fault.KindInternal, "runtime_review_failed", false, "help runtime create", "Retry with --base or repair the interactive terminal streams."),
+				declaredCommandError(fault.KindRejected, "runtime_source_invalid", false, "runtime show", "Inspect the unchanged Base source and Runtime catalog."),
 				declaredCommandError(fault.KindRejected, "runtime_exists", false, "runtime show", "Inspect the existing Runtime."),
 				declaredCommandError(fault.KindRejected, "runtime_create_failed", false, "runtime list", "Inspect the local Runtime catalog."),
 				declaredCommandError(fault.KindContract, "invalid_runtime_report", false, "runtime list", "Reconcile the Runtime catalog."),

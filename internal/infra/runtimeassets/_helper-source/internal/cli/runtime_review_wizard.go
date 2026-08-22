@@ -138,6 +138,45 @@ func chooseRuntimeBuild(ctx context.Context, c *CLI) (string, error) {
 	}
 }
 
+func chooseRuntimeCreateBase(ctx context.Context, c *CLI, targetName string) (string, error) {
+	catalog, err := c.runtime.List(ctx)
+	if err != nil {
+		return "", err
+	}
+	managed := make([]tobari.RuntimeSummary, 0, len(catalog.Items))
+	for _, item := range catalog.Items {
+		if item.Kind == tobari.RuntimeKindManaged {
+			managed = append(managed, item)
+		}
+	}
+	if len(managed) == 0 {
+		return tobari.StandardRuntimeName, nil
+	}
+	options := []configurationWizardOption{{
+		label: tobari.StandardRuntimeName, description: "Tobari built-in editable starter source.", value: tobari.StandardRuntimeName,
+	}}
+	for _, item := range managed {
+		description := "Managed editable source · no successful revision"
+		if item.Ready {
+			description = fmt.Sprintf("Managed editable source · head %s@%d", item.Name, item.Head)
+		}
+		options = append(options, configurationWizardOption{label: item.Name, description: description, value: item.Name})
+	}
+	index, err := runtimeReviewChooser(c).choose(ctx, c.In, c.Err, configurationWizardMenu{
+		title:   "Tobari · Create Runtime · Base",
+		details: []configurationWizardDetail{{label: "New Runtime", value: targetName}},
+		information: []string{
+			"Copy one editable source tree without building it.",
+			"The new Runtime is standalone and no Context binding changes.",
+		},
+		prompt: "Source Base", options: options, initial: 0,
+	})
+	if err != nil {
+		return "", err
+	}
+	return options[index].value, nil
+}
+
 func loadReadyRuntimeChoices(ctx context.Context, c *CLI) ([]readyRuntimeChoice, error) {
 	catalog, err := c.runtime.List(ctx)
 	if err != nil {

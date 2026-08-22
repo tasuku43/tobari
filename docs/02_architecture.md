@@ -269,6 +269,13 @@ fixed buffer. Source and opened-file identity/mode/size are revalidated around
 each copy; Docker is invoked only after the complete snapshot exists. Public
 source-contract faults carry only a bounded quoted relative path and reviewed
 actual/limit or permission facts.
+Runtime creation uses that same bounded inventory and drift-checked stream copy
+when its Base is a managed editable source. It stages source, a fresh stable
+identity, empty history, and the manifest outside the visible Runtime catalog,
+then publishes the complete standalone Runtime with one same-filesystem rename.
+`standard` instead writes the canonical built-in starter into the same private
+stage. Neither path persists Base identity, reads an immutable revision
+snapshot, builds an image, or changes a Context.
 Only the experimental profile has encrypted Context vaults and projects a
 project-bound handle.
 
@@ -318,7 +325,10 @@ own catalog effect, fixed target, impact, application invoker, and mutation-
 complete output boundary. Root never models those targets as one mutation and
 never invokes the public CLI as a subprocess.
 
-Omitted primary selectors for `runtime build` and `context runtime set` are a
+Omitted `runtime create --base` is a smaller Base-first input-completion flow:
+interactive text lists `standard` plus managed editable sources and skips the
+chooser when only `standard` exists, while redirected and JSON omission binds
+`standard` without a read. Omitted primary selectors for `runtime build` and `context runtime set` are a
 smaller CLI-owned input-completion workflow. CLI composes existing Runtime and
 Context read use cases into a terminal Review, binds an omitted current Context
 to the exact name returned by `context show`, and passes only one selected
