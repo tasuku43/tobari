@@ -732,12 +732,29 @@ cat >"$config_directory/auth/providers/$synthetic_provider.json" <<'JSON'
 }
 JSON
 chmod 0600 "$config_directory/auth/providers/$synthetic_provider.json"
+mitmproxy_image=$(awk -F= '$1 == "MITMPROXY_IMAGE" { print $2 }' internal/infra/runtimeassets/assets/versions.env)
+# The certificate belongs to this temporary integration run, not to binary or
+# image build ownership. Both the self-built and explicit-binary paths use it
+# for their bounded synthetic TLS upstreams.
+docker run --rm --user "$(id -u):$(id -g)" \
+  -v "$test_root/tls:/tls" \
+  --entrypoint sh "$mitmproxy_image" -eu -c '
+    openssl req -x509 -newkey rsa:2048 -nodes -sha256 -days 2 \
+      -subj /CN=api.synthetic.example \
+      -addext subjectAltName=DNS:api.synthetic.example,DNS:mock-upstream,DNS:graphql.tobari.dev \
+      -addext basicConstraints=critical,CA:TRUE \
+      -addext keyUsage=critical,digitalSignature,keyEncipherment,keyCertSign \
+      -addext extendedKeyUsage=serverAuth \
+      -keyout /tls/synthetic-server.key \
+      -out /tls/synthetic-ca.crt >/dev/null 2>&1
+    chmod 0600 /tls/synthetic-server.key
+    chmod 0644 /tls/synthetic-ca.crt
+  '
 if [[ -n ${TOBARI_INTEGRATION_BINARY:-} ]]; then
   [[ -x $binary ]] || fail "TOBARI_INTEGRATION_BINARY is not executable: $binary"
 else
 	  gateway_dev_tag="tobari-gateway-experimental:dev-$(go run ./tools/runtimeassetid gateway)"
 	  auth_broker_dev_tag="tobari-auth-broker:dev-$(go run ./tools/runtimeassetid authbroker)"
-  mitmproxy_image=$(awk -F= '$1 == "MITMPROXY_IMAGE" { print $2 }' internal/infra/runtimeassets/assets/versions.env)
   debian_image=$(awk -F= '$1 == "DEBIAN_IMAGE" { print $2 }' internal/infra/runtimeassets/assets/versions.env)
   docker_arch=$(docker info --format '{{.Architecture}}')
   case $docker_arch in
@@ -750,20 +767,6 @@ else
   docker build --tag "$experimental_gateway_base_image" \
     --file gateway/Dockerfile.experimental \
     --build-arg "TOBARI_GATEWAY_BASE=$gateway_base_image" gateway >/dev/null
-  docker run --rm --user "$(id -u):$(id -g)" \
-    -v "$test_root/tls:/tls" \
-    --entrypoint sh "$mitmproxy_image" -eu -c '
-      openssl req -x509 -newkey rsa:2048 -nodes -sha256 -days 2 \
-        -subj /CN=api.synthetic.example \
-        -addext subjectAltName=DNS:api.synthetic.example,DNS:mock-upstream,DNS:graphql.tobari.dev \
-        -addext basicConstraints=critical,CA:TRUE \
-        -addext keyUsage=critical,digitalSignature,keyEncipherment,keyCertSign \
-        -addext extendedKeyUsage=serverAuth \
-        -keyout /tls/synthetic-server.key \
-        -out /tls/synthetic-ca.crt >/dev/null 2>&1
-      chmod 0600 /tls/synthetic-server.key
-      chmod 0644 /tls/synthetic-ca.crt
-    '
 	  docker build --tag "$gateway_dev_tag" \
     --file test/integration/gateway-auth.Dockerfile \
     --build-arg "TOBARI_GATEWAY_BASE=$experimental_gateway_base_image" \

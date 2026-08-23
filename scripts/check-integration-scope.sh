@@ -118,4 +118,24 @@ if ! awk '
   exit 1
 fi
 
+# The documented explicit-binary path skips repository image/binary builds,
+# but it still owns a fresh temporary TLS fixture for this run. Keep that
+# generation outside and before the build-selection branch.
+binary_branch_line=$(grep -nF 'if [[ -n ${TOBARI_INTEGRATION_BINARY:-} ]]; then' "$scenario" | cut -d: -f1)
+tls_fixture_line=$(grep -nF 'openssl req -x509 -newkey' "$scenario" | cut -d: -f1)
+if [[ -z $binary_branch_line || -z $tls_fixture_line ]] || ((tls_fixture_line >= binary_branch_line)); then
+  echo "integration scope: run-local TLS fixture is not owned by both binary paths" >&2
+  exit 1
+fi
+for claim in \
+  '-v "$test_root/tls:/tls"' \
+  '-out /tls/synthetic-ca.crt' \
+  'TOBARI_MOCK_TLS_CERT=/tls/synthetic-ca.crt' \
+  'TOBARI_MOCK_TLS_KEY=/tls/synthetic-server.key'; do
+  if ! grep -F -- "$claim" "$scenario" >/dev/null; then
+    echo "integration scope: missing run-local TLS fixture claim: $claim" >&2
+    exit 1
+  fi
+done
+
 echo "integration scope: OK ($line_count lines, $cli_reference_count CLI references)"
