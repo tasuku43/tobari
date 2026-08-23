@@ -29,6 +29,7 @@ type lifecycleObservationRunner struct {
 	outputs           []runnerCall
 	changeSecondImage bool
 	imageObservations int
+	onFirstImage      func()
 }
 
 type blockingLifecycleRunner struct{}
@@ -79,6 +80,9 @@ func (r *lifecycleObservationRunner) Run(_ context.Context, args, _ []string, _ 
 			return errors.New("image missing")
 		}
 		r.imageObservations++
+		if r.imageObservations == 1 && r.onFirstImage != nil {
+			r.onFirstImage()
+		}
 		observed := fixture.observation
 		if r.changeSecondImage && r.imageObservations > 1 {
 			observed.Size++
@@ -126,8 +130,26 @@ func (r *lifecycleObservationRunner) Output(_ context.Context, args, _ []string)
 	return nil, fmt.Errorf("unexpected lifecycle observation: %v", args)
 }
 
-func installRuntimeLifecycleRevision(t *testing.T, runtime *Runtime, id, name, revision, image, imageDigest string) tobari.RuntimeManifest {
+func runtimeLifecycleFixtureRevision(t *testing.T, content string) string {
 	t.Helper()
+	root := t.TempDir()
+	if err := os.Chmod(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "Dockerfile"), []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	revision, err := digestRuntimeSnapshot(context.Background(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return revision
+}
+
+func installRuntimeLifecycleRevision(t *testing.T, runtime *Runtime, id, name, imageDigest, content string) tobari.RuntimeManifest {
+	t.Helper()
+	revision := runtimeLifecycleFixtureRevision(t, content)
+	image := managedLibraryRuntimeImage(name, id, revision)
 	root := runtime.runtimeDirectory(name)
 	if err := os.MkdirAll(filepath.Join(root, "source"), 0o700); err != nil {
 		t.Fatal(err)
@@ -135,10 +157,10 @@ func installRuntimeLifecycleRevision(t *testing.T, runtime *Runtime, id, name, r
 	if err := os.MkdirAll(filepath.Join(root, "revisions", strings.TrimPrefix(revision, "sha256:"), "source"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(root, "source", "Dockerfile"), []byte("FROM example.invalid/runtime\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "source", "Dockerfile"), []byte(content), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(root, "revisions", strings.TrimPrefix(revision, "sha256:"), "source", "Dockerfile"), []byte("FROM example.invalid/runtime\n"), 0o400); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "revisions", strings.TrimPrefix(revision, "sha256:"), "source", "Dockerfile"), []byte(content), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	manifest := tobari.RuntimeManifest{SchemaVersion: tobari.RuntimeSchemaVersion, ID: id, Name: name, Kind: tobari.RuntimeKindManaged, SourcePath: filepath.Join(root, "source"), Revisions: []tobari.RuntimeRevision{{Ordinal: 1, Revision: revision, Image: image, ImageDigest: imageDigest, CreatedAt: time.Unix(1, 0).UTC(), SnapshotPath: filepath.Join(root, "revisions", strings.TrimPrefix(revision, "sha256:"), "source")}}}
@@ -170,17 +192,144 @@ func TestRuntimeLifecycleSnapshotIsZeroWriteAndRequiresStableDockerEvidence(t *t
 	}
 
 	id := "018bcfe5-687b-7000-8000-000000000077"
-	revision := "sha256:" + strings.Repeat("a", 64)
 	imageDigest := "sha256:" + strings.Repeat("b", 64)
-	tag := managedLibraryRuntimeImage("frontend", id, revision)
 	if err := os.MkdirAll(filepath.Join(root, "config", "runtimes"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	installRuntimeLifecycleRevision(t, runtime, id, "frontend", revision, tag, imageDigest)
+	manifest := installRuntimeLifecycleRevision(t, runtime, id, "frontend", imageDigest, "FROM example.invalid/runtime\n")
+	revision := manifest.Revisions[0].Revision
+	tag := manifest.Revisions[0].Image
 	runner.images[tag] = lifecycleImageFixture{observation: managedLifecycleImage(id, revision, tag)}
 	runner.changeSecondImage = true
 	if _, _, err := runtime.ReadRuntimeLifecycleSnapshot(context.Background()); err == nil {
 		t.Fatal("drifting Docker evidence produced a coherent snapshot")
+	}
+}
+
+func TestRuntimeLifecycleSnapshotMeasuresExactLogicalStorageAndRejectsDrift(t *testing.T) {
+	root := t.TempDir()
+	runner := &lifecycleObservationRunner{images: map[string]lifecycleImageFixture{}, containers: map[string]runtimeContainerObservation{}}
+	runtime, err := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), runner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(runtime.runtimesDirectory(), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	id := "018bcfe5-687b-7000-8000-000000000077"
+	imageDigest := "sha256:" + strings.Repeat("b", 64)
+	manifest := installRuntimeLifecycleRevision(t, runtime, id, "frontend", imageDigest, "FROM example.invalid/runtime\n")
+	revision := manifest.Revisions[0].Revision
+	tag := manifest.Revisions[0].Image
+	runner.images[tag] = lifecycleImageFixture{observation: managedLifecycleImage(id, revision, tag)}
+	sourceInfo, err := os.Stat(filepath.Join(manifest.SourcePath, "Dockerfile"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshotInfo, err := os.Stat(filepath.Join(manifest.Revisions[0].SnapshotPath, "Dockerfile"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot, _, err := runtime.ReadRuntimeLifecycleSnapshot(context.Background())
+	if err != nil || len(snapshot.Storage) != 1 || snapshot.Storage[0].SourceLogicalBytes != sourceInfo.Size() || len(snapshot.Storage[0].Snapshots) != 1 || snapshot.Storage[0].Snapshots[0].LogicalBytes != snapshotInfo.Size() {
+		t.Fatalf("logical storage = %+v/%v", snapshot.Storage, err)
+	}
+
+	runner.imageObservations = 0
+	runner.onFirstImage = func() {
+		if writeErr := os.WriteFile(filepath.Join(manifest.SourcePath, "Dockerfile"), []byte("FROM example.invalid/runtime\nRUN true\n"), 0o600); writeErr != nil {
+			t.Errorf("mutate Runtime source: %v", writeErr)
+		}
+	}
+	if _, _, err := runtime.ReadRuntimeLifecycleSnapshot(context.Background()); err == nil {
+		t.Fatal("source storage drift produced a coherent lifecycle snapshot")
+	}
+}
+
+func TestObserveRuntimeTreeLogicalBytesRejectsUnsafeOrUnboundedTrees(t *testing.T) {
+	root := t.TempDir()
+	if err := os.Chmod(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := observeRuntimeTreeLogicalBytes(context.Background(), root); err == nil {
+		t.Fatal("empty Runtime tree was measured")
+	}
+	if err := os.WriteFile(filepath.Join(root, "Dockerfile"), []byte("FROM scratch\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := observeRuntimeTreeLogicalBytes(context.Background(), root); err != nil {
+		t.Fatalf("private bounded Runtime tree: %v", err)
+	}
+	if err := os.Symlink("Dockerfile", filepath.Join(root, "link")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := observeRuntimeTreeLogicalBytes(context.Background(), root); err == nil {
+		t.Fatal("Runtime storage symlink was measured")
+	}
+}
+
+func TestRuntimeLifecycleSnapshotRehashesEveryImmutableRevisionTree(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		mutate func(*testing.T, string)
+	}{
+		{name: "nested symlink", mutate: func(t *testing.T, snapshot string) {
+			if err := os.Mkdir(filepath.Join(snapshot, "nested"), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink("../Dockerfile", filepath.Join(snapshot, "nested", "link")); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{name: "nested broad mode", mutate: func(t *testing.T, snapshot string) {
+			path := filepath.Join(snapshot, "nested")
+			if err := os.Mkdir(path, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Chmod(path, 0o755); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{name: "content drift", mutate: func(t *testing.T, snapshot string) {
+			if err := os.WriteFile(filepath.Join(snapshot, "Dockerfile"), []byte("FROM example.invalid/drifted\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{name: "file count", mutate: func(t *testing.T, snapshot string) {
+			for index := 0; index < maxRuntimeSourceFiles; index++ {
+				if err := os.WriteFile(filepath.Join(snapshot, fmt.Sprintf("extra-%04d", index)), nil, 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+		}},
+		{name: "file size", mutate: func(t *testing.T, snapshot string) {
+			path := filepath.Join(snapshot, "oversized")
+			if err := os.WriteFile(path, nil, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Truncate(path, maxRuntimeSourceFile+1); err != nil {
+				t.Fatal(err)
+			}
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			runner := &lifecycleObservationRunner{images: map[string]lifecycleImageFixture{}, containers: map[string]runtimeContainerObservation{}}
+			runtime, err := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), runner)
+			if err != nil {
+				t.Fatal(err)
+			}
+			manifest := installRuntimeLifecycleRevision(t, runtime, "018bcfe5-687b-7000-8000-000000000077", "frontend", "sha256:"+strings.Repeat("b", 64), "FROM example.invalid/runtime\n")
+			test.mutate(t, manifest.Revisions[0].SnapshotPath)
+			_, _, err = runtime.ReadRuntimeLifecycleSnapshot(context.Background())
+			var fault tobari.RuntimeProtectionInventoryError
+			if !errors.As(err, &fault) || fault.Reason != tobari.RuntimeProtectionInventoryIncomplete {
+				t.Fatalf("unsafe immutable snapshot error = %v", err)
+			}
+			if len(runner.outputs) != 0 {
+				t.Fatalf("unsafe immutable snapshot crossed Docker observation: %v", runner.outputs)
+			}
+		})
 	}
 }
 
@@ -191,8 +340,7 @@ func TestRuntimeLifecycleObservationHasGlobalWallAndCallBudgets(t *testing.T) {
 		t.Fatal(err)
 	}
 	id := "018bcfe5-687b-7000-8000-000000000077"
-	revision := "sha256:" + strings.Repeat("a", 64)
-	installRuntimeLifecycleRevision(t, runtime, id, "frontend", revision, managedLibraryRuntimeImage("frontend", id, revision), "sha256:"+strings.Repeat("b", 64))
+	installRuntimeLifecycleRevision(t, runtime, id, "frontend", "sha256:"+strings.Repeat("b", 64), "FROM example.invalid/runtime\n")
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
 	defer cancel()
 	if _, _, err := runtime.ReadRuntimeLifecycleSnapshot(ctx); !errors.Is(err, context.DeadlineExceeded) {
@@ -239,9 +387,7 @@ func TestRuntimeLifecycleSnapshotRejectsPersistedNonCanonicalImageSelectorBefore
 		t.Fatal(err)
 	}
 	id := "018bcfe5-687b-7000-8000-000000000077"
-	revision := "sha256:" + strings.Repeat("a", 64)
-	canonical := managedLibraryRuntimeImage("frontend", id, revision)
-	manifest := installRuntimeLifecycleRevision(t, runtime, id, "frontend", revision, canonical, "sha256:"+strings.Repeat("b", 64))
+	manifest := installRuntimeLifecycleRevision(t, runtime, id, "frontend", "sha256:"+strings.Repeat("b", 64), "FROM example.invalid/runtime\n")
 	manifest.Revisions[0].Image = "example.invalid/tampered:selector"
 	if err := writeAtomicJSON(runtime.runtimeManifestPath(manifest.Name), manifest); err != nil {
 		t.Fatal(err)
@@ -491,10 +637,9 @@ func TestRuntimeLifecycleSnapshotMapsFailedBuildStagingEvidence(t *testing.T) {
 		t.Fatal(err)
 	}
 	id := "018bcfe5-687b-7000-8000-000000000077"
-	revision := "sha256:" + strings.Repeat("a", 64)
-	publishedRevision := "sha256:" + strings.Repeat("c", 64)
-	published := managedLibraryRuntimeImage("frontend", id, publishedRevision)
-	installRuntimeLifecycleRevision(t, runtime, id, "frontend", publishedRevision, published, "sha256:"+strings.Repeat("d", 64))
+	publishedManifest := installRuntimeLifecycleRevision(t, runtime, id, "frontend", "sha256:"+strings.Repeat("d", 64), "FROM example.invalid/published\n")
+	published := publishedManifest.Revisions[0].Image
+	revision := runtimeLifecycleFixtureRevision(t, "FROM example.invalid/runtime\n")
 	var journal runtimeBuildJournal
 	if err := runtime.WithLifecycleLock(context.Background(), func(context.Context) error {
 		created, err := runtime.beginRuntimeBuildJournal(context.Background(), id, "frontend")
@@ -502,6 +647,9 @@ func TestRuntimeLifecycleSnapshotMapsFailedBuildStagingEvidence(t *testing.T) {
 			return err
 		}
 		if err := os.MkdirAll(created.SnapshotPath, 0o700); err != nil {
+			return err
+		}
+		if err := os.WriteFile(filepath.Join(created.SnapshotPath, "Dockerfile"), []byte("FROM example.invalid/runtime\n"), 0o600); err != nil {
 			return err
 		}
 		prepared := created
@@ -605,7 +753,8 @@ func TestRuntimeLifecycleSnapshotKeepsEveryBuildRecoveryPhaseAsBlocker(t *testin
 			if err != nil {
 				t.Fatal(err)
 			}
-			revision := "sha256:" + strings.Repeat("a", 64)
+			const snapshotContent = "FROM example.invalid/runtime\n"
+			revision := runtimeLifecycleFixtureRevision(t, snapshotContent)
 			journal.Phase = test.phase
 			journal.Revision = revision
 			journal.StagingImage = managedRuntimeStagingImage(journal.RuntimeID, revision)
@@ -626,10 +775,16 @@ func TestRuntimeLifecycleSnapshotKeepsEveryBuildRecoveryPhaseAsBlocker(t *testin
 				if err := os.MkdirAll(journal.SnapshotPath, 0o700); err != nil {
 					t.Fatal(err)
 				}
+				if err := os.WriteFile(filepath.Join(journal.SnapshotPath, "Dockerfile"), []byte(snapshotContent), 0o600); err != nil {
+					t.Fatal(err)
+				}
 			}
 			final := filepath.Join(runtime.runtimeRevisionsDirectory(journal.RuntimeName), strings.TrimPrefix(revision, "sha256:"), "source")
 			if test.final {
 				if err := os.MkdirAll(final, 0o700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(final, "Dockerfile"), []byte(snapshotContent), 0o600); err != nil {
 					t.Fatal(err)
 				}
 			}

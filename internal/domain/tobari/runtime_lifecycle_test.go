@@ -36,11 +36,20 @@ func lifecycleSnapshot(runtimes []RuntimeManifest, protection []RuntimeProtectio
 			materialCopy[index].TagRole = RuntimeMaterialTagPublishedRevision
 		}
 	}
+	storage := make([]RuntimeStorageObservation, 0, len(runtimes))
+	for _, runtime := range runtimes {
+		snapshots := make([]RuntimeSnapshotStorage, 0, len(runtime.Revisions))
+		for _, revision := range runtime.Revisions {
+			snapshots = append(snapshots, RuntimeSnapshotStorage{Kind: RuntimePruneCandidateRevision, Revision: revision.Revision, SemanticFingerprint: revision.Revision, LogicalBytes: int64(revision.Ordinal * 100)})
+		}
+		storage = append(storage, RuntimeStorageObservation{RuntimeID: runtime.ID, Name: runtime.Name, SourceLogicalBytes: 42, Snapshots: snapshots})
+	}
 	return RuntimeLifecycleSnapshot{
 		CatalogComplete: true,
 		Runtimes:        append([]RuntimeManifest{lifecycleStandard()}, runtimes...),
 		Protection:      RuntimeProtectionInventory{Complete: true, Items: protection},
 		Materials:       materialCopy,
+		Storage:         storage,
 		Journals:        RuntimeLifecycleJournals{Complete: true, Active: []RuntimeLifecycleActivity{}, FailedBuilds: []RuntimeFailedBuildArtifact{}},
 	}
 }
@@ -59,6 +68,7 @@ func TestRuntimeLifecycleSnapshotRequiresCompleteCatalogAndExactStandard(t *test
 		"assertion absent": func(snapshot *RuntimeLifecycleSnapshot) { snapshot.CatalogComplete = false },
 		"nil runtimes":     func(snapshot *RuntimeLifecycleSnapshot) { snapshot.Runtimes = nil },
 		"nil materials":    func(snapshot *RuntimeLifecycleSnapshot) { snapshot.Materials = nil },
+		"nil storage":      func(snapshot *RuntimeLifecycleSnapshot) { snapshot.Storage = nil },
 		"standard absent":  func(snapshot *RuntimeLifecycleSnapshot) { snapshot.Runtimes = []RuntimeManifest{} },
 		"standard repeated": func(snapshot *RuntimeLifecycleSnapshot) {
 			snapshot.Runtimes = append(snapshot.Runtimes, lifecycleStandard())
@@ -160,12 +170,28 @@ func TestRuntimePrunePlanIdentityIgnoresPresentationAndEstimates(t *testing.T) {
 	changed.Candidates[0].Name = "renamed"
 	changed.Candidates[0].Ordinal = 99
 	changed.Candidates[0].ImageVirtualBytes = &otherBytes
+	changed.Candidates[0].SourceLogicalBytes = 4096
+	changed.Candidates[0].SnapshotLogicalBytes = 8192
+	changed.Storage = append([]RuntimeStorageObservation{}, plan.Storage...)
+	changed.Storage[0].SourceLogicalBytes = 4096
+	changed.Storage[0].Snapshots = append([]RuntimeSnapshotStorage{}, plan.Storage[0].Snapshots...)
+	changed.Storage[0].Snapshots[0].LogicalBytes = 8192
 	changed.ObservedAt = time.Unix(20, 0).UTC()
 	if err := changed.Validate(); err != nil {
 		t.Fatalf("presentation-only change invalidated plan: %v", err)
 	}
 	if changed.PlanRef != plan.PlanRef {
 		t.Fatalf("presentation changed authority: %q != %q", changed.PlanRef, plan.PlanRef)
+	}
+	changedProof := append([]RuntimeStorageObservation{}, plan.Storage...)
+	changedProof[0].Snapshots = append([]RuntimeSnapshotStorage{}, plan.Storage[0].Snapshots...)
+	changedProof[0].Snapshots[0].SemanticFingerprint = "sha256:" + strings.Repeat("f", 64)
+	changedRef, err := runtimePrunePlanAuthorityRef(plan.Candidates, plan.Protected, plan.Blockers, changedProof)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if changedRef == plan.PlanRef {
+		t.Fatal("immutable snapshot fingerprint did not change plan authority")
 	}
 }
 
@@ -234,6 +260,7 @@ func TestRuntimePrunePlanRepresentsCompleteJournalState(t *testing.T) {
 	failedMaterial := RuntimeMaterialObservation{RuntimeID: id, Revision: failedRevision, TagRole: RuntimeMaterialTagJournaledStaging, Availability: RuntimeAvailabilityAvailable, TagPresent: true, ContentPresent: true, OwnershipVerified: true, ObservationComplete: true}
 	failed := lifecycleSnapshot([]RuntimeManifest{manifest}, []RuntimeProtection{}, []RuntimeMaterialObservation{available})
 	failed.Journals.FailedBuilds = []RuntimeFailedBuildArtifact{{RuntimeID: id, Revision: failedRevision, RuntimeRef: RuntimeRef(id), Name: manifest.Name, Material: failedMaterial}}
+	failed.Storage[0].Snapshots = append([]RuntimeSnapshotStorage{{Kind: RuntimePruneCandidateFailedBuild, Revision: failedRevision, SemanticFingerprint: failedRevision, LogicalBytes: 300}}, failed.Storage[0].Snapshots...)
 	plan, err = PlanRuntimePrune(failed, time.Unix(10, 0).UTC())
 	if err != nil || !plan.Applicable || len(plan.Candidates) != 2 || plan.Candidates[1].Kind != RuntimePruneCandidateFailedBuild || plan.Candidates[1].RevisionRef != "" || plan.Candidates[1].Ordinal != 0 {
 		t.Fatalf("journaled failed-build plan = %+v/%v", plan, err)
@@ -288,11 +315,11 @@ func TestRuntimePrunePlanIdentityIncludesCandidateKind(t *testing.T) {
 	revision := "sha256:" + strings.Repeat("a", 64)
 	revisionCandidate := RuntimePruneCandidate{Kind: RuntimePruneCandidateRevision, RuntimeID: id, Revision: revision, RuntimeRef: RuntimeRef(id), RevisionRef: RuntimeRevisionRef(id, revision), Name: "frontend", Ordinal: 1}
 	failedCandidate := RuntimePruneCandidate{Kind: RuntimePruneCandidateFailedBuild, RuntimeID: id, Revision: revision, RuntimeRef: RuntimeRef(id), Name: "frontend"}
-	revisionRef, err := runtimePrunePlanAuthorityRef([]RuntimePruneCandidate{revisionCandidate}, []RuntimeProtection{}, []RuntimeMaterialBlocker{})
+	revisionRef, err := runtimePrunePlanAuthorityRef([]RuntimePruneCandidate{revisionCandidate}, []RuntimeProtection{}, []RuntimeMaterialBlocker{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	failedRef, err := runtimePrunePlanAuthorityRef([]RuntimePruneCandidate{failedCandidate}, []RuntimeProtection{}, []RuntimeMaterialBlocker{})
+	failedRef, err := runtimePrunePlanAuthorityRef([]RuntimePruneCandidate{failedCandidate}, []RuntimeProtection{}, []RuntimeMaterialBlocker{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -315,7 +342,15 @@ func TestRuntimePrunePlanValidateRejectsDirectInvalidConstruction(t *testing.T) 
 			negative := int64(-1)
 			plan.Candidates[0].ImageVirtualBytes = &negative
 		},
-		"duplicate candidate": func(plan *RuntimePrunePlan) { plan.Candidates = append(plan.Candidates, plan.Candidates[0]) },
+		"candidate source bytes drift":   func(plan *RuntimePrunePlan) { plan.Candidates[0].SourceLogicalBytes++ },
+		"candidate snapshot bytes drift": func(plan *RuntimePrunePlan) { plan.Candidates[0].SnapshotLogicalBytes++ },
+		"nil storage":                    func(plan *RuntimePrunePlan) { plan.Storage = nil },
+		"negative source storage":        func(plan *RuntimePrunePlan) { plan.Storage[0].SourceLogicalBytes = -1 },
+		"snapshot fingerprint drift": func(plan *RuntimePrunePlan) {
+			plan.Storage[0].Snapshots[0].SemanticFingerprint = "sha256:" + strings.Repeat("f", 64)
+		},
+		"missing snapshot storage": func(plan *RuntimePrunePlan) { plan.Storage[0].Snapshots = []RuntimeSnapshotStorage{} },
+		"duplicate candidate":      func(plan *RuntimePrunePlan) { plan.Candidates = append(plan.Candidates, plan.Candidates[0]) },
 		"invalid protection": func(plan *RuntimePrunePlan) {
 			plan.Protected = []RuntimeProtection{{RuntimeID: id, RuntimeRevision: revision}}
 		},
@@ -335,6 +370,8 @@ func TestRuntimePrunePlanValidateRejectsDirectInvalidConstruction(t *testing.T) 
 			plan.Candidates = append([]RuntimePruneCandidate{}, valid.Candidates...)
 			plan.Protected = append([]RuntimeProtection{}, valid.Protected...)
 			plan.Blockers = append([]RuntimeMaterialBlocker{}, valid.Blockers...)
+			plan.Storage = append([]RuntimeStorageObservation{}, valid.Storage...)
+			plan.Storage[0].Snapshots = append([]RuntimeSnapshotStorage{}, valid.Storage[0].Snapshots...)
 			mutate(&plan)
 			if err := plan.Validate(); err == nil {
 				t.Fatalf("invalid direct construction validated: %+v", plan)
@@ -364,9 +401,10 @@ func TestRuntimePrunePlanValidateRequiresCanonicalProtectionAndBlockerOrder(t *t
 		Candidates: []RuntimePruneCandidate{},
 		Protected:  protections,
 		Blockers:   blockers,
+		Storage:    []RuntimeStorageObservation{},
 	}
 	var err error
-	plan.PlanRef, err = runtimePrunePlanAuthorityRef(plan.Candidates, plan.Protected, plan.Blockers)
+	plan.PlanRef, err = runtimePrunePlanAuthorityRef(plan.Candidates, plan.Protected, plan.Blockers, plan.Storage)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -375,7 +413,7 @@ func TestRuntimePrunePlanValidateRequiresCanonicalProtectionAndBlockerOrder(t *t
 	}
 
 	plan.Protected[0], plan.Protected[1] = plan.Protected[1], plan.Protected[0]
-	plan.PlanRef, err = runtimePrunePlanAuthorityRef(plan.Candidates, plan.Protected, plan.Blockers)
+	plan.PlanRef, err = runtimePrunePlanAuthorityRef(plan.Candidates, plan.Protected, plan.Blockers, plan.Storage)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -384,7 +422,7 @@ func TestRuntimePrunePlanValidateRequiresCanonicalProtectionAndBlockerOrder(t *t
 	}
 
 	plan.Blockers[0], plan.Blockers[1] = plan.Blockers[1], plan.Blockers[0]
-	plan.PlanRef, err = runtimePrunePlanAuthorityRef(plan.Candidates, plan.Protected, plan.Blockers)
+	plan.PlanRef, err = runtimePrunePlanAuthorityRef(plan.Candidates, plan.Protected, plan.Blockers, plan.Storage)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -404,7 +442,7 @@ func TestRuntimePrunePlanValidateRejectsCandidateProtectionOrBlockerOverlap(t *t
 
 	protectionOverlap := valid
 	protectionOverlap.Protected = []RuntimeProtection{{RuntimeID: id, RuntimeRevision: revision, Reason: RuntimeProtectedByManifestCurrent, WorkspaceManifestID: "018bcfe5-687b-7000-8000-000000000088", ManifestRevision: "sha256:" + strings.Repeat("d", 64)}}
-	protectionOverlap.PlanRef, err = runtimePrunePlanAuthorityRef(protectionOverlap.Candidates, protectionOverlap.Protected, protectionOverlap.Blockers)
+	protectionOverlap.PlanRef, err = runtimePrunePlanAuthorityRef(protectionOverlap.Candidates, protectionOverlap.Protected, protectionOverlap.Blockers, protectionOverlap.Storage)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -414,7 +452,7 @@ func TestRuntimePrunePlanValidateRejectsCandidateProtectionOrBlockerOverlap(t *t
 
 	blockerOverlap := valid
 	blockerOverlap.Blockers = []RuntimeMaterialBlocker{{RuntimeID: id, Revision: revision, Reason: RuntimeBlockedByExternalContainer}}
-	blockerOverlap.PlanRef, err = runtimePrunePlanAuthorityRef(blockerOverlap.Candidates, blockerOverlap.Protected, blockerOverlap.Blockers)
+	blockerOverlap.PlanRef, err = runtimePrunePlanAuthorityRef(blockerOverlap.Candidates, blockerOverlap.Protected, blockerOverlap.Blockers, blockerOverlap.Storage)
 	if err != nil {
 		t.Fatal(err)
 	}

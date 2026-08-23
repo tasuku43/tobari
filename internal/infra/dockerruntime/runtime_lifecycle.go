@@ -34,6 +34,7 @@ type runtimeLifecycleLocalObservation struct {
 	Runtimes   []tobari.RuntimeManifest
 	Protection runtimeProtectionObservation
 	Build      *runtimeBuildJournal
+	Storage    []tobari.RuntimeStorageObservation
 }
 
 type runtimeImageObservation struct {
@@ -219,7 +220,154 @@ func (r *Runtime) readRuntimeLifecycleLocalObserved(ctx context.Context, budget 
 	if err != nil {
 		return runtimeLifecycleLocalObservation{}, err
 	}
-	return runtimeLifecycleLocalObservation{Runtimes: runtimes, Protection: protection, Build: journal}, nil
+	storage, err := r.observeRuntimeStorage(ctx, runtimes, journal)
+	if err != nil {
+		return runtimeLifecycleLocalObservation{}, err
+	}
+	return runtimeLifecycleLocalObservation{Runtimes: runtimes, Protection: protection, Build: journal, Storage: storage}, nil
+}
+
+type runtimeLogicalFile struct {
+	path string
+	mode os.FileMode
+	size int64
+	info os.FileInfo
+}
+
+func (r *Runtime) observeRuntimeStorage(ctx context.Context, runtimes []tobari.RuntimeManifest, journal *runtimeBuildJournal) ([]tobari.RuntimeStorageObservation, error) {
+	result := make([]tobari.RuntimeStorageObservation, 0, len(runtimes))
+	for _, manifest := range runtimes {
+		if manifest.Kind != tobari.RuntimeKindManaged {
+			continue
+		}
+		sourceBytes, err := observeRuntimeTreeLogicalBytes(ctx, manifest.SourcePath)
+		if err != nil {
+			return nil, fmt.Errorf("observe managed Runtime source storage: %w", err)
+		}
+		storage := tobari.RuntimeStorageObservation{RuntimeID: manifest.ID, Name: manifest.Name, SourceLogicalBytes: sourceBytes, Snapshots: []tobari.RuntimeSnapshotStorage{}}
+		for _, revision := range manifest.Revisions {
+			fingerprint, logicalBytes, err := observeImmutableRuntimeSnapshot(ctx, revision.SnapshotPath, revision.Revision)
+			if err != nil {
+				return nil, fmt.Errorf("observe immutable Runtime snapshot storage: %w", err)
+			}
+			storage.Snapshots = append(storage.Snapshots, tobari.RuntimeSnapshotStorage{Kind: tobari.RuntimePruneCandidateRevision, Revision: revision.Revision, SemanticFingerprint: fingerprint, LogicalBytes: logicalBytes})
+		}
+		if journal != nil && journal.RuntimeID == manifest.ID && journal.Phase == runtimeBuildPhaseFailed && journal.StagingArtifact == runtimeBuildStagingOwned && journal.AttemptSettlement == runtimeBuildAttemptSettled {
+			fingerprint, logicalBytes, err := observeImmutableRuntimeSnapshot(ctx, journal.SnapshotPath, journal.Revision)
+			if err != nil {
+				return nil, fmt.Errorf("observe failed Runtime build snapshot storage: %w", err)
+			}
+			storage.Snapshots = append(storage.Snapshots, tobari.RuntimeSnapshotStorage{Kind: tobari.RuntimePruneCandidateFailedBuild, Revision: journal.Revision, SemanticFingerprint: fingerprint, LogicalBytes: logicalBytes})
+		}
+		sort.Slice(storage.Snapshots, func(i, j int) bool {
+			return string(storage.Snapshots[i].Kind)+"\x00"+storage.Snapshots[i].Revision < string(storage.Snapshots[j].Kind)+"\x00"+storage.Snapshots[j].Revision
+		})
+		if err := storage.Validate(); err != nil {
+			return nil, err
+		}
+		result = append(result, storage)
+	}
+	sort.Slice(result, func(i, j int) bool { return result[i].RuntimeID < result[j].RuntimeID })
+	return result, nil
+}
+
+func observeImmutableRuntimeSnapshot(ctx context.Context, root, expected string) (string, int64, error) {
+	fingerprint, err := digestRuntimeSnapshot(ctx, root)
+	if err != nil || fingerprint != expected {
+		return "", 0, tobari.RuntimeProtectionInventoryError{Reason: tobari.RuntimeProtectionInventoryIncomplete}
+	}
+	logicalBytes, err := observeRuntimeTreeLogicalBytes(ctx, root)
+	if err != nil {
+		return "", 0, tobari.RuntimeProtectionInventoryError{Reason: tobari.RuntimeProtectionInventoryIncomplete}
+	}
+	return fingerprint, logicalBytes, nil
+}
+
+func observeRuntimeTreeLogicalBytes(ctx context.Context, root string) (int64, error) {
+	first, firstBytes, err := readRuntimeLogicalTree(ctx, root)
+	if err != nil {
+		return 0, err
+	}
+	second, secondBytes, err := readRuntimeLogicalTree(ctx, root)
+	if err != nil {
+		return 0, err
+	}
+	if firstBytes != secondBytes || len(first) != len(second) {
+		return 0, tobari.RuntimeProtectionInventoryError{Reason: tobari.RuntimeProtectionInventoryObservationUnknown}
+	}
+	for index := range first {
+		if first[index].path != second[index].path || first[index].mode != second[index].mode || first[index].size != second[index].size || !os.SameFile(first[index].info, second[index].info) {
+			return 0, tobari.RuntimeProtectionInventoryError{Reason: tobari.RuntimeProtectionInventoryObservationUnknown}
+		}
+	}
+	return firstBytes, nil
+}
+
+func readRuntimeLogicalTree(ctx context.Context, root string) ([]runtimeLogicalFile, int64, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, 0, err
+	}
+	if err := requirePrivateDirectory(root); err != nil {
+		return nil, 0, err
+	}
+	entries := make([]runtimeLogicalFile, 0)
+	directories := 0
+	total := int64(0)
+	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if walkErr != nil {
+			return walkErr
+		}
+		if path == root {
+			info, err := entry.Info()
+			if err != nil {
+				return err
+			}
+			if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm()&0o077 != 0 {
+				return fmt.Errorf("Runtime storage root is unsafe")
+			}
+			entries = append(entries, runtimeLogicalFile{path: ".", mode: info.Mode(), info: info})
+			return nil
+		}
+		relative, err := filepath.Rel(root, path)
+		if err != nil || relative == "." || filepath.Clean(relative) != relative || filepath.IsAbs(relative) {
+			return fmt.Errorf("Runtime storage contains a non-canonical child")
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		if info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm()&0o077 != 0 {
+			return fmt.Errorf("Runtime storage contains unsafe ownership or link evidence")
+		}
+		if entry.IsDir() {
+			directories++
+			if directories > maxRuntimeSourceDirs {
+				return fmt.Errorf("Runtime storage directory inventory exceeds the bound")
+			}
+			entries = append(entries, runtimeLogicalFile{path: filepath.ToSlash(relative), mode: info.Mode(), info: info})
+			return nil
+		}
+		if !info.Mode().IsRegular() || info.Size() < 0 || info.Size() > maxRuntimeSourceFile || len(entries)-directories-1 >= maxRuntimeSourceFiles {
+			return fmt.Errorf("Runtime storage file inventory is invalid")
+		}
+		total += info.Size()
+		if total > maxRuntimeSourceTotal {
+			return fmt.Errorf("Runtime storage exceeds the source bound")
+		}
+		entries = append(entries, runtimeLogicalFile{path: filepath.ToSlash(relative), mode: info.Mode(), size: info.Size(), info: info})
+		return nil
+	})
+	if err != nil {
+		return nil, 0, err
+	}
+	if len(entries) == directories+1 {
+		return nil, 0, fmt.Errorf("Runtime storage tree is empty")
+	}
+	sort.Slice(entries, func(i, j int) bool { return entries[i].path < entries[j].path })
+	return entries, total, nil
 }
 
 func (r *Runtime) readStrictRuntimeBuildJournalInventory() (*runtimeBuildJournal, error) {
@@ -386,7 +534,7 @@ func (r *Runtime) observeRuntimeLifecycleDocker(ctx context.Context, local runti
 		}
 	}
 	sortRuntimeLifecycleJournals(&journalInventory)
-	return tobari.RuntimeLifecycleSnapshot{CatalogComplete: true, Runtimes: local.Runtimes, Protection: local.Protection.Inventory, Materials: successful, Journals: journalInventory}, nil
+	return tobari.RuntimeLifecycleSnapshot{CatalogComplete: true, Runtimes: local.Runtimes, Protection: local.Protection.Inventory, Materials: successful, Storage: local.Storage, Journals: journalInventory}, nil
 }
 
 func (r *Runtime) observeRuntimeMaterials(ctx context.Context, targets []runtimeMaterialTarget, workspaces map[string]runtimeWorkspaceContainerAuthority, budget *runtimeLifecycleBudget) ([]tobari.RuntimeMaterialObservation, error) {

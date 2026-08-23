@@ -107,11 +107,57 @@ type RuntimeLifecycleSnapshot struct {
 	Runtimes        []RuntimeManifest            `json:"runtimes"`
 	Protection      RuntimeProtectionInventory   `json:"protection"`
 	Materials       []RuntimeMaterialObservation `json:"materials"`
+	Storage         []RuntimeStorageObservation  `json:"storage"`
 	Journals        RuntimeLifecycleJournals     `json:"journals"`
 }
 
+type RuntimeSnapshotStorage struct {
+	Kind                RuntimePruneCandidateKind `json:"kind"`
+	Revision            string                    `json:"revision"`
+	SemanticFingerprint string                    `json:"semantic_fingerprint"`
+	LogicalBytes        int64                     `json:"logical_bytes"`
+}
+
+func (s RuntimeSnapshotStorage) Validate() error {
+	if s.Kind != RuntimePruneCandidateRevision && s.Kind != RuntimePruneCandidateFailedBuild {
+		return fmt.Errorf("Runtime snapshot storage kind is invalid")
+	}
+	if err := ValidateDigest(s.Revision); err != nil {
+		return err
+	}
+	if ValidateDigest(s.SemanticFingerprint) != nil || s.SemanticFingerprint != s.Revision {
+		return fmt.Errorf("Runtime snapshot semantic fingerprint is invalid")
+	}
+	if s.LogicalBytes < 0 {
+		return fmt.Errorf("Runtime snapshot logical bytes cannot be negative")
+	}
+	return nil
+}
+
+type RuntimeStorageObservation struct {
+	RuntimeID          string                   `json:"runtime_id"`
+	Name               string                   `json:"name"`
+	SourceLogicalBytes int64                    `json:"source_logical_bytes"`
+	Snapshots          []RuntimeSnapshotStorage `json:"snapshots"`
+}
+
+func (s RuntimeStorageObservation) Validate() error {
+	if ValidateRuntimeID(s.RuntimeID) != nil || ValidateName(s.Name) != nil || s.SourceLogicalBytes < 0 || s.Snapshots == nil {
+		return fmt.Errorf("Runtime storage observation is invalid")
+	}
+	for index, snapshot := range s.Snapshots {
+		if err := snapshot.Validate(); err != nil {
+			return err
+		}
+		if index > 0 && runtimeSnapshotStorageKey(s.Snapshots[index-1]) >= runtimeSnapshotStorageKey(snapshot) {
+			return fmt.Errorf("Runtime snapshot storage is not unique canonical order")
+		}
+	}
+	return nil
+}
+
 func (s RuntimeLifecycleSnapshot) Validate() error {
-	if !s.CatalogComplete || s.Runtimes == nil || s.Materials == nil {
+	if !s.CatalogComplete || s.Runtimes == nil || s.Materials == nil || s.Storage == nil {
 		return fmt.Errorf("Runtime lifecycle snapshot is incomplete")
 	}
 	if err := s.Protection.Validate(); err != nil {
@@ -195,6 +241,49 @@ func (s RuntimeLifecycleSnapshot) Validate() error {
 		}
 		if _, exists := revisions[artifact.RuntimeID+"\x00"+artifact.Revision]; exists {
 			return fmt.Errorf("failed Runtime build artifact overlaps successful history")
+		}
+	}
+	storageByRuntime := make(map[string]RuntimeStorageObservation, len(s.Storage))
+	for index, storage := range s.Storage {
+		if err := storage.Validate(); err != nil {
+			return err
+		}
+		if index > 0 && runtimeStorageObservationKey(s.Storage[index-1]) >= runtimeStorageObservationKey(storage) {
+			return fmt.Errorf("Runtime storage observations are not unique canonical order")
+		}
+		runtime, exists := runtimes[storage.RuntimeID]
+		if !exists || runtime.Kind != RuntimeKindManaged || runtime.Name != storage.Name {
+			return fmt.Errorf("Runtime storage has no managed Runtime authority")
+		}
+		if _, duplicate := storageByRuntime[storage.RuntimeID]; duplicate {
+			return fmt.Errorf("Runtime lifecycle snapshot contains duplicate Runtime storage")
+		}
+		want := make(map[string]struct{}, len(runtime.Revisions)+len(s.Journals.FailedBuilds))
+		for _, revision := range runtime.Revisions {
+			want[string(RuntimePruneCandidateRevision)+"\x00"+revision.Revision] = struct{}{}
+		}
+		for _, artifact := range s.Journals.FailedBuilds {
+			if artifact.RuntimeID == runtime.ID {
+				want[string(RuntimePruneCandidateFailedBuild)+"\x00"+artifact.Revision] = struct{}{}
+			}
+		}
+		for _, snapshot := range storage.Snapshots {
+			key := runtimeSnapshotStorageKey(snapshot)
+			if _, exists := want[key]; !exists {
+				return fmt.Errorf("Runtime snapshot storage has no revision authority")
+			}
+			delete(want, key)
+		}
+		if len(want) != 0 {
+			return fmt.Errorf("Runtime snapshot storage inventory is incomplete")
+		}
+		storageByRuntime[storage.RuntimeID] = storage
+	}
+	for _, runtime := range s.Runtimes {
+		if runtime.Kind == RuntimeKindManaged {
+			if _, exists := storageByRuntime[runtime.ID]; !exists {
+				return fmt.Errorf("Runtime source storage inventory is incomplete")
+			}
 		}
 	}
 	return nil
@@ -339,14 +428,16 @@ func (j RuntimeLifecycleJournals) Validate() error {
 }
 
 type RuntimePruneCandidate struct {
-	Kind              RuntimePruneCandidateKind `json:"kind"`
-	RuntimeID         string                    `json:"runtime_id"`
-	Revision          string                    `json:"revision"`
-	RuntimeRef        string                    `json:"runtime_ref"`
-	RevisionRef       string                    `json:"revision_ref"`
-	Name              string                    `json:"name"`
-	Ordinal           int                       `json:"ordinal"`
-	ImageVirtualBytes *int64                    `json:"image_virtual_bytes"`
+	Kind                 RuntimePruneCandidateKind `json:"kind"`
+	RuntimeID            string                    `json:"runtime_id"`
+	Revision             string                    `json:"revision"`
+	RuntimeRef           string                    `json:"runtime_ref"`
+	RevisionRef          string                    `json:"revision_ref"`
+	Name                 string                    `json:"name"`
+	Ordinal              int                       `json:"ordinal"`
+	SourceLogicalBytes   int64                     `json:"source_logical_bytes"`
+	SnapshotLogicalBytes int64                     `json:"snapshot_logical_bytes"`
+	ImageVirtualBytes    *int64                    `json:"image_virtual_bytes"`
 }
 
 type RuntimePruneCandidateKind string
@@ -381,8 +472,8 @@ func (c RuntimePruneCandidate) Validate() error {
 	if err := ValidateName(c.Name); err != nil {
 		return fmt.Errorf("Runtime prune candidate presentation is invalid")
 	}
-	if c.ImageVirtualBytes != nil && *c.ImageVirtualBytes < 0 {
-		return fmt.Errorf("Runtime prune candidate image bytes cannot be negative")
+	if c.SourceLogicalBytes < 0 || c.SnapshotLogicalBytes < 0 || (c.ImageVirtualBytes != nil && *c.ImageVirtualBytes < 0) {
+		return fmt.Errorf("Runtime prune candidate byte evidence cannot be negative")
 	}
 	return nil
 }
@@ -436,18 +527,19 @@ func (b RuntimeMaterialBlocker) Validate() error {
 }
 
 type RuntimePrunePlan struct {
-	Task       string                   `json:"task"`
-	PlanRef    string                   `json:"plan_ref"`
-	ObservedAt time.Time                `json:"observed_at"`
-	Empty      bool                     `json:"empty"`
-	Applicable bool                     `json:"applicable"`
-	Candidates []RuntimePruneCandidate  `json:"candidates"`
-	Protected  []RuntimeProtection      `json:"protected"`
-	Blockers   []RuntimeMaterialBlocker `json:"blockers"`
+	Task       string                      `json:"task"`
+	PlanRef    string                      `json:"plan_ref"`
+	ObservedAt time.Time                   `json:"observed_at"`
+	Empty      bool                        `json:"empty"`
+	Applicable bool                        `json:"applicable"`
+	Candidates []RuntimePruneCandidate     `json:"candidates"`
+	Protected  []RuntimeProtection         `json:"protected"`
+	Blockers   []RuntimeMaterialBlocker    `json:"blockers"`
+	Storage    []RuntimeStorageObservation `json:"storage"`
 }
 
 func (p RuntimePrunePlan) Validate() error {
-	if p.Task != TaskRuntimePruneDryRun || ValidateRuntimePrunePlanRef(p.PlanRef) != nil || p.ObservedAt.IsZero() || p.ObservedAt.Location() != time.UTC || p.Candidates == nil || p.Protected == nil || p.Blockers == nil || p.Empty != (len(p.Candidates) == 0) || p.Applicable != runtimePrunePlanApplicable(p.Blockers) {
+	if p.Task != TaskRuntimePruneDryRun || ValidateRuntimePrunePlanRef(p.PlanRef) != nil || p.ObservedAt.IsZero() || p.ObservedAt.Location() != time.UTC || p.Candidates == nil || p.Protected == nil || p.Blockers == nil || p.Storage == nil || p.Empty != (len(p.Candidates) == 0) || p.Applicable != runtimePrunePlanApplicable(p.Blockers) {
 		return fmt.Errorf("Runtime prune plan is invalid")
 	}
 	candidateAuthorities := make(map[string]struct{}, len(p.Candidates))
@@ -480,6 +572,27 @@ func (p RuntimePrunePlan) Validate() error {
 			return fmt.Errorf("Runtime prune blockers are not unique canonical authority order")
 		}
 	}
+	storage := make(map[string]RuntimeSnapshotStorage)
+	sourceStorage := make(map[string]int64)
+	for index, item := range p.Storage {
+		if err := item.Validate(); err != nil {
+			return err
+		}
+		if index > 0 && runtimeStorageObservationKey(p.Storage[index-1]) >= runtimeStorageObservationKey(item) {
+			return fmt.Errorf("Runtime storage observations are not unique canonical order")
+		}
+		for _, snapshot := range item.Snapshots {
+			storage[item.RuntimeID+"\x00"+runtimeSnapshotStorageKey(snapshot)] = snapshot
+		}
+		sourceStorage[item.RuntimeID] = item.SourceLogicalBytes
+	}
+	for _, candidate := range p.Candidates {
+		key := candidate.RuntimeID + "\x00" + string(candidate.Kind) + "\x00" + candidate.Revision
+		observed, exists := storage[key]
+		if !exists || candidate.SnapshotLogicalBytes != observed.LogicalBytes || candidate.SourceLogicalBytes != sourceStorage[candidate.RuntimeID] {
+			return fmt.Errorf("Runtime prune candidate lacks exact snapshot storage evidence")
+		}
+	}
 	for _, protection := range p.Protected {
 		if _, overlaps := candidateAuthorities[protection.RuntimeID+"\x00"+protection.RuntimeRevision]; overlaps {
 			return fmt.Errorf("Runtime prune candidate overlaps protection evidence")
@@ -492,7 +605,7 @@ func (p RuntimePrunePlan) Validate() error {
 			}
 		}
 	}
-	want, err := runtimePrunePlanAuthorityRef(p.Candidates, p.Protected, p.Blockers)
+	want, err := runtimePrunePlanAuthorityRef(p.Candidates, p.Protected, p.Blockers, p.Storage)
 	if err != nil || p.PlanRef != want {
 		return fmt.Errorf("Runtime prune plan reference does not match authority")
 	}
@@ -520,6 +633,10 @@ func PlanRuntimePrune(snapshot RuntimeLifecycleSnapshot, observedAt time.Time) (
 	byID := make(map[string]RuntimeManifest, len(snapshot.Runtimes))
 	for _, runtime := range snapshot.Runtimes {
 		byID[runtime.ID] = runtime
+	}
+	storageByRuntime := make(map[string]RuntimeStorageObservation, len(snapshot.Storage))
+	for _, storage := range snapshot.Storage {
+		storageByRuntime[storage.RuntimeID] = storage
 	}
 	candidates := make([]RuntimePruneCandidate, 0)
 	blockers := make([]RuntimeMaterialBlocker, 0)
@@ -552,7 +669,8 @@ func PlanRuntimePrune(snapshot RuntimeLifecycleSnapshot, observedAt time.Time) (
 		}
 		for _, revision := range runtime.Revisions {
 			if revision.Revision == material.Revision {
-				candidates = append(candidates, RuntimePruneCandidate{Kind: RuntimePruneCandidateRevision, RuntimeID: runtime.ID, Revision: revision.Revision, RuntimeRef: RuntimeRef(runtime.ID), RevisionRef: RuntimeRevisionRef(runtime.ID, revision.Revision), Name: runtime.Name, Ordinal: revision.Ordinal, ImageVirtualBytes: material.ImageVirtualBytes})
+				storage := storageByRuntime[runtime.ID]
+				candidates = append(candidates, RuntimePruneCandidate{Kind: RuntimePruneCandidateRevision, RuntimeID: runtime.ID, Revision: revision.Revision, RuntimeRef: RuntimeRef(runtime.ID), RevisionRef: RuntimeRevisionRef(runtime.ID, revision.Revision), Name: runtime.Name, Ordinal: revision.Ordinal, SourceLogicalBytes: storage.SourceLogicalBytes, SnapshotLogicalBytes: runtimeSnapshotLogicalBytes(storage, RuntimePruneCandidateRevision, revision.Revision), ImageVirtualBytes: material.ImageVirtualBytes})
 				break
 			}
 		}
@@ -563,7 +681,8 @@ func PlanRuntimePrune(snapshot RuntimeLifecycleSnapshot, observedAt time.Time) (
 		if !runtimeMaterialPruneEligible(artifact.Material) || protected[authority] || activeExact[authority] || activeRuntime[artifact.RuntimeID] {
 			continue
 		}
-		candidates = append(candidates, RuntimePruneCandidate{Kind: RuntimePruneCandidateFailedBuild, RuntimeID: artifact.RuntimeID, Revision: artifact.Revision, RuntimeRef: artifact.RuntimeRef, Name: artifact.Name, ImageVirtualBytes: artifact.Material.ImageVirtualBytes})
+		storage := storageByRuntime[artifact.RuntimeID]
+		candidates = append(candidates, RuntimePruneCandidate{Kind: RuntimePruneCandidateFailedBuild, RuntimeID: artifact.RuntimeID, Revision: artifact.Revision, RuntimeRef: artifact.RuntimeRef, Name: artifact.Name, SourceLogicalBytes: storage.SourceLogicalBytes, SnapshotLogicalBytes: runtimeSnapshotLogicalBytes(storage, RuntimePruneCandidateFailedBuild, artifact.Revision), ImageVirtualBytes: artifact.Material.ImageVirtualBytes})
 	}
 	sort.Slice(candidates, func(i, j int) bool {
 		return runtimeCandidateAuthorityKey(candidates[i]) < runtimeCandidateAuthorityKey(candidates[j])
@@ -575,11 +694,15 @@ func PlanRuntimePrune(snapshot RuntimeLifecycleSnapshot, observedAt time.Time) (
 	sort.Slice(blockers, func(i, j int) bool {
 		return runtimeMaterialBlockerKey(blockers[i]) < runtimeMaterialBlockerKey(blockers[j])
 	})
-	planRef, err := runtimePrunePlanAuthorityRef(candidates, protectedItems, blockers)
+	planRef, err := runtimePrunePlanAuthorityRef(candidates, protectedItems, blockers, storageByRuntimeValues(storageByRuntime))
 	if err != nil {
 		return RuntimePrunePlan{}, err
 	}
-	plan := RuntimePrunePlan{Task: TaskRuntimePruneDryRun, PlanRef: planRef, ObservedAt: observedAt, Empty: len(candidates) == 0, Applicable: runtimePrunePlanApplicable(blockers), Candidates: candidates, Protected: protectedItems, Blockers: blockers}
+	storage := append([]RuntimeStorageObservation{}, snapshot.Storage...)
+	sort.Slice(storage, func(i, j int) bool {
+		return runtimeStorageObservationKey(storage[i]) < runtimeStorageObservationKey(storage[j])
+	})
+	plan := RuntimePrunePlan{Task: TaskRuntimePruneDryRun, PlanRef: planRef, ObservedAt: observedAt, Empty: len(candidates) == 0, Applicable: runtimePrunePlanApplicable(blockers), Candidates: candidates, Protected: protectedItems, Blockers: blockers, Storage: storage}
 	return plan, plan.Validate()
 }
 
@@ -668,7 +791,35 @@ func runtimeFailedBuildArtifactKey(artifact RuntimeFailedBuildArtifact) string {
 	return artifact.RuntimeID + "\x00" + artifact.Revision
 }
 
-func runtimePrunePlanAuthorityRef(candidates []RuntimePruneCandidate, protected []RuntimeProtection, blockers []RuntimeMaterialBlocker) (string, error) {
+func runtimeSnapshotStorageKey(snapshot RuntimeSnapshotStorage) string {
+	return string(snapshot.Kind) + "\x00" + snapshot.Revision
+}
+
+func runtimeStorageObservationKey(storage RuntimeStorageObservation) string {
+	return storage.RuntimeID
+}
+
+func runtimeSnapshotLogicalBytes(storage RuntimeStorageObservation, kind RuntimePruneCandidateKind, revision string) int64 {
+	for _, snapshot := range storage.Snapshots {
+		if snapshot.Kind == kind && snapshot.Revision == revision {
+			return snapshot.LogicalBytes
+		}
+	}
+	return -1
+}
+
+func storageByRuntimeValues(byRuntime map[string]RuntimeStorageObservation) []RuntimeStorageObservation {
+	result := make([]RuntimeStorageObservation, 0, len(byRuntime))
+	for _, storage := range byRuntime {
+		result = append(result, storage)
+	}
+	sort.Slice(result, func(i, j int) bool {
+		return runtimeStorageObservationKey(result[i]) < runtimeStorageObservationKey(result[j])
+	})
+	return result
+}
+
+func runtimePrunePlanAuthorityRef(candidates []RuntimePruneCandidate, protected []RuntimeProtection, blockers []RuntimeMaterialBlocker, storage []RuntimeStorageObservation) (string, error) {
 	type candidateAuthority struct {
 		Kind      RuntimePruneCandidateKind `json:"kind"`
 		RuntimeID string                    `json:"runtime_id"`
@@ -678,12 +829,30 @@ func runtimePrunePlanAuthorityRef(candidates []RuntimePruneCandidate, protected 
 	for index, candidate := range candidates {
 		authorities[index] = candidateAuthority{Kind: candidate.Kind, RuntimeID: candidate.RuntimeID, Revision: candidate.Revision}
 	}
+	type snapshotProof struct {
+		RuntimeID   string                    `json:"runtime_id"`
+		Kind        RuntimePruneCandidateKind `json:"kind"`
+		Revision    string                    `json:"revision"`
+		Fingerprint string                    `json:"fingerprint"`
+	}
+	proofs := make([]snapshotProof, 0)
+	for _, runtimeStorage := range storage {
+		for _, snapshot := range runtimeStorage.Snapshots {
+			proofs = append(proofs, snapshotProof{RuntimeID: runtimeStorage.RuntimeID, Kind: snapshot.Kind, Revision: snapshot.Revision, Fingerprint: snapshot.SemanticFingerprint})
+		}
+	}
+	sort.Slice(proofs, func(i, j int) bool {
+		left := proofs[i].RuntimeID + "\x00" + string(proofs[i].Kind) + "\x00" + proofs[i].Revision + "\x00" + proofs[i].Fingerprint
+		right := proofs[j].RuntimeID + "\x00" + string(proofs[j].Kind) + "\x00" + proofs[j].Revision + "\x00" + proofs[j].Fingerprint
+		return left < right
+	})
 	canonical := struct {
 		Schema     int                      `json:"schema"`
 		Candidates []candidateAuthority     `json:"candidates"`
 		Protected  []RuntimeProtection      `json:"protected"`
 		Blockers   []RuntimeMaterialBlocker `json:"blockers"`
-	}{Schema: 1, Candidates: authorities, Protected: protected, Blockers: blockers}
+		Proofs     []snapshotProof          `json:"snapshot_proofs"`
+	}{Schema: 2, Candidates: authorities, Protected: protected, Blockers: blockers, Proofs: proofs}
 	encoded, err := json.Marshal(canonical)
 	if err != nil {
 		return "", err

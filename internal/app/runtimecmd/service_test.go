@@ -132,8 +132,12 @@ func (f *runtimeFake) ReadRuntimeLifecycleSnapshot(context.Context) (tobari.Runt
 		protection = *f.protection
 	}
 	runtimes := []tobari.RuntimeManifest{standardRuntimeFixture(), f.manifest}
+	storage := []tobari.RuntimeStorageObservation{{RuntimeID: f.manifest.ID, Name: f.manifest.Name, SourceLogicalBytes: 42, Snapshots: []tobari.RuntimeSnapshotStorage{}}}
+	for _, revision := range f.manifest.Revisions {
+		storage[0].Snapshots = append(storage[0].Snapshots, tobari.RuntimeSnapshotStorage{Kind: tobari.RuntimePruneCandidateRevision, Revision: revision.Revision, SemanticFingerprint: revision.Revision, LogicalBytes: 100})
+	}
 	if f.materials != nil {
-		return tobari.RuntimeLifecycleSnapshot{CatalogComplete: true, Runtimes: runtimes, Protection: protection, Materials: f.materials, Journals: tobari.RuntimeLifecycleJournals{Complete: true, Active: []tobari.RuntimeLifecycleActivity{}, FailedBuilds: []tobari.RuntimeFailedBuildArtifact{}}}, observedAt, nil
+		return tobari.RuntimeLifecycleSnapshot{CatalogComplete: true, Runtimes: runtimes, Protection: protection, Materials: f.materials, Storage: storage, Journals: tobari.RuntimeLifecycleJournals{Complete: true, Active: []tobari.RuntimeLifecycleActivity{}, FailedBuilds: []tobari.RuntimeFailedBuildArtifact{}}}, observedAt, nil
 	}
 	items := []tobari.RuntimeMaterialObservation{}
 	for _, runtime := range runtimes {
@@ -144,7 +148,7 @@ func (f *runtimeFake) ReadRuntimeLifecycleSnapshot(context.Context) (tobari.Runt
 			items = append(items, tobari.RuntimeMaterialObservation{RuntimeID: runtime.ID, Revision: revision.Revision, TagRole: tobari.RuntimeMaterialTagPublishedRevision, Availability: tobari.RuntimeAvailabilityMissing, ObservationComplete: true})
 		}
 	}
-	return tobari.RuntimeLifecycleSnapshot{CatalogComplete: true, Runtimes: runtimes, Protection: protection, Materials: items, Journals: tobari.RuntimeLifecycleJournals{Complete: true, Active: []tobari.RuntimeLifecycleActivity{}, FailedBuilds: []tobari.RuntimeFailedBuildArtifact{}}}, observedAt, nil
+	return tobari.RuntimeLifecycleSnapshot{CatalogComplete: true, Runtimes: runtimes, Protection: protection, Materials: items, Storage: storage, Journals: tobari.RuntimeLifecycleJournals{Complete: true, Active: []tobari.RuntimeLifecycleActivity{}, FailedBuilds: []tobari.RuntimeFailedBuildArtifact{}}}, observedAt, nil
 }
 
 func (f *runtimeFake) ReadRuntimeBuildRecovery(context.Context) (tobari.RuntimeBuildRecovery, bool, error) {
