@@ -1009,7 +1009,20 @@ OPA allow.
   deterministic for agents and scripts. `review runtimes` is the separate
   read-only discovery surface: redirected and JSON use list the exhaustive
   catalog, while interactive text filters action choices to managed Runtimes
-  and crosses into `runtime build --id` only after confirmation.
+  and crosses into `runtime build --id` or exact interrupted lifecycle recovery
+  only after confirmation.
+- Managed Runtime lifecycle closure keeps immutable revision identity separate
+  from replaceable local execution material. Whole-Runtime deletion consumes a
+  stable Runtime reference and preserves Workspace Manifest, Workspace, home,
+  applied receipt, project-root, credential, and shared-cluster authority.
+  Read-only prune review produces one ephemeral plan reference; apply consumes
+  that exact plan and removes only still-unused owned image tags. Restore
+  consumes one managed revision reference and reconstructs only exact recorded
+  content from its retained immutable snapshot. Individual revision deletion,
+  broad Docker garbage collection, and built-in standard retirement remain
+  absent. Unknown protection, ownership, migration, journal, or current-use
+  evidence blocks mutation. Timestamps and head/display state do not become
+  last-used or destructive authority.
 - Copy vocabulary remains target-specific. `manifest create --copy-from`
   reviews and revalidates one exact immutable current Manifest revision, then
   publishes a fresh generation-1 identity. `runtime create

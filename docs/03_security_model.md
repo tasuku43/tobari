@@ -906,9 +906,37 @@ is therefore a safe retry point: history and every Workspace Manifest binding re
 unchanged. `manifest runtime set` separately revalidates an existing ready exact
 revision before replacing one Workspace Manifest binding.
 
+Runtime retirement is an installation-local trusted-host mutation, not Docker
+garbage collection. Delete and prune require a complete coherent protection
+and material observation covering current and retained Manifest revisions,
+Workspace applied, pending, and observed Runtime use, active lifecycle records,
+and bounded exact container/image evidence. Unsafe or drifting authority
+directories, retained snapshots, journals, selectors, ownership, migration
+evidence, or Docker responses make the observation incomplete and block every
+destructive effect. The built-in standard Runtime, referenced revisions,
+Workspace/external container use, foreign tags, and shared content are never
+removed. No force, daemon-global prune, prefix scan, Docker-ID target, arbitrary
+path, BuildKit-cache claim, or implicit network action is admitted.
+
+Build, restore, prune, and delete persist private schema-validated journals and
+exact transaction identity before effects whose outcome may become uncertain.
+The lifecycle lock orders Runtime, Manifest/Workspace protection, local
+journal/snapshot, and bounded Docker access. Recovery revalidates the same
+stable Runtime ID plus semantic revision or prune-plan authority and never
+retargets a reused name. Runtime list, show, history, prune dry-run,
+redirected/JSON `review runtimes`, and exact Runtime recovery observation create
+no state or lock and perform no cleanup mutation.
+Whole-Runtime deletion may remove only its editable source, immutable history
+and snapshots, and exact owned image tags; it cannot remove a Workspace
+Manifest, Workspace, home, applied receipt, project root, credential, shared
+service, or unrelated Docker resource. Restore publishes only when rebuilt
+content exactly matches the recorded digest.
+
 `review runtimes` performs only typed Runtime reads until explicit confirmation
-crosses into reference-bound Build. Its action candidates come only from
-managed Runtime summaries; redirected and JSON use remains exhaustive and
+crosses into reference-bound Build or an exact active build, restore, or
+whole-delete recovery. Its ordinary action candidates come only from managed
+Runtime summaries; active whole deletion takes precedence over subordinate
+build/restore recovery. Redirected and JSON use remains exhaustive and
 read-only. Workspace Manifest Runtime Review handles an omitted binding input;
 binding candidates come only from the built-in standard revision or validated
 successful history. An omitted default

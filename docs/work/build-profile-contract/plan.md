@@ -543,7 +543,7 @@ weaken release absence evidence. Never overwrite an immutable release asset.
   `docs/04_harness.md` supply `--copy-from`, `--copy-source-from`, no `--base`,
   fresh independent identity, no lineage/state copying, and no reconciliation;
   integration evidence is `07535a9` and `428812f`. WP08 supplies Catalog-wide
-  recursive output/reference derivation. `runtime-retirement`
+  recursive output/reference derivation. [ADR 0080](../../decisions/0080-close-the-managed-runtime-lifecycle.md)
   supplies reference-bound build/delete/restore, plan-bound prune, read-only
   Runtime Review, protection-graph semantics, owner-only sidecars, and
   the completed lifecycle surface. WP04 consumes all of them as the common

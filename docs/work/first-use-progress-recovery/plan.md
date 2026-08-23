@@ -6,7 +6,7 @@
 - Context: [context.md](context.md)
 - Tasks: [tasks.md](tasks.md)
 - Active foundation: accepted [ADR 0079](../../decisions/0079-model-workspace-manifests-and-applied-workspaces.md) and promoted docs/00-04 contracts, with commits `07535a9` and `428812f` as implementation evidence
-- Accepted design integrations: ADR 0079's durable Manifest/Runtime one-time copy contract and [WP 03 Runtime Retirement](../runtime-retirement/plan.md); the latter's acceptance does not authorize implementation
+- Completed design integrations: ADR 0079's durable Manifest/Runtime one-time copy contract and [ADR 0080 Runtime lifecycle](../../decisions/0080-close-the-managed-runtime-lifecycle.md)
 - Fixed implementation prerequisite: durable Manifest/copy baseline -> WP08 -> WP03 -> WP04 -> WP05 -> WP07 -> WP09 -> WP06, followed by one integrated-HEAD re-baseline gate
 
 The design is Accepted/Fixed. `Planned` records implementation state only; no

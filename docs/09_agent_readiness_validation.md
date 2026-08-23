@@ -11,6 +11,7 @@ transcripts as repository fixtures.
 | Discover capabilities | `help --format agent`, then one namespace or exact-command selector | Root remains a compact capability index; one scoped read supplies complete typed inputs, outputs, failures, and workflow |
 | Choose and retire a Workspace Manifest | `manifest list`, `manifest show`, `manifest create`, `manifest default set`, `manifest delete` | Human list identifies the default, while status leads with Current and Next entry from typed desired/applied/observed facts; `--copy-from NAME --name NAME` binds one exact immutable current revision and publishes a fresh generation-1 ID with no lineage or lower-lifetime copy; changing the default does not retarget Workspaces, and deletion rejects protected/default/bound Manifests |
 | Prepare a reusable Runtime source | `runtime list`, then `runtime create --copy-source-from NAME --name NAME` | Scoped help identifies `standard` or one managed current editable source; creation returns a fresh Runtime ID with empty history and no lineage, performs no build or Manifest/Workspace change, and needs zero revision decoding or source reconstruction |
+| Review, reclaim, and recover Runtime material | `review runtimes`; `runtime prune dry-run`, then `runtime prune apply --plan PLAN_REF --confirm=prune`; `runtime restore --id REVISION_REF`; `runtime delete --id RUNTIME_REF --confirm=delete` | One scoped help read plus one local discovery yields every exact opaque input; dry-run is zero-write and exhaustive, apply consumes the unchanged plan, restore reconstructs exact retained content, and whole deletion preserves Manifest, Workspace, Workspace home, project, and credential authority while protected, unknown, shared, or standard targets fail closed |
 | Enter bounded work | `tobari [--manifest NAME]` or `tobari [--manifest NAME] -- COMMAND [ARG...]`; explicit `cluster up` remains available | On first use, one root screen reviews canonical root, direct project effect, effective Access, `standard@1`, no host import, and Bash or the direct executable; after review, the generic Docker readiness profile passes before any Workspace Manifest or Docker mutation, then Start revalidates empty Workspace Manifest state, completes canonical Workspace Manifest creation and exact shared-cluster reconciliation, and enters one reusable Workspace; Customize retains the complete creation flow; the direct form runs exact foreground argv without a shell, returns its status to the host, and leaves the Workspace reusable |
 | Understand authority lifetime | `manifest show`, `policy rules`, and Host Loopback capability/review output | Routine guidance distinguishes Workspace Manifest Access, remembered Workspace decisions, and this-session Host Loopback access without requiring baseline, overlay, principal, epoch, or grant reconstruction; typed output retains exact destination kind and authority lifetime |
 | Grow exact permission | `review permissions`, or `policy candidates` then one exact allow/deny | Terminal guardrail precedes every candidate; explicit review activates only exact Workspace Manifest/project/scheme/host/port/method/path authority |
@@ -77,6 +78,22 @@ create one new Runtime. Verify the target has a distinct stable ID, empty
 history, independent editable bytes/modes, no lineage/source field or reference flow, and
 that neither Docker nor any Workspace Manifest mutation ran. The known-path journey uses
 one scoped-help read, one create invocation, and zero external processing.
+
+For Runtime lifecycle closure, retrieve `help runtime --format agent` once.
+Use `runtime list`, managed Runtime history, or redirected `review runtimes` to
+obtain exact Runtime and revision references; use `runtime prune dry-run` to
+obtain the plan reference. Pass each opaque value unchanged to its declared
+consumer. Verify dry-run leaves a fresh XDG tree byte-identical and makes no
+Docker mutation, while a confirmed prune applies only the unchanged plan.
+Exercise one protected current or retained Manifest edge, Workspace applied,
+pending, and observed edges, external/shared image use, an unavailable retained
+revision, and an unused zero-revision Runtime. Restore must publish only the
+recorded digest and leave history unchanged. Whole deletion must preserve every
+Manifest, Workspace ID, Workspace home, applied receipt, project root, credential, and
+shared resource. Interrupt each mutation once and resume through the same
+reference or the single confirmed `review runtimes` path. Record zero external
+processing and no use of Docker tags, image IDs, container IDs, names,
+ordinals, paths, timestamps, or `head` as authority.
 
 For the direct-entry route, retrieve `help tobari --format agent` once and then
 invoke one known command as `tobari -- COMMAND [ARG...]`. Record one discovery

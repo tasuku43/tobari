@@ -554,7 +554,7 @@ These are accepted design facts, not current implementation claims:
   integration requirements only: neither Manifest nor Runtime copy carries
   Service/attachment state, copy provenance is absent, and copy never invokes
   reconciliation. Service Exposure has no separate WP02 packet dependency.
-- `docs/work/runtime-retirement/` is design-fixed. Its destructive lifecycle
+- [ADR 0080](../../decisions/0080-close-the-managed-runtime-lifecycle.md) is implemented. Its destructive lifecycle
   must fail closed on the relevant observed Workspace/container protection and
   must never cascade into Service Stop or attachment teardown. Service
   Exposure does not own Runtime protection planning, `last_used`, or retirement

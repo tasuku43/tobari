@@ -19,7 +19,7 @@
   [ADR 0079](../../decisions/0079-model-workspace-manifests-and-applied-workspaces.md)
   and [docs/00](../../00_theses.md) through [docs/04](../../04_harness.md), the
   completed WP08 Catalog/output contracts in [Architecture](../../02_architecture.md)
-  and [Harness](../../04_harness.md), WP03 `../runtime-retirement/`, WP04
+  and [Harness](../../04_harness.md), completed [ADR 0080 Runtime lifecycle](../../decisions/0080-close-the-managed-runtime-lifecycle.md), WP04
   `../build-profile-contract/`, WP05 `../host-loopback-name/`, WP07
   `../first-use-progress-recovery/`, WP09 `../service-exposure-ux/`, plus the
   integrated policy-compaction and release contracts

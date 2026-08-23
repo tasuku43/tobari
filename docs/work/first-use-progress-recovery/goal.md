@@ -11,7 +11,7 @@
 - Target: A final integrated first-use/recovery-polish implementation after the fixed durable Manifest/copy baseline (`07535a9`, `428812f`) -> WP08 -> WP03 -> WP04 -> WP05 -> WP07 -> WP09 -> WP06 order and a mandatory integrated-HEAD re-observation gate; this packet authorizes no production implementation
 - Related ADRs: ADR 0077 causal failure recovery, ADR 0078 as predecessor activation evidence superseded by ADR 0079's typed activation, and accepted ADR 0079
 - Active foundation: [ADR 0079](../../decisions/0079-model-workspace-manifests-and-applied-workspaces.md) and its promoted docs/00-04 contracts, implemented by promotion commits `07535a9` and `428812f`
-- Accepted design integrations: ADR 0079's durable one-time Manifest/Runtime copy contract and [WP 03 Runtime Retirement](../runtime-retirement/goal.md); the latter packet's acceptance is not an implementation-start notice
+- Completed design integrations: ADR 0079's durable one-time Manifest/Runtime copy contract and [ADR 0080 Runtime lifecycle](../../decisions/0080-close-the-managed-runtime-lifecycle.md)
 - Remaining fixed upstream integrations: completed WP08 Catalog/output contracts in [Architecture](../../02_architecture.md) and [Harness](../../04_harness.md), [WP 04 Build profile contract](../build-profile-contract/goal.md), [WP 05 Host Loopback Name](../host-loopback-name/goal.md), [WP 07 Permission resume handoff](../permission-resume-handoff/goal.md), [WP 09 Service exposure UX](../service-exposure-ux/goal.md), and [WP 06 Status home](../status-home/goal.md)
 
 The repository guard does not define a `Ready` status; `Accepted` is the
@@ -352,7 +352,7 @@ begins.
   item-specific activation, explicit reconciliation, identity rename, and
   migration direction.
 - Accepted sibling decisions: ADR 0079's one-time copy initialization and the
-  promoted product contract own copy vocabulary/independence; [WP 03 Runtime Retirement](../runtime-retirement/goal.md)
+  promoted product contract own copy vocabulary/independence; [ADR 0080 Runtime lifecycle](../../decisions/0080-close-the-managed-runtime-lifecycle.md)
   owns reference-bound build, read-only Runtime review, image availability,
   exact-or-fail restore, and explicit prune/delete.
 - Thesis: Thesis 0 ordinary entry and recommended draft; synthetic/fresh-state

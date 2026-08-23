@@ -344,15 +344,18 @@ chooser when only `standard` exists, while redirected and JSON omission binds
 `standard` without a read. `review runtimes` is a separate read-only discovery
 workflow. It composes Runtime list/show, filters interactive action cards to
 managed Runtimes, and hands the produced stable reference unchanged to the
-separate reference-bound build action. Redirected and JSON review stays
-read-only. Omitted `manifest runtime set` input remains a smaller CLI-owned
+separate reference-bound build action. An exact active build, restore, or
+whole-delete journal instead exposes the matching one-confirmation recovery,
+with delete prioritized as the enclosing installation authority. Redirected
+and JSON review stays read-only. Omitted `manifest runtime set` input remains a smaller CLI-owned
 completion workflow: it binds an omitted default Workspace Manifest to the
 exact name returned by `manifest show` and passes one ready Runtime revision
 into the application mutation. Workspace Manifest Runtime editing and confirmation are separate presentation
 states: only a different selected binding enters the old-to-new Review with
 Apply, while Back, unchanged selection, and cancellation remain read-only.
 Review never reads Runtime source bytes and has no Docker or manifest write
-port; its confirmed action crosses through the Catalog into the build use case.
+port; its confirmed action crosses through the Catalog into the exact build or
+recovery use case.
 The Runtime source chooser names the managed candidate as its current editable
 source and does not present the latest successful head as copy identity.
 Confirmed human results compose the separate catalog operations only through
@@ -393,8 +396,31 @@ timestamps, or container identity as desired/applied authority.
 Runtime lifecycle consumers receive typed read ports for current and retained
 Manifest Runtime references, last-successful AppliedEntry, pending adoption,
 and observed Workspace/container references. These form the protection graph
-seam. `AppliedEntry.reconciled_at` is not Runtime last-use authority, and this
-decision does not implement Runtime delete/prune/restore.
+seam. `AppliedEntry.reconciled_at` is not Runtime last-use authority.
+
+Runtime lifecycle observation joins the complete Runtime catalog, immutable
+source snapshots, current and retained Manifest bindings, Workspace applied,
+pending, and observed evidence, active journals, receipts, and bounded Docker
+facts into one typed coherent snapshot. A non-creating read lock and
+before/after authority revalidation prevent a dry run from mixing local
+generations while preserving the rule that reads create no state or lock. The
+infrastructure adapter owns bounded Docker correlation and fails the snapshot
+closed on incomplete ownership, migration, filesystem, journal, or foreign-use
+evidence. It derives image selectors from Runtime ID and semantic revision;
+persisted selectors, tags, labels, names, ordinals, paths, and Docker IDs are
+evidence rather than target authority.
+
+Task-owned application ports expose exact-reference build, restore, and whole-
+Runtime delete plus plan/apply prune. Mutations re-observe under the installation
+lifecycle lock, persist one owner-only monotonic journal before the first
+effect, revalidate foreign Docker state immediately around that effect, and
+finish through an exact receipt and mutation-complete output boundary.
+Interrupted work resumes only through the same exact reference or the single
+confirmed `review runtimes` recovery path. Whole deletion quarantines the
+Runtime directory on its own filesystem and never cascades into Manifest,
+Workspace, home, applied receipt, project-root, credential, or shared-cluster
+state. Prune changes only local image availability; restore reuses immutable
+source and never rewrites successful history.
 
 Cluster state records one content-addressed projection revision and loaded
 Workspace Manifest count, not an active enforcement Workspace Manifest. Standard `cluster up` builds

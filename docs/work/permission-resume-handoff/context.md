@@ -17,10 +17,9 @@
   copy implementation evidence; commit `428812f` is the related predecessor
   research-authentication quarantine evidence. Tracked files are clean; the
   remaining untracked paths are preserved downstream work packets.
-- [Runtime Retirement](../runtime-retirement/goal.md) remains fixed without an
-  implementation-start signal. It constrains permission-resume negatively but
-  does not add permission authority or make Runtime retirement implementation
-  a prerequisite for the independent wait-only slice.
+- The completed [Runtime lifecycle](../../decisions/0080-close-the-managed-runtime-lifecycle.md)
+  constrains permission-resume negatively but adds no permission authority or
+  prerequisite to the independent wait-only slice.
 
 ### Verified repository facts
 
@@ -487,10 +486,9 @@ than treating partial state as accepted implementation evidence.
   has no permission effect. Commit `07535a9` is exact upstream implementation
   evidence. Future concurrent Catalog or generated-file edits still require
   merge-order coordination.
-- `runtime-retirement` is design-fixed but not implementation-started. Delete,
-  prune, restore, build, lifecycle journals, prune-plan references, and
-  receipts add no permission responsibility. WP03 does not need to land first,
-  but shared Catalog/reference-flow/generated files must not be independently
+- The ADR 0080 Runtime lifecycle is implemented. Delete, prune, restore, build,
+  lifecycle journals, prune-plan references, and receipts add no permission
+  responsibility. Shared Catalog/reference-flow/generated files must not be independently
   regenerated over one another.
 - `build-profile-contract` (WP04) owns any later change to standard versus
   experimental/release composition. Until such an accepted change, the

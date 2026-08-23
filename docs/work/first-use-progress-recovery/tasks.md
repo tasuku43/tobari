@@ -3,7 +3,7 @@
 - Goal: [goal.md](goal.md)
 - Plan: [plan.md](plan.md)
 - Active foundation: accepted [ADR 0079](../../decisions/0079-model-workspace-manifests-and-applied-workspaces.md) and promoted docs/00-04 contracts, with commits `07535a9` and `428812f` as implementation evidence
-- Accepted design integrations: ADR 0079's durable Manifest/Runtime one-time copy contract and [WP 03 Runtime Retirement](../runtime-retirement/tasks.md); the latter is not an implementation-start notice
+- Completed design integrations: ADR 0079's durable Manifest/Runtime one-time copy contract and [ADR 0080 Runtime lifecycle](../../decisions/0080-close-the-managed-runtime-lifecycle.md)
 - Decision state: Accepted/Fixed by Product Owner; WP10 production implementation not started
 - Fixed prerequisite order: durable Manifest/copy baseline -> WP08 -> WP03 -> WP04 -> WP05 -> WP07 -> WP09 -> WP06 -> WP10 integrated-HEAD gate
 

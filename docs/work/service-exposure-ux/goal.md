@@ -23,7 +23,7 @@
   `428812f`.
 - Remaining upstream packets:
   completed WP08 Catalog/output contracts in [Architecture](../../02_architecture.md) and [Harness](../../04_harness.md),
-  [Runtime Retirement](../runtime-retirement/goal.md),
+  completed [ADR 0080 Runtime lifecycle](../../decisions/0080-close-the-managed-runtime-lifecycle.md),
   [Build Profile Contract](../build-profile-contract/goal.md),
   [Host Loopback Name](../host-loopback-name/goal.md),
   [Permission Resume Handoff](../permission-resume-handoff/goal.md), and

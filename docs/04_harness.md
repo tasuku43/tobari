@@ -609,9 +609,9 @@ The test suite has complementary levels:
   role validation, required-producer reachability, scoped agent help, and
   workflows, while duplicate paths, cursor collisions, invalid nested types,
   excessive depth/count, and closed reference cycles fail Catalog validation.
-  The ledger-pinned Catalog/domain conformance fixture and answer key reserve
-  the same generic interface for later Runtime/revision/prune-plan schemas
-  without pre-registering those commands or adding a Runtime-specific walker.
+  Runtime, Runtime-revision, and prune-plan schemas use that same generic
+  interface without a Runtime-specific walker; their producer/consumer graph,
+  human projection, and exact opaque-byte round trips are covered directly.
 - Auth truth-table tests freeze current, missing, stale, unavailable,
   unresolved, zero-Workspace, configured-with-current-projection, changed, and
   no-change states independently of presentation. Infrastructure tests prove
@@ -678,6 +678,18 @@ The test suite has complementary levels:
   CLI tests prove source validation retains a reviewed relative path and
   actual/limit or owner-only correction while stripping private causes and
   making zero Docker calls.
+- Managed Runtime lifecycle tests cover complete current/retained Manifest and
+  Workspace applied/pending/observed protection, strict authority-directory and
+  immutable-snapshot validation, bounded task-scoped Docker observation,
+  canonical selector and content-ID correlation, shared/foreign container and
+  tag preservation, exact-reference same-name races, and zero-create reads.
+  Journal fixtures interrupt build, restore, prune, and whole deletion at each
+  supported filesystem/Docker boundary and prove one-confirmation recovery,
+  same-plan/idempotent replay, terminal receipts, and no cross-Runtime mutation.
+  Catalog and presentation tests fix `runtime`, `runtime-revision`, and
+  `runtime-prune-plan` reachability, exact mutation intent/target/impact/fault
+  contracts, exhaustive dry-run uncertainty, and the absence of revision
+  deletion, broad garbage collection, raw Docker authority, and false refs.
 - Runtime source, snapshot, build, history append, and explicit Workspace Manifest binding
   are owned by focused domain, application, infrastructure, and CLI contract
   tests. CLI tests additionally cover interactive text Review, managed-only
@@ -838,9 +850,9 @@ The test suite has complementary levels:
   review and inventory stay read-only; exact reference-bound allow, deny, and
   reset actions are the routine policy mutations.
 - Catalog retirement canaries prove bare `review` is a generic namespace with
-  exactly `permissions` and `services`, performs zero task calls, and is not a
+  exactly `permissions`, `runtimes`, and `services`, performs zero task calls, and is not a
   registered command. Exact-path tests reject the retired `policy review` and
-  former selector route without an alias or handler fallback. The two leaf
+  former selector route without an alias or handler fallback. The three leaf
   contracts retain their distinct staged versus immediate workflows, output
   schemas, reference kinds, collection coverage, and redirected read-only
   behavior.
@@ -993,6 +1005,7 @@ Every strong statement should identify its enforcement path.
 | Workspace Manifest creation is one reviewed interaction | Raw/line immutable source selection and reset tests, default preselection before Name, no chooser for an empty catalog, exact `--copy-from` direct creation, no-lineage Catalog binding, source-ID/name-reuse/digest/body drift zero-publication, fresh ID/generation 1, Advanced-source copying, zero reads of Workspace/auth/learned/Attachment/applied/failure/observed/default state, zero reconciliation, raw-mode entry/restore and alternate-screen entry/exit count tests, six-stage transcript coverage with ready-Runtime and Workspace-bootstrap steps, seeded partial-input stage skipping and Back navigation, supplied-value preservation, explicit typed candidates, complete review, line-mode fallback, and cancellation-before-mutation canaries |
 | Guided first Workspace entry | Synthetic-default root transcript, exact per-action catalog intent/target/impact assertions, Workspace Manifest-create then cluster-up ordering, direct standard-revision continuation without a post-create Runtime fork, partial-success recovery, non-TTY zero-setup, default-Bash compatibility, positional-only exact child argv and help metadata, missing-command zero-side-effect rejection, no-shell Docker argv, child-status propagation, and explicit-command compatibility |
 | Shared Runtime revision boundary | Fixed Runtime-catalog target contracts; typed `--copy-source-from standard|NAME` editable-source selection with no reference/lineage binding; no `--base` alias; current-editable-source wording with no head-equality inference; explicit, redirected-standard, standard-only-skip, and raw/line standard-first chooser tests; fresh-ID/empty-history atomic creation; exact relative-path/byte/owner-mode and empty-directory copying; source/target independence; missing/invalid/drifting/canceled/colliding zero-publication canaries; owner-only complete-source checks, symlink/special-file and size/count canaries; canonical semantic digest; snapshot-before-BuildKit ordering; compatibility and image-digest validation; failed/no-op history preservation; atomic successful append; zero Manifest/Workspace writes during create/build; RuntimeID+digest references; and bound-Workspace next-entry reconciliation with home preservation |
+| Managed Runtime lifecycle closure | Exact Runtime/revision/prune-plan reference graph; complete coherent catalog/protection/journal/snapshot/material observation; current/retained Manifest plus Workspace applied/pending/observed protection; standard and cross-Runtime active-lifecycle rejection; canonical selector, content correlation, shared/foreign-use preservation, bounded Docker output/calls, and zero-create reads; immutable-source restore; non-forced prune; same-filesystem whole-Runtime quarantine; monotonic journals, terminal receipts, same-name and interruption replay; one-confirmation review recovery; nullable reclaimable bytes and unknown last-used; exact human/JSON/fault/help contracts; no revision delete, global prune, Docker-ID authority, or Runtime-specific produced-reference walker |
 | Gateway source and image boundary | Canonical-source/snapshot byte comparison, pinned mitmproxy parent, signed nftables/iproute dependency inventory, canonical-source unit tests, source API-1/role labels, transparent-only listener and fixed network-guard entrypoint, explicit rejection of non-transparent ingress, absence of proxy environment/port exceptions, content-addressed development selection, Gateway-only lock validation, immutable digest/platform/entrypoint release preflight, non-root resident process, and validation/release workflow permission separation |
 | Experimental Auth Broker source and image boundary | Canonical-source/snapshot byte comparison, canonical Python tests in the pinned image environment, provider-CLI absence including Codex/Claude, source API-1/role labels, content-addressed development selection, absence from the release lock/publication workflow, non-root Dockerfile, and validation workflow permission separation |
 | Workspace Manifest-owned encrypted credentials | Root-key backend tests, strict owner/mode/symlink checks, AES-GCM schema/Workspace Manifest AAD canaries, atomic vault replacement, missing-key-with-vault rejection, and secret-free outputs |

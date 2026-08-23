@@ -460,7 +460,9 @@ for its detailed research contract.
 ```sh
 tobari runtime create --name frontend
 # Edit every required file in the reported Runtime source directory.
-tobari runtime build --name frontend
+tobari runtime list
+# Copy the opaque Runtime reference shown for frontend.
+tobari runtime build --id '<runtime-ref>'
 tobari manifest runtime set --runtime frontend@1
 tobari
 
@@ -473,9 +475,32 @@ validates the result against runtime API 1, and appends an immutable successful
 revision without changing any Workspace Manifest. Selection is a separate Workspace Manifest action,
 so the same revision can be reused by several Workspace Manifests. Existing Workspaces
 adopt a changed binding on their next entry while preserving home. On an
-interactive terminal, both commands present the exact Runtime, Workspace Manifest, current
-binding, and impact before Build or Apply. Scripts remain deterministic by
-supplying `--name frontend` or `--runtime frontend@1` directly.
+interactive terminal, the review flows present the exact Runtime, Workspace
+Manifest, current binding, and impact before Build or Apply. Scripts remain
+deterministic by supplying the opaque Runtime reference or `--runtime
+frontend@1` directly.
+
+Managed Runtime cleanup keeps immutable history separate from replaceable
+local image availability:
+
+```sh
+tobari runtime history --name frontend
+tobari runtime restore --id '<runtime-revision-ref>'
+
+tobari runtime prune dry-run
+tobari runtime prune apply --plan '<runtime-prune-plan-ref>' --confirm=prune
+
+tobari runtime delete --id '<runtime-ref>' --confirm=delete
+```
+
+Copy the opaque references from Runtime discovery or prune dry-run without
+decoding them. Prune removes only exact unused owned image tags; restore
+reconstructs one retained immutable revision; delete retires one complete
+unused managed Runtime. Current or retained Manifest references, Workspace
+applied/pending/observed use, external containers, unknown evidence, and the
+built-in standard Runtime block destructive work. `review runtimes` provides
+the trusted-host interactive build and interruption-recovery flow; redirected
+and JSON review remain read-only.
 
 Both copy operations are one-time initializers. Runtime copy reads current
 editable source, not an immutable successful revision; revisions, history, and

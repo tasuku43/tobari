@@ -39,10 +39,10 @@ describing historical code or migration input; they are not proposed aliases.
   implementation may begin until every upstream implementation through WP09
   announces completion and the exact integrated HEAD plus working tree are
   inspected again.
-- **Next higher decision, not an implementation-start notice:**
-  [WP 03 Runtime retirement](../runtime-retirement/goal.md) is product-owner
-  accepted. Its public/semantic decisions constrain status now; its production
-  implementation must not be assumed or pre-empted.
+- **Completed upstream decision:**
+  [ADR 0080 Runtime lifecycle](../../decisions/0080-close-the-managed-runtime-lifecycle.md)
+  and its implemented public/semantic contracts constrain status; this packet
+  must not duplicate its planner or lifecycle authority.
 
 ## Verified historical-main behavior
 
@@ -409,7 +409,7 @@ JSON `overall_status`, `adoption_state`, or equivalent lossy authority exists.
 - Completed WP08 contracts in [Architecture](../../02_architecture.md) and
   [Harness](../../04_harness.md): govern Runtime/status consumption; WP06 uses
   recursive Catalog conformance and remains no-refs.
-- `runtime-retirement` (WP03): supplies readiness/availability/unknown-usage and
+- [ADR 0080](../../decisions/0080-close-the-managed-runtime-lifecycle.md): supplies readiness/availability/unknown-usage and
   owning discovery paths. WP06 adds no Runtime lifecycle types or planner.
 - `build-profile-contract` (WP04): supplies release/research surface exclusion;
   research auth/serve never appears in release status.

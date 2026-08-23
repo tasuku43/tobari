@@ -7,8 +7,8 @@
   [ADR 0079](../../decisions/0079-model-workspace-manifests-and-applied-workspaces.md)
   and durable [docs/00](../../00_theses.md) through
   [docs/04](../../04_harness.md), the completed WP08 Catalog/output contracts
-  in [Architecture](../../02_architecture.md) and [Harness](../../04_harness.md), WP03
-  [Runtime retirement](../runtime-retirement/goal.md), WP04
+  in [Architecture](../../02_architecture.md) and [Harness](../../04_harness.md), completed
+  [ADR 0080 Runtime lifecycle](../../decisions/0080-close-the-managed-runtime-lifecycle.md), WP04
   [build profiles](../build-profile-contract/goal.md), WP05
   [host-loopback name](../host-loopback-name/goal.md), WP07
   [first-use recovery](../first-use-progress-recovery/goal.md), and WP09

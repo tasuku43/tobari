@@ -11,7 +11,7 @@
   `docs/07_authentication.md` through `docs/09_agent_readiness_validation.md`,
   ADR 0024, ADR 0061, ADR 0073, accepted
   [ADR 0079](../../decisions/0079-model-workspace-manifests-and-applied-workspaces.md),
-  and [Runtime Retirement](../runtime-retirement/goal.md), plus the
+  and the completed [Runtime lifecycle](../../decisions/0080-close-the-managed-runtime-lifecycle.md), plus the
   completed WP08 Catalog/output mechanism in [Architecture](../../02_architecture.md)
   and [Harness](../../04_harness.md), and the standard-surface boundary owned by
   [Build profile contract](../build-profile-contract/goal.md)
@@ -25,7 +25,7 @@
   schema, and migration contracts; no implementation is part of this packet
 - Related work: [ADR 0079](../../decisions/0079-model-workspace-manifests-and-applied-workspaces.md),
   the completed WP08 Catalog/output contracts in [Architecture](../../02_architecture.md) and [Harness](../../04_harness.md),
-  [Runtime Retirement](../runtime-retirement/goal.md),
+  the completed [Runtime lifecycle](../../decisions/0080-close-the-managed-runtime-lifecycle.md),
   [Build profile contract](../build-profile-contract/goal.md),
   [First public release core](../first-public-release-core/goal.md),
   [legacy Boundary evidence](../context-capability-envelope/goal.md), and

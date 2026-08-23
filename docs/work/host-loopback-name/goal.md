@@ -17,7 +17,7 @@
 - Related ADRs: ADR 0049, ADR 0074, and
   [ADR 0079](../../decisions/0079-model-workspace-manifests-and-applied-workspaces.md)
 - Related work: completed WP08 Catalog/output contracts in [Architecture](../../02_architecture.md) and [Harness](../../04_harness.md),
-  [Runtime Retirement](../runtime-retirement/goal.md),
+  completed [ADR 0080 Runtime lifecycle](../../decisions/0080-close-the-managed-runtime-lifecycle.md),
   [Build Profile Contract](../build-profile-contract/goal.md),
   [First public V1 core](../first-public-release-core/goal.md), and
   [first public V1 artifacts](../first-public-release-artifacts/goal.md)

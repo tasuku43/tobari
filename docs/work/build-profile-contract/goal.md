@@ -18,10 +18,10 @@
   `docs/07_authentication.md` (implementation evidence `07535a9` and
   `428812f`), then consume the completed WP08 Catalog/output invariants in
   [Architecture](../../02_architecture.md) and [Harness](../../04_harness.md),
-  then complete [Runtime Retirement](../runtime-retirement/goal.md),
+  then consume the completed [Runtime lifecycle](../../decisions/0080-close-the-managed-runtime-lifecycle.md),
   then rebaseline the actual post-WP03 HEAD/worktree before WP04 production work
 - Related ADRs: ADR 0044, [ADR 0079](../../decisions/0079-model-workspace-manifests-and-applied-workspaces.md), and the future build-surface vocabulary ADR
-- Related work: the durable Workspace Manifest and one-time-copy contracts in [ADR 0079](../../decisions/0079-model-workspace-manifests-and-applied-workspaces.md) and `docs/00_theses.md` through `docs/04_harness.md`, the completed WP08 Catalog/output contracts in [Architecture](../../02_architecture.md) and [Harness](../../04_harness.md), [Runtime Retirement](../runtime-retirement/goal.md), [Capability profiles and first prerelease](../capability-profiles-first-prerelease/goal.md), [First public release core](../first-public-release-core/goal.md), [Release artifacts](../first-public-release-artifacts/goal.md), and [V1 authentication narrowing](../v1-auth-narrowing/goal.md)
+- Related work: the durable Workspace Manifest and one-time-copy contracts in [ADR 0079](../../decisions/0079-model-workspace-manifests-and-applied-workspaces.md) and `docs/00_theses.md` through `docs/04_harness.md`, the completed WP08 Catalog/output contracts in [Architecture](../../02_architecture.md) and [Harness](../../04_harness.md), the completed [Runtime lifecycle](../../decisions/0080-close-the-managed-runtime-lifecycle.md), [Capability profiles and first prerelease](../capability-profiles-first-prerelease/goal.md), [First public release core](../first-public-release-core/goal.md), [Release artifacts](../first-public-release-artifacts/goal.md), and [V1 authentication narrowing](../v1-auth-narrowing/goal.md)
 
 ## Outcome
 
