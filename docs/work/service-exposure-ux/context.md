@@ -565,7 +565,8 @@ These are accepted design facts, not current implementation claims:
   [Harness](../../04_harness.md) own the one recursive
   `OutputField.Fields`/`Items` traversal used for nested Service refs.
   WP09 waits for `WP08_IMPLEMENTATION_COMPLETE` and adds no local walker.
-- `docs/work/build-profile-contract/` is research-only WP04. No research-only
+- [ADR 0082](../../decisions/0082-release-and-research-build-surfaces.md) is
+  the durable WP04 release/research boundary. No research-only
   path, profile, authentication mechanism, state, or output participates in
   Service Exposure.
 - The existing service helper source snapshot is a generated checked build

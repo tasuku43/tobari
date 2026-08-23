@@ -24,7 +24,7 @@
 - Remaining upstream packets:
   completed WP08 Catalog/output contracts in [Architecture](../../02_architecture.md) and [Harness](../../04_harness.md),
   completed [ADR 0080 Runtime lifecycle](../../decisions/0080-close-the-managed-runtime-lifecycle.md),
-  [Build Profile Contract](../build-profile-contract/goal.md),
+  [ADR 0082 release and research build surfaces](../../decisions/0082-release-and-research-build-surfaces.md),
   [Host Loopback Name](../host-loopback-name/goal.md),
   [Permission Resume Handoff](../permission-resume-handoff/goal.md), and
   [Status Home](../status-home/goal.md)

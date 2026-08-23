@@ -14,7 +14,7 @@
   and the completed [Runtime lifecycle](../../decisions/0080-close-the-managed-runtime-lifecycle.md), plus the
   completed WP08 Catalog/output mechanism in [Architecture](../../02_architecture.md)
   and [Harness](../../04_harness.md), and the standard-surface boundary owned by
-  [Build profile contract](../build-profile-contract/goal.md)
+  [ADR 0082 release and research build surfaces](../../decisions/0082-release-and-research-build-surfaces.md)
 - Review/delete trigger: Delete after the reviewed contract is promoted, the
   implementation and readiness evidence land, and the change completes
 - Successor: None
@@ -26,7 +26,7 @@
 - Related work: [ADR 0079](../../decisions/0079-model-workspace-manifests-and-applied-workspaces.md),
   the completed WP08 Catalog/output contracts in [Architecture](../../02_architecture.md) and [Harness](../../04_harness.md),
   the completed [Runtime lifecycle](../../decisions/0080-close-the-managed-runtime-lifecycle.md),
-  [Build profile contract](../build-profile-contract/goal.md),
+  [ADR 0082 release and research build surfaces](../../decisions/0082-release-and-research-build-surfaces.md),
   [First public release core](../first-public-release-core/goal.md),
   [legacy Boundary evidence](../context-capability-envelope/goal.md), and
   [policy compaction retirement](../policy-compaction-retirement/goal.md)

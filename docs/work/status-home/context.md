@@ -411,7 +411,7 @@ JSON `overall_status`, `adoption_state`, or equivalent lossy authority exists.
   recursive Catalog conformance and remains no-refs.
 - [ADR 0080](../../decisions/0080-close-the-managed-runtime-lifecycle.md): supplies readiness/availability/unknown-usage and
   owning discovery paths. WP06 adds no Runtime lifecycle types or planner.
-- `build-profile-contract` (WP04): supplies release/research surface exclusion;
+- [ADR 0082](../../decisions/0082-release-and-research-build-surfaces.md): supplies release/research surface exclusion;
   research auth/serve never appears in release status.
 - `host-loopback-name` (WP05): supplies final private host authority vocabulary;
   the retired name is excluded from output and fixtures.

@@ -490,9 +490,9 @@ than treating partial state as accepted implementation evidence.
   lifecycle journals, prune-plan references, and receipts add no permission
   responsibility. Shared Catalog/reference-flow/generated files must not be independently
   regenerated over one another.
-- `build-profile-contract` (WP04) owns any later change to standard versus
-  experimental/release composition. Until such an accepted change, the
-  permission helper is standard release surface.
+- [ADR 0082](../../decisions/0082-release-and-research-build-surfaces.md)
+  owns the release versus research composition boundary. The permission helper
+  remains part of the release surface.
 - `context-capability-envelope` is legacy implementation evidence for the
   immutable Boundary only. ADR 0079 supersedes its Context vocabulary
   and flat-manifest lifecycle. A wait result cannot exceed the Boundary or
