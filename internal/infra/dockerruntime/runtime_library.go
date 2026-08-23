@@ -11,6 +11,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strconv"
 	"strings"
@@ -122,7 +123,13 @@ func (r *Runtime) SetContextRuntime(ctx context.Context, contextName, selection 
 	return result, nil
 }
 
-func (r *Runtime) withRuntimeStoreLock(action func() error) error {
+func (r *Runtime) withRuntimeStoreLock(ctx context.Context, action func() error) (resultErr error) {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if r.runtimeStoreLockAttempt != nil {
+		r.runtimeStoreLockAttempt()
+	}
 	if err := r.ensurePrivateDirectory(r.configDirectory); err != nil {
 		return err
 	}
@@ -136,18 +143,30 @@ func (r *Runtime) withRuntimeStoreLock(action func() error) error {
 	if err != nil {
 		return err
 	}
-	defer file.Close()
+	acquired := false
+	defer func() {
+		if acquired {
+			unlockProjectFile(file)
+		}
+		if closeErr := file.Close(); resultErr == nil && closeErr != nil {
+			resultErr = fmt.Errorf("close Runtime store lock: %w", closeErr)
+		}
+	}()
 	for {
-		acquired, lockErr := tryLockProjectFile(file)
+		locked, lockErr := tryLockProjectFile(file)
 		if lockErr != nil {
 			return lockErr
 		}
-		if acquired {
+		if locked {
+			acquired = true
 			break
 		}
-		time.Sleep(10 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(10 * time.Millisecond):
+		}
 	}
-	defer unlockProjectFile(file)
 	return action()
 }
 
@@ -279,6 +298,17 @@ func (r *Runtime) RuntimeHistory(ctx context.Context, name string) (tobari.Runti
 // CreateRuntime initializes one standalone managed source tree from an exact
 // source Base without building it or retaining Base lineage.
 func (r *Runtime) CreateRuntime(ctx context.Context, name string, base tobari.RuntimeCopySource) (tobari.RuntimeReport, error) {
+	var result tobari.RuntimeReport
+	err := r.WithLifecycleLock(ctx, func(lockContext context.Context) error {
+		var createErr error
+		result, createErr = r.createRuntimeLifecycleLocked(lockContext, name, base)
+		return createErr
+	})
+	return result, err
+}
+
+// createRuntimeLifecycleLocked requires the installation lifecycle lock.
+func (r *Runtime) createRuntimeLifecycleLocked(ctx context.Context, name string, base tobari.RuntimeCopySource) (tobari.RuntimeReport, error) {
 	if err := ctx.Err(); err != nil {
 		return tobari.RuntimeReport{}, err
 	}
@@ -292,7 +322,7 @@ func (r *Runtime) CreateRuntime(ctx context.Context, name string, base tobari.Ru
 		return tobari.RuntimeReport{}, tobari.ErrRuntimeExists
 	}
 	var result tobari.RuntimeReport
-	err := r.withRuntimeStoreLock(func() error {
+	err := r.withRuntimeStoreLock(ctx, func() error {
 		if _, err := os.Lstat(r.runtimeDirectory(name)); err == nil {
 			return tobari.ErrRuntimeExists
 		} else if !errors.Is(err, os.ErrNotExist) {
@@ -600,16 +630,200 @@ func copyRuntimeSource(ctx context.Context, root, snapshot string) (string, erro
 	return "sha256:" + hex.EncodeToString(digest.Sum(nil)), nil
 }
 
-func freezeRuntimeSnapshot(root string) error {
+func digestRuntimeSnapshot(ctx context.Context, root string) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	if err := requirePrivateDirectory(root); err != nil {
+		return "", err
+	}
+	entries := make([]runtimeSourceEntry, 0)
+	directories := 0
+	total := int64(0)
+	if err := filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if walkErr != nil {
+			return walkErr
+		}
+		if path == root {
+			return nil
+		}
+		relative, err := filepath.Rel(root, path)
+		if err != nil || relative == "." || filepath.Clean(relative) != relative || filepath.IsAbs(relative) {
+			return fmt.Errorf("Runtime snapshot contains a non-canonical child")
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		if info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm()&0o077 != 0 {
+			return fmt.Errorf("Runtime snapshot contains unsafe ownership or link evidence")
+		}
+		if entry.IsDir() {
+			directories++
+			if directories > maxRuntimeSourceDirs+1 {
+				return fmt.Errorf("Runtime snapshot directory inventory exceeds the bound")
+			}
+			return nil
+		}
+		if !info.Mode().IsRegular() || info.Size() < 0 || info.Size() > maxRuntimeSourceFile || len(entries) >= maxRuntimeSourceFiles {
+			return fmt.Errorf("Runtime snapshot inventory is invalid")
+		}
+		total += info.Size()
+		if total > maxRuntimeSourceTotal {
+			return fmt.Errorf("Runtime snapshot exceeds the source bound")
+		}
+		entries = append(entries, runtimeSourceEntry{relative: filepath.ToSlash(relative), mode: info.Mode().Perm(), size: info.Size(), info: info})
+		return nil
+	}); err != nil {
+		return "", err
+	}
+	if len(entries) == 0 {
+		return "", fmt.Errorf("Runtime snapshot is empty")
+	}
+	sort.Slice(entries, func(i, j int) bool { return entries[i].relative < entries[j].relative })
+	digest := sha256.New()
+	var length [8]byte
+	buffer := make([]byte, runtimeSourceCopySize)
+	for _, entry := range entries {
+		if err := ctx.Err(); err != nil {
+			return "", err
+		}
+		binary.BigEndian.PutUint64(length[:], uint64(len(entry.relative)))
+		_, _ = digest.Write(length[:])
+		_, _ = digest.Write([]byte(entry.relative))
+		binary.BigEndian.PutUint64(length[:], uint64(entry.mode.Perm()))
+		_, _ = digest.Write(length[:])
+		binary.BigEndian.PutUint64(length[:], uint64(entry.size)) // #nosec G115 -- bounded non-negative snapshot size.
+		_, _ = digest.Write(length[:])
+		path := filepath.Join(root, filepath.FromSlash(entry.relative))
+		file, err := os.Open(path) // #nosec G304 -- exact canonical child from bounded private snapshot inventory.
+		if err != nil {
+			return "", err
+		}
+		opened, statErr := file.Stat()
+		if statErr != nil || !opened.Mode().IsRegular() || !os.SameFile(entry.info, opened) || opened.Size() != entry.size || opened.Mode().Perm() != entry.mode {
+			_ = file.Close()
+			if statErr != nil {
+				return "", statErr
+			}
+			return "", fmt.Errorf("Runtime snapshot changed during rehash")
+		}
+		copied, copyErr := io.CopyBuffer(digest, io.LimitReader(file, entry.size+1), buffer)
+		closeErr := file.Close()
+		after, afterErr := os.Lstat(path)
+		if copyErr != nil {
+			return "", copyErr
+		}
+		if closeErr != nil {
+			return "", closeErr
+		}
+		if afterErr != nil {
+			return "", afterErr
+		}
+		if copied != entry.size || !after.Mode().IsRegular() || !os.SameFile(entry.info, after) || after.Size() != entry.size || after.Mode().Perm() != entry.mode {
+			return "", fmt.Errorf("Runtime snapshot changed during rehash")
+		}
+	}
+	return "sha256:" + hex.EncodeToString(digest.Sum(nil)), nil
+}
+
+func syncRuntimeSnapshotTree(root string) (resultErr error) {
 	snapshotRoot, err := os.OpenRoot(root)
 	if err != nil {
 		return err
 	}
-	defer snapshotRoot.Close()
+	defer func() {
+		if closeErr := snapshotRoot.Close(); resultErr == nil && closeErr != nil {
+			resultErr = closeErr
+		}
+	}()
+	directories := make([]string, 0)
+	files := 0
+	total := int64(0)
+	if err := filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		relative, err := filepath.Rel(root, path)
+		if err != nil || filepath.Clean(relative) != relative || filepath.IsAbs(relative) {
+			return fmt.Errorf("Runtime snapshot contains a non-canonical child")
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("Runtime snapshot contains a symbolic link")
+		}
+		if entry.IsDir() {
+			directories = append(directories, relative)
+			if len(directories) > maxRuntimeSourceDirs+1 {
+				return fmt.Errorf("Runtime snapshot directory inventory exceeds the bound")
+			}
+			return nil
+		}
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("Runtime snapshot contains a non-regular child")
+		}
+		files++
+		total += info.Size()
+		if files > maxRuntimeSourceFiles || info.Size() < 0 || info.Size() > maxRuntimeSourceFile || total > maxRuntimeSourceTotal {
+			return fmt.Errorf("Runtime snapshot file inventory exceeds the bound")
+		}
+		file, err := snapshotRoot.Open(relative)
+		if err != nil {
+			return err
+		}
+		if err := file.Sync(); err != nil {
+			_ = file.Close()
+			return err
+		}
+		return file.Close()
+	}); err != nil {
+		return err
+	}
+	for index := len(directories) - 1; index >= 0; index-- {
+		directory, err := snapshotRoot.Open(directories[index])
+		if err != nil {
+			return err
+		}
+		if err := directory.Sync(); err != nil {
+			_ = directory.Close()
+			return err
+		}
+		if err := directory.Close(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func freezeRuntimeSnapshot(root string) (resultErr error) {
+	snapshotRoot, err := os.OpenRoot(root)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if snapshotRoot != nil {
+			if closeErr := snapshotRoot.Close(); resultErr == nil && closeErr != nil {
+				resultErr = closeErr
+			}
+		}
+	}()
 	var directories []string
 	err = filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
+		}
+		info, infoErr := entry.Info()
+		if infoErr != nil {
+			return infoErr
+		}
+		if info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm()&0o077 != 0 {
+			return fmt.Errorf("Runtime snapshot contains unsafe ownership or link evidence")
 		}
 		if entry.IsDir() {
 			relative, relativeErr := filepath.Rel(root, path)
@@ -623,7 +837,13 @@ func freezeRuntimeSnapshot(root string) error {
 		if relativeErr != nil {
 			return relativeErr
 		}
-		if err := snapshotRoot.Chmod(relative, 0o400); err != nil { // #nosec G302 -- immutable Runtime snapshots are intentionally owner-readable.
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("Runtime snapshot contains a non-regular child")
+		}
+		// Preserve the exact semantic source mode. Revision immutability is
+		// enforced by lifecycle ownership; discarding execute/read bits here
+		// would make an exact restore and recovery rehash impossible.
+		if err := snapshotRoot.Chmod(relative, info.Mode().Perm()); err != nil { // #nosec G302 -- validated owner-only semantic source mode is retained.
 			return err
 		}
 		return nil
@@ -639,21 +859,114 @@ func freezeRuntimeSnapshot(root string) error {
 	return nil
 }
 
-func removeRuntimeSnapshot(root string) {
-	snapshotRoot, err := os.OpenRoot(root)
-	if err == nil {
-		_ = filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
-			if walkErr == nil && entry.IsDir() {
-				relative, relativeErr := filepath.Rel(root, path)
-				if relativeErr == nil {
-					_ = snapshotRoot.Chmod(relative, 0o700) // #nosec G302 -- cleanup restores owner-only traversal before removal.
-				}
-			}
-			return nil
-		})
-		_ = snapshotRoot.Close()
+func removeRuntimeSnapshot(root string) (resultErr error) {
+	parent := filepath.Dir(root)
+	if _, err := os.Lstat(parent); errors.Is(err, os.ErrNotExist) {
+		return nil
+	} else if err != nil {
+		return err
 	}
-	_ = os.RemoveAll(filepath.Dir(root))
+	if _, err := os.Lstat(root); errors.Is(err, os.ErrNotExist) {
+		if err := os.RemoveAll(parent); err != nil { // #nosec G301 -- exact empty Runtime build transaction directory.
+			return err
+		}
+		return syncDirectoryIfPresent(filepath.Dir(parent))
+	} else if err != nil {
+		return err
+	}
+	snapshotRoot, err := os.OpenRoot(root)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if snapshotRoot != nil {
+			if closeErr := snapshotRoot.Close(); resultErr == nil && closeErr != nil {
+				resultErr = closeErr
+			}
+		}
+	}()
+	if err := filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if !entry.IsDir() {
+			return nil
+		}
+		relative, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		return snapshotRoot.Chmod(relative, 0o700) // #nosec G302 -- cleanup restores owner-only traversal before exact removal.
+	}); err != nil {
+		return err
+	}
+	if err := snapshotRoot.Close(); err != nil {
+		return err
+	}
+	snapshotRoot = nil
+	if err := os.RemoveAll(parent); err != nil { // #nosec G301 -- exact Runtime snapshot transaction directory.
+		return err
+	}
+	if _, err := os.Lstat(parent); !errors.Is(err, os.ErrNotExist) {
+		if err == nil {
+			return fmt.Errorf("Runtime snapshot directory was not removed")
+		}
+		return err
+	}
+	return syncDirectoryIfPresent(filepath.Dir(parent))
+}
+
+func (r *Runtime) removeRuntimeBuildSnapshot(root string) error {
+	if r.runtimeBuildSnapshotRemove != nil {
+		return r.runtimeBuildSnapshotRemove(root)
+	}
+	return removeRuntimeSnapshot(root)
+}
+
+func (r *Runtime) syncRuntimeBuildSnapshot(root string) error {
+	if r.runtimeBuildSnapshotSync != nil {
+		return r.runtimeBuildSnapshotSync(root)
+	}
+	return syncRuntimeSnapshotTree(root)
+}
+
+func (r *Runtime) syncRuntimeBuildDirectory(path string) error {
+	if r.runtimeBuildDirectorySync != nil {
+		return r.runtimeBuildDirectorySync(path)
+	}
+	return syncDirectory(path)
+}
+
+func (r *Runtime) renameRuntimeBuildSnapshot(source, target string) error {
+	if r.runtimeBuildRename != nil {
+		return r.runtimeBuildRename(source, target)
+	}
+	return os.Rename(source, target)
+}
+
+func (r *Runtime) freezeRuntimeBuildSnapshot(root string) error {
+	if r.runtimeBuildFreeze != nil {
+		return r.runtimeBuildFreeze(root)
+	}
+	return freezeRuntimeSnapshot(root)
+}
+
+func (r *Runtime) publishRuntimeBuildManifest(manifest tobari.RuntimeManifest) error {
+	path := r.runtimeManifestPath(manifest.Name)
+	var err error
+	if r.runtimeBuildManifestWrite != nil {
+		err = r.runtimeBuildManifestWrite(path, manifest)
+	} else {
+		err = writeAtomicJSON(path, manifest)
+	}
+	observed, observeErr := r.readRuntimeManifest(manifest.Name)
+	if observeErr == nil && !reflect.DeepEqual(observed, manifest) {
+		observeErr = fmt.Errorf("published Runtime manifest differs from exact build authority")
+	}
+	if err != nil || observeErr != nil {
+		return errors.Join(err, observeErr)
+	}
+	return nil
 }
 
 func runtimeSourceUsesRefreshableBase(dockerfile, defaultImage string, refresh bool) (bool, error) {
@@ -679,12 +992,8 @@ func runtimeSourceUsesRefreshableBase(dockerfile, defaultImage string, refresh b
 	return false, nil
 }
 
-func managedLibraryRuntimeImage(name, revision string) string {
-	short := strings.TrimPrefix(revision, "sha256:")
-	if len(short) > 12 {
-		short = short[:12]
-	}
-	return "tobari-runtime-" + name + ":" + short
+func managedLibraryRuntimeImage(name, runtimeID, revision string) string {
+	return "tobari-runtime-" + name + "-" + runtimeID + ":" + strings.TrimPrefix(revision, "sha256:")
 }
 
 // BuildManagedRuntimeByReference holds the installation lifecycle lock across
@@ -732,7 +1041,7 @@ func (r *Runtime) buildManagedRuntimeLifecycleLocked(ctx context.Context, name, 
 		return tobari.RuntimeReport{}, fmt.Errorf("built-in Runtime cannot be built")
 	}
 	var result tobari.RuntimeReport
-	err := r.withRuntimeStoreLock(func() error {
+	err := r.withRuntimeStoreLock(ctx, func() error {
 		var manifest tobari.RuntimeManifest
 		var err error
 		if expectedReference != "" {
@@ -753,44 +1062,55 @@ func (r *Runtime) buildManagedRuntimeLifecycleLocked(ctx context.Context, name, 
 			return err
 		}
 		if err := os.Mkdir(filepath.Dir(journal.SnapshotPath), 0o700); err != nil {
-			return r.rollbackRuntimeBuildBeforeDocker(journal, err)
+			return r.rollbackRuntimeBuildBeforeDocker(err, journal)
 		}
 		snapshot := journal.SnapshotPath
 		revision, err := copyRuntimeSource(ctx, r.runtimeSourceDirectory(name), snapshot)
 		if err != nil {
-			return r.rollbackRuntimeBuildBeforeDocker(journal, err)
+			return r.rollbackRuntimeBuildBeforeDocker(err, journal)
 		}
-		journal.Revision = revision
-		journal.StagingImage = managedRuntimeStagingImage(manifest.ID, revision)
-		journal.FinalImage = managedLibraryRuntimeImage(name, revision)
-		journal.Phase = runtimeBuildPhasePrepared
-		if err := r.writeRuntimeBuildJournal(journal); err != nil {
-			return r.rollbackRuntimeBuildBeforeDocker(journal, err)
+		if err := r.syncRuntimeBuildSnapshot(snapshot); err != nil {
+			return r.rollbackRuntimeBuildBeforeDocker(err, journal)
+		}
+		if err := r.syncRuntimeBuildDirectory(filepath.Dir(snapshot)); err != nil {
+			return r.rollbackRuntimeBuildBeforeDocker(err, journal)
+		}
+		if err := r.syncRuntimeBuildDirectory(r.runtimeLifecycleDirectory()); err != nil {
+			return r.rollbackRuntimeBuildBeforeDocker(err, journal)
+		}
+		prepared := journal
+		prepared.Revision = revision
+		prepared.StagingImage = managedRuntimeStagingImage(manifest.ID, revision)
+		prepared.FinalImage = managedLibraryRuntimeImage(name, manifest.ID, revision)
+		prepared.Phase = runtimeBuildPhasePrepared
+		if err := r.writeRuntimeBuildJournal(journal, prepared); err != nil {
+			return r.rollbackRuntimeBuildBeforeDocker(err, journal, prepared)
+		}
+		journal = prepared
+		if err := r.requireUnusedRuntimeStagingTag(ctx, journal); err != nil {
+			return r.rollbackRuntimeBuildBeforeDocker(err, journal)
 		}
 		for _, existing := range manifest.Revisions {
 			if existing.Revision == revision {
 				observedDigest, inspectErr := r.inspectManagedRuntimeBuildEvidence(ctx, existing.Image, manifest.ID, revision)
 				if inspectErr != nil || observedDigest != existing.ImageDigest {
-					return r.rollbackRuntimeBuildBeforeDocker(journal, tobari.ErrRuntimeNotReady)
+					return r.rollbackRuntimeBuildBeforeDocker(tobari.ErrRuntimeNotReady, journal)
 				}
 				result = tobari.RuntimeReport{Task: tobari.TaskRuntimeBuildV1, Runtime: manifest, NoChange: true}
 				if err := result.Validate(); err != nil {
-					return r.rollbackRuntimeBuildBeforeDocker(journal, err)
+					return r.rollbackRuntimeBuildBeforeDocker(err, journal)
 				}
 				return r.completeRuntimeBuildJournal(journal)
 			}
 		}
 		dockerfile := filepath.Join(snapshot, "Dockerfile")
 		if info, err := os.Lstat(dockerfile); err != nil || !info.Mode().IsRegular() {
-			return r.rollbackRuntimeBuildBeforeDocker(journal, runtimeSourceInvalid("Runtime source requires a regular file named \"Dockerfile\" at its root."))
+			return r.rollbackRuntimeBuildBeforeDocker(runtimeSourceInvalid("Runtime source requires a regular file named \"Dockerfile\" at its root."), journal)
 		}
 		image := journal.StagingImage
 		pullBase, err := runtimeSourceUsesRefreshableBase(dockerfile, r.defaultRuntimeImage(), r.imageResolver().ShouldPullRuntimeImage(r.defaultRuntimeImage()))
 		if err != nil {
-			return r.rollbackRuntimeBuildBeforeDocker(journal, err)
-		}
-		if err := r.requireUnusedRuntimeStagingTag(ctx, journal); err != nil {
-			return r.rollbackRuntimeBuildBeforeDocker(journal, err)
+			return r.rollbackRuntimeBuildBeforeDocker(err, journal)
 		}
 		args := []string{"buildx", "build", "--progress=plain", "--load",
 			"--label", ownerLabel + "=" + ownerValue,
@@ -802,10 +1122,12 @@ func (r *Runtime) buildManagedRuntimeLifecycleLocked(ctx context.Context, name, 
 			args = append(args, "--pull")
 		}
 		args = append(args, "--tag", image, "--file", dockerfile, snapshot)
-		journal.Phase = runtimeBuildPhaseBuilding
-		if err := r.writeRuntimeBuildJournal(journal); err != nil {
-			return r.rollbackRuntimeBuildBeforeDocker(journal, err)
+		building := journal
+		building.Phase = runtimeBuildPhaseBuilding
+		if err := r.writeRuntimeBuildJournal(journal, building); err != nil {
+			return r.rollbackRuntimeBuildBeforeDocker(err, journal, building)
 		}
+		journal = building
 		var tail runtimeBuildDiagnosticTail
 		stream := io.MultiWriter(&bestEffortDiagnosticWriter{writer: diagnostics}, &tail)
 		if err := r.runner.Run(ctx, args, os.Environ(), nil, stream, stream); err != nil {
@@ -818,11 +1140,13 @@ func (r *Runtime) buildManagedRuntimeLifecycleLocked(ctx context.Context, name, 
 		if err != nil {
 			return r.retainRuntimeBuildFailure(journal, err)
 		}
-		journal.ImageDigest = imageDigest
-		journal.Phase = runtimeBuildPhaseBuilt
-		if err := r.writeRuntimeBuildJournal(journal); err != nil {
+		built := journal
+		built.ImageDigest = imageDigest
+		built.Phase = runtimeBuildPhaseBuilt
+		if err := r.writeRuntimeBuildJournal(journal, built); err != nil {
 			return err
 		}
+		journal = built
 		if err := r.publishManagedRuntimeTag(ctx, journal); err != nil {
 			return err
 		}
@@ -836,6 +1160,13 @@ func (r *Runtime) buildManagedRuntimeLifecycleLocked(ctx context.Context, name, 
 		if err := r.runner.Run(ctx, []string{"image", "rm", image}, os.Environ(), nil, io.Discard, io.Discard); err != nil {
 			return fmt.Errorf("remove Runtime staging tag: %w", err)
 		}
+		rehashed, err := digestRuntimeSnapshot(ctx, snapshot)
+		if err != nil || rehashed != revision {
+			if err == nil {
+				err = fmt.Errorf("Runtime build snapshot revision changed")
+			}
+			return fmt.Errorf("Runtime build publication requires reconciliation: %w", err)
+		}
 		final := filepath.Join(revisionsRoot, strings.TrimPrefix(revision, "sha256:"), "source")
 		if _, err := os.Lstat(filepath.Dir(final)); err == nil {
 			return fmt.Errorf("Runtime snapshot already exists without history authority")
@@ -845,12 +1176,30 @@ func (r *Runtime) buildManagedRuntimeLifecycleLocked(ctx context.Context, name, 
 		if err := os.Mkdir(filepath.Dir(final), 0o700); err != nil {
 			return err
 		}
-		if err := os.Rename(snapshot, final); err != nil {
+		if err := r.syncRuntimeBuildDirectory(revisionsRoot); err != nil {
+			return fmt.Errorf("Runtime build publication requires reconciliation: %w", err)
+		}
+		if err := r.renameRuntimeBuildSnapshot(snapshot, final); err != nil {
 			return err
 		}
-		if err := freezeRuntimeSnapshot(final); err != nil {
-			removeRuntimeSnapshot(final)
-			return err
+		if err := r.freezeRuntimeBuildSnapshot(final); err != nil {
+			return fmt.Errorf("Runtime build publication requires reconciliation: %w", err)
+		}
+		if err := r.syncRuntimeBuildSnapshot(final); err != nil {
+			return fmt.Errorf("Runtime build publication requires reconciliation: %w", err)
+		}
+		if err := r.syncRuntimeBuildDirectory(filepath.Dir(final)); err != nil {
+			return fmt.Errorf("Runtime build publication requires reconciliation: %w", err)
+		}
+		if err := r.syncRuntimeBuildDirectory(revisionsRoot); err != nil {
+			return fmt.Errorf("Runtime build publication requires reconciliation: %w", err)
+		}
+		rehashed, err = digestRuntimeSnapshot(ctx, final)
+		if err != nil || rehashed != revision {
+			if err == nil {
+				err = fmt.Errorf("final Runtime snapshot revision changed")
+			}
+			return fmt.Errorf("Runtime build publication requires reconciliation: %w", err)
 		}
 		createdAt := time.Now().UTC()
 		if r.identities.now != nil {
@@ -863,9 +1212,8 @@ func (r *Runtime) buildManagedRuntimeLifecycleLocked(ctx context.Context, name, 
 		if err := manifest.Validate(); err != nil {
 			return err
 		}
-		if err := writeAtomicJSON(r.runtimeManifestPath(name), manifest); err != nil {
-			removeRuntimeSnapshot(final)
-			return err
+		if err := r.publishRuntimeBuildManifest(manifest); err != nil {
+			return fmt.Errorf("Runtime build manifest publication requires reconciliation: %w", err)
 		}
 		result = tobari.RuntimeReport{Task: tobari.TaskRuntimeBuildV1, Runtime: manifest, Built: true}
 		if err := result.Validate(); err != nil {

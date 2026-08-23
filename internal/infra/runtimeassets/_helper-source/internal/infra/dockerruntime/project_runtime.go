@@ -1441,12 +1441,16 @@ func (r *Runtime) removeProjectRootIndexFor(root, contextID string) error {
 	return syncDirectoryIfPresent(filepath.Dir(indexPath))
 }
 
-func syncDirectory(path string) error {
+func syncDirectory(path string) (resultErr error) {
 	directory, err := os.Open(path) // #nosec G304 -- callers pass only runtime-owned state directories.
 	if err != nil {
 		return err
 	}
-	defer directory.Close()
+	defer func() {
+		if closeErr := directory.Close(); resultErr == nil && closeErr != nil {
+			resultErr = closeErr
+		}
+	}()
 	return directory.Sync()
 }
 

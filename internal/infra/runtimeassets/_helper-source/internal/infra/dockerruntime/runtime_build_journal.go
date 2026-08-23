@@ -65,14 +65,17 @@ func (j runtimeBuildJournal) Validate(r *Runtime) error {
 			return fmt.Errorf("snapshotting Runtime build journal has premature evidence")
 		}
 	case runtimeBuildPhasePrepared, runtimeBuildPhaseBuilding, runtimeBuildPhaseFailed:
-		if tobari.ValidateDigest(j.Revision) != nil || j.StagingImage != managedRuntimeStagingImage(j.RuntimeID, j.Revision) || j.FinalImage != managedLibraryRuntimeImage(j.RuntimeName, j.Revision) {
+		if tobari.ValidateDigest(j.Revision) != nil || j.StagingImage != managedRuntimeStagingImage(j.RuntimeID, j.Revision) || j.FinalImage != managedLibraryRuntimeImage(j.RuntimeName, j.RuntimeID, j.Revision) {
 			return fmt.Errorf("Runtime build journal target is invalid")
+		}
+		if (j.Phase == runtimeBuildPhasePrepared || j.Phase == runtimeBuildPhaseBuilding) && j.ImageDigest != "" {
+			return fmt.Errorf("pre-build-completion Runtime journal has premature image evidence")
 		}
 		if j.ImageDigest != "" && tobari.ValidateDigest(j.ImageDigest) != nil {
 			return fmt.Errorf("Runtime build journal image evidence is invalid")
 		}
 	case runtimeBuildPhaseBuilt:
-		if tobari.ValidateDigest(j.Revision) != nil || tobari.ValidateDigest(j.ImageDigest) != nil || j.StagingImage != managedRuntimeStagingImage(j.RuntimeID, j.Revision) || j.FinalImage != managedLibraryRuntimeImage(j.RuntimeName, j.Revision) {
+		if tobari.ValidateDigest(j.Revision) != nil || tobari.ValidateDigest(j.ImageDigest) != nil || j.StagingImage != managedRuntimeStagingImage(j.RuntimeID, j.Revision) || j.FinalImage != managedLibraryRuntimeImage(j.RuntimeName, j.RuntimeID, j.Revision) {
 			return fmt.Errorf("built Runtime journal evidence is invalid")
 		}
 	default:
@@ -82,15 +85,8 @@ func (j runtimeBuildJournal) Validate(r *Runtime) error {
 }
 
 func managedRuntimeStagingImage(runtimeID, revision string) string {
-	id := strings.ReplaceAll(runtimeID, "-", "")
-	if len(id) > 12 {
-		id = id[:12]
-	}
 	digest := strings.TrimPrefix(revision, "sha256:")
-	if len(digest) > 12 {
-		digest = digest[:12]
-	}
-	return "tobari-runtime-build-" + id + ":" + digest
+	return "tobari-runtime-build-" + runtimeID + ":" + digest
 }
 
 func (r *Runtime) beginRuntimeBuildJournal(runtimeID, runtimeName string) (runtimeBuildJournal, error) {
@@ -114,16 +110,50 @@ func (r *Runtime) beginRuntimeBuildJournal(runtimeID, runtimeName string) (runti
 		return runtimeBuildJournal{}, err
 	}
 	if err := writeAtomicJSON(path, journal); err != nil {
+		if observed, observeErr := r.readRuntimeBuildJournalObserved(); observeErr == nil && observed != nil && *observed == journal {
+			if cleanupErr := r.completeRuntimeBuildJournal(journal); cleanupErr != nil {
+				return runtimeBuildJournal{}, fmt.Errorf("initialize Runtime build journal and rollback uncertain publication: %w", errors.Join(err, cleanupErr))
+			}
+		}
 		return runtimeBuildJournal{}, err
 	}
 	return journal, nil
 }
 
-func (r *Runtime) writeRuntimeBuildJournal(journal runtimeBuildJournal) error {
-	if err := journal.Validate(r); err != nil {
+func (r *Runtime) writeRuntimeBuildJournal(previous, next runtimeBuildJournal) error {
+	if err := previous.Validate(r); err != nil {
 		return err
 	}
-	return writeAtomicJSON(r.runtimeBuildJournalPath(), journal)
+	if err := next.Validate(r); err != nil {
+		return err
+	}
+	current, err := r.readRuntimeBuildJournalObserved()
+	if err != nil {
+		return err
+	}
+	if current == nil || *current != previous {
+		return fmt.Errorf("Runtime build journal current authority changed")
+	}
+	if err := validateRuntimeBuildJournalTransition(previous, next); err != nil {
+		return err
+	}
+	return writeAtomicJSON(r.runtimeBuildJournalPath(), next)
+}
+
+func validateRuntimeBuildJournalTransition(previous, next runtimeBuildJournal) error {
+	if previous.SchemaVersion != next.SchemaVersion || previous.RuntimeID != next.RuntimeID || previous.RuntimeName != next.RuntimeName || previous.SnapshotPath != next.SnapshotPath {
+		return fmt.Errorf("Runtime build journal identity changed")
+	}
+	if previous.Revision != "" && (previous.Revision != next.Revision || previous.StagingImage != next.StagingImage || previous.FinalImage != next.FinalImage) {
+		return fmt.Errorf("Runtime build journal target changed")
+	}
+	allowed := previous.Phase == runtimeBuildPhaseSnapshotting && next.Phase == runtimeBuildPhasePrepared ||
+		previous.Phase == runtimeBuildPhasePrepared && next.Phase == runtimeBuildPhaseBuilding ||
+		previous.Phase == runtimeBuildPhaseBuilding && (next.Phase == runtimeBuildPhaseBuilt || next.Phase == runtimeBuildPhaseFailed)
+	if !allowed {
+		return fmt.Errorf("Runtime build journal phase transition is invalid")
+	}
+	return nil
 }
 
 func (r *Runtime) readRuntimeBuildJournalObserved() (*runtimeBuildJournal, error) {
@@ -152,10 +182,19 @@ func (r *Runtime) completeRuntimeBuildJournal(journal runtimeBuildJournal) error
 	if err := journal.Validate(r); err != nil {
 		return err
 	}
+	current, err := r.readRuntimeBuildJournalObserved()
+	if err != nil {
+		return err
+	}
+	if current == nil || *current != journal {
+		return fmt.Errorf("Runtime build journal completion authority changed")
+	}
 	if r.runtimeBuildCleanup != nil {
 		return r.runtimeBuildCleanup(journal)
 	}
-	removeRuntimeSnapshot(journal.SnapshotPath)
+	if err := r.removeRuntimeBuildSnapshot(journal.SnapshotPath); err != nil {
+		return err
+	}
 	if _, err := os.Lstat(filepath.Dir(journal.SnapshotPath)); !errors.Is(err, os.ErrNotExist) {
 		if err == nil {
 			return fmt.Errorf("Runtime build staging snapshot was not removed")
@@ -165,38 +204,55 @@ func (r *Runtime) completeRuntimeBuildJournal(journal runtimeBuildJournal) error
 	if err := os.Remove(r.runtimeBuildJournalPath()); err != nil {
 		return err
 	}
-	return nil
+	return r.syncRuntimeBuildDirectory(r.runtimeLifecycleDirectory())
 }
 
-func (r *Runtime) rollbackRuntimeBuildBeforeDocker(journal runtimeBuildJournal, cause error) error {
-	if cleanupErr := r.completeRuntimeBuildJournal(journal); cleanupErr != nil {
+func (r *Runtime) rollbackRuntimeBuildBeforeDocker(cause error, allowed ...runtimeBuildJournal) error {
+	current, observeErr := r.readRuntimeBuildJournalObserved()
+	matched := false
+	if observeErr == nil && current != nil {
+		for _, candidate := range allowed {
+			if *current == candidate {
+				matched = true
+				break
+			}
+		}
+	}
+	if !matched {
+		return fmt.Errorf("Runtime build did not start but journal authority requires reconciliation: %w", errors.Join(cause, observeErr))
+	}
+	if cleanupErr := r.completeRuntimeBuildJournal(*current); cleanupErr != nil {
 		return fmt.Errorf("Runtime build did not start and owned staging cleanup requires reconciliation: %w", errors.Join(cause, cleanupErr))
 	}
 	return cause
 }
 
 func (r *Runtime) retainRuntimeBuildFailure(journal runtimeBuildJournal, cause error) error {
-	journal.Phase = runtimeBuildPhaseFailed
-	if journalErr := r.writeRuntimeBuildJournal(journal); journalErr != nil {
+	failed := journal
+	failed.Phase = runtimeBuildPhaseFailed
+	if journalErr := r.writeRuntimeBuildJournal(journal, failed); journalErr != nil {
 		return fmt.Errorf("Runtime build outcome requires reconciliation: %w", errors.Join(cause, journalErr))
 	}
 	return cause
 }
 
 type managedRuntimeBuildEvidence struct {
-	ID    string `json:"id"`
-	Owned bool   `json:"owned"`
+	ID        string `json:"id"`
+	Owner     string `json:"owner"`
+	Component string `json:"component"`
+	RuntimeID string `json:"runtime_id"`
+	Revision  string `json:"revision"`
 }
 
 func (r *Runtime) inspectManagedRuntimeBuildEvidence(ctx context.Context, image, runtimeID, revision string) (string, error) {
 	if tobari.ValidateImageSelector(image) != nil || tobari.ValidateRuntimeID(runtimeID) != nil || tobari.ValidateDigest(revision) != nil {
 		return "", fmt.Errorf("managed Runtime build evidence request is invalid")
 	}
-	format := `{"id":{{json .Id}},"owned":{{json (and ` +
-		`(eq (index .Config.Labels "` + ownerLabel + `") "` + ownerValue + `") ` +
-		`(eq (index .Config.Labels "` + componentLabel + `") "` + managedRuntimeComponentLabel + `") ` +
-		`(eq (index .Config.Labels "` + managedRuntimeIDLabel + `") "` + runtimeID + `") ` +
-		`(eq (index .Config.Labels "` + managedRuntimeRevisionLabel + `") "` + revision + `"))}}}`
+	format := `{"id":{{json .Id}},` +
+		`"owner":{{json (index .Config.Labels "` + ownerLabel + `")}},` +
+		`"component":{{json (index .Config.Labels "` + componentLabel + `")}},` +
+		`"runtime_id":{{json (index .Config.Labels "` + managedRuntimeIDLabel + `")}},` +
+		`"revision":{{json (index .Config.Labels "` + managedRuntimeRevisionLabel + `")}}}`
 	output, err := r.runner.Output(ctx, []string{"image", "inspect", "--format", format, image}, os.Environ())
 	if err != nil {
 		if isMissingDockerResource(err, output) {
@@ -208,7 +264,7 @@ func (r *Runtime) inspectManagedRuntimeBuildEvidence(ctx context.Context, image,
 		return "", fmt.Errorf("managed Runtime build evidence exceeds the observation bound")
 	}
 	var evidence managedRuntimeBuildEvidence
-	if decodeStrictJSON(output, &evidence) != nil || tobari.ValidateDigest(evidence.ID) != nil || !evidence.Owned {
+	if decodeStrictJSON(output, &evidence) != nil || tobari.ValidateDigest(evidence.ID) != nil || evidence.Owner != ownerValue || evidence.Component != managedRuntimeComponentLabel || evidence.RuntimeID != runtimeID || evidence.Revision != revision {
 		return "", fmt.Errorf("managed Runtime build ownership evidence is invalid")
 	}
 	return evidence.ID, nil
