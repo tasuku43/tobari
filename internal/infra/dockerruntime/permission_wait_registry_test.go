@@ -35,8 +35,8 @@ func permissionSessionFixture() tobari.InteractiveAttachmentSession {
 		SchemaVersion:       tobari.PermissionSessionSchema,
 		WorkspaceManifestID: "01912345-6789-7abc-8def-0123456789ad", WorkspaceID: "01912345-6789-7abc-8def-0123456789ab",
 		AttachmentID: "att_0123456789abcdef0123456789abcdef", OwnerKind: tobari.PermissionSessionOwnerInteractive,
-		FrozenPrincipalFingerprint: strings.Repeat("b", 64), OwnerPID: 42, IngestionPort: 23456, IngestionNonce: strings.Repeat("c", 64),
-		CreatedAt: "2026-08-23T00:00:00Z", ExpiresAt: "2026-08-23T00:00:30Z",
+		FrozenPrincipalFingerprint: strings.Repeat("b", 64), OwnerPID: 42, IngestionSocket: "pws_0123456789abcdef0123456789abcdef.sock", IngestionNonce: strings.Repeat("c", 64),
+		CreatedAt: "2026-08-23T00:00:00Z", LeaseIssuedAt: "2026-08-23T00:00:00Z", ExpiresAt: "2026-08-23T00:00:30Z",
 	}
 }
 
@@ -48,7 +48,7 @@ func TestPermissionWaitRegistryReturnsTerminalAndConsumes(t *testing.T) {
 	}
 	now, _ := time.Parse(time.RFC3339Nano, "2026-08-23T00:00:01Z")
 	registry.now = func() time.Time { return now }
-	registry.wait = func(context.Context, time.Duration) error { return nil }
+	registry.wait = func(context.Context, time.Duration, <-chan struct{}) error { return nil }
 	record := permissionWaitRecordFixtureForInfra()
 	if err := registry.Register(record); err != nil {
 		t.Fatal(err)
@@ -67,7 +67,7 @@ func TestPermissionWaitRegistryReconnectsWithoutConsumptionAndBoundsAttempts(t *
 	registry, _ := newPermissionWaitRegistry(permissionSessionFixture(), observer)
 	now, _ := time.Parse(time.RFC3339Nano, "2026-08-23T00:00:01Z")
 	registry.now = func() time.Time { return now }
-	registry.wait = func(context.Context, time.Duration) error { return context.Canceled }
+	registry.wait = func(context.Context, time.Duration, <-chan struct{}) error { return context.Canceled }
 	record := permissionWaitRecordFixtureForInfra()
 	if err := registry.Register(record); err != nil {
 		t.Fatal(err)
@@ -102,6 +102,37 @@ func TestPermissionWaitRegistryRejectsCrossAttachmentAndCapacity(t *testing.T) {
 	overflow.ID = "pwt_" + strings.Repeat("f", 32)
 	if err := registry.Register(overflow); err == nil {
 		t.Fatal("ninth live wait was registered")
+	}
+}
+
+func TestPermissionWaitRegistryInvalidationWakesActiveWait(t *testing.T) {
+	registry, err := newPermissionWaitRegistry(permissionSessionFixture(), &dispositionObserverStub{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	now, _ := time.Parse(time.RFC3339Nano, "2026-08-23T00:00:01Z")
+	registry.now = func() time.Time { return now }
+	record := permissionWaitRecordFixtureForInfra()
+	if err := registry.Register(record); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() {
+		_, waitErr := registry.WaitPermission(context.Background(), record.ID)
+		done <- waitErr
+	}()
+	time.Sleep(20 * time.Millisecond)
+	registry.Invalidate()
+	select {
+	case waitErr := <-done:
+		if !hasInfrastructureFaultCode(waitErr, "permission_wait_owner_unavailable") {
+			t.Fatalf("invalidated wait = %v", waitErr)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("invalidated wait remained blocked")
+	}
+	if err := registry.Register(record); !hasInfrastructureFaultCode(err, "permission_wait_owner_unavailable") {
+		t.Fatalf("registration after invalidation = %v", err)
 	}
 }
 

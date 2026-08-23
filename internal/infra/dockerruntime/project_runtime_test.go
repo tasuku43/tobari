@@ -769,6 +769,20 @@ type projectExitError struct{ code int }
 func (e projectExitError) Error() string { return fmt.Sprintf("child exited with status %d", e.code) }
 func (e projectExitError) ExitCode() int { return e.code }
 
+type projectCleanupDriftRunner struct {
+	projectExitRunner
+	runtime *Runtime
+}
+
+func (r *projectCleanupDriftRunner) Run(ctx context.Context, args []string, environment []string, in io.Reader, out, errOut io.Writer) error {
+	var registry tobari.InteractiveAttachmentSessionRegistry
+	if err := readStrictJSON(r.runtime.interactiveAttachmentSessionRegistryPath(), &registry); err == nil && len(registry.Sessions) == 1 {
+		registry.Sessions[0].IngestionNonce = strings.Repeat("f", 64)
+		_ = writeAtomicJSON(r.runtime.interactiveAttachmentSessionRegistryPath(), registry)
+	}
+	return r.projectExitRunner.Run(ctx, args, environment, in, out, errOut)
+}
+
 func (r *projectReconcileRunner) Run(_ context.Context, args []string, _ []string, _ io.Reader, out, _ io.Writer) error {
 	if slices.Contains(args, "authbroker.control") {
 		state := "unlocked"
@@ -1535,9 +1549,27 @@ func TestEnterProjectRuntimePreservesShellAndDirectChildExitStatus(t *testing.T)
 			instance := projectRuntimeInstance(t, runtime)
 			manifest := projectRuntimeContext(t, runtime, instance)
 			code, err := runtime.EnterProjectRuntime(context.Background(), instance, manifest, instance.Root, session, nil, io.Discard, io.Discard)
-			if err != nil || code != 37 {
-				t.Fatalf("EnterProjectRuntime() = (%d, %v), want child status 37", code, err)
+			if err != nil || code.ExitCode != 37 {
+				t.Fatalf("EnterProjectRuntime() = (%+v, %v), want child status 37", code, err)
 			}
 		})
+	}
+}
+
+func TestEnterProjectRuntimeReportsCleanupWithoutOverwritingChildStatus(t *testing.T) {
+	runtimeRoot := t.TempDir()
+	runner := &projectCleanupDriftRunner{projectExitRunner: projectExitRunner{code: 37}}
+	runtime, err := newRuntimeWithData(
+		filepath.Join(runtimeRoot, "config"), filepath.Join(runtimeRoot, "state"), filepath.Join(runtimeRoot, "data"), runner,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner.runtime = runtime
+	instance := projectRuntimeInstance(t, runtime)
+	manifest := projectRuntimeContext(t, runtime, instance)
+	outcome, err := runtime.EnterProjectRuntime(context.Background(), instance, manifest, instance.Root, tobari.NewWorkspaceShellSession(), nil, io.Discard, io.Discard)
+	if err != nil || outcome.ExitCode != 37 || !slices.Contains(outcome.CleanupIssues, tobari.WorkspaceCleanupInteractiveSession) {
+		t.Fatalf("EnterProjectRuntime() = (%+v, %v), want child status plus secondary cleanup issue", outcome, err)
 	}
 }

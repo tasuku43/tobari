@@ -55,12 +55,17 @@ stale, malformed, drifted, or concurrently replaced owner state fails closed.
 Workspace-service exposure controller attachments remain distinct and are
 ineligible for permission-wait ownership.
 
-The existing owner-only attachment route seam gains a bounded private canonical
+The host-owned attachment lifecycle gains a bounded private canonical
 interactive-session registry. Its current record binds canonical
 WorkspaceManifestID and WorkspaceID, AttachmentID/epoch, owner process,
-unpredictable nonce, host-controlled ingestion endpoint, and bounded lifetime.
+unpredictable process-instance nonce, owner-only Unix ingestion socket, and a
+renewable bounded lease. The PID is diagnostic correlation, never sufficient
+join authority. A renewal advances an explicit lease issue time and cannot
+revive an expired lease.
 Gateway may join its already-authenticated frozen schema-v1 principal only to
-one exact registry record and its matching frozen Host Loopback route. It never
+one exact canonical session record. A Host Loopback route is an optional
+subordinate capability on that session and is never permission-wait join
+authority. Gateway never
 joins by log order, display name, project root, container name, child PID,
 request timing, or caller data.
 
@@ -74,6 +79,12 @@ acknowledges that exact record over the bounded authenticated ingestion channel.
 Failure or timeout omits resume fields. Possession of the wait ID alone grants
 nothing; the child can use it only through the owning attachment's private
 read-only helper socket.
+
+An ingestion-listener, heartbeat, or lease-renewal failure uses the same
+fail-closed shutdown: close transport, invalidate active and future waits, then
+remove only the exact unchanged owner record with a bounded context independent
+of child cancellation. Drifted authority is retained for reconciliation and
+reported as cleanup evidence; it is never deleted by epoch alone.
 
 ### Observation semantics
 

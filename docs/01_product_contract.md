@@ -1442,7 +1442,8 @@ remains fail closed if interrupted; cancellation never retries entry or the
 child request.
 Returning from that child session, including a normal shell `exit`, performs no
 Workspace deletion: it only returns the child exit status and emits the host
-stderr guidance described above. `delete` is the separate lifecycle-ending
+stderr guidance described above. A failed attachment cleanup is additional
+bounded stderr evidence and never replaces that child status. `delete` is the separate lifecycle-ending
 operation. It removes only that exact label-owned container, network, root
 index, instance state, and home after confirming that no session is attached;
 `--force` overrides that one guard.

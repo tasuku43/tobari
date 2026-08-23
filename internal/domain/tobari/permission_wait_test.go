@@ -185,8 +185,8 @@ func TestInteractiveAttachmentSessionRegistryRequiresOneBoundedOwner(t *testing.
 		AttachmentID:               "att_0123456789abcdef0123456789abcdef",
 		OwnerKind:                  PermissionSessionOwnerInteractive,
 		FrozenPrincipalFingerprint: strings.Repeat("c", 64), OwnerPID: 42,
-		IngestionPort: 23456, IngestionNonce: strings.Repeat("d", 64),
-		CreatedAt: "2026-08-23T00:00:00Z", ExpiresAt: "2026-08-23T00:00:30Z",
+		IngestionSocket: "pws_0123456789abcdef0123456789abcdef.sock", IngestionNonce: strings.Repeat("d", 64),
+		CreatedAt: "2026-08-23T00:00:00Z", LeaseIssuedAt: "2026-08-23T00:00:00Z", ExpiresAt: "2026-08-23T00:00:30Z",
 	}
 	registry := InteractiveAttachmentSessionRegistry{SchemaVersion: PermissionSessionSchema, Sessions: []InteractiveAttachmentSession{session}}
 	if err := registry.Validate(); err != nil {

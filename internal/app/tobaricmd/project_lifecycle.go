@@ -28,13 +28,13 @@ func (s *Service) validateProjectIntent(intent operation.Intent, effect operatio
 // project when the caller has no TTY.
 func (s *Service) EnterProject(
 	ctx context.Context, intent operation.Intent, in io.Reader, out, errOut io.Writer,
-) (int, error) {
+) (tobari.WorkspaceSessionOutcome, error) {
 	return s.EnterProjectInContext(ctx, intent, "", in, out, errOut)
 }
 
 func (s *Service) EnterProjectInContext(
 	ctx context.Context, intent operation.Intent, contextName string, in io.Reader, out, errOut io.Writer,
-) (int, error) {
+) (tobari.WorkspaceSessionOutcome, error) {
 	return s.EnterProjectSessionInContext(
 		ctx, intent, contextName, tobari.NewWorkspaceShellSession(), in, out, errOut,
 	)
@@ -45,51 +45,52 @@ func (s *Service) EnterProjectInContext(
 func (s *Service) EnterProjectSessionInContext(
 	ctx context.Context, intent operation.Intent, contextName string, session tobari.WorkspaceSessionRequest,
 	in io.Reader, out, errOut io.Writer,
-) (int, error) {
+) (tobari.WorkspaceSessionOutcome, error) {
+	empty := tobari.WorkspaceSessionOutcome{}
 	project, err := s.projectRuntime()
 	if err != nil {
-		return 0, err
+		return empty, err
 	}
 	if err := s.validateProjectIntent(intent, operation.EffectCreate); err != nil {
-		return 0, err
+		return empty, err
 	}
 	if err := session.Validate(); err != nil {
-		return 0, fault.Wrap(
+		return empty, fault.Wrap(
 			fault.KindInvalidInput, "invalid_arguments", "Workspace session command is invalid", false, err,
 			fault.NextAction{Command: "help tobari", Reason: "Supply one non-empty command after the positional-only marker."},
 		)
 	}
 	if project.InsideProject(ctx) {
-		return 0, fault.New(
+		return empty, fault.New(
 			fault.KindRejected, "already_inside",
 			"This process is already inside a Workspace; nested entry is not supported", false,
 			fault.NextAction{Command: "exit", Reason: "Leave the current Workspace before entering another session."},
 		)
 	}
 	if !project.IsTerminal(out) || !project.IsTerminal(errOut) || !project.IsInputTerminal(in) {
-		return 0, fault.New(
+		return empty, fault.New(
 			fault.KindInvalidInput, "tty_required",
 			"tobari requires an interactive terminal", false,
 			fault.NextAction{Command: "help tobari", Reason: "Run the root command from a terminal."},
 		)
 	}
 	if err := ctx.Err(); err != nil {
-		return 0, err
+		return empty, err
 	}
 	manifest, err := s.resolveExecutionContext(ctx, contextName)
 	if err != nil {
-		return 0, err
+		return empty, err
 	}
 	cwd, err := s.runtime.CurrentDirectory(ctx)
 	if err != nil {
-		return 0, fault.Wrap(fault.KindInvalidInput, "invalid_root", "current directory could not be resolved", false, err)
+		return empty, fault.Wrap(fault.KindInvalidInput, "invalid_root", "current directory could not be resolved", false, err)
 	}
 	if _, err := s.readyCluster(ctx); err != nil {
-		return 0, err
+		return empty, err
 	}
 	selection, choice, err := s.chooseWorkspace(ctx, project, cwd, manifest, in, errOut)
 	if err != nil {
-		return 0, err
+		return empty, err
 	}
 	var state tobari.State
 	var instance tobari.Workspace
@@ -148,14 +149,17 @@ func (s *Service) EnterProjectSessionInContext(
 		})
 	})
 	if err != nil {
-		return 0, err
+		return empty, err
 	}
-	code, err := project.EnterProjectRuntime(ctx, instance, manifest, cwd, session, in, out, errOut)
+	outcome, err := project.EnterProjectRuntime(ctx, instance, manifest, cwd, session, in, out, errOut)
+	if validationErr := outcome.Validate(); validationErr != nil {
+		return empty, fault.Wrap(fault.KindContract, "invalid_workspace_session_outcome", "Workspace session result is invalid", false, validationErr)
+	}
 	if err != nil {
-		return 0, fault.Wrap(fault.KindInternal, "enter_failed", "Workspace session could not be started", false, err,
+		return outcome, fault.Wrap(fault.KindInternal, "enter_failed", "Workspace session could not be started", false, err,
 			fault.NextAction{Command: "status", Reason: "Inspect the selected project's runtime."})
 	}
-	return code, nil
+	return outcome, nil
 }
 
 func classifyProjectMutationError(err error, command, recovery, message string) error {

@@ -80,7 +80,8 @@ exist for a Workspace Manifest/Workspace pair, concurrent borrower entries
 share it, and service-exposure controller attachment IDs are ineligible. A
 bounded private session registry joins one frozen schema-v1 Gateway principal
 to canonical Workspace Manifest and Workspace IDs, attachment epoch, owner,
-nonce, ingestion endpoint, and lifetime. Gateway emits resume data only after
+process-instance nonce, owner-only Unix ingestion socket, and renewable lease.
+The owner PID is diagnostic only. Gateway emits resume data only after
 that owner acknowledges the exact immutable secret-free wait record.
 
 The owner keeps the wait registry in memory and exposes one attachment-local
@@ -88,7 +89,10 @@ read-only Unix socket to `tobari-permission`. Observation delegates exact
 effect evaluation and precedence to the canonical live OPA policy; it adds no
 rule matcher, policy authority, persistent store, daemon, Workspace file, or
 request replay. Teardown ends the authority and never rebinds waits to a new
-attachment.
+attachment. Listener, heartbeat, and renewal failures close transport and
+invalidate waits before exact bounded authority cleanup; an expired lease is
+never renewed. Attachment cleanup faults remain typed secondary entry outcomes
+and cannot overwrite the already-observed child exit status.
 
 Attachment Grants are runtime-owned inputs to the complete per-request OPA projection and
 are disjoint from Workspace Manifest `policy/domains` learned rules. Policy review binds

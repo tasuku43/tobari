@@ -31,6 +31,7 @@ var (
 	permissionWaitIDPattern        = regexp.MustCompile(`^pwt_[0-9a-f]{32}$`)
 	permissionWaitPrincipalPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
 	permissionSessionNoncePattern  = regexp.MustCompile(`^[0-9a-f]{64}$`)
+	permissionSessionSocketPattern = regexp.MustCompile(`^pws_[0-9a-f]{32}\.sock$`)
 )
 
 // PermissionWaitResult is the complete successful helper result vocabulary.
@@ -55,11 +56,14 @@ type InteractiveAttachmentSession struct {
 	AttachmentID               string `json:"attachment_id"`
 	OwnerKind                  string `json:"owner_kind"`
 	FrozenPrincipalFingerprint string `json:"frozen_principal_fingerprint"`
-	OwnerPID                   int    `json:"owner_pid"`
-	IngestionPort              int    `json:"ingestion_port"`
-	IngestionNonce             string `json:"ingestion_nonce"`
-	CreatedAt                  string `json:"created_at"`
-	ExpiresAt                  string `json:"expires_at"`
+	// OwnerPID is bounded liveness/audit correlation only. It is never a join
+	// key without the owner-only socket, process-instance nonce, and epoch.
+	OwnerPID        int    `json:"owner_pid"`
+	IngestionSocket string `json:"ingestion_socket"`
+	IngestionNonce  string `json:"ingestion_nonce"`
+	CreatedAt       string `json:"created_at"`
+	LeaseIssuedAt   string `json:"lease_issued_at"`
+	ExpiresAt       string `json:"expires_at"`
 }
 
 func (s InteractiveAttachmentSession) Validate() error {
@@ -72,15 +76,19 @@ func (s InteractiveAttachmentSession) Validate() error {
 	if s.OwnerKind != PermissionSessionOwnerInteractive || !permissionWaitPrincipalPattern.MatchString(s.FrozenPrincipalFingerprint) {
 		return fmt.Errorf("interactive attachment session join is invalid")
 	}
-	if s.OwnerPID < 1 || s.IngestionPort < 1 || s.IngestionPort > 65535 || !permissionSessionNoncePattern.MatchString(s.IngestionNonce) {
+	if s.OwnerPID < 1 || !permissionSessionSocketPattern.MatchString(s.IngestionSocket) || !permissionSessionNoncePattern.MatchString(s.IngestionNonce) {
 		return fmt.Errorf("interactive attachment session owner endpoint is invalid")
 	}
 	created, err := time.Parse(time.RFC3339Nano, s.CreatedAt)
 	if err != nil {
 		return fmt.Errorf("interactive attachment session creation time is invalid")
 	}
+	issued, err := time.Parse(time.RFC3339Nano, s.LeaseIssuedAt)
+	if err != nil || issued.Before(created) {
+		return fmt.Errorf("interactive attachment session lease issue time is invalid")
+	}
 	expires, err := time.Parse(time.RFC3339Nano, s.ExpiresAt)
-	if err != nil || !expires.After(created) || expires.Sub(created) > PermissionSessionLease {
+	if err != nil || !expires.After(issued) || expires.Sub(issued) > PermissionSessionLease {
 		return fmt.Errorf("interactive attachment session lease is invalid")
 	}
 	return nil
@@ -97,6 +105,8 @@ func (r InteractiveAttachmentSessionRegistry) Validate() error {
 	}
 	pairs := make(map[string]struct{}, len(r.Sessions))
 	epochs := make(map[string]struct{}, len(r.Sessions))
+	sockets := make(map[string]struct{}, len(r.Sessions))
+	nonces := make(map[string]struct{}, len(r.Sessions))
 	for _, session := range r.Sessions {
 		if err := session.Validate(); err != nil {
 			return err
@@ -108,8 +118,16 @@ func (r InteractiveAttachmentSessionRegistry) Validate() error {
 		if _, exists := epochs[session.AttachmentID]; exists {
 			return fmt.Errorf("interactive attachment session epoch is duplicated")
 		}
+		if _, exists := sockets[session.IngestionSocket]; exists {
+			return fmt.Errorf("interactive attachment session endpoint is duplicated")
+		}
+		if _, exists := nonces[session.IngestionNonce]; exists {
+			return fmt.Errorf("interactive attachment session process identity is duplicated")
+		}
 		pairs[pair] = struct{}{}
 		epochs[session.AttachmentID] = struct{}{}
+		sockets[session.IngestionSocket] = struct{}{}
+		nonces[session.IngestionNonce] = struct{}{}
 	}
 	return nil
 }

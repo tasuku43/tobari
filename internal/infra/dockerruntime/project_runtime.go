@@ -456,38 +456,41 @@ func (r *Runtime) ProjectSessionAttached(ctx context.Context, instance tobari.Wo
 func (r *Runtime) EnterProjectRuntime(
 	ctx context.Context, instance tobari.Workspace, manifest tobari.WorkspaceManifest, cwd string,
 	session tobari.WorkspaceSessionRequest, in io.Reader, out, errOut io.Writer,
-) (code int, resultErr error) {
+) (outcome tobari.WorkspaceSessionOutcome, resultErr error) {
 	if err := session.Validate(); err != nil {
-		return 0, err
+		return outcome, err
 	}
 	interactiveAttachment, err := r.beginInteractiveWorkspaceAttachment(ctx, instance)
 	if err != nil {
-		return 0, err
+		return outcome, err
 	}
 	defer func() {
-		if cleanupErr := interactiveAttachment.Close(ctx); cleanupErr != nil && resultErr == nil {
-			resultErr = fmt.Errorf("close interactive Workspace attachment: %w", cleanupErr)
+		if cleanupErr := interactiveAttachment.Close(ctx); cleanupErr != nil {
+			outcome.CleanupIssues = append(outcome.CleanupIssues, tobari.WorkspaceCleanupInteractiveSession)
 		}
 	}()
 	extraEnvironment := []string{}
 	hostLoopbackAttachment, hostLoopbackErr := r.beginHostLoopbackAttachment(ctx, instance, interactiveAttachment.session.AttachmentID)
-	if hostLoopbackErr == nil {
-		defer func() {
-			if cleanupErr := hostLoopbackAttachment.Close(ctx); cleanupErr != nil && resultErr == nil {
-				resultErr = fmt.Errorf("close Host Loopback attachment: %w", cleanupErr)
-			}
-		}()
-		projection := tobari.NewHostLoopbackCapabilityProjection()
-		encoded, encodeErr := json.Marshal(projection)
-		if encodeErr != nil {
-			return 0, encodeErr
-		}
-		extraEnvironment = append(extraEnvironment, "TOBARI_CAPABILITIES_JSON="+string(encoded))
+	if hostLoopbackErr != nil {
+		return outcome, fmt.Errorf("establish Host Loopback attachment: %w", hostLoopbackErr)
 	}
-	return r.enterProjectRuntime(
+	defer func() {
+		if cleanupErr := hostLoopbackAttachment.Close(ctx); cleanupErr != nil {
+			outcome.CleanupIssues = append(outcome.CleanupIssues, tobari.WorkspaceCleanupHostLoopback)
+		}
+	}()
+	projection := tobari.NewHostLoopbackCapabilityProjection()
+	encoded, encodeErr := json.Marshal(projection)
+	if encodeErr != nil {
+		return outcome, encodeErr
+	}
+	extraEnvironment = append(extraEnvironment, "TOBARI_CAPABILITIES_JSON="+string(encoded))
+	code, resultErr := r.enterProjectRuntime(
 		ctx, instance, manifest, cwd, session,
 		extraEnvironment, in, out, errOut,
 	)
+	outcome.ExitCode = code
+	return outcome, resultErr
 }
 
 func (r *Runtime) enterProjectRuntime(

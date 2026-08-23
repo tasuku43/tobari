@@ -176,8 +176,10 @@ func (r *Runtime) beginHostLoopbackAttachment(
 		}
 		for _, existing := range registry.Routes {
 			if existing.ProjectID == project.ID {
+				if existing.WorkspaceManifestID != project.WorkspaceManifestID || existing.EpochID != epochID {
+					return fmt.Errorf("Host Loopback route does not belong to the canonical interactive attachment")
+				}
 				attachment.route = existing
-				attachment.epochID = existing.EpochID
 				attachment.owned = false
 				return writeAtomicJSON(r.hostLoopbackRegistryPath(), registry)
 			}

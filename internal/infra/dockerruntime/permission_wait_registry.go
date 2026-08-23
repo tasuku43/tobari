@@ -2,6 +2,7 @@ package dockerruntime
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -9,6 +10,8 @@ import (
 	"github.com/tasuku43/tobari/internal/domain/fault"
 	"github.com/tasuku43/tobari/internal/domain/tobari"
 )
+
+var errPermissionWaitOwnerUnavailable = errors.New("permission wait owner is unavailable")
 
 type permissionDispositionObserver interface {
 	ObservePermissionDisposition(context.Context, tobari.PermissionWaitRecord) (tobari.PermissionWaitResult, bool, error)
@@ -22,12 +25,15 @@ type permissionWaitEntry struct {
 // permissionWaitRegistry is attachment-owned bounded memory. Its only mutable
 // state is correlation lifecycle; it has no policy mutation path.
 type permissionWaitRegistry struct {
-	mu       sync.Mutex
-	session  tobari.InteractiveAttachmentSession
-	observer permissionDispositionObserver
-	records  map[string]*permissionWaitEntry
-	now      func() time.Time
-	wait     func(context.Context, time.Duration) error
+	mu             sync.Mutex
+	session        tobari.InteractiveAttachmentSession
+	observer       permissionDispositionObserver
+	records        map[string]*permissionWaitEntry
+	now            func() time.Time
+	wait           func(context.Context, time.Duration, <-chan struct{}) error
+	ownerExpiry    time.Time
+	unavailable    chan struct{}
+	invalidateOnce sync.Once
 }
 
 func newPermissionWaitRegistry(session tobari.InteractiveAttachmentSession, observer permissionDispositionObserver) (*permissionWaitRegistry, error) {
@@ -37,18 +43,57 @@ func newPermissionWaitRegistry(session tobari.InteractiveAttachmentSession, obse
 	if observer == nil {
 		return nil, fmt.Errorf("permission disposition observer is required")
 	}
+	expires, _ := time.Parse(time.RFC3339Nano, session.ExpiresAt)
 	return &permissionWaitRegistry{
 		session: session, observer: observer, records: map[string]*permissionWaitEntry{},
-		now: time.Now, wait: waitPermissionObservation,
+		now: time.Now, wait: waitPermissionObservation, ownerExpiry: expires, unavailable: make(chan struct{}),
 	}, nil
 }
 
-func waitPermissionObservation(ctx context.Context, duration time.Duration) error {
+func (r *permissionWaitRegistry) Invalidate() {
+	r.invalidateOnce.Do(func() {
+		r.mu.Lock()
+		close(r.unavailable)
+		r.mu.Unlock()
+	})
+}
+
+func (r *permissionWaitRegistry) RenewOwner(issued, expires time.Time) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	select {
+	case <-r.unavailable:
+		return fmt.Errorf("permission wait owner is unavailable")
+	default:
+	}
+	if !expires.After(issued) || expires.Sub(issued) > tobari.PermissionSessionLease {
+		return fmt.Errorf("permission wait owner lease is invalid")
+	}
+	r.ownerExpiry = expires
+	return nil
+}
+
+func (r *permissionWaitRegistry) ownerCurrentLocked(now time.Time) bool {
+	select {
+	case <-r.unavailable:
+		return false
+	default:
+		return now.Before(r.ownerExpiry)
+	}
+}
+
+func permissionWaitOwnerFault() error {
+	return fault.New(fault.KindUnavailable, "permission_wait_owner_unavailable", "permission wait attachment owner is unavailable", true)
+}
+
+func waitPermissionObservation(ctx context.Context, duration time.Duration, unavailable <-chan struct{}) error {
 	timer := time.NewTimer(duration)
 	defer timer.Stop()
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
+	case <-unavailable:
+		return errPermissionWaitOwnerUnavailable
 	case <-timer.C:
 		return nil
 	}
@@ -70,6 +115,9 @@ func (r *permissionWaitRegistry) Register(record tobari.PermissionWaitRecord) er
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if !r.ownerCurrentLocked(now) {
+		return permissionWaitOwnerFault()
+	}
 	for id, entry := range r.records {
 		entryExpiry, _ := time.Parse(time.RFC3339Nano, entry.record.ExpiresAt)
 		if !now.Before(entryExpiry) && !entry.access.Active {
@@ -93,6 +141,9 @@ func invalidPermissionWaitFault() error {
 func (r *permissionWaitRegistry) begin(id string) (tobari.PermissionWaitRecord, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if !r.ownerCurrentLocked(r.now()) {
+		return tobari.PermissionWaitRecord{}, permissionWaitOwnerFault()
+	}
 	entry, exists := r.records[id]
 	if !exists {
 		return tobari.PermissionWaitRecord{}, invalidPermissionWaitFault()
@@ -135,6 +186,12 @@ func (r *permissionWaitRegistry) WaitPermission(ctx context.Context, id string) 
 	delays := [...]time.Duration{time.Second, 2 * time.Second, 4 * time.Second}
 	attempt := 0
 	for {
+		r.mu.Lock()
+		ownerCurrent := r.ownerCurrentLocked(r.now())
+		r.mu.Unlock()
+		if !ownerCurrent {
+			return "", permissionWaitOwnerFault()
+		}
 		expired, err := record.Expired(r.now())
 		if err != nil {
 			return "", fault.Wrap(fault.KindContract, "invalid_permission_wait_record", "permission wait record is invalid", false, err)
@@ -159,7 +216,14 @@ func (r *permissionWaitRegistry) WaitPermission(ctx context.Context, id string) 
 			delay = delays[attempt]
 		}
 		attempt++
-		if err := r.wait(ctx, delay); err != nil {
+		select {
+		case <-r.unavailable:
+			return "", permissionWaitOwnerFault()
+		default:
+		}
+		if err := r.wait(ctx, delay, r.unavailable); errors.Is(err, errPermissionWaitOwnerUnavailable) {
+			return "", permissionWaitOwnerFault()
+		} else if err != nil {
 			return "", fault.Wrap(fault.KindCanceled, "permission_wait_interrupted", "permission wait was interrupted", true, err)
 		}
 	}

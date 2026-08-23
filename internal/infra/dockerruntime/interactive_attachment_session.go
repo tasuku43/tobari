@@ -16,7 +16,6 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -25,9 +24,10 @@ import (
 )
 
 const (
-	permissionSessionHeartbeat = 10 * time.Second
-	permissionSessionCleanup   = 3 * time.Second
-	permissionSessionHandshake = 65
+	permissionSessionHeartbeat  = 10 * time.Second
+	permissionSessionCleanup    = 3 * time.Second
+	permissionSessionHandshake  = 65
+	permissionSessionMaxClients = 8
 )
 
 type interactiveWorkspaceAttachment struct {
@@ -42,10 +42,31 @@ type interactiveWorkspaceAttachment struct {
 	active        map[net.Conn]struct{}
 	closing       bool
 	once          sync.Once
+	closeDone     chan struct{}
+	closeErr      error
+	transportOnce sync.Once
+	transportErr  error
+	authorityOnce sync.Once
+	authorityDone chan struct{}
+	authorityErr  error
+	heartbeatOnce sync.Once
 }
 
 func (r *Runtime) interactiveAttachmentDirectory() string {
 	return filepath.Join(r.configDirectory, "interactive-attachments")
+}
+
+// interactiveAttachmentSocketDirectory is short enough for the Unix sockaddr
+// limit on both Darwin and Linux. Its config-derived name isolates concurrent
+// Tobari installations owned by the same host user; the directory and socket
+// remain owner-only. The registry stores only a validated basename.
+func (r *Runtime) interactiveAttachmentSocketDirectory() string {
+	digest := sha256.Sum256([]byte(r.configDirectory))
+	return filepath.Join("/tmp", fmt.Sprintf("tobari-permission-%d-%x", os.Getuid(), digest[:8]))
+}
+
+func (r *Runtime) interactiveAttachmentSocketPath(session tobari.InteractiveAttachmentSession) string {
+	return filepath.Join(r.interactiveAttachmentSocketDirectory(), session.IngestionSocket)
 }
 
 func (r *Runtime) interactiveAttachmentSessionRegistryPath() string {
@@ -63,9 +84,12 @@ func (r *Runtime) ensureInteractiveAttachmentStore(ctx context.Context) error {
 	if err := r.ensurePrivateDirectory(r.interactiveAttachmentDirectory()); err != nil {
 		return fmt.Errorf("prepare interactive attachment directory: %w", err)
 	}
+	if err := r.ensurePrivateDirectory(r.interactiveAttachmentSocketDirectory()); err != nil {
+		return fmt.Errorf("prepare interactive attachment socket directory: %w", err)
+	}
 	path := r.interactiveAttachmentSessionRegistryPath()
 	if _, err := os.Lstat(path); errors.Is(err, os.ErrNotExist) {
-		if err := initializeBytes(path, mustJSONBytes(emptyInteractiveAttachmentSessionRegistry()), 0o600); err != nil {
+		if err := initializeBytes(path, mustJSONBytes(emptyInteractiveAttachmentSessionRegistry()), 0o600); err != nil && !errors.Is(err, os.ErrExist) {
 			return err
 		}
 	} else if err != nil {
@@ -116,6 +140,52 @@ func (r *Runtime) exactFrozenPrincipalFingerprint(workspaceManifestID, workspace
 	return frozenPrincipalFingerprint(matches[0]), nil
 }
 
+func sameInteractiveSessionAuthority(left, right tobari.InteractiveAttachmentSession) bool {
+	return left.SchemaVersion == right.SchemaVersion &&
+		left.WorkspaceManifestID == right.WorkspaceManifestID && left.WorkspaceID == right.WorkspaceID &&
+		left.AttachmentID == right.AttachmentID && left.OwnerKind == right.OwnerKind &&
+		left.FrozenPrincipalFingerprint == right.FrozenPrincipalFingerprint &&
+		left.OwnerPID == right.OwnerPID && left.IngestionSocket == right.IngestionSocket &&
+		left.IngestionNonce == right.IngestionNonce && left.CreatedAt == right.CreatedAt
+}
+
+func permissionSessionLeaseCurrent(session tobari.InteractiveAttachmentSession, now time.Time) bool {
+	if err := session.Validate(); err != nil {
+		return false
+	}
+	expires, err := time.Parse(time.RFC3339Nano, session.ExpiresAt)
+	return err == nil && now.Before(expires)
+}
+
+func (r *Runtime) borrowInteractiveWorkspaceAttachment(
+	ctx context.Context, expected tobari.InteractiveAttachmentSession, fingerprint string,
+) (*interactiveWorkspaceAttachment, error) {
+	if expected.FrozenPrincipalFingerprint != fingerprint || !permissionSessionLeaseCurrent(expected, time.Now()) || !r.permissionSessionActive(expected) {
+		return nil, fmt.Errorf("canonical interactive attachment owner is stale or unavailable")
+	}
+	var verified tobari.InteractiveAttachmentSession
+	err := r.withInteractiveAttachmentLock(ctx, func() error {
+		var registry tobari.InteractiveAttachmentSessionRegistry
+		if err := readStrictJSON(r.interactiveAttachmentSessionRegistryPath(), &registry); err != nil {
+			return err
+		}
+		if err := registry.Validate(); err != nil {
+			return err
+		}
+		current := findInteractiveSession(registry, expected.WorkspaceManifestID, expected.WorkspaceID)
+		if current == nil || !sameInteractiveSessionAuthority(*current, expected) ||
+			current.FrozenPrincipalFingerprint != fingerprint || !permissionSessionLeaseCurrent(*current, time.Now()) {
+			return fmt.Errorf("canonical interactive attachment owner changed concurrently")
+		}
+		verified = *current
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &interactiveWorkspaceAttachment{runtime: r, session: verified, owned: false}, nil
+}
+
 func (r *Runtime) beginInteractiveWorkspaceAttachment(ctx context.Context, workspace tobari.Workspace) (*interactiveWorkspaceAttachment, error) {
 	if err := workspace.Validate(); err != nil {
 		return nil, err
@@ -128,8 +198,9 @@ func (r *Runtime) beginInteractiveWorkspaceAttachment(ctx context.Context, works
 		return nil, fmt.Errorf("bind canonical interactive attachment principal: %w", err)
 	}
 
-	// Inspect only the exact pair while locked. Expired records are removed by
-	// bounded time evidence; live candidates are probed once after unlocking.
+	// Startup is a mutation boundary, so it compactly removes every expired
+	// validated lease before capacity is assessed. Malformed or ambiguous state
+	// still fails closed before any cleanup.
 	var existing *tobari.InteractiveAttachmentSession
 	err = r.withInteractiveAttachmentLock(ctx, func() error {
 		var registry tobari.InteractiveAttachmentSessionRegistry
@@ -142,11 +213,11 @@ func (r *Runtime) beginInteractiveWorkspaceAttachment(ctx context.Context, works
 		now := time.Now()
 		kept := registry.Sessions[:0]
 		for _, session := range registry.Sessions {
+			expires, _ := time.Parse(time.RFC3339Nano, session.ExpiresAt)
+			if !now.Before(expires) {
+				continue
+			}
 			if session.WorkspaceManifestID == workspace.WorkspaceManifestID && session.WorkspaceID == workspace.ID {
-				expires, _ := time.Parse(time.RFC3339Nano, session.ExpiresAt)
-				if !now.Before(expires) {
-					continue
-				}
 				copy := session
 				existing = &copy
 			}
@@ -162,26 +233,7 @@ func (r *Runtime) beginInteractiveWorkspaceAttachment(ctx context.Context, works
 		return nil, err
 	}
 	if existing != nil {
-		if existing.FrozenPrincipalFingerprint != fingerprint || !r.permissionSessionActive(*existing) {
-			return nil, fmt.Errorf("canonical interactive attachment owner is stale or unavailable")
-		}
-		// Re-read under lock and require the exact nonce/epoch record to be
-		// unchanged across the bounded probe. No timing/name/PID join is used.
-		err := r.withInteractiveAttachmentLock(ctx, func() error {
-			var registry tobari.InteractiveAttachmentSessionRegistry
-			if err := readStrictJSON(r.interactiveAttachmentSessionRegistryPath(), &registry); err != nil {
-				return err
-			}
-			current := findInteractiveSession(registry, workspace.WorkspaceManifestID, workspace.ID)
-			if current == nil || current.AttachmentID != existing.AttachmentID || current.IngestionNonce != existing.IngestionNonce || current.OwnerPID != existing.OwnerPID {
-				return fmt.Errorf("canonical interactive attachment owner changed concurrently")
-			}
-			return nil
-		})
-		if err != nil {
-			return nil, err
-		}
-		return &interactiveWorkspaceAttachment{runtime: r, session: *existing, owned: false}, nil
+		return r.borrowInteractiveWorkspaceAttachment(ctx, *existing, fingerprint)
 	}
 
 	epochID, err := newAttachmentEpochID()
@@ -192,9 +244,21 @@ func (r *Runtime) beginInteractiveWorkspaceAttachment(ctx context.Context, works
 	if err != nil {
 		return nil, err
 	}
-	listener, err := net.ListenTCP("tcp4", &net.TCPAddr{IP: net.IPv4zero, Port: 0})
+	socketName := "pws_" + strings.TrimPrefix(epochID, "att_") + ".sock"
+	socketPath := filepath.Join(r.interactiveAttachmentSocketDirectory(), socketName)
+	if _, err := os.Lstat(socketPath); err == nil {
+		return nil, fmt.Errorf("interactive attachment socket already exists")
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return nil, fmt.Errorf("inspect interactive attachment socket: %w", err)
+	}
+	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: socketPath, Net: "unix"})
 	if err != nil {
 		return nil, fmt.Errorf("listen for interactive attachment: %w", err)
+	}
+	listener.SetUnlinkOnClose(true)
+	if err := os.Chmod(socketPath, 0o600); err != nil { // #nosec G302 -- same-host owner-only ingestion socket.
+		closeErr := listener.Close()
+		return nil, errors.Join(fmt.Errorf("protect interactive attachment socket: %w", err), closeErr)
 	}
 	now := time.Now().UTC()
 	session := tobari.InteractiveAttachmentSession{
@@ -202,25 +266,23 @@ func (r *Runtime) beginInteractiveWorkspaceAttachment(ctx context.Context, works
 		WorkspaceManifestID: workspace.WorkspaceManifestID, WorkspaceID: workspace.ID,
 		AttachmentID: epochID, OwnerKind: tobari.PermissionSessionOwnerInteractive,
 		FrozenPrincipalFingerprint: fingerprint, OwnerPID: os.Getpid(),
-		IngestionPort: listener.Addr().(*net.TCPAddr).Port, IngestionNonce: nonce,
-		CreatedAt: now.Format(time.RFC3339Nano), ExpiresAt: now.Add(tobari.PermissionSessionLease).Format(time.RFC3339Nano),
+		IngestionSocket: socketName, IngestionNonce: nonce,
+		CreatedAt: now.Format(time.RFC3339Nano), LeaseIssuedAt: now.Format(time.RFC3339Nano), ExpiresAt: now.Add(tobari.PermissionSessionLease).Format(time.RFC3339Nano),
 	}
 	if err := session.Validate(); err != nil {
-		_ = listener.Close()
-		return nil, err
+		return nil, errors.Join(err, listener.Close())
 	}
 	attachment := &interactiveWorkspaceAttachment{
 		runtime: r, session: session, listener: listener, owned: true,
-		active: map[net.Conn]struct{}{}, heartbeatStop: make(chan struct{}), heartbeatDone: make(chan struct{}),
+		active: map[net.Conn]struct{}{}, heartbeatStop: make(chan struct{}), heartbeatDone: make(chan struct{}), authorityDone: make(chan struct{}), closeDone: make(chan struct{}),
 	}
 	waits, err := newPermissionWaitRegistry(session, r)
 	if err != nil {
-		_ = listener.Close()
-		return nil, err
+		return nil, errors.Join(err, listener.Close())
 	}
 	attachment.waits = waits
-	go attachment.serve()
 
+	var winner *tobari.InteractiveAttachmentSession
 	err = r.withInteractiveAttachmentLock(ctx, func() error {
 		var registry tobari.InteractiveAttachmentSessionRegistry
 		if err := readStrictJSON(r.interactiveAttachmentSessionRegistryPath(), &registry); err != nil {
@@ -229,8 +291,10 @@ func (r *Runtime) beginInteractiveWorkspaceAttachment(ctx context.Context, works
 		if err := registry.Validate(); err != nil {
 			return err
 		}
-		if findInteractiveSession(registry, workspace.WorkspaceManifestID, workspace.ID) != nil {
-			return fmt.Errorf("canonical interactive attachment owner appeared concurrently")
+		if current := findInteractiveSession(registry, workspace.WorkspaceManifestID, workspace.ID); current != nil {
+			copy := *current
+			winner = &copy
+			return nil
 		}
 		registry.Sessions = append(registry.Sessions, session)
 		sort.Slice(registry.Sessions, func(i, j int) bool {
@@ -245,9 +309,15 @@ func (r *Runtime) beginInteractiveWorkspaceAttachment(ctx context.Context, works
 		return writeAtomicJSON(r.interactiveAttachmentSessionRegistryPath(), registry)
 	})
 	if err != nil {
-		attachment.closeTransport()
-		return nil, err
+		return nil, errors.Join(err, attachment.closeTransport())
 	}
+	if winner != nil {
+		if closeErr := attachment.closeTransport(); closeErr != nil {
+			return nil, closeErr
+		}
+		return r.borrowInteractiveWorkspaceAttachment(ctx, *winner, fingerprint)
+	}
+	go attachment.serve()
 	attachment.startHeartbeat()
 	return attachment, nil
 }
@@ -271,11 +341,17 @@ func (a *interactiveWorkspaceAttachment) serve() {
 	for {
 		connection, err := a.listener.Accept()
 		if err != nil {
+			a.activeMu.Lock()
+			closing := a.closing
+			a.activeMu.Unlock()
+			if !closing {
+				a.failClosed()
+			}
 			return
 		}
 		if !a.track(connection) {
 			_ = connection.Close()
-			return
+			continue
 		}
 		go a.handle(connection)
 	}
@@ -285,6 +361,9 @@ func (a *interactiveWorkspaceAttachment) track(connection net.Conn) bool {
 	a.activeMu.Lock()
 	defer a.activeMu.Unlock()
 	if a.closing {
+		return false
+	}
+	if len(a.active) >= permissionSessionMaxClients {
 		return false
 	}
 	a.active[connection] = struct{}{}
@@ -300,7 +379,9 @@ func (a *interactiveWorkspaceAttachment) untrack(connection net.Conn) {
 
 func (a *interactiveWorkspaceAttachment) handle(connection net.Conn) {
 	defer a.untrack(connection)
-	_ = connection.SetDeadline(time.Now().Add(3 * time.Second))
+	if err := connection.SetDeadline(time.Now().Add(3 * time.Second)); err != nil {
+		return
+	}
 	header := make([]byte, permissionSessionHandshake)
 	if _, err := io.ReadFull(connection, header); err != nil ||
 		(header[0] != 'S' && header[0] != 'W') ||
@@ -340,12 +421,22 @@ func (a *interactiveWorkspaceAttachment) handle(connection net.Conn) {
 }
 
 func (r *Runtime) permissionSessionActive(session tobari.InteractiveAttachmentSession) bool {
-	connection, err := net.DialTimeout("tcp4", net.JoinHostPort("127.0.0.1", strconv.Itoa(session.IngestionPort)), 250*time.Millisecond)
+	if err := session.Validate(); err != nil || requirePrivateDirectory(r.interactiveAttachmentSocketDirectory()) != nil {
+		return false
+	}
+	socketPath := r.interactiveAttachmentSocketPath(session)
+	info, err := os.Lstat(socketPath)
+	if err != nil || info.Mode()&os.ModeSocket == 0 || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm()&0o077 != 0 {
+		return false
+	}
+	connection, err := net.DialTimeout("unix", socketPath, 250*time.Millisecond)
 	if err != nil {
 		return false
 	}
-	defer connection.Close()
-	_ = connection.SetDeadline(time.Now().Add(500 * time.Millisecond))
+	defer func() { _ = connection.Close() }()
+	if err := connection.SetDeadline(time.Now().Add(500 * time.Millisecond)); err != nil {
+		return false
+	}
 	if _, err := connection.Write([]byte("S" + session.IngestionNonce)); err != nil {
 		return false
 	}
@@ -365,6 +456,7 @@ func (a *interactiveWorkspaceAttachment) startHeartbeat() {
 				return
 			case now := <-ticker.C:
 				if err := a.renew(now); err != nil {
+					a.failClosed()
 					return
 				}
 			}
@@ -375,60 +467,78 @@ func (a *interactiveWorkspaceAttachment) startHeartbeat() {
 func (a *interactiveWorkspaceAttachment) renew(now time.Time) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	return a.runtime.withInteractiveAttachmentLock(ctx, func() error {
+	expires := now.UTC().Add(tobari.PermissionSessionLease)
+	if err := a.runtime.withInteractiveAttachmentLock(ctx, func() error {
 		var registry tobari.InteractiveAttachmentSessionRegistry
 		if err := readStrictJSON(a.runtime.interactiveAttachmentSessionRegistryPath(), &registry); err != nil {
 			return err
 		}
 		current := findInteractiveSession(registry, a.session.WorkspaceManifestID, a.session.WorkspaceID)
-		if current == nil || current.AttachmentID != a.session.AttachmentID || current.IngestionNonce != a.session.IngestionNonce || current.OwnerPID != os.Getpid() {
+		if current == nil || !sameInteractiveSessionAuthority(*current, a.session) || !permissionSessionLeaseCurrent(*current, now) {
 			return fmt.Errorf("interactive attachment owner changed")
 		}
 		for index := range registry.Sessions {
 			if registry.Sessions[index].AttachmentID == a.session.AttachmentID {
-				registry.Sessions[index].ExpiresAt = now.UTC().Add(tobari.PermissionSessionLease).Format(time.RFC3339Nano)
+				registry.Sessions[index].LeaseIssuedAt = now.UTC().Format(time.RFC3339Nano)
+				registry.Sessions[index].ExpiresAt = expires.Format(time.RFC3339Nano)
 			}
 		}
 		if err := registry.Validate(); err != nil {
 			return err
 		}
 		return writeAtomicJSON(a.runtime.interactiveAttachmentSessionRegistryPath(), registry)
+	}); err != nil {
+		return err
+	}
+	return a.waits.RenewOwner(now.UTC(), expires)
+}
+
+func (a *interactiveWorkspaceAttachment) closeTransport() error {
+	a.transportOnce.Do(func() {
+		a.activeMu.Lock()
+		a.closing = true
+		connections := make([]net.Conn, 0, len(a.active))
+		for connection := range a.active {
+			connections = append(connections, connection)
+		}
+		a.activeMu.Unlock()
+		var failures []error
+		if a.listener != nil {
+			if err := a.listener.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
+				failures = append(failures, fmt.Errorf("close interactive attachment listener: %w", err))
+			}
+		}
+		for _, connection := range connections {
+			if err := connection.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
+				failures = append(failures, fmt.Errorf("close interactive attachment connection: %w", err))
+			}
+		}
+		a.transportErr = errors.Join(failures...)
 	})
+	return a.transportErr
 }
 
-func (a *interactiveWorkspaceAttachment) closeTransport() {
-	if a.listener != nil {
-		_ = a.listener.Close()
-	}
-	a.activeMu.Lock()
-	a.closing = true
-	for connection := range a.active {
-		_ = connection.Close()
-	}
-	a.activeMu.Unlock()
+func (a *interactiveWorkspaceAttachment) stopHeartbeat() {
+	a.heartbeatOnce.Do(func() { close(a.heartbeatStop) })
 }
 
-func (a *interactiveWorkspaceAttachment) Close(_ context.Context) error {
-	if !a.owned {
-		return nil
-	}
-	var result error
-	a.once.Do(func() {
-		close(a.heartbeatStop)
-		<-a.heartbeatDone
-		// Transport disappears before its authority record. Cleanup is bounded
-		// independently from child/caller cancellation.
-		a.closeTransport()
+func (a *interactiveWorkspaceAttachment) cleanupAuthority() {
+	a.authorityOnce.Do(func() {
+		defer close(a.authorityDone)
 		cleanup, cancel := context.WithTimeout(context.Background(), permissionSessionCleanup)
 		defer cancel()
-		result = a.runtime.withInteractiveAttachmentLock(cleanup, func() error {
+		a.authorityErr = a.runtime.withInteractiveAttachmentLock(cleanup, func() error {
 			var registry tobari.InteractiveAttachmentSessionRegistry
 			if err := readStrictJSON(a.runtime.interactiveAttachmentSessionRegistryPath(), &registry); err != nil {
 				return err
 			}
+			current := findInteractiveSession(registry, a.session.WorkspaceManifestID, a.session.WorkspaceID)
+			if current == nil || !sameInteractiveSessionAuthority(*current, a.session) {
+				return fmt.Errorf("interactive attachment authority changed before cleanup")
+			}
 			kept := registry.Sessions[:0]
 			for _, session := range registry.Sessions {
-				if session.AttachmentID != a.session.AttachmentID {
+				if !sameInteractiveSessionAuthority(session, a.session) {
 					kept = append(kept, session)
 				}
 			}
@@ -439,5 +549,31 @@ func (a *interactiveWorkspaceAttachment) Close(_ context.Context) error {
 			return writeAtomicJSON(a.runtime.interactiveAttachmentSessionRegistryPath(), registry)
 		})
 	})
-	return result
+}
+
+// failClosed is shared by heartbeat and accept failures. It first removes all
+// transport capability, then invalidates wait observation, and finally removes
+// only the exact authority record with an independent bounded context.
+func (a *interactiveWorkspaceAttachment) failClosed() {
+	a.stopHeartbeat()
+	_ = a.closeTransport()
+	if a.waits != nil {
+		a.waits.Invalidate()
+	}
+	a.cleanupAuthority()
+}
+
+func (a *interactiveWorkspaceAttachment) Close(_ context.Context) error {
+	if !a.owned {
+		return nil
+	}
+	a.once.Do(func() {
+		defer close(a.closeDone)
+		a.failClosed()
+		<-a.heartbeatDone
+		<-a.authorityDone
+		a.closeErr = errors.Join(a.transportErr, a.authorityErr)
+	})
+	<-a.closeDone
+	return a.closeErr
 }

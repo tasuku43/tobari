@@ -597,7 +597,11 @@ principal registry, Gateway-to-OPA input, persisted learned-policy wire, and
 Host Loopback route/grant schema-v1 bytes remain unchanged. Zero, duplicate,
 stale, malformed, symlinked, drifted, or concurrently replaced owner records
 omit the handoff. The attachment-local helper socket proves attachment
-possession independently of the non-authoritative wait ID.
+possession independently of the non-authoritative wait ID. Gateway ingestion
+uses an owner-only Unix socket and unpredictable process-instance nonce; PID is
+diagnostic only. The renewable lease carries its current issue time, cannot be
+resurrected after expiry, and any listener, heartbeat, or renewal failure closes
+transport and invalidates waits before exact bounded authority cleanup.
 
 The owner keeps at most eight waits in memory for at most fifteen minutes, with
 one active connection and three attempts per ID. Request and response frames
