@@ -2,8 +2,37 @@
 # Focused live permission-resume assertions sourced by scripts/test-integration.sh.
 # shellcheck disable=SC2154 # Integration owner state is declared by the sourcing scenario.
 
+verify_permission_observer_opa_expression_shape() {
+  local opa_image revision decision query output
+  opa_image=$(awk -F= '$1 == "OPA_IMAGE" { print $2 }' internal/infra/runtimeassets/assets/versions.env)
+  revision=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  for decision in \
+    '{"allow":true,"reason":"allowed by Context policy","status_code":403,"learnable":false}' \
+    '{"allow":false,"reason":"denied by exact policy","status_code":403,"learnable":false}'; do
+    query='[result | revision := {"status_code":200,"body":{"result":"'"$revision"'"}}; revision.status_code == 200; decision := {"status_code":200,"body":{"result":'"$decision"'}}; decision.status_code == 200; object.get(decision.body, "result", null) != null; result := {"revision":revision.body.result,"decision":decision.body.result}][0]'
+    output=$(docker run --rm "$opa_image" eval --fail --format raw "$query")
+    OPA_OBSERVATION="$output" python3 - "$revision" <<'PY'
+import json
+import os
+import sys
+
+document = json.loads(os.environ["OPA_OBSERVATION"])
+if not isinstance(document, dict) or document.get("revision") != sys.argv[1]:
+    raise SystemExit(f"OPA observer query did not return one exact revision-bound object: {document!r}")
+decision = document.get("decision")
+if not isinstance(decision, dict) or not isinstance(decision.get("allow"), bool):
+    raise SystemExit(f"OPA observer query did not retain its decision object: {document!r}")
+PY
+  done
+  query='[result | revision := {"status_code":503,"body":{"result":"'"$revision"'"}}; revision.status_code == 200; result := {"revision":revision.body.result}][0]'
+  if docker run --rm "$opa_image" eval --fail --format raw "$query" >/dev/null 2>&1; then
+    fail "undefined OPA observer query did not fail closed"
+  fi
+}
+
 verify_permission_resume_handoff() {
   local permission_denial permission_wait_result permission_retry _
+  verify_permission_observer_opa_expression_shape
   for _ in $(seq 1 120); do
     if run_project test -s /var/lib/tobari/permission-denial.json >/dev/null 2>&1; then
       break

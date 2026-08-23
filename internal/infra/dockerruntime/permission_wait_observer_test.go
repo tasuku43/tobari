@@ -76,10 +76,14 @@ func TestPermissionObserverReusesCanonicalLiveOPAForTerminalResults(t *testing.T
 				t.Fatalf("result = %q, want %q", result, want)
 			}
 			query := strings.Join(runner.args, " ")
-			for _, required := range []string{"/v1/data/tobari/aggregate_revision", "/v1/data/tobari/http/decision", `"context_id":"` + record.WorkspaceManifestID, `"project_id":"` + record.WorkspaceID, `"segments":["items","a b"]`} {
+			for _, required := range []string{"/v1/data/tobari/aggregate_revision", "/v1/data/tobari/http/decision", `"context_id":"` + record.WorkspaceManifestID, `"project_id":"` + record.WorkspaceID, `"segments":["items","a b"]`, `result := {"revision":`} {
 				if !strings.Contains(query, required) {
 					t.Fatalf("OPA query omitted %q: %s", required, query)
 				}
+			}
+			if len(runner.args) == 0 || !strings.HasPrefix(runner.args[len(runner.args)-1], "[result | ") ||
+				!strings.HasSuffix(runner.args[len(runner.args)-1], "}][0]") {
+				t.Fatalf("OPA raw query does not emit the bound observation object: %s", query)
 			}
 		})
 	}
