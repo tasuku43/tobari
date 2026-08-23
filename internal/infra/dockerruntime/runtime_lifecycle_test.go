@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -24,6 +25,7 @@ type lifecycleObservationRunner struct {
 	images            map[string]lifecycleImageFixture
 	containers        map[string]runtimeContainerObservation
 	containerList     string
+	containerLists    map[string]string
 	outputs           []runnerCall
 	changeSecondImage bool
 	imageObservations int
@@ -48,7 +50,13 @@ func lifecycleTestBudget() *runtimeLifecycleBudget {
 func (r *lifecycleObservationRunner) Run(_ context.Context, args, _ []string, _ io.Reader, stdout, stderr io.Writer) error {
 	r.outputs = append(r.outputs, runnerCall{args: append([]string{}, args...)})
 	if len(args) >= 2 && args[0] == "container" && args[1] == "ls" {
-		_, err := io.WriteString(stdout, r.containerList)
+		listing := r.containerList
+		for _, arg := range args {
+			if strings.HasPrefix(arg, "ancestor=") && r.containerLists != nil {
+				listing = r.containerLists[strings.TrimPrefix(arg, "ancestor=")]
+			}
+		}
+		_, err := io.WriteString(stdout, listing)
 		return err
 	}
 	if len(args) >= 5 && args[0] == "container" && args[1] == "inspect" {
@@ -88,7 +96,13 @@ func (r *lifecycleObservationRunner) Run(_ context.Context, args, _ []string, _ 
 func (r *lifecycleObservationRunner) Output(_ context.Context, args, _ []string) ([]byte, error) {
 	r.outputs = append(r.outputs, runnerCall{args: append([]string{}, args...)})
 	if len(args) >= 2 && args[0] == "container" && args[1] == "ls" {
-		return []byte(r.containerList), nil
+		listing := r.containerList
+		for _, arg := range args {
+			if strings.HasPrefix(arg, "ancestor=") && r.containerLists != nil {
+				listing = r.containerLists[strings.TrimPrefix(arg, "ancestor=")]
+			}
+		}
+		return []byte(listing), nil
 	}
 	if len(args) >= 5 && args[0] == "container" && args[1] == "inspect" {
 		observed, ok := r.containers[args[4]]
@@ -176,6 +190,9 @@ func TestRuntimeLifecycleObservationHasGlobalWallAndCallBudgets(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	id := "018bcfe5-687b-7000-8000-000000000077"
+	revision := "sha256:" + strings.Repeat("a", 64)
+	installRuntimeLifecycleRevision(t, runtime, id, "frontend", revision, managedLibraryRuntimeImage("frontend", id, revision), "sha256:"+strings.Repeat("b", 64))
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
 	defer cancel()
 	if _, _, err := runtime.ReadRuntimeLifecycleSnapshot(ctx); !errors.Is(err, context.DeadlineExceeded) {
@@ -342,7 +359,7 @@ func TestRuntimeLifecycleContainerListRejectsOpaqueSelectors(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := runtime.observeRuntimeContainerUse(context.Background(), map[string]runtimeWorkspaceContainerAuthority{}, map[string]string{}, lifecycleTestBudget()); err == nil {
+	if _, err := runtime.observeRuntimeContainerUse(context.Background(), map[string]runtimeWorkspaceContainerAuthority{}, map[string]string{"runtime\x00revision": "sha256:" + strings.Repeat("b", 64)}, lifecycleTestBudget()); err == nil {
 		t.Fatal("non-canonical container selector was accepted")
 	}
 	if len(runner.outputs) != 1 {
@@ -382,9 +399,65 @@ func TestRuntimeLifecycleContainerUseRequiresExactWorkspaceAuthority(t *testing.
 	}
 
 	runner.outputs = nil
-	uses, err = runtime.observeRuntimeContainerUse(context.Background(), map[string]runtimeWorkspaceContainerAuthority{}, map[string]string{}, lifecycleTestBudget())
+	uses, err = runtime.observeRuntimeContainerUse(context.Background(), map[string]runtimeWorkspaceContainerAuthority{}, map[string]string{runtimeID + "\x00" + revision: digest}, lifecycleTestBudget())
 	if err != nil || uses[digest].workspace || !uses[digest].external {
 		t.Fatalf("unjoined container authority = %+v/%v", uses, err)
+	}
+}
+
+func TestRuntimeLifecycleContainerDiscoveryIsCandidateScopedAndBounded(t *testing.T) {
+	digest := "sha256:" + strings.Repeat("b", 64)
+	runner := &lifecycleObservationRunner{
+		images:         map[string]lifecycleImageFixture{},
+		containers:     map[string]runtimeContainerObservation{},
+		containerLists: map[string]string{digest: ""},
+	}
+	for index := 0; index < maxRuntimeContainersPerImage+1; index++ {
+		id := fmt.Sprintf("%064x", index+1)
+		runner.containers[id] = runtimeContainerObservation{ID: id, Image: "sha256:" + strings.Repeat("c", 64)}
+	}
+	runtime, err := newRuntime(t.TempDir(), t.TempDir(), runner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	uses, err := runtime.observeRuntimeContainerUse(context.Background(), map[string]runtimeWorkspaceContainerAuthority{}, map[string]string{"runtime\x00revision": digest}, lifecycleTestBudget())
+	if err != nil || len(uses) != 0 {
+		t.Fatalf("unrelated daemon population affected candidate observation = %+v/%v", uses, err)
+	}
+	if len(runner.outputs) != 1 || !slices.Contains(runner.outputs[0].args, "ancestor="+digest) {
+		t.Fatalf("container observation was not candidate-scoped: %v", runner.outputs)
+	}
+
+	ids := make([]string, 0, maxRuntimeContainersPerImage+1)
+	for index := 0; index <= maxRuntimeContainersPerImage; index++ {
+		ids = append(ids, fmt.Sprintf("%064x", index+1))
+	}
+	runner.containerLists[digest] = strings.Join(ids, "\n") + "\n"
+	runner.outputs = nil
+	if _, err := runtime.observeRuntimeContainerUse(context.Background(), map[string]runtimeWorkspaceContainerAuthority{}, map[string]string{"runtime\x00revision": digest}, lifecycleTestBudget()); err == nil {
+		t.Fatal("over-bound exact candidate users were accepted")
+	}
+	if len(runner.outputs) != 1 {
+		t.Fatalf("over-bound candidate users crossed inspect: %v", runner.outputs)
+	}
+}
+
+func TestRuntimeLifecycleContainerDiscoveryRequiresFilterCorrelation(t *testing.T) {
+	digest := "sha256:" + strings.Repeat("b", 64)
+	id := strings.Repeat("a", 64)
+	runner := &lifecycleObservationRunner{
+		images:         map[string]lifecycleImageFixture{},
+		containerLists: map[string]string{digest: id + "\n"},
+		containers: map[string]runtimeContainerObservation{
+			id: {ID: id, Image: "sha256:" + strings.Repeat("c", 64)},
+		},
+	}
+	runtime, err := newRuntime(t.TempDir(), t.TempDir(), runner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runtime.observeRuntimeContainerUse(context.Background(), map[string]runtimeWorkspaceContainerAuthority{}, map[string]string{"runtime\x00revision": digest}, lifecycleTestBudget()); err == nil {
+		t.Fatal("candidate-filter result with contradictory image authority was accepted")
 	}
 }
 

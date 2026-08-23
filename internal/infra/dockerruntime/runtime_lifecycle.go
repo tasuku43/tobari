@@ -19,7 +19,8 @@ import (
 const (
 	maxRuntimeLifecycleRuntimes   = 256
 	maxRuntimeLifecycleMaterials  = 1024
-	maxRuntimeLifecycleContainers = 256
+	maxRuntimeContainersPerImage  = 256
+	maxRuntimeLifecycleContainers = 1024
 	maxRuntimeLifecycleListBytes  = 64 * 1024
 	maxRuntimeLifecycleTags       = 256
 	maxRuntimeLifecycleInspect    = 64 * 1024
@@ -518,33 +519,62 @@ func (r *Runtime) inspectRuntimeLifecycleImage(ctx context.Context, selector str
 }
 
 func (r *Runtime) observeRuntimeContainerUse(ctx context.Context, workspaces map[string]runtimeWorkspaceContainerAuthority, revisionDigests map[string]string, budget *runtimeLifecycleBudget) (map[string]runtimeContentUse, error) {
-	output, _, err := budget.run(ctx, r.runner, []string{"container", "ls", "--all", "--no-trunc", "--format", "{{.ID}}"}, os.Environ(), maxRuntimeLifecycleListBytes)
-	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-		return nil, err
-	}
-	if err != nil {
-		return nil, tobari.RuntimeProtectionInventoryError{Reason: tobari.RuntimeProtectionInventoryObservationUnknown}
-	}
-	trimmed := strings.TrimSuffix(string(output), "\n")
-	if trimmed == "" {
-		return map[string]runtimeContentUse{}, nil
-	}
-	lines := strings.Split(trimmed, "\n")
-	if len(lines) > maxRuntimeLifecycleContainers {
-		return nil, tobari.RuntimeProtectionInventoryError{Reason: tobari.RuntimeProtectionInventoryObservationUnknown}
-	}
 	use := make(map[string]runtimeContentUse)
-	seen := make(map[string]bool, len(lines))
+	digests := make(map[string]bool, len(revisionDigests))
+	for _, digest := range revisionDigests {
+		if tobari.ValidateDigest(digest) != nil {
+			return nil, tobari.RuntimeProtectionInventoryError{Reason: tobari.RuntimeProtectionInventoryObservationUnknown}
+		}
+		digests[digest] = true
+	}
+	orderedDigests := make([]string, 0, len(digests))
+	for digest := range digests {
+		orderedDigests = append(orderedDigests, digest)
+	}
+	sort.Strings(orderedDigests)
+	containerDigests := make(map[string]string, len(workspaces))
+	for id := range workspaces {
+		if !runtimeLifecycleContainerID.MatchString(id) {
+			return nil, tobari.RuntimeProtectionInventoryError{Reason: tobari.RuntimeProtectionInventoryObservationUnknown}
+		}
+		containerDigests[id] = ""
+	}
+	if len(containerDigests) > maxRuntimeLifecycleContainers {
+		return nil, tobari.RuntimeProtectionInventoryError{Reason: tobari.RuntimeProtectionInventoryObservationUnknown}
+	}
+	for _, digest := range orderedDigests {
+		output, _, err := budget.run(ctx, r.runner, []string{"container", "ls", "--all", "--no-trunc", "--filter", "ancestor=" + digest, "--format", "{{.ID}}"}, os.Environ(), maxRuntimeLifecycleListBytes)
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return nil, err
+		}
+		if err != nil {
+			return nil, tobari.RuntimeProtectionInventoryError{Reason: tobari.RuntimeProtectionInventoryObservationUnknown}
+		}
+		lines, err := parseRuntimeContainerIDs(output)
+		if err != nil || len(lines) > maxRuntimeContainersPerImage {
+			return nil, tobari.RuntimeProtectionInventoryError{Reason: tobari.RuntimeProtectionInventoryObservationUnknown}
+		}
+		for _, id := range lines {
+			if previous, exists := containerDigests[id]; exists && previous != "" && previous != digest {
+				return nil, tobari.RuntimeProtectionInventoryError{Reason: tobari.RuntimeProtectionInventoryObservationUnknown}
+			}
+			containerDigests[id] = digest
+		}
+		if len(containerDigests) > maxRuntimeLifecycleContainers {
+			return nil, tobari.RuntimeProtectionInventoryError{Reason: tobari.RuntimeProtectionInventoryObservationUnknown}
+		}
+	}
+	ids := make([]string, 0, len(containerDigests))
+	for id := range containerDigests {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
 	format := `{"id":{{json .Id}},"image":{{json .Image}},"owner":{{json (index .Config.Labels "` + ownerLabel + `")}},` +
 		`"component":{{json (index .Config.Labels "` + componentLabel + `")}},` +
 		`"workspace":{{json (index .Config.Labels "` + projectIDLabel + `")}},` +
 		`"role":{{json (index .Config.Labels "` + projectRoleLabel + `")}},` +
 		`"spec":{{json (index .Config.Labels "` + projectSpecLabel + `")}}}`
-	for _, id := range lines {
-		if !runtimeLifecycleContainerID.MatchString(id) || seen[id] {
-			return nil, tobari.RuntimeProtectionInventoryError{Reason: tobari.RuntimeProtectionInventoryObservationUnknown}
-		}
-		seen[id] = true
+	for _, id := range ids {
 		observedBytes, _, inspectErr := budget.run(ctx, r.runner, []string{"container", "inspect", "--format", format, id}, os.Environ(), 4096)
 		if errors.Is(inspectErr, context.Canceled) || errors.Is(inspectErr, context.DeadlineExceeded) {
 			return nil, inspectErr
@@ -554,6 +584,9 @@ func (r *Runtime) observeRuntimeContainerUse(ctx context.Context, workspaces map
 		}
 		var observed runtimeContainerObservation
 		if decodeStrictJSON(observedBytes, &observed) != nil || observed.ID != id || tobari.ValidateDigest(observed.Image) != nil {
+			return nil, tobari.RuntimeProtectionInventoryError{Reason: tobari.RuntimeProtectionInventoryObservationUnknown}
+		}
+		if filteredDigest := containerDigests[id]; filteredDigest != "" && observed.Image != filteredDigest {
 			return nil, tobari.RuntimeProtectionInventoryError{Reason: tobari.RuntimeProtectionInventoryObservationUnknown}
 		}
 		current := use[observed.Image]
@@ -569,4 +602,20 @@ func (r *Runtime) observeRuntimeContainerUse(ctx context.Context, workspaces map
 		use[observed.Image] = current
 	}
 	return use, nil
+}
+
+func parseRuntimeContainerIDs(output []byte) ([]string, error) {
+	trimmed := strings.TrimSuffix(string(output), "\n")
+	if trimmed == "" {
+		return []string{}, nil
+	}
+	lines := strings.Split(trimmed, "\n")
+	seen := make(map[string]bool, len(lines))
+	for _, id := range lines {
+		if !runtimeLifecycleContainerID.MatchString(id) || seen[id] {
+			return nil, fmt.Errorf("Runtime container discovery returned invalid authority")
+		}
+		seen[id] = true
+	}
+	return lines, nil
 }
