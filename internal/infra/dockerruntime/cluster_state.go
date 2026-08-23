@@ -180,9 +180,6 @@ func (r *Runtime) migratePrePlatformSharedClusterState(
 	if err := r.validatePrePlatformRuntimeAuthority(state); err != nil {
 		return tobari.State{}, err
 	}
-	if err := r.verifyAppliedClusterBuildShape(ctx); err != nil {
-		return tobari.State{}, err
-	}
 	snapshot, err := r.observeAppliedClusterSnapshot(ctx)
 	if err != nil {
 		return tobari.State{}, fmt.Errorf("capture predecessor service image identities: %w", err)
@@ -213,9 +210,11 @@ func (r *Runtime) migratePrePlatformSharedClusterState(
 }
 
 const (
-	prePlatformAssetVersion  = "97f1c509bc4d7f2f"
-	prePlatformComposeSize   = 3502
-	prePlatformComposeSHA256 = "4d188071e431aae7d415a1b2beec2efbb798668c993e5f6d164cf2f58f314776"
+	prePlatformAssetVersion            = "97f1c509bc4d7f2f"
+	prePlatformComposeSize             = 3502
+	prePlatformComposeSHA256           = "4d188071e431aae7d415a1b2beec2efbb798668c993e5f6d164cf2f58f314776"
+	prePlatformExperimentalComposeSize = 2017
+	prePlatformExperimentalSHA256      = "4cea1d48f63ec7a671ca9615ade114ea1b823a8fdf23f2e3e38aedc5228b5637"
 )
 
 func (r *Runtime) validatePrePlatformRuntimeAuthority(state tobari.State) error {
@@ -237,16 +236,18 @@ func (r *Runtime) validatePrePlatformRuntimeAuthority(state tobari.State) error 
 		}
 	}
 	baseCompose := filepath.Join(state.RuntimeDirectory, "compose.yaml")
-	if err := requireOwnerOnlyRegularFile(baseCompose); err != nil {
-		return fmt.Errorf("pre-platform base compose asset is unsafe: %w", err)
+	if err := validateReviewedPrePlatformAsset(
+		baseCompose, prePlatformComposeSize, prePlatformComposeSHA256,
+	); err != nil {
+		return fmt.Errorf("pre-platform base compose asset: %w", err)
 	}
-	data, err := readOwnerPolicyFile(baseCompose, prePlatformComposeSize)
-	if err != nil {
-		return fmt.Errorf("read pre-platform base compose asset: %w", err)
-	}
-	digest := sha256.Sum256(data)
-	if len(data) != prePlatformComposeSize || fmt.Sprintf("%x", digest[:]) != prePlatformComposeSHA256 {
-		return fmt.Errorf("pre-platform base compose asset identity is invalid")
+	if brokerRuntimeEnabled {
+		if err := validateReviewedPrePlatformAsset(
+			filepath.Join(state.RuntimeDirectory, "compose.experimental.yaml"),
+			prePlatformExperimentalComposeSize, prePlatformExperimentalSHA256,
+		); err != nil {
+			return fmt.Errorf("pre-platform experimental compose asset: %w", err)
+		}
 	}
 	for _, name := range []string{"compose.permission-unix.yaml", "compose.permission-loopback_tcp.yaml"} {
 		path := filepath.Join(state.RuntimeDirectory, name)
@@ -255,6 +256,21 @@ func (r *Runtime) validatePrePlatformRuntimeAuthority(state tobari.State) error 
 		} else if !errors.Is(err, os.ErrNotExist) {
 			return fmt.Errorf("inspect predecessor permission profile assets: %w", err)
 		}
+	}
+	return nil
+}
+
+func validateReviewedPrePlatformAsset(path string, size int, expectedDigest string) error {
+	if err := requireOwnerOnlyRegularFile(path); err != nil {
+		return fmt.Errorf("asset is unsafe: %w", err)
+	}
+	data, err := readOwnerPolicyFile(path, size)
+	if err != nil {
+		return fmt.Errorf("read asset: %w", err)
+	}
+	digest := sha256.Sum256(data)
+	if len(data) != size || fmt.Sprintf("%x", digest[:]) != expectedDigest {
+		return fmt.Errorf("asset identity is invalid")
 	}
 	return nil
 }
@@ -328,6 +344,13 @@ func (r *Runtime) observeAppliedClusterSnapshotPass(ctx context.Context) (applie
 		images: appliedClusterImageIDs{gateway: gateway.ImageID, opa: opa.ImageID}, gateway: gateway, opa: opa,
 	}
 	if !brokerRuntimeEnabled {
+		_, missing, err := r.observeAppliedClusterComponent(ctx, "auth-broker", authBrokerContainer)
+		if err != nil {
+			return appliedClusterSnapshot{}, fmt.Errorf("inspect unexpected Auth Broker identity: %w", err)
+		}
+		if !missing {
+			return appliedClusterSnapshot{}, fmt.Errorf("standard shared cluster contains an Auth Broker container")
+		}
 		return snapshot, nil
 	}
 	authBroker, missing, err := r.observeAppliedClusterComponent(ctx, "auth-broker", authBrokerContainer)
@@ -340,20 +363,6 @@ func (r *Runtime) observeAppliedClusterSnapshotPass(ctx context.Context) (applie
 	snapshot.images.authBroker = authBroker.ImageID
 	snapshot.authBroker = authBroker
 	return snapshot, nil
-}
-
-func (r *Runtime) verifyAppliedClusterBuildShape(ctx context.Context) error {
-	if brokerRuntimeEnabled {
-		return nil
-	}
-	_, missing, err := r.observeAppliedClusterComponent(ctx, "auth-broker", authBrokerContainer)
-	if err != nil {
-		return fmt.Errorf("inspect unexpected Auth Broker identity: %w", err)
-	}
-	if !missing {
-		return fmt.Errorf("standard shared cluster contains an Auth Broker container")
-	}
-	return nil
 }
 
 func sameAppliedClusterSnapshot(left, right appliedClusterSnapshot) bool {
@@ -429,10 +438,16 @@ func verifyPrePlatformGatewayProjection(gateway appliedClusterComponentObservati
 		if strings.HasPrefix(entry, "TOBARI_PERMISSION_INGESTION_") {
 			return fmt.Errorf("schema-1 state conflicts with a successor Gateway permission profile")
 		}
+		if !brokerRuntimeEnabled && strings.HasPrefix(entry, "TOBARI_AUTH_") {
+			return fmt.Errorf("standard schema-1 state conflicts with a research Gateway profile")
+		}
 	}
 	for _, destination := range gateway.MountDestinations {
 		if destination == "/run/tobari/permission-ingestion" {
 			return fmt.Errorf("schema-1 state conflicts with a successor Gateway permission mount")
+		}
+		if !brokerRuntimeEnabled && (destination == "/run/tobari/auth" || destination == "/run/tobari-auth/runtime") {
+			return fmt.Errorf("standard schema-1 state conflicts with a research Gateway mount")
 		}
 	}
 	return nil

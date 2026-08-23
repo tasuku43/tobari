@@ -48,6 +48,10 @@ func (r *appliedStateInspectRunner) Run(
 	}
 	payload := queue[0]
 	r.payloads[container] = queue[1:]
+	if payload == nil {
+		_, _ = errorOutput.Write([]byte("Error: No such object: " + container + "\n"))
+		return errors.New("No such object")
+	}
 	_, err := output.Write(payload)
 	return err
 }
@@ -147,15 +151,46 @@ func TestAppliedStateSnapshotUsesBoundedRealInspectIdentity(t *testing.T) {
 		snapshot.gateway.ImageID != "sha256:"+strings.Repeat("a", 64) {
 		t.Fatalf("real Docker identity shapes were not retained: %+v", snapshot.gateway)
 	}
-	wantCalls := 4
-	if brokerRuntimeEnabled {
-		wantCalls = 6
-	}
+	wantCalls := 6
 	if len(runner.calls) != wantCalls {
 		t.Fatalf("bounded inspect calls = %d, want %d", len(runner.calls), wantCalls)
 	}
 	if _, err := runner.Output(context.Background(), nil, nil); err == nil {
 		t.Fatal("test runner allowed unbounded applied-state Output")
+	}
+}
+
+func TestStandardAppliedStateFencesBrokerAbsenceTwice(t *testing.T) {
+	t.Parallel()
+	if brokerRuntimeEnabled {
+		t.Skip("research build fences a present Broker in both tuple passes")
+	}
+	broker := appliedStatePayload(t, appliedStateObservation(authBrokerContainer, "sha256:"+strings.Repeat("c", 64)))
+	for _, test := range []struct {
+		name     string
+		payloads [][]byte
+		stderr   []byte
+	}{
+		{name: "appeared between passes", payloads: [][]byte{nil, broker}},
+		{name: "present both", payloads: [][]byte{broker, broker}},
+		{name: "ambiguous missing", stderr: []byte("wrapper: Error: No such object: " + authBrokerContainer)},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			runner := appliedStateSnapshotRunner(t)
+			if test.payloads != nil {
+				runner.payloads[authBrokerContainer] = test.payloads
+			}
+			if test.stderr != nil {
+				runner.stderr = map[string][]byte{authBrokerContainer: test.stderr}
+			}
+			runtime, err := newRuntime(t.TempDir(), t.TempDir(), runner)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := runtime.observeAppliedClusterSnapshot(context.Background()); err == nil {
+				t.Fatal("standard applied snapshot accepted unfenced Broker absence")
+			}
+		})
 	}
 }
 
@@ -301,6 +336,15 @@ func materializeReviewedPrePlatformRuntime(t *testing.T, stateDirectory string) 
 	if err := os.WriteFile(filepath.Join(directory, "compose.yaml"), data, 0o600); err != nil {
 		t.Fatal(err)
 	}
+	if brokerRuntimeEnabled {
+		experimental, err := os.ReadFile(filepath.Join("testdata", "compose.pre-platform.experimental.yaml"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(directory, "compose.experimental.yaml"), experimental, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
 	return directory
 }
 
@@ -341,8 +385,8 @@ func TestSchemaOneMigrationRequiresReviewedRuntimeAndHealthyTuple(t *testing.T) 
 		migrated.Applied.OPAImageID != "sha256:"+strings.Repeat("b", 64) {
 		t.Fatalf("migrated state = %+v", migrated)
 	}
-	if !brokerRuntimeEnabled && len(runner.calls) != 5 {
-		t.Fatalf("standard migration inspect calls = %d, want broker absence + fenced G/O", len(runner.calls))
+	if len(runner.calls) != 6 {
+		t.Fatalf("migration inspect calls = %d, want two fenced G/O/B observations", len(runner.calls))
 	}
 }
 
@@ -395,6 +439,61 @@ func TestSchemaOneMigrationRejectsUnsafeRuntimeAuthority(t *testing.T) {
 			test.mutate(t, runtime, &legacy)
 			if _, err := runtime.migratePrePlatformSharedClusterState(context.Background(), legacy); err == nil {
 				t.Fatal("unsafe predecessor runtime was accepted")
+			}
+		})
+	}
+}
+
+func TestSchemaOneMigrationBindsExactBuildProfile(t *testing.T) {
+	t.Parallel()
+	if !brokerRuntimeEnabled {
+		runtime, legacy, runner := schemaOneMigrationFixture(t)
+		var gateway appliedClusterComponentObservation
+		if err := json.Unmarshal(runner.payloads[gatewayContainer][0], &gateway); err != nil {
+			t.Fatal(err)
+		}
+		gateway.Environment = []string{"TOBARI_AUTH_BROKER_SOCKET=/run/tobari-auth/runtime/broker.sock"}
+		payload := appliedStatePayload(t, gateway)
+		runner.payloads[gatewayContainer] = [][]byte{payload, payload}
+		if _, err := runtime.migratePrePlatformSharedClusterState(context.Background(), legacy); err == nil {
+			t.Fatal("standard migration accepted research Gateway projection")
+		}
+		return
+	}
+	for _, test := range []struct {
+		name   string
+		mutate func(*testing.T, string)
+	}{
+		{name: "missing", mutate: func(t *testing.T, path string) {
+			if err := os.Remove(path); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{name: "tampered", mutate: func(t *testing.T, path string) {
+			if err := os.WriteFile(path, bytes.Repeat([]byte("x"), prePlatformExperimentalComposeSize), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{name: "broad mode", mutate: func(t *testing.T, path string) {
+			if err := os.Chmod(path, 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{name: "symlink", mutate: func(t *testing.T, path string) {
+			target := path + ".real"
+			if err := os.Rename(path, target); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(target, path); err != nil {
+				t.Fatal(err)
+			}
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			runtime, legacy, _ := schemaOneMigrationFixture(t)
+			test.mutate(t, filepath.Join(legacy.RuntimeDirectory, "compose.experimental.yaml"))
+			if _, err := runtime.migratePrePlatformSharedClusterState(context.Background(), legacy); err == nil {
+				t.Fatal("research migration accepted unsafe experimental overlay")
 			}
 		})
 	}
