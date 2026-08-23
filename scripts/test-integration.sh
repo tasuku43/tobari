@@ -482,7 +482,7 @@ assert_component_resource_bounds() {
 }
 
 candidate_id_for_effect() {
-	local project_id=$1
+	local workspace_id=$1
 	local scheme=$2
 	local host=$3
 	local port=$4
@@ -490,12 +490,12 @@ candidate_id_for_effect() {
 	local path=$6
   python3 -c \
     'import json,sys
-project_id,scheme,host,port,method,path=sys.argv[1:]
+workspace_id,scheme,host,port,method,path=sys.argv[1:]
 print(next(item["id"] for item in json.load(sys.stdin)["policy_candidates"]
-           if item.get("project_id") == project_id and item.get("scheme") == scheme
+           if item.get("workspace_id") == workspace_id and item.get("scheme") == scheme
            and item.get("host") == host and item.get("port") == int(port)
            and item.get("method") == method and item.get("path") == path))' \
-    "$project_id" "$scheme" "$host" "$port" "$method" "$path"
+    "$workspace_id" "$scheme" "$host" "$port" "$method" "$path"
 }
 
 allow_exact_effect() {
@@ -525,7 +525,7 @@ deny_exact_effect() {
 }
 
 graphql_candidate_id_for_effect() {
-	local project_id=$1
+	local workspace_id=$1
 	local scheme=$2
 	local host=$3
 	local port=$4
@@ -533,14 +533,14 @@ graphql_candidate_id_for_effect() {
 	local root_field=$6
   python3 -c \
     'import json,sys
-project_id,scheme,host,port,operation_type,root_field=sys.argv[1:]
+workspace_id,scheme,host,port,operation_type,root_field=sys.argv[1:]
 print(next(item["id"] for item in json.load(sys.stdin)["policy_candidates"]
-           if item.get("project_id") == project_id and item.get("scheme") == scheme
+           if item.get("workspace_id") == workspace_id and item.get("scheme") == scheme
            and item.get("host") == host and item.get("port") == int(port)
            and item.get("protocol") == "graphql"
            and item.get("graphql_operation_type") == operation_type
            and item.get("graphql_root_field") == root_field))' \
-    "$project_id" "$scheme" "$host" "$port" "$operation_type" "$root_field"
+    "$workspace_id" "$scheme" "$host" "$port" "$operation_type" "$root_field"
 }
 
 cleanup() {
