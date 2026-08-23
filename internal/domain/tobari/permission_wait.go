@@ -13,17 +13,20 @@ import (
 )
 
 const (
-	PermissionWaitRecordSchema                                   = 2
-	PermissionWaitLease                                          = 15 * time.Minute
-	PermissionWaitMaxLive                                        = 8
-	PermissionWaitMaxAttempts                                    = 3
-	PermissionWaitRequestLimit                                   = 4 * 1024
-	PermissionWaitResponseLimit                                  = 1024
-	PermissionSessionLease                                       = 30 * time.Second
-	PermissionSessionSchema                                      = 2
-	PermissionSessionOwnerInteractive                            = "interactive_workspace"
-	PermissionSessionTransportUnix    PermissionSessionTransport = "unix"
-	PermissionSessionTransportTCP     PermissionSessionTransport = "loopback_tcp"
+	PermissionWaitRecordSchema                                    = 2
+	PermissionWaitLease                                           = 15 * time.Minute
+	PermissionWaitMaxLive                                         = 8
+	PermissionWaitMaxAttempts                                     = 3
+	PermissionWaitRequestLimit                                    = 4 * 1024
+	PermissionWaitResponseLimit                                   = 1024
+	PermissionSessionLease                                        = 30 * time.Second
+	PermissionSessionSchema                                       = 2
+	PermissionSessionOwnerInteractive                             = "interactive_workspace"
+	PermissionSessionTransportUnix    PermissionSessionTransport  = "unix"
+	PermissionSessionTransportTCP     PermissionSessionTransport  = "loopback_tcp"
+	SharedClusterProfilePrePlatform   SharedClusterAppliedProfile = "pre_platform"
+	SharedClusterProfileUnix          SharedClusterAppliedProfile = "unix"
+	SharedClusterProfileLoopbackTCP   SharedClusterAppliedProfile = "loopback_tcp"
 
 	PermissionWaitResultAllow   PermissionWaitResult = "allow"
 	PermissionWaitResultDeny    PermissionWaitResult = "deny"
@@ -46,12 +49,47 @@ type PermissionWaitResult string
 // fallback or a different platform adapter.
 type PermissionSessionTransport string
 
+// SharedClusterAppliedProfile records the exact permission-ingestion compose
+// shape in the last successfully published shared-cluster state.
+type SharedClusterAppliedProfile string
+
 func (t PermissionSessionTransport) Validate() error {
 	switch t {
 	case PermissionSessionTransportUnix, PermissionSessionTransportTCP:
 		return nil
 	default:
 		return fmt.Errorf("permission session transport is invalid")
+	}
+}
+
+func (p SharedClusterAppliedProfile) Validate() error {
+	switch p {
+	case SharedClusterProfilePrePlatform, SharedClusterProfileUnix, SharedClusterProfileLoopbackTCP:
+		return nil
+	default:
+		return fmt.Errorf("shared-cluster applied profile is invalid")
+	}
+}
+
+func (p SharedClusterAppliedProfile) PermissionTransport() (PermissionSessionTransport, bool) {
+	switch p {
+	case SharedClusterProfileUnix:
+		return PermissionSessionTransportUnix, true
+	case SharedClusterProfileLoopbackTCP:
+		return PermissionSessionTransportTCP, true
+	default:
+		return "", false
+	}
+}
+
+func SharedClusterProfileForTransport(transport PermissionSessionTransport) (SharedClusterAppliedProfile, error) {
+	switch transport {
+	case PermissionSessionTransportUnix:
+		return SharedClusterProfileUnix, nil
+	case PermissionSessionTransportTCP:
+		return SharedClusterProfileLoopbackTCP, nil
+	default:
+		return "", fmt.Errorf("permission session transport is invalid")
 	}
 }
 
