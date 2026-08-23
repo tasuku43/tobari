@@ -72,6 +72,7 @@ reset_fixture
 printf '%s\n' sha256:previous >"$exact_state"
 set +e
 (
+  status=0
   trap 'status=$?; gateway_fixture_restore_tag; exit "$status"' EXIT
   trap 'exit 130' INT
   gateway_fixture_snapshot_tag

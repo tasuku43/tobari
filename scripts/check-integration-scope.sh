@@ -128,16 +128,16 @@ fi
 # The documented explicit-binary path skips source-image and binary builds, but
 # it still owns a fresh temporary TLS wrapper for this run. Keep certificate
 # generation before build selection and wrapper publication after it.
-binary_branch_line=$(grep -nF 'if [[ -n ${TOBARI_INTEGRATION_BINARY:-} ]]; then' "$scenario" | cut -d: -f1)
+binary_branch_line=$(grep -nF "if [[ -n \${TOBARI_INTEGRATION_BINARY:-} ]]; then" "$scenario" | cut -d: -f1)
 tls_fixture_line=$(grep -nF 'openssl req -x509 -newkey' "$scenario" | cut -d: -f1)
-gateway_wrapper_line=$(grep -nF 'docker build --tag "$gateway_fixture_image"' "$scenario" | cut -d: -f1)
+gateway_wrapper_line=$(grep -nF "docker build --tag \"\$gateway_fixture_image\"" "$scenario" | cut -d: -f1)
 if [[ -z $binary_branch_line || -z $tls_fixture_line || -z $gateway_wrapper_line ]] ||
   ((tls_fixture_line >= binary_branch_line || gateway_wrapper_line <= binary_branch_line)); then
   echo "integration scope: run-local TLS fixture is not owned by both binary paths" >&2
   exit 1
 fi
 for claim in \
-  '-v "$test_root/tls:/tls"' \
+  "-v \"\$test_root/tls:/tls\"" \
   '-out /tls/synthetic-ca.crt' \
   'gateway_fixture_snapshot_tag' \
   'gateway_fixture_publish_tag' \

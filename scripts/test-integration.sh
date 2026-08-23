@@ -13,7 +13,7 @@ auth_network=tobari-auth-integration
 runtime_name=integration
 gateway_base_image="tobari-gateway-integration-base-$$"
 experimental_gateway_base_image="tobari-gateway-integration-experimental-base-$$"
-gateway_dev_tag= gateway_previous_image_id= gateway_fixture_image_id=
+gateway_dev_tag='' gateway_previous_image_id='' gateway_fixture_image_id=''
 gateway_fixture_image="tobari-gateway-integration-tls-$$"
 gateway_fixture_tag_installed=false
 test_keychain_service=

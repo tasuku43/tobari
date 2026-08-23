@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC2154 # Globals are owned by the sourcing integration scenario.
 
 # The integration binary resolves one exact development Gateway tag. Keep the
 # run-local TLS wrapper temporary without destroying or retaining a
