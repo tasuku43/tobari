@@ -14,14 +14,24 @@ import (
 )
 
 type runtimeFake struct {
-	manifest  tobari.RuntimeManifest
-	creates   int
-	base      tobari.RuntimeCopySource
-	builds    int
-	resolves  int
-	buildErr  error
-	buildName string
-	createErr error
+	manifest      tobari.RuntimeManifest
+	creates       int
+	base          tobari.RuntimeCopySource
+	builds        int
+	resolves      int
+	buildErr      error
+	buildName     string
+	createErr     error
+	lifecycleErr  error
+	observedAt    time.Time
+	protection    *tobari.RuntimeProtectionInventory
+	materials     []tobari.RuntimeMaterialObservation
+	recovery      *tobari.RuntimeBuildRecovery
+	recoveryErr   error
+	recoveryReads int
+	recoveries    int
+	recoveredRef  string
+	recoveredKind tobari.RuntimeBuildRecoveryKind
 }
 
 func runtimeFixture() tobari.RuntimeManifest {
@@ -108,6 +118,96 @@ func (f *runtimeFake) BuildManagedRuntimeByReference(_ context.Context, referenc
 		return tobari.RuntimeReport{}, f.buildErr
 	}
 	return tobari.RuntimeReport{Task: tobari.TaskRuntimeBuildV1, Runtime: f.manifest, Built: true}, nil
+}
+func (f *runtimeFake) ReadRuntimeLifecycleSnapshot(context.Context) (tobari.RuntimeLifecycleSnapshot, time.Time, error) {
+	if f.lifecycleErr != nil {
+		return tobari.RuntimeLifecycleSnapshot{}, time.Time{}, f.lifecycleErr
+	}
+	observedAt := f.observedAt
+	if observedAt.IsZero() {
+		observedAt = time.Unix(100, 0).UTC()
+	}
+	protection := tobari.RuntimeProtectionInventory{Complete: true, Items: []tobari.RuntimeProtection{}}
+	if f.protection != nil {
+		protection = *f.protection
+	}
+	runtimes := []tobari.RuntimeManifest{standardRuntimeFixture(), f.manifest}
+	if f.materials != nil {
+		return tobari.RuntimeLifecycleSnapshot{CatalogComplete: true, Runtimes: runtimes, Protection: protection, Materials: f.materials, Journals: tobari.RuntimeLifecycleJournals{Complete: true, Active: []tobari.RuntimeLifecycleActivity{}, FailedBuilds: []tobari.RuntimeFailedBuildArtifact{}}}, observedAt, nil
+	}
+	items := []tobari.RuntimeMaterialObservation{}
+	for _, runtime := range runtimes {
+		if runtime.Kind != tobari.RuntimeKindManaged {
+			continue
+		}
+		for _, revision := range runtime.Revisions {
+			items = append(items, tobari.RuntimeMaterialObservation{RuntimeID: runtime.ID, Revision: revision.Revision, TagRole: tobari.RuntimeMaterialTagPublishedRevision, Availability: tobari.RuntimeAvailabilityMissing, ObservationComplete: true})
+		}
+	}
+	return tobari.RuntimeLifecycleSnapshot{CatalogComplete: true, Runtimes: runtimes, Protection: protection, Materials: items, Journals: tobari.RuntimeLifecycleJournals{Complete: true, Active: []tobari.RuntimeLifecycleActivity{}, FailedBuilds: []tobari.RuntimeFailedBuildArtifact{}}}, observedAt, nil
+}
+
+func (f *runtimeFake) ReadRuntimeBuildRecovery(context.Context) (tobari.RuntimeBuildRecovery, bool, error) {
+	f.recoveryReads++
+	if f.recoveryErr != nil {
+		return tobari.RuntimeBuildRecovery{}, false, f.recoveryErr
+	}
+	if f.recovery == nil {
+		return tobari.RuntimeBuildRecovery{}, false, nil
+	}
+	return *f.recovery, true, nil
+}
+
+func (f *runtimeFake) RecoverRuntimeBuildByReference(_ context.Context, runtimeRef string, kind tobari.RuntimeBuildRecoveryKind) error {
+	f.recoveries++
+	f.recoveredRef = runtimeRef
+	f.recoveredKind = kind
+	return f.recoveryErr
+}
+
+func TestRuntimePrunePlanPreservesCancellation(t *testing.T) {
+	fake := &runtimeFake{manifest: runtimeFixture(), lifecycleErr: context.Canceled}
+	if _, err := New(fake).PlanPrune(context.Background()); !errors.Is(err, context.Canceled) {
+		t.Fatalf("Runtime prune cancellation = %v", err)
+	}
+}
+
+func TestRuntimeRecoveryReviewAndMutationKeepExactReference(t *testing.T) {
+	manifest := runtimeFixture()
+	recovery := tobari.RuntimeBuildRecovery{RuntimeID: manifest.ID, RuntimeRef: tobari.RuntimeRef(manifest.ID), Name: manifest.Name, Kind: tobari.RuntimeBuildRecoveryPreDocker}
+	fake := &runtimeFake{manifest: manifest, recovery: &recovery}
+	service := New(fake)
+	observed, found, err := service.ReviewRecovery(context.Background())
+	if err != nil || !found || observed != recovery || fake.recoveryReads != 1 || fake.recoveries != 0 {
+		t.Fatalf("recovery review = %+v/%t/%v reads=%d mutations=%d", observed, found, err, fake.recoveryReads, fake.recoveries)
+	}
+	impact := operation.Impact{Cardinality: operation.CardinalityOne, Notification: operation.DeclarationNo, AccessChange: operation.DeclarationYes, Destructive: operation.DeclarationNo}
+	intent := operation.Intent{Command: "runtime build", Effect: operation.EffectWrite, Target: operation.TargetRef{Kind: tobari.RuntimeReferenceKind, ID: recovery.RuntimeRef}, Impact: impact}
+	report, err := service.Recover(context.Background(), intent, recovery)
+	if err != nil || !report.NoChange || report.Runtime.RuntimeRef != recovery.RuntimeRef || fake.recoveries != 1 || fake.recoveredRef != recovery.RuntimeRef || fake.recoveredKind != recovery.Kind {
+		t.Fatalf("recovery mutation = %+v/%v calls=%d ref=%q kind=%q", report, err, fake.recoveries, fake.recoveredRef, fake.recoveredKind)
+	}
+}
+
+func TestRuntimeRecoveryRejectsWrongIntentBeforeAdapter(t *testing.T) {
+	manifest := runtimeFixture()
+	recovery := tobari.RuntimeBuildRecovery{RuntimeID: manifest.ID, RuntimeRef: tobari.RuntimeRef(manifest.ID), Name: manifest.Name, Kind: tobari.RuntimeBuildRecoveryCleanup}
+	fake := &runtimeFake{manifest: manifest, recovery: &recovery}
+	intent := operation.Intent{Command: "runtime build", Effect: operation.EffectWrite, Target: operation.TargetRef{Kind: tobari.RuntimeReferenceKind, ID: "018bcfe5-687b-7000-8000-000000000099"}, Impact: operation.Impact{Cardinality: operation.CardinalityOne, Notification: operation.DeclarationNo, AccessChange: operation.DeclarationYes, Destructive: operation.DeclarationNo}}
+	if _, err := New(fake).Recover(context.Background(), intent, recovery); err == nil || fake.recoveries != 0 {
+		t.Fatalf("wrong recovery target = %v calls=%d", err, fake.recoveries)
+	}
+}
+
+func TestRuntimePrunePlanUsesCompleteProtectionAndMaterialSnapshot(t *testing.T) {
+	manifest := runtimeFixture()
+	bytes := int64(4096)
+	fake := &runtimeFake{manifest: manifest, materials: []tobari.RuntimeMaterialObservation{{RuntimeID: manifest.ID, Revision: manifest.Revisions[0].Revision, TagRole: tobari.RuntimeMaterialTagPublishedRevision, Availability: tobari.RuntimeAvailabilityAvailable, TagPresent: true, ContentPresent: true, OwnershipVerified: true, ObservationComplete: true, ImageVirtualBytes: &bytes}}}
+	service := New(fake)
+	plan, err := service.PlanPrune(context.Background())
+	if err != nil || plan.Empty || len(plan.Candidates) != 1 || plan.Candidates[0].RuntimeID != manifest.ID || plan.ObservedAt != time.Unix(100, 0).UTC() {
+		t.Fatalf("Runtime prune plan = %+v/%v", plan, err)
+	}
 }
 
 func TestRuntimeCreateUsesCatalogScopeAndBuildUsesRuntimeReference(t *testing.T) {

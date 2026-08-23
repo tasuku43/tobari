@@ -150,6 +150,33 @@ func chooseRuntimeBuild(ctx context.Context, c *CLI) (string, error) {
 	}
 }
 
+func confirmRuntimeBuildRecovery(ctx context.Context, c *CLI, recovery tobari.RuntimeBuildRecovery) (bool, error) {
+	if err := recovery.Validate(); err != nil {
+		return false, fault.Wrap(fault.KindContract, "runtime_recovery_contract_invalid", "The Runtime recovery target is invalid.", false, err)
+	}
+	index, err := runtimeReviewChooser(c).choose(ctx, c.In, c.Err, configurationWizardMenu{
+		title: "Tobari · Recover Runtime Build",
+		details: []configurationWizardDetail{
+			{label: "Runtime", value: recovery.Name},
+			{label: "Reference", value: recovery.RuntimeRef},
+			{label: "Recovery", value: string(recovery.Kind)},
+		},
+		information: []string{
+			"Re-observe and resume only the retained journal authority.",
+			"No Workspace Manifest, Workspace ID, home, or applied receipt is removed.",
+		},
+		prompt: "Action",
+		options: []configurationWizardOption{
+			{label: "Recover interrupted build", description: "Run the exact bounded recovery for this Runtime reference.", value: "recover"},
+			{label: "Cancel", description: "Keep the journal and all Runtime material unchanged.", value: "cancel"},
+		},
+	})
+	if err != nil {
+		return false, err
+	}
+	return index == 0, nil
+}
+
 func chooseRuntimeCreateBase(ctx context.Context, c *CLI, targetName string) (string, error) {
 	catalog, err := c.runtime.List(ctx)
 	if err != nil {

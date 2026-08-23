@@ -76,6 +76,48 @@ type runtimeBuildJournal struct {
 	CreatedAt         string `json:"created_at,omitempty"`
 }
 
+type runtimeBuildRecoveryReferenceContextKey struct{}
+
+func requireRuntimeBuildRecoveryReference(ctx context.Context, journal *runtimeBuildJournal) error {
+	expected, exact := ctx.Value(runtimeBuildRecoveryReferenceContextKey{}).(string)
+	if !exact {
+		return nil
+	}
+	if journal == nil || tobari.RuntimeRef(journal.RuntimeID) != expected {
+		return fmt.Errorf("Runtime build recovery target authority changed")
+	}
+	return nil
+}
+
+// RecoverRuntimeBuildByReference dispatches one review-confirmed recovery
+// without decoding or rediscovering its exact Runtime target. The reference is
+// compared to the current journal under the same lifecycle and Runtime locks.
+func (r *Runtime) RecoverRuntimeBuildByReference(ctx context.Context, runtimeRef string, kind tobari.RuntimeBuildRecoveryKind) error {
+	if err := tobari.ValidateRuntimeRef(runtimeRef); err != nil {
+		return fmt.Errorf("Runtime build recovery reference is invalid: %w", err)
+	}
+	if runtimeRef == tobari.StandardRuntimeID {
+		return fmt.Errorf("built-in Runtime has no managed build recovery")
+	}
+	ctx = context.WithValue(ctx, runtimeBuildRecoveryReferenceContextKey{}, runtimeRef)
+	switch kind {
+	case tobari.RuntimeBuildRecoveryPreDocker:
+		return r.RecoverRuntimeBuildPreDocker(ctx)
+	case tobari.RuntimeBuildRecoveryBuilding:
+		return r.RecoverRuntimeBuildBuilding(ctx)
+	case tobari.RuntimeBuildRecoveryPublication:
+		return r.RecoverRuntimeBuildPublication(ctx)
+	case tobari.RuntimeBuildRecoveryCleanup:
+		return r.RecoverRuntimeBuildCleanup(ctx)
+	case tobari.RuntimeBuildRecoveryOrphan:
+		return r.RecoverRuntimeBuildOrphanStaging(ctx)
+	case tobari.RuntimeBuildRecoveryFailed:
+		return r.RecoverRuntimeBuildFailed(ctx)
+	default:
+		return fmt.Errorf("Runtime build recovery kind is invalid")
+	}
+}
+
 func (r *Runtime) runtimeLifecycleDirectory() string {
 	return filepath.Join(r.stateDirectory, "runtime-lifecycle")
 }
@@ -482,6 +524,9 @@ func (r *Runtime) RecoverRuntimeBuildCleanup(ctx context.Context) error {
 			if err != nil {
 				return err
 			}
+			if err := requireRuntimeBuildRecoveryReference(recoveryContext, journal); err != nil {
+				return err
+			}
 			if journal == nil {
 				if _, snapshotErr := os.Lstat(filepath.Dir(r.runtimeBuildSnapshotPath())); !errors.Is(snapshotErr, os.ErrNotExist) {
 					if snapshotErr == nil {
@@ -511,6 +556,9 @@ func (r *Runtime) RecoverRuntimeBuildPublication(ctx context.Context) error {
 			if err != nil {
 				return err
 			}
+			if err := requireRuntimeBuildRecoveryReference(recoveryContext, journal); err != nil {
+				return err
+			}
 			if journal == nil || (journal.Phase != runtimeBuildPhaseBuilt && journal.Phase != runtimeBuildPhaseFinalTagged && journal.Phase != runtimeBuildPhaseStagingReleased && journal.Phase != runtimeBuildPhaseSnapshotPublished && journal.Phase != runtimeBuildPhaseManifestCommitted) {
 				return fmt.Errorf("Runtime build publication recovery authority is absent")
 			}
@@ -530,6 +578,9 @@ func (r *Runtime) RecoverRuntimeBuildOrphanStaging(ctx context.Context) error {
 		return r.withRuntimeStoreLock(lockContext, func() error {
 			journal, err := r.readRuntimeBuildJournalObserved()
 			if err != nil {
+				return err
+			}
+			if err := requireRuntimeBuildRecoveryReference(recoveryContext, journal); err != nil {
 				return err
 			}
 			if journal == nil || journal.Phase != runtimeBuildPhaseOrphanStaging {
@@ -576,6 +627,9 @@ func (r *Runtime) RecoverRuntimeBuildPreDocker(ctx context.Context) error {
 		return r.withRuntimeStoreLock(lockContext, func() error {
 			journal, err := r.readRuntimeBuildJournalObserved()
 			if err != nil {
+				return err
+			}
+			if err := requireRuntimeBuildRecoveryReference(recoveryContext, journal); err != nil {
 				return err
 			}
 			if journal == nil || (journal.Phase != runtimeBuildPhaseSnapshotting && journal.Phase != runtimeBuildPhasePrepared) {
@@ -648,6 +702,9 @@ func (r *Runtime) RecoverRuntimeBuildBuilding(ctx context.Context) error {
 			if err != nil {
 				return err
 			}
+			if err := requireRuntimeBuildRecoveryReference(recoveryContext, journal); err != nil {
+				return err
+			}
 			if journal == nil || journal.Phase != runtimeBuildPhaseBuilding || journal.StagingArtifact != runtimeBuildStagingUnknown {
 				return fmt.Errorf("Runtime building recovery authority is absent")
 			}
@@ -696,6 +753,32 @@ func (r *Runtime) RecoverRuntimeBuildBuilding(ctx context.Context) error {
 				return fmt.Errorf("publish reconciled Runtime build authority: %w", errors.Join(err, observeErr))
 			}
 			return nil
+		})
+	})
+}
+
+// RecoverRuntimeBuildFailed cleans only an explicitly settled failed attempt.
+// Unsettled absence/unknown evidence remains a durable blocker against late
+// Docker effects and selector reuse.
+func (r *Runtime) RecoverRuntimeBuildFailed(ctx context.Context) error {
+	recoveryContext, cancel := r.runtimeBuildRecoveryContext(ctx)
+	defer cancel()
+	return r.WithLifecycleLock(recoveryContext, func(lockContext context.Context) error {
+		return r.withRuntimeStoreLock(lockContext, func() error {
+			journal, err := r.readRuntimeBuildJournalObserved()
+			if err != nil {
+				return err
+			}
+			if err := requireRuntimeBuildRecoveryReference(recoveryContext, journal); err != nil {
+				return err
+			}
+			if journal == nil || journal.Phase != runtimeBuildPhaseFailed {
+				return fmt.Errorf("Runtime failed build recovery authority is absent")
+			}
+			if journal.AttemptSettlement != runtimeBuildAttemptSettled {
+				return fmt.Errorf("Runtime failed build attempt remains unsettled")
+			}
+			return r.completeRuntimeBuildJournal(recoveryContext, *journal)
 		})
 	})
 }

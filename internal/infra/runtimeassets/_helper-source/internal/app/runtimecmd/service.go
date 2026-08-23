@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"time"
 
 	"github.com/tasuku43/tobari/internal/app/execution"
 	"github.com/tasuku43/tobari/internal/app/portcheck"
@@ -21,6 +22,9 @@ type RuntimePort interface {
 	CreateRuntime(context.Context, string, tobari.RuntimeCopySource) (tobari.RuntimeReport, error)
 	ResolveRuntimeReference(context.Context, string) (tobari.RuntimeManifest, error)
 	BuildManagedRuntimeByReference(context.Context, string, io.Writer) (tobari.RuntimeReport, error)
+	ReadRuntimeLifecycleSnapshot(context.Context) (tobari.RuntimeLifecycleSnapshot, time.Time, error)
+	ReadRuntimeBuildRecovery(context.Context) (tobari.RuntimeBuildRecovery, bool, error)
+	RecoverRuntimeBuildByReference(context.Context, string, tobari.RuntimeBuildRecoveryKind) error
 }
 
 type ownedPolicy struct{}
@@ -47,6 +51,88 @@ type Service struct {
 
 func New(runtime RuntimePort) *Service {
 	return &Service{runtime: runtime, mutator: execution.New(ownedPolicy{})}
+}
+
+func (s *Service) PlanPrune(ctx context.Context) (tobari.RuntimePrunePlan, error) {
+	if err := s.requireRuntime(); err != nil {
+		return tobari.RuntimePrunePlan{}, err
+	}
+	snapshot, observedAt, err := s.runtime.ReadRuntimeLifecycleSnapshot(ctx)
+	if err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return tobari.RuntimePrunePlan{}, err
+		}
+		return tobari.RuntimePrunePlan{}, fault.Wrap(fault.KindRejected, "runtime_retirement_observation_unknown", "Runtime lifecycle could not be observed completely", false, err)
+	}
+	plan, err := tobari.PlanRuntimePrune(snapshot, observedAt)
+	if err != nil {
+		return tobari.RuntimePrunePlan{}, fault.Wrap(fault.KindContract, "invalid_runtime_prune_plan", "Runtime prune plan is invalid", false, err)
+	}
+	return plan, nil
+}
+
+func (s *Service) ReviewRecovery(ctx context.Context) (tobari.RuntimeBuildRecovery, bool, error) {
+	if err := s.requireRuntime(); err != nil {
+		return tobari.RuntimeBuildRecovery{}, false, err
+	}
+	recovery, found, err := s.runtime.ReadRuntimeBuildRecovery(ctx)
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return tobari.RuntimeBuildRecovery{}, false, err
+	}
+	if err != nil {
+		return tobari.RuntimeBuildRecovery{}, false, fault.Wrap(fault.KindRejected, "runtime_recovery_observation_unknown", "Runtime build recovery authority could not be observed completely", false, err, fault.NextAction{Command: "review runtimes", Reason: "Retry the trusted-host read-only review."})
+	}
+	if !found {
+		return tobari.RuntimeBuildRecovery{}, false, nil
+	}
+	if err := recovery.Validate(); err != nil {
+		return tobari.RuntimeBuildRecovery{}, false, fault.Wrap(fault.KindContract, "runtime_recovery_contract_invalid", "Runtime build recovery is invalid", false, err)
+	}
+	return recovery, true, nil
+}
+
+func (s *Service) Recover(ctx context.Context, intent operation.Intent, recovery tobari.RuntimeBuildRecovery) (tobari.RuntimeReport, error) {
+	if err := s.requireRuntime(); err != nil {
+		return tobari.RuntimeReport{}, err
+	}
+	if err := recovery.Validate(); err != nil {
+		return tobari.RuntimeReport{}, fault.Wrap(fault.KindInvalidInput, "invalid_runtime_recovery", "Runtime build recovery target is invalid", false, err, fault.NextAction{Command: "review runtimes", Reason: "Restart from current recovery authority."})
+	}
+	request := execution.Request{Intent: intent, ExpectedCommand: "runtime build", ExpectedEffect: operation.EffectWrite,
+		ExpectedTarget: operation.TargetRef{Kind: tobari.RuntimeReferenceKind, ID: recovery.RuntimeRef}, ExpectedImpact: intent.Impact}
+	var result tobari.RuntimeReport
+	err := s.mutator.Invoke(ctx, request, func(actionContext context.Context, _ operation.Intent) error {
+		if err := s.runtime.RecoverRuntimeBuildByReference(actionContext, recovery.RuntimeRef, recovery.Kind); err != nil {
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				return err
+			}
+			return fault.Wrap(fault.KindRejected, "runtime_recovery_failed", "Runtime build recovery remains incomplete", false, err, fault.NextAction{Command: "review runtimes", Reason: "Re-observe the retained journal before another mutation."})
+		}
+		manifest, err := s.runtime.ResolveRuntimeReference(actionContext, recovery.RuntimeRef)
+		if err != nil || manifest.ID != recovery.RuntimeID || manifest.Name != recovery.Name || manifest.Kind != tobari.RuntimeKindManaged {
+			if err == nil {
+				err = fmt.Errorf("recovered Runtime identity changed")
+			}
+			return fault.Wrap(fault.KindContract, "runtime_recovery_contract_invalid", "Recovered Runtime identity is invalid", false, err, fault.NextAction{Command: "review runtimes", Reason: "Reconcile the current Runtime catalog."})
+		}
+		result = tobari.RuntimeReport{Task: tobari.TaskRuntimeBuildV1, Runtime: manifest, NoChange: true}
+		if recovery.Kind == tobari.RuntimeBuildRecoveryPublication {
+			result.NoChange = false
+			result.Built = true
+		}
+		if err := result.Validate(); err != nil {
+			return fault.Wrap(fault.KindContract, "invalid_runtime_report", "Runtime recovery report is invalid", false, err)
+		}
+		return nil
+	})
+	if err != nil {
+		return tobari.RuntimeReport{}, err
+	}
+	result, err = tobari.RuntimeReportWithReferences(result)
+	if err != nil {
+		return tobari.RuntimeReport{}, fault.Wrap(fault.KindContract, "invalid_runtime_report", "Runtime recovery report is invalid", false, err)
+	}
+	return result, nil
 }
 
 func (s *Service) requireRuntime() error {

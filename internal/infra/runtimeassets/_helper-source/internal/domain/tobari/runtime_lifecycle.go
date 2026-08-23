@@ -285,6 +285,36 @@ type RuntimeLifecycleJournals struct {
 	FailedBuilds []RuntimeFailedBuildArtifact `json:"failed_builds"`
 }
 
+type RuntimeBuildRecoveryKind string
+
+const (
+	RuntimeBuildRecoveryPreDocker   RuntimeBuildRecoveryKind = "pre_docker"
+	RuntimeBuildRecoveryBuilding    RuntimeBuildRecoveryKind = "building"
+	RuntimeBuildRecoveryPublication RuntimeBuildRecoveryKind = "publication"
+	RuntimeBuildRecoveryCleanup     RuntimeBuildRecoveryKind = "cleanup"
+	RuntimeBuildRecoveryOrphan      RuntimeBuildRecoveryKind = "orphan_staging"
+	RuntimeBuildRecoveryFailed      RuntimeBuildRecoveryKind = "failed_build"
+)
+
+type RuntimeBuildRecovery struct {
+	RuntimeID  string                   `json:"runtime_id"`
+	RuntimeRef string                   `json:"runtime_ref"`
+	Name       string                   `json:"name"`
+	Kind       RuntimeBuildRecoveryKind `json:"kind"`
+}
+
+func (r RuntimeBuildRecovery) Validate() error {
+	if ValidateRuntimeID(r.RuntimeID) != nil || ValidateRuntimeRef(r.RuntimeRef) != nil || r.RuntimeRef != RuntimeRef(r.RuntimeID) || ValidateName(r.Name) != nil {
+		return fmt.Errorf("Runtime build recovery identity is invalid")
+	}
+	switch r.Kind {
+	case RuntimeBuildRecoveryPreDocker, RuntimeBuildRecoveryBuilding, RuntimeBuildRecoveryPublication, RuntimeBuildRecoveryCleanup, RuntimeBuildRecoveryOrphan, RuntimeBuildRecoveryFailed:
+		return nil
+	default:
+		return fmt.Errorf("Runtime build recovery kind is invalid")
+	}
+}
+
 func (j RuntimeLifecycleJournals) Validate() error {
 	if !j.Complete || j.Active == nil || j.FailedBuilds == nil {
 		return fmt.Errorf("Runtime lifecycle journal inventory is incomplete")

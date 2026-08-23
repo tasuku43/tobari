@@ -41,6 +41,33 @@ func runRuntimeReview(ctx context.Context, c *CLI, command CommandSpec, _ operat
 	if !runtimeReviewAvailable(ctx, c, format) {
 		return runRuntimeListCommand(ctx, c, command, inputs)
 	}
+	recovery, found, err := c.runtime.ReviewRecovery(ctx)
+	if err != nil {
+		return c.fail(ctx, normalizeRuntimeReviewError(command.Path, err))
+	}
+	if found {
+		confirmed, confirmErr := confirmRuntimeBuildRecovery(ctx, c, recovery)
+		if confirmErr != nil {
+			return c.fail(ctx, normalizeRuntimeReviewError(command.Path, confirmErr))
+		}
+		if !confirmed {
+			return c.fail(ctx, context.Canceled)
+		}
+		build, registered := c.catalog.lookupRegistered("runtime build")
+		if !registered {
+			return c.fail(ctx, fault.New(fault.KindContract, "invalid_catalog", "Runtime Review recovery action is missing.", false))
+		}
+		intent := operation.Intent{Command: build.Path, Effect: build.Effect, Target: operation.TargetRef{Kind: tobari.RuntimeReferenceKind, ID: recovery.RuntimeRef}, Impact: build.Agent.Mutation.Impact}
+		result, recoverErr := c.runtime.Recover(ctx, intent, recovery)
+		if recoverErr != nil {
+			return c.fail(ctx, recoverErr)
+		}
+		output, renderErr := renderRuntimeReport(build.Path, result, successFormatText, humanStyleAllowed(ctx, c, c.Out))
+		if renderErr != nil {
+			return c.fail(ctx, renderErr)
+		}
+		return c.emitMutationResult(ctx, build, output)
+	}
 	runtimeRef, err := chooseRuntimeBuild(ctx, c)
 	if err != nil {
 		return c.fail(ctx, normalizeRuntimeReviewError(command.Path, err))

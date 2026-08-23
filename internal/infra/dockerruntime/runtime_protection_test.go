@@ -23,8 +23,14 @@ type runtimeProtectionRunner struct {
 	fail        bool
 }
 
-func (r *runtimeProtectionRunner) Run(context.Context, []string, []string, io.Reader, io.Writer, io.Writer) error {
-	return errors.New("unexpected Docker mutation")
+func (r *runtimeProtectionRunner) Run(_ context.Context, args, _ []string, _ io.Reader, stdout, stderr io.Writer) error {
+	r.calls = append(r.calls, slices.Clone(args))
+	if r.fail {
+		_, _ = io.WriteString(stderr, "synthetic Docker observation failure")
+		return errors.New("synthetic Docker observation failure")
+	}
+	_, err := io.WriteString(stdout, `{"id":"`+r.containerID+`","owner":"`+ownerValue+`","component":"tobari","workspace":"`+r.workspaceID+`","role":"`+projectWorkRole+`","spec":"`+r.spec+`"}`)
+	return err
 }
 
 func (r *runtimeProtectionRunner) Output(_ context.Context, args, _ []string) ([]byte, error) {
@@ -223,7 +229,7 @@ func TestRuntimeProtectionCollapsesAppliedAndObservedExclusively(t *testing.T) {
 		t.Fatal(err)
 	}
 	runner.containerID, runner.workspaceID, runner.spec = containerID, workspace.ID, spec
-	observed, err := runtime.observeWorkspaceRuntimeProtection(context.Background(), workspace)
+	observed, err := runtime.observeWorkspaceRuntimeProtection(context.Background(), workspace, lifecycleTestBudget())
 	if err != nil || !observed {
 		t.Fatalf("observeWorkspaceRuntimeProtection() = %t, %v", observed, err)
 	}
@@ -238,6 +244,29 @@ func TestRuntimeProtectionCollapsesAppliedAndObservedExclusively(t *testing.T) {
 	if protection.RuntimeID != applied.RuntimeID || protection.RuntimeRevision != applied.RuntimeRevision ||
 		protection.WorkspaceID != applied.WorkspaceID {
 		t.Fatalf("exclusive reasons changed protection identity: observed=%+v applied=%+v", protection, applied)
+	}
+}
+
+func TestMissingRuntimeContainerInspectRequiresExactDiagnostic(t *testing.T) {
+	t.Parallel()
+	containerID := strings.Repeat("d", 64)
+	err := errors.New("container inspect failed")
+	for _, diagnostic := range []string{
+		"No such container: " + containerID,
+		"wrapper: Error response from daemon: No such container: " + containerID,
+		"Error response from daemon: No such container: " + containerID + " (wrapped)",
+		"Error response from daemon: No such container: " + containerID + "\nunrelated failure",
+		"Error response from daemon: No such container: unrelated\nError response from daemon: No such container: " + containerID,
+	} {
+		if isMissingRuntimeContainerInspect(err, []byte(diagnostic), containerID) {
+			t.Fatalf("diagnostic authorized container absence %q", diagnostic)
+		}
+	}
+	if !isMissingRuntimeContainerInspect(err, []byte("Error response from daemon: No such container: "+containerID), containerID) {
+		t.Fatal("exact missing-container diagnostic was rejected")
+	}
+	if isMissingRuntimeContainerInspect(nil, []byte("Error response from daemon: No such container: "+containerID), containerID) {
+		t.Fatal("successful inspect authorized container absence")
 	}
 }
 

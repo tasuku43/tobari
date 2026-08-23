@@ -23,18 +23,24 @@ import (
 type contextCLI fakeContextRuntime
 
 type runtimeCatalogCLI struct {
-	buildLog     string
-	buildErr     error
-	manifest     tobari.RuntimeManifest
-	list         []tobari.RuntimeSummary
-	listCalls    int
-	showCalls    int
-	historyCalls int
-	buildCalls   int
-	lastBuild    string
-	createCalls  int
-	lastCreate   string
-	lastBase     tobari.RuntimeCopySource
+	buildLog      string
+	buildErr      error
+	manifest      tobari.RuntimeManifest
+	list          []tobari.RuntimeSummary
+	listCalls     int
+	showCalls     int
+	historyCalls  int
+	buildCalls    int
+	lastBuild     string
+	createCalls   int
+	lastCreate    string
+	lastBase      tobari.RuntimeCopySource
+	recovery      *tobari.RuntimeBuildRecovery
+	recoveryErr   error
+	recoveryReads int
+	recoveries    int
+	recoveredRef  string
+	recoveredKind tobari.RuntimeBuildRecoveryKind
 }
 
 func testRuntimeManifest() tobari.RuntimeManifest {
@@ -122,6 +128,38 @@ func (f *runtimeCatalogCLI) BuildManagedRuntimeByReference(_ context.Context, re
 		return tobari.RuntimeReport{}, f.buildErr
 	}
 	return tobari.RuntimeReport{Task: tobari.TaskRuntimeBuildV1, Runtime: manifest, NoChange: true}, nil
+}
+func (f *runtimeCatalogCLI) ReadRuntimeLifecycleSnapshot(context.Context) (tobari.RuntimeLifecycleSnapshot, time.Time, error) {
+	standard := tobari.RuntimeManifest{SchemaVersion: tobari.RuntimeSchemaVersion, ID: tobari.StandardRuntimeID, Name: tobari.StandardRuntimeName, Kind: tobari.RuntimeKindBuiltin, Revisions: []tobari.RuntimeRevision{{Ordinal: 1, Revision: "sha256:" + strings.Repeat("f", 64), Image: tobari.OfficialRuntimeBase, CreatedAt: time.Unix(1, 0).UTC()}}}
+	runtimes := []tobari.RuntimeManifest{standard, f.runtimeManifest()}
+	items := []tobari.RuntimeMaterialObservation{}
+	for _, runtime := range runtimes {
+		if runtime.Kind != tobari.RuntimeKindManaged {
+			continue
+		}
+		for _, revision := range runtime.Revisions {
+			items = append(items, tobari.RuntimeMaterialObservation{RuntimeID: runtime.ID, Revision: revision.Revision, TagRole: tobari.RuntimeMaterialTagPublishedRevision, Availability: tobari.RuntimeAvailabilityMissing, ObservationComplete: true})
+		}
+	}
+	return tobari.RuntimeLifecycleSnapshot{CatalogComplete: true, Runtimes: runtimes, Protection: tobari.RuntimeProtectionInventory{Complete: true, Items: []tobari.RuntimeProtection{}}, Materials: items, Journals: tobari.RuntimeLifecycleJournals{Complete: true, Active: []tobari.RuntimeLifecycleActivity{}, FailedBuilds: []tobari.RuntimeFailedBuildArtifact{}}}, time.Unix(1, 0).UTC(), nil
+}
+
+func (f *runtimeCatalogCLI) ReadRuntimeBuildRecovery(context.Context) (tobari.RuntimeBuildRecovery, bool, error) {
+	f.recoveryReads++
+	if f.recoveryErr != nil {
+		return tobari.RuntimeBuildRecovery{}, false, f.recoveryErr
+	}
+	if f.recovery == nil {
+		return tobari.RuntimeBuildRecovery{}, false, nil
+	}
+	return *f.recovery, true, nil
+}
+
+func (f *runtimeCatalogCLI) RecoverRuntimeBuildByReference(_ context.Context, runtimeRef string, kind tobari.RuntimeBuildRecoveryKind) error {
+	f.recoveries++
+	f.recoveredRef = runtimeRef
+	f.recoveredKind = kind
+	return f.recoveryErr
 }
 
 func (f *contextCLI) ListContexts(context.Context) (tobari.ManifestListResult, error) {
@@ -1835,6 +1873,49 @@ func TestRuntimeBuildReviewSelectsAndConfirmsBeforeBuild(t *testing.T) {
 	}
 }
 
+func TestRuntimeBuildReviewConfirmsExactInterruptedRecovery(t *testing.T) {
+	manifest := readyRuntimeManifest()
+	recovery := tobari.RuntimeBuildRecovery{RuntimeID: manifest.ID, RuntimeRef: tobari.RuntimeRef(manifest.ID), Name: manifest.Name, Kind: tobari.RuntimeBuildRecoveryPreDocker}
+	fake := &runtimeCatalogCLI{manifest: manifest, list: runtimeReviewList(manifest), recovery: &recovery}
+	var stdout, stderr bytes.Buffer
+	command := newCLI(strings.NewReader("\n"), &stdout, &stderr, DefaultCatalog(), nil)
+	command.runtime = runtimecmd.New(fake)
+	command.tobari = tobaricmd.New(&policyReviewRuntimeFake{terminal: true})
+	command.config = &terminalContextConfigurationWizard{mode: nil, style: false}
+
+	if code := command.RunContext(context.Background(), []string{"review", "runtimes"}); code != ExitOK {
+		t.Fatalf("Runtime recovery Review code = %d, stderr = %q", code, stderr.String())
+	}
+	if fake.recoveryReads != 1 || fake.recoveries != 1 || fake.recoveredRef != recovery.RuntimeRef || fake.recoveredKind != recovery.Kind || fake.buildCalls != 0 || fake.listCalls != 0 || fake.showCalls != 0 {
+		t.Fatalf("Runtime recovery calls = read %d recover %d ref=%q kind=%q build/list/show=%d/%d/%d", fake.recoveryReads, fake.recoveries, fake.recoveredRef, fake.recoveredKind, fake.buildCalls, fake.listCalls, fake.showCalls)
+	}
+	for _, want := range []string{"Tobari · Recover Runtime Build", "Reference: " + recovery.RuntimeRef, "Recovery: pre_docker", "Recover interrupted build"} {
+		if !strings.Contains(stderr.String(), want) {
+			t.Fatalf("Runtime recovery stderr = %q, missing %q", stderr.String(), want)
+		}
+	}
+	if !strings.Contains(stdout.String(), "Runtime frontend") || !strings.Contains(stdout.String(), "unchanged") {
+		t.Fatalf("Runtime recovery stdout = %q", stdout.String())
+	}
+}
+
+func TestRuntimeBuildReviewRecoveryCancellationIsReadOnly(t *testing.T) {
+	manifest := readyRuntimeManifest()
+	recovery := tobari.RuntimeBuildRecovery{RuntimeID: manifest.ID, RuntimeRef: tobari.RuntimeRef(manifest.ID), Name: manifest.Name, Kind: tobari.RuntimeBuildRecoveryCleanup}
+	fake := &runtimeCatalogCLI{manifest: manifest, recovery: &recovery}
+	var stdout, stderr bytes.Buffer
+	command := newCLI(strings.NewReader("2\n"), &stdout, &stderr, DefaultCatalog(), nil)
+	command.runtime = runtimecmd.New(fake)
+	command.tobari = tobaricmd.New(&policyReviewRuntimeFake{terminal: true})
+	command.config = &terminalContextConfigurationWizard{mode: nil, style: false}
+	if code := command.RunContext(context.Background(), []string{"review", "runtimes"}); code != ExitCanceled {
+		t.Fatalf("canceled Runtime recovery code = %d, stderr = %q", code, stderr.String())
+	}
+	if fake.recoveryReads != 1 || fake.recoveries != 0 || fake.buildCalls != 0 || stdout.Len() != 0 {
+		t.Fatalf("canceled Runtime recovery calls/output = %d/%d/%d/%q", fake.recoveryReads, fake.recoveries, fake.buildCalls, stdout.String())
+	}
+}
+
 func TestRuntimeBuildReviewCancellationPerformsZeroBuild(t *testing.T) {
 	manifest := readyRuntimeManifest()
 	fake := &runtimeCatalogCLI{manifest: manifest, list: runtimeReviewList(manifest)}
@@ -1905,8 +1986,8 @@ func TestRuntimeReviewRedirectedAndJSONRemainExhaustiveReadOnly(t *testing.T) {
 		if code := command.RunContext(context.Background(), args); code != ExitOK {
 			t.Fatalf("redirected Runtime Review %v code/stderr = %d/%q", args, code, stderr.String())
 		}
-		if fake.listCalls != 1 || fake.showCalls != 0 || fake.buildCalls != 0 {
-			t.Fatalf("redirected Runtime Review %v calls = list %d show %d build %d", args, fake.listCalls, fake.showCalls, fake.buildCalls)
+		if fake.listCalls != 1 || fake.showCalls != 0 || fake.buildCalls != 0 || fake.recoveryReads != 0 || fake.recoveries != 0 {
+			t.Fatalf("redirected Runtime Review %v calls = list %d show %d build %d recovery=%d/%d", args, fake.listCalls, fake.showCalls, fake.buildCalls, fake.recoveryReads, fake.recoveries)
 		}
 		for _, want := range []string{tobari.StandardRuntimeName, tobari.StandardRuntimeID, manifest.Name, manifest.ID} {
 			if !strings.Contains(stdout.String(), want) {

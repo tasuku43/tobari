@@ -451,3 +451,21 @@ func TestPlanRuntimePruneDoesNotTreatHeadOrAppliedTimestampAsUsageAuthority(t *t
 		t.Fatalf("unprotected head plan = %+v/%v", plan, err)
 	}
 }
+
+func TestRuntimeBuildRecoveryRequiresExactStableIdentityAndKnownKind(t *testing.T) {
+	id := "018bcfe5-687b-7000-8000-000000000077"
+	for _, kind := range []RuntimeBuildRecoveryKind{RuntimeBuildRecoveryPreDocker, RuntimeBuildRecoveryBuilding, RuntimeBuildRecoveryPublication, RuntimeBuildRecoveryCleanup, RuntimeBuildRecoveryOrphan, RuntimeBuildRecoveryFailed} {
+		recovery := RuntimeBuildRecovery{RuntimeID: id, RuntimeRef: RuntimeRef(id), Name: "frontend", Kind: kind}
+		if err := recovery.Validate(); err != nil {
+			t.Fatalf("recovery kind %q: %v", kind, err)
+		}
+	}
+	for _, recovery := range []RuntimeBuildRecovery{
+		{RuntimeID: id, RuntimeRef: RuntimeRef("018bcfe5-687b-7000-8000-000000000099"), Name: "frontend", Kind: RuntimeBuildRecoveryCleanup},
+		{RuntimeID: id, RuntimeRef: RuntimeRef(id), Name: "frontend", Kind: "unknown"},
+	} {
+		if err := recovery.Validate(); err == nil {
+			t.Fatalf("invalid recovery validated: %+v", recovery)
+		}
+	}
+}

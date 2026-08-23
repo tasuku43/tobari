@@ -1463,6 +1463,44 @@ func TestRuntimeUnknownOrphanSettlementRequiresObservedAbsence(t *testing.T) {
 	})
 }
 
+func TestRuntimeBuildRecoveryByReferenceRejectsTargetOrKindDriftBeforeMutation(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		runtimeRef string
+		kind       tobari.RuntimeBuildRecoveryKind
+	}{
+		{name: "reference", runtimeRef: "018bcfe5-687b-7000-8000-000000000099", kind: tobari.RuntimeBuildRecoveryOrphan},
+		{name: "kind", kind: tobari.RuntimeBuildRecoveryBuilding},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			runtime, runner, _ := exactOrphanRuntimeBuildFixture(t)
+			journal, err := runtime.readRuntimeBuildJournalObserved()
+			if err != nil || journal == nil {
+				t.Fatalf("orphan journal = %+v/%v", journal, err)
+			}
+			ref := test.runtimeRef
+			if ref == "" {
+				ref = tobari.RuntimeRef(journal.RuntimeID)
+			}
+			before, err := os.ReadFile(runtime.runtimeBuildJournalPath())
+			if err != nil {
+				t.Fatal(err)
+			}
+			runsBefore := len(runner.runs)
+			if err := runtime.RecoverRuntimeBuildByReference(context.Background(), ref, test.kind); err == nil {
+				t.Fatal("drifted recovery target was accepted")
+			}
+			after, err := os.ReadFile(runtime.runtimeBuildJournalPath())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Equal(before, after) || len(runner.runs) != runsBefore {
+				t.Fatalf("drifted recovery crossed mutation = bytes %t runs %+v", bytes.Equal(before, after), runner.runs[runsBefore:])
+			}
+		})
+	}
+}
+
 func TestRuntimeOrphanStagingRecoveryPreservesDecisionAcrossCrashes(t *testing.T) {
 	for _, afterWrite := range []bool{false, true} {
 		t.Run(map[bool]string{false: "before completing write", true: "after completing write"}[afterWrite], func(t *testing.T) {
@@ -1871,6 +1909,25 @@ func TestRuntimeBuildRecoveriesShareOneBoundedDockerContext(t *testing.T) {
 		runtime.runtimeBuildRecoveryTimeout = 20 * time.Millisecond
 		if err := runtime.RecoverRuntimeBuildPublication(context.Background()); !errors.Is(err, context.DeadlineExceeded) {
 			t.Fatalf("publication recovery budget = %v", err)
+		}
+		runner.blockInspect = false
+		assertRuntimeBuildRecoveryReleasesLocks(t, runtime)
+	})
+
+	t.Run("settled failed", func(t *testing.T) {
+		runtime, runner, building := exactBuildingRuntimeBuildFixture(t)
+		failed := building
+		failed.Phase = runtimeBuildPhaseFailed
+		failed.ImageDigest = runner.images[building.StagingImage].id
+		failed.StagingArtifact = runtimeBuildStagingOwned
+		failed.AttemptSettlement = runtimeBuildAttemptSettled
+		if err := runtime.writeRuntimeBuildJournal(building, failed); err != nil {
+			t.Fatal(err)
+		}
+		runner.blockInspect = true
+		runtime.runtimeBuildRecoveryTimeout = 20 * time.Millisecond
+		if err := runtime.RecoverRuntimeBuildFailed(context.Background()); !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("failed recovery budget = %v", err)
 		}
 		runner.blockInspect = false
 		assertRuntimeBuildRecoveryReleasesLocks(t, runtime)
