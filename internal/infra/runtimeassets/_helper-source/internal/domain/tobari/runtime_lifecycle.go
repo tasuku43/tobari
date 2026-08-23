@@ -40,19 +40,27 @@ func (a RuntimeAvailability) Validate() error {
 // RuntimeMaterialObservation contains bounded infrastructure evidence for one
 // immutable managed revision. Docker selectors and IDs remain below domain.
 type RuntimeMaterialObservation struct {
-	RuntimeID           string              `json:"runtime_id"`
-	Revision            string              `json:"revision"`
-	Availability        RuntimeAvailability `json:"availability"`
-	TagPresent          bool                `json:"tag_present"`
-	ContentPresent      bool                `json:"content_present"`
-	SharedContent       bool                `json:"shared_content"`
-	OwnershipVerified   bool                `json:"ownership_verified"`
-	MigrationUnverified bool                `json:"migration_unverified"`
-	ObservationComplete bool                `json:"observation_complete"`
-	WorkspaceInUse      bool                `json:"workspace_in_use"`
-	ExternalInUse       bool                `json:"external_in_use"`
-	ImageVirtualBytes   *int64              `json:"image_virtual_bytes"`
+	RuntimeID           string                 `json:"runtime_id"`
+	Revision            string                 `json:"revision"`
+	TagRole             RuntimeMaterialTagRole `json:"tag_role"`
+	Availability        RuntimeAvailability    `json:"availability"`
+	TagPresent          bool                   `json:"tag_present"`
+	ContentPresent      bool                   `json:"content_present"`
+	SharedContent       bool                   `json:"shared_content"`
+	OwnershipVerified   bool                   `json:"ownership_verified"`
+	MigrationUnverified bool                   `json:"migration_unverified"`
+	ObservationComplete bool                   `json:"observation_complete"`
+	WorkspaceInUse      bool                   `json:"workspace_in_use"`
+	ExternalInUse       bool                   `json:"external_in_use"`
+	ImageVirtualBytes   *int64                 `json:"image_virtual_bytes"`
 }
+
+type RuntimeMaterialTagRole string
+
+const (
+	RuntimeMaterialTagPublishedRevision RuntimeMaterialTagRole = "published_revision"
+	RuntimeMaterialTagJournaledStaging  RuntimeMaterialTagRole = "journaled_staging"
+)
 
 func (o RuntimeMaterialObservation) Validate() error {
 	if err := ValidateRuntimeID(o.RuntimeID); err != nil {
@@ -63,6 +71,9 @@ func (o RuntimeMaterialObservation) Validate() error {
 	}
 	if err := o.Availability.Validate(); err != nil {
 		return err
+	}
+	if o.TagRole != RuntimeMaterialTagPublishedRevision && o.TagRole != RuntimeMaterialTagJournaledStaging {
+		return fmt.Errorf("Runtime material tag role is invalid")
 	}
 	if !o.ObservationComplete {
 		return RuntimeProtectionInventoryError{Reason: RuntimeProtectionInventoryObservationUnknown}
@@ -142,6 +153,9 @@ func (s RuntimeLifecycleSnapshot) Validate() error {
 		if err := material.Validate(); err != nil {
 			return err
 		}
+		if material.TagRole != RuntimeMaterialTagPublishedRevision {
+			return fmt.Errorf("successful Runtime revision requires published-tag evidence")
+		}
 		key := material.RuntimeID + "\x00" + material.Revision
 		if _, exists := revisions[key]; !exists {
 			return fmt.Errorf("Runtime material has no immutable revision authority")
@@ -209,9 +223,13 @@ func (a RuntimeLifecycleActivity) Validate() error {
 		return fmt.Errorf("Runtime lifecycle activity revisions are incomplete")
 	}
 	switch a.Kind {
-	case RuntimeLifecycleActivityBuild, RuntimeLifecycleActivityRestore:
+	case RuntimeLifecycleActivityBuild:
+		if len(a.Revisions) > 1 {
+			return fmt.Errorf("Runtime build activity has at most one observed semantic revision")
+		}
+	case RuntimeLifecycleActivityRestore:
 		if len(a.Revisions) != 1 {
-			return fmt.Errorf("Runtime build or restore activity requires one semantic revision")
+			return fmt.Errorf("Runtime restore activity requires one semantic revision")
 		}
 	case RuntimeLifecycleActivityPrune:
 		if len(a.Revisions) == 0 {
@@ -254,6 +272,9 @@ func (a RuntimeFailedBuildArtifact) Validate() error {
 	}
 	if a.RuntimeRef != RuntimeRef(a.RuntimeID) || ValidateName(a.Name) != nil || a.Material.RuntimeID != a.RuntimeID || a.Material.Revision != a.Revision {
 		return fmt.Errorf("failed Runtime build artifact authority is invalid")
+	}
+	if a.Material.TagRole != RuntimeMaterialTagJournaledStaging {
+		return fmt.Errorf("failed Runtime build artifact requires journaled staging-tag evidence")
 	}
 	return a.Material.Validate()
 }
@@ -344,6 +365,9 @@ const (
 	RuntimeBlockedByImageMissing        RuntimeMaterialBlockerReason = "image_missing"
 	RuntimeBlockedByImageTagMissing     RuntimeMaterialBlockerReason = "image_tag_missing_content_present"
 	RuntimeBlockedByImageTagShared      RuntimeMaterialBlockerReason = "image_tag_missing_content_shared"
+	RuntimeBlockedByStagingMissing      RuntimeMaterialBlockerReason = "staging_image_missing"
+	RuntimeBlockedByStagingTagMissing   RuntimeMaterialBlockerReason = "staging_tag_missing_content_present"
+	RuntimeBlockedByStagingTagShared    RuntimeMaterialBlockerReason = "staging_tag_missing_content_shared"
 	RuntimeBlockedByImageMismatched     RuntimeMaterialBlockerReason = "image_mismatched"
 	RuntimeBlockedByObservationUnknown  RuntimeMaterialBlockerReason = "observation_unknown"
 	RuntimeBlockedByMigrationUnverified RuntimeMaterialBlockerReason = "migration_unverified"
@@ -363,7 +387,7 @@ func (b RuntimeMaterialBlocker) Validate() error {
 		return err
 	}
 	if b.Revision == "" {
-		if b.Reason != RuntimeBlockedByActiveRetirement {
+		if b.Reason != RuntimeBlockedByActiveRetirement && b.Reason != RuntimeBlockedByActiveBuild {
 			return fmt.Errorf("Runtime material blocker revision is required")
 		}
 	} else if err := ValidateDigest(b.Revision); err != nil {
@@ -372,6 +396,7 @@ func (b RuntimeMaterialBlocker) Validate() error {
 	switch b.Reason {
 	case RuntimeBlockedByWorkspaceContainer, RuntimeBlockedByExternalContainer, RuntimeBlockedByImageMissing,
 		RuntimeBlockedByImageTagMissing, RuntimeBlockedByImageTagShared, RuntimeBlockedByImageMismatched,
+		RuntimeBlockedByStagingMissing, RuntimeBlockedByStagingTagMissing, RuntimeBlockedByStagingTagShared,
 		RuntimeBlockedByObservationUnknown, RuntimeBlockedByMigrationUnverified, RuntimeBlockedByImagePruned,
 		RuntimeBlockedByActiveBuild, RuntimeBlockedByActiveRetirement:
 		return nil
@@ -475,7 +500,7 @@ func PlanRuntimePrune(snapshot RuntimeLifecycleSnapshot, observedAt time.Time) (
 		if activity.Kind == RuntimeLifecycleActivityBuild {
 			reason = RuntimeBlockedByActiveBuild
 		}
-		if activity.Kind == RuntimeLifecycleActivityDelete {
+		if activity.Kind == RuntimeLifecycleActivityDelete || len(activity.Revisions) == 0 {
 			activeRuntime[activity.RuntimeID] = true
 			blockers = append(blockers, RuntimeMaterialBlocker{RuntimeID: activity.RuntimeID, Reason: reason})
 			continue
@@ -541,13 +566,24 @@ func runtimeMaterialBlockers(material RuntimeMaterialObservation) []RuntimeMater
 	}
 	switch material.Availability {
 	case RuntimeAvailabilityMissing:
-		switch {
-		case material.ContentPresent && material.SharedContent:
-			appendReason(RuntimeBlockedByImageTagShared)
-		case material.ContentPresent:
-			appendReason(RuntimeBlockedByImageTagMissing)
-		default:
-			appendReason(RuntimeBlockedByImageMissing)
+		if material.TagRole == RuntimeMaterialTagJournaledStaging {
+			switch {
+			case material.ContentPresent && material.SharedContent:
+				appendReason(RuntimeBlockedByStagingTagShared)
+			case material.ContentPresent:
+				appendReason(RuntimeBlockedByStagingTagMissing)
+			default:
+				appendReason(RuntimeBlockedByStagingMissing)
+			}
+		} else {
+			switch {
+			case material.ContentPresent && material.SharedContent:
+				appendReason(RuntimeBlockedByImageTagShared)
+			case material.ContentPresent:
+				appendReason(RuntimeBlockedByImageTagMissing)
+			default:
+				appendReason(RuntimeBlockedByImageMissing)
+			}
 		}
 	case RuntimeAvailabilityMismatched:
 		appendReason(RuntimeBlockedByImageMismatched)

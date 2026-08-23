@@ -30,11 +30,17 @@ func lifecycleStandard() RuntimeManifest {
 }
 
 func lifecycleSnapshot(runtimes []RuntimeManifest, protection []RuntimeProtection, materials []RuntimeMaterialObservation) RuntimeLifecycleSnapshot {
+	materialCopy := append([]RuntimeMaterialObservation{}, materials...)
+	for index := range materialCopy {
+		if materialCopy[index].TagRole == "" {
+			materialCopy[index].TagRole = RuntimeMaterialTagPublishedRevision
+		}
+	}
 	return RuntimeLifecycleSnapshot{
 		CatalogComplete: true,
 		Runtimes:        append([]RuntimeManifest{lifecycleStandard()}, runtimes...),
 		Protection:      RuntimeProtectionInventory{Complete: true, Items: protection},
-		Materials:       materials,
+		Materials:       materialCopy,
 		Journals:        RuntimeLifecycleJournals{Complete: true, Active: []RuntimeLifecycleActivity{}, FailedBuilds: []RuntimeFailedBuildArtifact{}},
 	}
 }
@@ -167,10 +173,10 @@ func TestRuntimeMaterialObservationPreservesTagContentAndMigrationDistinctions(t
 	id := "018bcfe5-687b-7000-8000-000000000077"
 	revision := "sha256:" + strings.Repeat("a", 64)
 	valid := []RuntimeMaterialObservation{
-		{RuntimeID: id, Revision: revision, Availability: RuntimeAvailabilityAvailable, TagPresent: true, ContentPresent: true, SharedContent: true, OwnershipVerified: true, ObservationComplete: true},
-		{RuntimeID: id, Revision: revision, Availability: RuntimeAvailabilityMissing, ContentPresent: true, SharedContent: true, OwnershipVerified: true, ObservationComplete: true, WorkspaceInUse: true},
-		{RuntimeID: id, Revision: revision, Availability: RuntimeAvailabilityMissing, ObservationComplete: true},
-		{RuntimeID: id, Revision: revision, Availability: RuntimeAvailabilityUnknown, MigrationUnverified: true, ObservationComplete: true},
+		{RuntimeID: id, Revision: revision, TagRole: RuntimeMaterialTagPublishedRevision, Availability: RuntimeAvailabilityAvailable, TagPresent: true, ContentPresent: true, SharedContent: true, OwnershipVerified: true, ObservationComplete: true},
+		{RuntimeID: id, Revision: revision, TagRole: RuntimeMaterialTagPublishedRevision, Availability: RuntimeAvailabilityMissing, ContentPresent: true, SharedContent: true, OwnershipVerified: true, ObservationComplete: true, WorkspaceInUse: true},
+		{RuntimeID: id, Revision: revision, TagRole: RuntimeMaterialTagPublishedRevision, Availability: RuntimeAvailabilityMissing, ObservationComplete: true},
+		{RuntimeID: id, Revision: revision, TagRole: RuntimeMaterialTagPublishedRevision, Availability: RuntimeAvailabilityUnknown, MigrationUnverified: true, ObservationComplete: true},
 	}
 	for _, observation := range valid {
 		if err := observation.Validate(); err != nil {
@@ -179,12 +185,12 @@ func TestRuntimeMaterialObservationPreservesTagContentAndMigrationDistinctions(t
 	}
 
 	invalid := []RuntimeMaterialObservation{
-		{RuntimeID: id, Revision: revision, Availability: RuntimeAvailabilityAvailable, OwnershipVerified: true, ObservationComplete: true},
-		{RuntimeID: id, Revision: revision, Availability: RuntimeAvailabilityMissing, TagPresent: true, ObservationComplete: true},
-		{RuntimeID: id, Revision: revision, Availability: RuntimeAvailabilityMismatched, ObservationComplete: true},
-		{RuntimeID: id, Revision: revision, Availability: RuntimeAvailabilityMissing, SharedContent: true, ObservationComplete: true},
-		{RuntimeID: id, Revision: revision, Availability: RuntimeAvailabilityMissing, OwnershipVerified: true, ObservationComplete: true},
-		{RuntimeID: id, Revision: revision, Availability: RuntimeAvailabilityMissing, MigrationUnverified: true, ObservationComplete: true},
+		{RuntimeID: id, Revision: revision, TagRole: RuntimeMaterialTagPublishedRevision, Availability: RuntimeAvailabilityAvailable, OwnershipVerified: true, ObservationComplete: true},
+		{RuntimeID: id, Revision: revision, TagRole: RuntimeMaterialTagPublishedRevision, Availability: RuntimeAvailabilityMissing, TagPresent: true, ObservationComplete: true},
+		{RuntimeID: id, Revision: revision, TagRole: RuntimeMaterialTagPublishedRevision, Availability: RuntimeAvailabilityMismatched, ObservationComplete: true},
+		{RuntimeID: id, Revision: revision, TagRole: RuntimeMaterialTagPublishedRevision, Availability: RuntimeAvailabilityMissing, SharedContent: true, ObservationComplete: true},
+		{RuntimeID: id, Revision: revision, TagRole: RuntimeMaterialTagPublishedRevision, Availability: RuntimeAvailabilityMissing, OwnershipVerified: true, ObservationComplete: true},
+		{RuntimeID: id, Revision: revision, TagRole: RuntimeMaterialTagPublishedRevision, Availability: RuntimeAvailabilityMissing, MigrationUnverified: true, ObservationComplete: true},
 	}
 	for _, observation := range invalid {
 		if err := observation.Validate(); err == nil {
@@ -225,12 +231,31 @@ func TestRuntimePrunePlanRepresentsCompleteJournalState(t *testing.T) {
 	}
 
 	failedRevision := "sha256:" + strings.Repeat("e", 64)
-	failedMaterial := RuntimeMaterialObservation{RuntimeID: id, Revision: failedRevision, Availability: RuntimeAvailabilityAvailable, TagPresent: true, ContentPresent: true, OwnershipVerified: true, ObservationComplete: true}
+	failedMaterial := RuntimeMaterialObservation{RuntimeID: id, Revision: failedRevision, TagRole: RuntimeMaterialTagJournaledStaging, Availability: RuntimeAvailabilityAvailable, TagPresent: true, ContentPresent: true, OwnershipVerified: true, ObservationComplete: true}
 	failed := lifecycleSnapshot([]RuntimeManifest{manifest}, []RuntimeProtection{}, []RuntimeMaterialObservation{available})
 	failed.Journals.FailedBuilds = []RuntimeFailedBuildArtifact{{RuntimeID: id, Revision: failedRevision, RuntimeRef: RuntimeRef(id), Name: manifest.Name, Material: failedMaterial}}
 	plan, err = PlanRuntimePrune(failed, time.Unix(10, 0).UTC())
 	if err != nil || !plan.Applicable || len(plan.Candidates) != 2 || plan.Candidates[1].Kind != RuntimePruneCandidateFailedBuild || plan.Candidates[1].RevisionRef != "" || plan.Candidates[1].Ordinal != 0 {
 		t.Fatalf("journaled failed-build plan = %+v/%v", plan, err)
+	}
+
+	wrongSuccessfulRole := lifecycleSnapshot([]RuntimeManifest{manifest}, []RuntimeProtection{}, []RuntimeMaterialObservation{{RuntimeID: id, Revision: revision, TagRole: RuntimeMaterialTagJournaledStaging, Availability: RuntimeAvailabilityAvailable, TagPresent: true, ContentPresent: true, OwnershipVerified: true, ObservationComplete: true}})
+	if err := wrongSuccessfulRole.Validate(); err == nil {
+		t.Fatal("successful revision accepted staging-tag evidence")
+	}
+	wrongFailedRole := failed
+	wrongFailedRole.Journals.FailedBuilds = append([]RuntimeFailedBuildArtifact{}, failed.Journals.FailedBuilds...)
+	wrongFailedRole.Journals.FailedBuilds[0].Material.TagRole = RuntimeMaterialTagPublishedRevision
+	if err := wrongFailedRole.Validate(); err == nil {
+		t.Fatal("failed build accepted published-tag evidence")
+	}
+
+	stagingMissing := failed
+	stagingMissing.Journals.FailedBuilds = append([]RuntimeFailedBuildArtifact{}, failed.Journals.FailedBuilds...)
+	stagingMissing.Journals.FailedBuilds[0].Material = RuntimeMaterialObservation{RuntimeID: id, Revision: failedRevision, TagRole: RuntimeMaterialTagJournaledStaging, Availability: RuntimeAvailabilityMissing, ContentPresent: true, SharedContent: true, OwnershipVerified: true, ObservationComplete: true}
+	plan, err = PlanRuntimePrune(stagingMissing, time.Unix(10, 0).UTC())
+	if err != nil || len(plan.Blockers) != 1 || plan.Blockers[0].Reason != RuntimeBlockedByStagingTagShared {
+		t.Fatalf("staging-tag blocker = %+v/%v", plan, err)
 	}
 }
 
