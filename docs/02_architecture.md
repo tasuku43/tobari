@@ -73,6 +73,23 @@ bounded HTTP/1.1/WebSocket relay to exact Workspace loopback. This channel
 shares no schema, socket, registry, authority, or data plane with browser login
 or Host Loopback access.
 
+Permission resume is a third, read-only attachment concern. The interactive
+Tobari entry session created before the child is its canonical owner; Host
+Loopback is only one capability on that session. Exactly one owner epoch may
+exist for a Workspace Manifest/Workspace pair, concurrent borrower entries
+share it, and service-exposure controller attachment IDs are ineligible. A
+bounded private session registry joins one frozen schema-v1 Gateway principal
+to canonical Workspace Manifest and Workspace IDs, attachment epoch, owner,
+nonce, ingestion endpoint, and lifetime. Gateway emits resume data only after
+that owner acknowledges the exact immutable secret-free wait record.
+
+The owner keeps the wait registry in memory and exposes one attachment-local
+read-only Unix socket to `tobari-permission`. Observation delegates exact
+effect evaluation and precedence to the canonical live OPA policy; it adds no
+rule matcher, policy authority, persistent store, daemon, Workspace file, or
+request replay. Teardown ends the authority and never rebinds waits to a new
+attachment.
+
 Attachment Grants are runtime-owned inputs to the complete per-request OPA projection and
 are disjoint from Workspace Manifest `policy/domains` learned rules. Policy review binds
 one grant to Workspace Manifest, project, epoch, target port, and exact effect. The route is
@@ -224,6 +241,11 @@ The Catalog spans both executable programs so the helper's produced service
 reference can close through the host actions and the exposure reference can
 close through helper stop. Validation and reference closure are global;
 dispatch, human help, and scoped agent help are filtered by exact program.
+The dedicated `tobari-permission` Program participates in that same global
+Catalog but its required `permission_wait_id` is bounded plain text, not an
+opaque reference. It has no producer, completion, discovery, or local output
+traversal; the global recursive output/reference derivation remains the only
+walker.
 The pure `review` Catalog namespace has two host-only leaves. `review
 permissions` delegates to the existing Permission Inbox read and fixed-target
 staged Apply path. `review services` delegates directly to the fresh Service

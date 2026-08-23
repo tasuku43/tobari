@@ -587,6 +587,25 @@ command. The object is advisory data
 for the child process, not an authorization token or an instruction to retry;
 it contains no candidate ID, query, body, header, credential, policy path, or
 dynamic command argument. Non-learnable denials advertise no review command.
+
+For a supported ordinary HTTP or HTTPS denial, the optional permission-resume
+handoff is issued only after Gateway joins the authenticated frozen schema-v1
+principal to exactly one bounded canonical interactive-session record and that
+owner acknowledges the immutable secret-free wait record. The schema-2 denial
+and wait projection uses `workspace_manifest_id` and `workspace_id`; the
+principal registry, Gateway-to-OPA input, persisted learned-policy wire, and
+Host Loopback route/grant schema-v1 bytes remain unchanged. Zero, duplicate,
+stale, malformed, symlinked, drifted, or concurrently replaced owner records
+omit the handoff. The attachment-local helper socket proves attachment
+possession independently of the non-authoritative wait ID.
+
+The owner keeps at most eight waits in memory for at most fifteen minutes, with
+one active connection and three attempts per ID. Request and response frames
+are bounded to 4 KiB and 1 KiB. The helper observes the canonical live OPA
+evaluator and returns only `Allow`, explicit `Deny`, or validated lease
+`Expired`; default deny and ambiguous or unapplied state remain nonterminal.
+It receives no policy mutation, proposal, general network, filesystem, Docker,
+process, or TTY capability and never reconstructs or retries the request.
 The host-owned retained denial queue remains the source of truth, and only the
 reference-bound host action can change policy. Interactive `review permissions`
 instead permits one command-bound fixed-target Apply over a bounded typed set:

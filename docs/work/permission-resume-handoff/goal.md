@@ -11,6 +11,7 @@
   `docs/07_authentication.md` through `docs/09_agent_readiness_validation.md`,
   ADR 0024, ADR 0061, ADR 0073, accepted
   [ADR 0079](../../decisions/0079-model-workspace-manifests-and-applied-workspaces.md),
+  accepted [ADR 0081](../../decisions/0081-observe-reviewed-permission-from-an-attached-workspace.md),
   and [Runtime Retirement](../runtime-retirement/goal.md), plus the
   completed WP08 Catalog/output mechanism in [Architecture](../../02_architecture.md)
   and [Harness](../../04_harness.md), and the standard-surface boundary owned by
@@ -19,10 +20,9 @@
   implementation and readiness evidence land, and the change completes
 - Successor: None
 - Owner: Tobari product, domain, security, and runtime maintainers
-- Target: An independent slice gated on re-observation of the integrated
-  ADR 0079 production contract and the later WP08 Catalog contract, including
-  `workspace_manifest_id`/`workspace_id` policy, principal, audit, Catalog,
-  schema, and migration contracts; no implementation is part of this packet
+- Target: The dedicated `codex/wp07-permission-resume` worktree at base
+  `becd6c2b4fb42928152ec4b416cea198c868e875`, after re-observing integrated
+  ADR 0079 identity and the completed WP08 recursive Catalog contract
 - Related work: [ADR 0079](../../decisions/0079-model-workspace-manifests-and-applied-workspaces.md),
   the completed WP08 Catalog/output contracts in [Architecture](../../02_architecture.md) and [Harness](../../04_harness.md),
   [Runtime Retirement](../runtime-retirement/goal.md),
@@ -60,7 +60,7 @@ observation handoff, not another permission workflow.
 |---|---|
 | Policy authority | The trusted-host Permission Inbox and canonical internal `policy apply-reviewed` action remain the only reviewed mutation path. |
 | Permission scope | One learned decision is keyed by exact `workspace_manifest_id`, exact `workspace_id`, and normalized effect identity. Manifest name, generation, and revision are never substitutes. |
-| Wait observation | One attached Workspace may observe the terminal disposition of one exact denial correlation ID through its attachment-local helper socket. The record binds `WorkspaceManifestID`, `WorkspaceID`, `AttachmentID`/epoch, and the exact original normalized effect, not legacy Context/project identities. |
+| Wait observation | The one canonical interactive attachment session may observe the terminal disposition of one exact denial correlation ID through its attachment-local helper socket. The record binds `WorkspaceManifestID`, `WorkspaceID`, `AttachmentID`/epoch, the frozen schema-v1 principal projection, and the exact original normalized effect. |
 | Scope | V1 covers generic ordinary external HTTP and HTTPS denials whose exact original normalized effect is reviewable. It excludes Host Loopback and protocol-derived GraphQL, MCP, AWS, Kubernetes, Git, and OCI semantics initially. A reviewed conservative `path_template` Allow may still authorize the exact ordinary effect through canonical policy evaluation. |
 | Lifetime | One attachment and at most 15 minutes from denial creation, whichever ends first. |
 | Mutability | The denial correlation record is immutable. One terminal result consumes it; cancellation or transport loss does not. The helper has no mutation or reconciliation port. The observed result follows canonical active-policy evaluation and is not a permission lease. |
@@ -141,11 +141,13 @@ observation handoff, not another permission workflow.
       helper socket. It uses `pwt_` plus 32 lowercase hexadecimal characters
       from 128 bits of CSPRNG output. It is not a policy reference or bearer
       credential.
-- [ ] Every denial, candidate, learned rule, review item, Apply receipt, and
-      wait record uses exact `WorkspaceManifestID` + `WorkspaceID` + normalized
-      effect identity; the wait record additionally binds exact
-      `AttachmentID`/epoch. No final schema or routine output retains `Context`,
-      `context_id`, `project_id`, or `instance_id`, and no public alias exists.
+- [ ] WP07-owned Gateway denial and retained wait/audit records use exact
+      `WorkspaceManifestID` + `WorkspaceID` + normalized effect identity; the
+      wait record additionally binds exact `AttachmentID`/epoch. Their schema-2
+      output exposes no legacy alias. Frozen schema-v1 principal registry,
+      Gateway-to-OPA input, persisted learned-policy, and Host Loopback
+      route/grant wires retain their exact `context_id`/`project_id`/`context`
+      compatibility tokens and gain no dual reader.
 - [ ] The wait handoff makes a reviewed hard cutover of the Gateway denial
       document to schema 2; no reader silently widens schema 1 and no dual
       schema is accepted. The helper JSON contract independently remains
@@ -202,11 +204,14 @@ observation handoff, not another permission workflow.
       active permission disposition and never reconciles Workspace runtime,
       shared cluster state, Manifest desired/applied state, or permission
       authority.
-- [ ] The existing trusted-host attachment owner process owns both the private
+- [ ] The canonical interactive Workspace attachment owner process owns both the private
       helper socket and bounded in-memory wait registry. Gateway supplies one
-      secret-free correlation/audit record through an existing bounded control/
-      audit seam. No persistent store, daemon, Workspace file, second policy
-      authority, or child-PID authority is added.
+      secret-free correlation/audit record through a bounded authenticated
+      owner ingestion seam and publishes resume only after exact owner ACK.
+      Exactly one owner epoch exists per WorkspaceManifestID/WorkspaceID;
+      borrowers share it, service-exposure controllers are ineligible, and
+      ambiguity fails closed. No persistent store, daemon, Workspace file,
+      second policy authority, or child-PID authority is added.
 - [ ] Any child process or session within the same live attachment may use that
       attachment's socket and issued ID. A different or new attachment cannot;
       pending adoption and Workspace recreation never rebind a wait.

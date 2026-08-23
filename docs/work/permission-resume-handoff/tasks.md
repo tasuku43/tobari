@@ -38,9 +38,10 @@
       syntax `^pwt_[0-9a-f]{32}$`, minimum/maximum length 36, and no completion,
       discovery producer, opaque-reference semantics, or `ReferenceKind`. Add
       only generic `MaximumLength` after WP08 if the completed Catalog lacks it.
-- [x] Hard-cut Gateway denial to reviewed schema 2 without dual acceptance;
-      keep helper JSON as its independent schema 1 and remove all legacy
-      Context/project compatibility fields.
+- [x] Hard-cut only WP07-owned Gateway denial and retained wait/audit record to
+      reviewed schema 2 without dual acceptance; keep helper JSON as its
+      independent schema 1 and keep frozen principal/OPA/learned-policy/Host
+      Loopback schema-v1 compatibility wires byte/schema stable.
 - [x] Fix stable capability ID `policy.permission-wait`, RoleUtility,
       EffectRead, and the separate hard-coded Program/grammar.
 - [x] Fix generic ordinary external HTTP/HTTPS with an exact reviewable
@@ -62,9 +63,9 @@
       and issue any later wait freshly after re-entry.
 - [x] Fix WP08 as the preceding Catalog-wide traversal owner and standard
       release composition unless an accepted WP04 decision changes it.
-- [ ] Specify component identity/version mismatch behavior after observing the
+- [x] Specify component identity/version mismatch behavior after observing the
       integrated ADR 0079/WP08 topology.
-- [ ] Accept an ADR and propagate any thesis/security/architecture consequence
+- [x] Accept ADR 0081 and propagate its thesis/product/security/architecture/harness consequence
       before implementation.
 
 ## Hold and re-observe integrated upstream contracts
@@ -73,11 +74,11 @@
       `428812f`, plus current HEAD `52a53bcc69a0f2bdf9bf2a6782ecd98bacd8b0e1`;
       do not edit its production files, schema, Catalog, migration,
       desired/applied state, generated outputs, or durable docs.
-- [ ] Immediately before implementation, fetch and record actual HEAD/upstream,
+- [x] Immediately before implementation, record actual HEAD/upstream,
       protect the worktree, and re-read the implemented domain/application/
       infrastructure/CLI, Catalog, schema, migration, policy/audit, attachment,
       and test surfaces rather than relying on this synchronization snapshot.
-- [ ] Confirm then-current WorkspaceManifestID/WorkspaceID/ProjectRoot scope,
+- [x] Confirm then-current WorkspaceManifestID/WorkspaceID/ProjectRoot scope,
       principal and policy/audit fields, desired/applied/observed/failure split,
       predecessor UUID retention, candidate rederivation, and exclusion of
       active attachment authority.
@@ -91,7 +92,7 @@
 - [ ] Verify no unmerged upstream ownership or worktree conflict remains in files
       permission-resume would change. Add no alternate identity path,
       compatibility alias, or dual reader.
-- [ ] Wait for `WP08_IMPLEMENTATION_COMPLETE`, inspect its actual Catalog input
+- [x] Observe completed WP08, inspect its actual Catalog input
       bounds and recursive output/reference traversal, and reuse it without a
       second walker or validator. Determine only whether generic
       `MaximumLength` remains absent.
@@ -129,10 +130,11 @@
 
 ## Implement Gateway and infrastructure
 
-- [ ] Add final schema-2 fixed/generated denial and audit fields for supported
-      generic ordinary HTTP/HTTPS denials, using `workspace_manifest_id` and `workspace_id`,
-      rejecting legacy identity fields, and keeping request payloads, queries,
-      headers, and credentials absent.
+- [ ] Add schema-2 fixed/generated denial and retained wait-record fields for
+      supported generic ordinary HTTP/HTTPS denials, using
+      `workspace_manifest_id` and `workspace_id`, rejecting legacy aliases on
+      those surfaces, and keeping request payloads, queries, headers, and
+      credentials absent. Keep frozen schema-v1 sibling wires unchanged.
 - [ ] Keep canonical and embedded Gateway sources manifest- and byte-equal.
 - [ ] Add the bounded registry to the existing trusted-host attachment owner,
       receiving secret-free records through the existing bounded control/audit
@@ -230,5 +232,6 @@
 - [ ] Promote durable conclusions, attach evidence to the governing contracts,
       remove this temporary packet, and only then mark the implementation work
       complete.
-- [ ] Commit the eventual implementation only after all required evidence and
-      gates pass, then notify the root/control thread with completion evidence.
+- [ ] Keep every concern in the accepted sequence independently reviewable with
+      focused verification; after all WP-level gates pass, notify the
+      root/control thread with completion evidence.

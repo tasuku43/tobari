@@ -12,11 +12,11 @@
   [architecture](../../02_architecture.md),
   [security](../../03_security_model.md), and [harness](../../04_harness.md)
   contracts. Their temporary planning packets were contractually deleted.
-- The shared checkout is branch `codex/workspace-manifest-v1` at
-  `52a53bcc69a0f2bdf9bf2a6782ecd98bacd8b0e1`. Commit `07535a9` is the model and
-  copy implementation evidence; commit `428812f` is the related predecessor
-  research-authentication quarantine evidence. Tracked files are clean; the
-  remaining untracked paths are preserved downstream work packets.
+- Implementation is isolated on branch `codex/wp07-permission-resume` in
+  `/Users/tasuku/work/github.com/tasuku43/tobari-wp07`, based on integrated
+  HEAD `becd6c2b4fb42928152ec4b416cea198c868e875`. WP08 recursive Catalog output
+  and produced-reference derivation is present and is reused without a local
+  walker. The worktree was clean at implementation start.
 - [Runtime Retirement](../runtime-retirement/goal.md) remains fixed without an
   implementation-start signal. It constrains permission-resume negatively but
   does not add permission authority or make Runtime retirement implementation
@@ -146,8 +146,10 @@
   no `ReferenceKind`, discovery producer, completion, or permission-specific
   Catalog value kind. Only a missing generic post-WP08 maximum-length contract
   may be filled by generic `MaximumLength` and its derived enforcement.
-- Gateway denial changes through one reviewed schema-2 hard cutover. Helper
-  JSON independently remains schema 1. The only successful results are
+- Only the WP07-owned Gateway denial and retained wait/audit record change
+  through one reviewed schema-2 hard cutover. Frozen schema-v1 principal,
+  Gateway-to-OPA, learned-policy, and Host Loopback route/grant wires remain
+  byte/schema stable. Helper JSON independently remains schema 1. The only successful results are
   `Allow`, `Deny`, and `Expired`, without policy detail or authority.
 - V1 accepts generic ordinary external HTTP and HTTPS denials with one exact
   reviewable original normalized effect. Host Loopback and protocol-derived
@@ -156,11 +158,15 @@
   conservative `path_template` Allow may authorize the exact original effect;
   only an explicit final reviewed/effective explicit deny returns `Deny`.
   Baseline default-deny and every nonfinal/ambiguous state remain nonterminal.
-- The existing trusted-host attachment owner process owns the private socket
-  and bounded memory registry. Records bind WorkspaceManifestID, WorkspaceID,
-  AttachmentID/epoch, and exact normalized effect. Same-live-attachment child
-  sessions may use the socket/ID; a new attachment, pending adoption, or
-  Workspace recreation never inherits or rebinds it.
+- The canonical interactive Workspace attachment session created before the
+  child owns the private socket and bounded memory registry. Exactly one owner
+  epoch exists per WorkspaceManifestID/WorkspaceID; concurrent borrowers share
+  it, while service-exposure controller attachments are distinct and
+  ineligible. Gateway joins one authenticated frozen schema-v1 principal to one
+  bounded private session record and publishes resume only after the owner ACKs
+  the exact immutable record. Same-live-attachment child sessions may use the
+  socket/ID; a new attachment, pending adoption, or Workspace recreation never
+  inherits or rebinds it.
 - Initial ceilings are 15 minutes, 8 live waits, one active connection per ID,
   3 total attempts per ID, 4 KiB request, 1 KiB response, and a 1/2/4/5-second
   observation schedule. Evidence may lower but not raise them without Product
@@ -187,12 +193,17 @@ child PID. This keeps permission lifetime independent from Manifest publication
 and entry reconciliation while active Gateway policy still enforces the
 immutable Boundary and current trusted-host decision.
 
-### Unverified before implementation
+### Re-observed implementation baseline
 
-- The integrated production type names, file ownership, Catalog layout, schema
-  shape, migration entrypoint, and policy/audit storage wiring must be
-  re-observed from the actual implementation after WP08 also lands and before
-  any permission-resume production change or task refinement.
+- ADR 0079 production identity, the canonical Host Loopback owner/borrower
+  epoch, frozen schema-v1 principal/OPA/route wires, Gateway denial, bounded
+  policy audit/candidate path, helper packaging, and WP08 recursive
+  `ProducedRefs` traversal were re-observed at the implementation base.
+- Generic Catalog `MaximumLength` remains absent at the implementation base;
+  WP07 therefore owns only that generic primitive and its derived validation,
+  parsing/help display, cloning, and contract tests.
+
+### Still unverified during implementation
 
 - The exact supported host platforms' Unix-socket peer and mount behavior for a
   second helper must be replayed on the release matrix.

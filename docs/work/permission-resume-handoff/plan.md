@@ -140,12 +140,14 @@ schema 2 and gains only fixed/generated fields:
 
 The actual implementation must retain supported request fields and fixed host
 guidance, use structured construction rather than string interpolation, and
-omit `resume` for unsupported/non-learnable denials. Gateway audit, learned
-rules, candidates, review items, Apply receipts, and wait records use final
-`workspace_manifest_id` and `workspace_id` fields plus normalized effect
-identity. No final schema emits or accepts `Context`, `context_id`,
-`project_id`, or `instance_id`. Schema 1 is not silently widened or accepted in
-parallel; helper JSON remains its independent schema 1.
+omit `resume` for unsupported/non-learnable denials. Only the WP07-owned denial
+and retained wait/audit record hard-cut to schema 2 with
+`workspace_manifest_id` and `workspace_id`; no schema-1 alias is accepted on
+those surfaces. The already-authenticated principal registry, Gateway-to-OPA
+input, persisted learned-policy wire, and Host Loopback route/grant records
+remain byte- and schema-stable with their frozen schema-v1
+`context_id`/`project_id`/`context` tokens. Helper JSON remains its independent
+schema 1.
 
 ### Authority and presentation identity
 
@@ -197,10 +199,11 @@ lifetime, approval type, or pending-state entity is added.
 - Application: add the smallest read-only use case/ports to validate the
   intent, resolve the owning record, observe a consistent active disposition,
   wait with one propagated context/deadline, and return only the closed result.
-- Infrastructure: generate/retain bounded records from Gateway audit, bind a
+- Infrastructure: generate/retain bounded records after Gateway joins exactly
+  one authenticated frozen principal to the private canonical-session registry, bind a
   private attachment socket and registry to the existing trusted-host
-  attachment owner process, receive Gateway's secret-free record through an
-  existing bounded control/audit seam, validate ownership, read current policy
+  interactive attachment owner process, receive Gateway's secret-free record through a
+  bounded authenticated ingestion seam and ACK before publication, validate ownership, read current policy
   authority consistently, enforce limits, and package the helper. It adds no
   daemon, persistent store, Workspace file, or second policy authority. It
   never resolves authority from Manifest names/revisions, Runtime, Project root
@@ -208,8 +211,8 @@ lifetime, approval type, or pending-state entity is added.
 - CLI: add a separate Program catalog derived from `cli.Catalog`, typed argv,
   help, text/JSON/fault presentation, and composition. The root catalog does
   not gain a Workspace mutation command.
-- Gateway: publish final denial schema-2 and audit fields with
-  WorkspaceManifestID/WorkspaceID identity, generate the wait ID, retain
+- Gateway: publish the WP07-owned denial and retained wait-record schema-2
+  fields with WorkspaceManifestID/WorkspaceID identity, generate the wait ID, retain
   source/snapshot byte equality, and never retain or replay the request.
 
 ### Data and control flow
@@ -225,8 +228,9 @@ sequenceDiagram
     A->>G: Original exact ordinary HTTP/HTTPS request
     G->>P: Authorize typed effect
     P-->>G: Deny, learnable
+    G->>H: Register secret-free immutable wait record
+    H-->>G: Ack exact attachment-owned record
     G-->>A: Schema-2 denial + fixed wait command
-    Note over G,H: Secret-free immutable wait record is correlated to the owning attachment
     A->>H: wait(pwt_id) over private attachment socket
     loop Bounded internal observation
         H->>H: Read learned state + confirmed active revision
@@ -351,7 +355,7 @@ or the exact fresh denial guidance.
 
 ## Implementation slices and dependency order
 
-### Integrated ADR 0079 baseline and WP08 hold
+### Integrated ADR 0079 and WP08 implementation gate
 
 1. Treat accepted
    [ADR 0079](../../decisions/0079-model-workspace-manifests-and-applied-workspaces.md),
@@ -372,9 +376,9 @@ or the exact fresh denial guidance.
    from this plan, stop for owner review instead of adding a second identity
    path, compatibility alias, or dual reader.
 
-After this gate, wait for WP08 implementation completion and consume its actual
-Catalog contract before permission-resume work begins. WP08 alone owns
-Catalog-wide recursive output/reference traversal. ADR 0079's promoted copy
+This gate completed at base `becd6c2b4fb42928152ec4b416cea198c868e875`.
+WP08 alone owns Catalog-wide recursive output/reference traversal, and WP07
+uses its existing `ProducedRefs` implementation without a local walker. ADR 0079's promoted copy
 contract and WP03 are accepted negative constraints; Runtime retirement
 production implementation is not otherwise a permission-authority prerequisite
 unless integration ownership assigns an overlapping file or generated surface
@@ -398,6 +402,22 @@ to it first.
    required single `InputValueText`, not a reference; only generic
    `MaximumLength` may be added after inspecting completed WP08.
 
+### Concern-separated commit sequence
+
+Each concern lands only after its focused tests and remains independently
+reviewable. There is no WP-wide implementation commit:
+
+1. ADR 0081 and governing thesis/product/architecture/security/harness consequences.
+2. Generic Catalog `MaximumLength` declaration, derived validation/help/clone behavior, and tests.
+3. Domain wait ID, immutable record, result, bounds, and tests.
+4. Read-only application wait use case and zero-mutation ports.
+5. Canonical live-OPA disposition observer and evaluator-precedence tests.
+6. Canonical interactive-session registry, owner ingestion, bounded memory/socket protocol, and lifecycle tests.
+7. Gateway schema-2 denial/wait projection, owner ACK, frozen-v1 sibling canaries, and source snapshot synchronization.
+8. Hardcoded Program, CLI/helper protocol, asset build/extraction/read-only mount, and focused tests.
+9. End-to-end integration, generated/public docs, readiness evidence, and safe explicitly owned runtime checks.
+10. Temporary packet removal and downstream-link handoff after all gates pass.
+
 ### Slice 0: contract decision
 
 1. Re-observe integrated ADR 0079 implementation and completed WP08, including actual Catalog input bounds,
@@ -419,8 +439,9 @@ to it first.
 
 ### Slice 2: Gateway and read application boundary
 
-1. Add final schema-2 denial/audit fields for generic ordinary HTTP/HTTPS only, using
-   WorkspaceManifestID/WorkspaceID and rejecting all legacy identity fields.
+1. Add WP07-owned schema-2 denial/wait-record fields for generic ordinary
+   HTTP/HTTPS only, using WorkspaceManifestID/WorkspaceID and rejecting legacy
+   aliases on those surfaces while preserving frozen schema-v1 sibling wires.
 2. Add the read-only application use case and minimal ports.
 3. Prove no request payload/credential retention and embedded Gateway source
    equality.
