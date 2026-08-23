@@ -130,7 +130,7 @@ func (r *Runtime) clusterUpWithProgressMode(
 			}
 			return
 		}
-		rollbackContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+		rollbackContext, cancel := context.WithTimeout(r.lifetimeParent(ctx), 30*time.Second)
 		defer cancel()
 		var rollbackErr error
 		if exists {

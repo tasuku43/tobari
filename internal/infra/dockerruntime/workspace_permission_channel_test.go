@@ -138,6 +138,7 @@ func newSignedTestChannel(t *testing.T, observer *permissionChannelObserverStub)
 	}
 	reader, writer := io.Pipe()
 	return &workspacePermissionChannel{
+		lifetime:     context.Background(),
 		channelID:    "pwc_0123456789abcdef0123456789abcdef",
 		attachmentID: "att_0123456789abcdef0123456789abcdef",
 		ownerBinding: strings.Repeat("a", 64), verifyKey: publicKey, signingKey: privateKey,

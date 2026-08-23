@@ -57,7 +57,7 @@ type CLI struct {
 }
 
 // New builds the production CLI with the Docker-backed Tobari runtime.
-func New(in io.Reader, out, errOut io.Writer) *CLI {
+func New(lifetime context.Context, in io.Reader, out, errOut io.Writer) *CLI {
 	command := newCLI(in, out, errOut, DefaultCatalog(), systemdoctor.New())
 	command.noColor = noColorFromEnvironment()
 	command.config = newContextConfigurationWizardWithStyle(!command.noColor)
@@ -68,7 +68,7 @@ func New(in io.Reader, out, errOut io.Writer) *CLI {
 	command.policyReview = newPolicyReviewSelectorWithStyle
 	command.policyNotify = terminal.WritePermissionInboxNotification
 	configureExperimentalCLI(command)
-	runtime, err := dockerruntime.New()
+	runtime, err := dockerruntime.New(lifetime)
 	if err != nil {
 		command.doctor = doctorcmd.New(systemdoctor.New(err))
 		return command

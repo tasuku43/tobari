@@ -33,6 +33,7 @@ const (
 
 type interactiveWorkspaceAttachment struct {
 	runtime       *Runtime
+	lifetime      context.Context
 	session       tobari.InteractiveAttachmentSession
 	listener      net.Listener
 	waits         *permissionWaitRegistry
@@ -374,7 +375,7 @@ func (r *Runtime) beginInteractiveWorkspaceAttachment(ctx context.Context, works
 		return nil, errors.Join(err, listener.Close())
 	}
 	attachment := &interactiveWorkspaceAttachment{
-		runtime: r, session: session, listener: listener, owned: true,
+		runtime: r, lifetime: r.lifetimeParent(ctx), session: session, listener: listener, owned: true,
 		active: map[net.Conn]struct{}{}, heartbeatStop: make(chan struct{}), heartbeatDone: make(chan struct{}), authorityDone: make(chan struct{}), closeDone: make(chan struct{}),
 		clock: time.Now, acceptWindow: now,
 	}
@@ -583,7 +584,7 @@ func (a *interactiveWorkspaceAttachment) startHeartbeat() {
 }
 
 func (a *interactiveWorkspaceAttachment) renew() error {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(a.lifetime, 2*time.Second)
 	defer cancel()
 	var issued, expires time.Time
 	if err := a.runtime.withInteractiveAttachmentLock(ctx, func() error {
@@ -655,7 +656,7 @@ func (a *interactiveWorkspaceAttachment) stopHeartbeat() {
 func (a *interactiveWorkspaceAttachment) cleanupAuthority() {
 	a.authorityOnce.Do(func() {
 		defer close(a.authorityDone)
-		cleanup, cancel := context.WithTimeout(context.Background(), permissionSessionCleanup)
+		cleanup, cancel := context.WithTimeout(a.lifetime, permissionSessionCleanup)
 		defer cancel()
 		a.authorityErr = a.runtime.withInteractiveAttachmentLock(cleanup, func() error {
 			var registry tobari.InteractiveAttachmentSessionRegistry

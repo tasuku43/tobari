@@ -335,7 +335,7 @@ func (r *Runtime) hostLoopbackRelayActive(route tobari.AttachmentHostLoopbackRou
 	return err == nil && string(response) == "OK"
 }
 
-func (a *hostLoopbackAttachment) Close(_ context.Context) error {
+func (a *hostLoopbackAttachment) Close(ctx context.Context) error {
 	if !a.owned {
 		return nil
 	}
@@ -343,7 +343,7 @@ func (a *hostLoopbackAttachment) Close(_ context.Context) error {
 	a.once.Do(func() {
 		// Transport disappears before its attachment authority is deleted.
 		a.closeRelay()
-		cleanup, cancel := context.WithTimeout(context.Background(), permissionSessionCleanup)
+		cleanup, cancel := context.WithTimeout(a.runtime.lifetimeParent(ctx), permissionSessionCleanup)
 		defer cancel()
 		result = a.runtime.withHostLoopbackLock(cleanup, func() error {
 			var routes tobari.HostLoopbackRegistry

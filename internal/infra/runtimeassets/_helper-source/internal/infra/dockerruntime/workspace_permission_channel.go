@@ -166,6 +166,7 @@ func (r workspacePermissionControlResponse) payload() workspacePermissionSignedP
 }
 
 type workspacePermissionChannel struct {
+	lifetime     context.Context
 	socket       string
 	container    string
 	channelID    string
@@ -247,7 +248,8 @@ func (r *Runtime) startWorkspacePermissionChannel(
 		return nil, fmt.Errorf("generate Workspace permission response key: %w", err)
 	}
 	channel := &workspacePermissionChannel{
-		socket: socketPath, container: container, channelID: channelID,
+		lifetime: r.lifetimeParent(ctx),
+		socket:   socketPath, container: container, channelID: channelID,
 		attachmentID: attachment.session.AttachmentID,
 		ownerBinding: workspacePermissionOwnerBinding(attachment.session),
 		verifyKey:    publicKey, signingKey: privateKey, runner: runner,
@@ -257,7 +259,7 @@ func (r *Runtime) startWorkspacePermissionChannel(
 	// The control process lifetime is closed explicitly by channel.Close. It is
 	// intentionally detached from child cancellation so stdin can be closed and
 	// the in-container socket can be verified absent before authority teardown.
-	controlContext, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	controlContext, cancel := context.WithCancel(channel.lifetime)
 	channel.cancel = cancel
 	responseReader, responseWriter := io.Pipe()
 	requestReader, requestWriter := io.Pipe()
@@ -433,7 +435,7 @@ func (c *workspacePermissionChannel) serve(reader io.Reader, ready chan struct{}
 }
 
 func (c *workspacePermissionChannel) startWait(request workspacePermissionControlRequest) error {
-	ctx, cancel := context.WithTimeout(context.Background(), tobari.PermissionWaitLease)
+	ctx, cancel := context.WithTimeout(c.lifetime, tobari.PermissionWaitLease)
 	c.mu.Lock()
 	if c.failed != nil || c.closing || len(c.active) >= workspacePermissionActiveMax {
 		c.mu.Unlock()
@@ -558,7 +560,7 @@ func (c *workspacePermissionChannel) Close() error {
 		case <-time.After(workspacePermissionCloseTimeout):
 			result = errors.Join(result, fmt.Errorf("Workspace permission response shutdown timed out"))
 		}
-		cleanup, cancel := context.WithTimeout(context.Background(), workspacePermissionCloseTimeout)
+		cleanup, cancel := context.WithTimeout(c.lifetime, workspacePermissionCloseTimeout)
 		defer cancel()
 		result = errors.Join(result, c.verifySocketAbsent(cleanup))
 		c.mu.Lock()

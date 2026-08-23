@@ -1575,7 +1575,10 @@ as argv after Docker's `--`.
 
 ## Cancellation and errors
 
-The command root installs signal-aware cancellation and propagates one context.
+The command root installs signal-aware cancellation and propagates one operation
+context. It separately supplies infrastructure with one process-lifetime parent
+used only to derive the finite attachment teardown and post-mutation rollback
+deadlines that must survive child cancellation; it grants no unbounded action.
 Pre-execution cancellation makes zero Docker calls. A child interactive session
 exit status is preserved, and the CLI emits the session-closed/resume/delete
 guidance on host stderr after the child returns. Child stdout remains owned by

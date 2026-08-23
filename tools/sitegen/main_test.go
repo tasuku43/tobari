@@ -356,7 +356,7 @@ func TestContextReportSchemaDerivationAllowsInterposedCatalogFields(t *testing.T
 
 func currentAgentHelp(args ...string) (json.RawMessage, error) {
 	var out, errOut bytes.Buffer
-	command := cli.New(strings.NewReader(""), &out, &errOut)
+	command := cli.New(context.Background(), strings.NewReader(""), &out, &errOut)
 	command.Version = "documentation"
 	fullArgs := append([]string{"help"}, args...)
 	fullArgs = append(fullArgs, "--format", "agent")

@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"reflect"
 	"strings"
@@ -118,7 +119,7 @@ func TestNoColorSuppressesANSIWithoutRemovingStateMeaning(t *testing.T) {
 
 func TestNewCapturesNoColorForEveryOutputStream(t *testing.T) {
 	t.Setenv("NO_COLOR", "")
-	command := New(strings.NewReader(""), &strings.Builder{}, &strings.Builder{})
+	command := New(context.Background(), strings.NewReader(""), &strings.Builder{}, &strings.Builder{})
 	if !command.noColor {
 		t.Fatal("New did not propagate the presence-only NO_COLOR policy")
 	}

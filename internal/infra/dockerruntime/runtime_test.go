@@ -2048,6 +2048,22 @@ func TestWaitForClusterReadyEmitsHealthUpdates(t *testing.T) {
 	}
 }
 
+func TestRuntimeLifetimeParentIsOwnedByCompositionRoot(t *testing.T) {
+	lifetime, stopLifetime := context.WithCancel(context.Background())
+	runtime := &Runtime{lifetimeContext: lifetime}
+	caller, cancelCaller := context.WithCancel(context.Background())
+	cancelCaller()
+
+	parent := runtime.lifetimeParent(caller)
+	if err := parent.Err(); err != nil {
+		t.Fatalf("composition-owned lifetime inherited caller cancellation: %v", err)
+	}
+	stopLifetime()
+	if !errors.Is(parent.Err(), context.Canceled) {
+		t.Fatalf("composition-owned lifetime did not retain its owner cancellation: %v", parent.Err())
+	}
+}
+
 func (r *ownershipInspectFailureRunner) Run(_ context.Context, args, _ []string, _ io.Reader, _, _ io.Writer) error {
 	r.runs = append(r.runs, runnerCall{args: append([]string{}, args...)})
 	return nil

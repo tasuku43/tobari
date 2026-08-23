@@ -52,7 +52,7 @@ func newTestCLI(inspector *cliInspector) (*CLI, *bytes.Buffer, *bytes.Buffer) {
 }
 
 func newReferenceTestCLI(in io.Reader, out, errOut io.Writer) *CLI {
-	command := New(in, out, errOut)
+	command := New(context.Background(), in, out, errOut)
 	commands := DefaultCatalog().registeredCommands()
 	list := discoverSpec("items list", "item")
 	list.Args = "[--format tsv|json]"
@@ -560,7 +560,7 @@ func TestEmitMutationResultPreservesConfirmedSuccessAfterCancellation(t *testing
 
 func TestEmitMutationResultStillRequiresCompleteWrite(t *testing.T) {
 	var stderr bytes.Buffer
-	command := New(strings.NewReader(""), shortWriter{}, &stderr)
+	command := New(context.Background(), strings.NewReader(""), shortWriter{}, &stderr)
 	command.catalog = NewCatalog(mutationOutputCommand())
 	ctx, cancel := context.WithCancel(context.Background())
 	ctx = withCommandPath(ctx, "items update")
@@ -937,7 +937,7 @@ func (w errorWriter) Write([]byte) (int, error) { return 0, w.err }
 
 func TestSuccessWriterFailureIsNotReportedAsSuccess(t *testing.T) {
 	var stderr bytes.Buffer
-	command := New(strings.NewReader(""), shortWriter{}, &stderr)
+	command := New(context.Background(), strings.NewReader(""), shortWriter{}, &stderr)
 	if code := runCLI(command, []string{"version"}); code != ExitInternal {
 		t.Fatalf("short write code = %d, stderr = %q", code, stderr.String())
 	}
@@ -946,7 +946,7 @@ func TestSuccessWriterFailureIsNotReportedAsSuccess(t *testing.T) {
 	}
 
 	stderr.Reset()
-	command = New(strings.NewReader(""), errorWriter{err: io.ErrClosedPipe}, &stderr)
+	command = New(context.Background(), strings.NewReader(""), errorWriter{err: io.ErrClosedPipe}, &stderr)
 	if code := runCLI(command, []string{"version"}); code != ExitInternal {
 		t.Fatalf("write error code = %d, stderr = %q", code, stderr.String())
 	}
@@ -1020,7 +1020,7 @@ func TestDoctorRejectsArgumentsBeforeInspection(t *testing.T) {
 
 func TestE2EDoctorUsesProductionRuntimeAdapter(t *testing.T) {
 	var stdout, stderr bytes.Buffer
-	command := New(strings.NewReader(""), &stdout, &stderr)
+	command := New(context.Background(), strings.NewReader(""), &stdout, &stderr)
 	code := runCLI(command, []string{"doctor"})
 	if code != ExitOK && code != ExitRejected {
 		t.Fatalf("Run(doctor) code = %d, stderr = %q", code, stderr.String())

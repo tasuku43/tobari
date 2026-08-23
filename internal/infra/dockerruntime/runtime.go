@@ -92,6 +92,7 @@ func (runner osCommandRunner) RunWorkspacePermissionControl(ctx context.Context,
 
 // Runtime owns filesystem state and Docker process execution.
 type Runtime struct {
+	lifetimeContext   context.Context
 	configDirectory   string
 	stateDirectory    string
 	dataDirectory     string
@@ -130,7 +131,10 @@ type Runtime struct {
 }
 
 // New resolves XDG paths without creating them.
-func New() (*Runtime, error) {
+func New(lifetime context.Context) (*Runtime, error) {
+	if lifetime == nil {
+		return nil, fmt.Errorf("runtime lifetime context is required")
+	}
 	configHome, stateHome, err := resolveRuntimeHomes(
 		os.Getenv("XDG_CONFIG_HOME"), os.Getenv("XDG_STATE_HOME"), os.UserHomeDir,
 	)
@@ -149,7 +153,19 @@ func New() (*Runtime, error) {
 		return nil, err
 	}
 	runtime.permissionIngestionTransport = permissionSessionTransportForGOOS(goruntime.GOOS)
+	runtime.lifetimeContext = lifetime
 	return runtime, nil
+}
+
+// lifetimeParent selects the process-lifetime context supplied by the command
+// composition root. Tests that construct Runtime directly retain their caller
+// context. Cleanup and attachment control derive their own finite deadlines
+// from this parent so child cancellation cannot abandon host authority.
+func (r *Runtime) lifetimeParent(caller context.Context) context.Context {
+	if r != nil && r.lifetimeContext != nil {
+		return r.lifetimeContext
+	}
+	return caller
 }
 
 func resolveRuntimeHomes(configHome, stateHome string, userHome func() (string, error)) (string, string, error) {

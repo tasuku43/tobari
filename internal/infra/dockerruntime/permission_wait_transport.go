@@ -90,7 +90,7 @@ func (a *interactiveWorkspaceAttachment) handlePermissionWaitQuery(connection ne
 	if err := connection.SetDeadline(time.Time{}); err != nil {
 		return
 	}
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(a.lifetime)
 	defer cancel()
 	readDone := make(chan struct{})
 	go func() {
