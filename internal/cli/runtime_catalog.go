@@ -1713,7 +1713,7 @@ func policyRuleOutputFields() []OutputField {
 	return []OutputField{
 		{Name: "id", Type: OutputFieldTypeString, Description: "Opaque current learned policy-rule reference.", ReferenceKind: tobari.PolicyRuleKind},
 		{Name: "decision", Type: OutputFieldTypeString, Description: "Current learned decision: allow or deny.", Enum: []string{"allow", "deny"}},
-		{Name: "match", Type: OutputFieldTypeString, Description: "Exact match mode.", Enum: []string{"exact"}},
+		{Name: "match", Type: OutputFieldTypeString, Description: "Exact or single-segment path-template match.", Enum: []string{tobari.PolicyMatchExact, tobari.PolicyMatchPathTemplate}},
 		{Name: "workspace_manifest_id", Type: OutputFieldTypeString, Description: "Stable Workspace Manifest authority bound to the decision."},
 		{Name: "workspace_manifest", Type: OutputFieldTypeString, Description: "Human-readable Workspace Manifest name."},
 		{Name: "workspace_id", Type: OutputFieldTypeString, Description: "Stable Workspace identity bound to the decision."},
@@ -2065,7 +2065,7 @@ func policyRuleReadErrors(path string, hasOutput bool) []CommandError {
 		declaredCommandError(fault.KindInternal, "state_read_failed", false, "doctor", "Inspect local state."),
 		declaredCommandError(fault.KindRejected, "policy_data_invalid", false, "doctor", "Repair the owner-only XDG policy data."),
 		declaredCommandError(fault.KindContract, "invalid_policy_rule_report", false, "doctor", "Inspect the current policy-rule contract."),
-		declaredCommandError(fault.KindContract, "output_encoding_failed", false, path, "Repair JSON projection."),
+		declaredCommandError(fault.KindContract, "output_encoding_failed", false, "version", "Report the exact build identity for diagnosis."),
 		declaredCommandError(fault.KindInternal, "missing_runtime", false, "doctor", "Configure the Tobari runtime."),
 	), policyClusterReadinessErrors()...)
 }
