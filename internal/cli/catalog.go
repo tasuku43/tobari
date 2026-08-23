@@ -190,8 +190,8 @@ func (c InputCompletion) validate() error {
 
 // CommandInput is one executable machine-readable input contract.
 // DefaultValue is nil when omission has no catalog-owned default. Minimum and
-// Maximum apply only to integer values; MinimumLength applies only to text and
-// counts UTF-8 bytes. Requires and ConflictsWith are checked against explicitly
+// Maximum apply only to integer values; MinimumLength and MaximumLength apply
+// only to text and count UTF-8 bytes. Requires and ConflictsWith are checked against explicitly
 // supplied command-line inputs. ReferenceKind is empty only when the input is
 // not an opaque reference.
 type CommandInput struct {
@@ -206,6 +206,7 @@ type CommandInput struct {
 	Minimum        *int64           `json:"minimum,omitempty"`
 	Maximum        *int64           `json:"maximum,omitempty"`
 	MinimumLength  *int64           `json:"minimum_length,omitempty"`
+	MaximumLength  *int64           `json:"maximum_length,omitempty"`
 	Requires       []string         `json:"requires,omitempty"`
 	ConflictsWith  []string         `json:"conflicts_with,omitempty"`
 	ReferenceKind  string           `json:"reference_kind,omitempty"`
@@ -1133,11 +1134,17 @@ func validateAgentContract(command CommandSpec) error {
 		if input.ValueKind != InputValueInteger && (input.Minimum != nil || input.Maximum != nil) {
 			return fmt.Errorf("agent non-integer input %q cannot declare numeric bounds", input.Name)
 		}
-		if input.ValueKind != InputValueText && input.MinimumLength != nil {
-			return fmt.Errorf("agent non-text input %q cannot declare a minimum length", input.Name)
+		if input.ValueKind != InputValueText && (input.MinimumLength != nil || input.MaximumLength != nil) {
+			return fmt.Errorf("agent non-text input %q cannot declare text length bounds", input.Name)
 		}
 		if input.MinimumLength != nil && *input.MinimumLength < 0 {
 			return fmt.Errorf("agent text input %q minimum length is negative", input.Name)
+		}
+		if input.MaximumLength != nil && *input.MaximumLength < 0 {
+			return fmt.Errorf("agent text input %q maximum length is negative", input.Name)
+		}
+		if input.MinimumLength != nil && input.MaximumLength != nil && *input.MinimumLength > *input.MaximumLength {
+			return fmt.Errorf("agent text input %q minimum length exceeds maximum length", input.Name)
 		}
 		if input.Minimum != nil && input.Maximum != nil && *input.Minimum > *input.Maximum {
 			return fmt.Errorf("agent integer input %q minimum exceeds maximum", input.Name)
@@ -1857,6 +1864,9 @@ func validateInputScalar(input CommandInput, value string) error {
 		if input.MinimumLength != nil && int64(len(value)) < *input.MinimumLength {
 			return fmt.Errorf("value must contain at least %d byte(s)", *input.MinimumLength)
 		}
+		if input.MaximumLength != nil && int64(len(value)) > *input.MaximumLength {
+			return fmt.Errorf("value must contain at most %d byte(s)", *input.MaximumLength)
+		}
 		return nil
 	case InputValueInteger:
 		parsed, err := strconv.ParseInt(value, 10, 64)
@@ -2538,6 +2548,10 @@ func cloneAgentContract(contract AgentContract) AgentContract {
 		if contract.Inputs[index].MinimumLength != nil {
 			value := *contract.Inputs[index].MinimumLength
 			contract.Inputs[index].MinimumLength = &value
+		}
+		if contract.Inputs[index].MaximumLength != nil {
+			value := *contract.Inputs[index].MaximumLength
+			contract.Inputs[index].MaximumLength = &value
 		}
 	}
 	contract.Output.Formats = cloneSlice(contract.Output.Formats)

@@ -387,8 +387,15 @@ func renderCommandHelpWithColor(command CommandSpec, color bool) []byte {
 			}
 			fmt.Fprintf(&output, "    %s\n", applyStyleToken(color, styleMuted, fmt.Sprintf("range: %s..%s", minimum, maximum)))
 		}
-		if input.MinimumLength != nil {
-			fmt.Fprintf(&output, "    %s\n", applyStyleToken(color, styleMuted, fmt.Sprintf("minimum UTF-8 bytes: %d", *input.MinimumLength)))
+		if input.MinimumLength != nil || input.MaximumLength != nil {
+			minimum, maximum := "unbounded", "unbounded"
+			if input.MinimumLength != nil {
+				minimum = fmt.Sprintf("%d", *input.MinimumLength)
+			}
+			if input.MaximumLength != nil {
+				maximum = fmt.Sprintf("%d", *input.MaximumLength)
+			}
+			fmt.Fprintf(&output, "    %s\n", applyStyleToken(color, styleMuted, fmt.Sprintf("UTF-8 byte length: %s..%s", minimum, maximum)))
 		}
 		if len(input.Requires) != 0 {
 			fmt.Fprintf(&output, "    %s\n", applyStyleToken(color, styleMuted, "requires when supplied: "+strings.Join(input.Requires, ", ")))
