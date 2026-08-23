@@ -397,6 +397,31 @@ class ValidatedRuntimeFileCacheTests(unittest.TestCase):
             atomic_json(path, principal_registry("172.29.0.4"))
             self.assertIn("172.29.0.4", source.load())
 
+    def test_gateway_wire_rejects_renamed_workspace_identity_aliases(self):
+        principal = principal_registry()
+        binding = principal["bindings"][0]
+        binding["workspace_id"] = binding.pop("project_id")
+        binding["workspace_manifest_id"] = binding.pop("context_id")
+        binding["workspace_manifest"] = binding.pop("context")
+        with self.assertRaises(gateway.PrincipalError):
+            gateway._parse_project_principals(json.dumps(principal).encode())
+
+        routes, route = host_loopback_registry()
+        route["workspace_id"] = route.pop("project_id")
+        route["workspace_manifest_id"] = route.pop("context_id")
+        route["workspace_manifest"] = route.pop("context")
+        with self.assertRaises(gateway.HostLoopbackError):
+            gateway._parse_host_loopback_routes(json.dumps(routes).encode())
+
+        _, canonical_route = host_loopback_registry()
+        grant = attachment_grant(canonical_route)
+        grant["workspace_id"] = grant.pop("project_id")
+        grant["workspace_manifest_id"] = grant.pop("context_id")
+        with self.assertRaises(gateway.HostLoopbackError):
+            gateway._parse_attachment_grants(
+                json.dumps({"schema_version": 1, "grants": [grant]}).encode()
+            )
+
     def test_principal_registry_permission_change_invalidates_cache(self):
         with tempfile.TemporaryDirectory() as temporary:
             path = os.path.join(temporary, "principals.json")

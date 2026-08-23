@@ -42,6 +42,31 @@ func TestAttachmentHostLoopbackRouteIdentityBindsEpochContextAndProject(t *testi
 	}
 }
 
+func TestHostLoopbackWireEmitsOnlyFrozenGatewayIdentityKeys(t *testing.T) {
+	route := testAttachmentHostLoopbackRoute(t)
+	grant, err := NewAttachmentGrantFromCandidate(PolicyDecisionAllow, testHostLoopbackCandidate(t, 3000))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, value := range map[string]any{"route": route, "grant": grant} {
+		encoded, err := json.Marshal(value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		wire := string(encoded)
+		for _, required := range []string{`"project_id"`, `"context_id"`} {
+			if !strings.Contains(wire, required) {
+				t.Errorf("%s Gateway wire %s lacks %s", name, wire, required)
+			}
+		}
+		for _, forbidden := range []string{`"workspace_id"`, `"workspace_manifest_id"`} {
+			if strings.Contains(wire, forbidden) {
+				t.Errorf("%s Gateway wire %s contains renamed alias %s", name, wire, forbidden)
+			}
+		}
+	}
+}
+
 func TestHostLoopbackRegistryAllowsOneRoutePerWorkspace(t *testing.T) {
 	route := testAttachmentHostLoopbackRoute(t)
 	registry := HostLoopbackRegistry{SchemaVersion: HostLoopbackRegistrySchema, Routes: []AttachmentHostLoopbackRoute{route}}

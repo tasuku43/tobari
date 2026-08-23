@@ -3,6 +3,7 @@ package dockerruntime
 import (
 	"archive/tar"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"os"
@@ -36,15 +37,15 @@ func (r *bundleBuildFailureRunner) Output(_ context.Context, args, _ []string) (
 	return nil, nil
 }
 
-const denyAuditLine = `{"schema_version":1,"cluster":"default","workspace_manifest":"default","workspace_manifest_id":"01912345-6789-7abc-8def-0123456789ad","decision":"deny","duration_ms":3,"host":"api.github.com","learnable":true,"method":"GET","path":"/repos/cli/cli","port":443,"workspace_id":"01912345-6789-7abc-8def-0123456789ab","project_root":"/workspace/project","protocol":"http","reason":"request did not match an allow rule","request_id":"7185da2688d7469aae9cd9068e920b0b","scheme":"https","timestamp":"2026-07-30T10:41:11Z","upstream_status":403}`
+const denyAuditLine = `{"schema_version":1,"cluster":"default","context":"default","context_id":"01912345-6789-7abc-8def-0123456789ad","decision":"deny","duration_ms":3,"host":"api.github.com","learnable":true,"method":"GET","path":"/repos/cli/cli","port":443,"project_id":"01912345-6789-7abc-8def-0123456789ab","project_root":"/workspace/project","protocol":"http","reason":"request did not match an allow rule","request_id":"7185da2688d7469aae9cd9068e920b0b","scheme":"https","timestamp":"2026-07-30T10:41:11Z","upstream_status":403}`
 
-const graphqlDenyAuditLine = `{"schema_version":1,"cluster":"default","workspace_manifest":"default","workspace_manifest_id":"01912345-6789-7abc-8def-0123456789ad","decision":"deny","duration_ms":3,"host":"api.github.com","learnable":true,"method":"POST","path":"/graphql","port":443,"workspace_id":"01912345-6789-7abc-8def-0123456789ab","project_root":"/workspace/project","protocol":"graphql","graphql_operation_type":"mutation","graphql_root_field":"updateIssue","reason":"request did not match an allow rule","request_id":"7185da2688d7469aae9cd9068e920b0b","scheme":"https","timestamp":"2026-07-30T10:41:11Z","upstream_status":403}`
+const graphqlDenyAuditLine = `{"schema_version":1,"cluster":"default","context":"default","context_id":"01912345-6789-7abc-8def-0123456789ad","decision":"deny","duration_ms":3,"host":"api.github.com","learnable":true,"method":"POST","path":"/graphql","port":443,"project_id":"01912345-6789-7abc-8def-0123456789ab","project_root":"/workspace/project","protocol":"graphql","graphql_operation_type":"mutation","graphql_root_field":"updateIssue","reason":"request did not match an allow rule","request_id":"7185da2688d7469aae9cd9068e920b0b","scheme":"https","timestamp":"2026-07-30T10:41:11Z","upstream_status":403}`
 
-const mcpDenyAuditLine = `{"schema_version":1,"cluster":"default","workspace_manifest":"default","workspace_manifest_id":"01912345-6789-7abc-8def-0123456789ad","decision":"deny","duration_ms":3,"host":"chatgpt.com","learnable":true,"method":"POST","path":"/backend-api/ps/mcp","port":443,"workspace_id":"01912345-6789-7abc-8def-0123456789ab","project_root":"/workspace/project","protocol":"mcp","mcp_method":"tools/call","mcp_tool_name":"codex_apps.search","reason":"request did not match an allow rule","request_id":"7185da2688d7469aae9cd9068e920b0b","scheme":"https","timestamp":"2026-07-30T10:41:11Z","upstream_status":403}`
+const mcpDenyAuditLine = `{"schema_version":1,"cluster":"default","context":"default","context_id":"01912345-6789-7abc-8def-0123456789ad","decision":"deny","duration_ms":3,"host":"chatgpt.com","learnable":true,"method":"POST","path":"/backend-api/ps/mcp","port":443,"project_id":"01912345-6789-7abc-8def-0123456789ab","project_root":"/workspace/project","protocol":"mcp","mcp_method":"tools/call","mcp_tool_name":"codex_apps.search","reason":"request did not match an allow rule","request_id":"7185da2688d7469aae9cd9068e920b0b","scheme":"https","timestamp":"2026-07-30T10:41:11Z","upstream_status":403}`
 
-const awsDenyAuditLine = `{"schema_version":1,"cluster":"default","workspace_manifest":"default","workspace_manifest_id":"01912345-6789-7abc-8def-0123456789ad","decision":"deny","duration_ms":3,"host":"sts.us-east-1.amazonaws.com","learnable":true,"method":"POST","path":"/","port":443,"workspace_id":"01912345-6789-7abc-8def-0123456789ab","project_root":"/workspace/project","protocol":"aws","aws_wire_protocol":"query","aws_service":"sts","aws_operation":"GetCallerIdentity","reason":"request did not match an allow rule","request_id":"7185da2688d7469aae9cd9068e920b0b","scheme":"https","timestamp":"2026-07-30T10:41:11Z","upstream_status":403}`
+const awsDenyAuditLine = `{"schema_version":1,"cluster":"default","context":"default","context_id":"01912345-6789-7abc-8def-0123456789ad","decision":"deny","duration_ms":3,"host":"sts.us-east-1.amazonaws.com","learnable":true,"method":"POST","path":"/","port":443,"project_id":"01912345-6789-7abc-8def-0123456789ab","project_root":"/workspace/project","protocol":"aws","aws_wire_protocol":"query","aws_service":"sts","aws_operation":"GetCallerIdentity","reason":"request did not match an allow rule","request_id":"7185da2688d7469aae9cd9068e920b0b","scheme":"https","timestamp":"2026-07-30T10:41:11Z","upstream_status":403}`
 
-const unregisteredPrincipalDenyAuditLine = `{"cluster":"default","workspace_manifest":null,"workspace_manifest_id":null,"decision":"deny","duration_ms":0,"host":"api.anthropic.com","learnable":false,"method":"POST","path":"/api/event_logging/v2/batch","port":443,"workspace_id":null,"project_root":null,"protocol":"http","reason":"project principal is not registered","request_id":"7886e3bf2e4f4e4d86f6e8ef61acc718","schema_version":1,"scheme":"https","timestamp":"2026-08-21T01:02:47Z","upstream_status":403}`
+const unregisteredPrincipalDenyAuditLine = `{"cluster":"default","context":null,"context_id":null,"decision":"deny","duration_ms":0,"host":"api.anthropic.com","learnable":false,"method":"POST","path":"/api/event_logging/v2/batch","port":443,"project_id":null,"project_root":null,"protocol":"http","reason":"project principal is not registered","request_id":"7886e3bf2e4f4e4d86f6e8ef61acc718","schema_version":1,"scheme":"https","timestamp":"2026-08-21T01:02:47Z","upstream_status":403}`
 
 func writePolicyArchiveFixture(t *testing.T, state tobari.State) {
 	t.Helper()
@@ -94,10 +95,41 @@ func TestParseGatewayDenialsFiltersUnrelatedAndAllowedLines(t *testing.T) {
 	)
 	result := parseGatewayDenials(data)
 	if len(result.Items) != 1 || result.UnparsedLines != 0 || result.Items[0].Host != "api.github.com" ||
+		result.Items[0].ProjectID != "01912345-6789-7abc-8def-0123456789ab" ||
+		result.Items[0].WorkspaceManifestID != "01912345-6789-7abc-8def-0123456789ad" ||
+		result.Items[0].WorkspaceManifestName != "default" ||
 		result.Items[0].Scheme != "https" ||
 		result.Items[0].Path != "/repos/cli/cli" || result.Items[0].StatusCode != 403 ||
 		!result.Items[0].Learnable {
 		t.Fatalf("denials = %+v", result)
+	}
+	projected, err := json.Marshal(result.Items[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	visible := string(projected)
+	for _, required := range []string{`"workspace_id"`, `"workspace_manifest_id"`, `"workspace_manifest"`} {
+		if !strings.Contains(visible, required) {
+			t.Errorf("public denial projection %s lacks %s", visible, required)
+		}
+	}
+	for _, forbidden := range []string{`"project_id"`, `"context_id"`, `"context"`} {
+		if strings.Contains(visible, forbidden) {
+			t.Errorf("public denial projection %s leaked Gateway wire key %s", visible, forbidden)
+		}
+	}
+}
+
+func TestParseGatewayDenialsRejectsRenamedGatewayIdentityAliases(t *testing.T) {
+	t.Parallel()
+	renamed := strings.NewReplacer(
+		`"project_id":`, `"workspace_id":`,
+		`"context_id":`, `"workspace_manifest_id":`,
+		`"context":`, `"workspace_manifest":`,
+	).Replace(denyAuditLine)
+	result := parseGatewayDenials([]byte(renamed + "\n"))
+	if len(result.Items) != 0 || result.UnparsedLines != 1 {
+		t.Fatalf("renamed Gateway audit aliases entered domain projection: %+v", result)
 	}
 }
 

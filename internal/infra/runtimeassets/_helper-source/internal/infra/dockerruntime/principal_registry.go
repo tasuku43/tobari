@@ -24,9 +24,12 @@ var projectPrincipalNetworkPattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_
 // endpoint pair belongs to one exact owned project network; neither address is
 // a caller-provided project selector.
 type projectPrincipalBinding struct {
-	ProjectID             string `json:"workspace_id"`
-	WorkspaceManifestID   string `json:"workspace_manifest_id"`
-	WorkspaceManifestName string `json:"workspace_manifest"`
+	// The Go names carry current domain vocabulary. These JSON tags belong to
+	// the frozen Gateway schema-v1 wire and are compatibility tokens, not public
+	// or domain authority names. The Gateway intentionally has no dual reader.
+	ProjectID             string `json:"project_id"`
+	WorkspaceManifestID   string `json:"context_id"`
+	WorkspaceManifestName string `json:"context"`
 	ProjectRoot           string `json:"project_root"`
 	WorkspaceIP           string `json:"workspace_ip"`
 	GatewayIP             string `json:"gateway_ip"`

@@ -57,11 +57,14 @@ func hostLoopbackRouteID(epochID, contextID, projectID string) string {
 // Workspace. Relay coordinates never enter Workspace capability information,
 // OPA input, audit, or review output.
 type AttachmentHostLoopbackRoute struct {
-	ID                    string `json:"id"`
-	EpochID               string `json:"attachment_epoch_id"`
-	WorkspaceManifestID   string `json:"workspace_manifest_id"`
-	WorkspaceManifestName string `json:"workspace_manifest"`
-	ProjectID             string `json:"workspace_id"`
+	ID      string `json:"id"`
+	EpochID string `json:"attachment_epoch_id"`
+	// These three tags are frozen Gateway route schema-v1 tokens. Current Go
+	// names retain the Workspace/Manifest domain model without creating a wire
+	// alias that the Gateway could interpret ambiguously.
+	WorkspaceManifestID   string `json:"context_id"`
+	WorkspaceManifestName string `json:"context"`
+	ProjectID             string `json:"project_id"`
 	ProjectRoot           string `json:"project_root"`
 	Hostname              string `json:"hostname"`
 	RelayPort             int    `json:"relay_port"`
@@ -179,8 +182,8 @@ type AttachmentGrant struct {
 	Decision            string `json:"decision"`
 	Lifetime            string `json:"lifetime"`
 	DestinationKind     string `json:"destination_kind"`
-	WorkspaceManifestID string `json:"workspace_manifest_id"`
-	ProjectID           string `json:"workspace_id"`
+	WorkspaceManifestID string `json:"context_id"`
+	ProjectID           string `json:"project_id"`
 	EpochID             string `json:"attachment_epoch_id"`
 	Hostname            string `json:"host"`
 	TargetPort          int    `json:"target_port"`

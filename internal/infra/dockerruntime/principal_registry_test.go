@@ -76,6 +76,29 @@ func principalTestBinding(projectID, workspaceIP, gatewayIP, network string) pro
 	}
 }
 
+func TestProjectPrincipalRegistryEmitsOnlyFrozenGatewayIdentityKeys(t *testing.T) {
+	encoded, err := json.Marshal(projectPrincipalRegistry{
+		SchemaVersion: projectPrincipalRegistrySchema,
+		Bindings: []projectPrincipalBinding{
+			principalTestBinding("01912345-6789-7abc-8def-0123456789ab", "172.29.0.3", "172.29.0.2", "tobari-a-net"),
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wire := string(encoded)
+	for _, required := range []string{`"project_id"`, `"context_id"`, `"context"`} {
+		if !strings.Contains(wire, required) {
+			t.Errorf("Gateway principal wire %s lacks %s", wire, required)
+		}
+	}
+	for _, forbidden := range []string{`"workspace_id"`, `"workspace_manifest_id"`, `"workspace_manifest"`} {
+		if strings.Contains(wire, forbidden) {
+			t.Errorf("Gateway principal wire %s contains renamed alias %s", wire, forbidden)
+		}
+	}
+}
+
 func TestProjectPrincipalRegistryRejectsAmbiguousBindings(t *testing.T) {
 	registry := projectPrincipalRegistry{
 		SchemaVersion: projectPrincipalRegistrySchema,

@@ -21,13 +21,16 @@ import (
 
 type gatewayAuditRecord struct {
 	tobari.PolicyProtocolIdentity
-	SchemaVersion         int     `json:"schema_version"`
-	Timestamp             string  `json:"timestamp"`
-	RequestID             string  `json:"request_id"`
-	Cluster               string  `json:"cluster"`
-	ProjectID             *string `json:"workspace_id"`
-	WorkspaceManifestID   *string `json:"workspace_manifest_id"`
-	WorkspaceManifestName *string `json:"workspace_manifest"`
+	SchemaVersion int    `json:"schema_version"`
+	Timestamp     string `json:"timestamp"`
+	RequestID     string `json:"request_id"`
+	Cluster       string `json:"cluster"`
+	// Gateway audit schema v1 predates the public Workspace Manifest model.
+	// Decode its exact compatibility tokens here, then project current domain
+	// names in PolicyDenial and every public result.
+	ProjectID             *string `json:"project_id"`
+	WorkspaceManifestID   *string `json:"context_id"`
+	WorkspaceManifestName *string `json:"context"`
 	ProjectRoot           *string `json:"project_root"`
 	Host                  string  `json:"host"`
 	Port                  int     `json:"port"`
