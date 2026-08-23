@@ -1,5 +1,5 @@
 {
-  "generated_from": "committed tobari agent help schema 1 at commit 1500c8dd29c4f52b4b729347b8ea413f3eb145ef",
+  "generated_from": "committed tobari agent help schema 1 at commit 51656365479be15dbd5345973ce6c218aa09d6b8",
   "root": {
     "schema_version": 1,
     "view": "index",
@@ -6277,11 +6277,12 @@
                 {
                   "name": "match",
                   "type": "string",
-                  "description": "Exact match mode.",
+                  "description": "Exact or single-segment path-template match.",
                   "required": true,
                   "nullable": false,
                   "enum": [
-                    "exact"
+                    "exact",
+                    "path_template"
                   ]
                 },
                 {
@@ -6630,8 +6631,8 @@
                 "retryable": false,
                 "next_actions": [
                   {
-                    "command": "policy rules",
-                    "reason": "Repair JSON projection."
+                    "command": "version",
+                    "reason": "Report the exact build identity for diagnosis."
                   }
                 ]
               },
@@ -6855,7 +6856,15 @@
                   "description": "Effective stored policy protocol.",
                   "required": true,
                   "nullable": false,
-                  "enum": []
+                  "enum": [
+                    "http",
+                    "graphql",
+                    "mcp",
+                    "aws",
+                    "kubernetes",
+                    "git",
+                    "oci"
+                  ]
                 },
                 {
                   "name": "state_change",
@@ -7489,7 +7498,15 @@
                   "description": "Effective stored policy protocol.",
                   "required": true,
                   "nullable": false,
-                  "enum": []
+                  "enum": [
+                    "http",
+                    "graphql",
+                    "mcp",
+                    "aws",
+                    "kubernetes",
+                    "git",
+                    "oci"
+                  ]
                 },
                 {
                   "name": "state_change",
@@ -8075,7 +8092,10 @@
                   "description": "Removed learned decision: allow or deny.",
                   "required": true,
                   "nullable": false,
-                  "enum": []
+                  "enum": [
+                    "allow",
+                    "deny"
+                  ]
                 },
                 {
                   "name": "applied",
@@ -31460,8 +31480,8 @@
       "command": "policy rules",
       "next_actions": [
         {
-          "command": "policy rules",
-          "reason": "Repair JSON projection."
+          "command": "version",
+          "reason": "Report the exact build identity for diagnosis."
         }
       ]
     },

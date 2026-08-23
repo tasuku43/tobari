@@ -36,20 +36,20 @@ description: Tobari の公開仕様が、どの実装とテストで維持され
 
 ### 規定文書
 
-- [アーキテクチャ](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/docs/02_architecture.md)
-- [セキュリティモデル](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/docs/03_security_model.md)
-- [検査契約](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/docs/04_harness.md)
-- [認証契約](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/docs/07_authentication.md)
-- [外部 API 契約](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/docs/08_external_api_contracts.md)
+- [アーキテクチャ](https://github.com/tasuku43/tobari/blob/51656365479be15dbd5345973ce6c218aa09d6b8/docs/02_architecture.md)
+- [セキュリティモデル](https://github.com/tasuku43/tobari/blob/51656365479be15dbd5345973ce6c218aa09d6b8/docs/03_security_model.md)
+- [検査契約](https://github.com/tasuku43/tobari/blob/51656365479be15dbd5345973ce6c218aa09d6b8/docs/04_harness.md)
+- [認証契約](https://github.com/tasuku43/tobari/blob/51656365479be15dbd5345973ce6c218aa09d6b8/docs/07_authentication.md)
+- [外部 API 契約](https://github.com/tasuku43/tobari/blob/51656365479be15dbd5345973ce6c218aa09d6b8/docs/08_external_api_contracts.md)
 
 ### 実装とテスト
 
-- [Gateway の実装](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/gateway/addon/tobari_gateway.py) と [テスト](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/gateway/test_tobari_gateway.py)
-- [OPA ポリシー](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/internal/infra/runtimeassets/assets/opa/policy/tobari.rego) と [テスト](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/internal/infra/runtimeassets/assets/opa/policy/tobari_test.rego)
-- [Auth Broker](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/authbroker/broker.py)、[保管庫](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/authbroker/vault.py)、[テスト](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/authbroker/tests/test_broker.py)
-- [信頼するホスト上のドライバー](https://github.com/tasuku43/tobari/tree/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/internal/infra/credentialhost) と [ホストログインのテスト](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/internal/infra/dockerruntime/auth_host_login_test.go)
-- [プロジェクトのプリンシパル登録簿](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/internal/infra/dockerruntime/principal_registry.go) と [テスト](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/internal/infra/dockerruntime/principal_registry_test.go)
-- [一連の統合テスト](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/scripts/test-integration.sh)
+- [Gateway の実装](https://github.com/tasuku43/tobari/blob/51656365479be15dbd5345973ce6c218aa09d6b8/gateway/addon/tobari_gateway.py) と [テスト](https://github.com/tasuku43/tobari/blob/51656365479be15dbd5345973ce6c218aa09d6b8/gateway/test_tobari_gateway.py)
+- [OPA ポリシー](https://github.com/tasuku43/tobari/blob/51656365479be15dbd5345973ce6c218aa09d6b8/internal/infra/runtimeassets/assets/opa/policy/tobari.rego) と [テスト](https://github.com/tasuku43/tobari/blob/51656365479be15dbd5345973ce6c218aa09d6b8/internal/infra/runtimeassets/assets/opa/policy/tobari_test.rego)
+- [Auth Broker](https://github.com/tasuku43/tobari/blob/51656365479be15dbd5345973ce6c218aa09d6b8/authbroker/broker.py)、[保管庫](https://github.com/tasuku43/tobari/blob/51656365479be15dbd5345973ce6c218aa09d6b8/authbroker/vault.py)、[テスト](https://github.com/tasuku43/tobari/blob/51656365479be15dbd5345973ce6c218aa09d6b8/authbroker/tests/test_broker.py)
+- [信頼するホスト上のドライバー](https://github.com/tasuku43/tobari/tree/51656365479be15dbd5345973ce6c218aa09d6b8/internal/infra/credentialhost) と [ホストログインのテスト](https://github.com/tasuku43/tobari/blob/51656365479be15dbd5345973ce6c218aa09d6b8/internal/infra/dockerruntime/auth_host_login_test.go)
+- [プロジェクトのプリンシパル登録簿](https://github.com/tasuku43/tobari/blob/51656365479be15dbd5345973ce6c218aa09d6b8/internal/infra/dockerruntime/principal_registry.go) と [テスト](https://github.com/tasuku43/tobari/blob/51656365479be15dbd5345973ce6c218aa09d6b8/internal/infra/dockerruntime/principal_registry_test.go)
+- [一連の統合テスト](https://github.com/tasuku43/tobari/blob/51656365479be15dbd5345973ce6c218aa09d6b8/scripts/test-integration.sh)
 
 ## 根拠の読み方
 
