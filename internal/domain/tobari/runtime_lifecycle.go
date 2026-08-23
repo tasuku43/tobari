@@ -82,10 +82,10 @@ func (o RuntimeMaterialObservation) Validate() error {
 		return fmt.Errorf("available Runtime material lacks ownership evidence")
 	}
 	if o.Availability == RuntimeAvailabilityMissing && o.TagPresent {
-		return fmt.Errorf("missing Runtime material cannot have its normal tag")
+		return fmt.Errorf("missing Runtime material cannot have its expected owned tag")
 	}
 	if o.Availability == RuntimeAvailabilityMismatched && !o.TagPresent {
-		return fmt.Errorf("mismatched Runtime material requires an observed normal tag")
+		return fmt.Errorf("mismatched Runtime material requires an observed expected owned tag")
 	}
 	if o.OwnershipVerified && !o.ContentPresent {
 		return fmt.Errorf("Runtime material ownership requires recorded content")
