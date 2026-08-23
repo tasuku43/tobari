@@ -1685,6 +1685,9 @@ func (r *Runtime) applyAggregatePolicyData(
 		candidateState.ManifestCount = projection.ManifestCount
 		candidateState.PolicyDirectory = projection.PolicyDirectory
 		candidateState.GatewayConfig = projection.GatewayConfig
+		if candidateState.SchemaVersion == 2 {
+			candidateState.Applied.AggregateRevision = projection.Revision
+		}
 		candidateReceipt := tobari.PolicyActivationReceipt{
 			PolicyDirectory: candidateState.PolicyDirectory,
 			ActiveRevision:  candidateState.AggregateRevision,

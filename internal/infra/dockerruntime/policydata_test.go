@@ -515,8 +515,9 @@ func TestSinglePolicyMutationsReturnTheActivatedAggregateProjection(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	state := runtimeState(root)
+	state := appliedRuntimeState(t, root, tobari.SharedClusterProfileUnix)
 	state.AggregateRevision = projection.Revision
+	state.Applied.AggregateRevision = projection.Revision
 	state.ManifestCount = projection.ManifestCount
 	state.PolicyDirectory = projection.PolicyDirectory
 	state.GatewayConfig = projection.GatewayConfig
@@ -539,6 +540,9 @@ func TestSinglePolicyMutationsReturnTheActivatedAggregateProjection(t *testing.T
 		allowReceipt.ActiveRevision != stored.AggregateRevision || allowReceipt.PolicyDirectory == state.PolicyDirectory {
 		t.Fatalf("allow receipt=%+v stored=%+v validate=%v", allowReceipt, stored, err)
 	}
+	if stored.Applied.AggregateRevision != stored.AggregateRevision {
+		t.Fatalf("allow activation left applied aggregate at %q, want %q", stored.Applied.AggregateRevision, stored.AggregateRevision)
+	}
 
 	deny := contextDenyFixture(t, manifest, "01912345-6789-7abc-8def-0123456789ab", "/single-deny")
 	denyReceipt, err := runtimeStore.ApplyPolicyDenyRules(
@@ -555,6 +559,88 @@ func TestSinglePolicyMutationsReturnTheActivatedAggregateProjection(t *testing.T
 	if err := denyReceipt.Validate(); err != nil || denyReceipt.PolicyDirectory != latest.PolicyDirectory ||
 		denyReceipt.ActiveRevision != latest.AggregateRevision || denyReceipt.PolicyDirectory == stored.PolicyDirectory {
 		t.Fatalf("deny receipt=%+v latest=%+v validate=%v", denyReceipt, latest, err)
+	}
+	if latest.Applied.AggregateRevision != latest.AggregateRevision {
+		t.Fatalf("deny activation left applied aggregate at %q, want %q", latest.Applied.AggregateRevision, latest.AggregateRevision)
+	}
+}
+
+func TestSchema2PolicyMutationRejectsMismatchedAppliedAggregateBeforeDocker(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	state := appliedRuntimeState(t, root, tobari.SharedClusterProfileUnix)
+	state.AggregateRevision = strings.Repeat("f", 64)
+	writeMinimalPolicyFixture(t, state)
+	runner := &recordingRunner{}
+	runtimeStore, err := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), runner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = runtimeStore.ApplyLearnedPolicyRules(
+		context.Background(), state, []tobari.LearnedPolicyRule{},
+		[]tobari.LearnedPolicyRule{learnedRuleFixture(t, "/mismatch")},
+	)
+	if err == nil || len(runner.outputs) != 0 {
+		t.Fatalf("mismatched applied aggregate error = %v, Docker calls = %v", err, runner.outputs)
+	}
+}
+
+func TestSchema2PolicyStateWriteFailureRollsBackAppliedAggregateAndSources(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	runtimeStore, err := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), concurrentPolicyRunner{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	initializeTestWorkspaceManifest(t, runtimeStore)
+	manifest, _, err := runtimeStore.resolveContext("default")
+	if err != nil {
+		t.Fatal(err)
+	}
+	projection, err := runtimeStore.buildAggregateProjection(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := appliedRuntimeState(t, root, tobari.SharedClusterProfileUnix)
+	state.AggregateRevision = projection.Revision
+	state.Applied.AggregateRevision = projection.Revision
+	state.ManifestCount = projection.ManifestCount
+	state.PolicyDirectory = projection.PolicyDirectory
+	state.GatewayConfig = projection.GatewayConfig
+	if err := runtimeStore.writeState(state); err != nil {
+		t.Fatal(err)
+	}
+	injected := errors.New("interrupted state publication")
+	var candidate tobari.State
+	runtimeStore.clusterStateWriteHook = func(observed tobari.State, _ func() error) error {
+		candidate = observed
+		return injected
+	}
+	_, err = runtimeStore.ApplyPolicyDenyRules(
+		context.Background(), state, []tobari.LearnedPolicyRule{},
+		[]tobari.PolicyDenyRule{},
+		[]tobari.PolicyDenyRule{contextDenyFixture(t, manifest, "01912345-6789-7abc-8def-0123456789ab", "/rollback")},
+	)
+	if !errors.Is(err, injected) {
+		t.Fatalf("state publication failure = %v", err)
+	}
+	if candidate.AggregateRevision == state.AggregateRevision ||
+		candidate.Applied.AggregateRevision != candidate.AggregateRevision {
+		t.Fatalf("candidate aggregate identities were not advanced together: %+v", candidate)
+	}
+	wantApplied := state.Applied
+	wantApplied.AggregateRevision = candidate.AggregateRevision
+	if candidate.Applied != wantApplied {
+		t.Fatalf("policy activation changed non-policy applied authority: got %+v want %+v", candidate.Applied, wantApplied)
+	}
+	runtimeStore.clusterStateWriteHook = nil
+	stored, exists, loadErr := runtimeStore.LoadState(context.Background())
+	if loadErr != nil || !exists || stored != state {
+		t.Fatalf("failed publication stored state = %+v, exists=%t, error=%v", stored, exists, loadErr)
+	}
+	rules, readErr := runtimeStore.ReadPolicyDenyRules(context.Background(), stored)
+	if readErr != nil || len(rules.Exact) != 0 {
+		t.Fatalf("failed publication retained candidate policy: rules=%+v error=%v", rules, readErr)
 	}
 }
 

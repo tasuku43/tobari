@@ -435,6 +435,9 @@ default decision := {"allow": false, "reason": "policy transition in progress", 
 	fence := state
 	fence.PolicyDirectory = directory
 	fence.AggregateRevision = revision
+	if fence.SchemaVersion == 2 {
+		fence.Applied.AggregateRevision = revision
+	}
 	return fence, cleanup, nil
 }
 
