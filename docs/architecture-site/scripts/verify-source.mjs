@@ -58,6 +58,14 @@ const v1Sources = {
     join(root, "src/content/docs/ja/guides/authentication.mdx"),
     "utf8",
   ),
+  supplyChain: await readFile(
+    join(root, "src/content/docs/security/supply-chain.mdx"),
+    "utf8",
+  ),
+  supplyChainJa: await readFile(
+    join(root, "src/content/docs/ja/security/supply-chain.mdx"),
+    "utf8",
+  ),
   providerPairs: await readFile(
     join(root, "src/data/providerToolSupport.ts"),
     "utf8",
@@ -83,6 +91,20 @@ for (const required of [
   ) {
     errors.push(
       `Workspace Manifest capability documentation is missing ${required} in one locale`,
+    );
+  }
+}
+for (const required of [
+  "`tobari-expose`",
+  "`tobari-permission`",
+  "`check-exposure-helper-source.sh`",
+]) {
+  if (
+    !v1Sources.supplyChain.includes(required) ||
+    !v1Sources.supplyChainJa.includes(required)
+  ) {
+    errors.push(
+      `Workspace helper supply-chain documentation is missing ${required} in one locale`,
     );
   }
 }

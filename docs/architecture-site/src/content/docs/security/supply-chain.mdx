@@ -22,7 +22,7 @@ role of each image and embedded asset.
 
 The Go CLI must materialize a runtime directory without downloading executable policy or Python source at startup. Canonical editable Gateway code lives under `gateway/`; Auth Broker under `authbroker/`; runtime source under `runtimes/base/`. Byte/content-checked copies live under `internal/infra/runtimeassets/assets/` for embedding. The closed Auth Broker image contract includes reviewed refresh/signing code but rejects provider executables.
 
-The copies are not a second implementation. `check-gateway-source.sh`, `check-authbroker-source.sh`, and `check-runtime-base.sh` reject drift. The dedicated Linux `tobari-expose` helper is built into that base with a pinned Go builder from a mechanically checked source/module closure; it is not copied from the host executable or shipped as a second archive. `check-exposure-helper-source.sh` rejects closure drift. Synchronization is an explicit maintainer operation.
+The copies are not a second implementation. `check-gateway-source.sh`, `check-authbroker-source.sh`, and `check-runtime-base.sh` reject drift. The dedicated Linux `tobari-expose` and `tobari-permission` helpers are built into that base with a pinned Go builder from one mechanically checked source/module closure; neither is copied from the host executable or shipped as a second archive. `check-exposure-helper-source.sh` rejects closure drift for both Programs. Synchronization is an explicit maintainer operation.
 
 ## Immutable and moving identities
 

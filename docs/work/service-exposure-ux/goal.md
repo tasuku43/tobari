@@ -25,8 +25,8 @@
   completed WP08 Catalog/output contracts in [Architecture](../../02_architecture.md) and [Harness](../../04_harness.md),
   [Runtime Retirement](../runtime-retirement/goal.md),
   [Build Profile Contract](../build-profile-contract/goal.md),
-  [Host Loopback Name](../host-loopback-name/goal.md),
-  [Permission Resume Handoff](../permission-resume-handoff/goal.md), and
+  [Host Loopback Name](../host-loopback-name/goal.md), the accepted
+  [permission-resume and attachment-session contract](../../decisions/0081-observe-reviewed-permission-from-an-attached-workspace.md), and
   [Status Home](../status-home/goal.md)
 
 ## Outcome

@@ -26,9 +26,10 @@ Auth Broker が `authbroker/`、ランタイムが `runtimes/base/` にありま
 
 埋め込みの複製は二つ目の実装ではありません。`check-gateway-source.sh`、
 `check-authbroker-source.sh`、`check-runtime-base.sh` が正本との差分を拒否します。
-専用 Linux `tobari-expose` helper は、固定した Go builder と機械的に検査する
-source/module closure からこの base に組み込みます。host executable のコピーでも、
-二つ目の archive でもありません。`check-exposure-helper-source.sh` が closure の drift を拒否します。
+専用 Linux `tobari-expose` と `tobari-permission` helper は、固定した Go builder と
+一つの機械的に検査する source/module closure からこの base に組み込みます。どちらも
+host executable のコピーでも、二つ目の archive でもありません。
+`check-exposure-helper-source.sh` が両 Program の closure drift を拒否します。
 同期は保守担当者が明示的に行う操作です。
 
 ## 変更されない識別情報と更新される識別情報
