@@ -1655,6 +1655,7 @@ fi
 
 begin_phase lifecycle
 docker rm -f "$mock_name" >/dev/null
+docker rm -f "$auth_mock_name" >/dev/null
 set +e
 run_tobari cluster down >/dev/null 2>&1
 down_with_projects_status=$?
