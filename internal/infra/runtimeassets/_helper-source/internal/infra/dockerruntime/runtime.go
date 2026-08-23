@@ -83,28 +83,34 @@ func (runner osCommandRunner) RunWorkspaceServiceStream(ctx context.Context, arg
 
 // Runtime owns filesystem state and Docker process execution.
 type Runtime struct {
-	configDirectory            string
-	stateDirectory             string
-	dataDirectory              string
-	hostHomeDirectory          string
-	runner                     commandRunner
-	images                     imageResolver
-	browser                    hostBrowserOpener
-	gitIdentity                hostGitIdentityResolver
-	companion                  companionruntime.Launcher
-	companionEntropy           io.Reader
-	rootKeyLoader              func(context.Context) ([]byte, error)
-	hostCLIs                   hostCLIResolver
-	credentialHost             hostCredentialAcquirer
-	lifecycleLockAttempt       func()
-	runtimeStoreLockAttempt    func()
-	runtimeBuildCleanup        func(runtimeBuildJournal) error
-	runtimeBuildManifestWrite  func(string, any) error
-	runtimeBuildSnapshotSync   func(string) error
-	runtimeBuildDirectorySync  func(string) error
-	runtimeBuildRename         func(string, string) error
-	runtimeBuildFreeze         func(string) error
-	runtimeBuildSnapshotRemove func(string) error
+	configDirectory             string
+	stateDirectory              string
+	dataDirectory               string
+	hostHomeDirectory           string
+	runner                      commandRunner
+	images                      imageResolver
+	browser                     hostBrowserOpener
+	gitIdentity                 hostGitIdentityResolver
+	companion                   companionruntime.Launcher
+	companionEntropy            io.Reader
+	rootKeyLoader               func(context.Context) ([]byte, error)
+	hostCLIs                    hostCLIResolver
+	credentialHost              hostCredentialAcquirer
+	lifecycleLockAttempt        func()
+	runtimeStoreLockAttempt     func()
+	runtimeBuildCleanup         func(runtimeBuildJournal) error
+	runtimeBuildCompletionWrite func(runtimeBuildJournal) error
+	runtimeBuildJournalRemove   func(string) error
+	runtimeBuildJournalWrite    func(runtimeBuildJournal, runtimeBuildJournal) error
+	runtimeBuildManifestWrite   func(string, any) error
+	runtimeBuildRehash          func(context.Context, string) (string, error)
+	runtimeBuildRehashBoundary  func(string, bool) error
+	runtimeBuildSnapshotSync    func(string) error
+	runtimeBuildDirectorySync   func(string) error
+	runtimeBuildRename          func(string, string) error
+	runtimeBuildFreeze          func(string) error
+	runtimeBuildSnapshotRemove  func(string) error
+	runtimeBuildRecoveryTimeout time.Duration
 	// claudeContainerLogin is nil in production. Tests may replace the
 	// isolated Context-runtime acquisition without granting the generic host
 	// credential adapter authority over Claude's native state.
