@@ -132,12 +132,35 @@ func (r *Runtime) readRuntimeProtectionInventoryObserved(ctx context.Context, bu
 	sort.Slice(result.Inventory.Items, func(i, j int) bool {
 		return runtimeProtectionSortKey(result.Inventory.Items[i]) < runtimeProtectionSortKey(result.Inventory.Items[j])
 	})
+	result.Inventory.Items, err = canonicalRuntimeProtectionItems(result.Inventory.Items)
+	if err != nil {
+		return runtimeProtectionObservation{}, err
+	}
 	return result, result.Inventory.Validate()
 }
 
 func runtimeProtectionSortKey(item tobari.RuntimeProtection) string {
 	return item.RuntimeID + "\x00" + item.RuntimeRevision + "\x00" + string(item.Reason) + "\x00" +
 		item.WorkspaceManifestID + "\x00" + item.ManifestRevision + "\x00" + item.WorkspaceID
+}
+
+func canonicalRuntimeProtectionItems(items []tobari.RuntimeProtection) ([]tobari.RuntimeProtection, error) {
+	result := make([]tobari.RuntimeProtection, 0, len(items))
+	owners := make(map[string]string, len(items))
+	for _, item := range items {
+		authority := runtimeProtectionSortKey(item)
+		owner := string(item.Reason) + "\x00" + item.WorkspaceManifestID + "\x00" + item.ManifestRevision + "\x00" + item.WorkspaceID
+		target := item.RuntimeID + "\x00" + item.RuntimeRevision
+		if previous, exists := owners[owner]; exists && previous != target {
+			return nil, tobari.RuntimeProtectionInventoryError{Reason: tobari.RuntimeProtectionInventoryIncomplete}
+		}
+		owners[owner] = target
+		if len(result) != 0 && runtimeProtectionSortKey(result[len(result)-1]) == authority {
+			continue
+		}
+		result = append(result, item)
+	}
+	return result, nil
 }
 
 func runtimeWorkspaceProtection(workspace tobari.Workspace, observed bool) (tobari.RuntimeProtection, bool) {

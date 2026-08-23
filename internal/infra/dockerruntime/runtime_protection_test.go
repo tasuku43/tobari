@@ -422,3 +422,34 @@ func TestRuntimeProtectionOrderingIncludesRetainedManifestRevision(t *testing.T)
 		t.Fatalf("retained protection ordering = %+v", items)
 	}
 }
+
+func TestRuntimeProtectionCanonicalizesRepeatedRetainedHistory(t *testing.T) {
+	base := tobari.RuntimeProtection{
+		RuntimeID: "018bcfe5-687b-7000-8000-000000000077", RuntimeRevision: "sha256:" + strings.Repeat("d", 64),
+		Reason: tobari.RuntimeProtectedByManifestRetained, WorkspaceManifestID: "01912345-6789-7abc-8def-0123456789ad",
+	}
+	a, b := base, base
+	a.ManifestRevision = "sha256:" + strings.Repeat("a", 64)
+	b.ManifestRevision = "sha256:" + strings.Repeat("b", 64)
+	items := []tobari.RuntimeProtection{a, a, b, b}
+	slices.SortFunc(items, func(left, right tobari.RuntimeProtection) int {
+		return strings.Compare(runtimeProtectionSortKey(left), runtimeProtectionSortKey(right))
+	})
+	canonical, err := canonicalRuntimeProtectionItems(items)
+	if err != nil || len(canonical) != 2 || canonical[0] != a || canonical[1] != b {
+		t.Fatalf("A-B-A-B retained projection = %+v/%v", canonical, err)
+	}
+	if err := (tobari.RuntimeProtectionInventory{Complete: true, Items: canonical}).Validate(); err != nil {
+		t.Fatalf("canonical retained projection is invalid: %v", err)
+	}
+
+	conflict := a
+	conflict.RuntimeRevision = "sha256:" + strings.Repeat("e", 64)
+	conflicting := []tobari.RuntimeProtection{a, conflict}
+	slices.SortFunc(conflicting, func(left, right tobari.RuntimeProtection) int {
+		return strings.Compare(runtimeProtectionSortKey(left), runtimeProtectionSortKey(right))
+	})
+	if _, err := canonicalRuntimeProtectionItems(conflicting); err == nil {
+		t.Fatal("conflicting retained authority was deduplicated")
+	}
+}
