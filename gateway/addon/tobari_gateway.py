@@ -64,6 +64,9 @@ MAX_PERMISSION_SESSION_BYTES = 256 * 1024
 MAX_PERMISSION_WAIT_REQUEST_BYTES = 4 * 1024
 PERMISSION_SESSION_LEASE_SECONDS = 30
 PERMISSION_WAIT_LEASE_SECONDS = 15 * 60
+PERMISSION_INGESTION_UNIX = "unix"
+PERMISSION_INGESTION_LOOPBACK_TCP = "loopback_tcp"
+PERMISSION_INGESTION_GATEWAY_HOST = "host.docker.internal"
 PROJECT_ID_PATTERN = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
 )
@@ -316,7 +319,7 @@ def _permission_session_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
 def _parse_permission_sessions(raw: bytes) -> list[dict[str, Any]]:
     try:
         document = json.loads(raw, object_pairs_hook=_permission_session_object)
-    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+    except (UnicodeDecodeError, json.JSONDecodeError, RecursionError) as error:
         raise PermissionSessionError("interactive session registry is invalid") from error
     if not isinstance(document, dict) or set(document) != {"schema_version", "sessions"} or document.get("schema_version") != 2:
         raise PermissionSessionError("interactive session registry version is invalid")
@@ -325,13 +328,14 @@ def _parse_permission_sessions(raw: bytes) -> list[dict[str, Any]]:
         raise PermissionSessionError("interactive session collection is invalid")
     pairs: set[tuple[str, str]] = set()
     epochs: set[str] = set()
-    sockets: set[str] = set()
+    endpoints: set[tuple[str, str]] = set()
     nonces: set[str] = set()
     result: list[dict[str, Any]] = []
     expected_fields = {
         "schema_version", "workspace_manifest_id", "workspace_id",
         "attachment_id", "owner_kind", "frozen_principal_fingerprint",
-        "owner_pid", "ingestion_socket", "ingestion_nonce", "created_at",
+        "owner_pid", "ingestion_transport", "ingestion_endpoint",
+        "ingestion_nonce", "created_at",
         "lease_issued_at", "expires_at",
     }
     for session in sessions:
@@ -342,7 +346,8 @@ def _parse_permission_sessions(raw: bytes) -> list[dict[str, Any]]:
         attachment_id = session.get("attachment_id")
         fingerprint = session.get("frozen_principal_fingerprint")
         owner_pid = session.get("owner_pid")
-        socket_name = session.get("ingestion_socket")
+        transport = session.get("ingestion_transport")
+        endpoint = session.get("ingestion_endpoint")
         nonce = session.get("ingestion_nonce")
         if (
             not isinstance(workspace_manifest_id, str) or PROJECT_ID_PATTERN.fullmatch(workspace_manifest_id) is None
@@ -351,21 +356,32 @@ def _parse_permission_sessions(raw: bytes) -> list[dict[str, Any]]:
             or session.get("owner_kind") != "interactive_workspace"
             or not isinstance(fingerprint, str) or re.fullmatch(r"[0-9a-f]{64}", fingerprint) is None
             or not isinstance(owner_pid, int) or isinstance(owner_pid, bool) or owner_pid < 1
-            or not isinstance(socket_name, str) or re.fullmatch(r"pws_[0-9a-f]{32}\.sock", socket_name) is None
             or not isinstance(nonce, str) or re.fullmatch(r"[0-9a-f]{64}", nonce) is None
         ):
             raise PermissionSessionError("interactive session authority is invalid")
+        if transport == PERMISSION_INGESTION_UNIX:
+            if not isinstance(endpoint, str) or re.fullmatch(r"pws_[0-9a-f]{32}\.sock", endpoint) is None:
+                raise PermissionSessionError("interactive session Unix endpoint is invalid")
+        elif transport == PERMISSION_INGESTION_LOOPBACK_TCP:
+            if not isinstance(endpoint, str):
+                raise PermissionSessionError("interactive session loopback endpoint is invalid")
+            match = re.fullmatch(r"127\.0\.0\.1:([1-9][0-9]{0,4})", endpoint)
+            if match is None or int(match.group(1)) > 65535:
+                raise PermissionSessionError("interactive session loopback endpoint is invalid")
+        else:
+            raise PermissionSessionError("interactive session transport is invalid")
         created = _permission_session_time(session.get("created_at"))
         issued = _permission_session_time(session.get("lease_issued_at"))
         expires = _permission_session_time(session.get("expires_at"))
         if issued < created or expires <= issued or expires - issued > PERMISSION_SESSION_LEASE_SECONDS * 1_000_000_000:
             raise PermissionSessionError("interactive session lease is invalid")
         pair = (workspace_manifest_id, workspace_id)
-        if pair in pairs or attachment_id in epochs or socket_name in sockets or nonce in nonces:
+        transport_endpoint = (transport, endpoint)
+        if pair in pairs or attachment_id in epochs or transport_endpoint in endpoints or nonce in nonces:
             raise PermissionSessionError("interactive session authority is ambiguous")
         pairs.add(pair)
         epochs.add(attachment_id)
-        sockets.add(socket_name)
+        endpoints.add(transport_endpoint)
         nonces.add(nonce)
         result.append(dict(session))
     return result
@@ -374,7 +390,10 @@ def _parse_permission_sessions(raw: bytes) -> list[dict[str, Any]]:
 class PermissionSessionSource:
     """Return one current canonical interactive owner without stale fallback."""
 
-    def __init__(self, path: str) -> None:
+    def __init__(self, path: str, transport: str) -> None:
+        if transport not in {PERMISSION_INGESTION_UNIX, PERMISSION_INGESTION_LOOPBACK_TCP}:
+            raise PermissionSessionError("permission ingestion profile is invalid")
+        self.transport = transport
         self._cache = StatIdentityCache(path, MAX_PERMISSION_SESSION_BYTES, _parse_permission_sessions)
 
     def resolve(self, principal: dict[str, str], now: float) -> dict[str, Any]:
@@ -384,12 +403,15 @@ class PermissionSessionSource:
             raise
         except ValidatedFileError as error:
             raise PermissionSessionError("interactive session registry is unavailable") from error
+        now_ns = int(now * 1_000_000_000)
         matches = [
             session for session in sessions
-            if session["workspace_manifest_id"] == principal["context_id"]
+            if session["ingestion_transport"] == self.transport
+            and session["workspace_manifest_id"] == principal["context_id"]
             and session["workspace_id"] == principal["project_id"]
             and session["frozen_principal_fingerprint"] == principal.get("_frozen_principal_fingerprint")
-            and int(now * 1_000_000_000) < _permission_session_time(session["expires_at"])
+            and _permission_session_time(session["lease_issued_at"]) <= now_ns
+            and now_ns < _permission_session_time(session["expires_at"])
         ]
         if len(matches) != 1:
             raise PermissionSessionError("interactive session join is not unique")
@@ -402,18 +424,31 @@ class PermissionSessionSource:
         stable_fields = {
             "schema_version", "workspace_manifest_id", "workspace_id",
             "attachment_id", "owner_kind", "frozen_principal_fingerprint",
-            "owner_pid", "ingestion_socket", "ingestion_nonce", "created_at",
+            "owner_pid", "ingestion_transport", "ingestion_endpoint",
+            "ingestion_nonce", "created_at",
         }
         if any(current.get(field) != expected.get(field) for field in stable_fields):
             raise PermissionSessionError("interactive session authority changed after acknowledgement")
-        if (
-            _permission_session_time(current["lease_issued_at"])
-            < _permission_session_time(expected["lease_issued_at"])
-            or _permission_session_time(current["expires_at"])
-            < _permission_session_time(expected["expires_at"])
+        current_issued = _permission_session_time(current["lease_issued_at"])
+        expected_issued = _permission_session_time(expected["lease_issued_at"])
+        current_expires = _permission_session_time(current["expires_at"])
+        expected_expires = _permission_session_time(expected["expires_at"])
+        if not (
+            (current_issued == expected_issued and current_expires == expected_expires)
+            or (current_issued > expected_issued and current_expires > expected_expires)
         ):
             raise PermissionSessionError("interactive session lease regressed after acknowledgement")
         return current
+
+
+def _permission_ingestion_profile(
+    transport: str, directory: str | None
+) -> tuple[str, str | None] | None:
+    if transport == PERMISSION_INGESTION_UNIX and directory == "/run/tobari/permission-ingestion":
+        return transport, directory
+    if transport == PERMISSION_INGESTION_LOOPBACK_TCP and directory is None:
+        return transport, None
+    return None
 
 
 def _permission_owner_path(path: str, expected_mode: int, expected_type: int) -> bool:
@@ -429,24 +464,49 @@ def _permission_owner_path(path: str, expected_mode: int, expected_type: int) ->
     )
 
 
-def register_permission_wait(socket_directory: str, session: dict[str, Any], record: dict[str, Any], timeout: float = 0.5) -> bool:
-    payload = json.dumps(record, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+def register_permission_wait(
+    transport: str,
+    socket_directory: str | None,
+    session: dict[str, Any],
+    record: dict[str, Any],
+    timeout: float = 0.5,
+) -> bool:
+    try:
+        payload = json.dumps(record, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    except (TypeError, UnicodeError, ValueError):
+        return False
     if not payload or len(payload) > MAX_PERMISSION_WAIT_REQUEST_BYTES:
         return False
-    socket_name = session["ingestion_socket"]
-    if (
-        os.path.basename(socket_name) != socket_name
-        or not _permission_owner_path(socket_directory, 0o700, stat.S_IFDIR)
-    ):
-        return False
-    path = os.path.join(socket_directory, socket_name)
-    if not _permission_owner_path(path, 0o600, stat.S_IFSOCK):
+    if session.get("ingestion_transport") != transport:
         return False
     frame = b"W" + session["ingestion_nonce"].encode("ascii") + len(payload).to_bytes(4, "big") + payload
-    connection = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    connection: socket.socket | None = None
+    accepted = False
     try:
+        if transport == PERMISSION_INGESTION_UNIX:
+            endpoint = session["ingestion_endpoint"]
+            if (
+                not isinstance(socket_directory, str)
+                or os.path.basename(endpoint) != endpoint
+                or not _permission_owner_path(socket_directory, 0o700, stat.S_IFDIR)
+            ):
+                return False
+            path = os.path.join(socket_directory, endpoint)
+            if not _permission_owner_path(path, 0o600, stat.S_IFSOCK):
+                return False
+            connection = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            address: str | tuple[str, int] = path
+        elif transport == PERMISSION_INGESTION_LOOPBACK_TCP:
+            endpoint = session["ingestion_endpoint"]
+            match = re.fullmatch(r"127\.0\.0\.1:([1-9][0-9]{0,4})", endpoint)
+            if match is None or int(match.group(1)) > 65535 or socket_directory is not None:
+                return False
+            connection = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            address = (PERMISSION_INGESTION_GATEWAY_HOST, int(match.group(1)))
+        else:
+            return False
         connection.settimeout(timeout)
-        connection.connect(path)
+        connection.connect(address)
         connection.sendall(frame)
         acknowledgement = b""
         while len(acknowledgement) < 2:
@@ -454,11 +514,16 @@ def register_permission_wait(socket_directory: str, session: dict[str, Any], rec
             if not chunk:
                 return False
             acknowledgement += chunk
-        return acknowledgement == b"OK"
+        accepted = acknowledgement == b"OK"
     except (OSError, UnicodeError, ValueError):
-        return False
+        accepted = False
     finally:
-        connection.close()
+        if connection is not None:
+            try:
+                connection.close()
+            except OSError:
+                accepted = False
+    return accepted
 
 
 def _parse_host_loopback_routes(raw: bytes) -> list[dict[str, Any]]:
@@ -1169,6 +1234,10 @@ def _permission_wait_effect(policy_input: dict[str, Any]) -> dict[str, Any] | No
         method = request["method"]
     except (KeyError, TypeError):
         return None
+    try:
+        raw_bytes = raw.encode("utf-8")
+    except (AttributeError, UnicodeError):
+        return None
     if (
         scheme not in {"http", "https"}
         or not isinstance(host, str) or host == "host.tobari.test"
@@ -1180,7 +1249,7 @@ def _permission_wait_effect(policy_input: dict[str, Any]) -> dict[str, Any] | No
         )
         or not isinstance(port, int) or isinstance(port, bool) or not 1 <= port <= 65535
         or not isinstance(method, str) or re.fullmatch(r"[A-Z][A-Z0-9!#$%&'*+.^_`|~-]{0,31}", method) is None
-        or not isinstance(raw, str) or not raw.startswith("/") or len(raw.encode("utf-8")) > 4096
+        or not isinstance(raw, str) or not raw.startswith("/") or len(raw_bytes) > 4096
         or not isinstance(segments, list) or not all(isinstance(segment, str) for segment in segments)
     ):
         return None
@@ -1413,24 +1482,39 @@ class TobariGateway:
             os.getenv("TOBARI_ATTACHMENT_GRANT_REGISTRY", "/run/tobari/host-loopback/grants.json"),
         )
         self.host_loopback_bridges = HostLoopbackBridges()
-        self.permission_session_source = PermissionSessionSource(
-            os.getenv(
-                "TOBARI_INTERACTIVE_ATTACHMENT_REGISTRY",
-                "/run/tobari/interactive-attachments/sessions.json",
+        self.permission_ingestion_transport = os.getenv(
+            "TOBARI_PERMISSION_INGESTION_TRANSPORT", ""
+        )
+        self.permission_socket_directory: str | None = None
+        configured_directory = os.getenv("TOBARI_PERMISSION_INGESTION_DIRECTORY")
+        profile = _permission_ingestion_profile(
+            self.permission_ingestion_transport, configured_directory
+        )
+        if profile is not None:
+            self.permission_ingestion_transport, self.permission_socket_directory = profile
+            self.permission_session_source: PermissionSessionSource | None = PermissionSessionSource(
+                os.getenv(
+                    "TOBARI_INTERACTIVE_ATTACHMENT_REGISTRY",
+                    "/run/tobari/interactive-attachments/sessions.json",
+                ),
+                self.permission_ingestion_transport,
             )
-        )
-        self.permission_socket_directory = os.getenv(
-            "TOBARI_PERMISSION_INGESTION_DIRECTORY",
-            "/run/tobari/permission-ingestion",
-        )
+        else:
+            self.permission_session_source = None
 
     def _permission_resume(
         self, principal: dict[str, str], policy_input: dict[str, Any], request_id: str
     ) -> dict[str, Any] | None:
         effect = _permission_wait_effect(policy_input)
         source = getattr(self, "permission_session_source", None)
+        transport = getattr(self, "permission_ingestion_transport", None)
         socket_directory = getattr(self, "permission_socket_directory", None)
-        if effect is None or source is None or not isinstance(socket_directory, str) or re.fullmatch(r"[0-9a-f]{32}", request_id) is None:
+        if (
+            effect is None
+            or source is None
+            or transport not in {PERMISSION_INGESTION_UNIX, PERMISSION_INGESTION_LOOPBACK_TCP}
+            or re.fullmatch(r"[0-9a-f]{32}", request_id) is None
+        ):
             return None
         try:
             now = time.time()
@@ -1450,7 +1534,7 @@ class TobariGateway:
                 "created_at": created,
                 "expires_at": expires,
             }
-            if not register_permission_wait(socket_directory, session, record):
+            if not register_permission_wait(transport, socket_directory, session, record):
                 return None
             # ACK proves the selected transport accepted the exact record. A
             # second trusted-source read proves that authority did not drift
@@ -1630,6 +1714,8 @@ class TobariGateway:
                     learnable
                     and aws_identity is None and kubernetes_identity is None
                     and git_identity is None and oci_identity is None
+                    and host_loopback is None
+                    and _permission_wait_effect(policy_input) is not None
                 ):
                     resume = self._permission_resume(principal, policy_input, request_id)
                 _policy_denied(

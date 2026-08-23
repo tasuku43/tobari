@@ -102,8 +102,10 @@ nonce, lease, and the complete stable owner identity are exact record fields,
 but the port and peer address grant no authority. Each connection sends the
 nonce first, comparison is constant-time, and frames, deadlines, concurrency,
 rate, and lifetime are bounded on the host. After acknowledgment Gateway
-re-reads the exact record; any endpoint, nonce, lease, or owner drift omits
-resume. The private session registry is mounted read-only into Gateway alone;
+re-reads the exact record. Every stable owner field must remain identical; the
+lease may be byte-identical or one valid renewal may strictly advance both its
+issue and expiry. A regressed lease, changed expiry at the same issue time,
+future issue, expiry, or owner drift omits resume. The private session registry is mounted read-only into Gateway alone;
 OPA, Workspace containers, guards, and public output receive neither that mount
 nor its coordinates. Nonces and private endpoints never enter logs or public
 output.

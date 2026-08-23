@@ -617,8 +617,10 @@ mount or transport environment. The renewable lease carries a strictly
 advancing current issue time, cannot be resurrected after expiry or wall-clock
 rollback/non-advance, and any listener, heartbeat, or renewal failure closes
 transport and invalidates waits before exact bounded authority cleanup. An
-acknowledgment is usable only after an exact registry re-read proves endpoint,
-nonce, lease, and owner identity unchanged. Nonces and private endpoints are
+acknowledgment is usable only after an exact registry re-read proves every
+stable owner field unchanged. The lease may be byte-identical or one valid
+renewal may strictly advance both issue and expiry; regression, changed expiry
+at the same issue time, future issue, expiry, or owner drift omits resume. Nonces and private endpoints are
 absent from logs and public output.
 
 The owner keeps at most eight waits in memory for at most fifteen minutes, with

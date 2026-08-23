@@ -95,8 +95,11 @@ lease, and stable owner identity are exact record fields; nonce-first
 constant-time authentication and host-side frame/deadline/concurrency/rate
 bounds protect the channel, while endpoint and peer address grant no authority.
 Gateway emits resume data only after that owner acknowledges the exact immutable
-secret-free wait record and an exact post-acknowledgment registry read proves no
-authority drift. The registry is mounted read-only into Gateway alone; its
+secret-free wait record. The post-acknowledgment registry read requires every
+stable owner field to remain identical and accepts the lease only when it is
+byte-identical or one valid renewal strictly advances both issue and expiry
+times. A regressed lease, changed expiry at the same issue time, future issue,
+expiry, or owner drift omits resume. The registry is mounted read-only into Gateway alone; its
 nonce and endpoint never enter logs or public output.
 
 The owner keeps the wait registry in memory and exposes one attachment-local
