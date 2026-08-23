@@ -246,6 +246,11 @@ func (r *Runtime) beginRuntimeBuildJournal(ctx context.Context, runtimeID, runti
 	if err := r.ensurePrivateDirectory(r.runtimeLifecycleDirectory()); err != nil {
 		return runtimeBuildJournal{}, err
 	}
+	if prune, err := r.readRuntimePruneJournalObserved(); err != nil {
+		return runtimeBuildJournal{}, err
+	} else if prune != nil {
+		return runtimeBuildJournal{}, fmt.Errorf("a Runtime prune journal requires recovery before another build")
+	}
 	path := r.runtimeBuildJournalPath()
 	if _, err := os.Lstat(path); err == nil {
 		return runtimeBuildJournal{}, fmt.Errorf("a Runtime build journal requires recovery before another build")

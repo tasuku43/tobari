@@ -34,6 +34,8 @@ type runtimeLifecycleLocalObservation struct {
 	Runtimes   []tobari.RuntimeManifest
 	Protection runtimeProtectionObservation
 	Build      *runtimeBuildJournal
+	Prune      *runtimePruneJournal
+	Receipts   runtimePruneReceiptStore
 	Storage    []tobari.RuntimeStorageObservation
 }
 
@@ -95,39 +97,11 @@ type runtimeMaterialTarget struct {
 // before and after and any drift rejects the snapshot.
 func (r *Runtime) ReadRuntimeLifecycleSnapshot(ctx context.Context) (tobari.RuntimeLifecycleSnapshot, time.Time, error) {
 	var result tobari.RuntimeLifecycleSnapshot
+	var observedAt time.Time
 	err := r.withLifecycleObservation(ctx, func(lockContext context.Context) error {
-		observationContext, cancel := context.WithTimeout(lockContext, runtimeLifecycleWallBudget)
-		defer cancel()
-		budget := runtimeLifecycleBudget{remaining: runtimeLifecycleCallBudget}
-		before, err := r.readRuntimeLifecycleLocalObserved(observationContext, &budget)
-		if err != nil {
-			return err
-		}
-		beforeSnapshot, err := r.observeRuntimeLifecycleDocker(observationContext, before, &budget)
-		if err != nil {
-			return err
-		}
-		after, err := r.readRuntimeLifecycleLocalObserved(observationContext, &budget)
-		if err != nil {
-			return err
-		}
-		afterSnapshot, err := r.observeRuntimeLifecycleDocker(observationContext, after, &budget)
-		if err != nil {
-			return err
-		}
-		beforeToken, err := runtimeLifecycleToken(before, beforeSnapshot)
-		if err != nil {
-			return err
-		}
-		afterToken, err := runtimeLifecycleToken(after, afterSnapshot)
-		if err != nil {
-			return err
-		}
-		if beforeToken != afterToken {
-			return tobari.RuntimeProtectionInventoryError{Reason: tobari.RuntimeProtectionInventoryObservationUnknown}
-		}
-		result = beforeSnapshot
-		return nil
+		var err error
+		result, observedAt, err = r.readRuntimeLifecycleSnapshotLocked(lockContext)
+		return err
 	})
 	if err != nil {
 		return tobari.RuntimeLifecycleSnapshot{}, time.Time{}, err
@@ -135,7 +109,52 @@ func (r *Runtime) ReadRuntimeLifecycleSnapshot(ctx context.Context) (tobari.Runt
 	if err := result.Validate(); err != nil {
 		return tobari.RuntimeLifecycleSnapshot{}, time.Time{}, err
 	}
-	return result, time.Now().UTC(), nil
+	return result, observedAt, nil
+}
+
+// readRuntimeLifecycleSnapshotLocked requires the installation lifecycle lock
+// and performs the same coherent, bounded observation used by dry-run. A
+// mutation caller may therefore revalidate the plan without reacquiring the
+// non-reentrant lock.
+func (r *Runtime) readRuntimeLifecycleSnapshotLocked(lockContext context.Context) (tobari.RuntimeLifecycleSnapshot, time.Time, error) {
+	budget := runtimeLifecycleBudget{remaining: runtimeLifecycleCallBudget}
+	return r.readRuntimeLifecycleSnapshotLockedWithBudget(lockContext, &budget)
+}
+
+func (r *Runtime) readRuntimeLifecycleSnapshotLockedWithBudget(lockContext context.Context, budget *runtimeLifecycleBudget) (tobari.RuntimeLifecycleSnapshot, time.Time, error) {
+	observationContext, cancel := context.WithTimeout(lockContext, runtimeLifecycleWallBudget)
+	defer cancel()
+	before, err := r.readRuntimeLifecycleLocalObserved(observationContext, budget)
+	if err != nil {
+		return tobari.RuntimeLifecycleSnapshot{}, time.Time{}, err
+	}
+	beforeSnapshot, err := r.observeRuntimeLifecycleDocker(observationContext, before, budget)
+	if err != nil {
+		return tobari.RuntimeLifecycleSnapshot{}, time.Time{}, err
+	}
+	after, err := r.readRuntimeLifecycleLocalObserved(observationContext, budget)
+	if err != nil {
+		return tobari.RuntimeLifecycleSnapshot{}, time.Time{}, err
+	}
+	afterSnapshot, err := r.observeRuntimeLifecycleDocker(observationContext, after, budget)
+	if err != nil {
+		return tobari.RuntimeLifecycleSnapshot{}, time.Time{}, err
+	}
+	beforeToken, err := runtimeLifecycleToken(before, beforeSnapshot)
+	if err != nil {
+		return tobari.RuntimeLifecycleSnapshot{}, time.Time{}, err
+	}
+	afterToken, err := runtimeLifecycleToken(after, afterSnapshot)
+	if err != nil {
+		return tobari.RuntimeLifecycleSnapshot{}, time.Time{}, err
+	}
+	if beforeToken != afterToken {
+		return tobari.RuntimeLifecycleSnapshot{}, time.Time{}, tobari.RuntimeProtectionInventoryError{Reason: tobari.RuntimeProtectionInventoryObservationUnknown}
+	}
+	if err := beforeSnapshot.Validate(); err != nil {
+		return tobari.RuntimeLifecycleSnapshot{}, time.Time{}, err
+	}
+	return beforeSnapshot, time.Now().UTC(), nil
 }
 
 // ReadRuntimeBuildRecovery observes one active build journal without creating
@@ -218,6 +237,14 @@ func (r *Runtime) readRuntimeLifecycleLocalObserved(ctx context.Context, budget 
 	if err != nil {
 		return runtimeLifecycleLocalObservation{}, err
 	}
+	prune, err := r.readRuntimePruneJournalObserved()
+	if err != nil {
+		return runtimeLifecycleLocalObservation{}, err
+	}
+	receipts, err := r.readRuntimePruneReceiptStoreObserved()
+	if err != nil {
+		return runtimeLifecycleLocalObservation{}, err
+	}
 	runtimes, err := r.readStrictRuntimeCatalogObserved(journal)
 	if err != nil {
 		return runtimeLifecycleLocalObservation{}, err
@@ -230,7 +257,7 @@ func (r *Runtime) readRuntimeLifecycleLocalObserved(ctx context.Context, budget 
 	if err != nil {
 		return runtimeLifecycleLocalObservation{}, err
 	}
-	return runtimeLifecycleLocalObservation{Runtimes: runtimes, Protection: protection, Build: journal, Storage: storage}, nil
+	return runtimeLifecycleLocalObservation{Runtimes: runtimes, Protection: protection, Build: journal, Prune: prune, Receipts: receipts, Storage: storage}, nil
 }
 
 type runtimeLogicalFile struct {
@@ -389,7 +416,7 @@ func (r *Runtime) readStrictRuntimeBuildJournalInventory() (*runtimeBuildJournal
 		return nil, err
 	}
 	for _, entry := range entries {
-		if entry.Type()&os.ModeSymlink != 0 || (entry.Name() != runtimeBuildJournalFile && entry.Name() != runtimeBuildSnapshotDir) {
+		if entry.Type()&os.ModeSymlink != 0 || (entry.Name() != runtimeBuildJournalFile && entry.Name() != runtimeBuildSnapshotDir && entry.Name() != runtimePruneJournalFile && entry.Name() != runtimePruneReceiptsFile) {
 			return nil, fmt.Errorf("Runtime lifecycle journal inventory contains an unknown entry")
 		}
 	}
@@ -398,8 +425,10 @@ func (r *Runtime) readStrictRuntimeBuildJournalInventory() (*runtimeBuildJournal
 		return nil, err
 	}
 	if journal == nil {
-		if len(entries) != 0 {
-			return nil, fmt.Errorf("Runtime lifecycle staging state lacks journal authority")
+		for _, entry := range entries {
+			if entry.Name() == runtimeBuildSnapshotDir {
+				return nil, fmt.Errorf("Runtime lifecycle staging state lacks journal authority")
+			}
 		}
 		return nil, nil
 	}
@@ -523,6 +552,9 @@ func (r *Runtime) observeRuntimeLifecycleDocker(ctx context.Context, local runti
 		} else {
 			journalInventory.Active = append(journalInventory.Active, runtimeLifecycleActivityFromBuild(*local.Build))
 		}
+	}
+	if local.Prune != nil {
+		journalInventory.Active = append(journalInventory.Active, local.Prune.activities()...)
 	}
 	if len(targets) > maxRuntimeLifecycleMaterials {
 		return tobari.RuntimeLifecycleSnapshot{}, tobari.RuntimeProtectionInventoryError{Reason: tobari.RuntimeProtectionInventoryObservationUnknown}

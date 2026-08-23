@@ -385,6 +385,76 @@ func TestRuntimePrunePlanValidateRejectsDirectInvalidConstruction(t *testing.T) 
 	}
 }
 
+func TestRuntimePruneResultRequiresExactDurableEvidence(t *testing.T) {
+	id := "018bcfe5-687b-7000-8000-000000000077"
+	revision := "sha256:" + strings.Repeat("a", 64)
+	plan, err := PlanRuntimePrune(lifecycleSnapshot([]RuntimeManifest{lifecycleRuntime(id, "frontend", revision)}, []RuntimeProtection{}, []RuntimeMaterialObservation{{RuntimeID: id, Revision: revision, Availability: RuntimeAvailabilityAvailable, TagPresent: true, ContentPresent: true, OwnershipVerified: true, ObservationComplete: true}}), time.Unix(10, 0).UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	candidate := plan.Candidates[0]
+	item := RuntimePruneItemResult{Kind: candidate.Kind, RuntimeID: candidate.RuntimeID, Revision: candidate.Revision, RuntimeRef: candidate.RuntimeRef, RevisionRef: candidate.RevisionRef, Name: candidate.Name, Ordinal: candidate.Ordinal, LastUsed: candidate.LastUsed, SourceLogicalBytes: candidate.SourceLogicalBytes, SnapshotLogicalBytes: candidate.SnapshotLogicalBytes, Disposition: RuntimePruneRemoved, RemovedTagCount: 1}
+	valid := RuntimePruneResult{Task: TaskRuntimePruneApply, PlanRef: plan.PlanRef, State: RuntimePruneApplied, Items: []RuntimePruneItemResult{item}, RemovedTagCount: 1, ReceiptRevision: 1, SourcePreserved: true, SnapshotsPreserved: true, HistoryPreserved: true}
+	if err := valid.Validate(); err != nil {
+		t.Fatalf("valid Runtime prune result: %v", err)
+	}
+	already := valid
+	already.State = RuntimePruneAlreadyApplied
+	if err := already.Validate(); err != nil {
+		t.Fatalf("idempotent Runtime prune result: %v", err)
+	}
+	empty := RuntimePruneResult{Task: TaskRuntimePruneApply, PlanRef: plan.PlanRef, State: RuntimePruneEmpty, Items: []RuntimePruneItemResult{}, SourcePreserved: true, SnapshotsPreserved: true, HistoryPreserved: true}
+	if err := empty.Validate(); err != nil {
+		t.Fatalf("empty Runtime prune result: %v", err)
+	}
+
+	tests := map[string]func(*RuntimePruneResult){
+		"missing preservation":     func(result *RuntimePruneResult) { result.SourcePreserved = false },
+		"invented reclaimed bytes": func(result *RuntimePruneResult) { value := int64(1); result.ReclaimedBytes = &value },
+		"missing receipt":          func(result *RuntimePruneResult) { result.ReceiptRevision = 0 },
+		"wrong total":              func(result *RuntimePruneResult) { result.RemovedTagCount = 0 },
+		"duplicate item": func(result *RuntimePruneResult) {
+			result.Items = append(result.Items, result.Items[0])
+			result.RemovedTagCount++
+		},
+		"wrong revision authority":    func(result *RuntimePruneResult) { result.Items[0].RevisionRef = "" },
+		"missing last-used certainty": func(result *RuntimePruneResult) { result.Items[0].LastUsed = "" },
+		"invented item reclaim": func(result *RuntimePruneResult) {
+			value := int64(1)
+			result.Items[0].ReclaimedBytes = &value
+		},
+	}
+	for name, mutate := range tests {
+		t.Run(name, func(t *testing.T) {
+			result := valid
+			result.Items = append([]RuntimePruneItemResult{}, valid.Items...)
+			mutate(&result)
+			if err := result.Validate(); err == nil {
+				t.Fatalf("invalid Runtime prune result validated: %+v", result)
+			}
+		})
+	}
+}
+
+func TestRuntimeLifecycleSnapshotKeepsPruneRecoveryReachableDuringExactBuildCleanup(t *testing.T) {
+	id := "018bcfe5-687b-7000-8000-000000000077"
+	revision := "sha256:" + strings.Repeat("a", 64)
+	snapshot := lifecycleSnapshot([]RuntimeManifest{lifecycleRuntime(id, "frontend")}, []RuntimeProtection{}, []RuntimeMaterialObservation{})
+	snapshot.Journals.Active = []RuntimeLifecycleActivity{
+		{Kind: RuntimeLifecycleActivityBuild, RuntimeID: id, Revisions: []string{revision}},
+		{Kind: RuntimeLifecycleActivityPrune, RuntimeID: id, Revisions: []string{revision}},
+	}
+	if err := snapshot.Validate(); err != nil {
+		t.Fatalf("exact build-cleanup/prune recovery snapshot: %v", err)
+	}
+	drifted := snapshot
+	drifted.Journals.Active = append([]RuntimeLifecycleActivity{}, snapshot.Journals.Active...)
+	drifted.Journals.Active[0].Revisions = []string{"sha256:" + strings.Repeat("b", 64)}
+	if err := drifted.Validate(); err == nil {
+		t.Fatal("prune recovery borrowed unrelated build authority")
+	}
+}
+
 func TestRuntimePrunePlanValidateRequiresCanonicalProtectionAndBlockerOrder(t *testing.T) {
 	id := "018bcfe5-687b-7000-8000-000000000077"
 	revision := "sha256:" + strings.Repeat("a", 64)

@@ -218,6 +218,14 @@ func (s RuntimeLifecycleSnapshot) Validate() error {
 	for _, artifact := range s.Journals.FailedBuilds {
 		failedBuilds[artifact.RuntimeID+"\x00"+artifact.Revision] = struct{}{}
 	}
+	activeBuilds := make(map[string]struct{})
+	for _, activity := range s.Journals.Active {
+		if activity.Kind == RuntimeLifecycleActivityBuild {
+			for _, revision := range activity.Revisions {
+				activeBuilds[activity.RuntimeID+"\x00"+revision] = struct{}{}
+			}
+		}
+	}
 	for _, activity := range s.Journals.Active {
 		runtime, exists := runtimes[activity.RuntimeID]
 		if !exists || runtime.Kind != RuntimeKindManaged {
@@ -228,7 +236,8 @@ func (s RuntimeLifecycleSnapshot) Validate() error {
 				key := activity.RuntimeID + "\x00" + revision
 				_, successful := revisions[key]
 				_, failed := failedBuilds[key]
-				if !successful && !(activity.Kind == RuntimeLifecycleActivityPrune && failed) {
+				_, activeBuild := activeBuilds[key]
+				if !successful && !(activity.Kind == RuntimeLifecycleActivityPrune && (failed || activeBuild)) {
 					return fmt.Errorf("Runtime lifecycle activity has no immutable revision authority")
 				}
 			}
@@ -547,6 +556,114 @@ type RuntimePrunePlan struct {
 	Storage    []RuntimeStorageObservation `json:"storage"`
 }
 
+type RuntimePruneResultState string
+
+const (
+	RuntimePruneApplied        RuntimePruneResultState = "applied"
+	RuntimePruneAlreadyApplied RuntimePruneResultState = "already_applied"
+	RuntimePruneEmpty          RuntimePruneResultState = "empty"
+)
+
+type RuntimePruneDisposition string
+
+const (
+	RuntimePruneRemoved         RuntimePruneDisposition = "removed"
+	RuntimePruneAlreadyAbsent   RuntimePruneDisposition = "already_absent"
+	RuntimePrunePreservedShared RuntimePruneDisposition = "preserved_shared"
+)
+
+type RuntimePruneItemResult struct {
+	Kind                 RuntimePruneCandidateKind `json:"kind"`
+	RuntimeID            string                    `json:"runtime_id"`
+	Revision             string                    `json:"revision"`
+	RuntimeRef           string                    `json:"runtime_ref"`
+	RevisionRef          string                    `json:"revision_ref"`
+	Name                 string                    `json:"name"`
+	Ordinal              int                       `json:"ordinal"`
+	LastUsed             RuntimeLastUsedState      `json:"last_used"`
+	SourceLogicalBytes   int64                     `json:"source_logical_bytes"`
+	SnapshotLogicalBytes int64                     `json:"snapshot_logical_bytes"`
+	Disposition          RuntimePruneDisposition   `json:"disposition"`
+	RemovedTagCount      int                       `json:"removed_tag_count"`
+	ImageVirtualBytes    *int64                    `json:"image_virtual_bytes"`
+	ReclaimedBytes       *int64                    `json:"reclaimed_bytes"`
+}
+
+func (i RuntimePruneItemResult) Validate() error {
+	candidate := RuntimePruneCandidate{
+		Kind: i.Kind, RuntimeID: i.RuntimeID, Revision: i.Revision, RuntimeRef: i.RuntimeRef,
+		RevisionRef: i.RevisionRef, Name: i.Name, Ordinal: i.Ordinal, LastUsed: i.LastUsed,
+		SourceLogicalBytes: i.SourceLogicalBytes, SnapshotLogicalBytes: i.SnapshotLogicalBytes, ImageVirtualBytes: i.ImageVirtualBytes,
+	}
+	if err := candidate.Validate(); err != nil {
+		return err
+	}
+	if i.ReclaimedBytes != nil {
+		return fmt.Errorf("V1 Runtime prune reclaimed bytes must remain unknown")
+	}
+	switch i.Disposition {
+	case RuntimePruneAlreadyAbsent:
+		if i.RemovedTagCount != 0 {
+			return fmt.Errorf("already-absent Runtime prune result has removal evidence")
+		}
+	case RuntimePruneRemoved, RuntimePrunePreservedShared:
+		if i.RemovedTagCount != 1 {
+			return fmt.Errorf("Runtime prune result lacks exact tag removal")
+		}
+	default:
+		return fmt.Errorf("Runtime prune disposition is invalid")
+	}
+	return nil
+}
+
+type RuntimePruneResult struct {
+	Task               string                   `json:"task"`
+	PlanRef            string                   `json:"plan_ref"`
+	State              RuntimePruneResultState  `json:"state"`
+	Items              []RuntimePruneItemResult `json:"items"`
+	RemovedTagCount    int                      `json:"removed_tag_count"`
+	ReclaimedBytes     *int64                   `json:"reclaimed_bytes"`
+	ReceiptRevision    uint64                   `json:"receipt_revision"`
+	SourcePreserved    bool                     `json:"source_preserved"`
+	SnapshotsPreserved bool                     `json:"snapshots_preserved"`
+	HistoryPreserved   bool                     `json:"history_preserved"`
+}
+
+func (r RuntimePruneResult) Validate() error {
+	if r.Task != TaskRuntimePruneApply || ValidateRuntimePrunePlanRef(r.PlanRef) != nil || r.Items == nil || r.ReclaimedBytes != nil || !r.SourcePreserved || !r.SnapshotsPreserved || !r.HistoryPreserved {
+		return fmt.Errorf("Runtime prune result is invalid")
+	}
+	wantTags := 0
+	previous := ""
+	for _, item := range r.Items {
+		if err := item.Validate(); err != nil {
+			return err
+		}
+		key := runtimePruneItemResultKey(item)
+		if previous >= key {
+			return fmt.Errorf("Runtime prune results are not unique canonical order")
+		}
+		previous = key
+		wantTags += item.RemovedTagCount
+	}
+	if r.RemovedTagCount != wantTags {
+		return fmt.Errorf("Runtime prune result totals are invalid")
+	}
+	switch r.State {
+	case RuntimePruneEmpty:
+		if len(r.Items) != 0 || r.ReceiptRevision != 0 || r.RemovedTagCount != 0 {
+			return fmt.Errorf("empty Runtime prune result has mutation evidence")
+		}
+	case RuntimePruneApplied, RuntimePruneAlreadyApplied:
+		if len(r.Items) == 0 || r.ReceiptRevision == 0 {
+			return fmt.Errorf("applied Runtime prune result lacks receipt evidence")
+		}
+	default:
+		return fmt.Errorf("Runtime prune result state is invalid")
+	}
+	return nil
+}
+
 func (p RuntimePrunePlan) Validate() error {
 	if p.Task != TaskRuntimePruneDryRun || ValidateRuntimePrunePlanRef(p.PlanRef) != nil || p.ObservedAt.IsZero() || p.ObservedAt.Location() != time.UTC || p.Candidates == nil || p.Protected == nil || p.Blockers == nil || p.Storage == nil || p.Empty != (len(p.Candidates) == 0) || p.Applicable != runtimePrunePlanApplicable(p.Blockers) {
 		return fmt.Errorf("Runtime prune plan is invalid")
@@ -782,6 +899,10 @@ func runtimeCandidateAuthorityKey(candidate RuntimePruneCandidate) string {
 
 func runtimeCandidateSemanticKey(candidate RuntimePruneCandidate) string {
 	return candidate.RuntimeID + "\x00" + candidate.Revision
+}
+
+func runtimePruneItemResultKey(item RuntimePruneItemResult) string {
+	return item.RuntimeID + "\x00" + item.Revision + "\x00" + string(item.Kind)
 }
 
 func runtimeProtectionAuthorityKey(item RuntimeProtection) string {

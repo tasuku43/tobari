@@ -323,6 +323,11 @@ func (r *Runtime) createRuntimeLifecycleLocked(ctx context.Context, name string,
 	}
 	var result tobari.RuntimeReport
 	err := r.withRuntimeStoreLock(ctx, func() error {
+		if prune, err := r.readRuntimePruneJournalObserved(); err != nil {
+			return err
+		} else if prune != nil {
+			return fmt.Errorf("a Runtime prune journal requires recovery before Runtime creation")
+		}
 		if _, err := os.Lstat(r.runtimeDirectory(name)); err == nil {
 			return tobari.ErrRuntimeExists
 		} else if !errors.Is(err, os.ErrNotExist) {

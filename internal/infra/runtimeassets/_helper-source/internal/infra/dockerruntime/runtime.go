@@ -111,6 +111,10 @@ type Runtime struct {
 	runtimeBuildFreeze          func(string) error
 	runtimeBuildSnapshotRemove  func(string) error
 	runtimeBuildRecoveryTimeout time.Duration
+	runtimePruneJournalWrite    func(*runtimePruneJournal, runtimePruneJournal) error
+	runtimePruneReceiptWrite    func(runtimePruneReceiptStore) error
+	runtimePruneJournalRemove   func(string) error
+	runtimePruneBeforeRemove    func(tobari.RuntimePruneCandidate) error
 	// claudeContainerLogin is nil in production. Tests may replace the
 	// isolated Context-runtime acquisition without granting the generic host
 	// credential adapter authority over Claude's native state.
