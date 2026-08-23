@@ -575,10 +575,17 @@ func TestRuntimeBuildRecoveryRequiresExactStableIdentityAndKnownKind(t *testing.
 	}
 	for _, recovery := range []RuntimeBuildRecovery{
 		{RuntimeID: id, RuntimeRef: RuntimeRef("018bcfe5-687b-7000-8000-000000000099"), Name: "frontend", Kind: RuntimeBuildRecoveryCleanup},
+		{RuntimeID: id, RuntimeRef: RuntimeRef(id), RevisionRef: RuntimeRevisionRef("018bcfe5-687b-7000-8000-000000000099", "sha256:"+strings.Repeat("a", 64)), Name: "frontend", Kind: RuntimeBuildRecoveryCleanup},
+		{RuntimeID: id, RuntimeRef: RuntimeRef(id), Name: "frontend", Kind: RuntimeBuildRecoveryCleanup, RestoreFailed: true},
+		{RuntimeID: id, RuntimeRef: RuntimeRef(id), RevisionRef: RuntimeRevisionRef(id, "sha256:"+strings.Repeat("a", 64)), Name: "frontend", Kind: RuntimeBuildRecoveryPublication, RestoreFailed: true},
 		{RuntimeID: id, RuntimeRef: RuntimeRef(id), Name: "frontend", Kind: "unknown"},
 	} {
 		if err := recovery.Validate(); err == nil {
 			t.Fatalf("invalid recovery validated: %+v", recovery)
 		}
+	}
+	restore := RuntimeBuildRecovery{RuntimeID: id, RuntimeRef: RuntimeRef(id), RevisionRef: RuntimeRevisionRef(id, "sha256:"+strings.Repeat("a", 64)), Name: "frontend", Kind: RuntimeBuildRecoveryFailed, RestoreFailed: true}
+	if err := restore.Validate(); err != nil {
+		t.Fatalf("exact Runtime restore recovery rejected: %v", err)
 	}
 }

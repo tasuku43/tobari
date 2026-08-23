@@ -182,6 +182,86 @@ func TestRuntimeRestoreBuildingInterruptionRecoversWithoutManifestRewrite(t *tes
 	}
 }
 
+func TestRuntimeRestoreRecoveryUsesOneExactReviewedRevisionWorkflow(t *testing.T) {
+	digest := "sha256:" + strings.Repeat("c", 64)
+	runtime, _, manifest := restoreRuntimeFixture(t, digest)
+	revision := manifest.Revisions[0]
+	reference := tobari.RuntimeRevisionRef(manifest.ID, revision.Revision)
+	runtime.runtimeBuildJournalWrite = func(previous, next runtimeBuildJournal) error {
+		if previous.Phase == runtimeBuildPhaseBuilding && next.Phase == runtimeBuildPhaseBuilt {
+			return errors.New("synthetic process interruption before built journal publication")
+		}
+		return writeAtomicJSON(runtime.runtimeBuildJournalPath(), next)
+	}
+	if _, err := runtime.RestoreManagedRuntimeByRevisionReference(context.Background(), reference, nil); !errors.Is(err, tobari.ErrRuntimeRestoreInterrupted) {
+		t.Fatalf("interrupted restore error = %v", err)
+	}
+	runtime.runtimeBuildJournalWrite = nil
+	recovery, found, err := runtime.ReadRuntimeBuildRecovery(context.Background())
+	if err != nil || !found || recovery.RevisionRef != reference || recovery.Kind != tobari.RuntimeBuildRecoveryBuilding || recovery.RestoreFailed {
+		t.Fatalf("restore recovery authority = %+v/%t/%v", recovery, found, err)
+	}
+	result, err := runtime.RecoverRuntimeRestoreByRevisionReference(context.Background(), recovery.RevisionRef, recovery.Kind, nil)
+	if err != nil || result.State != tobari.RuntimeRestored || result.ArtifactDisposition != tobari.RuntimeRestoreArtifactRemoved || result.RevisionRef != reference {
+		t.Fatalf("one-step restore recovery = %+v/%v", result, err)
+	}
+	if journal, err := runtime.readRuntimeBuildJournalObserved(); err != nil || journal != nil {
+		t.Fatalf("one-step restore recovery retained journal: %+v/%v", journal, err)
+	}
+}
+
+func TestRuntimeRestoreRecoveryRejectsReferenceDriftBeforeMutation(t *testing.T) {
+	digest := "sha256:" + strings.Repeat("c", 64)
+	runtime, _, manifest := restoreRuntimeFixture(t, digest)
+	revision := manifest.Revisions[0]
+	reference := tobari.RuntimeRevisionRef(manifest.ID, revision.Revision)
+	runtime.runtimeBuildJournalWrite = func(previous, next runtimeBuildJournal) error {
+		if previous.Phase == runtimeBuildPhaseBuilding && next.Phase == runtimeBuildPhaseBuilt {
+			return errors.New("synthetic interruption")
+		}
+		return writeAtomicJSON(runtime.runtimeBuildJournalPath(), next)
+	}
+	if _, err := runtime.RestoreManagedRuntimeByRevisionReference(context.Background(), reference, nil); err == nil {
+		t.Fatal("restore interruption unexpectedly succeeded")
+	}
+	runtime.runtimeBuildJournalWrite = nil
+	before, err := runtime.readRuntimeBuildJournalObserved()
+	if err != nil || before == nil {
+		t.Fatalf("interrupted restore journal = %+v/%v", before, err)
+	}
+	wrong := tobari.RuntimeRevisionRef(manifest.ID, "sha256:"+strings.Repeat("d", 64))
+	if _, err := runtime.RecoverRuntimeRestoreByRevisionReference(context.Background(), wrong, tobari.RuntimeBuildRecoveryBuilding, nil); err == nil {
+		t.Fatal("drifted restore recovery reference was accepted")
+	}
+	after, err := runtime.readRuntimeBuildJournalObserved()
+	if err != nil || after == nil || *after != *before {
+		t.Fatalf("drifted restore recovery changed journal: before=%+v after=%+v error=%v", before, after, err)
+	}
+	if err := runtime.RecoverRuntimeBuildByReference(context.Background(), manifest.ID, tobari.RuntimeBuildRecoveryBuilding); err == nil {
+		t.Fatal("Runtime-only build recovery accepted restore authority")
+	}
+}
+
+func TestRuntimeRestoreFailedRecoveryCleansOnceAndReportsUnrestorable(t *testing.T) {
+	recorded := "sha256:" + strings.Repeat("d", 64)
+	runtime, _, manifest := restoreRuntimeFixture(t, recorded)
+	revision := manifest.Revisions[0]
+	reference := tobari.RuntimeRevisionRef(manifest.ID, revision.Revision)
+	if _, err := runtime.RestoreManagedRuntimeByRevisionReference(context.Background(), reference, nil); !errors.Is(err, tobari.ErrRuntimeRestoreInterrupted) {
+		t.Fatalf("digest-mismatched restore error = %v", err)
+	}
+	recovery, found, err := runtime.ReadRuntimeBuildRecovery(context.Background())
+	if err != nil || !found || recovery.RevisionRef != reference || recovery.Kind != tobari.RuntimeBuildRecoveryFailed || !recovery.RestoreFailed {
+		t.Fatalf("failed restore recovery authority = %+v/%t/%v", recovery, found, err)
+	}
+	if _, err := runtime.RecoverRuntimeRestoreByRevisionReference(context.Background(), reference, recovery.Kind, nil); !errors.Is(err, tobari.ErrRuntimeRevisionUnrestorable) {
+		t.Fatalf("failed restore recovery result = %v", err)
+	}
+	if journal, err := runtime.readRuntimeBuildJournalObserved(); err != nil || journal != nil {
+		t.Fatalf("failed restore recovery retained journal: %+v/%v", journal, err)
+	}
+}
+
 func TestRuntimeRestoreJournalRejectsOperationOrDigestDrift(t *testing.T) {
 	root := t.TempDir()
 	runtime, err := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), newManagedRuntimeBuildRunner())

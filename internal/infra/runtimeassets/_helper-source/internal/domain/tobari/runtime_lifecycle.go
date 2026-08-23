@@ -562,15 +562,28 @@ const (
 )
 
 type RuntimeBuildRecovery struct {
-	RuntimeID  string                   `json:"runtime_id"`
-	RuntimeRef string                   `json:"runtime_ref"`
-	Name       string                   `json:"name"`
-	Kind       RuntimeBuildRecoveryKind `json:"kind"`
+	RuntimeID     string                   `json:"runtime_id"`
+	RuntimeRef    string                   `json:"runtime_ref"`
+	RevisionRef   string                   `json:"revision_ref,omitempty"`
+	Name          string                   `json:"name"`
+	Kind          RuntimeBuildRecoveryKind `json:"kind"`
+	RestoreFailed bool                     `json:"restore_failed,omitempty"`
 }
 
 func (r RuntimeBuildRecovery) Validate() error {
 	if ValidateRuntimeID(r.RuntimeID) != nil || ValidateRuntimeRef(r.RuntimeRef) != nil || r.RuntimeRef != RuntimeRef(r.RuntimeID) || ValidateName(r.Name) != nil {
 		return fmt.Errorf("Runtime build recovery identity is invalid")
+	}
+	if r.RevisionRef != "" {
+		runtimeID, _, err := ParseRuntimeRevisionRef(r.RevisionRef)
+		if err != nil || runtimeID != r.RuntimeID {
+			return fmt.Errorf("Runtime restore recovery revision authority is invalid")
+		}
+	} else if r.RestoreFailed {
+		return fmt.Errorf("Runtime build recovery cannot carry restore failure evidence")
+	}
+	if r.RestoreFailed && r.Kind != RuntimeBuildRecoveryFailed && r.Kind != RuntimeBuildRecoveryCleanup {
+		return fmt.Errorf("Runtime restore failure evidence has invalid recovery phase")
 	}
 	switch r.Kind {
 	case RuntimeBuildRecoveryPreDocker, RuntimeBuildRecoveryBuilding, RuntimeBuildRecoveryPublication, RuntimeBuildRecoveryCleanup, RuntimeBuildRecoveryOrphan, RuntimeBuildRecoveryFailed:

@@ -157,10 +157,10 @@ func (r *Runtime) readRuntimeLifecycleSnapshotLockedWithBudget(lockContext conte
 	return beforeSnapshot, time.Now().UTC(), nil
 }
 
-// ReadRuntimeBuildRecovery observes one active build journal without creating
-// state. Failed attempts use bounded Docker observation before becoming
-// actionable. The returned stable Runtime reference is the only authority
-// accepted by the separate review-confirmed mutation boundary.
+// ReadRuntimeBuildRecovery observes one active build/restore journal without
+// creating state. Failed attempts use bounded Docker observation before
+// becoming actionable. Restore recovery additionally returns the exact
+// revision reference accepted by the separate review-confirmed mutation.
 func (r *Runtime) ReadRuntimeBuildRecovery(ctx context.Context) (tobari.RuntimeBuildRecovery, bool, error) {
 	observationContext, cancel := r.runtimeBuildRecoveryContext(ctx)
 	defer cancel()
@@ -206,6 +206,11 @@ func (r *Runtime) ReadRuntimeBuildRecovery(ctx context.Context) (tobari.RuntimeB
 			return fmt.Errorf("Runtime build recovery phase is invalid")
 		}
 		result = tobari.RuntimeBuildRecovery{RuntimeID: journal.RuntimeID, RuntimeRef: tobari.RuntimeRef(journal.RuntimeID), Name: journal.RuntimeName, Kind: kind}
+		if journal.Restore {
+			result.RevisionRef = tobari.RuntimeRevisionRef(journal.RuntimeID, journal.Revision)
+			result.RestoreFailed = journal.Phase == runtimeBuildPhaseFailed ||
+				(journal.Phase == runtimeBuildPhaseCompleting && journal.CleanupFrom == runtimeBuildPhaseFailed)
+		}
 		if err := result.Validate(); err != nil {
 			return err
 		}

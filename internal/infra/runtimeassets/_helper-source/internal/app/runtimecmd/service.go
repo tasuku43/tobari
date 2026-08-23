@@ -34,12 +34,27 @@ type RuntimePruneApplyPort interface {
 	ApplyRuntimePrune(context.Context, string) (tobari.RuntimePruneResult, error)
 }
 
+// RuntimeRestorePort is owned by the exact revision restore task. Both the
+// direct action and review-confirmed recovery consume the same opaque revision
+// reference unchanged.
+type RuntimeRestorePort interface {
+	RestoreManagedRuntimeByRevisionReference(context.Context, string, io.Writer) (tobari.RuntimeRestoreResult, error)
+	RecoverRuntimeRestoreByRevisionReference(context.Context, string, tobari.RuntimeBuildRecoveryKind, io.Writer) (tobari.RuntimeRestoreResult, error)
+}
+
 // PruneImpact is the fixed Catalog/application mutation contract for applying
 // one reviewed plan that can retire many exact Runtime image tags.
 func PruneImpact() operation.Impact {
 	return operation.Impact{
 		Cardinality: operation.CardinalityMany, Notification: operation.DeclarationNo,
 		AccessChange: operation.DeclarationYes, Destructive: operation.DeclarationYes,
+	}
+}
+
+func RestoreImpact() operation.Impact {
+	return operation.Impact{
+		Cardinality: operation.CardinalityOne, Notification: operation.DeclarationNo,
+		AccessChange: operation.DeclarationYes, Destructive: operation.DeclarationNo,
 	}
 }
 
@@ -60,19 +75,96 @@ func (ownedPolicy) Check(_ context.Context, intent operation.Intent) error {
 	if intent.Effect == operation.EffectWrite && intent.Target.Kind == tobari.RuntimePrunePlanReferenceKind && intent.Target.ID != "" {
 		return nil
 	}
+	if intent.Effect == operation.EffectWrite && intent.Target.Kind == tobari.RuntimeRevisionReferenceKind && intent.Target.ID != "" {
+		return nil
+	}
 	return fault.New(fault.KindRejected, "mutation_rejected", "Runtime mutation target is not owned by Tobari", false)
 }
 
 type Service struct {
 	runtime RuntimePort
 	prune   RuntimePruneApplyPort
+	restore RuntimeRestorePort
 	mutator *execution.Invoker
 }
 
 func New(runtime RuntimePort) *Service {
 	service := &Service{runtime: runtime, mutator: execution.New(ownedPolicy{})}
 	service.prune, _ = any(runtime).(RuntimePruneApplyPort)
+	service.restore, _ = any(runtime).(RuntimeRestorePort)
 	return service
+}
+
+func (s *Service) Restore(ctx context.Context, intent operation.Intent, revisionRef string, diagnostics io.Writer) (tobari.RuntimeRestoreResult, error) {
+	if err := s.requireRestore(); err != nil {
+		return tobari.RuntimeRestoreResult{}, err
+	}
+	if _, _, err := tobari.ParseRuntimeRevisionRef(revisionRef); err != nil {
+		return tobari.RuntimeRestoreResult{}, fault.WithClassification(
+			fault.Wrap(fault.KindInvalidInput, "invalid_runtime_revision_ref", "Runtime revision reference is invalid", false, err,
+				fault.NextAction{Command: "runtime history", Reason: "Use one managed Runtime revision reference unchanged."}),
+			fault.PhasePrecondition, fault.ChangeNone,
+		)
+	}
+	request := execution.Request{
+		Intent: intent, ExpectedCommand: "runtime restore", ExpectedEffect: operation.EffectWrite,
+		ExpectedTarget: operation.TargetRef{Kind: tobari.RuntimeRevisionReferenceKind, ID: revisionRef}, ExpectedImpact: RestoreImpact(),
+	}
+	var result tobari.RuntimeRestoreResult
+	err := s.mutator.Invoke(ctx, request, func(actionContext context.Context, _ operation.Intent) error {
+		restored, err := s.restore.RestoreManagedRuntimeByRevisionReference(actionContext, revisionRef, diagnostics)
+		if err != nil {
+			return classifyRuntimeRestoreError(err, false)
+		}
+		if err := validateRuntimeRestoreResult(restored, revisionRef); err != nil {
+			return invalidRuntimeRestoreResultFault(restored, revisionRef, err)
+		}
+		result = restored
+		return nil
+	})
+	if err != nil {
+		return tobari.RuntimeRestoreResult{}, err
+	}
+	return result, nil
+}
+
+// RecoverRestore keeps the existing trusted-terminal review as the only
+// recovery decision. One confirmation carries the exact interrupted revision
+// authority through internal settlement, cleanup, and restore resumption.
+func (s *Service) RecoverRestore(ctx context.Context, intent operation.Intent, recovery tobari.RuntimeBuildRecovery, diagnostics io.Writer) (tobari.RuntimeRestoreResult, error) {
+	if err := s.requireRestore(); err != nil {
+		return tobari.RuntimeRestoreResult{}, err
+	}
+	if err := recovery.Validate(); err != nil || recovery.RevisionRef == "" {
+		if err == nil {
+			err = fmt.Errorf("Runtime recovery lacks exact revision authority")
+		}
+		return tobari.RuntimeRestoreResult{}, fault.WithClassification(
+			fault.Wrap(fault.KindInvalidInput, "invalid_runtime_recovery", "Runtime restore recovery target is invalid", false, err,
+				fault.NextAction{Command: "review runtimes", Reason: "Restart from current recovery authority."}),
+			fault.PhasePrecondition, fault.ChangeNone,
+		)
+	}
+	request := execution.Request{
+		Intent: intent, ExpectedCommand: "runtime restore", ExpectedEffect: operation.EffectWrite,
+		ExpectedTarget: operation.TargetRef{Kind: tobari.RuntimeRevisionReferenceKind, ID: recovery.RevisionRef}, ExpectedImpact: RestoreImpact(),
+	}
+	var result tobari.RuntimeRestoreResult
+	err := s.mutator.Invoke(ctx, request, func(actionContext context.Context, _ operation.Intent) error {
+		restored, err := s.restore.RecoverRuntimeRestoreByRevisionReference(actionContext, recovery.RevisionRef, recovery.Kind, diagnostics)
+		if err != nil {
+			return classifyRuntimeRestoreError(err, true)
+		}
+		if err := validateRuntimeRestoreResult(restored, recovery.RevisionRef); err != nil {
+			return invalidRuntimeRestoreResultFault(restored, recovery.RevisionRef, err)
+		}
+		result = restored
+		return nil
+	})
+	if err != nil {
+		return tobari.RuntimeRestoreResult{}, err
+	}
+	return result, nil
 }
 
 func (s *Service) PlanPrune(ctx context.Context) (tobari.RuntimePrunePlan, error) {
@@ -165,13 +257,13 @@ func (s *Service) ReviewRecovery(ctx context.Context) (tobari.RuntimeBuildRecove
 		return tobari.RuntimeBuildRecovery{}, false, err
 	}
 	if err != nil {
-		return tobari.RuntimeBuildRecovery{}, false, fault.Wrap(fault.KindRejected, "runtime_recovery_observation_unknown", "Runtime build recovery authority could not be observed completely", false, err, fault.NextAction{Command: "review runtimes", Reason: "Retry the trusted-host read-only review."})
+		return tobari.RuntimeBuildRecovery{}, false, fault.Wrap(fault.KindRejected, "runtime_recovery_observation_unknown", "Runtime lifecycle recovery authority could not be observed completely", false, err, fault.NextAction{Command: "review runtimes", Reason: "Retry the trusted-host read-only review."})
 	}
 	if !found {
 		return tobari.RuntimeBuildRecovery{}, false, nil
 	}
 	if err := recovery.Validate(); err != nil {
-		return tobari.RuntimeBuildRecovery{}, false, fault.Wrap(fault.KindContract, "runtime_recovery_contract_invalid", "Runtime build recovery is invalid", false, err)
+		return tobari.RuntimeBuildRecovery{}, false, fault.Wrap(fault.KindContract, "runtime_recovery_contract_invalid", "Runtime lifecycle recovery is invalid", false, err)
 	}
 	return recovery, true, nil
 }
@@ -238,6 +330,97 @@ func (s *Service) requirePrune() error {
 		)
 	}
 	return nil
+}
+
+func (s *Service) requireRestore() error {
+	if err := s.requireRuntime(); err != nil {
+		return err
+	}
+	if portcheck.IsNil(s.restore) {
+		return fault.WithClassification(
+			fault.New(fault.KindInternal, "missing_runtime_restore", "Runtime restore is not configured", false),
+			fault.PhasePrecondition, fault.ChangeNone,
+		)
+	}
+	return nil
+}
+
+func classifyRuntimeRestoreError(err error, recovery bool) error {
+	switch {
+	case errors.Is(err, tobari.ErrRuntimeNotFound):
+		return fault.WithClassification(
+			fault.New(fault.KindNotFound, "runtime_not_found", "the referenced Runtime does not exist", false,
+				fault.NextAction{Command: "runtime list", Reason: "Discover the current managed Runtime catalog."}),
+			fault.PhasePrecondition, fault.ChangeNone,
+		)
+	case errors.Is(err, tobari.ErrRuntimeRevisionNotFound):
+		return fault.WithClassification(
+			fault.New(fault.KindNotFound, "runtime_revision_not_found", "the referenced Runtime revision does not exist", false,
+				fault.NextAction{Command: "runtime history", Reason: "Discover the current retained Runtime revisions."}),
+			fault.PhasePrecondition, fault.ChangeNone,
+		)
+	case errors.Is(err, tobari.ErrRuntimeRetirementObservationUnknown):
+		return fault.WithClassification(
+			fault.New(fault.KindRejected, "runtime_retirement_observation_unknown", "Runtime lifecycle could not be observed completely", false,
+				fault.NextAction{Command: "doctor", Reason: "Inspect the host Runtime lifecycle state."}),
+			fault.PhaseObservation, fault.ChangeNotApplicable,
+		)
+	case errors.Is(err, tobari.ErrRuntimeLifecycleActive):
+		return fault.WithClassification(
+			fault.New(fault.KindRejected, "runtime_lifecycle_active", "another Runtime lifecycle mutation requires recovery", false,
+				fault.NextAction{Command: "review runtimes", Reason: "Review the retained Runtime lifecycle journal."}),
+			fault.PhasePrecondition, fault.ChangeNone,
+		)
+	case errors.Is(err, tobari.ErrRuntimeRestoreInterrupted):
+		return fault.WithClassification(
+			fault.New(fault.KindInternal, "runtime_restore_interrupted", "Runtime restore requires read-only reconciliation", false,
+				fault.NextAction{Command: "review runtimes", Reason: "Resume the exact retained restore authority."}),
+			fault.PhaseMutation, fault.ChangePartial,
+		)
+	case errors.Is(err, tobari.ErrRuntimeRevisionUnrestorable):
+		change := fault.ChangeNone
+		if recovery {
+			change = fault.ChangeConfirmed
+		}
+		return fault.WithClassification(
+			fault.New(fault.KindRejected, "runtime_revision_unrestorable", "Runtime revision could not be restored with its immutable digest", false,
+				fault.NextAction{Command: "runtime history", Reason: "Review the retained immutable revision authority."}),
+			fault.PhaseVerification, change,
+		)
+	default:
+		return fault.WithClassification(
+			fault.New(fault.KindInternal, "runtime_restore_interrupted", "Runtime restore requires read-only reconciliation", false,
+				fault.NextAction{Command: "review runtimes", Reason: "Observe the retained Runtime lifecycle journal before another mutation."}),
+			fault.PhaseMutation, fault.ChangeUnknown,
+		)
+	}
+}
+
+func validateRuntimeRestoreResult(result tobari.RuntimeRestoreResult, revisionRef string) error {
+	runtimeID, revision, err := tobari.ParseRuntimeRevisionRef(revisionRef)
+	if err != nil {
+		return err
+	}
+	if err := result.Validate(); err != nil {
+		return err
+	}
+	if result.RevisionRef != revisionRef || result.RuntimeID != runtimeID || result.RuntimeRef != tobari.RuntimeRef(runtimeID) || result.Revision != revision ||
+		result.RevisionAppended || result.ManifestChanged || result.WorkspaceChanged {
+		return fmt.Errorf("Runtime restore result does not match the exact revision request")
+	}
+	return nil
+}
+
+func invalidRuntimeRestoreResultFault(result tobari.RuntimeRestoreResult, revisionRef string, err error) error {
+	change := fault.ChangePartial
+	if result.RevisionRef == revisionRef && result.State == tobari.RuntimeRestored {
+		change = fault.ChangeConfirmed
+	}
+	return fault.WithClassification(
+		fault.Wrap(fault.KindContract, "invalid_runtime_retirement_result", "Runtime restore result is invalid", false, err,
+			fault.NextAction{Command: "runtime history", Reason: "Reconcile the retained Runtime revision and current image availability."}),
+		fault.PhaseVerification, change,
+	)
 }
 
 func (s *Service) List(ctx context.Context) (tobari.RuntimeListResult, error) {

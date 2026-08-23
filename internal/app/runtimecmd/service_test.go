@@ -15,31 +15,38 @@ import (
 )
 
 type runtimeFake struct {
-	manifest      tobari.RuntimeManifest
-	creates       int
-	base          tobari.RuntimeCopySource
-	builds        int
-	resolves      int
-	buildErr      error
-	buildName     string
-	createErr     error
-	lifecycleErr  error
-	observedAt    time.Time
-	protection    *tobari.RuntimeProtectionInventory
-	materials     []tobari.RuntimeMaterialObservation
-	recovery      *tobari.RuntimeBuildRecovery
-	recoveryErr   error
-	recoveryReads int
-	recoveries    int
-	recoveredRef  string
-	recoveredKind tobari.RuntimeBuildRecoveryKind
-	pruneCalls    int
-	pruneRefs     []string
-	pruneResults  []tobari.RuntimePruneResult
-	pruneErrs     []error
+	manifest            tobari.RuntimeManifest
+	creates             int
+	base                tobari.RuntimeCopySource
+	builds              int
+	resolves            int
+	buildErr            error
+	buildName           string
+	createErr           error
+	lifecycleErr        error
+	observedAt          time.Time
+	protection          *tobari.RuntimeProtectionInventory
+	materials           []tobari.RuntimeMaterialObservation
+	recovery            *tobari.RuntimeBuildRecovery
+	recoveryErr         error
+	recoveryReads       int
+	recoveries          int
+	recoveredRef        string
+	recoveredKind       tobari.RuntimeBuildRecoveryKind
+	pruneCalls          int
+	pruneRefs           []string
+	pruneResults        []tobari.RuntimePruneResult
+	pruneErrs           []error
+	restoreCalls        int
+	restoreRefs         []string
+	restoreResult       tobari.RuntimeRestoreResult
+	restoreErr          error
+	restoreKind         tobari.RuntimeBuildRecoveryKind
+	recoverRestoreCalls int
 }
 
 type runtimeWithoutPrune struct{ RuntimePort }
+type runtimeWithoutRestore struct{ RuntimePort }
 
 func runtimeFixture() tobari.RuntimeManifest {
 	return tobari.RuntimeManifest{SchemaVersion: tobari.RuntimeSchemaVersion, ID: "018bcfe5-687b-7000-8000-000000000077", Name: "frontend", Kind: tobari.RuntimeKindManaged, SourcePath: "/tmp/tobari/runtimes/frontend/source", Revisions: []tobari.RuntimeRevision{{Ordinal: 1, Revision: "sha256:" + strings.Repeat("a", 64), Image: "tobari-runtime-frontend:aaaaaaaaaaaa", ImageDigest: "sha256:" + strings.Repeat("b", 64), CreatedAt: time.Unix(1, 0).UTC(), SnapshotPath: "/tmp/tobari/runtimes/frontend/revisions/aaaaaaaa/source"}}}
@@ -187,6 +194,25 @@ func (f *runtimeFake) RecoverRuntimeBuildByReference(_ context.Context, runtimeR
 	f.recoveredRef = runtimeRef
 	f.recoveredKind = kind
 	return f.recoveryErr
+}
+
+func (f *runtimeFake) RestoreManagedRuntimeByRevisionReference(_ context.Context, revisionRef string, diagnostics io.Writer) (tobari.RuntimeRestoreResult, error) {
+	f.restoreCalls++
+	f.restoreRefs = append(f.restoreRefs, revisionRef)
+	if diagnostics != nil {
+		_, _ = io.WriteString(diagnostics, "restore\n")
+	}
+	return f.restoreResult, f.restoreErr
+}
+
+func (f *runtimeFake) RecoverRuntimeRestoreByRevisionReference(_ context.Context, revisionRef string, kind tobari.RuntimeBuildRecoveryKind, diagnostics io.Writer) (tobari.RuntimeRestoreResult, error) {
+	f.recoverRestoreCalls++
+	f.restoreRefs = append(f.restoreRefs, revisionRef)
+	f.restoreKind = kind
+	if diagnostics != nil {
+		_, _ = io.WriteString(diagnostics, "restore recovery\n")
+	}
+	return f.restoreResult, f.restoreErr
 }
 
 func TestRuntimePrunePlanPreservesCancellation(t *testing.T) {
@@ -341,6 +367,154 @@ func TestRuntimePruneApplyRejectsInvalidResultAsPartial(t *testing.T) {
 	public, ok := fault.PublicCopy(err)
 	if !ok || public.Code != "invalid_runtime_retirement_result" || public.Phase != fault.PhaseVerification || public.ChangeState != fault.ChangePartial || fake.pruneCalls != 1 {
 		t.Fatalf("invalid Runtime prune result = %+v/%v calls=%d", public, err, fake.pruneCalls)
+	}
+}
+
+func runtimeRestoreResultFixture(state tobari.RuntimeRestoreState) tobari.RuntimeRestoreResult {
+	manifest := runtimeFixture()
+	revision := manifest.Revisions[0]
+	artifact := tobari.RuntimeRestoreArtifactRemoved
+	if state == tobari.RuntimeAlreadyAvailable {
+		artifact = tobari.RuntimeRestoreArtifactNotCreated
+	}
+	return tobari.RuntimeRestoreResult{
+		Task: tobari.TaskRuntimeRestore, RuntimeID: manifest.ID, RuntimeRef: tobari.RuntimeRef(manifest.ID),
+		Revision: revision.Revision, RevisionRef: tobari.RuntimeRevisionRef(manifest.ID, revision.Revision),
+		Name: manifest.Name, Ordinal: revision.Ordinal, State: state, DigestMatch: true, ArtifactDisposition: artifact,
+	}
+}
+
+func runtimeRestoreIntent(revisionRef string) operation.Intent {
+	return operation.Intent{
+		Command: "runtime restore", Effect: operation.EffectWrite,
+		Target: operation.TargetRef{Kind: tobari.RuntimeRevisionReferenceKind, ID: revisionRef}, Impact: RestoreImpact(),
+	}
+}
+
+func TestRuntimeRestorePassesOpaqueRevisionReferenceAndExactIntent(t *testing.T) {
+	result := runtimeRestoreResultFixture(tobari.RuntimeRestored)
+	fake := &runtimeFake{manifest: runtimeFixture(), restoreResult: result}
+	var diagnostics strings.Builder
+	restored, err := New(fake).Restore(context.Background(), runtimeRestoreIntent(result.RevisionRef), result.RevisionRef, &diagnostics)
+	if err != nil || restored != result || fake.restoreCalls != 1 || !slices.Equal(fake.restoreRefs, []string{result.RevisionRef}) || diagnostics.String() != "restore\n" {
+		t.Fatalf("Runtime restore = %+v/%v calls=%d refs=%v diagnostics=%q", restored, err, fake.restoreCalls, fake.restoreRefs, diagnostics.String())
+	}
+}
+
+func TestRuntimeRestoreRejectsInputOrContractDriftBeforeAdapter(t *testing.T) {
+	result := runtimeRestoreResultFixture(tobari.RuntimeRestored)
+	tests := map[string]func(*operation.Intent, *string){
+		"invalid reference": func(_ *operation.Intent, ref *string) { *ref = "not-a-revision-ref" },
+		"wrong command":     func(intent *operation.Intent, _ *string) { intent.Command = "runtime build" },
+		"wrong target":      func(intent *operation.Intent, _ *string) { intent.Target.Kind = tobari.RuntimeReferenceKind },
+		"wrong impact":      func(intent *operation.Intent, _ *string) { intent.Impact.Destructive = operation.DeclarationYes },
+	}
+	for name, mutate := range tests {
+		t.Run(name, func(t *testing.T) {
+			fake := &runtimeFake{manifest: runtimeFixture(), restoreResult: result}
+			intent, ref := runtimeRestoreIntent(result.RevisionRef), result.RevisionRef
+			mutate(&intent, &ref)
+			if _, err := New(fake).Restore(context.Background(), intent, ref, nil); err == nil || fake.restoreCalls != 0 {
+				t.Fatalf("restore contract drift = %v calls=%d", err, fake.restoreCalls)
+			}
+		})
+	}
+}
+
+func TestRuntimeRestoreRequiresTaskOwnedPort(t *testing.T) {
+	result := runtimeRestoreResultFixture(tobari.RuntimeRestored)
+	fake := &runtimeFake{manifest: runtimeFixture(), restoreResult: result}
+	service := New(runtimeWithoutRestore{RuntimePort: fake})
+	_, err := service.Restore(context.Background(), runtimeRestoreIntent(result.RevisionRef), result.RevisionRef, nil)
+	public, ok := fault.PublicCopy(err)
+	if !ok || public.Code != "missing_runtime_restore" || public.Phase != fault.PhasePrecondition || public.ChangeState != fault.ChangeNone || fake.restoreCalls != 0 {
+		t.Fatalf("missing Runtime restore port = %+v/%v calls=%d", public, err, fake.restoreCalls)
+	}
+}
+
+func TestRuntimeRestoreClassifiesExactMutationOutcomes(t *testing.T) {
+	result := runtimeRestoreResultFixture(tobari.RuntimeRestored)
+	tests := []struct {
+		name   string
+		err    error
+		code   string
+		phase  fault.Phase
+		change fault.ChangeState
+	}{
+		{name: "missing Runtime", err: tobari.ErrRuntimeNotFound, code: "runtime_not_found", phase: fault.PhasePrecondition, change: fault.ChangeNone},
+		{name: "missing revision", err: tobari.ErrRuntimeRevisionNotFound, code: "runtime_revision_not_found", phase: fault.PhasePrecondition, change: fault.ChangeNone},
+		{name: "unknown observation", err: tobari.ErrRuntimeRetirementObservationUnknown, code: "runtime_retirement_observation_unknown", phase: fault.PhaseObservation, change: fault.ChangeNotApplicable},
+		{name: "active lifecycle", err: tobari.ErrRuntimeLifecycleActive, code: "runtime_lifecycle_active", phase: fault.PhasePrecondition, change: fault.ChangeNone},
+		{name: "unrestorable", err: tobari.ErrRuntimeRevisionUnrestorable, code: "runtime_revision_unrestorable", phase: fault.PhaseVerification, change: fault.ChangeNone},
+		{name: "interrupted", err: tobari.ErrRuntimeRestoreInterrupted, code: "runtime_restore_interrupted", phase: fault.PhaseMutation, change: fault.ChangePartial},
+		{name: "late cancellation", err: context.Canceled, code: "runtime_restore_interrupted", phase: fault.PhaseMutation, change: fault.ChangeUnknown},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			fake := &runtimeFake{manifest: runtimeFixture(), restoreErr: test.err}
+			_, err := New(fake).Restore(context.Background(), runtimeRestoreIntent(result.RevisionRef), result.RevisionRef, nil)
+			public, ok := fault.PublicCopy(err)
+			if !ok || public.Code != test.code || public.Phase != test.phase || public.ChangeState != test.change || fake.restoreCalls != 1 {
+				t.Fatalf("Runtime restore fault = %+v/%v calls=%d", public, err, fake.restoreCalls)
+			}
+		})
+	}
+}
+
+func TestRuntimeRestoreRejectsInvalidResultAsPartial(t *testing.T) {
+	result := runtimeRestoreResultFixture(tobari.RuntimeRestored)
+	requested := result.RevisionRef
+	result.RevisionRef = tobari.RuntimeRevisionRef(result.RuntimeID, "sha256:"+strings.Repeat("e", 64))
+	result.Revision = "sha256:" + strings.Repeat("e", 64)
+	fake := &runtimeFake{manifest: runtimeFixture(), restoreResult: result}
+	_, err := New(fake).Restore(context.Background(), runtimeRestoreIntent(requested), requested, nil)
+	public, ok := fault.PublicCopy(err)
+	if !ok || public.Code != "invalid_runtime_retirement_result" || public.Phase != fault.PhaseVerification || public.ChangeState != fault.ChangePartial || fake.restoreCalls != 1 {
+		t.Fatalf("invalid Runtime restore result = %+v/%v calls=%d", public, err, fake.restoreCalls)
+	}
+}
+
+func TestRuntimeRestoreRecoveryUsesOneReviewedRevisionReference(t *testing.T) {
+	result := runtimeRestoreResultFixture(tobari.RuntimeAlreadyAvailable)
+	recovery := tobari.RuntimeBuildRecovery{
+		RuntimeID: result.RuntimeID, RuntimeRef: result.RuntimeRef, RevisionRef: result.RevisionRef,
+		Name: result.Name, Kind: tobari.RuntimeBuildRecoveryPublication,
+	}
+	fake := &runtimeFake{manifest: runtimeFixture(), restoreResult: result}
+	var diagnostics strings.Builder
+	restored, err := New(fake).RecoverRestore(context.Background(), runtimeRestoreIntent(result.RevisionRef), recovery, &diagnostics)
+	if err != nil || restored != result || fake.recoverRestoreCalls != 1 || fake.restoreKind != recovery.Kind || !slices.Equal(fake.restoreRefs, []string{result.RevisionRef}) || diagnostics.String() != "restore recovery\n" {
+		t.Fatalf("Runtime restore recovery = %+v/%v calls=%d refs=%v kind=%q diagnostics=%q", restored, err, fake.recoverRestoreCalls, fake.restoreRefs, fake.restoreKind, diagnostics.String())
+	}
+}
+
+func TestRuntimeRestoreRecoveryRejectsBuildOnlyOrWrongIntentBeforeAdapter(t *testing.T) {
+	result := runtimeRestoreResultFixture(tobari.RuntimeAlreadyAvailable)
+	for name, recovery := range map[string]tobari.RuntimeBuildRecovery{
+		"build only":     {RuntimeID: result.RuntimeID, RuntimeRef: result.RuntimeRef, Name: result.Name, Kind: tobari.RuntimeBuildRecoveryPublication},
+		"wrong revision": {RuntimeID: result.RuntimeID, RuntimeRef: result.RuntimeRef, RevisionRef: tobari.RuntimeRevisionRef(result.RuntimeID, "sha256:"+strings.Repeat("e", 64)), Name: result.Name, Kind: tobari.RuntimeBuildRecoveryPublication},
+	} {
+		t.Run(name, func(t *testing.T) {
+			fake := &runtimeFake{manifest: runtimeFixture(), restoreResult: result}
+			_, err := New(fake).RecoverRestore(context.Background(), runtimeRestoreIntent(result.RevisionRef), recovery, nil)
+			if err == nil || fake.recoverRestoreCalls != 0 {
+				t.Fatalf("invalid restore recovery = %v calls=%d", err, fake.recoverRestoreCalls)
+			}
+		})
+	}
+}
+
+func TestRuntimeRestoreRecoveryReportsConfirmedFailedCleanup(t *testing.T) {
+	result := runtimeRestoreResultFixture(tobari.RuntimeRestored)
+	recovery := tobari.RuntimeBuildRecovery{
+		RuntimeID: result.RuntimeID, RuntimeRef: result.RuntimeRef, RevisionRef: result.RevisionRef,
+		Name: result.Name, Kind: tobari.RuntimeBuildRecoveryFailed, RestoreFailed: true,
+	}
+	fake := &runtimeFake{manifest: runtimeFixture(), restoreErr: tobari.ErrRuntimeRevisionUnrestorable}
+	_, err := New(fake).RecoverRestore(context.Background(), runtimeRestoreIntent(result.RevisionRef), recovery, nil)
+	public, ok := fault.PublicCopy(err)
+	if !ok || public.Code != "runtime_revision_unrestorable" || public.Phase != fault.PhaseVerification || public.ChangeState != fault.ChangeConfirmed || fake.recoverRestoreCalls != 1 {
+		t.Fatalf("failed restore cleanup fault = %+v/%v calls=%d", public, err, fake.recoverRestoreCalls)
 	}
 }
 

@@ -37,6 +37,7 @@ var (
 	ErrRuntimeRevisionNotFound             = errors.New("Runtime revision does not exist")
 	ErrRuntimeRevisionUnrestorable         = errors.New("Runtime revision cannot be restored exactly")
 	ErrRuntimeLifecycleActive              = errors.New("Runtime lifecycle mutation is already active")
+	ErrRuntimeRestoreInterrupted           = errors.New("Runtime restore requires reconciliation")
 )
 
 // RuntimeKind distinguishes the compiled standard Runtime from a managed

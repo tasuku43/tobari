@@ -83,13 +83,27 @@ type runtimeBuildJournal struct {
 
 type runtimeBuildRecoveryReferenceContextKey struct{}
 
+type runtimeBuildRecoveryTarget struct {
+	RuntimeRef  string
+	RevisionRef string
+}
+
 func requireRuntimeBuildRecoveryReference(ctx context.Context, journal *runtimeBuildJournal) error {
-	expected, exact := ctx.Value(runtimeBuildRecoveryReferenceContextKey{}).(string)
+	expected, exact := ctx.Value(runtimeBuildRecoveryReferenceContextKey{}).(runtimeBuildRecoveryTarget)
 	if !exact {
 		return nil
 	}
-	if journal == nil || tobari.RuntimeRef(journal.RuntimeID) != expected {
+	if journal == nil || tobari.RuntimeRef(journal.RuntimeID) != expected.RuntimeRef {
 		return fmt.Errorf("Runtime build recovery target authority changed")
+	}
+	if expected.RevisionRef == "" {
+		if journal.Restore {
+			return fmt.Errorf("Runtime restore recovery requires exact revision authority")
+		}
+		return nil
+	}
+	if !journal.Restore || tobari.RuntimeRevisionRef(journal.RuntimeID, journal.Revision) != expected.RevisionRef {
+		return fmt.Errorf("Runtime restore recovery target authority changed")
 	}
 	return nil
 }
@@ -104,7 +118,11 @@ func (r *Runtime) RecoverRuntimeBuildByReference(ctx context.Context, runtimeRef
 	if runtimeRef == tobari.StandardRuntimeID {
 		return fmt.Errorf("built-in Runtime has no managed build recovery")
 	}
-	ctx = context.WithValue(ctx, runtimeBuildRecoveryReferenceContextKey{}, runtimeRef)
+	ctx = context.WithValue(ctx, runtimeBuildRecoveryReferenceContextKey{}, runtimeBuildRecoveryTarget{RuntimeRef: runtimeRef})
+	return r.recoverRuntimeBuildByKind(ctx, kind)
+}
+
+func (r *Runtime) recoverRuntimeBuildByKind(ctx context.Context, kind tobari.RuntimeBuildRecoveryKind) error {
 	switch kind {
 	case tobari.RuntimeBuildRecoveryPreDocker:
 		return r.RecoverRuntimeBuildPreDocker(ctx)

@@ -58,7 +58,7 @@ func (r *Runtime) RestoreManagedRuntimeByRevisionReference(ctx context.Context, 
 			result = runtimeRestoreResult(target, tobari.RuntimeAlreadyAvailable, tobari.RuntimeRestoreArtifactNotCreated)
 			return result.Validate()
 		}
-		return r.withRuntimeStoreLock(lockContext, func() error {
+		mutationErr := r.withRuntimeStoreLock(lockContext, func() error {
 			manifest, revision, err := r.resolveRuntimeRevisionForRestoreUnlocked(target)
 			if err != nil {
 				return err
@@ -168,11 +168,62 @@ func (r *Runtime) RestoreManagedRuntimeByRevisionReference(ctx context.Context, 
 			result = runtimeRestoreResult(target, tobari.RuntimeRestored, tobari.RuntimeRestoreArtifactRemoved)
 			return result.Validate()
 		})
+		if mutationErr != nil {
+			journal, observationErr := r.readRuntimeBuildJournalObserved()
+			if observationErr != nil || journal != nil {
+				return fmt.Errorf("%w: %w", tobari.ErrRuntimeRestoreInterrupted, errors.Join(mutationErr, observationErr))
+			}
+		}
+		return mutationErr
 	})
 	if err != nil {
 		return tobari.RuntimeRestoreResult{}, err
 	}
 	return result, nil
+}
+
+// RecoverRuntimeRestoreByRevisionReference resumes one exact interrupted
+// restore through the existing review-confirmed journal workflow. Internal
+// phase transitions may require several durable steps, but one invocation
+// carries the same opaque revision authority throughout and either reaches a
+// validated restore result or leaves the journal for the same review path.
+func (r *Runtime) RecoverRuntimeRestoreByRevisionReference(ctx context.Context, reference string, kind tobari.RuntimeBuildRecoveryKind, diagnostics io.Writer) (tobari.RuntimeRestoreResult, error) {
+	runtimeID, _, err := tobari.ParseRuntimeRevisionRef(reference)
+	if err != nil {
+		return tobari.RuntimeRestoreResult{}, fmt.Errorf("Runtime restore recovery reference is invalid: %w", err)
+	}
+	recoveryContext := context.WithValue(ctx, runtimeBuildRecoveryReferenceContextKey{}, runtimeBuildRecoveryTarget{
+		RuntimeRef: tobari.RuntimeRef(runtimeID), RevisionRef: reference,
+	})
+	restoreFailed := false
+	publicationRecovered := false
+	for step := 0; step < 8; step++ {
+		recovery, found, err := r.ReadRuntimeBuildRecovery(recoveryContext)
+		if err != nil {
+			return tobari.RuntimeRestoreResult{}, err
+		}
+		if !found {
+			if restoreFailed {
+				return tobari.RuntimeRestoreResult{}, tobari.ErrRuntimeRevisionUnrestorable
+			}
+			result, err := r.RestoreManagedRuntimeByRevisionReference(recoveryContext, reference, diagnostics)
+			if err == nil && publicationRecovered && result.State == tobari.RuntimeAlreadyAvailable {
+				result.State = tobari.RuntimeRestored
+				result.ArtifactDisposition = tobari.RuntimeRestoreArtifactRemoved
+				err = result.Validate()
+			}
+			return result, err
+		}
+		if recovery.RevisionRef != reference || (step == 0 && recovery.Kind != kind) {
+			return tobari.RuntimeRestoreResult{}, fmt.Errorf("Runtime restore recovery target authority changed")
+		}
+		restoreFailed = restoreFailed || recovery.RestoreFailed
+		if err := r.recoverRuntimeBuildByKind(recoveryContext, recovery.Kind); err != nil {
+			return tobari.RuntimeRestoreResult{}, err
+		}
+		publicationRecovered = publicationRecovered || recovery.Kind == tobari.RuntimeBuildRecoveryBuilding || recovery.Kind == tobari.RuntimeBuildRecoveryPublication
+	}
+	return tobari.RuntimeRestoreResult{}, fmt.Errorf("Runtime restore recovery exceeded the phase bound")
 }
 
 // observeAlreadyAvailableRuntimeRestore proves the no-op result entirely
