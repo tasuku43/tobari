@@ -158,4 +158,19 @@ func TestRevisionReferencesJoinDiscoveryOnlyWithRestoreConsumer(t *testing.T) {
 	if withConsumer.Runtime.Revisions[0].RevisionRef != RuntimeRevisionRef(id, revision) {
 		t.Fatalf("revision reference = %q", withConsumer.Runtime.Revisions[0].RevisionRef)
 	}
+	parsedID, parsedRevision, err := ParseRuntimeRevisionRef(withConsumer.Runtime.Revisions[0].RevisionRef)
+	if err != nil || parsedID != id || parsedRevision != revision {
+		t.Fatalf("managed producer/consumer round trip = %q/%q/%v", parsedID, parsedRevision, err)
+	}
+
+	standard := RuntimeReport{Task: TaskRuntimeShow, Runtime: lifecycleStandard()}
+	standardWithConsumer, err := RuntimeReportWithRevisionReferences(standard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range standardWithConsumer.Runtime.Revisions {
+		if item.RevisionRef != "" {
+			t.Fatalf("built-in Runtime exposed an ineligible restore reference: %q", item.RevisionRef)
+		}
+	}
 }

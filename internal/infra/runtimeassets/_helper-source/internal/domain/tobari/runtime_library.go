@@ -385,6 +385,9 @@ func RuntimeReportWithRevisionReferences(report RuntimeReport) (RuntimeReport, e
 	if err != nil {
 		return RuntimeReport{}, err
 	}
+	if report.Runtime.Kind != RuntimeKindManaged {
+		return report, nil
+	}
 	for index := range report.Runtime.Revisions {
 		report.Runtime.Revisions[index].RevisionRef = RuntimeRevisionRef(report.Runtime.ID, report.Runtime.Revisions[index].Revision)
 	}
