@@ -350,8 +350,9 @@ The public commands are:
 | `runtime show --name NAME [--format text\|json]` | discover | read | Inspect one Runtime's stable reference, managed source path, and complete successful revisions |
 | `runtime history --name NAME [--format text\|json]` | discover | read | Show one Runtime's stable reference and ordered immutable successful revision history |
 | `runtime create [--copy-source-from RUNTIME] --name NAME [--format text\|json]` | act, fixed target | create | Create one standalone owner-only managed Docker build-context source from the standard starter or another managed Runtime's current editable source, with a fresh Runtime ID, empty history, no lineage, and no Manifest or Workspace change |
-| `review runtimes [--format text\|json]` | discover plus TTY reference-bound action | read, or one confirmed write | List the exhaustive Runtime catalog; trusted interactive text offers only managed Runtime references and crosses into the separate build action after confirmation, while redirected and JSON output remain read-only |
+| `review runtimes [--format text\|json]` | discover plus TTY reference-bound action | read, or one confirmed write | List the exhaustive Runtime catalog; trusted interactive text offers only managed Runtime actions and uses one confirmation for either a selected build or exact interrupted restore recovery, while redirected and JSON output remain read-only |
 | `runtime build --id RUNTIME_REF [--format text\|json]` | act, reference bound | write | Re-resolve one stable managed Runtime ID under the lifecycle and store locks, then snapshot, build, validate, and append one immutable semantic revision without changing any Workspace Manifest |
+| `runtime restore --id RUNTIME_REVISION_REF [--format text\|json]` | act, reference bound | write | Rebuild one exact missing or pruned managed revision from its retained immutable source, publish only an exact digest match, and preserve Runtime history, Workspace Manifests, and Workspaces; an already-available exact revision performs no durable write |
 | `runtime prune dry-run [--format text\|json]` | discover | read | Produce one exact opaque prune-plan reference from a complete coherent installation observation, listing every eligible unused owned image tag, protection, blocker, preserved source/snapshot byte count, and bounded Docker observation without creating state or changing Docker |
 | `runtime prune apply --plan RUNTIME_PRUNE_PLAN_REF --confirm=prune [--format text\|json]` | act, reference bound | write | Revalidate and apply one unchanged reviewed plan, removing only exact Tobari-owned unused image tags while preserving Runtime source, immutable snapshots, revision history, Workspace Manifests, Workspaces, homes, IDs, and shared image content |
 
@@ -628,6 +629,16 @@ review runs through `tobari review permissions` in a separate host terminal.
   exact ready `NAME@ORDINAL` selection command, and Workspace Manifest selection reports
   the exact next Workspace entry command. For the default Workspace Manifest that entry is
   the ordinary CWD-first `tobari`; a non-default Workspace Manifest remains explicit.
+- Successful managed Runtime list, show, history, build, and review results
+  expose an opaque `runtime-revision` reference for each eligible immutable
+  revision. Built-in `standard` never exposes that reference because it is not
+  a managed retirement target. `runtime restore --id` consumes the emitted
+  reference unchanged, revalidates the complete lifecycle observation and
+  retained source, and rebuilds with mutable base refresh disabled. Publication
+  requires the rebuilt content digest to equal the recorded revision authority.
+  Restore never appends or rewrites history, changes a Workspace Manifest, or
+  changes a Workspace. An interrupted restore remains fail-closed and resumes
+  through the same one-confirmation `review runtimes` recovery path.
 - Direct `config shell` changes one allowlisted shell-presentation policy in
   the explicit or default Workspace Manifest. Its terminal editor may stage several
   distinct rows and commits the complete change set with one atomic write.
@@ -790,6 +801,7 @@ Human output is concise text. The canonical public machine-output inventory is:
 | Workspace Manifest report (show/create/default/config/runtime results) | `workspace_manifest` | 2 |
 | Runtime list | `runtimes` | 1 |
 | Runtime report (show/create/history/build results) | `runtime` | 1 |
+| Runtime restore result | `runtime_restore` | 1 |
 | Runtime prune plan | `runtime_prune_plan` | 1 |
 | Runtime prune result | `runtime_prune_result` | 1 |
 | Workspace Manifest deletion | `workspace_manifest_deletion` | 2 |

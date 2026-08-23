@@ -305,7 +305,7 @@ func (s *Service) Recover(ctx context.Context, intent operation.Intent, recovery
 	if err != nil {
 		return tobari.RuntimeReport{}, err
 	}
-	result, err = tobari.RuntimeReportWithReferences(result)
+	result, err = tobari.RuntimeReportWithRevisionReferences(result)
 	if err != nil {
 		return tobari.RuntimeReport{}, fault.Wrap(fault.KindContract, "invalid_runtime_report", "Runtime recovery report is invalid", false, err)
 	}
@@ -447,8 +447,11 @@ func (s *Service) List(ctx context.Context) (tobari.RuntimeListResult, error) {
 func runtimeListWithReferences(result tobari.RuntimeListResult) (tobari.RuntimeListResult, error) {
 	for index := range result.Items {
 		result.Items[index].RuntimeRef = tobari.RuntimeRef(result.Items[index].ID)
-		// Restore publishes this only when its consumer lands in the Catalog.
-		result.Items[index].RevisionRef = ""
+		if result.Items[index].Kind == tobari.RuntimeKindManaged && result.Items[index].Revision != "" {
+			result.Items[index].RevisionRef = tobari.RuntimeRevisionRef(result.Items[index].ID, result.Items[index].Revision)
+		} else {
+			result.Items[index].RevisionRef = ""
+		}
 	}
 	return result, result.Validate()
 }
@@ -487,7 +490,7 @@ func (s *Service) read(ctx context.Context, name string, history bool) (tobari.R
 	if err := result.Validate(); err != nil {
 		return tobari.RuntimeReport{}, fault.Wrap(fault.KindContract, "invalid_runtime_report", "Runtime report is invalid", false, err)
 	}
-	result, err = tobari.RuntimeReportWithReferences(result)
+	result, err = tobari.RuntimeReportWithRevisionReferences(result)
 	if err != nil {
 		return tobari.RuntimeReport{}, fault.Wrap(fault.KindContract, "invalid_runtime_report", "Runtime report is invalid", false, err)
 	}
@@ -535,7 +538,7 @@ func (s *Service) Create(ctx context.Context, intent operation.Intent, name, bas
 	if err != nil {
 		return tobari.RuntimeReport{}, err
 	}
-	result, err = tobari.RuntimeReportWithReferences(result)
+	result, err = tobari.RuntimeReportWithRevisionReferences(result)
 	if err != nil {
 		return tobari.RuntimeReport{}, fault.Wrap(fault.KindContract, "invalid_runtime_report", "Runtime creation report is invalid", false, err)
 	}
@@ -588,7 +591,7 @@ func (s *Service) Build(ctx context.Context, intent operation.Intent, runtimeRef
 	if err != nil {
 		return tobari.RuntimeReport{}, err
 	}
-	result, err = tobari.RuntimeReportWithReferences(result)
+	result, err = tobari.RuntimeReportWithRevisionReferences(result)
 	if err != nil {
 		return tobari.RuntimeReport{}, fault.Wrap(fault.KindContract, "invalid_runtime_report", "Runtime build report is invalid", false, err)
 	}

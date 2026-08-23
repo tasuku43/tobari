@@ -41,6 +41,7 @@ func runtimeCommandSpecs() []CommandSpec {
 		runtimeHistorySpec(),
 		runtimeReviewSpec(),
 		runtimeBuildSpec(),
+		runtimeRestoreSpec(),
 		runtimePruneDryRunSpec(),
 		runtimePruneApplySpec(),
 		projectEnterSpec(),
@@ -573,11 +574,11 @@ func runtimeCreateSpec() CommandSpec {
 
 func runtimeReviewSpec() CommandSpec {
 	return CommandSpec{
-		Path: "review runtimes", Summary: "Review managed Runtimes or recover one interrupted build",
+		Path: "review runtimes", Summary: "Review managed Runtimes or recover one interrupted lifecycle action",
 		Args: "[--format text|json]", Effect: operation.EffectRead, Role: RoleDiscover,
 		Agent: AgentContract{
 			CapabilityID: "runtime.lifecycle",
-			Outcome:      "Review interrupted Runtime build authority first or the complete Runtime catalog, then cross into the separate exact-reference build/recovery mutation only after trusted-terminal confirmation",
+			Outcome:      "Review interrupted Runtime build or restore authority first, or the complete Runtime catalog, then cross into the separate exact-reference mutation only after trusted-terminal confirmation",
 			Inputs:       []CommandInput{formatInput()}, Output: runtimeListOutput(),
 			Prerequisites: []string{"Interactive build selection and journal recovery require trusted terminal input and error output; redirected and JSON use remains read-only.", "An interrupted journal is reviewed before any new Runtime build selection."},
 			Errors: readCommandErrors("review runtimes", true,
@@ -586,6 +587,9 @@ func runtimeReviewSpec() CommandSpec {
 				declaredCommandError(fault.KindRejected, "runtime_recovery_observation_unknown", false, "review runtimes", "Retry the trusted-host read-only review."),
 				declaredCommandError(fault.KindInvalidInput, "invalid_runtime_recovery", false, "review runtimes", "Restart from current recovery authority."),
 				declaredCommandError(fault.KindRejected, "runtime_recovery_failed", false, "review runtimes", "Re-observe the retained journal before another mutation."),
+				declaredCommandError(fault.KindRejected, "runtime_revision_unrestorable", false, "runtime history", "Review the retained immutable revision authority."),
+				declaredCommandError(fault.KindInternal, "runtime_restore_interrupted", false, "review runtimes", "Resume the exact retained restore authority."),
+				declaredCommandError(fault.KindContract, "invalid_runtime_retirement_result", false, "runtime history", "Reconcile the retained revision and current image availability."),
 				declaredCommandError(fault.KindContract, "runtime_recovery_contract_invalid", false, "review runtimes", "Reconcile the current Runtime catalog."),
 				declaredCommandError(fault.KindInternal, "runtime_review_failed", false, "help review runtimes", "Retry on a trusted terminal or use redirected/JSON read-only discovery."),
 				declaredCommandError(fault.KindInternal, "runtime_read_failed", false, "doctor", "Inspect the host Runtime store."),
@@ -641,6 +645,41 @@ func runtimeBuildSpec() CommandSpec {
 			},
 		},
 		handler: runRuntimeBuild,
+	}
+}
+
+func runtimeRestoreSpec() CommandSpec {
+	return CommandSpec{
+		Path: "runtime restore", Summary: "Restore one exact retained Runtime revision image",
+		Args: "--id <revision-ref> [--format text|json]", Effect: operation.EffectWrite, Role: RoleAct,
+		Agent: AgentContract{
+			CapabilityID: "runtime.lifecycle",
+			Outcome:      "Rebuild one exact managed Runtime revision from its retained immutable source and publish it only when the rebuilt content digest matches, without appending history or changing any Workspace Manifest or Workspace",
+			Inputs: []CommandInput{{Name: "--id", Source: InputSourceFlag, Required: true, ValueKind: InputValueText, Cardinality: InputCardinalitySingle,
+				Description: "Opaque managed Runtime revision reference emitted by runtime list, show, history, build, or review runtimes; it is consumed unchanged.", AllowedValues: []string{}, ReferenceKind: tobari.RuntimeRevisionReferenceKind}, formatInput()},
+			Output: runtimeRestoreOutput(),
+			Prerequisites: []string{
+				"The referenced managed Runtime and retained immutable source revision exist and pass bounded owner-only source validation.",
+				"The trusted host Docker daemon and Buildx plugin are available; mutable base refresh is disabled for exact restore.",
+			},
+			Errors: mutationCommandErrors("runtime restore", "runtime history",
+				declaredCommandError(fault.KindInvalidInput, "invalid_runtime_revision_ref", false, "runtime history", "Use one managed Runtime revision reference unchanged."),
+				declaredCommandError(fault.KindNotFound, "runtime_not_found", false, "runtime list", "Discover the current managed Runtime catalog."),
+				declaredCommandError(fault.KindNotFound, "runtime_revision_not_found", false, "runtime history", "Discover the current retained Runtime revisions."),
+				declaredCommandError(fault.KindRejected, "runtime_retirement_observation_unknown", false, "doctor", "Inspect the host Runtime lifecycle state."),
+				declaredCommandError(fault.KindRejected, "runtime_lifecycle_active", false, "review runtimes", "Review the retained Runtime lifecycle journal."),
+				declaredCommandError(fault.KindRejected, "runtime_revision_unrestorable", false, "runtime history", "Review the retained immutable revision authority."),
+				declaredCommandError(fault.KindInternal, "runtime_restore_interrupted", false, "review runtimes", "Resume the exact retained restore authority."),
+				declaredCommandError(fault.KindContract, "invalid_runtime_retirement_result", false, "runtime history", "Reconcile the retained revision and current image availability."),
+				declaredCommandError(fault.KindInternal, "missing_runtime_restore", false, "doctor", "Configure the Tobari Runtime restore adapter."),
+				declaredCommandError(fault.KindInternal, "missing_runtime", false, "doctor", "Configure the Tobari runtime."),
+			),
+			Mutation: &MutationContract{
+				TargetKind: tobari.RuntimeRevisionReferenceKind, TargetInputs: []string{"--id"}, TargetIDInput: "--id",
+				Impact: runtimecmd.RestoreImpact(),
+			},
+		},
+		handler: runRuntimeRestore,
 	}
 }
 

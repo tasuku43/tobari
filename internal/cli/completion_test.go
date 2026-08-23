@@ -155,6 +155,7 @@ func TestCatalogDeclaresTypedCompletionSources(t *testing.T) {
 		"runtime show":         {"--name": InputCompletionRuntimeName},
 		"runtime create":       {"--copy-source-from": InputCompletionRuntimeName},
 		"runtime build":        {"--id": InputCompletionNone},
+		"runtime restore":      {"--id": InputCompletionNone},
 	}
 	for path, expected := range tests {
 		spec, found := DefaultCatalog().Lookup(path)

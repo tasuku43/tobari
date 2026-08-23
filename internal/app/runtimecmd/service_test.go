@@ -99,7 +99,7 @@ func TestRuntimeBuildRejectsStandardReferenceBeforeBuildAdapter(t *testing.T) {
 	}
 }
 
-func TestRuntimeReadsPublishOnlyReferenceKindsWithConsumers(t *testing.T) {
+func TestRuntimeReadsPublishManagedRevisionReferencesForRestoreConsumer(t *testing.T) {
 	manifest := runtimeFixture()
 	manifest.Revisions[0].RevisionRef = tobari.RuntimeRevisionRef(manifest.ID, manifest.Revisions[0].Revision)
 	fake := &runtimeFake{manifest: manifest}
@@ -112,10 +112,11 @@ func TestRuntimeReadsPublishOnlyReferenceKindsWithConsumers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(listed.Items) != 1 || listed.Items[0].RuntimeRef != manifest.ID || listed.Items[0].RevisionRef != "" {
+	wantRevisionRef := tobari.RuntimeRevisionRef(manifest.ID, manifest.Revisions[0].Revision)
+	if len(listed.Items) != 1 || listed.Items[0].RuntimeRef != manifest.ID || listed.Items[0].RevisionRef != wantRevisionRef {
 		t.Fatalf("Runtime list references = %+v", listed.Items)
 	}
-	if shown.Runtime.RuntimeRef != manifest.ID || shown.Runtime.Revisions[0].RuntimeRef != manifest.ID || shown.Runtime.Revisions[0].RevisionRef != "" {
+	if shown.Runtime.RuntimeRef != manifest.ID || shown.Runtime.Revisions[0].RuntimeRef != manifest.ID || shown.Runtime.Revisions[0].RevisionRef != wantRevisionRef {
 		t.Fatalf("Runtime report references = %+v", shown.Runtime)
 	}
 }

@@ -154,11 +154,21 @@ func confirmRuntimeBuildRecovery(ctx context.Context, c *CLI, recovery tobari.Ru
 	if err := recovery.Validate(); err != nil {
 		return false, fault.Wrap(fault.KindContract, "runtime_recovery_contract_invalid", "The Runtime recovery target is invalid.", false, err)
 	}
+	title := "Tobari · Recover Runtime Build"
+	reference := recovery.RuntimeRef
+	action := "Recover interrupted build"
+	description := "Run the exact bounded recovery for this Runtime reference."
+	if recovery.RevisionRef != "" {
+		title = "Tobari · Recover Runtime Restore"
+		reference = recovery.RevisionRef
+		action = "Recover interrupted restore"
+		description = "Resume the exact retained revision restore without changing history or Workspaces."
+	}
 	index, err := runtimeReviewChooser(c).choose(ctx, c.In, c.Err, configurationWizardMenu{
-		title: "Tobari · Recover Runtime Build",
+		title: title,
 		details: []configurationWizardDetail{
 			{label: "Runtime", value: recovery.Name},
-			{label: "Reference", value: recovery.RuntimeRef},
+			{label: "Reference", value: reference},
 			{label: "Recovery", value: string(recovery.Kind)},
 		},
 		information: []string{
@@ -167,7 +177,7 @@ func confirmRuntimeBuildRecovery(ctx context.Context, c *CLI, recovery tobari.Ru
 		},
 		prompt: "Action",
 		options: []configurationWizardOption{
-			{label: "Recover interrupted build", description: "Run the exact bounded recovery for this Runtime reference.", value: "recover"},
+			{label: action, description: description, value: "recover"},
 			{label: "Cancel", description: "Keep the journal and all Runtime material unchanged.", value: "cancel"},
 		},
 	})
