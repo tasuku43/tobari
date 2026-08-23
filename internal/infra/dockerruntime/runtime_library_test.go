@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -101,6 +102,26 @@ func (r *managedRuntimeBuildRunner) Run(ctx context.Context, args, _ []string, _
 		if r.inspectOverflow {
 			_, _ = io.WriteString(out, strings.Repeat("x", 8192))
 			return nil
+		}
+		if strings.Contains(args[3], `"repo_tags"`) {
+			tags := make([]string, 0)
+			for tag, candidate := range r.images {
+				if candidate.id == image.id {
+					tags = append(tags, tag)
+				}
+			}
+			sort.Strings(tags)
+			observation := runtimeImageObservation{
+				ID: image.id, Size: 1024, RepoTags: tags,
+				Owner: image.labels[ownerLabel], Component: image.labels[componentLabel],
+				RuntimeID: image.labels[managedRuntimeIDLabel], Revision: image.labels[managedRuntimeRevisionLabel],
+			}
+			data, err := json.Marshal(observation)
+			if err != nil {
+				return err
+			}
+			_, err = out.Write(data)
+			return err
 		}
 		evidence := managedRuntimeBuildEvidence{ID: image.id, Owner: image.labels[ownerLabel], Component: image.labels[componentLabel], RuntimeID: image.labels[managedRuntimeIDLabel], Revision: image.labels[managedRuntimeRevisionLabel], AttemptID: image.labels[managedRuntimeBuildAttemptLabel]}
 		switch r.corruptEvidence {

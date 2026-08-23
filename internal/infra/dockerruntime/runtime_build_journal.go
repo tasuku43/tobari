@@ -61,22 +61,24 @@ func (r *Runtime) runtimeBuildRecoveryContext(parent context.Context) (context.C
 }
 
 type runtimeBuildJournal struct {
-	SchemaVersion     int    `json:"schema_version"`
-	Phase             string `json:"phase"`
-	RuntimeID         string `json:"runtime_id"`
-	RuntimeName       string `json:"runtime_name"`
-	AttemptID         string `json:"attempt_id"`
-	Revision          string `json:"revision,omitempty"`
-	StagingImage      string `json:"staging_image,omitempty"`
-	FinalImage        string `json:"final_image,omitempty"`
-	ImageDigest       string `json:"image_digest,omitempty"`
-	SnapshotPath      string `json:"snapshot_path"`
-	CleanupFrom       string `json:"cleanup_from,omitempty"`
-	OrphanStaging     string `json:"orphan_staging,omitempty"`
-	RemoveStaging     bool   `json:"remove_staging,omitempty"`
-	StagingArtifact   string `json:"staging_artifact,omitempty"`
-	AttemptSettlement string `json:"attempt_settlement,omitempty"`
-	CreatedAt         string `json:"created_at,omitempty"`
+	SchemaVersion       int    `json:"schema_version"`
+	Phase               string `json:"phase"`
+	Restore             bool   `json:"restore,omitempty"`
+	RuntimeID           string `json:"runtime_id"`
+	RuntimeName         string `json:"runtime_name"`
+	AttemptID           string `json:"attempt_id"`
+	Revision            string `json:"revision,omitempty"`
+	StagingImage        string `json:"staging_image,omitempty"`
+	FinalImage          string `json:"final_image,omitempty"`
+	ImageDigest         string `json:"image_digest,omitempty"`
+	ExpectedImageDigest string `json:"expected_image_digest,omitempty"`
+	SnapshotPath        string `json:"snapshot_path"`
+	CleanupFrom         string `json:"cleanup_from,omitempty"`
+	OrphanStaging       string `json:"orphan_staging,omitempty"`
+	RemoveStaging       bool   `json:"remove_staging,omitempty"`
+	StagingArtifact     string `json:"staging_artifact,omitempty"`
+	AttemptSettlement   string `json:"attempt_settlement,omitempty"`
+	CreatedAt           string `json:"created_at,omitempty"`
 }
 
 type runtimeBuildRecoveryReferenceContextKey struct{}
@@ -167,19 +169,32 @@ func (j runtimeBuildJournal) Validate(r *Runtime) error {
 	if j.CleanupFrom != "" || j.RemoveStaging {
 		return fmt.Errorf("active Runtime build journal has premature cleanup evidence")
 	}
+	if j.Restore {
+		if tobari.ValidateDigest(j.Revision) != nil || tobari.ValidateDigest(j.ExpectedImageDigest) != nil ||
+			j.StagingImage != managedRuntimeStagingImage(j.RuntimeID, j.Revision) ||
+			j.FinalImage != managedLibraryRuntimeImage(j.RuntimeName, j.RuntimeID, j.Revision) {
+			return fmt.Errorf("Runtime restore journal target is invalid")
+		}
+		createdAt, err := time.Parse(time.RFC3339Nano, j.CreatedAt)
+		if err != nil || createdAt.Location() != time.UTC {
+			return fmt.Errorf("Runtime restore journal immutable creation time is invalid")
+		}
+	} else if j.ExpectedImageDigest != "" {
+		return fmt.Errorf("Runtime build journal has restore-only digest authority")
+	}
 	switch j.Phase {
 	case runtimeBuildPhaseSnapshotting:
-		if j.Revision != "" || j.StagingImage != "" || j.FinalImage != "" || j.ImageDigest != "" || j.OrphanStaging != "" || j.StagingArtifact != "" || j.AttemptSettlement != "" || j.CreatedAt != "" {
+		if (!j.Restore && (j.Revision != "" || j.StagingImage != "" || j.FinalImage != "" || j.CreatedAt != "")) || j.ImageDigest != "" || j.OrphanStaging != "" || j.StagingArtifact != "" || j.AttemptSettlement != "" {
 			return fmt.Errorf("snapshotting Runtime build journal has premature evidence")
 		}
 	case runtimeBuildPhasePrepared, runtimeBuildPhaseBuilding, runtimeBuildPhaseFailed, runtimeBuildPhaseOrphanStaging:
 		if tobari.ValidateDigest(j.Revision) != nil || j.StagingImage != managedRuntimeStagingImage(j.RuntimeID, j.Revision) || j.FinalImage != managedLibraryRuntimeImage(j.RuntimeName, j.RuntimeID, j.Revision) {
 			return fmt.Errorf("Runtime build journal target is invalid")
 		}
-		if j.Phase == runtimeBuildPhasePrepared && (j.ImageDigest != "" || j.StagingArtifact != "" || j.AttemptSettlement != "" || j.CreatedAt != "") {
+		if j.Phase == runtimeBuildPhasePrepared && (j.ImageDigest != "" || j.StagingArtifact != "" || j.AttemptSettlement != "" || (!j.Restore && j.CreatedAt != "")) {
 			return fmt.Errorf("pre-build-completion Runtime journal has premature image evidence")
 		}
-		if j.Phase == runtimeBuildPhaseBuilding && (j.ImageDigest != "" || j.StagingArtifact != runtimeBuildStagingUnknown || j.AttemptSettlement != runtimeBuildAttemptUnsettled || j.CreatedAt != "") {
+		if j.Phase == runtimeBuildPhaseBuilding && (j.ImageDigest != "" || j.StagingArtifact != runtimeBuildStagingUnknown || j.AttemptSettlement != runtimeBuildAttemptUnsettled || (!j.Restore && j.CreatedAt != "")) {
 			return fmt.Errorf("building Runtime journal lacks exact outcome-unknown evidence")
 		}
 		if j.ImageDigest != "" && tobari.ValidateDigest(j.ImageDigest) != nil {
@@ -205,7 +220,7 @@ func (j runtimeBuildJournal) Validate(r *Runtime) error {
 			if (j.StagingArtifact == runtimeBuildStagingOwned) != (j.ImageDigest != "") {
 				return fmt.Errorf("failed Runtime staging ownership evidence is invalid")
 			}
-			if j.CreatedAt != "" {
+			if !j.Restore && j.CreatedAt != "" {
 				return fmt.Errorf("failed Runtime journal has publication time evidence")
 			}
 			if j.AttemptSettlement != runtimeBuildAttemptUnsettled && j.AttemptSettlement != runtimeBuildAttemptSettled {
@@ -339,7 +354,7 @@ func (r *Runtime) validateRuntimeBuildCleanupStart(origin runtimeBuildJournal) e
 }
 
 func validateRuntimeBuildJournalTransition(previous, next runtimeBuildJournal) error {
-	if previous.SchemaVersion != next.SchemaVersion || previous.RuntimeID != next.RuntimeID || previous.RuntimeName != next.RuntimeName || previous.AttemptID != next.AttemptID || previous.SnapshotPath != next.SnapshotPath {
+	if previous.SchemaVersion != next.SchemaVersion || previous.Restore != next.Restore || previous.ExpectedImageDigest != next.ExpectedImageDigest || (previous.Restore && previous.CreatedAt != next.CreatedAt) || previous.RuntimeID != next.RuntimeID || previous.RuntimeName != next.RuntimeName || previous.AttemptID != next.AttemptID || previous.SnapshotPath != next.SnapshotPath {
 		return fmt.Errorf("Runtime build journal identity changed")
 	}
 	if previous.Revision != "" && (previous.Revision != next.Revision || previous.StagingImage != next.StagingImage || previous.FinalImage != next.FinalImage) {
@@ -507,6 +522,9 @@ func (r *Runtime) validateCompletedRuntimeBuildAuthority(ctx context.Context, jo
 	}
 	if matched == nil || matched.Image != journal.FinalImage || matched.ImageDigest != journal.ImageDigest {
 		return fmt.Errorf("completed Runtime build revision authority changed")
+	}
+	if journal.Restore && journal.ImageDigest != journal.ExpectedImageDigest {
+		return fmt.Errorf("completed Runtime restore digest authority changed")
 	}
 	info, err := os.Lstat(matched.SnapshotPath)
 	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
@@ -845,17 +863,30 @@ func (r *Runtime) RecoverRuntimeBuildBuilding(ctx context.Context) error {
 			if err := r.requireRuntimeBuildSnapshotRevision(recoveryContext, journal.SnapshotPath, journal.Revision); err != nil {
 				return fmt.Errorf("Runtime building snapshot drift requires review: %w", err)
 			}
+			if journal.Restore && imageDigest != journal.ExpectedImageDigest {
+				failed := *journal
+				failed.Phase = runtimeBuildPhaseFailed
+				failed.ImageDigest = imageDigest
+				failed.StagingArtifact = runtimeBuildStagingOwned
+				failed.AttemptSettlement = runtimeBuildAttemptSettled
+				if err := r.writeRuntimeBuildJournal(*journal, failed); err != nil {
+					return fmt.Errorf("publish irreproducible Runtime restore evidence: %w", err)
+				}
+				return tobari.ErrRuntimeRevisionUnrestorable
+			}
 
 			built := *journal
 			built.Phase = runtimeBuildPhaseBuilt
 			built.ImageDigest = imageDigest
 			built.StagingArtifact = runtimeBuildStagingOwned
 			built.AttemptSettlement = runtimeBuildAttemptSettled
-			createdAt := time.Now().UTC()
-			if r.identities.now != nil {
-				createdAt = r.identities.now().UTC()
+			if !journal.Restore {
+				createdAt := time.Now().UTC()
+				if r.identities.now != nil {
+					createdAt = r.identities.now().UTC()
+				}
+				built.CreatedAt = createdAt.Format(time.RFC3339Nano)
 			}
-			built.CreatedAt = createdAt.Format(time.RFC3339Nano)
 			if err := r.writeRuntimeBuildJournal(*journal, built); err != nil {
 				observed, observeErr := r.readRuntimeBuildJournalObserved()
 				if observeErr == nil && observed != nil && *observed == built {
@@ -1086,7 +1117,11 @@ func runtimeLifecycleActivityFromBuild(journal runtimeBuildJournal) tobari.Runti
 	if journal.Revision != "" {
 		revisions = []string{journal.Revision}
 	}
-	return tobari.RuntimeLifecycleActivity{Kind: tobari.RuntimeLifecycleActivityBuild, RuntimeID: journal.RuntimeID, Revisions: revisions}
+	kind := tobari.RuntimeLifecycleActivityBuild
+	if journal.Restore {
+		kind = tobari.RuntimeLifecycleActivityRestore
+	}
+	return tobari.RuntimeLifecycleActivity{Kind: kind, RuntimeID: journal.RuntimeID, Revisions: revisions}
 }
 
 func sortRuntimeLifecycleJournals(journals *tobari.RuntimeLifecycleJournals) {

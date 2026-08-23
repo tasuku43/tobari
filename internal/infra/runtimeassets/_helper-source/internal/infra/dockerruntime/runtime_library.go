@@ -1004,6 +1004,9 @@ func (r *Runtime) publishRuntimeBuildManifest(manifest tobari.RuntimeManifest) e
 }
 
 func (r *Runtime) publishManagedRuntimeFinalTag(ctx context.Context, journal runtimeBuildJournal) error {
+	if journal.Restore && journal.ImageDigest != journal.ExpectedImageDigest {
+		return fmt.Errorf("Runtime restore image digest differs from immutable revision authority")
+	}
 	publishErr := r.publishManagedRuntimeTag(ctx, journal)
 	digest, observeErr := r.inspectManagedRuntimeBuildEvidence(ctx, journal.FinalImage, journal.RuntimeID, journal.Revision)
 	if observeErr != nil || digest != journal.ImageDigest {
@@ -1059,6 +1062,18 @@ func (r *Runtime) publishManagedRuntimeSnapshot(ctx context.Context, journal run
 	finalPresent, err := exactRuntimeBuildDirectory(final)
 	if err != nil {
 		return "", err
+	}
+	if journal.Restore {
+		if !stagingPresent || !finalPresent {
+			return "", fmt.Errorf("Runtime restore requires both retained and staged snapshot authority")
+		}
+		if err := r.requireRuntimeBuildSnapshotRevision(ctx, journal.SnapshotPath, journal.Revision); err != nil {
+			return "", err
+		}
+		if err := r.requireRuntimeBuildSnapshotRevision(ctx, final, journal.Revision); err != nil {
+			return "", err
+		}
+		return final, nil
 	}
 	if stagingPresent && finalPresent {
 		return "", fmt.Errorf("Runtime build snapshot exists at both staging and final authority")
@@ -1133,6 +1148,9 @@ func (r *Runtime) publishManagedRuntimeManifestRevision(_ context.Context, journ
 		if !reflect.DeepEqual(revision, expected) {
 			return tobari.RuntimeManifest{}, fmt.Errorf("Runtime manifest revision publication authority changed")
 		}
+	}
+	if journal.Restore && !found {
+		return tobari.RuntimeManifest{}, fmt.Errorf("Runtime restore revision authority disappeared")
 	}
 	if !found {
 		manifest.Revisions = append(manifest.Revisions, expected)

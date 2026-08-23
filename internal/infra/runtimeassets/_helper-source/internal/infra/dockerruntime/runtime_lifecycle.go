@@ -285,7 +285,7 @@ func (r *Runtime) observeRuntimeStorage(ctx context.Context, runtimes []tobari.R
 			}
 			storage.Snapshots = append(storage.Snapshots, tobari.RuntimeSnapshotStorage{Kind: tobari.RuntimePruneCandidateRevision, Revision: revision.Revision, SemanticFingerprint: fingerprint, LogicalBytes: logicalBytes})
 		}
-		if journal != nil && journal.RuntimeID == manifest.ID && journal.Phase == runtimeBuildPhaseFailed && journal.StagingArtifact == runtimeBuildStagingOwned && journal.AttemptSettlement == runtimeBuildAttemptSettled {
+		if journal != nil && !journal.Restore && journal.RuntimeID == manifest.ID && journal.Phase == runtimeBuildPhaseFailed && journal.StagingArtifact == runtimeBuildStagingOwned && journal.AttemptSettlement == runtimeBuildAttemptSettled {
 			fingerprint, logicalBytes, err := observeImmutableRuntimeSnapshot(ctx, journal.SnapshotPath, journal.Revision)
 			if err != nil {
 				return nil, fmt.Errorf("observe failed Runtime build snapshot storage: %w", err)
@@ -547,7 +547,7 @@ func (r *Runtime) observeRuntimeLifecycleDocker(ctx context.Context, local runti
 	}
 	journalInventory := tobari.RuntimeLifecycleJournals{Complete: true, Active: []tobari.RuntimeLifecycleActivity{}, FailedBuilds: []tobari.RuntimeFailedBuildArtifact{}}
 	if local.Build != nil {
-		if local.Build.Phase == runtimeBuildPhaseFailed && local.Build.StagingArtifact == runtimeBuildStagingOwned && local.Build.AttemptSettlement == runtimeBuildAttemptSettled {
+		if !local.Build.Restore && local.Build.Phase == runtimeBuildPhaseFailed && local.Build.StagingArtifact == runtimeBuildStagingOwned && local.Build.AttemptSettlement == runtimeBuildAttemptSettled {
 			targets = append(targets, runtimeMaterialTarget{RuntimeID: local.Build.RuntimeID, Revision: local.Build.Revision, TagRole: tobari.RuntimeMaterialTagJournaledStaging, Selector: local.Build.StagingImage, RecordedDigest: local.Build.ImageDigest, Name: local.Build.RuntimeName})
 		} else {
 			journalInventory.Active = append(journalInventory.Active, runtimeLifecycleActivityFromBuild(*local.Build))
