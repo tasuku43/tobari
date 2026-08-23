@@ -747,10 +747,12 @@ func (r PolicyCandidateReport) Validate() error {
 // dimensions as the candidate it resolves.
 type PolicyDenyRule struct {
 	PolicyProtocolIdentity
-	ID                    string   `json:"id"`
-	WorkspaceManifestID   string   `json:"workspace_manifest_id"`
-	WorkspaceManifestName string   `json:"workspace_manifest"`
-	ProjectID             string   `json:"workspace_id"`
+	ID string `json:"id"`
+	// Persisted learned-policy data is also the OPA schema-v1 wire. Keep its
+	// frozen tokens separate from the Workspace-named public PolicyRule.
+	WorkspaceManifestID   string   `json:"context_id"`
+	WorkspaceManifestName string   `json:"context"`
+	ProjectID             string   `json:"project_id"`
 	ProjectRoot           string   `json:"project_root"`
 	Host                  string   `json:"host"`
 	Port                  int      `json:"port"`
@@ -882,9 +884,9 @@ type LearnedPolicyRule struct {
 	PolicyProtocolIdentity
 	ID                    string   `json:"id"`
 	Match                 string   `json:"match"`
-	WorkspaceManifestID   string   `json:"workspace_manifest_id"`
-	WorkspaceManifestName string   `json:"workspace_manifest"`
-	ProjectID             string   `json:"workspace_id"`
+	WorkspaceManifestID   string   `json:"context_id"`
+	WorkspaceManifestName string   `json:"context"`
+	ProjectID             string   `json:"project_id"`
 	ProjectRoot           string   `json:"project_root"`
 	Host                  string   `json:"host"`
 	Port                  int      `json:"port"`

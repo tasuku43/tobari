@@ -1,6 +1,7 @@
 package tobari
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"sync"
@@ -1007,6 +1008,59 @@ func TestCurrentPolicyRulesListsReversibleAllowAndDenyDecisions(t *testing.T) {
 	}
 	if err := report.Validate(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestLearnedPolicyWireAndPublicInventoryUseSeparateIdentityKeys(t *testing.T) {
+	t.Parallel()
+	candidate, err := NewPolicyCandidate(validPolicyDenial())
+	if err != nil {
+		t.Fatal(err)
+	}
+	allow, err := NewExactLearnedPolicyRule(candidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	deny, err := NewExactPolicyDenyRule(candidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, value := range map[string]any{"allow": allow, "deny": deny} {
+		encoded, err := json.Marshal(value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		wire := string(encoded)
+		for _, required := range []string{`"project_id"`, `"context_id"`, `"context"`} {
+			if !strings.Contains(wire, required) {
+				t.Errorf("%s OPA wire %s lacks %s", name, wire, required)
+			}
+		}
+		for _, forbidden := range []string{`"workspace_id"`, `"workspace_manifest_id"`, `"workspace_manifest"`} {
+			if strings.Contains(wire, forbidden) {
+				t.Errorf("%s OPA wire %s contains renamed alias %s", name, wire, forbidden)
+			}
+		}
+	}
+
+	items, err := CurrentPolicyRules([]LearnedPolicyRule{allow}, []PolicyDenyRule{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := json.Marshal(items[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	visible := string(encoded)
+	for _, required := range []string{`"workspace_id"`, `"workspace_manifest_id"`, `"workspace_manifest"`} {
+		if !strings.Contains(visible, required) {
+			t.Errorf("public rule %s lacks %s", visible, required)
+		}
+	}
+	for _, forbidden := range []string{`"project_id"`, `"context_id"`, `"context"`} {
+		if strings.Contains(visible, forbidden) {
+			t.Errorf("public rule %s leaked OPA wire key %s", visible, forbidden)
+		}
 	}
 }
 
