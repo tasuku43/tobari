@@ -460,23 +460,33 @@ func (r *Runtime) EnterProjectRuntime(
 	if err := session.Validate(); err != nil {
 		return 0, err
 	}
-	attachment, err := r.beginHostLoopbackAttachment(ctx, instance)
+	interactiveAttachment, err := r.beginInteractiveWorkspaceAttachment(ctx, instance)
 	if err != nil {
 		return 0, err
 	}
 	defer func() {
-		if cleanupErr := attachment.Close(ctx); cleanupErr != nil && resultErr == nil {
-			resultErr = fmt.Errorf("close Host Loopback attachment: %w", cleanupErr)
+		if cleanupErr := interactiveAttachment.Close(ctx); cleanupErr != nil && resultErr == nil {
+			resultErr = fmt.Errorf("close interactive Workspace attachment: %w", cleanupErr)
 		}
 	}()
-	projection := tobari.NewHostLoopbackCapabilityProjection()
-	encoded, err := json.Marshal(projection)
-	if err != nil {
-		return 0, err
+	extraEnvironment := []string{}
+	hostLoopbackAttachment, hostLoopbackErr := r.beginHostLoopbackAttachment(ctx, instance, interactiveAttachment.session.AttachmentID)
+	if hostLoopbackErr == nil {
+		defer func() {
+			if cleanupErr := hostLoopbackAttachment.Close(ctx); cleanupErr != nil && resultErr == nil {
+				resultErr = fmt.Errorf("close Host Loopback attachment: %w", cleanupErr)
+			}
+		}()
+		projection := tobari.NewHostLoopbackCapabilityProjection()
+		encoded, encodeErr := json.Marshal(projection)
+		if encodeErr != nil {
+			return 0, encodeErr
+		}
+		extraEnvironment = append(extraEnvironment, "TOBARI_CAPABILITIES_JSON="+string(encoded))
 	}
 	return r.enterProjectRuntime(
 		ctx, instance, manifest, cwd, session,
-		[]string{"TOBARI_CAPABILITIES_JSON=" + string(encoded)}, in, out, errOut,
+		extraEnvironment, in, out, errOut,
 	)
 }
 

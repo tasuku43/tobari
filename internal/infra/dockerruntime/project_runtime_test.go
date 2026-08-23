@@ -47,6 +47,7 @@ func resolveOrCreateTestProject(t *testing.T, runtime *Runtime, root string) (to
 
 func projectRuntimeContext(t *testing.T, runtime *Runtime, instance tobari.Workspace) tobari.WorkspaceManifest {
 	t.Helper()
+	prepareInteractiveSessionPrincipal(t, runtime, instance)
 	manifest, _, err := runtime.contextByID(instance.WorkspaceManifestID)
 	if err != nil {
 		t.Fatal(err)

@@ -75,7 +75,8 @@ func TestHostLoopbackRelayRequiresTokenAndPortGrantBeforeTargetDial(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	attachment, err := runtime.beginHostLoopbackAttachment(context.Background(), projectRuntimeInstance(t, runtime))
+	epoch, _ := newAttachmentEpochID()
+	attachment, err := runtime.beginHostLoopbackAttachment(context.Background(), projectRuntimeInstance(t, runtime), epoch)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,11 +132,12 @@ func TestHostLoopbackConcurrentAttachmentBorrowsOwnerWithoutExtendingLifetime(t 
 		t.Fatal(err)
 	}
 	project := projectRuntimeInstance(t, runtime)
-	owner, err := runtime.beginHostLoopbackAttachment(context.Background(), project)
+	epoch, _ := newAttachmentEpochID()
+	owner, err := runtime.beginHostLoopbackAttachment(context.Background(), project, epoch)
 	if err != nil {
 		t.Fatal(err)
 	}
-	borrower, err := runtime.beginHostLoopbackAttachment(context.Background(), project)
+	borrower, err := runtime.beginHostLoopbackAttachment(context.Background(), project, epoch)
 	if err != nil {
 		t.Fatal(err)
 	}

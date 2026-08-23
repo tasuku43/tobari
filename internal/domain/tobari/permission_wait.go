@@ -12,14 +12,15 @@ import (
 )
 
 const (
-	PermissionWaitRecordSchema  = 2
-	PermissionWaitLease         = 15 * time.Minute
-	PermissionWaitMaxLive       = 8
-	PermissionWaitMaxAttempts   = 3
-	PermissionWaitRequestLimit  = 4 * 1024
-	PermissionWaitResponseLimit = 1024
-	PermissionSessionLease      = 30 * time.Second
-	PermissionSessionSchema     = 2
+	PermissionWaitRecordSchema        = 2
+	PermissionWaitLease               = 15 * time.Minute
+	PermissionWaitMaxLive             = 8
+	PermissionWaitMaxAttempts         = 3
+	PermissionWaitRequestLimit        = 4 * 1024
+	PermissionWaitResponseLimit       = 1024
+	PermissionSessionLease            = 30 * time.Second
+	PermissionSessionSchema           = 2
+	PermissionSessionOwnerInteractive = "interactive_workspace"
 
 	PermissionWaitResultAllow   PermissionWaitResult = "allow"
 	PermissionWaitResultDeny    PermissionWaitResult = "deny"
@@ -52,7 +53,7 @@ type InteractiveAttachmentSession struct {
 	WorkspaceManifestID        string `json:"workspace_manifest_id"`
 	WorkspaceID                string `json:"workspace_id"`
 	AttachmentID               string `json:"attachment_id"`
-	HostLoopbackRouteID        string `json:"host_loopback_route_id"`
+	OwnerKind                  string `json:"owner_kind"`
 	FrozenPrincipalFingerprint string `json:"frozen_principal_fingerprint"`
 	OwnerPID                   int    `json:"owner_pid"`
 	IngestionPort              int    `json:"ingestion_port"`
@@ -68,7 +69,7 @@ func (s InteractiveAttachmentSession) Validate() error {
 	if ValidateWorkspaceManifestID(s.WorkspaceManifestID) != nil || ValidateWorkspaceID(s.WorkspaceID) != nil || ValidateAttachmentEpochID(s.AttachmentID) != nil {
 		return fmt.Errorf("interactive attachment session identity is invalid")
 	}
-	if !hostLoopbackRoutePattern.MatchString(s.HostLoopbackRouteID) || !permissionWaitPrincipalPattern.MatchString(s.FrozenPrincipalFingerprint) {
+	if s.OwnerKind != PermissionSessionOwnerInteractive || !permissionWaitPrincipalPattern.MatchString(s.FrozenPrincipalFingerprint) {
 		return fmt.Errorf("interactive attachment session join is invalid")
 	}
 	if s.OwnerPID < 1 || s.IngestionPort < 1 || s.IngestionPort > 65535 || !permissionSessionNoncePattern.MatchString(s.IngestionNonce) {

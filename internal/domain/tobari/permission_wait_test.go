@@ -183,7 +183,7 @@ func TestInteractiveAttachmentSessionRegistryRequiresOneBoundedOwner(t *testing.
 		WorkspaceManifestID:        "018f3f18-7a3b-7abc-8def-0123456789ab",
 		WorkspaceID:                "018f3f18-7a3b-7abc-8def-0123456789ac",
 		AttachmentID:               "att_0123456789abcdef0123456789abcdef",
-		HostLoopbackRouteID:        "hlr_0123456789abcdef0123456789abcdef",
+		OwnerKind:                  PermissionSessionOwnerInteractive,
 		FrozenPrincipalFingerprint: strings.Repeat("c", 64), OwnerPID: 42,
 		IngestionPort: 23456, IngestionNonce: strings.Repeat("d", 64),
 		CreatedAt: "2026-08-23T00:00:00Z", ExpiresAt: "2026-08-23T00:00:30Z",
@@ -194,7 +194,6 @@ func TestInteractiveAttachmentSessionRegistryRequiresOneBoundedOwner(t *testing.
 	}
 	duplicate := session
 	duplicate.AttachmentID = "att_ffffffffffffffffffffffffffffffff"
-	duplicate.HostLoopbackRouteID = "hlr_ffffffffffffffffffffffffffffffff"
 	registry.Sessions = append(registry.Sessions, duplicate)
 	if err := registry.Validate(); err == nil {
 		t.Fatal("multiple owners for one Manifest/Workspace passed validation")
@@ -203,5 +202,11 @@ func TestInteractiveAttachmentSessionRegistryRequiresOneBoundedOwner(t *testing.
 	registry.Sessions[0].ExpiresAt = "2026-08-23T00:00:30.000000001Z"
 	if err := registry.Validate(); err == nil {
 		t.Fatal("overlong owner lease passed validation")
+	}
+	serviceController := session
+	serviceController.OwnerKind = "service_exposure_controller"
+	registry.Sessions = []InteractiveAttachmentSession{serviceController}
+	if err := registry.Validate(); err == nil {
+		t.Fatal("service-exposure controller entered the interactive registry")
 	}
 }

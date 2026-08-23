@@ -111,16 +111,15 @@ func (r *Runtime) withHostLoopbackLock(ctx context.Context, action func() error)
 }
 
 func (r *Runtime) beginHostLoopbackAttachment(
-	ctx context.Context, project tobari.Workspace,
+	ctx context.Context, project tobari.Workspace, epochID string,
 ) (*hostLoopbackAttachment, error) {
 	if err := project.Validate(); err != nil {
 		return nil, err
 	}
-	if err := r.ensureHostLoopbackStore(ctx); err != nil {
+	if err := tobari.ValidateAttachmentEpochID(epochID); err != nil {
 		return nil, err
 	}
-	epochID, err := newAttachmentEpochID()
-	if err != nil {
+	if err := r.ensureHostLoopbackStore(ctx); err != nil {
 		return nil, err
 	}
 	token, err := newHostLoopbackRelayToken()
@@ -141,7 +140,6 @@ func (r *Runtime) beginHostLoopbackAttachment(
 		listener: listener, owned: true, active: map[net.Conn]struct{}{},
 	}
 	go attachment.serve()
-
 	err = r.withHostLoopbackLock(ctx, func() error {
 		var registry tobari.HostLoopbackRegistry
 		if err := readStrictJSON(r.hostLoopbackRegistryPath(), &registry); err != nil {
@@ -335,7 +333,7 @@ func (r *Runtime) hostLoopbackRelayActive(route tobari.AttachmentHostLoopbackRou
 	return err == nil && string(response) == "OK"
 }
 
-func (a *hostLoopbackAttachment) Close(ctx context.Context) error {
+func (a *hostLoopbackAttachment) Close(_ context.Context) error {
 	if !a.owned {
 		return nil
 	}
@@ -343,7 +341,9 @@ func (a *hostLoopbackAttachment) Close(ctx context.Context) error {
 	a.once.Do(func() {
 		// Transport disappears before its attachment authority is deleted.
 		a.closeRelay()
-		result = a.runtime.withHostLoopbackLock(ctx, func() error {
+		cleanup, cancel := context.WithTimeout(context.Background(), permissionSessionCleanup)
+		defer cancel()
+		result = a.runtime.withHostLoopbackLock(cleanup, func() error {
 			var routes tobari.HostLoopbackRegistry
 			if err := readStrictJSON(a.runtime.hostLoopbackRegistryPath(), &routes); err != nil {
 				return err
