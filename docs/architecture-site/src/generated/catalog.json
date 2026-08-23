@@ -1,5 +1,5 @@
 {
-  "generated_from": "committed tobari agent help schema 1 at commit 2a0f0f3b0303f889cd42c581403e70ace7680894",
+  "generated_from": "committed tobari agent help schema 1 at commit 358d3e21db50e545aeeb762a1ee02556f7c93a65",
   "root": {
     "schema_version": 1,
     "view": "index",
@@ -1858,9 +1858,9 @@
                   "enum": []
                 },
                 {
-                  "name": "capability_profile",
+                  "name": "capability_surface",
                   "type": "string",
-                  "description": "Immutable capability surface: standard or experimental.",
+                  "description": "Immutable compiled command surface: release or research.",
                   "required": true,
                   "nullable": false,
                   "enum": []
@@ -11845,7 +11845,7 @@
                 {
                   "name": "authentication",
                   "type": "object",
-                  "description": "Workspace-native authentication mode or experimental Broker status without credential values.",
+                  "description": "Native Workspace-owned authentication mode, or not applicable when this task does not observe authentication.",
                   "required": true,
                   "nullable": false,
                   "enum": [],
@@ -11853,101 +11853,13 @@
                     {
                       "name": "mode",
                       "type": "string",
-                      "description": "Authentication ownership mode compiled into this executable.",
+                      "description": "Authentication ownership mode available on the release surface.",
                       "required": true,
                       "nullable": false,
                       "enum": [
                         "native_workspace",
-                        "broker",
                         "not_applicable"
                       ]
-                    },
-                    {
-                      "name": "broker_state",
-                      "type": "string",
-                      "description": "Experimental Auth Broker observation.",
-                      "required": false,
-                      "nullable": false,
-                      "enum": [
-                        "not_applicable",
-                        "ready",
-                        "locked",
-                        "unavailable"
-                      ]
-                    },
-                    {
-                      "name": "declared_bindings",
-                      "type": "string",
-                      "description": "Experimental authentication route for installed declared provider bindings.",
-                      "required": false,
-                      "nullable": false,
-                      "enum": [
-                        "broker_required"
-                      ]
-                    },
-                    {
-                      "name": "undeclared_bindings",
-                      "type": "string",
-                      "description": "Experimental route for bindings absent from the provider projection.",
-                      "required": false,
-                      "nullable": false,
-                      "enum": [
-                        "workspace_owned_compatibility"
-                      ]
-                    },
-                    {
-                      "name": "providers",
-                      "type": "array",
-                      "description": "Installed provider states, or null when this mutation did not observe authentication.",
-                      "required": true,
-                      "nullable": true,
-                      "enum": [],
-                      "semantic_scope": "Every installed provider for the selected Workspace Manifest when authentication was observed.",
-                      "items": {
-                        "type": "object",
-                        "description": "One installed provider observation.",
-                        "required": true,
-                        "nullable": false,
-                        "enum": [],
-                        "fields": [
-                          {
-                            "name": "provider",
-                            "type": "string",
-                            "description": "Installed provider ID.",
-                            "required": true,
-                            "nullable": false,
-                            "enum": []
-                          },
-                          {
-                            "name": "state",
-                            "type": "string",
-                            "description": "Provider credential state.",
-                            "required": true,
-                            "nullable": false,
-                            "enum": [
-                              "configured",
-                              "not_configured",
-                              "unavailable"
-                            ]
-                          },
-                          {
-                            "name": "account_label",
-                            "type": "string",
-                            "description": "Secret-free account label, or null.",
-                            "required": true,
-                            "nullable": true,
-                            "enum": []
-                          },
-                          {
-                            "name": "credential_revision",
-                            "type": "string",
-                            "description": "Secret-free credential revision, or null.",
-                            "required": true,
-                            "nullable": true,
-                            "enum": []
-                          }
-                        ]
-                      }
                     }
                   ]
                 }
@@ -12689,7 +12601,7 @@
                 {
                   "name": "authentication",
                   "type": "object",
-                  "description": "Workspace-native authentication mode or experimental Broker status without credential values.",
+                  "description": "Native Workspace-owned authentication mode, or not applicable when this task does not observe authentication.",
                   "required": true,
                   "nullable": false,
                   "enum": [],
@@ -12697,101 +12609,13 @@
                     {
                       "name": "mode",
                       "type": "string",
-                      "description": "Authentication ownership mode compiled into this executable.",
+                      "description": "Authentication ownership mode available on the release surface.",
                       "required": true,
                       "nullable": false,
                       "enum": [
                         "native_workspace",
-                        "broker",
                         "not_applicable"
                       ]
-                    },
-                    {
-                      "name": "broker_state",
-                      "type": "string",
-                      "description": "Experimental Auth Broker observation.",
-                      "required": false,
-                      "nullable": false,
-                      "enum": [
-                        "not_applicable",
-                        "ready",
-                        "locked",
-                        "unavailable"
-                      ]
-                    },
-                    {
-                      "name": "declared_bindings",
-                      "type": "string",
-                      "description": "Experimental authentication route for installed declared provider bindings.",
-                      "required": false,
-                      "nullable": false,
-                      "enum": [
-                        "broker_required"
-                      ]
-                    },
-                    {
-                      "name": "undeclared_bindings",
-                      "type": "string",
-                      "description": "Experimental route for bindings absent from the provider projection.",
-                      "required": false,
-                      "nullable": false,
-                      "enum": [
-                        "workspace_owned_compatibility"
-                      ]
-                    },
-                    {
-                      "name": "providers",
-                      "type": "array",
-                      "description": "Installed provider states, or null when this mutation did not observe authentication.",
-                      "required": true,
-                      "nullable": true,
-                      "enum": [],
-                      "semantic_scope": "Every installed provider for the selected Workspace Manifest when authentication was observed.",
-                      "items": {
-                        "type": "object",
-                        "description": "One installed provider observation.",
-                        "required": true,
-                        "nullable": false,
-                        "enum": [],
-                        "fields": [
-                          {
-                            "name": "provider",
-                            "type": "string",
-                            "description": "Installed provider ID.",
-                            "required": true,
-                            "nullable": false,
-                            "enum": []
-                          },
-                          {
-                            "name": "state",
-                            "type": "string",
-                            "description": "Provider credential state.",
-                            "required": true,
-                            "nullable": false,
-                            "enum": [
-                              "configured",
-                              "not_configured",
-                              "unavailable"
-                            ]
-                          },
-                          {
-                            "name": "account_label",
-                            "type": "string",
-                            "description": "Secret-free account label, or null.",
-                            "required": true,
-                            "nullable": true,
-                            "enum": []
-                          },
-                          {
-                            "name": "credential_revision",
-                            "type": "string",
-                            "description": "Secret-free credential revision, or null.",
-                            "required": true,
-                            "nullable": true,
-                            "enum": []
-                          }
-                        ]
-                      }
                     }
                   ]
                 }
@@ -13983,7 +13807,7 @@
                 {
                   "name": "authentication",
                   "type": "object",
-                  "description": "Workspace-native authentication mode or experimental Broker status without credential values.",
+                  "description": "Native Workspace-owned authentication mode, or not applicable when this task does not observe authentication.",
                   "required": true,
                   "nullable": false,
                   "enum": [],
@@ -13991,101 +13815,13 @@
                     {
                       "name": "mode",
                       "type": "string",
-                      "description": "Authentication ownership mode compiled into this executable.",
+                      "description": "Authentication ownership mode available on the release surface.",
                       "required": true,
                       "nullable": false,
                       "enum": [
                         "native_workspace",
-                        "broker",
                         "not_applicable"
                       ]
-                    },
-                    {
-                      "name": "broker_state",
-                      "type": "string",
-                      "description": "Experimental Auth Broker observation.",
-                      "required": false,
-                      "nullable": false,
-                      "enum": [
-                        "not_applicable",
-                        "ready",
-                        "locked",
-                        "unavailable"
-                      ]
-                    },
-                    {
-                      "name": "declared_bindings",
-                      "type": "string",
-                      "description": "Experimental authentication route for installed declared provider bindings.",
-                      "required": false,
-                      "nullable": false,
-                      "enum": [
-                        "broker_required"
-                      ]
-                    },
-                    {
-                      "name": "undeclared_bindings",
-                      "type": "string",
-                      "description": "Experimental route for bindings absent from the provider projection.",
-                      "required": false,
-                      "nullable": false,
-                      "enum": [
-                        "workspace_owned_compatibility"
-                      ]
-                    },
-                    {
-                      "name": "providers",
-                      "type": "array",
-                      "description": "Installed provider states, or null when this mutation did not observe authentication.",
-                      "required": true,
-                      "nullable": true,
-                      "enum": [],
-                      "semantic_scope": "Every installed provider for the selected Workspace Manifest when authentication was observed.",
-                      "items": {
-                        "type": "object",
-                        "description": "One installed provider observation.",
-                        "required": true,
-                        "nullable": false,
-                        "enum": [],
-                        "fields": [
-                          {
-                            "name": "provider",
-                            "type": "string",
-                            "description": "Installed provider ID.",
-                            "required": true,
-                            "nullable": false,
-                            "enum": []
-                          },
-                          {
-                            "name": "state",
-                            "type": "string",
-                            "description": "Provider credential state.",
-                            "required": true,
-                            "nullable": false,
-                            "enum": [
-                              "configured",
-                              "not_configured",
-                              "unavailable"
-                            ]
-                          },
-                          {
-                            "name": "account_label",
-                            "type": "string",
-                            "description": "Secret-free account label, or null.",
-                            "required": true,
-                            "nullable": true,
-                            "enum": []
-                          },
-                          {
-                            "name": "credential_revision",
-                            "type": "string",
-                            "description": "Secret-free credential revision, or null.",
-                            "required": true,
-                            "nullable": true,
-                            "enum": []
-                          }
-                        ]
-                      }
                     }
                   ]
                 }
@@ -14837,7 +14573,7 @@
                 {
                   "name": "authentication",
                   "type": "object",
-                  "description": "Workspace-native authentication mode or experimental Broker status without credential values.",
+                  "description": "Native Workspace-owned authentication mode, or not applicable when this task does not observe authentication.",
                   "required": true,
                   "nullable": false,
                   "enum": [],
@@ -14845,101 +14581,13 @@
                     {
                       "name": "mode",
                       "type": "string",
-                      "description": "Authentication ownership mode compiled into this executable.",
+                      "description": "Authentication ownership mode available on the release surface.",
                       "required": true,
                       "nullable": false,
                       "enum": [
                         "native_workspace",
-                        "broker",
                         "not_applicable"
                       ]
-                    },
-                    {
-                      "name": "broker_state",
-                      "type": "string",
-                      "description": "Experimental Auth Broker observation.",
-                      "required": false,
-                      "nullable": false,
-                      "enum": [
-                        "not_applicable",
-                        "ready",
-                        "locked",
-                        "unavailable"
-                      ]
-                    },
-                    {
-                      "name": "declared_bindings",
-                      "type": "string",
-                      "description": "Experimental authentication route for installed declared provider bindings.",
-                      "required": false,
-                      "nullable": false,
-                      "enum": [
-                        "broker_required"
-                      ]
-                    },
-                    {
-                      "name": "undeclared_bindings",
-                      "type": "string",
-                      "description": "Experimental route for bindings absent from the provider projection.",
-                      "required": false,
-                      "nullable": false,
-                      "enum": [
-                        "workspace_owned_compatibility"
-                      ]
-                    },
-                    {
-                      "name": "providers",
-                      "type": "array",
-                      "description": "Installed provider states, or null when this mutation did not observe authentication.",
-                      "required": true,
-                      "nullable": true,
-                      "enum": [],
-                      "semantic_scope": "Every installed provider for the selected Workspace Manifest when authentication was observed.",
-                      "items": {
-                        "type": "object",
-                        "description": "One installed provider observation.",
-                        "required": true,
-                        "nullable": false,
-                        "enum": [],
-                        "fields": [
-                          {
-                            "name": "provider",
-                            "type": "string",
-                            "description": "Installed provider ID.",
-                            "required": true,
-                            "nullable": false,
-                            "enum": []
-                          },
-                          {
-                            "name": "state",
-                            "type": "string",
-                            "description": "Provider credential state.",
-                            "required": true,
-                            "nullable": false,
-                            "enum": [
-                              "configured",
-                              "not_configured",
-                              "unavailable"
-                            ]
-                          },
-                          {
-                            "name": "account_label",
-                            "type": "string",
-                            "description": "Secret-free account label, or null.",
-                            "required": true,
-                            "nullable": true,
-                            "enum": []
-                          },
-                          {
-                            "name": "credential_revision",
-                            "type": "string",
-                            "description": "Secret-free credential revision, or null.",
-                            "required": true,
-                            "nullable": true,
-                            "enum": []
-                          }
-                        ]
-                      }
                     }
                   ]
                 }
@@ -16150,7 +15798,7 @@
                 {
                   "name": "authentication",
                   "type": "object",
-                  "description": "Workspace-native authentication mode or experimental Broker status without credential values.",
+                  "description": "Native Workspace-owned authentication mode, or not applicable when this task does not observe authentication.",
                   "required": true,
                   "nullable": false,
                   "enum": [],
@@ -16158,101 +15806,13 @@
                     {
                       "name": "mode",
                       "type": "string",
-                      "description": "Authentication ownership mode compiled into this executable.",
+                      "description": "Authentication ownership mode available on the release surface.",
                       "required": true,
                       "nullable": false,
                       "enum": [
                         "native_workspace",
-                        "broker",
                         "not_applicable"
                       ]
-                    },
-                    {
-                      "name": "broker_state",
-                      "type": "string",
-                      "description": "Experimental Auth Broker observation.",
-                      "required": false,
-                      "nullable": false,
-                      "enum": [
-                        "not_applicable",
-                        "ready",
-                        "locked",
-                        "unavailable"
-                      ]
-                    },
-                    {
-                      "name": "declared_bindings",
-                      "type": "string",
-                      "description": "Experimental authentication route for installed declared provider bindings.",
-                      "required": false,
-                      "nullable": false,
-                      "enum": [
-                        "broker_required"
-                      ]
-                    },
-                    {
-                      "name": "undeclared_bindings",
-                      "type": "string",
-                      "description": "Experimental route for bindings absent from the provider projection.",
-                      "required": false,
-                      "nullable": false,
-                      "enum": [
-                        "workspace_owned_compatibility"
-                      ]
-                    },
-                    {
-                      "name": "providers",
-                      "type": "array",
-                      "description": "Installed provider states, or null when this mutation did not observe authentication.",
-                      "required": true,
-                      "nullable": true,
-                      "enum": [],
-                      "semantic_scope": "Every installed provider for the selected Workspace Manifest when authentication was observed.",
-                      "items": {
-                        "type": "object",
-                        "description": "One installed provider observation.",
-                        "required": true,
-                        "nullable": false,
-                        "enum": [],
-                        "fields": [
-                          {
-                            "name": "provider",
-                            "type": "string",
-                            "description": "Installed provider ID.",
-                            "required": true,
-                            "nullable": false,
-                            "enum": []
-                          },
-                          {
-                            "name": "state",
-                            "type": "string",
-                            "description": "Provider credential state.",
-                            "required": true,
-                            "nullable": false,
-                            "enum": [
-                              "configured",
-                              "not_configured",
-                              "unavailable"
-                            ]
-                          },
-                          {
-                            "name": "account_label",
-                            "type": "string",
-                            "description": "Secret-free account label, or null.",
-                            "required": true,
-                            "nullable": true,
-                            "enum": []
-                          },
-                          {
-                            "name": "credential_revision",
-                            "type": "string",
-                            "description": "Secret-free credential revision, or null.",
-                            "required": true,
-                            "nullable": true,
-                            "enum": []
-                          }
-                        ]
-                      }
                     }
                   ]
                 }
@@ -17085,7 +16645,7 @@
                 {
                   "name": "authentication",
                   "type": "object",
-                  "description": "Workspace-native authentication mode or experimental Broker status without credential values.",
+                  "description": "Native Workspace-owned authentication mode, or not applicable when this task does not observe authentication.",
                   "required": true,
                   "nullable": false,
                   "enum": [],
@@ -17093,101 +16653,13 @@
                     {
                       "name": "mode",
                       "type": "string",
-                      "description": "Authentication ownership mode compiled into this executable.",
+                      "description": "Authentication ownership mode available on the release surface.",
                       "required": true,
                       "nullable": false,
                       "enum": [
                         "native_workspace",
-                        "broker",
                         "not_applicable"
                       ]
-                    },
-                    {
-                      "name": "broker_state",
-                      "type": "string",
-                      "description": "Experimental Auth Broker observation.",
-                      "required": false,
-                      "nullable": false,
-                      "enum": [
-                        "not_applicable",
-                        "ready",
-                        "locked",
-                        "unavailable"
-                      ]
-                    },
-                    {
-                      "name": "declared_bindings",
-                      "type": "string",
-                      "description": "Experimental authentication route for installed declared provider bindings.",
-                      "required": false,
-                      "nullable": false,
-                      "enum": [
-                        "broker_required"
-                      ]
-                    },
-                    {
-                      "name": "undeclared_bindings",
-                      "type": "string",
-                      "description": "Experimental route for bindings absent from the provider projection.",
-                      "required": false,
-                      "nullable": false,
-                      "enum": [
-                        "workspace_owned_compatibility"
-                      ]
-                    },
-                    {
-                      "name": "providers",
-                      "type": "array",
-                      "description": "Installed provider states, or null when this mutation did not observe authentication.",
-                      "required": true,
-                      "nullable": true,
-                      "enum": [],
-                      "semantic_scope": "Every installed provider for the selected Workspace Manifest when authentication was observed.",
-                      "items": {
-                        "type": "object",
-                        "description": "One installed provider observation.",
-                        "required": true,
-                        "nullable": false,
-                        "enum": [],
-                        "fields": [
-                          {
-                            "name": "provider",
-                            "type": "string",
-                            "description": "Installed provider ID.",
-                            "required": true,
-                            "nullable": false,
-                            "enum": []
-                          },
-                          {
-                            "name": "state",
-                            "type": "string",
-                            "description": "Provider credential state.",
-                            "required": true,
-                            "nullable": false,
-                            "enum": [
-                              "configured",
-                              "not_configured",
-                              "unavailable"
-                            ]
-                          },
-                          {
-                            "name": "account_label",
-                            "type": "string",
-                            "description": "Secret-free account label, or null.",
-                            "required": true,
-                            "nullable": true,
-                            "enum": []
-                          },
-                          {
-                            "name": "credential_revision",
-                            "type": "string",
-                            "description": "Secret-free credential revision, or null.",
-                            "required": true,
-                            "nullable": true,
-                            "enum": []
-                          }
-                        ]
-                      }
                     }
                   ]
                 }
@@ -18021,7 +17493,7 @@
                 {
                   "name": "authentication",
                   "type": "object",
-                  "description": "Workspace-native authentication mode or experimental Broker status without credential values.",
+                  "description": "Native Workspace-owned authentication mode, or not applicable when this task does not observe authentication.",
                   "required": true,
                   "nullable": false,
                   "enum": [],
@@ -18029,101 +17501,13 @@
                     {
                       "name": "mode",
                       "type": "string",
-                      "description": "Authentication ownership mode compiled into this executable.",
+                      "description": "Authentication ownership mode available on the release surface.",
                       "required": true,
                       "nullable": false,
                       "enum": [
                         "native_workspace",
-                        "broker",
                         "not_applicable"
                       ]
-                    },
-                    {
-                      "name": "broker_state",
-                      "type": "string",
-                      "description": "Experimental Auth Broker observation.",
-                      "required": false,
-                      "nullable": false,
-                      "enum": [
-                        "not_applicable",
-                        "ready",
-                        "locked",
-                        "unavailable"
-                      ]
-                    },
-                    {
-                      "name": "declared_bindings",
-                      "type": "string",
-                      "description": "Experimental authentication route for installed declared provider bindings.",
-                      "required": false,
-                      "nullable": false,
-                      "enum": [
-                        "broker_required"
-                      ]
-                    },
-                    {
-                      "name": "undeclared_bindings",
-                      "type": "string",
-                      "description": "Experimental route for bindings absent from the provider projection.",
-                      "required": false,
-                      "nullable": false,
-                      "enum": [
-                        "workspace_owned_compatibility"
-                      ]
-                    },
-                    {
-                      "name": "providers",
-                      "type": "array",
-                      "description": "Installed provider states, or null when this mutation did not observe authentication.",
-                      "required": true,
-                      "nullable": true,
-                      "enum": [],
-                      "semantic_scope": "Every installed provider for the selected Workspace Manifest when authentication was observed.",
-                      "items": {
-                        "type": "object",
-                        "description": "One installed provider observation.",
-                        "required": true,
-                        "nullable": false,
-                        "enum": [],
-                        "fields": [
-                          {
-                            "name": "provider",
-                            "type": "string",
-                            "description": "Installed provider ID.",
-                            "required": true,
-                            "nullable": false,
-                            "enum": []
-                          },
-                          {
-                            "name": "state",
-                            "type": "string",
-                            "description": "Provider credential state.",
-                            "required": true,
-                            "nullable": false,
-                            "enum": [
-                              "configured",
-                              "not_configured",
-                              "unavailable"
-                            ]
-                          },
-                          {
-                            "name": "account_label",
-                            "type": "string",
-                            "description": "Secret-free account label, or null.",
-                            "required": true,
-                            "nullable": true,
-                            "enum": []
-                          },
-                          {
-                            "name": "credential_revision",
-                            "type": "string",
-                            "description": "Secret-free credential revision, or null.",
-                            "required": true,
-                            "nullable": true,
-                            "enum": []
-                          }
-                        ]
-                      }
                     }
                   ]
                 }
@@ -19010,7 +18394,7 @@
                 {
                   "name": "authentication",
                   "type": "object",
-                  "description": "Workspace-native authentication mode or experimental Broker status without credential values.",
+                  "description": "Native Workspace-owned authentication mode, or not applicable when this task does not observe authentication.",
                   "required": true,
                   "nullable": false,
                   "enum": [],
@@ -19018,101 +18402,13 @@
                     {
                       "name": "mode",
                       "type": "string",
-                      "description": "Authentication ownership mode compiled into this executable.",
+                      "description": "Authentication ownership mode available on the release surface.",
                       "required": true,
                       "nullable": false,
                       "enum": [
                         "native_workspace",
-                        "broker",
                         "not_applicable"
                       ]
-                    },
-                    {
-                      "name": "broker_state",
-                      "type": "string",
-                      "description": "Experimental Auth Broker observation.",
-                      "required": false,
-                      "nullable": false,
-                      "enum": [
-                        "not_applicable",
-                        "ready",
-                        "locked",
-                        "unavailable"
-                      ]
-                    },
-                    {
-                      "name": "declared_bindings",
-                      "type": "string",
-                      "description": "Experimental authentication route for installed declared provider bindings.",
-                      "required": false,
-                      "nullable": false,
-                      "enum": [
-                        "broker_required"
-                      ]
-                    },
-                    {
-                      "name": "undeclared_bindings",
-                      "type": "string",
-                      "description": "Experimental route for bindings absent from the provider projection.",
-                      "required": false,
-                      "nullable": false,
-                      "enum": [
-                        "workspace_owned_compatibility"
-                      ]
-                    },
-                    {
-                      "name": "providers",
-                      "type": "array",
-                      "description": "Installed provider states, or null when this mutation did not observe authentication.",
-                      "required": true,
-                      "nullable": true,
-                      "enum": [],
-                      "semantic_scope": "Every installed provider for the selected Workspace Manifest when authentication was observed.",
-                      "items": {
-                        "type": "object",
-                        "description": "One installed provider observation.",
-                        "required": true,
-                        "nullable": false,
-                        "enum": [],
-                        "fields": [
-                          {
-                            "name": "provider",
-                            "type": "string",
-                            "description": "Installed provider ID.",
-                            "required": true,
-                            "nullable": false,
-                            "enum": []
-                          },
-                          {
-                            "name": "state",
-                            "type": "string",
-                            "description": "Provider credential state.",
-                            "required": true,
-                            "nullable": false,
-                            "enum": [
-                              "configured",
-                              "not_configured",
-                              "unavailable"
-                            ]
-                          },
-                          {
-                            "name": "account_label",
-                            "type": "string",
-                            "description": "Secret-free account label, or null.",
-                            "required": true,
-                            "nullable": true,
-                            "enum": []
-                          },
-                          {
-                            "name": "credential_revision",
-                            "type": "string",
-                            "description": "Secret-free credential revision, or null.",
-                            "required": true,
-                            "nullable": true,
-                            "enum": []
-                          }
-                        ]
-                      }
                     }
                   ]
                 }

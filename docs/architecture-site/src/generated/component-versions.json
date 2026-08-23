@@ -1,5 +1,5 @@
 {
-  "generated_from": "committed repository authorities and executable CLI help at 2a0f0f3b0303f889cd42c581403e70ace7680894",
+  "generated_from": "committed repository authorities and executable CLI help at 358d3e21db50e545aeeb762a1ee02556f7c93a65",
   "components": [
     {
       "component": "Go",
@@ -26,12 +26,6 @@
       "version": "embedded-source V1",
       "identity": "source-derived local image",
       "authority": "internal/infra/runtimeassets/assets/gateway"
-    },
-    {
-      "component": "Auth Broker",
-      "version": "experimental embedded-source V1",
-      "identity": "experimental source-derived local image",
-      "authority": "internal/infra/runtimeassets/assets/authbroker"
     },
     {
       "component": "Base runtime build image",
@@ -69,16 +63,6 @@
       "authority": "internal/domain/tobari/project.go"
     },
     {
-      "contract": "Owner provider manifest",
-      "version": 1,
-      "authority": "internal/domain/authbroker/provider.go"
-    },
-    {
-      "contract": "Normalized provider projection / reviewed built-in manifest",
-      "version": 1,
-      "authority": "internal/domain/authbroker/provider.go"
-    },
-    {
       "contract": "Project principal registry",
       "version": 1,
       "authority": "internal/infra/dockerruntime/principal_registry.go"
@@ -92,16 +76,6 @@
       "contract": "Gateway OPA input",
       "version": 1,
       "authority": "gateway/addon/tobari_gateway.py"
-    },
-    {
-      "contract": "Auth Broker image API",
-      "version": 1,
-      "authority": "authbroker/Dockerfile"
-    },
-    {
-      "contract": "Auth Broker control/runtime protocol and static vault",
-      "version": 1,
-      "authority": "authbroker/__init__.py"
     }
   ],
   "runtime": {
