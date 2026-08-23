@@ -81,17 +81,22 @@ Failure or timeout omits resume fields. Possession of the wait ID alone grants
 nothing; the child can use it only through the owning attachment's private
 read-only helper socket.
 
-The trusted CLI selects the ingestion transport from one closed support-profile
-enum before composing Gateway: native Linux is `unix`; macOS Colima is
-`loopback_tcp`. Gateway accepts only the transport fixed by that trusted compose
-profile. It performs no runtime probe, fallback, or downgrade. Linux rejects a
-TCP record, macOS Colima rejects a Unix record, and unsupported, zero, invalid,
-or mismatched transport state omits resume.
+The trusted CLI selects the ingestion transport from one closed host-platform
+enum before composing Gateway: Linux is `unix`; Darwin is `loopback_tcp`.
+Gateway accepts only the transport fixed by that trusted compose profile. It
+performs no Docker-provider or context attestation and no runtime probe,
+fallback, or downgrade. Linux rejects a TCP record, Darwin rejects a Unix
+record, and unsupported, zero, invalid, or mismatched transport state omits
+resume.
 
 For `unix`, the owner publishes its owner-only Unix socket. For
 `loopback_tcp`, Darwin binds a kernel-assigned IPv4 endpoint at exactly
 `127.0.0.1:0`; Gateway connects only through the fixed
-`host.docker.internal` name supplied by the reviewed Colima profile. Binding
+`host.docker.internal` name supplied by the reviewed Darwin compose profile.
+Colima is the only supported and release-validated Darwin Docker runtime.
+Other Darwin providers remain unsupported and unvalidated; if their host bridge
+is absent or different, the exact acknowledgment cannot occur and Gateway
+omits resume. Transport reachability never grants authority. Binding
 `0.0.0.0`, a LAN address, or IPv6 is forbidden. Transport kind, endpoint,
 nonce, lease, and the complete stable owner identity are exact record fields,
 but the port and peer address grant no authority. Each connection sends the
@@ -193,7 +198,8 @@ into the schema-2 denial/wait record; it does not widen sibling readers.
 - Integration proves deny, separate trusted-host Apply, wait result, deliberate
   fresh retry, zero automatic retry, zero policy mutation from the Workspace,
   default-cluster non-interference outside an explicitly owned disposable test
-  environment, and the macOS Colima registry's owner-only regular-file shape,
+  environment, and the Darwin adapter on the supported Colima runtime with its
+  registry's owner-only regular-file shape,
   atomic replacement visibility through three renewals, invalid-replacement
   fail-closed behavior, and absence from OPA, Workspace, and guard containers.
 

@@ -82,10 +82,15 @@ bounded private session registry joins one frozen schema-v1 Gateway principal
 to canonical Workspace Manifest and Workspace IDs, attachment epoch, owner,
 256-bit process-instance nonce, one closed platform ingestion transport, and
 renewable lease. The owner PID and transport address are diagnostic only.
-Trusted composition fixes native Linux to an owner-only Unix socket and macOS
-Colima to a Darwin-kernel `127.0.0.1:0` listener reached by Gateway at exactly
-`host.docker.internal`. Gateway accepts only its composed transport kind and
-has no runtime probe, fallback, or downgrade. Transport kind, endpoint, nonce,
+Trusted composition fixes the Linux host adapter to an owner-only Unix socket
+and the Darwin host adapter to a Darwin-kernel `127.0.0.1:0` listener reached
+by Gateway at exactly `host.docker.internal`. Selection does not inspect the
+Docker provider, context name, or context path. Gateway accepts only its
+composed transport kind and has no runtime probe, fallback, or downgrade.
+Colima remains the only supported and release-validated Darwin runtime; an
+unvalidated provider whose host bridge is absent or different cannot complete
+the exact acknowledgment and therefore receives no resume projection.
+Transport reachability grants no authority. Transport kind, endpoint, nonce,
 lease, and stable owner identity are exact record fields; nonce-first
 constant-time authentication and host-side frame/deadline/concurrency/rate
 bounds protect the channel, while endpoint and peer address grant no authority.
