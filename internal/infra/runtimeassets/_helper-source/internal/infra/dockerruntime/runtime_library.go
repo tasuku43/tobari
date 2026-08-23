@@ -700,7 +700,7 @@ func (r *Runtime) BuildManagedRuntimeByReference(ctx context.Context, reference 
 	var result tobari.RuntimeReport
 	err := r.WithLifecycleLock(ctx, func(lockContext context.Context) error {
 		var buildErr error
-		result, buildErr = r.buildManagedRuntime(lockContext, "", reference, diagnostics)
+		result, buildErr = r.buildManagedRuntimeLifecycleLocked(lockContext, "", reference, diagnostics)
 		return buildErr
 	})
 	if err != nil {
@@ -712,10 +712,19 @@ func (r *Runtime) BuildManagedRuntimeByReference(ctx context.Context, reference 
 // BuildManagedRuntime snapshots, builds, validates, and appends one immutable
 // successful revision. It never writes a Context.
 func (r *Runtime) BuildManagedRuntime(ctx context.Context, name string, diagnostics io.Writer) (tobari.RuntimeReport, error) {
-	return r.buildManagedRuntime(ctx, name, "", diagnostics)
+	var result tobari.RuntimeReport
+	err := r.WithLifecycleLock(ctx, func(lockContext context.Context) error {
+		var buildErr error
+		result, buildErr = r.buildManagedRuntimeLifecycleLocked(lockContext, name, "", diagnostics)
+		return buildErr
+	})
+	return result, err
 }
 
-func (r *Runtime) buildManagedRuntime(ctx context.Context, name, expectedReference string, diagnostics io.Writer) (tobari.RuntimeReport, error) {
+// buildManagedRuntimeLifecycleLocked requires the installation lifecycle lock.
+// Migration uses it under its broader migration lock; public entry points
+// acquire that lock exactly once before crossing this boundary.
+func (r *Runtime) buildManagedRuntimeLifecycleLocked(ctx context.Context, name, expectedReference string, diagnostics io.Writer) (tobari.RuntimeReport, error) {
 	if err := ctx.Err(); err != nil {
 		return tobari.RuntimeReport{}, err
 	}
@@ -739,47 +748,93 @@ func (r *Runtime) buildManagedRuntime(ctx context.Context, name, expectedReferen
 		if err := requirePrivateDirectory(revisionsRoot); err != nil {
 			return err
 		}
-		temporary, err := os.MkdirTemp(revisionsRoot, ".snapshot-")
+		journal, err := r.beginRuntimeBuildJournal(manifest.ID, manifest.Name)
 		if err != nil {
 			return err
 		}
-		defer os.RemoveAll(temporary)
-		snapshot := filepath.Join(temporary, "source")
+		if err := os.Mkdir(filepath.Dir(journal.SnapshotPath), 0o700); err != nil {
+			return r.rollbackRuntimeBuildBeforeDocker(journal, err)
+		}
+		snapshot := journal.SnapshotPath
 		revision, err := copyRuntimeSource(ctx, r.runtimeSourceDirectory(name), snapshot)
 		if err != nil {
-			return err
+			return r.rollbackRuntimeBuildBeforeDocker(journal, err)
+		}
+		journal.Revision = revision
+		journal.StagingImage = managedRuntimeStagingImage(manifest.ID, revision)
+		journal.FinalImage = managedLibraryRuntimeImage(name, revision)
+		journal.Phase = runtimeBuildPhasePrepared
+		if err := r.writeRuntimeBuildJournal(journal); err != nil {
+			return r.rollbackRuntimeBuildBeforeDocker(journal, err)
 		}
 		for _, existing := range manifest.Revisions {
 			if existing.Revision == revision {
+				observedDigest, inspectErr := r.inspectManagedRuntimeBuildEvidence(ctx, existing.Image, manifest.ID, revision)
+				if inspectErr != nil || observedDigest != existing.ImageDigest {
+					return r.rollbackRuntimeBuildBeforeDocker(journal, tobari.ErrRuntimeNotReady)
+				}
 				result = tobari.RuntimeReport{Task: tobari.TaskRuntimeBuildV1, Runtime: manifest, NoChange: true}
-				return result.Validate()
+				if err := result.Validate(); err != nil {
+					return r.rollbackRuntimeBuildBeforeDocker(journal, err)
+				}
+				return r.completeRuntimeBuildJournal(journal)
 			}
 		}
 		dockerfile := filepath.Join(snapshot, "Dockerfile")
 		if info, err := os.Lstat(dockerfile); err != nil || !info.Mode().IsRegular() {
-			return runtimeSourceInvalid("Runtime source requires a regular file named \"Dockerfile\" at its root.")
+			return r.rollbackRuntimeBuildBeforeDocker(journal, runtimeSourceInvalid("Runtime source requires a regular file named \"Dockerfile\" at its root."))
 		}
-		image := managedLibraryRuntimeImage(name, revision)
+		image := journal.StagingImage
 		pullBase, err := runtimeSourceUsesRefreshableBase(dockerfile, r.defaultRuntimeImage(), r.imageResolver().ShouldPullRuntimeImage(r.defaultRuntimeImage()))
 		if err != nil {
-			return err
+			return r.rollbackRuntimeBuildBeforeDocker(journal, err)
 		}
-		args := []string{"buildx", "build", "--progress=plain", "--load"}
+		if err := r.requireUnusedRuntimeStagingTag(ctx, journal); err != nil {
+			return r.rollbackRuntimeBuildBeforeDocker(journal, err)
+		}
+		args := []string{"buildx", "build", "--progress=plain", "--load",
+			"--label", ownerLabel + "=" + ownerValue,
+			"--label", componentLabel + "=" + managedRuntimeComponentLabel,
+			"--label", managedRuntimeIDLabel + "=" + manifest.ID,
+			"--label", managedRuntimeRevisionLabel + "=" + revision,
+		}
 		if pullBase {
 			args = append(args, "--pull")
 		}
 		args = append(args, "--tag", image, "--file", dockerfile, snapshot)
+		journal.Phase = runtimeBuildPhaseBuilding
+		if err := r.writeRuntimeBuildJournal(journal); err != nil {
+			return r.rollbackRuntimeBuildBeforeDocker(journal, err)
+		}
 		var tail runtimeBuildDiagnosticTail
 		stream := io.MultiWriter(&bestEffortDiagnosticWriter{writer: diagnostics}, &tail)
 		if err := r.runner.Run(ctx, args, os.Environ(), nil, stream, stream); err != nil {
-			return fmt.Errorf("build Runtime: %w: %s", err, boundedDiagnostic(tail.Bytes()))
+			return r.retainRuntimeBuildFailure(journal, fmt.Errorf("build Runtime: %w: %s", err, boundedDiagnostic(tail.Bytes())))
 		}
 		if err := r.validateCompatibleImage(ctx, image); err != nil {
+			return r.retainRuntimeBuildFailure(journal, err)
+		}
+		imageDigest, err := r.inspectManagedRuntimeBuildEvidence(ctx, image, manifest.ID, revision)
+		if err != nil {
+			return r.retainRuntimeBuildFailure(journal, err)
+		}
+		journal.ImageDigest = imageDigest
+		journal.Phase = runtimeBuildPhaseBuilt
+		if err := r.writeRuntimeBuildJournal(journal); err != nil {
 			return err
 		}
-		imageDigest, err := r.inspectImageDigest(ctx, image)
-		if err != nil {
+		if err := r.publishManagedRuntimeTag(ctx, journal); err != nil {
 			return err
+		}
+		publishedDigest, err := r.inspectManagedRuntimeBuildEvidence(ctx, journal.FinalImage, manifest.ID, revision)
+		if err != nil || publishedDigest != imageDigest {
+			if err == nil {
+				err = fmt.Errorf("published Runtime image digest changed")
+			}
+			return err
+		}
+		if err := r.runner.Run(ctx, []string{"image", "rm", image}, os.Environ(), nil, io.Discard, io.Discard); err != nil {
+			return fmt.Errorf("remove Runtime staging tag: %w", err)
 		}
 		final := filepath.Join(revisionsRoot, strings.TrimPrefix(revision, "sha256:"), "source")
 		if _, err := os.Lstat(filepath.Dir(final)); err == nil {
@@ -802,7 +857,7 @@ func (r *Runtime) buildManagedRuntime(ctx context.Context, name, expectedReferen
 			createdAt = r.identities.now().UTC()
 		}
 		manifest.Revisions = append(manifest.Revisions, tobari.RuntimeRevision{
-			Ordinal: len(manifest.Revisions) + 1, Revision: revision, Image: image, ImageDigest: imageDigest,
+			Ordinal: len(manifest.Revisions) + 1, Revision: revision, Image: journal.FinalImage, ImageDigest: imageDigest,
 			CreatedAt: createdAt, SnapshotPath: final,
 		})
 		if err := manifest.Validate(); err != nil {
@@ -813,7 +868,10 @@ func (r *Runtime) buildManagedRuntime(ctx context.Context, name, expectedReferen
 			return err
 		}
 		result = tobari.RuntimeReport{Task: tobari.TaskRuntimeBuildV1, Runtime: manifest, Built: true}
-		return result.Validate()
+		if err := result.Validate(); err != nil {
+			return err
+		}
+		return r.completeRuntimeBuildJournal(journal)
 	})
 	if err != nil {
 		return tobari.RuntimeReport{}, err

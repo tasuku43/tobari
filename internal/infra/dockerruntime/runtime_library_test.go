@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -13,9 +15,81 @@ import (
 	"github.com/tasuku43/tobari/internal/domain/tobari"
 )
 
+type managedRuntimeTestImage struct {
+	id     string
+	labels map[string]string
+}
+
+type managedRuntimeBuildRunner struct {
+	runs            []runnerCall
+	outputs         []runnerCall
+	images          map[string]managedRuntimeTestImage
+	failBuild       bool
+	corruptEvidence bool
+}
+
+func newManagedRuntimeBuildRunner() *managedRuntimeBuildRunner {
+	return &managedRuntimeBuildRunner{images: make(map[string]managedRuntimeTestImage)}
+}
+
+func (r *managedRuntimeBuildRunner) Run(_ context.Context, args, _ []string, _ io.Reader, _, _ io.Writer) error {
+	r.runs = append(r.runs, runnerCall{args: append([]string{}, args...)})
+	if len(args) >= 2 && args[0] == "buildx" && args[1] == "build" {
+		labels := make(map[string]string)
+		for index := 0; index+1 < len(args); index++ {
+			if args[index] != "--label" {
+				continue
+			}
+			key, value, ok := strings.Cut(args[index+1], "=")
+			if ok {
+				labels[key] = value
+			}
+		}
+		tag := args[slices.Index(args, "--tag")+1]
+		r.images[tag] = managedRuntimeTestImage{id: "sha256:" + strings.Repeat("c", 64), labels: labels}
+		if r.failBuild {
+			return errors.New("synthetic build failure")
+		}
+		return nil
+	}
+	if len(args) == 4 && args[0] == "image" && args[1] == "tag" {
+		image, ok := r.images[args[2]]
+		if !ok {
+			return errors.New("source image missing")
+		}
+		r.images[args[3]] = image
+		return nil
+	}
+	if len(args) == 3 && args[0] == "image" && args[1] == "rm" {
+		delete(r.images, args[2])
+		return nil
+	}
+	return fmt.Errorf("unexpected Runtime build mutation: %v", args)
+}
+
+func (r *managedRuntimeBuildRunner) Output(_ context.Context, args, _ []string) ([]byte, error) {
+	r.outputs = append(r.outputs, runnerCall{args: append([]string{}, args...)})
+	if len(args) < 5 || args[0] != "image" || args[1] != "inspect" {
+		return nil, fmt.Errorf("unexpected Runtime build observation: %v", args)
+	}
+	format, imageName := args[3], args[4]
+	if strings.Contains(format, tobari.RuntimeImageAPILabel) {
+		return compatibleImageInspection(), nil
+	}
+	image, ok := r.images[imageName]
+	if !ok {
+		return []byte("Error: No such image"), errors.New("image missing")
+	}
+	owned := image.labels[ownerLabel] == ownerValue && image.labels[componentLabel] == managedRuntimeComponentLabel && image.labels[managedRuntimeIDLabel] != "" && image.labels[managedRuntimeRevisionLabel] != ""
+	if r.corruptEvidence {
+		owned = false
+	}
+	return []byte(fmt.Sprintf(`{"id":%q,"owned":%t}`, image.id, owned)), nil
+}
+
 func TestManagedRuntimeBuildCreatesImmutableRevisionWithoutChangingContext(t *testing.T) {
 	root := t.TempDir()
-	runner := &recordingRunner{outputQueue: [][]byte{compatibleImageInspection(), imageDigestInspection()}}
+	runner := newManagedRuntimeBuildRunner()
 	runtime, err := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), runner)
 	if err != nil {
 		t.Fatal(err)
@@ -63,14 +137,136 @@ func TestManagedRuntimeBuildCreatesImmutableRevisionWithoutChangingContext(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !noChange.NoChange || noChange.Built || len(noChange.Runtime.Revisions) != 1 || len(runner.runs) != 1 {
+	if !noChange.NoChange || noChange.Built || len(noChange.Runtime.Revisions) != 1 || len(runner.runs) != 3 {
 		t.Fatalf("no-change build = %+v, runs=%d", noChange, len(runner.runs))
+	}
+	buildArgs := runner.runs[0].args
+	for _, label := range []string{
+		ownerLabel + "=" + ownerValue,
+		componentLabel + "=" + managedRuntimeComponentLabel,
+		managedRuntimeIDLabel + "=" + built.Runtime.ID,
+		managedRuntimeRevisionLabel + "=" + revision.Revision,
+	} {
+		if !slices.Contains(buildArgs, label) {
+			t.Fatalf("managed Runtime build lacks trusted label %q: %v", label, buildArgs)
+		}
+	}
+	if _, exists := runner.images[revision.Image]; !exists {
+		t.Fatalf("published Runtime tag is absent: %v", runner.images)
+	}
+	if _, exists := runner.images[managedRuntimeStagingImage(built.Runtime.ID, revision.Revision)]; exists {
+		t.Fatalf("successful build retained staging tag: %v", runner.images)
+	}
+	if _, err := os.Lstat(runtime.runtimeBuildJournalPath()); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("successful build retained journal: %v", err)
+	}
+}
+
+func TestManagedRuntimeBuildKeepsExactFailedArtifactJournal(t *testing.T) {
+	for _, test := range []struct {
+		name            string
+		failBuild       bool
+		corruptEvidence bool
+	}{
+		{name: "build failure", failBuild: true},
+		{name: "ownership verification failure", corruptEvidence: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			runner := newManagedRuntimeBuildRunner()
+			runner.failBuild = test.failBuild
+			runner.corruptEvidence = test.corruptEvidence
+			runtime, err := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), runner)
+			if err != nil {
+				t.Fatal(err)
+			}
+			created, err := runtime.CreateRuntime(context.Background(), "frontend", tobari.RuntimeCopySource(tobari.StandardRuntimeName))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := runtime.BuildManagedRuntime(context.Background(), "frontend", nil); err == nil {
+				t.Fatal("unsafe managed Runtime build succeeded")
+			}
+			manifest, err := runtime.readRuntimeManifest("frontend")
+			if err != nil || len(manifest.Revisions) != 0 {
+				t.Fatalf("failed build published history = %+v/%v", manifest, err)
+			}
+			journal, err := runtime.readRuntimeBuildJournalObserved()
+			if err != nil || journal == nil || journal.Phase != runtimeBuildPhaseFailed || journal.RuntimeID != created.Runtime.ID || journal.Revision == "" || journal.StagingImage != managedRuntimeStagingImage(journal.RuntimeID, journal.Revision) {
+				t.Fatalf("failed build journal = %+v/%v", journal, err)
+			}
+			if info, err := os.Stat(journal.SnapshotPath); err != nil || !info.IsDir() {
+				t.Fatalf("failed build staging snapshot = %v/%v", info, err)
+			}
+		})
+	}
+}
+
+func TestManagedRuntimeBuildRollsBackJournalBeforeDocker(t *testing.T) {
+	root := t.TempDir()
+	runner := newManagedRuntimeBuildRunner()
+	runtime, err := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), runner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	created, err := runtime.CreateRuntime(context.Background(), "frontend", tobari.RuntimeCopySource(tobari.StandardRuntimeName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(created.Runtime.SourcePath, "Dockerfile")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(created.Runtime.SourcePath, "README"), []byte("no Dockerfile\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runtime.BuildManagedRuntime(context.Background(), "frontend", nil); err == nil {
+		t.Fatal("invalid pre-Docker source built")
+	}
+	if len(runner.runs) != 0 {
+		t.Fatalf("invalid source crossed Docker mutation: %v", runner.runs)
+	}
+	if _, err := os.Lstat(runtime.runtimeBuildJournalPath()); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("pre-Docker failure retained journal: %v", err)
+	}
+	if _, err := os.Lstat(filepath.Dir(runtime.runtimeBuildSnapshotPath())); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("pre-Docker failure retained staging snapshot: %v", err)
+	}
+}
+
+func TestManagedRuntimeBuildSurfacesPreDockerCleanupFailure(t *testing.T) {
+	root := t.TempDir()
+	runner := newManagedRuntimeBuildRunner()
+	runtime, err := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), runner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	created, err := runtime.CreateRuntime(context.Background(), "frontend", tobari.RuntimeCopySource(tobari.StandardRuntimeName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(created.Runtime.SourcePath, "Dockerfile")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(created.Runtime.SourcePath, "README"), []byte("no Dockerfile\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runtime.runtimeBuildCleanup = func(runtimeBuildJournal) error { return errors.New("synthetic cleanup failure") }
+	_, err = runtime.BuildManagedRuntime(context.Background(), "frontend", nil)
+	if err == nil || !strings.Contains(err.Error(), "requires reconciliation") || !strings.Contains(err.Error(), "synthetic cleanup failure") {
+		t.Fatalf("cleanup failure = %v", err)
+	}
+	if len(runner.runs) != 0 {
+		t.Fatalf("cleanup failure crossed Docker mutation: %v", runner.runs)
+	}
+	journal, journalErr := runtime.readRuntimeBuildJournalObserved()
+	if journalErr != nil || journal == nil || journal.Phase != runtimeBuildPhasePrepared {
+		t.Fatalf("cleanup failure lost journal authority = %+v/%v", journal, journalErr)
 	}
 }
 
 func TestManagedRuntimeBuildReferenceCannotRetargetSameNameReuse(t *testing.T) {
 	root := t.TempDir()
-	runner := &recordingRunner{outputQueue: [][]byte{compatibleImageInspection(), imageDigestInspection()}}
+	runner := newManagedRuntimeBuildRunner()
 	runtime, err := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), runner)
 	if err != nil {
 		t.Fatal(err)
@@ -158,7 +354,7 @@ func TestResolveRuntimeReferenceCannotRetargetSameNameReuse(t *testing.T) {
 
 func TestRuntimeCreateCopiesManagedEditableBaseAsStandaloneSource(t *testing.T) {
 	root := t.TempDir()
-	runner := &recordingRunner{outputQueue: [][]byte{compatibleImageInspection(), imageDigestInspection()}}
+	runner := newManagedRuntimeBuildRunner()
 	runtime, err := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), runner)
 	if err != nil {
 		t.Fatal(err)
@@ -269,7 +465,7 @@ func TestRuntimeCreateCancellationPublishesNoTarget(t *testing.T) {
 
 func TestContextRuntimeSetPinsExactReadyRevision(t *testing.T) {
 	root := t.TempDir()
-	runner := &recordingRunner{outputQueue: [][]byte{compatibleImageInspection(), imageDigestInspection()}}
+	runner := newManagedRuntimeBuildRunner()
 	runtime, err := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), runner)
 	if err != nil {
 		t.Fatal(err)
@@ -327,7 +523,7 @@ func TestRuntimeSourceRejectsSymlinksBeforeDocker(t *testing.T) {
 
 func TestRuntimeSourceAcceptsPrivateBinaryWithinStreamedBounds(t *testing.T) {
 	root := t.TempDir()
-	runner := &recordingRunner{outputQueue: [][]byte{compatibleImageInspection(), imageDigestInspection()}}
+	runner := newManagedRuntimeBuildRunner()
 	runtime, err := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), runner)
 	if err != nil {
 		t.Fatal(err)
@@ -354,7 +550,7 @@ func TestRuntimeSourceAcceptsPrivateBinaryWithinStreamedBounds(t *testing.T) {
 	}
 
 	built, err := runtime.BuildManagedRuntime(context.Background(), "binary", nil)
-	if err != nil || !built.Built || len(runner.runs) != 1 {
+	if err != nil || !built.Built || len(runner.runs) != 3 {
 		t.Fatalf("binary build = %+v/%v runs=%d", built, err, len(runner.runs))
 	}
 	snapshot := filepath.Join(built.Runtime.Revisions[0].SnapshotPath, "bin", "tool")

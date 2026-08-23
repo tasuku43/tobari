@@ -19,6 +19,9 @@ func (r *Runtime) WithLifecycleLock(ctx context.Context, action func(context.Con
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	if r.lifecycleLockAttempt != nil {
+		r.lifecycleLockAttempt()
+	}
 	if err := r.ensurePrivateDirectory(r.stateDirectory); err != nil {
 		return fmt.Errorf("prepare lifecycle state directory: %w", err)
 	}

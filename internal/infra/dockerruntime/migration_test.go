@@ -27,7 +27,7 @@ func (r stoppedMigrationRunner) Output(ctx context.Context, args, environment []
 
 func TestInstallationMigrationPreservesAuthorityAndPromotesLegacyRuntime(t *testing.T) {
 	root := t.TempDir()
-	runner := &recordingRunner{outputQueue: [][]byte{compatibleImageInspection(), imageDigestInspection()}}
+	runner := newManagedRuntimeBuildRunner()
 	runtime, err := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), runner)
 	if err != nil {
 		t.Fatal(err)
@@ -72,6 +72,13 @@ func TestInstallationMigrationPreservesAuthorityAndPromotesLegacyRuntime(t *test
 		_, planErr := runtime.planInstallationMigration(context.Background())
 		t.Fatalf("doctor observation = %+v; plan error = %v", observation, planErr)
 	}
+	lockAttempts := 0
+	runtime.lifecycleLockAttempt = func() {
+		lockAttempts++
+		if lockAttempts > 1 {
+			panic("migration re-entered the installation lifecycle lock")
+		}
+	}
 	report, err := runtime.MigrateInstallation(context.Background(), io.Discard)
 	if err != nil {
 		t.Fatal(err)
@@ -79,6 +86,10 @@ func TestInstallationMigrationPreservesAuthorityAndPromotesLegacyRuntime(t *test
 	if !report.Changed || report.RecoveryID == nil || len(report.Contexts) != 2 {
 		t.Fatalf("migration report = %+v", report)
 	}
+	if lockAttempts != 1 {
+		t.Fatalf("migration lifecycle lock attempts = %d, want exactly one", lockAttempts)
+	}
+	runtime.lifecycleLockAttempt = nil
 	backup := migrationBackupRoot(t, runtime)
 	if active, err := runtime.readDefaultManifestName(); err != nil || active != "plain" {
 		t.Fatalf("active Context = %q, error = %v", active, err)
@@ -122,8 +133,8 @@ func TestInstallationMigrationPreservesAuthorityAndPromotesLegacyRuntime(t *test
 	if second.Changed || second.RecoveryID != nil {
 		t.Fatalf("second migration = %+v", second)
 	}
-	if len(runner.runs) != 1 {
-		t.Fatalf("Docker builds = %d, want 1", len(runner.runs))
+	if len(runner.runs) != 3 {
+		t.Fatalf("Docker build/publish cleanup mutations = %d, want 3", len(runner.runs))
 	}
 	if len(runner.runs[0].args) == 0 || runner.runs[0].args[0] != "buildx" {
 		t.Fatalf("migration Docker mutation = %+v", runner.runs)

@@ -597,7 +597,7 @@ func (r *Runtime) prepareLegacyMigrationRuntime(ctx context.Context, contextName
 			return tobari.RuntimeBinding{}, tobari.ErrMigrationRuntimeConflict
 		}
 	}
-	report, err := r.BuildManagedRuntime(ctx, name, diagnostics)
+	report, err := r.buildManagedRuntimeLifecycleLocked(ctx, name, "", diagnostics)
 	if err != nil {
 		return tobari.RuntimeBinding{}, fmt.Errorf("%w: %v", tobari.ErrMigrationRuntimeFailed, err)
 	}
