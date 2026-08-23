@@ -34,6 +34,9 @@ var (
 	ErrRuntimePrunePlanStale               = errors.New("Runtime prune plan requires a fresh review")
 	ErrRuntimePruneInterrupted             = errors.New("Runtime prune requires reconciliation")
 	ErrRuntimeRetirementObservationUnknown = errors.New("Runtime lifecycle observation is incomplete")
+	ErrRuntimeRevisionNotFound             = errors.New("Runtime revision does not exist")
+	ErrRuntimeRevisionUnrestorable         = errors.New("Runtime revision cannot be restored exactly")
+	ErrRuntimeLifecycleActive              = errors.New("Runtime lifecycle mutation is already active")
 )
 
 // RuntimeKind distinguishes the compiled standard Runtime from a managed
@@ -341,6 +344,20 @@ func RuntimeRevisionRef(runtimeID, revision string) string {
 	return runtimeID + "/" + revision
 }
 
+// ParseRuntimeRevisionRef validates the opaque subordinate authority without
+// accepting presentation names, ordinals, Docker selectors, or paths.
+func ParseRuntimeRevisionRef(reference string) (string, string, error) {
+	separator := strings.LastIndexByte(reference, '/')
+	if separator <= 0 || separator == len(reference)-1 {
+		return "", "", fmt.Errorf("Runtime revision reference is invalid")
+	}
+	runtimeID, revision := reference[:separator], reference[separator+1:]
+	if ValidateRuntimeID(runtimeID) != nil || ValidateDigest(revision) != nil || reference != RuntimeRevisionRef(runtimeID, revision) {
+		return "", "", fmt.Errorf("Runtime revision reference is invalid")
+	}
+	return runtimeID, revision, nil
+}
+
 // RuntimeReportWithReferences adds public opaque selections without changing
 // the persisted Runtime authority record. Callers still resolve supplied
 // references by deriving and comparing bounded candidates exactly.
@@ -354,6 +371,22 @@ func RuntimeReportWithReferences(report RuntimeReport) (RuntimeReport, error) {
 	for index := range report.Runtime.Revisions {
 		report.Runtime.Revisions[index].RuntimeRef = report.Runtime.RuntimeRef
 		report.Runtime.Revisions[index].RevisionRef = ""
+	}
+	if err := report.Validate(); err != nil {
+		return RuntimeReport{}, err
+	}
+	return report, nil
+}
+
+// RuntimeReportWithRevisionReferences is used only by the atomic Catalog
+// closure that also registers the exact runtime-revision restore consumer.
+func RuntimeReportWithRevisionReferences(report RuntimeReport) (RuntimeReport, error) {
+	report, err := RuntimeReportWithReferences(report)
+	if err != nil {
+		return RuntimeReport{}, err
+	}
+	for index := range report.Runtime.Revisions {
+		report.Runtime.Revisions[index].RevisionRef = RuntimeRevisionRef(report.Runtime.ID, report.Runtime.Revisions[index].Revision)
 	}
 	if err := report.Validate(); err != nil {
 		return RuntimeReport{}, err

@@ -18,6 +18,173 @@ const (
 	TaskRuntimeRestore            = "runtime.restore"
 )
 
+type RuntimeRestoreState string
+
+const (
+	RuntimeRestored         RuntimeRestoreState = "restored"
+	RuntimeAlreadyAvailable RuntimeRestoreState = "already_available"
+)
+
+type RuntimeRestoreArtifactDisposition string
+
+const (
+	RuntimeRestoreArtifactNotCreated RuntimeRestoreArtifactDisposition = "not_created"
+	RuntimeRestoreArtifactRemoved    RuntimeRestoreArtifactDisposition = "removed"
+)
+
+// RuntimeRestoreTarget is task-owned internal authority derived from one
+// complete lifecycle snapshot. Paths and Docker selectors stay below the
+// application boundary; the recorded content digest is exact comparison
+// evidence, not a public target.
+type RuntimeRestoreTarget struct {
+	RuntimeID            string              `json:"runtime_id"`
+	RuntimeRef           string              `json:"runtime_ref"`
+	Revision             string              `json:"revision"`
+	RevisionRef          string              `json:"revision_ref"`
+	Name                 string              `json:"name"`
+	Ordinal              int                 `json:"ordinal"`
+	RecordedImageDigest  string              `json:"recorded_image_digest"`
+	SnapshotLogicalBytes int64               `json:"snapshot_logical_bytes"`
+	Availability         RuntimeAvailability `json:"availability"`
+}
+
+func (t RuntimeRestoreTarget) Validate() error {
+	if ValidateRuntimeID(t.RuntimeID) != nil || t.RuntimeRef != RuntimeRef(t.RuntimeID) || ValidateDigest(t.Revision) != nil ||
+		t.RevisionRef != RuntimeRevisionRef(t.RuntimeID, t.Revision) || ValidateName(t.Name) != nil || t.Ordinal < 1 ||
+		ValidateDigest(t.RecordedImageDigest) != nil || t.SnapshotLogicalBytes < 0 {
+		return fmt.Errorf("Runtime restore target authority is invalid")
+	}
+	switch t.Availability {
+	case RuntimeAvailabilityAvailable, RuntimeAvailabilityMissing, RuntimeAvailabilityPruned:
+		return nil
+	default:
+		return fmt.Errorf("Runtime restore target availability is not actionable")
+	}
+}
+
+// RuntimeRestoreTargetFrom consumes one complete coherent snapshot and binds
+// an exact immutable managed revision. Unknown, mismatched, or concurrent
+// lifecycle evidence fails closed before the restore effect boundary.
+func RuntimeRestoreTargetFrom(snapshot RuntimeLifecycleSnapshot, reference string) (RuntimeRestoreTarget, error) {
+	if err := snapshot.Validate(); err != nil {
+		return RuntimeRestoreTarget{}, fmt.Errorf("%w: %w", ErrRuntimeRetirementObservationUnknown, err)
+	}
+	runtimeID, revisionDigest, err := ParseRuntimeRevisionRef(reference)
+	if err != nil {
+		return RuntimeRestoreTarget{}, err
+	}
+	var runtime RuntimeManifest
+	foundRuntime := false
+	for _, candidate := range snapshot.Runtimes {
+		if candidate.ID == runtimeID {
+			runtime, foundRuntime = candidate, true
+			break
+		}
+	}
+	if !foundRuntime {
+		return RuntimeRestoreTarget{}, ErrRuntimeNotFound
+	}
+	if runtime.Kind != RuntimeKindManaged {
+		return RuntimeRestoreTarget{}, ErrRuntimeRevisionUnrestorable
+	}
+	var revision RuntimeRevision
+	foundRevision := false
+	for _, candidate := range runtime.Revisions {
+		if candidate.Revision == revisionDigest {
+			revision, foundRevision = candidate, true
+			break
+		}
+	}
+	if !foundRevision {
+		return RuntimeRestoreTarget{}, ErrRuntimeRevisionNotFound
+	}
+	for _, activity := range snapshot.Journals.Active {
+		if activity.RuntimeID == runtimeID {
+			return RuntimeRestoreTarget{}, ErrRuntimeLifecycleActive
+		}
+	}
+	var material RuntimeMaterialObservation
+	foundMaterial := false
+	for _, candidate := range snapshot.Materials {
+		if candidate.RuntimeID == runtimeID && candidate.Revision == revisionDigest {
+			material, foundMaterial = candidate, true
+			break
+		}
+	}
+	if !foundMaterial {
+		return RuntimeRestoreTarget{}, fmt.Errorf("%w: Runtime material is absent", ErrRuntimeRetirementObservationUnknown)
+	}
+	switch material.Availability {
+	case RuntimeAvailabilityAvailable, RuntimeAvailabilityMissing, RuntimeAvailabilityPruned:
+	case RuntimeAvailabilityMismatched:
+		return RuntimeRestoreTarget{}, ErrRuntimeRevisionUnrestorable
+	default:
+		return RuntimeRestoreTarget{}, ErrRuntimeRetirementObservationUnknown
+	}
+	snapshotBytes := int64(-1)
+	for _, storage := range snapshot.Storage {
+		if storage.RuntimeID != runtimeID {
+			continue
+		}
+		for _, candidate := range storage.Snapshots {
+			if candidate.Kind == RuntimePruneCandidateRevision && candidate.Revision == revisionDigest && candidate.SemanticFingerprint == revisionDigest {
+				snapshotBytes = candidate.LogicalBytes
+				break
+			}
+		}
+		break
+	}
+	target := RuntimeRestoreTarget{
+		RuntimeID: runtime.ID, RuntimeRef: RuntimeRef(runtime.ID), Revision: revision.Revision,
+		RevisionRef: reference, Name: runtime.Name, Ordinal: revision.Ordinal,
+		RecordedImageDigest: revision.ImageDigest, SnapshotLogicalBytes: snapshotBytes, Availability: material.Availability,
+	}
+	if err := target.Validate(); err != nil {
+		return RuntimeRestoreTarget{}, fmt.Errorf("%w: %w", ErrRuntimeRetirementObservationUnknown, err)
+	}
+	return target, nil
+}
+
+// RuntimeRestoreResult confirms only the availability facet of one immutable
+// revision. It cannot append or rewrite revision, Manifest, or Workspace
+// authority.
+type RuntimeRestoreResult struct {
+	Task                string                            `json:"task"`
+	RuntimeID           string                            `json:"runtime_id"`
+	RuntimeRef          string                            `json:"runtime_ref"`
+	Revision            string                            `json:"revision"`
+	RevisionRef         string                            `json:"revision_ref"`
+	Name                string                            `json:"name"`
+	Ordinal             int                               `json:"ordinal"`
+	State               RuntimeRestoreState               `json:"state"`
+	DigestMatch         bool                              `json:"digest_match"`
+	ArtifactDisposition RuntimeRestoreArtifactDisposition `json:"artifact_disposition"`
+	RevisionAppended    bool                              `json:"revision_appended"`
+	ManifestChanged     bool                              `json:"manifest_changed"`
+	WorkspaceChanged    bool                              `json:"workspace_changed"`
+}
+
+func (r RuntimeRestoreResult) Validate() error {
+	if r.Task != TaskRuntimeRestore || ValidateRuntimeID(r.RuntimeID) != nil || r.RuntimeRef != RuntimeRef(r.RuntimeID) ||
+		ValidateDigest(r.Revision) != nil || r.RevisionRef != RuntimeRevisionRef(r.RuntimeID, r.Revision) ||
+		ValidateName(r.Name) != nil || r.Ordinal < 1 || !r.DigestMatch || r.RevisionAppended || r.ManifestChanged || r.WorkspaceChanged {
+		return fmt.Errorf("Runtime restore result authority is invalid")
+	}
+	switch r.State {
+	case RuntimeRestored:
+		if r.ArtifactDisposition != RuntimeRestoreArtifactRemoved {
+			return fmt.Errorf("restored Runtime revision lacks staging cleanup evidence")
+		}
+	case RuntimeAlreadyAvailable:
+		if r.ArtifactDisposition != RuntimeRestoreArtifactNotCreated {
+			return fmt.Errorf("already-available Runtime revision has build artifact evidence")
+		}
+	default:
+		return fmt.Errorf("Runtime restore result state is invalid")
+	}
+	return nil
+}
+
 type RuntimeAvailability string
 
 const (
