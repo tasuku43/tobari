@@ -273,6 +273,41 @@ func TestAppliedStateSnapshotFencesEveryStableComponentField(t *testing.T) {
 	}
 }
 
+func TestAppliedStateSnapshotNormalizesDockerMountSetOrder(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name         string
+		secondMounts []string
+		wantError    bool
+	}{
+		{name: "order only", secondMounts: []string{"/run/a", "/run/z"}},
+		{name: "missing destination", secondMounts: []string{"/run/a"}, wantError: true},
+		{name: "extra destination", secondMounts: []string{"/run/a", "/run/extra", "/run/z"}, wantError: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			runner := appliedStateSnapshotRunner(t)
+			for _, container := range []string{gatewayContainer, opaContainer} {
+				var first appliedClusterComponentObservation
+				if err := json.Unmarshal(runner.payloads[container][0], &first); err != nil {
+					t.Fatal(err)
+				}
+				first.MountDestinations = []string{"/run/z", "/run/a"}
+				second := first
+				second.MountDestinations = append([]string(nil), test.secondMounts...)
+				runner.payloads[container] = [][]byte{appliedStatePayload(t, first), appliedStatePayload(t, second)}
+			}
+			runtime, err := newRuntime(t.TempDir(), t.TempDir(), runner)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, gotErr := runtime.observeAppliedClusterSnapshot(context.Background())
+			if (gotErr != nil) != test.wantError {
+				t.Fatalf("mount set observation error = %v, want error %t", gotErr, test.wantError)
+			}
+		})
+	}
+}
+
 func TestAppliedStateObservationRejectsHostileFrames(t *testing.T) {
 	t.Parallel()
 	valid := appliedStatePayload(t, appliedStateObservation(gatewayContainer, "sha256:"+strings.Repeat("a", 64)))
