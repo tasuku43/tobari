@@ -106,7 +106,7 @@ func (a *interactiveWorkspaceAttachment) handlePermissionWaitQuery(connection ne
 		return
 	}
 	frame := make([]byte, 4, len(encoded)+4)
-	binary.BigEndian.PutUint32(frame, uint32(len(encoded)))
+	binary.BigEndian.PutUint32(frame, uint32(len(encoded))) // #nosec G115 -- the response contract caps encoded at 1 KiB above.
 	frame = append(frame, encoded...)
 	if err := connection.SetWriteDeadline(time.Now().Add(time.Second)); err != nil {
 		return
@@ -158,9 +158,12 @@ func (c *permissionWaitOwnerClient) WaitPermission(ctx context.Context, id strin
 		}
 	}()
 	defer close(cancelDone)
-	payload, _ := json.Marshal(permissionWaitTransportRequest{SchemaVersion: 1, PermissionWaitID: id})
+	payload, encodeErr := json.Marshal(permissionWaitTransportRequest{SchemaVersion: 1, PermissionWaitID: id})
+	if encodeErr != nil || len(payload) > tobari.PermissionWaitRequestLimit {
+		return "", fault.New(fault.KindInternal, "permission_wait_transport_failed", "permission wait transport request is invalid", false)
+	}
 	frame := append([]byte("Q"+c.session.IngestionNonce), make([]byte, 4)...)
-	binary.BigEndian.PutUint32(frame[len(frame)-4:], uint32(len(payload)))
+	binary.BigEndian.PutUint32(frame[len(frame)-4:], uint32(len(payload))) // #nosec G115 -- the request contract caps payload at 4 KiB above.
 	frame = append(frame, payload...)
 	if _, err := connection.Write(frame); err != nil {
 		return "", permissionWaitOwnerTransportInterruption(ctx, err)

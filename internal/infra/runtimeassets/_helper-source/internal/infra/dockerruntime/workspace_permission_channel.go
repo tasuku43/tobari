@@ -585,7 +585,7 @@ func NewPermissionWaitClientFromEnvironment() (*PermissionWaitClient, error) {
 	if matched, _ := regexp.MatchString(`^/tmp/tobari-permission-[0-9a-f]{32}\.sock$`, socketPath); !matched {
 		return nil, fmt.Errorf("permission wait attachment channel is unavailable")
 	}
-	info, err := os.Lstat(socketPath)
+	info, err := os.Lstat(socketPath) // #nosec G703 -- the exact anchored /tmp filename grammar above excludes traversal and separators.
 	if err != nil || info.Mode()&os.ModeSocket == 0 || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm() != 0o600 {
 		return nil, fmt.Errorf("permission wait attachment channel is unsafe")
 	}
