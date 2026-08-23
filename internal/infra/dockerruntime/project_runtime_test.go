@@ -1361,7 +1361,11 @@ func TestEnsureProjectContainerAppliesSharedResourceBounds(t *testing.T) {
 		}
 	}
 	joined := strings.Join(create, " ")
-	for _, prohibited := range []string{"HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy", "NO_PROXY", "no_proxy", "gateway:8080"} {
+	for _, prohibited := range []string{
+		"HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy", "NO_PROXY", "no_proxy", "gateway:8080",
+		"TOBARI_INTERACTIVE_ATTACHMENT", "TOBARI_PERMISSION_INGESTION",
+		"/run/tobari/interactive-attachments", "/run/tobari/permission-ingestion", "pwt_", "pws_",
+	} {
 		if strings.Contains(joined, prohibited) {
 			t.Errorf("project create args contain prohibited proxy value %q: %v", prohibited, create)
 		}

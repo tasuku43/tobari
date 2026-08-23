@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 )
 
 func TestMaterializeAndVersion(t *testing.T) {
@@ -176,6 +178,119 @@ func TestComposeSpecOwnsOnlySharedLeastPrivilegeServices(t *testing.T) {
 			t.Errorf("experimental compose spec is missing %q", required)
 		}
 	}
+}
+
+func TestPermissionProfilesKeepPrivateStateGatewayOnly(t *testing.T) {
+	t.Parallel()
+	type service struct {
+		Environment map[string]string `yaml:"environment"`
+		Volumes     []string          `yaml:"volumes"`
+	}
+	type compose struct {
+		Services map[string]service `yaml:"services"`
+	}
+	decode := func(name string) compose {
+		data, err := Read(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var document compose
+		if err := yaml.Unmarshal(data, &document); err != nil {
+			t.Fatalf("decode %s: %v", name, err)
+		}
+		return document
+	}
+	merge := func(documents ...compose) map[string]service {
+		merged := map[string]service{}
+		for _, document := range documents {
+			for name, overlay := range document.Services {
+				value := merged[name]
+				if value.Environment == nil {
+					value.Environment = map[string]string{}
+				}
+				for key, environmentValue := range overlay.Environment {
+					value.Environment[key] = environmentValue
+				}
+				value.Volumes = append(value.Volumes, overlay.Volumes...)
+				merged[name] = value
+			}
+		}
+		return merged
+	}
+	base := decode("compose.yaml")
+	experimental := decode("compose.experimental.yaml")
+	for _, shape := range []struct {
+		name      string
+		documents []compose
+	}{
+		{name: "standard", documents: []compose{base}},
+		{name: "research", documents: []compose{base, experimental}},
+	} {
+		for _, profileName := range []string{"compose.permission-unix.yaml", "compose.permission-loopback_tcp.yaml"} {
+			profile := decode(profileName)
+			merged := merge(append(append([]compose{}, shape.documents...), profile)...)
+			label := shape.name + "/" + profileName
+			registryEnvironmentCount, registryMountCount := 0, 0
+			ingestionDirectoryCount, ingestionMountCount := 0, 0
+			for name, value := range merged {
+				joinedVolumes := strings.Join(value.Volumes, "\n")
+				_, hasRegistryEnvironment := value.Environment["TOBARI_INTERACTIVE_ATTACHMENT_REGISTRY"]
+				registryEnvironmentCount += boolInt(hasRegistryEnvironment)
+				registryMounts := strings.Count(joinedVolumes, "/run/tobari/interactive-attachments:ro")
+				registryMountCount += registryMounts
+				hasRegistryMount := registryMounts > 0
+				_, hasTransport := value.Environment["TOBARI_PERMISSION_INGESTION_TRANSPORT"]
+				_, hasDirectory := value.Environment["TOBARI_PERMISSION_INGESTION_DIRECTORY"]
+				ingestionDirectoryCount += boolInt(hasDirectory)
+				ingestionMounts := strings.Count(joinedVolumes, "/run/tobari/permission-ingestion:ro")
+				ingestionMountCount += ingestionMounts
+				hasIngestionMount := ingestionMounts > 0
+				if name == "gateway" {
+					if !hasRegistryEnvironment || !hasRegistryMount || !hasTransport {
+						t.Fatalf("%s Gateway private boundary is incomplete: %+v", label, value)
+					}
+					if profileName == "compose.permission-unix.yaml" && (!hasDirectory || !hasIngestionMount) {
+						t.Fatalf("%s Gateway Unix boundary is incomplete: %+v", label, value)
+					}
+					if profileName == "compose.permission-loopback_tcp.yaml" && (hasDirectory || hasIngestionMount) {
+						t.Fatalf("%s Gateway gained a Unix boundary: %+v", label, value)
+					}
+					continue
+				}
+				if hasRegistryEnvironment || hasRegistryMount || hasTransport || hasDirectory || hasIngestionMount {
+					t.Fatalf("%s leaked permission authority to service %s: %+v", label, name, value)
+				}
+			}
+			if registryEnvironmentCount != 1 || registryMountCount != 1 {
+				t.Fatalf("%s registry projection counts = env:%d mount:%d", label, registryEnvironmentCount, registryMountCount)
+			}
+			wantUnixCount := 0
+			if profileName == "compose.permission-unix.yaml" {
+				wantUnixCount = 1
+			}
+			if ingestionDirectoryCount != wantUnixCount || ingestionMountCount != wantUnixCount {
+				t.Fatalf("%s ingestion projection counts = env:%d mount:%d", label, ingestionDirectoryCount, ingestionMountCount)
+			}
+		}
+	}
+	for _, asset := range []string{"gateway/network-guard.sh", "tobari/Dockerfile"} {
+		data, err := Read(asset)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, forbidden := range []string{"interactive-attachments", "permission-ingestion", "TOBARI_PERMISSION_INGESTION", "pwt_", "pws_"} {
+			if strings.Contains(string(data), forbidden) {
+				t.Fatalf("%s received permission authority marker %q", asset, forbidden)
+			}
+		}
+	}
+}
+
+func boolInt(value bool) int {
+	if value {
+		return 1
+	}
+	return 0
 }
 
 func TestComposeSpecCapsSharedServiceLogs(t *testing.T) {
