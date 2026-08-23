@@ -41,10 +41,10 @@
   {
     "id": "truthful-auth-state.fixture.v1",
     "path": "internal/cli/testdata/truthful-auth-state-fixture.json",
-    "sha256": "3c632f57f4e98b56a173b0ed6125d51f4a53fe80e8863ffb827b4fcd54623226",
-    "bytes": 13614,
+    "sha256": "f16a3245b2b49232e41b8d080a360d3b70426d65a75ffcba469181c8b9a62f86",
+    "bytes": 13514,
     "cases": 10,
-    "provenance": "Repository-authored synthetic typed fixture for Context-scoped provider status, Workspace activation truth, exact re-entry actions, and confirmed auth mutation receipts.",
+    "provenance": "Repository-authored synthetic typed fixture for Workspace Manifest-scoped provider status, Workspace activation truth, exact re-entry actions, and confirmed auth mutation receipts.",
     "license": "MIT"
   },
   {
