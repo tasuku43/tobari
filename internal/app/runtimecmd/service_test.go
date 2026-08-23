@@ -43,10 +43,15 @@ type runtimeFake struct {
 	restoreErr          error
 	restoreKind         tobari.RuntimeBuildRecoveryKind
 	recoverRestoreCalls int
+	deleteCalls         int
+	deleteRefs          []string
+	deleteResults       []tobari.RuntimeDeleteResult
+	deleteErrs          []error
 }
 
 type runtimeWithoutPrune struct{ RuntimePort }
 type runtimeWithoutRestore struct{ RuntimePort }
+type runtimeWithoutDelete struct{ RuntimePort }
 
 func runtimeFixture() tobari.RuntimeManifest {
 	return tobari.RuntimeManifest{SchemaVersion: tobari.RuntimeSchemaVersion, ID: "018bcfe5-687b-7000-8000-000000000077", Name: "frontend", Kind: tobari.RuntimeKindManaged, SourcePath: "/tmp/tobari/runtimes/frontend/source", Revisions: []tobari.RuntimeRevision{{Ordinal: 1, Revision: "sha256:" + strings.Repeat("a", 64), Image: "tobari-runtime-frontend:aaaaaaaaaaaa", ImageDigest: "sha256:" + strings.Repeat("b", 64), CreatedAt: time.Unix(1, 0).UTC(), SnapshotPath: "/tmp/tobari/runtimes/frontend/revisions/aaaaaaaa/source"}}}
@@ -214,6 +219,156 @@ func (f *runtimeFake) RecoverRuntimeRestoreByRevisionReference(_ context.Context
 		_, _ = io.WriteString(diagnostics, "restore recovery\n")
 	}
 	return f.restoreResult, f.restoreErr
+}
+
+func (f *runtimeFake) DeleteManagedRuntimeByReference(_ context.Context, runtimeRef string) (tobari.RuntimeDeleteResult, error) {
+	index := f.deleteCalls
+	f.deleteCalls++
+	f.deleteRefs = append(f.deleteRefs, runtimeRef)
+	if index < len(f.deleteErrs) && f.deleteErrs[index] != nil {
+		return tobari.RuntimeDeleteResult{}, f.deleteErrs[index]
+	}
+	if index < len(f.deleteResults) {
+		return f.deleteResults[index], nil
+	}
+	return tobari.RuntimeDeleteResult{}, errors.New("missing synthetic Runtime delete result")
+}
+
+func runtimeDeleteResultFixture(state tobari.RuntimeDeleteState) tobari.RuntimeDeleteResult {
+	manifest := runtimeFixture()
+	return tobari.RuntimeDeleteResult{
+		Task: tobari.TaskRuntimeDelete, RuntimeID: manifest.ID, RuntimeRef: tobari.RuntimeRef(manifest.ID), Name: manifest.Name, State: state,
+		SourceLogicalBytes: 42, SourceDisposition: tobari.RuntimeDeleteAuthorityRemoved,
+		SnapshotsDisposition: tobari.RuntimeDeleteAuthorityRemoved, HistoryDisposition: tobari.RuntimeDeleteAuthorityRemoved,
+		Items: []tobari.RuntimePruneItemResult{}, ReceiptRevision: 1,
+		WorkspaceManifestsPreserved: true, WorkspacesPreserved: true, WorkspaceIDsPreserved: true,
+		WorkspaceHomesPreserved: true, AppliedReceiptsPreserved: true, ProjectRootsPreserved: true,
+		CredentialsPreserved: true, SharedResourcesPreserved: true,
+	}
+}
+
+func runtimeDeleteIntent(runtimeRef string) operation.Intent {
+	return operation.Intent{
+		Command: "runtime delete", Effect: operation.EffectWrite,
+		Target: operation.TargetRef{Kind: tobari.RuntimeReferenceKind, ID: runtimeRef}, Impact: DeleteImpact(),
+	}
+}
+
+func TestRuntimeDeleteBindsExactReferenceAndReplaysReceipt(t *testing.T) {
+	deleted := runtimeDeleteResultFixture(tobari.RuntimeDeleted)
+	replayed := deleted
+	replayed.State = tobari.RuntimeAlreadyDeleted
+	fake := &runtimeFake{manifest: runtimeFixture(), deleteResults: []tobari.RuntimeDeleteResult{deleted, replayed}}
+	service := New(fake)
+	first, err := service.Delete(context.Background(), runtimeDeleteIntent(deleted.RuntimeRef), deleted.RuntimeRef)
+	if err != nil || first.State != tobari.RuntimeDeleted {
+		t.Fatalf("Runtime delete = %+v/%v", first, err)
+	}
+	second, err := service.Delete(context.Background(), runtimeDeleteIntent(deleted.RuntimeRef), deleted.RuntimeRef)
+	if err != nil || second.State != tobari.RuntimeAlreadyDeleted || fake.deleteCalls != 2 || !slices.Equal(fake.deleteRefs, []string{deleted.RuntimeRef, deleted.RuntimeRef}) {
+		t.Fatalf("Runtime delete replay = %+v/%v calls=%d refs=%v", second, err, fake.deleteCalls, fake.deleteRefs)
+	}
+}
+
+func TestRuntimeDeleteRejectsInputOrContractDriftBeforeAdapter(t *testing.T) {
+	result := runtimeDeleteResultFixture(tobari.RuntimeDeleted)
+	tests := []struct {
+		name string
+		edit func(*operation.Intent, *string)
+	}{
+		{name: "invalid ref", edit: func(_ *operation.Intent, ref *string) { *ref = "not-a-runtime-ref" }},
+		{name: "command", edit: func(intent *operation.Intent, _ *string) { intent.Command = "runtime build" }},
+		{name: "effect", edit: func(intent *operation.Intent, _ *string) { intent.Effect = operation.EffectRead }},
+		{name: "target kind", edit: func(intent *operation.Intent, _ *string) { intent.Target.Kind = tobari.RuntimeRevisionReferenceKind }},
+		{name: "target id", edit: func(intent *operation.Intent, _ *string) { intent.Target.ID = "018bcfe5-687b-7000-8000-000000000099" }},
+		{name: "impact", edit: func(intent *operation.Intent, _ *string) { intent.Impact.Destructive = operation.DeclarationNo }},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			fake := &runtimeFake{manifest: runtimeFixture(), deleteResults: []tobari.RuntimeDeleteResult{result}}
+			intent, ref := runtimeDeleteIntent(result.RuntimeRef), result.RuntimeRef
+			test.edit(&intent, &ref)
+			if _, err := New(fake).Delete(context.Background(), intent, ref); err == nil || fake.deleteCalls != 0 {
+				t.Fatalf("invalid Runtime delete = %v calls=%d", err, fake.deleteCalls)
+			}
+		})
+	}
+}
+
+func TestRuntimeDeleteRejectsStandardBeforeAdapter(t *testing.T) {
+	fake := &runtimeFake{manifest: runtimeFixture()}
+	_, err := New(fake).Delete(context.Background(), runtimeDeleteIntent(tobari.StandardRuntimeID), tobari.StandardRuntimeID)
+	public, ok := fault.PublicCopy(err)
+	if !ok || public.Code != "runtime_delete_protected" || public.Phase != fault.PhasePrecondition || public.ChangeState != fault.ChangeNone || fake.deleteCalls != 0 {
+		t.Fatalf("standard Runtime delete = %+v/%v calls=%d", public, err, fake.deleteCalls)
+	}
+}
+
+func TestRuntimeDeleteRequiresTaskOwnedPort(t *testing.T) {
+	result := runtimeDeleteResultFixture(tobari.RuntimeDeleted)
+	fake := &runtimeFake{manifest: runtimeFixture(), deleteResults: []tobari.RuntimeDeleteResult{result}}
+	_, err := New(runtimeWithoutDelete{RuntimePort: fake}).Delete(context.Background(), runtimeDeleteIntent(result.RuntimeRef), result.RuntimeRef)
+	public, ok := fault.PublicCopy(err)
+	if !ok || public.Code != "missing_runtime_delete" || fake.deleteCalls != 0 {
+		t.Fatalf("missing Runtime delete port = %+v/%v calls=%d", public, err, fake.deleteCalls)
+	}
+}
+
+func TestRuntimeDeleteClassifiesExactMutationOutcomes(t *testing.T) {
+	result := runtimeDeleteResultFixture(tobari.RuntimeDeleted)
+	tests := []struct {
+		name   string
+		err    error
+		code   string
+		phase  fault.Phase
+		change fault.ChangeState
+	}{
+		{name: "not found", err: tobari.ErrRuntimeNotFound, code: "runtime_not_found", phase: fault.PhasePrecondition, change: fault.ChangeNone},
+		{name: "protected", err: tobari.ErrRuntimeDeleteProtected, code: "runtime_delete_protected", phase: fault.PhasePrecondition, change: fault.ChangeNone},
+		{name: "active", err: tobari.ErrRuntimeLifecycleActive, code: "runtime_lifecycle_active", phase: fault.PhasePrecondition, change: fault.ChangeNone},
+		{name: "observation", err: tobari.ErrRuntimeRetirementObservationUnknown, code: "runtime_retirement_observation_unknown", phase: fault.PhaseObservation, change: fault.ChangeNotApplicable},
+		{name: "interrupted", err: tobari.ErrRuntimeDeleteInterrupted, code: "runtime_delete_interrupted", phase: fault.PhaseMutation, change: fault.ChangePartial},
+		{name: "interrupted with protection drift", err: errors.Join(tobari.ErrRuntimeDeleteInterrupted, tobari.ErrRuntimeDeleteProtected), code: "runtime_delete_interrupted", phase: fault.PhaseMutation, change: fault.ChangePartial},
+		{name: "interrupted with observation drift", err: errors.Join(tobari.ErrRuntimeDeleteInterrupted, tobari.ErrRuntimeRetirementObservationUnknown), code: "runtime_delete_interrupted", phase: fault.PhaseMutation, change: fault.ChangePartial},
+		{name: "unknown", err: errors.New("synthetic unknown delete outcome"), code: "runtime_delete_outcome_unknown", phase: fault.PhaseMutation, change: fault.ChangeUnknown},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			fake := &runtimeFake{manifest: runtimeFixture(), deleteErrs: []error{test.err}}
+			_, err := New(fake).Delete(context.Background(), runtimeDeleteIntent(result.RuntimeRef), result.RuntimeRef)
+			public, ok := fault.PublicCopy(err)
+			if !ok || public.Code != test.code || public.Phase != test.phase || public.ChangeState != test.change || fake.deleteCalls != 1 {
+				t.Fatalf("Runtime delete fault = %+v/%v calls=%d", public, err, fake.deleteCalls)
+			}
+		})
+	}
+}
+
+func TestRuntimeDeleteRejectsInvalidResultsWithTruthfulChangeState(t *testing.T) {
+	valid := runtimeDeleteResultFixture(tobari.RuntimeDeleted)
+	partial := valid
+	partial.RuntimeRef = "018bcfe5-687b-7000-8000-000000000099"
+	confirmed := valid
+	confirmed.WorkspaceHomesPreserved = false
+	tests := []struct {
+		name   string
+		result tobari.RuntimeDeleteResult
+		code   string
+		change fault.ChangeState
+	}{
+		{name: "partial", result: partial, code: "invalid_runtime_delete_result_partial", change: fault.ChangePartial},
+		{name: "confirmed", result: confirmed, code: "invalid_runtime_delete_result_confirmed", change: fault.ChangeConfirmed},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			fake := &runtimeFake{manifest: runtimeFixture(), deleteResults: []tobari.RuntimeDeleteResult{test.result}}
+			_, err := New(fake).Delete(context.Background(), runtimeDeleteIntent(valid.RuntimeRef), valid.RuntimeRef)
+			public, ok := fault.PublicCopy(err)
+			if !ok || public.Code != test.code || public.Phase != fault.PhaseVerification || public.ChangeState != test.change || fake.deleteCalls != 1 {
+				t.Fatalf("invalid Runtime delete result = %+v/%v calls=%d", public, err, fake.deleteCalls)
+			}
+		})
+	}
 }
 
 func TestRuntimePrunePlanPreservesCancellation(t *testing.T) {

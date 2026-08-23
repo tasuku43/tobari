@@ -42,6 +42,13 @@ type RuntimeRestorePort interface {
 	RecoverRuntimeRestoreByRevisionReference(context.Context, string, tobari.RuntimeBuildRecoveryKind, io.Writer) (tobari.RuntimeRestoreResult, error)
 }
 
+// RuntimeDeletePort is owned by the whole-Runtime retirement task. The
+// adapter consumes the reviewed opaque Runtime reference unchanged and owns
+// coherent protection revalidation, journaling, effects, and replay.
+type RuntimeDeletePort interface {
+	DeleteManagedRuntimeByReference(context.Context, string) (tobari.RuntimeDeleteResult, error)
+}
+
 // PruneImpact is the fixed Catalog/application mutation contract for applying
 // one reviewed plan that can retire many exact Runtime image tags.
 func PruneImpact() operation.Impact {
@@ -55,6 +62,13 @@ func RestoreImpact() operation.Impact {
 	return operation.Impact{
 		Cardinality: operation.CardinalityOne, Notification: operation.DeclarationNo,
 		AccessChange: operation.DeclarationYes, Destructive: operation.DeclarationNo,
+	}
+}
+
+func DeleteImpact() operation.Impact {
+	return operation.Impact{
+		Cardinality: operation.CardinalityOne, Notification: operation.DeclarationNo,
+		AccessChange: operation.DeclarationYes, Destructive: operation.DeclarationYes,
 	}
 }
 
@@ -85,6 +99,7 @@ type Service struct {
 	runtime RuntimePort
 	prune   RuntimePruneApplyPort
 	restore RuntimeRestorePort
+	delete  RuntimeDeletePort
 	mutator *execution.Invoker
 }
 
@@ -92,7 +107,48 @@ func New(runtime RuntimePort) *Service {
 	service := &Service{runtime: runtime, mutator: execution.New(ownedPolicy{})}
 	service.prune, _ = any(runtime).(RuntimePruneApplyPort)
 	service.restore, _ = any(runtime).(RuntimeRestorePort)
+	service.delete, _ = any(runtime).(RuntimeDeletePort)
 	return service
+}
+
+func (s *Service) Delete(ctx context.Context, intent operation.Intent, runtimeRef string) (tobari.RuntimeDeleteResult, error) {
+	if err := s.requireDelete(); err != nil {
+		return tobari.RuntimeDeleteResult{}, err
+	}
+	if err := tobari.ValidateRuntimeRef(runtimeRef); err != nil {
+		return tobari.RuntimeDeleteResult{}, fault.WithClassification(
+			fault.Wrap(fault.KindInvalidInput, "invalid_runtime_ref", "Runtime reference is invalid", false, err,
+				fault.NextAction{Command: "runtime list", Reason: "Use one managed Runtime reference unchanged."}),
+			fault.PhasePrecondition, fault.ChangeNone,
+		)
+	}
+	if runtimeRef == tobari.StandardRuntimeID {
+		return tobari.RuntimeDeleteResult{}, fault.WithClassification(
+			fault.New(fault.KindRejected, "runtime_delete_protected", "the built-in standard Runtime cannot be deleted", false,
+				fault.NextAction{Command: "runtime list", Reason: "Choose a managed Runtime."}),
+			fault.PhasePrecondition, fault.ChangeNone,
+		)
+	}
+	request := execution.Request{
+		Intent: intent, ExpectedCommand: "runtime delete", ExpectedEffect: operation.EffectWrite,
+		ExpectedTarget: operation.TargetRef{Kind: tobari.RuntimeReferenceKind, ID: runtimeRef}, ExpectedImpact: DeleteImpact(),
+	}
+	var result tobari.RuntimeDeleteResult
+	err := s.mutator.Invoke(ctx, request, func(actionContext context.Context, _ operation.Intent) error {
+		deleted, err := s.delete.DeleteManagedRuntimeByReference(actionContext, runtimeRef)
+		if err != nil {
+			return classifyRuntimeDeleteError(err)
+		}
+		if err := validateRuntimeDeleteResult(deleted, runtimeRef); err != nil {
+			return invalidRuntimeDeleteResultFault(deleted, runtimeRef, err)
+		}
+		result = deleted
+		return nil
+	})
+	if err != nil {
+		return tobari.RuntimeDeleteResult{}, err
+	}
+	return result, nil
 }
 
 func (s *Service) Restore(ctx context.Context, intent operation.Intent, revisionRef string, diagnostics io.Writer) (tobari.RuntimeRestoreResult, error) {
@@ -343,6 +399,85 @@ func (s *Service) requireRestore() error {
 		)
 	}
 	return nil
+}
+
+func (s *Service) requireDelete() error {
+	if err := s.requireRuntime(); err != nil {
+		return err
+	}
+	if portcheck.IsNil(s.delete) {
+		return fault.WithClassification(
+			fault.New(fault.KindInternal, "missing_runtime_delete", "Runtime delete is not configured", false),
+			fault.PhasePrecondition, fault.ChangeNone,
+		)
+	}
+	return nil
+}
+
+func classifyRuntimeDeleteError(err error) error {
+	switch {
+	case errors.Is(err, tobari.ErrRuntimeDeleteInterrupted):
+		return fault.WithClassification(
+			fault.New(fault.KindInternal, "runtime_delete_interrupted", "Runtime deletion requires read-only reconciliation", false,
+				fault.NextAction{Command: "review runtimes", Reason: "Resume the exact retained Runtime deletion authority."}),
+			fault.PhaseMutation, fault.ChangePartial,
+		)
+	case errors.Is(err, tobari.ErrRuntimeNotFound):
+		return fault.WithClassification(
+			fault.New(fault.KindNotFound, "runtime_not_found", "the referenced Runtime does not exist", false,
+				fault.NextAction{Command: "runtime list", Reason: "Discover the current managed Runtime catalog."}),
+			fault.PhasePrecondition, fault.ChangeNone,
+		)
+	case errors.Is(err, tobari.ErrRuntimeDeleteProtected):
+		return fault.WithClassification(
+			fault.New(fault.KindRejected, "runtime_delete_protected", "the referenced Runtime is protected from deletion", false,
+				fault.NextAction{Command: "runtime show", Reason: "Review the Runtime and its current Manifest or Workspace protections."}),
+			fault.PhasePrecondition, fault.ChangeNone,
+		)
+	case errors.Is(err, tobari.ErrRuntimeLifecycleActive):
+		return fault.WithClassification(
+			fault.New(fault.KindRejected, "runtime_lifecycle_active", "another Runtime lifecycle mutation requires recovery", false,
+				fault.NextAction{Command: "review runtimes", Reason: "Review the retained Runtime lifecycle journal."}),
+			fault.PhasePrecondition, fault.ChangeNone,
+		)
+	case errors.Is(err, tobari.ErrRuntimeRetirementObservationUnknown):
+		return fault.WithClassification(
+			fault.New(fault.KindRejected, "runtime_retirement_observation_unknown", "Runtime lifecycle could not be observed completely", false,
+				fault.NextAction{Command: "doctor", Reason: "Inspect the host Runtime lifecycle state."}),
+			fault.PhaseObservation, fault.ChangeNotApplicable,
+		)
+	default:
+		return fault.WithClassification(
+			fault.New(fault.KindInternal, "runtime_delete_outcome_unknown", "Runtime deletion outcome requires read-only reconciliation", false,
+				fault.NextAction{Command: "review runtimes", Reason: "Observe the retained Runtime lifecycle journal before another mutation."}),
+			fault.PhaseMutation, fault.ChangeUnknown,
+		)
+	}
+}
+
+func validateRuntimeDeleteResult(result tobari.RuntimeDeleteResult, runtimeRef string) error {
+	if err := result.Validate(); err != nil {
+		return err
+	}
+	if result.RuntimeRef != runtimeRef || result.RuntimeID != runtimeRef {
+		return fmt.Errorf("Runtime delete result does not match the exact Runtime request")
+	}
+	return nil
+}
+
+func invalidRuntimeDeleteResultFault(result tobari.RuntimeDeleteResult, runtimeRef string, err error) error {
+	change := fault.ChangePartial
+	code := "invalid_runtime_delete_result_partial"
+	if result.RuntimeRef == runtimeRef && result.RuntimeID == runtimeRef &&
+		(result.State == tobari.RuntimeDeleted || result.State == tobari.RuntimeAlreadyDeleted) && result.ReceiptRevision > 0 {
+		change = fault.ChangeConfirmed
+		code = "invalid_runtime_delete_result_confirmed"
+	}
+	return fault.WithClassification(
+		fault.Wrap(fault.KindContract, code, "Runtime delete result is invalid", false, err,
+			fault.NextAction{Command: "review runtimes", Reason: "Reconcile the retained Runtime deletion receipt and lifecycle state."}),
+		fault.PhaseVerification, change,
+	)
 }
 
 func classifyRuntimeRestoreError(err error, recovery bool) error {
