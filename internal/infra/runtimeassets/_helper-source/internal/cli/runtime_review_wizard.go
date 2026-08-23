@@ -102,6 +102,15 @@ func chooseRuntimeBuild(ctx context.Context, c *CLI) (string, error) {
 		if showErr != nil {
 			return "", showErr
 		}
+		if report.Runtime.RuntimeRef != managed[selected].RuntimeRef {
+			return "", fault.New(
+				fault.KindRejected,
+				"runtime_selection_changed",
+				"The selected Runtime changed while its details were being reviewed.",
+				false,
+				fault.NextAction{Command: "review runtimes", Reason: "Restart from a fresh Runtime catalog."},
+			)
+		}
 		current := "draft · no successful revision"
 		if head, ok := report.Runtime.Head(); ok {
 			current = fmt.Sprintf("%s@%d · %s", report.Runtime.Name, head.Ordinal, shortRuntimeRevision(head.Revision))
@@ -129,7 +138,10 @@ func chooseRuntimeBuild(ctx context.Context, c *CLI) (string, error) {
 		}
 		switch action {
 		case 0:
-			return report.Runtime.Name, nil
+			if report.Runtime.Kind != tobari.RuntimeKindManaged || report.Runtime.RuntimeRef == "" {
+				return "", fault.New(fault.KindContract, "invalid_runtime_report", "The selected managed Runtime has no stable reference.", false)
+			}
+			return managed[selected].RuntimeRef, nil
 		case 1:
 			continue
 		default:

@@ -1005,11 +1005,11 @@ OPA allow.
   exact Runtime references rather than recipes. Build
   changes no Workspace Manifest; an explicit Workspace Manifest selection or rollback makes bound
   Workspaces adopt that revision on their next entry while preserving their home.
-  Fully specified Runtime mutations remain deterministic for agents and
-  scripts. On interactive text streams, omitting the primary selector opens a
-  CLI-owned Review that shows the exact Runtime, Workspace Manifest binding, and delayed
-  Workspace effect before one Build or Apply; cancellation and unavailable
-  Review streams perform no mutation.
+  Fully specified Runtime mutations consume stable references and remain
+  deterministic for agents and scripts. `review runtimes` is the separate
+  read-only discovery surface: redirected and JSON use list the exhaustive
+  catalog, while interactive text filters action choices to managed Runtimes
+  and crosses into `runtime build --id` only after confirmation.
 - Copy vocabulary remains target-specific. `manifest create --copy-from`
   reviews and revalidates one exact immutable current Manifest revision, then
   publishes a fresh generation-1 identity. `runtime create

@@ -890,6 +890,10 @@ or lineage. `standard` generates only the canonical built-in starter.
 files, escaping paths, group/other permission bits, more than 1,024 regular
 files or 256 directories, a regular file over 32 MiB, and a total over 64 MiB,
 then builds only a private immutable snapshot of the complete source tree. The
+effect boundary accepts the exact stable Runtime reference, re-resolves its ID
+while holding the installation lifecycle and Runtime store locks, and never
+chooses the mutation target from a reusable name. A retired reference therefore
+cannot target a fresh same-name Runtime. The
 adapter streams source bytes into the snapshot and semantic hash with a fixed
 buffer, so the 64 MiB input ceiling is not also a whole-source heap allocation.
 Validation faults expose a bounded quoted relative path and reviewed
@@ -902,15 +906,17 @@ is therefore a safe retry point: history and every Workspace Manifest binding re
 unchanged. `manifest runtime set` separately revalidates an existing ready exact
 revision before replacing one Workspace Manifest binding.
 
-When their primary selector is omitted, terminal Runtime Review performs only
-typed Runtime/Workspace Manifest reads before explicit Build or Apply. Build candidates
-come only from managed Runtime summaries; binding candidates come only from the
-the built-in standard revision or validated successful history. An omitted default
+`review runtimes` performs only typed Runtime reads until explicit confirmation
+crosses into reference-bound Build. Its action candidates come only from
+managed Runtime summaries; redirected and JSON use remains exhaustive and
+read-only. Workspace Manifest Runtime Review handles an omitted binding input;
+binding candidates come only from the built-in standard revision or validated
+successful history. An omitted default
 Workspace Manifest is rebound to the exact persisted name shown during Review, preventing
 a concurrent default-selector change from retargeting Apply. Non-interactive,
 machine-readable, canceled, unchanged, invalid, or failed Review paths make
-zero Runtime-build and Workspace Manifest-binding mutation calls. Fully specified direct
-mode reaches the same application invoker without Review.
+zero Runtime-build and Workspace Manifest-binding mutation calls. Fully
+specified direct mode reaches the same application invoker without Review.
 
 Shared lifecycle mutations target one catalog-declared `tool_local` cluster.
 The root command uses the catalog-declared current-directory fixed target to

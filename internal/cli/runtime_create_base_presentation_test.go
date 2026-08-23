@@ -17,7 +17,7 @@ import (
 
 const (
 	runtimeCreateBaseFixtureSHA256 = "4f11f73096900908c59b7ca31c162937b403f9ca0e5abb70ac36c717c9487853"
-	runtimeCreateBaseAnswerSHA256  = "62b7f050ed49b453d1c979ee21d5da1b002dd69fd8f024609d5e044d46883fe2"
+	runtimeCreateBaseAnswerSHA256  = "7aa98fd5f5fa1566368081abc9f5031b498a6a6269f92f475d030bf8961ce811"
 )
 
 type runtimeCreateBaseFixture struct {
@@ -82,7 +82,11 @@ func TestRuntimeCreateBasePinnedPresentationHasNoLineageInference(t *testing.T) 
 		t.Fatalf("routine success = %+v", answer.RoutineSuccess)
 	}
 
-	got, err := renderRuntimeReport("runtime create", fixture.Report, successFormatText, false)
+	publicReport, err := tobari.RuntimeReportWithReferences(fixture.Report)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := renderRuntimeReport("runtime create", publicReport, successFormatText, false)
 	if err != nil {
 		t.Fatal(err)
 	}

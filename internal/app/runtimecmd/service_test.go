@@ -18,12 +18,21 @@ type runtimeFake struct {
 	creates   int
 	base      tobari.RuntimeCopySource
 	builds    int
+	resolves  int
 	buildErr  error
+	buildName string
 	createErr error
 }
 
 func runtimeFixture() tobari.RuntimeManifest {
 	return tobari.RuntimeManifest{SchemaVersion: tobari.RuntimeSchemaVersion, ID: "018bcfe5-687b-7000-8000-000000000077", Name: "frontend", Kind: tobari.RuntimeKindManaged, SourcePath: "/tmp/tobari/runtimes/frontend/source", Revisions: []tobari.RuntimeRevision{{Ordinal: 1, Revision: "sha256:" + strings.Repeat("a", 64), Image: "tobari-runtime-frontend:aaaaaaaaaaaa", ImageDigest: "sha256:" + strings.Repeat("b", 64), CreatedAt: time.Unix(1, 0).UTC(), SnapshotPath: "/tmp/tobari/runtimes/frontend/revisions/aaaaaaaa/source"}}}
+}
+
+func standardRuntimeFixture() tobari.RuntimeManifest {
+	return tobari.RuntimeManifest{
+		SchemaVersion: tobari.RuntimeSchemaVersion, ID: tobari.StandardRuntimeID, Name: tobari.StandardRuntimeName, Kind: tobari.RuntimeKindBuiltin,
+		Revisions: []tobari.RuntimeRevision{{Ordinal: 1, Revision: "sha256:" + strings.Repeat("c", 64), Image: "ghcr.io/example/tobari:standard", CreatedAt: time.Unix(1, 0).UTC()}},
+	}
 }
 
 func (f *runtimeFake) ListRuntimes(context.Context) (tobari.RuntimeListResult, error) {
@@ -45,8 +54,53 @@ func (f *runtimeFake) CreateRuntime(_ context.Context, _ string, base tobari.Run
 	manifest.Revisions = []tobari.RuntimeRevision{}
 	return tobari.RuntimeReport{Task: tobari.TaskRuntimeCreate, Runtime: manifest, Created: true}, nil
 }
-func (f *runtimeFake) BuildManagedRuntime(_ context.Context, _ string, diagnostics io.Writer) (tobari.RuntimeReport, error) {
+func (f *runtimeFake) ResolveRuntimeReference(_ context.Context, reference string) (tobari.RuntimeManifest, error) {
+	f.resolves++
+	if reference == tobari.StandardRuntimeID {
+		return standardRuntimeFixture(), nil
+	}
+	if reference != tobari.RuntimeRef(f.manifest.ID) {
+		return tobari.RuntimeManifest{}, tobari.ErrRuntimeNotFound
+	}
+	return f.manifest, nil
+}
+
+func TestRuntimeBuildRejectsStandardReferenceBeforeBuildAdapter(t *testing.T) {
+	fake := &runtimeFake{manifest: runtimeFixture()}
+	intent := operation.Intent{Command: "runtime build", Effect: operation.EffectWrite, Target: operation.TargetRef{Kind: tobari.RuntimeReferenceKind, ID: tobari.StandardRuntimeID}, Impact: operation.Impact{Cardinality: operation.CardinalityOne, Notification: operation.DeclarationNo, AccessChange: operation.DeclarationYes, Destructive: operation.DeclarationNo}}
+	_, err := New(fake).Build(context.Background(), intent, tobari.StandardRuntimeID, nil)
+	public, ok := fault.PublicCopy(err)
+	if !ok || public.Code != "runtime_not_managed" || fake.resolves != 0 || fake.builds != 0 {
+		t.Fatalf("standard build fault/resolve/build calls = %+v/%v/%d/%d", public, err, fake.resolves, fake.builds)
+	}
+}
+
+func TestRuntimeReadsPublishOnlyReferenceKindsWithConsumers(t *testing.T) {
+	manifest := runtimeFixture()
+	manifest.Revisions[0].RevisionRef = tobari.RuntimeRevisionRef(manifest.ID, manifest.Revisions[0].Revision)
+	fake := &runtimeFake{manifest: manifest}
+	service := New(fake)
+	listed, err := service.List(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	shown, err := service.Show(context.Background(), manifest.Name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(listed.Items) != 1 || listed.Items[0].RuntimeRef != manifest.ID || listed.Items[0].RevisionRef != "" {
+		t.Fatalf("Runtime list references = %+v", listed.Items)
+	}
+	if shown.Runtime.RuntimeRef != manifest.ID || shown.Runtime.Revisions[0].RuntimeRef != manifest.ID || shown.Runtime.Revisions[0].RevisionRef != "" {
+		t.Fatalf("Runtime report references = %+v", shown.Runtime)
+	}
+}
+func (f *runtimeFake) BuildManagedRuntimeByReference(_ context.Context, reference string, diagnostics io.Writer) (tobari.RuntimeReport, error) {
 	f.builds++
+	if reference != tobari.RuntimeRef(f.manifest.ID) {
+		return tobari.RuntimeReport{}, tobari.ErrRuntimeNotFound
+	}
+	f.buildName = f.manifest.Name
 	if diagnostics != nil {
 		_, _ = io.WriteString(diagnostics, "build\n")
 	}
@@ -56,7 +110,7 @@ func (f *runtimeFake) BuildManagedRuntime(_ context.Context, _ string, diagnosti
 	return tobari.RuntimeReport{Task: tobari.TaskRuntimeBuildV1, Runtime: f.manifest, Built: true}, nil
 }
 
-func TestRuntimeCreateAndBuildUseCatalogFixedTargets(t *testing.T) {
+func TestRuntimeCreateUsesCatalogScopeAndBuildUsesRuntimeReference(t *testing.T) {
 	fake := &runtimeFake{manifest: runtimeFixture()}
 	service := New(fake)
 	createIntent := operation.Intent{Command: "runtime create", Effect: operation.EffectCreate, Target: operation.TargetRef{Kind: tobari.RuntimeCatalogTargetKind, ParentID: tobari.RuntimeCatalogTargetID}, Impact: operation.Impact{Cardinality: operation.CardinalityOne, Notification: operation.DeclarationNo, AccessChange: operation.DeclarationNo, Destructive: operation.DeclarationNo}}
@@ -65,11 +119,11 @@ func TestRuntimeCreateAndBuildUseCatalogFixedTargets(t *testing.T) {
 		t.Fatalf("create = %+v/%v calls=%d base=%q", created, err, fake.creates, fake.base)
 	}
 
-	buildIntent := operation.Intent{Command: "runtime build", Effect: operation.EffectWrite, Target: operation.TargetRef{Kind: tobari.RuntimeCatalogTargetKind, ID: tobari.RuntimeCatalogTargetID}, Impact: operation.Impact{Cardinality: operation.CardinalityOne, Notification: operation.DeclarationNo, AccessChange: operation.DeclarationYes, Destructive: operation.DeclarationNo}}
+	buildIntent := operation.Intent{Command: "runtime build", Effect: operation.EffectWrite, Target: operation.TargetRef{Kind: tobari.RuntimeReferenceKind, ID: tobari.RuntimeRef(fake.manifest.ID)}, Impact: operation.Impact{Cardinality: operation.CardinalityOne, Notification: operation.DeclarationNo, AccessChange: operation.DeclarationYes, Destructive: operation.DeclarationNo}}
 	var diagnostics strings.Builder
-	built, err := service.Build(context.Background(), buildIntent, "frontend", &diagnostics)
-	if err != nil || !built.Built || fake.builds != 1 || diagnostics.String() != "build\n" {
-		t.Fatalf("build = %+v/%v calls=%d diagnostics=%q", built, err, fake.builds, diagnostics.String())
+	built, err := service.Build(context.Background(), buildIntent, fake.manifest.ID, &diagnostics)
+	if err != nil || !built.Built || fake.builds != 1 || fake.buildName != "frontend" || diagnostics.String() != "build\n" || built.Runtime.RuntimeRef != fake.manifest.ID {
+		t.Fatalf("build = %+v/%v calls=%d name=%q diagnostics=%q", built, err, fake.builds, fake.buildName, diagnostics.String())
 	}
 }
 
@@ -109,7 +163,7 @@ func TestRuntimeMutationRejectsWrongTargetBeforeAdapter(t *testing.T) {
 	fake := &runtimeFake{manifest: runtimeFixture()}
 	service := New(fake)
 	intent := operation.Intent{Command: "runtime build", Effect: operation.EffectWrite, Target: operation.TargetRef{Kind: tobari.ManifestRuntimeTargetKind, ID: tobari.ActiveContextRuntimeID}, Impact: operation.Impact{Cardinality: operation.CardinalityOne, Notification: operation.DeclarationNo, AccessChange: operation.DeclarationYes, Destructive: operation.DeclarationNo}}
-	if _, err := service.Build(context.Background(), intent, "frontend", nil); err == nil || fake.builds != 0 {
+	if _, err := service.Build(context.Background(), intent, fake.manifest.ID, nil); err == nil || fake.builds != 0 {
 		t.Fatalf("wrong target error/calls = %v/%d", err, fake.builds)
 	}
 }
@@ -124,9 +178,9 @@ func TestRuntimeBuildPreservesReviewedSourceValidationFault(t *testing.T) {
 		privateCause,
 	)}
 	service := New(fake)
-	intent := operation.Intent{Command: "runtime build", Effect: operation.EffectWrite, Target: operation.TargetRef{Kind: tobari.RuntimeCatalogTargetKind, ID: tobari.RuntimeCatalogTargetID}, Impact: operation.Impact{Cardinality: operation.CardinalityOne, Notification: operation.DeclarationNo, AccessChange: operation.DeclarationYes, Destructive: operation.DeclarationNo}}
+	intent := operation.Intent{Command: "runtime build", Effect: operation.EffectWrite, Target: operation.TargetRef{Kind: tobari.RuntimeReferenceKind, ID: tobari.RuntimeRef(fake.manifest.ID)}, Impact: operation.Impact{Cardinality: operation.CardinalityOne, Notification: operation.DeclarationNo, AccessChange: operation.DeclarationYes, Destructive: operation.DeclarationNo}}
 
-	_, err := service.Build(context.Background(), intent, "frontend", nil)
+	_, err := service.Build(context.Background(), intent, fake.manifest.ID, nil)
 	public, ok := fault.PublicCopy(err)
 	if !ok || public.Code != "runtime_source_invalid" || public.Kind != fault.KindRejected || public.Retryable || strings.Contains(public.Message, privateCause.Error()) {
 		t.Fatalf("public source fault = %+v/%v", public, err)

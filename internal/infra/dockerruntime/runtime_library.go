@@ -237,6 +237,24 @@ func (r *Runtime) ListRuntimes(ctx context.Context) (tobari.RuntimeListResult, e
 	return result, result.Validate()
 }
 
+// ResolveRuntimeReference derives every bounded local Runtime reference and
+// compares the supplied opaque value unchanged. It never decodes a name,
+// ordinal, path, image selector, or Docker identity from the reference.
+func (r *Runtime) ResolveRuntimeReference(ctx context.Context, reference string) (tobari.RuntimeManifest, error) {
+	if err := ctx.Err(); err != nil {
+		return tobari.RuntimeManifest{}, err
+	}
+	if err := tobari.ValidateRuntimeRef(reference); err != nil {
+		return tobari.RuntimeManifest{}, err
+	}
+	if reference == tobari.StandardRuntimeID {
+		return r.standardRuntimeManifest(), nil
+	}
+	// Compare the requested ID only after each current manifest is read. Never
+	// carry a mutable name from an earlier catalog snapshot into a second read.
+	return r.resolveManagedRuntimeReferenceUnlocked(reference)
+}
+
 func (r *Runtime) ShowRuntime(ctx context.Context, name string) (tobari.RuntimeReport, error) {
 	if err := ctx.Err(); err != nil {
 		return tobari.RuntimeReport{}, err
@@ -669,9 +687,35 @@ func managedLibraryRuntimeImage(name, revision string) string {
 	return "tobari-runtime-" + name + ":" + short
 }
 
+// BuildManagedRuntimeByReference holds the installation lifecycle lock across
+// exact reference re-resolution and complete build publication. A same-name
+// Runtime created after retirement cannot receive authority from the old ID.
+func (r *Runtime) BuildManagedRuntimeByReference(ctx context.Context, reference string, diagnostics io.Writer) (tobari.RuntimeReport, error) {
+	if err := tobari.ValidateRuntimeRef(reference); err != nil {
+		return tobari.RuntimeReport{}, err
+	}
+	if reference == tobari.StandardRuntimeID {
+		return tobari.RuntimeReport{}, fmt.Errorf("built-in Runtime cannot be built")
+	}
+	var result tobari.RuntimeReport
+	err := r.WithLifecycleLock(ctx, func(lockContext context.Context) error {
+		var buildErr error
+		result, buildErr = r.buildManagedRuntime(lockContext, "", reference, diagnostics)
+		return buildErr
+	})
+	if err != nil {
+		return tobari.RuntimeReport{}, err
+	}
+	return result, nil
+}
+
 // BuildManagedRuntime snapshots, builds, validates, and appends one immutable
 // successful revision. It never writes a Context.
 func (r *Runtime) BuildManagedRuntime(ctx context.Context, name string, diagnostics io.Writer) (tobari.RuntimeReport, error) {
+	return r.buildManagedRuntime(ctx, name, "", diagnostics)
+}
+
+func (r *Runtime) buildManagedRuntime(ctx context.Context, name, expectedReference string, diagnostics io.Writer) (tobari.RuntimeReport, error) {
 	if err := ctx.Err(); err != nil {
 		return tobari.RuntimeReport{}, err
 	}
@@ -680,7 +724,14 @@ func (r *Runtime) BuildManagedRuntime(ctx context.Context, name string, diagnost
 	}
 	var result tobari.RuntimeReport
 	err := r.withRuntimeStoreLock(func() error {
-		manifest, err := r.readRuntimeManifest(name)
+		var manifest tobari.RuntimeManifest
+		var err error
+		if expectedReference != "" {
+			manifest, err = r.resolveManagedRuntimeReferenceUnlocked(expectedReference)
+			name = manifest.Name
+		} else {
+			manifest, err = r.readRuntimeManifest(name)
+		}
 		if err != nil {
 			return err
 		}
@@ -768,4 +819,27 @@ func (r *Runtime) BuildManagedRuntime(ctx context.Context, name string, diagnost
 		return tobari.RuntimeReport{}, err
 	}
 	return result, nil
+}
+
+func (r *Runtime) resolveManagedRuntimeReferenceUnlocked(reference string) (tobari.RuntimeManifest, error) {
+	entries, err := os.ReadDir(r.runtimesDirectory())
+	if errors.Is(err, os.ErrNotExist) {
+		return tobari.RuntimeManifest{}, tobari.ErrRuntimeNotFound
+	}
+	if err != nil {
+		return tobari.RuntimeManifest{}, err
+	}
+	for _, entry := range entries {
+		if entry.Type()&os.ModeSymlink != 0 || !entry.IsDir() {
+			return tobari.RuntimeManifest{}, fmt.Errorf("Runtime catalog contains an unsafe entry")
+		}
+		manifest, err := r.readRuntimeManifest(entry.Name())
+		if err != nil {
+			return tobari.RuntimeManifest{}, err
+		}
+		if tobari.RuntimeRef(manifest.ID) == reference {
+			return manifest, nil
+		}
+	}
+	return tobari.RuntimeManifest{}, tobari.ErrRuntimeNotFound
 }

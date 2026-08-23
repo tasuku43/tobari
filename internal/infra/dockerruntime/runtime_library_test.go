@@ -68,6 +68,94 @@ func TestManagedRuntimeBuildCreatesImmutableRevisionWithoutChangingContext(t *te
 	}
 }
 
+func TestManagedRuntimeBuildReferenceCannotRetargetSameNameReuse(t *testing.T) {
+	root := t.TempDir()
+	runner := &recordingRunner{outputQueue: [][]byte{compatibleImageInspection(), imageDigestInspection()}}
+	runtime, err := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), runner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	old, err := runtime.CreateRuntime(context.Background(), "frontend", tobari.RuntimeCopySource(tobari.StandardRuntimeName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldRef := tobari.RuntimeRef(old.Runtime.ID)
+	resolved, err := runtime.ResolveRuntimeReference(context.Background(), oldRef)
+	if err != nil || resolved.ID != old.Runtime.ID {
+		t.Fatalf("application resolution = %+v/%v", resolved, err)
+	}
+
+	// Model retirement and same-name recreation in the window between the
+	// application read and the effect boundary. The effect must re-resolve the
+	// stable ID while locked instead of inheriting authority from this name.
+	if err := os.RemoveAll(runtime.runtimeDirectory("frontend")); err != nil {
+		t.Fatal(err)
+	}
+	fresh, err := runtime.CreateRuntime(context.Background(), "frontend", tobari.RuntimeCopySource(tobari.StandardRuntimeName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fresh.Runtime.ID == old.Runtime.ID {
+		t.Fatalf("same-name recreation reused Runtime ID %q", fresh.Runtime.ID)
+	}
+	manifestBefore, err := os.ReadFile(runtime.runtimeManifestPath("frontend"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sourceBefore, err := os.ReadFile(filepath.Join(fresh.Runtime.SourcePath, "Dockerfile"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := runtime.BuildManagedRuntimeByReference(context.Background(), oldRef, nil); !errors.Is(err, tobari.ErrRuntimeNotFound) {
+		t.Fatalf("retired Runtime build error = %v", err)
+	}
+	manifestAfter, err := os.ReadFile(runtime.runtimeManifestPath("frontend"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sourceAfter, err := os.ReadFile(filepath.Join(fresh.Runtime.SourcePath, "Dockerfile"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(manifestAfter) != string(manifestBefore) || string(sourceAfter) != string(sourceBefore) {
+		t.Fatalf("fresh same-name Runtime changed: manifest=%t source=%t", string(manifestAfter) != string(manifestBefore), string(sourceAfter) != string(sourceBefore))
+	}
+	if len(runner.runs) != 0 {
+		t.Fatalf("Docker build crossed stale Runtime authority: %+v", runner.runs)
+	}
+	if len(runner.outputs) != 0 {
+		t.Fatalf("Docker inspection crossed stale Runtime authority: %+v", runner.outputs)
+	}
+}
+
+func TestResolveRuntimeReferenceCannotRetargetSameNameReuse(t *testing.T) {
+	root := t.TempDir()
+	runtime, err := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), &recordingRunner{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	old, err := runtime.CreateRuntime(context.Background(), "frontend", tobari.RuntimeCopySource(tobari.StandardRuntimeName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldRef := tobari.RuntimeRef(old.Runtime.ID)
+	if err := os.RemoveAll(runtime.runtimeDirectory("frontend")); err != nil {
+		t.Fatal(err)
+	}
+	fresh, err := runtime.CreateRuntime(context.Background(), "frontend", tobari.RuntimeCopySource(tobari.StandardRuntimeName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runtime.ResolveRuntimeReference(context.Background(), oldRef); !errors.Is(err, tobari.ErrRuntimeNotFound) {
+		t.Fatalf("retired reference resolved after same-name replacement: %v", err)
+	}
+	resolved, err := runtime.ResolveRuntimeReference(context.Background(), tobari.RuntimeRef(fresh.Runtime.ID))
+	if err != nil || resolved.ID != fresh.Runtime.ID {
+		t.Fatalf("fresh reference resolution = %+v/%v", resolved, err)
+	}
+}
+
 func TestRuntimeCreateCopiesManagedEditableBaseAsStandaloneSource(t *testing.T) {
 	root := t.TempDir()
 	runner := &recordingRunner{outputQueue: [][]byte{compatibleImageInspection(), imageDigestInspection()}}

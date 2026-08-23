@@ -4,14 +4,15 @@
   "new_runtime": "mobile",
   "base_candidates": ["standard", "frontend", "backend"],
   "initial_base": "standard",
-  "exact_next_argv": ["tobari", "runtime", "build", "--name", "mobile"],
+  "exact_next_argv": ["tobari", "runtime", "build", "--id", "018bcfe5-687b-7000-8000-000000000088"],
   "required_summary_facts": [
     "Runtime mobile",
+    "Reference  018bcfe5-687b-7000-8000-000000000088",
     "managed",
     "/tmp/tobari-test/runtimes/mobile/source",
     "no group/other permissions",
     "draft · edit the current source",
-    "tobari runtime build --name mobile"
+    "tobari runtime build --id 018bcfe5-687b-7000-8000-000000000088"
   ],
   "chooser_facts": [
     "Source Base",

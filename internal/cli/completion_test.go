@@ -98,7 +98,7 @@ func TestCompletionPlansDynamicCandidatesFromTypedService(t *testing.T) {
 		{name: "root context", current: 3, words: []string{"tobari", "--manifest", "d"}, want: []string{}},
 		{name: "command context", current: 5, words: []string{"tobari", "manifest", "show", "--name", "d"}, want: []string{}},
 		{name: "runtime name", current: 5, words: []string{"tobari", "runtime", "show", "--name", "s"}, want: []string{"candidate:standard", "candidate:sre"}},
-		{name: "managed runtime", current: 5, words: []string{"tobari", "runtime", "build", "--name", "s"}, want: []string{"candidate:sre"}},
+		{name: "opaque runtime", current: 5, words: []string{"tobari", "runtime", "build", "--id", "s"}, want: []string{}},
 		{name: "ready runtime", current: 6, words: []string{"tobari", "manifest", "runtime", "set", "--runtime", "s"}, want: []string{"candidate:standard", "candidate:sre@2", "candidate:sre@1"}},
 	}
 	for _, test := range tests {
@@ -154,7 +154,7 @@ func TestCatalogDeclaresTypedCompletionSources(t *testing.T) {
 		"manifest runtime set": {"--runtime": InputCompletionReadyRuntimeReference, "--manifest": InputCompletionContextName},
 		"runtime show":         {"--name": InputCompletionRuntimeName},
 		"runtime create":       {"--copy-source-from": InputCompletionRuntimeName},
-		"runtime build":        {"--name": InputCompletionManagedRuntimeName},
+		"runtime build":        {"--id": InputCompletionNone},
 	}
 	for path, expected := range tests {
 		spec, found := DefaultCatalog().Lookup(path)

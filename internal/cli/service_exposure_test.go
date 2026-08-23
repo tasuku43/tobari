@@ -60,7 +60,7 @@ func TestReviewIsPureCatalogNamespaceAndRetiredPathsHaveNoFallback(t *testing.T)
 	if code := command.RunContext(context.Background(), []string{"review"}); code != ExitOK {
 		t.Fatalf("review namespace code=%d stderr=%q", code, stderr.String())
 	}
-	for _, want := range []string{"Commands in namespace review:", "permissions", "services"} {
+	for _, want := range []string{"Commands in namespace review:", "permissions", "runtimes", "services"} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Fatalf("review namespace missing %q: %q", want, stdout.String())
 		}
@@ -75,7 +75,7 @@ func TestReviewIsPureCatalogNamespaceAndRetiredPathsHaveNoFallback(t *testing.T)
 		t.Fatal("policy review remains registered")
 	}
 	selected, exact := DefaultCatalog().Select("review")
-	if exact || len(selected) != 2 || selected[0].Path != "review permissions" || selected[1].Path != "review services" {
+	if exact || len(selected) != 3 || selected[0].Path != "review permissions" || selected[1].Path != "review runtimes" || selected[2].Path != "review services" {
 		t.Fatalf("review namespace exact=%t commands=%+v", exact, selected)
 	}
 	stdout.Reset()
@@ -84,6 +84,7 @@ func TestReviewIsPureCatalogNamespaceAndRetiredPathsHaveNoFallback(t *testing.T)
 		t.Fatalf("review agent help code=%d stderr=%q", code, stderr.String())
 	}
 	if !strings.Contains(stdout.String(), `"path":"review permissions"`) ||
+		!strings.Contains(stdout.String(), `"path":"review runtimes"`) ||
 		!strings.Contains(stdout.String(), `"path":"review services"`) ||
 		strings.Contains(stdout.String(), `"path":"policy review"`) {
 		t.Fatalf("review agent help=%q", stdout.String())

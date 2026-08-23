@@ -84,6 +84,7 @@ func TestEveryCatalogReadExecutesOnFreshXDGWithoutDurableOrExternalMutation(t *t
 		"cluster logs":          {},
 		"policy candidates":     {"--format=json"},
 		"review permissions":    {"--format=json"},
+		"review runtimes":       {"--format=json"},
 		"policy rules":          {"--format=json"},
 		"review services":       {},
 		"service requests":      {},

@@ -117,6 +117,7 @@ func (r RuntimeRevision) Validate(kind RuntimeKind) error {
 type RuntimeManifest struct {
 	SchemaVersion int               `json:"schema_version"`
 	ID            string            `json:"id"`
+	RuntimeRef    string            `json:"runtime_ref,omitempty"`
 	Name          string            `json:"name"`
 	Kind          RuntimeKind       `json:"kind"`
 	SourcePath    string            `json:"source_path,omitempty"`
@@ -148,6 +149,9 @@ func (m RuntimeManifest) Validate() error {
 			return fmt.Errorf("managed Runtime source path must be canonical and absolute")
 		}
 	}
+	if m.RuntimeRef != "" && m.RuntimeRef != RuntimeRef(m.ID) {
+		return fmt.Errorf("Runtime reference does not match Runtime ID")
+	}
 	if m.Revisions == nil {
 		return fmt.Errorf("Runtime revisions must be present")
 	}
@@ -161,6 +165,12 @@ func (m RuntimeManifest) Validate() error {
 		}
 		if _, exists := seen[revision.Revision]; exists {
 			return fmt.Errorf("Runtime revision digest is duplicated")
+		}
+		if revision.RuntimeRef != "" && revision.RuntimeRef != RuntimeRef(m.ID) {
+			return fmt.Errorf("Runtime revision owner reference is invalid")
+		}
+		if revision.RevisionRef != "" && revision.RevisionRef != RuntimeRevisionRef(m.ID, revision.Revision) {
+			return fmt.Errorf("Runtime revision reference is invalid")
 		}
 		seen[revision.Revision] = struct{}{}
 	}
@@ -270,12 +280,20 @@ type RuntimeSummary struct {
 }
 
 func RuntimeSummaryFrom(manifest RuntimeManifest) RuntimeSummary {
-	summary := RuntimeSummary{ID: manifest.ID, RuntimeRef: manifest.ID, Name: manifest.Name, Kind: manifest.Kind, SourcePath: manifest.SourcePath}
+	summary := RuntimeSummary{ID: manifest.ID, RuntimeRef: RuntimeRef(manifest.ID), Name: manifest.Name, Kind: manifest.Kind, SourcePath: manifest.SourcePath}
 	if head, ok := manifest.Head(); ok {
 		summary.Ready, summary.Head, summary.Revision = true, head.Ordinal, head.Revision
-		summary.RevisionRef = RuntimeRevisionRef(manifest.ID, head.Revision)
 	}
 	return summary
+}
+
+func RuntimeRef(runtimeID string) string { return runtimeID }
+
+func ValidateRuntimeRef(reference string) error {
+	if reference == StandardRuntimeID {
+		return nil
+	}
+	return ValidateRuntimeID(reference)
 }
 
 func (s RuntimeSummary) Validate() error {
@@ -307,7 +325,7 @@ func (s RuntimeSummary) Validate() error {
 		if err := ValidateDigest(s.Revision); err != nil {
 			return err
 		}
-		if s.RevisionRef != RuntimeRevisionRef(s.ID, s.Revision) {
+		if s.RevisionRef != "" && s.RevisionRef != RuntimeRevisionRef(s.ID, s.Revision) {
 			return fmt.Errorf("Runtime revision reference is invalid")
 		}
 	} else if s.RevisionRef != "" {
@@ -318,6 +336,26 @@ func (s RuntimeSummary) Validate() error {
 
 func RuntimeRevisionRef(runtimeID, revision string) string {
 	return runtimeID + "/" + revision
+}
+
+// RuntimeReportWithReferences adds public opaque selections without changing
+// the persisted Runtime authority record. Callers still resolve supplied
+// references by deriving and comparing bounded candidates exactly.
+// Revision references remain absent until their exact restore consumer joins
+// the Catalog, so every published reference graph is complete at each commit.
+func RuntimeReportWithReferences(report RuntimeReport) (RuntimeReport, error) {
+	if err := report.Validate(); err != nil {
+		return RuntimeReport{}, err
+	}
+	report.Runtime.RuntimeRef = RuntimeRef(report.Runtime.ID)
+	for index := range report.Runtime.Revisions {
+		report.Runtime.Revisions[index].RuntimeRef = report.Runtime.RuntimeRef
+		report.Runtime.Revisions[index].RevisionRef = ""
+	}
+	if err := report.Validate(); err != nil {
+		return RuntimeReport{}, err
+	}
+	return report, nil
 }
 
 type RuntimeProtectionReason string

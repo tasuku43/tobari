@@ -1647,15 +1647,18 @@ func validateInteractiveWorkflow(command CommandSpec, fields map[string]OutputFi
 	if err := validateReferenceName(workflow.SelectionReferenceKind); err != nil {
 		return fmt.Errorf("interactive selection reference kind: %w", err)
 	}
-	if err := validateOutputFieldName(workflow.SelectionOutputField); err != nil {
-		return fmt.Errorf("interactive selection output field: %w", err)
+	selectionExists := false
+	for _, produced := range command.ProducedRefs() {
+		if produced.Field != workflow.SelectionOutputField {
+			continue
+		}
+		selectionExists = true
+		if produced.Kind != workflow.SelectionReferenceKind {
+			return fmt.Errorf("interactive selection output field %q must produce reference kind %q", workflow.SelectionOutputField, workflow.SelectionReferenceKind)
+		}
 	}
-	field, exists := fields[workflow.SelectionOutputField]
-	if !exists {
+	if !selectionExists {
 		return fmt.Errorf("interactive selection output field %q is not declared", workflow.SelectionOutputField)
-	}
-	if field.ReferenceKind != workflow.SelectionReferenceKind {
-		return fmt.Errorf("interactive selection output field %q must produce reference kind %q", workflow.SelectionOutputField, workflow.SelectionReferenceKind)
 	}
 	if workflow.Confirmation != "explicit_yes" {
 		return fmt.Errorf("interactive confirmation must be explicit_yes")

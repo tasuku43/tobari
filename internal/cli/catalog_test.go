@@ -822,6 +822,42 @@ func TestCatalogDeclaresInteractiveDiscoverToActionWorkflow(t *testing.T) {
 	}
 }
 
+func TestInteractiveWorkflowValidatesRecursiveSelectionPath(t *testing.T) {
+	discover := discoverSpec("runtimes list", "runtime")
+	discover.Agent.Output.Fields = []OutputField{{
+		Name: "items", Type: OutputFieldTypeArray, Description: "Runtime choices.",
+		Items: &OutputField{Type: OutputFieldTypeObject, Description: "One Runtime choice.", Fields: []OutputField{{
+			Name: "runtime_ref", Type: OutputFieldTypeString, Description: "Opaque Runtime reference.", ReferenceKind: "runtime",
+		}}},
+	}}
+	discover.Agent.Interactive = &InteractiveWorkflowContract{
+		ActionCommand: "runtimes build", SelectionReferenceKind: "runtime",
+		SelectionOutputField: "items[].runtime_ref", Confirmation: "explicit_yes", NonInteractiveBehavior: "read_only",
+	}
+	action := actSpec("runtimes build", "runtime", "--id")
+	action.Effect = operation.EffectWrite
+	action.Agent.Errors = mutationErrors(action.Agent.Errors, action.Path)
+	action.Agent.Mutation = &MutationContract{
+		TargetKind: "runtime", TargetInputs: []string{"--id"}, TargetIDInput: "--id",
+		Impact: operation.Impact{Cardinality: operation.CardinalityOne, Notification: operation.DeclarationNo, AccessChange: operation.DeclarationYes, Destructive: operation.DeclarationNo},
+	}
+	if err := NewCatalog(discover, action).Validate(); err != nil {
+		t.Fatalf("nested interactive selection: %v", err)
+	}
+
+	wrongKind := cloneCommandSpec(discover)
+	wrongKind.Agent.Interactive.SelectionReferenceKind = "other"
+	if err := NewCatalog(wrongKind, action).Validate(); err == nil || !strings.Contains(err.Error(), "must produce reference kind") {
+		t.Fatalf("nested wrong-kind selection validation = %v", err)
+	}
+
+	missing := cloneCommandSpec(discover)
+	missing.Agent.Interactive.SelectionOutputField = "items[].missing_ref"
+	if err := NewCatalog(missing, action).Validate(); err == nil || !strings.Contains(err.Error(), "is not declared") {
+		t.Fatalf("nested missing selection validation = %v", err)
+	}
+}
+
 func TestCatalogValidatesCommandBoundToolLocalFixedTargets(t *testing.T) {
 	valid := fixedTargetActSpec("auth status")
 	if err := NewCatalog(valid).Validate(); err != nil {

@@ -341,17 +341,18 @@ never invokes the public CLI as a subprocess.
 Omitted `runtime create --copy-source-from` is a smaller Base-first input-completion flow:
 interactive text lists `standard` plus managed editable sources and skips the
 chooser when only `standard` exists, while redirected and JSON omission binds
-`standard` without a read. Omitted primary selectors for `runtime build` and `manifest runtime set` are a
-smaller CLI-owned input-completion workflow. CLI composes existing Runtime and
-Workspace Manifest read use cases into a terminal Review, binds an omitted default Workspace Manifest
-to the exact name returned by `manifest show`, and passes only one selected
-managed Runtime name or ready Runtime revision into the unchanged application
-mutation. Workspace Manifest Runtime editing and confirmation are separate presentation
+`standard` without a read. `review runtimes` is a separate read-only discovery
+workflow. It composes Runtime list/show, filters interactive action cards to
+managed Runtimes, and hands the produced stable reference unchanged to the
+separate reference-bound build action. Redirected and JSON review stays
+read-only. Omitted `manifest runtime set` input remains a smaller CLI-owned
+completion workflow: it binds an omitted default Workspace Manifest to the
+exact name returned by `manifest show` and passes one ready Runtime revision
+into the application mutation. Workspace Manifest Runtime editing and confirmation are separate presentation
 states: only a different selected binding enters the old-to-new Review with
 Apply, while Back, unchanged selection, and cancellation remain read-only.
 Review never reads Runtime source bytes and has no Docker or manifest write
-port. Fully specified selectors bypass Review, while machine-readable or
-non-interactive omission fails before the application mutation boundary.
+port; its confirmed action crosses through the Catalog into the build use case.
 The Runtime source chooser names the managed candidate as its current editable
 source and does not present the latest successful head as copy identity.
 Confirmed human results compose the separate catalog operations only through

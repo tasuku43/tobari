@@ -38,6 +38,7 @@ func runtimeCommandSpecs() []CommandSpec {
 		runtimeShowSpec(),
 		runtimeCreateSpec(),
 		runtimeHistorySpec(),
+		runtimeReviewSpec(),
 		runtimeBuildSpec(),
 		projectEnterSpec(),
 		statusSpec(),
@@ -477,9 +478,9 @@ func contextDeleteSpec() CommandSpec {
 func runtimeListSpec() CommandSpec {
 	return CommandSpec{
 		Path: "runtime list", Summary: "List reusable Runtimes and their ready head revisions",
-		Args: "[--format text|json]", Effect: operation.EffectRead, Role: RoleUtility,
+		Args: "[--format text|json]", Effect: operation.EffectRead, Role: RoleDiscover,
 		Agent: AgentContract{
-			CapabilityID:  "runtime.customization",
+			CapabilityID:  "runtime.lifecycle",
 			Outcome:       "List the complete installation-wide Runtime catalog and each ready head revision",
 			Inputs:        []CommandInput{formatInput()},
 			Output:        runtimeListOutput(),
@@ -530,8 +531,8 @@ func runtimeHistorySpec() CommandSpec {
 
 func runtimeReadSpec(path, summary, outcome, _ string, handler commandHandler) CommandSpec {
 	minimum := int64(1)
-	return CommandSpec{Path: path, Summary: summary, Args: "--name <name> [--format text|json]", Effect: operation.EffectRead, Role: RoleUtility,
-		Agent: AgentContract{CapabilityID: "runtime.customization", Outcome: outcome,
+	return CommandSpec{Path: path, Summary: summary, Args: "--name <name> [--format text|json]", Effect: operation.EffectRead, Role: RoleDiscover,
+		Agent: AgentContract{CapabilityID: "runtime.lifecycle", Outcome: outcome,
 			Inputs: []CommandInput{{Name: "--name", Source: InputSourceFlag, Required: true, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, MinimumLength: &minimum, Description: "Unique local Runtime name.", AllowedValues: []string{}, Completion: InputCompletionRuntimeName}, formatInput()},
 			Output: runtimeReportOutput(), Prerequisites: []string{}, Errors: readCommandErrors(path, true,
 				declaredCommandError(fault.KindInvalidInput, "invalid_runtime_name", false, "runtime list", "Choose a Runtime from the local catalog."),
@@ -546,7 +547,7 @@ func runtimeReadSpec(path, summary, outcome, _ string, handler commandHandler) C
 func runtimeCreateSpec() CommandSpec {
 	minimum := int64(1)
 	return CommandSpec{Path: "runtime create", Summary: "Create a reusable Runtime by copying current editable source once", Args: "[--copy-source-from <runtime-name>] --name <name> [--format text|json]", Effect: operation.EffectCreate, Role: RoleAct,
-		Agent: AgentContract{CapabilityID: "runtime.customization", Outcome: "Create one standalone managed Runtime source tree from the built-in standard starter or another managed Runtime's current editable source; its root and future children must have no group/other permissions; do not build, retain inheritance, or change a Workspace Manifest",
+		Agent: AgentContract{CapabilityID: "runtime.lifecycle", Outcome: "Create one standalone managed Runtime source tree from the built-in standard starter or another managed Runtime's current editable source; its root and future children must have no group/other permissions; do not build, retain inheritance, or change a Workspace Manifest",
 			Inputs: []CommandInput{
 				{Name: "--copy-source-from", Source: InputSourceFlag, Required: false, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, MinimumLength: &minimum, Description: "Copy current editable source once from standard or an existing managed Runtime; the new Runtime receives a fresh ID and empty history.", AllowedValues: []string{}, DefaultValue: stringPointer(tobari.StandardRuntimeName), Completion: InputCompletionRuntimeName},
 				{Name: "--name", Source: InputSourceFlag, Required: true, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, MinimumLength: &minimum, Description: "Unique local Runtime name.", AllowedValues: []string{}}, formatInput()},
@@ -567,28 +568,53 @@ func runtimeCreateSpec() CommandSpec {
 		handler: runRuntimeCreate}
 }
 
+func runtimeReviewSpec() CommandSpec {
+	return CommandSpec{
+		Path: "review runtimes", Summary: "Review managed Runtimes before one exact build",
+		Args: "[--format text|json]", Effect: operation.EffectRead, Role: RoleDiscover,
+		Agent: AgentContract{
+			CapabilityID: "runtime.lifecycle",
+			Outcome:      "Review the complete Runtime catalog, select one stable managed Runtime reference on a trusted terminal, and cross into the separate reference-bound build only after explicit confirmation",
+			Inputs:       []CommandInput{formatInput()}, Output: runtimeListOutput(),
+			Prerequisites: []string{"Interactive build selection requires trusted terminal input and error output; redirected and JSON use remains read-only."},
+			Errors: readCommandErrors("review runtimes", true,
+				declaredCommandError(fault.KindNotFound, "managed_runtime_not_found", false, "help runtime create", "Create a managed Runtime source tree first."),
+				declaredCommandError(fault.KindRejected, "runtime_selection_changed", false, "review runtimes", "Restart from a fresh Runtime catalog."),
+				declaredCommandError(fault.KindInternal, "runtime_review_failed", false, "help review runtimes", "Retry on a trusted terminal or use redirected/JSON read-only discovery."),
+				declaredCommandError(fault.KindInternal, "runtime_read_failed", false, "doctor", "Inspect the host Runtime store."),
+				declaredCommandError(fault.KindContract, "invalid_runtime_list", false, "doctor", "Inspect the host Runtime store."),
+				declaredCommandError(fault.KindInternal, "missing_runtime", false, "doctor", "Configure the Tobari runtime."),
+			),
+			Interactive: &InteractiveWorkflowContract{
+				ActionCommand: "runtime build", SelectionReferenceKind: tobari.RuntimeReferenceKind,
+				SelectionOutputField: "items[].runtime_ref", Confirmation: "explicit_yes", NonInteractiveBehavior: "read_only",
+			},
+		},
+		handler: runRuntimeReview,
+	}
+}
+
 func runtimeBuildSpec() CommandSpec {
-	minimum := int64(1)
 	return CommandSpec{
 		Path: "runtime build", Summary: "Build an immutable revision of a reusable Runtime",
-		Args: "[--name <name>] [--format text|json]", Effect: operation.EffectWrite, Role: RoleAct,
+		Args: "--id <runtime-ref> [--format text|json]", Effect: operation.EffectWrite, Role: RoleAct,
 		Agent: AgentContract{
-			CapabilityID: "runtime.customization",
+			CapabilityID: "runtime.lifecycle",
 			Outcome:      "Snapshot a managed source with no group/other permissions and at most 1,024 files, 256 directories, 32 MiB per file, and 64 MiB total; build and validate it; append one immutable revision without changing any Workspace Manifest",
-			Inputs:       []CommandInput{{Name: "--name", Source: InputSourceFlag, Required: false, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, MinimumLength: &minimum, Description: "Unique local managed Runtime name; omission opens terminal Review in text mode.", AllowedValues: []string{}, Completion: InputCompletionManagedRuntimeName}, formatInput()},
-			Output:       runtimeReportOutput(),
+			Inputs: []CommandInput{{Name: "--id", Source: InputSourceFlag, Required: true, ValueKind: InputValueText, Cardinality: InputCardinalitySingle,
+				Description: "Opaque Runtime reference emitted by runtime list, show, history, create, or review runtimes; it is consumed unchanged.", AllowedValues: []string{}, ReferenceKind: tobari.RuntimeReferenceKind}, formatInput()},
+			Output: runtimeReportOutput(),
 			Prerequisites: []string{
-				"The named managed Runtime exists and its source root and directories have no group/other permissions.",
+				"The referenced managed Runtime exists and its source root and directories have no group/other permissions.",
 				"The source contains at most 1,024 owner-only regular files, 256 directories, 32 MiB per file, and 64 MiB total; it contains a regular Dockerfile and no links or special files.",
 				"The trusted host Docker daemon and Buildx plugin are available.",
 			},
-			FixedTarget: fixedRuntimeCatalogTarget(),
 			Errors: mutationCommandErrors("runtime build", "runtime show",
-				declaredCommandError(fault.KindInvalidInput, "runtime_review_unavailable", false, "help runtime build", "Supply --name or use interactive text streams."),
-				declaredCommandError(fault.KindInternal, "runtime_review_failed", false, "help runtime build", "Retry with --name or repair the interactive terminal streams."),
 				declaredCommandError(fault.KindNotFound, "managed_runtime_not_found", false, "help runtime create", "Create a managed Runtime source tree first."),
-				declaredCommandError(fault.KindInvalidInput, "invalid_runtime_name", false, "runtime list", "Choose a valid managed Runtime name."),
+				declaredCommandError(fault.KindInvalidInput, "invalid_runtime_ref", false, "runtime list", "Use one Runtime reference unchanged."),
 				declaredCommandError(fault.KindNotFound, "runtime_not_found", false, "runtime list", "Choose an existing managed Runtime."),
+				declaredCommandError(fault.KindRejected, "runtime_reference_unresolved", false, "runtime list", "Discover the current Runtime catalog."),
+				declaredCommandError(fault.KindRejected, "runtime_not_managed", false, "runtime list", "Choose a managed Runtime."),
 				declaredCommandError(fault.KindInternal, "runtime_read_failed", false, "doctor", "Inspect the host Runtime store."),
 				declaredCommandError(fault.KindContract, "invalid_runtime_list", false, "doctor", "Inspect the host Runtime store."),
 				declaredCommandError(fault.KindRejected, "runtime_source_invalid", false, "runtime show", "Inspect the unchanged Runtime source path and history."),
@@ -599,7 +625,7 @@ func runtimeBuildSpec() CommandSpec {
 				declaredCommandError(fault.KindInternal, "missing_runtime", false, "doctor", "Configure the Tobari runtime."),
 			),
 			Mutation: &MutationContract{
-				TargetKind: tobari.RuntimeCatalogTargetKind, TargetInputs: []string{},
+				TargetKind: tobari.RuntimeReferenceKind, TargetInputs: []string{"--id"}, TargetIDInput: "--id",
 				Impact: operation.Impact{Cardinality: operation.CardinalityOne, Notification: operation.DeclarationNo, AccessChange: operation.DeclarationYes, Destructive: operation.DeclarationNo},
 			},
 		},
