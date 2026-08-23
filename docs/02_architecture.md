@@ -52,17 +52,18 @@ target address. The capability projection inside the attached shell is an
 advisory discovery surface and carries no routing secret or permission.
 
 Workspace service exposure is a separate opposite-direction attachment branch.
-The canonical base recipe cross-compiles a dedicated Linux `tobari-expose`
-helper for Docker `TARGETARCH` with a pinned Go builder and an exact checked
-source/module closure. Its main hardcodes the helper Program rather than
-selecting authority from `argv[0]`. Before attachment, the host extracts the
-helper and identity record from the verified source-derived base through a
-bounded temporary container; validates source/API identity, SHA-256, regular
-file type, safe mode, Linux ELF, and engine architecture; and atomically stores
-one owner-only executable. Every selected Workspace, including one using a
-managed custom Runtime, receives that executable as the same read-only
-`/usr/local/bin/tobari-expose` mount. An unpredictable Workspace Unix socket
-connects that helper to one fixed non-TTY control process; it can submit only
+The canonical base recipe cross-compiles dedicated Linux `tobari-expose` and
+`tobari-permission` helpers for Docker `TARGETARCH` with a pinned Go builder and
+one exact checked source/module closure. Each main hardcodes its helper Program
+rather than selecting authority from `argv[0]`. Before attachment, the host
+extracts both helpers and identity records from the verified source-derived
+base through a bounded temporary container; validates their source/API
+identity, SHA-256, regular file type, safe mode, Linux ELF, and engine
+architecture; and atomically stores owner-only executables. Every selected
+Workspace, including one using a managed custom Runtime, receives the same
+read-only `/usr/local/bin/tobari-expose` and `/usr/local/bin/tobari-permission`
+mounts. For service exposure, an unpredictable Workspace Unix socket connects
+`tobari-expose` to one fixed non-TTY control process; it can submit only
 one non-privileged Workspace-loopback port, list current-attachment exposures,
 or stop one unchanged opaque reference. The live host attachment
 owns pending requests and exposes a distinct owner-only Unix rendezvous plus
@@ -270,7 +271,7 @@ fixed-target read or write remains reference-free. A fixed-target create may
 return confirmed opaque child-resource references, but consumes none and cannot
 return the fixed creation-scope kind.
 
-The Catalog spans both executable programs so the helper's produced service
+The Catalog spans the host Program and both helper Programs so the exposure helper's produced service
 reference can close through the host actions and the exposure reference can
 close through helper stop. Validation and reference closure are global;
 dispatch, human help, and scoped agent help are filtered by exact program.

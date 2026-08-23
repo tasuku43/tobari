@@ -536,7 +536,7 @@ func (r *clusterUpProgressRunner) Output(_ context.Context, args, _ []string) ([
 			if err != nil {
 				return nil, err
 			}
-			return []byte(fmt.Sprintf(`{"architecture":"arm64","os":"linux","api":"1","source":%q}`, source)), nil
+			return []byte(fmt.Sprintf(`{"architecture":"arm64","os":"linux","exposure_api":"1","exposure_source":%q,"permission_api":"1","permission_source":%q}`, source, source)), nil
 		}
 		image := args[len(args)-1]
 		switch image {

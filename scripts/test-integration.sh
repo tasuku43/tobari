@@ -3,7 +3,7 @@ set -Eeuo pipefail
 cd "$(dirname "$0")/.."
 source test/integration/workspace_service_exposure.sh
 source test/integration/gateway_fixture.sh
-
+source test/integration/permission_resume.sh
 binary=${TOBARI_INTEGRATION_BINARY:-}
 binary_digest=
 custom_base_image=${TOBARI_INTEGRATION_CUSTOM_BASE:-tobari-runtime:dev}
@@ -36,7 +36,6 @@ host_service_server_pid=
 host_service_attachment_pid=
 host_docker_config=${DOCKER_CONFIG:-$HOME/.docker}
 host_docker_context=${DOCKER_CONTEXT:-$(docker context show)}
-
 begin_phase() {
   local next_phase=$1
   if [[ -n $current_phase ]]; then
@@ -53,7 +52,6 @@ complete_phase() {
   fi
   current_phase=
 }
-
 fail() {
   echo "integration: phase=${current_phase:-setup}: $*" >&2
   exit 1
@@ -1454,6 +1452,7 @@ host_attachment_events=$(python3 -c '
 import json
 import sys
 print(json.dumps([
+    {"after_ms": 500, "data": """curl -sS https://mock-upstream:8080/permission-resume > /var/lib/tobari/permission-denial.json; python3 -c '\''import json,re,sys; document=json.load(open(sys.argv[1], encoding=\"utf-8\")); command=document[\"tobari\"][\"resume\"][\"command\"]; prefix=\"tobari-permission wait --id \"; wait_id=command[len(prefix):] if command.startswith(prefix) else \"\"; match=re.fullmatch(r\"pwt_[0-9a-f]{32}\", wait_id); sys.exit(2) if match is None else None; print(wait_id)'\'' /var/lib/tobari/permission-denial.json > /var/lib/tobari/permission-wait-id; { tobari-permission wait --id \"$(cat /var/lib/tobari/permission-wait-id)\" > /var/lib/tobari/permission-wait.out 2> /var/lib/tobari/permission-wait.err && if grep -qx Allow /var/lib/tobari/permission-wait.out; then curl -fsS https://mock-upstream:8080/permission-resume > /var/lib/tobari/permission-retry.json; fi; } &\n"""},
     {"after_ms": 3000, "data": """{ printf "%s\\n" "$TOBARI_CAPABILITIES_JSON"; curl -sS -o /dev/null -w "%{http_code}" http://host.tobari.test:""" + sys.argv[1] + """/health; curl_status=$?; printf "\\n"; test "$curl_status" -eq 0; } > /var/lib/tobari/host-probe.tmp && mv /var/lib/tobari/host-probe.tmp /var/lib/tobari/host-probe\n"""},
   {"after_ms": 1500, "data": "python3 -m http.server 32123 --bind 127.0.0.1 >/var/lib/tobari/service-server.log 2>&1 & tobari-expose 32123 > /var/lib/tobari/service-exposure.out 2>/var/lib/tobari/service-exposure.err; printf ready > /var/lib/tobari/service-exposure-ready; while [ ! -e /var/lib/tobari/service-stop ]; do sleep 0.1; done; exposure_ref=$(sed -n '\''s/^  Exposure    //p'\'' /var/lib/tobari/service-exposure.out); tobari-expose list > /var/lib/tobari/service-exposure-list.out; tobari-expose stop \"$exposure_ref\" > /var/lib/tobari/service-stop.out; printf stopped > /var/lib/tobari/service-stopped\n"},
     {"after_ms": 25000, "data": "exit\n"},
@@ -1464,6 +1463,7 @@ TOBARI_TEST_PTY_TIMEOUT_SECONDS=40 \
   run_tobari_pty_at "$work_root" \
   >"$test_root/host-attachment.out" 2>&1 &
 host_service_attachment_pid=$!
+verify_permission_resume_handoff
 for _ in $(seq 1 300); do
   if run_project test -s /var/lib/tobari/host-probe >/dev/null 2>&1; then
     break

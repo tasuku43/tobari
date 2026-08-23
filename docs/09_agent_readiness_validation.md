@@ -14,6 +14,7 @@ transcripts as repository fixtures.
 | Enter bounded work | `tobari [--manifest NAME]` or `tobari [--manifest NAME] -- COMMAND [ARG...]`; explicit `cluster up` remains available | On first use, one root screen reviews canonical root, direct project effect, effective Access, `standard@1`, no host import, and Bash or the direct executable; after review, the generic Docker readiness profile passes before any Workspace Manifest or Docker mutation, then Start revalidates empty Workspace Manifest state, completes canonical Workspace Manifest creation and exact shared-cluster reconciliation, and enters one reusable Workspace; Customize retains the complete creation flow; the direct form runs exact foreground argv without a shell, returns its status to the host, and leaves the Workspace reusable |
 | Understand authority lifetime | `manifest show`, `policy rules`, and Host Loopback capability/review output | Routine guidance distinguishes Workspace Manifest Access, remembered Workspace decisions, and this-session Host Loopback access without requiring baseline, overlay, principal, epoch, or grant reconstruction; typed output retains exact destination kind and authority lifetime |
 | Grow exact permission | `review permissions`, or `policy candidates` then one exact allow/deny | Terminal guardrail precedes every candidate; explicit review activates only exact Workspace Manifest/project/scheme/host/port/method/path authority |
+| Resume after reviewed denial | In the attached Workspace run the exact `tobari-permission wait --id pwt_...` printed by one eligible ordinary HTTP/HTTPS denial; in a separate trusted-host terminal review and Apply; after `Allow`, deliberately retry the workload | Wait returns only `Allow`, `Deny`, or lease `Expired`; the helper has no proposal, decision, mutation, discovery, or retry authority; the fresh request receives an independent Gateway authorization |
 | Open one Workspace service | In the attached Workspace run `tobari-expose PORT`; in a separate host terminal run `tobari review services`; later use `tobari-expose list` and `tobari-expose stop EXPOSURE_REF` | Service review shows exact Workspace and target, random host-loopback-only access, no browser opening, and attachment lifetime; Allow once returns exact numeric-loopback URL plus opaque reference; stop consumes that reference unchanged; Permission review remains staged Apply |
 | Inspect/reset decisions | `policy rules`, then `policy reset --id` | One current exact decision is removed through its unchanged opaque reference and returns to default deny |
 | Use native Workspace auth | Run the agent CLI's native login inside the Workspace | Credential state persists in that Workspace home, receives no network grant from login, and crosses Gateway only after the ordinary exact HTTP effect is allowed |
@@ -106,6 +107,19 @@ attachment exits. Confirm `destination_kind` and `authority_lifetime` carry
 that distinction in machine output without parsing a label or reconstructing
 an Attachment Epoch. The routine-success external-processing count is zero.
 
+For permission resume, trigger one synthetic reviewable ordinary HTTP denial
+inside an attached Workspace and copy its exact `tobari-permission wait --id
+pwt_...` command without parsing or reconstructing the ID. Start that command
+inside the same attachment, complete one separate trusted-host Permission Inbox
+review and Apply, and verify the helper returns only `Allow`. Then issue one
+deliberate fresh request and prove Gateway evaluates it again. Repeat with an
+explicit reviewed Deny and lease expiry. Verify an unknown, consumed,
+cross-attachment, owner-lost, protocol-derived, Host Loopback, and malformed ID
+never becomes `Allow`, `Deny`, or fabricated `Expired`; no path proposes,
+approves, mutates policy, injects terminal input, or retries the request. Record
+one denial-to-wait-to-readiness task, one separate trusted-host review mutation,
+zero reference discovery, and zero routine external-processing steps.
+
 For Workspace service exposure, start a synthetic HTTP/WebSocket fixture on one
 non-privileged Workspace-loopback port. Run `tobari-expose PORT` in the attached
 shell and obtain one fresh Service snapshot through `tobari review services` in another
@@ -117,11 +131,12 @@ Host or Origin, verify WebSocket Upgrade, pass the reference unchanged through
 list and stop, and confirm attachment exit closes every listener and stream.
 Record two declared task invocations plus review, zero identifier reconstruction,
 zero automatic discovery/probing, and zero routine external-processing steps.
-Before that journey, prove the mounted helper is the dedicated hardcoded Linux
-Program extracted from the verified engine-native base: checked source/module
-snapshot, pinned-builder amd64/arm64 construction, source/API/digest and ELF
-architecture identity, owner-only host storage, read-only standard/custom-
-Runtime mounting, spoofed-`argv[0]` denial, and bounded extraction cleanup.
+Before these helper journeys, prove both mounted helpers are dedicated
+hardcoded Linux Programs extracted from the verified engine-native base:
+checked source/module snapshot, pinned-builder amd64/arm64 construction,
+per-binary source/API/digest and ELF architecture identity, owner-only host
+storage, read-only standard/custom-Runtime mounting, spoofed-`argv[0]` denial,
+and bounded extraction cleanup.
 
 ## Source-access matrix
 

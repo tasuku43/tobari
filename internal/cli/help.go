@@ -212,6 +212,8 @@ func (c *CLI) renderRootHelpWithColor(color bool) []byte {
 	title := "Tobari"
 	if program == ExposureProgramName {
 		title = "Tobari · Workspace service exposure"
+	} else if program == PermissionProgramName {
+		title = "Tobari · Permission wait"
 	}
 	fmt.Fprintln(&output, applyStyleToken(color, styleAccent, title))
 	fmt.Fprintln(&output)
@@ -231,6 +233,8 @@ func (c *CLI) renderRootHelpWithColor(color bool) []byte {
 	}
 	if program == ExposureProgramName {
 		startHere = []struct{ path, description string }{{path: ExposureProgramName, description: "Request one exact Workspace-loopback HTTP service"}}
+	} else if program == PermissionProgramName {
+		startHere = []struct{ path, description string }{{path: "wait", description: "Wait for one reviewed attachment-owned permission result"}}
 	}
 	for _, start := range startHere {
 		command, found := c.catalog.Lookup(start.path)

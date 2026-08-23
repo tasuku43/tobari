@@ -20,11 +20,22 @@ const (
 	ProgramName = "tobari"
 	// ExposureProgramName is the attachment-local service helper executable.
 	ExposureProgramName = "tobari-expose"
+	// PermissionProgramName is the attachment-local reviewed-permission observer.
+	PermissionProgramName = "tobari-permission"
 
 	// maxAgentIndexEntryBytes bounds the selection-only root help cost per
 	// command. Detailed invocation contracts belong in scoped help.
 	maxAgentIndexEntryBytes = 512
 )
+
+type readOutputSettlement uint8
+
+const (
+	readOutputSettlementRetryable readOutputSettlement = iota
+	readOutputSettlementConsumed
+)
+
+const consumedReadOutputWriteFailureCode = "consumed_read_output_write_failed"
 
 type commandHandler func(context.Context, *CLI, CommandSpec, operation.Intent, ParsedInputs) int
 
@@ -398,6 +409,7 @@ type CommandOutput struct {
 	JSONEnvelopeType   OutputFieldType    `json:"json_envelope_type,omitempty"`
 	JSONSchemaVersion  int                `json:"json_schema_version,omitempty"`
 	TextPresentation   TextPresentation   `json:"-"`
+	readSettlement     readOutputSettlement
 }
 
 // PaginationCompletion states the one machine-readable condition that marks
@@ -588,7 +600,7 @@ func NewCatalog(commands ...CommandSpec) Catalog {
 
 func defaultErrorClassification(effect operation.Effect, kind fault.Kind, code string) (fault.Phase, fault.ChangeState) {
 	if effect == operation.EffectRead {
-		if code == "output_write_failed" || code == "output_encoding_failed" || code == "output_contract_exceeded" {
+		if code == "output_write_failed" || code == consumedReadOutputWriteFailureCode || code == "output_encoding_failed" || code == "output_contract_exceeded" {
 			return fault.PhasePresentation, fault.ChangeNotApplicable
 		}
 		return fault.PhaseObservation, fault.ChangeNotApplicable
@@ -836,7 +848,8 @@ func defaultCatalog() Catalog {
 	)
 	commands := append(catalog.commands, completionCommandSpecs()...)
 	commands = append(commands, runtimeCommandSpecs()...)
-	return NewCatalog(append(commands, serviceExposureCommandSpecs()...)...)
+	commands = append(commands, serviceExposureCommandSpecs()...)
+	return NewCatalog(append(commands, permissionWaitCommandSpecs()...)...)
 }
 
 // DefaultCatalog returns the public Tobari CLI contract.
@@ -1314,8 +1327,13 @@ func validateAgentContract(command CommandSpec) error {
 		if err := validateOutputFieldName(contract.Output.JSONEnvelope); err != nil {
 			return fmt.Errorf("agent JSON envelope: %w", err)
 		}
-		if contract.Output.JSONEnvelopeType != OutputFieldTypeObject && contract.Output.JSONEnvelopeType != OutputFieldTypeArray {
-			return fmt.Errorf("agent JSON envelope type must be object or array")
+		if contract.Output.JSONEnvelopeType != OutputFieldTypeObject && contract.Output.JSONEnvelopeType != OutputFieldTypeArray &&
+			contract.Output.JSONEnvelopeType != OutputFieldTypeString {
+			return fmt.Errorf("agent JSON envelope type must be object, array, or a declared scalar string")
+		}
+		if contract.Output.JSONEnvelopeType == OutputFieldTypeString &&
+			(len(contract.Output.Fields) != 1 || contract.Output.Fields[0].Name != contract.Output.JSONEnvelope || contract.Output.Fields[0].Type != OutputFieldTypeString) {
+			return fmt.Errorf("agent scalar JSON envelope must have one same-named string field")
 		}
 		if contract.Output.JSONSchemaVersion <= 0 {
 			return fmt.Errorf("agent JSON schema version must be positive")
@@ -1380,6 +1398,7 @@ func validateAgentContract(command CommandSpec) error {
 	}
 	_, noOutput := seenFormats[OutputFormatNone]
 	_, hasReadOutputFailure := seenErrors["output_write_failed"]
+	_, hasConsumedReadOutputFailure := seenErrors[consumedReadOutputWriteFailureCode]
 	_, hasMutationOutputFailure := seenErrors["mutation_output_write_failed"]
 	if command.Effect == operation.EffectRead && hasMutationOutputFailure {
 		return fmt.Errorf("read command must not declare mutation_output_write_failed")
@@ -1387,12 +1406,30 @@ func validateAgentContract(command CommandSpec) error {
 	if command.Effect != operation.EffectRead && hasReadOutputFailure {
 		return fmt.Errorf("mutating command must not declare retryable output_write_failed")
 	}
-	if noOutput && (hasReadOutputFailure || hasMutationOutputFailure) {
+	if command.Effect != operation.EffectRead && hasConsumedReadOutputFailure {
+		return fmt.Errorf("mutating command must not declare consumed read output failure")
+	}
+	if noOutput && (hasReadOutputFailure || hasConsumedReadOutputFailure || hasMutationOutputFailure) {
 		return fmt.Errorf("command without output must not declare an output write failure")
 	}
 	if !noOutput && command.Effect == operation.EffectRead {
-		if err := requireAgentError(seenErrors, "output_write_failed", fault.KindInternal, true); err != nil {
-			return err
+		switch contract.Output.readSettlement {
+		case readOutputSettlementRetryable:
+			if hasConsumedReadOutputFailure {
+				return fmt.Errorf("retryable read must not declare consumed read output failure")
+			}
+			if err := requireAgentError(seenErrors, "output_write_failed", fault.KindInternal, true); err != nil {
+				return err
+			}
+		case readOutputSettlementConsumed:
+			if hasReadOutputFailure {
+				return fmt.Errorf("consumed read must not declare retryable output_write_failed")
+			}
+			if err := requireAgentError(seenErrors, consumedReadOutputWriteFailureCode, fault.KindInternal, false); err != nil {
+				return err
+			}
+		default:
+			return fmt.Errorf("read output settlement is invalid")
 		}
 	}
 	if command.Effect == operation.EffectRead {
@@ -2433,6 +2470,20 @@ func (c Catalog) Commands() []CommandSpec {
 	commands := make([]CommandSpec, 0, len(c.commands))
 	for _, command := range c.commands {
 		if command.Visibility == CommandVisibilityInternal || command.programName() != c.programName() {
+			continue
+		}
+		commands = append(commands, c.publicCommandProjection(command))
+	}
+	return commands
+}
+
+// PublicCommands returns every public command across Program boundaries in
+// curated registration order. Repository contract tools use this global view;
+// routing and help continue to use the exact Commands Program view.
+func (c Catalog) PublicCommands() []CommandSpec {
+	commands := make([]CommandSpec, 0, len(c.commands))
+	for _, command := range c.commands {
+		if command.Visibility == CommandVisibilityInternal {
 			continue
 		}
 		commands = append(commands, c.publicCommandProjection(command))

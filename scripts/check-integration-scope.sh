@@ -5,6 +5,7 @@ cd "$(dirname "$0")/.."
 scenario=scripts/test-integration.sh
 workspace_service_helper=test/integration/workspace_service_exposure.sh
 gateway_fixture_helper=test/integration/gateway_fixture.sh
+permission_resume_helper=test/integration/permission_resume.sh
 
 expected_phases=$'preflight\nbuild-fixtures\nmanifests-and-cluster\ncredentials-and-workspaces\ngateway-broker-and-transport\nlive-policy-activation\nattachment-scoped-host-loopback\nruntime-failure-boundaries\nlifecycle'
 actual_phases=$(awk '/^begin_phase / { print $2 }' "$scenario")
@@ -29,6 +30,11 @@ if ((gateway_fixture_helper_line_count > 100)); then
   echo "integration scope: Gateway fixture helper grew to $gateway_fixture_helper_line_count lines (limit 100)" >&2
   exit 1
 fi
+permission_resume_helper_line_count=$(wc -l <"$permission_resume_helper" | tr -d ' ')
+if ((permission_resume_helper_line_count > 90)); then
+  echo "integration scope: Permission resume helper grew to $permission_resume_helper_line_count lines (limit 90)" >&2
+  exit 1
+fi
 ./test/integration/gateway_fixture_test.sh
 for claim in \
   'run_tobari service requests' \
@@ -41,8 +47,20 @@ for claim in \
     exit 1
   fi
 done
+# The claim intentionally matches the literal shell variable in the sourced helper.
+# shellcheck disable=SC2016
+for claim in \
+  'schema_version") != 2' \
+  'tobari-permission wait --id pwt_' \
+  'allow_exact_effect "$work_id" mock-upstream GET /permission-resume' \
+  'fresh independently authorized permission-resume retry'; do
+  if ! grep -F "$claim" "$permission_resume_helper" >/dev/null; then
+    echo "integration scope: missing permission resume boundary canary: $claim" >&2
+    exit 1
+  fi
+done
 
-cli_reference_count=$(grep -Ehoc 'run_tobari(_at|_pty_at)?' "$scenario" "$workspace_service_helper" | awk '{sum += $1} END {print sum}')
+cli_reference_count=$(grep -Ehoc 'run_tobari(_at|_pty_at)?' "$scenario" "$workspace_service_helper" "$permission_resume_helper" | awk '{sum += $1} END {print sum}')
 if ((cli_reference_count > 45)); then
   echo "integration scope: scenario grew to $cli_reference_count CLI references (limit 45)" >&2
   exit 1
@@ -63,6 +81,7 @@ fi
 # create envelope must never return to executable examples or integration.
 public_cli_surfaces=(
   "$scenario"
+  "$permission_resume_helper"
   examples/auth-providers/kubernetes-bearer/README.md
   examples/auth-providers/twg-delegated-oauth/README.md
 )

@@ -212,6 +212,8 @@ func (c *CLI) renderRootHelpWithColor(color bool) []byte {
 	title := "Tobari"
 	if program == ExposureProgramName {
 		title = "Tobari · Workspace service exposure"
+	} else if program == PermissionProgramName {
+		title = "Tobari · Permission wait"
 	}
 	fmt.Fprintln(&output, applyStyleToken(color, styleAccent, title))
 	fmt.Fprintln(&output)
@@ -231,6 +233,8 @@ func (c *CLI) renderRootHelpWithColor(color bool) []byte {
 	}
 	if program == ExposureProgramName {
 		startHere = []struct{ path, description string }{{path: ExposureProgramName, description: "Request one exact Workspace-loopback HTTP service"}}
+	} else if program == PermissionProgramName {
+		startHere = []struct{ path, description string }{{path: "wait", description: "Wait for one reviewed attachment-owned permission result"}}
 	}
 	for _, start := range startHere {
 		command, found := c.catalog.Lookup(start.path)
@@ -387,8 +391,15 @@ func renderCommandHelpWithColor(command CommandSpec, color bool) []byte {
 			}
 			fmt.Fprintf(&output, "    %s\n", applyStyleToken(color, styleMuted, fmt.Sprintf("range: %s..%s", minimum, maximum)))
 		}
-		if input.MinimumLength != nil {
-			fmt.Fprintf(&output, "    %s\n", applyStyleToken(color, styleMuted, fmt.Sprintf("minimum UTF-8 bytes: %d", *input.MinimumLength)))
+		if input.MinimumLength != nil || input.MaximumLength != nil {
+			minimum, maximum := "unbounded", "unbounded"
+			if input.MinimumLength != nil {
+				minimum = fmt.Sprintf("%d", *input.MinimumLength)
+			}
+			if input.MaximumLength != nil {
+				maximum = fmt.Sprintf("%d", *input.MaximumLength)
+			}
+			fmt.Fprintf(&output, "    %s\n", applyStyleToken(color, styleMuted, fmt.Sprintf("UTF-8 byte length: %s..%s", minimum, maximum)))
 		}
 		if len(input.Requires) != 0 {
 			fmt.Fprintf(&output, "    %s\n", applyStyleToken(color, styleMuted, "requires when supplied: "+strings.Join(input.Requires, ", ")))

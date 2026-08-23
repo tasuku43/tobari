@@ -25,6 +25,8 @@ const (
 	exposureHelperImageDirectory    = "/opt/tobari/libexec"
 	exposureHelperImageBinary       = "tobari-expose"
 	exposureHelperImageIdentity     = "tobari-expose.identity.json"
+	permissionHelperImageBinary     = "tobari-permission"
+	permissionHelperImageIdentity   = "tobari-permission.identity.json"
 	exposureHelperMaxBinaryBytes    = 64 << 20
 	exposureHelperMaxIdentityBytes  = 4 << 10
 	exposureHelperDiagnosticBytes   = 4 << 10
@@ -32,13 +34,17 @@ const (
 	exposureHelperAutoRemoveSeconds = 15
 	exposureHelperAPILabel          = "io.tobari.exposure-helper-api"
 	exposureHelperSourceLabel       = "io.tobari.exposure-helper-source"
+	permissionHelperAPILabel        = "io.tobari.permission-helper-api"
+	permissionHelperSourceLabel     = "io.tobari.permission-helper-source"
 )
 
 type exposureHelperImageMetadata struct {
-	Architecture string `json:"architecture"`
-	OS           string `json:"os"`
-	API          string `json:"api"`
-	Source       string `json:"source"`
+	Architecture     string `json:"architecture"`
+	OS               string `json:"os"`
+	ExposureAPI      string `json:"exposure_api"`
+	ExposureSource   string `json:"exposure_source"`
+	PermissionAPI    string `json:"permission_api"`
+	PermissionSource string `json:"permission_source"`
 }
 
 type exposureHelperIdentity struct {
@@ -49,7 +55,17 @@ type exposureHelperIdentity struct {
 	SHA256        string `json:"sha256"`
 }
 
-func (r *Runtime) materializeWorkspaceExposureHelper(ctx context.Context, image string) (resultErr error) {
+type workspaceHelperArtifact struct {
+	binaryName   string
+	identityName string
+}
+
+var workspaceHelperArtifacts = []workspaceHelperArtifact{
+	{binaryName: exposureHelperImageBinary, identityName: exposureHelperImageIdentity},
+	{binaryName: permissionHelperImageBinary, identityName: permissionHelperImageIdentity},
+}
+
+func (r *Runtime) materializeWorkspaceHelpers(ctx context.Context, image string) (resultErr error) {
 	expectedSource, err := runtimeassets.ExposureHelperSourceVersion()
 	if err != nil {
 		return err
@@ -65,8 +81,10 @@ func (r *Runtime) materializeWorkspaceExposureHelper(ctx context.Context, image 
 	imageOS, imageArch := normalizePlatform(metadata.OS, metadata.Architecture)
 	serverOS, serverArch := normalizePlatform(server.OS, server.Architecture)
 	if imageOS != "linux" || (imageArch != "amd64" && imageArch != "arm64") ||
-		serverOS != imageOS || serverArch != imageArch || metadata.API != "1" || metadata.Source != expectedSource {
-		return fmt.Errorf("Workspace service helper image identity is incompatible with this Tobari build and Docker Engine")
+		serverOS != imageOS || serverArch != imageArch ||
+		metadata.ExposureAPI != "1" || metadata.ExposureSource != expectedSource ||
+		metadata.PermissionAPI != "1" || metadata.PermissionSource != expectedSource {
+		return fmt.Errorf("Workspace helper image identity is incompatible with this Tobari build and Docker Engine")
 	}
 
 	name, err := randomExposureHelperExtractionName()
@@ -114,30 +132,35 @@ func (r *Runtime) materializeWorkspaceExposureHelper(ctx context.Context, image 
 		return fmt.Errorf("start bounded Workspace service helper extraction container: %w: %s", err, boundedDiagnostic(startDiagnostic.buffer.Bytes()))
 	}
 
-	binary, identityData, err := r.copyExposureHelperArchive(ctx, name)
+	binaries, identities, err := r.copyExposureHelperArchive(ctx, name)
 	if err != nil {
 		return err
 	}
-	var identity exposureHelperIdentity
-	if decodeStrictJSON(identityData, &identity) != nil || identity.SchemaVersion != 1 ||
-		identity.API != exposureHelperAPI || identity.Source != expectedSource ||
-		identity.Architecture != imageArch || !validLowerHex(identity.SHA256, sha256.Size*2) {
-		return fmt.Errorf("Workspace service helper identity document is invalid")
-	}
-	digest := sha256.Sum256(binary)
-	if hex.EncodeToString(digest[:]) != identity.SHA256 {
-		return fmt.Errorf("Workspace service helper digest does not match its verified image identity")
-	}
-	if err := validateExposureHelperELF(binary, imageArch); err != nil {
-		return err
+	for _, artifact := range workspaceHelperArtifacts {
+		binary, identityData := binaries[artifact.binaryName], identities[artifact.identityName]
+		var identity exposureHelperIdentity
+		if decodeStrictJSON(identityData, &identity) != nil || identity.SchemaVersion != 1 ||
+			identity.API != exposureHelperAPI || identity.Source != expectedSource ||
+			identity.Architecture != imageArch || !validLowerHex(identity.SHA256, sha256.Size*2) {
+			return fmt.Errorf("Workspace helper %q identity document is invalid", artifact.binaryName)
+		}
+		digest := sha256.Sum256(binary)
+		if hex.EncodeToString(digest[:]) != identity.SHA256 {
+			return fmt.Errorf("Workspace helper %q digest does not match its verified image identity", artifact.binaryName)
+		}
+		if err := validateExposureHelperELF(binary, imageArch); err != nil {
+			return fmt.Errorf("validate Workspace helper %q: %w", artifact.binaryName, err)
+		}
 	}
 	version, err := runtimeassets.Version()
 	if err != nil {
 		return err
 	}
-	target := filepath.Join(r.stateDirectory, "runtime", version, "helpers", exposureHelperImageBinary)
-	if err := replaceExposureHelperFile(target, binary); err != nil {
-		return fmt.Errorf("activate Workspace service helper: %w", err)
+	for _, artifact := range workspaceHelperArtifacts {
+		target := filepath.Join(r.stateDirectory, "runtime", version, "helpers", artifact.binaryName)
+		if err := replaceExposureHelperFile(target, binaries[artifact.binaryName]); err != nil {
+			return fmt.Errorf("activate Workspace helper %q: %w", artifact.binaryName, err)
+		}
 	}
 	return nil
 }
@@ -145,7 +168,7 @@ func (r *Runtime) materializeWorkspaceExposureHelper(ctx context.Context, image 
 func (r *Runtime) inspectExposureHelperImage(ctx context.Context, image string) (exposureHelperImageMetadata, error) {
 	output, err := r.runner.Output(ctx, []string{
 		"image", "inspect", "--format",
-		`{"architecture":{{json .Architecture}},"os":{{json .Os}},"api":{{json (index .Config.Labels "` + exposureHelperAPILabel + `")}},"source":{{json (index .Config.Labels "` + exposureHelperSourceLabel + `")}}}`,
+		`{"architecture":{{json .Architecture}},"os":{{json .Os}},"exposure_api":{{json (index .Config.Labels "` + exposureHelperAPILabel + `")}},"exposure_source":{{json (index .Config.Labels "` + exposureHelperSourceLabel + `")}},"permission_api":{{json (index .Config.Labels "` + permissionHelperAPILabel + `")}},"permission_source":{{json (index .Config.Labels "` + permissionHelperSourceLabel + `")}}}`,
 		image,
 	}, os.Environ())
 	if err != nil {
@@ -158,7 +181,7 @@ func (r *Runtime) inspectExposureHelperImage(ctx context.Context, image string) 
 	return metadata, nil
 }
 
-func (r *Runtime) copyExposureHelperArchive(ctx context.Context, container string) ([]byte, []byte, error) {
+func (r *Runtime) copyExposureHelperArchive(ctx context.Context, container string) (map[string][]byte, map[string][]byte, error) {
 	reader, writer := io.Pipe()
 	runResult := make(chan error, 1)
 	go func() {
@@ -170,7 +193,7 @@ func (r *Runtime) copyExposureHelperArchive(ctx context.Context, container strin
 		_ = writer.CloseWithError(err)
 		runResult <- err
 	}()
-	binary, identity, parseErr := readExposureHelperArchive(reader)
+	binaries, identities, parseErr := readExposureHelperArchive(reader)
 	if parseErr != nil {
 		_ = reader.CloseWithError(parseErr)
 	} else {
@@ -183,10 +206,10 @@ func (r *Runtime) copyExposureHelperArchive(ctx context.Context, container strin
 	if runErr != nil {
 		return nil, nil, runErr
 	}
-	return binary, identity, nil
+	return binaries, identities, nil
 }
 
-func readExposureHelperArchive(source io.Reader) ([]byte, []byte, error) {
+func readExposureHelperArchive(source io.Reader) (map[string][]byte, map[string][]byte, error) {
 	archive := tar.NewReader(source)
 	files := map[string][]byte{}
 	for {
@@ -206,9 +229,9 @@ func readExposureHelperArchive(source io.Reader) ([]byte, []byte, error) {
 		}
 		limit := int64(0)
 		switch cleaned {
-		case exposureHelperImageBinary:
+		case exposureHelperImageBinary, permissionHelperImageBinary:
 			limit = exposureHelperMaxBinaryBytes
-		case exposureHelperImageIdentity:
+		case exposureHelperImageIdentity, permissionHelperImageIdentity:
 			limit = exposureHelperMaxIdentityBytes
 		default:
 			return nil, nil, fmt.Errorf("Workspace service helper archive contains an unexpected file")
@@ -222,10 +245,19 @@ func readExposureHelperArchive(source io.Reader) ([]byte, []byte, error) {
 		}
 		files[cleaned] = data
 	}
-	if len(files) != 2 || files[exposureHelperImageBinary] == nil || files[exposureHelperImageIdentity] == nil {
+	if len(files) != len(workspaceHelperArtifacts)*2 {
 		return nil, nil, fmt.Errorf("Workspace service helper archive is incomplete")
 	}
-	return files[exposureHelperImageBinary], files[exposureHelperImageIdentity], nil
+	binaries := map[string][]byte{}
+	identities := map[string][]byte{}
+	for _, artifact := range workspaceHelperArtifacts {
+		if files[artifact.binaryName] == nil || files[artifact.identityName] == nil {
+			return nil, nil, fmt.Errorf("Workspace service helper archive is incomplete")
+		}
+		binaries[artifact.binaryName] = files[artifact.binaryName]
+		identities[artifact.identityName] = files[artifact.identityName]
+	}
+	return binaries, identities, nil
 }
 
 func validateExposureHelperELF(binary []byte, architecture string) error {
@@ -256,7 +288,7 @@ func replaceExposureHelperFile(target string, data []byte) error {
 	if err := os.MkdirAll(directory, 0o700); err != nil {
 		return err
 	}
-	temporary, err := os.CreateTemp(directory, ".tobari-expose-*")
+	temporary, err := os.CreateTemp(directory, ".tobari-helper-*")
 	if err != nil {
 		return err
 	}

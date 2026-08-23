@@ -50,7 +50,7 @@ func fatal(err error) {
 
 func catalogCapabilityIDs(catalog cli.Catalog) map[string]struct{} {
 	ids := make(map[string]struct{})
-	for _, command := range catalog.Commands() {
+	for _, command := range catalog.PublicCommands() {
 		ids[command.Agent.CapabilityID] = struct{}{}
 	}
 	return ids

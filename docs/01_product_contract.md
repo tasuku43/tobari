@@ -369,11 +369,11 @@ discovery and immediate attachment-local Allow once or Deny. The pre-public
 `policy review` path and registered root `review` selector have no alias or
 fallback; persisted policy and attachment state need no migration.
 
-Every Tobari-controlled base Runtime image builds a dedicated Linux Workspace
-helper from the checked source/Catalog closure with a pinned builder. The host
-extracts and verifies that engine-native helper, then mounts it read-only only
-while attached. Its main hardcodes the helper Program; changing `argv[0]` or
-copying it cannot expose host commands:
+Every Tobari-controlled base Runtime image builds dedicated Linux Workspace
+helpers from the checked source/Catalog closure with a pinned builder. The host
+extracts and verifies those engine-native helpers, then mounts them read-only
+only while attached. Each main hardcodes its helper Program; changing `argv[0]`
+or copying a helper cannot expose host commands:
 
 | Helper command | Role | Effect | Outcome |
 |---|---|---|---|
@@ -803,6 +803,7 @@ Human output is concise text. The canonical public machine-output inventory is:
 | Policy rules | `policy_rules` | 1 |
 | Workspace list | `workspaces` | 2 |
 | Workspace status | `status` | 2 |
+| Permission wait result | `result` | 1 |
 <!-- public-cli-json-schemas:end -->
 
 Workspace status JSON always reports the selected Workspace Manifest ID/name, logical

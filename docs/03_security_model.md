@@ -628,8 +628,9 @@ one active connection and three attempts per ID. Request and response frames
 are bounded to 4 KiB and 1 KiB. The helper observes the canonical live OPA
 evaluator and returns only `Allow`, explicit `Deny`, or validated lease
 `Expired`; default deny and ambiguous or unapplied state remain nonterminal.
-It receives no policy mutation, proposal, general network, filesystem, Docker,
-process, or TTY capability and never reconstructs or retries the request.
+It receives no policy mutation, proposal, general or external network,
+unrestricted filesystem, Docker, process, or TTY capability and never
+reconstructs or retries the request.
 
 The child-visible Unix socket is not authority: the custom Runtime and another
 same-UID process can remove or replace it. It is a transport bridge only. The
@@ -643,6 +644,14 @@ response-write failure invalidates the channel; checked cleanup terminates the
 control exec and proves its socket absent before the attachment owner is torn
 down. No signed result authorizes policy mutation or retries the original
 request.
+
+The permission helper is a dedicated hardcoded Linux Program, not a custom
+Runtime executable or host release alias. The pinned base build uses the same
+checked Go source/module closure and per-binary source/API/digest identity as
+the exposure helper. Host extraction requires both Linux ELF artifacts to match
+the Docker Engine architecture before owner-only storage, and every standard or
+custom Runtime Workspace receives the verified `tobari-permission` binary only
+through the read-only mount.
 
 The host-owned retained denial queue remains the source of truth, and only the
 reference-bound host action can change policy. Interactive `review permissions`
