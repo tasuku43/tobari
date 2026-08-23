@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -51,6 +52,14 @@ func TestInteractiveSessionOwnsWaitWithoutHostLoopbackStoreOrRoute(t *testing.T)
 	if owner.session.OwnerKind != tobari.PermissionSessionOwnerInteractive || owner.session.FrozenPrincipalFingerprint != frozenPrincipalFingerprint(binding) {
 		t.Fatalf("canonical owner session = %+v", owner.session)
 	}
+	directoryInfo, err := os.Lstat(runtime.interactiveAttachmentSocketDirectory())
+	if err != nil || directoryInfo.Mode().Perm() != 0o700 || !directoryInfo.IsDir() || directoryInfo.Mode()&os.ModeSymlink != 0 {
+		t.Fatalf("permission socket directory mode = %v, %v", directoryInfo, err)
+	}
+	socketInfo, err := os.Lstat(runtime.interactiveAttachmentSocketPath(owner.session))
+	if err != nil || socketInfo.Mode().Perm() != 0o600 || socketInfo.Mode()&os.ModeSocket == 0 || socketInfo.Mode()&os.ModeSymlink != 0 {
+		t.Fatalf("permission socket mode = %v, %v", socketInfo, err)
+	}
 	borrower, err := runtime.beginInteractiveWorkspaceAttachment(context.Background(), workspace)
 	if err != nil {
 		t.Fatal(err)
@@ -76,6 +85,67 @@ func TestInteractiveSessionOwnsWaitWithoutHostLoopbackStoreOrRoute(t *testing.T)
 	owner.waits.mu.Unlock()
 	if !exists {
 		t.Fatal("acknowledged wait was not retained")
+	}
+}
+
+func TestInteractiveSessionRejectsUnsafeSocketDirectoryBeforeRegistryMutation(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		create func(string) error
+	}{
+		{name: "broad mode", create: func(path string) error { return os.Mkdir(path, 0o755) }},
+		{name: "symlink", create: func(path string) error { return os.Symlink(t.TempDir(), path) }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			runtime, _ := newRuntime(root+"/config", root+"/state", &recordingRunner{})
+			workspace := projectRuntimeInstance(t, runtime)
+			prepareInteractiveSessionPrincipal(t, runtime, workspace)
+			socketDirectory := runtime.interactiveAttachmentSocketDirectory()
+			if err := test.create(socketDirectory); err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = os.Remove(socketDirectory) })
+			if _, err := runtime.beginInteractiveWorkspaceAttachment(context.Background(), workspace); err == nil {
+				t.Fatal("unsafe permission socket directory was accepted")
+			}
+			if _, err := os.Lstat(runtime.interactiveAttachmentDirectory()); !os.IsNotExist(err) {
+				t.Fatalf("interactive registry mutated before socket directory rejection: %v", err)
+			}
+		})
+	}
+}
+
+func TestPermissionSessionLivenessRejectsBroadAndSymlinkedSockets(t *testing.T) {
+	root := t.TempDir()
+	runtime, _ := newRuntime(root+"/config", root+"/state", &recordingRunner{})
+	workspace := projectRuntimeInstance(t, runtime)
+	prepareInteractiveSessionPrincipal(t, runtime, workspace)
+	owner, err := runtime.beginInteractiveWorkspaceAttachment(context.Background(), workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer owner.Close(context.Background())
+	path := runtime.interactiveAttachmentSocketPath(owner.session)
+	if err := os.Chmod(path, 0o666); err != nil {
+		t.Fatal(err)
+	}
+	if runtime.permissionSessionActive(owner.session) {
+		t.Fatal("broad-mode permission socket was considered live")
+	}
+	if err := os.Chmod(path, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	symlinked := owner.session
+	symlinked.AttachmentID = "att_ffffffffffffffffffffffffffffffff"
+	symlinked.IngestionSocket = "pws_ffffffffffffffffffffffffffffffff.sock"
+	symlinkPath := runtime.interactiveAttachmentSocketPath(symlinked)
+	if err := os.Symlink(path, symlinkPath); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(symlinkPath)
+	if runtime.permissionSessionActive(symlinked) {
+		t.Fatal("symlinked permission socket was considered live")
 	}
 }
 
@@ -147,7 +217,7 @@ func TestInteractiveSessionRetainsDriftedAuthorityAndClosesTransport(t *testing.
 	if err := writeAtomicJSON(runtime.interactiveAttachmentSessionRegistryPath(), registry); err != nil {
 		t.Fatal(err)
 	}
-	if err := owner.renew(time.Now()); err == nil {
+	if err := owner.renew(); err == nil {
 		t.Fatal("same-PID record with replaced nonce was renewed")
 	}
 
@@ -202,7 +272,8 @@ func TestInteractiveSessionRenewsAcrossMultipleHeartbeats(t *testing.T) {
 	created, _ := time.Parse(time.RFC3339Nano, owner.session.CreatedAt)
 	for heartbeat := 1; heartbeat <= 3; heartbeat++ {
 		issued := created.Add(time.Duration(heartbeat) * permissionSessionHeartbeat)
-		if err := owner.renew(issued); err != nil {
+		owner.clock = func() time.Time { return issued }
+		if err := owner.renew(); err != nil {
 			t.Fatalf("heartbeat %d: %v", heartbeat, err)
 		}
 		var registry tobari.InteractiveAttachmentSessionRegistry
@@ -211,6 +282,13 @@ func TestInteractiveSessionRenewsAcrossMultipleHeartbeats(t *testing.T) {
 		}
 		if err := registry.Sessions[0].Validate(); err != nil || registry.Sessions[0].LeaseIssuedAt != issued.UTC().Format(time.RFC3339Nano) {
 			t.Fatalf("heartbeat %d lease = %+v, %v", heartbeat, registry.Sessions[0], err)
+		}
+		persistedExpiry, _ := time.Parse(time.RFC3339Nano, registry.Sessions[0].ExpiresAt)
+		owner.waits.mu.Lock()
+		memoryExpiry := owner.waits.ownerExpiry
+		owner.waits.mu.Unlock()
+		if !memoryExpiry.Equal(persistedExpiry) {
+			t.Fatalf("heartbeat %d registry/in-memory expiry = %s / %s", heartbeat, persistedExpiry, memoryExpiry)
 		}
 	}
 }
@@ -226,12 +304,36 @@ func TestInteractiveSessionCannotResurrectExpiredLease(t *testing.T) {
 	}
 	defer owner.Close(context.Background())
 	expires, _ := time.Parse(time.RFC3339Nano, owner.session.ExpiresAt)
-	if err := owner.renew(expires.Add(time.Nanosecond)); err == nil {
+	owner.clock = func() time.Time { return expires.Add(time.Nanosecond) }
+	if err := owner.renew(); err == nil {
 		t.Fatal("expired interactive attachment lease was resurrected")
 	}
 	var registry tobari.InteractiveAttachmentSessionRegistry
 	if err := readStrictJSON(runtime.interactiveAttachmentSessionRegistryPath(), &registry); err != nil || len(registry.Sessions) != 1 || registry.Sessions[0].ExpiresAt != owner.session.ExpiresAt {
 		t.Fatalf("expired lease was rewritten: %+v, %v", registry, err)
+	}
+}
+
+func TestInteractiveSessionRenewIgnoresStaleTickerAfterProcessSuspension(t *testing.T) {
+	root := t.TempDir()
+	runtime, _ := newRuntime(root+"/config", root+"/state", &recordingRunner{})
+	workspace := projectRuntimeInstance(t, runtime)
+	prepareInteractiveSessionPrincipal(t, runtime, workspace)
+	owner, err := runtime.beginInteractiveWorkspaceAttachment(context.Background(), workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer owner.Close(context.Background())
+	expires, _ := time.Parse(time.RFC3339Nano, owner.session.ExpiresAt)
+	// A ticker value queued before expiry is intentionally unavailable to the
+	// renewal method; only this post-suspension wall-clock observation is used.
+	owner.clock = func() time.Time { return expires.Add(time.Nanosecond) }
+	if err := owner.renew(); err == nil {
+		t.Fatal("stale pre-suspension ticker resurrected an expired owner")
+	}
+	var registry tobari.InteractiveAttachmentSessionRegistry
+	if err := readStrictJSON(runtime.interactiveAttachmentSessionRegistryPath(), &registry); err != nil || len(registry.Sessions) != 1 || registry.Sessions[0].ExpiresAt != owner.session.ExpiresAt {
+		t.Fatalf("stale tick rewrote authority: %+v, %v", registry, err)
 	}
 }
 
@@ -254,7 +356,8 @@ func TestInteractiveSessionHeartbeatFailureShutsTransportAndAuthority(t *testing
 	if err := writeAtomicJSON(runtime.interactiveAttachmentSessionRegistryPath(), registry); err != nil {
 		t.Fatal(err)
 	}
-	if err := owner.renew(time.Now().UTC()); err == nil {
+	owner.clock = func() time.Time { return time.Now().UTC() }
+	if err := owner.renew(); err == nil {
 		t.Fatal("expired heartbeat renewed")
 	}
 	owner.failClosed()
@@ -431,6 +534,88 @@ func TestInteractiveSessionCompactsFullExpiredRegistry(t *testing.T) {
 	var registry tobari.InteractiveAttachmentSessionRegistry
 	if err := readStrictJSON(runtime.interactiveAttachmentSessionRegistryPath(), &registry); err != nil || len(registry.Sessions) != 1 || registry.Sessions[0].AttachmentID != owner.session.AttachmentID {
 		t.Fatalf("compacted registry = %+v, %v", registry, err)
+	}
+}
+
+func TestInteractiveSessionCompactionRemovesExactCrashedSocket(t *testing.T) {
+	root := t.TempDir()
+	runtime, _ := newRuntime(root+"/config", root+"/state", &recordingRunner{})
+	workspace := projectRuntimeInstance(t, runtime)
+	binding := prepareInteractiveSessionPrincipal(t, runtime, workspace)
+	if err := runtime.ensureInteractiveAttachmentStore(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	created := time.Now().UTC().Add(-2 * tobari.PermissionSessionLease)
+	expired := tobari.InteractiveAttachmentSession{
+		SchemaVersion: tobari.PermissionSessionSchema, WorkspaceManifestID: workspace.WorkspaceManifestID, WorkspaceID: workspace.ID,
+		AttachmentID: "att_eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", OwnerKind: tobari.PermissionSessionOwnerInteractive,
+		FrozenPrincipalFingerprint: frozenPrincipalFingerprint(binding), OwnerPID: os.Getpid(),
+		IngestionSocket: "pws_eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee.sock", IngestionNonce: strings.Repeat("e", 64),
+		CreatedAt: created.Format(time.RFC3339Nano), LeaseIssuedAt: created.Format(time.RFC3339Nano), ExpiresAt: created.Add(tobari.PermissionSessionLease).Format(time.RFC3339Nano),
+	}
+	socketPath := runtime.interactiveAttachmentSocketPath(expired)
+	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: socketPath, Net: "unix"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	listener.SetUnlinkOnClose(false)
+	if err := os.Chmod(socketPath, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := listener.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeAtomicJSON(runtime.interactiveAttachmentSessionRegistryPath(), tobari.InteractiveAttachmentSessionRegistry{SchemaVersion: tobari.PermissionSessionSchema, Sessions: []tobari.InteractiveAttachmentSession{expired}}); err != nil {
+		t.Fatal(err)
+	}
+	owner, err := runtime.beginInteractiveWorkspaceAttachment(context.Background(), workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer owner.Close(context.Background())
+	if _, err := os.Lstat(socketPath); !os.IsNotExist(err) {
+		t.Fatalf("crashed expired socket remains after compaction: %v", err)
+	}
+}
+
+func TestInteractiveSessionCompactionRetainsForeignExpiredSocketNode(t *testing.T) {
+	root := t.TempDir()
+	runtime, _ := newRuntime(root+"/config", root+"/state", &recordingRunner{})
+	workspace := projectRuntimeInstance(t, runtime)
+	binding := prepareInteractiveSessionPrincipal(t, runtime, workspace)
+	if err := runtime.ensureInteractiveAttachmentStore(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	created := time.Now().UTC().Add(-2 * tobari.PermissionSessionLease)
+	expired := tobari.InteractiveAttachmentSession{
+		SchemaVersion: tobari.PermissionSessionSchema, WorkspaceManifestID: workspace.WorkspaceManifestID, WorkspaceID: workspace.ID,
+		AttachmentID: "att_dddddddddddddddddddddddddddddddd", OwnerKind: tobari.PermissionSessionOwnerInteractive,
+		FrozenPrincipalFingerprint: frozenPrincipalFingerprint(binding), OwnerPID: os.Getpid(),
+		IngestionSocket: "pws_dddddddddddddddddddddddddddddddd.sock", IngestionNonce: strings.Repeat("d", 64),
+		CreatedAt: created.Format(time.RFC3339Nano), LeaseIssuedAt: created.Format(time.RFC3339Nano), ExpiresAt: created.Add(tobari.PermissionSessionLease).Format(time.RFC3339Nano),
+	}
+	socketPath := runtime.interactiveAttachmentSocketPath(expired)
+	target := filepath.Join(t.TempDir(), "foreign")
+	if err := os.WriteFile(target, []byte("foreign"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, socketPath); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(socketPath)
+	if err := writeAtomicJSON(runtime.interactiveAttachmentSessionRegistryPath(), tobari.InteractiveAttachmentSessionRegistry{SchemaVersion: tobari.PermissionSessionSchema, Sessions: []tobari.InteractiveAttachmentSession{expired}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runtime.beginInteractiveWorkspaceAttachment(context.Background(), workspace); err == nil {
+		t.Fatal("foreign expired socket node was silently compacted")
+	}
+	info, err := os.Lstat(socketPath)
+	if err != nil || info.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("foreign socket node was changed: %v, %v", info, err)
+	}
+	var registry tobari.InteractiveAttachmentSessionRegistry
+	if err := readStrictJSON(runtime.interactiveAttachmentSessionRegistryPath(), &registry); err != nil || len(registry.Sessions) != 1 || registry.Sessions[0].AttachmentID != expired.AttachmentID {
+		t.Fatalf("foreign socket authority was compacted: %+v, %v", registry, err)
 	}
 }
 

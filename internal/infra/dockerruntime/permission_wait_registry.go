@@ -174,6 +174,23 @@ func (r *permissionWaitRegistry) finish(id string, terminal bool) {
 	}
 }
 
+// fenceTerminal rechecks both attachment and wait lifetime after the bounded
+// external observation. A result that crossed either boundary cannot become
+// authority merely because the observation began while both were current.
+func (r *permissionWaitRegistry) fenceTerminal(record tobari.PermissionWaitRecord) (bool, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	now := r.now()
+	if !r.ownerCurrentLocked(now) {
+		return false, permissionWaitOwnerFault()
+	}
+	expired, err := record.Expired(now)
+	if err != nil {
+		return false, fault.Wrap(fault.KindContract, "invalid_permission_wait_record", "permission wait record is invalid", false, err)
+	}
+	return expired, nil
+}
+
 // WaitPermission implements the read-only application observer port.
 func (r *permissionWaitRegistry) WaitPermission(ctx context.Context, id string) (tobari.PermissionWaitResult, error) {
 	record, err := r.begin(id)
@@ -203,6 +220,14 @@ func (r *permissionWaitRegistry) WaitPermission(ctx context.Context, id string) 
 		result, done, err := r.observer.ObservePermissionDisposition(ctx, record)
 		if err != nil {
 			return "", fault.Wrap(fault.KindUnavailable, "permission_wait_unavailable", "permission disposition is unavailable", true, err)
+		}
+		expired, err = r.fenceTerminal(record)
+		if err != nil {
+			return "", err
+		}
+		if expired {
+			terminal = true
+			return tobari.PermissionWaitResultExpired, nil
 		}
 		if done {
 			if err := result.Validate(); err != nil {

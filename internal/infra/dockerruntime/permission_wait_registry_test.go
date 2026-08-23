@@ -16,11 +16,15 @@ type dispositionObserverStub struct {
 	done    []bool
 	err     error
 	calls   int
+	onCall  func()
 }
 
 func (s *dispositionObserverStub) ObservePermissionDisposition(context.Context, tobari.PermissionWaitRecord) (tobari.PermissionWaitResult, bool, error) {
 	index := s.calls
 	s.calls++
+	if s.onCall != nil {
+		s.onCall()
+	}
 	if s.err != nil {
 		return "", false, s.err
 	}
@@ -59,6 +63,49 @@ func TestPermissionWaitRegistryReturnsTerminalAndConsumes(t *testing.T) {
 	}
 	if _, err := registry.WaitPermission(context.Background(), record.ID); !hasInfrastructureFaultCode(err, "invalid_permission_wait") {
 		t.Fatalf("consumed lookup = %v", err)
+	}
+}
+
+func TestPermissionWaitRegistryRejectsTerminalAcrossOwnerExpiry(t *testing.T) {
+	now, _ := time.Parse(time.RFC3339Nano, "2026-08-23T00:00:01Z")
+	observer := &dispositionObserverStub{results: []tobari.PermissionWaitResult{tobari.PermissionWaitResultAllow}, done: []bool{true}}
+	registry, err := newPermissionWaitRegistry(permissionSessionFixture(), observer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	registry.now = func() time.Time { return now }
+	observer.onCall = func() { now = registry.ownerExpiry }
+	record := permissionWaitRecordFixtureForInfra()
+	if err := registry.Register(record); err != nil {
+		t.Fatal(err)
+	}
+	result, err := registry.WaitPermission(context.Background(), record.ID)
+	if result != "" || !hasInfrastructureFaultCode(err, "permission_wait_owner_unavailable") {
+		t.Fatalf("terminal after owner expiry = %q, %v", result, err)
+	}
+}
+
+func TestPermissionWaitRegistryExpiresInsteadOfAcceptingLateTerminal(t *testing.T) {
+	now, _ := time.Parse(time.RFC3339Nano, "2026-08-23T00:00:01Z")
+	observer := &dispositionObserverStub{results: []tobari.PermissionWaitResult{tobari.PermissionWaitResultDeny}, done: []bool{true}}
+	registry, err := newPermissionWaitRegistry(permissionSessionFixture(), observer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	registry.now = func() time.Time { return now }
+	record := permissionWaitRecordFixtureForInfra()
+	expires, _ := time.Parse(time.RFC3339Nano, record.ExpiresAt)
+	registry.ownerExpiry = expires.Add(time.Minute)
+	observer.onCall = func() { now = expires }
+	if err := registry.Register(record); err != nil {
+		t.Fatal(err)
+	}
+	result, err := registry.WaitPermission(context.Background(), record.ID)
+	if err != nil || result != tobari.PermissionWaitResultExpired {
+		t.Fatalf("terminal after wait expiry = %q, %v", result, err)
+	}
+	if _, err := registry.WaitPermission(context.Background(), record.ID); !hasInfrastructureFaultCode(err, "invalid_permission_wait") {
+		t.Fatalf("late terminal record was not consumed: %v", err)
 	}
 }
 
