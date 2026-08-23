@@ -1003,11 +1003,11 @@ workspace_default_route=$(docker run --rm --network "container:$work_container" 
 assert_contains "$workspace_default_route" "default via $work_gateway_ip" "Workspace guarded default route"
 
 work_status=$(run_tobari_at "$work_root" status --format json)
-work_home=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["status"]["home"])' <<<"$work_status")
+work_home=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["status"]["workspace_home"])' <<<"$work_status")
 restricted_status=$(run_tobari_at "$work_root" status --context restricted --format json)
-restricted_home=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["status"]["home"])' <<<"$restricted_status")
+restricted_home=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["status"]["workspace_home"])' <<<"$restricted_status")
 other_status=$(run_tobari_at "$other_root" status --context restricted --format json)
-other_home=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["status"]["home"])' <<<"$other_status")
+other_home=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["status"]["workspace_home"])' <<<"$other_status")
 [[ $work_home != "$restricted_home" && $work_home != "$other_home" && $restricted_home != "$other_home" ]] || fail "Context-bound Tobari share a home directory"
 printf 'shared-project-files\n' >"$work_root/context-sharing-canary"
 assert_contains "$(run_restricted_project cat "$container_work_root/context-sharing-canary")" "shared-project-files" "same-root cross-Context project file sharing"
