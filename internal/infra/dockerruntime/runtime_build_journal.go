@@ -1,6 +1,7 @@
 package dockerruntime
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -36,6 +37,7 @@ const (
 
 	runtimeBuildOrphanExactManaged = "exact_managed"
 	runtimeBuildOrphanUnknown      = "ownership_unknown"
+	runtimeBuildOrphanAbsent       = "observed_absent"
 	runtimeBuildStagingOwned       = "transaction_owned"
 	runtimeBuildStagingAbsent      = "observed_absent"
 	runtimeBuildStagingUnknown     = "outcome_unknown"
@@ -106,7 +108,7 @@ func (j runtimeBuildJournal) Validate(r *Runtime) error {
 		if err := origin.Validate(r); err != nil {
 			return err
 		}
-		if origin.Phase == runtimeBuildPhaseOrphanStaging && origin.OrphanStaging != runtimeBuildOrphanExactManaged {
+		if origin.Phase == runtimeBuildPhaseOrphanStaging && origin.OrphanStaging != runtimeBuildOrphanExactManaged && origin.OrphanStaging != runtimeBuildOrphanAbsent {
 			return fmt.Errorf("completing Runtime orphan staging authority is invalid")
 		}
 		if origin.Phase == runtimeBuildPhaseFailed && origin.AttemptSettlement != runtimeBuildAttemptSettled {
@@ -139,7 +141,7 @@ func (j runtimeBuildJournal) Validate(r *Runtime) error {
 			return fmt.Errorf("Runtime build journal image evidence is invalid")
 		}
 		if j.Phase == runtimeBuildPhaseOrphanStaging {
-			if j.OrphanStaging != runtimeBuildOrphanExactManaged && j.OrphanStaging != runtimeBuildOrphanUnknown {
+			if j.OrphanStaging != runtimeBuildOrphanExactManaged && j.OrphanStaging != runtimeBuildOrphanUnknown && j.OrphanStaging != runtimeBuildOrphanAbsent {
 				return fmt.Errorf("Runtime orphan staging disposition is invalid")
 			}
 			if (j.OrphanStaging == runtimeBuildOrphanExactManaged) != (j.ImageDigest != "") {
@@ -294,6 +296,7 @@ func validateRuntimeBuildJournalTransition(previous, next runtimeBuildJournal) e
 	allowed := previous.Phase == runtimeBuildPhaseSnapshotting && next.Phase == runtimeBuildPhasePrepared ||
 		previous.Phase == runtimeBuildPhasePrepared && next.Phase == runtimeBuildPhaseBuilding ||
 		previous.Phase == runtimeBuildPhasePrepared && next.Phase == runtimeBuildPhaseOrphanStaging ||
+		previous.Phase == runtimeBuildPhaseOrphanStaging && previous.OrphanStaging == runtimeBuildOrphanUnknown && next.Phase == runtimeBuildPhaseOrphanStaging && next.OrphanStaging == runtimeBuildOrphanAbsent && previous.ImageDigest == next.ImageDigest ||
 		previous.Phase == runtimeBuildPhaseBuilding && (next.Phase == runtimeBuildPhaseBuilt || next.Phase == runtimeBuildPhaseFailed) ||
 		previous.Phase == runtimeBuildPhaseBuilt && next.Phase == runtimeBuildPhaseFinalTagged ||
 		previous.Phase == runtimeBuildPhaseFinalTagged && next.Phase == runtimeBuildPhaseStagingReleased ||
@@ -532,20 +535,29 @@ func (r *Runtime) RecoverRuntimeBuildOrphanStaging(ctx context.Context) error {
 			if journal == nil || journal.Phase != runtimeBuildPhaseOrphanStaging {
 				return fmt.Errorf("Runtime orphan staging recovery authority is absent")
 			}
-			completing := runtimeBuildCompletingJournal(*journal)
+			origin := *journal
 			observed, inspectErr := r.inspectManagedRuntimeBuildEvidence(recoveryContext, journal.StagingImage, journal.RuntimeID, journal.Revision)
 			switch {
 			case errors.Is(inspectErr, errManagedRuntimeImageMissing):
-				completing.RemoveStaging = false
+				if origin.OrphanStaging == runtimeBuildOrphanUnknown {
+					settled := origin
+					settled.OrphanStaging = runtimeBuildOrphanAbsent
+					if err := r.writeRuntimeBuildJournal(origin, settled); err != nil {
+						return err
+					}
+					origin = settled
+				}
 			case inspectErr == nil && journal.OrphanStaging == runtimeBuildOrphanExactManaged && observed == journal.ImageDigest:
-				completing.RemoveStaging = true
+				// Exact managed ownership is revalidated below before deletion.
 			default:
 				return fmt.Errorf("Runtime orphan staging ownership requires review: %w", inspectErr)
 			}
+			completing := runtimeBuildCompletingJournal(origin)
+			completing.RemoveStaging = inspectErr == nil
 			if err := completing.Validate(r); err != nil {
 				return err
 			}
-			if err := r.writeRuntimeBuildCompletionAuthority(*journal, completing); err != nil {
+			if err := r.writeRuntimeBuildCompletionAuthority(origin, completing); err != nil {
 				return err
 			}
 			return r.completeRuntimeBuildJournal(recoveryContext, completing)
@@ -650,7 +662,7 @@ func (r *Runtime) RecoverRuntimeBuildBuilding(ctx context.Context) error {
 			if inspectErr != nil {
 				return fmt.Errorf("Runtime building image outcome requires review: %w", inspectErr)
 			}
-			if err := r.validateCompatibleImage(recoveryContext, journal.StagingImage); err != nil {
+			if err := r.validateManagedRuntimeBuildCompatibility(recoveryContext, journal.StagingImage); err != nil {
 				return fmt.Errorf("Runtime building image compatibility requires review: %w", err)
 			}
 			if err := r.requireRuntimeBuildSnapshotRevision(recoveryContext, journal.SnapshotPath, journal.Revision); err != nil {
@@ -766,6 +778,38 @@ func (r *Runtime) inspectManagedRuntimeBuildEvidence(ctx context.Context, image,
 		return "", fmt.Errorf("managed Runtime build ownership evidence is invalid")
 	}
 	return evidence.ID, nil
+}
+
+func (r *Runtime) validateManagedRuntimeBuildCompatibility(ctx context.Context, image string) error {
+	if tobari.ValidateImageSelector(image) != nil {
+		return fmt.Errorf("managed Runtime compatibility request is invalid")
+	}
+	format := `{"api":{{json (index .Config.Labels "` + tobari.RuntimeImageAPILabel + `")}},` +
+		`"lifetime":{{json (index .Config.Labels "` + tobari.RuntimeImageLifetimeLabel + `")}},` +
+		`"user":{{json .Config.User}},"entrypoint":{{json .Config.Entrypoint}}}`
+	stdout := &boundedBuffer{limit: 4096}
+	stderr := &boundedBuffer{limit: 4096}
+	err := r.runner.Run(ctx, []string{"image", "inspect", "--format", format, image}, os.Environ(), nil, stdout, stderr)
+	if stdout.overflow || stderr.overflow {
+		return fmt.Errorf("managed Runtime compatibility evidence exceeds the observation bound")
+	}
+	if err != nil {
+		return fmt.Errorf("inspect managed Runtime compatibility: %w", err)
+	}
+	var configuration struct {
+		API        string   `json:"api"`
+		Lifetime   string   `json:"lifetime"`
+		User       string   `json:"user"`
+		Entrypoint []string `json:"entrypoint"`
+	}
+	if decodeStrictJSON(bytes.TrimSpace(stdout.buffer.Bytes()), &configuration) != nil ||
+		configuration.API != tobari.RuntimeImageAPI ||
+		configuration.Lifetime != tobari.RuntimeImageLifetimeCommand ||
+		configuration.User != "tobari" ||
+		!equalStrings(configuration.Entrypoint, []string{"/usr/bin/tini", "--", "/usr/local/bin/tobari-entrypoint"}) {
+		return fmt.Errorf("managed Runtime compatibility evidence is invalid")
+	}
+	return nil
 }
 
 func isMissingRuntimeImageInspect(err error, diagnostic []byte, image string) bool {

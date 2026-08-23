@@ -1,6 +1,7 @@
 package dockerruntime
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -24,19 +25,20 @@ type managedRuntimeTestImage struct {
 }
 
 type managedRuntimeBuildRunner struct {
-	runs               []runnerCall
-	outputs            []runnerCall
-	images             map[string]managedRuntimeTestImage
-	failBuild          bool
-	corruptEvidence    string
-	duringBuild        func(string)
-	inspectFailure     string
-	inspectOverflow    bool
-	failImageRemove    bool
-	removeThenFail     bool
-	keepImageOnRemove  bool
-	blockInspect       bool
-	blockCompatibility bool
+	runs                 []runnerCall
+	outputs              []runnerCall
+	images               map[string]managedRuntimeTestImage
+	failBuild            bool
+	corruptEvidence      string
+	duringBuild          func(string)
+	inspectFailure       string
+	inspectOverflow      bool
+	failImageRemove      bool
+	removeThenFail       bool
+	keepImageOnRemove    bool
+	blockInspect         bool
+	blockCompatibility   bool
+	compatibilityPayload []byte
 }
 
 func newManagedRuntimeBuildRunner() *managedRuntimeBuildRunner {
@@ -46,6 +48,18 @@ func newManagedRuntimeBuildRunner() *managedRuntimeBuildRunner {
 func (r *managedRuntimeBuildRunner) Run(ctx context.Context, args, _ []string, _ io.Reader, out, errOut io.Writer) error {
 	if len(args) >= 5 && args[0] == "image" && args[1] == "inspect" {
 		r.outputs = append(r.outputs, runnerCall{args: append([]string{}, args...)})
+		if strings.Contains(args[3], tobari.RuntimeImageAPILabel) {
+			if r.blockCompatibility {
+				<-ctx.Done()
+				return ctx.Err()
+			}
+			payload := r.compatibilityPayload
+			if payload == nil {
+				payload = compatibleImageInspection()
+			}
+			_, err := out.Write(payload)
+			return err
+		}
 		if r.blockInspect {
 			<-ctx.Done()
 			return ctx.Err()
@@ -826,6 +840,41 @@ func TestRuntimeBuildingRecoveryClosesOutcomeUnknownWithoutInferringCleanup(t *t
 	}
 }
 
+func TestRuntimeBuildingRecoveryBoundsCompatibilityOutputWithoutJournalDrift(t *testing.T) {
+	validOversized := []byte(`{"api":"1","lifetime":"command","user":"tobari","entrypoint":["/usr/bin/tini","--","/usr/local/bin/tobari-entrypoint","` + strings.Repeat("x", 8192) + `"]}`)
+	invalidOversized := []byte(strings.Repeat("x", 8192))
+	for _, test := range []struct {
+		name    string
+		payload []byte
+	}{
+		{name: "valid", payload: validOversized},
+		{name: "invalid", payload: invalidOversized},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			runtime, runner, building := exactBuildingRuntimeBuildFixture(t)
+			runner.compatibilityPayload = test.payload
+			before, err := os.ReadFile(runtime.runtimeBuildJournalPath())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := runtime.RecoverRuntimeBuildBuilding(context.Background()); err == nil || !strings.Contains(err.Error(), "exceeds the observation bound") {
+				t.Fatalf("oversized %s compatibility = %v", test.name, err)
+			}
+			after, err := os.ReadFile(runtime.runtimeBuildJournalPath())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Equal(before, after) {
+				t.Fatal("oversized compatibility changed journal bytes")
+			}
+			observed, err := runtime.readRuntimeBuildJournalObserved()
+			if err != nil || observed == nil || *observed != building {
+				t.Fatalf("oversized compatibility journal = %+v/%v", observed, err)
+			}
+		})
+	}
+}
+
 func TestRuntimeBuildingRecoveryHandlesBuiltWriteUncertaintyAndRetry(t *testing.T) {
 	for _, afterWrite := range []bool{false, true} {
 		t.Run(fmt.Sprintf("after_write_%t", afterWrite), func(t *testing.T) {
@@ -1323,6 +1372,95 @@ func exactOrphanRuntimeBuildFixture(t *testing.T) (*Runtime, *managedRuntimeBuil
 		t.Fatal("fixture did not persist orphan staging blocker")
 	}
 	return runtime, runner, staging
+}
+
+func unknownOrphanRuntimeBuildFixture(t *testing.T) (*Runtime, *managedRuntimeBuildRunner, string) {
+	t.Helper()
+	root := t.TempDir()
+	runner := newManagedRuntimeBuildRunner()
+	runtime, err := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), runner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runtime.CreateRuntime(context.Background(), "frontend", tobari.RuntimeCopySource(tobari.StandardRuntimeName)); err != nil {
+		t.Fatal(err)
+	}
+	built, err := runtime.BuildManagedRuntime(context.Background(), "frontend", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	revision := built.Runtime.Revisions[0].Revision
+	staging := managedRuntimeStagingImage(built.Runtime.ID, revision)
+	runner.images[staging] = managedRuntimeTestImage{id: "sha256:" + strings.Repeat("d", 64), labels: map[string]string{ownerLabel: "foreign", componentLabel: managedRuntimeComponentLabel, managedRuntimeIDLabel: built.Runtime.ID, managedRuntimeRevisionLabel: revision}}
+	if _, err := runtime.BuildManagedRuntime(context.Background(), "frontend", nil); err == nil {
+		t.Fatal("fixture did not persist unknown orphan staging blocker")
+	}
+	return runtime, runner, staging
+}
+
+func TestRuntimeUnknownOrphanSettlementRequiresObservedAbsence(t *testing.T) {
+	t.Run("foreign present remains unchanged", func(t *testing.T) {
+		runtime, runner, _ := unknownOrphanRuntimeBuildFixture(t)
+		before, err := os.ReadFile(runtime.runtimeBuildJournalPath())
+		if err != nil {
+			t.Fatal(err)
+		}
+		runsBefore := len(runner.runs)
+		if err := runtime.RecoverRuntimeBuildOrphanStaging(context.Background()); err == nil {
+			t.Fatal("present foreign orphan was settled")
+		}
+		after, err := os.ReadFile(runtime.runtimeBuildJournalPath())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Equal(before, after) || len(runner.runs) != runsBefore {
+			t.Fatalf("foreign orphan changed authority or crossed mutation = %t/%+v", bytes.Equal(before, after), runner.runs[runsBefore:])
+		}
+	})
+
+	t.Run("external removal settles without image mutation", func(t *testing.T) {
+		runtime, runner, staging := unknownOrphanRuntimeBuildFixture(t)
+		delete(runner.images, staging)
+		runsBefore := len(runner.runs)
+		if err := runtime.RecoverRuntimeBuildOrphanStaging(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		if len(runner.runs) != runsBefore {
+			t.Fatalf("absent unknown orphan crossed image mutation = %+v", runner.runs[runsBefore:])
+		}
+		if observed, err := runtime.readRuntimeBuildJournalObserved(); err != nil || observed != nil {
+			t.Fatalf("absent unknown orphan retained journal = %+v/%v", observed, err)
+		}
+	})
+
+	t.Run("late reappearance blocks completing cleanup", func(t *testing.T) {
+		runtime, runner, staging := unknownOrphanRuntimeBuildFixture(t)
+		foreign := runner.images[staging]
+		delete(runner.images, staging)
+		runtime.runtimeBuildCompletionWrite = func(completing runtimeBuildJournal) error {
+			if err := writeAtomicJSON(runtime.runtimeBuildJournalPath(), completing); err != nil {
+				return err
+			}
+			runner.images[staging] = foreign
+			return nil
+		}
+		runsBefore := len(runner.runs)
+		if err := runtime.RecoverRuntimeBuildOrphanStaging(context.Background()); err == nil {
+			t.Fatal("late foreign reappearance crossed cleanup")
+		}
+		if len(runner.runs) != runsBefore {
+			t.Fatalf("late foreign reappearance was mutated = %+v", runner.runs[runsBefore:])
+		}
+		observed, err := runtime.readRuntimeBuildJournalObserved()
+		if err != nil || observed == nil || observed.Phase != runtimeBuildPhaseCompleting || observed.OrphanStaging != runtimeBuildOrphanAbsent || observed.RemoveStaging {
+			t.Fatalf("late reappearance cleanup authority = %+v/%v", observed, err)
+		}
+		runtime.runtimeBuildCompletionWrite = nil
+		delete(runner.images, staging)
+		if err := runtime.RecoverRuntimeBuildCleanup(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+	})
 }
 
 func TestRuntimeOrphanStagingRecoveryPreservesDecisionAcrossCrashes(t *testing.T) {
