@@ -4,15 +4,19 @@ from __future__ import annotations
 
 import ipaddress
 import hashlib
+import calendar
 import json
 import os
 import re
+import secrets
 import socket
+import stat
 import threading
 import time
 import urllib.error
 import urllib.request
 import uuid
+from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import parse_qs, unquote, urlsplit
 
@@ -56,6 +60,10 @@ from validated_file import StatIdentityCache, ValidatedFileError
 MAX_GATEWAY_CONFIG_BYTES = 256 * 1024
 MAX_PRINCIPAL_CONFIG_BYTES = 256 * 1024
 MAX_HOST_LOOPBACK_CONFIG_BYTES = 512 * 1024
+MAX_PERMISSION_SESSION_BYTES = 256 * 1024
+MAX_PERMISSION_WAIT_REQUEST_BYTES = 4 * 1024
+PERMISSION_SESSION_LEASE_SECONDS = 30
+PERMISSION_WAIT_LEASE_SECONDS = 15 * 60
 PROJECT_ID_PATTERN = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
 )
@@ -156,6 +164,10 @@ class HostLoopbackError(Exception):
     """The host-owned attachment route or grant registry is invalid."""
 
 
+class PermissionSessionError(Exception):
+    """The host-owned interactive attachment session is unavailable."""
+
+
 def _parse_project_principals(raw: bytes) -> dict[str, dict[str, str]]:
     try:
         document = json.loads(raw)
@@ -231,6 +243,13 @@ def _parse_project_principals(raw: bytes) -> dict[str, dict[str, str]]:
             "context_id": context_id,
             "context": context_name,
             "project_root": project_root,
+            "_frozen_principal_fingerprint": hashlib.sha256(
+                "\x00".join((
+                    "tobari-frozen-principal-v1", project_id, context_id,
+                    context_name, project_root, canonical_workspace,
+                    canonical_gateway, network,
+                )).encode()
+            ).hexdigest(),
         }
     return result
 
@@ -269,6 +288,177 @@ def load_project_principals(path: str) -> dict[str, dict[str, str]]:
     """Load one registry; resident callers should retain its source."""
 
     return PrincipalRegistrySource(path).load()
+
+
+def _permission_session_time(value: Any) -> int:
+    if not isinstance(value, str):
+        raise PermissionSessionError("interactive session timestamp is invalid")
+    match = re.fullmatch(r"(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.(\d{1,9}))?Z", value)
+    if match is None:
+        raise PermissionSessionError("interactive session timestamp is invalid")
+    try:
+        parsed = datetime.strptime(match.group(1), "%Y-%m-%dT%H:%M:%S")
+    except ValueError as error:
+        raise PermissionSessionError("interactive session timestamp is invalid") from error
+    fraction = (match.group(2) or "").ljust(9, "0")
+    return calendar.timegm(parsed.timetuple()) * 1_000_000_000 + int(fraction or "0")
+
+
+def _permission_session_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise PermissionSessionError("interactive session registry has duplicate fields")
+        result[key] = value
+    return result
+
+
+def _parse_permission_sessions(raw: bytes) -> list[dict[str, Any]]:
+    try:
+        document = json.loads(raw, object_pairs_hook=_permission_session_object)
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise PermissionSessionError("interactive session registry is invalid") from error
+    if not isinstance(document, dict) or set(document) != {"schema_version", "sessions"} or document.get("schema_version") != 2:
+        raise PermissionSessionError("interactive session registry version is invalid")
+    sessions = document.get("sessions")
+    if not isinstance(sessions, list) or len(sessions) > 128:
+        raise PermissionSessionError("interactive session collection is invalid")
+    pairs: set[tuple[str, str]] = set()
+    epochs: set[str] = set()
+    sockets: set[str] = set()
+    nonces: set[str] = set()
+    result: list[dict[str, Any]] = []
+    expected_fields = {
+        "schema_version", "workspace_manifest_id", "workspace_id",
+        "attachment_id", "owner_kind", "frozen_principal_fingerprint",
+        "owner_pid", "ingestion_socket", "ingestion_nonce", "created_at",
+        "lease_issued_at", "expires_at",
+    }
+    for session in sessions:
+        if not isinstance(session, dict) or set(session) != expected_fields or session.get("schema_version") != 2:
+            raise PermissionSessionError("interactive session shape is invalid")
+        workspace_manifest_id = session.get("workspace_manifest_id")
+        workspace_id = session.get("workspace_id")
+        attachment_id = session.get("attachment_id")
+        fingerprint = session.get("frozen_principal_fingerprint")
+        owner_pid = session.get("owner_pid")
+        socket_name = session.get("ingestion_socket")
+        nonce = session.get("ingestion_nonce")
+        if (
+            not isinstance(workspace_manifest_id, str) or PROJECT_ID_PATTERN.fullmatch(workspace_manifest_id) is None
+            or not isinstance(workspace_id, str) or PROJECT_ID_PATTERN.fullmatch(workspace_id) is None
+            or not isinstance(attachment_id, str) or re.fullmatch(r"att_[0-9a-f]{32}", attachment_id) is None
+            or session.get("owner_kind") != "interactive_workspace"
+            or not isinstance(fingerprint, str) or re.fullmatch(r"[0-9a-f]{64}", fingerprint) is None
+            or not isinstance(owner_pid, int) or isinstance(owner_pid, bool) or owner_pid < 1
+            or not isinstance(socket_name, str) or re.fullmatch(r"pws_[0-9a-f]{32}\.sock", socket_name) is None
+            or not isinstance(nonce, str) or re.fullmatch(r"[0-9a-f]{64}", nonce) is None
+        ):
+            raise PermissionSessionError("interactive session authority is invalid")
+        created = _permission_session_time(session.get("created_at"))
+        issued = _permission_session_time(session.get("lease_issued_at"))
+        expires = _permission_session_time(session.get("expires_at"))
+        if issued < created or expires <= issued or expires - issued > PERMISSION_SESSION_LEASE_SECONDS * 1_000_000_000:
+            raise PermissionSessionError("interactive session lease is invalid")
+        pair = (workspace_manifest_id, workspace_id)
+        if pair in pairs or attachment_id in epochs or socket_name in sockets or nonce in nonces:
+            raise PermissionSessionError("interactive session authority is ambiguous")
+        pairs.add(pair)
+        epochs.add(attachment_id)
+        sockets.add(socket_name)
+        nonces.add(nonce)
+        result.append(dict(session))
+    return result
+
+
+class PermissionSessionSource:
+    """Return one current canonical interactive owner without stale fallback."""
+
+    def __init__(self, path: str) -> None:
+        self._cache = StatIdentityCache(path, MAX_PERMISSION_SESSION_BYTES, _parse_permission_sessions)
+
+    def resolve(self, principal: dict[str, str], now: float) -> dict[str, Any]:
+        try:
+            sessions = self._cache.load()
+        except PermissionSessionError:
+            raise
+        except ValidatedFileError as error:
+            raise PermissionSessionError("interactive session registry is unavailable") from error
+        matches = [
+            session for session in sessions
+            if session["workspace_manifest_id"] == principal["context_id"]
+            and session["workspace_id"] == principal["project_id"]
+            and session["frozen_principal_fingerprint"] == principal.get("_frozen_principal_fingerprint")
+            and int(now * 1_000_000_000) < _permission_session_time(session["expires_at"])
+        ]
+        if len(matches) != 1:
+            raise PermissionSessionError("interactive session join is not unique")
+        return matches[0]
+
+    def confirm(
+        self, principal: dict[str, str], expected: dict[str, Any], now: float
+    ) -> dict[str, Any]:
+        current = self.resolve(principal, now)
+        stable_fields = {
+            "schema_version", "workspace_manifest_id", "workspace_id",
+            "attachment_id", "owner_kind", "frozen_principal_fingerprint",
+            "owner_pid", "ingestion_socket", "ingestion_nonce", "created_at",
+        }
+        if any(current.get(field) != expected.get(field) for field in stable_fields):
+            raise PermissionSessionError("interactive session authority changed after acknowledgement")
+        if (
+            _permission_session_time(current["lease_issued_at"])
+            < _permission_session_time(expected["lease_issued_at"])
+            or _permission_session_time(current["expires_at"])
+            < _permission_session_time(expected["expires_at"])
+        ):
+            raise PermissionSessionError("interactive session lease regressed after acknowledgement")
+        return current
+
+
+def _permission_owner_path(path: str, expected_mode: int, expected_type: int) -> bool:
+    try:
+        info = os.lstat(path)
+    except OSError:
+        return False
+    return (
+        stat.S_IFMT(info.st_mode) == expected_type
+        and stat.S_IMODE(info.st_mode) == expected_mode
+        and info.st_uid == os.getuid()
+        and not stat.S_ISLNK(info.st_mode)
+    )
+
+
+def register_permission_wait(socket_directory: str, session: dict[str, Any], record: dict[str, Any], timeout: float = 0.5) -> bool:
+    payload = json.dumps(record, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    if not payload or len(payload) > MAX_PERMISSION_WAIT_REQUEST_BYTES:
+        return False
+    socket_name = session["ingestion_socket"]
+    if (
+        os.path.basename(socket_name) != socket_name
+        or not _permission_owner_path(socket_directory, 0o700, stat.S_IFDIR)
+    ):
+        return False
+    path = os.path.join(socket_directory, socket_name)
+    if not _permission_owner_path(path, 0o600, stat.S_IFSOCK):
+        return False
+    frame = b"W" + session["ingestion_nonce"].encode("ascii") + len(payload).to_bytes(4, "big") + payload
+    connection = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    try:
+        connection.settimeout(timeout)
+        connection.connect(path)
+        connection.sendall(frame)
+        acknowledgement = b""
+        while len(acknowledgement) < 2:
+            chunk = connection.recv(2 - len(acknowledgement))
+            if not chunk:
+                return False
+            acknowledgement += chunk
+        return acknowledgement == b"OK"
+    except (OSError, UnicodeError, ValueError):
+        return False
+    finally:
+        connection.close()
 
 
 def _parse_host_loopback_routes(raw: bytes) -> list[dict[str, Any]]:
@@ -969,10 +1159,59 @@ def _deny(flow: http.HTTPFlow, status: int, code: str) -> None:
     flow.response = http.Response.make(status, body, {"content-type": "application/json"})
 
 
+def _permission_wait_effect(policy_input: dict[str, Any]) -> dict[str, Any] | None:
+    try:
+        authority = policy_input["request"]["authority"]
+        request = policy_input["request"]
+        raw = request["path"]["raw"]
+        segments = request["path"]["segments"]
+        scheme, host, port = authority["scheme"], authority["host"], authority["port"]
+        method = request["method"]
+    except (KeyError, TypeError):
+        return None
+    if (
+        scheme not in {"http", "https"}
+        or not isinstance(host, str) or host == "host.tobari.test"
+        or not 1 <= len(host) <= 253 or host != host.lower() or host.endswith(".")
+        or any(
+            not 1 <= len(label) <= 63 or label.startswith("-") or label.endswith("-")
+            or re.fullmatch(r"[a-z0-9-]+", label) is None
+            for label in host.split(".")
+        )
+        or not isinstance(port, int) or isinstance(port, bool) or not 1 <= port <= 65535
+        or not isinstance(method, str) or re.fullmatch(r"[A-Z][A-Z0-9!#$%&'*+.^_`|~-]{0,31}", method) is None
+        or not isinstance(raw, str) or not raw.startswith("/") or len(raw.encode("utf-8")) > 4096
+        or not isinstance(segments, list) or not all(isinstance(segment, str) for segment in segments)
+    ):
+        return None
+    normalized: list[str] = []
+    for raw_segment in raw.split("/"):
+        if not raw_segment:
+            continue
+        for index, character in enumerate(raw_segment):
+            if character == "%" and (
+                index + 2 >= len(raw_segment)
+                or re.fullmatch(r"[0-9A-Fa-f]{2}", raw_segment[index + 1:index + 3]) is None
+            ):
+                return None
+        try:
+            decoded = unquote(raw_segment, errors="strict")
+        except UnicodeDecodeError:
+            return None
+        if any(ord(character) < 32 or ord(character) == 127 or character in {"\u2028", "\u2029"} for character in decoded):
+            return None
+        normalized.append(decoded)
+    if normalized != segments:
+        return None
+    return {"scheme": scheme, "host": host, "port": port, "method": method, "path": raw, "segments": list(segments)}
+
+
 def _policy_denied(
     flow: http.HTTPFlow,
     status: int,
     learnable: bool,
+    principal: dict[str, str],
+    resume: dict[str, Any] | None = None,
     graphql: ParsedGraphQLRequest | None = None,
     mcp: ParsedMCPRequest | None = None,
     aws: ParsedAWSRequest | None = None,
@@ -1003,13 +1242,16 @@ def _policy_denied(
         "error": "policy_denied",
         "message": message,
         "tobari": {
-            "schema_version": 1,
+            "schema_version": 2,
+            "workspace_manifest_id": principal["context_id"],
+            "workspace_id": principal["project_id"],
             "event": "permission_review_available"
             if review_available
             else "permission_review_unavailable",
             "run_on": "host",
             "review": review,
             "request": {
+                "scheme": flow.request.scheme.lower(),
                 "host": flow.request.host.rstrip(".").lower(),
                 "port": flow.request.port,
                 "method": flow.request.method.upper(),
@@ -1017,8 +1259,9 @@ def _policy_denied(
             },
         },
     }
+    if resume is not None:
+        document["tobari"]["resume"] = resume
     if graphql is not None:
-        document["tobari"]["schema_version"] = 1
         document["tobari"]["request"]["protocol"] = "graphql"
         document["tobari"]["request"]["graphql_operation_type"] = graphql.operation_type
         document["tobari"]["request"]["graphql_root_fields"] = list(graphql.root_fields)
@@ -1170,6 +1413,58 @@ class TobariGateway:
             os.getenv("TOBARI_ATTACHMENT_GRANT_REGISTRY", "/run/tobari/host-loopback/grants.json"),
         )
         self.host_loopback_bridges = HostLoopbackBridges()
+        self.permission_session_source = PermissionSessionSource(
+            os.getenv(
+                "TOBARI_INTERACTIVE_ATTACHMENT_REGISTRY",
+                "/run/tobari/interactive-attachments/sessions.json",
+            )
+        )
+        self.permission_socket_directory = os.getenv(
+            "TOBARI_PERMISSION_INGESTION_DIRECTORY",
+            "/run/tobari/permission-ingestion",
+        )
+
+    def _permission_resume(
+        self, principal: dict[str, str], policy_input: dict[str, Any], request_id: str
+    ) -> dict[str, Any] | None:
+        effect = _permission_wait_effect(policy_input)
+        source = getattr(self, "permission_session_source", None)
+        socket_directory = getattr(self, "permission_socket_directory", None)
+        if effect is None or source is None or not isinstance(socket_directory, str) or re.fullmatch(r"[0-9a-f]{32}", request_id) is None:
+            return None
+        try:
+            now = time.time()
+            session = source.resolve(principal, now)
+            wait_id = "pwt_" + secrets.token_hex(16)
+            created = datetime.fromtimestamp(now, timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z")
+            expires = datetime.fromtimestamp(now + PERMISSION_WAIT_LEASE_SECONDS, timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z")
+            record = {
+                "schema_version": 2,
+                "permission_wait_id": wait_id,
+                "denial_correlation_id": request_id,
+                "frozen_principal_fingerprint": principal["_frozen_principal_fingerprint"],
+                "workspace_manifest_id": principal["context_id"],
+                "workspace_id": principal["project_id"],
+                "attachment_id": session["attachment_id"],
+                "effect": effect,
+                "created_at": created,
+                "expires_at": expires,
+            }
+            if not register_permission_wait(socket_directory, session, record):
+                return None
+            # ACK proves the selected transport accepted the exact record. A
+            # second trusted-source read proves that authority did not drift
+            # while the request crossed that transport boundary.
+            source.confirm(principal, session, time.time())
+        except (KeyError, PermissionSessionError, UnicodeError, ValueError):
+            return None
+        return {
+            "available": True,
+            "run_on": "workspace",
+            "command": "tobari-permission wait --id " + wait_id,
+            "automatic_retry": False,
+            "result_values": ["allow", "deny", "expired"],
+        }
 
     def server_connect(self, data: Any) -> None:
         address = data.server.address
@@ -1330,8 +1625,15 @@ class TobariGateway:
             reason = decision.reason
             learnable = decision.learnable
             if not decision.allow:
+                resume = None
+                if (
+                    learnable
+                    and aws_identity is None and kubernetes_identity is None
+                    and git_identity is None and oci_identity is None
+                ):
+                    resume = self._permission_resume(principal, policy_input, request_id)
                 _policy_denied(
-                    flow, decision.status_code, learnable,
+                    flow, decision.status_code, learnable, principal, resume,
                     aws=aws_identity, kubernetes=kubernetes_identity,
                     git=git_identity, oci=oci_identity,
                 )
@@ -1496,7 +1798,7 @@ class TobariGateway:
             for event in events:
                 _audit(**event)
             if code == "policy_denied" and parsed is not None:
-                _policy_denied(flow, status, learnable, parsed)
+                _policy_denied(flow, status, learnable, principal, graphql=parsed)
             else:
                 _deny(flow, status, code)
 
@@ -1603,7 +1905,7 @@ class TobariGateway:
             event["duration_ms"] = int((time.monotonic() - started) * 1000)
             _audit(**(_mcp_audit_event(event, parsed) if parsed is not None else event))
             if code == "policy_denied" and parsed is not None:
-                _policy_denied(flow, status, learnable, mcp=parsed)
+                _policy_denied(flow, status, learnable, principal, mcp=parsed)
             else:
                 _deny(flow, status, code)
 
@@ -1673,7 +1975,7 @@ class TobariGateway:
             event["duration_ms"] = int((time.monotonic() - started) * 1000)
             _audit(**(_aws_audit_event(event, parsed) if parsed is not None else event))
             if code == "policy_denied" and parsed is not None:
-                _policy_denied(flow, status, learnable, aws=parsed)
+                _policy_denied(flow, status, learnable, principal, aws=parsed)
             else:
                 _deny(flow, status, code)
 

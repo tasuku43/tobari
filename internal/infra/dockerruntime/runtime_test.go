@@ -775,7 +775,10 @@ func TestPrepareStateUsesAggregateProjection(t *testing.T) {
 	}
 	for path, want := range map[string]os.FileMode{
 		state.PolicyDirectory: 0o700, filepath.Join(state.PolicyDirectory, "router.rego"): 0o600,
-		state.GatewayConfig: 0o600,
+		state.GatewayConfig:                                0o600,
+		runtime.interactiveAttachmentDirectory():           0o700,
+		runtime.interactiveAttachmentSessionRegistryPath(): 0o600,
+		runtime.interactiveAttachmentSocketDirectory():     0o700,
 	} {
 		info, err := os.Stat(path)
 		if err != nil || info.Mode().Perm() != want {
@@ -959,6 +962,14 @@ func TestComposeEnvironmentUsesPinnedImages(t *testing.T) {
 	}
 	if !strings.Contains(joined, "TOBARI_PRINCIPAL_DIR="+runtime.principalRegistryDirectory()) {
 		t.Fatalf("compose environment does not expose the dedicated principal directory: %s", joined)
+	}
+	for _, binding := range []string{
+		"TOBARI_INTERACTIVE_ATTACHMENT_DIR=" + runtime.interactiveAttachmentDirectory(),
+		"TOBARI_PERMISSION_INGESTION_DIR=" + runtime.interactiveAttachmentSocketDirectory(),
+	} {
+		if !strings.Contains(joined, binding) {
+			t.Fatalf("compose environment omits permission attachment binding %q: %s", binding, joined)
+		}
 	}
 	authBindings := []string{"TOBARI_AUTH_PROVIDER_DIR=", "TOBARI_AUTH_CONTEXTS_DIR=", "TOBARI_AUTH_RUNTIME_DIR=", "TOBARI_AUTH_BROKER_IMAGE="}
 	for _, binding := range authBindings {

@@ -4,9 +4,12 @@ from contextlib import redirect_stdout
 
 import json
 import os
+import socket
 import tempfile
+import threading
 import time
 import unittest
+from datetime import datetime, timezone
 from unittest import mock
 
 from mitmproxy import http
@@ -155,6 +158,31 @@ def principal_registry(workspace_ip="172.29.0.3"):
     }
 
 
+def permission_session_registry(now=None):
+    now = time.time() if now is None else now
+    created = datetime.fromtimestamp(now - 5, timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z")
+    issued = datetime.fromtimestamp(now, timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z")
+    expires = datetime.fromtimestamp(now + 30, timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z")
+    principal = gateway._parse_project_principals(json.dumps(principal_registry()).encode())["172.29.0.3"]
+    return {
+        "schema_version": 2,
+        "sessions": [{
+            "schema_version": 2,
+            "workspace_manifest_id": CONTEXT,
+            "workspace_id": PROJECT,
+            "attachment_id": "att_" + "1" * 32,
+            "owner_kind": "interactive_workspace",
+            "frozen_principal_fingerprint": principal["_frozen_principal_fingerprint"],
+            "owner_pid": 42,
+            "ingestion_socket": "pws_" + "2" * 32 + ".sock",
+            "ingestion_nonce": "3" * 64,
+            "created_at": created,
+            "lease_issued_at": issued,
+            "expires_at": expires,
+        }],
+    }
+
+
 def host_loopback_registry(epoch="att_" + "1" * 32):
     material = "\x00".join(("tobari-host-loopback-route-v1", epoch, CONTEXT, PROJECT))
     route_id = "hlr_" + gateway.hashlib.sha256(material.encode()).hexdigest()[:32]
@@ -178,6 +206,229 @@ def attachment_grant(route, decision="allow", target_port=3000):
     material = "\x00".join(("tobari-attachment-grant-v2", grant["decision"], grant["context_id"], grant["project_id"], grant["attachment_epoch_id"], grant["host"], str(grant["target_port"]), grant["method"], grant["path"], grant["source_candidate"]))
     grant["id"] = "pag_" + gateway.hashlib.sha256(material.encode()).hexdigest()[:32]
     return grant
+
+
+class PermissionResumeProjectionTests(unittest.TestCase):
+    def test_frozen_principal_projects_to_schema2_without_widening_opa_wire(self):
+        principal = gateway._parse_project_principals(
+            json.dumps(principal_registry()).encode()
+        )["172.29.0.3"]
+        request = http.Request.make("GET", "https://api.example.com/a%2Fb")
+        flow = tflow.tflow(req=request)
+        with mock.patch.object(
+            gateway, "request_authority", return_value=("https", "api.example.com", 443)
+        ):
+            policy_input = gateway.build_policy_input(flow, "default", principal, set())
+        self.assertEqual(policy_input["schema_version"], 1)
+        self.assertEqual(policy_input["principal"], {
+            "cluster": "default", "context_id": CONTEXT, "project_id": PROJECT,
+        })
+        self.assertNotIn("workspace_manifest_id", json.dumps(policy_input))
+        self.assertRegex(principal["_frozen_principal_fingerprint"], r"^[0-9a-f]{64}$")
+
+    def test_session_registry_is_exact_current_and_service_owner_ineligible(self):
+        now = time.time()
+        document = permission_session_registry(now)
+        sessions = gateway._parse_permission_sessions(json.dumps(document).encode())
+        self.assertEqual(len(sessions), 1)
+        principal = gateway._parse_project_principals(
+            json.dumps(principal_registry()).encode()
+        )["172.29.0.3"]
+        with tempfile.TemporaryDirectory() as temporary:
+            path = os.path.join(temporary, "sessions.json")
+            atomic_json(path, document)
+            source = gateway.PermissionSessionSource(path)
+            self.assertEqual(source.resolve(principal, now)["attachment_id"], "att_" + "1" * 32)
+            with self.assertRaises(gateway.PermissionSessionError):
+                source.resolve(principal, now + 31)
+        service = copy.deepcopy(document)
+        service["sessions"][0]["owner_kind"] = "service_exposure_controller"
+        with self.assertRaises(gateway.PermissionSessionError):
+            gateway._parse_permission_sessions(json.dumps(service).encode())
+
+    def test_exact_effect_rejects_unrepresentable_or_divergent_paths(self):
+        base = {
+            "request": {
+                "authority": {"scheme": "https", "host": "api.example.com", "port": 443},
+                "method": "GET",
+                "path": {"raw": "/a%2Fb//./../%E3%81%82", "segments": ["a/b", ".", "..", "あ"]},
+            }
+        }
+        self.assertEqual(
+            gateway._permission_wait_effect(base)["segments"],
+            ["a/b", ".", "..", "あ"],
+        )
+        for raw, segments in (
+            ("/bad%", ["bad%"]),
+            ("/bad%ff", ["bad�"]),
+            ("/a%2Fb", ["a", "b"]),
+        ):
+            invalid = copy.deepcopy(base)
+            invalid["request"]["path"] = {"raw": raw, "segments": segments}
+            with self.subTest(raw=raw):
+                self.assertIsNone(gateway._permission_wait_effect(invalid))
+
+    def test_resume_is_published_only_after_exact_owner_ack(self):
+        principal = gateway._parse_project_principals(
+            json.dumps(principal_registry()).encode()
+        )["172.29.0.3"]
+        session = permission_session_registry()["sessions"][0]
+        policy_input = {
+            "request": {
+                "authority": {"scheme": "https", "host": "api.example.com", "port": 443},
+                "method": "GET", "path": {"raw": "/items/a%20b", "segments": ["items", "a b"]},
+            }
+        }
+        addon = gateway.TobariGateway.__new__(gateway.TobariGateway)
+        addon.permission_session_source = mock.Mock()
+        addon.permission_session_source.resolve.return_value = session
+        addon.permission_socket_directory = "/run/tobari/permission-ingestion"
+        captured = []
+
+        def register(_directory, _session, record):
+            captured.append(record)
+            return True
+
+        with (
+            mock.patch.object(gateway, "register_permission_wait", side_effect=register),
+            mock.patch.object(gateway.secrets, "token_hex", return_value="4" * 32),
+        ):
+            resume = addon._permission_resume(principal, policy_input, "5" * 32)
+        self.assertEqual(resume["command"], "tobari-permission wait --id pwt_" + "4" * 32)
+        self.assertEqual(captured[0]["workspace_manifest_id"], CONTEXT)
+        self.assertEqual(captured[0]["workspace_id"], PROJECT)
+        self.assertEqual(captured[0]["effect"], gateway._permission_wait_effect(policy_input))
+        self.assertNotIn("context_id", captured[0])
+        self.assertNotIn("project_id", captured[0])
+        addon.permission_session_source.confirm.assert_called_once()
+        with mock.patch.object(gateway, "register_permission_wait", return_value=False):
+            self.assertIsNone(addon._permission_resume(principal, policy_input, "5" * 32))
+
+    def test_resume_is_omitted_when_session_authority_drifts_after_ack(self):
+        principal = gateway._parse_project_principals(
+            json.dumps(principal_registry()).encode()
+        )["172.29.0.3"]
+        policy_input = {
+            "request": {
+                "authority": {"scheme": "https", "host": "api.example.com", "port": 443},
+                "method": "GET", "path": {"raw": "/items", "segments": ["items"]},
+            }
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            registry_path = os.path.join(temporary, "sessions.json")
+            document = permission_session_registry()
+            atomic_json(registry_path, document)
+            addon = gateway.TobariGateway.__new__(gateway.TobariGateway)
+            addon.permission_session_source = gateway.PermissionSessionSource(registry_path)
+            addon.permission_socket_directory = temporary
+
+            def acknowledge_then_replace(_directory, _session, _record):
+                replaced = copy.deepcopy(document)
+                replaced["sessions"][0]["ingestion_nonce"] = "f" * 64
+                atomic_json(registry_path, replaced)
+                return True
+
+            with mock.patch.object(
+                gateway, "register_permission_wait", side_effect=acknowledge_then_replace
+            ):
+                self.assertIsNone(
+                    addon._permission_resume(principal, policy_input, "5" * 32)
+                )
+
+    def test_owner_ack_protocol_is_bounded_and_accepts_fragmented_ack(self):
+        session = permission_session_registry()["sessions"][0]
+        record = {
+            "schema_version": 2,
+            "permission_wait_id": "pwt_" + "4" * 32,
+            "denial_correlation_id": "5" * 32,
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            path = os.path.join(temporary, session["ingestion_socket"])
+            listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            listener.bind(path)
+            os.chmod(path, 0o600)
+            listener.listen(1)
+            observed = []
+
+            def serve():
+                connection, _ = listener.accept()
+                with connection:
+                    header = b""
+                    while len(header) < 69:
+                        header += connection.recv(69 - len(header))
+                    length = int.from_bytes(header[65:69], "big")
+                    payload = b""
+                    while len(payload) < length:
+                        payload += connection.recv(length - len(payload))
+                    observed.append((header[:65], json.loads(payload)))
+                    connection.sendall(b"O")
+                    connection.sendall(b"K")
+
+            worker = threading.Thread(target=serve)
+            worker.start()
+            try:
+                self.assertTrue(gateway.register_permission_wait(temporary, session, record))
+            finally:
+                worker.join(timeout=1)
+                listener.close()
+            self.assertEqual(observed[0][0], b"W" + session["ingestion_nonce"].encode())
+            self.assertEqual(observed[0][1], record)
+
+    def test_owner_ack_rejects_unsafe_directory_and_socket_nodes(self):
+        session = permission_session_registry()["sessions"][0]
+        record = {"schema_version": 2, "permission_wait_id": "pwt_" + "4" * 32}
+        with tempfile.TemporaryDirectory() as temporary:
+            os.chmod(temporary, 0o755)
+            self.assertFalse(
+                gateway.register_permission_wait(temporary, session, record)
+            )
+        with tempfile.TemporaryDirectory() as parent:
+            target = os.path.join(parent, "actual")
+            linked = os.path.join(parent, "linked")
+            os.mkdir(target, 0o700)
+            os.symlink(target, linked)
+            self.assertFalse(gateway.register_permission_wait(linked, session, record))
+        with tempfile.TemporaryDirectory() as temporary:
+            path = os.path.join(temporary, session["ingestion_socket"])
+            listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            listener.bind(path)
+            try:
+                os.chmod(path, 0o666)
+                self.assertFalse(
+                    gateway.register_permission_wait(temporary, session, record)
+                )
+            finally:
+                listener.close()
+        with tempfile.TemporaryDirectory() as temporary:
+            target = os.path.join(temporary, "actual.sock")
+            path = os.path.join(temporary, session["ingestion_socket"])
+            listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            listener.bind(target)
+            os.chmod(target, 0o600)
+            os.symlink(target, path)
+            try:
+                self.assertFalse(
+                    gateway.register_permission_wait(temporary, session, record)
+                )
+            finally:
+                listener.close()
+
+    def test_denial_schema2_exposes_no_frozen_alias_and_protocol_has_no_resume(self):
+        principal = {"context_id": CONTEXT, "project_id": PROJECT}
+        flow = tflow.tflow(req=http.Request.make("GET", "https://api.example.com/items"))
+        resume = {
+            "available": True, "run_on": "workspace",
+            "command": "tobari-permission wait --id pwt_" + "4" * 32,
+            "automatic_retry": False, "result_values": ["allow", "deny", "expired"],
+        }
+        gateway._policy_denied(flow, 403, True, principal, resume)
+        denial = json.loads(flow.response.content)
+        self.assertEqual(denial["tobari"]["schema_version"], 2)
+        self.assertEqual(denial["tobari"]["workspace_manifest_id"], CONTEXT)
+        self.assertEqual(denial["tobari"]["workspace_id"], PROJECT)
+        self.assertNotIn("context_id", denial["tobari"])
+        self.assertNotIn("project_id", denial["tobari"])
+        self.assertEqual(denial["tobari"]["resume"], resume)
 
 
 class ProtocolEndpointDeclarationTests(unittest.TestCase):

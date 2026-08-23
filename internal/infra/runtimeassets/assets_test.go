@@ -114,6 +114,10 @@ func TestComposeSpecOwnsOnlySharedLeastPrivilegeServices(t *testing.T) {
 		"name: tobari-policy-bundle",
 		"${TOBARI_PRINCIPAL_DIR}:/run/tobari/principal-registry:ro",
 		"TOBARI_PRINCIPAL_REGISTRY: /run/tobari/principal-registry/principals.json",
+		"${TOBARI_INTERACTIVE_ATTACHMENT_DIR}:/run/tobari/interactive-attachments:ro",
+		"${TOBARI_PERMISSION_INGESTION_DIR}:/run/tobari/permission-ingestion:ro",
+		"TOBARI_INTERACTIVE_ATTACHMENT_REGISTRY: /run/tobari/interactive-attachments/sessions.json",
+		"TOBARI_PERMISSION_INGESTION_DIRECTORY: /run/tobari/permission-ingestion",
 	} {
 		if !strings.Contains(spec, required) {
 			t.Errorf("compose spec is missing %q", required)

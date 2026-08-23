@@ -59,6 +59,9 @@ func (r *Runtime) prepareState(ctx context.Context) (tobari.State, error) {
 	if err := r.ensureHostLoopbackStore(ctx); err != nil {
 		return tobari.State{}, fmt.Errorf("validate Host Loopback store: %w", err)
 	}
+	if err := r.ensureInteractiveAttachmentStore(ctx); err != nil {
+		return tobari.State{}, fmt.Errorf("validate interactive attachment store: %w", err)
+	}
 	state := tobari.State{
 		SchemaVersion: 1, RuntimeDirectory: runtimeDirectory,
 		AggregateRevision: projection.Revision, ManifestCount: projection.ManifestCount,
