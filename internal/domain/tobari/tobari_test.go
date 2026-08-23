@@ -123,3 +123,17 @@ func TestSchemaOneReaderRejectsSchemaTwoAppliedIdentity(t *testing.T) {
 		t.Fatal("strict schema-1 reader accepted schema-2 applied identity")
 	}
 }
+
+func TestSchemaOneStateBytesRemainFrozen(t *testing.T) {
+	t.Parallel()
+	state := validState("/state")
+	state.RecentError = "retained error"
+	data, err := json.Marshal(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `{"schema_version":1,"runtime_directory":"/state/runtime","aggregate_revision":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef","manifest_count":1,"policy_directory":"/state/policy","gateway_config":"/state/gateway.json","asset_version":"asset","recent_error":"retained error"}`
+	if string(data) != want {
+		t.Fatalf("schema-1 JSON bytes changed:\n got: %s\nwant: %s", data, want)
+	}
+}
