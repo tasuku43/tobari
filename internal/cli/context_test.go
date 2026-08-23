@@ -1890,7 +1890,7 @@ func TestRuntimeBuildFullySpecifiedRemainsDirect(t *testing.T) {
 	if fake.buildCalls != 1 || fake.listCalls != 0 || fake.showCalls != 0 {
 		t.Fatalf("direct runtime build calls = build/list/show %d/%d/%d", fake.buildCalls, fake.listCalls, fake.showCalls)
 	}
-	if !strings.Contains(stdout.String(), "tobari context runtime set --runtime frontend@1") {
+	if !strings.Contains(stdout.String(), "tobari manifest runtime set --runtime frontend@1") {
 		t.Fatalf("direct runtime build output lacks exact selection handoff: %q", stdout.String())
 	}
 }

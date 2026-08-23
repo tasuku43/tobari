@@ -372,7 +372,7 @@ func contextShowSpec() CommandSpec {
 func contextCreateSpec() CommandSpec {
 	return CommandSpec{
 		Path: "manifest create", Summary: "Create a named Workspace Manifest definition directly or by completing omitted settings",
-		Args:   "[--copy-from <context-name>] [--name <name>] [--runtime <standard|name@ordinal>] [--mode guided|advanced] [--source-access read-only|read-write] [--native-readiness enabled|disabled] [--bootstrap-aws-profile <name>] [--bootstrap-eks-context <name>] [--format text|json]",
+		Args:   "[--copy-from <manifest-name>] [--name <name>] [--runtime <standard|name@ordinal>] [--mode guided|advanced] [--source-access read-only|read-write] [--native-readiness enabled|disabled] [--bootstrap-aws-profile <name>] [--bootstrap-eks-context <name>] [--format text|json]",
 		Effect: operation.EffectCreate, Role: RoleAct,
 		Agent: AgentContract{
 			CapabilityID:  "manifest.composition",

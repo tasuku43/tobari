@@ -234,7 +234,7 @@ func renderRuntimeReport(path string, result tobari.RuntimeReport, format succes
 			if selectionErr != nil {
 				return nil, fault.Wrap(fault.KindContract, "invalid_runtime_report", "Runtime report is invalid", false, selectionErr)
 			}
-			writeContextCardValue(&output, color, "Next", ProgramName+" context runtime set --runtime "+safeExternalText(selection), styleAccent)
+			writeContextCardValue(&output, color, "Next", ProgramName+" manifest runtime set --runtime "+safeExternalText(selection), styleAccent)
 		}
 	}
 	return []byte(output.String()), nil
