@@ -114,7 +114,7 @@ func TestApplyRuntimePruneIsExactIdempotentAndPreservesDurableRuntime(t *testing
 		before[index] = info
 	}
 
-	result, err := runtime.ApplyRuntimePrune(context.Background(), plan)
+	result, err := runtime.ApplyRuntimePrune(context.Background(), plan.PlanRef)
 	if err != nil || result.State != tobari.RuntimePruneApplied || len(result.Items) != 1 || result.Items[0].Disposition != tobari.RuntimePruneRemoved || result.Items[0].LastUsed != tobari.RuntimeLastUsedUnknown || result.RemovedTagCount != 1 || result.ReceiptRevision != 1 || result.ReclaimedBytes != nil {
 		t.Fatalf("apply Runtime prune = %+v/%v", result, err)
 	}
@@ -128,7 +128,7 @@ func TestApplyRuntimePruneIsExactIdempotentAndPreservesDurableRuntime(t *testing
 		}
 	}
 
-	replayed, err := runtime.ApplyRuntimePrune(context.Background(), plan)
+	replayed, err := runtime.ApplyRuntimePrune(context.Background(), plan.PlanRef)
 	if err != nil || replayed.State != tobari.RuntimePruneAlreadyApplied || replayed.ReceiptRevision != result.ReceiptRevision || len(runner.removals) != 1 {
 		t.Fatalf("replayed Runtime prune = %+v/%v removals=%v", replayed, err, runner.removals)
 	}
@@ -136,7 +136,7 @@ func TestApplyRuntimePruneIsExactIdempotentAndPreservesDurableRuntime(t *testing
 
 func TestApplyRuntimePrunePreservesSharedContent(t *testing.T) {
 	runtime, runner, plan, _ := runtimePruneFixture(t, true)
-	result, err := runtime.ApplyRuntimePrune(context.Background(), plan)
+	result, err := runtime.ApplyRuntimePrune(context.Background(), plan.PlanRef)
 	if err != nil || len(result.Items) != 1 || result.Items[0].Disposition != tobari.RuntimePrunePreservedShared || result.Items[0].RemovedTagCount != 1 {
 		t.Fatalf("shared Runtime prune = %+v/%v", result, err)
 	}
@@ -155,7 +155,7 @@ func TestApplyRuntimePruneResumesJournalAndUnknownRemoveOutcome(t *testing.T) {
 		}
 		return nil
 	}
-	if _, err := runtime.ApplyRuntimePrune(context.Background(), plan); err == nil {
+	if _, err := runtime.ApplyRuntimePrune(context.Background(), plan.PlanRef); err == nil {
 		t.Fatal("interrupted Runtime prune succeeded")
 	}
 	journal, err := runtime.readRuntimePruneJournalObserved()
@@ -164,7 +164,7 @@ func TestApplyRuntimePruneResumesJournalAndUnknownRemoveOutcome(t *testing.T) {
 	}
 	runtime.runtimePruneBeforeRemove = nil
 	runner.failRemove, runner.removeThenFail = true, true
-	result, err := runtime.ApplyRuntimePrune(context.Background(), plan)
+	result, err := runtime.ApplyRuntimePrune(context.Background(), plan.PlanRef)
 	if err != nil || result.State != tobari.RuntimePruneApplied || len(runner.removals) != 1 {
 		t.Fatalf("resume before remove = %+v/%v removals=%v", result, err, runner.removals)
 	}
@@ -178,7 +178,7 @@ func TestApplyRuntimePruneResumesJournalAndUnknownRemoveOutcome(t *testing.T) {
 func TestApplyRuntimePruneSettlesDockerOutcomeUnknown(t *testing.T) {
 	runtime, runner, plan, _ := runtimePruneFixture(t, false)
 	runner.failRemove, runner.removeThenFail = true, true
-	result, err := runtime.ApplyRuntimePrune(context.Background(), plan)
+	result, err := runtime.ApplyRuntimePrune(context.Background(), plan.PlanRef)
 	if err != nil || result.State != tobari.RuntimePruneApplied || len(runner.removals) != 1 || result.Items[0].Disposition != tobari.RuntimePruneRemoved {
 		t.Fatalf("outcome-unknown Runtime prune = %+v/%v removals=%v", result, err, runner.removals)
 	}
@@ -187,7 +187,7 @@ func TestApplyRuntimePruneSettlesDockerOutcomeUnknown(t *testing.T) {
 func TestApplyRuntimePruneRetainsJournalWhenDockerLeavesTag(t *testing.T) {
 	runtime, runner, plan, _ := runtimePruneFixture(t, false)
 	runner.failRemove = true
-	if _, err := runtime.ApplyRuntimePrune(context.Background(), plan); err == nil {
+	if _, err := runtime.ApplyRuntimePrune(context.Background(), plan.PlanRef); err == nil {
 		t.Fatal("failed image removal succeeded")
 	}
 	journal, err := runtime.readRuntimePruneJournalObserved()
@@ -195,7 +195,7 @@ func TestApplyRuntimePruneRetainsJournalWhenDockerLeavesTag(t *testing.T) {
 		t.Fatalf("failed removal journal = %+v/%v removals=%v", journal, err, runner.removals)
 	}
 	runner.failRemove = false
-	result, err := runtime.ApplyRuntimePrune(context.Background(), plan)
+	result, err := runtime.ApplyRuntimePrune(context.Background(), plan.PlanRef)
 	if err != nil || result.State != tobari.RuntimePruneApplied || len(runner.removals) != 2 {
 		t.Fatalf("failed removal retry = %+v/%v removals=%v", result, err, runner.removals)
 	}
@@ -229,7 +229,7 @@ func TestApplyRuntimePruneRetiresSettledFailedBuildAndResumesCleanup(t *testing.
 		runtime.runtimeBuildCleanup = nil
 		return runtime.completeRuntimeBuildJournal(context.Background(), completing)
 	}
-	if _, err := runtime.ApplyRuntimePrune(context.Background(), plan); err == nil {
+	if _, err := runtime.ApplyRuntimePrune(context.Background(), plan.PlanRef); err == nil {
 		t.Fatal("interrupted failed-build cleanup succeeded")
 	}
 	prune, err := runtime.readRuntimePruneJournalObserved()
@@ -240,7 +240,7 @@ func TestApplyRuntimePruneRetiresSettledFailedBuildAndResumesCleanup(t *testing.
 	if err != nil || build == nil || build.Phase != runtimeBuildPhaseCompleting || build.CleanupFrom != runtimeBuildPhaseFailed {
 		t.Fatalf("failed-build cleanup journal = %+v/%v", build, err)
 	}
-	result, err := runtime.ApplyRuntimePrune(context.Background(), plan)
+	result, err := runtime.ApplyRuntimePrune(context.Background(), plan.PlanRef)
 	if err != nil || result.State != tobari.RuntimePruneApplied || result.Items[0].Kind != tobari.RuntimePruneCandidateFailedBuild {
 		t.Fatalf("resumed failed-build prune = %+v/%v", result, err)
 	}
@@ -279,7 +279,7 @@ func TestApplyRuntimePruneResumesAfterFailedBuildAuthorityWasCleaned(t *testing.
 		}
 		return nil
 	}
-	if _, err := runtime.ApplyRuntimePrune(context.Background(), plan); err == nil {
+	if _, err := runtime.ApplyRuntimePrune(context.Background(), plan.PlanRef); err == nil {
 		t.Fatal("post-cleanup interruption succeeded")
 	}
 	prune, err := runtime.readRuntimePruneJournalObserved()
@@ -289,7 +289,7 @@ func TestApplyRuntimePruneResumesAfterFailedBuildAuthorityWasCleaned(t *testing.
 	if build, err := runtime.readRuntimeBuildJournalObserved(); err != nil || build != nil {
 		t.Fatalf("post-cleanup build authority = %+v/%v", build, err)
 	}
-	result, err := runtime.ApplyRuntimePrune(context.Background(), plan)
+	result, err := runtime.ApplyRuntimePrune(context.Background(), plan.PlanRef)
 	if err != nil || result.State != tobari.RuntimePruneApplied || result.Items[0].Kind != tobari.RuntimePruneCandidateFailedBuild {
 		t.Fatalf("post-cleanup same-plan retry = %+v/%v", result, err)
 	}
@@ -304,7 +304,7 @@ func TestApplyRuntimePruneIgnoresPresentationNameWhenSelectingEffect(t *testing.
 	if err := plan.Validate(); err != nil {
 		t.Fatalf("presentation-only plan change: %v", err)
 	}
-	result, err := runtime.ApplyRuntimePrune(context.Background(), plan)
+	result, err := runtime.applyRuntimePruneReviewedPlan(context.Background(), plan)
 	if err != nil || result.Items[0].Name != manifest.Name || len(runner.removals) != 1 || !strings.Contains(runner.removals[0], manifest.ID) {
 		t.Fatalf("presentation drift selected effect = %+v/%v removals=%v", result, err, runner.removals)
 	}
@@ -315,7 +315,7 @@ func TestApplyRuntimePruneBoundsObservationAndReleasesLocks(t *testing.T) {
 	runtime.runner = blockingLifecycleRunner{}
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
-	if _, err := runtime.ApplyRuntimePrune(ctx, plan); !errors.Is(err, context.DeadlineExceeded) {
+	if _, err := runtime.ApplyRuntimePrune(ctx, plan.PlanRef); !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("unbounded Runtime prune observation: %v", err)
 	}
 	if err := runtime.WithLifecycleLock(context.Background(), func(lockContext context.Context) error {
@@ -327,10 +327,13 @@ func TestApplyRuntimePruneBoundsObservationAndReleasesLocks(t *testing.T) {
 
 func TestApplyRuntimePruneRejectsStaleOrNewlyUsedPlanBeforeImageEffect(t *testing.T) {
 	runtime, runner, plan, manifest := runtimePruneFixture(t, false)
+	if _, err := runtime.ApplyRuntimePrune(context.Background(), "not-a-plan"); err == nil {
+		t.Fatal("invalid Runtime prune reference succeeded")
+	}
 	stale := plan
 	stale.PlanRef = "sha256:" + strings.Repeat("0", 64)
-	if _, err := runtime.ApplyRuntimePrune(context.Background(), stale); err == nil {
-		t.Fatal("stale Runtime prune plan succeeded")
+	if _, err := runtime.ApplyRuntimePrune(context.Background(), stale.PlanRef); !errors.Is(err, tobari.ErrRuntimePrunePlanStale) {
+		t.Fatalf("stale Runtime prune plan fault = %v", err)
 	}
 	if len(runner.removals) != 0 {
 		t.Fatalf("stale plan removed images: %v", runner.removals)
@@ -340,11 +343,40 @@ func TestApplyRuntimePruneRejectsStaleOrNewlyUsedPlanBeforeImageEffect(t *testin
 	digest := manifest.Revisions[0].ImageDigest
 	runner.containerLists[digest] = containerID + "\n"
 	runner.containers[containerID] = runtimeContainerObservation{ID: containerID, Image: digest, Owner: "foreign"}
-	if _, err := runtime.ApplyRuntimePrune(context.Background(), plan); err == nil {
+	if _, err := runtime.ApplyRuntimePrune(context.Background(), plan.PlanRef); err == nil {
 		t.Fatal("newly used Runtime prune plan succeeded")
 	}
 	if len(runner.removals) != 0 {
 		t.Fatalf("newly used plan removed images: %v", runner.removals)
+	}
+}
+
+func TestApplyRuntimePruneRejectsDifferentPlanWhileJournalIsActive(t *testing.T) {
+	runtime, runner, plan, _ := runtimePruneFixture(t, false)
+	journal := runtimePruneJournal{SchemaVersion: runtimePruneJournalSchema, Plan: plan, Items: []runtimePruneJournalItem{{Candidate: plan.Candidates[0], State: runtimePrunePending}}}
+	if err := runtime.writeRuntimePruneJournal(nil, journal); err != nil {
+		t.Fatal(err)
+	}
+	other := "sha256:" + strings.Repeat("0", 64)
+	if _, err := runtime.ApplyRuntimePrune(context.Background(), other); !errors.Is(err, tobari.ErrRuntimePruneInterrupted) {
+		t.Fatalf("different active Runtime prune plan fault = %v", err)
+	}
+	if len(runner.removals) != 0 {
+		t.Fatalf("different active plan removed images: %v", runner.removals)
+	}
+}
+
+func TestApplyRuntimePruneClassifiesActiveJournalObservationFailureAsInterrupted(t *testing.T) {
+	runtime, _, plan, _ := runtimePruneFixture(t, false)
+	journal := runtimePruneJournal{SchemaVersion: runtimePruneJournalSchema, Plan: plan, Items: []runtimePruneJournalItem{{Candidate: plan.Candidates[0], State: runtimePrunePending}}}
+	if err := runtime.writeRuntimePruneJournal(nil, journal); err != nil {
+		t.Fatal(err)
+	}
+	runtime.runner = blockingLifecycleRunner{}
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	if _, err := runtime.ApplyRuntimePrune(ctx, plan.PlanRef); !errors.Is(err, tobari.ErrRuntimePruneInterrupted) || !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("active Runtime prune observation fault = %v", err)
 	}
 }
 
@@ -358,13 +390,13 @@ func TestApplyRuntimePruneReceiptInterruptionResumesWithoutDockerReplay(t *testi
 		}
 		return os.Remove(path)
 	}
-	if _, err := runtime.ApplyRuntimePrune(context.Background(), plan); err == nil {
+	if _, err := runtime.ApplyRuntimePrune(context.Background(), plan.PlanRef); err == nil {
 		t.Fatal("journal-unlink interruption succeeded")
 	}
 	if len(runner.removals) != 1 {
 		t.Fatalf("first apply removals = %v", runner.removals)
 	}
-	result, err := runtime.ApplyRuntimePrune(context.Background(), plan)
+	result, err := runtime.ApplyRuntimePrune(context.Background(), plan.PlanRef)
 	if err != nil || result.State != tobari.RuntimePruneAlreadyApplied || len(runner.removals) != 1 {
 		t.Fatalf("receipt resume = %+v/%v removals=%v", result, err, runner.removals)
 	}

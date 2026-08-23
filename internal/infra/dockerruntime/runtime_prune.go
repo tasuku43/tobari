@@ -324,11 +324,90 @@ func (r *Runtime) removeRuntimePruneJournal(expected runtimePruneJournal) error 
 	return syncDirectoryIfPresent(r.runtimeLifecycleDirectory())
 }
 
-// ApplyRuntimePrune executes one previously reviewed exact plan. It is an
-// internal effect boundary until the application and Catalog graph closure are
-// added. Every effect is preceded by a coherent re-observation while the
-// installation and Runtime-store locks remain held.
-func (r *Runtime) ApplyRuntimePrune(ctx context.Context, plan tobari.RuntimePrunePlan) (tobari.RuntimePruneResult, error) {
+// ApplyRuntimePrune consumes one previously reviewed opaque plan reference.
+// The full plan is recovered only from current coherent observation or an exact
+// durable journal/receipt, so a caller cannot reconstruct mutation authority.
+func (r *Runtime) ApplyRuntimePrune(ctx context.Context, planRef string) (tobari.RuntimePruneResult, error) {
+	if err := tobari.ValidateRuntimePrunePlanRef(planRef); err != nil {
+		return tobari.RuntimePruneResult{}, err
+	}
+	mutationContext, cancel := context.WithTimeout(ctx, runtimePruneMutationBudget)
+	defer cancel()
+	var result tobari.RuntimePruneResult
+	err := r.WithLifecycleLock(mutationContext, func(lockContext context.Context) error {
+		return r.withRuntimeStoreLock(lockContext, func() error {
+			var err error
+			result, err = r.applyRuntimePruneReferenceLocked(lockContext, planRef)
+			return err
+		})
+	})
+	return result, err
+}
+
+func (r *Runtime) applyRuntimePruneReferenceLocked(ctx context.Context, planRef string) (tobari.RuntimePruneResult, error) {
+	store, err := r.readRuntimePruneReceiptStoreObserved()
+	if err != nil {
+		return tobari.RuntimePruneResult{}, fmt.Errorf("%w: %w", tobari.ErrRuntimeRetirementObservationUnknown, err)
+	}
+	if receipt, ok := runtimePruneReceipt(store, planRef); ok {
+		journal, journalErr := r.readRuntimePruneJournalObserved()
+		if journalErr != nil {
+			return tobari.RuntimePruneResult{}, fmt.Errorf("%w: %w", tobari.ErrRuntimePruneInterrupted, journalErr)
+		}
+		if journal != nil {
+			if journal.Plan.PlanRef != planRef {
+				return tobari.RuntimePruneResult{}, fmt.Errorf("%w: another Runtime prune journal requires recovery", tobari.ErrRuntimePruneInterrupted)
+			}
+			if err := r.removeRuntimePruneJournal(*journal); err != nil {
+				return tobari.RuntimePruneResult{}, fmt.Errorf("%w: %w", tobari.ErrRuntimePruneInterrupted, err)
+			}
+		}
+		return receipt, receipt.Validate()
+	}
+
+	journal, err := r.readRuntimePruneJournalObserved()
+	if err != nil {
+		return tobari.RuntimePruneResult{}, fmt.Errorf("%w: %w", tobari.ErrRuntimeRetirementObservationUnknown, err)
+	}
+	var reviewed tobari.RuntimePrunePlan
+	hadJournal := journal != nil
+	if journal != nil {
+		if journal.Plan.PlanRef != planRef {
+			return tobari.RuntimePruneResult{}, fmt.Errorf("%w: another Runtime prune journal requires recovery", tobari.ErrRuntimePruneInterrupted)
+		}
+		reviewed = journal.Plan
+	} else {
+		budget := runtimeLifecycleBudget{remaining: runtimeLifecycleCallBudget}
+		snapshot, observedAt, err := r.readRuntimeLifecycleSnapshotLockedWithBudget(ctx, &budget)
+		if err != nil {
+			return tobari.RuntimePruneResult{}, fmt.Errorf("%w: %w", tobari.ErrRuntimeRetirementObservationUnknown, err)
+		}
+		reviewed, err = tobari.PlanRuntimePrune(snapshot, observedAt)
+		if err != nil {
+			return tobari.RuntimePruneResult{}, fmt.Errorf("%w: %w", tobari.ErrRuntimeRetirementObservationUnknown, err)
+		}
+		if reviewed.PlanRef != planRef || !reviewed.Applicable {
+			return tobari.RuntimePruneResult{}, tobari.ErrRuntimePrunePlanStale
+		}
+	}
+
+	result, err := r.applyRuntimePruneLocked(ctx, reviewed)
+	if err == nil || errors.Is(err, tobari.ErrRuntimePrunePlanStale) || errors.Is(err, tobari.ErrRuntimePruneInterrupted) {
+		return result, err
+	}
+	if errors.Is(err, tobari.ErrRuntimeRetirementObservationUnknown) && !hadJournal {
+		current, observeErr := r.readRuntimePruneJournalObserved()
+		if observeErr == nil && current == nil {
+			return tobari.RuntimePruneResult{}, err
+		}
+	}
+	return tobari.RuntimePruneResult{}, fmt.Errorf("%w: %w", tobari.ErrRuntimePruneInterrupted, err)
+}
+
+// applyRuntimePruneReviewedPlan is retained for infrastructure conformance
+// tests that vary presentation-only plan evidence. Product callers use only
+// ApplyRuntimePrune and its opaque reference.
+func (r *Runtime) applyRuntimePruneReviewedPlan(ctx context.Context, plan tobari.RuntimePrunePlan) (tobari.RuntimePruneResult, error) {
 	if err := plan.Validate(); err != nil {
 		return tobari.RuntimePruneResult{}, err
 	}
@@ -349,7 +428,7 @@ func (r *Runtime) applyRuntimePruneLocked(ctx context.Context, plan tobari.Runti
 	budget := runtimeLifecycleBudget{remaining: runtimeLifecycleCallBudget}
 	store, err := r.readRuntimePruneReceiptStoreObserved()
 	if err != nil {
-		return tobari.RuntimePruneResult{}, err
+		return tobari.RuntimePruneResult{}, fmt.Errorf("%w: %w", tobari.ErrRuntimeRetirementObservationUnknown, err)
 	}
 	if receipt, ok := runtimePruneReceipt(store, plan.PlanRef); ok {
 		if journal, journalErr := r.readRuntimePruneJournalObserved(); journalErr != nil {
@@ -367,16 +446,19 @@ func (r *Runtime) applyRuntimePruneLocked(ctx context.Context, plan tobari.Runti
 
 	journal, err := r.readRuntimePruneJournalObserved()
 	if err != nil {
-		return tobari.RuntimePruneResult{}, err
+		return tobari.RuntimePruneResult{}, fmt.Errorf("%w: %w", tobari.ErrRuntimeRetirementObservationUnknown, err)
 	}
 	if journal == nil {
 		snapshot, observedAt, err := r.readRuntimeLifecycleSnapshotLockedWithBudget(ctx, &budget)
 		if err != nil {
-			return tobari.RuntimePruneResult{}, err
+			return tobari.RuntimePruneResult{}, fmt.Errorf("%w: %w", tobari.ErrRuntimeRetirementObservationUnknown, err)
 		}
 		current, err := tobari.PlanRuntimePrune(snapshot, observedAt)
-		if err != nil || current.PlanRef != plan.PlanRef || !current.Applicable {
-			return tobari.RuntimePruneResult{}, fmt.Errorf("Runtime prune plan requires a fresh review: %w", err)
+		if err != nil {
+			return tobari.RuntimePruneResult{}, fmt.Errorf("%w: %w", tobari.ErrRuntimeRetirementObservationUnknown, err)
+		}
+		if current.PlanRef != plan.PlanRef || !current.Applicable {
+			return tobari.RuntimePruneResult{}, tobari.ErrRuntimePrunePlanStale
 		}
 		if current.Empty {
 			result := tobari.RuntimePruneResult{Task: tobari.TaskRuntimePruneApply, PlanRef: plan.PlanRef, State: tobari.RuntimePruneEmpty, Items: []tobari.RuntimePruneItemResult{}, SourcePreserved: true, SnapshotsPreserved: true, HistoryPreserved: true}
@@ -387,11 +469,11 @@ func (r *Runtime) applyRuntimePruneLocked(ctx context.Context, plan tobari.Runti
 			created.Items[index] = runtimePruneJournalItem{Candidate: candidate, State: runtimePrunePending}
 		}
 		if err := r.writeRuntimePruneJournal(nil, created); err != nil {
-			return tobari.RuntimePruneResult{}, err
+			return tobari.RuntimePruneResult{}, fmt.Errorf("%w: %w", tobari.ErrRuntimePruneInterrupted, err)
 		}
 		journal = &created
 	} else if journal.Plan.PlanRef != plan.PlanRef {
-		return tobari.RuntimePruneResult{}, fmt.Errorf("another Runtime prune journal requires recovery")
+		return tobari.RuntimePruneResult{}, fmt.Errorf("%w: another Runtime prune journal requires recovery", tobari.ErrRuntimePruneInterrupted)
 	}
 
 	for index := range journal.Items {

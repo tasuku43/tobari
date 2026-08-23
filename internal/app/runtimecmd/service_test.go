@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -32,7 +33,13 @@ type runtimeFake struct {
 	recoveries    int
 	recoveredRef  string
 	recoveredKind tobari.RuntimeBuildRecoveryKind
+	pruneCalls    int
+	pruneRefs     []string
+	pruneResults  []tobari.RuntimePruneResult
+	pruneErrs     []error
 }
+
+type runtimeWithoutPrune struct{ RuntimePort }
 
 func runtimeFixture() tobari.RuntimeManifest {
 	return tobari.RuntimeManifest{SchemaVersion: tobari.RuntimeSchemaVersion, ID: "018bcfe5-687b-7000-8000-000000000077", Name: "frontend", Kind: tobari.RuntimeKindManaged, SourcePath: "/tmp/tobari/runtimes/frontend/source", Revisions: []tobari.RuntimeRevision{{Ordinal: 1, Revision: "sha256:" + strings.Repeat("a", 64), Image: "tobari-runtime-frontend:aaaaaaaaaaaa", ImageDigest: "sha256:" + strings.Repeat("b", 64), CreatedAt: time.Unix(1, 0).UTC(), SnapshotPath: "/tmp/tobari/runtimes/frontend/revisions/aaaaaaaa/source"}}}
@@ -162,6 +169,19 @@ func (f *runtimeFake) ReadRuntimeBuildRecovery(context.Context) (tobari.RuntimeB
 	return *f.recovery, true, nil
 }
 
+func (f *runtimeFake) ApplyRuntimePrune(_ context.Context, planRef string) (tobari.RuntimePruneResult, error) {
+	index := f.pruneCalls
+	f.pruneCalls++
+	f.pruneRefs = append(f.pruneRefs, planRef)
+	if index < len(f.pruneErrs) && f.pruneErrs[index] != nil {
+		return tobari.RuntimePruneResult{}, f.pruneErrs[index]
+	}
+	if index < len(f.pruneResults) {
+		return f.pruneResults[index], nil
+	}
+	return tobari.RuntimePruneResult{}, errors.New("missing synthetic Runtime prune result")
+}
+
 func (f *runtimeFake) RecoverRuntimeBuildByReference(_ context.Context, runtimeRef string, kind tobari.RuntimeBuildRecoveryKind) error {
 	f.recoveries++
 	f.recoveredRef = runtimeRef
@@ -211,6 +231,116 @@ func TestRuntimePrunePlanUsesCompleteProtectionAndMaterialSnapshot(t *testing.T)
 	plan, err := service.PlanPrune(context.Background())
 	if err != nil || plan.Empty || len(plan.Candidates) != 1 || plan.Candidates[0].RuntimeID != manifest.ID || plan.Candidates[0].LastUsed != tobari.RuntimeLastUsedUnknown || plan.Candidates[0].ReclaimableBytes != nil || plan.ObservedAt != time.Unix(100, 0).UTC() {
 		t.Fatalf("Runtime prune plan = %+v/%v", plan, err)
+	}
+}
+
+func runtimePruneResultFixture(state tobari.RuntimePruneResultState) tobari.RuntimePruneResult {
+	manifest := runtimeFixture()
+	revision := manifest.Revisions[0]
+	item := tobari.RuntimePruneItemResult{
+		Kind: tobari.RuntimePruneCandidateRevision, RuntimeID: manifest.ID, Revision: revision.Revision,
+		RuntimeRef: tobari.RuntimeRef(manifest.ID), RevisionRef: tobari.RuntimeRevisionRef(manifest.ID, revision.Revision),
+		Name: manifest.Name, Ordinal: revision.Ordinal, LastUsed: tobari.RuntimeLastUsedUnknown,
+		Disposition: tobari.RuntimePruneRemoved, RemovedTagCount: 1,
+	}
+	return tobari.RuntimePruneResult{
+		Task: tobari.TaskRuntimePruneApply, PlanRef: "sha256:" + strings.Repeat("d", 64), State: state,
+		Items: []tobari.RuntimePruneItemResult{item}, RemovedTagCount: 1, ReceiptRevision: 1,
+		SourcePreserved: true, SnapshotsPreserved: true, HistoryPreserved: true,
+	}
+}
+
+func runtimePruneIntent(planRef string) operation.Intent {
+	return operation.Intent{
+		Command: "runtime prune apply", Effect: operation.EffectWrite,
+		Target: operation.TargetRef{Kind: tobari.RuntimePrunePlanReferenceKind, ID: planRef}, Impact: PruneImpact(),
+	}
+}
+
+func TestRuntimePruneApplyBindsExactPlanAndReplaysReceipt(t *testing.T) {
+	applied := runtimePruneResultFixture(tobari.RuntimePruneApplied)
+	replayed := applied
+	replayed.State = tobari.RuntimePruneAlreadyApplied
+	fake := &runtimeFake{manifest: runtimeFixture(), pruneResults: []tobari.RuntimePruneResult{applied, replayed}}
+	service := New(fake)
+
+	first, err := service.ApplyPrune(context.Background(), runtimePruneIntent(applied.PlanRef), applied.PlanRef)
+	if err != nil || first.State != tobari.RuntimePruneApplied {
+		t.Fatalf("first Runtime prune apply = %+v/%v", first, err)
+	}
+	second, err := service.ApplyPrune(context.Background(), runtimePruneIntent(applied.PlanRef), applied.PlanRef)
+	if err != nil || second.State != tobari.RuntimePruneAlreadyApplied || fake.pruneCalls != 2 || !slices.Equal(fake.pruneRefs, []string{applied.PlanRef, applied.PlanRef}) {
+		t.Fatalf("replayed Runtime prune apply = %+v/%v calls=%d refs=%v", second, err, fake.pruneCalls, fake.pruneRefs)
+	}
+}
+
+func TestRuntimePruneApplyRejectsContractDriftBeforeAdapter(t *testing.T) {
+	result := runtimePruneResultFixture(tobari.RuntimePruneApplied)
+	tests := map[string]func(*operation.Intent, *string){
+		"invalid reference": func(_ *operation.Intent, planRef *string) { *planRef = "not-a-plan" },
+		"wrong command":     func(intent *operation.Intent, _ *string) { intent.Command = "runtime build" },
+		"wrong target":      func(intent *operation.Intent, _ *string) { intent.Target.Kind = tobari.RuntimeReferenceKind },
+		"wrong impact":      func(intent *operation.Intent, _ *string) { intent.Impact.Destructive = operation.DeclarationNo },
+	}
+	for name, mutate := range tests {
+		t.Run(name, func(t *testing.T) {
+			fake := &runtimeFake{manifest: runtimeFixture(), pruneResults: []tobari.RuntimePruneResult{result}}
+			intent := runtimePruneIntent(result.PlanRef)
+			planRef := result.PlanRef
+			mutate(&intent, &planRef)
+			if _, err := New(fake).ApplyPrune(context.Background(), intent, planRef); err == nil || fake.pruneCalls != 0 {
+				t.Fatalf("contract drift error/calls = %v/%d", err, fake.pruneCalls)
+			}
+		})
+	}
+}
+
+func TestRuntimePruneApplyRequiresTaskOwnedPort(t *testing.T) {
+	result := runtimePruneResultFixture(tobari.RuntimePruneApplied)
+	fake := &runtimeFake{manifest: runtimeFixture(), pruneResults: []tobari.RuntimePruneResult{result}}
+	service := New(runtimeWithoutPrune{RuntimePort: fake})
+	_, err := service.ApplyPrune(context.Background(), runtimePruneIntent(result.PlanRef), result.PlanRef)
+	public, ok := fault.PublicCopy(err)
+	if !ok || public.Code != "missing_runtime_prune" || public.Phase != fault.PhasePrecondition || public.ChangeState != fault.ChangeNone || fake.pruneCalls != 0 {
+		t.Fatalf("missing Runtime prune port = %+v/%v calls=%d", public, err, fake.pruneCalls)
+	}
+}
+
+func TestRuntimePruneApplyClassifiesTaskOwnedOutcomes(t *testing.T) {
+	planRef := runtimePruneResultFixture(tobari.RuntimePruneApplied).PlanRef
+	tests := []struct {
+		name   string
+		err    error
+		code   string
+		phase  fault.Phase
+		change fault.ChangeState
+	}{
+		{name: "stale", err: tobari.ErrRuntimePrunePlanStale, code: "runtime_prune_plan_stale", phase: fault.PhasePrecondition, change: fault.ChangeNone},
+		{name: "observation", err: tobari.ErrRuntimeRetirementObservationUnknown, code: "runtime_retirement_observation_unknown", phase: fault.PhaseObservation, change: fault.ChangeNotApplicable},
+		{name: "interrupted", err: tobari.ErrRuntimePruneInterrupted, code: "runtime_prune_interrupted", phase: fault.PhaseMutation, change: fault.ChangePartial},
+		{name: "late cancellation", err: context.Canceled, code: "runtime_prune_interrupted", phase: fault.PhaseMutation, change: fault.ChangePartial},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			fake := &runtimeFake{manifest: runtimeFixture(), pruneErrs: []error{test.err}}
+			_, err := New(fake).ApplyPrune(context.Background(), runtimePruneIntent(planRef), planRef)
+			public, ok := fault.PublicCopy(err)
+			if !ok || public.Code != test.code || public.Phase != test.phase || public.ChangeState != test.change || public.Retryable || fake.pruneCalls != 1 {
+				t.Fatalf("Runtime prune fault = %+v/%v calls=%d", public, err, fake.pruneCalls)
+			}
+		})
+	}
+}
+
+func TestRuntimePruneApplyRejectsInvalidResultAsPartial(t *testing.T) {
+	result := runtimePruneResultFixture(tobari.RuntimePruneApplied)
+	result.PlanRef = "sha256:" + strings.Repeat("e", 64)
+	requested := "sha256:" + strings.Repeat("d", 64)
+	fake := &runtimeFake{manifest: runtimeFixture(), pruneResults: []tobari.RuntimePruneResult{result}}
+	_, err := New(fake).ApplyPrune(context.Background(), runtimePruneIntent(requested), requested)
+	public, ok := fault.PublicCopy(err)
+	if !ok || public.Code != "invalid_runtime_retirement_result" || public.Phase != fault.PhaseVerification || public.ChangeState != fault.ChangePartial || fake.pruneCalls != 1 {
+		t.Fatalf("invalid Runtime prune result = %+v/%v calls=%d", public, err, fake.pruneCalls)
 	}
 }
 

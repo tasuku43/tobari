@@ -27,6 +27,22 @@ type RuntimePort interface {
 	RecoverRuntimeBuildByReference(context.Context, string, tobari.RuntimeBuildRecoveryKind) error
 }
 
+// RuntimePruneApplyPort is owned by the prune apply task. It accepts only the
+// opaque reviewed-plan authority; the adapter recovers the full plan from its
+// coherent observation, journal, or receipt.
+type RuntimePruneApplyPort interface {
+	ApplyRuntimePrune(context.Context, string) (tobari.RuntimePruneResult, error)
+}
+
+// PruneImpact is the fixed Catalog/application mutation contract for applying
+// one reviewed plan that can retire many exact Runtime image tags.
+func PruneImpact() operation.Impact {
+	return operation.Impact{
+		Cardinality: operation.CardinalityMany, Notification: operation.DeclarationNo,
+		AccessChange: operation.DeclarationYes, Destructive: operation.DeclarationYes,
+	}
+}
+
 type ownedPolicy struct{}
 
 func (ownedPolicy) Check(_ context.Context, intent operation.Intent) error {
@@ -41,16 +57,22 @@ func (ownedPolicy) Check(_ context.Context, intent operation.Intent) error {
 	if intent.Effect == operation.EffectWrite && intent.Target.Kind == tobari.RuntimeReferenceKind && intent.Target.ID != "" {
 		return nil
 	}
+	if intent.Effect == operation.EffectWrite && intent.Target.Kind == tobari.RuntimePrunePlanReferenceKind && intent.Target.ID != "" {
+		return nil
+	}
 	return fault.New(fault.KindRejected, "mutation_rejected", "Runtime mutation target is not owned by Tobari", false)
 }
 
 type Service struct {
 	runtime RuntimePort
+	prune   RuntimePruneApplyPort
 	mutator *execution.Invoker
 }
 
 func New(runtime RuntimePort) *Service {
-	return &Service{runtime: runtime, mutator: execution.New(ownedPolicy{})}
+	service := &Service{runtime: runtime, mutator: execution.New(ownedPolicy{})}
+	service.prune, _ = any(runtime).(RuntimePruneApplyPort)
+	return service
 }
 
 func (s *Service) PlanPrune(ctx context.Context) (tobari.RuntimePrunePlan, error) {
@@ -69,6 +91,69 @@ func (s *Service) PlanPrune(ctx context.Context) (tobari.RuntimePrunePlan, error
 		return tobari.RuntimePrunePlan{}, fault.Wrap(fault.KindContract, "invalid_runtime_prune_plan", "Runtime prune plan is invalid", false, err)
 	}
 	return plan, nil
+}
+
+func (s *Service) ApplyPrune(ctx context.Context, intent operation.Intent, planRef string) (tobari.RuntimePruneResult, error) {
+	if err := s.requirePrune(); err != nil {
+		return tobari.RuntimePruneResult{}, err
+	}
+	if err := tobari.ValidateRuntimePrunePlanRef(planRef); err != nil {
+		return tobari.RuntimePruneResult{}, fault.WithClassification(
+			fault.Wrap(fault.KindInvalidInput, "invalid_runtime_prune_plan_ref", "Runtime prune plan reference is invalid", false, err,
+				fault.NextAction{Command: "runtime prune dry-run", Reason: "Create a fresh Runtime prune plan."}),
+			fault.PhasePrecondition, fault.ChangeNone,
+		)
+	}
+	request := execution.Request{
+		Intent: intent, ExpectedCommand: "runtime prune apply", ExpectedEffect: operation.EffectWrite,
+		ExpectedTarget: operation.TargetRef{Kind: tobari.RuntimePrunePlanReferenceKind, ID: planRef}, ExpectedImpact: PruneImpact(),
+	}
+	var result tobari.RuntimePruneResult
+	err := s.mutator.Invoke(ctx, request, func(actionContext context.Context, _ operation.Intent) error {
+		applied, err := s.prune.ApplyRuntimePrune(actionContext, planRef)
+		if err != nil {
+			switch {
+			case errors.Is(err, tobari.ErrRuntimePrunePlanStale):
+				return fault.WithClassification(
+					fault.New(fault.KindRejected, "runtime_prune_plan_stale", "Runtime prune plan changed before mutation", false,
+						fault.NextAction{Command: "runtime prune dry-run", Reason: "Review a fresh exact Runtime prune plan."}),
+					fault.PhasePrecondition, fault.ChangeNone,
+				)
+			case errors.Is(err, tobari.ErrRuntimeRetirementObservationUnknown):
+				return fault.WithClassification(
+					fault.New(fault.KindRejected, "runtime_retirement_observation_unknown", "Runtime lifecycle could not be observed completely", false,
+						fault.NextAction{Command: "doctor", Reason: "Inspect the host Runtime lifecycle state."}),
+					fault.PhaseObservation, fault.ChangeNotApplicable,
+				)
+			default:
+				return fault.WithClassification(
+					fault.New(fault.KindInternal, "runtime_prune_interrupted", "Runtime prune requires read-only reconciliation", false,
+						fault.NextAction{Command: "runtime prune dry-run", Reason: "Observe the retained prune journal or current lifecycle state before another mutation."}),
+					fault.PhaseMutation, fault.ChangePartial,
+				)
+			}
+		}
+		if err := applied.Validate(); err != nil || applied.PlanRef != planRef {
+			change := fault.ChangePartial
+			if applied.PlanRef == planRef && (applied.State == tobari.RuntimePruneApplied || applied.State == tobari.RuntimePruneAlreadyApplied) {
+				change = fault.ChangeConfirmed
+			}
+			if err == nil {
+				err = fmt.Errorf("Runtime prune result does not match the reviewed plan")
+			}
+			return fault.WithClassification(
+				fault.Wrap(fault.KindContract, "invalid_runtime_retirement_result", "Runtime prune result is invalid", false, err,
+					fault.NextAction{Command: "runtime prune dry-run", Reason: "Reconcile the current Runtime lifecycle state."}),
+				fault.PhaseVerification, change,
+			)
+		}
+		result = applied
+		return nil
+	})
+	if err != nil {
+		return tobari.RuntimePruneResult{}, err
+	}
+	return result, nil
 }
 
 func (s *Service) ReviewRecovery(ctx context.Context) (tobari.RuntimeBuildRecovery, bool, error) {
@@ -138,6 +223,19 @@ func (s *Service) Recover(ctx context.Context, intent operation.Intent, recovery
 func (s *Service) requireRuntime() error {
 	if s == nil || portcheck.IsNil(s.runtime) {
 		return fault.New(fault.KindInternal, "missing_runtime", "Runtime catalog is not configured", false)
+	}
+	return nil
+}
+
+func (s *Service) requirePrune() error {
+	if err := s.requireRuntime(); err != nil {
+		return err
+	}
+	if portcheck.IsNil(s.prune) {
+		return fault.WithClassification(
+			fault.New(fault.KindInternal, "missing_runtime_prune", "Runtime prune is not configured", false),
+			fault.PhasePrecondition, fault.ChangeNone,
+		)
 	}
 	return nil
 }

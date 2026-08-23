@@ -28,9 +28,12 @@ const (
 )
 
 var (
-	ErrRuntimeExists   = errors.New("Runtime already exists")
-	ErrRuntimeNotFound = errors.New("Runtime does not exist")
-	ErrRuntimeNotReady = errors.New("Runtime revision is not ready")
+	ErrRuntimeExists                       = errors.New("Runtime already exists")
+	ErrRuntimeNotFound                     = errors.New("Runtime does not exist")
+	ErrRuntimeNotReady                     = errors.New("Runtime revision is not ready")
+	ErrRuntimePrunePlanStale               = errors.New("Runtime prune plan requires a fresh review")
+	ErrRuntimePruneInterrupted             = errors.New("Runtime prune requires reconciliation")
+	ErrRuntimeRetirementObservationUnknown = errors.New("Runtime lifecycle observation is incomplete")
 )
 
 // RuntimeKind distinguishes the compiled standard Runtime from a managed
