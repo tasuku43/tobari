@@ -31,11 +31,12 @@ PY
 }
 
 verify_live_permission_observation_snapshot() {
-  local expected_allow=$1 policy_input query output
-  policy_input='{"schema_version":1,"principal":{"cluster":"default","context_id":"'"$default_manifest_id"'","project_id":"'"$work_id"'"},"request":{"authority":{"scheme":"https","host":"mock-upstream","port":443},"method":"GET","path":{"raw":"/permission-resume","segments":["permission-resume"]},"query":{},"headers":{}},"authorization":{"broker_provider":null}}'
+  local expected_allow=$1 policy_input query output _
+  policy_input='{"schema_version":1,"principal":{"cluster":"default","context_id":"'"$default_manifest_id"'","project_id":"'"$work_id"'"},"request":{"authority":{"scheme":"https","host":"mock-upstream","port":8080},"method":"GET","path":{"raw":"/permission-resume","segments":["permission-resume"]},"query":{},"headers":{}},"authorization":{"broker_provider":null}}'
   query='[result | observation := http.send({"method":"post","url":"http://127.0.0.1:8181/v1/data/tobari/http/permission_wait_observation","headers":{"content-type":"application/json"},"body":{"input":'"$policy_input"'}}); observation.status_code == 200; object.get(observation.body, "result", null) != null; result := observation.body.result][0]'
-  output=$(docker exec tobari-opa /opa eval --fail --format raw "$query")
-  EXPECTED_ALLOW=$expected_allow OPA_OBSERVATION="$output" python3 <<'PY'
+  for _ in $(seq 1 120); do
+    output=$(docker exec tobari-opa /opa eval --fail --format raw "$query")
+    if EXPECTED_ALLOW=$expected_allow OPA_OBSERVATION="$output" python3 2>/dev/null <<'PY'
 import json
 import os
 import re
@@ -49,6 +50,12 @@ expected = os.environ["EXPECTED_ALLOW"] == "true"
 if not isinstance(decision, dict) or decision.get("allow") is not expected:
     raise SystemExit(f"live OPA observation did not bind its decision snapshot: {document!r}")
 PY
+    then
+      return
+    fi
+    sleep 0.1
+  done
+  fail "live OPA observation did not reach the expected atomic decision snapshot"
 }
 
 verify_permission_resume_handoff() {
