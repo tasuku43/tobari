@@ -22,10 +22,10 @@ func (f *migrationCLI) MigrateInstallation(_ context.Context, _ io.Writer) (toba
 }
 
 func TestMigrationApplyRendersCompleteJSONAndMutatesOnce(t *testing.T) {
-	backup := "/tmp/tobari/migrations/pre-v1-0123456789ab"
+	recoveryID := "sha256:" + strings.Repeat("b", 64)
 	fake := &migrationCLI{report: tobari.MigrationReport{
 		Task: tobari.TaskMigrationApply, Source: tobari.MigrationSourcePreV1ContextPolicyRuntime,
-		Changed: true, Backup: &backup,
+		Changed: true, RecoveryID: &recoveryID, ResearchAuthDisposition: tobari.ResearchAuthNotPresent,
 		Contexts: []tobari.MigrationContextResult{{
 			ID: "018bcfe5-687b-7000-8000-000000000077", Name: "default",
 			State: tobari.MigrationContextMigrated, Runtime: "standard",
@@ -41,7 +41,7 @@ func TestMigrationApplyRendersCompleteJSONAndMutatesOnce(t *testing.T) {
 	if err := json.Unmarshal(stdout.Bytes(), &document); err != nil {
 		t.Fatalf("migration JSON = %q: %v", stdout.String(), err)
 	}
-	if document.SchemaVersion != 1 || !document.Migration.Changed || len(document.Migration.Contexts) != 1 || fake.calls != 1 {
+	if document.SchemaVersion != 2 || !document.Migration.Changed || len(document.Migration.Contexts) != 1 || fake.calls != 1 {
 		t.Fatalf("migration document/calls = %+v/%d", document, fake.calls)
 	}
 }

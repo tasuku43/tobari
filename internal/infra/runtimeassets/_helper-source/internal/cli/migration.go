@@ -44,7 +44,7 @@ func renderMigration(result tobari.MigrationReport, format successFormat, color 
 		return nil, fault.Wrap(fault.KindContract, "invalid_migration_report", "migration report is invalid", false, err)
 	}
 	if format == successFormatJSON {
-		output, err := marshalCommandJSON("migrate apply", migrationDocument{SchemaVersion: 1, Migration: result})
+		output, err := marshalCommandJSON("migrate apply", migrationDocument{SchemaVersion: 2, Migration: result})
 		if err != nil {
 			return nil, err
 		}
@@ -59,10 +59,11 @@ func renderMigration(result tobari.MigrationReport, format successFormat, color 
 	output.WriteString("\n\n")
 	writeContextCardValue(&output, color, "Source", result.Source, styleText)
 	writeContextCardValue(&output, color, "Changed", fmt.Sprintf("%t", result.Changed), humanStatusToken(map[bool]string{true: "ready", false: "not_configured"}[result.Changed]))
-	if result.Backup != nil {
-		writeContextCardValue(&output, color, "Backup", safeExternalText(*result.Backup), styleText)
+	if result.RecoveryID != nil {
+		writeContextCardValue(&output, color, "Recovery ID", safeExternalText(*result.RecoveryID), styleText)
 	}
-	output.WriteString("\nContexts\n")
+	writeContextCardValue(&output, color, "Research auth", string(result.ResearchAuthDisposition), styleText)
+	output.WriteString("\nWorkspace Manifests\n")
 	for _, item := range result.Contexts {
 		fmt.Fprintf(&output, "  %s  %s  %s  %s\n", safeExternalText(item.Name), item.State, safeExternalText(item.Runtime), item.PolicyRevision[:19])
 	}

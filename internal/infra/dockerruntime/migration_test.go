@@ -16,6 +16,15 @@ import (
 	"github.com/tasuku43/tobari/internal/domain/tobari"
 )
 
+type stoppedMigrationRunner struct{ commandRunner }
+
+func (r stoppedMigrationRunner) Output(ctx context.Context, args, environment []string) ([]byte, error) {
+	if len(args) > 0 && args[0] == "inspect" {
+		return nil, errors.New("No such object")
+	}
+	return r.commandRunner.Output(ctx, args, environment)
+}
+
 func TestInstallationMigrationPreservesAuthorityAndPromotesLegacyRuntime(t *testing.T) {
 	root := t.TempDir()
 	runner := &recordingRunner{outputQueue: [][]byte{compatibleImageInspection(), imageDigestInspection()}}
@@ -26,10 +35,14 @@ func TestInstallationMigrationPreservesAuthorityAndPromotesLegacyRuntime(t *test
 	if err := runtime.ensureContextStore(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := runtime.CreateContext(context.Background(), "plain", tobari.OfficialRuntimeBase, tobari.ContextPolicyModeAdvanced, tobari.ContextSourceAccessReadOnly); err != nil {
+	if _, err := runtime.CreateContext(context.Background(), "plain", tobari.OfficialRuntimeBase, tobari.ManifestPolicyModeAdvanced, tobari.ManifestSourceAccessReadOnly); err != nil {
 		t.Fatal(err)
 	}
-	if err := runtime.writeActiveContext("plain"); err != nil {
+	plainManifest, err := runtime.readContextManifest("plain")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := runtime.writeDefaultManifest(plainManifest); err != nil {
 		t.Fatal(err)
 	}
 	defaultLegacy, defaultPolicy := installLegacyMigrationContext(t, runtime, "default", true)
@@ -40,15 +53,13 @@ func TestInstallationMigrationPreservesAuthorityAndPromotesLegacyRuntime(t *test
 	if err := writeAtomicBytes(learnedPath, learned); err != nil {
 		t.Fatal(err)
 	}
-	workspacePath := filepath.Join(runtime.stateDirectory, "instances", "fixture", "home", "marker")
+	workspacePath := filepath.Join(runtime.stateDirectory, "instances", "01912345-6789-7abc-8def-0123456789ab", "home", "marker")
 	workspace := []byte("workspace-home\n")
 	if err := writeAtomicBytes(workspacePath, workspace); err != nil {
 		t.Fatal(err)
 	}
 	protectedMarkers := map[string][]byte{
 		filepath.Join(runtime.stateDirectory, "roots", "fixture.json"): []byte("root-binding\n"),
-		filepath.Join(runtime.stateDirectory, "auth", "fixture"):       []byte("credential-state\n"),
-		filepath.Join(runtime.configDirectory, "auth", "fixture"):      []byte("provider-config\n"),
 	}
 	for path, content := range protectedMarkers {
 		if err := writeAtomicBytes(path, content); err != nil {
@@ -65,10 +76,11 @@ func TestInstallationMigrationPreservesAuthorityAndPromotesLegacyRuntime(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !report.Changed || report.Backup == nil || len(report.Contexts) != 2 {
+	if !report.Changed || report.RecoveryID == nil || len(report.Contexts) != 2 {
 		t.Fatalf("migration report = %+v", report)
 	}
-	if active, err := runtime.readActiveContext(); err != nil || active != "plain" {
+	backup := migrationBackupRoot(t, runtime)
+	if active, err := runtime.readDefaultManifestName(); err != nil || active != "plain" {
 		t.Fatalf("active Context = %q, error = %v", active, err)
 	}
 	for name, wantID := range map[string]string{"default": defaultLegacy.ID, "plain": plainLegacy.ID} {
@@ -90,7 +102,7 @@ func TestInstallationMigrationPreservesAuthorityAndPromotesLegacyRuntime(t *test
 	if defaultManifest.RuntimeBinding.Name != "legacy-default" || defaultManifest.RuntimeBinding.Ordinal != 1 {
 		t.Fatalf("promoted Runtime binding = %+v", defaultManifest.RuntimeBinding)
 	}
-	plainManifest, _ := runtime.readContextManifestRaw("plain")
+	plainManifest, _ = runtime.readContextManifestRaw("plain")
 	if plainManifest.RuntimeBinding.RuntimeID != tobari.StandardRuntimeID {
 		t.Fatalf("standard Runtime binding = %+v", plainManifest.RuntimeBinding)
 	}
@@ -99,15 +111,15 @@ func TestInstallationMigrationPreservesAuthorityAndPromotesLegacyRuntime(t *test
 	for path, content := range protectedMarkers {
 		assertMigrationBytes(t, path, content)
 	}
-	assertMigrationBytes(t, filepath.Join(*report.Backup, "contexts", "default", "context.json"), mustMigrationJSON(t, defaultLegacy))
-	assertMigrationBytes(t, filepath.Join(*report.Backup, "contexts", "default", "policy", "preset.json"), defaultPolicy)
-	assertMigrationBytes(t, filepath.Join(*report.Backup, "contexts", "plain", "policy", "preset.json"), plainPolicy)
+	assertMigrationBytes(t, filepath.Join(backup, "contexts", "default", "context.json"), mustMigrationJSON(t, defaultLegacy))
+	assertMigrationBytes(t, filepath.Join(backup, "contexts", "default", "policy", "preset.json"), defaultPolicy)
+	assertMigrationBytes(t, filepath.Join(backup, "contexts", "plain", "policy", "preset.json"), plainPolicy)
 
 	second, err := runtime.MigrateInstallation(context.Background(), io.Discard)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if second.Changed || second.Backup != nil {
+	if second.Changed || second.RecoveryID != nil {
 		t.Fatalf("second migration = %+v", second)
 	}
 	if len(runner.runs) != 1 {
@@ -156,7 +168,7 @@ func TestInstallationMigrationRejectsUnknownLegacyShapeWithoutMutation(t *testin
 	}
 }
 
-func TestInstallationMigrationCleansExactResidualPolicyAfterInterruptedCommit(t *testing.T) {
+func TestInstallationMigrationRejectsPredecessorStateRecreatedAfterCommit(t *testing.T) {
 	root := t.TempDir()
 	runtime, err := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), &recordingRunner{})
 	if err != nil {
@@ -177,19 +189,11 @@ func TestInstallationMigrationCleansExactResidualPolicyAfterInterruptedCommit(t 
 		t.Fatalf("residual policy doctor observation = %+v", observation)
 	}
 
-	resumed, err := runtime.MigrateInstallation(context.Background(), io.Discard)
-	if err != nil {
-		t.Fatal(err)
+	if _, err := runtime.MigrateInstallation(context.Background(), io.Discard); !errors.Is(err, tobari.ErrMigrationSourceUnsafe) {
+		t.Fatalf("recreated predecessor state error = %v", err)
 	}
-	if !resumed.Changed || resumed.Backup == nil || resumed.Contexts[0].State != tobari.MigrationContextMigrated {
-		t.Fatalf("resumed cleanup = %+v", resumed)
-	}
-	if _, err := os.Stat(residualPath); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("residual policy exists or is unsafe: %v", err)
-	}
-	current, err := runtime.MigrateInstallation(context.Background(), io.Discard)
-	if err != nil || current.Changed || current.Backup != nil {
-		t.Fatalf("post-cleanup migration = %+v, error = %v", current, err)
+	if got, err := os.ReadFile(residualPath); err != nil || !bytes.Equal(got, legacyPolicy) {
+		t.Fatalf("fail-closed migration changed recreated predecessor state: %q, %v", got, err)
 	}
 }
 
@@ -289,7 +293,7 @@ func TestInstallationMigrationRejectsRuntimeConflictBeforeContextWrites(t *testi
 		t.Fatal(err)
 	}
 	installLegacyMigrationContext(t, runtime, "default", true)
-	if _, err := runtime.CreateRuntime(context.Background(), "legacy-default", tobari.RuntimeSourceBase(tobari.StandardRuntimeName)); err != nil {
+	if _, err := runtime.CreateRuntime(context.Background(), "legacy-default", tobari.RuntimeCopySource(tobari.StandardRuntimeName)); err != nil {
 		t.Fatal(err)
 	}
 	if err := writeAtomicBytes(filepath.Join(runtime.runtimeSourceDirectory("legacy-default"), "Dockerfile"), []byte("FROM example.invalid/other:1\n")); err != nil {
@@ -384,6 +388,22 @@ func TestInstallationMigrationWriteFailureRetainsRestartableSource(t *testing.T)
 
 func installLegacyMigrationContext(t *testing.T, runtime *Runtime, name string, customRuntime bool) (legacyContextManifest, []byte) {
 	t.Helper()
+	if _, wrapped := runtime.runner.(stoppedMigrationRunner); !wrapped {
+		runtime.runner = stoppedMigrationRunner{commandRunner: runtime.runner}
+	}
+	if selected, err := runtime.readDefaultManifestName(); err == nil {
+		if err := writeAtomicJSON(runtime.activeContextPath(), legacyActiveContextDocument{Name: selected}); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Remove(runtime.defaultManifestPath()); err != nil {
+			t.Fatal(err)
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(runtime.manifestRevisionsDirectory(name)); err != nil {
+		t.Fatal(err)
+	}
 	current, err := runtime.readContextManifestRaw(name)
 	if err != nil {
 		t.Fatal(err)
@@ -418,12 +438,12 @@ func installLegacyMigrationContext(t *testing.T, runtime *Runtime, name string, 
 		sourceDigest := sha256.Sum256(dockerfile)
 		digest := "sha256:" + hexDigest(sourceDigest[:])
 		legacy.Image = "tobari-context-default:fixture"
-		legacy.Runtime = &tobari.ContextRuntimeRecipe{
-			Kind: tobari.ContextRuntimeKindDockerfile, File: tobari.ContextRuntimeRecipeFile,
+		legacy.Runtime = &tobari.ManifestRuntimeRecipe{
+			Kind: tobari.ManifestRuntimeKindDockerfile, File: tobari.ManifestRuntimeRecipeFile,
 			BaseReference: "tobari-runtime:dev", SourceDigest: digest,
-			LastBuild: &tobari.ContextRuntimeBuild{Image: legacy.Image, ImageDigest: "sha256:" + strings.Repeat("d", 64), SourceDigest: digest},
+			LastBuild: &tobari.ManifestRuntimeBuild{Image: legacy.Image, ImageDigest: "sha256:" + strings.Repeat("d", 64), SourceDigest: digest},
 		}
-		if err := writeAtomicBytes(filepath.Join(runtime.contextDirectory(name), tobari.ContextRuntimeRecipeFile), dockerfile); err != nil {
+		if err := writeAtomicBytes(filepath.Join(runtime.contextDirectory(name), tobari.ManifestRuntimeRecipeFile), dockerfile); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -467,4 +487,13 @@ func assertMigrationBytes(t *testing.T, path string, want []byte) {
 	if !bytes.Equal(got, want) {
 		t.Fatalf("%s changed: got %q want %q", path, got, want)
 	}
+}
+
+func migrationBackupRoot(t *testing.T, runtime *Runtime) string {
+	t.Helper()
+	matches, err := filepath.Glob(filepath.Join(runtime.configDirectory, "migrations", "pre-v1-*"))
+	if err != nil || len(matches) != 1 {
+		t.Fatalf("migration backup roots = %v, error = %v", matches, err)
+	}
+	return matches[0]
 }

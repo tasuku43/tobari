@@ -3,7 +3,6 @@ package tobari
 import (
 	"errors"
 	"fmt"
-	"path/filepath"
 )
 
 const (
@@ -93,10 +92,6 @@ type MigrationReport struct {
 	RecoveryID              *string                  `json:"recovery_id"`
 	ResearchAuthDisposition ResearchAuthDisposition  `json:"research_auth_disposition"`
 	Contexts                []MigrationContextResult `json:"workspace_manifests"`
-	// Backup is an internal commit-series compatibility seam for the
-	// unpublished predecessor adapter. It is never serialized publicly and is
-	// removed by the migration implementation commit.
-	Backup *string `json:"-"`
 }
 
 func (r MigrationReport) Validate() error {
@@ -106,13 +101,8 @@ func (r MigrationReport) Validate() error {
 	if r.Contexts == nil || len(r.Contexts) == 0 {
 		return fmt.Errorf("migration Workspace Manifest collection is empty")
 	}
-	legacyAdapter := r.Backup != nil
-	if !legacyAdapter {
-		if err := r.ResearchAuthDisposition.Validate(); err != nil {
-			return err
-		}
-	} else if !r.Changed || *r.Backup == "" || !filepath.IsAbs(*r.Backup) || filepath.Clean(*r.Backup) != *r.Backup {
-		return fmt.Errorf("migration predecessor backup is invalid")
+	if err := r.ResearchAuthDisposition.Validate(); err != nil {
+		return err
 	}
 	seen := make(map[string]struct{}, len(r.Contexts))
 	migrated := false
@@ -129,11 +119,7 @@ func (r MigrationReport) Validate() error {
 	if migrated && !r.Changed {
 		return fmt.Errorf("migrated Manifest requires changed state")
 	}
-	if legacyAdapter {
-		if r.RecoveryID != nil {
-			return fmt.Errorf("predecessor adapter cannot report a recovery identity")
-		}
-	} else if r.Changed {
+	if r.Changed {
 		if r.RecoveryID == nil || ValidateDigest(*r.RecoveryID) != nil {
 			return fmt.Errorf("migration recovery identity is invalid")
 		}

@@ -23,38 +23,38 @@ const (
 )
 
 type legacyContextManifest struct {
-	SchemaVersion        int                                     `json:"schema_version"`
-	ID                   string                                  `json:"id"`
-	Name                 string                                  `json:"name"`
-	AgentProfile         string                                  `json:"agent_profile"`
-	Image                string                                  `json:"image"`
-	PolicyMode           tobari.ContextPolicyMode                `json:"policy_mode"`
-	SourceAccess         tobari.ContextSourceAccess              `json:"source_access"`
-	NativeReadiness      tobari.ContextNativeReadiness           `json:"native_readiness,omitempty"`
-	PolicyPresetOrigin   string                                  `json:"policy_preset_origin"`
-	PolicyPresetRevision string                                  `json:"policy_preset_revision"`
-	Runtime              *tobari.ContextRuntimeRecipe            `json:"runtime,omitempty"`
-	ShellEnvironment     []tobari.ContextShellEnvironmentSetting `json:"shell_environment,omitempty"`
-	GitIdentity          *tobari.ContextGitIdentitySetting       `json:"git_identity,omitempty"`
-	Bootstrap            *tobari.ContextBootstrapSnapshot        `json:"bootstrap,omitempty"`
+	SchemaVersion        int                                      `json:"schema_version"`
+	ID                   string                                   `json:"id"`
+	Name                 string                                   `json:"name"`
+	AgentProfile         string                                   `json:"agent_profile"`
+	Image                string                                   `json:"image"`
+	PolicyMode           tobari.ManifestPolicyMode                `json:"policy_mode"`
+	SourceAccess         tobari.ManifestSourceAccess              `json:"source_access"`
+	NativeReadiness      tobari.ManifestNativeReadiness           `json:"native_readiness,omitempty"`
+	PolicyPresetOrigin   string                                   `json:"policy_preset_origin"`
+	PolicyPresetRevision string                                   `json:"policy_preset_revision"`
+	Runtime              *tobari.ManifestRuntimeRecipe            `json:"runtime,omitempty"`
+	ShellEnvironment     []tobari.ManifestShellEnvironmentSetting `json:"shell_environment,omitempty"`
+	GitIdentity          *tobari.ManifestGitIdentitySetting       `json:"git_identity,omitempty"`
+	Bootstrap            *tobari.ManifestBootstrapSnapshot        `json:"bootstrap,omitempty"`
 }
 
 type legacyContextPolicy struct {
-	SchemaVersion      int                                    `json:"schema_version"`
-	Name               string                                 `json:"name"`
-	DestinationCeiling tobari.ContextPolicyDestinationCeiling `json:"destination_ceiling"`
-	MethodPolicy       tobari.ContextMethodPolicy             `json:"method_policy"`
-	BaselineGrants     []tobari.ContextPolicyExactRule        `json:"baseline_grants"`
-	BaselineTemplates  []tobari.ContextPolicyPathTemplateRule `json:"baseline_templates"`
-	MCPBaselineGrants  []tobari.ContextPolicyMCPRule          `json:"mcp_baseline_grants"`
-	BaselineDenies     []tobari.ContextPolicyExactRule        `json:"baseline_denies"`
-	GraphQLEndpoints   []tobari.ContextPolicyExactRule        `json:"graphql_endpoints"`
-	MCPEndpoints       []tobari.ContextPolicyExactRule        `json:"mcp_endpoints"`
-	Guardrail          string                                 `json:"guardrail"`
+	SchemaVersion      int                                     `json:"schema_version"`
+	Name               string                                  `json:"name"`
+	DestinationCeiling tobari.ManifestPolicyDestinationCeiling `json:"destination_ceiling"`
+	MethodPolicy       tobari.ManifestMethodPolicy             `json:"method_policy"`
+	BaselineGrants     []tobari.ManifestPolicyExactRule        `json:"baseline_grants"`
+	BaselineTemplates  []tobari.ManifestPolicyPathTemplateRule `json:"baseline_templates"`
+	MCPBaselineGrants  []tobari.ManifestPolicyMCPRule          `json:"mcp_baseline_grants"`
+	BaselineDenies     []tobari.ManifestPolicyExactRule        `json:"baseline_denies"`
+	GraphQLEndpoints   []tobari.ManifestPolicyExactRule        `json:"graphql_endpoints"`
+	MCPEndpoints       []tobari.ManifestPolicyExactRule        `json:"mcp_endpoints"`
+	Guardrail          string                                  `json:"guardrail"`
 }
 
-func (p legacyContextPolicy) current() tobari.ContextPolicy {
-	return tobari.ContextPolicy{
+func (p legacyContextPolicy) current() tobari.ManifestPolicy {
+	return tobari.ManifestPolicy{
 		SchemaVersion: p.SchemaVersion, Name: p.Name,
 		DestinationCeiling: p.DestinationCeiling, MethodPolicy: p.MethodPolicy,
 		BaselineGrants: p.BaselineGrants, BaselineTemplates: p.BaselineTemplates,
@@ -70,7 +70,7 @@ type migrationContextPlan struct {
 	sourceManifest     []byte
 	sourcePolicy       []byte
 	sourceDockerfile   []byte
-	manifest           tobari.ContextManifest
+	manifest           tobari.WorkspaceManifest
 	policy             []byte
 	runtimeSelection   string
 }
@@ -90,11 +90,70 @@ func (r *Runtime) MigrateInstallation(ctx context.Context, diagnostics io.Writer
 	}
 	var result tobari.MigrationReport
 	err := r.WithLifecycleLock(ctx, func(lockContext context.Context) error {
+		journal, journalExists, err := r.readResearchAuthJournal()
+		if err != nil {
+			return fmt.Errorf("%w: research auth journal: %v", tobari.ErrMigrationSourceUnsafe, err)
+		}
+		if journalExists && journal.Committed {
+			plans, planErr := r.planInstallationMigration(lockContext)
+			if planErr != nil {
+				return planErr
+			}
+			for _, plan := range plans {
+				if migrationPlanChanges(plan) {
+					return fmt.Errorf("%w: predecessor state reappeared after committed migration", tobari.ErrMigrationSourceUnsafe)
+				}
+			}
+			result, err = r.committedMigrationReport(lockContext, journal)
+			return err
+		}
+		if journalExists && journal.ContextsCommitted {
+			if err := r.resumeResearchAuthQuarantine(journal); err != nil {
+				return err
+			}
+			if err := r.commitMigrationDefaultSelector(journal.DefaultManifest); err != nil {
+				return err
+			}
+			journal.SelectorCommitted, journal.Committed = true, true
+			if err := writeAtomicJSON(r.researchAuthJournalPath(), journal); err != nil {
+				return err
+			}
+			result, err = r.committedMigrationReport(lockContext, journal)
+			if err == nil {
+				result.Changed = true
+				recovery := journal.RecoveryID
+				result.RecoveryID = &recovery
+			}
+			return err
+		}
 		plans, err := r.planInstallationMigration(lockContext)
 		if err != nil {
 			return err
 		}
-		changeCount := 0
+		legacyDefaultName, err := r.readMigrationActiveContext()
+		if err != nil {
+			return fmt.Errorf("%w: default Manifest source: %v", tobari.ErrMigrationSourceUnsafe, err)
+		}
+		var researchPlan researchAuthPlan
+		if journalExists {
+			researchPlan = researchAuthPlan{
+				Digest: journal.Digest, StateDigest: journal.StateDigest, ConfigDigest: journal.ConfigDigest,
+				StatePresent: journal.StatePresent, ConfigPresent: journal.ConfigPresent,
+				Artifacts: append([]researchAuthArtifact{}, journal.Artifacts...),
+			}
+			if err := r.resumeResearchAuthQuarantine(journal); err != nil {
+				return err
+			}
+		} else {
+			researchPlan, err = r.planResearchAuthMigration(plans)
+			if err != nil {
+				return err
+			}
+		}
+		if err := r.validateMigrationRuntimeQuiescence(lockContext); err != nil {
+			return err
+		}
+		changeCount := 1 // the predecessor name marker always becomes an ID-bound selector
 		for index := range plans {
 			if !migrationPlanChanges(plans[index]) {
 				continue
@@ -118,15 +177,39 @@ func (r *Runtime) MigrateInstallation(ctx context.Context, diagnostics io.Writer
 			applyMigrationRuntimeBinding(&plans[index], binding)
 		}
 
-		var backup *string
+		var recoveryID *string
 		if changeCount > 0 {
-			path, backupErr := r.createMigrationBackup(plans)
+			_, recovery, backupErr := r.createMigrationBackup(plans, researchPlan.Digest)
 			if backupErr != nil {
 				return fmt.Errorf("%w: %v", tobari.ErrMigrationBackupFailed, backupErr)
 			}
-			backup = &path
+			recoveryID = &recovery
+			if !journalExists {
+				if quarantineErr := r.quarantineResearchAuth(researchPlan, legacyDefaultName); quarantineErr != nil {
+					return fmt.Errorf("%w: research auth quarantine: %v", tobari.ErrMigrationWriteFailed, quarantineErr)
+				}
+				journal, journalExists, err = r.readResearchAuthJournal()
+				if err != nil || !journalExists {
+					return fmt.Errorf("%w: research auth journal unavailable: %v", tobari.ErrMigrationWriteFailed, err)
+				}
+			}
+			journal.RecoveryID = recovery
+			if err := writeAtomicJSON(r.researchAuthJournalPath(), journal); err != nil {
+				return err
+			}
 			if commitErr := r.commitMigrationPlans(plans); commitErr != nil {
 				return commitErr
+			}
+			journal.ContextsCommitted = true
+			if err := writeAtomicJSON(r.researchAuthJournalPath(), journal); err != nil {
+				return err
+			}
+			if err := r.commitMigrationDefaultSelector(legacyDefaultName); err != nil {
+				return err
+			}
+			journal.SelectorCommitted, journal.Committed = true, true
+			if err := writeAtomicJSON(r.researchAuthJournalPath(), journal); err != nil {
+				return err
 			}
 		}
 
@@ -143,7 +226,8 @@ func (r *Runtime) MigrateInstallation(ctx context.Context, diagnostics io.Writer
 		}
 		result = tobari.MigrationReport{
 			Task: tobari.TaskMigrationApply, Source: tobari.MigrationSourcePreV1ContextPolicyRuntime,
-			Changed: changeCount > 0, Backup: backup, Contexts: items,
+			Changed: changeCount > 0, RecoveryID: recoveryID, Contexts: items,
+			ResearchAuthDisposition: researchAuthDisposition(researchPlan),
 		}
 		return result.Validate()
 	})
@@ -151,6 +235,52 @@ func (r *Runtime) MigrateInstallation(ctx context.Context, diagnostics io.Writer
 		return tobari.MigrationReport{}, err
 	}
 	return result, nil
+}
+
+func researchAuthDisposition(plan researchAuthPlan) tobari.ResearchAuthDisposition {
+	if plan.StatePresent || plan.ConfigPresent || len(plan.Artifacts) != 0 {
+		return tobari.ResearchAuthReauthenticationRequired
+	}
+	return tobari.ResearchAuthNotPresent
+}
+
+func researchAuthDispositionFromJournal(journal researchAuthJournal) tobari.ResearchAuthDisposition {
+	return researchAuthDisposition(researchAuthPlan{
+		StatePresent: journal.StatePresent, ConfigPresent: journal.ConfigPresent, Artifacts: journal.Artifacts,
+	})
+}
+
+func (r *Runtime) commitMigrationDefaultSelector(name string) error {
+	selected, err := r.readContextManifest(name)
+	if err != nil {
+		return fmt.Errorf("%w: migrated default Manifest: %v", tobari.ErrMigrationWriteFailed, err)
+	}
+	if err := r.writeDefaultManifest(selected); err != nil {
+		return fmt.Errorf("%w: default Manifest selector: %v", tobari.ErrMigrationWriteFailed, err)
+	}
+	if err := os.Remove(r.activeContextPath()); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("%w: predecessor selector: %v", tobari.ErrMigrationWriteFailed, err)
+	}
+	return syncDirectoryIfPresent(r.contextsDirectory())
+}
+
+func (r *Runtime) committedMigrationReport(ctx context.Context, journal researchAuthJournal) (tobari.MigrationReport, error) {
+	listed, err := r.ListContexts(ctx)
+	if err != nil {
+		return tobari.MigrationReport{}, err
+	}
+	items := make([]tobari.MigrationContextResult, 0, len(listed.Items))
+	for _, manifest := range listed.Items {
+		items = append(items, tobari.MigrationContextResult{
+			ID: manifest.ID, Name: manifest.Name, State: tobari.MigrationContextCurrent,
+			Runtime: manifest.RuntimeSelection, PolicyRevision: manifest.PolicyRevision,
+		})
+	}
+	result := tobari.MigrationReport{
+		Task: tobari.TaskMigrationApply, Source: tobari.MigrationSourcePreV1ContextPolicyRuntime,
+		Changed: false, RecoveryID: nil, ResearchAuthDisposition: researchAuthDispositionFromJournal(journal), Contexts: items,
+	}
+	return result, result.Validate()
 }
 
 func migrationPlanChanges(plan migrationContextPlan) bool {
@@ -183,9 +313,15 @@ func (r *Runtime) planInstallationMigration(ctx context.Context) ([]migrationCon
 		return nil, fmt.Errorf("%w: list Contexts: %v", tobari.ErrMigrationSourceUnsafe, err)
 	}
 	var names []string
+	var legacySelector, currentSelector bool
 	for _, entry := range entries {
 		if !entry.IsDir() {
-			if entry.Name() == "active.json" {
+			switch entry.Name() {
+			case "active.json":
+				legacySelector = true
+				continue
+			case "default.json":
+				currentSelector = true
 				continue
 			}
 			return nil, fmt.Errorf("%w: unexpected Context store entry", tobari.ErrMigrationSourceUnsafe)
@@ -197,6 +333,9 @@ func (r *Runtime) planInstallationMigration(ctx context.Context) ([]migrationCon
 	}
 	if len(names) == 0 {
 		return nil, tobari.ErrMigrationNotSupported
+	}
+	if legacySelector == currentSelector {
+		return nil, fmt.Errorf("%w: Manifest selector state is ambiguous", tobari.ErrMigrationSourceUnsafe)
 	}
 	sort.Strings(names)
 	plans := make([]migrationContextPlan, 0, len(names))
@@ -210,7 +349,12 @@ func (r *Runtime) planInstallationMigration(ctx context.Context) ([]migrationCon
 		}
 		plans = append(plans, plan)
 	}
-	active, err := r.readMigrationActiveContext()
+	var active string
+	if legacySelector {
+		active, err = r.readMigrationActiveContext()
+	} else {
+		active, err = r.readDefaultManifestName()
+	}
 	if err != nil {
 		return nil, fmt.Errorf("%w: active Context: %v", tobari.ErrMigrationSourceUnsafe, err)
 	}
@@ -225,7 +369,7 @@ func (r *Runtime) readMigrationActiveContext() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	var document activeContextDocument
+	var document legacyActiveContextDocument
 	if err := decodeStrictMigrationJSON(data, &document); err != nil {
 		return "", err
 	}
@@ -287,7 +431,7 @@ func (r *Runtime) planContextMigration(name string) (migrationContextPlan, error
 	if err != nil {
 		return migrationContextPlan{}, fmt.Errorf("%w: Context %q readiness: %v", tobari.ErrMigrationSourceUnsafe, name, err)
 	}
-	manifest := tobari.ContextManifest{
+	manifest := tobari.WorkspaceManifest{
 		SchemaVersion: legacy.SchemaVersion, ID: legacy.ID, Name: legacy.Name,
 		AgentProfile: legacy.AgentProfile, Image: legacy.Image, PolicyMode: legacy.PolicyMode,
 		SourceAccess: legacy.SourceAccess, PolicyRevision: revision, NativeReadiness: readiness,
@@ -331,7 +475,7 @@ func decodeLegacyContextManifest(data []byte, name string) (legacyContextManifes
 	if err := tobari.ValidateDigest(manifest.PolicyPresetRevision); err != nil {
 		return legacyContextManifest{}, err
 	}
-	probe := tobari.ContextManifest{
+	probe := tobari.WorkspaceManifest{
 		SchemaVersion: manifest.SchemaVersion, ID: manifest.ID, Name: manifest.Name,
 		AgentProfile: manifest.AgentProfile, Image: manifest.Image, PolicyMode: manifest.PolicyMode,
 		SourceAccess: manifest.SourceAccess, PolicyRevision: tobari.DefaultContextPolicyRevision(),
@@ -344,26 +488,26 @@ func decodeLegacyContextManifest(data []byte, name string) (legacyContextManifes
 	return manifest, nil
 }
 
-func convertLegacyContextPolicy(data []byte, declaredRevision string) (tobari.ContextPolicy, []byte, string, error) {
+func convertLegacyContextPolicy(data []byte, declaredRevision string) (tobari.ManifestPolicy, []byte, string, error) {
 	actual := sha256.Sum256(data)
 	if declaredRevision != "sha256:"+hex.EncodeToString(actual[:]) {
-		return tobari.ContextPolicy{}, nil, "", fmt.Errorf("legacy policy revision mismatch")
+		return tobari.ManifestPolicy{}, nil, "", fmt.Errorf("legacy policy revision mismatch")
 	}
 	if err := validateNoDuplicateJSONKeys(data); err != nil {
-		return tobari.ContextPolicy{}, nil, "", err
+		return tobari.ManifestPolicy{}, nil, "", err
 	}
 	var legacy legacyContextPolicy
 	if err := decodeStrictMigrationJSON(data, &legacy); err != nil {
-		return tobari.ContextPolicy{}, nil, "", err
+		return tobari.ManifestPolicy{}, nil, "", err
 	}
 	if legacy.Name != "agent-ready" || legacy.Guardrail != migrationPolicyGuardrail {
-		return tobari.ContextPolicy{}, nil, "", fmt.Errorf("legacy policy identity is unsupported")
+		return tobari.ManifestPolicy{}, nil, "", fmt.Errorf("legacy policy identity is unsupported")
 	}
 	policy := legacy.current()
 	policy.Name = "default"
 	converted, err := tobari.ApplyNativeToolAuthReadiness(false, true, policy)
 	if err != nil {
-		return tobari.ContextPolicy{}, nil, "", err
+		return tobari.ManifestPolicy{}, nil, "", err
 	}
 	return tobari.NormalizeContextPolicy(converted)
 }
@@ -432,7 +576,7 @@ func (r *Runtime) prepareLegacyMigrationRuntime(ctx context.Context, contextName
 	name := migrationRuntimeName(contextName, legacy.ID)
 	manifest, err := r.readRuntimeManifest(name)
 	if errors.Is(err, tobari.ErrRuntimeNotFound) {
-		if _, err := r.CreateRuntime(ctx, name, tobari.RuntimeSourceBase(tobari.StandardRuntimeName)); err != nil {
+		if _, err := r.CreateRuntime(ctx, name, tobari.RuntimeCopySource(tobari.StandardRuntimeName)); err != nil {
 			return tobari.RuntimeBinding{}, fmt.Errorf("%w: create managed Runtime: %v", tobari.ErrMigrationRuntimeFailed, err)
 		}
 		if err := writeAtomicBytes(filepath.Join(r.runtimeSourceDirectory(name), "Dockerfile"), dockerfile); err != nil {
@@ -467,8 +611,9 @@ func (r *Runtime) prepareLegacyMigrationRuntime(ctx context.Context, contextName
 	return tobari.RuntimeBinding{}, fmt.Errorf("%w: ready Runtime does not contain the exact legacy source", tobari.ErrMigrationRuntimeConflict)
 }
 
-func (r *Runtime) createMigrationBackup(plans []migrationContextPlan) (string, error) {
+func (r *Runtime) createMigrationBackup(plans []migrationContextPlan, researchAuthDigest string) (string, string, error) {
 	hash := sha256.New()
+	_, _ = hash.Write([]byte(researchAuthDigest))
 	var names []string
 	for _, plan := range plans {
 		if !migrationPlanChanges(plan) {
@@ -484,14 +629,14 @@ func (r *Runtime) createMigrationBackup(plans []migrationContextPlan) (string, e
 	digest := "sha256:" + hex.EncodeToString(hash.Sum(nil))
 	root := filepath.Join(r.configDirectory, "migrations", "pre-v1-"+strings.TrimPrefix(digest, "sha256:")[:12])
 	if err := r.ensurePrivateDirectory(filepath.Dir(root)); err != nil {
-		return "", err
+		return "", "", err
 	}
 	if err := r.ensurePrivateDirectory(root); err != nil {
-		return "", err
+		return "", "", err
 	}
 	contextsRoot := filepath.Join(root, "contexts")
 	if err := r.ensurePrivateDirectory(contextsRoot); err != nil {
-		return "", err
+		return "", "", err
 	}
 	for _, plan := range plans {
 		if !migrationPlanChanges(plan) {
@@ -499,23 +644,23 @@ func (r *Runtime) createMigrationBackup(plans []migrationContextPlan) (string, e
 		}
 		base := filepath.Join(contextsRoot, plan.name)
 		if err := r.ensurePrivateDirectory(base); err != nil {
-			return "", err
+			return "", "", err
 		}
 		if err := initializeOrVerifyMigrationBytes(filepath.Join(base, "context.json"), plan.sourceManifest); err != nil {
-			return "", err
+			return "", "", err
 		}
 		if err := r.ensurePrivateDirectory(filepath.Join(base, "policy")); err != nil {
-			return "", err
+			return "", "", err
 		}
 		if err := initializeOrVerifyMigrationBytes(filepath.Join(base, "policy", "preset.json"), plan.sourcePolicy); err != nil {
-			return "", err
+			return "", "", err
 		}
 		if len(plan.sourceDockerfile) > 0 {
 			if err := r.ensurePrivateDirectory(filepath.Join(base, "runtime")); err != nil {
-				return "", err
+				return "", "", err
 			}
 			if err := initializeOrVerifyMigrationBytes(filepath.Join(base, "runtime", "Dockerfile"), plan.sourceDockerfile); err != nil {
-				return "", err
+				return "", "", err
 			}
 		}
 	}
@@ -524,16 +669,16 @@ func (r *Runtime) createMigrationBackup(plans []migrationContextPlan) (string, e
 	if data, err := readPrivateMigrationFile(path, maxContextManifestBytes); err == nil {
 		var existing migrationBackupManifest
 		if decodeErr := decodeStrictMigrationJSON(data, &existing); decodeErr != nil || existing.Digest != digest || !migrationEqualStrings(existing.Contexts, names) {
-			return "", fmt.Errorf("migration backup identity mismatch")
+			return "", "", fmt.Errorf("migration backup identity mismatch")
 		}
 	} else if errors.Is(err, os.ErrNotExist) {
 		if err := writeAtomicJSON(path, manifest); err != nil {
-			return "", err
+			return "", "", err
 		}
 	} else {
-		return "", err
+		return "", "", err
 	}
-	return root, nil
+	return root, digest, nil
 }
 
 func initializeOrVerifyMigrationBytes(path string, data []byte) error {
@@ -590,13 +735,17 @@ func (r *Runtime) commitMigrationPlans(plans []migrationContextPlan) error {
 					return fmt.Errorf("%w: Context %q Runtime source drifted", tobari.ErrMigrationSourceChanged, plan.name)
 				}
 			}
-			if err := plan.manifest.Validate(); err != nil {
+			published, err := tobari.PublishWorkspaceManifest(plan.manifest, nil)
+			if err != nil {
 				return fmt.Errorf("%w: Context %q candidate: %v", tobari.ErrMigrationWriteFailed, plan.name, err)
 			}
 			if err := writeAtomicBytes(r.contextPolicyPath(plan.name), plan.policy); err != nil {
 				return fmt.Errorf("%w: Context %q policy: %v", tobari.ErrMigrationWriteFailed, plan.name, err)
 			}
-			if err := writeAtomicJSON(r.contextManifestPath(plan.name), plan.manifest); err != nil {
+			if err := r.retainWorkspaceManifestRevision(published); err != nil {
+				return fmt.Errorf("%w: Manifest %q retained revision: %v", tobari.ErrMigrationWriteFailed, plan.name, err)
+			}
+			if err := writeAtomicJSON(r.contextManifestPath(plan.name), published); err != nil {
 				return fmt.Errorf("%w: Context %q manifest: %v", tobari.ErrMigrationWriteFailed, plan.name, err)
 			}
 			if err := removeMigrationFile(legacyPolicyPath); err != nil {

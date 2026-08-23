@@ -32,10 +32,10 @@ func migrationIntent() operation.Intent {
 }
 
 func applicationMigrationReport() tobari.MigrationReport {
-	backup := "/tmp/tobari/migrations/pre-v1-0123456789ab"
+	recoveryID := "sha256:" + strings.Repeat("b", 64)
 	return tobari.MigrationReport{
 		Task: tobari.TaskMigrationApply, Source: tobari.MigrationSourcePreV1ContextPolicyRuntime,
-		Changed: true, Backup: &backup,
+		Changed: true, RecoveryID: &recoveryID, ResearchAuthDisposition: tobari.ResearchAuthNotPresent,
 		Contexts: []tobari.MigrationContextResult{{ID: "018bcfe5-687b-7000-8000-000000000077", Name: "default", State: tobari.MigrationContextMigrated, Runtime: "standard", PolicyRevision: "sha256:" + strings.Repeat("a", 64)}},
 	}
 }
