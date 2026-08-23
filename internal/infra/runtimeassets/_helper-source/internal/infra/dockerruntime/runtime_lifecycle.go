@@ -254,7 +254,14 @@ func (r *Runtime) readStrictRuntimeBuildJournalInventory() (*runtimeBuildJournal
 			return nil, fmt.Errorf("Runtime build staging snapshot is unsafe")
 		}
 		children, err := os.ReadDir(snapshotRoot)
-		if err != nil || len(children) != 1 || children[0].Name() != "source" || !children[0].IsDir() || children[0].Type()&os.ModeSymlink != 0 {
+		if err != nil {
+			return nil, fmt.Errorf("Runtime build staging snapshot inventory is incomplete")
+		}
+		partialSnapshot := journal.Phase == runtimeBuildPhaseSnapshotting || (journal.Phase == runtimeBuildPhaseCompleting && journal.CleanupFrom == runtimeBuildPhaseSnapshotting)
+		if partialSnapshot && len(children) == 0 {
+			return journal, nil
+		}
+		if len(children) != 1 || children[0].Name() != "source" || !children[0].IsDir() || children[0].Type()&os.ModeSymlink != 0 || requirePrivateDirectory(journal.SnapshotPath) != nil {
 			return nil, fmt.Errorf("Runtime build staging snapshot inventory is incomplete")
 		}
 	} else if !errors.Is(err, os.ErrNotExist) {

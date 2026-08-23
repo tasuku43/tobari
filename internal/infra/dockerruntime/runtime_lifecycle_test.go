@@ -534,3 +534,101 @@ func TestRuntimeLifecycleSnapshotKeepsEveryBuildRecoveryPhaseAsBlocker(t *testin
 		})
 	}
 }
+
+func TestRuntimeLifecycleSnapshotRepresentsPartialSnapshottingRecovery(t *testing.T) {
+	for _, completing := range []bool{false, true} {
+		for _, shape := range []string{"absent", "empty", "source"} {
+			t.Run(fmt.Sprintf("completing_%t_%s", completing, shape), func(t *testing.T) {
+				root := t.TempDir()
+				runner := &lifecycleObservationRunner{images: map[string]lifecycleImageFixture{}, containers: map[string]runtimeContainerObservation{}}
+				runtime, err := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), runner)
+				if err != nil {
+					t.Fatal(err)
+				}
+				created, err := runtime.CreateRuntime(context.Background(), "frontend", tobari.RuntimeCopySource(tobari.StandardRuntimeName))
+				if err != nil {
+					t.Fatal(err)
+				}
+				journal, err := runtime.beginRuntimeBuildJournal(context.Background(), created.Runtime.ID, created.Runtime.Name)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if completing {
+					journal.Phase = runtimeBuildPhaseCompleting
+					journal.CleanupFrom = runtimeBuildPhaseSnapshotting
+					if err := writeAtomicJSON(runtime.runtimeBuildJournalPath(), journal); err != nil {
+						t.Fatal(err)
+					}
+				}
+				switch shape {
+				case "empty":
+					if err := os.MkdirAll(filepath.Dir(journal.SnapshotPath), 0o700); err != nil {
+						t.Fatal(err)
+					}
+				case "source":
+					if err := os.MkdirAll(journal.SnapshotPath, 0o700); err != nil {
+						t.Fatal(err)
+					}
+				}
+				recovery, found, err := runtime.ReadRuntimeBuildRecovery(context.Background())
+				wantKind := tobari.RuntimeBuildRecoveryPreDocker
+				if completing {
+					wantKind = tobari.RuntimeBuildRecoveryCleanup
+				}
+				if err != nil || !found || recovery.Kind != wantKind {
+					t.Fatalf("recovery = %+v/%t/%v", recovery, found, err)
+				}
+				snapshot, observedAt, err := runtime.ReadRuntimeLifecycleSnapshot(context.Background())
+				if err != nil || len(snapshot.Journals.Active) != 1 {
+					t.Fatalf("snapshot = %+v/%v", snapshot, err)
+				}
+				plan, err := tobari.PlanRuntimePrune(snapshot, observedAt)
+				if err != nil || plan.Applicable || len(plan.Blockers) != 1 || plan.Blockers[0].Reason != tobari.RuntimeBlockedByActiveBuild {
+					t.Fatalf("plan = %+v/%v", plan, err)
+				}
+			})
+		}
+	}
+}
+
+func TestRuntimeLifecycleSnapshotRejectsInvalidPartialSnapshottingInventory(t *testing.T) {
+	for _, shape := range []string{"file", "extra", "source_symlink"} {
+		t.Run(shape, func(t *testing.T) {
+			root := t.TempDir()
+			runtime, err := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), &lifecycleObservationRunner{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			created, err := runtime.CreateRuntime(context.Background(), "frontend", tobari.RuntimeCopySource(tobari.StandardRuntimeName))
+			if err != nil {
+				t.Fatal(err)
+			}
+			journal, err := runtime.beginRuntimeBuildJournal(context.Background(), created.Runtime.ID, created.Runtime.Name)
+			if err != nil {
+				t.Fatal(err)
+			}
+			parent := filepath.Dir(journal.SnapshotPath)
+			if err := os.MkdirAll(parent, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			switch shape {
+			case "file":
+				if err := os.WriteFile(filepath.Join(parent, "unexpected"), []byte("x"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			case "extra":
+				if err := os.Mkdir(filepath.Join(parent, "unexpected"), 0o700); err != nil {
+					t.Fatal(err)
+				}
+			case "source_symlink":
+				target := t.TempDir()
+				if err := os.Symlink(target, journal.SnapshotPath); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if _, _, err := runtime.ReadRuntimeLifecycleSnapshot(context.Background()); err == nil {
+				t.Fatal("unsafe partial snapshotting inventory was accepted")
+			}
+		})
+	}
+}
