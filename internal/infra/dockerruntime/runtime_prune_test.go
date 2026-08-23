@@ -233,7 +233,7 @@ func TestApplyRuntimePruneRetiresSettledFailedBuildAndResumesCleanup(t *testing.
 		t.Fatal("interrupted failed-build cleanup succeeded")
 	}
 	prune, err := runtime.readRuntimePruneJournalObserved()
-	if err != nil || prune == nil || prune.Items[0].State != runtimePruneRemoving {
+	if err != nil || prune == nil || prune.Items[0].State != runtimePruneTerminal {
 		t.Fatalf("failed-build prune journal = %+v/%v", prune, err)
 	}
 	build, err := runtime.readRuntimeBuildJournalObserved()
@@ -249,6 +249,52 @@ func TestApplyRuntimePruneRetiresSettledFailedBuildAndResumesCleanup(t *testing.
 	}
 	if _, err := os.Lstat(filepath.Dir(settled.SnapshotPath)); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("failed-build staging snapshot remains: %v", err)
+	}
+}
+
+func TestApplyRuntimePruneResumesAfterFailedBuildAuthorityWasCleaned(t *testing.T) {
+	runtime, buildRunner, failed := failedRuntimeBuildAttemptFixture(t, runtimeBuildStagingOwned)
+	settled := failed
+	settled.AttemptSettlement = runtimeBuildAttemptSettled
+	if err := runtime.writeRuntimeBuildJournal(failed, settled); err != nil {
+		t.Fatal(err)
+	}
+	observation := runtimeImageObservation{ID: settled.ImageDigest, Size: 4096, RepoTags: []string{settled.StagingImage}, Owner: ownerValue, Component: managedRuntimeComponentLabel, RuntimeID: settled.RuntimeID, Revision: settled.Revision}
+	lifecycleRunner := &lifecycleObservationRunner{images: map[string]lifecycleImageFixture{settled.StagingImage: {observation: observation}, settled.ImageDigest: {observation: observation}}, containers: map[string]runtimeContainerObservation{}, containerLists: map[string]string{}}
+	runtime.runner = &failedRuntimePruneRunner{build: buildRunner, lifecycle: lifecycleRunner}
+	snapshot, observedAt, err := runtime.ReadRuntimeLifecycleSnapshot(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := tobari.PlanRuntimePrune(snapshot, observedAt)
+	if err != nil || len(plan.Candidates) != 1 || plan.Candidates[0].Kind != tobari.RuntimePruneCandidateFailedBuild {
+		t.Fatalf("failed-build prune plan = %+v/%v", plan, err)
+	}
+
+	interrupted := true
+	runtime.runtimePruneAfterBuildCleanup = func(tobari.RuntimePruneCandidate) error {
+		if interrupted {
+			interrupted = false
+			return errors.New("synthetic process interruption after build authority cleanup")
+		}
+		return nil
+	}
+	if _, err := runtime.ApplyRuntimePrune(context.Background(), plan); err == nil {
+		t.Fatal("post-cleanup interruption succeeded")
+	}
+	prune, err := runtime.readRuntimePruneJournalObserved()
+	if err != nil || prune == nil || prune.Items[0].State != runtimePruneTerminal {
+		t.Fatalf("post-cleanup prune journal = %+v/%v", prune, err)
+	}
+	if build, err := runtime.readRuntimeBuildJournalObserved(); err != nil || build != nil {
+		t.Fatalf("post-cleanup build authority = %+v/%v", build, err)
+	}
+	result, err := runtime.ApplyRuntimePrune(context.Background(), plan)
+	if err != nil || result.State != tobari.RuntimePruneApplied || result.Items[0].Kind != tobari.RuntimePruneCandidateFailedBuild {
+		t.Fatalf("post-cleanup same-plan retry = %+v/%v", result, err)
+	}
+	if _, _, err := runtime.ReadRuntimeLifecycleSnapshot(context.Background()); err != nil {
+		t.Fatalf("lifecycle remained blocked after same-plan retry: %v", err)
 	}
 }
 

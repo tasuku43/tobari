@@ -396,6 +396,9 @@ func (r *Runtime) applyRuntimePruneLocked(ctx context.Context, plan tobari.Runti
 
 	for index := range journal.Items {
 		if journal.Items[index].State == runtimePruneTerminal {
+			if err := r.completeRuntimePrunedFailedBuild(ctx, journal.Items[index].Candidate); err != nil {
+				return tobari.RuntimePruneResult{}, err
+			}
 			continue
 		}
 		snapshot, _, err := r.readRuntimeLifecycleSnapshotLockedWithBudget(ctx, &budget)
@@ -413,15 +416,13 @@ func (r *Runtime) applyRuntimePruneLocked(ctx context.Context, plan tobari.Runti
 			next := cloneRuntimePruneJournal(*journal)
 			next.Items[index].State = runtimePruneTerminal
 			next.Items[index].Disposition = tobari.RuntimePruneAlreadyAbsent
-			if build != nil {
-				if err := r.completeRuntimeBuildJournal(ctx, *build); err != nil {
-					return tobari.RuntimePruneResult{}, err
-				}
-			}
 			if err := r.writeRuntimePruneJournal(journal, next); err != nil {
 				return tobari.RuntimePruneResult{}, err
 			}
 			journal = &next
+			if err := r.completeRuntimePrunedFailedBuild(ctx, journal.Items[index].Candidate); err != nil {
+				return tobari.RuntimePruneResult{}, err
+			}
 			continue
 		}
 		if journal.Items[index].State == runtimePrunePending {
@@ -466,11 +467,7 @@ func (r *Runtime) applyRuntimePruneLocked(ctx context.Context, plan tobari.Runti
 		if err != nil || observed.TagPresent {
 			return tobari.RuntimePruneResult{}, fmt.Errorf("Runtime prune removal outcome requires reconciliation: %w", err)
 		}
-		if currentBuild != nil {
-			if err := r.completeRuntimeBuildJournal(ctx, *currentBuild); err != nil {
-				return tobari.RuntimePruneResult{}, err
-			}
-		} else if build != nil {
+		if currentBuild == nil && build != nil {
 			return tobari.RuntimePruneResult{}, fmt.Errorf("failed Runtime build cleanup authority changed")
 		}
 		disposition := tobari.RuntimePruneRemoved
@@ -484,6 +481,9 @@ func (r *Runtime) applyRuntimePruneLocked(ctx context.Context, plan tobari.Runti
 			return tobari.RuntimePruneResult{}, err
 		}
 		journal = &next
+		if err := r.completeRuntimePrunedFailedBuild(ctx, journal.Items[index].Candidate); err != nil {
+			return tobari.RuntimePruneResult{}, err
+		}
 	}
 
 	result := runtimePruneResultFromJournal(*journal)
@@ -500,6 +500,28 @@ func (r *Runtime) applyRuntimePruneLocked(ctx context.Context, plan tobari.Runti
 		return tobari.RuntimePruneResult{}, err
 	}
 	return receipt, receipt.Validate()
+}
+
+func (r *Runtime) completeRuntimePrunedFailedBuild(ctx context.Context, candidate tobari.RuntimePruneCandidate) error {
+	if candidate.Kind != tobari.RuntimePruneCandidateFailedBuild {
+		return nil
+	}
+	journal, err := r.readRuntimeBuildJournalObserved()
+	if err != nil {
+		return err
+	}
+	if journal != nil {
+		if journal.RuntimeID != candidate.RuntimeID || journal.Revision != candidate.Revision || (journal.Phase != runtimeBuildPhaseFailed && journal.Phase != runtimeBuildPhaseCompleting) {
+			return fmt.Errorf("failed Runtime build cleanup authority changed")
+		}
+		if err := r.completeRuntimeBuildJournal(ctx, *journal); err != nil {
+			return err
+		}
+	}
+	if r.runtimePruneAfterBuildCleanup != nil {
+		return r.runtimePruneAfterBuildCleanup(candidate)
+	}
+	return nil
 }
 
 func validateRuntimePruneResumeSnapshot(snapshot tobari.RuntimeLifecycleSnapshot, journal runtimePruneJournal) error {
