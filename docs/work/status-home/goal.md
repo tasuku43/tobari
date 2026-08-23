@@ -17,8 +17,9 @@
   supersedes incompatible Context-era decisions
 - Depends on, in implementation order: promoted WP01+WP02 contracts in
   [ADR 0079](../../decisions/0079-model-workspace-manifests-and-applied-workspaces.md)
-  and [docs/00](../../00_theses.md) through [docs/04](../../04_harness.md), WP08
-  `../catalog-domain-output-conformance/`, WP03 `../runtime-retirement/`, WP04
+  and [docs/00](../../00_theses.md) through [docs/04](../../04_harness.md), the
+  completed WP08 Catalog/output contracts in [Architecture](../../02_architecture.md)
+  and [Harness](../../04_harness.md), WP03 `../runtime-retirement/`, WP04
   `../build-profile-contract/`, WP05 `../host-loopback-name/`, WP07
   `../first-use-progress-recovery/`, WP09 `../service-exposure-ux/`, plus the
   integrated policy-compaction and release contracts

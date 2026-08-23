@@ -292,9 +292,10 @@ The Catalog validates the global graph across both Programs. `review services`
 retains exactly one selection reference kind, `service-request`; active Open/
 Stop commands are discovered through `service status`. V1 neither weakens that
 invariant nor adds typed multi-selection groups.
-Nested producers/consumers use the Catalog-wide recursive schema traversal
-owned with `catalog-domain-output-conformance`; this slice supplies Service
-fixtures to that invariant and does not create a parallel validator.
+Nested producers/consumers use the Catalog-wide recursive schema traversal in
+[Architecture](../../02_architecture.md) and [Harness](../../04_harness.md);
+this slice supplies Service fixtures to that invariant and does not create a
+parallel validator.
 
 ### Operation contracts
 

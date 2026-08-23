@@ -12,7 +12,7 @@
 - Related ADRs: ADR 0077 causal failure recovery, ADR 0078 as predecessor activation evidence superseded by ADR 0079's typed activation, and accepted ADR 0079
 - Active foundation: [ADR 0079](../../decisions/0079-model-workspace-manifests-and-applied-workspaces.md) and its promoted docs/00-04 contracts, implemented by promotion commits `07535a9` and `428812f`
 - Accepted design integrations: ADR 0079's durable one-time Manifest/Runtime copy contract and [WP 03 Runtime Retirement](../runtime-retirement/goal.md); the latter packet's acceptance is not an implementation-start notice
-- Remaining fixed upstream integrations: [WP 08 Catalog/domain output conformance](../catalog-domain-output-conformance/goal.md), [WP 04 Build profile contract](../build-profile-contract/goal.md), [WP 05 Host Loopback Name](../host-loopback-name/goal.md), [WP 07 Permission resume handoff](../permission-resume-handoff/goal.md), [WP 09 Service exposure UX](../service-exposure-ux/goal.md), and [WP 06 Status home](../status-home/goal.md)
+- Remaining fixed upstream integrations: completed WP08 Catalog/output contracts in [Architecture](../../02_architecture.md) and [Harness](../../04_harness.md), [WP 04 Build profile contract](../build-profile-contract/goal.md), [WP 05 Host Loopback Name](../host-loopback-name/goal.md), [WP 07 Permission resume handoff](../permission-resume-handoff/goal.md), [WP 09 Service exposure UX](../service-exposure-ux/goal.md), and [WP 06 Status home](../status-home/goal.md)
 
 The repository guard does not define a `Ready` status; `Accepted` is the
 non-terminal repository status used here for a packet ready for future

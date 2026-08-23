@@ -41,7 +41,7 @@ content, and release files remain unchanged by this packet.
       record their exact copy and Runtime lifecycle command vocabulary,
       independence/protection semantics, common-Catalog consequence, and the
       remaining implementation dependency.
-- [x] Identify WP08 as `catalog-domain-output-conformance` and record the fixed
+- [x] Identify WP08 as the Catalog/output conformance predecessor and record the fixed
       implementation order: WP01+WP02 completion audit -> WP08 -> WP03 -> WP04.
 - [x] Record WP01 evidence that UUID byte preservation plus the predecessor
       `config/auth/contexts/<UUID>` reader path would implicitly rebind legacy

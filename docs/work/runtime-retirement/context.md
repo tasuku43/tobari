@@ -196,10 +196,11 @@ unknowns. Desired behavior belongs in `plan.md` and is not current behavior.
   consumes none; a write's `target_id_input` kind equals `TargetKind`; required
   reference chains have an invocable producer; and every mutation has complete
   impact facts.
-- Current `CommandSpec.ProducedRefs()` inspects only top-level output fields,
-  while Runtime identities naturally occur inside the `items[]` and `runtime`
-  result objects. Merely annotating nested Runtime fields would therefore not
-  create an executable producer edge on current main.
+- Completed WP08 implementation makes `CommandSpec.ProducedRefs()` traverse
+  bounded `OutputField.Fields` and `Items` recursively, so Runtime identities
+  inside paths such as `items[].runtime_ref` and
+  `revisions[].revision_ref` create executable producer edges through the
+  shared Catalog contract.
 - Current tests have no Runtime-retirement target round trip, predecessor Context/Workspace
   reference barrier, image sharing, prune plan, last-used, disk accounting,
   build journal, delete journal, interruption, or idempotent retirement receipt.
@@ -473,9 +474,10 @@ checkout and supported Docker platforms.
 - `first-use-progress-recovery` owns Workspace-entry progress/cancellation. It
   must surface missing/unrestorable selected Runtime material through the same
   causal recovery vocabulary, not build or prune implicitly.
-- `catalog-domain-output-conformance` may change how nested Runtime lifecycle
-  output is checked. Runtime schemas and catalog declarations must land after or
-  jointly with that enforcement to avoid parallel validators.
+- The completed WP08 contracts in [Architecture](../../02_architecture.md) and
+  [Harness](../../04_harness.md) govern nested Runtime lifecycle output.
+  Runtime schemas and Catalog declarations must consume that enforcement and
+  must not add a parallel validator.
 - `first-public-release-core` and `first-public-release-artifacts` currently
   describe the retained Runtime surface without retirement. This lifecycle is a
   V1 scope dependency; their catalog/schema/capability/generated locks must be

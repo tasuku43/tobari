@@ -72,9 +72,11 @@ kept in `goal.md` and `plan.md`.
 - Context manifests now require immutable `source_access` and one normalized,
   digested policy-preset snapshot. Omission selects `read-write` and
   `builtin/reviewed-exact`.
-- Guided learning and public mutation are exact-only. Prefix authority,
-  compaction commands/references/state, broad initial domain seeds, credential
-  profiles, and dormant fallbacks are absent and old state fails strict decode.
+- Guided learning may produce exact or reviewed single-segment path-template
+  decisions. Public reference-bound allow/deny mutation remains exact-targeted;
+  prefix authority, compaction commands/references/state, broad initial domain
+  seeds, credential profiles, and dormant fallbacks are absent and old state
+  fails strict decode.
 - The retained brokered path is static primary-secret replacement with GitHub
   trusted-host acquisition or protected stdin import. Dynamic providers,
   managed injection, companion, refresh, signing, exact-version drivers, and

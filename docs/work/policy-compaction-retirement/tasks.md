@@ -42,8 +42,9 @@
       `baseline_rules` shapes; the embedded production seed-domain tree is
       removed. There is no dependency-file diff. README, governing contracts,
       capability/schema ledgers, integration flow, and architecture-site
-      sources now describe exact-only V1 and explicitly reject both retired
-      command paths and sibling-path widening.
+      sources now describe exact and reviewed single-segment path-template V1
+      matches while explicitly rejecting both retired command paths and
+      prefix/sibling-path widening.
 
 ## Verify and integrate
 

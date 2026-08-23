@@ -22,7 +22,7 @@
   and [Harness](../../04_harness.md); promotion evidence is `07535a9` and
   `428812f`.
 - Remaining upstream packets:
-  [Catalog/domain output conformance](../catalog-domain-output-conformance/goal.md),
+  completed WP08 Catalog/output contracts in [Architecture](../../02_architecture.md) and [Harness](../../04_harness.md),
   [Runtime Retirement](../runtime-retirement/goal.md),
   [Build Profile Contract](../build-profile-contract/goal.md),
   [Host Loopback Name](../host-loopback-name/goal.md),

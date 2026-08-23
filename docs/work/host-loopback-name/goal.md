@@ -16,7 +16,7 @@
 - Target: Accepted/Fix before the first public V1 release
 - Related ADRs: ADR 0049, ADR 0074, and
   [ADR 0079](../../decisions/0079-model-workspace-manifests-and-applied-workspaces.md)
-- Related work: [Catalog / Domain Output Conformance](../catalog-domain-output-conformance/goal.md),
+- Related work: completed WP08 Catalog/output contracts in [Architecture](../../02_architecture.md) and [Harness](../../04_harness.md),
   [Runtime Retirement](../runtime-retirement/goal.md),
   [Build Profile Contract](../build-profile-contract/goal.md),
   [First public V1 core](../first-public-release-core/goal.md), and

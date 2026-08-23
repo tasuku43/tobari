@@ -12,8 +12,8 @@
   ADR 0024, ADR 0061, ADR 0073, accepted
   [ADR 0079](../../decisions/0079-model-workspace-manifests-and-applied-workspaces.md),
   and [Runtime Retirement](../runtime-retirement/goal.md), plus the
-  preceding [Catalog/domain output conformance](../catalog-domain-output-conformance/goal.md)
-  mechanism and the standard-surface boundary owned by
+  completed WP08 Catalog/output mechanism in [Architecture](../../02_architecture.md)
+  and [Harness](../../04_harness.md), and the standard-surface boundary owned by
   [Build profile contract](../build-profile-contract/goal.md)
 - Review/delete trigger: Delete after the reviewed contract is promoted, the
   implementation and readiness evidence land, and the change completes
@@ -24,7 +24,7 @@
   `workspace_manifest_id`/`workspace_id` policy, principal, audit, Catalog,
   schema, and migration contracts; no implementation is part of this packet
 - Related work: [ADR 0079](../../decisions/0079-model-workspace-manifests-and-applied-workspaces.md),
-  [Catalog/domain output conformance](../catalog-domain-output-conformance/goal.md),
+  the completed WP08 Catalog/output contracts in [Architecture](../../02_architecture.md) and [Harness](../../04_harness.md),
   [Runtime Retirement](../runtime-retirement/goal.md),
   [Build profile contract](../build-profile-contract/goal.md),
   [First public release core](../first-public-release-core/goal.md),

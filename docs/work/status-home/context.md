@@ -406,8 +406,9 @@ JSON `overall_status`, `adoption_state`, or equivalent lossy authority exists.
   the durable authority. Their deleted temporary packets are not dependencies;
   status cannot define competing Manifest/Workspace, copy, migration,
   activation, or selection types.
-- `catalog-domain-output-conformance` (WP08): must land before Runtime/status
-  consumption; WP06 uses recursive Catalog conformance and remains no-refs.
+- Completed WP08 contracts in [Architecture](../../02_architecture.md) and
+  [Harness](../../04_harness.md): govern Runtime/status consumption; WP06 uses
+  recursive Catalog conformance and remains no-refs.
 - `runtime-retirement` (WP03): supplies readiness/availability/unknown-usage and
   owning discovery paths. WP06 adds no Runtime lifecycle types or planner.
 - `build-profile-contract` (WP04): supplies release/research surface exclusion;

@@ -263,9 +263,9 @@ public contract, generated file, or release file was changed in this session.
       do not add lineage or a parent deletion guard.
 - [ ] Coordinate desired/applied/last-used presentation with `status-home` and
       first-entry recovery with `first-use-progress-recovery`.
-- [ ] Coordinate nested output validation with
-      `catalog-domain-output-conformance` rather than adding a second schema
-      checker.
+- [ ] Consume the completed WP08 nested output validation contract in
+      [Architecture](../../02_architecture.md) and [Harness](../../04_harness.md)
+      rather than adding a second schema checker.
 - [ ] Update README, exact human/agent help, capability/schema/claim ledgers,
       architecture-site data, examples, fixtures, release locks, and generated
       files only after the integrated public contract is final.

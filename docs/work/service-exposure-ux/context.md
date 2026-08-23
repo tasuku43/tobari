@@ -181,9 +181,9 @@ a parallel Service-local model.
   WP03's complete fail-closed protection graph. Service state is not a cleanup
   target: URL, host port, connection count, owner record, or Service timestamp
   cannot authorize Runtime lifecycle mutation or manufacture `last_used`.
-- Recursive nested output-reference producer/consumer derivation is a single
-  Catalog-wide invariant coordinated with
-  `catalog-domain-output-conformance`. Service may consume it but must not add a
+- Recursive nested output-reference producer/consumer derivation is the single
+  Catalog-wide invariant in [Architecture](../../02_architecture.md) and
+  [Harness](../../04_harness.md). Service may consume it but must not add a
   Service-only walker or validator.
 
 ### Attachment ownership and trust boundary
@@ -561,8 +561,9 @@ These are accepted design facts, not current implementation claims:
   journals. Both packets may later touch Catalog reference schemas; they must
   share the Catalog-wide nested-reference invariant rather than land competing
   validators.
-- `docs/work/catalog-domain-output-conformance/` is WP08 and owns the one
-  recursive `OutputField.Fields`/`Items` traversal used for nested Service refs.
+- The completed WP08 contracts in [Architecture](../../02_architecture.md) and
+  [Harness](../../04_harness.md) own the one recursive
+  `OutputField.Fields`/`Items` traversal used for nested Service refs.
   WP09 waits for `WP08_IMPLEMENTATION_COMPLETE` and adds no local walker.
 - `docs/work/build-profile-contract/` is research-only WP04. No research-only
   path, profile, authentication mechanism, state, or output participates in

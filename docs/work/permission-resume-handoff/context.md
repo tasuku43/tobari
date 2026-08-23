@@ -475,8 +475,9 @@ than treating partial state as accepted implementation evidence.
   principal identity, migration, desired/applied/observed state, schema, and
   Catalog cutover. Permission-resume must re-observe their actual integrated
   implementation after WP08 and before coding; it adds no alternate model.
-- `catalog-domain-output-conformance` (WP08) precedes WP07. It owns the one
-  Catalog-wide recursive output/reference traversal. WP07 adds no walker,
+- The completed WP08 contracts in [Architecture](../../02_architecture.md) and
+  [Harness](../../04_harness.md) precede WP07 and own the one Catalog-wide
+  recursive output/reference traversal. WP07 adds no walker,
   `ReferenceKind`, discovery producer, or permission-specific value kind; it
   consumes the completed generic Catalog contract and may add only generic
   `MaximumLength` if still absent.
