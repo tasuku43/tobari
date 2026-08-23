@@ -42,7 +42,11 @@ type RuntimeMaterialObservation struct {
 	RuntimeID           string              `json:"runtime_id"`
 	Revision            string              `json:"revision"`
 	Availability        RuntimeAvailability `json:"availability"`
+	TagPresent          bool                `json:"tag_present"`
+	ContentPresent      bool                `json:"content_present"`
+	SharedContent       bool                `json:"shared_content"`
 	OwnershipVerified   bool                `json:"ownership_verified"`
+	MigrationUnverified bool                `json:"migration_unverified"`
 	ObservationComplete bool                `json:"observation_complete"`
 	WorkspaceInUse      bool                `json:"workspace_in_use"`
 	ExternalInUse       bool                `json:"external_in_use"`
@@ -62,8 +66,23 @@ func (o RuntimeMaterialObservation) Validate() error {
 	if !o.ObservationComplete {
 		return RuntimeProtectionInventoryError{Reason: RuntimeProtectionInventoryObservationUnknown}
 	}
-	if o.Availability == RuntimeAvailabilityAvailable && !o.OwnershipVerified {
+	if o.Availability == RuntimeAvailabilityAvailable && (!o.TagPresent || !o.ContentPresent || !o.OwnershipVerified) {
 		return fmt.Errorf("available Runtime material lacks ownership evidence")
+	}
+	if o.Availability == RuntimeAvailabilityMissing && o.TagPresent {
+		return fmt.Errorf("missing Runtime material cannot have its normal tag")
+	}
+	if o.Availability == RuntimeAvailabilityMismatched && !o.TagPresent {
+		return fmt.Errorf("mismatched Runtime material requires an observed normal tag")
+	}
+	if o.OwnershipVerified && !o.ContentPresent {
+		return fmt.Errorf("Runtime material ownership requires recorded content")
+	}
+	if o.SharedContent && !o.ContentPresent {
+		return fmt.Errorf("shared Runtime content must be present")
+	}
+	if o.MigrationUnverified && o.Availability != RuntimeAvailabilityUnknown {
+		return fmt.Errorf("migration-unverified Runtime material must remain unknown")
 	}
 	if o.ImageVirtualBytes != nil && *o.ImageVirtualBytes < 0 {
 		return fmt.Errorf("Runtime image virtual bytes cannot be negative")
@@ -165,12 +184,13 @@ func (c RuntimePruneCandidate) Validate() error {
 type RuntimeMaterialBlockerReason string
 
 const (
-	RuntimeBlockedByWorkspaceContainer RuntimeMaterialBlockerReason = "workspace_container"
-	RuntimeBlockedByExternalContainer  RuntimeMaterialBlockerReason = "external_container"
-	RuntimeBlockedByImageMissing       RuntimeMaterialBlockerReason = "image_missing"
-	RuntimeBlockedByImageMismatched    RuntimeMaterialBlockerReason = "image_mismatched"
-	RuntimeBlockedByObservationUnknown RuntimeMaterialBlockerReason = "observation_unknown"
-	RuntimeBlockedByImagePruned        RuntimeMaterialBlockerReason = "image_pruned"
+	RuntimeBlockedByWorkspaceContainer  RuntimeMaterialBlockerReason = "workspace_container"
+	RuntimeBlockedByExternalContainer   RuntimeMaterialBlockerReason = "external_container"
+	RuntimeBlockedByImageMissing        RuntimeMaterialBlockerReason = "image_missing"
+	RuntimeBlockedByImageMismatched     RuntimeMaterialBlockerReason = "image_mismatched"
+	RuntimeBlockedByObservationUnknown  RuntimeMaterialBlockerReason = "observation_unknown"
+	RuntimeBlockedByMigrationUnverified RuntimeMaterialBlockerReason = "migration_unverified"
+	RuntimeBlockedByImagePruned         RuntimeMaterialBlockerReason = "image_pruned"
 )
 
 type RuntimeMaterialBlocker struct {
@@ -188,7 +208,7 @@ func (b RuntimeMaterialBlocker) Validate() error {
 	}
 	switch b.Reason {
 	case RuntimeBlockedByWorkspaceContainer, RuntimeBlockedByExternalContainer, RuntimeBlockedByImageMissing,
-		RuntimeBlockedByImageMismatched, RuntimeBlockedByObservationUnknown, RuntimeBlockedByImagePruned:
+		RuntimeBlockedByImageMismatched, RuntimeBlockedByObservationUnknown, RuntimeBlockedByMigrationUnverified, RuntimeBlockedByImagePruned:
 		return nil
 	default:
 		return fmt.Errorf("Runtime material blocker reason is invalid")
@@ -277,7 +297,11 @@ func PlanRuntimePrune(snapshot RuntimeLifecycleSnapshot, observedAt time.Time) (
 		case RuntimeAvailabilityMismatched:
 			blockers = append(blockers, RuntimeMaterialBlocker{RuntimeID: material.RuntimeID, Revision: material.Revision, Reason: RuntimeBlockedByImageMismatched})
 		case RuntimeAvailabilityUnknown:
-			blockers = append(blockers, RuntimeMaterialBlocker{RuntimeID: material.RuntimeID, Revision: material.Revision, Reason: RuntimeBlockedByObservationUnknown})
+			reason := RuntimeBlockedByObservationUnknown
+			if material.MigrationUnverified {
+				reason = RuntimeBlockedByMigrationUnverified
+			}
+			blockers = append(blockers, RuntimeMaterialBlocker{RuntimeID: material.RuntimeID, Revision: material.Revision, Reason: reason})
 		case RuntimeAvailabilityPruned:
 			blockers = append(blockers, RuntimeMaterialBlocker{RuntimeID: material.RuntimeID, Revision: material.Revision, Reason: RuntimeBlockedByImagePruned})
 		}

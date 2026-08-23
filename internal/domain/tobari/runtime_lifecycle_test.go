@@ -77,8 +77,8 @@ func TestPlanRuntimePruneIsDeterministicAndExcludesProtectedMaterial(t *testing.
 	manifest := lifecycleRuntime(id, "frontend", first, second)
 	protection := RuntimeProtection{RuntimeID: id, RuntimeRevision: first, Reason: RuntimeProtectedByManifestCurrent, WorkspaceManifestID: "018bcfe5-687b-7000-8000-000000000088", ManifestRevision: "sha256:" + strings.Repeat("d", 64)}
 	snapshot := lifecycleSnapshot([]RuntimeManifest{manifest}, []RuntimeProtection{protection}, []RuntimeMaterialObservation{
-		{RuntimeID: id, Revision: second, Availability: RuntimeAvailabilityAvailable, OwnershipVerified: true, ObservationComplete: true, ImageVirtualBytes: &bytes},
-		{RuntimeID: id, Revision: first, Availability: RuntimeAvailabilityAvailable, OwnershipVerified: true, ObservationComplete: true},
+		{RuntimeID: id, Revision: second, Availability: RuntimeAvailabilityAvailable, TagPresent: true, ContentPresent: true, OwnershipVerified: true, ObservationComplete: true, ImageVirtualBytes: &bytes},
+		{RuntimeID: id, Revision: first, Availability: RuntimeAvailabilityAvailable, TagPresent: true, ContentPresent: true, OwnershipVerified: true, ObservationComplete: true},
 	})
 	planA, err := PlanRuntimePrune(snapshot, time.Unix(10, 0).UTC())
 	if err != nil {
@@ -111,9 +111,9 @@ func TestPlanRuntimePruneEmitsEveryMaterialBlockerDeterministically(t *testing.T
 	snapshot := lifecycleSnapshot([]RuntimeManifest{lifecycleRuntime(id, "frontend", revisions...)}, []RuntimeProtection{}, []RuntimeMaterialObservation{
 		{RuntimeID: id, Revision: revisions[4], Availability: RuntimeAvailabilityPruned, ObservationComplete: true},
 		{RuntimeID: id, Revision: revisions[3], Availability: RuntimeAvailabilityUnknown, ObservationComplete: true},
-		{RuntimeID: id, Revision: revisions[2], Availability: RuntimeAvailabilityMismatched, ObservationComplete: true},
+		{RuntimeID: id, Revision: revisions[2], Availability: RuntimeAvailabilityMismatched, TagPresent: true, ObservationComplete: true},
 		{RuntimeID: id, Revision: revisions[1], Availability: RuntimeAvailabilityMissing, ObservationComplete: true},
-		{RuntimeID: id, Revision: revisions[0], Availability: RuntimeAvailabilityAvailable, OwnershipVerified: true, ObservationComplete: true, WorkspaceInUse: true, ExternalInUse: true},
+		{RuntimeID: id, Revision: revisions[0], Availability: RuntimeAvailabilityAvailable, TagPresent: true, ContentPresent: true, OwnershipVerified: true, ObservationComplete: true, WorkspaceInUse: true, ExternalInUse: true},
 	})
 	plan, err := PlanRuntimePrune(snapshot, time.Unix(10, 0).UTC())
 	if err != nil {
@@ -141,7 +141,7 @@ func TestRuntimePrunePlanIdentityIgnoresPresentationAndEstimates(t *testing.T) {
 	id := "018bcfe5-687b-7000-8000-000000000077"
 	revision := "sha256:" + strings.Repeat("a", 64)
 	bytes := int64(2048)
-	snapshot := lifecycleSnapshot([]RuntimeManifest{lifecycleRuntime(id, "frontend", revision)}, []RuntimeProtection{}, []RuntimeMaterialObservation{{RuntimeID: id, Revision: revision, Availability: RuntimeAvailabilityAvailable, OwnershipVerified: true, ObservationComplete: true, ImageVirtualBytes: &bytes}})
+	snapshot := lifecycleSnapshot([]RuntimeManifest{lifecycleRuntime(id, "frontend", revision)}, []RuntimeProtection{}, []RuntimeMaterialObservation{{RuntimeID: id, Revision: revision, Availability: RuntimeAvailabilityAvailable, TagPresent: true, ContentPresent: true, OwnershipVerified: true, ObservationComplete: true, ImageVirtualBytes: &bytes}})
 	plan, err := PlanRuntimePrune(snapshot, time.Unix(10, 0).UTC())
 	if err != nil {
 		t.Fatal(err)
@@ -162,11 +162,47 @@ func TestRuntimePrunePlanIdentityIgnoresPresentationAndEstimates(t *testing.T) {
 	}
 }
 
+func TestRuntimeMaterialObservationPreservesTagContentAndMigrationDistinctions(t *testing.T) {
+	id := "018bcfe5-687b-7000-8000-000000000077"
+	revision := "sha256:" + strings.Repeat("a", 64)
+	valid := []RuntimeMaterialObservation{
+		{RuntimeID: id, Revision: revision, Availability: RuntimeAvailabilityAvailable, TagPresent: true, ContentPresent: true, SharedContent: true, OwnershipVerified: true, ObservationComplete: true},
+		{RuntimeID: id, Revision: revision, Availability: RuntimeAvailabilityMissing, ContentPresent: true, SharedContent: true, OwnershipVerified: true, ObservationComplete: true, WorkspaceInUse: true},
+		{RuntimeID: id, Revision: revision, Availability: RuntimeAvailabilityMissing, ObservationComplete: true},
+		{RuntimeID: id, Revision: revision, Availability: RuntimeAvailabilityUnknown, MigrationUnverified: true, ObservationComplete: true},
+	}
+	for _, observation := range valid {
+		if err := observation.Validate(); err != nil {
+			t.Fatalf("valid material distinction %+v: %v", observation, err)
+		}
+	}
+
+	invalid := []RuntimeMaterialObservation{
+		{RuntimeID: id, Revision: revision, Availability: RuntimeAvailabilityAvailable, OwnershipVerified: true, ObservationComplete: true},
+		{RuntimeID: id, Revision: revision, Availability: RuntimeAvailabilityMissing, TagPresent: true, ObservationComplete: true},
+		{RuntimeID: id, Revision: revision, Availability: RuntimeAvailabilityMismatched, ObservationComplete: true},
+		{RuntimeID: id, Revision: revision, Availability: RuntimeAvailabilityMissing, SharedContent: true, ObservationComplete: true},
+		{RuntimeID: id, Revision: revision, Availability: RuntimeAvailabilityMissing, OwnershipVerified: true, ObservationComplete: true},
+		{RuntimeID: id, Revision: revision, Availability: RuntimeAvailabilityMissing, MigrationUnverified: true, ObservationComplete: true},
+	}
+	for _, observation := range invalid {
+		if err := observation.Validate(); err == nil {
+			t.Fatalf("invalid material distinction validated: %+v", observation)
+		}
+	}
+
+	snapshot := lifecycleSnapshot([]RuntimeManifest{lifecycleRuntime(id, "frontend", revision)}, []RuntimeProtection{}, []RuntimeMaterialObservation{{RuntimeID: id, Revision: revision, Availability: RuntimeAvailabilityUnknown, MigrationUnverified: true, ObservationComplete: true}})
+	plan, err := PlanRuntimePrune(snapshot, time.Unix(10, 0).UTC())
+	if err != nil || len(plan.Blockers) != 1 || plan.Blockers[0].Reason != RuntimeBlockedByMigrationUnverified {
+		t.Fatalf("migration-unverified blocker = %+v/%v", plan, err)
+	}
+}
+
 func TestRuntimePrunePlanIdentityChangesWithAuthorityEvidence(t *testing.T) {
 	id := "018bcfe5-687b-7000-8000-000000000077"
 	revision := "sha256:" + strings.Repeat("a", 64)
 	manifest := lifecycleRuntime(id, "frontend", revision)
-	available := []RuntimeMaterialObservation{{RuntimeID: id, Revision: revision, Availability: RuntimeAvailabilityAvailable, OwnershipVerified: true, ObservationComplete: true}}
+	available := []RuntimeMaterialObservation{{RuntimeID: id, Revision: revision, Availability: RuntimeAvailabilityAvailable, TagPresent: true, ContentPresent: true, OwnershipVerified: true, ObservationComplete: true}}
 	candidate, err := PlanRuntimePrune(lifecycleSnapshot([]RuntimeManifest{manifest}, []RuntimeProtection{}, available), time.Unix(10, 0).UTC())
 	if err != nil {
 		t.Fatal(err)
@@ -176,7 +212,7 @@ func TestRuntimePrunePlanIdentityChangesWithAuthorityEvidence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	blockedMaterials := []RuntimeMaterialObservation{{RuntimeID: id, Revision: revision, Availability: RuntimeAvailabilityAvailable, OwnershipVerified: true, ObservationComplete: true, ExternalInUse: true}}
+	blockedMaterials := []RuntimeMaterialObservation{{RuntimeID: id, Revision: revision, Availability: RuntimeAvailabilityAvailable, TagPresent: true, ContentPresent: true, OwnershipVerified: true, ObservationComplete: true, ExternalInUse: true}}
 	blocked, err := PlanRuntimePrune(lifecycleSnapshot([]RuntimeManifest{manifest}, []RuntimeProtection{}, blockedMaterials), time.Unix(10, 0).UTC())
 	if err != nil {
 		t.Fatal(err)
@@ -190,7 +226,7 @@ func TestRuntimePrunePlanValidateRejectsDirectInvalidConstruction(t *testing.T) 
 	id := "018bcfe5-687b-7000-8000-000000000077"
 	revision := "sha256:" + strings.Repeat("a", 64)
 	bytes := int64(2048)
-	valid, err := PlanRuntimePrune(lifecycleSnapshot([]RuntimeManifest{lifecycleRuntime(id, "frontend", revision)}, []RuntimeProtection{}, []RuntimeMaterialObservation{{RuntimeID: id, Revision: revision, Availability: RuntimeAvailabilityAvailable, OwnershipVerified: true, ObservationComplete: true, ImageVirtualBytes: &bytes}}), time.Unix(10, 0).UTC())
+	valid, err := PlanRuntimePrune(lifecycleSnapshot([]RuntimeManifest{lifecycleRuntime(id, "frontend", revision)}, []RuntimeProtection{}, []RuntimeMaterialObservation{{RuntimeID: id, Revision: revision, Availability: RuntimeAvailabilityAvailable, TagPresent: true, ContentPresent: true, OwnershipVerified: true, ObservationComplete: true, ImageVirtualBytes: &bytes}}), time.Unix(10, 0).UTC())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -280,7 +316,7 @@ func TestRuntimePrunePlanValidateRequiresCanonicalProtectionAndBlockerOrder(t *t
 func TestPlanRuntimePruneFailsClosedOnUnknownOrUnownedMaterial(t *testing.T) {
 	id := "018bcfe5-687b-7000-8000-000000000077"
 	revision := "sha256:" + strings.Repeat("a", 64)
-	base := lifecycleSnapshot([]RuntimeManifest{lifecycleRuntime(id, "frontend", revision)}, []RuntimeProtection{}, []RuntimeMaterialObservation{{RuntimeID: id, Revision: revision, Availability: RuntimeAvailabilityAvailable, OwnershipVerified: true, ObservationComplete: true}})
+	base := lifecycleSnapshot([]RuntimeManifest{lifecycleRuntime(id, "frontend", revision)}, []RuntimeProtection{}, []RuntimeMaterialObservation{{RuntimeID: id, Revision: revision, Availability: RuntimeAvailabilityAvailable, TagPresent: true, ContentPresent: true, OwnershipVerified: true, ObservationComplete: true}})
 	for _, mutate := range []func(*RuntimeLifecycleSnapshot){
 		func(snapshot *RuntimeLifecycleSnapshot) { snapshot.Materials[0].ObservationComplete = false },
 		func(snapshot *RuntimeLifecycleSnapshot) { snapshot.Materials[0].OwnershipVerified = false },
@@ -299,7 +335,7 @@ func TestPlanRuntimePruneFailsClosedOnUnknownOrUnownedMaterial(t *testing.T) {
 func TestPlanRuntimePruneDoesNotTreatHeadOrAppliedTimestampAsUsageAuthority(t *testing.T) {
 	id := "018bcfe5-687b-7000-8000-000000000077"
 	revision := "sha256:" + strings.Repeat("a", 64)
-	snapshot := lifecycleSnapshot([]RuntimeManifest{lifecycleRuntime(id, "frontend", revision)}, []RuntimeProtection{}, []RuntimeMaterialObservation{{RuntimeID: id, Revision: revision, Availability: RuntimeAvailabilityAvailable, OwnershipVerified: true, ObservationComplete: true}})
+	snapshot := lifecycleSnapshot([]RuntimeManifest{lifecycleRuntime(id, "frontend", revision)}, []RuntimeProtection{}, []RuntimeMaterialObservation{{RuntimeID: id, Revision: revision, Availability: RuntimeAvailabilityAvailable, TagPresent: true, ContentPresent: true, OwnershipVerified: true, ObservationComplete: true}})
 	plan, err := PlanRuntimePrune(snapshot, time.Unix(10, 0).UTC())
 	if err != nil || len(plan.Candidates) != 1 {
 		t.Fatalf("unprotected head plan = %+v/%v", plan, err)
