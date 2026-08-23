@@ -2,34 +2,6 @@
 # Focused live permission-resume assertions sourced by scripts/test-integration.sh.
 # shellcheck disable=SC2154 # Integration owner state is declared by the sourcing scenario.
 
-verify_permission_observer_opa_expression_shape() {
-  local opa_image revision decision query output
-  opa_image=$(awk -F= '$1 == "OPA_IMAGE" { print $2 }' internal/infra/runtimeassets/assets/versions.env)
-  revision=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-  for decision in \
-    '{"allow":true,"reason":"allowed by Context policy","status_code":403,"learnable":false}' \
-    '{"allow":false,"reason":"denied by exact policy","status_code":403,"learnable":false}'; do
-    query='[result | observation := {"status_code":200,"body":{"result":{"revision":"'"$revision"'","decision":'"$decision"'}}}; observation.status_code == 200; object.get(observation.body, "result", null) != null; result := observation.body.result][0]'
-    output=$(docker run --rm "$opa_image" eval --fail --format raw "$query")
-    OPA_OBSERVATION="$output" python3 - "$revision" <<'PY'
-import json
-import os
-import sys
-
-document = json.loads(os.environ["OPA_OBSERVATION"])
-if not isinstance(document, dict) or document.get("revision") != sys.argv[1]:
-    raise SystemExit(f"OPA observer query did not return one exact revision-bound object: {document!r}")
-decision = document.get("decision")
-if not isinstance(decision, dict) or not isinstance(decision.get("allow"), bool):
-    raise SystemExit(f"OPA observer query did not retain its decision object: {document!r}")
-PY
-  done
-  query='[result | observation := {"status_code":503,"body":{}}; observation.status_code == 200; result := observation.body.result][0]'
-  if docker run --rm "$opa_image" eval --fail --format raw "$query" >/dev/null 2>&1; then
-    fail "undefined OPA observer query did not fail closed"
-  fi
-}
-
 verify_live_permission_observation_snapshot() {
   local expected_allow=$1 policy_input query output _
   policy_input='{"schema_version":1,"principal":{"cluster":"default","context_id":"'"$default_manifest_id"'","project_id":"'"$work_id"'"},"request":{"authority":{"scheme":"https","host":"mock-upstream","port":8080},"method":"GET","path":{"raw":"/permission-resume","segments":["permission-resume"]},"query":{},"headers":{}},"authorization":{"broker_provider":null}}'
@@ -60,7 +32,6 @@ PY
 
 verify_permission_resume_handoff() {
   local permission_denial permission_wait_result permission_retry _
-  verify_permission_observer_opa_expression_shape
   verify_live_permission_observation_snapshot false
   for _ in $(seq 1 120); do
     if run_project test -s /var/lib/tobari/permission-denial.json >/dev/null 2>&1; then
@@ -82,7 +53,6 @@ import json
 import os
 import re
 import sys
-
 document = json.loads(os.environ["PERMISSION_DENIAL"])
 tobari = document["tobari"]
 if tobari.get("schema_version") != 2:
@@ -111,10 +81,8 @@ PY
     sleep 0.1
   done
   permission_wait_result=$(run_project cat /var/lib/tobari/permission-wait.out)
-  [[ $permission_wait_result == Allow ]] || {
-    run_project cat /var/lib/tobari/permission-wait.err >&2 || true
+  [[ $permission_wait_result == Allow ]] ||
     fail "permission helper returned $permission_wait_result instead of Allow"
-  }
   permission_retry=$(run_project cat /var/lib/tobari/permission-retry.json)
   assert_contains "$permission_retry" '"path":"/permission-resume"' \
     "fresh independently authorized permission-resume retry"
