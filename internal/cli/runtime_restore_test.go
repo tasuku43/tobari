@@ -13,6 +13,7 @@ import (
 
 	"github.com/tasuku43/tobari/internal/app/runtimecmd"
 	"github.com/tasuku43/tobari/internal/app/tobaricmd"
+	"github.com/tasuku43/tobari/internal/domain/fault"
 	"github.com/tasuku43/tobari/internal/domain/operation"
 	"github.com/tasuku43/tobari/internal/domain/tobari"
 )
@@ -331,5 +332,84 @@ func TestRuntimeRestoreHelpAndCompletionDeriveFromCatalog(t *testing.T) {
 		if !strings.Contains(text, want) {
 			t.Errorf("restore agent help omitted %q: %s", want, text)
 		}
+	}
+}
+
+func TestRuntimeRestoreCatalogMatchesDirectAndReviewedPublicFaults(t *testing.T) {
+	manifest := readyRuntimeManifest()
+	valid := runtimeRestoreResult(manifest, 0, tobari.RuntimeRestored)
+	intent := operation.Intent{
+		Command: "runtime restore", Effect: operation.EffectWrite,
+		Target: operation.TargetRef{Kind: tobari.RuntimeRevisionReferenceKind, ID: valid.RevisionRef}, Impact: runtimecmd.RestoreImpact(),
+	}
+	recovery := tobari.RuntimeBuildRecovery{
+		RuntimeID: manifest.ID, RuntimeRef: tobari.RuntimeRef(manifest.ID), RevisionRef: valid.RevisionRef,
+		Name: manifest.Name, Kind: tobari.RuntimeBuildRecoveryCleanup,
+	}
+	catalog := DefaultCatalog()
+	assertDeclared := func(t *testing.T, path string, err error) {
+		t.Helper()
+		public, ok := fault.PublicCopy(err)
+		if !ok {
+			t.Fatalf("%s returned no public structured fault: %v", path, err)
+		}
+		spec, found := catalog.Lookup(path)
+		if !found {
+			t.Fatalf("Catalog lacks %q", path)
+		}
+		declared := commandErrorByCode(t, spec.Agent.Errors, public.Code)
+		if declared.Kind != public.Kind || declared.Phase != public.Phase || declared.ChangeState != public.ChangeState ||
+			declared.Retryable != public.Retryable || !reflect.DeepEqual(declared.NextActions, public.NextActions) {
+			t.Fatalf("%s fault %q Catalog=%+v PublicCopy=%+v", path, public.Code, declared, public)
+		}
+	}
+
+	for _, test := range []struct {
+		name string
+		err  error
+	}{
+		{name: "observation unknown", err: tobari.ErrRuntimeRetirementObservationUnknown},
+		{name: "digest unrestorable", err: tobari.ErrRuntimeRevisionUnrestorable},
+		{name: "known partial interruption", err: tobari.ErrRuntimeRestoreInterrupted},
+		{name: "unknown interruption outcome", err: context.Canceled},
+	} {
+		t.Run("direct "+test.name, func(t *testing.T) {
+			fake := &runtimeRestoreCLI{runtimeCatalogCLI: &runtimeCatalogCLI{manifest: manifest}, result: valid, restoreErr: test.err}
+			_, err := runtimecmd.New(fake).Restore(context.Background(), intent, valid.RevisionRef, nil)
+			assertDeclared(t, "runtime restore", err)
+		})
+		t.Run("reviewed "+test.name, func(t *testing.T) {
+			fake := &runtimeRestoreCLI{runtimeCatalogCLI: &runtimeCatalogCLI{manifest: manifest}, result: valid, restoreErr: test.err}
+			_, err := runtimecmd.New(fake).RecoverRestore(context.Background(), intent, recovery, nil)
+			assertDeclared(t, "review runtimes", err)
+		})
+	}
+
+	for _, test := range []struct {
+		name   string
+		result tobari.RuntimeRestoreResult
+	}{
+		{name: "partial", result: func() tobari.RuntimeRestoreResult {
+			result := valid
+			result.Revision = "sha256:" + strings.Repeat("e", 64)
+			result.RevisionRef = tobari.RuntimeRevisionRef(result.RuntimeID, result.Revision)
+			return result
+		}()},
+		{name: "confirmed", result: func() tobari.RuntimeRestoreResult {
+			result := valid
+			result.ManifestChanged = true
+			return result
+		}()},
+	} {
+		t.Run("direct invalid result "+test.name, func(t *testing.T) {
+			fake := &runtimeRestoreCLI{runtimeCatalogCLI: &runtimeCatalogCLI{manifest: manifest}, result: test.result}
+			_, err := runtimecmd.New(fake).Restore(context.Background(), intent, valid.RevisionRef, nil)
+			assertDeclared(t, "runtime restore", err)
+		})
+		t.Run("reviewed invalid result "+test.name, func(t *testing.T) {
+			fake := &runtimeRestoreCLI{runtimeCatalogCLI: &runtimeCatalogCLI{manifest: manifest}, result: test.result}
+			_, err := runtimecmd.New(fake).RecoverRestore(context.Background(), intent, recovery, nil)
+			assertDeclared(t, "review runtimes", err)
+		})
 	}
 }

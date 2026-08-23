@@ -389,7 +389,7 @@ func classifyRuntimeRestoreError(err error, recovery bool) error {
 		)
 	default:
 		return fault.WithClassification(
-			fault.New(fault.KindInternal, "runtime_restore_interrupted", "Runtime restore requires read-only reconciliation", false,
+			fault.New(fault.KindInternal, "runtime_restore_outcome_unknown", "Runtime restore outcome requires read-only reconciliation", false,
 				fault.NextAction{Command: "review runtimes", Reason: "Observe the retained Runtime lifecycle journal before another mutation."}),
 			fault.PhaseMutation, fault.ChangeUnknown,
 		)
@@ -413,11 +413,13 @@ func validateRuntimeRestoreResult(result tobari.RuntimeRestoreResult, revisionRe
 
 func invalidRuntimeRestoreResultFault(result tobari.RuntimeRestoreResult, revisionRef string, err error) error {
 	change := fault.ChangePartial
+	code := "invalid_runtime_restore_result_partial"
 	if result.RevisionRef == revisionRef && result.State == tobari.RuntimeRestored {
 		change = fault.ChangeConfirmed
+		code = "invalid_runtime_restore_result_confirmed"
 	}
 	return fault.WithClassification(
-		fault.Wrap(fault.KindContract, "invalid_runtime_retirement_result", "Runtime restore result is invalid", false, err,
+		fault.Wrap(fault.KindContract, code, "Runtime restore result is invalid", false, err,
 			fault.NextAction{Command: "runtime history", Reason: "Reconcile the retained Runtime revision and current image availability."}),
 		fault.PhaseVerification, change,
 	)

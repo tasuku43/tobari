@@ -583,6 +583,10 @@ Add task-specific stable faults in addition to generic mutation faults:
 | `runtime_prune_plan_stale` | precondition/none | no | `runtime prune dry-run` |
 | `runtime_revision_unavailable` | observation/none | no | `runtime restore` |
 | `runtime_revision_unrestorable` | verification/none | no | `runtime history` |
+| `runtime_restore_interrupted` | mutation/partial | no until read | `review runtimes` |
+| `runtime_restore_outcome_unknown` | mutation/unknown | no until read | `review runtimes` |
+| `invalid_runtime_restore_result_partial` | verification/partial | no | `runtime history` |
+| `invalid_runtime_restore_result_confirmed` | verification/confirmed | no | `runtime history` |
 | `runtime_retirement_interrupted` | mutation/partial | no until read | `runtime show` |
 | `runtime_prune_interrupted` | mutation/partial | no until read | `runtime prune dry-run` |
 | `invalid_runtime_retirement_result` | verification/confirmed or partial | no | `runtime show` |

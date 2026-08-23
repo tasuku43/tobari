@@ -448,7 +448,7 @@ func TestRuntimeRestoreClassifiesExactMutationOutcomes(t *testing.T) {
 		{name: "active lifecycle", err: tobari.ErrRuntimeLifecycleActive, code: "runtime_lifecycle_active", phase: fault.PhasePrecondition, change: fault.ChangeNone},
 		{name: "unrestorable", err: tobari.ErrRuntimeRevisionUnrestorable, code: "runtime_revision_unrestorable", phase: fault.PhaseVerification, change: fault.ChangeNone},
 		{name: "interrupted", err: tobari.ErrRuntimeRestoreInterrupted, code: "runtime_restore_interrupted", phase: fault.PhaseMutation, change: fault.ChangePartial},
-		{name: "late cancellation", err: context.Canceled, code: "runtime_restore_interrupted", phase: fault.PhaseMutation, change: fault.ChangeUnknown},
+		{name: "late cancellation", err: context.Canceled, code: "runtime_restore_outcome_unknown", phase: fault.PhaseMutation, change: fault.ChangeUnknown},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -470,8 +470,19 @@ func TestRuntimeRestoreRejectsInvalidResultAsPartial(t *testing.T) {
 	fake := &runtimeFake{manifest: runtimeFixture(), restoreResult: result}
 	_, err := New(fake).Restore(context.Background(), runtimeRestoreIntent(requested), requested, nil)
 	public, ok := fault.PublicCopy(err)
-	if !ok || public.Code != "invalid_runtime_retirement_result" || public.Phase != fault.PhaseVerification || public.ChangeState != fault.ChangePartial || fake.restoreCalls != 1 {
+	if !ok || public.Code != "invalid_runtime_restore_result_partial" || public.Phase != fault.PhaseVerification || public.ChangeState != fault.ChangePartial || fake.restoreCalls != 1 {
 		t.Fatalf("invalid Runtime restore result = %+v/%v calls=%d", public, err, fake.restoreCalls)
+	}
+}
+
+func TestRuntimeRestoreReportsConfirmedInvalidResultWithoutReplayPermission(t *testing.T) {
+	result := runtimeRestoreResultFixture(tobari.RuntimeRestored)
+	result.ManifestChanged = true
+	fake := &runtimeFake{manifest: runtimeFixture(), restoreResult: result}
+	_, err := New(fake).Restore(context.Background(), runtimeRestoreIntent(result.RevisionRef), result.RevisionRef, nil)
+	public, ok := fault.PublicCopy(err)
+	if !ok || public.Code != "invalid_runtime_restore_result_confirmed" || public.Phase != fault.PhaseVerification || public.ChangeState != fault.ChangeConfirmed || fake.restoreCalls != 1 {
+		t.Fatalf("confirmed invalid Runtime restore result = %+v/%v calls=%d", public, err, fake.restoreCalls)
 	}
 }
 

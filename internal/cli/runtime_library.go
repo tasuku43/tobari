@@ -363,7 +363,10 @@ func renderRuntimeReport(path string, result tobari.RuntimeReport, format succes
 
 func renderRuntimeRestore(path string, result tobari.RuntimeRestoreResult, format successFormat, color bool) ([]byte, error) {
 	if err := result.Validate(); err != nil {
-		return nil, fault.Wrap(fault.KindContract, "invalid_runtime_retirement_result", "Runtime restore result is invalid", false, err)
+		return nil, fault.WithClassification(
+			fault.Wrap(fault.KindContract, "invalid_runtime_restore_result_confirmed", "Runtime restore result is invalid", false, err),
+			fault.PhaseVerification, fault.ChangeConfirmed,
+		)
 	}
 	if format == successFormatJSON {
 		output, err := marshalCommandJSON(path, runtimeRestoreDocument{SchemaVersion: 1, Restore: result})
