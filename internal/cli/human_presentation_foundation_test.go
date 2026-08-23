@@ -352,9 +352,9 @@ func TestCatalogWideHumanPresentationIsDeclared(t *testing.T) {
 	t.Parallel()
 	catalog := DefaultCatalog()
 	commands := catalog.Commands()
-	want := 44
+	want := 45
 	if len(authCommandSpecs()) != 0 {
-		want = 49
+		want = 50
 	}
 	if got := len(commands); got != want {
 		t.Fatalf("catalog command count = %d, want %d; update the human presentation inventory", got, want)

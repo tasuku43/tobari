@@ -46,6 +46,7 @@ type RuntimeRestorePort interface {
 // adapter consumes the reviewed opaque Runtime reference unchanged and owns
 // coherent protection revalidation, journaling, effects, and replay.
 type RuntimeDeletePort interface {
+	ReadRuntimeDeleteRecovery(context.Context) (tobari.RuntimeSummary, bool, error)
 	DeleteManagedRuntimeByReference(context.Context, string) (tobari.RuntimeDeleteResult, error)
 }
 
@@ -324,6 +325,37 @@ func (s *Service) ReviewRecovery(ctx context.Context) (tobari.RuntimeBuildRecove
 	return recovery, true, nil
 }
 
+// ReviewDeleteRecovery discovers one exact active whole-Runtime deletion from
+// its task-owned non-creating journal observation. Resumption remains a
+// separate confirmed Delete action using this opaque Runtime reference.
+func (s *Service) ReviewDeleteRecovery(ctx context.Context) (tobari.RuntimeSummary, bool, error) {
+	if err := s.requireDelete(); err != nil {
+		return tobari.RuntimeSummary{}, false, err
+	}
+	summary, found, err := s.delete.ReadRuntimeDeleteRecovery(ctx)
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return tobari.RuntimeSummary{}, false, err
+	}
+	if err != nil {
+		return tobari.RuntimeSummary{}, false, fault.WithClassification(
+			fault.Wrap(fault.KindRejected, "runtime_recovery_observation_unknown", "Runtime deletion recovery authority could not be observed completely", false, err,
+				fault.NextAction{Command: "review runtimes", Reason: "Retry the trusted-host read-only review."}),
+			fault.PhaseObservation, fault.ChangeNotApplicable,
+		)
+	}
+	if !found {
+		return tobari.RuntimeSummary{}, false, nil
+	}
+	if err := summary.Validate(); err == nil && summary.Kind == tobari.RuntimeKindManaged {
+		return summary, true, nil
+	}
+	return tobari.RuntimeSummary{}, false, fault.WithClassification(
+		fault.New(fault.KindContract, "runtime_recovery_contract_invalid", "Runtime deletion recovery lacks exact managed Runtime authority", false,
+			fault.NextAction{Command: "review runtimes", Reason: "Reconcile the current Runtime catalog."}),
+		fault.PhaseObservation, fault.ChangeNotApplicable,
+	)
+}
+
 func (s *Service) Recover(ctx context.Context, intent operation.Intent, recovery tobari.RuntimeBuildRecovery) (tobari.RuntimeReport, error) {
 	if err := s.requireRuntime(); err != nil {
 		return tobari.RuntimeReport{}, err
@@ -407,7 +439,8 @@ func (s *Service) requireDelete() error {
 	}
 	if portcheck.IsNil(s.delete) {
 		return fault.WithClassification(
-			fault.New(fault.KindInternal, "missing_runtime_delete", "Runtime delete is not configured", false),
+			fault.New(fault.KindInternal, "missing_runtime_delete", "Runtime delete is not configured", false,
+				fault.NextAction{Command: "doctor", Reason: "Configure the Runtime delete application boundary."}),
 			fault.PhasePrecondition, fault.ChangeNone,
 		)
 	}

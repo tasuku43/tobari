@@ -42,6 +42,7 @@ func runtimeCommandSpecs() []CommandSpec {
 		runtimeReviewSpec(),
 		runtimeBuildSpec(),
 		runtimeRestoreSpec(),
+		runtimeDeleteSpec(),
 		runtimePruneDryRunSpec(),
 		runtimePruneApplySpec(),
 		projectEnterSpec(),
@@ -578,7 +579,7 @@ func runtimeReviewSpec() CommandSpec {
 		Args: "[--format text|json]", Effect: operation.EffectRead, Role: RoleDiscover,
 		Agent: AgentContract{
 			CapabilityID: "runtime.lifecycle",
-			Outcome:      "Review interrupted Runtime build or restore authority first, or the complete Runtime catalog, then cross into the separate exact-reference mutation only after trusted-terminal confirmation",
+			Outcome:      "Review interrupted Runtime build, restore, or whole-delete authority first, or the complete Runtime catalog, then cross into the separate exact-reference mutation only after trusted-terminal confirmation",
 			Inputs:       []CommandInput{formatInput()}, Output: runtimeListOutput(),
 			Prerequisites: []string{"Interactive build selection and journal recovery require trusted terminal input and error output; redirected and JSON use remains read-only.", "An interrupted journal is reviewed before any new Runtime build selection."},
 			Errors: readCommandErrors("review runtimes", true,
@@ -596,6 +597,13 @@ func runtimeReviewSpec() CommandSpec {
 				classifiedCommandError(fault.KindInternal, "runtime_restore_outcome_unknown", false, fault.PhaseMutation, fault.ChangeUnknown, "review runtimes", "Observe the retained Runtime lifecycle journal before another mutation."),
 				classifiedCommandError(fault.KindContract, "invalid_runtime_restore_result_partial", false, fault.PhaseVerification, fault.ChangePartial, "runtime history", "Reconcile the retained Runtime revision and current image availability."),
 				classifiedCommandError(fault.KindContract, "invalid_runtime_restore_result_confirmed", false, fault.PhaseVerification, fault.ChangeConfirmed, "runtime history", "Reconcile the retained Runtime revision and current image availability."),
+				classifiedCommandError(fault.KindRejected, "runtime_delete_protected", false, fault.PhasePrecondition, fault.ChangeNone, "runtime show", "Review the Runtime and its current Manifest or Workspace protections."),
+				classifiedCommandError(fault.KindInternal, "runtime_delete_interrupted", false, fault.PhaseMutation, fault.ChangePartial, "review runtimes", "Resume the exact retained Runtime deletion authority."),
+				classifiedCommandError(fault.KindInternal, "runtime_delete_outcome_unknown", false, fault.PhaseMutation, fault.ChangeUnknown, "review runtimes", "Observe the retained Runtime lifecycle journal before another mutation."),
+				classifiedCommandError(fault.KindContract, "invalid_runtime_delete_result_partial", false, fault.PhaseVerification, fault.ChangePartial, "review runtimes", "Reconcile the retained Runtime deletion receipt and lifecycle state."),
+				classifiedCommandError(fault.KindContract, "invalid_runtime_delete_result_confirmed", false, fault.PhaseVerification, fault.ChangeConfirmed, "review runtimes", "Reconcile the retained Runtime deletion receipt and lifecycle state."),
+				classifiedCommandError(fault.KindContract, "output_encoding_failed", false, fault.PhasePresentation, fault.ChangeConfirmed, "review runtimes", "Reconcile the confirmed Runtime deletion receipt."),
+				classifiedCommandError(fault.KindInternal, "missing_runtime_delete", false, fault.PhasePrecondition, fault.ChangeNone, "doctor", "Configure the Runtime delete application boundary."),
 				declaredCommandError(fault.KindContract, "runtime_recovery_contract_invalid", false, "review runtimes", "Reconcile the current Runtime catalog."),
 				declaredCommandError(fault.KindInternal, "runtime_review_failed", false, "help review runtimes", "Retry on a trusted terminal or use redirected/JSON read-only discovery."),
 				declaredCommandError(fault.KindInternal, "runtime_read_failed", false, "doctor", "Inspect the host Runtime store."),
@@ -688,6 +696,47 @@ func runtimeRestoreSpec() CommandSpec {
 			},
 		},
 		handler: runRuntimeRestore,
+	}
+}
+
+func runtimeDeleteSpec() CommandSpec {
+	return CommandSpec{
+		Path: "runtime delete", Summary: "Delete one complete unused managed Runtime",
+		Args: "--id <runtime-ref> --confirm=delete [--format text|json]", Effect: operation.EffectWrite, Role: RoleAct,
+		Agent: AgentContract{
+			CapabilityID: "runtime.lifecycle",
+			Outcome:      "Delete one exact unused managed Runtime as a whole, including editable source, immutable snapshots, revision history, and exact owned image tags, while preserving every Workspace Manifest, Workspace, ID, home, applied receipt, Project root, credential, and shared resource",
+			Inputs: []CommandInput{
+				{Name: "--id", Source: InputSourceFlag, Required: true, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, Description: "Opaque managed Runtime reference emitted by Runtime discovery and consumed unchanged.", AllowedValues: []string{}, ReferenceKind: tobari.RuntimeReferenceKind},
+				{Name: "--confirm", Source: InputSourceFlag, Required: true, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, Description: "Confirm irreversible whole-Runtime source, snapshot, history, and owned-tag deletion without cascading to Workspace authority.", AllowedValues: []string{"delete"}},
+				formatInput(),
+			},
+			Output: runtimeDeleteOutput(),
+			Prerequisites: []string{
+				"The target is one managed Runtime; built-in standard is never a deletion target.",
+				"Current and retained Workspace Manifest revisions and every Workspace applied, pending, and observed Runtime binding are completely observed and do not protect the target.",
+				"No Workspace or external container uses target material, migration and ownership evidence is verified, and exact source, snapshot, journal, and Docker observations remain complete.",
+			},
+			Errors: mutationCommandErrors("runtime delete", "review runtimes",
+				classifiedCommandError(fault.KindInvalidInput, "invalid_runtime_ref", false, fault.PhasePrecondition, fault.ChangeNone, "runtime list", "Use one managed Runtime reference unchanged."),
+				classifiedCommandError(fault.KindNotFound, "runtime_not_found", false, fault.PhasePrecondition, fault.ChangeNone, "runtime list", "Discover the current managed Runtime catalog."),
+				classifiedCommandError(fault.KindRejected, "runtime_delete_protected", false, fault.PhasePrecondition, fault.ChangeNone, "runtime show", "Review the Runtime and its current Manifest or Workspace protections."),
+				classifiedCommandError(fault.KindRejected, "runtime_lifecycle_active", false, fault.PhasePrecondition, fault.ChangeNone, "review runtimes", "Review the retained Runtime lifecycle journal."),
+				classifiedCommandError(fault.KindRejected, "runtime_retirement_observation_unknown", false, fault.PhaseObservation, fault.ChangeNotApplicable, "doctor", "Inspect the host Runtime lifecycle state."),
+				classifiedCommandError(fault.KindInternal, "runtime_delete_interrupted", false, fault.PhaseMutation, fault.ChangePartial, "review runtimes", "Resume the exact retained Runtime deletion authority."),
+				classifiedCommandError(fault.KindInternal, "runtime_delete_outcome_unknown", false, fault.PhaseMutation, fault.ChangeUnknown, "review runtimes", "Observe the retained Runtime lifecycle journal before another mutation."),
+				classifiedCommandError(fault.KindContract, "invalid_runtime_delete_result_partial", false, fault.PhaseVerification, fault.ChangePartial, "review runtimes", "Reconcile the retained Runtime deletion receipt and lifecycle state."),
+				classifiedCommandError(fault.KindContract, "invalid_runtime_delete_result_confirmed", false, fault.PhaseVerification, fault.ChangeConfirmed, "review runtimes", "Reconcile the retained Runtime deletion receipt and lifecycle state."),
+				classifiedCommandError(fault.KindContract, "output_encoding_failed", false, fault.PhasePresentation, fault.ChangeConfirmed, "review runtimes", "Reconcile the confirmed Runtime deletion receipt."),
+				classifiedCommandError(fault.KindInternal, "missing_runtime_delete", false, fault.PhasePrecondition, fault.ChangeNone, "doctor", "Configure the Runtime delete application boundary."),
+				declaredCommandError(fault.KindInternal, "missing_runtime", false, "doctor", "Configure the Tobari runtime."),
+			),
+			Mutation: &MutationContract{
+				TargetKind: tobari.RuntimeReferenceKind, TargetInputs: []string{"--id"}, TargetIDInput: "--id",
+				Impact: runtimecmd.DeleteImpact(),
+			},
+		},
+		handler: runRuntimeDelete,
 	}
 }
 

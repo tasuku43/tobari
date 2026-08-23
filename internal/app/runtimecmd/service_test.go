@@ -47,6 +47,9 @@ type runtimeFake struct {
 	deleteRefs          []string
 	deleteResults       []tobari.RuntimeDeleteResult
 	deleteErrs          []error
+	activities          []tobari.RuntimeLifecycleActivity
+	deleteRecovery      *tobari.RuntimeSummary
+	deleteRecoveryErr   error
 }
 
 type runtimeWithoutPrune struct{ RuntimePort }
@@ -157,7 +160,7 @@ func (f *runtimeFake) ReadRuntimeLifecycleSnapshot(context.Context) (tobari.Runt
 		storage[0].Snapshots = append(storage[0].Snapshots, tobari.RuntimeSnapshotStorage{Kind: tobari.RuntimePruneCandidateRevision, Revision: revision.Revision, SemanticFingerprint: revision.Revision, LogicalBytes: 100})
 	}
 	if f.materials != nil {
-		return tobari.RuntimeLifecycleSnapshot{CatalogComplete: true, Runtimes: runtimes, Protection: protection, Materials: f.materials, Storage: storage, Journals: tobari.RuntimeLifecycleJournals{Complete: true, Active: []tobari.RuntimeLifecycleActivity{}, FailedBuilds: []tobari.RuntimeFailedBuildArtifact{}}}, observedAt, nil
+		return tobari.RuntimeLifecycleSnapshot{CatalogComplete: true, Runtimes: runtimes, Protection: protection, Materials: f.materials, Storage: storage, Journals: tobari.RuntimeLifecycleJournals{Complete: true, Active: append([]tobari.RuntimeLifecycleActivity{}, f.activities...), FailedBuilds: []tobari.RuntimeFailedBuildArtifact{}}}, observedAt, nil
 	}
 	items := []tobari.RuntimeMaterialObservation{}
 	for _, runtime := range runtimes {
@@ -168,7 +171,7 @@ func (f *runtimeFake) ReadRuntimeLifecycleSnapshot(context.Context) (tobari.Runt
 			items = append(items, tobari.RuntimeMaterialObservation{RuntimeID: runtime.ID, Revision: revision.Revision, TagRole: tobari.RuntimeMaterialTagPublishedRevision, Availability: tobari.RuntimeAvailabilityMissing, ObservationComplete: true})
 		}
 	}
-	return tobari.RuntimeLifecycleSnapshot{CatalogComplete: true, Runtimes: runtimes, Protection: protection, Materials: items, Storage: storage, Journals: tobari.RuntimeLifecycleJournals{Complete: true, Active: []tobari.RuntimeLifecycleActivity{}, FailedBuilds: []tobari.RuntimeFailedBuildArtifact{}}}, observedAt, nil
+	return tobari.RuntimeLifecycleSnapshot{CatalogComplete: true, Runtimes: runtimes, Protection: protection, Materials: items, Storage: storage, Journals: tobari.RuntimeLifecycleJournals{Complete: true, Active: append([]tobari.RuntimeLifecycleActivity{}, f.activities...), FailedBuilds: []tobari.RuntimeFailedBuildArtifact{}}}, observedAt, nil
 }
 
 func (f *runtimeFake) ReadRuntimeBuildRecovery(context.Context) (tobari.RuntimeBuildRecovery, bool, error) {
@@ -180,6 +183,36 @@ func (f *runtimeFake) ReadRuntimeBuildRecovery(context.Context) (tobari.RuntimeB
 		return tobari.RuntimeBuildRecovery{}, false, nil
 	}
 	return *f.recovery, true, nil
+}
+
+func TestRuntimeDeleteRecoveryReviewUsesCoherentExactAuthority(t *testing.T) {
+	manifest := runtimeFixture()
+	summary := tobari.RuntimeSummaryFrom(manifest)
+	fake := &runtimeFake{manifest: manifest, deleteRecovery: &summary}
+	recovery, found, err := New(fake).ReviewDeleteRecovery(context.Background())
+	if err != nil || !found || recovery.ID != manifest.ID || recovery.RuntimeRef != tobari.RuntimeRef(manifest.ID) || recovery.Name != manifest.Name || recovery.Kind != tobari.RuntimeKindManaged {
+		t.Fatalf("Runtime delete recovery = %+v found=%t err=%v", recovery, found, err)
+	}
+	fake.deleteRecovery = nil
+	if recovery, found, err := New(fake).ReviewDeleteRecovery(context.Background()); err != nil || found || recovery != (tobari.RuntimeSummary{}) {
+		t.Fatalf("absent Runtime delete recovery = %+v found=%t err=%v", recovery, found, err)
+	}
+}
+
+func TestRuntimeDeleteRecoveryReviewPreservesCancellationAndRejectsAmbiguity(t *testing.T) {
+	manifest := runtimeFixture()
+	canceled := &runtimeFake{manifest: manifest, deleteRecoveryErr: context.Canceled}
+	if _, _, err := New(canceled).ReviewDeleteRecovery(context.Background()); !errors.Is(err, context.Canceled) {
+		t.Fatalf("Runtime delete recovery cancellation = %v", err)
+	}
+	invalid := tobari.RuntimeSummaryFrom(manifest)
+	invalid.RuntimeRef = "018bcfe5-687b-7000-8000-000000000099"
+	contract := &runtimeFake{manifest: manifest, deleteRecovery: &invalid}
+	_, _, err := New(contract).ReviewDeleteRecovery(context.Background())
+	public, ok := fault.PublicCopy(err)
+	if !ok || public.Code != "runtime_recovery_contract_invalid" || public.Phase != fault.PhaseObservation || public.ChangeState != fault.ChangeNotApplicable {
+		t.Fatalf("ambiguous Runtime delete recovery = %+v/%v", public, err)
+	}
 }
 
 func (f *runtimeFake) ApplyRuntimePrune(_ context.Context, planRef string) (tobari.RuntimePruneResult, error) {
@@ -232,6 +265,16 @@ func (f *runtimeFake) DeleteManagedRuntimeByReference(_ context.Context, runtime
 		return f.deleteResults[index], nil
 	}
 	return tobari.RuntimeDeleteResult{}, errors.New("missing synthetic Runtime delete result")
+}
+
+func (f *runtimeFake) ReadRuntimeDeleteRecovery(context.Context) (tobari.RuntimeSummary, bool, error) {
+	if f.deleteRecoveryErr != nil {
+		return tobari.RuntimeSummary{}, false, f.deleteRecoveryErr
+	}
+	if f.deleteRecovery == nil {
+		return tobari.RuntimeSummary{}, false, nil
+	}
+	return *f.deleteRecovery, true, nil
 }
 
 func runtimeDeleteResultFixture(state tobari.RuntimeDeleteState) tobari.RuntimeDeleteResult {
@@ -309,7 +352,8 @@ func TestRuntimeDeleteRequiresTaskOwnedPort(t *testing.T) {
 	fake := &runtimeFake{manifest: runtimeFixture(), deleteResults: []tobari.RuntimeDeleteResult{result}}
 	_, err := New(runtimeWithoutDelete{RuntimePort: fake}).Delete(context.Background(), runtimeDeleteIntent(result.RuntimeRef), result.RuntimeRef)
 	public, ok := fault.PublicCopy(err)
-	if !ok || public.Code != "missing_runtime_delete" || fake.deleteCalls != 0 {
+	if !ok || public.Code != "missing_runtime_delete" || public.Phase != fault.PhasePrecondition || public.ChangeState != fault.ChangeNone ||
+		len(public.NextActions) != 1 || public.NextActions[0] != (fault.NextAction{Command: "doctor", Reason: "Configure the Runtime delete application boundary."}) || fake.deleteCalls != 0 {
 		t.Fatalf("missing Runtime delete port = %+v/%v calls=%d", public, err, fake.deleteCalls)
 	}
 }

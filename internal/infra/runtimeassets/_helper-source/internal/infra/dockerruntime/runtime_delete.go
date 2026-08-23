@@ -378,6 +378,33 @@ func (r *Runtime) requireNoRuntimeDeleteRecoveryConflict() error {
 	return nil
 }
 
+// ReadRuntimeDeleteRecovery observes only the exact local delete journal under
+// the non-creating lifecycle read lock. Docker/material revalidation remains
+// owned by the later confirmed delete action.
+func (r *Runtime) ReadRuntimeDeleteRecovery(ctx context.Context) (tobari.RuntimeSummary, bool, error) {
+	var summary tobari.RuntimeSummary
+	found := false
+	err := r.withLifecycleObservation(ctx, func(lockContext context.Context) error {
+		journal, err := r.readRuntimeDeleteJournalObserved()
+		if err != nil || journal == nil {
+			return err
+		}
+		summary = tobari.RuntimeSummaryFrom(journal.Target.Runtime)
+		if err := summary.Validate(); err != nil || summary.Kind != tobari.RuntimeKindManaged {
+			if err == nil {
+				err = fmt.Errorf("Runtime delete recovery target is not managed")
+			}
+			return err
+		}
+		found = true
+		return lockContext.Err()
+	})
+	if err != nil {
+		return tobari.RuntimeSummary{}, false, err
+	}
+	return summary, found, nil
+}
+
 // DeleteManagedRuntimeByReference retires exactly one managed Runtime. The
 // caller supplies only the opaque Runtime reference; mutable names and Docker
 // selectors are rederived under the lifecycle and Runtime-store locks.

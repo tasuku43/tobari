@@ -350,9 +350,10 @@ The public commands are:
 | `runtime show --name NAME [--format text\|json]` | discover | read | Inspect one Runtime's stable reference, managed source path, and complete successful revisions |
 | `runtime history --name NAME [--format text\|json]` | discover | read | Show one Runtime's stable reference and ordered immutable successful revision history |
 | `runtime create [--copy-source-from RUNTIME] --name NAME [--format text\|json]` | act, fixed target | create | Create one standalone owner-only managed Docker build-context source from the standard starter or another managed Runtime's current editable source, with a fresh Runtime ID, empty history, no lineage, and no Manifest or Workspace change |
-| `review runtimes [--format text\|json]` | discover plus TTY reference-bound action | read, or one confirmed write | List the exhaustive Runtime catalog; trusted interactive text offers only managed Runtime actions and uses one confirmation for either a selected build or exact interrupted restore recovery, while redirected and JSON output remain read-only |
+| `review runtimes [--format text\|json]` | discover plus TTY reference-bound action | read, or one confirmed write | List the exhaustive Runtime catalog; trusted interactive text offers only managed Runtime actions and uses one confirmation for a selected build or exact interrupted build, restore, or whole-delete recovery, prioritizing the enclosing delete journal, while redirected and JSON output remain read-only |
 | `runtime build --id RUNTIME_REF [--format text\|json]` | act, reference bound | write | Re-resolve one stable managed Runtime ID under the lifecycle and store locks, then snapshot, build, validate, and append one immutable semantic revision without changing any Workspace Manifest |
 | `runtime restore --id RUNTIME_REVISION_REF [--format text\|json]` | act, reference bound | write | Rebuild one exact missing or pruned managed revision from its retained immutable source, publish only an exact digest match, and preserve Runtime history, Workspace Manifests, and Workspaces; an already-available exact revision performs no durable write |
+| `runtime delete --id RUNTIME_REF --confirm=delete [--format text\|json]` | act, reference bound | write | Delete one exact unused managed Runtime as a whole—editable source, immutable snapshots, revision history, and exact owned image tags—only after complete protection and use observation, while preserving Workspace Manifests, Workspaces, IDs, homes, applied receipts, Project roots, credentials, and shared resources |
 | `runtime prune dry-run [--format text\|json]` | discover | read | Produce one exact opaque prune-plan reference from a complete coherent installation observation, listing every eligible unused owned image tag, protection, blocker, preserved source/snapshot byte count, and bounded Docker observation without creating state or changing Docker |
 | `runtime prune apply --plan RUNTIME_PRUNE_PLAN_REF --confirm=prune [--format text\|json]` | act, reference bound | write | Revalidate and apply one unchanged reviewed plan, removing only exact Tobari-owned unused image tags while preserving Runtime source, immutable snapshots, revision history, Workspace Manifests, Workspaces, homes, IDs, and shared image content |
 
@@ -802,6 +803,7 @@ Human output is concise text. The canonical public machine-output inventory is:
 | Runtime list | `runtimes` | 1 |
 | Runtime report (show/create/history/build results) | `runtime` | 1 |
 | Runtime restore result | `runtime_restore` | 1 |
+| Runtime delete result | `runtime_delete` | 1 |
 | Runtime prune plan | `runtime_prune_plan` | 1 |
 | Runtime prune result | `runtime_prune_result` | 1 |
 | Workspace Manifest deletion | `workspace_manifest_deletion` | 2 |

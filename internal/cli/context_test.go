@@ -23,24 +23,25 @@ import (
 type contextCLI fakeContextRuntime
 
 type runtimeCatalogCLI struct {
-	buildLog      string
-	buildErr      error
-	manifest      tobari.RuntimeManifest
-	list          []tobari.RuntimeSummary
-	listCalls     int
-	showCalls     int
-	historyCalls  int
-	buildCalls    int
-	lastBuild     string
-	createCalls   int
-	lastCreate    string
-	lastBase      tobari.RuntimeCopySource
-	recovery      *tobari.RuntimeBuildRecovery
-	recoveryErr   error
-	recoveryReads int
-	recoveries    int
-	recoveredRef  string
-	recoveredKind tobari.RuntimeBuildRecoveryKind
+	buildLog            string
+	buildErr            error
+	manifest            tobari.RuntimeManifest
+	list                []tobari.RuntimeSummary
+	listCalls           int
+	showCalls           int
+	historyCalls        int
+	buildCalls          int
+	lastBuild           string
+	createCalls         int
+	lastCreate          string
+	lastBase            tobari.RuntimeCopySource
+	recovery            *tobari.RuntimeBuildRecovery
+	recoveryErr         error
+	recoveryReads       int
+	recoveries          int
+	recoveredRef        string
+	recoveredKind       tobari.RuntimeBuildRecoveryKind
+	lifecycleActivities []tobari.RuntimeLifecycleActivity
 }
 
 func testRuntimeManifest() tobari.RuntimeManifest {
@@ -145,7 +146,7 @@ func (f *runtimeCatalogCLI) ReadRuntimeLifecycleSnapshot(context.Context) (tobar
 		}
 		storage = append(storage, observed)
 	}
-	return tobari.RuntimeLifecycleSnapshot{CatalogComplete: true, Runtimes: runtimes, Protection: tobari.RuntimeProtectionInventory{Complete: true, Items: []tobari.RuntimeProtection{}}, Materials: items, Storage: storage, Journals: tobari.RuntimeLifecycleJournals{Complete: true, Active: []tobari.RuntimeLifecycleActivity{}, FailedBuilds: []tobari.RuntimeFailedBuildArtifact{}}}, time.Unix(1, 0).UTC(), nil
+	return tobari.RuntimeLifecycleSnapshot{CatalogComplete: true, Runtimes: runtimes, Protection: tobari.RuntimeProtectionInventory{Complete: true, Items: []tobari.RuntimeProtection{}}, Materials: items, Storage: storage, Journals: tobari.RuntimeLifecycleJournals{Complete: true, Active: append([]tobari.RuntimeLifecycleActivity{}, f.lifecycleActivities...), FailedBuilds: []tobari.RuntimeFailedBuildArtifact{}}}, time.Unix(1, 0).UTC(), nil
 }
 
 func (f *runtimeCatalogCLI) ReadRuntimeBuildRecovery(context.Context) (tobari.RuntimeBuildRecovery, bool, error) {
@@ -164,6 +165,19 @@ func (f *runtimeCatalogCLI) RecoverRuntimeBuildByReference(_ context.Context, ru
 	f.recoveredRef = runtimeRef
 	f.recoveredKind = kind
 	return f.recoveryErr
+}
+
+func (f *runtimeCatalogCLI) ReadRuntimeDeleteRecovery(context.Context) (tobari.RuntimeSummary, bool, error) {
+	for _, activity := range f.lifecycleActivities {
+		if activity.Kind == tobari.RuntimeLifecycleActivityDelete {
+			return tobari.RuntimeSummaryFrom(f.runtimeManifest()), true, nil
+		}
+	}
+	return tobari.RuntimeSummary{}, false, nil
+}
+
+func (f *runtimeCatalogCLI) DeleteManagedRuntimeByReference(context.Context, string) (tobari.RuntimeDeleteResult, error) {
+	return tobari.RuntimeDeleteResult{}, tobari.ErrRuntimeNotFound
 }
 
 func (f *contextCLI) ListContexts(context.Context) (tobari.ManifestListResult, error) {

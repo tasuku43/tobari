@@ -187,6 +187,39 @@ func confirmRuntimeBuildRecovery(ctx context.Context, c *CLI, recovery tobari.Ru
 	return index == 0, nil
 }
 
+func confirmRuntimeDeleteRecovery(ctx context.Context, c *CLI, runtime tobari.RuntimeSummary) (bool, error) {
+	if err := runtime.Validate(); err != nil || runtime.Kind != tobari.RuntimeKindManaged {
+		if err == nil {
+			err = fmt.Errorf("Runtime deletion recovery target is not managed")
+		}
+		return false, fault.WithClassification(
+			fault.Wrap(fault.KindContract, "runtime_recovery_contract_invalid", "The Runtime deletion recovery target is invalid.", false, err,
+				fault.NextAction{Command: "review runtimes", Reason: "Reconcile the current Runtime catalog."}),
+			fault.PhaseObservation, fault.ChangeNotApplicable,
+		)
+	}
+	index, err := runtimeReviewChooser(c).choose(ctx, c.In, c.Err, configurationWizardMenu{
+		title: "Tobari · Recover Runtime Delete",
+		details: []configurationWizardDetail{
+			{label: "Runtime", value: runtime.Name},
+			{label: "Reference", value: runtime.RuntimeRef},
+		},
+		information: []string{
+			"Resume only the exact retained whole-Runtime deletion journal.",
+			"Source, snapshots, and history continue forward to deletion; Workspace Manifests, Workspaces, IDs, homes, and applied receipts remain preserved.",
+		},
+		prompt: "Action",
+		options: []configurationWizardOption{
+			{label: "Recover interrupted delete", description: "Revalidate and resume this exact Runtime deletion.", value: "recover"},
+			{label: "Cancel", description: "Keep the deletion journal and remaining Runtime material unchanged.", value: "cancel"},
+		},
+	})
+	if err != nil {
+		return false, err
+	}
+	return index == 0, nil
+}
+
 func chooseRuntimeCreateBase(ctx context.Context, c *CLI, targetName string) (string, error) {
 	catalog, err := c.runtime.List(ctx)
 	if err != nil {

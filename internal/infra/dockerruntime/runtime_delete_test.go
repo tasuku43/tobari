@@ -71,6 +71,35 @@ func TestDeleteManagedRuntimeAllowsZeroRevisionDraft(t *testing.T) {
 	}
 }
 
+func TestReadRuntimeDeleteRecoveryIsExactAndZeroCreate(t *testing.T) {
+	root := t.TempDir()
+	runtime, err := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), &lifecycleObservationRunner{images: map[string]lifecycleImageFixture{}, containers: map[string]runtimeContainerObservation{}, containerLists: map[string]string{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := snapshotOwnedTree(t, root)
+	if recovery, found, err := runtime.ReadRuntimeDeleteRecovery(context.Background()); err != nil || found || recovery != (tobari.RuntimeSummary{}) {
+		t.Fatalf("fresh Runtime delete recovery = %+v found=%t err=%v", recovery, found, err)
+	}
+	if after := snapshotOwnedTree(t, root); !reflect.DeepEqual(after, before) {
+		t.Fatalf("fresh Runtime delete recovery created state: before=%v after=%v", before, after)
+	}
+
+	runtime, _, _, manifest := runtimePruneFixture(t, false)
+	runtime.runtimeDeleteReceiptWrite = func(tobari.RuntimeDeleteResult) error { return errors.New("synthetic receipt interruption") }
+	if _, err := runtime.DeleteManagedRuntimeByReference(context.Background(), tobari.RuntimeRef(manifest.ID)); !errors.Is(err, tobari.ErrRuntimeDeleteInterrupted) {
+		t.Fatalf("create active Runtime delete journal = %v", err)
+	}
+	before = snapshotOwnedTree(t, filepath.Dir(runtime.configDirectory))
+	recovery, found, err := runtime.ReadRuntimeDeleteRecovery(context.Background())
+	if err != nil || !found || recovery.ID != manifest.ID || recovery.RuntimeRef != tobari.RuntimeRef(manifest.ID) || recovery.Name != manifest.Name || recovery.Kind != tobari.RuntimeKindManaged {
+		t.Fatalf("active Runtime delete recovery = %+v found=%t err=%v", recovery, found, err)
+	}
+	if after := snapshotOwnedTree(t, filepath.Dir(runtime.configDirectory)); !reflect.DeepEqual(after, before) {
+		t.Fatalf("active Runtime delete recovery mutated authority: before=%v after=%v", before, after)
+	}
+}
+
 func TestDeleteManagedRuntimeResumesQuarantineAndReceiptBoundaries(t *testing.T) {
 	t.Run("after quarantine rename", func(t *testing.T) {
 		runtime, runner, _, manifest := runtimePruneFixture(t, false)

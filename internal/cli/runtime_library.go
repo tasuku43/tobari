@@ -46,6 +46,38 @@ func runRuntimeReview(ctx context.Context, c *CLI, command CommandSpec, _ operat
 	if !runtimeReviewAvailable(ctx, c, format) {
 		return runRuntimeListCommand(ctx, c, command, inputs)
 	}
+	deletion, found, err := c.runtime.ReviewDeleteRecovery(ctx)
+	if err != nil {
+		return c.fail(ctx, normalizeRuntimeReviewError(command.Path, err))
+	}
+	if found {
+		confirmed, confirmErr := confirmRuntimeDeleteRecovery(ctx, c, deletion)
+		if confirmErr != nil {
+			return c.fail(ctx, normalizeRuntimeReviewError(command.Path, confirmErr))
+		}
+		if !confirmed {
+			return c.fail(ctx, context.Canceled)
+		}
+		deleteCommand, registered := c.catalog.lookupRegistered("runtime delete")
+		if !registered {
+			return c.fail(ctx, fault.New(fault.KindContract, "invalid_catalog", "Runtime delete recovery action is missing.", false))
+		}
+		actionCtx := withCommandPath(ctx, deleteCommand.Path)
+		intent := operation.Intent{Command: deleteCommand.Path, Effect: deleteCommand.Effect, Target: operation.TargetRef{Kind: tobari.RuntimeReferenceKind, ID: deletion.RuntimeRef}, Impact: deleteCommand.Agent.Mutation.Impact}
+		result, deleteErr := c.runtime.Delete(actionCtx, intent, deletion.RuntimeRef)
+		if deleteErr != nil {
+			return c.fail(actionCtx, deleteErr)
+		}
+		output, renderErr := renderRuntimeDelete(deleteCommand.Path, result, successFormatText, humanStyleAllowed(actionCtx, c, c.Out))
+		if renderErr != nil {
+			classified, ok := renderErr.(*fault.Error)
+			if !ok {
+				classified = fault.Wrap(fault.KindContract, "output_encoding_failed", "Runtime delete result output could not be encoded", false, renderErr)
+			}
+			return c.fail(actionCtx, fault.WithClassification(classified, fault.PhasePresentation, fault.ChangeConfirmed))
+		}
+		return c.emitMutationResult(actionCtx, deleteCommand, output)
+	}
 	recovery, found, err := c.runtime.ReviewRecovery(ctx)
 	if err != nil {
 		return c.fail(ctx, normalizeRuntimeReviewError(command.Path, err))
@@ -63,33 +95,35 @@ func runRuntimeReview(ctx context.Context, c *CLI, command CommandSpec, _ operat
 			if !registered {
 				return c.fail(ctx, fault.New(fault.KindContract, "invalid_catalog", "Runtime restore recovery action is missing.", false))
 			}
+			actionCtx := withCommandPath(ctx, restore.Path)
 			intent := operation.Intent{Command: restore.Path, Effect: restore.Effect, Target: operation.TargetRef{Kind: tobari.RuntimeRevisionReferenceKind, ID: recovery.RevisionRef}, Impact: restore.Agent.Mutation.Impact}
-			diagnostics := newRuntimeBuildOutput(c.Err, humanStyleAllowed(ctx, c, c.Err))
-			result, recoverErr := c.runtime.RecoverRestore(ctx, intent, recovery, diagnostics)
+			diagnostics := newRuntimeBuildOutput(c.Err, humanStyleAllowed(actionCtx, c, c.Err))
+			result, recoverErr := c.runtime.RecoverRestore(actionCtx, intent, recovery, diagnostics)
 			if recoverErr != nil {
-				return c.fail(ctx, recoverErr)
+				return c.fail(actionCtx, recoverErr)
 			}
 			diagnostics.Flush()
-			output, renderErr := renderRuntimeRestore(restore.Path, result, successFormatText, humanStyleAllowed(ctx, c, c.Out))
+			output, renderErr := renderRuntimeRestore(restore.Path, result, successFormatText, humanStyleAllowed(actionCtx, c, c.Out))
 			if renderErr != nil {
-				return c.fail(ctx, renderErr)
+				return c.fail(actionCtx, renderErr)
 			}
-			return c.emitMutationResult(ctx, restore, output)
+			return c.emitMutationResult(actionCtx, restore, output)
 		}
 		build, registered := c.catalog.lookupRegistered("runtime build")
 		if !registered {
 			return c.fail(ctx, fault.New(fault.KindContract, "invalid_catalog", "Runtime Review recovery action is missing.", false))
 		}
+		actionCtx := withCommandPath(ctx, build.Path)
 		intent := operation.Intent{Command: build.Path, Effect: build.Effect, Target: operation.TargetRef{Kind: tobari.RuntimeReferenceKind, ID: recovery.RuntimeRef}, Impact: build.Agent.Mutation.Impact}
-		result, recoverErr := c.runtime.Recover(ctx, intent, recovery)
+		result, recoverErr := c.runtime.Recover(actionCtx, intent, recovery)
 		if recoverErr != nil {
-			return c.fail(ctx, recoverErr)
+			return c.fail(actionCtx, recoverErr)
 		}
-		output, renderErr := renderRuntimeReport(build.Path, result, successFormatText, humanStyleAllowed(ctx, c, c.Out))
+		output, renderErr := renderRuntimeReport(build.Path, result, successFormatText, humanStyleAllowed(actionCtx, c, c.Out))
 		if renderErr != nil {
-			return c.fail(ctx, renderErr)
+			return c.fail(actionCtx, renderErr)
 		}
-		return c.emitMutationResult(ctx, build, output)
+		return c.emitMutationResult(actionCtx, build, output)
 	}
 	runtimeRef, err := chooseRuntimeBuild(ctx, c)
 	if err != nil {
@@ -104,7 +138,7 @@ func runRuntimeReview(ctx context.Context, c *CLI, command CommandSpec, _ operat
 		provided: map[string]bool{"--id": true},
 		defaults: map[string]bool{"--format": true},
 	}
-	return runRuntimeBuild(ctx, c, build, operation.Intent{Command: build.Path, Effect: build.Effect}, buildInputs)
+	return runRuntimeBuild(withCommandPath(ctx, build.Path), c, build, operation.Intent{Command: build.Path, Effect: build.Effect}, buildInputs)
 }
 
 func runRuntimeListCommand(ctx context.Context, c *CLI, command CommandSpec, inputs ParsedInputs) int {
