@@ -192,6 +192,14 @@ func (r *Runtime) RecoverRuntimeRestoreByRevisionReference(ctx context.Context, 
 	if err != nil {
 		return tobari.RuntimeRestoreResult{}, fmt.Errorf("Runtime restore recovery reference is invalid: %w", err)
 	}
+	guardContext, cancel := r.runtimeBuildRecoveryContext(ctx)
+	guardErr := r.WithLifecycleLock(guardContext, func(lockContext context.Context) error {
+		return r.withRuntimeStoreLock(lockContext, r.requireNoRuntimeDeleteRecoveryConflict)
+	})
+	cancel()
+	if guardErr != nil {
+		return tobari.RuntimeRestoreResult{}, guardErr
+	}
 	recoveryContext := context.WithValue(ctx, runtimeBuildRecoveryReferenceContextKey{}, runtimeBuildRecoveryTarget{
 		RuntimeRef: tobari.RuntimeRef(runtimeID), RevisionRef: reference,
 	})
@@ -289,6 +297,11 @@ func (r *Runtime) beginRuntimeRestoreJournal(ctx context.Context, manifest tobar
 		return runtimeBuildJournal{}, err
 	} else if prune != nil {
 		return runtimeBuildJournal{}, fmt.Errorf("a Runtime prune journal requires recovery before restore")
+	}
+	if deletion, err := r.readRuntimeDeleteJournalObserved(); err != nil {
+		return runtimeBuildJournal{}, err
+	} else if deletion != nil {
+		return runtimeBuildJournal{}, fmt.Errorf("a Runtime delete journal requires recovery before restore")
 	}
 	path := r.runtimeBuildJournalPath()
 	if _, err := os.Lstat(path); err == nil {

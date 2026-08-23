@@ -31,12 +31,14 @@ const (
 var runtimeLifecycleContainerID = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
 type runtimeLifecycleLocalObservation struct {
-	Runtimes   []tobari.RuntimeManifest
-	Protection runtimeProtectionObservation
-	Build      *runtimeBuildJournal
-	Prune      *runtimePruneJournal
-	Receipts   runtimePruneReceiptStore
-	Storage    []tobari.RuntimeStorageObservation
+	Runtimes        []tobari.RuntimeManifest
+	Protection      runtimeProtectionObservation
+	Build           *runtimeBuildJournal
+	Prune           *runtimePruneJournal
+	Delete          *runtimeDeleteJournal
+	DeleteProjected bool
+	Receipts        runtimePruneReceiptStore
+	Storage         []tobari.RuntimeStorageObservation
 }
 
 type runtimeImageObservation struct {
@@ -246,6 +248,10 @@ func (r *Runtime) readRuntimeLifecycleLocalObserved(ctx context.Context, budget 
 	if err != nil {
 		return runtimeLifecycleLocalObservation{}, err
 	}
+	deletion, err := r.readRuntimeDeleteJournalObserved()
+	if err != nil {
+		return runtimeLifecycleLocalObservation{}, err
+	}
 	receipts, err := r.readRuntimePruneReceiptStoreObserved()
 	if err != nil {
 		return runtimeLifecycleLocalObservation{}, err
@@ -254,15 +260,46 @@ func (r *Runtime) readRuntimeLifecycleLocalObserved(ctx context.Context, budget 
 	if err != nil {
 		return runtimeLifecycleLocalObservation{}, err
 	}
+	deleteProjected := false
+	if deletion != nil {
+		found := false
+		for _, manifest := range runtimes {
+			if manifest.ID == deletion.Target.Runtime.ID {
+				found = true
+				break
+			}
+		}
+		if !found {
+			// After the atomic catalog-to-quarantine rename, the exact journal
+			// target remains task-owned retiring authority. Project it only while
+			// the delete journal is active; this is observation and never
+			// reactivates the Runtime catalog entry.
+			runtimes = append(runtimes, deletion.Target.Runtime)
+			deleteProjected = true
+		}
+	}
 	protection, err := r.readRuntimeProtectionInventoryObserved(ctx, budget)
 	if err != nil {
 		return runtimeLifecycleLocalObservation{}, err
 	}
-	storage, err := r.observeRuntimeStorage(ctx, runtimes, journal)
+	storageRuntimes := runtimes
+	if deleteProjected {
+		storageRuntimes = make([]tobari.RuntimeManifest, 0, len(runtimes)-1)
+		for _, manifest := range runtimes {
+			if manifest.ID != deletion.Target.Runtime.ID {
+				storageRuntimes = append(storageRuntimes, manifest)
+			}
+		}
+	}
+	storage, err := r.observeRuntimeStorage(ctx, storageRuntimes, journal)
 	if err != nil {
 		return runtimeLifecycleLocalObservation{}, err
 	}
-	return runtimeLifecycleLocalObservation{Runtimes: runtimes, Protection: protection, Build: journal, Prune: prune, Receipts: receipts, Storage: storage}, nil
+	if deleteProjected {
+		storage = append(storage, deletion.Target.Storage)
+		sort.Slice(storage, func(i, j int) bool { return storage[i].RuntimeID < storage[j].RuntimeID })
+	}
+	return runtimeLifecycleLocalObservation{Runtimes: runtimes, Protection: protection, Build: journal, Prune: prune, Delete: deletion, DeleteProjected: deleteProjected, Receipts: receipts, Storage: storage}, nil
 }
 
 type runtimeLogicalFile struct {
@@ -421,7 +458,7 @@ func (r *Runtime) readStrictRuntimeBuildJournalInventory() (*runtimeBuildJournal
 		return nil, err
 	}
 	for _, entry := range entries {
-		if entry.Type()&os.ModeSymlink != 0 || (entry.Name() != runtimeBuildJournalFile && entry.Name() != runtimeBuildSnapshotDir && entry.Name() != runtimePruneJournalFile && entry.Name() != runtimePruneReceiptsFile) {
+		if entry.Type()&os.ModeSymlink != 0 || (entry.Name() != runtimeBuildJournalFile && entry.Name() != runtimeBuildSnapshotDir && entry.Name() != runtimePruneJournalFile && entry.Name() != runtimePruneReceiptsFile && entry.Name() != runtimeDeleteJournalFile && entry.Name() != runtimeDeleteReceiptsDir) {
 			return nil, fmt.Errorf("Runtime lifecycle journal inventory contains an unknown entry")
 		}
 	}
@@ -558,8 +595,19 @@ func (r *Runtime) observeRuntimeLifecycleDocker(ctx context.Context, local runti
 			journalInventory.Active = append(journalInventory.Active, runtimeLifecycleActivityFromBuild(*local.Build))
 		}
 	}
+	if local.DeleteProjected {
+		for _, target := range local.Delete.Target.Materials {
+			if target.Candidate.Kind != tobari.RuntimePruneCandidateFailedBuild || (local.Build != nil && local.Build.RuntimeID == target.Candidate.RuntimeID && local.Build.Revision == target.Candidate.Revision) {
+				continue
+			}
+			targets = append(targets, runtimeMaterialTarget{RuntimeID: target.Candidate.RuntimeID, Revision: target.Candidate.Revision, TagRole: tobari.RuntimeMaterialTagJournaledStaging, Selector: managedRuntimeStagingImage(target.Candidate.RuntimeID, target.Candidate.Revision), Name: target.Candidate.Name})
+		}
+	}
 	if local.Prune != nil {
 		journalInventory.Active = append(journalInventory.Active, local.Prune.activities()...)
+	}
+	if local.Delete != nil {
+		journalInventory.Active = append(journalInventory.Active, local.Delete.activity())
 	}
 	if len(targets) > maxRuntimeLifecycleMaterials {
 		return tobari.RuntimeLifecycleSnapshot{}, tobari.RuntimeProtectionInventoryError{Reason: tobari.RuntimeProtectionInventoryObservationUnknown}

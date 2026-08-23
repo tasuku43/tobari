@@ -284,6 +284,11 @@ func (r *Runtime) beginRuntimeBuildJournal(ctx context.Context, runtimeID, runti
 	} else if prune != nil {
 		return runtimeBuildJournal{}, fmt.Errorf("a Runtime prune journal requires recovery before another build")
 	}
+	if deletion, err := r.readRuntimeDeleteJournalObserved(); err != nil {
+		return runtimeBuildJournal{}, err
+	} else if deletion != nil {
+		return runtimeBuildJournal{}, fmt.Errorf("a Runtime delete journal requires recovery before another build")
+	}
 	path := r.runtimeBuildJournalPath()
 	if _, err := os.Lstat(path); err == nil {
 		return runtimeBuildJournal{}, fmt.Errorf("a Runtime build journal requires recovery before another build")
@@ -647,6 +652,9 @@ func (r *Runtime) RecoverRuntimeBuildCleanup(ctx context.Context) error {
 	defer cancel()
 	return r.WithLifecycleLock(recoveryContext, func(lockContext context.Context) error {
 		return r.withRuntimeStoreLock(lockContext, func() error {
+			if err := r.requireNoRuntimeDeleteRecoveryConflict(); err != nil {
+				return err
+			}
 			journal, err := r.readRuntimeBuildJournalObserved()
 			if err != nil {
 				return err
@@ -699,6 +707,9 @@ func (r *Runtime) RecoverRuntimeBuildPublication(ctx context.Context) error {
 	defer cancel()
 	return r.WithLifecycleLock(recoveryContext, func(lockContext context.Context) error {
 		return r.withRuntimeStoreLock(lockContext, func() error {
+			if err := r.requireNoRuntimeDeleteRecoveryConflict(); err != nil {
+				return err
+			}
 			journal, err := r.readRuntimeBuildJournalObserved()
 			if err != nil {
 				return err
@@ -723,6 +734,9 @@ func (r *Runtime) RecoverRuntimeBuildOrphanStaging(ctx context.Context) error {
 	defer cancel()
 	return r.WithLifecycleLock(recoveryContext, func(lockContext context.Context) error {
 		return r.withRuntimeStoreLock(lockContext, func() error {
+			if err := r.requireNoRuntimeDeleteRecoveryConflict(); err != nil {
+				return err
+			}
 			journal, err := r.readRuntimeBuildJournalObserved()
 			if err != nil {
 				return err
@@ -772,6 +786,9 @@ func (r *Runtime) RecoverRuntimeBuildPreDocker(ctx context.Context) error {
 	defer cancel()
 	return r.WithLifecycleLock(recoveryContext, func(lockContext context.Context) error {
 		return r.withRuntimeStoreLock(lockContext, func() error {
+			if err := r.requireNoRuntimeDeleteRecoveryConflict(); err != nil {
+				return err
+			}
 			journal, err := r.readRuntimeBuildJournalObserved()
 			if err != nil {
 				return err
@@ -845,6 +862,9 @@ func (r *Runtime) RecoverRuntimeBuildBuilding(ctx context.Context) error {
 	defer cancel()
 	return r.WithLifecycleLock(recoveryContext, func(lockContext context.Context) error {
 		return r.withRuntimeStoreLock(lockContext, func() error {
+			if err := r.requireNoRuntimeDeleteRecoveryConflict(); err != nil {
+				return err
+			}
 			journal, err := r.readRuntimeBuildJournalObserved()
 			if err != nil {
 				return err
@@ -925,6 +945,9 @@ func (r *Runtime) RecoverRuntimeBuildFailed(ctx context.Context) error {
 	defer cancel()
 	return r.WithLifecycleLock(recoveryContext, func(lockContext context.Context) error {
 		return r.withRuntimeStoreLock(lockContext, func() error {
+			if err := r.requireNoRuntimeDeleteRecoveryConflict(); err != nil {
+				return err
+			}
 			journal, err := r.readRuntimeBuildJournalObserved()
 			if err != nil {
 				return err
