@@ -115,6 +115,9 @@ type Runtime struct {
 	// projectStateWriter is nil in production. Tests may use it to inject a
 	// durable-state write failure after Docker reconciliation has completed.
 	projectStateWriter func(tobari.Workspace) error
+	// clusterStateWriteHook is nil in production. Tests use it to distinguish
+	// failures before and after the atomic shared-state publication boundary.
+	clusterStateWriteHook func(tobari.State, func() error) error
 }
 
 // New resolves XDG paths without creating them.

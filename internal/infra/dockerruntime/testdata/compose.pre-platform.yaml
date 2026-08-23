@@ -1,0 +1,131 @@
+name: tobari
+
+services:
+  opa:
+    image: ${TOBARI_OPA_IMAGE}
+    container_name: tobari-opa
+    user: "${TOBARI_UID}:${TOBARI_GID}"
+    cpus: "1.0"
+    mem_limit: 512m
+    memswap_limit: 512m
+    pids_limit: 128
+    command:
+      - run
+      - --server
+      - --addr=0.0.0.0:8181
+      - --log-format=json
+      - --watch
+      - --bundle
+      - /bundle/bundle.tar.gz
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    volumes:
+      - policy-bundle:/bundle:ro
+    networks:
+      control: {}
+    labels:
+      io.tobari.owner: default
+      io.tobari.component: opa
+    healthcheck:
+      test:
+        - CMD
+        - /opa
+        - eval
+        - --fail
+        - 'http.send({"method":"get","url":"http://127.0.0.1:8181/health"}).status_code == 200'
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+  gateway:
+    image: ${TOBARI_GATEWAY_IMAGE}
+    container_name: tobari-gateway
+    user: "${TOBARI_UID}:${TOBARI_GID}"
+    cpus: "2.0"
+    mem_limit: 1g
+    memswap_limit: 1g
+    pids_limit: 256
+    depends_on:
+      opa:
+        condition: service_healthy
+    read_only: true
+    cap_drop: [ALL]
+    sysctls:
+      net.ipv4.ip_forward: "0"
+      net.ipv6.conf.all.forwarding: "0"
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    environment:
+      HOME: /var/lib/mitmproxy
+      TOBARI_OPA_URL: http://opa:8181/v1/data/tobari/http/decision
+      TOBARI_CLUSTER: default
+      TOBARI_OPA_TIMEOUT_SECONDS: ${TOBARI_OPA_TIMEOUT_SECONDS:-2}
+      TOBARI_UPSTREAM_TIMEOUT_SECONDS: ${TOBARI_UPSTREAM_TIMEOUT_SECONDS:-30}
+      TOBARI_GATEWAY_CONFIG: /run/tobari/config/gateway.json
+      TOBARI_PRINCIPAL_REGISTRY: /run/tobari/principal-registry/principals.json
+      TOBARI_HOST_LOOPBACK_REGISTRY: /run/tobari/host-loopback/routes.json
+      TOBARI_ATTACHMENT_GRANT_REGISTRY: /run/tobari/host-loopback/grants.json
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - gateway-ca:/var/lib/mitmproxy/.mitmproxy
+      - public-ca:/run/tobari/ca-public
+      - ${TOBARI_GATEWAY_CONFIG}:/run/tobari/config/gateway.json:ro
+      - ${TOBARI_PRINCIPAL_DIR}:/run/tobari/principal-registry:ro
+      - ${TOBARI_HOST_LOOPBACK_DIR}:/run/tobari/host-loopback:ro
+    networks:
+      control: {}
+      egress: {}
+    labels:
+      io.tobari.owner: default
+      io.tobari.component: gateway
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import socket,sys,urllib.request;sys.path.insert(0,'/opt/tobari');import synthetic_dns;s=socket.create_connection(('127.0.0.1',15001),1);s.close();assert synthetic_dns.healthcheck('127.0.0.1',15053);urllib.request.urlopen('http://opa:8181/health',timeout=1).read()"
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+networks:
+  control:
+    name: tobari-control
+    internal: true
+    labels:
+      io.tobari.owner: default
+  egress:
+    name: tobari-egress
+    labels:
+      io.tobari.owner: default
+
+volumes:
+  policy-bundle:
+    name: tobari-policy-bundle
+    labels:
+      io.tobari.owner: default
+  gateway-ca:
+    name: tobari-gateway-ca
+    labels:
+      io.tobari.owner: default
+  public-ca:
+    name: tobari-public-ca
+    labels:
+      io.tobari.owner: default
