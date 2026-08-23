@@ -68,6 +68,12 @@ if grep -F 'contexts/default/policy/context.json' "$scenario" >&2; then
   echo "integration scope: post-publication policy drift bypassed the fixture publication seam" >&2
   exit 1
 fi
+for predecessor_key in 'item["project_id"]' 'item["context"]'; do
+  if grep -F "$predecessor_key" "$scenario" >&2; then
+    echo "integration scope: predecessor current-state JSON key returned: $predecessor_key" >&2
+    exit 1
+  fi
+done
 for claim in \
   'item["workspace_manifest"]' \
   '["workspace_manifest"]["workspace_manifest_id"]' \

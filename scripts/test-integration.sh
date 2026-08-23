@@ -925,7 +925,7 @@ with open(sys.argv[1], encoding="utf-8") as handle:
 bindings = document.get("bindings", [])
 if document.get("schema_version") != 1 or len(bindings) != 3:
     raise SystemExit(f"unexpected project principal registry: {document!r}")
-ids = {item["project_id"] for item in bindings}
+ids = {item["workspace_id"] for item in bindings}
 if ids != set(sys.argv[2:]):
     raise SystemExit(f"registry project IDs {ids!r} do not match CWD projects")
 addresses = [item["gateway_ip"] for item in bindings]
@@ -936,7 +936,7 @@ if len(workspace_addresses) != len(set(workspace_addresses)):
     raise SystemExit("project principal registry reused one Workspace address")
 if set(addresses) & set(workspace_addresses):
     raise SystemExit("project principal registry overlapped Workspace and Gateway endpoints")
-if {item["context"] for item in bindings} != {"default", "restricted"}:
+if {item["workspace_manifest"] for item in bindings} != {"default", "restricted"}:
     raise SystemExit(f"predecessor registry Manifest bindings are incomplete: {bindings!r}")
 PY
 
@@ -945,7 +945,7 @@ import json
 import sys
 with open(sys.argv[1], encoding="utf-8") as handle:
     bindings = json.load(handle)["bindings"]
-print(next(item["gateway_ip"] for item in bindings if item["project_id"] == sys.argv[2]))
+print(next(item["gateway_ip"] for item in bindings if item["workspace_id"] == sys.argv[2]))
 PY
 )
 work_workspace_ip=$(python3 - "$config_directory/principal-registry/principals.json" "$work_id" <<'PY'
@@ -953,7 +953,7 @@ import json
 import sys
 with open(sys.argv[1], encoding="utf-8") as handle:
     bindings = json.load(handle)["bindings"]
-print(next(item["workspace_ip"] for item in bindings if item["project_id"] == sys.argv[2]))
+print(next(item["workspace_ip"] for item in bindings if item["workspace_id"] == sys.argv[2]))
 PY
 )
 [[ $(docker inspect --format "{{(index .NetworkSettings.Networks \"$work_network\").IPAddress}}" "$work_container") == "$work_workspace_ip" ]] ||
@@ -1506,7 +1506,7 @@ import socket
 import sys
 
 routes = json.load(open(sys.argv[1], encoding="utf-8"))["routes"]
-route = next(item for item in routes if item["project_id"] == sys.argv[2])
+route = next(item for item in routes if item["workspace_id"] == sys.argv[2])
 target_port = int(sys.argv[3])
 with socket.create_connection(("127.0.0.1", route["relay_port"]), timeout=3) as relay:
     relay.sendall(b"C" + route["relay_token"].encode("ascii") + target_port.to_bytes(2, "big"))
@@ -1524,7 +1524,7 @@ import json
 import sys
 
 routes = json.load(open(sys.argv[1], encoding="utf-8"))["routes"]
-route = next(item for item in routes if item["project_id"] == sys.argv[2])
+route = next(item for item in routes if item["workspace_id"] == sys.argv[2])
 json.dump({"relay_port": route["relay_port"], "relay_token": route["relay_token"]}, sys.stdout)
 PY
   docker exec -i tobari-gateway python3 -c '
@@ -1635,7 +1635,7 @@ import sys
 
 with open(sys.argv[1], encoding="utf-8") as handle:
     bindings = json.load(handle)["bindings"]
-if {item["project_id"] for item in bindings} != set(sys.argv[2:]):
+if {item["workspace_id"] for item in bindings} != set(sys.argv[2:]):
     raise SystemExit(f"deleted project principal was not removed: {bindings!r}")
 PY
 run_tobari_at "$work_root" delete --manifest restricted --force >/dev/null
