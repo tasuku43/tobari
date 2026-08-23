@@ -42,6 +42,13 @@ func TestRuntimeDeleteTargetBindsCompleteManagedAuthority(t *testing.T) {
 			t.Fatalf("delete target derivation mutated its input snapshot: %+v", snapshot.Runtimes[1])
 		}
 	}
+	storageBefore := snapshot.Storage[0].Snapshots[0]
+	materialBytesBefore := *snapshot.Materials[1].ImageVirtualBytes
+	target.Storage.Snapshots[0].LogicalBytes++
+	*target.Materials[1].Candidate.ImageVirtualBytes++
+	if snapshot.Storage[0].Snapshots[0] != storageBefore || *snapshot.Materials[1].ImageVirtualBytes != materialBytesBefore {
+		t.Fatalf("mutating returned delete target changed input snapshot: storage=%+v material=%+v", snapshot.Storage[0], snapshot.Materials[1])
+	}
 }
 
 func TestRuntimeDeleteTargetAllowsZeroRevisionManagedRuntime(t *testing.T) {
@@ -51,6 +58,32 @@ func TestRuntimeDeleteTargetAllowsZeroRevisionManagedRuntime(t *testing.T) {
 	if err != nil || len(target.Materials) != 0 || len(target.Runtime.Revisions) != 0 || len(target.Storage.Snapshots) != 0 {
 		t.Fatalf("zero-revision delete target = %+v/%v", target, err)
 	}
+}
+
+func TestRuntimeDeleteTargetRejectsCrossRuntimeLifecycleAuthority(t *testing.T) {
+	targetID := "018bcfe5-687b-7000-8000-000000000077"
+	otherID := "018bcfe5-687b-7000-8000-000000000099"
+	otherRevision := "sha256:" + strings.Repeat("9", 64)
+	target := lifecycleRuntime(targetID, "frontend")
+	other := lifecycleRuntime(otherID, "other")
+
+	t.Run("active build", func(t *testing.T) {
+		snapshot := lifecycleSnapshot([]RuntimeManifest{target, other}, []RuntimeProtection{}, []RuntimeMaterialObservation{})
+		snapshot.Journals.Active = []RuntimeLifecycleActivity{{Kind: RuntimeLifecycleActivityBuild, RuntimeID: otherID, Revisions: []string{otherRevision}}}
+		if _, err := RuntimeDeleteTargetFrom(snapshot, RuntimeRef(targetID)); !errors.Is(err, ErrRuntimeLifecycleActive) {
+			t.Fatalf("cross-Runtime active build fault = %v", err)
+		}
+	})
+
+	t.Run("settled failed build", func(t *testing.T) {
+		material := RuntimeMaterialObservation{RuntimeID: otherID, Revision: otherRevision, TagRole: RuntimeMaterialTagJournaledStaging, Availability: RuntimeAvailabilityPruned, ObservationComplete: true}
+		snapshot := lifecycleSnapshot([]RuntimeManifest{target, other}, []RuntimeProtection{}, []RuntimeMaterialObservation{})
+		snapshot.Journals.FailedBuilds = []RuntimeFailedBuildArtifact{{RuntimeID: otherID, Revision: otherRevision, RuntimeRef: RuntimeRef(otherID), Name: other.Name, Material: material}}
+		snapshot.Storage[1].Snapshots = []RuntimeSnapshotStorage{{Kind: RuntimePruneCandidateFailedBuild, Revision: otherRevision, SemanticFingerprint: otherRevision, LogicalBytes: 1}}
+		if _, err := RuntimeDeleteTargetFrom(snapshot, RuntimeRef(targetID)); !errors.Is(err, ErrRuntimeLifecycleActive) {
+			t.Fatalf("cross-Runtime failed-build authority fault = %v", err)
+		}
+	})
 }
 
 func TestRuntimeDeleteTargetFailsClosedOnProtectionUseAndUnknownEvidence(t *testing.T) {

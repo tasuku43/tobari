@@ -146,8 +146,14 @@ func RuntimeDeleteTargetFrom(snapshot RuntimeLifecycleSnapshot, runtimeRef strin
 			return RuntimeDeleteTarget{}, ErrRuntimeDeleteProtected
 		}
 	}
-	for _, activity := range snapshot.Journals.Active {
-		if activity.RuntimeID == runtime.ID {
+	if len(snapshot.Journals.Active) != 0 {
+		// Runtime lifecycle journals are installation-wide serialized
+		// authority. Refuse a new delete before it reaches journal publication,
+		// even when the interrupted activity belongs to another Runtime.
+		return RuntimeDeleteTarget{}, ErrRuntimeLifecycleActive
+	}
+	for _, artifact := range snapshot.Journals.FailedBuilds {
+		if artifact.RuntimeID != runtime.ID {
 			return RuntimeDeleteTarget{}, ErrRuntimeLifecycleActive
 		}
 	}
@@ -162,6 +168,7 @@ func RuntimeDeleteTargetFrom(snapshot RuntimeLifecycleSnapshot, runtimeRef strin
 	if !foundStorage {
 		return RuntimeDeleteTarget{}, fmt.Errorf("%w: Runtime storage is absent", ErrRuntimeRetirementObservationUnknown)
 	}
+	storage.Snapshots = append([]RuntimeSnapshotStorage{}, storage.Snapshots...)
 	storageByAuthority := make(map[string]RuntimeSnapshotStorage, len(storage.Snapshots))
 	for _, item := range storage.Snapshots {
 		storageByAuthority[runtimeSnapshotStorageKey(item)] = item
@@ -237,6 +244,10 @@ func runtimeDeleteMaterialTarget(candidate RuntimePruneCandidate, material Runti
 		return RuntimeDeleteMaterialTarget{}, ErrRuntimeRetirementObservationUnknown
 	default:
 		return RuntimeDeleteMaterialTarget{}, ErrRuntimeRetirementObservationUnknown
+	}
+	if candidate.ImageVirtualBytes != nil {
+		imageVirtualBytes := *candidate.ImageVirtualBytes
+		candidate.ImageVirtualBytes = &imageVirtualBytes
 	}
 	target := RuntimeDeleteMaterialTarget{
 		Candidate: candidate, Availability: material.Availability, TagPresent: material.TagPresent,
