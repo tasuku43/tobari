@@ -52,6 +52,9 @@ func (i PolicyReviewItem) Validate() error {
 	if err := ValidatePolicyReviewItemID(i.ID); err != nil {
 		return err
 	}
+	if !validPolicyMatch(i.Match) {
+		return fmt.Errorf("policy review item match is invalid")
+	}
 	switch i.Match {
 	case PolicyMatchExact:
 		if i.Candidate == nil || i.Template != nil || i.ID != i.Candidate.ID {
@@ -64,7 +67,7 @@ func (i PolicyReviewItem) Validate() error {
 		}
 		return i.Template.Validate()
 	default:
-		return fmt.Errorf("policy review item match is invalid")
+		return fmt.Errorf("policy review item match semantics are not implemented")
 	}
 }
 

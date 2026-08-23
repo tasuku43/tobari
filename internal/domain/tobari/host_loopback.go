@@ -224,7 +224,7 @@ func (g AttachmentGrant) Validate() error {
 	if !attachmentGrantPattern.MatchString(g.ID) || g.ID != attachmentGrantID(g) {
 		return fmt.Errorf("attachment grant ID is invalid")
 	}
-	if g.Decision != PolicyDecisionAllow && g.Decision != PolicyDecisionDeny {
+	if !validPolicyDecision(g.Decision) {
 		return fmt.Errorf("attachment grant decision is invalid")
 	}
 	if g.Lifetime != AuthorityLifetimeAttachment || g.DestinationKind != PolicyDestinationHostLoopback {

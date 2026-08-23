@@ -97,6 +97,59 @@ func TestPolicyRulesPathTemplateConformsAcrossTextJSONAndAgentHelp(t *testing.T)
 	}
 }
 
+func TestPolicyDomainVocabulariesConformAtEveryCatalogProjection(t *testing.T) {
+	t.Parallel()
+	type projection struct {
+		command string
+		field   string
+		want    []string
+	}
+	projections := []projection{
+		{command: "policy apply-reviewed", field: "decisions[].decision", want: tobari.PolicyDecisionValues()},
+		{command: "policy apply-reviewed", field: "decisions[].match", want: tobari.PolicyMatchValues()},
+		{command: "policy apply-reviewed", field: "decisions[].protocol", want: tobari.PolicyProtocolValues()},
+		{command: "policy apply-reviewed", field: "decisions[].state_change", want: tobari.PolicyStateChangeValues()},
+		{command: "policy rules", field: "decision", want: tobari.PolicyDecisionValues()},
+		{command: "policy rules", field: "match", want: tobari.PolicyMatchValues()},
+		{command: "policy rules", field: "protocol", want: tobari.PolicyProtocolValues()},
+		{command: "policy rules", field: "state_change", want: tobari.PolicyStateChangeValues()},
+		{command: "policy reset", field: "decision", want: tobari.PolicyDecisionValues()},
+		{command: "policy candidates", field: "protocol", want: tobari.PolicyProtocolValues()},
+		{command: "policy candidates", field: "state_change", want: tobari.PolicyStateChangeValues()},
+		{command: "review permissions", field: "protocol", want: tobari.PolicyProtocolValues()},
+		{command: "review permissions", field: "state_change", want: tobari.PolicyStateChangeValues()},
+		{command: "cluster denials", field: "items[].protocol", want: tobari.PolicyProtocolValues()},
+		{command: "cluster denials", field: "items[].state_change", want: tobari.PolicyStateChangeValues()},
+		{command: "policy allow", field: "protocol", want: tobari.PolicyProtocolValues()},
+		{command: "policy allow", field: "state_change", want: tobari.PolicyStateChangeValues()},
+		{command: "policy deny", field: "protocol", want: tobari.PolicyProtocolValues()},
+		{command: "policy deny", field: "state_change", want: tobari.PolicyStateChangeValues()},
+	}
+	catalog := DefaultCatalog()
+	for _, projection := range projections {
+		projection := projection
+		t.Run(strings.ReplaceAll(projection.command+"_"+projection.field, " ", "_"), func(t *testing.T) {
+			spec, found := commandSpecByPath(catalog, projection.command)
+			if !found {
+				t.Fatalf("command %q is absent", projection.command)
+			}
+			field := catalogOutputFieldAtPath(t, spec.Agent.Output.Fields, projection.field)
+			if !reflect.DeepEqual(field.Enum, projection.want) {
+				t.Fatalf("%s %s enum = %v, want %v", projection.command, projection.field, field.Enum, projection.want)
+			}
+		})
+	}
+}
+
+func commandSpecByPath(catalog Catalog, path string) (CommandSpec, bool) {
+	for _, command := range catalog.commands {
+		if command.Path == path {
+			return command, true
+		}
+	}
+	return CommandSpec{}, false
+}
+
 func syntheticPathTemplatePolicyRule(t *testing.T) tobari.LearnedPolicyRule {
 	t.Helper()
 	base := tobari.PolicyDenial{
@@ -150,4 +203,33 @@ func commandErrorByCode(t *testing.T, errors []CommandError, code string) Comman
 	}
 	t.Fatalf("command error %q is absent", code)
 	return CommandError{}
+}
+
+func catalogOutputFieldAtPath(t *testing.T, fields []OutputField, path string) OutputField {
+	t.Helper()
+	parts := strings.Split(path, ".")
+	for index, part := range parts {
+		array := strings.HasSuffix(part, "[]")
+		name := strings.TrimSuffix(part, "[]")
+		field := outputFieldByName(t, fields, name)
+		if index == len(parts)-1 {
+			if array {
+				t.Fatalf("terminal field path %q names an array item without a child", path)
+			}
+			return field
+		}
+		if array {
+			if field.Type != OutputFieldTypeArray || field.Items == nil || field.Items.Type != OutputFieldTypeObject {
+				t.Fatalf("field path %q does not traverse an object array at %q", path, part)
+			}
+			fields = field.Items.Fields
+			continue
+		}
+		if field.Type != OutputFieldTypeObject {
+			t.Fatalf("field path %q does not traverse an object at %q", path, part)
+		}
+		fields = field.Fields
+	}
+	t.Fatalf("output field path %q is empty", path)
+	return OutputField{}
 }
