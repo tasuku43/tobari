@@ -97,6 +97,11 @@ opaque `policy-rule` inventory/action path.
   and OPA tests prove an unseen safe segment matches while parent, child,
   sibling, empty, encoded-separator, cross-authority, cross-method,
   cross-project, and GraphQL canaries fail closed.
+- The policy domain exposes the canonical `exact`, `path_template` match set;
+  validation and every matching Catalog output field consume it. A pinned
+  constructor-built fixture proves schema-1 `policy rules` text/JSON and scoped
+  agent help agree on a template result, while an exact-only declaration fails
+  closed before stdout with `output_encoding_failed`.
 - The claim-to-enforcement table and agent-readiness denial-to-retry scenario
   include template review without undeclared parsing or provider knowledge.
 

@@ -15,12 +15,16 @@ func TestMachineOutputInterpretationFixtureHasReviewedAnswerKey(t *testing.T) {
 	cluster := cases["unconfigured_cluster"].(map[string]any)
 	if cluster["configured"] != false || cluster["running"] != false ||
 		cluster["policy"] != nil || cluster["policy_revision"] != nil ||
+		cluster["workspace_manifest_count"] != float64(0) ||
 		cluster["policy_projection"] != "unavailable" ||
 		len(cluster["components"].([]any)) != 0 {
 		t.Fatalf("unconfigured fixture facts = %+v", cluster)
 	}
 	if _, retained := cluster["proxy"]; retained {
 		t.Fatalf("unconfigured fixture contains prohibited proxy field: %+v", cluster)
+	}
+	if _, retained := cluster["context_count"]; retained {
+		t.Fatalf("unconfigured fixture contains retired Context field: %+v", cluster)
 	}
 	facts := answer["facts"].(map[string]any)
 	for name, value := range facts {

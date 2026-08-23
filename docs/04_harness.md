@@ -594,6 +594,24 @@ The test suite has complementary levels:
   preserve empty collections, explicit null, false, zero, unavailable states,
   nested arrays, structured recovery, and a routine-success external-processing
   count of zero.
+- Domain-owned finite strings that cross a Catalog output field are tested as
+  one canonical ordered set at every exact field path. Constructor-built
+  semantic fixtures still cover correlations that set equality cannot prove:
+  exact and single-segment-template Allows, exact Denies with an explicit empty
+  examples collection, empty exhaustive reports, nested reviewed receipts, and
+  protocol-specific fields with explicit empty siblings. The caller receives a
+  fresh value slice; ordering stabilizes help and generated output but is not
+  identity or authority. CLI-only format, delivery, and presentation enums stay
+  outside this rule.
+- Produced-reference tests force top-level, nested-object, scalar-array-item,
+  and object-inside-array shapes through the one bounded `OutputField`
+  traversal. They compare deterministic canonical kind/path pairs with Catalog
+  role validation, required-producer reachability, scoped agent help, and
+  workflows, while duplicate paths, cursor collisions, invalid nested types,
+  excessive depth/count, and closed reference cycles fail Catalog validation.
+  The ledger-pinned Catalog/domain conformance fixture and answer key reserve
+  the same generic interface for later Runtime/revision/prune-plan schemas
+  without pre-registering those commands or adding a Runtime-specific walker.
 - Auth truth-table tests freeze current, missing, stale, unavailable,
   unresolved, zero-Workspace, configured-with-current-projection, changed, and
   no-change states independently of presentation. Infrastructure tests prove
@@ -942,12 +960,14 @@ Every strong statement should identify its enforcement path.
 | Layer dependency | Go-aware architecture lint and import-boundary tests |
 | Build and resolver identity | Pure identity validation, exact version text/JSON tests, standard/dev build-tag resolver fixtures, artifact metadata inspection, and a zero-progress/zero-Docker API-mismatch preflight test |
 | Finite domain state | Types, constructors, and table-driven negative tests |
+| Domain-owned Catalog vocabulary | Caller-immutable canonical ordered sets consumed by domain validation and every inventoried exact Catalog field path, plus ledger-pinned constructor/output fixtures for semantic branches and explicit-empty correlations |
 | Catalog completeness | Whole-catalog contract tests |
 | Semantic terminal presentation | Ledger-pinned typed fixture and answer key across colored TTY, `NO_COLOR` TTY, redirected text, scoped empty, warning, failure, and neutral pre-action cancellation; exact six-token rendering tests; catalog-wide text-presentation declarations; idle-selector redraw/restoration plus narrow-terminal wrap-independent alternate-screen tests; bounded catalog-derived namespace/suggestion tests; and AST lint that rejects style-dependent structure or direct ANSI SGR outside the shared style layer |
 | Output delivery versus collection coverage | Independent finite enums and catalog tests, including complete bounded/differential windows and paged exhaustive traversal |
 | Operationally closed supported outcome | Reviewed agent-readiness transcript with zero undeclared external reconstruction, plus task-owned deterministic-composition tests and declared field extraction |
 | Request-bound semantic result | Per-capability domain/application tests for declared task identity and every applicable request dimension, including scope, state, contextual-kind, empty-result, no-partial-result, and negative-inference fixtures where applicable |
 | Action target composition | Reachable reference-graph validation and byte-preserving round trips for reference-bound acts; complete and exclusive declarations for command-bound fixed targets; reference-free fixed reads/writes; and fixed-create canaries that allow only distinct confirmed child-resource refs while rejecting consumed refs and escaped scope refs |
+| Recursive produced references | One bounded `OutputField.Fields`/`Items` traversal with deterministic dot/`[]` paths; forcing-shape, duplicate/cursor-collision, reachability, scoped-help, and workflow tests; typed inputs remain the consumed-reference authority |
 | Side-effect ordering | Fake adapter counters and failure-before-I/O tests |
 | Ancestor Workspace choice | Typed nearest-first candidate fixtures, selector key/fallback tests, locked stale-choice checks, and zero-downstream-call cancellation tests |
 | Session-versus-Workspace lifecycle | Child exit-status preservation, host stderr guidance, stdout/stderr ownership, logical-state-after-exit, and explicit delete tests |

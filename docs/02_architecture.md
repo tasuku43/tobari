@@ -1175,6 +1175,16 @@ and extra keys fail closed. Scoped agent-help schema 1 publishes the same
 recursive declaration and exact success/error argv forms, including global
 flag placement. Root help remains an index.
 
+Produced opaque references come from one explicit bounded traversal of that
+same output tree. Object children use dot paths and array items use `[]`, so
+paths such as `metadata.owner_ref`, `ids[]`, and
+`items[].runtime_ref` retain their declared structure. The resulting reference
+kind/path pairs are the sole producer input to Catalog role validation,
+required-reference reachability, scoped help, and grouped workflows. A command
+does not rediscover nested references from a rendered document, Go reflection,
+or a capability-specific walker. Consumed references continue to derive from
+typed Catalog inputs.
+
 Shell completion uses two public read-only utilities under `completion`. The
 `completion zsh` handler emits a static adapter with no copied command registry.
 On each Tab, that adapter invokes `completion candidates` with the bounded

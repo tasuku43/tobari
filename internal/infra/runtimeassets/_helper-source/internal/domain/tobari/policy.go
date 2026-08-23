@@ -51,6 +51,79 @@ const (
 	PolicyStateChangeInteractive = "interactive"
 )
 
+var (
+	policyMatchValues = [...]string{
+		PolicyMatchExact,
+		PolicyMatchPathTemplate,
+	}
+	policyProtocolValues = [...]string{
+		PolicyProtocolHTTP,
+		PolicyProtocolGraphQL,
+		PolicyProtocolMCP,
+		PolicyProtocolAWS,
+		PolicyProtocolKubernetes,
+		PolicyProtocolGit,
+		PolicyProtocolOCI,
+	}
+	policyDecisionValues = [...]string{
+		PolicyDecisionAllow,
+		PolicyDecisionDeny,
+	}
+	policyStateChangeValues = [...]string{
+		PolicyStateChangeNone,
+		PolicyStateChangePossible,
+		PolicyStateChangeInteractive,
+		PolicyStateChangeUnknown,
+	}
+)
+
+// PolicyMatchValues returns the canonical presentation order for the closed
+// policy-rule match vocabulary. Callers receive an independent copy.
+func PolicyMatchValues() []string {
+	return append([]string{}, policyMatchValues[:]...)
+}
+
+// PolicyProtocolValues returns the canonical presentation order for the
+// closed policy protocol vocabulary. Callers receive an independent copy.
+func PolicyProtocolValues() []string {
+	return append([]string{}, policyProtocolValues[:]...)
+}
+
+// PolicyDecisionValues returns the canonical presentation order for the
+// closed learned-policy decision vocabulary. Callers receive an independent
+// copy.
+func PolicyDecisionValues() []string {
+	return append([]string{}, policyDecisionValues[:]...)
+}
+
+// PolicyStateChangeValues returns the canonical presentation order for the
+// closed policy state-change evidence vocabulary. Callers receive an
+// independent copy.
+func PolicyStateChangeValues() []string {
+	return append([]string{}, policyStateChangeValues[:]...)
+}
+
+func policyVocabularyContains(values []string, value string) bool {
+	for _, candidate := range values {
+		if value == candidate {
+			return true
+		}
+	}
+	return false
+}
+
+func validPolicyMatch(value string) bool {
+	return policyVocabularyContains(policyMatchValues[:], value)
+}
+
+func validPolicyProtocol(value string) bool {
+	return policyVocabularyContains(policyProtocolValues[:], value)
+}
+
+func validPolicyDecision(value string) bool {
+	return policyVocabularyContains(policyDecisionValues[:], value)
+}
+
 // PolicyProtocolIdentity identifies one HTTP effect or refines it to exactly
 // one bounded protocol coordinate. AWS identity carries no read/write
 // semantics; the other refinements derive only their documented signal.
@@ -117,6 +190,9 @@ func (i PolicyProtocolIdentity) StateChangePotential() string {
 func (i PolicyProtocolIdentity) Validate() error {
 	if i.Scheme != "http" && i.Scheme != "https" {
 		return fmt.Errorf("policy scheme is invalid")
+	}
+	if !validPolicyProtocol(i.EffectiveProtocol()) {
+		return fmt.Errorf("policy protocol is invalid")
 	}
 	switch i.EffectiveProtocol() {
 	case PolicyProtocolHTTP:
@@ -238,7 +314,7 @@ func (i PolicyProtocolIdentity) Validate() error {
 			return fmt.Errorf("OCI action coordinate is invalid")
 		}
 	default:
-		return fmt.Errorf("policy protocol is invalid")
+		return fmt.Errorf("policy protocol semantics are not implemented")
 	}
 	return nil
 }
@@ -940,7 +1016,7 @@ func (r LearnedPolicyRule) Validate() error {
 	if !learnedRuleIDPattern.MatchString(r.ID) {
 		return fmt.Errorf("learned rule ID is invalid")
 	}
-	if r.Match != PolicyMatchExact && r.Match != PolicyMatchPathTemplate {
+	if !validPolicyMatch(r.Match) {
 		return fmt.Errorf("learned rule match is invalid")
 	}
 	if err := validatePolicyScope(r.WorkspaceManifestID, r.WorkspaceManifestName, r.ProjectRoot); err != nil {
@@ -1115,7 +1191,7 @@ func (r PolicyRule) Validate() error {
 	if err := ValidatePolicyRuleID(r.ID); err != nil {
 		return err
 	}
-	if r.Decision != PolicyDecisionAllow && r.Decision != PolicyDecisionDeny {
+	if !validPolicyDecision(r.Decision) {
 		return fmt.Errorf("policy rule decision is invalid")
 	}
 	if r.Decision == PolicyDecisionAllow {
@@ -1282,7 +1358,7 @@ func (r PolicyRuleReset) Validate() error {
 	if err := ValidatePolicyRuleID(r.TargetID); err != nil {
 		return err
 	}
-	if r.Decision != PolicyDecisionAllow && r.Decision != PolicyDecisionDeny {
+	if !validPolicyDecision(r.Decision) {
 		return fmt.Errorf("policy rule reset decision is invalid")
 	}
 	if !filepath.IsAbs(r.PolicyDirectory) || filepath.Clean(r.PolicyDirectory) != r.PolicyDirectory {
@@ -1541,10 +1617,10 @@ func (d PolicyReviewAppliedDecision) Validate() error {
 	if err := ValidatePolicyReviewItemID(d.ReviewItemID); err != nil {
 		return err
 	}
-	if d.Decision != PolicyDecisionAllow && d.Decision != PolicyDecisionDeny {
+	if !validPolicyDecision(d.Decision) {
 		return fmt.Errorf("policy review receipt decision is invalid")
 	}
-	if d.Match != PolicyMatchExact && d.Match != PolicyMatchPathTemplate {
+	if !validPolicyMatch(d.Match) {
 		return fmt.Errorf("policy review receipt match is invalid")
 	}
 	if d.Decision == PolicyDecisionDeny && d.Match != PolicyMatchExact {
@@ -1587,10 +1663,10 @@ func (s PolicyReviewDecisionSet) Validate() error {
 		if err := ValidatePolicyReviewItemID(decision.ReviewItemID); err != nil {
 			return err
 		}
-		if decision.Decision != PolicyDecisionAllow && decision.Decision != PolicyDecisionDeny {
+		if !validPolicyDecision(decision.Decision) {
 			return fmt.Errorf("policy review decision is invalid")
 		}
-		if decision.Match != PolicyMatchExact && decision.Match != PolicyMatchPathTemplate {
+		if !validPolicyMatch(decision.Match) {
 			return fmt.Errorf("policy review decision match is invalid")
 		}
 		if decision.Decision == PolicyDecisionDeny && decision.Match != PolicyMatchExact {

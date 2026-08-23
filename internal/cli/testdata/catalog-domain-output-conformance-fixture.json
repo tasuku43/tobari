@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "template_candidates": {
+    "observed_at": [
+      "2026-08-23T00:00:00Z",
+      "2026-08-23T00:01:00Z"
+    ],
+    "request_ids": [
+      "7185da2688d7469aae9cd9068e920b0b",
+      "8185da2688d7469aae9cd9068e920b0b"
+    ],
+    "workspace_manifest_id": "01912345-6789-7abc-8def-0123456789ad",
+    "workspace_manifest": "synthetic",
+    "workspace_id": "01912345-6789-7abc-8def-0123456789ab",
+    "project_root": "/workspace/synthetic",
+    "scheme": "https",
+    "host": "api.example.com",
+    "port": 443,
+    "method": "GET",
+    "paths": [
+      "/items/123",
+      "/items/456"
+    ]
+  }
+}
