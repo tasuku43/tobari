@@ -49,6 +49,16 @@ const positions: Record<string, { x: number; y: number }> = {
   activation: { x: 31, y: 87 },
   retry: { x: 13, y: 57 },
 };
+for (const node of diagram.nodes) {
+  if (!positions[node.id])
+    throw new Error(`Missing policy-loop position for node ${node.id}`);
+}
+for (const edge of diagram.edges) {
+  if (!positions[edge.from] || !positions[edge.to])
+    throw new Error(
+      `Missing policy-loop position for edge ${edge.from} -> ${edge.to}`,
+    );
+}
 const nodeById = Object.fromEntries(
   diagram.nodes.map((node) => [node.id, node]),
 );
