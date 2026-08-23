@@ -376,21 +376,29 @@ func (r *Runtime) observeAppliedClusterComponent(
 ) (appliedClusterComponentObservation, bool, error) {
 	observationContext, cancel := context.WithTimeout(ctx, appliedClusterInspectTimeout)
 	defer cancel()
-	output := &boundedBuffer{limit: appliedClusterInspectLimit}
+	stdout := &boundedBuffer{limit: appliedClusterInspectLimit / 2}
+	stderr := &boundedBuffer{limit: appliedClusterInspectLimit / 2}
 	err := r.runner.Run(
 		observationContext,
 		[]string{"inspect", "--format", appliedClusterInspectTemplate, container},
-		os.Environ(), nil, output, output,
+		os.Environ(), nil, stdout, stderr,
 	)
-	data := append([]byte(nil), output.buffer.Bytes()...)
+	data := append([]byte(nil), stdout.buffer.Bytes()...)
+	diagnostic := append([]byte(nil), stderr.buffer.Bytes()...)
+	if stdout.overflow || stderr.overflow {
+		return appliedClusterComponentObservation{}, false, fmt.Errorf("Docker inspect output exceeds %d bytes", appliedClusterInspectLimit)
+	}
 	if err != nil {
-		if isMissingDockerResource(err, data) {
+		if len(bytes.TrimSpace(data)) == 0 &&
+			string(bytes.TrimSpace(diagnostic)) == "Error: No such object: "+container {
 			return appliedClusterComponentObservation{}, true, nil
 		}
-		return appliedClusterComponentObservation{}, false, fmt.Errorf("bounded Docker inspect failed: %w", err)
+		return appliedClusterComponentObservation{}, false, fmt.Errorf(
+			"bounded Docker inspect failed: %w: %s", err, boundedDiagnostic(diagnostic),
+		)
 	}
-	if output.overflow {
-		return appliedClusterComponentObservation{}, false, fmt.Errorf("Docker inspect output exceeds %d bytes", appliedClusterInspectLimit)
+	if len(bytes.TrimSpace(diagnostic)) != 0 {
+		return appliedClusterComponentObservation{}, false, fmt.Errorf("Docker inspect emitted unexpected diagnostic output")
 	}
 	if err := validateNoDuplicateJSONKeys(data); err != nil {
 		return appliedClusterComponentObservation{}, false, fmt.Errorf("Docker inspect payload is ambiguous: %w", err)

@@ -17,11 +17,12 @@ import (
 type appliedStateInspectRunner struct {
 	payloads map[string][][]byte
 	errors   map[string]error
+	stderr   map[string][]byte
 	calls    []string
 }
 
 func (r *appliedStateInspectRunner) Run(
-	_ context.Context, args, _ []string, _ io.Reader, output, _ io.Writer,
+	_ context.Context, args, _ []string, _ io.Reader, output, errorOutput io.Writer,
 ) error {
 	if len(args) < 4 || args[0] != "inspect" || args[2] != appliedClusterInspectTemplate {
 		return errors.New("unexpected applied-state command")
@@ -29,18 +30,61 @@ func (r *appliedStateInspectRunner) Run(
 	container := args[len(args)-1]
 	r.calls = append(r.calls, container)
 	if err := r.errors[container]; err != nil {
-		_, _ = output.Write([]byte("synthetic inspect failure"))
+		diagnostic := r.stderr[container]
+		if len(diagnostic) == 0 {
+			diagnostic = []byte("synthetic inspect failure")
+		}
+		_, _ = errorOutput.Write(diagnostic)
 		return err
 	}
 	queue := r.payloads[container]
 	if len(queue) == 0 {
-		_, _ = output.Write([]byte("No such object"))
+		diagnostic := r.stderr[container]
+		if len(diagnostic) == 0 {
+			diagnostic = []byte("Error: No such object: " + container + "\n")
+		}
+		_, _ = errorOutput.Write(diagnostic)
 		return errors.New("No such object")
 	}
 	payload := queue[0]
 	r.payloads[container] = queue[1:]
 	_, err := output.Write(payload)
 	return err
+}
+
+func TestAppliedStateMissingRequiresExactInspectDiagnostic(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name        string
+		diagnostic  string
+		wantMissing bool
+	}{
+		{name: "exact", diagnostic: "Error: No such object: " + authBrokerContainer + "\n", wantMissing: true},
+		{name: "prefix", diagnostic: "wrapper: Error: No such object: " + authBrokerContainer},
+		{name: "suffix", diagnostic: "Error: No such object: " + authBrokerContainer + ": daemon unavailable"},
+		{name: "multiline", diagnostic: "Error: No such object: " + authBrokerContainer + "\ntransport failed"},
+		{name: "unrelated", diagnostic: "Error: network not found while inspecting " + authBrokerContainer},
+		{name: "other container", diagnostic: "Error: No such object: foreign-container"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			runner := &appliedStateInspectRunner{
+				payloads: map[string][][]byte{},
+				stderr:   map[string][]byte{authBrokerContainer: []byte(test.diagnostic)},
+			}
+			runtime, err := newRuntime(t.TempDir(), t.TempDir(), runner)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, missing, err := runtime.observeAppliedClusterComponent(context.Background(), "auth-broker", authBrokerContainer)
+			if test.wantMissing {
+				if err != nil || !missing {
+					t.Fatalf("exact missing = %t, %v", missing, err)
+				}
+			} else if err == nil || missing {
+				t.Fatalf("ambiguous missing = %t, %v", missing, err)
+			}
+		})
+	}
 }
 
 func (*appliedStateInspectRunner) Output(context.Context, []string, []string) ([]byte, error) {
