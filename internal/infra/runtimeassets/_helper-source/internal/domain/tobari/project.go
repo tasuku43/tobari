@@ -12,13 +12,13 @@ import (
 )
 
 const (
-	ProjectStateSchemaVersion = 1
-	DefaultProfile            = "default"
+	WorkspaceStateSchemaVersion = 2
+	DefaultProfile              = "default"
 
-	TaskEnter       = "tobari.enter"
-	TaskStatus      = "tobari.status"
-	TaskDelete      = "tobari.delete"
-	TaskProjectList = "tobari.project-list"
+	TaskEnter         = "tobari.enter"
+	TaskStatus        = "tobari.status"
+	TaskDelete        = "tobari.delete"
+	TaskWorkspaceList = "tobari.project-list"
 
 	CurrentDirectoryTargetKind = "current-directory-tobari"
 	CurrentDirectoryTargetID   = "current-directory"
@@ -30,7 +30,7 @@ var ErrProjectExists = errors.New("a project already exists at the requested roo
 
 // RuntimeDiagnostic describes recoverable Docker health. It is deliberately
 // separate from logical Tobari existence: a missing container never changes a
-// valid ProjectInstance into not-exists.
+// valid Workspace into not-exists.
 type RuntimeDiagnostic string
 
 const (
@@ -72,26 +72,76 @@ func (o AttachmentObservation) Validate(exists bool) error {
 	return fmt.Errorf("attachment observation does not match logical existence")
 }
 
-// ProjectStatus is the CWD-scoped lifecycle result. Exists is the only
+// DesiredEntry is the exact next entry-applied identity projected from the
+// selected Manifest. It is a read model, not a second persisted desired state.
+type DesiredEntry struct {
+	ManifestGeneration uint64 `json:"manifest_generation"`
+	ManifestRevision   string `json:"manifest_revision"`
+	EntryRevision      string `json:"entry_revision"`
+	RuntimeID          string `json:"runtime_id"`
+	RuntimeRevision    string `json:"runtime_revision"`
+}
+
+func NewDesiredEntry(manifest WorkspaceManifest) (DesiredEntry, error) {
+	if err := manifest.ValidatePublished(); err != nil {
+		return DesiredEntry{}, err
+	}
+	if manifest.RuntimeBinding == nil {
+		return DesiredEntry{}, fmt.Errorf("Workspace Manifest has no exact Runtime binding")
+	}
+	result := DesiredEntry{
+		ManifestGeneration: manifest.Desired.Generation,
+		ManifestRevision:   manifest.Desired.Revision,
+		EntryRevision:      manifest.Desired.EntryRevision,
+		RuntimeID:          manifest.RuntimeBinding.RuntimeID,
+		RuntimeRevision:    manifest.RuntimeBinding.Revision,
+	}
+	return result, result.Validate()
+}
+
+func (e DesiredEntry) Validate() error {
+	if e.ManifestGeneration == 0 {
+		return fmt.Errorf("desired Manifest generation must be positive")
+	}
+	for name, value := range map[string]string{
+		"Manifest": e.ManifestRevision, "entry": e.EntryRevision, "Runtime": e.RuntimeRevision,
+	} {
+		if err := ValidateDigest(value); err != nil {
+			return fmt.Errorf("desired %s revision: %w", name, err)
+		}
+	}
+	if e.RuntimeID != StandardRuntimeID {
+		if err := ValidateRuntimeID(e.RuntimeID); err != nil {
+			return fmt.Errorf("desired Runtime ID: %w", err)
+		}
+	}
+	return nil
+}
+
+// WorkspaceStatus is the CWD-scoped lifecycle result. Exists is the only
 // user-facing logical lifecycle bit; Runtime is diagnostic detail.
-type ProjectStatus struct {
-	Task         string                  `json:"task"`
-	ContextState ContextObservationState `json:"context_state"`
-	Exists       bool                    `json:"exists"`
-	Root         string                  `json:"root,omitempty"`
-	ID           string                  `json:"id,omitempty"`
-	Home         string                  `json:"home,omitempty"`
-	ContextID    string                  `json:"context_id,omitempty"`
-	ContextName  string                  `json:"context,omitempty"`
-	Runtime      RuntimeDiagnostic       `json:"runtime"`
+type WorkspaceStatus struct {
+	Task                  string                   `json:"task"`
+	ManifestState         ManifestObservationState `json:"workspace_manifest_state"`
+	Exists                bool                     `json:"exists"`
+	Root                  string                   `json:"root,omitempty"`
+	ID                    string                   `json:"workspace_id,omitempty"`
+	Home                  string                   `json:"home,omitempty"`
+	WorkspaceManifestID   string                   `json:"workspace_manifest_id,omitempty"`
+	WorkspaceManifestName string                   `json:"workspace_manifest,omitempty"`
+	Runtime               RuntimeDiagnostic        `json:"runtime"`
 	// RuntimeSelection is presentation metadata resolved from the bound
 	// Context. Machine schema v1 retains the existing diagnostic field.
 	RuntimeSelection string                   `json:"-"`
 	Attachment       AttachmentObservation    `json:"attachment"`
 	Bootstrap        WorkspaceBootstrapReport `json:"bootstrap"`
+	Adoption         WorkspaceAdoptionState   `json:"adoption,omitempty"`
+	Current          *AppliedEntry            `json:"current,omitempty"`
+	Next             *DesiredEntry            `json:"next,omitempty"`
+	LastFailure      *ReconciliationFailure   `json:"last_reconciliation_failure,omitempty"`
 }
 
-func (s ProjectStatus) Validate() error {
+func (s WorkspaceStatus) Validate() error {
 	if s.Task != TaskStatus {
 		return fmt.Errorf("project status task identity is invalid")
 	}
@@ -106,84 +156,154 @@ func (s ProjectStatus) Validate() error {
 	if err := s.Attachment.Validate(s.Exists); err != nil {
 		return err
 	}
-	if err := s.ContextState.Validate(); err != nil {
+	if err := s.ManifestState.Validate(); err != nil {
 		return err
 	}
 	if err := s.Bootstrap.Validate(); err != nil {
 		return err
 	}
-	if s.ContextState == ContextObservationSyntheticDefault {
-		if s.Exists || s.ContextID != "" || s.ContextName != DefaultContextName {
+	if s.ManifestState == ManifestObservationAbsent {
+		if s.Exists || s.WorkspaceManifestID != "" || s.WorkspaceManifestName != DefaultManifestName {
 			return fmt.Errorf("non-persisted project status claims persisted authority")
 		}
 	} else {
-		if err := ValidateContextID(s.ContextID); err != nil {
+		if err := ValidateWorkspaceManifestID(s.WorkspaceManifestID); err != nil {
 			return err
 		}
 	}
-	if err := ValidateName(s.ContextName); err != nil {
-		return fmt.Errorf("project Context name: %w", err)
+	if err := ValidateName(s.WorkspaceManifestName); err != nil {
+		return fmt.Errorf("project Workspace Manifest name: %w", err)
 	}
 	if !s.Exists {
-		if s.Root != "" || s.ID != "" || s.Home != "" || s.Runtime != RuntimeDiagnosticUnknown {
+		if s.Root != "" || s.ID != "" || s.Home != "" || s.Runtime != RuntimeDiagnosticUnknown || s.Current != nil || s.LastFailure != nil {
 			return fmt.Errorf("not-existing project status contains Workspace identity or runtime state")
+		}
+		if s.Next != nil {
+			if err := s.Next.Validate(); err != nil {
+				return err
+			}
 		}
 		return nil
 	}
 	if err := ValidateCanonicalRoot(s.Root); err != nil {
 		return err
 	}
-	if err := ValidateProjectID(s.ID); err != nil {
+	if err := ValidateWorkspaceID(s.ID); err != nil {
 		return err
 	}
 	if s.Home == "" || filepath.IsAbs(s.Home) == false || filepath.Clean(s.Home) != s.Home {
 		return fmt.Errorf("project home is invalid")
 	}
+	if s.Next == nil {
+		return fmt.Errorf("existing Workspace status requires next entry identity")
+	}
+	if err := s.Next.Validate(); err != nil {
+		return err
+	}
+	if s.Current != nil {
+		if err := s.Current.Validate(); err != nil {
+			return err
+		}
+	}
+	if s.LastFailure != nil {
+		if err := s.LastFailure.Validate(); err != nil {
+			return err
+		}
+	}
+	switch s.Adoption {
+	case WorkspaceAdoptionNeverApplied:
+		if s.Current != nil {
+			return fmt.Errorf("never-applied Workspace has a current entry")
+		}
+	case WorkspaceAdoptionCurrent:
+		if s.Current == nil || s.Current.EntryRevision != s.Next.EntryRevision {
+			return fmt.Errorf("current Workspace entry identity is inconsistent")
+		}
+	case WorkspaceAdoptionPending:
+		if s.Current == nil || s.Current.EntryRevision == s.Next.EntryRevision {
+			return fmt.Errorf("pending Workspace entry identity is inconsistent")
+		}
+	default:
+		return fmt.Errorf("Workspace adoption state is invalid")
+	}
 	return nil
 }
 
-// ProjectListItem is one local logical Tobari with runtime diagnostics.
-type ProjectListItem struct {
-	Root        string            `json:"root"`
-	ID          string            `json:"id"`
-	Home        string            `json:"home"`
-	ContextID   string            `json:"context_id"`
-	ContextName string            `json:"context"`
-	Runtime     RuntimeDiagnostic `json:"runtime"`
+// WorkspaceListItem is one local logical Tobari with runtime diagnostics.
+type WorkspaceListItem struct {
+	Root                  string                 `json:"root"`
+	ID                    string                 `json:"workspace_id"`
+	Home                  string                 `json:"home"`
+	WorkspaceManifestID   string                 `json:"workspace_manifest_id"`
+	WorkspaceManifestName string                 `json:"workspace_manifest"`
+	Runtime               RuntimeDiagnostic      `json:"runtime"`
+	Adoption              WorkspaceAdoptionState `json:"adoption"`
+	Current               *AppliedEntry          `json:"current,omitempty"`
+	Next                  DesiredEntry           `json:"next"`
+	LastFailure           *ReconciliationFailure `json:"last_reconciliation_failure,omitempty"`
 }
 
-func (i ProjectListItem) Validate() error {
+func (i WorkspaceListItem) Validate() error {
 	if err := ValidateCanonicalRoot(i.Root); err != nil {
 		return err
 	}
-	if err := ValidateProjectID(i.ID); err != nil {
+	if err := ValidateWorkspaceID(i.ID); err != nil {
 		return err
 	}
-	if err := ValidateContextID(i.ContextID); err != nil {
+	if err := ValidateWorkspaceManifestID(i.WorkspaceManifestID); err != nil {
 		return err
 	}
-	if err := ValidateName(i.ContextName); err != nil {
-		return fmt.Errorf("project Context name: %w", err)
+	if err := ValidateName(i.WorkspaceManifestName); err != nil {
+		return fmt.Errorf("project Workspace Manifest name: %w", err)
 	}
 	if i.Home == "" || !filepath.IsAbs(i.Home) || filepath.Clean(i.Home) != i.Home {
 		return fmt.Errorf("project home is invalid")
 	}
+	if err := i.Next.Validate(); err != nil {
+		return err
+	}
+	if i.Current != nil {
+		if err := i.Current.Validate(); err != nil {
+			return err
+		}
+	}
+	if i.LastFailure != nil {
+		if err := i.LastFailure.Validate(); err != nil {
+			return err
+		}
+	}
+	switch i.Adoption {
+	case WorkspaceAdoptionNeverApplied:
+		if i.Current != nil {
+			return fmt.Errorf("never-applied Workspace has a current entry")
+		}
+	case WorkspaceAdoptionCurrent:
+		if i.Current == nil || i.Current.EntryRevision != i.Next.EntryRevision {
+			return fmt.Errorf("current Workspace entry identity is inconsistent")
+		}
+	case WorkspaceAdoptionPending:
+		if i.Current == nil || i.Current.EntryRevision == i.Next.EntryRevision {
+			return fmt.Errorf("pending Workspace entry identity is inconsistent")
+		}
+	default:
+		return fmt.Errorf("Workspace adoption state is invalid")
+	}
 	return i.Runtime.Validate()
 }
 
-// ProjectListResult preserves the complete local logical-state observation,
+// WorkspaceListResult preserves the complete local logical-state observation,
 // including a known empty result.
-type ProjectListResult struct {
+type WorkspaceListResult struct {
 	Task string `json:"task"`
 	// CurrentID identifies the nearest Workspace selected by the caller's
 	// canonical current directory. It is presentation metadata and is not
 	// part of the machine-readable list envelope.
-	CurrentID string            `json:"-"`
-	Items     []ProjectListItem `json:"items"`
+	CurrentID string              `json:"-"`
+	Items     []WorkspaceListItem `json:"items"`
 }
 
-func (r ProjectListResult) Validate() error {
-	if r.Task != TaskProjectList || r.Items == nil {
+func (r WorkspaceListResult) Validate() error {
+	if r.Task != TaskWorkspaceList || r.Items == nil {
 		return fmt.Errorf("project list task or scope is invalid")
 	}
 	seenIDs := make(map[string]bool, len(r.Items))
@@ -195,15 +315,15 @@ func (r ProjectListResult) Validate() error {
 		if seenIDs[item.ID] {
 			return fmt.Errorf("project list IDs must be unique")
 		}
-		binding := item.Root + "\x00" + item.ContextID
+		binding := item.Root + "\x00" + item.WorkspaceManifestID
 		if seenBindings[binding] {
-			return fmt.Errorf("project list root and Context bindings must be unique")
+			return fmt.Errorf("project list root and Workspace Manifest bindings must be unique")
 		}
 		seenIDs[item.ID] = true
 		seenBindings[binding] = true
 	}
 	if r.CurrentID != "" {
-		if err := ValidateProjectID(r.CurrentID); err != nil {
+		if err := ValidateWorkspaceID(r.CurrentID); err != nil {
 			return fmt.Errorf("project list current ID is invalid: %w", err)
 		}
 		if !seenIDs[r.CurrentID] {
@@ -213,33 +333,33 @@ func (r ProjectListResult) Validate() error {
 	return nil
 }
 
-// ProjectDeleteResult records the exact logical target whose state was
-// confirmed deleted. It is separate from ProjectStatus because deletion is a
+// WorkspaceDeleteResult records the exact logical target whose state was
+// confirmed deleted. It is separate from WorkspaceStatus because deletion is a
 // completed mutation, not an observation that the target still exists.
-type ProjectDeleteResult struct {
-	Task        string `json:"task"`
-	Deleted     bool   `json:"deleted"`
-	Root        string `json:"root"`
-	ID          string `json:"id"`
-	Home        string `json:"home"`
-	ContextID   string `json:"context_id"`
-	ContextName string `json:"context"`
+type WorkspaceDeleteResult struct {
+	Task                  string `json:"task"`
+	Deleted               bool   `json:"deleted"`
+	Root                  string `json:"root"`
+	ID                    string `json:"id"`
+	Home                  string `json:"home"`
+	WorkspaceManifestID   string `json:"workspace_manifest_id"`
+	WorkspaceManifestName string `json:"workspace_manifest"`
 }
 
-func (r ProjectDeleteResult) Validate() error {
+func (r WorkspaceDeleteResult) Validate() error {
 	if r.Task != TaskDelete || !r.Deleted {
 		return fmt.Errorf("project delete result is incomplete")
 	}
 	if err := ValidateCanonicalRoot(r.Root); err != nil {
 		return err
 	}
-	if err := ValidateProjectID(r.ID); err != nil {
+	if err := ValidateWorkspaceID(r.ID); err != nil {
 		return err
 	}
-	if err := ValidateContextID(r.ContextID); err != nil {
+	if err := ValidateWorkspaceManifestID(r.WorkspaceManifestID); err != nil {
 		return err
 	}
-	if err := ValidateName(r.ContextName); err != nil {
+	if err := ValidateName(r.WorkspaceManifestName); err != nil {
 		return err
 	}
 	if r.Home == "" || !filepath.IsAbs(r.Home) || filepath.Clean(r.Home) != r.Home {
@@ -253,29 +373,29 @@ var projectIDPattern = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}
 // RootIndex binds one canonical host root to its stable logical Tobari ID.
 // It is stored independently so parent lookup does not need Docker access.
 type RootIndex struct {
-	SchemaVersion int    `json:"schema_version"`
-	Root          string `json:"root"`
-	InstanceID    string `json:"instance_id"`
-	ContextID     string `json:"context_id"`
-	ContextName   string `json:"context"`
+	SchemaVersion         int    `json:"schema_version"`
+	Root                  string `json:"root"`
+	InstanceID            string `json:"workspace_id"`
+	WorkspaceManifestID   string `json:"workspace_manifest_id"`
+	WorkspaceManifestName string `json:"workspace_manifest"`
 }
 
 // Validate rejects a malformed or ambiguous root index before it becomes a
 // selection authority.
 func (r RootIndex) Validate() error {
-	if r.SchemaVersion != ProjectStateSchemaVersion {
-		return fmt.Errorf("root index schema version must be %d", ProjectStateSchemaVersion)
+	if r.SchemaVersion != WorkspaceStateSchemaVersion {
+		return fmt.Errorf("root index schema version must be %d", WorkspaceStateSchemaVersion)
 	}
 	if err := ValidateCanonicalRoot(r.Root); err != nil {
 		return err
 	}
-	if err := ValidateProjectID(r.InstanceID); err != nil {
+	if err := ValidateWorkspaceID(r.InstanceID); err != nil {
 		return err
 	}
-	if err := ValidateContextID(r.ContextID); err != nil {
+	if err := ValidateWorkspaceManifestID(r.WorkspaceManifestID); err != nil {
 		return err
 	}
-	return ValidateName(r.ContextName)
+	return ValidateName(r.WorkspaceManifestName)
 }
 
 // ValidateRootIndexes rejects a root-index collection that could make a
@@ -289,9 +409,9 @@ func ValidateRootIndexes(indexes []RootIndex) error {
 		if err := index.Validate(); err != nil {
 			return err
 		}
-		binding := index.Root + "\x00" + index.ContextID
+		binding := index.Root + "\x00" + index.WorkspaceManifestID
 		if _, exists := seenBindings[binding]; exists {
-			return fmt.Errorf("root indexes must contain one Workspace per root and Context")
+			return fmt.Errorf("root indexes must contain one Workspace per root and Workspace Manifest")
 		}
 		if _, exists := seenIDs[index.InstanceID]; exists {
 			return fmt.Errorf("root indexes must contain unique Workspace IDs")
@@ -302,14 +422,161 @@ func ValidateRootIndexes(indexes []RootIndex) error {
 	return nil
 }
 
-// ProjectRuntime is recoverable diagnostic state. Empty values mean that the
+// WorkspaceRuntime is recoverable diagnostic state. Empty values mean that the
 // resource has not yet been created or its last observation is unknown.
-type ProjectRuntime struct {
+type WorkspaceRuntime struct {
 	ContainerID string `json:"container_id"`
 	NetworkID   string `json:"network_id"`
 }
 
-func (r ProjectRuntime) Validate() error {
+// WorkspaceCreationApplied records the Manifest creation-default revision
+// applied exactly once while the Workspace home was first created.
+type WorkspaceCreationApplied struct {
+	CreationDefaultsRevision string    `json:"creation_defaults_revision"`
+	BootstrapRevision        string    `json:"bootstrap_revision,omitempty"`
+	AppliedAt                time.Time `json:"applied_at"`
+}
+
+func (a WorkspaceCreationApplied) Validate() error {
+	if err := ValidateDigest(a.CreationDefaultsRevision); err != nil {
+		return fmt.Errorf("creation defaults revision: %w", err)
+	}
+	if a.BootstrapRevision != "" {
+		if err := ValidateDigest(a.BootstrapRevision); err != nil {
+			return fmt.Errorf("bootstrap revision: %w", err)
+		}
+	}
+	if a.AppliedAt.IsZero() || a.AppliedAt.Location() != time.UTC {
+		return fmt.Errorf("creation defaults applied time must be non-zero UTC")
+	}
+	return nil
+}
+
+// AppliedEntry is the last entry configuration confirmed after all runtime,
+// network-guard, principal, and readiness work succeeded. RuntimeID plus
+// RuntimeRevision is the authority consumed by Runtime protection readers;
+// names, ordinals, and inferred last-used values are deliberately absent.
+type AppliedEntry struct {
+	ManifestGeneration uint64    `json:"manifest_generation"`
+	ManifestRevision   string    `json:"manifest_revision"`
+	EntryRevision      string    `json:"entry_revision"`
+	RuntimeID          string    `json:"runtime_id"`
+	RuntimeRevision    string    `json:"runtime_revision"`
+	ResolvedSpec       string    `json:"resolved_spec_revision"`
+	ReconciledAt       time.Time `json:"reconciled_at"`
+}
+
+func (a AppliedEntry) Validate() error {
+	if a.ManifestGeneration == 0 {
+		return fmt.Errorf("applied Manifest generation must be positive")
+	}
+	for name, value := range map[string]string{
+		"Manifest": a.ManifestRevision, "entry": a.EntryRevision,
+		"Runtime": a.RuntimeRevision, "resolved spec": a.ResolvedSpec,
+	} {
+		if err := ValidateDigest(value); err != nil {
+			return fmt.Errorf("applied %s revision: %w", name, err)
+		}
+	}
+	if a.RuntimeID != StandardRuntimeID {
+		if err := ValidateRuntimeID(a.RuntimeID); err != nil {
+			return fmt.Errorf("applied Runtime ID: %w", err)
+		}
+	}
+	if a.ReconciledAt.IsZero() || a.ReconciledAt.Location() != time.UTC {
+		return fmt.Errorf("entry reconciliation time must be non-zero UTC")
+	}
+	return nil
+}
+
+type ReconciliationChangeState string
+
+const (
+	ReconciliationChangeNone    ReconciliationChangeState = "none"
+	ReconciliationChangePartial ReconciliationChangeState = "partial"
+	ReconciliationChangeUnknown ReconciliationChangeState = "unknown"
+)
+
+func (s ReconciliationChangeState) Validate() error {
+	switch s {
+	case ReconciliationChangeNone, ReconciliationChangePartial, ReconciliationChangeUnknown:
+		return nil
+	default:
+		return fmt.Errorf("reconciliation change state is invalid")
+	}
+}
+
+// ReconciliationFailure is the bounded latest failed/unknown entry attempt.
+// It never replaces LastSuccessfulEntry and contains no external diagnostics.
+type ReconciliationFailure struct {
+	AttemptedGeneration       uint64                    `json:"attempted_generation"`
+	AttemptedManifestRevision string                    `json:"attempted_manifest_revision"`
+	AttemptedEntryRevision    string                    `json:"attempted_entry_revision"`
+	Phase                     string                    `json:"phase"`
+	Code                      string                    `json:"code"`
+	ChangeState               ReconciliationChangeState `json:"change_state"`
+	OccurredAt                time.Time                 `json:"occurred_at"`
+}
+
+func (f ReconciliationFailure) Validate() error {
+	if f.AttemptedGeneration == 0 {
+		return fmt.Errorf("attempted Manifest generation must be positive")
+	}
+	if err := ValidateDigest(f.AttemptedManifestRevision); err != nil {
+		return fmt.Errorf("attempted Manifest revision: %w", err)
+	}
+	if err := ValidateDigest(f.AttemptedEntryRevision); err != nil {
+		return fmt.Errorf("attempted entry revision: %w", err)
+	}
+	if !safeStateToken(f.Phase) || !safeStateToken(f.Code) {
+		return fmt.Errorf("reconciliation phase or code is invalid")
+	}
+	if err := f.ChangeState.Validate(); err != nil {
+		return err
+	}
+	if f.OccurredAt.IsZero() || f.OccurredAt.Location() != time.UTC {
+		return fmt.Errorf("reconciliation failure time must be non-zero UTC")
+	}
+	return nil
+}
+
+func safeStateToken(value string) bool {
+	if value == "" || len(value) > 64 {
+		return false
+	}
+	for _, char := range value {
+		if (char >= 'a' && char <= 'z') || (char >= '0' && char <= '9') || char == '_' {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+type WorkspaceAdoptionState string
+
+const (
+	WorkspaceAdoptionNeverApplied WorkspaceAdoptionState = "never_applied"
+	WorkspaceAdoptionCurrent      WorkspaceAdoptionState = "current"
+	WorkspaceAdoptionPending      WorkspaceAdoptionState = "pending"
+)
+
+// AdoptionState is derived from desired and applied entry identities. It is
+// intentionally not persisted as an independent boolean.
+func (p Workspace) AdoptionState(desired WorkspaceManifestRevision) (WorkspaceAdoptionState, error) {
+	if err := desired.Validate(); err != nil {
+		return "", err
+	}
+	if p.LastSuccessfulEntry == nil {
+		return WorkspaceAdoptionNeverApplied, nil
+	}
+	if p.LastSuccessfulEntry.EntryRevision == desired.EntryRevision {
+		return WorkspaceAdoptionCurrent, nil
+	}
+	return WorkspaceAdoptionPending, nil
+}
+
+func (r WorkspaceRuntime) Validate() error {
 	for name, value := range map[string]string{
 		"container ID": r.ContainerID,
 		"network ID":   r.NetworkID,
@@ -321,49 +588,51 @@ func (r ProjectRuntime) Validate() error {
 	return nil
 }
 
-// ProjectInstance is the durable logical Tobari record. Its existence does not
+// Workspace is the durable logical Tobari record. Its existence does not
 // depend on a work container or network being present.
-type ProjectInstance struct {
-	SchemaVersion     int            `json:"schema_version"`
-	ID                string         `json:"id"`
-	Root              string         `json:"root"`
-	ContextID         string         `json:"context_id"`
-	ContextName       string         `json:"context"`
-	Profile           string         `json:"profile"`
-	Image             string         `json:"image"`
-	Runtime           ProjectRuntime `json:"runtime"`
-	BootstrapRevision string         `json:"bootstrap_revision,omitempty"`
+type Workspace struct {
+	SchemaVersion         int                      `json:"schema_version"`
+	ID                    string                   `json:"id"`
+	Root                  string                   `json:"root"`
+	WorkspaceManifestID   string                   `json:"workspace_manifest_id"`
+	WorkspaceManifestName string                   `json:"workspace_manifest"`
+	Profile               string                   `json:"profile"`
+	Image                 string                   `json:"image"`
+	Runtime               WorkspaceRuntime         `json:"runtime"`
+	CreationApplied       WorkspaceCreationApplied `json:"creation_applied"`
+	LastSuccessfulEntry   *AppliedEntry            `json:"last_successful_entry,omitempty"`
+	LastFailure           *ReconciliationFailure   `json:"last_reconciliation_failure,omitempty"`
 	// Incomplete is an in-memory cleanup-only marker for a root index whose
 	// instance record is missing. It is never persisted or used to rebuild a
 	// runtime with guessed mutable fields.
 	Incomplete bool `json:"-"`
 }
 
-// ProjectSelectionCandidate is the presentation-independent identity and
+// WorkspaceSelectionCandidate is the presentation-independent identity and
 // runtime state of one Workspace that contains a canonical current directory.
 // ID is an internal binding value; it is never a routine user input.
-type ProjectSelectionCandidate struct {
-	ID          string
-	Root        string
-	ContextID   string
-	ContextName string
-	Runtime     RuntimeDiagnostic
+type WorkspaceSelectionCandidate struct {
+	ID                    string
+	Root                  string
+	WorkspaceManifestID   string
+	WorkspaceManifestName string
+	Runtime               RuntimeDiagnostic
 }
 
-func (c ProjectSelectionCandidate) Validate(cwd string) error {
+func (c WorkspaceSelectionCandidate) Validate(cwd string) error {
 	if err := ValidateCanonicalRoot(cwd); err != nil {
 		return err
 	}
-	if err := ValidateProjectID(c.ID); err != nil {
+	if err := ValidateWorkspaceID(c.ID); err != nil {
 		return err
 	}
 	if err := ValidateCanonicalRoot(c.Root); err != nil {
 		return err
 	}
-	if err := ValidateContextID(c.ContextID); err != nil {
+	if err := ValidateWorkspaceManifestID(c.WorkspaceManifestID); err != nil {
 		return err
 	}
-	if err := ValidateName(c.ContextName); err != nil {
+	if err := ValidateName(c.WorkspaceManifestName); err != nil {
 		return err
 	}
 	if !containsRoot(c.Root, cwd) {
@@ -372,16 +641,16 @@ func (c ProjectSelectionCandidate) Validate(cwd string) error {
 	return c.Runtime.Validate()
 }
 
-// ProjectSelection is a complete read-only snapshot used to resolve an
+// WorkspaceSelection is a complete read-only snapshot used to resolve an
 // ambiguous current-directory entry. Candidates are ordered nearest-first.
 // CanCreate is false when the current directory is already an indexed root.
-type ProjectSelection struct {
-	CWD        string                      `json:"-"`
-	Candidates []ProjectSelectionCandidate `json:"-"`
-	CanCreate  bool                        `json:"-"`
+type WorkspaceSelection struct {
+	CWD        string                        `json:"-"`
+	Candidates []WorkspaceSelectionCandidate `json:"-"`
+	CanCreate  bool                          `json:"-"`
 }
 
-func (s ProjectSelection) Validate() error {
+func (s WorkspaceSelection) Validate() error {
 	if err := ValidateCanonicalRoot(s.CWD); err != nil {
 		return err
 	}
@@ -422,17 +691,17 @@ func (s ProjectSelection) Validate() error {
 
 // RequiresChoice is true only when one or more ancestor candidates exist and
 // no exact current-root Workspace can be entered directly.
-func (s ProjectSelection) RequiresChoice() bool {
+func (s WorkspaceSelection) RequiresChoice() bool {
 	return len(s.Candidates) > 0 && s.Candidates[0].Root != s.CWD
 }
 
-func (s ProjectSelection) Candidate(id string) (ProjectSelectionCandidate, bool) {
+func (s WorkspaceSelection) Candidate(id string) (WorkspaceSelectionCandidate, bool) {
 	for _, candidate := range s.Candidates {
 		if candidate.ID == id {
 			return candidate, true
 		}
 	}
-	return ProjectSelectionCandidate{}, false
+	return WorkspaceSelectionCandidate{}, false
 }
 
 type ProjectSelectionChoiceKind string
@@ -450,7 +719,7 @@ type ProjectSelectionChoice struct {
 	ID   string
 }
 
-func (s ProjectSelection) ValidateChoice(choice ProjectSelectionChoice) error {
+func (s WorkspaceSelection) ValidateChoice(choice ProjectSelectionChoice) error {
 	switch choice.Kind {
 	case ProjectSelectionCreate:
 		if choice.ID != "" {
@@ -478,21 +747,21 @@ func (s ProjectSelection) ValidateChoice(choice ProjectSelectionChoice) error {
 }
 
 // Validate rejects invalid durable logical state before runtime reconciliation.
-func (p ProjectInstance) Validate() error {
-	if p.SchemaVersion != ProjectStateSchemaVersion {
-		return fmt.Errorf("instance state schema version must be %d", ProjectStateSchemaVersion)
+func (p Workspace) Validate() error {
+	if p.SchemaVersion != WorkspaceStateSchemaVersion {
+		return fmt.Errorf("instance state schema version must be %d", WorkspaceStateSchemaVersion)
 	}
-	if err := ValidateProjectID(p.ID); err != nil {
+	if err := ValidateWorkspaceID(p.ID); err != nil {
 		return err
 	}
 	if err := ValidateCanonicalRoot(p.Root); err != nil {
 		return err
 	}
-	if err := ValidateContextID(p.ContextID); err != nil {
+	if err := ValidateWorkspaceManifestID(p.WorkspaceManifestID); err != nil {
 		return err
 	}
-	if err := ValidateName(p.ContextName); err != nil {
-		return fmt.Errorf("project Context name: %w", err)
+	if err := ValidateName(p.WorkspaceManifestName); err != nil {
+		return fmt.Errorf("project Workspace Manifest name: %w", err)
 	}
 	if p.Profile != DefaultProfile {
 		return fmt.Errorf("profile is invalid")
@@ -500,8 +769,22 @@ func (p ProjectInstance) Validate() error {
 	if err := ValidateImageSelector(p.Image); err != nil {
 		return err
 	}
-	if p.BootstrapRevision != "" {
-		if err := ValidateDigest(p.BootstrapRevision); err != nil {
+	if p.Incomplete {
+		if p.CreationApplied != (WorkspaceCreationApplied{}) || p.Runtime != (WorkspaceRuntime{}) || p.LastSuccessfulEntry != nil || p.LastFailure != nil {
+			return fmt.Errorf("cleanup-only Workspace invents unavailable instance state")
+		}
+		return nil
+	}
+	if err := p.CreationApplied.Validate(); err != nil {
+		return err
+	}
+	if p.LastSuccessfulEntry != nil {
+		if err := p.LastSuccessfulEntry.Validate(); err != nil {
+			return err
+		}
+	}
+	if p.LastFailure != nil {
+		if err := p.LastFailure.Validate(); err != nil {
 			return err
 		}
 	}
@@ -544,18 +827,18 @@ func MapProjectCWD(root, cwd string) (string, error) {
 	return workspaceRoot + "/" + filepath.ToSlash(relative), nil
 }
 
-// ValidateProjectID accepts only a canonical UUIDv7 logical identity.
-func ValidateProjectID(id string) error {
+// ValidateWorkspaceID accepts only a canonical UUIDv7 logical identity.
+func ValidateWorkspaceID(id string) error {
 	if !projectIDPattern.MatchString(id) {
 		return fmt.Errorf("Tobari project ID is invalid")
 	}
 	return nil
 }
 
-// NewProjectID produces a UUIDv7 logical identity from the supplied clock and
+// NewWorkspaceID produces a UUIDv7 logical identity from the supplied clock and
 // entropy source. The source exists so callers can make creation deterministic
 // in tests without weakening production entropy.
-func NewProjectID(now time.Time, source io.Reader) (string, error) {
+func NewWorkspaceID(now time.Time, source io.Reader) (string, error) {
 	if source == nil {
 		return "", fmt.Errorf("project ID entropy source is required")
 	}
@@ -577,7 +860,7 @@ func NewProjectID(now time.Time, source io.Reader) (string, error) {
 		"%08x-%04x-%04x-%04x-%012x",
 		bytes[0:4], bytes[4:6], bytes[6:8], bytes[8:10], bytes[10:16],
 	)
-	if err := ValidateProjectID(id); err != nil {
+	if err := ValidateWorkspaceID(id); err != nil {
 		return "", err
 	}
 	return id, nil
@@ -587,43 +870,57 @@ func NewProjectID(now time.Time, source io.Reader) (string, error) {
 // selection required to create a logical project before Docker resources
 // exist.
 type ProjectInstanceRequest struct {
-	Root        string
-	ContextID   string
-	ContextName string
-	Image       string
+	Root                     string
+	WorkspaceManifestID      string
+	WorkspaceManifestName    string
+	Image                    string
+	CreationDefaultsRevision string
+	BootstrapRevision        string
+	CreatedAt                time.Time
 }
 
 // NewProjectInstance creates the durable logical state before any Docker
 // resource exists.
-func NewProjectInstance(now time.Time, source io.Reader, request ProjectInstanceRequest) (ProjectInstance, error) {
+func NewProjectInstance(now time.Time, source io.Reader, request ProjectInstanceRequest) (Workspace, error) {
 	if err := ValidateCanonicalRoot(request.Root); err != nil {
-		return ProjectInstance{}, err
+		return Workspace{}, err
 	}
 	if err := ValidateImageSelector(request.Image); err != nil {
-		return ProjectInstance{}, err
+		return Workspace{}, err
 	}
-	if err := ValidateContextID(request.ContextID); err != nil {
-		return ProjectInstance{}, err
+	if err := ValidateWorkspaceManifestID(request.WorkspaceManifestID); err != nil {
+		return Workspace{}, err
 	}
-	if err := ValidateName(request.ContextName); err != nil {
-		return ProjectInstance{}, err
+	if err := ValidateName(request.WorkspaceManifestName); err != nil {
+		return Workspace{}, err
 	}
-	id, err := NewProjectID(now, source)
+	if err := ValidateDigest(request.CreationDefaultsRevision); err != nil {
+		return Workspace{}, fmt.Errorf("creation defaults revision: %w", err)
+	}
+	if request.CreatedAt.IsZero() || request.CreatedAt.Location() != time.UTC {
+		return Workspace{}, fmt.Errorf("Workspace creation time must be non-zero UTC")
+	}
+	id, err := NewWorkspaceID(now, source)
 	if err != nil {
-		return ProjectInstance{}, err
+		return Workspace{}, err
 	}
-	instance := ProjectInstance{
-		SchemaVersion: ProjectStateSchemaVersion,
-		ID:            id,
-		Root:          request.Root,
-		ContextID:     request.ContextID,
-		ContextName:   request.ContextName,
-		Profile:       DefaultProfile,
-		Image:         request.Image,
-		Runtime:       ProjectRuntime{},
+	instance := Workspace{
+		SchemaVersion:         WorkspaceStateSchemaVersion,
+		ID:                    id,
+		Root:                  request.Root,
+		WorkspaceManifestID:   request.WorkspaceManifestID,
+		WorkspaceManifestName: request.WorkspaceManifestName,
+		Profile:               DefaultProfile,
+		Image:                 request.Image,
+		Runtime:               WorkspaceRuntime{},
+		CreationApplied: WorkspaceCreationApplied{
+			CreationDefaultsRevision: request.CreationDefaultsRevision,
+			BootstrapRevision:        request.BootstrapRevision,
+			AppliedAt:                request.CreatedAt,
+		},
 	}
 	if err := instance.Validate(); err != nil {
-		return ProjectInstance{}, err
+		return Workspace{}, err
 	}
 	return instance, nil
 }
@@ -668,12 +965,12 @@ func RootIndexesForContext(indexes []RootIndex, contextID string) ([]RootIndex, 
 	if err := ValidateRootIndexes(indexes); err != nil {
 		return nil, err
 	}
-	if err := ValidateContextID(contextID); err != nil {
+	if err := ValidateWorkspaceManifestID(contextID); err != nil {
 		return nil, err
 	}
 	result := make([]RootIndex, 0, len(indexes))
 	for _, index := range indexes {
-		if index.ContextID == contextID {
+		if index.WorkspaceManifestID == contextID {
 			result = append(result, index)
 		}
 	}
@@ -710,7 +1007,7 @@ func unsafeStateRune(r rune) bool {
 // ProjectResourceNames derives owned Docker resource names from a stable ID.
 // Runtime identifiers never become the source of logical identity.
 func ProjectResourceNames(id string) (container, network string, err error) {
-	if err := ValidateProjectID(id); err != nil {
+	if err := ValidateWorkspaceID(id); err != nil {
 		return "", "", err
 	}
 	short := strings.ReplaceAll(id[:13], "-", "")

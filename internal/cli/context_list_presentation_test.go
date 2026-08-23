@@ -12,8 +12,8 @@ import (
 )
 
 type contextListPresentationFixture struct {
-	Result            tobari.ContextListResult `json:"result"`
-	RuntimeSelections map[string]string        `json:"runtime_selections"`
+	Result            tobari.ManifestListResult `json:"result"`
+	RuntimeSelections map[string]string         `json:"runtime_selections"`
 }
 
 type contextListPresentationAnswer struct {
@@ -63,7 +63,7 @@ func TestContextListPresentationEvidenceKeepsExactRuntimeOutsideSchemaOne(t *tes
 	}
 	for _, item := range fixture.Result.Items {
 		if _, err := item.RoutineSummary(); err != nil {
-			t.Fatalf("Context %q routine summary is invalid: %v", item.Name, err)
+			t.Fatalf("Workspace Manifest %q routine summary is invalid: %v", item.Name, err)
 		}
 	}
 
@@ -76,7 +76,7 @@ func TestContextListPresentationEvidenceKeepsExactRuntimeOutsideSchemaOne(t *tes
 		t.Fatalf("decode presentation answer: %v", err)
 	}
 	if answer.SchemaVersion != 1 || answer.Task != fixture.Result.Task || answer.Scope != "installation" ||
-		answer.Current != fixture.Result.Active || !mapsEqual(answer.RuntimeSelections, fixture.RuntimeSelections) ||
+		answer.Current != fixture.Result.DefaultManifest || !mapsEqual(answer.RuntimeSelections, fixture.RuntimeSelections) ||
 		answer.RoutineSuccess.TaskInvocations != 1 || answer.RoutineSuccess.ExternalReconstructionSteps != 0 {
 		t.Fatalf("answer does not match typed fixture: answer=%+v fixture=%+v", answer, fixture)
 	}
@@ -94,7 +94,7 @@ func TestContextListPresentationEvidenceKeepsExactRuntimeOutsideSchemaOne(t *tes
 		t.Fatal(err)
 	}
 	if !slices.Equal(textOutput, summaryGolden) {
-		t.Fatalf("Context list summary changed\n--- got ---\n%s--- want ---\n%s", textOutput, summaryGolden)
+		t.Fatalf("Workspace Manifest list summary changed\n--- got ---\n%s--- want ---\n%s", textOutput, summaryGolden)
 	}
 	for _, fact := range answer.RequiredFacts {
 		if !strings.Contains(string(summaryGolden), fact) {
@@ -125,7 +125,7 @@ func TestContextListPresentationEvidenceKeepsExactRuntimeOutsideSchemaOne(t *tes
 	if err := json.Unmarshal(jsonOutput, &document); err != nil {
 		t.Fatal(err)
 	}
-	contexts := document["contexts"].(map[string]any)
+	contexts := document["workspace_manifests"].(map[string]any)
 	items := contexts["items"].([]any)
 	for _, raw := range items {
 		item := raw.(map[string]any)

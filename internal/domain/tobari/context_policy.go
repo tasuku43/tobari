@@ -13,16 +13,16 @@ import (
 )
 
 const (
-	ContextPolicySchemaVersion = 1
-	AgentReadyClaudeVersion    = "2.1.220"
-	AgentReadyCodexVersion     = "0.147.0"
-	AgentReadyGitHubCLIVersion = "2.96.0"
-	AgentReadyPupVersion       = "1.10.7"
-	AgentReadyTWGVersion       = "1.2.5"
+	ManifestPolicySchemaVersion = 1
+	AgentReadyClaudeVersion     = "2.1.220"
+	AgentReadyCodexVersion      = "0.147.0"
+	AgentReadyGitHubCLIVersion  = "2.96.0"
+	AgentReadyPupVersion        = "1.10.7"
+	AgentReadyTWGVersion        = "1.2.5"
 
-	ContextMethodAllow       ContextMethodDecision = "allow"
-	ContextMethodExactReview ContextMethodDecision = "exact_review"
-	ContextMethodDeny        ContextMethodDecision = "deny"
+	ManifestMethodAllow       ManifestMethodDecision = "allow"
+	ManifestMethodExactReview ManifestMethodDecision = "exact_review"
+	ManifestMethodDeny        ManifestMethodDecision = "deny"
 )
 
 var (
@@ -30,13 +30,13 @@ var (
 	contextPolicyMethodPattern = regexp.MustCompile(`^[A-Z][A-Z0-9!#$%&'*+.^_` + "`" + `|~-]{0,31}$`)
 )
 
-type ContextPolicyAuthority struct {
+type ManifestPolicyAuthority struct {
 	Scheme string `json:"scheme"`
 	Host   string `json:"host"`
 	Port   int    `json:"port"`
 }
 
-func (a ContextPolicyAuthority) Validate() error {
+func (a ManifestPolicyAuthority) Validate() error {
 	if a.Scheme != "https" && a.Scheme != "http" {
 		return fmt.Errorf("context policy authority scheme is invalid")
 	}
@@ -78,7 +78,7 @@ func contextPolicyReservedHost(host string) bool {
 	return false
 }
 
-type ContextPolicyExactRule struct {
+type ManifestPolicyExactRule struct {
 	Scheme               string `json:"scheme"`
 	Host                 string `json:"host"`
 	Port                 int    `json:"port"`
@@ -89,10 +89,10 @@ type ContextPolicyExactRule struct {
 	GraphQLRootField     string `json:"graphql_root_field,omitempty"`
 }
 
-// ContextPolicyPathTemplateRule is a reviewed built-in HTTP path shape. It is
+// ManifestPolicyPathTemplateRule is a reviewed built-in HTTP path shape. It is
 // deliberately narrower than learned templates: exactly one direct {id}
 // segment is permitted and no observed identifier is retained.
-type ContextPolicyPathTemplateRule struct {
+type ManifestPolicyPathTemplateRule struct {
 	Scheme   string   `json:"scheme"`
 	Host     string   `json:"host"`
 	Port     int      `json:"port"`
@@ -101,8 +101,8 @@ type ContextPolicyPathTemplateRule struct {
 	Segments []string `json:"segments"`
 }
 
-func (r ContextPolicyPathTemplateRule) Validate() error {
-	if err := (ContextPolicyExactRule{Scheme: r.Scheme, Host: r.Host, Port: r.Port, Method: r.Method, Path: r.Path}).Validate(); err != nil {
+func (r ManifestPolicyPathTemplateRule) Validate() error {
+	if err := (ManifestPolicyExactRule{Scheme: r.Scheme, Host: r.Host, Port: r.Port, Method: r.Method, Path: r.Path}).Validate(); err != nil {
 		return err
 	}
 	if len(r.Segments) < 2 || len(r.Segments) > 32 || r.Path != "/"+strings.Join(r.Segments, "/") {
@@ -124,7 +124,7 @@ func (r ContextPolicyPathTemplateRule) Validate() error {
 	return nil
 }
 
-type ContextPolicyMCPRule struct {
+type ManifestPolicyMCPRule struct {
 	Scheme      string `json:"scheme"`
 	Host        string `json:"host"`
 	Port        int    `json:"port"`
@@ -134,8 +134,8 @@ type ContextPolicyMCPRule struct {
 	MCPToolName string `json:"mcp_tool_name,omitempty"`
 }
 
-func (r ContextPolicyMCPRule) Validate() error {
-	if err := (ContextPolicyExactRule{Scheme: r.Scheme, Host: r.Host, Port: r.Port, Method: r.Method, Path: r.Path}).Validate(); err != nil {
+func (r ManifestPolicyMCPRule) Validate() error {
+	if err := (ManifestPolicyExactRule{Scheme: r.Scheme, Host: r.Host, Port: r.Port, Method: r.Method, Path: r.Path}).Validate(); err != nil {
 		return err
 	}
 	if r.Method != "POST" {
@@ -144,53 +144,53 @@ func (r ContextPolicyMCPRule) Validate() error {
 	return (PolicyProtocolIdentity{Scheme: r.Scheme, Protocol: PolicyProtocolMCP, MCPMethod: r.MCPMethod, MCPToolName: r.MCPToolName}).Validate()
 }
 
-type ContextMethodDecision string
+type ManifestMethodDecision string
 
-func (d ContextMethodDecision) Validate() error {
+func (d ManifestMethodDecision) Validate() error {
 	switch d {
-	case ContextMethodAllow, ContextMethodExactReview, ContextMethodDeny:
+	case ManifestMethodAllow, ManifestMethodExactReview, ManifestMethodDeny:
 		return nil
 	default:
 		return fmt.Errorf("context policy method decision is invalid")
 	}
 }
 
-type ContextMethodOverride struct {
-	Method   string                `json:"method"`
-	Decision ContextMethodDecision `json:"decision"`
+type ManifestMethodOverride struct {
+	Method   string                 `json:"method"`
+	Decision ManifestMethodDecision `json:"decision"`
 }
 
-func (o ContextMethodOverride) Validate() error {
+func (o ManifestMethodOverride) Validate() error {
 	if !contextPolicyMethodPattern.MatchString(o.Method) {
 		return fmt.Errorf("context policy method override is invalid")
 	}
 	return o.Decision.Validate()
 }
 
-type ContextMethodPolicy struct {
-	Default   ContextMethodDecision   `json:"default"`
-	Overrides []ContextMethodOverride `json:"overrides"`
+type ManifestMethodPolicy struct {
+	Default   ManifestMethodDecision   `json:"default"`
+	Overrides []ManifestMethodOverride `json:"overrides"`
 }
 
-func (p ContextMethodPolicy) Clone() ContextMethodPolicy {
-	overrides := make([]ContextMethodOverride, len(p.Overrides))
+func (p ManifestMethodPolicy) Clone() ManifestMethodPolicy {
+	overrides := make([]ManifestMethodOverride, len(p.Overrides))
 	copy(overrides, p.Overrides)
-	return ContextMethodPolicy{
+	return ManifestMethodPolicy{
 		Default:   p.Default,
 		Overrides: overrides,
 	}
 }
 
-func NormalizeContextMethodPolicy(p ContextMethodPolicy) (ContextMethodPolicy, error) {
+func NormalizeContextMethodPolicy(p ManifestMethodPolicy) (ManifestMethodPolicy, error) {
 	if err := p.Validate(); err != nil {
-		return ContextMethodPolicy{}, err
+		return ManifestMethodPolicy{}, err
 	}
 	result := p.Clone()
 	sort.Slice(result.Overrides, func(i, j int) bool { return result.Overrides[i].Method < result.Overrides[j].Method })
 	return result, nil
 }
 
-func (p ContextMethodPolicy) Validate() error {
+func (p ManifestMethodPolicy) Validate() error {
 	if err := p.Default.Validate(); err != nil {
 		return err
 	}
@@ -213,7 +213,7 @@ func (p ContextMethodPolicy) Validate() error {
 	return nil
 }
 
-func (p ContextMethodPolicy) Decision(method string) ContextMethodDecision {
+func (p ManifestMethodPolicy) Decision(method string) ManifestMethodDecision {
 	for _, override := range p.Overrides {
 		if override.Method == method {
 			return override.Decision
@@ -222,13 +222,13 @@ func (p ContextMethodPolicy) Decision(method string) ContextMethodDecision {
 	return p.Default
 }
 
-type ContextPolicyDestinationCeiling struct {
-	Mode        string                   `json:"mode"`
-	Authorities []ContextPolicyAuthority `json:"authorities"`
+type ManifestPolicyDestinationCeiling struct {
+	Mode        string                    `json:"mode"`
+	Authorities []ManifestPolicyAuthority `json:"authorities"`
 }
 
-func (r ContextPolicyExactRule) Validate() error {
-	if err := (ContextPolicyAuthority{Scheme: r.Scheme, Host: r.Host, Port: r.Port}).Validate(); err != nil {
+func (r ManifestPolicyExactRule) Validate() error {
+	if err := (ManifestPolicyAuthority{Scheme: r.Scheme, Host: r.Host, Port: r.Port}).Validate(); err != nil {
 		return err
 	}
 	if !contextPolicyMethodPattern.MatchString(r.Method) || !strings.HasPrefix(r.Path, "/") || strings.ContainsAny(r.Path, "\r\n") {
@@ -249,24 +249,24 @@ func (r ContextPolicyExactRule) Validate() error {
 	return nil
 }
 
-// ContextPolicy is strict non-executable schema-V1 owner data. Empty
+// ManifestPolicy is strict non-executable schema-V1 owner data. Empty
 // collections are present in normalized bytes so revisions do not depend on
 // decoder omission behavior.
-type ContextPolicy struct {
-	SchemaVersion      int                             `json:"schema_version"`
-	Name               string                          `json:"name"`
-	DestinationCeiling ContextPolicyDestinationCeiling `json:"destination_ceiling"`
-	MethodPolicy       ContextMethodPolicy             `json:"method_policy"`
-	BaselineGrants     []ContextPolicyExactRule        `json:"baseline_grants"`
-	BaselineTemplates  []ContextPolicyPathTemplateRule `json:"baseline_templates"`
-	MCPBaselineGrants  []ContextPolicyMCPRule          `json:"mcp_baseline_grants"`
-	BaselineDenies     []ContextPolicyExactRule        `json:"baseline_denies"`
-	GraphQLEndpoints   []ContextPolicyExactRule        `json:"graphql_endpoints"`
-	MCPEndpoints       []ContextPolicyExactRule        `json:"mcp_endpoints"`
+type ManifestPolicy struct {
+	SchemaVersion      int                              `json:"schema_version"`
+	Name               string                           `json:"name"`
+	DestinationCeiling ManifestPolicyDestinationCeiling `json:"destination_ceiling"`
+	MethodPolicy       ManifestMethodPolicy             `json:"method_policy"`
+	BaselineGrants     []ManifestPolicyExactRule        `json:"baseline_grants"`
+	BaselineTemplates  []ManifestPolicyPathTemplateRule `json:"baseline_templates"`
+	MCPBaselineGrants  []ManifestPolicyMCPRule          `json:"mcp_baseline_grants"`
+	BaselineDenies     []ManifestPolicyExactRule        `json:"baseline_denies"`
+	GraphQLEndpoints   []ManifestPolicyExactRule        `json:"graphql_endpoints"`
+	MCPEndpoints       []ManifestPolicyExactRule        `json:"mcp_endpoints"`
 }
 
-func (p ContextPolicy) Validate() error {
-	if p.SchemaVersion != ContextPolicySchemaVersion || !contextPolicyNamePattern.MatchString(p.Name) {
+func (p ManifestPolicy) Validate() error {
+	if p.SchemaVersion != ManifestPolicySchemaVersion || !contextPolicyNamePattern.MatchString(p.Name) {
 		return fmt.Errorf("context policy identity is invalid")
 	}
 	if p.DestinationCeiling.Authorities == nil || p.MethodPolicy.Overrides == nil || p.BaselineGrants == nil || p.BaselineTemplates == nil || p.MCPBaselineGrants == nil || p.BaselineDenies == nil || p.GraphQLEndpoints == nil || p.MCPEndpoints == nil {
@@ -302,7 +302,7 @@ func (p ContextPolicy) Validate() error {
 			return fmt.Errorf("context policy grant is duplicated")
 		}
 		seen[key] = struct{}{}
-		if !contextPolicyRuleInsideDestination(p.DestinationCeiling, rule) || p.MethodPolicy.Decision(rule.Method) == ContextMethodDeny {
+		if !contextPolicyRuleInsideDestination(p.DestinationCeiling, rule) || p.MethodPolicy.Decision(rule.Method) == ManifestMethodDeny {
 			return fmt.Errorf("context policy rule exceeds its ceiling")
 		}
 		if rule.Protocol == PolicyProtocolGraphQL {
@@ -319,7 +319,7 @@ func (p ContextPolicy) Validate() error {
 			}
 		}
 	}
-	for _, rules := range [][]ContextPolicyExactRule{p.BaselineDenies, p.GraphQLEndpoints, p.MCPEndpoints} {
+	for _, rules := range [][]ManifestPolicyExactRule{p.BaselineDenies, p.GraphQLEndpoints, p.MCPEndpoints} {
 		seen = map[string]struct{}{}
 		for _, rule := range rules {
 			if err := rule.Validate(); err != nil {
@@ -336,7 +336,7 @@ func (p ContextPolicy) Validate() error {
 			if !contextPolicyRuleInsideDestination(p.DestinationCeiling, rule) {
 				return fmt.Errorf("context policy rule exceeds its destination ceiling")
 			}
-			if p.MethodPolicy.Decision(rule.Method) == ContextMethodDeny {
+			if p.MethodPolicy.Decision(rule.Method) == ManifestMethodDeny {
 				return fmt.Errorf("context policy rule exceeds its method ceiling")
 			}
 		}
@@ -346,13 +346,13 @@ func (p ContextPolicy) Validate() error {
 		if err := rule.Validate(); err != nil {
 			return err
 		}
-		exact := ContextPolicyExactRule{Scheme: rule.Scheme, Host: rule.Host, Port: rule.Port, Method: rule.Method, Path: rule.Path}
+		exact := ManifestPolicyExactRule{Scheme: rule.Scheme, Host: rule.Host, Port: rule.Port, Method: rule.Method, Path: rule.Path}
 		key := fmt.Sprintf("%s\x00%s\x00%d\x00%s\x00%s", rule.Scheme, rule.Host, rule.Port, rule.Method, rule.Path)
 		if _, ok := seen[key]; ok {
 			return fmt.Errorf("context policy path template is duplicated")
 		}
 		seen[key] = struct{}{}
-		if !contextPolicyRuleInsideDestination(p.DestinationCeiling, exact) || p.MethodPolicy.Decision(rule.Method) == ContextMethodDeny {
+		if !contextPolicyRuleInsideDestination(p.DestinationCeiling, exact) || p.MethodPolicy.Decision(rule.Method) == ManifestMethodDeny {
 			return fmt.Errorf("context policy path template exceeds its ceiling")
 		}
 	}
@@ -361,13 +361,13 @@ func (p ContextPolicy) Validate() error {
 		if err := rule.Validate(); err != nil {
 			return err
 		}
-		exact := ContextPolicyExactRule{Scheme: rule.Scheme, Host: rule.Host, Port: rule.Port, Method: rule.Method, Path: rule.Path}
+		exact := ManifestPolicyExactRule{Scheme: rule.Scheme, Host: rule.Host, Port: rule.Port, Method: rule.Method, Path: rule.Path}
 		key := fmt.Sprintf("%s\x00%s\x00%d\x00%s\x00%s\x00%s\x00%s", rule.Scheme, rule.Host, rule.Port, rule.Method, rule.Path, rule.MCPMethod, rule.MCPToolName)
 		if _, ok := seen[key]; ok {
 			return fmt.Errorf("context policy MCP grant is duplicated")
 		}
 		seen[key] = struct{}{}
-		if !contextPolicyRuleInsideDestination(p.DestinationCeiling, exact) || p.MethodPolicy.Decision(rule.Method) == ContextMethodDeny {
+		if !contextPolicyRuleInsideDestination(p.DestinationCeiling, exact) || p.MethodPolicy.Decision(rule.Method) == ManifestMethodDeny {
 			return fmt.Errorf("context policy MCP grant exceeds its ceiling")
 		}
 		found := false
@@ -400,14 +400,14 @@ func (p ContextPolicy) Validate() error {
 	return nil
 }
 
-func contextPolicyRuleInsideDestination(ceiling ContextPolicyDestinationCeiling, rule ContextPolicyExactRule) bool {
+func contextPolicyRuleInsideDestination(ceiling ManifestPolicyDestinationCeiling, rule ManifestPolicyExactRule) bool {
 	if ceiling.Mode == "public_https" {
 		return rule.Scheme == "https"
 	}
 	return contextPolicyContainsAuthority(ceiling.Authorities, rule)
 }
 
-func contextPolicyContainsAuthority(authorities []ContextPolicyAuthority, rule ContextPolicyExactRule) bool {
+func contextPolicyContainsAuthority(authorities []ManifestPolicyAuthority, rule ManifestPolicyExactRule) bool {
 	for _, authority := range authorities {
 		if authority.Scheme == rule.Scheme && authority.Host == rule.Host && authority.Port == rule.Port {
 			return true
@@ -416,19 +416,19 @@ func contextPolicyContainsAuthority(authorities []ContextPolicyAuthority, rule C
 	return false
 }
 
-func NormalizeContextPolicy(p ContextPolicy) (ContextPolicy, []byte, string, error) {
+func NormalizeContextPolicy(p ManifestPolicy) (ManifestPolicy, []byte, string, error) {
 	if err := p.Validate(); err != nil {
-		return ContextPolicy{}, nil, "", err
+		return ManifestPolicy{}, nil, "", err
 	}
 	clone := p
-	clone.DestinationCeiling.Authorities = append([]ContextPolicyAuthority{}, p.DestinationCeiling.Authorities...)
-	clone.MethodPolicy.Overrides = append([]ContextMethodOverride{}, p.MethodPolicy.Overrides...)
-	clone.BaselineGrants = append([]ContextPolicyExactRule{}, p.BaselineGrants...)
-	clone.BaselineTemplates = append([]ContextPolicyPathTemplateRule{}, p.BaselineTemplates...)
-	clone.MCPBaselineGrants = append([]ContextPolicyMCPRule{}, p.MCPBaselineGrants...)
-	clone.BaselineDenies = append([]ContextPolicyExactRule{}, p.BaselineDenies...)
-	clone.GraphQLEndpoints = append([]ContextPolicyExactRule{}, p.GraphQLEndpoints...)
-	clone.MCPEndpoints = append([]ContextPolicyExactRule{}, p.MCPEndpoints...)
+	clone.DestinationCeiling.Authorities = append([]ManifestPolicyAuthority{}, p.DestinationCeiling.Authorities...)
+	clone.MethodPolicy.Overrides = append([]ManifestMethodOverride{}, p.MethodPolicy.Overrides...)
+	clone.BaselineGrants = append([]ManifestPolicyExactRule{}, p.BaselineGrants...)
+	clone.BaselineTemplates = append([]ManifestPolicyPathTemplateRule{}, p.BaselineTemplates...)
+	clone.MCPBaselineGrants = append([]ManifestPolicyMCPRule{}, p.MCPBaselineGrants...)
+	clone.BaselineDenies = append([]ManifestPolicyExactRule{}, p.BaselineDenies...)
+	clone.GraphQLEndpoints = append([]ManifestPolicyExactRule{}, p.GraphQLEndpoints...)
+	clone.MCPEndpoints = append([]ManifestPolicyExactRule{}, p.MCPEndpoints...)
 	sort.Slice(clone.DestinationCeiling.Authorities, func(i, j int) bool {
 		a, b := clone.DestinationCeiling.Authorities[i], clone.DestinationCeiling.Authorities[j]
 		return fmt.Sprintf("%s/%s/%05d", a.Scheme, a.Host, a.Port) < fmt.Sprintf("%s/%s/%05d", b.Scheme, b.Host, b.Port)
@@ -436,7 +436,7 @@ func NormalizeContextPolicy(p ContextPolicy) (ContextPolicy, []byte, string, err
 	sort.Slice(clone.MethodPolicy.Overrides, func(i, j int) bool {
 		return clone.MethodPolicy.Overrides[i].Method < clone.MethodPolicy.Overrides[j].Method
 	})
-	lessRule := func(a, b ContextPolicyExactRule) bool {
+	lessRule := func(a, b ManifestPolicyExactRule) bool {
 		return fmt.Sprintf("%s/%s/%05d/%s/%s/%s/%s/%s", a.Scheme, a.Host, a.Port, a.Method, a.Path, a.Protocol, a.GraphQLOperationType, a.GraphQLRootField) < fmt.Sprintf("%s/%s/%05d/%s/%s/%s/%s/%s", b.Scheme, b.Host, b.Port, b.Method, b.Path, b.Protocol, b.GraphQLOperationType, b.GraphQLRootField)
 	}
 	sort.Slice(clone.BaselineGrants, func(i, j int) bool { return lessRule(clone.BaselineGrants[i], clone.BaselineGrants[j]) })
@@ -453,7 +453,7 @@ func NormalizeContextPolicy(p ContextPolicy) (ContextPolicy, []byte, string, err
 	sort.Slice(clone.MCPEndpoints, func(i, j int) bool { return lessRule(clone.MCPEndpoints[i], clone.MCPEndpoints[j]) })
 	data, err := json.MarshalIndent(clone, "", "  ")
 	if err != nil {
-		return ContextPolicy{}, nil, "", err
+		return ManifestPolicy{}, nil, "", err
 	}
 	data = append(data, '\n')
 	digest := sha256.Sum256(data)
@@ -464,43 +464,43 @@ func NormalizeContextPolicy(p ContextPolicy) (ContextPolicy, []byte, string, err
 // policy and removes only positive baseline authority made unreachable by a
 // terminal method Deny. Destination ceilings and exact Denies are unchanged.
 func ComposeContextMethodPolicy(
-	policy ContextPolicy, methodPolicy ContextMethodPolicy,
-) (ContextPolicy, error) {
+	policy ManifestPolicy, methodPolicy ManifestMethodPolicy,
+) (ManifestPolicy, error) {
 	if err := policy.Validate(); err != nil {
-		return ContextPolicy{}, err
+		return ManifestPolicy{}, err
 	}
 	policy.MethodPolicy = methodPolicy.Clone()
-	grants := make([]ContextPolicyExactRule, 0, len(policy.BaselineGrants))
+	grants := make([]ManifestPolicyExactRule, 0, len(policy.BaselineGrants))
 	for _, rule := range policy.BaselineGrants {
-		if methodPolicy.Decision(rule.Method) != ContextMethodDeny {
+		if methodPolicy.Decision(rule.Method) != ManifestMethodDeny {
 			grants = append(grants, rule)
 		}
 	}
 	policy.BaselineGrants = grants
-	templates := make([]ContextPolicyPathTemplateRule, 0, len(policy.BaselineTemplates))
+	templates := make([]ManifestPolicyPathTemplateRule, 0, len(policy.BaselineTemplates))
 	for _, rule := range policy.BaselineTemplates {
-		if methodPolicy.Decision(rule.Method) != ContextMethodDeny {
+		if methodPolicy.Decision(rule.Method) != ManifestMethodDeny {
 			templates = append(templates, rule)
 		}
 	}
 	policy.BaselineTemplates = templates
-	mcpGrants := make([]ContextPolicyMCPRule, 0, len(policy.MCPBaselineGrants))
+	mcpGrants := make([]ManifestPolicyMCPRule, 0, len(policy.MCPBaselineGrants))
 	for _, rule := range policy.MCPBaselineGrants {
-		if methodPolicy.Decision(rule.Method) != ContextMethodDeny {
+		if methodPolicy.Decision(rule.Method) != ManifestMethodDeny {
 			mcpGrants = append(mcpGrants, rule)
 		}
 	}
 	policy.MCPBaselineGrants = mcpGrants
-	graphqlEndpoints := make([]ContextPolicyExactRule, 0, len(policy.GraphQLEndpoints))
+	graphqlEndpoints := make([]ManifestPolicyExactRule, 0, len(policy.GraphQLEndpoints))
 	for _, endpoint := range policy.GraphQLEndpoints {
-		if methodPolicy.Decision(endpoint.Method) != ContextMethodDeny {
+		if methodPolicy.Decision(endpoint.Method) != ManifestMethodDeny {
 			graphqlEndpoints = append(graphqlEndpoints, endpoint)
 		}
 	}
 	policy.GraphQLEndpoints = graphqlEndpoints
-	mcpEndpoints := make([]ContextPolicyExactRule, 0, len(policy.MCPEndpoints))
+	mcpEndpoints := make([]ManifestPolicyExactRule, 0, len(policy.MCPEndpoints))
 	for _, endpoint := range policy.MCPEndpoints {
-		if methodPolicy.Decision(endpoint.Method) != ContextMethodDeny {
+		if methodPolicy.Decision(endpoint.Method) != ManifestMethodDeny {
 			mcpEndpoints = append(mcpEndpoints, endpoint)
 		}
 	}
@@ -509,16 +509,16 @@ func ComposeContextMethodPolicy(
 	return normalized, err
 }
 
-func defaultContextPolicy() ContextPolicy {
-	return ContextPolicy{
-		SchemaVersion:      ContextPolicySchemaVersion,
+func defaultContextPolicy() ManifestPolicy {
+	return ManifestPolicy{
+		SchemaVersion:      ManifestPolicySchemaVersion,
 		Name:               "default",
-		DestinationCeiling: ContextPolicyDestinationCeiling{Mode: "public_https", Authorities: []ContextPolicyAuthority{}},
-		MethodPolicy:       ContextMethodPolicy{Default: ContextMethodExactReview, Overrides: []ContextMethodOverride{}},
+		DestinationCeiling: ManifestPolicyDestinationCeiling{Mode: "public_https", Authorities: []ManifestPolicyAuthority{}},
+		MethodPolicy:       ManifestMethodPolicy{Default: ManifestMethodExactReview, Overrides: []ManifestMethodOverride{}},
 		BaselineGrants:     agentReadyBaselineGrants(),
 		BaselineTemplates:  agentReadyBaselineTemplates(),
 		MCPBaselineGrants:  agentReadyMCPBaselineGrants(),
-		BaselineDenies:     []ContextPolicyExactRule{},
+		BaselineDenies:     []ManifestPolicyExactRule{},
 		GraphQLEndpoints:   agentReadyGraphQLEndpoints(),
 		MCPEndpoints:       agentReadyMCPEndpoints(),
 	}
@@ -531,8 +531,8 @@ type nativeToolAuthReadiness struct {
 	ID               string
 	ClientVersion    string
 	ContractRevision int
-	BaselineGrants   []ContextPolicyExactRule
-	GraphQLEndpoints []ContextPolicyExactRule
+	BaselineGrants   []ManifestPolicyExactRule
+	GraphQLEndpoints []ManifestPolicyExactRule
 }
 
 // nativeToolAuthReadinessFamily is the single reviewed registry entry for one
@@ -568,10 +568,10 @@ func nativeToolAuthReadinessHistory() []nativeToolAuthReadiness {
 // DefaultContextPolicySnapshot returns the immutable Context-owned baseline.
 // Native client readiness is deliberately absent: the trusted binary projects
 // its current compatibility overlay at aggregate generation.
-func DefaultContextPolicySnapshot() (ContextPolicy, bool) {
+func DefaultContextPolicySnapshot() (ManifestPolicy, bool) {
 	normalized, _, _, err := NormalizeContextPolicy(withoutHistoricalNativeToolAuthReadiness(defaultContextPolicy()))
 	if err != nil {
-		return ContextPolicy{}, false
+		return ManifestPolicy{}, false
 	}
 	return normalized, true
 }
@@ -581,10 +581,10 @@ func DefaultContextPolicySnapshot() (ContextPolicy, bool) {
 // with the current compile-time bundle set. The Context policy's terminal
 // destination and method decisions remain unchanged and authoritative over
 // this overlay.
-func ApplyNativeToolAuthReadiness(enabled bool, replaceHistorical bool, snapshot ContextPolicy) (ContextPolicy, error) {
+func ApplyNativeToolAuthReadiness(enabled bool, replaceHistorical bool, snapshot ManifestPolicy) (ManifestPolicy, error) {
 	normalized, _, _, err := NormalizeContextPolicy(snapshot)
 	if err != nil {
-		return ContextPolicy{}, err
+		return ManifestPolicy{}, err
 	}
 	effective := normalized
 	if replaceHistorical {
@@ -596,7 +596,7 @@ func ApplyNativeToolAuthReadiness(enabled bool, replaceHistorical bool, snapshot
 	for _, bundle := range nativeToolAuthReadinessBundles() {
 		for _, rule := range bundle.BaselineGrants {
 			if contextPolicyRuleInsideDestination(effective.DestinationCeiling, rule) &&
-				effective.MethodPolicy.Decision(rule.Method) != ContextMethodDeny {
+				effective.MethodPolicy.Decision(rule.Method) != ManifestMethodDeny {
 				if !slices.Contains(effective.BaselineGrants, rule) {
 					effective.BaselineGrants = append(effective.BaselineGrants, rule)
 				}
@@ -604,7 +604,7 @@ func ApplyNativeToolAuthReadiness(enabled bool, replaceHistorical bool, snapshot
 		}
 		for _, endpoint := range bundle.GraphQLEndpoints {
 			if contextPolicyRuleInsideDestination(effective.DestinationCeiling, endpoint) &&
-				effective.MethodPolicy.Decision(endpoint.Method) != ContextMethodDeny {
+				effective.MethodPolicy.Decision(endpoint.Method) != ManifestMethodDeny {
 				if !slices.Contains(effective.GraphQLEndpoints, endpoint) {
 					effective.GraphQLEndpoints = append(effective.GraphQLEndpoints, endpoint)
 				}
@@ -615,9 +615,9 @@ func ApplyNativeToolAuthReadiness(enabled bool, replaceHistorical bool, snapshot
 	return effective, err
 }
 
-func withoutHistoricalNativeToolAuthReadiness(policy ContextPolicy) ContextPolicy {
-	historicalGrants := make(map[ContextPolicyExactRule]struct{})
-	historicalGraphQLEndpoints := make(map[ContextPolicyExactRule]struct{})
+func withoutHistoricalNativeToolAuthReadiness(policy ManifestPolicy) ManifestPolicy {
+	historicalGrants := make(map[ManifestPolicyExactRule]struct{})
+	historicalGraphQLEndpoints := make(map[ManifestPolicyExactRule]struct{})
 	for _, bundle := range nativeToolAuthReadinessHistory() {
 		for _, rule := range bundle.BaselineGrants {
 			historicalGrants[rule] = struct{}{}
@@ -626,13 +626,13 @@ func withoutHistoricalNativeToolAuthReadiness(policy ContextPolicy) ContextPolic
 			historicalGraphQLEndpoints[endpoint] = struct{}{}
 		}
 	}
-	grants := make([]ContextPolicyExactRule, 0, len(policy.BaselineGrants))
+	grants := make([]ManifestPolicyExactRule, 0, len(policy.BaselineGrants))
 	for _, rule := range policy.BaselineGrants {
 		if _, historical := historicalGrants[rule]; !historical {
 			grants = append(grants, rule)
 		}
 	}
-	endpoints := make([]ContextPolicyExactRule, 0, len(policy.GraphQLEndpoints))
+	endpoints := make([]ManifestPolicyExactRule, 0, len(policy.GraphQLEndpoints))
 	for _, endpoint := range policy.GraphQLEndpoints {
 		if _, historical := historicalGraphQLEndpoints[endpoint]; !historical {
 			endpoints = append(endpoints, endpoint)
@@ -650,8 +650,8 @@ func withoutHistoricalNativeToolAuthReadiness(policy ContextPolicy) ContextPolic
 // every process in the Context receives the same exact effect decisions.
 // Native first-party discovery and control
 // plane routes are included; acquisition, file transfer, and self-update stay out.
-func agentReadyBaselineGrants() []ContextPolicyExactRule {
-	grants := []ContextPolicyExactRule{
+func agentReadyBaselineGrants() []ManifestPolicyExactRule {
+	grants := []ManifestPolicyExactRule{
 		{Scheme: "https", Host: "ab.chatgpt.com", Port: 443, Method: "POST", Path: "/otlp/v1/metrics"},
 		{Scheme: "https", Host: "api.anthropic.com", Port: 443, Method: "GET", Path: "/api/claude_cli/bootstrap"},
 		{Scheme: "https", Host: "api.anthropic.com", Port: 443, Method: "GET", Path: "/api/claude_code/policy_limits"},
@@ -686,32 +686,32 @@ func agentReadyBaselineGrants() []ContextPolicyExactRule {
 	return grants
 }
 
-func agentReadyBaselineTemplates() []ContextPolicyPathTemplateRule {
-	return []ContextPolicyPathTemplateRule{{Scheme: "https", Host: "api.anthropic.com", Port: 443, Method: "POST", Path: "/api/eval/{id}", Segments: []string{"api", "eval", "{id}"}}}
+func agentReadyBaselineTemplates() []ManifestPolicyPathTemplateRule {
+	return []ManifestPolicyPathTemplateRule{{Scheme: "https", Host: "api.anthropic.com", Port: 443, Method: "POST", Path: "/api/eval/{id}", Segments: []string{"api", "eval", "{id}"}}}
 }
 
-func agentReadyGraphQLEndpoints() []ContextPolicyExactRule {
-	var endpoints []ContextPolicyExactRule
+func agentReadyGraphQLEndpoints() []ManifestPolicyExactRule {
+	var endpoints []ManifestPolicyExactRule
 	for _, bundle := range nativeToolAuthReadinessBundles() {
 		endpoints = append(endpoints, bundle.GraphQLEndpoints...)
 	}
 	return endpoints
 }
 
-func agentReadyMCPEndpoints() []ContextPolicyExactRule {
-	return []ContextPolicyExactRule{{Scheme: "https", Host: "chatgpt.com", Port: 443, Method: "POST", Path: "/backend-api/ps/mcp"}}
+func agentReadyMCPEndpoints() []ManifestPolicyExactRule {
+	return []ManifestPolicyExactRule{{Scheme: "https", Host: "chatgpt.com", Port: 443, Method: "POST", Path: "/backend-api/ps/mcp"}}
 }
 
-func agentReadyMCPBaselineGrants() []ContextPolicyMCPRule {
+func agentReadyMCPBaselineGrants() []ManifestPolicyMCPRule {
 	methods := []string{"initialize", "notifications/initialized", "ping", "tools/list", "resources/list", "resources/templates/list", "prompts/list"}
-	rules := make([]ContextPolicyMCPRule, 0, len(methods))
+	rules := make([]ManifestPolicyMCPRule, 0, len(methods))
 	for _, method := range methods {
-		rules = append(rules, ContextPolicyMCPRule{Scheme: "https", Host: "chatgpt.com", Port: 443, Method: "POST", Path: "/backend-api/ps/mcp", MCPMethod: method})
+		rules = append(rules, ManifestPolicyMCPRule{Scheme: "https", Host: "chatgpt.com", Port: 443, Method: "POST", Path: "/backend-api/ps/mcp", MCPMethod: method})
 	}
 	return rules
 }
 
-func PolicyRevision(p ContextPolicy) (string, error) {
+func PolicyRevision(p ManifestPolicy) (string, error) {
 	_, _, revision, err := NormalizeContextPolicy(p)
 	return revision, err
 }

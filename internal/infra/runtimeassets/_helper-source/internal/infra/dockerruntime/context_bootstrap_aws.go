@@ -34,13 +34,13 @@ func (r *Runtime) hostAWSConfigPath() (string, error) {
 // PrepareContextAWSBootstrap reads only the fixed host shared-config file and
 // returns a normalized, secret-free initial snapshot. It never reads the AWS
 // credentials file or IAM Identity Center token cache.
-func (r *Runtime) PrepareContextAWSBootstrap(ctx context.Context, profile string) (tobari.ContextBootstrapSnapshot, error) {
+func (r *Runtime) PrepareContextAWSBootstrap(ctx context.Context, profile string) (tobari.ManifestBootstrapSnapshot, error) {
 	if err := ctx.Err(); err != nil {
-		return tobari.ContextBootstrapSnapshot{}, err
+		return tobari.ManifestBootstrapSnapshot{}, err
 	}
 	aws, err := r.readHostAWSBootstrap(profile)
 	if err != nil {
-		return tobari.ContextBootstrapSnapshot{}, err
+		return tobari.ManifestBootstrapSnapshot{}, err
 	}
 	return tobari.NewContextBootstrapSnapshot(1, aws)
 }
@@ -48,24 +48,24 @@ func (r *Runtime) PrepareContextAWSBootstrap(ctx context.Context, profile string
 // DiscoverContextAWSBootstraps returns every profile as a typed selectable or
 // unavailable candidate. It reads the fixed shared-config file once and never
 // reads credentials or SSO cache state.
-func (r *Runtime) DiscoverContextAWSBootstraps(ctx context.Context) (tobari.ContextAWSBootstrapDiscovery, error) {
+func (r *Runtime) DiscoverContextAWSBootstraps(ctx context.Context) (tobari.ManifestAWSBootstrapDiscovery, error) {
 	if err := ctx.Err(); err != nil {
-		return tobari.ContextAWSBootstrapDiscovery{}, err
+		return tobari.ManifestAWSBootstrapDiscovery{}, err
 	}
 	data, err := r.readHostAWSConfigBytes()
 	if err != nil {
-		state := tobari.ContextBootstrapDiscoveryRejected
+		state := tobari.ManifestBootstrapDiscoveryRejected
 		reason := bootstrapDiscoveryReason(err)
 		if errors.Is(err, os.ErrNotExist) {
-			state = tobari.ContextBootstrapDiscoveryMissing
+			state = tobari.ManifestBootstrapDiscoveryMissing
 			reason = "Host AWS shared config was not found."
 		}
-		result := tobari.ContextAWSBootstrapDiscovery{State: state, Reason: reason, Candidates: []tobari.ContextAWSBootstrapCandidate{}}
+		result := tobari.ManifestAWSBootstrapDiscovery{State: state, Reason: reason, Candidates: []tobari.ManifestAWSBootstrapCandidate{}}
 		return result, result.Validate()
 	}
 	sections, err := parseHostAWSConfig(data)
 	if err != nil {
-		result := tobari.ContextAWSBootstrapDiscovery{State: tobari.ContextBootstrapDiscoveryRejected, Reason: bootstrapDiscoveryReason(err), Candidates: []tobari.ContextAWSBootstrapCandidate{}}
+		result := tobari.ManifestAWSBootstrapDiscovery{State: tobari.ManifestBootstrapDiscoveryRejected, Reason: bootstrapDiscoveryReason(err), Candidates: []tobari.ManifestAWSBootstrapCandidate{}}
 		return result, result.Validate()
 	}
 	profiles := make([]string, 0)
@@ -82,60 +82,60 @@ func (r *Runtime) DiscoverContextAWSBootstraps(ctx context.Context) (tobari.Cont
 		profiles = append(profiles, profile)
 	}
 	sort.Strings(profiles)
-	candidates := make([]tobari.ContextAWSBootstrapCandidate, 0, len(profiles))
+	candidates := make([]tobari.ManifestAWSBootstrapCandidate, 0, len(profiles))
 	for _, profile := range profiles {
 		aws, resolveErr := resolveHostAWSBootstrap(sections, profile)
 		if resolveErr != nil {
-			candidates = append(candidates, tobari.ContextAWSBootstrapCandidate{Profile: profile, State: tobari.ContextBootstrapCandidateUnavailable, Reason: bootstrapDiscoveryReason(resolveErr)})
+			candidates = append(candidates, tobari.ManifestAWSBootstrapCandidate{Profile: profile, State: tobari.ManifestBootstrapCandidateUnavailable, Reason: bootstrapDiscoveryReason(resolveErr)})
 			continue
 		}
 		snapshot, snapshotErr := tobari.NewContextBootstrapSnapshot(1, aws)
 		if snapshotErr != nil {
-			candidates = append(candidates, tobari.ContextAWSBootstrapCandidate{Profile: profile, State: tobari.ContextBootstrapCandidateUnavailable, Reason: bootstrapDiscoveryReason(snapshotErr)})
+			candidates = append(candidates, tobari.ManifestAWSBootstrapCandidate{Profile: profile, State: tobari.ManifestBootstrapCandidateUnavailable, Reason: bootstrapDiscoveryReason(snapshotErr)})
 			continue
 		}
-		candidates = append(candidates, tobari.ContextAWSBootstrapCandidate{Profile: profile, State: tobari.ContextBootstrapCandidateAvailable, Snapshot: &snapshot})
+		candidates = append(candidates, tobari.ManifestAWSBootstrapCandidate{Profile: profile, State: tobari.ManifestBootstrapCandidateAvailable, Snapshot: &snapshot})
 	}
-	result := tobari.ContextAWSBootstrapDiscovery{State: tobari.ContextBootstrapDiscoveryAvailable, Candidates: candidates}
+	result := tobari.ManifestAWSBootstrapDiscovery{State: tobari.ManifestBootstrapDiscoveryAvailable, Candidates: candidates}
 	return result, result.Validate()
 }
 
 // ConfigureContextAWSBootstrap atomically replaces or removes the recipe used
 // only by future Workspace creation. An empty profile refreshes the currently
 // selected profile; remove performs no host read.
-func (r *Runtime) PreviewContextAWSBootstrap(ctx context.Context, name, profile string) (tobari.ContextBootstrapPreview, error) {
+func (r *Runtime) PreviewContextAWSBootstrap(ctx context.Context, name, profile string) (tobari.ManifestBootstrapPreview, error) {
 	if err := ctx.Err(); err != nil {
-		return tobari.ContextBootstrapPreview{}, err
+		return tobari.ManifestBootstrapPreview{}, err
 	}
 	manifest, _, err := r.resolveContext(name)
 	if err != nil {
-		return tobari.ContextBootstrapPreview{}, err
+		return tobari.ManifestBootstrapPreview{}, err
 	}
 	if profile == "" {
 		if manifest.Bootstrap == nil {
-			return tobari.ContextBootstrapPreview{}, tobari.ErrContextBootstrapNotConfigured
+			return tobari.ManifestBootstrapPreview{}, tobari.ErrContextBootstrapNotConfigured
 		}
 		profile = manifest.Bootstrap.AWS.Profile
 	}
 	if manifest.Bootstrap != nil && manifest.Bootstrap.EKS != nil && profile != manifest.Bootstrap.AWS.Profile {
-		return tobari.ContextBootstrapPreview{}, tobari.ErrContextBootstrapDependency
+		return tobari.ManifestBootstrapPreview{}, tobari.ErrContextBootstrapDependency
 	}
 	aws, err := r.readHostAWSBootstrap(profile)
 	if err != nil {
-		return tobari.ContextBootstrapPreview{}, err
+		return tobari.ManifestBootstrapPreview{}, err
 	}
 	generation := uint64(1)
 	if manifest.Bootstrap != nil {
 		generation = manifest.Bootstrap.Generation + 1
 	}
-	var candidate tobari.ContextBootstrapSnapshot
+	var candidate tobari.ManifestBootstrapSnapshot
 	if manifest.Bootstrap != nil && manifest.Bootstrap.EKS != nil {
 		candidate, err = tobari.NewContextBootstrapSnapshotWithEKS(generation, aws, *manifest.Bootstrap.EKS)
 	} else {
 		candidate, err = tobari.NewContextBootstrapSnapshot(generation, aws)
 	}
 	if err != nil {
-		return tobari.ContextBootstrapPreview{}, err
+		return tobari.ManifestBootstrapPreview{}, err
 	}
 	if manifest.Bootstrap != nil && candidate.Revision == manifest.Bootstrap.Revision {
 		candidate.Generation = manifest.Bootstrap.Generation
@@ -143,16 +143,13 @@ func (r *Runtime) PreviewContextAWSBootstrap(ctx context.Context, name, profile 
 	return tobari.NewContextBootstrapPreview(manifest.Name, manifest.Bootstrap, candidate)
 }
 
-func (r *Runtime) ConfigureContextAWSBootstrap(ctx context.Context, name, profile, expectedRevision string, remove bool) (tobari.ContextReport, error) {
+func (r *Runtime) ConfigureContextAWSBootstrap(ctx context.Context, name, profile, expectedRevision string, remove bool) (tobari.ManifestReport, error) {
 	if err := ctx.Err(); err != nil {
-		return tobari.ContextReport{}, err
+		return tobari.ManifestReport{}, err
 	}
-	if err := r.ensureContextStore(); err != nil {
-		return tobari.ContextReport{}, err
-	}
-	var result tobari.ContextReport
+	var result tobari.ManifestReport
 	err := r.withContextStoreLock(func() error {
-		active, err := r.readActiveContext()
+		active, err := r.readDefaultManifestName()
 		if err != nil {
 			return err
 		}
@@ -163,6 +160,7 @@ func (r *Runtime) ConfigureContextAWSBootstrap(ctx context.Context, name, profil
 		if err != nil {
 			return err
 		}
+		previous := manifest
 		if remove {
 			if manifest.Bootstrap != nil && manifest.Bootstrap.EKS != nil {
 				return tobari.ErrContextBootstrapDependency
@@ -186,7 +184,7 @@ func (r *Runtime) ConfigureContextAWSBootstrap(ctx context.Context, name, profil
 			if manifest.Bootstrap != nil {
 				generation = manifest.Bootstrap.Generation + 1
 			}
-			var candidate tobari.ContextBootstrapSnapshot
+			var candidate tobari.ManifestBootstrapSnapshot
 			var createErr error
 			if manifest.Bootstrap != nil && manifest.Bootstrap.EKS != nil {
 				candidate, createErr = tobari.NewContextBootstrapSnapshotWithEKS(generation, aws, *manifest.Bootstrap.EKS)
@@ -204,28 +202,26 @@ func (r *Runtime) ConfigureContextAWSBootstrap(ctx context.Context, name, profil
 			}
 			manifest.Bootstrap = &candidate
 		}
-		if err := manifest.Validate(); err != nil {
-			return err
-		}
-		if err := writeAtomicJSON(r.contextManifestPath(manifest.Name), manifest); err != nil {
+		manifest, err = r.publishWorkspaceManifestUpdate(previous, manifest)
+		if err != nil {
 			return fmt.Errorf("write Context bootstrap snapshot: %w", err)
 		}
 		result, err = r.contextReport(ctx, tobari.TaskConfigBootstrapAWS, manifest, active)
 		return err
 	})
 	if err != nil {
-		return tobari.ContextReport{}, err
+		return tobari.ManifestReport{}, err
 	}
 	return result, nil
 }
 
-func (r *Runtime) readHostAWSBootstrap(profile string) (tobari.ContextAWSBootstrap, error) {
+func (r *Runtime) readHostAWSBootstrap(profile string) (tobari.ManifestAWSBootstrap, error) {
 	if profile == "" {
-		return tobari.ContextAWSBootstrap{}, fmt.Errorf("AWS profile is required")
+		return tobari.ManifestAWSBootstrap{}, fmt.Errorf("AWS profile is required")
 	}
 	data, err := r.readHostAWSConfigBytes()
 	if err != nil {
-		return tobari.ContextAWSBootstrap{}, err
+		return tobari.ManifestAWSBootstrap{}, err
 	}
 	return parseHostAWSBootstrap(data, profile)
 }
@@ -257,10 +253,10 @@ func (r *Runtime) readHostAWSConfigBytes() ([]byte, error) {
 	return data, nil
 }
 
-func parseHostAWSBootstrap(data []byte, profile string) (tobari.ContextAWSBootstrap, error) {
+func parseHostAWSBootstrap(data []byte, profile string) (tobari.ManifestAWSBootstrap, error) {
 	sections, err := parseHostAWSConfig(data)
 	if err != nil {
-		return tobari.ContextAWSBootstrap{}, err
+		return tobari.ManifestAWSBootstrap{}, err
 	}
 	return resolveHostAWSBootstrap(sections, profile)
 }
@@ -311,9 +307,9 @@ func parseHostAWSConfig(data []byte) (map[string]map[string]string, error) {
 	return sections, nil
 }
 
-func resolveHostAWSBootstrap(sections map[string]map[string]string, profile string) (tobari.ContextAWSBootstrap, error) {
+func resolveHostAWSBootstrap(sections map[string]map[string]string, profile string) (tobari.ManifestAWSBootstrap, error) {
 	if err := tobari.ValidateContextAWSBootstrapProfileName(profile); err != nil {
-		return tobari.ContextAWSBootstrap{}, err
+		return tobari.ManifestAWSBootstrap{}, err
 	}
 	profileSection := "profile " + profile
 	if profile == "default" {
@@ -321,21 +317,21 @@ func resolveHostAWSBootstrap(sections map[string]map[string]string, profile stri
 	}
 	profileValues, found := sections[profileSection]
 	if !found {
-		return tobari.ContextAWSBootstrap{}, fmt.Errorf("AWS profile %q does not exist", profile)
+		return tobari.ManifestAWSBootstrap{}, fmt.Errorf("AWS profile %q does not exist", profile)
 	}
 	allowedProfile := map[string]bool{"sso_session": true, "sso_account_id": true, "sso_role_name": true, "region": true, "output": true}
 	if err := rejectUnknownAWSBootstrapKeys(profileSection, profileValues, allowedProfile); err != nil {
-		return tobari.ContextAWSBootstrap{}, err
+		return tobari.ManifestAWSBootstrap{}, err
 	}
 	sessionName := profileValues["sso_session"]
 	sessionSection := "sso-session " + sessionName
 	sessionValues, found := sections[sessionSection]
 	if !found {
-		return tobari.ContextAWSBootstrap{}, fmt.Errorf("AWS SSO session %q does not exist", sessionName)
+		return tobari.ManifestAWSBootstrap{}, fmt.Errorf("AWS SSO session %q does not exist", sessionName)
 	}
 	allowedSession := map[string]bool{"sso_start_url": true, "sso_region": true, "sso_registration_scopes": true}
 	if err := rejectUnknownAWSBootstrapKeys(sessionSection, sessionValues, allowedSession); err != nil {
-		return tobari.ContextAWSBootstrap{}, err
+		return tobari.ManifestAWSBootstrap{}, err
 	}
 	scopes := []string{}
 	if raw := sessionValues["sso_registration_scopes"]; raw != "" {
@@ -344,13 +340,13 @@ func resolveHostAWSBootstrap(sections map[string]map[string]string, profile stri
 		}
 	}
 	sort.Strings(scopes)
-	result := tobari.ContextAWSBootstrap{
+	result := tobari.ManifestAWSBootstrap{
 		Profile: profile, SSOSession: sessionName, SSOStartURL: sessionValues["sso_start_url"], SSORegion: sessionValues["sso_region"],
 		SSORegistrationScopes: scopes, AccountID: profileValues["sso_account_id"], RoleName: profileValues["sso_role_name"],
 		Region: profileValues["region"], Output: profileValues["output"],
 	}
 	if err := result.Validate(); err != nil {
-		return tobari.ContextAWSBootstrap{}, err
+		return tobari.ManifestAWSBootstrap{}, err
 	}
 	return result, nil
 }

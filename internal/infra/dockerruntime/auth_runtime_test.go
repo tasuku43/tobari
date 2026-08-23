@@ -177,7 +177,7 @@ func derivedWorkspaceActivation(
 ) authbroker.WorkspaceActivation {
 	t.Helper()
 	result, err := authbroker.NewStatusResult(contextName, authbroker.StatusObservation{
-		ContextState: tobari.ContextObservationPersisted, Context: contextName, ContextID: contextID,
+		ManifestState: tobari.ManifestObservationPersisted, Context: contextName, WorkspaceManifestID: contextID,
 		StorageBackend: authbroker.StorageBackendXDGFile, BrokerState: authbroker.BrokerStateReady,
 		Providers: statuses, Workspaces: observed,
 	})
@@ -219,9 +219,9 @@ func TestObserveWorkspaceActivationUsesExactRegistryAndBrokerBindingState(t *tes
 			}
 			statuses := []authbroker.ProviderStatus{test.status}
 			observed := fixture.runtime.observeWorkspaceActivation(
-				context.Background(), fixture.project.ContextID, statuses, projection,
+				context.Background(), fixture.project.WorkspaceManifestID, statuses, projection,
 			)
-			activation := derivedWorkspaceActivation(t, "default", fixture.project.ContextID, statuses, observed)
+			activation := derivedWorkspaceActivation(t, "default", fixture.project.WorkspaceManifestID, statuses, observed)
 			if activation.Coverage != authbroker.WorkspaceActivationCoverageExhaustive ||
 				activation.State != test.wantSummary || len(activation.Workspaces) != 1 ||
 				len(activation.Workspaces[0].Providers) != 1 || activation.Workspaces[0].Providers[0].State != test.want ||
@@ -229,7 +229,7 @@ func TestObserveWorkspaceActivationUsesExactRegistryAndBrokerBindingState(t *tes
 				t.Fatalf("activation = %+v", activation)
 			}
 			if test.wantAction && (activation.Workspaces[0].NextAction.WorkingDirectory != fixture.project.Root ||
-				!reflect.DeepEqual(activation.Workspaces[0].NextAction.Argv, []string{"tobari", "--context", "default"})) {
+				!reflect.DeepEqual(activation.Workspaces[0].NextAction.Argv, []string{"tobari", "--manifest", "default"})) {
 				t.Fatalf("re-entry action = %+v", activation.Workspaces[0].NextAction)
 			}
 		})
@@ -254,13 +254,13 @@ func TestObserveWorkspaceActivationDistinguishesZeroEligibleFromEnumerationFailu
 		t.Fatal(err)
 	}
 	observed = fixture.runtime.observeWorkspaceActivation(
-		context.Background(), fixture.project.ContextID,
+		context.Background(), fixture.project.WorkspaceManifestID,
 		[]authbroker.ProviderStatus{}, authbroker.Projection{Providers: []authbroker.Provider{}},
 	)
 	if observed.Coverage != authbroker.WorkspaceActivationCoverageUnavailable {
 		t.Fatalf("enumeration observation = %+v", observed)
 	}
-	activation = derivedWorkspaceActivation(t, "default", fixture.project.ContextID, []authbroker.ProviderStatus{}, observed)
+	activation = derivedWorkspaceActivation(t, "default", fixture.project.WorkspaceManifestID, []authbroker.ProviderStatus{}, observed)
 	if activation.Coverage != authbroker.WorkspaceActivationCoverageUnavailable ||
 		activation.State != authbroker.WorkspaceActivationUnavailable || len(activation.Workspaces) != 0 {
 		t.Fatalf("enumeration failure activation = %+v", activation)
@@ -278,9 +278,9 @@ func TestObserveWorkspaceActivationMixedProviderUncertaintyDoesNotOfferAction(t 
 		{Provider: "aws", State: authbroker.ProviderCredentialUnavailable},
 	}
 	observed := fixture.runtime.observeWorkspaceActivation(
-		context.Background(), fixture.project.ContextID, statuses, projection,
+		context.Background(), fixture.project.WorkspaceManifestID, statuses, projection,
 	)
-	activation := derivedWorkspaceActivation(t, "default", fixture.project.ContextID, statuses, observed)
+	activation := derivedWorkspaceActivation(t, "default", fixture.project.WorkspaceManifestID, statuses, observed)
 	if activation.State != authbroker.WorkspaceActivationUnresolved || len(activation.Workspaces) != 1 ||
 		activation.Workspaces[0].NextAction != nil {
 		t.Fatalf("mixed activation = %+v", activation)
@@ -298,7 +298,7 @@ func TestObserveWorkspaceActivationStopsBeforeBrokerCallsWhenProviderBoundsAreEx
 			}
 		}
 		observed := fixture.runtime.observeWorkspaceActivation(
-			context.Background(), fixture.project.ContextID, statuses,
+			context.Background(), fixture.project.WorkspaceManifestID, statuses,
 			authbroker.Projection{Providers: []authbroker.Provider{}},
 		)
 		if observed.Coverage != authbroker.WorkspaceActivationCoverageUnavailable || len(runner.controlCalls) != 0 {
@@ -323,7 +323,7 @@ func TestObserveWorkspaceActivationStopsBeforeBrokerCallsWhenProviderBoundsAreEx
 			t.Fatal(err)
 		}
 		observed := fixture.runtime.observeWorkspaceActivation(
-			context.Background(), fixture.project.ContextID,
+			context.Background(), fixture.project.WorkspaceManifestID,
 			[]authbroker.ProviderStatus{}, authbroker.Projection{Providers: []authbroker.Provider{}},
 		)
 		if observed.Coverage != authbroker.WorkspaceActivationCoverageUnavailable || len(runner.controlCalls) != 0 {

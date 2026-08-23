@@ -31,7 +31,7 @@ type protocolFixture struct {
 	CompanionInstanceHex    string `json:"companion_instance_hex"`
 	CompanionNonceHex       string `json:"companion_nonce_hex"`
 	CompanionToBrokerKeyHex string `json:"companion_to_broker_key_hex"`
-	ContextID               string `json:"context_id"`
+	WorkspaceManifestID     string `json:"context_id"`
 	DeadlineUnixMS          uint64 `json:"deadline_unix_ms"`
 	DriverID                string `json:"driver_id"`
 	DriverRevision          string `json:"driver_revision"`
@@ -150,7 +150,7 @@ func TestCompanionProtocolMatchesBrokerInteroperabilityFixture(t *testing.T) {
 	stateDigest := sha256.Sum256(state)
 	request := refreshRequest{
 		requestID: fixture.RequestID, deadlineUnixMS: fixture.DeadlineUnixMS,
-		contextID: fixture.ContextID, projectID: fixture.ProjectID, provider: fixture.Provider,
+		contextID: fixture.WorkspaceManifestID, projectID: fixture.ProjectID, provider: fixture.Provider,
 		recordID: fixture.RecordID, grantRevision: fixture.GrantRevision,
 		stateGeneration: fixture.StateGeneration, driverID: fixture.DriverID,
 		driverRevision: fixture.DriverRevision, bindingDigest: fixture.BindingDigest,

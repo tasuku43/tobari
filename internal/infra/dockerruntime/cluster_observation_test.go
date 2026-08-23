@@ -130,7 +130,7 @@ func TestSharedClusterNetworkIntegrityUsesOnlyReadOnlyDockerInspect(t *testing.T
 }
 
 type projectPrincipalObservationRunner struct {
-	project            tobari.ProjectInstance
+	project            tobari.Workspace
 	workspaceAddress   string
 	gatewayAddress     string
 	gatewayConnected   bool
@@ -222,7 +222,7 @@ func TestPrincipalRegistryIntegrityTracksLiveOwnedEndpoints(t *testing.T) {
 	registry := projectPrincipalRegistry{
 		SchemaVersion: projectPrincipalRegistrySchema,
 		Bindings: []projectPrincipalBinding{{
-			ProjectID: project.ID, ContextID: project.ContextID, ContextName: project.ContextName,
+			ProjectID: project.ID, WorkspaceManifestID: project.WorkspaceManifestID, WorkspaceManifestName: project.WorkspaceManifestName,
 			ProjectRoot: project.Root, WorkspaceIP: runner.workspaceAddress,
 			GatewayIP: runner.gatewayAddress, Network: network,
 		}},
@@ -230,11 +230,11 @@ func TestPrincipalRegistryIntegrityTracksLiveOwnedEndpoints(t *testing.T) {
 	if err := runtime.writeProjectPrincipalRegistry(registry); err != nil {
 		t.Fatal(err)
 	}
-	if got := runtime.inspectPrincipalRegistryIntegrity(context.Background(), []tobari.ProjectInstance{project}); got != "valid" {
+	if got := runtime.inspectPrincipalRegistryIntegrity(context.Background(), []tobari.Workspace{project}); got != "valid" {
 		t.Fatalf("matching live principal registry = %q, want valid", got)
 	}
 	runner.gatewayConnected = false
-	if got := runtime.inspectPrincipalRegistryIntegrity(context.Background(), []tobari.ProjectInstance{project}); got != "invalid" {
+	if got := runtime.inspectPrincipalRegistryIntegrity(context.Background(), []tobari.Workspace{project}); got != "invalid" {
 		t.Fatalf("disconnected live principal registry = %q, want invalid", got)
 	}
 	runner.gatewayConnected = true
@@ -242,7 +242,7 @@ func TestPrincipalRegistryIntegrityTracksLiveOwnedEndpoints(t *testing.T) {
 	if err := runtime.writeProjectPrincipalRegistry(registry); err != nil {
 		t.Fatal(err)
 	}
-	if got := runtime.inspectPrincipalRegistryIntegrity(context.Background(), []tobari.ProjectInstance{project}); got != "invalid" {
+	if got := runtime.inspectPrincipalRegistryIntegrity(context.Background(), []tobari.Workspace{project}); got != "invalid" {
 		t.Fatalf("missing live principal registry binding = %q, want invalid", got)
 	}
 }

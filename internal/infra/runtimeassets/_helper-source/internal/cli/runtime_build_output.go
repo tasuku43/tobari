@@ -61,7 +61,7 @@ func (o *runtimeBuildOutput) Report(event tobari.RuntimeBuildProgress) {
 	if event.Stage == tobari.RuntimeBuildStagePrepare && event.Status == tobari.RuntimeBuildProgressStarted && !o.prepared {
 		o.prepared = true
 		if o.out != nil {
-			_, _ = fmt.Fprintf(o.out, "Building runtime for context %q...\n\n", event.ContextName)
+			_, _ = fmt.Fprintf(o.out, "Building runtime for context %q...\n\n", event.WorkspaceManifestName)
 		}
 	}
 	if event.Status == tobari.RuntimeBuildProgressFailed {
@@ -99,16 +99,16 @@ func (o *runtimeBuildOutput) WriteFailureSummary() {
 			_, _ = fmt.Fprintf(o.out, "  The candidate image %s may remain locally; Tobari did not remove it.\n\n", escapeTSVCell(o.metadata.CandidateImage))
 		}
 	case tobari.RuntimeBuildSelectionUncertain:
-		_, _ = io.WriteString(o.out, "State:\n  Runtime promotion could not be confirmed; inspect the current Context before retrying.\n\n")
+		_, _ = io.WriteString(o.out, "State:\n  Runtime promotion could not be confirmed; inspect the selected Workspace Manifest before retrying.\n\n")
 	case tobari.RuntimeBuildSelectionPromoted:
-		_, _ = io.WriteString(o.out, "State:\n  The runtime image was promoted, but the final Context report failed.\n\n")
+		_, _ = io.WriteString(o.out, "State:\n  The runtime image was promoted, but the final Workspace Manifest report failed.\n\n")
 	}
 
 	_, _ = io.WriteString(o.out, "Next:\n")
 	if o.metadata.Selection == tobari.RuntimeBuildSelectionUnchanged {
 		_, _ = io.WriteString(o.out, "  Fix the Dockerfile or Docker problem, then run:\n  tobari runtime build\n")
 	} else {
-		_, _ = io.WriteString(o.out, "  Inspect the current Context with:\n  tobari context show\n")
+		_, _ = io.WriteString(o.out, "  Inspect the selected Workspace Manifest with:\n  tobari manifest show\n")
 	}
 }
 
@@ -252,9 +252,9 @@ func runtimeBuildStageLabel(stage tobari.RuntimeBuildStage) string {
 	case tobari.RuntimeBuildStageInspect:
 		return "Inspect built image identity"
 	case tobari.RuntimeBuildStagePromote:
-		return "Promote runtime image to current Context"
+		return "Promote runtime image to default Workspace Manifest"
 	case tobari.RuntimeBuildStageReport:
-		return "Read promoted Context state"
+		return "Read promoted Workspace Manifest state"
 	default:
 		return "Runtime build"
 	}

@@ -27,7 +27,7 @@ func TestInitRuntimeCreatesActiveContextRecipeWithoutChangingImage(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := runtime.ListContexts(context.Background()); err != nil {
+	if err := runtime.ensureContextStore(); err != nil {
 		t.Fatal(err)
 	}
 
@@ -37,7 +37,7 @@ func TestInitRuntimeCreatesActiveContextRecipeWithoutChangingImage(t *testing.T)
 	}
 	defaultImage := runtime.defaultRuntimeImage()
 	if result.Task != tobari.TaskRuntimeInit || result.Image != defaultImage ||
-		result.Runtime.Status != tobari.ContextRuntimeStatusPendingBuild {
+		result.Runtime.Status != tobari.ManifestRuntimeStatusPendingBuild {
 		t.Fatalf("InitRuntime() result = %+v", result)
 	}
 	data, err := os.ReadFile(filepath.Join(root, "config", "contexts", "default", "runtime", "Dockerfile"))
@@ -63,7 +63,7 @@ func TestBuildRuntimeValidatesAndPromotesManagedImage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := runtime.ListContexts(context.Background()); err != nil {
+	if err := runtime.ensureContextStore(); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := runtime.InitRuntime(context.Background()); err != nil {
@@ -74,7 +74,7 @@ func TestBuildRuntimeValidatesAndPromotesManagedImage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildRuntime() error = %v", err)
 	}
-	if result.Task != tobari.TaskRuntimeBuild || result.Runtime.Status != tobari.ContextRuntimeStatusReady ||
+	if result.Task != tobari.TaskRuntimeBuild || result.Runtime.Status != tobari.ManifestRuntimeStatusReady ||
 		result.Image == tobari.BuiltinImageSelector || result.Runtime.ImageDigest == "" {
 		t.Fatalf("BuildRuntime() result = %+v", result)
 	}
@@ -99,7 +99,7 @@ func TestBuildRuntimeValidatesAndPromotesManagedImage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if shown.Runtime.Status != tobari.ContextRuntimeStatusPendingBuild || shown.Image != result.Image {
+	if shown.Runtime.Status != tobari.ManifestRuntimeStatusPendingBuild || shown.Image != result.Image {
 		t.Fatalf("changed recipe report = %+v", shown)
 	}
 }
@@ -112,10 +112,10 @@ func TestRuntimeBuildChangesOnlyCurrentContextAuthority(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := runtimeStore.ListContexts(context.Background()); err != nil {
+	if err := runtimeStore.ensureContextStore(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := runtimeStore.CreateContext(context.Background(), "restricted", tobari.OfficialRuntimeBase, tobari.ContextPolicyModeGuided, tobari.ContextSourceAccessReadWrite); err != nil {
+	if _, err := runtimeStore.CreateContext(context.Background(), "restricted", tobari.OfficialRuntimeBase, tobari.ManifestPolicyModeGuided, tobari.ManifestSourceAccessReadWrite); err != nil {
 		t.Fatal(err)
 	}
 	restrictedBefore, err := runtimeStore.ShowContext(context.Background(), "restricted")
@@ -147,7 +147,7 @@ func TestInitRuntimeUsesInjectedResolverBase(t *testing.T) {
 		t.Fatal(err)
 	}
 	runtime.images = testImageResolver{runtimeImage: "tobari-runtime:dev"}
-	if _, err := runtime.ListContexts(context.Background()); err != nil {
+	if err := runtime.ensureContextStore(); err != nil {
 		t.Fatal(err)
 	}
 	result, err := runtime.InitRuntime(context.Background())
@@ -173,7 +173,7 @@ func TestBuildRuntimeDoesNotPullExplicitCustomBase(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := runtime.ListContexts(context.Background()); err != nil {
+	if err := runtime.ensureContextStore(); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := runtime.InitRuntime(context.Background()); err != nil {
@@ -203,7 +203,7 @@ func TestBuildRuntimeFailureLeavesSelectedImageUnchanged(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := runtime.ListContexts(context.Background()); err != nil {
+	if err := runtime.ensureContextStore(); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := runtime.InitRuntime(context.Background()); err != nil {
@@ -243,7 +243,7 @@ func TestBuildRuntimeStreamsDockerFailureDiagnosticsInNonTTYEnvironments(t *test
 			if err != nil {
 				t.Fatal(err)
 			}
-			if _, err := runtime.ListContexts(context.Background()); err != nil {
+			if err := runtime.ensureContextStore(); err != nil {
 				t.Fatal(err)
 			}
 			if _, err := runtime.InitRuntime(context.Background()); err != nil {
@@ -289,7 +289,7 @@ func TestBuildRuntimeFailurePreservesPreviouslyBuiltRuntime(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := runtime.ListContexts(context.Background()); err != nil {
+	if err := runtime.ensureContextStore(); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := runtime.InitRuntime(context.Background()); err != nil {

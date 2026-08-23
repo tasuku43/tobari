@@ -13,7 +13,7 @@ import (
 )
 
 type completionRuntimeFake struct {
-	contexts     tobari.ContextListResult
+	contexts     tobari.ManifestListResult
 	runtimes     tobari.RuntimeListResult
 	histories    map[string]tobari.RuntimeReport
 	contextErr   error
@@ -23,7 +23,7 @@ type completionRuntimeFake struct {
 	historyCalls int
 }
 
-func (f *completionRuntimeFake) ListContexts(context.Context) (tobari.ContextListResult, error) {
+func (f *completionRuntimeFake) ListContexts(context.Context) (tobari.ManifestListResult, error) {
 	return f.contexts, f.contextErr
 }
 
@@ -61,12 +61,13 @@ func completionRuntimeFixture() *completionRuntimeFake {
 	managed := completionRuntimeManifest("sre", 2)
 	standard := tobari.RuntimeSummary{
 		ID: tobari.StandardRuntimeID, Name: tobari.StandardRuntimeName, Kind: tobari.RuntimeKindBuiltin,
-		Ready: true, Head: 1, Revision: "sha256:" + strings.Repeat("9", 64),
+		RuntimeRef: tobari.StandardRuntimeID, Ready: true, Head: 1, Revision: "sha256:" + strings.Repeat("9", 64),
 	}
+	standard.RevisionRef = tobari.RuntimeRevisionRef(standard.ID, standard.Revision)
 	return &completionRuntimeFake{
-		contexts: tobari.ContextListResult{
-			Task: tobari.TaskContextList, ContextState: tobari.ContextObservationSyntheticDefault,
-			Active: tobari.DefaultContextName, Items: []tobari.ContextSummary{},
+		contexts: tobari.ManifestListResult{
+			Task: tobari.TaskManifestList, ManifestState: tobari.ManifestObservationAbsent,
+			Items: []tobari.ManifestSummary{},
 		},
 		runtimes:  tobari.RuntimeListResult{Task: tobari.TaskRuntimeList, Items: []tobari.RuntimeSummary{standard, tobari.RuntimeSummaryFrom(managed)}},
 		histories: map[string]tobari.RuntimeReport{"sre": {Task: tobari.TaskRuntimeHistory, Runtime: managed}},
@@ -94,9 +95,9 @@ func TestServiceReturnsTypedRuntimeCandidates(t *testing.T) {
 	}
 }
 
-func TestServiceReturnsSyntheticDefaultContextCandidate(t *testing.T) {
-	values, err := New(completionRuntimeFixture()).Candidates(context.Background(), CandidateContextName)
-	if err != nil || !reflect.DeepEqual(values, []string{"default"}) {
+func TestServiceReturnsNoManifestCandidateForAnAbsentCatalog(t *testing.T) {
+	values, err := New(completionRuntimeFixture()).Candidates(context.Background(), CandidateManifestName)
+	if err != nil || !reflect.DeepEqual(values, []string{}) {
 		t.Fatalf("context candidates = %#v, %v", values, err)
 	}
 }

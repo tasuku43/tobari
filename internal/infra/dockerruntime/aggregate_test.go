@@ -20,7 +20,7 @@ type policyContentTestRunner struct {
 }
 
 func TestOrthogonalReadinessRemainsBehindTerminalGuardrails(t *testing.T) {
-	manifest := tobari.ContextManifest{SchemaVersion: tobari.ContextSchemaVersion, ID: "01912345-6789-7abc-8def-0123456789ad", Name: "restricted", AgentProfile: tobari.DefaultProfile, Image: tobari.BuiltinImageSelector, PolicyMode: tobari.ContextPolicyModeGuided, SourceAccess: tobari.ContextSourceAccessReadWrite, PolicyRevision: tobari.DefaultContextPolicyRevision(), NativeReadiness: tobari.ContextNativeReadinessEnabled}
+	manifest := tobari.WorkspaceManifest{SchemaVersion: tobari.WorkspaceManifestSchemaVersion, ID: "01912345-6789-7abc-8def-0123456789ad", Name: "restricted", AgentProfile: tobari.DefaultProfile, Image: tobari.BuiltinImageSelector, PolicyMode: tobari.ManifestPolicyModeGuided, SourceAccess: tobari.ManifestSourceAccessReadWrite, PolicyRevision: tobari.DefaultContextPolicyRevision(), NativeReadiness: tobari.ManifestNativeReadinessEnabled}
 	router, err := aggregateRouter([]aggregateContext{{manifest: manifest}})
 	if err != nil {
 		t.Fatal(err)
@@ -68,13 +68,13 @@ func mountedPolicyTestDirectory(args []string) (string, bool) {
 func TestAdvancedPolicyReceivesContextNamespaceAndCannotClaimSystemPackages(t *testing.T) {
 	t.Parallel()
 	item := aggregateContext{
-		manifest: tobari.ContextManifest{
-			SchemaVersion:  tobari.ContextSchemaVersion,
+		manifest: tobari.WorkspaceManifest{
+			SchemaVersion:  tobari.WorkspaceManifestSchemaVersion,
 			ID:             "01912345-6789-7abc-8def-0123456789ad",
 			Name:           "restricted",
 			AgentProfile:   tobari.DefaultProfile,
-			PolicyMode:     tobari.ContextPolicyModeAdvanced,
-			SourceAccess:   tobari.ContextSourceAccessReadWrite,
+			PolicyMode:     tobari.ManifestPolicyModeAdvanced,
+			SourceAccess:   tobari.ManifestSourceAccessReadWrite,
 			PolicyRevision: tobari.DefaultContextPolicyRevision(),
 			Image:          tobari.BuiltinImageSelector,
 		},
@@ -97,13 +97,13 @@ func TestAdvancedPolicyReceivesContextNamespaceAndCannotClaimSystemPackages(t *t
 
 func TestAggregateRouterAlwaysUsesSystemEvaluatorForGraphQL(t *testing.T) {
 	t.Parallel()
-	item := aggregateContext{manifest: tobari.ContextManifest{
-		SchemaVersion:  tobari.ContextSchemaVersion,
+	item := aggregateContext{manifest: tobari.WorkspaceManifest{
+		SchemaVersion:  tobari.WorkspaceManifestSchemaVersion,
 		ID:             "01912345-6789-7abc-8def-0123456789ad",
 		Name:           "restricted",
 		AgentProfile:   tobari.DefaultProfile,
-		PolicyMode:     tobari.ContextPolicyModeAdvanced,
-		SourceAccess:   tobari.ContextSourceAccessReadWrite,
+		PolicyMode:     tobari.ManifestPolicyModeAdvanced,
+		SourceAccess:   tobari.ManifestSourceAccessReadWrite,
 		PolicyRevision: tobari.DefaultContextPolicyRevision(),
 		Image:          tobari.BuiltinImageSelector,
 	}}
@@ -178,7 +178,7 @@ func TestAggregateRouterKeepsHostLoopbackAuthorityAttachmentScoped(t *testing.T)
 
 func TestAggregateRouterMakesContextPolicyCeilingTerminalBeforeAdvancedOrGuidedPolicy(t *testing.T) {
 	t.Parallel()
-	manifest := tobari.ContextManifest{SchemaVersion: tobari.ContextSchemaVersion, ID: "01912345-6789-7abc-8def-0123456789ad", Name: "restricted", AgentProfile: tobari.DefaultProfile, Image: tobari.BuiltinImageSelector, PolicyMode: tobari.ContextPolicyModeAdvanced, SourceAccess: tobari.ContextSourceAccessReadWrite, PolicyRevision: tobari.DefaultContextPolicyRevision()}
+	manifest := tobari.WorkspaceManifest{SchemaVersion: tobari.WorkspaceManifestSchemaVersion, ID: "01912345-6789-7abc-8def-0123456789ad", Name: "restricted", AgentProfile: tobari.DefaultProfile, Image: tobari.BuiltinImageSelector, PolicyMode: tobari.ManifestPolicyModeAdvanced, SourceAccess: tobari.ManifestSourceAccessReadWrite, PolicyRevision: tobari.DefaultContextPolicyRevision()}
 	router, err := aggregateRouter([]aggregateContext{{manifest: manifest}})
 	if err != nil {
 		t.Fatal(err)
@@ -204,7 +204,7 @@ func TestAggregateRouterMakesContextPolicyCeilingTerminalBeforeAdvancedOrGuidedP
 
 func TestAggregateRouterMakesExactDenyTerminalOverAgentReadyBaseline(t *testing.T) {
 	t.Parallel()
-	manifest := tobari.ContextManifest{SchemaVersion: tobari.ContextSchemaVersion, ID: "01912345-6789-7abc-8def-0123456789ad", Name: "agent-ready", AgentProfile: tobari.DefaultProfile, Image: tobari.BuiltinImageSelector, PolicyMode: tobari.ContextPolicyModeGuided, SourceAccess: tobari.ContextSourceAccessReadWrite, PolicyRevision: tobari.DefaultContextPolicyRevision()}
+	manifest := tobari.WorkspaceManifest{SchemaVersion: tobari.WorkspaceManifestSchemaVersion, ID: "01912345-6789-7abc-8def-0123456789ad", Name: "agent-ready", AgentProfile: tobari.DefaultProfile, Image: tobari.BuiltinImageSelector, PolicyMode: tobari.ManifestPolicyModeGuided, SourceAccess: tobari.ManifestSourceAccessReadWrite, PolicyRevision: tobari.DefaultContextPolicyRevision()}
 	router, err := aggregateRouter([]aggregateContext{{manifest: manifest}})
 	if err != nil {
 		t.Fatal(err)
@@ -223,7 +223,7 @@ func TestAggregateRouterMakesExactDenyTerminalOverAgentReadyBaseline(t *testing.
 
 func TestAggregateRouterKeepsGitHubGraphQLBaselineSemanticAndAllRootsExact(t *testing.T) {
 	t.Parallel()
-	manifest := tobari.ContextManifest{SchemaVersion: tobari.ContextSchemaVersion, ID: "01912345-6789-7abc-8def-0123456789ad", Name: "agent-ready", AgentProfile: tobari.DefaultProfile, Image: tobari.BuiltinImageSelector, PolicyMode: tobari.ContextPolicyModeGuided, SourceAccess: tobari.ContextSourceAccessReadWrite, PolicyRevision: tobari.DefaultContextPolicyRevision()}
+	manifest := tobari.WorkspaceManifest{SchemaVersion: tobari.WorkspaceManifestSchemaVersion, ID: "01912345-6789-7abc-8def-0123456789ad", Name: "agent-ready", AgentProfile: tobari.DefaultProfile, Image: tobari.BuiltinImageSelector, PolicyMode: tobari.ManifestPolicyModeGuided, SourceAccess: tobari.ManifestSourceAccessReadWrite, PolicyRevision: tobari.DefaultContextPolicyRevision()}
 	router, err := aggregateRouter([]aggregateContext{{manifest: manifest}})
 	if err != nil {
 		t.Fatal(err)
@@ -250,7 +250,7 @@ func TestAggregateRouterKeepsGitHubGraphQLBaselineSemanticAndAllRootsExact(t *te
 
 func TestAggregateRouterKeepsGitSmartHTTPOutsideBroadHTTPAuthority(t *testing.T) {
 	t.Parallel()
-	manifest := tobari.ContextManifest{SchemaVersion: tobari.ContextSchemaVersion, ID: "01912345-6789-7abc-8def-0123456789ad", Name: "agent-ready", AgentProfile: tobari.DefaultProfile, Image: tobari.BuiltinImageSelector, PolicyMode: tobari.ContextPolicyModeGuided, SourceAccess: tobari.ContextSourceAccessReadWrite, PolicyRevision: tobari.DefaultContextPolicyRevision()}
+	manifest := tobari.WorkspaceManifest{SchemaVersion: tobari.WorkspaceManifestSchemaVersion, ID: "01912345-6789-7abc-8def-0123456789ad", Name: "agent-ready", AgentProfile: tobari.DefaultProfile, Image: tobari.BuiltinImageSelector, PolicyMode: tobari.ManifestPolicyModeGuided, SourceAccess: tobari.ManifestSourceAccessReadWrite, PolicyRevision: tobari.DefaultContextPolicyRevision()}
 	router, err := aggregateRouter([]aggregateContext{{manifest: manifest}})
 	if err != nil {
 		t.Fatal(err)
@@ -271,7 +271,7 @@ func TestAggregateRouterKeepsGitSmartHTTPOutsideBroadHTTPAuthority(t *testing.T)
 
 func TestAggregateRouterKeepsOCIDistributionOutsideBroadHTTPAuthority(t *testing.T) {
 	t.Parallel()
-	manifest := tobari.ContextManifest{SchemaVersion: tobari.ContextSchemaVersion, ID: "01912345-6789-7abc-8def-0123456789ad", Name: "agent-ready", AgentProfile: tobari.DefaultProfile, Image: tobari.BuiltinImageSelector, PolicyMode: tobari.ContextPolicyModeGuided, SourceAccess: tobari.ContextSourceAccessReadWrite, PolicyRevision: tobari.DefaultContextPolicyRevision()}
+	manifest := tobari.WorkspaceManifest{SchemaVersion: tobari.WorkspaceManifestSchemaVersion, ID: "01912345-6789-7abc-8def-0123456789ad", Name: "agent-ready", AgentProfile: tobari.DefaultProfile, Image: tobari.BuiltinImageSelector, PolicyMode: tobari.ManifestPolicyModeGuided, SourceAccess: tobari.ManifestSourceAccessReadWrite, PolicyRevision: tobari.DefaultContextPolicyRevision()}
 	router, err := aggregateRouter([]aggregateContext{{manifest: manifest}})
 	if err != nil {
 		t.Fatal(err)
@@ -293,7 +293,7 @@ func TestAggregateRouterKeepsOCIDistributionOutsideBroadHTTPAuthority(t *testing
 
 func TestAggregateRouterMakesBuiltinHTTPSCeilingTerminalBeforeAdvancedPolicy(t *testing.T) {
 	t.Parallel()
-	manifest := tobari.ContextManifest{SchemaVersion: tobari.ContextSchemaVersion, ID: "01912345-6789-7abc-8def-0123456789ad", Name: "restricted", AgentProfile: tobari.DefaultProfile, Image: tobari.BuiltinImageSelector, PolicyMode: tobari.ContextPolicyModeAdvanced, SourceAccess: tobari.ContextSourceAccessReadWrite, PolicyRevision: tobari.DefaultContextPolicyRevision()}
+	manifest := tobari.WorkspaceManifest{SchemaVersion: tobari.WorkspaceManifestSchemaVersion, ID: "01912345-6789-7abc-8def-0123456789ad", Name: "restricted", AgentProfile: tobari.DefaultProfile, Image: tobari.BuiltinImageSelector, PolicyMode: tobari.ManifestPolicyModeAdvanced, SourceAccess: tobari.ManifestSourceAccessReadWrite, PolicyRevision: tobari.DefaultContextPolicyRevision()}
 	router, err := aggregateRouter([]aggregateContext{{manifest: manifest}})
 	if err != nil {
 		t.Fatal(err)
@@ -323,7 +323,7 @@ func TestGatewayProjectionCarriesOnlyValidatedGraphQLEndpoints(t *testing.T) {
 	t.Parallel()
 	endpoint := tobari.GraphQLEndpoint{Scheme: "https", Host: "api.example.com", Port: 443, Path: "/graphql"}
 	projection := rewriteGatewayProjection(aggregateContext{
-		manifest:            tobari.ContextManifest{Name: "default", ID: "01912345-6789-7abc-8def-0123456789ad"},
+		manifest:            tobari.WorkspaceManifest{Name: "default", ID: "01912345-6789-7abc-8def-0123456789ad"},
 		graphqlEndpoints:    []tobari.GraphQLEndpoint{endpoint},
 		kubernetesEndpoints: []tobari.GraphQLEndpoint{{Scheme: "https", Host: "cluster.us-east-1.eks.amazonaws.com", Port: 443, Path: "/"}},
 	})
@@ -338,8 +338,8 @@ func TestGatewayProjectionCarriesOnlyValidatedGraphQLEndpoints(t *testing.T) {
 }
 
 func TestAggregateKubernetesEndpointsRequiresValidatedEKSBootstrap(t *testing.T) {
-	manifest := tobari.ContextManifest{Bootstrap: &tobari.ContextBootstrapSnapshot{EKS: &tobari.ContextEKSBootstrap{
-		ContextName: "engineering", ClusterName: "platform", Region: "ap-northeast-1",
+	manifest := tobari.WorkspaceManifest{Bootstrap: &tobari.ManifestBootstrapSnapshot{EKS: &tobari.ManifestEKSBootstrap{
+		WorkspaceManifestName: "engineering", ClusterName: "platform", Region: "ap-northeast-1",
 		Server: "https://abc.gr7.ap-northeast-1.eks.amazonaws.com", CertificateAuthorityData: syntheticEKSCA(t),
 	}}}
 	endpoints, err := aggregateKubernetesEndpoints(manifest)
@@ -360,12 +360,12 @@ func TestAggregateKubernetesEndpointsRequiresValidatedEKSBootstrap(t *testing.T)
 func TestAggregateGraphQLEndpointsIncludesContextPolicySnapshotInExactBoundary(t *testing.T) {
 	t.Parallel()
 	shared := tobari.GraphQLEndpoint{Scheme: "https", Host: "api.example.com", Port: 443, Path: "/graphql"}
-	presetOnly := tobari.ContextPolicyExactRule{
+	presetOnly := tobari.ManifestPolicyExactRule{
 		Scheme: "https", Host: "graphql.example.com", Port: 8443, Method: "POST", Path: "/v1/graphql",
 	}
 	endpoints, err := aggregateGraphQLEndpoints(
 		[]tobari.GraphQLEndpoint{shared},
-		[]tobari.ContextPolicyExactRule{
+		[]tobari.ManifestPolicyExactRule{
 			{Scheme: shared.Scheme, Host: shared.Host, Port: shared.Port, Method: "POST", Path: shared.Path},
 			presetOnly,
 		},
@@ -380,7 +380,7 @@ func TestAggregateGraphQLEndpointsIncludesContextPolicySnapshotInExactBoundary(t
 	if !reflect.DeepEqual(endpoints, want) {
 		t.Fatalf("aggregate GraphQL endpoints = %+v, want %+v", endpoints, want)
 	}
-	if _, err := aggregateGraphQLEndpoints(nil, []tobari.ContextPolicyExactRule{{
+	if _, err := aggregateGraphQLEndpoints(nil, []tobari.ManifestPolicyExactRule{{
 		Scheme: "https", Host: "api.example.com", Port: 443, Method: "GET", Path: "/graphql",
 	}}); err == nil {
 		t.Fatal("non-POST preset GraphQL endpoint entered the aggregate boundary")
@@ -389,13 +389,13 @@ func TestAggregateGraphQLEndpointsIncludesContextPolicySnapshotInExactBoundary(t
 
 func TestAggregateRejectsUnsupportedOrAmbiguousSourceInputSchema(t *testing.T) {
 	t.Parallel()
-	manifest := tobari.ContextManifest{
-		SchemaVersion:  tobari.ContextSchemaVersion,
+	manifest := tobari.WorkspaceManifest{
+		SchemaVersion:  tobari.WorkspaceManifestSchemaVersion,
 		ID:             "01912345-6789-7abc-8def-0123456789ad",
 		Name:           "restricted",
 		AgentProfile:   tobari.DefaultProfile,
-		PolicyMode:     tobari.ContextPolicyModeAdvanced,
-		SourceAccess:   tobari.ContextSourceAccessReadWrite,
+		PolicyMode:     tobari.ManifestPolicyModeAdvanced,
+		SourceAccess:   tobari.ManifestSourceAccessReadWrite,
 		PolicyRevision: tobari.DefaultContextPolicyRevision(),
 		Image:          tobari.BuiltinImageSelector,
 	}
@@ -413,10 +413,10 @@ func TestGuidedAggregateRejectsContextOwnedRego(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 	runtime, _ := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), &recordingRunner{})
-	if _, err := runtime.ListContexts(context.Background()); err != nil {
+	if err := runtime.ensureContextStore(); err != nil {
 		t.Fatal(err)
 	}
-	_, paths, err := runtime.resolveContext(tobari.DefaultContextName)
+	_, paths, err := runtime.resolveContext(tobari.DefaultManifestName)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -446,13 +446,14 @@ func TestAggregateIntegrityRejectsRevisionNotDesiredByCurrentBinary(t *testing.T
 	t.Parallel()
 	root := t.TempDir()
 	runtime, _ := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), &recordingRunner{})
+	initializeTestWorkspaceManifest(t, runtime)
 	projection, err := runtime.buildAggregateProjection(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
 	state := tobari.State{
 		SchemaVersion: 1, RuntimeDirectory: filepath.Join(root, "runtime"),
-		AggregateRevision: projection.Revision, ContextCount: projection.ContextCount,
+		AggregateRevision: projection.Revision, ManifestCount: projection.ManifestCount,
 		PolicyDirectory: projection.PolicyDirectory, GatewayConfig: projection.GatewayConfig,
 		AssetVersion: "asset",
 	}
@@ -472,14 +473,14 @@ func TestInvalidContextPolicyDoesNotReplaceKnownGoodAggregate(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 	runtime, _ := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), &recordingRunner{})
-	if _, err := runtime.ListContexts(context.Background()); err != nil {
+	if err := runtime.ensureContextStore(); err != nil {
 		t.Fatal(err)
 	}
 	knownGood, err := runtime.buildAggregateProjection(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := runtime.CreateContext(context.Background(), "broken", tobari.OfficialRuntimeBase, tobari.ContextPolicyModeAdvanced, tobari.ContextSourceAccessReadWrite); err != nil {
+	if _, err := runtime.CreateContext(context.Background(), "broken", tobari.OfficialRuntimeBase, tobari.ManifestPolicyModeAdvanced, tobari.ManifestSourceAccessReadWrite); err != nil {
 		t.Fatal(err)
 	}
 	_, paths, err := runtime.resolveContext("broken")
@@ -502,10 +503,10 @@ func TestAggregateReusesOneCandidateReceiptAndRetainsAggregateTests(t *testing.T
 	root := t.TempDir()
 	runner := &recordingRunner{}
 	runtime, _ := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), runner)
-	if _, err := runtime.ListContexts(context.Background()); err != nil {
+	if err := runtime.ensureContextStore(); err != nil {
 		t.Fatal(err)
 	}
-	manifest, paths, err := runtime.resolveContext(tobari.DefaultContextName)
+	manifest, paths, err := runtime.resolveContext(tobari.DefaultManifestName)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -572,12 +573,12 @@ func TestAggregateReceiptMismatchRetestsAndRejectsInvalidContextPolicy(t *testin
 	root := t.TempDir()
 	runner := &policyContentTestRunner{}
 	runtime, _ := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), runner)
-	if _, err := runtime.ListContexts(context.Background()); err != nil {
+	if err := runtime.ensureContextStore(); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := runtime.CreateContext(
 		context.Background(), "advanced", tobari.OfficialRuntimeBase,
-		tobari.ContextPolicyModeAdvanced, tobari.ContextSourceAccessReadWrite,
+		tobari.ManifestPolicyModeAdvanced, tobari.ManifestSourceAccessReadWrite,
 	); err != nil {
 		t.Fatal(err)
 	}

@@ -12,11 +12,11 @@ it makes the safe execution path a more natural choice than running the agent
 directly on the host.**
 
 Every HTTP and HTTPS effect that crosses that boundary is authorized as a
-normalized request by one shared OPA-backed Gateway. A Context may start with a
-finite reviewed exact baseline composed from its immutable Context-owned policy
+normalized request by one shared OPA-backed Gateway. A Workspace Manifest may start with a
+finite reviewed exact baseline composed from its immutable Workspace Manifest-owned policy
 snapshot and its independently selected trusted-binary native-client readiness
 capability; every effect outside that composition is denied by default. The
-Context policy's destination and method ceilings remain terminal over readiness.
+Workspace Manifest policy's destination and method ceilings remain terminal over readiness.
 Trusted policy may declare an exact GraphQL endpoint whose generic L7 identity extends
 the HTTP coordinates with one operation type and root field per effect.
 Tobari calls such bounded request-carried refinement **protocol-derived
@@ -40,7 +40,7 @@ persists only in that Workspace home; host credentials are never inherited.
 
 Tobari is the product, executable, and ownership adjective. The reusable
 isolated resource is a Workspace, selected by canonical project root plus
-stable Context ID. Project names the selected host source directory; it is not
+stable Workspace Manifest ID. Project names the selected host source directory; it is not
 a second name for Workspace identity.
 An attached standard session may bridge only the closed reviewed native browser
 login union for pinned Claude Code, Codex, GitHub CLI, AWS CLI,
@@ -74,7 +74,7 @@ mounted read-only; it cannot expose host routes through `argv[0]` spoofing or a
 copied binary. It requests one Workspace-loopback HTTP service, while a
 separate trusted-host `tobari review services` revalidates and allows it once. The live
 attachment owns the random host-loopback listener and every relay, and removes
-them when it exits. Service exposure is neither durable Context policy nor the
+them when it exits. Service exposure is neither durable Workspace Manifest policy nor the
 opposite-direction Host Loopback branch, and it does not create a generic
 attachment RPC, Docker publication, LAN access, or raw transport.
 Trusted-host decisions share one task-first `review` namespace, but not one
@@ -83,9 +83,9 @@ selector or authority: bare `tobari review` is catalog-derived discovery only,
 services` owns immediate attachment-local Allow once or Deny. The lower-level
 `policy` and `service` namespaces retain resource discovery and exact actions.
 One installation-local standard cluster shares one Gateway, one OPA, an atomic
-all-Context policy projection, and CA state without sharing Workspace homes or
+all-Manifest policy projection, and CA state without sharing Workspace homes or
 runtime networks. The repository-only experimental profile may additionally
-compile the Auth Broker research boundary. Host-issued Context/project
+compile the Auth Broker research boundary. Host-issued Workspace Manifest/project
 principals bind mutable learned permissions to the exact current-directory
 network that originated a request; they never select a credential on their own.
 
@@ -105,7 +105,7 @@ compatible distinct path, stages an explicit template-Allow, observed-exact
 Allow, or pending-exact Deny from detail, and applies the reviewed set once;
 its non-interactive and machine-readable path remains read-only. Staging grants
 no authority. Final Apply revalidates every unchanged opaque candidate, tests
-one complete all-Context candidate, and hot-activates one revision without
+one complete all-Manifest candidate, and hot-activates one revision without
 restarting active Workspaces or the shared OPA. Single-reference `policy allow` and
 `policy deny` remain available to machines and recovery workflows.
 Successful Apply reports the authoritative active revision and the ordered
@@ -126,13 +126,13 @@ expanding authority. The loop is part of the product's adoption boundary: if
 the safe path is harder than running the agent on the host, users will bypass
 the isolation that the boundary is meant to provide.
 
-Routine users reason about network authority in three layers: **Context
+Routine users reason about network authority in three layers: **Workspace Manifest
 Access** is the creation-time destination and method Boundary plus routine
 traffic admitted inside it; **remembered Workspace decisions** are reviewed
-Allow and exact Deny choices retained for one Context and Workspace until
+Allow and exact Deny choices retained for one Workspace Manifest and Workspace until
 reset; and **this-session Host Loopback access** is exact attachment authority
 that ends with its owning attachment. The third layer is a separate closed
-policy branch. Ordinary Context, baseline, remembered, and Advanced authority
+policy branch. Ordinary Workspace Manifest, baseline, remembered, and Advanced authority
 cannot decide Host Loopback, and attachment authority cannot decide ordinary
 external traffic. Detailed source, owner, lifetime, and precedence remain
 available to contributors without becoming routine setup vocabulary.
@@ -155,7 +155,7 @@ using `tobari` leaves host execution unchanged, while `delete` and
 - The human journey is CWD-first. Docker resource names, stable IDs, network
   topology, and OPA syntax are implementation or advanced-policy details, not
   routine setup inputs.
-- Routine human reads lead with the work mode or Workspace result, effective
+- Routine human reads lead with the Workspace Manifest definition or Workspace result, effective
   Access, exact Runtime selection, and one actionable continuation. Stable IDs,
   owner-only paths, immutable revisions, and healthy implementation state stay
   in explicit details or complete machine output.
@@ -164,7 +164,7 @@ using `tobari` leaves host execution unchanged, while `delete` and
   agent session valuable before policy customization is required. The user
   sets the boundary once; the agent is not supervised action by action inside
   it.
-- The default Context carries the pinned supported coding clients and a finite
+- The default Workspace Manifest carries the pinned supported coding clients and a finite
   reviewed baseline for their native capability effects. Requiring the user
   to reverse-engineer client bootstrap, model, account-status, inference, or
   telemetry or first-party capability discovery before useful work is an
@@ -180,18 +180,18 @@ using `tobari` leaves host execution unchanged, while `delete` and
   details remain available as advanced paths; they do not define the routine
   agent workflow.
 - The human first-use route starts with the CWD-first `tobari` entry. On an
-  interactive terminal with no persisted Context, that one route owns the
+  interactive terminal with no persisted Workspace Manifest, that one route owns the
   one-screen recommended review of canonical project root, direct source
   effect, effective Access, exact standard Runtime, absent host import, and
-  selected session. Start revalidates the empty Context collection, composes
-  the separately cataloged Context-create and `cluster up` actions after
+  selected session. Start revalidates the empty Workspace Manifest collection, composes
+  the separately cataloged Workspace Manifest-create and `cluster up` actions after
   confirmed review, and enters the first Workspace. Customize opens the
-  complete Context creation frame with those recommendations prefilled.
+  complete Workspace Manifest creation frame with those recommendations prefilled.
   Runtime preparation is an independent host workflow
   performed before selection, never a post-create fork.
-  After review and before Context creation, Start performs the closed generic
-  Docker CLI/Engine/Context/Compose readiness profile required for the promised
-  Workspace outcome. Failure creates no Context or Docker state and points to
+  After review and before Workspace Manifest creation, Start performs the closed generic
+  Docker CLI/Engine/Workspace Manifest/Compose readiness profile required for the promised
+  Workspace outcome. Failure creates no Workspace Manifest or Docker state and points to
   `doctor`; Tobari does not identify or manage the provider behind Docker.
   Read-only `doctor`, status/list inspection, and
   opaque-ID policy actions remain recovery or machine paths rather than steps
@@ -203,7 +203,7 @@ using `tobari` leaves host execution unchanged, while `delete` and
   cannot bypass typed review staging, fresh validation, or final confirmation.
   It is compiled only by `task build:dev`; the standard and release command
   catalogs omit it while the interface is evaluated.
-- Explicit `context create`, `cluster up`, and runtime commands remain
+- Explicit `manifest create`, `cluster up`, and runtime commands remain
   independently supported compatibility and automation surfaces. They do not
   require a human to remember their order for the ordinary first-use route.
 
@@ -382,10 +382,10 @@ security meaning are reviewed explicitly. Unknown, duplicate, or malformed
 fields still fail before browser or callback authority is created.
 
 The experimental development profile retains the closed Broker research path.
-That route stores one Context-owned credential or
+That route stores one Workspace Manifest-owned credential or
 renewable provider session in an authenticated encrypted vault. Each eligible
 Workspace receives only a distinct random handle or handle-only client shim
-bound to its stable Context, project, provider, credential revision, and exact
+bound to its stable Workspace Manifest, project, provider, credential revision, and exact
 HTTP binding. Gateway resolves, refreshes, or signs through one closed reviewed
 provider plan only after OPA allows the ordinary HTTP effect. Workspace-owned
 authentication remains the only standard path; Broker-required declarations
@@ -414,17 +414,17 @@ exist only when the experimental capability profile is compiled.
   Gateway alone owns ordinary upstream egress after policy allow. Provider
   acquisition runs through fixed trusted-host drivers except that Anthropic
   uses one fresh mount-free container from the explicitly selected compatible
-  Context image as a provider-only acquisition authority. Auth control and
+  Workspace Manifest image as a provider-only acquisition authority. Auth control and
   the encrypted companion use bounded fixed operations and never expose a
   public broker or host TCP API.
 - The broker starts locked and retains the installation root key only in
   memory. Cluster reconciliation unlocks it with key bytes transferred through
-  stdin. Context vaults are keyed by stable Context ID and bind their version
-  and Context ID as authenticated data.
+  stdin. Workspace Manifest vaults are keyed by stable Workspace Manifest ID and bind their version
+  and Workspace Manifest ID as authenticated data.
 - All Tobari-owned schemas and component APIs are V1 before first publication.
   Readers accept exactly V1 and reject every other version; there is no legacy
   compatibility path or implicit migration. One explicit fixed-target command
-  may migrate only the enumerated unpublished Context-policy/Runtime
+  may migrate only the enumerated unpublished Workspace Manifest-policy/Runtime
   predecessor in ADR 0070; it is not a reader fallback or generic migration
   framework. Owner manifests and the normalized
   projection share that version while reviewed built-ins use typed closed
@@ -434,7 +434,7 @@ exist only when the experimental capability profile is compiled.
   host acquisition drivers execute fixed argv against verified host CLI
   identities in private temporary homes with sanitized environments. The
   Anthropic driver instead executes exact Claude Code in a fresh selected-
-  Context-image container with no mounts, project state, persistent home,
+  Workspace Manifest-image container with no mounts, project state, persistent home,
   Broker socket, or Docker socket; that image sees only its own provider login.
   Claude account entitlement labels needed by the pinned native client are a
   narrow non-secret part of the Tobari storage contract: acquisition extracts
@@ -461,17 +461,17 @@ exist only when the experimental capability profile is compiled.
   every associated project handle; existing sessions receive a concrete
   re-entry action because their environment cannot change retroactively.
 - A handle is not the primary credential, but it is a scoped bearer capability:
-  copying it does not broaden its Context/project/binding authority, and users
+  copying it does not broaden its Workspace Manifest/project/binding authority, and users
   should not publish or log it. A real credential at a declared header or AWS
   signing binding fails before OPA, broker resolution, DNS, or upstream I/O.
 - Brokered login does not itself grant network authority. OPA remains the sole
-  authority for Context, project, scheme, host, port, method, and path. A
-  brokered request receives only authority already present in the Context's
+  authority for Workspace Manifest, project, scheme, host, port, method, and path. A
+  brokered request receives only authority already present in the Workspace Manifest's
   immutable snapshot, selected binary readiness overlay, or learned rules. The
   fixed agent-ready compatibility baseline includes
   finite compile-time `claude_ready`, `codex_ready`, `gh_ready`, `twg_ready`,
   and `pup_ready` authentication bundles coupled to reviewed client versions and expanded only into
-  exact Context-wide effects. TWG's bundle includes only its exact device
+  exact Workspace Manifest-wide effects. TWG's bundle includes only its exact device
   exchange, site inventory, stable CLI manifest, token revoke, and declared
   GraphQL `query` / `me` current-user lookup. Pup's
   bundle includes only exact US1 DCR registration and token exchange/refresh.
@@ -493,7 +493,7 @@ exist only when the experimental capability profile is compiled.
   replacement, and compatibility client-header forwarding only after allow.
 - Integration tests prove one Workspace's tool-owned state persists through runtime
   recovery, is unavailable to another Workspace, and is removed by exact delete.
-  Broker tests prove encrypted Context ownership, project-specific handles,
+  Broker tests prove encrypted Workspace Manifest ownership, project-specific handles,
   restart locking, rotation, revocation, and canary-free output.
 - Acquisition tests fix every reviewed host executable identity, argv,
   environment, conventional non-project installation-root selection,
@@ -517,16 +517,16 @@ exist only when the experimental capability profile is compiled.
 MVP manages one installation-local enforcement cluster and multiple Workspaces.
 The standard shared cluster contains exactly one Gateway and one OPA;
 the experimental development profile adds one Auth Broker. The cluster uses a host-issued
-Context/Workspace-principal boundary: stable Workspace and Context IDs are not
+Workspace Manifest/Workspace-principal boundary: stable Workspace and Workspace Manifest IDs are not
 trusted merely because they appear in caller data, but the host binds both to
-the exact Gateway network interface that received the request. Context policy,
-learned permissions, and broker handles cannot cross that Context/project
+the exact Gateway network interface that received the request. Workspace Manifest policy,
+learned permissions, and broker handles cannot cross that Workspace Manifest/project
 binding. A Workspace is selected
 from the canonical current directory: an exact indexed root is reused directly;
 when only ancestor roots exist, the interactive root command presents every
 containing root nearest-first and an explicit create-here option. A new nested
 root is never implicit. Every selected Workspace binds exactly one read-write
-root with its Context-selected access, one dedicated internal network, and one persistent XDG-owned home
+root with its Workspace Manifest-selected access, one dedicated internal network, and one persistent XDG-owned home
 directory.
 
 ### Consequences
@@ -534,7 +534,7 @@ directory.
 - `cluster up` explicitly creates or reconciles the shared enforcement runtime.
   Interactive `tobari` may compose that exact separately declared mutation
   whenever the selected shared projection is not ready; on first use it does so
-  only after the ordinary Context wizard confirms creation. It then
+  only after the ordinary Workspace Manifest wizard confirms creation. It then
   resolves an existing canonical-root record or creates one at the current
   directory, reconciles only the project runtime, and enters the work container.
 - The logical record owns a generated stable internal ID, canonical root,
@@ -557,32 +557,32 @@ directory.
   choice among containing ancestor roots before it can create a nested root.
   `list` shows local roots and diagnostics without turning an ID into a normal
   user input.
-- A canonical root plus stable Context identity is a unique Workspace key.
+- A canonical root plus stable Workspace Manifest identity is a unique Workspace key.
   Repeated or concurrent explicit creation for that pair must yield one logical
   record and a typed already-exists outcome for losing callers. The same root
-  may have independent Workspaces in different Contexts.
-- Each Workspace is permanently bound to one stable Context identity. That
-  Context is the only Runtime-revision authority for its creation and
+  may have independent Workspaces in different Workspace Manifests.
+- Each Workspace is permanently bound to one stable Workspace Manifest identity. That
+  Workspace Manifest is the only Runtime-revision authority for its creation and
   runtime-container reconciliation; project metadata records the last
   successful image for diagnostics but does not silently override the binding.
 - The selected image is an environment and tool source, not the Workspace
   lifetime owner. Tobari starts the work container with its own fixed lifetime
   command; an image `CMD` such as `claude` cannot make a child-agent exit stop
   the Workspace. The base runtime carries the common work tools plus the pinned
-  Codex and Claude Code clients required by the supported agent-ready Context.
+  Codex and Claude Code clients required by the supported agent-ready Workspace Manifest.
   Their binaries remain outside the mutable Workspace home and their versions
   form one reviewed contract with the default policy baseline.
-- Context creation review always exposes one exact Runtime revision and defaults
-  to the built-in standard Runtime. A Context may select only an existing ready
-  revision. Building an installation-wide Runtime never changes any Context;
-  selection and rollback are explicit Context mutations.
+- Workspace Manifest creation review always exposes one exact Runtime revision and defaults
+  to the built-in standard Runtime. A Workspace Manifest may select only an existing ready
+  revision. Building an installation-wide Runtime never changes any Workspace Manifest;
+  selection and rollback are explicit Workspace Manifest mutations.
 - `tobari delete` is the only routine operation that ends a Workspace;
   ending a shell or losing a runtime resource leaves it existing.
 - Every process in a Workspace may modify or delete every file below that Workspace's
   mounted root.
 - The host-owned principal registry is the only source of project authority at
   Gateway. It binds the exact owned Workspace source endpoint and Gateway
-  endpoint on one dedicated project network to the stable Context/project;
+  endpoint on one dedicated project network to the stable Workspace Manifest/project;
   session headers, names, SNI, URLs, environment, and profiles cannot select a
   project.
 - A missing, malformed, ambiguous, or stale principal binding denies before
@@ -590,7 +590,7 @@ directory.
   binding before the project can use the proxy.
 - Multiple clusters, overlays, clone modes, root locks, and change approval are
   non-goals. Overlapping roots intentionally expose the same mounted host-file
-  mutations even when their Workspaces belong to different Contexts; Tobari does
+  mutations even when their Workspaces belong to different Workspace Manifests; Tobari does
   not claim filesystem integrity isolation between them.
 - A project root cannot be the filesystem root, the user's home or its
   ancestor, or any XDG configuration, state, or shared-profile management
@@ -614,7 +614,7 @@ directory.
   detach required shared and Workspace networks, and cancel reconciliation;
   explicit recovery restores readiness without changing logical Workspace
   identity or its persistent home.
-- Context-only image selection tests prove project metadata cannot silently
+- Workspace Manifest-only image selection tests prove project metadata cannot silently
   override the execution boundary for new or existing Workspaces before Docker
   mutation.
 
@@ -679,7 +679,7 @@ name prefix or broad Docker query as authority.
 - Interactive shell completion is a catalog-derived read, not a separately
   maintained command registry. A generated shell adapter asks the current
   executable for each candidate set. Static command, flag, boolean, and enum
-  candidates come from the catalog; dynamic Context and Runtime candidates
+  candidates come from the catalog; dynamic Workspace Manifest and Runtime candidates
   cross a typed application read boundary and never parse human or JSON output.
   Sourcing completion and pressing Tab create no Tobari state.
 
@@ -787,7 +787,7 @@ administration project.
   the denial without weakening orthogonal invariants.
 - Every denial also declares its closed destination kind and authority
   lifetime. Ordinary upstream candidates remain persistent learned-policy
-  proposals. A Host Loopback candidate instead binds its Context, project,
+  proposals. A Host Loopback candidate instead binds its Workspace Manifest, project,
   Attachment Epoch, target port, and exact HTTP effect and can
   produce only an attachment-scoped decision. Matching host, port, method,
   path, or display text cannot convert one lifetime into the other.
@@ -795,7 +795,7 @@ administration project.
   the agent; a completed session also summarizes the pending queue on host
   stderr. Neither notification can mutate policy or trigger a retry.
 - Interactive `review permissions` is the installation-wide human Permission Inbox
-  over retained queues from every Context. Its list can stage or clear exact
+  over retained queues from every Workspace Manifest. Its list can stage or clear exact
   Allow and Deny choices directly and advances only to a later undecided row;
   template Allow remains available only after detail inspection exposes its
   examples and future scope. Staging grants no authority and cancellation
@@ -816,7 +816,7 @@ administration project.
   choices only by typed review-item ID: retained
   IDs keep their decision and order, stale IDs lose Apply eligibility, and a
   matching display label never transfers authority to a replacement ID.
-  Its list groups by validated stable Context/Workspace identity, presents that
+  Its list groups by validated stable Workspace Manifest/Workspace identity, presents that
   scope once per group, and leads each selectable row with the exact effect or
   typed template plus bounded observation evidence. Display labels, adjacency, and
   indentation never create policy identity.
@@ -830,7 +830,7 @@ administration project.
   current CLI-owned learned decisions; `policy reset --id` removes exactly one
   Allow or exact Deny and returns that effect to default deny. The discovery
   queue turns only learnable retained denials into unique exact
-  Context/project/scheme/host/port/method/path proposals with stable opaque IDs, the latest
+  Workspace Manifest/project/scheme/host/port/method/path proposals with stable opaque IDs, the latest
   retained observation time, and a retained-window observation count; the current-rule
   inventory exposes the separate rule IDs used for reset.
   Active Attachment Grants are a separate exhaustive runtime authority
@@ -855,7 +855,7 @@ administration project.
 - OPA watches one revisioned complete bundle mounted read-only from an exact
   owner-labeled Docker-managed volume. Exact allow, deny, reset,
   and reviewed-set actions test a private complete policy copy, atomically
-  replace one complete Context `policy/domains/` generation, build a
+  replace one complete Workspace Manifest `policy/domains/` generation, build a
   revision-named archive through pinned OPA,
   atomically rename it through a fixed pinned publisher, and
   report success only after the running OPA proves the expected revision is
@@ -891,31 +891,42 @@ administration project.
   workflow, keeps routine permission growth free of hand-authored OPA/Rego,
   and keeps tested host editing as the advanced escape hatch.
 
-## Thesis 9: Every Workspace belongs to one logical Context
+## Thesis 9: Every Workspace applies one Workspace Manifest
 
 Users should choose one understandable execution setup, not assemble an agent
 profile, runtime image, policy directory, and credential configuration from
 unrelated paths.
-Tobari therefore presents a named Context as a stable host-owned reusable work
-mode. Its creation-time Boundary is the immutable capability envelope for
-direct source access, the snapshotted Context policy and its terminal ceilings,
-and native-readiness participation. The same Context holds one exact explicitly
-mutable Runtime binding plus narrow mutable Workspace defaults whose activation
-timing is part of their contract. The Context manifest is a host-owned
-composition record; it does not collapse the physical trust boundaries between
+Tobari therefore presents a named Workspace Manifest as the stable host-owned
+desired definition of a Workspace. Every semantic mutation publishes one
+complete immutable desired revision. `WorkspaceManifestID + semantic digest`
+is content authority; generation is monotonic correlation only. A semantic
+no-op does not increment generation, while A→B→A produces a later generation
+with the original A digest. The immutable Boundary covers direct source access,
+the normalized Manifest policy and terminal ceilings, and native-readiness
+participation. Other fields share Manifest ownership but activate only at their
+typed boundary: cluster projection at `cluster up`, entry state at explicit
+Workspace entry, session defaults for a later child session, and creation
+defaults once for a new Workspace home.
+
+A Workspace is the durable root-bound applied instance. It permanently records
+one WorkspaceManifestID and one canonical Project root, its create-once state,
+the last successful AppliedEntry, and at most one bounded latest failed or
+unknown reconciliation. Desired, last-successful applied, and currently
+observed facts remain separate. Tobari has no resident controller: only
+explicit Workspace entry and `cluster up` reconcile, and reads never repair.
+The Manifest record does not collapse the physical trust boundaries between
 read-only agent data, OPA policy, Runtime source, Workspace home, and
-Gateway-only secret stores. Each Context has a stable opaque identity; its name
-is a human selector, not authority. Each Workspace permanently records one
-Context identity, and the host derives that binding for Gateway and OPA from
-its network principal.
+Gateway-only secret stores. Its name and generation are presentation, not
+authority.
 
 The standard installation runs one shared Gateway and one shared OPA for every
-Context. An experimental development installation additionally runs one locked
+Workspace Manifest. An experimental development installation additionally runs one locked
 Auth Broker.
-The current Context is only the default when a host invocation omits a Context;
-changing it cannot retarget or mutate existing Workspaces or shared enforcement.
+The installation default Manifest is only the selector used when a host
+invocation omits `--manifest`; changing it cannot retarget or mutate existing
+Workspaces or shared enforcement.
 Tool-native authentication state remains below each Workspace home and is not a
-Context secret. In the experimental profile, a brokered credential is owned once by the stable Context and
+Workspace Manifest secret. In the experimental profile, a brokered credential is owned once by the stable Workspace Manifest and
 enables every permanently bound Workspace to receive a different project-bound
 handle on its next reconciliation. A declared provider binding is handle-only;
 Workspace-owned passthrough remains only for undeclared bindings. Neither a
@@ -924,15 +935,16 @@ OPA allow.
 
 ### Consequences
 
-- `context list`, `context show`, `context create`, `context delete`, and
-  `context use` are the host-facing composition surface. `context use` changes only the omitted-
-  Context default. `tobari --context NAME` chooses an invocation Context
-  without changing that default.
-- Every persisted Context fixes `read-only` or `read-write` access for its one
-  direct source bind and one normalized Context-owned policy snapshot plus its
+- `manifest list`, `manifest show`, `manifest create`, `manifest delete`, and
+  `manifest default set` are the host-facing composition surface. `manifest
+  default set` changes only the omission default. `tobari --manifest NAME`
+  chooses an invocation Manifest without changing that default or any
+  Workspace binding.
+- Every persisted Workspace Manifest fixes `read-only` or `read-write` access for its one
+  direct source bind and one normalized Workspace Manifest-owned policy snapshot plus its
   SHA-256 `policy_revision`. The snapshot contains the complete method policy
   and fixed agent-ready compatibility baseline. Native readiness is a separate
-  enabled/disabled Context setting that selects the current trusted-binary
+  enabled/disabled Workspace Manifest setting that selects the current trusted-binary
   overlay. Argument-free creation on an interactive text terminal uses one
   continuous six-stage frame for name, direct source access, effective network
   policy, exact ready Runtime selection, optional typed Workspace bootstrap,
@@ -949,26 +961,26 @@ OPA allow.
   never prompt and require the complete direct group of name, Runtime, policy
   mode, source access, and native readiness; Workspace bootstrap remains an
   optional explicit addition. Method-Deny choices
-  remove only now-unreachable positive baseline rules from the Context-owned
+  remove only now-unreachable positive baseline rules from the Workspace Manifest-owned
   snapshot; destination ceilings and exact Denies remain unchanged. The
   reviewed flow owns the `read-write`, enabled-readiness, standard Runtime, and
   unconfigured-bootstrap defaults. Readers never rewrite old state, and a
-  different source/network Boundary requires a new Context. A binary
+  different source/network Boundary requires a new Workspace Manifest. A binary
   readiness update is a reviewed compatibility update rather than an envelope
-  change and requires no Context recreation. The current binary readiness
+  change and requires no Workspace Manifest recreation. The current binary readiness
   catalog is part of the aggregate content identity: observation reports an
   older active projection as invalid, and root entry fails closed with the
   explicit `cluster up` recovery instead of entering against stale authority.
-- Context deletion is an explicit destructive catalog mutation. The
-  foundational `default` Context, the current Context, and every Context still
+- Workspace Manifest deletion is an explicit destructive catalog mutation. The
+  foundational `default` Workspace Manifest, the default Workspace Manifest, and every Workspace Manifest still
   referenced by a logical Workspace are rejected before removal. Successful
-  deletion removes the exact owner-only Context and Context-ID authentication
+  deletion removes the exact owner-only Workspace Manifest and Workspace Manifest-ID authentication
   stores, preserves project roots and shared runtime images, and requires an
   explicit `cluster up` when shared state exists.
 - Source access describes only the direct live source bind. Read-only does not
   make the writable home or tmpfs read-only and does not provide a snapshot;
-  host or same-root read-write Context changes remain observable.
-- `config shell` and `config git` own the Context's narrow non-secret host
+  host or same-root read-write Workspace Manifest changes remain observable.
+- `config shell` and `config git` own the Workspace Manifest's narrow non-secret host
   session defaults. They are resolved for later Workspace entry or child
   sessions and never rewrite the Workspace home. A complete setting group is deterministic for agents and
   scripts; wholly omitted setting flags open a terminal-only staged editor.
@@ -976,7 +988,7 @@ OPA allow.
   staged row through one atomic Apply; Git presents its complete source choice
   and uses the same stage/Apply vocabulary. Partial, redirected, and JSON
   wizard attempts fail before mutation. `config shell` retains only `PS1`, `TERM`,
-  `COLORTERM`, and `NO_COLOR`; a V1 Context inherits exported `PS1` by default.
+  `COLORTERM`, and `NO_COLOR`; a V1 Workspace Manifest inherits exported `PS1` by default.
   An absent export retains Tobari's built-in prompt. `config git`
   owns one atomic `user.name`/`user.email` fallback and defaults to no
   projection so personal identity is opt-in. Git inheritance reads only those
@@ -989,40 +1001,46 @@ OPA allow.
   build-context source tree, and records only immutable successful semantic
   revisions. Creation may initialize one standalone editable source from the
   built-in standard starter or another managed Runtime's current editable
-  source; it never copies immutable history or retains lineage. Contexts own
+  source; it never copies immutable history or retains lineage. Workspace Manifests own
   exact Runtime references rather than recipes. Build
-  changes no Context; an explicit Context selection or rollback makes bound
+  changes no Workspace Manifest; an explicit Workspace Manifest selection or rollback makes bound
   Workspaces adopt that revision on their next entry while preserving their home.
   Fully specified Runtime mutations remain deterministic for agents and
   scripts. On interactive text streams, omitting the primary selector opens a
-  CLI-owned Review that shows the exact Runtime, Context binding, and delayed
+  CLI-owned Review that shows the exact Runtime, Workspace Manifest binding, and delayed
   Workspace effect before one Build or Apply; cancellation and unavailable
   Review streams perform no mutation.
-- A Context's typed Workspace-bootstrap snapshot is a mutable creation default,
+- Copy vocabulary remains target-specific. `manifest create --copy-from`
+  reviews and revalidates one exact immutable current Manifest revision, then
+  publishes a fresh generation-1 identity. `runtime create
+  --copy-source-from` copies current editable Runtime source into a fresh
+  Runtime ID with empty history. Neither persists lineage or lower-lifetime
+  state, neither reconciles a Workspace or cluster, and `--base` has no alias.
+- A Workspace Manifest's typed Workspace-bootstrap snapshot is a mutable creation default,
   not a live Workspace setting. Configure, refresh, and remove change only what
   future Workspace creation projects once; existing Workspace homes retain
   their create-time bytes and revision.
-- Context creation initializes an owner-only policy store, references a
+- Workspace Manifest creation initializes an owner-only policy store, references a
   read-only agent profile, and records the compatible Tobari runtime image.
-  Auth Broker vault state remains separately keyed by stable Context ID rather
-  than referenced from the manifest. Context creation never accepts a secret
+  Auth Broker vault state remains separately keyed by stable Workspace Manifest ID rather
+  than referenced from the manifest. Workspace Manifest creation never accepts a secret
   value in an argument, environment variable, or manifest.
-- Context policy source is grouped by exact canonical lower-case host at
+- Workspace Manifest policy source is grouped by exact canonical lower-case host at
   `policy/domains/<host>/allow.json` and `deny.json`. The allow document owns
   that host's authorities, methods, GraphQL endpoints, credential bindings,
   and learned Allows; the deny document owns baseline and learned exact
   Denies. Directory and embedded hosts must agree, methods never flow between
   hosts, deny precedence remains terminal, and wildcard/IP/ambiguous host
-  syntax is unsupported. Context source has no `data.json`; a generated
+  syntax is unsupported. Workspace Manifest source has no `data.json`; a generated
   immutable OPA projection may use that filename internally.
-- Auth login/import affects one explicit or current Context and makes the
-  Context-wide Workspace eligibility explicit. Login does not rewrite running
+- Auth login/import affects one explicit or default Workspace Manifest and makes the
+  Workspace Manifest-wide Workspace eligibility explicit. Login does not rewrite running
   Workspaces; their next matching entry issues project-bound handles and
   recreates only a changed work container while preserving home.
-- Context source changes become active only through an explicit `cluster up` or
+- Workspace Manifest source changes become active only through an explicit `cluster up` or
   policy mutation. The host serializes source mutation across processes,
   validates and swaps a complete domain generation under a durable recovery
-  journal, then generates and validates one atomic projection of every Context
+  journal, then generates and validates one atomic projection of every Workspace Manifest
   for the shared OPA and Gateway. Incomplete, raced, or ambiguous source state
   fails closed; a failed candidate preserves the complete prior known-good
   source generation and projection.
@@ -1031,7 +1049,7 @@ OPA allow.
   policy that cannot be expressed as an exact learned rule. The projection
   namespaces Advanced modules and prevents them from claiming the Tobari-owned
   router or system packages.
-- The Context policy destination ceiling and complete method policy are owned by the
+- The Workspace Manifest policy destination ceiling and complete method policy are owned by the
   Tobari system evaluator and precede baseline data, exact learned policy, and
   Advanced Rego. Every HTTP method resolves from one `allow`, `exact_review`,
   or `deny` default plus exact overrides. A terminal destination or method Deny
@@ -1039,7 +1057,7 @@ OPA allow.
   or upstream call. Trusted baseline Deny and remembered exact Deny form one
   terminal tier with no ordering between them and precede every positive
   source. Advanced Rego may decide only otherwise-unresolved generic input; it
-  cannot grant beyond the Context policy ceiling or exact Deny, or redefine
+  cannot grant beyond the Workspace Manifest policy ceiling or exact Deny, or redefine
   learned permission identity.
 - Enabled native readiness preserves the pinned Claude Code 2.1.220 and Codex
   0.147.0 native capability plane, the pinned GitHub CLI 2.96.0 native
@@ -1061,33 +1079,33 @@ OPA allow.
   `tools/call` remains reviewable by exact tool name and every other action by
   exact JSON-RPC method. Request arguments, resource URIs, responses, downloads,
   file transfer, acquisition, self-update, and unmatched traffic receive no
-  baseline authority. These grants are Context-wide effects, not executable
+  baseline authority. These grants are Workspace Manifest-wide effects, not executable
   identity; exact Deny remains terminal.
-- The fixed agent-ready baseline is part of the default Context-owned policy;
-  it is not a user-selectable profile. Context creation supplies one complete
+- The fixed agent-ready baseline is part of the default Workspace Manifest-owned policy;
+  it is not a user-selectable profile. Workspace Manifest creation supplies one complete
   method default plus exact overrides, so a user can express deny-only,
   exact-review, GET-only, or other bounded method postures without a named
   profile catalog. GET receives no intrinsic safe or read-only classification,
   and exact Deny remains terminal over method Allow.
-- Tobari-owned ordinary learned permission identity binds Context, project,
+- Tobari-owned ordinary learned permission identity binds Workspace Manifest, project,
   scheme, host, port, method, and raw path. Query, headers, and bodies are not
   learned dimensions; GraphQL adds only operation type and root field, MCP adds
   only JSON-RPC method and, for `tools/call`, exact tool name, and signed AWS
   RPC adds only wire protocol, SigV4 service, and exact wire operation.
 - Permission candidates, learned rules, exact denies, audits, and brokered
-  handles retain Context and Workspace identity. `review permissions` and `policy
-  rules` cross all Contexts; mutations bind solely to opaque references.
+  handles retain Workspace Manifest and Workspace identity. `review permissions` and `policy
+  rules` cross all Workspace Manifests; mutations bind solely to opaque references.
 
 ### Mechanical enforcement
 
-- Context domain and catalog tests validate stable identity, modes, current-
+- Workspace Manifest domain and catalog tests validate stable identity, modes, current-
   default selection, effects, fixed targets, and complete output/error contracts.
-- Envelope tests require source access and Context policy revision in every
+- Envelope tests require source access and Workspace Manifest policy revision in every
   persisted manifest/report, prove creation-only defaults and immutable
   snapshot binding, and reject missing or old state without fallback.
 - Configuration tests validate the all-or-none direct/staged-editor state machine,
-  terminal cancellation and explicit-empty Context rejection with zero
-  mutation, binding of Apply to the Context shown across concurrent default
+  terminal cancellation and explicit-empty Workspace Manifest rejection with zero
+  mutation, binding of Apply to the Workspace Manifest shown across concurrent default
   changes, one atomic multi-row shell write, fixed shell and Git inventories,
   exact V1 persistence, bounded host Git
   calls with an exact child-environment allowlist, lower-precedence read-only
@@ -1101,23 +1119,23 @@ OPA allow.
 - Runtime tests prove the recipe build context excludes policy and broker-vault
   stores, the generated image is checked against the runtime contract, and a
   failed build leaves the previously selected image unchanged. Project runtime
-  tests prove existing Workspaces reconcile to their bound Context image only
+  tests prove existing Workspaces reconcile to their bound Workspace Manifest image only
   after validation and preserve their home.
-- Runtime, Gateway, OPA, Auth Broker, and integration tests prove Context secrets and learned
-  permissions do not cross Context/project principals, aggregate activation is
-  all-or-nothing, and forged or stale Context bindings fail closed.
+- Runtime, Gateway, OPA, Auth Broker, and integration tests prove Workspace Manifest secrets and learned
+  permissions do not cross Workspace Manifest/project principals, aggregate activation is
+  all-or-nothing, and forged or stale Workspace Manifest bindings fail closed.
 - Agent-readiness validation records current-default discovery, explicit
   invocation selection, and installation-wide permission review.
-- Runtime/Context-policy compatibility tests bind both pinned agent versions to
+- Runtime/Workspace Manifest-policy compatibility tests bind both pinned agent versions to
   the exact agent-ready grant catalog and retain method-deny zero-grant canaries,
   distinguish capability bootstrap from MCP action, exclude payload and
   acquisition authority, and prove exact Deny precedence.
 
 ## Deliberate non-goals
 
-### Typed Workspace bootstrap is a Context recipe, not host inheritance
+### Typed Workspace bootstrap is a Workspace Manifest recipe, not host inheritance
 
-A Context may snapshot a closed, schema-versioned, secret-free subset of host
+A Workspace Manifest may snapshot a closed, schema-versioned, secret-free subset of host
 tool configuration for one-time projection into future Workspace homes. Each
 adapter owns exact source paths, selected fields, normalization, dependencies,
 semantic revision, and hostile-input tests. The first adapter accepts one AWS
@@ -1130,7 +1148,7 @@ contract; it never copies its source bytes. Neither adapter reads credentials,
 token caches, arbitrary helpers or executable selections, includes, arbitrary
 dotfiles, or alternate paths.
 
-Interactive Context creation inspects those fixed host files only after the
+Interactive Workspace Manifest creation inspects those fixed host files only after the
 user chooses to edit Workspace bootstrap. Read-only discovery parses each file
 once and returns typed available and unavailable candidates; presentation does
 not infer compatibility from names. AWS candidates resolve one profile through
@@ -1141,7 +1159,7 @@ semantic bundle and returns to review on drift; unrelated profile changes do
 not invalidate it. Direct command flags retain exact selector compatibility.
 
 Projection occurs only while a new logical Workspace is being created and is
-recorded before that Workspace becomes authoritative. Context refresh changes
+recorded before that Workspace becomes authoritative. Workspace Manifest refresh changes
 only the recipe for future Workspaces. Existing Workspace homes are never
 synchronized or rewritten and retain their create-time revision. This grants
 no network permission and transfers no authentication authority; native login
@@ -1153,6 +1171,6 @@ static baseline policy, non-HTTP forwarding or policy, recursive DNS, Git SSH,
 provider-specific business-policy semantics or IAM/read-write inference,
 Git-over-HTTPS credential helpers,
 manifest-defined dynamic credentials, generic refresh or signing, multiple provider accounts
-per Context, approval workflows, general Kubernetes authentication or
+per Workspace Manifest, approval workflows, general Kubernetes authentication or
 transport, filesystem overlays, GUIs, remote execution, or multi-tenant
 production use.

@@ -83,17 +83,17 @@ func (r *Runtime) resolveRuntimeBinding(selection string) (tobari.RuntimeBinding
 
 // SetContextRuntime explicitly replaces one Context's exact Runtime binding.
 // Runtime builds never call this method.
-func (r *Runtime) SetContextRuntime(ctx context.Context, contextName, selection string) (tobari.ContextReport, error) {
+func (r *Runtime) SetContextRuntime(ctx context.Context, contextName, selection string) (tobari.ManifestReport, error) {
 	if err := ctx.Err(); err != nil {
-		return tobari.ContextReport{}, err
+		return tobari.ManifestReport{}, err
 	}
 	binding, err := r.resolveRuntimeBinding(selection)
 	if err != nil {
-		return tobari.ContextReport{}, err
+		return tobari.ManifestReport{}, err
 	}
-	var result tobari.ContextReport
+	var result tobari.ManifestReport
 	err = r.withContextStoreLock(func() error {
-		active, err := r.readActiveContext()
+		active, err := r.readDefaultManifestName()
 		if err != nil {
 			return err
 		}
@@ -104,21 +104,20 @@ func (r *Runtime) SetContextRuntime(ctx context.Context, contextName, selection 
 		if err != nil {
 			return err
 		}
+		previous := manifest
 		manifest.Runtime = nil
 		copy := binding
 		manifest.RuntimeBinding = &copy
 		manifest.Image = binding.Image
-		if err := manifest.Validate(); err != nil {
-			return err
-		}
-		if err := writeAtomicJSON(r.contextManifestPath(manifest.Name), manifest); err != nil {
+		manifest, err = r.publishWorkspaceManifestUpdate(previous, manifest)
+		if err != nil {
 			return fmt.Errorf("write Context Runtime binding: %w", err)
 		}
-		result, err = r.contextReport(ctx, tobari.TaskContextRuntimeSet, manifest, active)
+		result, err = r.contextReport(ctx, tobari.TaskManifestRuntimeSet, manifest, active)
 		return err
 	})
 	if err != nil {
-		return tobari.ContextReport{}, err
+		return tobari.ManifestReport{}, err
 	}
 	return result, nil
 }
@@ -261,7 +260,7 @@ func (r *Runtime) RuntimeHistory(ctx context.Context, name string) (tobari.Runti
 
 // CreateRuntime initializes one standalone managed source tree from an exact
 // source Base without building it or retaining Base lineage.
-func (r *Runtime) CreateRuntime(ctx context.Context, name string, base tobari.RuntimeSourceBase) (tobari.RuntimeReport, error) {
+func (r *Runtime) CreateRuntime(ctx context.Context, name string, base tobari.RuntimeCopySource) (tobari.RuntimeReport, error) {
 	if err := ctx.Err(); err != nil {
 		return tobari.RuntimeReport{}, err
 	}
@@ -304,7 +303,7 @@ func (r *Runtime) CreateRuntime(ctx context.Context, name string, base tobari.Ru
 		if err := manifest.Validate(); err != nil {
 			return err
 		}
-		if base == tobari.RuntimeSourceBase(tobari.StandardRuntimeName) {
+		if base == tobari.RuntimeCopySource(tobari.StandardRuntimeName) {
 			if err := os.Mkdir(stagedSource, 0o700); err != nil {
 				return err
 			}

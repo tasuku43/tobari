@@ -14,10 +14,10 @@ const (
 
 func testAttachmentHostLoopbackRoute(t *testing.T) AttachmentHostLoopbackRoute {
 	t.Helper()
-	project := ProjectInstance{
-		SchemaVersion: ProjectStateSchemaVersion, ID: hostLoopbackTestProject,
-		Root: "/workspace/project", ContextID: hostLoopbackTestContext, ContextName: "default",
-		Profile: DefaultProfile, Runtime: ProjectRuntime{},
+	project := Workspace{
+		SchemaVersion: WorkspaceStateSchemaVersion, ID: hostLoopbackTestProject,
+		Root: "/workspace/project", WorkspaceManifestID: hostLoopbackTestContext, WorkspaceManifestName: "default",
+		Profile: DefaultProfile, Runtime: WorkspaceRuntime{},
 	}
 	route, err := NewAttachmentHostLoopbackRoute(hostLoopbackTestEpoch, project, 43179, strings.Repeat("3", 64))
 	if err != nil {
@@ -30,7 +30,7 @@ func TestAttachmentHostLoopbackRouteIdentityBindsEpochContextAndProject(t *testi
 	route := testAttachmentHostLoopbackRoute(t)
 	for name, mutate := range map[string]func(*AttachmentHostLoopbackRoute){
 		"epoch":   func(r *AttachmentHostLoopbackRoute) { r.EpochID = "att_abcdef0123456789abcdef0123456789" },
-		"context": func(r *AttachmentHostLoopbackRoute) { r.ContextID = "01912345-6789-7abc-8def-0123456789ac" },
+		"context": func(r *AttachmentHostLoopbackRoute) { r.WorkspaceManifestID = "01912345-6789-7abc-8def-0123456789ac" },
 		"project": func(r *AttachmentHostLoopbackRoute) { r.ProjectID = "01912345-6789-7abc-8def-0123456789ac" },
 		"host":    func(r *AttachmentHostLoopbackRoute) { r.Hostname = "example.com" },
 	} {
@@ -81,7 +81,7 @@ func testHostLoopbackCandidate(t *testing.T, port int) PolicyCandidate {
 	denial := PolicyDenial{
 		PolicyProtocolIdentity: PolicyProtocolIdentity{Scheme: "http", Protocol: PolicyProtocolHTTP},
 		Timestamp:              "2026-08-17T12:00:00Z", RequestID: "0123456789abcdef0123456789abcdef",
-		ContextID: hostLoopbackTestContext, ContextName: "default", ProjectID: hostLoopbackTestProject,
+		WorkspaceManifestID: hostLoopbackTestContext, WorkspaceManifestName: "default", ProjectID: hostLoopbackTestProject,
 		ProjectRoot: "/workspace/project", Host: HostLoopbackHostname, Port: port,
 		Method: "GET", Path: "/health", Reason: "review", StatusCode: 403, Learnable: true,
 		DestinationKind: PolicyDestinationHostLoopback, AuthorityLifetime: AuthorityLifetimeAttachment,

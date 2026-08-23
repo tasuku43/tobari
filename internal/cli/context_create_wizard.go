@@ -24,16 +24,16 @@ var contextCreateHTTPMethods = []string{
 }
 
 type contextCreateSelection struct {
-	Base                *tobari.ContextCreateBase
-	PolicyMode          tobari.ContextPolicyMode
+	CopyFrom            *tobari.ManifestCopySnapshot
+	PolicyMode          tobari.ManifestPolicyMode
 	Name                string
 	RuntimeSelection    string
-	SourceAccess        tobari.ContextSourceAccess
-	NativeReadiness     tobari.ContextNativeReadiness
-	MethodPolicy        tobari.ContextMethodPolicy
+	SourceAccess        tobari.ManifestSourceAccess
+	NativeReadiness     tobari.ManifestNativeReadiness
+	MethodPolicy        tobari.ManifestMethodPolicy
 	AWSBootstrapProfile string
 	EKSBootstrapContext string
-	Bootstrap           *tobari.ContextBootstrapSnapshot
+	Bootstrap           *tobari.ManifestBootstrapSnapshot
 }
 
 type contextCreateWizard interface {
@@ -58,17 +58,17 @@ type terminalContextCreateWizard struct {
 	style     bool
 	bootstrap contextCreateBootstrapDiscovery
 	runtimes  []tobari.RuntimeSummary
-	bases     []tobari.ContextSummary
+	bases     []tobari.ManifestSummary
 	baseRead  interface {
-		CreationBase(context.Context, string) (tobari.ContextCreateBase, error)
+		CopySnapshot(context.Context, string) (tobari.ManifestCopySnapshot, error)
 	}
 }
 
 type contextCreateBootstrapDiscovery interface {
-	DiscoverAWSBootstraps(context.Context) (tobari.ContextAWSBootstrapDiscovery, error)
-	DiscoverEKSBootstraps(context.Context, tobari.ContextBootstrapSnapshot) (tobari.ContextEKSBootstrapDiscovery, error)
-	PrepareAWSBootstrap(context.Context, string) (tobari.ContextBootstrapSnapshot, error)
-	PrepareEKSBootstrap(context.Context, tobari.ContextBootstrapSnapshot, string) (tobari.ContextBootstrapSnapshot, error)
+	DiscoverAWSBootstraps(context.Context) (tobari.ManifestAWSBootstrapDiscovery, error)
+	DiscoverEKSBootstraps(context.Context, tobari.ManifestBootstrapSnapshot) (tobari.ManifestEKSBootstrapDiscovery, error)
+	PrepareAWSBootstrap(context.Context, string) (tobari.ManifestBootstrapSnapshot, error)
+	PrepareEKSBootstrap(context.Context, tobari.ManifestBootstrapSnapshot, string) (tobari.ManifestBootstrapSnapshot, error)
 }
 
 type contextCreateRawStep uint8
@@ -91,16 +91,16 @@ const (
 )
 
 type contextCreateRawDraft struct {
-	base             *tobari.ContextCreateBase
-	policyMode       tobari.ContextPolicyMode
+	base             *tobari.ManifestCopySnapshot
+	policyMode       tobari.ManifestPolicyMode
 	name             string
 	sourceIndex      int
 	methodSelected   int
-	methodDefault    tobari.ContextMethodDecision
-	methodOverrides  map[string]tobari.ContextMethodDecision
-	bootstrap        *tobari.ContextBootstrapSnapshot
+	methodDefault    tobari.ManifestMethodDecision
+	methodOverrides  map[string]tobari.ManifestMethodDecision
+	bootstrap        *tobari.ManifestBootstrapSnapshot
 	runtimeSelection string
-	nativeReadiness  tobari.ContextNativeReadiness
+	nativeReadiness  tobari.ManifestNativeReadiness
 	reviewAction     int
 	reviewTop        int
 	editSection      int
@@ -181,7 +181,7 @@ func (w *terminalContextCreateWizard) composeLine(
 		case "create":
 			changed, refreshed, err := w.revalidateBootstrap(ctx, selection.Bootstrap)
 			if err != nil {
-				if _, writeErr := fmt.Fprintln(out, "Host bootstrap configuration could not be revalidated. Context has not been created. Edit Workspace bootstrap or cancel."); writeErr != nil {
+				if _, writeErr := fmt.Fprintln(out, "Host bootstrap configuration could not be revalidated. Workspace Manifest has not been created. Edit Workspace bootstrap or cancel."); writeErr != nil {
 					return contextCreateSelection{}, writeErr
 				}
 				continue
@@ -216,7 +216,7 @@ func (w *terminalContextCreateWizard) composeRaw(
 		switch step {
 		case contextCreateStepName:
 			draft.name, navigation, err = editContextCreateTextRaw(
-				ctx, in, out, &lineCount, w.style, step, "Context name", draft.name,
+				ctx, in, out, &lineCount, w.style, step, "Workspace Manifest name", draft.name,
 				maxContextCreateNameBytes, "Must match [a-z][a-z0-9-]{0,62}.",
 				func(value string) error { return tobari.ValidateName(strings.TrimSpace(value)) }, false,
 			)
@@ -226,8 +226,8 @@ func (w *terminalContextCreateWizard) composeRaw(
 				ctx, in, out, &lineCount, w.style, step, draft.name,
 				[]string{"Workspace home and tmpfs stay read-write in both choices."},
 				"Project source access", []configurationWizardOption{
-					{label: "Read-write", description: "Allow direct project-source changes.", value: string(tobari.ContextSourceAccessReadWrite)},
-					{label: "Read-only", description: "Prevent direct project-source changes.", value: string(tobari.ContextSourceAccessReadOnly)},
+					{label: "Read-write", description: "Allow direct project-source changes.", value: string(tobari.ManifestSourceAccessReadWrite)},
+					{label: "Read-only", description: "Prevent direct project-source changes.", value: string(tobari.ManifestSourceAccessReadOnly)},
 				}, draft.sourceIndex,
 			)
 		case contextCreateStepNetwork:
@@ -239,7 +239,7 @@ func (w *terminalContextCreateWizard) composeRaw(
 		case contextCreateStepReview:
 			navigation, err = w.reviewContextCreateRaw(ctx, in, out, &lineCount, &draft)
 		default:
-			return contextCreateSelection{}, fmt.Errorf("Context creation wizard step is invalid")
+			return contextCreateSelection{}, fmt.Errorf("Workspace Manifest creation wizard step is invalid")
 		}
 		if err != nil {
 			return contextCreateSelection{}, err
@@ -264,31 +264,31 @@ func (w *terminalContextCreateWizard) composeRaw(
 
 func contextCreateDraftFromSeed(seed contextCreateWizardSeed) contextCreateRawDraft {
 	draft := contextCreateRawDraft{
-		base:             seed.Selection.Base,
+		base:             seed.Selection.CopyFrom,
 		policyMode:       seed.Selection.PolicyMode,
 		name:             seed.Selection.Name,
 		sourceIndex:      0,
 		runtimeSelection: seed.Selection.RuntimeSelection,
 		nativeReadiness:  seed.Selection.NativeReadiness,
 		methodDefault:    seed.Selection.MethodPolicy.Default,
-		methodOverrides:  make(map[string]tobari.ContextMethodDecision),
+		methodOverrides:  make(map[string]tobari.ManifestMethodDecision),
 	}
 	if draft.runtimeSelection == "" {
 		draft.runtimeSelection = tobari.StandardRuntimeName
 	}
 	if draft.policyMode == "" {
-		draft.policyMode = tobari.ContextPolicyModeGuided
+		draft.policyMode = tobari.ManifestPolicyModeGuided
 	}
 	if draft.nativeReadiness == "" {
-		draft.nativeReadiness = tobari.ContextNativeReadinessEnabled
+		draft.nativeReadiness = tobari.ManifestNativeReadinessEnabled
 	}
 	if draft.methodDefault == "" {
-		draft.methodDefault = tobari.ContextMethodExactReview
+		draft.methodDefault = tobari.ManifestMethodExactReview
 	}
 	for _, override := range seed.Selection.MethodPolicy.Overrides {
 		draft.methodOverrides[override.Method] = override.Decision
 	}
-	if seed.Selection.SourceAccess == tobari.ContextSourceAccessReadOnly {
+	if seed.Selection.SourceAccess == tobari.ManifestSourceAccessReadOnly {
 		draft.sourceIndex = 1
 	}
 	if seed.Selection.Bootstrap != nil {
@@ -298,14 +298,14 @@ func contextCreateDraftFromSeed(seed contextCreateWizardSeed) contextCreateRawDr
 	return draft
 }
 
-func resetContextCreateDraftBase(draft *contextCreateRawDraft, base *tobari.ContextCreateBase) {
+func resetContextCreateDraftBase(draft *contextCreateRawDraft, base *tobari.ManifestCopySnapshot) {
 	name := draft.name
 	reviewAction, reviewTop, editSection := draft.reviewAction, draft.reviewTop, draft.editSection
 	seed := contextCreateWizardSeed{}
 	if base != nil {
 		copy := base.Clone()
 		seed.Selection = contextCreateSelection{
-			Base: &copy, PolicyMode: copy.PolicyMode, RuntimeSelection: copy.RuntimeSelection,
+			CopyFrom: &copy, PolicyMode: copy.PolicyMode, RuntimeSelection: copy.RuntimeSelection,
 			SourceAccess: copy.SourceAccess, NativeReadiness: copy.NativeReadiness,
 			MethodPolicy: copy.MethodPolicy.Clone(),
 		}
@@ -390,7 +390,7 @@ func editContextCreateTextRaw(
 		}
 		if needsRender {
 			lines := []string{
-				selectorTitle(style, "Tobari · Create Context"),
+				selectorTitle(style, "Tobari · Create Workspace Manifest"),
 				selectorDetail(style, "Step", contextCreateStepLabel(step), styleText),
 				"",
 				applyStyleToken(style, styleText, label+":"),
@@ -513,9 +513,9 @@ func editContextCreateChoiceRaw(
 			return selected, contextCreateNavigateCancel, err
 		}
 		lines := []string{
-			selectorTitle(style, "Tobari · Create Context"),
+			selectorTitle(style, "Tobari · Create Workspace Manifest"),
 			selectorDetail(style, "Step", contextCreateStepLabel(step), styleText),
-			selectorDetail(style, "Context", safeExternalText(name), styleText),
+			selectorDetail(style, "Workspace Manifest", safeExternalText(name), styleText),
 		}
 		for _, detail := range information {
 			lines = append(lines, selectorHelp(style, detail))
@@ -590,14 +590,14 @@ func editContextCreateMethodPolicyRaw(
 		if err := ctx.Err(); err != nil {
 			return contextCreateNavigateCancel, err
 		}
-		sourceAccess := []tobari.ContextSourceAccess{
-			tobari.ContextSourceAccessReadWrite,
-			tobari.ContextSourceAccessReadOnly,
+		sourceAccess := []tobari.ManifestSourceAccess{
+			tobari.ManifestSourceAccessReadWrite,
+			tobari.ManifestSourceAccessReadOnly,
 		}[draft.sourceIndex]
 		lines := []string{
-			selectorTitle(style, "Tobari · Create Context"),
+			selectorTitle(style, "Tobari · Create Workspace Manifest"),
 			selectorDetail(style, "Step", contextCreateStepLabel(contextCreateStepNetwork), styleText),
-			selectorDetail(style, "Context", safeExternalText(draft.name), styleText),
+			selectorDetail(style, "Workspace Manifest", safeExternalText(draft.name), styleText),
 			selectorDetail(style, "Filesystem", "source "+string(sourceAccess)+" · home read-write · tmpfs read-write", styleText),
 			selectorHelp(style, "Every method resolves to allow, exact review, or deny."),
 			"",
@@ -644,11 +644,11 @@ func editContextCreateMethodPolicyRaw(
 		case selectorKeyEnd:
 			draft.methodSelected = len(rows) - 1
 		case selectorKeyAllow, selectorKeyExact, selectorKeyDeny:
-			decision := tobari.ContextMethodExactReview
+			decision := tobari.ManifestMethodExactReview
 			if key.kind == selectorKeyAllow {
-				decision = tobari.ContextMethodAllow
+				decision = tobari.ManifestMethodAllow
 			} else if key.kind == selectorKeyDeny {
-				decision = tobari.ContextMethodDeny
+				decision = tobari.ManifestMethodDeny
 			}
 			if draft.methodSelected == 0 {
 				draft.methodDefault = decision
@@ -664,8 +664,8 @@ func editContextCreateMethodPolicyRaw(
 				message = rows[draft.methodSelected] + " now inherits the default."
 			}
 		case selectorKeyReset:
-			draft.methodDefault = tobari.ContextMethodExactReview
-			draft.methodOverrides = make(map[string]tobari.ContextMethodDecision)
+			draft.methodDefault = tobari.ManifestMethodExactReview
+			draft.methodOverrides = make(map[string]tobari.ManifestMethodDecision)
 			message = "Method policies reset to the reviewed defaults."
 		case selectorKeyEnter, selectorKeyApply:
 			return contextCreateNavigateNext, nil
@@ -690,9 +690,9 @@ func reviewContextCreateNetworkRaw(
 			return contextCreateNavigateCancel, err
 		}
 		lines := []string{
-			selectorTitle(style, "Tobari · Create Context"),
+			selectorTitle(style, "Tobari · Create Workspace Manifest"),
 			selectorDetail(style, "Step", contextCreateStepLabel(contextCreateStepNetwork), styleText),
-			selectorDetail(style, "Context", safeExternalText(draft.name), styleText),
+			selectorDetail(style, "Workspace Manifest", safeExternalText(draft.name), styleText),
 			"", applyStyleToken(style, styleText, "Agent traffic"),
 			"  Claude Code and Codex routine traffic  " + contextCreateRoutineTrafficPolicy(style, draft.nativeReadiness),
 			"", applyStyleToken(style, styleText, "Other destinations"),
@@ -740,7 +740,7 @@ func reviewContextCreateNetworkRaw(
 	}
 }
 
-func contextCreateEffectiveMethodLines(style bool, policy tobari.ContextMethodPolicy, includeSource bool) []string {
+func contextCreateEffectiveMethodLines(style bool, policy tobari.ManifestMethodPolicy, includeSource bool) []string {
 	rows := make([]string, 0, len(contextCreateHTTPMethods)+1)
 	for _, method := range contextCreateHTTPMethods {
 		decision := policy.Decision(method)
@@ -765,7 +765,7 @@ func contextCreateEffectiveMethodLines(style bool, policy tobari.ContextMethodPo
 // ANSI styles. Formatting a styled value directly makes the escape sequences
 // count toward %-25s/%-15s and shifts the columns only for highlighted rows.
 func contextCreateMethodPolicyRow(
-	style bool, marker, label string, labelToken styleToken, decision tobari.ContextMethodDecision, source string,
+	style bool, marker, label string, labelToken styleToken, decision tobari.ManifestMethodDecision, source string,
 ) string {
 	labelCell := fmt.Sprintf("%-*s", contextCreateMethodLabelWidth, label)
 	decisionCell := fmt.Sprintf("%-*s", contextCreateMethodDecisionWidth, displayMethodDecision(decision))
@@ -782,11 +782,11 @@ func reviewContextCreateLine(
 	}
 	chooser := &terminalContextConfigurationWizard{mode: nil, style: style}
 	index, err := chooser.choose(ctx, in, out, configurationWizardMenu{
-		title: "Tobari · Create Context · Review & Create", contextName: selection.Name, current: "draft",
+		title: "Tobari · Create Workspace Manifest · Review & Create", contextName: selection.Name, current: "draft",
 		prompt: "Action", options: []configurationWizardOption{
-			{label: "Create Context", description: "Create this exact reviewed boundary.", value: "create"},
+			{label: "Create Workspace Manifest", description: "Create this exact reviewed boundary.", value: "create"},
 			{label: "Edit settings", description: "Change one section, then return here.", value: "edit"},
-			{label: "Cancel", description: "Leave the Context collection unchanged.", value: "cancel"},
+			{label: "Cancel", description: "Leave the Workspace Manifest collection unchanged.", value: "cancel"},
 		},
 	})
 	if err != nil {
@@ -824,7 +824,7 @@ func (w *terminalContextCreateWizard) reviewContextCreateRaw(
 		if end > len(details) {
 			end = len(details)
 		}
-		lines := append([]string{selectorTitle(w.style, "Tobari · Create Context"), selectorDetail(w.style, "Step", contextCreateStepLabel(contextCreateStepReview), styleText), ""}, details[draft.reviewTop:end]...)
+		lines := append([]string{selectorTitle(w.style, "Tobari · Create Workspace Manifest"), selectorDetail(w.style, "Step", contextCreateStepLabel(contextCreateStepReview), styleText), ""}, details[draft.reviewTop:end]...)
 		if len(details) > reviewPageSize {
 			lines = append(lines, "", selectorHelp(w.style, fmt.Sprintf("Details %d-%d of %d · PgUp/PgDn scroll", draft.reviewTop+1, end, len(details))))
 		}
@@ -832,7 +832,7 @@ func (w *terminalContextCreateWizard) reviewContextCreateRaw(
 			lines = append(lines, "", applyStyleToken(w.style, styleWarning, message))
 		}
 		lines = append(lines, "")
-		actions := []string{"Create Context", "Edit settings", "Cancel"}
+		actions := []string{"Create Workspace Manifest", "Edit settings", "Cancel"}
 		for index, action := range actions {
 			marker, token := "  ", styleText
 			if index == draft.reviewAction {
@@ -897,7 +897,7 @@ func (w *terminalContextCreateWizard) reviewContextCreateRaw(
 		case selectorKeyCancel:
 			return contextCreateNavigateCancel, nil
 		default:
-			message = "Choose Create Context, Edit settings, or Cancel."
+			message = "Choose Create Workspace Manifest, Edit settings, or Cancel."
 		}
 	}
 }
@@ -908,13 +908,13 @@ func contextCreateSelectionFromDraft(draft contextCreateRawDraft) (contextCreate
 		return contextCreateSelection{}, err
 	}
 	selection := contextCreateSelection{
-		Base:       draft.base,
+		CopyFrom:   draft.base,
 		PolicyMode: draft.policyMode,
 		Name:       draft.name, RuntimeSelection: draft.runtimeSelection,
 		NativeReadiness: draft.nativeReadiness,
-		SourceAccess: []tobari.ContextSourceAccess{
-			tobari.ContextSourceAccessReadWrite,
-			tobari.ContextSourceAccessReadOnly,
+		SourceAccess: []tobari.ManifestSourceAccess{
+			tobari.ManifestSourceAccessReadWrite,
+			tobari.ManifestSourceAccessReadOnly,
 		}[draft.sourceIndex],
 		MethodPolicy: policy,
 	}
@@ -923,7 +923,7 @@ func contextCreateSelectionFromDraft(draft contextCreateRawDraft) (contextCreate
 		selection.Bootstrap = &copy
 		selection.AWSBootstrapProfile = copy.AWS.Profile
 		if copy.EKS != nil {
-			selection.EKSBootstrapContext = copy.EKS.ContextName
+			selection.EKSBootstrapContext = copy.EKS.WorkspaceManifestName
 		}
 	}
 	return selection, nil
@@ -936,8 +936,8 @@ func contextCreateReviewLines(style bool, selection contextCreateSelection) []st
 	}
 	runtimeSelection = contextRuntimeDisplaySelection(runtimeSelection)
 	lines := []string{
-		applyStyleToken(style, styleText, "Context"),
-		selectorDetail(style, "Base", contextCreateBaseDisplay(selection.Base), styleText),
+		applyStyleToken(style, styleText, "Workspace Manifest"),
+		selectorDetail(style, "Base", contextCreateBaseDisplay(selection.CopyFrom), styleText),
 		selectorDetail(style, "Name", safeExternalText(selection.Name), styleText),
 		selectorDetail(style, "Policy mode", string(selection.PolicyMode), styleText),
 		"", applyStyleToken(style, styleText, "Filesystem"),
@@ -974,22 +974,22 @@ func contextCreateReviewLines(style bool, selection contextCreateSelection) []st
 		if selection.Bootstrap.EKS == nil {
 			lines = append(lines, selectorDetail(style, "Amazon EKS", "not configured", styleMuted))
 		} else {
-			lines = append(lines, selectorDetail(style, "Amazon EKS", safeExternalText(selection.Bootstrap.EKS.ContextName+" / "+selection.Bootstrap.EKS.ClusterName), styleText))
+			lines = append(lines, selectorDetail(style, "Amazon EKS", safeExternalText(selection.Bootstrap.EKS.WorkspaceManifestName+" / "+selection.Bootstrap.EKS.ClusterName), styleText))
 		}
 	}
 	lines = append(lines, selectorHelp(style, "Applied only to newly created Workspace homes."))
 	return lines
 }
 
-func contextCreateBaseDisplay(base *tobari.ContextCreateBase) string {
+func contextCreateBaseDisplay(base *tobari.ManifestCopySnapshot) string {
 	if base == nil {
 		return "Tobari recommended settings"
 	}
 	return safeExternalText(base.Name) + " (draft initializer only)"
 }
 
-func contextCreateRoutineTrafficPolicy(style bool, readiness tobari.ContextNativeReadiness) string {
-	if readiness == tobari.ContextNativeReadinessDisabled {
+func contextCreateRoutineTrafficPolicy(style bool, readiness tobari.ManifestNativeReadiness) string {
+	if readiness == tobari.ManifestNativeReadinessDisabled {
 		return applyStyleToken(style, styleWarning, "not pre-authorized")
 	}
 	return applyStyleToken(style, styleSuccess, "allow")
@@ -998,11 +998,11 @@ func contextCreateRoutineTrafficPolicy(style bool, readiness tobari.ContextNativ
 func editContextCreateFilesystemLine(ctx context.Context, in io.Reader, out io.Writer, style bool, draft *contextCreateRawDraft) error {
 	chooser := &terminalContextConfigurationWizard{mode: nil, style: style}
 	index, err := chooser.choose(ctx, in, out, configurationWizardMenu{
-		title: "Tobari · Create Context", contextName: draft.name, current: "draft",
+		title: "Tobari · Create Workspace Manifest", contextName: draft.name, current: "draft",
 		information: []string{"Workspace home and temporary files stay read-write in both choices."},
 		prompt:      "Project source access", options: []configurationWizardOption{
-			{label: "Read-write", description: "Allow direct project-source changes.", value: string(tobari.ContextSourceAccessReadWrite)},
-			{label: "Read-only", description: "Prevent direct project-source changes.", value: string(tobari.ContextSourceAccessReadOnly)},
+			{label: "Read-write", description: "Allow direct project-source changes.", value: string(tobari.ManifestSourceAccessReadWrite)},
+			{label: "Read-only", description: "Prevent direct project-source changes.", value: string(tobari.ManifestSourceAccessReadOnly)},
 		},
 	})
 	if err == nil {
@@ -1017,7 +1017,7 @@ func editContextCreateNetworkLine(ctx context.Context, in io.Reader, out io.Writ
 		return err
 	}
 	if _, err := fmt.Fprintln(out, strings.Join(append([]string{
-		"Tobari · Create Context · Network access", "", "Agent traffic",
+		"Tobari · Create Workspace Manifest · Network access", "", "Agent traffic",
 		"  Claude Code and Codex routine traffic  allow", "", "Other destinations", "  METHOD                    POLICY",
 	}, append(contextCreateEffectiveMethodLines(false, policy, false), "", "Network ceiling", "  Private and unsafe destinations       deny")...), "\n")); err != nil {
 		return err
@@ -1033,12 +1033,12 @@ func editContextCreateNetworkLine(ctx context.Context, in io.Reader, out io.Writ
 	if err != nil || index == 0 {
 		return err
 	}
-	selected, err := selectContextCreateMethodPolicyLine(ctx, in, out, draft.name, []tobari.ContextSourceAccess{tobari.ContextSourceAccessReadWrite, tobari.ContextSourceAccessReadOnly}[draft.sourceIndex])
+	selected, err := selectContextCreateMethodPolicyLine(ctx, in, out, draft.name, []tobari.ManifestSourceAccess{tobari.ManifestSourceAccessReadWrite, tobari.ManifestSourceAccessReadOnly}[draft.sourceIndex])
 	if err != nil {
 		return err
 	}
 	draft.methodDefault = selected.Default
-	draft.methodOverrides = make(map[string]tobari.ContextMethodDecision, len(selected.Overrides))
+	draft.methodOverrides = make(map[string]tobari.ManifestMethodDecision, len(selected.Overrides))
 	for _, override := range selected.Overrides {
 		draft.methodOverrides[override.Method] = override.Decision
 	}
@@ -1052,7 +1052,7 @@ func (w *terminalContextCreateWizard) editContextCreateSettingsLine(ctx context.
 		options = append(options, configurationWizardOption{label: "Base", description: "Reset all Base-owned draft settings.", value: "base"})
 	}
 	options = append(options,
-		configurationWizardOption{label: "Context name", value: "name"},
+		configurationWizardOption{label: "Workspace Manifest name", value: "name"},
 		configurationWizardOption{label: "Filesystem access", value: "filesystem"},
 		configurationWizardOption{label: "Network access", value: "network"},
 		configurationWizardOption{label: "Runtime", value: "runtime"},
@@ -1060,7 +1060,7 @@ func (w *terminalContextCreateWizard) editContextCreateSettingsLine(ctx context.
 	)
 	options = append(options, configurationWizardOption{label: "Return to review", value: "review"})
 	index, err := chooser.choose(ctx, in, out, configurationWizardMenu{
-		title: "Tobari · Create Context · Edit settings", contextName: draft.name, current: "draft", prompt: "What do you want to edit?",
+		title: "Tobari · Create Workspace Manifest · Edit settings", contextName: draft.name, current: "draft", prompt: "What do you want to edit?",
 		options: options,
 	})
 	if err != nil {
@@ -1083,7 +1083,7 @@ func (w *terminalContextCreateWizard) editContextCreateSettingsLine(ctx context.
 	return err
 }
 
-func (w *terminalContextCreateWizard) contextCreateBaseOptions(current *tobari.ContextCreateBase) ([]configurationWizardOption, int) {
+func (w *terminalContextCreateWizard) contextCreateBaseOptions(current *tobari.ManifestCopySnapshot) ([]configurationWizardOption, int) {
 	options := []configurationWizardOption{{label: "Tobari recommended settings", description: "Reset to the stable product defaults.", value: ""}}
 	initial := 0
 	for _, item := range w.bases {
@@ -1103,7 +1103,7 @@ func (w *terminalContextCreateWizard) editContextCreateBaseLine(
 	options, initial := w.contextCreateBaseOptions(draft.base)
 	chooser := &terminalContextConfigurationWizard{mode: nil, style: w.style}
 	selected, err := chooser.choose(ctx, in, out, configurationWizardMenu{
-		title: "Tobari · Create Context · Base", contextName: draft.name,
+		title: "Tobari · Create Workspace Manifest · Base", contextName: draft.name,
 		current: contextCreateBaseDisplay(draft.base), prompt: "Base", options: options, initial: initial,
 	})
 	if err != nil {
@@ -1114,7 +1114,7 @@ func (w *terminalContextCreateWizard) editContextCreateBaseLine(
 		return nil
 	}
 	confirmed, err := chooser.choose(ctx, in, out, configurationWizardMenu{
-		title: "Tobari · Create Context · Reset Base", contextName: draft.name,
+		title: "Tobari · Create Workspace Manifest · Reset Base", contextName: draft.name,
 		information: []string{"Changing Base replaces every Base-owned draft setting, including prior customizations."},
 		prompt:      "Reset draft", options: []configurationWizardOption{
 			{label: "Reset draft", description: "Replace settings with the selected Base.", value: "reset"},
@@ -1135,9 +1135,9 @@ func (w *terminalContextCreateWizard) applyContextCreateBase(
 		return nil
 	}
 	if w.baseRead == nil {
-		return fmt.Errorf("Context creation Base reader is unavailable")
+		return fmt.Errorf("Workspace Manifest copy-source reader is unavailable")
 	}
-	base, err := w.baseRead.CreationBase(ctx, name)
+	base, err := w.baseRead.CopySnapshot(ctx, name)
 	if err != nil {
 		return err
 	}
@@ -1166,7 +1166,7 @@ func (w *terminalContextCreateWizard) editContextCreateRuntimeLine(ctx context.C
 		}
 	}
 	chooser := &terminalContextConfigurationWizard{mode: nil, style: w.style}
-	selected, err := chooser.choose(ctx, in, out, configurationWizardMenu{title: "Tobari · Create Context · Runtime", contextName: draft.name, current: contextRuntimeDisplaySelection(draft.runtimeSelection), information: []string{"Only already built immutable revisions can be selected."}, prompt: "Ready Runtime revision", options: options})
+	selected, err := chooser.choose(ctx, in, out, configurationWizardMenu{title: "Tobari · Create Workspace Manifest · Runtime", contextName: draft.name, current: contextRuntimeDisplaySelection(draft.runtimeSelection), information: []string{"Only already built immutable revisions can be selected."}, prompt: "Ready Runtime revision", options: options})
 	if err == nil {
 		draft.runtimeSelection = options[selected].value
 	}
@@ -1178,7 +1178,7 @@ func (w *terminalContextCreateWizard) reviewContextCreateBootstrapLine(ctx conte
 	chooser := &terminalContextConfigurationWizard{mode: nil, style: w.style}
 	options := contextCreateBootstrapStepOptions(draft.bootstrap)
 	index, err := chooser.choose(ctx, in, out, configurationWizardMenu{
-		title:       "Tobari · Create Context · Workspace bootstrap",
+		title:       "Tobari · Create Workspace Manifest · Workspace bootstrap",
 		contextName: draft.name,
 		current:     contextCreateBootstrapStepCurrent(draft.bootstrap),
 		information: []string{"Applied only to newly created Workspace homes.", "Host configuration is read only after Configure from host is selected."},
@@ -1195,7 +1195,7 @@ func (w *terminalContextCreateWizard) reviewContextCreateBootstrapLine(ctx conte
 	return w.editContextCreateBootstrapLine(ctx, in, out, draft)
 }
 
-func contextCreateBootstrapStepOptions(bootstrap *tobari.ContextBootstrapSnapshot) []configurationWizardOption {
+func contextCreateBootstrapStepOptions(bootstrap *tobari.ManifestBootstrapSnapshot) []configurationWizardOption {
 	options := []configurationWizardOption{
 		{label: "Continue with this setting", description: contextCreateBootstrapStepCurrent(bootstrap), value: "continue"},
 		{label: "Configure from host", description: "Review compatible AWS and optional Amazon EKS settings.", value: "configure"},
@@ -1206,13 +1206,13 @@ func contextCreateBootstrapStepOptions(bootstrap *tobari.ContextBootstrapSnapsho
 	return options
 }
 
-func contextCreateBootstrapStepCurrent(bootstrap *tobari.ContextBootstrapSnapshot) string {
+func contextCreateBootstrapStepCurrent(bootstrap *tobari.ManifestBootstrapSnapshot) string {
 	if bootstrap == nil {
 		return "not configured"
 	}
 	value := "AWS " + safeExternalText(bootstrap.AWS.Profile)
 	if bootstrap.EKS != nil {
-		value += " · EKS " + safeExternalText(bootstrap.EKS.ContextName)
+		value += " · EKS " + safeExternalText(bootstrap.EKS.WorkspaceManifestName)
 	}
 	return value
 }
@@ -1230,9 +1230,9 @@ func (w *terminalContextCreateWizard) editContextCreateBootstrapLine(ctx context
 		information = append(information, "Reason: "+safeExternalText(discovery.Reason), "Next: tobari help config bootstrap aws")
 	}
 	options := []configurationWizardOption{{label: "Continue without AWS bootstrap", description: "Keep future Workspace homes unconfigured.", value: "none"}}
-	available := []*tobari.ContextBootstrapSnapshot{nil}
+	available := []*tobari.ManifestBootstrapSnapshot{nil}
 	for _, candidate := range discovery.Candidates {
-		if candidate.State == tobari.ContextBootstrapCandidateUnavailable {
+		if candidate.State == tobari.ManifestBootstrapCandidateUnavailable {
 			information = append(information, "Unavailable: "+safeExternalText(candidate.Profile)+" — "+safeExternalText(candidate.Reason))
 			continue
 		}
@@ -1267,14 +1267,14 @@ func (w *terminalContextCreateWizard) editContextCreateEKSLine(ctx context.Conte
 		information = append(information, "Reason: "+safeExternalText(discovery.Reason))
 	}
 	options := []configurationWizardOption{{label: "Do not configure Amazon EKS", description: "Continue with AWS only.", value: "none"}}
-	available := []*tobari.ContextBootstrapSnapshot{nil}
+	available := []*tobari.ManifestBootstrapSnapshot{nil}
 	for _, candidate := range discovery.Candidates {
-		if candidate.State == tobari.ContextBootstrapCandidateUnavailable {
-			information = append(information, "Unavailable: "+safeExternalText(candidate.ContextName)+" — "+safeExternalText(candidate.Reason))
+		if candidate.State == tobari.ManifestBootstrapCandidateUnavailable {
+			information = append(information, "Unavailable: "+safeExternalText(candidate.WorkspaceManifestName)+" — "+safeExternalText(candidate.Reason))
 			continue
 		}
 		eks := candidate.Snapshot.EKS
-		options = append(options, configurationWizardOption{label: safeExternalText(eks.ContextName), description: safeExternalText("cluster " + eks.ClusterName + " · region " + eks.Region), value: eks.ContextName})
+		options = append(options, configurationWizardOption{label: safeExternalText(eks.WorkspaceManifestName), description: safeExternalText("cluster " + eks.ClusterName + " · region " + eks.Region), value: eks.WorkspaceManifestName})
 		available = append(available, candidate.Snapshot)
 	}
 	if len(available) == 1 {
@@ -1292,7 +1292,7 @@ func (w *terminalContextCreateWizard) editContextCreateEKSLine(ctx context.Conte
 	return nil
 }
 
-func (w *terminalContextCreateWizard) revalidateBootstrap(ctx context.Context, reviewed *tobari.ContextBootstrapSnapshot) (bool, *tobari.ContextBootstrapSnapshot, error) {
+func (w *terminalContextCreateWizard) revalidateBootstrap(ctx context.Context, reviewed *tobari.ManifestBootstrapSnapshot) (bool, *tobari.ManifestBootstrapSnapshot, error) {
 	if reviewed == nil {
 		return false, nil, nil
 	}
@@ -1304,7 +1304,7 @@ func (w *terminalContextCreateWizard) revalidateBootstrap(ctx context.Context, r
 		return false, nil, err
 	}
 	if reviewed.EKS != nil {
-		refreshed, err = w.bootstrap.PrepareEKSBootstrap(ctx, refreshed, reviewed.EKS.ContextName)
+		refreshed, err = w.bootstrap.PrepareEKSBootstrap(ctx, refreshed, reviewed.EKS.WorkspaceManifestName)
 		if err != nil {
 			return false, nil, err
 		}
@@ -1322,7 +1322,7 @@ func (w *terminalContextCreateWizard) editContextCreateSettingsRaw(ctx context.C
 		options = append(options, configurationWizardOption{label: "Base", value: "base"})
 	}
 	options = append(options,
-		configurationWizardOption{label: "Context name", value: "name"},
+		configurationWizardOption{label: "Workspace Manifest name", value: "name"},
 		configurationWizardOption{label: "Filesystem access", value: "filesystem"},
 		configurationWizardOption{label: "Network access", value: "network"},
 		configurationWizardOption{label: "Runtime", value: "runtime"},
@@ -1362,7 +1362,7 @@ func (w *terminalContextCreateWizard) editContextCreateSettingsRaw(ctx context.C
 		*draft = staged
 		return contextCreateNavigateNext, nil
 	case "name":
-		value, navigation, err := editContextCreateTextRaw(ctx, in, out, lineCount, w.style, contextCreateStepReview, "Context name", staged.name, maxContextCreateNameBytes, "Must match [a-z][a-z0-9-]{0,62}.", func(value string) error { return tobari.ValidateName(strings.TrimSpace(value)) }, true)
+		value, navigation, err := editContextCreateTextRaw(ctx, in, out, lineCount, w.style, contextCreateStepReview, "Workspace Manifest name", staged.name, maxContextCreateNameBytes, "Must match [a-z][a-z0-9-]{0,62}.", func(value string) error { return tobari.ValidateName(strings.TrimSpace(value)) }, true)
 		if err != nil {
 			return contextCreateNavigateCancel, err
 		}
@@ -1485,7 +1485,7 @@ func (w *terminalContextCreateWizard) reviewContextCreateBootstrapRaw(
 
 func cloneContextCreateRawDraft(draft contextCreateRawDraft) contextCreateRawDraft {
 	cloned := draft
-	cloned.methodOverrides = make(map[string]tobari.ContextMethodDecision, len(draft.methodOverrides))
+	cloned.methodOverrides = make(map[string]tobari.ManifestMethodDecision, len(draft.methodOverrides))
 	for method, decision := range draft.methodOverrides {
 		cloned.methodOverrides[method] = decision
 	}
@@ -1509,9 +1509,9 @@ func (w *terminalContextCreateWizard) editContextCreateBootstrapRaw(ctx context.
 		information = append(information, "Reason: "+safeExternalText(discovery.Reason), "Next: tobari help config bootstrap aws")
 	}
 	options := []configurationWizardOption{{label: "Continue without AWS bootstrap", description: "Keep future Workspace homes unconfigured."}}
-	available := []*tobari.ContextBootstrapSnapshot{nil}
+	available := []*tobari.ManifestBootstrapSnapshot{nil}
 	for _, candidate := range discovery.Candidates {
-		if candidate.State == tobari.ContextBootstrapCandidateUnavailable {
+		if candidate.State == tobari.ManifestBootstrapCandidateUnavailable {
 			information = append(information, "Unavailable: "+safeExternalText(candidate.Profile)+" — "+safeExternalText(candidate.Reason))
 			continue
 		}
@@ -1544,13 +1544,13 @@ func (w *terminalContextCreateWizard) editContextCreateBootstrapRaw(ctx context.
 		eksInfo = append(eksInfo, "Reason: "+safeExternalText(discoveredEKS.Reason))
 	}
 	eksOptions := []configurationWizardOption{{label: "Do not configure Amazon EKS", description: "Continue with AWS only."}}
-	eksAvailable := []*tobari.ContextBootstrapSnapshot{nil}
+	eksAvailable := []*tobari.ManifestBootstrapSnapshot{nil}
 	for _, candidate := range discoveredEKS.Candidates {
-		if candidate.State == tobari.ContextBootstrapCandidateUnavailable {
-			eksInfo = append(eksInfo, "Unavailable: "+safeExternalText(candidate.ContextName)+" — "+safeExternalText(candidate.Reason))
+		if candidate.State == tobari.ManifestBootstrapCandidateUnavailable {
+			eksInfo = append(eksInfo, "Unavailable: "+safeExternalText(candidate.WorkspaceManifestName)+" — "+safeExternalText(candidate.Reason))
 			continue
 		}
-		eksOptions = append(eksOptions, configurationWizardOption{label: safeExternalText(candidate.ContextName), description: safeExternalText("cluster " + candidate.Snapshot.EKS.ClusterName + " · region " + candidate.Snapshot.EKS.Region)})
+		eksOptions = append(eksOptions, configurationWizardOption{label: safeExternalText(candidate.WorkspaceManifestName), description: safeExternalText("cluster " + candidate.Snapshot.EKS.ClusterName + " · region " + candidate.Snapshot.EKS.Region)})
 		eksAvailable = append(eksAvailable, candidate.Snapshot)
 	}
 	if len(eksAvailable) == 1 {
@@ -1584,7 +1584,7 @@ func readContextCreateName(ctx context.Context, in io.Reader, out io.Writer) (st
 
 func readContextCreateNameWithDefault(ctx context.Context, in io.Reader, out io.Writer, initial string) (string, error) {
 	for {
-		label := "Context name"
+		label := "Workspace Manifest name"
 		if initial != "" {
 			label += " [" + safeExternalText(initial) + "]"
 		}
@@ -1599,7 +1599,7 @@ func readContextCreateNameWithDefault(ctx context.Context, in io.Reader, out io.
 		if err := tobari.ValidateName(name); err == nil {
 			return name, nil
 		}
-		if _, err := fmt.Fprintln(out, "Use a valid portable Context name."); err != nil {
+		if _, err := fmt.Fprintln(out, "Use a valid portable Workspace Manifest name."); err != nil {
 			return "", err
 		}
 	}
@@ -1610,20 +1610,20 @@ func selectContextCreateMethodPolicyLine(
 	in io.Reader,
 	out io.Writer,
 	name string,
-	sourceAccess tobari.ContextSourceAccess,
-) (tobari.ContextMethodPolicy, error) {
-	if _, err := fmt.Fprintf(out, "Tobari · Network method policy\nContext: %s\nFilesystem: source %s · home read-write · tmpfs read-write\n\n", safeExternalText(name), sourceAccess); err != nil {
-		return tobari.ContextMethodPolicy{}, err
+	sourceAccess tobari.ManifestSourceAccess,
+) (tobari.ManifestMethodPolicy, error) {
+	if _, err := fmt.Fprintf(out, "Tobari · Network method policy\nWorkspace Manifest: %s\nFilesystem: source %s · home read-write · tmpfs read-write\n\n", safeExternalText(name), sourceAccess); err != nil {
+		return tobari.ManifestMethodPolicy{}, err
 	}
-	defaultDecision, err := readContextCreateMethodDecision(ctx, in, out, "Other methods (default)", tobari.ContextMethodExactReview)
+	defaultDecision, err := readContextCreateMethodDecision(ctx, in, out, "Other methods (default)", tobari.ManifestMethodExactReview)
 	if err != nil {
-		return tobari.ContextMethodPolicy{}, err
+		return tobari.ManifestMethodPolicy{}, err
 	}
-	explicit := make(map[string]tobari.ContextMethodDecision)
+	explicit := make(map[string]tobari.ManifestMethodDecision)
 	for _, method := range contextCreateHTTPMethods {
 		decision, err := readContextCreateMethodDecision(ctx, in, out, method, defaultDecision)
 		if err != nil {
-			return tobari.ContextMethodPolicy{}, err
+			return tobari.ManifestMethodPolicy{}, err
 		}
 		explicit[method] = decision
 	}
@@ -1635,8 +1635,8 @@ func readContextCreateMethodDecision(
 	in io.Reader,
 	out io.Writer,
 	label string,
-	fallback tobari.ContextMethodDecision,
-) (tobari.ContextMethodDecision, error) {
+	fallback tobari.ManifestMethodDecision,
+) (tobari.ManifestMethodDecision, error) {
 	for {
 		if _, err := fmt.Fprintf(out, "%s [a allow, e exact review, d deny] [%s]: ", label, displayMethodDecision(fallback)); err != nil {
 			return "", err
@@ -1649,11 +1649,11 @@ func readContextCreateMethodDecision(
 		case "":
 			return fallback, nil
 		case "a", "allow":
-			return tobari.ContextMethodAllow, nil
+			return tobari.ManifestMethodAllow, nil
 		case "e", "exact", "exact-review", "exact_review", "review":
-			return tobari.ContextMethodExactReview, nil
+			return tobari.ManifestMethodExactReview, nil
 		case "d", "deny":
-			return tobari.ContextMethodDeny, nil
+			return tobari.ManifestMethodDeny, nil
 		case "q", "quit":
 			return "", context.Canceled
 		default:
@@ -1665,30 +1665,30 @@ func readContextCreateMethodDecision(
 }
 
 func buildContextCreateMethodPolicy(
-	defaultDecision tobari.ContextMethodDecision,
-	explicit map[string]tobari.ContextMethodDecision,
-) (tobari.ContextMethodPolicy, error) {
-	policy := tobari.ContextMethodPolicy{Default: defaultDecision, Overrides: []tobari.ContextMethodOverride{}}
+	defaultDecision tobari.ManifestMethodDecision,
+	explicit map[string]tobari.ManifestMethodDecision,
+) (tobari.ManifestMethodPolicy, error) {
+	policy := tobari.ManifestMethodPolicy{Default: defaultDecision, Overrides: []tobari.ManifestMethodOverride{}}
 	for _, method := range contextCreateHTTPMethods {
 		if decision, ok := explicit[method]; ok && decision != defaultDecision {
-			policy.Overrides = append(policy.Overrides, tobari.ContextMethodOverride{Method: method, Decision: decision})
+			policy.Overrides = append(policy.Overrides, tobari.ManifestMethodOverride{Method: method, Decision: decision})
 		}
 	}
 	return tobari.NormalizeContextMethodPolicy(policy)
 }
 
-func displayMethodDecision(decision tobari.ContextMethodDecision) string {
-	if decision == tobari.ContextMethodExactReview {
+func displayMethodDecision(decision tobari.ManifestMethodDecision) string {
+	if decision == tobari.ManifestMethodExactReview {
 		return "exact review"
 	}
 	return string(decision)
 }
 
-func methodDecisionStyle(decision tobari.ContextMethodDecision) styleToken {
+func methodDecisionStyle(decision tobari.ManifestMethodDecision) styleToken {
 	switch decision {
-	case tobari.ContextMethodAllow:
+	case tobari.ManifestMethodAllow:
 		return styleSuccess
-	case tobari.ContextMethodDeny:
+	case tobari.ManifestMethodDeny:
 		return styleWarning
 	default:
 		return styleText

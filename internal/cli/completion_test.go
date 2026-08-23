@@ -27,18 +27,19 @@ func newCompletionCLIRuntimeFake() *completionCLIRuntimeFake {
 	}}
 }
 
-func (f *completionCLIRuntimeFake) ListContexts(context.Context) (tobari.ContextListResult, error) {
-	return tobari.ContextListResult{
-		Task: tobari.TaskContextList, ContextState: tobari.ContextObservationSyntheticDefault,
-		Active: tobari.DefaultContextName, Items: []tobari.ContextSummary{},
+func (f *completionCLIRuntimeFake) ListContexts(context.Context) (tobari.ManifestListResult, error) {
+	return tobari.ManifestListResult{
+		Task: tobari.TaskManifestList, ManifestState: tobari.ManifestObservationAbsent,
+		Items: []tobari.ManifestSummary{},
 	}, nil
 }
 
 func (f *completionCLIRuntimeFake) ListRuntimes(context.Context) (tobari.RuntimeListResult, error) {
 	standard := tobari.RuntimeSummary{
-		ID: tobari.StandardRuntimeID, Name: tobari.StandardRuntimeName, Kind: tobari.RuntimeKindBuiltin,
+		ID: tobari.StandardRuntimeID, RuntimeRef: tobari.StandardRuntimeID, Name: tobari.StandardRuntimeName, Kind: tobari.RuntimeKindBuiltin,
 		Ready: true, Head: 1, Revision: "sha256:" + strings.Repeat("9", 64),
 	}
+	standard.RevisionRef = tobari.RuntimeRevisionRef(standard.ID, standard.Revision)
 	return tobari.RuntimeListResult{Task: tobari.TaskRuntimeList, Items: []tobari.RuntimeSummary{standard, tobari.RuntimeSummaryFrom(f.managed)}}, nil
 }
 
@@ -62,13 +63,13 @@ func TestCompletionPlansCatalogCommandWords(t *testing.T) {
 		words   []string
 		want    []string
 	}{
-		{name: "root prefix", current: 2, words: []string{"tobari", "cont"}, want: []string{"candidate:context"}},
-		{name: "root choices", current: 2, words: []string{"tobari", "c"}, want: []string{"candidate:cluster", "candidate:completion", "candidate:config", "candidate:context"}},
-		{name: "nested prefix", current: 3, words: []string{"tobari", "context", "r"}, want: []string{"candidate:runtime"}},
+		{name: "root prefix", current: 2, words: []string{"tobari", "mani"}, want: []string{"candidate:manifest"}},
+		{name: "root choices", current: 2, words: []string{"tobari", "c"}, want: []string{"candidate:cluster", "candidate:completion", "candidate:config"}},
+		{name: "nested prefix", current: 3, words: []string{"tobari", "manifest", "r"}, want: []string{"candidate:runtime"}},
 		{name: "help selector", current: 4, words: []string{"tobari", "help", "runtime", "b"}, want: []string{"candidate:build"}},
-		{name: "command flags", current: 4, words: []string{"tobari", "context", "show", "--"}, want: []string{"candidate:--name", "candidate:--details", "candidate:--format"}},
-		{name: "allowed value", current: 5, words: []string{"tobari", "context", "show", "--format", "j"}, want: []string{"candidate:json"}},
-		{name: "inline allowed value", current: 4, words: []string{"tobari", "context", "show", "--format=j"}, want: []string{"candidate:--format=json"}},
+		{name: "command flags", current: 4, words: []string{"tobari", "manifest", "show", "--"}, want: []string{"candidate:--name", "candidate:--details", "candidate:--format"}},
+		{name: "allowed value", current: 5, words: []string{"tobari", "manifest", "show", "--format", "j"}, want: []string{"candidate:json"}},
+		{name: "inline allowed value", current: 4, words: []string{"tobari", "manifest", "show", "--format=j"}, want: []string{"candidate:--format=json"}},
 		{name: "global value", current: 3, words: []string{"tobari", "--error-format", "j"}, want: []string{"candidate:json"}},
 		{name: "directory", current: 4, words: []string{"tobari", "doctor", "--root", ""}, want: []string{"directive:directories"}},
 	}
@@ -94,11 +95,11 @@ func TestCompletionPlansDynamicCandidatesFromTypedService(t *testing.T) {
 		words   []string
 		want    []string
 	}{
-		{name: "root context", current: 3, words: []string{"tobari", "--context", "d"}, want: []string{"candidate:default"}},
-		{name: "command context", current: 5, words: []string{"tobari", "context", "show", "--name", "d"}, want: []string{"candidate:default"}},
+		{name: "root context", current: 3, words: []string{"tobari", "--manifest", "d"}, want: []string{}},
+		{name: "command context", current: 5, words: []string{"tobari", "manifest", "show", "--name", "d"}, want: []string{}},
 		{name: "runtime name", current: 5, words: []string{"tobari", "runtime", "show", "--name", "s"}, want: []string{"candidate:standard", "candidate:sre"}},
 		{name: "managed runtime", current: 5, words: []string{"tobari", "runtime", "build", "--name", "s"}, want: []string{"candidate:sre"}},
-		{name: "ready runtime", current: 6, words: []string{"tobari", "context", "runtime", "set", "--runtime", "s"}, want: []string{"candidate:standard", "candidate:sre@2", "candidate:sre@1"}},
+		{name: "ready runtime", current: 6, words: []string{"tobari", "manifest", "runtime", "set", "--runtime", "s"}, want: []string{"candidate:standard", "candidate:sre@2", "candidate:sre@1"}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -116,10 +117,10 @@ func TestCompletionPlansDynamicCandidatesFromTypedService(t *testing.T) {
 func TestCompletionCandidatesCommandEmitsBoundedTSV(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	command := newCLI(strings.NewReader(""), &stdout, &stderr, DefaultCatalog(), passingInspector("unused"))
-	if code := runCLI(command, []string{"completion", "candidates", "--current=2", "--", "tobari", "cont"}); code != ExitOK {
+	if code := runCLI(command, []string{"completion", "candidates", "--current=2", "--", "tobari", "mani"}); code != ExitOK {
 		t.Fatalf("code = %d, stderr = %q", code, stderr.String())
 	}
-	if stdout.String() != "candidate\tcontext\n" {
+	if stdout.String() != "candidate\tmanifest\n" {
 		t.Fatalf("stdout = %q", stdout.String())
 	}
 	if strings.Contains(stdout.String(), "\\t") {
@@ -131,7 +132,7 @@ func TestZshCompletionAdapterIsStaticAndLive(t *testing.T) {
 	if !strings.HasPrefix(zshCompletionAdapter, "#compdef tobari\n") ||
 		!strings.Contains(zshCompletionAdapter, "command tobari completion candidates") ||
 		!strings.Contains(zshCompletionAdapter, "_directories") ||
-		strings.Contains(zshCompletionAdapter, "context runtime set") {
+		strings.Contains(zshCompletionAdapter, "manifest runtime set") {
 		t.Fatalf("zsh adapter = %q", zshCompletionAdapter)
 	}
 }
@@ -146,14 +147,14 @@ func TestCompletionRecordProjectionRejectsStructuralInjection(t *testing.T) {
 
 func TestCatalogDeclaresTypedCompletionSources(t *testing.T) {
 	tests := map[string]map[string]InputCompletion{
-		"doctor":              {"--root": InputCompletionDirectory},
-		"help":                {"command": InputCompletionCommand},
-		"context show":        {"--name": InputCompletionContextName},
-		"context create":      {"--base": InputCompletionContextName, "--name": InputCompletionNone, "--runtime": InputCompletionReadyRuntimeReference},
-		"context runtime set": {"--runtime": InputCompletionReadyRuntimeReference, "--context": InputCompletionContextName},
-		"runtime show":        {"--name": InputCompletionRuntimeName},
-		"runtime create":      {"--base": InputCompletionRuntimeName},
-		"runtime build":       {"--name": InputCompletionManagedRuntimeName},
+		"doctor":               {"--root": InputCompletionDirectory},
+		"help":                 {"command": InputCompletionCommand},
+		"manifest show":        {"--name": InputCompletionContextName},
+		"manifest create":      {"--copy-from": InputCompletionContextName, "--name": InputCompletionNone, "--runtime": InputCompletionReadyRuntimeReference},
+		"manifest runtime set": {"--runtime": InputCompletionReadyRuntimeReference, "--manifest": InputCompletionContextName},
+		"runtime show":         {"--name": InputCompletionRuntimeName},
+		"runtime create":       {"--copy-source-from": InputCompletionRuntimeName},
+		"runtime build":        {"--name": InputCompletionManagedRuntimeName},
 	}
 	for path, expected := range tests {
 		spec, found := DefaultCatalog().Lookup(path)

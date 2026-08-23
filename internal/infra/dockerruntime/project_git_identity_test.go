@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/tasuku43/tobari/internal/domain/tobari"
 )
@@ -36,20 +37,27 @@ func projectGitTestRuntime(t *testing.T) *Runtime {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err := runtime.ensureContextStore(); err != nil {
+		t.Fatal(err)
+	}
 	return runtime
 }
 
-func projectGitTestInstance(t *testing.T, runtime *Runtime) tobari.ProjectInstance {
+func projectGitTestInstance(t *testing.T, runtime *Runtime) tobari.Workspace {
 	t.Helper()
 	root := canonicalTestDirectory(t)
-	instance := tobari.ProjectInstance{
-		SchemaVersion: tobari.ProjectStateSchemaVersion,
-		ID:            "01900000-0000-7000-8000-0000000000a1",
-		Root:          root,
-		ContextID:     "01912345-6789-7abc-8def-0123456789ad",
-		ContextName:   "default",
-		Profile:       tobari.DefaultProfile,
-		Image:         tobari.BuiltinImageSelector,
+	instance := tobari.Workspace{
+		SchemaVersion:         tobari.WorkspaceStateSchemaVersion,
+		ID:                    "01900000-0000-7000-8000-0000000000a1",
+		Root:                  root,
+		WorkspaceManifestID:   "01912345-6789-7abc-8def-0123456789ad",
+		WorkspaceManifestName: "default",
+		Profile:               tobari.DefaultProfile,
+		Image:                 tobari.BuiltinImageSelector,
+		CreationApplied: tobari.WorkspaceCreationApplied{
+			CreationDefaultsRevision: "sha256:" + strings.Repeat("a", 64),
+			AppliedAt:                time.Unix(0, 0).UTC(),
+		},
 	}
 	if err := instance.Validate(); err != nil {
 		t.Fatal(err)
@@ -64,16 +72,16 @@ func projectGitTestInstance(t *testing.T, runtime *Runtime) tobari.ProjectInstan
 	return instance
 }
 
-func projectGitTestManifest(t *testing.T, setting *tobari.ContextGitIdentitySetting) tobari.ContextManifest {
+func projectGitTestManifest(t *testing.T, setting *tobari.ManifestGitIdentitySetting) tobari.WorkspaceManifest {
 	t.Helper()
-	manifest := tobari.ContextManifest{
-		SchemaVersion:  tobari.ContextSchemaVersion,
+	manifest := tobari.WorkspaceManifest{
+		SchemaVersion:  tobari.WorkspaceManifestSchemaVersion,
 		ID:             "01912345-6789-7abc-8def-0123456789ad",
 		Name:           "default",
 		AgentProfile:   tobari.DefaultProfile,
 		Image:          tobari.BuiltinImageSelector,
-		PolicyMode:     tobari.ContextPolicyModeGuided,
-		SourceAccess:   tobari.ContextSourceAccessReadWrite,
+		PolicyMode:     tobari.ManifestPolicyModeGuided,
+		SourceAccess:   tobari.ManifestSourceAccessReadWrite,
 		PolicyRevision: tobari.DefaultContextPolicyRevision(),
 		GitIdentity:    setting,
 	}
@@ -83,9 +91,9 @@ func projectGitTestManifest(t *testing.T, setting *tobari.ContextGitIdentitySett
 	return manifest
 }
 
-func literalProjectGitSetting(name, email string) *tobari.ContextGitIdentitySetting {
-	return &tobari.ContextGitIdentitySetting{
-		Source: tobari.ContextGitIdentityLiteral,
+func literalProjectGitSetting(name, email string) *tobari.ManifestGitIdentitySetting {
+	return &tobari.ManifestGitIdentitySetting{
+		Source: tobari.ManifestGitIdentityLiteral,
 		Name:   &name,
 		Email:  &email,
 	}
@@ -239,7 +247,7 @@ func TestReconcileProjectGitIdentityIncompleteInheritanceRemovesOnlyFallback(t *
 	}
 	resolver := &staticHostGitIdentityResolver{}
 	runtime.gitIdentity = resolver
-	setting := &tobari.ContextGitIdentitySetting{Source: tobari.ContextGitIdentityInherit}
+	setting := &tobari.ManifestGitIdentitySetting{Source: tobari.ManifestGitIdentityInherit}
 	if err := runtime.reconcileProjectGitIdentity(context.Background(), projectGitTestManifest(t, setting), instance); err != nil {
 		t.Fatal(err)
 	}
@@ -268,7 +276,7 @@ func TestReconcileProjectGitIdentityFailurePreservesPreviousProjection(t *testin
 		t.Fatal(err)
 	}
 	runtime.gitIdentity = &staticHostGitIdentityResolver{err: errors.New("private diagnostic")}
-	setting := &tobari.ContextGitIdentitySetting{Source: tobari.ContextGitIdentityInherit}
+	setting := &tobari.ManifestGitIdentitySetting{Source: tobari.ManifestGitIdentityInherit}
 	err = runtime.reconcileProjectGitIdentity(context.Background(), projectGitTestManifest(t, setting), instance)
 	assertGitIdentityResolutionFault(t, err)
 	path, _ := runtime.projectGitConfigPath(instance.ID)
@@ -290,7 +298,7 @@ func TestReconcileProjectGitIdentityPreservesCancellation(t *testing.T) {
 			runtime := projectGitTestRuntime(t)
 			instance := projectGitTestInstance(t, runtime)
 			runtime.gitIdentity = &staticHostGitIdentityResolver{err: canceled}
-			setting := &tobari.ContextGitIdentitySetting{Source: tobari.ContextGitIdentityInherit}
+			setting := &tobari.ManifestGitIdentitySetting{Source: tobari.ManifestGitIdentityInherit}
 			err := runtime.reconcileProjectGitIdentity(context.Background(), projectGitTestManifest(t, setting), instance)
 			if !errors.Is(err, canceled) {
 				t.Fatalf("error = %v, want %v", err, canceled)
@@ -321,12 +329,13 @@ func TestEnsureProjectRuntimeStopsBeforeDockerWhenInheritedGitResolutionFails(t 
 	if err := runtime.writeProjectGitConfig(instance.ID, previous); err != nil {
 		t.Fatal(err)
 	}
-	manifest, _, err := runtime.contextByID(instance.ContextID)
+	manifest, _, err := runtime.contextByID(instance.WorkspaceManifestID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	manifest.GitIdentity = &tobari.ContextGitIdentitySetting{Source: tobari.ContextGitIdentityInherit}
-	if err := writeAtomicJSON(runtime.contextManifestPath(manifest.Name), manifest); err != nil {
+	draft := manifest
+	draft.GitIdentity = &tobari.ManifestGitIdentitySetting{Source: tobari.ManifestGitIdentityInherit}
+	if _, err := runtime.publishWorkspaceManifestUpdate(manifest, draft); err != nil {
 		t.Fatal(err)
 	}
 	runtime.gitIdentity = &staticHostGitIdentityResolver{err: errors.New("private diagnostic")}
@@ -418,10 +427,10 @@ func TestProjectContainerInspectsExactSourceBindAccess(t *testing.T) {
 	for _, test := range []struct {
 		name   string
 		rw     bool
-		access tobari.ContextSourceAccess
+		access tobari.ManifestSourceAccess
 	}{
-		{name: "read write", rw: true, access: tobari.ContextSourceAccessReadWrite},
-		{name: "read only", rw: false, access: tobari.ContextSourceAccessReadOnly},
+		{name: "read write", rw: true, access: tobari.ManifestSourceAccessReadWrite},
+		{name: "read only", rw: false, access: tobari.ManifestSourceAccessReadOnly},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
@@ -504,11 +513,11 @@ func TestProjectContainerSelectsOnlyDirectSourceBindAccess(t *testing.T) {
 	t.Parallel()
 	for _, test := range []struct {
 		name       string
-		access     tobari.ContextSourceAccess
+		access     tobari.ManifestSourceAccess
 		wantSuffix string
 	}{
-		{name: "read write", access: tobari.ContextSourceAccessReadWrite},
-		{name: "read only", access: tobari.ContextSourceAccessReadOnly, wantSuffix: ",readonly"},
+		{name: "read write", access: tobari.ManifestSourceAccessReadWrite},
+		{name: "read only", access: tobari.ManifestSourceAccessReadOnly, wantSuffix: ",readonly"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
@@ -575,7 +584,7 @@ func TestProjectRuntimeSpecIncludesGitFallbackEnvironmentAndMount(t *testing.T) 
 	spec, err := runtime.projectRuntimeSpecWithAuthAndCommand(
 		state, instance, profile, "network", "image", "sha256:image",
 		projectAuthProjection{Environment: []string{}, Files: []projectAuthFile{}}, projectLifetimeCommand(),
-		tobari.ContextSourceAccessReadWrite,
+		tobari.ManifestSourceAccessReadWrite,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -614,13 +623,13 @@ func TestProjectRuntimeSpecHashBindsSourceAccess(t *testing.T) {
 	state := runtimeState(filepath.Dir(instance.Root))
 	auth := projectAuthProjection{Environment: []string{}, Files: []projectAuthFile{}}
 	readWrite, err := runtime.projectSpecHashWithAuthAndSourceAccess(
-		state, instance, profile, "network", "image", "sha256:image", auth, tobari.ContextSourceAccessReadWrite,
+		state, instance, profile, "network", "image", "sha256:image", auth, tobari.ManifestSourceAccessReadWrite,
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
 	readOnly, err := runtime.projectSpecHashWithAuthAndSourceAccess(
-		state, instance, profile, "network", "image", "sha256:image", auth, tobari.ContextSourceAccessReadOnly,
+		state, instance, profile, "network", "image", "sha256:image", auth, tobari.ManifestSourceAccessReadOnly,
 	)
 	if err != nil {
 		t.Fatal(err)

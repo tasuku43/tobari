@@ -2,104 +2,104 @@ package tobari
 
 import "fmt"
 
-// ContextRoutineTrafficState is the effective availability of the trusted
+// ManifestRoutineTrafficState is the effective availability of the trusted
 // binary's reviewed native-client traffic inside one Context Boundary.
-type ContextRoutineTrafficState string
+type ManifestRoutineTrafficState string
 
 const (
-	ContextRoutineTrafficReady      ContextRoutineTrafficState = "ready"
-	ContextRoutineTrafficLimited    ContextRoutineTrafficState = "limited"
-	ContextRoutineTrafficNotEnabled ContextRoutineTrafficState = "not_enabled"
+	ManifestRoutineTrafficReady      ManifestRoutineTrafficState = "ready"
+	ManifestRoutineTrafficLimited    ManifestRoutineTrafficState = "limited"
+	ManifestRoutineTrafficNotEnabled ManifestRoutineTrafficState = "not_enabled"
 )
 
-func (s ContextRoutineTrafficState) Validate() error {
+func (s ManifestRoutineTrafficState) Validate() error {
 	switch s {
-	case ContextRoutineTrafficReady, ContextRoutineTrafficLimited, ContextRoutineTrafficNotEnabled:
+	case ManifestRoutineTrafficReady, ManifestRoutineTrafficLimited, ManifestRoutineTrafficNotEnabled:
 		return nil
 	default:
-		return fmt.Errorf("Context routine traffic state is invalid: %q", s)
+		return fmt.Errorf("Workspace Manifest routine traffic state is invalid: %q", s)
 	}
 }
 
-type ContextShellDefaultState string
+type ManifestShellDefaultState string
 
 const (
-	ContextShellDefaultStandard   ContextShellDefaultState = "standard"
-	ContextShellDefaultInherited  ContextShellDefaultState = "inherited"
-	ContextShellDefaultCustomized ContextShellDefaultState = "customized"
+	ManifestShellDefaultStandard   ManifestShellDefaultState = "standard"
+	ManifestShellDefaultInherited  ManifestShellDefaultState = "inherited"
+	ManifestShellDefaultCustomized ManifestShellDefaultState = "customized"
 )
 
-func (s ContextShellDefaultState) Validate() error {
+func (s ManifestShellDefaultState) Validate() error {
 	switch s {
-	case ContextShellDefaultStandard, ContextShellDefaultInherited, ContextShellDefaultCustomized:
+	case ManifestShellDefaultStandard, ManifestShellDefaultInherited, ManifestShellDefaultCustomized:
 		return nil
 	default:
-		return fmt.Errorf("Context shell default state is invalid: %q", s)
+		return fmt.Errorf("Workspace Manifest shell default state is invalid: %q", s)
 	}
 }
 
-type ContextGitDefaultState string
+type ManifestGitDefaultState string
 
 const (
-	ContextGitDefaultNotImported ContextGitDefaultState = "not_imported"
-	ContextGitDefaultInherited   ContextGitDefaultState = "inherited"
-	ContextGitDefaultConfigured  ContextGitDefaultState = "configured"
+	ManifestGitDefaultNotImported ManifestGitDefaultState = "not_imported"
+	ManifestGitDefaultInherited   ManifestGitDefaultState = "inherited"
+	ManifestGitDefaultConfigured  ManifestGitDefaultState = "configured"
 )
 
-func (s ContextGitDefaultState) Validate() error {
+func (s ManifestGitDefaultState) Validate() error {
 	switch s {
-	case ContextGitDefaultNotImported, ContextGitDefaultInherited, ContextGitDefaultConfigured:
+	case ManifestGitDefaultNotImported, ManifestGitDefaultInherited, ManifestGitDefaultConfigured:
 		return nil
 	default:
-		return fmt.Errorf("Context Git default state is invalid: %q", s)
+		return fmt.Errorf("Workspace Manifest Git default state is invalid: %q", s)
 	}
 }
 
-type ContextBootstrapDefaultState string
+type ManifestBootstrapDefaultState string
 
 const (
-	ContextBootstrapDefaultNone       ContextBootstrapDefaultState = "none"
-	ContextBootstrapDefaultConfigured ContextBootstrapDefaultState = "configured"
+	ManifestBootstrapDefaultNone       ManifestBootstrapDefaultState = "none"
+	ManifestBootstrapDefaultConfigured ManifestBootstrapDefaultState = "configured"
 )
 
-func (s ContextBootstrapDefaultState) Validate() error {
+func (s ManifestBootstrapDefaultState) Validate() error {
 	switch s {
-	case ContextBootstrapDefaultNone, ContextBootstrapDefaultConfigured:
+	case ManifestBootstrapDefaultNone, ManifestBootstrapDefaultConfigured:
 		return nil
 	default:
-		return fmt.Errorf("Context bootstrap default state is invalid: %q", s)
+		return fmt.Errorf("Workspace Manifest bootstrap default state is invalid: %q", s)
 	}
 }
 
-// ContextRoutineAction identifies the next task implied by the selected
+// ManifestRoutineAction identifies the next task implied by the selected
 // Context state without carrying presentation text.
-type ContextRoutineAction string
+type ManifestRoutineAction string
 
 const (
-	ContextRoutineActionEnterCurrent    ContextRoutineAction = "enter_current"
-	ContextRoutineActionEnterNamed      ContextRoutineAction = "enter_named"
-	ContextRoutineActionBuildRuntime    ContextRoutineAction = "build_runtime"
-	ContextRoutineActionSelectThenBuild ContextRoutineAction = "select_then_build"
+	ManifestRoutineActionEnterCurrent    ManifestRoutineAction = "enter_current"
+	ManifestRoutineActionEnterNamed      ManifestRoutineAction = "enter_named"
+	ManifestRoutineActionBuildRuntime    ManifestRoutineAction = "build_runtime"
+	ManifestRoutineActionSelectThenBuild ManifestRoutineAction = "select_then_build"
 )
 
-func (a ContextRoutineAction) Validate() error {
+func (a ManifestRoutineAction) Validate() error {
 	switch a {
-	case ContextRoutineActionEnterCurrent, ContextRoutineActionEnterNamed,
-		ContextRoutineActionBuildRuntime, ContextRoutineActionSelectThenBuild:
+	case ManifestRoutineActionEnterCurrent, ManifestRoutineActionEnterNamed,
+		ManifestRoutineActionBuildRuntime, ManifestRoutineActionSelectThenBuild:
 		return nil
 	default:
-		return fmt.Errorf("Context routine action is invalid: %q", a)
+		return fmt.Errorf("Workspace Manifest routine action is invalid: %q", a)
 	}
 }
 
-type ContextAccessSummary struct {
-	SourceAccess   ContextSourceAccess
-	RoutineTraffic ContextRoutineTrafficState
-	MethodPolicy   ContextMethodPolicy
-	PrivateTargets ContextMethodDecision
+type ManifestAccessSummary struct {
+	SourceAccess   ManifestSourceAccess
+	RoutineTraffic ManifestRoutineTrafficState
+	MethodPolicy   ManifestMethodPolicy
+	PrivateTargets ManifestMethodDecision
 }
 
-func (s ContextAccessSummary) Validate() error {
+func (s ManifestAccessSummary) Validate() error {
 	if err := s.SourceAccess.Validate(); err != nil {
 		return err
 	}
@@ -109,13 +109,13 @@ func (s ContextAccessSummary) Validate() error {
 	if err := s.MethodPolicy.Validate(); err != nil {
 		return err
 	}
-	if s.PrivateTargets != ContextMethodDeny {
-		return fmt.Errorf("private targets must remain denied in the routine Context summary")
+	if s.PrivateTargets != ManifestMethodDeny {
+		return fmt.Errorf("private targets must remain denied in the routine Workspace Manifest summary")
 	}
 	return nil
 }
 
-func validateRoutineAccessProjection(summary *ContextAccessSummary, source ContextSourceAccess, methods ContextMethodPolicy) error {
+func validateRoutineAccessProjection(summary *ManifestAccessSummary, source ManifestSourceAccess, methods ManifestMethodPolicy) error {
 	if summary == nil {
 		return nil
 	}
@@ -124,23 +124,23 @@ func validateRoutineAccessProjection(summary *ContextAccessSummary, source Conte
 	}
 	if summary.SourceAccess != source || summary.MethodPolicy.Default != methods.Default ||
 		len(summary.MethodPolicy.Overrides) != len(methods.Overrides) {
-		return fmt.Errorf("Context routine Access does not match its source or method projection")
+		return fmt.Errorf("Workspace Manifest routine Access does not match its source or method projection")
 	}
 	for index := range methods.Overrides {
 		if summary.MethodPolicy.Overrides[index] != methods.Overrides[index] {
-			return fmt.Errorf("Context routine Access does not match its method overrides")
+			return fmt.Errorf("Workspace Manifest routine Access does not match its method overrides")
 		}
 	}
 	return nil
 }
 
-type ContextWorkspaceDefaultsSummary struct {
-	Shell     ContextShellDefaultState
-	Git       ContextGitDefaultState
-	Bootstrap ContextBootstrapDefaultState
+type ManifestWorkspaceDefaultsSummary struct {
+	Shell     ManifestShellDefaultState
+	Git       ManifestGitDefaultState
+	Bootstrap ManifestBootstrapDefaultState
 }
 
-func (s ContextWorkspaceDefaultsSummary) Validate() error {
+func (s ManifestWorkspaceDefaultsSummary) Validate() error {
 	if err := s.Shell.Validate(); err != nil {
 		return err
 	}
@@ -150,21 +150,21 @@ func (s ContextWorkspaceDefaultsSummary) Validate() error {
 	return s.Bootstrap.Validate()
 }
 
-type ContextRoutineSummary struct {
-	Access              ContextAccessSummary
+type ManifestRoutineSummary struct {
+	Access              ManifestAccessSummary
 	RuntimeSelection    string
-	RuntimeStatus       ContextRuntimeStatus
-	Defaults            ContextWorkspaceDefaultsSummary
+	RuntimeStatus       ManifestRuntimeStatus
+	Defaults            ManifestWorkspaceDefaultsSummary
 	AuthenticationMode  string
 	RecommendedNotSaved bool
-	Action              ContextRoutineAction
+	Action              ManifestRoutineAction
 }
 
-func (s ContextRoutineSummary) Validate() error {
+func (s ManifestRoutineSummary) Validate() error {
 	if err := s.Access.Validate(); err != nil {
 		return err
 	}
-	if s.RuntimeStatus == ContextRuntimeStatusOfficial || s.RuntimeStatus == ContextRuntimeStatusReady {
+	if s.RuntimeStatus == ManifestRuntimeStatusOfficial || s.RuntimeStatus == ManifestRuntimeStatusReady {
 		if err := validateRuntimeDisplaySelection(s.RuntimeSelection); err != nil {
 			return err
 		}
@@ -176,9 +176,9 @@ func (s ContextRoutineSummary) Validate() error {
 		return err
 	}
 	switch s.AuthenticationMode {
-	case ContextAuthenticationModeNative, ContextAuthenticationModeBroker, ContextAuthenticationModeNotApplicable:
+	case ManifestAuthenticationModeNative, ManifestAuthenticationModeBroker, ManifestAuthenticationModeNotApplicable:
 	default:
-		return fmt.Errorf("Context routine authentication mode is invalid: %q", s.AuthenticationMode)
+		return fmt.Errorf("Workspace Manifest routine authentication mode is invalid: %q", s.AuthenticationMode)
 	}
 	return s.Action.Validate()
 }
@@ -187,89 +187,89 @@ func (s ContextRoutineSummary) Validate() error {
 // the actual Context destination and method ceilings. It does not infer
 // process identity or general network availability.
 func SummarizeContextAccess(
-	policy ContextPolicy, source ContextSourceAccess, readiness ContextNativeReadiness,
-) (ContextAccessSummary, error) {
+	policy ManifestPolicy, source ManifestSourceAccess, readiness ManifestNativeReadiness,
+) (ManifestAccessSummary, error) {
 	if err := source.Validate(); err != nil {
-		return ContextAccessSummary{}, err
+		return ManifestAccessSummary{}, err
 	}
 	normalized, _, _, err := NormalizeContextPolicy(policy)
 	if err != nil {
-		return ContextAccessSummary{}, err
+		return ManifestAccessSummary{}, err
 	}
 	resolved, err := ResolveContextNativeReadiness(readiness)
 	if err != nil {
-		return ContextAccessSummary{}, err
+		return ManifestAccessSummary{}, err
 	}
-	traffic := ContextRoutineTrafficNotEnabled
-	if resolved == ContextNativeReadinessEnabled {
-		traffic = ContextRoutineTrafficReady
+	traffic := ManifestRoutineTrafficNotEnabled
+	if resolved == ManifestNativeReadinessEnabled {
+		traffic = ManifestRoutineTrafficReady
 		for _, bundle := range nativeToolAuthReadinessBundles() {
-			for _, rule := range append(append([]ContextPolicyExactRule(nil), bundle.BaselineGrants...), bundle.GraphQLEndpoints...) {
+			for _, rule := range append(append([]ManifestPolicyExactRule(nil), bundle.BaselineGrants...), bundle.GraphQLEndpoints...) {
 				if !contextPolicyRuleInsideDestination(normalized.DestinationCeiling, rule) ||
-					normalized.MethodPolicy.Decision(rule.Method) == ContextMethodDeny {
-					traffic = ContextRoutineTrafficLimited
+					normalized.MethodPolicy.Decision(rule.Method) == ManifestMethodDeny {
+					traffic = ManifestRoutineTrafficLimited
 					break
 				}
 			}
-			if traffic == ContextRoutineTrafficLimited {
+			if traffic == ManifestRoutineTrafficLimited {
 				break
 			}
 		}
 	}
-	summary := ContextAccessSummary{
+	summary := ManifestAccessSummary{
 		SourceAccess: source, RoutineTraffic: traffic,
-		MethodPolicy: normalized.MethodPolicy.Clone(), PrivateTargets: ContextMethodDeny,
+		MethodPolicy: normalized.MethodPolicy.Clone(), PrivateTargets: ManifestMethodDeny,
 	}
 	return summary, summary.Validate()
 }
 
 func summarizeContextWorkspaceDefaults(
-	shell []ContextShellEnvironmentSetting, git ContextGitIdentitySetting, bootstrap ContextBootstrapReport,
-) (ContextWorkspaceDefaultsSummary, error) {
+	shell []ManifestShellEnvironmentSetting, git ManifestGitIdentitySetting, bootstrap ManifestBootstrapReport,
+) (ManifestWorkspaceDefaultsSummary, error) {
 	if err := validateContextShellEnvironment(shell, true); err != nil {
-		return ContextWorkspaceDefaultsSummary{}, err
+		return ManifestWorkspaceDefaultsSummary{}, err
 	}
-	shellState := ContextShellDefaultStandard
+	shellState := ManifestShellDefaultStandard
 	for _, setting := range shell {
 		switch setting.Source {
-		case ContextShellEnvironmentLiteral:
-			shellState = ContextShellDefaultCustomized
-		case ContextShellEnvironmentInherit:
-			if shellState != ContextShellDefaultCustomized {
-				shellState = ContextShellDefaultInherited
+		case ManifestShellEnvironmentLiteral:
+			shellState = ManifestShellDefaultCustomized
+		case ManifestShellEnvironmentInherit:
+			if shellState != ManifestShellDefaultCustomized {
+				shellState = ManifestShellDefaultInherited
 			}
 		}
 	}
 	if err := git.Validate(true); err != nil {
-		return ContextWorkspaceDefaultsSummary{}, err
+		return ManifestWorkspaceDefaultsSummary{}, err
 	}
-	gitState := ContextGitDefaultNotImported
+	gitState := ManifestGitDefaultNotImported
 	switch git.Source {
-	case ContextGitIdentityInherit:
-		gitState = ContextGitDefaultInherited
-	case ContextGitIdentityLiteral:
-		gitState = ContextGitDefaultConfigured
+	case ManifestGitIdentityInherit:
+		gitState = ManifestGitDefaultInherited
+	case ManifestGitIdentityLiteral:
+		gitState = ManifestGitDefaultConfigured
 	}
 	resolvedBootstrap := bootstrap.Resolved()
 	if err := resolvedBootstrap.Validate(); err != nil {
-		return ContextWorkspaceDefaultsSummary{}, err
+		return ManifestWorkspaceDefaultsSummary{}, err
 	}
-	bootstrapState := ContextBootstrapDefaultNone
-	if resolvedBootstrap.State == ContextBootstrapConfigured {
-		bootstrapState = ContextBootstrapDefaultConfigured
+	bootstrapState := ManifestBootstrapDefaultNone
+	if resolvedBootstrap.State == ManifestBootstrapConfigured {
+		bootstrapState = ManifestBootstrapDefaultConfigured
 	}
-	summary := ContextWorkspaceDefaultsSummary{Shell: shellState, Git: gitState, Bootstrap: bootstrapState}
+	summary := ManifestWorkspaceDefaultsSummary{Shell: shellState, Git: gitState, Bootstrap: bootstrapState}
 	return summary, summary.Validate()
 }
 
-func (r ContextRuntimeReport) Selection() (string, error) {
+func (r ManifestRuntimeReport) Selection() (string, error) {
 	if err := r.Validate(); err != nil {
 		return "", err
 	}
 	if r.Name == StandardRuntimeName && r.Ordinal == 1 {
 		return StandardRuntimeName + "@1", nil
 	}
-	if r.Kind == ContextRuntimeKindDockerfile {
+	if r.Kind == ManifestRuntimeKindDockerfile {
 		return "context-owned Dockerfile", nil
 	}
 	selection := fmt.Sprintf("%s@%d", r.Name, r.Ordinal)
@@ -287,101 +287,101 @@ func validateRuntimeDisplaySelection(selection string) error {
 	return err
 }
 
-func (r ContextReport) RoutineSummary() (ContextRoutineSummary, error) {
+func (r ManifestReport) RoutineSummary() (ManifestRoutineSummary, error) {
 	if err := validateRoutineAccessProjection(r.RoutineAccess, r.SourceAccess, r.MethodPolicy); err != nil {
-		return ContextRoutineSummary{}, err
+		return ManifestRoutineSummary{}, err
 	}
-	access := ContextAccessSummary{}
+	access := ManifestAccessSummary{}
 	if r.RoutineAccess != nil {
 		access = *r.RoutineAccess
 	} else {
 		policy, ok := DefaultContextPolicySnapshot()
 		if !ok {
-			return ContextRoutineSummary{}, fmt.Errorf("default Context policy is unavailable")
+			return ManifestRoutineSummary{}, fmt.Errorf("default Workspace Manifest policy is unavailable")
 		}
 		policy.MethodPolicy = r.MethodPolicy.Clone()
 		var err error
 		access, err = SummarizeContextAccess(policy, r.SourceAccess, r.NativeReadiness)
 		if err != nil {
-			return ContextRoutineSummary{}, err
+			return ManifestRoutineSummary{}, err
 		}
 	}
 	defaults, err := summarizeContextWorkspaceDefaults(r.ShellEnvironment, r.GitIdentity, r.Bootstrap)
 	if err != nil {
-		return ContextRoutineSummary{}, err
+		return ManifestRoutineSummary{}, err
 	}
 	selection, err := r.Runtime.Selection()
 	if err != nil {
-		return ContextRoutineSummary{}, err
+		return ManifestRoutineSummary{}, err
 	}
-	action := ContextRoutineActionEnterCurrent
-	if !r.Active && r.ContextState == ContextObservationPersisted {
-		action = ContextRoutineActionEnterNamed
+	action := ManifestRoutineActionEnterCurrent
+	if !r.Default && r.ManifestState == ManifestObservationPersisted {
+		action = ManifestRoutineActionEnterNamed
 	}
-	if r.Runtime.Status == ContextRuntimeStatusPendingBuild || r.Runtime.Status == ContextRuntimeStatusInvalid {
-		action = ContextRoutineActionBuildRuntime
-		if !r.Active && r.ContextState == ContextObservationPersisted {
-			action = ContextRoutineActionSelectThenBuild
+	if r.Runtime.Status == ManifestRuntimeStatusPendingBuild || r.Runtime.Status == ManifestRuntimeStatusInvalid {
+		action = ManifestRoutineActionBuildRuntime
+		if !r.Default && r.ManifestState == ManifestObservationPersisted {
+			action = ManifestRoutineActionSelectThenBuild
 		}
 	}
-	summary := ContextRoutineSummary{
+	summary := ManifestRoutineSummary{
 		Access: access, RuntimeSelection: selection, RuntimeStatus: r.Runtime.Status,
 		Defaults: defaults, AuthenticationMode: contextRoutineAuthenticationMode(r.Authentication),
-		RecommendedNotSaved: r.ContextState == ContextObservationSyntheticDefault, Action: action,
+		RecommendedNotSaved: r.ManifestState == ManifestObservationAbsent, Action: action,
 	}
 	return summary, summary.Validate()
 }
 
-func contextRoutineAuthenticationMode(authentication ContextAuthentication) string {
+func contextRoutineAuthenticationMode(authentication ManifestAuthentication) string {
 	if authentication.Mode != "" {
 		return authentication.Mode
 	}
-	if authentication.BrokerState == ContextAuthBrokerNotApplicable {
-		return ContextAuthenticationModeNotApplicable
+	if authentication.BrokerState == ManifestAuthBrokerNotApplicable {
+		return ManifestAuthenticationModeNotApplicable
 	}
-	return ContextAuthenticationModeBroker
+	return ManifestAuthenticationModeBroker
 }
 
-func (s ContextSummary) RoutineSummary() (ContextRoutineSummary, error) {
+func (s ManifestSummary) RoutineSummary() (ManifestRoutineSummary, error) {
 	if err := validateRoutineAccessProjection(s.RoutineAccess, s.SourceAccess, s.MethodPolicy); err != nil {
-		return ContextRoutineSummary{}, err
+		return ManifestRoutineSummary{}, err
 	}
-	access := ContextAccessSummary{}
+	access := ManifestAccessSummary{}
 	if s.RoutineAccess != nil {
 		access = *s.RoutineAccess
 	} else {
 		policy, ok := DefaultContextPolicySnapshot()
 		if !ok {
-			return ContextRoutineSummary{}, fmt.Errorf("default Context policy is unavailable")
+			return ManifestRoutineSummary{}, fmt.Errorf("default Workspace Manifest policy is unavailable")
 		}
 		policy.MethodPolicy = s.MethodPolicy.Clone()
 		var err error
 		access, err = SummarizeContextAccess(policy, s.SourceAccess, s.NativeReadiness)
 		if err != nil {
-			return ContextRoutineSummary{}, err
+			return ManifestRoutineSummary{}, err
 		}
 	}
-	if s.RuntimeStatus == ContextRuntimeStatusOfficial || s.RuntimeStatus == ContextRuntimeStatusReady {
+	if s.RuntimeStatus == ManifestRuntimeStatusOfficial || s.RuntimeStatus == ManifestRuntimeStatusReady {
 		if err := validateRuntimeDisplaySelection(s.RuntimeSelection); err != nil {
-			return ContextRoutineSummary{}, err
+			return ManifestRoutineSummary{}, err
 		}
 	}
-	action := ContextRoutineActionEnterNamed
-	if s.Active {
-		action = ContextRoutineActionEnterCurrent
+	action := ManifestRoutineActionEnterNamed
+	if s.Default {
+		action = ManifestRoutineActionEnterCurrent
 	}
-	if s.RuntimeStatus == ContextRuntimeStatusPendingBuild || s.RuntimeStatus == ContextRuntimeStatusInvalid {
-		action = ContextRoutineActionBuildRuntime
-		if !s.Active {
-			action = ContextRoutineActionSelectThenBuild
+	if s.RuntimeStatus == ManifestRuntimeStatusPendingBuild || s.RuntimeStatus == ManifestRuntimeStatusInvalid {
+		action = ManifestRoutineActionBuildRuntime
+		if !s.Default {
+			action = ManifestRoutineActionSelectThenBuild
 		}
 	}
-	summary := ContextRoutineSummary{
+	summary := ManifestRoutineSummary{
 		Access: access, RuntimeSelection: s.RuntimeSelection, RuntimeStatus: s.RuntimeStatus,
-		Defaults: ContextWorkspaceDefaultsSummary{
-			Shell: ContextShellDefaultStandard, Git: ContextGitDefaultNotImported, Bootstrap: ContextBootstrapDefaultNone,
+		Defaults: ManifestWorkspaceDefaultsSummary{
+			Shell: ManifestShellDefaultStandard, Git: ManifestGitDefaultNotImported, Bootstrap: ManifestBootstrapDefaultNone,
 		},
-		AuthenticationMode: ContextAuthenticationModeNotApplicable, Action: action,
+		AuthenticationMode: ManifestAuthenticationModeNotApplicable, Action: action,
 	}
 	return summary, summary.Validate()
 }
@@ -413,7 +413,7 @@ func (s ProjectRoutineSummary) Validate() error {
 	return s.Action.Validate()
 }
 
-func (s ProjectStatus) RoutineSummary() (ProjectRoutineSummary, error) {
+func (s WorkspaceStatus) RoutineSummary() (ProjectRoutineSummary, error) {
 	if err := s.Validate(); err != nil {
 		return ProjectRoutineSummary{}, err
 	}

@@ -125,8 +125,8 @@ func (t *intervalPolicyReviewRefreshTicker) Failed() {
 func (t *intervalPolicyReviewRefreshTicker) Delay() time.Duration { return t.delay }
 
 type policyReviewScopeKey struct {
-	ContextID string
-	ProjectID string
+	WorkspaceManifestID string
+	ProjectID           string
 }
 
 func newPolicyReviewSelector() *policyReviewSelector {
@@ -502,7 +502,7 @@ func renderPolicyReviewFinalRaw(
 		}
 		lines = append(lines,
 			applyStyleToken(style, policyReviewActionStyle(action), fmt.Sprintf("%d. %s", index+1, policyReviewActionLabelFor(report, id, action))),
-			selectorDetail(style, "Context", safeExternalText(candidate.ContextName)+" · "+candidate.ContextID, styleText),
+			selectorDetail(style, "Workspace Manifest", safeExternalText(candidate.WorkspaceManifestName)+" · "+candidate.WorkspaceManifestID, styleText),
 			selectorDetail(style, "Workspace", safeExternalText(candidate.ProjectRoot)+" · "+candidate.ProjectID, styleText),
 			selectorDetail(style, "Effect", policyReviewCandidateEffect(candidate), styleText),
 			selectorDetail(style, "Candidate", candidate.ID, styleText),
@@ -984,7 +984,7 @@ func groupPolicyReviewReport(report tobari.PolicyCandidateReport) tobari.PolicyC
 	groups := make([][]tobari.PolicyCandidate, 0, len(report.Items))
 	groupIndexes := make(map[policyReviewScopeKey]int, len(report.Items))
 	for _, candidate := range report.Items {
-		key := policyReviewScopeKey{ContextID: candidate.ContextID, ProjectID: candidate.ProjectID}
+		key := policyReviewScopeKey{WorkspaceManifestID: candidate.WorkspaceManifestID, ProjectID: candidate.ProjectID}
 		groupIndex, found := groupIndexes[key]
 		if !found {
 			groupIndex = len(groups)
@@ -1019,17 +1019,17 @@ func policyReviewObservationText(report tobari.PolicyCandidateReport, candidate 
 func policyReviewScopeCount(items []tobari.PolicyCandidate) int {
 	seen := make(map[policyReviewScopeKey]struct{}, len(items))
 	for _, candidate := range items {
-		seen[policyReviewScopeKey{ContextID: candidate.ContextID, ProjectID: candidate.ProjectID}] = struct{}{}
+		seen[policyReviewScopeKey{WorkspaceManifestID: candidate.WorkspaceManifestID, ProjectID: candidate.ProjectID}] = struct{}{}
 	}
 	return len(seen)
 }
 
 func samePolicyReviewScope(left, right tobari.PolicyCandidate) bool {
-	return left.ContextID == right.ContextID && left.ProjectID == right.ProjectID
+	return left.WorkspaceManifestID == right.WorkspaceManifestID && left.ProjectID == right.ProjectID
 }
 
 func policyReviewScopeHeading(candidate tobari.PolicyCandidate) string {
-	return safeExternalText(candidate.ContextName) + " · " + safeExternalText(candidate.ProjectRoot)
+	return safeExternalText(candidate.WorkspaceManifestName) + " · " + safeExternalText(candidate.ProjectRoot)
 }
 
 func policyReviewCandidateListEffect(candidate tobari.PolicyCandidate) string {
@@ -1083,7 +1083,7 @@ func renderPolicyReviewDetailRaw(
 		"",
 		applyStyleToken(style, styleAccent, fmt.Sprintf("Permission %d of %d", selected+1, len(report.Items))),
 		"",
-		selectorDetail(style, "Context", safeExternalText(candidate.ContextName), styleText),
+		selectorDetail(style, "Workspace Manifest", safeExternalText(candidate.WorkspaceManifestName), styleText),
 		selectorDetail(style, "Workspace", safeExternalText(candidate.ProjectRoot), styleText),
 		selectorDetail(style, "Request", policyReviewCandidateRequest(candidate), styleText),
 		selectorDetail(style, "Authority", policyReviewCandidateAuthority(candidate), styleText),
@@ -1103,7 +1103,7 @@ func renderPolicyReviewDetailRaw(
 				styleAction(style, "[q] Back", styleMuted),
 			))
 	} else {
-		help := "This decision applies only to this Workspace in this Context."
+		help := "This decision applies only to this Workspace in this Workspace Manifest."
 		if candidate.EffectiveDestinationKind() == tobari.PolicyDestinationHostLoopback {
 			help = "This decision applies only while the current Host Loopback attachment remains active."
 		}
@@ -1249,7 +1249,7 @@ func writePolicyReviewListLine(out io.Writer, report tobari.PolicyCandidateRepor
 		}
 		if _, err := fmt.Fprintf(out, "  %d. %-12s  %s  %s\n     %s\n", index+1,
 			state,
-			safeExternalText(candidate.ContextName), safeExternalText(candidate.ProjectRoot), policyReviewCandidateRequest(candidate)); err != nil {
+			safeExternalText(candidate.WorkspaceManifestName), safeExternalText(candidate.ProjectRoot), policyReviewCandidateRequest(candidate)); err != nil {
 			return err
 		}
 	}
@@ -1320,8 +1320,8 @@ func writePolicyReviewFinalLines(
 			continue
 		}
 		if _, err := fmt.Fprintf(out,
-			"\n%d. %s\n   Context   %s · %s\n   Workspace %s · %s\n   Effect    %s\n   Candidate %s\n",
-			index+1, policyReviewActionLabelFor(report, id, action), safeExternalText(candidate.ContextName), candidate.ContextID,
+			"\n%d. %s\n   Workspace Manifest   %s · %s\n   Workspace %s · %s\n   Effect    %s\n   Candidate %s\n",
+			index+1, policyReviewActionLabelFor(report, id, action), safeExternalText(candidate.WorkspaceManifestName), candidate.WorkspaceManifestID,
 			safeExternalText(candidate.ProjectRoot), candidate.ProjectID, policyReviewCandidateEffect(candidate), candidate.ID,
 		); err != nil {
 			return err
@@ -1396,7 +1396,7 @@ func writePolicyReviewDetailLines(out io.Writer, report tobari.PolicyCandidateRe
 	lines := []string{
 		"Permission " + strconv.Itoa(selected+1) + " of " + strconv.Itoa(len(report.Items)),
 		"",
-		"Context   " + safeExternalText(candidate.ContextName),
+		"Workspace Manifest   " + safeExternalText(candidate.WorkspaceManifestName),
 		"Workspace " + safeExternalText(candidate.ProjectRoot),
 		"Request   " + policyReviewCandidateRequest(candidate),
 		"Authority " + policyReviewCandidateAuthority(candidate),
@@ -1410,7 +1410,7 @@ func writePolicyReviewDetailLines(out io.Writer, report tobari.PolicyCandidateRe
 		lines = append(lines, "Examples  "+strings.Join(proposal.Examples, ", "), "",
 			"Allow template includes future non-empty values in exactly the {id} segment.")
 	} else {
-		help := "This decision applies only to this Workspace in this Context."
+		help := "This decision applies only to this Workspace in this Workspace Manifest."
 		if candidate.EffectiveDestinationKind() == tobari.PolicyDestinationHostLoopback {
 			help = "This decision applies only while the current Host Loopback attachment remains active."
 		}

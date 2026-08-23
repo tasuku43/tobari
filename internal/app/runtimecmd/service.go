@@ -18,7 +18,7 @@ type RuntimePort interface {
 	ListRuntimes(context.Context) (tobari.RuntimeListResult, error)
 	ShowRuntime(context.Context, string) (tobari.RuntimeReport, error)
 	RuntimeHistory(context.Context, string) (tobari.RuntimeReport, error)
-	CreateRuntime(context.Context, string, tobari.RuntimeSourceBase) (tobari.RuntimeReport, error)
+	CreateRuntime(context.Context, string, tobari.RuntimeCopySource) (tobari.RuntimeReport, error)
 	BuildManagedRuntime(context.Context, string, io.Writer) (tobari.RuntimeReport, error)
 }
 
@@ -113,9 +113,9 @@ func (s *Service) Create(ctx context.Context, intent operation.Intent, name, bas
 	if err := tobari.ValidateName(name); err != nil {
 		return tobari.RuntimeReport{}, fault.Wrap(fault.KindInvalidInput, "invalid_runtime_name", "Runtime name is invalid", false, err)
 	}
-	base, err := tobari.ParseRuntimeSourceBase(baseValue)
+	base, err := tobari.ParseRuntimeCopySource(baseValue)
 	if err != nil {
-		return tobari.RuntimeReport{}, fault.Wrap(fault.KindInvalidInput, "invalid_runtime_base", "Runtime source Base is invalid", false, err, fault.NextAction{Command: "runtime list", Reason: "Choose standard or an existing managed Runtime name."})
+		return tobari.RuntimeReport{}, fault.Wrap(fault.KindInvalidInput, "invalid_runtime_copy_source", "Runtime source Base is invalid", false, err, fault.NextAction{Command: "runtime list", Reason: "Choose standard or an existing managed Runtime name."})
 	}
 	request := execution.Request{Intent: intent, ExpectedCommand: intent.Command, ExpectedEffect: operation.EffectCreate,
 		ExpectedTarget: operation.TargetRef{Kind: tobari.RuntimeCatalogTargetKind, ParentID: tobari.RuntimeCatalogTargetID}, ExpectedImpact: intent.Impact}
@@ -126,7 +126,7 @@ func (s *Service) Create(ctx context.Context, intent operation.Intent, name, bas
 			return fault.New(fault.KindRejected, "runtime_exists", "the named Runtime already exists", false, fault.NextAction{Command: "runtime show", Reason: "Inspect the existing Runtime before editing it."})
 		}
 		if errors.Is(err, tobari.ErrRuntimeNotFound) {
-			return fault.New(fault.KindNotFound, "runtime_base_not_found", "the named Runtime source Base does not exist", false, fault.NextAction{Command: "runtime list", Reason: "Choose standard or an existing managed Runtime name."})
+			return fault.New(fault.KindNotFound, "runtime_copy_source_not_found", "the named Runtime source Base does not exist", false, fault.NextAction{Command: "runtime list", Reason: "Choose standard or an existing managed Runtime name."})
 		}
 		if err != nil {
 			if structured, ok := fault.PublicCopy(err); ok {

@@ -64,16 +64,16 @@ func ValidateImageSelector(image string) error {
 
 // State is the secret-free persisted identity of the shared cluster.
 type State struct {
-	SchemaVersion     int    `json:"schema_version"`
-	RuntimeDirectory  string `json:"runtime_directory"`
-	ContextName       string `json:"context_name,omitempty"`
-	AgentProfile      string `json:"agent_profile,omitempty"`
-	AggregateRevision string `json:"aggregate_revision,omitempty"`
-	ContextCount      int    `json:"context_count,omitempty"`
-	PolicyDirectory   string `json:"policy_directory"`
-	GatewayConfig     string `json:"gateway_config"`
-	AssetVersion      string `json:"asset_version"`
-	RecentError       string `json:"recent_error"`
+	SchemaVersion         int    `json:"schema_version"`
+	RuntimeDirectory      string `json:"runtime_directory"`
+	WorkspaceManifestName string `json:"manifest_name,omitempty"`
+	AgentProfile          string `json:"agent_profile,omitempty"`
+	AggregateRevision     string `json:"aggregate_revision,omitempty"`
+	ManifestCount         int    `json:"manifest_count,omitempty"`
+	PolicyDirectory       string `json:"policy_directory"`
+	GatewayConfig         string `json:"gateway_config"`
+	AssetVersion          string `json:"asset_version"`
+	RecentError           string `json:"recent_error"`
 }
 
 // Validate rejects incomplete, ambiguous, or relative state.
@@ -93,11 +93,11 @@ func (s State) Validate() error {
 	if s.AssetVersion == "" || strings.ContainsAny(s.AssetVersion, " \t\r\n") {
 		return fmt.Errorf("asset version is invalid")
 	}
-	if s.ContextName != "" || s.AgentProfile != "" {
-		return fmt.Errorf("shared state must not contain a selected Context authority")
+	if s.WorkspaceManifestName != "" || s.AgentProfile != "" {
+		return fmt.Errorf("shared state must not contain a selected Workspace Manifest authority")
 	}
-	if !regexp.MustCompile(`^[0-9a-f]{64}$`).MatchString(s.AggregateRevision) || s.ContextCount < 1 {
-		return fmt.Errorf("aggregate Context projection is invalid")
+	if !regexp.MustCompile(`^[0-9a-f]{64}$`).MatchString(s.AggregateRevision) || s.ManifestCount < 1 {
+		return fmt.Errorf("aggregate Workspace Manifest projection is invalid")
 	}
 	if len(s.RecentError) > 1024 || strings.IndexFunc(s.RecentError, func(r rune) bool {
 		return r < ' ' || r == '\u007f' || r == '\u2028' || r == '\u2029'
@@ -121,7 +121,7 @@ type ClusterStatus struct {
 	Running                  bool              `json:"running"`
 	Policy                   string            `json:"policy"`
 	TobariCount              int               `json:"tobari_count"`
-	ContextCount             int               `json:"context_count"`
+	ManifestCount            int               `json:"manifest_count"`
 	PolicyRevision           string            `json:"policy_revision"`
 	PolicyProjection         string            `json:"policy_projection"`
 	PrincipalRegistry        string            `json:"principal_registry"`
@@ -152,7 +152,7 @@ func (s ClusterStatus) Validate() error {
 		return fmt.Errorf("cluster status task identity is invalid")
 	}
 	if !s.Configured {
-		if s.Running || s.Policy != "" || s.TobariCount != 0 || s.ContextCount != 0 || s.PolicyRevision != "" || len(s.Components) != 0 {
+		if s.Running || s.Policy != "" || s.TobariCount != 0 || s.ManifestCount != 0 || s.PolicyRevision != "" || len(s.Components) != 0 {
 			return fmt.Errorf("unconfigured status contains cluster state")
 		}
 		if s.Components == nil || s.PolicyProjection != "unavailable" || s.PrincipalRegistry != "unavailable" ||
@@ -163,7 +163,7 @@ func (s ClusterStatus) Validate() error {
 		}
 		return nil
 	}
-	if !filepath.IsAbs(s.Policy) || s.TobariCount < 0 || s.ContextCount < 1 ||
+	if !filepath.IsAbs(s.Policy) || s.TobariCount < 0 || s.ManifestCount < 1 ||
 		!regexp.MustCompile(`^[0-9a-f]{64}$`).MatchString(s.PolicyRevision) || s.Components == nil ||
 		s.PolicyProjection == "" || s.PrincipalRegistry == "" || s.GatewayProjection == "" {
 		return fmt.Errorf("configured cluster status is incomplete")

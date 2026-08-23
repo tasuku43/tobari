@@ -57,23 +57,23 @@ func hostLoopbackRouteID(epochID, contextID, projectID string) string {
 // Workspace. Relay coordinates never enter Workspace capability information,
 // OPA input, audit, or review output.
 type AttachmentHostLoopbackRoute struct {
-	ID          string `json:"id"`
-	EpochID     string `json:"attachment_epoch_id"`
-	ContextID   string `json:"context_id"`
-	ContextName string `json:"context"`
-	ProjectID   string `json:"project_id"`
-	ProjectRoot string `json:"project_root"`
-	Hostname    string `json:"hostname"`
-	RelayPort   int    `json:"relay_port"`
-	RelayToken  string `json:"relay_token"`
+	ID                    string `json:"id"`
+	EpochID               string `json:"attachment_epoch_id"`
+	WorkspaceManifestID   string `json:"workspace_manifest_id"`
+	WorkspaceManifestName string `json:"workspace_manifest"`
+	ProjectID             string `json:"workspace_id"`
+	ProjectRoot           string `json:"project_root"`
+	Hostname              string `json:"hostname"`
+	RelayPort             int    `json:"relay_port"`
+	RelayToken            string `json:"relay_token"`
 }
 
 func NewAttachmentHostLoopbackRoute(
-	epochID string, project ProjectInstance, relayPort int, relayToken string,
+	epochID string, project Workspace, relayPort int, relayToken string,
 ) (AttachmentHostLoopbackRoute, error) {
 	route := AttachmentHostLoopbackRoute{
-		ID: hostLoopbackRouteID(epochID, project.ContextID, project.ID), EpochID: epochID,
-		ContextID: project.ContextID, ContextName: project.ContextName,
+		ID: hostLoopbackRouteID(epochID, project.WorkspaceManifestID, project.ID), EpochID: epochID,
+		WorkspaceManifestID: project.WorkspaceManifestID, WorkspaceManifestName: project.WorkspaceManifestName,
 		ProjectID: project.ID, ProjectRoot: project.Root,
 		Hostname: HostLoopbackHostname, RelayPort: relayPort, RelayToken: relayToken,
 	}
@@ -84,19 +84,19 @@ func NewAttachmentHostLoopbackRoute(
 }
 
 func (r AttachmentHostLoopbackRoute) Validate() error {
-	if !hostLoopbackRoutePattern.MatchString(r.ID) || r.ID != hostLoopbackRouteID(r.EpochID, r.ContextID, r.ProjectID) {
+	if !hostLoopbackRoutePattern.MatchString(r.ID) || r.ID != hostLoopbackRouteID(r.EpochID, r.WorkspaceManifestID, r.ProjectID) {
 		return fmt.Errorf("host loopback route ID is invalid")
 	}
 	if err := ValidateAttachmentEpochID(r.EpochID); err != nil {
 		return err
 	}
-	if err := ValidateContextID(r.ContextID); err != nil {
-		return fmt.Errorf("host loopback Context ID is invalid")
+	if err := ValidateWorkspaceManifestID(r.WorkspaceManifestID); err != nil {
+		return fmt.Errorf("host loopback Workspace Manifest ID is invalid")
 	}
-	if err := ValidateName(r.ContextName); err != nil {
-		return fmt.Errorf("host loopback Context name is invalid")
+	if err := ValidateName(r.WorkspaceManifestName); err != nil {
+		return fmt.Errorf("host loopback Workspace Manifest name is invalid")
 	}
-	if err := ValidateProjectID(r.ProjectID); err != nil {
+	if err := ValidateWorkspaceID(r.ProjectID); err != nil {
 		return fmt.Errorf("host loopback project ID is invalid")
 	}
 	if r.ProjectRoot == "" || r.ProjectRoot[0] != '/' {
@@ -175,18 +175,18 @@ func (p HostLoopbackCapabilityProjection) Validate() error {
 // AttachmentGrant is separate from LearnedPolicyRule and can authorize only
 // one exact Host Loopback effect for one active attachment.
 type AttachmentGrant struct {
-	ID              string `json:"id"`
-	Decision        string `json:"decision"`
-	Lifetime        string `json:"lifetime"`
-	DestinationKind string `json:"destination_kind"`
-	ContextID       string `json:"context_id"`
-	ProjectID       string `json:"project_id"`
-	EpochID         string `json:"attachment_epoch_id"`
-	Hostname        string `json:"host"`
-	TargetPort      int    `json:"target_port"`
-	Method          string `json:"method"`
-	Path            string `json:"path"`
-	SourceCandidate string `json:"source_candidate"`
+	ID                  string `json:"id"`
+	Decision            string `json:"decision"`
+	Lifetime            string `json:"lifetime"`
+	DestinationKind     string `json:"destination_kind"`
+	WorkspaceManifestID string `json:"workspace_manifest_id"`
+	ProjectID           string `json:"workspace_id"`
+	EpochID             string `json:"attachment_epoch_id"`
+	Hostname            string `json:"host"`
+	TargetPort          int    `json:"target_port"`
+	Method              string `json:"method"`
+	Path                string `json:"path"`
+	SourceCandidate     string `json:"source_candidate"`
 }
 
 func NewAttachmentGrantFromCandidate(decision string, candidate PolicyCandidate) (AttachmentGrant, error) {
@@ -198,7 +198,7 @@ func NewAttachmentGrantFromCandidate(decision string, candidate PolicyCandidate)
 	}
 	grant := AttachmentGrant{
 		Decision: decision, Lifetime: AuthorityLifetimeAttachment, DestinationKind: PolicyDestinationHostLoopback,
-		ContextID: candidate.ContextID, ProjectID: candidate.ProjectID, EpochID: candidate.AttachmentEpochID,
+		WorkspaceManifestID: candidate.WorkspaceManifestID, ProjectID: candidate.ProjectID, EpochID: candidate.AttachmentEpochID,
 		Hostname: candidate.Host, TargetPort: candidate.Port, Method: candidate.Method, Path: candidate.Path,
 		SourceCandidate: candidate.ID,
 	}
@@ -211,7 +211,7 @@ func NewAttachmentGrantFromCandidate(decision string, candidate PolicyCandidate)
 
 func attachmentGrantID(g AttachmentGrant) string {
 	sum := sha256.Sum256([]byte(strings.Join([]string{
-		"tobari-attachment-grant-v2", g.Decision, g.ContextID, g.ProjectID, g.EpochID,
+		"tobari-attachment-grant-v2", g.Decision, g.WorkspaceManifestID, g.ProjectID, g.EpochID,
 		g.Hostname, strconv.Itoa(g.TargetPort), g.Method, g.Path, g.SourceCandidate,
 	}, "\x00")))
 	return "pag_" + hex.EncodeToString(sum[:16])
@@ -227,10 +227,10 @@ func (g AttachmentGrant) Validate() error {
 	if g.Lifetime != AuthorityLifetimeAttachment || g.DestinationKind != PolicyDestinationHostLoopback {
 		return fmt.Errorf("attachment grant authority kind is invalid")
 	}
-	if err := ValidateContextID(g.ContextID); err != nil {
+	if err := ValidateWorkspaceManifestID(g.WorkspaceManifestID); err != nil {
 		return err
 	}
-	if err := ValidateProjectID(g.ProjectID); err != nil {
+	if err := ValidateWorkspaceID(g.ProjectID); err != nil {
 		return err
 	}
 	if err := ValidateAttachmentEpochID(g.EpochID); err != nil {

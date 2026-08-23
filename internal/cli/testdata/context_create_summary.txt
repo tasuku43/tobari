@@ -1,4 +1,4 @@
-✓ Context sre created
+✓ Workspace Manifest sre created
   State          persisted · not current
   Source         direct read-write
   Network        default exact-review
@@ -10,5 +10,5 @@
   Image          tobari-runtime:base
   Bootstrap      not_configured
   Cluster        requires_reconcile
-  Details        tobari context show --name sre --details
-  Next           tobari --context sre — Prepare shared services and enter a Workspace from a project directory.
+  Details        tobari manifest show --name sre --details
+  Next           tobari --manifest sre — Prepare shared services and enter a Workspace from a project directory.

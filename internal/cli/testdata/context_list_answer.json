@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "task": "context.list",
+  "task": "manifest.list",
   "scope": "installation",
   "current": "default",
   "runtime_selections": {

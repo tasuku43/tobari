@@ -51,40 +51,40 @@ func (r *Runtime) hostKubeconfigPath() (string, error) {
 	return filepath.Join(home, ".kube", "config"), nil
 }
 
-func (r *Runtime) readHostEKSBootstrap(contextName, awsProfile string) (tobari.ContextEKSBootstrap, error) {
+func (r *Runtime) readHostEKSBootstrap(contextName, awsProfile string) (tobari.ManifestEKSBootstrap, error) {
 	if contextName == "" || awsProfile == "" {
-		return tobari.ContextEKSBootstrap{}, fmt.Errorf("Kubernetes context and AWS profile are required")
+		return tobari.ManifestEKSBootstrap{}, fmt.Errorf("Kubernetes context and AWS profile are required")
 	}
 	data, err := r.readHostKubeconfigBytes()
 	if err != nil {
-		return tobari.ContextEKSBootstrap{}, err
+		return tobari.ManifestEKSBootstrap{}, err
 	}
 	return parseHostEKSBootstrap(data, contextName, awsProfile)
 }
 
 // DiscoverContextEKSBootstraps resolves every kubeconfig context against the
 // exact reviewed AWS semantic bundle. It performs no command or network call.
-func (r *Runtime) DiscoverContextEKSBootstraps(ctx context.Context, aws tobari.ContextBootstrapSnapshot) (tobari.ContextEKSBootstrapDiscovery, error) {
+func (r *Runtime) DiscoverContextEKSBootstraps(ctx context.Context, aws tobari.ManifestBootstrapSnapshot) (tobari.ManifestEKSBootstrapDiscovery, error) {
 	if err := ctx.Err(); err != nil {
-		return tobari.ContextEKSBootstrapDiscovery{}, err
+		return tobari.ManifestEKSBootstrapDiscovery{}, err
 	}
 	if err := aws.Validate(); err != nil || aws.EKS != nil {
-		return tobari.ContextEKSBootstrapDiscovery{}, fmt.Errorf("AWS bootstrap discovery scope is invalid")
+		return tobari.ManifestEKSBootstrapDiscovery{}, fmt.Errorf("AWS bootstrap discovery scope is invalid")
 	}
 	data, err := r.readHostKubeconfigBytes()
 	if err != nil {
-		state := tobari.ContextBootstrapDiscoveryRejected
+		state := tobari.ManifestBootstrapDiscoveryRejected
 		reason := bootstrapDiscoveryReason(err)
 		if os.IsNotExist(err) {
-			state = tobari.ContextBootstrapDiscoveryMissing
+			state = tobari.ManifestBootstrapDiscoveryMissing
 			reason = "Host kubeconfig was not found."
 		}
-		result := tobari.ContextEKSBootstrapDiscovery{State: state, Reason: reason, AWSRevision: aws.Revision, Candidates: []tobari.ContextEKSBootstrapCandidate{}}
+		result := tobari.ManifestEKSBootstrapDiscovery{State: state, Reason: reason, AWSRevision: aws.Revision, Candidates: []tobari.ManifestEKSBootstrapCandidate{}}
 		return result, result.Validate()
 	}
 	config, err := parseHostKubeconfig(data)
 	if err != nil {
-		result := tobari.ContextEKSBootstrapDiscovery{State: tobari.ContextBootstrapDiscoveryRejected, Reason: bootstrapDiscoveryReason(err), AWSRevision: aws.Revision, Candidates: []tobari.ContextEKSBootstrapCandidate{}}
+		result := tobari.ManifestEKSBootstrapDiscovery{State: tobari.ManifestBootstrapDiscoveryRejected, Reason: bootstrapDiscoveryReason(err), AWSRevision: aws.Revision, Candidates: []tobari.ManifestEKSBootstrapCandidate{}}
 		return result, result.Validate()
 	}
 	names := make([]string, 0, len(config.Contexts))
@@ -92,21 +92,21 @@ func (r *Runtime) DiscoverContextEKSBootstraps(ctx context.Context, aws tobari.C
 		names = append(names, entry.Name)
 	}
 	sort.Strings(names)
-	candidates := make([]tobari.ContextEKSBootstrapCandidate, 0, len(names))
+	candidates := make([]tobari.ManifestEKSBootstrapCandidate, 0, len(names))
 	for _, name := range names {
 		eks, resolveErr := resolveHostEKSBootstrap(config, name, aws.AWS.Profile)
 		if resolveErr != nil {
-			candidates = append(candidates, tobari.ContextEKSBootstrapCandidate{ContextName: name, State: tobari.ContextBootstrapCandidateUnavailable, Reason: bootstrapDiscoveryReason(resolveErr)})
+			candidates = append(candidates, tobari.ManifestEKSBootstrapCandidate{WorkspaceManifestName: name, State: tobari.ManifestBootstrapCandidateUnavailable, Reason: bootstrapDiscoveryReason(resolveErr)})
 			continue
 		}
 		composed, composeErr := tobari.NewContextBootstrapSnapshotWithEKS(aws.Generation, aws.AWS, eks)
 		if composeErr != nil {
-			candidates = append(candidates, tobari.ContextEKSBootstrapCandidate{ContextName: name, State: tobari.ContextBootstrapCandidateUnavailable, Reason: bootstrapDiscoveryReason(composeErr)})
+			candidates = append(candidates, tobari.ManifestEKSBootstrapCandidate{WorkspaceManifestName: name, State: tobari.ManifestBootstrapCandidateUnavailable, Reason: bootstrapDiscoveryReason(composeErr)})
 			continue
 		}
-		candidates = append(candidates, tobari.ContextEKSBootstrapCandidate{ContextName: name, State: tobari.ContextBootstrapCandidateAvailable, Snapshot: &composed})
+		candidates = append(candidates, tobari.ManifestEKSBootstrapCandidate{WorkspaceManifestName: name, State: tobari.ManifestBootstrapCandidateAvailable, Snapshot: &composed})
 	}
-	result := tobari.ContextEKSBootstrapDiscovery{State: tobari.ContextBootstrapDiscoveryAvailable, AWSRevision: aws.Revision, Candidates: candidates}
+	result := tobari.ManifestEKSBootstrapDiscovery{State: tobari.ManifestBootstrapDiscoveryAvailable, AWSRevision: aws.Revision, Candidates: candidates}
 	return result, result.Validate()
 }
 
@@ -137,10 +137,10 @@ func (r *Runtime) readHostKubeconfigBytes() ([]byte, error) {
 	return data, nil
 }
 
-func parseHostEKSBootstrap(data []byte, contextName, awsProfile string) (tobari.ContextEKSBootstrap, error) {
+func parseHostEKSBootstrap(data []byte, contextName, awsProfile string) (tobari.ManifestEKSBootstrap, error) {
 	config, err := parseHostKubeconfig(data)
 	if err != nil {
-		return tobari.ContextEKSBootstrap{}, err
+		return tobari.ManifestEKSBootstrap{}, err
 	}
 	return resolveHostEKSBootstrap(config, contextName, awsProfile)
 }
@@ -189,96 +189,96 @@ func parseHostKubeconfig(data []byte) (hostKubeconfig, error) {
 	return config, nil
 }
 
-func resolveHostEKSBootstrap(config hostKubeconfig, contextName, awsProfile string) (tobari.ContextEKSBootstrap, error) {
+func resolveHostEKSBootstrap(config hostKubeconfig, contextName, awsProfile string) (tobari.ManifestEKSBootstrap, error) {
 	contextEntry, err := uniqueKubeconfigEntry(config.Contexts, contextName, "context")
 	if err != nil {
-		return tobari.ContextEKSBootstrap{}, err
+		return tobari.ManifestEKSBootstrap{}, err
 	}
 	contextValues, err := exactYAMLMapping(contextEntry.Context, map[string]bool{"cluster": true, "user": true, "namespace": true})
 	if err != nil {
-		return tobari.ContextEKSBootstrap{}, fmt.Errorf("selected Kubernetes context: %w", err)
+		return tobari.ManifestEKSBootstrap{}, fmt.Errorf("selected Kubernetes context: %w", err)
 	}
 	clusterRef, err := requiredStringNode(contextValues["cluster"], "cluster")
 	if err != nil {
-		return tobari.ContextEKSBootstrap{}, err
+		return tobari.ManifestEKSBootstrap{}, err
 	}
 	userRef, err := requiredStringNode(contextValues["user"], "user")
 	if err != nil {
-		return tobari.ContextEKSBootstrap{}, err
+		return tobari.ManifestEKSBootstrap{}, err
 	}
 	namespace, err := optionalStringNode(contextValues["namespace"])
 	if err != nil {
-		return tobari.ContextEKSBootstrap{}, fmt.Errorf("selected Kubernetes namespace is invalid")
+		return tobari.ManifestEKSBootstrap{}, fmt.Errorf("selected Kubernetes namespace is invalid")
 	}
 	clusterEntry, err := uniqueKubeconfigEntry(config.Clusters, clusterRef, "cluster")
 	if err != nil {
-		return tobari.ContextEKSBootstrap{}, err
+		return tobari.ManifestEKSBootstrap{}, err
 	}
 	clusterValues, err := exactYAMLMapping(clusterEntry.Cluster, map[string]bool{"server": true, "certificate-authority-data": true})
 	if err != nil {
-		return tobari.ContextEKSBootstrap{}, fmt.Errorf("selected Kubernetes cluster: %w", err)
+		return tobari.ManifestEKSBootstrap{}, fmt.Errorf("selected Kubernetes cluster: %w", err)
 	}
 	server, err := requiredStringNode(clusterValues["server"], "server")
 	if err != nil {
-		return tobari.ContextEKSBootstrap{}, err
+		return tobari.ManifestEKSBootstrap{}, err
 	}
 	caData, err := requiredStringNode(clusterValues["certificate-authority-data"], "certificate-authority-data")
 	if err != nil {
-		return tobari.ContextEKSBootstrap{}, err
+		return tobari.ManifestEKSBootstrap{}, err
 	}
 	userEntry, err := uniqueKubeconfigEntry(config.Users, userRef, "user")
 	if err != nil {
-		return tobari.ContextEKSBootstrap{}, err
+		return tobari.ManifestEKSBootstrap{}, err
 	}
 	userValues, err := exactYAMLMapping(userEntry.User, map[string]bool{"exec": true})
 	if err != nil {
-		return tobari.ContextEKSBootstrap{}, fmt.Errorf("selected Kubernetes user: %w", err)
+		return tobari.ManifestEKSBootstrap{}, fmt.Errorf("selected Kubernetes user: %w", err)
 	}
 	execValues, err := exactYAMLMapping(userValues["exec"], map[string]bool{"apiVersion": true, "command": true, "args": true, "env": true, "interactiveMode": true, "provideClusterInfo": true})
 	if err != nil {
-		return tobari.ContextEKSBootstrap{}, fmt.Errorf("selected Kubernetes exec: %w", err)
+		return tobari.ManifestEKSBootstrap{}, fmt.Errorf("selected Kubernetes exec: %w", err)
 	}
 	apiVersion, err := requiredStringNode(execValues["apiVersion"], "apiVersion")
 	if err != nil || apiVersion != "client.authentication.k8s.io/v1beta1" {
-		return tobari.ContextEKSBootstrap{}, fmt.Errorf("selected Kubernetes exec API version is unsupported")
+		return tobari.ManifestEKSBootstrap{}, fmt.Errorf("selected Kubernetes exec API version is unsupported")
 	}
 	command, err := requiredStringNode(execValues["command"], "command")
 	if err != nil || command != "aws" {
-		return tobari.ContextEKSBootstrap{}, fmt.Errorf("selected Kubernetes exec command is unsupported")
+		return tobari.ManifestEKSBootstrap{}, fmt.Errorf("selected Kubernetes exec command is unsupported")
 	}
 	args, err := stringSequence(execValues["args"])
 	if err != nil {
-		return tobari.ContextEKSBootstrap{}, fmt.Errorf("selected Kubernetes exec args are invalid")
+		return tobari.ManifestEKSBootstrap{}, fmt.Errorf("selected Kubernetes exec args are invalid")
 	}
 	region, clusterName, err := parseExactEKSGetTokenArgs(args)
 	if err != nil {
-		return tobari.ContextEKSBootstrap{}, err
+		return tobari.ManifestEKSBootstrap{}, err
 	}
 	if err := validateEKSExecEnvironment(execValues["env"], awsProfile); err != nil {
-		return tobari.ContextEKSBootstrap{}, err
+		return tobari.ManifestEKSBootstrap{}, err
 	}
 	if value, valueErr := optionalStringNode(execValues["interactiveMode"]); valueErr != nil || (value != "" && value != "IfAvailable") {
-		return tobari.ContextEKSBootstrap{}, fmt.Errorf("selected Kubernetes exec interactive mode is unsupported")
+		return tobari.ManifestEKSBootstrap{}, fmt.Errorf("selected Kubernetes exec interactive mode is unsupported")
 	}
 	if node := execValues["provideClusterInfo"]; !emptyYAMLNode(node) && (node.Kind != yaml.ScalarNode || node.Tag != "!!bool" || node.Value != "false") {
-		return tobari.ContextEKSBootstrap{}, fmt.Errorf("selected Kubernetes exec cluster-info mode is unsupported")
+		return tobari.ManifestEKSBootstrap{}, fmt.Errorf("selected Kubernetes exec cluster-info mode is unsupported")
 	}
 	parsedServer, err := url.Parse(server)
 	if err != nil {
-		return tobari.ContextEKSBootstrap{}, fmt.Errorf("selected Kubernetes server is invalid")
+		return tobari.ManifestEKSBootstrap{}, fmt.Errorf("selected Kubernetes server is invalid")
 	}
 	parsedServer.Host = strings.ToLower(parsedServer.Host)
 	parsedServer.Path = strings.TrimSuffix(parsedServer.Path, "/")
 	decodedCA, err := base64.StdEncoding.DecodeString(strings.TrimSpace(caData))
 	if err != nil {
-		return tobari.ContextEKSBootstrap{}, fmt.Errorf("selected Kubernetes certificate authority data is invalid")
+		return tobari.ManifestEKSBootstrap{}, fmt.Errorf("selected Kubernetes certificate authority data is invalid")
 	}
-	result := tobari.ContextEKSBootstrap{
-		ContextName: contextName, ClusterName: clusterName, Region: region,
+	result := tobari.ManifestEKSBootstrap{
+		WorkspaceManifestName: contextName, ClusterName: clusterName, Region: region,
 		Server: parsedServer.String(), CertificateAuthorityData: base64.StdEncoding.EncodeToString(decodedCA), Namespace: namespace,
 	}
 	if err := result.Validate(); err != nil {
-		return tobari.ContextEKSBootstrap{}, err
+		return tobari.ManifestEKSBootstrap{}, err
 	}
 	return result, nil
 }
@@ -438,44 +438,44 @@ func rejectYAMLAliases(config hostKubeconfig) error {
 
 // PrepareContextEKSBootstrap composes one strict host kube context with an
 // already prepared AWS bootstrap for direct Context creation.
-func (r *Runtime) PrepareContextEKSBootstrap(ctx context.Context, base tobari.ContextBootstrapSnapshot, contextName string) (tobari.ContextBootstrapSnapshot, error) {
+func (r *Runtime) PrepareContextEKSBootstrap(ctx context.Context, base tobari.ManifestBootstrapSnapshot, contextName string) (tobari.ManifestBootstrapSnapshot, error) {
 	if err := ctx.Err(); err != nil {
-		return tobari.ContextBootstrapSnapshot{}, err
+		return tobari.ManifestBootstrapSnapshot{}, err
 	}
 	if err := base.Validate(); err != nil || base.EKS != nil {
-		return tobari.ContextBootstrapSnapshot{}, fmt.Errorf("base AWS bootstrap is invalid")
+		return tobari.ManifestBootstrapSnapshot{}, fmt.Errorf("base AWS bootstrap is invalid")
 	}
 	eks, err := r.readHostEKSBootstrap(contextName, base.AWS.Profile)
 	if err != nil {
-		return tobari.ContextBootstrapSnapshot{}, err
+		return tobari.ManifestBootstrapSnapshot{}, err
 	}
 	return tobari.NewContextBootstrapSnapshotWithEKS(base.Generation, base.AWS, eks)
 }
 
-func (r *Runtime) PreviewContextEKSBootstrap(ctx context.Context, name, contextName string) (tobari.ContextBootstrapPreview, error) {
+func (r *Runtime) PreviewContextEKSBootstrap(ctx context.Context, name, contextName string) (tobari.ManifestBootstrapPreview, error) {
 	if err := ctx.Err(); err != nil {
-		return tobari.ContextBootstrapPreview{}, err
+		return tobari.ManifestBootstrapPreview{}, err
 	}
 	manifest, _, err := r.resolveContext(name)
 	if err != nil {
-		return tobari.ContextBootstrapPreview{}, err
+		return tobari.ManifestBootstrapPreview{}, err
 	}
 	if manifest.Bootstrap == nil {
-		return tobari.ContextBootstrapPreview{}, tobari.ErrContextBootstrapNotConfigured
+		return tobari.ManifestBootstrapPreview{}, tobari.ErrContextBootstrapNotConfigured
 	}
 	if contextName == "" {
 		if manifest.Bootstrap.EKS == nil {
-			return tobari.ContextBootstrapPreview{}, tobari.ErrContextBootstrapNotConfigured
+			return tobari.ManifestBootstrapPreview{}, tobari.ErrContextBootstrapNotConfigured
 		}
-		contextName = manifest.Bootstrap.EKS.ContextName
+		contextName = manifest.Bootstrap.EKS.WorkspaceManifestName
 	}
 	eks, err := r.readHostEKSBootstrap(contextName, manifest.Bootstrap.AWS.Profile)
 	if err != nil {
-		return tobari.ContextBootstrapPreview{}, err
+		return tobari.ManifestBootstrapPreview{}, err
 	}
 	candidate, err := tobari.NewContextBootstrapSnapshotWithEKS(manifest.Bootstrap.Generation+1, manifest.Bootstrap.AWS, eks)
 	if err != nil {
-		return tobari.ContextBootstrapPreview{}, err
+		return tobari.ManifestBootstrapPreview{}, err
 	}
 	if candidate.Revision == manifest.Bootstrap.Revision {
 		candidate.Generation = manifest.Bootstrap.Generation
@@ -483,16 +483,13 @@ func (r *Runtime) PreviewContextEKSBootstrap(ctx context.Context, name, contextN
 	return tobari.NewContextBootstrapPreview(manifest.Name, manifest.Bootstrap, candidate)
 }
 
-func (r *Runtime) ConfigureContextEKSBootstrap(ctx context.Context, name, contextName, expectedRevision string, remove bool) (tobari.ContextReport, error) {
+func (r *Runtime) ConfigureContextEKSBootstrap(ctx context.Context, name, contextName, expectedRevision string, remove bool) (tobari.ManifestReport, error) {
 	if err := ctx.Err(); err != nil {
-		return tobari.ContextReport{}, err
+		return tobari.ManifestReport{}, err
 	}
-	if err := r.ensureContextStore(); err != nil {
-		return tobari.ContextReport{}, err
-	}
-	var result tobari.ContextReport
+	var result tobari.ManifestReport
 	err := r.withContextStoreLock(func() error {
-		active, err := r.readActiveContext()
+		active, err := r.readDefaultManifestName()
 		if err != nil {
 			return err
 		}
@@ -503,6 +500,7 @@ func (r *Runtime) ConfigureContextEKSBootstrap(ctx context.Context, name, contex
 		if err != nil {
 			return err
 		}
+		previous := manifest
 		if manifest.Bootstrap == nil {
 			return tobari.ErrContextBootstrapNotConfigured
 		}
@@ -520,7 +518,7 @@ func (r *Runtime) ConfigureContextEKSBootstrap(ctx context.Context, name, contex
 				if manifest.Bootstrap.EKS == nil {
 					return tobari.ErrContextBootstrapNotConfigured
 				}
-				contextName = manifest.Bootstrap.EKS.ContextName
+				contextName = manifest.Bootstrap.EKS.WorkspaceManifestName
 			}
 			eks, readErr := r.readHostEKSBootstrap(contextName, manifest.Bootstrap.AWS.Profile)
 			if readErr != nil {
@@ -538,17 +536,15 @@ func (r *Runtime) ConfigureContextEKSBootstrap(ctx context.Context, name, contex
 			}
 			manifest.Bootstrap = &candidate
 		}
-		if err := manifest.Validate(); err != nil {
-			return err
-		}
-		if err := writeAtomicJSON(r.contextManifestPath(manifest.Name), manifest); err != nil {
+		manifest, err = r.publishWorkspaceManifestUpdate(previous, manifest)
+		if err != nil {
 			return fmt.Errorf("write Context EKS bootstrap snapshot: %w", err)
 		}
 		result, err = r.contextReport(ctx, tobari.TaskConfigBootstrapEKS, manifest, active)
 		return err
 	})
 	if err != nil {
-		return tobari.ContextReport{}, err
+		return tobari.ManifestReport{}, err
 	}
 	return result, nil
 }

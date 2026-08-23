@@ -41,7 +41,7 @@ func bashSingleQuoted(value string) string {
 }
 
 func projectShellExecEnvironment(
-	manifest tobari.ContextManifest, lookup func(string) (string, bool),
+	manifest tobari.WorkspaceManifest, lookup func(string) (string, bool),
 ) ([]string, error) {
 	if err := manifest.Validate(); err != nil {
 		return nil, err
@@ -55,9 +55,9 @@ func projectShellExecEnvironment(
 		var value string
 		var present bool
 		switch setting.Source {
-		case tobari.ContextShellEnvironmentInherit:
+		case tobari.ManifestShellEnvironmentInherit:
 			value, present = lookup(setting.Variable)
-		case tobari.ContextShellEnvironmentLiteral:
+		case tobari.ManifestShellEnvironmentLiteral:
 			if setting.Value == nil {
 				return nil, fmt.Errorf("literal shell environment %s has no value", setting.Variable)
 			}
@@ -81,7 +81,7 @@ func projectShellExecEnvironment(
 		"PS1=" + prompt,
 		"PROMPT_COMMAND=PS1=" + bashSingleQuoted(prompt),
 	}
-	for _, variable := range tobari.ContextShellEnvironmentVariables() {
+	for _, variable := range tobari.ManifestShellEnvironmentVariables() {
 		if variable == "PS1" {
 			continue
 		}
@@ -140,7 +140,7 @@ func (r *Runtime) ValidateProjectRuntimeForContext(ctx context.Context, state to
 	if err != nil {
 		return err
 	}
-	if len(contexts.Items) != state.ContextCount {
+	if len(contexts.Items) != state.ManifestCount {
 		return fault.New(
 			fault.KindRejected, "cluster_projection_stale",
 			"the shared cluster has not loaded the complete Context catalog", false,
@@ -163,19 +163,22 @@ func (r *Runtime) ValidateProjectRuntimeForContext(ctx context.Context, state to
 // logical Tobari. It never removes logical state when Docker is missing or
 // cannot be classified safely.
 func (r *Runtime) EnsureProjectRuntime(
-	ctx context.Context, state tobari.State, instance tobari.ProjectInstance,
-) (tobari.ProjectInstance, error) {
+	ctx context.Context, state tobari.State, instance tobari.Workspace,
+) (tobari.Workspace, error) {
 	if err := state.Validate(); err != nil {
-		return tobari.ProjectInstance{}, err
+		return tobari.Workspace{}, err
 	}
 	if err := instance.Validate(); err != nil {
-		return tobari.ProjectInstance{}, err
+		return tobari.Workspace{}, err
 	}
 	if instance.Incomplete {
-		return tobari.ProjectInstance{}, fmt.Errorf("project instance state is incomplete; delete the selected Tobari before recreating it")
+		return tobari.Workspace{}, fmt.Errorf("project instance state is incomplete; delete the selected Tobari before recreating it")
 	}
-	var updated tobari.ProjectInstance
-	err := r.withProjectLock(ctx, func() error {
+	var updated tobari.Workspace
+	var attempted *tobari.WorkspaceManifestRevision
+	phase := "preflight"
+	changeState := tobari.ReconciliationChangeNone
+	err := r.withProjectLock(ctx, func() (reconcileErr error) {
 		if err := r.reconcileProjectJournal(); err != nil {
 			return err
 		}
@@ -189,16 +192,46 @@ func (r *Runtime) EnsureProjectRuntime(
 		if resolved, resolveErr := r.ResolveProjectRoot(ctx, stored.Root); resolveErr != nil || resolved != stored.Root {
 			return fmt.Errorf("project root is no longer accessible at its canonical path")
 		}
-		manifest, _, err := r.contextByID(stored.ContextID)
+		manifest, _, err := r.contextByID(stored.WorkspaceManifestID)
 		if err != nil {
 			return err
 		}
-		if manifest.Name != stored.ContextName {
+		if manifest.Name != stored.WorkspaceManifestName {
 			return fmt.Errorf("project Context binding is stale")
 		}
+		attempt := manifest.Desired
+		attempted = &attempt
+		defer func() {
+			if reconcileErr == nil {
+				return
+			}
+			code := "workspace_reconciliation_failed"
+			if errors.Is(reconcileErr, context.Canceled) || errors.Is(reconcileErr, context.DeadlineExceeded) {
+				code = "workspace_reconciliation_interrupted"
+				changeState = tobari.ReconciliationChangeUnknown
+			}
+			now := time.Now().UTC()
+			if r.identities.now != nil {
+				now = r.identities.now().UTC()
+			}
+			stored.LastFailure = &tobari.ReconciliationFailure{
+				AttemptedGeneration:       attempted.Generation,
+				AttemptedManifestRevision: attempted.Revision,
+				AttemptedEntryRevision:    attempted.EntryRevision,
+				Phase:                     phase,
+				Code:                      code,
+				ChangeState:               changeState,
+				OccurredAt:                now,
+			}
+			if recordErr := r.writeProjectInstance(stored); recordErr != nil {
+				reconcileErr = fmt.Errorf("%w; record reconciliation failure: %v", reconcileErr, recordErr)
+			}
+		}()
 		// Resolve and atomically replace the narrow Git fallback before any
 		// Docker inspection or mutation. A failing host read therefore cannot
 		// leave either a partial projection or newly changed Docker resources.
+		phase = "workspace_projection"
+		changeState = tobari.ReconciliationChangePartial
 		if err := r.reconcileProjectGitIdentity(ctx, manifest, stored); err != nil {
 			return err
 		}
@@ -207,6 +240,7 @@ func (r *Runtime) EnsureProjectRuntime(
 			return err
 		}
 		image = r.resolveBuiltinImageSelector(image)
+		phase = "runtime_resolution"
 		if err := r.validateCompatibleImage(ctx, image); err != nil {
 			return err
 		}
@@ -248,6 +282,7 @@ func (r *Runtime) EnsureProjectRuntime(
 		if err != nil {
 			return err
 		}
+		phase = "runtime_reconciliation"
 		ready, err := r.projectRuntimeReadyForPrincipalRefresh(
 			ctx, stored, container, network, workspaceRoot, specHash, manifest.SourceAccess,
 		)
@@ -283,6 +318,7 @@ func (r *Runtime) EnsureProjectRuntime(
 				return err
 			}
 		}
+		phase = "network_guard"
 		if err := r.ensureWorkspaceNetworkGuard(ctx, stored, container, network, subnet, gatewayIP); err != nil {
 			return err
 		}
@@ -299,6 +335,7 @@ func (r *Runtime) EnsureProjectRuntime(
 		if err := r.updateProjectPrincipal(ctx, stored, network, workspaceIP, gatewayIP); err != nil {
 			return fmt.Errorf("publish guarded project principal: %w", err)
 		}
+		phase = "readiness"
 		if err := r.waitProjectReady(ctx, container); err != nil {
 			return err
 		}
@@ -310,7 +347,24 @@ func (r *Runtime) EnsureProjectRuntime(
 		if err != nil {
 			return err
 		}
-		desired.Runtime = tobari.ProjectRuntime{ContainerID: containerID, NetworkID: networkID}
+		desired.Runtime = tobari.WorkspaceRuntime{ContainerID: containerID, NetworkID: networkID}
+		if manifest.RuntimeBinding == nil {
+			return fmt.Errorf("Workspace Manifest has no exact Runtime binding")
+		}
+		now := time.Now().UTC()
+		if r.identities.now != nil {
+			now = r.identities.now().UTC()
+		}
+		desired.LastSuccessfulEntry = &tobari.AppliedEntry{
+			ManifestGeneration: manifest.Desired.Generation,
+			ManifestRevision:   manifest.Desired.Revision,
+			EntryRevision:      manifest.Desired.EntryRevision,
+			RuntimeID:          manifest.RuntimeBinding.RuntimeID,
+			RuntimeRevision:    manifest.RuntimeBinding.Revision,
+			ResolvedSpec:       specHash,
+			ReconciledAt:       now,
+		}
+		desired.LastFailure = nil
 		if err := r.writeProjectInstance(desired); err != nil {
 			return err
 		}
@@ -318,7 +372,7 @@ func (r *Runtime) EnsureProjectRuntime(
 		return nil
 	})
 	if err != nil {
-		return tobari.ProjectInstance{}, err
+		return tobari.Workspace{}, err
 	}
 	return updated, nil
 }
@@ -326,7 +380,7 @@ func (r *Runtime) EnsureProjectRuntime(
 // InspectProjectRuntime describes recoverable runtime health without changing
 // state. A missing container is not a missing logical Tobari.
 func (r *Runtime) InspectProjectRuntime(
-	ctx context.Context, instance tobari.ProjectInstance,
+	ctx context.Context, instance tobari.Workspace,
 ) (tobari.RuntimeDiagnostic, error) {
 	if err := instance.Validate(); err != nil {
 		return tobari.RuntimeDiagnosticUnknown, err
@@ -365,7 +419,7 @@ func (r *Runtime) InspectProjectRuntime(
 // ProjectSessionAttached observes active Docker exec sessions for the exact
 // work container. Attachment is transient runtime state; it is never persisted
 // in the logical Workspace record.
-func (r *Runtime) ProjectSessionAttached(ctx context.Context, instance tobari.ProjectInstance) (bool, error) {
+func (r *Runtime) ProjectSessionAttached(ctx context.Context, instance tobari.Workspace) (bool, error) {
 	if err := instance.Validate(); err != nil {
 		return false, err
 	}
@@ -400,7 +454,7 @@ func (r *Runtime) ProjectSessionAttached(ctx context.Context, instance tobari.Pr
 // container, maps the host directory below its root, and preserves child exit
 // status.
 func (r *Runtime) EnterProjectRuntime(
-	ctx context.Context, instance tobari.ProjectInstance, manifest tobari.ContextManifest, cwd string,
+	ctx context.Context, instance tobari.Workspace, manifest tobari.WorkspaceManifest, cwd string,
 	session tobari.WorkspaceSessionRequest, in io.Reader, out, errOut io.Writer,
 ) (code int, resultErr error) {
 	if err := session.Validate(); err != nil {
@@ -427,7 +481,7 @@ func (r *Runtime) EnterProjectRuntime(
 }
 
 func (r *Runtime) enterProjectRuntime(
-	ctx context.Context, instance tobari.ProjectInstance, manifest tobari.ContextManifest, cwd string,
+	ctx context.Context, instance tobari.Workspace, manifest tobari.WorkspaceManifest, cwd string,
 	session tobari.WorkspaceSessionRequest, extraEnvironment []string, in io.Reader, out, errOut io.Writer,
 ) (int, error) {
 	if err := instance.Validate(); err != nil {
@@ -436,7 +490,7 @@ func (r *Runtime) enterProjectRuntime(
 	if err := manifest.Validate(); err != nil {
 		return 0, err
 	}
-	if manifest.ID != instance.ContextID {
+	if manifest.ID != instance.WorkspaceManifestID {
 		return 0, fmt.Errorf("Context shell environment does not belong to the selected Workspace")
 	}
 	resolved, err := r.ResolveProjectRoot(ctx, cwd)
@@ -527,7 +581,7 @@ func (r *Runtime) InsideProject(context.Context) bool {
 // ProjectHome returns the exact per-project XDG home path for presentation and
 // deletion diagnostics. The path is derived only from the validated logical
 // ID and never from a user-supplied Docker identifier.
-func (r *Runtime) ProjectHome(ctx context.Context, instance tobari.ProjectInstance) (string, error) {
+func (r *Runtime) ProjectHome(ctx context.Context, instance tobari.Workspace) (string, error) {
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
@@ -539,7 +593,7 @@ func (r *Runtime) ProjectHome(ctx context.Context, instance tobari.ProjectInstan
 
 // DeleteProject removes only exact owned runtime resources and the selected
 // instance's state and home. Shared cluster and profile data are never targets.
-func (r *Runtime) DeleteProject(ctx context.Context, instance tobari.ProjectInstance) error {
+func (r *Runtime) DeleteProject(ctx context.Context, instance tobari.Workspace) error {
 	if err := instance.Validate(); err != nil {
 		return err
 	}
@@ -560,7 +614,7 @@ func (r *Runtime) DeleteProject(ctx context.Context, instance tobari.ProjectInst
 		journal := projectJournal{
 			SchemaVersion: projectJournalSchema, Operation: projectOpDelete,
 			ProjectID: stored.ID, Root: stored.Root, Phase: projectPhaseStarted,
-			ContextID: stored.ContextID,
+			WorkspaceManifestID: stored.WorkspaceManifestID,
 		}
 		if err := r.writeProjectJournal(journal); err != nil {
 			return err
@@ -613,7 +667,7 @@ func (r *Runtime) DeleteProject(ctx context.Context, instance tobari.ProjectInst
 		if err := r.writeProjectJournal(journal); err != nil {
 			return err
 		}
-		if err := r.removeProjectRootIndexFor(stored.Root, stored.ContextID); err != nil {
+		if err := r.removeProjectRootIndexFor(stored.Root, stored.WorkspaceManifestID); err != nil {
 			return err
 		}
 		return r.clearProjectJournal()
@@ -648,9 +702,9 @@ func (r *Runtime) ensureProjectNetwork(ctx context.Context, network, id string) 
 // drift takes the slower path that closes authority before changing resources.
 func (r *Runtime) projectRuntimeReadyForPrincipalRefresh(
 	ctx context.Context,
-	instance tobari.ProjectInstance,
+	instance tobari.Workspace,
 	container, network, workspaceRoot, specHash string,
-	sourceAccess tobari.ContextSourceAccess,
+	sourceAccess tobari.ManifestSourceAccess,
 ) (bool, error) {
 	networkExists, err := r.projectResourceExists(ctx, "network", network)
 	if err != nil {
@@ -725,12 +779,12 @@ func (r *Runtime) projectRuntimeReadyForPrincipalRefresh(
 }
 
 func (r *Runtime) ensureProjectContainer(
-	ctx context.Context, state tobari.State, instance tobari.ProjectInstance,
+	ctx context.Context, state tobari.State, instance tobari.Workspace,
 	profile, container, network, gatewayIP, image, specHash string,
 ) error {
 	if err := r.ensureProjectContainerWithAuth(
 		ctx, state, instance, profile, container, network, gatewayIP, image, specHash,
-		projectAuthProjection{Environment: []string{}, Files: []projectAuthFile{}}, tobari.ContextSourceAccessReadWrite,
+		projectAuthProjection{Environment: []string{}, Files: []projectAuthFile{}}, tobari.ManifestSourceAccessReadWrite,
 	); err != nil {
 		return err
 	}
@@ -738,10 +792,10 @@ func (r *Runtime) ensureProjectContainer(
 }
 
 func (r *Runtime) ensureProjectContainerWithAuth(
-	ctx context.Context, state tobari.State, instance tobari.ProjectInstance,
+	ctx context.Context, state tobari.State, instance tobari.Workspace,
 	profile, container, network, gatewayIP, image, specHash string,
 	auth projectAuthProjection,
-	sourceAccess tobari.ContextSourceAccess,
+	sourceAccess tobari.ManifestSourceAccess,
 ) error {
 	if err := sourceAccess.Validate(); err != nil {
 		return err
@@ -813,7 +867,7 @@ func (r *Runtime) ensureProjectContainerWithAuth(
 	}
 	uid, gid := currentIDs()
 	sourceMount := "type=bind,src=" + instance.Root + ",dst=" + workspaceRoot
-	if sourceAccess == tobari.ContextSourceAccessReadOnly {
+	if sourceAccess == tobari.ManifestSourceAccessReadOnly {
 		sourceMount += ",readonly"
 	}
 	args := []string{
@@ -823,7 +877,7 @@ func (r *Runtime) ensureProjectContainerWithAuth(
 		"--tmpfs", "/tmp:size=512m,mode=1777", "--tmpfs", "/run:size=16m,mode=1777",
 		"--env", "HOME=/var/lib/tobari",
 		"--env", "TOBARI_INSIDE=1", "--env", "TOBARI_ID=" + instance.ID, "--env", "TOBARI_ROOT=" + workspaceRoot,
-		"--env", "TOBARI_CONTEXT_ID=" + instance.ContextID,
+		"--env", "TOBARI_CONTEXT_ID=" + instance.WorkspaceManifestID,
 		"--env", "TOBARI_PROFILE=/opt/tobari/profile",
 		"--env", "SSL_CERT_FILE=/tmp/tobari-ca-bundle.pem",
 		"--env", "REQUESTS_CA_BUNDLE=/tmp/tobari-ca-bundle.pem",
@@ -867,7 +921,7 @@ func (r *Runtime) ensureProjectContainerWithAuth(
 
 func (r *Runtime) projectContainerSourceAccess(
 	ctx context.Context, container, root, workspaceRoot string,
-) (tobari.ContextSourceAccess, error) {
+) (tobari.ManifestSourceAccess, error) {
 	output, err := r.runner.Output(
 		ctx, []string{"inspect", "--format", "{{json .Mounts}}", container}, os.Environ(),
 	)
@@ -884,7 +938,7 @@ func (r *Runtime) projectContainerSourceAccess(
 		return "", fmt.Errorf("decode project source mount: %w", err)
 	}
 	found := false
-	access := tobari.ContextSourceAccessReadOnly
+	access := tobari.ManifestSourceAccessReadOnly
 	for _, mount := range mounts {
 		if mount.Type != "bind" || mount.Source != root {
 			continue
@@ -900,7 +954,7 @@ func (r *Runtime) projectContainerSourceAccess(
 		}
 		found = true
 		if mount.RW {
-			access = tobari.ContextSourceAccessReadWrite
+			access = tobari.ManifestSourceAccessReadWrite
 		}
 	}
 	if !found {
@@ -976,39 +1030,39 @@ func (r *Runtime) compatibleImageID(ctx context.Context, image string) (string, 
 }
 
 type projectRuntimeSpec struct {
-	Image           string                     `json:"image"`
-	ImageID         string                     `json:"image_id"`
-	RuntimeAPI      string                     `json:"runtime_api"`
-	AssetVersion    string                     `json:"asset_version"`
-	WorkspaceRoot   string                     `json:"workspace_root"`
-	Root            string                     `json:"root"`
-	SourceAccess    tobari.ContextSourceAccess `json:"source_access"`
-	Network         string                     `json:"network"`
-	NetworkGuard    string                     `json:"network_guard"`
-	User            string                     `json:"user"`
-	Environment     []string                   `json:"environment"`
-	AuthFiles       []string                   `json:"auth_files"`
-	Mounts          []string                   `json:"mounts"`
-	ReadOnly        bool                       `json:"read_only"`
-	Capabilities    string                     `json:"capabilities"`
-	Security        string                     `json:"security"`
-	Resources       []string                   `json:"resources"`
-	LifetimeCommand []string                   `json:"lifetime_command"`
-	HealthCommand   string                     `json:"health_command"`
-	HealthInterval  string                     `json:"health_interval"`
-	ProfileDigest   string                     `json:"profile_digest"`
+	Image           string                      `json:"image"`
+	ImageID         string                      `json:"image_id"`
+	RuntimeAPI      string                      `json:"runtime_api"`
+	AssetVersion    string                      `json:"asset_version"`
+	WorkspaceRoot   string                      `json:"workspace_root"`
+	Root            string                      `json:"root"`
+	SourceAccess    tobari.ManifestSourceAccess `json:"source_access"`
+	Network         string                      `json:"network"`
+	NetworkGuard    string                      `json:"network_guard"`
+	User            string                      `json:"user"`
+	Environment     []string                    `json:"environment"`
+	AuthFiles       []string                    `json:"auth_files"`
+	Mounts          []string                    `json:"mounts"`
+	ReadOnly        bool                        `json:"read_only"`
+	Capabilities    string                      `json:"capabilities"`
+	Security        string                      `json:"security"`
+	Resources       []string                    `json:"resources"`
+	LifetimeCommand []string                    `json:"lifetime_command"`
+	HealthCommand   string                      `json:"health_command"`
+	HealthInterval  string                      `json:"health_interval"`
+	ProfileDigest   string                      `json:"profile_digest"`
 }
 
-func projectSourceMountSpec(root, workspaceRoot string, sourceAccess tobari.ContextSourceAccess) string {
+func projectSourceMountSpec(root, workspaceRoot string, sourceAccess tobari.ManifestSourceAccess) string {
 	mount := "bind:" + root + "->" + workspaceRoot
-	if sourceAccess == tobari.ContextSourceAccessReadOnly {
+	if sourceAccess == tobari.ManifestSourceAccessReadOnly {
 		mount += ":ro"
 	}
 	return mount
 }
 
 func (r *Runtime) projectSpecHash(
-	state tobari.State, instance tobari.ProjectInstance, profile, network, image, imageID string,
+	state tobari.State, instance tobari.Workspace, profile, network, image, imageID string,
 ) (string, error) {
 	return r.projectSpecHashWithAuth(
 		state, instance, profile, network, image, imageID,
@@ -1017,17 +1071,17 @@ func (r *Runtime) projectSpecHash(
 }
 
 func (r *Runtime) projectSpecHashWithAuth(
-	state tobari.State, instance tobari.ProjectInstance, profile, network, image, imageID string,
+	state tobari.State, instance tobari.Workspace, profile, network, image, imageID string,
 	auth projectAuthProjection,
 ) (string, error) {
 	return r.projectSpecHashWithAuthAndSourceAccess(
-		state, instance, profile, network, image, imageID, auth, tobari.ContextSourceAccessReadWrite,
+		state, instance, profile, network, image, imageID, auth, tobari.ManifestSourceAccessReadWrite,
 	)
 }
 
 func (r *Runtime) projectSpecHashWithAuthAndSourceAccess(
-	state tobari.State, instance tobari.ProjectInstance, profile, network, image, imageID string,
-	auth projectAuthProjection, sourceAccess tobari.ContextSourceAccess,
+	state tobari.State, instance tobari.Workspace, profile, network, image, imageID string,
+	auth projectAuthProjection, sourceAccess tobari.ManifestSourceAccess,
 ) (string, error) {
 	return r.projectSpecHashWithAuthAndCommand(
 		state, instance, profile, network, image, imageID, auth, projectLifetimeCommand(), sourceAccess,
@@ -1035,21 +1089,21 @@ func (r *Runtime) projectSpecHashWithAuthAndSourceAccess(
 }
 
 func (r *Runtime) projectSpecHashWithCommand(
-	state tobari.State, instance tobari.ProjectInstance, profile, network, image, imageID string,
+	state tobari.State, instance tobari.Workspace, profile, network, image, imageID string,
 	command []string,
 ) (string, error) {
 	return r.projectSpecHashWithAuthAndCommand(
 		state, instance, profile, network, image, imageID,
 		projectAuthProjection{Environment: []string{}, Files: []projectAuthFile{}, Providers: []projectAuthProviderBinding{}}, command,
-		tobari.ContextSourceAccessReadWrite,
+		tobari.ManifestSourceAccessReadWrite,
 	)
 }
 
 func (r *Runtime) projectSpecHashWithAuthAndCommand(
-	state tobari.State, instance tobari.ProjectInstance, profile, network, image, imageID string,
+	state tobari.State, instance tobari.Workspace, profile, network, image, imageID string,
 	auth projectAuthProjection,
 	command []string,
-	sourceAccess tobari.ContextSourceAccess,
+	sourceAccess tobari.ManifestSourceAccess,
 ) (string, error) {
 	spec, err := r.projectRuntimeSpecWithAuthAndCommand(
 		state, instance, profile, network, image, imageID, auth, command, sourceAccess,
@@ -1066,10 +1120,10 @@ func (r *Runtime) projectSpecHashWithAuthAndCommand(
 }
 
 func (r *Runtime) projectRuntimeSpecWithAuthAndCommand(
-	state tobari.State, instance tobari.ProjectInstance, profile, network, image, imageID string,
+	state tobari.State, instance tobari.Workspace, profile, network, image, imageID string,
 	auth projectAuthProjection,
 	command []string,
-	sourceAccess tobari.ContextSourceAccess,
+	sourceAccess tobari.ManifestSourceAccess,
 ) (projectRuntimeSpec, error) {
 	if err := sourceAccess.Validate(); err != nil {
 		return projectRuntimeSpec{}, err
@@ -1094,7 +1148,7 @@ func (r *Runtime) projectRuntimeSpecWithAuthAndCommand(
 		User:         strconv.Itoa(uid) + ":" + strconv.Itoa(gid),
 		Environment: []string{
 			"HOME=/var/lib/tobari", "TOBARI_INSIDE=1", "TOBARI_ID=" + instance.ID,
-			"TOBARI_CONTEXT_ID=" + instance.ContextID,
+			"TOBARI_CONTEXT_ID=" + instance.WorkspaceManifestID,
 			"TOBARI_ROOT=" + workspaceRoot, "TOBARI_PROFILE=/opt/tobari/profile",
 			"SSL_CERT_FILE=/tmp/tobari-ca-bundle.pem",
 			"REQUESTS_CA_BUNDLE=/tmp/tobari-ca-bundle.pem", "GIT_SSL_CAINFO=/tmp/tobari-ca-bundle.pem",

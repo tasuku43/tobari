@@ -7,7 +7,7 @@ func serviceExposureFixture() ServiceExposure {
 		SchemaVersion: ServiceExposureSchema,
 		ID:            "exp_0123456789abcdef0123456789abcdef", RequestID: "srq_0123456789abcdef0123456789abcdef",
 		AttachmentID: "att_0123456789abcdef0123456789abcdef",
-		ProjectID:    "01912345-6789-7abc-8def-0123456789ab", ContextID: "01912345-6789-7abc-8def-0123456789ab",
+		ProjectID:    "01912345-6789-7abc-8def-0123456789ab", WorkspaceManifestID: "01912345-6789-7abc-8def-0123456789ab",
 		Workspace: "/projects/app", TargetPort: 3000, HostPort: 54321,
 		URL: "http://127.0.0.1:54321", State: ServiceStateListening,
 	}

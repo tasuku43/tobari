@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/tasuku43/tobari/internal/domain/doctor"
 	"github.com/tasuku43/tobari/internal/domain/fault"
@@ -96,7 +97,7 @@ func (f *fakeRuntime) InspectCluster(context.Context, tobari.State) (tobari.Clus
 	return tobari.ClusterStatus{
 		Configured: true, Running: running,
 		Policy: f.state.PolicyDirectory, TobariCount: 0,
-		ContextCount: f.state.ContextCount, PolicyRevision: f.state.AggregateRevision,
+		ManifestCount: f.state.ManifestCount, PolicyRevision: f.state.AggregateRevision,
 		PolicyProjection: policyProjection, PrincipalRegistry: "valid", GatewayProjection: "valid",
 		AuthProviderProjection: "valid", AuthBrokerState: "ready", CredentialCompanionState: "ready", RootKeyBackend: "xdg_file",
 		Components: []tobari.ComponentStatus{
@@ -250,7 +251,7 @@ type activeContextFake struct {
 	active string
 }
 
-func (f *activeContextFake) ActiveContextName(context.Context) (string, error) {
+func (f *activeContextFake) DefaultManifestName(context.Context) (string, error) {
 	return f.active, nil
 }
 
@@ -259,10 +260,10 @@ type projectRuntimeFake struct {
 	cwd             string
 	terminal        bool
 	inside          bool
-	project         tobari.ProjectInstance
-	created         tobari.ProjectInstance
-	resolved        tobari.ProjectInstance
-	projects        []tobari.ProjectInstance
+	project         tobari.Workspace
+	created         tobari.Workspace
+	resolved        tobari.Workspace
+	projects        []tobari.Workspace
 	found           bool
 	resolveCalls    int
 	createCalls     int
@@ -288,78 +289,98 @@ func (f *projectRuntimeFake) CurrentDirectory(context.Context) (string, error) {
 func (f *projectRuntimeFake) IsTerminal(io.Writer) bool          { return f.terminal }
 func (f *projectRuntimeFake) IsInputTerminal(io.Reader) bool     { return f.terminal }
 func (f *projectRuntimeFake) InsideProject(context.Context) bool { return f.inside }
-func (f *projectRuntimeFake) ResolveProject(context.Context, string) (tobari.ProjectInstance, bool, error) {
+func (f *projectRuntimeFake) ResolveProject(context.Context, string) (tobari.Workspace, bool, error) {
 	f.resolveCalls++
 	if f.resolved.ID != "" {
 		return f.resolved, f.found, nil
 	}
 	return f.project, f.found, nil
 }
-func (f *projectRuntimeFake) ObserveContext(_ context.Context, name string) (tobari.ContextObservation, error) {
+func (f *projectRuntimeFake) ObserveContext(_ context.Context, name string) (tobari.ManifestObservation, error) {
 	if f.observeErr != nil {
-		return tobari.ContextObservation{}, f.observeErr
+		return tobari.ManifestObservation{}, f.observeErr
 	}
 	if name == "missing" {
-		return tobari.ContextObservation{}, tobari.ErrContextNotFound
+		return tobari.ManifestObservation{}, tobari.ErrContextNotFound
 	}
 	if name == "" {
-		name = tobari.DefaultContextName
+		name = tobari.DefaultManifestName
 	}
-	manifest := tobari.ContextManifest{
-		SchemaVersion: tobari.ContextSchemaVersion, ID: "018bcfe5-687b-7000-8000-000000000099",
-		Name: name, AgentProfile: tobari.DefaultProfile, Image: tobari.OfficialRuntimeBase,
-		PolicyMode: tobari.ContextPolicyModeGuided, SourceAccess: tobari.ContextSourceAccessReadWrite,
-		PolicyRevision: tobari.DefaultContextPolicyRevision(),
+	manifest, err := testWorkspaceManifest(name)
+	if err != nil {
+		return tobari.ManifestObservation{}, err
 	}
-	return tobari.ContextObservation{
-		State: tobari.ContextObservationPersisted, Name: name, Manifest: &manifest,
+	return tobari.ManifestObservation{
+		State: tobari.ManifestObservationPersisted, Name: name, Manifest: &manifest,
 	}, nil
 }
-func (f *projectRuntimeFake) ObserveBoundProject(ctx context.Context, cwd string, _ tobari.ContextManifest) (tobari.ProjectInstance, bool, error) {
+
+func testWorkspaceManifest(name string) (tobari.WorkspaceManifest, error) {
+	manifest := tobari.WorkspaceManifest{
+		SchemaVersion: tobari.WorkspaceManifestSchemaVersion, ID: "018bcfe5-687b-7000-8000-000000000099",
+		Name: name, AgentProfile: tobari.DefaultProfile, Image: tobari.OfficialRuntimeBase,
+		PolicyMode: tobari.ManifestPolicyModeGuided, SourceAccess: tobari.ManifestSourceAccessReadWrite,
+		PolicyRevision: tobari.DefaultContextPolicyRevision(),
+		RuntimeBinding: &tobari.RuntimeBinding{RuntimeID: tobari.StandardRuntimeID, Name: tobari.StandardRuntimeName, Revision: "sha256:" + strings.Repeat("0", 64), Ordinal: 1, Image: tobari.OfficialRuntimeBase},
+	}
+	return tobari.PublishWorkspaceManifest(manifest, nil)
+}
+
+func (f *projectRuntimeFake) ReadWorkspaceManifestByID(_ context.Context, id string) (tobari.WorkspaceManifest, error) {
+	manifest, err := testWorkspaceManifest(tobari.DefaultManifestName)
+	if err != nil {
+		return tobari.WorkspaceManifest{}, err
+	}
+	if manifest.ID != id {
+		return tobari.WorkspaceManifest{}, tobari.ErrContextNotFound
+	}
+	return manifest, nil
+}
+func (f *projectRuntimeFake) ObserveBoundProject(ctx context.Context, cwd string, _ tobari.WorkspaceManifest) (tobari.Workspace, bool, error) {
 	return f.ResolveProject(ctx, cwd)
 }
-func (f *projectRuntimeFake) CreateProject(context.Context, string) (tobari.ProjectInstance, error) {
+func (f *projectRuntimeFake) CreateProject(context.Context, string) (tobari.Workspace, error) {
 	f.createCalls++
 	if f.created.ID != "" {
 		return f.created, nil
 	}
 	return f.project, nil
 }
-func (f *projectRuntimeFake) ListProjects(context.Context) ([]tobari.ProjectInstance, error) {
+func (f *projectRuntimeFake) ListProjects(context.Context) ([]tobari.Workspace, error) {
 	f.listCalls++
 	if f.projects != nil {
-		return append([]tobari.ProjectInstance{}, f.projects...), nil
+		return append([]tobari.Workspace{}, f.projects...), nil
 	}
 	if !f.found {
-		return []tobari.ProjectInstance{}, nil
+		return []tobari.Workspace{}, nil
 	}
-	return []tobari.ProjectInstance{f.project}, nil
+	return []tobari.Workspace{f.project}, nil
 }
-func (f *projectRuntimeFake) ProjectHome(context.Context, tobari.ProjectInstance) (string, error) {
+func (f *projectRuntimeFake) ProjectHome(context.Context, tobari.Workspace) (string, error) {
 	return "/tmp/tobari-home", nil
 }
 func (f *projectRuntimeFake) ValidateProjectRuntime(context.Context, tobari.State) error {
 	f.validateCalls++
 	return f.validateErr
 }
-func (f *projectRuntimeFake) EnsureProjectRuntime(_ context.Context, _ tobari.State, instance tobari.ProjectInstance) (tobari.ProjectInstance, error) {
+func (f *projectRuntimeFake) EnsureProjectRuntime(_ context.Context, _ tobari.State, instance tobari.Workspace) (tobari.Workspace, error) {
 	f.ensureCalls++
 	return instance, nil
 }
-func (f *projectRuntimeFake) InspectProjectRuntime(context.Context, tobari.ProjectInstance) (tobari.RuntimeDiagnostic, error) {
+func (f *projectRuntimeFake) InspectProjectRuntime(context.Context, tobari.Workspace) (tobari.RuntimeDiagnostic, error) {
 	f.runtimeCalls++
 	return tobari.RuntimeDiagnosticMissing, nil
 }
-func (f *projectRuntimeFake) ProjectSessionAttached(context.Context, tobari.ProjectInstance) (bool, error) {
+func (f *projectRuntimeFake) ProjectSessionAttached(context.Context, tobari.Workspace) (bool, error) {
 	f.sessionCalls++
 	return f.sessionAttached, f.sessionErr
 }
-func (f *projectRuntimeFake) EnterProjectRuntime(_ context.Context, _ tobari.ProjectInstance, _ tobari.ContextManifest, _ string, session tobari.WorkspaceSessionRequest, _ io.Reader, _ io.Writer, _ io.Writer) (int, error) {
+func (f *projectRuntimeFake) EnterProjectRuntime(_ context.Context, _ tobari.Workspace, _ tobari.WorkspaceManifest, _ string, session tobari.WorkspaceSessionRequest, _ io.Reader, _ io.Writer, _ io.Writer) (int, error) {
 	f.enterCalls++
 	f.lastSession = session
 	return 0, nil
 }
-func (f *projectRuntimeFake) DeleteProject(context.Context, tobari.ProjectInstance) error {
+func (f *projectRuntimeFake) DeleteProject(context.Context, tobari.Workspace) error {
 	f.deleteCalls++
 	return nil
 }
@@ -368,10 +389,10 @@ type workspaceSelectorFake struct {
 	choice tobari.ProjectSelectionChoice
 	err    error
 	calls  int
-	seen   tobari.ProjectSelection
+	seen   tobari.WorkspaceSelection
 }
 
-func (f *workspaceSelectorFake) Select(_ context.Context, selection tobari.ProjectSelection, _ io.Reader, _ io.Writer) (tobari.ProjectSelectionChoice, error) {
+func (f *workspaceSelectorFake) Select(_ context.Context, selection tobari.WorkspaceSelection, _ io.Reader, _ io.Writer) (tobari.ProjectSelectionChoice, error) {
 	f.calls++
 	f.seen = selection
 	if f.err != nil {
@@ -383,7 +404,7 @@ func (f *workspaceSelectorFake) Select(_ context.Context, selection tobari.Proje
 func testState(root string) tobari.State {
 	return tobari.State{
 		SchemaVersion: 1, RuntimeDirectory: filepath.Join(root, "runtime"),
-		AggregateRevision: strings.Repeat("a", 64), ContextCount: 1,
+		AggregateRevision: strings.Repeat("a", 64), ManifestCount: 1,
 		PolicyDirectory: filepath.Join(root, "policy"),
 		GatewayConfig:   filepath.Join(root, "gateway.json"), AssetVersion: "asset",
 	}
@@ -422,14 +443,18 @@ func projectWriteIntent(command string) operation.Intent {
 	}
 }
 
-func testProjectInstance() tobari.ProjectInstance {
-	return tobari.ProjectInstance{
-		SchemaVersion: tobari.ProjectStateSchemaVersion,
+func testProjectInstance() tobari.Workspace {
+	return tobari.Workspace{
+		SchemaVersion: tobari.WorkspaceStateSchemaVersion,
 		ID:            "01912345-6789-7abc-8def-0123456789ab",
 		Root:          "/tmp/project", Profile: tobari.DefaultProfile,
-		ContextID:   "018bcfe5-687b-7000-8000-000000000099",
-		ContextName: tobari.DefaultContextName,
-		Image:       tobari.BuiltinImageSelector,
+		WorkspaceManifestID:   "018bcfe5-687b-7000-8000-000000000099",
+		WorkspaceManifestName: tobari.DefaultManifestName,
+		Image:                 tobari.BuiltinImageSelector,
+		CreationApplied: tobari.WorkspaceCreationApplied{
+			CreationDefaultsRevision: "sha256:" + strings.Repeat("a", 64),
+			AppliedAt:                time.Unix(1, 0).UTC(),
+		},
 	}
 }
 
@@ -578,7 +603,7 @@ func TestEnterProjectExplicitCreateUsesCurrentDirectoryWithoutNearestReuse(t *te
 	fake := &projectRuntimeFake{
 		fakeRuntime: &fakeRuntime{state: testState(t.TempDir())},
 		cwd:         "/tmp/project/root", terminal: true, found: true, project: parent,
-		projects: []tobari.ProjectInstance{parent}, created: created,
+		projects: []tobari.Workspace{parent}, created: created,
 	}
 	selector := &workspaceSelectorFake{choice: tobari.ProjectSelectionChoice{Kind: tobari.ProjectSelectionCreate}}
 	code, err := NewWithWorkspaceSelector(fake, selector).EnterProject(
@@ -678,7 +703,7 @@ func TestProjectStatusPreservesExistsWhenRuntimeIsMissing(t *testing.T) {
 		fakeRuntime: &fakeRuntime{state: testState(t.TempDir())},
 		cwd:         "/tmp/project", found: true, project: testProjectInstance(),
 	}
-	result, err := New(fake).ProjectStatus(context.Background())
+	result, err := New(fake).WorkspaceStatus(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -693,7 +718,7 @@ func TestProjectStatusDoesNotMisclassifyUnsafeContextObservationAsNotFound(t *te
 	fake := &projectRuntimeFake{
 		fakeRuntime: &fakeRuntime{}, cwd: "/tmp/project", observeErr: errors.New("Context manifest is unsafe"),
 	}
-	_, err := New(fake).ProjectStatus(context.Background())
+	_, err := New(fake).WorkspaceStatus(context.Background())
 	public, ok := fault.PublicCopy(err)
 	if !ok || public.Kind != fault.KindInternal || public.Code != "context_read_failed" {
 		t.Fatalf("unsafe Context observation = %v, public=%+v", err, public)
@@ -748,11 +773,11 @@ func TestProjectStatusPreservesRequestedContextScopeWhenWorkspaceIsAbsent(t *tes
 	fake := &projectRuntimeFake{
 		fakeRuntime: &fakeRuntime{}, cwd: "/tmp/project", found: false, project: testProjectInstance(),
 	}
-	result, err := New(fake).ProjectStatusInContext(context.Background(), tobari.DefaultContextName)
+	result, err := New(fake).ProjectStatusInContext(context.Background(), tobari.DefaultManifestName)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Exists || result.ContextName != tobari.DefaultContextName || result.ContextID == "" || result.RuntimeSelection != tobari.StandardRuntimeName+"@1" ||
+	if result.Exists || result.WorkspaceManifestName != tobari.DefaultManifestName || result.WorkspaceManifestID == "" || result.RuntimeSelection != tobari.StandardRuntimeName+"@1" ||
 		result.Attachment != tobari.AttachmentNotApplicable || result.Runtime != tobari.RuntimeDiagnosticUnknown {
 		t.Fatalf("absent scoped status = %+v", result)
 	}
@@ -764,17 +789,17 @@ func TestProjectStatusPreservesRequestedContextScopeWhenWorkspaceIsAbsent(t *tes
 func TestLifecycleStaleContextBindingFailsBeforeRuntimeObservationOrDelete(t *testing.T) {
 	t.Parallel()
 	stale := testProjectInstance()
-	stale.ContextName = "toolbox"
+	stale.WorkspaceManifestName = "toolbox"
 	for _, test := range []struct {
 		name string
 		run  func(*Service) error
 	}{
 		{name: "status", run: func(service *Service) error {
-			_, err := service.ProjectStatusInContext(context.Background(), tobari.DefaultContextName)
+			_, err := service.ProjectStatusInContext(context.Background(), tobari.DefaultManifestName)
 			return err
 		}},
 		{name: "delete", run: func(service *Service) error {
-			_, err := service.DeleteProjectInContext(context.Background(), projectWriteIntent("delete"), tobari.DefaultContextName, true)
+			_, err := service.DeleteProjectInContext(context.Background(), projectWriteIntent("delete"), tobari.DefaultManifestName, true)
 			return err
 		}},
 	} {
@@ -796,7 +821,7 @@ func TestDeletePreviewContextIDMismatchFailsBeforeCWDOrWorkspaceLookup(t *testin
 	t.Parallel()
 	fake := &projectRuntimeFake{fakeRuntime: &fakeRuntime{}, cwd: "/tmp/project", found: true, project: testProjectInstance()}
 	_, err := New(fake).DeleteProjectWithContextBinding(
-		context.Background(), projectWriteIntent("delete"), tobari.DefaultContextName,
+		context.Background(), projectWriteIntent("delete"), tobari.DefaultManifestName,
 		"01912345-6789-7abc-8def-0123456789ff", true,
 	)
 	public, ok := fault.PublicCopy(err)
@@ -959,7 +984,7 @@ func TestHostLoopbackCandidateIsOnlyExposedThroughPolicyReview(t *testing.T) {
 	denial := tobari.PolicyDenial{
 		PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Scheme: "http", Protocol: tobari.PolicyProtocolHTTP},
 		Timestamp:              "2026-08-17T12:00:00Z", RequestID: "0123456789abcdef0123456789abcdef",
-		ContextID: route.ContextID, ContextName: route.ContextName,
+		WorkspaceManifestID: route.WorkspaceManifestID, WorkspaceManifestName: route.WorkspaceManifestName,
 		ProjectID: route.ProjectID, ProjectRoot: route.ProjectRoot,
 		Host: route.Hostname, Port: 3000, Method: "GET", Path: "/health",
 		Reason: "review", StatusCode: 403, Learnable: true,
@@ -999,7 +1024,7 @@ func TestServiceInteractiveRequiresTerminalStreams(t *testing.T) {
 
 func validServiceDenial() tobari.PolicyDenial {
 	return tobari.PolicyDenial{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Scheme: "https", Protocol: tobari.PolicyProtocolHTTP}, Timestamp: "2026-07-30T10:41:11Z", RequestID: "7185da2688d7469aae9cd9068e920b0b",
-		ContextID: "01912345-6789-7abc-8def-0123456789ad", ContextName: "default",
+		WorkspaceManifestID: "01912345-6789-7abc-8def-0123456789ad", WorkspaceManifestName: "default",
 		ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/project",
 		Host: "api.example.com", Port: 443, Method: "GET", Path: "/api/v1/items/one",
 		Reason: "request did not match an allow rule", StatusCode: 403, Learnable: true,
@@ -1120,7 +1145,7 @@ func TestApplyPolicyReviewDecisionSetKeepsHostLoopbackAuthorityAttachmentScoped(
 	if err != nil {
 		t.Fatal(err)
 	}
-	denial := tobari.PolicyDenial{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Scheme: "http", Protocol: tobari.PolicyProtocolHTTP}, Timestamp: "2026-08-17T12:00:00Z", RequestID: "0123456789abcdef0123456789abcdef", ContextID: route.ContextID, ContextName: route.ContextName, ProjectID: route.ProjectID, ProjectRoot: route.ProjectRoot, Host: route.Hostname, Port: 3000, Method: "GET", Path: "/health", Reason: "review", StatusCode: 403, Learnable: true, DestinationKind: tobari.PolicyDestinationHostLoopback, AuthorityLifetime: tobari.AuthorityLifetimeAttachment, AttachmentEpochID: route.EpochID}
+	denial := tobari.PolicyDenial{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Scheme: "http", Protocol: tobari.PolicyProtocolHTTP}, Timestamp: "2026-08-17T12:00:00Z", RequestID: "0123456789abcdef0123456789abcdef", WorkspaceManifestID: route.WorkspaceManifestID, WorkspaceManifestName: route.WorkspaceManifestName, ProjectID: route.ProjectID, ProjectRoot: route.ProjectRoot, Host: route.Hostname, Port: 3000, Method: "GET", Path: "/health", Reason: "review", StatusCode: 403, Learnable: true, DestinationKind: tobari.PolicyDestinationHostLoopback, AuthorityLifetime: tobari.AuthorityLifetimeAttachment, AttachmentEpochID: route.EpochID}
 	candidate, err := tobari.NewPolicyCandidate(denial)
 	if err != nil {
 		t.Fatal(err)
@@ -1217,8 +1242,8 @@ func TestApplyPolicyReviewDecisionSetRejectsMultipleContextSources(t *testing.T)
 	first := validServiceDenial()
 	second := validServiceDenial()
 	second.RequestID = "9185da2688d7469aae9cd9068e920b0b"
-	second.ContextID = "01912345-6789-7abc-8def-0123456789ae"
-	second.ContextName = "restricted"
+	second.WorkspaceManifestID = "01912345-6789-7abc-8def-0123456789ae"
+	second.WorkspaceManifestName = "restricted"
 	second.ProjectID = "01912345-6789-7abc-8def-0123456789ac"
 	second.ProjectRoot = "/workspace/restricted"
 	second.Path = "/api/v1/items/restricted"
@@ -1280,7 +1305,7 @@ func TestDenyPolicyCandidateBindsExactReferenceAndRemovesQueueItem(t *testing.T)
 	if runtime.denyCalls != 1 || result.TargetID != candidate.ID || !result.Applied ||
 		result.PolicyDirectory != runtime.policyActivationReceipt().PolicyDirectory ||
 		len(runtime.denyRules) != 1 || !runtime.denyRules[0].MatchesIdentity(
-		candidate.ContextID, candidate.ProjectID, candidate.Host, candidate.Port, candidate.Method, candidate.Path,
+		candidate.WorkspaceManifestID, candidate.ProjectID, candidate.Host, candidate.Port, candidate.Method, candidate.Path,
 		candidate.PolicyProtocolIdentity,
 	) {
 		t.Fatalf("result=%+v deny calls=%d rules=%+v", result, runtime.denyCalls, runtime.denyRules)

@@ -242,7 +242,7 @@ func gitIdentityResolutionFailed() *fault.Error {
 		"The inherited Git identity could not be resolved safely.",
 		false,
 		fault.NextAction{
-			Command: "context show",
+			Command: "manifest show",
 			Reason:  "Inspect the selected Context without changing Workspace state.",
 		},
 	)

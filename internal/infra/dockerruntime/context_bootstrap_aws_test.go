@@ -112,7 +112,7 @@ func TestHostAWSBootstrapRejectsSymlinkAndGroupWritableSource(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if discovered.State != tobari.ContextBootstrapDiscoveryRejected || len(discovered.Candidates) != 0 {
+			if discovered.State != tobari.ManifestBootstrapDiscoveryRejected || len(discovered.Candidates) != 0 {
 				t.Fatalf("unsafe discovery = %+v", discovered)
 			}
 		})
@@ -139,17 +139,17 @@ sso_role_name = Developer
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.State != tobari.ContextBootstrapDiscoveryAvailable || len(result.Candidates) != 3 {
+	if result.State != tobari.ManifestBootstrapDiscoveryAvailable || len(result.Candidates) != 3 {
 		t.Fatalf("discovery = %+v", result)
 	}
 	states := map[string]string{}
 	for _, candidate := range result.Candidates {
 		states[candidate.Profile] = candidate.State
-		if candidate.State == tobari.ContextBootstrapCandidateAvailable && candidate.Snapshot.AWS.SSOSession != "company" {
+		if candidate.State == tobari.ManifestBootstrapCandidateAvailable && candidate.Snapshot.AWS.SSOSession != "company" {
 			t.Fatalf("shared session was not resolved: %+v", candidate)
 		}
 	}
-	if states["engineering"] != tobari.ContextBootstrapCandidateAvailable || states["production"] != tobari.ContextBootstrapCandidateAvailable || states["broken"] != tobari.ContextBootstrapCandidateUnavailable {
+	if states["engineering"] != tobari.ManifestBootstrapCandidateAvailable || states["production"] != tobari.ManifestBootstrapCandidateAvailable || states["broken"] != tobari.ManifestBootstrapCandidateUnavailable {
 		t.Fatalf("candidate states = %+v", states)
 	}
 }
@@ -162,7 +162,7 @@ func TestDiscoverAWSBootstrapsRejectsMalformedWholeFileWithoutPartialCandidates(
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.State != tobari.ContextBootstrapDiscoveryRejected || len(result.Candidates) != 0 || result.Reason == "" {
+	if result.State != tobari.ManifestBootstrapDiscoveryRejected || len(result.Candidates) != 0 || result.Reason == "" {
 		t.Fatalf("malformed discovery = %+v", result)
 	}
 }
@@ -175,7 +175,7 @@ func TestDiscoverAWSBootstrapsDistinguishesMissingSource(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.State != tobari.ContextBootstrapDiscoveryMissing || len(result.Candidates) != 0 {
+	if result.State != tobari.ManifestBootstrapDiscoveryMissing || len(result.Candidates) != 0 {
 		t.Fatalf("missing discovery = %+v", result)
 	}
 }
@@ -215,12 +215,12 @@ func TestContextBootstrapAppliesOnceAndRefreshAffectsOnlyNewWorkspaces(t *testin
 	t.Parallel()
 	runtime := newProjectStateRuntime(t)
 	writeSyntheticHostAWSConfig(t, runtime, syntheticAWSSharedConfig)
-	configured, err := runtime.ConfigureContextAWSBootstrap(context.Background(), tobari.DefaultContextName, "engineering", "", false)
+	configured, err := runtime.ConfigureContextAWSBootstrap(context.Background(), tobari.DefaultManifestName, "engineering", "", false)
 	if err != nil {
 		t.Fatal(err)
 	}
 	firstRevision := configured.Bootstrap.Revision
-	if configured.Bootstrap.State != tobari.ContextBootstrapConfigured || firstRevision == "" {
+	if configured.Bootstrap.State != tobari.ManifestBootstrapConfigured || firstRevision == "" {
 		t.Fatalf("configured report = %+v", configured.Bootstrap)
 	}
 
@@ -228,7 +228,7 @@ func TestContextBootstrapAppliesOnceAndRefreshAffectsOnlyNewWorkspaces(t *testin
 	if err := os.Mkdir(firstRoot, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	first, _, err := runtime.ResolveOrCreateProjectInContext(context.Background(), firstRoot, tobari.DefaultContextName)
+	first, _, err := runtime.ResolveOrCreateProjectInContext(context.Background(), firstRoot, tobari.DefaultManifestName)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -237,8 +237,8 @@ func TestContextBootstrapAppliesOnceAndRefreshAffectsOnlyNewWorkspaces(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	if first.BootstrapRevision != firstRevision || !strings.Contains(string(firstBytes), "sso_role_name = Developer") {
-		t.Fatalf("first Workspace projection = revision %q bytes %q", first.BootstrapRevision, firstBytes)
+	if first.CreationApplied.BootstrapRevision != firstRevision || !strings.Contains(string(firstBytes), "sso_role_name = Developer") {
+		t.Fatalf("first Workspace projection = revision %q bytes %q", first.CreationApplied.BootstrapRevision, firstBytes)
 	}
 	for _, path := range []string{filepath.Join(runtime.projectHomePath(first.ID), ".aws", "credentials"), filepath.Join(runtime.projectHomePath(first.ID), ".aws", "sso", "cache")} {
 		if _, err := os.Lstat(path); !os.IsNotExist(err) {
@@ -251,7 +251,7 @@ func TestContextBootstrapAppliesOnceAndRefreshAffectsOnlyNewWorkspaces(t *testin
 	if err := os.WriteFile(hostPath, []byte(updated), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	preview, err := runtime.PreviewContextAWSBootstrap(context.Background(), tobari.DefaultContextName, "")
+	preview, err := runtime.PreviewContextAWSBootstrap(context.Background(), tobari.DefaultManifestName, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -262,10 +262,10 @@ func TestContextBootstrapAppliesOnceAndRefreshAffectsOnlyNewWorkspaces(t *testin
 	if err := os.WriteFile(hostPath, []byte(drifted), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := runtime.ConfigureContextAWSBootstrap(context.Background(), tobari.DefaultContextName, "", preview.Candidate.Revision, false); !errors.Is(err, tobari.ErrContextBootstrapSourceChanged) {
+	if _, err := runtime.ConfigureContextAWSBootstrap(context.Background(), tobari.DefaultManifestName, "", preview.Candidate.Revision, false); !errors.Is(err, tobari.ErrContextBootstrapSourceChanged) {
 		t.Fatalf("stale reviewed candidate error = %v", err)
 	}
-	unchanged, err := runtime.ResolveContext(context.Background(), tobari.DefaultContextName)
+	unchanged, err := runtime.ResolveContext(context.Background(), tobari.DefaultManifestName)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -275,7 +275,7 @@ func TestContextBootstrapAppliesOnceAndRefreshAffectsOnlyNewWorkspaces(t *testin
 	if err := os.WriteFile(hostPath, []byte(updated), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	refreshed, err := runtime.ConfigureContextAWSBootstrap(context.Background(), tobari.DefaultContextName, "", preview.Candidate.Revision, false)
+	refreshed, err := runtime.ConfigureContextAWSBootstrap(context.Background(), tobari.DefaultManifestName, "", preview.Candidate.Revision, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -294,7 +294,7 @@ func TestContextBootstrapAppliesOnceAndRefreshAffectsOnlyNewWorkspaces(t *testin
 	if err := os.Mkdir(secondRoot, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	second, _, err := runtime.ResolveOrCreateProjectInContext(context.Background(), secondRoot, tobari.DefaultContextName)
+	second, _, err := runtime.ResolveOrCreateProjectInContext(context.Background(), secondRoot, tobari.DefaultManifestName)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -302,18 +302,18 @@ func TestContextBootstrapAppliesOnceAndRefreshAffectsOnlyNewWorkspaces(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	if second.BootstrapRevision != refreshed.Bootstrap.Revision || !strings.Contains(string(secondBytes), "sso_role_name = ReadOnly") {
-		t.Fatalf("second Workspace projection = revision %q bytes %q", second.BootstrapRevision, secondBytes)
+	if second.CreationApplied.BootstrapRevision != refreshed.Bootstrap.Revision || !strings.Contains(string(secondBytes), "sso_role_name = ReadOnly") {
+		t.Fatalf("second Workspace projection = revision %q bytes %q", second.CreationApplied.BootstrapRevision, secondBytes)
 	}
-	manifest, err := runtime.ResolveContext(context.Background(), tobari.DefaultContextName)
+	manifest, err := runtime.ResolveContext(context.Background(), tobari.DefaultManifestName)
 	if err != nil {
 		t.Fatal(err)
 	}
-	older, err := tobari.ResolveWorkspaceBootstrapReport(first.BootstrapRevision, manifest.Bootstrap)
+	older, err := tobari.ResolveWorkspaceBootstrapReport(first.CreationApplied.BootstrapRevision, manifest.Bootstrap)
 	if err != nil || older.State != tobari.WorkspaceBootstrapOlder {
 		t.Fatalf("first Workspace status = %+v, error=%v", older, err)
 	}
-	current, err := tobari.ResolveWorkspaceBootstrapReport(second.BootstrapRevision, manifest.Bootstrap)
+	current, err := tobari.ResolveWorkspaceBootstrapReport(second.CreationApplied.BootstrapRevision, manifest.Bootstrap)
 	if err != nil || current.State != tobari.WorkspaceBootstrapCurrent {
 		t.Fatalf("second Workspace status = %+v, error=%v", current, err)
 	}

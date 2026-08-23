@@ -172,7 +172,7 @@ func TestReconcileProjectAuthProjectsOnlyHandleAndProviderMetadata(t *testing.T)
 	foundIssue := false
 	for _, call := range runner.calls {
 		if slices.Contains(call, "issue_handle") {
-			foundIssue = slices.Contains(call, instance.ContextID) && slices.Contains(call, instance.ID)
+			foundIssue = slices.Contains(call, instance.WorkspaceManifestID) && slices.Contains(call, instance.ID)
 			for index, argument := range call {
 				if argument != "--bindings" || index+1 >= len(call) {
 					continue
@@ -402,7 +402,7 @@ func TestReadProjectAuthRegistryRecoversOnlyKnownEmptyProviderNullDocument(t *te
 		runtime, projectID, registryPath := newRuntimeWithRegistry(t, func(projectID string) string {
 			return `{
   "schema_version": 1,
-  "project_id": "` + projectID + `",
+  "workspace_id": "` + projectID + `",
   "providers": null,
   "files": []
 }
@@ -426,28 +426,28 @@ func TestReadProjectAuthRegistryRecoversOnlyKnownEmptyProviderNullDocument(t *te
 
 	for name, documentFor := range map[string]func(string) string{
 		"missing providers": func(projectID string) string {
-			return `{"schema_version":1,"project_id":"` + projectID + `","files":[]}`
+			return `{"schema_version":1,"workspace_id":"` + projectID + `","files":[]}`
 		},
 		"null files": func(projectID string) string {
-			return `{"schema_version":1,"project_id":"` + projectID + `","providers":null,"files":null}`
+			return `{"schema_version":1,"workspace_id":"` + projectID + `","providers":null,"files":null}`
 		},
 		"nonempty files": func(projectID string) string {
-			return `{"schema_version":1,"project_id":"` + projectID + `","providers":null,"files":[{"path":".config/auth","digest":"sha256:` + strings.Repeat("a", 64) + `"}]}`
+			return `{"schema_version":1,"workspace_id":"` + projectID + `","providers":null,"files":[{"path":".config/auth","digest":"sha256:` + strings.Repeat("a", 64) + `"}]}`
 		},
 		"wrong project": func(string) string {
-			return `{"schema_version":1,"project_id":"project-other","providers":null,"files":[]}`
+			return `{"schema_version":1,"workspace_id":"project-other","providers":null,"files":[]}`
 		},
 		"duplicate providers": func(projectID string) string {
-			return `{"schema_version":1,"project_id":"` + projectID + `","providers":[],"providers":null,"files":[]}`
+			return `{"schema_version":1,"workspace_id":"` + projectID + `","providers":[],"providers":null,"files":[]}`
 		},
 		"duplicate files": func(projectID string) string {
-			return `{"schema_version":1,"project_id":"` + projectID + `","providers":null,"files":null,"files":[]}`
+			return `{"schema_version":1,"workspace_id":"` + projectID + `","providers":null,"files":null,"files":[]}`
 		},
 		"duplicate project": func(projectID string) string {
-			return `{"schema_version":1,"project_id":"project-other","project_id":"` + projectID + `","providers":null,"files":[]}`
+			return `{"schema_version":1,"workspace_id":"project-other","workspace_id":"` + projectID + `","providers":null,"files":[]}`
 		},
 		"duplicate schema": func(projectID string) string {
-			return `{"schema_version":1,"schema_version":1,"project_id":"` + projectID + `","providers":null,"files":[]}`
+			return `{"schema_version":1,"schema_version":1,"workspace_id":"` + projectID + `","providers":null,"files":[]}`
 		},
 	} {
 		t.Run(name+" remains rejected", func(t *testing.T) {

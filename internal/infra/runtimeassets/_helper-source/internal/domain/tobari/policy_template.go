@@ -16,20 +16,20 @@ const PolicyPathTemplatePlaceholder = "{id}"
 // growing evidence set, so another compatible example cannot change scope.
 type PolicyPathTemplateProposal struct {
 	PolicyProtocolIdentity
-	ID                string            `json:"id"`
-	ContextID         string            `json:"context_id"`
-	ContextName       string            `json:"context"`
-	ProjectID         string            `json:"project_id"`
-	ProjectRoot       string            `json:"project_root"`
-	Host              string            `json:"host"`
-	Port              int               `json:"port"`
-	Method            string            `json:"method"`
-	Path              string            `json:"path"`
-	Segments          []string          `json:"segments"`
-	Examples          []string          `json:"examples"`
-	SourceCandidates  []string          `json:"source_candidates"`
-	SourceRuleIDs     []string          `json:"source_rule_ids"`
-	PendingCandidates []PolicyCandidate `json:"pending_candidates"`
+	ID                    string            `json:"id"`
+	WorkspaceManifestID   string            `json:"workspace_manifest_id"`
+	WorkspaceManifestName string            `json:"workspace_manifest"`
+	ProjectID             string            `json:"workspace_id"`
+	ProjectRoot           string            `json:"project_root"`
+	Host                  string            `json:"host"`
+	Port                  int               `json:"port"`
+	Method                string            `json:"method"`
+	Path                  string            `json:"path"`
+	Segments              []string          `json:"segments"`
+	Examples              []string          `json:"examples"`
+	SourceCandidates      []string          `json:"source_candidates"`
+	SourceRuleIDs         []string          `json:"source_rule_ids"`
+	PendingCandidates     []PolicyCandidate `json:"pending_candidates"`
 }
 
 // PolicyReviewItem is the domain-owned unit shown by Permission Inbox. Exact
@@ -75,10 +75,10 @@ func (p PolicyPathTemplateProposal) Validate() error {
 	if err := p.PolicyProtocolIdentity.Validate(); err != nil || p.EffectiveProtocol() != PolicyProtocolHTTP {
 		return fmt.Errorf("policy path-template proposal protocol is invalid")
 	}
-	if err := validatePolicyScope(p.ContextID, p.ContextName, p.ProjectRoot); err != nil {
+	if err := validatePolicyScope(p.WorkspaceManifestID, p.WorkspaceManifestName, p.ProjectRoot); err != nil {
 		return fmt.Errorf("policy path-template proposal scope: %w", err)
 	}
-	if err := ValidateProjectID(p.ProjectID); err != nil || !validNormalizedPolicyHost(p.Host) || p.Port < 1 || p.Port > 65535 || !httpMethodPattern.MatchString(p.Method) {
+	if err := ValidateWorkspaceID(p.ProjectID); err != nil || !validNormalizedPolicyHost(p.Host) || p.Port < 1 || p.Port > 65535 || !httpMethodPattern.MatchString(p.Method) {
 		return fmt.Errorf("policy path-template proposal request identity is invalid")
 	}
 	if err := validatePathTemplate(p.Path, p.Segments); err != nil {
@@ -132,7 +132,7 @@ func validateSortedUniqueRuleIDs(values []string) error {
 }
 
 func (p PolicyPathTemplateProposal) matchesCandidate(candidate PolicyCandidate) bool {
-	return p.ContextID == candidate.ContextID && p.ContextName == candidate.ContextName &&
+	return p.WorkspaceManifestID == candidate.WorkspaceManifestID && p.WorkspaceManifestName == candidate.WorkspaceManifestName &&
 		p.ProjectID == candidate.ProjectID && p.ProjectRoot == candidate.ProjectRoot && p.Host == candidate.Host &&
 		p.Port == candidate.Port && p.Method == candidate.Method && p.PolicyProtocolIdentity.matches(candidate.PolicyProtocolIdentity)
 }
@@ -218,7 +218,7 @@ func pathTemplateMatches(templateSegments []string, path string) bool {
 
 func pathTemplateProposalID(proposal PolicyPathTemplateProposal) string {
 	material := appendPolicyProtocolIdentity([]string{
-		"tobari-policy-path-template-v1", proposal.ContextID, proposal.ProjectID, proposal.Host,
+		"tobari-policy-path-template-v1", proposal.WorkspaceManifestID, proposal.ProjectID, proposal.Host,
 		strconv.Itoa(proposal.Port), proposal.Method, proposal.Path,
 	}, proposal.PolicyProtocolIdentity)
 	sum := sha256.Sum256([]byte(strings.Join(material, "\x00")))
@@ -282,7 +282,7 @@ func PolicyReviewItems(candidates []PolicyCandidate, rules []LearnedPolicyRule) 
 	for base, evidence := range evidenceByBase {
 		for left := 0; left < len(evidence); left++ {
 			for right := left + 1; right < len(evidence); right++ {
-				if evidence[left].identity.ContextName != evidence[right].identity.ContextName ||
+				if evidence[left].identity.WorkspaceManifestName != evidence[right].identity.WorkspaceManifestName ||
 					evidence[left].identity.ProjectRoot != evidence[right].identity.ProjectRoot {
 					return nil, fmt.Errorf("policy template evidence has inconsistent stable scope facts")
 				}
@@ -382,26 +382,26 @@ func PolicyReviewItems(candidates []PolicyCandidate, rules []LearnedPolicyRule) 
 
 func proposalIdentityFromCandidate(candidate PolicyCandidate) PolicyPathTemplateProposal {
 	return PolicyPathTemplateProposal{PolicyProtocolIdentity: candidate.PolicyProtocolIdentity,
-		ContextID: candidate.ContextID, ContextName: candidate.ContextName, ProjectID: candidate.ProjectID,
+		WorkspaceManifestID: candidate.WorkspaceManifestID, WorkspaceManifestName: candidate.WorkspaceManifestName, ProjectID: candidate.ProjectID,
 		ProjectRoot: candidate.ProjectRoot, Host: candidate.Host, Port: candidate.Port, Method: candidate.Method}
 }
 
 func proposalIdentityFromRule(rule LearnedPolicyRule) PolicyPathTemplateProposal {
 	return PolicyPathTemplateProposal{PolicyProtocolIdentity: rule.PolicyProtocolIdentity,
-		ContextID: rule.ContextID, ContextName: rule.ContextName, ProjectID: rule.ProjectID,
+		WorkspaceManifestID: rule.WorkspaceManifestID, WorkspaceManifestName: rule.WorkspaceManifestName, ProjectID: rule.ProjectID,
 		ProjectRoot: rule.ProjectRoot, Host: rule.Host, Port: rule.Port, Method: rule.Method}
 }
 
 func templateBaseKey(p PolicyPathTemplateProposal) string {
-	parts := appendPolicyProtocolIdentity([]string{p.ContextID, p.ProjectID, p.Host, strconv.Itoa(p.Port), p.Method}, p.PolicyProtocolIdentity)
+	parts := appendPolicyProtocolIdentity([]string{p.WorkspaceManifestID, p.ProjectID, p.Host, strconv.Itoa(p.Port), p.Method}, p.PolicyProtocolIdentity)
 	return strings.Join(parts, "\x00")
 }
 
 func mergeProposalEvidence(proposal PolicyPathTemplateProposal, item pathTemplateEvidence) PolicyPathTemplateProposal {
-	if proposal.ContextID == "" {
+	if proposal.WorkspaceManifestID == "" {
 		identity := item.identity
 		proposal.PolicyProtocolIdentity = identity.PolicyProtocolIdentity
-		proposal.ContextID, proposal.ContextName = identity.ContextID, identity.ContextName
+		proposal.WorkspaceManifestID, proposal.WorkspaceManifestName = identity.WorkspaceManifestID, identity.WorkspaceManifestName
 		proposal.ProjectID, proposal.ProjectRoot = identity.ProjectID, identity.ProjectRoot
 		proposal.Host, proposal.Port, proposal.Method = identity.Host, identity.Port, identity.Method
 	}
@@ -436,11 +436,11 @@ func NewPathTemplateLearnedPolicyRule(proposal PolicyPathTemplateProposal) (Lear
 		return LearnedPolicyRule{}, err
 	}
 	rule := LearnedPolicyRule{PolicyProtocolIdentity: proposal.PolicyProtocolIdentity,
-		Match: PolicyMatchPathTemplate, ContextID: proposal.ContextID, ContextName: proposal.ContextName,
+		Match: PolicyMatchPathTemplate, WorkspaceManifestID: proposal.WorkspaceManifestID, WorkspaceManifestName: proposal.WorkspaceManifestName,
 		ProjectID: proposal.ProjectID, ProjectRoot: proposal.ProjectRoot, Host: proposal.Host, Port: proposal.Port,
 		Method: proposal.Method, Path: proposal.Path, Segments: append([]string{}, proposal.Segments...),
 		Examples: append([]string{}, proposal.Examples...), SourceCandidates: append([]string{}, proposal.SourceCandidates...)}
-	rule.ID = learnedRuleIDWithIdentity(rule.Match, rule.ContextID, rule.ProjectID, rule.Host, rule.Port, rule.Method, rule.Path, rule.Examples, rule.SourceCandidates, rule.PolicyProtocolIdentity)
+	rule.ID = learnedRuleIDWithIdentity(rule.Match, rule.WorkspaceManifestID, rule.ProjectID, rule.Host, rule.Port, rule.Method, rule.Path, rule.Examples, rule.SourceCandidates, rule.PolicyProtocolIdentity)
 	if err := rule.Validate(); err != nil {
 		return LearnedPolicyRule{}, err
 	}
@@ -453,7 +453,7 @@ func NewPolicyReviewAppliedAllow(reviewItemID string, rule LearnedPolicyRule) (P
 	}
 	receipt := PolicyReviewAppliedDecision{PolicyProtocolIdentity: rule.PolicyProtocolIdentity,
 		RuleID: rule.ID, ReviewItemID: reviewItemID, Decision: PolicyDecisionAllow, Match: rule.Match,
-		ContextID: rule.ContextID, ContextName: rule.ContextName, ProjectID: rule.ProjectID, ProjectRoot: rule.ProjectRoot,
+		WorkspaceManifestID: rule.WorkspaceManifestID, WorkspaceManifestName: rule.WorkspaceManifestName, ProjectID: rule.ProjectID, ProjectRoot: rule.ProjectRoot,
 		Host: rule.Host, Port: rule.Port, Method: rule.Method, Path: rule.Path,
 		SourceCandidates: append([]string{}, rule.SourceCandidates...)}
 	if err := receipt.Validate(); err != nil {
@@ -468,7 +468,7 @@ func NewPolicyReviewAppliedDeny(reviewItemID string, rule PolicyDenyRule) (Polic
 	}
 	receipt := PolicyReviewAppliedDecision{PolicyProtocolIdentity: rule.PolicyProtocolIdentity,
 		RuleID: rule.ID, ReviewItemID: reviewItemID, Decision: PolicyDecisionDeny, Match: PolicyMatchExact,
-		ContextID: rule.ContextID, ContextName: rule.ContextName, ProjectID: rule.ProjectID, ProjectRoot: rule.ProjectRoot,
+		WorkspaceManifestID: rule.WorkspaceManifestID, WorkspaceManifestName: rule.WorkspaceManifestName, ProjectID: rule.ProjectID, ProjectRoot: rule.ProjectRoot,
 		Host: rule.Host, Port: rule.Port, Method: rule.Method, Path: rule.Path,
 		SourceCandidates: append([]string{}, rule.SourceCandidates...)}
 	if err := receipt.Validate(); err != nil {
@@ -489,7 +489,7 @@ func NewPolicyReviewAppliedAttachment(candidate PolicyCandidate, grant Attachmen
 	}
 	receipt := PolicyReviewAppliedDecision{PolicyProtocolIdentity: candidate.PolicyProtocolIdentity,
 		RuleID: grant.ID, ReviewItemID: candidate.ID, Decision: grant.Decision, Match: PolicyMatchExact,
-		ContextID: candidate.ContextID, ContextName: candidate.ContextName, ProjectID: candidate.ProjectID, ProjectRoot: candidate.ProjectRoot,
+		WorkspaceManifestID: candidate.WorkspaceManifestID, WorkspaceManifestName: candidate.WorkspaceManifestName, ProjectID: candidate.ProjectID, ProjectRoot: candidate.ProjectRoot,
 		Host: candidate.Host, Port: candidate.Port, Method: candidate.Method, Path: candidate.Path,
 		SourceCandidates: []string{candidate.ID}, DestinationKind: PolicyDestinationHostLoopback,
 		AuthorityLifetime: AuthorityLifetimeAttachment, AttachmentEpochID: candidate.AttachmentEpochID}

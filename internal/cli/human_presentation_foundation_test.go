@@ -22,13 +22,13 @@ import (
 )
 
 const (
-	humanPresentationFixtureSHA256 = "f9e3da163a0f73622be9639b24af9e1a8a5837b210a9fd9ab710f90eb39321c2"
-	humanPresentationAnswerSHA256  = "9548b10801b9f55449c529d524f776edade08e56db71b15e459cb1167b902427"
+	humanPresentationFixtureSHA256 = "79dfd541de46f7bd44d459bac01524929287b40537a7a4e17c9f95eae82ad88e"
+	humanPresentationAnswerSHA256  = "162a57f1e4b619191c8f8f26129155c48751e0b55a53dd76745f5c5edd2663d3"
 )
 
 type humanPresentationFixture struct {
 	SchemaVersion         int                          `json:"schema_version"`
-	Lifecycle             tobari.ProjectStatus         `json:"lifecycle"`
+	Lifecycle             tobari.WorkspaceStatus       `json:"lifecycle"`
 	EmptyPolicyCandidates tobari.PolicyCandidateReport `json:"empty_policy_candidates"`
 	Warning               doctor.Report                `json:"warning"`
 	Failure               errorPayload                 `json:"failure"`
@@ -229,19 +229,20 @@ func (r *idlePollThenInput) Read(buffer []byte) (int, error) {
 
 func TestHumanTextStructureDoesNotDependOnANSIStyle(t *testing.T) {
 	t.Parallel()
-	status := tobari.ProjectStatus{
-		Task: tobari.TaskStatus, ContextState: tobari.ContextObservationPersisted, Exists: true, Root: "/workspace/example-project",
+	status := tobari.WorkspaceStatus{
+		Task: tobari.TaskStatus, ManifestState: tobari.ManifestObservationPersisted, Exists: true, Root: "/workspace/example-project",
 		ID: "01912345-6789-7abc-8def-0123456789ab", Home: "/state/example/home",
-		ContextID: "018bcfe5-687b-7000-8000-000000000099", ContextName: "toolbox",
+		WorkspaceManifestID: "018bcfe5-687b-7000-8000-000000000099", WorkspaceManifestName: "toolbox",
 		Runtime: tobari.RuntimeDiagnosticReady, Attachment: tobari.AttachmentDetached,
+		Adoption: tobari.WorkspaceAdoptionCurrent, Current: ptrAppliedEntry(testAppliedWorkspaceEntry()), Next: ptrDesiredEntry(testDesiredWorkspaceEntry()),
 	}
 	emptyCandidates := tobari.PolicyCandidateReport{
 		Task: tobari.TaskPolicyCandidates, PolicyDirectory: "/config/example/policy",
 		WindowLines: 200, Items: []tobari.PolicyCandidate{},
 	}
-	deleted := tobari.ProjectDeleteResult{
+	deleted := tobari.WorkspaceDeleteResult{
 		Task: tobari.TaskDelete, Deleted: true, Root: status.Root, ID: status.ID,
-		Home: status.Home, ContextID: status.ContextID, ContextName: status.ContextName,
+		Home: status.Home, WorkspaceManifestID: status.WorkspaceManifestID, WorkspaceManifestName: status.WorkspaceManifestName,
 	}
 	errorCase := errorPayload{
 		Kind: fault.KindUnavailable, Code: "cluster_not_running", Message: "The cluster is not running.",
@@ -312,11 +313,11 @@ func TestEveryTextCollectionHasAnExplicitScopedEmptyState(t *testing.T) {
 	review.Task = tobari.TaskPolicyReview
 	rules := tobari.PolicyRuleReport{Task: tobari.TaskPolicyRules, PolicyDirectory: policyDirectory, Items: []tobari.PolicyRule{}}
 	denials := tobari.DenialReport{Task: tobari.TaskClusterDenials, PolicyDirectory: policyDirectory, WindowLines: 200, Items: []tobari.PolicyDenial{}}
-	projectPlain, err := renderProjectListWithColor(tobari.ProjectListResult{Task: tobari.TaskProjectList, Items: []tobari.ProjectListItem{}}, successFormatText, false)
+	projectPlain, err := renderProjectListWithColor(tobari.WorkspaceListResult{Task: tobari.TaskWorkspaceList, Items: []tobari.WorkspaceListItem{}}, successFormatText, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	projectStyled, err := renderProjectListWithColor(tobari.ProjectListResult{Task: tobari.TaskProjectList, Items: []tobari.ProjectListItem{}}, successFormatText, true)
+	projectStyled, err := renderProjectListWithColor(tobari.WorkspaceListResult{Task: tobari.TaskWorkspaceList, Items: []tobari.WorkspaceListItem{}}, successFormatText, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -330,7 +331,7 @@ func TestEveryTextCollectionHasAnExplicitScopedEmptyState(t *testing.T) {
 		{name: "policy rules", plain: renderPolicyRulesHuman(rules, "tobari policy reset", false), styled: renderPolicyRulesHuman(rules, "tobari policy reset", true), required: []string{"No learned policy decisions", policyDirectory}},
 		{name: "cluster denials", plain: denialPlain, styled: denialStyled, required: []string{"No policy denials", policyDirectory, "200 Gateway lines"}},
 		{name: "Workspaces", plain: projectPlain, styled: projectStyled, required: []string{"No Workspaces", "No Workspace state is configured"}},
-		{name: "auth providers", plain: renderAuthStatusText(authStatusProjection{Context: "toolbox", ContextID: stringPointer("018bcfe5-687b-7000-8000-000000000099"), Providers: []authProviderStatusProjection{}}, false), styled: renderAuthStatusText(authStatusProjection{Context: "toolbox", ContextID: stringPointer("018bcfe5-687b-7000-8000-000000000099"), Providers: []authProviderStatusProjection{}}, true), required: []string{"No authentication providers installed", "toolbox", "explicitly empty"}},
+		{name: "auth providers", plain: renderAuthStatusText(authStatusProjection{Context: "toolbox", WorkspaceManifestID: stringPointer("018bcfe5-687b-7000-8000-000000000099"), Providers: []authProviderStatusProjection{}}, false), styled: renderAuthStatusText(authStatusProjection{Context: "toolbox", WorkspaceManifestID: stringPointer("018bcfe5-687b-7000-8000-000000000099"), Providers: []authProviderStatusProjection{}}, true), required: []string{"No authentication providers installed", "toolbox", "explicitly empty"}},
 	}
 	for _, test := range cases {
 		t.Run(test.name, func(t *testing.T) {
@@ -441,7 +442,7 @@ func TestRawSelectorsDoNotRedrawDuringIdlePollsAndRestoreTerminal(t *testing.T) 
 			run: func(input *idlePollThenInput, output *bytes.Buffer) error {
 				report := tobari.PolicyRuleReport{Task: tobari.TaskPolicyRules, PolicyDirectory: "/config/example/policy", Items: []tobari.PolicyRule{{
 					ID: "prl_0123456789abcdef0123456789abcdef", Decision: tobari.PolicyDecisionAllow, Match: tobari.PolicyMatchExact,
-					ContextID: "01912345-6789-7abc-8def-0123456789ad", ContextName: "default",
+					WorkspaceManifestID: "01912345-6789-7abc-8def-0123456789ad", WorkspaceManifestName: "default",
 					ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/example",
 					Host: "api.example.com", Port: 443, Method: "GET", Path: "/v1/example",
 				}}}
@@ -472,7 +473,7 @@ func TestRawSelectorsDoNotRedrawDuringIdlePollsAndRestoreTerminal(t *testing.T) 
 }
 
 func TestBareNamespacesAndUnknownSuggestionsComeOnlyFromCatalog(t *testing.T) {
-	for _, namespace := range []string{"cluster", "policy", "context", "config", "runtime"} {
+	for _, namespace := range []string{"cluster", "policy", "manifest", "config", "runtime"} {
 		t.Run("namespace "+namespace, func(t *testing.T) {
 			command, stdout, stderr := newTestCLI(passingInspector("ready"))
 			if code := command.RunContext(context.Background(), []string{namespace}); code != ExitOK {
@@ -510,7 +511,7 @@ func TestBareNamespacesAndUnknownSuggestionsComeOnlyFromCatalog(t *testing.T) {
 
 func TestPreActionPolicyCancellationIsNeutralExit11WithZeroAction(t *testing.T) {
 	denial := tobari.PolicyDenial{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Scheme: "https", Protocol: tobari.PolicyProtocolHTTP}, Timestamp: "2026-08-11T00:00:00Z", RequestID: "7185da2688d7469aae9cd9068e920b0b",
-		ContextID: "01912345-6789-7abc-8def-0123456789ad", ContextName: "default",
+		WorkspaceManifestID: "01912345-6789-7abc-8def-0123456789ad", WorkspaceManifestName: "default",
 		ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/example",
 		Host: "api.example.com", Port: 443, Method: "GET", Path: "/v1/example",
 		Reason: "request did not match an allow rule", StatusCode: 403, Learnable: true,

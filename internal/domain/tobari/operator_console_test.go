@@ -10,14 +10,14 @@ func validOperatorConsoleSnapshotFixture() OperatorConsoleSnapshot {
 		Task: TaskOperatorConsoleSnapshot,
 		Cluster: ClusterStatus{
 			Task: TaskClusterStatus, Configured: true, Running: true,
-			Policy: "/tmp/policy", ContextCount: 1, PolicyRevision: strings.Repeat("a", 64),
+			Policy: "/tmp/policy", ManifestCount: 1, PolicyRevision: strings.Repeat("a", 64),
 			PolicyProjection: "valid", PrincipalRegistry: "valid", GatewayProjection: "valid",
 			Components: []ComponentStatus{
 				{Name: "gateway", State: "running", Health: "healthy"},
 				{Name: "opa", State: "running", Health: "healthy"},
 			},
 		},
-		Workspaces:  ProjectListResult{Task: TaskProjectList, Items: []ProjectListItem{}},
+		Workspaces:  WorkspaceListResult{Task: TaskWorkspaceList, Items: []WorkspaceListItem{}},
 		WindowLines: 10_000,
 		ReviewItems: []PolicyReviewItem{},
 		Rules: PolicyRuleReport{

@@ -29,12 +29,12 @@ func (f *selectorModeFake) Enter(io.Reader) (func() error, error) {
 	}, nil
 }
 
-func testWorkspaceSelection() tobari.ProjectSelection {
-	return tobari.ProjectSelection{
+func testWorkspaceSelection() tobari.WorkspaceSelection {
+	return tobari.WorkspaceSelection{
 		CWD: "/work/root/app", CanCreate: true,
-		Candidates: []tobari.ProjectSelectionCandidate{
-			{ID: "018bcfe5-687b-7000-8000-000000000000", Root: "/work/root", ContextID: "018bcfe5-687b-7000-8000-000000000099", ContextName: "default", Runtime: tobari.RuntimeDiagnosticReady},
-			{ID: "018bcfe5-687b-7000-8000-000000000001", Root: "/work", ContextID: "018bcfe5-687b-7000-8000-000000000099", ContextName: "default", Runtime: tobari.RuntimeDiagnosticDegraded},
+		Candidates: []tobari.WorkspaceSelectionCandidate{
+			{ID: "018bcfe5-687b-7000-8000-000000000000", Root: "/work/root", WorkspaceManifestID: "018bcfe5-687b-7000-8000-000000000099", WorkspaceManifestName: "default", Runtime: tobari.RuntimeDiagnosticReady},
+			{ID: "018bcfe5-687b-7000-8000-000000000001", Root: "/work", WorkspaceManifestID: "018bcfe5-687b-7000-8000-000000000099", WorkspaceManifestName: "default", Runtime: tobari.RuntimeDiagnosticDegraded},
 		},
 	}
 }
@@ -137,15 +137,15 @@ func TestTruncateSelectorPathKeepsBothEnds(t *testing.T) {
 
 func TestWorkspaceSelectorScrollsLongCandidateLists(t *testing.T) {
 	t.Parallel()
-	selection := tobari.ProjectSelection{CWD: "/work/a/b/c/d/e/f/g/app", CanCreate: true}
+	selection := tobari.WorkspaceSelection{CWD: "/work/a/b/c/d/e/f/g/app", CanCreate: true}
 	roots := []string{
 		"/work/a/b/c/d/e/f/g", "/work/a/b/c/d/e/f", "/work/a/b/c/d/e",
 		"/work/a/b/c/d", "/work/a/b/c", "/work/a/b", "/work/a", "/work",
 	}
 	for index, root := range roots {
-		selection.Candidates = append(selection.Candidates, tobari.ProjectSelectionCandidate{
+		selection.Candidates = append(selection.Candidates, tobari.WorkspaceSelectionCandidate{
 			ID: fmt.Sprintf("018bcfe5-687b-7000-8000-%012x", index), Root: root,
-			ContextID: "018bcfe5-687b-7000-8000-000000000099", ContextName: "default",
+			WorkspaceManifestID: "018bcfe5-687b-7000-8000-000000000099", WorkspaceManifestName: "default",
 			Runtime: tobari.RuntimeDiagnosticReady,
 		})
 	}

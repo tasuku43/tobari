@@ -15,9 +15,9 @@ type contextCreateAnswer struct {
 	SchemaVersion   int    `json:"schema_version"`
 	Task            string `json:"task"`
 	SelectedContext struct {
-		ID     string `json:"id"`
-		Name   string `json:"name"`
-		Active bool   `json:"active"`
+		ID      string `json:"id"`
+		Name    string `json:"name"`
+		Default bool   `json:"default"`
 	} `json:"selected_context"`
 	ExactNextArgv        []string `json:"exact_next_argv"`
 	ExactDetailsArgv     []string `json:"exact_details_argv"`
@@ -49,7 +49,7 @@ func TestContextCreatePresentationUsesContextShowStructure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var fixture tobari.ContextReport
+	var fixture tobari.ManifestReport
 	if err := json.Unmarshal(fixtureData, &fixture); err != nil {
 		t.Fatalf("decode typed fixture: %v", err)
 	}
@@ -68,7 +68,7 @@ func TestContextCreatePresentationUsesContextShowStructure(t *testing.T) {
 	exactDetailsArgv := append([]string{ProgramName}, strings.Fields(contextShowDetailsCommand(fixture))...)
 	if answer.SchemaVersion != 1 || answer.Task != fixture.Task ||
 		answer.SelectedContext.ID != fixture.ID || answer.SelectedContext.Name != fixture.Name ||
-		answer.SelectedContext.Active != fixture.Active ||
+		answer.SelectedContext.Default != fixture.Default ||
 		!slices.Equal(answer.ExactNextArgv, contextCreateNextArgv(fixture)) ||
 		!slices.Equal(answer.ExactDetailsArgv, exactDetailsArgv) ||
 		answer.RoutineSuccess.TaskInvocations != 1 || answer.RoutineSuccess.ExternalReconstructionSteps != 0 {
@@ -77,7 +77,7 @@ func TestContextCreatePresentationUsesContextShowStructure(t *testing.T) {
 	if routed := assertPublicNextArgvRoutes(t, answer.ExactNextArgv); routed.Path != "tobari" {
 		t.Fatalf("create continuation routes to %q, want root entry", routed.Path)
 	}
-	if routed := assertPublicNextArgvRoutes(t, answer.ExactDetailsArgv); routed.Path != "context show" {
+	if routed := assertPublicNextArgvRoutes(t, answer.ExactDetailsArgv); routed.Path != "manifest show" {
 		t.Fatalf("details continuation routes to %q, want context show", routed.Path)
 	}
 
@@ -90,10 +90,10 @@ func TestContextCreatePresentationUsesContextShowStructure(t *testing.T) {
 		t.Fatal(err)
 	}
 	if got := renderContextCreateSummaryText(fixture, false); !slices.Equal(got, summary) {
-		t.Fatalf("Context create summary changed\n--- got ---\n%s--- want ---\n%s", got, summary)
+		t.Fatalf("Workspace Manifest create summary changed\n--- got ---\n%s--- want ---\n%s", got, summary)
 	}
 	if got := renderContextReportText(fixture, false); !slices.Equal(got, summary) {
-		t.Fatalf("Context create did not route through the structured summary\n--- got ---\n%s--- want ---\n%s", got, summary)
+		t.Fatalf("Workspace Manifest create did not route through the structured summary\n--- got ---\n%s--- want ---\n%s", got, summary)
 	}
 
 	for _, fact := range answer.RequiredSummaryFacts {
@@ -102,9 +102,9 @@ func TestContextCreatePresentationUsesContextShowStructure(t *testing.T) {
 		}
 	}
 	detailsFixture := fixture
-	detailsFixture.Task = tobari.TaskContextShow
-	detailsFixture.Authentication = tobari.ContextAuthentication{
-		Mode: tobari.ContextAuthenticationModeNative, Providers: []tobari.ContextAuthProvider{},
+	detailsFixture.Task = tobari.TaskManifestShow
+	detailsFixture.Authentication = tobari.ManifestAuthentication{
+		Mode: tobari.ManifestAuthenticationModeNative, Providers: []tobari.ManifestAuthProvider{},
 	}
 	if err := detailsFixture.Validate(); err != nil {
 		t.Fatalf("derived details fixture is invalid: %v", err)

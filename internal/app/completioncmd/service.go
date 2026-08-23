@@ -21,14 +21,14 @@ const (
 type CandidateKind string
 
 const (
-	CandidateContextName           CandidateKind = "context_name"
+	CandidateManifestName          CandidateKind = "manifest_name"
 	CandidateRuntimeName           CandidateKind = "runtime_name"
 	CandidateManagedRuntimeName    CandidateKind = "managed_runtime_name"
 	CandidateReadyRuntimeReference CandidateKind = "ready_runtime_reference"
 )
 
 type RuntimePort interface {
-	ListContexts(context.Context) (tobari.ContextListResult, error)
+	ListContexts(context.Context) (tobari.ManifestListResult, error)
 	ListRuntimes(context.Context) (tobari.RuntimeListResult, error)
 	RuntimeHistory(context.Context, string) (tobari.RuntimeReport, error)
 }
@@ -48,7 +48,7 @@ func (s *Service) Candidates(ctx context.Context, kind CandidateKind) ([]string,
 	var values []string
 	var err error
 	switch kind {
-	case CandidateContextName:
+	case CandidateManifestName:
 		values, err = s.contextNames(ctx)
 	case CandidateRuntimeName:
 		values, err = s.runtimeNames(ctx, false)
@@ -74,13 +74,13 @@ func (s *Service) contextNames(ctx context.Context) ([]string, error) {
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			return nil, err
 		}
-		return nil, fault.Wrap(fault.KindInternal, "completion_context_read_failed", "Context completion candidates could not be read", false, err)
+		return nil, fault.Wrap(fault.KindInternal, "completion_manifest_read_failed", "Workspace Manifest completion candidates could not be read", false, err)
 	}
 	if err := result.Validate(); err != nil {
-		return nil, fault.Wrap(fault.KindContract, "invalid_completion_candidates", "Context completion candidates are invalid", false, err)
+		return nil, fault.Wrap(fault.KindContract, "invalid_completion_candidates", "Workspace Manifest completion candidates are invalid", false, err)
 	}
-	if result.ContextState == tobari.ContextObservationSyntheticDefault {
-		return []string{result.Active}, nil
+	if result.ManifestState == tobari.ManifestObservationAbsent {
+		return []string{}, nil
 	}
 	values := make([]string, 0, len(result.Items))
 	for _, item := range result.Items {

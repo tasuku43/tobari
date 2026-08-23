@@ -124,10 +124,10 @@ func TestPolicyReviewRealPTYAndReadOnlyE2E(t *testing.T) {
 			"Selected",
 			"Observed 1 time · Latest 2026-08-02T10:00:00Z",
 			"Permission 1 of 1",
-			"This decision applies only to this Workspace in this Context.",
+			"This decision applies only to this Workspace in this Workspace Manifest.",
 			"[a] Allow exact",
 			"Review staged permissions",
-			"Context   default · 01912345-6789-7abc-8def-0123456789ad",
+			"Workspace Manifest   default · 01912345-6789-7abc-8def-0123456789ad",
 			"Workspace /workspace/project · 01912345-6789-7abc-8def-0123456789ab",
 			"[y] Apply",
 			"Reviewed permissions applied",
@@ -573,7 +573,7 @@ func runPolicyRulesJSONChild(t *testing.T) string {
 
 func newPolicyReviewPTYRuntime(terminal bool) (*policyReviewRuntimeApplyingFake, string) {
 	denial := tobari.PolicyDenial{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Scheme: "https", Protocol: tobari.PolicyProtocolHTTP}, Timestamp: "2026-08-02T10:00:00Z", RequestID: "7185da2688d7469aae9cd9068e920b0b",
-		ContextID: "01912345-6789-7abc-8def-0123456789ad", ContextName: "default",
+		WorkspaceManifestID: "01912345-6789-7abc-8def-0123456789ad", WorkspaceManifestName: "default",
 		ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/project", Host: "api.example.com", Port: 443,
 		Method: "POST", Path: "/repos/example/issues", Reason: "request did not match an allow rule",
 		StatusCode: 403, Learnable: true,
@@ -593,7 +593,7 @@ func newPolicyReviewPTYRuntime(terminal bool) (*policyReviewRuntimeApplyingFake,
 
 func newPolicyRulesPTYRuntime(terminal bool) (*policyReviewRuntimeApplyingFake, string) {
 	denial := tobari.PolicyDenial{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Scheme: "https", Protocol: tobari.PolicyProtocolHTTP}, Timestamp: "2026-08-02T10:00:00Z", RequestID: "8185da2688d7469aae9cd9068e920b0b",
-		ContextID: "01912345-6789-7abc-8def-0123456789ad", ContextName: "default",
+		WorkspaceManifestID: "01912345-6789-7abc-8def-0123456789ad", WorkspaceManifestName: "default",
 		ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/project", Host: "api.example.com", Port: 443,
 		Method: "POST", Path: "/repos/example/issues", Reason: "request did not match an allow rule",
 		StatusCode: 403, Learnable: true,

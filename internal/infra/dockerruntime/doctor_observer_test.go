@@ -215,7 +215,7 @@ func TestDoctorObserverKeepsInvalidPolicyDistinctFromPolicyData(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := runtime.CreateContext(context.Background(), "broken", tobari.OfficialRuntimeBase, tobari.ContextPolicyModeAdvanced, tobari.ContextSourceAccessReadWrite); err != nil {
+	if _, err := runtime.CreateContext(context.Background(), "broken", tobari.OfficialRuntimeBase, tobari.ManifestPolicyModeAdvanced, tobari.ManifestSourceAccessReadWrite); err != nil {
 		t.Fatal(err)
 	}
 	_, paths, err := runtime.resolveContext("broken")
@@ -234,8 +234,8 @@ func TestDoctorObserverKeepsInvalidPolicyDistinctFromPolicyData(t *testing.T) {
 	if policy.Status != doctor.CheckStatusFail || policy.Recovery == nil || policy.Recovery.NextCommand != "doctor" {
 		t.Fatalf("policy = %+v, want independent failure with doctor recovery", policy)
 	}
-	if policyData := doctorObserverCheck(t, report, doctor.CheckIDPolicyData); policyData.Status != doctor.CheckStatusPass {
-		t.Fatalf("policy_data = %+v, want independently observed pass", policyData)
+	if policyData := doctorObserverCheck(t, report, doctor.CheckIDPolicyData); policyData.Status != doctor.CheckStatusWarn || policyData.BlockedBy != nil {
+		t.Fatalf("policy_data = %+v, want independent not-initialized warning", policyData)
 	}
 	if len(runner.runs) != 0 {
 		t.Fatalf("doctor used mutation/process runner: %v", runner.runs)

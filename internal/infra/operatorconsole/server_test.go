@@ -41,14 +41,14 @@ func validSnapshot() tobari.OperatorConsoleSnapshot {
 		Task: tobari.TaskOperatorConsoleSnapshot,
 		Cluster: tobari.ClusterStatus{
 			Task: tobari.TaskClusterStatus, Configured: true, Running: true,
-			Policy: "/tmp/policy", ContextCount: 1, PolicyRevision: strings.Repeat("a", 64),
+			Policy: "/tmp/policy", ManifestCount: 1, PolicyRevision: strings.Repeat("a", 64),
 			PolicyProjection: "valid", PrincipalRegistry: "valid", GatewayProjection: "valid",
 			Components: []tobari.ComponentStatus{
 				{Name: "gateway", State: "running", Health: "healthy"},
 				{Name: "opa", State: "running", Health: "healthy"},
 			},
 		},
-		Workspaces:  tobari.ProjectListResult{Task: tobari.TaskProjectList, Items: []tobari.ProjectListItem{}},
+		Workspaces:  tobari.WorkspaceListResult{Task: tobari.TaskWorkspaceList, Items: []tobari.WorkspaceListItem{}},
 		WindowLines: 10_000,
 		ReviewItems: []tobari.PolicyReviewItem{},
 		Rules: tobari.PolicyRuleReport{
@@ -128,7 +128,7 @@ func TestPolicyApplyReturnsAuthoritativeValidatedReceipt(t *testing.T) {
 	denial := tobari.PolicyDenial{
 		PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Scheme: "https", Protocol: tobari.PolicyProtocolHTTP},
 		Timestamp:              "2026-08-18T01:00:00Z", RequestID: "0123456789abcdef0123456789abcdef",
-		ContextID: "01912345-6789-7abc-8def-0123456789ad", ContextName: "toolbox",
+		WorkspaceManifestID: "01912345-6789-7abc-8def-0123456789ad", WorkspaceManifestName: "toolbox",
 		ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/project",
 		Host: "api.example.com", Port: 443, Method: "GET", Path: "/v1/models",
 		Reason: "request did not match an allow rule", StatusCode: 403, Learnable: true,
@@ -148,7 +148,7 @@ func TestPolicyApplyReturnsAuthoritativeValidatedReceipt(t *testing.T) {
 			PolicyProtocolIdentity: candidate.PolicyProtocolIdentity,
 			RuleID:                 rule.ID, ReviewItemID: candidate.ID,
 			Decision: tobari.PolicyDecisionAllow, Match: tobari.PolicyMatchExact,
-			ContextID: candidate.ContextID, ContextName: candidate.ContextName,
+			WorkspaceManifestID: candidate.WorkspaceManifestID, WorkspaceManifestName: candidate.WorkspaceManifestName,
 			ProjectID: candidate.ProjectID, ProjectRoot: candidate.ProjectRoot,
 			Host: candidate.Host, Port: candidate.Port, Method: candidate.Method, Path: candidate.Path,
 			SourceCandidates: []string{candidate.ID},

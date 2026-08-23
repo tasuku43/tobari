@@ -51,14 +51,16 @@ func TestPolicyProjectionLockSerializesCrossContextMutations(t *testing.T) {
 	}
 }
 
-func principalTestProject(t *testing.T, root string) tobari.ProjectInstance {
+func principalTestProject(t *testing.T, root string) tobari.Workspace {
 	t.Helper()
 	project, err := tobari.NewProjectInstance(
 		time.Unix(0, 0).UTC(), strings.NewReader("0123456789abcdef"), tobari.ProjectInstanceRequest{
-			Root:        root,
-			ContextID:   principalTestContextID,
-			ContextName: "default",
-			Image:       tobari.BuiltinImageSelector,
+			Root:                     root,
+			WorkspaceManifestID:      principalTestContextID,
+			WorkspaceManifestName:    "default",
+			Image:                    tobari.BuiltinImageSelector,
+			CreationDefaultsRevision: "sha256:" + strings.Repeat("a", 64),
+			CreatedAt:                time.Unix(0, 0).UTC(),
 		},
 	)
 	if err != nil {
@@ -69,7 +71,7 @@ func principalTestProject(t *testing.T, root string) tobari.ProjectInstance {
 
 func principalTestBinding(projectID, workspaceIP, gatewayIP, network string) projectPrincipalBinding {
 	return projectPrincipalBinding{
-		ProjectID: projectID, ContextID: principalTestContextID, ContextName: "default",
+		ProjectID: projectID, WorkspaceManifestID: principalTestContextID, WorkspaceManifestName: "default",
 		ProjectRoot: "/workspace/project", WorkspaceIP: workspaceIP, GatewayIP: gatewayIP, Network: network,
 	}
 }
@@ -186,7 +188,7 @@ func TestProjectPrincipalRegistryMissingFileFailsClosed(t *testing.T) {
 }
 
 func TestProjectPrincipalRegistryUsesValidatedProjectIDs(t *testing.T) {
-	if err := tobari.ValidateProjectID("01912345-6789-7abc-8def-0123456789ab"); err != nil {
+	if err := tobari.ValidateWorkspaceID("01912345-6789-7abc-8def-0123456789ab"); err != nil {
 		t.Fatal(err)
 	}
 }

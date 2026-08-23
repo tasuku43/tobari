@@ -125,7 +125,7 @@ type workspaceServiceExposureRuntime struct {
 
 type workspaceServiceController struct {
 	runtime          *Runtime
-	instance         tobari.ProjectInstance
+	instance         tobari.Workspace
 	container        string
 	attachmentID     string
 	nonce            string
@@ -186,7 +186,7 @@ func (r *Runtime) serviceExposureSocketDirectory() string {
 	return filepath.Join("/tmp", "tobari-"+strconv.Itoa(os.Getuid()), "service-review")
 }
 
-func (r *Runtime) startWorkspaceServiceController(ctx context.Context, instance tobari.ProjectInstance, container string) (*workspaceServiceController, error) {
+func (r *Runtime) startWorkspaceServiceController(ctx context.Context, instance tobari.Workspace, container string) (*workspaceServiceController, error) {
 	runner, ok := r.runner.(workspaceServiceControlRunner)
 	if !ok {
 		return &workspaceServiceController{}, nil
@@ -340,7 +340,7 @@ func (c *workspaceServiceController) submit(input workspaceServiceControlRequest
 		c.respond(workspaceServiceControlResponse{SchemaVersion: 1, ClientID: input.ClientID, Code: "service_request_failed"})
 		return
 	}
-	request := tobari.ServiceRequest{SchemaVersion: 1, ID: requestID, AttachmentID: c.attachmentID, ProjectID: c.instance.ID, ContextID: c.instance.ContextID, Workspace: c.instance.Root, TargetPort: input.Port, State: tobari.ServiceStatePending}
+	request := tobari.ServiceRequest{SchemaVersion: 1, ID: requestID, AttachmentID: c.attachmentID, ProjectID: c.instance.ID, WorkspaceManifestID: c.instance.WorkspaceManifestID, Workspace: c.instance.Root, TargetPort: input.Port, State: tobari.ServiceStatePending}
 	c.pending[requestID] = &workspaceServicePending{request: request, clientID: input.ClientID}
 	c.mu.Unlock()
 }
@@ -415,7 +415,7 @@ func (c *workspaceServiceController) allow(requestID string) (tobari.ServiceExpo
 		return tobari.ServiceExposure{}, err
 	}
 	hostPort := listener.Addr().(*net.TCPAddr).Port
-	exposure := tobari.ServiceExposure{SchemaVersion: 1, ID: exposureID, RequestID: requestID, AttachmentID: c.attachmentID, ProjectID: c.instance.ID, ContextID: c.instance.ContextID, Workspace: c.instance.Root, TargetPort: pending.request.TargetPort, HostPort: hostPort, URL: "http://127.0.0.1:" + strconv.Itoa(hostPort), State: tobari.ServiceStateListening}
+	exposure := tobari.ServiceExposure{SchemaVersion: 1, ID: exposureID, RequestID: requestID, AttachmentID: c.attachmentID, ProjectID: c.instance.ID, WorkspaceManifestID: c.instance.WorkspaceManifestID, Workspace: c.instance.Root, TargetPort: pending.request.TargetPort, HostPort: hostPort, URL: "http://127.0.0.1:" + strconv.Itoa(hostPort), State: tobari.ServiceStateListening}
 	exposureContext, cancel := context.WithCancel(c.attachmentCtx)
 	active := &workspaceServiceExposureRuntime{exposure: exposure, listener: listener, cancel: cancel, active: map[net.Conn]struct{}{}}
 	c.exposures[exposureID] = active

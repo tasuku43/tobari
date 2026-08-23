@@ -8,12 +8,12 @@ const TaskOperatorConsoleSnapshot = "serve.snapshot"
 // browser refresh. It preserves each child task identity and collection scope;
 // presentation must not reconstruct relationships from labels or order.
 type OperatorConsoleSnapshot struct {
-	Task        string             `json:"task"`
-	Cluster     ClusterStatus      `json:"cluster"`
-	Workspaces  ProjectListResult  `json:"workspaces"`
-	WindowLines int                `json:"window_lines"`
-	ReviewItems []PolicyReviewItem `json:"review_items"`
-	Rules       PolicyRuleReport   `json:"rules"`
+	Task        string              `json:"task"`
+	Cluster     ClusterStatus       `json:"cluster"`
+	Workspaces  WorkspaceListResult `json:"workspaces"`
+	WindowLines int                 `json:"window_lines"`
+	ReviewItems []PolicyReviewItem  `json:"review_items"`
+	Rules       PolicyRuleReport    `json:"rules"`
 }
 
 func (s OperatorConsoleSnapshot) Validate() error {
@@ -26,7 +26,7 @@ func (s OperatorConsoleSnapshot) Validate() error {
 	if !s.Cluster.Configured || !s.Cluster.Running {
 		return fmt.Errorf("operator console requires a ready cluster")
 	}
-	if err := s.Workspaces.Validate(); err != nil || s.Workspaces.Task != TaskProjectList {
+	if err := s.Workspaces.Validate(); err != nil || s.Workspaces.Task != TaskWorkspaceList {
 		return fmt.Errorf("operator console Workspace snapshot is invalid")
 	}
 	if s.WindowLines < 1 || s.ReviewItems == nil {

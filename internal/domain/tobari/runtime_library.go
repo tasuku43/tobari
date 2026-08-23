@@ -11,9 +11,11 @@ import (
 )
 
 const (
-	RuntimeSchemaVersion = 1
-	StandardRuntimeID    = "builtin/standard"
-	StandardRuntimeName  = "standard"
+	RuntimeSchemaVersion         = 1
+	RuntimeReferenceKind         = "runtime"
+	RuntimeRevisionReferenceKind = "runtime-revision"
+	StandardRuntimeID            = "builtin/standard"
+	StandardRuntimeName          = "standard"
 
 	TaskRuntimeList    = "runtime.list"
 	TaskRuntimeShow    = "runtime.show"
@@ -49,11 +51,11 @@ func (k RuntimeKind) Validate() error {
 	}
 }
 
-// RuntimeSourceBase identifies the editable source used once to initialize a
+// RuntimeCopySource identifies the editable source used once to initialize a
 // standalone managed Runtime. It is selection input, not persisted lineage.
-type RuntimeSourceBase string
+type RuntimeCopySource string
 
-func ParseRuntimeSourceBase(value string) (RuntimeSourceBase, error) {
+func ParseRuntimeCopySource(value string) (RuntimeCopySource, error) {
 	if value == "" {
 		return "", fmt.Errorf("Runtime source Base is required")
 	}
@@ -62,11 +64,11 @@ func ParseRuntimeSourceBase(value string) (RuntimeSourceBase, error) {
 			return "", fmt.Errorf("Runtime source Base: %w", err)
 		}
 	}
-	return RuntimeSourceBase(value), nil
+	return RuntimeCopySource(value), nil
 }
 
-func (b RuntimeSourceBase) Validate() error {
-	_, err := ParseRuntimeSourceBase(string(b))
+func (b RuntimeCopySource) Validate() error {
+	_, err := ParseRuntimeCopySource(string(b))
 	return err
 }
 
@@ -77,6 +79,8 @@ type RuntimeRevision struct {
 	Image        string    `json:"image"`
 	ImageDigest  string    `json:"image_digest"`
 	CreatedAt    time.Time `json:"created_at"`
+	RuntimeRef   string    `json:"runtime_ref,omitempty"`
+	RevisionRef  string    `json:"revision_ref,omitempty"`
 	SnapshotPath string    `json:"snapshot_path,omitempty"`
 }
 
@@ -254,19 +258,22 @@ func (m RuntimeManifest) Binding(ordinal int) (RuntimeBinding, error) {
 }
 
 type RuntimeSummary struct {
-	ID         string      `json:"id"`
-	Name       string      `json:"name"`
-	Kind       RuntimeKind `json:"kind"`
-	Ready      bool        `json:"ready"`
-	Head       int         `json:"head,omitempty"`
-	Revision   string      `json:"revision,omitempty"`
-	SourcePath string      `json:"source_path,omitempty"`
+	ID          string      `json:"id"`
+	RuntimeRef  string      `json:"runtime_ref"`
+	Name        string      `json:"name"`
+	Kind        RuntimeKind `json:"kind"`
+	Ready       bool        `json:"ready"`
+	Head        int         `json:"head,omitempty"`
+	Revision    string      `json:"revision,omitempty"`
+	RevisionRef string      `json:"revision_ref,omitempty"`
+	SourcePath  string      `json:"source_path,omitempty"`
 }
 
 func RuntimeSummaryFrom(manifest RuntimeManifest) RuntimeSummary {
-	summary := RuntimeSummary{ID: manifest.ID, Name: manifest.Name, Kind: manifest.Kind, SourcePath: manifest.SourcePath}
+	summary := RuntimeSummary{ID: manifest.ID, RuntimeRef: manifest.ID, Name: manifest.Name, Kind: manifest.Kind, SourcePath: manifest.SourcePath}
 	if head, ok := manifest.Head(); ok {
 		summary.Ready, summary.Head, summary.Revision = true, head.Ordinal, head.Revision
+		summary.RevisionRef = RuntimeRevisionRef(manifest.ID, head.Revision)
 	}
 	return summary
 }
@@ -290,11 +297,82 @@ func (s RuntimeSummary) Validate() error {
 			return fmt.Errorf("managed Runtime summary source path is invalid")
 		}
 	}
+	if s.RuntimeRef != s.ID {
+		return fmt.Errorf("Runtime reference does not match Runtime ID")
+	}
 	if s.Ready != (s.Head > 0 && s.Revision != "") {
 		return fmt.Errorf("Runtime summary ready state is inconsistent")
 	}
 	if s.Revision != "" {
 		if err := ValidateDigest(s.Revision); err != nil {
+			return err
+		}
+		if s.RevisionRef != RuntimeRevisionRef(s.ID, s.Revision) {
+			return fmt.Errorf("Runtime revision reference is invalid")
+		}
+	} else if s.RevisionRef != "" {
+		return fmt.Errorf("draft Runtime cannot expose a revision reference")
+	}
+	return nil
+}
+
+func RuntimeRevisionRef(runtimeID, revision string) string {
+	return runtimeID + "/" + revision
+}
+
+type RuntimeProtectionReason string
+
+const (
+	RuntimeProtectedByManifestCurrent   RuntimeProtectionReason = "manifest_current"
+	RuntimeProtectedByManifestRetained  RuntimeProtectionReason = "manifest_retained"
+	RuntimeProtectedByWorkspaceApplied  RuntimeProtectionReason = "workspace_applied"
+	RuntimeProtectedByWorkspacePending  RuntimeProtectionReason = "workspace_pending"
+	RuntimeProtectedByWorkspaceObserved RuntimeProtectionReason = "workspace_observed"
+)
+
+type RuntimeProtection struct {
+	RuntimeID           string                  `json:"runtime_id"`
+	RuntimeRevision     string                  `json:"runtime_revision"`
+	Reason              RuntimeProtectionReason `json:"reason"`
+	WorkspaceManifestID string                  `json:"workspace_manifest_id,omitempty"`
+	WorkspaceID         string                  `json:"workspace_id,omitempty"`
+}
+
+func (p RuntimeProtection) Validate() error {
+	if err := ValidateRuntimeID(p.RuntimeID); err != nil {
+		return err
+	}
+	if err := ValidateDigest(p.RuntimeRevision); err != nil {
+		return err
+	}
+	switch p.Reason {
+	case RuntimeProtectedByManifestCurrent, RuntimeProtectedByManifestRetained:
+		if ValidateWorkspaceManifestID(p.WorkspaceManifestID) != nil || p.WorkspaceID != "" {
+			return fmt.Errorf("Manifest Runtime protection owner is invalid")
+		}
+	case RuntimeProtectedByWorkspaceApplied, RuntimeProtectedByWorkspacePending, RuntimeProtectedByWorkspaceObserved:
+		if ValidateWorkspaceManifestID(p.WorkspaceManifestID) != nil || ValidateWorkspaceID(p.WorkspaceID) != nil {
+			return fmt.Errorf("Workspace Runtime protection owner is invalid")
+		}
+	default:
+		return fmt.Errorf("Runtime protection reason is invalid")
+	}
+	return nil
+}
+
+// RuntimeProtectionInventory is the complete trusted-host graph consumed by
+// future Runtime retirement logic. It contains no inferred last-used value.
+type RuntimeProtectionInventory struct {
+	Complete bool                `json:"complete"`
+	Items    []RuntimeProtection `json:"items"`
+}
+
+func (i RuntimeProtectionInventory) Validate() error {
+	if !i.Complete || i.Items == nil {
+		return fmt.Errorf("Runtime protection inventory is incomplete")
+	}
+	for _, item := range i.Items {
+		if err := item.Validate(); err != nil {
 			return err
 		}
 	}
@@ -352,7 +430,7 @@ func (r RuntimeReport) Validate() error {
 
 // NewRuntimeID issues a UUIDv7 Runtime identity from host-owned clock and entropy.
 func NewRuntimeID(now time.Time, source io.Reader) (string, error) {
-	id, err := NewContextID(now, source)
+	id, err := NewWorkspaceManifestID(now, source)
 	if err != nil {
 		return "", fmt.Errorf("create Runtime ID: %w", err)
 	}

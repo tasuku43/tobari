@@ -68,29 +68,29 @@ type WorkspaceObservation struct {
 // MutationObservation is the secret-free authoritative runtime receipt. The
 // application owns task identity, change semantics, and Workspace activation.
 type MutationObservation struct {
-	ContextState       tobari.ContextObservationState
-	Provider           string
-	Context            string
-	ContextID          string
-	Configured         bool
-	AccountLabel       *string
-	StorageBackend     StorageBackend
-	BrokerState        BrokerState
-	CredentialRevision string
-	Changed            bool
-	Providers          []ProviderStatus
-	Workspaces         WorkspaceObservation
+	ManifestState       tobari.ManifestObservationState
+	Provider            string
+	Context             string
+	WorkspaceManifestID string
+	Configured          bool
+	AccountLabel        *string
+	StorageBackend      StorageBackend
+	BrokerState         BrokerState
+	CredentialRevision  string
+	Changed             bool
+	Providers           []ProviderStatus
+	Workspaces          WorkspaceObservation
 }
 
 // StatusObservation is the secret-free runtime snapshot used by auth status.
 type StatusObservation struct {
-	ContextState   tobari.ContextObservationState
-	Context        string
-	ContextID      string
-	StorageBackend StorageBackend
-	BrokerState    BrokerState
-	Providers      []ProviderStatus
-	Workspaces     WorkspaceObservation
+	ManifestState       tobari.ManifestObservationState
+	Context             string
+	WorkspaceManifestID string
+	StorageBackend      StorageBackend
+	BrokerState         BrokerState
+	Providers           []ProviderStatus
+	Workspaces          WorkspaceObservation
 }
 
 // NewResult validates the authoritative mutation observation against the
@@ -112,15 +112,15 @@ func NewResult(task, requestedContext, requestedProvider string, observed Mutati
 	} else {
 		var err error
 		activation, err = workspaceActivationFromObservation(
-			observed.Context, observed.ContextID, observed.Providers, observed.Workspaces,
+			observed.Context, observed.WorkspaceManifestID, observed.Providers, observed.Workspaces,
 		)
 		if err != nil {
 			return Result{}, err
 		}
 	}
 	result := Result{
-		Task: task, ContextState: observed.ContextState, Provider: observed.Provider,
-		Context: observed.Context, ContextID: observed.ContextID, Configured: observed.Configured,
+		Task: task, ManifestState: observed.ManifestState, Provider: observed.Provider,
+		Context: observed.Context, WorkspaceManifestID: observed.WorkspaceManifestID, Configured: observed.Configured,
 		AccountLabel: observed.AccountLabel, StorageBackend: observed.StorageBackend,
 		BrokerState: observed.BrokerState, CredentialRevision: observed.CredentialRevision,
 		Change: change, WorkspaceActivation: activation,
@@ -139,9 +139,9 @@ func NewStatusResult(requestedContext string, observed StatusObservation) (Statu
 	}
 	activation := NotApplicableWorkspaceActivation()
 	var err error
-	if observed.ContextState == tobari.ContextObservationPersisted {
+	if observed.ManifestState == tobari.ManifestObservationPersisted {
 		activation, err = workspaceActivationFromObservation(
-			observed.Context, observed.ContextID, observed.Providers, observed.Workspaces,
+			observed.Context, observed.WorkspaceManifestID, observed.Providers, observed.Workspaces,
 		)
 		if err != nil {
 			return StatusResult{}, err
@@ -150,8 +150,8 @@ func NewStatusResult(requestedContext string, observed StatusObservation) (Statu
 		return StatusResult{}, fmt.Errorf("non-persisted auth status observation carries Workspace authority")
 	}
 	result := StatusResult{
-		Task: TaskStatus, ContextState: observed.ContextState, Context: observed.Context,
-		ContextID: observed.ContextID, StorageBackend: observed.StorageBackend,
+		Task: TaskStatus, ManifestState: observed.ManifestState, Context: observed.Context,
+		WorkspaceManifestID: observed.WorkspaceManifestID, StorageBackend: observed.StorageBackend,
 		BrokerState: observed.BrokerState, Providers: append(make([]ProviderStatus, 0, len(observed.Providers)), observed.Providers...),
 		WorkspaceActivation: activation,
 	}
@@ -191,7 +191,7 @@ func workspaceActivationFromObservation(
 	items := make([]WorkspaceActivationItem, 0, len(observed.Workspaces))
 	seenProjects := make(map[string]struct{}, len(observed.Workspaces))
 	for _, workspace := range observed.Workspaces {
-		if err := tobari.ValidateProjectID(workspace.ProjectID); err != nil {
+		if err := tobari.ValidateWorkspaceID(workspace.ProjectID); err != nil {
 			return WorkspaceActivation{}, err
 		}
 		if err := tobari.ValidateCanonicalRoot(workspace.Root); err != nil {

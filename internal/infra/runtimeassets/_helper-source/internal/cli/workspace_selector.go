@@ -36,7 +36,7 @@ func newWorkspaceSelectorWithStyle(enabled bool) *workspaceSelector {
 }
 
 func (s *workspaceSelector) Select(
-	ctx context.Context, selection tobari.ProjectSelection, in io.Reader, out io.Writer,
+	ctx context.Context, selection tobari.WorkspaceSelection, in io.Reader, out io.Writer,
 ) (tobari.ProjectSelectionChoice, error) {
 	if err := selection.Validate(); err != nil {
 		return tobari.ProjectSelectionChoice{}, err
@@ -112,7 +112,7 @@ type selectorKey struct {
 }
 
 func selectWorkspaceRaw(
-	ctx context.Context, selection tobari.ProjectSelection, in io.Reader, out io.Writer,
+	ctx context.Context, selection tobari.WorkspaceSelection, in io.Reader, out io.Writer,
 	style bool,
 ) (tobari.ProjectSelectionChoice, error) {
 	options := workspaceSelectorOptions(selection)
@@ -188,7 +188,7 @@ func selectWorkspaceRaw(
 }
 
 func selectWorkspaceLine(
-	ctx context.Context, selection tobari.ProjectSelection, in io.Reader, out io.Writer,
+	ctx context.Context, selection tobari.WorkspaceSelection, in io.Reader, out io.Writer,
 ) (tobari.ProjectSelectionChoice, error) {
 	options := workspaceSelectorOptions(selection)
 	if _, err := fmt.Fprintf(out, "Select a Workspace for %s\n\n", safeExternalText(selection.CWD)); err != nil {
@@ -249,13 +249,13 @@ func selectWorkspaceLine(
 }
 
 type workspaceSelectorOption struct {
-	candidate  *tobari.ProjectSelectionCandidate
+	candidate  *tobari.WorkspaceSelectionCandidate
 	create     bool
 	selectable bool
 	nearest    bool
 }
 
-func workspaceSelectorOptions(selection tobari.ProjectSelection) []workspaceSelectorOption {
+func workspaceSelectorOptions(selection tobari.WorkspaceSelection) []workspaceSelectorOption {
 	options := make([]workspaceSelectorOption, 0, len(selection.Candidates)+1)
 	for index := range selection.Candidates {
 		candidate := &selection.Candidates[index]
@@ -323,7 +323,7 @@ func selectorWindowTop(selected, optionCount, window int) int {
 }
 
 func renderWorkspaceSelector(
-	out io.Writer, selection tobari.ProjectSelection, options []workspaceSelectorOption,
+	out io.Writer, selection tobari.WorkspaceSelection, options []workspaceSelectorOption,
 	selected, top int, message string, previousLines int, style bool,
 ) int {
 	lines := []string{
@@ -405,7 +405,7 @@ func truncateSelectorPath(value string, width int) string {
 	return string(runes[:left]) + "…" + string(runes[len(runes)-right:])
 }
 
-func writeWorkspaceSelectionSummary(out io.Writer, selection tobari.ProjectSelection, choice tobari.ProjectSelectionChoice) error {
+func writeWorkspaceSelectionSummary(out io.Writer, selection tobari.WorkspaceSelection, choice tobari.ProjectSelectionChoice) error {
 	if choice.Kind == tobari.ProjectSelectionCreate {
 		return writeSelectorLines(out,
 			"Creating a new Workspace here",

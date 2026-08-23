@@ -61,7 +61,7 @@ func (r *Runtime) prepareState(ctx context.Context) (tobari.State, error) {
 	}
 	state := tobari.State{
 		SchemaVersion: 1, RuntimeDirectory: runtimeDirectory,
-		AggregateRevision: projection.Revision, ContextCount: projection.ContextCount,
+		AggregateRevision: projection.Revision, ManifestCount: projection.ManifestCount,
 		PolicyDirectory: projection.PolicyDirectory, GatewayConfig: projection.GatewayConfig,
 		AssetVersion: version,
 	}

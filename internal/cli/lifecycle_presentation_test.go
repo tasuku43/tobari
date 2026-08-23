@@ -16,18 +16,18 @@ type lifecyclePresentationAnswer struct {
 	SchemaVersion int    `json:"schema_version"`
 	Task          string `json:"task"`
 	Target        struct {
-		Root        string `json:"root"`
-		WorkspaceID string `json:"workspace_id"`
-		ContextID   string `json:"context_id"`
-		ContextName string `json:"context_name"`
-		Attachment  string `json:"attachment"`
+		Root                  string `json:"root"`
+		WorkspaceID           string `json:"workspace_id"`
+		WorkspaceManifestID   string `json:"workspace_manifest_id"`
+		WorkspaceManifestName string `json:"workspace_manifest_name"`
+		Attachment            string `json:"attachment"`
 	} `json:"target"`
-	SameRootOtherContext struct {
-		Root        string `json:"root"`
-		WorkspaceID string `json:"workspace_id"`
-		ContextID   string `json:"context_id"`
-		ContextName string `json:"context_name"`
-	} `json:"same_root_other_context"`
+	SameRootOtherManifest struct {
+		Root                  string `json:"root"`
+		WorkspaceID           string `json:"workspace_id"`
+		WorkspaceManifestID   string `json:"workspace_manifest_id"`
+		WorkspaceManifestName string `json:"workspace_manifest_name"`
+	} `json:"same_root_other_manifest"`
 	ExactNextArgv []string `json:"exact_next_argv"`
 	ForceDelete   struct {
 		Removes       []string `json:"removes"`
@@ -58,7 +58,7 @@ func TestLifecyclePresentationEvidenceKeepsOneContextBoundTarget(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var fixture tobari.ProjectStatus
+	var fixture tobari.WorkspaceStatus
 	if err := json.Unmarshal(fixtureData, &fixture); err != nil {
 		t.Fatalf("decode typed fixture: %v", err)
 	}
@@ -77,17 +77,17 @@ func TestLifecyclePresentationEvidenceKeepsOneContextBoundTarget(t *testing.T) {
 	}
 	if answer.SchemaVersion != 1 || answer.Task != fixture.Task ||
 		answer.Target.Root != fixture.Root || answer.Target.WorkspaceID != fixture.ID ||
-		answer.Target.ContextID != fixture.ContextID || answer.Target.ContextName != fixture.ContextName ||
+		answer.Target.WorkspaceManifestID != fixture.WorkspaceManifestID || answer.Target.WorkspaceManifestName != fixture.WorkspaceManifestName ||
 		answer.Target.Attachment != string(fixture.Attachment) {
 		t.Fatalf("answer target does not match fixture: answer=%+v fixture=%+v", answer.Target, fixture)
 	}
-	if answer.SameRootOtherContext.Root != fixture.Root ||
-		answer.SameRootOtherContext.ContextID == fixture.ContextID ||
-		answer.SameRootOtherContext.WorkspaceID == fixture.ID ||
-		answer.SameRootOtherContext.ContextName == fixture.ContextName {
-		t.Fatalf("same-root Context identities merged: %+v", answer.SameRootOtherContext)
+	if answer.SameRootOtherManifest.Root != fixture.Root ||
+		answer.SameRootOtherManifest.WorkspaceManifestID == fixture.WorkspaceManifestID ||
+		answer.SameRootOtherManifest.WorkspaceID == fixture.ID ||
+		answer.SameRootOtherManifest.WorkspaceManifestName == fixture.WorkspaceManifestName {
+		t.Fatalf("same-root Workspace Manifest identities merged: %+v", answer.SameRootOtherManifest)
 	}
-	if !slices.Equal(answer.ExactNextArgv, []string{"tobari", "--context", "toolbox"}) ||
+	if !slices.Equal(answer.ExactNextArgv, []string{"tobari", "--manifest", "toolbox"}) ||
 		answer.RoutineSuccess.TaskInvocations != 1 || answer.RoutineSuccess.ExternalReconstructionSteps != 0 {
 		t.Fatalf("routine-success evidence is incomplete: %+v", answer)
 	}
@@ -116,12 +116,12 @@ func TestLifecyclePresentationEvidenceKeepsOneContextBoundTarget(t *testing.T) {
 	if err := json.Unmarshal(jsonOutput, &document); err != nil {
 		t.Fatal(err)
 	}
-	if document.SchemaVersion != 1 || !reflect.DeepEqual(document.Status.NextArgv, answer.ExactNextArgv) ||
-		document.Status.ContextID == nil || *document.Status.ContextID != answer.Target.ContextID || document.Status.Attachment != answer.Target.Attachment {
+	if document.SchemaVersion != 2 || !reflect.DeepEqual(document.Status.NextArgv, answer.ExactNextArgv) ||
+		document.Status.WorkspaceManifestID == nil || *document.Status.WorkspaceManifestID != answer.Target.WorkspaceManifestID || document.Status.Attachment != answer.Target.Attachment {
 		t.Fatalf("structured status lost target or recovery: %+v", document)
 	}
 	if strings.Contains(string(jsonOutput), "runtime_selection") || strings.Contains(string(jsonOutput), "standard@1") {
-		t.Fatalf("human-only exact Runtime selection changed schema-1 status JSON: %s", jsonOutput)
+		t.Fatalf("human-only exact Runtime selection changed schema-2 status JSON: %s", jsonOutput)
 	}
 
 	deleteSpec, found := DefaultCatalog().Lookup("delete")

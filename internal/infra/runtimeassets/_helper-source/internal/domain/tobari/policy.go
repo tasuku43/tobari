@@ -390,22 +390,22 @@ func (e MCPEndpoint) Validate() error {
 // PolicyDenial is one validated, secret-free Gateway audit decision.
 type PolicyDenial struct {
 	PolicyProtocolIdentity
-	Timestamp         string `json:"timestamp"`
-	RequestID         string `json:"request_id"`
-	ContextID         string `json:"context_id"`
-	ContextName       string `json:"context"`
-	ProjectID         string `json:"project_id"`
-	ProjectRoot       string `json:"project_root"`
-	Host              string `json:"host"`
-	Port              int    `json:"port"`
-	Method            string `json:"method"`
-	Path              string `json:"path"`
-	Reason            string `json:"reason"`
-	StatusCode        int    `json:"status_code"`
-	Learnable         bool   `json:"learnable"`
-	DestinationKind   string `json:"destination_kind,omitempty"`
-	AuthorityLifetime string `json:"authority_lifetime,omitempty"`
-	AttachmentEpochID string `json:"attachment_epoch_id,omitempty"`
+	Timestamp             string `json:"timestamp"`
+	RequestID             string `json:"request_id"`
+	WorkspaceManifestID   string `json:"workspace_manifest_id"`
+	WorkspaceManifestName string `json:"workspace_manifest"`
+	ProjectID             string `json:"workspace_id"`
+	ProjectRoot           string `json:"project_root"`
+	Host                  string `json:"host"`
+	Port                  int    `json:"port"`
+	Method                string `json:"method"`
+	Path                  string `json:"path"`
+	Reason                string `json:"reason"`
+	StatusCode            int    `json:"status_code"`
+	Learnable             bool   `json:"learnable"`
+	DestinationKind       string `json:"destination_kind,omitempty"`
+	AuthorityLifetime     string `json:"authority_lifetime,omitempty"`
+	AttachmentEpochID     string `json:"attachment_epoch_id,omitempty"`
 }
 
 // DenialRead is one bounded Gateway-log projection. UnparsedLines counts
@@ -456,10 +456,10 @@ func (d PolicyDenial) Validate() error {
 	if !requestIDPattern.MatchString(d.RequestID) {
 		return fmt.Errorf("denial request ID is invalid")
 	}
-	if err := validatePolicyScope(d.ContextID, d.ContextName, d.ProjectRoot); err != nil {
+	if err := validatePolicyScope(d.WorkspaceManifestID, d.WorkspaceManifestName, d.ProjectRoot); err != nil {
 		return fmt.Errorf("denial scope: %w", err)
 	}
-	if err := ValidateProjectID(d.ProjectID); err != nil {
+	if err := ValidateWorkspaceID(d.ProjectID); err != nil {
 		return fmt.Errorf("denial project ID is invalid")
 	}
 	if len(d.Host) == 0 || len(d.Host) > 253 || containsSpaceOrControl(d.Host) {
@@ -492,11 +492,11 @@ func (d PolicyDenial) Validate() error {
 }
 
 func validatePolicyScope(contextID, contextName, projectRoot string) error {
-	if err := ValidateContextID(contextID); err != nil {
-		return fmt.Errorf("Context ID is invalid")
+	if err := ValidateWorkspaceManifestID(contextID); err != nil {
+		return fmt.Errorf("Workspace Manifest ID is invalid")
 	}
 	if err := ValidateName(contextName); err != nil {
-		return fmt.Errorf("Context name is invalid")
+		return fmt.Errorf("Workspace Manifest name is invalid")
 	}
 	if !filepath.IsAbs(projectRoot) || filepath.Clean(projectRoot) != projectRoot {
 		return fmt.Errorf("project root is invalid")
@@ -561,22 +561,22 @@ func (r DenialReport) Validate() error {
 // validated denial. ID is opaque and remains stable for the same exact effect.
 type PolicyCandidate struct {
 	PolicyProtocolIdentity
-	ID                string `json:"id"`
-	ObservedAt        string `json:"observed_at"`
-	ObservationCount  int    `json:"observation_count"`
-	ContextID         string `json:"context_id"`
-	ContextName       string `json:"context"`
-	ProjectID         string `json:"project_id"`
-	ProjectRoot       string `json:"project_root"`
-	Host              string `json:"host"`
-	Port              int    `json:"port"`
-	Method            string `json:"method"`
-	Path              string `json:"path"`
-	Reason            string `json:"reason"`
-	StatusCode        int    `json:"status_code"`
-	DestinationKind   string `json:"destination_kind,omitempty"`
-	AuthorityLifetime string `json:"authority_lifetime,omitempty"`
-	AttachmentEpochID string `json:"attachment_epoch_id,omitempty"`
+	ID                    string `json:"id"`
+	ObservedAt            string `json:"observed_at"`
+	ObservationCount      int    `json:"observation_count"`
+	WorkspaceManifestID   string `json:"workspace_manifest_id"`
+	WorkspaceManifestName string `json:"workspace_manifest"`
+	ProjectID             string `json:"workspace_id"`
+	ProjectRoot           string `json:"project_root"`
+	Host                  string `json:"host"`
+	Port                  int    `json:"port"`
+	Method                string `json:"method"`
+	Path                  string `json:"path"`
+	Reason                string `json:"reason"`
+	StatusCode            int    `json:"status_code"`
+	DestinationKind       string `json:"destination_kind,omitempty"`
+	AuthorityLifetime     string `json:"authority_lifetime,omitempty"`
+	AttachmentEpochID     string `json:"attachment_epoch_id,omitempty"`
 }
 
 func (c PolicyCandidate) EffectiveDestinationKind() string {
@@ -604,7 +604,7 @@ func NewPolicyCandidate(denial PolicyDenial) (PolicyCandidate, error) {
 	}
 	material := appendPolicyProtocolIdentity(
 		[]string{
-			"tobari-policy-candidate-v1", denial.ContextID, denial.ProjectID, denial.Host, strconv.Itoa(denial.Port), denial.Method, denial.Path,
+			"tobari-policy-candidate-v1", denial.WorkspaceManifestID, denial.ProjectID, denial.Host, strconv.Itoa(denial.Port), denial.Method, denial.Path,
 		},
 		denial.PolicyProtocolIdentity,
 	)
@@ -615,7 +615,7 @@ func NewPolicyCandidate(denial PolicyDenial) (PolicyCandidate, error) {
 	return PolicyCandidate{
 		PolicyProtocolIdentity: denial.PolicyProtocolIdentity,
 		ID:                     "pcy_" + hex.EncodeToString(sum[:16]), ObservedAt: denial.Timestamp, ObservationCount: 1,
-		ContextID: denial.ContextID, ContextName: denial.ContextName,
+		WorkspaceManifestID: denial.WorkspaceManifestID, WorkspaceManifestName: denial.WorkspaceManifestName,
 		ProjectID: denial.ProjectID, ProjectRoot: denial.ProjectRoot,
 		Host: denial.Host, Port: denial.Port, Method: denial.Method, Path: denial.Path,
 		Reason: denial.Reason, StatusCode: denial.StatusCode,
@@ -659,10 +659,10 @@ func (c PolicyCandidate) Validate() error {
 	if c.ObservationCount < 1 {
 		return fmt.Errorf("policy candidate observation count is invalid")
 	}
-	if err := validatePolicyScope(c.ContextID, c.ContextName, c.ProjectRoot); err != nil {
+	if err := validatePolicyScope(c.WorkspaceManifestID, c.WorkspaceManifestName, c.ProjectRoot); err != nil {
 		return fmt.Errorf("policy candidate scope: %w", err)
 	}
-	if err := ValidateProjectID(c.ProjectID); err != nil {
+	if err := ValidateWorkspaceID(c.ProjectID); err != nil {
 		return fmt.Errorf("policy candidate project ID is invalid")
 	}
 	if len(c.Host) == 0 || len(c.Host) > 253 || containsSpaceOrControl(c.Host) {
@@ -683,7 +683,7 @@ func (c PolicyCandidate) Validate() error {
 	if c.StatusCode < 400 || c.StatusCode > 599 {
 		return fmt.Errorf("policy candidate status is invalid")
 	}
-	denial := PolicyDenial{PolicyProtocolIdentity: c.PolicyProtocolIdentity, Timestamp: c.ObservedAt, RequestID: strings.Repeat("0", 32), ContextID: c.ContextID, ContextName: c.ContextName, ProjectID: c.ProjectID, ProjectRoot: c.ProjectRoot, Host: c.Host, Port: c.Port, Method: c.Method, Path: c.Path, Reason: c.Reason, StatusCode: c.StatusCode, Learnable: true, DestinationKind: c.DestinationKind, AuthorityLifetime: c.AuthorityLifetime, AttachmentEpochID: c.AttachmentEpochID}
+	denial := PolicyDenial{PolicyProtocolIdentity: c.PolicyProtocolIdentity, Timestamp: c.ObservedAt, RequestID: strings.Repeat("0", 32), WorkspaceManifestID: c.WorkspaceManifestID, WorkspaceManifestName: c.WorkspaceManifestName, ProjectID: c.ProjectID, ProjectRoot: c.ProjectRoot, Host: c.Host, Port: c.Port, Method: c.Method, Path: c.Path, Reason: c.Reason, StatusCode: c.StatusCode, Learnable: true, DestinationKind: c.DestinationKind, AuthorityLifetime: c.AuthorityLifetime, AttachmentEpochID: c.AttachmentEpochID}
 	if err := denial.Validate(); err != nil {
 		return fmt.Errorf("policy candidate authority: %w", err)
 	}
@@ -747,16 +747,16 @@ func (r PolicyCandidateReport) Validate() error {
 // dimensions as the candidate it resolves.
 type PolicyDenyRule struct {
 	PolicyProtocolIdentity
-	ID               string   `json:"id"`
-	ContextID        string   `json:"context_id"`
-	ContextName      string   `json:"context"`
-	ProjectID        string   `json:"project_id"`
-	ProjectRoot      string   `json:"project_root"`
-	Host             string   `json:"host"`
-	Port             int      `json:"port"`
-	Method           string   `json:"method"`
-	Path             string   `json:"path"`
-	SourceCandidates []string `json:"source_candidates"`
+	ID                    string   `json:"id"`
+	WorkspaceManifestID   string   `json:"workspace_manifest_id"`
+	WorkspaceManifestName string   `json:"workspace_manifest"`
+	ProjectID             string   `json:"workspace_id"`
+	ProjectRoot           string   `json:"project_root"`
+	Host                  string   `json:"host"`
+	Port                  int      `json:"port"`
+	Method                string   `json:"method"`
+	Path                  string   `json:"path"`
+	SourceCandidates      []string `json:"source_candidates"`
 }
 
 func policyDenyRuleIDWithIdentity(
@@ -784,13 +784,13 @@ func NewExactPolicyDenyRule(candidate PolicyCandidate) (PolicyDenyRule, error) {
 	}
 	rule := PolicyDenyRule{
 		PolicyProtocolIdentity: candidate.PolicyProtocolIdentity,
-		ContextID:              candidate.ContextID, ContextName: candidate.ContextName,
+		WorkspaceManifestID:    candidate.WorkspaceManifestID, WorkspaceManifestName: candidate.WorkspaceManifestName,
 		ProjectID: candidate.ProjectID, ProjectRoot: candidate.ProjectRoot, Host: candidate.Host, Port: candidate.Port,
 		Method: candidate.Method, Path: candidate.Path,
 		SourceCandidates: []string{candidate.ID},
 	}
 	rule.ID = policyDenyRuleIDWithIdentity(
-		rule.ContextID, rule.ProjectID, rule.Host, rule.Port, rule.Method, rule.Path, rule.SourceCandidates,
+		rule.WorkspaceManifestID, rule.ProjectID, rule.Host, rule.Port, rule.Method, rule.Path, rule.SourceCandidates,
 		rule.PolicyProtocolIdentity,
 	)
 	return rule, nil
@@ -803,10 +803,10 @@ func (r PolicyDenyRule) Validate() error {
 	if !policyDenyRuleIDPattern.MatchString(r.ID) {
 		return fmt.Errorf("policy deny rule ID is invalid")
 	}
-	if err := validatePolicyScope(r.ContextID, r.ContextName, r.ProjectRoot); err != nil {
+	if err := validatePolicyScope(r.WorkspaceManifestID, r.WorkspaceManifestName, r.ProjectRoot); err != nil {
 		return fmt.Errorf("policy deny rule scope: %w", err)
 	}
-	if err := ValidateProjectID(r.ProjectID); err != nil {
+	if err := ValidateWorkspaceID(r.ProjectID); err != nil {
 		return fmt.Errorf("policy deny rule project ID is invalid")
 	}
 	if len(r.Host) == 0 || len(r.Host) > 253 || containsSpaceOrControl(r.Host) {
@@ -828,7 +828,7 @@ func (r PolicyDenyRule) Validate() error {
 		return fmt.Errorf("exact policy deny rule must have one source candidate")
 	}
 	if r.ID != policyDenyRuleIDWithIdentity(
-		r.ContextID, r.ProjectID, r.Host, r.Port, r.Method, r.Path, r.SourceCandidates, r.PolicyProtocolIdentity,
+		r.WorkspaceManifestID, r.ProjectID, r.Host, r.Port, r.Method, r.Path, r.SourceCandidates, r.PolicyProtocolIdentity,
 	) {
 		return fmt.Errorf("policy deny rule ID does not bind its content")
 	}
@@ -838,7 +838,7 @@ func (r PolicyDenyRule) Validate() error {
 func (r PolicyDenyRule) MatchesIdentity(
 	contextID, projectID, host string, port int, method, path string, identity PolicyProtocolIdentity,
 ) bool {
-	return r.ContextID == contextID && r.ProjectID == projectID && r.Host == host && r.Port == port &&
+	return r.WorkspaceManifestID == contextID && r.ProjectID == projectID && r.Host == host && r.Port == port &&
 		r.Method == method && r.Path == path && r.PolicyProtocolIdentity.matches(identity)
 }
 
@@ -868,7 +868,7 @@ func (s PolicyDenyRuleSet) Validate() error {
 func (s PolicyDenyRuleSet) Matches(denial PolicyDenial) bool {
 	for _, rule := range s.Exact {
 		if rule.MatchesIdentity(
-			denial.ContextID, denial.ProjectID, denial.Host, denial.Port, denial.Method, denial.Path,
+			denial.WorkspaceManifestID, denial.ProjectID, denial.Host, denial.Port, denial.Method, denial.Path,
 			denial.PolicyProtocolIdentity,
 		) {
 			return true
@@ -880,19 +880,19 @@ func (s PolicyDenyRuleSet) Matches(denial PolicyDenial) bool {
 // LearnedPolicyRule is one exact allow.json rule owned by policy-learning commands.
 type LearnedPolicyRule struct {
 	PolicyProtocolIdentity
-	ID               string   `json:"id"`
-	Match            string   `json:"match"`
-	ContextID        string   `json:"context_id"`
-	ContextName      string   `json:"context"`
-	ProjectID        string   `json:"project_id"`
-	ProjectRoot      string   `json:"project_root"`
-	Host             string   `json:"host"`
-	Port             int      `json:"port"`
-	Method           string   `json:"method"`
-	Path             string   `json:"path"`
-	Segments         []string `json:"segments,omitempty"`
-	Examples         []string `json:"examples"`
-	SourceCandidates []string `json:"source_candidates"`
+	ID                    string   `json:"id"`
+	Match                 string   `json:"match"`
+	WorkspaceManifestID   string   `json:"workspace_manifest_id"`
+	WorkspaceManifestName string   `json:"workspace_manifest"`
+	ProjectID             string   `json:"workspace_id"`
+	ProjectRoot           string   `json:"project_root"`
+	Host                  string   `json:"host"`
+	Port                  int      `json:"port"`
+	Method                string   `json:"method"`
+	Path                  string   `json:"path"`
+	Segments              []string `json:"segments,omitempty"`
+	Examples              []string `json:"examples"`
+	SourceCandidates      []string `json:"source_candidates"`
 }
 
 func learnedRuleIDWithIdentity(
@@ -919,13 +919,13 @@ func NewExactLearnedPolicyRule(candidate PolicyCandidate) (LearnedPolicyRule, er
 	}
 	rule := LearnedPolicyRule{
 		PolicyProtocolIdentity: candidate.PolicyProtocolIdentity,
-		Match:                  PolicyMatchExact, ContextID: candidate.ContextID, ContextName: candidate.ContextName,
+		Match:                  PolicyMatchExact, WorkspaceManifestID: candidate.WorkspaceManifestID, WorkspaceManifestName: candidate.WorkspaceManifestName,
 		ProjectID: candidate.ProjectID, ProjectRoot: candidate.ProjectRoot, Host: candidate.Host, Port: candidate.Port, Method: candidate.Method,
 		Path: candidate.Path, Examples: []string{candidate.Path},
 		SourceCandidates: []string{candidate.ID},
 	}
 	rule.ID = learnedRuleIDWithIdentity(
-		rule.Match, rule.ContextID, rule.ProjectID, rule.Host, rule.Port, rule.Method, rule.Path, rule.Examples, rule.SourceCandidates,
+		rule.Match, rule.WorkspaceManifestID, rule.ProjectID, rule.Host, rule.Port, rule.Method, rule.Path, rule.Examples, rule.SourceCandidates,
 		rule.PolicyProtocolIdentity,
 	)
 	return rule, nil
@@ -941,10 +941,10 @@ func (r LearnedPolicyRule) Validate() error {
 	if r.Match != PolicyMatchExact && r.Match != PolicyMatchPathTemplate {
 		return fmt.Errorf("learned rule match is invalid")
 	}
-	if err := validatePolicyScope(r.ContextID, r.ContextName, r.ProjectRoot); err != nil {
+	if err := validatePolicyScope(r.WorkspaceManifestID, r.WorkspaceManifestName, r.ProjectRoot); err != nil {
 		return fmt.Errorf("learned rule scope: %w", err)
 	}
-	if err := ValidateProjectID(r.ProjectID); err != nil {
+	if err := ValidateWorkspaceID(r.ProjectID); err != nil {
 		return fmt.Errorf("learned rule project ID is invalid")
 	}
 	if len(r.Host) == 0 || len(r.Host) > 253 || containsSpaceOrControl(r.Host) {
@@ -994,7 +994,7 @@ func (r LearnedPolicyRule) Validate() error {
 		return fmt.Errorf("non-HTTP learned rules cannot use a path template")
 	}
 	if r.ID != learnedRuleIDWithIdentity(
-		r.Match, r.ContextID, r.ProjectID, r.Host, r.Port, r.Method, r.Path, r.Examples, r.SourceCandidates,
+		r.Match, r.WorkspaceManifestID, r.ProjectID, r.Host, r.Port, r.Method, r.Path, r.Examples, r.SourceCandidates,
 		r.PolicyProtocolIdentity,
 	) {
 		return fmt.Errorf("learned rule ID does not bind its content")
@@ -1052,20 +1052,20 @@ func ValidateLearnedPolicyRules(rules []LearnedPolicyRule) error {
 // represented because it has no reversible CLI-owned decision.
 type PolicyRule struct {
 	PolicyProtocolIdentity
-	ID               string   `json:"id"`
-	Decision         string   `json:"decision"`
-	Match            string   `json:"match"`
-	ContextID        string   `json:"context_id"`
-	ContextName      string   `json:"context"`
-	ProjectID        string   `json:"project_id"`
-	ProjectRoot      string   `json:"project_root"`
-	Host             string   `json:"host"`
-	Port             int      `json:"port"`
-	Method           string   `json:"method"`
-	Path             string   `json:"path"`
-	Segments         []string `json:"segments,omitempty"`
-	Examples         []string `json:"examples"`
-	SourceCandidates []string `json:"source_candidates"`
+	ID                    string   `json:"id"`
+	Decision              string   `json:"decision"`
+	Match                 string   `json:"match"`
+	WorkspaceManifestID   string   `json:"workspace_manifest_id"`
+	WorkspaceManifestName string   `json:"workspace_manifest"`
+	ProjectID             string   `json:"workspace_id"`
+	ProjectRoot           string   `json:"project_root"`
+	Host                  string   `json:"host"`
+	Port                  int      `json:"port"`
+	Method                string   `json:"method"`
+	Path                  string   `json:"path"`
+	Segments              []string `json:"segments,omitempty"`
+	Examples              []string `json:"examples"`
+	SourceCandidates      []string `json:"source_candidates"`
 }
 
 // NewPolicyRuleFromLearned converts one validated learned Allow rule into the
@@ -1077,7 +1077,7 @@ func NewPolicyRuleFromLearned(rule LearnedPolicyRule) (PolicyRule, error) {
 	result := PolicyRule{
 		PolicyProtocolIdentity: rule.PolicyProtocolIdentity,
 		ID:                     rule.ID, Decision: PolicyDecisionAllow, Match: rule.Match,
-		ContextID: rule.ContextID, ContextName: rule.ContextName,
+		WorkspaceManifestID: rule.WorkspaceManifestID, WorkspaceManifestName: rule.WorkspaceManifestName,
 		ProjectID: rule.ProjectID, ProjectRoot: rule.ProjectRoot, Host: rule.Host, Port: rule.Port, Method: rule.Method,
 		Path: rule.Path, Segments: append([]string{}, rule.Segments...), Examples: append([]string{}, rule.Examples...),
 		SourceCandidates: append([]string{}, rule.SourceCandidates...),
@@ -1098,7 +1098,7 @@ func NewPolicyRuleFromDeny(rule PolicyDenyRule) (PolicyRule, error) {
 	result := PolicyRule{
 		PolicyProtocolIdentity: rule.PolicyProtocolIdentity,
 		ID:                     rule.ID, Decision: PolicyDecisionDeny, Match: PolicyMatchExact,
-		ContextID: rule.ContextID, ContextName: rule.ContextName,
+		WorkspaceManifestID: rule.WorkspaceManifestID, WorkspaceManifestName: rule.WorkspaceManifestName,
 		ProjectID: rule.ProjectID, ProjectRoot: rule.ProjectRoot, Host: rule.Host, Port: rule.Port, Method: rule.Method,
 		Path: rule.Path, Examples: []string{},
 		SourceCandidates: append([]string{}, rule.SourceCandidates...),
@@ -1119,7 +1119,7 @@ func (r PolicyRule) Validate() error {
 	if r.Decision == PolicyDecisionAllow {
 		learned := LearnedPolicyRule{
 			PolicyProtocolIdentity: r.PolicyProtocolIdentity,
-			ID:                     r.ID, Match: r.Match, ContextID: r.ContextID, ContextName: r.ContextName,
+			ID:                     r.ID, Match: r.Match, WorkspaceManifestID: r.WorkspaceManifestID, WorkspaceManifestName: r.WorkspaceManifestName,
 			ProjectID: r.ProjectID, ProjectRoot: r.ProjectRoot, Host: r.Host, Port: r.Port,
 			Method: r.Method, Path: r.Path, Segments: r.Segments, Examples: r.Examples,
 			SourceCandidates: r.SourceCandidates,
@@ -1134,7 +1134,7 @@ func (r PolicyRule) Validate() error {
 	}
 	deny := PolicyDenyRule{
 		PolicyProtocolIdentity: r.PolicyProtocolIdentity,
-		ID:                     r.ID, ContextID: r.ContextID, ContextName: r.ContextName,
+		ID:                     r.ID, WorkspaceManifestID: r.WorkspaceManifestID, WorkspaceManifestName: r.WorkspaceManifestName,
 		ProjectID: r.ProjectID, ProjectRoot: r.ProjectRoot, Host: r.Host, Port: r.Port,
 		Method: r.Method, Path: r.Path, SourceCandidates: r.SourceCandidates,
 	}
@@ -1295,7 +1295,7 @@ func (r PolicyRuleReset) Validate() error {
 func (r LearnedPolicyRule) MatchesIdentity(
 	contextID, projectID, host string, port int, method, path string, identity PolicyProtocolIdentity,
 ) bool {
-	if r.ContextID != contextID || r.ProjectID != projectID || r.Host != host || r.Port != port || r.Method != method {
+	if r.WorkspaceManifestID != contextID || r.ProjectID != projectID || r.Host != host || r.Port != port || r.Method != method {
 		return false
 	}
 	if !r.PolicyProtocolIdentity.matches(identity) {
@@ -1339,7 +1339,7 @@ func PolicyCandidatesWithDenyRules(
 		}
 		for _, rule := range rules {
 			if rule.MatchesIdentity(
-				denial.ContextID, denial.ProjectID, denial.Host, denial.Port, denial.Method, denial.Path,
+				denial.WorkspaceManifestID, denial.ProjectID, denial.Host, denial.Port, denial.Method, denial.Path,
 				denial.PolicyProtocolIdentity,
 			) {
 				return true
@@ -1382,7 +1382,7 @@ func PolicyCandidatesWithDenyRules(
 			return nil, err
 		}
 		key := effectKey{
-			contextID: denial.ContextID, projectID: denial.ProjectID, host: denial.Host, port: denial.Port,
+			contextID: denial.WorkspaceManifestID, projectID: denial.ProjectID, host: denial.Host, port: denial.Port,
 			method: denial.Method, path: denial.Path, protocol: denial.EffectiveProtocol(),
 			protocolKey:     strings.Join(appendPolicyProtocolIdentity(nil, denial.PolicyProtocolIdentity), "\x00"),
 			destinationKind: denial.EffectiveDestinationKind(), attachmentEpochID: denial.AttachmentEpochID,
@@ -1501,22 +1501,22 @@ type PolicyReviewDecisionSet struct {
 // ReviewItemID identifies the freshly revalidated detail choice that created it.
 type PolicyReviewAppliedDecision struct {
 	PolicyProtocolIdentity
-	RuleID            string   `json:"rule_id"`
-	ReviewItemID      string   `json:"review_item_id"`
-	Decision          string   `json:"decision"`
-	Match             string   `json:"match"`
-	ContextID         string   `json:"context_id"`
-	ContextName       string   `json:"context"`
-	ProjectID         string   `json:"project_id"`
-	ProjectRoot       string   `json:"project_root"`
-	Host              string   `json:"host"`
-	Port              int      `json:"port"`
-	Method            string   `json:"method"`
-	Path              string   `json:"path"`
-	SourceCandidates  []string `json:"source_candidates"`
-	DestinationKind   string   `json:"destination_kind,omitempty"`
-	AuthorityLifetime string   `json:"authority_lifetime,omitempty"`
-	AttachmentEpochID string   `json:"attachment_epoch_id,omitempty"`
+	RuleID                string   `json:"rule_id"`
+	ReviewItemID          string   `json:"review_item_id"`
+	Decision              string   `json:"decision"`
+	Match                 string   `json:"match"`
+	WorkspaceManifestID   string   `json:"workspace_manifest_id"`
+	WorkspaceManifestName string   `json:"workspace_manifest"`
+	ProjectID             string   `json:"workspace_id"`
+	ProjectRoot           string   `json:"project_root"`
+	Host                  string   `json:"host"`
+	Port                  int      `json:"port"`
+	Method                string   `json:"method"`
+	Path                  string   `json:"path"`
+	SourceCandidates      []string `json:"source_candidates"`
+	DestinationKind       string   `json:"destination_kind,omitempty"`
+	AuthorityLifetime     string   `json:"authority_lifetime,omitempty"`
+	AttachmentEpochID     string   `json:"attachment_epoch_id,omitempty"`
 }
 
 func (d PolicyReviewAppliedDecision) Validate() error {
@@ -1548,10 +1548,10 @@ func (d PolicyReviewAppliedDecision) Validate() error {
 	if d.Decision == PolicyDecisionDeny && d.Match != PolicyMatchExact {
 		return fmt.Errorf("policy review deny receipt must remain exact")
 	}
-	if err := validatePolicyScope(d.ContextID, d.ContextName, d.ProjectRoot); err != nil {
+	if err := validatePolicyScope(d.WorkspaceManifestID, d.WorkspaceManifestName, d.ProjectRoot); err != nil {
 		return fmt.Errorf("policy review receipt scope: %w", err)
 	}
-	if err := ValidateProjectID(d.ProjectID); err != nil {
+	if err := ValidateWorkspaceID(d.ProjectID); err != nil {
 		return fmt.Errorf("policy review receipt project ID is invalid")
 	}
 	if len(d.Host) == 0 || len(d.Host) > 253 || containsSpaceOrControl(d.Host) {

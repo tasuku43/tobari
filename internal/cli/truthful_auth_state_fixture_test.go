@@ -12,8 +12,8 @@ import (
 )
 
 const (
-	truthfulAuthStateFixtureSHA256 = "418b3a7c136cce2d2ae308e2867ae2772ccfd6d02e7056046a6badc6270a0bfa"
-	truthfulAuthStateAnswerSHA256  = "6434c5947a3c5ca9b2aa3d1de86c0c548c215e080f4d63ffcc1b6d2ab9fd7cc3"
+	truthfulAuthStateFixtureSHA256 = "3c632f57f4e98b56a173b0ed6125d51f4a53fe80e8863ffb827b4fcd54623226"
+	truthfulAuthStateAnswerSHA256  = "286367473b2010ce9944d121df5747e919e55cd47335db88e64cd01cb03255d7"
 )
 
 type truthfulAuthStateFixture struct {
@@ -97,12 +97,12 @@ func TestTruthfulAuthStateTypedCorpusClosesInterpretationBoundaries(t *testing.T
 			}
 		}
 		contextID := ""
-		if item.Auth.ContextID != nil {
-			contextID = *item.Auth.ContextID
+		if item.Auth.WorkspaceManifestID != nil {
+			contextID = *item.Auth.WorkspaceManifestID
 		}
 		result := authbroker.StatusResult{
-			Task: authbroker.TaskStatus, ContextState: item.Auth.ContextState,
-			Context: item.Auth.Context, ContextID: contextID,
+			Task: authbroker.TaskStatus, ManifestState: item.Auth.ManifestState,
+			Context: item.Auth.Context, WorkspaceManifestID: contextID,
 			StorageBackend: item.Auth.StorageBackend, BrokerState: item.Auth.BrokerState,
 			Providers: providers, WorkspaceActivation: item.Auth.WorkspaceActivation,
 		}
@@ -113,8 +113,8 @@ func TestTruthfulAuthStateTypedCorpusClosesInterpretationBoundaries(t *testing.T
 	}
 	for _, item := range fixture.MutationCases {
 		contextID, revision := "", ""
-		if item.Auth.ContextID != nil {
-			contextID = *item.Auth.ContextID
+		if item.Auth.WorkspaceManifestID != nil {
+			contextID = *item.Auth.WorkspaceManifestID
 		}
 		if item.Auth.CredentialRevision != nil {
 			revision = *item.Auth.CredentialRevision
@@ -124,8 +124,8 @@ func TestTruthfulAuthStateTypedCorpusClosesInterpretationBoundaries(t *testing.T
 			task = authbroker.TaskLogin
 		}
 		result := authbroker.Result{
-			Task: task, ContextState: item.Auth.ContextState, Provider: item.Auth.Provider,
-			Context: item.Auth.Context, ContextID: contextID, Configured: item.Auth.Configured,
+			Task: task, ManifestState: item.Auth.ManifestState, Provider: item.Auth.Provider,
+			Context: item.Auth.Context, WorkspaceManifestID: contextID, Configured: item.Auth.Configured,
 			AccountLabel: item.Auth.AccountLabel, StorageBackend: item.Auth.StorageBackend,
 			BrokerState: item.Auth.BrokerState, CredentialRevision: revision, Change: item.Auth.Change,
 			WorkspaceActivation: item.Auth.WorkspaceActivation,
@@ -162,9 +162,9 @@ func TestTruthfulAuthStateTypedCorpusClosesInterpretationBoundaries(t *testing.T
 			}
 			actions++
 			if workspace.NextAction.WorkingDirectory != workspace.Root || len(workspace.NextAction.Argv) != 3 ||
-				workspace.NextAction.Argv[0] != "tobari" || workspace.NextAction.Argv[1] != "--context" ||
+				workspace.NextAction.Argv[0] != "tobari" || workspace.NextAction.Argv[1] != "--manifest" ||
 				workspace.NextAction.Argv[2] != workspace.Context {
-				t.Fatalf("case %q action is not bound to exact root and Context: %+v", expected.Name, workspace.NextAction)
+				t.Fatalf("case %q action is not bound to exact root and Workspace Manifest: %+v", expected.Name, workspace.NextAction)
 			}
 		}
 		if actions != expected.ExactActions || expected.ExternalProcessingCount != 0 {

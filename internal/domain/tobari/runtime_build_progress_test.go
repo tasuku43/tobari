@@ -5,7 +5,7 @@ import "testing"
 func TestRuntimeBuildProgressValidatesTaskMetadata(t *testing.T) {
 	valid := RuntimeBuildProgress{
 		Stage: RuntimeBuildStageBuild, Status: RuntimeBuildProgressStarted,
-		ContextName: "default", Dockerfile: "/config/contexts/default/runtime/Dockerfile",
+		WorkspaceManifestName: "default", Dockerfile: "/config/contexts/default/runtime/Dockerfile",
 		PreviousImage: OfficialRuntimeBase, CandidateImage: "tobari-context-default:0123456789ab",
 		Selection: RuntimeBuildSelectionUnchanged,
 	}
@@ -20,7 +20,7 @@ func TestRuntimeBuildProgressValidatesTaskMetadata(t *testing.T) {
 		{name: "stage", mutate: func(value *RuntimeBuildProgress) { value.Stage = "unknown" }},
 		{name: "status", mutate: func(value *RuntimeBuildProgress) { value.Status = "unknown" }},
 		{name: "selection", mutate: func(value *RuntimeBuildProgress) { value.Selection = "unknown" }},
-		{name: "context", mutate: func(value *RuntimeBuildProgress) { value.ContextName = "../outside" }},
+		{name: "context", mutate: func(value *RuntimeBuildProgress) { value.WorkspaceManifestName = "../outside" }},
 		{name: "Dockerfile", mutate: func(value *RuntimeBuildProgress) { value.Dockerfile = "relative/Dockerfile" }},
 		{name: "previous image", mutate: func(value *RuntimeBuildProgress) { value.PreviousImage = "--pull" }},
 		{name: "candidate image", mutate: func(value *RuntimeBuildProgress) { value.CandidateImage = BuiltinImageSelector }},

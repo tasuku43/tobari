@@ -47,14 +47,14 @@ func testPolicyReviewReport() tobari.PolicyCandidateReport {
 		Items: []tobari.PolicyCandidate{
 			{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Scheme: "https", Protocol: tobari.PolicyProtocolHTTP}, ID: "pcy_0123456789abcdef0123456789abcdef",
 				ObservedAt: "2026-08-02T10:00:00Z", ObservationCount: 3,
-				ContextID: "01912345-6789-7abc-8def-0123456789ad", ContextName: "default",
+				WorkspaceManifestID: "01912345-6789-7abc-8def-0123456789ad", WorkspaceManifestName: "default",
 				ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/project",
 				Host: "api.github.com", Port: 443, Method: "POST", Path: "/repos/example/issues",
 				Reason: "request did not match an allow rule", StatusCode: 403,
 			},
 			{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Scheme: "https", Protocol: tobari.PolicyProtocolHTTP}, ID: "pcy_abcdef0123456789abcdef0123456789",
 				ObservedAt: "2026-08-02T10:01:00Z", ObservationCount: 1,
-				ContextID: "01912345-6789-7abc-8def-0123456789ae", ContextName: "restricted",
+				WorkspaceManifestID: "01912345-6789-7abc-8def-0123456789ae", WorkspaceManifestName: "restricted",
 				ProjectID: "01912345-6789-7abc-8def-0123456789ac", ProjectRoot: "/workspace/project",
 				Host: "registry.npmjs.org", Port: 443, Method: "GET", Path: "/package/example",
 				Reason: "request did not match an allow rule", StatusCode: 403,
@@ -80,7 +80,7 @@ func TestPolicyReviewSelectorRawDetailActionConfirmsAndPreservesOpaqueID(t *test
 	}
 	if !strings.Contains(output.String(), "Tobari · Permission Inbox") ||
 		!strings.Contains(output.String(), "Permission 2 of 2") ||
-		!strings.Contains(output.String(), "This decision applies only to this Workspace in this Context.") ||
+		!strings.Contains(output.String(), "This decision applies only to this Workspace in this Workspace Manifest.") ||
 		!strings.Contains(output.String(), "restricted") || !strings.Contains(output.String(), "/workspace/project") {
 		t.Fatalf("rich review output = %q", output.String())
 	}
@@ -95,8 +95,8 @@ func TestPolicyReviewSelectorRawDetailActionConfirmsAndPreservesOpaqueID(t *test
 func TestPolicyReviewSelectorRawQuickStagesExactAndAdvancesWithoutWrap(t *testing.T) {
 	t.Parallel()
 	report := testPolicyReviewReport()
-	report.Items[1].ContextID = report.Items[0].ContextID
-	report.Items[1].ContextName = report.Items[0].ContextName
+	report.Items[1].WorkspaceManifestID = report.Items[0].WorkspaceManifestID
+	report.Items[1].WorkspaceManifestName = report.Items[0].WorkspaceManifestName
 	report.Items[1].ProjectID = report.Items[0].ProjectID
 	report.Items[1].ProjectRoot = report.Items[0].ProjectRoot
 	selector := &policyReviewSelector{mode: &selectorModeFake{}, style: false, staged: map[string]policyReviewAction{}}
@@ -376,7 +376,7 @@ func TestPolicyReviewSelectorRawTemplateDetailOffersExplicitFutureAndExactChoice
 		candidate, candidateErr := tobari.NewPolicyCandidate(tobari.PolicyDenial{
 			PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Scheme: "https", Protocol: tobari.PolicyProtocolHTTP},
 			Timestamp:              timestamp, RequestID: requestID,
-			ContextID: "01912345-6789-7abc-8def-0123456789ad", ContextName: "default",
+			WorkspaceManifestID: "01912345-6789-7abc-8def-0123456789ad", WorkspaceManifestName: "default",
 			ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/project",
 			Host: "api.example.com", Port: 443, Method: "GET", Path: path,
 			Reason: "request did not match an allow rule", StatusCode: 403, Learnable: true,
@@ -626,7 +626,7 @@ func TestPolicyReviewSelectorKeepsEffectColumnFixedAcrossStateCombinations(t *te
 func TestPolicyReviewSelectorDoesNotGroupMatchingDisplayLabelsAcrossTypedScopes(t *testing.T) {
 	t.Parallel()
 	report := testPolicyReviewReport()
-	report.Items[1].ContextName = report.Items[0].ContextName
+	report.Items[1].WorkspaceManifestName = report.Items[0].WorkspaceManifestName
 	report.Items[1].ProjectRoot = report.Items[0].ProjectRoot
 
 	var output bytes.Buffer
@@ -676,7 +676,7 @@ func TestPolicyReviewSelectorLineDetailActionConfirmsExactAllow(t *testing.T) {
 	if strings.Contains(output.String(), "\x1b[") {
 		t.Fatalf("line fallback contains terminal controls: %q", output.String())
 	}
-	for _, want := range []string{"1.", "2.", "Choose [a] to allow exact", "Context   restricted"} {
+	for _, want := range []string{"1.", "2.", "Choose [a] to allow exact", "Workspace Manifest   restricted"} {
 		if !strings.Contains(output.String(), want) {
 			t.Fatalf("line review output %q lacks %q", output.String(), want)
 		}
@@ -700,7 +700,7 @@ func TestPolicyReviewSelectorLineDetailActionConfirmsExactDeny(t *testing.T) {
 		decision.Action != policyReviewActionDeny || decision.Canceled {
 		t.Fatalf("decision = %+v", decision)
 	}
-	if !strings.Contains(output.String(), "Choose [a] to allow exact") || !strings.Contains(output.String(), "Context   default") {
+	if !strings.Contains(output.String(), "Choose [a] to allow exact") || !strings.Contains(output.String(), "Workspace Manifest   default") {
 		t.Fatalf("deny detail action missing exact scope: %q", output.String())
 	}
 	if strings.Contains(output.String(), "[y/N]") || strings.Contains(output.String(), "Deny this exact permission?") {

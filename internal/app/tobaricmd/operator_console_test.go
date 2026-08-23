@@ -23,7 +23,7 @@ func TestOperatorConsoleSnapshotComposesTypedReadTasks(t *testing.T) {
 	}
 	if result.Task != tobari.TaskOperatorConsoleSnapshot ||
 		result.Cluster.Task != tobari.TaskClusterStatus ||
-		result.Workspaces.Task != tobari.TaskProjectList ||
+		result.Workspaces.Task != tobari.TaskWorkspaceList ||
 		result.Rules.Task != tobari.TaskPolicyRules || result.WindowLines != 200 {
 		t.Fatalf("snapshot task composition = %+v", result)
 	}

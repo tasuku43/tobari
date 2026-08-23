@@ -28,25 +28,25 @@ Tobari は多くの JSON 契約で、明示的な `schema_version` フィール�
 
 {/* public-cli-json-schemas:start */}
 
-| 対象                                                                 | エンベロープ        | 現在のスキーマ |
-| -------------------------------------------------------------------- | ------------------- | -------------: |
-| 構造化エラー                                                         | `error`             |              2 |
-| エージェント向けヘルプ（`view: index` と入力で選ぶ `view: scope`）   | `commands`          |              1 |
-| バージョン                                                           | `build_identity`    |              1 |
-| doctor レポート                                                      | `report`            |              1 |
-| インストール状態の移行                                               | `migration`         |              1 |
-| Context 一覧                                                         | `contexts`          |              1 |
-| Context レポート（`context show`、create/use/config/runtime の結果） | `context`           |              1 |
-| Runtime 一覧                                                         | `runtimes`          |              1 |
-| Runtime レポート（`runtime show/create/history/build` の結果）       | `runtime`           |              1 |
-| Context の削除                                                       | `context_deletion`  |              1 |
-| クラスター状態                                                       | `cluster`           |              1 |
-| クラスターの拒否                                                     | `denials`           |              1 |
-| ポリシー候補                                                         | `policy_candidates` |              1 |
-| ポリシーレビュー                                                     | `policy_review`     |              1 |
-| ポリシー規則                                                         | `policy_rules`      |              1 |
-| Workspace の一覧                                                     | `workspaces`        |              1 |
-| Workspace の状態                                                     | `status`            |              1 |
+| 対象                                                               | エンベロープ          | 現在のスキーマ |
+| ------------------------------------------------------------------ | --------------------- | -------------: |
+| 構造化エラー                                                       | `error`               |              2 |
+| エージェント向けヘルプ（`view: index` と入力で選ぶ `view: scope`） | `commands`            |              1 |
+| バージョン                                                         | `build_identity`      |              1 |
+| doctor レポート                                                    | `report`              |              1 |
+| インストール状態の移行                                             | `migration`           |              2 |
+| Workspace Manifest 一覧                                            | `workspace_manifests` |              2 |
+| Workspace Manifest レポート                                        | `workspace_manifest`  |              2 |
+| Runtime 一覧                                                       | `runtimes`            |              1 |
+| Runtime レポート（`runtime show/create/history/build` の結果）     | `runtime`             |              1 |
+| Workspace Manifest の削除                                                     | `workspace_manifest_deletion` |              2 |
+| クラスター状態                                                     | `cluster`             |              1 |
+| クラスターの拒否                                                   | `denials`             |              1 |
+| ポリシー候補                                                       | `policy_candidates`   |              1 |
+| ポリシーレビュー                                                   | `policy_review`       |              1 |
+| ポリシー規則                                                       | `policy_rules`        |              1 |
+| Workspace の一覧                                                   | `workspaces`          |              2 |
+| Workspace の状態                                                   | `status`              |              2 |
 
 {/* public-cli-json-schemas:end */}
 
@@ -54,18 +54,18 @@ Tobari は多くの JSON 契約で、明示的な `schema_version` フィール�
 [CLI リファレンス](../cli/)で生成します。オブジェクトの名前が同じでも、別のエンベロープの
 フィールドを推測してはいけません。
 
-### Context の契約境界
+### Workspace Manifest の契約境界
 
 どちらも V1 ですが、契約は別です。
 
 ```text
 Host configuration
   contexts/<name>/context.json
-  Context manifest schema 1
+  Workspace Manifest manifest schema 1
 
 CLI presentation
   {"schema_version": 1, "context": ...}
-  public Context report schema 1
+  public Workspace Manifest report schema 1
 ```
 
 レポートには、タスクが管理するランタイム、クラスター、完全なシェル設定、秘密情報を
@@ -76,7 +76,7 @@ CLI presentation
 
 | 状態                                               | 現在の契約                   |
 | -------------------------------------------------- | ---------------------------- |
-| Context マニフェスト                               | スキーマ 1                   |
+| Workspace Manifest マニフェスト                               | スキーマ 1                   |
 | ルートインデックス／Workspace インスタンス         | スキーマ 1                   |
 | 共有クラスター状態                                 | スキーマ 1                   |
 | プロジェクトプリンシパル登録簿                     | スキーマ 1                   |
@@ -85,7 +85,7 @@ CLI presentation
 | 所有者のプロバイダーマニフェスト                   | スキーマ 1                   |
 | レビュー済みの組み込みプロバイダーマニフェスト     | スキーマ 1                   |
 | 正規化済みプロバイダー投影                         | スキーマ 1                   |
-| 暗号化した Context 保管庫                          | エンベロープ 1、ペイロード 1 |
+| 暗号化した Workspace Manifest 保管庫                          | エンベロープ 1、ペイロード 1 |
 | Workspace 認証ファイル登録簿                       | スキーマ 1                   |
 | ベースランタイムメタデータ                         | スキーマ 1                   |
 
@@ -95,7 +95,7 @@ CLI presentation
 重要なランタイム状態では、明示的な fail-closed 検証を使います。
 
 初回公開前の互換読み取りや暗黙の移行処理はありません。唯一の例外は、ADR 0070 が定める
-未公開の Context ポリシー／Runtime の厳密な旧形式だけを対象にした明示的な
+未公開の Workspace Manifest ポリシー／Runtime の厳密な旧形式だけを対象にした明示的な
 `tobari migrate apply` コマンドです。V1 以外やその他の旧形式は未対応として拒否し、
 開発中の状態を削除して作り直します。
 
@@ -103,7 +103,7 @@ CLI presentation
 
 | 境界                                            |           現在の契約 | 重要な内容規則                                                                                         |
 | ----------------------------------------------- | -------------------: | ------------------------------------------------------------------------------------------------------ |
-| Gateway の認証設定                              |           スキーマ 1 | Context を認識する managed 方式の投影。パスとメタデータは含むが、ポリシー権限は含まない                |
+| Gateway の認証設定                              |           スキーマ 1 | Workspace Manifest を認識する managed 方式の投影。パスとメタデータは含むが、ポリシー権限は含まない                |
 | Gateway → OPA の判断入力                        |           スキーマ 1 | ホストから導出したプリンシパルと、正規化した HTTP 属性。本文とクライアントの秘密ヘッダーは含まない     |
 | Guided/Advanced のソースポリシー入力            |           スキーマ 1 | 集約生成処理が、アクティベーション前に厳密な V1 ソースを検証                                           |
 | Gateway の監査行                                |           スキーマ 1 | 秘密情報を含まない、正規化済みの判断根拠                                                               |
@@ -144,7 +144,7 @@ Broker フレームと、形式が Tobari に見える不正なハンドルは�
 ## 根拠
 
 - 公開出力の契約：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/cli/runtime_catalog.go`}>Catalog の出力スキーマ</a>、<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/cli/output_schema_contract_test.go`}>レンダラー整合テスト</a>
-- Context の契約：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/domain/tobari/context.go`}>マニフェストスキーマ 1</a>、<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/cli/context.go`}>レポートスキーマ 1</a>
+- Workspace Manifest の契約：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/domain/tobari/context.go`}>マニフェストスキーマ 1</a>、<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/cli/context.go`}>レポートスキーマ 1</a>
 - Gateway の入力と監査：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/gateway/addon/tobari_gateway.py`}>Gateway addon の正本</a>、<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/gateway/test_tobari_gateway.py`}>Gateway 契約テスト</a>
 - ポリシーの正本と変換：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/infra/dockerruntime/aggregate.go`}>集約した投影</a>
 - Auth Broker プロトコル：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/authbroker/protocol.py`}>プロトコルパーサー</a>、<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/authbroker/tests/test_broker.py`}>否定系テスト</a>
@@ -171,7 +171,7 @@ Broker フレームと、形式が Tobari に見える不正なハンドルは�
 <details>
   <summary>Advanced ポリシーで V1 以外のスキーマを使えますか？</summary>
   いいえ。集約生成処理はソースとランタイム入力の両方に厳密な V1
-  を要求し、Context ごとに分離した候補全体を有効化前にテストします。
+  を要求し、Workspace Manifest ごとに分離した候補全体を有効化前にテストします。
 </details>
 
 <details>

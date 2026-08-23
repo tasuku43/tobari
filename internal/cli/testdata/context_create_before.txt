@@ -1,6 +1,6 @@
-Context: sre
-Context state: persisted
-Active: false
+Workspace Manifest: sre
+Workspace Manifest state: persisted
+Default: false
 Image: tobari-runtime:base
 Agent profile: default
 Policy mode: guided

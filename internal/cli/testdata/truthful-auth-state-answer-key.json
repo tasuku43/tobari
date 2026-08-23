@@ -89,6 +89,6 @@
     "missing and stale are distinct provider projection facts",
     "changed is required before a login or logout receipt claims mutation",
     "no_change does not imply removal or revocation",
-    "labels and row order do not define project or Context authority"
+    "labels and row order do not define project or Workspace Manifest authority"
   ]
 }

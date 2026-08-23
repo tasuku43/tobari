@@ -1,14 +1,16 @@
 {
   "result": {
-    "task": "context.list",
-    "context_state": "persisted",
-    "active": "default",
+    "task": "manifest.list",
+    "workspace_manifest_state": "persisted",
+    "default_manifest_id": "018bcfe5-687b-7000-8000-000000000099",
+    "default_manifest": "default",
     "items": [
       {
-        "id": "018bcfe5-687b-7000-8000-000000000099",
+        "workspace_manifest_id": "018bcfe5-687b-7000-8000-000000000099",
         "name": "default",
-        "context_state": "persisted",
-        "active": true,
+        "workspace_manifest_state": "persisted",
+        "default": true,
+        "desired": {"manifest_generation": 1, "manifest_revision": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", "boundary_revision": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", "cluster_projection_revision": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", "entry_revision": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", "session_defaults_revision": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", "creation_defaults_revision": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"},
         "agent_profile": "default",
         "image": "ghcr.io/tasuku43/tobari-runtime-base:local",
         "policy_mode": "guided",
@@ -20,10 +22,11 @@
         "bootstrap": {"state": "not_configured", "adapters": []}
       },
       {
-        "id": "018bcfe5-687b-7000-8000-000000000100",
+        "workspace_manifest_id": "018bcfe5-687b-7000-8000-000000000100",
         "name": "frontend",
-        "context_state": "persisted",
-        "active": false,
+        "workspace_manifest_state": "persisted",
+        "default": false,
+        "desired": {"manifest_generation": 1, "manifest_revision": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", "boundary_revision": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", "cluster_projection_revision": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", "entry_revision": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", "session_defaults_revision": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", "creation_defaults_revision": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"},
         "agent_profile": "default",
         "image": "tobari-runtime-frontend:123456789abc",
         "policy_mode": "guided",

@@ -14,22 +14,22 @@ import (
 
 const maxContextPolicyBytes = 64 * 1024
 
-func decodeContextPolicy(data []byte) (tobari.ContextPolicy, []byte, string, error) {
+func decodeContextPolicy(data []byte) (tobari.ManifestPolicy, []byte, string, error) {
 	if len(data) == 0 || len(data) > maxContextPolicyBytes {
-		return tobari.ContextPolicy{}, nil, "", fmt.Errorf("Context policy size is invalid")
+		return tobari.ManifestPolicy{}, nil, "", fmt.Errorf("Context policy size is invalid")
 	}
 	if err := validateNoDuplicateJSONKeys(data); err != nil {
-		return tobari.ContextPolicy{}, nil, "", err
+		return tobari.ManifestPolicy{}, nil, "", err
 	}
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
-	var policy tobari.ContextPolicy
+	var policy tobari.ManifestPolicy
 	if err := decoder.Decode(&policy); err != nil {
-		return tobari.ContextPolicy{}, nil, "", fmt.Errorf("decode Context policy: %w", err)
+		return tobari.ManifestPolicy{}, nil, "", fmt.Errorf("decode Context policy: %w", err)
 	}
 	var trailing any
 	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
-		return tobari.ContextPolicy{}, nil, "", fmt.Errorf("Context policy contains trailing data")
+		return tobari.ManifestPolicy{}, nil, "", fmt.Errorf("Context policy contains trailing data")
 	}
 	return tobari.NormalizeContextPolicy(policy)
 }
@@ -38,15 +38,15 @@ func (r *Runtime) contextPolicyPath(name string) string {
 	return filepath.Join(r.contextPolicyDirectory(name), "context.json")
 }
 
-func defaultContextPolicyBytes() (tobari.ContextPolicy, []byte, string, error) {
+func defaultContextPolicyBytes() (tobari.ManifestPolicy, []byte, string, error) {
 	policy, ok := tobari.DefaultContextPolicySnapshot()
 	if !ok {
-		return tobari.ContextPolicy{}, nil, "", fmt.Errorf("default Context policy is unavailable")
+		return tobari.ManifestPolicy{}, nil, "", fmt.Errorf("default Context policy is unavailable")
 	}
 	return tobari.NormalizeContextPolicy(policy)
 }
 
-func (r *Runtime) ensureContextPolicy(manifest tobari.ContextManifest, snapshot []byte) error {
+func (r *Runtime) ensureContextPolicy(manifest tobari.WorkspaceManifest, snapshot []byte) error {
 	path := r.contextPolicyPath(manifest.Name)
 	if info, err := os.Lstat(path); err == nil {
 		if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm()&0o077 != 0 || info.Size() > maxContextPolicyBytes {
@@ -85,28 +85,28 @@ func (r *Runtime) ensureContextPolicy(manifest tobari.ContextManifest, snapshot 
 	return initializeBytes(path, normalized, 0o600)
 }
 
-func (r *Runtime) readContextPolicy(manifest tobari.ContextManifest) (tobari.ContextPolicy, error) {
+func (r *Runtime) readContextPolicy(manifest tobari.WorkspaceManifest) (tobari.ManifestPolicy, error) {
 	path := r.contextPolicyPath(manifest.Name)
 	info, err := os.Lstat(path)
 	if err != nil {
-		return tobari.ContextPolicy{}, err
+		return tobari.ManifestPolicy{}, err
 	}
 	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm()&0o077 != 0 || info.Size() > maxContextPolicyBytes {
-		return tobari.ContextPolicy{}, fmt.Errorf("Context policy snapshot is unsafe")
+		return tobari.ManifestPolicy{}, fmt.Errorf("Context policy snapshot is unsafe")
 	}
 	data, err := os.ReadFile(path) // #nosec G304 -- owned Context child.
 	if err != nil {
-		return tobari.ContextPolicy{}, err
+		return tobari.ManifestPolicy{}, err
 	}
 	policy, normalized, revision, err := decodeContextPolicy(data)
 	if err != nil {
-		return tobari.ContextPolicy{}, err
+		return tobari.ManifestPolicy{}, err
 	}
 	if revision != manifest.PolicyRevision {
-		return tobari.ContextPolicy{}, fmt.Errorf("Context policy revision mismatch")
+		return tobari.ManifestPolicy{}, fmt.Errorf("Context policy revision mismatch")
 	}
 	if !bytes.Equal(data, normalized) {
-		return tobari.ContextPolicy{}, fmt.Errorf("Context policy snapshot is not normalized")
+		return tobari.ManifestPolicy{}, fmt.Errorf("Context policy snapshot is not normalized")
 	}
 	return policy, nil
 }

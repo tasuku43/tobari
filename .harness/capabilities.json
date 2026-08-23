@@ -65,12 +65,12 @@
     "reason": ""
   },
   {
-    "id": "context.composition",
+    "id": "manifest.composition",
     "status": "public",
     "reason": ""
   },
   {
-    "id": "context.workspace-bootstrap",
+    "id": "manifest.workspace-bootstrap",
     "status": "public",
     "reason": ""
   },

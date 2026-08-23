@@ -2,8 +2,8 @@
   "schema_version": 1,
   "task": "config.git",
   "fixed_target": {
-    "kind": "context-git-identity",
-    "id": "context-git-identity"
+    "kind": "workspace-manifest-git-identity",
+    "id": "workspace-manifest-git-identity"
   },
   "selected_context": {
     "id": "018bcfe5-687b-7000-8000-000000000099",

@@ -21,8 +21,8 @@ import (
 )
 
 type contextCreateBootstrapFixture struct {
-	aws            tobari.ContextBootstrapSnapshot
-	eks            *tobari.ContextBootstrapSnapshot
+	aws            tobari.ManifestBootstrapSnapshot
+	eks            *tobari.ManifestBootstrapSnapshot
 	discoveryCalls int
 }
 
@@ -38,33 +38,33 @@ type emptyAWSContextCreateBootstrapFixture struct{ *contextCreateBootstrapFixtur
 type emptyEKSContextCreateBootstrapFixture struct{ *contextCreateBootstrapFixture }
 
 type contextCreateBaseFixture struct {
-	base  tobari.ContextCreateBase
+	base  tobari.ManifestCopySnapshot
 	calls int
 }
 
-func (f *contextCreateBaseFixture) CreationBase(_ context.Context, name string) (tobari.ContextCreateBase, error) {
+func (f *contextCreateBaseFixture) CopySnapshot(_ context.Context, name string) (tobari.ManifestCopySnapshot, error) {
 	f.calls++
 	if name != f.base.Name {
-		return tobari.ContextCreateBase{}, tobari.ErrContextNotFound
+		return tobari.ManifestCopySnapshot{}, tobari.ErrContextNotFound
 	}
 	return f.base.Clone(), nil
 }
 
-func (f *rejectedContextCreateBootstrapFixture) DiscoverAWSBootstraps(context.Context) (tobari.ContextAWSBootstrapDiscovery, error) {
-	return tobari.ContextAWSBootstrapDiscovery{State: tobari.ContextBootstrapDiscoveryRejected, Reason: "Host AWS shared config has unsafe permissions.", Candidates: []tobari.ContextAWSBootstrapCandidate{}}, nil
+func (f *rejectedContextCreateBootstrapFixture) DiscoverAWSBootstraps(context.Context) (tobari.ManifestAWSBootstrapDiscovery, error) {
+	return tobari.ManifestAWSBootstrapDiscovery{State: tobari.ManifestBootstrapDiscoveryRejected, Reason: "Host AWS shared config has unsafe permissions.", Candidates: []tobari.ManifestAWSBootstrapCandidate{}}, nil
 }
 
-func (f *emptyAWSContextCreateBootstrapFixture) DiscoverAWSBootstraps(context.Context) (tobari.ContextAWSBootstrapDiscovery, error) {
-	return tobari.ContextAWSBootstrapDiscovery{State: tobari.ContextBootstrapDiscoveryAvailable, Candidates: []tobari.ContextAWSBootstrapCandidate{}}, nil
+func (f *emptyAWSContextCreateBootstrapFixture) DiscoverAWSBootstraps(context.Context) (tobari.ManifestAWSBootstrapDiscovery, error) {
+	return tobari.ManifestAWSBootstrapDiscovery{State: tobari.ManifestBootstrapDiscoveryAvailable, Candidates: []tobari.ManifestAWSBootstrapCandidate{}}, nil
 }
 
-func (f *emptyEKSContextCreateBootstrapFixture) DiscoverEKSBootstraps(_ context.Context, aws tobari.ContextBootstrapSnapshot) (tobari.ContextEKSBootstrapDiscovery, error) {
-	return tobari.ContextEKSBootstrapDiscovery{State: tobari.ContextBootstrapDiscoveryAvailable, AWSRevision: aws.Revision, Candidates: []tobari.ContextEKSBootstrapCandidate{}}, nil
+func (f *emptyEKSContextCreateBootstrapFixture) DiscoverEKSBootstraps(_ context.Context, aws tobari.ManifestBootstrapSnapshot) (tobari.ManifestEKSBootstrapDiscovery, error) {
+	return tobari.ManifestEKSBootstrapDiscovery{State: tobari.ManifestBootstrapDiscoveryAvailable, AWSRevision: aws.Revision, Candidates: []tobari.ManifestEKSBootstrapCandidate{}}, nil
 }
 
 func newContextCreateBootstrapFixture(t *testing.T, withEKS bool) *contextCreateBootstrapFixture {
 	t.Helper()
-	aws, err := tobari.NewContextBootstrapSnapshot(1, tobari.ContextAWSBootstrap{
+	aws, err := tobari.NewContextBootstrapSnapshot(1, tobari.ManifestAWSBootstrap{
 		Profile: "engineering", SSOSession: "company", SSOStartURL: "https://example.awsapps.com/start",
 		SSORegion: "us-east-1", SSORegistrationScopes: []string{"sso:account:access"},
 		AccountID: "123456789012", RoleName: "Developer", Region: "ap-northeast-1", Output: "json",
@@ -84,7 +84,7 @@ func newContextCreateBootstrapFixture(t *testing.T, withEKS bool) *contextCreate
 			t.Fatal(err)
 		}
 		ca := base64.StdEncoding.EncodeToString(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}))
-		composed, err := tobari.NewContextBootstrapSnapshotWithEKS(1, aws.AWS, tobari.ContextEKSBootstrap{ContextName: "platform", ClusterName: "platform", Region: "ap-northeast-1", Server: "https://abc.gr7.ap-northeast-1.eks.amazonaws.com", CertificateAuthorityData: ca, Namespace: "development"})
+		composed, err := tobari.NewContextBootstrapSnapshotWithEKS(1, aws.AWS, tobari.ManifestEKSBootstrap{WorkspaceManifestName: "platform", ClusterName: "platform", Region: "ap-northeast-1", Server: "https://abc.gr7.ap-northeast-1.eks.amazonaws.com", CertificateAuthorityData: ca, Namespace: "development"})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -93,35 +93,35 @@ func newContextCreateBootstrapFixture(t *testing.T, withEKS bool) *contextCreate
 	return fixture
 }
 
-func contextCreateResetBaseFixture() tobari.ContextCreateBase {
-	return tobari.ContextCreateBase{
+func contextCreateResetBaseFixture() tobari.ManifestCopySnapshot {
+	return tobari.ManifestCopySnapshot{
 		ID: "018bcfe5-687b-7000-8000-000000000120", Name: "engineering",
-		Revision: "sha256:" + strings.Repeat("a", 64), PolicyMode: tobari.ContextPolicyModeAdvanced,
-		SourceAccess: tobari.ContextSourceAccessReadOnly, NativeReadiness: tobari.ContextNativeReadinessDisabled,
-		MethodPolicy:     tobari.ContextMethodPolicy{Default: tobari.ContextMethodDeny, Overrides: []tobari.ContextMethodOverride{{Method: "GET", Decision: tobari.ContextMethodAllow}}},
+		Revision: "sha256:" + strings.Repeat("a", 64), PolicyMode: tobari.ManifestPolicyModeAdvanced,
+		SourceAccess: tobari.ManifestSourceAccessReadOnly, NativeReadiness: tobari.ManifestNativeReadinessDisabled,
+		MethodPolicy:     tobari.ManifestMethodPolicy{Default: tobari.ManifestMethodDeny, Overrides: []tobari.ManifestMethodOverride{{Method: "GET", Decision: tobari.ManifestMethodAllow}}},
 		RuntimeSelection: "standard@1", ShellEnvironment: tobari.DefaultContextShellEnvironmentReport(), GitIdentity: tobari.DefaultContextGitIdentityReport(),
 	}
 }
 
 func customizedContextCreateDraft() contextCreateRawDraft {
 	return contextCreateRawDraft{
-		name: "standalone", policyMode: tobari.ContextPolicyModeGuided, sourceIndex: 0,
-		methodDefault: tobari.ContextMethodAllow, methodOverrides: map[string]tobari.ContextMethodDecision{"POST": tobari.ContextMethodDeny},
-		runtimeSelection: "standard", nativeReadiness: tobari.ContextNativeReadinessEnabled,
+		name: "standalone", policyMode: tobari.ManifestPolicyModeGuided, sourceIndex: 0,
+		methodDefault: tobari.ManifestMethodAllow, methodOverrides: map[string]tobari.ManifestMethodDecision{"POST": tobari.ManifestMethodDeny},
+		runtimeSelection: "standard", nativeReadiness: tobari.ManifestNativeReadinessEnabled,
 	}
 }
 
-func assertDraftResetToBase(t *testing.T, draft contextCreateRawDraft, base tobari.ContextCreateBase) {
+func assertDraftResetToBase(t *testing.T, draft contextCreateRawDraft, base tobari.ManifestCopySnapshot) {
 	t.Helper()
 	selection, err := contextCreateSelectionFromDraft(draft)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if selection.Name != "standalone" || selection.Base == nil || selection.Base.Revision != base.Revision ||
+	if selection.Name != "standalone" || selection.CopyFrom == nil || selection.CopyFrom.Revision != base.Revision ||
 		selection.PolicyMode != base.PolicyMode || selection.SourceAccess != base.SourceAccess ||
 		selection.NativeReadiness != base.NativeReadiness || selection.RuntimeSelection != base.RuntimeSelection ||
 		selection.MethodPolicy.Default != base.MethodPolicy.Default || len(selection.MethodPolicy.Overrides) != len(base.MethodPolicy.Overrides) {
-		t.Fatalf("draft was not wholly reset from Base: %+v", selection)
+		t.Fatalf("draft was not wholly reset from CopyFrom: %+v", selection)
 	}
 }
 
@@ -130,13 +130,13 @@ func TestContextCreateBaseResetLineRequiresConfirmationAndReplacesDraft(t *testi
 	reader := &contextCreateBaseFixture{base: base}
 	wizard := &terminalContextCreateWizard{
 		mode: nil, style: false, baseRead: reader,
-		bases: []tobari.ContextSummary{{Name: base.Name}},
+		bases: []tobari.ManifestSummary{{Name: base.Name}},
 	}
 	draft := customizedContextCreateDraft()
 	if err := wizard.editContextCreateBaseLine(context.Background(), strings.NewReader("2\n2\n"), io.Discard, &draft); err != nil {
 		t.Fatal(err)
 	}
-	if reader.calls != 0 || draft.base != nil || draft.methodDefault != tobari.ContextMethodAllow {
+	if reader.calls != 0 || draft.base != nil || draft.methodDefault != tobari.ManifestMethodAllow {
 		t.Fatalf("declined Base reset changed draft: calls=%d draft=%+v", reader.calls, draft)
 	}
 	if err := wizard.editContextCreateBaseLine(context.Background(), strings.NewReader("2\n1\n"), io.Discard, &draft); err != nil {
@@ -153,7 +153,7 @@ func TestContextCreateBaseResetRawRequiresExplicitReset(t *testing.T) {
 	reader := &contextCreateBaseFixture{base: base}
 	wizard := &terminalContextCreateWizard{
 		mode: nil, style: false, baseRead: reader,
-		bases: []tobari.ContextSummary{{Name: base.Name}},
+		bases: []tobari.ManifestSummary{{Name: base.Name}},
 	}
 	draft := customizedContextCreateDraft()
 	lineCount := 0
@@ -168,44 +168,44 @@ func TestContextCreateBaseResetRawRequiresExplicitReset(t *testing.T) {
 	assertDraftResetToBase(t, draft, base)
 }
 
-func (f *contextCreateBootstrapFixture) DiscoverAWSBootstraps(context.Context) (tobari.ContextAWSBootstrapDiscovery, error) {
+func (f *contextCreateBootstrapFixture) DiscoverAWSBootstraps(context.Context) (tobari.ManifestAWSBootstrapDiscovery, error) {
 	f.discoveryCalls++
 	copy := f.aws.Clone()
-	return tobari.ContextAWSBootstrapDiscovery{State: tobari.ContextBootstrapDiscoveryAvailable, Candidates: []tobari.ContextAWSBootstrapCandidate{
-		{Profile: "broken", State: tobari.ContextBootstrapCandidateUnavailable, Reason: "Referenced SSO session does not exist."},
-		{Profile: copy.AWS.Profile, State: tobari.ContextBootstrapCandidateAvailable, Snapshot: &copy},
+	return tobari.ManifestAWSBootstrapDiscovery{State: tobari.ManifestBootstrapDiscoveryAvailable, Candidates: []tobari.ManifestAWSBootstrapCandidate{
+		{Profile: "broken", State: tobari.ManifestBootstrapCandidateUnavailable, Reason: "Referenced SSO session does not exist."},
+		{Profile: copy.AWS.Profile, State: tobari.ManifestBootstrapCandidateAvailable, Snapshot: &copy},
 	}}, nil
 }
 
-func (f *contextCreateBootstrapFixture) DiscoverEKSBootstraps(_ context.Context, aws tobari.ContextBootstrapSnapshot) (tobari.ContextEKSBootstrapDiscovery, error) {
+func (f *contextCreateBootstrapFixture) DiscoverEKSBootstraps(_ context.Context, aws tobari.ManifestBootstrapSnapshot) (tobari.ManifestEKSBootstrapDiscovery, error) {
 	f.discoveryCalls++
-	candidates := []tobari.ContextEKSBootstrapCandidate{{ContextName: "mismatch", State: tobari.ContextBootstrapCandidateUnavailable, Reason: "Uses a different AWS profile."}}
+	candidates := []tobari.ManifestEKSBootstrapCandidate{{WorkspaceManifestName: "mismatch", State: tobari.ManifestBootstrapCandidateUnavailable, Reason: "Uses a different AWS profile."}}
 	if f.eks != nil {
 		copy := f.eks.Clone()
-		candidates = append(candidates, tobari.ContextEKSBootstrapCandidate{ContextName: copy.EKS.ContextName, State: tobari.ContextBootstrapCandidateAvailable, Snapshot: &copy})
+		candidates = append(candidates, tobari.ManifestEKSBootstrapCandidate{WorkspaceManifestName: copy.EKS.WorkspaceManifestName, State: tobari.ManifestBootstrapCandidateAvailable, Snapshot: &copy})
 	}
-	return tobari.ContextEKSBootstrapDiscovery{State: tobari.ContextBootstrapDiscoveryAvailable, AWSRevision: aws.Revision, Candidates: candidates}, nil
+	return tobari.ManifestEKSBootstrapDiscovery{State: tobari.ManifestBootstrapDiscoveryAvailable, AWSRevision: aws.Revision, Candidates: candidates}, nil
 }
 
-func (f *contextCreateBootstrapFixture) PrepareAWSBootstrap(context.Context, string) (tobari.ContextBootstrapSnapshot, error) {
+func (f *contextCreateBootstrapFixture) PrepareAWSBootstrap(context.Context, string) (tobari.ManifestBootstrapSnapshot, error) {
 	return f.aws.Clone(), nil
 }
 
-func (f *contextCreateBootstrapFixture) PrepareEKSBootstrap(_ context.Context, _ tobari.ContextBootstrapSnapshot, _ string) (tobari.ContextBootstrapSnapshot, error) {
+func (f *contextCreateBootstrapFixture) PrepareEKSBootstrap(_ context.Context, _ tobari.ManifestBootstrapSnapshot, _ string) (tobari.ManifestBootstrapSnapshot, error) {
 	if f.eks == nil {
-		return tobari.ContextBootstrapSnapshot{}, errors.New("EKS fixture is unavailable")
+		return tobari.ManifestBootstrapSnapshot{}, errors.New("EKS fixture is unavailable")
 	}
 	return f.eks.Clone(), nil
 }
 
-func (f *driftingContextCreateBootstrapFixture) PrepareAWSBootstrap(ctx context.Context, profile string) (tobari.ContextBootstrapSnapshot, error) {
+func (f *driftingContextCreateBootstrapFixture) PrepareAWSBootstrap(ctx context.Context, profile string) (tobari.ManifestBootstrapSnapshot, error) {
 	if !f.drifted {
 		f.drifted = true
 		updated := f.aws.AWS.Clone()
 		updated.RoleName = "ReadOnly"
 		snapshot, err := tobari.NewContextBootstrapSnapshot(1, updated)
 		if err != nil {
-			return tobari.ContextBootstrapSnapshot{}, err
+			return tobari.ManifestBootstrapSnapshot{}, err
 		}
 		f.aws = snapshot
 	}
@@ -224,12 +224,12 @@ func TestContextCreateWizardCollectsNameFilesystemAndEveryMethodDecision(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	if selection.Name != "coding" || selection.SourceAccess != tobari.ContextSourceAccessReadWrite ||
-		selection.MethodPolicy.Default != tobari.ContextMethodExactReview ||
-		len(selection.MethodPolicy.Overrides) != 1 || selection.MethodPolicy.Overrides[0] != (tobari.ContextMethodOverride{Method: "GET", Decision: tobari.ContextMethodAllow}) {
+	if selection.Name != "coding" || selection.SourceAccess != tobari.ManifestSourceAccessReadWrite ||
+		selection.MethodPolicy.Default != tobari.ManifestMethodExactReview ||
+		len(selection.MethodPolicy.Overrides) != 1 || selection.MethodPolicy.Overrides[0] != (tobari.ManifestMethodOverride{Method: "GET", Decision: tobari.ManifestMethodAllow}) {
 		t.Fatalf("wizard selection = %+v", selection)
 	}
-	for _, required := range []string{"Context name:", "Project source access", "Other methods (default)", "GET", "TRACE", "Workspace bootstrap", "Host configuration is read only after Configure from host is selected.", "Review & Create", "Ready Runtime revision", "standard@1", "Claude Code and Codex routine traffic", "Private and unsafe"} {
+	for _, required := range []string{"Workspace Manifest name:", "Project source access", "Other methods (default)", "GET", "TRACE", "Workspace bootstrap", "Host configuration is read only after Configure from host is selected.", "Review & Create", "Ready Runtime revision", "standard@1", "Claude Code and Codex routine traffic", "Private and unsafe"} {
 		if !strings.Contains(output.String(), required) {
 			t.Errorf("wizard output lacks %q: %q", required, output.String())
 		}
@@ -255,11 +255,11 @@ func TestContextCreateWizardSeedPreservesSuppliedValuesAndSkipsTheirInitialStage
 	seed := contextCreateWizardSeed{
 		Selection: contextCreateSelection{
 			Name:             "sre3",
-			SourceAccess:     tobari.ContextSourceAccessReadOnly,
+			SourceAccess:     tobari.ManifestSourceAccessReadOnly,
 			RuntimeSelection: "frontend@4",
-			MethodPolicy: tobari.ContextMethodPolicy{
-				Default:   tobari.ContextMethodExactReview,
-				Overrides: []tobari.ContextMethodOverride{},
+			MethodPolicy: tobari.ManifestMethodPolicy{
+				Default:   tobari.ManifestMethodExactReview,
+				Overrides: []tobari.ManifestMethodOverride{},
 			},
 		},
 		NameProvided:     true,
@@ -272,15 +272,15 @@ func TestContextCreateWizardSeedPreservesSuppliedValuesAndSkipsTheirInitialStage
 	if err != nil {
 		t.Fatal(err)
 	}
-	if selection.Name != "sre3" || selection.SourceAccess != tobari.ContextSourceAccessReadOnly || selection.RuntimeSelection != "frontend@4" {
+	if selection.Name != "sre3" || selection.SourceAccess != tobari.ManifestSourceAccessReadOnly || selection.RuntimeSelection != "frontend@4" {
 		t.Fatalf("seeded wizard selection = %+v", selection)
 	}
-	for _, skipped := range []string{"Context name:", "Ready Runtime revision", "Tobari · Create Context · Workspace bootstrap"} {
+	for _, skipped := range []string{"Workspace Manifest name:", "Ready Runtime revision", "Tobari · Create Workspace Manifest · Workspace bootstrap"} {
 		if strings.Contains(output.String(), skipped) {
 			t.Errorf("seeded wizard replayed %q: %q", skipped, output.String())
 		}
 	}
-	if !strings.Contains(output.String(), "Tobari · Create Context · Network access") || !strings.Contains(output.String(), "Review & Create") {
+	if !strings.Contains(output.String(), "Tobari · Create Workspace Manifest · Network access") || !strings.Contains(output.String(), "Review & Create") {
 		t.Fatalf("seeded wizard omitted required stages: %q", output.String())
 	}
 }
@@ -413,7 +413,7 @@ func TestContextCreateWizardFallsBackToBoundedLineModeWhenRawModeIsUnavailable(t
 	if selection.Name != "coding" || mode.entered != 1 || mode.restored != 0 {
 		t.Fatalf("line fallback selection/mode = %+v / %d/%d", selection, mode.entered, mode.restored)
 	}
-	if strings.Contains(output.String(), "\x1b[") || !strings.Contains(output.String(), "Context name:") {
+	if strings.Contains(output.String(), "\x1b[") || !strings.Contains(output.String(), "Workspace Manifest name:") {
 		t.Fatalf("line fallback output = %q", output.String())
 	}
 }
@@ -427,7 +427,7 @@ func TestContextCreateWizardLineReviewCanCancelTheCompleteSelection(t *testing.T
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("wizard error = %v, want canceled", err)
 	}
-	if !strings.Contains(output.String(), "Review & Create") || !strings.Contains(output.String(), "Create Context") || !strings.Contains(output.String(), "Edit settings") {
+	if !strings.Contains(output.String(), "Review & Create") || !strings.Contains(output.String(), "Create Workspace Manifest") || !strings.Contains(output.String(), "Edit settings") {
 		t.Fatalf("line review was not shown before cancellation: %q", output.String())
 	}
 }
@@ -446,14 +446,14 @@ func TestContextCreateWizardRawUsesOneContinuousSixStepSession(t *testing.T) {
 	if mode.entered != 1 || mode.restored != 1 {
 		t.Fatalf("raw mode entered/restored = %d/%d", mode.entered, mode.restored)
 	}
-	if selection.SourceAccess != tobari.ContextSourceAccessReadWrite || len(selection.MethodPolicy.Overrides) != 1 ||
-		selection.MethodPolicy.Overrides[0].Method != "GET" || selection.MethodPolicy.Overrides[0].Decision != tobari.ContextMethodAllow {
+	if selection.SourceAccess != tobari.ManifestSourceAccessReadWrite || len(selection.MethodPolicy.Overrides) != 1 ||
+		selection.MethodPolicy.Overrides[0].Method != "GET" || selection.MethodPolicy.Overrides[0].Decision != tobari.ManifestMethodAllow {
 		t.Fatalf("raw wizard selection = %+v", selection)
 	}
 	for _, required := range []string{
 		"1 of 6 · Name", "2 of 6 · Filesystem", "3 of 6 · Network",
 		"4 of 6 · Runtime", "5 of 6 · Workspace bootstrap", "6 of 6 · Review & Create", "Continue with these settings", "Customize method policies",
-		"Context name:", "Other methods (default)", "SOURCE", "Ready Runtime revision", "standard@1", "Create Context", "Edit settings",
+		"Workspace Manifest name:", "Other methods (default)", "SOURCE", "Ready Runtime revision", "standard@1", "Create Workspace Manifest", "Edit settings",
 	} {
 		if !strings.Contains(output.String(), required) {
 			t.Errorf("raw wizard output lacks %q: %q", required, output.String())
@@ -463,7 +463,7 @@ func TestContextCreateWizardRawUsesOneContinuousSixStepSession(t *testing.T) {
 		strings.Count(output.String(), selectorAlternateScreenExit) != 1 {
 		t.Fatalf("alternate screen entry/exit count is not one: %q", output.String())
 	}
-	if strings.Index(output.String(), selectorAlternateScreenEnter) > strings.Index(output.String(), "Context name:") {
+	if strings.Index(output.String(), selectorAlternateScreenEnter) > strings.Index(output.String(), "Workspace Manifest name:") {
 		t.Fatalf("name prompt appeared before the full-screen session: %q", output.String())
 	}
 }
@@ -474,11 +474,11 @@ func TestContextCreateWizardRawPrefilledNameStartsAtFirstOmittedStage(t *testing
 	seed := contextCreateWizardSeed{
 		Selection: contextCreateSelection{
 			Name:             "sre3",
-			SourceAccess:     tobari.ContextSourceAccessReadWrite,
+			SourceAccess:     tobari.ManifestSourceAccessReadWrite,
 			RuntimeSelection: tobari.StandardRuntimeName,
-			MethodPolicy: tobari.ContextMethodPolicy{
-				Default:   tobari.ContextMethodExactReview,
-				Overrides: []tobari.ContextMethodOverride{},
+			MethodPolicy: tobari.ManifestMethodPolicy{
+				Default:   tobari.ManifestMethodExactReview,
+				Overrides: []tobari.ManifestMethodOverride{},
 			},
 		},
 		NameProvided: true,
@@ -493,7 +493,7 @@ func TestContextCreateWizardRawPrefilledNameStartsAtFirstOmittedStage(t *testing
 	if selection.Name != "sre3" {
 		t.Fatalf("prefilled raw selection = %+v", selection)
 	}
-	if strings.Contains(output.String(), "1 of 6 · Name") || strings.Contains(output.String(), "Context name:") {
+	if strings.Contains(output.String(), "1 of 6 · Name") || strings.Contains(output.String(), "Workspace Manifest name:") {
 		t.Fatalf("prefilled Name stage was replayed: %q", output.String())
 	}
 	for _, required := range []string{"2 of 6 · Filesystem", "3 of 6 · Network", "4 of 6 · Runtime", "5 of 6 · Workspace bootstrap", "6 of 6 · Review & Create"} {
@@ -537,7 +537,7 @@ func TestContextCreateWizardRawBackFromRuntimeReturnsToNetworkAndPreservesDraft(
 	if err != nil {
 		t.Fatal(err)
 	}
-	if selection.SourceAccess != tobari.ContextSourceAccessReadOnly || selection.RuntimeSelection != tobari.StandardRuntimeName {
+	if selection.SourceAccess != tobari.ManifestSourceAccessReadOnly || selection.RuntimeSelection != tobari.StandardRuntimeName {
 		t.Fatalf("selection after Runtime Back = %+v", selection)
 	}
 	if strings.Count(output.String(), "3 of 6 · Network") < 2 {
@@ -568,8 +568,8 @@ func TestContextCreateReviewMirrorsFilesystemNetworkRuntimeOrder(t *testing.T) {
 	t.Parallel()
 	lines := strings.Join(contextCreateReviewLines(false, contextCreateSelection{
 		Name: "coding", RuntimeSelection: tobari.StandardRuntimeName,
-		SourceAccess: tobari.ContextSourceAccessReadWrite,
-		MethodPolicy: tobari.ContextMethodPolicy{Default: tobari.ContextMethodExactReview},
+		SourceAccess: tobari.ManifestSourceAccessReadWrite,
+		MethodPolicy: tobari.ManifestMethodPolicy{Default: tobari.ManifestMethodExactReview},
 	}), "\n")
 	filesystem := strings.Index(lines, "Filesystem")
 	network := strings.Index(lines, "Network")
@@ -587,9 +587,9 @@ func TestContextCreateReviewDoesNotPresentDisabledNativeReadinessAsAllowed(t *te
 	t.Parallel()
 	lines := strings.Join(contextCreateReviewLines(false, contextCreateSelection{
 		Name: "coding", RuntimeSelection: tobari.StandardRuntimeName,
-		SourceAccess:    tobari.ContextSourceAccessReadWrite,
-		NativeReadiness: tobari.ContextNativeReadinessDisabled,
-		MethodPolicy:    tobari.ContextMethodPolicy{Default: tobari.ContextMethodExactReview},
+		SourceAccess:    tobari.ManifestSourceAccessReadWrite,
+		NativeReadiness: tobari.ManifestNativeReadinessDisabled,
+		MethodPolicy:    tobari.ManifestMethodPolicy{Default: tobari.ManifestMethodExactReview},
 	}), "\n")
 	if !strings.Contains(lines, "Claude/Codex routine      not pre-authorized") || strings.Contains(lines, "Claude/Codex routine      allow") {
 		t.Fatalf("disabled native readiness review = %q", lines)
@@ -606,7 +606,7 @@ func TestContextCreateWizardRawBackNavigationPreservesStagedFilesystem(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	if selection.SourceAccess != tobari.ContextSourceAccessReadOnly {
+	if selection.SourceAccess != tobari.ManifestSourceAccessReadOnly {
 		t.Fatalf("source access after back navigation = %q", selection.SourceAccess)
 	}
 	if mode.entered != 1 || mode.restored != 1 {
@@ -623,7 +623,7 @@ func TestContextCreateWizardRawMethodEditorExposesInheritanceAndReset(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	if selection.MethodPolicy.Default != tobari.ContextMethodExactReview || len(selection.MethodPolicy.Overrides) != 0 {
+	if selection.MethodPolicy.Default != tobari.ManifestMethodExactReview || len(selection.MethodPolicy.Overrides) != 0 {
 		t.Fatalf("reset method policy = %+v", selection.MethodPolicy)
 	}
 	for _, required := range []string{"METHOD", "POLICY", "SOURCE", "override", "inherited", "i inherit", "r reset defaults"} {
@@ -638,8 +638,8 @@ func TestContextCreateWizardMethodRowsRemainAlignedWhenStyled(t *testing.T) {
 
 	draft := &contextCreateRawDraft{
 		name: "coding", sourceIndex: 0, methodSelected: 1,
-		methodDefault:   tobari.ContextMethodExactReview,
-		methodOverrides: map[string]tobari.ContextMethodDecision{"GET": tobari.ContextMethodAllow},
+		methodDefault:   tobari.ManifestMethodExactReview,
+		methodOverrides: map[string]tobari.ManifestMethodDecision{"GET": tobari.ManifestMethodAllow},
 	}
 	var output bytes.Buffer
 	lineCount := 0
@@ -671,7 +671,7 @@ func TestContextCreateWizardRawDefaultChangePreservesOnlyExactOverrides(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	if selection.MethodPolicy.Default != tobari.ContextMethodDeny || len(selection.MethodPolicy.Overrides) != 1 || selection.MethodPolicy.Decision("GET") != tobari.ContextMethodAllow || selection.MethodPolicy.Decision("POST") != tobari.ContextMethodDeny {
+	if selection.MethodPolicy.Default != tobari.ManifestMethodDeny || len(selection.MethodPolicy.Overrides) != 1 || selection.MethodPolicy.Decision("GET") != tobari.ManifestMethodAllow || selection.MethodPolicy.Decision("POST") != tobari.ManifestMethodDeny {
 		t.Fatalf("default/override policy = %+v", selection.MethodPolicy)
 	}
 }
@@ -684,7 +684,7 @@ func TestContextCreateWizardRawEditSectionReturnsDirectlyToReview(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if selection.SourceAccess != tobari.ContextSourceAccessReadOnly {
+	if selection.SourceAccess != tobari.ManifestSourceAccessReadOnly {
 		t.Fatalf("section-local edit source access = %q", selection.SourceAccess)
 	}
 }
@@ -745,7 +745,7 @@ func TestContextCreateWizardRawEditNetworkBackDiscardsStagedPolicy(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if selection.MethodPolicy.Default != tobari.ContextMethodExactReview || len(selection.MethodPolicy.Overrides) != 0 {
+	if selection.MethodPolicy.Default != tobari.ManifestMethodExactReview || len(selection.MethodPolicy.Overrides) != 0 {
 		t.Fatalf("back navigation committed staged policy = %+v", selection.MethodPolicy)
 	}
 }
@@ -884,7 +884,7 @@ func TestContextCreateWizardRawDoesNotRedrawAnUnchangedTextStepOnPollingTimeout(
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("wizard error = %v, want canceled", err)
 	}
-	if count := strings.Count(output.String(), "Context name:"); count != 1 {
+	if count := strings.Count(output.String(), "Workspace Manifest name:"); count != 1 {
 		t.Fatalf("unchanged name step rendered %d times after one timeout: %q", count, output.String())
 	}
 }
@@ -898,7 +898,7 @@ func TestContextCreateWizardRejectsInvalidNameBeforeCompositionAndCancelsWithout
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("wizard error = %v, want canceled", err)
 	}
-	if !strings.Contains(output.String(), "Use a valid portable Context name.") {
+	if !strings.Contains(output.String(), "Use a valid portable Workspace Manifest name.") {
 		t.Fatalf("invalid name was not explained: %q", output.String())
 	}
 }
@@ -917,7 +917,7 @@ func TestContextCreateDirectInputCompletenessDistinguishesPartialCompositionFrom
 	}
 	formatOnly := ParsedInputs{provided: map[string]bool{"--format": true}}
 	if contextCreateDirectInputsComplete(formatOnly) || contextCreateCompositionInputProvided(formatOnly) {
-		t.Fatal("format-only input was treated as a supplied Context boundary")
+		t.Fatal("format-only input was treated as a supplied Workspace Manifest boundary")
 	}
 	complete := ParsedInputs{provided: map[string]bool{
 		"--name": true, "--runtime": true, "--mode": true,

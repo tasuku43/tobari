@@ -42,13 +42,13 @@ func TestRuntimeSelectionIsHumanSyntaxNotAuthority(t *testing.T) {
 
 func TestRuntimeSourceBaseAcceptsOnlyStandardOrManagedNameSyntax(t *testing.T) {
 	for _, value := range []string{StandardRuntimeName, "frontend", "project-tools"} {
-		base, err := ParseRuntimeSourceBase(value)
+		base, err := ParseRuntimeCopySource(value)
 		if err != nil || string(base) != value {
-			t.Fatalf("ParseRuntimeSourceBase(%q) = %q/%v", value, base, err)
+			t.Fatalf("ParseRuntimeCopySource(%q) = %q/%v", value, base, err)
 		}
 	}
 	for _, value := range []string{"", "frontend@1", "../frontend", "standard@1"} {
-		if _, err := ParseRuntimeSourceBase(value); err == nil {
+		if _, err := ParseRuntimeCopySource(value); err == nil {
 			t.Errorf("invalid Runtime source Base %q accepted", value)
 		}
 	}

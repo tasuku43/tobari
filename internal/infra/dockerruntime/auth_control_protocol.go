@@ -34,14 +34,14 @@ const (
 )
 
 type brokerControlExpectation struct {
-	Operation      brokerControlOperation
-	Provider       string
-	Revision       string
-	EpochID        string
-	ContextID      string
-	AccountLabel   string
-	DriverID       string
-	DriverRevision string
+	Operation           brokerControlOperation
+	Provider            string
+	Revision            string
+	EpochID             string
+	WorkspaceManifestID string
+	AccountLabel        string
+	DriverID            string
+	DriverRevision      string
 }
 
 // brokerMutationOutcomeUnknown marks a control call whose final broker frame
@@ -105,16 +105,16 @@ func brokerLoginControlExpectation(arguments []string) (brokerControlExpectation
 	if len(arguments) != 7 && len(arguments) != 11 {
 		return brokerControlExpectation{}, fmt.Errorf("Auth Broker login arguments are invalid")
 	}
-	if arguments[0] != string(brokerControlLogin) || arguments[1] != "--context-id" ||
+	if arguments[0] != string(brokerControlLogin) || arguments[1] != "--manifest-id" ||
 		arguments[3] != "--provider" || arguments[5] != "--account-label" ||
-		tobari.ValidateContextID(arguments[2]) != nil {
+		tobari.ValidateWorkspaceManifestID(arguments[2]) != nil {
 		return brokerControlExpectation{}, fmt.Errorf("Auth Broker login arguments are invalid")
 	}
 	expectation := brokerControlExpectation{
-		Operation:    brokerControlLogin,
-		ContextID:    arguments[2],
-		Provider:     arguments[4],
-		AccountLabel: arguments[6],
+		Operation:           brokerControlLogin,
+		WorkspaceManifestID: arguments[2],
+		Provider:            arguments[4],
+		AccountLabel:        arguments[6],
 	}
 	switch expectation.Provider {
 	case "github":

@@ -913,7 +913,7 @@ func (r *Runtime) ImportAuth(
 		return authbroker.MutationObservation{}, err
 	}
 	response, err := r.runBrokerControl(
-		ctx, secret, "import", "--context-id", manifest.ID, "--provider", provider.ID,
+		ctx, secret, "import", "--manifest-id", manifest.ID, "--provider", provider.ID,
 	)
 	if err != nil {
 		return authbroker.MutationObservation{}, classifyBrokerError(err, "auth import "+provider.ID)
@@ -927,7 +927,7 @@ func (r *Runtime) AuthStatus(ctx context.Context, contextName string) (authbroke
 		if errors.Is(err, tobari.ErrContextNotFound) {
 			return authbroker.StatusObservation{}, fault.New(
 				fault.KindNotFound, "context_not_found", "The selected Context does not exist.", false,
-				fault.NextAction{Command: "context list", Reason: "Choose an existing Context before using authentication."},
+				fault.NextAction{Command: "manifest list", Reason: "Choose an existing Context before using authentication."},
 			)
 		}
 		return authbroker.StatusObservation{}, err
@@ -941,8 +941,8 @@ func (r *Runtime) AuthStatus(ctx context.Context, contextName string) (authbroke
 		return authbroker.StatusObservation{}, classifyRootKeyError(err)
 	}
 	result := authbroker.StatusObservation{
-		ContextState: observed.state,
-		Context:      observed.manifest.Name, ContextID: observed.manifest.ID,
+		ManifestState: observed.state,
+		Context:       observed.manifest.Name, WorkspaceManifestID: observed.manifest.ID,
 		StorageBackend: backend, BrokerState: authbroker.BrokerStateUnavailable,
 		Providers: []authbroker.ProviderStatus{},
 		Workspaces: authbroker.WorkspaceObservation{
@@ -959,7 +959,7 @@ func (r *Runtime) AuthStatus(ctx context.Context, contextName string) (authbroke
 	sort.Slice(result.Providers, func(left, right int) bool {
 		return result.Providers[left].Provider < result.Providers[right].Provider
 	})
-	if observed.state != tobari.ContextObservationPersisted {
+	if observed.state != tobari.ManifestObservationPersisted {
 		return result, nil
 	}
 	manifest := observed.manifest
@@ -975,7 +975,7 @@ func (r *Runtime) AuthStatus(ctx context.Context, contextName string) (authbroke
 		status := result.Providers[index]
 		if result.BrokerState == authbroker.BrokerStateReady {
 			response, statusErr := r.runBrokerControl(
-				ctx, nil, "status", "--context-id", manifest.ID, "--provider", status.Provider,
+				ctx, nil, "status", "--manifest-id", manifest.ID, "--provider", status.Provider,
 			)
 			if statusErr != nil {
 				return authbroker.StatusObservation{}, classifyBrokerError(statusErr, "auth status")
@@ -1012,7 +1012,7 @@ func (r *Runtime) LogoutAuth(
 		return authbroker.MutationObservation{}, err
 	}
 	response, err := r.runBrokerControl(
-		ctx, nil, "logout", "--context-id", manifest.ID, "--provider", provider.ID,
+		ctx, nil, "logout", "--manifest-id", manifest.ID, "--provider", provider.ID,
 	)
 	if err != nil {
 		return authbroker.MutationObservation{}, classifyBrokerError(err, "auth logout")
@@ -1054,8 +1054,8 @@ func (r *Runtime) buildAuthMutationObservation(
 	backend authbroker.StorageBackend,
 ) (authbroker.MutationObservation, error) {
 	result := authbroker.MutationObservation{
-		ContextState: tobari.ContextObservationPersisted,
-		Provider:     provider, Context: contextName, ContextID: contextID,
+		ManifestState: tobari.ManifestObservationPersisted,
+		Provider:      provider, Context: contextName, WorkspaceManifestID: contextID,
 		Configured: configured, StorageBackend: backend, BrokerState: authbroker.BrokerStateReady,
 		Changed: changed, Providers: []authbroker.ProviderStatus{},
 		Workspaces: authbroker.WorkspaceObservation{Coverage: authbroker.WorkspaceActivationCoverageUnavailable, Workspaces: []authbroker.WorkspaceProjectionObservation{}},
@@ -1074,7 +1074,7 @@ func (r *Runtime) buildAuthMutationObservation(
 			for _, installed := range projection.Providers {
 				status := authbroker.ProviderStatus{Provider: installed.ID, State: authbroker.ProviderCredentialUnavailable}
 				observed, statusErr := r.runBrokerControl(
-					ctx, nil, "status", "--context-id", contextID, "--provider", installed.ID,
+					ctx, nil, "status", "--manifest-id", contextID, "--provider", installed.ID,
 				)
 				if statusErr == nil {
 					switch observed.State {
@@ -1135,7 +1135,7 @@ func (r *Runtime) observeWorkspaceActivation(
 	bindingChecks := 0
 	for _, project := range projects {
 		workspace := authbroker.WorkspaceProjectionObservation{
-			ProjectID: project.ID, Root: project.Root, ProjectContextID: project.ContextID,
+			ProjectID: project.ID, Root: project.Root, ProjectContextID: project.WorkspaceManifestID,
 			Incomplete: project.Incomplete, Providers: []authbroker.WorkspaceProviderObservation{},
 		}
 		registry, registryErr := r.readProjectAuthRegistry(project.ID)
@@ -1183,7 +1183,7 @@ func (r *Runtime) observeWorkspaceActivation(
 				}
 			}
 			workspace.Providers = append(workspace.Providers, fact)
-			if project.ContextID == targetContextID && installed && status.State == authbroker.ProviderCredentialConfigured && projected &&
+			if project.WorkspaceManifestID == targetContextID && installed && status.State == authbroker.ProviderCredentialConfigured && projected &&
 				fact.ExpectedBindingDigest != "" && current.Revision == status.CredentialRevision &&
 				current.BindingDigest == fact.ExpectedBindingDigest {
 				checks = append(checks, bindingCheck{
@@ -1204,7 +1204,7 @@ func (r *Runtime) observeWorkspaceActivation(
 		fact.BindingRevision = check.revision
 		fact.BindingState = authbroker.BrokerBindingUnavailable
 		binding, bindingErr := r.runBrokerControl(
-			ctx, nil, "binding_status", "--context-id", workspaces[check.workspaceIndex].ProjectContextID,
+			ctx, nil, "binding_status", "--manifest-id", workspaces[check.workspaceIndex].ProjectContextID,
 			"--project-id", check.projectID, "--provider", check.providerID,
 			"--revision", check.revision, "--bindings", string(check.bindings),
 		)

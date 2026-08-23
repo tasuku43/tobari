@@ -31,25 +31,25 @@ owning domain or infrastructure reader defines exact validation.
 
 {/* public-cli-json-schemas:start */}
 
-| Surface                                                            | Envelope            | Current schema |
-| ------------------------------------------------------------------ | ------------------- | -------------: |
-| Structured error                                                   | `error`             |              2 |
-| Agent help (`view: index` and input-selected `view: scope`)        | `commands`          |              1 |
-| Version                                                            | `build_identity`    |              1 |
-| Doctor report                                                      | `report`            |              1 |
-| Installation migration                                             | `migration`         |              1 |
-| Context list                                                       | `contexts`          |              1 |
-| Context report (`context show`, create/use/config/runtime results) | `context`           |              1 |
-| Runtime list                                                       | `runtimes`          |              1 |
-| Runtime report (`runtime show/create/history/build`)               | `runtime`           |              1 |
-| Context deletion                                                   | `context_deletion`  |              1 |
-| Cluster status                                                     | `cluster`           |              1 |
-| Cluster denials                                                    | `denials`           |              1 |
-| Policy candidates                                                  | `policy_candidates` |              1 |
-| Policy review                                                      | `policy_review`     |              1 |
-| Policy rules                                                       | `policy_rules`      |              1 |
-| Workspace list                                                     | `workspaces`        |              1 |
-| Workspace status                                                   | `status`            |              1 |
+| Surface                                                     | Envelope              | Current schema |
+| ----------------------------------------------------------- | --------------------- | -------------: |
+| Structured error                                            | `error`               |              2 |
+| Agent help (`view: index` and input-selected `view: scope`) | `commands`            |              1 |
+| Version                                                     | `build_identity`      |              1 |
+| Doctor report                                               | `report`              |              1 |
+| Installation migration                                      | `migration`           |              2 |
+| Workspace Manifest list                                     | `workspace_manifests` |              2 |
+| Workspace Manifest report                                   | `workspace_manifest`  |              2 |
+| Runtime list                                                | `runtimes`            |              1 |
+| Runtime report (`runtime show/create/history/build`)        | `runtime`             |              1 |
+| Workspace Manifest deletion                                            | `workspace_manifest_deletion` |              2 |
+| Cluster status                                              | `cluster`             |              1 |
+| Cluster denials                                             | `denials`             |              1 |
+| Policy candidates                                           | `policy_candidates`   |              1 |
+| Policy review                                               | `policy_review`       |              1 |
+| Policy rules                                                | `policy_rules`        |              1 |
+| Workspace list                                              | `workspaces`          |              2 |
+| Workspace status                                            | `status`              |              2 |
 
 {/* public-cli-json-schemas:end */}
 
@@ -57,18 +57,18 @@ Exact fields, optionality, collection coverage, and output formats are
 generated on the [CLI reference](/reference/cli/). Do not infer a field from
 another envelope merely because the two objects share a name.
 
-### Context contract boundary
+### Workspace Manifest contract boundary
 
 The version is V1 on both surfaces, but the contracts remain distinct:
 
 ```text
 Host configuration
   contexts/<name>/context.json
-  Context manifest schema 1
+  Workspace Manifest manifest schema 1
 
 CLI presentation
   {"schema_version": 1, "context": ...}
-  public Context report schema 1
+  public Workspace Manifest report schema 1
 ```
 
 The report adds task-owned runtime, cluster, complete shell-setting, and
@@ -79,7 +79,7 @@ stored in `context.json`.
 
 | State                                           | Current contract      |
 | ----------------------------------------------- | --------------------- |
-| Context manifest                                | Schema 1              |
+| Workspace Manifest manifest                                | Schema 1              |
 | Root index and Workspace instance               | Schema 1              |
 | Shared cluster state                            | Schema 1              |
 | Project principal registry                      | Schema 1              |
@@ -88,7 +88,7 @@ stored in `context.json`.
 | Owner provider manifest                         | Schema 1              |
 | Reviewed built-in provider manifest             | Schema 1              |
 | Normalized provider projection                  | Schema 1              |
-| Encrypted Context vault                         | Envelope 1; payload 1 |
+| Encrypted Workspace Manifest vault                         | Envelope 1; payload 1 |
 | Workspace authentication file registry          | Schema 1              |
 | Base runtime metadata                           | Schema 1              |
 
@@ -100,14 +100,14 @@ explicit fail-closed validation.
 
 There is no pre-public compatibility reader or implicit migration. The sole
 exception is the explicit `tobari migrate apply` command for ADR 0070's exact
-unpublished Context-policy/Runtime predecessor. Every non-V1 or other old value
+unpublished Workspace Manifest-policy/Runtime predecessor. Every non-V1 or other old value
 is unsupported, and that development state must be removed and recreated.
 
 ## Gateway, OPA, audit, and broker contracts
 
 | Boundary                                     | Current contract | Important content rule                                                                               |
 | -------------------------------------------- | ---------------: | ---------------------------------------------------------------------------------------------------- |
-| Gateway credential configuration             |         Schema 1 | Context-aware managed projection; contains paths/metadata, not policy authority.                     |
+| Gateway credential configuration             |         Schema 1 | Workspace Manifest-aware managed projection; contains paths/metadata, not policy authority.                     |
 | Gateway → OPA decision input                 |         Schema 1 | Host-derived principal plus normalized HTTP attributes. No body and no client secret headers.        |
 | Guided/Advanced source policy input          |         Schema 1 | Aggregate generation validates the exact V1 source before activation.                                |
 | Gateway audit line                           |         Schema 1 | Secret-free normalized decision evidence.                                                            |
@@ -164,7 +164,7 @@ external contracts are supported public boundaries.
   >
     renderer agreement tests
   </a>
-- Context contracts:
+- Workspace Manifest contracts:
   <a
     href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/domain/tobari/context.go`}
   >
@@ -236,7 +236,7 @@ validator, normalization, and tests.
   <summary>Can an Advanced policy use a schema other than V1?</summary>
 
 No. Aggregate generation requires exact V1 source and runtime input, then tests
-the complete Context-isolated candidate before activation.
+the complete Workspace Manifest-isolated candidate before activation.
 
 </details>
 

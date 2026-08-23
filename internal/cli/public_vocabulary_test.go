@@ -137,7 +137,7 @@ func TestPublicMachineVocabularySeparatesWorkspaceIdentityFromProjectRoot(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	var status tobari.ProjectStatus
+	var status tobari.WorkspaceStatus
 	if err := json.Unmarshal(fixtureData, &status); err != nil {
 		t.Fatal(err)
 	}
@@ -149,9 +149,10 @@ func TestPublicMachineVocabularySeparatesWorkspaceIdentityFromProjectRoot(t *tes
 		[]string{"workspace_id", "project_root", "workspace_home"},
 		[]string{"id", "root", "home", "project_id", "tobari_id"})
 
-	list := tobari.ProjectListResult{Task: tobari.TaskProjectList, Items: []tobari.ProjectListItem{{
-		Root: status.Root, ID: status.ID, Home: status.Home, ContextID: status.ContextID,
-		ContextName: status.ContextName, Runtime: status.Runtime,
+	list := tobari.WorkspaceListResult{Task: tobari.TaskWorkspaceList, Items: []tobari.WorkspaceListItem{{
+		Root: status.Root, ID: status.ID, Home: status.Home, WorkspaceManifestID: status.WorkspaceManifestID,
+		WorkspaceManifestName: status.WorkspaceManifestName, Runtime: status.Runtime,
+		Adoption: status.Adoption, Current: status.Current, Next: *status.Next, LastFailure: status.LastFailure,
 	}}}
 	encoded, err = renderProjectList(list, successFormatJSON)
 	if err != nil {

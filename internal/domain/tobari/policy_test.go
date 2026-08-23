@@ -17,7 +17,7 @@ const (
 
 func validPolicyDenial() PolicyDenial {
 	return PolicyDenial{PolicyProtocolIdentity: PolicyProtocolIdentity{Scheme: "https", Protocol: PolicyProtocolHTTP}, Timestamp: "2026-07-30T10:41:11Z", RequestID: "7185da2688d7469aae9cd9068e920b0b",
-		ContextID: policyContextA, ContextName: "default",
+		WorkspaceManifestID: policyContextA, WorkspaceManifestName: "default",
 		ProjectID: policyProjectA, ProjectRoot: "/workspace/project-a",
 		Host: "api.github.com", Port: 443, Method: "GET", Path: "/repos/cli/cli",
 		Reason: "request did not match an allow rule", StatusCode: 403, Learnable: true,
@@ -225,12 +225,12 @@ func TestAWSIdentityBindsCandidatesAndRulesWithoutSemanticClassification(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !allow.MatchesIdentity(denial.ContextID, denial.ProjectID, denial.Host, denial.Port, denial.Method, denial.Path, denial.PolicyProtocolIdentity) ||
-		!deny.MatchesIdentity(denial.ContextID, denial.ProjectID, denial.Host, denial.Port, denial.Method, denial.Path, denial.PolicyProtocolIdentity) {
+	if !allow.MatchesIdentity(denial.WorkspaceManifestID, denial.ProjectID, denial.Host, denial.Port, denial.Method, denial.Path, denial.PolicyProtocolIdentity) ||
+		!deny.MatchesIdentity(denial.WorkspaceManifestID, denial.ProjectID, denial.Host, denial.Port, denial.Method, denial.Path, denial.PolicyProtocolIdentity) {
 		t.Fatal("AWS exact rules did not preserve the observed wire identity")
 	}
-	if allow.MatchesIdentity(other.ContextID, other.ProjectID, other.Host, other.Port, other.Method, other.Path, other.PolicyProtocolIdentity) ||
-		deny.MatchesIdentity(other.ContextID, other.ProjectID, other.Host, other.Port, other.Method, other.Path, other.PolicyProtocolIdentity) {
+	if allow.MatchesIdentity(other.WorkspaceManifestID, other.ProjectID, other.Host, other.Port, other.Method, other.Path, other.PolicyProtocolIdentity) ||
+		deny.MatchesIdentity(other.WorkspaceManifestID, other.ProjectID, other.Host, other.Port, other.Method, other.Path, other.PolicyProtocolIdentity) {
 		t.Fatal("AWS exact rules matched a different wire operation")
 	}
 }
@@ -262,8 +262,8 @@ func TestKubernetesIdentityKeepsVerbsAndDryRunDistinct(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !rule.MatchesIdentity(denial.ContextID, denial.ProjectID, denial.Host, denial.Port, denial.Method, denial.Path, denial.PolicyProtocolIdentity) ||
-		rule.MatchesIdentity(dryRun.ContextID, dryRun.ProjectID, dryRun.Host, dryRun.Port, dryRun.Method, dryRun.Path, dryRun.PolicyProtocolIdentity) {
+	if !rule.MatchesIdentity(denial.WorkspaceManifestID, denial.ProjectID, denial.Host, denial.Port, denial.Method, denial.Path, denial.PolicyProtocolIdentity) ||
+		rule.MatchesIdentity(dryRun.WorkspaceManifestID, dryRun.ProjectID, dryRun.Host, dryRun.Port, dryRun.Method, dryRun.Path, dryRun.PolicyProtocolIdentity) {
 		t.Fatal("Kubernetes exact rule did not bind dry-run identity")
 	}
 }
@@ -296,8 +296,8 @@ func TestGitIdentityKeepsUploadAndReceiveDistinct(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !rule.MatchesIdentity(denial.ContextID, denial.ProjectID, denial.Host, denial.Port, denial.Method, denial.Path, denial.PolicyProtocolIdentity) ||
-		rule.MatchesIdentity(receive.ContextID, receive.ProjectID, receive.Host, receive.Port, receive.Method, receive.Path, receive.PolicyProtocolIdentity) {
+	if !rule.MatchesIdentity(denial.WorkspaceManifestID, denial.ProjectID, denial.Host, denial.Port, denial.Method, denial.Path, denial.PolicyProtocolIdentity) ||
+		rule.MatchesIdentity(receive.WorkspaceManifestID, receive.ProjectID, receive.Host, receive.Port, receive.Method, receive.Path, receive.PolicyProtocolIdentity) {
 		t.Fatal("Git exact rule did not bind service and repository identity")
 	}
 }
@@ -329,8 +329,8 @@ func TestOCIIdentityKeepsActionAndObjectDistinct(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !rule.MatchesIdentity(denial.ContextID, denial.ProjectID, denial.Host, denial.Port, denial.Method, denial.Path, denial.PolicyProtocolIdentity) ||
-		rule.MatchesIdentity(other.ContextID, other.ProjectID, other.Host, other.Port, other.Method, other.Path, other.PolicyProtocolIdentity) {
+	if !rule.MatchesIdentity(denial.WorkspaceManifestID, denial.ProjectID, denial.Host, denial.Port, denial.Method, denial.Path, denial.PolicyProtocolIdentity) ||
+		rule.MatchesIdentity(other.WorkspaceManifestID, other.ProjectID, other.Host, other.Port, other.Method, other.Path, other.PolicyProtocolIdentity) {
 		t.Fatal("OCI exact rule did not bind action/repository/object identity")
 	}
 }
@@ -430,17 +430,17 @@ func TestGraphQLIdentityBindsCandidatesRulesAndMatching(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !allow.MatchesIdentity(denial.ContextID, denial.ProjectID, denial.Host, denial.Port, denial.Method, denial.Path, denial.PolicyProtocolIdentity) ||
-		!deny.MatchesIdentity(denial.ContextID, denial.ProjectID, denial.Host, denial.Port, denial.Method, denial.Path, denial.PolicyProtocolIdentity) {
+	if !allow.MatchesIdentity(denial.WorkspaceManifestID, denial.ProjectID, denial.Host, denial.Port, denial.Method, denial.Path, denial.PolicyProtocolIdentity) ||
+		!deny.MatchesIdentity(denial.WorkspaceManifestID, denial.ProjectID, denial.Host, denial.Port, denial.Method, denial.Path, denial.PolicyProtocolIdentity) {
 		t.Fatal("GraphQL rules did not match their exact coordinate")
 	}
 	httpIdentity := PolicyProtocolIdentity{Scheme: denial.Scheme, Protocol: PolicyProtocolHTTP}
-	if allow.MatchesIdentity(denial.ContextID, denial.ProjectID, denial.Host, denial.Port, denial.Method, denial.Path, httpIdentity) ||
-		deny.MatchesIdentity(denial.ContextID, denial.ProjectID, denial.Host, denial.Port, denial.Method, denial.Path, httpIdentity) {
+	if allow.MatchesIdentity(denial.WorkspaceManifestID, denial.ProjectID, denial.Host, denial.Port, denial.Method, denial.Path, httpIdentity) ||
+		deny.MatchesIdentity(denial.WorkspaceManifestID, denial.ProjectID, denial.Host, denial.Port, denial.Method, denial.Path, httpIdentity) {
 		t.Fatal("GraphQL rules matched an ordinary HTTP coordinate")
 	}
-	if allow.MatchesIdentity(denial.ContextID, denial.ProjectID, denial.Host, denial.Port, denial.Method, denial.Path, queryDenial.PolicyProtocolIdentity) ||
-		deny.MatchesIdentity(denial.ContextID, denial.ProjectID, denial.Host, denial.Port, denial.Method, denial.Path, otherRootDenial.PolicyProtocolIdentity) {
+	if allow.MatchesIdentity(denial.WorkspaceManifestID, denial.ProjectID, denial.Host, denial.Port, denial.Method, denial.Path, queryDenial.PolicyProtocolIdentity) ||
+		deny.MatchesIdentity(denial.WorkspaceManifestID, denial.ProjectID, denial.Host, denial.Port, denial.Method, denial.Path, otherRootDenial.PolicyProtocolIdentity) {
 		t.Fatal("GraphQL rule matched a different operation type or root field")
 	}
 
@@ -531,7 +531,7 @@ func TestLearnedPolicyRulesRejectRetiredPrefixMatch(t *testing.T) {
 	prefix.Path = "/api/v1/"
 	prefix.Examples = []string{"/api/v1/example"}
 	prefix.ID = learnedRuleIDWithIdentity(
-		prefix.Match, prefix.ContextID, prefix.ProjectID, prefix.Host, prefix.Port, prefix.Method, prefix.Path,
+		prefix.Match, prefix.WorkspaceManifestID, prefix.ProjectID, prefix.Host, prefix.Port, prefix.Method, prefix.Path,
 		prefix.Examples, prefix.SourceCandidates, prefix.PolicyProtocolIdentity,
 	)
 	if err := prefix.Validate(); err == nil {
@@ -731,13 +731,13 @@ func TestPolicyDenyRuleBindsExactProjectAndRequest(t *testing.T) {
 	if err := rule.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	if !rule.MatchesIdentity(candidate.ContextID, candidate.ProjectID, candidate.Host, candidate.Port, candidate.Method, candidate.Path, candidate.PolicyProtocolIdentity) {
+	if !rule.MatchesIdentity(candidate.WorkspaceManifestID, candidate.ProjectID, candidate.Host, candidate.Port, candidate.Method, candidate.Path, candidate.PolicyProtocolIdentity) {
 		t.Fatal("exact deny rule did not match its bound request")
 	}
-	if rule.MatchesIdentity(candidate.ContextID, policyProjectB, candidate.Host, candidate.Port, candidate.Method, candidate.Path, candidate.PolicyProtocolIdentity) {
+	if rule.MatchesIdentity(candidate.WorkspaceManifestID, policyProjectB, candidate.Host, candidate.Port, candidate.Method, candidate.Path, candidate.PolicyProtocolIdentity) {
 		t.Fatal("exact deny rule crossed project boundary")
 	}
-	if rule.MatchesIdentity(candidate.ContextID, candidate.ProjectID, candidate.Host, 8443, candidate.Method, candidate.Path, candidate.PolicyProtocolIdentity) {
+	if rule.MatchesIdentity(candidate.WorkspaceManifestID, candidate.ProjectID, candidate.Host, 8443, candidate.Method, candidate.Path, candidate.PolicyProtocolIdentity) {
 		t.Fatal("exact deny rule crossed port boundary")
 	}
 }
@@ -770,7 +770,7 @@ func TestExactLearnedRuleBindsCandidateAndDoesNotBroadenPath(t *testing.T) {
 	if err := rule.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	if !rule.MatchesIdentity(candidate.ContextID, candidate.ProjectID, candidate.Host, candidate.Port, candidate.Method, candidate.Path, candidate.PolicyProtocolIdentity) {
+	if !rule.MatchesIdentity(candidate.WorkspaceManifestID, candidate.ProjectID, candidate.Host, candidate.Port, candidate.Method, candidate.Path, candidate.PolicyProtocolIdentity) {
 		t.Fatal("exact rule did not match its approved effect")
 	}
 	for _, changed := range []struct {
@@ -781,14 +781,14 @@ func TestExactLearnedRuleBindsCandidateAndDoesNotBroadenPath(t *testing.T) {
 		{candidate.Host, "POST", candidate.Path, candidate.Port},
 		{candidate.Host, candidate.Method, candidate.Path + "/child", candidate.Port},
 	} {
-		if rule.MatchesIdentity(candidate.ContextID, candidate.ProjectID, changed.host, changed.port, changed.method, changed.path, candidate.PolicyProtocolIdentity) {
+		if rule.MatchesIdentity(candidate.WorkspaceManifestID, candidate.ProjectID, changed.host, changed.port, changed.method, changed.path, candidate.PolicyProtocolIdentity) {
 			t.Fatalf("exact rule broadened to %+v", changed)
 		}
 	}
-	if rule.MatchesIdentity(candidate.ContextID, candidate.ProjectID, candidate.Host, 8443, candidate.Method, candidate.Path, candidate.PolicyProtocolIdentity) {
+	if rule.MatchesIdentity(candidate.WorkspaceManifestID, candidate.ProjectID, candidate.Host, 8443, candidate.Method, candidate.Path, candidate.PolicyProtocolIdentity) {
 		t.Fatal("exact rule broadened to another port")
 	}
-	if rule.MatchesIdentity(candidate.ContextID, policyProjectB, candidate.Host, candidate.Port, candidate.Method, candidate.Path, candidate.PolicyProtocolIdentity) {
+	if rule.MatchesIdentity(candidate.WorkspaceManifestID, policyProjectB, candidate.Host, candidate.Port, candidate.Method, candidate.Path, candidate.PolicyProtocolIdentity) {
 		t.Fatal("exact rule crossed the project boundary")
 	}
 	rule.Path += "/changed"
@@ -819,8 +819,8 @@ func TestPolicyOpaqueReferencesIncludeContextAuthority(t *testing.T) {
 	t.Parallel()
 	first := validPolicyDenial()
 	second := first
-	second.ContextID = policyContextB
-	second.ContextName = "restricted"
+	second.WorkspaceManifestID = policyContextB
+	second.WorkspaceManifestName = "restricted"
 	firstCandidate, err := NewPolicyCandidate(first)
 	if err != nil {
 		t.Fatal(err)
@@ -830,7 +830,7 @@ func TestPolicyOpaqueReferencesIncludeContextAuthority(t *testing.T) {
 		t.Fatal(err)
 	}
 	if firstCandidate.ID == secondCandidate.ID {
-		t.Fatal("Context-scoped candidates share an opaque ID")
+		t.Fatal("Workspace Manifest-scoped candidates share an opaque ID")
 	}
 	firstRule, err := NewExactLearnedPolicyRule(firstCandidate)
 	if err != nil {
@@ -849,11 +849,11 @@ func TestPolicyOpaqueReferencesIncludeContextAuthority(t *testing.T) {
 		t.Fatal(err)
 	}
 	if firstRule.ID == secondRule.ID || firstDeny.ID == secondDeny.ID {
-		t.Fatal("Context-scoped policy decisions share an opaque ID")
+		t.Fatal("Workspace Manifest-scoped policy decisions share an opaque ID")
 	}
-	if firstRule.MatchesIdentity(second.ContextID, second.ProjectID, second.Host, second.Port, second.Method, second.Path, second.PolicyProtocolIdentity) ||
-		firstDeny.MatchesIdentity(second.ContextID, second.ProjectID, second.Host, second.Port, second.Method, second.Path, second.PolicyProtocolIdentity) {
-		t.Fatal("Context A decision matched Context B authority")
+	if firstRule.MatchesIdentity(second.WorkspaceManifestID, second.ProjectID, second.Host, second.Port, second.Method, second.Path, second.PolicyProtocolIdentity) ||
+		firstDeny.MatchesIdentity(second.WorkspaceManifestID, second.ProjectID, second.Host, second.Port, second.Method, second.Path, second.PolicyProtocolIdentity) {
+		t.Fatal("Workspace Manifest A decision matched Workspace Manifest B authority")
 	}
 }
 

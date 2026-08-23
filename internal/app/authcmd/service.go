@@ -322,7 +322,7 @@ func validateContextName(name string) error {
 			"Context name is invalid.",
 			false,
 			err,
-			fault.NextAction{Command: "context list", Reason: "Choose an existing Context name."},
+			fault.NextAction{Command: "manifest list", Reason: "Choose an existing Context name."},
 		)
 	}
 	return nil

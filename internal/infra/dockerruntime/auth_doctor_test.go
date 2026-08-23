@@ -105,7 +105,7 @@ func (r *authDoctorRunner) Output(_ context.Context, args, _ []string) ([]byte, 
 type authDoctorFixture struct {
 	runtime  *Runtime
 	runner   *authDoctorRunner
-	project  tobari.ProjectInstance
+	project  tobari.Workspace
 	digest   string
 	bindings []byte
 }
@@ -231,11 +231,11 @@ func TestAuthDoctorVerifiesMatchingProjectBindingWithExactHostOwnedDimensions(t 
 	}
 	call := calls[0]
 	for name, want := range map[string]string{
-		"--context-id": fixture.project.ContextID,
-		"--project-id": fixture.project.ID,
-		"--provider":   "github",
-		"--revision":   authDoctorRevision,
-		"--bindings":   string(fixture.bindings),
+		"--manifest-id": fixture.project.WorkspaceManifestID,
+		"--project-id":  fixture.project.ID,
+		"--provider":    "github",
+		"--revision":    authDoctorRevision,
+		"--bindings":    string(fixture.bindings),
 	} {
 		if got := authDoctorArgument(call, name); got != want {
 			t.Fatalf("binding_status %s = %q, want %q; argv=%v", name, got, want, call)

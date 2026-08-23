@@ -6,11 +6,15 @@
 - Deciders: Tobari maintainers
 - Scope: Product, architecture, security, authentication, and harness
 - Supersedes: None
-- Superseded by: ADR 0018 supersedes the single-active-Context and deferred-routing parts
+- Superseded by: ADR 0018 supersedes the single-active-Context and
+  deferred-routing parts; ADR 0079 supersedes the remaining Context vocabulary
+  and flat declaration/instance lifecycle
 - Revised by: ADR 0027 removes retained pre-public migration and compatibility
   clauses and resets the current Context contract to exact V1; ADR 0071
   defines the surviving Context as a stable work mode with an immutable
-  creation-time Boundary and explicitly mutable Runtime/default components
+  creation-time Boundary and explicitly mutable Runtime/default components;
+  ADR 0079 replaces that public model with Workspace Manifest revisions and
+  applied Workspaces
 
 ## Context
 

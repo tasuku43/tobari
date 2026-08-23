@@ -143,7 +143,7 @@ func (r *Runtime) ResolveImageSelector(ctx context.Context, explicit string) (st
 		return r.resolveBuiltinImageSelector(explicit), nil
 	}
 	if _, err := os.Lstat(r.activeContextPath()); err == nil {
-		name, activeErr := r.readActiveContext()
+		name, activeErr := r.readDefaultManifestName()
 		if activeErr != nil {
 			return "", activeErr
 		}

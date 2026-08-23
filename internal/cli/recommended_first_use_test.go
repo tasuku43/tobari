@@ -18,15 +18,15 @@ type recommendedFirstUseFixture struct {
 }
 
 type recommendedFirstUseAnswer struct {
-	ContextName      string `json:"context_name"`
-	SourceAccess     string `json:"source_access"`
-	RoutineTraffic   string `json:"routine_traffic"`
-	OtherRequests    string `json:"other_requests"`
-	PrivateTargets   string `json:"private_targets"`
-	RuntimeSelection string `json:"runtime_selection"`
-	HostImport       string `json:"host_import"`
-	SessionKind      string `json:"session_kind"`
-	Executable       string `json:"executable"`
+	WorkspaceManifestName string `json:"manifest_name"`
+	SourceAccess          string `json:"source_access"`
+	RoutineTraffic        string `json:"routine_traffic"`
+	OtherRequests         string `json:"other_requests"`
+	PrivateTargets        string `json:"private_targets"`
+	RuntimeSelection      string `json:"runtime_selection"`
+	HostImport            string `json:"host_import"`
+	SessionKind           string `json:"session_kind"`
+	Executable            string `json:"executable"`
 }
 
 func TestRecommendedFirstUsePresentationUsesOneSemanticFixture(t *testing.T) {
@@ -43,7 +43,7 @@ func TestRecommendedFirstUsePresentationUsesOneSemanticFixture(t *testing.T) {
 		t.Fatal(err)
 	}
 	gotAnswer := recommendedFirstUseAnswer{
-		ContextName: draft.ContextName, SourceAccess: string(draft.Access.SourceAccess),
+		WorkspaceManifestName: draft.WorkspaceManifestName, SourceAccess: string(draft.Access.SourceAccess),
 		RoutineTraffic: string(draft.Access.RoutineTraffic), OtherRequests: string(draft.Access.MethodPolicy.Default),
 		PrivateTargets: string(draft.Access.PrivateTargets), RuntimeSelection: draft.RuntimeSelection,
 		HostImport: string(draft.HostConfiguration), SessionKind: string(draft.Session.Kind),
@@ -105,7 +105,7 @@ func TestRecommendedFirstUseMenuDoesNotInferFromLabels(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	draft.Access.RoutineTraffic = tobari.ContextRoutineTrafficLimited
+	draft.Access.RoutineTraffic = tobari.ManifestRoutineTrafficLimited
 	reviewer := &terminalRecommendedFirstUseReviewer{chooser: &terminalContextConfigurationWizard{mode: nil}}
 	if _, err := reviewer.Review(context.Background(), draft, strings.NewReader("\n"), &bytes.Buffer{}); err == nil {
 		t.Fatal("invalid typed Access unexpectedly reached presentation")

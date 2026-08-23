@@ -17,10 +17,10 @@ const (
 	TaskStatus = "auth.status"
 	TaskLogout = "auth.logout"
 
-	// ContextAuthReentryGuidance is emitted only when authoritative project
+	// ManifestAuthReentryGuidance is emitted only when authoritative project
 	// projection evidence identifies at least one exact Workspace that needs
 	// reconciliation.
-	ContextAuthReentryGuidance = "One or more Workspace authentication projections are stale or missing. Run each listed action from its exact working directory."
+	ManifestAuthReentryGuidance = "One or more Workspace authentication projections are stale or missing. Run each listed action from its exact working directory."
 
 	CredentialCatalogTargetKind = "auth-credentials"
 	CredentialCatalogTargetID   = "active-context-auth-credentials"
@@ -173,14 +173,14 @@ func (s WorkspaceActivationScopeState) Validate() error {
 // ProjectID is identity; Root is a separately validated working-directory
 // fact and is never inferred from presentation order or labels.
 type WorkspaceActivationItem struct {
-	ProjectID  string                        `json:"workspace_id"`
-	Root       string                        `json:"project_root"`
-	Context    string                        `json:"context"`
-	ContextID  string                        `json:"context_id"`
-	ScopeState WorkspaceActivationScopeState `json:"scope_state"`
-	State      WorkspaceActivationState      `json:"state"`
-	Providers  []WorkspaceProviderActivation `json:"providers"`
-	NextAction *WorkspaceActivationAction    `json:"next_action"`
+	ProjectID           string                        `json:"workspace_id"`
+	Root                string                        `json:"project_root"`
+	Context             string                        `json:"workspace_manifest"`
+	WorkspaceManifestID string                        `json:"workspace_manifest_id"`
+	ScopeState          WorkspaceActivationScopeState `json:"scope_state"`
+	State               WorkspaceActivationState      `json:"state"`
+	Providers           []WorkspaceProviderActivation `json:"providers"`
+	NextAction          *WorkspaceActivationAction    `json:"next_action"`
 }
 
 func NewWorkspaceActivationItem(
@@ -189,7 +189,7 @@ func NewWorkspaceActivationItem(
 	unresolved bool,
 ) (WorkspaceActivationItem, error) {
 	item := WorkspaceActivationItem{
-		ProjectID: projectID, Root: root, Context: contextName, ContextID: contextID,
+		ProjectID: projectID, Root: root, Context: contextName, WorkspaceManifestID: contextID,
 		ScopeState: WorkspaceActivationScopeComplete,
 		Providers:  append(make([]WorkspaceProviderActivation, 0, len(providers)), providers...),
 	}
@@ -208,7 +208,7 @@ func NewWorkspaceActivationItem(
 	if item.State == WorkspaceActivationReentryRequired {
 		item.NextAction = &WorkspaceActivationAction{
 			WorkingDirectory: root,
-			Argv:             []string{"tobari", "--context", contextName},
+			Argv:             []string{"tobari", "--manifest", contextName},
 		}
 	}
 	if err := item.Validate(); err != nil {
@@ -218,7 +218,7 @@ func NewWorkspaceActivationItem(
 }
 
 func (i WorkspaceActivationItem) Validate() error {
-	if err := tobari.ValidateProjectID(i.ProjectID); err != nil {
+	if err := tobari.ValidateWorkspaceID(i.ProjectID); err != nil {
 		return err
 	}
 	if err := tobari.ValidateCanonicalRoot(i.Root); err != nil {
@@ -227,7 +227,7 @@ func (i WorkspaceActivationItem) Validate() error {
 	if !utf8.ValidString(i.Root) || len(i.Root) > MaxWorkspaceActivationRootBytes {
 		return fmt.Errorf("Workspace activation root exceeds its output bound")
 	}
-	if !contextNamePattern.MatchString(i.Context) || !contextIDPattern.MatchString(i.ContextID) {
+	if !contextNamePattern.MatchString(i.Context) || !contextIDPattern.MatchString(i.WorkspaceManifestID) {
 		return fmt.Errorf("Workspace activation Context binding is invalid")
 	}
 	if err := i.State.Validate(); err != nil {
@@ -268,7 +268,7 @@ func (i WorkspaceActivationItem) Validate() error {
 	if i.State == WorkspaceActivationReentryRequired {
 		if i.NextAction == nil || i.NextAction.WorkingDirectory != i.Root ||
 			len(i.NextAction.Argv) != 3 || i.NextAction.Argv[0] != "tobari" ||
-			i.NextAction.Argv[1] != "--context" || i.NextAction.Argv[2] != i.Context {
+			i.NextAction.Argv[1] != "--manifest" || i.NextAction.Argv[2] != i.Context {
 			return fmt.Errorf("Workspace re-entry action does not bind its exact root and Context")
 		}
 	} else if i.NextAction != nil {
@@ -299,12 +299,12 @@ func summarizeWorkspaceProviderStates(counts map[WorkspaceProviderProjectionStat
 // of project projection observations. It never claims that a running process
 // environment or file was changed.
 type WorkspaceActivation struct {
-	State      WorkspaceActivationState    `json:"state"`
-	Coverage   WorkspaceActivationCoverage `json:"coverage"`
-	Context    string                      `json:"context"`
-	ContextID  string                      `json:"context_id"`
-	Workspaces []WorkspaceActivationItem   `json:"workspaces"`
-	Guidance   string                      `json:"guidance"`
+	State               WorkspaceActivationState    `json:"state"`
+	Coverage            WorkspaceActivationCoverage `json:"coverage"`
+	Context             string                      `json:"workspace_manifest"`
+	WorkspaceManifestID string                      `json:"workspace_manifest_id"`
+	Workspaces          []WorkspaceActivationItem   `json:"workspaces"`
+	Guidance            string                      `json:"guidance"`
 }
 
 func NotApplicableWorkspaceActivation() WorkspaceActivation {
@@ -317,7 +317,7 @@ func NotApplicableWorkspaceActivation() WorkspaceActivation {
 func UnavailableWorkspaceActivation(contextName, contextID string) WorkspaceActivation {
 	return WorkspaceActivation{
 		State: WorkspaceActivationUnavailable, Coverage: WorkspaceActivationCoverageUnavailable,
-		Context: contextName, ContextID: contextID, Workspaces: []WorkspaceActivationItem{},
+		Context: contextName, WorkspaceManifestID: contextID, Workspaces: []WorkspaceActivationItem{},
 	}
 }
 
@@ -325,7 +325,7 @@ func NewWorkspaceActivation(
 	contextName, contextID string, workspaces []WorkspaceActivationItem,
 ) (WorkspaceActivation, error) {
 	activation := WorkspaceActivation{
-		Coverage: WorkspaceActivationCoverageExhaustive, Context: contextName, ContextID: contextID,
+		Coverage: WorkspaceActivationCoverageExhaustive, Context: contextName, WorkspaceManifestID: contextID,
 		Workspaces: append(make([]WorkspaceActivationItem, 0, len(workspaces)), workspaces...),
 	}
 	sort.Slice(activation.Workspaces, func(left, right int) bool {
@@ -337,7 +337,7 @@ func NewWorkspaceActivation(
 	}
 	activation.State = summarizeWorkspaceStates(counts)
 	if activation.State == WorkspaceActivationReentryRequired {
-		activation.Guidance = ContextAuthReentryGuidance
+		activation.Guidance = ManifestAuthReentryGuidance
 	}
 	if err := activation.Validate(); err != nil {
 		return WorkspaceActivation{}, err
@@ -364,7 +364,7 @@ func (a WorkspaceActivation) Validate() error {
 		}
 		return nil
 	}
-	if !contextNamePattern.MatchString(a.Context) || !contextIDPattern.MatchString(a.ContextID) {
+	if !contextNamePattern.MatchString(a.Context) || !contextIDPattern.MatchString(a.WorkspaceManifestID) {
 		return fmt.Errorf("Workspace activation scope is invalid")
 	}
 	if a.Coverage == WorkspaceActivationCoverageUnavailable {
@@ -379,7 +379,7 @@ func (a WorkspaceActivation) Validate() error {
 		if err := workspace.Validate(); err != nil {
 			return fmt.Errorf("Workspace activation %d: %w", index, err)
 		}
-		if workspace.Context != a.Context || workspace.ContextID != a.ContextID {
+		if workspace.Context != a.Context || workspace.WorkspaceManifestID != a.WorkspaceManifestID {
 			return fmt.Errorf("Workspace activation escapes its Context scope")
 		}
 		if _, duplicate := seen[workspace.ProjectID]; duplicate {
@@ -396,7 +396,7 @@ func (a WorkspaceActivation) Validate() error {
 		return fmt.Errorf("Workspace activation summary %q does not match scoped rows", a.State)
 	}
 	if a.State == WorkspaceActivationReentryRequired {
-		if a.Guidance != ContextAuthReentryGuidance {
+		if a.Guidance != ManifestAuthReentryGuidance {
 			return fmt.Errorf("Workspace activation guidance is not the exact re-entry contract")
 		}
 	} else if a.Guidance != "" {
@@ -442,18 +442,18 @@ func (c MutationChange) Validate() error {
 // logout. A nil AccountLabel means the provider did not make an account label
 // available; it never stands for the primary secret.
 type Result struct {
-	Task                string                         `json:"task"`
-	ContextState        tobari.ContextObservationState `json:"context_state"`
-	Provider            string                         `json:"provider"`
-	Context             string                         `json:"context"`
-	ContextID           string                         `json:"context_id"`
-	Configured          bool                           `json:"configured"`
-	AccountLabel        *string                        `json:"account_label"`
-	StorageBackend      StorageBackend                 `json:"storage_backend"`
-	BrokerState         BrokerState                    `json:"broker_state"`
-	CredentialRevision  string                         `json:"credential_revision"`
-	Change              MutationChange                 `json:"change"`
-	WorkspaceActivation WorkspaceActivation            `json:"workspace_activation"`
+	Task                string                          `json:"task"`
+	ManifestState       tobari.ManifestObservationState `json:"workspace_manifest_state"`
+	Provider            string                          `json:"provider"`
+	Context             string                          `json:"workspace_manifest"`
+	WorkspaceManifestID string                          `json:"workspace_manifest_id"`
+	Configured          bool                            `json:"configured"`
+	AccountLabel        *string                         `json:"account_label"`
+	StorageBackend      StorageBackend                  `json:"storage_backend"`
+	BrokerState         BrokerState                     `json:"broker_state"`
+	CredentialRevision  string                          `json:"credential_revision"`
+	Change              MutationChange                  `json:"change"`
+	WorkspaceActivation WorkspaceActivation             `json:"workspace_activation"`
 }
 
 func (r Result) Validate() error {
@@ -462,13 +462,13 @@ func (r Result) Validate() error {
 	default:
 		return fmt.Errorf("auth result task is invalid: %q", r.Task)
 	}
-	if r.ContextState != tobari.ContextObservationPersisted {
+	if r.ManifestState != tobari.ManifestObservationPersisted {
 		return fmt.Errorf("auth mutation result requires a persisted Context")
 	}
 	if !contextNamePattern.MatchString(r.Context) {
 		return fmt.Errorf("auth result Context name is invalid")
 	}
-	if !contextIDPattern.MatchString(r.ContextID) {
+	if !contextIDPattern.MatchString(r.WorkspaceManifestID) {
 		return fmt.Errorf("auth result Context ID is invalid")
 	}
 	if err := ValidateProviderID(r.Provider); err != nil {
@@ -526,7 +526,7 @@ func (r Result) Validate() error {
 		return fmt.Errorf("changed auth mutation must report exhaustive or explicitly unavailable Context Workspace activation")
 	}
 	if r.WorkspaceActivation.Coverage != WorkspaceActivationCoverageNotApplicable &&
-		(r.WorkspaceActivation.Context != r.Context || r.WorkspaceActivation.ContextID != r.ContextID) {
+		(r.WorkspaceActivation.Context != r.Context || r.WorkspaceActivation.WorkspaceManifestID != r.WorkspaceManifestID) {
 		return fmt.Errorf("auth mutation Workspace scope does not match its Context")
 	}
 	return nil
@@ -590,14 +590,14 @@ func (s ProviderStatus) Validate() error {
 // StatusResult is the complete provider-status collection for one stable
 // Context. Providers is non-nil even when the available provider set is empty.
 type StatusResult struct {
-	Task                string                         `json:"task"`
-	ContextState        tobari.ContextObservationState `json:"context_state"`
-	Context             string                         `json:"context"`
-	ContextID           string                         `json:"context_id"`
-	StorageBackend      StorageBackend                 `json:"storage_backend"`
-	BrokerState         BrokerState                    `json:"broker_state"`
-	Providers           []ProviderStatus               `json:"providers"`
-	WorkspaceActivation WorkspaceActivation            `json:"workspace_activation"`
+	Task                string                          `json:"task"`
+	ManifestState       tobari.ManifestObservationState `json:"workspace_manifest_state"`
+	Context             string                          `json:"workspace_manifest"`
+	WorkspaceManifestID string                          `json:"workspace_manifest_id"`
+	StorageBackend      StorageBackend                  `json:"storage_backend"`
+	BrokerState         BrokerState                     `json:"broker_state"`
+	Providers           []ProviderStatus                `json:"providers"`
+	WorkspaceActivation WorkspaceActivation             `json:"workspace_activation"`
 }
 
 func (r StatusResult) Validate() error {
@@ -607,14 +607,14 @@ func (r StatusResult) Validate() error {
 	if !contextNamePattern.MatchString(r.Context) {
 		return fmt.Errorf("auth status Context name is invalid")
 	}
-	if err := r.ContextState.Validate(); err != nil {
+	if err := r.ManifestState.Validate(); err != nil {
 		return err
 	}
-	if r.ContextState == tobari.ContextObservationSyntheticDefault {
-		if r.Context != tobari.DefaultContextName || r.ContextID != "" || r.BrokerState != BrokerStateUnavailable {
+	if r.ManifestState == tobari.ManifestObservationAbsent {
+		if r.Context != tobari.DefaultManifestName || r.WorkspaceManifestID != "" || r.BrokerState != BrokerStateUnavailable {
 			return fmt.Errorf("non-persisted auth status claims persisted Context authority")
 		}
-	} else if !contextIDPattern.MatchString(r.ContextID) {
+	} else if !contextIDPattern.MatchString(r.WorkspaceManifestID) {
 		return fmt.Errorf("auth status Context ID is invalid")
 	}
 	if err := r.StorageBackend.Validate(); err != nil {
@@ -642,10 +642,10 @@ func (r StatusResult) Validate() error {
 	if err := r.WorkspaceActivation.Validate(); err != nil {
 		return err
 	}
-	if r.ContextState == tobari.ContextObservationPersisted {
+	if r.ManifestState == tobari.ManifestObservationPersisted {
 		if (r.WorkspaceActivation.Coverage != WorkspaceActivationCoverageExhaustive &&
 			r.WorkspaceActivation.Coverage != WorkspaceActivationCoverageUnavailable) ||
-			r.WorkspaceActivation.Context != r.Context || r.WorkspaceActivation.ContextID != r.ContextID {
+			r.WorkspaceActivation.Context != r.Context || r.WorkspaceActivation.WorkspaceManifestID != r.WorkspaceManifestID {
 			return fmt.Errorf("auth status Workspace activation does not preserve its Context scope")
 		}
 	} else if r.WorkspaceActivation.Coverage != WorkspaceActivationCoverageNotApplicable {

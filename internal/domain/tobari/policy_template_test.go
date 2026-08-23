@@ -7,7 +7,7 @@ func templateCandidateFixture(t *testing.T, path, timestamp string) PolicyCandid
 	denial := PolicyDenial{
 		PolicyProtocolIdentity: PolicyProtocolIdentity{Scheme: "https", Protocol: PolicyProtocolHTTP},
 		Timestamp:              timestamp, RequestID: "0123456789abcdef0123456789abcdef",
-		ContextID: "01912345-6789-7abc-8def-0123456789ad", ContextName: "default",
+		WorkspaceManifestID: "01912345-6789-7abc-8def-0123456789ad", WorkspaceManifestName: "default",
 		ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/project",
 		Host: "api.example.com", Port: 443, Method: "GET", Path: path,
 		Reason: "request did not match an allow rule", StatusCode: 403, Learnable: true,
@@ -44,16 +44,16 @@ func TestPolicyReviewItemsProposesOneSegmentTemplateAfterTwoDistinctPaths(t *tes
 		t.Fatal(err)
 	}
 	identity := PolicyProtocolIdentity{Scheme: "https", Protocol: PolicyProtocolHTTP}
-	if !rule.MatchesIdentity(first.ContextID, first.ProjectID, first.Host, 443, "GET", "/items/789", identity) {
+	if !rule.MatchesIdentity(first.WorkspaceManifestID, first.ProjectID, first.Host, 443, "GET", "/items/789", identity) {
 		t.Fatal("template did not authorize one unseen safe segment")
 	}
 	for _, path := range []string{"/items", "/items/789/child", "/other/789", "/items/a%2Fb", "/items/..", "/items/"} {
-		if rule.MatchesIdentity(first.ContextID, first.ProjectID, first.Host, 443, "GET", path, identity) {
+		if rule.MatchesIdentity(first.WorkspaceManifestID, first.ProjectID, first.Host, 443, "GET", path, identity) {
 			t.Fatalf("template authorized boundary canary %q", path)
 		}
 	}
-	if rule.MatchesIdentity(first.ContextID, first.ProjectID, first.Host, 443, "POST", "/items/789", identity) ||
-		rule.MatchesIdentity(first.ContextID, "01912345-6789-7abc-8def-0123456789ac", first.Host, 443, "GET", "/items/789", identity) {
+	if rule.MatchesIdentity(first.WorkspaceManifestID, first.ProjectID, first.Host, 443, "POST", "/items/789", identity) ||
+		rule.MatchesIdentity(first.WorkspaceManifestID, "01912345-6789-7abc-8def-0123456789ac", first.Host, 443, "GET", "/items/789", identity) {
 		t.Fatal("template crossed method or project identity")
 	}
 }
@@ -115,7 +115,7 @@ func TestPolicyReviewItemsKeepsScopesMethodsAndGraphQLSeparate(t *testing.T) {
 	denial := PolicyDenial{
 		PolicyProtocolIdentity: otherMethod.PolicyProtocolIdentity,
 		Timestamp:              otherMethod.ObservedAt, RequestID: "1123456789abcdef0123456789abcdef",
-		ContextID: otherMethod.ContextID, ContextName: otherMethod.ContextName,
+		WorkspaceManifestID: otherMethod.WorkspaceManifestID, WorkspaceManifestName: otherMethod.WorkspaceManifestName,
 		ProjectID: otherMethod.ProjectID, ProjectRoot: otherMethod.ProjectRoot,
 		Host: otherMethod.Host, Port: otherMethod.Port, Method: otherMethod.Method, Path: otherMethod.Path,
 		Reason: otherMethod.Reason, StatusCode: otherMethod.StatusCode, Learnable: true,
@@ -128,7 +128,7 @@ func TestPolicyReviewItemsKeepsScopesMethodsAndGraphQLSeparate(t *testing.T) {
 	graphql := templateCandidateFixture(t, "/items/789", "2026-08-15T01:02:00Z")
 	graphql.PolicyProtocolIdentity = PolicyProtocolIdentity{Scheme: "https", Protocol: PolicyProtocolGraphQL, GraphQLOperationType: GraphQLOperationQuery, GraphQLRootField: "item"}
 	material := PolicyDenial{PolicyProtocolIdentity: graphql.PolicyProtocolIdentity, Timestamp: graphql.ObservedAt,
-		RequestID: "2123456789abcdef0123456789abcdef", ContextID: graphql.ContextID, ContextName: graphql.ContextName,
+		RequestID: "2123456789abcdef0123456789abcdef", WorkspaceManifestID: graphql.WorkspaceManifestID, WorkspaceManifestName: graphql.WorkspaceManifestName,
 		ProjectID: graphql.ProjectID, ProjectRoot: graphql.ProjectRoot, Host: graphql.Host, Port: graphql.Port,
 		Method: graphql.Method, Path: graphql.Path, Reason: graphql.Reason, StatusCode: graphql.StatusCode, Learnable: true}
 	graphql, err = NewPolicyCandidate(material)
@@ -151,7 +151,7 @@ func TestPolicyReviewItemsRejectsInconsistentDisplayFactsForOneStableScope(t *te
 	t.Parallel()
 	first := templateCandidateFixture(t, "/items/123", "2026-08-15T01:00:00Z")
 	second := templateCandidateFixture(t, "/items/456", "2026-08-15T01:01:00Z")
-	second.ContextName = "renamed"
+	second.WorkspaceManifestName = "renamed"
 	if _, err := PolicyReviewItems([]PolicyCandidate{first, second}, []LearnedPolicyRule{}); err == nil {
 		t.Fatal("inconsistent display facts for one stable authority produced a template")
 	}

@@ -15,9 +15,9 @@ type contextShowAnswer struct {
 	SchemaVersion   int    `json:"schema_version"`
 	Task            string `json:"task"`
 	SelectedContext struct {
-		ID     string `json:"id"`
-		Name   string `json:"name"`
-		Active bool   `json:"active"`
+		ID      string `json:"id"`
+		Name    string `json:"name"`
+		Default bool   `json:"default"`
 	} `json:"selected_context"`
 	ExactNextArgv        []string `json:"exact_next_argv"`
 	RequiredSummaryFacts []string `json:"required_summary_facts"`
@@ -49,7 +49,7 @@ func TestContextShowPresentationEvidenceUsesOneTypedFixture(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var fixture tobari.ContextReport
+	var fixture tobari.ManifestReport
 	if err := json.Unmarshal(fixtureData, &fixture); err != nil {
 		t.Fatalf("decode typed fixture: %v", err)
 	}
@@ -67,8 +67,8 @@ func TestContextShowPresentationEvidenceUsesOneTypedFixture(t *testing.T) {
 	}
 	if answer.SchemaVersion != 1 || answer.Task != fixture.Task ||
 		answer.SelectedContext.ID != fixture.ID || answer.SelectedContext.Name != fixture.Name ||
-		answer.SelectedContext.Active != fixture.Active ||
-		!slices.Equal(answer.ExactNextArgv, []string{ProgramName, "--context", fixture.Name}) ||
+		answer.SelectedContext.Default != fixture.Default ||
+		!slices.Equal(answer.ExactNextArgv, []string{ProgramName, "--manifest", fixture.Name}) ||
 		answer.RoutineSuccess.TaskInvocations != 1 || answer.RoutineSuccess.ExternalReconstructionSteps != 0 {
 		t.Fatalf("answer does not match typed fixture: answer=%+v fixture=%+v", answer, fixture)
 	}
@@ -86,10 +86,10 @@ func TestContextShowPresentationEvidenceUsesOneTypedFixture(t *testing.T) {
 		t.Fatal(err)
 	}
 	if got := renderContextShowSummaryText(fixture, false); !slices.Equal(got, summaryGolden) {
-		t.Fatalf("Context show summary changed\n--- got ---\n%s--- want ---\n%s", got, summaryGolden)
+		t.Fatalf("Workspace Manifest show summary changed\n--- got ---\n%s--- want ---\n%s", got, summaryGolden)
 	}
 	if got := renderContextShowDetailsText(fixture, false); !slices.Equal(got, detailsGolden) {
-		t.Fatalf("Context show details changed\n--- got ---\n%s--- want ---\n%s", got, detailsGolden)
+		t.Fatalf("Workspace Manifest show details changed\n--- got ---\n%s--- want ---\n%s", got, detailsGolden)
 	}
 
 	summary := string(summaryGolden)

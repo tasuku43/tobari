@@ -100,47 +100,47 @@ func (r *Runtime) contextRuntimeUsesRefreshableBase(name string) (bool, error) {
 	return false, nil
 }
 
-func (r *Runtime) contextRuntimeReport(manifest tobari.ContextManifest) (tobari.ContextRuntimeReport, error) {
+func (r *Runtime) contextRuntimeReport(manifest tobari.WorkspaceManifest) (tobari.ManifestRuntimeReport, error) {
 	if manifest.RuntimeBinding != nil {
 		binding := *manifest.RuntimeBinding
 		if err := binding.Validate(); err != nil {
-			return tobari.ContextRuntimeReport{}, err
+			return tobari.ManifestRuntimeReport{}, err
 		}
-		kind := tobari.ContextRuntimeKindManaged
-		status := tobari.ContextRuntimeStatusReady
+		kind := tobari.ManifestRuntimeKindManaged
+		status := tobari.ManifestRuntimeStatusReady
 		if binding.RuntimeID == tobari.StandardRuntimeID {
-			kind, status = tobari.ContextRuntimeKindOfficial, tobari.ContextRuntimeStatusOfficial
+			kind, status = tobari.ManifestRuntimeKindOfficial, tobari.ManifestRuntimeStatusOfficial
 		}
-		return tobari.ContextRuntimeReport{
+		return tobari.ManifestRuntimeReport{
 			Kind: kind, Status: status, Image: binding.Image,
 			RuntimeID: binding.RuntimeID, Name: binding.Name, Revision: binding.Revision, Ordinal: binding.Ordinal,
 		}, nil
 	}
 	if manifest.Runtime == nil {
-		return tobari.ContextRuntimeReport{
-			Kind:          tobari.ContextRuntimeKindOfficial,
-			Status:        tobari.ContextRuntimeStatusOfficial,
+		return tobari.ManifestRuntimeReport{
+			Kind:          tobari.ManifestRuntimeKindOfficial,
+			Status:        tobari.ManifestRuntimeStatusOfficial,
 			BaseReference: r.defaultRuntimeImage(),
 		}, nil
 	}
 	recipe := *manifest.Runtime
 	if err := recipe.Validate(); err != nil {
-		return tobari.ContextRuntimeReport{}, err
+		return tobari.ManifestRuntimeReport{}, err
 	}
-	report := tobari.ContextRuntimeReport{
+	report := tobari.ManifestRuntimeReport{
 		Kind:          recipe.Kind,
-		Status:        tobari.ContextRuntimeStatusPendingBuild,
+		Status:        tobari.ManifestRuntimeStatusPendingBuild,
 		Dockerfile:    r.contextRuntimeDockerfile(manifest.Name),
 		BaseReference: recipe.BaseReference,
 		SourceDigest:  recipe.SourceDigest,
 	}
 	sourceDigest, err := r.contextRuntimeSourceDigest(manifest.Name)
 	if errors.Is(err, tobari.ErrRuntimeRecipeMissing) {
-		report.Status = tobari.ContextRuntimeStatusInvalid
+		report.Status = tobari.ManifestRuntimeStatusInvalid
 		return report, nil
 	}
 	if err != nil {
-		return tobari.ContextRuntimeReport{}, err
+		return tobari.ManifestRuntimeReport{}, err
 	}
 	report.SourceDigest = sourceDigest
 	if recipe.LastBuild == nil {
@@ -150,18 +150,18 @@ func (r *Runtime) contextRuntimeReport(manifest tobari.ContextManifest) (tobari.
 	if recipe.LastBuild.SourceDigest != sourceDigest || manifest.Image != recipe.LastBuild.Image {
 		return report, nil
 	}
-	report.Status = tobari.ContextRuntimeStatusReady
+	report.Status = tobari.ManifestRuntimeStatusReady
 	return report, nil
 }
 
-func (r *Runtime) contextReport(ctx context.Context, task string, manifest tobari.ContextManifest, active string) (tobari.ContextReport, error) {
+func (r *Runtime) contextReport(ctx context.Context, task string, manifest tobari.WorkspaceManifest, active string) (tobari.ManifestReport, error) {
 	runtimeReport, err := r.contextRuntimeReport(manifest)
 	if err != nil {
-		return tobari.ContextReport{}, err
+		return tobari.ManifestReport{}, err
 	}
 	shellEnvironment, err := tobari.CompleteContextShellEnvironment(manifest.ShellEnvironment)
 	if err != nil {
-		return tobari.ContextReport{}, err
+		return tobari.ManifestReport{}, err
 	}
 	gitIdentity := tobari.DefaultContextGitIdentityReport()
 	if manifest.GitIdentity != nil {
@@ -169,14 +169,15 @@ func (r *Runtime) contextReport(ctx context.Context, task string, manifest tobar
 	}
 	nativeReadiness, err := tobari.ResolveContextNativeReadiness(manifest.NativeReadiness)
 	if err != nil {
-		return tobari.ContextReport{}, err
+		return tobari.ManifestReport{}, err
 	}
-	result := tobari.ContextReport{
+	result := tobari.ManifestReport{
 		Task:             task,
-		ContextState:     tobari.ContextObservationPersisted,
+		ManifestState:    tobari.ManifestObservationPersisted,
 		ID:               manifest.ID,
 		Name:             manifest.Name,
-		Active:           manifest.Name == active,
+		Default:          manifest.Name == active,
+		Desired:          manifest.Desired,
 		AgentProfile:     manifest.AgentProfile,
 		Image:            manifest.Image,
 		PolicyMode:       manifest.PolicyMode,
@@ -187,85 +188,85 @@ func (r *Runtime) contextReport(ctx context.Context, task string, manifest tobar
 		GitIdentity:      gitIdentity,
 		Stores:           r.contextPaths(manifest.Name),
 		Runtime:          runtimeReport,
-		Cluster:          tobari.ContextClusterStatusNotApplicable,
-		Authentication: tobari.ContextAuthentication{
-			Mode: tobari.ContextAuthenticationModeNotApplicable, BrokerState: tobari.ContextAuthBrokerNotApplicable,
+		Cluster:          tobari.ManifestClusterStatusNotApplicable,
+		Authentication: tobari.ManifestAuthentication{
+			Mode: tobari.ManifestAuthenticationModeNotApplicable, BrokerState: tobari.ManifestAuthBrokerNotApplicable,
 		},
-		Bootstrap: tobari.ContextBootstrapReportFrom(manifest.Bootstrap),
+		Bootstrap: tobari.ManifestBootstrapReportFrom(manifest.Bootstrap),
 	}
 	policy, policyErr := r.readContextPolicy(manifest)
 	if policyErr != nil {
-		return tobari.ContextReport{}, policyErr
+		return tobari.ManifestReport{}, policyErr
 	}
 	result.MethodPolicy = policy.MethodPolicy
 	routineAccess, err := tobari.SummarizeContextAccess(policy, manifest.SourceAccess, nativeReadiness)
 	if err != nil {
-		return tobari.ContextReport{}, err
+		return tobari.ManifestReport{}, err
 	}
 	result.RoutineAccess = &routineAccess
-	if task == tobari.TaskContextShow {
+	if task == tobari.TaskManifestShow {
 		result.Authentication, err = r.contextAuthentication(ctx, manifest.ID)
 		if err != nil {
-			return tobari.ContextReport{}, err
+			return tobari.ManifestReport{}, err
 		}
 	}
 	if err := result.Validate(); err != nil {
-		return tobari.ContextReport{}, err
+		return tobari.ManifestReport{}, err
 	}
 	return result, nil
 }
 
-func (r *Runtime) nonPersistedContextReport(observed observedContext, active string) (tobari.ContextReport, error) {
+func (r *Runtime) nonPersistedContextReport(observed observedContext, active string) (tobari.ManifestReport, error) {
 	manifest := observed.manifest
 	runtimeReport, err := r.contextRuntimeReport(manifest)
 	if err != nil {
-		return tobari.ContextReport{}, err
+		return tobari.ManifestReport{}, err
 	}
 	shellEnvironment, err := tobari.CompleteContextShellEnvironment(manifest.ShellEnvironment)
 	if err != nil {
-		return tobari.ContextReport{}, err
+		return tobari.ManifestReport{}, err
 	}
 	gitIdentity := tobari.DefaultContextGitIdentityReport()
 	if manifest.GitIdentity != nil {
 		gitIdentity = *manifest.GitIdentity
 	}
-	result := tobari.ContextReport{
-		Task: tobari.TaskContextShow, ContextState: observed.state, Name: manifest.Name,
-		Active: manifest.Name == active, AgentProfile: manifest.AgentProfile, Image: manifest.Image,
+	result := tobari.ManifestReport{
+		Task: tobari.TaskManifestShow, ManifestState: observed.state, Name: manifest.Name,
+		Default: manifest.Name == active, AgentProfile: manifest.AgentProfile, Image: manifest.Image,
 		PolicyMode: manifest.PolicyMode, SourceAccess: manifest.SourceAccess,
-		NativeReadiness:  tobari.ContextNativeReadinessEnabled,
-		MethodPolicy:     tobari.ContextMethodPolicy{Default: tobari.ContextMethodExactReview, Overrides: []tobari.ContextMethodOverride{}},
+		NativeReadiness:  tobari.ManifestNativeReadinessEnabled,
+		MethodPolicy:     tobari.ManifestMethodPolicy{Default: tobari.ManifestMethodExactReview, Overrides: []tobari.ManifestMethodOverride{}},
 		ShellEnvironment: shellEnvironment, GitIdentity: gitIdentity,
-		Stores: tobari.ContextStorePaths{}, Runtime: runtimeReport, Cluster: tobari.ContextClusterStatusNotApplicable,
+		Stores: tobari.ManifestStorePaths{}, Runtime: runtimeReport, Cluster: tobari.ManifestClusterStatusNotApplicable,
 		Authentication: nativeOrUnavailableContextAuthentication(),
-		Bootstrap:      tobari.ContextBootstrapReportFrom(nil),
+		Bootstrap:      tobari.ManifestBootstrapReportFrom(nil),
 	}
 	if err := result.Validate(); err != nil {
-		return tobari.ContextReport{}, err
+		return tobari.ManifestReport{}, err
 	}
 	return result, nil
 }
 
-func (r *Runtime) contextAuthentication(ctx context.Context, contextID string) (tobari.ContextAuthentication, error) {
+func (r *Runtime) contextAuthentication(ctx context.Context, contextID string) (tobari.ManifestAuthentication, error) {
 	if !brokerRuntimeEnabled {
-		return tobari.ContextAuthentication{
-			Mode: tobari.ContextAuthenticationModeNative, Providers: []tobari.ContextAuthProvider{},
+		return tobari.ManifestAuthentication{
+			Mode: tobari.ManifestAuthenticationModeNative, Providers: []tobari.ManifestAuthProvider{},
 		}, nil
 	}
 	projection, err := r.loadAuthProviders()
 	if err != nil {
-		return tobari.ContextAuthentication{}, err
+		return tobari.ManifestAuthentication{}, err
 	}
 	var state authbroker.BrokerState
 	var stateErr error
-	report := tobari.ContextAuthentication{
-		Mode:        tobari.ContextAuthenticationModeBroker,
-		BrokerState: tobari.ContextAuthBrokerUnavailable,
-		Providers:   make([]tobari.ContextAuthProvider, 0, len(projection.Providers)),
+	report := tobari.ManifestAuthentication{
+		Mode:        tobari.ManifestAuthenticationModeBroker,
+		BrokerState: tobari.ManifestAuthBrokerUnavailable,
+		Providers:   make([]tobari.ManifestAuthProvider, 0, len(projection.Providers)),
 	}
 	_, configured, loadErr := r.LoadState(ctx)
 	if loadErr != nil {
-		return tobari.ContextAuthentication{}, loadErr
+		return tobari.ManifestAuthentication{}, loadErr
 	}
 	if !configured {
 		stateErr = nil
@@ -276,25 +277,25 @@ func (r *Runtime) contextAuthentication(ctx context.Context, contextID string) (
 	if stateErr == nil {
 		switch state {
 		case authbroker.BrokerStateReady:
-			report.BrokerState = tobari.ContextAuthBrokerReady
+			report.BrokerState = tobari.ManifestAuthBrokerReady
 		case authbroker.BrokerStateLocked:
-			report.BrokerState = tobari.ContextAuthBrokerLocked
+			report.BrokerState = tobari.ManifestAuthBrokerLocked
 		}
 	}
 	for _, provider := range projection.Providers {
-		item := tobari.ContextAuthProvider{
+		item := tobari.ManifestAuthProvider{
 			Provider: provider.ID,
-			State:    tobari.ContextAuthProviderUnavailable,
+			State:    tobari.ManifestAuthProviderUnavailable,
 		}
-		if report.BrokerState == tobari.ContextAuthBrokerReady {
+		if report.BrokerState == tobari.ManifestAuthBrokerReady {
 			response, statusErr := r.runBrokerControl(
-				ctx, nil, "status", "--context-id", contextID, "--provider", provider.ID,
+				ctx, nil, "status", "--manifest-id", contextID, "--provider", provider.ID,
 			)
 			if statusErr != nil {
-				return tobari.ContextAuthentication{}, classifyBrokerError(statusErr, "context show")
+				return tobari.ManifestAuthentication{}, classifyBrokerError(statusErr, "manifest show")
 			}
 			if response.Provider != provider.ID {
-				return tobari.ContextAuthentication{}, fault.New(
+				return tobari.ManifestAuthentication{}, fault.New(
 					fault.KindContract, "invalid_auth_broker_metadata",
 					"The Auth Broker returned provider status for the wrong provider.", false,
 					fault.NextAction{Command: "doctor", Reason: "Inspect Auth Broker and provider projection consistency."},
@@ -302,16 +303,16 @@ func (r *Runtime) contextAuthentication(ctx context.Context, contextID string) (
 			}
 			switch response.State {
 			case "ready":
-				item.State = tobari.ContextAuthProviderConfigured
+				item.State = tobari.ManifestAuthProviderConfigured
 				item.CredentialRevision = response.Revision
 				item.AccountLabel, err = validatedAccountLabel(response.AccountLabel)
 				if err != nil {
-					return tobari.ContextAuthentication{}, err
+					return tobari.ManifestAuthentication{}, err
 				}
 			case "not_configured":
-				item.State = tobari.ContextAuthProviderNotConfigured
+				item.State = tobari.ManifestAuthProviderNotConfigured
 			default:
-				return tobari.ContextAuthentication{}, fault.New(
+				return tobari.ManifestAuthentication{}, fault.New(
 					fault.KindContract, "invalid_auth_broker_metadata",
 					"The Auth Broker returned an invalid provider status.", false,
 					fault.NextAction{Command: "doctor", Reason: "Inspect Auth Broker and provider projection consistency."},
@@ -321,31 +322,31 @@ func (r *Runtime) contextAuthentication(ctx context.Context, contextID string) (
 		report.Providers = append(report.Providers, item)
 	}
 	if err := report.Validate(true); err != nil {
-		return tobari.ContextAuthentication{}, fmt.Errorf("Context authentication report is invalid: %w", err)
+		return tobari.ManifestAuthentication{}, fmt.Errorf("Context authentication report is invalid: %w", err)
 	}
 	return report, nil
 }
 
-func nativeOrUnavailableContextAuthentication() tobari.ContextAuthentication {
+func nativeOrUnavailableContextAuthentication() tobari.ManifestAuthentication {
 	if !brokerRuntimeEnabled {
-		return tobari.ContextAuthentication{
-			Mode: tobari.ContextAuthenticationModeNative, Providers: []tobari.ContextAuthProvider{},
+		return tobari.ManifestAuthentication{
+			Mode: tobari.ManifestAuthenticationModeNative, Providers: []tobari.ManifestAuthProvider{},
 		}
 	}
-	return tobari.ContextAuthentication{
-		Mode:        tobari.ContextAuthenticationModeBroker,
-		BrokerState: tobari.ContextAuthBrokerUnavailable, Providers: []tobari.ContextAuthProvider{},
+	return tobari.ManifestAuthentication{
+		Mode:        tobari.ManifestAuthenticationModeBroker,
+		BrokerState: tobari.ManifestAuthBrokerUnavailable, Providers: []tobari.ManifestAuthProvider{},
 	}
 }
 
 // InitRuntime creates the active Context's recipe without changing its
 // selected image. The manifest update is atomic; an existing recipe is never
 // overwritten.
-func (r *Runtime) InitRuntime(ctx context.Context) (tobari.ContextReport, error) {
+func (r *Runtime) InitRuntime(ctx context.Context) (tobari.ManifestReport, error) {
 	if err := ctx.Err(); err != nil {
-		return tobari.ContextReport{}, err
+		return tobari.ManifestReport{}, err
 	}
-	var result tobari.ContextReport
+	var result tobari.ManifestReport
 	err := r.withClusterLock(func() error {
 		manifest, _, err := r.activeContext()
 		if err != nil {
@@ -366,24 +367,22 @@ func (r *Runtime) InitRuntime(ctx context.Context) (tobari.ContextReport, error)
 		}
 
 		previous := manifest
-		manifest.SchemaVersion = tobari.ContextSchemaVersion
+		manifest.SchemaVersion = tobari.WorkspaceManifestSchemaVersion
 		manifest.RuntimeBinding = nil
-		manifest.Runtime = &tobari.ContextRuntimeRecipe{
-			Kind:          tobari.ContextRuntimeKindDockerfile,
-			File:          tobari.ContextRuntimeRecipeFile,
+		manifest.Runtime = &tobari.ManifestRuntimeRecipe{
+			Kind:          tobari.ManifestRuntimeKindDockerfile,
+			File:          tobari.ManifestRuntimeRecipeFile,
 			BaseReference: r.defaultRuntimeImage(),
 		}
-		if err := manifest.Validate(); err != nil {
-			return err
-		}
-		if err := writeAtomicJSON(r.contextManifestPath(manifest.Name), manifest); err != nil {
+		manifest, err = r.publishWorkspaceManifestUpdate(previous, manifest)
+		if err != nil {
 			return fmt.Errorf("write runtime recipe metadata: %w", err)
 		}
 		if err := initializeBytes(path, []byte(runtimeRecipeTemplate(r.defaultRuntimeImage())), contextRuntimeFileMode); err != nil {
 			_ = writeAtomicJSON(r.contextManifestPath(previous.Name), previous)
 			return fmt.Errorf("write runtime Dockerfile: %w", err)
 		}
-		active, err := r.readActiveContext()
+		active, err := r.readDefaultManifestName()
 		if err != nil {
 			return err
 		}
@@ -391,7 +390,7 @@ func (r *Runtime) InitRuntime(ctx context.Context) (tobari.ContextReport, error)
 		return err
 	})
 	if err != nil {
-		return tobari.ContextReport{}, err
+		return tobari.ManifestReport{}, err
 	}
 	return result, nil
 }
@@ -400,7 +399,7 @@ func (r *Runtime) InitRuntime(ctx context.Context) (tobari.ContextReport, error)
 // generated local image. The previous selected image remains authoritative
 // until atomic promotion succeeds; a later reporting failure is surfaced as
 // already promoted instead of claiming that the previous image remains.
-func (r *Runtime) BuildRuntime(ctx context.Context) (tobari.ContextReport, error) {
+func (r *Runtime) BuildRuntime(ctx context.Context) (tobari.ManifestReport, error) {
 	return r.BuildRuntimeWithProgress(ctx, nil, nil)
 }
 
@@ -411,11 +410,11 @@ func (r *Runtime) BuildRuntimeWithProgress(
 	ctx context.Context,
 	diagnostics io.Writer,
 	progress tobari.RuntimeBuildProgressSink,
-) (tobari.ContextReport, error) {
+) (tobari.ManifestReport, error) {
 	if err := ctx.Err(); err != nil {
-		return tobari.ContextReport{}, err
+		return tobari.ManifestReport{}, err
 	}
-	var result tobari.ContextReport
+	var result tobari.ManifestReport
 	err := r.withClusterLock(func() error {
 		manifest, _, err := r.activeContext()
 		if err != nil {
@@ -434,11 +433,11 @@ func (r *Runtime) BuildRuntimeWithProgress(
 		}
 		image := managedRuntimeImage(manifest.Name, sourceDigest)
 		buildProgress := tobari.RuntimeBuildProgress{
-			ContextName:    manifest.Name,
-			Dockerfile:     r.contextRuntimeDockerfile(manifest.Name),
-			PreviousImage:  manifest.Image,
-			CandidateImage: image,
-			Selection:      tobari.RuntimeBuildSelectionUnchanged,
+			WorkspaceManifestName: manifest.Name,
+			Dockerfile:            r.contextRuntimeDockerfile(manifest.Name),
+			PreviousImage:         manifest.Image,
+			CandidateImage:        image,
+			Selection:             tobari.RuntimeBuildSelectionUnchanged,
 		}
 		emitRuntimeBuildProgress(progress, buildProgress, tobari.RuntimeBuildStagePrepare, tobari.RuntimeBuildProgressStarted)
 		pullBase, err := r.contextRuntimeUsesRefreshableBase(manifest.Name)
@@ -480,28 +479,23 @@ func (r *Runtime) BuildRuntimeWithProgress(
 			return err
 		}
 		previous := manifest
-		manifest.SchemaVersion = tobari.ContextSchemaVersion
+		manifest.SchemaVersion = tobari.WorkspaceManifestSchemaVersion
 		manifest.Image = image
 		recipe.SourceDigest = sourceDigest
-		recipe.LastBuild = &tobari.ContextRuntimeBuild{
+		recipe.LastBuild = &tobari.ManifestRuntimeBuild{
 			Image: image, ImageDigest: imageDigest, SourceDigest: sourceDigest,
 		}
 		manifest.Runtime = &recipe
 		emitRuntimeBuildProgress(progress, buildProgress, tobari.RuntimeBuildStagePromote, tobari.RuntimeBuildProgressStarted)
-		if err := manifest.Validate(); err != nil {
+		manifest, err = r.publishWorkspaceManifestUpdate(previous, manifest)
+		if err != nil {
 			emitRuntimeBuildProgress(progress, buildProgress, tobari.RuntimeBuildStagePromote, tobari.RuntimeBuildProgressFailed)
-			return err
-		}
-		if err := writeAtomicJSON(r.contextManifestPath(manifest.Name), manifest); err != nil {
-			buildProgress.Selection = tobari.RuntimeBuildSelectionUncertain
-			emitRuntimeBuildProgress(progress, buildProgress, tobari.RuntimeBuildStagePromote, tobari.RuntimeBuildProgressFailed)
-			_ = writeAtomicJSON(r.contextManifestPath(previous.Name), previous)
 			return fmt.Errorf("promote Context runtime: %w", err)
 		}
 		buildProgress.Selection = tobari.RuntimeBuildSelectionPromoted
 		emitRuntimeBuildProgress(progress, buildProgress, tobari.RuntimeBuildStagePromote, tobari.RuntimeBuildProgressCompleted)
 		emitRuntimeBuildProgress(progress, buildProgress, tobari.RuntimeBuildStageReport, tobari.RuntimeBuildProgressStarted)
-		active, err := r.readActiveContext()
+		active, err := r.readDefaultManifestName()
 		if err != nil {
 			emitRuntimeBuildProgress(progress, buildProgress, tobari.RuntimeBuildStageReport, tobari.RuntimeBuildProgressFailed)
 			return err
@@ -515,7 +509,7 @@ func (r *Runtime) BuildRuntimeWithProgress(
 		return err
 	})
 	if err != nil {
-		return tobari.ContextReport{}, err
+		return tobari.ManifestReport{}, err
 	}
 	return result, nil
 }

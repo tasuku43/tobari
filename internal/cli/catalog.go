@@ -170,7 +170,7 @@ type InputCompletion string
 const (
 	InputCompletionNone                  InputCompletion = ""
 	InputCompletionCommand               InputCompletion = "command"
-	InputCompletionContextName           InputCompletion = "context_name"
+	InputCompletionContextName           InputCompletion = "manifest_name"
 	InputCompletionRuntimeName           InputCompletion = "runtime_name"
 	InputCompletionManagedRuntimeName    InputCompletion = "managed_runtime_name"
 	InputCompletionReadyRuntimeReference InputCompletion = "ready_runtime_reference"
@@ -597,7 +597,7 @@ func defaultErrorClassification(effect operation.Effect, kind fault.Kind, code s
 		return fault.PhasePrecondition, fault.ChangeNone
 	case "mutation_output_write_failed":
 		return fault.PhasePresentation, fault.ChangeConfirmed
-	case "invalid_context_report", "invalid_runtime_report", "invalid_migration_report", "status_failed":
+	case "invalid_manifest_report", "invalid_runtime_report", "invalid_migration_report", "status_failed":
 		return fault.PhaseVerification, fault.ChangeConfirmed
 	case "enter_failed":
 		return fault.PhaseAttachment, fault.ChangeConfirmed

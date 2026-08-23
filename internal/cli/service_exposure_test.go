@@ -23,7 +23,7 @@ type cliServiceExposurePort struct {
 }
 
 func cliExposureFixture() tobari.ServiceExposure {
-	return tobari.ServiceExposure{SchemaVersion: 1, ID: "exp_0123456789abcdef0123456789abcdef", RequestID: "srq_0123456789abcdef0123456789abcdef", AttachmentID: "att_0123456789abcdef0123456789abcdef", ProjectID: "01234567-89ab-7cde-8f01-23456789abcd", ContextID: "fedcba98-7654-7321-8abc-def012345678", Workspace: "/tmp/project", TargetPort: 3000, HostPort: 54321, URL: "http://127.0.0.1:54321", State: tobari.ServiceStateListening}
+	return tobari.ServiceExposure{SchemaVersion: 1, ID: "exp_0123456789abcdef0123456789abcdef", RequestID: "srq_0123456789abcdef0123456789abcdef", AttachmentID: "att_0123456789abcdef0123456789abcdef", ProjectID: "01234567-89ab-7cde-8f01-23456789abcd", WorkspaceManifestID: "fedcba98-7654-7321-8abc-def012345678", Workspace: "/tmp/project", TargetPort: 3000, HostPort: 54321, URL: "http://127.0.0.1:54321", State: tobari.ServiceStateListening}
 }
 
 func (p *cliServiceExposurePort) RequestService(_ context.Context, port int) (tobari.ServiceExposure, error) {
@@ -172,7 +172,7 @@ func TestExposureHelperRejectsInvalidPortBeforeChannelCall(t *testing.T) {
 
 func TestServiceReviewUsesFreshOpaqueSelectionAndImmediateDecision(t *testing.T) {
 	exposure := cliExposureFixture()
-	request := tobari.ServiceRequest{SchemaVersion: 1, ID: exposure.RequestID, AttachmentID: exposure.AttachmentID, ProjectID: exposure.ProjectID, ContextID: exposure.ContextID, Workspace: exposure.Workspace, TargetPort: exposure.TargetPort, State: tobari.ServiceStatePending}
+	request := tobari.ServiceRequest{SchemaVersion: 1, ID: exposure.RequestID, AttachmentID: exposure.AttachmentID, ProjectID: exposure.ProjectID, WorkspaceManifestID: exposure.WorkspaceManifestID, Workspace: exposure.Workspace, TargetPort: exposure.TargetPort, State: tobari.ServiceStatePending}
 	for _, test := range []struct {
 		name, input string
 		wantAllow   bool
@@ -203,7 +203,7 @@ func TestServiceReviewUsesFreshOpaqueSelectionAndImmediateDecision(t *testing.T)
 
 func TestRedirectedServiceReviewIsReadOnlyAndExhaustive(t *testing.T) {
 	exposure := cliExposureFixture()
-	request := tobari.ServiceRequest{SchemaVersion: 1, ID: exposure.RequestID, AttachmentID: exposure.AttachmentID, ProjectID: exposure.ProjectID, ContextID: exposure.ContextID, Workspace: exposure.Workspace, TargetPort: exposure.TargetPort, State: tobari.ServiceStatePending}
+	request := tobari.ServiceRequest{SchemaVersion: 1, ID: exposure.RequestID, AttachmentID: exposure.AttachmentID, ProjectID: exposure.ProjectID, WorkspaceManifestID: exposure.WorkspaceManifestID, Workspace: exposure.Workspace, TargetPort: exposure.TargetPort, State: tobari.ServiceStatePending}
 	port := &cliServiceExposurePort{exposure: exposure, requests: tobari.ServiceRequestList{Scope: "live_attachments", Requests: []tobari.ServiceRequest{request}}}
 	var output bytes.Buffer
 	command := newCLI(strings.NewReader("1\na\ny\n"), &output, &bytes.Buffer{}, DefaultCatalog(), systemdoctor.New())

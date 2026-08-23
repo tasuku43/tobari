@@ -46,7 +46,7 @@ func (r *Runtime) InspectCluster(ctx context.Context, state tobari.State) (tobar
 	gatewayIntegrity := r.inspectGatewayProjectionIntegrity(ctx, state)
 	status := tobari.ClusterStatus{
 		Configured: true, Running: running,
-		Policy: state.PolicyDirectory, TobariCount: len(projects), ContextCount: state.ContextCount,
+		Policy: state.PolicyDirectory, TobariCount: len(projects), ManifestCount: state.ManifestCount,
 		PolicyRevision: state.AggregateRevision, PolicyProjection: policyIntegrity,
 		PrincipalRegistry: principalIntegrity, GatewayProjection: gatewayIntegrity,
 		Components: components, RecentError: state.RecentError,
@@ -80,7 +80,7 @@ func (r *Runtime) InspectCluster(ctx context.Context, state tobari.State) (tobar
 
 func (r *Runtime) inspectAggregatePolicyIntegrity(ctx context.Context, state tobari.State) string {
 	contexts, err := r.readAggregateContexts(ctx)
-	if err != nil || len(contexts) != state.ContextCount {
+	if err != nil || len(contexts) != state.ManifestCount {
 		return "invalid"
 	}
 	desiredRevision, err := aggregateRevision(contexts)
@@ -117,19 +117,19 @@ func (r *Runtime) inspectAggregatePolicyIntegrity(ctx context.Context, state tob
 	return "valid"
 }
 
-func (r *Runtime) inspectPrincipalRegistryIntegrity(ctx context.Context, projects []tobari.ProjectInstance) string {
+func (r *Runtime) inspectPrincipalRegistryIntegrity(ctx context.Context, projects []tobari.Workspace) string {
 	registry, err := r.readProjectPrincipalRegistry()
 	if err != nil {
 		return "invalid"
 	}
-	byID := make(map[string]tobari.ProjectInstance, len(projects))
+	byID := make(map[string]tobari.Workspace, len(projects))
 	for _, project := range projects {
 		byID[project.ID] = project
 	}
 	bindings := make(map[string]projectPrincipalBinding, len(registry.Bindings))
 	for _, binding := range registry.Bindings {
 		project, exists := byID[binding.ProjectID]
-		if !exists || project.ContextID != binding.ContextID || project.ContextName != binding.ContextName || project.Root != binding.ProjectRoot {
+		if !exists || project.WorkspaceManifestID != binding.WorkspaceManifestID || project.WorkspaceManifestName != binding.WorkspaceManifestName || project.Root != binding.ProjectRoot {
 			return "invalid"
 		}
 		_, network, resourceErr := tobari.ProjectResourceNames(project.ID)
@@ -152,7 +152,7 @@ func (r *Runtime) inspectPrincipalRegistryIntegrity(ctx context.Context, project
 }
 
 func (r *Runtime) observeProjectPrincipalRuntime(
-	ctx context.Context, project tobari.ProjectInstance,
+	ctx context.Context, project tobari.Workspace,
 ) (projectPrincipalBinding, bool, error) {
 	if err := project.Validate(); err != nil {
 		return projectPrincipalBinding{}, false, err
@@ -204,7 +204,7 @@ func (r *Runtime) observeProjectPrincipalRuntime(
 		return projectPrincipalBinding{}, false, err
 	}
 	return projectPrincipalBinding{
-		ProjectID: project.ID, ContextID: project.ContextID, ContextName: project.ContextName,
+		ProjectID: project.ID, WorkspaceManifestID: project.WorkspaceManifestID, WorkspaceManifestName: project.WorkspaceManifestName,
 		ProjectRoot: project.Root, WorkspaceIP: workspaceAddress, GatewayIP: gatewayAddress, Network: network,
 	}, true, nil
 }

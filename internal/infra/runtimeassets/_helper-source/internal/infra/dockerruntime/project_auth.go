@@ -74,7 +74,7 @@ type projectAuthJSONMergeRegistryEntry struct {
 
 type projectAuthRegistry struct {
 	SchemaVersion int                                 `json:"schema_version"`
-	ProjectID     string                              `json:"project_id"`
+	ProjectID     string                              `json:"workspace_id"`
 	Providers     []projectAuthProviderBinding        `json:"providers"`
 	Files         []projectAuthRegistryEntry          `json:"files"`
 	JSONMerges    []projectAuthJSONMergeRegistryEntry `json:"json_merges"`
@@ -129,7 +129,7 @@ func (r *Runtime) projectAuthRegistryPath(projectID string) string {
 
 func (r *Runtime) reconcileProjectAuth(
 	ctx context.Context,
-	instance tobari.ProjectInstance,
+	instance tobari.Workspace,
 ) (projectAuthProjection, error) {
 	if err := instance.Validate(); err != nil {
 		return projectAuthProjection{}, err
@@ -153,7 +153,7 @@ func (r *Runtime) reconcileProjectAuth(
 	}
 	for _, provider := range providerProjection.Providers {
 		status, err := r.runBrokerControl(
-			ctx, nil, "status", "--context-id", instance.ContextID, "--provider", provider.ID,
+			ctx, nil, "status", "--manifest-id", instance.WorkspaceManifestID, "--provider", provider.ID,
 		)
 		if err != nil {
 			return projectAuthProjection{}, classifyBrokerError(err, "tobari")
@@ -175,7 +175,7 @@ func (r *Runtime) reconcileProjectAuth(
 		}
 		issued, err := r.runBrokerControl(
 			ctx, nil, "issue_handle",
-			"--context-id", instance.ContextID,
+			"--manifest-id", instance.WorkspaceManifestID,
 			"--project-id", instance.ID,
 			"--provider", provider.ID,
 			"--bindings", string(encodedBindings),
@@ -273,7 +273,7 @@ func validProjectHandle(value string) bool {
 }
 
 func (r *Runtime) reconcileProjectAuthFiles(
-	instance tobari.ProjectInstance,
+	instance tobari.Workspace,
 	desired []projectAuthFile,
 	desiredJSONMerges []projectAuthJSONMerge,
 	providers []projectAuthProviderBinding,
@@ -416,47 +416,57 @@ func (r *Runtime) readProjectAuthRegistry(projectID string) (projectAuthRegistry
 	if registry.JSONMerges == nil {
 		registry.JSONMerges = []projectAuthJSONMergeRegistryEntry{}
 	}
+	if err := validateProjectAuthRegistry(registry, projectID); err != nil {
+		return projectAuthRegistry{}, err
+	}
+	return registry, nil
+}
+
+func validateProjectAuthRegistry(registry projectAuthRegistry, projectID string) error {
+	if registry.SchemaVersion != projectAuthRegistrySchema || registry.ProjectID != projectID || registry.Providers == nil || registry.Files == nil || registry.JSONMerges == nil {
+		return fmt.Errorf("Workspace authentication file ownership is invalid")
+	}
 	providers := make(map[string]struct{}, len(registry.Providers))
 	for _, provider := range registry.Providers {
 		if authbroker.ValidateProviderID(provider.Provider) != nil || !validAuthRevision(provider.Revision) || !validSHA256(provider.BindingDigest) {
-			return projectAuthRegistry{}, fmt.Errorf("Workspace authentication ownership contains an invalid provider binding")
+			return fmt.Errorf("Workspace authentication ownership contains an invalid provider binding")
 		}
 		if _, duplicate := providers[provider.Provider]; duplicate {
-			return projectAuthRegistry{}, fmt.Errorf("Workspace authentication ownership contains a duplicate provider binding")
+			return fmt.Errorf("Workspace authentication ownership contains a duplicate provider binding")
 		}
 		providers[provider.Provider] = struct{}{}
 	}
 	seen := make(map[string]struct{}, len(registry.Files))
 	for _, entry := range registry.Files {
 		if err := authbroker.ValidateRelativeHomePath(entry.Path); err != nil || !validSHA256(entry.Digest) {
-			return projectAuthRegistry{}, fmt.Errorf("Workspace authentication file ownership contains an invalid entry")
+			return fmt.Errorf("Workspace authentication file ownership contains an invalid entry")
 		}
 		if _, duplicate := seen[entry.Path]; duplicate {
-			return projectAuthRegistry{}, fmt.Errorf("Workspace authentication file ownership contains a duplicate path")
+			return fmt.Errorf("Workspace authentication file ownership contains a duplicate path")
 		}
 		seen[entry.Path] = struct{}{}
 	}
 	mergePaths := make(map[string]struct{}, len(registry.JSONMerges))
 	for _, entry := range registry.JSONMerges {
 		if err := authbroker.ValidateRelativeHomePath(entry.Path); err != nil || len(entry.Fields) == 0 || len(entry.Fields) > 16 {
-			return projectAuthRegistry{}, fmt.Errorf("Workspace authentication JSON ownership contains an invalid entry")
+			return fmt.Errorf("Workspace authentication JSON ownership contains an invalid entry")
 		}
 		if _, collision := seen[entry.Path]; collision {
-			return projectAuthRegistry{}, fmt.Errorf("Workspace authentication file ownership contains a path collision")
+			return fmt.Errorf("Workspace authentication file ownership contains a path collision")
 		}
 		if _, duplicate := mergePaths[entry.Path]; duplicate {
-			return projectAuthRegistry{}, fmt.Errorf("Workspace authentication JSON ownership contains a duplicate path")
+			return fmt.Errorf("Workspace authentication JSON ownership contains a duplicate path")
 		}
 		mergePaths[entry.Path] = struct{}{}
 		last := ""
 		for _, field := range entry.Fields {
 			if !validProjectAuthJSONField(field) || (last != "" && field <= last) {
-				return projectAuthRegistry{}, fmt.Errorf("Workspace authentication JSON ownership contains an invalid field")
+				return fmt.Errorf("Workspace authentication JSON ownership contains an invalid field")
 			}
 			last = field
 		}
 	}
-	return registry, nil
+	return nil
 }
 
 func projectAuthJSONMergeFields(content []byte) ([]string, error) {
@@ -577,7 +587,7 @@ func isRecoverableEmptyProviderRegistry(data []byte, registry projectAuthRegistr
 	}
 	var raw struct {
 		SchemaVersion json.RawMessage `json:"schema_version"`
-		ProjectID     json.RawMessage `json:"project_id"`
+		ProjectID     json.RawMessage `json:"workspace_id"`
 		Providers     json.RawMessage `json:"providers"`
 		Files         json.RawMessage `json:"files"`
 	}

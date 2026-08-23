@@ -91,8 +91,8 @@ func runRuntimeCreate(ctx context.Context, c *CLI, command CommandSpec, intent o
 	if err != nil {
 		return c.failUsage(ctx, "invalid_arguments", err.Error()+"; usage: "+command.Usage(), "help runtime create", "Correct the command arguments.")
 	}
-	base := inputs.One("--base")
-	if !inputs.Provided("--base") {
+	base := inputs.One("--copy-source-from")
+	if !inputs.Provided("--copy-source-from") {
 		base = tobari.StandardRuntimeName
 		if runtimeReviewAvailable(ctx, c, format) {
 			base, err = chooseRuntimeCreateBase(ctx, c, inputs.One("--name"))
@@ -222,7 +222,7 @@ func renderRuntimeReport(path string, result tobari.RuntimeReport, format succes
 		writeContextCardValue(&output, color, "Build", "unchanged · no revision created", styleMuted)
 	}
 	if result.Built {
-		writeContextCardValue(&output, color, "Build", "revision created · no Context changed", styleAccent)
+		writeContextCardValue(&output, color, "Build", "revision created · no Workspace Manifest changed", styleAccent)
 	}
 	if path == "runtime build" {
 		if head, ok := manifest.Head(); ok {

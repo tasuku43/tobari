@@ -324,7 +324,7 @@ func runPolicyReview(
 			))
 		}
 		if stagedContextID != "" && policyReviewItemContext(item) != stagedContextID {
-			selector.notice = "Apply or discard the staged decisions before switching Context."
+			selector.notice = "Apply or discard the staged decisions before switching Workspace Manifest."
 			continue
 		}
 
@@ -409,10 +409,10 @@ func policyReviewItemByID(result tobari.PolicyCandidateReport, id string) (tobar
 
 func policyReviewItemContext(item tobari.PolicyReviewItem) string {
 	if item.Candidate != nil {
-		return item.Candidate.ContextID
+		return item.Candidate.WorkspaceManifestID
 	}
 	if item.Template != nil {
-		return item.Template.ContextID
+		return item.Template.WorkspaceManifestID
 	}
 	return ""
 }
@@ -705,7 +705,7 @@ func runProjectEnter(ctx context.Context, c *CLI, command CommandSpec, _ operati
 			)
 		}
 	}
-	contextName := inputs.One("--context")
+	contextName := inputs.One("--manifest")
 	if code, continueEntry := prepareGuidedProjectEntry(ctx, c, contextName, session); !continueEntry {
 		return code
 	}
@@ -724,7 +724,7 @@ func runProjectEnter(ctx context.Context, c *CLI, command CommandSpec, _ operati
 	message := renderProjectSessionClosed(style)
 	if c.context != nil {
 		if report, contextErr := c.context.Show(ctx, ""); contextErr == nil &&
-			report.Runtime.Status == tobari.ContextRuntimeStatusOfficial && c.runtime != nil {
+			report.Runtime.Status == tobari.ManifestRuntimeStatusOfficial && c.runtime != nil {
 			if runtimes, runtimeErr := c.runtime.List(ctx); runtimeErr == nil {
 				for _, item := range runtimes.Items {
 					if item.Kind == tobari.RuntimeKindManaged && item.Ready {
@@ -755,7 +755,7 @@ func prepareGuidedProjectEntry(
 		return ExitOK, true
 	}
 	if contextName != "" {
-		showCtx := withCommandPath(ctx, "context show")
+		showCtx := withCommandPath(ctx, "manifest show")
 		report, err := c.context.Show(showCtx, contextName)
 		if err != nil {
 			return c.fail(showCtx, err), false
@@ -768,13 +768,13 @@ func prepareGuidedProjectEntry(
 		}
 		return ExitOK, true
 	}
-	listCtx := withCommandPath(ctx, "context list")
+	listCtx := withCommandPath(ctx, "manifest list")
 	contexts, err := c.context.List(listCtx)
 	if err != nil {
 		return c.fail(listCtx, err), false
 	}
-	if contexts.ContextState != tobari.ContextObservationSyntheticDefault {
-		showCtx := withCommandPath(ctx, "context show")
+	if contexts.ManifestState != tobari.ManifestObservationAbsent {
+		showCtx := withCommandPath(ctx, "manifest show")
 		report, showErr := c.context.Show(showCtx, "")
 		if showErr != nil {
 			return c.fail(showCtx, showErr), false
@@ -813,7 +813,7 @@ func prepareGuidedProjectEntry(
 			return c.fail(ctx, reviewErr), false
 		}
 		return c.fail(ctx, fault.Wrap(
-			fault.KindInternal, "first_use_review_failed", "The recommended first-use review failed before creating a Context.", false, reviewErr,
+			fault.KindInternal, "first_use_review_failed", "The recommended first-use review failed before creating a Workspace Manifest.", false, reviewErr,
 			fault.NextAction{Command: "tobari", Reason: "Retry in an interactive terminal."},
 		)), false
 	}
@@ -850,25 +850,25 @@ func ensureClusterForGuidedEntry(ctx context.Context, c *CLI) int {
 
 func createContextForGuidedEntry(
 	ctx context.Context, c *CLI, draft tobari.RecommendedFirstUseDraft, requireEmpty bool,
-) (tobari.ContextReport, int) {
-	command, found := c.catalog.lookupRegistered("context create")
+) (tobari.ManifestReport, int) {
+	command, found := c.catalog.lookupRegistered("manifest create")
 	if !found || command.Agent.Mutation == nil {
-		return tobari.ContextReport{}, c.fail(ctx, fault.New(
-			fault.KindContract, "invalid_catalog", "The guided Context creation contract is missing.", false,
-			fault.NextAction{Command: "help context create", Reason: "Repair the Context creation command contract."},
+		return tobari.ManifestReport{}, c.fail(ctx, fault.New(
+			fault.KindContract, "invalid_catalog", "The guided Workspace Manifest creation contract is missing.", false,
+			fault.NextAction{Command: "help manifest create", Reason: "Repair the Workspace Manifest creation command contract."},
 		))
 	}
 	actionCtx := withCommandPath(ctx, command.Path)
 	intent := operation.Intent{
 		Command: command.Path, Effect: command.Effect,
-		Target: operation.TargetRef{Kind: tobari.ContextCatalogTargetKind, ParentID: tobari.ContextCatalogTargetID},
+		Target: operation.TargetRef{Kind: tobari.ManifestCatalogTargetKind, ParentID: tobari.ManifestCatalogTargetID},
 		Impact: command.Agent.Mutation.Impact,
 	}
-	var report tobari.ContextReport
+	var report tobari.ManifestReport
 	var err error
 	if requireEmpty {
 		report, err = c.context.CreateFirstWithComposition(
-			actionCtx, intent, draft.ContextName, tobari.BuiltinImageSelector, draft.PolicyMode,
+			actionCtx, intent, draft.WorkspaceManifestName, tobari.BuiltinImageSelector, draft.PolicyMode,
 			draft.Access.SourceAccess, draft.Composition(),
 		)
 	} else {
@@ -878,7 +878,7 @@ func createContextForGuidedEntry(
 		}
 		seeded, ok := wizard.(seededContextCreateWizard)
 		if !ok {
-			err = fault.New(fault.KindInternal, "context_create_wizard_failed", "The Context creation wizard cannot preserve recommended settings.", false)
+			err = fault.New(fault.KindInternal, "manifest_create_wizard_failed", "The Workspace Manifest creation wizard cannot preserve recommended settings.", false)
 		} else {
 			if terminalWizard, terminalOK := wizard.(*terminalContextCreateWizard); terminalOK {
 				if terminalWizard.bootstrap == nil {
@@ -896,7 +896,7 @@ func createContextForGuidedEntry(
 				err = normalizeContextCreateWizardError(err)
 			} else {
 				policy := selection.MethodPolicy.Clone()
-				composition := tobari.ContextCreateComposition{
+				composition := tobari.ManifestCreateComposition{
 					NativeReadiness: selection.NativeReadiness, MethodPolicy: &policy,
 					RuntimeSelection: selection.RuntimeSelection,
 				}
@@ -912,11 +912,11 @@ func createContextForGuidedEntry(
 		}
 	}
 	if err != nil {
-		return tobari.ContextReport{}, c.fail(actionCtx, err)
+		return tobari.ManifestReport{}, c.fail(actionCtx, err)
 	}
-	stage := renderGuidedEntryStage("Context created", report.Name, humanStyleAllowed(actionCtx, c, c.Err))
+	stage := renderGuidedEntryStage("Workspace Manifest created", report.Name, humanStyleAllowed(actionCtx, c, c.Err))
 	if code := c.emitMutationResultTo(actionCtx, command, stage, c.Err); code != ExitOK {
-		return tobari.ContextReport{}, code
+		return tobari.ManifestReport{}, code
 	}
 	return report, ExitOK
 }
@@ -957,19 +957,19 @@ func clusterUpForGuidedEntry(ctx context.Context, c *CLI) int {
 	return c.emitMutationResultTo(actionCtx, command, stage, c.Err)
 }
 
-func rootRuntimeReadinessFault(report tobari.ContextReport) error {
+func rootRuntimeReadinessFault(report tobari.ManifestReport) error {
 	switch report.Runtime.Status {
-	case tobari.ContextRuntimeStatusPendingBuild:
+	case tobari.ManifestRuntimeStatusPendingBuild:
 		return fault.New(
 			fault.KindRejected, "runtime_build_required",
-			"The current Context has a custom runtime recipe that must be built before creating or entering a Workspace.", false,
-			fault.NextAction{Command: "runtime build", Reason: "Build, validate, and select the current Context runtime."},
+			"The selected Workspace Manifest has a custom runtime recipe that must be built before creating or entering a Workspace.", false,
+			fault.NextAction{Command: "runtime build", Reason: "Build, validate, and select the selected Workspace Manifest runtime."},
 		)
-	case tobari.ContextRuntimeStatusInvalid:
+	case tobari.ManifestRuntimeStatusInvalid:
 		return fault.New(
 			fault.KindRejected, "runtime_recipe_invalid",
-			"The current Context runtime recipe is invalid and cannot be used to enter a Workspace.", false,
-			fault.NextAction{Command: "context show", Reason: "Inspect the runtime recipe and selected image before rebuilding."},
+			"The selected Workspace Manifest runtime recipe is invalid and cannot be used to enter a Workspace.", false,
+			fault.NextAction{Command: "manifest show", Reason: "Inspect the runtime recipe and selected image before rebuilding."},
 		)
 	default:
 		return nil
@@ -990,12 +990,12 @@ func renderGuidedEntryPaused(contextName string, style bool) []byte {
 	var output strings.Builder
 	output.WriteByte('\n')
 	fmt.Fprintln(&output, applyStyleToken(style, styleText, "Setup is ready; no Workspace was created."))
-	writeStyledLine(&output, style, "Context:", safeExternalText(contextName), styleText)
+	writeStyledLine(&output, style, "Workspace Manifest:", safeExternalText(contextName), styleText)
 	writeStyledCommandLine(&output, style, "Continue:", "run ", "`tobari`", " from the project directory.")
 	return []byte(output.String())
 }
 
-func renderGuidedRuntimeInitialized(report tobari.ContextReport, style bool) []byte {
+func renderGuidedRuntimeInitialized(report tobari.ManifestReport, style bool) []byte {
 	var output strings.Builder
 	fmt.Fprintln(&output, applyStyleToken(style, styleSuccess, "✓ Runtime recipe created"))
 	writeStyledLine(&output, style, "Dockerfile:", safeExternalText(report.Runtime.Dockerfile), styleText)
@@ -1049,7 +1049,7 @@ func runProjectStatus(ctx context.Context, c *CLI, command CommandSpec, _ operat
 	if c.tobari == nil {
 		return c.fail(ctx, missingRuntimeFault())
 	}
-	result, err := c.tobari.ProjectStatusInContext(ctx, inputs.One("--context"))
+	result, err := c.tobari.ProjectStatusInContext(ctx, inputs.One("--manifest"))
 	if err != nil {
 		return c.fail(ctx, err)
 	}
@@ -1069,7 +1069,7 @@ func runProjectDelete(ctx context.Context, c *CLI, command CommandSpec, _ operat
 		return c.fail(ctx, missingRuntimeFault())
 	}
 	force, _ := inputs.Boolean("--force")
-	contextName := inputs.One("--context")
+	contextName := inputs.One("--manifest")
 	expectedContextID := ""
 	if force {
 		preview, err := c.tobari.ProjectStatusInContext(ctx, contextName)
@@ -1080,8 +1080,8 @@ func runProjectDelete(ctx context.Context, c *CLI, command CommandSpec, _ operat
 			if humanStyleAllowed(ctx, c, c.Err) {
 				previewOutput := newHumanOutput(true)
 				previewOutput.heading("!", "Delete target", styleWarning)
-				previewOutput.row("Context", safeExternalText(preview.ContextName), styleText)
-				previewOutput.row("Context ID", preview.ContextID, styleText)
+				previewOutput.row("Workspace Manifest", safeExternalText(preview.WorkspaceManifestName), styleText)
+				previewOutput.row("Workspace Manifest ID", preview.WorkspaceManifestID, styleText)
 				previewOutput.row("Root", safeExternalText(preview.Root), styleText)
 				previewOutput.row("Workspace ID", preview.ID, styleText)
 				previewOutput.row("Session", safeExternalText(string(preview.Attachment)), humanStatusToken(string(preview.Attachment)))
@@ -1092,15 +1092,15 @@ func runProjectDelete(ctx context.Context, c *CLI, command CommandSpec, _ operat
 			} else {
 				fmt.Fprintf(
 					c.Err,
-					"delete_target: context=%s\tcontext_id=%s\troot=%s\tid=%s\tattachment=%s\thome=%s\tremoves=owned_runtime,persistent_home,tool_auth\tpreserves=project_root\n",
-					escapeTSVCell(preview.ContextName), preview.ContextID, escapeTSVCell(preview.Root), preview.ID,
+					"delete_target: manifest=%s\tmanifest_id=%s\troot=%s\tid=%s\tattachment=%s\thome=%s\tremoves=owned_runtime,persistent_home,tool_auth\tpreserves=project_root\n",
+					escapeTSVCell(preview.WorkspaceManifestName), preview.WorkspaceManifestID, escapeTSVCell(preview.Root), preview.ID,
 					preview.Attachment, escapeTSVCell(preview.Home),
 				)
 			}
 		}
 		if preview.Exists {
-			contextName = preview.ContextName
-			expectedContextID = preview.ContextID
+			contextName = preview.WorkspaceManifestName
+			expectedContextID = preview.WorkspaceManifestID
 		}
 	}
 	intent := operation.Intent{
@@ -1155,8 +1155,8 @@ type clusterDenialsOutput struct {
 type policyDenialOutput struct {
 	Timestamp            string `json:"timestamp"`
 	RequestID            string `json:"request_id"`
-	ContextID            string `json:"context_id"`
-	Context              string `json:"context"`
+	WorkspaceManifestID  string `json:"workspace_manifest_id"`
+	Context              string `json:"workspace_manifest"`
 	WorkspaceID          string `json:"workspace_id"`
 	ProjectRoot          string `json:"project_root"`
 	Scheme               string `json:"scheme"`
@@ -1193,8 +1193,8 @@ type policyCandidateOutput struct {
 	ID                   string `json:"id"`
 	ObservedAt           string `json:"observed_at"`
 	ObservationCount     int    `json:"observation_count"`
-	ContextID            string `json:"context_id"`
-	Context              string `json:"context"`
+	WorkspaceManifestID  string `json:"workspace_manifest_id"`
+	Context              string `json:"workspace_manifest"`
 	WorkspaceID          string `json:"workspace_id"`
 	ProjectRoot          string `json:"project_root"`
 	Scheme               string `json:"scheme"`
@@ -1242,8 +1242,8 @@ type policyRuleOutput struct {
 	ID                   string   `json:"id"`
 	Decision             string   `json:"decision"`
 	Match                string   `json:"match"`
-	ContextID            string   `json:"context_id"`
-	Context              string   `json:"context"`
+	WorkspaceManifestID  string   `json:"workspace_manifest_id"`
+	Context              string   `json:"workspace_manifest"`
 	WorkspaceID          string   `json:"workspace_id"`
 	ProjectRoot          string   `json:"project_root"`
 	Scheme               string   `json:"scheme"`
@@ -1317,8 +1317,8 @@ func renderPolicyCandidatesWithColor(
 		action := allowCommand + " --id " + item.ID
 		fmt.Fprintf(
 			&output,
-			"id=%s\tobserved_at=%s\tobservation_count=%d\tcontext_id=%s\tcontext=%s\tworkspace_id=%s\tproject_root=%s\tscheme=%s\thost=%s\tport=%d\tmethod=%s\tpath=%s\treason=%s\tstatus_code=%d\tallow_command=%s\tdeny_command=%s\tprotocol=%s\tstate_change=%s\tgraphql_operation_type=%s\tgraphql_root_field=%s\tmcp_method=%s\tmcp_tool_name=%s\taws_wire_protocol=%s\taws_service=%s\taws_operation=%s\tkubernetes_verb=%s\tkubernetes_resource=%s\tkubernetes_dry_run=%s\tgit_service=%s\tgit_repository=%s\toci_action=%s\toci_repository=%s\toci_object=%s\tdestination_kind=%s\tauthority_lifetime=%s\tattachment_epoch_id=%s\n",
-			item.ID, escapeTSVCell(item.ObservedAt), item.EffectiveObservationCount(), item.ContextID, escapeTSVCell(item.ContextName), item.ProjectID, escapeTSVCell(item.ProjectRoot), escapeTSVCell(item.Scheme),
+			"id=%s\tobserved_at=%s\tobservation_count=%d\tmanifest_id=%s\tmanifest=%s\tworkspace_id=%s\tproject_root=%s\tscheme=%s\thost=%s\tport=%d\tmethod=%s\tpath=%s\treason=%s\tstatus_code=%d\tallow_command=%s\tdeny_command=%s\tprotocol=%s\tstate_change=%s\tgraphql_operation_type=%s\tgraphql_root_field=%s\tmcp_method=%s\tmcp_tool_name=%s\taws_wire_protocol=%s\taws_service=%s\taws_operation=%s\tkubernetes_verb=%s\tkubernetes_resource=%s\tkubernetes_dry_run=%s\tgit_service=%s\tgit_repository=%s\toci_action=%s\toci_repository=%s\toci_object=%s\tdestination_kind=%s\tauthority_lifetime=%s\tattachment_epoch_id=%s\n",
+			item.ID, escapeTSVCell(item.ObservedAt), item.EffectiveObservationCount(), item.WorkspaceManifestID, escapeTSVCell(item.WorkspaceManifestName), item.ProjectID, escapeTSVCell(item.ProjectRoot), escapeTSVCell(item.Scheme),
 			escapeTSVCell(item.Host), item.Port, escapeTSVCell(item.Method), escapeTSVCell(item.Path), escapeTSVCell(item.Reason),
 			item.StatusCode, escapeTSVCell(action), escapeTSVCell(denyCommand+" --id "+item.ID),
 			escapeTSVCell(item.EffectiveProtocol()), item.StateChangePotential(), escapeTSVCell(item.GraphQLOperationType), escapeTSVCell(item.GraphQLRootField), escapeTSVCell(item.MCPMethod), escapeTSVCell(item.MCPToolName),
@@ -1344,7 +1344,7 @@ func policyCandidateOutputs(
 		}
 		items = append(items, policyCandidateOutput{
 			ID: item.ID, ObservedAt: safeExternalText(item.ObservedAt), ObservationCount: item.EffectiveObservationCount(),
-			ContextID: item.ContextID, Context: safeExternalText(item.ContextName),
+			WorkspaceManifestID: item.WorkspaceManifestID, Context: safeExternalText(item.WorkspaceManifestName),
 			WorkspaceID: item.ProjectID, ProjectRoot: safeExternalText(item.ProjectRoot),
 			Scheme: safeExternalText(item.Scheme), Host: safeExternalText(item.Host), Port: item.Port, Method: safeExternalText(item.Method),
 			Path: safeExternalText(item.Path), Protocol: safeExternalText(item.EffectiveProtocol()), StateChange: item.StateChangePotential(),
@@ -1383,8 +1383,8 @@ func renderPolicyCandidatesHuman(result tobari.PolicyCandidateReport, allowComma
 	writeUnparsedDenialWarning(output, result.UnparsedLines)
 	for index, item := range result.Items {
 		output.section(fmt.Sprintf("Candidate %d", index+1))
-		output.row("Context", safeExternalText(item.ContextName), styleText)
-		output.row("Context ID", item.ContextID, styleText)
+		output.row("Workspace Manifest", safeExternalText(item.WorkspaceManifestName), styleText)
+		output.row("Workspace Manifest ID", item.WorkspaceManifestID, styleText)
 		output.row("Workspace", safeExternalText(item.ProjectRoot), styleText)
 		request := fmt.Sprintf("%s://%s:%d %s %s", safeExternalText(item.Scheme), safeExternalText(item.Host), item.Port, safeExternalText(item.Method), safeExternalText(item.Path))
 		output.row("Request", request, styleText)
@@ -1452,7 +1452,7 @@ func renderPolicyReviewHuman(
 	writeUnparsedDenialWarning(output, result.UnparsedLines)
 	for index, item := range result.Items {
 		output.section(fmt.Sprintf("Permission %d", index+1))
-		output.row("Context", safeExternalText(item.ContextName), styleText)
+		output.row("Workspace Manifest", safeExternalText(item.WorkspaceManifestName), styleText)
 		output.row("Workspace", safeExternalText(item.ProjectRoot), styleText)
 		request := fmt.Sprintf("%s://%s:%d %s %s", safeExternalText(item.Scheme), safeExternalText(item.Host), item.Port, safeExternalText(item.Method), safeExternalText(item.Path))
 		output.row("Request", request, styleText)
@@ -1527,7 +1527,7 @@ func renderPolicyReviewChange(result tobari.PolicyReviewChange, color bool) []by
 	for index, decision := range result.Decisions {
 		fmt.Fprintln(&output)
 		fmt.Fprintf(&output, "%d. %s\n", index+1, policyReviewDecisionLabel(decision))
-		fmt.Fprintf(&output, "   Context   %s · %s\n", safeExternalText(decision.ContextName), decision.ContextID)
+		fmt.Fprintf(&output, "   Workspace Manifest   %s · %s\n", safeExternalText(decision.WorkspaceManifestName), decision.WorkspaceManifestID)
 		fmt.Fprintf(&output, "   Workspace %s · %s\n", safeExternalText(decision.ProjectRoot), decision.ProjectID)
 		fmt.Fprintf(&output, "   Effect    %s\n", policyReviewAppliedEffect(decision))
 		fmt.Fprintf(&output, "   Rule      %s\n", decision.RuleID)
@@ -1597,8 +1597,8 @@ func renderPolicyRulesWithCommands(
 	for _, item := range items {
 		fmt.Fprintf(
 			&output,
-			"id=%s\tdecision=%s\tmatch=%s\tcontext_id=%s\tcontext=%s\tworkspace_id=%s\tproject_root=%s\tscheme=%s\thost=%s\tport=%d\tmethod=%s\tpath=%s\texamples=%s\tsource_candidates=%s\treset_command=%s\tprotocol=%s\tstate_change=%s\tgraphql_operation_type=%s\tgraphql_root_field=%s\tmcp_method=%s\tmcp_tool_name=%s\taws_wire_protocol=%s\taws_service=%s\taws_operation=%s\tkubernetes_verb=%s\tkubernetes_resource=%s\tkubernetes_dry_run=%s\tgit_service=%s\tgit_repository=%s\toci_action=%s\toci_repository=%s\toci_object=%s\n",
-			item.ID, item.Decision, item.Match, item.ContextID, escapeTSVCell(item.Context), item.WorkspaceID, escapeTSVCell(item.ProjectRoot), escapeTSVCell(item.Scheme), escapeTSVCell(item.Host), item.Port,
+			"id=%s\tdecision=%s\tmatch=%s\tmanifest_id=%s\tmanifest=%s\tworkspace_id=%s\tproject_root=%s\tscheme=%s\thost=%s\tport=%d\tmethod=%s\tpath=%s\texamples=%s\tsource_candidates=%s\treset_command=%s\tprotocol=%s\tstate_change=%s\tgraphql_operation_type=%s\tgraphql_root_field=%s\tmcp_method=%s\tmcp_tool_name=%s\taws_wire_protocol=%s\taws_service=%s\taws_operation=%s\tkubernetes_verb=%s\tkubernetes_resource=%s\tkubernetes_dry_run=%s\tgit_service=%s\tgit_repository=%s\toci_action=%s\toci_repository=%s\toci_object=%s\n",
+			item.ID, item.Decision, item.Match, item.WorkspaceManifestID, escapeTSVCell(item.Context), item.WorkspaceID, escapeTSVCell(item.ProjectRoot), escapeTSVCell(item.Scheme), escapeTSVCell(item.Host), item.Port,
 			escapeTSVCell(item.Method), escapeTSVCell(item.Path), escapeTSVCell(strings.Join(item.Examples, ",")),
 			escapeTSVCell(strings.Join(item.SourceCandidates, ",")), escapeTSVCell(item.ResetCommand), escapeTSVCell(item.Protocol),
 			item.StateChange, escapeTSVCell(item.GraphQLOperationType), escapeTSVCell(item.GraphQLRootField), escapeTSVCell(item.MCPMethod), escapeTSVCell(item.MCPToolName),
@@ -1620,7 +1620,7 @@ func policyRuleOutputs(result tobari.PolicyRuleReport, resetCommand string) []po
 		}
 		items = append(items, policyRuleOutput{
 			ID: rule.ID, Decision: rule.Decision, Match: safeExternalText(rule.Match),
-			ContextID: rule.ContextID, Context: safeExternalText(rule.ContextName),
+			WorkspaceManifestID: rule.WorkspaceManifestID, Context: safeExternalText(rule.WorkspaceManifestName),
 			WorkspaceID: rule.ProjectID, ProjectRoot: safeExternalText(rule.ProjectRoot), Scheme: safeExternalText(rule.Scheme), Host: safeExternalText(rule.Host), Port: rule.Port,
 			Method: safeExternalText(rule.Method), Path: safeExternalText(rule.Path), Protocol: safeExternalText(rule.EffectiveProtocol()), StateChange: rule.StateChangePotential(),
 			GraphQLOperationType: safeExternalText(rule.GraphQLOperationType), GraphQLRootField: safeExternalText(rule.GraphQLRootField),
@@ -1669,8 +1669,8 @@ func renderPolicyRulesHuman(result tobari.PolicyRuleReport, resetCommand string,
 			}
 			output.row("Request", policyRuleRequest(item), styleText)
 			writePolicyGraphQLIdentity(output, item.PolicyProtocolIdentity)
-			output.row("Context", safeExternalText(item.ContextName), styleText)
-			output.row("Context ID", item.ContextID, styleText)
+			output.row("Workspace Manifest", safeExternalText(item.WorkspaceManifestName), styleText)
+			output.row("Workspace Manifest ID", item.WorkspaceManifestID, styleText)
 			output.row("Workspace", safeExternalText(item.ProjectRoot), styleText)
 			output.row("Rule ID", item.ID, styleText)
 			output.row("Match", safeExternalText(item.Match), styleText)
@@ -1708,7 +1708,7 @@ func renderPolicyReviewAllowSuccess(result tobari.PolicyLearningChange, color bo
 	output.heading("✓", "Permission allowed", styleSuccess)
 	output.row("Testing policy", "passed", styleSuccess)
 	output.row("Applying exact rule", "applied", styleSuccess)
-	output.row("Context", safeExternalText(result.Rule.ContextName), styleText)
+	output.row("Workspace Manifest", safeExternalText(result.Rule.WorkspaceManifestName), styleText)
 	output.row("Workspace", safeExternalText(result.Rule.ProjectRoot), styleText)
 	output.row("Request", fmt.Sprintf(
 		"%s://%s:%d %s %s", safeExternalText(result.Rule.Scheme), safeExternalText(result.Rule.Host), result.Rule.Port,
@@ -1733,8 +1733,8 @@ func renderPolicyLearningChangeWithColor(result tobari.PolicyLearningChange, col
 	output.row("Policy", safeExternalText(result.PolicyDirectory), styleText)
 	output.row("Target ID", result.TargetID, styleText)
 	output.row("Rule ID", result.Rule.ID, styleText)
-	output.row("Context", safeExternalText(result.Rule.ContextName), styleText)
-	output.row("Context ID", result.Rule.ContextID, styleText)
+	output.row("Workspace Manifest", safeExternalText(result.Rule.WorkspaceManifestName), styleText)
+	output.row("Workspace Manifest ID", result.Rule.WorkspaceManifestID, styleText)
 	output.row("Workspace", safeExternalText(result.Rule.ProjectRoot), styleText)
 	output.row("Match", safeExternalText(result.Rule.Match), styleText)
 	output.row("Request", fmt.Sprintf("%s://%s:%d %s %s", safeExternalText(result.Rule.Scheme), safeExternalText(result.Rule.Host), result.Rule.Port, safeExternalText(result.Rule.Method), safeExternalText(result.Rule.Path)), styleText)
@@ -1750,12 +1750,12 @@ func renderPolicyLearningChangeWithColor(result tobari.PolicyLearningChange, col
 func renderPolicyDenyChangeWithColor(result tobari.PolicyDenyChange, color bool) []byte {
 	output := newHumanOutput(color)
 	output.heading("✓", "Permission denied", styleSuccess)
-	output.row("Context", safeExternalText(result.Rule.ContextName), styleText)
+	output.row("Workspace Manifest", safeExternalText(result.Rule.WorkspaceManifestName), styleText)
 	output.row("Workspace", safeExternalText(result.Rule.ProjectRoot), styleText)
 	output.row("Policy", safeExternalText(result.PolicyDirectory), styleText)
 	output.row("Target ID", result.TargetID, styleText)
 	output.row("Rule ID", result.Rule.ID, styleText)
-	output.row("Context ID", result.Rule.ContextID, styleText)
+	output.row("Workspace Manifest ID", result.Rule.WorkspaceManifestID, styleText)
 	output.row("Request", fmt.Sprintf(
 		"%s://%s:%d %s %s", safeExternalText(result.Rule.Scheme), safeExternalText(result.Rule.Host), result.Rule.Port,
 		safeExternalText(result.Rule.Method), safeExternalText(result.Rule.Path),
@@ -1791,7 +1791,7 @@ func renderClusterDenialsWithReviewCommand(
 		for _, item := range result.Items {
 			items = append(items, policyDenialOutput{
 				Timestamp: safeExternalText(item.Timestamp), RequestID: safeExternalText(item.RequestID),
-				ContextID: item.ContextID, Context: safeExternalText(item.ContextName),
+				WorkspaceManifestID: item.WorkspaceManifestID, Context: safeExternalText(item.WorkspaceManifestName),
 				WorkspaceID: item.ProjectID, ProjectRoot: safeExternalText(item.ProjectRoot),
 				Scheme: safeExternalText(item.Scheme), Host: safeExternalText(item.Host), Port: item.Port, Method: safeExternalText(item.Method), Path: safeExternalText(item.Path),
 				Protocol: safeExternalText(item.EffectiveProtocol()), StateChange: item.StateChangePotential(), GraphQLOperationType: safeExternalText(item.GraphQLOperationType),
@@ -1831,9 +1831,9 @@ func renderClusterDenialsWithReviewCommand(
 	for _, item := range result.Items {
 		fmt.Fprintf(
 			&output,
-			"denial: timestamp=%s\trequest_id=%s\tcontext=%s\tcontext_id=%s\tworkspace_id=%s\tproject_root=%s\tscheme=%s\thost=%s\tport=%d\tmethod=%s\tpath=%s\tstatus_code=%d\treason=%s\tprotocol=%s\tstate_change=%s\tgraphql_operation_type=%s\tgraphql_root_field=%s\tmcp_method=%s\tmcp_tool_name=%s\taws_wire_protocol=%s\taws_service=%s\taws_operation=%s\tkubernetes_verb=%s\tkubernetes_resource=%s\tkubernetes_dry_run=%s\tgit_service=%s\tgit_repository=%s\toci_action=%s\toci_repository=%s\toci_object=%s\tdestination_kind=%s\tauthority_lifetime=%s\tattachment_epoch_id=%s\n",
+			"denial: timestamp=%s\trequest_id=%s\tmanifest=%s\tmanifest_id=%s\tworkspace_id=%s\tproject_root=%s\tscheme=%s\thost=%s\tport=%d\tmethod=%s\tpath=%s\tstatus_code=%d\treason=%s\tprotocol=%s\tstate_change=%s\tgraphql_operation_type=%s\tgraphql_root_field=%s\tmcp_method=%s\tmcp_tool_name=%s\taws_wire_protocol=%s\taws_service=%s\taws_operation=%s\tkubernetes_verb=%s\tkubernetes_resource=%s\tkubernetes_dry_run=%s\tgit_service=%s\tgit_repository=%s\toci_action=%s\toci_repository=%s\toci_object=%s\tdestination_kind=%s\tauthority_lifetime=%s\tattachment_epoch_id=%s\n",
 			escapeTSVCell(item.Timestamp), escapeTSVCell(item.RequestID),
-			escapeTSVCell(item.ContextName), item.ContextID, item.ProjectID, escapeTSVCell(item.ProjectRoot),
+			escapeTSVCell(item.WorkspaceManifestName), item.WorkspaceManifestID, item.ProjectID, escapeTSVCell(item.ProjectRoot),
 			escapeTSVCell(item.Scheme), escapeTSVCell(item.Host), item.Port, escapeTSVCell(item.Method),
 			escapeTSVCell(item.Path), item.StatusCode, escapeTSVCell(item.Reason), escapeTSVCell(item.EffectiveProtocol()),
 			item.StateChangePotential(), escapeTSVCell(item.GraphQLOperationType), escapeTSVCell(item.GraphQLRootField), escapeTSVCell(item.MCPMethod), escapeTSVCell(item.MCPToolName),
@@ -1867,8 +1867,8 @@ func renderClusterDenialsHuman(result tobari.DenialReport, reviewCommand string,
 	output.row("Review", reviewCommand, styleAccent)
 	for index, item := range result.Items {
 		output.section(fmt.Sprintf("Denial %d", index+1))
-		output.row("Context", safeExternalText(item.ContextName), styleText)
-		output.row("Context ID", item.ContextID, styleText)
+		output.row("Workspace Manifest", safeExternalText(item.WorkspaceManifestName), styleText)
+		output.row("Workspace Manifest ID", item.WorkspaceManifestID, styleText)
 		output.row("Workspace", safeExternalText(item.ProjectRoot), styleText)
 		output.row("Request", fmt.Sprintf("%s://%s:%d %s %s", safeExternalText(item.Scheme), safeExternalText(item.Host), item.Port, safeExternalText(item.Method), safeExternalText(item.Path)), styleText)
 		writePolicyGraphQLIdentity(output, item.PolicyProtocolIdentity)
@@ -1898,7 +1898,7 @@ type clusterStatusOutput struct {
 	Running                  bool                     `json:"running"`
 	Policy                   *string                  `json:"policy"`
 	WorkspaceCount           int                      `json:"workspace_count"`
-	ContextCount             int                      `json:"context_count"`
+	ManifestCount            int                      `json:"manifest_count"`
 	PolicyRevision           *string                  `json:"policy_revision"`
 	PolicyProjection         string                   `json:"policy_projection"`
 	PrincipalRegistry        string                   `json:"principal_registry"`
@@ -1919,7 +1919,7 @@ func renderClusterStatus(status tobari.ClusterStatus, format successFormat, colo
 		projection := clusterStatusOutput{
 			Configured: status.Configured, Running: status.Running,
 			Policy:         optionalExternalText(status.Policy),
-			WorkspaceCount: status.TobariCount, ContextCount: status.ContextCount,
+			WorkspaceCount: status.TobariCount, ManifestCount: status.ManifestCount,
 			PolicyRevision: optionalString(status.PolicyRevision), PolicyProjection: safeExternalText(status.PolicyProjection), PrincipalRegistry: safeExternalText(status.PrincipalRegistry),
 			GatewayProjection: safeExternalText(status.GatewayProjection),
 			Components:        append([]tobari.ComponentStatus{}, status.Components...),
@@ -1963,7 +1963,7 @@ func renderClusterDownTextWithColor(status tobari.ClusterStatus, purge, color bo
 	output := newHumanOutput(color)
 	output.heading("✓", "Cluster removed", styleSuccess)
 	output.row("Removed", "shared CA volumes and active policy-bundle volume", styleText)
-	output.row("Preserved", "encrypted Context vaults and installation root key", styleText)
+	output.row("Preserved", "encrypted Workspace Manifest vaults and installation root key", styleText)
 	return output.bytes()
 }
 
@@ -2002,8 +2002,8 @@ func renderClusterStatusTextWithColor(status tobari.ClusterStatus, color bool) [
 	)
 	fmt.Fprintf(
 		&output, "  %s %d\n",
-		applyStyleToken(color, styleMuted, fmt.Sprintf("%-8s", "Contexts")),
-		status.ContextCount,
+		applyStyleToken(color, styleMuted, fmt.Sprintf("%-8s", "Workspace Manifests")),
+		status.ManifestCount,
 	)
 	if status.PolicyRevision != "" {
 		fmt.Fprintf(&output, "  %s %s\n", applyStyleToken(color, styleMuted, fmt.Sprintf("%-8s", "Revision")), status.PolicyRevision[:12])
@@ -2094,17 +2094,21 @@ func renderClusterRecentError(output *bytes.Buffer, recentError string, color bo
 }
 
 type projectStatusOutput struct {
-	ContextState  tobari.ContextObservationState `json:"context_state"`
-	Exists        bool                           `json:"exists"`
-	ProjectRoot   string                         `json:"project_root"`
-	WorkspaceID   string                         `json:"workspace_id"`
-	WorkspaceHome string                         `json:"workspace_home"`
-	Context       string                         `json:"context"`
-	ContextID     *string                        `json:"context_id"`
-	Runtime       string                         `json:"runtime"`
-	Attachment    string                         `json:"attachment"`
-	Bootstrap     projectBootstrapStatusOutput   `json:"bootstrap"`
-	NextArgv      []string                       `json:"next_argv"`
+	ManifestState       tobari.ManifestObservationState `json:"workspace_manifest_state"`
+	Exists              bool                            `json:"exists"`
+	ProjectRoot         string                          `json:"project_root"`
+	WorkspaceID         string                          `json:"workspace_id"`
+	WorkspaceHome       string                          `json:"workspace_home"`
+	Context             string                          `json:"workspace_manifest"`
+	WorkspaceManifestID *string                         `json:"workspace_manifest_id"`
+	Runtime             string                          `json:"runtime"`
+	Attachment          string                          `json:"attachment"`
+	Bootstrap           projectBootstrapStatusOutput    `json:"bootstrap"`
+	Adoption            *tobari.WorkspaceAdoptionState  `json:"adoption"`
+	Current             *tobari.AppliedEntry            `json:"current"`
+	Next                *tobari.DesiredEntry            `json:"next"`
+	LastFailure         *tobari.ReconciliationFailure   `json:"last_reconciliation_failure"`
+	NextArgv            []string                        `json:"next_argv"`
 }
 
 type projectBootstrapStatusOutput struct {
@@ -2118,25 +2122,26 @@ type projectStatusDocument struct {
 	Status        projectStatusOutput `json:"status"`
 }
 
-func renderProjectStatus(result tobari.ProjectStatus, format successFormat) ([]byte, error) {
+func renderProjectStatus(result tobari.WorkspaceStatus, format successFormat) ([]byte, error) {
 	return renderProjectStatusWithColor(result, format, false)
 }
 
-func renderProjectStatusWithColor(result tobari.ProjectStatus, format successFormat, color bool) ([]byte, error) {
+func renderProjectStatusWithColor(result tobari.WorkspaceStatus, format successFormat, color bool) ([]byte, error) {
 	if err := result.Validate(); err != nil {
 		return nil, fault.Wrap(fault.KindContract, "invalid_status_contract", "project status is invalid", false, err)
 	}
 	nextArgv := []string{ProgramName}
-	if result.ContextState != tobari.ContextObservationSyntheticDefault {
-		nextArgv = append(nextArgv, "--context", result.ContextName)
+	if result.ManifestState != tobari.ManifestObservationAbsent {
+		nextArgv = append(nextArgv, "--manifest", result.WorkspaceManifestName)
 	}
 	bootstrap := result.Bootstrap.Resolved()
 	value := projectStatusOutput{
-		ContextState: result.ContextState, Exists: result.Exists, ProjectRoot: safeExternalText(result.Root), WorkspaceID: result.ID,
-		WorkspaceHome: safeExternalText(result.Home), Context: safeExternalText(result.ContextName), ContextID: optionalString(result.ContextID),
+		ManifestState: result.ManifestState, Exists: result.Exists, ProjectRoot: safeExternalText(result.Root), WorkspaceID: result.ID,
+		WorkspaceHome: safeExternalText(result.Home), Context: safeExternalText(result.WorkspaceManifestName), WorkspaceManifestID: optionalString(result.WorkspaceManifestID),
 		Runtime: string(result.Runtime), Attachment: string(result.Attachment),
 		Bootstrap: projectBootstrapStatusOutput{State: bootstrap.State, AppliedRevision: bootstrap.AppliedRevision, CurrentRevision: bootstrap.CurrentRevision},
-		NextArgv:  nextArgv,
+		Adoption:  optionalWorkspaceAdoption(result), Current: result.Current, Next: result.Next, LastFailure: result.LastFailure,
+		NextArgv: nextArgv,
 	}
 	nextCommand := strings.Join(value.NextArgv, " ")
 	nextRecovery := ProgramName
@@ -2144,7 +2149,7 @@ func renderProjectStatusWithColor(result tobari.ProjectStatus, format successFor
 		nextRecovery = strings.Join(value.NextArgv[1:], " ")
 	}
 	if format == successFormatJSON {
-		output, err := marshalCommandJSON("status", projectStatusDocument{SchemaVersion: 1, Status: value})
+		output, err := marshalCommandJSON("status", projectStatusDocument{SchemaVersion: 2, Status: value})
 		if err != nil {
 			return nil, fault.Wrap(fault.KindContract, "output_encoding_failed", "project status JSON could not be encoded", false, err)
 		}
@@ -2158,11 +2163,11 @@ func renderProjectStatusWithColor(result tobari.ProjectStatus, format successFor
 		if !result.Exists {
 			output := newHumanOutput(color)
 			output.heading("○", "No Workspace", styleMuted)
-			output.row("Context", safeExternalText(result.ContextName), styleText)
-			if result.ContextState == tobari.ContextObservationSyntheticDefault {
+			output.row("Workspace Manifest", safeExternalText(result.WorkspaceManifestName), styleText)
+			if result.ManifestState == tobari.ManifestObservationAbsent {
 				output.row("Defaults", "Recommended · not saved", styleWarning)
 			}
-			output.next(nextRecovery, "Create or enter a Workspace in this Context.")
+			output.next(nextRecovery, "Create or enter a Workspace in this Workspace Manifest.")
 			return output.bytes(), nil
 		}
 		output := newHumanOutput(color)
@@ -2172,13 +2177,15 @@ func renderProjectStatusWithColor(result tobari.ProjectStatus, format successFor
 		}
 		output.heading(marker, title, token)
 		output.row("Root", safeExternalText(result.Root), styleText)
-		output.row("Context", safeExternalText(result.ContextName), styleText)
+		output.row("Manifest", safeExternalText(result.WorkspaceManifestName), styleText)
 		runtimeValue := safeExternalText(string(result.Runtime))
 		if summary.RuntimeSelection != "" {
 			runtimeValue = safeExternalText(summary.RuntimeSelection) + " · " + runtimeValue
 		}
 		output.row("Runtime", runtimeValue, humanStatusToken(string(result.Runtime)))
 		output.row("Session", safeExternalText(string(result.Attachment)), humanStatusToken(string(result.Attachment)))
+		output.row("Current entry", humanAppliedEntry(result.Current), humanStatusToken(string(result.Adoption)))
+		output.row("Next entry", humanDesiredEntry(result.Next), humanStatusToken(string(result.Adoption)))
 		if summary.BootstrapAttention {
 			output.row("Workspace defaults", humanWorkspaceBootstrapAttention(bootstrap.State), styleWarning)
 		}
@@ -2192,18 +2199,40 @@ func renderProjectStatusWithColor(result tobari.ProjectStatus, format successFor
 	}
 	if !result.Exists {
 		return []byte(fmt.Sprintf(
-			"No Workspace exists for the current directory in Context %s\nNext: %s\n",
-			escapeTSVCell(result.ContextName), nextCommand,
+			"No Workspace exists for the current directory in Workspace Manifest %s\nNext: %s\n",
+			escapeTSVCell(result.WorkspaceManifestName), nextCommand,
 		)), nil
 	}
 	var output bytes.Buffer
 	fmt.Fprintf(&output, "Workspace exists at %s\n", escapeTSVCell(result.Root))
-	fmt.Fprintf(&output, "Context: %s\n", escapeTSVCell(result.ContextName))
+	fmt.Fprintf(&output, "Manifest: %s\n", escapeTSVCell(result.WorkspaceManifestName))
 	fmt.Fprintf(&output, "Runtime: %s\n", escapeTSVCell(string(result.Runtime)))
 	fmt.Fprintf(&output, "Session: %s\n", escapeTSVCell(string(result.Attachment)))
 	fmt.Fprintf(&output, "Bootstrap: %s\n", escapeTSVCell(value.Bootstrap.State))
 	fmt.Fprintf(&output, "Next: %s\n", nextCommand)
 	return semanticTextBytes(color, output.Bytes()), nil
+}
+
+func optionalWorkspaceAdoption(status tobari.WorkspaceStatus) *tobari.WorkspaceAdoptionState {
+	if !status.Exists {
+		return nil
+	}
+	value := status.Adoption
+	return &value
+}
+
+func humanAppliedEntry(entry *tobari.AppliedEntry) string {
+	if entry == nil {
+		return "Not yet applied"
+	}
+	return fmt.Sprintf("generation %d · %s", entry.ManifestGeneration, entry.EntryRevision)
+}
+
+func humanDesiredEntry(entry *tobari.DesiredEntry) string {
+	if entry == nil {
+		return "Unavailable"
+	}
+	return fmt.Sprintf("generation %d · %s", entry.ManifestGeneration, entry.EntryRevision)
 }
 
 func humanWorkspaceBootstrapAttention(state string) string {
@@ -2214,11 +2243,16 @@ func humanWorkspaceBootstrapAttention(state string) string {
 }
 
 type projectListOutput struct {
-	ProjectRoot string `json:"project_root"`
-	Context     string `json:"context"`
-	ContextID   string `json:"context_id"`
-	Runtime     string `json:"runtime"`
-	WorkspaceID string `json:"workspace_id"`
+	ProjectRoot         string                        `json:"project_root"`
+	Context             string                        `json:"workspace_manifest"`
+	WorkspaceManifestID string                        `json:"workspace_manifest_id"`
+	Runtime             string                        `json:"runtime"`
+	WorkspaceID         string                        `json:"workspace_id"`
+	WorkspaceHome       string                        `json:"workspace_home"`
+	Adoption            tobari.WorkspaceAdoptionState `json:"adoption"`
+	Current             *tobari.AppliedEntry          `json:"current"`
+	Next                tobari.DesiredEntry           `json:"next"`
+	LastFailure         *tobari.ReconciliationFailure `json:"last_reconciliation_failure"`
 }
 
 type projectListDocument struct {
@@ -2226,23 +2260,24 @@ type projectListDocument struct {
 	Workspaces    []projectListOutput `json:"workspaces"`
 }
 
-func renderProjectList(result tobari.ProjectListResult, format successFormat) ([]byte, error) {
+func renderProjectList(result tobari.WorkspaceListResult, format successFormat) ([]byte, error) {
 	return renderProjectListWithColor(result, format, false)
 }
 
-func renderProjectListWithColor(result tobari.ProjectListResult, format successFormat, color bool) ([]byte, error) {
+func renderProjectListWithColor(result tobari.WorkspaceListResult, format successFormat, color bool) ([]byte, error) {
 	if err := result.Validate(); err != nil {
 		return nil, fault.Wrap(fault.KindContract, "invalid_list_contract", "project list is invalid", false, err)
 	}
 	items := make([]projectListOutput, 0, len(result.Items))
 	for _, item := range result.Items {
 		items = append(items, projectListOutput{
-			ProjectRoot: safeExternalText(item.Root), Context: safeExternalText(item.ContextName), ContextID: item.ContextID,
-			Runtime: string(item.Runtime), WorkspaceID: item.ID,
+			ProjectRoot: safeExternalText(item.Root), Context: safeExternalText(item.WorkspaceManifestName), WorkspaceManifestID: item.WorkspaceManifestID,
+			Runtime: string(item.Runtime), WorkspaceID: item.ID, WorkspaceHome: safeExternalText(item.Home), Adoption: item.Adoption,
+			Current: item.Current, Next: item.Next, LastFailure: item.LastFailure,
 		})
 	}
 	if format == successFormatJSON {
-		output, err := marshalCommandJSON("list", projectListDocument{SchemaVersion: 1, Workspaces: items})
+		output, err := marshalCommandJSON("list", projectListDocument{SchemaVersion: 2, Workspaces: items})
 		if err != nil {
 			return nil, fault.Wrap(fault.KindContract, "output_encoding_failed", "project list JSON could not be encoded", false, err)
 		}
@@ -2262,8 +2297,10 @@ func renderProjectListWithColor(result tobari.ProjectListResult, format successF
 				marker = "▸ "
 			}
 			output.sectionWithToken(marker+item.ProjectRoot, styleText)
-			output.row("Context", item.Context, styleText)
+			output.row("Manifest", item.Context, styleText)
 			output.row("Runtime", item.Runtime, humanStatusToken(item.Runtime))
+			output.row("Current entry", humanAppliedEntry(item.Current), humanStatusToken(string(item.Adoption)))
+			output.row("Next entry", humanDesiredEntry(&item.Next), humanStatusToken(string(item.Adoption)))
 			output.row("Workspace ID", item.WorkspaceID, styleText)
 		}
 		return output.bytes(), nil
@@ -2276,11 +2313,11 @@ func renderProjectListWithColor(result tobari.ProjectListResult, format successF
 	return semanticTextBytes(color, output.Bytes()), nil
 }
 
-func renderProjectDelete(result tobari.ProjectDeleteResult) []byte {
+func renderProjectDelete(result tobari.WorkspaceDeleteResult) []byte {
 	return renderProjectDeleteWithColor(result, false)
 }
 
-func renderProjectDeleteWithColor(result tobari.ProjectDeleteResult, color bool) []byte {
+func renderProjectDeleteWithColor(result tobari.WorkspaceDeleteResult, color bool) []byte {
 	output := newHumanOutput(color)
 	marker, title, token := "✓", "Workspace deleted", styleSuccess
 	if !result.Deleted {
@@ -2289,8 +2326,8 @@ func renderProjectDeleteWithColor(result tobari.ProjectDeleteResult, color bool)
 	output.heading(marker, title, token)
 	output.row("Deleted", humanBool(result.Deleted), humanOutcomeBoolToken(result.Deleted))
 	output.row("Project root", safeExternalText(result.Root), styleText)
-	output.row("Context", safeExternalText(result.ContextName), styleText)
-	output.row("Context ID", result.ContextID, styleText)
+	output.row("Workspace Manifest", safeExternalText(result.WorkspaceManifestName), styleText)
+	output.row("Workspace Manifest ID", result.WorkspaceManifestID, styleText)
 	output.row("Workspace ID", result.ID, styleText)
 	output.row("Workspace home", safeExternalText(result.Home), styleText)
 	if result.Deleted {

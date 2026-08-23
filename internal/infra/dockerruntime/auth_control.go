@@ -441,15 +441,15 @@ func authStorageBackend() (authbroker.StorageBackend, error) {
 	}
 }
 
-func (r *Runtime) resolveAuthContext(ctx context.Context, contextName string) (tobari.ContextManifest, error) {
+func (r *Runtime) resolveAuthContext(ctx context.Context, contextName string) (tobari.WorkspaceManifest, error) {
 	if err := ctx.Err(); err != nil {
-		return tobari.ContextManifest{}, err
+		return tobari.WorkspaceManifest{}, err
 	}
 	manifest, _, err := r.resolveContext(contextName)
 	if errors.Is(err, tobari.ErrContextNotFound) {
-		return tobari.ContextManifest{}, fault.New(
+		return tobari.WorkspaceManifest{}, fault.New(
 			fault.KindNotFound, "context_not_found", "The selected Context does not exist.", false,
-			fault.NextAction{Command: "context list", Reason: "Choose an existing Context before using authentication."},
+			fault.NextAction{Command: "manifest list", Reason: "Choose an existing Context before using authentication."},
 		)
 	}
 	return manifest, err
@@ -574,7 +574,7 @@ func (r *Runtime) addAuthDiagnostics(
 		configured[item.ID] = make(map[string]projectAuthProviderBinding)
 		for _, provider := range projection.Providers {
 			response, statusErr := r.runBrokerControl(
-				ctx, nil, "status", "--context-id", item.ID, "--provider", provider.ID,
+				ctx, nil, "status", "--manifest-id", item.ID, "--provider", provider.ID,
 			)
 			if statusErr != nil || response.Provider != provider.ID {
 				add("auth_vault_integrity", doctor.CheckStatusFail, "an encrypted Context vault could not be authenticated")
@@ -616,7 +616,7 @@ func (r *Runtime) addAuthDiagnostics(
 		for _, binding := range registry.Providers {
 			observed[binding.Provider] = binding
 		}
-		expected := configured[project.ContextID]
+		expected := configured[project.WorkspaceManifestID]
 		for providerID, binding := range expected {
 			current, exists := observed[providerID]
 			if !exists || current.Revision != binding.Revision || current.BindingDigest != binding.BindingDigest {
@@ -628,7 +628,7 @@ func (r *Runtime) addAuthDiagnostics(
 				ctx,
 				nil,
 				"binding_status",
-				"--context-id", project.ContextID,
+				"--manifest-id", project.WorkspaceManifestID,
 				"--project-id", project.ID,
 				"--provider", providerID,
 				"--revision", current.Revision,

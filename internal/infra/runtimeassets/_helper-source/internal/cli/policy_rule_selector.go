@@ -262,7 +262,7 @@ func renderPolicyRulesListRaw(
 			lines,
 			prefix+
 				applyStyleToken(style, policyRuleDecisionToken(rule.Decision), strings.ToUpper(rule.Decision))+" "+
-				applyStyleToken(style, styleText, safeExternalText(rule.ContextName)+"  "+safeExternalText(rule.ProjectRoot)),
+				applyStyleToken(style, styleText, safeExternalText(rule.WorkspaceManifestName)+"  "+safeExternalText(rule.ProjectRoot)),
 			"  "+applyStyleToken(style, styleMuted, policyRuleRequest(rule)),
 		)
 	}
@@ -289,7 +289,7 @@ func renderPolicyRuleDetailRaw(
 		applyStyleToken(style, styleAccent, fmt.Sprintf("Decision %d of %d", selected+1, len(report.Items))),
 		"",
 		selectorDetail(style, "Decision", strings.ToUpper(rule.Decision), policyRuleDecisionToken(rule.Decision)),
-		selectorDetail(style, "Context", safeExternalText(rule.ContextName), styleText),
+		selectorDetail(style, "Workspace Manifest", safeExternalText(rule.WorkspaceManifestName), styleText),
 		selectorDetail(style, "Workspace", safeExternalText(rule.ProjectRoot), styleText),
 		selectorDetail(style, "Request", policyRuleRequest(rule), styleText),
 		selectorDetail(style, "Match", safeExternalText(rule.Match), styleText),
@@ -321,7 +321,7 @@ func renderPolicyRuleDetailRawWithMessage(
 		applyStyleToken(style, styleWarning, "Decision reset confirmation"),
 		"",
 		selectorDetail(style, "Decision", strings.ToUpper(rule.Decision), policyRuleDecisionToken(rule.Decision)),
-		selectorDetail(style, "Context", safeExternalText(rule.ContextName), styleText),
+		selectorDetail(style, "Workspace Manifest", safeExternalText(rule.WorkspaceManifestName), styleText),
 		selectorDetail(style, "Workspace", safeExternalText(rule.ProjectRoot), styleText),
 		selectorDetail(style, "Request", policyRuleRequest(rule), styleText),
 		selectorDetail(style, "Rule ID", rule.ID, styleText),
@@ -387,7 +387,7 @@ func writePolicyRulesListLine(out io.Writer, report tobari.PolicyRuleReport) err
 	}
 	for index, rule := range report.Items {
 		if _, err := fmt.Fprintf(out, "  %d. %s %s  %s\n     %s\n", index+1, strings.ToUpper(rule.Decision),
-			safeExternalText(rule.ContextName), safeExternalText(rule.ProjectRoot), policyRuleRequest(rule)); err != nil {
+			safeExternalText(rule.WorkspaceManifestName), safeExternalText(rule.ProjectRoot), policyRuleRequest(rule)); err != nil {
 			return err
 		}
 	}
@@ -408,7 +408,7 @@ func selectPolicyRuleDetailLine(
 		"Decision "+strconv.Itoa(selected+1)+" of "+strconv.Itoa(len(report.Items)),
 		"",
 		"Decision  "+strings.ToUpper(rule.Decision),
-		"Context   "+safeExternalText(rule.ContextName),
+		"Workspace Manifest   "+safeExternalText(rule.WorkspaceManifestName),
 		"Workspace "+safeExternalText(rule.ProjectRoot),
 		"Request   "+policyRuleRequest(rule),
 		"Match     "+safeExternalText(rule.Match),

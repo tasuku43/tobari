@@ -12,11 +12,11 @@ import (
 	"time"
 )
 
-func testAWSBootstrap() ContextAWSBootstrap {
-	return ContextAWSBootstrap{Profile: "engineering", SSOSession: "company", SSOStartURL: "https://example.awsapps.com/start", SSORegion: "us-east-1", SSORegistrationScopes: []string{"sso:account:access"}, AccountID: "123456789012", RoleName: "Developer", Region: "ap-northeast-1", Output: "json"}
+func testAWSBootstrap() ManifestAWSBootstrap {
+	return ManifestAWSBootstrap{Profile: "engineering", SSOSession: "company", SSOStartURL: "https://example.awsapps.com/start", SSORegion: "us-east-1", SSORegistrationScopes: []string{"sso:account:access"}, AccountID: "123456789012", RoleName: "Developer", Region: "ap-northeast-1", Output: "json"}
 }
 
-func testEKSBootstrap(t *testing.T) ContextEKSBootstrap {
+func testEKSBootstrap(t *testing.T) ManifestEKSBootstrap {
 	t.Helper()
 	_, key, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
@@ -28,7 +28,7 @@ func testEKSBootstrap(t *testing.T) ContextEKSBootstrap {
 		t.Fatal(err)
 	}
 	certificate := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
-	return ContextEKSBootstrap{ContextName: "engineering", ClusterName: "platform", Region: "ap-northeast-1", Server: "https://abc.gr7.ap-northeast-1.eks.amazonaws.com", CertificateAuthorityData: base64.StdEncoding.EncodeToString(certificate), Namespace: "development"}
+	return ManifestEKSBootstrap{WorkspaceManifestName: "engineering", ClusterName: "platform", Region: "ap-northeast-1", Server: "https://abc.gr7.ap-northeast-1.eks.amazonaws.com", CertificateAuthorityData: base64.StdEncoding.EncodeToString(certificate), Namespace: "development"}
 }
 
 func TestContextBootstrapComposesEKSWithoutChangingLegacyAWSRevision(t *testing.T) {
@@ -47,8 +47,8 @@ func TestContextBootstrapComposesEKSWithoutChangingLegacyAWSRevision(t *testing.
 	if composed.Revision == legacy.Revision || composed.EKS == nil {
 		t.Fatalf("composed snapshot = %+v", composed)
 	}
-	report := ContextBootstrapReportFrom(&composed)
-	if len(report.Adapters) != 2 || report.Adapters[1] != ContextBootstrapAdapterEKS || report.EKSContext != "engineering" {
+	report := ManifestBootstrapReportFrom(&composed)
+	if len(report.Adapters) != 2 || report.Adapters[1] != ManifestBootstrapAdapterEKS || report.EKSContext != "engineering" {
 		t.Fatalf("composed report = %+v", report)
 	}
 	preview, err := NewContextBootstrapPreview("default", &legacy, composed)
@@ -81,7 +81,7 @@ func TestContextBootstrapSemanticPreviewAndWorkspaceStates(t *testing.T) {
 	for _, test := range []struct {
 		name    string
 		applied string
-		current *ContextBootstrapSnapshot
+		current *ManifestBootstrapSnapshot
 		want    string
 	}{
 		{name: "none", want: WorkspaceBootstrapNotConfigured},
@@ -124,9 +124,9 @@ func TestContextAWSBootstrapDiscoveryRequiresTypedAvailabilityAndExplicitEmptyCo
 	if err != nil {
 		t.Fatal(err)
 	}
-	valid := ContextAWSBootstrapDiscovery{State: ContextBootstrapDiscoveryAvailable, Candidates: []ContextAWSBootstrapCandidate{
-		{Profile: snapshot.AWS.Profile, State: ContextBootstrapCandidateAvailable, Snapshot: &snapshot},
-		{Profile: "broken", State: ContextBootstrapCandidateUnavailable, Reason: "Referenced SSO session does not exist."},
+	valid := ManifestAWSBootstrapDiscovery{State: ManifestBootstrapDiscoveryAvailable, Candidates: []ManifestAWSBootstrapCandidate{
+		{Profile: snapshot.AWS.Profile, State: ManifestBootstrapCandidateAvailable, Snapshot: &snapshot},
+		{Profile: "broken", State: ManifestBootstrapCandidateUnavailable, Reason: "Referenced SSO session does not exist."},
 	}}
 	if err := valid.Validate(); err != nil {
 		t.Fatal(err)

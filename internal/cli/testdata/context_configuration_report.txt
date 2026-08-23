@@ -1,6 +1,6 @@
-Context: review
-Context state: persisted
-Active: false
+Workspace Manifest: review
+Workspace Manifest state: persisted
+Default: false
 Image: tobari-runtime:base
 Agent profile: default
 Policy mode: guided

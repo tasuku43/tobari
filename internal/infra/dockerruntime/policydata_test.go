@@ -26,18 +26,18 @@ func learnedRuleFixture(t *testing.T, path string) tobari.LearnedPolicyRule {
 func learnedRuleFixtureForHost(t *testing.T, host, path string) tobari.LearnedPolicyRule {
 	t.Helper()
 	candidate, err := tobari.NewPolicyCandidate(tobari.PolicyDenial{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Scheme: "https", Protocol: tobari.PolicyProtocolHTTP}, Timestamp: "2026-07-30T10:41:11Z",
-		RequestID:   "7185da2688d7469aae9cd9068e920b0b",
-		ContextID:   "01912345-6789-7abc-8def-0123456789ad",
-		ContextName: "default",
-		ProjectID:   "01912345-6789-7abc-8def-0123456789ab",
-		ProjectRoot: "/workspace/project",
-		Host:        host,
-		Port:        443,
-		Method:      "GET",
-		Path:        path,
-		Reason:      "request did not match an allow rule",
-		StatusCode:  403,
-		Learnable:   true,
+		RequestID:             "7185da2688d7469aae9cd9068e920b0b",
+		WorkspaceManifestID:   "01912345-6789-7abc-8def-0123456789ad",
+		WorkspaceManifestName: "default",
+		ProjectID:             "01912345-6789-7abc-8def-0123456789ab",
+		ProjectRoot:           "/workspace/project",
+		Host:                  host,
+		Port:                  443,
+		Method:                "GET",
+		Path:                  path,
+		Reason:                "request did not match an allow rule",
+		StatusCode:            403,
+		Learnable:             true,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -53,10 +53,10 @@ func pathTemplateRuleFixture(t *testing.T) tobari.LearnedPolicyRule {
 	t.Helper()
 	denials := []tobari.PolicyDenial{
 		{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Scheme: "https", Protocol: tobari.PolicyProtocolHTTP}, Timestamp: "2026-08-15T01:00:00Z", RequestID: "7185da2688d7469aae9cd9068e920b0b",
-			ContextID: "01912345-6789-7abc-8def-0123456789ad", ContextName: "default", ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/project",
+			WorkspaceManifestID: "01912345-6789-7abc-8def-0123456789ad", WorkspaceManifestName: "default", ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/project",
 			Host: "api.github.com", Port: 443, Method: "GET", Path: "/items/123", Reason: "request did not match an allow rule", StatusCode: 403, Learnable: true},
 		{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Scheme: "https", Protocol: tobari.PolicyProtocolHTTP}, Timestamp: "2026-08-15T01:01:00Z", RequestID: "8185da2688d7469aae9cd9068e920b0b",
-			ContextID: "01912345-6789-7abc-8def-0123456789ad", ContextName: "default", ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/project",
+			WorkspaceManifestID: "01912345-6789-7abc-8def-0123456789ad", WorkspaceManifestName: "default", ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/project",
 			Host: "api.github.com", Port: 443, Method: "GET", Path: "/items/456", Reason: "request did not match an allow rule", StatusCode: 403, Learnable: true},
 	}
 	candidates := make([]tobari.PolicyCandidate, len(denials))
@@ -106,18 +106,18 @@ func TestPolicyDomainAllowStrictlyRoundTripsPathTemplateRule(t *testing.T) {
 func deniedRuleFixture(t *testing.T, path string) tobari.PolicyDenyRule {
 	t.Helper()
 	candidate, err := tobari.NewPolicyCandidate(tobari.PolicyDenial{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Scheme: "https", Protocol: tobari.PolicyProtocolHTTP}, Timestamp: "2026-07-30T10:41:11Z",
-		RequestID:   "8185da2688d7469aae9cd9068e920b0b",
-		ContextID:   "01912345-6789-7abc-8def-0123456789ad",
-		ContextName: "default",
-		ProjectID:   "01912345-6789-7abc-8def-0123456789ab",
-		ProjectRoot: "/workspace/project",
-		Host:        "api.github.com",
-		Port:        443,
-		Method:      "GET",
-		Path:        path,
-		Reason:      "request did not match an allow rule",
-		StatusCode:  403,
-		Learnable:   true,
+		RequestID:             "8185da2688d7469aae9cd9068e920b0b",
+		WorkspaceManifestID:   "01912345-6789-7abc-8def-0123456789ad",
+		WorkspaceManifestName: "default",
+		ProjectID:             "01912345-6789-7abc-8def-0123456789ab",
+		ProjectRoot:           "/workspace/project",
+		Host:                  "api.github.com",
+		Port:                  443,
+		Method:                "GET",
+		Path:                  path,
+		Reason:                "request did not match an allow rule",
+		StatusCode:            403,
+		Learnable:             true,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -231,10 +231,10 @@ func opaPolicyTestCallCount(calls []runnerCall) int {
 	return count
 }
 
-func contextRuleFixture(t *testing.T, manifest tobari.ContextManifest, projectID, path string) tobari.LearnedPolicyRule {
+func contextRuleFixture(t *testing.T, manifest tobari.WorkspaceManifest, projectID, path string) tobari.LearnedPolicyRule {
 	t.Helper()
 	candidate, err := tobari.NewPolicyCandidate(tobari.PolicyDenial{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Scheme: "https", Protocol: tobari.PolicyProtocolHTTP}, Timestamp: "2026-08-08T08:00:00Z", RequestID: strings.Repeat("a", 32),
-		ContextID: manifest.ID, ContextName: manifest.Name,
+		WorkspaceManifestID: manifest.ID, WorkspaceManifestName: manifest.Name,
 		ProjectID: projectID, ProjectRoot: "/workspace/project",
 		Host: "api.example.com", Port: 443, Method: "POST", Path: path,
 		Reason: "request did not match an allow rule", StatusCode: 403, Learnable: true,
@@ -249,10 +249,10 @@ func contextRuleFixture(t *testing.T, manifest tobari.ContextManifest, projectID
 	return rule
 }
 
-func contextDenyFixture(t *testing.T, manifest tobari.ContextManifest, projectID, path string) tobari.PolicyDenyRule {
+func contextDenyFixture(t *testing.T, manifest tobari.WorkspaceManifest, projectID, path string) tobari.PolicyDenyRule {
 	t.Helper()
 	candidate, err := tobari.NewPolicyCandidate(tobari.PolicyDenial{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Scheme: "https", Protocol: tobari.PolicyProtocolHTTP}, Timestamp: "2026-08-08T08:00:00Z", RequestID: strings.Repeat("b", 32),
-		ContextID: manifest.ID, ContextName: manifest.Name,
+		WorkspaceManifestID: manifest.ID, WorkspaceManifestName: manifest.Name,
 		ProjectID: projectID, ProjectRoot: "/workspace/project",
 		Host: "api.example.com", Port: 443, Method: "POST", Path: path,
 		Reason: "request did not match an allow rule", StatusCode: 403, Learnable: true,
@@ -271,11 +271,12 @@ func TestConcurrentCrossContextPolicyMutationsNeverLoseAnUpdate(t *testing.T) {
 	root := t.TempDir()
 	runtimeStore, _ := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), concurrentPolicyRunner{})
 	runtimePeer, _ := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), concurrentPolicyRunner{})
+	initializeTestWorkspaceManifest(t, runtimeStore)
 	runtimes := []*Runtime{runtimeStore, runtimePeer}
 	if _, err := runtimeStore.ListContexts(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := runtimeStore.CreateContext(context.Background(), "restricted", tobari.OfficialRuntimeBase, tobari.ContextPolicyModeGuided, tobari.ContextSourceAccessReadWrite); err != nil {
+	if _, err := runtimeStore.CreateContext(context.Background(), "restricted", tobari.OfficialRuntimeBase, tobari.ManifestPolicyModeGuided, tobari.ManifestSourceAccessReadWrite); err != nil {
 		t.Fatal(err)
 	}
 	defaultContext, _, err := runtimeStore.resolveContext("default")
@@ -292,7 +293,7 @@ func TestConcurrentCrossContextPolicyMutationsNeverLoseAnUpdate(t *testing.T) {
 	}
 	state := runtimeState(root)
 	state.AggregateRevision = projection.Revision
-	state.ContextCount = projection.ContextCount
+	state.ManifestCount = projection.ManifestCount
 	state.PolicyDirectory = projection.PolicyDirectory
 	state.GatewayConfig = projection.GatewayConfig
 	if err := runtimeStore.writeState(state); err != nil {
@@ -413,10 +414,11 @@ func TestApplyPolicyDecisionSetRejectsMultipleContextSourcesBeforeDocker(t *test
 	t.Parallel()
 	root := t.TempDir()
 	runtimeStore, _ := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), concurrentPolicyRunner{})
+	initializeTestWorkspaceManifest(t, runtimeStore)
 	if _, err := runtimeStore.ListContexts(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := runtimeStore.CreateContext(context.Background(), "restricted", tobari.OfficialRuntimeBase, tobari.ContextPolicyModeGuided, tobari.ContextSourceAccessReadWrite); err != nil {
+	if _, err := runtimeStore.CreateContext(context.Background(), "restricted", tobari.OfficialRuntimeBase, tobari.ManifestPolicyModeGuided, tobari.ManifestSourceAccessReadWrite); err != nil {
 		t.Fatal(err)
 	}
 	defaultContext, _, err := runtimeStore.resolveContext("default")
@@ -446,6 +448,7 @@ func TestApplyPolicyDecisionSetReturnsTheActivatedAggregateProjection(t *testing
 	t.Parallel()
 	root := t.TempDir()
 	runtimeStore, _ := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), concurrentPolicyRunner{})
+	initializeTestWorkspaceManifest(t, runtimeStore)
 	if _, err := runtimeStore.ListContexts(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -459,7 +462,7 @@ func TestApplyPolicyDecisionSetReturnsTheActivatedAggregateProjection(t *testing
 	}
 	state := runtimeState(root)
 	state.AggregateRevision = projection.Revision
-	state.ContextCount = projection.ContextCount
+	state.ManifestCount = projection.ManifestCount
 	state.PolicyDirectory = projection.PolicyDirectory
 	state.GatewayConfig = projection.GatewayConfig
 	if err := runtimeStore.writeState(state); err != nil {
@@ -500,6 +503,7 @@ func TestSinglePolicyMutationsReturnTheActivatedAggregateProjection(t *testing.T
 	t.Parallel()
 	root := t.TempDir()
 	runtimeStore, _ := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), concurrentPolicyRunner{})
+	initializeTestWorkspaceManifest(t, runtimeStore)
 	if _, err := runtimeStore.ListContexts(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -513,7 +517,7 @@ func TestSinglePolicyMutationsReturnTheActivatedAggregateProjection(t *testing.T
 	}
 	state := runtimeState(root)
 	state.AggregateRevision = projection.Revision
-	state.ContextCount = projection.ContextCount
+	state.ManifestCount = projection.ManifestCount
 	state.PolicyDirectory = projection.PolicyDirectory
 	state.GatewayConfig = projection.GatewayConfig
 	if err := runtimeStore.writeState(state); err != nil {
@@ -1166,15 +1170,16 @@ func TestGuidedAndAdvancedPolicyPreflightRequireExactSourceLayouts(t *testing.T)
 	t.Parallel()
 	root := t.TempDir()
 	runtimeStore, _ := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), &recordingRunner{})
+	initializeTestWorkspaceManifest(t, runtimeStore)
 	if _, err := runtimeStore.ListContexts(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := runtimeStore.CreateContext(
-		context.Background(), "advanced", tobari.OfficialRuntimeBase, tobari.ContextPolicyModeAdvanced, tobari.ContextSourceAccessReadWrite,
+		context.Background(), "advanced", tobari.OfficialRuntimeBase, tobari.ManifestPolicyModeAdvanced, tobari.ManifestSourceAccessReadWrite,
 	); err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{tobari.DefaultContextName, "advanced"} {
+	for _, name := range []string{tobari.DefaultManifestName, "advanced"} {
 		manifest, paths, err := runtimeStore.resolveContext(name)
 		if err != nil {
 			t.Fatal(err)

@@ -16,7 +16,7 @@ import (
 type runtimeFake struct {
 	manifest  tobari.RuntimeManifest
 	creates   int
-	base      tobari.RuntimeSourceBase
+	base      tobari.RuntimeCopySource
 	builds    int
 	buildErr  error
 	createErr error
@@ -35,7 +35,7 @@ func (f *runtimeFake) ShowRuntime(context.Context, string) (tobari.RuntimeReport
 func (f *runtimeFake) RuntimeHistory(context.Context, string) (tobari.RuntimeReport, error) {
 	return tobari.RuntimeReport{Task: tobari.TaskRuntimeHistory, Runtime: f.manifest}, nil
 }
-func (f *runtimeFake) CreateRuntime(_ context.Context, _ string, base tobari.RuntimeSourceBase) (tobari.RuntimeReport, error) {
+func (f *runtimeFake) CreateRuntime(_ context.Context, _ string, base tobari.RuntimeCopySource) (tobari.RuntimeReport, error) {
 	f.creates++
 	f.base = base
 	if f.createErr != nil {
@@ -61,7 +61,7 @@ func TestRuntimeCreateAndBuildUseCatalogFixedTargets(t *testing.T) {
 	service := New(fake)
 	createIntent := operation.Intent{Command: "runtime create", Effect: operation.EffectCreate, Target: operation.TargetRef{Kind: tobari.RuntimeCatalogTargetKind, ParentID: tobari.RuntimeCatalogTargetID}, Impact: operation.Impact{Cardinality: operation.CardinalityOne, Notification: operation.DeclarationNo, AccessChange: operation.DeclarationNo, Destructive: operation.DeclarationNo}}
 	created, err := service.Create(context.Background(), createIntent, "frontend", "standard")
-	if err != nil || !created.Created || fake.creates != 1 || fake.base != tobari.RuntimeSourceBase("standard") {
+	if err != nil || !created.Created || fake.creates != 1 || fake.base != tobari.RuntimeCopySource("standard") {
 		t.Fatalf("create = %+v/%v calls=%d base=%q", created, err, fake.creates, fake.base)
 	}
 
@@ -79,7 +79,7 @@ func TestRuntimeCreateRejectsInvalidBaseBeforeAdapter(t *testing.T) {
 	intent := operation.Intent{Command: "runtime create", Effect: operation.EffectCreate, Target: operation.TargetRef{Kind: tobari.RuntimeCatalogTargetKind, ParentID: tobari.RuntimeCatalogTargetID}, Impact: operation.Impact{Cardinality: operation.CardinalityOne, Notification: operation.DeclarationNo, AccessChange: operation.DeclarationNo, Destructive: operation.DeclarationNo}}
 	_, err := service.Create(context.Background(), intent, "frontend", "frontend@1")
 	public, ok := fault.PublicCopy(err)
-	if !ok || public.Code != "invalid_runtime_base" || fake.creates != 0 {
+	if !ok || public.Code != "invalid_runtime_copy_source" || fake.creates != 0 {
 		t.Fatalf("invalid Base fault/calls = %+v/%v/%d", public, err, fake.creates)
 	}
 }
@@ -91,7 +91,7 @@ func TestRuntimeCreateClassifiesMissingBaseAndPreservesSourceFault(t *testing.T)
 		err  error
 		code string
 	}{
-		{name: "missing", err: tobari.ErrRuntimeNotFound, code: "runtime_base_not_found"},
+		{name: "missing", err: tobari.ErrRuntimeNotFound, code: "runtime_copy_source_not_found"},
 		{name: "invalid source", err: fault.New(fault.KindRejected, "runtime_source_invalid", "Runtime source changed during copy.", false), code: "runtime_source_invalid"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -108,7 +108,7 @@ func TestRuntimeCreateClassifiesMissingBaseAndPreservesSourceFault(t *testing.T)
 func TestRuntimeMutationRejectsWrongTargetBeforeAdapter(t *testing.T) {
 	fake := &runtimeFake{manifest: runtimeFixture()}
 	service := New(fake)
-	intent := operation.Intent{Command: "runtime build", Effect: operation.EffectWrite, Target: operation.TargetRef{Kind: tobari.ContextRuntimeTargetKind, ID: tobari.ActiveContextRuntimeID}, Impact: operation.Impact{Cardinality: operation.CardinalityOne, Notification: operation.DeclarationNo, AccessChange: operation.DeclarationYes, Destructive: operation.DeclarationNo}}
+	intent := operation.Intent{Command: "runtime build", Effect: operation.EffectWrite, Target: operation.TargetRef{Kind: tobari.ManifestRuntimeTargetKind, ID: tobari.ActiveContextRuntimeID}, Impact: operation.Impact{Cardinality: operation.CardinalityOne, Notification: operation.DeclarationNo, AccessChange: operation.DeclarationYes, Destructive: operation.DeclarationNo}}
 	if _, err := service.Build(context.Background(), intent, "frontend", nil); err == nil || fake.builds != 0 {
 		t.Fatalf("wrong target error/calls = %v/%d", err, fake.builds)
 	}

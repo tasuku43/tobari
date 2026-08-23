@@ -186,7 +186,7 @@ func (r *Runtime) observeDoctorContext(ctx context.Context) doctor.Observation {
 		return observed(doctor.CheckStatusFail, "the current Context store paths are invalid or unsafe")
 	}
 	switch observation.State {
-	case tobari.ContextObservationSyntheticDefault:
+	case tobari.ManifestObservationAbsent:
 		return observed(doctor.CheckStatusPass, "the display-only synthetic default Context is observable")
 	default:
 		return observed(doctor.CheckStatusPass, "the persisted current Context is valid")
@@ -254,7 +254,7 @@ func (r *Runtime) validateDoctorPolicySources(ctx context.Context) (int, error) 
 			return 0, err
 		}
 		_, err = transformContextRego(aggregateContext{
-			manifest: tobari.ContextManifest{Name: tobari.DefaultContextName, PolicyMode: tobari.ContextPolicyModeGuided, SourceAccess: tobari.ContextSourceAccessReadWrite},
+			manifest: tobari.WorkspaceManifest{Name: tobari.DefaultManifestName, PolicyMode: tobari.ManifestPolicyModeGuided, SourceAccess: tobari.ManifestSourceAccessReadWrite},
 			rego:     source,
 		})
 		return 1, err
@@ -273,7 +273,7 @@ func (r *Runtime) validateDoctorPolicySources(ctx context.Context) (int, error) 
 			return 0, err
 		}
 		var source []byte
-		if manifest.PolicyMode == tobari.ContextPolicyModeGuided {
+		if manifest.PolicyMode == tobari.ManifestPolicyModeGuided {
 			source, err = runtimeassets.Read("opa/policy/tobari.rego")
 		} else {
 			source, err = readOwnerPolicyFile(filepath.Join(paths.PolicyDirectory, "tobari.rego"), maxPolicyPreflight)
@@ -402,7 +402,7 @@ func (r *Runtime) observeDoctorVaultIntegrity(
 	for _, item := range contexts.Items {
 		configured[item.ID] = make(map[string]projectAuthProviderBinding)
 		for _, provider := range projection.Providers {
-			response, statusErr := r.runBrokerControl(ctx, nil, "status", "--context-id", item.ID, "--provider", provider.ID)
+			response, statusErr := r.runBrokerControl(ctx, nil, "status", "--manifest-id", item.ID, "--provider", provider.ID)
 			if statusErr != nil || response.Provider != provider.ID {
 				return observed(doctor.CheckStatusFail, "an encrypted Context vault could not be authenticated"), nil, nil, statusErr
 			}
@@ -442,7 +442,7 @@ func (r *Runtime) observeDoctorProjectHandles(ctx context.Context) doctor.Observ
 		for _, binding := range registry.Providers {
 			observedBindings[binding.Provider] = binding
 		}
-		for providerID, expected := range configured[project.ContextID] {
+		for providerID, expected := range configured[project.WorkspaceManifestID] {
 			current, exists := observedBindings[providerID]
 			if !exists || current.Revision != expected.Revision || current.BindingDigest != expected.BindingDigest {
 				stale++
@@ -450,7 +450,7 @@ func (r *Runtime) observeDoctorProjectHandles(ctx context.Context) doctor.Observ
 				continue
 			}
 			response, statusErr := r.runBrokerControl(
-				ctx, nil, "binding_status", "--context-id", project.ContextID, "--project-id", project.ID,
+				ctx, nil, "binding_status", "--manifest-id", project.WorkspaceManifestID, "--project-id", project.ID,
 				"--provider", providerID, "--revision", current.Revision, "--bindings", string(encodedBindings[providerID]),
 			)
 			if statusErr != nil {

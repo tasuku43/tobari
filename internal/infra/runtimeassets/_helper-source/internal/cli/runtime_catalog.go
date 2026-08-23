@@ -32,7 +32,7 @@ func runtimeCommandSpecs() []CommandSpec {
 		configBootstrapEKSSpec(),
 		contextCreateSpec(),
 		contextDeleteSpec(),
-		contextUseSpec(),
+		manifestDefaultSetSpec(),
 		contextRuntimeSetSpec(),
 		runtimeListSpec(),
 		runtimeShowSpec(),
@@ -49,44 +49,46 @@ func runtimeCommandSpecs() []CommandSpec {
 
 func migrationSpec() CommandSpec {
 	return CommandSpec{
-		Path: "migrate apply", Summary: "Migrate the supported unpublished Context snapshot to current V1 state",
+		Path: "migrate apply", Summary: "Migrate the supported unpublished state to Domain Model V1",
 		Args: "[--format text|json]", Effect: operation.EffectWrite, Role: RoleAct,
 		Agent: AgentContract{
 			CapabilityID: "state.migration",
-			Outcome:      "Validate and migrate the one enumerated unpublished Context-policy and Context-owned-Runtime predecessor while retaining Context IDs, Workspace homes, learned rules, and current selection",
+			Outcome:      "Validate and migrate the enumerated unpublished predecessor while retaining Manifest IDs, standard Workspace homes, learned rules, and default selection and quarantining replay-capable research authentication state",
 			Inputs:       []CommandInput{formatInput()},
 			Output: CommandOutput{
 				Formats: []OutputFormat{OutputFormatText, OutputFormatJSON}, DefaultFormat: OutputFormatText, TextPresentation: TextPresentationSemanticTokens,
 				Fields: []OutputField{
 					{Name: "task", Type: OutputFieldTypeString, Description: "Declared migration task identity."},
 					{Name: "source", Type: OutputFieldTypeString, Description: "Exact enumerated predecessor contract.", Enum: []string{tobari.MigrationSourcePreV1ContextPolicyRuntime}},
-					{Name: "changed", Type: OutputFieldTypeBoolean, Description: "Whether at least one Context was migrated."},
-					{Name: "backup", Type: OutputFieldTypeString, Description: "Owner-only content-addressed backup path, or null for an already-current no-op.", Nullable: true},
-					{Name: "contexts", Type: OutputFieldTypeArray, Description: "Complete local Context collection and migration state.", SemanticScope: "Every locally configured Context at the committed migration observation.", Items: &OutputField{Type: OutputFieldTypeObject, Description: "One current or migrated Context.", Fields: []OutputField{
-						{Name: "id", Type: OutputFieldTypeString, Description: "Stable Context authority identity retained unchanged."},
-						{Name: "name", Type: OutputFieldTypeString, Description: "Context name."},
-						{Name: "state", Type: OutputFieldTypeString, Description: "Whether this invocation migrated the Context or observed it current.", Enum: []string{"current", "migrated"}},
+					{Name: "changed", Type: OutputFieldTypeBoolean, Description: "Whether at least one Workspace Manifest was migrated."},
+					{Name: "recovery_id", Type: OutputFieldTypeString, Description: "Secret-free content identity of the private recovery material, or null for an already-current no-op.", Nullable: true},
+					{Name: "research_auth_disposition", Type: OutputFieldTypeString, Description: "Whether the predecessor had no research authentication state or requires explicit reauthentication.", Enum: []string{"not_present", "reauthentication_required"}},
+					{Name: "workspace_manifests", Type: OutputFieldTypeArray, Description: "Complete local Workspace Manifest collection and migration state.", SemanticScope: "Every locally configured Workspace Manifest at the committed migration observation.", Items: &OutputField{Type: OutputFieldTypeObject, Description: "One current or migrated Workspace Manifest.", Fields: []OutputField{
+						{Name: "workspace_manifest_id", Type: OutputFieldTypeString, Description: "Stable Workspace Manifest authority identity retained unchanged."},
+						{Name: "name", Type: OutputFieldTypeString, Description: "Workspace Manifest name."},
+						{Name: "state", Type: OutputFieldTypeString, Description: "Whether this invocation migrated the Manifest or observed it current.", Enum: []string{"current", "migrated"}},
 						{Name: "runtime", Type: OutputFieldTypeString, Description: "Exact current Runtime selection as standard or name@ordinal."},
-						{Name: "policy_revision", Type: OutputFieldTypeString, Description: "Normalized current Context policy revision."},
+						{Name: "policy_revision", Type: OutputFieldTypeString, Description: "Normalized Domain Model V1 Workspace Manifest policy revision."},
 					}}},
 				},
 				Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageExhaustive,
-				JSONEnvelope: "migration", JSONEnvelopeType: OutputFieldTypeObject, JSONSchemaVersion: 1,
+				JSONEnvelope: "migration", JSONEnvelopeType: OutputFieldTypeObject, JSONSchemaVersion: 2,
 			},
 			Prerequisites: []string{
-				"The installation contains only current Contexts or the exact owner-only unpublished predecessor named by ADR 0070.",
+				"The installation contains only Domain Model V1 Workspace Manifests or the exact owner-only unpublished predecessor named by ADR 0070.",
 				"A legacy custom Runtime source and its selected local base image remain available; Docker is required only when an exact ready promoted Runtime does not already exist.",
-				"Credential stores, Workspace homes, learned domain rules, project bindings, and running containers are outside the mutation boundary.",
+				"The shared cluster is stopped and no Workspace attachment is live.",
+				"Standard Workspace-owned native authentication bytes are outside the mutation boundary; enumerated predecessor research authority is quarantined without Keychain access.",
 			},
-			FixedTarget: &FixedTarget{Kind: tobari.MigrationTargetKind, ID: tobari.MigrationTargetID, Description: "The one installation-local Tobari Context and Runtime state collection.", Scope: FixedTargetScopeToolLocal},
+			FixedTarget: &FixedTarget{Kind: tobari.MigrationTargetKind, ID: tobari.MigrationTargetID, Description: "The one installation-local Tobari Workspace Manifest and Runtime state collection.", Scope: FixedTargetScopeToolLocal},
 			Errors: mutationCommandErrors("migrate apply", "doctor",
 				declaredCommandError(fault.KindRejected, "migration_not_supported", false, "doctor", "Inspect the exact failed state boundary."),
-				declaredCommandError(fault.KindRejected, "migration_source_rejected", false, "doctor", "Inspect the unchanged Context state."),
+				declaredCommandError(fault.KindRejected, "migration_source_rejected", false, "doctor", "Inspect the unchanged Workspace Manifest state."),
 				declaredCommandError(fault.KindRejected, "migration_runtime_conflict", false, "runtime list", "Inspect the unchanged Runtime catalog."),
 				declaredCommandError(fault.KindRejected, "migration_runtime_failed", false, "runtime list", "Inspect any retained draft or ready migration Runtime."),
-				declaredCommandError(fault.KindInternal, "migration_backup_failed", false, "doctor", "Inspect the unchanged Context state and owner-only configuration paths."),
-				declaredCommandError(fault.KindRejected, "migration_source_changed", false, "doctor", "Inspect the current Context state before another migration."),
-				declaredCommandError(fault.KindContract, "migration_incomplete", false, "doctor", "Reconcile current and remaining predecessor Contexts before another mutation."),
+				declaredCommandError(fault.KindInternal, "migration_backup_failed", false, "doctor", "Inspect the unchanged Workspace Manifest state and owner-only configuration paths."),
+				declaredCommandError(fault.KindRejected, "migration_source_changed", false, "doctor", "Inspect the Domain Model V1 Workspace Manifest state before another migration."),
+				declaredCommandError(fault.KindContract, "migration_incomplete", false, "doctor", "Reconcile current and remaining predecessor Workspace Manifests before another mutation."),
 				declaredCommandError(fault.KindContract, "invalid_migration_report", false, "doctor", "Inspect the committed migration state."),
 				declaredCommandError(fault.KindInternal, "missing_runtime", false, "doctor", "Configure the Tobari runtime."),
 			),
@@ -103,40 +105,40 @@ func configBootstrapAWSSpec() CommandSpec {
 	minimum := int64(1)
 	return CommandSpec{
 		Path: "config bootstrap aws", Summary: "Configure, refresh, or remove the AWS snapshot applied once to future Workspace homes",
-		Args:   "[--profile <name>] [--refresh] [--remove] [--context <name>] [--format text|json]",
+		Args:   "[--profile <name>] [--refresh] [--remove] [--manifest <name>] [--format text|json]",
 		Effect: operation.EffectWrite, Role: RoleAct,
 		Agent: AgentContract{
-			CapabilityID: "context.workspace-bootstrap",
-			Outcome:      "Normalize one host AWS IAM Identity Center profile into a secret-free Context snapshot for future Workspaces, refresh its semantic revision, or remove the future recipe without rewriting existing Workspace homes",
+			CapabilityID: "manifest.workspace-bootstrap",
+			Outcome:      "Normalize one host AWS IAM Identity Center profile into a secret-free Workspace Manifest snapshot for future Workspaces, refresh its semantic revision, or remove the future recipe without rewriting existing Workspace homes",
 			Inputs: []CommandInput{
 				{Name: "--profile", Source: InputSourceFlag, Required: false, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, MinimumLength: &minimum, Description: "Exact host AWS shared-config profile to normalize now; conflicts with refresh and remove.", AllowedValues: []string{}, ConflictsWith: []string{"--refresh", "--remove"}},
-				{Name: "--refresh", Source: InputSourceFlag, Required: false, ValueKind: InputValueBoolean, Cardinality: InputCardinalitySingle, Description: "Re-read the profile named by the current Context snapshot; conflicts with profile and remove.", AllowedValues: []string{}, ConflictsWith: []string{"--profile", "--remove"}},
+				{Name: "--refresh", Source: InputSourceFlag, Required: false, ValueKind: InputValueBoolean, Cardinality: InputCardinalitySingle, Description: "Re-read the profile named by the selected Workspace Manifest snapshot; conflicts with profile and remove.", AllowedValues: []string{}, ConflictsWith: []string{"--profile", "--remove"}},
 				{Name: "--remove", Source: InputSourceFlag, Required: false, ValueKind: InputValueBoolean, Cardinality: InputCardinalitySingle, Description: "Remove the recipe for future Workspaces; existing Workspace homes retain their create-time bytes.", AllowedValues: []string{}, ConflictsWith: []string{"--profile", "--refresh"}},
 				executionContextInput(), formatInput(),
 			},
 			Output: contextReportOutput(),
 			Prerequisites: []string{
-				"The selected Context exists and the fixed host ~/.aws/config path is a bounded regular non-symlink file not writable by group or other users.",
+				"The selected Workspace Manifest exists and the fixed host ~/.aws/config path is a bounded regular non-symlink file not writable by group or other users.",
 				"The selected profile uses one sso_session section and only the reviewed secret-free IAM Identity Center fields; credentials and ~/.aws/sso/cache are never read.",
 				"When action flags are omitted, stdin and stderr are interactive terminals and both success and error formats are text.",
 			},
 			FixedTarget: fixedContextBootstrapTarget(),
-			Errors: mutationCommandErrors("config bootstrap aws", "context show",
+			Errors: mutationCommandErrors("config bootstrap aws", "manifest show",
 				declaredCommandError(fault.KindInvalidInput, "configuration_wizard_unavailable", false, "help config bootstrap aws", "Supply one action flag or run the wizard on interactive text streams."),
 				declaredCommandError(fault.KindInternal, "configuration_wizard_failed", false, "help config bootstrap aws", "Retry with one direct action flag or repair the interactive terminal streams."),
-				declaredCommandError(fault.KindInvalidInput, "invalid_context_name", false, "context list", "Choose a valid Context name."),
+				declaredCommandError(fault.KindInvalidInput, "invalid_manifest_name", false, "manifest list", "Choose a valid Workspace Manifest name."),
 				declaredCommandError(fault.KindInvalidInput, "invalid_aws_bootstrap_change", false, "help config bootstrap aws", "Choose exactly one configure, refresh, or remove action."),
-				declaredCommandError(fault.KindNotFound, "context_not_found", false, "context list", "Choose an existing Context."),
+				declaredCommandError(fault.KindNotFound, "manifest_not_found", false, "manifest list", "Choose an existing Workspace Manifest."),
 				declaredCommandError(fault.KindNotFound, "bootstrap_not_configured", false, "help config bootstrap aws", "Configure a profile before refreshing."),
-				declaredCommandError(fault.KindRejected, "config_bootstrap_failed", false, "context show", "Inspect the current recipe and strict host AWS profile."),
+				declaredCommandError(fault.KindRejected, "config_bootstrap_failed", false, "manifest show", "Inspect the current recipe and strict host AWS profile."),
 				declaredCommandError(fault.KindRejected, "bootstrap_source_changed", true, "config bootstrap aws", "Review a fresh semantic diff before applying."),
 				declaredCommandError(fault.KindRejected, "bootstrap_dependency", false, "config bootstrap kubernetes eks", "Remove the dependent EKS adapter first with --remove."),
 				declaredCommandError(fault.KindRejected, "aws_bootstrap_source_rejected", false, "help config bootstrap aws", "Use a strict IAM Identity Center profile without credentials, helpers, or unsupported directives."),
-				declaredCommandError(fault.KindContract, "invalid_bootstrap_preview", false, "context show", "Inspect the Context recipe before retrying."),
-				declaredCommandError(fault.KindContract, "invalid_context_report", false, "context show", "Reconcile the confirmed Context bootstrap change."),
+				declaredCommandError(fault.KindContract, "invalid_bootstrap_preview", false, "manifest show", "Inspect the Workspace Manifest recipe before retrying."),
+				declaredCommandError(fault.KindContract, "invalid_manifest_report", false, "manifest show", "Reconcile the confirmed Workspace Manifest bootstrap change."),
 				declaredCommandError(fault.KindInternal, "missing_runtime", false, "doctor", "Configure the Tobari runtime."),
 			),
-			Mutation: &MutationContract{TargetKind: tobari.ContextBootstrapTargetKind, TargetInputs: []string{}, Impact: operation.Impact{Cardinality: operation.CardinalityOne, Notification: operation.DeclarationNo, AccessChange: operation.DeclarationNo, Destructive: operation.DeclarationNo}},
+			Mutation: &MutationContract{TargetKind: tobari.ManifestBootstrapTargetKind, TargetInputs: []string{}, Impact: operation.Impact{Cardinality: operation.CardinalityOne, Notification: operation.DeclarationNo, AccessChange: operation.DeclarationNo, Destructive: operation.DeclarationNo}},
 		},
 		handler: runConfigBootstrapAWS,
 	}
@@ -146,11 +148,11 @@ func configBootstrapEKSSpec() CommandSpec {
 	minimum := int64(1)
 	return CommandSpec{
 		Path: "config bootstrap kubernetes eks", Summary: "Configure, refresh, or remove one reviewed EKS target for future Workspace homes",
-		Args:   "[--kube-context <name>] [--refresh] [--remove] [--context <name>] [--format text|json]",
+		Args:   "[--kube-context <name>] [--refresh] [--remove] [--manifest <name>] [--format text|json]",
 		Effect: operation.EffectWrite, Role: RoleAct,
 		Agent: AgentContract{
-			CapabilityID: "context.workspace-bootstrap",
-			Outcome:      "Compose one host AWS CLI-generated EKS context with the Context AWS profile, refresh it, or remove only the EKS target without rewriting existing Workspace homes",
+			CapabilityID: "manifest.workspace-bootstrap",
+			Outcome:      "Compose one host AWS CLI-generated EKS context with the Workspace Manifest AWS profile, refresh it, or remove only the EKS target without rewriting existing Workspace homes",
 			Inputs: []CommandInput{
 				{Name: "--kube-context", Source: InputSourceFlag, Required: false, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, MinimumLength: &minimum, Description: "Exact context name in fixed host ~/.kube/config; conflicts with refresh and remove.", AllowedValues: []string{}, ConflictsWith: []string{"--refresh", "--remove"}},
 				{Name: "--refresh", Source: InputSourceFlag, Required: false, ValueKind: InputValueBoolean, Cardinality: InputCardinalitySingle, Description: "Re-read the currently selected host kube context; conflicts with context selection and remove.", AllowedValues: []string{}, ConflictsWith: []string{"--kube-context", "--remove"}},
@@ -159,25 +161,25 @@ func configBootstrapEKSSpec() CommandSpec {
 			},
 			Output: contextReportOutput(),
 			Prerequisites: []string{
-				"The selected Context already has an AWS IAM Identity Center bootstrap profile.",
+				"The selected Workspace Manifest already has an AWS IAM Identity Center bootstrap profile.",
 				"Fixed host ~/.kube/config is a bounded safe regular file and the selected context resolves to an inline-CA commercial EKS endpoint with the reviewed aws eks get-token exec contract and matching AWS_PROFILE.",
 				"No host credential, token cache, arbitrary exec, alternate kubeconfig path, or network authority is imported.",
 			},
 			FixedTarget: fixedContextBootstrapTarget(),
-			Errors: mutationCommandErrors("config bootstrap kubernetes eks", "context show",
+			Errors: mutationCommandErrors("config bootstrap kubernetes eks", "manifest show",
 				declaredCommandError(fault.KindInvalidInput, "configuration_wizard_unavailable", false, "help config bootstrap kubernetes eks", "Supply one action flag or use interactive text streams."),
-				declaredCommandError(fault.KindInvalidInput, "invalid_context_name", false, "context list", "Choose a valid Context name."),
+				declaredCommandError(fault.KindInvalidInput, "invalid_manifest_name", false, "manifest list", "Choose a valid Workspace Manifest name."),
 				declaredCommandError(fault.KindInvalidInput, "invalid_eks_bootstrap_change", false, "help config bootstrap kubernetes eks", "Choose exactly one configure, refresh, or remove action."),
-				declaredCommandError(fault.KindNotFound, "context_not_found", false, "context list", "Choose an existing Context."),
+				declaredCommandError(fault.KindNotFound, "manifest_not_found", false, "manifest list", "Choose an existing Workspace Manifest."),
 				declaredCommandError(fault.KindNotFound, "bootstrap_not_configured", false, "help config bootstrap kubernetes eks", "Configure AWS first, or select EKS before refresh/remove."),
-				declaredCommandError(fault.KindRejected, "eks_bootstrap_source_rejected", false, "help config bootstrap kubernetes eks", "Use a strict AWS CLI-generated EKS context bound to the Context AWS profile."),
-				declaredCommandError(fault.KindRejected, "config_bootstrap_failed", false, "context show", "Inspect the current recipe and selected kube context."),
+				declaredCommandError(fault.KindRejected, "eks_bootstrap_source_rejected", false, "help config bootstrap kubernetes eks", "Use a strict AWS CLI-generated EKS context bound to the Workspace Manifest AWS profile."),
+				declaredCommandError(fault.KindRejected, "config_bootstrap_failed", false, "manifest show", "Inspect the current recipe and selected kube context."),
 				declaredCommandError(fault.KindRejected, "bootstrap_source_changed", true, "config bootstrap kubernetes eks", "Review a fresh semantic diff before applying."),
-				declaredCommandError(fault.KindContract, "invalid_bootstrap_preview", false, "context show", "Inspect the Context recipe before retrying."),
-				declaredCommandError(fault.KindContract, "invalid_context_report", false, "context show", "Reconcile the confirmed Context bootstrap change."),
+				declaredCommandError(fault.KindContract, "invalid_bootstrap_preview", false, "manifest show", "Inspect the Workspace Manifest recipe before retrying."),
+				declaredCommandError(fault.KindContract, "invalid_manifest_report", false, "manifest show", "Reconcile the confirmed Workspace Manifest bootstrap change."),
 				declaredCommandError(fault.KindInternal, "missing_runtime", false, "doctor", "Configure the Tobari runtime."),
 			),
-			Mutation: &MutationContract{TargetKind: tobari.ContextBootstrapTargetKind, TargetInputs: []string{}, Impact: operation.Impact{Cardinality: operation.CardinalityOne, Notification: operation.DeclarationNo, AccessChange: operation.DeclarationNo, Destructive: operation.DeclarationNo}},
+			Mutation: &MutationContract{TargetKind: tobari.ManifestBootstrapTargetKind, TargetInputs: []string{}, Impact: operation.Impact{Cardinality: operation.CardinalityOne, Notification: operation.DeclarationNo, AccessChange: operation.DeclarationNo, Destructive: operation.DeclarationNo}},
 		},
 		handler: runConfigBootstrapEKS,
 	}
@@ -185,18 +187,18 @@ func configBootstrapEKSSpec() CommandSpec {
 
 func configShellSpec() CommandSpec {
 	return CommandSpec{
-		Path: "config shell", Summary: "Configure Context shell session defaults directly or with one staged terminal Apply",
-		Args:   "[--variable COLORTERM|NO_COLOR|PS1|TERM] [--source default|inherit|literal] [--value <value>] [--context <name>] [--format text|json]",
+		Path: "config shell", Summary: "Configure Workspace Manifest shell session defaults directly or with one staged terminal Apply",
+		Args:   "[--variable COLORTERM|NO_COLOR|PS1|TERM] [--source default|inherit|literal] [--value <value>] [--manifest <name>] [--format text|json]",
 		Effect: operation.EffectWrite, Role: RoleAct,
 		Agent: AgentContract{
-			CapabilityID: "context.composition",
+			CapabilityID: "manifest.composition",
 			Outcome:      "Configure one allowlisted shell session default through complete flags, or stage several rows and apply them atomically; later child sessions resolve it without rewriting Workspace home",
 			Inputs: []CommandInput{
 				{
 					Name: "--variable", Source: InputSourceFlag, Required: false,
 					ValueKind: InputValueText, Cardinality: InputCardinalitySingle,
 					Description:   "Allowlisted shell environment variable configured for future interactive sessions.",
-					AllowedValues: tobari.ContextShellEnvironmentVariables(),
+					AllowedValues: tobari.ManifestShellEnvironmentVariables(),
 					Requires:      []string{"--source"},
 				},
 				{
@@ -209,28 +211,28 @@ func configShellSpec() CommandSpec {
 				{
 					Name: "--value", Source: InputSourceFlag, Required: false,
 					ValueKind: InputValueText, Cardinality: InputCardinalitySingle,
-					Description:   "Exact Context-owned value of at most 4096 UTF-8 bytes; required only for literal and may be explicitly empty.",
+					Description:   "Exact Workspace Manifest-owned value of at most 4096 UTF-8 bytes; required only for literal and may be explicitly empty.",
 					AllowedValues: []string{}, Requires: []string{"--variable", "--source"},
 				},
 				executionContextInput(),
 				formatInput(),
 			},
 			Output:        contextReportOutput(),
-			Prerequisites: []string{"The selected Context exists on the trusted host; inherited values must be exported by the process that starts Tobari.", "When setting flags are omitted, stdin and stderr are interactive terminals and both success and error formats are text."},
+			Prerequisites: []string{"The selected Workspace Manifest exists on the trusted host; inherited values must be exported by the process that starts Tobari.", "When setting flags are omitted, stdin and stderr are interactive terminals and both success and error formats are text."},
 			FixedTarget:   fixedContextShellTarget(),
-			Errors: mutationCommandErrors("config shell", "context show",
+			Errors: mutationCommandErrors("config shell", "manifest show",
 				declaredCommandError(fault.KindInvalidInput, "configuration_wizard_unavailable", false, "help config shell", "Supply every setting flag or run the wizard with text success/error output on interactive stdin and stderr."),
 				declaredCommandError(fault.KindInternal, "configuration_wizard_failed", false, "help config shell", "Retry with complete setting flags or repair the interactive terminal streams."),
 				declaredCommandError(fault.KindInvalidInput, "invalid_shell_environment", false, "help config shell", "Choose an allowlisted variable and a valid source/value combination."),
-				declaredCommandError(fault.KindInvalidInput, "invalid_context_name", false, "context list", "Choose a valid Context name."),
-				declaredCommandError(fault.KindNotFound, "context_not_found", false, "context list", "Choose an existing Context."),
-				declaredCommandError(fault.KindInternal, "context_read_failed", false, "doctor", "Inspect the host Context stores before retrying the wizard."),
-				declaredCommandError(fault.KindRejected, "config_shell_failed", false, "context show", "Inspect the Context shell environment before retrying."),
-				declaredCommandError(fault.KindContract, "invalid_context_report", false, "context show", "Reconcile the confirmed Context shell setting."),
+				declaredCommandError(fault.KindInvalidInput, "invalid_manifest_name", false, "manifest list", "Choose a valid Workspace Manifest name."),
+				declaredCommandError(fault.KindNotFound, "manifest_not_found", false, "manifest list", "Choose an existing Workspace Manifest."),
+				declaredCommandError(fault.KindInternal, "manifest_read_failed", false, "doctor", "Inspect the host Workspace Manifest stores before retrying the wizard."),
+				declaredCommandError(fault.KindRejected, "config_shell_failed", false, "manifest show", "Inspect the Workspace Manifest shell environment before retrying."),
+				declaredCommandError(fault.KindContract, "invalid_manifest_report", false, "manifest show", "Reconcile the confirmed Workspace Manifest shell setting."),
 				declaredCommandError(fault.KindInternal, "missing_runtime", false, "doctor", "Configure the Tobari runtime."),
 			),
 			Mutation: &MutationContract{
-				TargetKind: tobari.ContextShellTargetKind, TargetInputs: []string{},
+				TargetKind: tobari.ManifestShellTargetKind, TargetInputs: []string{},
 				Impact: operation.Impact{Cardinality: operation.CardinalityOne, Notification: operation.DeclarationNo, AccessChange: operation.DeclarationNo, Destructive: operation.DeclarationNo},
 			},
 		},
@@ -240,29 +242,29 @@ func configShellSpec() CommandSpec {
 
 func configGitSpec() CommandSpec {
 	return CommandSpec{
-		Path: "config git", Summary: "Configure one Context Git session fallback directly or from one staged terminal screen",
-		Args:   "[--source default|inherit|literal] [--name <name>] [--email <email>] [--context <name>] [--format text|json]",
+		Path: "config git", Summary: "Configure one Workspace Manifest Git session fallback directly or from one staged terminal screen",
+		Args:   "[--source default|inherit|literal] [--name <name>] [--email <email>] [--manifest <name>] [--format text|json]",
 		Effect: operation.EffectWrite, Role: RoleAct,
 		Agent: AgentContract{
-			CapabilityID: "context.composition",
-			Outcome:      "Choose no Git session fallback, inherited host user.name and user.email, or one fixed Context-owned identity; later Workspace entry resolves it without rewriting Workspace home",
+			CapabilityID: "manifest.composition",
+			Outcome:      "Choose no Git session fallback, inherited host user.name and user.email, or one fixed Workspace Manifest-owned identity; later Workspace entry resolves it without rewriting Workspace home",
 			Inputs: []CommandInput{
 				{
 					Name: "--source", Source: InputSourceFlag, Required: false,
 					ValueKind: InputValueText, Cardinality: InputCardinalitySingle,
-					Description:   "default removes the Context fallback; inherit projects host user.name and user.email at Workspace entry; literal uses --name and --email. Omit all setting flags to use the staged terminal editor.",
+					Description:   "default removes the Workspace Manifest fallback; inherit projects host user.name and user.email at Workspace entry; literal uses --name and --email. Omit all setting flags to use the staged terminal editor.",
 					AllowedValues: []string{"default", "inherit", "literal"},
 				},
 				{
 					Name: "--name", Source: InputSourceFlag, Required: false,
 					ValueKind: InputValueText, Cardinality: InputCardinalitySingle,
-					Description:   "Exact non-empty Context-owned Git user.name of at most 4096 safe UTF-8 bytes; required with --email only for literal.",
+					Description:   "Exact non-empty Workspace Manifest-owned Git user.name of at most 4096 safe UTF-8 bytes; required with --email only for literal.",
 					AllowedValues: []string{}, Requires: []string{"--source", "--email"},
 				},
 				{
 					Name: "--email", Source: InputSourceFlag, Required: false,
 					ValueKind: InputValueText, Cardinality: InputCardinalitySingle,
-					Description:   "Exact non-empty Context-owned Git user.email of at most 4096 safe UTF-8 bytes; required with --name only for literal.",
+					Description:   "Exact non-empty Workspace Manifest-owned Git user.email of at most 4096 safe UTF-8 bytes; required with --name only for literal.",
 					AllowedValues: []string{}, Requires: []string{"--source", "--name"},
 				},
 				executionContextInput(),
@@ -270,23 +272,23 @@ func configGitSpec() CommandSpec {
 			},
 			Output: contextReportOutput(),
 			Prerequisites: []string{
-				"The selected Context exists on the trusted host; inherited identity is resolved from only host global Git configuration at Workspace entry.",
+				"The selected Workspace Manifest exists on the trusted host; inherited identity is resolved from only host global Git configuration at Workspace entry.",
 				"When setting flags are omitted, stdin and stderr are interactive terminals and both success and error formats are text.",
 			},
 			FixedTarget: fixedContextGitIdentityTarget(),
-			Errors: mutationCommandErrors("config git", "context show",
+			Errors: mutationCommandErrors("config git", "manifest show",
 				declaredCommandError(fault.KindInvalidInput, "configuration_wizard_unavailable", false, "help config git", "Supply every setting flag or run the wizard with text success/error output on interactive stdin and stderr."),
 				declaredCommandError(fault.KindInternal, "configuration_wizard_failed", false, "help config git", "Retry with complete setting flags or repair the interactive terminal streams."),
 				declaredCommandError(fault.KindInvalidInput, "invalid_git_identity", false, "help config git", "Choose default, inherit, or a literal source with both name and email."),
-				declaredCommandError(fault.KindInvalidInput, "invalid_context_name", false, "context list", "Choose a valid Context name."),
-				declaredCommandError(fault.KindNotFound, "context_not_found", false, "context list", "Choose an existing Context."),
-				declaredCommandError(fault.KindInternal, "context_read_failed", false, "doctor", "Inspect the host Context stores before retrying the wizard."),
-				declaredCommandError(fault.KindRejected, "config_git_failed", false, "context show", "Inspect the Context Git identity before retrying."),
-				declaredCommandError(fault.KindContract, "invalid_context_report", false, "context show", "Reconcile the confirmed Context Git identity setting."),
+				declaredCommandError(fault.KindInvalidInput, "invalid_manifest_name", false, "manifest list", "Choose a valid Workspace Manifest name."),
+				declaredCommandError(fault.KindNotFound, "manifest_not_found", false, "manifest list", "Choose an existing Workspace Manifest."),
+				declaredCommandError(fault.KindInternal, "manifest_read_failed", false, "doctor", "Inspect the host Workspace Manifest stores before retrying the wizard."),
+				declaredCommandError(fault.KindRejected, "config_git_failed", false, "manifest show", "Inspect the Workspace Manifest Git identity before retrying."),
+				declaredCommandError(fault.KindContract, "invalid_manifest_report", false, "manifest show", "Reconcile the confirmed Workspace Manifest Git identity setting."),
 				declaredCommandError(fault.KindInternal, "missing_runtime", false, "doctor", "Configure the Tobari runtime."),
 			),
 			Mutation: &MutationContract{
-				TargetKind: tobari.ContextGitIdentityTargetKind, TargetInputs: []string{},
+				TargetKind: tobari.ManifestGitIdentityTargetKind, TargetInputs: []string{},
 				Impact: operation.Impact{Cardinality: operation.CardinalityOne, Notification: operation.DeclarationNo, AccessChange: operation.DeclarationNo, Destructive: operation.DeclarationNo},
 			},
 		},
@@ -296,42 +298,44 @@ func configGitSpec() CommandSpec {
 
 func contextListSpec() CommandSpec {
 	return CommandSpec{
-		Path: "context list", Summary: "List Context work modes with effective Access and exact Runtime",
+		Path: "manifest list", Summary: "List Workspace Manifest definitions with effective Access and exact Runtime",
 		Args: "[--format text|json]", Effect: operation.EffectRead, Role: RoleUtility,
 		Agent: AgentContract{
-			CapabilityID: "context.composition",
-			Outcome:      "List the complete local Context collection and identify the current omission default",
+			CapabilityID: "manifest.composition",
+			Outcome:      "List the complete local Workspace Manifest collection and identify the omission default",
 			Inputs:       []CommandInput{formatInput()},
 			Output: CommandOutput{
 				Formats: []OutputFormat{OutputFormatText, OutputFormatJSON}, DefaultFormat: OutputFormatText, TextPresentation: TextPresentationSemanticTokens,
 				Fields: []OutputField{
-					{Name: "active", Type: OutputFieldTypeString, Description: "Name of the host-selected current Context used when Context is omitted."},
-					{Name: "context_state", Type: OutputFieldTypeString, Description: "Whether the selected/default Context is persisted authority or a display-only synthetic default.", Enum: []string{"persisted", "synthetic_default"}},
-					{Name: "items", Type: OutputFieldTypeArray, Description: "Complete local Context collection with current-default state, stable ID, image, agent profile, policy mode, source access, and runtime status.", SemanticScope: "All locally configured Contexts at one observation.", Items: &OutputField{
-						Type: OutputFieldTypeObject, Description: "One configured Context.", Fields: []OutputField{
-							{Name: "id", Type: OutputFieldTypeString, Description: "Stable Context authority identity, or null for the display-only synthetic default.", Nullable: true},
-							{Name: "name", Type: OutputFieldTypeString, Description: "Human Context name."},
-							{Name: "context_state", Type: OutputFieldTypeString, Description: "Persisted authority or a display-only synthetic default.", Enum: []string{"persisted", "synthetic_default"}},
-							{Name: "active", Type: OutputFieldTypeBoolean, Description: "Whether this Context is the current default."},
+					{Name: "workspace_manifest_state", Type: OutputFieldTypeString, Description: "Whether persisted Workspace Manifest authority exists.", Enum: []string{"persisted", "absent"}},
+					{Name: "default_manifest_id", Type: OutputFieldTypeString, Description: "Exact default Workspace Manifest identity, omitted for an empty catalog.", Optional: true},
+					{Name: "default_manifest", Type: OutputFieldTypeString, Description: "Default Workspace Manifest name, omitted for an empty catalog.", Optional: true},
+					{Name: "items", Type: OutputFieldTypeArray, Description: "Complete local Workspace Manifest collection with default-selection state, stable ID, image, agent profile, policy mode, source access, and runtime status.", SemanticScope: "All locally configured Workspace Manifests at one observation.", Items: &OutputField{
+						Type: OutputFieldTypeObject, Description: "One configured Workspace Manifest.", Fields: []OutputField{
+							{Name: "workspace_manifest_id", Type: OutputFieldTypeString, Description: "Stable Workspace Manifest authority identity.", Nullable: true},
+							{Name: "name", Type: OutputFieldTypeString, Description: "Human Workspace Manifest name."},
+							{Name: "workspace_manifest_state", Type: OutputFieldTypeString, Description: "Persisted Workspace Manifest authority.", Enum: []string{"persisted"}},
+							{Name: "default", Type: OutputFieldTypeBoolean, Description: "Whether this Workspace Manifest is the omission default."},
+							workspaceManifestDesiredOutputField(),
 							{Name: "agent_profile", Type: OutputFieldTypeString, Description: "Read-only agent profile reference."},
 							{Name: "image", Type: OutputFieldTypeString, Description: "Selected compatible runtime image."},
 							{Name: "policy_mode", Type: OutputFieldTypeString, Description: "Creation-time immutable Boundary policy-development mode.", Enum: []string{"guided", "advanced"}},
 							{Name: "source_access", Type: OutputFieldTypeString, Description: "Creation-time immutable Boundary access for the direct project-source bind.", Enum: []string{"read-only", "read-write"}},
-							{Name: "policy_revision", Type: OutputFieldTypeString, Description: "Immutable revision of the Context-owned normalized policy snapshot."},
+							{Name: "policy_revision", Type: OutputFieldTypeString, Description: "Immutable revision of the Workspace Manifest-owned normalized policy snapshot."},
 							{Name: "native_readiness", Type: OutputFieldTypeString, Description: "Creation-time immutable Boundary choice for native-client readiness participation.", Enum: []string{"enabled", "disabled"}},
-							{Name: "method_policy", Type: OutputFieldTypeObject, Description: "Effective default and exact method decisions owned by the Context.", Fields: contextPolicyMethodPolicyOutput("Effective default and exact method decisions owned by the Context.").Fields},
+							{Name: "method_policy", Type: OutputFieldTypeObject, Description: "Effective default and exact method decisions owned by the Workspace Manifest.", Fields: contextPolicyMethodPolicyOutput("Effective default and exact method decisions owned by the Workspace Manifest.").Fields},
 							{Name: "runtime_status", Type: OutputFieldTypeString, Description: "Selected Runtime readiness when observed.", Optional: true, Enum: []string{"official", "ready"}},
 							contextBootstrapOutputField(),
 						},
 					}},
 				},
 				Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageExhaustive,
-				JSONEnvelope: "contexts", JSONEnvelopeType: OutputFieldTypeObject, JSONSchemaVersion: 1,
+				JSONEnvelope: "workspace_manifests", JSONEnvelopeType: OutputFieldTypeObject, JSONSchemaVersion: 2,
 			},
 			Prerequisites: []string{},
-			Errors: readCommandErrors("context list", true,
-				declaredCommandError(fault.KindInternal, "context_read_failed", false, "doctor", "Inspect the host Context stores."),
-				declaredCommandError(fault.KindContract, "invalid_context_list", false, "doctor", "Repair the Context manifest collection."),
+			Errors: readCommandErrors("manifest list", true,
+				declaredCommandError(fault.KindInternal, "manifest_read_failed", false, "doctor", "Inspect the host Workspace Manifest stores."),
+				declaredCommandError(fault.KindContract, "invalid_manifest_list", false, "doctor", "Repair the Workspace Manifest manifest collection."),
 				declaredCommandError(fault.KindInternal, "missing_runtime", false, "doctor", "Configure the Tobari runtime."),
 			),
 		},
@@ -341,23 +345,23 @@ func contextListSpec() CommandSpec {
 
 func contextShowSpec() CommandSpec {
 	return CommandSpec{
-		Path: "context show", Summary: "Inspect one work mode's effective Access, tools, and Workspace defaults",
+		Path: "manifest show", Summary: "Inspect one Workspace definition's effective Access, tools, and defaults",
 		Args: "[--name <name>] [--details] [--format text|json]", Effect: operation.EffectRead, Role: RoleUtility,
 		Agent: AgentContract{
-			CapabilityID: "context.composition",
-			Outcome:      "Inspect one stable Context work mode, including its immutable Boundary, exact mutable Runtime binding, session defaults, future-Workspace creation defaults, and separated store references",
+			CapabilityID: "manifest.composition",
+			Outcome:      "Inspect one stable Workspace Manifest definition, including its immutable Boundary, exact mutable Runtime binding, session defaults, future-Workspace creation defaults, and separated store references",
 			Inputs: []CommandInput{
-				{Name: "--name", Source: InputSourceFlag, Required: false, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, Description: "Named Context to inspect; omission selects the current/default Context.", AllowedValues: []string{}, Completion: InputCompletionContextName},
-				{Name: "--details", Source: InputSourceFlag, Required: false, ValueKind: InputValueBoolean, Cardinality: InputCardinalitySingle, Description: "Expand human text with complete Context diagnostics; JSON is already complete and remains unchanged.", AllowedValues: []string{}, DefaultValue: stringPointer("false")},
+				{Name: "--name", Source: InputSourceFlag, Required: false, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, Description: "Named Workspace Manifest to inspect; omission selects the default Workspace Manifest.", AllowedValues: []string{}, Completion: InputCompletionContextName},
+				{Name: "--details", Source: InputSourceFlag, Required: false, ValueKind: InputValueBoolean, Cardinality: InputCardinalitySingle, Description: "Expand human text with complete Workspace Manifest diagnostics; JSON is already complete and remains unchanged.", AllowedValues: []string{}, DefaultValue: stringPointer("false")},
 				formatInput(),
 			},
 			Output:        contextReportOutput(),
 			Prerequisites: []string{},
-			Errors: readCommandErrors("context show", true,
-				declaredCommandError(fault.KindInvalidInput, "invalid_context_name", false, "context list", "Choose a valid Context name."),
-				declaredCommandError(fault.KindNotFound, "context_not_found", false, "context list", "Choose an existing Context."),
-				declaredCommandError(fault.KindInternal, "context_read_failed", false, "doctor", "Inspect the host Context stores."),
-				declaredCommandError(fault.KindContract, "invalid_context_report", false, "context list", "Repair the Context manifest."),
+			Errors: readCommandErrors("manifest show", true,
+				declaredCommandError(fault.KindInvalidInput, "invalid_manifest_name", false, "manifest list", "Choose a valid Workspace Manifest name."),
+				declaredCommandError(fault.KindNotFound, "manifest_not_found", false, "manifest list", "Choose an existing Workspace Manifest."),
+				declaredCommandError(fault.KindInternal, "manifest_read_failed", false, "doctor", "Inspect the host Workspace Manifest stores."),
+				declaredCommandError(fault.KindContract, "invalid_manifest_report", false, "manifest list", "Repair the Workspace Manifest manifest."),
 				declaredCommandError(fault.KindInternal, "missing_runtime", false, "doctor", "Configure the Tobari runtime."),
 			),
 		},
@@ -367,35 +371,35 @@ func contextShowSpec() CommandSpec {
 
 func contextCreateSpec() CommandSpec {
 	return CommandSpec{
-		Path: "context create", Summary: "Create a named Context work mode directly or by completing omitted settings",
-		Args:   "[--base <context-name>] [--name <name>] [--runtime <standard|name@ordinal>] [--mode guided|advanced] [--source-access read-only|read-write] [--native-readiness enabled|disabled] [--bootstrap-aws-profile <name>] [--bootstrap-eks-context <name>] [--format text|json]",
+		Path: "manifest create", Summary: "Create a named Workspace Manifest definition directly or by completing omitted settings",
+		Args:   "[--copy-from <context-name>] [--name <name>] [--runtime <standard|name@ordinal>] [--mode guided|advanced] [--source-access read-only|read-write] [--native-readiness enabled|disabled] [--bootstrap-aws-profile <name>] [--bootstrap-eks-context <name>] [--format text|json]",
 		Effect: operation.EffectCreate, Role: RoleAct,
 		Agent: AgentContract{
-			CapabilityID:  "context.composition",
-			Outcome:       "Create one stable named work mode with an immutable source/network Boundary, exact Runtime binding, narrow Workspace defaults, and separate owner-only policy and authentication state",
+			CapabilityID:  "manifest.composition",
+			Outcome:       "Create one stable named Workspace definition with an immutable source/network Boundary, exact Runtime binding, narrow Workspace defaults, and separate owner-only policy and authentication state",
 			Inputs:        []CommandInput{contextCreateBaseInput(), contextCreateNameInput(), contextCreateRuntimeInput(), contextModeInput(), contextSourceAccessInput(), contextNativeReadinessInput(), contextCreateAWSBootstrapInput(), contextCreateEKSBootstrapInput(), formatInput()},
 			Output:        contextReportOutput(),
-			Prerequisites: []string{"The host Context directory is accessible."},
+			Prerequisites: []string{"The host Workspace Manifest directory is accessible."},
 			FixedTarget:   fixedContextCatalogTarget(),
-			Errors: mutationCommandErrors("context create", "context list",
-				declaredCommandError(fault.KindInvalidInput, "invalid_context_base", false, "context list", "Choose one existing Context as the Base."),
-				declaredCommandError(fault.KindNotFound, "context_base_not_found", false, "context list", "Choose one existing Context as the Base."),
-				declaredCommandError(fault.KindRejected, "context_base_changed", true, "context list", "Review the current Base settings before creating."),
-				declaredCommandError(fault.KindRejected, "context_collection_changed", true, "context list", "Inspect the current Context collection before retrying Tobari."),
-				declaredCommandError(fault.KindInvalidInput, "context_create_wizard_unavailable", false, "help context create", "Complete omitted settings interactively, supply --base with --name, or supply the complete direct input group."),
-				declaredCommandError(fault.KindInternal, "context_create_wizard_failed", false, "context create", "Retry the wizard or use the complete direct input group."),
+			Errors: mutationCommandErrors("manifest create", "manifest list",
+				declaredCommandError(fault.KindInvalidInput, "invalid_manifest_copy_source", false, "manifest list", "Choose one existing Workspace Manifest as the copy source."),
+				declaredCommandError(fault.KindNotFound, "manifest_copy_source_not_found", false, "manifest list", "Choose one existing Workspace Manifest as the copy source."),
+				declaredCommandError(fault.KindRejected, "manifest_copy_source_changed", true, "manifest list", "Review the copy source's current revision before creating."),
+				declaredCommandError(fault.KindRejected, "manifest_collection_changed", true, "manifest list", "Inspect the Workspace Manifest collection before retrying Tobari."),
+				declaredCommandError(fault.KindInvalidInput, "manifest_create_wizard_unavailable", false, "help manifest create", "Complete omitted settings interactively, supply --copy-from with --name, or supply the complete direct input group."),
+				declaredCommandError(fault.KindInternal, "manifest_create_wizard_failed", false, "manifest create", "Retry the wizard or use the complete direct input group."),
 				declaredCommandError(fault.KindRejected, "aws_bootstrap_source_rejected", false, "help config bootstrap aws", "Choose a strict IAM Identity Center profile without credentials, helpers, or unsupported directives."),
 				declaredCommandError(fault.KindRejected, "eks_bootstrap_source_rejected", false, "help config bootstrap kubernetes eks", "Choose a strict AWS CLI-generated EKS context bound to the selected AWS profile."),
-				declaredCommandError(fault.KindInvalidInput, "invalid_context", false, "help context create", "Correct the Context name, image, policy mode, or source access."),
-				declaredCommandError(fault.KindRejected, "context_exists", false, "context list", "List existing Contexts before choosing another name."),
+				declaredCommandError(fault.KindInvalidInput, "invalid_context", false, "help manifest create", "Correct the Workspace Manifest name, image, policy mode, or source access."),
+				declaredCommandError(fault.KindRejected, "manifest_exists", false, "manifest list", "List existing Workspace Manifests before choosing another name."),
 				declaredCommandError(fault.KindNotFound, "runtime_not_found", false, "runtime list", "Choose an existing Runtime."),
 				declaredCommandError(fault.KindRejected, "runtime_revision_not_ready", false, "runtime history", "Choose an existing successful revision."),
-				declaredCommandError(fault.KindRejected, "context_create_failed", false, "context list", "Inspect the partially initialized Context stores."),
-				declaredCommandError(fault.KindContract, "invalid_context_report", false, "context list", "Reconcile the confirmed Context creation."),
+				declaredCommandError(fault.KindRejected, "manifest_create_failed", false, "manifest list", "Inspect the partially initialized Workspace Manifest stores."),
+				declaredCommandError(fault.KindContract, "invalid_manifest_report", false, "manifest list", "Reconcile the confirmed Workspace Manifest creation."),
 				declaredCommandError(fault.KindInternal, "missing_runtime", false, "doctor", "Configure the Tobari runtime."),
 			),
 			Mutation: &MutationContract{
-				TargetKind: tobari.ContextCatalogTargetKind, TargetInputs: []string{},
+				TargetKind: tobari.ManifestCatalogTargetKind, TargetInputs: []string{},
 				Impact: operation.Impact{Cardinality: operation.CardinalityOne, Notification: operation.DeclarationNo, AccessChange: operation.DeclarationYes, Destructive: operation.DeclarationNo},
 			},
 		},
@@ -403,66 +407,66 @@ func contextCreateSpec() CommandSpec {
 	}
 }
 
-func contextUseSpec() CommandSpec {
+func manifestDefaultSetSpec() CommandSpec {
 	return CommandSpec{
-		Path: "context use", Summary: "Select the current default Context",
+		Path: "manifest default set", Summary: "Select the default Workspace Manifest",
 		Args: "--name <name> [--format text|json]", Effect: operation.EffectWrite, Role: RoleAct,
 		Agent: AgentContract{
-			CapabilityID:  "context.composition",
-			Outcome:       "Select one existing Context as the omission default without changing existing Workspaces or shared enforcement authority",
+			CapabilityID:  "manifest.composition",
+			Outcome:       "Select one existing Workspace Manifest as the omission default without changing existing Workspaces or shared enforcement authority",
 			Inputs:        []CommandInput{contextNameInput(), formatInput()},
 			Output:        contextReportOutput(),
-			Prerequisites: []string{"The named Context already exists."},
+			Prerequisites: []string{"The named Workspace Manifest already exists."},
 			FixedTarget:   fixedActiveContextTarget(),
-			Errors: mutationCommandErrors("context use", "context show",
-				declaredCommandError(fault.KindInvalidInput, "invalid_context_name", false, "context list", "Choose a valid Context name."),
-				declaredCommandError(fault.KindNotFound, "context_not_found", false, "context list", "Choose an existing Context or create it first."),
-				declaredCommandError(fault.KindRejected, "context_use_failed", false, "context show", "Inspect the current/default Context marker."),
-				declaredCommandError(fault.KindContract, "invalid_context_report", false, "context show", "Reconcile the confirmed Context selection."),
+			Errors: mutationCommandErrors("manifest default set", "manifest show",
+				declaredCommandError(fault.KindInvalidInput, "invalid_manifest_name", false, "manifest list", "Choose a valid Workspace Manifest name."),
+				declaredCommandError(fault.KindNotFound, "manifest_not_found", false, "manifest list", "Choose an existing Workspace Manifest or create it first."),
+				declaredCommandError(fault.KindRejected, "manifest_default_set_failed", false, "manifest show", "Inspect the default Workspace Manifest selection."),
+				declaredCommandError(fault.KindContract, "invalid_manifest_report", false, "manifest show", "Reconcile the confirmed Workspace Manifest selection."),
 				declaredCommandError(fault.KindInternal, "missing_runtime", false, "doctor", "Configure the Tobari runtime."),
 			),
 			Mutation: &MutationContract{
-				TargetKind: tobari.ContextTargetKind, TargetInputs: []string{},
+				TargetKind: tobari.ManifestTargetKind, TargetInputs: []string{},
 				Impact: operation.Impact{Cardinality: operation.CardinalityOne, Notification: operation.DeclarationNo, AccessChange: operation.DeclarationYes, Destructive: operation.DeclarationNo},
 			},
 		},
-		handler: runContextUse,
+		handler: runManifestDefaultSet,
 	}
 }
 
 func contextDeleteSpec() CommandSpec {
 	return CommandSpec{
-		Path: "context delete", Summary: "Delete one unused non-current execution Context",
+		Path: "manifest delete", Summary: "Delete one unused non-default Workspace Manifest",
 		Args: "--name <name> [--format text|json]", Effect: operation.EffectWrite, Role: RoleAct,
 		Agent: AgentContract{
-			CapabilityID: "context.composition",
-			Outcome:      "Delete one exact non-current Context only when no logical Workspace remains bound, preserving project files and shared runtime images",
+			CapabilityID: "manifest.composition",
+			Outcome:      "Delete one exact non-default Workspace Manifest only when no logical Workspace remains bound, preserving project files and shared runtime images",
 			Inputs:       []CommandInput{contextNameInput(), formatInput()},
 			Output: CommandOutput{
 				Formats: []OutputFormat{OutputFormatText, OutputFormatJSON}, DefaultFormat: OutputFormatText, TextPresentation: TextPresentationSemanticTokens,
 				Fields: []OutputField{
-					{Name: "id", Type: OutputFieldTypeString, Description: "Stable authority ID of the deleted Context."},
-					{Name: "name", Type: OutputFieldTypeString, Description: "Name of the deleted Context."},
+					{Name: "id", Type: OutputFieldTypeString, Description: "Stable authority ID of the deleted Workspace Manifest."},
+					{Name: "name", Type: OutputFieldTypeString, Description: "Name of the deleted Workspace Manifest."},
 					{Name: "deleted", Type: OutputFieldTypeBoolean, Description: "Confirmed deletion state."},
 					{Name: "cluster", Type: OutputFieldTypeString, Description: "Whether the shared cluster requires reconciliation.", Enum: []string{"not_applicable", "requires_reconcile"}},
 				},
 				Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageNotApplicable,
-				JSONEnvelope: "context_deletion", JSONEnvelopeType: OutputFieldTypeObject, JSONSchemaVersion: 1,
+				JSONEnvelope: "workspace_manifest_deletion", JSONEnvelopeType: OutputFieldTypeObject, JSONSchemaVersion: 2,
 			},
-			Prerequisites: []string{"The named Context is not current and owns no logical Workspace."},
+			Prerequisites: []string{"The named Workspace Manifest is not the default and owns no logical Workspace."},
 			FixedTarget:   fixedContextCatalogTarget(),
-			Errors: mutationCommandErrors("context delete", "context list",
-				declaredCommandError(fault.KindInvalidInput, "invalid_context_name", false, "context list", "Choose a valid Context name."),
-				declaredCommandError(fault.KindNotFound, "context_not_found", false, "context list", "Choose an existing Context."),
-				declaredCommandError(fault.KindRejected, "context_is_current", false, "context use", "Select another Context first."),
-				declaredCommandError(fault.KindRejected, "context_is_protected", false, "context show", "Keep the foundational default Context."),
-				declaredCommandError(fault.KindRejected, "context_has_workspaces", false, "list", "Delete every Workspace bound to the Context first."),
-				declaredCommandError(fault.KindRejected, "context_delete_failed", false, "context list", "Inspect the Context collection before retrying."),
-				declaredCommandError(fault.KindContract, "invalid_context_delete_result", false, "context list", "Reconcile the Context collection after deletion."),
+			Errors: mutationCommandErrors("manifest delete", "manifest list",
+				declaredCommandError(fault.KindInvalidInput, "invalid_manifest_name", false, "manifest list", "Choose a valid Workspace Manifest name."),
+				declaredCommandError(fault.KindNotFound, "manifest_not_found", false, "manifest list", "Choose an existing Workspace Manifest."),
+				declaredCommandError(fault.KindRejected, "manifest_is_default", false, "manifest default set", "Select another Workspace Manifest first."),
+				declaredCommandError(fault.KindRejected, "manifest_is_protected", false, "manifest show", "Keep the foundational default Workspace Manifest."),
+				declaredCommandError(fault.KindRejected, "manifest_has_workspaces", false, "list", "Delete every Workspace bound to the Workspace Manifest first."),
+				declaredCommandError(fault.KindRejected, "manifest_delete_failed", false, "manifest list", "Inspect the Workspace Manifest collection before retrying."),
+				declaredCommandError(fault.KindContract, "invalid_manifest_delete_result", false, "manifest list", "Reconcile the Workspace Manifest collection after deletion."),
 				declaredCommandError(fault.KindInternal, "missing_runtime", false, "doctor", "Configure the Tobari runtime."),
 			),
 			Mutation: &MutationContract{
-				TargetKind: tobari.ContextCatalogTargetKind, TargetInputs: []string{},
+				TargetKind: tobari.ManifestCatalogTargetKind, TargetInputs: []string{},
 				Impact: operation.Impact{Cardinality: operation.CardinalityOne, Notification: operation.DeclarationNo, AccessChange: operation.DeclarationYes, Destructive: operation.DeclarationYes},
 			},
 		},
@@ -493,26 +497,26 @@ func runtimeListSpec() CommandSpec {
 
 func contextRuntimeSetSpec() CommandSpec {
 	minimum := int64(1)
-	return CommandSpec{Path: "context runtime set", Summary: "Replace one Context Runtime binding with a ready revision", Args: "[--runtime <standard|name@ordinal>] [--context <name>] [--format text|json]", Effect: operation.EffectWrite, Role: RoleAct,
-		Agent: AgentContract{CapabilityID: "context.composition", Outcome: "Explicitly replace one Context Runtime binding; bound Workspaces adopt it on next entry without changing Context identity or existing Workspace homes",
+	return CommandSpec{Path: "manifest runtime set", Summary: "Replace one Workspace Manifest Runtime binding with a ready revision", Args: "[--runtime <standard|name@ordinal>] [--manifest <name>] [--format text|json]", Effect: operation.EffectWrite, Role: RoleAct,
+		Agent: AgentContract{CapabilityID: "manifest.composition", Outcome: "Explicitly replace one Workspace Manifest Runtime binding; bound Workspaces adopt it on next entry without changing Workspace Manifest identity or existing Workspace homes",
 			Inputs: []CommandInput{{Name: "--runtime", Source: InputSourceFlag, Required: false, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, MinimumLength: &minimum, Description: "Exact ready Runtime selection as standard or name@ordinal; omission opens terminal Review in text mode.", AllowedValues: []string{}, Completion: InputCompletionReadyRuntimeReference}, executionContextInput(), formatInput()},
 			Output: contextReportOutput(), Prerequisites: []string{"The selected Runtime revision already exists and is ready."}, FixedTarget: fixedContextRuntimeBindingTarget(),
-			Errors: mutationCommandErrors("context runtime set", "context show",
-				declaredCommandError(fault.KindInvalidInput, "runtime_review_unavailable", false, "help context runtime set", "Supply --runtime or use interactive text streams."),
-				declaredCommandError(fault.KindInternal, "runtime_review_failed", false, "help context runtime set", "Retry with --runtime or repair the interactive terminal streams."),
-				declaredCommandError(fault.KindInvalidInput, "invalid_context_name", false, "context list", "Choose a valid Context name."),
+			Errors: mutationCommandErrors("manifest runtime set", "manifest show",
+				declaredCommandError(fault.KindInvalidInput, "runtime_review_unavailable", false, "help manifest runtime set", "Supply --runtime or use interactive text streams."),
+				declaredCommandError(fault.KindInternal, "runtime_review_failed", false, "help manifest runtime set", "Retry with --runtime or repair the interactive terminal streams."),
+				declaredCommandError(fault.KindInvalidInput, "invalid_manifest_name", false, "manifest list", "Choose a valid Workspace Manifest name."),
 				declaredCommandError(fault.KindInvalidInput, "invalid_runtime_selection", false, "runtime history", "Choose standard or one ready name@ordinal revision."),
-				declaredCommandError(fault.KindNotFound, "context_not_found", false, "context list", "Choose an existing Context."),
+				declaredCommandError(fault.KindNotFound, "manifest_not_found", false, "manifest list", "Choose an existing Workspace Manifest."),
 				declaredCommandError(fault.KindNotFound, "runtime_not_found", false, "runtime list", "Choose an existing Runtime."),
-				declaredCommandError(fault.KindInternal, "context_read_failed", false, "doctor", "Inspect the host Context stores."),
-				declaredCommandError(fault.KindContract, "invalid_context_list", false, "doctor", "Inspect the host Context stores."),
+				declaredCommandError(fault.KindInternal, "manifest_read_failed", false, "doctor", "Inspect the host Workspace Manifest stores."),
+				declaredCommandError(fault.KindContract, "invalid_manifest_list", false, "doctor", "Inspect the host Workspace Manifest stores."),
 				declaredCommandError(fault.KindInternal, "runtime_read_failed", false, "doctor", "Inspect the host Runtime store."),
 				declaredCommandError(fault.KindContract, "invalid_runtime_list", false, "doctor", "Inspect the host Runtime store."),
 				declaredCommandError(fault.KindRejected, "runtime_revision_not_ready", false, "runtime history", "Choose an existing successful revision."),
-				declaredCommandError(fault.KindRejected, "context_runtime_set_failed", false, "context show", "Inspect the unchanged Context Runtime binding."),
-				declaredCommandError(fault.KindContract, "invalid_context_report", false, "context show", "Reconcile the Context Runtime binding."),
+				declaredCommandError(fault.KindRejected, "manifest_runtime_set_failed", false, "manifest show", "Inspect the unchanged Workspace Manifest Runtime binding."),
+				declaredCommandError(fault.KindContract, "invalid_manifest_report", false, "manifest show", "Reconcile the Workspace Manifest Runtime binding."),
 				declaredCommandError(fault.KindInternal, "missing_runtime", false, "doctor", "Configure the Tobari runtime.")),
-			Mutation: &MutationContract{TargetKind: tobari.ContextRuntimeBindingTargetKind, TargetInputs: []string{}, Impact: operation.Impact{Cardinality: operation.CardinalityOne, Notification: operation.DeclarationNo, AccessChange: operation.DeclarationYes, Destructive: operation.DeclarationNo}}},
+			Mutation: &MutationContract{TargetKind: tobari.ManifestRuntimeBindingTargetKind, TargetInputs: []string{}, Impact: operation.Impact{Cardinality: operation.CardinalityOne, Notification: operation.DeclarationNo, AccessChange: operation.DeclarationYes, Destructive: operation.DeclarationNo}}},
 		handler: runContextRuntimeSet}
 }
 
@@ -541,19 +545,19 @@ func runtimeReadSpec(path, summary, outcome, _ string, handler commandHandler) C
 
 func runtimeCreateSpec() CommandSpec {
 	minimum := int64(1)
-	return CommandSpec{Path: "runtime create", Summary: "Create a reusable Runtime source tree from one Base", Args: "[--base <runtime-name>] --name <name> [--format text|json]", Effect: operation.EffectCreate, Role: RoleAct,
-		Agent: AgentContract{CapabilityID: "runtime.customization", Outcome: "Create one standalone managed Runtime source tree from the built-in standard starter or another managed Runtime's current editable source; its root and future children must have no group/other permissions; do not build, retain inheritance, or change a Context",
+	return CommandSpec{Path: "runtime create", Summary: "Create a reusable Runtime by copying current editable source once", Args: "[--copy-source-from <runtime-name>] --name <name> [--format text|json]", Effect: operation.EffectCreate, Role: RoleAct,
+		Agent: AgentContract{CapabilityID: "runtime.customization", Outcome: "Create one standalone managed Runtime source tree from the built-in standard starter or another managed Runtime's current editable source; its root and future children must have no group/other permissions; do not build, retain inheritance, or change a Workspace Manifest",
 			Inputs: []CommandInput{
-				{Name: "--base", Source: InputSourceFlag, Required: false, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, MinimumLength: &minimum, Description: "One-time source initializer: standard or an existing managed Runtime name; interactive text omission chooses when managed sources exist, while redirected or JSON omission uses standard.", AllowedValues: []string{}, DefaultValue: stringPointer(tobari.StandardRuntimeName), Completion: InputCompletionRuntimeName},
+				{Name: "--copy-source-from", Source: InputSourceFlag, Required: false, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, MinimumLength: &minimum, Description: "Copy current editable source once from standard or an existing managed Runtime; the new Runtime receives a fresh ID and empty history.", AllowedValues: []string{}, DefaultValue: stringPointer(tobari.StandardRuntimeName), Completion: InputCompletionRuntimeName},
 				{Name: "--name", Source: InputSourceFlag, Required: true, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, MinimumLength: &minimum, Description: "Unique local Runtime name.", AllowedValues: []string{}}, formatInput()},
-			Output: runtimeReportOutput(), Prerequisites: []string{"A managed Base source must remain an owner-only bounded tree throughout the copy; immutable name@ordinal revisions are not source Bases."}, FixedTarget: fixedRuntimeCatalogTarget(),
+			Output: runtimeReportOutput(), Prerequisites: []string{"A managed copy source must remain an owner-only bounded editable tree throughout the copy; immutable name@ordinal revisions are not copy sources."}, FixedTarget: fixedRuntimeCatalogTarget(),
 			Errors: mutationCommandErrors("runtime create", "runtime list",
 				declaredCommandError(fault.KindInvalidInput, "invalid_runtime_name", false, "runtime list", "Choose a valid unique Runtime name."),
-				declaredCommandError(fault.KindInvalidInput, "invalid_runtime_base", false, "runtime list", "Choose standard or an existing managed Runtime name, not a name@ordinal revision."),
-				declaredCommandError(fault.KindNotFound, "runtime_base_not_found", false, "runtime list", "Choose standard or an existing managed Runtime name."),
-				declaredCommandError(fault.KindInternal, "runtime_read_failed", false, "doctor", "Inspect the host Runtime store before retrying interactive Base selection."),
-				declaredCommandError(fault.KindContract, "invalid_runtime_list", false, "doctor", "Inspect the host Runtime store before retrying interactive Base selection."),
-				declaredCommandError(fault.KindInternal, "runtime_review_failed", false, "help runtime create", "Retry with --base or repair the interactive terminal streams."),
+				declaredCommandError(fault.KindInvalidInput, "invalid_runtime_copy_source", false, "runtime list", "Choose standard or an existing managed Runtime name, not a name@ordinal revision."),
+				declaredCommandError(fault.KindNotFound, "runtime_copy_source_not_found", false, "runtime list", "Choose standard or an existing managed Runtime name."),
+				declaredCommandError(fault.KindInternal, "runtime_read_failed", false, "doctor", "Inspect the host Runtime store before retrying interactive copy-source selection."),
+				declaredCommandError(fault.KindContract, "invalid_runtime_list", false, "doctor", "Inspect the host Runtime store before retrying interactive copy-source selection."),
+				declaredCommandError(fault.KindInternal, "runtime_review_failed", false, "help runtime create", "Retry with --copy-source-from or repair the interactive terminal streams."),
 				declaredCommandError(fault.KindRejected, "runtime_source_invalid", false, "runtime show", "Inspect the unchanged Base source and Runtime catalog."),
 				declaredCommandError(fault.KindRejected, "runtime_exists", false, "runtime show", "Inspect the existing Runtime."),
 				declaredCommandError(fault.KindRejected, "runtime_create_failed", false, "runtime list", "Inspect the local Runtime catalog."),
@@ -570,7 +574,7 @@ func runtimeBuildSpec() CommandSpec {
 		Args: "[--name <name>] [--format text|json]", Effect: operation.EffectWrite, Role: RoleAct,
 		Agent: AgentContract{
 			CapabilityID: "runtime.customization",
-			Outcome:      "Snapshot a managed source with no group/other permissions and at most 1,024 files, 256 directories, 32 MiB per file, and 64 MiB total; build and validate it; append one immutable revision without changing any Context",
+			Outcome:      "Snapshot a managed source with no group/other permissions and at most 1,024 files, 256 directories, 32 MiB per file, and 64 MiB total; build and validate it; append one immutable revision without changing any Workspace Manifest",
 			Inputs:       []CommandInput{{Name: "--name", Source: InputSourceFlag, Required: false, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, MinimumLength: &minimum, Description: "Unique local managed Runtime name; omission opens terminal Review in text mode.", AllowedValues: []string{}, Completion: InputCompletionManagedRuntimeName}, formatInput()},
 			Output:       runtimeReportOutput(),
 			Prerequisites: []string{
@@ -606,11 +610,11 @@ func runtimeBuildSpec() CommandSpec {
 func projectEnterSpec() CommandSpec {
 	return CommandSpec{
 		Path: "tobari", Summary: "Prepare the current directory's Workspace and enter Bash or an exact command",
-		Args:   "[--context <name>] [-- <command>...]",
+		Args:   "[--manifest <name>] [-- <command>...]",
 		Effect: operation.EffectCreate, Role: RoleAct,
 		Agent: AgentContract{
 			CapabilityID: "tobari.lifecycle",
-			Outcome:      "On first use, review recommended Context settings or Customize; then prepare shared services, choose or create the current directory's Workspace, reconcile Runtime, and enter Bash or one exact foreground command before returning to the host",
+			Outcome:      "On first use, review recommended Workspace Manifest settings or Customize; then prepare shared services, choose or create the current directory's Workspace, reconcile Runtime, and enter Bash or one exact foreground command before returning to the host",
 			Inputs: []CommandInput{lifecycleContextInput(), {
 				Name: "command", Source: InputSourceArgument, Required: false,
 				ValueKind: InputValueText, Cardinality: InputCardinalityRepeatable,
@@ -638,17 +642,17 @@ func projectEnterSpec() CommandSpec {
 func statusSpec() CommandSpec {
 	return CommandSpec{
 		Path: "status", Summary: "Inspect the current directory's Workspace state and next action",
-		Args:   "[--context <name>] [--format text|json]",
+		Args:   "[--manifest <name>] [--format text|json]",
 		Effect: operation.EffectRead, Role: RoleUtility,
 		Agent: AgentContract{
 			CapabilityID: "tobari.lifecycle",
-			Outcome:      "Report the bound Context, whether logical Workspace state exists for the current directory, its recoverable runtime diagnostic, attached or detached session observation, and create-time bootstrap revision relationship",
+			Outcome:      "Report the selected Workspace Manifest, whether logical Workspace state exists for the current directory, its desired next entry, last successfully applied entry, adoption state, and read-only runtime observation",
 			Inputs:       []CommandInput{lifecycleContextInput(), formatInput()},
 			Output: CommandOutput{
 				Formats: []OutputFormat{OutputFormatText, OutputFormatJSON}, DefaultFormat: OutputFormatText, TextPresentation: TextPresentationSemanticTokens,
 				Fields: []OutputField{
-					{Name: "context_state", Type: OutputFieldTypeString, Description: "Whether the selected/default Context is persisted authority or a display-only synthetic default.", Enum: []string{"persisted", "synthetic_default"}},
-					{Name: "exists", Type: OutputFieldTypeBoolean, Description: "Whether a Workspace exists for the current directory and selected Context."},
+					{Name: "workspace_manifest_state", Type: OutputFieldTypeString, Description: "Whether persisted Workspace Manifest authority exists.", Enum: []string{"persisted", "absent"}},
+					{Name: "exists", Type: OutputFieldTypeBoolean, Description: "Whether a Workspace exists for the current directory and selected Workspace Manifest."},
 					{Name: "project_root", Type: OutputFieldTypeString, Description: "Nearest canonical project root when one exists."},
 					{Name: "workspace_id", Type: OutputFieldTypeString, Description: "Diagnostic stable Workspace identity when one exists."},
 					{Name: "workspace_home", Type: OutputFieldTypeString, Description: "Diagnostic Workspace XDG home path when one exists."},
@@ -657,20 +661,24 @@ func statusSpec() CommandSpec {
 					{Name: "bootstrap", Type: OutputFieldTypeObject, Description: "One-time future-Workspace configuration snapshot relationship; never credential state.", Fields: []OutputField{
 						{Name: "state", Type: OutputFieldTypeString, Description: "Whether no recipe exists, this Workspace never received it, its applied revision is current, or it retains an older create-time revision.", Enum: []string{"not_configured", "not_applied", "current", "older"}},
 						{Name: "applied_revision", Type: OutputFieldTypeString, Description: "Semantic revision projected when this Workspace was created, or an empty string when none was applied."},
-						{Name: "current_revision", Type: OutputFieldTypeString, Description: "Current Context recipe revision, or an empty string when the recipe was removed."},
+						{Name: "current_revision", Type: OutputFieldTypeString, Description: "Current Workspace Manifest recipe revision, or an empty string when the recipe was removed."},
 					}},
-					{Name: "context", Type: OutputFieldTypeString, Description: "Selected invocation Context display name, including when no Workspace exists."},
-					{Name: "context_id", Type: OutputFieldTypeString, Description: "Selected stable Context authority identity, or null before a Context is persisted.", Nullable: true},
-					{Name: "next_argv", Type: OutputFieldTypeArray, Description: "Exact argv that re-enters the persisted Context-bound lifecycle target, or uses omission-based selection when the Context is only a synthetic default.", Items: &OutputField{Type: OutputFieldTypeString, Description: "One exact argv token."}},
+					{Name: "workspace_manifest", Type: OutputFieldTypeString, Description: "Selected invocation Workspace Manifest display name, including when no Manifest is persisted."},
+					{Name: "workspace_manifest_id", Type: OutputFieldTypeString, Description: "Selected stable Workspace Manifest authority identity, or null before one is persisted.", Nullable: true},
+					{Name: "adoption", Type: OutputFieldTypeString, Description: "Relationship between Current and Next entry identities, or null when no Workspace exists.", Enum: []string{"never_applied", "current", "pending"}, Nullable: true},
+					workspaceAppliedEntryOutputField("current", "Last successfully reconciled entry, or null before the first successful entry or when no Workspace exists.", true),
+					workspaceDesiredEntryOutputField("next", "Exact desired entry derived from the selected Workspace Manifest, or null when no persisted Manifest exists.", true),
+					workspaceReconciliationFailureOutputField(),
+					{Name: "next_argv", Type: OutputFieldTypeArray, Description: "Exact argv that re-enters the persisted Workspace Manifest-bound lifecycle target, or uses omission-based selection when no Manifest is persisted.", Items: &OutputField{Type: OutputFieldTypeString, Description: "One exact argv token."}},
 				},
 				Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageNotApplicable,
-				JSONEnvelope: "status", JSONEnvelopeType: OutputFieldTypeObject, JSONSchemaVersion: 1,
+				JSONEnvelope: "status", JSONEnvelopeType: OutputFieldTypeObject, JSONSchemaVersion: 2,
 			},
 			Prerequisites: []string{},
 			Errors: readCommandErrors("status", true,
-				declaredCommandError(fault.KindNotFound, "context_not_found", false, "context list", "Choose an existing Context."),
-				declaredCommandError(fault.KindContract, "invalid_context_binding", false, "context list", "Inspect the Context catalog before selecting a Workspace."),
-				declaredCommandError(fault.KindContract, "context_binding_stale", false, "doctor", "Inspect Context and Workspace state."),
+				declaredCommandError(fault.KindNotFound, "manifest_not_found", false, "manifest list", "Choose an existing Workspace Manifest."),
+				declaredCommandError(fault.KindContract, "invalid_manifest_binding", false, "manifest list", "Inspect the Workspace Manifest catalog before selecting a Workspace."),
+				declaredCommandError(fault.KindContract, "manifest_binding_stale", false, "doctor", "Inspect Workspace Manifest and Workspace state."),
 				declaredCommandError(fault.KindInvalidInput, "invalid_root", false, "doctor", "Inspect the current directory and host access."),
 				declaredCommandError(fault.KindInternal, "state_read_failed", false, "doctor", "Inspect local CWD-owned state."),
 				declaredCommandError(fault.KindInternal, "runtime_status_failed", false, "status", "Inspect the selected project's runtime."),
@@ -686,14 +694,14 @@ func statusSpec() CommandSpec {
 func deleteSpec() CommandSpec {
 	return CommandSpec{
 		Path: "delete", Summary: "Delete the nearest current-directory Workspace when no session is attached",
-		Args: "[--context <name>] [--force]", Effect: operation.EffectWrite, Role: RoleAct,
+		Args: "[--manifest <name>] [--force]", Effect: operation.EffectWrite, Role: RoleAct,
 		Agent: AgentContract{
 			CapabilityID: "tobari.lifecycle",
-			Outcome:      "Delete one nearest Context-bound CWD Workspace, its exact owned runtime resources, persistent home, and tool-owned authentication state when detached; reject attached sessions unless --force overrides only that guard, while preserving the mounted project root",
+			Outcome:      "Delete one nearest Workspace Manifest-bound CWD Workspace, its exact owned runtime resources, persistent home, and tool-owned authentication state when detached; reject attached sessions unless --force overrides only that guard, while preserving the mounted project root",
 			Inputs: []CommandInput{lifecycleContextInput(), {
 				Name: "--force", Source: InputSourceFlag, Required: false,
 				ValueKind: InputValueBoolean, Cardinality: InputCardinalitySingle,
-				Description: "Override only the attached-session safety guard and terminate that session while deleting the disclosed Context-bound Workspace, persistent home, and tool-owned authentication state.", AllowedValues: []string{}, DefaultValue: stringPointer("false"),
+				Description: "Override only the attached-session safety guard and terminate that session while deleting the disclosed Workspace Manifest-bound Workspace, persistent home, and tool-owned authentication state.", AllowedValues: []string{}, DefaultValue: stringPointer("false"),
 			}},
 			Output: CommandOutput{
 				Formats: []OutputFormat{OutputFormatText}, DefaultFormat: OutputFormatText, TextPresentation: TextPresentationSemanticTokens,
@@ -702,17 +710,17 @@ func deleteSpec() CommandSpec {
 					{Name: "project_root", Type: OutputFieldTypeString, Description: "Deleted Workspace's preserved canonical project root."},
 					{Name: "workspace_id", Type: OutputFieldTypeString, Description: "Deleted stable Workspace identity."},
 					{Name: "workspace_home", Type: OutputFieldTypeString, Description: "Deleted Workspace XDG home path."},
-					{Name: "context", Type: OutputFieldTypeString, Description: "Context display name bound to the deleted Workspace."},
-					{Name: "context_id", Type: OutputFieldTypeString, Description: "Stable Context authority identity bound to the deleted Workspace."},
+					{Name: "workspace_manifest", Type: OutputFieldTypeString, Description: "Workspace Manifest display name bound to the deleted Workspace."},
+					{Name: "workspace_manifest_id", Type: OutputFieldTypeString, Description: "Stable Workspace Manifest authority identity bound to the deleted Workspace."},
 				},
 				Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageNotApplicable,
 			},
-			Prerequisites: []string{"The target is the nearest Workspace in the explicit or current Context; its mounted project root is preserved.", "Without --force, no session is attached; --force terminates any attached session while deleting the persistent home and tool-owned authentication state."},
+			Prerequisites: []string{"The target is the nearest Workspace in the explicit or default Workspace Manifest; its mounted project root is preserved.", "Without --force, no session is attached; --force terminates any attached session while deleting the persistent home and tool-owned authentication state."},
 			FixedTarget:   fixedCurrentDirectoryTarget(),
 			Errors: mutationCommandErrors("delete", "status",
-				declaredCommandError(fault.KindNotFound, "context_not_found", false, "context list", "Choose an existing Context."),
-				declaredCommandError(fault.KindContract, "invalid_context_binding", false, "context list", "Inspect the Context catalog before selecting a Workspace."),
-				declaredCommandError(fault.KindContract, "context_binding_stale", false, "delete", "Review the newly selected target before retrying force deletion."),
+				declaredCommandError(fault.KindNotFound, "manifest_not_found", false, "manifest list", "Choose an existing Workspace Manifest."),
+				declaredCommandError(fault.KindContract, "invalid_manifest_binding", false, "manifest list", "Inspect the Workspace Manifest catalog before selecting a Workspace."),
+				declaredCommandError(fault.KindContract, "manifest_binding_stale", false, "delete", "Review the newly selected target before retrying force deletion."),
 				declaredCommandError(fault.KindRejected, "project_session_attached", false, "delete", "Exit the attached session, then retry; use --force only when terminating it is intentional."),
 				declaredCommandError(fault.KindNotFound, "project_not_found", false, "tobari", "Create a Workspace from the current project directory."),
 				declaredCommandError(fault.KindInvalidInput, "invalid_root", false, "doctor", "Inspect the current directory and host access."),
@@ -769,12 +777,12 @@ func clusterUpSpec() CommandSpec {
 				declaredCommandError(fault.KindRejected, "root_key_missing_with_vault", false, "doctor", "Restore the original root key or explicitly remove local authentication state."),
 				declaredCommandError(fault.KindRejected, "root_key_unsafe", false, "doctor", "Repair unsafe root-key or Auth Broker state paths."),
 				declaredCommandError(fault.KindUnavailable, "keychain_denied", false, "doctor", "Inspect trusted-host root-key readiness before cluster reconciliation."),
-				declaredCommandError(fault.KindRejected, "auth_vault_invalid", false, "doctor", "Inspect Context vault integrity without printing its contents."),
-				declaredCommandError(fault.KindUnsupported, "auth_vault_version_unsupported", false, "doctor", "Upgrade or repair the unsupported Context vault."),
+				declaredCommandError(fault.KindRejected, "auth_vault_invalid", false, "doctor", "Inspect Workspace Manifest vault integrity without printing its contents."),
+				declaredCommandError(fault.KindUnsupported, "auth_vault_version_unsupported", false, "doctor", "Upgrade or repair the unsupported Workspace Manifest vault."),
 				declaredCommandError(fault.KindRejected, "invalid_provider_manifest", false, "doctor", "Repair the owner-controlled provider manifest collection."),
 				declaredCommandError(fault.KindRejected, "ambiguous_provider_http_binding", false, "doctor", "Remove the overlapping exact provider HTTP binding."),
 				declaredCommandError(fault.KindUnavailable, "runtime_image_unavailable", true, "doctor", "Inspect Docker registry access before retrying the official runtime base image."),
-				declaredCommandError(fault.KindRejected, "incompatible_image", false, "context show", "Inspect the relevant Context runtime image contract."),
+				declaredCommandError(fault.KindRejected, "incompatible_image", false, "manifest show", "Inspect the relevant Workspace Manifest runtime image contract."),
 				declaredCommandError(fault.KindInternal, "missing_runtime", false, "doctor", "Configure the Tobari runtime."),
 			),
 			Mutation: &MutationContract{
@@ -806,7 +814,7 @@ func clusterStatusSpec() CommandSpec {
 		Args: "[--format text|json]", Effect: operation.EffectRead, Role: RoleUtility,
 		Agent: AgentContract{
 			CapabilityID: "cluster.lifecycle",
-			Outcome:      "Observe shared enforcement health, aggregate Context policy revision, registry integrity, attached count, and recent errors",
+			Outcome:      "Observe shared enforcement health, aggregate Workspace Manifest policy revision, registry integrity, attached count, and recent errors",
 			Inputs:       []CommandInput{formatInput()},
 			Output: CommandOutput{
 				Formats: []OutputFormat{OutputFormatText, OutputFormatJSON}, DefaultFormat: OutputFormatText, TextPresentation: TextPresentationSemanticTokens,
@@ -835,9 +843,9 @@ func clusterStatusOutputFields() []OutputField {
 		{Name: "running", Type: OutputFieldTypeBoolean, Description: "Whether the compiled shared services are healthy."},
 		{Name: "policy", Type: OutputFieldTypeString, Description: "Canonical host XDG policy directory, or null when unconfigured.", Nullable: true},
 		{Name: "workspace_count", Type: OutputFieldTypeInteger, Description: "Number of configured Workspaces."},
-		{Name: "context_count", Type: OutputFieldTypeInteger, Description: "Number of Context policies loaded in the aggregate projection."},
+		{Name: "manifest_count", Type: OutputFieldTypeInteger, Description: "Number of Workspace Manifest policies loaded in the aggregate projection."},
 		{Name: "policy_revision", Type: OutputFieldTypeString, Description: "Content-addressed aggregate policy revision, or null when unconfigured.", Nullable: true},
-		{Name: "policy_projection", Type: OutputFieldTypeString, Description: "All-Context policy projection integrity observation.", Enum: []string{"valid", "invalid", "unavailable"}},
+		{Name: "policy_projection", Type: OutputFieldTypeString, Description: "All-Workspace Manifest policy projection integrity observation.", Enum: []string{"valid", "invalid", "unavailable"}},
 		{Name: "principal_registry", Type: OutputFieldTypeString, Description: "Principal registry integrity observation.", Enum: []string{"valid", "invalid", "unavailable"}},
 		{Name: "gateway_projection", Type: OutputFieldTypeString, Description: "Gateway routing projection integrity observation.", Enum: []string{"valid", "invalid", "unavailable"}},
 	}
@@ -980,7 +988,7 @@ func policyReviewSpec() CommandSpec {
 		Args: "[--tail <lines>] [--format text|json] [--watch] [--notify auto|osc9|bel|off]", Effect: operation.EffectRead, Role: RoleDiscover,
 		Agent: AgentContract{
 			CapabilityID: "policy.learning",
-			Outcome:      "Review pending exact HTTP or GraphQL effects and typed HTTP single-segment path-template proposals; a raw terminal can stage exact decisions from the list, inspect template scope, apply one Context's reviewed set, and optionally watch bounded snapshots",
+			Outcome:      "Review pending exact HTTP or GraphQL effects and typed HTTP single-segment path-template proposals; a raw terminal can stage exact decisions from the list, inspect template scope, apply one Workspace Manifest's reviewed set, and optionally watch bounded snapshots",
 			Inputs:       []CommandInput{reviewTailInput(), formatInput(), policyReviewWatchInput(), policyReviewNotifyInput()},
 			Output: CommandOutput{
 				Formats: []OutputFormat{OutputFormatText, OutputFormatJSON}, DefaultFormat: OutputFormatText, TextPresentation: TextPresentationSemanticTokens,
@@ -1011,7 +1019,7 @@ func policyApplyReviewedSpec() CommandSpec {
 		Visibility: CommandVisibilityInternal,
 		Agent: AgentContract{
 			CapabilityID: "policy.learning",
-			Outcome:      "Revalidate and activate one bounded typed set of exact or single-segment-template Allows and exact Denies for one Context staged by interactive review permissions",
+			Outcome:      "Revalidate and activate one bounded typed set of exact or single-segment-template Allows and exact Denies for one Workspace Manifest staged by interactive review permissions",
 			Inputs:       []CommandInput{},
 			Output: CommandOutput{
 				Formats: []OutputFormat{OutputFormatText}, DefaultFormat: OutputFormatText,
@@ -1029,8 +1037,8 @@ func policyApplyReviewedSpec() CommandSpec {
 							{Name: "review_item_id", Type: OutputFieldTypeString, Description: "Unchanged opaque exact-candidate or path-template proposal identity."},
 							{Name: "decision", Type: OutputFieldTypeString, Description: "Applied Allow or Deny decision.", Enum: []string{tobari.PolicyDecisionAllow, tobari.PolicyDecisionDeny}},
 							{Name: "match", Type: OutputFieldTypeString, Description: "Exact or single-segment path-template match.", Enum: []string{tobari.PolicyMatchExact, tobari.PolicyMatchPathTemplate}},
-							{Name: "context_id", Type: OutputFieldTypeString, Description: "Stable Context identity."},
-							{Name: "context", Type: OutputFieldTypeString, Description: "Exact Context display name."},
+							{Name: "workspace_manifest_id", Type: OutputFieldTypeString, Description: "Stable Workspace Manifest identity."},
+							{Name: "workspace_manifest", Type: OutputFieldTypeString, Description: "Exact Workspace Manifest display name."},
 							{Name: "workspace_id", Type: OutputFieldTypeString, Description: "Stable Workspace identity carried by the host-issued principal."},
 							{Name: "project_root", Type: OutputFieldTypeString, Description: "Safe canonical project root."},
 							{Name: "host", Type: OutputFieldTypeString, Description: "Exact request host."},
@@ -1069,7 +1077,7 @@ func policyApplyReviewedSpec() CommandSpec {
 				declaredCommandError(fault.KindInvalidInput, "invalid_policy_review_session", false, "review permissions", "Stage decisions through an interactive Permission Inbox."),
 				declaredCommandError(fault.KindInvalidInput, "invalid_policy_review_set", false, "review permissions", "Review a bounded non-empty set of exact candidates."),
 				declaredCommandError(fault.KindRejected, "policy_review_changed", false, "review permissions", "Review the current pending queue again."),
-				declaredCommandError(fault.KindRejected, "policy_review_scope_mixed", false, "review permissions", "Apply or discard the current Context decisions before reviewing another Context."),
+				declaredCommandError(fault.KindRejected, "policy_review_scope_mixed", false, "review permissions", "Apply or discard the staged Workspace Manifest decisions before reviewing another Workspace Manifest."),
 				declaredCommandError(fault.KindRejected, "policy_data_changed", false, "review permissions", "Review again after the concurrent policy change."),
 				declaredCommandError(fault.KindRejected, "policy_preflight_failed", false, "doctor", "Correct the complete candidate policy."),
 				declaredCommandError(fault.KindUnavailable, "policy_learning_failed", false, "cluster status", "Reconcile OPA and current policy state."),
@@ -1104,7 +1112,7 @@ func policyRulesSpec() CommandSpec {
 				Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageExhaustive,
 				JSONEnvelope: "policy_rules", JSONEnvelopeType: OutputFieldTypeArray, JSONSchemaVersion: 1,
 			},
-			Prerequisites: []string{"Every configured Context has a validated policy source and the shared aggregate is current."},
+			Prerequisites: []string{"Every configured Workspace Manifest has a validated policy source and the shared aggregate is current."},
 			Errors:        policyRuleReadErrors("policy rules", true),
 			Interactive: &InteractiveWorkflowContract{
 				ActionCommand:          "policy reset",
@@ -1241,7 +1249,7 @@ func clusterDownSpec() CommandSpec {
 		Args: "[--purge]", Effect: operation.EffectWrite, Role: RoleAct,
 		Agent: AgentContract{
 			CapabilityID: "cluster.lifecycle",
-			Outcome:      "Remove shared containers and networks after every logical Workspace is deleted. With --purge, also remove shared CA volumes and the active policy-bundle volume. Preserve encrypted Context vaults and the installation root key in both modes.",
+			Outcome:      "Remove shared containers and networks after every logical Workspace is deleted. With --purge, also remove shared CA volumes and the active policy-bundle volume. Preserve encrypted Workspace Manifest vaults and the installation root key in both modes.",
 			Inputs:       []CommandInput{purgeInput("Also remove exact shared CA and active policy-bundle volumes.")},
 			Output:       textClusterStatusOutput(),
 			Prerequisites: []string{
@@ -1279,7 +1287,7 @@ func listSpec() CommandSpec {
 		Args: "[--format text|json]", Effect: operation.EffectRead, Role: RoleUtility,
 		Agent: AgentContract{
 			CapabilityID: "tobari.lifecycle",
-			Outcome:      "Return every configured Workspace root with diagnostic runtime state",
+			Outcome:      "Return every configured Workspace with its Manifest binding, desired next entry, last successfully applied entry, adoption state, and read-only runtime observation",
 			Inputs:       []CommandInput{formatInput()},
 			Output: CommandOutput{
 				Formats: []OutputFormat{OutputFormatText, OutputFormatJSON}, DefaultFormat: OutputFormatText, TextPresentation: TextPresentationSemanticTokens,
@@ -1287,11 +1295,16 @@ func listSpec() CommandSpec {
 					{Name: "project_root", Type: OutputFieldTypeString, Description: "Canonical project root mounted by the Workspace."},
 					{Name: "runtime", Type: OutputFieldTypeString, Description: "Recoverable runtime diagnostic; incomplete means the logical state record is missing and must be deleted before recreation."},
 					{Name: "workspace_id", Type: OutputFieldTypeString, Description: "Diagnostic stable Workspace ID; not a routine action input."},
-					{Name: "context", Type: OutputFieldTypeString, Description: "Context display name permanently bound to the Workspace."},
-					{Name: "context_id", Type: OutputFieldTypeString, Description: "Stable Context authority identity permanently bound to the Workspace."},
+					{Name: "workspace_home", Type: OutputFieldTypeString, Description: "Workspace-owned persistent home path."},
+					{Name: "workspace_manifest", Type: OutputFieldTypeString, Description: "Workspace Manifest display name permanently bound to the Workspace."},
+					{Name: "workspace_manifest_id", Type: OutputFieldTypeString, Description: "Stable Workspace Manifest authority identity permanently bound to the Workspace."},
+					{Name: "adoption", Type: OutputFieldTypeString, Description: "Relationship between Current and Next entry identities.", Enum: []string{"never_applied", "current", "pending"}},
+					workspaceAppliedEntryOutputField("current", "Last successfully reconciled entry, or null before the first successful entry.", true),
+					workspaceDesiredEntryOutputField("next", "Exact desired entry derived from the bound Workspace Manifest.", false),
+					workspaceReconciliationFailureOutputField(),
 				},
 				Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageExhaustive,
-				JSONEnvelope: "workspaces", JSONEnvelopeType: OutputFieldTypeArray, JSONSchemaVersion: 1,
+				JSONEnvelope: "workspaces", JSONEnvelopeType: OutputFieldTypeArray, JSONSchemaVersion: 2,
 			},
 			Prerequisites: []string{},
 			Errors: readCommandErrors("list", true,
@@ -1325,8 +1338,8 @@ func fixedCurrentDirectoryTarget() *FixedTarget {
 
 func fixedContextCatalogTarget() *FixedTarget {
 	return &FixedTarget{
-		Kind: tobari.ContextCatalogTargetKind, ID: tobari.ContextCatalogTargetID,
-		Description: "This installation's host-owned collection of named Contexts.",
+		Kind: tobari.ManifestCatalogTargetKind, ID: tobari.ManifestCatalogTargetID,
+		Description: "This installation's host-owned collection of named Workspace Manifests.",
 		Scope:       FixedTargetScopeToolLocal,
 	}
 }
@@ -1336,42 +1349,42 @@ func fixedRuntimeCatalogTarget() *FixedTarget {
 }
 
 func fixedContextRuntimeBindingTarget() *FixedTarget {
-	return &FixedTarget{Kind: tobari.ContextRuntimeBindingTargetKind, ID: tobari.ContextRuntimeBindingTargetID, Description: "One explicit or current Context's exact mutable Runtime revision binding, adopted by bound Workspaces on next entry.", Scope: FixedTargetScopeToolLocal}
+	return &FixedTarget{Kind: tobari.ManifestRuntimeBindingTargetKind, ID: tobari.ManifestRuntimeBindingTargetID, Description: "One explicit or default Workspace Manifest's exact mutable Runtime revision binding, adopted by bound Workspaces on next entry.", Scope: FixedTargetScopeToolLocal}
 }
 
 func fixedActiveContextTarget() *FixedTarget {
 	return &FixedTarget{
-		Kind: tobari.ContextTargetKind, ID: tobari.ActiveContextTargetID,
-		Description: "This installation's host-owned current Context omission default.",
+		Kind: tobari.ManifestTargetKind, ID: tobari.DefaultManifestSelectionTargetID,
+		Description: "This installation's host-owned Workspace Manifest omission default.",
 		Scope:       FixedTargetScopeToolLocal,
 	}
 }
 
 func fixedContextShellTarget() *FixedTarget {
 	return &FixedTarget{
-		Kind: tobari.ContextShellTargetKind, ID: tobari.ContextShellTargetID,
-		Description: "This installation's Context-owned allowlisted shell session defaults.",
+		Kind: tobari.ManifestShellTargetKind, ID: tobari.ManifestShellTargetID,
+		Description: "This installation's Workspace Manifest-owned allowlisted shell session defaults.",
 		Scope:       FixedTargetScopeToolLocal,
 	}
 }
 
 func fixedContextGitIdentityTarget() *FixedTarget {
 	return &FixedTarget{
-		Kind: tobari.ContextGitIdentityTargetKind, ID: tobari.ContextGitIdentityTargetID,
-		Description: "This installation's Context-owned narrow Git identity session defaults.",
+		Kind: tobari.ManifestGitIdentityTargetKind, ID: tobari.ManifestGitIdentityTargetID,
+		Description: "This installation's Workspace Manifest-owned narrow Git identity session defaults.",
 		Scope:       FixedTargetScopeToolLocal,
 	}
 }
 
 func fixedContextBootstrapTarget() *FixedTarget {
-	return &FixedTarget{Kind: tobari.ContextBootstrapTargetKind, ID: tobari.ContextBootstrapTargetID, Description: "This installation's Context-owned secret-free creation default applied only to future Workspace homes.", Scope: FixedTargetScopeToolLocal}
+	return &FixedTarget{Kind: tobari.ManifestBootstrapTargetKind, ID: tobari.ManifestBootstrapTargetID, Description: "This installation's Workspace Manifest-owned secret-free creation default applied only to future Workspace homes.", Scope: FixedTargetScopeToolLocal}
 }
 
 func fixedActiveContextRuntimeTarget() *FixedTarget {
 	return &FixedTarget{
-		Kind:        tobari.ContextRuntimeTargetKind,
+		Kind:        tobari.ManifestRuntimeTargetKind,
 		ID:          tobari.ActiveContextRuntimeID,
-		Description: "The current Context's host-owned runtime recipe and selected image.",
+		Description: "The default Workspace Manifest's host-owned runtime recipe and selected image.",
 		Scope:       FixedTargetScopeToolLocal,
 	}
 }
@@ -1380,7 +1393,7 @@ func contextNameInput() CommandInput {
 	return CommandInput{
 		Name: "--name", Source: InputSourceFlag, Required: true,
 		ValueKind: InputValueText, Cardinality: InputCardinalitySingle,
-		Description:   "Portable Context name; it is a selection label, not a credential authority.",
+		Description:   "Portable Workspace Manifest name; it is a selection label, not a credential authority.",
 		AllowedValues: []string{}, Completion: InputCompletionContextName,
 	}
 }
@@ -1389,16 +1402,16 @@ func contextCreateNameInput() CommandInput {
 	input := contextNameInput()
 	input.Required = false
 	input.Completion = InputCompletionNone
-	input.Description = "Portable Context name; on interactive text streams a supplied name prefills and skips the Name stage while omitted settings remain reviewed."
+	input.Description = "Portable Workspace Manifest name; on interactive text streams a supplied name prefills and skips the Name stage while omitted settings remain reviewed."
 	return input
 }
 
 func contextCreateBaseInput() CommandInput {
 	minimum := int64(1)
 	return CommandInput{
-		Name: "--base", Source: InputSourceFlag, Required: false,
+		Name: "--copy-from", Source: InputSourceFlag, Required: false,
 		ValueKind: InputValueText, Cardinality: InputCardinalitySingle, MinimumLength: &minimum,
-		Description:   "Existing Context used only to initialize a standalone creation draft; no lineage or authority relationship is persisted.",
+		Description:   "Existing Workspace Manifest used only to initialize a standalone creation draft; no lineage or authority relationship is persisted.",
 		AllowedValues: []string{}, Completion: InputCompletionContextName,
 	}
 }
@@ -1420,9 +1433,9 @@ func contextCreateEKSBootstrapInput() CommandInput {
 
 func executionContextInput() CommandInput {
 	return CommandInput{
-		Name: "--context", Source: InputSourceFlag, Required: false,
+		Name: "--manifest", Source: InputSourceFlag, Required: false,
 		ValueKind: InputValueText, Cardinality: InputCardinalitySingle,
-		Description: "Context display name for this invocation; omission uses the current Context without changing it.", AllowedValues: []string{}, Completion: InputCompletionContextName,
+		Description: "Workspace Manifest display name for this invocation; omission uses the default Workspace Manifest without changing it.", AllowedValues: []string{}, Completion: InputCompletionContextName,
 	}
 }
 
@@ -1430,7 +1443,7 @@ func lifecycleContextInput() CommandInput {
 	input := executionContextInput()
 	minimumLength := int64(1)
 	input.MinimumLength = &minimumLength
-	input.Description = "Non-empty Context display name for this invocation; both `tobari --context toolbox status` and `tobari status --context toolbox` are accepted, omission uses the current Context without changing it, and duplicate placement is rejected."
+	input.Description = "Non-empty Workspace Manifest display name for this invocation; both `tobari --manifest toolbox status` and `tobari status --manifest toolbox` are accepted, omission uses the default Workspace Manifest without changing it, and duplicate placement is rejected."
 	return input
 }
 
@@ -1438,7 +1451,7 @@ func contextImageInput() CommandInput {
 	return CommandInput{
 		Name: "--image", Source: InputSourceFlag, Required: false,
 		ValueKind: InputValueText, Cardinality: InputCardinalitySingle,
-		Description:   "Built-in compatible Tobari image selector stored in the Context.",
+		Description:   "Built-in compatible Tobari image selector stored in the Workspace Manifest.",
 		AllowedValues: []string{}, DefaultValue: stringPointer(tobari.BuiltinImageSelector),
 	}
 }
@@ -1462,26 +1475,27 @@ func contextSourceAccessInput() CommandInput {
 }
 
 func contextNativeReadinessInput() CommandInput {
-	return CommandInput{Name: "--native-readiness", Source: InputSourceFlag, Required: false, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, Description: "Creation-time immutable Boundary choice that admits the trusted binary's current native-client readiness overlay; required with --mode and still bounded by Context policy ceilings.", AllowedValues: []string{"enabled", "disabled"}, DefaultValue: stringPointer("enabled")}
+	return CommandInput{Name: "--native-readiness", Source: InputSourceFlag, Required: false, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, Description: "Creation-time immutable Boundary choice that admits the trusted binary's current native-client readiness overlay; required with --mode and still bounded by Workspace Manifest policy ceilings.", AllowedValues: []string{"enabled", "disabled"}, DefaultValue: stringPointer("enabled")}
 }
 
 func contextReportOutput() CommandOutput {
 	return CommandOutput{
 		Formats: []OutputFormat{OutputFormatText, OutputFormatJSON}, DefaultFormat: OutputFormatText, TextPresentation: TextPresentationSemanticTokens,
 		Fields: []OutputField{
-			{Name: "task", Type: OutputFieldTypeString, Description: "Declared Context task identity for this report."},
-			{Name: "context_state", Type: OutputFieldTypeString, Description: "Persisted authority or a display-only synthetic default.", Enum: []string{"persisted", "synthetic_default"}},
-			{Name: "id", Type: OutputFieldTypeString, Description: "Stable host-issued Context identity, or null before authority is persisted.", Nullable: true},
-			{Name: "name", Type: OutputFieldTypeString, Description: "Named Context identifier."},
-			{Name: "active", Type: OutputFieldTypeBoolean, Description: "Whether this Context is the current/default selection for omitted Context input."},
+			{Name: "task", Type: OutputFieldTypeString, Description: "Declared Workspace Manifest task identity for this report."},
+			{Name: "workspace_manifest_state", Type: OutputFieldTypeString, Description: "Persisted Workspace Manifest authority.", Enum: []string{"persisted"}},
+			{Name: "workspace_manifest_id", Type: OutputFieldTypeString, Description: "Stable host-issued Workspace Manifest identity.", Nullable: true},
+			{Name: "name", Type: OutputFieldTypeString, Description: "Named Workspace Manifest identifier."},
+			{Name: "default", Type: OutputFieldTypeBoolean, Description: "Whether this Workspace Manifest is the default for omitted Manifest input."},
+			workspaceManifestDesiredOutputField(),
 			{Name: "agent_profile", Type: OutputFieldTypeString, Description: "Read-only shared agent profile reference."},
-			{Name: "image", Type: OutputFieldTypeString, Description: "Default compatible Tobari image selector stored in the Context."},
+			{Name: "image", Type: OutputFieldTypeString, Description: "Default compatible Tobari image selector stored in the Workspace Manifest."},
 			{Name: "policy_mode", Type: OutputFieldTypeString, Description: "Creation-time immutable Boundary policy-development mode.", Enum: []string{"guided", "advanced"}},
 			{Name: "source_access", Type: OutputFieldTypeString, Description: "Creation-time immutable Boundary access for the direct project-source bind; this does not describe Workspace home or tmpfs.", Enum: []string{"read-only", "read-write"}},
-			{Name: "policy_revision", Type: OutputFieldTypeString, Description: "SHA-256 revision of the immutable Context-owned normalized policy snapshot; empty only for a synthetic default."},
+			{Name: "policy_revision", Type: OutputFieldTypeString, Description: "SHA-256 revision of the immutable Workspace Manifest-owned normalized policy snapshot; empty only for a synthetic default."},
 			{Name: "native_readiness", Type: OutputFieldTypeString, Description: "Creation-time immutable Boundary choice for native-client readiness participation; the system policy ceiling still bounds its effects.", Enum: []string{"enabled", "disabled"}},
-			{Name: "method_policy", Type: OutputFieldTypeObject, Description: "Effective default and exact HTTP method decisions owned by the Context.", Fields: contextPolicyMethodPolicyOutput("Effective default and exact HTTP method decisions owned by the Context.").Fields},
-			{Name: "shell_environment", Type: OutputFieldTypeArray, Description: "Complete allowlisted shell session-default inventory, resolved for later child sessions without rewriting Workspace home; literal carries its exact value.", SemanticScope: "The fixed four-variable Context shell presentation inventory.", Items: &OutputField{
+			{Name: "method_policy", Type: OutputFieldTypeObject, Description: "Effective default and exact HTTP method decisions owned by the Workspace Manifest.", Fields: contextPolicyMethodPolicyOutput("Effective default and exact HTTP method decisions owned by the Workspace Manifest.").Fields},
+			{Name: "shell_environment", Type: OutputFieldTypeArray, Description: "Complete allowlisted shell session-default inventory, resolved for later child sessions without rewriting Workspace home; literal carries its exact value.", SemanticScope: "The fixed four-variable Workspace Manifest shell presentation inventory.", Items: &OutputField{
 				Type: OutputFieldTypeObject, Description: "One allowlisted shell variable policy.", Fields: []OutputField{
 					{Name: "variable", Type: OutputFieldTypeString, Description: "Allowlisted variable name.", Enum: []string{"COLORTERM", "NO_COLOR", "PS1", "TERM"}},
 					{Name: "source", Type: OutputFieldTypeString, Description: "Value source.", Enum: []string{"default", "inherit", "literal"}},
@@ -1495,7 +1509,7 @@ func contextReportOutput() CommandOutput {
 			}},
 			contextBootstrapOutputField(),
 			{Name: "stores", Type: OutputFieldTypeObject, Description: "Resolved paths, or null for a synthetic default; secret values are never included.", Nullable: true, Fields: []OutputField{
-				{Name: "policy_directory", Type: OutputFieldTypeString, Description: "Canonical Context policy directory."},
+				{Name: "policy_directory", Type: OutputFieldTypeString, Description: "Canonical Workspace Manifest policy directory."},
 			}},
 			{Name: "runtime", Type: OutputFieldTypeObject, Description: "Exact explicitly mutable built-in or managed Runtime revision binding; bound Workspaces adopt replacements on next entry with identity and home preserved.", Fields: []OutputField{
 				{Name: "kind", Type: OutputFieldTypeString, Description: "Built-in or managed Runtime source kind.", Enum: []string{"official", "managed"}},
@@ -1512,7 +1526,7 @@ func contextReportOutput() CommandOutput {
 				{Name: "broker_state", Type: OutputFieldTypeString, Description: "Experimental Auth Broker observation.", Enum: []string{"not_applicable", "ready", "locked", "unavailable"}, Optional: true},
 				{Name: "declared_bindings", Type: OutputFieldTypeString, Description: "Experimental authentication route for installed declared provider bindings.", Enum: []string{"broker_required"}, Optional: true},
 				{Name: "undeclared_bindings", Type: OutputFieldTypeString, Description: "Experimental route for bindings absent from the provider projection.", Enum: []string{"workspace_owned_compatibility"}, Optional: true},
-				{Name: "providers", Type: OutputFieldTypeArray, Description: "Installed provider states, or null when this mutation did not observe authentication.", Nullable: true, SemanticScope: "Every installed provider for the selected Context when authentication was observed.", Items: &OutputField{
+				{Name: "providers", Type: OutputFieldTypeArray, Description: "Installed provider states, or null when this mutation did not observe authentication.", Nullable: true, SemanticScope: "Every installed provider for the selected Workspace Manifest when authentication was observed.", Items: &OutputField{
 					Type: OutputFieldTypeObject, Description: "One installed provider observation.", Fields: []OutputField{
 						{Name: "provider", Type: OutputFieldTypeString, Description: "Installed provider ID."},
 						{Name: "state", Type: OutputFieldTypeString, Description: "Provider credential state.", Enum: []string{"configured", "not_configured", "unavailable"}},
@@ -1523,8 +1537,54 @@ func contextReportOutput() CommandOutput {
 			}},
 		},
 		Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageNotApplicable,
-		JSONEnvelope: "context", JSONEnvelopeType: OutputFieldTypeObject, JSONSchemaVersion: 1,
+		JSONEnvelope: "workspace_manifest", JSONEnvelopeType: OutputFieldTypeObject, JSONSchemaVersion: 2,
 	}
+}
+
+func workspaceManifestDesiredOutputField() OutputField {
+	return OutputField{Name: "desired", Type: OutputFieldTypeObject, Description: "Exact immutable desired revision identities.", Fields: []OutputField{
+		{Name: "manifest_generation", Type: OutputFieldTypeInteger, Description: "Monotonic correlation generation."},
+		{Name: "manifest_revision", Type: OutputFieldTypeString, Description: "Complete semantic Workspace Manifest digest."},
+		{Name: "boundary_revision", Type: OutputFieldTypeString, Description: "Immutable Boundary digest."},
+		{Name: "cluster_projection_revision", Type: OutputFieldTypeString, Description: "Cluster projection activation digest."},
+		{Name: "entry_revision", Type: OutputFieldTypeString, Description: "Next Workspace entry configuration digest."},
+		{Name: "session_defaults_revision", Type: OutputFieldTypeString, Description: "Later-session defaults digest."},
+		{Name: "creation_defaults_revision", Type: OutputFieldTypeString, Description: "New-Workspace creation defaults digest."},
+	}}
+}
+
+func workspaceDesiredEntryOutputField(name, description string, nullable bool) OutputField {
+	return OutputField{Name: name, Type: OutputFieldTypeObject, Description: description, Nullable: nullable, Fields: []OutputField{
+		{Name: "manifest_generation", Type: OutputFieldTypeInteger, Description: "Monotonic Workspace Manifest generation used for correlation."},
+		{Name: "manifest_revision", Type: OutputFieldTypeString, Description: "Complete semantic Workspace Manifest digest."},
+		{Name: "entry_revision", Type: OutputFieldTypeString, Description: "Exact Workspace-entry configuration digest."},
+		{Name: "runtime_id", Type: OutputFieldTypeString, Description: "Stable Runtime authority identity, including the built-in standard identity."},
+		{Name: "runtime_revision", Type: OutputFieldTypeString, Description: "Exact semantic Runtime revision digest."},
+	}}
+}
+
+func workspaceAppliedEntryOutputField(name, description string, nullable bool) OutputField {
+	return OutputField{Name: name, Type: OutputFieldTypeObject, Description: description, Nullable: nullable, Fields: []OutputField{
+		{Name: "manifest_generation", Type: OutputFieldTypeInteger, Description: "Workspace Manifest generation confirmed by the last successful entry."},
+		{Name: "manifest_revision", Type: OutputFieldTypeString, Description: "Complete Workspace Manifest digest confirmed by the last successful entry."},
+		{Name: "entry_revision", Type: OutputFieldTypeString, Description: "Workspace-entry configuration digest confirmed by the last successful entry."},
+		{Name: "runtime_id", Type: OutputFieldTypeString, Description: "Stable Runtime authority identity consumed by the successful entry."},
+		{Name: "runtime_revision", Type: OutputFieldTypeString, Description: "Exact semantic Runtime revision consumed by the successful entry."},
+		{Name: "resolved_spec_revision", Type: OutputFieldTypeString, Description: "Digest of the fully resolved entry specification that was applied."},
+		{Name: "reconciled_at", Type: OutputFieldTypeString, Description: "UTC timestamp of the last successful reconciliation; it is not Runtime last-used evidence."},
+	}}
+}
+
+func workspaceReconciliationFailureOutputField() OutputField {
+	return OutputField{Name: "last_reconciliation_failure", Type: OutputFieldTypeObject, Description: "Bounded latest failed or unknown entry attempt; null does not imply an entry was attempted.", Nullable: true, Fields: []OutputField{
+		{Name: "attempted_generation", Type: OutputFieldTypeInteger, Description: "Workspace Manifest generation attempted."},
+		{Name: "attempted_manifest_revision", Type: OutputFieldTypeString, Description: "Workspace Manifest revision attempted."},
+		{Name: "attempted_entry_revision", Type: OutputFieldTypeString, Description: "Workspace-entry revision attempted."},
+		{Name: "phase", Type: OutputFieldTypeString, Description: "Closed reconciliation phase that failed."},
+		{Name: "code", Type: OutputFieldTypeString, Description: "Stable secret-free failure code."},
+		{Name: "change_state", Type: OutputFieldTypeString, Description: "Whether mutation was known absent, partial, or unknown.", Enum: []string{"none", "partial", "unknown"}},
+		{Name: "occurred_at", Type: OutputFieldTypeString, Description: "UTC timestamp of the failed attempt."},
+	}}
 }
 
 func contextBootstrapOutputField() OutputField {
@@ -1552,18 +1612,18 @@ func projectEnterErrors() []CommandError {
 	result = append(result,
 		declaredCommandError(fault.KindInternal, "first_use_review_failed", false, "tobari", "Retry in an interactive terminal."),
 		declaredCommandError(fault.KindContract, "invalid_first_use_draft", false, "help tobari", "Inspect the root first-use contract."),
-		declaredCommandError(fault.KindNotFound, "context_not_found", false, "context list", "Choose an existing Context."),
-		declaredCommandError(fault.KindContract, "invalid_context_binding", false, "context list", "Inspect the Context catalog before selecting a Workspace."),
-		declaredCommandError(fault.KindContract, "context_binding_stale", false, "doctor", "Inspect Context and Workspace state."),
+		declaredCommandError(fault.KindNotFound, "manifest_not_found", false, "manifest list", "Choose an existing Workspace Manifest."),
+		declaredCommandError(fault.KindContract, "invalid_manifest_binding", false, "manifest list", "Inspect the Workspace Manifest catalog before selecting a Workspace."),
+		declaredCommandError(fault.KindContract, "manifest_binding_stale", false, "doctor", "Inspect Workspace Manifest and Workspace state."),
 		declaredCommandError(fault.KindInvalidInput, "tty_required", false, "help tobari", "Run the root command from an interactive terminal."),
 		declaredCommandError(fault.KindRejected, "already_inside", false, "help tobari", "Exit the current Workspace session before entering another."),
 		declaredCommandError(fault.KindUnavailable, "cluster_not_configured", false, "cluster up", "Create the shared cluster explicitly before entering a Workspace."),
 		declaredCommandError(fault.KindUnavailable, "cluster_status_failed", false, "cluster status", "Inspect the shared cluster before entering a Workspace."),
 		declaredCommandError(fault.KindUnavailable, "cluster_not_ready", false, "cluster up", "Reconcile the shared cluster explicitly before entering a Workspace."),
-		declaredCommandError(fault.KindRejected, "cluster_projection_stale", false, "cluster up", "Load the complete Context catalog into the shared cluster before entering a Workspace."),
+		declaredCommandError(fault.KindRejected, "cluster_projection_stale", false, "cluster up", "Load the complete Workspace Manifest catalog into the shared cluster before entering a Workspace."),
 		declaredCommandError(fault.KindRejected, "runtime_build_required", false, "runtime build", "Build and select the staged custom runtime before entering a Workspace."),
-		declaredCommandError(fault.KindRejected, "runtime_recipe_invalid", false, "context show", "Inspect and correct the invalid custom runtime recipe before entry."),
-		declaredCommandError(fault.KindInternal, "runtime_choice_failed", false, "tobari", "Resume from the persisted Context and ready cluster."),
+		declaredCommandError(fault.KindRejected, "runtime_recipe_invalid", false, "manifest show", "Inspect and correct the invalid custom runtime recipe before entry."),
+		declaredCommandError(fault.KindInternal, "runtime_choice_failed", false, "tobari", "Resume from the persisted Workspace Manifest and ready cluster."),
 		declaredCommandError(fault.KindRejected, "project_state_incomplete", false, "delete", "Review the exact delete command and confirm removal of the incomplete current-directory Workspace."),
 		declaredCommandError(fault.KindInternal, "missing_workspace_selector", false, "doctor", "Configure the Tobari terminal selector."),
 		declaredCommandError(fault.KindContract, "invalid_workspace_selection", false, "doctor", "Inspect local Workspace state."),
@@ -1571,15 +1631,15 @@ func projectEnterErrors() []CommandError {
 		declaredCommandError(fault.KindRejected, "workspace_selection_stale", true, "tobari", "Refresh the Workspace choices and select again."),
 		declaredCommandError(fault.KindInvalidInput, "invalid_root", false, "doctor", "Inspect the current directory and host access."),
 		declaredCommandError(fault.KindUnavailable, "image_not_found", false, "runtime build", "Build or make the selected compatible runtime image available to Docker."),
-		declaredCommandError(fault.KindUnavailable, "git_identity_resolution_failed", false, "context show", "Inspect the selected Context Git identity without changing Workspace state."),
+		declaredCommandError(fault.KindUnavailable, "git_identity_resolution_failed", false, "manifest show", "Inspect the selected Workspace Manifest Git identity without changing Workspace state."),
 		declaredCommandError(fault.KindUnavailable, "runtime_reconcile_failed", false, "status", "Inspect the selected project's runtime."),
 		declaredCommandError(fault.KindUnavailable, "network_guard_failed", false, "doctor", "Inspect Docker Engine network-namespace and nftables support."),
 		declaredCommandError(fault.KindInternal, "enter_failed", false, "status", "Inspect the selected project's runtime."),
 		declaredCommandError(fault.KindUnavailable, "auth_broker_unavailable", true, "status", "Inspect Workspace and shared-cluster state before authentication reconciliation."),
 		declaredCommandError(fault.KindUnavailable, "auth_broker_request_failed", false, "status", "Inspect Workspace state before another Auth Broker request."),
 		declaredCommandError(fault.KindUnavailable, "auth_broker_locked", false, "status", "Inspect Workspace state before unlocking the Auth Broker."),
-		declaredCommandError(fault.KindRejected, "auth_vault_invalid", false, "doctor", "Inspect the Context vault integrity without printing its contents."),
-		declaredCommandError(fault.KindUnsupported, "auth_vault_version_unsupported", false, "doctor", "Upgrade or repair the unsupported Context vault."),
+		declaredCommandError(fault.KindRejected, "auth_vault_invalid", false, "doctor", "Inspect the Workspace Manifest vault integrity without printing its contents."),
+		declaredCommandError(fault.KindUnsupported, "auth_vault_version_unsupported", false, "doctor", "Upgrade or repair the unsupported Workspace Manifest vault."),
 		declaredCommandError(fault.KindRejected, "invalid_provider_manifest", false, "doctor", "Repair the owner-controlled provider manifest collection."),
 		declaredCommandError(fault.KindRejected, "ambiguous_provider_http_binding", false, "doctor", "Remove the overlapping exact provider HTTP binding."),
 		declaredCommandError(fault.KindContract, "invalid_auth_handle_result", false, "doctor", "Inspect Broker and provider projection consistency."),
@@ -1598,7 +1658,7 @@ func workspaceStartReadinessErrors() []CommandError {
 		classifiedCommandError(fault.KindUnavailable, "docker_cli_unavailable", false, fault.PhasePrecondition, fault.ChangeNone, "doctor", "Inspect generic Docker readiness before starting a Workspace."),
 		classifiedCommandError(fault.KindUnavailable, "docker_engine_unavailable", false, fault.PhasePrecondition, fault.ChangeNone, "doctor", "Inspect generic Docker readiness before starting a Workspace."),
 		classifiedCommandError(fault.KindUnsupported, "docker_engine_incompatible", false, fault.PhasePrecondition, fault.ChangeNone, "doctor", "Inspect generic Docker readiness before starting a Workspace."),
-		classifiedCommandError(fault.KindUnavailable, "docker_context_unavailable", false, fault.PhasePrecondition, fault.ChangeNone, "doctor", "Inspect generic Docker readiness before starting a Workspace."),
+		classifiedCommandError(fault.KindUnavailable, "docker_manifest_unavailable", false, fault.PhasePrecondition, fault.ChangeNone, "doctor", "Inspect generic Docker readiness before starting a Workspace."),
 		classifiedCommandError(fault.KindUnavailable, "docker_compose_unavailable", false, fault.PhasePrecondition, fault.ChangeNone, "doctor", "Inspect generic Docker readiness before starting a Workspace."),
 		classifiedCommandError(fault.KindContract, "invalid_readiness_profile", false, fault.PhasePrecondition, fault.ChangeNone, "doctor", "Repair the generic Docker readiness contract."),
 		classifiedCommandError(fault.KindContract, "invalid_readiness_observation", false, fault.PhasePrecondition, fault.ChangeNone, "doctor", "Repair the generic Docker readiness observation contract."),
@@ -1654,8 +1714,8 @@ func policyRuleOutputFields() []OutputField {
 		{Name: "id", Type: OutputFieldTypeString, Description: "Opaque current learned policy-rule reference.", ReferenceKind: tobari.PolicyRuleKind},
 		{Name: "decision", Type: OutputFieldTypeString, Description: "Current learned decision: allow or deny.", Enum: []string{"allow", "deny"}},
 		{Name: "match", Type: OutputFieldTypeString, Description: "Exact match mode.", Enum: []string{"exact"}},
-		{Name: "context_id", Type: OutputFieldTypeString, Description: "Stable Context authority bound to the decision."},
-		{Name: "context", Type: OutputFieldTypeString, Description: "Human-readable Context name."},
+		{Name: "workspace_manifest_id", Type: OutputFieldTypeString, Description: "Stable Workspace Manifest authority bound to the decision."},
+		{Name: "workspace_manifest", Type: OutputFieldTypeString, Description: "Human-readable Workspace Manifest name."},
 		{Name: "workspace_id", Type: OutputFieldTypeString, Description: "Stable Workspace identity bound to the decision."},
 		{Name: "project_root", Type: OutputFieldTypeString, Description: "Safe diagnostic canonical project root."},
 		{Name: "scheme", Type: OutputFieldTypeString, Description: "Exact decision scheme.", Enum: []string{"http", "https"}},
@@ -1705,8 +1765,8 @@ func policyCandidateOutputFields() []OutputField {
 		{Name: "id", Type: OutputFieldTypeString, Description: "Opaque exact policy-candidate reference.", ReferenceKind: tobari.PolicyCandidateKind},
 		{Name: "observed_at", Type: OutputFieldTypeString, Description: "Latest matching Gateway denial timestamp."},
 		{Name: "observation_count", Type: OutputFieldTypeInteger, Description: "Matching retained denial observations."},
-		{Name: "context_id", Type: OutputFieldTypeString, Description: "Stable Context authority established by Gateway network identity."},
-		{Name: "context", Type: OutputFieldTypeString, Description: "Human-readable Context name."},
+		{Name: "workspace_manifest_id", Type: OutputFieldTypeString, Description: "Stable Workspace Manifest authority established by Gateway network identity."},
+		{Name: "workspace_manifest", Type: OutputFieldTypeString, Description: "Human-readable Workspace Manifest name."},
 		{Name: "workspace_id", Type: OutputFieldTypeString, Description: "Stable Workspace identity for the denied request."},
 		{Name: "project_root", Type: OutputFieldTypeString, Description: "Safe diagnostic canonical project root."},
 		{Name: "scheme", Type: OutputFieldTypeString, Description: "Exact denied request scheme.", Enum: []string{"http", "https"}},
@@ -1745,8 +1805,8 @@ func policyDenialOutputFields() []OutputField {
 	return []OutputField{
 		{Name: "timestamp", Type: OutputFieldTypeString, Description: "Validated denial timestamp."},
 		{Name: "request_id", Type: OutputFieldTypeString, Description: "Secret-free request identity."},
-		{Name: "context_id", Type: OutputFieldTypeString, Description: "Stable Context authority established by Gateway network identity."},
-		{Name: "context", Type: OutputFieldTypeString, Description: "Human-readable Context name."},
+		{Name: "workspace_manifest_id", Type: OutputFieldTypeString, Description: "Stable Workspace Manifest authority established by Gateway network identity."},
+		{Name: "workspace_manifest", Type: OutputFieldTypeString, Description: "Human-readable Workspace Manifest name."},
 		{Name: "workspace_id", Type: OutputFieldTypeString, Description: "Stable Workspace identity carried by the host-issued principal."},
 		{Name: "project_root", Type: OutputFieldTypeString, Description: "Safe canonical project root."},
 		{Name: "scheme", Type: OutputFieldTypeString, Description: "Exact denied scheme.", Enum: []string{"http", "https"}},
@@ -1937,9 +1997,9 @@ func textClusterStatusOutput() CommandOutput {
 	fields := []OutputField{
 		{Name: "configured", Type: OutputFieldTypeBoolean, Description: "Whether cluster state remains configured."},
 		{Name: "running", Type: OutputFieldTypeBoolean, Description: "Whether shared components are running."},
-		{Name: "context_count", Type: OutputFieldTypeInteger, Description: "Number of Context policies in the shared enforcement projection."},
+		{Name: "manifest_count", Type: OutputFieldTypeInteger, Description: "Number of Workspace Manifest policies in the shared enforcement projection."},
 		{Name: "policy_revision", Type: OutputFieldTypeString, Description: "Content-addressed aggregate policy revision."},
-		{Name: "policy_projection", Type: OutputFieldTypeString, Description: "All-Context policy projection integrity observation."},
+		{Name: "policy_projection", Type: OutputFieldTypeString, Description: "All-Workspace Manifest policy projection integrity observation."},
 		{Name: "principal_registry", Type: OutputFieldTypeString, Description: "Principal registry integrity observation."},
 		{Name: "gateway_projection", Type: OutputFieldTypeString, Description: "Gateway routing projection integrity observation."},
 	}
@@ -1983,8 +2043,8 @@ func policyClusterReadinessErrors() []CommandError {
 		declaredCommandError(fault.KindUnavailable, "cluster_not_configured", false, "cluster up", "Create the shared cluster explicitly."),
 		declaredCommandError(fault.KindUnavailable, "cluster_status_failed", false, "cluster status", "Inspect the shared cluster before using policy data."),
 		declaredCommandError(fault.KindUnavailable, "cluster_not_ready", false, "cluster up", "Reconcile the shared cluster explicitly."),
-		declaredCommandError(fault.KindInternal, "context_read_failed", false, "context show", "Inspect the selected Context before using policy data."),
-		declaredCommandError(fault.KindRejected, "context_mismatch", false, "cluster up", "Reconcile the shared cluster's all-Context projection."),
+		declaredCommandError(fault.KindInternal, "manifest_read_failed", false, "manifest show", "Inspect the selected Workspace Manifest before using policy data."),
+		declaredCommandError(fault.KindRejected, "manifest_mismatch", false, "cluster up", "Reconcile the shared cluster's all-Workspace Manifest projection."),
 	}
 }
 

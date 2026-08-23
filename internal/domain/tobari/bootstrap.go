@@ -13,31 +13,31 @@ import (
 )
 
 const (
-	ContextBootstrapSchemaVersion = 1
-	ContextBootstrapAdapterAWS    = "aws_iam_identity_center"
-	ContextBootstrapAdapterEKS    = "kubernetes_eks"
-	MaxContextBootstrapValueBytes = 2048
+	ManifestBootstrapSchemaVersion = 1
+	ManifestBootstrapAdapterAWS    = "aws_iam_identity_center"
+	ManifestBootstrapAdapterEKS    = "kubernetes_eks"
+	MaxContextBootstrapValueBytes  = 2048
 
-	ContextBootstrapTargetKind = "context-workspace-bootstrap"
-	ContextBootstrapTargetID   = "context-workspace-bootstrap"
+	ManifestBootstrapTargetKind = "workspace-manifest-bootstrap"
+	ManifestBootstrapTargetID   = "workspace-manifest-bootstrap"
 
-	ContextBootstrapNotConfigured = "not_configured"
-	ContextBootstrapConfigured    = "configured"
+	ManifestBootstrapNotConfigured = "not_configured"
+	ManifestBootstrapConfigured    = "configured"
 
 	WorkspaceBootstrapNotConfigured = "not_configured"
 	WorkspaceBootstrapNotApplied    = "not_applied"
 	WorkspaceBootstrapCurrent       = "current"
 	WorkspaceBootstrapOlder         = "older"
 
-	ContextBootstrapDiscoveryAvailable   = "available"
-	ContextBootstrapDiscoveryMissing     = "missing"
-	ContextBootstrapDiscoveryRejected    = "rejected"
-	ContextBootstrapCandidateAvailable   = "available"
-	ContextBootstrapCandidateUnavailable = "unavailable"
+	ManifestBootstrapDiscoveryAvailable   = "available"
+	ManifestBootstrapDiscoveryMissing     = "missing"
+	ManifestBootstrapDiscoveryRejected    = "rejected"
+	ManifestBootstrapCandidateAvailable   = "available"
+	ManifestBootstrapCandidateUnavailable = "unavailable"
 )
 
-var ErrContextBootstrapSourceChanged = fmt.Errorf("Context bootstrap source changed during review")
-var ErrContextBootstrapDependency = fmt.Errorf("Context bootstrap adapter dependency is still configured")
+var ErrContextBootstrapSourceChanged = fmt.Errorf("Workspace Manifest bootstrap source changed during review")
+var ErrContextBootstrapDependency = fmt.Errorf("Workspace Manifest bootstrap adapter dependency is still configured")
 
 var (
 	awsBootstrapNamePattern      = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
@@ -53,10 +53,10 @@ var (
 	eksBootstrapEndpointPattern  = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9.-]{0,250}[a-z0-9])?$`)
 )
 
-// ContextAWSBootstrap is the closed, secret-free subset of one AWS shared
+// ManifestAWSBootstrap is the closed, secret-free subset of one AWS shared
 // config profile and its IAM Identity Center session. It contains no
 // credential, token cache, helper, filesystem path, or executable selection.
-type ContextAWSBootstrap struct {
+type ManifestAWSBootstrap struct {
 	Profile               string   `json:"profile"`
 	SSOSession            string   `json:"sso_session"`
 	SSOStartURL           string   `json:"sso_start_url"`
@@ -68,7 +68,7 @@ type ContextAWSBootstrap struct {
 	Output                string   `json:"output,omitempty"`
 }
 
-func (a ContextAWSBootstrap) Validate() error {
+func (a ManifestAWSBootstrap) Validate() error {
 	if err := ValidateContextAWSBootstrapProfileName(a.Profile); err != nil {
 		return fmt.Errorf("AWS bootstrap profile name is invalid")
 	}
@@ -125,28 +125,28 @@ func ValidateContextAWSBootstrapProfileName(value string) error {
 	return nil
 }
 
-func (a ContextAWSBootstrap) Clone() ContextAWSBootstrap {
+func (a ManifestAWSBootstrap) Clone() ManifestAWSBootstrap {
 	result := a
 	result.SSORegistrationScopes = append([]string{}, a.SSORegistrationScopes...)
 	return result
 }
 
-// ContextAWSBootstrapCandidate is one profile resolved together with its
+// ManifestAWSBootstrapCandidate is one profile resolved together with its
 // referenced IAM Identity Center session. Unavailable candidates carry only a
 // selector and bounded reason; they can never be used as authority.
-type ContextAWSBootstrapCandidate struct {
-	Profile  string                    `json:"profile"`
-	State    string                    `json:"state"`
-	Reason   string                    `json:"reason,omitempty"`
-	Snapshot *ContextBootstrapSnapshot `json:"snapshot,omitempty"`
+type ManifestAWSBootstrapCandidate struct {
+	Profile  string                     `json:"profile"`
+	State    string                     `json:"state"`
+	Reason   string                     `json:"reason,omitempty"`
+	Snapshot *ManifestBootstrapSnapshot `json:"snapshot,omitempty"`
 }
 
-func (c ContextAWSBootstrapCandidate) Validate() error {
+func (c ManifestAWSBootstrapCandidate) Validate() error {
 	if !validBootstrapCandidateLabel(c.Profile, 64) {
 		return fmt.Errorf("AWS bootstrap candidate profile is invalid")
 	}
 	switch c.State {
-	case ContextBootstrapCandidateAvailable:
+	case ManifestBootstrapCandidateAvailable:
 		if ValidateContextAWSBootstrapProfileName(c.Profile) != nil {
 			return fmt.Errorf("available AWS bootstrap candidate profile is invalid")
 		}
@@ -154,7 +154,7 @@ func (c ContextAWSBootstrapCandidate) Validate() error {
 			return fmt.Errorf("available AWS bootstrap candidate is incomplete")
 		}
 		return c.Snapshot.Validate()
-	case ContextBootstrapCandidateUnavailable:
+	case ManifestBootstrapCandidateUnavailable:
 		if c.Snapshot != nil || !validBootstrapDiscoveryReason(c.Reason) {
 			return fmt.Errorf("unavailable AWS bootstrap candidate is invalid")
 		}
@@ -164,26 +164,26 @@ func (c ContextAWSBootstrapCandidate) Validate() error {
 	}
 }
 
-// ContextEKSBootstrapCandidate is one kubeconfig context resolved against one
+// ManifestEKSBootstrapCandidate is one kubeconfig context resolved against one
 // already-reviewed AWS candidate. Available candidates contain the complete
 // composed snapshot so presentation never infers compatibility from labels.
-type ContextEKSBootstrapCandidate struct {
-	ContextName string                    `json:"context_name"`
-	State       string                    `json:"state"`
-	Reason      string                    `json:"reason,omitempty"`
-	Snapshot    *ContextBootstrapSnapshot `json:"snapshot,omitempty"`
+type ManifestEKSBootstrapCandidate struct {
+	WorkspaceManifestName string                     `json:"manifest_name"`
+	State                 string                     `json:"state"`
+	Reason                string                     `json:"reason,omitempty"`
+	Snapshot              *ManifestBootstrapSnapshot `json:"snapshot,omitempty"`
 }
 
-func (c ContextEKSBootstrapCandidate) Validate(awsRevision string) error {
-	if !validBootstrapCandidateLabel(c.ContextName, 253) {
+func (c ManifestEKSBootstrapCandidate) Validate(awsRevision string) error {
+	if !validBootstrapCandidateLabel(c.WorkspaceManifestName, 253) {
 		return fmt.Errorf("EKS bootstrap candidate context is invalid")
 	}
 	switch c.State {
-	case ContextBootstrapCandidateAvailable:
-		if !eksBootstrapNamePattern.MatchString(c.ContextName) || strings.Contains(c.ContextName, "..") {
+	case ManifestBootstrapCandidateAvailable:
+		if !eksBootstrapNamePattern.MatchString(c.WorkspaceManifestName) || strings.Contains(c.WorkspaceManifestName, "..") {
 			return fmt.Errorf("available EKS bootstrap candidate context is invalid")
 		}
-		if c.Reason != "" || c.Snapshot == nil || c.Snapshot.EKS == nil || c.Snapshot.EKS.ContextName != c.ContextName {
+		if c.Reason != "" || c.Snapshot == nil || c.Snapshot.EKS == nil || c.Snapshot.EKS.WorkspaceManifestName != c.WorkspaceManifestName {
 			return fmt.Errorf("available EKS bootstrap candidate is incomplete")
 		}
 		if err := c.Snapshot.Validate(); err != nil {
@@ -194,7 +194,7 @@ func (c ContextEKSBootstrapCandidate) Validate(awsRevision string) error {
 			return fmt.Errorf("EKS bootstrap candidate does not bind the selected AWS semantic revision")
 		}
 		return nil
-	case ContextBootstrapCandidateUnavailable:
+	case ManifestBootstrapCandidateUnavailable:
 		if c.Snapshot != nil || !validBootstrapDiscoveryReason(c.Reason) {
 			return fmt.Errorf("unavailable EKS bootstrap candidate is invalid")
 		}
@@ -204,18 +204,18 @@ func (c ContextEKSBootstrapCandidate) Validate(awsRevision string) error {
 	}
 }
 
-type ContextAWSBootstrapDiscovery struct {
-	State      string                         `json:"state"`
-	Reason     string                         `json:"reason,omitempty"`
-	Candidates []ContextAWSBootstrapCandidate `json:"candidates"`
+type ManifestAWSBootstrapDiscovery struct {
+	State      string                          `json:"state"`
+	Reason     string                          `json:"reason,omitempty"`
+	Candidates []ManifestAWSBootstrapCandidate `json:"candidates"`
 }
 
-func (d ContextAWSBootstrapDiscovery) Validate() error {
+func (d ManifestAWSBootstrapDiscovery) Validate() error {
 	if d.Candidates == nil {
 		return fmt.Errorf("AWS bootstrap candidate collection is absent")
 	}
-	if d.State != ContextBootstrapDiscoveryAvailable {
-		if (d.State != ContextBootstrapDiscoveryMissing && d.State != ContextBootstrapDiscoveryRejected) ||
+	if d.State != ManifestBootstrapDiscoveryAvailable {
+		if (d.State != ManifestBootstrapDiscoveryMissing && d.State != ManifestBootstrapDiscoveryRejected) ||
 			len(d.Candidates) != 0 || !validBootstrapDiscoveryReason(d.Reason) {
 			return fmt.Errorf("AWS bootstrap discovery failure is invalid")
 		}
@@ -237,19 +237,19 @@ func (d ContextAWSBootstrapDiscovery) Validate() error {
 	return nil
 }
 
-type ContextEKSBootstrapDiscovery struct {
-	State       string                         `json:"state"`
-	Reason      string                         `json:"reason,omitempty"`
-	AWSRevision string                         `json:"aws_revision"`
-	Candidates  []ContextEKSBootstrapCandidate `json:"candidates"`
+type ManifestEKSBootstrapDiscovery struct {
+	State       string                          `json:"state"`
+	Reason      string                          `json:"reason,omitempty"`
+	AWSRevision string                          `json:"aws_revision"`
+	Candidates  []ManifestEKSBootstrapCandidate `json:"candidates"`
 }
 
-func (d ContextEKSBootstrapDiscovery) Validate() error {
+func (d ManifestEKSBootstrapDiscovery) Validate() error {
 	if d.Candidates == nil || ValidateDigest(d.AWSRevision) != nil {
 		return fmt.Errorf("EKS bootstrap discovery scope is invalid")
 	}
-	if d.State != ContextBootstrapDiscoveryAvailable {
-		if (d.State != ContextBootstrapDiscoveryMissing && d.State != ContextBootstrapDiscoveryRejected) ||
+	if d.State != ManifestBootstrapDiscoveryAvailable {
+		if (d.State != ManifestBootstrapDiscoveryMissing && d.State != ManifestBootstrapDiscoveryRejected) ||
 			len(d.Candidates) != 0 || !validBootstrapDiscoveryReason(d.Reason) {
 			return fmt.Errorf("EKS bootstrap discovery failure is invalid")
 		}
@@ -263,10 +263,10 @@ func (d ContextEKSBootstrapDiscovery) Validate() error {
 		if err := candidate.Validate(d.AWSRevision); err != nil {
 			return err
 		}
-		if _, duplicate := seen[candidate.ContextName]; duplicate {
+		if _, duplicate := seen[candidate.WorkspaceManifestName]; duplicate {
 			return fmt.Errorf("EKS bootstrap candidate is duplicated")
 		}
-		seen[candidate.ContextName] = struct{}{}
+		seen[candidate.WorkspaceManifestName] = struct{}{}
 	}
 	return nil
 }
@@ -280,12 +280,12 @@ func validBootstrapCandidateLabel(value string, maxBytes int) bool {
 	return value != "" && len(value) <= maxBytes && utf8.ValidString(value) && strings.IndexByte(value, 0) < 0
 }
 
-// ContextEKSBootstrap is the closed, secret-free service target selected from
+// ManifestEKSBootstrap is the closed, secret-free service target selected from
 // one host kubeconfig. Authentication remains a canonical AWS CLI get-token
 // exec bound to the sibling AWS bootstrap profile; no source exec bytes or
 // credential material are retained.
-type ContextEKSBootstrap struct {
-	ContextName              string `json:"context_name"`
+type ManifestEKSBootstrap struct {
+	WorkspaceManifestName    string `json:"manifest_name"`
 	ClusterName              string `json:"cluster_name"`
 	Region                   string `json:"region"`
 	Server                   string `json:"server"`
@@ -293,8 +293,8 @@ type ContextEKSBootstrap struct {
 	Namespace                string `json:"namespace,omitempty"`
 }
 
-func (e ContextEKSBootstrap) Validate() error {
-	if !eksBootstrapNamePattern.MatchString(e.ContextName) || strings.Contains(e.ContextName, "..") {
+func (e ManifestEKSBootstrap) Validate() error {
+	if !eksBootstrapNamePattern.MatchString(e.WorkspaceManifestName) || strings.Contains(e.WorkspaceManifestName, "..") {
 		return fmt.Errorf("EKS bootstrap context name is invalid")
 	}
 	if !eksBootstrapClusterPattern.MatchString(e.ClusterName) {
@@ -331,49 +331,49 @@ func (e ContextEKSBootstrap) Validate() error {
 	return nil
 }
 
-// ContextBootstrapSnapshot is one immutable semantic revision used only when
+// ManifestBootstrapSnapshot is one immutable semantic revision used only when
 // a future Workspace home is first created.
-type ContextBootstrapSnapshot struct {
-	SchemaVersion int                  `json:"schema_version"`
-	Generation    uint64               `json:"generation"`
-	Revision      string               `json:"revision"`
-	AWS           ContextAWSBootstrap  `json:"aws"`
-	EKS           *ContextEKSBootstrap `json:"kubernetes_eks,omitempty"`
+type ManifestBootstrapSnapshot struct {
+	SchemaVersion int                   `json:"schema_version"`
+	Generation    uint64                `json:"generation"`
+	Revision      string                `json:"revision"`
+	AWS           ManifestAWSBootstrap  `json:"aws"`
+	EKS           *ManifestEKSBootstrap `json:"kubernetes_eks,omitempty"`
 }
 
-func NewContextBootstrapSnapshot(generation uint64, aws ContextAWSBootstrap) (ContextBootstrapSnapshot, error) {
+func NewContextBootstrapSnapshot(generation uint64, aws ManifestAWSBootstrap) (ManifestBootstrapSnapshot, error) {
 	return newContextBootstrapSnapshot(generation, aws, nil)
 }
 
-func NewContextBootstrapSnapshotWithEKS(generation uint64, aws ContextAWSBootstrap, eks ContextEKSBootstrap) (ContextBootstrapSnapshot, error) {
+func NewContextBootstrapSnapshotWithEKS(generation uint64, aws ManifestAWSBootstrap, eks ManifestEKSBootstrap) (ManifestBootstrapSnapshot, error) {
 	return newContextBootstrapSnapshot(generation, aws, &eks)
 }
 
-func newContextBootstrapSnapshot(generation uint64, aws ContextAWSBootstrap, eks *ContextEKSBootstrap) (ContextBootstrapSnapshot, error) {
+func newContextBootstrapSnapshot(generation uint64, aws ManifestAWSBootstrap, eks *ManifestEKSBootstrap) (ManifestBootstrapSnapshot, error) {
 	aws.SSORegistrationScopes = append([]string{}, aws.SSORegistrationScopes...)
 	sort.Strings(aws.SSORegistrationScopes)
 	if generation == 0 {
-		return ContextBootstrapSnapshot{}, fmt.Errorf("Context bootstrap generation must be positive")
+		return ManifestBootstrapSnapshot{}, fmt.Errorf("Workspace Manifest bootstrap generation must be positive")
 	}
 	if err := aws.Validate(); err != nil {
-		return ContextBootstrapSnapshot{}, err
+		return ManifestBootstrapSnapshot{}, err
 	}
 	if eks != nil {
 		copy := *eks
 		eks = &copy
 		if err := eks.Validate(); err != nil {
-			return ContextBootstrapSnapshot{}, err
+			return ManifestBootstrapSnapshot{}, err
 		}
 	}
-	snapshot := ContextBootstrapSnapshot{SchemaVersion: ContextBootstrapSchemaVersion, Generation: generation, AWS: aws, EKS: eks}
+	snapshot := ManifestBootstrapSnapshot{SchemaVersion: ManifestBootstrapSchemaVersion, Generation: generation, AWS: aws, EKS: eks}
 	snapshot.Revision = snapshot.semanticRevision()
 	return snapshot, nil
 }
 
-func (s ContextBootstrapSnapshot) semanticRevision() string {
+func (s ManifestBootstrapSnapshot) semanticRevision() string {
 	fields := []string{
 		fmt.Sprintf("schema=%d", s.SchemaVersion),
-		"adapter=" + ContextBootstrapAdapterAWS,
+		"adapter=" + ManifestBootstrapAdapterAWS,
 		"profile=" + s.AWS.Profile,
 		"sso_session=" + s.AWS.SSOSession,
 		"sso_start_url=" + s.AWS.SSOStartURL,
@@ -386,8 +386,8 @@ func (s ContextBootstrapSnapshot) semanticRevision() string {
 	}
 	if s.EKS != nil {
 		fields = append(fields,
-			"adapter="+ContextBootstrapAdapterEKS,
-			"eks.context_name="+s.EKS.ContextName,
+			"adapter="+ManifestBootstrapAdapterEKS,
+			"eks.manifest_name="+s.EKS.WorkspaceManifestName,
 			"eks.cluster_name="+s.EKS.ClusterName,
 			"eks.region="+s.EKS.Region,
 			"eks.server="+s.EKS.Server,
@@ -399,9 +399,9 @@ func (s ContextBootstrapSnapshot) semanticRevision() string {
 	return "sha256:" + hex.EncodeToString(digest[:])
 }
 
-func (s ContextBootstrapSnapshot) Validate() error {
-	if s.SchemaVersion != ContextBootstrapSchemaVersion || s.Generation == 0 {
-		return fmt.Errorf("Context bootstrap snapshot version or generation is invalid")
+func (s ManifestBootstrapSnapshot) Validate() error {
+	if s.SchemaVersion != ManifestBootstrapSchemaVersion || s.Generation == 0 {
+		return fmt.Errorf("Workspace Manifest bootstrap snapshot version or generation is invalid")
 	}
 	if err := s.AWS.Validate(); err != nil {
 		return err
@@ -412,12 +412,12 @@ func (s ContextBootstrapSnapshot) Validate() error {
 		}
 	}
 	if s.Revision != s.semanticRevision() {
-		return fmt.Errorf("Context bootstrap revision does not match its semantic snapshot")
+		return fmt.Errorf("Workspace Manifest bootstrap revision does not match its semantic snapshot")
 	}
 	return nil
 }
 
-func (s ContextBootstrapSnapshot) Clone() ContextBootstrapSnapshot {
+func (s ManifestBootstrapSnapshot) Clone() ManifestBootstrapSnapshot {
 	result := s
 	result.AWS = s.AWS.Clone()
 	if s.EKS != nil {
@@ -427,27 +427,27 @@ func (s ContextBootstrapSnapshot) Clone() ContextBootstrapSnapshot {
 	return result
 }
 
-type ContextBootstrapPreview struct {
-	ContextName string                 `json:"context"`
-	Current     ContextBootstrapReport `json:"current"`
-	Candidate   ContextBootstrapReport `json:"candidate"`
-	Changes     []string               `json:"changes"`
+type ManifestBootstrapPreview struct {
+	WorkspaceManifestName string                  `json:"workspace_manifest"`
+	Current               ManifestBootstrapReport `json:"current"`
+	Candidate             ManifestBootstrapReport `json:"candidate"`
+	Changes               []string                `json:"changes"`
 }
 
-func NewContextBootstrapPreview(contextName string, current *ContextBootstrapSnapshot, candidate ContextBootstrapSnapshot) (ContextBootstrapPreview, error) {
+func NewContextBootstrapPreview(contextName string, current *ManifestBootstrapSnapshot, candidate ManifestBootstrapSnapshot) (ManifestBootstrapPreview, error) {
 	if err := ValidateName(contextName); err != nil {
-		return ContextBootstrapPreview{}, err
+		return ManifestBootstrapPreview{}, err
 	}
 	if err := candidate.Validate(); err != nil {
-		return ContextBootstrapPreview{}, err
+		return ManifestBootstrapPreview{}, err
 	}
 	changes := diffContextAWSBootstrap(current, candidate)
-	result := ContextBootstrapPreview{ContextName: contextName, Current: ContextBootstrapReportFrom(current), Candidate: ContextBootstrapReportFrom(&candidate), Changes: changes}
+	result := ManifestBootstrapPreview{WorkspaceManifestName: contextName, Current: ManifestBootstrapReportFrom(current), Candidate: ManifestBootstrapReportFrom(&candidate), Changes: changes}
 	return result, result.Validate()
 }
 
-func (p ContextBootstrapPreview) Validate() error {
-	if err := ValidateName(p.ContextName); err != nil {
+func (p ManifestBootstrapPreview) Validate() error {
+	if err := ValidateName(p.WorkspaceManifestName); err != nil {
 		return err
 	}
 	if err := p.Current.Validate(); err != nil {
@@ -456,21 +456,21 @@ func (p ContextBootstrapPreview) Validate() error {
 	if err := p.Candidate.Validate(); err != nil {
 		return err
 	}
-	if p.Candidate.Resolved().State != ContextBootstrapConfigured || p.Changes == nil {
-		return fmt.Errorf("Context bootstrap preview is incomplete")
+	if p.Candidate.Resolved().State != ManifestBootstrapConfigured || p.Changes == nil {
+		return fmt.Errorf("Workspace Manifest bootstrap preview is incomplete")
 	}
 	for index, change := range p.Changes {
 		if change == "" || (index > 0 && p.Changes[index-1] >= change) {
-			return fmt.Errorf("Context bootstrap preview changes are invalid")
+			return fmt.Errorf("Workspace Manifest bootstrap preview changes are invalid")
 		}
 	}
 	if len(p.Changes) == 0 && p.Current.Resolved().Revision != p.Candidate.Revision {
-		return fmt.Errorf("Context bootstrap preview misses a semantic change")
+		return fmt.Errorf("Workspace Manifest bootstrap preview misses a semantic change")
 	}
 	return nil
 }
 
-func diffContextAWSBootstrap(current *ContextBootstrapSnapshot, candidate ContextBootstrapSnapshot) []string {
+func diffContextAWSBootstrap(current *ManifestBootstrapSnapshot, candidate ManifestBootstrapSnapshot) []string {
 	if current == nil {
 		return []string{"aws"}
 	}
@@ -494,7 +494,7 @@ func diffContextAWSBootstrap(current *ContextBootstrapSnapshot, candidate Contex
 	} else if current.EKS != nil && candidate.EKS == nil {
 		changes = append(changes, "kubernetes_eks")
 	} else if current.EKS != nil && candidate.EKS != nil {
-		add("kubernetes_eks.context_name", current.EKS.ContextName != candidate.EKS.ContextName)
+		add("kubernetes_eks.manifest_name", current.EKS.WorkspaceManifestName != candidate.EKS.WorkspaceManifestName)
 		add("kubernetes_eks.cluster_name", current.EKS.ClusterName != candidate.EKS.ClusterName)
 		add("kubernetes_eks.region", current.EKS.Region != candidate.EKS.Region)
 		add("kubernetes_eks.server", current.EKS.Server != candidate.EKS.Server)
@@ -505,7 +505,7 @@ func diffContextAWSBootstrap(current *ContextBootstrapSnapshot, candidate Contex
 	return changes
 }
 
-type ContextBootstrapReport struct {
+type ManifestBootstrapReport struct {
 	State      string   `json:"state"`
 	Generation uint64   `json:"generation,omitempty"`
 	Revision   string   `json:"revision,omitempty"`
@@ -514,45 +514,45 @@ type ContextBootstrapReport struct {
 	EKSContext string   `json:"kubernetes_eks_context,omitempty"`
 }
 
-func ContextBootstrapReportFrom(snapshot *ContextBootstrapSnapshot) ContextBootstrapReport {
+func ManifestBootstrapReportFrom(snapshot *ManifestBootstrapSnapshot) ManifestBootstrapReport {
 	if snapshot == nil {
-		return ContextBootstrapReport{State: ContextBootstrapNotConfigured, Adapters: []string{}}
+		return ManifestBootstrapReport{State: ManifestBootstrapNotConfigured, Adapters: []string{}}
 	}
-	report := ContextBootstrapReport{
-		State: ContextBootstrapConfigured, Generation: snapshot.Generation, Revision: snapshot.Revision,
-		Adapters: []string{ContextBootstrapAdapterAWS}, AWSProfile: snapshot.AWS.Profile,
+	report := ManifestBootstrapReport{
+		State: ManifestBootstrapConfigured, Generation: snapshot.Generation, Revision: snapshot.Revision,
+		Adapters: []string{ManifestBootstrapAdapterAWS}, AWSProfile: snapshot.AWS.Profile,
 	}
 	if snapshot.EKS != nil {
-		report.Adapters = append(report.Adapters, ContextBootstrapAdapterEKS)
-		report.EKSContext = snapshot.EKS.ContextName
+		report.Adapters = append(report.Adapters, ManifestBootstrapAdapterEKS)
+		report.EKSContext = snapshot.EKS.WorkspaceManifestName
 	}
 	return report
 }
 
-func (r ContextBootstrapReport) Validate() error {
+func (r ManifestBootstrapReport) Validate() error {
 	if r.State == "" && r.Generation == 0 && r.Revision == "" && r.AWSProfile == "" && r.EKSContext == "" && r.Adapters == nil {
 		return nil // legacy in-memory producers resolve this as not_configured
 	}
 	if r.Adapters == nil {
-		return fmt.Errorf("Context bootstrap adapter collection must be explicit")
+		return fmt.Errorf("Workspace Manifest bootstrap adapter collection must be explicit")
 	}
 	switch r.State {
-	case ContextBootstrapNotConfigured:
+	case ManifestBootstrapNotConfigured:
 		if r.Generation != 0 || r.Revision != "" || r.AWSProfile != "" || r.EKSContext != "" || len(r.Adapters) != 0 {
-			return fmt.Errorf("unconfigured Context bootstrap contains configured metadata")
+			return fmt.Errorf("unconfigured Workspace Manifest bootstrap contains configured metadata")
 		}
-	case ContextBootstrapConfigured:
-		if r.Generation == 0 || ValidateDigest(r.Revision) != nil || r.AWSProfile == "" || len(r.Adapters) < 1 || len(r.Adapters) > 2 || r.Adapters[0] != ContextBootstrapAdapterAWS {
-			return fmt.Errorf("configured Context bootstrap metadata is invalid")
+	case ManifestBootstrapConfigured:
+		if r.Generation == 0 || ValidateDigest(r.Revision) != nil || r.AWSProfile == "" || len(r.Adapters) < 1 || len(r.Adapters) > 2 || r.Adapters[0] != ManifestBootstrapAdapterAWS {
+			return fmt.Errorf("configured Workspace Manifest bootstrap metadata is invalid")
 		}
 		if len(r.Adapters) == 1 && r.EKSContext != "" {
-			return fmt.Errorf("configured Context bootstrap EKS metadata is inconsistent")
+			return fmt.Errorf("configured Workspace Manifest bootstrap EKS metadata is inconsistent")
 		}
-		if len(r.Adapters) == 2 && (r.Adapters[1] != ContextBootstrapAdapterEKS || r.EKSContext == "") {
-			return fmt.Errorf("configured Context bootstrap EKS metadata is invalid")
+		if len(r.Adapters) == 2 && (r.Adapters[1] != ManifestBootstrapAdapterEKS || r.EKSContext == "") {
+			return fmt.Errorf("configured Workspace Manifest bootstrap EKS metadata is invalid")
 		}
 	default:
-		return fmt.Errorf("Context bootstrap state is invalid")
+		return fmt.Errorf("Workspace Manifest bootstrap state is invalid")
 	}
 	return nil
 }
@@ -563,7 +563,7 @@ type WorkspaceBootstrapReport struct {
 	CurrentRevision string `json:"current_revision,omitempty"`
 }
 
-func ResolveWorkspaceBootstrapReport(appliedRevision string, current *ContextBootstrapSnapshot) (WorkspaceBootstrapReport, error) {
+func ResolveWorkspaceBootstrapReport(appliedRevision string, current *ManifestBootstrapSnapshot) (WorkspaceBootstrapReport, error) {
 	if appliedRevision != "" && ValidateDigest(appliedRevision) != nil {
 		return WorkspaceBootstrapReport{}, fmt.Errorf("applied Workspace bootstrap revision is invalid")
 	}
@@ -613,9 +613,9 @@ func (r WorkspaceBootstrapReport) Validate() error {
 	return nil
 }
 
-func (r ContextBootstrapReport) Resolved() ContextBootstrapReport {
+func (r ManifestBootstrapReport) Resolved() ManifestBootstrapReport {
 	if r.State == "" {
-		return ContextBootstrapReportFrom(nil)
+		return ManifestBootstrapReportFrom(nil)
 	}
 	return r
 }

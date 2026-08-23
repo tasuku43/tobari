@@ -42,7 +42,7 @@ func configuredResult(t *testing.T, task string) Result {
 	t.Helper()
 	account := "octocat"
 	return Result{
-		Task: task, ContextState: tobari.ContextObservationPersisted, Provider: "github", Context: "default", ContextID: testContextID,
+		Task: task, ManifestState: tobari.ManifestObservationPersisted, Provider: "github", Context: "default", WorkspaceManifestID: testContextID,
 		Configured: true, AccountLabel: &account, StorageBackend: StorageBackendXDGFile,
 		BrokerState: BrokerStateReady, CredentialRevision: "sha256:abcdef0123456789", Change: MutationChangeChanged,
 		WorkspaceActivation: exhaustiveActivation(t, activationItem(t, WorkspaceProviderProjectionMissing)),
@@ -71,7 +71,7 @@ func TestWorkspaceActivationTruthTable(t *testing.T) {
 				t.Fatalf("item = %+v, want state %q/action %t", item, test.want, test.action)
 			}
 			if test.action {
-				want := &WorkspaceActivationAction{WorkingDirectory: "/workspace/project", Argv: []string{"tobari", "--context", "default"}}
+				want := &WorkspaceActivationAction{WorkingDirectory: "/workspace/project", Argv: []string{"tobari", "--manifest", "default"}}
 				if !reflect.DeepEqual(item.NextAction, want) {
 					t.Fatalf("action = %+v, want %+v", item.NextAction, want)
 				}
@@ -137,7 +137,7 @@ func TestWorkspaceActivationRejectsInferredOrRetargetedAction(t *testing.T) {
 		t.Fatal("accepted action whose working directory did not match the row root")
 	}
 	item = activationItem(t, WorkspaceProviderProjectionStale)
-	item.NextAction.Argv = []string{"tobari", "--context", "other"}
+	item.NextAction.Argv = []string{"tobari", "--manifest", "other"}
 	if err := item.Validate(); err == nil {
 		t.Fatal("accepted action whose Context did not match the row")
 	}
@@ -179,7 +179,7 @@ func TestResultValidatesChangedAndNoChangeMutations(t *testing.T) {
 		}
 	}
 	logout := Result{
-		Task: TaskLogout, ContextState: tobari.ContextObservationPersisted, Provider: "github", Context: "default", ContextID: testContextID,
+		Task: TaskLogout, ManifestState: tobari.ManifestObservationPersisted, Provider: "github", Context: "default", WorkspaceManifestID: testContextID,
 		StorageBackend: StorageBackendMacOSKeychain, BrokerState: BrokerStateReady,
 		Change: MutationChangeChanged, WorkspaceActivation: exhaustiveActivation(t),
 	}
@@ -202,7 +202,7 @@ func TestResultRejectsIdentityStateAndSecretFreeTextDrift(t *testing.T) {
 		"task":       func(r *Result) { r.Task = "auth.rotate" },
 		"provider":   func(r *Result) { r.Provider = "GitHub" },
 		"context":    func(r *Result) { r.Context = "Default" },
-		"context ID": func(r *Result) { r.ContextID = "context-id" },
+		"context ID": func(r *Result) { r.WorkspaceManifestID = "context-id" },
 		"revision":   func(r *Result) { r.CredentialRevision = "revision with spaces" },
 		"backend":    func(r *Result) { r.StorageBackend = "environment" },
 		"broker":     func(r *Result) { r.BrokerState = BrokerStateLocked },
@@ -210,7 +210,7 @@ func TestResultRejectsIdentityStateAndSecretFreeTextDrift(t *testing.T) {
 			value := "octocat\nsecret"
 			r.AccountLabel = &value
 		},
-		"activation scope": func(r *Result) { r.WorkspaceActivation.ContextID = "01912345-6789-7abc-8def-0123456789ae" },
+		"activation scope": func(r *Result) { r.WorkspaceActivation.WorkspaceManifestID = "01912345-6789-7abc-8def-0123456789ae" },
 		"change":           func(r *Result) { r.Change = "maybe" },
 	}
 	for name, mutate := range cases {
@@ -227,7 +227,7 @@ func TestResultRejectsIdentityStateAndSecretFreeTextDrift(t *testing.T) {
 func TestStatusResultRequiresContextScopedExhaustiveWorkspaceCollection(t *testing.T) {
 	t.Parallel()
 	result := StatusResult{
-		Task: TaskStatus, ContextState: tobari.ContextObservationPersisted, Context: "default", ContextID: testContextID,
+		Task: TaskStatus, ManifestState: tobari.ManifestObservationPersisted, Context: "default", WorkspaceManifestID: testContextID,
 		StorageBackend: StorageBackendXDGFile, BrokerState: BrokerStateLocked,
 		Providers:           []ProviderStatus{{Provider: "github", State: ProviderCredentialUnavailable}},
 		WorkspaceActivation: exhaustiveActivation(t),
@@ -249,15 +249,15 @@ func TestStatusResultRequiresContextScopedExhaustiveWorkspaceCollection(t *testi
 func TestStatusResultAllowsSyntheticDefaultWithoutContextAuthority(t *testing.T) {
 	t.Parallel()
 	result := StatusResult{
-		Task: TaskStatus, ContextState: tobari.ContextObservationSyntheticDefault,
-		Context: tobari.DefaultContextName, StorageBackend: StorageBackendXDGFile,
+		Task: TaskStatus, ManifestState: tobari.ManifestObservationAbsent,
+		Context: tobari.DefaultManifestName, StorageBackend: StorageBackendXDGFile,
 		BrokerState: BrokerStateUnavailable, Providers: []ProviderStatus{},
 		WorkspaceActivation: NotApplicableWorkspaceActivation(),
 	}
 	if err := result.Validate(); err != nil {
 		t.Fatalf("synthetic status = %v", err)
 	}
-	result.ContextID = testContextID
+	result.WorkspaceManifestID = testContextID
 	if err := result.Validate(); err == nil {
 		t.Fatal("synthetic status accepted Context authority")
 	}
@@ -275,7 +275,7 @@ func TestStableAuthVocabulary(t *testing.T) {
 func validStatusObservation() StatusObservation {
 	digest := "sha256:" + strings.Repeat("a", 64)
 	return StatusObservation{
-		ContextState: tobari.ContextObservationPersisted, Context: "default", ContextID: testContextID,
+		ManifestState: tobari.ManifestObservationPersisted, Context: "default", WorkspaceManifestID: testContextID,
 		StorageBackend: StorageBackendXDGFile, BrokerState: BrokerStateReady,
 		Providers: []ProviderStatus{{
 			Provider: "github", State: ProviderCredentialConfigured, CredentialRevision: "revision:1",
@@ -351,15 +351,15 @@ func TestObservationRejectsMismatchedOrInventedAuthority(t *testing.T) {
 func TestObservationRejectsDiscardedNonPersistedAndNoChangeFacts(t *testing.T) {
 	t.Parallel()
 	status := validStatusObservation()
-	status.ContextState = tobari.ContextObservationSyntheticDefault
-	status.ContextID = ""
+	status.ManifestState = tobari.ManifestObservationAbsent
+	status.WorkspaceManifestID = ""
 	status.BrokerState = BrokerStateUnavailable
 	status.Providers = []ProviderStatus{}
 	if _, err := NewStatusResult("default", status); err == nil {
 		t.Fatal("accepted non-persisted status carrying exhaustive Workspace facts")
 	}
 	mutation := MutationObservation{
-		ContextState: tobari.ContextObservationPersisted, Provider: "github", Context: "default", ContextID: testContextID,
+		ManifestState: tobari.ManifestObservationPersisted, Provider: "github", Context: "default", WorkspaceManifestID: testContextID,
 		StorageBackend: StorageBackendXDGFile, BrokerState: BrokerStateReady, Changed: false,
 		Providers: validStatusObservation().Providers, Workspaces: validStatusObservation().Workspaces,
 	}

@@ -461,7 +461,7 @@ func (r *gatewayNetworkRunner) Output(_ context.Context, args, _ []string) ([]by
 func runtimeState(root string) tobari.State {
 	return tobari.State{
 		SchemaVersion: 1, RuntimeDirectory: filepath.Join(root, "runtime"),
-		AggregateRevision: strings.Repeat("a", 64), ContextCount: 1,
+		AggregateRevision: strings.Repeat("a", 64), ManifestCount: 1,
 		PolicyDirectory: filepath.Join(root, "policy"),
 		GatewayConfig:   filepath.Join(root, "gateway.json"), AssetVersion: "asset",
 	}
@@ -770,7 +770,7 @@ func TestPrepareStateUsesAggregateProjection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if state.SchemaVersion != 1 || state.ContextCount != 1 || state.AggregateRevision == "" {
+	if state.SchemaVersion != 1 || state.ManifestCount != 1 || state.AggregateRevision == "" {
 		t.Fatalf("state = %+v", state)
 	}
 	for path, want := range map[string]os.FileMode{
@@ -986,6 +986,7 @@ func TestPrepareActiveContextImageReusesAndValidatesLocalOfficialRuntime(t *test
 	if runtime.defaultRuntimeImage() != localBaseRuntimeImage {
 		t.Skip("local official base build is not selected by the development resolver")
 	}
+	initializeTestWorkspaceManifest(t, runtime)
 	if err := runtime.prepareActiveContextImage(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -1005,7 +1006,7 @@ func TestPrepareActiveContextImageBuildsMissingLocalOfficialRuntime(t *testing.T
 	if runtime.defaultRuntimeImage() != localBaseRuntimeImage {
 		t.Skip("local official base build is not selected by the development resolver")
 	}
-	if _, err := runtime.ListContexts(context.Background()); err != nil {
+	if err := runtime.ensureContextStore(); err != nil {
 		t.Fatal(err)
 	}
 	if err := runtime.prepareActiveContextImage(context.Background()); err != nil {
@@ -1029,6 +1030,7 @@ func TestPrepareActiveContextImageDoesNotPullInjectedLocalRuntime(t *testing.T) 
 	runner := &recordingRunner{outputData: compatibleImageInspection()}
 	runtime, _ := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), runner)
 	runtime.images = testImageResolver{runtimeImage: "tobari-runtime:dev"}
+	initializeTestWorkspaceManifest(t, runtime)
 	if err := runtime.prepareActiveContextImage(context.Background()); err != nil {
 		t.Fatal(err)
 	}

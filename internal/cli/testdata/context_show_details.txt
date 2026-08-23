@@ -1,12 +1,12 @@
-✓ Context review
+✓ Workspace Manifest review
 
-Context
+Workspace Manifest
   State          persisted
   Current        no
   Agent profile  default
-  Context ID     018bcfe5-687b-7000-8000-000000000099
+  Workspace Manifest ID 018bcfe5-687b-7000-8000-000000000099
 
-Boundary · fixed for this Context
+Boundary · fixed for this Workspace Manifest
   Source access  direct read-write
   Policy mode    guided
   Policy revision sha256:1ebfdf1e67ab968a9b709b8418281e60b2d17562eeb96679cdcd5ec472e82df5
@@ -40,4 +40,4 @@ Stores and revisions
   Policy store   /config/contexts/review/policy
 
 Actions
-  Next           tobari --context review — Enter or create a Workspace with this Context.
+  Next           tobari --manifest review — Enter or create a Workspace with this Workspace Manifest.

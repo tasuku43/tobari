@@ -57,22 +57,22 @@ func (s RecommendedFirstUseSession) Validate() error {
 // proposal. Its creation composition is derived from the same values that are
 // rendered; presentation never infers policy or mutation defaults.
 type RecommendedFirstUseDraft struct {
-	ProjectRoot       string
-	ContextName       string
-	PolicyMode        ContextPolicyMode
-	Access            ContextAccessSummary
-	RuntimeSelection  string
-	NativeReadiness   ContextNativeReadiness
-	HostConfiguration RecommendedHostConfigurationState
-	Session           RecommendedFirstUseSession
+	ProjectRoot           string
+	WorkspaceManifestName string
+	PolicyMode            ManifestPolicyMode
+	Access                ManifestAccessSummary
+	RuntimeSelection      string
+	NativeReadiness       ManifestNativeReadiness
+	HostConfiguration     RecommendedHostConfigurationState
+	Session               RecommendedFirstUseSession
 }
 
 func NewRecommendedFirstUseDraft(root string, session WorkspaceSessionRequest) (RecommendedFirstUseDraft, error) {
 	policy, ok := DefaultContextPolicySnapshot()
 	if !ok {
-		return RecommendedFirstUseDraft{}, fmt.Errorf("default Context policy is unavailable")
+		return RecommendedFirstUseDraft{}, fmt.Errorf("default Workspace Manifest policy is unavailable")
 	}
-	access, err := SummarizeContextAccess(policy, ContextSourceAccessReadWrite, ContextNativeReadinessEnabled)
+	access, err := SummarizeContextAccess(policy, ManifestSourceAccessReadWrite, ManifestNativeReadinessEnabled)
 	if err != nil {
 		return RecommendedFirstUseDraft{}, err
 	}
@@ -81,9 +81,9 @@ func NewRecommendedFirstUseDraft(root string, session WorkspaceSessionRequest) (
 		return RecommendedFirstUseDraft{}, err
 	}
 	draft := RecommendedFirstUseDraft{
-		ProjectRoot: root, ContextName: DefaultContextName, PolicyMode: ContextPolicyModeGuided,
+		ProjectRoot: root, WorkspaceManifestName: DefaultManifestName, PolicyMode: ManifestPolicyModeGuided,
 		Access: access, RuntimeSelection: StandardRuntimeName + "@1",
-		NativeReadiness:   ContextNativeReadinessEnabled,
+		NativeReadiness:   ManifestNativeReadinessEnabled,
 		HostConfiguration: RecommendedHostConfigurationNotImported, Session: summary,
 	}
 	return draft, draft.Validate()
@@ -93,8 +93,8 @@ func (d RecommendedFirstUseDraft) Validate() error {
 	if err := ValidateCanonicalRoot(d.ProjectRoot); err != nil {
 		return err
 	}
-	if d.ContextName != DefaultContextName || d.PolicyMode != ContextPolicyModeGuided ||
-		d.RuntimeSelection != StandardRuntimeName+"@1" || d.NativeReadiness != ContextNativeReadinessEnabled ||
+	if d.WorkspaceManifestName != DefaultManifestName || d.PolicyMode != ManifestPolicyModeGuided ||
+		d.RuntimeSelection != StandardRuntimeName+"@1" || d.NativeReadiness != ManifestNativeReadinessEnabled ||
 		d.HostConfiguration != RecommendedHostConfigurationNotImported {
 		return fmt.Errorf("recommended first-use settings do not match the supported draft")
 	}
@@ -106,9 +106,9 @@ func (d RecommendedFirstUseDraft) Validate() error {
 	}
 	policy, ok := DefaultContextPolicySnapshot()
 	if !ok {
-		return fmt.Errorf("default Context policy is unavailable")
+		return fmt.Errorf("default Workspace Manifest policy is unavailable")
 	}
-	expected, err := SummarizeContextAccess(policy, ContextSourceAccessReadWrite, ContextNativeReadinessEnabled)
+	expected, err := SummarizeContextAccess(policy, ManifestSourceAccessReadWrite, ManifestNativeReadinessEnabled)
 	if err != nil {
 		return err
 	}
@@ -118,7 +118,7 @@ func (d RecommendedFirstUseDraft) Validate() error {
 	return d.Session.Validate()
 }
 
-func sameContextAccessSummary(left, right ContextAccessSummary) bool {
+func sameContextAccessSummary(left, right ManifestAccessSummary) bool {
 	if left.SourceAccess != right.SourceAccess || left.RoutineTraffic != right.RoutineTraffic ||
 		left.PrivateTargets != right.PrivateTargets || left.MethodPolicy.Default != right.MethodPolicy.Default ||
 		len(left.MethodPolicy.Overrides) != len(right.MethodPolicy.Overrides) {
@@ -132,9 +132,9 @@ func sameContextAccessSummary(left, right ContextAccessSummary) bool {
 	return true
 }
 
-func (d RecommendedFirstUseDraft) Composition() ContextCreateComposition {
+func (d RecommendedFirstUseDraft) Composition() ManifestCreateComposition {
 	methodPolicy := d.Access.MethodPolicy.Clone()
-	return ContextCreateComposition{
+	return ManifestCreateComposition{
 		NativeReadiness: d.NativeReadiness, MethodPolicy: &methodPolicy,
 		RuntimeSelection: d.RuntimeSelection,
 	}

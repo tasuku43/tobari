@@ -35,9 +35,9 @@ func TestDecodeBrokerControlResponseAcceptsOnlyOperationSpecificSuccessFrames(t 
 		{name: "status absent", args: []string{"status", "--provider", "github"}, response: `{"schema_version":1,"ok":true,"state":"not_configured","provider":"github"}`, state: "not_configured"},
 		{name: "status ready", args: []string{"status", "--provider", "github"}, response: `{"schema_version":1,"ok":true,"state":"ready","provider":"github","revision":"revision_synthetic"}`, state: "ready"},
 		{name: "status ready label", args: []string{"status", "--provider", "github"}, response: `{"schema_version":1,"ok":true,"state":"ready","provider":"github","revision":"revision_synthetic","account_label":"octocat"}`, state: "ready"},
-		{name: "login", args: []string{"login", "--context-id", testBrokerContextID, "--provider", "github", "--account-label", "octocat"}, response: `{"schema_version":1,"ok":true,"provider":"github","revision":"revision_synthetic","account_label":"octocat"}`},
-		{name: "aws login", args: []string{"login", "--context-id", testBrokerContextID, "--provider", "aws", "--account-label", "123456789012", "--driver-id", "aws_cli_sso", "--driver-revision", testAWSDriverRevision}, response: `{"schema_version":1,"ok":true,"provider":"aws","revision":"revision_synthetic","account_label":"123456789012"}`},
-		{name: "aws console login", args: []string{"login", "--context-id", testBrokerContextID, "--provider", "aws", "--account-label", "123456789012", "--driver-id", "aws_cli_console_login", "--driver-revision", testAWSDriverRevision}, response: `{"schema_version":1,"ok":true,"provider":"aws","revision":"revision_synthetic","account_label":"123456789012"}`},
+		{name: "login", args: []string{"login", "--manifest-id", testBrokerContextID, "--provider", "github", "--account-label", "octocat"}, response: `{"schema_version":1,"ok":true,"provider":"github","revision":"revision_synthetic","account_label":"octocat"}`},
+		{name: "aws login", args: []string{"login", "--manifest-id", testBrokerContextID, "--provider", "aws", "--account-label", "123456789012", "--driver-id", "aws_cli_sso", "--driver-revision", testAWSDriverRevision}, response: `{"schema_version":1,"ok":true,"provider":"aws","revision":"revision_synthetic","account_label":"123456789012"}`},
+		{name: "aws console login", args: []string{"login", "--manifest-id", testBrokerContextID, "--provider", "aws", "--account-label", "123456789012", "--driver-id", "aws_cli_console_login", "--driver-revision", testAWSDriverRevision}, response: `{"schema_version":1,"ok":true,"provider":"aws","revision":"revision_synthetic","account_label":"123456789012"}`},
 		{name: "import", args: []string{"import", "--provider", "github"}, response: `{"schema_version":1,"ok":true,"provider":"github","revision":"revision_synthetic"}`},
 		{name: "logout changed", args: []string{"logout", "--provider", "github"}, response: `{"schema_version":1,"ok":true,"provider":"github","state":"logged_out","changed":true}`, state: "logged_out"},
 		{name: "logout unchanged", args: []string{"logout", "--provider", "github"}, response: `{"schema_version":1,"ok":true,"provider":"github","state":"logged_out","changed":false}`, state: "logged_out"},
@@ -87,8 +87,8 @@ func TestDecodeBrokerControlResponseRejectsCrossOperationAndAmbiguousFrames(t *t
 		{name: "wrong provider", args: []string{"status", "--provider", "github"}, response: `{"schema_version":1,"ok":true,"state":"not_configured","provider":"example"}`},
 		{name: "absent status revision", args: []string{"status", "--provider", "github"}, response: `{"schema_version":1,"ok":true,"state":"not_configured","provider":"github","revision":"revision_synthetic"}`},
 		{name: "ready status null label", args: []string{"status", "--provider", "github"}, response: `{"schema_version":1,"ok":true,"state":"ready","provider":"github","revision":"revision_synthetic","account_label":null}`},
-		{name: "login missing label", args: []string{"login", "--context-id", testBrokerContextID, "--provider", "github", "--account-label", "octocat"}, response: `{"schema_version":1,"ok":true,"provider":"github","revision":"revision_synthetic"}`},
-		{name: "login mismatched label", args: []string{"login", "--context-id", testBrokerContextID, "--provider", "github", "--account-label", "octocat"}, response: `{"schema_version":1,"ok":true,"provider":"github","revision":"revision_synthetic","account_label":"other"}`},
+		{name: "login missing label", args: []string{"login", "--manifest-id", testBrokerContextID, "--provider", "github", "--account-label", "octocat"}, response: `{"schema_version":1,"ok":true,"provider":"github","revision":"revision_synthetic"}`},
+		{name: "login mismatched label", args: []string{"login", "--manifest-id", testBrokerContextID, "--provider", "github", "--account-label", "octocat"}, response: `{"schema_version":1,"ok":true,"provider":"github","revision":"revision_synthetic","account_label":"other"}`},
 		{name: "import has label", args: []string{"import", "--provider", "github"}, response: `{"schema_version":1,"ok":true,"provider":"github","revision":"revision_synthetic","account_label":"octocat"}`},
 		{name: "logout missing changed", args: []string{"logout", "--provider", "github"}, response: `{"schema_version":1,"ok":true,"provider":"github","state":"logged_out"}`},
 		{name: "logout wrong state", args: []string{"logout", "--provider", "github"}, response: `{"schema_version":1,"ok":true,"provider":"github","state":"ready","changed":true}`},
@@ -134,31 +134,31 @@ func TestBrokerControlCompanionExpectationsRejectNonExactArguments(t *testing.T)
 func TestBrokerControlLoginExpectationsRequireExactProviderShape(t *testing.T) {
 	t.Parallel()
 	validGitHub := []string{
-		"login", "--context-id", testBrokerContextID,
+		"login", "--manifest-id", testBrokerContextID,
 		"--provider", "github", "--account-label", "octocat",
 	}
 	validAWS := []string{
-		"login", "--context-id", testBrokerContextID,
+		"login", "--manifest-id", testBrokerContextID,
 		"--provider", "aws", "--account-label", "123456789012",
 		"--driver-id", "aws_cli_sso", "--driver-revision", testAWSDriverRevision,
 	}
 	validAWSConsole := []string{
-		"login", "--context-id", testBrokerContextID,
+		"login", "--manifest-id", testBrokerContextID,
 		"--provider", "aws", "--account-label", "123456789012",
 		"--driver-id", "aws_cli_console_login", "--driver-revision", testAWSDriverRevision,
 	}
 	validDatadog := []string{
-		"login", "--context-id", testBrokerContextID,
+		"login", "--manifest-id", testBrokerContextID,
 		"--provider", "datadog", "--account-label", credentialhost.PupAccountLabel,
 		"--driver-id", credentialhost.PupDriverID, "--driver-revision", testAWSDriverRevision,
 	}
 	validOpenAI := []string{
-		"login", "--context-id", testBrokerContextID,
+		"login", "--manifest-id", testBrokerContextID,
 		"--provider", "openai", "--account-label", "account-synthetic-123",
 		"--driver-id", credentialhost.CodexDriverID, "--driver-revision", testAWSDriverRevision,
 	}
 	validAnthropic := []string{
-		"login", "--context-id", testBrokerContextID,
+		"login", "--manifest-id", testBrokerContextID,
 		"--provider", "anthropic", "--account-label", credentialhost.ClaudeNativeAccountLabel,
 		"--driver-id", credentialhost.ClaudeNativeDriverID, "--driver-revision", testAWSDriverRevision,
 	}
@@ -167,28 +167,28 @@ func TestBrokerControlLoginExpectationsRequireExactProviderShape(t *testing.T) {
 		if err != nil {
 			t.Fatalf("brokerControlExpectationFor(%v): %v", arguments, err)
 		}
-		if expectation.ContextID != testBrokerContextID || expectation.AccountLabel != arguments[6] {
+		if expectation.WorkspaceManifestID != testBrokerContextID || expectation.AccountLabel != arguments[6] {
 			t.Fatalf("expectation = %+v", expectation)
 		}
 	}
 	for _, arguments := range [][]string{
 		{"login", "--provider", "github"},
 		append(append([]string(nil), validGitHub...), "--extra", "canary"),
-		{"login", "--provider", "github", "--context-id", testBrokerContextID, "--account-label", "octocat"},
-		{"login", "--context-id", "not-a-uuid", "--provider", "github", "--account-label", "octocat"},
-		{"login", "--context-id", testBrokerContextID, "--provider", "github", "--account-label", ""},
-		{"login", "--context-id", testBrokerContextID, "--provider", "aws", "--account-label", "123456789012"},
-		{"login", "--context-id", testBrokerContextID, "--provider", "aws", "--account-label", "123", "--driver-id", "aws_cli_sso", "--driver-revision", testAWSDriverRevision},
-		{"login", "--context-id", testBrokerContextID, "--provider", "aws", "--account-label", "123456789012", "--driver-id", "other", "--driver-revision", testAWSDriverRevision},
-		{"login", "--context-id", testBrokerContextID, "--provider", "aws", "--account-label", "123456789012", "--driver-id", "aws_cli_sso", "--driver-revision", "UPPER"},
-		{"login", "--context-id", testBrokerContextID, "--provider", "datadog", "--account-label", "other", "--driver-id", credentialhost.PupDriverID, "--driver-revision", testAWSDriverRevision},
-		{"login", "--context-id", testBrokerContextID, "--provider", "datadog", "--account-label", credentialhost.PupAccountLabel, "--driver-id", "other", "--driver-revision", testAWSDriverRevision},
-		{"login", "--context-id", testBrokerContextID, "--provider", "openai", "--account-label", "account-synthetic-123"},
-		{"login", "--context-id", testBrokerContextID, "--provider", "openai", "--account-label", "account-synthetic-123", "--driver-id", "other", "--driver-revision", testAWSDriverRevision},
-		{"login", "--context-id", testBrokerContextID, "--provider", "anthropic", "--account-label", "other"},
-		{"login", "--context-id", testBrokerContextID, "--provider", "anthropic", "--account-label", credentialhost.ClaudeNativeAccountLabel},
-		{"login", "--context-id", testBrokerContextID, "--provider", "anthropic", "--account-label", credentialhost.ClaudeNativeAccountLabel, "--driver-id", credentialhost.ClaudeNativeDriverID + "-changed", "--driver-revision", testAWSDriverRevision},
-		{"login", "--context-id", testBrokerContextID, "--provider", "example", "--account-label", "example"},
+		{"login", "--provider", "github", "--manifest-id", testBrokerContextID, "--account-label", "octocat"},
+		{"login", "--manifest-id", "not-a-uuid", "--provider", "github", "--account-label", "octocat"},
+		{"login", "--manifest-id", testBrokerContextID, "--provider", "github", "--account-label", ""},
+		{"login", "--manifest-id", testBrokerContextID, "--provider", "aws", "--account-label", "123456789012"},
+		{"login", "--manifest-id", testBrokerContextID, "--provider", "aws", "--account-label", "123", "--driver-id", "aws_cli_sso", "--driver-revision", testAWSDriverRevision},
+		{"login", "--manifest-id", testBrokerContextID, "--provider", "aws", "--account-label", "123456789012", "--driver-id", "other", "--driver-revision", testAWSDriverRevision},
+		{"login", "--manifest-id", testBrokerContextID, "--provider", "aws", "--account-label", "123456789012", "--driver-id", "aws_cli_sso", "--driver-revision", "UPPER"},
+		{"login", "--manifest-id", testBrokerContextID, "--provider", "datadog", "--account-label", "other", "--driver-id", credentialhost.PupDriverID, "--driver-revision", testAWSDriverRevision},
+		{"login", "--manifest-id", testBrokerContextID, "--provider", "datadog", "--account-label", credentialhost.PupAccountLabel, "--driver-id", "other", "--driver-revision", testAWSDriverRevision},
+		{"login", "--manifest-id", testBrokerContextID, "--provider", "openai", "--account-label", "account-synthetic-123"},
+		{"login", "--manifest-id", testBrokerContextID, "--provider", "openai", "--account-label", "account-synthetic-123", "--driver-id", "other", "--driver-revision", testAWSDriverRevision},
+		{"login", "--manifest-id", testBrokerContextID, "--provider", "anthropic", "--account-label", "other"},
+		{"login", "--manifest-id", testBrokerContextID, "--provider", "anthropic", "--account-label", credentialhost.ClaudeNativeAccountLabel},
+		{"login", "--manifest-id", testBrokerContextID, "--provider", "anthropic", "--account-label", credentialhost.ClaudeNativeAccountLabel, "--driver-id", credentialhost.ClaudeNativeDriverID + "-changed", "--driver-revision", testAWSDriverRevision},
+		{"login", "--manifest-id", testBrokerContextID, "--provider", "example", "--account-label", "example"},
 	} {
 		if _, err := brokerControlExpectationFor(arguments); err == nil {
 			t.Fatalf("brokerControlExpectationFor(%v) accepted non-exact login arguments", arguments)

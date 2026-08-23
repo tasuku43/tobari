@@ -272,10 +272,10 @@ func policyReviewChangedFault() error {
 
 func policyReviewItemContextID(item tobari.PolicyReviewItem) string {
 	if item.Candidate != nil {
-		return item.Candidate.ContextID
+		return item.Candidate.WorkspaceManifestID
 	}
 	if item.Template != nil {
-		return item.Template.ContextID
+		return item.Template.WorkspaceManifestID
 	}
 	return ""
 }

@@ -143,7 +143,7 @@ func (c *CLI) RunContext(ctx context.Context, args []string) int {
 	}
 	options, commandArgs, err := parseRootOptions(args)
 	ctx = withErrorFormat(ctx, options.ErrorFormat)
-	ctx = withExecutionContext(ctx, options.ContextName)
+	ctx = withExecutionContext(ctx, options.WorkspaceManifestName)
 	if err != nil {
 		return c.failUsage(ctx, "invalid_root_options", err.Error(), "help", "Correct the global options.")
 	}
@@ -194,7 +194,7 @@ func (c *CLI) RunContext(ctx context.Context, args []string) int {
 	if err := ctx.Err(); err != nil {
 		return c.fail(ctx, err)
 	}
-	rest = normalizeLifecycleContextInput(command, options.ContextName, rest)
+	rest = normalizeLifecycleContextInput(command, options.WorkspaceManifestName, rest)
 	inputs, err := parseCommandInputs(command, rest)
 	if err != nil {
 		var nextActions []fault.NextAction
@@ -238,7 +238,7 @@ func normalizeLifecycleContextInput(command CommandSpec, rootContext string, res
 	if rootContext == "" || command.Agent.CapabilityID != "tobari.lifecycle" {
 		return normalized
 	}
-	return append([]string{"--context", rootContext}, normalized...)
+	return append([]string{"--manifest", rootContext}, normalized...)
 }
 
 func normalizeTrailingHelpAlias(catalog Catalog, args []string) []string {
@@ -375,8 +375,8 @@ func isHelpFlag(value string) bool {
 }
 
 type rootOptions struct {
-	ErrorFormat errorFormat
-	ContextName string
+	ErrorFormat           errorFormat
+	WorkspaceManifestName string
 }
 
 type executionContextKey struct{}
@@ -407,25 +407,25 @@ func parseRootOptions(args []string) (rootOptions, []string, error) {
 			value = args[index]
 		case strings.HasPrefix(argument, "--error-format="):
 			value = strings.TrimPrefix(argument, "--error-format=")
-		case argument == "--context":
+		case argument == "--manifest":
 			if index+1 >= len(args) || seenContext {
-				return options, nil, fmt.Errorf("--context requires one Context name")
+				return options, nil, fmt.Errorf("--manifest requires one Workspace Manifest name")
 			}
 			index++
-			options.ContextName = args[index]
-			if options.ContextName == "" {
-				return options, nil, fmt.Errorf("--context requires one Context name")
+			options.WorkspaceManifestName = args[index]
+			if options.WorkspaceManifestName == "" {
+				return options, nil, fmt.Errorf("--manifest requires one Workspace Manifest name")
 			}
 			seenContext = true
 			index++
 			continue
-		case strings.HasPrefix(argument, "--context="):
+		case strings.HasPrefix(argument, "--manifest="):
 			if seenContext {
-				return options, nil, fmt.Errorf("--context may be specified only once")
+				return options, nil, fmt.Errorf("--manifest may be specified only once")
 			}
-			options.ContextName = strings.TrimPrefix(argument, "--context=")
-			if options.ContextName == "" {
-				return options, nil, fmt.Errorf("--context requires one Context name")
+			options.WorkspaceManifestName = strings.TrimPrefix(argument, "--manifest=")
+			if options.WorkspaceManifestName == "" {
+				return options, nil, fmt.Errorf("--manifest requires one Workspace Manifest name")
 			}
 			seenContext = true
 			index++

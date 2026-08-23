@@ -693,7 +693,7 @@ func (r *Runtime) runHostCredentialLoginOnTTY(
 
 	arguments := []string{
 		"login",
-		"--context-id", contextID,
+		"--manifest-id", contextID,
 		"--provider", provider,
 		"--account-label", payload.accountLabel,
 	}

@@ -30,19 +30,19 @@ type aggregateProjection struct {
 	Revision        string
 	PolicyDirectory string
 	GatewayConfig   string
-	ContextCount    int
+	ManifestCount   int
 }
 
 type aggregateContext struct {
-	manifest            tobari.ContextManifest
-	paths               tobari.ContextStorePaths
+	manifest            tobari.WorkspaceManifest
+	paths               tobari.ManifestStorePaths
 	data                map[string]any
 	policy              policyDataFile
 	rego                []byte
 	graphqlEndpoints    []tobari.GraphQLEndpoint
 	mcpEndpoints        []tobari.MCPEndpoint
 	kubernetesEndpoints []tobari.GraphQLEndpoint
-	contextPolicy       tobari.ContextPolicy
+	contextPolicy       tobari.ManifestPolicy
 }
 
 func (r *Runtime) aggregateRoot() string {
@@ -90,7 +90,7 @@ func (r *Runtime) readAggregateContextsWithTransactions(
 		if err != nil {
 			return nil, fmt.Errorf("Context %q native readiness selection: %w", manifest.Name, err)
 		}
-		effectivePolicy, err := tobari.ApplyNativeToolAuthReadiness(readiness == tobari.ContextNativeReadinessEnabled, true, policySnapshot)
+		effectivePolicy, err := tobari.ApplyNativeToolAuthReadiness(readiness == tobari.ManifestNativeReadinessEnabled, true, policySnapshot)
 		if err != nil {
 			return nil, fmt.Errorf("Context %q native readiness: %w", manifest.Name, err)
 		}
@@ -125,7 +125,7 @@ func (r *Runtime) readAggregateContextsWithTransactions(
 			"mcp_baseline_grants": effectivePolicy.MCPBaselineGrants, "baseline_denies": effectivePolicy.BaselineDenies,
 		}
 		var rego []byte
-		if manifest.PolicyMode == tobari.ContextPolicyModeGuided {
+		if manifest.PolicyMode == tobari.ManifestPolicyModeGuided {
 			rego, err = runtimeassets.Read("opa/policy/tobari.rego")
 		} else {
 			rego, err = readOwnerPolicyFile(filepath.Join(paths.PolicyDirectory, "tobari.rego"), maxPolicyPreflight)
@@ -146,7 +146,7 @@ func (r *Runtime) readAggregateContextsWithTransactions(
 	return items, nil
 }
 
-func aggregateKubernetesEndpoints(manifest tobari.ContextManifest) ([]tobari.GraphQLEndpoint, error) {
+func aggregateKubernetesEndpoints(manifest tobari.WorkspaceManifest) ([]tobari.GraphQLEndpoint, error) {
 	if manifest.Bootstrap == nil || manifest.Bootstrap.EKS == nil {
 		return []tobari.GraphQLEndpoint{}, nil
 	}
@@ -163,7 +163,7 @@ func aggregateKubernetesEndpoints(manifest tobari.ContextManifest) ([]tobari.Gra
 }
 
 func aggregateGraphQLEndpoints(
-	policyEndpoints []tobari.GraphQLEndpoint, contextPolicyEndpoints []tobari.ContextPolicyExactRule,
+	policyEndpoints []tobari.GraphQLEndpoint, contextPolicyEndpoints []tobari.ManifestPolicyExactRule,
 ) ([]tobari.GraphQLEndpoint, error) {
 	seen := make(map[tobari.GraphQLEndpoint]struct{}, len(policyEndpoints)+len(contextPolicyEndpoints))
 	result := make([]tobari.GraphQLEndpoint, 0, len(policyEndpoints)+len(contextPolicyEndpoints))
@@ -201,7 +201,7 @@ func aggregateGraphQLEndpoints(
 	return result, nil
 }
 
-func aggregateMCPEndpoints(contextPolicyEndpoints []tobari.ContextPolicyExactRule) ([]tobari.MCPEndpoint, error) {
+func aggregateMCPEndpoints(contextPolicyEndpoints []tobari.ManifestPolicyExactRule) ([]tobari.MCPEndpoint, error) {
 	result := make([]tobari.MCPEndpoint, 0, len(contextPolicyEndpoints))
 	seen := map[tobari.MCPEndpoint]struct{}{}
 	for _, endpoint := range contextPolicyEndpoints {
@@ -240,7 +240,7 @@ func transformContextRego(item aggregateContext) ([]byte, error) {
 		return nil, fmt.Errorf("Context %q policy must target source input schema 1", item.manifest.Name)
 	}
 	packageName := "package tobari.contexts." + aggregateNamespace(item.manifest.ID) + ".http"
-	if item.manifest.PolicyMode == tobari.ContextPolicyModeGuided {
+	if item.manifest.PolicyMode == tobari.ManifestPolicyModeGuided {
 		packageName = "package tobari.system.guided"
 	}
 	transformed := regoPackagePattern.ReplaceAll(item.rego, []byte(packageName))
@@ -321,7 +321,7 @@ func aggregateRouter(items []aggregateContext) ([]byte, error) {
 		builder.WriteString("  object.get(input.request, \"git\", null) == null\n")
 		builder.WriteString("  object.get(input.request, \"oci\", null) == null\n")
 		builder.WriteString("  result := data.")
-		if item.manifest.PolicyMode == tobari.ContextPolicyModeGuided {
+		if item.manifest.PolicyMode == tobari.ManifestPolicyModeGuided {
 			builder.WriteString("tobari.system.guided")
 		} else {
 			builder.WriteString("tobari.contexts.")
@@ -393,7 +393,7 @@ func (r *Runtime) buildAggregateProjectionWithTransactions(
 	directory := filepath.Join(r.aggregateRoot(), revision)
 	result := aggregateProjection{
 		Revision: revision, PolicyDirectory: filepath.Join(directory, "policy"),
-		GatewayConfig: filepath.Join(directory, "gateway.json"), ContextCount: len(items),
+		GatewayConfig: filepath.Join(directory, "gateway.json"), ManifestCount: len(items),
 	}
 	if _, err := os.Lstat(directory); err == nil {
 		if err := r.testPolicyDirectory(ctx, result.PolicyDirectory); err != nil {
@@ -433,7 +433,7 @@ func (r *Runtime) buildAggregateProjectionWithTransactions(
 		return aggregateProjection{}, err
 	}
 	guidedModule, err := transformContextRego(aggregateContext{
-		manifest: tobari.ContextManifest{Name: "system", PolicyMode: tobari.ContextPolicyModeGuided, SourceAccess: tobari.ContextSourceAccessReadWrite},
+		manifest: tobari.WorkspaceManifest{Name: "system", PolicyMode: tobari.ManifestPolicyModeGuided, SourceAccess: tobari.ManifestSourceAccessReadWrite},
 		rego:     canonicalGuided,
 	})
 	if err != nil {
@@ -448,13 +448,13 @@ func (r *Runtime) buildAggregateProjectionWithTransactions(
 			return aggregateProjection{}, err
 		}
 		regoName := aggregateNamespace(item.manifest.ID) + ".rego"
-		if item.manifest.PolicyMode == tobari.ContextPolicyModeGuided {
+		if item.manifest.PolicyMode == tobari.ManifestPolicyModeGuided {
 			regoName = "guided.rego"
 			if !bytes.Equal(guidedModule, rego) {
 				return aggregateProjection{}, fmt.Errorf("guided Context policy logic diverged from the shared system module")
 			}
 		}
-		if item.manifest.PolicyMode != tobari.ContextPolicyModeGuided {
+		if item.manifest.PolicyMode != tobari.ManifestPolicyModeGuided {
 			if _, err := os.Lstat(filepath.Join(policyDirectory, regoName)); errors.Is(err, os.ErrNotExist) {
 				if err := os.WriteFile(filepath.Join(policyDirectory, regoName), rego, 0o600); err != nil {
 					return aggregateProjection{}, err

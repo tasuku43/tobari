@@ -14,16 +14,16 @@ func TestRecommendedFirstUseDraftOwnsDisplayedAndCreatedSettings(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if draft.ContextName != DefaultContextName || draft.Access.SourceAccess != ContextSourceAccessReadWrite ||
-		draft.Access.RoutineTraffic != ContextRoutineTrafficReady ||
-		draft.Access.MethodPolicy.Default != ContextMethodExactReview ||
-		draft.Access.PrivateTargets != ContextMethodDeny || draft.RuntimeSelection != "standard@1" ||
+	if draft.WorkspaceManifestName != DefaultManifestName || draft.Access.SourceAccess != ManifestSourceAccessReadWrite ||
+		draft.Access.RoutineTraffic != ManifestRoutineTrafficReady ||
+		draft.Access.MethodPolicy.Default != ManifestMethodExactReview ||
+		draft.Access.PrivateTargets != ManifestMethodDeny || draft.RuntimeSelection != "standard@1" ||
 		draft.HostConfiguration != RecommendedHostConfigurationNotImported ||
 		draft.Session != (RecommendedFirstUseSession{Kind: RecommendedFirstUseSessionDirect, Executable: "claude"}) {
 		t.Fatalf("recommended draft = %+v", draft)
 	}
 	composition := draft.Composition()
-	if composition.NativeReadiness != ContextNativeReadinessEnabled || composition.RuntimeSelection != "standard@1" ||
+	if composition.NativeReadiness != ManifestNativeReadinessEnabled || composition.RuntimeSelection != "standard@1" ||
 		composition.Bootstrap != nil || composition.MethodPolicy == nil ||
 		!reflect.DeepEqual(*composition.MethodPolicy, draft.Access.MethodPolicy) {
 		t.Fatalf("recommended composition = %+v", composition)
@@ -35,7 +35,7 @@ func TestRecommendedFirstUseDraftRejectsPresentationInference(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	draft.Access.RoutineTraffic = ContextRoutineTrafficLimited
+	draft.Access.RoutineTraffic = ManifestRoutineTrafficLimited
 	if err := draft.Validate(); err == nil {
 		t.Fatal("mutated effective Access unexpectedly validated")
 	}

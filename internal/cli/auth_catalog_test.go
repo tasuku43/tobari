@@ -46,10 +46,10 @@ func TestAuthLoginCatalogAllowsInteractiveOmissionAndReviewedProviders(t *testin
 		t.Fatal("catalog lacks auth login")
 	}
 	awsEnabled := authbroker.SupportsReviewedLoginProvider(authbroker.BuiltinAWSProviderID)
-	wantArgs := "[--provider github|datadog|openai|anthropic] [--context <name>] [--format text|json]"
+	wantArgs := "[--provider github|datadog|openai|anthropic] [--manifest <name>] [--format text|json]"
 	wantProviders := []string{"github", "datadog", "openai", "anthropic"}
 	if awsEnabled {
-		wantArgs = "[--provider github|aws|datadog|openai|anthropic] [--method identity-center|console] [--context <name>] [--format text|json]"
+		wantArgs = "[--provider github|aws|datadog|openai|anthropic] [--method identity-center|console] [--manifest <name>] [--format text|json]"
 		wantProviders = []string{"github", "aws", "datadog", "openai", "anthropic"}
 	}
 	if spec.Args != wantArgs || len(spec.Agent.Inputs) == 0 {

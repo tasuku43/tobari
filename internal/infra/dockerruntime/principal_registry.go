@@ -24,13 +24,13 @@ var projectPrincipalNetworkPattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_
 // endpoint pair belongs to one exact owned project network; neither address is
 // a caller-provided project selector.
 type projectPrincipalBinding struct {
-	ProjectID   string `json:"project_id"`
-	ContextID   string `json:"context_id"`
-	ContextName string `json:"context"`
-	ProjectRoot string `json:"project_root"`
-	WorkspaceIP string `json:"workspace_ip"`
-	GatewayIP   string `json:"gateway_ip"`
-	Network     string `json:"network"`
+	ProjectID             string `json:"workspace_id"`
+	WorkspaceManifestID   string `json:"workspace_manifest_id"`
+	WorkspaceManifestName string `json:"workspace_manifest"`
+	ProjectRoot           string `json:"project_root"`
+	WorkspaceIP           string `json:"workspace_ip"`
+	GatewayIP             string `json:"gateway_ip"`
+	Network               string `json:"network"`
 }
 
 type projectPrincipalRegistry struct {
@@ -50,13 +50,13 @@ func (r projectPrincipalRegistry) Validate() error {
 	gatewayAddresses := make(map[string]struct{}, len(r.Bindings))
 	networks := make(map[string]struct{}, len(r.Bindings))
 	for _, binding := range r.Bindings {
-		if err := tobari.ValidateProjectID(binding.ProjectID); err != nil {
+		if err := tobari.ValidateWorkspaceID(binding.ProjectID); err != nil {
 			return fmt.Errorf("project principal project_id: %w", err)
 		}
-		if err := tobari.ValidateContextID(binding.ContextID); err != nil {
+		if err := tobari.ValidateWorkspaceManifestID(binding.WorkspaceManifestID); err != nil {
 			return fmt.Errorf("project principal context_id: %w", err)
 		}
-		if err := tobari.ValidateName(binding.ContextName); err != nil {
+		if err := tobari.ValidateName(binding.WorkspaceManifestName); err != nil {
 			return fmt.Errorf("project principal context: %w", err)
 		}
 		if !filepath.IsAbs(binding.ProjectRoot) || filepath.Clean(binding.ProjectRoot) != binding.ProjectRoot {
@@ -219,12 +219,12 @@ func (r *Runtime) writeProjectPrincipalRegistry(registry projectPrincipalRegistr
 	return writeAtomicJSON(r.principalRegistryPath(), registry)
 }
 
-func (r *Runtime) updateProjectPrincipal(ctx context.Context, project tobari.ProjectInstance, network, workspaceIP, gatewayIP string) error {
+func (r *Runtime) updateProjectPrincipal(ctx context.Context, project tobari.Workspace, network, workspaceIP, gatewayIP string) error {
 	if err := project.Validate(); err != nil {
 		return err
 	}
 	binding := projectPrincipalBinding{
-		ProjectID: project.ID, ContextID: project.ContextID, ContextName: project.ContextName,
+		ProjectID: project.ID, WorkspaceManifestID: project.WorkspaceManifestID, WorkspaceManifestName: project.WorkspaceManifestName,
 		ProjectRoot: project.Root, Network: network, WorkspaceIP: workspaceIP, GatewayIP: gatewayIP,
 	}
 	registry := emptyProjectPrincipalRegistry()
@@ -254,7 +254,7 @@ func (r *Runtime) updateProjectPrincipal(ctx context.Context, project tobari.Pro
 }
 
 func (r *Runtime) removeProjectPrincipal(ctx context.Context, projectID string) error {
-	if err := tobari.ValidateProjectID(projectID); err != nil {
+	if err := tobari.ValidateWorkspaceID(projectID); err != nil {
 		return err
 	}
 	return r.withPrincipalRegistryLock(ctx, func() error {
@@ -348,7 +348,7 @@ func (r *Runtime) workspaceNetworkAddress(ctx context.Context, container, networ
 	return r.containerNetworkAddress(ctx, container, network, "Workspace")
 }
 
-func (r *Runtime) syncProjectPrincipalRegistry(ctx context.Context, projects []tobari.ProjectInstance) error {
+func (r *Runtime) syncProjectPrincipalRegistry(ctx context.Context, projects []tobari.Workspace) error {
 	bindings := make([]projectPrincipalBinding, 0, len(projects))
 	for _, project := range projects {
 		if err := project.Validate(); err != nil {
@@ -407,7 +407,7 @@ func (r *Runtime) syncProjectPrincipalRegistry(ctx context.Context, projects []t
 			return err
 		}
 		bindings = append(bindings, projectPrincipalBinding{
-			ProjectID: project.ID, ContextID: project.ContextID, ContextName: project.ContextName,
+			ProjectID: project.ID, WorkspaceManifestID: project.WorkspaceManifestID, WorkspaceManifestName: project.WorkspaceManifestName,
 			ProjectRoot: project.Root, WorkspaceIP: workspaceAddress, GatewayIP: gatewayAddress, Network: network,
 		})
 	}

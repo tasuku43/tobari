@@ -16,7 +16,7 @@ func TestContextPolicySnapshotUsesContextOwnedLayout(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := runtime.CreateContext(context.Background(), "policy-check", tobari.OfficialRuntimeBase, tobari.ContextPolicyModeGuided, tobari.ContextSourceAccessReadWrite); err != nil {
+	if _, err := runtime.CreateContext(context.Background(), "policy-check", tobari.OfficialRuntimeBase, tobari.ManifestPolicyModeGuided, tobari.ManifestSourceAccessReadWrite); err != nil {
 		t.Fatal(err)
 	}
 	manifest, err := runtime.readContextManifestRaw("policy-check")

@@ -33,12 +33,12 @@ const (
 )
 
 type projectJournal struct {
-	SchemaVersion int    `json:"schema_version"`
-	Operation     string `json:"operation"`
-	ProjectID     string `json:"project_id"`
-	Root          string `json:"root"`
-	ContextID     string `json:"context_id"`
-	Phase         string `json:"phase"`
+	SchemaVersion       int    `json:"schema_version"`
+	Operation           string `json:"operation"`
+	ProjectID           string `json:"workspace_id"`
+	Root                string `json:"root"`
+	WorkspaceManifestID string `json:"workspace_manifest_id"`
+	Phase               string `json:"phase"`
 }
 
 func (j projectJournal) Validate() error {
@@ -48,13 +48,13 @@ func (j projectJournal) Validate() error {
 	if j.Operation != projectOpCreate && j.Operation != projectOpDelete {
 		return fmt.Errorf("project journal operation is invalid")
 	}
-	if err := tobari.ValidateProjectID(j.ProjectID); err != nil {
+	if err := tobari.ValidateWorkspaceID(j.ProjectID); err != nil {
 		return err
 	}
 	if err := tobari.ValidateCanonicalRoot(j.Root); err != nil {
 		return err
 	}
-	if err := tobari.ValidateContextID(j.ContextID); err != nil {
+	if err := tobari.ValidateWorkspaceManifestID(j.WorkspaceManifestID); err != nil {
 		return err
 	}
 	if j.Phase == "" {
@@ -67,30 +67,30 @@ func (j projectJournal) Validate() error {
 // pending journal is reconciled under the project lock before selection so a
 // process interrupted at a multi-file boundary cannot make the next command
 // select stale state.
-func (r *Runtime) ResolveProject(ctx context.Context, cwd string) (tobari.ProjectInstance, bool, error) {
+func (r *Runtime) ResolveProject(ctx context.Context, cwd string) (tobari.Workspace, bool, error) {
 	return r.ResolveProjectInContext(ctx, cwd, "")
 }
 
-func (r *Runtime) ResolveProjectInContext(ctx context.Context, cwd, contextName string) (tobari.ProjectInstance, bool, error) {
+func (r *Runtime) ResolveProjectInContext(ctx context.Context, cwd, contextName string) (tobari.Workspace, bool, error) {
 	manifest, _, err := r.resolveContext(contextName)
 	if err != nil {
-		return tobari.ProjectInstance{}, false, err
+		return tobari.Workspace{}, false, err
 	}
 	return r.ResolveBoundProject(ctx, cwd, manifest)
 }
 
 // ResolveBoundProject consumes the already resolved stable Context binding;
 // lifecycle selection must not rediscover a display-name selector.
-func (r *Runtime) ResolveBoundProject(ctx context.Context, cwd string, manifest tobari.ContextManifest) (tobari.ProjectInstance, bool, error) {
+func (r *Runtime) ResolveBoundProject(ctx context.Context, cwd string, manifest tobari.WorkspaceManifest) (tobari.Workspace, bool, error) {
 	if err := manifest.Validate(); err != nil {
-		return tobari.ProjectInstance{}, false, err
+		return tobari.Workspace{}, false, err
 	}
 	resolved, err := r.ResolveProjectRoot(ctx, cwd)
 	if err != nil {
-		return tobari.ProjectInstance{}, false, err
+		return tobari.Workspace{}, false, err
 	}
 	var (
-		instance tobari.ProjectInstance
+		instance tobari.Workspace
 		found    bool
 	)
 	err = r.withProjectLock(ctx, func() error {
@@ -102,7 +102,7 @@ func (r *Runtime) ResolveBoundProject(ctx context.Context, cwd string, manifest 
 		return resolveErr
 	})
 	if err != nil {
-		return tobari.ProjectInstance{}, false, err
+		return tobari.Workspace{}, false, err
 	}
 	return instance, found, nil
 }
@@ -110,15 +110,15 @@ func (r *Runtime) ResolveBoundProject(ctx context.Context, cwd string, manifest 
 // ObserveBoundProject selects logical state without creating a lock file. A
 // pre-existing journal is the sole read-side exception: it is reconciled under
 // the project lock so interrupted multi-file state cannot remain authoritative.
-func (r *Runtime) ObserveBoundProject(ctx context.Context, cwd string, manifest tobari.ContextManifest) (tobari.ProjectInstance, bool, error) {
+func (r *Runtime) ObserveBoundProject(ctx context.Context, cwd string, manifest tobari.WorkspaceManifest) (tobari.Workspace, bool, error) {
 	if err := manifest.Validate(); err != nil {
-		return tobari.ProjectInstance{}, false, err
+		return tobari.Workspace{}, false, err
 	}
 	resolved, err := r.ResolveProjectRoot(ctx, cwd)
 	if err != nil {
-		return tobari.ProjectInstance{}, false, err
+		return tobari.Workspace{}, false, err
 	}
-	var instance tobari.ProjectInstance
+	var instance tobari.Workspace
 	var found bool
 	err = r.withProjectObservation(ctx, func() error {
 		var resolveErr error
@@ -128,31 +128,31 @@ func (r *Runtime) ObserveBoundProject(ctx context.Context, cwd string, manifest 
 	return instance, found, err
 }
 
-func (r *Runtime) resolveProjectUnlocked(cwd, contextID string) (tobari.ProjectInstance, bool, error) {
+func (r *Runtime) resolveProjectUnlocked(cwd, contextID string) (tobari.Workspace, bool, error) {
 	indexes, err := r.listRootIndexes()
 	if err != nil {
-		return tobari.ProjectInstance{}, false, err
+		return tobari.Workspace{}, false, err
 	}
 	indexes, err = tobari.RootIndexesForContext(indexes, contextID)
 	if err != nil {
-		return tobari.ProjectInstance{}, false, err
+		return tobari.Workspace{}, false, err
 	}
 	index, found, err := tobari.NearestRoot(cwd, indexes)
 	if err != nil || !found {
 		if err != nil {
-			return tobari.ProjectInstance{}, false, err
+			return tobari.Workspace{}, false, err
 		}
 		return r.resolveOrphanInstance(cwd, contextID)
 	}
 	instance, err := r.readProjectInstance(index.InstanceID)
 	if err == nil {
 		if instance.Root != index.Root {
-			return tobari.ProjectInstance{}, false, fmt.Errorf("root index and instance root disagree")
+			return tobari.Workspace{}, false, fmt.Errorf("root index and instance root disagree")
 		}
 		return instance, true, nil
 	}
 	if !errors.Is(err, os.ErrNotExist) {
-		return tobari.ProjectInstance{}, false, err
+		return tobari.Workspace{}, false, err
 	}
 	// A root index contains enough immutable identity to make deletion
 	// recoverable even when the instance file was lost after the index write.
@@ -161,59 +161,59 @@ func (r *Runtime) resolveProjectUnlocked(cwd, contextID string) (tobari.ProjectI
 	return cleanupOnlyProjectInstance(index), true, nil
 }
 
-func cleanupOnlyProjectInstance(index tobari.RootIndex) tobari.ProjectInstance {
-	return tobari.ProjectInstance{
-		SchemaVersion: tobari.ProjectStateSchemaVersion,
-		ID:            index.InstanceID,
-		Root:          index.Root,
-		ContextID:     index.ContextID,
-		ContextName:   index.ContextName,
-		Profile:       tobari.DefaultProfile,
-		Image:         tobari.BuiltinImageSelector,
-		Incomplete:    true,
+func cleanupOnlyProjectInstance(index tobari.RootIndex) tobari.Workspace {
+	return tobari.Workspace{
+		SchemaVersion:         tobari.WorkspaceStateSchemaVersion,
+		ID:                    index.InstanceID,
+		Root:                  index.Root,
+		WorkspaceManifestID:   index.WorkspaceManifestID,
+		WorkspaceManifestName: index.WorkspaceManifestName,
+		Profile:               tobari.DefaultProfile,
+		Image:                 tobari.BuiltinImageSelector,
+		Incomplete:            true,
 	}
 }
 
-func (r *Runtime) resolveOrphanInstance(cwd, contextID string) (tobari.ProjectInstance, bool, error) {
+func (r *Runtime) resolveOrphanInstance(cwd, contextID string) (tobari.Workspace, bool, error) {
 	entries, err := os.ReadDir(r.instancesDirectory())
 	if errors.Is(err, os.ErrNotExist) {
-		return tobari.ProjectInstance{}, false, nil
+		return tobari.Workspace{}, false, nil
 	}
 	if err != nil {
-		return tobari.ProjectInstance{}, false, fmt.Errorf("read project instances: %w", err)
+		return tobari.Workspace{}, false, fmt.Errorf("read project instances: %w", err)
 	}
-	instances := make([]tobari.ProjectInstance, 0, len(entries))
+	instances := make([]tobari.Workspace, 0, len(entries))
 	for _, entry := range entries {
 		if !entry.IsDir() || entry.Type()&os.ModeSymlink != 0 {
-			return tobari.ProjectInstance{}, false, fmt.Errorf("project instance directory contains an unsafe entry")
+			return tobari.Workspace{}, false, fmt.Errorf("project instance directory contains an unsafe entry")
 		}
 		instance, readErr := r.readProjectInstance(entry.Name())
 		if readErr != nil {
-			return tobari.ProjectInstance{}, false, readErr
+			return tobari.Workspace{}, false, readErr
 		}
 		instances = append(instances, instance)
 	}
 	if len(instances) == 0 {
-		return tobari.ProjectInstance{}, false, nil
+		return tobari.Workspace{}, false, nil
 	}
 	roots := make([]tobari.RootIndex, 0, len(instances))
-	byRoot := make(map[string]tobari.ProjectInstance, len(instances))
+	byRoot := make(map[string]tobari.Workspace, len(instances))
 	for _, instance := range instances {
-		if instance.ContextID != contextID {
+		if instance.WorkspaceManifestID != contextID {
 			continue
 		}
 		roots = append(roots, tobari.RootIndex{
-			SchemaVersion: tobari.ProjectStateSchemaVersion,
-			Root:          instance.Root,
-			InstanceID:    instance.ID,
-			ContextID:     instance.ContextID,
-			ContextName:   instance.ContextName,
+			SchemaVersion:         tobari.WorkspaceStateSchemaVersion,
+			Root:                  instance.Root,
+			InstanceID:            instance.ID,
+			WorkspaceManifestID:   instance.WorkspaceManifestID,
+			WorkspaceManifestName: instance.WorkspaceManifestName,
 		})
 		byRoot[instance.Root] = instance
 	}
 	index, found, err := tobari.NearestRoot(cwd, roots)
 	if err != nil || !found {
-		return tobari.ProjectInstance{}, found, err
+		return tobari.Workspace{}, found, err
 	}
 	return byRoot[index.Root], true, nil
 }
@@ -223,24 +223,24 @@ func (r *Runtime) resolveOrphanInstance(cwd, contextID string) (tobari.ProjectIn
 // before any Docker resource is created.
 func (r *Runtime) ResolveOrCreateProject(
 	ctx context.Context, cwd string,
-) (tobari.ProjectInstance, bool, error) {
+) (tobari.Workspace, bool, error) {
 	return r.ResolveOrCreateProjectInContext(ctx, cwd, "")
 }
 
 func (r *Runtime) ResolveOrCreateProjectInContext(
 	ctx context.Context, cwd, contextName string,
-) (tobari.ProjectInstance, bool, error) {
+) (tobari.Workspace, bool, error) {
 	resolved, err := r.ResolveProjectRoot(ctx, cwd)
 	if err != nil {
-		return tobari.ProjectInstance{}, false, err
+		return tobari.Workspace{}, false, err
 	}
 	var (
-		instance tobari.ProjectInstance
+		instance tobari.Workspace
 		created  bool
 	)
 	manifest, _, err := r.resolveContext(contextName)
 	if err != nil {
-		return tobari.ProjectInstance{}, false, err
+		return tobari.Workspace{}, false, err
 	}
 	err = r.withProjectLock(ctx, func() error {
 		if err := r.reconcileProjectJournal(); err != nil {
@@ -281,7 +281,7 @@ func (r *Runtime) ResolveOrCreateProjectInContext(
 		return nil
 	})
 	if err != nil {
-		return tobari.ProjectInstance{}, false, err
+		return tobari.Workspace{}, false, err
 	}
 	return instance, created, nil
 }
@@ -289,29 +289,29 @@ func (r *Runtime) ResolveOrCreateProjectInContext(
 // CreateProject always creates a logical Workspace at the canonical cwd. It
 // intentionally permits containing ancestor roots, but rejects an exact root
 // that appeared after the caller's selection snapshot.
-func (r *Runtime) CreateProject(ctx context.Context, cwd string) (tobari.ProjectInstance, error) {
+func (r *Runtime) CreateProject(ctx context.Context, cwd string) (tobari.Workspace, error) {
 	return r.CreateProjectInContext(ctx, cwd, "")
 }
 
-func (r *Runtime) CreateProjectInContext(ctx context.Context, cwd, contextName string) (tobari.ProjectInstance, error) {
+func (r *Runtime) CreateProjectInContext(ctx context.Context, cwd, contextName string) (tobari.Workspace, error) {
 	manifest, _, err := r.resolveContext(contextName)
 	if err != nil {
-		return tobari.ProjectInstance{}, err
+		return tobari.Workspace{}, err
 	}
 	return r.CreateBoundProject(ctx, cwd, manifest)
 }
 
 // CreateBoundProject creates only for the stable Context binding resolved by
 // the application before lifecycle state selection.
-func (r *Runtime) CreateBoundProject(ctx context.Context, cwd string, manifest tobari.ContextManifest) (tobari.ProjectInstance, error) {
+func (r *Runtime) CreateBoundProject(ctx context.Context, cwd string, manifest tobari.WorkspaceManifest) (tobari.Workspace, error) {
 	if err := manifest.Validate(); err != nil {
-		return tobari.ProjectInstance{}, err
+		return tobari.Workspace{}, err
 	}
 	resolved, err := r.ResolveProjectRoot(ctx, cwd)
 	if err != nil {
-		return tobari.ProjectInstance{}, err
+		return tobari.Workspace{}, err
 	}
-	var instance tobari.ProjectInstance
+	var instance tobari.Workspace
 	err = r.withProjectLock(ctx, func() error {
 		if err := r.reconcileProjectJournal(); err != nil {
 			return err
@@ -321,7 +321,7 @@ func (r *Runtime) CreateBoundProject(ctx context.Context, cwd string, manifest t
 			return err
 		}
 		for _, index := range indexes {
-			if index.Root == resolved && index.ContextID == manifest.ID {
+			if index.Root == resolved && index.WorkspaceManifestID == manifest.ID {
 				return tobari.ErrProjectExists
 			}
 		}
@@ -333,70 +333,74 @@ func (r *Runtime) CreateBoundProject(ctx context.Context, cwd string, manifest t
 		return nil
 	})
 	if err != nil {
-		return tobari.ProjectInstance{}, err
+		return tobari.Workspace{}, err
 	}
 	return instance, nil
 }
 
-func (r *Runtime) createProjectUnlocked(ctx context.Context, resolved string, manifest tobari.ContextManifest) (tobari.ProjectInstance, error) {
+func (r *Runtime) createProjectUnlocked(ctx context.Context, resolved string, manifest tobari.WorkspaceManifest) (tobari.Workspace, error) {
 	image, imageErr := r.resolveContextImageFor(ctx, manifest)
 	if imageErr != nil {
-		return tobari.ProjectInstance{}, imageErr
+		return tobari.Workspace{}, imageErr
 	}
 	createdInstance, createErr := r.identities.newProjectInstance(tobari.ProjectInstanceRequest{
-		Root:        resolved,
-		ContextID:   manifest.ID,
-		ContextName: manifest.Name,
-		Image:       image,
+		Root:                     resolved,
+		WorkspaceManifestID:      manifest.ID,
+		WorkspaceManifestName:    manifest.Name,
+		Image:                    image,
+		CreationDefaultsRevision: manifest.Desired.CreationDefaultsRevision,
+		BootstrapRevision: func() string {
+			if manifest.Bootstrap == nil {
+				return ""
+			}
+			return manifest.Bootstrap.Revision
+		}(),
 	})
 	if createErr != nil {
-		return tobari.ProjectInstance{}, createErr
+		return tobari.Workspace{}, createErr
 	}
 	journal := projectJournal{
 		SchemaVersion: projectJournalSchema, Operation: projectOpCreate,
 		ProjectID: createdInstance.ID, Root: createdInstance.Root, Phase: projectPhaseStarted,
-		ContextID: createdInstance.ContextID,
+		WorkspaceManifestID: createdInstance.WorkspaceManifestID,
 	}
 	if err := r.writeProjectJournal(journal); err != nil {
-		return tobari.ProjectInstance{}, err
+		return tobari.Workspace{}, err
 	}
 	if err := r.ensurePrivateDirectory(r.projectHomePath(createdInstance.ID)); err != nil {
-		return tobari.ProjectInstance{}, r.discardUnindexedProject(createdInstance, fmt.Errorf("create project home: %w", err))
+		return tobari.Workspace{}, r.discardUnindexedProject(createdInstance, fmt.Errorf("create project home: %w", err))
 	}
 	if err := applyProjectBootstrap(r.projectHomePath(createdInstance.ID), manifest.Bootstrap); err != nil {
-		return tobari.ProjectInstance{}, r.discardUnindexedProject(createdInstance, fmt.Errorf("apply Workspace bootstrap: %w", err))
-	}
-	if manifest.Bootstrap != nil {
-		createdInstance.BootstrapRevision = manifest.Bootstrap.Revision
+		return tobari.Workspace{}, r.discardUnindexedProject(createdInstance, fmt.Errorf("apply Workspace bootstrap: %w", err))
 	}
 	journal.Phase = projectPhaseHome
 	if err := r.writeProjectJournal(journal); err != nil {
-		return tobari.ProjectInstance{}, err
+		return tobari.Workspace{}, err
 	}
 	if err := r.writeProjectInstance(createdInstance); err != nil {
-		return tobari.ProjectInstance{}, r.discardUnindexedProject(createdInstance, err)
+		return tobari.Workspace{}, r.discardUnindexedProject(createdInstance, err)
 	}
 	journal.Phase = projectPhaseState
 	if err := r.writeProjectJournal(journal); err != nil {
-		return tobari.ProjectInstance{}, err
+		return tobari.Workspace{}, err
 	}
 	if err := r.writeRootIndex(tobari.RootIndex{
-		SchemaVersion: tobari.ProjectStateSchemaVersion,
-		Root:          createdInstance.Root,
-		InstanceID:    createdInstance.ID,
-		ContextID:     createdInstance.ContextID,
-		ContextName:   createdInstance.ContextName,
+		SchemaVersion:         tobari.WorkspaceStateSchemaVersion,
+		Root:                  createdInstance.Root,
+		InstanceID:            createdInstance.ID,
+		WorkspaceManifestID:   createdInstance.WorkspaceManifestID,
+		WorkspaceManifestName: createdInstance.WorkspaceManifestName,
 	}); err != nil {
-		return tobari.ProjectInstance{}, r.discardUnindexedProject(createdInstance, err)
+		return tobari.Workspace{}, r.discardUnindexedProject(createdInstance, err)
 	}
 	journal.Phase = projectPhaseIndex
 	if err := r.clearProjectJournal(); err != nil {
-		return tobari.ProjectInstance{}, err
+		return tobari.Workspace{}, err
 	}
 	return createdInstance, nil
 }
 
-func (r *Runtime) discardUnindexedProject(instance tobari.ProjectInstance, cause error) error {
+func (r *Runtime) discardUnindexedProject(instance tobari.Workspace, cause error) error {
 	directory, err := r.projectDirectory(instance.ID)
 	if err != nil {
 		return fmt.Errorf("%w; discard unindexed project: %v", cause, err)
@@ -454,7 +458,7 @@ func (r *Runtime) reconcileProjectJournal() error {
 	}
 	switch journal.Operation {
 	case projectOpCreate:
-		indexPath, pathErr := r.rootIndexPath(journal.Root, journal.ContextID)
+		indexPath, pathErr := r.rootIndexPath(journal.Root, journal.WorkspaceManifestID)
 		if pathErr != nil {
 			return pathErr
 		}
@@ -469,7 +473,7 @@ func (r *Runtime) reconcileProjectJournal() error {
 		if journal.Phase != projectPhaseRuntime && journal.Phase != projectPhaseInstance {
 			return nil
 		}
-		indexPath, pathErr := r.rootIndexPath(journal.Root, journal.ContextID)
+		indexPath, pathErr := r.rootIndexPath(journal.Root, journal.WorkspaceManifestID)
 		if pathErr != nil {
 			return pathErr
 		}
@@ -507,7 +511,7 @@ func (r *Runtime) resolveContextImage(ctx context.Context) (string, error) {
 	return r.resolveContextImageFor(ctx, manifest)
 }
 
-func (r *Runtime) resolveContextImageFor(ctx context.Context, manifest tobari.ContextManifest) (string, error) {
+func (r *Runtime) resolveContextImageFor(ctx context.Context, manifest tobari.WorkspaceManifest) (string, error) {
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
@@ -518,17 +522,17 @@ func (r *Runtime) resolveContextImageFor(ctx context.Context, manifest tobari.Co
 }
 
 // ListProjects returns every valid logical Tobari record ordered by root.
-func (r *Runtime) ListProjects(ctx context.Context) ([]tobari.ProjectInstance, error) {
+func (r *Runtime) ListProjects(ctx context.Context) ([]tobari.Workspace, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	var instances []tobari.ProjectInstance
+	var instances []tobari.Workspace
 	err := r.withProjectObservation(ctx, func() error {
 		indexes, err := r.listRootIndexes()
 		if err != nil {
 			return err
 		}
-		instances = make([]tobari.ProjectInstance, 0, len(indexes))
+		instances = make([]tobari.Workspace, 0, len(indexes))
 		indexedIDs := make(map[string]bool, len(indexes))
 		for _, index := range indexes {
 			indexedIDs[index.InstanceID] = true
@@ -575,7 +579,7 @@ func (r *Runtime) ListProjects(ctx context.Context) ([]tobari.ProjectInstance, e
 
 // UpdateProjectRuntime persists diagnostic resource identifiers while retaining
 // the immutable logical identity and root binding.
-func (r *Runtime) UpdateProjectRuntime(ctx context.Context, instance tobari.ProjectInstance) error {
+func (r *Runtime) UpdateProjectRuntime(ctx context.Context, instance tobari.Workspace) error {
 	if err := instance.Validate(); err != nil {
 		return err
 	}
@@ -584,9 +588,10 @@ func (r *Runtime) UpdateProjectRuntime(ctx context.Context, instance tobari.Proj
 		if err != nil {
 			return err
 		}
-		if stored.ID != instance.ID || stored.Root != instance.Root || stored.ContextID != instance.ContextID ||
-			stored.ContextName != instance.ContextName || stored.Profile != instance.Profile || stored.Image != instance.Image ||
-			stored.BootstrapRevision != instance.BootstrapRevision {
+		if stored.ID != instance.ID || stored.Root != instance.Root || stored.WorkspaceManifestID != instance.WorkspaceManifestID ||
+			stored.WorkspaceManifestName != instance.WorkspaceManifestName || stored.Profile != instance.Profile || stored.Image != instance.Image ||
+			stored.CreationApplied != instance.CreationApplied || stored.LastSuccessfulEntry != instance.LastSuccessfulEntry ||
+			stored.LastFailure != instance.LastFailure {
 			return fmt.Errorf("runtime update changes immutable logical Tobari state")
 		}
 		return r.writeProjectInstance(instance)
@@ -598,7 +603,7 @@ func (r *Runtime) rootsDirectory() string { return filepath.Join(r.stateDirector
 func (r *Runtime) instancesDirectory() string { return filepath.Join(r.stateDirectory, "instances") }
 
 func (r *Runtime) projectDirectory(id string) (string, error) {
-	if err := tobari.ValidateProjectID(id); err != nil {
+	if err := tobari.ValidateWorkspaceID(id); err != nil {
 		return "", err
 	}
 	return filepath.Join(r.instancesDirectory(), id), nil
@@ -620,7 +625,7 @@ func (r *Runtime) rootIndexPath(root, contextID string) (string, error) {
 	if err := tobari.ValidateCanonicalRoot(root); err != nil {
 		return "", err
 	}
-	if err := tobari.ValidateContextID(contextID); err != nil {
+	if err := tobari.ValidateWorkspaceManifestID(contextID); err != nil {
 		return "", err
 	}
 	digest := sha256.Sum256([]byte(root + "\x00" + contextID))
@@ -651,7 +656,7 @@ func (r *Runtime) listRootIndexes() ([]tobari.RootIndex, error) {
 		if err := index.Validate(); err != nil {
 			return nil, fmt.Errorf("validate root index: %w", err)
 		}
-		expectedPath, err := r.rootIndexPath(index.Root, index.ContextID)
+		expectedPath, err := r.rootIndexPath(index.Root, index.WorkspaceManifestID)
 		if err != nil || filepath.Base(expectedPath) != entry.Name() {
 			return nil, fmt.Errorf("root index file name does not match canonical root")
 		}
@@ -663,20 +668,20 @@ func (r *Runtime) listRootIndexes() ([]tobari.RootIndex, error) {
 	return indexes, nil
 }
 
-func (r *Runtime) readProjectInstance(id string) (tobari.ProjectInstance, error) {
+func (r *Runtime) readProjectInstance(id string) (tobari.Workspace, error) {
 	path, err := r.projectStatePath(id)
 	if err != nil {
-		return tobari.ProjectInstance{}, err
+		return tobari.Workspace{}, err
 	}
-	var instance tobari.ProjectInstance
+	var instance tobari.Workspace
 	if err := readStrictJSON(path, &instance); err != nil {
-		return tobari.ProjectInstance{}, fmt.Errorf("read instance state: %w", err)
+		return tobari.Workspace{}, fmt.Errorf("read instance state: %w", err)
 	}
 	if err := instance.Validate(); err != nil {
-		return tobari.ProjectInstance{}, fmt.Errorf("validate instance state: %w", err)
+		return tobari.Workspace{}, fmt.Errorf("validate instance state: %w", err)
 	}
 	if instance.ID != id {
-		return tobari.ProjectInstance{}, fmt.Errorf("instance state ID does not match its directory")
+		return tobari.Workspace{}, fmt.Errorf("instance state ID does not match its directory")
 	}
 	return instance, nil
 }
@@ -685,14 +690,14 @@ func (r *Runtime) writeRootIndex(index tobari.RootIndex) error {
 	if err := index.Validate(); err != nil {
 		return err
 	}
-	path, err := r.rootIndexPath(index.Root, index.ContextID)
+	path, err := r.rootIndexPath(index.Root, index.WorkspaceManifestID)
 	if err != nil {
 		return err
 	}
 	return writeAtomicJSON(path, index)
 }
 
-func (r *Runtime) writeProjectInstance(instance tobari.ProjectInstance) error {
+func (r *Runtime) writeProjectInstance(instance tobari.Workspace) error {
 	if err := instance.Validate(); err != nil {
 		return err
 	}

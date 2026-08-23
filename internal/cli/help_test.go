@@ -104,11 +104,11 @@ func TestRuntimeCreateHelpDeclaresOwnerOnlyChildren(t *testing.T) {
 func TestContextShowHelpDeclaresOptionalHumanDetails(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	command := newReferenceTestCLI(strings.NewReader(""), &stdout, &stderr)
-	if code := runCLI(command, []string{"context", "show", "--help"}); code != ExitOK {
+	if code := runCLI(command, []string{"manifest", "show", "--help"}); code != ExitOK {
 		t.Fatalf("Run(context show --help) code = %d, stderr = %q", code, stderr.String())
 	}
 	for _, want := range []string{
-		"Usage:\n  tobari context show [--name <name>] [--details] [--format text|json]",
+		"Usage:\n  tobari manifest show [--name <name>] [--details] [--format text|json]",
 		"--details",
 		"value: boolean",
 		"default when omitted: \"false\"",
@@ -126,7 +126,7 @@ func TestRootCommandHelpUsesExecutableInvocation(t *testing.T) {
 		t.Fatal("default catalog lacks the root command")
 	}
 
-	if got, want := command.Usage(), ProgramName+" [--context <name>] [-- <command>...]"; got != want {
+	if got, want := command.Usage(), ProgramName+" [--manifest <name>] [-- <command>...]"; got != want {
 		t.Fatalf("root command usage = %q, want %q", got, want)
 	}
 	help := string(renderCommandHelp(command))
@@ -176,11 +176,11 @@ func TestHumanAndAgentHelpProjectCompleteTypedInputContract(t *testing.T) {
 	minimumLimit, maximumLimit := int64(1), int64(10)
 	minimumContext, maximumContext := int64(0), int64(5)
 	spec := utilitySpec("events inspect")
-	spec.Args = "[--tag <tag>] [--limit <count>] [--context <lines>] [--brief]"
+	spec.Args = "[--tag <tag>] [--limit <count>] [--manifest <lines>] [--brief]"
 	spec.Agent.Inputs = []CommandInput{
 		{Name: "--tag", Source: InputSourceFlag, ValueKind: InputValueText, Cardinality: InputCardinalityRepeatable, Description: "Select repeated tags.", AllowedValues: []string{}},
 		{Name: "--limit", Source: InputSourceFlag, ValueKind: InputValueInteger, Cardinality: InputCardinalitySingle, Description: "Bound the event count.", AllowedValues: []string{}, DefaultValue: stringPointer("3"), Minimum: &minimumLimit, Maximum: &maximumLimit},
-		{Name: "--context", Source: InputSourceFlag, ValueKind: InputValueInteger, Cardinality: InputCardinalitySingle, Description: "Expand matching context.", AllowedValues: []string{}, Minimum: &minimumContext, Maximum: &maximumContext, Requires: []string{"--tag"}, ConflictsWith: []string{"--brief"}},
+		{Name: "--manifest", Source: InputSourceFlag, ValueKind: InputValueInteger, Cardinality: InputCardinalitySingle, Description: "Expand matching context.", AllowedValues: []string{}, Minimum: &minimumContext, Maximum: &maximumContext, Requires: []string{"--tag"}, ConflictsWith: []string{"--brief"}},
 		{Name: "--brief", Source: InputSourceFlag, ValueKind: InputValueBoolean, Cardinality: InputCardinalitySingle, Description: "Suppress expanded context.", AllowedValues: []string{}},
 	}
 	catalog := NewCatalog(spec)

@@ -115,7 +115,7 @@ func chooseRuntimeBuild(ctx context.Context, c *CLI) (string, error) {
 			},
 			information: []string{
 				"Changed source creates one immutable revision; unchanged source creates none.",
-				"No Context Runtime binding will change.",
+				"No Workspace Manifest Runtime binding will change.",
 			},
 			prompt: "Action",
 			options: []configurationWizardOption{
@@ -166,7 +166,7 @@ func chooseRuntimeCreateBase(ctx context.Context, c *CLI, targetName string) (st
 		information: []string{
 			"Copy one current editable source tree without building it.",
 			"Revisions, history, and lineage are not copied.",
-			"The new Runtime is standalone and no Context binding changes.",
+			"The new Runtime is standalone and no Workspace Manifest binding changes.",
 		},
 		prompt: "Source Base", options: options, initial: 0,
 	})
@@ -258,7 +258,7 @@ func shortRuntimeRevision(revision string) string {
 	return revision[:12]
 }
 
-func contextRuntimeSelection(report tobari.ContextReport) string {
+func contextRuntimeSelection(report tobari.ManifestReport) string {
 	if report.Runtime.RuntimeID == tobari.StandardRuntimeID || report.Runtime.Name == tobari.StandardRuntimeName {
 		return tobari.StandardRuntimeName
 	}
@@ -281,40 +281,40 @@ func chooseContextRuntime(ctx context.Context, c *CLI, inputs ParsedInputs) (str
 	if err != nil {
 		return "", "", err
 	}
-	if current.ContextState != tobari.ContextObservationPersisted {
+	if current.ManifestState != tobari.ManifestObservationPersisted {
 		return "", "", fault.New(
 			fault.KindNotFound,
-			"context_not_found",
-			"No persisted Context exists to receive a Runtime binding.",
+			"manifest_not_found",
+			"No persisted Workspace Manifest exists to receive a Runtime binding.",
 			false,
-			fault.NextAction{Command: "context list", Reason: "Inspect the persisted Context collection."},
+			fault.NextAction{Command: "manifest list", Reason: "Inspect the persisted Workspace Manifest collection."},
 		)
 	}
 	choices, err := loadReadyRuntimeChoices(ctx, c)
 	if err != nil {
 		return "", "", err
 	}
-	contextLocked := inputs.Provided("--context") || executionContextName(ctx) != ""
+	contextLocked := inputs.Provided("--manifest") || executionContextName(ctx) != ""
 	selected := contextRuntimeSelection(current)
 	chooser := runtimeReviewChooser(c)
 	for {
 		actual := contextRuntimeSelection(current)
 		changed := selected != actual
 		contextLabel := current.Name
-		if current.Active {
+		if current.Default {
 			contextLabel += " · current"
 		}
 		information := []string{"Existing Workspace homes remain unchanged; the selected image applies on next entry."}
 		if changed {
 			actions := []configurationWizardOption{
-				{label: "Apply change", description: "Replace this Context's exact Runtime binding.", value: "apply"},
+				{label: "Apply change", description: "Replace this Workspace Manifest's exact Runtime binding.", value: "apply"},
 				{label: "Back to Runtime list", description: "Choose another ready immutable revision.", value: "runtime"},
-				{label: "Cancel", description: "Keep every Context Runtime binding unchanged.", value: "cancel"},
+				{label: "Cancel", description: "Keep every Workspace Manifest Runtime binding unchanged.", value: "cancel"},
 			}
 			index, reviewErr := chooser.choose(ctx, c.In, c.Err, configurationWizardMenu{
-				title: "Tobari · Set Context Runtime · Review",
+				title: "Tobari · Set Workspace Manifest Runtime · Review",
 				details: []configurationWizardDetail{
-					{label: "Context", value: contextLabel},
+					{label: "Workspace Manifest", value: contextLabel},
 					{label: "Runtime", value: contextRuntimeDisplaySelection(actual) + " → " + contextRuntimeDisplaySelection(selected)},
 					{label: "Applies", value: "next Workspace entry"},
 				},
@@ -337,13 +337,13 @@ func chooseContextRuntime(ctx context.Context, c *CLI, inputs ParsedInputs) (str
 				{label: "Change Runtime", description: "Choose standard or any successful immutable revision.", value: "runtime"},
 			}
 			if !contextLocked {
-				actions = append(actions, configurationWizardOption{label: "Change Context", description: "Choose another persisted Context.", value: "context"})
+				actions = append(actions, configurationWizardOption{label: "Change Workspace Manifest", description: "Choose another persisted Workspace Manifest.", value: "context"})
 			}
-			actions = append(actions, configurationWizardOption{label: "Cancel", description: "Keep every Context Runtime binding unchanged.", value: "cancel"})
+			actions = append(actions, configurationWizardOption{label: "Cancel", description: "Keep every Workspace Manifest Runtime binding unchanged.", value: "cancel"})
 			index, reviewErr := chooser.choose(ctx, c.In, c.Err, configurationWizardMenu{
-				title: "Tobari · Set Context Runtime",
+				title: "Tobari · Set Workspace Manifest Runtime",
 				details: []configurationWizardDetail{
-					{label: "Context", value: contextLabel},
+					{label: "Workspace Manifest", value: contextLabel},
 					{label: "Runtime", value: contextRuntimeDisplaySelection(actual)},
 					{label: "Applies", value: "next Workspace entry"},
 				},
@@ -363,15 +363,15 @@ func chooseContextRuntime(ctx context.Context, c *CLI, inputs ParsedInputs) (str
 				}
 				if len(list.Items) == 0 {
 					return "", "", fault.New(
-						fault.KindNotFound, "context_not_found", "No persisted Context exists.", false,
-						fault.NextAction{Command: "context list", Reason: "Inspect the persisted Context collection."},
+						fault.KindNotFound, "manifest_not_found", "No persisted Workspace Manifest exists.", false,
+						fault.NextAction{Command: "manifest list", Reason: "Inspect the persisted Workspace Manifest collection."},
 					)
 				}
 				contextOptions := contextReviewOptions(list.Items, current.Name)
 				choice, chooseErr := chooser.choose(ctx, c.In, c.Err, configurationWizardMenu{
-					title:   "Tobari · Set Context Runtime · Context",
+					title:   "Tobari · Set Workspace Manifest Runtime · Workspace Manifest",
 					current: current.Name,
-					prompt:  "Persisted Context", options: contextOptions,
+					prompt:  "Persisted Workspace Manifest", options: contextOptions,
 				})
 				if chooseErr != nil {
 					return "", "", chooseErr
@@ -388,7 +388,7 @@ func chooseContextRuntime(ctx context.Context, c *CLI, inputs ParsedInputs) (str
 		}
 		options := runtimeChoiceOptions(choices, actual, selected)
 		choice, chooseErr := chooser.choose(ctx, c.In, c.Err, configurationWizardMenu{
-			title:       "Tobari · Set Context Runtime · Runtime",
+			title:       "Tobari · Set Workspace Manifest Runtime · Runtime",
 			contextName: current.Name,
 			current:     contextRuntimeDisplaySelection(actual),
 			information: []string{"Only already built immutable revisions can be selected."},
@@ -401,8 +401,8 @@ func chooseContextRuntime(ctx context.Context, c *CLI, inputs ParsedInputs) (str
 	}
 }
 
-func contextReviewOptions(items []tobari.ContextSummary, selected string) []configurationWizardOption {
-	ordered := make([]tobari.ContextSummary, 0, len(items))
+func contextReviewOptions(items []tobari.ManifestSummary, selected string) []configurationWizardOption {
+	ordered := make([]tobari.ManifestSummary, 0, len(items))
 	for _, item := range items {
 		if item.Name == selected {
 			ordered = append(ordered, item)
@@ -417,7 +417,7 @@ func contextReviewOptions(items []tobari.ContextSummary, selected string) []conf
 	options := make([]configurationWizardOption, 0, len(ordered))
 	for _, item := range ordered {
 		description := "persisted"
-		if item.Active {
+		if item.Default {
 			description += " · current"
 		}
 		options = append(options, configurationWizardOption{label: item.Name, description: description, value: item.Name})

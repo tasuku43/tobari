@@ -2,27 +2,33 @@ package tobari
 
 import (
 	"bytes"
+	"strings"
 	"testing"
 	"time"
 )
 
 const testContextID = "018bcfe5-687b-7000-8000-000000000099"
 
+func testDesiredEntry() DesiredEntry {
+	digest := "sha256:" + strings.Repeat("a", 64)
+	return DesiredEntry{ManifestGeneration: 1, ManifestRevision: digest, EntryRevision: digest, RuntimeID: StandardRuntimeID, RuntimeRevision: digest}
+}
+
 func testRootIndex(root, id string) RootIndex {
-	return RootIndex{SchemaVersion: ProjectStateSchemaVersion, Root: root, InstanceID: id, ContextID: testContextID, ContextName: DefaultContextName}
+	return RootIndex{SchemaVersion: WorkspaceStateSchemaVersion, Root: root, InstanceID: id, WorkspaceManifestID: testContextID, WorkspaceManifestName: DefaultManifestName}
 }
 
 func TestNewProjectIDProducesUUIDv7(t *testing.T) {
 	t.Parallel()
-	id, err := NewProjectID(time.UnixMilli(1_700_000_000_123), bytes.NewReader(make([]byte, 10)))
+	id, err := NewWorkspaceID(time.UnixMilli(1_700_000_000_123), bytes.NewReader(make([]byte, 10)))
 	if err != nil {
-		t.Fatalf("NewProjectID() error = %v", err)
+		t.Fatalf("NewWorkspaceID() error = %v", err)
 	}
 	if id != "018bcfe5-687b-7000-8000-000000000000" {
-		t.Fatalf("NewProjectID() = %q", id)
+		t.Fatalf("NewWorkspaceID() = %q", id)
 	}
-	if err := ValidateProjectID(id); err != nil {
-		t.Fatalf("ValidateProjectID() error = %v", err)
+	if err := ValidateWorkspaceID(id); err != nil {
+		t.Fatalf("ValidateWorkspaceID() error = %v", err)
 	}
 }
 
@@ -30,10 +36,12 @@ func TestProjectInstanceDoesNotRequireRuntimeResources(t *testing.T) {
 	t.Parallel()
 	instance, err := NewProjectInstance(
 		time.UnixMilli(1_700_000_000_123), bytes.NewReader(make([]byte, 10)), ProjectInstanceRequest{
-			Root:        "/workspace/project",
-			ContextID:   "00000000-0000-7000-8000-000000000000",
-			ContextName: DefaultContextName,
-			Image:       BuiltinImageSelector,
+			Root:                     "/workspace/project",
+			WorkspaceManifestID:      "00000000-0000-7000-8000-000000000000",
+			WorkspaceManifestName:    DefaultManifestName,
+			Image:                    BuiltinImageSelector,
+			CreationDefaultsRevision: "sha256:" + strings.Repeat("b", 64),
+			CreatedAt:                time.Unix(1, 0).UTC(),
 		},
 	)
 	if err != nil {
@@ -43,8 +51,8 @@ func TestProjectInstanceDoesNotRequireRuntimeResources(t *testing.T) {
 		t.Fatalf("new instance runtime = %+v, want absent diagnostic resources", instance.Runtime)
 	}
 	if instance.ID != "018bcfe5-687b-7000-8000-000000000000" ||
-		instance.Root != "/workspace/project" || instance.ContextID != "00000000-0000-7000-8000-000000000000" ||
-		instance.ContextName != DefaultContextName || instance.Image != BuiltinImageSelector {
+		instance.Root != "/workspace/project" || instance.WorkspaceManifestID != "00000000-0000-7000-8000-000000000000" ||
+		instance.WorkspaceManifestName != DefaultManifestName || instance.Image != BuiltinImageSelector {
 		t.Fatalf("new instance = %+v", instance)
 	}
 	if err := instance.Validate(); err != nil {
@@ -54,41 +62,42 @@ func TestProjectInstanceDoesNotRequireRuntimeResources(t *testing.T) {
 
 func TestProjectStatusKeepsLogicalExistenceSeparateFromRuntimeDiagnostic(t *testing.T) {
 	t.Parallel()
-	status := ProjectStatus{
-		Task: TaskStatus, ContextState: ContextObservationPersisted, Exists: true, Root: "/tmp/project",
+	status := WorkspaceStatus{
+		Task: TaskStatus, ManifestState: ManifestObservationPersisted, Exists: true, Root: "/tmp/project",
 		ID: "01912345-6789-7abc-8def-0123456789ab", Home: "/tmp/state/home",
-		Runtime:   RuntimeDiagnosticMissing,
-		ContextID: testContextID, ContextName: DefaultContextName,
+		Runtime:             RuntimeDiagnosticMissing,
+		WorkspaceManifestID: testContextID, WorkspaceManifestName: DefaultManifestName,
 		Attachment: AttachmentDetached,
+		Adoption:   WorkspaceAdoptionNeverApplied, Next: ptrDesiredEntry(testDesiredEntry()),
 	}
 	if err := status.Validate(); err != nil {
-		t.Fatalf("ProjectStatus.Validate() error = %v", err)
+		t.Fatalf("WorkspaceStatus.Validate() error = %v", err)
 	}
 	if !status.Exists || status.Runtime != RuntimeDiagnosticMissing {
 		t.Fatalf("status = %+v", status)
 	}
 
-	notExists := ProjectStatus{
-		Task: TaskStatus, ContextState: ContextObservationPersisted, Runtime: RuntimeDiagnosticUnknown,
-		ContextID: testContextID, ContextName: DefaultContextName,
+	notExists := WorkspaceStatus{
+		Task: TaskStatus, ManifestState: ManifestObservationPersisted, Runtime: RuntimeDiagnosticUnknown,
+		WorkspaceManifestID: testContextID, WorkspaceManifestName: DefaultManifestName,
 		Attachment: AttachmentNotApplicable,
 	}
 	if err := notExists.Validate(); err != nil {
-		t.Fatalf("not-existing ProjectStatus.Validate() error = %v", err)
+		t.Fatalf("not-existing WorkspaceStatus.Validate() error = %v", err)
 	}
 }
 
 func TestProjectStatusAllowsSyntheticDefaultOnlyForAbsentWorkspace(t *testing.T) {
 	t.Parallel()
-	status := ProjectStatus{
-		Task: TaskStatus, ContextState: ContextObservationSyntheticDefault,
-		ContextName: DefaultContextName, Runtime: RuntimeDiagnosticUnknown,
+	status := WorkspaceStatus{
+		Task: TaskStatus, ManifestState: ManifestObservationAbsent,
+		WorkspaceManifestName: DefaultManifestName, Runtime: RuntimeDiagnosticUnknown,
 		Attachment: AttachmentNotApplicable,
 	}
 	if err := status.Validate(); err != nil {
 		t.Fatalf("synthetic absent status = %v", err)
 	}
-	status.ContextID = testContextID
+	status.WorkspaceManifestID = testContextID
 	if err := status.Validate(); err == nil {
 		t.Fatal("synthetic absent status accepted authority ID")
 	}
@@ -96,60 +105,65 @@ func TestProjectStatusAllowsSyntheticDefaultOnlyForAbsentWorkspace(t *testing.T)
 
 func TestProjectStatusAcceptsIncompleteLogicalStateDiagnostic(t *testing.T) {
 	t.Parallel()
-	status := ProjectStatus{
-		Task: TaskStatus, ContextState: ContextObservationPersisted, Exists: true, Root: "/tmp/project",
+	status := WorkspaceStatus{
+		Task: TaskStatus, ManifestState: ManifestObservationPersisted, Exists: true, Root: "/tmp/project",
 		ID: "01912345-6789-7abc-8def-0123456789ab", Home: "/tmp/state/home",
-		Runtime:   RuntimeDiagnosticIncomplete,
-		ContextID: testContextID, ContextName: DefaultContextName,
+		Runtime:             RuntimeDiagnosticIncomplete,
+		WorkspaceManifestID: testContextID, WorkspaceManifestName: DefaultManifestName,
 		Attachment: AttachmentDetached,
+		Adoption:   WorkspaceAdoptionNeverApplied, Next: ptrDesiredEntry(testDesiredEntry()),
 	}
 	if err := status.Validate(); err != nil {
-		t.Fatalf("ProjectStatus.Validate() error = %v", err)
+		t.Fatalf("WorkspaceStatus.Validate() error = %v", err)
 	}
 }
 
 func TestProjectListResultAcceptsKnownEmptyScope(t *testing.T) {
 	t.Parallel()
-	result := ProjectListResult{Task: TaskProjectList, Items: []ProjectListItem{}}
+	result := WorkspaceListResult{Task: TaskWorkspaceList, Items: []WorkspaceListItem{}}
 	if err := result.Validate(); err != nil {
-		t.Fatalf("ProjectListResult.Validate() error = %v", err)
+		t.Fatalf("WorkspaceListResult.Validate() error = %v", err)
 	}
 }
 
 func TestProjectListResultValidatesCurrentIDAgainstItems(t *testing.T) {
 	t.Parallel()
-	item := ProjectListItem{
+	item := WorkspaceListItem{
 		Root: "/tmp/project", ID: "01912345-6789-7abc-8def-0123456789ab",
 		Home: "/tmp/state/home", Runtime: RuntimeDiagnosticReady,
-		ContextID: testContextID, ContextName: DefaultContextName,
+		WorkspaceManifestID: testContextID, WorkspaceManifestName: DefaultManifestName,
+		Adoption: WorkspaceAdoptionNeverApplied, Next: testDesiredEntry(),
 	}
-	valid := ProjectListResult{
-		Task: TaskProjectList, CurrentID: item.ID, Items: []ProjectListItem{item},
+	valid := WorkspaceListResult{
+		Task: TaskWorkspaceList, CurrentID: item.ID, Items: []WorkspaceListItem{item},
 	}
 	if err := valid.Validate(); err != nil {
-		t.Fatalf("valid ProjectListResult.Validate() error = %v", err)
+		t.Fatalf("valid WorkspaceListResult.Validate() error = %v", err)
 	}
 	invalid := valid
 	invalid.CurrentID = "01912345-6789-7abc-8def-0123456789ac"
 	if err := invalid.Validate(); err == nil {
-		t.Fatal("ProjectListResult.Validate() accepted a current ID absent from items")
+		t.Fatal("WorkspaceListResult.Validate() accepted a current ID absent from items")
 	}
 }
 
 func TestProjectListResultRejectsDuplicateWorkspaceRoots(t *testing.T) {
 	t.Parallel()
-	item := ProjectListItem{
+	item := WorkspaceListItem{
 		Root: "/tmp/project", ID: "01912345-6789-7abc-8def-0123456789ab",
 		Home: "/tmp/state/home", Runtime: RuntimeDiagnosticReady,
-		ContextID: testContextID, ContextName: DefaultContextName,
+		WorkspaceManifestID: testContextID, WorkspaceManifestName: DefaultManifestName,
+		Adoption: WorkspaceAdoptionNeverApplied, Next: testDesiredEntry(),
 	}
 	duplicate := item
 	duplicate.ID = "01912345-6789-7abc-8def-0123456789ac"
-	result := ProjectListResult{Task: TaskProjectList, Items: []ProjectListItem{item, duplicate}}
+	result := WorkspaceListResult{Task: TaskWorkspaceList, Items: []WorkspaceListItem{item, duplicate}}
 	if err := result.Validate(); err == nil {
-		t.Fatal("ProjectListResult.Validate() accepted duplicate canonical Workspace roots")
+		t.Fatal("WorkspaceListResult.Validate() accepted duplicate canonical Workspace roots")
 	}
 }
+
+func ptrDesiredEntry(value DesiredEntry) *DesiredEntry { return &value }
 
 func TestNearestRootSelectsNearestAncestor(t *testing.T) {
 	t.Parallel()
@@ -215,16 +229,16 @@ func TestValidateRootIndexesRejectsDuplicateWorkspaceIDs(t *testing.T) {
 
 func TestProjectSelectionDistinguishesAncestorReuseAndExplicitCreate(t *testing.T) {
 	t.Parallel()
-	ancestor := ProjectSelectionCandidate{
+	ancestor := WorkspaceSelectionCandidate{
 		ID: "018bcfe5-687b-7000-8000-000000000000", Root: "/src/project",
-		Runtime:   RuntimeDiagnosticReady,
-		ContextID: testContextID, ContextName: DefaultContextName,
+		Runtime:             RuntimeDiagnosticReady,
+		WorkspaceManifestID: testContextID, WorkspaceManifestName: DefaultManifestName,
 	}
-	selection := ProjectSelection{
-		CWD: "/src/project/internal", Candidates: []ProjectSelectionCandidate{ancestor}, CanCreate: true,
+	selection := WorkspaceSelection{
+		CWD: "/src/project/internal", Candidates: []WorkspaceSelectionCandidate{ancestor}, CanCreate: true,
 	}
 	if err := selection.Validate(); err != nil {
-		t.Fatalf("ProjectSelection.Validate() error = %v", err)
+		t.Fatalf("WorkspaceSelection.Validate() error = %v", err)
 	}
 	if !selection.RequiresChoice() {
 		t.Fatal("ancestor selection did not require a choice")
@@ -237,12 +251,12 @@ func TestProjectSelectionDistinguishesAncestorReuseAndExplicitCreate(t *testing.
 	}
 
 	exact := selection
-	exact.Candidates = []ProjectSelectionCandidate{{
-		ID: ancestor.ID, Root: selection.CWD, Runtime: RuntimeDiagnosticReady, ContextID: testContextID, ContextName: DefaultContextName,
+	exact.Candidates = []WorkspaceSelectionCandidate{{
+		ID: ancestor.ID, Root: selection.CWD, Runtime: RuntimeDiagnosticReady, WorkspaceManifestID: testContextID, WorkspaceManifestName: DefaultManifestName,
 	}}
 	exact.CanCreate = false
 	if err := exact.Validate(); err != nil {
-		t.Fatalf("exact ProjectSelection.Validate() error = %v", err)
+		t.Fatalf("exact WorkspaceSelection.Validate() error = %v", err)
 	}
 	if exact.RequiresChoice() {
 		t.Fatal("exact current-root selection unexpectedly required a choice")
@@ -254,16 +268,16 @@ func TestProjectSelectionDistinguishesAncestorReuseAndExplicitCreate(t *testing.
 
 func TestProjectSelectionRejectsMissingAndIncompleteChoices(t *testing.T) {
 	t.Parallel()
-	selection := ProjectSelection{
+	selection := WorkspaceSelection{
 		CWD: "/src/project/internal", CanCreate: true,
-		Candidates: []ProjectSelectionCandidate{{
+		Candidates: []WorkspaceSelectionCandidate{{
 			ID: "018bcfe5-687b-7000-8000-000000000000", Root: "/src/project",
-			Runtime:   RuntimeDiagnosticIncomplete,
-			ContextID: testContextID, ContextName: DefaultContextName,
+			Runtime:             RuntimeDiagnosticIncomplete,
+			WorkspaceManifestID: testContextID, WorkspaceManifestName: DefaultManifestName,
 		}},
 	}
 	if err := selection.Validate(); err != nil {
-		t.Fatalf("ProjectSelection.Validate() error = %v", err)
+		t.Fatalf("WorkspaceSelection.Validate() error = %v", err)
 	}
 	for _, choice := range []ProjectSelectionChoice{
 		{Kind: ProjectSelectionUse},

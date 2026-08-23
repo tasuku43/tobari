@@ -109,7 +109,7 @@ type Runtime struct {
 	policyProjectionMu sync.Mutex
 	// projectStateWriter is nil in production. Tests may use it to inject a
 	// durable-state write failure after Docker reconciliation has completed.
-	projectStateWriter func(tobari.ProjectInstance) error
+	projectStateWriter func(tobari.Workspace) error
 }
 
 // New resolves XDG paths without creating them.

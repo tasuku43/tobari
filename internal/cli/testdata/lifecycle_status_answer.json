@@ -4,19 +4,19 @@
   "target": {
     "root": "/workspace/example-project",
     "workspace_id": "01912345-6789-7abc-8def-0123456789ab",
-    "context_id": "01912345-6789-7abc-8def-0123456789ad",
-    "context_name": "toolbox",
+    "workspace_manifest_id": "01912345-6789-7abc-8def-0123456789ad",
+    "workspace_manifest_name": "toolbox",
     "attachment": "attached"
   },
-  "same_root_other_context": {
+  "same_root_other_manifest": {
     "root": "/workspace/example-project",
     "workspace_id": "01912345-6789-7abc-8def-0123456789ac",
-    "context_id": "01912345-6789-7abc-8def-0123456789ae",
-    "context_name": "default"
+    "workspace_manifest_id": "01912345-6789-7abc-8def-0123456789ae",
+    "workspace_manifest_name": "default"
   },
   "exact_next_argv": [
     "tobari",
-    "--context",
+    "--manifest",
     "toolbox"
   ],
   "force_delete": {
@@ -37,10 +37,10 @@
   },
   "negative_cases": [
     "explicit_empty_rejected_before_handler",
-    "unknown_context_rejected_before_workspace_io",
-    "stale_context_binding_rejected_before_runtime_io",
-    "duplicate_context_rejected_before_handler",
-    "absent_workspace_retains_context_scope"
+    "unknown_manifest_rejected_before_workspace_io",
+    "stale_manifest_binding_rejected_before_runtime_io",
+    "duplicate_manifest_rejected_before_handler",
+    "absent_workspace_retains_manifest_scope"
   ],
   "unsupported_inferences": [
     "filesystem_isolation_between_overlapping_roots",

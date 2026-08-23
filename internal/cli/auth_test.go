@@ -118,9 +118,9 @@ func authCLIResultForProvider(task, provider string) authbroker.Result {
 		panic(err)
 	}
 	return authbroker.Result{
-		ContextState: tobari.ContextObservationPersisted,
-		Task:         task, Provider: provider, Context: "default",
-		ContextID: "018bcfe5-687b-7000-8000-000000000099", Configured: true,
+		ManifestState: tobari.ManifestObservationPersisted,
+		Task:          task, Provider: provider, Context: "default",
+		WorkspaceManifestID: "018bcfe5-687b-7000-8000-000000000099", Configured: true,
 		AccountLabel: &label, StorageBackend: authbroker.StorageBackendXDGFile,
 		BrokerState:         authbroker.BrokerStateReady,
 		CredentialRevision:  strings.Repeat("b", 64),
@@ -146,9 +146,9 @@ func authCLIStatusResult(configured bool) authbroker.StatusResult {
 		panic(err)
 	}
 	return authbroker.StatusResult{
-		Task: authbroker.TaskStatus, ContextState: tobari.ContextObservationPersisted, Context: "default",
-		ContextID:      "018bcfe5-687b-7000-8000-000000000099",
-		StorageBackend: authbroker.StorageBackendXDGFile, BrokerState: authbroker.BrokerStateReady,
+		Task: authbroker.TaskStatus, ManifestState: tobari.ManifestObservationPersisted, Context: "default",
+		WorkspaceManifestID: "018bcfe5-687b-7000-8000-000000000099",
+		StorageBackend:      authbroker.StorageBackendXDGFile, BrokerState: authbroker.BrokerStateReady,
 		Providers: []authbroker.ProviderStatus{{
 			Provider: authcmd.BuiltinGitHubProviderID, State: state,
 			AccountLabel: label, CredentialRevision: revision,
@@ -165,9 +165,9 @@ func authCLILogoutResult() authbroker.Result {
 		panic(err)
 	}
 	return authbroker.Result{
-		ContextState: tobari.ContextObservationPersisted,
-		Task:         authbroker.TaskLogout, Provider: authcmd.BuiltinGitHubProviderID, Context: "default",
-		ContextID: "018bcfe5-687b-7000-8000-000000000099", Configured: false,
+		ManifestState: tobari.ManifestObservationPersisted,
+		Task:          authbroker.TaskLogout, Provider: authcmd.BuiltinGitHubProviderID, Context: "default",
+		WorkspaceManifestID: "018bcfe5-687b-7000-8000-000000000099", Configured: false,
 		StorageBackend: authbroker.StorageBackendXDGFile, BrokerState: authbroker.BrokerStateReady,
 		Change: authbroker.MutationChangeChanged, WorkspaceActivation: activation,
 	}
@@ -175,7 +175,7 @@ func authCLILogoutResult() authbroker.Result {
 
 func authCLIMutationObservation(result authbroker.Result) authbroker.MutationObservation {
 	return authbroker.MutationObservation{
-		ContextState: result.ContextState, Provider: result.Provider, Context: result.Context, ContextID: result.ContextID,
+		ManifestState: result.ManifestState, Provider: result.Provider, Context: result.Context, WorkspaceManifestID: result.WorkspaceManifestID,
 		Configured: result.Configured, AccountLabel: result.AccountLabel, StorageBackend: result.StorageBackend,
 		BrokerState: result.BrokerState, CredentialRevision: result.CredentialRevision,
 		Changed: result.Change == authbroker.MutationChangeChanged, Providers: []authbroker.ProviderStatus{},
@@ -187,7 +187,7 @@ func authCLIMutationObservation(result authbroker.Result) authbroker.MutationObs
 
 func authCLIStatusObservation(result authbroker.StatusResult) authbroker.StatusObservation {
 	return authbroker.StatusObservation{
-		ContextState: result.ContextState, Context: result.Context, ContextID: result.ContextID,
+		ManifestState: result.ManifestState, Context: result.Context, WorkspaceManifestID: result.WorkspaceManifestID,
 		StorageBackend: result.StorageBackend, BrokerState: result.BrokerState,
 		Providers: append([]authbroker.ProviderStatus{}, result.Providers...),
 		Workspaces: authbroker.WorkspaceObservation{
@@ -199,8 +199,8 @@ func authCLIStatusObservation(result authbroker.StatusResult) authbroker.StatusO
 func TestSyntheticAuthStatusJSONHasNoContextAuthority(t *testing.T) {
 	t.Parallel()
 	result := authbroker.StatusResult{
-		Task: authbroker.TaskStatus, ContextState: tobari.ContextObservationSyntheticDefault,
-		Context: tobari.DefaultContextName, StorageBackend: authbroker.StorageBackendXDGFile,
+		Task: authbroker.TaskStatus, ManifestState: tobari.ManifestObservationAbsent,
+		Context: tobari.DefaultManifestName, StorageBackend: authbroker.StorageBackendXDGFile,
 		BrokerState: authbroker.BrokerStateUnavailable, Providers: []authbroker.ProviderStatus{},
 		WorkspaceActivation: authbroker.NotApplicableWorkspaceActivation(),
 	}
@@ -212,8 +212,8 @@ func TestSyntheticAuthStatusJSONHasNoContextAuthority(t *testing.T) {
 	if err := json.Unmarshal(encoded, &document); err != nil {
 		t.Fatal(err)
 	}
-	if document.SchemaVersion != 1 || document.Auth.ContextState != tobari.ContextObservationSyntheticDefault || document.Auth.ContextID != nil {
-		t.Fatalf("synthetic auth status claims Context authority: %+v", document)
+	if document.SchemaVersion != 1 || document.Auth.ManifestState != tobari.ManifestObservationAbsent || document.Auth.WorkspaceManifestID != nil {
+		t.Fatalf("synthetic auth status claims Workspace Manifest authority: %+v", document)
 	}
 }
 
@@ -258,7 +258,7 @@ func TestAuthImportReadsSecretOnlyFromStdinAndEmitsSecretFreeJSON(t *testing.T) 
 	}
 	sort.Strings(gotFields)
 	wantFields := []string{
-		"account_label", "broker_state", "change", "configured", "context", "context_id", "context_state",
+		"account_label", "broker_state", "change", "configured", "manifest", "manifest_id", "manifest_state",
 		"credential_revision", "provider", "storage_backend", "workspace_activation",
 	}
 	if !reflect.DeepEqual(gotFields, wantFields) {
@@ -500,11 +500,11 @@ func TestAuthImportRejectsExplicitEmptyContextBeforeReadingStdin(t *testing.T) {
 	runtime := &authCLIRuntime{result: authCLIMutationObservation(authCLIResult(authbroker.TaskImport))}
 	command, stdout, stderr := newAuthCLI(authPanicReader{}, runtime)
 
-	if code := runCLI(command, []string{"auth", "import", "github", "--context="}); code != ExitUsage {
+	if code := runCLI(command, []string{"auth", "import", "github", "--manifest="}); code != ExitUsage {
 		t.Fatalf("auth import code = %d, stderr = %q", code, stderr.String())
 	}
-	if len(runtime.secret) != 0 || stdout.Len() != 0 || !humanOutputHasRow(stderr.String(), "Code", "invalid_context_name") {
-		t.Fatalf("empty Context crossed stdin/runtime boundary: secret=%q stdout=%q stderr=%q", runtime.secret, stdout.String(), stderr.String())
+	if len(runtime.secret) != 0 || stdout.Len() != 0 || !humanOutputHasRow(stderr.String(), "Code", "invalid_manifest_name") {
+		t.Fatalf("empty Workspace Manifest crossed stdin/runtime boundary: secret=%q stdout=%q stderr=%q", runtime.secret, stdout.String(), stderr.String())
 	}
 }
 
@@ -533,7 +533,7 @@ func TestAuthStatusUsesExplicitCommandContextOverRootDefault(t *testing.T) {
 	runtime := &authCLIRuntime{statusResult: authCLIStatusObservation(authCLIStatusResult(true))}
 	command, _, stderr := newAuthCLI(strings.NewReader(""), runtime)
 
-	if code := runCLI(command, []string{"--context", "fallback", "auth", "status", "--context", "default", "--format=json"}); code != ExitOK {
+	if code := runCLI(command, []string{"--manifest", "fallback", "auth", "status", "--manifest", "default", "--format=json"}); code != ExitOK {
 		t.Fatalf("auth status code = %d, stderr = %q", code, stderr.String())
 	}
 	if runtime.contextName != "default" || runtime.statusCalls != 1 {
@@ -568,7 +568,7 @@ func TestAuthHumanOutputContainsOnlySecretFreeResultFields(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"Context credential changed", "default", "github", "octocat", "ready"} {
+	for _, want := range []string{"Workspace Manifest credential changed", "default", "github", "octocat", "ready"} {
 		if !strings.Contains(string(output), want) {
 			t.Fatalf("text output = %q, want %q", output, want)
 		}
@@ -624,7 +624,7 @@ func TestAuthStatusRendersCurrentProjectionWithoutReentryInference(t *testing.T)
 		t.Fatal(err)
 	}
 	status := authCLIStatusResult(true)
-	status.WorkspaceActivation, err = authbroker.NewWorkspaceActivation(status.Context, status.ContextID, []authbroker.WorkspaceActivationItem{item})
+	status.WorkspaceActivation, err = authbroker.NewWorkspaceActivation(status.Context, status.WorkspaceManifestID, []authbroker.WorkspaceActivationItem{item})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -649,7 +649,7 @@ func TestAuthStatusRendersExactActionOnlyForStaleProjection(t *testing.T) {
 		t.Fatal(err)
 	}
 	status := authCLIStatusResult(true)
-	status.WorkspaceActivation, err = authbroker.NewWorkspaceActivation(status.Context, status.ContextID, []authbroker.WorkspaceActivationItem{item})
+	status.WorkspaceActivation, err = authbroker.NewWorkspaceActivation(status.Context, status.WorkspaceManifestID, []authbroker.WorkspaceActivationItem{item})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -662,7 +662,7 @@ func TestAuthStatusRendersExactActionOnlyForStaleProjection(t *testing.T) {
 		t.Fatal(err)
 	}
 	workspaces := document.Auth.WorkspaceActivation.Workspaces
-	wantArgv := []string{"tobari", "--context", "default"}
+	wantArgv := []string{"tobari", "--manifest", "default"}
 	if len(workspaces) != 1 || workspaces[0].NextAction == nil ||
 		workspaces[0].NextAction.WorkingDirectory != "/workspace/project" ||
 		!reflect.DeepEqual(workspaces[0].NextAction.Argv, wantArgv) {

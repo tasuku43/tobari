@@ -293,7 +293,7 @@ func TestHostGitHubLoginCommitsOnlyAfterAcquisitionUsingNonTTYControl(t *testing
 	wantArgs := []string{
 		"exec", "-i", authBrokerContainer,
 		"python", "-m", "authbroker.control",
-		"login", "--context-id", hostLoginContextID,
+		"login", "--manifest-id", hostLoginContextID,
 		"--provider", "github", "--account-label", "octo-user",
 	}
 	if !reflect.DeepEqual(runner.args, wantArgs) || strings.Contains(strings.Join(runner.args, " "), " -t ") {
@@ -343,7 +343,7 @@ func TestHostDatadogLoginCommitsOnlyCanonicalPupState(t *testing.T) {
 		t.Fatalf("path=%q calls=%d", acquirer.pupPath, acquirer.pupCalls)
 	}
 	wantTail := []string{
-		"login", "--context-id", hostLoginContextID,
+		"login", "--manifest-id", hostLoginContextID,
 		"--provider", "datadog", "--account-label", credentialhost.PupAccountLabel,
 		"--driver-id", credentialhost.PupDriverID, "--driver-revision", strings.Repeat("d", 64),
 	}
@@ -387,7 +387,7 @@ func TestHostOpenAILoginCommitsOnlyCanonicalCodexState(t *testing.T) {
 		t.Fatalf("resolver=%v path=%q calls=%d streams=%+v", resolver.names, acquirer.codexPath, acquirer.codexCalls, acquirer.codexStreams)
 	}
 	wantTail := []string{
-		"login", "--context-id", hostLoginContextID,
+		"login", "--manifest-id", hostLoginContextID,
 		"--provider", "openai", "--account-label", "account-synthetic-123",
 		"--driver-id", credentialhost.CodexDriverID,
 		"--driver-revision", strings.Repeat("f", 64),
@@ -439,7 +439,7 @@ func TestContextRuntimeAnthropicLoginCommitsOnlyCanonicalClaudeState(t *testing.
 		t.Fatalf("host resolver=%v container calls=%d", resolver.names, containerCalls)
 	}
 	wantTail := []string{
-		"login", "--context-id", hostLoginContextID,
+		"login", "--manifest-id", hostLoginContextID,
 		"--provider", "anthropic", "--account-label", credentialhost.ClaudeNativeAccountLabel,
 		"--driver-id", credentialhost.ClaudeNativeDriverID,
 		"--driver-revision", strings.Repeat("e", 64),
@@ -493,7 +493,7 @@ func TestHostAWSLoginPromptsFourFieldsAndCommitsOpaqueState(t *testing.T) {
 		t.Fatalf("profile=%+v path=%q resolver=%v", acquirer.awsProfile, acquirer.awsPath, resolver.names)
 	}
 	wantTail := []string{
-		"login", "--context-id", hostLoginContextID,
+		"login", "--manifest-id", hostLoginContextID,
 		"--provider", "aws", "--account-label", "123456789012",
 		"--driver-id", awsHostDriverID, "--driver-revision", strings.Repeat("b", 64),
 	}
@@ -545,7 +545,7 @@ func TestHostAWSConsoleLoginCommitsDistinctDriverState(t *testing.T) {
 		t.Fatalf("response/error/profile/input = %+v/%v/%+v/%T", response, err, acquirer.consoleProfile, acquirer.consoleInput)
 	}
 	wantTail := []string{
-		"login", "--context-id", hostLoginContextID,
+		"login", "--manifest-id", hostLoginContextID,
 		"--provider", "aws", "--account-label", "123456789012",
 		"--driver-id", awsConsoleDriverID, "--driver-revision", strings.Repeat("d", 64),
 	}

@@ -20,9 +20,9 @@ func authCommandSpecs() []CommandSpec {
 func authLoginSpec() CommandSpec {
 	loginProviderIDs := authbroker.ReviewedLoginProviderIDs()
 	awsEnabled := authbroker.SupportsReviewedLoginProvider(authbroker.BuiltinAWSProviderID)
-	providerDescription := "Credential provider to authenticate. Omission opens an interactive selector over installed reviewed login providers. GitHub uses gh, Datadog uses a structurally compatible pup from the selected Context runtime, OpenAI uses the reviewed Codex host-login contract, and Anthropic uses Claude Code 2.1.220 from the selected Context runtime."
+	providerDescription := "Credential provider to authenticate. Omission opens an interactive selector over installed reviewed login providers. GitHub uses gh, Datadog uses a structurally compatible pup from the selected Workspace Manifest runtime, OpenAI uses the reviewed Codex host-login contract, and Anthropic uses Claude Code 2.1.220 from the selected Workspace Manifest runtime."
 	if awsEnabled {
-		providerDescription = "Credential provider to authenticate. Omission opens an interactive selector over installed reviewed login providers. GitHub uses gh, experimental AWS uses aws, Datadog uses a structurally compatible pup from the selected Context runtime, OpenAI uses the reviewed Codex host-login contract, and Anthropic uses Claude Code 2.1.220 from the selected Context runtime."
+		providerDescription = "Credential provider to authenticate. Omission opens an interactive selector over installed reviewed login providers. GitHub uses gh, experimental AWS uses aws, Datadog uses a structurally compatible pup from the selected Workspace Manifest runtime, OpenAI uses the reviewed Codex host-login contract, and Anthropic uses Claude Code 2.1.220 from the selected Workspace Manifest runtime."
 	}
 	provider := CommandInput{
 		Name: "--provider", Source: InputSourceFlag, Required: false,
@@ -42,14 +42,14 @@ func authLoginSpec() CommandSpec {
 			Requires:      []string{"--provider"},
 		})
 	}
-	args += " [--context <name>] [--format text|json]"
+	args += " [--manifest <name>] [--format text|json]"
 	inputs = append(inputs, executionContextInput(), formatInput())
 	prerequisites := []string{
-		"The selected Context exists.",
+		"The selected Workspace Manifest exists.",
 		"The shared Auth Broker is already running, ready, and unlocked.",
 		"A declared provider binding rejects a real Workspace credential as broker_auth_required; re-enter affected Workspaces after login to project the current handle.",
 		"When provider is omitted, stdin and stderr are interactive terminals, error output remains human text, and the caller explicitly selects one installed reviewed login provider.",
-		"The reviewed gh and Codex executables are available through trusted-host PATH; Datadog requires a structurally compatible pup at /usr/local/bin/pup in the selected Context runtime, and Anthropic requires Claude Code 2.1.220 at /usr/local/bin/claude in that runtime.",
+		"The reviewed gh and Codex executables are available through trusted-host PATH; Datadog requires a structurally compatible pup at /usr/local/bin/pup in the selected Workspace Manifest runtime, and Anthropic requires Claude Code 2.1.220 at /usr/local/bin/claude in that runtime.",
 		"The caller has interactive terminal streams on stdin and stderr and can complete the selected provider flow on the trusted host.",
 	}
 	loginErrors := []CommandError{
@@ -59,7 +59,7 @@ func authLoginSpec() CommandSpec {
 		declaredCommandError(fault.KindUnavailable, "github_cli_unavailable", false, "auth login", "Install the reviewed GitHub CLI on the trusted host and retry."),
 		declaredCommandError(fault.KindRejected, "github_login_cancelled", false, "auth login", "Retry the trusted-host GitHub login when ready."),
 		declaredCommandError(fault.KindRejected, "github_login_failed", false, "auth login", "Retry the trusted-host GitHub login after inspecting the failure."),
-		declaredCommandError(fault.KindUnavailable, "datadog_cli_unavailable", false, "help runtime", "Install a compatible pup in the selected Context runtime, build it, and retry."),
+		declaredCommandError(fault.KindUnavailable, "datadog_cli_unavailable", false, "help runtime", "Install a compatible pup in the selected Workspace Manifest runtime, build it, and retry."),
 		declaredCommandError(fault.KindRejected, "datadog_login_cancelled", false, "auth login", "Retry the trusted-host Datadog login when ready."),
 		declaredCommandError(fault.KindRejected, "datadog_login_timeout", false, "auth login", "Start a new Datadog OAuth login and complete it within the bounded window."),
 		declaredCommandError(fault.KindUnavailable, "datadog_login_failed", false, "auth login", "Retry the isolated one-shot pup login after inspecting the failure."),
@@ -67,15 +67,15 @@ func authLoginSpec() CommandSpec {
 		declaredCommandError(fault.KindRejected, "openai_login_cancelled", false, "auth login", "Retry the trusted-host OpenAI login when ready."),
 		declaredCommandError(fault.KindRejected, "openai_login_timeout", false, "auth login", "Start a new Codex ChatGPT device login and complete it within the bounded window."),
 		declaredCommandError(fault.KindUnavailable, "openai_login_failed", false, "auth login", "Retry the isolated trusted-host Codex login after inspecting the failure."),
-		declaredCommandError(fault.KindUnavailable, "anthropic_cli_unavailable", false, "help runtime", "Install Claude Code 2.1.220 in the selected Context runtime, build it, and retry."),
-		declaredCommandError(fault.KindRejected, "anthropic_login_cancelled", false, "auth login", "Retry the isolated Context-runtime Anthropic login when ready."),
+		declaredCommandError(fault.KindUnavailable, "anthropic_cli_unavailable", false, "help runtime", "Install Claude Code 2.1.220 in the selected Workspace Manifest runtime, build it, and retry."),
+		declaredCommandError(fault.KindRejected, "anthropic_login_cancelled", false, "auth login", "Retry the isolated Workspace Manifest-runtime Anthropic login when ready."),
 		declaredCommandError(fault.KindRejected, "anthropic_login_timeout", false, "auth login", "Start a new native Claude account login and complete it within the bounded window."),
 		declaredCommandError(fault.KindUnavailable, "anthropic_login_setup_failed", false, "doctor", "Inspect the local Docker runtime before retrying Anthropic login."),
-		declaredCommandError(fault.KindUnavailable, "anthropic_authorization_failed", false, "auth login", "Start a new isolated Context-runtime Claude login and paste the complete browser code when prompted."),
-		declaredCommandError(fault.KindUnavailable, "anthropic_login_output_failed", false, "help runtime", "Verify the selected Context still provides the reviewed Claude Code 2.1.220 contract."),
-		declaredCommandError(fault.KindUnavailable, "anthropic_credential_capture_failed", false, "auth login", "Start a new isolated Context-runtime Claude login."),
+		declaredCommandError(fault.KindUnavailable, "anthropic_authorization_failed", false, "auth login", "Start a new isolated Workspace Manifest-runtime Claude login and paste the complete browser code when prompted."),
+		declaredCommandError(fault.KindUnavailable, "anthropic_login_output_failed", false, "help runtime", "Verify the selected Workspace Manifest still provides the reviewed Claude Code 2.1.220 contract."),
+		declaredCommandError(fault.KindUnavailable, "anthropic_credential_capture_failed", false, "auth login", "Start a new isolated Workspace Manifest-runtime Claude login."),
 		declaredCommandError(fault.KindUnavailable, "anthropic_login_cleanup_failed", false, "doctor", "Inspect the local Docker runtime before retrying Anthropic login."),
-		declaredCommandError(fault.KindUnavailable, "anthropic_login_failed", false, "auth login", "Retry the isolated Context-runtime Claude login after inspecting the failure."),
+		declaredCommandError(fault.KindUnavailable, "anthropic_login_failed", false, "auth login", "Retry the isolated Workspace Manifest-runtime Claude login after inspecting the failure."),
 	}
 	if awsEnabled {
 		prerequisites = append(prerequisites,
@@ -101,13 +101,13 @@ func authLoginSpec() CommandSpec {
 			if loginErrors[errorIndex].NextActions[actionIndex].Command == "auth login" {
 				loginErrors[errorIndex].NextActions[actionIndex] = fault.NextAction{
 					Command: "auth status",
-					Reason:  "Inspect the selected Context's authentication state before another login attempt.",
+					Reason:  "Inspect the selected Workspace Manifest's authentication state before another login attempt.",
 				}
 			}
 		}
 	}
 	return CommandSpec{
-		Path: "auth login", Summary: "Configure Broker-required Context authentication through a reviewed login driver",
+		Path: "auth login", Summary: "Configure Broker-required Workspace Manifest authentication through a reviewed login driver",
 		Args: args, Effect: operation.EffectWrite, Role: RoleAct,
 		Agent: AgentContract{
 			CapabilityID:  authCapabilityID,
@@ -126,7 +126,7 @@ func authLoginSpec() CommandSpec {
 func authImportSpec() CommandSpec {
 	return CommandSpec{
 		Path: "auth import", Summary: "Import one Broker-required provider credential through protected stdin",
-		Args: "<provider> [--context <name>] [--format text|json]", Effect: operation.EffectWrite, Role: RoleAct,
+		Args: "<provider> [--manifest <name>] [--format text|json]", Effect: operation.EffectWrite, Role: RoleAct,
 		Agent: AgentContract{
 			CapabilityID: authCapabilityID,
 			Outcome:      "Import one bounded provider credential from stdin so its declared Workspace bindings accept only project-bound Broker handles",
@@ -142,7 +142,7 @@ func authImportSpec() CommandSpec {
 			},
 			Output: authResultOutput(),
 			Prerequisites: []string{
-				"The selected Context and provider manifest exist.",
+				"The selected Workspace Manifest and provider manifest exist.",
 				"The shared Auth Broker is already running, ready, and unlocked.",
 				"A declared provider binding rejects a real Workspace credential as broker_auth_required; re-enter affected Workspaces after import to project the current handle.",
 				"Exactly one credential is available on piped or redirected stdin; interactive terminal stdin is rejected before any credential bytes are read.",
@@ -161,17 +161,17 @@ func authImportSpec() CommandSpec {
 func authStatusSpec() CommandSpec {
 	return CommandSpec{
 		Path: "auth status", Summary: "Inspect Broker-required provider and Workspace handle state",
-		Args: "[--context <name>] [--format text|json]", Effect: operation.EffectRead, Role: RoleUtility,
+		Args: "[--manifest <name>] [--format text|json]", Effect: operation.EffectRead, Role: RoleUtility,
 		Agent: AgentContract{
 			CapabilityID: authCapabilityID,
-			Outcome:      "Inspect the complete Broker-required provider collection and Workspace handle activation state for an explicit or current Context without reading secret material",
+			Outcome:      "Inspect the complete Broker-required provider collection and Workspace handle activation state for an explicit or default Workspace Manifest without reading secret material",
 			Inputs:       []CommandInput{executionContextInput(), formatInput()},
 			Output:       authStatusOutput(),
 			Prerequisites: []string{
-				"The selected Context exists.",
+				"The selected Workspace Manifest exists.",
 			},
 			Errors: readCommandErrors("auth status", true, append(authCommonErrors(),
-				declaredCommandError(fault.KindUnavailable, "auth_status_failed", false, "doctor", "Inspect the Auth Broker and Context credential stores."),
+				declaredCommandError(fault.KindUnavailable, "auth_status_failed", false, "doctor", "Inspect the Auth Broker and Workspace Manifest credential stores."),
 			)...),
 		},
 		handler: runAuthStatus,
@@ -180,15 +180,15 @@ func authStatusSpec() CommandSpec {
 
 func authLogoutSpec() CommandSpec {
 	return CommandSpec{
-		Path: "auth logout", Summary: "Remove one Context provider credential",
-		Args: "<provider> [--context <name>] [--format text|json]", Effect: operation.EffectWrite, Role: RoleAct,
+		Path: "auth logout", Summary: "Remove one Workspace Manifest provider credential",
+		Args: "<provider> [--manifest <name>] [--format text|json]", Effect: operation.EffectWrite, Role: RoleAct,
 		Agent: AgentContract{
 			CapabilityID: authCapabilityID,
-			Outcome:      "Confirm whether one Context-owned provider credential changed: remove and revoke it when present, or report no_change when already absent, without contacting the provider",
-			Inputs:       []CommandInput{authProviderInput("Installed provider whose Context credential should be removed if present."), executionContextInput(), formatInput()},
+			Outcome:      "Confirm whether one Workspace Manifest-owned provider credential changed: remove and revoke it when present, or report no_change when already absent, without contacting the provider",
+			Inputs:       []CommandInput{authProviderInput("Installed provider whose Workspace Manifest credential should be removed if present."), executionContextInput(), formatInput()},
 			Output:       authResultOutput(),
 			Prerequisites: []string{
-				"The selected Context and provider manifest exist; the credential may already be absent.",
+				"The selected Workspace Manifest and provider manifest exist; the credential may already be absent.",
 				"The shared Auth Broker is already running, ready, and unlocked.",
 			},
 			FixedTarget: fixedAuthCatalogTarget(),
@@ -210,7 +210,7 @@ func authProviderInput(description string) CommandInput {
 func fixedAuthCatalogTarget() *FixedTarget {
 	return &FixedTarget{
 		Kind: authbroker.CredentialCatalogTargetKind, ID: authbroker.CredentialCatalogTargetID,
-		Description: "This installation's Context-scoped Auth Broker credential catalog.",
+		Description: "This installation's Workspace Manifest-scoped Auth Broker credential catalog.",
 		Scope:       FixedTargetScopeToolLocal,
 	}
 }
@@ -227,16 +227,16 @@ func authResultOutput() CommandOutput {
 		Formats: []OutputFormat{OutputFormatText, OutputFormatJSON}, DefaultFormat: OutputFormatText, TextPresentation: TextPresentationSemanticTokens,
 		Fields: []OutputField{
 			{Name: "provider", Type: OutputFieldTypeString, Description: "Requested provider ID."},
-			{Name: "context", Type: OutputFieldTypeString, Description: "Context display name selected by this task; it is not authority."},
-			{Name: "context_state", Type: OutputFieldTypeString, Description: "Persisted Context authority for this mutation.", Enum: []string{"persisted"}},
-			{Name: "context_id", Type: OutputFieldTypeString, Description: "Stable host-resolved Context authority identity."},
-			{Name: "configured", Type: OutputFieldTypeBoolean, Description: "Whether this Context currently has the reported provider credential."},
+			{Name: "workspace_manifest", Type: OutputFieldTypeString, Description: "Workspace Manifest display name selected by this task; it is not authority."},
+			{Name: "manifest_state", Type: OutputFieldTypeString, Description: "Persisted Workspace Manifest authority for this mutation.", Enum: []string{"persisted"}},
+			{Name: "workspace_manifest_id", Type: OutputFieldTypeString, Description: "Stable host-resolved Workspace Manifest authority identity."},
+			{Name: "configured", Type: OutputFieldTypeBoolean, Description: "Whether this Workspace Manifest currently has the reported provider credential."},
 			{Name: "account_label", Type: OutputFieldTypeString, Description: "Secret-free provider account label when known, otherwise null.", Nullable: true},
-			{Name: "storage_backend", Type: OutputFieldTypeString, Description: "Host root-key storage backend used for the encrypted Context vault.", Enum: []string{"macos_keychain", "xdg_file"}},
+			{Name: "storage_backend", Type: OutputFieldTypeString, Description: "Host root-key storage backend used for the encrypted Workspace Manifest vault.", Enum: []string{"macos_keychain", "xdg_file"}},
 			{Name: "broker_state", Type: OutputFieldTypeString, Description: "Observed locked, ready, or unavailable Auth Broker state.", Enum: []string{"locked", "ready", "unavailable"}},
 			{Name: "credential_revision", Type: OutputFieldTypeString, Description: "Opaque secret-free credential revision, or null when no credential is configured.", Nullable: true},
 			{Name: "change", Type: OutputFieldTypeString, Description: "Confirmed mutation outcome: changed, or no_change only for an already-absent logout.", Enum: []string{"changed", "no_change"}},
-			{Name: "workspace_activation", Type: OutputFieldTypeObject, Description: "Context-scoped Workspace projection observations; exact re-entry actions appear only for stale or missing projections.", Fields: workspaceActivationOutputFields()},
+			{Name: "workspace_activation", Type: OutputFieldTypeObject, Description: "Workspace Manifest-scoped Workspace projection observations; exact re-entry actions appear only for stale or missing projections.", Fields: workspaceActivationOutputFields()},
 		},
 		Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageNotApplicable,
 		JSONEnvelope: "auth", JSONEnvelopeType: OutputFieldTypeObject, JSONSchemaVersion: 1,
@@ -247,14 +247,14 @@ func authStatusOutput() CommandOutput {
 	return CommandOutput{
 		Formats: []OutputFormat{OutputFormatText, OutputFormatJSON}, DefaultFormat: OutputFormatText, TextPresentation: TextPresentationSemanticTokens,
 		Fields: []OutputField{
-			{Name: "context", Type: OutputFieldTypeString, Description: "Context display name selected by this task; it is not authority."},
-			{Name: "context_state", Type: OutputFieldTypeString, Description: "Persisted authority or a display-only synthetic default.", Enum: []string{"persisted", "synthetic_default"}},
-			{Name: "context_id", Type: OutputFieldTypeString, Description: "Stable host-resolved Context authority identity, or null before authority is persisted.", Nullable: true},
-			{Name: "storage_backend", Type: OutputFieldTypeString, Description: "Host root-key storage backend used for encrypted Context vaults.", Enum: []string{"macos_keychain", "xdg_file"}},
+			{Name: "workspace_manifest", Type: OutputFieldTypeString, Description: "Workspace Manifest display name selected by this task; it is not authority."},
+			{Name: "manifest_state", Type: OutputFieldTypeString, Description: "Persisted authority or a display-only synthetic default.", Enum: []string{"persisted", "synthetic_default"}},
+			{Name: "workspace_manifest_id", Type: OutputFieldTypeString, Description: "Stable host-resolved Workspace Manifest authority identity, or null before authority is persisted.", Nullable: true},
+			{Name: "storage_backend", Type: OutputFieldTypeString, Description: "Host root-key storage backend used for encrypted Workspace Manifest vaults.", Enum: []string{"macos_keychain", "xdg_file"}},
 			{Name: "broker_state", Type: OutputFieldTypeString, Description: "Observed locked, ready, or unavailable Auth Broker state.", Enum: []string{"locked", "ready", "unavailable"}},
 			{Name: "declared_bindings", Type: OutputFieldTypeString, Description: "Authentication route for every installed declared provider binding.", Enum: []string{"broker_required"}},
 			{Name: "undeclared_bindings", Type: OutputFieldTypeString, Description: "Authentication route for request bindings absent from the provider projection.", Enum: []string{"workspace_owned_compatibility"}},
-			{Name: "providers", Type: OutputFieldTypeArray, Description: "Complete installed provider collection with explicit configured, not_configured, or unavailable state plus configuration, account-label, and credential-revision facts.", SemanticScope: "Every installed provider for the selected Context at one observation.", Items: &OutputField{
+			{Name: "providers", Type: OutputFieldTypeArray, Description: "Complete installed provider collection with explicit configured, not_configured, or unavailable state plus configuration, account-label, and credential-revision facts.", SemanticScope: "Every installed provider for the selected Workspace Manifest at one observation.", Items: &OutputField{
 				Type: OutputFieldTypeObject, Description: "One installed provider status.", Fields: []OutputField{
 					{Name: "provider", Type: OutputFieldTypeString, Description: "Installed provider ID."},
 					{Name: "state", Type: OutputFieldTypeString, Description: "Provider credential state.", Enum: []string{"configured", "not_configured", "unavailable"}},
@@ -262,7 +262,7 @@ func authStatusOutput() CommandOutput {
 					{Name: "credential_revision", Type: OutputFieldTypeString, Description: "Secret-free credential revision, or null.", Nullable: true},
 				},
 			}},
-			{Name: "workspace_activation", Type: OutputFieldTypeObject, Description: "Context-scoped Workspace projection observations with explicit coverage; configured provider state alone does not imply re-entry.", Fields: workspaceActivationOutputFields()},
+			{Name: "workspace_activation", Type: OutputFieldTypeObject, Description: "Workspace Manifest-scoped Workspace projection observations with explicit coverage; configured provider state alone does not imply re-entry.", Fields: workspaceActivationOutputFields()},
 		},
 		Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageExhaustive,
 		JSONEnvelope: "auth", JSONEnvelopeType: OutputFieldTypeObject, JSONSchemaVersion: 1,
@@ -273,14 +273,14 @@ func workspaceActivationOutputFields() []OutputField {
 	return []OutputField{
 		{Name: "state", Type: OutputFieldTypeString, Description: "Aggregate Workspace projection activation state.", Enum: []string{"not_applicable", "ready", "workspace_reentry_required", "unavailable", "unresolved"}},
 		{Name: "coverage", Type: OutputFieldTypeString, Description: "Whether eligible Workspace enumeration is exhaustive, unavailable, or not applicable.", Enum: []string{"not_applicable", "exhaustive", "unavailable"}},
-		{Name: "context", Type: OutputFieldTypeString, Description: "Context display name bound to the observation; empty only when coverage is not_applicable."},
-		{Name: "context_id", Type: OutputFieldTypeString, Description: "Stable Context identity bound to the observation; empty only when coverage is not_applicable."},
-		{Name: "workspaces", Type: OutputFieldTypeArray, Description: "Eligible logical Workspace observations for the exact Context when coverage is exhaustive.", SemanticScope: "Every project whose authoritative binding targets the selected Context.", Items: &OutputField{
+		{Name: "workspace_manifest", Type: OutputFieldTypeString, Description: "Workspace Manifest display name bound to the observation; empty only when coverage is not_applicable."},
+		{Name: "workspace_manifest_id", Type: OutputFieldTypeString, Description: "Stable Workspace Manifest identity bound to the observation; empty only when coverage is not_applicable."},
+		{Name: "workspaces", Type: OutputFieldTypeArray, Description: "Eligible logical Workspace observations for the exact Workspace Manifest when coverage is exhaustive.", SemanticScope: "Every project whose authoritative binding targets the selected Workspace Manifest.", Items: &OutputField{
 			Type: OutputFieldTypeObject, Description: "One project-identified Workspace activation observation.", Fields: []OutputField{
 				{Name: "workspace_id", Type: OutputFieldTypeString, Description: "Stable Workspace identity."},
 				{Name: "project_root", Type: OutputFieldTypeString, Description: "Separately validated canonical project root for this observation."},
-				{Name: "context", Type: OutputFieldTypeString, Description: "Context display name bound to this row."},
-				{Name: "context_id", Type: OutputFieldTypeString, Description: "Stable Context identity bound to this row."},
+				{Name: "workspace_manifest", Type: OutputFieldTypeString, Description: "Workspace Manifest display name bound to this row."},
+				{Name: "workspace_manifest_id", Type: OutputFieldTypeString, Description: "Stable Workspace Manifest identity bound to this row."},
 				{Name: "scope_state", Type: OutputFieldTypeString, Description: "Whether all row authority facts were readable.", Enum: []string{"complete", "incomplete"}},
 				{Name: "state", Type: OutputFieldTypeString, Description: "Workspace activation state derived from provider projections.", Enum: []string{"not_applicable", "ready", "workspace_reentry_required", "unavailable", "unresolved"}},
 				{Name: "providers", Type: OutputFieldTypeArray, Description: "Provider projection observations for this Workspace.", SemanticScope: "Installed providers plus any safely observed stale registry provider IDs.", Items: &OutputField{
@@ -291,7 +291,7 @@ func workspaceActivationOutputFields() []OutputField {
 				}},
 				{Name: "next_action", Type: OutputFieldTypeObject, Description: "Exact re-entry action for this row, otherwise null.", Nullable: true, Fields: []OutputField{
 					{Name: "working_directory", Type: OutputFieldTypeString, Description: "Canonical directory from which to run argv."},
-					{Name: "argv", Type: OutputFieldTypeArray, Description: "Exact argument vector, including executable and bound Context.", Items: &OutputField{Type: OutputFieldTypeString, Description: "One argv element."}},
+					{Name: "argv", Type: OutputFieldTypeArray, Description: "Exact argument vector, including executable and bound Workspace Manifest.", Items: &OutputField{Type: OutputFieldTypeString, Description: "One argv element."}},
 				}},
 			},
 		}},
@@ -301,14 +301,14 @@ func workspaceActivationOutputFields() []OutputField {
 
 func authMutationErrors(path string, extra ...CommandError) []CommandError {
 	errors := append(authCommonErrors(), declaredCommandError(
-		fault.KindInvalidInput, "invalid_provider", false, "auth status", "Inspect the Context's current authentication state.",
+		fault.KindInvalidInput, "invalid_provider", false, "auth status", "Inspect the Workspace Manifest's current authentication state.",
 	))
 	errors = append(errors, declaredCommandError(
 		fault.KindContract,
 		"auth_mutation_outcome_unknown",
 		false,
 		"auth status",
-		"Reconcile the selected Context's credential state before another mutation.",
+		"Reconcile the selected Workspace Manifest's credential state before another mutation.",
 	))
 	errors = append(errors, extra...)
 	return mutationCommandErrors(path, "auth status", errors...)
@@ -316,23 +316,23 @@ func authMutationErrors(path string, extra ...CommandError) []CommandError {
 
 func authCommonErrors() []CommandError {
 	return []CommandError{
-		declaredCommandError(fault.KindInvalidInput, "invalid_context_name", false, "context list", "Choose an existing Context name."),
-		declaredCommandError(fault.KindNotFound, "context_not_found", false, "context list", "Choose an existing Context or create it first."),
-		declaredCommandError(fault.KindUnavailable, "auth_broker_unavailable", true, "auth status", "Inspect Context authentication state before shared-cluster reconciliation."),
-		declaredCommandError(fault.KindUnavailable, "auth_broker_request_failed", false, "auth status", "Inspect Context authentication state before another Auth Broker request."),
-		declaredCommandError(fault.KindUnavailable, "auth_broker_locked", false, "auth status", "Inspect Context authentication state before unlocking the Auth Broker."),
+		declaredCommandError(fault.KindInvalidInput, "invalid_manifest_name", false, "manifest list", "Choose an existing Workspace Manifest name."),
+		declaredCommandError(fault.KindNotFound, "manifest_not_found", false, "manifest list", "Choose an existing Workspace Manifest or create it first."),
+		declaredCommandError(fault.KindUnavailable, "auth_broker_unavailable", true, "auth status", "Inspect Workspace Manifest authentication state before shared-cluster reconciliation."),
+		declaredCommandError(fault.KindUnavailable, "auth_broker_request_failed", false, "auth status", "Inspect Workspace Manifest authentication state before another Auth Broker request."),
+		declaredCommandError(fault.KindUnavailable, "auth_broker_locked", false, "auth status", "Inspect Workspace Manifest authentication state before unlocking the Auth Broker."),
 		declaredCommandError(fault.KindUnavailable, "root_key_unavailable", false, "doctor", "Inspect the host root-key provider."),
 		declaredCommandError(fault.KindRejected, "root_key_missing_with_vault", false, "doctor", "Restore the original root key or explicitly remove local authentication state."),
 		declaredCommandError(fault.KindRejected, "root_key_unsafe", false, "doctor", "Repair unsafe root-key or Auth Broker state paths."),
-		declaredCommandError(fault.KindUnavailable, "keychain_denied", false, "auth status", "Inspect Context authentication state before cluster reconciliation."),
-		declaredCommandError(fault.KindRejected, "auth_vault_invalid", false, "doctor", "Inspect the Context vault integrity without printing its contents."),
-		declaredCommandError(fault.KindUnsupported, "auth_vault_version_unsupported", false, "doctor", "Upgrade or repair the unsupported Context vault."),
+		declaredCommandError(fault.KindUnavailable, "keychain_denied", false, "auth status", "Inspect Workspace Manifest authentication state before cluster reconciliation."),
+		declaredCommandError(fault.KindRejected, "auth_vault_invalid", false, "doctor", "Inspect the Workspace Manifest vault integrity without printing its contents."),
+		declaredCommandError(fault.KindUnsupported, "auth_vault_version_unsupported", false, "doctor", "Upgrade or repair the unsupported Workspace Manifest vault."),
 		declaredCommandError(fault.KindRejected, "invalid_provider_manifest", false, "doctor", "Repair the owner-controlled provider manifest collection."),
 		declaredCommandError(fault.KindRejected, "ambiguous_provider_http_binding", false, "doctor", "Remove the overlapping exact provider HTTP binding."),
 		declaredCommandError(fault.KindNotFound, "provider_not_installed", false, "auth status", "Install or choose an available provider manifest."),
-		declaredCommandError(fault.KindNotFound, "provider_credential_not_configured", false, "auth status", "Inspect the Context before choosing login or import."),
+		declaredCommandError(fault.KindNotFound, "provider_credential_not_configured", false, "auth status", "Inspect the Workspace Manifest before choosing login or import."),
 		declaredCommandError(fault.KindContract, "invalid_auth_broker_metadata", false, "doctor", "Inspect the Auth Broker and provider helper contract."),
-		declaredCommandError(fault.KindContract, "invalid_auth_result", false, "auth status", "Reconcile the Context's authentication state before another mutation."),
+		declaredCommandError(fault.KindContract, "invalid_auth_result", false, "auth status", "Reconcile the Workspace Manifest's authentication state before another mutation."),
 		declaredCommandError(fault.KindContract, "output_encoding_failed", false, "auth status", "Repair the secret-free authentication JSON projection."),
 		declaredCommandError(fault.KindInternal, "missing_runtime", false, "doctor", "Configure the Tobari runtime."),
 	}

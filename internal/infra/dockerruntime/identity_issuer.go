@@ -15,14 +15,14 @@ type identityIssuer struct {
 	entropy io.Reader
 }
 
-func (i identityIssuer) newContextID() (string, error) {
+func (i identityIssuer) newWorkspaceManifestID() (string, error) {
 	if i.now == nil {
 		return "", fmt.Errorf("identity clock is required")
 	}
 	if i.entropy == nil {
 		return "", fmt.Errorf("identity entropy source is required")
 	}
-	return tobari.NewContextID(i.now().UTC(), i.entropy)
+	return tobari.NewWorkspaceManifestID(i.now().UTC(), i.entropy)
 }
 
 func (i identityIssuer) newRuntimeID() (string, error) {
@@ -35,12 +35,14 @@ func (i identityIssuer) newRuntimeID() (string, error) {
 	return tobari.NewRuntimeID(i.now().UTC(), i.entropy)
 }
 
-func (i identityIssuer) newProjectInstance(request tobari.ProjectInstanceRequest) (tobari.ProjectInstance, error) {
+func (i identityIssuer) newProjectInstance(request tobari.ProjectInstanceRequest) (tobari.Workspace, error) {
 	if i.now == nil {
-		return tobari.ProjectInstance{}, fmt.Errorf("identity clock is required")
+		return tobari.Workspace{}, fmt.Errorf("identity clock is required")
 	}
 	if i.entropy == nil {
-		return tobari.ProjectInstance{}, fmt.Errorf("identity entropy source is required")
+		return tobari.Workspace{}, fmt.Errorf("identity entropy source is required")
 	}
-	return tobari.NewProjectInstance(i.now().UTC(), i.entropy, request)
+	now := i.now().UTC()
+	request.CreatedAt = now
+	return tobari.NewProjectInstance(now, i.entropy, request)
 }

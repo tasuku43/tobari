@@ -111,7 +111,7 @@ func (r *Runtime) withHostLoopbackLock(ctx context.Context, action func() error)
 }
 
 func (r *Runtime) beginHostLoopbackAttachment(
-	ctx context.Context, project tobari.ProjectInstance,
+	ctx context.Context, project tobari.Workspace,
 ) (*hostLoopbackAttachment, error) {
 	if err := project.Validate(); err != nil {
 		return nil, err
@@ -396,7 +396,7 @@ func (r *Runtime) ApplyAttachmentGrantDecisionSet(
 			}
 			active := false
 			for _, route := range routes.Routes {
-				active = active || (route.EpochID == grant.EpochID && route.ProjectID == grant.ProjectID && route.ContextID == grant.ContextID && route.Hostname == grant.Hostname)
+				active = active || (route.EpochID == grant.EpochID && route.ProjectID == grant.ProjectID && route.WorkspaceManifestID == grant.WorkspaceManifestID && route.Hostname == grant.Hostname)
 			}
 			if !active {
 				return fmt.Errorf("attachment grant route is no longer active")

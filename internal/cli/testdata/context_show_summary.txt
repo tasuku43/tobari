@@ -1,6 +1,6 @@
-✓ Context review
+✓ Workspace Manifest review
 
-Boundary · fixed for this Context
+Boundary · fixed for this Workspace Manifest
   Project files  Read-write · changes affect this project directly
   Routine clients Not enabled
   Other requests Exact review
@@ -22,5 +22,5 @@ Login ownership
   Owner          Workspace tools · stays in each Workspace
 
 Actions
-  Details        tobari context show --name review --details
-  Next           tobari --context review — Enter or create a Workspace with this Context.
+  Details        tobari manifest show --name review --details
+  Next           tobari --manifest review — Enter or create a Workspace with this Workspace Manifest.

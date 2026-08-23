@@ -23,8 +23,8 @@
   {
     "id": "human-presentation-foundation.fixture.v1",
     "path": "internal/cli/testdata/human-presentation-foundation-fixture.json",
-    "sha256": "f9e3da163a0f73622be9639b24af9e1a8a5837b210a9fd9ab710f90eb39321c2",
-    "bytes": 3306,
+    "sha256": "79dfd541de46f7bd44d459bac01524929287b40537a7a4e17c9f95eae82ad88e",
+    "bytes": 4321,
     "cases": 5,
     "provenance": "Repository-authored synthetic typed fixture for human presentation across styled, NO_COLOR, redirected, empty, warning, failure, and cancellation modes.",
     "license": "MIT"
@@ -32,8 +32,8 @@
   {
     "id": "human-presentation-foundation.answer-key.v1",
     "path": "internal/cli/testdata/human-presentation-foundation-answer-key.json",
-    "sha256": "9548b10801b9f55449c529d524f776edade08e56db71b15e459cb1167b902427",
-    "bytes": 1659,
+    "sha256": "162a57f1e4b619191c8f8f26129155c48751e0b55a53dd76745f5c5edd2663d3",
+    "bytes": 1671,
     "cases": 5,
     "provenance": "Repository-authored presentation-independent answer key for human CLI structure, exact recovery, and negative-inference canaries.",
     "license": "MIT"
@@ -41,8 +41,8 @@
   {
     "id": "truthful-auth-state.fixture.v1",
     "path": "internal/cli/testdata/truthful-auth-state-fixture.json",
-    "sha256": "418b3a7c136cce2d2ae308e2867ae2772ccfd6d02e7056046a6badc6270a0bfa",
-    "bytes": 12906,
+    "sha256": "3c632f57f4e98b56a173b0ed6125d51f4a53fe80e8863ffb827b4fcd54623226",
+    "bytes": 13614,
     "cases": 10,
     "provenance": "Repository-authored synthetic typed fixture for Context-scoped provider status, Workspace activation truth, exact re-entry actions, and confirmed auth mutation receipts.",
     "license": "MIT"
@@ -50,8 +50,8 @@
   {
     "id": "truthful-auth-state.answer-key.v1",
     "path": "internal/cli/testdata/truthful-auth-state-answer-key.json",
-    "sha256": "6434c5947a3c5ca9b2aa3d1de86c0c548c215e080f4d63ffcc1b6d2ab9fd7cc3",
-    "bytes": 2718,
+    "sha256": "286367473b2010ce9944d121df5747e919e55cd47335db88e64cd01cb03255d7",
+    "bytes": 2729,
     "cases": 10,
     "provenance": "Repository-authored presentation-independent answer key for auth activation state, collection coverage, exact recovery, receipts, and negative-inference canaries.",
     "license": "MIT"
@@ -59,8 +59,8 @@
   {
     "id": "resumable-permission-review.fixture.v1",
     "path": "internal/cli/testdata/resumable-permission-review-fixture.json",
-    "sha256": "16b1dbb4fc4c6d8ffa3e8a25f6f41efcac3feac815ca8a898fa42daf039301d4",
-    "bytes": 5049,
+    "sha256": "28ae2aebd704272fe4c7d7e4c98e242d7586da7b334371f4eef4ccd5e59f1489",
+    "bytes": 5169,
     "cases": 10,
     "provenance": "Repository-authored synthetic typed fixture for resumable permission navigation, exact/template staged review, refresh reconciliation, activation failure, stored-rule receipt, and same-session retry.",
     "license": "MIT"
@@ -68,8 +68,8 @@
   {
     "id": "resumable-permission-review.answer-key.v1",
     "path": "internal/cli/testdata/resumable-permission-review-answer-key.json",
-    "sha256": "48f877c83c3a496772f92d526aee3cec9e86f3ae02c4e3a98530786625c75437",
-    "bytes": 2737,
+    "sha256": "d61aaea1ba6e57712b0abd139eaa0ab6bc0047c9ed2e71d8dcd0f7f415d43003",
+    "bytes": 2748,
     "cases": 10,
     "provenance": "Repository-authored presentation-independent answer key for permission navigation, zero-write cancellation, typed review-item reconciliation, confirmed activation, and same-session retry.",
     "license": "MIT"

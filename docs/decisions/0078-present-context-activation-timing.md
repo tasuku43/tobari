@@ -7,7 +7,7 @@
 - Revises: ADR 0072
 - Related: ADR 0071
 - Revised by: None
-- Superseded by: None
+- Superseded by: ADR 0079
 
 ## Context
 

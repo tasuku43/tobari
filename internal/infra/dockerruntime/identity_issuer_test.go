@@ -2,6 +2,7 @@ package dockerruntime
 
 import (
 	"bytes"
+	"strings"
 	"testing"
 	"time"
 
@@ -15,7 +16,7 @@ func TestIdentityIssuerPreservesUUIDv7AndProjectRequest(t *testing.T) {
 		entropy: bytes.NewReader(make([]byte, 20)),
 	}
 
-	contextID, err := issuer.newContextID()
+	contextID, err := issuer.newWorkspaceManifestID()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -24,18 +25,20 @@ func TestIdentityIssuerPreservesUUIDv7AndProjectRequest(t *testing.T) {
 	}
 
 	request := tobari.ProjectInstanceRequest{
-		Root:        "/workspace/project",
-		ContextID:   contextID,
-		ContextName: tobari.DefaultContextName,
-		Image:       tobari.BuiltinImageSelector,
+		Root:                     "/workspace/project",
+		WorkspaceManifestID:      contextID,
+		WorkspaceManifestName:    tobari.DefaultManifestName,
+		Image:                    tobari.BuiltinImageSelector,
+		CreationDefaultsRevision: "sha256:" + strings.Repeat("a", 64),
+		CreatedAt:                time.UnixMilli(1_700_000_000_123).UTC(),
 	}
 	project, err := issuer.newProjectInstance(request)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if project.ID != contextID || project.Root != request.Root ||
-		project.ContextID != request.ContextID || project.ContextName != request.ContextName ||
-		project.Image != request.Image || project.Runtime != (tobari.ProjectRuntime{}) {
+		project.WorkspaceManifestID != request.WorkspaceManifestID || project.WorkspaceManifestName != request.WorkspaceManifestName ||
+		project.Image != request.Image || project.Runtime != (tobari.WorkspaceRuntime{}) {
 		t.Fatalf("project = %+v", project)
 	}
 }

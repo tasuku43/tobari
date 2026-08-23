@@ -140,7 +140,7 @@ func validateProjectNetworkEndpoints(subnet, workspaceIP, gatewayIP string) erro
 
 func (r *Runtime) ensureWorkspaceNetworkGuard(
 	ctx context.Context,
-	project tobari.ProjectInstance,
+	project tobari.Workspace,
 	container, network, subnet, gatewayIP string,
 ) error {
 	expectedContainer, expectedNetwork, err := tobari.ProjectResourceNames(project.ID)

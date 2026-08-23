@@ -9,11 +9,11 @@ transcripts as repository fixtures.
 | Outcome | Public route | Success evidence |
 |---|---|---|
 | Discover capabilities | `help --format agent`, then one namespace or exact-command selector | Root remains a compact capability index; one scoped read supplies complete typed inputs, outputs, failures, and workflow |
-| Choose and retire a Context work mode | `context list`, `context show`, `context create`, `context use`, `context delete` | Human list cards lead with work mode/current, effective Access, exact Runtime, and action marker; `context show` leads with fixed Boundary, next-entry Runtime binding, later-entry/session and new-home-only Workspace defaults, Workspace-tool login ownership, exact Details, and exact Next while `--details` retains complete diagnostics from the same read and JSON remains identical; a synthetic default says recommended defaults are not saved; persisted Contexts add a Base-before-Name creation step with current preselected, while `--base NAME --name NAME` creates the same standalone draft directly and exposes no lineage; argument-free terminal creation shows the complete effective boundary, edits one section, discovers optional typed bootstrap candidates without selector re-entry, and creates once; changing current does not retarget Workspaces, and deletion rejects protected/current/bound Contexts |
-| Prepare a reusable Runtime source | `runtime list`, then `runtime create --base NAME --name NAME` | Scoped help identifies `standard` or one managed editable source as a one-time Base; creation returns a fresh standalone Runtime with empty history and no lineage, performs no build or Context change, and needs zero revision decoding or source reconstruction |
-| Enter bounded work | `tobari [--context NAME]` or `tobari [--context NAME] -- COMMAND [ARG...]`; explicit `cluster up` remains available | On first use, one root screen reviews canonical root, direct project effect, effective Access, `standard@1`, no host import, and Bash or the direct executable; after review, the generic Docker readiness profile passes before any Context or Docker mutation, then Start revalidates empty Context state, completes canonical Context creation and exact shared-cluster reconciliation, and enters one reusable Workspace; Customize retains the complete creation flow; the direct form runs exact foreground argv without a shell, returns its status to the host, and leaves the Workspace reusable |
-| Understand authority lifetime | `context show`, `policy rules`, and Host Loopback capability/review output | Routine guidance distinguishes Context Access, remembered Workspace decisions, and this-session Host Loopback access without requiring baseline, overlay, principal, epoch, or grant reconstruction; typed output retains exact destination kind and authority lifetime |
-| Grow exact permission | `review permissions`, or `policy candidates` then one exact allow/deny | Terminal guardrail precedes every candidate; explicit review activates only exact Context/project/scheme/host/port/method/path authority |
+| Choose and retire a Workspace Manifest | `manifest list`, `manifest show`, `manifest create`, `manifest default set`, `manifest delete` | Human list identifies the default, while status leads with Current and Next entry from typed desired/applied/observed facts; `--copy-from NAME --name NAME` binds one exact immutable current revision and publishes a fresh generation-1 ID with no lineage or lower-lifetime copy; changing the default does not retarget Workspaces, and deletion rejects protected/default/bound Manifests |
+| Prepare a reusable Runtime source | `runtime list`, then `runtime create --copy-source-from NAME --name NAME` | Scoped help identifies `standard` or one managed current editable source; creation returns a fresh Runtime ID with empty history and no lineage, performs no build or Manifest/Workspace change, and needs zero revision decoding or source reconstruction |
+| Enter bounded work | `tobari [--manifest NAME]` or `tobari [--manifest NAME] -- COMMAND [ARG...]`; explicit `cluster up` remains available | On first use, one root screen reviews canonical root, direct project effect, effective Access, `standard@1`, no host import, and Bash or the direct executable; after review, the generic Docker readiness profile passes before any Workspace Manifest or Docker mutation, then Start revalidates empty Workspace Manifest state, completes canonical Workspace Manifest creation and exact shared-cluster reconciliation, and enters one reusable Workspace; Customize retains the complete creation flow; the direct form runs exact foreground argv without a shell, returns its status to the host, and leaves the Workspace reusable |
+| Understand authority lifetime | `manifest show`, `policy rules`, and Host Loopback capability/review output | Routine guidance distinguishes Workspace Manifest Access, remembered Workspace decisions, and this-session Host Loopback access without requiring baseline, overlay, principal, epoch, or grant reconstruction; typed output retains exact destination kind and authority lifetime |
+| Grow exact permission | `review permissions`, or `policy candidates` then one exact allow/deny | Terminal guardrail precedes every candidate; explicit review activates only exact Workspace Manifest/project/scheme/host/port/method/path authority |
 | Open one Workspace service | In the attached Workspace run `tobari-expose PORT`; in a separate host terminal run `tobari review services`; later use `tobari-expose list` and `tobari-expose stop EXPOSURE_REF` | Service review shows exact Workspace and target, random host-loopback-only access, no browser opening, and attachment lifetime; Allow once returns exact numeric-loopback URL plus opaque reference; stop consumes that reference unchanged; Permission review remains staged Apply |
 | Inspect/reset decisions | `policy rules`, then `policy reset --id` | One current exact decision is removed through its unchanged opaque reference and returns to default deny |
 | Use native Workspace auth | Run the agent CLI's native login inside the Workspace | Credential state persists in that Workspace home, receives no network grant from login, and crosses Gateway only after the ordinary exact HTTP effect is allowed |
@@ -44,38 +44,38 @@ task integration:test
 
 TOBARI_BIN=bin/tobari
 "$TOBARI_BIN" help --format agent
-"$TOBARI_BIN" help context --format agent
-"$TOBARI_BIN" context create --name writable \
+"$TOBARI_BIN" help manifest --format agent
+"$TOBARI_BIN" manifest create --name writable \
   --source-access read-write \
   --native-readiness enabled --format json
-"$TOBARI_BIN" context create --name restricted \
+"$TOBARI_BIN" manifest create --name restricted \
   --source-access read-only \
   --native-readiness disabled --format json
-"$TOBARI_BIN" context show --name writable --format json
-"$TOBARI_BIN" context show --name restricted --format json
+"$TOBARI_BIN" manifest show --name writable --format json
+"$TOBARI_BIN" manifest show --name restricted --format json
 ```
 
 Record the invocation count, source of every input, output field consumed by the
 next task, and routine-success external-processing count. Verify every emitted
 opaque ID passes unchanged to its consumer.
 
-For Context lifecycle classification, retrieve `help context --format agent`
+For Workspace Manifest lifecycle classification, retrieve `help manifest --format agent`
 once. Verify scoped help presents source access, complete method policy, policy
 mode, and native-readiness selection as creation-time Boundary inputs; presents
-`context runtime set` as the sole exact Runtime-binding replacement with
+`manifest runtime set` as the sole exact Runtime-binding replacement with
 next-entry adoption; presents shell/Git settings as later session defaults; and
 presents bootstrap as future-Workspace creation only. The journey must require
 no schema inference or source inspection. After each mutable operation, verify
-the stable Context ID and every bound Workspace identity/home remain unchanged.
-Also create one Context with `--base` and verify the new stable ID differs, the
-Base remains unchanged, the reviewed Boundary/Runtime/defaults match, and
+the stable Workspace Manifest ID and every bound Workspace identity/home remain unchanged.
+Also create one Workspace Manifest with `--copy-from` and verify the new stable ID differs, the
+source remains unchanged, the reviewed Boundary/Runtime/defaults match, and
 neither typed output nor catalog reference flow claims ancestry or inheritance.
 
 For Runtime source creation, retrieve `help runtime create --format agent`
 once, use `standard` or one exact managed name returned by `runtime list`, and
 create one new Runtime. Verify the target has a distinct stable ID, empty
-history, independent editable bytes/modes, no Base field or reference flow, and
-that neither Docker nor any Context mutation ran. The known-path journey uses
+history, independent editable bytes/modes, no lineage/source field or reference flow, and
+that neither Docker nor any Workspace Manifest mutation ran. The known-path journey uses
 one scoped-help read, one create invocation, and zero external processing.
 
 For the direct-entry route, retrieve `help tobari --format agent` once and then
@@ -90,7 +90,7 @@ For causal failure recovery, run the same typed Docker-unavailable fixture in
 human and JSON error formats. Verify identical `kind`, `code`, `phase`,
 `change_state`, retryability, and exact `doctor` action; no provider name,
 context name, socket path, or raw cause may appear. The failure must occur after
-first-use review and before Context creation, with zero Context, cluster,
+first-use review and before Workspace Manifest creation, with zero Workspace Manifest, cluster,
 Workspace, network, and Docker mutations. Replay Engine versions 23, 24, and a
 malformed value through the generic observation port. After any mutation fault
 whose state is `partial`, `confirmed`, or `unknown`, execute its declared read
@@ -98,8 +98,8 @@ before choosing another mutation. A direct child's nonzero status remains the
 exact child status and emits no Tobari structured error.
 
 For authority lifetime, read the routine permission guidance once, then inspect
-one Context, one persistent learned decision, and one Host Loopback review item.
-Classify them only as Context Access, a remembered Workspace decision, or
+one Workspace Manifest, one persistent learned decision, and one Host Loopback review item.
+Classify them only as Workspace Manifest Access, a remembered Workspace decision, or
 this-session Host Loopback access. Verify the learned decision remains until
 `policy reset`, while the Host Loopback decision disappears when its owning
 attachment exits. Confirm `destination_kind` and `authority_lifetime` carry
@@ -125,8 +125,8 @@ Runtime mounting, spoofed-`argv[0]` denial, and bounded extraction cleanup.
 
 ## Source-access matrix
 
-Create read-only and read-write Contexts for the same canonical root. The
-read-only Context must:
+Create read-only and read-write Workspace Manifests for the same canonical root. The
+read-only Workspace Manifest must:
 
 - read source bytes successfully;
 - fail create, content change, delete, rename, chmod, and Git metadata writes;
@@ -135,17 +135,17 @@ read-only Context must:
 - include `source_access` in the runtime desired-state hash and Docker inspect
   reconciliation;
 - observe later host changes and changes made through the same-root read-write
-  Context.
+  Workspace Manifest.
 
 The last observation proves a live direct bind, not a snapshot or filesystem-
-integrity boundary. Neither Context is allowed to mutate the other's home,
+integrity boundary. Neither Workspace Manifest is allowed to mutate the other's home,
 network, or policy state. Native credentials follow the owning Workspace home.
 
-## Context policy matrix
+## Workspace Manifest policy matrix
 
-Inspect and bind the immutable Context policy snapshot and its complete method
+Inspect and bind the immutable Workspace Manifest policy snapshot and its complete method
 default/override set. The fixed agent-ready baseline is part of the trusted
-binary's default Context policy, not a selectable profile.
+binary's default Workspace Manifest policy, not a selectable profile.
 
 - `builtin/agent-ready`: the pinned Claude/Codex native matrix, GitHub CLI
   device-auth bootstrap, TWG CLI 1.2.5 auth/site/manifest lifecycle, and pup
@@ -157,17 +157,17 @@ binary's default Context policy, not a selectable profile.
   candidate, a different tool does not reuse it, and arguments/canaries never
   appear in OPA input, audit, denial, or stored policy. Downloads, acquisition,
   file transfer, self-update, unrelated paths, and third-party destinations
-  remain denied or reviewable. Prove grants apply by Context semantic identity,
+  remain denied or reviewable. Prove grants apply by Workspace Manifest semantic identity,
   not executable name.
-- A deny-only Context produces terminal denials for every method and leaves the
+- A deny-only Workspace Manifest produces terminal denials for every method and leaves the
   review queue empty.
-- An exact-review Context sends eligible effects to exact review without
+- An exact-review Workspace Manifest sends eligible effects to exact review without
   granting immediate authority.
-- A GET-only Context uses default Deny with an exact-review `GET` override;
+- A GET-only Workspace Manifest uses default Deny with an exact-review `GET` override;
   `HEAD` and every non-GET remain terminal denials. Do not describe GET as safe
   or read-only.
-- A method-Allow Context still remains bounded by the destination ceiling and
-  exact Deny; Method Allow is Context-wide, not process identity.
+- A method-Allow Workspace Manifest still remains bounded by the destination ceiling and
+  exact Deny; Method Allow is Workspace Manifest-wide, not process identity.
 
 The native-login subset must include exactly:
 
@@ -194,7 +194,7 @@ The compile-time review bundles are exactly `claude_ready`, `codex_ready`,
 `gh_ready`, `twg_ready`, and `pup_ready`, coupled to the five reviewed client
 versions. TWG and pup remain custom-runtime-only and the bundles are not
 installation claims.
-Prove new normalized Context snapshots contain no readiness rule, legacy
+Prove new normalized Workspace Manifest snapshots contain no readiness rule, legacy
 agent-ready snapshots retain their exact bytes, aggregate generation removes
 every historical bundle form and projects only the current binary set, and no
 runtime bundle or executable selector exists. Prove the dedicated family
@@ -203,12 +203,12 @@ append-only contract revisions, and exactly one current contract per
 family. Prove the aggregate revision includes its
 effective expansion, an older active revision is reported invalid, and root
 entry returns exact `cluster up` recovery before Workspace mutation.
-Create Contexts with enabled and disabled readiness while varying the complete
-Context method policy. Enabled readiness is independent of any profile name,
+Create Workspace Manifests with enabled and disabled readiness while varying the complete
+Workspace Manifest method policy. Enabled readiness is independent of any profile name,
 but destination ceilings and method Deny filter it, and exact Deny remains
-terminal. Prove every method uses its explicit override or the Context default,
+terminal. Prove every method uses its explicit override or the Workspace Manifest default,
 including an extension-method canary. Disabled readiness supplies no overlay.
-An omitted readiness value resolves to the current Context default without
+An omitted readiness value resolves to the default Workspace Manifest without
 rewriting the stored policy snapshot. For GitHub,
 neighboring methods, paths, query variants,
 GitHub API hosts, ordinary HTTP at `/graphql`, mutation, sibling or mixed roots,
@@ -244,15 +244,15 @@ telemetry, revoke, and neighboring OAuth effects receive no baseline grant.
 For each terminal denial, record zero permission candidates, external DNS
 lookups, and upstream attempts. Repeat with a learned
 exact allow, baseline grant, and Advanced Rego allow that would otherwise match;
-none may bypass the Context policy ceiling.
+none may bypass the Workspace Manifest policy ceiling.
 
-Context-policy tests use strict owner-only schema-V1 data. Reject unknown fields,
+Workspace Manifest-policy tests use strict owner-only schema-V1 data. Reject unknown fields,
 wildcards, IP/private destinations, secrets, shell, Rego, include, inheritance,
 remote fetch, refresh, signing, symlinks, unsafe modes, duplicate keys, and
-ambiguous rules. Context creation normalizes, validates, digests, and snapshots
-the Context policy. Editing policy source afterward must not change the existing
-Context report or active policy ceiling. Updating the trusted binary must update only
-the native-readiness overlay of existing enabled Contexts without rewriting
+ambiguous rules. Workspace Manifest creation normalizes, validates, digests, and snapshots
+the Workspace Manifest policy. Editing policy source afterward must not change the existing
+Workspace Manifest report or active policy ceiling. Updating the trusted binary must update only
+the native-readiness overlay of existing enabled Workspace Manifests without rewriting
 their snapshot.
 
 For typed Workspace bootstrap, use only synthetic host homes. Prove the AWS
@@ -262,7 +262,7 @@ sessions, exposes typed available/unavailable candidates, and rejects unknown
 keys, helpers, duplicates,
 symlinks, unsafe modes, oversized input, credentials, and cache material. A new
 Workspace must receive exact owner-only canonical `.aws/config` bytes and an
-applied revision before publication. After a semantic Context refresh, prove
+applied revision before publication. After a semantic Workspace Manifest refresh, prove
 the existing file is byte-identical and reports `older`, while a newly created
 Workspace receives the new revision. For the dependent EKS adapter, prove one
 explicit context in fixed `~/.kube/config` resolves only an inline CA,
@@ -279,7 +279,7 @@ Create must revalidate the selected profile/session/EKS semantic bundle, return
 the draft to review on selected-source drift, and ignore unrelated profile
 changes. The ordinary no-bootstrap path performs no host configuration read.
 Workspace receives the new revision and reports `current`. A staged refresh
-whose source changes before Apply must make zero Context and Workspace writes.
+whose source changes before Apply must make zero Workspace Manifest and Workspace writes.
 
 The canonical contributor base must run `claude --version` as 2.1.220,
 `codex --version` as 0.147.0, and `gh --version` as 2.96.0 after replacing
@@ -309,7 +309,7 @@ Tobari reserves no `Ctrl+]` or other child-input shortcut. In that terminal:
    while a second
    compatible distinct HTTP path produces one typed `/path/{id}` proposal.
 2. Stage exact Allow and Deny directly from the list, clear or overwrite one,
-   and prove no mutation occurs. Inspect the Context/project/effect detail. Prove the proposal states that
+   and prove no mutation occurs. Inspect the Workspace Manifest/project/effect detail. Prove the proposal states that
    future single-segment values are included and offers Allow template, Allow
    observed exact, and Deny pending exact. Staging grants nothing.
 3. Refresh and prove decisions remain bound by typed review-item ID, never by label,
@@ -321,7 +321,7 @@ Tobari reserves no `Ctrl+]` or other child-input shortcut. In that terminal:
    to default deny and becomes reviewable again.
 
 Machine replay uses `policy candidates`, `policy allow --id`, `policy deny
---id`, and `policy reset --id`. The ordinary identity is exact Context,
+--id`, and `policy reset --id`. The ordinary identity is exact Workspace Manifest,
 project, scheme, host, port, method, and raw path; GraphQL adds operation type
 and root field. Query, headers, body, and repeated identical observation count do
 not widen authority. Prefix rules, compaction commands/references/state, and
@@ -363,7 +363,7 @@ and prove the OAuth client remains exact while scopes cannot exceed the reviewed
 ceiling.
 Prove the host listener exists only for that login, relays one opaque callback
 to the selected Workspace's same port, and closes on success, failure, or
-session exit. The exact allow is shared by every process in the Context; the
+session exit. The exact allow is shared by every process in the Workspace Manifest; the
 test must not infer authority from the `codex` executable name.
 
 For GitHub CLI 2.96.0, exercise the preferred GitHub.com HTTPS device-login path
@@ -449,9 +449,9 @@ fixtures, and secret canaries. It proves:
   login drivers, and explicit provider selection remains deterministic; the
   experimental matrix accepts its two methods;
 - fixed purpose-limited GitHub/AWS/pup/Codex/Claude argv, canonical executable
-  digest checks, selected-Context image binding for pup and Claude, private
+  digest checks, selected-Workspace Manifest image binding for pup and Claude, private
   homes/PTY where declared, bounded browser targets, and checked cleanup;
-- per-project handles bound to Context/provider/revision/target/header;
+- per-project handles bound to Workspace Manifest/provider/revision/target/header;
 - direct bearer/raw credentials and direct AWS signatures at declared bindings
   fail as `broker_auth_required` with zero fallback, Broker, OPA, DNS, or
   upstream calls, while one undeclared binding retains compatibility passthrough;
@@ -487,13 +487,13 @@ and Broker runtime are absent from standard archives. The optional GitHub slice
 is:
 
 ```sh
-tobari auth login --provider github --context default
-tobari auth status --context default --format json
-# Re-enter the default Context's Workspace.
+tobari auth login --provider github --manifest default
+tobari auth status --manifest default --format json
+# Re-enter the default Workspace Manifest's Workspace.
 case "${GH_TOKEN-}" in tobari-h1_*) ;; *) exit 1 ;; esac
 test "$(gh auth token --hostname github.com)" = "$GH_TOKEN"
 gh api user --jq .login >/dev/null
-tobari auth logout github --context default --format json
+tobari auth logout github --manifest default --format json
 ```
 
 The equality assertion proves `gh auth token` returns the projected handle, not
@@ -504,10 +504,10 @@ response, or raw transcript.
 
 Using the `task build:dev` experimental binary, replay the AWS Identity Center
 and console methods. With the standard binary, prove the `auth` namespace is
-absent. Then replay selected-Context-runtime
+absent. Then replay selected-Workspace Manifest-runtime
 Datadog pup flow and localhost stdin relay, the
 contract-checked host Codex native browser/loopback flow, the separately pinned Workspace Codex
-handle projection, isolated Context-runtime Claude Code 2.1.220 native login
+handle projection, isolated Workspace Manifest-runtime Claude Code 2.1.220 native login
 and handle-only credential-file projection, and Chatwork stdin
 import separately. Record only command/observed-version, pass/fail, and secret-free
 state/revision metadata; never store provider responses or credential state.
@@ -518,8 +518,8 @@ without recording tokens, account identifiers, or raw transcripts.
 ## Enumerated predecessor migration
 
 Using the synthetic predecessor fixture, run `tobari doctor --format json` and
-verify the failed Context row names exact recovery `migrate apply`; dependent
-rows must be blocked by Context. Then run:
+verify the failed Workspace Manifest row names exact recovery `migrate apply`; dependent
+rows must be blocked by Workspace Manifest. Then run:
 
 ```sh
 tobari help migrate apply --format agent
@@ -528,15 +528,23 @@ tobari doctor --format json
 tobari migrate apply --format json
 ```
 
-The first mutation must report the complete Context collection, a private
-backup path, retained Context IDs and active selection, `standard` for the
+The first mutation must report the complete Workspace Manifest collection, a
+secret-free recovery ID, retained Workspace Manifest IDs and default selection, `standard` for the
 standard predecessor, and an exact `legacy-NAME@ORDINAL` binding for a custom
-Dockerfile predecessor. The second invocation must report `changed: false` and
-no backup. Compare synthetic Workspace-home, learned-rule, credential-store,
-project/instance-state, and running-resource canaries byte-for-byte before and
-after. Replay unknown-field, duplicate-key, unsafe-mode, symlink, digest-drift,
-and Runtime-conflict fixtures and require zero Context writes. Do not record a
-real Workspace home, credential, or private Runtime source as release evidence.
+Dockerfile predecessor, plus only the bounded
+`research_auth_disposition: reauthentication_required` when predecessor
+research state exists. The second invocation must report `changed: false` and
+no recovery ID. Compare standard Workspace-home/native-auth, learned-rule,
+Workspace state, and Runtime canaries byte-for-byte. Verify research filesystem
+authority is quarantined and old-reader handle resolution fails without reading
+macOS Keychain; on Linux verify root-key bytes move and restore with the set.
+Exercise every transaction phase to prove full predecessor resolution before
+the central state move and zero resolution afterwards, plus resume and exact
+rollback/fresh-state refusal. Replay unknown/mixed/partial/corrupt,
+duplicate-key, unsafe-mode, symlink, digest-drift, and Runtime-conflict
+fixtures and require zero final-state publication. Do not record a real
+Workspace home, credential, Keychain fact, quarantine path, or private Runtime
+source as evidence.
 
 ## Publication checkpoint
 

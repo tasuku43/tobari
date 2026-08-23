@@ -1,4 +1,4 @@
-Contexts
+Workspace Manifests
 
 * default
     Access     Read-write · routine clients ready · other exact review · private denied

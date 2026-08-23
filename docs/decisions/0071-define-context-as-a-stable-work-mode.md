@@ -8,7 +8,7 @@
 - Revises: ADR 0013 and ADR 0029
 - Related: ADR 0062, ADR 0066, ADR 0067, and ADR 0070
 - Revised by: None
-- Superseded by: None
+- Superseded by: ADR 0079
 
 ## Context
 

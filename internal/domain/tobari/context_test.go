@@ -6,15 +6,15 @@ import (
 	"testing"
 )
 
-func validContextManifest() ContextManifest {
-	return ContextManifest{
-		SchemaVersion:  ContextSchemaVersion,
+func validContextManifest() WorkspaceManifest {
+	return WorkspaceManifest{
+		SchemaVersion:  WorkspaceManifestSchemaVersion,
 		ID:             "018bcfe5-687b-7000-8000-000000000000",
 		Name:           "project-tools",
 		AgentProfile:   DefaultProfile,
 		Image:          OfficialRuntimeBase,
-		PolicyMode:     ContextPolicyModeAdvanced,
-		SourceAccess:   ContextSourceAccessReadWrite,
+		PolicyMode:     ManifestPolicyModeAdvanced,
+		SourceAccess:   ManifestSourceAccessReadWrite,
 		PolicyRevision: DefaultContextPolicyRevision(),
 	}
 }
@@ -22,12 +22,12 @@ func validContextManifest() ContextManifest {
 func TestContextNativeReadinessCompatibility(t *testing.T) {
 	for _, test := range []struct {
 		name  string
-		value ContextNativeReadiness
-		want  ContextNativeReadiness
+		value ManifestNativeReadiness
+		want  ManifestNativeReadiness
 	}{
-		{"enabled", ContextNativeReadinessEnabled, ContextNativeReadinessEnabled},
-		{"disabled", ContextNativeReadinessDisabled, ContextNativeReadinessDisabled},
-		{"omitted", "", ContextNativeReadinessEnabled},
+		{"enabled", ManifestNativeReadinessEnabled, ManifestNativeReadinessEnabled},
+		{"disabled", ManifestNativeReadinessDisabled, ManifestNativeReadinessDisabled},
+		{"omitted", "", ManifestNativeReadinessEnabled},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			got, err := ResolveContextNativeReadiness(test.value)
@@ -42,66 +42,68 @@ func TestContextNativeReadinessCompatibility(t *testing.T) {
 }
 
 func TestContextCreateCompositionClonesMethodPolicyAndDeleteResultIsTerminal(t *testing.T) {
-	policy := ContextMethodPolicy{
-		Default:   ContextMethodExactReview,
-		Overrides: []ContextMethodOverride{{Method: "GET", Decision: ContextMethodAllow}},
+	policy := ManifestMethodPolicy{
+		Default:   ManifestMethodExactReview,
+		Overrides: []ManifestMethodOverride{{Method: "GET", Decision: ManifestMethodAllow}},
 	}
-	composition := ContextCreateComposition{
-		NativeReadiness: ContextNativeReadinessEnabled,
+	composition := ManifestCreateComposition{
+		NativeReadiness: ManifestNativeReadinessEnabled,
 		MethodPolicy:    &policy,
 	}
 	if err := composition.Validate(); err != nil {
 		t.Fatal(err)
 	}
 	clone := composition.Clone()
-	clone.MethodPolicy.Overrides[0].Decision = ContextMethodDeny
-	if composition.MethodPolicy.Overrides[0].Decision != ContextMethodAllow {
-		t.Fatal("Context composition clone aliases the caller's method policy")
+	clone.MethodPolicy.Overrides[0].Decision = ManifestMethodDeny
+	if composition.MethodPolicy.Overrides[0].Decision != ManifestMethodAllow {
+		t.Fatal("Workspace Manifest composition clone aliases the caller's method policy")
 	}
-	result := ContextDeleteResult{
-		Task: TaskContextDelete, ID: "018bcfe5-687b-7000-8000-000000000099", Name: "coding",
-		Deleted: true, Cluster: ContextClusterStatusRequiresReconcile,
+	result := ManifestDeleteResult{
+		Task: TaskManifestDelete, ID: "018bcfe5-687b-7000-8000-000000000099", Name: "coding",
+		Deleted: true, Cluster: ManifestClusterStatusRequiresReconcile,
 	}
 	if err := result.Validate(); err != nil {
 		t.Fatal(err)
 	}
 	result.Deleted = false
 	if err := result.Validate(); err == nil {
-		t.Fatal("unconfirmed Context deletion was accepted")
+		t.Fatal("unconfirmed Workspace Manifest deletion was accepted")
 	}
 }
 
 func TestContextCreateBaseIsCompleteValidatedAndDeepCloned(t *testing.T) {
 	literal := "prompt"
-	base := ContextCreateBase{
+	base := ManifestCopySnapshot{
 		ID: "018bcfe5-687b-7000-8000-000000000123", Name: "engineering",
-		Revision: "sha256:" + strings.Repeat("a", 64), PolicyMode: ContextPolicyModeAdvanced,
-		SourceAccess: ContextSourceAccessReadOnly, NativeReadiness: ContextNativeReadinessDisabled,
-		MethodPolicy:     ContextMethodPolicy{Default: ContextMethodDeny, Overrides: []ContextMethodOverride{{Method: "GET", Decision: ContextMethodAllow}}},
-		RuntimeSelection: StandardRuntimeName,
+		Revision: "sha256:" + strings.Repeat("a", 64), PolicyMode: ManifestPolicyModeAdvanced,
+		Desired:      WorkspaceManifestRevision{Generation: 1, Revision: "sha256:" + strings.Repeat("a", 64), BoundaryRevision: "sha256:" + strings.Repeat("b", 64), ClusterProjectionRevision: "sha256:" + strings.Repeat("c", 64), EntryRevision: "sha256:" + strings.Repeat("d", 64), SessionDefaultsRevision: "sha256:" + strings.Repeat("e", 64), CreationDefaultsRevision: "sha256:" + strings.Repeat("f", 64)},
+		SourceAccess: ManifestSourceAccessReadOnly, NativeReadiness: ManifestNativeReadinessDisabled,
+		MethodPolicy:     ManifestMethodPolicy{Default: ManifestMethodDeny, Overrides: []ManifestMethodOverride{{Method: "GET", Decision: ManifestMethodAllow}}},
+		RuntimeSelection: StandardRuntimeName + "@1",
+		RuntimeBinding:   RuntimeBinding{RuntimeID: StandardRuntimeID, Name: StandardRuntimeName, Revision: "sha256:" + strings.Repeat("0", 64), Ordinal: 1, Image: OfficialRuntimeBase},
 		ShellEnvironment: DefaultContextShellEnvironmentReport(), GitIdentity: DefaultContextGitIdentityReport(),
 	}
-	base.ShellEnvironment[2] = ContextShellEnvironmentSetting{Variable: "PS1", Source: ContextShellEnvironmentLiteral, Value: &literal}
+	base.ShellEnvironment[2] = ManifestShellEnvironmentSetting{Variable: "PS1", Source: ManifestShellEnvironmentLiteral, Value: &literal}
 	if err := base.Validate(); err != nil {
 		t.Fatal(err)
 	}
 	clone := base.Clone()
 	*clone.ShellEnvironment[2].Value = "changed"
-	clone.MethodPolicy.Overrides[0].Decision = ContextMethodDeny
-	if *base.ShellEnvironment[2].Value != literal || base.MethodPolicy.Overrides[0].Decision != ContextMethodAllow {
-		t.Fatal("Context creation Base clone aliases copyable settings")
+	clone.MethodPolicy.Overrides[0].Decision = ManifestMethodDeny
+	if *base.ShellEnvironment[2].Value != literal || base.MethodPolicy.Overrides[0].Decision != ManifestMethodAllow {
+		t.Fatal("Workspace Manifest creation Base clone aliases copyable settings")
 	}
-	for name, mutate := range map[string]func(*ContextCreateBase){
-		"identity": func(value *ContextCreateBase) { value.ID = "engineering" },
-		"revision": func(value *ContextCreateBase) { value.Revision = DefaultContextPolicyRevision()[:20] },
-		"runtime":  func(value *ContextCreateBase) { value.RuntimeSelection = "missing@0" },
-		"shell":    func(value *ContextCreateBase) { value.ShellEnvironment = value.ShellEnvironment[:1] },
+	for name, mutate := range map[string]func(*ManifestCopySnapshot){
+		"identity": func(value *ManifestCopySnapshot) { value.ID = "engineering" },
+		"revision": func(value *ManifestCopySnapshot) { value.Revision = DefaultContextPolicyRevision()[:20] },
+		"runtime":  func(value *ManifestCopySnapshot) { value.RuntimeSelection = "missing@0" },
+		"shell":    func(value *ManifestCopySnapshot) { value.ShellEnvironment = value.ShellEnvironment[:1] },
 	} {
 		t.Run(name, func(t *testing.T) {
 			candidate := base.Clone()
 			mutate(&candidate)
 			if err := candidate.Validate(); err == nil {
-				t.Fatalf("invalid Context creation Base was accepted: %+v", candidate)
+				t.Fatalf("invalid Workspace Manifest creation Base was accepted: %+v", candidate)
 			}
 		})
 	}
@@ -110,21 +112,21 @@ func TestContextCreateBaseIsCompleteValidatedAndDeepCloned(t *testing.T) {
 func TestContextManifestValidatesRuntimeImageAndMode(t *testing.T) {
 	manifest := validContextManifest()
 	if err := manifest.Validate(); err != nil {
-		t.Fatalf("valid Context manifest rejected: %v", err)
+		t.Fatalf("valid Workspace Manifest manifest rejected: %v", err)
 	}
 
-	for name, mutate := range map[string]func(*ContextManifest){
-		"invalid name":          func(value *ContextManifest) { value.Name = "Project" },
-		"invalid image":         func(value *ContextManifest) { value.Image = "--pull=always" },
-		"invalid mode":          func(value *ContextManifest) { value.PolicyMode = "manual" },
-		"missing source access": func(value *ContextManifest) { value.SourceAccess = "" },
-		"invalid source access": func(value *ContextManifest) { value.SourceAccess = "snapshot" },
+	for name, mutate := range map[string]func(*WorkspaceManifest){
+		"invalid name":          func(value *WorkspaceManifest) { value.Name = "Project" },
+		"invalid image":         func(value *WorkspaceManifest) { value.Image = "--pull=always" },
+		"invalid mode":          func(value *WorkspaceManifest) { value.PolicyMode = "manual" },
+		"missing source access": func(value *WorkspaceManifest) { value.SourceAccess = "" },
+		"invalid source access": func(value *WorkspaceManifest) { value.SourceAccess = "snapshot" },
 	} {
 		t.Run(name, func(t *testing.T) {
 			candidate := manifest
 			mutate(&candidate)
 			if err := candidate.Validate(); err == nil {
-				t.Fatalf("invalid Context manifest was accepted: %+v", candidate)
+				t.Fatalf("invalid Workspace Manifest manifest was accepted: %+v", candidate)
 			}
 		})
 	}
@@ -132,8 +134,8 @@ func TestContextManifestValidatesRuntimeImageAndMode(t *testing.T) {
 
 func TestContextShellEnvironmentIsAllowlistedAndPreservesExplicitEmptyLiteral(t *testing.T) {
 	empty := ""
-	overrides, err := ApplyContextShellEnvironmentSetting(nil, ContextShellEnvironmentSetting{
-		Variable: "PS1", Source: ContextShellEnvironmentLiteral, Value: &empty,
+	overrides, err := ApplyContextShellEnvironmentSetting(nil, ManifestShellEnvironmentSetting{
+		Variable: "PS1", Source: ManifestShellEnvironmentLiteral, Value: &empty,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -142,12 +144,12 @@ func TestContextShellEnvironmentIsAllowlistedAndPreservesExplicitEmptyLiteral(t 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(complete) != 4 || complete[2].Variable != "PS1" || complete[2].Source != ContextShellEnvironmentLiteral ||
+	if len(complete) != 4 || complete[2].Variable != "PS1" || complete[2].Source != ManifestShellEnvironmentLiteral ||
 		complete[2].Value == nil || *complete[2].Value != "" {
 		t.Fatalf("complete shell environment = %+v", complete)
 	}
-	overrides, err = ApplyContextShellEnvironmentSetting(overrides, ContextShellEnvironmentSetting{
-		Variable: "PS1", Source: ContextShellEnvironmentDefault,
+	overrides, err = ApplyContextShellEnvironmentSetting(overrides, ManifestShellEnvironmentSetting{
+		Variable: "PS1", Source: ManifestShellEnvironmentDefault,
 	})
 	if err != nil || len(overrides) != 0 {
 		t.Fatalf("default shell environment update = %+v, %v", overrides, err)
@@ -157,11 +159,11 @@ func TestContextShellEnvironmentIsAllowlistedAndPreservesExplicitEmptyLiteral(t 
 func TestContextShellEnvironmentRejectsUnsafeOrAmbiguousSettings(t *testing.T) {
 	value := "value"
 	tooLarge := strings.Repeat("x", MaxContextShellValueBytes+1)
-	for name, setting := range map[string]ContextShellEnvironmentSetting{
-		"unlisted variable":     {Variable: "PATH", Source: ContextShellEnvironmentInherit},
-		"inherit with value":    {Variable: "PS1", Source: ContextShellEnvironmentInherit, Value: &value},
-		"literal without value": {Variable: "PS1", Source: ContextShellEnvironmentLiteral},
-		"oversized literal":     {Variable: "PS1", Source: ContextShellEnvironmentLiteral, Value: &tooLarge},
+	for name, setting := range map[string]ManifestShellEnvironmentSetting{
+		"unlisted variable":     {Variable: "PATH", Source: ManifestShellEnvironmentInherit},
+		"inherit with value":    {Variable: "PS1", Source: ManifestShellEnvironmentInherit, Value: &value},
+		"literal without value": {Variable: "PS1", Source: ManifestShellEnvironmentLiteral},
+		"oversized literal":     {Variable: "PS1", Source: ManifestShellEnvironmentLiteral, Value: &tooLarge},
 	} {
 		t.Run(name, func(t *testing.T) {
 			if _, err := ApplyContextShellEnvironmentSetting(nil, setting); err == nil {
@@ -169,9 +171,9 @@ func TestContextShellEnvironmentRejectsUnsafeOrAmbiguousSettings(t *testing.T) {
 			}
 		})
 	}
-	duplicate := []ContextShellEnvironmentSetting{
-		{Variable: "TERM", Source: ContextShellEnvironmentInherit},
-		{Variable: "TERM", Source: ContextShellEnvironmentInherit},
+	duplicate := []ManifestShellEnvironmentSetting{
+		{Variable: "TERM", Source: ManifestShellEnvironmentInherit},
+		{Variable: "TERM", Source: ManifestShellEnvironmentInherit},
 	}
 	if _, err := CompleteContextShellEnvironment(duplicate); err == nil {
 		t.Fatal("duplicate shell environment setting was accepted")
@@ -180,18 +182,18 @@ func TestContextShellEnvironmentRejectsUnsafeOrAmbiguousSettings(t *testing.T) {
 
 func TestContextShellEnvironmentAppliesDistinctStagedChangesAtomically(t *testing.T) {
 	literal := "truecolor"
-	changes := []ContextShellEnvironmentSetting{
-		{Variable: "COLORTERM", Source: ContextShellEnvironmentLiteral, Value: &literal},
-		{Variable: "PS1", Source: ContextShellEnvironmentDefault},
+	changes := []ManifestShellEnvironmentSetting{
+		{Variable: "COLORTERM", Source: ManifestShellEnvironmentLiteral, Value: &literal},
+		{Variable: "PS1", Source: ManifestShellEnvironmentDefault},
 	}
 	result, err := ApplyContextShellEnvironmentSettings(InitialContextShellEnvironment(), changes)
 	if err != nil {
-		t.Fatalf("ApplyContextShellEnvironmentSettings() error = %v", err)
+		t.Fatalf("ApplyWorkspace ManifestShellEnvironmentSettings() error = %v", err)
 	}
 	if len(result) != 1 || result[0].Variable != "COLORTERM" || result[0].Value == nil || *result[0].Value != literal {
 		t.Fatalf("result = %+v", result)
 	}
-	duplicate := append(append([]ContextShellEnvironmentSetting(nil), changes...), changes[0])
+	duplicate := append(append([]ManifestShellEnvironmentSetting(nil), changes...), changes[0])
 	if invalid, err := ApplyContextShellEnvironmentSettings(InitialContextShellEnvironment(), duplicate); err == nil || invalid != nil {
 		t.Fatalf("duplicate staged result/error = %+v / %v", invalid, err)
 	}
@@ -202,16 +204,16 @@ func TestContextShellEnvironmentAppliesDistinctStagedChangesAtomically(t *testin
 
 func TestContextGitIdentityAcceptsAtomicSourcesAndLiteralPair(t *testing.T) {
 	name, email := "Tobari User", "tobari@example.com"
-	for _, setting := range []ContextGitIdentitySetting{
-		{Source: ContextGitIdentityDefault},
-		{Source: ContextGitIdentityInherit},
-		{Source: ContextGitIdentityLiteral, Name: &name, Email: &email},
+	for _, setting := range []ManifestGitIdentitySetting{
+		{Source: ManifestGitIdentityDefault},
+		{Source: ManifestGitIdentityInherit},
+		{Source: ManifestGitIdentityLiteral, Name: &name, Email: &email},
 	} {
 		if err := setting.Validate(true); err != nil {
 			t.Fatalf("valid Git identity rejected: %+v: %v", setting, err)
 		}
 	}
-	if err := (ContextGitIdentitySetting{Source: ContextGitIdentityDefault}).Validate(false); err == nil {
+	if err := (ManifestGitIdentitySetting{Source: ManifestGitIdentityDefault}).Validate(false); err == nil {
 		t.Fatal("default Git identity was accepted as a persisted override")
 	}
 }
@@ -220,14 +222,14 @@ func TestContextGitIdentityRejectsPartialOrUnsafeLiteralValues(t *testing.T) {
 	validName, validEmail := "Tobari User", "tobari@example.com"
 	empty := ""
 	tooLarge := strings.Repeat("x", MaxContextGitIdentityValueBytes+1)
-	for name, setting := range map[string]ContextGitIdentitySetting{
+	for name, setting := range map[string]ManifestGitIdentitySetting{
 		"unknown source":        {Source: "host"},
-		"default with name":     {Source: ContextGitIdentityDefault, Name: &validName},
-		"inherit with email":    {Source: ContextGitIdentityInherit, Email: &validEmail},
-		"literal without name":  {Source: ContextGitIdentityLiteral, Email: &validEmail},
-		"literal without email": {Source: ContextGitIdentityLiteral, Name: &validName},
-		"empty name":            {Source: ContextGitIdentityLiteral, Name: &empty, Email: &validEmail},
-		"oversized email":       {Source: ContextGitIdentityLiteral, Name: &validName, Email: &tooLarge},
+		"default with name":     {Source: ManifestGitIdentityDefault, Name: &validName},
+		"inherit with email":    {Source: ManifestGitIdentityInherit, Email: &validEmail},
+		"literal without name":  {Source: ManifestGitIdentityLiteral, Email: &validEmail},
+		"literal without email": {Source: ManifestGitIdentityLiteral, Name: &validName},
+		"empty name":            {Source: ManifestGitIdentityLiteral, Name: &empty, Email: &validEmail},
+		"oversized email":       {Source: ManifestGitIdentityLiteral, Name: &validName, Email: &tooLarge},
 	} {
 		t.Run(name, func(t *testing.T) {
 			if err := setting.Validate(true); err == nil {
@@ -248,8 +250,8 @@ func TestContextGitIdentityRejectsPartialOrUnsafeLiteralValues(t *testing.T) {
 		"invalid UTF-8":               string([]byte{0xff}),
 	} {
 		t.Run(name, func(t *testing.T) {
-			setting := ContextGitIdentitySetting{
-				Source: ContextGitIdentityLiteral, Name: &validName, Email: &unsafe,
+			setting := ManifestGitIdentitySetting{
+				Source: ManifestGitIdentityLiteral, Name: &validName, Email: &unsafe,
 			}
 			if err := setting.Validate(true); err == nil {
 				t.Fatalf("unsafe Git identity was accepted: %q", unsafe)
@@ -263,26 +265,26 @@ func TestContextManifestPersistsOnlyNonDefaultGitIdentityOverrides(t *testing.T)
 	defaultSetting := DefaultContextGitIdentityReport()
 	manifest.GitIdentity = &defaultSetting
 	if err := manifest.Validate(); err == nil {
-		t.Fatal("current Context manifest persisted a default Git identity setting")
+		t.Fatal("current Workspace Manifest manifest persisted a default Git identity setting")
 	}
 
-	manifest.GitIdentity = &ContextGitIdentitySetting{Source: ContextGitIdentityInherit}
+	manifest.GitIdentity = &ManifestGitIdentitySetting{Source: ManifestGitIdentityInherit}
 	if err := manifest.Validate(); err != nil {
 		t.Fatalf("inherited Git identity override rejected: %v", err)
 	}
-	manifest.SchemaVersion = ContextSchemaVersion + 1
+	manifest.SchemaVersion = WorkspaceManifestSchemaVersion + 1
 	if err := manifest.Validate(); err == nil {
-		t.Fatal("unsupported Context manifest schema accepted")
+		t.Fatal("unsupported Workspace Manifest manifest schema accepted")
 	}
 }
 
 func TestContextRuntimeRecipeValidatesFixedRecipeAndDigests(t *testing.T) {
-	recipe := ContextRuntimeRecipe{
-		Kind:          ContextRuntimeKindDockerfile,
-		File:          ContextRuntimeRecipeFile,
+	recipe := ManifestRuntimeRecipe{
+		Kind:          ManifestRuntimeKindDockerfile,
+		File:          ManifestRuntimeRecipeFile,
 		BaseReference: OfficialRuntimeBase,
 		SourceDigest:  "sha256:" + strings.Repeat("a", 64),
-		LastBuild: &ContextRuntimeBuild{
+		LastBuild: &ManifestRuntimeBuild{
 			Image:        "tobari-context-project-tools:abcdef123456",
 			ImageDigest:  "sha256:" + strings.Repeat("b", 64),
 			SourceDigest: "sha256:" + strings.Repeat("a", 64),
@@ -292,11 +294,11 @@ func TestContextRuntimeRecipeValidatesFixedRecipeAndDigests(t *testing.T) {
 		t.Fatalf("valid runtime recipe rejected: %v", err)
 	}
 
-	for name, mutate := range map[string]func(*ContextRuntimeRecipe){
-		"wrong kind":     func(value *ContextRuntimeRecipe) { value.Kind = ContextRuntimeKindOfficial },
-		"wrong file":     func(value *ContextRuntimeRecipe) { value.File = "runtime/custom.Dockerfile" },
-		"invalid base":   func(value *ContextRuntimeRecipe) { value.BaseReference = "builtin" },
-		"invalid digest": func(value *ContextRuntimeRecipe) { value.SourceDigest = "sha256:short" },
+	for name, mutate := range map[string]func(*ManifestRuntimeRecipe){
+		"wrong kind":     func(value *ManifestRuntimeRecipe) { value.Kind = ManifestRuntimeKindOfficial },
+		"wrong file":     func(value *ManifestRuntimeRecipe) { value.File = "runtime/custom.Dockerfile" },
+		"invalid base":   func(value *ManifestRuntimeRecipe) { value.BaseReference = "builtin" },
+		"invalid digest": func(value *ManifestRuntimeRecipe) { value.SourceDigest = "sha256:short" },
 	} {
 		t.Run(name, func(t *testing.T) {
 			candidate := recipe
@@ -309,8 +311,8 @@ func TestContextRuntimeRecipeValidatesFixedRecipeAndDigests(t *testing.T) {
 }
 
 func TestContextReportAcceptsRuntimeTasksAndStatuses(t *testing.T) {
-	report := ContextRuntimeReport{
-		Kind: ContextRuntimeKindDockerfile, Status: ContextRuntimeStatusPendingBuild,
+	report := ManifestRuntimeReport{
+		Kind: ManifestRuntimeKindDockerfile, Status: ManifestRuntimeStatusPendingBuild,
 		Dockerfile:    filepath.Join(string(filepath.Separator), "config", "contexts", "default", "runtime", "Dockerfile"),
 		BaseReference: OfficialRuntimeBase,
 		SourceDigest:  "sha256:" + strings.Repeat("a", 64),
@@ -319,40 +321,42 @@ func TestContextReportAcceptsRuntimeTasksAndStatuses(t *testing.T) {
 		t.Fatalf("valid runtime report rejected: %v", err)
 	}
 	manifest := validContextManifest()
-	manifest.Runtime = &ContextRuntimeRecipe{Kind: ContextRuntimeKindDockerfile, File: ContextRuntimeRecipeFile, BaseReference: OfficialRuntimeBase}
-	contextReport := ContextReport{
-		Task: TaskRuntimeBuild, ContextState: ContextObservationPersisted, ID: manifest.ID, Name: manifest.Name, Active: true,
+	manifest.Runtime = &ManifestRuntimeRecipe{Kind: ManifestRuntimeKindDockerfile, File: ManifestRuntimeRecipeFile, BaseReference: OfficialRuntimeBase}
+	contextReport := ManifestReport{
+		Task: TaskRuntimeBuild, ManifestState: ManifestObservationPersisted, ID: manifest.ID, Name: manifest.Name, Default: true,
+		Desired:      testManifestDesiredRevision(),
 		AgentProfile: manifest.AgentProfile, Image: manifest.Image, PolicyMode: manifest.PolicyMode,
 		SourceAccess:   manifest.SourceAccess,
-		PolicyRevision: manifest.PolicyRevision, MethodPolicy: ContextMethodPolicy{Default: ContextMethodExactReview, Overrides: []ContextMethodOverride{}},
-		Cluster: ContextClusterStatusNotApplicable,
-		Stores: ContextStorePaths{
+		PolicyRevision: manifest.PolicyRevision, MethodPolicy: ManifestMethodPolicy{Default: ManifestMethodExactReview, Overrides: []ManifestMethodOverride{}},
+		Cluster: ManifestClusterStatusNotApplicable,
+		Stores: ManifestStorePaths{
 			PolicyDirectory: filepath.Join(string(filepath.Separator), "config", "contexts", "default", "policy"),
 		},
 		Runtime:          report,
 		ShellEnvironment: mustCompleteContextShellEnvironment(t, nil),
 		GitIdentity:      DefaultContextGitIdentityReport(),
-		Authentication:   ContextAuthentication{BrokerState: ContextAuthBrokerNotApplicable},
+		Authentication:   ManifestAuthentication{BrokerState: ManifestAuthBrokerNotApplicable},
 	}
 	if err := contextReport.Validate(); err != nil {
-		t.Fatalf("valid runtime Context report rejected: %v", err)
+		t.Fatalf("valid runtime Workspace Manifest report rejected: %v", err)
 	}
 }
 
 func TestContextReportAcceptsConfigurationTasksAndRequiresCompleteGitIdentity(t *testing.T) {
 	manifest := validContextManifest()
-	base := ContextReport{
-		ContextState: ContextObservationPersisted, ID: manifest.ID, Name: manifest.Name, AgentProfile: manifest.AgentProfile,
-		Image: manifest.Image, PolicyMode: manifest.PolicyMode, SourceAccess: manifest.SourceAccess,
-		PolicyRevision: manifest.PolicyRevision, MethodPolicy: ContextMethodPolicy{Default: ContextMethodExactReview, Overrides: []ContextMethodOverride{}},
+	base := ManifestReport{
+		ManifestState: ManifestObservationPersisted, ID: manifest.ID, Name: manifest.Name, AgentProfile: manifest.AgentProfile,
+		Desired: testManifestDesiredRevision(),
+		Image:   manifest.Image, PolicyMode: manifest.PolicyMode, SourceAccess: manifest.SourceAccess,
+		PolicyRevision: manifest.PolicyRevision, MethodPolicy: ManifestMethodPolicy{Default: ManifestMethodExactReview, Overrides: []ManifestMethodOverride{}},
 		ShellEnvironment: mustCompleteContextShellEnvironment(t, nil),
 		GitIdentity:      DefaultContextGitIdentityReport(),
-		Stores: ContextStorePaths{
+		Stores: ManifestStorePaths{
 			PolicyDirectory: filepath.Join(string(filepath.Separator), "config", "contexts", "default", "policy"),
 		},
-		Runtime:        ContextRuntimeReport{Kind: ContextRuntimeKindOfficial, Status: ContextRuntimeStatusOfficial},
-		Cluster:        ContextClusterStatusNotApplicable,
-		Authentication: ContextAuthentication{BrokerState: ContextAuthBrokerNotApplicable},
+		Runtime:        ManifestRuntimeReport{Kind: ManifestRuntimeKindOfficial, Status: ManifestRuntimeStatusOfficial},
+		Cluster:        ManifestClusterStatusNotApplicable,
+		Authentication: ManifestAuthentication{BrokerState: ManifestAuthBrokerNotApplicable},
 	}
 	for _, task := range []string{TaskConfigShell, TaskConfigGit} {
 		report := base
@@ -362,13 +366,13 @@ func TestContextReportAcceptsConfigurationTasksAndRequiresCompleteGitIdentity(t 
 		}
 	}
 	base.Task = TaskConfigGit
-	base.GitIdentity = ContextGitIdentitySetting{}
+	base.GitIdentity = ManifestGitIdentitySetting{}
 	if err := base.Validate(); err == nil {
-		t.Fatal("Context report without an explicit Git identity source was accepted")
+		t.Fatal("Workspace Manifest report without an explicit Git identity source was accepted")
 	}
 }
 
-func mustCompleteContextShellEnvironment(t *testing.T, overrides []ContextShellEnvironmentSetting) []ContextShellEnvironmentSetting {
+func mustCompleteContextShellEnvironment(t *testing.T, overrides []ManifestShellEnvironmentSetting) []ManifestShellEnvironmentSetting {
 	t.Helper()
 	result, err := CompleteContextShellEnvironment(overrides)
 	if err != nil {
@@ -378,107 +382,162 @@ func mustCompleteContextShellEnvironment(t *testing.T, overrides []ContextShellE
 }
 
 func TestContextClusterStatusValidatesKnownOutcomes(t *testing.T) {
-	for _, status := range []ContextClusterStatus{
-		ContextClusterStatusNotApplicable, ContextClusterStatusNotConfigured,
-		ContextClusterStatusNotRunning, ContextClusterStatusAlreadyReady,
-		ContextClusterStatusReconciled,
+	for _, status := range []ManifestClusterStatus{
+		ManifestClusterStatusNotApplicable, ManifestClusterStatusNotConfigured,
+		ManifestClusterStatusNotRunning, ManifestClusterStatusAlreadyReady,
+		ManifestClusterStatusReconciled,
 	} {
 		if err := status.Validate(); err != nil {
 			t.Fatalf("status %q rejected: %v", status, err)
 		}
 	}
-	if err := ContextClusterStatus("failed").Validate(); err == nil {
-		t.Fatal("unknown Context cluster status was accepted")
+	if err := ManifestClusterStatus("failed").Validate(); err == nil {
+		t.Fatal("unknown Workspace Manifest cluster status was accepted")
 	}
 }
 
 func TestContextListRequiresOneMatchingActiveItem(t *testing.T) {
-	items := []ContextSummary{
-		{ID: "018bcfe5-687b-7000-8000-000000000000", Name: "default", ContextState: ContextObservationPersisted, Active: true, AgentProfile: DefaultProfile, Image: OfficialRuntimeBase, PolicyMode: ContextPolicyModeGuided, SourceAccess: ContextSourceAccessReadWrite, PolicyRevision: DefaultContextPolicyRevision(), MethodPolicy: ContextMethodPolicy{Default: ContextMethodExactReview, Overrides: []ContextMethodOverride{}}, RuntimeStatus: ContextRuntimeStatusOfficial, RuntimeSelection: StandardRuntimeName + "@1"},
-		{ID: "018bcfe5-687b-7000-8000-000000000001", Name: "project-tools", ContextState: ContextObservationPersisted, AgentProfile: DefaultProfile, Image: OfficialRuntimeBase, PolicyMode: ContextPolicyModeAdvanced, SourceAccess: ContextSourceAccessReadOnly, PolicyRevision: DefaultContextPolicyRevision(), MethodPolicy: ContextMethodPolicy{Default: ContextMethodExactReview, Overrides: []ContextMethodOverride{}}, RuntimeStatus: ContextRuntimeStatusOfficial, RuntimeSelection: StandardRuntimeName + "@1"},
+	items := []ManifestSummary{
+		{ID: "018bcfe5-687b-7000-8000-000000000000", Name: "default", ManifestState: ManifestObservationPersisted, Default: true, AgentProfile: DefaultProfile, Image: OfficialRuntimeBase, PolicyMode: ManifestPolicyModeGuided, SourceAccess: ManifestSourceAccessReadWrite, PolicyRevision: DefaultContextPolicyRevision(), MethodPolicy: ManifestMethodPolicy{Default: ManifestMethodExactReview, Overrides: []ManifestMethodOverride{}}, RuntimeStatus: ManifestRuntimeStatusOfficial, RuntimeSelection: StandardRuntimeName + "@1"},
+		{ID: "018bcfe5-687b-7000-8000-000000000001", Name: "project-tools", ManifestState: ManifestObservationPersisted, AgentProfile: DefaultProfile, Image: OfficialRuntimeBase, PolicyMode: ManifestPolicyModeAdvanced, SourceAccess: ManifestSourceAccessReadOnly, PolicyRevision: DefaultContextPolicyRevision(), MethodPolicy: ManifestMethodPolicy{Default: ManifestMethodExactReview, Overrides: []ManifestMethodOverride{}}, RuntimeStatus: ManifestRuntimeStatusOfficial, RuntimeSelection: StandardRuntimeName + "@1"},
 	}
-	result := ContextListResult{Task: TaskContextList, ContextState: ContextObservationPersisted, Active: "default", Items: items}
+	for index := range items {
+		items[index].Desired = testManifestDesiredRevision()
+	}
+	result := ManifestListResult{Task: TaskManifestList, ManifestState: ManifestObservationPersisted, DefaultManifestID: items[0].ID, DefaultManifest: "default", Items: items}
 	if err := result.Validate(); err != nil {
-		t.Fatalf("valid Context list rejected: %v", err)
+		t.Fatalf("valid Workspace Manifest list rejected: %v", err)
 	}
 
-	items[0].Active = false
-	if err := (ContextListResult{Task: TaskContextList, ContextState: ContextObservationPersisted, Active: "default", Items: items}).Validate(); err == nil {
-		t.Fatal("Context list without an active item was accepted")
+	items[0].Default = false
+	if err := (ManifestListResult{Task: TaskManifestList, ManifestState: ManifestObservationPersisted, DefaultManifestID: items[0].ID, DefaultManifest: "default", Items: items}).Validate(); err == nil {
+		t.Fatal("Workspace Manifest list without an active item was accepted")
 	}
-	items[0].Active = true
-	items[1].Active = true
-	if err := (ContextListResult{Task: TaskContextList, ContextState: ContextObservationPersisted, Active: "default", Items: items}).Validate(); err == nil {
-		t.Fatal("Context list with two active items was accepted")
+	items[0].Default = true
+	items[1].Default = true
+	if err := (ManifestListResult{Task: TaskManifestList, ManifestState: ManifestObservationPersisted, DefaultManifestID: items[0].ID, DefaultManifest: "default", Items: items}).Validate(); err == nil {
+		t.Fatal("Workspace Manifest list with two active items was accepted")
 	}
 }
 
-func TestContextListAllowsOnlyExplicitSyntheticDefaultWithoutAuthority(t *testing.T) {
+func testManifestDesiredRevision() WorkspaceManifestRevision {
+	digest := "sha256:" + strings.Repeat("f", 64)
+	return WorkspaceManifestRevision{
+		Generation: 1, Revision: digest, BoundaryRevision: digest,
+		ClusterProjectionRevision: digest, EntryRevision: digest,
+		SessionDefaultsRevision: digest, CreationDefaultsRevision: digest,
+	}
+}
+
+func TestWorkspaceManifestPublicationBindsCanonicalBodyAndGeneration(t *testing.T) {
+	manifest := WorkspaceManifest{
+		SchemaVersion: WorkspaceManifestSchemaVersion,
+		ID:            "018bcfe5-687b-7000-8000-000000000000", Name: "default",
+		AgentProfile: DefaultProfile, Image: OfficialRuntimeBase,
+		PolicyMode: ManifestPolicyModeGuided, SourceAccess: ManifestSourceAccessReadWrite,
+		PolicyRevision:   DefaultContextPolicyRevision(),
+		RuntimeBinding:   &RuntimeBinding{RuntimeID: StandardRuntimeID, Name: StandardRuntimeName, Revision: "sha256:" + strings.Repeat("a", 64), Ordinal: 1, Image: OfficialRuntimeBase},
+		ShellEnvironment: InitialContextShellEnvironment(),
+	}
+	published, err := PublishWorkspaceManifest(manifest, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := published.ValidatePublished(); err != nil {
+		t.Fatalf("published Manifest = %+v, error = %v", published.Desired, err)
+	}
+	noOp, err := PublishWorkspaceManifest(published, &published)
+	if err != nil || noOp.Desired != published.Desired {
+		t.Fatalf("semantic no-op changed correlation generation or digest: before=%+v after=%+v err=%v", published.Desired, noOp.Desired, err)
+	}
+	value := "xterm-256color"
+	updated := published
+	updated.ShellEnvironment = []ManifestShellEnvironmentSetting{{Variable: "TERM", Source: ManifestShellEnvironmentLiteral, Value: &value}}
+	updated, err = PublishWorkspaceManifest(updated, &published)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Desired.Generation != 2 || updated.Desired.SessionDefaultsRevision == published.Desired.SessionDefaultsRevision {
+		t.Fatalf("updated revision = %+v, previous = %+v", updated.Desired, published.Desired)
+	}
+	if err := updated.ValidatePublished(); err != nil {
+		t.Fatalf("updated Manifest = %+v, error = %v", updated.Desired, err)
+	}
+	reverted := updated
+	reverted.ShellEnvironment = published.ShellEnvironment
+	reverted, err = PublishWorkspaceManifest(reverted, &updated)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reverted.Desired.Generation != 3 || reverted.Desired.Revision != published.Desired.Revision {
+		t.Fatalf("A-B-A history must retain semantic authority while advancing correlation: A=%+v B=%+v A2=%+v", published.Desired, updated.Desired, reverted.Desired)
+	}
+}
+
+func TestManifestListAllowsAnAbsentDefaultWithoutAuthority(t *testing.T) {
 	t.Parallel()
-	result := ContextListResult{
-		Task: TaskContextList, ContextState: ContextObservationSyntheticDefault,
-		Active: DefaultContextName, Items: []ContextSummary{},
+	result := ManifestListResult{
+		Task: TaskManifestList, ManifestState: ManifestObservationAbsent, Items: []ManifestSummary{},
 	}
 	if err := result.Validate(); err != nil {
-		t.Fatalf("synthetic Context list = %v", err)
+		t.Fatalf("synthetic Workspace Manifest list = %v", err)
 	}
-	result.Items = []ContextSummary{{
-		ID: "018bcfe5-687b-7000-8000-000000000000", Name: DefaultContextName,
-		ContextState: ContextObservationPersisted, Active: true, AgentProfile: DefaultProfile,
-		Image: OfficialRuntimeBase, PolicyMode: ContextPolicyModeGuided,
+	result.Items = []ManifestSummary{{
+		ID: "018bcfe5-687b-7000-8000-000000000000", Name: DefaultManifestName,
+		ManifestState: ManifestObservationPersisted, Default: true, AgentProfile: DefaultProfile,
+		Image: OfficialRuntimeBase, PolicyMode: ManifestPolicyModeGuided,
 	}}
 	if err := result.Validate(); err == nil {
-		t.Fatal("synthetic Context list accepted a configured item")
+		t.Fatal("synthetic Workspace Manifest list accepted a configured item")
 	}
 }
 
 func TestContextListRequiresTopLevelStateToMatchActiveItem(t *testing.T) {
 	t.Parallel()
-	result := ContextListResult{
-		Task: TaskContextList, ContextState: ContextObservationSyntheticDefault,
-		Active: DefaultContextName,
-		Items: []ContextSummary{{
-			ID: "018bcfe5-687b-7000-8000-000000000000", Name: DefaultContextName,
-			ContextState: ContextObservationPersisted, Active: true, AgentProfile: DefaultProfile,
-			Image: OfficialRuntimeBase, PolicyMode: ContextPolicyModeGuided, SourceAccess: ContextSourceAccessReadWrite,
+	result := ManifestListResult{
+		Task: TaskManifestList, ManifestState: ManifestObservationAbsent,
+		Items: []ManifestSummary{{
+			ID: "018bcfe5-687b-7000-8000-000000000000", Name: DefaultManifestName,
+			ManifestState: ManifestObservationPersisted, Default: true, AgentProfile: DefaultProfile,
+			Image: OfficialRuntimeBase, PolicyMode: ManifestPolicyModeGuided, SourceAccess: ManifestSourceAccessReadWrite,
 		}},
 	}
 	if err := result.Validate(); err == nil {
-		t.Fatal("Context list accepted a top-level state different from its active item")
+		t.Fatal("Workspace Manifest list accepted a top-level state different from its active item")
 	}
 }
 
-func TestSyntheticContextReportCannotClaimAuthorityOrStores(t *testing.T) {
+func TestAbsentManifestReportCannotClaimAuthorityOrStores(t *testing.T) {
 	t.Parallel()
-	report := ContextReport{
-		Task: TaskContextShow, ContextState: ContextObservationSyntheticDefault,
-		Name: DefaultContextName, Active: true, AgentProfile: DefaultProfile,
-		Image: OfficialRuntimeBase, PolicyMode: ContextPolicyModeGuided, SourceAccess: ContextSourceAccessReadWrite,
-		MethodPolicy:     ContextMethodPolicy{Default: ContextMethodExactReview, Overrides: []ContextMethodOverride{}},
+	report := ManifestReport{
+		Task: TaskManifestShow, ManifestState: ManifestObservationAbsent,
+		Name: DefaultManifestName, Default: true, AgentProfile: DefaultProfile,
+		Image: OfficialRuntimeBase, PolicyMode: ManifestPolicyModeGuided, SourceAccess: ManifestSourceAccessReadWrite,
+		MethodPolicy:     ManifestMethodPolicy{Default: ManifestMethodExactReview, Overrides: []ManifestMethodOverride{}},
 		ShellEnvironment: DefaultContextShellEnvironmentReport(),
 		GitIdentity:      DefaultContextGitIdentityReport(),
-		Runtime:          ContextRuntimeReport{Kind: ContextRuntimeKindOfficial, Status: ContextRuntimeStatusOfficial, BaseReference: OfficialRuntimeBase},
-		Cluster:          ContextClusterStatusNotApplicable,
-		Authentication:   ContextAuthentication{BrokerState: ContextAuthBrokerUnavailable, Providers: []ContextAuthProvider{}},
+		Runtime:          ManifestRuntimeReport{Kind: ManifestRuntimeKindOfficial, Status: ManifestRuntimeStatusOfficial, BaseReference: OfficialRuntimeBase},
+		Cluster:          ManifestClusterStatusNotApplicable,
+		Authentication:   ManifestAuthentication{BrokerState: ManifestAuthBrokerUnavailable, Providers: []ManifestAuthProvider{}},
 	}
-	if err := report.Validate(); err != nil {
-		t.Fatalf("synthetic Context report = %v", err)
+	if err := report.Validate(); err == nil {
+		t.Fatal("absent Manifest report claimed authority")
 	}
 	report.ID = "018bcfe5-687b-7000-8000-000000000000"
 	if err := report.Validate(); err == nil {
-		t.Fatal("synthetic Context report accepted an authority ID")
+		t.Fatal("synthetic Workspace Manifest report accepted an authority ID")
 	}
 }
 
 func TestContextStorePathsRequireCanonicalAbsolutePaths(t *testing.T) {
-	paths := ContextStorePaths{
+	paths := ManifestStorePaths{
 		PolicyDirectory: filepath.Join(string(filepath.Separator), "config", "contexts", "default", "policy"),
 	}
 	if err := paths.Validate(); err != nil {
-		t.Fatalf("valid Context stores rejected: %v", err)
+		t.Fatalf("valid Workspace Manifest stores rejected: %v", err)
 	}
 	paths.PolicyDirectory = "relative/policy"
 	if err := paths.Validate(); err == nil {
-		t.Fatal("relative Context store path was accepted")
+		t.Fatal("relative Workspace Manifest store path was accepted")
 	}
 }

@@ -135,17 +135,17 @@ func TestDelimiterLedRootInvocationDispatchesExactChildArgv(t *testing.T) {
 	spec.handler = func(_ context.Context, _ *CLI, _ CommandSpec, _ operation.Intent, inputs ParsedInputs) int {
 		calls++
 		got = inputs.Values("command")
-		gotContext = inputs.One("--context")
+		gotContext = inputs.One("--manifest")
 		return 37
 	}
 	command := newCLI(strings.NewReader(""), io.Discard, io.Discard, catalogWithProjectSpec(spec), nil)
-	argv := []string{"--context", "toolbox", "--", "claude", "--model", "", "--model", "-value"}
+	argv := []string{"--manifest", "toolbox", "--", "claude", "--model", "", "--model", "-value"}
 	if code := command.RunContext(context.Background(), argv); code != 37 {
 		t.Fatalf("delimiter-led root exit = %d, want child 37", code)
 	}
 	want := []string{"claude", "--model", "", "--model", "-value"}
 	if calls != 1 || gotContext != "toolbox" || !reflect.DeepEqual(got, want) {
-		t.Fatalf("handler calls=%d Context=%q argv=%q, want toolbox and exact %q", calls, gotContext, got, want)
+		t.Fatalf("handler calls=%d Workspace Manifest=%q argv=%q, want toolbox and exact %q", calls, gotContext, got, want)
 	}
 }
 
@@ -165,7 +165,7 @@ func TestDirectRootCommandInvalidFormsFailBeforeHandler(t *testing.T) {
 			var stderr bytes.Buffer
 			command := newCLI(strings.NewReader(""), io.Discard, &stderr, catalogWithProjectSpec(spec), nil)
 			if code := command.RunContext(context.Background(), argv); code != ExitUsage {
-				t.Fatalf("RunContext(%q) = %d, stderr=%q", argv, code, stderr.String())
+				t.Fatalf("RunWorkspace Manifest(%q) = %d, stderr=%q", argv, code, stderr.String())
 			}
 		})
 	}
@@ -211,7 +211,7 @@ func TestLifecycleInvocationContextNormalizesPrefixAndRejectsDuplicates(t *testi
 			}{
 				{name: "omitted"},
 				{name: "prefix", root: "toolbox", want: "toolbox"},
-				{name: "command local", rest: []string{"--context", "toolbox"}, want: "toolbox"},
+				{name: "command local", rest: []string{"--manifest", "toolbox"}, want: "toolbox"},
 			} {
 				t.Run(test.name, func(t *testing.T) {
 					normalized := normalizeLifecycleContextInput(command, test.root, test.rest)
@@ -219,15 +219,15 @@ func TestLifecycleInvocationContextNormalizesPrefixAndRejectsDuplicates(t *testi
 					if err != nil {
 						t.Fatal(err)
 					}
-					if got := inputs.One("--context"); got != test.want {
-						t.Fatalf("normalized Context = %q, want %q (argv=%v)", got, test.want, normalized)
+					if got := inputs.One("--manifest"); got != test.want {
+						t.Fatalf("normalized Workspace Manifest = %q, want %q (argv=%v)", got, test.want, normalized)
 					}
 				})
 			}
 
-			duplicates := normalizeLifecycleContextInput(command, "toolbox", []string{"--context", "default"})
+			duplicates := normalizeLifecycleContextInput(command, "toolbox", []string{"--manifest", "default"})
 			if _, err := parseCommandInputs(command, duplicates); err == nil || !strings.Contains(err.Error(), "may be specified only once") {
-				t.Fatalf("duplicate normalized Context error = %v (argv=%v)", err, duplicates)
+				t.Fatalf("duplicate normalized Workspace Manifest error = %v (argv=%v)", err, duplicates)
 			}
 		})
 	}
@@ -236,7 +236,7 @@ func TestLifecycleInvocationContextNormalizesPrefixAndRejectsDuplicates(t *testi
 func TestInvocationContextPrefixRemainsOutsideNonLifecycleCommands(t *testing.T) {
 	t.Parallel()
 	command := utilitySpec("probe")
-	rest := []string{"--context", "default"}
+	rest := []string{"--manifest", "default"}
 	got := normalizeLifecycleContextInput(command, "fallback", rest)
 	if strings.Join(got, "\x00") != strings.Join(rest, "\x00") {
 		t.Fatalf("non-lifecycle argv = %v, want %v", got, rest)
@@ -247,22 +247,22 @@ func TestLifecyclePrefixAndCommandLocalPlacementReachHandlerIdentically(t *testi
 	t.Parallel()
 	var seen []string
 	spec := utilitySpec("probe")
-	spec.Args = "[--context <name>]"
+	spec.Args = "[--manifest <name>]"
 	spec.Agent.CapabilityID = "tobari.lifecycle"
 	spec.Agent.Inputs = []CommandInput{lifecycleContextInput()}
 	spec.handler = func(_ context.Context, _ *CLI, _ CommandSpec, _ operation.Intent, inputs ParsedInputs) int {
-		seen = append(seen, inputs.One("--context"))
+		seen = append(seen, inputs.One("--manifest"))
 		return ExitOK
 	}
 	command := newCLI(strings.NewReader(""), io.Discard, io.Discard, NewCatalog(spec), nil)
-	if code := command.RunContext(context.Background(), []string{"--context", "toolbox", "probe"}); code != ExitOK {
+	if code := command.RunContext(context.Background(), []string{"--manifest", "toolbox", "probe"}); code != ExitOK {
 		t.Fatalf("prefix code = %d", code)
 	}
-	if code := command.RunContext(context.Background(), []string{"probe", "--context", "toolbox"}); code != ExitOK {
+	if code := command.RunContext(context.Background(), []string{"probe", "--manifest", "toolbox"}); code != ExitOK {
 		t.Fatalf("command-local code = %d", code)
 	}
 	if strings.Join(seen, ",") != "toolbox,toolbox" {
-		t.Fatalf("handler Contexts = %v", seen)
+		t.Fatalf("handler Workspace Manifests = %v", seen)
 	}
 }
 
@@ -270,7 +270,7 @@ func TestLifecycleContextDuplicateAndEmptyFailBeforeHandler(t *testing.T) {
 	t.Parallel()
 	calls := 0
 	spec := utilitySpec("probe")
-	spec.Args = "[--context <name>]"
+	spec.Args = "[--manifest <name>]"
 	spec.Agent.CapabilityID = "tobari.lifecycle"
 	spec.Agent.Inputs = []CommandInput{lifecycleContextInput()}
 	spec.handler = func(context.Context, *CLI, CommandSpec, operation.Intent, ParsedInputs) int {
@@ -278,11 +278,11 @@ func TestLifecycleContextDuplicateAndEmptyFailBeforeHandler(t *testing.T) {
 		return ExitOK
 	}
 	for _, args := range [][]string{
-		{"probe", "--context="},
-		{"probe", "--context", ""},
-		{"--context=", "probe"},
-		{"--context", "", "probe"},
-		{"--context", "toolbox", "probe", "--context", "default"},
+		{"probe", "--manifest="},
+		{"probe", "--manifest", ""},
+		{"--manifest=", "probe"},
+		{"--manifest", "", "probe"},
+		{"--manifest", "toolbox", "probe", "--manifest", "default"},
 	} {
 		var stderr bytes.Buffer
 		command := newCLI(strings.NewReader(""), io.Discard, &stderr, NewCatalog(spec), nil)
@@ -291,7 +291,7 @@ func TestLifecycleContextDuplicateAndEmptyFailBeforeHandler(t *testing.T) {
 		}
 	}
 	if calls != 0 {
-		t.Fatalf("invalid Context reached handler %d times", calls)
+		t.Fatalf("invalid Workspace Manifest reached handler %d times", calls)
 	}
 }
 
@@ -487,7 +487,7 @@ func TestRunContextPropagatesExactContext(t *testing.T) {
 	inspector := passingInspector("unused")
 	command, _, stderr := newTestCLI(inspector)
 	if code := command.RunContext(ctx, []string{"doctor"}); code != ExitOK {
-		t.Fatalf("RunContext() code = %d, stderr = %q", code, stderr.String())
+		t.Fatalf("RunWorkspace Manifest() code = %d, stderr = %q", code, stderr.String())
 	}
 	if inspector.ctx == nil || inspector.ctx.Value(contextKey("trace")) != "value" {
 		t.Fatalf("inspector context = %#v", inspector.ctx)
@@ -498,7 +498,7 @@ func TestRunContextRejectsNilContextWithoutDownstreamCall(t *testing.T) {
 	inspector := passingInspector("unused")
 	command, stdout, stderr := newTestCLI(inspector)
 	if code := command.RunContext(nil, []string{"doctor"}); code != ExitContract {
-		t.Fatalf("RunContext(nil) code = %d, want %d", code, ExitContract)
+		t.Fatalf("RunWorkspace Manifest(nil) code = %d, want %d", code, ExitContract)
 	}
 	if inspector.calls != 0 || stdout.Len() != 0 || !humanOutputHasRow(stderr.String(), "Code", "missing_context") {
 		t.Fatalf("calls = %d, stdout = %q, stderr = %q", inspector.calls, stdout.String(), stderr.String())
@@ -511,7 +511,7 @@ func TestCanceledContextStopsBeforeDownstreamCall(t *testing.T) {
 	inspector := passingInspector("unused")
 	command, stdout, stderr := newTestCLI(inspector)
 	if code := command.RunContext(ctx, []string{"doctor"}); code != ExitCanceled {
-		t.Fatalf("RunContext() code = %d, stderr = %q", code, stderr.String())
+		t.Fatalf("RunWorkspace Manifest() code = %d, stderr = %q", code, stderr.String())
 	}
 	if inspector.calls != 0 || stdout.Len() != 0 || !humanOutputHasRow(stderr.String(), "Code", "operation_canceled") {
 		t.Fatalf("calls = %d, stdout = %q, stderr = %q", inspector.calls, stdout.String(), stderr.String())
@@ -523,7 +523,7 @@ func TestCanceledContextHonorsGlobalJSONErrorFormat(t *testing.T) {
 	cancel()
 	command, stdout, stderr := newTestCLI(passingInspector("unused"))
 	if code := command.RunContext(ctx, []string{"--error-format=json", "doctor"}); code != ExitCanceled {
-		t.Fatalf("RunContext() code = %d, stderr = %q", code, stderr.String())
+		t.Fatalf("RunWorkspace Manifest() code = %d, stderr = %q", code, stderr.String())
 	}
 	if stdout.Len() != 0 || !json.Valid(stderr.Bytes()) || !strings.Contains(stderr.String(), `"code":"operation_canceled"`) {
 		t.Fatalf("stdout = %q, stderr = %q", stdout.String(), stderr.String())
@@ -600,7 +600,7 @@ func TestCatalogBoundMutationFinalizerCannotBeDowngradedByHandler(t *testing.T) 
 		ctx, cancel := context.WithCancel(context.Background())
 		cancelInvocation = cancel
 		if code := command.RunContext(ctx, []string{"items", "update", "--id=-opaque-item"}); code != ExitOK {
-			t.Fatalf("RunContext() code = %d, stderr = %q", code, stderr.String())
+			t.Fatalf("RunWorkspace Manifest() code = %d, stderr = %q", code, stderr.String())
 		}
 		if stdout.String() != "confirmed mutation result\n" || stderr.Len() != 0 {
 			t.Fatalf("stdout = %q, stderr = %q", stdout.String(), stderr.String())
@@ -613,7 +613,7 @@ func TestCatalogBoundMutationFinalizerCannotBeDowngradedByHandler(t *testing.T) 
 		ctx, cancel := context.WithCancel(context.Background())
 		cancelInvocation = cancel
 		if code := command.RunContext(ctx, []string{"items", "update", "--id=-opaque-item"}); code != ExitInternal {
-			t.Fatalf("RunContext() code = %d, stderr = %q", code, stderr.String())
+			t.Fatalf("RunWorkspace Manifest() code = %d, stderr = %q", code, stderr.String())
 		}
 		if !humanOutputHasRow(stderr.String(), "Code", "mutation_output_write_failed") ||
 			!humanOutputHasRow(stderr.String(), "Phase", "presentation") ||
@@ -761,7 +761,7 @@ func TestRateLimitTimingPresentationDoesNotAuthorizeRetry(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	command := newCLI(strings.NewReader(""), &stdout, &stderr, mutationCatalog, passingInspector("unused"))
 	if code := command.RunContext(context.Background(), []string{"--error-format=json", "items", "update", "--id", "item-1"}); code != ExitRateLimited {
-		t.Fatalf("RunContext() code = %d, stderr = %q", code, stderr.String())
+		t.Fatalf("RunWorkspace Manifest() code = %d, stderr = %q", code, stderr.String())
 	}
 	if stdout.Len() != 0 {
 		t.Fatalf("stdout = %q", stdout.String())
@@ -798,7 +798,7 @@ func TestRateLimitTimingPresentationDoesNotAuthorizeRetry(t *testing.T) {
 	stderr.Reset()
 	command = newCLI(strings.NewReader(""), &stdout, &stderr, readCatalog, passingInspector("unused"))
 	if code := command.RunContext(context.Background(), []string{"--error-format=json", "provider", "inspect"}); code != ExitRateLimited {
-		t.Fatalf("RunContext() unknown timing code = %d, stderr = %q", code, stderr.String())
+		t.Fatalf("RunWorkspace Manifest() unknown timing code = %d, stderr = %q", code, stderr.String())
 	}
 	var unknownDocument errorDocument
 	if err := json.Unmarshal(stderr.Bytes(), &unknownDocument); err != nil {

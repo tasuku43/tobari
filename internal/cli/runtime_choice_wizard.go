@@ -15,7 +15,7 @@ const (
 )
 
 type runtimeChoiceWizard interface {
-	Choose(context.Context, tobari.ContextReport, io.Reader, io.Writer) (runtimeChoice, error)
+	Choose(context.Context, tobari.ManifestReport, io.Reader, io.Writer) (runtimeChoice, error)
 }
 
 type terminalRuntimeChoiceWizard struct {
@@ -27,7 +27,7 @@ func newRuntimeChoiceWizardWithStyle(style bool) *terminalRuntimeChoiceWizard {
 }
 
 func (w *terminalRuntimeChoiceWizard) Choose(
-	ctx context.Context, report tobari.ContextReport, in io.Reader, out io.Writer,
+	ctx context.Context, report tobari.ManifestReport, in io.Reader, out io.Writer,
 ) (runtimeChoice, error) {
 	chooser := w.chooser
 	if chooser == nil {

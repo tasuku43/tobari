@@ -353,7 +353,7 @@ func assertGitIdentityResolutionFault(t *testing.T, err error) {
 	if !errors.As(err, &structured) || structured.Code != "git_identity_resolution_failed" || structured.Retryable {
 		t.Fatalf("error = %#v, want non-retryable git_identity_resolution_failed", err)
 	}
-	if len(structured.NextActions) != 1 || structured.NextActions[0].Command != "context show" {
+	if len(structured.NextActions) != 1 || structured.NextActions[0].Command != "manifest show" {
 		t.Fatalf("next actions = %#v, want context show", structured.NextActions)
 	}
 }

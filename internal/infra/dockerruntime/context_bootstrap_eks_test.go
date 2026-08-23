@@ -143,9 +143,9 @@ func TestDiscoverEKSBootstrapsSeparatesCompatibleAndProfileMismatchCandidates(t 
 	}
 	states := map[string]string{}
 	for _, candidate := range result.Candidates {
-		states[candidate.ContextName] = candidate.State
+		states[candidate.WorkspaceManifestName] = candidate.State
 	}
-	if states["engineering"] != tobari.ContextBootstrapCandidateAvailable || states["mismatch"] != tobari.ContextBootstrapCandidateUnavailable {
+	if states["engineering"] != tobari.ManifestBootstrapCandidateAvailable || states["mismatch"] != tobari.ManifestBootstrapCandidateUnavailable {
 		t.Fatalf("EKS candidate states = %+v (%+v)", states, result)
 	}
 }
@@ -171,7 +171,7 @@ func TestDiscoverEKSBootstrapsRejectsDuplicateWholeFileWithoutPartialCandidates(
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.State != tobari.ContextBootstrapDiscoveryRejected || len(result.Candidates) != 0 {
+	if result.State != tobari.ManifestBootstrapDiscoveryRejected || len(result.Candidates) != 0 {
 		t.Fatalf("duplicate discovery = %+v", result)
 	}
 }
@@ -186,27 +186,27 @@ func TestContextEKSBootstrapComposesOnceAndEnforcesAWSDependency(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(kubeDirectory, "config"), []byte(syntheticEKSConfig(t)), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := runtime.ConfigureContextAWSBootstrap(context.Background(), tobari.DefaultContextName, "engineering", "", false); err != nil {
+	if _, err := runtime.ConfigureContextAWSBootstrap(context.Background(), tobari.DefaultManifestName, "engineering", "", false); err != nil {
 		t.Fatal(err)
 	}
-	configured, err := runtime.ConfigureContextEKSBootstrap(context.Background(), tobari.DefaultContextName, "engineering", "", false)
+	configured, err := runtime.ConfigureContextEKSBootstrap(context.Background(), tobari.DefaultManifestName, "engineering", "", false)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if configured.Bootstrap.EKSContext != "engineering" || len(configured.Bootstrap.Adapters) != 2 {
 		t.Fatalf("configured bootstrap = %+v", configured.Bootstrap)
 	}
-	if _, err := runtime.ConfigureContextAWSBootstrap(context.Background(), tobari.DefaultContextName, "", "", true); err != tobari.ErrContextBootstrapDependency {
+	if _, err := runtime.ConfigureContextAWSBootstrap(context.Background(), tobari.DefaultManifestName, "", "", true); err != tobari.ErrContextBootstrapDependency {
 		t.Fatalf("remove AWS with EKS error = %v", err)
 	}
-	if _, err := runtime.ConfigureContextAWSBootstrap(context.Background(), tobari.DefaultContextName, "other", "", false); err != tobari.ErrContextBootstrapDependency {
+	if _, err := runtime.ConfigureContextAWSBootstrap(context.Background(), tobari.DefaultManifestName, "other", "", false); err != tobari.ErrContextBootstrapDependency {
 		t.Fatalf("replace AWS profile with EKS error = %v", err)
 	}
 	root := filepath.Join(t.TempDir(), "project")
 	if err := os.Mkdir(root, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	instance, _, err := runtime.ResolveOrCreateProjectInContext(context.Background(), root, tobari.DefaultContextName)
+	instance, _, err := runtime.ResolveOrCreateProjectInContext(context.Background(), root, tobari.DefaultManifestName)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -217,7 +217,7 @@ func TestContextEKSBootstrapComposesOnceAndEnforcesAWSDependency(t *testing.T) {
 	if !strings.Contains(string(projected), `"AWS_PROFILE"`) || strings.Contains(string(projected), `"token":`) {
 		t.Fatalf("projected kubeconfig = %s", projected)
 	}
-	removed, err := runtime.ConfigureContextEKSBootstrap(context.Background(), tobari.DefaultContextName, "", "", true)
+	removed, err := runtime.ConfigureContextEKSBootstrap(context.Background(), tobari.DefaultManifestName, "", "", true)
 	if err != nil {
 		t.Fatal(err)
 	}

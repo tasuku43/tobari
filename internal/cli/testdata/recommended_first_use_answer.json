@@ -1,5 +1,5 @@
 {
-  "context_name": "default",
+  "manifest_name": "default",
   "source_access": "read-write",
   "routine_traffic": "ready",
   "other_requests": "exact_review",

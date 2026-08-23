@@ -25,7 +25,7 @@ func assertPublicNextArgvRoutes(t *testing.T, argv []string) CommandSpec {
 	if !found {
 		t.Fatalf("next argv does not route through the catalog: %q", argv)
 	}
-	rest = normalizeLifecycleContextInput(command, options.ContextName, rest)
+	rest = normalizeLifecycleContextInput(command, options.WorkspaceManifestName, rest)
 	if _, err := parseCommandInputs(command, rest); err != nil {
 		t.Fatalf("next argv typed input parse = %q: %v", argv, err)
 	}

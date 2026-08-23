@@ -2,15 +2,32 @@
   "schema_version": 1,
   "lifecycle": {
     "task": "tobari.status",
-    "context_state": "persisted",
+    "workspace_manifest_state": "persisted",
     "exists": true,
     "root": "/workspace/example-project",
-    "id": "01912345-6789-7abc-8def-0123456789ab",
+    "workspace_id": "01912345-6789-7abc-8def-0123456789ab",
     "home": "/state/example-project/home",
-    "context_id": "018bcfe5-687b-7000-8000-000000000099",
-    "context": "toolbox",
+    "workspace_manifest_id": "018bcfe5-687b-7000-8000-000000000099",
+    "workspace_manifest": "toolbox",
     "runtime": "ready",
-    "attachment": "detached"
+    "attachment": "detached",
+    "adoption": "current",
+    "current": {
+      "manifest_generation": 1,
+      "manifest_revision": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "entry_revision": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "runtime_id": "builtin/standard",
+      "runtime_revision": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "resolved_spec_revision": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "reconciled_at": "2026-08-23T00:00:00Z"
+    },
+    "next": {
+      "manifest_generation": 1,
+      "manifest_revision": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "entry_revision": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "runtime_id": "builtin/standard",
+      "runtime_revision": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
   },
   "empty_policy_candidates": {
     "task": "policy.candidates",

@@ -362,15 +362,15 @@ func readPolicyDataDuringTransaction(policyDirectory string) (policyDataFile, er
 	return readPolicyDomains(domainsDirectory)
 }
 
-func validateContextPolicyLayout(policyDirectory string, mode tobari.ContextPolicyMode) error {
+func validateContextPolicyLayout(policyDirectory string, mode tobari.ManifestPolicyMode) error {
 	entries, err := os.ReadDir(policyDirectory)
 	if err != nil {
 		return err
 	}
 	expected := map[string]bool{policyDomainsName: true, "context.json": true}
 	switch mode {
-	case tobari.ContextPolicyModeGuided:
-	case tobari.ContextPolicyModeAdvanced:
+	case tobari.ManifestPolicyModeGuided:
+	case tobari.ManifestPolicyModeAdvanced:
 		expected["tobari.rego"] = true
 		expected["tobari_test.rego"] = true
 	default:
@@ -584,7 +584,7 @@ func (r *Runtime) ReadLearnedPolicyRules(
 			return nil, fmt.Errorf("Context %q policy: %w", item.manifest.Name, err)
 		}
 		for _, rule := range file.rules {
-			if rule.ContextID != item.manifest.ID || rule.ContextName != item.manifest.Name {
+			if rule.WorkspaceManifestID != item.manifest.ID || rule.WorkspaceManifestName != item.manifest.Name {
 				return nil, fmt.Errorf("Context %q learned rule has mismatched authority scope", item.manifest.Name)
 			}
 			rules = append(rules, rule)
@@ -624,7 +624,7 @@ func (r *Runtime) ReadPolicyDenyRules(
 			return tobari.PolicyDenyRuleSet{}, fmt.Errorf("Context %q policy: %w", item.manifest.Name, err)
 		}
 		for _, rule := range file.denyRules {
-			if rule.ContextID != item.manifest.ID || rule.ContextName != item.manifest.Name {
+			if rule.WorkspaceManifestID != item.manifest.ID || rule.WorkspaceManifestName != item.manifest.Name {
 				return tobari.PolicyDenyRuleSet{}, fmt.Errorf("Context %q exact deny has mismatched authority scope", item.manifest.Name)
 			}
 			result.Exact = append(result.Exact, rule)
@@ -669,15 +669,15 @@ func copyPolicyForPreflight(sourceDirectory string, candidate policyDataFile) (s
 }
 
 func prepareContextPolicyPreflight(
-	manifest tobari.ContextManifest, sourceDirectory string, candidate policyDataFile,
+	manifest tobari.WorkspaceManifest, sourceDirectory string, candidate policyDataFile,
 ) (string, error) {
 	if err := validateContextPolicyLayout(sourceDirectory, manifest.PolicyMode); err != nil {
 		return "", err
 	}
-	if manifest.PolicyMode == tobari.ContextPolicyModeAdvanced {
+	if manifest.PolicyMode == tobari.ManifestPolicyModeAdvanced {
 		return copyPolicyForPreflight(sourceDirectory, candidate)
 	}
-	if manifest.PolicyMode != tobari.ContextPolicyModeGuided {
+	if manifest.PolicyMode != tobari.ManifestPolicyModeGuided {
 		return "", fmt.Errorf("Context policy mode is invalid")
 	}
 	if err := validateOwnerPolicyDirectory(sourceDirectory); err != nil {
@@ -750,7 +750,7 @@ func policyPreflightDigest(directory string) (string, error) {
 }
 
 func (r *Runtime) testContextPolicyCandidate(
-	ctx context.Context, manifest tobari.ContextManifest, policyDirectory string, candidate policyDataFile,
+	ctx context.Context, manifest tobari.WorkspaceManifest, policyDirectory string, candidate policyDataFile,
 ) (policyCandidateValidationReceipt, error) {
 	preflight, err := prepareContextPolicyPreflight(manifest, policyDirectory, candidate)
 	if err != nil {
@@ -1480,12 +1480,12 @@ func policyMutationContexts(
 	for _, rule := range updatedAllows {
 		allowUpdated[rule.ID] = rule
 		if previous, ok := allowExpected[rule.ID]; !ok || !reflect.DeepEqual(previous, rule) {
-			ids[rule.ContextID] = struct{}{}
+			ids[rule.WorkspaceManifestID] = struct{}{}
 		}
 	}
 	for id, rule := range allowExpected {
 		if _, ok := allowUpdated[id]; !ok {
-			ids[rule.ContextID] = struct{}{}
+			ids[rule.WorkspaceManifestID] = struct{}{}
 		}
 	}
 	denyExpected := map[string]tobari.PolicyDenyRule{}
@@ -1496,12 +1496,12 @@ func policyMutationContexts(
 	for _, rule := range updatedDenies {
 		denyUpdated[rule.ID] = rule
 		if previous, ok := denyExpected[rule.ID]; !ok || !reflect.DeepEqual(previous, rule) {
-			ids[rule.ContextID] = struct{}{}
+			ids[rule.WorkspaceManifestID] = struct{}{}
 		}
 	}
 	for id, rule := range denyExpected {
 		if _, ok := denyUpdated[id]; !ok {
-			ids[rule.ContextID] = struct{}{}
+			ids[rule.WorkspaceManifestID] = struct{}{}
 		}
 	}
 	if len(ids) == 0 {
@@ -1518,7 +1518,7 @@ func policyMutationContexts(
 func rulesForContext(rules []tobari.LearnedPolicyRule, contextID string) []tobari.LearnedPolicyRule {
 	result := make([]tobari.LearnedPolicyRule, 0)
 	for _, rule := range rules {
-		if rule.ContextID == contextID {
+		if rule.WorkspaceManifestID == contextID {
 			result = append(result, rule)
 		}
 	}
@@ -1529,7 +1529,7 @@ func rulesForContext(rules []tobari.LearnedPolicyRule, contextID string) []tobar
 func deniesForContext(rules []tobari.PolicyDenyRule, contextID string) []tobari.PolicyDenyRule {
 	result := make([]tobari.PolicyDenyRule, 0)
 	for _, rule := range rules {
-		if rule.ContextID == contextID {
+		if rule.WorkspaceManifestID == contextID {
 			result = append(result, rule)
 		}
 	}
@@ -1610,12 +1610,12 @@ func (r *Runtime) applyAggregatePolicyData(
 			contextAllows := rulesForContext(updatedAllows, targetContext)
 			contextDenies := deniesForContext(updatedDenies, targetContext)
 			for _, rule := range contextAllows {
-				if rule.ContextName != manifest.Name {
+				if rule.WorkspaceManifestName != manifest.Name {
 					return fault.New(fault.KindContract, "context_mismatch", "learned rule Context binding is inconsistent", false)
 				}
 			}
 			for _, rule := range contextDenies {
-				if rule.ContextName != manifest.Name {
+				if rule.WorkspaceManifestName != manifest.Name {
 					return fault.New(fault.KindContract, "context_mismatch", "deny rule Context binding is inconsistent", false)
 				}
 			}
@@ -1682,7 +1682,7 @@ func (r *Runtime) applyAggregatePolicyData(
 		}
 		candidateState := stored
 		candidateState.AggregateRevision = projection.Revision
-		candidateState.ContextCount = projection.ContextCount
+		candidateState.ManifestCount = projection.ManifestCount
 		candidateState.PolicyDirectory = projection.PolicyDirectory
 		candidateState.GatewayConfig = projection.GatewayConfig
 		candidateReceipt := tobari.PolicyActivationReceipt{

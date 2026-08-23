@@ -79,7 +79,7 @@ func recommendedFirstUseMenu(draft tobari.RecommendedFirstUseDraft) configuratio
 func recommendedFirstUseSeed(draft tobari.RecommendedFirstUseDraft) contextCreateWizardSeed {
 	composition := draft.Composition()
 	return contextCreateWizardSeed{Selection: contextCreateSelection{
-		Name: draft.ContextName, RuntimeSelection: composition.RuntimeSelection,
+		Name: draft.WorkspaceManifestName, RuntimeSelection: composition.RuntimeSelection,
 		SourceAccess: draft.Access.SourceAccess, NativeReadiness: composition.NativeReadiness,
 		MethodPolicy: draft.Access.MethodPolicy.Clone(),
 	}}

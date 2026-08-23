@@ -60,7 +60,7 @@ func (f *guidedEntryRuntime) LoadState(context.Context) (tobari.State, bool, err
 func (f *guidedEntryRuntime) InspectCluster(context.Context, tobari.State) (tobari.ClusterStatus, error) {
 	status := tobari.ClusterStatus{
 		Configured: true, Running: true, Policy: "/tmp/tobari/policy",
-		ContextCount: 1, PolicyRevision: strings.Repeat("a", 64),
+		ManifestCount: 1, PolicyRevision: strings.Repeat("a", 64),
 		PolicyProjection: "valid", PrincipalRegistry: "valid", GatewayProjection: "valid",
 		Components: validClusterComponentStatuses(),
 	}
@@ -113,12 +113,12 @@ type guidedRuntimeChoice struct {
 }
 
 func (w *guidedRuntimeChoice) Choose(
-	_ context.Context, _ tobari.ContextReport, _ io.Reader, _ io.Writer,
+	_ context.Context, _ tobari.ManifestReport, _ io.Reader, _ io.Writer,
 ) (runtimeChoice, error) {
 	w.calls++
 	if w.choice == runtimeChoiceCustomize && w.runtime != nil {
-		w.runtime.report.Runtime = tobari.ContextRuntimeReport{
-			Kind: tobari.ContextRuntimeKindDockerfile, Status: tobari.ContextRuntimeStatusPendingBuild,
+		w.runtime.report.Runtime = tobari.ManifestRuntimeReport{
+			Kind: tobari.ManifestRuntimeKindDockerfile, Status: tobari.ManifestRuntimeStatusPendingBuild,
 			Dockerfile: "/tmp/tobari/contexts/coding/runtime/Dockerfile", BaseReference: tobari.OfficialRuntimeBase,
 		}
 		w.runtime.report.Stores.RuntimeDirectory = "/tmp/tobari/contexts/coding/runtime"
@@ -129,37 +129,38 @@ func (w *guidedRuntimeChoice) Choose(
 
 func guidedContextSelection() contextCreateSelection {
 	return contextCreateSelection{
-		Name: "coding", SourceAccess: tobari.ContextSourceAccessReadWrite,
-		RuntimeSelection: "standard@1", NativeReadiness: tobari.ContextNativeReadinessEnabled,
-		MethodPolicy: tobari.ContextMethodPolicy{
-			Default:   tobari.ContextMethodExactReview,
-			Overrides: []tobari.ContextMethodOverride{},
+		Name: "coding", SourceAccess: tobari.ManifestSourceAccessReadWrite,
+		RuntimeSelection: "standard@1", NativeReadiness: tobari.ManifestNativeReadinessEnabled,
+		MethodPolicy: tobari.ManifestMethodPolicy{
+			Default:   tobari.ManifestMethodExactReview,
+			Overrides: []tobari.ManifestMethodOverride{},
 		},
 	}
 }
 
-func syntheticContextList() tobari.ContextListResult {
-	return tobari.ContextListResult{
-		Task: tobari.TaskContextList, ContextState: tobari.ContextObservationSyntheticDefault,
-		Active: tobari.DefaultContextName, Items: []tobari.ContextSummary{},
+func syntheticContextList() tobari.ManifestListResult {
+	return tobari.ManifestListResult{
+		Task: tobari.TaskManifestList, ManifestState: tobari.ManifestObservationAbsent,
+		Items: []tobari.ManifestSummary{},
 	}
 }
 
-func persistedContextList(report tobari.ContextReport) tobari.ContextListResult {
-	return tobari.ContextListResult{
-		Task: tobari.TaskContextList, ContextState: tobari.ContextObservationPersisted,
-		Active: report.Name,
-		Items: []tobari.ContextSummary{{
-			ID: report.ID, Name: report.Name, ContextState: tobari.ContextObservationPersisted, Active: true,
+func persistedContextList(report tobari.ManifestReport) tobari.ManifestListResult {
+	return tobari.ManifestListResult{
+		Task: tobari.TaskManifestList, ManifestState: tobari.ManifestObservationPersisted,
+		DefaultManifestID: report.ID, DefaultManifest: report.Name,
+		Items: []tobari.ManifestSummary{{
+			ID: report.ID, Name: report.Name, ManifestState: tobari.ManifestObservationPersisted, Default: true,
+			Desired:      report.Desired,
 			AgentProfile: report.AgentProfile, Image: report.Image, PolicyMode: report.PolicyMode,
-			SourceAccess: report.SourceAccess, PolicyRevision: report.PolicyRevision, NativeReadiness: tobari.ContextNativeReadinessEnabled,
+			SourceAccess: report.SourceAccess, PolicyRevision: report.PolicyRevision, NativeReadiness: tobari.ManifestNativeReadinessEnabled,
 			MethodPolicy: report.MethodPolicy, RuntimeStatus: report.Runtime.Status, RuntimeSelection: runtimeSelection(report.Runtime),
-			Bootstrap: tobari.ContextBootstrapReport{State: tobari.ContextBootstrapNotConfigured, Adapters: []string{}},
+			Bootstrap: tobari.ManifestBootstrapReport{State: tobari.ManifestBootstrapNotConfigured, Adapters: []string{}},
 		}},
 	}
 }
 
-func runtimeSelection(report tobari.ContextRuntimeReport) string {
+func runtimeSelection(report tobari.ManifestRuntimeReport) string {
 	selection, _ := report.Selection()
 	return selection
 }
@@ -181,7 +182,7 @@ func TestGuidedEntryCreatesContextStartsClusterAndContinuesWithoutRuntimeFork(t 
 	wizard := &guidedContextWizard{selection: guidedContextSelection()}
 	choice := &guidedRuntimeChoice{choice: runtimeChoiceCustomize, runtime: contextRuntime}
 	shared := &guidedEntryRuntime{policyReviewRuntimeFake: policyReviewRuntimeFake{
-		terminal: true, state: tobari.State{SchemaVersion: 1, RuntimeDirectory: "/tmp/tobari/runtime", PolicyDirectory: "/tmp/tobari/policy", GatewayConfig: "/tmp/tobari/gateway.json", AggregateRevision: strings.Repeat("a", 64), ContextCount: 1, AssetVersion: "test"},
+		terminal: true, state: tobari.State{SchemaVersion: 1, RuntimeDirectory: "/tmp/tobari/runtime", PolicyDirectory: "/tmp/tobari/policy", GatewayConfig: "/tmp/tobari/gateway.json", AggregateRevision: strings.Repeat("a", 64), ManifestCount: 1, AssetVersion: "test"},
 	}, configured: true}
 	command, stdout, stderr := newGuidedEntryCLI(contextRuntime, shared, choice)
 	command.contextCreate = wizard
@@ -196,7 +197,7 @@ func TestGuidedEntryCreatesContextStartsClusterAndContinuesWithoutRuntimeFork(t 
 	if stdout.Len() != 0 {
 		t.Fatalf("guided root wrote child stdout before entry: %q", stdout.String())
 	}
-	for _, expected := range []string{"✓ Context created: coding", "✓ Shared services ready"} {
+	for _, expected := range []string{"✓ Workspace Manifest created: coding", "✓ Shared services ready"} {
 		if !strings.Contains(stderr.String(), expected) {
 			t.Errorf("guided transcript lacks %q: %q", expected, stderr.String())
 		}
@@ -229,7 +230,7 @@ func TestGuidedFirstUseDockerFailurePrecedesEveryMutation(t *testing.T) {
 func TestRecommendedFirstUseStartCreatesExactDraftWithoutWizard(t *testing.T) {
 	contextRuntime := &contextCLI{list: syntheticContextList()}
 	shared := &guidedEntryRuntime{policyReviewRuntimeFake: policyReviewRuntimeFake{
-		terminal: true, state: tobari.State{SchemaVersion: 1, RuntimeDirectory: "/tmp/tobari/runtime", PolicyDirectory: "/tmp/tobari/policy", GatewayConfig: "/tmp/tobari/gateway.json", AggregateRevision: strings.Repeat("a", 64), ContextCount: 1, AssetVersion: "test"},
+		terminal: true, state: tobari.State{SchemaVersion: 1, RuntimeDirectory: "/tmp/tobari/runtime", PolicyDirectory: "/tmp/tobari/policy", GatewayConfig: "/tmp/tobari/gateway.json", AggregateRevision: strings.Repeat("a", 64), ManifestCount: 1, AssetVersion: "test"},
 	}, configured: true}
 	command, _, stderr := newGuidedEntryCLI(contextRuntime, shared, &guidedRuntimeChoice{})
 	reviewer := &guidedFirstUseReviewer{action: recommendedFirstUseStart}
@@ -245,8 +246,8 @@ func TestRecommendedFirstUseStartCreatesExactDraftWithoutWizard(t *testing.T) {
 		contextRuntime.listCalls != 2 || contextRuntime.createCalls != 1 || shared.clusterUpCalls != 1 {
 		t.Fatalf("start result/calls = (%d,%t), review=%d wizard=%d list=%d create=%d cluster=%d stderr=%q", code, continueEntry, reviewer.calls, wizard.calls, contextRuntime.listCalls, contextRuntime.createCalls, shared.clusterUpCalls, stderr.String())
 	}
-	if reviewer.draft.ContextName != tobari.DefaultContextName || reviewer.draft.ProjectRoot != "/tmp/project" ||
-		reviewer.draft.Session.Executable != "claude" || contextRuntime.report.Name != tobari.DefaultContextName {
+	if reviewer.draft.WorkspaceManifestName != tobari.DefaultManifestName || reviewer.draft.ProjectRoot != "/tmp/project" ||
+		reviewer.draft.Session.Executable != "claude" || contextRuntime.report.Name != tobari.DefaultManifestName {
 		t.Fatalf("reviewed/created draft = %+v / %+v", reviewer.draft, contextRuntime.report)
 	}
 }
@@ -293,15 +294,15 @@ func TestRecommendedFirstUseReviewFailureHasZeroMutation(t *testing.T) {
 }
 
 func TestRecommendedFirstUseStartRejectsConcurrentContextChange(t *testing.T) {
-	other := contextCLIReport(tobari.TaskContextShow, "other", true, tobari.BuiltinImageSelector, tobari.ContextPolicyModeGuided)
-	contextRuntime := &contextCLI{listResults: []tobari.ContextListResult{syntheticContextList(), persistedContextList(other)}}
+	other := contextCLIReport(tobari.TaskManifestShow, "other", true, tobari.BuiltinImageSelector, tobari.ManifestPolicyModeGuided)
+	contextRuntime := &contextCLI{listResults: []tobari.ManifestListResult{syntheticContextList(), persistedContextList(other)}}
 	shared := &guidedEntryRuntime{policyReviewRuntimeFake: policyReviewRuntimeFake{terminal: true}}
 	command, _, stderr := newGuidedEntryCLI(contextRuntime, shared, &guidedRuntimeChoice{})
 	command.firstUse = &guidedFirstUseReviewer{action: recommendedFirstUseStart}
 
 	code, continueEntry := prepareGuidedProjectEntry(context.Background(), command, "")
 	if code != ExitRejected || continueEntry || contextRuntime.createCalls != 0 || shared.clusterUpCalls != 0 ||
-		!humanOutputHasRow(stderr.String(), "Code", "context_collection_changed") {
+		!humanOutputHasRow(stderr.String(), "Code", "manifest_collection_changed") {
 		t.Fatalf("race result/calls = (%d,%t), create=%d cluster=%d stderr=%q", code, continueEntry, contextRuntime.createCalls, shared.clusterUpCalls, stderr.String())
 	}
 }
@@ -346,7 +347,7 @@ func TestGuidedEntryRetainsContextWhenClusterStartupFails(t *testing.T) {
 	if contextRuntime.createCalls != 1 || contextRuntime.initCalls != 0 || choice.calls != 0 {
 		t.Fatalf("partial success create/init/choice = %d/%d/%d", contextRuntime.createCalls, contextRuntime.initCalls, choice.calls)
 	}
-	if !strings.Contains(stderr.String(), "✓ Context created: coding") || !humanOutputHasRow(stderr.String(), "Code", "cluster_start_failed") {
+	if !strings.Contains(stderr.String(), "✓ Workspace Manifest created: coding") || !humanOutputHasRow(stderr.String(), "Code", "cluster_start_failed") {
 		t.Fatalf("partial-success recovery is unclear: %q", stderr.String())
 	}
 }
@@ -364,9 +365,9 @@ func TestGuidedEntryContextCancellationPerformsNoMutation(t *testing.T) {
 }
 
 func TestGuidedEntryBlocksPendingRuntimeBeforeWorkspaceMutation(t *testing.T) {
-	report := contextCLIReport(tobari.TaskContextShow, "coding", true, tobari.BuiltinImageSelector, tobari.ContextPolicyModeGuided)
-	report.Runtime = tobari.ContextRuntimeReport{
-		Kind: tobari.ContextRuntimeKindDockerfile, Status: tobari.ContextRuntimeStatusPendingBuild,
+	report := contextCLIReport(tobari.TaskManifestShow, "coding", true, tobari.BuiltinImageSelector, tobari.ManifestPolicyModeGuided)
+	report.Runtime = tobari.ManifestRuntimeReport{
+		Kind: tobari.ManifestRuntimeKindDockerfile, Status: tobari.ManifestRuntimeStatusPendingBuild,
 		Dockerfile: filepath.Join("/tmp", "tobari", "runtime", "Dockerfile"), BaseReference: tobari.OfficialRuntimeBase,
 	}
 	report.Stores.RuntimeDirectory = filepath.Dir(report.Runtime.Dockerfile)
@@ -400,7 +401,7 @@ func TestGuidedEntryStandardChoiceContinuesToExistingWorkspaceEntry(t *testing.T
 	contextRuntime := &contextCLI{list: syntheticContextList()}
 	choice := &guidedRuntimeChoice{choice: runtimeChoiceStandard}
 	shared := &guidedEntryRuntime{policyReviewRuntimeFake: policyReviewRuntimeFake{
-		terminal: true, state: tobari.State{SchemaVersion: 1, RuntimeDirectory: "/tmp/tobari/runtime", PolicyDirectory: "/tmp/tobari/policy", GatewayConfig: "/tmp/tobari/gateway.json", AggregateRevision: strings.Repeat("a", 64), ContextCount: 1, AssetVersion: "test"},
+		terminal: true, state: tobari.State{SchemaVersion: 1, RuntimeDirectory: "/tmp/tobari/runtime", PolicyDirectory: "/tmp/tobari/policy", GatewayConfig: "/tmp/tobari/gateway.json", AggregateRevision: strings.Repeat("a", 64), ManifestCount: 1, AssetVersion: "test"},
 	}, configured: true}
 	command, _, stderr := newGuidedEntryCLI(contextRuntime, shared, choice)
 	command.contextCreate = &guidedContextWizard{selection: guidedContextSelection()}
@@ -412,11 +413,11 @@ func TestGuidedEntryStandardChoiceContinuesToExistingWorkspaceEntry(t *testing.T
 }
 
 func TestGuidedEntryReconcilesMissingClusterForStandaloneContext(t *testing.T) {
-	report := contextCLIReport(tobari.TaskContextShow, "coding", true, tobari.BuiltinImageSelector, tobari.ContextPolicyModeGuided)
+	report := contextCLIReport(tobari.TaskManifestShow, "coding", true, tobari.BuiltinImageSelector, tobari.ManifestPolicyModeGuided)
 	contextRuntime := &contextCLI{report: report, list: persistedContextList(report)}
 	shared := &guidedEntryRuntime{
 		policyReviewRuntimeFake: policyReviewRuntimeFake{
-			terminal: true, state: tobari.State{SchemaVersion: 1, RuntimeDirectory: "/tmp/tobari/runtime", PolicyDirectory: "/tmp/tobari/policy", GatewayConfig: "/tmp/tobari/gateway.json", AggregateRevision: strings.Repeat("a", 64), ContextCount: 1, AssetVersion: "test"},
+			terminal: true, state: tobari.State{SchemaVersion: 1, RuntimeDirectory: "/tmp/tobari/runtime", PolicyDirectory: "/tmp/tobari/policy", GatewayConfig: "/tmp/tobari/gateway.json", AggregateRevision: strings.Repeat("a", 64), ManifestCount: 1, AssetVersion: "test"},
 		},
 		configured: false,
 	}
@@ -433,7 +434,7 @@ func TestGuidedEntryReconcilesMissingClusterForStandaloneContext(t *testing.T) {
 }
 
 func TestRuntimeChoiceWizardDefaultsToStandardAndOffersCustomization(t *testing.T) {
-	report := contextCLIReport(tobari.TaskContextShow, "coding", true, tobari.BuiltinImageSelector, tobari.ContextPolicyModeGuided)
+	report := contextCLIReport(tobari.TaskManifestShow, "coding", true, tobari.BuiltinImageSelector, tobari.ManifestPolicyModeGuided)
 	wizard := &terminalRuntimeChoiceWizard{chooser: &terminalContextConfigurationWizard{mode: nil, style: false}}
 	var output bytes.Buffer
 	choice, err := wizard.Choose(context.Background(), report, strings.NewReader("\n"), &output)

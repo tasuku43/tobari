@@ -12,7 +12,7 @@ const (
 	MigrationTargetKind = "installation-state"
 	MigrationTargetID   = "installation-state"
 
-	MigrationSourcePreV1ContextPolicyRuntime = "pre_v1_context_policy_runtime"
+	MigrationSourcePreV1ContextPolicyRuntime = "pre_v1_manifest_policy_runtime"
 )
 
 var (
@@ -36,22 +36,36 @@ const (
 
 func (s MigrationContextState) Validate() error {
 	if s != MigrationContextCurrent && s != MigrationContextMigrated {
-		return fmt.Errorf("migration Context state is invalid")
+		return fmt.Errorf("migration Workspace Manifest state is invalid")
 	}
 	return nil
 }
 
 // MigrationContextResult is one Context in the complete migration scope.
 type MigrationContextResult struct {
-	ID             string                `json:"id"`
+	ID             string                `json:"workspace_manifest_id"`
 	Name           string                `json:"name"`
 	State          MigrationContextState `json:"state"`
 	Runtime        string                `json:"runtime"`
 	PolicyRevision string                `json:"policy_revision"`
 }
 
+type ResearchAuthDisposition string
+
+const (
+	ResearchAuthNotPresent               ResearchAuthDisposition = "not_present"
+	ResearchAuthReauthenticationRequired ResearchAuthDisposition = "reauthentication_required"
+)
+
+func (d ResearchAuthDisposition) Validate() error {
+	if d != ResearchAuthNotPresent && d != ResearchAuthReauthenticationRequired {
+		return fmt.Errorf("research authentication disposition is invalid")
+	}
+	return nil
+}
+
 func (r MigrationContextResult) Validate() error {
-	if err := ValidateContextID(r.ID); err != nil {
+	if err := ValidateWorkspaceManifestID(r.ID); err != nil {
 		return err
 	}
 	if err := ValidateName(r.Name); err != nil {
@@ -70,13 +84,19 @@ func (r MigrationContextResult) Validate() error {
 }
 
 // MigrationReport confirms one complete observation and any committed local
-// migration. Backup is nil for an already-current no-op.
+// migration. RecoveryID is a secret-free opaque identity for the private
+// backup/quarantine and is nil for an already-current no-op.
 type MigrationReport struct {
-	Task     string                   `json:"task"`
-	Source   string                   `json:"source"`
-	Changed  bool                     `json:"changed"`
-	Backup   *string                  `json:"backup"`
-	Contexts []MigrationContextResult `json:"contexts"`
+	Task                    string                   `json:"task"`
+	Source                  string                   `json:"source"`
+	Changed                 bool                     `json:"changed"`
+	RecoveryID              *string                  `json:"recovery_id"`
+	ResearchAuthDisposition ResearchAuthDisposition  `json:"research_auth_disposition"`
+	Contexts                []MigrationContextResult `json:"workspace_manifests"`
+	// Backup is an internal commit-series compatibility seam for the
+	// unpublished predecessor adapter. It is never serialized publicly and is
+	// removed by the migration implementation commit.
+	Backup *string `json:"-"`
 }
 
 func (r MigrationReport) Validate() error {
@@ -84,7 +104,15 @@ func (r MigrationReport) Validate() error {
 		return fmt.Errorf("migration task identity is invalid")
 	}
 	if r.Contexts == nil || len(r.Contexts) == 0 {
-		return fmt.Errorf("migration Context collection is empty")
+		return fmt.Errorf("migration Workspace Manifest collection is empty")
+	}
+	legacyAdapter := r.Backup != nil
+	if !legacyAdapter {
+		if err := r.ResearchAuthDisposition.Validate(); err != nil {
+			return err
+		}
+	} else if !r.Changed || *r.Backup == "" || !filepath.IsAbs(*r.Backup) || filepath.Clean(*r.Backup) != *r.Backup {
+		return fmt.Errorf("migration predecessor backup is invalid")
 	}
 	seen := make(map[string]struct{}, len(r.Contexts))
 	migrated := false
@@ -93,20 +121,24 @@ func (r MigrationReport) Validate() error {
 			return err
 		}
 		if _, ok := seen[item.Name]; ok {
-			return fmt.Errorf("migration Context is duplicated")
+			return fmt.Errorf("migration Workspace Manifest is duplicated")
 		}
 		seen[item.Name] = struct{}{}
 		migrated = migrated || item.State == MigrationContextMigrated
 	}
-	if r.Changed != migrated {
-		return fmt.Errorf("migration changed state is inconsistent")
+	if migrated && !r.Changed {
+		return fmt.Errorf("migrated Manifest requires changed state")
 	}
-	if r.Changed {
-		if r.Backup == nil || *r.Backup == "" || !filepath.IsAbs(*r.Backup) || filepath.Clean(*r.Backup) != *r.Backup {
-			return fmt.Errorf("migration backup path is invalid")
+	if legacyAdapter {
+		if r.RecoveryID != nil {
+			return fmt.Errorf("predecessor adapter cannot report a recovery identity")
 		}
-	} else if r.Backup != nil {
-		return fmt.Errorf("unchanged migration cannot report a backup")
+	} else if r.Changed {
+		if r.RecoveryID == nil || ValidateDigest(*r.RecoveryID) != nil {
+			return fmt.Errorf("migration recovery identity is invalid")
+		}
+	} else if r.RecoveryID != nil {
+		return fmt.Errorf("unchanged migration cannot report a recovery identity")
 	}
 	return nil
 }

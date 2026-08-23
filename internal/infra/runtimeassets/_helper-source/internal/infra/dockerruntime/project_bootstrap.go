@@ -10,7 +10,7 @@ import (
 	"github.com/tasuku43/tobari/internal/domain/tobari"
 )
 
-func applyProjectBootstrap(home string, snapshot *tobari.ContextBootstrapSnapshot) error {
+func applyProjectBootstrap(home string, snapshot *tobari.ManifestBootstrapSnapshot) error {
 	if snapshot == nil {
 		return nil
 	}
@@ -67,7 +67,7 @@ func applyProjectBootstrap(home string, snapshot *tobari.ContextBootstrapSnapsho
 	return syncDirectory(kubeDirectory)
 }
 
-func encodeProjectAWSConfig(aws tobari.ContextAWSBootstrap) ([]byte, error) {
+func encodeProjectAWSConfig(aws tobari.ManifestAWSBootstrap) ([]byte, error) {
 	if err := aws.Validate(); err != nil {
 		return nil, err
 	}
@@ -95,7 +95,7 @@ func encodeProjectAWSConfig(aws tobari.ContextAWSBootstrap) ([]byte, error) {
 	return []byte(output.String()), nil
 }
 
-func encodeProjectEKSConfig(awsProfile string, eks tobari.ContextEKSBootstrap) ([]byte, error) {
+func encodeProjectEKSConfig(awsProfile string, eks tobari.ManifestEKSBootstrap) ([]byte, error) {
 	if err := eks.Validate(); err != nil {
 		return nil, err
 	}
@@ -115,7 +115,7 @@ func encodeProjectEKSConfig(awsProfile string, eks tobari.ContextEKSBootstrap) (
 			Cluster   string `json:"cluster"`
 			User      string `json:"user"`
 			Namespace string `json:"namespace,omitempty"`
-		} `json:"context"`
+		} `json:"workspace_manifest"`
 	}
 	type namedUser struct {
 		Name string `json:"name"`
@@ -130,14 +130,14 @@ func encodeProjectEKSConfig(awsProfile string, eks tobari.ContextEKSBootstrap) (
 			} `json:"exec"`
 		} `json:"user"`
 	}
-	cluster := namedCluster{Name: eks.ContextName}
+	cluster := namedCluster{Name: eks.WorkspaceManifestName}
 	cluster.Cluster.CertificateAuthorityData = eks.CertificateAuthorityData
 	cluster.Cluster.Server = eks.Server
-	contextEntry := namedContext{Name: eks.ContextName}
-	contextEntry.Context.Cluster = eks.ContextName
-	contextEntry.Context.User = eks.ContextName
+	contextEntry := namedContext{Name: eks.WorkspaceManifestName}
+	contextEntry.Context.Cluster = eks.WorkspaceManifestName
+	contextEntry.Context.User = eks.WorkspaceManifestName
 	contextEntry.Context.Namespace = eks.Namespace
-	user := namedUser{Name: eks.ContextName}
+	user := namedUser{Name: eks.WorkspaceManifestName}
 	user.User.Exec.APIVersion = "client.authentication.k8s.io/v1beta1"
 	user.User.Exec.Args = []string{"--region", eks.Region, "eks", "get-token", "--cluster-name", eks.ClusterName, "--output", "json"}
 	user.User.Exec.Command = "aws"
@@ -151,7 +151,7 @@ func encodeProjectEKSConfig(awsProfile string, eks tobari.ContextEKSBootstrap) (
 		Contexts       []namedContext `json:"contexts"`
 		Users          []namedUser    `json:"users"`
 		CurrentContext string         `json:"current-context"`
-	}{APIVersion: "v1", Kind: "Config", Preferences: map[string]any{}, Clusters: []namedCluster{cluster}, Contexts: []namedContext{contextEntry}, Users: []namedUser{user}, CurrentContext: eks.ContextName}
+	}{APIVersion: "v1", Kind: "Config", Preferences: map[string]any{}, Clusters: []namedCluster{cluster}, Contexts: []namedContext{contextEntry}, Users: []namedUser{user}, CurrentContext: eks.WorkspaceManifestName}
 	encoded, err := json.MarshalIndent(config, "", "  ")
 	if err != nil {
 		return nil, err

@@ -1,18 +1,18 @@
 {
   "schema_version": 1,
-  "task": "context.show",
+  "task": "manifest.show",
   "selected_context": {
     "id": "018bcfe5-687b-7000-8000-000000000099",
     "name": "review",
-    "active": false
+    "default": false
   },
   "exact_next_argv": [
     "tobari",
-    "--context",
+    "--manifest",
     "review"
   ],
   "required_summary_facts": [
-    "Boundary · fixed for this Context",
+    "Boundary · fixed for this Workspace Manifest",
     "Read-write · changes affect this project directly",
     "Routine clients Not enabled",
     "Other requests Exact review",

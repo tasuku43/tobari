@@ -101,9 +101,9 @@ func validAuthResultForProvider(task, provider string) authbroker.Result {
 		panic(err)
 	}
 	return authbroker.Result{
-		ContextState: tobari.ContextObservationPersisted,
-		Task:         task, Provider: provider, Context: "default",
-		ContextID: "018bcfe5-687b-7000-8000-000000000099", Configured: true,
+		ManifestState: tobari.ManifestObservationPersisted,
+		Task:          task, Provider: provider, Context: "default",
+		WorkspaceManifestID: "018bcfe5-687b-7000-8000-000000000099", Configured: true,
 		AccountLabel: &label, StorageBackend: authbroker.StorageBackendXDGFile,
 		BrokerState:         authbroker.BrokerStateReady,
 		CredentialRevision:  strings.Repeat("a", 64),
@@ -126,9 +126,9 @@ func unconfiguredAuthResult(task, provider string) authbroker.Result {
 		change = authbroker.MutationChangeChanged
 	}
 	return authbroker.Result{
-		ContextState: tobari.ContextObservationPersisted,
-		Task:         task, Provider: provider, Context: "default",
-		ContextID: "018bcfe5-687b-7000-8000-000000000099", Configured: false,
+		ManifestState: tobari.ManifestObservationPersisted,
+		Task:          task, Provider: provider, Context: "default",
+		WorkspaceManifestID: "018bcfe5-687b-7000-8000-000000000099", Configured: false,
 		StorageBackend: authbroker.StorageBackendXDGFile, BrokerState: authbroker.BrokerStateReady,
 		Change: change, WorkspaceActivation: activation,
 	}
@@ -151,9 +151,9 @@ func authStatusResult(contextName string, configured bool) authbroker.StatusResu
 		panic(err)
 	}
 	return authbroker.StatusResult{
-		Task: authbroker.TaskStatus, ContextState: tobari.ContextObservationPersisted, Context: contextName,
-		ContextID:      "018bcfe5-687b-7000-8000-000000000099",
-		StorageBackend: authbroker.StorageBackendXDGFile, BrokerState: authbroker.BrokerStateReady,
+		Task: authbroker.TaskStatus, ManifestState: tobari.ManifestObservationPersisted, Context: contextName,
+		WorkspaceManifestID: "018bcfe5-687b-7000-8000-000000000099",
+		StorageBackend:      authbroker.StorageBackendXDGFile, BrokerState: authbroker.BrokerStateReady,
 		Providers: []authbroker.ProviderStatus{{
 			Provider: BuiltinGitHubProviderID, State: state,
 			AccountLabel: label, CredentialRevision: revision,
@@ -165,7 +165,7 @@ func authStatusResult(contextName string, configured bool) authbroker.StatusResu
 func mutationObservation(result authbroker.Result) authbroker.MutationObservation {
 	coverage := result.WorkspaceActivation.Coverage
 	return authbroker.MutationObservation{
-		ContextState: result.ContextState, Provider: result.Provider, Context: result.Context, ContextID: result.ContextID,
+		ManifestState: result.ManifestState, Provider: result.Provider, Context: result.Context, WorkspaceManifestID: result.WorkspaceManifestID,
 		Configured: result.Configured, AccountLabel: result.AccountLabel, StorageBackend: result.StorageBackend,
 		BrokerState: result.BrokerState, CredentialRevision: result.CredentialRevision,
 		Changed: result.Change == authbroker.MutationChangeChanged, Providers: []authbroker.ProviderStatus{},
@@ -175,7 +175,7 @@ func mutationObservation(result authbroker.Result) authbroker.MutationObservatio
 
 func statusObservation(result authbroker.StatusResult) authbroker.StatusObservation {
 	return authbroker.StatusObservation{
-		ContextState: result.ContextState, Context: result.Context, ContextID: result.ContextID,
+		ManifestState: result.ManifestState, Context: result.Context, WorkspaceManifestID: result.WorkspaceManifestID,
 		StorageBackend: result.StorageBackend, BrokerState: result.BrokerState,
 		Providers: append([]authbroker.ProviderStatus{}, result.Providers...),
 		Workspaces: authbroker.WorkspaceObservation{

@@ -4,9 +4,9 @@
     {
       "name": "current",
       "auth": {
-        "context_state": "persisted",
-        "context": "default",
-        "context_id": "01912345-6789-7abc-8def-0123456789ad",
+        "workspace_manifest_state": "persisted",
+        "workspace_manifest": "default",
+        "workspace_manifest_id": "01912345-6789-7abc-8def-0123456789ad",
         "storage_backend": "xdg_file",
         "broker_state": "ready",
         "providers": [
@@ -20,14 +20,14 @@
         "workspace_activation": {
           "state": "ready",
           "coverage": "exhaustive",
-          "context": "default",
-          "context_id": "01912345-6789-7abc-8def-0123456789ad",
+          "workspace_manifest": "default",
+          "workspace_manifest_id": "01912345-6789-7abc-8def-0123456789ad",
           "workspaces": [
             {
               "workspace_id": "01912345-6789-7abc-8def-0123456789ab",
               "project_root": "/workspace/current",
-              "context": "default",
-              "context_id": "01912345-6789-7abc-8def-0123456789ad",
+              "workspace_manifest": "default",
+              "workspace_manifest_id": "01912345-6789-7abc-8def-0123456789ad",
               "scope_state": "complete",
               "state": "ready",
               "providers": [
@@ -46,9 +46,9 @@
     {
       "name": "configured_zero_workspace",
       "auth": {
-        "context_state": "persisted",
-        "context": "default",
-        "context_id": "01912345-6789-7abc-8def-0123456789ad",
+        "workspace_manifest_state": "persisted",
+        "workspace_manifest": "default",
+        "workspace_manifest_id": "01912345-6789-7abc-8def-0123456789ad",
         "storage_backend": "xdg_file",
         "broker_state": "ready",
         "providers": [
@@ -62,8 +62,8 @@
         "workspace_activation": {
           "state": "not_applicable",
           "coverage": "exhaustive",
-          "context": "default",
-          "context_id": "01912345-6789-7abc-8def-0123456789ad",
+          "workspace_manifest": "default",
+          "workspace_manifest_id": "01912345-6789-7abc-8def-0123456789ad",
           "workspaces": [],
           "guidance": ""
         }
@@ -72,9 +72,9 @@
     {
       "name": "missing",
       "auth": {
-        "context_state": "persisted",
-        "context": "default",
-        "context_id": "01912345-6789-7abc-8def-0123456789ad",
+        "workspace_manifest_state": "persisted",
+        "workspace_manifest": "default",
+        "workspace_manifest_id": "01912345-6789-7abc-8def-0123456789ad",
         "storage_backend": "xdg_file",
         "broker_state": "ready",
         "providers": [
@@ -88,14 +88,14 @@
         "workspace_activation": {
           "state": "workspace_reentry_required",
           "coverage": "exhaustive",
-          "context": "default",
-          "context_id": "01912345-6789-7abc-8def-0123456789ad",
+          "workspace_manifest": "default",
+          "workspace_manifest_id": "01912345-6789-7abc-8def-0123456789ad",
           "workspaces": [
             {
               "workspace_id": "01912345-6789-7abc-8def-0123456789ac",
               "project_root": "/workspace/missing",
-              "context": "default",
-              "context_id": "01912345-6789-7abc-8def-0123456789ad",
+              "workspace_manifest": "default",
+              "workspace_manifest_id": "01912345-6789-7abc-8def-0123456789ad",
               "scope_state": "complete",
               "state": "workspace_reentry_required",
               "providers": [
@@ -108,7 +108,7 @@
                 "working_directory": "/workspace/missing",
                 "argv": [
                   "tobari",
-                  "--context",
+                  "--manifest",
                   "default"
                 ]
               }
@@ -121,9 +121,9 @@
     {
       "name": "stale",
       "auth": {
-        "context_state": "persisted",
-        "context": "default",
-        "context_id": "01912345-6789-7abc-8def-0123456789ad",
+        "workspace_manifest_state": "persisted",
+        "workspace_manifest": "default",
+        "workspace_manifest_id": "01912345-6789-7abc-8def-0123456789ad",
         "storage_backend": "xdg_file",
         "broker_state": "ready",
         "providers": [
@@ -137,14 +137,14 @@
         "workspace_activation": {
           "state": "workspace_reentry_required",
           "coverage": "exhaustive",
-          "context": "default",
-          "context_id": "01912345-6789-7abc-8def-0123456789ad",
+          "workspace_manifest": "default",
+          "workspace_manifest_id": "01912345-6789-7abc-8def-0123456789ad",
           "workspaces": [
             {
               "workspace_id": "01912345-6789-7abc-8def-0123456789ab",
               "project_root": "/workspace/stale",
-              "context": "default",
-              "context_id": "01912345-6789-7abc-8def-0123456789ad",
+              "workspace_manifest": "default",
+              "workspace_manifest_id": "01912345-6789-7abc-8def-0123456789ad",
               "scope_state": "complete",
               "state": "workspace_reentry_required",
               "providers": [
@@ -157,7 +157,7 @@
                 "working_directory": "/workspace/stale",
                 "argv": [
                   "tobari",
-                  "--context",
+                  "--manifest",
                   "default"
                 ]
               }
@@ -170,9 +170,9 @@
     {
       "name": "enumeration_unavailable",
       "auth": {
-        "context_state": "persisted",
-        "context": "default",
-        "context_id": "01912345-6789-7abc-8def-0123456789ad",
+        "workspace_manifest_state": "persisted",
+        "workspace_manifest": "default",
+        "workspace_manifest_id": "01912345-6789-7abc-8def-0123456789ad",
         "storage_backend": "xdg_file",
         "broker_state": "unavailable",
         "providers": [
@@ -186,8 +186,8 @@
         "workspace_activation": {
           "state": "unavailable",
           "coverage": "unavailable",
-          "context": "default",
-          "context_id": "01912345-6789-7abc-8def-0123456789ad",
+          "workspace_manifest": "default",
+          "workspace_manifest_id": "01912345-6789-7abc-8def-0123456789ad",
           "workspaces": [],
           "guidance": ""
         }
@@ -196,9 +196,9 @@
     {
       "name": "broker_locked_enumerable",
       "auth": {
-        "context_state": "persisted",
-        "context": "default",
-        "context_id": "01912345-6789-7abc-8def-0123456789ad",
+        "workspace_manifest_state": "persisted",
+        "workspace_manifest": "default",
+        "workspace_manifest_id": "01912345-6789-7abc-8def-0123456789ad",
         "storage_backend": "xdg_file",
         "broker_state": "locked",
         "providers": [
@@ -212,14 +212,14 @@
         "workspace_activation": {
           "state": "unavailable",
           "coverage": "exhaustive",
-          "context": "default",
-          "context_id": "01912345-6789-7abc-8def-0123456789ad",
+          "workspace_manifest": "default",
+          "workspace_manifest_id": "01912345-6789-7abc-8def-0123456789ad",
           "workspaces": [
             {
               "workspace_id": "01912345-6789-7abc-8def-0123456789ab",
               "project_root": "/workspace/locked",
-              "context": "default",
-              "context_id": "01912345-6789-7abc-8def-0123456789ad",
+              "workspace_manifest": "default",
+              "workspace_manifest_id": "01912345-6789-7abc-8def-0123456789ad",
               "scope_state": "complete",
               "state": "unavailable",
               "providers": [
@@ -238,9 +238,9 @@
     {
       "name": "mixed_unresolved",
       "auth": {
-        "context_state": "persisted",
-        "context": "default",
-        "context_id": "01912345-6789-7abc-8def-0123456789ad",
+        "workspace_manifest_state": "persisted",
+        "workspace_manifest": "default",
+        "workspace_manifest_id": "01912345-6789-7abc-8def-0123456789ad",
         "storage_backend": "xdg_file",
         "broker_state": "ready",
         "providers": [
@@ -260,14 +260,14 @@
         "workspace_activation": {
           "state": "unresolved",
           "coverage": "exhaustive",
-          "context": "default",
-          "context_id": "01912345-6789-7abc-8def-0123456789ad",
+          "workspace_manifest": "default",
+          "workspace_manifest_id": "01912345-6789-7abc-8def-0123456789ad",
           "workspaces": [
             {
               "workspace_id": "01912345-6789-7abc-8def-0123456789ab",
               "project_root": "/workspace/mixed",
-              "context": "default",
-              "context_id": "01912345-6789-7abc-8def-0123456789ad",
+              "workspace_manifest": "default",
+              "workspace_manifest_id": "01912345-6789-7abc-8def-0123456789ad",
               "scope_state": "complete",
               "state": "unresolved",
               "providers": [
@@ -292,10 +292,10 @@
     {
       "name": "login_changed",
       "auth": {
-        "context_state": "persisted",
+        "workspace_manifest_state": "persisted",
         "provider": "github",
-        "context": "default",
-        "context_id": "01912345-6789-7abc-8def-0123456789ad",
+        "workspace_manifest": "default",
+        "workspace_manifest_id": "01912345-6789-7abc-8def-0123456789ad",
         "configured": true,
         "account_label": "synthetic-account",
         "storage_backend": "xdg_file",
@@ -305,14 +305,14 @@
         "workspace_activation": {
           "state": "workspace_reentry_required",
           "coverage": "exhaustive",
-          "context": "default",
-          "context_id": "01912345-6789-7abc-8def-0123456789ad",
+          "workspace_manifest": "default",
+          "workspace_manifest_id": "01912345-6789-7abc-8def-0123456789ad",
           "workspaces": [
             {
               "workspace_id": "01912345-6789-7abc-8def-0123456789ab",
               "project_root": "/workspace/login-changed",
-              "context": "default",
-              "context_id": "01912345-6789-7abc-8def-0123456789ad",
+              "workspace_manifest": "default",
+              "workspace_manifest_id": "01912345-6789-7abc-8def-0123456789ad",
               "scope_state": "complete",
               "state": "workspace_reentry_required",
               "providers": [
@@ -325,7 +325,7 @@
                 "working_directory": "/workspace/login-changed",
                 "argv": [
                   "tobari",
-                  "--context",
+                  "--manifest",
                   "default"
                 ]
               }
@@ -338,10 +338,10 @@
     {
       "name": "logout_changed",
       "auth": {
-        "context_state": "persisted",
+        "workspace_manifest_state": "persisted",
         "provider": "github",
-        "context": "default",
-        "context_id": "01912345-6789-7abc-8def-0123456789ad",
+        "workspace_manifest": "default",
+        "workspace_manifest_id": "01912345-6789-7abc-8def-0123456789ad",
         "configured": false,
         "account_label": null,
         "storage_backend": "xdg_file",
@@ -351,14 +351,14 @@
         "workspace_activation": {
           "state": "workspace_reentry_required",
           "coverage": "exhaustive",
-          "context": "default",
-          "context_id": "01912345-6789-7abc-8def-0123456789ad",
+          "workspace_manifest": "default",
+          "workspace_manifest_id": "01912345-6789-7abc-8def-0123456789ad",
           "workspaces": [
             {
               "workspace_id": "01912345-6789-7abc-8def-0123456789ab",
               "project_root": "/workspace/logout-changed",
-              "context": "default",
-              "context_id": "01912345-6789-7abc-8def-0123456789ad",
+              "workspace_manifest": "default",
+              "workspace_manifest_id": "01912345-6789-7abc-8def-0123456789ad",
               "scope_state": "complete",
               "state": "workspace_reentry_required",
               "providers": [
@@ -371,7 +371,7 @@
                 "working_directory": "/workspace/logout-changed",
                 "argv": [
                   "tobari",
-                  "--context",
+                  "--manifest",
                   "default"
                 ]
               }
@@ -384,10 +384,10 @@
     {
       "name": "logout_no_change",
       "auth": {
-        "context_state": "persisted",
+        "workspace_manifest_state": "persisted",
         "provider": "github",
-        "context": "default",
-        "context_id": "01912345-6789-7abc-8def-0123456789ad",
+        "workspace_manifest": "default",
+        "workspace_manifest_id": "01912345-6789-7abc-8def-0123456789ad",
         "configured": false,
         "account_label": null,
         "storage_backend": "xdg_file",
@@ -397,8 +397,8 @@
         "workspace_activation": {
           "state": "not_applicable",
           "coverage": "not_applicable",
-          "context": "",
-          "context_id": "",
+          "workspace_manifest": "",
+          "workspace_manifest_id": "",
           "workspaces": [],
           "guidance": ""
         }

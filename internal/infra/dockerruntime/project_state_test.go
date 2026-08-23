@@ -21,6 +21,9 @@ func newProjectStateRuntime(t *testing.T) *Runtime {
 	if err != nil {
 		t.Fatalf("newRuntimeWithData() error = %v", err)
 	}
+	if err := runtime.ensureContextStore(); err != nil {
+		t.Fatalf("initialize test Workspace Manifest: %v", err)
+	}
 	return runtime
 }
 
@@ -63,10 +66,10 @@ func TestSameCanonicalRootCanOwnIndependentTobariInDifferentContexts(t *testing.
 	if err := os.MkdirAll(root, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := runtime.ListContexts(context.Background()); err != nil {
+	if err := runtime.ensureContextStore(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := runtime.CreateContext(context.Background(), "restricted", tobari.OfficialRuntimeBase, tobari.ContextPolicyModeGuided, tobari.ContextSourceAccessReadWrite); err != nil {
+	if _, err := runtime.CreateContext(context.Background(), "restricted", tobari.OfficialRuntimeBase, tobari.ManifestPolicyModeGuided, tobari.ManifestSourceAccessReadWrite); err != nil {
 		t.Fatal(err)
 	}
 	defaultProject, created, err := runtime.ResolveOrCreateProjectInContext(context.Background(), root, "default")
@@ -77,7 +80,7 @@ func TestSameCanonicalRootCanOwnIndependentTobariInDifferentContexts(t *testing.
 	if err != nil || !created {
 		t.Fatalf("restricted project = %+v, created=%t, error=%v", restrictedProject, created, err)
 	}
-	if defaultProject.ID == restrictedProject.ID || defaultProject.ContextID == restrictedProject.ContextID ||
+	if defaultProject.ID == restrictedProject.ID || defaultProject.WorkspaceManifestID == restrictedProject.WorkspaceManifestID ||
 		runtime.projectHomePath(defaultProject.ID) == runtime.projectHomePath(restrictedProject.ID) || defaultProject.Root != restrictedProject.Root {
 		t.Fatalf("Context-bound projects are not independently identified: default=%+v restricted=%+v", defaultProject, restrictedProject)
 	}
@@ -94,19 +97,19 @@ func TestBoundContextManifestSelectsSameRootWorkspaceWithoutNameRediscovery(t *t
 	if err := os.MkdirAll(root, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	defaultManifest, err := runtime.ResolveContext(context.Background(), tobari.DefaultContextName)
+	defaultManifest, err := runtime.ResolveContext(context.Background(), tobari.DefaultManifestName)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := runtime.CreateContext(context.Background(), "toolbox", tobari.OfficialRuntimeBase, tobari.ContextPolicyModeGuided, tobari.ContextSourceAccessReadOnly); err != nil {
+	if _, err := runtime.CreateContext(context.Background(), "toolbox", tobari.OfficialRuntimeBase, tobari.ManifestPolicyModeGuided, tobari.ManifestSourceAccessReadOnly); err != nil {
 		t.Fatal(err)
 	}
 	toolboxManifest, err := runtime.ResolveContext(context.Background(), "toolbox")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if defaultManifest.SourceAccess != tobari.ContextSourceAccessReadWrite ||
-		toolboxManifest.SourceAccess != tobari.ContextSourceAccessReadOnly {
+	if defaultManifest.SourceAccess != tobari.ManifestSourceAccessReadWrite ||
+		toolboxManifest.SourceAccess != tobari.ManifestSourceAccessReadOnly {
 		t.Fatalf("same-root Context access = %q/%q", defaultManifest.SourceAccess, toolboxManifest.SourceAccess)
 	}
 	defaultProject, err := runtime.CreateBoundProject(context.Background(), root, defaultManifest)
@@ -118,14 +121,14 @@ func TestBoundContextManifestSelectsSameRootWorkspaceWithoutNameRediscovery(t *t
 		t.Fatal(err)
 	}
 	for _, test := range []struct {
-		manifest tobari.ContextManifest
+		manifest tobari.WorkspaceManifest
 		wantID   string
 	}{
 		{manifest: defaultManifest, wantID: defaultProject.ID},
 		{manifest: toolboxManifest, wantID: toolboxProject.ID},
 	} {
 		got, found, err := runtime.ResolveBoundProject(context.Background(), root, test.manifest)
-		if err != nil || !found || got.ID != test.wantID || got.ContextID != test.manifest.ID {
+		if err != nil || !found || got.ID != test.wantID || got.WorkspaceManifestID != test.manifest.ID {
 			t.Fatalf("ResolveBoundProject(%s) = (%+v, %t, %v), want %s", test.manifest.Name, got, found, err, test.wantID)
 		}
 	}
@@ -367,7 +370,7 @@ func TestResolveOrCreateProjectCleansUpAfterLogicalCreationBoundaryFailures(t *t
 	t.Parallel()
 	tests := map[string]func(*testing.T, *Runtime, string){
 		"instance state": func(t *testing.T, runtime *Runtime, _ string) {
-			runtime.projectStateWriter = func(tobari.ProjectInstance) error {
+			runtime.projectStateWriter = func(tobari.Workspace) error {
 				return errors.New("injected instance state failure")
 			}
 		},
@@ -437,7 +440,7 @@ func TestProjectJournalReconcilesInterruptedCreateAndDelete(t *testing.T) {
 			}
 			if err := runtime.writeProjectJournal(projectJournal{
 				SchemaVersion: projectJournalSchema, Operation: operation,
-				ProjectID: instance.ID, Root: instance.Root, ContextID: instance.ContextID, Phase: projectPhaseRuntime,
+				ProjectID: instance.ID, Root: instance.Root, WorkspaceManifestID: instance.WorkspaceManifestID, Phase: projectPhaseRuntime,
 			}); err != nil {
 				t.Fatal(err)
 			}
@@ -465,7 +468,7 @@ func TestListProjectsOnlyCleansPreExistingCompletedJournal(t *testing.T) {
 	}
 	journal := projectJournal{
 		SchemaVersion: projectJournalSchema, Operation: projectOpCreate,
-		ProjectID: instance.ID, Root: instance.Root, ContextID: instance.ContextID, Phase: projectPhaseIndex,
+		ProjectID: instance.ID, Root: instance.Root, WorkspaceManifestID: instance.WorkspaceManifestID, Phase: projectPhaseIndex,
 	}
 	if err := runtime.writeProjectJournal(journal); err != nil {
 		t.Fatal(err)
@@ -481,7 +484,7 @@ func TestListProjectsOnlyCleansPreExistingCompletedJournal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	indexPath, err := runtime.rootIndexPath(instance.Root, instance.ContextID)
+	indexPath, err := runtime.rootIndexPath(instance.Root, instance.WorkspaceManifestID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -501,8 +504,8 @@ func TestListProjectsOnlyCleansPreExistingCompletedJournal(t *testing.T) {
 
 func TestResolveProjectFindsOneSidedLogicalRecordsForRecovery(t *testing.T) {
 	t.Parallel()
-	tests := map[string]func(*testing.T, *Runtime, tobari.ProjectInstance){
-		"root index only": func(t *testing.T, runtime *Runtime, instance tobari.ProjectInstance) {
+	tests := map[string]func(*testing.T, *Runtime, tobari.Workspace){
+		"root index only": func(t *testing.T, runtime *Runtime, instance tobari.Workspace) {
 			path, err := runtime.projectStatePath(instance.ID)
 			if err != nil {
 				t.Fatal(err)
@@ -511,7 +514,7 @@ func TestResolveProjectFindsOneSidedLogicalRecordsForRecovery(t *testing.T) {
 				t.Fatal(err)
 			}
 		},
-		"instance only": func(t *testing.T, runtime *Runtime, instance tobari.ProjectInstance) {
+		"instance only": func(t *testing.T, runtime *Runtime, instance tobari.Workspace) {
 			if err := runtime.removeProjectRootIndex(instance.Root); err != nil {
 				t.Fatal(err)
 			}
@@ -617,7 +620,7 @@ func TestUpdateProjectRuntimeDoesNotChangeLogicalIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	instance.Runtime = tobari.ProjectRuntime{ContainerID: "container", NetworkID: "network"}
+	instance.Runtime = tobari.WorkspaceRuntime{ContainerID: "container", NetworkID: "network"}
 	if err := runtime.UpdateProjectRuntime(context.Background(), instance); err != nil {
 		t.Fatalf("UpdateProjectRuntime() error = %v", err)
 	}

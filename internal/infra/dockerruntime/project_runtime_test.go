@@ -18,22 +18,36 @@ import (
 	"github.com/tasuku43/tobari/internal/domain/tobari"
 )
 
-func projectRuntimeInstance(t *testing.T, runtime *Runtime) tobari.ProjectInstance {
+func projectRuntimeInstance(t *testing.T, runtime *Runtime) tobari.Workspace {
 	t.Helper()
+	initializeTestWorkspaceManifest(t, runtime)
 	root := filepath.Join(t.TempDir(), "project")
 	if err := os.MkdirAll(root, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	instance, _, err := runtime.ResolveOrCreateProject(context.Background(), root)
+	instance, _, err := resolveOrCreateTestProject(t, runtime, root)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return instance
 }
 
-func projectRuntimeContext(t *testing.T, runtime *Runtime, instance tobari.ProjectInstance) tobari.ContextManifest {
+func initializeTestWorkspaceManifest(t *testing.T, runtime *Runtime) {
 	t.Helper()
-	manifest, _, err := runtime.contextByID(instance.ContextID)
+	if err := runtime.ensureContextStore(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func resolveOrCreateTestProject(t *testing.T, runtime *Runtime, root string) (tobari.Workspace, bool, error) {
+	t.Helper()
+	initializeTestWorkspaceManifest(t, runtime)
+	return runtime.ResolveOrCreateProject(context.Background(), root)
+}
+
+func projectRuntimeContext(t *testing.T, runtime *Runtime, instance tobari.Workspace) tobari.WorkspaceManifest {
+	t.Helper()
+	manifest, _, err := runtime.contextByID(instance.WorkspaceManifestID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,6 +78,10 @@ func TestInspectProjectRuntimeClassifiesIncompleteStateBeforeDocker(t *testing.T
 	}
 	instance := projectRuntimeInstance(t, runtime)
 	instance.Incomplete = true
+	instance.CreationApplied = tobari.WorkspaceCreationApplied{}
+	instance.Runtime = tobari.WorkspaceRuntime{}
+	instance.LastSuccessfulEntry = nil
+	instance.LastFailure = nil
 	diagnostic, err := runtime.InspectProjectRuntime(context.Background(), instance)
 	if err != nil || diagnostic != tobari.RuntimeDiagnosticIncomplete {
 		t.Fatalf("InspectProjectRuntime() = (%q, %v), want incomplete", diagnostic, err)
@@ -308,17 +326,17 @@ func TestEnterProjectRuntimeProjectsAmbientHostLoopbackCapabilityAndRevokesLease
 
 func TestProjectShellExecEnvironmentUsesOnlyDeclaredSourcesAndQuotesPrompt(t *testing.T) {
 	literal := "truecolor"
-	manifest := tobari.ContextManifest{
-		SchemaVersion: tobari.ContextSchemaVersion,
+	manifest := tobari.WorkspaceManifest{
+		SchemaVersion: tobari.WorkspaceManifestSchemaVersion,
 		ID:            "018bcfe5-687b-7000-8000-000000000000", Name: "default",
 		AgentProfile: tobari.DefaultProfile, Image: tobari.OfficialRuntimeBase,
-		PolicyMode: tobari.ContextPolicyModeGuided, SourceAccess: tobari.ContextSourceAccessReadWrite,
+		PolicyMode: tobari.ManifestPolicyModeGuided, SourceAccess: tobari.ManifestSourceAccessReadWrite,
 		PolicyRevision: tobari.DefaultContextPolicyRevision(),
-		ShellEnvironment: []tobari.ContextShellEnvironmentSetting{
-			{Variable: "PS1", Source: tobari.ContextShellEnvironmentInherit},
-			{Variable: "TERM", Source: tobari.ContextShellEnvironmentInherit},
-			{Variable: "COLORTERM", Source: tobari.ContextShellEnvironmentLiteral, Value: &literal},
-			{Variable: "NO_COLOR", Source: tobari.ContextShellEnvironmentInherit},
+		ShellEnvironment: []tobari.ManifestShellEnvironmentSetting{
+			{Variable: "PS1", Source: tobari.ManifestShellEnvironmentInherit},
+			{Variable: "TERM", Source: tobari.ManifestShellEnvironmentInherit},
+			{Variable: "COLORTERM", Source: tobari.ManifestShellEnvironmentLiteral, Value: &literal},
+			{Variable: "NO_COLOR", Source: tobari.ManifestShellEnvironmentInherit},
 		},
 	}
 	host := map[string]string{
@@ -352,12 +370,12 @@ func TestProjectShellExecEnvironmentUsesOnlyDeclaredSourcesAndQuotesPrompt(t *te
 }
 
 func TestProjectShellExecEnvironmentFallsBackWhenInheritedPS1IsAbsent(t *testing.T) {
-	manifest := tobari.ContextManifest{
-		SchemaVersion: tobari.ContextSchemaVersion,
+	manifest := tobari.WorkspaceManifest{
+		SchemaVersion: tobari.WorkspaceManifestSchemaVersion,
 		ID:            "018bcfe5-687b-7000-8000-000000000000", Name: "default",
 		AgentProfile: tobari.DefaultProfile, Image: tobari.OfficialRuntimeBase,
-		PolicyMode:       tobari.ContextPolicyModeGuided,
-		SourceAccess:     tobari.ContextSourceAccessReadWrite,
+		PolicyMode:       tobari.ManifestPolicyModeGuided,
+		SourceAccess:     tobari.ManifestSourceAccessReadWrite,
 		PolicyRevision:   tobari.DefaultContextPolicyRevision(),
 		ShellEnvironment: tobari.InitialContextShellEnvironment(),
 	}
@@ -371,14 +389,14 @@ func TestProjectShellExecEnvironmentFallsBackWhenInheritedPS1IsAbsent(t *testing
 }
 
 func TestProjectShellExecEnvironmentRejectsOversizedInheritedValue(t *testing.T) {
-	manifest := tobari.ContextManifest{
-		SchemaVersion: tobari.ContextSchemaVersion,
+	manifest := tobari.WorkspaceManifest{
+		SchemaVersion: tobari.WorkspaceManifestSchemaVersion,
 		ID:            "018bcfe5-687b-7000-8000-000000000000", Name: "default",
 		AgentProfile: tobari.DefaultProfile, Image: tobari.OfficialRuntimeBase,
-		PolicyMode: tobari.ContextPolicyModeGuided, SourceAccess: tobari.ContextSourceAccessReadWrite,
+		PolicyMode: tobari.ManifestPolicyModeGuided, SourceAccess: tobari.ManifestSourceAccessReadWrite,
 		PolicyRevision: tobari.DefaultContextPolicyRevision(),
-		ShellEnvironment: []tobari.ContextShellEnvironmentSetting{
-			{Variable: "TERM", Source: tobari.ContextShellEnvironmentInherit},
+		ShellEnvironment: []tobari.ManifestShellEnvironmentSetting{
+			{Variable: "TERM", Source: tobari.ManifestShellEnvironmentInherit},
 		},
 	}
 	_, err := projectShellExecEnvironment(manifest, func(string) (string, bool) {
@@ -903,14 +921,14 @@ func setActiveContextImage(t *testing.T, runtime *Runtime, image string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	manifest.Image = image
-	if manifest.RuntimeBinding != nil {
-		manifest.RuntimeBinding.Image = image
+	draft := manifest
+	draft.Image = image
+	if draft.RuntimeBinding != nil {
+		binding := *draft.RuntimeBinding
+		binding.Image = image
+		draft.RuntimeBinding = &binding
 	}
-	if err := manifest.Validate(); err != nil {
-		t.Fatal(err)
-	}
-	if err := writeAtomicJSON(runtime.contextManifestPath(manifest.Name), manifest); err != nil {
+	if _, err := runtime.publishWorkspaceManifestUpdate(manifest, draft); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -935,7 +953,7 @@ func TestEnsureProjectRuntimeReconcilesActiveContextImageForExistingWorkspace(t 
 	if err := os.MkdirAll(projectRoot, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	instance, _, err := runtime.ResolveOrCreateProject(context.Background(), projectRoot)
+	instance, _, err := resolveOrCreateTestProject(t, runtime, projectRoot)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1009,7 +1027,7 @@ func TestEnsureProjectRuntimeCancellationBeforeDriftPreservesPrincipal(t *testin
 	if err := os.MkdirAll(projectRoot, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	instance, _, err := runtime.ResolveOrCreateProject(context.Background(), projectRoot)
+	instance, _, err := resolveOrCreateTestProject(t, runtime, projectRoot)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1072,7 +1090,7 @@ func TestEnsureProjectRuntimeCancellationBeforeDriftPreservesPrincipal(t *testin
 		t.Fatalf("principal registry after cancellation = %+v", registry)
 	}
 	got := registry.Bindings[0]
-	if got.ProjectID != instance.ID || got.ContextID != instance.ContextID || got.ContextName != instance.ContextName ||
+	if got.ProjectID != instance.ID || got.WorkspaceManifestID != instance.WorkspaceManifestID || got.WorkspaceManifestName != instance.WorkspaceManifestName ||
 		got.ProjectRoot != instance.Root || got.Network != network || got.WorkspaceIP != "172.20.0.3" || got.GatewayIP != "172.20.0.2" {
 		t.Fatalf("retained principal = %+v", got)
 	}
@@ -1105,7 +1123,7 @@ func TestEnsureProjectRuntimeDriftClosesPrincipalBeforeDockerMutation(t *testing
 	if err := os.MkdirAll(projectRoot, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	instance, _, err := runtime.ResolveOrCreateProject(context.Background(), projectRoot)
+	instance, _, err := resolveOrCreateTestProject(t, runtime, projectRoot)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1165,7 +1183,7 @@ func TestEnsureProjectRuntimeImageDriftFailurePreservesStoredImage(t *testing.T)
 	if err := os.MkdirAll(projectRoot, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	instance, _, err := runtime.ResolveOrCreateProject(context.Background(), projectRoot)
+	instance, _, err := resolveOrCreateTestProject(t, runtime, projectRoot)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1176,7 +1194,7 @@ func TestEnsureProjectRuntimeImageDriftFailurePreservesStoredImage(t *testing.T)
 		t.Fatal("EnsureProjectRuntime() unexpectedly succeeded")
 	}
 	stored, found, err := runtime.ResolveProject(context.Background(), projectRoot)
-	if err != nil || !found || stored.Image != instance.Image || stored.Runtime != (tobari.ProjectRuntime{}) {
+	if err != nil || !found || stored.Image != instance.Image || stored.Runtime != (tobari.WorkspaceRuntime{}) {
 		t.Fatalf("logical state after failed image reconcile = (%+v, %t, %v), want old image %q", stored, found, err, instance.Image)
 	}
 }
@@ -1197,7 +1215,7 @@ func TestEnsureProjectRuntimeRejectsIncompatibleImageBeforeProjectMutation(t *te
 	if err := os.MkdirAll(projectRoot, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	instance, _, err := runtime.ResolveOrCreateProject(context.Background(), projectRoot)
+	instance, _, err := resolveOrCreateTestProject(t, runtime, projectRoot)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1232,21 +1250,21 @@ func TestEnsureProjectContainerRecreatesOnSpecDrift(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	instance := tobari.ProjectInstance{
-		SchemaVersion: tobari.ProjectStateSchemaVersion,
-		ID:            runner.instanceID,
-		Root:          filepath.Join(t.TempDir(), "project"),
-		ContextID:     "01912345-6789-7abc-8def-0123456789ad",
-		ContextName:   "default",
-		Profile:       tobari.DefaultProfile,
-		Image:         tobari.BuiltinImageSelector,
+	instance := tobari.Workspace{
+		SchemaVersion:         tobari.WorkspaceStateSchemaVersion,
+		ID:                    runner.instanceID,
+		Root:                  filepath.Join(t.TempDir(), "project"),
+		WorkspaceManifestID:   "01912345-6789-7abc-8def-0123456789ad",
+		WorkspaceManifestName: "default",
+		Profile:               tobari.DefaultProfile,
+		Image:                 tobari.BuiltinImageSelector,
 	}
 	if err := os.MkdirAll(instance.Root, 0o700); err != nil {
 		t.Fatal(err)
 	}
 	state := tobari.State{
 		SchemaVersion: 1, RuntimeDirectory: filepath.Join(t.TempDir(), "runtime"),
-		AggregateRevision: strings.Repeat("a", 64), ContextCount: 1,
+		AggregateRevision: strings.Repeat("a", 64), ManifestCount: 1,
 		PolicyDirectory: filepath.Join(t.TempDir(), "policy"), GatewayConfig: filepath.Join(t.TempDir(), "gateway.json"),
 		AssetVersion: "asset",
 	}
@@ -1279,8 +1297,8 @@ func TestEnsureProjectContainerAppliesSharedResourceBounds(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	instance := tobari.ProjectInstance{
-		SchemaVersion: tobari.ProjectStateSchemaVersion,
+	instance := tobari.Workspace{
+		SchemaVersion: tobari.WorkspaceStateSchemaVersion,
 		ID:            runner.instanceID,
 		Root:          filepath.Join(t.TempDir(), "project"),
 		Profile:       tobari.DefaultProfile,
@@ -1445,7 +1463,7 @@ func TestEnsureProjectRuntimeFaultsPreserveLogicalState(t *testing.T) {
 			if err := os.MkdirAll(projectRoot, 0o700); err != nil {
 				t.Fatal(err)
 			}
-			instance, _, err := runtime.ResolveOrCreateProject(context.Background(), projectRoot)
+			instance, _, err := resolveOrCreateTestProject(t, runtime, projectRoot)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -1477,18 +1495,18 @@ func TestEnsureProjectRuntimeStateWriteFailurePreservesLogicalState(t *testing.T
 	if err := os.MkdirAll(projectRoot, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	instance, _, err := runtime.ResolveOrCreateProject(context.Background(), projectRoot)
+	instance, _, err := resolveOrCreateTestProject(t, runtime, projectRoot)
 	if err != nil {
 		t.Fatal(err)
 	}
-	runtime.projectStateWriter = func(tobari.ProjectInstance) error {
+	runtime.projectStateWriter = func(tobari.Workspace) error {
 		return errors.New("injected state update failure")
 	}
 	if _, err := runtime.EnsureProjectRuntime(context.Background(), runtimeState(root), instance); err == nil {
 		t.Fatal("EnsureProjectRuntime() unexpectedly succeeded")
 	}
 	stored, found, err := runtime.ResolveProject(context.Background(), projectRoot)
-	if err != nil || !found || stored.ID != instance.ID || stored.Runtime != (tobari.ProjectRuntime{}) {
+	if err != nil || !found || stored.ID != instance.ID || stored.Runtime != (tobari.WorkspaceRuntime{}) {
 		t.Fatalf("logical state after state update failure = (%+v, %t, %v)", stored, found, err)
 	}
 }

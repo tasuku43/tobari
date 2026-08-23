@@ -34,13 +34,13 @@ func TestPublicCommandTableAcceptsSemanticPlaceholderAndEnumEquivalence(t *testi
 
 func TestPublicCommandTableAcceptsAndEnforcesPositionalOnlyRepeatableArgv(t *testing.T) {
 	catalog := cli.NewCatalog(testCommandSpec("tobari", []cli.CommandInput{
-		{Name: "--context", Source: cli.InputSourceFlag, Required: false, ValueKind: cli.InputValueText, Cardinality: cli.InputCardinalitySingle, AllowedValues: []string{}},
+		{Name: "--manifest", Source: cli.InputSourceFlag, Required: false, ValueKind: cli.InputValueText, Cardinality: cli.InputCardinalitySingle, AllowedValues: []string{}},
 		{Name: "command", Source: cli.InputSourceArgument, Required: false, ValueKind: cli.InputValueText, Cardinality: cli.InputCardinalityRepeatable, AllowedValues: []string{}, PositionalOnly: true},
 	}))
 	valid := `
 | Command | Role | Effect | Outcome |
 |---|---|---|---|
-| ` + "`tobari [--context <name>] [-- <command>...]`" + ` | act | create | Enter |
+| ` + "`tobari [--manifest <name>] [-- <command>...]`" + ` | act | create | Enter |
 `
 	if issues := validatePublicCommandTableDocument(productContractPath, valid, catalog); len(issues) != 0 {
 		t.Fatalf("positional-only command issues = %+v", issues)

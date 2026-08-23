@@ -46,20 +46,20 @@ func ValidateServiceExposureID(id string) error {
 }
 
 type ServiceRequest struct {
-	SchemaVersion int    `json:"schema_version"`
-	ID            string `json:"id"`
-	AttachmentID  string `json:"attachment_id"`
-	ProjectID     string `json:"project_id"`
-	ContextID     string `json:"context_id"`
-	Workspace     string `json:"workspace"`
-	TargetPort    int    `json:"target_port"`
-	State         string `json:"state"`
+	SchemaVersion       int    `json:"schema_version"`
+	ID                  string `json:"id"`
+	AttachmentID        string `json:"attachment_id"`
+	ProjectID           string `json:"workspace_id"`
+	WorkspaceManifestID string `json:"workspace_manifest_id"`
+	Workspace           string `json:"workspace"`
+	TargetPort          int    `json:"target_port"`
+	State               string `json:"state"`
 }
 
 func (r ServiceRequest) Validate() error {
 	if r.SchemaVersion != ServiceExposureSchema || ValidateServiceRequestID(r.ID) != nil ||
 		!attachmentEpochPattern.MatchString(r.AttachmentID) || !projectIDPattern.MatchString(r.ProjectID) ||
-		!contextIDPattern.MatchString(r.ContextID) || r.Workspace == "" || ValidateServicePort(r.TargetPort) != nil {
+		!contextIDPattern.MatchString(r.WorkspaceManifestID) || r.Workspace == "" || ValidateServicePort(r.TargetPort) != nil {
 		return fmt.Errorf("service request is invalid")
 	}
 	switch r.State {
@@ -71,24 +71,24 @@ func (r ServiceRequest) Validate() error {
 }
 
 type ServiceExposure struct {
-	SchemaVersion int    `json:"schema_version"`
-	ID            string `json:"id"`
-	RequestID     string `json:"request_id"`
-	AttachmentID  string `json:"attachment_id"`
-	ProjectID     string `json:"project_id"`
-	ContextID     string `json:"context_id"`
-	Workspace     string `json:"workspace"`
-	TargetPort    int    `json:"target_port"`
-	HostPort      int    `json:"host_port"`
-	URL           string `json:"url"`
-	State         string `json:"state"`
-	Connections   int    `json:"connections"`
+	SchemaVersion       int    `json:"schema_version"`
+	ID                  string `json:"id"`
+	RequestID           string `json:"request_id"`
+	AttachmentID        string `json:"attachment_id"`
+	ProjectID           string `json:"workspace_id"`
+	WorkspaceManifestID string `json:"workspace_manifest_id"`
+	Workspace           string `json:"workspace"`
+	TargetPort          int    `json:"target_port"`
+	HostPort            int    `json:"host_port"`
+	URL                 string `json:"url"`
+	State               string `json:"state"`
+	Connections         int    `json:"connections"`
 }
 
 func (e ServiceExposure) Validate() error {
 	if e.SchemaVersion != ServiceExposureSchema || ValidateServiceExposureID(e.ID) != nil ||
 		ValidateServiceRequestID(e.RequestID) != nil || !attachmentEpochPattern.MatchString(e.AttachmentID) ||
-		!projectIDPattern.MatchString(e.ProjectID) || !contextIDPattern.MatchString(e.ContextID) ||
+		!projectIDPattern.MatchString(e.ProjectID) || !contextIDPattern.MatchString(e.WorkspaceManifestID) ||
 		e.Workspace == "" || ValidateServicePort(e.TargetPort) != nil || e.HostPort < 1 || e.HostPort > 65535 ||
 		e.URL != "http://127.0.0.1:"+strconv.Itoa(e.HostPort) || e.Connections < 0 {
 		return fmt.Errorf("service exposure is invalid")

@@ -19,7 +19,7 @@ func hostLoopbackGrant(t *testing.T, route tobari.AttachmentHostLoopbackRoute, p
 	denial := tobari.PolicyDenial{
 		PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Scheme: "http", Protocol: tobari.PolicyProtocolHTTP},
 		Timestamp:              "2026-08-17T12:00:00Z", RequestID: strings.Repeat("1", 32),
-		ContextID: route.ContextID, ContextName: route.ContextName,
+		WorkspaceManifestID: route.WorkspaceManifestID, WorkspaceManifestName: route.WorkspaceManifestName,
 		ProjectID: route.ProjectID, ProjectRoot: route.ProjectRoot,
 		Host: tobari.HostLoopbackHostname, Port: port, Method: "GET", Path: "/health",
 		Reason: "review", StatusCode: 403, Learnable: true,

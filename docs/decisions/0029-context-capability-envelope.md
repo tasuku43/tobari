@@ -5,11 +5,13 @@
 - Deciders: Tobari maintainers
 - Scope: Product, architecture, security, harness, and public boundary
 - Supersedes: None
-- Superseded by: None
+- Superseded by: ADR 0079 supersedes the Context vocabulary and flat aggregate
+  lifecycle while retaining the immutable Boundary security invariant
 - Revises: ADR 0010, ADR 0013, ADR 0024, ADR 0026, and ADR 0028
 - Revised by: ADR 0066 removes public policy presets and ADR 0071 limits the
   envelope's immutability to the creation-time Boundary while retaining a
-  stable reusable Context identity
+  stable reusable Context identity; ADR 0079 retains that Boundary under a
+  Workspace Manifest identity
 
 ## Context
 

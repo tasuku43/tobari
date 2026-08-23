@@ -57,7 +57,7 @@ func TestContextConfigurationPresentationEvidenceUsesOneTypedFixture(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	var fixture tobari.ContextReport
+	var fixture tobari.ManifestReport
 	if err := json.Unmarshal(fixtureData, &fixture); err != nil {
 		t.Fatalf("decode typed fixture: %v", err)
 	}
@@ -74,8 +74,8 @@ func TestContextConfigurationPresentationEvidenceUsesOneTypedFixture(t *testing.
 		t.Fatalf("decode presentation answer: %v", err)
 	}
 	if answer.SchemaVersion != 1 || answer.Task != fixture.Task ||
-		answer.FixedTarget.Kind != tobari.ContextGitIdentityTargetKind ||
-		answer.FixedTarget.ID != tobari.ContextGitIdentityTargetID ||
+		answer.FixedTarget.Kind != tobari.ManifestGitIdentityTargetKind ||
+		answer.FixedTarget.ID != tobari.ManifestGitIdentityTargetID ||
 		answer.SelectedContext.ID != fixture.ID || answer.SelectedContext.Name != fixture.Name {
 		t.Fatalf("answer target/task does not match fixture: answer=%+v fixture=%+v", answer, fixture)
 	}
@@ -102,7 +102,7 @@ func TestContextConfigurationPresentationEvidenceUsesOneTypedFixture(t *testing.
 		t.Fatal(err)
 	}
 	if got := renderContextReportText(fixture, false); !slices.Equal(got, golden) {
-		t.Fatalf("Context configuration text changed\n--- got ---\n%s--- want ---\n%s", got, golden)
+		t.Fatalf("Workspace Manifest configuration text changed\n--- got ---\n%s--- want ---\n%s", got, golden)
 	}
 	jsonOutput, err := renderContextReport(fixture, successFormatJSON, false)
 	if err != nil {
@@ -112,8 +112,8 @@ func TestContextConfigurationPresentationEvidenceUsesOneTypedFixture(t *testing.
 	if err := json.Unmarshal(jsonOutput, &document); err != nil {
 		t.Fatalf("decode rendered JSON: %v", err)
 	}
-	if document.SchemaVersion != 1 || document.Context.Task != answer.Task || document.Context.ID == nil ||
-		*document.Context.ID != answer.SelectedContext.ID || document.Context.Name != answer.SelectedContext.Name {
+	if document.SchemaVersion != 2 || document.Manifest.Task != answer.Task || document.Manifest.ID == nil ||
+		*document.Manifest.ID != answer.SelectedContext.ID || document.Manifest.Name != answer.SelectedContext.Name {
 		t.Fatalf("rendered JSON lost semantic identity: %+v", document)
 	}
 	text := string(golden)

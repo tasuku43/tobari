@@ -43,13 +43,13 @@ const (
 // It deliberately excludes Docker output, which travels through the separate
 // purpose-bound diagnostic stream.
 type RuntimeBuildProgress struct {
-	Stage          RuntimeBuildStage
-	Status         RuntimeBuildProgressStatus
-	ContextName    string
-	Dockerfile     string
-	PreviousImage  string
-	CandidateImage string
-	Selection      RuntimeBuildSelectionState
+	Stage                 RuntimeBuildStage
+	Status                RuntimeBuildProgressStatus
+	WorkspaceManifestName string
+	Dockerfile            string
+	PreviousImage         string
+	CandidateImage        string
+	Selection             RuntimeBuildSelectionState
 }
 
 // RuntimeBuildProgressSink receives best-effort semantic build events.
@@ -74,8 +74,8 @@ func (p RuntimeBuildProgress) Validate() error {
 	default:
 		return fmt.Errorf("runtime build selection state %q is invalid", p.Selection)
 	}
-	if err := ValidateName(p.ContextName); err != nil {
-		return fmt.Errorf("runtime build Context: %w", err)
+	if err := ValidateName(p.WorkspaceManifestName); err != nil {
+		return fmt.Errorf("runtime build Workspace Manifest: %w", err)
 	}
 	if p.Dockerfile == "" || !filepath.IsAbs(p.Dockerfile) || filepath.Clean(p.Dockerfile) != p.Dockerfile {
 		return fmt.Errorf("runtime build Dockerfile must be canonical and absolute")

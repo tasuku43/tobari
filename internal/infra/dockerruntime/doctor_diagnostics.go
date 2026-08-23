@@ -59,7 +59,7 @@ func (r *Runtime) checkGatewayConfigAt(path string) (string, doctor.CheckStatus)
 		return "gateway.json does not match Gateway projection schema V1", doctor.CheckStatusFail
 	}
 	for contextID, projected := range document.Contexts {
-		if err := tobari.ValidateContextID(contextID); err != nil || tobari.ValidateName(projected.Name) != nil {
+		if err := tobari.ValidateWorkspaceManifestID(contextID); err != nil || tobari.ValidateName(projected.Name) != nil {
 			return "gateway.json contains an invalid Context projection", doctor.CheckStatusFail
 		}
 		seenEndpoints := make(map[tobari.GraphQLEndpoint]struct{}, len(projected.GraphQLEndpoints))

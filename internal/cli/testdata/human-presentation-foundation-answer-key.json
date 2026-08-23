@@ -9,8 +9,8 @@
       "name": "lifecycle",
       "task": "status",
       "required_facts": ["Workspace ready", "/workspace/example-project", "toolbox", "ready", "detached"],
-      "exact_next_argv": ["tobari", "--context", "toolbox"],
-      "unsupported_inferences": ["another Context has the same Workspace identity"]
+      "exact_next_argv": ["tobari", "--manifest", "toolbox"],
+      "unsupported_inferences": ["another Workspace Manifest has the same Workspace identity"]
     },
     {
       "name": "scoped_empty_collection",

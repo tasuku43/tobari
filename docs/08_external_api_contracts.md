@@ -12,7 +12,7 @@ no AWS catalog lookup or IAM/read-write interpretation.
 
 ## Generic HTTP contract
 
-Gateway derives trusted Context/project identity from the kernel-observed
+Gateway derives trusted Workspace Manifest/project identity from the kernel-observed
 Workspace source endpoint and owner-only principal registry. It normalizes
 scheme, host, port, method, raw path, query, and redacted headers for OPA.
 Query and headers can be Advanced-Rego constraints but are not guided learned-
@@ -55,9 +55,9 @@ Gateway performs no external DNS or upstream connection before allow. It uses
 finite OPA, DNS, connect, and upstream timeouts and makes one upstream
 attempt. It does not retry an arbitrary HTTP request.
 
-## Context policy ceiling
+## Workspace Manifest policy ceiling
 
-The immutable Context-owned policy ceiling is evaluated before baseline data, learned
+The immutable Workspace Manifest-owned policy ceiling is evaluated before baseline data, learned
 exact policy, or Advanced Rego. Enabled native readiness grants the reviewed
 Claude Code 2.1.220 and Codex 0.147.0 model/account/bootstrap, first-party
 capability discovery, bounded evaluation, telemetry, and MCP initialize/list
@@ -69,21 +69,21 @@ pup 1.10.7's exact US1 DCR registration and token exchange/refresh when
 supplied by a custom runtime. Compile-time
 `claude_ready`, `codex_ready`, `gh_ready`, `twg_ready`, and `pup_ready` bundles are projected
 from the installed trusted binary into ordinary exact rules independently of
-Context policy identity and are not runtime selectors. New snapshots omit
+Workspace Manifest policy identity and are not runtime selectors. New snapshots omit
 them; legacy bundle rules are removed from the effective projection before the
 current set is added. One dedicated compile-time family catalog owns pinned
 client versions, independently selected positive contract revisions, and
 append-only removal history. Observed traffic cannot extend it, and its
 effective content participates in the aggregate
 revision checked by status and Workspace entry. Those are
-Context-wide semantic effects rather than executable
-identity. Context policy destination ceilings and method Deny decisions filter or
+Workspace Manifest-wide semantic effects rather than executable
+identity. Workspace Manifest policy destination ceilings and method Deny decisions filter or
 suppress the overlay, and exact Deny remains terminal. MCP actions, file transfer,
 downloads, acquisition, self-update, and unmatched effects receive no baseline
 grant. Disabled readiness supplies no overlay. Every method resolves from a
 default plus exact overrides using Allow, Exact Review, or Deny.
 The fixed agent-ready baseline is trusted-binary data composed into the
-Context-owned snapshot; it is not a selectable profile. Context creation
+Workspace Manifest-owned snapshot; it is not a selectable profile. Workspace Manifest creation
 supplies one complete method default plus exact overrides, so deny-only and
 GET-only postures are represented directly. GET is not classified as safe or
 read-only, and exact Deny wins over method Allow. Terminal denial
@@ -176,7 +176,7 @@ Gateway follows one sequence:
 2. Reject malformed, misplaced, ambiguous, stale, copied, or binding-mismatched
    Tobari-looking handle markers.
 3. Remove one recognized handle and request non-secret Broker introspection of
-   Context, project, provider, revision, target, source header, and format.
+   Workspace Manifest, project, provider, revision, target, source header, and format.
 4. Only for an undeclared binding with no marker, select Workspace-owned
    compatibility passthrough.
 5. Send only normalized request identity and non-secret provider identity to
@@ -222,7 +222,7 @@ existing conventional-root and mode contract. Experimental AWS offers only
 `identity-center` and `console` host acquisition. Its opaque
 state is re-entered by a private authenticated companion after allow, and
 Broker emits one standard header-based SigV4 result for the exact bounded
-request. Datadog uses fixed US1 pup acquisition from a fresh selected-Context
+request. Datadog uses fixed US1 pup acquisition from a fresh selected-Workspace Manifest
 runtime container, binds immutable image/executable identity, validates
 semantic version syntax plus the fixed login/status/native-state contract, and
 uses a proxy-free, no-redirect, same-record refresh transport. OpenAI accepts a stable observed
@@ -236,7 +236,7 @@ refreshes only the same ChatGPT account record, returning
 its validated account ID for one supplemental header. Anthropic accepts only
 the four required renewable-session values and two bounded non-secret
 entitlement labels extracted from exact Claude Code
-2.1.220 in the selected Context image, structurally validates the dynamic
+2.1.220 in the selected Workspace Manifest image, structurally validates the dynamic
 requested and granted scope sets, rejects grants outside the observed request,
 and canonicalizes their order without compiling provider scope or entitlement
 values, discards other native-file metadata,

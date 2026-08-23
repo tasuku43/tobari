@@ -63,10 +63,10 @@ func newContextSwitchRuntime(t *testing.T, runner *contextSwitchRunner) *Runtime
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := runtime.ListContexts(context.Background()); err != nil {
+	if err := runtime.ensureContextStore(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := runtime.CreateContext(context.Background(), "project-tools", tobari.OfficialRuntimeBase, tobari.ContextPolicyModeAdvanced, tobari.ContextSourceAccessReadWrite); err != nil {
+	if _, err := runtime.CreateContext(context.Background(), "project-tools", tobari.OfficialRuntimeBase, tobari.ManifestPolicyModeAdvanced, tobari.ManifestSourceAccessReadWrite); err != nil {
 		t.Fatal(err)
 	}
 	return runtime
@@ -83,15 +83,15 @@ func TestFreshObservationsCreateNoTobariOwnedFilesOrDockerCalls(t *testing.T) {
 		t.Fatal(err)
 	}
 	if result, err := runtime.ListContexts(context.Background()); err != nil ||
-		result.ContextState != tobari.ContextObservationSyntheticDefault || len(result.Items) != 0 {
+		result.ManifestState != tobari.ManifestObservationAbsent || len(result.Items) != 0 {
 		t.Fatalf("ListContexts() = %+v, %v", result, err)
 	}
 	if result, err := runtime.ShowContext(context.Background(), ""); err != nil ||
-		result.ContextState != tobari.ContextObservationSyntheticDefault || result.ID != "" {
+		result.ManifestState != tobari.ManifestObservationAbsent || result.ID != "" {
 		t.Fatalf("ShowContext() = %+v, %v", result, err)
 	}
 	if result, err := runtime.AuthStatus(context.Background(), ""); err != nil ||
-		result.ContextState != tobari.ContextObservationSyntheticDefault || result.ContextID != "" {
+		result.ManifestState != tobari.ManifestObservationAbsent || result.WorkspaceManifestID != "" {
 		t.Fatalf("AuthStatus() = %+v, %v", result, err)
 	}
 	if projects, err := runtime.ListProjects(context.Background()); err != nil || len(projects) != 0 {
@@ -192,10 +192,10 @@ func TestExplicitFreshDefaultIsNotSyntheticAuthority(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := runtime.ShowContext(context.Background(), tobari.DefaultContextName); !errors.Is(err, tobari.ErrContextNotFound) {
+	if _, err := runtime.ShowContext(context.Background(), tobari.DefaultManifestName); !errors.Is(err, tobari.ErrContextNotFound) {
 		t.Fatalf("explicit fresh default = %v, want context not found", err)
 	}
-	if _, err := runtime.AuthStatus(context.Background(), tobari.DefaultContextName); err == nil {
+	if _, err := runtime.AuthStatus(context.Background(), tobari.DefaultManifestName); err == nil {
 		t.Fatal("explicit fresh default auth status unexpectedly succeeded")
 	}
 	if entries, err := os.ReadDir(root); err != nil || len(entries) != 0 {
@@ -215,8 +215,8 @@ func TestFreshExplicitDefaultCreateSucceedsOnceAndPreservesManifestOnDuplicate(t
 	}
 
 	created, err := runtime.CreateContext(
-		context.Background(), tobari.DefaultContextName,
-		tobari.OfficialRuntimeBase, tobari.ContextPolicyModeAdvanced, tobari.ContextSourceAccessReadOnly,
+		context.Background(), tobari.DefaultManifestName,
+		tobari.OfficialRuntimeBase, tobari.ManifestPolicyModeAdvanced, tobari.ManifestSourceAccessReadOnly,
 	)
 	if err != nil {
 		t.Fatalf("first CreateContext(default) error = %v", err)
@@ -224,43 +224,43 @@ func TestFreshExplicitDefaultCreateSucceedsOnceAndPreservesManifestOnDuplicate(t
 	if err := created.Validate(); err != nil {
 		t.Fatalf("created report is invalid: %v", err)
 	}
-	if created.Task != tobari.TaskContextCreate ||
-		created.ContextState != tobari.ContextObservationPersisted ||
-		created.Name != tobari.DefaultContextName || !created.Active ||
-		created.PolicyMode != tobari.ContextPolicyModeAdvanced ||
-		created.SourceAccess != tobari.ContextSourceAccessReadOnly ||
-		created.Cluster != tobari.ContextClusterStatusNotApplicable {
+	if created.Task != tobari.TaskManifestCreate ||
+		created.ManifestState != tobari.ManifestObservationPersisted ||
+		created.Name != tobari.DefaultManifestName || !created.Default ||
+		created.PolicyMode != tobari.ManifestPolicyModeAdvanced ||
+		created.SourceAccess != tobari.ManifestSourceAccessReadOnly ||
+		created.Cluster != tobari.ManifestClusterStatusNotApplicable {
 		t.Fatalf("created default Context = %+v", created)
 	}
-	if created.RoutineAccess == nil || created.RoutineAccess.SourceAccess != tobari.ContextSourceAccessReadOnly {
+	if created.RoutineAccess == nil || created.RoutineAccess.SourceAccess != tobari.ManifestSourceAccessReadOnly {
 		t.Fatalf("created Context lacks its policy-derived routine Access: %+v", created.RoutineAccess)
 	}
 	listed, err := runtime.ListContexts(context.Background())
 	if err != nil || len(listed.Items) != 1 || listed.Items[0].RoutineAccess == nil ||
-		listed.Items[0].RoutineAccess.SourceAccess != tobari.ContextSourceAccessReadOnly {
+		listed.Items[0].RoutineAccess.SourceAccess != tobari.ManifestSourceAccessReadOnly {
 		t.Fatalf("listed Context lacks its policy-derived routine Access: result=%+v err=%v", listed, err)
 	}
 	shown, err := runtime.ShowContext(context.Background(), "")
-	if err != nil || shown.RoutineAccess == nil || shown.RoutineAccess.SourceAccess != tobari.ContextSourceAccessReadOnly {
+	if err != nil || shown.RoutineAccess == nil || shown.RoutineAccess.SourceAccess != tobari.ManifestSourceAccessReadOnly {
 		t.Fatalf("shown Context lacks its policy-derived routine Access: result=%+v err=%v", shown, err)
 	}
 	if len(runner.runs) != 0 {
 		t.Fatalf("Context create made Docker calls: %+v", runner.runs)
 	}
 
-	manifestPath := runtime.contextManifestPath(tobari.DefaultContextName)
+	manifestPath := runtime.contextManifestPath(tobari.DefaultManifestName)
 	manifestBefore, err := os.ReadFile(manifestPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	manifest, err := runtime.readContextManifest(tobari.DefaultContextName)
-	if err != nil || manifest.SourceAccess != tobari.ContextSourceAccessReadOnly {
+	manifest, err := runtime.readContextManifest(tobari.DefaultManifestName)
+	if err != nil || manifest.SourceAccess != tobari.ManifestSourceAccessReadOnly {
 		t.Fatalf("persisted source access = %q, error = %v", manifest.SourceAccess, err)
 	}
 	treeBefore := snapshotOwnedTree(t, root)
 	if _, err := runtime.CreateContext(
-		context.Background(), tobari.DefaultContextName,
-		tobari.OfficialRuntimeBase, tobari.ContextPolicyModeGuided, tobari.ContextSourceAccessReadWrite,
+		context.Background(), tobari.DefaultManifestName,
+		tobari.OfficialRuntimeBase, tobari.ManifestPolicyModeGuided, tobari.ManifestSourceAccessReadWrite,
 	); !errors.Is(err, tobari.ErrContextExists) {
 		t.Fatalf("second CreateContext(default) error = %v, want ErrContextExists", err)
 	}
@@ -312,7 +312,7 @@ func TestContextDeleteRemovesOnlyUnusedNonCurrentOwnedState(t *testing.T) {
 
 func TestContextDeleteRejectsFoundationalCurrentAndWorkspaceBoundContexts(t *testing.T) {
 	runtime := newContextSwitchRuntime(t, &contextSwitchRunner{})
-	if _, err := runtime.DeleteContext(context.Background(), tobari.DefaultContextName); !errors.Is(err, tobari.ErrContextProtected) {
+	if _, err := runtime.DeleteContext(context.Background(), tobari.DefaultManifestName); !errors.Is(err, tobari.ErrContextProtected) {
 		t.Fatalf("default Context delete = %v, want protected", err)
 	}
 	root := t.TempDir()
@@ -322,7 +322,7 @@ func TestContextDeleteRejectsFoundationalCurrentAndWorkspaceBoundContexts(t *tes
 	if _, err := runtime.DeleteContext(context.Background(), "project-tools"); !errors.Is(err, tobari.ErrContextHasWorkspaces) {
 		t.Fatalf("Workspace-bound Context delete = %v, want guard", err)
 	}
-	if _, err := runtime.UseContext(context.Background(), "project-tools"); err != nil {
+	if _, err := runtime.SetDefaultManifest(context.Background(), "project-tools"); err != nil {
 		t.Fatal(err)
 	}
 	// The Workspace guard and current guard both reject; after deleting the
@@ -359,10 +359,10 @@ func TestCorruptStoredContextFailsClosedWithoutWrites(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(runtime.contextDirectory(tobari.DefaultContextName), 0o700); err != nil {
+	if err := os.MkdirAll(runtime.contextDirectory(tobari.DefaultManifestName), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(runtime.contextManifestPath(tobari.DefaultContextName), []byte("{not-json"), 0o600); err != nil {
+	if err := os.WriteFile(runtime.contextManifestPath(tobari.DefaultManifestName), []byte("{not-json"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	before := snapshotOwnedTree(t, root)
@@ -386,27 +386,27 @@ func TestStoredContextMissingSourceAccessFailsClosed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	directory := runtime.contextDirectory(tobari.DefaultContextName)
+	directory := runtime.contextDirectory(tobari.DefaultManifestName)
 	if err := os.MkdirAll(directory, 0o700); err != nil {
 		t.Fatal(err)
 	}
 	manifest := map[string]any{
-		"schema_version": tobari.ContextSchemaVersion,
-		"id":             "018bcfe5-687b-7000-8000-000000000099",
-		"name":           tobari.DefaultContextName,
-		"agent_profile":  tobari.DefaultProfile,
-		"image":          tobari.OfficialRuntimeBase,
-		"policy_mode":    tobari.ContextPolicyModeGuided,
+		"schema_version":        tobari.WorkspaceManifestSchemaVersion,
+		"workspace_manifest_id": "018bcfe5-687b-7000-8000-000000000099",
+		"name":                  tobari.DefaultManifestName,
+		"agent_profile":         tobari.DefaultProfile,
+		"image":                 tobari.OfficialRuntimeBase,
+		"policy_mode":           tobari.ManifestPolicyModeGuided,
 	}
 	encoded, err := json.Marshal(manifest)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(runtime.contextManifestPath(tobari.DefaultContextName), encoded, 0o600); err != nil {
+	if err := os.WriteFile(runtime.contextManifestPath(tobari.DefaultManifestName), encoded, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	before := snapshotOwnedTree(t, root)
-	if _, err := runtime.ShowContext(context.Background(), tobari.DefaultContextName); err == nil ||
+	if _, err := runtime.ShowContext(context.Background(), tobari.DefaultManifestName); err == nil ||
 		!strings.Contains(err.Error(), "source access") {
 		t.Fatalf("missing source access error = %v", err)
 	}
@@ -425,7 +425,7 @@ func TestListContextsRejectsExtraSymbolicLinkWithoutWrites(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := runtime.CreateContext(
-		context.Background(), "fixture", tobari.OfficialRuntimeBase, tobari.ContextPolicyModeGuided, tobari.ContextSourceAccessReadWrite,
+		context.Background(), "fixture", tobari.OfficialRuntimeBase, tobari.ManifestPolicyModeGuided, tobari.ManifestSourceAccessReadWrite,
 	); err != nil {
 		t.Fatalf("initialize valid default Context fixture: %v", err)
 	}
@@ -450,30 +450,30 @@ func contextSwitchState(runtime *Runtime, name string, root string) tobari.State
 	return state
 }
 
-func TestUseContextReportsUnconfiguredAndStoppedStatesWithoutStartingDocker(t *testing.T) {
+func TestSetDefaultManifestReportsUnconfiguredAndStoppedStatesWithoutStartingDocker(t *testing.T) {
 	t.Parallel()
 	for _, test := range []struct {
 		name   string
 		runner *contextSwitchRunner
-		want   tobari.ContextClusterStatus
+		want   tobari.ManifestClusterStatus
 	}{
-		{name: "unconfigured", runner: &contextSwitchRunner{}, want: tobari.ContextClusterStatusDefaultUpdated},
-		{name: "stopped", runner: &contextSwitchRunner{}, want: tobari.ContextClusterStatusDefaultUpdated},
+		{name: "unconfigured", runner: &contextSwitchRunner{}, want: tobari.ManifestClusterStatusDefaultManifestUpdated},
+		{name: "stopped", runner: &contextSwitchRunner{}, want: tobari.ManifestClusterStatusDefaultManifestUpdated},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			runtime := newContextSwitchRuntime(t, test.runner)
 			if test.name == "stopped" {
-				state := contextSwitchState(runtime, tobari.DefaultContextName, t.TempDir())
+				state := contextSwitchState(runtime, tobari.DefaultManifestName, t.TempDir())
 				if err := runtime.writeState(state); err != nil {
 					t.Fatal(err)
 				}
 			}
-			result, err := runtime.UseContext(context.Background(), "project-tools")
+			result, err := runtime.SetDefaultManifest(context.Background(), "project-tools")
 			if err != nil {
-				t.Fatalf("UseContext() error = %v", err)
+				t.Fatalf("SetDefaultManifest() error = %v", err)
 			}
-			if result.Cluster != test.want || !result.Active || result.Name != "project-tools" {
-				t.Fatalf("UseContext() result = %+v, want cluster %q", result, test.want)
+			if result.Cluster != test.want || !result.Default || result.Name != "project-tools" {
+				t.Fatalf("SetDefaultManifest() result = %+v, want cluster %q", result, test.want)
 			}
 			if len(test.runner.runs) != 0 {
 				t.Fatalf("Docker Run calls = %+v, want none", test.runner.runs)
@@ -482,18 +482,18 @@ func TestUseContextReportsUnconfiguredAndStoppedStatesWithoutStartingDocker(t *t
 	}
 }
 
-func TestUseContextReportsAlreadyReadyWithoutReconcile(t *testing.T) {
+func TestSetDefaultManifestReportsAlreadyReadyWithoutReconcile(t *testing.T) {
 	t.Parallel()
 	runner := &contextSwitchRunner{running: true}
 	runtime := newContextSwitchRuntime(t, runner)
-	if err := runtime.writeState(contextSwitchState(runtime, tobari.DefaultContextName, t.TempDir())); err != nil {
+	if err := runtime.writeState(contextSwitchState(runtime, tobari.DefaultManifestName, t.TempDir())); err != nil {
 		t.Fatal(err)
 	}
-	result, err := runtime.UseContext(context.Background(), tobari.DefaultContextName)
+	result, err := runtime.SetDefaultManifest(context.Background(), tobari.DefaultManifestName)
 	if err != nil {
-		t.Fatalf("UseContext() error = %v", err)
+		t.Fatalf("SetDefaultManifest() error = %v", err)
 	}
-	if result.Cluster != tobari.ContextClusterStatusAlreadyReady {
+	if result.Cluster != tobari.ManifestClusterStatusAlreadyReady {
 		t.Fatalf("cluster status = %q, want already_ready", result.Cluster)
 	}
 	if len(runner.runs) != 0 {
@@ -501,28 +501,28 @@ func TestUseContextReportsAlreadyReadyWithoutReconcile(t *testing.T) {
 	}
 }
 
-func TestUseContextChangesOnlyDefaultWhileClusterIsRunning(t *testing.T) {
+func TestSetDefaultManifestChangesOnlyDefaultWhileClusterIsRunning(t *testing.T) {
 	t.Parallel()
 	runner := &contextSwitchRunner{running: true}
 	runtime := newContextSwitchRuntime(t, runner)
-	if err := runtime.writeState(contextSwitchState(runtime, tobari.DefaultContextName, t.TempDir())); err != nil {
+	if err := runtime.writeState(contextSwitchState(runtime, tobari.DefaultManifestName, t.TempDir())); err != nil {
 		t.Fatal(err)
 	}
-	result, err := runtime.UseContext(context.Background(), "project-tools")
+	result, err := runtime.SetDefaultManifest(context.Background(), "project-tools")
 	if err != nil {
-		t.Fatalf("UseContext() error = %v", err)
+		t.Fatalf("SetDefaultManifest() error = %v", err)
 	}
-	if result.Cluster != tobari.ContextClusterStatusDefaultUpdated {
+	if result.Cluster != tobari.ManifestClusterStatusDefaultManifestUpdated {
 		t.Fatalf("cluster status = %q, want default_updated", result.Cluster)
 	}
 	state, configured, err := runtime.LoadState(context.Background())
 	if err != nil || !configured {
 		t.Fatalf("LoadState() = %+v, %t, %v", state, configured, err)
 	}
-	if state.ContextName != "" || state.PolicyDirectory == runtime.contextPaths("project-tools").PolicyDirectory {
+	if state.WorkspaceManifestName != "" || state.PolicyDirectory == runtime.contextPaths("project-tools").PolicyDirectory {
 		t.Fatalf("shared state acquired Context authority: %+v", state)
 	}
-	active, err := runtime.readActiveContext()
+	active, err := runtime.readDefaultManifestName()
 	if err != nil || active != "project-tools" {
 		t.Fatalf("active Context = %q, error = %v", active, err)
 	}
@@ -534,23 +534,23 @@ func TestUseContextChangesOnlyDefaultWhileClusterIsRunning(t *testing.T) {
 	}
 }
 
-func TestUseContextDoesNotConsultOrMutateClusterReconcileState(t *testing.T) {
+func TestSetDefaultManifestDoesNotConsultOrMutateClusterReconcileState(t *testing.T) {
 	t.Parallel()
 	runner := &contextSwitchRunner{running: true, failCompose: true}
 	runtime := newContextSwitchRuntime(t, runner)
-	previous := contextSwitchState(runtime, tobari.DefaultContextName, t.TempDir())
+	previous := contextSwitchState(runtime, tobari.DefaultManifestName, t.TempDir())
 	if err := runtime.writeState(previous); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := runtime.UseContext(context.Background(), "project-tools"); err != nil {
-		t.Fatalf("UseContext() error = %v", err)
+	if _, err := runtime.SetDefaultManifest(context.Background(), "project-tools"); err != nil {
+		t.Fatalf("SetDefaultManifest() error = %v", err)
 	}
-	active, err := runtime.readActiveContext()
+	active, err := runtime.readDefaultManifestName()
 	if err != nil || active != "project-tools" {
 		t.Fatalf("current Context = %q, error = %v", active, err)
 	}
 	state, configured, err := runtime.LoadState(context.Background())
-	if err != nil || !configured || state.ContextName != "" {
+	if err != nil || !configured || state.WorkspaceManifestName != "" {
 		t.Fatalf("shared state changed = %+v, configured=%t, error=%v", state, configured, err)
 	}
 	if len(runner.runs) != 0 {
@@ -563,8 +563,8 @@ func TestConfigureContextShellPersistsOnlyAllowlistedContextSetting(t *testing.T
 	runner := &contextSwitchRunner{}
 	runtime := newContextSwitchRuntime(t, runner)
 	prompt := `\[\e[33m\]\$\[\e[0m\] `
-	result, err := runtime.ConfigureContextShell(context.Background(), "project-tools", []tobari.ContextShellEnvironmentSetting{{
-		Variable: "PS1", Source: tobari.ContextShellEnvironmentLiteral, Value: &prompt,
+	result, err := runtime.ConfigureContextShell(context.Background(), "project-tools", []tobari.ManifestShellEnvironmentSetting{{
+		Variable: "PS1", Source: tobari.ManifestShellEnvironmentLiteral, Value: &prompt,
 	}})
 	if err != nil {
 		t.Fatal(err)
@@ -584,8 +584,8 @@ func TestConfigureContextShellPersistsOnlyAllowlistedContextSetting(t *testing.T
 		t.Fatalf("shell configuration touched Docker: %+v", runner.runs)
 	}
 
-	if _, err := runtime.ConfigureContextShell(context.Background(), "project-tools", []tobari.ContextShellEnvironmentSetting{{
-		Variable: "PS1", Source: tobari.ContextShellEnvironmentDefault,
+	if _, err := runtime.ConfigureContextShell(context.Background(), "project-tools", []tobari.ManifestShellEnvironmentSetting{{
+		Variable: "PS1", Source: tobari.ManifestShellEnvironmentDefault,
 	}}); err != nil {
 		t.Fatal(err)
 	}
@@ -599,9 +599,9 @@ func TestConfigureContextShellCommitsOneValidatedBatch(t *testing.T) {
 	t.Parallel()
 	runtime := newContextSwitchRuntime(t, &contextSwitchRunner{})
 	literal := "truecolor"
-	changes := []tobari.ContextShellEnvironmentSetting{
-		{Variable: "COLORTERM", Source: tobari.ContextShellEnvironmentLiteral, Value: &literal},
-		{Variable: "TERM", Source: tobari.ContextShellEnvironmentInherit},
+	changes := []tobari.ManifestShellEnvironmentSetting{
+		{Variable: "COLORTERM", Source: tobari.ManifestShellEnvironmentLiteral, Value: &literal},
+		{Variable: "TERM", Source: tobari.ManifestShellEnvironmentInherit},
 	}
 	result, err := runtime.ConfigureContextShell(context.Background(), "project-tools", changes)
 	if err != nil {
@@ -615,11 +615,11 @@ func TestConfigureContextShellCommitsOneValidatedBatch(t *testing.T) {
 		t.Fatal(err)
 	}
 	complete, err := tobari.CompleteContextShellEnvironment(manifest.ShellEnvironment)
-	if err != nil || complete[0].Source != tobari.ContextShellEnvironmentLiteral || complete[0].Value == nil ||
-		*complete[0].Value != literal || complete[3].Source != tobari.ContextShellEnvironmentInherit {
+	if err != nil || complete[0].Source != tobari.ManifestShellEnvironmentLiteral || complete[0].Value == nil ||
+		*complete[0].Value != literal || complete[3].Source != tobari.ManifestShellEnvironmentInherit {
 		t.Fatalf("persisted shell batch = %+v", manifest.ShellEnvironment)
 	}
-	duplicate := append(append([]tobari.ContextShellEnvironmentSetting(nil), changes...), changes[0])
+	duplicate := append(append([]tobari.ManifestShellEnvironmentSetting(nil), changes...), changes[0])
 	if _, err := runtime.ConfigureContextShell(context.Background(), "project-tools", duplicate); err == nil {
 		t.Fatal("duplicate shell batch was accepted")
 	}
@@ -634,13 +634,13 @@ func TestConfigureContextGitPersistsAtomicPairAndDefaultRemovesOverride(t *testi
 	runner := &contextSwitchRunner{}
 	runtime := newContextSwitchRuntime(t, runner)
 	name, email := "Tobari User", "tobari@example.com"
-	result, err := runtime.ConfigureContextGit(context.Background(), "project-tools", tobari.ContextGitIdentitySetting{
-		Source: tobari.ContextGitIdentityLiteral, Name: &name, Email: &email,
+	result, err := runtime.ConfigureContextGit(context.Background(), "project-tools", tobari.ManifestGitIdentitySetting{
+		Source: tobari.ManifestGitIdentityLiteral, Name: &name, Email: &email,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Task != tobari.TaskConfigGit || result.GitIdentity.Source != tobari.ContextGitIdentityLiteral ||
+	if result.Task != tobari.TaskConfigGit || result.GitIdentity.Source != tobari.ManifestGitIdentityLiteral ||
 		result.GitIdentity.Name == nil || *result.GitIdentity.Name != name ||
 		result.GitIdentity.Email == nil || *result.GitIdentity.Email != email {
 		t.Fatalf("literal Git configuration result = %+v", result)
@@ -649,14 +649,14 @@ func TestConfigureContextGitPersistsAtomicPairAndDefaultRemovesOverride(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	if manifest.GitIdentity == nil || manifest.GitIdentity.Source != tobari.ContextGitIdentityLiteral ||
+	if manifest.GitIdentity == nil || manifest.GitIdentity.Source != tobari.ManifestGitIdentityLiteral ||
 		manifest.GitIdentity.Name == nil || *manifest.GitIdentity.Name != name ||
 		manifest.GitIdentity.Email == nil || *manifest.GitIdentity.Email != email {
 		t.Fatalf("persisted Git identity = %+v", manifest.GitIdentity)
 	}
 
-	result, err = runtime.ConfigureContextGit(context.Background(), "project-tools", tobari.ContextGitIdentitySetting{
-		Source: tobari.ContextGitIdentityDefault,
+	result, err = runtime.ConfigureContextGit(context.Background(), "project-tools", tobari.ManifestGitIdentitySetting{
+		Source: tobari.ManifestGitIdentityDefault,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -665,7 +665,7 @@ func TestConfigureContextGitPersistsAtomicPairAndDefaultRemovesOverride(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	if manifest.GitIdentity != nil || result.GitIdentity.Source != tobari.ContextGitIdentityDefault ||
+	if manifest.GitIdentity != nil || result.GitIdentity.Source != tobari.ManifestGitIdentityDefault ||
 		result.GitIdentity.Name != nil || result.GitIdentity.Email != nil {
 		t.Fatalf("default Git configuration = manifest:%+v report:%+v", manifest.GitIdentity, result.GitIdentity)
 	}
@@ -685,18 +685,18 @@ func TestContextCreateBaseCopiesOnlyStandaloneWorkModeSettings(t *testing.T) {
 	t.Parallel()
 	runtime := newContextSwitchRuntime(t, &contextSwitchRunner{})
 	literal := "base-prompt"
-	if _, err := runtime.ConfigureContextShell(context.Background(), "project-tools", []tobari.ContextShellEnvironmentSetting{{
-		Variable: "PS1", Source: tobari.ContextShellEnvironmentLiteral, Value: &literal,
+	if _, err := runtime.ConfigureContextShell(context.Background(), "project-tools", []tobari.ManifestShellEnvironmentSetting{{
+		Variable: "PS1", Source: tobari.ManifestShellEnvironmentLiteral, Value: &literal,
 	}}); err != nil {
 		t.Fatal(err)
 	}
 	gitName, gitEmail := "Example User", "user@example.com"
-	if _, err := runtime.ConfigureContextGit(context.Background(), "project-tools", tobari.ContextGitIdentitySetting{
-		Source: tobari.ContextGitIdentityLiteral, Name: &gitName, Email: &gitEmail,
+	if _, err := runtime.ConfigureContextGit(context.Background(), "project-tools", tobari.ManifestGitIdentitySetting{
+		Source: tobari.ManifestGitIdentityLiteral, Name: &gitName, Email: &gitEmail,
 	}); err != nil {
 		t.Fatal(err)
 	}
-	bootstrap, err := tobari.NewContextBootstrapSnapshot(1, tobari.ContextAWSBootstrap{
+	bootstrap, err := tobari.NewContextBootstrapSnapshot(1, tobari.ManifestAWSBootstrap{
 		Profile: "engineering", SSOSession: "example", SSOStartURL: "https://example.awsapps.com/start",
 		SSORegion: "us-east-1", SSORegistrationScopes: []string{"sso:account:access"},
 		AccountID: "123456789012", RoleName: "Developer", Region: "us-west-2", Output: "json",
@@ -708,8 +708,10 @@ func TestContextCreateBaseCopiesOnlyStandaloneWorkModeSettings(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	manifest.Bootstrap = &bootstrap
-	if err := writeAtomicJSON(runtime.contextManifestPath(manifest.Name), manifest); err != nil {
+	draft := manifest
+	draft.Bootstrap = &bootstrap
+	manifest, err = runtime.publishWorkspaceManifestUpdate(manifest, draft)
+	if err != nil {
 		t.Fatal(err)
 	}
 	advanced := map[string][]byte{
@@ -725,7 +727,7 @@ func TestContextCreateBaseCopiesOnlyStandaloneWorkModeSettings(t *testing.T) {
 	if err := os.WriteFile(learnedPath, []byte(`{"decision":"allow"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	base, err := runtime.ContextCreateBase(context.Background(), manifest.Name)
+	base, err := runtime.ManifestCopySnapshot(context.Background(), manifest.Name)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -733,9 +735,9 @@ func TestContextCreateBaseCopiesOnlyStandaloneWorkModeSettings(t *testing.T) {
 	policy := base.MethodPolicy.Clone()
 	created, err := runtime.CreateContextWithComposition(
 		context.Background(), "standalone", tobari.BuiltinImageSelector, base.PolicyMode, base.SourceAccess,
-		tobari.ContextCreateComposition{
+		tobari.ManifestCreateComposition{
 			NativeReadiness: base.NativeReadiness, MethodPolicy: &policy,
-			RuntimeSelection: base.RuntimeSelection, Base: &base,
+			RuntimeSelection: base.RuntimeSelection, CopyFrom: &base,
 		},
 	)
 	if err != nil {
@@ -744,8 +746,8 @@ func TestContextCreateBaseCopiesOnlyStandaloneWorkModeSettings(t *testing.T) {
 	if created.ID == base.ID || created.Name != "standalone" || created.PolicyMode != base.PolicyMode ||
 		created.SourceAccess != base.SourceAccess || !reflect.DeepEqual(created.ShellEnvironment, base.ShellEnvironment) ||
 		!reflect.DeepEqual(created.GitIdentity, base.GitIdentity) ||
-		!reflect.DeepEqual(created.Bootstrap.Resolved(), tobari.ContextBootstrapReportFrom(base.Bootstrap)) {
-		t.Fatalf("standalone Context did not copy the reviewed Base: %+v", created)
+		!reflect.DeepEqual(created.Bootstrap.Resolved(), tobari.ManifestBootstrapReportFrom(base.Bootstrap)) {
+		t.Fatalf("standalone Context did not copy the reviewed CopyFrom: %+v", created)
 	}
 	if after := snapshotOwnedTree(t, runtime.contextDirectory(manifest.Name)); !reflect.DeepEqual(after, baseTree) {
 		t.Fatal("creating from a Base changed the Base Context")
@@ -765,22 +767,22 @@ func TestContextCreateBaseCopiesOnlyStandaloneWorkModeSettings(t *testing.T) {
 func TestContextCreateRejectsChangedBaseWithoutPartialTarget(t *testing.T) {
 	t.Parallel()
 	runtime := newContextSwitchRuntime(t, &contextSwitchRunner{})
-	base, err := runtime.ContextCreateBase(context.Background(), "project-tools")
+	base, err := runtime.ManifestCopySnapshot(context.Background(), "project-tools")
 	if err != nil {
 		t.Fatal(err)
 	}
 	literal := "changed-after-review"
-	if _, err := runtime.ConfigureContextShell(context.Background(), "project-tools", []tobari.ContextShellEnvironmentSetting{{
-		Variable: "PS1", Source: tobari.ContextShellEnvironmentLiteral, Value: &literal,
+	if _, err := runtime.ConfigureContextShell(context.Background(), "project-tools", []tobari.ManifestShellEnvironmentSetting{{
+		Variable: "PS1", Source: tobari.ManifestShellEnvironmentLiteral, Value: &literal,
 	}}); err != nil {
 		t.Fatal(err)
 	}
 	policy := base.MethodPolicy.Clone()
 	_, err = runtime.CreateContextWithComposition(
 		context.Background(), "must-not-exist", tobari.BuiltinImageSelector, base.PolicyMode, base.SourceAccess,
-		tobari.ContextCreateComposition{NativeReadiness: base.NativeReadiness, MethodPolicy: &policy, RuntimeSelection: base.RuntimeSelection, Base: &base},
+		tobari.ManifestCreateComposition{NativeReadiness: base.NativeReadiness, MethodPolicy: &policy, RuntimeSelection: base.RuntimeSelection, CopyFrom: &base},
 	)
-	if !errors.Is(err, tobari.ErrContextBaseChanged) {
+	if !errors.Is(err, tobari.ErrManifestCopySourceChanged) {
 		t.Fatalf("changed Base creation error = %v", err)
 	}
 	if _, err := os.Lstat(runtime.contextDirectory("must-not-exist")); !errors.Is(err, os.ErrNotExist) {
@@ -801,10 +803,10 @@ func TestContextManifestRoundTripsEveryMaximumSchemaFiveProjectionValue(t *testi
 	t.Parallel()
 	runtime := newContextSwitchRuntime(t, &contextSwitchRunner{})
 	shellValue := strings.Repeat("\x01", tobari.MaxContextShellValueBytes)
-	for _, variable := range tobari.ContextShellEnvironmentVariables() {
+	for _, variable := range tobari.ManifestShellEnvironmentVariables() {
 		if _, err := runtime.ConfigureContextShell(
-			context.Background(), "project-tools", []tobari.ContextShellEnvironmentSetting{{
-				Variable: variable, Source: tobari.ContextShellEnvironmentLiteral, Value: &shellValue,
+			context.Background(), "project-tools", []tobari.ManifestShellEnvironmentSetting{{
+				Variable: variable, Source: tobari.ManifestShellEnvironmentLiteral, Value: &shellValue,
 			}},
 		); err != nil {
 			t.Fatalf("configure maximum %s literal: %v", variable, err)
@@ -814,8 +816,8 @@ func TestContextManifestRoundTripsEveryMaximumSchemaFiveProjectionValue(t *testi
 	// expansion reserved by maxContextManifestBytes for both Git fields.
 	gitValue := strings.Repeat("<", tobari.MaxContextGitIdentityValueBytes)
 	if _, err := runtime.ConfigureContextGit(
-		context.Background(), "project-tools", tobari.ContextGitIdentitySetting{
-			Source: tobari.ContextGitIdentityLiteral, Name: &gitValue, Email: &gitValue,
+		context.Background(), "project-tools", tobari.ManifestGitIdentitySetting{
+			Source: tobari.ManifestGitIdentityLiteral, Name: &gitValue, Email: &gitValue,
 		},
 	); err != nil {
 		t.Fatalf("configure maximum Git identity pair: %v", err)
@@ -832,7 +834,7 @@ func TestContextManifestRoundTripsEveryMaximumSchemaFiveProjectionValue(t *testi
 	if err != nil {
 		t.Fatalf("read maximum schema-1 manifest: %v", err)
 	}
-	if len(manifest.ShellEnvironment) != len(tobari.ContextShellEnvironmentVariables()) ||
+	if len(manifest.ShellEnvironment) != len(tobari.ManifestShellEnvironmentVariables()) ||
 		manifest.GitIdentity == nil || manifest.GitIdentity.Name == nil || manifest.GitIdentity.Email == nil ||
 		len(*manifest.GitIdentity.Name) != tobari.MaxContextGitIdentityValueBytes ||
 		len(*manifest.GitIdentity.Email) != tobari.MaxContextGitIdentityValueBytes {
@@ -843,20 +845,50 @@ func TestContextManifestRoundTripsEveryMaximumSchemaFiveProjectionValue(t *testi
 	}
 }
 
-func TestActiveContextDocumentRetainsIndependentSizeBound(t *testing.T) {
+func TestRetainedManifestReceiptNeverConfusesPreservedAuthority(t *testing.T) {
+	t.Parallel()
+	runtime := newContextSwitchRuntime(t, &contextSwitchRunner{})
+	manifest, err := runtime.readContextManifest("project-tools")
+	if err != nil {
+		t.Fatal(err)
+	}
+	path, err := runtime.manifestRevisionPath(manifest.Name, manifest.Desired.Generation, manifest.Desired.Revision)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := runtime.retainWorkspaceManifestRevision(manifest); err != nil {
+		t.Fatalf("exact retained receipt was not idempotent: %v", err)
+	}
+	forged := manifest
+	forged.ID = "018bcfe5-687b-7000-8000-000000000098"
+	if err := writeAtomicJSON(path, forged); err != nil {
+		t.Fatal(err)
+	}
+	if err := runtime.retainWorkspaceManifestRevision(manifest); err == nil || !strings.Contains(err.Error(), "identity conflicts") {
+		t.Fatalf("same name/digest receipt with another Manifest ID was accepted: %v", err)
+	}
+	if err := os.WriteFile(path, []byte("{\"partial\":"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := runtime.retainWorkspaceManifestRevision(manifest); err == nil {
+		t.Fatal("stale partial retained receipt was overwritten")
+	}
+}
+
+func TestDefaultManifestSelectorRetainsIndependentSizeBound(t *testing.T) {
 	t.Parallel()
 	runtime := newContextSwitchRuntime(t, &contextSwitchRunner{})
 	if maxActiveContextDocumentBytes >= maxContextManifestBytes {
 		t.Fatalf(
-			"active Context bound %d is not independent from manifest bound %d",
+			"default Manifest selector bound %d is not independent from manifest bound %d",
 			maxActiveContextDocumentBytes, maxContextManifestBytes,
 		)
 	}
 	oversized := strings.Repeat("x", maxActiveContextDocumentBytes+1)
-	if err := os.WriteFile(runtime.activeContextPath(), []byte(oversized), 0o600); err != nil {
+	if err := os.WriteFile(runtime.defaultManifestPath(), []byte(oversized), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := runtime.readActiveContext(); err == nil {
-		t.Fatal("oversized active Context document was accepted")
+	if _, err := runtime.readDefaultManifestName(); err == nil {
+		t.Fatal("oversized default Manifest selector was accepted")
 	}
 }

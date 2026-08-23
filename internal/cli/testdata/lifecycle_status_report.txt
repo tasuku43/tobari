@@ -1,6 +1,8 @@
 ✓ Workspace ready
   Root           /workspace/example-project
-  Context        toolbox
+  Manifest       toolbox
   Runtime        standard@1 · ready
   Session        attached
-  Next           tobari --context toolbox — Enter the current directory's Workspace.
+  Current entry  generation 1 · sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  Next entry     generation 1 · sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  Next           tobari --manifest toolbox — Enter the current directory's Workspace.

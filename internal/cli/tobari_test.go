@@ -269,7 +269,7 @@ func TestPolicyPresetSurfaceIsNotAccepted(t *testing.T) {
 			t.Fatalf("retired policy preset command %q remains registered", path)
 		}
 	}
-	create, found := catalog.Lookup("context create")
+	create, found := catalog.Lookup("manifest create")
 	if !found {
 		t.Fatal("context create is absent from the catalog")
 	}
@@ -371,7 +371,7 @@ func TestDefaultCatalogDoesNotPublishDevContainerRuntimeSelection(t *testing.T) 
 func TestPolicyReviewTTYStagesExactAllowAndAppliesOnce(t *testing.T) {
 	t.Parallel()
 	denial := tobari.PolicyDenial{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Scheme: "https", Protocol: tobari.PolicyProtocolHTTP}, Timestamp: "2026-08-02T10:00:00Z", RequestID: "7185da2688d7469aae9cd9068e920b0b",
-		ContextID: "01912345-6789-7abc-8def-0123456789ad", ContextName: "default",
+		WorkspaceManifestID: "01912345-6789-7abc-8def-0123456789ad", WorkspaceManifestName: "default",
 		ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/project", Host: "api.example.com", Port: 443,
 		Method: "POST", Path: "/repos/example/issues", Reason: "request did not match an allow rule",
 		StatusCode: 403, Learnable: true,
@@ -409,7 +409,7 @@ func TestPolicyReviewTTYStagesExactAllowAndAppliesOnce(t *testing.T) {
 func TestPolicyReviewTTYProposesTemplateOnSecondDistinctPathAndAppliesItOnce(t *testing.T) {
 	t.Parallel()
 	first := tobari.PolicyDenial{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Scheme: "https", Protocol: tobari.PolicyProtocolHTTP}, Timestamp: "2026-08-15T01:00:00Z", RequestID: "7185da2688d7469aae9cd9068e920b0b",
-		ContextID: "01912345-6789-7abc-8def-0123456789ad", ContextName: "default",
+		WorkspaceManifestID: "01912345-6789-7abc-8def-0123456789ad", WorkspaceManifestName: "default",
 		ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/project",
 		Host: "api.example.com", Port: 443, Method: "GET", Path: "/items/123",
 		Reason: "request did not match an allow rule", StatusCode: 403, Learnable: true}
@@ -444,7 +444,7 @@ func TestPolicyReviewTTYProposesTemplateOnSecondDistinctPathAndAppliesItOnce(t *
 func TestPolicyReviewTTYAppliesSeveralDecisionsWithOneRuntimeCall(t *testing.T) {
 	t.Parallel()
 	first := tobari.PolicyDenial{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Scheme: "https", Protocol: tobari.PolicyProtocolHTTP}, Timestamp: "2026-08-02T10:00:00Z", RequestID: "7185da2688d7469aae9cd9068e920b0b",
-		ContextID: "01912345-6789-7abc-8def-0123456789ad", ContextName: "default",
+		WorkspaceManifestID: "01912345-6789-7abc-8def-0123456789ad", WorkspaceManifestName: "default",
 		ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/project",
 		Host: "api.example.com", Port: 443, Method: "POST", Path: "/one",
 		Reason: "request did not match an allow rule", StatusCode: 403, Learnable: true,
@@ -479,7 +479,7 @@ func TestPolicyReviewTTYAppliesSeveralDecisionsWithOneRuntimeCall(t *testing.T) 
 func TestPolicyReviewTTYRefreshReconcilesStagedDecisionsByCandidateID(t *testing.T) {
 	t.Parallel()
 	first := tobari.PolicyDenial{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Scheme: "https", Protocol: tobari.PolicyProtocolHTTP}, Timestamp: "2026-08-02T10:00:00Z", RequestID: "7185da2688d7469aae9cd9068e920b0b",
-		ContextID: "01912345-6789-7abc-8def-0123456789ad", ContextName: "default",
+		WorkspaceManifestID: "01912345-6789-7abc-8def-0123456789ad", WorkspaceManifestName: "default",
 		ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/project",
 		Host: "api.example.com", Port: 443, Method: "POST", Path: "/one",
 		Reason: "request did not match an allow rule", StatusCode: 403, Learnable: true,
@@ -515,7 +515,7 @@ func TestPolicyReviewTTYRefreshReconcilesStagedDecisionsByCandidateID(t *testing
 func TestPolicyReviewTTYRefreshDoesNotTransferStageToDifferentCandidateWithMatchingLabels(t *testing.T) {
 	t.Parallel()
 	original := tobari.PolicyDenial{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Scheme: "https", Protocol: tobari.PolicyProtocolHTTP}, Timestamp: "2026-08-02T10:00:00Z", RequestID: "7185da2688d7469aae9cd9068e920b0b",
-		ContextID: "01912345-6789-7abc-8def-0123456789ad", ContextName: "default",
+		WorkspaceManifestID: "01912345-6789-7abc-8def-0123456789ad", WorkspaceManifestName: "default",
 		ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/project",
 		Host: "api.example.com", Port: 443, Method: "POST", Path: "/one",
 		Reason: "request did not match an allow rule", StatusCode: 403, Learnable: true,
@@ -546,15 +546,15 @@ func TestPolicyReviewTTYRefreshDoesNotTransferStageToDifferentCandidateWithMatch
 func TestPolicyReviewTTYKeepsOneContextPerStagedApply(t *testing.T) {
 	t.Parallel()
 	first := tobari.PolicyDenial{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Scheme: "https", Protocol: tobari.PolicyProtocolHTTP}, Timestamp: "2026-08-02T10:00:00Z", RequestID: "7185da2688d7469aae9cd9068e920b0b",
-		ContextID: "01912345-6789-7abc-8def-0123456789ad", ContextName: "default",
+		WorkspaceManifestID: "01912345-6789-7abc-8def-0123456789ad", WorkspaceManifestName: "default",
 		ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/project",
 		Host: "api.example.com", Port: 443, Method: "POST", Path: "/one",
 		Reason: "request did not match an allow rule", StatusCode: 403, Learnable: true,
 	}
 	second := first
 	second.RequestID = "8185da2688d7469aae9cd9068e920b0b"
-	second.ContextID = "01912345-6789-7abc-8def-0123456789ae"
-	second.ContextName = "restricted"
+	second.WorkspaceManifestID = "01912345-6789-7abc-8def-0123456789ae"
+	second.WorkspaceManifestName = "restricted"
 	second.ProjectID = "01912345-6789-7abc-8def-0123456789ac"
 	second.ProjectRoot = "/workspace/restricted"
 	second.Path = "/two"
@@ -569,17 +569,17 @@ func TestPolicyReviewTTYKeepsOneContextPerStagedApply(t *testing.T) {
 		t.Fatalf("review permissions code = %d, stderr = %q", code, stderr.String())
 	}
 	if runtime.applyCalls != 1 || len(runtime.rules)+len(runtime.denyRules) != 1 {
-		t.Fatalf("mixed Context staging calls=%d allows=%+v denies=%+v", runtime.applyCalls, runtime.rules, runtime.denyRules)
+		t.Fatalf("mixed Workspace Manifest staging calls=%d allows=%+v denies=%+v", runtime.applyCalls, runtime.rules, runtime.denyRules)
 	}
-	if !strings.Contains(stdout.String(), "Apply or discard the staged decisions before switching Context.") {
-		t.Fatalf("mixed Context staging feedback = %q", stdout.String())
+	if !strings.Contains(stdout.String(), "Apply or discard the staged decisions before switching Workspace Manifest.") {
+		t.Fatalf("mixed Workspace Manifest staging feedback = %q", stdout.String())
 	}
 }
 
 func TestPolicyReviewRedirectedInputStaysReadOnly(t *testing.T) {
 	t.Parallel()
 	denial := tobari.PolicyDenial{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Scheme: "https", Protocol: tobari.PolicyProtocolHTTP}, Timestamp: "2026-08-02T10:00:00Z", RequestID: "7185da2688d7469aae9cd9068e920b0b",
-		ContextID: "01912345-6789-7abc-8def-0123456789ad", ContextName: "default",
+		WorkspaceManifestID: "01912345-6789-7abc-8def-0123456789ad", WorkspaceManifestName: "default",
 		ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/project", Host: "api.example.com", Port: 443,
 		Method: "POST", Path: "/repos/example/issues", Reason: "request did not match an allow rule",
 		StatusCode: 403, Learnable: true,
@@ -654,7 +654,7 @@ func TestPolicyReviewNotifyRequiresWatchBeforeReading(t *testing.T) {
 func TestPolicyReviewWatchCoalescesNewItemsAndPassesNotificationMethod(t *testing.T) {
 	t.Parallel()
 	first := tobari.PolicyDenial{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Scheme: "https", Protocol: tobari.PolicyProtocolHTTP}, Timestamp: "2026-08-02T10:00:00Z", RequestID: "7185da2688d7469aae9cd9068e920b0b",
-		ContextID: "01912345-6789-7abc-8def-0123456789ad", ContextName: "default",
+		WorkspaceManifestID: "01912345-6789-7abc-8def-0123456789ad", WorkspaceManifestName: "default",
 		ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/project", Host: "api.example.com", Port: 443,
 		Method: "POST", Path: "/one", Reason: "request did not match an allow rule", StatusCode: 403, Learnable: true,
 	}
@@ -699,7 +699,7 @@ func TestPolicyReviewWatchCoalescesNewItemsAndPassesNotificationMethod(t *testin
 func TestPolicyReviewWatchRefreshesEmptyStagesFromListAppliesAndReturnsToWaiting(t *testing.T) {
 	t.Parallel()
 	denial := tobari.PolicyDenial{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Scheme: "https", Protocol: tobari.PolicyProtocolHTTP}, Timestamp: "2026-08-02T10:00:00Z", RequestID: "7185da2688d7469aae9cd9068e920b0b",
-		ContextID: "01912345-6789-7abc-8def-0123456789ad", ContextName: "default",
+		WorkspaceManifestID: "01912345-6789-7abc-8def-0123456789ad", WorkspaceManifestName: "default",
 		ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/project", Host: "api.example.com", Port: 443,
 		Method: "POST", Path: "/repos/example/issues", Reason: "request did not match an allow rule", StatusCode: 403, Learnable: true,
 	}
@@ -744,7 +744,7 @@ func TestPolicyReviewWatchRefreshesEmptyStagesFromListAppliesAndReturnsToWaiting
 func TestPolicyReviewWatchNotificationMethodsAndKnownReappearance(t *testing.T) {
 	t.Parallel()
 	denial := tobari.PolicyDenial{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Scheme: "https", Protocol: tobari.PolicyProtocolHTTP}, Timestamp: "2026-08-02T10:00:00Z", RequestID: "7185da2688d7469aae9cd9068e920b0b",
-		ContextID: "01912345-6789-7abc-8def-0123456789ad", ContextName: "default",
+		WorkspaceManifestID: "01912345-6789-7abc-8def-0123456789ad", WorkspaceManifestName: "default",
 		ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/project", Host: "api.example.com", Port: 443,
 		Method: "POST", Path: "/repos/example/issues", Reason: "\x1b]52;c;hostile\x07", StatusCode: 403, Learnable: true,
 	}
@@ -784,7 +784,7 @@ func TestPolicyReviewWatchNotificationMethodsAndKnownReappearance(t *testing.T) 
 func TestPolicyReviewWatchNotificationFailureKeepsWatchAndRestoresTerminal(t *testing.T) {
 	t.Parallel()
 	denial := tobari.PolicyDenial{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Scheme: "https", Protocol: tobari.PolicyProtocolHTTP}, Timestamp: "2026-08-02T10:00:00Z", RequestID: "7185da2688d7469aae9cd9068e920b0b",
-		ContextID: "01912345-6789-7abc-8def-0123456789ad", ContextName: "default",
+		WorkspaceManifestID: "01912345-6789-7abc-8def-0123456789ad", WorkspaceManifestName: "default",
 		ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/project", Host: "api.example.com", Port: 443,
 		Method: "POST", Path: "/new", Reason: "request did not match an allow rule", StatusCode: 403, Learnable: true,
 	}
@@ -812,7 +812,7 @@ func TestPolicyReviewWatchNotificationFailureKeepsWatchAndRestoresTerminal(t *te
 func TestPolicyReviewWatchRefreshFailurePreservesSnapshotAndStaging(t *testing.T) {
 	t.Parallel()
 	denial := tobari.PolicyDenial{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Scheme: "https", Protocol: tobari.PolicyProtocolHTTP}, Timestamp: "2026-08-02T10:00:00Z", RequestID: "7185da2688d7469aae9cd9068e920b0b",
-		ContextID: "01912345-6789-7abc-8def-0123456789ad", ContextName: "default",
+		WorkspaceManifestID: "01912345-6789-7abc-8def-0123456789ad", WorkspaceManifestName: "default",
 		ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/project", Host: "api.example.com", Port: 443,
 		Method: "POST", Path: "/repos/example/issues", Reason: "request did not match an allow rule", StatusCode: 403, Learnable: true,
 	}
@@ -846,7 +846,7 @@ func TestPolicyReviewWatchRefreshFailurePreservesSnapshotAndStaging(t *testing.T
 func TestPolicyReviewWatchDoesNotReofferAppliedSnapshotWhenImmediateRefreshFails(t *testing.T) {
 	t.Parallel()
 	denial := tobari.PolicyDenial{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Scheme: "https", Protocol: tobari.PolicyProtocolHTTP}, Timestamp: "2026-08-02T10:00:00Z", RequestID: "7185da2688d7469aae9cd9068e920b0b",
-		ContextID: "01912345-6789-7abc-8def-0123456789ad", ContextName: "default",
+		WorkspaceManifestID: "01912345-6789-7abc-8def-0123456789ad", WorkspaceManifestName: "default",
 		ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/project", Host: "api.example.com", Port: 443,
 		Method: "POST", Path: "/repos/example/issues", Reason: "request did not match an allow rule", StatusCode: 403, Learnable: true,
 	}
@@ -880,7 +880,7 @@ func TestPolicyReviewWatchDoesNotReofferAppliedSnapshotWhenImmediateRefreshFails
 func TestPolicyReviewWatchRefreshFailurePreservesSnapshotAndStagingThenStopsNormally(t *testing.T) {
 	t.Parallel()
 	denial := tobari.PolicyDenial{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Scheme: "https", Protocol: tobari.PolicyProtocolHTTP}, Timestamp: "2026-08-02T10:00:00Z", RequestID: "7185da2688d7469aae9cd9068e920b0b",
-		ContextID: "01912345-6789-7abc-8def-0123456789ad", ContextName: "default",
+		WorkspaceManifestID: "01912345-6789-7abc-8def-0123456789ad", WorkspaceManifestName: "default",
 		ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/project", Host: "api.example.com", Port: 443,
 		Method: "POST", Path: "/repos/example/issues", Reason: "request did not match an allow rule", StatusCode: 403, Learnable: true,
 	}
@@ -910,7 +910,7 @@ func TestPolicyReviewWatchRefreshFailurePreservesSnapshotAndStagingThenStopsNorm
 func TestPolicyRulesTTYResetsDecisionAndRefreshesInventory(t *testing.T) {
 	t.Parallel()
 	denial := tobari.PolicyDenial{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Scheme: "https", Protocol: tobari.PolicyProtocolHTTP}, Timestamp: "2026-08-02T10:00:00Z", RequestID: "7185da2688d7469aae9cd9068e920b0b",
-		ContextID: "01912345-6789-7abc-8def-0123456789ad", ContextName: "default",
+		WorkspaceManifestID: "01912345-6789-7abc-8def-0123456789ad", WorkspaceManifestName: "default",
 		ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/project", Host: "api.example.com", Port: 443,
 		Method: "POST", Path: "/repos/example/issues", Reason: "request did not match an allow rule",
 		StatusCode: 403, Learnable: true,
@@ -948,7 +948,7 @@ func TestPolicyRulesTTYResetsDecisionAndRefreshesInventory(t *testing.T) {
 func TestPolicyRulesJSONIsReadOnlyAndMatchesCatalog(t *testing.T) {
 	t.Parallel()
 	denial := tobari.PolicyDenial{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Scheme: "https", Protocol: tobari.PolicyProtocolHTTP}, Timestamp: "2026-08-02T10:00:00Z", RequestID: "7185da2688d7469aae9cd9068e920b0b",
-		ContextID: "01912345-6789-7abc-8def-0123456789ad", ContextName: "default",
+		WorkspaceManifestID: "01912345-6789-7abc-8def-0123456789ad", WorkspaceManifestName: "default",
 		ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/project", Host: "api.example.com", Port: 443,
 		Method: "POST", Path: "/repos/example/issues", Reason: "request did not match an allow rule",
 		StatusCode: 403, Learnable: true,
@@ -1067,7 +1067,7 @@ func TestClusterDownCatalogDescribesLogicalWorkspaceAndPurgeBoundary(t *testing.
 		strings.Contains(strings.ToLower(command.Agent.Outcome), "detach") {
 		t.Fatalf("cluster down outcome = %q", command.Agent.Outcome)
 	}
-	containsBrokerState := strings.Contains(command.Agent.Outcome, "encrypted Context vaults") &&
+	containsBrokerState := strings.Contains(command.Agent.Outcome, "encrypted Workspace Manifest vaults") &&
 		strings.Contains(command.Agent.Outcome, "installation root key")
 	if containsBrokerState != buildIdentityHasBroker() {
 		t.Fatalf("cluster down Broker purge boundary = %t, profile includes Broker = %t: %q", containsBrokerState, buildIdentityHasBroker(), command.Agent.Outcome)
@@ -1138,7 +1138,7 @@ func TestPendingPolicyNotificationStaysOnHostAndOmitsProjectIdentity(t *testing.
 	result := tobari.PolicyCandidateReport{
 		Task: tobari.TaskPolicyReview, PolicyDirectory: "/tmp/config/tobari/policy", WindowLines: 10_000,
 		Items: []tobari.PolicyCandidate{{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Scheme: "https", Protocol: tobari.PolicyProtocolHTTP}, ID: "pcy_0123456789abcdef0123456789abcdef", ObservedAt: "2026-07-30T10:41:11Z", ObservationCount: 1,
-			ContextID: "01912345-6789-7abc-8def-0123456789ad", ContextName: "default",
+			WorkspaceManifestID: "01912345-6789-7abc-8def-0123456789ad", WorkspaceManifestName: "default",
 			ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/project", Host: "api.example.com", Port: 443,
 			Method: "POST", Path: "/token", Reason: "request did not match an allow rule", StatusCode: 403,
 		}},
@@ -1213,16 +1213,18 @@ func TestPolicyReviewAllowRendererExplainsExactActivation(t *testing.T) {
 
 func TestProjectListHumanRendererUsesWorkspaceLayoutAndTextValues(t *testing.T) {
 	t.Parallel()
-	result := tobari.ProjectListResult{
-		Task: tobari.TaskProjectList, CurrentID: "01912345-6789-7abc-8def-0123456789ab",
-		Items: []tobari.ProjectListItem{
+	result := tobari.WorkspaceListResult{
+		Task: tobari.TaskWorkspaceList, CurrentID: "01912345-6789-7abc-8def-0123456789ab",
+		Items: []tobari.WorkspaceListItem{
 			{
 				Root: "/tmp/parent", ID: "01912345-6789-7abc-8def-0123456789aa",
-				Home: "/tmp/state/parent", ContextID: "018bcfe5-687b-7000-8000-000000000099", ContextName: "default", Runtime: tobari.RuntimeDiagnosticMissing,
+				Home: "/tmp/state/parent", WorkspaceManifestID: "018bcfe5-687b-7000-8000-000000000099", WorkspaceManifestName: "default", Runtime: tobari.RuntimeDiagnosticMissing,
+				Adoption: tobari.WorkspaceAdoptionNeverApplied, Next: testDesiredWorkspaceEntry(),
 			},
 			{
 				Root: "/tmp/project", ID: "01912345-6789-7abc-8def-0123456789ab",
-				Home: "/tmp/state/project", ContextID: "018bcfe5-687b-7000-8000-000000000099", ContextName: "default", Runtime: tobari.RuntimeDiagnosticReady,
+				Home: "/tmp/state/project", WorkspaceManifestID: "018bcfe5-687b-7000-8000-000000000099", WorkspaceManifestName: "default", Runtime: tobari.RuntimeDiagnosticReady,
+				Adoption: tobari.WorkspaceAdoptionCurrent, Current: ptrAppliedEntry(testAppliedWorkspaceEntry()), Next: testDesiredWorkspaceEntry(),
 			},
 		},
 	}
@@ -1261,19 +1263,19 @@ func TestProjectListHumanRendererUsesWorkspaceLayoutAndTextValues(t *testing.T) 
 
 func TestProjectDeleteHumanRendererPreservesPlainInformationUnion(t *testing.T) {
 	t.Parallel()
-	result := tobari.ProjectDeleteResult{
+	result := tobari.WorkspaceDeleteResult{
 		Task: tobari.TaskDelete, Deleted: true,
 		Root: "/tmp/project", ID: "01912345-6789-7abc-8def-0123456789ab",
-		Home:      "/tmp/state/project/home",
-		ContextID: "018bcfe5-687b-7000-8000-000000000099", ContextName: "default",
+		Home:                "/tmp/state/project/home",
+		WorkspaceManifestID: "018bcfe5-687b-7000-8000-000000000099", WorkspaceManifestName: "default",
 	}
 	output := string(renderProjectDeleteWithColor(result, true))
 	if !strings.Contains(output, "Workspace deleted") || !strings.Contains(output, "/tmp/project") || !strings.Contains(output, "tobari") {
 		t.Fatalf("delete output lost the user-facing result: %q", output)
 	}
 	for label, want := range map[string]string{
-		"Deleted": "yes", "Project root": result.Root, "Context": result.ContextName,
-		"Context ID": result.ContextID, "Workspace ID": result.ID, "Workspace home": result.Home,
+		"Deleted": "yes", "Project root": result.Root, "Workspace Manifest": result.WorkspaceManifestName,
+		"Workspace Manifest ID": result.WorkspaceManifestID, "Workspace ID": result.ID, "Workspace home": result.Home,
 	} {
 		if !humanOutputHasRow(output, label, want) {
 			t.Fatalf("delete output lost required plain fact %s=%q: %q", label, want, output)
@@ -1296,20 +1298,21 @@ func TestProjectDeleteHumanRendererPreservesPlainInformationUnion(t *testing.T) 
 
 func TestProjectStatusHumanStylesLabelsStateValuesAndNextCommand(t *testing.T) {
 	t.Parallel()
-	result := tobari.ProjectStatus{
-		Task: tobari.TaskStatus, ContextState: tobari.ContextObservationPersisted, Exists: true, Root: "/tmp/project",
+	result := tobari.WorkspaceStatus{
+		Task: tobari.TaskStatus, ManifestState: tobari.ManifestObservationPersisted, Exists: true, Root: "/tmp/project",
 		ID: "01912345-6789-7abc-8def-0123456789ab", Home: "/tmp/state/project/home",
-		Runtime:          tobari.RuntimeDiagnosticReady,
-		RuntimeSelection: tobari.StandardRuntimeName + "@1",
-		ContextID:        "018bcfe5-687b-7000-8000-000000000099", ContextName: "default",
+		Runtime:             tobari.RuntimeDiagnosticReady,
+		RuntimeSelection:    tobari.StandardRuntimeName + "@1",
+		WorkspaceManifestID: "018bcfe5-687b-7000-8000-000000000099", WorkspaceManifestName: "default",
 		Attachment: tobari.AttachmentDetached,
+		Adoption:   tobari.WorkspaceAdoptionCurrent, Current: ptrAppliedEntry(testAppliedWorkspaceEntry()), Next: ptrDesiredEntry(testDesiredWorkspaceEntry()),
 	}
 	output, err := renderProjectStatusWithColor(result, successFormatText, true)
 	if err != nil {
 		t.Fatal(err)
 	}
 	value := string(output)
-	for _, label := range []string{"Root", "Context", "Runtime", "Session", "Next"} {
+	for _, label := range []string{"Root", "Manifest", "Runtime", "Session", "Current entry", "Next entry", "Next"} {
 		padded := fmt.Sprintf("%-*s", humanOutputLabelWidth, label)
 		if !strings.Contains(value, applyStyleToken(true, styleMuted, padded)) {
 			t.Fatalf("status output %q lacks muted label %q", value, label)
@@ -1318,7 +1321,7 @@ func TestProjectStatusHumanStylesLabelsStateValuesAndNextCommand(t *testing.T) {
 	for _, want := range []string{
 		applyStyleToken(true, styleSuccess, "✓"),
 		applyStyleToken(true, styleSuccess, "standard@1 · ready"),
-		applyStyleToken(true, styleAccent, "tobari --context default"),
+		applyStyleToken(true, styleAccent, "tobari --manifest default"),
 	} {
 		if !strings.Contains(value, want) {
 			t.Fatalf("status output %q lacks %q", value, want)
@@ -1338,24 +1341,24 @@ func TestProjectStatusHumanStylesLabelsStateValuesAndNextCommand(t *testing.T) {
 
 func TestProjectStatusRecoveryPreservesNonActiveContextInTextAndJSON(t *testing.T) {
 	t.Parallel()
-	result := tobari.ProjectStatus{
-		Task: tobari.TaskStatus, ContextState: tobari.ContextObservationPersisted, Exists: false, Runtime: tobari.RuntimeDiagnosticUnknown,
-		ContextID: "01912345-6789-7abc-8def-0123456789ad", ContextName: "toolbox",
+	result := tobari.WorkspaceStatus{
+		Task: tobari.TaskStatus, ManifestState: tobari.ManifestObservationPersisted, Exists: false, Runtime: tobari.RuntimeDiagnosticUnknown,
+		WorkspaceManifestID: "01912345-6789-7abc-8def-0123456789ad", WorkspaceManifestName: "toolbox",
 		Attachment: tobari.AttachmentNotApplicable,
 	}
 	textOutput, err := renderProjectStatusWithColor(result, successFormatText, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !humanOutputHasRow(string(textOutput), "Next", "tobari --context toolbox — Create or enter a Workspace in this Context.") {
-		t.Fatalf("plain recovery lost Context: %q", textOutput)
+	if !humanOutputHasRow(string(textOutput), "Next", "tobari --manifest toolbox — Create or enter a Workspace in this Workspace Manifest.") {
+		t.Fatalf("plain recovery lost Workspace Manifest: %q", textOutput)
 	}
 	humanOutput, err := renderProjectStatusWithColor(result, successFormatText, true)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(humanOutput), applyStyleToken(true, styleAccent, "tobari --context toolbox")) {
-		t.Fatalf("human recovery lost Context: %q", humanOutput)
+	if !strings.Contains(string(humanOutput), applyStyleToken(true, styleAccent, "tobari --manifest toolbox")) {
+		t.Fatalf("human recovery lost Workspace Manifest: %q", humanOutput)
 	}
 	jsonOutput, err := renderProjectStatusWithColor(result, successFormatJSON, false)
 	if err != nil {
@@ -1365,25 +1368,25 @@ func TestProjectStatusRecoveryPreservesNonActiveContextInTextAndJSON(t *testing.
 	if err := json.Unmarshal(jsonOutput, &document); err != nil {
 		t.Fatal(err)
 	}
-	if got, want := document.Status.NextArgv, []string{"tobari", "--context", "toolbox"}; !reflect.DeepEqual(got, want) {
+	if got, want := document.Status.NextArgv, []string{"tobari", "--manifest", "toolbox"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("JSON next argv = %q, want %q", got, want)
 	}
 }
 
 func TestSyntheticProjectStatusUsesOmissionBasedRootRecovery(t *testing.T) {
 	t.Parallel()
-	result := tobari.ProjectStatus{
-		Task: tobari.TaskStatus, ContextState: tobari.ContextObservationSyntheticDefault,
-		ContextName: tobari.DefaultContextName, Runtime: tobari.RuntimeDiagnosticUnknown,
+	result := tobari.WorkspaceStatus{
+		Task: tobari.TaskStatus, ManifestState: tobari.ManifestObservationAbsent,
+		WorkspaceManifestName: tobari.DefaultManifestName, Runtime: tobari.RuntimeDiagnosticUnknown,
 		Attachment: tobari.AttachmentNotApplicable,
 	}
 	textOutput, err := renderProjectStatusWithColor(result, successFormatText, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !humanOutputHasRow(string(textOutput), "Next", "tobari — Create or enter a Workspace in this Context.") ||
-		strings.Contains(string(textOutput), "--context default") {
-		t.Fatalf("synthetic status recovery claims an explicit Context selector: %q", textOutput)
+	if !humanOutputHasRow(string(textOutput), "Next", "tobari — Create or enter a Workspace in this Workspace Manifest.") ||
+		strings.Contains(string(textOutput), "--manifest default") {
+		t.Fatalf("synthetic status recovery claims an explicit Workspace Manifest selector: %q", textOutput)
 	}
 	jsonOutput, err := renderProjectStatusWithColor(result, successFormatJSON, false)
 	if err != nil {
@@ -1415,7 +1418,7 @@ func TestProjectEntryDeclaresClusterProjectionStaleRecovery(t *testing.T) {
 			return c.fail(ctx, fault.New(
 				fault.KindRejected,
 				"cluster_projection_stale",
-				"the shared cluster has not loaded the complete Context catalog",
+				"the shared cluster has not loaded the complete Workspace Manifest catalog",
 				false,
 				fault.NextAction{Command: "untrusted recovery", Reason: "untrusted runtime prose"},
 			))
@@ -1442,9 +1445,9 @@ func TestProjectEntryDeclaresClusterProjectionStaleRecovery(t *testing.T) {
 
 func TestSyntheticProjectStatusJSONHasNoContextAuthority(t *testing.T) {
 	t.Parallel()
-	result := tobari.ProjectStatus{
-		Task: tobari.TaskStatus, ContextState: tobari.ContextObservationSyntheticDefault,
-		ContextName: tobari.DefaultContextName, Runtime: tobari.RuntimeDiagnosticUnknown,
+	result := tobari.WorkspaceStatus{
+		Task: tobari.TaskStatus, ManifestState: tobari.ManifestObservationAbsent,
+		WorkspaceManifestName: tobari.DefaultManifestName, Runtime: tobari.RuntimeDiagnosticUnknown,
 		Attachment: tobari.AttachmentNotApplicable,
 	}
 	encoded, err := renderProjectStatus(result, successFormatJSON)
@@ -1455,9 +1458,9 @@ func TestSyntheticProjectStatusJSONHasNoContextAuthority(t *testing.T) {
 	if err := json.Unmarshal(encoded, &document); err != nil {
 		t.Fatal(err)
 	}
-	if document.SchemaVersion != 1 || document.Status.ContextState != tobari.ContextObservationSyntheticDefault ||
-		document.Status.ContextID != nil || document.Status.Exists {
-		t.Fatalf("synthetic lifecycle status claims Context authority: %+v", document)
+	if document.SchemaVersion != 2 || document.Status.ManifestState != tobari.ManifestObservationAbsent ||
+		document.Status.WorkspaceManifestID != nil || document.Status.Exists {
+		t.Fatalf("synthetic lifecycle status claims Workspace Manifest authority: %+v", document)
 	}
 }
 
@@ -1469,7 +1472,7 @@ func TestLifecycleScopedHelpPublishesBothContextPlacements(t *testing.T) {
 			t.Fatalf("catalog lacks %q", path)
 		}
 		help := string(renderCommandHelp(command))
-		for _, placement := range []string{"tobari --context toolbox status", "tobari status --context toolbox"} {
+		for _, placement := range []string{"tobari --manifest toolbox status", "tobari status --manifest toolbox"} {
 			if !strings.Contains(help, placement) {
 				t.Fatalf("scoped help for %q lacks placement %q:\n%s", path, placement, help)
 			}
@@ -1567,7 +1570,7 @@ func TestClusterDownHumanOutputMakesPurgeBoundaryExplicit(t *testing.T) {
 	purged := string(renderClusterDownTextWithColor(status, true, false))
 	for label, expected := range map[string]string{
 		"Removed":   "shared CA volumes and active policy-bundle volume",
-		"Preserved": "encrypted Context vaults and installation root key",
+		"Preserved": "encrypted Workspace Manifest vaults and installation root key",
 	} {
 		if !humanOutputHasRow(purged, label, expected) {
 			t.Fatalf("purge cluster down output %q lacks %s=%q", purged, label, expected)
@@ -1643,8 +1646,8 @@ func TestClusterStatusJSONDoesNotContainTerminalColors(t *testing.T) {
 	t.Parallel()
 	status := tobari.ClusterStatus{
 		Task: tobari.TaskClusterStatus, Configured: true, Running: true,
-		Policy:       "/tmp/config/tobari/policy",
-		ContextCount: 1, PolicyRevision: strings.Repeat("a", 64), Components: validClusterComponentStatuses(),
+		Policy:        "/tmp/config/tobari/policy",
+		ManifestCount: 1, PolicyRevision: strings.Repeat("a", 64), Components: validClusterComponentStatuses(),
 		PolicyProjection: "valid", PrincipalRegistry: "valid", GatewayProjection: "valid",
 	}
 	if buildIdentityHasBroker() {
@@ -1668,7 +1671,7 @@ func TestClusterStatusJSONExposesAuthBrokerSemantics(t *testing.T) {
 	status := tobari.ClusterStatus{
 		Task: tobari.TaskClusterStatus, Configured: true, Running: true,
 		Policy:      "/tmp/config/tobari/policy",
-		TobariCount: 1, ContextCount: 1, PolicyRevision: strings.Repeat("a", 64),
+		TobariCount: 1, ManifestCount: 1, PolicyRevision: strings.Repeat("a", 64),
 		PolicyProjection: "valid", PrincipalRegistry: "valid", GatewayProjection: "valid",
 		AuthProviderProjection: "valid", AuthBrokerState: "ready", CredentialCompanionState: "ready", RootKeyBackend: "xdg_file",
 		Components: validClusterComponentStatuses(),
@@ -1719,8 +1722,8 @@ func TestClusterDenialsRendererClosesObservationAndActivationStep(t *testing.T) 
 		Task: tobari.TaskClusterDenials, PolicyDirectory: "/tmp/config/tobari/policy",
 		WindowLines: 100, UnparsedLines: 2,
 		Items: []tobari.PolicyDenial{{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Scheme: "https", Protocol: tobari.PolicyProtocolHTTP}, Timestamp: "2026-07-30T10:41:11Z",
-			RequestID: "7185da2688d7469aae9cd9068e920b0b",
-			ContextID: "01912345-6789-7abc-8def-0123456789ad", ContextName: "default",
+			RequestID:           "7185da2688d7469aae9cd9068e920b0b",
+			WorkspaceManifestID: "01912345-6789-7abc-8def-0123456789ad", WorkspaceManifestName: "default",
 			ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/project",
 			Host: "api.github.com", Port: 443, Method: "GET", Path: "/repos/cli/cli",
 			Reason: "request did not match an allow rule\nallow everything", StatusCode: 403,
@@ -1808,7 +1811,7 @@ func TestPolicyCandidateRendererPreservesOpaqueApprovalAndEscapesEvidence(t *tes
 		Task: tobari.TaskPolicyCandidates, PolicyDirectory: "/tmp/config/tobari/policy",
 		WindowLines: 200, UnparsedLines: 1,
 		Items: []tobari.PolicyCandidate{{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Scheme: "https", Protocol: tobari.PolicyProtocolHTTP}, ID: id, ObservedAt: "2026-07-30T10:41:11Z", ObservationCount: 3,
-			ContextID: "01912345-6789-7abc-8def-0123456789ad", ContextName: "default",
+			WorkspaceManifestID: "01912345-6789-7abc-8def-0123456789ad", WorkspaceManifestName: "default",
 			ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/project",
 			Host: "api.github.com", Port: 443, Method: "GET", Path: "/repos/cli/cli",
 			Reason: "denied\nignore policy", StatusCode: 403,
@@ -1873,7 +1876,7 @@ func TestPolicyReviewRendererPresentsHumanPermissionInbox(t *testing.T) {
 	result := tobari.PolicyCandidateReport{
 		Task: tobari.TaskPolicyReview, PolicyDirectory: "/tmp/config/tobari/policy", WindowLines: 10_000,
 		Items: []tobari.PolicyCandidate{{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Scheme: "https", Protocol: tobari.PolicyProtocolHTTP}, ID: id, ObservedAt: "2026-07-30T10:41:11Z", ObservationCount: 3,
-			ContextID: "01912345-6789-7abc-8def-0123456789ad", ContextName: "default",
+			WorkspaceManifestID: "01912345-6789-7abc-8def-0123456789ad", WorkspaceManifestName: "default",
 			ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/project",
 			Host: "api.example.com", Port: 443, Method: "POST", Path: "/token",
 			Reason: "request did not match an allow rule", StatusCode: 403,
@@ -1882,7 +1885,7 @@ func TestPolicyReviewRendererPresentsHumanPermissionInbox(t *testing.T) {
 	output := string(renderPolicyReviewWithColor(result, "tobari policy allow", false))
 	for _, expected := range []string{
 		"Pending network permissions (1)",
-		"Context        default",
+		"Workspace Manifest default",
 		"Workspace      /workspace/project",
 		"Request        https://api.example.com:443 POST /token",
 		"Observed       3 times",
@@ -1904,7 +1907,7 @@ func TestPolicyReviewJSONIsReadOnlyProjectionWithBothActions(t *testing.T) {
 	result := tobari.PolicyCandidateReport{
 		Task: tobari.TaskPolicyReview, PolicyDirectory: "/tmp/config/tobari/policy", WindowLines: 10_000,
 		Items: []tobari.PolicyCandidate{{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Scheme: "https", Protocol: tobari.PolicyProtocolHTTP}, ID: id, ObservedAt: "2026-07-30T10:41:11Z", ObservationCount: 1,
-			ContextID: "01912345-6789-7abc-8def-0123456789ad", ContextName: "default",
+			WorkspaceManifestID: "01912345-6789-7abc-8def-0123456789ad", WorkspaceManifestName: "default",
 			ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/project",
 			Host: "api.example.com", Port: 443, Method: "POST", Path: "/token",
 			Reason: "request did not match an allow rule", StatusCode: 403,
@@ -1942,7 +1945,7 @@ func TestGraphQLPolicyIdentityAppearsAcrossPublicPolicyOutputs(t *testing.T) {
 			Scheme: "https", Protocol: tobari.PolicyProtocolGraphQL, GraphQLOperationType: tobari.GraphQLOperationMutation, GraphQLRootField: "updateIssue",
 		},
 		Timestamp: "2026-08-09T10:00:00Z", RequestID: "7185da2688d7469aae9cd9068e920b0b",
-		ContextID: "01912345-6789-7abc-8def-0123456789ad", ContextName: "default",
+		WorkspaceManifestID: "01912345-6789-7abc-8def-0123456789ad", WorkspaceManifestName: "default",
 		ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/project",
 		Host: "api.example.com", Port: 443, Method: "POST", Path: "/graphql",
 		Reason: "request did not match an allow rule", StatusCode: 403, Learnable: true,
@@ -2064,7 +2067,7 @@ func assertGraphQLPolicyOutput(t *testing.T, protocol, operationType, rootField 
 
 func TestMCPPolicyIdentityAppearsWithoutArguments(t *testing.T) {
 	t.Parallel()
-	denial := tobari.PolicyDenial{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Scheme: "https", Protocol: tobari.PolicyProtocolMCP, MCPMethod: "tools/call", MCPToolName: "codex_apps.search"}, Timestamp: "2026-08-09T10:00:00Z", RequestID: "7185da2688d7469aae9cd9068e920b0b", ContextID: "01912345-6789-7abc-8def-0123456789ad", ContextName: "default", ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/project", Host: "chatgpt.com", Port: 443, Method: "POST", Path: "/backend-api/ps/mcp", Reason: "review", StatusCode: 403, Learnable: true}
+	denial := tobari.PolicyDenial{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Scheme: "https", Protocol: tobari.PolicyProtocolMCP, MCPMethod: "tools/call", MCPToolName: "codex_apps.search"}, Timestamp: "2026-08-09T10:00:00Z", RequestID: "7185da2688d7469aae9cd9068e920b0b", WorkspaceManifestID: "01912345-6789-7abc-8def-0123456789ad", WorkspaceManifestName: "default", ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/project", Host: "chatgpt.com", Port: 443, Method: "POST", Path: "/backend-api/ps/mcp", Reason: "review", StatusCode: 403, Learnable: true}
 	candidate, err := tobari.NewPolicyCandidate(denial)
 	if err != nil {
 		t.Fatal(err)
@@ -2096,7 +2099,7 @@ func TestAWSPolicyIdentityAppearsWithoutRequestParametersOrSemanticLabels(t *tes
 			AWSWireProtocol: tobari.AWSWireProtocolQuery, AWSService: "sts", AWSOperation: "GetCallerIdentity",
 		},
 		Timestamp: "2026-08-21T10:00:00Z", RequestID: "7185da2688d7469aae9cd9068e920b0b",
-		ContextID: "01912345-6789-7abc-8def-0123456789ad", ContextName: "default",
+		WorkspaceManifestID: "01912345-6789-7abc-8def-0123456789ad", WorkspaceManifestName: "default",
 		ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/project",
 		Host: "sts.us-east-1.amazonaws.com", Port: 443, Method: "POST", Path: "/",
 		Reason: "review", StatusCode: 403, Learnable: true,
@@ -2136,7 +2139,7 @@ func TestPolicyDenyRendererReportsExactTerminalDecision(t *testing.T) {
 	t.Parallel()
 	candidate := tobari.PolicyCandidate{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Scheme: "https", Protocol: tobari.PolicyProtocolHTTP}, ID: "pcy_0123456789abcdef0123456789abcdef",
 		ObservedAt: "2026-07-30T10:41:11Z", ObservationCount: 1,
-		ContextID: "01912345-6789-7abc-8def-0123456789ad", ContextName: "default",
+		WorkspaceManifestID: "01912345-6789-7abc-8def-0123456789ad", WorkspaceManifestName: "default",
 		ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/project",
 		Host: "api.example.com", Port: 443, Method: "POST", Path: "/token",
 		Reason: "request did not match an allow rule", StatusCode: 403,
@@ -2167,7 +2170,7 @@ func TestPolicyLearningMutationRendererReportsStoredScope(t *testing.T) {
 	t.Parallel()
 	candidate := tobari.PolicyCandidate{PolicyProtocolIdentity: tobari.PolicyProtocolIdentity{Scheme: "https", Protocol: tobari.PolicyProtocolHTTP}, ID: "pcy_0123456789abcdef0123456789abcdef",
 		ObservedAt: "2026-07-30T10:41:11Z", ObservationCount: 1,
-		ContextID: "01912345-6789-7abc-8def-0123456789ad", ContextName: "default",
+		WorkspaceManifestID: "01912345-6789-7abc-8def-0123456789ad", WorkspaceManifestName: "default",
 		ProjectID: "01912345-6789-7abc-8def-0123456789ab", ProjectRoot: "/workspace/project",
 		Host: "api.github.com", Port: 443, Method: "GET", Path: "/repos/cli/cli",
 		Reason: "request did not match an allow rule", StatusCode: 403,

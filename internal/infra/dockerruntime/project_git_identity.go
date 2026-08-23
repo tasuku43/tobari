@@ -36,8 +36,8 @@ func (r *Runtime) projectGitConfigPath(id string) (string, error) {
 
 func (r *Runtime) reconcileProjectGitIdentity(
 	ctx context.Context,
-	manifest tobari.ContextManifest,
-	instance tobari.ProjectInstance,
+	manifest tobari.WorkspaceManifest,
+	instance tobari.Workspace,
 ) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -64,15 +64,15 @@ func (r *Runtime) reconcileProjectGitIdentity(
 
 func (r *Runtime) resolveProjectGitIdentity(
 	ctx context.Context,
-	manifest tobari.ContextManifest,
+	manifest tobari.WorkspaceManifest,
 	root string,
 ) (*projectGitIdentity, error) {
 	setting := manifest.GitIdentity
-	if setting == nil || setting.Source == tobari.ContextGitIdentityDefault {
+	if setting == nil || setting.Source == tobari.ManifestGitIdentityDefault {
 		return nil, nil
 	}
 	switch setting.Source {
-	case tobari.ContextGitIdentityInherit:
+	case tobari.ManifestGitIdentityInherit:
 		if r.gitIdentity == nil {
 			return nil, gitIdentityResolutionFailed()
 		}
@@ -96,7 +96,7 @@ func (r *Runtime) resolveProjectGitIdentity(
 			return nil, gitIdentityResolutionFailed()
 		}
 		return identity, nil
-	case tobari.ContextGitIdentityLiteral:
+	case tobari.ManifestGitIdentityLiteral:
 		if setting.Name == nil || setting.Email == nil {
 			return nil, fmt.Errorf("literal Git identity is incomplete")
 		}

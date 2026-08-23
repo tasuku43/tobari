@@ -21,23 +21,23 @@ import (
 
 type gatewayAuditRecord struct {
 	tobari.PolicyProtocolIdentity
-	SchemaVersion  int     `json:"schema_version"`
-	Timestamp      string  `json:"timestamp"`
-	RequestID      string  `json:"request_id"`
-	Cluster        string  `json:"cluster"`
-	ProjectID      *string `json:"project_id"`
-	ContextID      *string `json:"context_id"`
-	ContextName    *string `json:"context"`
-	ProjectRoot    *string `json:"project_root"`
-	Host           string  `json:"host"`
-	Port           int     `json:"port"`
-	Method         string  `json:"method"`
-	Path           string  `json:"path"`
-	Decision       string  `json:"decision"`
-	Reason         string  `json:"reason"`
-	Learnable      bool    `json:"learnable"`
-	UpstreamStatus int     `json:"upstream_status"`
-	DurationMS     int     `json:"duration_ms"`
+	SchemaVersion         int     `json:"schema_version"`
+	Timestamp             string  `json:"timestamp"`
+	RequestID             string  `json:"request_id"`
+	Cluster               string  `json:"cluster"`
+	ProjectID             *string `json:"workspace_id"`
+	WorkspaceManifestID   *string `json:"workspace_manifest_id"`
+	WorkspaceManifestName *string `json:"workspace_manifest"`
+	ProjectRoot           *string `json:"project_root"`
+	Host                  string  `json:"host"`
+	Port                  int     `json:"port"`
+	Method                string  `json:"method"`
+	Path                  string  `json:"path"`
+	Decision              string  `json:"decision"`
+	Reason                string  `json:"reason"`
+	Learnable             bool    `json:"learnable"`
+	UpstreamStatus        int     `json:"upstream_status"`
+	DurationMS            int     `json:"duration_ms"`
 }
 
 // ClusterDenials projects only validated deny audit records from one bounded
@@ -95,7 +95,7 @@ func (r *Runtime) bindActiveHostLoopbackDenials(items []tobari.PolicyDenial) ([]
 			continue
 		}
 		for _, route := range registry.Routes {
-			if route.ProjectID == items[index].ProjectID && route.ContextID == items[index].ContextID {
+			if route.ProjectID == items[index].ProjectID && route.WorkspaceManifestID == items[index].WorkspaceManifestID {
 				items[index].DestinationKind = tobari.PolicyDestinationHostLoopback
 				items[index].AuthorityLifetime = tobari.AuthorityLifetimeAttachment
 				items[index].AttachmentEpochID = route.EpochID
@@ -146,7 +146,7 @@ func parseGatewayDenials(data []byte) tobari.DenialRead {
 		item := tobari.PolicyDenial{
 			PolicyProtocolIdentity: record.PolicyProtocolIdentity,
 			Timestamp:              record.Timestamp, RequestID: record.RequestID,
-			ContextID: nullableAuditString(record.ContextID), ContextName: nullableAuditString(record.ContextName),
+			WorkspaceManifestID: nullableAuditString(record.WorkspaceManifestID), WorkspaceManifestName: nullableAuditString(record.WorkspaceManifestName),
 			ProjectID: nullableAuditString(record.ProjectID), ProjectRoot: nullableAuditString(record.ProjectRoot),
 			Host: record.Host, Port: record.Port, Method: record.Method, Path: record.Path,
 			Reason: record.Reason, StatusCode: record.UpstreamStatus,

@@ -31,7 +31,7 @@
     },
     {
       "name": "confirmed_receipt",
-      "required_facts": ["active revision", "ordered stored rules", "Context ID", "Workspace ID", "review item ID"],
+      "required_facts": ["active revision", "ordered stored rules", "Workspace Manifest ID", "Workspace ID", "review item ID"],
       "exact_next_argv": [],
       "unsupported_inferences": ["the receipt was reconstructed from display labels"]
     },

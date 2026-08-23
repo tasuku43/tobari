@@ -3,7 +3,6 @@ package dockerruntime
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/tasuku43/tobari/internal/domain/tobari"
@@ -32,17 +32,22 @@ const (
 // otherwise valid manifest.
 var maxContextManifestBytes = int64(
 	maxContextManifestFixedJSONBytes +
-		maxJSONEncodedByteExpansion*(len(tobari.ContextShellEnvironmentVariables())*tobari.MaxContextShellValueBytes+
+		maxJSONEncodedByteExpansion*(len(tobari.ManifestShellEnvironmentVariables())*tobari.MaxContextShellValueBytes+
 			contextGitIdentityValueCount*tobari.MaxContextGitIdentityValueBytes),
 )
 
-type activeContextDocument struct {
+type defaultManifestDocument struct {
+	SchemaVersion       int    `json:"schema_version"`
+	WorkspaceManifestID string `json:"workspace_manifest_id"`
+}
+
+type legacyActiveContextDocument struct {
 	Name string `json:"name"`
 }
 
 type observedContext struct {
-	state    tobari.ContextObservationState
-	manifest tobari.ContextManifest
+	state    tobari.ManifestObservationState
+	manifest tobari.WorkspaceManifest
 }
 
 func (r *Runtime) contextsDirectory() string {
@@ -57,6 +62,61 @@ func (r *Runtime) contextManifestPath(name string) string {
 	return filepath.Join(r.contextDirectory(name), "context.json")
 }
 
+func (r *Runtime) manifestRevisionsDirectory(name string) string {
+	return filepath.Join(r.contextDirectory(name), "revisions")
+}
+
+// manifestRevisionPath uses generation only to distinguish history receipts
+// such as A->B->A. ManifestID plus the semantic digest remains authority;
+// generation is correlation metadata and never authorizes different content.
+func (r *Runtime) manifestRevisionPath(name string, generation uint64, revision string) (string, error) {
+	if err := tobari.ValidateName(name); err != nil {
+		return "", err
+	}
+	if generation == 0 {
+		return "", fmt.Errorf("Manifest generation must be positive")
+	}
+	if err := tobari.ValidateDigest(revision); err != nil {
+		return "", err
+	}
+	return filepath.Join(r.manifestRevisionsDirectory(name), fmt.Sprintf("%020d-%s.json", generation, strings.TrimPrefix(revision, "sha256:"))), nil
+}
+
+func (r *Runtime) retainWorkspaceManifestRevision(manifest tobari.WorkspaceManifest) error {
+	if err := manifest.ValidatePublished(); err != nil {
+		return err
+	}
+	if err := r.ensurePrivateDirectory(r.manifestRevisionsDirectory(manifest.Name)); err != nil {
+		return fmt.Errorf("prepare Manifest revisions: %w", err)
+	}
+	path, err := r.manifestRevisionPath(manifest.Name, manifest.Desired.Generation, manifest.Desired.Revision)
+	if err != nil {
+		return err
+	}
+	if existing, readErr := readWorkspaceManifestRevision(path); readErr == nil {
+		existingBody, existingErr := json.Marshal(existing)
+		candidateBody, candidateErr := json.Marshal(manifest)
+		if existingErr != nil || candidateErr != nil || !bytes.Equal(existingBody, candidateBody) {
+			return fmt.Errorf("retained Manifest revision identity conflicts")
+		}
+		return nil
+	} else if !errors.Is(readErr, os.ErrNotExist) {
+		return readErr
+	}
+	return writeAtomicJSON(path, manifest)
+}
+
+func readWorkspaceManifestRevision(path string) (tobari.WorkspaceManifest, error) {
+	var manifest tobari.WorkspaceManifest
+	if err := readStrictJSON(path, &manifest); err != nil {
+		return tobari.WorkspaceManifest{}, err
+	}
+	if err := manifest.ValidatePublished(); err != nil {
+		return tobari.WorkspaceManifest{}, err
+	}
+	return manifest, nil
+}
+
 func (r *Runtime) contextPolicyDirectory(name string) string {
 	return filepath.Join(r.contextDirectory(name), "policy")
 }
@@ -65,27 +125,31 @@ func (r *Runtime) activeContextPath() string {
 	return filepath.Join(r.contextsDirectory(), "active.json")
 }
 
-func (r *Runtime) contextPaths(name string) tobari.ContextStorePaths {
-	return tobari.ContextStorePaths{
+func (r *Runtime) defaultManifestPath() string {
+	return filepath.Join(r.contextsDirectory(), "default.json")
+}
+
+func (r *Runtime) contextPaths(name string) tobari.ManifestStorePaths {
+	return tobari.ManifestStorePaths{
 		PolicyDirectory: r.contextPolicyDirectory(name),
 	}
 }
 
 // diagnosticContextStores resolves the stores to inspect without initializing
 // the Context catalog.
-func (r *Runtime) diagnosticContextStores() (tobari.ContextStorePaths, error) {
-	if _, err := os.Lstat(r.activeContextPath()); errors.Is(err, os.ErrNotExist) {
-		return r.contextPaths(tobari.DefaultContextName), nil
+func (r *Runtime) diagnosticContextStores() (tobari.ManifestStorePaths, error) {
+	if _, err := os.Lstat(r.defaultManifestPath()); errors.Is(err, os.ErrNotExist) {
+		return r.contextPaths(tobari.DefaultManifestName), nil
 	} else if err != nil {
-		return tobari.ContextStorePaths{}, fmt.Errorf("inspect active Context: %w", err)
+		return tobari.ManifestStorePaths{}, fmt.Errorf("inspect default Manifest: %w", err)
 	}
-	name, err := r.readActiveContext()
+	name, err := r.readDefaultManifestName()
 	if err != nil {
-		return tobari.ContextStorePaths{}, err
+		return tobari.ManifestStorePaths{}, err
 	}
 	paths := r.contextPaths(name)
 	if err := paths.Validate(); err != nil {
-		return tobari.ContextStorePaths{}, err
+		return tobari.ManifestStorePaths{}, err
 	}
 	return paths, nil
 }
@@ -103,28 +167,34 @@ func (r *Runtime) ensureContextStoreUnlocked() error {
 	if err != nil {
 		return err
 	}
-	if _, err := os.Lstat(r.contextManifestPath(tobari.DefaultContextName)); err != nil && !errors.Is(err, os.ErrNotExist) {
+	if _, err := os.Lstat(r.contextManifestPath(tobari.DefaultManifestName)); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("inspect default Context manifest: %w", err)
 	}
-	defaultManifest := tobari.ContextManifest{
-		SchemaVersion:    tobari.ContextSchemaVersion,
-		Name:             tobari.DefaultContextName,
+	defaultManifest := tobari.WorkspaceManifest{
+		SchemaVersion:    tobari.WorkspaceManifestSchemaVersion,
+		Name:             tobari.DefaultManifestName,
 		AgentProfile:     tobari.DefaultProfile,
 		Image:            image,
-		PolicyMode:       tobari.ContextPolicyModeGuided,
-		SourceAccess:     tobari.ContextSourceAccessReadWrite,
+		PolicyMode:       tobari.ManifestPolicyModeGuided,
+		SourceAccess:     tobari.ManifestSourceAccessReadWrite,
 		PolicyRevision:   tobari.DefaultContextPolicyRevision(),
 		ShellEnvironment: tobari.InitialContextShellEnvironment(),
 		RuntimeBinding:   &standardBinding,
 	}
-	if existing, err := r.readContextManifestRaw(tobari.DefaultContextName); err == nil {
+	if existing, err := r.readContextManifestRaw(tobari.DefaultManifestName); err == nil {
 		defaultManifest = existing
 	} else if !errors.Is(err, tobari.ErrContextNotFound) {
 		return err
 	}
 	if defaultManifest.ID == "" {
 		var err error
-		defaultManifest.ID, err = r.identities.newContextID()
+		defaultManifest.ID, err = r.identities.newWorkspaceManifestID()
+		if err != nil {
+			return err
+		}
+	}
+	if defaultManifest.Desired.Generation == 0 {
+		defaultManifest, err = tobari.PublishWorkspaceManifest(defaultManifest, nil)
 		if err != nil {
 			return err
 		}
@@ -134,24 +204,40 @@ func (r *Runtime) ensureContextStoreUnlocked() error {
 
 // initializeContextStoreUnlocked completes mutation-owned initialization with
 // the selected default manifest. The caller must hold the Context-store lock.
-func (r *Runtime) initializeContextStoreUnlocked(defaultManifest tobari.ContextManifest) error {
+func (r *Runtime) initializeContextStoreUnlocked(defaultManifest tobari.WorkspaceManifest) error {
 	return r.initializeContextStoreUnlockedWithPolicy(defaultManifest, nil)
 }
 
-func (r *Runtime) initializeContextStoreUnlockedWithPolicy(defaultManifest tobari.ContextManifest, snapshot []byte) error {
+func (r *Runtime) initializeContextStoreUnlockedWithPolicy(defaultManifest tobari.WorkspaceManifest, snapshot []byte) error {
 	if err := r.ensurePrivateDirectory(r.contextsDirectory()); err != nil {
 		return fmt.Errorf("prepare Context directory: %w", err)
 	}
 	if err := r.ensureContextWithPolicySnapshot(defaultManifest, snapshot); err != nil {
 		return err
 	}
-	if _, err := os.Lstat(r.activeContextPath()); errors.Is(err, os.ErrNotExist) {
-		if err := r.writeActiveContext(tobari.DefaultContextName); err != nil {
-			return fmt.Errorf("initialize active Context: %w", err)
+	if _, err := os.Lstat(r.defaultManifestPath()); errors.Is(err, os.ErrNotExist) {
+		selected := defaultManifest
+		if _, legacyErr := os.Lstat(r.activeContextPath()); legacyErr == nil {
+			legacyName, readErr := r.readLegacyActiveContextName()
+			if readErr != nil {
+				return readErr
+			}
+			selected, readErr = r.readContextManifestRaw(legacyName)
+			if readErr != nil {
+				return fmt.Errorf("migrate default Manifest selection: %w", readErr)
+			}
+		} else if !errors.Is(legacyErr, os.ErrNotExist) {
+			return fmt.Errorf("inspect legacy active Context: %w", legacyErr)
+		}
+		if err := r.writeDefaultManifest(selected); err != nil {
+			return fmt.Errorf("initialize default Manifest: %w", err)
+		}
+		if err := os.Remove(r.activeContextPath()); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("remove migrated active Context marker: %w", err)
 		}
 	} else if err != nil {
-		return fmt.Errorf("inspect active Context: %w", err)
-	} else if _, err := r.readActiveContext(); err != nil {
+		return fmt.Errorf("inspect default Manifest: %w", err)
+	} else if _, err := r.readDefaultManifestName(); err != nil {
 		return err
 	}
 	return nil
@@ -186,12 +272,12 @@ func (r *Runtime) withContextStoreLock(action func() error) error {
 	return action()
 }
 
-func (r *Runtime) ensureContext(manifest tobari.ContextManifest) error {
+func (r *Runtime) ensureContext(manifest tobari.WorkspaceManifest) error {
 	return r.ensureContextWithPolicySnapshot(manifest, nil)
 }
 
-func (r *Runtime) ensureContextWithPolicySnapshot(manifest tobari.ContextManifest, snapshot []byte) error {
-	if err := manifest.Validate(); err != nil {
+func (r *Runtime) ensureContextWithPolicySnapshot(manifest tobari.WorkspaceManifest, snapshot []byte) error {
+	if err := manifest.ValidatePublished(); err != nil {
 		return err
 	}
 	directory := r.contextDirectory(manifest.Name)
@@ -208,7 +294,7 @@ func (r *Runtime) ensureContextWithPolicySnapshot(manifest tobari.ContextManifes
 	if err := r.ensurePrivateDirectory(domainsDirectory); err != nil {
 		return fmt.Errorf("prepare Context %q policy domains: %w", manifest.Name, err)
 	}
-	if manifest.PolicyMode == tobari.ContextPolicyModeAdvanced {
+	if manifest.PolicyMode == tobari.ManifestPolicyModeAdvanced {
 		for _, name := range []string{"tobari.rego", "tobari_test.rego"} {
 			if err := initializeFile(filepath.Join(r.contextPolicyDirectory(manifest.Name), name), "opa/policy/"+name, 0o600); err != nil {
 				return err
@@ -216,6 +302,9 @@ func (r *Runtime) ensureContextWithPolicySnapshot(manifest tobari.ContextManifes
 		}
 	}
 	if _, err := os.Lstat(r.contextManifestPath(manifest.Name)); errors.Is(err, os.ErrNotExist) {
+		if err := r.retainWorkspaceManifestRevision(manifest); err != nil {
+			return err
+		}
 		if err := writeAtomicJSON(r.contextManifestPath(manifest.Name), manifest); err != nil {
 			return fmt.Errorf("write Context manifest: %w", err)
 		}
@@ -230,9 +319,9 @@ func (r *Runtime) ensureContextWithPolicySnapshot(manifest tobari.ContextManifes
 // with one same-filesystem rename. The staging tree is never visible to a
 // concurrent Context collection read.
 func (r *Runtime) installContextWithCreationSnapshot(
-	manifest tobari.ContextManifest, snapshot []byte, advanced map[string][]byte,
+	manifest tobari.WorkspaceManifest, snapshot []byte, advanced map[string][]byte,
 ) error {
-	if err := manifest.Validate(); err != nil {
+	if err := manifest.ValidatePublished(); err != nil {
 		return err
 	}
 	if len(snapshot) == 0 {
@@ -247,7 +336,7 @@ func (r *Runtime) installContextWithCreationSnapshot(
 		return fmt.Errorf("Context creation policy snapshot is invalid")
 	}
 	advancedSources := map[string][]byte{}
-	if manifest.PolicyMode == tobari.ContextPolicyModeAdvanced {
+	if manifest.PolicyMode == tobari.ManifestPolicyModeAdvanced {
 		for _, name := range []string{"tobari.rego", "tobari_test.rego"} {
 			var source []byte
 			if advanced != nil {
@@ -293,6 +382,13 @@ func (r *Runtime) installContextWithCreationSnapshot(
 	if err := writeAtomicJSON(filepath.Join(staging, "context.json"), manifest); err != nil {
 		return fmt.Errorf("stage Context manifest: %w", err)
 	}
+	if err := os.Mkdir(filepath.Join(staging, "revisions"), 0o700); err != nil {
+		return fmt.Errorf("stage Manifest revision store: %w", err)
+	}
+	revisionPath := filepath.Join(staging, "revisions", strings.TrimPrefix(manifest.Desired.Revision, "sha256:")+".json")
+	if err := writeAtomicJSON(revisionPath, manifest); err != nil {
+		return fmt.Errorf("stage Manifest revision: %w", err)
+	}
 	target := r.contextDirectory(manifest.Name)
 	if _, err := os.Lstat(target); err == nil {
 		return tobari.ErrContextExists
@@ -305,52 +401,52 @@ func (r *Runtime) installContextWithCreationSnapshot(
 	return syncDirectoryIfPresent(r.contextsDirectory())
 }
 
-func (r *Runtime) readContextManifestRaw(name string) (tobari.ContextManifest, error) {
+func (r *Runtime) readContextManifestRaw(name string) (tobari.WorkspaceManifest, error) {
 	if err := tobari.ValidateName(name); err != nil {
-		return tobari.ContextManifest{}, err
+		return tobari.WorkspaceManifest{}, err
 	}
 	path := r.contextManifestPath(name)
 	info, err := os.Lstat(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return tobari.ContextManifest{}, fmt.Errorf("%w: %s", tobari.ErrContextNotFound, name)
+			return tobari.WorkspaceManifest{}, fmt.Errorf("%w: %s", tobari.ErrContextNotFound, name)
 		}
-		return tobari.ContextManifest{}, err
+		return tobari.WorkspaceManifest{}, err
 	}
 	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm()&0o077 != 0 || info.Size() > maxContextManifestBytes {
-		return tobari.ContextManifest{}, fmt.Errorf("Context manifest is unsafe")
+		return tobari.WorkspaceManifest{}, fmt.Errorf("Context manifest is unsafe")
 	}
 	data, err := os.ReadFile(path) // #nosec G304 -- name is validated and path is a Context child.
 	if err != nil {
-		return tobari.ContextManifest{}, err
+		return tobari.WorkspaceManifest{}, err
 	}
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
-	var manifest tobari.ContextManifest
+	var manifest tobari.WorkspaceManifest
 	if err := decoder.Decode(&manifest); err != nil {
-		return tobari.ContextManifest{}, fmt.Errorf("decode Context manifest: %w", err)
+		return tobari.WorkspaceManifest{}, fmt.Errorf("decode Context manifest: %w", err)
 	}
 	var trailing any
 	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
-		return tobari.ContextManifest{}, fmt.Errorf("Context manifest contains trailing data")
+		return tobari.WorkspaceManifest{}, fmt.Errorf("Context manifest contains trailing data")
 	}
-	if err := manifest.Validate(); err != nil {
-		return tobari.ContextManifest{}, err
+	if err := manifest.ValidatePublished(); err != nil {
+		return tobari.WorkspaceManifest{}, err
 	}
 	if manifest.Name != name {
-		return tobari.ContextManifest{}, fmt.Errorf("Context manifest name does not match its path")
+		return tobari.WorkspaceManifest{}, fmt.Errorf("Context manifest name does not match its path")
 	}
 	if _, err := r.readContextPolicy(manifest); err != nil {
-		return tobari.ContextManifest{}, fmt.Errorf("read Context context policy: %w", err)
+		return tobari.WorkspaceManifest{}, fmt.Errorf("read Context context policy: %w", err)
 	}
 	return manifest, nil
 }
 
-func (r *Runtime) readContextManifest(name string) (tobari.ContextManifest, error) {
+func (r *Runtime) readContextManifest(name string) (tobari.WorkspaceManifest, error) {
 	return r.readContextManifestRaw(name)
 }
 
-func (r *Runtime) readActiveContext() (string, error) {
+func (r *Runtime) readLegacyActiveContextName() (string, error) {
 	info, err := os.Lstat(r.activeContextPath())
 	if err != nil {
 		return "", err
@@ -364,7 +460,7 @@ func (r *Runtime) readActiveContext() (string, error) {
 	}
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
-	var document activeContextDocument
+	var document legacyActiveContextDocument
 	if err := decoder.Decode(&document); err != nil {
 		return "", fmt.Errorf("decode active Context: %w", err)
 	}
@@ -381,39 +477,104 @@ func (r *Runtime) readActiveContext() (string, error) {
 	return document.Name, nil
 }
 
-func (r *Runtime) writeActiveContext(name string) error {
-	if err := tobari.ValidateName(name); err != nil {
-		return err
+func (r *Runtime) readDefaultManifestName() (string, error) {
+	info, err := os.Lstat(r.defaultManifestPath())
+	if err != nil {
+		return "", err
 	}
-	if _, err := r.readContextManifest(name); err != nil {
-		return err
+	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm()&0o077 != 0 || info.Size() > maxActiveContextDocumentBytes {
+		return "", fmt.Errorf("default Manifest selector is unsafe")
 	}
-	return writeAtomicJSON(r.activeContextPath(), activeContextDocument{Name: name})
+	data, err := os.ReadFile(r.defaultManifestPath()) // #nosec G304 -- fixed default Manifest path.
+	if err != nil {
+		return "", err
+	}
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	var document defaultManifestDocument
+	if err := decoder.Decode(&document); err != nil {
+		return "", fmt.Errorf("decode default Manifest selector: %w", err)
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		return "", fmt.Errorf("default Manifest selector contains trailing data")
+	}
+	if document.SchemaVersion != tobari.WorkspaceManifestSchemaVersion {
+		return "", fmt.Errorf("default Manifest selector schema is invalid")
+	}
+	if err := tobari.ValidateWorkspaceManifestID(document.WorkspaceManifestID); err != nil {
+		return "", err
+	}
+	manifest, err := r.contextByIDRaw(document.WorkspaceManifestID)
+	if err != nil {
+		return "", fmt.Errorf("default Manifest is unavailable: %w", err)
+	}
+	return manifest.Name, nil
 }
 
-func (r *Runtime) activeContext() (tobari.ContextManifest, tobari.ContextStorePaths, error) {
-	if err := r.ensureContextStore(); err != nil {
-		return tobari.ContextManifest{}, tobari.ContextStorePaths{}, err
+func (r *Runtime) writeDefaultManifest(manifest tobari.WorkspaceManifest) error {
+	if err := manifest.ValidatePublished(); err != nil {
+		return err
 	}
-	name, err := r.readActiveContext()
+	current, err := r.readContextManifest(manifest.Name)
 	if err != nil {
-		return tobari.ContextManifest{}, tobari.ContextStorePaths{}, err
+		return err
+	}
+	if current.ID != manifest.ID {
+		return fmt.Errorf("default Manifest identity changed")
+	}
+	return writeAtomicJSON(r.defaultManifestPath(), defaultManifestDocument{
+		SchemaVersion: tobari.WorkspaceManifestSchemaVersion, WorkspaceManifestID: manifest.ID,
+	})
+}
+
+func (r *Runtime) publishWorkspaceManifestUpdate(previous, draft tobari.WorkspaceManifest) (tobari.WorkspaceManifest, error) {
+	published, err := tobari.PublishWorkspaceManifest(draft, &previous)
+	if err != nil {
+		return tobari.WorkspaceManifest{}, err
+	}
+	if published.Desired == previous.Desired {
+		return published, nil
+	}
+	if err := r.retainWorkspaceManifestRevision(published); err != nil {
+		return tobari.WorkspaceManifest{}, err
+	}
+	if err := writeAtomicJSON(r.contextManifestPath(published.Name), published); err != nil {
+		return tobari.WorkspaceManifest{}, err
+	}
+	return published, nil
+}
+
+func (r *Runtime) activeContext() (tobari.WorkspaceManifest, tobari.ManifestStorePaths, error) {
+	name, err := r.readDefaultManifestName()
+	if err != nil {
+		return tobari.WorkspaceManifest{}, tobari.ManifestStorePaths{}, err
 	}
 	manifest, err := r.readContextManifest(name)
 	if err != nil {
-		return tobari.ContextManifest{}, tobari.ContextStorePaths{}, err
+		return tobari.WorkspaceManifest{}, tobari.ManifestStorePaths{}, err
 	}
 	paths := r.contextPaths(name)
 	if err := paths.Validate(); err != nil {
-		return tobari.ContextManifest{}, tobari.ContextStorePaths{}, err
+		return tobari.WorkspaceManifest{}, tobari.ManifestStorePaths{}, err
 	}
 	return manifest, paths, nil
 }
 
-func (r *Runtime) observeActiveContextName() (string, error) {
-	name, err := r.readActiveContext()
+// ReadWorkspaceManifestByID resolves a published Manifest by stable identity
+// without consulting or changing the installation default selector.
+func (r *Runtime) ReadWorkspaceManifestByID(ctx context.Context, id string) (tobari.WorkspaceManifest, error) {
+	if err := ctx.Err(); err != nil {
+		return tobari.WorkspaceManifest{}, err
+	}
+	manifest, _, err := r.contextByID(id)
+	return manifest, err
+}
+
+func (r *Runtime) observeDefaultManifestName() (string, error) {
+	name, err := r.readDefaultManifestName()
 	if errors.Is(err, os.ErrNotExist) {
-		return tobari.DefaultContextName, nil
+		return "", nil
 	}
 	return name, err
 }
@@ -424,22 +585,25 @@ func (r *Runtime) observeContext(name string) (observedContext, error) {
 	explicit := name != ""
 	if !explicit {
 		var err error
-		name, err = r.observeActiveContextName()
+		name, err = r.observeDefaultManifestName()
 		if err != nil {
 			return observedContext{}, err
+		}
+		if name == "" {
+			name = tobari.DefaultManifestName
 		}
 	}
 	manifest, err := r.readContextManifestRaw(name)
 	if errors.Is(err, tobari.ErrContextNotFound) {
-		if explicit || name != tobari.DefaultContextName {
+		if explicit || name != tobari.DefaultManifestName {
 			return observedContext{}, err
 		}
 		return observedContext{
-			state: tobari.ContextObservationSyntheticDefault,
-			manifest: tobari.ContextManifest{
-				SchemaVersion: tobari.ContextSchemaVersion, Name: tobari.DefaultContextName,
-				AgentProfile: tobari.DefaultProfile, Image: r.defaultRuntimeImage(), PolicyMode: tobari.ContextPolicyModeGuided,
-				SourceAccess:     tobari.ContextSourceAccessReadWrite,
+			state: tobari.ManifestObservationAbsent,
+			manifest: tobari.WorkspaceManifest{
+				SchemaVersion: tobari.WorkspaceManifestSchemaVersion, Name: tobari.DefaultManifestName,
+				AgentProfile: tobari.DefaultProfile, Image: r.defaultRuntimeImage(), PolicyMode: tobari.ManifestPolicyModeGuided,
+				SourceAccess:     tobari.ManifestSourceAccessReadWrite,
 				ShellEnvironment: tobari.InitialContextShellEnvironment(),
 			},
 		}, nil
@@ -447,21 +611,22 @@ func (r *Runtime) observeContext(name string) (observedContext, error) {
 	if err != nil {
 		return observedContext{}, err
 	}
-	return observedContext{state: tobari.ContextObservationPersisted, manifest: manifest}, nil
+	return observedContext{state: tobari.ManifestObservationPersisted, manifest: manifest}, nil
 }
 
 // ObserveContext exposes only a validated stable manifest as authority.
-func (r *Runtime) ObserveContext(ctx context.Context, name string) (tobari.ContextObservation, error) {
+func (r *Runtime) ObserveContext(ctx context.Context, name string) (tobari.ManifestObservation, error) {
 	if err := ctx.Err(); err != nil {
-		return tobari.ContextObservation{}, err
+		return tobari.ManifestObservation{}, err
 	}
 	observed, err := r.observeContext(name)
 	if err != nil {
-		return tobari.ContextObservation{}, err
+		return tobari.ManifestObservation{}, err
 	}
-	result := tobari.ContextObservation{State: observed.state, Name: observed.manifest.Name}
-	if observed.state == tobari.ContextObservationPersisted {
+	result := tobari.ManifestObservation{State: observed.state}
+	if observed.state == tobari.ManifestObservationPersisted {
 		manifest := observed.manifest
+		result.Name = manifest.Name
 		result.Manifest = &manifest
 	}
 	return result, result.Validate()
@@ -469,121 +634,147 @@ func (r *Runtime) ObserveContext(ctx context.Context, name string) (tobari.Conte
 
 // resolveContext resolves an explicit display name to its trusted manifest, or
 // uses the current Context only when the caller omitted a name.
-func (r *Runtime) resolveContext(name string) (tobari.ContextManifest, tobari.ContextStorePaths, error) {
+func (r *Runtime) resolveContext(name string) (tobari.WorkspaceManifest, tobari.ManifestStorePaths, error) {
 	if name == "" {
 		return r.activeContext()
 	}
-	if err := r.ensureContextStore(); err != nil {
-		return tobari.ContextManifest{}, tobari.ContextStorePaths{}, err
-	}
 	manifest, err := r.readContextManifest(name)
 	if err != nil {
-		return tobari.ContextManifest{}, tobari.ContextStorePaths{}, err
+		return tobari.WorkspaceManifest{}, tobari.ManifestStorePaths{}, err
 	}
 	paths := r.contextPaths(name)
 	if err := paths.Validate(); err != nil {
-		return tobari.ContextManifest{}, tobari.ContextStorePaths{}, err
+		return tobari.WorkspaceManifest{}, tobari.ManifestStorePaths{}, err
 	}
 	return manifest, paths, nil
 }
 
-func (r *Runtime) contextByID(id string) (tobari.ContextManifest, tobari.ContextStorePaths, error) {
-	if err := tobari.ValidateContextID(id); err != nil {
-		return tobari.ContextManifest{}, tobari.ContextStorePaths{}, err
-	}
-	if err := r.ensureContextStore(); err != nil {
-		return tobari.ContextManifest{}, tobari.ContextStorePaths{}, err
+func (r *Runtime) contextByID(id string) (tobari.WorkspaceManifest, tobari.ManifestStorePaths, error) {
+	if err := tobari.ValidateWorkspaceManifestID(id); err != nil {
+		return tobari.WorkspaceManifest{}, tobari.ManifestStorePaths{}, err
 	}
 	entries, err := os.ReadDir(r.contextsDirectory())
 	if err != nil {
-		return tobari.ContextManifest{}, tobari.ContextStorePaths{}, err
+		return tobari.WorkspaceManifest{}, tobari.ManifestStorePaths{}, err
 	}
-	var selected *tobari.ContextManifest
+	var selected *tobari.WorkspaceManifest
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			continue
 		}
 		manifest, err := r.readContextManifest(entry.Name())
 		if err != nil {
-			return tobari.ContextManifest{}, tobari.ContextStorePaths{}, err
+			return tobari.WorkspaceManifest{}, tobari.ManifestStorePaths{}, err
 		}
 		if manifest.ID != id {
 			continue
 		}
 		if selected != nil {
-			return tobari.ContextManifest{}, tobari.ContextStorePaths{}, fmt.Errorf("Context ID is ambiguous")
+			return tobari.WorkspaceManifest{}, tobari.ManifestStorePaths{}, fmt.Errorf("Context ID is ambiguous")
 		}
 		copy := manifest
 		selected = &copy
 	}
 	if selected == nil {
-		return tobari.ContextManifest{}, tobari.ContextStorePaths{}, fmt.Errorf("%w: Context ID", tobari.ErrContextNotFound)
+		return tobari.WorkspaceManifest{}, tobari.ManifestStorePaths{}, fmt.Errorf("%w: Context ID", tobari.ErrContextNotFound)
 	}
 	return *selected, r.contextPaths(selected.Name), nil
 }
 
-func (r *Runtime) ResolveContext(ctx context.Context, name string) (tobari.ContextManifest, error) {
+func (r *Runtime) contextByIDRaw(id string) (tobari.WorkspaceManifest, error) {
+	if err := tobari.ValidateWorkspaceManifestID(id); err != nil {
+		return tobari.WorkspaceManifest{}, err
+	}
+	entries, err := os.ReadDir(r.contextsDirectory())
+	if err != nil {
+		return tobari.WorkspaceManifest{}, err
+	}
+	var selected *tobari.WorkspaceManifest
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		manifest, readErr := r.readContextManifestRaw(entry.Name())
+		if readErr != nil {
+			return tobari.WorkspaceManifest{}, readErr
+		}
+		if manifest.ID == id {
+			if selected != nil {
+				return tobari.WorkspaceManifest{}, fmt.Errorf("Workspace Manifest ID is ambiguous")
+			}
+			copy := manifest
+			selected = &copy
+		}
+	}
+	if selected == nil {
+		return tobari.WorkspaceManifest{}, fmt.Errorf("%w: Workspace Manifest ID", tobari.ErrContextNotFound)
+	}
+	return *selected, nil
+}
+
+func (r *Runtime) ResolveContext(ctx context.Context, name string) (tobari.WorkspaceManifest, error) {
 	if err := ctx.Err(); err != nil {
-		return tobari.ContextManifest{}, err
+		return tobari.WorkspaceManifest{}, err
 	}
 	manifest, _, err := r.resolveContext(name)
 	return manifest, err
 }
 
 // ListContexts returns the complete host-owned Context collection.
-func (r *Runtime) ListContexts(ctx context.Context) (tobari.ContextListResult, error) {
+func (r *Runtime) ListContexts(ctx context.Context) (tobari.ManifestListResult, error) {
 	if err := ctx.Err(); err != nil {
-		return tobari.ContextListResult{}, err
+		return tobari.ManifestListResult{}, err
 	}
-	active, err := r.observeActiveContextName()
+	active, err := r.observeDefaultManifestName()
 	if err != nil {
-		return tobari.ContextListResult{}, err
+		return tobari.ManifestListResult{}, err
 	}
 	entries, err := os.ReadDir(r.contextsDirectory())
 	if errors.Is(err, os.ErrNotExist) {
-		result := tobari.ContextListResult{
-			Task: tobari.TaskContextList, ContextState: tobari.ContextObservationSyntheticDefault,
-			Active: tobari.DefaultContextName, Items: []tobari.ContextSummary{},
+		result := tobari.ManifestListResult{
+			Task: tobari.TaskManifestList, ManifestState: tobari.ManifestObservationAbsent,
+			Items: []tobari.ManifestSummary{},
 		}
 		return result, result.Validate()
 	}
 	if err != nil {
-		return tobari.ContextListResult{}, err
+		return tobari.ManifestListResult{}, err
 	}
-	items := make([]tobari.ContextSummary, 0)
+	items := make([]tobari.ManifestSummary, 0)
 	for _, entry := range entries {
 		if entry.Type()&os.ModeSymlink != 0 {
-			return tobari.ContextListResult{}, fmt.Errorf("Context directory contains a symbolic link")
+			return tobari.ManifestListResult{}, fmt.Errorf("Context directory contains a symbolic link")
 		}
 		if !entry.IsDir() {
 			continue
 		}
 		manifest, err := r.readContextManifestRaw(entry.Name())
 		if err != nil {
-			return tobari.ContextListResult{}, err
+			return tobari.ManifestListResult{}, err
 		}
 		runtimeReport, err := r.contextRuntimeReport(manifest)
 		if err != nil {
-			return tobari.ContextListResult{}, err
+			return tobari.ManifestListResult{}, err
 		}
 		runtimeSelection, err := runtimeReport.Selection()
 		if err != nil {
-			return tobari.ContextListResult{}, err
+			return tobari.ManifestListResult{}, err
 		}
 		nativeReadiness, err := tobari.ResolveContextNativeReadiness(manifest.NativeReadiness)
 		if err != nil {
-			return tobari.ContextListResult{}, err
+			return tobari.ManifestListResult{}, err
 		}
 		policy, err := r.readContextPolicy(manifest)
 		if err != nil {
-			return tobari.ContextListResult{}, err
+			return tobari.ManifestListResult{}, err
 		}
 		routineAccess, err := tobari.SummarizeContextAccess(policy, manifest.SourceAccess, nativeReadiness)
 		if err != nil {
-			return tobari.ContextListResult{}, err
+			return tobari.ManifestListResult{}, err
 		}
-		items = append(items, tobari.ContextSummary{
-			ID: manifest.ID, Name: manifest.Name, ContextState: tobari.ContextObservationPersisted, Active: manifest.Name == active,
+		items = append(items, tobari.ManifestSummary{
+			ID: manifest.ID, Name: manifest.Name, ManifestState: tobari.ManifestObservationPersisted, Default: manifest.Name == active,
+			Desired:      manifest.Desired,
 			AgentProfile: manifest.AgentProfile, Image: manifest.Image, PolicyMode: manifest.PolicyMode,
 			SourceAccess:     manifest.SourceAccess,
 			PolicyRevision:   manifest.PolicyRevision,
@@ -592,70 +783,72 @@ func (r *Runtime) ListContexts(ctx context.Context) (tobari.ContextListResult, e
 			RoutineAccess:    &routineAccess,
 			RuntimeStatus:    runtimeReport.Status,
 			RuntimeSelection: runtimeSelection,
-			Bootstrap:        tobari.ContextBootstrapReportFrom(manifest.Bootstrap),
+			Bootstrap:        tobari.ManifestBootstrapReportFrom(manifest.Bootstrap),
 		})
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].Name < items[j].Name })
-	activeState := tobari.ContextObservationSyntheticDefault
+	activeState := tobari.ManifestObservationAbsent
+	defaultManifestID := ""
 	for _, item := range items {
-		if item.Active {
-			activeState = item.ContextState
+		if item.Default {
+			activeState = item.ManifestState
+			defaultManifestID = item.ID
 			break
 		}
 	}
-	result := tobari.ContextListResult{Task: tobari.TaskContextList, ContextState: activeState, Active: active, Items: items}
+	result := tobari.ManifestListResult{Task: tobari.TaskManifestList, ManifestState: activeState, DefaultManifestID: defaultManifestID, DefaultManifest: active, Items: items}
 	if err := result.Validate(); err != nil {
-		return tobari.ContextListResult{}, err
+		return tobari.ManifestListResult{}, err
 	}
 	return result, nil
 }
 
 // ShowContext returns one named Context, or the active Context when name is empty.
-func (r *Runtime) ShowContext(ctx context.Context, name string) (tobari.ContextReport, error) {
+func (r *Runtime) ShowContext(ctx context.Context, name string) (tobari.ManifestReport, error) {
 	if err := ctx.Err(); err != nil {
-		return tobari.ContextReport{}, err
+		return tobari.ManifestReport{}, err
 	}
 	observed, err := r.observeContext(name)
 	if err != nil {
-		return tobari.ContextReport{}, err
+		return tobari.ManifestReport{}, err
 	}
-	active, err := r.observeActiveContextName()
+	active, err := r.observeDefaultManifestName()
 	if err != nil {
-		return tobari.ContextReport{}, err
+		return tobari.ManifestReport{}, err
 	}
-	if observed.state == tobari.ContextObservationPersisted {
-		return r.contextReport(ctx, tobari.TaskContextShow, observed.manifest, active)
+	if observed.state == tobari.ManifestObservationPersisted {
+		return r.contextReport(ctx, tobari.TaskManifestShow, observed.manifest, active)
 	}
 	return r.nonPersistedContextReport(observed, active)
 }
 
-// ContextCreateBase returns only the complete Context-owned settings whose
+// ManifestCopySnapshot returns only the complete Context-owned settings whose
 // lifetime permits initializing another standalone Context. Workspace homes,
 // authentication, learned domain decisions, attachment state, and current
 // selection never enter this snapshot.
-func (r *Runtime) ContextCreateBase(ctx context.Context, name string) (tobari.ContextCreateBase, error) {
+func (r *Runtime) ManifestCopySnapshot(ctx context.Context, name string) (tobari.ManifestCopySnapshot, error) {
 	if err := ctx.Err(); err != nil {
-		return tobari.ContextCreateBase{}, err
+		return tobari.ManifestCopySnapshot{}, err
 	}
 	manifest, err := r.readContextManifest(name)
 	if err != nil {
-		return tobari.ContextCreateBase{}, err
+		return tobari.ManifestCopySnapshot{}, err
 	}
 	policy, _, _, _, baseRevision, err := r.contextCreateBaseMaterial(manifest)
 	if err != nil {
-		return tobari.ContextCreateBase{}, err
+		return tobari.ManifestCopySnapshot{}, err
 	}
 	runtimeReport, err := r.contextRuntimeReport(manifest)
 	if err != nil {
-		return tobari.ContextCreateBase{}, err
+		return tobari.ManifestCopySnapshot{}, err
 	}
 	runtimeSelection, err := runtimeReport.Selection()
 	if err != nil {
-		return tobari.ContextCreateBase{}, err
+		return tobari.ManifestCopySnapshot{}, err
 	}
 	shell, err := tobari.CompleteContextShellEnvironment(manifest.ShellEnvironment)
 	if err != nil {
-		return tobari.ContextCreateBase{}, err
+		return tobari.ManifestCopySnapshot{}, err
 	}
 	gitIdentity := tobari.DefaultContextGitIdentityReport()
 	if manifest.GitIdentity != nil {
@@ -663,70 +856,61 @@ func (r *Runtime) ContextCreateBase(ctx context.Context, name string) (tobari.Co
 	}
 	readiness, err := tobari.ResolveContextNativeReadiness(manifest.NativeReadiness)
 	if err != nil {
-		return tobari.ContextCreateBase{}, err
+		return tobari.ManifestCopySnapshot{}, err
 	}
-	base := tobari.ContextCreateBase{
-		ID: manifest.ID, Name: manifest.Name, Revision: baseRevision,
+	base := tobari.ManifestCopySnapshot{
+		ID: manifest.ID, Name: manifest.Name, Revision: baseRevision, Desired: manifest.Desired,
 		PolicyMode: manifest.PolicyMode, SourceAccess: manifest.SourceAccess,
 		NativeReadiness: readiness, MethodPolicy: policy.MethodPolicy,
-		RuntimeSelection: runtimeSelection, ShellEnvironment: shell,
+		RuntimeSelection: runtimeSelection, RuntimeBinding: *manifest.RuntimeBinding, ShellEnvironment: shell,
 		GitIdentity: gitIdentity, Bootstrap: manifest.Bootstrap,
 	}
 	return base.Clone(), base.Validate()
 }
 
 func (r *Runtime) contextCreateBaseMaterial(
-	manifest tobari.ContextManifest,
-) (tobari.ContextPolicy, []byte, map[string][]byte, string, string, error) {
+	manifest tobari.WorkspaceManifest,
+) (tobari.ManifestPolicy, []byte, map[string][]byte, string, string, error) {
+	if err := manifest.ValidatePublished(); err != nil {
+		return tobari.ManifestPolicy{}, nil, nil, "", "", err
+	}
 	policyPath := r.contextPolicyPath(manifest.Name)
 	policyBytes, err := readOwnerPolicyFile(policyPath, maxContextPolicyBytes)
 	if err != nil {
-		return tobari.ContextPolicy{}, nil, nil, "", "", err
+		return tobari.ManifestPolicy{}, nil, nil, "", "", err
 	}
 	policy, normalized, revision, err := decodeContextPolicy(policyBytes)
 	if err != nil || revision != manifest.PolicyRevision || !bytes.Equal(policyBytes, normalized) {
-		return tobari.ContextPolicy{}, nil, nil, "", "", fmt.Errorf("Context create Base policy is invalid")
+		return tobari.ManifestPolicy{}, nil, nil, "", "", fmt.Errorf("Context create Base policy is invalid")
 	}
 	advanced := map[string][]byte{}
-	if manifest.PolicyMode == tobari.ContextPolicyModeAdvanced {
+	if manifest.PolicyMode == tobari.ManifestPolicyModeAdvanced {
 		for _, name := range []string{"tobari.rego", "tobari_test.rego"} {
 			data, readErr := readOwnerPolicyFile(filepath.Join(r.contextPolicyDirectory(manifest.Name), name), maxPolicyPreflight)
 			if readErr != nil {
-				return tobari.ContextPolicy{}, nil, nil, "", "", readErr
+				return tobari.ManifestPolicy{}, nil, nil, "", "", readErr
 			}
 			advanced[name] = data
 		}
 	}
-	manifestBytes, err := json.Marshal(manifest)
-	if err != nil {
-		return tobari.ContextPolicy{}, nil, nil, "", "", err
-	}
-	hash := sha256.New()
-	for _, data := range [][]byte{manifestBytes, normalized, advanced["tobari.rego"], advanced["tobari_test.rego"]} {
-		_, _ = fmt.Fprintf(hash, "%d\x00", len(data))
-		_, _ = hash.Write(data)
-	}
-	return policy, normalized, advanced, revision, fmt.Sprintf("sha256:%x", hash.Sum(nil)), nil
+	return policy, normalized, advanced, revision, manifest.Desired.Revision, nil
 }
 
 // ConfigureContextShell atomically updates one staged set of distinct
 // allowlisted shell environment settings in an explicit or current Context. Inherited values are deliberately
 // resolved later at session entry rather than persisted here.
 func (r *Runtime) ConfigureContextShell(
-	ctx context.Context, name string, changes []tobari.ContextShellEnvironmentSetting,
-) (tobari.ContextReport, error) {
+	ctx context.Context, name string, changes []tobari.ManifestShellEnvironmentSetting,
+) (tobari.ManifestReport, error) {
 	if err := ctx.Err(); err != nil {
-		return tobari.ContextReport{}, err
+		return tobari.ManifestReport{}, err
 	}
 	if _, err := tobari.ApplyContextShellEnvironmentSettings(nil, changes); err != nil {
-		return tobari.ContextReport{}, err
+		return tobari.ManifestReport{}, err
 	}
-	if err := r.ensureContextStore(); err != nil {
-		return tobari.ContextReport{}, err
-	}
-	var result tobari.ContextReport
+	var result tobari.ManifestReport
 	err := r.withContextStoreLock(func() error {
-		active, err := r.readActiveContext()
+		active, err := r.readDefaultManifestName()
 		if err != nil {
 			return err
 		}
@@ -737,22 +921,21 @@ func (r *Runtime) ConfigureContextShell(
 		if err != nil {
 			return err
 		}
+		previous := manifest
 		settings, err := tobari.ApplyContextShellEnvironmentSettings(manifest.ShellEnvironment, changes)
 		if err != nil {
 			return err
 		}
 		manifest.ShellEnvironment = settings
-		if err := manifest.Validate(); err != nil {
-			return err
-		}
-		if err := writeAtomicJSON(r.contextManifestPath(manifest.Name), manifest); err != nil {
+		manifest, err = r.publishWorkspaceManifestUpdate(previous, manifest)
+		if err != nil {
 			return fmt.Errorf("write Context shell environment: %w", err)
 		}
 		result, err = r.contextReport(ctx, tobari.TaskConfigShell, manifest, active)
 		return err
 	})
 	if err != nil {
-		return tobari.ContextReport{}, err
+		return tobari.ManifestReport{}, err
 	}
 	return result, nil
 }
@@ -761,20 +944,17 @@ func (r *Runtime) ConfigureContextShell(
 // Selecting default removes the persisted override; inherited host values are
 // resolved later for a specific Workspace root and never stored here.
 func (r *Runtime) ConfigureContextGit(
-	ctx context.Context, name string, change tobari.ContextGitIdentitySetting,
-) (tobari.ContextReport, error) {
+	ctx context.Context, name string, change tobari.ManifestGitIdentitySetting,
+) (tobari.ManifestReport, error) {
 	if err := ctx.Err(); err != nil {
-		return tobari.ContextReport{}, err
+		return tobari.ManifestReport{}, err
 	}
 	if err := change.Validate(true); err != nil {
-		return tobari.ContextReport{}, err
+		return tobari.ManifestReport{}, err
 	}
-	if err := r.ensureContextStore(); err != nil {
-		return tobari.ContextReport{}, err
-	}
-	var result tobari.ContextReport
+	var result tobari.ManifestReport
 	err := r.withContextStoreLock(func() error {
-		active, err := r.readActiveContext()
+		active, err := r.readDefaultManifestName()
 		if err != nil {
 			return err
 		}
@@ -785,24 +965,23 @@ func (r *Runtime) ConfigureContextGit(
 		if err != nil {
 			return err
 		}
+		previous := manifest
 		manifest.GitIdentity = persistedContextGitIdentity(change)
-		if err := manifest.Validate(); err != nil {
-			return err
-		}
-		if err := writeAtomicJSON(r.contextManifestPath(manifest.Name), manifest); err != nil {
+		manifest, err = r.publishWorkspaceManifestUpdate(previous, manifest)
+		if err != nil {
 			return fmt.Errorf("write Context Git identity: %w", err)
 		}
 		result, err = r.contextReport(ctx, tobari.TaskConfigGit, manifest, active)
 		return err
 	})
 	if err != nil {
-		return tobari.ContextReport{}, err
+		return tobari.ManifestReport{}, err
 	}
 	return result, nil
 }
 
-func persistedContextGitIdentity(setting tobari.ContextGitIdentitySetting) *tobari.ContextGitIdentitySetting {
-	if setting.Source == tobari.ContextGitIdentityDefault {
+func persistedContextGitIdentity(setting tobari.ManifestGitIdentitySetting) *tobari.ManifestGitIdentitySetting {
+	if setting.Source == tobari.ManifestGitIdentityDefault {
 		return nil
 	}
 	result := setting
@@ -817,8 +996,8 @@ func persistedContextGitIdentity(setting tobari.ContextGitIdentitySetting) *toba
 	return &result
 }
 
-func cloneShellEnvironmentManifest(settings []tobari.ContextShellEnvironmentSetting) []tobari.ContextShellEnvironmentSetting {
-	result := make([]tobari.ContextShellEnvironmentSetting, len(settings))
+func cloneShellEnvironmentManifest(settings []tobari.ManifestShellEnvironmentSetting) []tobari.ManifestShellEnvironmentSetting {
+	result := make([]tobari.ManifestShellEnvironmentSetting, len(settings))
 	for index, setting := range settings {
 		result[index] = setting
 		if setting.Value != nil {
@@ -829,7 +1008,7 @@ func cloneShellEnvironmentManifest(settings []tobari.ContextShellEnvironmentSett
 	return result
 }
 
-func cloneGitIdentityManifest(setting *tobari.ContextGitIdentitySetting) *tobari.ContextGitIdentitySetting {
+func cloneGitIdentityManifest(setting *tobari.ManifestGitIdentitySetting) *tobari.ManifestGitIdentitySetting {
 	if setting == nil {
 		return nil
 	}
@@ -847,22 +1026,22 @@ func cloneGitIdentityManifest(setting *tobari.ContextGitIdentitySetting) *tobari
 
 // CreateContext initializes one named Context without accepting any secret.
 func (r *Runtime) CreateContext(
-	ctx context.Context, name string, image string, mode tobari.ContextPolicyMode, sourceAccess tobari.ContextSourceAccess,
-) (tobari.ContextReport, error) {
-	return r.CreateContextWithReadiness(ctx, name, image, mode, sourceAccess, tobari.ContextNativeReadinessEnabled)
+	ctx context.Context, name string, image string, mode tobari.ManifestPolicyMode, sourceAccess tobari.ManifestSourceAccess,
+) (tobari.ManifestReport, error) {
+	return r.CreateContextWithReadiness(ctx, name, image, mode, sourceAccess, tobari.ManifestNativeReadinessEnabled)
 }
 
 func (r *Runtime) CreateContextWithReadiness(
-	ctx context.Context, name string, image string, mode tobari.ContextPolicyMode, sourceAccess tobari.ContextSourceAccess, readinessSelections ...tobari.ContextNativeReadiness,
-) (tobari.ContextReport, error) {
-	nativeReadiness := tobari.ContextNativeReadinessEnabled
+	ctx context.Context, name string, image string, mode tobari.ManifestPolicyMode, sourceAccess tobari.ManifestSourceAccess, readinessSelections ...tobari.ManifestNativeReadiness,
+) (tobari.ManifestReport, error) {
+	nativeReadiness := tobari.ManifestNativeReadinessEnabled
 	if len(readinessSelections) > 1 {
-		return tobari.ContextReport{}, fmt.Errorf("Context native readiness selection is invalid")
+		return tobari.ManifestReport{}, fmt.Errorf("Context native readiness selection is invalid")
 	}
 	if len(readinessSelections) == 1 {
 		nativeReadiness = readinessSelections[0]
 	}
-	return r.CreateContextWithComposition(ctx, name, image, mode, sourceAccess, tobari.ContextCreateComposition{
+	return r.CreateContextWithComposition(ctx, name, image, mode, sourceAccess, tobari.ManifestCreateComposition{
 		NativeReadiness: nativeReadiness,
 	})
 }
@@ -871,51 +1050,55 @@ func (r *Runtime) CreateContextWithComposition(
 	ctx context.Context,
 	name string,
 	image string,
-	mode tobari.ContextPolicyMode,
-	sourceAccess tobari.ContextSourceAccess,
-	composition tobari.ContextCreateComposition,
-) (tobari.ContextReport, error) {
+	mode tobari.ManifestPolicyMode,
+	sourceAccess tobari.ManifestSourceAccess,
+	composition tobari.ManifestCreateComposition,
+) (tobari.ManifestReport, error) {
 	if err := ctx.Err(); err != nil {
-		return tobari.ContextReport{}, err
+		return tobari.ManifestReport{}, err
 	}
 	if err := composition.Validate(); err != nil {
-		return tobari.ContextReport{}, err
+		return tobari.ManifestReport{}, err
 	}
 	runtimeBinding, err := r.resolveRuntimeBinding(composition.RuntimeSelection)
 	if err != nil {
-		return tobari.ContextReport{}, err
+		return tobari.ManifestReport{}, err
 	}
-	var baseManifest tobari.ContextManifest
+	var baseManifest tobari.WorkspaceManifest
 	var advancedPolicy map[string][]byte
 	policy, normalizedPolicy, policyRevision, err := defaultContextPolicyBytes()
-	if composition.Base != nil {
-		baseManifest, err = r.readContextManifest(composition.Base.Name)
+	if composition.CopyFrom != nil {
+		if composition.RuntimeSelection == composition.CopyFrom.RuntimeSelection {
+			runtimeBinding = composition.CopyFrom.RuntimeBinding
+		}
+		baseManifest, err = r.readContextManifest(composition.CopyFrom.Name)
 		if err == nil {
 			var baseRevision string
 			policy, normalizedPolicy, advancedPolicy, policyRevision, baseRevision, err = r.contextCreateBaseMaterial(baseManifest)
-			if err == nil && (baseManifest.ID != composition.Base.ID || baseRevision != composition.Base.Revision) {
-				err = tobari.ErrContextBaseChanged
+			if err == nil && (baseManifest.ID != composition.CopyFrom.ID || baseRevision != composition.CopyFrom.Revision ||
+				baseManifest.Desired != composition.CopyFrom.Desired) {
+				err = tobari.ErrManifestCopySourceChanged
 			}
 		}
 	}
 	if err != nil {
-		return tobari.ContextReport{}, err
+		return tobari.ManifestReport{}, err
 	}
 	if composition.MethodPolicy != nil {
 		policy, err = tobari.ComposeContextMethodPolicy(policy, composition.MethodPolicy.Clone())
 		if err != nil {
-			return tobari.ContextReport{}, err
+			return tobari.ManifestReport{}, err
 		}
 		policy, normalizedPolicy, policyRevision, err = tobari.NormalizeContextPolicy(policy)
 		if err != nil {
-			return tobari.ContextReport{}, err
+			return tobari.ManifestReport{}, err
 		}
 	}
-	if mode != tobari.ContextPolicyModeAdvanced || baseManifest.PolicyMode != tobari.ContextPolicyModeAdvanced {
+	if mode != tobari.ManifestPolicyModeAdvanced || baseManifest.PolicyMode != tobari.ManifestPolicyModeAdvanced {
 		advancedPolicy = nil
 	}
-	manifest := tobari.ContextManifest{
-		SchemaVersion: tobari.ContextSchemaVersion, Name: name,
+	manifest := tobari.WorkspaceManifest{
+		SchemaVersion: tobari.WorkspaceManifestSchemaVersion, Name: name,
 		AgentProfile: tobari.DefaultProfile, Image: runtimeBinding.Image, PolicyMode: mode,
 		SourceAccess:     sourceAccess,
 		PolicyRevision:   policyRevision,
@@ -923,7 +1106,8 @@ func (r *Runtime) CreateContextWithComposition(
 		ShellEnvironment: tobari.InitialContextShellEnvironment(), Bootstrap: composition.Bootstrap,
 		RuntimeBinding: &runtimeBinding,
 	}
-	if composition.Base != nil {
+	if composition.CopyFrom != nil {
+		manifest.AgentProfile = baseManifest.AgentProfile
 		manifest.ShellEnvironment = cloneShellEnvironmentManifest(baseManifest.ShellEnvironment)
 		manifest.GitIdentity = cloneGitIdentityManifest(baseManifest.GitIdentity)
 		if composition.Bootstrap == nil && baseManifest.Bootstrap != nil {
@@ -931,18 +1115,19 @@ func (r *Runtime) CreateContextWithComposition(
 			manifest.Bootstrap = &bootstrap
 		}
 	}
-	id, err := r.identities.newContextID()
+	id, err := r.identities.newWorkspaceManifestID()
 	if err != nil {
-		return tobari.ContextReport{}, err
+		return tobari.ManifestReport{}, err
 	}
 	manifest.ID = id
-	if err := manifest.Validate(); err != nil {
-		return tobari.ContextReport{}, err
+	manifest, err = tobari.PublishWorkspaceManifest(manifest, nil)
+	if err != nil {
+		return tobari.ManifestReport{}, err
 	}
 	var active string
 	if err := r.withContextStoreLock(func() error {
-		if composition.Base != nil {
-			current, readErr := r.readContextManifest(composition.Base.Name)
+		if composition.CopyFrom != nil {
+			current, readErr := r.readContextManifest(composition.CopyFrom.Name)
 			if readErr != nil {
 				return readErr
 			}
@@ -950,8 +1135,9 @@ func (r *Runtime) CreateContextWithComposition(
 			if readErr != nil {
 				return readErr
 			}
-			if current.ID != composition.Base.ID || revision != composition.Base.Revision {
-				return tobari.ErrContextBaseChanged
+			if current.ID != composition.CopyFrom.ID || revision != composition.CopyFrom.Revision ||
+				current.Desired != composition.CopyFrom.Desired {
+				return tobari.ErrManifestCopySourceChanged
 			}
 		}
 		if _, err := os.Lstat(r.contextManifestPath(name)); err == nil {
@@ -960,36 +1146,33 @@ func (r *Runtime) CreateContextWithComposition(
 			return err
 		}
 
-		if name == tobari.DefaultContextName {
+		if name == tobari.DefaultManifestName {
 			if err := r.installContextWithCreationSnapshot(manifest, normalizedPolicy, advancedPolicy); err != nil {
 				return err
 			}
-			if err := r.writeActiveContext(tobari.DefaultContextName); err != nil {
+			if err := r.writeDefaultManifest(manifest); err != nil {
 				return err
 			}
 		} else {
-			if err := r.ensureContextStoreUnlocked(); err != nil {
-				return err
-			}
 			if err := r.installContextWithCreationSnapshot(manifest, normalizedPolicy, advancedPolicy); err != nil {
 				return err
 			}
 		}
 
 		var err error
-		active, err = r.readActiveContext()
+		active, err = r.observeDefaultManifestName()
 		return err
 	}); err != nil {
-		return tobari.ContextReport{}, err
+		return tobari.ManifestReport{}, err
 	}
-	report, err := r.contextReport(ctx, tobari.TaskContextCreate, manifest, active)
+	report, err := r.contextReport(ctx, tobari.TaskManifestCreate, manifest, active)
 	if err != nil {
-		return tobari.ContextReport{}, err
+		return tobari.ManifestReport{}, err
 	}
 	if _, configured, loadErr := r.LoadState(ctx); loadErr != nil {
-		return tobari.ContextReport{}, loadErr
+		return tobari.ManifestReport{}, loadErr
 	} else if configured {
-		report.Cluster = tobari.ContextClusterStatusRequiresReconcile
+		report.Cluster = tobari.ManifestClusterStatusRequiresReconcile
 	}
 	return report, report.Validate()
 }
@@ -997,41 +1180,41 @@ func (r *Runtime) CreateContextWithComposition(
 // DeleteContext removes one exact non-current Context store after proving that
 // no durable Workspace remains bound to its stable Context identity. The
 // caller holds the installation lifecycle lock across this check-and-delete.
-func (r *Runtime) DeleteContext(ctx context.Context, name string) (tobari.ContextDeleteResult, error) {
+func (r *Runtime) DeleteContext(ctx context.Context, name string) (tobari.ManifestDeleteResult, error) {
 	if err := ctx.Err(); err != nil {
-		return tobari.ContextDeleteResult{}, err
+		return tobari.ManifestDeleteResult{}, err
 	}
 	if err := tobari.ValidateName(name); err != nil {
-		return tobari.ContextDeleteResult{}, err
-	}
-	if name == tobari.DefaultContextName {
-		return tobari.ContextDeleteResult{}, tobari.ErrContextProtected
+		return tobari.ManifestDeleteResult{}, err
 	}
 	manifest, err := r.readContextManifest(name)
 	if err != nil {
-		return tobari.ContextDeleteResult{}, err
+		return tobari.ManifestDeleteResult{}, err
 	}
-	active, err := r.readActiveContext()
+	if name == tobari.DefaultManifestName {
+		return tobari.ManifestDeleteResult{}, tobari.ErrContextProtected
+	}
+	active, err := r.observeDefaultManifestName()
 	if err != nil {
-		return tobari.ContextDeleteResult{}, err
+		return tobari.ManifestDeleteResult{}, err
 	}
 	if active == name {
-		return tobari.ContextDeleteResult{}, tobari.ErrContextActive
+		return tobari.ManifestDeleteResult{}, tobari.ErrContextActive
 	}
 	projects, err := r.ListProjects(ctx)
 	if err != nil {
-		return tobari.ContextDeleteResult{}, err
+		return tobari.ManifestDeleteResult{}, err
 	}
 	for _, project := range projects {
-		if project.ContextID == manifest.ID || project.ContextName == name {
-			return tobari.ContextDeleteResult{}, tobari.ErrContextHasWorkspaces
+		if project.WorkspaceManifestID == manifest.ID || project.WorkspaceManifestName == name {
+			return tobari.ManifestDeleteResult{}, tobari.ErrContextHasWorkspaces
 		}
 	}
-	cluster := tobari.ContextClusterStatusNotApplicable
+	cluster := tobari.ManifestClusterStatusNotApplicable
 	if _, configured, err := r.LoadState(ctx); err != nil {
-		return tobari.ContextDeleteResult{}, err
+		return tobari.ManifestDeleteResult{}, err
 	} else if configured {
-		cluster = tobari.ContextClusterStatusRequiresReconcile
+		cluster = tobari.ManifestClusterStatusRequiresReconcile
 	}
 	if err := r.withContextStoreLock(func() error {
 		current, err := r.readContextManifest(name)
@@ -1041,7 +1224,7 @@ func (r *Runtime) DeleteContext(ctx context.Context, name string) (tobari.Contex
 		if current.ID != manifest.ID {
 			return fmt.Errorf("Context identity changed before deletion")
 		}
-		active, err := r.readActiveContext()
+		active, err := r.readDefaultManifestName()
 		if err != nil {
 			return err
 		}
@@ -1074,60 +1257,57 @@ func (r *Runtime) DeleteContext(ctx context.Context, name string) (tobari.Contex
 		}
 		return nil
 	}); err != nil {
-		return tobari.ContextDeleteResult{}, err
+		return tobari.ManifestDeleteResult{}, err
 	}
-	result := tobari.ContextDeleteResult{
-		Task: tobari.TaskContextDelete, ID: manifest.ID, Name: manifest.Name, Deleted: true, Cluster: cluster,
+	result := tobari.ManifestDeleteResult{
+		Task: tobari.TaskManifestDelete, ID: manifest.ID, Name: manifest.Name, Deleted: true, Cluster: cluster,
 	}
 	return result, result.Validate()
 }
 
-// UseContext changes only the default used when execution omits a Context.
-func (r *Runtime) UseContext(ctx context.Context, name string) (tobari.ContextReport, error) {
-	return r.UseContextWithProgress(ctx, name, nil)
+// SetDefaultManifest changes only the default used when execution omits a Context.
+func (r *Runtime) SetDefaultManifest(ctx context.Context, name string) (tobari.ManifestReport, error) {
+	return r.SetDefaultManifestWithProgress(ctx, name, nil)
 }
 
-// UseContextWithProgress keeps default selection independent from cluster
+// SetDefaultManifestWithProgress keeps default selection independent from cluster
 // reconciliation while satisfying the progress-aware application port.
-func (r *Runtime) UseContextWithProgress(
+func (r *Runtime) SetDefaultManifestWithProgress(
 	ctx context.Context, name string, progress tobari.ClusterUpProgressSink,
-) (tobari.ContextReport, error) {
+) (tobari.ManifestReport, error) {
 	if err := ctx.Err(); err != nil {
-		return tobari.ContextReport{}, err
-	}
-	if err := r.ensureContextStore(); err != nil {
-		return tobari.ContextReport{}, err
+		return tobari.ManifestReport{}, err
 	}
 	manifest, err := r.readContextManifest(name)
 	if err != nil {
-		return tobari.ContextReport{}, err
+		return tobari.ManifestReport{}, err
 	}
-	active, err := r.readActiveContext()
+	active, err := r.observeDefaultManifestName()
 	if err != nil {
-		return tobari.ContextReport{}, err
+		return tobari.ManifestReport{}, err
 	}
 	_ = progress
 	if err := r.selectContext(active, name); err != nil {
-		return tobari.ContextReport{}, err
+		return tobari.ManifestReport{}, err
 	}
-	status := tobari.ContextClusterStatusDefaultUpdated
+	status := tobari.ManifestClusterStatusDefaultManifestUpdated
 	if active == name {
-		status = tobari.ContextClusterStatusAlreadyReady
+		status = tobari.ManifestClusterStatusAlreadyReady
 	}
-	return r.contextUseReport(ctx, manifest, name, status)
+	return r.manifestDefaultSetReport(ctx, manifest, name, status)
 }
 
-func (r *Runtime) contextUseReport(
-	ctx context.Context, manifest tobari.ContextManifest, active string,
-	clusterStatus tobari.ContextClusterStatus,
-) (tobari.ContextReport, error) {
-	result, err := r.contextReport(ctx, tobari.TaskContextUse, manifest, active)
+func (r *Runtime) manifestDefaultSetReport(
+	ctx context.Context, manifest tobari.WorkspaceManifest, active string,
+	clusterStatus tobari.ManifestClusterStatus,
+) (tobari.ManifestReport, error) {
+	result, err := r.contextReport(ctx, tobari.TaskManifestDefaultSet, manifest, active)
 	if err != nil {
-		return tobari.ContextReport{}, err
+		return tobari.ManifestReport{}, err
 	}
 	result.Cluster = clusterStatus
 	if err := result.Validate(); err != nil {
-		return tobari.ContextReport{}, err
+		return tobari.ManifestReport{}, err
 	}
 	return result, nil
 }
@@ -1136,14 +1316,19 @@ func (r *Runtime) selectContext(previous, next string) error {
 	if previous == next {
 		return nil
 	}
-	return r.writeActiveContext(next)
+	manifest, err := r.readContextManifest(next)
+	if err != nil {
+		return err
+	}
+	return r.writeDefaultManifest(manifest)
 }
 
 func (r *Runtime) restoreContextSelection(name string, state tobari.State) error {
-	if _, err := r.readContextManifest(name); err != nil {
+	manifest, err := r.readContextManifest(name)
+	if err != nil {
 		return fmt.Errorf("previous Context is unavailable: %w", err)
 	}
-	if err := r.writeActiveContext(name); err != nil {
+	if err := r.writeDefaultManifest(manifest); err != nil {
 		return fmt.Errorf("restore active Context marker: %w", err)
 	}
 	if err := r.writeState(state); err != nil {
@@ -1152,9 +1337,9 @@ func (r *Runtime) restoreContextSelection(name string, state tobari.State) error
 	return nil
 }
 
-// ActiveContextName exposes only the trusted selected name to the application
+// DefaultManifestName exposes only the trusted selected name to the application
 // layer so it can refuse to enter a cluster whose policy is stale.
-func (r *Runtime) ActiveContextName(ctx context.Context) (string, error) {
+func (r *Runtime) DefaultManifestName(ctx context.Context) (string, error) {
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}

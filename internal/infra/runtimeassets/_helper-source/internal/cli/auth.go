@@ -98,7 +98,7 @@ func (c *CLI) selectAuthLoginProvider(ctx context.Context, contextName string) (
 			"invalid_auth_result",
 			"Authentication provider selection is not configured.",
 			false,
-			fault.NextAction{Command: "auth status", Reason: "Reconcile the Context's authentication state before another mutation."},
+			fault.NextAction{Command: "auth status", Reason: "Reconcile the Workspace Manifest's authentication state before another mutation."},
 		)
 	}
 	selected, err := c.authLogin.Select(ctx, status.Context, providers, c.In, c.Err)
@@ -115,7 +115,7 @@ func (c *CLI) selectAuthLoginProvider(ctx context.Context, contextName string) (
 		"invalid_auth_result",
 		"Authentication provider selection did not match the installed provider snapshot.",
 		false,
-		fault.NextAction{Command: "auth status", Reason: "Reconcile the Context's authentication state before another mutation."},
+		fault.NextAction{Command: "auth status", Reason: "Reconcile the Workspace Manifest's authentication state before another mutation."},
 	)
 }
 
@@ -214,15 +214,15 @@ func bindAuthMutationIntent(intent *operation.Intent, command CommandSpec) {
 }
 
 func selectedAuthContext(ctx context.Context, inputs ParsedInputs) (string, error) {
-	if inputs.Provided("--context") {
-		name := inputs.One("--context")
+	if inputs.Provided("--manifest") {
+		name := inputs.One("--manifest")
 		if name == "" {
 			return "", fault.New(
 				fault.KindInvalidInput,
-				"invalid_context_name",
-				"Context name is invalid.",
+				"invalid_manifest_name",
+				"Workspace Manifest name is invalid.",
 				false,
-				fault.NextAction{Command: "context list", Reason: "Choose an existing Context name."},
+				fault.NextAction{Command: "manifest list", Reason: "Choose an existing Workspace Manifest name."},
 			)
 		}
 		return name, nil
@@ -231,17 +231,17 @@ func selectedAuthContext(ctx context.Context, inputs ParsedInputs) (string, erro
 }
 
 type authResultProjection struct {
-	ContextState        tobari.ContextObservationState `json:"context_state"`
-	Provider            string                         `json:"provider"`
-	Context             string                         `json:"context"`
-	ContextID           *string                        `json:"context_id"`
-	Configured          bool                           `json:"configured"`
-	AccountLabel        *string                        `json:"account_label"`
-	StorageBackend      authbroker.StorageBackend      `json:"storage_backend"`
-	BrokerState         authbroker.BrokerState         `json:"broker_state"`
-	CredentialRevision  *string                        `json:"credential_revision"`
-	Change              authbroker.MutationChange      `json:"change"`
-	WorkspaceActivation authbroker.WorkspaceActivation `json:"workspace_activation"`
+	ManifestState       tobari.ManifestObservationState `json:"workspace_manifest_state"`
+	Provider            string                          `json:"provider"`
+	Context             string                          `json:"workspace_manifest"`
+	WorkspaceManifestID *string                         `json:"workspace_manifest_id"`
+	Configured          bool                            `json:"configured"`
+	AccountLabel        *string                         `json:"account_label"`
+	StorageBackend      authbroker.StorageBackend       `json:"storage_backend"`
+	BrokerState         authbroker.BrokerState          `json:"broker_state"`
+	CredentialRevision  *string                         `json:"credential_revision"`
+	Change              authbroker.MutationChange       `json:"change"`
+	WorkspaceActivation authbroker.WorkspaceActivation  `json:"workspace_activation"`
 }
 
 type authResultDocument struct {
@@ -250,15 +250,15 @@ type authResultDocument struct {
 }
 
 type authStatusProjection struct {
-	ContextState        tobari.ContextObservationState `json:"context_state"`
-	Context             string                         `json:"context"`
-	ContextID           *string                        `json:"context_id"`
-	StorageBackend      authbroker.StorageBackend      `json:"storage_backend"`
-	BrokerState         authbroker.BrokerState         `json:"broker_state"`
-	DeclaredBindings    authbroker.AuthenticationRoute `json:"declared_bindings"`
-	UndeclaredBindings  authbroker.AuthenticationRoute `json:"undeclared_bindings"`
-	Providers           []authProviderStatusProjection `json:"providers"`
-	WorkspaceActivation authbroker.WorkspaceActivation `json:"workspace_activation"`
+	ManifestState       tobari.ManifestObservationState `json:"workspace_manifest_state"`
+	Context             string                          `json:"workspace_manifest"`
+	WorkspaceManifestID *string                         `json:"workspace_manifest_id"`
+	StorageBackend      authbroker.StorageBackend       `json:"storage_backend"`
+	BrokerState         authbroker.BrokerState          `json:"broker_state"`
+	DeclaredBindings    authbroker.AuthenticationRoute  `json:"declared_bindings"`
+	UndeclaredBindings  authbroker.AuthenticationRoute  `json:"undeclared_bindings"`
+	Providers           []authProviderStatusProjection  `json:"providers"`
+	WorkspaceActivation authbroker.WorkspaceActivation  `json:"workspace_activation"`
 }
 
 type authProviderStatusProjection struct {
@@ -288,11 +288,11 @@ func renderAuthResult(result authbroker.Result, format successFormat, color bool
 			"Authentication result is invalid.",
 			false,
 			err,
-			fault.NextAction{Command: "auth status", Reason: "Reconcile the Context's authentication state before another mutation."},
+			fault.NextAction{Command: "auth status", Reason: "Reconcile the Workspace Manifest's authentication state before another mutation."},
 		)
 	}
 	projection := authResultProjection{
-		ContextState: result.ContextState, Provider: result.Provider, Context: result.Context, ContextID: optionalString(result.ContextID),
+		ManifestState: result.ManifestState, Provider: result.Provider, Context: result.Context, WorkspaceManifestID: optionalString(result.WorkspaceManifestID),
 		Configured: result.Configured, AccountLabel: result.AccountLabel,
 		StorageBackend: result.StorageBackend, BrokerState: result.BrokerState,
 		CredentialRevision: optionalString(result.CredentialRevision), Change: result.Change,
@@ -316,7 +316,7 @@ func renderAuthStatus(result authbroker.StatusResult, format successFormat, colo
 			"Authentication status result is invalid.",
 			false,
 			err,
-			fault.NextAction{Command: "auth status", Reason: "Reconcile the Context's authentication state before another mutation."},
+			fault.NextAction{Command: "auth status", Reason: "Reconcile the Workspace Manifest's authentication state before another mutation."},
 		)
 	}
 	providers := make([]authProviderStatusProjection, 0, len(result.Providers))
@@ -327,7 +327,7 @@ func renderAuthStatus(result authbroker.StatusResult, format successFormat, colo
 		})
 	}
 	projection := authStatusProjection{
-		ContextState: result.ContextState, Context: result.Context, ContextID: optionalString(result.ContextID),
+		ManifestState: result.ManifestState, Context: result.Context, WorkspaceManifestID: optionalString(result.WorkspaceManifestID),
 		StorageBackend: result.StorageBackend, BrokerState: result.BrokerState,
 		DeclaredBindings:    authbroker.AuthenticationRouteBrokerRequired,
 		UndeclaredBindings:  authbroker.AuthenticationRouteWorkspaceOwnedCompatibility,
@@ -356,15 +356,15 @@ func renderAuthResultText(result authResultProjection, color bool) []byte {
 	output := newHumanOutput(color)
 	switch {
 	case result.Change == authbroker.MutationChangeNoChange:
-		output.heading("○", "Context credential unchanged", styleMuted)
+		output.heading("○", "Workspace Manifest credential unchanged", styleMuted)
 	case result.Configured:
-		output.heading("✓", "Context credential changed", styleSuccess)
+		output.heading("✓", "Workspace Manifest credential changed", styleSuccess)
 	default:
-		output.heading("✓", "Context credential removed", styleSuccess)
+		output.heading("✓", "Workspace Manifest credential removed", styleSuccess)
 	}
-	output.row("Context", safeExternalText(result.Context), styleText)
-	output.row("Context state", string(result.ContextState), humanStatusToken(string(result.ContextState)))
-	output.row("Context ID", optionalDisplay(result.ContextID, "not initialized"), styleText)
+	output.row("Workspace Manifest", safeExternalText(result.Context), styleText)
+	output.row("Workspace Manifest state", string(result.ManifestState), humanStatusToken(string(result.ManifestState)))
+	output.row("Workspace Manifest ID", optionalDisplay(result.WorkspaceManifestID, "not initialized"), styleText)
 	provider := result.Provider
 	if provider == "" {
 		provider = "none"
@@ -390,17 +390,17 @@ func renderAuthResultText(result authResultProjection, color bool) []byte {
 
 func renderAuthStatusText(result authStatusProjection, color bool) []byte {
 	output := newHumanOutput(color)
-	output.heading("○", "Context authentication status", styleText)
-	output.row("Context", safeExternalText(result.Context), styleText)
-	output.row("Context state", string(result.ContextState), humanStatusToken(string(result.ContextState)))
-	output.row("Context ID", optionalDisplay(result.ContextID, "not initialized"), styleText)
+	output.heading("○", "Workspace Manifest authentication status", styleText)
+	output.row("Workspace Manifest", safeExternalText(result.Context), styleText)
+	output.row("Workspace Manifest state", string(result.ManifestState), humanStatusToken(string(result.ManifestState)))
+	output.row("Workspace Manifest ID", optionalDisplay(result.WorkspaceManifestID, "not initialized"), styleText)
 	output.row("Storage", string(result.StorageBackend), styleText)
 	output.row("Broker", string(result.BrokerState), humanStatusToken(string(result.BrokerState)))
 	output.row("Declared bindings", string(result.DeclaredBindings), styleText)
 	output.row("Undeclared bindings", string(result.UndeclaredBindings), styleText)
 	renderWorkspaceActivation(output, result.WorkspaceActivation)
 	if len(result.Providers) == 0 {
-		output.empty("No authentication providers installed", "The Context provider collection is explicitly empty.", "", "")
+		output.empty("No authentication providers installed", "The Workspace Manifest provider collection is explicitly empty.", "", "")
 		return output.bytes()
 	}
 	for _, provider := range result.Providers {
@@ -429,8 +429,8 @@ func renderWorkspaceActivation(output *humanOutput, activation authbroker.Worksp
 	for _, workspace := range activation.Workspaces {
 		output.section("Workspace: " + safeExternalText(workspace.ProjectID))
 		output.row("Root", safeExternalText(workspace.Root), styleText)
-		output.row("Context", safeExternalText(workspace.Context), styleText)
-		output.row("Context ID", workspace.ContextID, styleText)
+		output.row("Workspace Manifest", safeExternalText(workspace.Context), styleText)
+		output.row("Workspace Manifest ID", workspace.WorkspaceManifestID, styleText)
 		output.row("Scope", string(workspace.ScopeState), humanStatusToken(string(workspace.ScopeState)))
 		output.row("Activation", string(workspace.State), humanStatusToken(string(workspace.State)))
 		for _, provider := range workspace.Providers {

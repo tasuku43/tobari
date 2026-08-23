@@ -13,8 +13,8 @@ import (
 )
 
 const (
-	resumablePermissionReviewFixtureSHA256 = "16b1dbb4fc4c6d8ffa3e8a25f6f41efcac3feac815ca8a898fa42daf039301d4"
-	resumablePermissionReviewAnswerSHA256  = "48f877c83c3a496772f92d526aee3cec9e86f3ae02c4e3a98530786625c75437"
+	resumablePermissionReviewFixtureSHA256 = "28ae2aebd704272fe4c7d7e4c98e242d7586da7b334371f4eef4ccd5e59f1489"
+	resumablePermissionReviewAnswerSHA256  = "d61aaea1ba6e57712b0abd139eaa0ab6bc0047c9ed2e71d8dcd0f7f415d43003"
 )
 
 type resumablePermissionReviewFixture struct {
@@ -118,7 +118,7 @@ func TestResumablePermissionReviewTypedCorpusClosesInterpretationBoundaries(t *t
 	if len(fixture.EmptyInbox.Items) != 0 {
 		t.Fatalf("empty inbox = %+v", fixture.EmptyInbox.Items)
 	}
-	if len(fixture.Inbox.Items) != 2 || fixture.Inbox.Items[0].ContextName != fixture.Inbox.Items[1].ContextName ||
+	if len(fixture.Inbox.Items) != 2 || fixture.Inbox.Items[0].WorkspaceManifestName != fixture.Inbox.Items[1].WorkspaceManifestName ||
 		fixture.Inbox.Items[0].ProjectRoot != fixture.Inbox.Items[1].ProjectRoot || fixture.Inbox.Items[0].ID == fixture.Inbox.Items[1].ID {
 		t.Fatalf("fixture does not carry matching labels with distinct IDs: %+v", fixture.Inbox.Items)
 	}

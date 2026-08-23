@@ -10,7 +10,7 @@ func TestCatalogOwnedParserPreservesTypesCardinalityAndPresence(t *testing.T) {
 	minimum := int64(1)
 	maximum := int64(100)
 	spec := utilitySpec("messages inspect")
-	spec.Args = "[--verbose] [--limit <count>] [--sender <sender>] [--context <lines>] [--brief]"
+	spec.Args = "[--verbose] [--limit <count>] [--sender <sender>] [--manifest <lines>] [--brief]"
 	spec.Agent.Inputs = []CommandInput{
 		{
 			Name: "--verbose", Source: InputSourceFlag, ValueKind: InputValueBoolean, Cardinality: InputCardinalitySingle,
@@ -25,7 +25,7 @@ func TestCatalogOwnedParserPreservesTypesCardinalityAndPresence(t *testing.T) {
 			Description: "Select one or more senders.", AllowedValues: []string{},
 		},
 		{
-			Name: "--context", Source: InputSourceFlag, ValueKind: InputValueInteger, Cardinality: InputCardinalitySingle,
+			Name: "--manifest", Source: InputSourceFlag, ValueKind: InputValueInteger, Cardinality: InputCardinalitySingle,
 			Description: "Select context lines around sender matches.", AllowedValues: []string{}, Minimum: &minimum, Maximum: &maximum,
 			Requires: []string{"--sender"}, ConflictsWith: []string{"--brief"},
 		},
@@ -38,7 +38,7 @@ func TestCatalogOwnedParserPreservesTypesCardinalityAndPresence(t *testing.T) {
 		t.Fatalf("valid typed input contract: %v", err)
 	}
 
-	parsed, err := parseCommandInputs(spec, []string{"--sender", "one", "--limit=3", "--sender", "two", "--context", "1", "--verbose=false"})
+	parsed, err := parseCommandInputs(spec, []string{"--sender", "one", "--limit=3", "--sender", "two", "--manifest", "1", "--verbose=false"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,21 +68,21 @@ func TestCatalogOwnedParserRejectsTextBelowCatalogMinimumLength(t *testing.T) {
 	t.Parallel()
 	minimum := int64(1)
 	spec := utilitySpec("probe")
-	spec.Args = "[--context <name>]"
+	spec.Args = "[--manifest <name>]"
 	spec.Agent.Inputs = []CommandInput{{
-		Name: "--context", Source: InputSourceFlag, ValueKind: InputValueText,
-		Cardinality: InputCardinalitySingle, Description: "Non-empty Context name.",
+		Name: "--manifest", Source: InputSourceFlag, ValueKind: InputValueText,
+		Cardinality: InputCardinalitySingle, Description: "Non-empty Workspace Manifest name.",
 		AllowedValues: []string{}, MinimumLength: &minimum,
 	}}
 	if err := NewCatalog(spec).Validate(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := parseCommandInputs(spec, []string{"--context="}); err == nil || !strings.Contains(err.Error(), "at least 1 byte") {
+	if _, err := parseCommandInputs(spec, []string{"--manifest="}); err == nil || !strings.Contains(err.Error(), "at least 1 byte") {
 		t.Fatalf("empty bounded text error = %v", err)
 	}
-	inputs, err := parseCommandInputs(spec, []string{"--context", "a"})
-	if err != nil || inputs.One("--context") != "a" {
-		t.Fatalf("one-byte bounded text = %q, %v", inputs.One("--context"), err)
+	inputs, err := parseCommandInputs(spec, []string{"--manifest", "a"})
+	if err != nil || inputs.One("--manifest") != "a" {
+		t.Fatalf("one-byte bounded text = %q, %v", inputs.One("--manifest"), err)
 	}
 }
 
@@ -96,13 +96,13 @@ func TestProjectEntryRejectsRetiredHostHTTPDeclaration(t *testing.T) {
 func TestProjectEntryParserRequiresDelimiterAndPreservesExactChildArgv(t *testing.T) {
 	t.Parallel()
 	spec := projectEnterSpec()
-	argv := []string{"--context", "toolbox", "--", "claude", "--model", "", "--model", "-value", "--"}
+	argv := []string{"--manifest", "toolbox", "--", "claude", "--model", "", "--model", "-value", "--"}
 	inputs, err := parseCommandInputs(spec, argv)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := inputs.One("--context"), "toolbox"; got != want {
-		t.Fatalf("Context = %q, want %q", got, want)
+	if got, want := inputs.One("--manifest"), "toolbox"; got != want {
+		t.Fatalf("Workspace Manifest = %q, want %q", got, want)
 	}
 	want := []string{"claude", "--model", "", "--model", "-value", "--"}
 	if got := inputs.Values("command"); !reflect.DeepEqual(got, want) {
@@ -132,11 +132,11 @@ func TestCatalogOwnedParserRejectsInvalidInvocationBeforeHandler(t *testing.T) {
 	minimum := int64(1)
 	maximum := int64(5)
 	spec := utilitySpec("items choose")
-	spec.Args = "[--limit <count>] [--item <id>] [--context <lines>] [--brief]"
+	spec.Args = "[--limit <count>] [--item <id>] [--manifest <lines>] [--brief]"
 	spec.Agent.Inputs = []CommandInput{
 		{Name: "--limit", Source: InputSourceFlag, ValueKind: InputValueInteger, Cardinality: InputCardinalitySingle, Description: "Bound the result count.", AllowedValues: []string{}, Minimum: &minimum, Maximum: &maximum},
 		{Name: "--item", Source: InputSourceFlag, ValueKind: InputValueText, Cardinality: InputCardinalityRepeatable, Description: "Select item IDs.", AllowedValues: []string{}},
-		{Name: "--context", Source: InputSourceFlag, ValueKind: InputValueInteger, Cardinality: InputCardinalitySingle, Description: "Expand context.", AllowedValues: []string{}, Minimum: &minimum, Maximum: &maximum, Requires: []string{"--item"}, ConflictsWith: []string{"--brief"}},
+		{Name: "--manifest", Source: InputSourceFlag, ValueKind: InputValueInteger, Cardinality: InputCardinalitySingle, Description: "Expand context.", AllowedValues: []string{}, Minimum: &minimum, Maximum: &maximum, Requires: []string{"--item"}, ConflictsWith: []string{"--brief"}},
 		{Name: "--brief", Source: InputSourceFlag, ValueKind: InputValueBoolean, Cardinality: InputCardinalitySingle, Description: "Use brief output.", AllowedValues: []string{}},
 	}
 	if err := validateAgentContract(spec); err != nil {
@@ -146,8 +146,8 @@ func TestCatalogOwnedParserRejectsInvalidInvocationBeforeHandler(t *testing.T) {
 	for name, invocation := range map[string][]string{
 		"range":      {"--limit", "6"},
 		"type":       {"--limit", "many"},
-		"dependency": {"--context", "1"},
-		"conflict":   {"--item", "one", "--context", "1", "--brief"},
+		"dependency": {"--manifest", "1"},
+		"conflict":   {"--item", "one", "--manifest", "1", "--brief"},
 		"duplicate":  {"--limit", "1", "--limit", "2"},
 		"unknown":    {"--unknown"},
 	} {
