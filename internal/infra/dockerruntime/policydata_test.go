@@ -14,6 +14,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/tasuku43/tobari/internal/domain/fault"
 	"github.com/tasuku43/tobari/internal/domain/tobari"
@@ -624,6 +625,9 @@ func TestSchema2PolicyStateWriteFailureRollsBackAppliedAggregateAndSources(t *te
 	if !errors.Is(err, injected) {
 		t.Fatalf("state publication failure = %v", err)
 	}
+	if public, ok := fault.PublicCopy(err); !ok || public.Code != "policy_write_failed" || public.Retryable {
+		t.Fatalf("state publication fault = %+v, structured=%t", public, ok)
+	}
 	if candidate.AggregateRevision == state.AggregateRevision ||
 		candidate.Applied.AggregateRevision != candidate.AggregateRevision {
 		t.Fatalf("candidate aggregate identities were not advanced together: %+v", candidate)
@@ -642,6 +646,273 @@ func TestSchema2PolicyStateWriteFailureRollsBackAppliedAggregateAndSources(t *te
 	if readErr != nil || len(rules.Exact) != 0 {
 		t.Fatalf("failed publication retained candidate policy: rules=%+v error=%v", rules, readErr)
 	}
+}
+
+func TestSchema2PolicyPostRenameWriteFailureRetainsCandidateAuthority(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	runner := &recordingRunner{}
+	runtimeStore, err := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), runner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	initializeTestWorkspaceManifest(t, runtimeStore)
+	manifest, paths, err := runtimeStore.resolveContext("default")
+	if err != nil {
+		t.Fatal(err)
+	}
+	projection, err := runtimeStore.buildAggregateProjection(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := appliedRuntimeState(t, root, tobari.SharedClusterProfileUnix)
+	state.AggregateRevision = projection.Revision
+	state.Applied.AggregateRevision = projection.Revision
+	state.ManifestCount = projection.ManifestCount
+	state.PolicyDirectory = projection.PolicyDirectory
+	state.GatewayConfig = projection.GatewayConfig
+	if err := runtimeStore.writeState(state); err != nil {
+		t.Fatal(err)
+	}
+	injected := errors.New("post-rename state publication failed")
+	runtimeStore.clusterStateWriteHook = func(_ tobari.State, commit func() error) error {
+		if err := commit(); err != nil {
+			return err
+		}
+		return injected
+	}
+	rule := contextRuleFixture(t, manifest, "01912345-6789-7abc-8def-0123456789ab", "/committed")
+	_, err = runtimeStore.ApplyLearnedPolicyRules(
+		context.Background(), state, []tobari.LearnedPolicyRule{}, []tobari.LearnedPolicyRule{rule},
+	)
+	if !errors.Is(err, injected) {
+		t.Fatalf("post-rename state publication failure = %v", err)
+	}
+	if public, ok := fault.PublicCopy(err); !ok || public.Code != "policy_write_failed" || public.Retryable {
+		t.Fatalf("post-rename publication fault = %+v, structured=%t", public, ok)
+	}
+	stored, exists, loadErr := runtimeStore.LoadState(context.Background())
+	if loadErr != nil || !exists || stored.AggregateRevision == state.AggregateRevision ||
+		stored.Applied.AggregateRevision != stored.AggregateRevision {
+		t.Fatalf("post-rename candidate state = %+v, exists=%t, error=%v", stored, exists, loadErr)
+	}
+	wantApplied := state.Applied
+	wantApplied.AggregateRevision = stored.AggregateRevision
+	if stored.Applied != wantApplied {
+		t.Fatalf("post-rename publication changed non-policy authority: got %+v want %+v", stored.Applied, wantApplied)
+	}
+	rules, readErr := runtimeStore.ReadLearnedPolicyRules(context.Background(), stored)
+	if readErr != nil || len(rules) != 1 || rules[0].ID != rule.ID {
+		t.Fatalf("post-rename candidate sources = %+v, error=%v", rules, readErr)
+	}
+	if _, journalExists, journalErr := readPolicySourceJournal(paths.PolicyDirectory); journalErr != nil || journalExists {
+		t.Fatalf("committed source journal exists=%t error=%v", journalExists, journalErr)
+	}
+	if len(runner.outputs) != 10 {
+		t.Fatalf("post-rename publication performed rollback: Docker calls=%v", runner.outputs)
+	}
+}
+
+func TestSchema2PolicyUnknownStatePublicationLeavesRecoveryAuthority(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	runner := &recordingRunner{}
+	runtimeStore, err := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), runner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	initializeTestWorkspaceManifest(t, runtimeStore)
+	manifest, paths, err := runtimeStore.resolveContext("default")
+	if err != nil {
+		t.Fatal(err)
+	}
+	projection, err := runtimeStore.buildAggregateProjection(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := appliedRuntimeState(t, root, tobari.SharedClusterProfileUnix)
+	state.AggregateRevision = projection.Revision
+	state.Applied.AggregateRevision = projection.Revision
+	state.ManifestCount = projection.ManifestCount
+	state.PolicyDirectory = projection.PolicyDirectory
+	state.GatewayConfig = projection.GatewayConfig
+	if err := runtimeStore.writeState(state); err != nil {
+		t.Fatal(err)
+	}
+	injected := errors.New("state publication outcome unknown")
+	runtimeStore.clusterStateWriteHook = func(candidate tobari.State, commit func() error) error {
+		if err := commit(); err != nil {
+			return err
+		}
+		candidate.RecentError = "synthetic state drift"
+		if err := writeAtomicJSON(runtimeStore.statePath(), candidate); err != nil {
+			return err
+		}
+		return injected
+	}
+	rule := contextRuleFixture(t, manifest, "01912345-6789-7abc-8def-0123456789ab", "/unknown")
+	_, err = runtimeStore.ApplyLearnedPolicyRules(
+		context.Background(), state, []tobari.LearnedPolicyRule{}, []tobari.LearnedPolicyRule{rule},
+	)
+	if !errors.Is(err, injected) {
+		t.Fatalf("unknown state publication failure = %v", err)
+	}
+	if public, ok := fault.PublicCopy(err); !ok || public.Code != "policy_write_failed" || public.Retryable {
+		t.Fatalf("unknown publication fault = %+v, structured=%t", public, ok)
+	}
+	data, readErr := readPolicyDataDuringTransaction(paths.PolicyDirectory)
+	if readErr != nil || len(data.rules) != 1 || data.rules[0].ID != rule.ID {
+		t.Fatalf("unknown publication candidate sources = %+v, error=%v", data.rules, readErr)
+	}
+	if _, journalExists, journalErr := readPolicySourceJournal(paths.PolicyDirectory); journalErr != nil || !journalExists {
+		t.Fatalf("unknown publication recovery journal exists=%t error=%v", journalExists, journalErr)
+	}
+	if len(runner.outputs) != 10 {
+		t.Fatalf("unknown publication performed rollback: Docker calls=%v", runner.outputs)
+	}
+}
+
+func TestAggregatePolicyMutationSerializesWithClusterLifecycle(t *testing.T) {
+	setup := func(t *testing.T, runner *recordingRunner) (*Runtime, *Runtime, tobari.State, tobari.WorkspaceManifest) {
+		t.Helper()
+		root := t.TempDir()
+		configDirectory := filepath.Join(root, "config")
+		stateDirectory := filepath.Join(root, "state")
+		policyRuntime, err := newRuntime(configDirectory, stateDirectory, runner)
+		if err != nil {
+			t.Fatal(err)
+		}
+		clusterRuntime, err := newRuntime(configDirectory, stateDirectory, &recordingRunner{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		initializeTestWorkspaceManifest(t, policyRuntime)
+		manifest, _, err := policyRuntime.resolveContext("default")
+		if err != nil {
+			t.Fatal(err)
+		}
+		projection, err := policyRuntime.buildAggregateProjection(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		state := appliedRuntimeState(t, root, tobari.SharedClusterProfileUnix)
+		state.AggregateRevision = projection.Revision
+		state.Applied.AggregateRevision = projection.Revision
+		state.ManifestCount = projection.ManifestCount
+		state.PolicyDirectory = projection.PolicyDirectory
+		state.GatewayConfig = projection.GatewayConfig
+		if err := policyRuntime.writeState(state); err != nil {
+			t.Fatal(err)
+		}
+		return policyRuntime, clusterRuntime, state, manifest
+	}
+
+	t.Run("policy holds lifecycle before projection work", func(t *testing.T) {
+		runner := &recordingRunner{}
+		policyRuntime, clusterRuntime, state, manifest := setup(t, runner)
+		policyRead := make(chan struct{})
+		releasePolicy := make(chan struct{})
+		var pause sync.Once
+		runner.onOutput = func(int) {
+			pause.Do(func() {
+				close(policyRead)
+				<-releasePolicy
+			})
+		}
+		rule := contextRuleFixture(t, manifest, "01912345-6789-7abc-8def-0123456789ab", "/policy-first")
+		policyDone := make(chan error, 1)
+		go func() {
+			_, err := policyRuntime.ApplyLearnedPolicyRules(
+				context.Background(), state, []tobari.LearnedPolicyRule{}, []tobari.LearnedPolicyRule{rule},
+			)
+			policyDone <- err
+		}()
+		<-policyRead
+
+		clusterEntered := make(chan struct{})
+		clusterDone := make(chan error, 1)
+		go func() {
+			clusterDone <- clusterRuntime.WithLifecycleLock(context.Background(), func(ctx context.Context) error {
+				close(clusterEntered)
+				fresh, exists, err := clusterRuntime.LoadState(ctx)
+				if err != nil || !exists {
+					return fmt.Errorf("load post-policy state: exists=%t: %w", exists, err)
+				}
+				if fresh.AggregateRevision != fresh.Applied.AggregateRevision || fresh.AggregateRevision == state.AggregateRevision {
+					return fmt.Errorf("cluster lifecycle observed stale policy state: %+v", fresh)
+				}
+				return nil
+			})
+		}()
+		select {
+		case <-clusterEntered:
+			t.Fatal("cluster lifecycle entered while policy held the lifecycle lock")
+		case <-time.After(100 * time.Millisecond):
+		}
+		close(releasePolicy)
+		if err := <-policyDone; err != nil {
+			t.Fatal(err)
+		}
+		select {
+		case <-clusterEntered:
+		case <-time.After(time.Second):
+			t.Fatal("cluster lifecycle did not enter after policy completion")
+		}
+		if err := <-clusterDone; err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	t.Run("cluster holds lifecycle before policy projection work", func(t *testing.T) {
+		runner := &recordingRunner{}
+		policyRuntime, clusterRuntime, state, manifest := setup(t, runner)
+		clusterEntered := make(chan struct{})
+		releaseCluster := make(chan struct{})
+		clusterDone := make(chan error, 1)
+		newGatewayImage := "sha256:" + strings.Repeat("9", 64)
+		go func() {
+			clusterDone <- clusterRuntime.WithLifecycleLock(context.Background(), func(context.Context) error {
+				changed := state
+				changed.Applied.GatewayImageID = newGatewayImage
+				if err := clusterRuntime.writeState(changed); err != nil {
+					return err
+				}
+				close(clusterEntered)
+				<-releaseCluster
+				return nil
+			})
+		}()
+		<-clusterEntered
+
+		policyObserved := make(chan struct{})
+		var observed sync.Once
+		runner.onOutput = func(int) { observed.Do(func() { close(policyObserved) }) }
+		rule := contextRuleFixture(t, manifest, "01912345-6789-7abc-8def-0123456789ab", "/cluster-first")
+		policyDone := make(chan error, 1)
+		go func() {
+			_, err := policyRuntime.ApplyLearnedPolicyRules(
+				context.Background(), state, []tobari.LearnedPolicyRule{}, []tobari.LearnedPolicyRule{rule},
+			)
+			policyDone <- err
+		}()
+		select {
+		case <-policyObserved:
+			t.Fatal("policy projection work entered while cluster held the lifecycle lock")
+		case <-time.After(100 * time.Millisecond):
+		}
+		close(releaseCluster)
+		if err := <-clusterDone; err != nil {
+			t.Fatal(err)
+		}
+		if err := <-policyDone; err != nil {
+			t.Fatal(err)
+		}
+		fresh, exists, err := policyRuntime.LoadState(context.Background())
+		if err != nil || !exists || fresh.Applied.GatewayImageID != newGatewayImage ||
+			fresh.AggregateRevision != fresh.Applied.AggregateRevision {
+			t.Fatalf("policy did not preserve fresh cluster authority: %+v exists=%t error=%v", fresh, exists, err)
+		}
+	})
 }
 
 func TestApplyLearnedPolicyRulesUpdatesOnlyTheTargetDomainAllowFile(t *testing.T) {

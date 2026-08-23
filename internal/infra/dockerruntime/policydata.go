@@ -1311,7 +1311,7 @@ func (r *Runtime) applyPolicyData(
 		return tobari.PolicyActivationReceipt{}, err
 	}
 	if strings.HasPrefix(state.PolicyDirectory, r.aggregateRoot()+string(filepath.Separator)) {
-		return r.applyAggregatePolicyData(
+		return r.applyAggregatePolicyDataWithLifecycleLock(
 			ctx, state, expectedAllows, updatedAllows, expectedDenies, updatedDenies, checkDenySnapshot,
 		)
 	}
@@ -1701,16 +1701,53 @@ func (r *Runtime) applyAggregatePolicyData(
 		); err != nil {
 			return rollbackAfter(err)
 		}
-		if err := r.writeState(candidateState); err != nil {
-			return rollbackAfter(fmt.Errorf("persist aggregate policy activation: %w", err))
+		publication, publicationErr := r.publishStateWithVerification(ctx, &stored, candidateState)
+		switch publication {
+		case statePublicationNew:
+			// The candidate state is authoritative. Keep its source generation and
+			// live OPA revision even when the atomic writer reported a later error.
+		case statePublicationPrevious:
+			return rollbackAfter(fault.Wrap(
+				fault.KindInternal, "policy_write_failed",
+				"aggregate policy state was not published", false, publicationErr,
+			))
+		default:
+			return fault.Wrap(
+				fault.KindInternal, "policy_write_failed",
+				"aggregate policy publication is unknown and source recovery remains pending", false, publicationErr,
+			)
 		}
 		for _, transaction := range orderedTransactions {
 			if err := transaction.commit(); err != nil {
 				return fmt.Errorf("finalize policy source transaction: %w", err)
 			}
 		}
+		if publicationErr != nil {
+			return fault.Wrap(
+				fault.KindInternal, "policy_write_failed",
+				"aggregate policy state committed with uncertain write completion", false, publicationErr,
+			)
+		}
 		receipt = candidateReceipt
 		return nil
+	})
+	return receipt, err
+}
+
+func (r *Runtime) applyAggregatePolicyDataWithLifecycleLock(
+	ctx context.Context, state tobari.State,
+	expectedAllows, updatedAllows []tobari.LearnedPolicyRule,
+	expectedDenies, updatedDenies []tobari.PolicyDenyRule,
+	checkDenySnapshot bool,
+) (tobari.PolicyActivationReceipt, error) {
+	var receipt tobari.PolicyActivationReceipt
+	err := r.WithLifecycleLock(ctx, func(lifecycleContext context.Context) error {
+		var applyErr error
+		receipt, applyErr = r.applyAggregatePolicyData(
+			lifecycleContext, state,
+			expectedAllows, updatedAllows, expectedDenies, updatedDenies, checkDenySnapshot,
+		)
+		return applyErr
 	})
 	return receipt, err
 }
@@ -1723,7 +1760,7 @@ func (r *Runtime) ApplyPolicyDecisionSet(
 	expectedAllows, updatedAllows []tobari.LearnedPolicyRule,
 	expectedDenies, updatedDenies []tobari.PolicyDenyRule,
 ) (tobari.PolicyActivationReceipt, error) {
-	return r.applyAggregatePolicyData(
+	return r.applyAggregatePolicyDataWithLifecycleLock(
 		ctx, state, expectedAllows, updatedAllows, expectedDenies, updatedDenies, true,
 	)
 }
