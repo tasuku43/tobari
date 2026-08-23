@@ -3,6 +3,7 @@ package dockerruntime
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -122,6 +123,15 @@ func (r *rollbackClusterUpRunner) Run(
 		}
 		return err
 	}
+	if len(args) >= 3 && args[0] == "inspect" && args[2] == "{{json .NetworkSettings.Networks}}" {
+		data, err := r.Output(context.Background(), args, environment)
+		if err != nil {
+			_, _ = errorOutput.Write(data)
+			return err
+		}
+		_, _ = output.Write(data)
+		return nil
+	}
 	if len(args) > 0 && args[0] == "compose" && slices.Contains(args, "up") {
 		if r.predecessorGatewayID != "" && slices.Contains(environment, "TOBARI_GATEWAY_IMAGE="+r.predecessorGatewayID) {
 			r.rollingBack = true
@@ -138,6 +148,11 @@ func (r *rollbackClusterUpRunner) Run(
 				return r.rollbackErr
 			}
 		}
+	}
+	if r.networkErr != nil && r.composed && len(args) >= 2 && args[0] == "network" && args[1] == "connect" {
+		err := r.networkErr
+		r.networkErr = nil
+		return err
 	}
 	if len(args) > 0 && args[0] == "compose" && slices.Contains(args, "down") {
 		r.cleanupCalls++
@@ -302,6 +317,74 @@ type clusterUpProgressRunner struct {
 	policyQueries      []runnerCall
 	companionEpoch     string
 	composed           bool
+	appliedImage       map[string]string
+	appliedProfile     *tobari.SharedClusterAppliedProfile
+	appliedGatewayNets map[string]string
+	onAppliedInspect   func()
+	appliedInspected   bool
+}
+
+type freshAuthorityRunner struct {
+	clusterUpProgressRunner
+	resourceCalls      map[string]int
+	presentAt          map[string]int
+	ambiguousAt        map[string]int
+	cleanupStarted     bool
+	remainAfterCleanup string
+}
+
+func freshListResource(args []string) (string, string, bool) {
+	if len(args) < 6 || args[1] != "ls" {
+		return "", "", false
+	}
+	kind := args[0]
+	if kind != "container" && kind != "network" && kind != "volume" {
+		return "", "", false
+	}
+	filterIndex := slices.Index(args, "--filter")
+	if filterIndex < 0 || filterIndex+1 >= len(args) {
+		return "", "", false
+	}
+	filter := args[filterIndex+1]
+	filter = strings.TrimPrefix(filter, "name=^")
+	filter = strings.TrimSuffix(filter, "$")
+	if kind == "container" {
+		filter = strings.TrimPrefix(filter, "/")
+	}
+	if filter == "" {
+		return "", "", false
+	}
+	return kind, filter, true
+}
+
+func (r *freshAuthorityRunner) Run(
+	ctx context.Context, args, environment []string, input io.Reader, output, errorOutput io.Writer,
+) error {
+	if kind, name, ok := freshListResource(args); ok {
+		if r.resourceCalls == nil {
+			r.resourceCalls = map[string]int{}
+		}
+		key := kind + ":" + name
+		r.resourceCalls[key]++
+		call := r.resourceCalls[key]
+		if r.ambiguousAt[key] == call {
+			_, _ = io.WriteString(errorOutput, "daemon returned unrelated diagnostic\n")
+			return errors.New("synthetic ambiguous inspect failure")
+		}
+		if r.presentAt[key] == call || (r.cleanupStarted && r.remainAfterCleanup == key) {
+			_, _ = io.WriteString(output, name+"\n")
+			return nil
+		}
+		return nil
+	}
+	if len(args) > 0 && args[0] == "compose" && slices.Contains(args, "down") {
+		r.cleanupStarted = true
+	}
+	return r.clusterUpProgressRunner.Run(ctx, args, environment, input, output, errorOutput)
+}
+
+func (r *freshAuthorityRunner) Output(ctx context.Context, args, environment []string) ([]byte, error) {
+	return r.clusterUpProgressRunner.Output(ctx, args, environment)
 }
 
 func appliedClusterTestPayload(container, imageID string) []byte {
@@ -349,7 +432,22 @@ func appliedClusterTestPayloadForProfile(
 }
 
 func (r *clusterUpProgressRunner) Run(_ context.Context, args, environment []string, _ io.Reader, out, errorOutput io.Writer) error {
+	if _, _, ok := freshListResource(args); ok {
+		return nil
+	}
+	if len(args) == 5 && args[0] == "image" && args[1] == "inspect" && args[2] == "--format" && args[3] == "{{.Id}}" {
+		identity := "sha256:" + strings.Repeat("2", 64)
+		if args[4] == "tobari-auth-broker:dev" {
+			identity = "sha256:" + strings.Repeat("3", 64)
+		}
+		_, _ = io.WriteString(out, identity+"\n")
+		return nil
+	}
 	if len(args) >= 3 && args[0] == "inspect" && args[2] == appliedClusterInspectTemplate {
+		if !r.appliedInspected && r.onAppliedInspect != nil {
+			r.appliedInspected = true
+			r.onAppliedInspect()
+		}
 		data, err := r.Output(context.Background(), args, environment)
 		if len(data) > 0 {
 			if err != nil && bytes.Contains(data, []byte("No such object")) {
@@ -359,6 +457,15 @@ func (r *clusterUpProgressRunner) Run(_ context.Context, args, environment []str
 			}
 		}
 		return err
+	}
+	if len(args) >= 3 && args[0] == "inspect" && args[2] == "{{json .NetworkSettings.Networks}}" {
+		data, err := r.Output(context.Background(), args, environment)
+		if err != nil {
+			_, _ = errorOutput.Write(data)
+			return err
+		}
+		_, _ = out.Write(data)
+		return nil
 	}
 	if len(args) >= 2 && args[0] == "container" && args[1] == "cp" {
 		archive, err := exposureHelperArchiveBytes(syntheticExposureHelperELF("arm64"), "arm64", nil)
@@ -372,6 +479,9 @@ func (r *clusterUpProgressRunner) Run(_ context.Context, args, environment []str
 		r.events = append(r.events, "compose")
 		r.composeEnvironment = append([]string{}, environment...)
 		r.composed = true
+	}
+	if len(args) >= 2 && args[0] == "network" && args[1] == "connect" {
+		r.networkConnections = append(r.networkConnections, runnerCall{args: append([]string{}, args...)})
 	}
 	if slices.Contains(args, "authbroker.control") {
 		operationIndex := slices.Index(args, "authbroker.control") + 1
@@ -448,11 +558,37 @@ func (r *clusterUpProgressRunner) Output(_ context.Context, args, _ []string) ([
 		if args[2] == appliedClusterInspectTemplate {
 			switch container {
 			case gatewayContainer:
-				return appliedClusterTestPayloadForProfile(container, testGatewayDigest, tobari.SharedClusterProfileUnix), nil
+				profile := tobari.SharedClusterProfileUnix
+				if r.appliedProfile != nil {
+					profile = *r.appliedProfile
+				}
+				image := testGatewayDigest
+				if r.appliedImage[container] != "" {
+					image = r.appliedImage[container]
+				}
+				payload := appliedClusterTestPayloadForProfile(container, image, profile)
+				if r.appliedGatewayNets != nil {
+					var observation appliedClusterComponentObservation
+					_ = json.Unmarshal(payload, &observation)
+					observation.Networks = make(map[string]json.RawMessage, len(r.appliedGatewayNets))
+					for network, address := range r.appliedGatewayNets {
+						observation.Networks[network] = json.RawMessage(`{"IPAddress":` + strconv.Quote(address) + `}`)
+					}
+					payload, _ = json.Marshal(observation)
+				}
+				return payload, nil
 			case opaContainer:
-				return appliedClusterTestPayload(container, "sha256:"+strings.Repeat("2", 64)), nil
+				image := "sha256:" + strings.Repeat("2", 64)
+				if r.appliedImage[container] != "" {
+					image = r.appliedImage[container]
+				}
+				return appliedClusterTestPayload(container, image), nil
 			case authBrokerContainer:
-				return appliedClusterTestPayload(container, "sha256:"+strings.Repeat("3", 64)), nil
+				image := "sha256:" + strings.Repeat("3", 64)
+				if r.appliedImage[container] != "" {
+					image = r.appliedImage[container]
+				}
+				return appliedClusterTestPayload(container, image), nil
 			}
 		}
 		if strings.Contains(args[2], `"id"`) {
@@ -829,7 +965,7 @@ func TestFailedActivationRestoresExactAppliedServiceIDsAndProfile(t *testing.T) 
 			if err != nil {
 				t.Fatal(err)
 			}
-			retained := retainedAppliedState(filepath.Join(root, "retained"), candidate.AggregateRevision, profile)
+			retained := retainedAppliedState(t, root, candidate.AggregateRevision, profile)
 			runner.bindPredecessor(retained)
 			if err := runtimeassets.Materialize(retained.RuntimeDirectory); err != nil {
 				t.Fatal(err)
@@ -934,6 +1070,7 @@ func TestRollbackFailureJoinsActivationEvidence(t *testing.T) {
 	retained.SchemaVersion = 2
 	retained.Applied = tobari.SharedClusterAppliedEntry{
 		AggregateRevision: candidate.AggregateRevision, AssetVersion: candidate.AssetVersion,
+		ComposeAssets:     testComposeAssets(t, tobari.SharedClusterProfileUnix),
 		GatewayImageID:    "sha256:" + strings.Repeat("4", 64),
 		OPAImageID:        "sha256:" + strings.Repeat("5", 64),
 		PermissionProfile: tobari.SharedClusterProfileUnix,
@@ -968,6 +1105,7 @@ func TestRollbackVerificationDriftRetainsRecoveryJournal(t *testing.T) {
 	retained.SchemaVersion = 2
 	retained.Applied = tobari.SharedClusterAppliedEntry{
 		AggregateRevision: candidate.AggregateRevision, AssetVersion: candidate.AssetVersion,
+		ComposeAssets:     testComposeAssets(t, tobari.SharedClusterProfileUnix),
 		GatewayImageID:    "sha256:" + strings.Repeat("4", 64),
 		OPAImageID:        "sha256:" + strings.Repeat("5", 64),
 		PermissionProfile: tobari.SharedClusterProfileUnix,
@@ -1010,6 +1148,7 @@ func TestRollbackJournalClearFailureKeepsExactPreviousAuthority(t *testing.T) {
 	retained.SchemaVersion = 2
 	retained.Applied = tobari.SharedClusterAppliedEntry{
 		AggregateRevision: candidate.AggregateRevision, AssetVersion: candidate.AssetVersion,
+		ComposeAssets:     testComposeAssets(t, tobari.SharedClusterProfileUnix),
 		GatewayImageID:    "sha256:" + strings.Repeat("4", 64),
 		OPAImageID:        "sha256:" + strings.Repeat("5", 64),
 		PermissionProfile: tobari.SharedClusterProfileUnix,
@@ -1061,6 +1200,7 @@ func TestActivationFailuresRestorePolicyComponentsAndPrincipalTopology(t *testin
 			retained.AggregateRevision = strings.Repeat("e", 64)
 			retained.Applied = tobari.SharedClusterAppliedEntry{
 				AggregateRevision: retained.AggregateRevision, AssetVersion: retained.AssetVersion,
+				ComposeAssets:     testComposeAssets(t, tobari.SharedClusterProfileLoopbackTCP),
 				GatewayImageID:    "sha256:" + strings.Repeat("4", 64),
 				OPAImageID:        "sha256:" + strings.Repeat("5", 64),
 				PermissionProfile: tobari.SharedClusterProfileLoopbackTCP,
@@ -1158,7 +1298,7 @@ func TestStatePublicationOutcomeControlsRollback(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			retained := retainedAppliedState(filepath.Join(root, "retained"), candidate.AggregateRevision, tobari.SharedClusterProfileUnix)
+			retained := retainedAppliedState(t, root, candidate.AggregateRevision, tobari.SharedClusterProfileUnix)
 			runner.bindPredecessor(retained)
 			if err := runtimeassets.Materialize(retained.RuntimeDirectory); err != nil {
 				t.Fatal(err)
@@ -1357,6 +1497,218 @@ func TestFreshStatePublicationRecoveryMatrix(t *testing.T) {
 	})
 }
 
+func TestFreshActivationRequiresTwoExactAbsenceFences(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name        string
+		presentAt   map[string]int
+		ambiguousAt map[string]int
+	}{
+		{name: "preexisting owned or foreign container", presentAt: map[string]int{"container:" + gatewayContainer: 1}},
+		{name: "preexisting named volume", presentAt: map[string]int{"volume:" + policyBundleVolume: 1}},
+		{name: "resource appears between fences", presentAt: map[string]int{"network:tobari-control": 2}},
+		{name: "ambiguous observation", ambiguousAt: map[string]int{"volume:tobari-public-ca": 1}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			runner := &freshAuthorityRunner{presentAt: test.presentAt, ambiguousAt: test.ambiguousAt}
+			runtime := configuredClusterUpRuntime(t, root, runner)
+			if _, err := runtime.ClusterUp(context.Background()); err == nil {
+				t.Fatal("fresh ClusterUp() accepted ambiguous or preexisting managed resources")
+			}
+			if runner.composed {
+				t.Fatal("fresh activation reached Compose after absence authority failed")
+			}
+			if _, exists, err := runtime.readClusterJournal(); err != nil || exists {
+				t.Fatalf("unattempted fresh activation journal exists=%t error=%v", exists, err)
+			}
+		})
+	}
+}
+
+func TestFreshCleanupVerifiesPostconditionAndRetainsJournalForRetry(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	injected := errors.New("state publication failed")
+	runner := &freshAuthorityRunner{remainAfterCleanup: "container:" + gatewayContainer}
+	runtime := configuredClusterUpRuntime(t, root, runner)
+	runtime.clusterStateWriteHook = func(tobari.State, func() error) error { return injected }
+	if _, err := runtime.ClusterUp(context.Background()); !errors.Is(err, injected) ||
+		!strings.Contains(err.Error(), "rollback did not complete") {
+		t.Fatalf("fresh cleanup postcondition error = %v", err)
+	}
+	if _, exists, err := runtime.readClusterJournal(); err != nil || !exists {
+		t.Fatalf("partial fresh cleanup journal exists=%t error=%v", exists, err)
+	}
+	runner.remainAfterCleanup = ""
+	recovered, err := runtime.RecoverInterruptedClusterDown(context.Background(), false)
+	if err != nil || !recovered {
+		t.Fatalf("explicit fresh cleanup retry = (%t, %v)", recovered, err)
+	}
+	if _, exists, err := runtime.readClusterJournal(); err != nil || exists {
+		t.Fatalf("completed fresh cleanup journal exists=%t error=%v", exists, err)
+	}
+}
+
+func TestFreshResearchCleanupRequiresCredentialCompanionStop(t *testing.T) {
+	if !brokerRuntimeEnabled {
+		t.Skip("credential companion exists only in the research build")
+	}
+	root := t.TempDir()
+	injected := errors.New("state publication failed")
+	stopErr := errors.New("companion still owns session material")
+	runner := &freshAuthorityRunner{}
+	runtime := configuredClusterUpRuntime(t, root, runner)
+	launcher := &fakeCredentialCompanionLauncher{waitErr: stopErr}
+	runtime.companion = launcher
+	runtime.clusterStateWriteHook = func(tobari.State, func() error) error { return injected }
+	if _, err := runtime.ClusterUp(context.Background()); !errors.Is(err, stopErr) {
+		t.Fatalf("fresh cleanup companion error = %v", err)
+	}
+	if _, exists, err := runtime.readClusterJournal(); err != nil || !exists {
+		t.Fatalf("live companion cleanup journal exists=%t error=%v", exists, err)
+	}
+	launcher.waitErr = nil
+	recovered, err := runtime.RecoverInterruptedClusterDown(context.Background(), false)
+	if err != nil || !recovered || launcher.waits < 2 {
+		t.Fatalf("companion cleanup retry = (%t, %v), waits=%d", recovered, err, launcher.waits)
+	}
+}
+
+func TestCandidateComponentAndProfileExpectationsPrecedeStatePublication(t *testing.T) {
+	t.Parallel()
+	wrongProfile := tobari.SharedClusterProfileLoopbackTCP
+	for _, test := range []struct {
+		name      string
+		images    map[string]string
+		profile   *tobari.SharedClusterAppliedProfile
+		networks  map[string]string
+		wantCause string
+	}{
+		{name: "wrong Gateway", images: map[string]string{gatewayContainer: "sha256:" + strings.Repeat("7", 64)}, wantCause: "component images"},
+		{name: "wrong OPA", images: map[string]string{opaContainer: "sha256:" + strings.Repeat("7", 64)}, wantCause: "component images"},
+		{name: "wrong permission profile", profile: &wrongProfile, wantCause: "permission projection"},
+		{name: "missing shared network", networks: map[string]string{"tobari-control": "172.28.0.2"}, wantCause: "network topology"},
+		{name: "extra network", networks: map[string]string{
+			"tobari-control": "172.28.0.2", "tobari-egress": "172.29.0.2", "foreign": "172.30.0.2",
+		}, wantCause: "network topology"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			runner := &freshAuthorityRunner{}
+			runner.appliedImage = test.images
+			runner.appliedProfile = test.profile
+			runner.appliedGatewayNets = test.networks
+			runtime := configuredClusterUpRuntime(t, root, runner)
+			if _, err := runtime.ClusterUp(context.Background()); err == nil || !strings.Contains(err.Error(), test.wantCause) {
+				t.Fatalf("candidate mismatch error = %v", err)
+			}
+			if _, exists, err := runtime.LoadState(context.Background()); err != nil || exists {
+				t.Fatalf("candidate mismatch published state exists=%t error=%v", exists, err)
+			}
+		})
+	}
+}
+
+func TestCandidatePrincipalPublicationDriftPreventsStatePublication(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	runner := &freshAuthorityRunner{}
+	runtime := configuredClusterUpRuntime(t, root, runner)
+	var driftErr error
+	runner.onAppliedInspect = func() {
+		driftErr = runtime.replaceProjectPrincipalRegistry(context.Background(), []projectPrincipalBinding{
+			principalTestBinding(
+				"01912345-6789-7abc-8def-0123456789ab", "172.30.0.3", "172.30.0.2", "tobari-drift-network",
+			),
+		})
+	}
+	if _, err := runtime.ClusterUp(context.Background()); err == nil ||
+		!strings.Contains(err.Error(), "principal publication drifted") {
+		t.Fatalf("candidate principal drift error = %v, mutation error = %v", err, driftErr)
+	}
+	if driftErr != nil {
+		t.Fatal(driftErr)
+	}
+	if _, exists, err := runtime.LoadState(context.Background()); err != nil || exists {
+		t.Fatalf("principal drift published state exists=%t error=%v", exists, err)
+	}
+}
+
+func TestExistingActivationValidatesRollbackComposeClosureBeforeMutation(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name   string
+		mutate func(*testing.T, tobari.State)
+	}{
+		{name: "missing", mutate: func(t *testing.T, state tobari.State) {
+			if err := os.Remove(filepath.Join(state.RuntimeDirectory, "compose.permission-unix.yaml")); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{name: "tampered", mutate: func(t *testing.T, state tobari.State) {
+			if err := os.WriteFile(filepath.Join(state.RuntimeDirectory, "compose.yaml"), []byte("tampered\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{name: "broad mode", mutate: func(t *testing.T, state tobari.State) {
+			if err := os.Chmod(filepath.Join(state.RuntimeDirectory, "compose.yaml"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{name: "symlink", mutate: func(t *testing.T, state tobari.State) {
+			path := filepath.Join(state.RuntimeDirectory, "compose.yaml")
+			if err := os.Remove(path); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(filepath.Join(state.RuntimeDirectory, "versions.env"), path); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{name: "tampered research build profile", mutate: func(t *testing.T, state tobari.State) {
+			if !brokerRuntimeEnabled {
+				t.Skip("research build profile exists only in the experimental build")
+			}
+			if err := os.WriteFile(
+				filepath.Join(state.RuntimeDirectory, "compose.experimental.yaml"), []byte("tampered\n"), 0o600,
+			); err != nil {
+				t.Fatal(err)
+			}
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			runner := &rollbackClusterUpRunner{predecessorProfile: tobari.SharedClusterProfileUnix}
+			runtime := configuredClusterUpRuntime(t, root, runner)
+			state, err := runtime.prepareState(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			state.SchemaVersion = 2
+			state.Applied = tobari.SharedClusterAppliedEntry{
+				AggregateRevision: state.AggregateRevision, AssetVersion: state.AssetVersion,
+				ComposeAssets:  testComposeAssets(t, tobari.SharedClusterProfileUnix),
+				GatewayImageID: "sha256:" + strings.Repeat("4", 64),
+				OPAImageID:     "sha256:" + strings.Repeat("5", 64), PermissionProfile: tobari.SharedClusterProfileUnix,
+			}
+			if brokerRuntimeEnabled {
+				state.Applied.AuthBrokerImageID = "sha256:" + strings.Repeat("6", 64)
+			}
+			runner.bindPredecessor(state)
+			if err := runtime.writeState(state); err != nil {
+				t.Fatal(err)
+			}
+			test.mutate(t, state)
+			if _, err := runtime.ClusterUp(context.Background()); err == nil || !strings.Contains(err.Error(), "rollback closure") {
+				t.Fatalf("rollback closure error = %v", err)
+			}
+			if len(runner.policyPublishes) != 0 || len(runner.composeCalls) != 0 {
+				t.Fatalf("unsafe rollback closure mutated policy/Compose: policy=%v compose=%v", runner.policyPublishes, runner.composeCalls)
+			}
+		})
+	}
+}
+
 func TestSchemaMigrationPostRenameErrorRetriesAsSchemaTwo(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
@@ -1526,9 +1878,33 @@ type gatewayNetworkRunner struct {
 	networks string
 }
 
-func (r *gatewayNetworkRunner) Run(
-	context.Context, []string, []string, io.Reader, io.Writer, io.Writer,
+type hostileNetworkObservationRunner struct {
+	stdout []byte
+	stderr []byte
+	err    error
+	calls  int
+}
+
+func (r *hostileNetworkObservationRunner) Run(
+	_ context.Context, _ []string, _ []string, _ io.Reader, output, errorOutput io.Writer,
 ) error {
+	r.calls++
+	_, _ = output.Write(r.stdout)
+	_, _ = errorOutput.Write(r.stderr)
+	return r.err
+}
+
+func (*hostileNetworkObservationRunner) Output(context.Context, []string, []string) ([]byte, error) {
+	return nil, errors.New("unbounded network observation must not be used")
+}
+
+func (r *gatewayNetworkRunner) Run(
+	_ context.Context, args, _ []string, _ io.Reader, output, _ io.Writer,
+) error {
+	r.outputs = append(r.outputs, runnerCall{args: append([]string{}, args...)})
+	if len(args) > 0 && args[0] == "inspect" {
+		_, _ = io.WriteString(output, r.networks)
+	}
 	return nil
 }
 
@@ -1549,12 +1925,38 @@ func runtimeState(root string) tobari.State {
 	}
 }
 
-func appliedRuntimeState(root string, profile tobari.SharedClusterAppliedProfile) tobari.State {
+func testComposeAssets(t *testing.T, profile tobari.SharedClusterAppliedProfile) tobari.SharedClusterComposeAssets {
+	t.Helper()
+	if profile == tobari.SharedClusterProfilePrePlatform {
+		return prePlatformComposeAssets()
+	}
+	digest := func(name string) string {
+		data, err := runtimeassets.Read(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return fmt.Sprintf("%x", sha256.Sum256(data))
+	}
+	assets := tobari.SharedClusterComposeAssets{BaseSHA256: digest("compose.yaml")}
+	if brokerRuntimeEnabled {
+		assets.BuildSHA256 = digest("compose.experimental.yaml")
+	}
+	transport, ok := profile.PermissionTransport()
+	if !ok {
+		t.Fatalf("profile %q has no permission transport", profile)
+	}
+	assets.PermissionSHA256 = digest("compose.permission-" + string(transport) + ".yaml")
+	return assets
+}
+
+func appliedRuntimeState(t *testing.T, root string, profile tobari.SharedClusterAppliedProfile) tobari.State {
+	t.Helper()
 	state := runtimeState(root)
 	state.SchemaVersion = 2
 	state.Applied = tobari.SharedClusterAppliedEntry{
 		AggregateRevision: state.AggregateRevision,
 		AssetVersion:      state.AssetVersion,
+		ComposeAssets:     testComposeAssets(t, profile),
 		GatewayImageID:    testGatewayDigest,
 		OPAImageID:        "sha256:" + strings.Repeat("2", 64),
 		PermissionProfile: profile,
@@ -1613,14 +2015,17 @@ func prePlatformRuntimeDirectory(root string) string {
 	return filepath.Join(root, "state", "runtime", prePlatformAssetVersion)
 }
 
-func retainedAppliedState(root, aggregate string, profile tobari.SharedClusterAppliedProfile) tobari.State {
+func retainedAppliedState(t *testing.T, root, aggregate string, profile tobari.SharedClusterAppliedProfile) tobari.State {
+	t.Helper()
 	state := runtimeState(root)
 	state.SchemaVersion = 2
 	state.AggregateRevision = aggregate
 	state.AssetVersion = "retained-asset"
+	state.RuntimeDirectory = filepath.Join(root, "state", "runtime", state.AssetVersion)
 	state.Applied = tobari.SharedClusterAppliedEntry{
 		AggregateRevision: aggregate,
 		AssetVersion:      "retained-asset",
+		ComposeAssets:     testComposeAssets(t, profile),
 		GatewayImageID:    "sha256:" + strings.Repeat("4", 64),
 		OPAImageID:        "sha256:" + strings.Repeat("5", 64),
 		PermissionProfile: profile,
@@ -1916,6 +2321,7 @@ func TestClusterDownDoesNotRequireCurrentPermissionProfileAssets(t *testing.T) {
 				state.SchemaVersion = 2
 				state.Applied = tobari.SharedClusterAppliedEntry{
 					AggregateRevision: state.AggregateRevision, AssetVersion: state.AssetVersion,
+					ComposeAssets:     testComposeAssets(t, tobari.SharedClusterProfilePrePlatform),
 					GatewayImageID:    "sha256:" + strings.Repeat("4", 64),
 					OPAImageID:        "sha256:" + strings.Repeat("5", 64),
 					PermissionProfile: tobari.SharedClusterProfilePrePlatform,
@@ -2126,9 +2532,16 @@ func TestInterruptedClusterReconcileFailsClosedInStatus(t *testing.T) {
 		t.Fatal(err)
 	}
 	state := runtimeState(root)
+	fresh := expectedFreshClusterResourceAuthority()
+	images := candidateClusterImages{
+		Gateway: testGatewayDigest, OPA: "sha256:" + strings.Repeat("2", 64),
+	}
+	if brokerRuntimeEnabled {
+		images.AuthBroker = "sha256:" + strings.Repeat("3", 64)
+	}
 	if err := runtime.startClusterUpReconcile(nil, state, tobari.SharedClusterProfileUnix, projectPrincipalRegistry{
 		SchemaVersion: projectPrincipalRegistrySchema, Bindings: []projectPrincipalBinding{},
-	}); err != nil {
+	}, &fresh, images); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := runtime.InspectCluster(context.Background(), state); err == nil {
@@ -2136,6 +2549,32 @@ func TestInterruptedClusterReconcileFailsClosedInStatus(t *testing.T) {
 	}
 	if err := runtime.clearClusterJournal(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestClusterDownRecoversExactSchemaOneDownJournal(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	runner := &recordingRunner{outputData: []byte(ownerValue + "\n")}
+	runtime, err := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), runner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime.companion = &fakeCredentialCompanionLauncher{}
+	state := runtimeState(root)
+	if err := runtime.writeState(state); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeAtomicJSON(runtime.clusterJournalPath(), map[string]any{
+		"schema_version": 1, "operation": clusterOperationDown, "phase": clusterPhaseStarted,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := runtime.ClusterDown(context.Background(), state, false); err != nil {
+		t.Fatalf("ClusterDown() from predecessor journal = %v", err)
+	}
+	if _, exists, err := runtime.readClusterJournal(); err != nil || exists {
+		t.Fatalf("predecessor down journal exists=%t error=%v", exists, err)
 	}
 }
 
@@ -2179,7 +2618,7 @@ func TestComposeEnvironmentUsesPinnedImages(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 	runtime, _ := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), &recordingRunner{})
-	environment, err := runtime.composeEnvironment(appliedRuntimeState(root, tobari.SharedClusterProfileUnix))
+	environment, err := runtime.composeEnvironment(appliedRuntimeState(t, root, tobari.SharedClusterProfileUnix))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2239,7 +2678,7 @@ func TestPermissionIngestionComposeProfileIsClosed(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		environment, err := runtime.composeEnvironment(appliedRuntimeState(root, profile))
+		environment, err := runtime.composeEnvironment(appliedRuntimeState(t, root, profile))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -2383,6 +2822,33 @@ func TestEnsureGatewayNetworkReconnectsAfterComposeReplacement(t *testing.T) {
 				if !slices.Equal(runner.outputs[1].args, want) {
 					t.Fatalf("reconnect argv = %v, want %v", runner.outputs[1].args, want)
 				}
+			}
+		})
+	}
+}
+
+func TestEnsureGatewayNetworkRejectsHostileBoundedObservations(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name   string
+		stdout []byte
+		stderr []byte
+		err    error
+	}{
+		{name: "trailing value", stdout: []byte(`{} {}`)},
+		{name: "duplicate network", stdout: []byte(`{"n":{},"n":{}}`)},
+		{name: "overflow", stdout: bytes.Repeat([]byte("x"), appliedClusterInspectLimit)},
+		{name: "unexpected diagnostic", stdout: []byte(`{}`), stderr: []byte("warning")},
+		{name: "inspect failure", stderr: []byte("daemon unavailable"), err: errors.New("inspect failed")},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			runner := &hostileNetworkObservationRunner{stdout: test.stdout, stderr: test.stderr, err: test.err}
+			runtime := &Runtime{runner: runner}
+			if err := runtime.ensureGatewayNetwork(context.Background(), "tobari-control"); err == nil {
+				t.Fatal("hostile network observation authorized mutation")
+			}
+			if runner.calls != 1 {
+				t.Fatalf("network observation calls = %d", runner.calls)
 			}
 		})
 	}

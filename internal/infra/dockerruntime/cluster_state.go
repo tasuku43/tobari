@@ -194,6 +194,7 @@ func (r *Runtime) migratePrePlatformSharedClusterState(
 	migrated.Applied = tobari.SharedClusterAppliedEntry{
 		AggregateRevision: state.AggregateRevision,
 		AssetVersion:      state.AssetVersion,
+		ComposeAssets:     prePlatformComposeAssets(),
 		GatewayImageID:    snapshot.images.gateway,
 		OPAImageID:        snapshot.images.opa,
 		AuthBrokerImageID: snapshot.images.authBroker,

@@ -80,6 +80,14 @@ func (r *Runtime) clusterUpWithProgressMode(
 			return tobari.State{}, err
 		}
 	}
+	if exists {
+		if err := r.validateRollbackClosure(existing); err != nil {
+			emitClusterUpProgress(progress, tobari.ClusterUpProgress{
+				Step: tobari.ClusterUpProgressPrepare, Status: tobari.ClusterUpProgressFailed,
+			})
+			return tobari.State{}, fmt.Errorf("verify retained rollback closure before candidate preparation: %w", err)
+		}
+	}
 	var authBrokerSelection sharedImageSelection
 	if brokerRuntimeEnabled {
 		authBrokerSelection, err = r.selectAuthBrokerImage(ctx)
@@ -104,10 +112,20 @@ func (r *Runtime) clusterUpWithProgressMode(
 	activationAttempted := false
 	activationCommitted := false
 	rollbackPermitted := true
+	journalStarted := false
 	var appliedProfile tobari.SharedClusterAppliedProfile
+	var composeAssets tobari.SharedClusterComposeAssets
+	var freshResources *freshClusterResourceAuthority
 	previousPrincipals := projectPrincipalRegistry{SchemaVersion: projectPrincipalRegistrySchema, Bindings: []projectPrincipalBinding{}}
+	candidatePrincipals := projectPrincipalRegistry{SchemaVersion: projectPrincipalRegistrySchema, Bindings: []projectPrincipalBinding{}}
 	defer func() {
-		if !activationAttempted || activationCommitted || !rollbackPermitted {
+		if activationCommitted || !rollbackPermitted || !journalStarted {
+			return
+		}
+		if !activationAttempted {
+			if clearErr := r.clearClusterJournal(); clearErr != nil {
+				resultErr = errors.Join(resultErr, fmt.Errorf("clear unstarted cluster reconcile journal: %w", clearErr))
+			}
 			return
 		}
 		rollbackContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
@@ -116,7 +134,7 @@ func (r *Runtime) clusterUpWithProgressMode(
 		if exists {
 			rollbackErr = r.rollbackSharedClusterActivation(rollbackContext, existing, previousPrincipals)
 		} else {
-			rollbackErr = r.cleanupFreshClusterActivation(rollbackContext, state, appliedProfile)
+			rollbackErr = r.cleanupFreshClusterActivation(rollbackContext, state, appliedProfile, freshResources)
 		}
 		if rollbackErr == nil {
 			if clearErr := r.clearClusterJournal(); clearErr != nil {
@@ -167,10 +185,25 @@ func (r *Runtime) clusterUpWithProgressMode(
 		})
 		return tobari.State{}, err
 	}
+	composeAssets, err = r.captureCandidateComposeAssets(state, appliedProfile)
+	if err != nil {
+		return tobari.State{}, fmt.Errorf("verify candidate Compose closure: %w", err)
+	}
 	if brokerRuntimeEnabled {
 		environment = replaceEnvironmentValue(environment, "TOBARI_AUTH_BROKER_IMAGE", authBrokerSelection.Image)
 	}
 	environment = replaceEnvironmentValue(environment, "TOBARI_GATEWAY_IMAGE", gatewayImageID)
+	versions, err := runtimeassets.Versions()
+	if err != nil {
+		return tobari.State{}, fmt.Errorf("resolve candidate component images: %w", err)
+	}
+	candidateImages := candidateClusterImages{Gateway: gatewayImageID}
+	if brokerRuntimeEnabled {
+		candidateImages.AuthBroker, err = r.resolveCandidateImageID(ctx, authBrokerSelection.Image)
+		if err != nil {
+			return tobari.State{}, fmt.Errorf("resolve candidate Auth Broker image: %w", err)
+		}
+	}
 	emitClusterUpProgress(progress, tobari.ClusterUpProgress{
 		Step: tobari.ClusterUpProgressPrepare, Status: tobari.ClusterUpProgressCompleted,
 	})
@@ -179,24 +212,43 @@ func (r *Runtime) clusterUpWithProgressMode(
 		if err := r.testPolicy(ctx, state); err != nil {
 			return fault.Wrap(fault.KindRejected, "policy_test_failed", policyTestFailureMessage, false, err)
 		}
+		candidateImages.OPA, err = r.resolveCandidateImageID(ctx, versions["OPA_IMAGE"])
+		if err != nil {
+			return fmt.Errorf("resolve candidate OPA image: %w", err)
+		}
 		previousPrincipals, err = r.readProjectPrincipalRegistry()
 		if err != nil {
 			return fmt.Errorf("capture previous project principal publication: %w", err)
 		}
 		if exists {
+			if err := r.validateRollbackClosure(existing); err != nil {
+				return fmt.Errorf("verify retained rollback closure before mutation: %w", err)
+			}
 			if err := r.verifyAppliedSharedCluster(ctx, existing, previousPrincipals); err != nil {
 				return fmt.Errorf("verify last-successful shared-cluster entry before mutation: %w", err)
 			}
+		} else {
+			authority, err := r.proveFreshClusterResourcesAbsent(ctx)
+			if err != nil {
+				return fmt.Errorf("prove fresh shared-cluster resources absent: %w", err)
+			}
+			freshResources = &authority
 		}
 		var previous *tobari.State
 		if exists {
 			previous = &existing
 		}
-		if err := r.startClusterUpReconcile(previous, state, appliedProfile, previousPrincipals); err != nil {
+		if err := r.startClusterUpReconcile(
+			previous, state, appliedProfile, previousPrincipals, freshResources, candidateImages,
+		); err != nil {
 			return fmt.Errorf("start cluster reconcile journal: %w", err)
 		}
-		activationAttempted = true
-		return r.preparePolicyBundle(ctx, state)
+		journalStarted = true
+		if exists {
+			activationAttempted = true
+			return r.preparePolicyBundle(ctx, state)
+		}
+		return nil
 	}); err != nil {
 		return tobari.State{}, err
 	}
@@ -208,6 +260,18 @@ func (r *Runtime) clusterUpWithProgressMode(
 	}
 
 	if err := runClusterUpProgressStep(progress, tobari.ClusterUpProgressStartServices, func() error {
+		if !exists {
+			if freshResources == nil {
+				return fmt.Errorf("fresh shared-cluster activation omits resource authority")
+			}
+			if err := r.verifyFreshClusterResourcesAbsent(ctx, *freshResources); err != nil {
+				return fmt.Errorf("fence fresh shared-cluster resources before mutation: %w", err)
+			}
+			activationAttempted = true
+			if err := r.preparePolicyBundle(ctx, state); err != nil {
+				return err
+			}
+		}
 		var output bytes.Buffer
 		composeUpArgs := []string{"compose", "--project-directory", state.RuntimeDirectory}
 		composeUpArgs = append(composeUpArgs, composeFileArgs(state.RuntimeDirectory)...)
@@ -299,6 +363,10 @@ func (r *Runtime) clusterUpWithProgressMode(
 			attemptErrorMessage = "Gateway did not rejoin every Tobari network; inspect cluster status."
 			return err
 		}
+		candidatePrincipals, err = r.readProjectPrincipalRegistry()
+		if err != nil {
+			return fmt.Errorf("capture candidate project principal publication: %w", err)
+		}
 		return nil
 	}); err != nil {
 		return tobari.State{}, err
@@ -309,16 +377,18 @@ func (r *Runtime) clusterUpWithProgressMode(
 		if err != nil {
 			return fmt.Errorf("observe applied shared-cluster component identities: %w", err)
 		}
-		if snapshot.images.gateway != gatewayImageID {
-			return fmt.Errorf("applied Gateway image differs from the verified activation identity")
+		if snapshot.images.gateway != candidateImages.Gateway || snapshot.images.opa != candidateImages.OPA ||
+			snapshot.images.authBroker != candidateImages.AuthBroker {
+			return fmt.Errorf("applied component images differ from the verified candidate authority")
 		}
 		state.SchemaVersion = 2
 		state.Applied = tobari.SharedClusterAppliedEntry{
 			AggregateRevision: state.AggregateRevision,
 			AssetVersion:      state.AssetVersion,
-			GatewayImageID:    snapshot.images.gateway,
-			OPAImageID:        snapshot.images.opa,
-			AuthBrokerImageID: snapshot.images.authBroker,
+			ComposeAssets:     composeAssets,
+			GatewayImageID:    candidateImages.Gateway,
+			OPAImageID:        candidateImages.OPA,
+			AuthBrokerImageID: candidateImages.AuthBroker,
 			PermissionProfile: appliedProfile,
 		}
 		state.RecentError = ""
@@ -328,9 +398,16 @@ func (r *Runtime) clusterUpWithProgressMode(
 		if err := validateAppliedSharedClusterEntryForBuild(state.Applied); err != nil {
 			return err
 		}
-		candidatePrincipals, err := r.readProjectPrincipalRegistry()
+		observedPrincipals, err := r.readProjectPrincipalRegistry()
 		if err != nil {
 			return fmt.Errorf("capture applied project principal publication: %w", err)
+		}
+		if observedPrincipals.SchemaVersion != candidatePrincipals.SchemaVersion ||
+			!slices.Equal(observedPrincipals.Bindings, candidatePrincipals.Bindings) {
+			return fmt.Errorf("candidate project principal publication drifted before commit")
+		}
+		if err := r.verifyAppliedSharedCluster(ctx, state, candidatePrincipals); err != nil {
+			return fmt.Errorf("verify complete candidate shared-cluster effect before publication: %w", err)
 		}
 		if err := r.markClusterUpRuntimeReconciled(state, candidatePrincipals); err != nil {
 			return fmt.Errorf("mark cluster reconcile complete: %w", err)
@@ -445,28 +522,17 @@ func (r *Runtime) ensureClusterContainerNetwork(
 	alias string,
 	network string,
 ) error {
-	output, err := r.runner.Output(
-		ctx,
-		[]string{"inspect", "--format", "{{json .NetworkSettings.Networks}}", container},
-		os.Environ(),
-	)
+	networks, err := r.observeClusterContainerNetworks(ctx, container)
 	if err != nil {
-		return fmt.Errorf("inspect %s networks: %w: %s", component, err, boundedDiagnostic(output))
-	}
-	var networks map[string]json.RawMessage
-	if err := json.Unmarshal(bytes.TrimSpace(output), &networks); err != nil {
-		return fmt.Errorf("decode %s networks: %w", component, err)
+		return fmt.Errorf("inspect %s networks: %w", component, err)
 	}
 	if _, connected := networks[network]; connected {
 		return nil
 	}
-	output, err = r.runner.Output(
-		ctx,
-		[]string{"network", "connect", "--alias", alias, network, container},
-		os.Environ(),
-	)
-	if err != nil {
-		return fmt.Errorf("connect %s to Tobari network: %w: %s", component, err, boundedDiagnostic(output))
+	if err := r.runBoundedNetworkMutation(
+		ctx, []string{"network", "connect", "--alias", alias, network, container},
+	); err != nil {
+		return fmt.Errorf("connect %s to Tobari network: %w", component, err)
 	}
 	return nil
 }
@@ -575,7 +641,9 @@ func (r *Runtime) recoverInterruptedClusterUp(ctx context.Context, state tobari.
 		if exists {
 			return fmt.Errorf("fresh shared-cluster recovery conflicts with persisted state")
 		}
-		if err := r.cleanupFreshClusterActivation(ctx, *journal.CandidateState, journal.CandidateProfile); err != nil {
+		if err := r.cleanupFreshClusterActivation(
+			ctx, *journal.CandidateState, journal.CandidateProfile, journal.FreshResources,
+		); err != nil {
 			return fmt.Errorf("recover interrupted fresh shared-cluster activation: %w", err)
 		}
 		return r.clearClusterJournal()
@@ -600,7 +668,8 @@ func (r *Runtime) RecoverInterruptedClusterDown(ctx context.Context, purge bool)
 	if !exists {
 		return false, nil
 	}
-	if journal.Operation != clusterOperationUp || journal.PreviousState != nil || journal.CandidateState == nil {
+	if journal.Operation != clusterOperationUp || journal.PreviousState != nil ||
+		journal.CandidateState == nil || journal.FreshResources == nil {
 		return false, fmt.Errorf("interrupted cluster down recovery authority is ambiguous")
 	}
 	if _, stateExists, err := r.LoadState(ctx); err != nil {
@@ -608,7 +677,9 @@ func (r *Runtime) RecoverInterruptedClusterDown(ctx context.Context, purge bool)
 	} else if stateExists {
 		return false, fmt.Errorf("fresh cluster down recovery conflicts with persisted state")
 	}
-	if err := r.cleanupFreshClusterActivation(ctx, *journal.CandidateState, journal.CandidateProfile); err != nil {
+	if err := r.cleanupFreshClusterActivation(
+		ctx, *journal.CandidateState, journal.CandidateProfile, journal.FreshResources,
+	); err != nil {
 		return false, err
 	}
 	if purge {
@@ -623,7 +694,14 @@ func (r *Runtime) RecoverInterruptedClusterDown(ctx context.Context, purge bool)
 
 func (r *Runtime) cleanupFreshClusterActivation(
 	ctx context.Context, state tobari.State, profile tobari.SharedClusterAppliedProfile,
+	resources *freshClusterResourceAuthority,
 ) error {
+	if resources == nil {
+		return fmt.Errorf("fresh cluster cleanup omits exact resource authority")
+	}
+	if err := resources.Validate(); err != nil {
+		return err
+	}
 	transport, ok := profile.PermissionTransport()
 	if !ok {
 		return fmt.Errorf("fresh cluster cleanup profile is invalid")
@@ -639,8 +717,23 @@ func (r *Runtime) cleanupFreshClusterActivation(
 	if err := r.runner.Run(ctx, args, environment, nil, &output, &output); err != nil {
 		return fmt.Errorf("clean fresh shared-cluster activation: %w: %s", err, boundedDiagnostic(output.Bytes()))
 	}
+	if brokerRuntimeEnabled {
+		if err := r.waitForCredentialCompanionStopped(ctx); err != nil {
+			return fmt.Errorf("verify fresh credential companion stopped: %w", err)
+		}
+	}
 	if err := r.replaceProjectPrincipalRegistry(ctx, []projectPrincipalBinding{}); err != nil {
 		return fmt.Errorf("clear fresh project principal publication: %w", err)
+	}
+	if err := r.verifyFreshClusterResourcesAbsent(ctx, *resources); err != nil {
+		return fmt.Errorf("verify fresh shared-cluster cleanup: %w", err)
+	}
+	principals, err := r.readProjectPrincipalRegistry()
+	if err != nil {
+		return fmt.Errorf("verify cleared fresh project principal publication: %w", err)
+	}
+	if len(principals.Bindings) != 0 {
+		return fmt.Errorf("fresh project principal publication was not cleared")
 	}
 	return nil
 }
@@ -677,15 +770,25 @@ func (r *Runtime) restoreAppliedNetworkTopology(ctx context.Context, principals 
 
 func (r *Runtime) ensureGatewayNetworkAtAddress(ctx context.Context, network, expected string) error {
 	// Rollback force-recreates Gateway before restoring retained Workspace
-	// networks. Connect the exact reviewed address directly; accepting an
-	// already-connected or ambiguous endpoint would require an additional
-	// mutation-authorizing observation. The bounded two-pass snapshot below
-	// proves the completed topology.
-	output, err := r.runner.Output(ctx, []string{
-		"network", "connect", "--alias", "gateway", "--ip", expected, network, gatewayContainer,
-	}, os.Environ())
+	// networks. A bounded single-frame observation distinguishes exact retained
+	// attachment from absence; drift never authorizes a reconnect over it.
+	networks, err := r.observeClusterContainerNetworks(ctx, gatewayContainer)
 	if err != nil {
-		return fmt.Errorf("restore Gateway retained network: %w: %s", err, boundedDiagnostic(output))
+		return fmt.Errorf("observe Gateway retained networks: %w", err)
+	}
+	if raw, connected := networks[network]; connected {
+		var endpoint struct {
+			IPAddress string `json:"IPAddress"`
+		}
+		if err := json.Unmarshal(raw, &endpoint); err != nil || endpoint.IPAddress != expected {
+			return fmt.Errorf("Gateway retained network address drifted")
+		}
+		return nil
+	}
+	if err := r.runBoundedNetworkMutation(ctx, []string{
+		"network", "connect", "--alias", "gateway", "--ip", expected, network, gatewayContainer,
+	}); err != nil {
+		return fmt.Errorf("restore Gateway retained network: %w", err)
 	}
 	return nil
 }

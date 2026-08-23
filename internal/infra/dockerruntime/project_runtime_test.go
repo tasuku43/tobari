@@ -783,7 +783,17 @@ func (r *projectCleanupDriftRunner) Run(ctx context.Context, args []string, envi
 	return r.projectExitRunner.Run(ctx, args, environment, in, out, errOut)
 }
 
-func (r *projectReconcileRunner) Run(_ context.Context, args []string, _ []string, _ io.Reader, out, _ io.Writer) error {
+func (r *projectReconcileRunner) Run(ctx context.Context, args []string, environment []string, _ io.Reader, out, errOut io.Writer) error {
+	if (len(args) >= 3 && args[0] == "inspect" && strings.Contains(args[2], ".NetworkSettings.Networks")) ||
+		(len(args) >= 2 && args[0] == "network" && args[1] == "connect") {
+		data, err := r.Output(ctx, args, environment)
+		if err != nil {
+			_, _ = errOut.Write(data)
+			return err
+		}
+		_, _ = out.Write(data)
+		return nil
+	}
 	if slices.Contains(args, "authbroker.control") {
 		state := "unlocked"
 		if slices.Contains(args, "status") {

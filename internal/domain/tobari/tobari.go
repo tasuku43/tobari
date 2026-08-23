@@ -84,10 +84,34 @@ type State struct {
 type SharedClusterAppliedEntry struct {
 	AggregateRevision string                      `json:"aggregate_revision"`
 	AssetVersion      string                      `json:"asset_version"`
+	ComposeAssets     SharedClusterComposeAssets  `json:"compose_assets"`
 	GatewayImageID    string                      `json:"gateway_image_id"`
 	OPAImageID        string                      `json:"opa_image_id"`
 	AuthBrokerImageID string                      `json:"auth_broker_image_id,omitempty"`
 	PermissionProfile SharedClusterAppliedProfile `json:"permission_profile"`
+}
+
+// SharedClusterComposeAssets is the closed receipt for every retained Compose
+// input that can recreate the last-successful shared cluster. Empty optional
+// digests mean that the corresponding build/profile overlay was not applied.
+type SharedClusterComposeAssets struct {
+	BaseSHA256       string `json:"base_sha256"`
+	BuildSHA256      string `json:"build_sha256,omitempty"`
+	PermissionSHA256 string `json:"permission_sha256,omitempty"`
+}
+
+func (a SharedClusterComposeAssets) Validate() error {
+	if !aggregateRevisionPattern.MatchString(a.BaseSHA256) {
+		return fmt.Errorf("applied base Compose asset digest is invalid")
+	}
+	for name, digest := range map[string]string{
+		"build": a.BuildSHA256, "permission": a.PermissionSHA256,
+	} {
+		if digest != "" && !aggregateRevisionPattern.MatchString(digest) {
+			return fmt.Errorf("applied %s Compose asset digest is invalid", name)
+		}
+	}
+	return nil
 }
 
 func (e SharedClusterAppliedEntry) IsZero() bool {
@@ -100,6 +124,9 @@ func (e SharedClusterAppliedEntry) Validate() error {
 	}
 	if e.AssetVersion == "" || strings.ContainsAny(e.AssetVersion, " \t\r\n") {
 		return fmt.Errorf("applied asset version is invalid")
+	}
+	if err := e.ComposeAssets.Validate(); err != nil {
+		return err
 	}
 	for name, identity := range map[string]string{
 		"Gateway": e.GatewayImageID, "OPA": e.OPAImageID,

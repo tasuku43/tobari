@@ -26,11 +26,43 @@ type clusterReconcileJournal struct {
 	PreviousState       *tobari.State                      `json:"previous_state,omitempty"`
 	CandidateState      *tobari.State                      `json:"candidate_state,omitempty"`
 	CandidateProfile    tobari.SharedClusterAppliedProfile `json:"candidate_profile,omitempty"`
+	CandidateImages     *candidateClusterImages            `json:"candidate_images,omitempty"`
+	FreshResources      *freshClusterResourceAuthority     `json:"fresh_resources,omitempty"`
 	PreviousPrincipals  *projectPrincipalRegistry          `json:"previous_principals,omitempty"`
 	CandidatePrincipals *projectPrincipalRegistry          `json:"candidate_principals,omitempty"`
 }
 
+type candidateClusterImages struct {
+	Gateway    string `json:"gateway"`
+	OPA        string `json:"opa"`
+	AuthBroker string `json:"auth_broker,omitempty"`
+}
+
+func (i candidateClusterImages) Validate() error {
+	if !imageIDPattern.MatchString(i.Gateway) || !imageIDPattern.MatchString(i.OPA) {
+		return fmt.Errorf("cluster journal candidate image authority is invalid")
+	}
+	if brokerRuntimeEnabled {
+		if !imageIDPattern.MatchString(i.AuthBroker) {
+			return fmt.Errorf("cluster journal candidate Auth Broker image authority is invalid")
+		}
+	} else if i.AuthBroker != "" {
+		return fmt.Errorf("standard cluster journal contains candidate Auth Broker authority")
+	}
+	return nil
+}
+
 func (j clusterReconcileJournal) Validate() error {
+	if j.SchemaVersion == 1 {
+		if j.Operation != clusterOperationDown ||
+			(j.Phase != clusterPhaseStarted && j.Phase != clusterPhaseRuntime) ||
+			j.PreviousState != nil || j.CandidateState != nil || j.CandidateProfile != "" ||
+			j.CandidateImages != nil || j.FreshResources != nil ||
+			j.PreviousPrincipals != nil || j.CandidatePrincipals != nil {
+			return fmt.Errorf("predecessor cluster journal is not an exact down recovery record")
+		}
+		return nil
+	}
 	if j.SchemaVersion != clusterJournalSchema {
 		return fmt.Errorf("cluster journal schema version must be %d", clusterJournalSchema)
 	}
@@ -41,8 +73,11 @@ func (j clusterReconcileJournal) Validate() error {
 		return fmt.Errorf("cluster journal phase is invalid")
 	}
 	if j.Operation == clusterOperationUp {
-		if j.CandidateState == nil || j.PreviousPrincipals == nil {
+		if j.CandidateState == nil || j.PreviousPrincipals == nil || j.CandidateImages == nil {
 			return fmt.Errorf("cluster up journal omits recovery authority")
+		}
+		if err := j.CandidateImages.Validate(); err != nil {
+			return err
 		}
 		if err := j.CandidateProfile.Validate(); err != nil || j.CandidateProfile == tobari.SharedClusterProfilePrePlatform {
 			return fmt.Errorf("cluster up journal candidate profile is invalid")
@@ -57,6 +92,13 @@ func (j clusterReconcileJournal) Validate() error {
 			if j.PreviousState.SchemaVersion != 2 {
 				return fmt.Errorf("cluster up journal previous state must be schema 2")
 			}
+			if j.FreshResources != nil {
+				return fmt.Errorf("existing cluster up journal contains fresh resource authority")
+			}
+		} else if j.FreshResources == nil {
+			return fmt.Errorf("fresh cluster up journal omits resource authority")
+		} else if err := j.FreshResources.Validate(); err != nil {
+			return err
 		}
 		if err := j.PreviousPrincipals.Validate(); err != nil {
 			return fmt.Errorf("cluster up journal principals: %w", err)
@@ -64,6 +106,11 @@ func (j clusterReconcileJournal) Validate() error {
 		if j.Phase == clusterPhaseRuntime {
 			if j.CandidateState.SchemaVersion != 2 || j.CandidatePrincipals == nil {
 				return fmt.Errorf("reconciled cluster up journal omits candidate authority")
+			}
+			if j.CandidateState.Applied.GatewayImageID != j.CandidateImages.Gateway ||
+				j.CandidateState.Applied.OPAImageID != j.CandidateImages.OPA ||
+				j.CandidateState.Applied.AuthBrokerImageID != j.CandidateImages.AuthBroker {
+				return fmt.Errorf("reconciled cluster up journal candidate image authority drifted")
 			}
 			if err := j.CandidatePrincipals.Validate(); err != nil {
 				return fmt.Errorf("cluster up journal candidate principals: %w", err)
@@ -143,12 +190,13 @@ func (r *Runtime) startClusterReconcile(operation string) error {
 
 func (r *Runtime) startClusterUpReconcile(
 	previous *tobari.State, candidate tobari.State, profile tobari.SharedClusterAppliedProfile,
-	principals projectPrincipalRegistry,
+	principals projectPrincipalRegistry, freshResources *freshClusterResourceAuthority,
+	images candidateClusterImages,
 ) error {
 	return r.writeClusterJournal(clusterReconcileJournal{
 		SchemaVersion: clusterJournalSchema, Operation: clusterOperationUp, Phase: clusterPhaseStarted,
 		PreviousState: previous, CandidateState: &candidate, CandidateProfile: profile,
-		PreviousPrincipals: &principals,
+		PreviousPrincipals: &principals, FreshResources: freshResources, CandidateImages: &images,
 	})
 }
 

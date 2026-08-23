@@ -53,6 +53,9 @@ func TestStateSchemasKeepOneExactAppliedIdentityShape(t *testing.T) {
 	current.SchemaVersion = 2
 	current.Applied = SharedClusterAppliedEntry{
 		AggregateRevision: current.AggregateRevision, AssetVersion: current.AssetVersion,
+		ComposeAssets: SharedClusterComposeAssets{
+			BaseSHA256: strings.Repeat("d", 64), PermissionSHA256: strings.Repeat("e", 64),
+		},
 		GatewayImageID: "sha256:" + strings.Repeat("a", 64),
 		OPAImageID:     "sha256:" + strings.Repeat("b", 64), PermissionProfile: SharedClusterProfileUnix,
 	}
@@ -74,7 +77,7 @@ func TestStateSchemasKeepOneExactAppliedIdentityShape(t *testing.T) {
 	if err := json.Unmarshal(currentShape["applied"], &appliedShape); err != nil {
 		t.Fatal(err)
 	}
-	for _, key := range []string{"aggregate_revision", "asset_version", "gateway_image_id", "opa_image_id", "permission_profile"} {
+	for _, key := range []string{"aggregate_revision", "asset_version", "compose_assets", "gateway_image_id", "opa_image_id", "permission_profile"} {
 		if _, ok := appliedShape[key]; !ok {
 			t.Fatalf("schema-2 applied object omits %q: %s", key, currentJSON)
 		}
@@ -98,6 +101,9 @@ func TestSchemaOneReaderRejectsSchemaTwoAppliedIdentity(t *testing.T) {
 	state.SchemaVersion = 2
 	state.Applied = SharedClusterAppliedEntry{
 		AggregateRevision: state.AggregateRevision, AssetVersion: state.AssetVersion,
+		ComposeAssets: SharedClusterComposeAssets{
+			BaseSHA256: strings.Repeat("d", 64), PermissionSHA256: strings.Repeat("e", 64),
+		},
 		GatewayImageID: "sha256:" + strings.Repeat("b", 64),
 		OPAImageID:     "sha256:" + strings.Repeat("c", 64), PermissionProfile: SharedClusterProfileLoopbackTCP,
 	}
