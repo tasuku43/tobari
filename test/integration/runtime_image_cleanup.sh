@@ -30,6 +30,9 @@ capture_runtime_image_for_cleanup() {
     $observed_component == runtime-revision && $observed_runtime_id == "$expected_runtime_id" &&
     $observed_revision == "$expected_source_digest" ]] ||
     fail "managed Runtime cleanup discovery did not revalidate exact ownership"
+  # Outputs are consumed by the sourcing scenario.
+  # shellcheck disable=SC2034
   runtime_image="$repository:$tag"
+  # shellcheck disable=SC2034
   runtime_image_id=$image_id
 }

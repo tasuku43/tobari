@@ -39,10 +39,10 @@ fi
 for claim in \
   'label=io.tobari.owner=default' \
   'label=io.tobari.component=runtime-revision' \
-  'label=io.tobari.runtime-id=$expected_runtime_id' \
-  'label=io.tobari.runtime-revision=$expected_source_digest' \
-  'runtime_image="$repository:$tag"' \
-  'runtime_image_id=$image_id'; do
+  "label=io.tobari.runtime-id=\$expected_runtime_id" \
+  "label=io.tobari.runtime-revision=\$expected_source_digest" \
+  "runtime_image=\"\$repository:\$tag\"" \
+  "runtime_image_id=\$image_id"; do
   if ! grep -F "$claim" "$runtime_image_cleanup_helper" >/dev/null; then
     echo "integration scope: missing exact managed Runtime cleanup evidence: $claim" >&2
     exit 1
@@ -99,19 +99,19 @@ for claim in \
   '["runtime"]["runtime"]["runtime_ref"]' \
   'revision["availability"]["state"] == "available"' \
   'revision["source_digest"]' \
-  'capture_runtime_image_for_cleanup "$runtime_id" "$runtime_source_digest"' \
+  "capture_runtime_image_for_cleanup \"\$runtime_id\" \"\$runtime_source_digest\"" \
   'TOBARI_INTEGRATION_FAIL_AFTER_RUNTIME_CAPTURE' \
-  'run_tobari runtime build --id "$runtime_ref"' \
+  "run_tobari runtime build --id \"\$runtime_ref\"" \
   'go run ./tools/integrationfixture manifest-policy'; do
   if ! grep -F "$claim" "$scenario" >/dev/null; then
     echo "integration scope: missing Workspace Manifest public JSON canary: $claim" >&2
     exit 1
   fi
 done
-capture_line=$(grep -nF 'capture_runtime_image_for_cleanup "$runtime_id" "$runtime_source_digest"' "$scenario" | cut -d: -f1)
+capture_line=$(grep -nF "capture_runtime_image_for_cleanup \"\$runtime_id\" \"\$runtime_source_digest\"" "$scenario" | cut -d: -f1)
 failure_line=$(grep -nF 'TOBARI_INTEGRATION_FAIL_AFTER_RUNTIME_CAPTURE' "$scenario" | tail -1 | cut -d: -f1)
-container_line=$(grep -nF 'work_container=$(container_for_id "$work_id")' "$scenario" | cut -d: -f1)
-cleanup_line=$(grep -nF 'docker image rm -f "$runtime_image"' "$scenario" | cut -d: -f1)
+container_line=$(grep -nF "work_container=\$(container_for_id \"\$work_id\")" "$scenario" | cut -d: -f1)
+cleanup_line=$(grep -nF "docker image rm -f \"\$runtime_image\"" "$scenario" | cut -d: -f1)
 if [[ -z $capture_line || -z $failure_line || -z $container_line || -z $cleanup_line ||
   $capture_line -ge $failure_line || $failure_line -ge $container_line ]]; then
   echo "integration scope: managed Runtime cleanup authority is not captured before the injectable pre-container failure" >&2
