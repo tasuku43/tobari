@@ -35,6 +35,7 @@ func lifecycleSnapshot(runtimes []RuntimeManifest, protection []RuntimeProtectio
 		Runtimes:        append([]RuntimeManifest{lifecycleStandard()}, runtimes...),
 		Protection:      RuntimeProtectionInventory{Complete: true, Items: protection},
 		Materials:       materials,
+		Journals:        RuntimeLifecycleJournals{Complete: true, Active: []RuntimeLifecycleActivity{}, FailedBuilds: []RuntimeFailedBuildArtifact{}},
 	}
 }
 
@@ -193,8 +194,43 @@ func TestRuntimeMaterialObservationPreservesTagContentAndMigrationDistinctions(t
 
 	snapshot := lifecycleSnapshot([]RuntimeManifest{lifecycleRuntime(id, "frontend", revision)}, []RuntimeProtection{}, []RuntimeMaterialObservation{{RuntimeID: id, Revision: revision, Availability: RuntimeAvailabilityUnknown, MigrationUnverified: true, ObservationComplete: true}})
 	plan, err := PlanRuntimePrune(snapshot, time.Unix(10, 0).UTC())
-	if err != nil || len(plan.Blockers) != 1 || plan.Blockers[0].Reason != RuntimeBlockedByMigrationUnverified {
+	if err != nil || plan.Applicable || len(plan.Blockers) != 1 || plan.Blockers[0].Reason != RuntimeBlockedByMigrationUnverified {
 		t.Fatalf("migration-unverified blocker = %+v/%v", plan, err)
+	}
+
+	shared := lifecycleSnapshot([]RuntimeManifest{lifecycleRuntime(id, "frontend", revision)}, []RuntimeProtection{}, []RuntimeMaterialObservation{{RuntimeID: id, Revision: revision, Availability: RuntimeAvailabilityMissing, ContentPresent: true, SharedContent: true, OwnershipVerified: true, ObservationComplete: true}})
+	plan, err = PlanRuntimePrune(shared, time.Unix(10, 0).UTC())
+	if err != nil || !plan.Applicable || len(plan.Blockers) != 1 || plan.Blockers[0].Reason != RuntimeBlockedByImageTagShared {
+		t.Fatalf("tag-missing shared-content blocker = %+v/%v", plan, err)
+	}
+}
+
+func TestRuntimePrunePlanRepresentsCompleteJournalState(t *testing.T) {
+	id := "018bcfe5-687b-7000-8000-000000000077"
+	revision := "sha256:" + strings.Repeat("a", 64)
+	manifest := lifecycleRuntime(id, "frontend", revision)
+	available := RuntimeMaterialObservation{RuntimeID: id, Revision: revision, Availability: RuntimeAvailabilityAvailable, TagPresent: true, ContentPresent: true, OwnershipVerified: true, ObservationComplete: true}
+
+	incomplete := lifecycleSnapshot([]RuntimeManifest{manifest}, []RuntimeProtection{}, []RuntimeMaterialObservation{available})
+	incomplete.Journals.Complete = false
+	if _, err := PlanRuntimePrune(incomplete, time.Unix(10, 0).UTC()); err == nil {
+		t.Fatal("incomplete lifecycle journals planned")
+	}
+
+	active := lifecycleSnapshot([]RuntimeManifest{manifest}, []RuntimeProtection{}, []RuntimeMaterialObservation{available})
+	active.Journals.Active = []RuntimeLifecycleActivity{{Kind: RuntimeLifecycleActivityPrune, RuntimeID: id, Revisions: []string{revision}}}
+	plan, err := PlanRuntimePrune(active, time.Unix(10, 0).UTC())
+	if err != nil || plan.Applicable || len(plan.Candidates) != 0 || len(plan.Blockers) != 1 || plan.Blockers[0].Reason != RuntimeBlockedByActiveRetirement {
+		t.Fatalf("active retirement plan = %+v/%v", plan, err)
+	}
+
+	failedRevision := "sha256:" + strings.Repeat("e", 64)
+	failedMaterial := RuntimeMaterialObservation{RuntimeID: id, Revision: failedRevision, Availability: RuntimeAvailabilityAvailable, TagPresent: true, ContentPresent: true, OwnershipVerified: true, ObservationComplete: true}
+	failed := lifecycleSnapshot([]RuntimeManifest{manifest}, []RuntimeProtection{}, []RuntimeMaterialObservation{available})
+	failed.Journals.FailedBuilds = []RuntimeFailedBuildArtifact{{RuntimeID: id, Revision: failedRevision, RuntimeRef: RuntimeRef(id), Name: manifest.Name, Material: failedMaterial}}
+	plan, err = PlanRuntimePrune(failed, time.Unix(10, 0).UTC())
+	if err != nil || !plan.Applicable || len(plan.Candidates) != 2 || plan.Candidates[1].Kind != RuntimePruneCandidateFailedBuild || plan.Candidates[1].RevisionRef != "" || plan.Candidates[1].Ordinal != 0 {
+		t.Fatalf("journaled failed-build plan = %+v/%v", plan, err)
 	}
 }
 
@@ -219,6 +255,24 @@ func TestRuntimePrunePlanIdentityChangesWithAuthorityEvidence(t *testing.T) {
 	}
 	if candidate.PlanRef == protected.PlanRef || candidate.PlanRef == blocked.PlanRef || protected.PlanRef == blocked.PlanRef {
 		t.Fatalf("authority evidence did not change identity: %q %q %q", candidate.PlanRef, protected.PlanRef, blocked.PlanRef)
+	}
+}
+
+func TestRuntimePrunePlanIdentityIncludesCandidateKind(t *testing.T) {
+	id := "018bcfe5-687b-7000-8000-000000000077"
+	revision := "sha256:" + strings.Repeat("a", 64)
+	revisionCandidate := RuntimePruneCandidate{Kind: RuntimePruneCandidateRevision, RuntimeID: id, Revision: revision, RuntimeRef: RuntimeRef(id), RevisionRef: RuntimeRevisionRef(id, revision), Name: "frontend", Ordinal: 1}
+	failedCandidate := RuntimePruneCandidate{Kind: RuntimePruneCandidateFailedBuild, RuntimeID: id, Revision: revision, RuntimeRef: RuntimeRef(id), Name: "frontend"}
+	revisionRef, err := runtimePrunePlanAuthorityRef([]RuntimePruneCandidate{revisionCandidate}, []RuntimeProtection{}, []RuntimeMaterialBlocker{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	failedRef, err := runtimePrunePlanAuthorityRef([]RuntimePruneCandidate{failedCandidate}, []RuntimeProtection{}, []RuntimeMaterialBlocker{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if revisionRef == failedRef {
+		t.Fatalf("candidate kind did not change plan authority: %q", revisionRef)
 	}
 }
 
@@ -281,6 +335,7 @@ func TestRuntimePrunePlanValidateRequiresCanonicalProtectionAndBlockerOrder(t *t
 		Task:       TaskRuntimePruneDryRun,
 		ObservedAt: time.Unix(10, 0).UTC(),
 		Empty:      true,
+		Applicable: true,
 		Candidates: []RuntimePruneCandidate{},
 		Protected:  protections,
 		Blockers:   blockers,
@@ -310,6 +365,36 @@ func TestRuntimePrunePlanValidateRequiresCanonicalProtectionAndBlockerOrder(t *t
 	}
 	if err := plan.Validate(); err != nil {
 		t.Fatalf("canonical direct plan: %v", err)
+	}
+}
+
+func TestRuntimePrunePlanValidateRejectsCandidateProtectionOrBlockerOverlap(t *testing.T) {
+	id := "018bcfe5-687b-7000-8000-000000000077"
+	revision := "sha256:" + strings.Repeat("a", 64)
+	available := RuntimeMaterialObservation{RuntimeID: id, Revision: revision, Availability: RuntimeAvailabilityAvailable, TagPresent: true, ContentPresent: true, OwnershipVerified: true, ObservationComplete: true}
+	valid, err := PlanRuntimePrune(lifecycleSnapshot([]RuntimeManifest{lifecycleRuntime(id, "frontend", revision)}, []RuntimeProtection{}, []RuntimeMaterialObservation{available}), time.Unix(10, 0).UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	protectionOverlap := valid
+	protectionOverlap.Protected = []RuntimeProtection{{RuntimeID: id, RuntimeRevision: revision, Reason: RuntimeProtectedByManifestCurrent, WorkspaceManifestID: "018bcfe5-687b-7000-8000-000000000088", ManifestRevision: "sha256:" + strings.Repeat("d", 64)}}
+	protectionOverlap.PlanRef, err = runtimePrunePlanAuthorityRef(protectionOverlap.Candidates, protectionOverlap.Protected, protectionOverlap.Blockers)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := protectionOverlap.Validate(); err == nil {
+		t.Fatal("candidate/protection overlap validated")
+	}
+
+	blockerOverlap := valid
+	blockerOverlap.Blockers = []RuntimeMaterialBlocker{{RuntimeID: id, Revision: revision, Reason: RuntimeBlockedByExternalContainer}}
+	blockerOverlap.PlanRef, err = runtimePrunePlanAuthorityRef(blockerOverlap.Candidates, blockerOverlap.Protected, blockerOverlap.Blockers)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := blockerOverlap.Validate(); err == nil {
+		t.Fatal("candidate/blocker overlap validated")
 	}
 }
 
