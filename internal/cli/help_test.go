@@ -732,6 +732,8 @@ func TestScopedAgentHelpPublishesRecursiveProducedReferencePaths(t *testing.T) {
 	catalog := NewCatalog(
 		producer,
 		actSpec("runtime inspect", "runtime", "--id"),
+		actSpec("owners inspect", "owner", "--id"),
+		actSpec("identifiers inspect", "identifier", "--id"),
 		actSpec("runtime revision inspect", "runtime-revision", "--id"),
 		actSpec("runtime prune inspect", "runtime-prune-plan", "--plan"),
 	)
@@ -750,6 +752,8 @@ func TestScopedAgentHelpPublishesRecursiveProducedReferencePaths(t *testing.T) {
 	}
 	want := []ProducedRef{
 		{Kind: "runtime", Field: "items[].runtime_ref"},
+		{Kind: "owner", Field: "metadata.owner_ref"},
+		{Kind: "identifier", Field: "ids[]"},
 		{Kind: "runtime-revision", Field: "revisions[].revision_ref"},
 		{Kind: "runtime-prune-plan", Field: "plan_ref"},
 	}

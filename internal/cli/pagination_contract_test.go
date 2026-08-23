@@ -260,6 +260,22 @@ func TestPaginationContractFailsClosed(t *testing.T) {
 	}
 }
 
+func TestCatalogRejectsProducedReferencePathCollisionWithPaginationCursor(t *testing.T) {
+	spec := pagedDiscoverSpec("items list", "item", "item-page")
+	spec.Agent.Output.Fields = append(spec.Agent.Output.Fields, OutputField{
+		Name: "next_cursor", Type: OutputFieldTypeString,
+		Description: "Conflicting item reference at the cursor field path.", ReferenceKind: "other-item",
+	})
+	consumers := []CommandSpec{
+		actSpec("items read", "item", "--id"),
+		actSpec("other items read", "other-item", "--id"),
+	}
+	err := NewCatalog(append([]CommandSpec{spec}, consumers...)...).Validate()
+	if err == nil || !strings.Contains(err.Error(), `produced reference field path "next_cursor" is declared for both "other-item" and "item-page"`) {
+		t.Fatalf("cursor/path collision error = %v", err)
+	}
+}
+
 func TestPaginationCursorKindIsDedicatedToOneCommand(t *testing.T) {
 	tests := map[string]CommandSpec{
 		"other producer":      discoverSpec("items related", "item-page"),

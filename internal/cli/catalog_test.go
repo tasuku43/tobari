@@ -125,6 +125,15 @@ func recursiveReferenceProducerSpec() CommandSpec {
 			}},
 		},
 		{
+			Name: "metadata", Type: OutputFieldTypeObject, Description: "Reference metadata.", Fields: []OutputField{
+				{Name: "owner_ref", Type: OutputFieldTypeString, Description: "Opaque owner reference.", ReferenceKind: "owner"},
+			},
+		},
+		{
+			Name: "ids", Type: OutputFieldTypeArray, Description: "Opaque identifier references.",
+			Items: &OutputField{Type: OutputFieldTypeString, Description: "One opaque identifier reference.", ReferenceKind: "identifier"},
+		},
+		{
 			Name: "revisions", Type: OutputFieldTypeArray, Description: "Runtime revision selections.",
 			Items: &OutputField{Type: OutputFieldTypeObject, Description: "One runtime revision selection.", Fields: []OutputField{
 				{Name: "revision_ref", Type: OutputFieldTypeString, Description: "Opaque Runtime revision reference.", Optional: true, ReferenceKind: "runtime-revision"},
@@ -1003,6 +1012,8 @@ func TestRecursiveOutputReferencesDriveCatalogGraphAndCanonicalPaths(t *testing.
 	producer := recursiveReferenceProducerSpec()
 	want := []ProducedRef{
 		{Kind: "runtime", Field: "items[].runtime_ref"},
+		{Kind: "owner", Field: "metadata.owner_ref"},
+		{Kind: "identifier", Field: "ids[]"},
 		{Kind: "runtime-revision", Field: "revisions[].revision_ref"},
 		{Kind: "runtime-prune-plan", Field: "plan_ref"},
 	}
@@ -1018,6 +1029,8 @@ func TestRecursiveOutputReferencesDriveCatalogGraphAndCanonicalPaths(t *testing.
 	commands := []CommandSpec{
 		producer,
 		actSpec("runtime inspect", "runtime", "--id"),
+		actSpec("owners inspect", "owner", "--id"),
+		actSpec("identifiers inspect", "identifier", "--id"),
 		actSpec("runtime revision inspect", "runtime-revision", "--id"),
 		actSpec("runtime prune inspect", "runtime-prune-plan", "--plan"),
 	}
