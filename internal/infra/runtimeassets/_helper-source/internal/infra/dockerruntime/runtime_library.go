@@ -1011,7 +1011,7 @@ func (r *Runtime) publishManagedRuntimeFinalTag(ctx context.Context, journal run
 }
 
 func (r *Runtime) releaseManagedRuntimeStagingTag(ctx context.Context, journal runtimeBuildJournal) error {
-	digest, err := r.inspectManagedRuntimeBuildEvidence(ctx, journal.StagingImage, journal.RuntimeID, journal.Revision)
+	digest, err := r.inspectManagedRuntimeBuildEvidence(ctx, journal.StagingImage, journal.RuntimeID, journal.Revision, journal.AttemptID)
 	if errors.Is(err, errManagedRuntimeImageMissing) {
 		return nil
 	}
@@ -1019,7 +1019,7 @@ func (r *Runtime) releaseManagedRuntimeStagingTag(ctx context.Context, journal r
 		return fmt.Errorf("Runtime staging tag authority changed before release: %w", err)
 	}
 	removeErr := r.runner.Run(ctx, []string{"image", "rm", journal.StagingImage}, os.Environ(), nil, io.Discard, io.Discard)
-	_, observeErr := r.inspectManagedRuntimeBuildEvidence(ctx, journal.StagingImage, journal.RuntimeID, journal.Revision)
+	_, observeErr := r.inspectManagedRuntimeBuildEvidence(ctx, journal.StagingImage, journal.RuntimeID, journal.Revision, journal.AttemptID)
 	if errors.Is(observeErr, errManagedRuntimeImageMissing) {
 		return nil
 	}
@@ -1376,6 +1376,7 @@ func (r *Runtime) buildManagedRuntimeLifecycleLocked(ctx context.Context, name, 
 			"--label", componentLabel + "=" + managedRuntimeComponentLabel,
 			"--label", managedRuntimeIDLabel + "=" + manifest.ID,
 			"--label", managedRuntimeRevisionLabel + "=" + revision,
+			"--label", managedRuntimeBuildAttemptLabel + "=" + journal.AttemptID,
 		}
 		if pullBase {
 			args = append(args, "--pull")
@@ -1397,7 +1398,7 @@ func (r *Runtime) buildManagedRuntimeLifecycleLocked(ctx context.Context, name, 
 		if err := r.validateCompatibleImage(ctx, image); err != nil {
 			return r.retainRuntimeBuildFailure(ctx, journal, err)
 		}
-		imageDigest, err := r.inspectManagedRuntimeBuildEvidence(ctx, image, manifest.ID, revision)
+		imageDigest, err := r.inspectManagedRuntimeBuildEvidence(ctx, image, manifest.ID, revision, journal.AttemptID)
 		if err != nil {
 			return r.retainRuntimeBuildFailure(ctx, journal, err)
 		}

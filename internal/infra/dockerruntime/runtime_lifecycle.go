@@ -139,12 +139,15 @@ func (r *Runtime) ReadRuntimeLifecycleSnapshot(ctx context.Context) (tobari.Runt
 }
 
 // ReadRuntimeBuildRecovery observes one active build journal without creating
-// state or consulting Docker. The returned stable Runtime reference is the
-// only authority accepted by the separate review-confirmed mutation boundary.
+// state. Failed attempts use bounded Docker observation before becoming
+// actionable. The returned stable Runtime reference is the only authority
+// accepted by the separate review-confirmed mutation boundary.
 func (r *Runtime) ReadRuntimeBuildRecovery(ctx context.Context) (tobari.RuntimeBuildRecovery, bool, error) {
+	observationContext, cancel := r.runtimeBuildRecoveryContext(ctx)
+	defer cancel()
 	var result tobari.RuntimeBuildRecovery
 	found := false
-	err := r.withLifecycleObservation(ctx, func(lockContext context.Context) error {
+	err := r.withLifecycleObservation(observationContext, func(lockContext context.Context) error {
 		journal, err := r.readStrictRuntimeBuildJournalInventory()
 		if err != nil || journal == nil {
 			return err
@@ -176,6 +179,9 @@ func (r *Runtime) ReadRuntimeBuildRecovery(ctx context.Context) (tobari.RuntimeB
 		case runtimeBuildPhaseOrphanStaging:
 			kind = tobari.RuntimeBuildRecoveryOrphan
 		case runtimeBuildPhaseFailed:
+			if _, err := r.observeRuntimeFailedAttempt(observationContext, *journal); err != nil {
+				return err
+			}
 			kind = tobari.RuntimeBuildRecoveryFailed
 		default:
 			return fmt.Errorf("Runtime build recovery phase is invalid")

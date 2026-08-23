@@ -1,6 +1,7 @@
 package dockerruntime
 
 import (
+	"encoding/hex"
 	"fmt"
 	"io"
 	"time"
@@ -13,6 +14,17 @@ import (
 type identityIssuer struct {
 	now     func() time.Time
 	entropy io.Reader
+}
+
+func (i identityIssuer) newRuntimeBuildAttemptID() (string, error) {
+	if i.entropy == nil {
+		return "", fmt.Errorf("identity entropy source is required")
+	}
+	var raw [32]byte
+	if _, err := io.ReadFull(i.entropy, raw[:]); err != nil {
+		return "", fmt.Errorf("read Runtime build attempt entropy: %w", err)
+	}
+	return hex.EncodeToString(raw[:]), nil
 }
 
 func (i identityIssuer) newWorkspaceManifestID() (string, error) {

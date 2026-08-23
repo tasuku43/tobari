@@ -28,6 +28,8 @@ type managedRuntimeBuildRunner struct {
 	runs                 []runnerCall
 	outputs              []runnerCall
 	images               map[string]managedRuntimeTestImage
+	containerLists       map[string]string
+	containers           map[string]runtimeContainerObservation
 	failBuild            bool
 	corruptEvidence      string
 	duringBuild          func(string)
@@ -42,10 +44,33 @@ type managedRuntimeBuildRunner struct {
 }
 
 func newManagedRuntimeBuildRunner() *managedRuntimeBuildRunner {
-	return &managedRuntimeBuildRunner{images: make(map[string]managedRuntimeTestImage)}
+	return &managedRuntimeBuildRunner{images: make(map[string]managedRuntimeTestImage), containerLists: make(map[string]string), containers: make(map[string]runtimeContainerObservation)}
 }
 
 func (r *managedRuntimeBuildRunner) Run(ctx context.Context, args, _ []string, _ io.Reader, out, errOut io.Writer) error {
+	if len(args) >= 2 && args[0] == "container" && args[1] == "ls" {
+		r.outputs = append(r.outputs, runnerCall{args: append([]string{}, args...)})
+		for _, arg := range args {
+			if strings.HasPrefix(arg, "ancestor=") {
+				_, err := io.WriteString(out, r.containerLists[strings.TrimPrefix(arg, "ancestor=")])
+				return err
+			}
+		}
+		return fmt.Errorf("container discovery lacks exact image filter")
+	}
+	if len(args) >= 5 && args[0] == "container" && args[1] == "inspect" {
+		r.outputs = append(r.outputs, runnerCall{args: append([]string{}, args...)})
+		observed, ok := r.containers[args[4]]
+		if !ok {
+			return errors.New("synthetic container disappeared")
+		}
+		encoded, err := json.Marshal(observed)
+		if err != nil {
+			return err
+		}
+		_, err = out.Write(encoded)
+		return err
+	}
 	if len(args) >= 5 && args[0] == "image" && args[1] == "inspect" {
 		r.outputs = append(r.outputs, runnerCall{args: append([]string{}, args...)})
 		if strings.Contains(args[3], tobari.RuntimeImageAPILabel) {
@@ -77,7 +102,7 @@ func (r *managedRuntimeBuildRunner) Run(ctx context.Context, args, _ []string, _
 			_, _ = io.WriteString(out, strings.Repeat("x", 8192))
 			return nil
 		}
-		evidence := managedRuntimeBuildEvidence{ID: image.id, Owner: image.labels[ownerLabel], Component: image.labels[componentLabel], RuntimeID: image.labels[managedRuntimeIDLabel], Revision: image.labels[managedRuntimeRevisionLabel]}
+		evidence := managedRuntimeBuildEvidence{ID: image.id, Owner: image.labels[ownerLabel], Component: image.labels[componentLabel], RuntimeID: image.labels[managedRuntimeIDLabel], Revision: image.labels[managedRuntimeRevisionLabel], AttemptID: image.labels[managedRuntimeBuildAttemptLabel]}
 		switch r.corruptEvidence {
 		case "digest":
 			evidence.ID = "not-a-digest"
@@ -508,7 +533,7 @@ func TestManagedRuntimeBuildEvidenceRequiresExactOwnershipAndDigestPublication(t
 	if err != nil {
 		t.Fatal(err)
 	}
-	journal := runtimeBuildJournal{SchemaVersion: runtimeBuildJournalSchema, Phase: runtimeBuildPhaseBuilt, RuntimeID: id, RuntimeName: "frontend", Revision: revision, StagingImage: tag, FinalImage: final, ImageDigest: "sha256:" + strings.Repeat("c", 64), SnapshotPath: runtime.runtimeBuildSnapshotPath(), StagingArtifact: runtimeBuildStagingOwned, AttemptSettlement: runtimeBuildAttemptSettled, CreatedAt: "2026-01-02T03:04:05Z"}
+	journal := runtimeBuildJournal{SchemaVersion: runtimeBuildJournalSchema, Phase: runtimeBuildPhaseBuilt, RuntimeID: id, RuntimeName: "frontend", AttemptID: strings.Repeat("1", 64), Revision: revision, StagingImage: tag, FinalImage: final, ImageDigest: "sha256:" + strings.Repeat("c", 64), SnapshotPath: runtime.runtimeBuildSnapshotPath(), StagingArtifact: runtimeBuildStagingOwned, AttemptSettlement: runtimeBuildAttemptSettled, CreatedAt: "2026-01-02T03:04:05Z"}
 	if err := runtime.publishManagedRuntimeTag(context.Background(), journal); err == nil {
 		t.Fatal("published Runtime tag with different digest was accepted")
 	}
@@ -775,13 +800,230 @@ func exactBuildingRuntimeBuildFixture(t *testing.T) (*Runtime, *managedRuntimeBu
 	runner.images[building.StagingImage] = managedRuntimeTestImage{
 		id: "sha256:" + strings.Repeat("c", 64),
 		labels: map[string]string{
-			ownerLabel:                  ownerValue,
-			componentLabel:              managedRuntimeComponentLabel,
-			managedRuntimeIDLabel:       building.RuntimeID,
-			managedRuntimeRevisionLabel: building.Revision,
+			ownerLabel:                      ownerValue,
+			componentLabel:                  managedRuntimeComponentLabel,
+			managedRuntimeIDLabel:           building.RuntimeID,
+			managedRuntimeRevisionLabel:     building.Revision,
+			managedRuntimeBuildAttemptLabel: building.AttemptID,
 		},
 	}
 	return runtime, runner, building
+}
+
+func failedRuntimeBuildAttemptFixture(t *testing.T, artifact string) (*Runtime, *managedRuntimeBuildRunner, runtimeBuildJournal) {
+	t.Helper()
+	runtime, runner, building := exactBuildingRuntimeBuildFixture(t)
+	failed := building
+	failed.Phase = runtimeBuildPhaseFailed
+	failed.StagingArtifact = artifact
+	failed.AttemptSettlement = runtimeBuildAttemptUnsettled
+	if artifact == runtimeBuildStagingOwned {
+		failed.ImageDigest = runner.images[building.StagingImage].id
+	} else {
+		delete(runner.images, building.StagingImage)
+	}
+	if err := runtime.writeRuntimeBuildJournal(building, failed); err != nil {
+		t.Fatal(err)
+	}
+	runtimeRoot := runtime.runtimeDirectory(failed.RuntimeName)
+	if err := os.MkdirAll(filepath.Join(runtimeRoot, "source"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(runtimeRoot, "revisions"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(runtimeRoot, "source", "Dockerfile"), []byte("FROM scratch\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	manifest := tobari.RuntimeManifest{SchemaVersion: tobari.RuntimeSchemaVersion, ID: failed.RuntimeID, Name: failed.RuntimeName, Kind: tobari.RuntimeKindManaged, SourcePath: filepath.Join(runtimeRoot, "source"), Revisions: []tobari.RuntimeRevision{}}
+	if err := writeAtomicJSON(runtime.runtimeManifestPath(failed.RuntimeName), manifest); err != nil {
+		t.Fatal(err)
+	}
+	if err := runtime.WithLifecycleLock(context.Background(), func(context.Context) error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+	return runtime, runner, failed
+}
+
+func TestFailedRuntimeBuildSettlementClosesOwnedAndAbsentAttempts(t *testing.T) {
+	for _, artifact := range []string{runtimeBuildStagingOwned, runtimeBuildStagingAbsent} {
+		t.Run(artifact, func(t *testing.T) {
+			runtime, runner, failed := failedRuntimeBuildAttemptFixture(t, artifact)
+			before, err := os.ReadFile(runtime.runtimeBuildJournalPath())
+			if err != nil {
+				t.Fatal(err)
+			}
+			for review := 0; review < 2; review++ {
+				recovery, found, err := runtime.ReadRuntimeBuildRecovery(context.Background())
+				if err != nil || !found || recovery.Kind != tobari.RuntimeBuildRecoveryFailed || recovery.RuntimeRef != tobari.RuntimeRef(failed.RuntimeID) {
+					t.Fatalf("failed recovery review = %+v/%t/%v", recovery, found, err)
+				}
+			}
+			after, err := os.ReadFile(runtime.runtimeBuildJournalPath())
+			if err != nil || !bytes.Equal(before, after) {
+				t.Fatalf("repeated review mutated failed journal: equal=%t err=%v", bytes.Equal(before, after), err)
+			}
+
+			if err := runtime.RecoverRuntimeBuildFailed(context.Background()); err != nil {
+				t.Fatalf("settle and clean failed attempt: %v", err)
+			}
+			if journal, err := runtime.readRuntimeBuildJournalObserved(); err != nil || journal != nil {
+				t.Fatalf("failed cleanup retained journal = %+v/%v", journal, err)
+			}
+			if _, exists := runner.images[failed.StagingImage]; exists {
+				t.Fatal("failed cleanup retained exact staging image")
+			}
+			if _, err := runtime.BuildManagedRuntime(context.Background(), failed.RuntimeName, io.Discard); err != nil {
+				t.Fatalf("next build remained unreachable: %v", err)
+			}
+		})
+	}
+}
+
+func TestFailedRuntimeBuildUnknownOrInUseIsNonActionableAndZeroWrite(t *testing.T) {
+	t.Run("unknown", func(t *testing.T) {
+		runtime, runner, _ := failedRuntimeBuildAttemptFixture(t, runtimeBuildStagingUnknown)
+		runner.inspectFailure = "synthetic Docker observation failure"
+		before, err := os.ReadFile(runtime.runtimeBuildJournalPath())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, found, err := runtime.ReadRuntimeBuildRecovery(context.Background()); err == nil || found {
+			t.Fatalf("unknown failed attempt was actionable = %t/%v", found, err)
+		}
+		if err := runtime.RecoverRuntimeBuildFailed(context.Background()); err == nil {
+			t.Fatal("unknown failed attempt crossed mutation")
+		}
+		after, err := os.ReadFile(runtime.runtimeBuildJournalPath())
+		if err != nil || !bytes.Equal(before, after) {
+			t.Fatalf("unknown observation mutated journal: equal=%t err=%v", bytes.Equal(before, after), err)
+		}
+	})
+
+	t.Run("attempt label mismatch", func(t *testing.T) {
+		runtime, runner, failed := failedRuntimeBuildAttemptFixture(t, runtimeBuildStagingOwned)
+		image := runner.images[failed.StagingImage]
+		image.labels[managedRuntimeBuildAttemptLabel] = strings.Repeat("2", 64)
+		runner.images[failed.StagingImage] = image
+		before, err := os.ReadFile(runtime.runtimeBuildJournalPath())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, found, err := runtime.ReadRuntimeBuildRecovery(context.Background()); err == nil || found {
+			t.Fatalf("mismatched failed attempt was actionable = %t/%v", found, err)
+		}
+		after, err := os.ReadFile(runtime.runtimeBuildJournalPath())
+		if err != nil || !bytes.Equal(before, after) {
+			t.Fatalf("mismatched attempt mutated journal: equal=%t err=%v", bytes.Equal(before, after), err)
+		}
+	})
+
+	t.Run("in use", func(t *testing.T) {
+		runtime, runner, failed := failedRuntimeBuildAttemptFixture(t, runtimeBuildStagingOwned)
+		containerID := strings.Repeat("e", 64)
+		runner.containerLists[failed.ImageDigest] = containerID + "\n"
+		runner.containers[containerID] = runtimeContainerObservation{ID: containerID, Image: failed.ImageDigest}
+		before, err := os.ReadFile(runtime.runtimeBuildJournalPath())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, found, err := runtime.ReadRuntimeBuildRecovery(context.Background()); err == nil || found {
+			t.Fatalf("in-use failed artifact was actionable = %t/%v", found, err)
+		}
+		after, err := os.ReadFile(runtime.runtimeBuildJournalPath())
+		if err != nil || !bytes.Equal(before, after) {
+			t.Fatalf("in-use review mutated journal: equal=%t err=%v", bytes.Equal(before, after), err)
+		}
+	})
+}
+
+func TestFailedRuntimeBuildLateEffectRemainsAttributable(t *testing.T) {
+	runtime, runner, failed := failedRuntimeBuildAttemptFixture(t, runtimeBuildStagingAbsent)
+	runtime.runtimeBuildCompletionWrite = func(runtimeBuildJournal) error { return errors.New("synthetic interruption after settlement") }
+	if err := runtime.RecoverRuntimeBuildFailed(context.Background()); err == nil {
+		t.Fatal("failed recovery crossed settlement interruption")
+	}
+	settled, err := runtime.readRuntimeBuildJournalObserved()
+	if err != nil || settled == nil || settled.Phase != runtimeBuildPhaseFailed || settled.AttemptSettlement != runtimeBuildAttemptSettled || settled.StagingArtifact != runtimeBuildStagingAbsent {
+		t.Fatalf("interrupted settlement authority = %+v/%v", settled, err)
+	}
+	runtime.runtimeBuildCompletionWrite = nil
+	lateDigest := "sha256:" + strings.Repeat("f", 64)
+	runner.images[failed.StagingImage] = managedRuntimeTestImage{id: lateDigest, labels: map[string]string{
+		ownerLabel: ownerValue, componentLabel: managedRuntimeComponentLabel,
+		managedRuntimeIDLabel: failed.RuntimeID, managedRuntimeRevisionLabel: failed.Revision,
+		managedRuntimeBuildAttemptLabel: failed.AttemptID,
+	}}
+	if _, found, err := runtime.ReadRuntimeBuildRecovery(context.Background()); err != nil || !found {
+		t.Fatalf("late exact effect was not reviewable = %t/%v", found, err)
+	}
+	if err := runtime.RecoverRuntimeBuildFailed(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, exists := runner.images[failed.StagingImage]; exists {
+		t.Fatal("reviewed late effect remained after same-command retry")
+	}
+	if journal, err := runtime.readRuntimeBuildJournalObserved(); err != nil || journal != nil {
+		t.Fatalf("same-command retry retained authority = %+v/%v", journal, err)
+	}
+}
+
+func TestFailedRuntimeBuildInterruptedCleanupResumesThroughSameReviewRecovery(t *testing.T) {
+	runtime, runner, failed := failedRuntimeBuildAttemptFixture(t, runtimeBuildStagingAbsent)
+	runtime.runtimeBuildCompletionWrite = func(completing runtimeBuildJournal) error {
+		if err := writeAtomicJSON(runtime.runtimeBuildJournalPath(), completing); err != nil {
+			return err
+		}
+		return errors.New("synthetic interruption after cleanup authority write")
+	}
+	runtime.runtimeBuildDirectorySync = func(string) error { return errors.New("synthetic interrupted directory sync") }
+	if err := runtime.RecoverRuntimeBuildFailed(context.Background()); err == nil {
+		t.Fatalf("interrupted failed cleanup = %v", err)
+	}
+	runtime.runtimeBuildCompletionWrite = nil
+	runtime.runtimeBuildDirectorySync = nil
+	completing, err := runtime.readRuntimeBuildJournalObserved()
+	if err != nil || completing == nil || completing.Phase != runtimeBuildPhaseCompleting || completing.CleanupFrom != runtimeBuildPhaseFailed || completing.StagingArtifact != runtimeBuildStagingAbsent || completing.RemoveStaging {
+		t.Fatalf("interrupted cleanup authority = %+v/%v", completing, err)
+	}
+
+	lateDigest := "sha256:" + strings.Repeat("a", 64)
+	runner.images[failed.StagingImage] = managedRuntimeTestImage{id: lateDigest, labels: map[string]string{
+		ownerLabel: ownerValue, componentLabel: managedRuntimeComponentLabel,
+		managedRuntimeIDLabel: failed.RuntimeID, managedRuntimeRevisionLabel: failed.Revision,
+		managedRuntimeBuildAttemptLabel: failed.AttemptID,
+	}}
+	recovery, found, err := runtime.ReadRuntimeBuildRecovery(context.Background())
+	if err != nil || !found || recovery.Kind != tobari.RuntimeBuildRecoveryCleanup || recovery.RuntimeRef != tobari.RuntimeRef(failed.RuntimeID) {
+		t.Fatalf("interrupted cleanup review = %+v/%t/%v", recovery, found, err)
+	}
+	if err := runtime.RecoverRuntimeBuildByReference(context.Background(), string(recovery.RuntimeRef), recovery.Kind); err != nil {
+		t.Fatalf("same review recovery retry: %v", err)
+	}
+	if _, exists := runner.images[failed.StagingImage]; exists {
+		t.Fatal("reviewed late effect remained after cleanup retry")
+	}
+	if journal, err := runtime.readRuntimeBuildJournalObserved(); err != nil || journal != nil {
+		t.Fatalf("cleanup retry retained authority = %+v/%v", journal, err)
+	}
+}
+
+func TestRuntimeBuildJournalRequiresAttemptIdentity(t *testing.T) {
+	runtime, _, building := exactBuildingRuntimeBuildFixture(t)
+	building.AttemptID = ""
+	if err := building.Validate(runtime); err == nil {
+		t.Fatal("Runtime build journal accepted missing attempt identity")
+	}
+	previous := building
+	previous.AttemptID = strings.Repeat("1", 64)
+	next := previous
+	next.Phase = runtimeBuildPhaseFailed
+	next.AttemptID = strings.Repeat("2", 64)
+	next.StagingArtifact = runtimeBuildStagingAbsent
+	next.AttemptSettlement = runtimeBuildAttemptUnsettled
+	if err := validateRuntimeBuildJournalTransition(previous, next); err == nil {
+		t.Fatal("Runtime build transition accepted changed attempt identity")
+	}
 }
 
 func TestRuntimeBuildingRecoveryClosesOutcomeUnknownWithoutInferringCleanup(t *testing.T) {

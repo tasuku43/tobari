@@ -3,6 +3,7 @@ package dockerruntime
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -47,6 +48,7 @@ const (
 	managedRuntimeComponentLabel           = "runtime-revision"
 	managedRuntimeIDLabel                  = "io.tobari.runtime-id"
 	managedRuntimeRevisionLabel            = "io.tobari.runtime-revision"
+	managedRuntimeBuildAttemptLabel        = "io.tobari.runtime-build-attempt"
 	runtimeBuildRecoveryObservationTimeout = 30 * time.Second
 )
 
@@ -63,6 +65,7 @@ type runtimeBuildJournal struct {
 	Phase             string `json:"phase"`
 	RuntimeID         string `json:"runtime_id"`
 	RuntimeName       string `json:"runtime_name"`
+	AttemptID         string `json:"attempt_id"`
 	Revision          string `json:"revision,omitempty"`
 	StagingImage      string `json:"staging_image,omitempty"`
 	FinalImage        string `json:"final_image,omitempty"`
@@ -131,7 +134,7 @@ func (r *Runtime) runtimeBuildSnapshotPath() string {
 }
 
 func (j runtimeBuildJournal) Validate(r *Runtime) error {
-	if j.SchemaVersion != runtimeBuildJournalSchema || tobari.ValidateRuntimeID(j.RuntimeID) != nil || tobari.ValidateName(j.RuntimeName) != nil || j.SnapshotPath != r.runtimeBuildSnapshotPath() {
+	if j.SchemaVersion != runtimeBuildJournalSchema || tobari.ValidateRuntimeID(j.RuntimeID) != nil || tobari.ValidateName(j.RuntimeName) != nil || !validRuntimeBuildAttemptID(j.AttemptID) || j.SnapshotPath != r.runtimeBuildSnapshotPath() {
 		return fmt.Errorf("Runtime build journal authority is invalid")
 	}
 	if j.Phase == runtimeBuildPhaseCompleting {
@@ -231,6 +234,14 @@ func managedRuntimeStagingImage(runtimeID, revision string) string {
 	return "tobari-runtime-build-" + runtimeID + ":" + digest
 }
 
+func validRuntimeBuildAttemptID(value string) bool {
+	if len(value) != 64 {
+		return false
+	}
+	decoded, err := hex.DecodeString(value)
+	return err == nil && len(decoded) == 32 && value == strings.ToLower(value)
+}
+
 func (r *Runtime) beginRuntimeBuildJournal(ctx context.Context, runtimeID, runtimeName string) (runtimeBuildJournal, error) {
 	if err := r.ensurePrivateDirectory(r.runtimeLifecycleDirectory()); err != nil {
 		return runtimeBuildJournal{}, err
@@ -247,7 +258,11 @@ func (r *Runtime) beginRuntimeBuildJournal(ctx context.Context, runtimeID, runti
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return runtimeBuildJournal{}, err
 	}
-	journal := runtimeBuildJournal{SchemaVersion: runtimeBuildJournalSchema, Phase: runtimeBuildPhaseSnapshotting, RuntimeID: runtimeID, RuntimeName: runtimeName, SnapshotPath: snapshot}
+	attemptID, err := r.identities.newRuntimeBuildAttemptID()
+	if err != nil {
+		return runtimeBuildJournal{}, err
+	}
+	journal := runtimeBuildJournal{SchemaVersion: runtimeBuildJournalSchema, Phase: runtimeBuildPhaseSnapshotting, RuntimeID: runtimeID, RuntimeName: runtimeName, AttemptID: attemptID, SnapshotPath: snapshot}
 	if err := journal.Validate(r); err != nil {
 		return runtimeBuildJournal{}, err
 	}
@@ -319,7 +334,7 @@ func (r *Runtime) validateRuntimeBuildCleanupStart(origin runtimeBuildJournal) e
 }
 
 func validateRuntimeBuildJournalTransition(previous, next runtimeBuildJournal) error {
-	if previous.SchemaVersion != next.SchemaVersion || previous.RuntimeID != next.RuntimeID || previous.RuntimeName != next.RuntimeName || previous.SnapshotPath != next.SnapshotPath {
+	if previous.SchemaVersion != next.SchemaVersion || previous.RuntimeID != next.RuntimeID || previous.RuntimeName != next.RuntimeName || previous.AttemptID != next.AttemptID || previous.SnapshotPath != next.SnapshotPath {
 		return fmt.Errorf("Runtime build journal identity changed")
 	}
 	if previous.Revision != "" && (previous.Revision != next.Revision || previous.StagingImage != next.StagingImage || previous.FinalImage != next.FinalImage) {
@@ -335,6 +350,27 @@ func validateRuntimeBuildJournalTransition(previous, next runtimeBuildJournal) e
 			return fmt.Errorf("Runtime build journal post-target authority changed")
 		}
 	}
+	failedSettlement := previous.Phase == runtimeBuildPhaseFailed && next.Phase == runtimeBuildPhaseFailed && previous.AttemptSettlement == runtimeBuildAttemptUnsettled && next.AttemptSettlement == runtimeBuildAttemptSettled
+	lateOwnedSettlement := previous.Phase == runtimeBuildPhaseFailed && next.Phase == runtimeBuildPhaseFailed && previous.AttemptSettlement == runtimeBuildAttemptSettled && next.AttemptSettlement == runtimeBuildAttemptSettled && previous.StagingArtifact == runtimeBuildStagingAbsent && next.StagingArtifact == runtimeBuildStagingOwned
+	lateOwnedCleanup := previous.Phase == runtimeBuildPhaseCompleting && next.Phase == runtimeBuildPhaseCompleting && previous.CleanupFrom == runtimeBuildPhaseFailed && next.CleanupFrom == runtimeBuildPhaseFailed && previous.AttemptSettlement == runtimeBuildAttemptSettled && next.AttemptSettlement == runtimeBuildAttemptSettled && previous.StagingArtifact == runtimeBuildStagingAbsent && next.StagingArtifact == runtimeBuildStagingOwned
+	if failedSettlement || lateOwnedSettlement {
+		expected := previous
+		expected.AttemptSettlement = next.AttemptSettlement
+		expected.StagingArtifact = next.StagingArtifact
+		expected.ImageDigest = next.ImageDigest
+		if expected != next || (next.StagingArtifact != runtimeBuildStagingOwned && next.StagingArtifact != runtimeBuildStagingAbsent) || (next.StagingArtifact == runtimeBuildStagingOwned) != (next.ImageDigest != "") {
+			return fmt.Errorf("Runtime failed build settlement authority changed")
+		}
+	}
+	if lateOwnedCleanup {
+		expected := previous
+		expected.StagingArtifact = runtimeBuildStagingOwned
+		expected.ImageDigest = next.ImageDigest
+		expected.RemoveStaging = true
+		if expected != next || tobari.ValidateDigest(next.ImageDigest) != nil {
+			return fmt.Errorf("Runtime failed build cleanup authority changed")
+		}
+	}
 	allowed := previous.Phase == runtimeBuildPhaseSnapshotting && next.Phase == runtimeBuildPhasePrepared ||
 		previous.Phase == runtimeBuildPhasePrepared && next.Phase == runtimeBuildPhaseBuilding ||
 		previous.Phase == runtimeBuildPhasePrepared && next.Phase == runtimeBuildPhaseOrphanStaging ||
@@ -343,11 +379,57 @@ func validateRuntimeBuildJournalTransition(previous, next runtimeBuildJournal) e
 		previous.Phase == runtimeBuildPhaseBuilt && next.Phase == runtimeBuildPhaseFinalTagged ||
 		previous.Phase == runtimeBuildPhaseFinalTagged && next.Phase == runtimeBuildPhaseStagingReleased ||
 		previous.Phase == runtimeBuildPhaseStagingReleased && next.Phase == runtimeBuildPhaseSnapshotPublished ||
-		previous.Phase == runtimeBuildPhaseSnapshotPublished && next.Phase == runtimeBuildPhaseManifestCommitted
+		previous.Phase == runtimeBuildPhaseSnapshotPublished && next.Phase == runtimeBuildPhaseManifestCommitted ||
+		failedSettlement || lateOwnedSettlement || lateOwnedCleanup
 	if !allowed {
 		return fmt.Errorf("Runtime build journal phase transition is invalid")
 	}
 	return nil
+}
+
+type runtimeFailedAttemptObservation struct {
+	stagingArtifact string
+	imageDigest     string
+}
+
+func (r *Runtime) observeRuntimeFailedStaging(ctx context.Context, journal runtimeBuildJournal) (runtimeFailedAttemptObservation, error) {
+	if journal.Phase != runtimeBuildPhaseFailed || journal.AttemptSettlement == "" {
+		return runtimeFailedAttemptObservation{}, fmt.Errorf("Runtime failed build settlement authority is invalid")
+	}
+	digest, inspectErr := r.inspectManagedRuntimeBuildEvidence(ctx, journal.StagingImage, journal.RuntimeID, journal.Revision, journal.AttemptID)
+	if errors.Is(inspectErr, errManagedRuntimeImageMissing) {
+		_, confirmErr := r.inspectManagedRuntimeBuildEvidence(ctx, journal.StagingImage, journal.RuntimeID, journal.Revision, journal.AttemptID)
+		if !errors.Is(confirmErr, errManagedRuntimeImageMissing) {
+			return runtimeFailedAttemptObservation{}, fmt.Errorf("Runtime failed build absence is not stable: %w", confirmErr)
+		}
+		return runtimeFailedAttemptObservation{stagingArtifact: runtimeBuildStagingAbsent}, nil
+	}
+	if inspectErr != nil {
+		return runtimeFailedAttemptObservation{}, fmt.Errorf("Runtime failed build ownership is unknown: %w", inspectErr)
+	}
+	budget := runtimeLifecycleBudget{remaining: maxRuntimeContainersPerImage + 2}
+	uses, err := r.observeRuntimeContainerUse(ctx, nil, map[string]string{journal.RuntimeID + "\x00" + journal.Revision: digest}, &budget)
+	if err != nil {
+		return runtimeFailedAttemptObservation{}, fmt.Errorf("Runtime failed build use is unknown: %w", err)
+	}
+	if use := uses[digest]; use.workspace || use.external {
+		return runtimeFailedAttemptObservation{}, fmt.Errorf("Runtime failed build image remains in use")
+	}
+	return runtimeFailedAttemptObservation{stagingArtifact: runtimeBuildStagingOwned, imageDigest: digest}, nil
+}
+
+func (r *Runtime) observeRuntimeFailedAttempt(ctx context.Context, journal runtimeBuildJournal) (runtimeFailedAttemptObservation, error) {
+	if err := r.requireRuntimeBuildSnapshotRevision(ctx, journal.SnapshotPath, journal.Revision); err != nil {
+		return runtimeFailedAttemptObservation{}, fmt.Errorf("Runtime failed build snapshot authority changed: %w", err)
+	}
+	observed, err := r.observeRuntimeFailedStaging(ctx, journal)
+	if err != nil {
+		return runtimeFailedAttemptObservation{}, err
+	}
+	if err := r.requireRuntimeBuildSnapshotRevision(ctx, journal.SnapshotPath, journal.Revision); err != nil {
+		return runtimeFailedAttemptObservation{}, fmt.Errorf("Runtime failed build snapshot authority changed: %w", err)
+	}
+	return observed, nil
 }
 
 func (r *Runtime) readRuntimeBuildJournalObserved() (*runtimeBuildJournal, error) {
@@ -471,7 +553,11 @@ func (r *Runtime) completeRuntimeBuildJournal(ctx context.Context, journal runti
 		return r.runtimeBuildCleanup(completing)
 	}
 	if origin.StagingImage != "" {
-		observedDigest, inspectErr := r.inspectManagedRuntimeBuildEvidence(ctx, origin.StagingImage, origin.RuntimeID, origin.Revision)
+		attempt := []string(nil)
+		if origin.Phase == runtimeBuildPhaseFailed {
+			attempt = []string{origin.AttemptID}
+		}
+		observedDigest, inspectErr := r.inspectManagedRuntimeBuildEvidence(ctx, origin.StagingImage, origin.RuntimeID, origin.Revision, attempt...)
 		if inspectErr == nil && completing.RemoveStaging && observedDigest != origin.ImageDigest {
 			return fmt.Errorf("Runtime staging tag content changed before cleanup")
 		}
@@ -479,7 +565,7 @@ func (r *Runtime) completeRuntimeBuildJournal(ctx context.Context, journal runti
 			if err := r.runner.Run(ctx, []string{"image", "rm", origin.StagingImage}, os.Environ(), nil, io.Discard, io.Discard); err != nil {
 				return fmt.Errorf("remove owned Runtime staging tag during cleanup: %w", err)
 			}
-			_, inspectErr = r.inspectManagedRuntimeBuildEvidence(ctx, origin.StagingImage, origin.RuntimeID, origin.Revision)
+			_, inspectErr = r.inspectManagedRuntimeBuildEvidence(ctx, origin.StagingImage, origin.RuntimeID, origin.Revision, attempt...)
 		}
 		if inspectErr == nil && !completing.RemoveStaging {
 			return fmt.Errorf("Runtime staging tag appeared outside cleanup authority")
@@ -538,6 +624,26 @@ func (r *Runtime) RecoverRuntimeBuildCleanup(ctx context.Context) error {
 			}
 			if journal.Phase != runtimeBuildPhaseCompleting {
 				return fmt.Errorf("Runtime build journal is not in explicit cleanup recovery")
+			}
+			if journal.CleanupFrom == runtimeBuildPhaseFailed {
+				origin := runtimeBuildCleanupOrigin(*journal)
+				observed, err := r.observeRuntimeFailedStaging(recoveryContext, origin)
+				if err != nil {
+					return err
+				}
+				if journal.StagingArtifact == runtimeBuildStagingAbsent && observed.stagingArtifact == runtimeBuildStagingOwned {
+					upgraded := *journal
+					upgraded.StagingArtifact = runtimeBuildStagingOwned
+					upgraded.ImageDigest = observed.imageDigest
+					upgraded.RemoveStaging = true
+					if err := r.writeRuntimeBuildJournal(*journal, upgraded); err != nil {
+						return err
+					}
+					journal = &upgraded
+				}
+				if journal.StagingArtifact == runtimeBuildStagingOwned && observed.stagingArtifact == runtimeBuildStagingOwned && journal.ImageDigest != observed.imageDigest {
+					return fmt.Errorf("Runtime failed build image authority changed")
+				}
 			}
 			return r.completeRuntimeBuildJournal(recoveryContext, *journal)
 		})
@@ -709,7 +815,7 @@ func (r *Runtime) RecoverRuntimeBuildBuilding(ctx context.Context) error {
 				return fmt.Errorf("Runtime building recovery authority is absent")
 			}
 
-			imageDigest, inspectErr := r.inspectManagedRuntimeBuildEvidence(recoveryContext, journal.StagingImage, journal.RuntimeID, journal.Revision)
+			imageDigest, inspectErr := r.inspectManagedRuntimeBuildEvidence(recoveryContext, journal.StagingImage, journal.RuntimeID, journal.Revision, journal.AttemptID)
 			if errors.Is(inspectErr, errManagedRuntimeImageMissing) {
 				failed := *journal
 				failed.Phase = runtimeBuildPhaseFailed
@@ -757,9 +863,9 @@ func (r *Runtime) RecoverRuntimeBuildBuilding(ctx context.Context) error {
 	})
 }
 
-// RecoverRuntimeBuildFailed cleans only an explicitly settled failed attempt.
-// Unsettled absence/unknown evidence remains a durable blocker against late
-// Docker effects and selector reuse.
+// RecoverRuntimeBuildFailed settles one exact failed attempt and continues its
+// cleanup within the same bounded recovery invocation. Unknown ownership/use
+// remains a durable blocker against late Docker effects and selector reuse.
 func (r *Runtime) RecoverRuntimeBuildFailed(ctx context.Context) error {
 	recoveryContext, cancel := r.runtimeBuildRecoveryContext(ctx)
 	defer cancel()
@@ -775,8 +881,31 @@ func (r *Runtime) RecoverRuntimeBuildFailed(ctx context.Context) error {
 			if journal == nil || journal.Phase != runtimeBuildPhaseFailed {
 				return fmt.Errorf("Runtime failed build recovery authority is absent")
 			}
-			if journal.AttemptSettlement != runtimeBuildAttemptSettled {
-				return fmt.Errorf("Runtime failed build attempt remains unsettled")
+			observed, err := r.observeRuntimeFailedAttempt(recoveryContext, *journal)
+			if err != nil {
+				return err
+			}
+			if journal.StagingArtifact == runtimeBuildStagingOwned && observed.stagingArtifact == runtimeBuildStagingOwned && journal.ImageDigest != observed.imageDigest {
+				return fmt.Errorf("Runtime failed build image authority changed")
+			}
+			if journal.AttemptSettlement == runtimeBuildAttemptUnsettled {
+				settled := *journal
+				settled.AttemptSettlement = runtimeBuildAttemptSettled
+				settled.StagingArtifact = observed.stagingArtifact
+				settled.ImageDigest = observed.imageDigest
+				if err := r.writeRuntimeBuildJournal(*journal, settled); err != nil {
+					return err
+				}
+				journal = &settled
+			}
+			if journal.StagingArtifact == runtimeBuildStagingAbsent && observed.stagingArtifact == runtimeBuildStagingOwned {
+				settled := *journal
+				settled.StagingArtifact = runtimeBuildStagingOwned
+				settled.ImageDigest = observed.imageDigest
+				if err := r.writeRuntimeBuildJournal(*journal, settled); err != nil {
+					return err
+				}
+				journal = &settled
 			}
 			return r.completeRuntimeBuildJournal(recoveryContext, *journal)
 		})
@@ -807,7 +936,7 @@ func (r *Runtime) retainRuntimeBuildFailure(ctx context.Context, journal runtime
 	failed := journal
 	failed.Phase = runtimeBuildPhaseFailed
 	failed.AttemptSettlement = runtimeBuildAttemptUnsettled
-	digest, inspectErr := r.inspectManagedRuntimeBuildEvidence(ctx, journal.StagingImage, journal.RuntimeID, journal.Revision)
+	digest, inspectErr := r.inspectManagedRuntimeBuildEvidence(ctx, journal.StagingImage, journal.RuntimeID, journal.Revision, journal.AttemptID)
 	switch {
 	case inspectErr == nil:
 		failed.StagingArtifact = runtimeBuildStagingOwned
@@ -832,17 +961,19 @@ type managedRuntimeBuildEvidence struct {
 	Component string `json:"component"`
 	RuntimeID string `json:"runtime_id"`
 	Revision  string `json:"revision"`
+	AttemptID string `json:"attempt_id"`
 }
 
-func (r *Runtime) inspectManagedRuntimeBuildEvidence(ctx context.Context, image, runtimeID, revision string) (string, error) {
-	if tobari.ValidateImageSelector(image) != nil || tobari.ValidateRuntimeID(runtimeID) != nil || tobari.ValidateDigest(revision) != nil {
+func (r *Runtime) inspectManagedRuntimeBuildEvidence(ctx context.Context, image, runtimeID, revision string, attemptID ...string) (string, error) {
+	if tobari.ValidateImageSelector(image) != nil || tobari.ValidateRuntimeID(runtimeID) != nil || tobari.ValidateDigest(revision) != nil || len(attemptID) > 1 || (len(attemptID) == 1 && !validRuntimeBuildAttemptID(attemptID[0])) {
 		return "", fmt.Errorf("managed Runtime build evidence request is invalid")
 	}
 	format := `{"id":{{json .Id}},` +
 		`"owner":{{json (index .Config.Labels "` + ownerLabel + `")}},` +
 		`"component":{{json (index .Config.Labels "` + componentLabel + `")}},` +
 		`"runtime_id":{{json (index .Config.Labels "` + managedRuntimeIDLabel + `")}},` +
-		`"revision":{{json (index .Config.Labels "` + managedRuntimeRevisionLabel + `")}}}`
+		`"revision":{{json (index .Config.Labels "` + managedRuntimeRevisionLabel + `")}},` +
+		`"attempt_id":{{json (index .Config.Labels "` + managedRuntimeBuildAttemptLabel + `")}}}`
 	stdout := &boundedBuffer{limit: 4096}
 	stderr := &boundedBuffer{limit: 4096}
 	err := r.runner.Run(ctx, []string{"image", "inspect", "--format", format, image}, os.Environ(), nil, stdout, stderr)
@@ -859,6 +990,9 @@ func (r *Runtime) inspectManagedRuntimeBuildEvidence(ctx context.Context, image,
 	var evidence managedRuntimeBuildEvidence
 	if decodeStrictJSON(output, &evidence) != nil || tobari.ValidateDigest(evidence.ID) != nil || evidence.Owner != ownerValue || evidence.Component != managedRuntimeComponentLabel || evidence.RuntimeID != runtimeID || evidence.Revision != revision {
 		return "", fmt.Errorf("managed Runtime build ownership evidence is invalid")
+	}
+	if len(attemptID) == 1 && evidence.AttemptID != attemptID[0] {
+		return "", fmt.Errorf("managed Runtime build attempt evidence is invalid")
 	}
 	return evidence.ID, nil
 }
