@@ -337,8 +337,8 @@ id_for_root() {
   python3 -c \
     'import json,sys
 root,context=sys.argv[1:]
-print(next(item["id"] for item in json.load(sys.stdin)["tobari"]
-           if item["root"] == root and (not context or item["context"] == context)))' \
+print(next(item["workspace_id"] for item in json.load(sys.stdin)["workspaces"]
+           if item["project_root"] == root and (not context or item["context"] == context)))' \
     "$root" "$context"
 }
 
