@@ -123,6 +123,50 @@ class HostCompletedLoginTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.temporary.cleanup()
 
+    def test_control_cli_rejects_manifest_id_wire_alias(self) -> None:
+        # Workspace Manifest is the public/domain identity. The closed Broker
+        # protocol deliberately retains its schema-v1 context-id token; it is
+        # not a second public name or an authority identity.
+        for operation, trailing in (
+            ("status", ["--provider", "github"]),
+            ("import", ["--provider", "github"]),
+            ("logout", ["--provider", "github"]),
+            (
+                "login",
+                ["--provider", "github", "--account-label", "octo-user"],
+            ),
+            (
+                "issue_handle",
+                [
+                    "--project-id",
+                    PROJECT,
+                    "--provider",
+                    "github",
+                    "--bindings",
+                    "[]",
+                ],
+            ),
+            (
+                "binding_status",
+                [
+                    "--project-id",
+                    PROJECT,
+                    "--provider",
+                    "github",
+                    "--revision",
+                    "revision_synthetic",
+                    "--bindings",
+                    "[]",
+                ],
+            ),
+        ):
+            with self.subTest(operation=operation), contextlib.redirect_stderr(
+                io.StringIO()
+            ), self.assertRaises(SystemExit):
+                control_parser().parse_args(
+                    [operation, "--manifest-id", CONTEXT, *trailing]
+                )
+
     def test_control_cli_builds_exact_provider_specific_raw_requests(self) -> None:
         github_args = control_parser().parse_args(
             [

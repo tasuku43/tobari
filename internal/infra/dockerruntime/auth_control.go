@@ -574,7 +574,7 @@ func (r *Runtime) addAuthDiagnostics(
 		configured[item.ID] = make(map[string]projectAuthProviderBinding)
 		for _, provider := range projection.Providers {
 			response, statusErr := r.runBrokerControl(
-				ctx, nil, "status", "--manifest-id", item.ID, "--provider", provider.ID,
+				ctx, nil, "status", "--context-id", item.ID, "--provider", provider.ID,
 			)
 			if statusErr != nil || response.Provider != provider.ID {
 				add("auth_vault_integrity", doctor.CheckStatusFail, "an encrypted Context vault could not be authenticated")
@@ -628,7 +628,7 @@ func (r *Runtime) addAuthDiagnostics(
 				ctx,
 				nil,
 				"binding_status",
-				"--manifest-id", project.WorkspaceManifestID,
+				"--context-id", project.WorkspaceManifestID,
 				"--project-id", project.ID,
 				"--provider", providerID,
 				"--revision", current.Revision,

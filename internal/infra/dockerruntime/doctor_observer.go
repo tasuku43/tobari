@@ -402,7 +402,7 @@ func (r *Runtime) observeDoctorVaultIntegrity(
 	for _, item := range contexts.Items {
 		configured[item.ID] = make(map[string]projectAuthProviderBinding)
 		for _, provider := range projection.Providers {
-			response, statusErr := r.runBrokerControl(ctx, nil, "status", "--manifest-id", item.ID, "--provider", provider.ID)
+			response, statusErr := r.runBrokerControl(ctx, nil, "status", "--context-id", item.ID, "--provider", provider.ID)
 			if statusErr != nil || response.Provider != provider.ID {
 				return observed(doctor.CheckStatusFail, "an encrypted Context vault could not be authenticated"), nil, nil, statusErr
 			}
@@ -450,7 +450,7 @@ func (r *Runtime) observeDoctorProjectHandles(ctx context.Context) doctor.Observ
 				continue
 			}
 			response, statusErr := r.runBrokerControl(
-				ctx, nil, "binding_status", "--manifest-id", project.WorkspaceManifestID, "--project-id", project.ID,
+				ctx, nil, "binding_status", "--context-id", project.WorkspaceManifestID, "--project-id", project.ID,
 				"--provider", providerID, "--revision", current.Revision, "--bindings", string(encodedBindings[providerID]),
 			)
 			if statusErr != nil {

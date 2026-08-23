@@ -105,7 +105,7 @@ func brokerLoginControlExpectation(arguments []string) (brokerControlExpectation
 	if len(arguments) != 7 && len(arguments) != 11 {
 		return brokerControlExpectation{}, fmt.Errorf("Auth Broker login arguments are invalid")
 	}
-	if arguments[0] != string(brokerControlLogin) || arguments[1] != "--manifest-id" ||
+	if arguments[0] != string(brokerControlLogin) || arguments[1] != "--context-id" ||
 		arguments[3] != "--provider" || arguments[5] != "--account-label" ||
 		tobari.ValidateWorkspaceManifestID(arguments[2]) != nil {
 		return brokerControlExpectation{}, fmt.Errorf("Auth Broker login arguments are invalid")

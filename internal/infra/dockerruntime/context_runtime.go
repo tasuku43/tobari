@@ -289,7 +289,7 @@ func (r *Runtime) contextAuthentication(ctx context.Context, contextID string) (
 		}
 		if report.BrokerState == tobari.ManifestAuthBrokerReady {
 			response, statusErr := r.runBrokerControl(
-				ctx, nil, "status", "--manifest-id", contextID, "--provider", provider.ID,
+				ctx, nil, "status", "--context-id", contextID, "--provider", provider.ID,
 			)
 			if statusErr != nil {
 				return tobari.ManifestAuthentication{}, classifyBrokerError(statusErr, "manifest show")

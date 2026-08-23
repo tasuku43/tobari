@@ -913,7 +913,7 @@ func (r *Runtime) ImportAuth(
 		return authbroker.MutationObservation{}, err
 	}
 	response, err := r.runBrokerControl(
-		ctx, secret, "import", "--manifest-id", manifest.ID, "--provider", provider.ID,
+		ctx, secret, "import", "--context-id", manifest.ID, "--provider", provider.ID,
 	)
 	if err != nil {
 		return authbroker.MutationObservation{}, classifyBrokerError(err, "auth import "+provider.ID)
@@ -975,7 +975,7 @@ func (r *Runtime) AuthStatus(ctx context.Context, contextName string) (authbroke
 		status := result.Providers[index]
 		if result.BrokerState == authbroker.BrokerStateReady {
 			response, statusErr := r.runBrokerControl(
-				ctx, nil, "status", "--manifest-id", manifest.ID, "--provider", status.Provider,
+				ctx, nil, "status", "--context-id", manifest.ID, "--provider", status.Provider,
 			)
 			if statusErr != nil {
 				return authbroker.StatusObservation{}, classifyBrokerError(statusErr, "auth status")
@@ -1012,7 +1012,7 @@ func (r *Runtime) LogoutAuth(
 		return authbroker.MutationObservation{}, err
 	}
 	response, err := r.runBrokerControl(
-		ctx, nil, "logout", "--manifest-id", manifest.ID, "--provider", provider.ID,
+		ctx, nil, "logout", "--context-id", manifest.ID, "--provider", provider.ID,
 	)
 	if err != nil {
 		return authbroker.MutationObservation{}, classifyBrokerError(err, "auth logout")
@@ -1074,7 +1074,7 @@ func (r *Runtime) buildAuthMutationObservation(
 			for _, installed := range projection.Providers {
 				status := authbroker.ProviderStatus{Provider: installed.ID, State: authbroker.ProviderCredentialUnavailable}
 				observed, statusErr := r.runBrokerControl(
-					ctx, nil, "status", "--manifest-id", contextID, "--provider", installed.ID,
+					ctx, nil, "status", "--context-id", contextID, "--provider", installed.ID,
 				)
 				if statusErr == nil {
 					switch observed.State {
@@ -1204,7 +1204,7 @@ func (r *Runtime) observeWorkspaceActivation(
 		fact.BindingRevision = check.revision
 		fact.BindingState = authbroker.BrokerBindingUnavailable
 		binding, bindingErr := r.runBrokerControl(
-			ctx, nil, "binding_status", "--manifest-id", workspaces[check.workspaceIndex].ProjectContextID,
+			ctx, nil, "binding_status", "--context-id", workspaces[check.workspaceIndex].ProjectContextID,
 			"--project-id", check.projectID, "--provider", check.providerID,
 			"--revision", check.revision, "--bindings", string(check.bindings),
 		)

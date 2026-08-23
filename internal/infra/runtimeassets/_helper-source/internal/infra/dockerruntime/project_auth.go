@@ -153,7 +153,7 @@ func (r *Runtime) reconcileProjectAuth(
 	}
 	for _, provider := range providerProjection.Providers {
 		status, err := r.runBrokerControl(
-			ctx, nil, "status", "--manifest-id", instance.WorkspaceManifestID, "--provider", provider.ID,
+			ctx, nil, "status", "--context-id", instance.WorkspaceManifestID, "--provider", provider.ID,
 		)
 		if err != nil {
 			return projectAuthProjection{}, classifyBrokerError(err, "tobari")
@@ -175,7 +175,7 @@ func (r *Runtime) reconcileProjectAuth(
 		}
 		issued, err := r.runBrokerControl(
 			ctx, nil, "issue_handle",
-			"--manifest-id", instance.WorkspaceManifestID,
+			"--context-id", instance.WorkspaceManifestID,
 			"--project-id", instance.ID,
 			"--provider", provider.ID,
 			"--bindings", string(encodedBindings),
