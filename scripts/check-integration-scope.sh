@@ -64,9 +64,14 @@ if grep -En -- '(^|[[:space:]|])(tobari|run_tobari(_at|_pty_at)?) context([[:spa
   echo "integration scope: removed public Context vocabulary returned" >&2
   exit 1
 fi
+if grep -F 'contexts/default/policy/context.json' "$scenario" >&2; then
+  echo "integration scope: post-publication policy drift bypassed the fixture publication seam" >&2
+  exit 1
+fi
 for claim in \
   'item["workspace_manifest"]' \
-  '["workspace_manifest"]["workspace_manifest_id"]'; do
+  '["workspace_manifest"]["workspace_manifest_id"]' \
+  'go run ./tools/integrationfixture manifest-policy'; do
   if ! grep -F "$claim" "$scenario" >/dev/null; then
     echo "integration scope: missing Workspace Manifest public JSON canary: $claim" >&2
     exit 1

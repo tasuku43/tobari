@@ -834,27 +834,10 @@ default_manifest_id=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["w
   <<<"$default_manifest_create")
 run_tobari manifest create --name restricted --runtime "$runtime_selection" \
   --mode guided --source-access read-only --native-readiness enabled --format json >/dev/null
-python3 - "$config_directory/contexts/default/policy/context.json" "$config_directory/contexts/default/context.json" <<'PY'
-import hashlib
-import json
-import sys
-
-policy_path, manifest_path = sys.argv[1:]
-with open(policy_path, encoding="utf-8") as source:
-    document = json.load(source)
-document["graphql_endpoints"] = [
-    {"scheme": "https", "host": "graphql.tobari.dev", "port": 8080, "method": "POST", "path": "/graphql"},
-]
-payload = (json.dumps(document, ensure_ascii=False, indent=2, separators=(",", ": ")) + "\n").encode()
-with open(policy_path, "wb") as destination:
-    destination.write(payload)
-with open(manifest_path, encoding="utf-8") as source:
-    manifest = json.load(source)
-manifest["policy_revision"] = "sha256:" + hashlib.sha256(payload).hexdigest()
-with open(manifest_path, "w", encoding="utf-8") as destination:
-    json.dump(manifest, destination, ensure_ascii=False, indent=2, separators=(",", ": "))
-    destination.write("\n")
-PY
+go run ./tools/integrationfixture manifest-policy \
+  --config-directory "$config_directory" \
+  --manifest default \
+  --graphql-endpoint https://graphql.tobari.dev:8080/graphql
 start_cluster >/dev/null
 
 # These assertions intentionally inspect the assembled runtime rather than

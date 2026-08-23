@@ -875,6 +875,32 @@ func TestRetainedManifestReceiptNeverConfusesPreservedAuthority(t *testing.T) {
 	}
 }
 
+func TestPublishedManifestRejectsDirectPolicyDrift(t *testing.T) {
+	t.Parallel()
+	runtime := newContextSwitchRuntime(t, &contextSwitchRunner{})
+	manifest, err := runtime.readContextManifest("project-tools")
+	if err != nil {
+		t.Fatal(err)
+	}
+	policy, err := runtime.readContextPolicy(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	policy.GraphQLEndpoints = append(policy.GraphQLEndpoints, tobari.ManifestPolicyExactRule{
+		Scheme: "https", Host: "graphql.tobari.dev", Port: 8080, Method: "POST", Path: "/graphql",
+	})
+	_, drifted, _, err := tobari.NormalizeContextPolicy(policy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(runtime.contextPolicyPath(manifest.Name), drifted, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runtime.readContextManifest(manifest.Name); err == nil || !strings.Contains(err.Error(), "policy revision mismatch") {
+		t.Fatalf("post-publication policy drift did not fail closed: %v", err)
+	}
+}
+
 func TestDefaultManifestSelectorRetainsIndependentSizeBound(t *testing.T) {
 	t.Parallel()
 	runtime := newContextSwitchRuntime(t, &contextSwitchRunner{})
