@@ -137,7 +137,7 @@ const sequenceScenariosJa: Record<string, ScenarioTranslation> = {
       },
       {
         title: "プロジェクトプリンシパルを確立する",
-        sent: "ホストが管理する登録情報内の Context ID とプロジェクト ID",
+        sent: "ホストが管理する登録情報内の Workspace Manifest ID とプロジェクト ID",
         withheld: "Workspace が送った識別情報ヘッダー",
         owner: "Gateway（通信の執行）",
         failure:
@@ -313,11 +313,11 @@ const sequenceScenariosJa: Record<string, ScenarioTranslation> = {
       },
       {
         title: "秘密を含まない検査を行う",
-        sent: "ハンドルと、信頼済みの Context／プロジェクト識別情報",
+        sent: "ハンドルと、信頼済みの Workspace Manifest／プロジェクト識別情報",
         withheld: "実物の認証情報",
         owner: "Auth Broker（認証情報処理）",
         failure:
-          "Context、プロジェクト、プロバイダー、リビジョン、宛先、ヘッダーの結び付きのどれかが異なれば拒否します。",
+          "Workspace Manifest、プロジェクト、プロバイダー、リビジョン、宛先、ヘッダーの結び付きのどれかが異なれば拒否します。",
         explanation:
           "この検査では秘密を開示せずに、レコードの結び付きを確認します。",
       },
@@ -372,13 +372,13 @@ const sequenceScenariosJa: Record<string, ScenarioTranslation> = {
         withheld: "不透明なホスト CLI の状態と一時的な AWS ロール認証情報",
         owner: "Auth Broker（認証情報処理）",
         failure:
-          "Context、プロジェクト、リビジョン、宛先、署名プランのどれかが異なれば 403 を返します。",
+          "Workspace Manifest、プロジェクト、リビジョン、宛先、署名プランのどれかが異なれば 403 を返します。",
         explanation:
           "Auth Broker はポリシー判断前には秘密を含まないメタデータだけを返します。",
       },
       {
         title: "通常の HTTP 通信を許可するか判断する",
-        sent: "Context、プロジェクト、HTTPS の接続先、HTTP メソッド、正規化したパス",
+        sent: "Workspace Manifest、プロジェクト、HTTPS の接続先、HTTP メソッド、正規化したパス",
         withheld: "本文、本文のハッシュ、ハンドル、不透明な AWS 状態、認証情報",
         owner: "OPA（ポリシー判断）",
         failure:
@@ -457,7 +457,7 @@ const sequenceScenariosJa: Record<string, ScenarioTranslation> = {
       },
       {
         title: "通常の HTTP 通信を許可するか判断する",
-        sent: "Context、プロジェクト、プロバイダー ID、HTTPS の接続先、HTTP メソッド、正規化したパス",
+        sent: "Workspace Manifest、プロジェクト、プロバイダー ID、HTTPS の接続先、HTTP メソッド、正規化したパス",
         withheld: "本文、ハンドル、リビジョン、OAuth クライアント、トークン",
         owner: "OPA（ポリシー判断）",
         failure:
@@ -586,7 +586,7 @@ const sequenceScenariosJa: Record<string, ScenarioTranslation> = {
         owner: "Auth Broker（認証情報処理）",
         failure: "不正、古い、コピーされた、不一致のハンドルは拒否します。",
         explanation:
-          "レコードは Context、プロジェクト、プロバイダー、認証情報のリビジョン、宛先、ヘッダーの結び付きのすべてに一致する必要があります。",
+          "レコードは Workspace Manifest、プロジェクト、プロバイダー、認証情報のリビジョン、宛先、ヘッダーの結び付きのすべてに一致する必要があります。",
       },
       {
         title: "フォールバックしない",
@@ -644,7 +644,7 @@ const sequenceScenariosJa: Record<string, ScenarioTranslation> = {
       },
       {
         title: "完全一致ルールを作る",
-        sent: "Context、プロジェクト、ホスト、ポート、HTTP メソッド、パス",
+        sent: "Workspace Manifest、プロジェクト、ホスト、ポート、HTTP メソッド、パス",
         withheld: "本文と認証情報",
         owner: "Tobari CLI（ホスト側）",
         failure: "現在の有効なポリシーは変更しません。",

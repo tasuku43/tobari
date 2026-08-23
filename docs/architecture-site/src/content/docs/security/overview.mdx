@@ -46,9 +46,10 @@ itself is malicious, the enforcement point is gone.
   <section>
     <h3>Project filesystem</h3>
     <div class="prose-block">
-      Immutable Context source access selects a read-only or read-write live
-      bind. Unselected host paths and another Workspace home are outside the
-      normal mount set; this is not snapshot or other-writer isolation.
+      Immutable Workspace Manifest source access selects a read-only or
+      read-write live bind. Unselected host paths and another Workspace home are
+      outside the normal mount set; this is not snapshot or other-writer
+      isolation.
     </div>
   </section>
   <section>
@@ -68,9 +69,9 @@ itself is malicious, the enforcement point is gone.
   <section>
     <h3>Brokered credentials</h3>
     <div class="prose-block">
-      Auth Broker keeps static credential state in an encrypted Context vault. A
-      Workspace receives only a bound handle; same-revision resolution is
-      post-policy.
+      Auth Broker keeps static credential state in an encrypted Workspace
+      Manifest vault. A Workspace receives only a bound handle; same-revision
+      resolution is post-policy.
     </div>
   </section>
 </div>

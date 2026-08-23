@@ -218,10 +218,10 @@ export const diagrams: Record<string, DiagramDefinition> = {
       },
     ],
   },
-  "workspace-context-cluster": {
-    title: "Workspace, Context, cluster, and runtime",
+  "workspace-manifest-workspace-cluster": {
+    title: "Workspace, Workspace Manifest, cluster, and runtime",
     description:
-      "The project root and stable Context ID identify a logical Workspace. The runtime container realizes it; the cluster is shared infrastructure.",
+      "The project root and stable Workspace Manifest ID identify a logical Workspace. The runtime container realizes it; the cluster is shared infrastructure.",
     nodes: [
       {
         id: "root",
@@ -232,7 +232,7 @@ export const diagrams: Record<string, DiagramDefinition> = {
       },
       {
         id: "contexta",
-        label: "Context: default",
+        label: "Workspace Manifest: default",
         detail:
           "Host-owned runtime, policy, agent profile, and credential configuration.",
         kind: "trusted",
@@ -241,7 +241,7 @@ export const diagrams: Record<string, DiagramDefinition> = {
       {
         id: "workspacea",
         label: "Workspace A",
-        detail: "Logical identity = normalized root + Context A.",
+        detail: "Logical identity = normalized root + Workspace Manifest A.",
         kind: "control",
       },
       {
@@ -253,7 +253,7 @@ export const diagrams: Record<string, DiagramDefinition> = {
       },
       {
         id: "contextb",
-        label: "Context: review",
+        label: "Workspace Manifest: review",
         detail: "A different host-owned configuration.",
         kind: "trusted",
         shape: "store",
@@ -261,7 +261,7 @@ export const diagrams: Record<string, DiagramDefinition> = {
       {
         id: "workspaceb",
         label: "Workspace B",
-        detail: "Same root with Context B is a different Workspace.",
+        detail: "Same root with Workspace Manifest B is a different Workspace.",
         kind: "control",
       },
       {
@@ -282,7 +282,7 @@ export const diagrams: Record<string, DiagramDefinition> = {
       {
         from: "contexta",
         to: "workspacea",
-        label: "stable Context ID",
+        label: "stable Workspace Manifest ID",
         kind: "trusted",
       },
       {
@@ -300,7 +300,7 @@ export const diagrams: Record<string, DiagramDefinition> = {
       {
         from: "contextb",
         to: "workspaceb",
-        label: "different Context ID",
+        label: "different Workspace Manifest ID",
         kind: "trusted",
       },
       {
@@ -338,7 +338,7 @@ export const diagrams: Record<string, DiagramDefinition> = {
         id: "detached",
         label: "Detached but existing",
         detail:
-          "Identity, home, runtime state, Context binding, and policy remain.",
+          "Identity, home, runtime state, Workspace Manifest binding, and policy remain.",
         kind: "persistent",
         shape: "store",
       },
@@ -479,7 +479,7 @@ export const diagrams: Record<string, DiagramDefinition> = {
   "project-principal": {
     title: "Project principal establishment",
     description:
-      "The host registry binds a Workspace source endpoint, Gateway endpoint, and dedicated network to Context and project identity. Request headers cannot replace that binding.",
+      "The host registry binds a Workspace source endpoint, Gateway endpoint, and dedicated network to Workspace Manifest and project identity. Request headers cannot replace that binding.",
     nodes: [
       {
         id: "host",
@@ -491,7 +491,7 @@ export const diagrams: Record<string, DiagramDefinition> = {
         id: "registry",
         label: "Principal registry",
         detail:
-          "Host-owned source/Gateway endpoints + network → Context ID + project ID record.",
+          "Host-owned source/Gateway endpoints + network → Workspace Manifest ID + project ID record.",
         kind: "persistent",
         shape: "store",
       },
@@ -518,7 +518,7 @@ export const diagrams: Record<string, DiagramDefinition> = {
       {
         id: "opa",
         label: "OPA input",
-        detail: "Uses registry-derived Context and project fields.",
+        detail: "Uses registry-derived Workspace Manifest and project fields.",
         kind: "control",
       },
     ],
@@ -598,7 +598,7 @@ export const diagrams: Record<string, DiagramDefinition> = {
         id: "decision",
         label: "Explicit allow or deny",
         detail:
-          "Exact Context, project, destination, port, method, and path effect.",
+          "Exact Workspace Manifest, project, destination, port, method, and path effect.",
         kind: "control",
       },
       {
@@ -670,7 +670,7 @@ export const diagrams: Record<string, DiagramDefinition> = {
   "credential-boundary": {
     title: "Where brokered credential material can move",
     description:
-      "The host acquires a credential; Auth Broker encrypts it in a Context vault. Workspace receives a non-secret opaque handle. Gateway obtains the secret once only for an already allowed bound request.",
+      "The host acquires a credential; Auth Broker encrypts it in a Workspace Manifest vault. Workspace receives a non-secret opaque handle. Gateway obtains the secret once only for an already allowed bound request.",
     nodes: [
       {
         id: "host",
@@ -680,7 +680,7 @@ export const diagrams: Record<string, DiagramDefinition> = {
       },
       {
         id: "vault",
-        label: "Encrypted Context vault",
+        label: "Encrypted Workspace Manifest vault",
         detail: "Primary credential encrypted under installation root key.",
         kind: "secret",
         shape: "store",
@@ -838,7 +838,7 @@ export const diagrams: Record<string, DiagramDefinition> = {
   "state-retention": {
     title: "State lifetime follows ownership, not one container",
     description:
-      "Workspace, Context, cluster, credential, and installation state have different owners and deletion operations.",
+      "Workspace, Workspace Manifest, cluster, credential, and installation state have different owners and deletion operations.",
     nodes: [
       {
         id: "project",
@@ -856,7 +856,7 @@ export const diagrams: Record<string, DiagramDefinition> = {
       },
       {
         id: "context",
-        label: "Context-owned state",
+        label: "Workspace Manifest-owned state",
         detail:
           "Manifest, runtime recipe, policy sources, provider configuration, encrypted vault.",
         kind: "persistent",

@@ -1,0 +1,100 @@
+---
+title: Workspace Manifest、Workspace、クラスター、ランタイム
+description: 望むWorkspace定義、永続的な適用実体、共有サービス、交換可能なコンテナを区別します。
+---
+
+import ConceptDiagram from "../../../../components/ConceptDiagram.astro";
+
+**Workspace Manifest** は再利用するdesired definitionです。**Workspace** は
+1つのcanonical project rootと1つの安定したWorkspace Manifest IDへ結び付く
+durable instanceです。**cluster** は共有の強制基盤で、runtime containerは
+1つのWorkspaceをある時点で実現する交換可能なobserved stateです。
+
+<ConceptDiagram name="workspace-manifest-workspace-cluster" />
+
+## identityとauthority
+
+Workspaceは次を保持します。
+
+- 生成された安定した内部Workspace ID
+- canonical host project root
+- 作成時に選んだ安定した`workspace_manifest_id`
+- Desired/Next entry identity
+- 最後に成功した`AppliedEntry`
+- bounded last-failureとadoption state
+
+内部protocolには`project_id`やpredecessorの`workspace_manifest_id`というwire名が残る場合が
+ありますが、表示名やgenerationをauthorityにはしません。Workspace Manifestの
+authorityは安定したIDとsemantic digestの組で、`manifest_generation`は相関情報だけです。
+
+## Desired、Applied、Observed
+
+```text
+Workspace Manifest revision (Desired / Next)
+                 |
+                 | explicit Workspace entry
+                 v
+Workspace AppliedEntry (Current / last success)
+                 |
+                 | read-only observation
+                 v
+container, network, attachment, health
+```
+
+常駐controllerはありません。reconciliation boundaryは明示的なWorkspace entryと
+`cluster up`だけです。`status`、`list`、`manifest show`はmutationなしで観察します。
+失敗しても最後のAppliedEntryは消さず、attached Workspaceはsession中に置き換えず
+adoption pendingにします。
+
+## 現在のディレクトリから選ぶ
+
+TobariはstateやDockerを扱う前にhost CWDをcanonicalizeします。
+
+1. 明示またはdefault Manifestに完全一致するindexed rootを再利用できます。
+2. CWDを含むancestor Workspaceは近い順に表示し、利用者が明示選択します。
+3. exact CWDでの作成またはcancelも選べます。
+4. nested Workspaceは暗黙に作りません。
+
+省略時のdefaultは次で変更します。
+
+```sh
+tobari manifest default set --name review
+```
+
+既存Workspaceを変更せず、reconcileもしません。defaultを変えず選ぶ場合は
+`--manifest review`を使います。
+
+## 同じroot、異なるManifest
+
+同じcanonical rootでも、異なる安定したManifest IDなら別Workspaceを持てます。
+Workspace ID、home、tool-owned native auth、container、network、principal、applied
+state、failure、learned ruleは別です。一方でlive host sourceは意図的に共有します。
+read-only bindはclone、overlay、lock、integrity snapshotではありません。
+
+## Runtimeとcontainer
+
+Runtime revisionはOS、tool、entrypoint、runtime APIを提供します。containerはある
+AppliedEntryを実現する実体で、どちらもWorkspace identityではありません。
+ManifestのRuntime binding変更は新しいDesiredを作り、bound Workspaceは成功した
+次回entryまでCurrentを保持します。
+
+## Cluster
+
+standardのinstallation-local clusterはGatewayとOPA、control/egress network、
+aggregate policy projection、principal registry、CA lifecycleを共有します。
+共有サービスはWorkspace authorityを消さず、stable identityからprincipalとpolicyを
+選びます。
+
+## 保証と制限
+
+**保証:** 安定したManifest/Workspace identity、明示的なreconciliationだけ、
+last-success保持、exact root/Manifest pairごとに1 Workspace、default selectionと
+authorityの分離、runtime `CMD`はTobariのlifetime contractを置き換えないこと。
+
+**保証しない:** overlapping root間のfilesystem isolation、project移動後の自動推測、
+任意custom imageの信頼、自動image pull。
+
+## まとめ
+
+Workspace Manifestはclassに近い望む設計、Workspaceは適用済みの永続実体です。
+clusterは共有基盤、containerは交換可能な観察状態です。

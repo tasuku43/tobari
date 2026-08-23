@@ -17,8 +17,8 @@ description: 現在の Tobari における資産、攻撃者、前提、攻撃�
 
 - 選択したルート外にあるホストのファイル
 - Docker の制御と、別の Workspace のランタイムリソース
-- 安定した Context とプロジェクトの権限、およびポリシーの定義元
-- インストール用ルート鍵、暗号化した Context 保管庫、Auth Broker 管理の認証情報
+- 安定した Workspace Manifest とプロジェクトの権限、およびポリシーの定義元
+- インストール用ルート鍵、暗号化した Workspace Manifest 保管庫、Auth Broker 管理の認証情報
 - 有効な集約ポリシーと、プリンシパルおよびプロバイダー投影結果の完全性
 - 秘密情報を除いた診断情報と、構造化された CLI 出力
 
@@ -33,7 +33,7 @@ Workspace 内のコードは、次のことができると仮定します。
 - 選択したプロジェクトと Workspace ホームを読み書きする
 - プロセスを起動し、同じ Workspace 内の別プロセスと連携する
 - 直接ソケットを開き、Gateway の迂回を試みる
-- ヘッダー、URL、Context やプロジェクトに見える ID、認証情報に見える値、命令文の
+- ヘッダー、URL、Workspace Manifest やプロジェクトに見える ID、認証情報に見える値、命令文の
   ような文字列を偽造する
 - 投影された Auth Broker のハンドルをコピーし、別の Workspace から再送する
 - ポリシーの拒否を発生させ、利用者のレビューと競合し、同じ HTTP 判断項目に異なる
@@ -78,7 +78,7 @@ Gateway が返すのは、拒否とレビュー場所の案内だけです。ホ
 ### Auth Broker のハンドルをコピーまたは偽造する
 
 Tobari 形式の印があるリクエストは、Auth Broker の処理に固定されます。OPA へ問い合わせる
-前の照会で、Context、プロジェクト、プロバイダー、認証情報のリビジョン、完全一致の
+前の照会で、Workspace Manifest、プロジェクト、プロバイダー、認証情報のリビジョン、完全一致の
 HTTPS 接続先、ヘッダーの結び付きを確認します。コピー済み、古い、または不正なハンドル
 は、別方式への切り替えも秘密情報の解決も行わず拒否します。
 
@@ -123,23 +123,23 @@ login は identity-checked fixed trusted-host helper、sanitized temporary home�
   <h2>ソース</h2>
   <ul>
     <li>
-      <a href="https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/docs/THREAT_MODEL.md">
+      <a href="https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/docs/THREAT_MODEL.md">
         リポジトリの脅威モデル
       </a>{" "}
       — 規定セキュリティモデルと対になる、攻撃者と制御の簡潔な一覧。
     </li>
     <li>
-      <a href="https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/docs/03_security_model.md">
+      <a href="https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/docs/03_security_model.md">
         現在の規定セキュリティモデル
       </a>
     </li>
     <li>
-      <a href="https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/gateway/addon/broker_credentials.py">
+      <a href="https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/gateway/addon/broker_credentials.py">
         Auth Broker のハンドルを扱う Gateway の経路
       </a>
     </li>
     <li>
-      <a href="https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/authbroker/tests/test_broker.py">
+      <a href="https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/authbroker/tests/test_broker.py">
         Auth Broker の障害と結び付きのテスト
       </a>
     </li>
@@ -158,7 +158,8 @@ Tobari がどう応答するかを確認します。
       へ送るとどうなりますか？何が重要ですか？
     </summary>
     <div class="prose-block">
-      Broker の照会処理は、信頼できる Context とプロジェクトのプリンシパル、
+      Broker の照会処理は、信頼できる Workspace Manifest
+      とプロジェクトのプリンシパル、
       プロバイダー、認証情報のリビジョン、接続先、ヘッダーの結び付きを比較します。
       プロジェクトが一致しないため、OPA への問い合わせや秘密情報の解決より前に
       拒否されます。結び付きが有効でも、通常の HTTP 通信には OPA
@@ -169,8 +170,8 @@ Tobari がどう応答するかを確認します。
     <summary>異なる本文が別の学習済み規則にならないのはなぜですか？</summary>
     <div class="prose-block">
       本文は許可判断の後にだけストリーミングされ、規則の識別には使いません。完全一致の
-      学習済み規則を識別するのは、Context、プロジェクト、ホスト、ポート、メソッド、
-      未加工のパスです。
+      学習済み規則を識別するのは、Workspace
+      Manifest、プロジェクト、ホスト、ポート、メソッド、 未加工のパスです。
     </div>
   </details>
   <details>

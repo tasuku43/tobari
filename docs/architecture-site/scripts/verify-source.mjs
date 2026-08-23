@@ -24,14 +24,30 @@ const errors = [];
 const evidenceLinks = new Map();
 const universalQuestionOpening =
   /^##\s+(?:(?:The question this (?:page|guide) answers)|(?:What question does this page answer\?)|(?:この(?:ページ|ガイド)で答える問い))\s*$/m;
+const retiredManifestRoutes =
+  /\/(?:ja\/)?(?:guides\/contexts|how-it-works\/workspace-context-cluster)\/?/;
 
 const v1Sources = {
-  contexts: await readFile(
-    join(root, "src/content/docs/guides/contexts.mdx"),
+  manifests: await readFile(
+    join(root, "src/content/docs/guides/workspace-manifests.mdx"),
     "utf8",
   ),
-  contextsJa: await readFile(
-    join(root, "src/content/docs/ja/guides/contexts.mdx"),
+  manifestsJa: await readFile(
+    join(root, "src/content/docs/ja/guides/workspace-manifests.mdx"),
+    "utf8",
+  ),
+  manifestModel: await readFile(
+    join(
+      root,
+      "src/content/docs/how-it-works/workspace-manifest-workspace-cluster.mdx",
+    ),
+    "utf8",
+  ),
+  manifestModelJa: await readFile(
+    join(
+      root,
+      "src/content/docs/ja/how-it-works/workspace-manifest-workspace-cluster.mdx",
+    ),
     "utf8",
   ),
   auth: await readFile(
@@ -56,16 +72,29 @@ const v1Sources = {
 for (const required of [
   "--source-access read-only",
   "read-write",
-  "policy_revision",
-  "Context policy",
+  "workspace_manifest_id",
+  "manifest_generation",
+  "manifest default set",
+  "--manifest",
 ]) {
   if (
-    !v1Sources.contexts.includes(required) ||
-    !v1Sources.contextsJa.includes(required)
+    !v1Sources.manifests.includes(required) ||
+    !v1Sources.manifestsJa.includes(required)
   ) {
     errors.push(
-      `Context capability documentation is missing ${required} in one locale`,
+      `Workspace Manifest capability documentation is missing ${required} in one locale`,
     );
+  }
+}
+for (const [label, source] of [
+  ["English Workspace Manifest guide", v1Sources.manifests],
+  ["Japanese Workspace Manifest guide", v1Sources.manifestsJa],
+  ["English Workspace Manifest model", v1Sources.manifestModel],
+  ["Japanese Workspace Manifest model", v1Sources.manifestModelJa],
+]) {
+  const retiredTerm = source.match(/\bContexts?\b|\bwork modes?\b/i);
+  if (retiredTerm) {
+    errors.push(`${label} retains retired public term: ${retiredTerm[0]}`);
   }
 }
 for (const required of [
@@ -139,6 +168,10 @@ for (const file of files) {
   if (!textExtensions.has(extname(file))) continue;
   const label = relative(root, file);
   const source = await readFile(file, "utf8");
+
+  if (retiredManifestRoutes.test(source)) {
+    errors.push(`${label} retains a retired Workspace Manifest public route`);
+  }
 
   if (
     label.startsWith("src/content/docs/") &&

@@ -1,19 +1,19 @@
 ---
 title: ランタイムのカスタマイズ
-description: 再利用できる不変 Runtime リビジョンをビルドし、Workspace の識別情報と永続ホームを変えずに Context へ明示的に選択します。
+description: 再利用できる不変 Runtime リビジョンをビルドし、Workspace の識別情報と永続ホームを変えずに Workspace Manifest へ明示的に選択します。
 ---
 
 クイックスタートだけを完了した場合は、先に[カスタムランタイムを用意する](../../start/runtime-setup/)へ進んでください。最小のベースランタイムから、実際の Workspace 内でコーディングエージェントのコマンドを確認するまでを短い手順で説明します。
 
-このページでは、インストール全体で共有する Runtime、成功履歴、明示的な Context
-選択、構成差分の調整、失敗からの復旧を説明します。Context が持つのは準備済み
+このページでは、インストール全体で共有する Runtime、成功履歴、明示的な Workspace Manifest
+選択、構成差分の調整、失敗からの復旧を説明します。Workspace Manifest が持つのは準備済み
 リビジョンへの正確な参照だけです。
 
-作業前に現在の Context を確認してください。詳しくは [Context](../contexts/)を参照してください。カスタムランタイムイメージは作業環境を提供しますが、マウント、ネットワーク、Workspace の寿命を決める権限は持ちません。
+作業前に現在の Workspace Manifest を確認してください。詳しくは [Workspace Manifest](../workspace-manifests/)を参照してください。カスタムランタイムイメージは作業環境を提供しますが、マウント、ネットワーク、Workspace の寿命を決める権限は持ちません。
 
 ## 1. Runtime を作成して確認する
 
-Runtime の作成とビルドは Context から独立しています。
+Runtime の作成とビルドは Workspace Manifest から独立しています。
 
 ```sh
 tobari runtime create --name frontend
@@ -28,7 +28,7 @@ tobari runtime show --name frontend
 
 報告された `source_path` 全体が Docker ビルドコンテキストです。Dockerfile の隣で
 スクリプト、パッケージマニフェスト、設定ファイルを管理できます。編集だけでは
-リビジョンも Context 参照も変わりません。上限は通常ファイル 1,024 件、
+リビジョンも Workspace Manifest 参照も変わりません。上限は通常ファイル 1,024 件、
 ディレクトリ 256 件、1 ファイル 32 MiB、全体 64 MiB です。リンクと特殊ファイルは
 使えません。各ファイルから group/other 権限を外し、データは `0600`、所有者実行が
 必要なスクリプトやバイナリは `0700` にします。
@@ -59,22 +59,22 @@ tobari runtime history --name frontend
 5. 確定したイメージダイジェストを記録する
 6. 成功したリビジョンを Runtime 履歴へアトミックに追加する
 
-失敗または同一内容のビルドでは履歴を追加せず、すべての Context は変わりません。
+失敗または同一内容のビルドでは履歴を追加せず、すべての Workspace Manifest は変わりません。
 Docker または BuildKit がキャッシュや未選択候補を保持しても、準備済み履歴とは報告しません。
 
-## 4. Context へ明示的に選択する
+## 4. Workspace Manifest へ明示的に選択する
 
 ```sh
-tobari context runtime set --context review --runtime frontend@1
-tobari context show --name review
+tobari manifest runtime set --manifest review --runtime frontend@1
+tobari manifest show --name review
 ```
 
-同じリビジョンを複数 Context から再利用できます。新しいビルドで自動更新はされず、
+同じリビジョンを複数 Workspace Manifest から再利用できます。新しいビルドで自動更新はされず、
 アップグレードもロールバックも別の ordinal を明示的に選びます。
 
 ## 5. 既存 Workspace へ入り直す
 
-この Context に結び付いたプロジェクトから実行します。
+この Workspace Manifest に結び付いたプロジェクトから実行します。
 
 ```sh
 tobari
@@ -82,7 +82,7 @@ tree --version
 exit
 ```
 
-入室時には、望ましいイメージと完全なランタイム仕様を既存コンテナと比較します。違いがあれば、そのコンテナだけを再作成します。論理 Workspace ID、正規化済みルート、Context の結び付け、永続ホーム、学習済みポリシー、プロジェクトファイルは保持されます。
+入室時には、望ましいイメージと完全なランタイム仕様を既存コンテナと比較します。違いがあれば、そのコンテナだけを再作成します。論理 Workspace ID、正規化済みルート、Workspace Manifest の結び付け、永続ホーム、学習済みポリシー、プロジェクトファイルは保持されます。
 
 イメージの `CMD` は Workspace の寿命を定義しません。Tobari が固定された生存コマンドを与え、シェルまたはエージェントコマンドは子の exec セッションとして開始します。コンテナを失っても復旧でき、論理 Workspace はコンテナそのものではありません。
 
@@ -108,28 +108,28 @@ exit
 - `runtime_source_invalid`: エラーが示す相対パスと実際のサイズ、件数、種別、または
   所有者専用モードを修正します。`0755` でコピーされた source は group/other の
   全ビットを外し、通常は `0700` にします。
-- `runtime_build_failed`: ソースを直して `tobari runtime show` を確認します。履歴と Context は変わりません。
+- `runtime_build_failed`: ソースを直して `tobari runtime show` を確認します。履歴と Workspace Manifest は変わりません。
 - `runtime_revision_not_ready`: `tobari runtime history` から成功済み ordinal を選びます。
 - `image_not_found`: 宣言されたベースイメージまたは選択したイメージを利用可能にして、明示的なビルドか調整を再試行します。
 - `incompatible_image`: 必須の利用者、ラベルと API、エントリーポイント、生存コマンドの権限、アーキテクチャを復元します。
-- 結果が不確実な変更操作: 採用に失敗したと決めつけず、別のビルドを行う前に `tobari context show` を確認します。
-- 既存 Workspace への入室障害: 以前の論理状態とホームは残ります。Context のイメージを直して再入室します。
+- 結果が不確実な変更操作: 採用に失敗したと決めつけず、別のビルドを行う前に `tobari manifest show` を確認します。
+- 既存 Workspace への入室障害: 以前の論理状態とホームは残ります。Workspace Manifest のイメージを直して再入室します。
 
 ## 保証と制限
 
-採用処理は内容を検査し、対象の Context に限定されます。検証に失敗しても、現在有効な選択が暗黙に置き換わることはありません。互換性検証は、イメージ内のあらゆるソフトウェアが信頼できることまでは保証しません。Workspace 内のプロセスは選択したプロジェクトを変更し、すでに許可済みのネットワーク通信を利用できます。
+採用処理は内容を検査し、対象の Workspace Manifest に限定されます。検証に失敗しても、現在有効な選択が暗黙に置き換わることはありません。互換性検証は、イメージ内のあらゆるソフトウェアが信頼できることまでは保証しません。Workspace 内のプロセスは選択したプロジェクトを変更し、すでに許可済みのネットワーク通信を利用できます。
 
 ## 根拠となるソース
 
-- [ランタイムカスタマイズの契約](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/docs/01_product_contract.md)
-- [ランタイム Catalog の仕様](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/internal/cli/runtime_catalog.go)
-- [Context Runtime 参照の実装](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/internal/infra/dockerruntime/context_runtime.go)
-- [コンテナの構成ずれを調整するテスト](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/internal/infra/dockerruntime/project_runtime_test.go)
-- [ベースランタイム契約の検査処理](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/tools/runtimecheck/main.go)
+- [ランタイムカスタマイズの契約](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/docs/01_product_contract.md)
+- [ランタイム Catalog の仕様](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/internal/cli/runtime_catalog.go)
+- [Workspace Manifest Runtime 参照の実装](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/internal/infra/dockerruntime/context_runtime.go)
+- [コンテナの構成ずれを調整するテスト](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/internal/infra/dockerruntime/project_runtime_test.go)
+- [ベースランタイム契約の検査処理](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/tools/runtimecheck/main.go)
 
 ## まとめ
 
-Runtime ソースは変更可能な準備領域、成功リビジョンは不変、Context 選択は明示的、
+Runtime ソースは変更可能な準備領域、成功リビジョンは不変、Workspace Manifest 選択は明示的、
 Workspace への入室は調整点です。ランタイムイメージはツールを提供し、ホストの
 ライフサイクルコードが権限と寿命を管理します。
 
@@ -139,8 +139,9 @@ Workspace への入室は調整点です。ランタイムイメージはツー�
   <summary>
     Runtime ソースを編集またはビルドすると実行中の Workspace は更新されますか？
   </summary>
-  いいえ。ビルドは履歴を追加するだけです。準備済みリビジョンを Context へ
-  明示的に選択すると、既存 Workspace は次の入室でその参照を利用します。
+  いいえ。ビルドは履歴を追加するだけです。準備済みリビジョンを Workspace
+  Manifest へ 明示的に選択すると、既存 Workspace
+  は次の入室でその参照を利用します。
 </details>
 
 <details>

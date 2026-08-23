@@ -35,9 +35,9 @@ Tobari は、ホストの利用者、ホストのファイルシステム制御�
   <section>
     <h3>プロジェクトのファイル</h3>
     <div class="prose-block">
-      selected source は immutable Context <code>source_access</code> に従って
-      read-only または read-write で mount します。CLI omission default は
-      read-write です。作業対象外のホストパスと、ほかの Workspace
+      selected source は immutable Workspace Manifest <code>source_access</code>{" "}
+      に従って read-only または read-write で mount します。CLI omission default
+      は read-write です。作業対象外のホストパスと、ほかの Workspace
       のホームは通常のマウント対象に含めません。Workspace home と tmpfs は
       writable です。
     </div>
@@ -59,8 +59,8 @@ Tobari は、ホストの利用者、ホストのファイルシステム制御�
   <section>
     <h3>Auth Broker が管理する認証情報</h3>
     <div class="prose-block">
-      Auth Broker は static credential state を encrypted Context vault
-      に保持します。Workspace が受け取るのは project-bound opaque handle
+      Auth Broker は static credential state を encrypted Workspace Manifest
+      vault に保持します。Workspace が受け取るのは project-bound opaque handle
       だけで、same-revision resolution は policy allow 後だけです。
     </div>
   </section>

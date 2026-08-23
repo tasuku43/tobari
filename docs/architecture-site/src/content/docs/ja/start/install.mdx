@@ -93,11 +93,11 @@ tobari doctor
 
 ## 根拠となるソース
 
-- [レビュー対象コミットの README に記載されたインストール手順と要件](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/README.md)
-- [Go ツールチェーンの宣言](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/go.mod)
-- [Task のビルド定義](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/Taskfile.yml)
-- [固定されたランタイムコンポーネントのバージョン](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/internal/infra/runtimeassets/assets/versions.env)
-- [状態を変更しない診断処理の実装](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/internal/infra/dockerruntime/runtime.go)
+- [レビュー対象コミットの README に記載されたインストール手順と要件](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/README.md)
+- [Go ツールチェーンの宣言](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/go.mod)
+- [Task のビルド定義](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/Taskfile.yml)
+- [固定されたランタイムコンポーネントのバージョン](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/internal/infra/runtimeassets/assets/versions.env)
+- [状態を変更しない診断処理の実装](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/internal/infra/dockerruntime/runtime.go)
 
 ## まとめ
 
@@ -115,7 +115,7 @@ tobari doctor
 <details>
 <summary>VM のバインドマウントエラーを、ホストのホーム全体をマウントして解決すべきでないのはなぜですか？</summary>
 
-selected project root だけが immutable Context `source_access` に従って live bind されるためです。
+selected project root だけが immutable Workspace Manifest `source_access` に従って live bind されるためです。
 host home を広く mount すると境界外 file を公開し、security precondition を無効にします。
 
 </details>

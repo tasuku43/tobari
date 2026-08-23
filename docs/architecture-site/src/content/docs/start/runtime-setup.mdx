@@ -10,7 +10,7 @@ For the first setup, keep Tobari's defaults and learn only this path:
 1. create a reusable Runtime source tree;
 2. add the coding agent and project tools;
 3. build and validate the image; and
-4. select its ready revision for a Context; and
+4. select its ready revision for a Workspace Manifest; and
 5. enter a real project and verify the agent.
 
 You do not need to learn configuration switching yet.
@@ -26,7 +26,7 @@ tobari runtime create --name coding
 Tobari creates an owner-only `source/` directory and reports its path. It
 contains a starter Dockerfile and may also contain scripts, manifests, and
 configuration copied by that Dockerfile. Creation does not build an image or
-change any Context.
+change any Workspace Manifest.
 
 ## 2. Add the agent and project tools
 
@@ -60,19 +60,19 @@ tobari runtime build --name coding
 
 Tobari snapshots the complete source tree, builds the snapshot, verifies the
 runtime interface, and appends an immutable successful revision. A failed or
-unchanged build changes no Context.
+unchanged build changes no Workspace Manifest.
 
 `runtime build` runs a Docker build on the host. Downloads performed by the Dockerfile do not pass through Workspace policy review, so review the base image and every download source used during the build.
 
-## 4. Select the revision for a Context
+## 4. Select the revision for a Workspace Manifest
 
 ```sh
 tobari runtime history --name coding
-tobari context runtime set --runtime coding@1
+tobari manifest runtime set --runtime coding@1
 ```
 
-Selection is explicit and the same revision can be reused by several Contexts.
-Building a later revision does not roll any Context forward.
+Selection is explicit and the same revision can be reused by several Workspace Manifests.
+Building a later revision does not roll any Workspace Manifest forward.
 
 ## 5. Enter a real project and verify the agent
 
@@ -100,6 +100,6 @@ Continue to [Authenticate your tools](../authentication-setup/). Configure only 
 
 ## Later: separate configurations when you need them
 
-One default setup is enough to learn and use Tobari initially. Later, you may want different runtimes, authentication sets, or policy modes for different jobs. Tobari groups those settings into named **Contexts**.
+One default setup is enough to learn and use Tobari initially. Later, you may want different runtimes, authentication sets, or policy modes for different jobs. Tobari groups those settings into named **Workspace Manifests**.
 
-Learn [Contexts and separate configurations](../../guides/contexts/) when that need appears. Context is not prerequisite knowledge for this first runtime build.
+Learn [Workspace Manifests and separate configurations](../../guides/workspace-manifests/) when that need appears. Workspace Manifest is not prerequisite knowledge for this first runtime build.

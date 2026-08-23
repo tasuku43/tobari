@@ -13,7 +13,7 @@ The CLI runs on the trusted host, while the selected Docker daemon may run in a 
 
 Tobari needs the daemon to see:
 
-- the selected canonical project root for its Context-selected live bind;
+- the selected canonical project root for its Workspace Manifest-selected live bind;
 - `${XDG_CONFIG_HOME:-$HOME/.config}/tobari` for host-owned policy and generated projections used by services;
 - `${XDG_STATE_HOME:-$HOME/.local/state}/tobari` for runtime materialization, principal registry, Workspace state, and broker state; and
 - any explicit custom image/build source that Docker itself must access.
@@ -81,11 +81,11 @@ Tobari validates the runtime topology it creates and fails setup when required b
 
 ## Source evidence
 
-- [Supported requirements and VM guidance](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/README.md)
-- [Mount and topology security contract](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/docs/03_security_model.md)
-- [Project path derivation implementation](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/internal/infra/dockerruntime/project_paths.go)
-- [Docker bind diagnostics](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/internal/infra/dockerruntime/runtime.go)
-- [Bind and mount contract tests](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/internal/infra/dockerruntime/runtime_test.go)
+- [Supported requirements and VM guidance](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/README.md)
+- [Mount and topology security contract](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/docs/03_security_model.md)
+- [Project path derivation implementation](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/internal/infra/dockerruntime/project_paths.go)
+- [Docker bind diagnostics](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/internal/infra/dockerruntime/runtime.go)
+- [Bind and mount contract tests](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/internal/infra/dockerruntime/runtime_test.go)
 
 ## Summary
 

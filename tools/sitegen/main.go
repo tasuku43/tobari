@@ -517,8 +517,8 @@ func requiredInt(content []byte, expression, label string) (int, error) {
 func contextReportSchemaVersion(runtimeCatalogSource []byte) (int, error) {
 	return requiredInt(
 		runtimeCatalogSource,
-		`JSONEnvelope:\s*"context",[^\r\n]*JSONSchemaVersion:\s*([0-9]+)`,
-		"public Context report schema",
+		`JSONEnvelope:\s*"(?:workspace_manifest|context)",[^\r\n]*JSONSchemaVersion:\s*([0-9]+)`,
+		"public Workspace Manifest report schema",
 	)
 }
 
@@ -556,7 +556,7 @@ func generateVersions(root, sourceRef string, catalog catalogDocument) (componen
 	if err != nil {
 		return componentVersionDocument{}, err
 	}
-	contextSchema, err := requiredInt(contextSource, `ContextSchemaVersion\s*=\s*([0-9]+)`, "Context manifest schema")
+	contextSchema, err := requiredInt(contextSource, `(?:Manifest|Context)SchemaVersion\s*=\s*([0-9]+)`, "Workspace Manifest schema")
 	if err != nil {
 		return componentVersionDocument{}, err
 	}
@@ -580,7 +580,7 @@ func generateVersions(root, sourceRef string, catalog catalogDocument) (componen
 	if err != nil {
 		return componentVersionDocument{}, err
 	}
-	projectSchema, err := requiredInt(projectSource, `ProjectStateSchemaVersion\s*=\s*([0-9]+)`, "project state schema")
+	projectSchema, err := requiredInt(projectSource, `(?:Workspace|Project)StateSchemaVersion\s*=\s*([0-9]+)`, "Workspace state schema")
 	if err != nil {
 		return componentVersionDocument{}, err
 	}
@@ -704,8 +704,8 @@ func generateVersions(root, sourceRef string, catalog catalogDocument) (componen
 		},
 		Schemas: []schemaVersion{
 			{Contract: "Agent help", Version: helpSchemaVersion(catalog), Authority: "internal/cli/help.go"},
-			{Contract: "Context manifest", Version: contextSchema, Authority: "internal/domain/tobari/context.go"},
-			{Contract: "Public Context report", Version: contextReportSchema, Authority: "internal/cli/runtime_catalog.go"},
+			{Contract: "Workspace Manifest", Version: contextSchema, Authority: "internal/domain/tobari/context.go"},
+			{Contract: "Public Workspace Manifest report", Version: contextReportSchema, Authority: "internal/cli/runtime_catalog.go"},
 			{Contract: "Root index and Workspace instance", Version: projectSchema, Authority: "internal/domain/tobari/project.go"},
 			{Contract: "Owner provider manifest", Version: ownerProviderSchema, Authority: "internal/domain/authbroker/provider.go"},
 			{Contract: "Normalized provider projection / reviewed built-in manifest", Version: providerSchema, Authority: "internal/domain/authbroker/provider.go"},

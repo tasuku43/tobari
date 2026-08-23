@@ -28,25 +28,25 @@ Tobari は多くの JSON 契約で、明示的な `schema_version` フィール�
 
 {/* public-cli-json-schemas:start */}
 
-| 対象                                                               | エンベロープ          | 現在のスキーマ |
-| ------------------------------------------------------------------ | --------------------- | -------------: |
-| 構造化エラー                                                       | `error`               |              2 |
-| エージェント向けヘルプ（`view: index` と入力で選ぶ `view: scope`） | `commands`            |              1 |
-| バージョン                                                         | `build_identity`      |              1 |
-| doctor レポート                                                    | `report`              |              1 |
-| インストール状態の移行                                             | `migration`           |              2 |
-| Workspace Manifest 一覧                                            | `workspace_manifests` |              2 |
-| Workspace Manifest レポート                                        | `workspace_manifest`  |              2 |
-| Runtime 一覧                                                       | `runtimes`            |              1 |
-| Runtime レポート（`runtime show/create/history/build` の結果）     | `runtime`             |              1 |
-| Workspace Manifest の削除                                                     | `workspace_manifest_deletion` |              2 |
-| クラスター状態                                                     | `cluster`             |              1 |
-| クラスターの拒否                                                   | `denials`             |              1 |
-| ポリシー候補                                                       | `policy_candidates`   |              1 |
-| ポリシーレビュー                                                   | `policy_review`       |              1 |
-| ポリシー規則                                                       | `policy_rules`        |              1 |
-| Workspace の一覧                                                   | `workspaces`          |              2 |
-| Workspace の状態                                                   | `status`              |              2 |
+| 対象                                                               | エンベロープ                  | 現在のスキーマ |
+| ------------------------------------------------------------------ | ----------------------------- | -------------: |
+| 構造化エラー                                                       | `error`                       |              2 |
+| エージェント向けヘルプ（`view: index` と入力で選ぶ `view: scope`） | `commands`                    |              1 |
+| バージョン                                                         | `build_identity`              |              1 |
+| doctor レポート                                                    | `report`                      |              1 |
+| インストール状態の移行                                             | `migration`                   |              2 |
+| Workspace Manifest 一覧                                            | `workspace_manifests`         |              2 |
+| Workspace Manifest レポート                                        | `workspace_manifest`          |              2 |
+| Runtime 一覧                                                       | `runtimes`                    |              1 |
+| Runtime レポート（`runtime show/create/history/build` の結果）     | `runtime`                     |              1 |
+| Workspace Manifest の削除                                          | `workspace_manifest_deletion` |              2 |
+| クラスター状態                                                     | `cluster`                     |              1 |
+| クラスターの拒否                                                   | `denials`                     |              1 |
+| ポリシー候補                                                       | `policy_candidates`           |              1 |
+| ポリシーレビュー                                                   | `policy_review`               |              1 |
+| ポリシー規則                                                       | `policy_rules`                |              1 |
+| Workspace の一覧                                                   | `workspaces`                  |              2 |
+| Workspace の状態                                                   | `status`                      |              2 |
 
 {/* public-cli-json-schemas:end */}
 
@@ -76,7 +76,7 @@ CLI presentation
 
 | 状態                                               | 現在の契約                   |
 | -------------------------------------------------- | ---------------------------- |
-| Workspace Manifest マニフェスト                               | スキーマ 1                   |
+| Workspace Manifest マニフェスト                    | スキーマ 1                   |
 | ルートインデックス／Workspace インスタンス         | スキーマ 1                   |
 | 共有クラスター状態                                 | スキーマ 1                   |
 | プロジェクトプリンシパル登録簿                     | スキーマ 1                   |
@@ -85,7 +85,7 @@ CLI presentation
 | 所有者のプロバイダーマニフェスト                   | スキーマ 1                   |
 | レビュー済みの組み込みプロバイダーマニフェスト     | スキーマ 1                   |
 | 正規化済みプロバイダー投影                         | スキーマ 1                   |
-| 暗号化した Workspace Manifest 保管庫                          | エンベロープ 1、ペイロード 1 |
+| 暗号化した Workspace Manifest 保管庫               | エンベロープ 1、ペイロード 1 |
 | Workspace 認証ファイル登録簿                       | スキーマ 1                   |
 | ベースランタイムメタデータ                         | スキーマ 1                   |
 
@@ -103,7 +103,7 @@ CLI presentation
 
 | 境界                                            |           現在の契約 | 重要な内容規則                                                                                         |
 | ----------------------------------------------- | -------------------: | ------------------------------------------------------------------------------------------------------ |
-| Gateway の認証設定                              |           スキーマ 1 | Workspace Manifest を認識する managed 方式の投影。パスとメタデータは含むが、ポリシー権限は含まない                |
+| Gateway の認証設定                              |           スキーマ 1 | Workspace Manifest を認識する managed 方式の投影。パスとメタデータは含むが、ポリシー権限は含まない     |
 | Gateway → OPA の判断入力                        |           スキーマ 1 | ホストから導出したプリンシパルと、正規化した HTTP 属性。本文とクライアントの秘密ヘッダーは含まない     |
 | Guided/Advanced のソースポリシー入力            |           スキーマ 1 | 集約生成処理が、アクティベーション前に厳密な V1 ソースを検証                                           |
 | Gateway の監査行                                |           スキーマ 1 | 秘密情報を含まない、正規化済みの判断根拠                                                               |

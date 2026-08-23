@@ -110,24 +110,24 @@ const text: Record<string, LocalizedDiagramText> = {
       "egress->upstream": "DNS、TCP、TLS で選択した接続先へ到達する",
     },
   },
-  "workspace-context-cluster": {
-    title: "Workspace、Context、クラスター、ランタイムの関係",
+  "workspace-manifest-workspace-cluster": {
+    title: "Workspace、Workspace Manifest、クラスター、ランタイムの関係",
     description:
-      "プロジェクトルートと安定した Context ID の組み合わせが、論理 Workspace を識別します。ランタイムコンテナはその実行環境であり、クラスターは複数の Workspace から共有される基盤です。",
+      "プロジェクトルートと安定した Workspace Manifest ID の組み合わせが、論理 Workspace を識別します。ランタイムコンテナはその実行環境であり、クラスターは複数の Workspace から共有される基盤です。",
     nodes: {
       root: {
         label: "プロジェクトルート",
         detail: "現在のディレクトリから選ばれた /work/example。",
       },
       contexta: {
-        label: "Context: default",
+        label: "Workspace Manifest: default",
         detail:
           "ホストが管理するランタイム、ポリシー、エージェントプロファイル、認証情報の設定。",
       },
       workspacea: {
         label: "Workspace A",
         detail:
-          "正規化されたプロジェクトルートと Context A が、論理的な識別情報になります。",
+          "正規化されたプロジェクトルートと Workspace Manifest A が、論理的な識別情報になります。",
       },
       runtimea: {
         label: "ランタイムコンテナ A",
@@ -135,13 +135,13 @@ const text: Record<string, LocalizedDiagramText> = {
           "必要に応じて作り直される実行環境です。Workspace の識別情報でも、寿命を決める主体でもありません。",
       },
       contextb: {
-        label: "Context: review",
+        label: "Workspace Manifest: review",
         detail: "ホスト所有の別設定。",
       },
       workspaceb: {
         label: "Workspace B",
         detail:
-          "同じプロジェクトルートでも、Context B を使えば別の Workspace になります。",
+          "同じプロジェクトルートでも、Workspace Manifest B を使えば別の Workspace になります。",
       },
       cluster: {
         label: "共有クラスター",
@@ -151,10 +151,10 @@ const text: Record<string, LocalizedDiagramText> = {
     },
     edges: {
       "root->workspacea": "ディレクトリに結び付ける",
-      "contexta->workspacea": "安定した Context ID",
+      "contexta->workspacea": "安定した Workspace Manifest ID",
       "workspacea->runtimea": "実行環境を整合させる",
       "root->workspaceb": "同じプロジェクトルート",
-      "contextb->workspaceb": "異なる Context ID",
+      "contextb->workspaceb": "異なる Workspace Manifest ID",
       "workspacea->cluster": "共有サービスを利用",
       "workspaceb->cluster": "共有サービスを利用",
     },
@@ -176,7 +176,7 @@ const text: Record<string, LocalizedDiagramText> = {
       detached: {
         label: "離脱済み・存在 (Detached)",
         detail:
-          "識別情報、ホーム、ランタイム状態、Context との結び付き、ポリシーが残ります。",
+          "識別情報、ホーム、ランタイム状態、Workspace Manifest との結び付き、ポリシーが残ります。",
       },
       drift: {
         label: "ランタイムのずれまたは消失",
@@ -237,7 +237,7 @@ const text: Record<string, LocalizedDiagramText> = {
   "project-principal": {
     title: "プロジェクトプリンシパルの確立",
     description:
-      "ホストが管理する登録情報は、Workspace の送信元エンドポイント、Gateway のエンドポイント、専用ネットワークを Context ID とプロジェクト ID に結び付けます。リクエストヘッダーを書き換えても、この結び付きは変わりません。",
+      "ホストが管理する登録情報は、Workspace の送信元エンドポイント、Gateway のエンドポイント、専用ネットワークを Workspace Manifest ID とプロジェクト ID に結び付けます。リクエストヘッダーを書き換えても、この結び付きは変わりません。",
     nodes: {
       host: {
         label: "信頼するホストのライフサイクル",
@@ -246,7 +246,7 @@ const text: Record<string, LocalizedDiagramText> = {
       registry: {
         label: "プリンシパル登録情報",
         detail:
-          "ホストが管理する、送信元／Gateway エンドポイントとネットワークから Context ID／プロジェクト ID への対応記録。",
+          "ホストが管理する、送信元／Gateway エンドポイントとネットワークから Workspace Manifest ID／プロジェクト ID への対応記録。",
       },
       network: {
         label: "Workspace 専用ネットワーク",
@@ -266,7 +266,7 @@ const text: Record<string, LocalizedDiagramText> = {
       opa: {
         label: "OPA への入力",
         detail:
-          "登録情報から導出した Context ID とプロジェクト ID を使います。",
+          "登録情報から導出した Workspace Manifest ID とプロジェクト ID を使います。",
       },
     },
     edges: {
@@ -300,7 +300,7 @@ const text: Record<string, LocalizedDiagramText> = {
       decision: {
         label: "明示的な許可または拒否",
         detail:
-          "Context、プロジェクト、宛先、ポート、HTTP メソッド、パスが完全に一致する通信だけが対象です。",
+          "Workspace Manifest、プロジェクト、宛先、ポート、HTTP メソッド、パスが完全に一致する通信だけが対象です。",
       },
       validation: {
         label: "ポリシー全体の検証",
@@ -329,7 +329,7 @@ const text: Record<string, LocalizedDiagramText> = {
   "credential-boundary": {
     title: "ブローカー管理の認証情報が移動できる範囲",
     description:
-      "ホストが認証情報を取得し、Auth Broker が Context の保管庫内で暗号化します。Workspace が受け取るのは、秘密ではない不透明なハンドルです。Gateway は許可済みで結び付きが一致するリクエストのためだけに、宣言済みの認証情報処理を行います。",
+      "ホストが認証情報を取得し、Auth Broker が Workspace Manifest の保管庫内で暗号化します。Workspace が受け取るのは、秘密ではない不透明なハンドルです。Gateway は許可済みで結び付きが一致するリクエストのためだけに、宣言済みの認証情報処理を行います。",
     nodes: {
       host: {
         label: "信頼するホストでの取得",
@@ -337,7 +337,7 @@ const text: Record<string, LocalizedDiagramText> = {
           "組み込みの GitHub ヘルパー、または長さを制限した標準入力から取得します。",
       },
       vault: {
-        label: "暗号化された Context 保管庫",
+        label: "暗号化された Workspace Manifest 保管庫",
         detail:
           "インストール単位のルートキーを使って、実物の認証情報を暗号化します。",
       },
@@ -411,7 +411,7 @@ const text: Record<string, LocalizedDiagramText> = {
   "state-retention": {
     title: "状態の寿命は、一つのコンテナではなく所有関係で決まる",
     description:
-      "Workspace、Context、クラスター、認証情報、インストール全体の状態は、それぞれ所有者と削除する操作が異なります。",
+      "Workspace、Workspace Manifest、クラスター、認証情報、インストール全体の状態は、それぞれ所有者と削除する操作が異なります。",
     nodes: {
       project: {
         label: "プロジェクトのファイル",
@@ -424,7 +424,7 @@ const text: Record<string, LocalizedDiagramText> = {
           "インデックス、インスタンス状態、ホーム、コンテナ、ネットワーク、プリンシパル。",
       },
       context: {
-        label: "Context 所有の状態",
+        label: "Workspace Manifest 所有の状態",
         detail:
           "マニフェスト、ランタイムレシピ、ポリシーソース、プロバイダー設定、暗号化された保管庫。",
       },

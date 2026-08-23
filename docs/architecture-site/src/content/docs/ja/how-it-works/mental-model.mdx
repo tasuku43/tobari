@@ -29,7 +29,7 @@ control、public network への直接経路は受け取りません。
 ### 2. Gateway：通信を強制する場所
 
 Gateway は透過的に届く HTTP traffic を受け取り、host-owned registration から
-Context/project principal を導出し、decision/audit data から secret request value
+Workspace Manifest/project principal を導出し、decision/audit data から secret request value
 を除き、OPA に一度問い合わせます。deny では接続先の DNS lookup や connection
 を実行しません。allow では authentication を含む元の request を一つの別接続へ
 転送します。

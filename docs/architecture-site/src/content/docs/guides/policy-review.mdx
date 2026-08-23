@@ -1,12 +1,12 @@
 ---
 title: Policy review
-description: Review retained denial evidence, stage exact choices, and activate one Context's set once.
+description: Review retained denial evidence, stage exact choices, and activate one Workspace Manifest's set once.
 ---
 
 import PolicyLoopMap from "../../../components/PolicyLoopMap.astro";
 import SequenceExplorer from "../../../components/SequenceExplorer.astro";
 
-Policy review turns retained denial evidence into an explicit host-owned decision. Leave the Workspace, inspect the bounded secret-free Permission Inbox on the trusted host, stage exact choices from its raw list or inspect template scope in detail, and Apply one Context's reviewed set once. Approval changes policy; it never retries the denied traffic.
+Policy review turns retained denial evidence into an explicit host-owned decision. Leave the Workspace, inspect the bounded secret-free Permission Inbox on the trusted host, stage exact choices from its raw list or inspect template scope in detail, and Apply one Workspace Manifest's reviewed set once. Approval changes policy; it never retries the denied traffic.
 
 Keep the Workspace attached and open Permission Inbox in a separate trusted-host terminal. Tobari reserves no `Ctrl+]` or other child-input shortcut and does not replace a shell or full-screen program's terminal presentation.
 
@@ -31,14 +31,14 @@ tobari review permissions --watch --notify=off
 
 The installation-wide TTY queue displays pending effects from its bounded Gateway-log window. Select one item, then inspect:
 
-- Context and stable Context identity;
+- Workspace Manifest and stable Workspace Manifest identity;
 - project/root and host-issued project principal;
 - scheme, host, and port;
 - method and normalized path;
 - denial reason, timestamp, and retained observation count; and
 - the proposed exact allow and deny outcomes.
 
-Press **a** or **d** on the raw list to stage **Allow exact** or **Deny exact**, and **x** to clear one row. Exact staging advances only to a later undecided row and never wraps from the end. Open detail to inspect evidence or approve a proposed template's examples and future scope. Every choice remains staged and grants no authority. Continue reviewing candidates from the same Context, then press **p** and confirm **Apply** to revalidate and activate the complete set once. Canceling before Apply discards every staged choice. Apply or discard before switching Context; this keeps the source update within one journaled domain-generation replacement.
+Press **a** or **d** on the raw list to stage **Allow exact** or **Deny exact**, and **x** to clear one row. Exact staging advances only to a later undecided row and never wraps from the end. Open detail to inspect evidence or approve a proposed template's examples and future scope. Every choice remains staged and grants no authority. Continue reviewing candidates from the same Workspace Manifest, then press **p** and confirm **Apply** to revalidate and activate the complete set once. Canceling before Apply discards every staged choice. Apply or discard before switching Workspace Manifest; this keeps the source update within one journaled domain-generation replacement.
 
 `--watch` requires text output and an interactive raw terminal. It refreshes the same bounded snapshot automatically, preserves focus and staging by opaque typed ID, reports stale decisions, backs off after read failures, and stays open after confirmed Apply. Between Apply operations it keeps one alternate-screen frame and does not repaint an unchanged successful timer refresh. It does not retry the denied request.
 
@@ -76,9 +76,9 @@ One reviewed Apply:
 
 1. resolves every retained reference against a fresh queue snapshot;
 2. locks policy generation;
-3. changes only the one owning Context's learned data;
-4. validates the private Context source;
-5. generates and tests the complete all-Context aggregate;
+3. changes only the one owning Workspace Manifest's learned data;
+4. validates the private Workspace Manifest source;
+5. generates and tests the complete all-Workspace Manifest aggregate;
 6. publishes one revisioned complete bundle;
 7. waits until the running OPA reports that exact revision; and
 8. reports the confirmed decision without replaying the request.
@@ -89,7 +89,7 @@ If any validation or activation step fails, Tobari retains or restores the previ
 
 After a confirmed allow, re-enter the matching Workspace and issue a new request. The old denied request is gone; Gateway never queues or replays its body.
 
-An exact rule binds Context ID, project ID, scheme, host, port, method, and path. Body, timestamp, display order, request ID, and credential label do not widen or split its authority.
+An exact rule binds Workspace Manifest ID, project ID, scheme, host, port, method, and path. Body, timestamp, display order, request ID, and credential label do not widen or split its authority.
 
 ## Correct current policy
 
@@ -121,19 +121,19 @@ No operation or dormant fallback widens exact rules.
 
 ## Guarantees and limits
 
-Routine learning cannot silently create wildcard rules or authorize from observation alone. Exact decisions are project/Context scoped and body-free. The user still decides whether the destination and effect are appropriate; Tobari cannot infer semantic intent or prevent an allowed effect from carrying sensitive readable data.
+Routine learning cannot silently create wildcard rules or authorize from observation alone. Exact decisions are project/Workspace Manifest scoped and body-free. The user still decides whether the destination and effect are appropriate; Tobari cannot infer semantic intent or prevent an allowed effect from carrying sensitive readable data.
 
 ## Source evidence
 
-- [Policy-learning product contract](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/docs/01_product_contract.md)
-- [Policy Catalog and mutation contracts](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/internal/cli/runtime_catalog.go)
-- [Policy candidate/domain semantics](https://github.com/tasuku43/tobari/tree/381835cda72885f78f5a3c9c69868e25df9a15fd/internal/domain/tobari)
-- [Atomic policy implementation](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/internal/infra/dockerruntime/policydata.go)
-- [Interactive review and reference tests](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/internal/cli/tobari_test.go)
+- [Policy-learning product contract](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/docs/01_product_contract.md)
+- [Policy Catalog and mutation contracts](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/internal/cli/runtime_catalog.go)
+- [Policy candidate/domain semantics](https://github.com/tasuku43/tobari/tree/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/internal/domain/tobari)
+- [Atomic policy implementation](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/internal/infra/dockerruntime/policydata.go)
+- [Interactive review and reference tests](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/internal/cli/tobari_test.go)
 
 ## Summary
 
-Review is trusted-host discovery plus explicit staged exact decisions. References remain opaque, one Context's set activates as a whole, and every retry is a new request initiated by the user or agent after confirmation.
+Review is trusted-host discovery plus explicit staged exact decisions. References remain opaque, one Workspace Manifest's set activates as a whole, and every retry is a new request initiated by the user or agent after confirmation.
 
 ## Check your understanding
 

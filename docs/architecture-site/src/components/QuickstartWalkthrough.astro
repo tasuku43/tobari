@@ -90,15 +90,15 @@ curl -sS -w '\\nhttp=%{http_code}\\n' \\
   -X PUT https://example.com/quickstart
 exit`,
           expected:
-            "初回はホスト設定を取り込まず、確認した default Context を作成します。その後 HTTP 403 と `policy_denied` が表示され、ホスト側のレビューコマンドが案内されます。Gateway は接続先へ接続せず、リクエストを自動で許可・再送しません。`exit` 後も Workspace とその状態は残ります。",
+            "初回はホスト設定を取り込まず、確認した default Workspace Manifest と Workspace を作成します。その後 HTTP 403 と `policy_denied` が表示され、ホスト側のレビューコマンドが案内されます。Gateway は接続先へ接続せず、リクエストを自動で許可・再送しません。`exit` 後も Workspace とその状態は残ります。",
           blocked:
-            "`tobari` で Workspace に入るには、対話型ターミナルが必要です。イメージに関するエラーが出た場合は `tobari context show` を確認し、対応するランタイムを準備します。",
+            "`tobari` で Workspace に入るには、対話型ターミナルが必要です。イメージに関するエラーが出た場合は `tobari manifest show` を確認し、対応するランタイムを準備します。",
         },
         {
           title: "ホスト側で拒否内容をレビューし、完全一致で許可する",
           location: "信頼するホスト",
           action:
-            "レビュー画面で Context、プロジェクト、ホスト、ポート、メソッド、パスを確認し、この通信条件だけを許可します。",
+            "レビュー画面で Workspace Manifest、プロジェクト、ホスト、ポート、メソッド、パスを確認し、この通信条件だけを許可します。",
           command: `tobari review permissions --tail 100`,
           expected:
             "選択した通信条件の完全一致ルールが、ポリシー全体の検証後に有効になります。許可操作は、拒否された HTTP リクエストそのものを再送しません。",
@@ -119,7 +119,7 @@ exit`,
           expected:
             "今回は外部の接続先から HTTP 応答が返ります。`example.com` が返すステータスコード自体は保証しません。ここで確認するのは、許可した通信条件が外部への経路へ進んだことです。",
           blocked:
-            "再び 403 になった場合は、Context、プロジェクト、ホスト、ポート、メソッド、パスが許可した条件と一致しているか確認し、`tobari review permissions --tail 100` を実行します。",
+            "再び 403 になった場合は、Workspace Manifest、プロジェクト、ホスト、ポート、メソッド、パスが許可した条件と一致しているか確認し、`tobari review permissions --tail 100` を実行します。",
         },
         {
           title: "状態を確認して、練習用リソースを削除する",
@@ -250,15 +250,15 @@ curl -sS -w '\\nhttp=%{http_code}\\n' \\
   -X PUT https://example.com/quickstart
 exit`,
           expected:
-            "First use creates the reviewed default Context without importing host configuration. You then receive HTTP 403 with `policy_denied` and a host-side review command. Tobari does not connect upstream, approve the request, or retry it. The Workspace and its state remain after `exit`.",
+            "First use creates the reviewed default Workspace Manifest and Workspace without importing host configuration. You then receive HTTP 403 with `policy_denied` and a host-side review command. Tobari does not connect upstream, approve the request, or retry it. The Workspace and its state remain after `exit`.",
           blocked:
-            "The root `tobari` entry requires an interactive terminal. For image errors, inspect `tobari context show` and prepare a compatible runtime before entering again.",
+            "The root `tobari` entry requires an interactive terminal. For image errors, inspect `tobari manifest show` and prepare a compatible Runtime before entering again.",
         },
         {
           title: "Review the denial on the host and allow the exact effect",
           location: "Trusted host",
           action:
-            "Inspect the Context, project, host, port, method, and path in the review screen, then allow only this exact communication.",
+            "Inspect the Workspace Manifest, project, host, port, method, and path in the review screen, then allow only this exact communication.",
           command: `tobari review permissions --tail 100`,
           expected:
             "The exact rule becomes active after the complete policy is validated. The allow action does not replay the denied HTTP request.",
@@ -279,7 +279,7 @@ exit`,
           expected:
             "The HTTP response now comes from the upstream. Tobari does not promise a particular status from `example.com`; this step shows that the authorized exact effect can reach the upstream path.",
           blocked:
-            "If you receive 403 again, check that Context, project, host, port, method, and path match the reviewed effect, then run `tobari review permissions --tail 100`.",
+            "If you receive 403 again, check that Workspace Manifest, project, host, port, method, and path match the reviewed effect, then run `tobari review permissions --tail 100`.",
         },
         {
           title: "Inspect state and remove the synthetic resources",

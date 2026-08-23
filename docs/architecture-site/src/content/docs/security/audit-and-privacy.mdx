@@ -22,7 +22,7 @@ Configured/recognized secret headers and broker handles are removed or redacted.
 
 ## What retained denial evidence contains
 
-Learnable denials use a bounded schema-1 JSON audit record with Context/project identity, host, port, method, path, decision/reason, request ID, timestamp, duration, and secret-free classification metadata. Policy discovery reads bounded Docker logs and groups candidates by the exact rule dimensions.
+Learnable denials use a bounded schema-1 JSON audit record with Workspace Manifest/project identity, host, port, method, path, decision/reason, request ID, timestamp, duration, and secret-free classification metadata. Policy discovery reads bounded Docker logs and groups candidates by the exact rule dimensions.
 
 The body does not split candidates. Query and safe headers can appear in OPA input but do not become current learned exact-rule identity. Review references are SHA-256-derived opaque values; users act on the unchanged reference rather than list order or decoded provider notation.
 
@@ -67,22 +67,22 @@ If audit retention fails, authorization does not change: a denied request stays 
   <h2>Sources</h2>
   <ul>
     <li>
-      <a href="https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/docs/03_security_model.md">
+      <a href="https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/docs/03_security_model.md">
         Security output and audit contract
       </a>
     </li>
     <li>
-      <a href="https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/gateway/addon/tobari_gateway.py">
+      <a href="https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/gateway/addon/tobari_gateway.py">
         Policy input/audit builder
       </a>
     </li>
     <li>
-      <a href="https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/internal/infra/dockerruntime/policy.go">
+      <a href="https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/internal/infra/dockerruntime/policy.go">
         Bounded denial reader
       </a>
     </li>
     <li>
-      <a href="https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/gateway/test_tobari_gateway.py">
+      <a href="https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/gateway/test_tobari_gateway.py">
         Body and credential redaction tests
       </a>
     </li>

@@ -21,37 +21,37 @@ description: Tobari の実行、ネットワーク、ポリシー、認証、状
 
 ### Workspace
 
-正規化したプロジェクトルートと安定した Context ID の組み合わせで選ばれる、再利用可能な
-隔離リソースです。安定した論理レコード、選択したプロジェクトルート、Context との結び付き、
+正規化したプロジェクトルートと安定した Workspace Manifest ID の組み合わせで選ばれる、再利用可能な
+隔離リソースです。安定した論理レコード、選択したプロジェクトルート、Workspace Manifest との結び付き、
 独立したホーム、調整可能なランタイムリソースで構成されます。「Workspace を出る」
 操作はセッションを終了するだけで、論理 Workspace は削除しません。
 
 ### プロジェクトルート（project root）
 
-現在の作業ディレクトリから選び、immutable Context `source_access`（CLI default は
+現在の作業ディレクトリから選び、immutable Workspace Manifest `source_access`（CLI default は
 `read-write`）に従って Workspace へ mount する正規の
 ホストディレクトリです。Tobari は、このルートを読み書きする権限を意図的に Workspace
 へ委ねます。Workspace 内のプロセスからファイルを守るスナップショットやオーバーレイは
 提供しません。
 
-### Context
+### Workspace Manifest
 
 安定した不透明な UUIDv7 ID を持つ、ホスト管理の論理実行設定です。エージェントプロファイル、
 ランタイムイメージ、ポリシーの方式とソース、許可済みのシェル設定、プロバイダー設定、
-独立した暗号化認証情報保管庫を選びます。Workspace は一つの Context へ恒久的に
+独立した暗号化認証情報保管庫を選びます。Workspace は一つの Workspace Manifest へ恒久的に
 結び付きます。
 
-### 現在の Context（current Context）
+### 現在の Workspace Manifest（current Workspace Manifest）
 
-Context セレクターを省略した呼び出しに使うデフォルト Context です。切り替えると、
-以後のデフォルト選択だけが変わります。既存 Workspace と Context の恒久的な結び付き
+Workspace Manifest セレクターを省略した呼び出しに使うデフォルト Workspace Manifest です。切り替えると、
+以後のデフォルト選択だけが変わります。既存 Workspace と Workspace Manifest の恒久的な結び付き
 は書き換えず、リクエストの権限にもなりません。
 
 ### クラスター（cluster）
 
 一つのインストール内で共有する Gateway、OPA、ロック状態の Auth Broker、共有ネットワーク、
-CA ボリューム、集約済みの投影データの集合です。Context がポリシーと認証情報の範囲を
-決め、クラスターが読み込み済みの全 Context に対する制御を実施します。
+CA ボリューム、集約済みの投影データの集合です。Workspace Manifest がポリシーと認証情報の範囲を
+決め、クラスターが読み込み済みの全 Workspace Manifest に対する制御を実施します。
 
 ### ランタイムイメージ（runtime image）
 
@@ -102,7 +102,7 @@ Workspace 側の TLS 接続を Gateway で終端した後、Gateway がこのサ
 
 ### HTTP 操作（HTTP effect）
 
-ポリシーが許可または拒否する、正規化済みの HTTP 操作です。Context ID、Workspace
+ポリシーが許可または拒否する、正規化済みの HTTP 操作です。Workspace Manifest ID、Workspace
 ID、ホスト、ポート、HTTP メソッド、パスと、範囲を限定した秘密情報を含まないプロトコル
 メタデータで構成されます。リクエスト本文は識別項目ではなく、ポリシー候補を分けません。
 Workspace identity を運ぶ内部スキーマのフィールド名は `project_id` のままです。
@@ -139,21 +139,21 @@ Gateway を迂回せず、接続に失敗します。
 とは異なります。Workspace のヘッダーに書かれた値は、権限の根拠として受け入れません。
 内部の永続化と実施プロトコルでは、同じ値にスキーマ V1 の `project_id` を使い続けます。
 
-### Context ID
+### Workspace Manifest ID
 
-Context にホストが発行する、安定した UUIDv7 識別情報です。変更可能な表示名
-や現在の Context を示すマーカーとは別物です。
+Workspace Manifest にホストが発行する、安定した UUIDv7 識別情報です。変更可能な表示名
+や現在の Workspace Manifest を示すマーカーとは別物です。
 
 ### Workspace プリンシパル（Workspace principal）
 
 Workspace 専用ネットワーク上でカーネルが観測した完全一致の送信元エンドポイントから Gateway が導出する、
-安定した Context ID と Workspace ID の信頼できる組です。ポリシーと Auth Broker の
+安定した Workspace Manifest ID と Workspace ID の信頼できる組です。ポリシーと Auth Broker の
 ハンドルを使える範囲を決めます。内部実装とスキーマ V1 プロトコルで必要な箇所では、
 `project principal` という名前を維持します。
 
 ### プリンシパル登録簿（principal registry）
 
-Workspace の送信元エンドポイント、Gateway のエンドポイント、専用ネットワークを、Context と Workspace の識別情報
+Workspace の送信元エンドポイント、Gateway のエンドポイント、専用ネットワークを、Workspace Manifest と Workspace の識別情報
 へ完全一致で対応付ける、ホスト管理のスキーマ 1 対応表です。Gateway にはこの
 ディレクトリだけを読み取り専用で渡します。呼び出し元が指定した `X-Tobari-*` の
 文字列は、この対応付けの代わりになりません。
@@ -174,7 +174,7 @@ OPA、Auth Broker、別 Workspace、通常の外部ネットワークへ参加�
 
 ### 学習済み許可（learned allow）
 
-Context、Workspace、ホスト、ポート、メソッド、パスが一致する一つの HTTP 通信に対し、
+Workspace Manifest、Workspace、ホスト、ポート、メソッド、パスが一致する一つの HTTP 通信に対し、
 明示的に有効化した完全一致規則です。信頼するホスト側の操作がポリシー全体を検証し、
 アトミックな有効化に成功した場合だけ作られます。
 
@@ -200,7 +200,7 @@ Context、Workspace、ホスト、ポート、メソッド、パスが一致す�
 
 ### ポリシー有効化（policy activation）
 
-ポリシー状態をロックし、対象 Context のソースを検証し、全 Context を含む完全な
+ポリシー状態をロックし、対象 Workspace Manifest のソースを検証し、全 Workspace Manifest を含む完全な
 投影データをテストし、アトミックに公開して OPA の状態を合わせるホスト側の処理です。
 失敗時は、既知の正しい投影データを保持または復元します。
 
@@ -249,7 +249,7 @@ Provider、Workspace client Tool、取得方式、handle projection、完全一�
 
 ### Auth Broker
 
-Context とプロバイダーごとに、型付きで暗号化した認証状態を保存する共有サービスです。
+Workspace Manifest とプロバイダーごとに、型付きで暗号化した認証状態を保存する共有サービスです。
 Workspace に結び付いた不透明なハンドルを発行し、秘密情報を使わずに照会します。
 起動時は locked です。Gateway が policy allow を報告した後だけ、同じ static credential
 revision を解決します。Broker は Unix socket を持ちますが、Workspace network や TCP
@@ -257,14 +257,14 @@ listener は持ちません。
 
 ### Broker 管理の認証状態（brokered credential state）
 
-一つの Context vault 内で暗号化する型付き record です。V1 は static primary secret 一つと
+一つの Workspace Manifest vault 内で暗号化する型付き record です。V1 は static primary secret 一つと
 revision/handle state を保持します。Workspace や OPA へは投影しません。request-local value
 が境界を越えるのは policy allow 後に Auth Broker から Gateway へ渡る場合だけです。
 
 ### Broker ハンドル（broker handle）
 
 対象 Workspace へ投影する、バージョン付きの不透明な `tobari-h1_…` 値です。実物の
-認証情報ではなく、それだけで十分な権限にもなりません。利用時には Context、
+認証情報ではなく、それだけで十分な権限にもなりません。利用時には Workspace Manifest、
 プロジェクト、プロバイダー、認証情報のリビジョン、接続先、送信元ヘッダー、構文の
 一致と、その後の OPA の許可が必要です。同じ Workspace 内でハンドルを読める
 プロセスは、委ねられた権限の利用を試みられます。Tobari は同一 Workspace 内の
@@ -283,12 +283,12 @@ revision/handle state を保持します。Workspace や OPA へは投影しま�
 
 ### 認証情報リビジョン（credential revision）
 
-現在の Context とプロバイダーの認証情報に対応する、秘密情報を含まないランダムな
+現在の Workspace Manifest とプロバイダーの認証情報に対応する、秘密情報を含まないランダムな
 識別情報です。置換またはログアウトにより、以前のリビジョン用ハンドルを失効させます。
 
-### 暗号化 Context 保管庫（encrypted Context vault）
+### 暗号化 Workspace Manifest 保管庫（encrypted Workspace Manifest vault）
 
-安定した Context ID を認証付きデータとして結び付けた、スキーマ 1 の
+安定した Workspace Manifest ID を認証付きデータとして結び付けた、スキーマ 1 の
 AES-256-GCM エンベロープです。暗号化したスキーマ 1 ペイロードは、型付きの認証情報
 レコード、リビジョン、永続する操作バリア、ハンドルの元レコードを保持します。
 暗号化は文書化したルート鍵の前提のもとで、コンテナと Workspace の境界を守ります。
@@ -296,7 +296,7 @@ AES-256-GCM エンベロープです。暗号化したスキーマ 1 ペイロ�
 
 ### インストール用ルート鍵（installation root key）
 
-Context 保管庫を解錠する 32 バイトの鍵です。Linux では所有者だけが読める XDG
+Workspace Manifest 保管庫を解錠する 32 バイトの鍵です。Linux では所有者だけが読める XDG
 状態ファイル、macOS では固定した Keychain 項目に置きます。`cluster down --purge`
 でも残ります。
 
@@ -312,18 +312,18 @@ plan です。manifest は executable code ではなく、method/path policy を
 
 ### ルート索引（root index）
 
-正規のプロジェクトルートと安定した Context ID を、一つの Workspace ID へ対応付ける
-永続スキーマ 1 レコードです。最も近いルートを選ぶ前に、Context で対象を絞ります。
+正規のプロジェクトルートと安定した Workspace Manifest ID を、一つの Workspace ID へ対応付ける
+永続スキーマ 1 レコードです。最も近いルートを選ぶ前に、Workspace Manifest で対象を絞ります。
 
 ### Workspace インスタンス状態（Workspace instance state）
 
-一つの Workspace に対応する、永続スキーマ 1 の論理レコードです。Context との
+一つの Workspace に対応する、永続スキーマ 1 の論理レコードです。Workspace Manifest との
 恒久的な結び付きと、診断用のランタイム識別子を含みます。
 
 ### 集約ポリシー投影（aggregate policy projection）
 
-全 Context から組み立て、OPA へ読み取り専用でマウントする、内容で識別される完全な
-投影データです。一つの Context の変更が権限として有効になるのは、候補全体を検証して
+全 Workspace Manifest から組み立て、OPA へ読み取り専用でマウントする、内容で識別される完全な
+投影データです。一つの Workspace Manifest の変更が権限として有効になるのは、候補全体を検証して
 有効化した後だけです。
 
 ### Catalog
@@ -356,17 +356,17 @@ CLI リファレンスはここから導出します。
 
 ## 混同してはいけないもの
 
-| 同一視しないもの                        | 違い                                                                                                    |
-| --------------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| Workspace と作業コンテナ                | Workspace は永続する論理状態。コンテナは交換可能なランタイム                                            |
-| Context とクラスター                    | Context は一つの設定と権限の範囲を決め、クラスターは読み込んだ全 Context を共有基盤で制御する           |
-| 認証と認可                              | 認証情報が存在しても、OPA は HTTP 通信を拒否できる                                                      |
-| CA の信頼とポリシーの許可               | CA の信頼は通信の検査を可能にし、許可は正規化した一つの通信を通す                                       |
-| Auth Broker のハンドルと認証状態        | ハンドルは Workspace に結び付き、失効でき、秘密情報ではない。保管庫は固定または更新可能な状態を保持する |
-| `exit` と `delete`                      | `exit` は子のセッションを終了し、`delete` は論理 Workspace とホームを削除する                           |
-| `cluster down --purge` と `auth logout` | purge は共有ランタイムと CA ボリュームを削除し、logout はローカル認証情報一つとハンドルを削除する       |
-| タグとダイジェスト                      | タグは移動可能。ダイジェストは不変な OCI コンテンツを識別する                                           |
-| マニフェストとレポートのスキーマ        | 保存する Context マニフェストはスキーマ 1、公開 Context レポートはスキーマ 1                            |
+| 同一視しないもの                        | 違い                                                                                                                |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| Workspace と作業コンテナ                | Workspace は永続する論理状態。コンテナは交換可能なランタイム                                                        |
+| Workspace Manifest とクラスター         | Workspace Manifest は一つの設定と権限の範囲を決め、クラスターは読み込んだ全 Workspace Manifest を共有基盤で制御する |
+| 認証と認可                              | 認証情報が存在しても、OPA は HTTP 通信を拒否できる                                                                  |
+| CA の信頼とポリシーの許可               | CA の信頼は通信の検査を可能にし、許可は正規化した一つの通信を通す                                                   |
+| Auth Broker のハンドルと認証状態        | ハンドルは Workspace に結び付き、失効でき、秘密情報ではない。保管庫は固定または更新可能な状態を保持する             |
+| `exit` と `delete`                      | `exit` は子のセッションを終了し、`delete` は論理 Workspace とホームを削除する                                       |
+| `cluster down --purge` と `auth logout` | purge は共有ランタイムと CA ボリュームを削除し、logout はローカル認証情報一つとハンドルを削除する                   |
+| タグとダイジェスト                      | タグは移動可能。ダイジェストは不変な OCI コンテンツを識別する                                                       |
+| マニフェストとレポートのスキーマ        | 保存する Workspace Manifest マニフェストはスキーマ 1、公開 Workspace Manifest レポートはスキーマ 1                  |
 
 ## 障害と制限
 
@@ -385,7 +385,7 @@ CLI リファレンスはここから導出します。
 - レイヤーとランタイムの管理主体：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/docs/02_architecture.md`}>アーキテクチャ</a>
 - 信頼と制限の語彙：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/docs/03_security_model.md`}>セキュリティモデル</a>と <a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/docs/THREAT_MODEL.md`}>脅威モデル</a>
 - 認証の語彙：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/docs/07_authentication.md`}>認証契約</a>
-- Domain の定義：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/domain/tobari/project.go`}>Workspace の識別情報</a>、<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/domain/tobari/context.go`}>Context</a>、<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/domain/authbroker/provider.go`}>プロバイダーの語彙</a>
+- Domain の定義：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/domain/tobari/project.go`}>Workspace の識別情報</a>、<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/domain/tobari/context.go`}>Workspace Manifest</a>、<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/domain/authbroker/provider.go`}>プロバイダーの語彙</a>
 
 ## まとめ
 
@@ -395,21 +395,21 @@ Tobari は、永続する実行識別情報、ホスト設定、共有の制御�
 
 ## 理解を確認する
 
-「コンテナ」「Context」「Workspace」は同義語ではありません。
+「コンテナ」「Workspace Manifest」「Workspace」は同義語ではありません。
 
 <details>
 <summary>プロセスが有効な Auth Broker のハンドルを持っています。認証と通信許可は完了していますか？</summary>
 
-いいえ。認証機能の候補を持っているだけです。Broker が Context、Workspace、
+いいえ。認証機能の候補を持っているだけです。Broker が Workspace Manifest、Workspace、
 プロバイダー、リビジョン、HTTP との結び付きの一致を確認し、さらに OPA が通常の HTTP
 通信を許可した後で、宣言済みの解決、更新、署名処理を実行します。
 
 </details>
 
 <details>
-<summary>現在の Context を変更すると、既存 Workspace もその Context へ移りますか？</summary>
+<summary>現在の Workspace Manifest を変更すると、既存 Workspace もその Workspace Manifest へ移りますか？</summary>
 
-移りません。Workspace と Context ID の結び付きは恒久的です。現在の Context は、
+移りません。Workspace と Workspace Manifest ID の結び付きは恒久的です。現在の Workspace Manifest は、
 セレクターを省略した呼び出しのデフォルトにすぎません。
 
 </details>

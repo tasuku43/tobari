@@ -17,8 +17,8 @@ trusted components, untrusted data, and credential state.
 
 - Host files outside the selected root.
 - Docker control and other Workspace runtime resources.
-- Stable Context/project authority and policy sources.
-- Installation root key, encrypted Context vault, and broker-managed credentials.
+- Stable Workspace Manifest/project authority and policy sources.
+- Installation root key, encrypted Workspace Manifest vault, and broker-managed credentials.
 - Integrity of active aggregate policy and principal/provider projections.
 - Secret-free diagnostics and structured CLI output.
 
@@ -31,7 +31,7 @@ Assume code inside a Workspace can:
 - Read and modify the selected project and Workspace home.
 - Start processes and coordinate with other processes in that Workspace.
 - Open direct sockets and attempt to bypass Gateway.
-- Forge headers, URLs, Context/project-looking IDs, credential-like values, and prompt-like text.
+- Forge headers, URLs, Workspace Manifest/project-looking IDs, credential-like values, and prompt-like text.
 - Copy a projected broker handle and replay it from another Workspace.
 - Trigger policy denials, race user review, and send different bodies for the same HTTP dimensions.
 - Present invalid certificates or consume upstream-controlled responses.
@@ -66,7 +66,7 @@ Gateway returns only a denial and review location. Host discovery produces an op
 
 ### Copy or forge a broker handle
 
-The marker commits the request to broker processing. Introspection checks Context, project, provider, credential revision, exact HTTPS target, and header binding before OPA. Result: a copied/stale/invalid handle is rejected without passthrough fallback or secret resolution.
+The marker commits the request to broker processing. Introspection checks Workspace Manifest, project, provider, credential revision, exact HTTPS target, and header binding before OPA. Result: a copied/stale/invalid handle is rejected without passthrough fallback or secret resolution.
 
 ### Read the broker vault or root key through Workspace
 
@@ -99,24 +99,24 @@ Authorization, principal, broker, vault, projection, and activation faults are c
   <h2>Sources</h2>
   <ul>
     <li>
-      <a href="https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/docs/THREAT_MODEL.md">
+      <a href="https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/docs/THREAT_MODEL.md">
         Repository threat model
       </a>{" "}
       — the concise attacker/control inventory paired with the governing
       security model.
     </li>
     <li>
-      <a href="https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/docs/03_security_model.md">
+      <a href="https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/docs/03_security_model.md">
         Current governing security model
       </a>
     </li>
     <li>
-      <a href="https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/gateway/addon/broker_credentials.py">
+      <a href="https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/gateway/addon/broker_credentials.py">
         Broker-handle Gateway path
       </a>
     </li>
     <li>
-      <a href="https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/authbroker/tests/test_broker.py">
+      <a href="https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/authbroker/tests/test_broker.py">
         Broker failure and binding tests
       </a>
     </li>
@@ -134,18 +134,18 @@ Authorization, principal, broker, vault, projection, and activation faults are c
       same host. What matters?
     </summary>
     <div class="prose-block">
-      Broker introspection compares trusted Context/project principal, provider,
-      credential revision, target, and header binding. Project mismatch rejects
-      it before OPA or resolution. Even a valid binding would still need OPA to
-      allow the ordinary HTTP effect.
+      Broker introspection compares trusted Workspace Manifest/project
+      principal, provider, credential revision, target, and header binding.
+      Project mismatch rejects it before OPA or resolution. Even a valid binding
+      would still need OPA to allow the ordinary HTTP effect.
     </div>
   </details>
   <details>
     <summary>Why is a different body not a different learned rule?</summary>
     <div class="prose-block">
       The body is streamed only after authorization and is absent from rule
-      identity. Context, project, host, port, method, and raw path are the exact
-      learned dimensions.
+      identity. Workspace Manifest, project, host, port, method, and raw path
+      are the exact learned dimensions.
     </div>
   </details>
   <details>

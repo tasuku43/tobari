@@ -3,32 +3,32 @@ title: Advanced policy
 description: Maintain trusted-host Rego only when routine exact policy learning cannot express the required boundary.
 ---
 
-Most users should stay with Guided policy learning. Use an Advanced Context only when a host-authored policy shape cannot be expressed by the exact allow/deny workflow. Keep its Rego source and tests together, then activate changes through explicit complete-cluster validation.
+Most users should stay with Guided policy learning. Use an Advanced Workspace Manifest only when a host-authored policy shape cannot be expressed by the exact allow/deny workflow. Keep its Rego source and tests together, then activate changes through explicit complete-cluster validation.
 
 This is not the normal first-denial path. Before continuing, be comfortable with [Policy review](../policy-review/) and OPA/Rego.
 
 ## Guided and Advanced are different ownership models
 
-| Guided Context                                      | Advanced Context                                                    |
+| Guided Workspace Manifest                           | Advanced Workspace Manifest                                         |
 | --------------------------------------------------- | ------------------------------------------------------------------- |
 | Owns `policy/domains/<host>/{allow,deny}.json` only | Owns the domain tree, `tobari.rego`, and `tobari_test.rego`         |
-| Uses the current Tobari-owned shared evaluator      | Maintainer owns Context-local policy logic and tests                |
+| Uses the current Tobari-owned shared evaluator      | Maintainer owns Workspace Manifest-local policy logic and tests     |
 | Routine exact allow/deny/reset is the main path     | Direct host edit is possible when the routine model is insufficient |
 | A Tobari release updates evaluator logic            | Maintainer must review compatibility and behavior                   |
 
-Neither mode lets a Workspace edit active policy. Context policy directories remain owner-only host state and are not mounted into Workspaces.
+Neither mode lets a Workspace edit active policy. Workspace Manifest policy directories remain owner-only host state and are not mounted into Workspaces.
 
-## Create an Advanced Context deliberately
+## Create an Advanced Workspace Manifest deliberately
 
 ```sh
-tobari context create --name policy-lab --mode advanced
-tobari context show --name=policy-lab --format=json
-tobari context use --name policy-lab
+tobari manifest create --name policy-lab --mode advanced
+tobari manifest show --name=policy-lab --format=json
+tobari manifest default set --name policy-lab
 ```
 
-Use the exact store paths reported by `context show`. Do not mount the parent Tobari configuration directory into a Workspace and do not copy credentials into the policy directory.
+Use the exact store paths reported by `manifest show`. Do not mount the parent Tobari configuration directory into a Workspace and do not copy credentials into the policy directory.
 
-Creation does not change a running cluster. Reconcile explicitly before using the new Context:
+Creation does not change a running cluster. Reconcile explicitly before using the new Workspace Manifest:
 
 ```sh
 tobari cluster up
@@ -71,12 +71,12 @@ durable recovery journal.
 
 On the trusted host, edit the reported `policy/tobari.rego` and `policy/tobari_test.rego`. Keep the stable public decision contract and add tests for both intended matches and negative canaries.
 
-Advanced source is projected into an isolated package derived from the stable Context ID. Validation rejects attempts to claim:
+Advanced source is projected into an isolated package derived from the stable Workspace Manifest ID. Validation rejects attempts to claim:
 
 - the cluster-owned `tobari.http/decision` router;
 - reserved `tobari.system` packages;
-- another Context's namespace; or
-- the aggregate Context data namespace.
+- another Workspace Manifest's namespace; or
+- the aggregate Workspace Manifest data namespace.
 
 This is routing and namespace enforcement inside one trusted OPA process. It is not process-level confidentiality between Rego modules.
 
@@ -89,24 +89,24 @@ tobari doctor
 tobari cluster logs --component opa --tail 100
 ```
 
-`doctor` observes; it does not publish a source edit. Run the explicit cluster reconciliation to regenerate, test, and activate the all-Context projection:
+`doctor` observes; it does not publish a source edit. Run the explicit cluster reconciliation to regenerate, test, and activate the all-Workspace Manifest projection:
 
 ```sh
 tobari cluster up
 ```
 
-The projection owns one fixed router, Context-ID data namespaces, the shared Guided evaluator, and rewritten Advanced packages. Every source and the complete aggregate must pass. Only a valid candidate is published. A failure leaves the prior known-good aggregate authoritative.
+The projection owns one fixed router, Workspace Manifest-ID data namespaces, the shared Guided evaluator, and rewritten Advanced packages. Every source and the complete aggregate must pass. Only a valid candidate is published. A failure leaves the prior known-good aggregate authoritative.
 
-Routine exact allow/deny/reset operations use the same all-Context safety boundary and alter only the matching host's learned `rules` collection in `allow.json` or `deny.json`. They do not rewrite host-authored boundary policy or arbitrary Rego. A generated content-addressed OPA projection contains an internal `data.json`; it is not Context source.
+Routine exact allow/deny/reset operations use the same all-Workspace Manifest safety boundary and alter only the matching host's learned `rules` collection in `allow.json` or `deny.json`. They do not rewrite host-authored boundary policy or arbitrary Rego. A generated content-addressed OPA projection contains an internal `data.json`; it is not Workspace Manifest source.
 
 ## A suitable advanced use case
 
 Suppose a trusted maintainer needs a finite rule derived from non-secret request metadata that exact path rules cannot represent. The maintainer:
 
 1. documents why exact review is insufficient;
-2. writes the smallest Rego condition in one Advanced Context;
+2. writes the smallest Rego condition in one Advanced Workspace Manifest;
 3. adds positive fixtures and negative-inference canaries;
-4. validates every Context in the aggregate; and
+4. validates every Workspace Manifest in the aggregate; and
 5. confirms the resulting behavior with a denied and an allowed synthetic request.
 
 Do not use Advanced mode to implement a provider SDK, read request bodies, invoke a shell, load credentials, or bypass the Gateway/Auth Broker boundary. Rego receives normalized decision data, not arbitrary effect execution authority.
@@ -116,25 +116,25 @@ Do not use Advanced mode to implement a provider SDK, read request bodies, invok
 - Invalid Rego, test failure, forbidden package, or schema mismatch prevents activation.
 - A partial source edit never becomes a partially active aggregate.
 - OPA watch/health failure leaves requests fail closed; it does not preserve availability by allowing.
-- If `cluster up` reports a Context source failure, correct that exact Context before retrying.
+- If `cluster up` reports a Workspace Manifest source failure, correct that exact Workspace Manifest before retrying.
 - If an exact policy mutation races with a host edit, content/revision checks reject stale state rather than merging by guess.
 - A valid Rego test suite still proves only its declared cases; it does not establish that every unknown future URL is safe.
 
 ## Guarantees and limits
 
-Tobari reserves the router and Context namespaces, tests the whole projection, publishes atomically, and retains known-good policy on failure. The maintainer remains responsible for the meaning and completeness of Advanced rules. Tobari does not interpret provider semantics or infer safe wildcards.
+Tobari reserves the router and Workspace Manifest namespaces, tests the whole projection, publishes atomically, and retains known-good policy on failure. The maintainer remains responsible for the meaning and completeness of Advanced rules. Tobari does not interpret provider semantics or infer safe wildcards.
 
 ## Source evidence
 
-- [Advanced policy product contract](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/docs/01_product_contract.md)
-- [Aggregate policy architecture](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/docs/02_architecture.md)
-- [Aggregate generator and package rewriting](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/internal/infra/dockerruntime/aggregate.go)
-- [Guided/Advanced isolation tests](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/internal/infra/dockerruntime/aggregate_test.go)
-- [Atomic policy mutation tests](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/internal/infra/dockerruntime/policydata_test.go)
+- [Advanced policy product contract](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/docs/01_product_contract.md)
+- [Aggregate policy architecture](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/docs/02_architecture.md)
+- [Aggregate generator and package rewriting](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/internal/infra/dockerruntime/aggregate.go)
+- [Guided/Advanced isolation tests](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/internal/infra/dockerruntime/aggregate_test.go)
+- [Atomic policy mutation tests](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/internal/infra/dockerruntime/policydata_test.go)
 
 ## Summary
 
-Advanced mode moves policy-logic ownership to a trusted maintainer, not to the Workspace. Context namespace enforcement, whole-projection tests, and atomic activation remain mandatory.
+Advanced mode moves policy-logic ownership to a trusted maintainer, not to the Workspace. Workspace Manifest namespace enforcement, whole-projection tests, and atomic activation remain mandatory.
 
 ## Check your understanding
 

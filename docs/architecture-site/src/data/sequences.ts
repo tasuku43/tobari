@@ -51,7 +51,7 @@ export const sequenceScenarios: SequenceScenario[] = [
         title: "Principal is established",
         from: "Workspace source endpoint",
         to: "Gateway",
-        sent: "Host-owned Context ID and project ID from the principal registry",
+        sent: "Host-owned Workspace Manifest ID and project ID from the principal registry",
         withheld: "Workspace-supplied identity headers",
         owner: "Gateway",
         failure: "An unknown or ambiguous source endpoint fails closed.",
@@ -287,11 +287,11 @@ export const sequenceScenarios: SequenceScenario[] = [
         title: "Non-secret introspection",
         from: "Gateway",
         to: "Auth Broker",
-        sent: "Handle plus trusted Context/project identity",
+        sent: "Handle plus trusted Workspace Manifest/project identity",
         withheld: "Primary credential",
         owner: "Auth Broker",
         failure:
-          "Wrong Context, project, provider, revision, target, or binding rejects the request.",
+          "Wrong Workspace Manifest, project, provider, revision, target, or binding rejects the request.",
         explanation:
           "Introspection proves the record binding without disclosing the secret.",
         tone: "control",
@@ -369,7 +369,7 @@ export const sequenceScenarios: SequenceScenario[] = [
         withheld: "Opaque host CLI state and temporary AWS role credentials",
         owner: "Auth Broker",
         failure:
-          "Any Context, project, revision, target, or plan mismatch returns 403.",
+          "Any Workspace Manifest, project, revision, target, or plan mismatch returns 403.",
         explanation: "Broker returns only non-secret metadata before policy.",
         tone: "control",
       },
@@ -377,7 +377,7 @@ export const sequenceScenarios: SequenceScenario[] = [
         title: "Ordinary effect is authorized",
         from: "Gateway",
         to: "OPA",
-        sent: "Context, project, HTTPS authority, method, and normalized path",
+        sent: "Workspace Manifest, project, HTTPS authority, method, and normalized path",
         withheld: "Body, body hash, handle, opaque AWS state, and credentials",
         owner: "OPA",
         failure:
@@ -486,7 +486,7 @@ export const sequenceScenarios: SequenceScenario[] = [
         title: "Ordinary effect is authorized",
         from: "Gateway",
         to: "OPA",
-        sent: "Context, project, provider ID, HTTPS authority, method, and normalized path",
+        sent: "Workspace Manifest, project, provider ID, HTTPS authority, method, and normalized path",
         withheld: "Body, handle, revision, OAuth client, and tokens",
         owner: "OPA",
         failure:
@@ -518,7 +518,7 @@ export const sequenceScenarios: SequenceScenario[] = [
         failure:
           "Known pre-send failure is 503; explicit or post-send ambiguity is non-retryable 409 and keeps the durable barrier.",
         explanation:
-          "Datadog refresh is Broker-owned; isolated pup from the selected Context runtime is used only during login.",
+          "Datadog refresh is Broker-owned; isolated pup from the selected Workspace Manifest runtime is used only during login.",
         tone: "secret",
       },
       {
@@ -656,7 +656,7 @@ export const sequenceScenarios: SequenceScenario[] = [
         owner: "Auth Broker",
         failure: "Invalid, stale, copied, or mismatched handles are rejected.",
         explanation:
-          "The record must match Context, project, provider, credential revision, target, and header binding.",
+          "The record must match Workspace Manifest, project, provider, credential revision, target, and header binding.",
         tone: "denied",
       },
       {
@@ -739,7 +739,7 @@ export const sequenceScenarios: SequenceScenario[] = [
         title: "Build the exact rule",
         from: "Tobari CLI",
         to: "Policy validator",
-        sent: "Context, project, host, port, method, and path",
+        sent: "Workspace Manifest, project, host, port, method, and path",
         withheld: "Body and credential",
         owner: "Tobari CLI",
         failure: "The current active policy remains unchanged.",

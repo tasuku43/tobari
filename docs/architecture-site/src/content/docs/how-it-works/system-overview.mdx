@@ -97,7 +97,7 @@ Host file roots are a different boundary: two Workspaces may intentionally mount
 
 - **Gateway unavailable:** transparent ingress cannot accept the connection. Direct egress is still absent.
 - **OPA unavailable, slow, non-200, oversized, malformed, or incomplete:** Gateway returns `503 policy_unavailable`; it does not resolve or connect upstream.
-- **Unknown Context in the aggregate policy:** the fixed OPA router denies; it does not fall back to the current/default Context.
+- **Unknown Workspace Manifest in aggregate policy:** the fixed OPA router denies; it does not fall back to the default Manifest.
 - **Unsafe dotted-host DNS result:** Gateway rejects non-global addresses and does not silently choose a different authority. This is an upstream/proxy failure, not a stable public JSON fault code.
 - **A Workspace container or network is missing:** the next entry reconciles runtime resources from logical state. Loss of Docker resources does not erase the logical Workspace.
 
@@ -109,12 +109,12 @@ Host file roots are a different boundary: two Workspaces may intentionally mount
 
 ## Source evidence
 
-- [System topology](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/docs/02_architecture.md)
-- [HTTP authorization and network enforcement claims](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/docs/03_security_model.md)
-- [Compose network declarations and service mounts](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/internal/infra/runtimeassets/assets/compose.yaml)
-- [Workspace network and container creation](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/internal/infra/dockerruntime/project_runtime.go)
-- [Cluster reconciliation](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/internal/infra/dockerruntime/runtime.go)
-- [End-to-end topology, bypass, and outage tests](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/scripts/test-integration.sh)
+- [System topology](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/docs/02_architecture.md)
+- [HTTP authorization and network enforcement claims](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/docs/03_security_model.md)
+- [Compose network declarations and service mounts](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/internal/infra/runtimeassets/assets/compose.yaml)
+- [Workspace network and container creation](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/internal/infra/dockerruntime/project_runtime.go)
+- [Cluster reconciliation](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/internal/infra/dockerruntime/runtime.go)
+- [End-to-end topology, bypass, and outage tests](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/scripts/test-integration.sh)
 
 ## Summary
 
@@ -150,4 +150,4 @@ You should now be able to explain how the transparent route and output guard for
   Writes to the same selected host files remain shared.
 </details>
 
-Return to [Mental model](/how-it-works/mental-model/) if the five roles are unclear. Next, distinguish persistent product concepts in [Workspace, Context, cluster, and runtime](/how-it-works/workspace-context-cluster/).
+Return to [Mental model](/how-it-works/mental-model/) if the five roles are unclear. Next, distinguish persistent product concepts in [Workspace, Workspace Manifest, cluster, and runtime](/how-it-works/workspace-manifest-workspace-cluster/).

@@ -29,7 +29,7 @@ Gateway は検査対象の TLS ハンドシェイクを受け取り、Tobari の
 
 ### 3. Gateway が復号済み HTTP リクエストの許可を確認する
 
-Gateway は Context とプロジェクトの識別情報を導出し、透過経路では SNI、HTTP の接続先、元のポートが一致することを要求し、認証情報を削除または秘匿化します。本文を含まない正規化済み入力を、一度だけ OPA へ送ります。リクエスト本文は、ポリシー上の識別情報を決める要素ではありません。CA を信頼していても、この判断は省略できません。
+Gateway は Workspace Manifest とプロジェクトの識別情報を導出し、透過経路では SNI、HTTP の接続先、元のポートが一致することを要求し、認証情報を削除または秘匿化します。本文を含まない正規化済み入力を、一度だけ OPA へ送ります。リクエスト本文は、ポリシー上の識別情報を決める要素ではありません。CA を信頼していても、この判断は省略できません。
 
 拒否された場合や判断に失敗した場合、そのリクエスト用の TLS 接続 B は作られません。
 
@@ -58,11 +58,11 @@ Workspace 内で `curl https://api.example.com/v1/data` を実行するとしま
 
 これらは別々の問いです。
 
-| 問い                                                             | 仕組み                                    | 意味                                                                  |
-| ---------------------------------------------------------------- | ----------------------------------------- | --------------------------------------------------------------------- |
-| クライアントは Gateway と検査可能な HTTPS セッションを作れるか？ | ランタイムが Tobari CA を信頼             | Gateway が復号済みリクエストを受け取れる                              |
-| この通常の HTTP 操作は接続先へ進めるか？                         | Gateway が強制する OPA の判断             | Context、プロジェクト、ホスト、ポート、メソッド、パスが許可されている |
-| Broker 管理の認証情報を解決できるか？                            | ハンドルの結び付きすべてと事前の OPA 許可 | 一つのリクエストで宣言済みのヘッダー置換を行える                      |
+| 問い                                                             | 仕組み                                    | 意味                                                                             |
+| ---------------------------------------------------------------- | ----------------------------------------- | -------------------------------------------------------------------------------- |
+| クライアントは Gateway と検査可能な HTTPS セッションを作れるか？ | ランタイムが Tobari CA を信頼             | Gateway が復号済みリクエストを受け取れる                                         |
+| この通常の HTTP 操作は接続先へ進めるか？                         | Gateway が強制する OPA の判断             | Workspace Manifest、プロジェクト、ホスト、ポート、メソッド、パスが許可されている |
+| Broker 管理の認証情報を解決できるか？                            | ハンドルの結び付きすべてと事前の OPA 許可 | 一つのリクエストで宣言済みのヘッダー置換を行える                                 |
 
 動作する CA が解決するのは最初の行だけです。
 
@@ -85,11 +85,11 @@ Workspace 内で `curl https://api.example.com/v1/data` を実行するとしま
 
 ## 根拠となるソース
 
-- [アーキテクチャ上の HTTPS の流れ](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/docs/02_architecture.md)
-- [Gateway の mitmproxy 起動処理](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/gateway/entrypoint.sh)
-- [Workspace の CA バンドルを準備する起動処理](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/internal/infra/runtimeassets/assets/tobari/entrypoint.sh)
-- [HTTPS スキームと Gateway のテスト](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/gateway/test_tobari_gateway.py)
-- [HTTPS の検査を確認する統合テスト](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/scripts/test-integration.sh)
+- [アーキテクチャ上の HTTPS の流れ](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/docs/02_architecture.md)
+- [Gateway の mitmproxy 起動処理](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/gateway/entrypoint.sh)
+- [Workspace の CA バンドルを準備する起動処理](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/internal/infra/runtimeassets/assets/tobari/entrypoint.sh)
+- [HTTPS スキームと Gateway のテスト](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/gateway/test_tobari_gateway.py)
+- [HTTPS の検査を確認する統合テスト](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/scripts/test-integration.sh)
 
 ## まとめ
 
@@ -117,4 +117,4 @@ Workspace 内で `curl https://api.example.com/v1/data` を実行するとしま
   を拒否するためです。Tobari は証明書固定を迂回しません。
 </details>
 
-順序が不明確なら[リクエストの流れ](../request-journey/)を復習してください。次は[プロジェクト識別](../project-identity/)で、信頼できる Context とプロジェクトの識別情報がどこから来るかを見ます。
+順序が不明確なら[リクエストの流れ](../request-journey/)を復習してください。次は[プロジェクト識別](../project-identity/)で、信頼できる Workspace Manifest とプロジェクトの識別情報がどこから来るかを見ます。

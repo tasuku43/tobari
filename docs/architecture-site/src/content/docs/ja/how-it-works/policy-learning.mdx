@@ -30,10 +30,10 @@ Workspace 自身へ承認を求めることはありません。信頼するホ�
 
 ## 1. 拒否は許可の申請ではない
 
-OPA は Context policy baseline grant と learned exact allow のどちらにも一致しない effect を
-default deny します。default Context には有限の agent-ready baseline があり、完全な method
-policy は Context が所有します。deny-only や GET-only はその method policy で表します。request
-は schema、principal、fixed port、credential binding、immutable Context policy ceiling が有効な
+OPA は Workspace Manifest policy baseline grant と learned exact allow のどちらにも一致しない effect を
+default deny します。default Workspace Manifest には有限の agent-ready baseline があり、完全な method
+policy は Workspace Manifest が所有します。deny-only や GET-only はその method policy で表します。request
+は schema、principal、fixed port、credential binding、immutable Workspace Manifest policy ceiling が有効な
 場合だけ learnable になれます。
 
 Gateway は `403 policy_denied` を返します。学習可能なレスポンスが示すのは、信頼するホスト上のレビュー場所と、利用者から見える完全一致の HTTP 操作だけです。自動再試行がないことも明示します。
@@ -42,7 +42,7 @@ Gateway は `403 policy_denied` を返します。学習可能なレスポンス
 
 Gateway は、上限付きのスキーマ 1 拒否監査を、ローテーションされる Docker ログへ書きます。候補の発見処理は上限付きの末尾だけを読み、厳密に検証した拒否記録だけを受け入れます。
 
-根拠には、Context とプロジェクトの識別情報、ホスト、ポート、メソッド、パス、理由、時刻、秘密を含まない診断情報が含まれます。クエリー、ヘッダー、本文、ハンドル、認証情報のリビジョン、実物の認証情報は含まれません。ハンドルを含む URL パスは、全体を `/[redacted-auth-handle]` に置き換えます。
+根拠には、Workspace Manifest とプロジェクトの識別情報、ホスト、ポート、メソッド、パス、理由、時刻、秘密を含まない診断情報が含まれます。クエリー、ヘッダー、本文、ハンドル、認証情報のリビジョン、実物の認証情報は含まれません。ハンドルを含む URL パスは、全体を `/[redacted-auth-handle]` に置き換えます。
 
 根拠を保持する量には上限があり、無期限に残る許可待ち一覧ではありません。操作前に観測記録が選択したログ範囲の外へ出ると、その記録を使って状態変更を認可することはできません。
 
@@ -50,7 +50,7 @@ Gateway は、上限付きのスキーマ 1 拒否監査を、ローテーショ
 
 保留中の観測記録は、次の値が完全一致するもの同士でまとめます。
 
-- 安定した Context ID
+- 安定した Workspace Manifest ID
 - 安定したプロジェクト ID
 - ホスト
 - ポート
@@ -67,7 +67,7 @@ Gateway は、上限付きのスキーマ 1 拒否監査を、ローテーショ
 
 `policy candidates` は機械向けの候補発見手段です。`review permissions` は人が権限を確認するための画面です。リダイレクトされた場合や機械可読形式のレビューは読み取り専用です。raw TTY の一覧では、完全一致の `Allow` または `Deny` キーは変更されていない型付き ID の判断を準備するだけで、テンプレート権限は詳細画面からしか準備できません。`review permissions --watch` は同じ上限付き読み取りを backoff 付きで繰り返し、変更のない timer refresh では一つの alternate-screen frame を保ち、Apply 後も開いたままになります。これは権限の streaming ではなく、通信を再試行しません。任意の terminal cue は固定された信頼済み OSC 9 または BEL byte だけを使い、拒否の根拠を含みません。`auto` は iTerm2 の正確な識別、または保護された cmux terminal identity の完全な組を認識します。
 
-一時選択した各判断は、変更していない不透明な ID を保持します。`Apply` を押すと、選択済みの集合全体を再検証し、一度だけ有効化します。それより前にキャンセルすれば、何も書き込まずにすべて破棄します。Context を切り替える前に適用または破棄するため、永続ソースの昇格は journal で保護した一つの domain 世代置換のままです。表示順、字下げ、ラベルの文言、組み立て直したホストやパスは操作対象になりません。機械から呼び出す場合は、変更していない ID 一つを `policy allow --id …` または `policy deny --id …` へ渡します。
+一時選択した各判断は、変更していない不透明な ID を保持します。`Apply` を押すと、選択済みの集合全体を再検証し、一度だけ有効化します。それより前にキャンセルすれば、何も書き込まずにすべて破棄します。Workspace Manifest を切り替える前に適用または破棄するため、永続ソースの昇格は journal で保護した一つの domain 世代置換のままです。表示順、字下げ、ラベルの文言、組み立て直したホストやパスは操作対象になりません。機械から呼び出す場合は、変更していない ID 一つを `policy allow --id …` または `policy deny --id …` へ渡します。
 
 操作時に、Tobari は現在保持している根拠と現在の規則を読み直します。ID が古い、期限切れ、既存規則の対象済み、または一致しない場合、ポリシーを変更しません。
 
@@ -77,9 +77,9 @@ Gateway は、上限付きのスキーマ 1 拒否監査を、ローテーショ
 
 1. 集約ポリシーの状態変更をロックする
 2. 現在の集約リビジョンと、学習済み許可・拒否の完全なスナップショットを検証する
-3. 対象 Context 専用の候補をビルドしてテストする
-4. 所有者だけが書ける、`fsync` 後に名前を変更する手順で Context ソースを書く
-5. **すべての** Context から内容アドレス方式の集約を生成する
+3. 対象 Workspace Manifest 専用の候補をビルドしてテストする
+4. 所有者だけが書ける、`fsync` 後に名前を変更する手順で Workspace Manifest ソースを書く
+5. **すべての** Workspace Manifest から内容アドレス方式の集約を生成する
 6. 候補全体を OPA でテストする
 7. 内容アドレス方式の集約投影をアトミックに公開する
 8. リビジョン付きの完全なバンドルを、所有者ラベル付きの Docker 管理ポリシーボリュームへ公開する
@@ -96,13 +96,13 @@ Gateway は、上限付きのスキーマ 1 拒否監査を、ローテーショ
 
 ## 許可、拒否、リセット
 
-| 判断                          | 意味                                                                                                   |
-| ----------------------------- | ------------------------------------------------------------------------------------------------------ |
-| Context policy baseline grant | snapshot authority。固定 agent-ready data は選択可能な profile ではありません                          |
-| Context policy terminal deny  | pending review に入らず candidate/DNS/Broker/upstream work がゼロの ceiling rejection                  |
-| 学習済みの完全一致許可        | 一つの Context、プロジェクト、ホスト、ポート、メソッド、パスに対する権限                               |
-| 学習済みの完全一致拒否        | 明示的にレビューした終端的な拒否。その HTTP 操作では許可より優先されます                               |
-| `policy reset`                | 学習済み許可または完全一致拒否を一つ削除し、初期または既定の評価へ戻します。許可する操作ではありません |
+| 判断                                     | 意味                                                                                                   |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| Workspace Manifest policy baseline grant | snapshot authority。固定 agent-ready data は選択可能な profile ではありません                          |
+| Workspace Manifest policy terminal deny  | pending review に入らず candidate/DNS/Broker/upstream work がゼロの ceiling rejection                  |
+| 学習済みの完全一致許可                   | 一つの Workspace Manifest、プロジェクト、ホスト、ポート、メソッド、パスに対する権限                    |
+| 学習済みの完全一致拒否                   | 明示的にレビューした終端的な拒否。その HTTP 操作では許可より優先されます                               |
+| `policy reset`                           | 学習済み許可または完全一致拒否を一つ削除し、初期または既定の評価へ戻します。許可する操作ではありません |
 
 ## 具体例
 
@@ -120,27 +120,27 @@ Gateway は、上限付きのスキーマ 1 拒否監査を、ローテーショ
 - 学習できない拒否は、レビュー用コマンドを提示しません。
 - 不正または秘密を含むログデータは、根拠として受け入れません。
 - 古い候補や参照から規則は作りません。
-- Context ソースまたは集約ポリシーが一つでも不正なら、有効化を中止します。
+- Workspace Manifest ソースまたは集約ポリシーが一つでも不正なら、有効化を中止します。
 - ソースが並行変更されていた場合は、上書きせず中止します。
 - OPA の再作成に失敗した場合は、制御された復元が可能な範囲で、直前の動作確認済み権限を戻します。
 - リセット後、同じリクエストは再びレビュー可能な拒否になる場合があります。「すべて許可」にはなりません。
 
 ## 保証と制限
 
-**保証すること:** 観測しただけでは権限は変わりません。状態変更には不透明な参照一つを使います。完全一致規則は Context とプロジェクトに結び付きます。ポリシー全体の検証を、有効化より先に行います。ワイルドカードの自動作成も、リクエストの再実行もありません。本文によって許可範囲が暗黙に狭まることもありません。
+**保証すること:** 観測しただけでは権限は変わりません。状態変更には不透明な参照一つを使います。完全一致規則は Workspace Manifest とプロジェクトに結び付きます。ポリシー全体の検証を、有効化より先に行います。ワイルドカードの自動作成も、リクエストの再実行もありません。本文によって許可範囲が暗黙に狭まることもありません。
 
 **保証しないこと:** 拒否記録の無期限保持。本文単位の制御。プロバイダー操作の意味解釈。ポリシーの自動最小化。人による承認判断が安全であること。OPA 再作成中の完全な無停止。
 
 ## 根拠となるソース
 
-- [ポリシーの製品契約](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/docs/01_product_contract.md)
-- [ポリシーを有効化する仕組み](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/docs/02_architecture.md)
-- [ガイド付き Rego 評価器](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/internal/infra/runtimeassets/assets/opa/policy/tobari.rego)
-- [Rego ポリシーのテスト](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/internal/infra/runtimeassets/assets/opa/policy/tobari_test.rego)
-- [候補と完全一致規則のドメイン不変条件](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/internal/domain/tobari/policy.go)
-- [ポリシー定義の変更と復元処理](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/internal/infra/dockerruntime/policydata.go)
-- [全 Context の集約生成](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/internal/infra/dockerruntime/aggregate.go)
-- [許可、拒否、reset、body grouping の統合テスト](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/scripts/test-integration.sh)
+- [ポリシーの製品契約](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/docs/01_product_contract.md)
+- [ポリシーを有効化する仕組み](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/docs/02_architecture.md)
+- [ガイド付き Rego 評価器](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/internal/infra/runtimeassets/assets/opa/policy/tobari.rego)
+- [Rego ポリシーのテスト](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/internal/infra/runtimeassets/assets/opa/policy/tobari_test.rego)
+- [候補と完全一致規則のドメイン不変条件](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/internal/domain/tobari/policy.go)
+- [ポリシー定義の変更と復元処理](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/internal/infra/dockerruntime/policydata.go)
+- [全 Workspace Manifest の集約生成](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/internal/infra/dockerruntime/aggregate.go)
+- [許可、拒否、reset、body grouping の統合テスト](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/scripts/test-integration.sh)
 
 ## まとめ
 
@@ -153,7 +153,8 @@ Gateway は、上限付きのスキーマ 1 拒否監査を、ローテーショ
 <details>
   <summary>本文が異なる二つのリクエストは、二つの候補になりますか？</summary>
   いいえ。本文の有無と内容は候補の識別情報に含まれません。一つの
-  完全一致規則が、Context、プロジェクト、ホスト、ポート、メソッド、パスが完全一致する、
+  完全一致規則が、Workspace
+  Manifest、プロジェクト、ホスト、ポート、メソッド、パスが完全一致する、
   どの本文も対象にします。
 </details>
 

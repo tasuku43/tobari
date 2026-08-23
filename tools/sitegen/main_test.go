@@ -73,7 +73,7 @@ func TestGenerateCatalogUsesExecutableAgentHelp(t *testing.T) {
 		"doctor", "help", "version",
 		"cluster up", "cluster status", "cluster down",
 		"policy candidates", "policy allow", "policy deny",
-		"context list", "context show", "context use",
+		"manifest list", "manifest show", "manifest default set",
 		"runtime list", "runtime show", "runtime create", "runtime history", "runtime build",
 		"tobari", "status", "list", "delete",
 	} {
@@ -295,7 +295,7 @@ func TestGenerateVersionsDerivesCommittedAuthorities(t *testing.T) {
 	}
 
 	wantContextSchema := captureIntForTest(
-		t, contextSource, `ContextSchemaVersion\s*=\s*([0-9]+)`,
+		t, contextSource, `ManifestSchemaVersion\s*=\s*([0-9]+)`,
 	)
 	providerSource := committedForTest(t, root, "internal/domain/authbroker/provider.go")
 	wantProviderSchema := captureIntForTest(
@@ -320,8 +320,8 @@ func TestGenerateVersionsDerivesCommittedAuthorities(t *testing.T) {
 		)
 	}
 	for contract, want := range map[string]int{
-		"Context manifest":        wantContextSchema,
-		"Public Context report":   wantContextReportSchema,
+		"Workspace Manifest":              wantContextSchema,
+		"Public Workspace Manifest report": wantContextReportSchema,
 		"Owner provider manifest": wantOwnerProviderSchema,
 		"Normalized provider projection / reviewed built-in manifest": wantProviderSchema,
 	} {
@@ -344,7 +344,7 @@ func TestGenerateVersionsDerivesCommittedAuthorities(t *testing.T) {
 }
 
 func TestContextReportSchemaDerivationAllowsInterposedCatalogFields(t *testing.T) {
-	source := []byte(`JSONEnvelope: "context", JSONEnvelopeType: OutputFieldTypeObject, JSONSchemaVersion: 7,`)
+	source := []byte(`JSONEnvelope: "workspace_manifest", JSONEnvelopeType: OutputFieldTypeObject, JSONSchemaVersion: 7,`)
 	got, err := contextReportSchemaVersion(source)
 	if err != nil {
 		t.Fatal(err)

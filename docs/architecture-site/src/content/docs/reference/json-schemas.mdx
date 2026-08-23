@@ -31,25 +31,25 @@ owning domain or infrastructure reader defines exact validation.
 
 {/* public-cli-json-schemas:start */}
 
-| Surface                                                     | Envelope              | Current schema |
-| ----------------------------------------------------------- | --------------------- | -------------: |
-| Structured error                                            | `error`               |              2 |
-| Agent help (`view: index` and input-selected `view: scope`) | `commands`            |              1 |
-| Version                                                     | `build_identity`      |              1 |
-| Doctor report                                               | `report`              |              1 |
-| Installation migration                                      | `migration`           |              2 |
-| Workspace Manifest list                                     | `workspace_manifests` |              2 |
-| Workspace Manifest report                                   | `workspace_manifest`  |              2 |
-| Runtime list                                                | `runtimes`            |              1 |
-| Runtime report (`runtime show/create/history/build`)        | `runtime`             |              1 |
-| Workspace Manifest deletion                                            | `workspace_manifest_deletion` |              2 |
-| Cluster status                                              | `cluster`             |              1 |
-| Cluster denials                                             | `denials`             |              1 |
-| Policy candidates                                           | `policy_candidates`   |              1 |
-| Policy review                                               | `policy_review`       |              1 |
-| Policy rules                                                | `policy_rules`        |              1 |
-| Workspace list                                              | `workspaces`          |              2 |
-| Workspace status                                            | `status`              |              2 |
+| Surface                                                     | Envelope                      | Current schema |
+| ----------------------------------------------------------- | ----------------------------- | -------------: |
+| Structured error                                            | `error`                       |              2 |
+| Agent help (`view: index` and input-selected `view: scope`) | `commands`                    |              1 |
+| Version                                                     | `build_identity`              |              1 |
+| Doctor report                                               | `report`                      |              1 |
+| Installation migration                                      | `migration`                   |              2 |
+| Workspace Manifest list                                     | `workspace_manifests`         |              2 |
+| Workspace Manifest report                                   | `workspace_manifest`          |              2 |
+| Runtime list                                                | `runtimes`                    |              1 |
+| Runtime report (`runtime show/create/history/build`)        | `runtime`                     |              1 |
+| Workspace Manifest deletion                                 | `workspace_manifest_deletion` |              2 |
+| Cluster status                                              | `cluster`                     |              1 |
+| Cluster denials                                             | `denials`                     |              1 |
+| Policy candidates                                           | `policy_candidates`           |              1 |
+| Policy review                                               | `policy_review`               |              1 |
+| Policy rules                                                | `policy_rules`                |              1 |
+| Workspace list                                              | `workspaces`                  |              2 |
+| Workspace status                                            | `status`                      |              2 |
 
 {/* public-cli-json-schemas:end */}
 
@@ -79,7 +79,7 @@ stored in `context.json`.
 
 | State                                           | Current contract      |
 | ----------------------------------------------- | --------------------- |
-| Workspace Manifest manifest                                | Schema 1              |
+| Workspace Manifest manifest                     | Schema 1              |
 | Root index and Workspace instance               | Schema 1              |
 | Shared cluster state                            | Schema 1              |
 | Project principal registry                      | Schema 1              |
@@ -88,7 +88,7 @@ stored in `context.json`.
 | Owner provider manifest                         | Schema 1              |
 | Reviewed built-in provider manifest             | Schema 1              |
 | Normalized provider projection                  | Schema 1              |
-| Encrypted Workspace Manifest vault                         | Envelope 1; payload 1 |
+| Encrypted Workspace Manifest vault              | Envelope 1; payload 1 |
 | Workspace authentication file registry          | Schema 1              |
 | Base runtime metadata                           | Schema 1              |
 
@@ -107,7 +107,7 @@ is unsupported, and that development state must be removed and recreated.
 
 | Boundary                                     | Current contract | Important content rule                                                                               |
 | -------------------------------------------- | ---------------: | ---------------------------------------------------------------------------------------------------- |
-| Gateway credential configuration             |         Schema 1 | Workspace Manifest-aware managed projection; contains paths/metadata, not policy authority.                     |
+| Gateway credential configuration             |         Schema 1 | Workspace Manifest-aware managed projection; contains paths/metadata, not policy authority.          |
 | Gateway → OPA decision input                 |         Schema 1 | Host-derived principal plus normalized HTTP attributes. No body and no client secret headers.        |
 | Guided/Advanced source policy input          |         Schema 1 | Aggregate generation validates the exact V1 source before activation.                                |
 | Gateway audit line                           |         Schema 1 | Secret-free normalized decision evidence.                                                            |

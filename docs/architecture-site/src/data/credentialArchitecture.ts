@@ -50,8 +50,8 @@ export const credentialNodes: CredentialNode[] = [
     label: { en: "Workspace", ja: "Workspace" },
     role: { en: "Untrusted process boundary", ja: "信頼しないプロセスの境界" },
     detail: {
-      en: "Receives only a Context/project-bound opaque handle for brokered providers.",
-      ja: "ブローカー方式では、Context とプロジェクトに結び付いた不透明なハンドルだけを受け取ります。",
+      en: "Receives only a Workspace Manifest/project-bound opaque handle for brokered providers.",
+      ja: "ブローカー方式では、Workspace Manifest とプロジェクトに結び付いた不透明なハンドルだけを受け取ります。",
     },
     kind: "untrusted",
   },
@@ -101,8 +101,8 @@ export const credentialNodes: CredentialNode[] = [
   {
     id: "vault",
     label: {
-      en: "Encrypted Context vault",
-      ja: "暗号化された Context 保管庫",
+      en: "Encrypted Workspace Manifest vault",
+      ja: "暗号化された Workspace Manifest 保管庫",
     },
     role: { en: "Persistent secret state", ja: "永続する秘密情報の状態" },
     detail: {
@@ -266,8 +266,8 @@ export const credentialScenarios: CredentialScenario[] = [
       ja: "ホストのホームディレクトリ、プロバイダー CLI、実物の認証情報、ログイン用コールバックサービスが、Workspace や Auth Broker イメージへ入ることはありません。",
     },
     result: {
-      en: "Encrypted Context-owned credential state; still no network allow rule.",
-      ja: "Context 所有の認証情報状態が暗号化されて保存されますが、通信の許可ルールは増えません。",
+      en: "Encrypted Workspace Manifest-owned credential state; still no network allow rule.",
+      ja: "Workspace Manifest 所有の認証情報状態が暗号化されて保存されますが、通信の許可ルールは増えません。",
     },
     failure: {
       en: "The previous record remains unchanged; no partial state is projected.",

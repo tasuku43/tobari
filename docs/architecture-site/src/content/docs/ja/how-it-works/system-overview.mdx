@@ -90,7 +90,7 @@ OPA は Workspace ネットワークに接続されていないため、コン�
 
 - **Gateway が利用不能:** 透過経路は接続を受けられません。外部への直接経路は引き続きありません。
 - **OPA が利用不能、遅延、HTTP 200 以外、上限超過、不正、不完全:** Gateway は `503 policy_unavailable` を返し、名前解決も接続先への接続も行いません。
-- **集約ポリシーに未知の Context がある:** 固定された OPA の振り分け処理は拒否し、現在選択中または既定の Context へ切り替えません。
+- **集約ポリシーに未知の Workspace Manifest がある:** 固定された OPA の振り分け処理は拒否し、現在選択中または既定の Workspace Manifest へ切り替えません。
 - **ドットを含むホスト名の DNS 結果が安全でない:** Gateway はグローバルでないアドレスを拒否し、別のオーソリティを暗黙に選びません。これは接続先またはプロキシの障害であり、安定した公開 JSON 障害コードではありません。
 - **Workspace のコンテナまたはネットワークがない:** 次の入室時に、論理状態からランタイム資源を調整します。Docker 資源を失っても、論理 Workspace は消えません。
 
@@ -102,12 +102,12 @@ OPA は Workspace ネットワークに接続されていないため、コン�
 
 ## 根拠となるソース
 
-- [システム構成](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/docs/02_architecture.md)
-- [HTTP の通信許可とネットワーク強制に関する保証](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/docs/03_security_model.md)
-- [Compose のネットワーク宣言とサービスのマウント](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/internal/infra/runtimeassets/assets/compose.yaml)
-- [Workspace のネットワークとコンテナを作る処理](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/internal/infra/dockerruntime/project_runtime.go)
-- [クラスターの状態調整処理](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/internal/infra/dockerruntime/runtime.go)
-- [構成、迂回、障害を確認する統合テスト](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/scripts/test-integration.sh)
+- [システム構成](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/docs/02_architecture.md)
+- [HTTP の通信許可とネットワーク強制に関する保証](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/docs/03_security_model.md)
+- [Compose のネットワーク宣言とサービスのマウント](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/internal/infra/runtimeassets/assets/compose.yaml)
+- [Workspace のネットワークとコンテナを作る処理](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/internal/infra/dockerruntime/project_runtime.go)
+- [クラスターの状態調整処理](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/internal/infra/dockerruntime/runtime.go)
+- [構成、迂回、障害を確認する統合テスト](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/scripts/test-integration.sh)
 
 ## まとめ
 
@@ -143,4 +143,4 @@ OPA は Workspace ネットワークに接続されていないため、コン�
   範囲が重なることは別問題です。 同じホストファイルへの書き込みは共有されます。
 </details>
 
-五つの役割が不明なら[メンタルモデル](../mental-model/)へ戻ってください。次は[Workspace、Context、cluster](../workspace-context-cluster/)で永続する製品概念を区別します。
+五つの役割が不明なら[メンタルモデル](../mental-model/)へ戻ってください。次は[Workspace、Workspace Manifest、cluster](../workspace-manifest-workspace-cluster/)で永続する製品概念を区別します。

@@ -1,12 +1,12 @@
 ---
 title: ポリシーレビュー
-description: 保持された拒否の根拠を確認し、完全一致の判断を準備して、一つの Context のポリシー全体を一度に有効化します。
+description: 保持された拒否の根拠を確認し、完全一致の判断を準備して、一つの Workspace Manifest のポリシー全体を一度に有効化します。
 ---
 
 import PolicyLoopMap from "../../../../components/PolicyLoopMap.astro";
 import SequenceExplorer from "../../../../components/SequenceExplorer.astro";
 
-ポリシーレビューは、保持された拒否の根拠を、ホストが所有する明示的な判断へ変える操作です。Workspace から出て、信頼するホスト上の Permission Inbox で、量を制限した秘密情報を含まない記録を確認します。raw terminal の一覧から完全一致の判断を準備し、テンプレートは詳細画面で将来範囲を確認してから選び、一つの Context についてレビュー済みの一式を一度だけ Apply します。承認はポリシーを変更しますが、拒否された通信を再試行しません。
+ポリシーレビューは、保持された拒否の根拠を、ホストが所有する明示的な判断へ変える操作です。Workspace から出て、信頼するホスト上の Permission Inbox で、量を制限した秘密情報を含まない記録を確認します。raw terminal の一覧から完全一致の判断を準備し、テンプレートは詳細画面で将来範囲を確認してから選び、一つの Workspace Manifest についてレビュー済みの一式を一度だけ Apply します。承認はポリシーを変更しますが、拒否された通信を再試行しません。
 
 Workspace の attachment は維持したまま、Permission Inbox は別の信頼するホスト端末で開きます。Tobari は `Ctrl+]` などの子プロセス入力 shortcut を予約せず、shell や full-screen program の terminal presentation を置き換えません。
 
@@ -31,14 +31,14 @@ tobari review permissions --watch --notify=off
 
 インストール全体を対象とする TTY キューには、取得件数を制限した Gateway ログから、保留中の通信候補が表示されます。一つを選び、次を確認します。
 
-- Context と安定した Context ID
+- Workspace Manifest と安定した Workspace Manifest ID
 - プロジェクトとルート、およびホストが発行したプロジェクトプリンシパル
 - スキーム、ホスト、ポート
 - メソッドと正規化されたパス
 - 拒否理由、時刻、保持された観測回数
 - 提案される完全一致の許可または拒否
 
-raw terminal の一覧で **a** または **d** を押すと **Allow exact** または **Deny exact** を準備し、**x** で一行の判断を解除します。完全一致の準備後は後方の未判断行だけへ進み、末尾から折り返しません。根拠の精査や、提案されたテンプレートの例と将来範囲の承認には詳細画面を開きます。どの選択も準備状態であり権限を与えません。同じ Context の候補を続けて確認し、最後に **p** を押して **Apply** を確認し、一式全体を再検証して一度だけ有効化します。Apply の前にキャンセルすると、準備した選択はすべて破棄されます。Context を切り替える前に Apply または破棄してください。これにより、ソース更新が一つの journal で保護された domain 世代置換に収まります。
+raw terminal の一覧で **a** または **d** を押すと **Allow exact** または **Deny exact** を準備し、**x** で一行の判断を解除します。完全一致の準備後は後方の未判断行だけへ進み、末尾から折り返しません。根拠の精査や、提案されたテンプレートの例と将来範囲の承認には詳細画面を開きます。どの選択も準備状態であり権限を与えません。同じ Workspace Manifest の候補を続けて確認し、最後に **p** を押して **Apply** を確認し、一式全体を再検証して一度だけ有効化します。Apply の前にキャンセルすると、準備した選択はすべて破棄されます。Workspace Manifest を切り替える前に Apply または破棄してください。これにより、ソース更新が一つの journal で保護された domain 世代置換に収まります。
 
 `--watch` は text 出力と対話型 raw terminal を必要とします。同じ上限付き snapshot を自動更新し、不透明な型付き ID でフォーカスと準備済み判断を保ち、古くなった判断を報告し、読み取り失敗時には backoff し、Apply 成功後も開いたままになります。Apply と Apply の間は一つの alternate-screen frame を保ち、変更のない timer refresh では再描画しません。拒否された通信を再試行することはありません。
 
@@ -76,9 +76,9 @@ ID をデコード、正規化、再構成したり、未検査の表示文字�
 
 1. 最新のキュースナップショットで、保持された参照をすべて解決する
 2. ポリシー生成処理をロックする
-3. 所有する Context 一つの学習済みデータだけを変更する
-4. 非公開の Context ソースを検証する
-5. すべての Context を含む完全な集約ポリシーを生成し、テストする
+3. 所有する Workspace Manifest 一つの学習済みデータだけを変更する
+4. 非公開の Workspace Manifest ソースを検証する
+5. すべての Workspace Manifest を含む完全な集約ポリシーを生成し、テストする
 6. リビジョンを持つ完全なバンドルを一つ公開する
 7. 実行中の OPA が完全一致のリビジョンを報告するまで待つ
 8. リクエストを再実行せず確定した判断を報告する
@@ -89,7 +89,7 @@ ID をデコード、正規化、再構成したり、未検査の表示文字�
 
 確定した許可後、一致する Workspace へ再入室して新しいリクエストを送ります。古い拒否されたリクエストはすでになく、Gateway は本文をキュー/再実行しません。
 
-完全一致規則は Context ID、プロジェクト ID、スキーム、ホスト、ポート、メソッド、パスに結び付きます。本文、時刻、表示順、リクエスト ID、認証情報ラベルによって権限が広がったり分割されたりすることはありません。
+完全一致規則は Workspace Manifest ID、プロジェクト ID、スキーム、ホスト、ポート、メソッド、パスに結び付きます。本文、時刻、表示順、リクエスト ID、認証情報ラベルによって権限が広がったり分割されたりすることはありません。
 
 ## 現在のポリシーを修正する
 
@@ -114,19 +114,19 @@ exact rule を広げる操作や休止中 fallback はありません。
 
 ## 保証と制限
 
-通常の学習ではワイルドカード規則を暗黙に作らず、観測しただけで通信を許可することもありません。完全一致の判断はプロジェクトと Context に限定され、本文を含みません。宛先と通信内容が適切かを決めるのは利用者です。Tobari は意味上の意図を推測せず、許可された通信が Workspace から読める機密データを運ぶことまでは防げません。
+通常の学習ではワイルドカード規則を暗黙に作らず、観測しただけで通信を許可することもありません。完全一致の判断はプロジェクトと Workspace Manifest に限定され、本文を含みません。宛先と通信内容が適切かを決めるのは利用者です。Tobari は意味上の意図を推測せず、許可された通信が Workspace から読める機密データを運ぶことまでは防げません。
 
 ## 根拠となるソース
 
-- [ポリシー学習の製品契約](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/docs/01_product_contract.md)
-- [ポリシー Catalog と変更操作の契約](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/internal/cli/runtime_catalog.go)
-- [ポリシー候補に関するドメインの意味](https://github.com/tasuku43/tobari/tree/381835cda72885f78f5a3c9c69868e25df9a15fd/internal/domain/tobari)
-- [ポリシーをアトミックに変更する実装](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/internal/infra/dockerruntime/policydata.go)
-- [対話型レビューと参照のテスト](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/internal/cli/tobari_test.go)
+- [ポリシー学習の製品契約](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/docs/01_product_contract.md)
+- [ポリシー Catalog と変更操作の契約](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/internal/cli/runtime_catalog.go)
+- [ポリシー候補に関するドメインの意味](https://github.com/tasuku43/tobari/tree/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/internal/domain/tobari)
+- [ポリシーをアトミックに変更する実装](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/internal/infra/dockerruntime/policydata.go)
+- [対話型レビューと参照のテスト](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/internal/cli/tobari_test.go)
 
 ## まとめ
 
-レビューは、信頼するホストで候補を確認し、完全一致の判断を明示的に準備する操作です。参照は不透明なまま扱います。一つの Context の一式を全体として有効化し、確定後の再試行は利用者またはエージェントが新しいリクエストとして開始します。
+レビューは、信頼するホストで候補を確認し、完全一致の判断を明示的に準備する操作です。参照は不透明なまま扱います。一つの Workspace Manifest の一式を全体として有効化し、確定後の再試行は利用者またはエージェントが新しいリクエストとして開始します。
 
 ## 理解を確認する
 

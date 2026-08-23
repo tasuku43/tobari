@@ -1,0 +1,158 @@
+---
+title: Workspace Manifests
+description: Create, inspect, select, and use reusable Workspace definitions without changing existing Workspace authority.
+---
+
+import ConceptDiagram from "../../../components/ConceptDiagram.astro";
+
+A Workspace Manifest is a reusable desired definition. A Workspace is the
+durable instance created from that definition for one canonical project root.
+The Manifest owns a stable ID and immutable semantic revisions; the Workspace
+keeps that ID, its desired next entry, and its last successfully applied entry.
+
+For the relationship among a Manifest, Workspace, and shared cluster, see
+[Workspace, Workspace Manifest, cluster](../../how-it-works/workspace-manifest-workspace-cluster/).
+
+<ConceptDiagram name="workspace-manifest-workspace-cluster" headingLevel={2} />
+
+## Inspect the Manifest collection
+
+```sh
+tobari manifest list
+tobari manifest show
+```
+
+`manifest list` reports every local definition and marks the omission default.
+`manifest show` without `--name` reads that default. Add `--details` for the
+complete Boundary, stable identity, revision and store references. JSON is
+already complete and does not change with `--details`. Neither view includes
+credentials, broker handles, root keys, or vault contents.
+
+The display name is convenient selection text. `workspace_manifest_id` plus the
+semantic Manifest digest is authority. `manifest_generation` distinguishes
+history and correlation only: a semantic no-op does not increment it, while
+A→B→A has a later generation with A's original digest.
+
+## Create a Manifest
+
+Run the interactive review:
+
+```sh
+tobari manifest create
+```
+
+For deterministic machine use, provide the complete direct group:
+
+```sh
+tobari manifest create --name review \
+  --runtime standard \
+  --mode guided \
+  --source-access read-only \
+  --native-readiness disabled \
+  --format json
+```
+
+To copy one exact current immutable revision into a fresh independent
+definition:
+
+```sh
+tobari manifest create --copy-from default --name review
+```
+
+The copy receives a fresh Workspace Manifest ID and generation 1. It stores no
+lineage and copies no Workspace, home, authentication, learned permission,
+attachment, applied/failure/observed state, or default selection. Creation does
+not enter or reconcile a Workspace and does not start Docker.
+
+The creation-time source/network Boundary, including the `read-only` or
+`read-write` source-access choice, is immutable. The exact Runtime
+binding, shell/Git session defaults, and future-Workspace bootstrap defaults
+have separate explicit mutation paths and activation timing. A read-only source
+bind does not make the shared host directory an isolated snapshot.
+
+## Change the omission default
+
+```sh
+tobari manifest default set --name review
+tobari manifest show
+```
+
+This changes only the host-owned omission default. It does not reconcile the
+cluster, retarget an existing Workspace, move a persistent home, or rotate a
+credential.
+
+Use an explicit Manifest without changing the default:
+
+```sh
+tobari --manifest review
+tobari status --manifest review
+tobari delete --manifest review
+```
+
+## Configure narrow defaults
+
+```sh
+tobari config shell --manifest review --variable PS1 --source inherit
+tobari config shell --manifest review --variable NO_COLOR --source literal --value=
+tobari config git --manifest review --source inherit
+tobari config bootstrap aws --manifest review --profile example
+```
+
+Shell configuration allows only `PS1`, `TERM`, `COLORTERM`, and `NO_COLOR`.
+Existing processes keep their current environment. Bootstrap recipes apply
+once to future Workspace homes and never import credentials or token caches.
+
+Set an exact ready Runtime revision explicitly:
+
+```sh
+tobari manifest runtime set --manifest review --runtime coding@1
+```
+
+Bound Workspaces expose the new definition as Next and adopt it only on a later
+explicit Workspace entry. An attached Workspace remains adoption-pending.
+
+## Observe Current and Next
+
+```sh
+tobari status --manifest review --format json
+tobari list --format json
+```
+
+These commands are read-only. Desired/Next is the selected Manifest revision;
+Current is the last successful `AppliedEntry`; observed container/runtime health
+is fresh evidence. A failed reconciliation records a bounded failure without
+erasing the last success. Mutation and retry happen only at explicit Workspace
+entry or `cluster up`, never in status.
+
+## Delete an unused Manifest
+
+```sh
+tobari manifest delete --name review
+```
+
+Deletion rejects the foundational `default` Manifest, the selected default,
+and any Manifest still bound to a logical Workspace. It has no force option and
+never selects another default implicitly. Project files and shared Runtime
+images remain.
+
+## Failure behavior
+
+- `manifest_not_found`: use `tobari manifest list` and choose an existing name.
+- `manifest_exists`: inspect the existing definition instead of overwriting it.
+- `manifest_copy_source_changed`: review the source's current revision again.
+- `manifest_create_wizard_unavailable`: use an interactive text terminal or a
+  complete direct input group.
+- `manifest_is_default`: select another default before deletion.
+- `manifest_has_workspaces`: delete every bound Workspace first.
+- `manifest_is_protected`: the foundational `default` Manifest cannot be deleted.
+- `requires_reconcile`: run explicit `tobari cluster up` where shared policy
+  reconciliation is required.
+
+## Summary
+
+A Workspace Manifest is the desired Workspace definition; a Workspace is the
+applied instance. Changing the default affects omitted selection only. Existing
+Workspaces never change authority implicitly, and read-only observation never
+reconciles them.
+
+**Next:** [Customize a Runtime](../runtime-customization/).

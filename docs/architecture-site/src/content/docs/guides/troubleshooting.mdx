@@ -37,14 +37,14 @@ Check in this order:
 
 `missing` container or `degraded` network can be reconciled by the next valid root entry while preserving logical state/home. `incomplete` means the index and instance record disagree; entry refuses to invent identity. Use the exact cleanup path `tobari delete`, then create deliberately.
 
-For `workspace_selection_stale`, rerun `tobari` and choose from the refreshed candidates. For `image_not_found` or `incompatible_image`, inspect the bound Context and fix/build the runtime before another entry.
+For `workspace_selection_stale`, rerun `tobari` and choose from the refreshed candidates. For `image_not_found` or `incompatible_image`, inspect the bound Workspace Manifest and fix/build the runtime before another entry.
 
 ## A request returns HTTP 403
 
 First identify the response code:
 
-- `policy_denied`: leave the Workspace and run `tobari review permissions`. Inspect and stage exact choices for one Context, Apply the reviewed set once, then retry deliberately.
-- `credential_handle_invalid`: leave and re-enter the same Context-bound Workspace. A stale, copied, malformed, misplaced, or mismatched handle must not be forwarded.
+- `policy_denied`: leave the Workspace and run `tobari review permissions`. Inspect and stage exact choices for one Workspace Manifest, Apply the reviewed set once, then retry deliberately.
+- `credential_handle_invalid`: leave and re-enter the same Workspace Manifest-bound Workspace. A stale, copied, malformed, misplaced, or mismatched handle must not be forwarded.
 - A baseline or learned exact deny: it is terminal policy, not a pending candidate. Inspect `tobari policy rules`; reset only if changing that decision is intentional.
 
 Do not solve a credential-binding `403` by creating a broad allow rule. The failure occurs before an effective OPA rule can close it.
@@ -86,12 +86,12 @@ exit
 tobari
 ```
 
-If it still fails, inspect `tobari auth status`, the exact Context selection, installed provider binding, and cluster readiness. Do not paste a handle from another Workspace; project and Context checks are intentional.
+If it still fails, inspect `tobari auth status`, the exact Workspace Manifest selection, installed provider binding, and cluster readiness. Do not paste a handle from another Workspace; project and Workspace Manifest checks are intentional.
 
 ## Runtime image is missing or incompatible
 
 ```sh
-tobari context show
+tobari manifest show
 ```
 
 For a managed Runtime:
@@ -100,10 +100,10 @@ For a managed Runtime:
 tobari runtime list
 tobari runtime show --name frontend
 tobari runtime build --name frontend
-tobari context runtime set --runtime frontend@1
+tobari manifest runtime set --runtime frontend@1
 ```
 
-A failed build appends no revision and changes no Context. A failed selection
+A failed build appends no revision and changes no Workspace Manifest. A failed selection
 keeps the previous exact binding. Existing logical Workspace state and home
 remain. Correct compatibility instead of changing host mounts, user,
 entrypoint, lifetime command, or network controls.
@@ -118,18 +118,18 @@ tobari cluster status
 tobari cluster logs --component opa --tail 100
 ```
 
-Exact allow/deny/reset validates the changed Context and the complete all-Context aggregate before activation. A failure should retain known-good policy. Rediscover opaque references after any concurrent change; do not reuse display order or stale IDs.
+Exact allow/deny/reset validates the changed Workspace Manifest and the complete all-Workspace Manifest aggregate before activation. A failure should retain known-good policy. Rediscover opaque references after any concurrent change; do not reuse display order or stale IDs.
 
 For host-authored Advanced policy, correct the Rego and tests on the trusted host, then rerun `tobari doctor` and explicit `tobari cluster up`.
 
 ## I cannot delete a Workspace or stop the cluster
 
 - `project_session_attached`: exit the session, then run `tobari delete`. Use `tobari delete --force` only when terminating that exact attached session is intentional.
-- `project_not_found`: run the command from the intended project root/ancestor and selected Context.
-- `cluster_not_empty`: `tobari list` every Workspace, return to the appropriate root/Context, and delete each before `cluster down`.
+- `project_not_found`: run the command from the intended project root/ancestor and selected Workspace Manifest.
+- `cluster_not_empty`: `tobari list` every Workspace, return to the appropriate root/Workspace Manifest, and delete each before `cluster down`.
 - Interrupted state: inspect `status` and `doctor`; use the declared exact cleanup or reconcile command rather than manually deleting labels/files.
 
-`delete` never removes project files. `cluster down --purge` removes shared runtime and CA volumes but preserves Context vaults/root key; it is not credential logout.
+`delete` never removes project files. `cluster down --purge` removes shared runtime and CA volumes but preserves Workspace Manifest vaults/root key; it is not credential logout.
 
 ## Colima or Lima cannot see a mount
 
@@ -150,7 +150,7 @@ Reconcile through the matching read path first:
 
 - authentication: `tobari auth status`;
 - policy: `tobari policy rules` and `tobari cluster status`;
-- Context/runtime: `tobari context show`;
+- Workspace Manifest/Runtime: `tobari manifest show`;
 - Workspace: `tobari status` and `tobari list`.
 
 ## Guarantees and limits
@@ -159,11 +159,11 @@ Catalog faults declare bounded recovery, and read-only diagnostics avoid surpris
 
 ## Source evidence
 
-- [Catalog-declared faults and recovery](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/internal/cli/runtime_catalog.go)
-- [Authentication fault contracts](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/internal/cli/auth_catalog.go)
-- [Read-only doctor implementation](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/internal/infra/dockerruntime/runtime.go)
-- [Workspace recovery tests](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/internal/infra/dockerruntime/project_runtime_test.go)
-- [Integration recovery canaries](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/scripts/test-integration.sh)
+- [Catalog-declared faults and recovery](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/internal/cli/runtime_catalog.go)
+- [Authentication fault contracts](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/internal/cli/auth_catalog.go)
+- [Read-only doctor implementation](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/internal/infra/dockerruntime/runtime.go)
+- [Workspace recovery tests](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/internal/infra/dockerruntime/project_runtime_test.go)
+- [Integration recovery canaries](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/scripts/test-integration.sh)
 
 ## Summary
 
@@ -174,7 +174,7 @@ Start with what you observed, identify the owning boundary, read current state, 
 <details>
 <summary>A broker login command lost its final output. Should you run login again?</summary>
 
-Not yet. The credential may already have been replaced. Run `tobari auth status` and reconcile the Context before another mutation.
+Not yet. The credential may already have been replaced. Run `tobari auth status` and reconcile the Workspace Manifest before another mutation.
 
 </details>
 

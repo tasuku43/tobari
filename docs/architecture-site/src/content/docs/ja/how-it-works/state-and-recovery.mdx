@@ -5,7 +5,7 @@ description: 永続データごとに、管理主体、寿命、削除操作、�
 
 import ConceptDiagram from "../../../../components/ConceptDiagram.astro";
 
-Tobari は、プロジェクト、Workspace、Context、クラスター、認証情報、インストール環境の
+Tobari は、プロジェクト、Workspace、Workspace Manifest、クラスター、認証情報、インストール環境の
 状態を、所有範囲ごとに分けます。ライフサイクル操作が削除するのは、宣言した範囲だけです。
 そのため `exit`、`delete`、クラスターの停止、認証情報のログアウトや置換、実行環境の
 再ビルドでは、それぞれ残るものが異なります。
@@ -21,38 +21,38 @@ Tobari は、プロジェクト、Workspace、Context、クラスター、認証
 
 以下のパスは、特に記載がない限り、実際に使われる XDG の設定／状態ルートからの相対パスです。
 
-| 状態                               | 管理主体と意味                                                                                                         | 寿命                                                                                              |
-| ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| プロジェクトルート                 | immutable Context `source_access` に従って mount する user-selected live host file                                     | Tobari のライフサイクル操作では削除しない                                                         |
-| `roots/<hash>.json`                | 完全一致する（正規化済みプロジェクトルート、Context ID）の組ごとのルート索引                                           | 論理 Workspace と一緒に作成・削除                                                                 |
-| `instances/<id>/state.json`        | スキーマ1の安定した識別情報、永続的な Context との結び付き、要求された実行環境と調整済みの実行環境、診断用 Docker ID   | 論理 Workspace と一緒に作成・削除。Docker を調べた結果よりも優先                                  |
-| `instances/<id>/home`              | Workspace ごとの書き込み可能なホーム領域と、ツール自身が管理するログイン状態                                           | `exit` や実行環境の再作成後も残り、Workspace の削除で消える                                       |
-| Context マニフェスト               | ホスト所有の安定した ID、エージェントプロファイル、正確な Runtime リビジョン参照、ポリシーモード、限定されたシェル設定 | Workspace やクラスターの実行環境を操作しても残る                                                  |
-| Runtime `source/` と不変リビジョン | インストール全体で再利用するビルドソースと成功履歴                                                                     | Context と Workspace のライフサイクルを越えて残り、ビルドだけでは展開されない                     |
-| Context のポリシー原本             | 一つの Context が所有する exact-host `domains/<host>/{allow,deny}.json` と、Advanced の場合は Rego                     | クラスターの実行環境より長く残り、検証済みの有効化か、Advanced モードでの明示的な編集だけで変わる |
-| 統合ポリシー生成物                 | OPA に読み取り専用でマウントする、内容アドレス方式の全 Context 用ルーター、データ、モジュールの写し                    | ポリシー原本から再構築して不可分に公開する。クラスター稼働中だけ有効な判断データ                  |
-| 現在有効なポリシーバンドル         | 所有者ラベル付きの Docker 管理ボリュームに置く、版管理された完全な OPA バンドル                                        | OPA が動的に読み込む。`cluster down --purge` だけが削除し、ポリシー原本から再構築する             |
-| プロバイダーマニフェスト           | 所有者が管理する厳格な V1 の静的宣言と、同じ V1 権限内のレビュー済み組み込みプラン                                     | インストール環境または Context の設定として、クラスター停止後も残る                               |
-| プロバイダー生成物                 | Gateway が使う、正規化済みで秘密を含まないスキーマ1の全プロバイダー用データ                                            | 完全に検証できたマニフェスト群から再生成する。一部だけを有効化しない                              |
-| プリンシパル台帳                   | ホスト発行のスキーマ 1 Workspace 送信元＋Gateway エンドポイント＋ネットワークと Context／プロジェクトの結び付き        | 既存の Workspace ネットワークに合わせて調整し、Gateway には読み取り専用でマウントする             |
-| 暗号化した Context 保管庫          | static secret、revision、raw handle を含む schema-1 authenticated ciphertext                                           | Workspace 削除やどちらの cluster-down でも残る。credential entry は auth mutation で更新          |
-| インストール用ルート鍵             | Context 保管庫のロックを解除する鍵。macOS Keychain または所有者だけが読める Linux ファイル                             | `cluster down` と `--purge` の後も残る。保管庫だけがあり鍵がなければ、安全側に停止する            |
-| Gateway CA の状態                  | Workspace 側の HTTPS 検査に使う、インストール環境固有の CA                                                             | 通常の `cluster down` 後も残り、共有 CA ボリュームは `--purge` で削除する                         |
+| 状態                                 | 管理主体と意味                                                                                                                  | 寿命                                                                                              |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| プロジェクトルート                   | immutable Workspace Manifest `source_access` に従って mount する user-selected live host file                                   | Tobari のライフサイクル操作では削除しない                                                         |
+| `roots/<hash>.json`                  | 完全一致する（正規化済みプロジェクトルート、Workspace Manifest ID）の組ごとのルート索引                                         | 論理 Workspace と一緒に作成・削除                                                                 |
+| `instances/<id>/state.json`          | スキーマ1の安定した識別情報、永続的な Workspace Manifest との結び付き、要求された実行環境と調整済みの実行環境、診断用 Docker ID | 論理 Workspace と一緒に作成・削除。Docker を調べた結果よりも優先                                  |
+| `instances/<id>/home`                | Workspace ごとの書き込み可能なホーム領域と、ツール自身が管理するログイン状態                                                    | `exit` や実行環境の再作成後も残り、Workspace の削除で消える                                       |
+| Workspace Manifest マニフェスト      | ホスト所有の安定した ID、エージェントプロファイル、正確な Runtime リビジョン参照、ポリシーモード、限定されたシェル設定          | Workspace やクラスターの実行環境を操作しても残る                                                  |
+| Runtime `source/` と不変リビジョン   | インストール全体で再利用するビルドソースと成功履歴                                                                              | Workspace Manifest と Workspace のライフサイクルを越えて残り、ビルドだけでは展開されない          |
+| Workspace Manifest のポリシー原本    | 一つの Workspace Manifest が所有する exact-host `domains/<host>/{allow,deny}.json` と、Advanced の場合は Rego                   | クラスターの実行環境より長く残り、検証済みの有効化か、Advanced モードでの明示的な編集だけで変わる |
+| 統合ポリシー生成物                   | OPA に読み取り専用でマウントする、内容アドレス方式の全 Workspace Manifest 用ルーター、データ、モジュールの写し                  | ポリシー原本から再構築して不可分に公開する。クラスター稼働中だけ有効な判断データ                  |
+| 現在有効なポリシーバンドル           | 所有者ラベル付きの Docker 管理ボリュームに置く、版管理された完全な OPA バンドル                                                 | OPA が動的に読み込む。`cluster down --purge` だけが削除し、ポリシー原本から再構築する             |
+| プロバイダーマニフェスト             | 所有者が管理する厳格な V1 の静的宣言と、同じ V1 権限内のレビュー済み組み込みプラン                                              | インストール環境または Workspace Manifest の設定として、クラスター停止後も残る                    |
+| プロバイダー生成物                   | Gateway が使う、正規化済みで秘密を含まないスキーマ1の全プロバイダー用データ                                                     | 完全に検証できたマニフェスト群から再生成する。一部だけを有効化しない                              |
+| プリンシパル台帳                     | ホスト発行のスキーマ 1 Workspace 送信元＋Gateway エンドポイント＋ネットワークと Workspace Manifest／プロジェクトの結び付き      | 既存の Workspace ネットワークに合わせて調整し、Gateway には読み取り専用でマウントする             |
+| 暗号化した Workspace Manifest 保管庫 | static secret、revision、raw handle を含む schema-1 authenticated ciphertext                                                    | Workspace 削除やどちらの cluster-down でも残る。credential entry は auth mutation で更新          |
+| インストール用ルート鍵               | Workspace Manifest 保管庫のロックを解除する鍵。macOS Keychain または所有者だけが読める Linux ファイル                           | `cluster down` と `--purge` の後も残る。保管庫だけがあり鍵がなければ、安全側に停止する            |
+| Gateway CA の状態                    | Workspace 側の HTTPS 検査に使う、インストール環境固有の CA                                                                      | 通常の `cluster down` 後も残り、共有 CA ボリュームは `--purge` で削除する                         |
 
-クラスター状態には、共有資源名、読み込み済み Context 数、内容アドレス方式で作った統合データの版、生成物のパスも記録します。現在選択中の Context を通信制御の権限とはせず、実物の認証情報も含めません。
+クラスター状態には、共有資源名、読み込み済み Workspace Manifest 数、内容アドレス方式で作った統合データの版、生成物のパスも記録します。現在選択中の Workspace Manifest を通信制御の権限とはせず、実物の認証情報も含めません。
 
 ## 操作ごとに保持するもの
 
-| 操作または出来事             | Workspace の識別情報とホーム領域                                 | Context／ポリシー | 保管庫とルート鍵                                             | 共有サービス／CA                                    | プロジェクトファイル |
-| ---------------------------- | ---------------------------------------------------------------- | ----------------- | ------------------------------------------------------------ | --------------------------------------------------- | -------------------- |
-| `exit`                       | 保持                                                             | 保持              | 保持                                                         | 稼働を続け、CA も保持                               | 保持                 |
-| `delete`                     | 完全一致する Workspace のホーム領域と実行環境記録を含めて削除    | 保持              | Context の認証情報は保持し、プロジェクトのハンドル台帳は削除 | 変更なし                                            | 保持                 |
-| `cluster down`               | すべての Workspace を削除するまで、コマンドを拒否                | 保持              | 保持                                                         | サービスと一時ネットワークを削除し、CA は保持       | 保持                 |
-| `cluster down --purge`       | 前提条件は `cluster down` と同じ                                 | 保持              | 保持                                                         | サービス、共有 CA、現在有効なポリシーバンドルを削除 | 保持                 |
-| `auth logout PROVIDER`       | 識別情報とホーム領域は保持。実行中の環境は再入場まで変わらない   | 保持              | プロバイダーの認証情報と全ハンドルを削除し、ルート鍵は保持   | クラスターは保持                                    | 保持                 |
-| 認証情報の置換               | 識別情報とホーム領域は保持。新しい投影値の反映には再入場が必要   | 保持              | 新しい版を保存し、古いハンドルを無効化                       | クラスターは保持                                    | 保持                 |
-| Context の実行環境を再ビルド | 識別情報とホーム領域は保持。結び付いたコンテナは次の入場時に調整 | ポリシーは保持    | 保持                                                         | 変更なし                                            | 保持                 |
-| コンテナ／ネットワークの消失 | 論理状態とホーム領域は保持。次の入場時に資源を調整               | 保持              | 保持                                                         | 必要に応じて Gateway の接続とプリンシパル情報を修復 | 保持                 |
+| 操作または出来事                        | Workspace の識別情報とホーム領域                                 | Workspace Manifest／ポリシー | 保管庫とルート鍵                                                        | 共有サービス／CA                                    | プロジェクトファイル |
+| --------------------------------------- | ---------------------------------------------------------------- | ---------------------------- | ----------------------------------------------------------------------- | --------------------------------------------------- | -------------------- |
+| `exit`                                  | 保持                                                             | 保持                         | 保持                                                                    | 稼働を続け、CA も保持                               | 保持                 |
+| `delete`                                | 完全一致する Workspace のホーム領域と実行環境記録を含めて削除    | 保持                         | Workspace Manifest の認証情報は保持し、プロジェクトのハンドル台帳は削除 | 変更なし                                            | 保持                 |
+| `cluster down`                          | すべての Workspace を削除するまで、コマンドを拒否                | 保持                         | 保持                                                                    | サービスと一時ネットワークを削除し、CA は保持       | 保持                 |
+| `cluster down --purge`                  | 前提条件は `cluster down` と同じ                                 | 保持                         | 保持                                                                    | サービス、共有 CA、現在有効なポリシーバンドルを削除 | 保持                 |
+| `auth logout PROVIDER`                  | 識別情報とホーム領域は保持。実行中の環境は再入場まで変わらない   | 保持                         | プロバイダーの認証情報と全ハンドルを削除し、ルート鍵は保持              | クラスターは保持                                    | 保持                 |
+| 認証情報の置換                          | 識別情報とホーム領域は保持。新しい投影値の反映には再入場が必要   | 保持                         | 新しい版を保存し、古いハンドルを無効化                                  | クラスターは保持                                    | 保持                 |
+| Workspace Manifest の実行環境を再ビルド | 識別情報とホーム領域は保持。結び付いたコンテナは次の入場時に調整 | ポリシーは保持               | 保持                                                                    | 変更なし                                            | 保持                 |
+| コンテナ／ネットワークの消失            | 論理状態とホーム領域は保持。次の入場時に資源を調整               | 保持                         | 保持                                                                    | 必要に応じて Gateway の接続とプリンシパル情報を修復 | 保持                 |
 
 ## 正本に従って復旧する
 
@@ -62,11 +62,11 @@ Tobari は、プロジェクト、Workspace、Context、クラスター、認証
 
 ### 永続状態が不完全
 
-ルート索引があるのに Workspace インスタンスの記録がない場合、Tobari は `incomplete` を報告します。失われた安定した識別情報、Context との結び付き、ホーム領域の関係を推測しません。明示的に作り直す前に、完全一致する `delete` で残った記録を片付けます。
+ルート索引があるのに Workspace インスタンスの記録がない場合、Tobari は `incomplete` を報告します。失われた安定した識別情報、Workspace Manifest との結び付き、ホーム領域の関係を推測しません。明示的に作り直す前に、完全一致する `delete` で残った記録を片付けます。
 
 ### ポリシーの有効化に失敗
 
-ポリシー変更では、排他制御、Context 単位の事前検査、全 Context を統合した状態での完全なテスト、内容アドレス方式での公開、OPA が正常になるまでの待機を行います。入力が不正な場合や有効化に失敗した場合、候補の一部だけをマウントすることはありません。ポリシー原本を元に戻し、直前まで正常に動いていた統合データと状態を保持します。
+ポリシー変更では、排他制御、Workspace Manifest 単位の事前検査、全 Workspace Manifest を統合した状態での完全なテスト、内容アドレス方式での公開、OPA が正常になるまでの待機を行います。入力が不正な場合や有効化に失敗した場合、候補の一部だけをマウントすることはありません。ポリシー原本を元に戻し、直前まで正常に動いていた統合データと状態を保持します。
 
 ### ルート鍵または保管庫の整合性検証に失敗
 
@@ -80,8 +80,8 @@ Auth Broker はロックされた状態で起動します。暗号化した保�
 
 ホストの再起動後、Workspace コンテナと専用ネットワークはありませんが、ルート索引、Workspace インスタンスの状態、ホーム領域は残っています。
 
-1. `tobari` が永続的なプロジェクトルートと Context の記録を解決する
-2. 結び付いた Context の実行環境イメージを検証する
+1. `tobari` が永続的なプロジェクトルートと Workspace Manifest の記録を解決する
+2. 結び付いた Workspace Manifest の実行環境イメージを検証する
 3. 内部ネットワークとコンテナを再作成する
 4. Gateway を接続し、Gateway／Workspace のガードを再適用して、新しい正確なエンドポイントのプリンシパル情報を記録する
 5. 現在の Auth Broker ハンドルの投影データを記録と一致させる
@@ -101,19 +101,19 @@ Auth Broker はロックされた状態で起動します。暗号化した保�
 
 ## 保証と制限
 
-**保証すること:** ライフサイクル操作が扱う範囲は限定され、プロジェクトファイルを削除しません。有効な論理状態から作り直せる Docker の状態は、記録に合わせて調整できます。Context 保管庫とルート鍵は `cluster down --purge` の後も残ります。ポリシーやプロバイダー生成物の一部だけを有効化することはありません。
+**保証すること:** ライフサイクル操作が扱う範囲は限定され、プロジェクトファイルを削除しません。有効な論理状態から作り直せる Docker の状態は、記録に合わせて調整できます。Workspace Manifest 保管庫とルート鍵は `cluster down --purge` の後も残ります。ポリシーやプロバイダー生成物の一部だけを有効化することはありません。
 
 **保証しないこと:** 失われたプロジェクトファイル、削除済みの Workspace ホーム領域、失われたインストール用ルート鍵、破損したホストストレージ、侵害された信頼ホストからの復旧、プロバイダー側での認証情報の失効、プロジェクト移動後の自動判定。
 
 ## 根拠となるソース
 
-- [状態の保存先と副作用の契約](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/docs/01_product_contract.md)
-- [ライフサイクル、統合データ、復旧のアーキテクチャ](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/docs/02_architecture.md)
-- [認証状態の保存先](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/docs/07_authentication.md)
-- [Workspace とクラスター状態の実装](https://github.com/tasuku43/tobari/tree/381835cda72885f78f5a3c9c69868e25df9a15fd/internal/infra/dockerruntime)
-- [Auth Broker の保管庫実装](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/authbroker/vault.py)
-- [ルート鍵のインフラストラクチャ実装](https://github.com/tasuku43/tobari/tree/381835cda72885f78f5a3c9c69868e25df9a15fd/internal/infra/rootkey)
-- [ライフサイクルと復旧の統合テスト](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/scripts/test-integration.sh)
+- [状態の保存先と副作用の契約](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/docs/01_product_contract.md)
+- [ライフサイクル、統合データ、復旧のアーキテクチャ](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/docs/02_architecture.md)
+- [認証状態の保存先](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/docs/07_authentication.md)
+- [Workspace とクラスター状態の実装](https://github.com/tasuku43/tobari/tree/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/internal/infra/dockerruntime)
+- [Auth Broker の保管庫実装](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/authbroker/vault.py)
+- [ルート鍵のインフラストラクチャ実装](https://github.com/tasuku43/tobari/tree/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/internal/infra/rootkey)
+- [ライフサイクルと復旧の統合テスト](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/scripts/test-integration.sh)
 
 ## まとめ
 
@@ -129,14 +129,14 @@ Auth Broker はロックされた状態で起動します。暗号化した保�
   </summary>
   完全一致する Workspace
   のルート索引、インスタンス状態、ホーム領域、コンテナ、ネットワーク、プリンシパル台帳とプロジェクト認証台帳の項目です。どちらの操作も、プロジェクトファイルと
-  Context の状態は削除しません。
+  Workspace Manifest の状態は削除しません。
 </details>
 
 <details>
   <summary>
     <code>cluster down --purge</code> は何を追加で削除しますか？
   </summary>
-  共有 Gateway CA ボリュームです。暗号化した Context
+  共有 Gateway CA ボリュームです。暗号化した Workspace Manifest
   保管庫とインストール用ルート鍵は保持します。
 </details>
 

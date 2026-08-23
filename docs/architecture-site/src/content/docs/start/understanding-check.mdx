@@ -16,7 +16,7 @@ A developer says: “Tobari is just a convenient `docker run` command.” What i
 <details>
 <summary>Answer</summary>
 
-The runtime container is only one recoverable implementation detail. Tobari also maintains a logical Context-bound Workspace, a host-issued project principal, a dedicated internal network, Gateway enforcement, OPA policy, denial review and atomic activation, persistent home/state, and optional credential brokering. See [System overview](../../how-it-works/system-overview/).
+The runtime container is only one recoverable implementation detail. Tobari also maintains a logical Workspace Manifest-bound Workspace, a host-issued project principal, a dedicated internal network, Gateway enforcement, OPA policy, denial review and atomic activation, persistent home/state, and optional credential brokering. See [System overview](../../how-it-works/system-overview/).
 
 </details>
 
@@ -69,7 +69,7 @@ After transparent interception, TLS connection A runs between the Workspace clie
 
 ## 6. Same effect, different body
 
-Two requests have the same Context, project, scheme, host, port, method, and path, but different JSON bodies. Do they require different learned rules?
+Two requests have the same Workspace Manifest, project, scheme, host, port, method, and path, but different JSON bodies. Do they require different learned rules?
 
 <details>
 <summary>Answer</summary>
@@ -85,18 +85,18 @@ The agent types `exit`, then the user runs `tobari delete`. What is the differen
 <details>
 <summary>Answer</summary>
 
-`exit` ends the attached shell while preserving the logical Workspace, home, Context binding, runtime resources, and policy. `delete` removes the nearest detached Workspace and its owned home/container/network/principal/state, while preserving project files and Context-owned state. See [Workspace lifecycle](../../how-it-works/workspace-lifecycle/).
+`exit` ends the attached shell while preserving the logical Workspace, home, Workspace Manifest binding, runtime resources, and policy. `delete` removes the nearest detached Workspace and its owned home/container/network/principal/state, while preserving project files and Workspace Manifest-owned state. See [Workspace lifecycle](../../how-it-works/workspace-lifecycle/).
 
 </details>
 
-## 8. Switching Contexts
+## 8. Switching Workspace Manifests
 
-Workspace A was created under Context `default`. The user runs `tobari context use --name review`. Does A change into the `review` Context?
+Workspace A was created from Manifest `default`. The user runs `tobari manifest default set --name review`. Does A change to the `review` Manifest?
 
 <details>
 <summary>Answer</summary>
 
-No. `context use` changes only the omission default. Existing Workspaces remain permanently bound to their stable Context ID. The same root under `review` can select or create a separate Workspace. See [Contexts](../../guides/contexts/).
+No. `manifest default set` changes only the omission default. Existing Workspaces remain permanently bound to their stable Workspace Manifest ID. The same root under `review` can select or create a separate Workspace. See [Workspace Manifests](../../guides/workspace-manifests/).
 
 </details>
 
@@ -107,7 +107,7 @@ Workspace B sends the same host, method, and path that Workspace A was allowed t
 <details>
 <summary>Answer</summary>
 
-No. Learned rules also bind the stable Context and host-issued project principal. B needs its own matching rule unless it is literally the same Context/project authority. See [Project identity](../../how-it-works/project-identity/).
+No. Learned rules also bind the stable Workspace Manifest and host-issued project principal. B needs its own matching rule unless it is literally the same Workspace Manifest/project authority. See [Project identity](../../how-it-works/project-identity/).
 
 </details>
 
@@ -118,7 +118,7 @@ No. Learned rules also bind the stable Context and host-issued project principal
 <details>
 <summary>Answer</summary>
 
-No. Login stores a Context credential and causes a project-bound handle to be projected on the next matching entry. OPA still evaluates each ordinary HTTP effect, and an exact allow is still required. Authentication does not enlarge authorization. See [Authentication](../../guides/authentication/).
+No. Login stores a Workspace Manifest credential and causes a project-bound handle to be projected on the next matching entry. OPA still evaluates each ordinary HTTP effect, and an exact allow is still required. Authentication does not enlarge authorization. See [Authentication](../../guides/authentication/).
 
 </details>
 
@@ -129,9 +129,9 @@ The Workspace sees a value beginning `tobari-h1_`. Is that the upstream token?
 <details>
 <summary>Answer</summary>
 
-No. It is an opaque random handle bound to Context, project, provider,
+No. It is an opaque random handle bound to Workspace Manifest, project, provider,
 credential revision, and exact HTTP contract. Static or renewable credential
-state remains encrypted in the Context vault. A declared resolve, refresh, or
+state remains encrypted in the Workspace Manifest vault. A declared resolve, refresh, or
 signing action can run only on the allowed Gateway path. See
 [Credentials](../../how-it-works/credentials/).
 
@@ -163,12 +163,12 @@ No. A recognized marker that is malformed, stale, copied, ambiguous, misplaced, 
 
 ## 14. Purging the cluster
 
-The user deletes every Workspace and runs `tobari cluster down --purge`. Are the encrypted Context vault and installation root key deleted?
+The user deletes every Workspace and runs `tobari cluster down --purge`. Are the encrypted Workspace Manifest vault and installation root key deleted?
 
 <details>
 <summary>Answer</summary>
 
-No. `--purge` additionally removes the shared Gateway CA volumes. Context vaults and the installation root key remain; the command is not `auth logout` and does not contact a provider. See [State and recovery](../../how-it-works/state-and-recovery/).
+No. `--purge` additionally removes the shared Gateway CA volumes. Workspace Manifest vaults and the installation root key remain; the command is not `auth logout` and does not contact a provider. See [State and recovery](../../how-it-works/state-and-recovery/).
 
 </details>
 
@@ -179,9 +179,9 @@ An agent deletes a file inside the selected project root. Is this a Tobari bound
 <details>
 <summary>Answer</summary>
 
-Not necessarily. Immutable Context `source_access` selects `read-only` or
+Not necessarily. Immutable Workspace Manifest `source_access` selects `read-only` or
 `read-write`, with CLI omission defaulting to `read-write`. Even read-only does
-not stop host or another Context from changing the live source. See [Guarantees and limitations](../../security/guarantees-and-limitations/).
+not stop host or another Workspace Manifest from changing the live source. See [Guarantees and limitations](../../security/guarantees-and-limitations/).
 
 </details>
 
@@ -248,7 +248,7 @@ A process copies a valid handle from Workspace A into Workspace B and sends it t
 <summary>Answer</summary>
 
 Gateway derives B's principal from the registered Workspace source endpoint. Broker
-introspection requires the handle's Context, project, provider, credential
+introspection requires the handle's Workspace Manifest, project, provider, credential
 revision, exact target, and static or built-in plan binding to match. A's
 project binding does not match B, so the request fails before OPA, any
 post-policy credential action, fallback, or upstream. Even a valid matching
@@ -258,11 +258,11 @@ handle would still need an OPA allow for B's ordinary HTTP method/path effect.
 
 ## Source evidence
 
-- [Product contract at the reviewed commit](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/docs/01_product_contract.md)
-- [Architecture at the reviewed commit](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/docs/02_architecture.md)
-- [Security model and evidence obligations](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/docs/03_security_model.md)
-- [Gateway enforcement tests](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/gateway/test_tobari_gateway.py)
-- [Integration canaries](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/scripts/test-integration.sh)
+- [Product contract at the reviewed commit](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/docs/01_product_contract.md)
+- [Architecture at the reviewed commit](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/docs/02_architecture.md)
+- [Security model and evidence obligations](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/docs/03_security_model.md)
+- [Gateway enforcement tests](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/gateway/test_tobari_gateway.py)
+- [Integration canaries](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/scripts/test-integration.sh)
 
 ## Summary
 

@@ -30,12 +30,12 @@ The diagram compresses one discovery detail: Gateway's denial response and audit
 
 ## 1. Denial is not a permission request
 
-OPA is deny-by-default for effects that match no Context policy baseline grant
-or exact learned allow. The default Context has a finite exact
+OPA is deny-by-default for effects that match no Workspace Manifest policy baseline grant
+or exact learned allow. The default Workspace Manifest has a finite exact
 version-coupled Claude/Codex core baseline; its complete method policy is
-Context-owned. A deny-only or GET-only posture is represented by that method
+Workspace Manifest-owned. A deny-only or GET-only posture is represented by that method
 policy. A request may be learnable only after schema, principal, fixed-port,
-credential binding, and the immutable Context policy ceiling validate it.
+credential binding, and the immutable Workspace Manifest policy ceiling validate it.
 
 Gateway returns `403 policy_denied`. A learnable response names only the trusted-host review location and exact visible effect. It explicitly says there is no automatic retry.
 
@@ -43,7 +43,7 @@ Gateway returns `403 policy_denied`. A learnable response names only the trusted
 
 Gateway writes bounded schema 1 denial audit into its rotated Docker logs. Candidate discovery reads a bounded tail and accepts only strict validated deny records.
 
-Evidence includes Context/project identity, host, port, method, path, reason, timestamp, and non-secret diagnostics. It omits query, headers, body, handle, credential revision, and primary credential. A handle-bearing URL path is replaced as a whole with `/[redacted-auth-handle]`.
+Evidence includes Workspace Manifest/project identity, host, port, method, path, reason, timestamp, and non-secret diagnostics. It omits query, headers, body, handle, credential revision, and primary credential. A handle-bearing URL path is replaced as a whole with `/[redacted-auth-handle]`.
 
 Evidence retention is bounded, not an infinite durable permission inbox. If an observation falls outside the selected log window before action, it can no longer authorize a mutation.
 
@@ -51,7 +51,7 @@ Evidence retention is bounded, not an infinite durable permission inbox. If an o
 
 Pending observations group by exactly:
 
-- stable Context ID;
+- stable Workspace Manifest ID;
 - stable project ID;
 - host;
 - port;
@@ -68,7 +68,7 @@ The rule record itself does not store a scheme field. Current HTTP and HTTPS aut
 
 `policy candidates` is the machine discovery surface. `review permissions` is the human Permission Inbox. Redirected/machine-readable review is read-only; on a raw TTY, exact **Allow** or **Deny** keys only stage the unchanged typed ID from the list, while template authority remains detail-only. `review permissions --watch` repeats the same bounded read with bounded backoff, keeps one alternate-screen frame across unchanged timer refreshes, and stays open after Apply; it is not streaming authority and never retries traffic. Its optional terminal cue uses only fixed trusted OSC 9 or BEL bytes, never denial evidence; `auto` recognizes exact iTerm2 or complete protected cmux terminal identity.
 
-Each staged choice retains the unchanged opaque ID. Pressing **Apply** revalidates the complete staged set and activates it once; canceling first discards every choice without a write. Apply or discard before switching Context so durable source promotion remains one journaled domain-generation replacement. Display order, indentation, label text, or a reconstructed host/path is never the target. Machine callers continue to delegate one unchanged ID to `policy allow --id …` or `policy deny --id …`.
+Each staged choice retains the unchanged opaque ID. Pressing **Apply** revalidates the complete staged set and activates it once; canceling first discards every choice without a write. Apply or discard before switching Workspace Manifest so durable source promotion remains one journaled domain-generation replacement. Display order, indentation, label text, or a reconstructed host/path is never the target. Machine callers continue to delegate one unchanged ID to `policy allow --id …` or `policy deny --id …`.
 
 At action time, Tobari re-reads current retained evidence and current rules. A stale, expired, already-covered, or mismatched ID produces no policy mutation.
 
@@ -78,9 +78,9 @@ For a valid exact action or reviewed set, Tobari:
 
 1. locks aggregate policy mutation;
 2. verifies the current aggregate revision and complete learned allow/deny snapshot;
-3. builds and tests a private candidate for the target Context;
-4. writes the Context source with owner-only fsync-and-rename semantics;
-5. generates a content-addressed aggregate from **every** Context;
+3. builds and tests a private candidate for the target Workspace Manifest;
+4. writes the Workspace Manifest source with owner-only fsync-and-rename semantics;
+5. generates a content-addressed aggregate from **every** Workspace Manifest;
 6. tests the complete candidate with OPA;
 7. atomically publishes the content-addressed aggregate projection;
 8. publishes a revisioned complete bundle to the owner-labeled Docker-managed policy volume;
@@ -97,13 +97,13 @@ This matters for non-idempotent methods and bodies: Tobari cannot know whether b
 
 ## Allow, deny, and reset
 
-| Decision                      | Meaning                                                                                                              |
-| ----------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| Context policy baseline grant | Trusted baseline authority in the Context snapshot; the fixed agent-ready data is not a selectable profile           |
-| Context policy terminal deny  | Ceiling rejection that never enters pending review and performs zero candidate/DNS/Broker/upstream work              |
-| Learned exact allow           | One Context/project/host/port/method/path capability                                                                 |
-| Learned exact deny            | One explicitly reviewed terminal rejection; it wins over an allow for that effect                                    |
-| `policy reset`                | Removes one learned allow or exact deny and returns the effect to initialized/default evaluation; it is not an allow |
+| Decision                                 | Meaning                                                                                                               |
+| ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| Workspace Manifest policy baseline grant | Trusted baseline authority in the Workspace Manifest snapshot; the fixed agent-ready data is not a selectable profile |
+| Workspace Manifest policy terminal deny  | Ceiling rejection that never enters pending review and performs zero candidate/DNS/Broker/upstream work               |
+| Learned exact allow                      | One Workspace Manifest/project/host/port/method/path capability                                                       |
+| Learned exact deny                       | One explicitly reviewed terminal rejection; it wins over an allow for that effect                                     |
+| `policy reset`                           | Removes one learned allow or exact deny and returns the effect to initialized/default evaluation; it is not an allow  |
 
 ## Concrete example
 
@@ -122,27 +122,27 @@ method remain denied unless each exact effect is reviewed separately.
 - Non-learnable denial offers no review command.
 - Malformed or secret-bearing log data is rejected as evidence.
 - Stale candidate/reference creates no rule.
-- Any invalid Context source or aggregate aborts activation.
+- Any invalid Workspace Manifest source or aggregate aborts activation.
 - Concurrent source change aborts rather than overwrites.
 - OPA recreation failure restores previous known-good authority as far as the controlled rollback can do so.
 - Reset can make the same request reviewable/denied again; it never means “allow all.”
 
 ## Guarantees and limitations
 
-**Guaranteed:** observation alone changes no authority; mutations use one opaque reference; exact rules are Context/project-bound; whole-policy validation precedes activation; no automatic wildcard or request replay; body does not silently narrow the grant.
+**Guaranteed:** observation alone changes no authority; mutations use one opaque reference; exact rules are Workspace Manifest/project-bound; whole-policy validation precedes activation; no automatic wildcard or request replay; body does not silently narrow the grant.
 
 **Not guaranteed:** infinite denial retention, body-level control, provider-operation semantics, automatic policy minimization, safe human approval decisions, or zero service interruption during OPA recreation.
 
 ## Source evidence
 
-- [Policy product contract](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/docs/01_product_contract.md)
-- [Policy activation architecture](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/docs/02_architecture.md)
-- [Guided Rego evaluator](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/internal/infra/runtimeassets/assets/opa/policy/tobari.rego)
-- [Rego policy tests](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/internal/infra/runtimeassets/assets/opa/policy/tobari_test.rego)
-- [Candidate and exact-rule domain invariants](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/internal/domain/tobari/policy.go)
-- [Policy source mutation and rollback](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/internal/infra/dockerruntime/policydata.go)
-- [All-Context aggregate generation](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/internal/infra/dockerruntime/aggregate.go)
-- [End-to-end allow, deny, reset, and body-grouping tests](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/scripts/test-integration.sh)
+- [Policy product contract](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/docs/01_product_contract.md)
+- [Policy activation architecture](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/docs/02_architecture.md)
+- [Guided Rego evaluator](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/internal/infra/runtimeassets/assets/opa/policy/tobari.rego)
+- [Rego policy tests](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/internal/infra/runtimeassets/assets/opa/policy/tobari_test.rego)
+- [Candidate and exact-rule domain invariants](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/internal/domain/tobari/policy.go)
+- [Policy source mutation and rollback](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/internal/infra/dockerruntime/policydata.go)
+- [All-Workspace Manifest aggregate generation](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/internal/infra/dockerruntime/aggregate.go)
+- [End-to-end allow, deny, reset, and body-grouping tests](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/scripts/test-integration.sh)
 
 ## Summary
 
@@ -157,7 +157,8 @@ You should now be able to separate observation, discovery, mutation, activation,
     Do two requests with different bodies create two candidates?
   </summary>
   No. Body presence and content are not candidate identity. One exact rule
-  covers any body on that exact Context/project/host/port/method/path.
+  covers any body on that exact Workspace
+  Manifest/project/host/port/method/path.
 </details>
 
 <details>

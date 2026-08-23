@@ -23,13 +23,13 @@ This contributor-oriented page builds on the [implementation stack](/how-it-work
 
 ## Domain: pure vocabulary and invariants
 
-`internal/domain/` defines stable concepts such as Workspace identity, Context, policy candidates/rules, provider manifests, broker bindings, operations, effects, mutation impact, references, faults, and result schemas.
+`internal/domain/` defines stable concepts such as Workspace identity, Workspace Manifest, policy candidates/rules, provider manifests, broker bindings, operations, effects, mutation impact, references, faults, and result schemas.
 
 Domain performs no filesystem, process, Docker, network, terminal, or credential I/O. This makes the security/product claims executable as constructors and validators rather than comments attached to side effects.
 
 Examples include:
 
-- one Workspace per canonical root/Context pair;
+- one Workspace per canonical root/Workspace Manifest pair;
 - exact candidate identity and opaque reference shape;
 - provider manifest strictness and collision rejection;
 - declared operation effect and mutation contract; and
@@ -37,7 +37,7 @@ Examples include:
 
 ## Application: interpret one user task
 
-`internal/app/` owns use cases such as Workspace lifecycle, policy review/action, Context configuration, authentication, and doctor. Each package defines the smallest port its task needs.
+`internal/app/` owns use cases such as Workspace lifecycle, policy review/action, Workspace Manifest configuration, authentication, and doctor. Each package defines the smallest port its task needs.
 
 Application code depends on domain vocabulary, not a Docker client or filesystem implementation. A policy action asks a port to read evidence and activate validated policy; it does not construct `docker compose` argv. An auth use case validates public intent before giving secret input to a credential-bearing infrastructure port.
 
@@ -77,7 +77,7 @@ Consider `policy allow --id pcy_…`:
 2. **CLI parser** validates the exact public invocation and passes a typed input.
 3. **Application use case** re-discovers current evidence and ensures the reference is current and uniquely identifies one candidate.
 4. **Domain** defines candidate identity, exact learned-rule invariants, and mutation result/fault vocabulary.
-5. **Infrastructure** locks source state, preflights Context and aggregate policy, writes atomically, publishes a complete watched bundle, confirms the exact running OPA revision, and rolls back on failure.
+5. **Infrastructure** locks source state, preflights Workspace Manifest and aggregate policy, writes atomically, publishes a complete watched bundle, confirms the exact running OPA revision, and rolls back on failure.
 6. **CLI renderer** presents the structured result without inferring new semantics.
 
 No layer alone owns the complete outcome, but responsibility does not move outward against the dependency rule.
@@ -91,7 +91,7 @@ Gateway and Auth Broker are Python runtime components rather than Go packages, b
 - the Go binary materializes exact embedded runtime bytes; and
 - checks reject drift rather than allowing two independently edited implementations.
 
-OPA policy and Compose/runtime assets are likewise embedded implementation contracts. Generated aggregate policy is derived from Context sources and the Tobari-owned evaluator; it is not a second handwritten router.
+OPA policy and Compose/runtime assets are likewise embedded implementation contracts. Generated aggregate policy is derived from Workspace Manifest sources and the Tobari-owned evaluator; it is not a second handwritten router.
 
 ## Why architecture constraints are tested
 
@@ -117,15 +117,15 @@ Catalog contract tests validate command completeness, grammar, role/reference fl
 
 ## Source evidence
 
-- [Canonical architecture contract](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/docs/02_architecture.md)
-- [Project theses and dependency invariants](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/docs/00_theses.md)
-- [Harness and repository gates](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/docs/04_harness.md)
-- [CLI Catalog definitions](https://github.com/tasuku43/tobari/tree/381835cda72885f78f5a3c9c69868e25df9a15fd/internal/cli)
-- [Application use cases](https://github.com/tasuku43/tobari/tree/381835cda72885f78f5a3c9c69868e25df9a15fd/internal/app)
-- [Domain invariants](https://github.com/tasuku43/tobari/tree/381835cda72885f78f5a3c9c69868e25df9a15fd/internal/domain)
-- [Infrastructure adapters](https://github.com/tasuku43/tobari/tree/381835cda72885f78f5a3c9c69868e25df9a15fd/internal/infra)
-- [Architecture linter](https://github.com/tasuku43/tobari/tree/381835cda72885f78f5a3c9c69868e25df9a15fd/tools/archlint)
-- [Catalog contract tests](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/internal/cli/catalog_test.go)
+- [Canonical architecture contract](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/docs/02_architecture.md)
+- [Project theses and dependency invariants](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/docs/00_theses.md)
+- [Harness and repository gates](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/docs/04_harness.md)
+- [CLI Catalog definitions](https://github.com/tasuku43/tobari/tree/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/internal/cli)
+- [Application use cases](https://github.com/tasuku43/tobari/tree/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/internal/app)
+- [Domain invariants](https://github.com/tasuku43/tobari/tree/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/internal/domain)
+- [Infrastructure adapters](https://github.com/tasuku43/tobari/tree/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/internal/infra)
+- [Architecture linter](https://github.com/tasuku43/tobari/tree/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/tools/archlint)
+- [Catalog contract tests](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/internal/cli/catalog_test.go)
 
 ## Summary
 

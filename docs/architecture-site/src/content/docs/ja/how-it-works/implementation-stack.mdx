@@ -24,7 +24,7 @@ Tobari は、役割ごとの境界に合わせて実装技術を選んでいま�
 
 Docker Engine は実行環境のコンテナ、読み取り専用／読み書き可能なマウント、実行ユーザー、Linux capability（プロセス権限）の削減、読み取り専用のルートファイルシステム、資源制限、外部へ直接出られない内部ネットワーク、ラベル、ボリューム、プロセス実行を提供します。
 
-Docker Compose が管理するのは、共有 Gateway、OPA、Auth Broker サービスと、共有ネットワーク、CA ボリュームだけです。Workspace ごとのコンテナとネットワークは、実行環境の接続実装が記録に合わせて調整します。完全一致するプロジェクトルートと Context の識別情報、ライフサイクルは、アプリケーション層で扱う必要があるためです。
+Docker Compose が管理するのは、共有 Gateway、OPA、Auth Broker サービスと、共有ネットワーク、CA ボリュームだけです。Workspace ごとのコンテナとネットワークは、実行環境の接続実装が記録に合わせて調整します。完全一致するプロジェクトルートと Workspace Manifest の識別情報、ライフサイクルは、アプリケーション層で扱う必要があるためです。
 
 Docker は信頼する基盤です。「コンテナで動く」という事実だけでは、安全性の根拠になりません。重要なのは、正確なマウント、ネットワーク接続、不要なソケットを渡していないこと、ラベル、実行ユーザー、障害時のテストです。
 
@@ -36,7 +36,7 @@ mitmproxy は透過的な HTTP/TLS の検査、ストリーミング処理用の
 
 ### OPA と Rego
 
-OPA は共有のポリシー判断サービスです。Rego は Context policy ceiling、既定拒否、Context routing、
+OPA は共有のポリシー判断サービスです。Rego は Workspace Manifest policy ceiling、既定拒否、Workspace Manifest routing、
 学習済み完全一致 allow/deny、credential metadata constraint を表します。first public V1 の
 学習済み authority は完全一致のままです。
 
@@ -55,9 +55,9 @@ argv、sanitized temporary home、bounded output、cleanup verification を使�
 Broker control で確定します。owner provider は protected stdin import を使い、どちらも Broker
 に provider code を実行させません。
 
-### 暗号化した Context 保管庫とルート鍵
+### 暗号化した Workspace Manifest 保管庫とルート鍵
 
-各 Context vault は random nonce と Context/schema associated data を使う schema-1 AES-256-GCM
+各 Workspace Manifest vault は random nonce と Workspace Manifest/schema associated data を使う schema-1 AES-256-GCM
 です。payload は static primary secret、revision、raw handle を保存します。installation root key
 は vault 外の macOS Keychain または owner-only Linux XDG file に置きます。
 
@@ -101,7 +101,7 @@ CI は正本から複数アーキテクチャ向け OCI イメージを cache-on
 - 実行環境またはサービスのイメージが見つからない、または互換性がない場合、安全でない作成より前に検証が失敗します。
 - ダイジェスト、ラベル、API、実行ユーザー、エントリーポイントが一致しなければ、安全側に停止します。
 - 正本と埋め込み用の写しに差があれば、リポジトリ検査で失敗します。
-- 不正な Rego または全 Context の集約は、有効化より前に失敗します。
+- 不正な Rego または全 Workspace Manifest の集約は、有効化より前に失敗します。
 - OPA または Auth Broker に障害が起きた場合、Gateway は通信を通さない応答を返します。
 - Docker またはホストの障害は、強制基盤を失わせます。Tobari は、その侵害下での保護を主張しません。
 - 既存の保管庫があるのにルート鍵が見つからない場合、鍵を置き換えず、ロック解除を拒否します。
@@ -114,14 +114,14 @@ CI は正本から複数アーキテクチャ向け OCI イメージを cache-on
 
 ## 根拠となるソース
 
-- [実行環境の埋め込み資材とコンポーネント境界](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/docs/02_architecture.md)
-- [供給経路のセキュリティ契約](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/docs/03_security_model.md)
-- [埋め込みコンポーネントのバージョン](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/internal/infra/runtimeassets/assets/versions.env)
-- [共有 Compose 実行環境](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/internal/infra/runtimeassets/assets/compose.yaml)
-- [Gateway の正本](https://github.com/tasuku43/tobari/tree/381835cda72885f78f5a3c9c69868e25df9a15fd/gateway)
-- [Auth Broker の正本](https://github.com/tasuku43/tobari/tree/381835cda72885f78f5a3c9c69868e25df9a15fd/authbroker)
-- [Gateway の正本と埋め込み用の写しの差分検査](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/scripts/check-gateway-source.sh)
-- [Auth Broker の正本と埋め込み用の写しの差分検査](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/scripts/check-authbroker-source.sh)
+- [実行環境の埋め込み資材とコンポーネント境界](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/docs/02_architecture.md)
+- [供給経路のセキュリティ契約](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/docs/03_security_model.md)
+- [埋め込みコンポーネントのバージョン](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/internal/infra/runtimeassets/assets/versions.env)
+- [共有 Compose 実行環境](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/internal/infra/runtimeassets/assets/compose.yaml)
+- [Gateway の正本](https://github.com/tasuku43/tobari/tree/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/gateway)
+- [Auth Broker の正本](https://github.com/tasuku43/tobari/tree/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/authbroker)
+- [Gateway の正本と埋め込み用の写しの差分検査](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/scripts/check-gateway-source.sh)
+- [Auth Broker の正本と埋め込み用の写しの差分検査](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/scripts/check-authbroker-source.sh)
 
 ## まとめ
 

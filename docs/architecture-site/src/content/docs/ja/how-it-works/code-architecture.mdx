@@ -21,13 +21,13 @@ Gateway、Auth Broker、ランタイム資産には、これに対応するソ�
 
 ## ドメイン層：純粋な語彙と不変条件
 
-`internal/domain/` は Workspace の識別情報、Context、ポリシー候補と規則、プロバイダーマニフェスト、Broker の結び付き、操作、状態変更の影響、参照、障害、結果スキーマなど、安定した概念を定義します。
+`internal/domain/` は Workspace の識別情報、Workspace Manifest、ポリシー候補と規則、プロバイダーマニフェスト、Broker の結び付き、操作、状態変更の影響、参照、障害、結果スキーマなど、安定した概念を定義します。
 
 ドメイン層は、ファイルシステム、プロセス、Docker、ネットワーク、端末、認証情報の I/O を行いません。このため、安全性や製品上の主張を、副作用に添えたコメントではなく、コンストラクターや検証処理として実行できる形にできます。
 
 例:
 
-- 正規化済みのプロジェクトルートと Context の組み合わせごとに Workspace は一つ
+- 正規化済みのプロジェクトルートと Workspace Manifest の組み合わせごとに Workspace は一つ
 - 完全一致候補の識別情報と不透明な参照の形式
 - プロバイダーマニフェストの厳格さと衝突の拒否
 - 宣言済み操作と状態変更の契約
@@ -35,7 +35,7 @@ Gateway、Auth Broker、ランタイム資産には、これに対応するソ�
 
 ## アプリケーション層：一つの利用者タスクを解釈する
 
-`internal/app/` は Workspace のライフサイクル、ポリシーのレビューと操作、Context 設定、認証、doctor などのユースケースを担当します。各パッケージが、そのタスクに必要な最小限のポートを定義します。
+`internal/app/` は Workspace のライフサイクル、ポリシーのレビューと操作、Workspace Manifest 設定、認証、doctor などのユースケースを担当します。各パッケージが、そのタスクに必要な最小限のポートを定義します。
 
 アプリケーション層のコードはドメイン層の語彙に依存しますが、Docker クライアントやファイルシステム実装には依存しません。たとえばポリシー操作は、根拠の読み取りと検証済みポリシーの有効化をポートに要求しますが、`docker compose` の引数列までは作りません。認証のユースケースは、公開された操作意図を検証してから、秘密情報の入力を、それを扱うインフラストラクチャ層のポートへ渡します。
 
@@ -75,7 +75,7 @@ Gateway、Auth Broker、ランタイム資産には、これに対応するソ�
 2. **CLI の解析処理** が公開呼び出しとの完全一致を検証し、型付き入力を渡します。
 3. **アプリケーション層のユースケース** が現在の根拠から候補を再発見し、参照が現行で、候補一つを一意に識別することを確認します。
 4. **ドメイン層** が候補の識別情報、完全一致する学習済み規則の不変条件、状態変更の結果と障害の語彙を定義します。
-5. **インフラストラクチャ層** がソースの状態をロックし、Context と集約ポリシーを事前検査します。アトミックに書き込み、監視対象となる完全なポリシーバンドルを公開し、稼働中の OPA が示すリビジョンとの完全一致を確認します。失敗時には元に戻します。
+5. **インフラストラクチャ層** がソースの状態をロックし、Workspace Manifest と集約ポリシーを事前検査します。アトミックに書き込み、監視対象となる完全なポリシーバンドルを公開し、稼働中の OPA が示すリビジョンとの完全一致を確認します。失敗時には元に戻します。
 6. **CLI の表示処理** が新しい意味を推測せず、構造化された結果を表示します。
 
 一つのレイヤーだけで処理全体の結果を担当するわけではありません。ただし、責務が依存規則に逆らって外側へ移ることはありません。
@@ -89,7 +89,7 @@ Gateway と Auth Broker は Go パッケージではなく Python のランタ�
 - Go バイナリが埋め込みランタイムのバイト列をそのまま実体化する
 - 独立して編集できる実装を二つ持たず、ずれを検査で拒否する
 
-OPA ポリシーと Compose のランタイム資産も、埋め込み実装の契約です。生成した集約ポリシーは Context のソースと、Tobari が所有する評価処理から導出します。手書きの振り分け処理をもう一つ持つわけではありません。
+OPA ポリシーと Compose のランタイム資産も、埋め込み実装の契約です。生成した集約ポリシーは Workspace Manifest のソースと、Tobari が所有する評価処理から導出します。手書きの振り分け処理をもう一つ持つわけではありません。
 
 ## アーキテクチャ制約をテストする理由
 
@@ -115,15 +115,15 @@ Catalog の契約テストは、コマンドの完全性、文法、役割と参
 
 ## 根拠となるソース
 
-- [正本となるアーキテクチャ契約](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/docs/02_architecture.md)
-- [プロジェクトの基本方針と依存関係の不変条件](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/docs/00_theses.md)
-- [検査規則とリポジトリのゲート](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/docs/04_harness.md)
-- [CLI Catalog の定義](https://github.com/tasuku43/tobari/tree/381835cda72885f78f5a3c9c69868e25df9a15fd/internal/cli)
-- [アプリケーションのユースケース](https://github.com/tasuku43/tobari/tree/381835cda72885f78f5a3c9c69868e25df9a15fd/internal/app)
-- [ドメインの不変条件](https://github.com/tasuku43/tobari/tree/381835cda72885f78f5a3c9c69868e25df9a15fd/internal/domain)
-- [インフラストラクチャのアダプター](https://github.com/tasuku43/tobari/tree/381835cda72885f78f5a3c9c69868e25df9a15fd/internal/infra)
-- [アーキテクチャ検査ツール](https://github.com/tasuku43/tobari/tree/381835cda72885f78f5a3c9c69868e25df9a15fd/tools/archlint)
-- [Catalog の契約テスト](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/internal/cli/catalog_test.go)
+- [正本となるアーキテクチャ契約](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/docs/02_architecture.md)
+- [プロジェクトの基本方針と依存関係の不変条件](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/docs/00_theses.md)
+- [検査規則とリポジトリのゲート](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/docs/04_harness.md)
+- [CLI Catalog の定義](https://github.com/tasuku43/tobari/tree/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/internal/cli)
+- [アプリケーションのユースケース](https://github.com/tasuku43/tobari/tree/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/internal/app)
+- [ドメインの不変条件](https://github.com/tasuku43/tobari/tree/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/internal/domain)
+- [インフラストラクチャのアダプター](https://github.com/tasuku43/tobari/tree/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/internal/infra)
+- [アーキテクチャ検査ツール](https://github.com/tasuku43/tobari/tree/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/tools/archlint)
+- [Catalog の契約テスト](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/internal/cli/catalog_test.go)
 
 ## まとめ
 

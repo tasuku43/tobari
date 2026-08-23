@@ -1,0 +1,132 @@
+---
+title: Workspace Manifest
+description: 再利用可能な Workspace 設計を作成・確認・選択し、既存 Workspace の authority を暗黙に変えずに使います。
+---
+
+import ConceptDiagram from "../../../../components/ConceptDiagram.astro";
+
+Workspace Manifest は、再利用可能な desired definition（望む設計）です。
+Workspace は、1つの project root に対してその設計を適用した durable instance
+（永続的な実体）です。Manifest は安定した ID と semantic revision を持ち、
+Workspace はその ID、次回 entry で採用したい内容、最後に成功した適用内容を保持します。
+
+<ConceptDiagram name="workspace-manifest-workspace-cluster" headingLevel={2} />
+
+## Manifest を確認する
+
+```sh
+tobari manifest list
+tobari manifest show
+```
+
+`manifest list` はローカルの全定義と省略時のデフォルトを表示します。
+`manifest show` で `--name` を省略するとデフォルトを読みます。完全な
+Boundary、identity、revision、store reference は `--details` で確認できます。
+JSON は最初から完全で、`--details` によって変わりません。
+
+authority は `workspace_manifest_id` と semantic digest の組です。
+`manifest_generation` は履歴と相関のためだけに使います。同じ内容への更新は
+generation を増やさず、A→B→A は新しい generation と元のAと同じdigestを持ちます。
+
+## Manifest を作る
+
+```sh
+tobari manifest create
+```
+
+機械実行では完全なdirect inputを指定します。
+
+```sh
+tobari manifest create --name review \
+  --runtime standard \
+  --mode guided \
+  --source-access read-only \
+  --native-readiness disabled \
+  --format json
+```
+
+現在のimmutable revisionを一度だけコピーして独立した定義を作る場合:
+
+```sh
+tobari manifest create --copy-from default --name review
+```
+
+コピー先は新しいWorkspace Manifest IDとgeneration 1を持ちます。lineageは保存せず、
+Workspace、home、authentication、learned permission、attachment、applied/failure/
+observed state、default selectionはコピーしません。作成はWorkspaceやclusterを
+reconcileせず、Dockerを起動しません。
+
+作成時のsource/network Boundaryは、`read-only`または`read-write`の
+source-access選択を含めてimmutableです。
+
+## 省略時のデフォルトを変える
+
+```sh
+tobari manifest default set --name review
+tobari manifest show
+```
+
+これはホスト上の省略時選択だけを変更します。既存Workspaceのauthorityやhomeを
+変更せず、cluster reconcileやcredential rotationも行いません。
+
+デフォルトを変えず明示的に選べます。
+
+```sh
+tobari --manifest review
+tobari status --manifest review
+tobari delete --manifest review
+```
+
+## 狭いデフォルトを設定する
+
+```sh
+tobari config shell --manifest review --variable PS1 --source inherit
+tobari config shell --manifest review --variable NO_COLOR --source literal --value=
+tobari config git --manifest review --source inherit
+tobari config bootstrap aws --manifest review --profile example
+```
+
+exactなready Runtime revisionは明示的に設定します。
+
+```sh
+tobari manifest runtime set --manifest review --runtime coding@1
+```
+
+Runtime bindingを変えた場合、bound WorkspaceはそれをNextとして表示し、後続の
+明示的なWorkspace entryでのみ採用します。attached Workspaceはadoption pendingの
+ままです。
+
+## CurrentとNextを観察する
+
+```sh
+tobari status --manifest review --format json
+tobari list --format json
+```
+
+これらはread-onlyです。Nextは選択したManifest revision、Currentは最後に成功した
+`AppliedEntry`、observed healthは新しい観察結果です。失敗はlast successを消さずに
+記録します。mutationとretryは明示的なWorkspace entryまたは`cluster up`だけで行います。
+
+## 未使用Manifestを削除する
+
+```sh
+tobari manifest delete --name review
+```
+
+foundational `default`、省略時デフォルト、logical Workspaceが結び付いたManifestは
+削除できません。project filesと共有Runtime imagesは保持します。
+
+## 主なfailure
+
+- `manifest_not_found`: `tobari manifest list`から既存名を選びます。
+- `manifest_copy_source_changed`: copy sourceの現在revisionを再確認します。
+- `manifest_is_default`: 削除前に別のデフォルトを選びます。
+- `manifest_has_workspaces`: 先にbound Workspaceをすべて削除します。
+- `manifest_is_protected`: foundational `default`は削除できません。
+
+## まとめ
+
+Workspace Manifestは望む設計、Workspaceは適用された実体です。デフォルト変更は
+省略時選択だけに影響し、既存Workspaceを暗黙に変更しません。
+
+**次:** [Runtimeをカスタマイズする](../runtime-customization/)

@@ -16,7 +16,7 @@ description: Tobari のライフサイクル、通信経路、ポリシー、認
 <details>
 <summary>回答</summary>
 
-ランタイムコンテナは、失われても復元できる実装要素の一つにすぎません。Tobari はほかにも、Context に結び付いた論理 Workspace、ホストが発行するプロジェクトプリンシパル、専用の内部ネットワーク、Gateway による通信経路の強制、OPA ポリシー、拒否内容のレビューと一括有効化、永続ホームと状態、必要に応じた認証情報の仲介を管理します。[システム全体像](../../how-it-works/system-overview/)を参照してください。
+ランタイムコンテナは、失われても復元できる実装要素の一つにすぎません。Tobari はほかにも、Workspace Manifest に結び付いた論理 Workspace、ホストが発行するプロジェクトプリンシパル、専用の内部ネットワーク、Gateway による通信経路の強制、OPA ポリシー、拒否内容のレビューと一括有効化、永続ホームと状態、必要に応じた認証情報の仲介を管理します。[システム全体像](../../how-it-works/system-overview/)を参照してください。
 
 </details>
 
@@ -66,7 +66,7 @@ HTTPS クライアントが Tobari 経由で `api.example.com` へ接続しま�
 
 ## 6. 同じ通信条件、異なる本文
 
-二つのリクエストで Context、プロジェクト、スキーム、ホスト、ポート、メソッド、パスが同じですが、JSON 本文が異なります。別々の学習済みルールが必要ですか？
+二つのリクエストで Workspace Manifest、プロジェクト、スキーム、ホスト、ポート、メソッド、パスが同じですが、JSON 本文が異なります。別々の学習済みルールが必要ですか？
 
 <details>
 <summary>回答</summary>
@@ -82,18 +82,18 @@ HTTPS クライアントが Tobari 経由で `api.example.com` へ接続しま�
 <details>
 <summary>回答</summary>
 
-`exit` は接続中のシェルだけを終了し、論理 Workspace、ホーム、Context との結び付き、ランタイムリソース、ポリシーを残します。`delete` は現在地に最も近い切断済み Workspace と、その Workspace が所有するホーム、コンテナ、ネットワーク、プリンシパル、状態を削除します。プロジェクトファイルと Context が所有する状態は残ります。[Workspace のライフサイクル](../../how-it-works/workspace-lifecycle/)を参照してください。
+`exit` は接続中のシェルだけを終了し、論理 Workspace、ホーム、Workspace Manifest との結び付き、ランタイムリソース、ポリシーを残します。`delete` は現在地に最も近い切断済み Workspace と、その Workspace が所有するホーム、コンテナ、ネットワーク、プリンシパル、状態を削除します。プロジェクトファイルと Workspace Manifest が所有する状態は残ります。[Workspace のライフサイクル](../../how-it-works/workspace-lifecycle/)を参照してください。
 
 </details>
 
-## 8. Context の切り替え
+## 8. Workspace Manifest の切り替え
 
-Workspace A は Context `default` で作られています。利用者が `tobari context use --name review` を実行すると、A は `review` Context に変わりますか？
+Workspace A は Manifest `default` から作られています。利用者が `tobari manifest default set --name review` を実行すると、A は `review` Manifest に変わりますか？
 
 <details>
 <summary>回答</summary>
 
-いいえ。`context use` は Context を省略したコマンドで使う既定値だけを変えます。既存 Workspace は安定した Context ID に結び付いたままです。同じルートで `review` の別 Workspace を選択または作成できます。[Context](../../guides/contexts/)を参照してください。
+いいえ。`manifest default set` は Manifest を省略したコマンドで使う既定値だけを変えます。既存 Workspace は安定した Workspace Manifest ID に結び付いたままです。同じルートで `review` の別 Workspace を選択または作成できます。[Workspace Manifest](../../guides/workspace-manifests/)を参照してください。
 
 </details>
 
@@ -104,7 +104,7 @@ Workspace B が、Workspace A に許可されたものと同じホスト、メ�
 <details>
 <summary>回答</summary>
 
-いいえ。学習済みルールは安定した Context と、ホストが発行したプロジェクトプリンシパルにも結び付きます。B が同じ Context とプロジェクトの権限を持たない限り、別の一致するルールが必要です。[プロジェクトの識別](../../how-it-works/project-identity/)を参照してください。
+いいえ。学習済みルールは安定した Workspace Manifest と、ホストが発行したプロジェクトプリンシパルにも結び付きます。B が同じ Workspace Manifest とプロジェクトの権限を持たない限り、別の一致するルールが必要です。[プロジェクトの識別](../../how-it-works/project-identity/)を参照してください。
 
 </details>
 
@@ -115,7 +115,7 @@ Workspace B が、Workspace A に許可されたものと同じホスト、メ�
 <details>
 <summary>回答</summary>
 
-いいえ。ログインは Context の認証状態を保存します。次に Workspace へ入るとき、現在のプロジェクトに結び付いたハンドルが反映されます。それでも OPA は通常の HTTP 通信を判断し、完全一致の許可を要求します。認証に成功しても、通信許可は広がりません。[認証](../../guides/authentication/)を参照してください。
+いいえ。ログインは Workspace Manifest の認証状態を保存します。次に Workspace へ入るとき、現在のプロジェクトに結び付いたハンドルが反映されます。それでも OPA は通常の HTTP 通信を判断し、完全一致の許可を要求します。認証に成功しても、通信許可は広がりません。[認証](../../guides/authentication/)を参照してください。
 
 </details>
 
@@ -126,7 +126,7 @@ Workspace に `tobari-h1_` で始まる値があります。外部の接続先�
 <details>
 <summary>回答</summary>
 
-いいえ。Context、プロジェクト、プロバイダー、認証情報のリビジョン、完全一致の HTTP とヘッダーの契約に結び付いた、不透明でランダムなハンドルです。認証情報の本体は暗号化された Context 保管庫に残り、許可された Gateway の経路でだけ解決されます。[認証情報](../../how-it-works/credentials/)を参照してください。
+いいえ。Workspace Manifest、プロジェクト、プロバイダー、認証情報のリビジョン、完全一致の HTTP とヘッダーの契約に結び付いた、不透明でランダムなハンドルです。認証情報の本体は暗号化された Workspace Manifest 保管庫に残り、許可された Gateway の経路でだけ解決されます。[認証情報](../../how-it-works/credentials/)を参照してください。
 
 </details>
 
@@ -154,12 +154,12 @@ Broker ハンドルは有効ですが、OPA が HTTP 通信を拒否しました
 
 ## 14. クラスターの完全削除
 
-すべての Workspace を削除し、`tobari cluster down --purge` を実行しました。暗号化された Context 保管庫とインストール用ルート鍵も削除されますか？
+すべての Workspace を削除し、`tobari cluster down --purge` を実行しました。暗号化された Workspace Manifest 保管庫とインストール用ルート鍵も削除されますか？
 
 <details>
 <summary>回答</summary>
 
-いいえ。`--purge` は、通常のクラスター停止に加えて、共有 Gateway CA と現在有効なポリシーバンドルのボリュームを削除します。Context 保管庫とインストール用ルート鍵は残ります。`auth logout` を実行するわけではなく、プロバイダーへの接続も行いません。[状態と復旧](../../how-it-works/state-and-recovery/)を参照してください。
+いいえ。`--purge` は、通常のクラスター停止に加えて、共有 Gateway CA と現在有効なポリシーバンドルのボリュームを削除します。Workspace Manifest 保管庫とインストール用ルート鍵は残ります。`auth logout` を実行するわけではなく、プロバイダーへの接続も行いません。[状態と復旧](../../how-it-works/state-and-recovery/)を参照してください。
 
 </details>
 
@@ -170,8 +170,8 @@ Broker ハンドルは有効ですが、OPA が HTTP 通信を拒否しました
 <details>
 <summary>回答</summary>
 
-必ずしもそうではありません。immutable Context `source_access` が `read-only` または
-`read-write` を選び、CLI omission default は `read-write` です。read-only でも host や別 Context
+必ずしもそうではありません。immutable Workspace Manifest `source_access` が `read-only` または
+`read-write` を選び、CLI omission default は `read-write` です。read-only でも host や別 Workspace Manifest
 による live source 変更は観測します。[保証と制限](../../security/guarantees-and-limitations/)を参照してください。
 
 </details>
@@ -238,17 +238,17 @@ Gateway または Docker デーモンが侵害されました。文書化され�
 <details>
 <summary>回答</summary>
 
-Gateway は、登録済みでカーネルが観測した Workspace の送信元エンドポイントから B のプリンシパルを導出します。Auth Broker の照会と解決では、ハンドルに含まれる Context、プロジェクト、プロバイダー、認証情報のリビジョン、完全一致の接続先、入力元と出力先のヘッダー結び付けが、すべて一致しなければなりません。A のプロジェクトへの結び付きは B と一致しないため、別方式への切り替えや外部接続より前に失敗します。有効で結び付きも一致するハンドルでも、B の通常の HTTP メソッドとパスに対する OPA の許可が必要です。
+Gateway は、登録済みでカーネルが観測した Workspace の送信元エンドポイントから B のプリンシパルを導出します。Auth Broker の照会と解決では、ハンドルに含まれる Workspace Manifest、プロジェクト、プロバイダー、認証情報のリビジョン、完全一致の接続先、入力元と出力先のヘッダー結び付けが、すべて一致しなければなりません。A のプロジェクトへの結び付きは B と一致しないため、別方式への切り替えや外部接続より前に失敗します。有効で結び付きも一致するハンドルでも、B の通常の HTTP メソッドとパスに対する OPA の許可が必要です。
 
 </details>
 
 ## 根拠となるソース
 
-- [レビュー済みコミットの製品契約](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/docs/01_product_contract.md)
-- [レビュー済みコミットのアーキテクチャ](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/docs/02_architecture.md)
-- [セキュリティモデルと根拠の要件](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/docs/03_security_model.md)
-- [Gateway の通信強制テスト](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/gateway/test_tobari_gateway.py)
-- [境界を一連の動作で確認するテスト](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/scripts/test-integration.sh)
+- [レビュー済みコミットの製品契約](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/docs/01_product_contract.md)
+- [レビュー済みコミットのアーキテクチャ](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/docs/02_architecture.md)
+- [セキュリティモデルと根拠の要件](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/docs/03_security_model.md)
+- [Gateway の通信強制テスト](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/gateway/test_tobari_gateway.py)
+- [境界を一連の動作で確認するテスト](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/scripts/test-integration.sh)
 
 ## まとめ
 

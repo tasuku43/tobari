@@ -39,7 +39,7 @@ or credential environment into the Workspace.
 Every process in one Workspace can read that Workspace's native credential.
 Gateway does not infer which executable created or uses it. For an HTTP request:
 
-1. Gateway derives the host-owned Context/project principal.
+1. Gateway derives the host-owned Workspace Manifest/project principal.
 2. It removes authentication and cookies from OPA input and audit evidence.
 3. OPA decides the ordinary exact scheme, host, port, method, and path effect.
 4. On deny, the credential and request do not reach upstream.
@@ -47,7 +47,7 @@ Gateway does not infer which executable created or uses it. For an HTTP request:
 
 The fixed agent-ready compatibility baseline includes a finite set of exact
 Claude/Codex login, account, model, and core effects. Tobari composes it into
-the Context policy when native readiness is enabled. It is Context-wide HTTP
+the Workspace Manifest policy when native readiness is enabled. It is Workspace Manifest-wide HTTP
 authority—not executable identity. Plugins, connectors, MCP, downloads, and
 unmatched routes remain denied or reviewable.
 
@@ -78,7 +78,7 @@ unavailable, retry with `aws sso login --use-device-code --profile your-profile`
 
 ## Login can still be denied
 
-If an effect is outside the Context policy, use the normal permission loop from a
+If an effect is outside the Workspace Manifest policy, use the normal permission loop from a
 separate trusted-host terminal:
 
 ```sh
@@ -106,8 +106,8 @@ provider credential schemas.
 
 ## Source evidence
 
-- [Authentication governing contract](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/docs/07_authentication.md)
-- [Gateway native-login regression](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/gateway/test_tobari_gateway.py)
+- [Authentication governing contract](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/docs/07_authentication.md)
+- [Gateway native-login regression](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/gateway/test_tobari_gateway.py)
 
 ## Summary
 

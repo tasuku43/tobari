@@ -37,7 +37,7 @@ Tobari は `docker image inspect` でこれらの値を確認します。値が�
 イメージはバイナリと読み取り専用のルートファイルシステムを提供します。Tobari の
 Infrastructure は、セキュリティとライフサイクルの仕様を定めます。
 
-- 選択した live project root 一つを immutable Context `source_access` に従って mount
+- 選択した live project root 一つを immutable Workspace Manifest `source_access` に従って mount
   （CLI omission default は `read-write`）
 - 独立して永続する Workspace ホーム一つ
 - プロジェクト専用の保護済み内部ネットワークと Tobari CA の信頼環境
@@ -55,7 +55,7 @@ Workspace は停止も削除もされません。
 
 イメージはラベルを使って、別のマウント、認証情報、ネットワーク経路、Linux ケイパビリティ、
 リソース制限、ポリシーを要求できません。プロジェクトファイルからランタイムイメージを
-選ぶこともできません。イメージを選ぶ権限は、結び付いた Context にあります。
+選ぶこともできません。イメージを選ぶ権限は、結び付いた Workspace Manifest にあります。
 
 ## 公式ベースとローカル識別情報
 
@@ -93,7 +93,7 @@ ${XDG_CONFIG_HOME:-$HOME/.config}/tobari/runtimes/frontend/source/
 
 所有者専用のソースディレクトリ全体が Docker ビルドコンテキストです。生成する
 Dockerfile は公式 Runtime から始まり `USER tobari` へ戻ります。隣にスクリプト、
-マニフェスト、設定ファイルを置けます。作成や編集だけでは履歴も Context 参照も変わりません。
+マニフェスト、設定ファイルを置けます。作成や編集だけでは履歴も Workspace Manifest 参照も変わりません。
 ルートと配下には group/other 権限ビットを付けられません。上限は通常ファイル
 1,024 件、ディレクトリ 256 件、1 ファイル 32 MiB、全体 64 MiB で、所有者だけが
 実行できる `0700` のファイルは有効です。
@@ -107,10 +107,10 @@ Dockerfile は公式 Runtime から始まり `USER tobari` へ戻ります。隣
 5. 不変なローカルイメージのダイジェストを読む
 6. 成功した意味的リビジョンを Runtime 履歴へアトミックに追加する
 
-ビルドは Context を変えません。失敗時は履歴を追加せず、同一ソースの再ビルドは成功した
+ビルドは Workspace Manifest を変えません。失敗時は履歴を追加せず、同一ソースの再ビルドは成功した
 no-op です。Docker BuildKit のキャッシュや未選択候補が残っても、準備済みリビジョンとは報告しません。
 
-選択は別操作の `context runtime set --runtime frontend@1` です。次回 Workspace に入るとき、期待する
+選択は別操作の `manifest runtime set --runtime frontend@1` です。次回 Workspace に入るとき、期待する
 イメージの識別情報と完全な runtime-spec ハッシュを比較します。差分がある作業コンテナだけを
 再作成し、論理的な識別情報、プロジェクトルート、Workspace ホームは保持します。
 
@@ -121,9 +121,9 @@ no-op です。Docker BuildKit のキャッシュや未選択候補が残って�
 | 公式ベースがローカルで利用できない               | CLI の固定済み埋め込みアセットから一度ビルドし、その後に検査する                         |
 | 必須ラベル、ユーザー、エントリーポイントが異なる | `incompatible_image`。初回に入る際の新しい論理 Workspace は作らず、既存状態は残す        |
 | source のパス、サイズ、件数、種別、モードが無効  | `runtime_source_invalid` が上限付き相対パスと具体的な修正内容を示し、Docker は実行しない |
-| ビルドが失敗                                     | 履歴とすべての Context 参照を変更しない                                                  |
+| ビルドが失敗                                     | 履歴とすべての Workspace Manifest 参照を変更しない                                       |
 | ビルド後の互換性またはダイジェスト検査が失敗     | リビジョンを追加せず、上限付きのビルド診断を確認                                         |
-| Context 選択の結果が不明                         | 再試行前に `context show` を読み、新旧どちらとも決めつけない                             |
+| Workspace Manifest 選択の結果が不明              | 再試行前に `manifest show` を読み、新旧どちらとも決めつけない                            |
 | 既存コンテナに runtime-spec の差分がある         | 検証成功後、次に入るとき、所有する作業コンテナだけを完全一致で再作成                     |
 | ランタイムコンテナまたはネットワークを失った     | 論理 Workspace 状態とホームは残り、次に入るとき所有リソースを調整                        |
 
@@ -174,8 +174,8 @@ Workspace のネットワーク、マウント、リソース契約、寿命を�
     新しい Runtime リビジョンをビルドすると、実行中の Workspace
     コンテナを即座に置き換えますか？
   </summary>
-  いいえ。ビルドは履歴を追加するだけです。Context へ明示的に選択した後、 次に
-  Workspace へ入るときに作業コンテナを調整します。
+  いいえ。ビルドは履歴を追加するだけです。Workspace Manifest
+  へ明示的に選択した後、 次に Workspace へ入るときに作業コンテナを調整します。
 </details>
 
 <details>

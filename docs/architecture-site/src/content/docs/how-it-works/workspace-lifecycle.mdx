@@ -6,7 +6,7 @@ description: Understand entry, exit, deletion, runtime reconciliation, and clust
 import ConceptDiagram from "../../../components/ConceptDiagram.astro";
 
 A Workspace outlives the shell attached to it. `exit` ends only that exec
-session; the logical Workspace, home, runtime records, and Context binding
+session; the logical Workspace, home, runtime records, and Workspace Manifest binding
 remain available for the next entry. `delete` removes one logical Workspace
 and its owned state. Cluster teardown is separate and is allowed only after all
 Workspaces have been deleted.
@@ -15,7 +15,7 @@ Container or network loss does not automatically mean that the logical
 Workspace is gone: entry reconciles replaceable runtime state against durable
 records. `delete --force` has a narrower recovery purpose, and `cluster down
 --purge` is neither Workspace deletion nor credential logout. See [Workspace,
-Context, cluster, and runtime](/how-it-works/workspace-context-cluster/) for the
+Workspace Manifest, cluster, and runtime](/how-it-works/workspace-manifest-workspace-cluster/) for the
 identities used in this lifecycle.
 
 <ConceptDiagram name="workspace-lifecycle" />
@@ -25,7 +25,7 @@ identities used in this lifecycle.
 ### Absent → attached
 
 Running `tobari` from the selected directory chooses an existing Workspace or
-explicitly creates one for the canonical root and Context. Creation durably
+explicitly creates one for the canonical root and Workspace Manifest. Creation durably
 records identity and home, reconciles the dedicated network and container,
 installs the fail-closed Gateway/Workspace network guards, registers exact
 Workspace and Gateway endpoints, waits for readiness, and starts an
@@ -39,18 +39,18 @@ review for one exact Workspace-loopback development service. Run
 host terminal. Allow once returns exact
 `http://127.0.0.1:<random-port>` access for HTTP/1.1 and WebSocket Upgrade. The
 attachment—not the helper or reviewer—owns the listener and streams. Exit
-closes them; approval does not become Context policy or a remembered decision.
+closes them; approval does not become Workspace Manifest policy or a remembered decision.
 
 ### Attached → detached but existing
 
 Shell `exit`, an exact agent command finishing, or a nonzero child exit ends only the exec process. Tobari preserves:
 
 - the root index and instance record;
-- the permanent Context binding and project ID;
+- the permanent Workspace Manifest binding and project ID;
 - the per-Workspace home and tool-owned login state;
 - the runtime container and dedicated network;
-- learned policy scoped to that Context/project; and
-- Context-owned broker credentials and this project's current handle projection.
+- learned policy scoped to that Workspace Manifest/project; and
+- Workspace Manifest-owned broker credentials and this project's current handle projection.
 
 It does not preserve pending service requests, host service listeners, or
 active service relays; those are attachment-owned and close on exit.
@@ -59,7 +59,7 @@ There is no persisted “paused” state. Detached means no observed attached ex
 
 ### Detached → attached again
 
-The next `tobari` entry resolves the same logical record and reconciles runtime drift before entering. It may recreate the container or network, update the desired Context image, reissue current project-bound broker handle projections, and repair principal registration without changing identity or home.
+The next `tobari` entry resolves the same logical record and reconciles runtime drift before entering. It may recreate the container or network, update the desired Workspace Manifest image, reissue current project-bound broker handle projections, and repair principal registration without changing identity or home.
 
 ### Detached → absent
 
@@ -75,7 +75,7 @@ Logical state, not Docker inspection, determines existence.
 
 - **Container lost:** next entry creates a compatible replacement and remounts the existing root/home.
 - **Network lost:** next entry recreates the internal network, reconnects Gateway, reapplies both guards, and writes the new endpoint binding before readiness.
-- **Context runtime rebuilt:** next entry compares desired runtime identity and recreates only the project container when needed.
+- **Workspace Manifest runtime rebuilt:** next entry compares desired runtime identity and recreates only the project container when needed.
 - **Resource/security contract changed:** the desired-spec hash changes and triggers reconciliation.
 - **Root index exists but instance state is missing:** this is `incomplete`, not an invitation to guess. Entry fails; exact deletion cleans it up.
 
@@ -87,10 +87,10 @@ Durable journals cover interrupted creation and deletion so a partial file set i
 
 After that:
 
-| Operation              | Removes                                                                               | Preserves                                                                |
-| ---------------------- | ------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| `cluster down`         | Shared Gateway, OPA, Auth Broker containers and transient shared networks/projections | Contexts, policy sources, encrypted vaults, root key, Gateway CA volumes |
-| `cluster down --purge` | The same shared runtime resources, shared CA volumes, and active policy-bundle volume | Contexts, policy sources, encrypted vaults, installation root key        |
+| Operation              | Removes                                                                               | Preserves                                                                           |
+| ---------------------- | ------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| `cluster down`         | Shared Gateway, OPA, Auth Broker containers and transient shared networks/projections | Workspace Manifests, policy sources, encrypted vaults, root key, Gateway CA volumes |
+| `cluster down --purge` | The same shared runtime resources, shared CA volumes, and active policy-bundle volume | Workspace Manifests, policy sources, encrypted vaults, installation root key        |
 
 Purge means a later cluster start establishes new shared CA state. It does not revoke provider credentials or delete encrypted vaults. Use `auth logout <provider>` for local credential removal and handle revocation.
 
@@ -122,16 +122,16 @@ You enter `/work/service`, run a tool-native login, and then type `exit`.
 
 ## Source evidence
 
-- [Lifecycle and command outcome contract](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/docs/01_product_contract.md)
-- [Lifecycle state model and reconciliation](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/docs/02_architecture.md)
-- [Workspace runtime implementation](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/internal/infra/dockerruntime/project_runtime.go)
-- [Root indexes, instance state, and journals](https://github.com/tasuku43/tobari/tree/381835cda72885f78f5a3c9c69868e25df9a15fd/internal/infra/dockerruntime)
-- [Application lifecycle tests](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/internal/app/tobaricmd/service_test.go)
-- [Container/network loss and teardown integration](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/scripts/test-integration.sh)
+- [Lifecycle and command outcome contract](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/docs/01_product_contract.md)
+- [Lifecycle state model and reconciliation](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/docs/02_architecture.md)
+- [Workspace runtime implementation](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/internal/infra/dockerruntime/project_runtime.go)
+- [Root indexes, instance state, and journals](https://github.com/tasuku43/tobari/tree/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/internal/infra/dockerruntime)
+- [Application lifecycle tests](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/internal/app/tobaricmd/service_test.go)
+- [Container/network loss and teardown integration](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/scripts/test-integration.sh)
 
 ## Summary
 
-An attached session, a logical Workspace, its Docker runtime, the shared cluster, and Context credential state have different lifetimes. Use `exit` to leave, `delete` to remove the Workspace, `cluster down` to stop shared services after deletion, and `auth logout` to remove a provider credential.
+An attached session, a logical Workspace, its Docker runtime, the shared cluster, and Workspace Manifest credential state have different lifetimes. Use `exit` to leave, `delete` to remove the Workspace, `cluster down` to stop shared services after deletion, and `auth logout` to remove a provider credential.
 
 ## Check your understanding
 
@@ -168,4 +168,4 @@ You should now be able to predict what survives each lifecycle operation.
   container.
 </details>
 
-Return to [Workspace, Context, cluster, and runtime](/how-it-works/workspace-context-cluster/) if ownership scopes are unclear. Next, follow one message in [Request journey](/how-it-works/request-journey/).
+Return to [Workspace, Workspace Manifest, cluster, and runtime](/how-it-works/workspace-manifest-workspace-cluster/) if ownership scopes are unclear. Next, follow one message in [Request journey](/how-it-works/request-journey/).

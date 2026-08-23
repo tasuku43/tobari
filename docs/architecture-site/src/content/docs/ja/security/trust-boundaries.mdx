@@ -6,7 +6,7 @@ description: プロジェクトのファイル、プロジェクト識別、ポ�
 import ConceptDiagram from "../../../../components/ConceptDiagram.astro";
 import CredentialArchitectureMap from "../../../../components/CredentialArchitectureMap.astro";
 
-Tobari が信頼するのは、ホスト側のライフサイクル状態、プリンシパル登録簿、ポリシー、ルート鍵、Gateway、OPA、Auth Broker です。Workspace 内のプロセスと外部サービスは信頼しません。Workspace や外部サービスが送った値を、そのまま Context やプロジェクトの権限として扱うこともありません。
+Tobari が信頼するのは、ホスト側のライフサイクル状態、プリンシパル登録簿、ポリシー、ルート鍵、Gateway、OPA、Auth Broker です。Workspace 内のプロセスと外部サービスは信頼しません。Workspace や外部サービスが送った値を、そのまま Workspace Manifest やプロジェクトの権限として扱うこともありません。
 
 作業対象のファイル、プロジェクトの権限、ポリシー変更の権限、認証情報の本体、リクエストデータは、それぞれ別の境界を通ります。各境界が成立させる保証は、先に[保証と制限](../guarantees-and-limitations/)で確認してください。
 
@@ -23,17 +23,17 @@ Tobari が信頼するのは、ホスト側のライフサイクル状態、プ�
 
 ## 境界 1：作業対象のファイル
 
-trusted host user が canonical project root を選びます。immutable Context `source_access` が
+trusted host user が canonical project root を選びます。immutable Workspace Manifest `source_access` が
 `read-only` または `read-write` の live bind を選び、CLI omission default は `read-write` です。
-read-only bind でも host や別 Context の変更を観測します。Workspace home は writable です。
+read-only bind でも host や別 Workspace Manifest の変更を観測します。Workspace home は writable です。
 
 作業対象外のホストパスは通常のマウント対象に含めず、Docker の制御機能も Workspace へ渡しません。各 Workspace には、インスタンス状態用のディレクトリから別々の永続ホームを割り当てます。
 
-この境界は、作業対象のディレクトリを Workspace 自身から保護するものではありません。たとえば異なる Workspace または Context が `/work/team` と `/work/team/service` を使うと、ネットワーク、ホーム、識別情報、ポリシーの結び付きが異なっていても、重複するホスト上のファイルは共有されます。
+この境界は、作業対象のディレクトリを Workspace 自身から保護するものではありません。たとえば異なる Workspace または Workspace Manifest が `/work/team` と `/work/team/service` を使うと、ネットワーク、ホーム、識別情報、ポリシーの結び付きが異なっていても、重複するホスト上のファイルは共有されます。
 
 ## 境界 2：プロジェクトの権限
 
-ホストはプロジェクト専用のネットワークを作り、安定した Context ID、プロジェクト ID、基準となるルート、ネットワーク、Workspace の送信元エンドポイント、Gateway のエンドポイントをスキーマ 1 の登録簿で対応付けます。このように、どの Context とプロジェクトの権限を使うかをホスト側の事実から示す識別情報を、プリンシパル（principal）と呼びます。
+ホストはプロジェクト専用のネットワークを作り、安定した Workspace Manifest ID、プロジェクト ID、基準となるルート、ネットワーク、Workspace の送信元エンドポイント、Gateway のエンドポイントをスキーマ 1 の登録簿で対応付けます。このように、どの Workspace Manifest とプロジェクトの権限を使うかをホスト側の事実から示す識別情報を、プリンシパル（principal）と呼びます。
 
 Gateway は、カーネルが観測した接続元アドレスである `flow.client_conn.peername[0]` を使い、ホストが管理する登録簿からプリンシパルを選びます。
 
@@ -41,7 +41,7 @@ Workspace は `X-Project-ID: something-else` のようなヘッダーを送れ�
 
 ## 境界 3：ポリシーを変更する権限
 
-OPA は、Context、プロジェクト、スキーム、宛先、ポート、メソッド、パスなど、本文を除いた正規化済みの情報で HTTP 通信を判断します。Gateway が接続を所有し、その結果を通信経路へ強制します。
+OPA は、Workspace Manifest、プロジェクト、スキーム、宛先、ポート、メソッド、パスなど、本文を除いた正規化済みの情報で HTTP 通信を判断します。Gateway が接続を所有し、その結果を通信経路へ強制します。
 
 Workspace へ返す拒否レスポンスは、ホスト側で実行するレビューコマンドを示すだけです。権限変更に使う不透明な参照値や、ポリシーを書き換える機能は Workspace へ渡しません。
 
@@ -61,7 +61,7 @@ route lifetime を所有せず、browser channel、Host Loopback policy、applic
 
 ツール自身の認証情報は Workspace storage/environment に渡るため読めます。Broker path では、
 固定 GitHub helper または strict owner stdin import が trusted host で動きます。root-key backend
-が Context vault を unlock し、Auth Broker が static credential record 一つを保持します。
+が Workspace Manifest vault を unlock し、Auth Broker が static credential record 一つを保持します。
 Workspace が受け取るのは project-bound opaque selector だけです。
 
 Gateway は handle、resolved credential、body を OPA へ送りません。static allow 後に同じ revision
@@ -107,11 +107,12 @@ Gateway は handle、resolved credential、body を OPA へ送りません。sta
 <div class="question-list">
   <details>
     <summary>
-      偽装した Context ヘッダーで、別のポリシーを利用できないのはなぜですか？
+      偽装した Workspace Manifest
+      ヘッダーで、別のポリシーを利用できないのはなぜですか？
     </summary>
     <div class="prose-block">
       Gateway は、ホストが作成した Workspace 送信元エンドポイントの対応付けから
-      Context
+      Workspace Manifest
       とプロジェクトを選びます。リクエストヘッダーは、そのエンドポイントや登録簿を変更できません。
     </div>
   </details>
@@ -120,7 +121,8 @@ Gateway は handle、resolved credential、body を OPA へ送りません。sta
       Auth Broker のハンドルは、認証情報の本体または独立した権限ですか？
     </summary>
     <div class="prose-block">
-      いいえ。秘密情報ではない不透明なレコード選択子であり、それだけでは認証情報を利用できません。Context、プロジェクト、プロバイダー、リビジョン、接続先、ヘッダーの結び付け、OPA
+      いいえ。秘密情報ではない不透明なレコード選択子であり、それだけでは認証情報を利用できません。Workspace
+      Manifest、プロジェクト、プロバイダー、リビジョン、接続先、ヘッダーの結び付け、OPA
       の許可がすべて一致する必要があります。
     </div>
   </details>

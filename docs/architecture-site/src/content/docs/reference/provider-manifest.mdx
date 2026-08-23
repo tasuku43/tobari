@@ -130,11 +130,11 @@ after an explicit import, for handle projection. It does **not**:
 - expose a primary secret to OPA or a Workspace; or
 - guarantee remote token revocation at logout.
 
-Policy still binds the exact Context ID, project ID, host, port, method, and
-path. The broker additionally checks Context, project, provider, credential
+Policy still binds the exact Workspace Manifest ID, project ID, host, port, method, and
+path. The broker additionally checks Workspace Manifest, project, provider, credential
 revision, and normalized HTTP binding. A malformed, stale, misplaced, or
 ambiguous Tobari-looking handle fails closed. A handle copied into another
-project or Context also fails. None of these failures falls back to
+project or Workspace Manifest also fails. None of these failures falls back to
 passthrough. Processes in the same Workspace can use that Workspace's valid
 handle; Tobari does not isolate peer processes inside one Workspace.
 

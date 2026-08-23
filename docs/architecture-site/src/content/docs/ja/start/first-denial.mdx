@@ -14,7 +14,7 @@ import SequenceExplorer from "../../../../components/SequenceExplorer.astro";
 
 ## 拒否を時間順に追う
 
-1. Gateway は、カーネルが観測した Workspace の送信元エンドポイントと、ホストが管理するスキーマ 1 プリンシパル登録簿から Context とプロジェクトを特定します。
+1. Gateway は、カーネルが観測した Workspace の送信元エンドポイントと、ホストが管理するスキーマ 1 プリンシパル登録簿から Workspace Manifest とプロジェクトを特定します。
 2. リクエスト本文を含まない形に正規化したポリシー入力を作り、OPA へ一度問い合わせます。
 3. OPA は、一致する許可ルールがない通信を拒否します。
 4. Gateway は Auth Broker が管理する認証情報を解決せず、宛先の DNS 名前解決も、接続先への接続も行いません。
@@ -35,7 +35,7 @@ import SequenceExplorer from "../../../../components/SequenceExplorer.astro";
 tobari review permissions
 ```
 
-対話型ターミナルでは、保留中の通信を確認し、一つの Context に対する完全一致の判断を準備します。一式をレビューした後に一度だけ **Apply** を押してください。Apply 前にキャンセルすると何も変わりません。出力をリダイレクトした場合、レビューは読み取り専用です。
+対話型ターミナルでは、保留中の通信を確認し、一つの Workspace Manifest に対する完全一致の判断を準備します。一式をレビューした後に一度だけ **Apply** を押してください。Apply 前にキャンセルすると何も変わりません。出力をリダイレクトした場合、レビューは読み取り専用です。
 
 ```sh
 tobari review permissions --format json
@@ -55,7 +55,7 @@ tobari policy deny --id <pcy-id>
 
 学習済みルールは次に結び付きます。
 
-- 安定した Context ID
+- 安定した Workspace Manifest ID
 - ホストが発行したプロジェクト ID
 - スキーム
 - 宛先ホストとポート
@@ -100,11 +100,11 @@ Tobari は、観測した通信を自動的に権限へ変えません。通常�
 
 ## 根拠となるソース
 
-- [ポリシー学習の製品契約](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/docs/01_product_contract.md)
-- [ポリシー変更と有効化の実装](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/internal/infra/dockerruntime/policydata.go)
-- [Catalog にあるポリシー仕様](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/internal/cli/runtime_catalog.go)
-- [CLI のレビューと不透明な参照のテスト](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/internal/cli/tobari_test.go)
-- [Gateway の拒否と OPA 障害を確認するテスト](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/gateway/test_tobari_gateway.py)
+- [ポリシー学習の製品契約](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/docs/01_product_contract.md)
+- [ポリシー変更と有効化の実装](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/internal/infra/dockerruntime/policydata.go)
+- [Catalog にあるポリシー仕様](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/internal/cli/runtime_catalog.go)
+- [CLI のレビューと不透明な参照のテスト](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/internal/cli/tobari_test.go)
+- [Gateway の拒否と OPA 障害を確認するテスト](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/gateway/test_tobari_gateway.py)
 
 ## まとめ
 

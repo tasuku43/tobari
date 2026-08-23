@@ -3,32 +3,32 @@ title: 高度なポリシー
 description: 通常の完全一致ポリシーでは必要な境界を表現できない場合に限り、信頼するホスト側で Rego を保守します。
 ---
 
-通常はガイド付きポリシー学習を使います。完全一致の許可・拒否では表現できないポリシーをホスト側で管理する必要がある場合だけ、高度な Context を選びます。Rego ソースとテストを一緒に保ち、クラスター全体を明示的に検証してから変更を有効化します。
+通常はガイド付きポリシー学習を使います。完全一致の許可・拒否では表現できないポリシーをホスト側で管理する必要がある場合だけ、高度な Workspace Manifest を選びます。Rego ソースとテストを一緒に保ち、クラスター全体を明示的に検証してから変更を有効化します。
 
 これは通常の拒否を処理するための経路ではありません。先に[ポリシーレビュー](../policy-review/)と OPA/Rego を理解してください。
 
 ## ガイド付きポリシーと高度なポリシーでは、管理方式が異なる
 
-| ガイド付き Context                                   | 高度な Context                                               |
-| ---------------------------------------------------- | ------------------------------------------------------------ |
-| `policy/domains/<host>/{allow,deny}.json` だけを所有 | domain tree、`tobari.rego`、`tobari_test.rego` を所有        |
-| Tobari が所有する現在の共有評価器を使用              | 保守担当者が Context 固有のポリシーロジックとテストを所有    |
-| 通常は完全一致の許可・拒否、リセット、集約を使う     | 通常のモデルで不足する場合、信頼するホスト上で直接編集できる |
-| Tobari のリリースに合わせて共有評価器が更新される    | 保守担当者が互換性と動作をレビューする                       |
+| ガイド付き Workspace Manifest                        | 高度な Workspace Manifest                                            |
+| ---------------------------------------------------- | -------------------------------------------------------------------- |
+| `policy/domains/<host>/{allow,deny}.json` だけを所有 | domain tree、`tobari.rego`、`tobari_test.rego` を所有                |
+| Tobari が所有する現在の共有評価器を使用              | 保守担当者が Workspace Manifest 固有のポリシーロジックとテストを所有 |
+| 通常は完全一致の許可・拒否、リセット、集約を使う     | 通常のモデルで不足する場合、信頼するホスト上で直接編集できる         |
+| Tobari のリリースに合わせて共有評価器が更新される    | 保守担当者が互換性と動作をレビューする                               |
 
-どちらのモードでも Workspace は有効なポリシーを編集できません。Context のポリシーディレクトリは所有者だけがアクセスできるホスト状態であり、Workspace へマウントされません。
+どちらのモードでも Workspace は有効なポリシーを編集できません。Workspace Manifest のポリシーディレクトリは所有者だけがアクセスできるホスト状態であり、Workspace へマウントされません。
 
-## 高度なポリシーを使う Context を意図的に作る
+## 高度なポリシーを使う Workspace Manifest を意図的に作る
 
 ```sh
-tobari context create --name policy-lab --mode advanced
-tobari context show --name=policy-lab --format=json
-tobari context use --name policy-lab
+tobari manifest create --name policy-lab --mode advanced
+tobari manifest show --name=policy-lab --format=json
+tobari manifest default set --name policy-lab
 ```
 
-`context show` が報告した完全一致の保存領域パスを使います。親の Tobari 設定ディレクトリを Workspace へマウントせず、ポリシーディレクトリに認証情報をコピーしないでください。
+`manifest show` が報告した完全一致の保存領域パスを使います。親の Tobari 設定ディレクトリを Workspace へマウントせず、ポリシーディレクトリに認証情報をコピーしないでください。
 
-作成しても実行中のクラスターは変わりません。新しい Context を使う前に明示的に調整します。
+作成しても実行中のクラスターは変わりません。新しい Workspace Manifest を使う前に明示的に調整します。
 
 ```sh
 tobari cluster up
@@ -69,12 +69,12 @@ recovery journal の下で完全な `domains/` 世代を入れ替えます。
 
 信頼するホストで、報告された `policy/tobari.rego` と `policy/tobari_test.rego` を編集します。安定した公開判断契約を保ち、意図した一致を確認するテストと、不適切な推論を検出するカナリアテストを追加します。
 
-高度なポリシーのソースは、安定した Context ID から導出される隔離されたパッケージへ投影されます。次の名前空間を使おうとすると検証で拒否されます。
+高度なポリシーのソースは、安定した Workspace Manifest ID から導出される隔離されたパッケージへ投影されます。次の名前空間を使おうとすると検証で拒否されます。
 
 - クラスターが所有する `tobari.http/decision` ルーター
 - 予約済みの `tobari.system` パッケージ
-- 別 Context の名前空間
-- 集約ポリシー Context データ名前空間
+- 別 Workspace Manifest の名前空間
+- 集約ポリシー Workspace Manifest データ名前空間
 
 これは一つの信頼する OPA プロセス内で経路と名前空間を強制する仕組みです。Rego モジュール間をプロセスレベルで秘匿する仕組みではありません。
 
@@ -87,24 +87,24 @@ tobari doctor
 tobari cluster logs --component opa --tail 100
 ```
 
-`doctor` は観測だけを行い、ソースの編集内容を有効化しません。すべての Context を含むプロジェクションを再生成し、テストして有効化するには、明示的なクラスター調整を実行します。
+`doctor` は観測だけを行い、ソースの編集内容を有効化しません。すべての Workspace Manifest を含むプロジェクションを再生成し、テストして有効化するには、明示的なクラスター調整を実行します。
 
 ```sh
 tobari cluster up
 ```
 
-プロジェクションには、固定ルーター、Context ID ごとのデータ名前空間、共有のガイド付き評価器、書き換え済みの高度なパッケージが含まれます。すべてのソースと集約ポリシー全体がテストに合格する必要があります。有効な候補だけが公開され、障害時には以前の検証済み集約ポリシーが引き続き有効です。
+プロジェクションには、固定ルーター、Workspace Manifest ID ごとのデータ名前空間、共有のガイド付き評価器、書き換え済みの高度なパッケージが含まれます。すべてのソースと集約ポリシー全体がテストに合格する必要があります。有効な候補だけが公開され、障害時には以前の検証済み集約ポリシーが引き続き有効です。
 
-通常の完全一致の許可・拒否・リセット操作も、同じ全 Context の安全境界を使い、対応 host の `allow.json` または `deny.json` にある学習済み `rules` だけを変更します。ホスト側で管理する境界ポリシーや任意の Rego は書き換えません。内容アドレス方式で生成する OPA projection の内部には `data.json` がありますが、Context source ではありません。
+通常の完全一致の許可・拒否・リセット操作も、同じ全 Workspace Manifest の安全境界を使い、対応 host の `allow.json` または `deny.json` にある学習済み `rules` だけを変更します。ホスト側で管理する境界ポリシーや任意の Rego は書き換えません。内容アドレス方式で生成する OPA projection の内部には `data.json` がありますが、Workspace Manifest source ではありません。
 
 ## 高度なポリシーが適切な例
 
 信頼する保守担当者が、完全一致のパス規則では表現できない、秘密情報を含まないリクエストメタデータから有限の規則を作る必要があるとします。
 
 1. 完全一致のレビューでは不足する理由を記録する
-2. 一つの高度な Context に最小限の Rego 条件を書く
+2. 一つの高度な Workspace Manifest に最小限の Rego 条件を書く
 3. 許可すべき入力のテストデータと、不適切な推論を検出するカナリアを追加する
-4. 集約ポリシー内のすべての Context を検証する
+4. 集約ポリシー内のすべての Workspace Manifest を検証する
 5. 合成した拒否対象と許可対象のリクエストで、最終的な動作を確認する
 
 高度なモードを、プロバイダー SDK、リクエスト本文の読み取り、シェル実行、認証情報の読み込み、Gateway/Auth Broker 境界の迂回に使わないでください。Rego が受け取るのは正規化された判断データであり、任意の処理を実行する権限ではありません。
@@ -114,25 +114,25 @@ tobari cluster up
 - 無効な Rego、テスト障害、禁止されたパッケージ、スキーマの不一致があると有効化されません。
 - ソースの一部だけを編集しても、集約ポリシーの一部だけが有効になることはありません。
 - OPA の監視やヘルスチェックに障害がある場合、リクエストは安全側に閉じて拒否されます。可用性を優先して許可することはありません。
-- `cluster up` が Context ソース障害を報告したら、その完全一致の Context を直してから再試行します。
+- `cluster up` が Workspace Manifest ソース障害を報告したら、その完全一致の Workspace Manifest を直してから再試行します。
 - 完全一致のポリシー変更操作とホスト編集が競合した場合、内容とリビジョンの検査で古い状態を拒否します。推測でマージすることはありません。
 - 有効な Rego テストスイートが証明するのは、宣言したテストケースだけです。将来現れる未知の URL がすべて安全だとは証明しません。
 
 ## 保証と制限
 
-Tobari はルーターと Context 名前空間を予約し、プロジェクション全体をテストしてアトミックに公開します。障害時には検証済みポリシーを保持します。高度な規則の意味と完全性は保守担当者の責任です。Tobari はプロバイダー固有の意味を解釈せず、安全なワイルドカードを推論しません。
+Tobari はルーターと Workspace Manifest 名前空間を予約し、プロジェクション全体をテストしてアトミックに公開します。障害時には検証済みポリシーを保持します。高度な規則の意味と完全性は保守担当者の責任です。Tobari はプロバイダー固有の意味を解釈せず、安全なワイルドカードを推論しません。
 
 ## 根拠となるソース
 
-- [高度なポリシーの製品契約](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/docs/01_product_contract.md)
-- [集約ポリシーのアーキテクチャ](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/docs/02_architecture.md)
-- [集約生成とパッケージの書き換え](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/internal/infra/dockerruntime/aggregate.go)
-- [ガイド付きポリシーと高度なポリシーの分離テスト](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/internal/infra/dockerruntime/aggregate_test.go)
-- [ポリシー変更をアトミックに行うテスト](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/internal/infra/dockerruntime/policydata_test.go)
+- [高度なポリシーの製品契約](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/docs/01_product_contract.md)
+- [集約ポリシーのアーキテクチャ](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/docs/02_architecture.md)
+- [集約生成とパッケージの書き換え](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/internal/infra/dockerruntime/aggregate.go)
+- [ガイド付きポリシーと高度なポリシーの分離テスト](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/internal/infra/dockerruntime/aggregate_test.go)
+- [ポリシー変更をアトミックに行うテスト](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/internal/infra/dockerruntime/policydata_test.go)
 
 ## まとめ
 
-高度なモードでは、ポリシーロジックの所有権が Workspace ではなく信頼する保守担当者へ移ります。Context 名前空間の強制、プロジェクション全体のテスト、アトミックな有効化は引き続き必須です。
+高度なモードでは、ポリシーロジックの所有権が Workspace ではなく信頼する保守担当者へ移ります。Workspace Manifest 名前空間の強制、プロジェクション全体のテスト、アトミックな有効化は引き続き必須です。
 
 ## 理解を確認する
 

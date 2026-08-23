@@ -28,7 +28,7 @@ URL のパス、クエリ、分類されていないヘッダーに機密デー�
 ## 保持する拒否の根拠に含まれるもの
 
 学習可能な拒否は、上限を設けたスキーマ 1 の JSON 監査レコードとして記録します。
-Context とプロジェクトの識別情報、ホスト、ポート、メソッド、パス、判断と理由、リクエスト
+Workspace Manifest とプロジェクトの識別情報、ホスト、ポート、メソッド、パス、判断と理由、リクエスト
 ID、時刻、処理時間、秘密情報を含まない分類メタデータが対象です。ポリシーの
 検出処理は、上限付きで Docker ログを読み、完全一致規則の各項目で候補をまとめます。
 
@@ -91,22 +91,22 @@ Gateway のログ量は Docker のログ設定で制限します。検出処理�
   <h2>ソース</h2>
   <ul>
     <li>
-      <a href="https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/docs/03_security_model.md">
+      <a href="https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/docs/03_security_model.md">
         セキュリティ出力と監査の契約
       </a>
     </li>
     <li>
-      <a href="https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/gateway/addon/tobari_gateway.py">
+      <a href="https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/gateway/addon/tobari_gateway.py">
         ポリシー入力と監査の生成処理
       </a>
     </li>
     <li>
-      <a href="https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/internal/infra/dockerruntime/policy.go">
+      <a href="https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/internal/infra/dockerruntime/policy.go">
         上限付きの拒否情報読み取り処理
       </a>
     </li>
     <li>
-      <a href="https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/gateway/test_tobari_gateway.py">
+      <a href="https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/gateway/test_tobari_gateway.py">
         本文と認証情報を除外するテスト
       </a>
     </li>

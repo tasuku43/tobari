@@ -31,7 +31,7 @@ Go does not make arbitrary provider API requests above infrastructure. It passes
 
 Docker Engine supplies runtime containers, read-only/read-write mounts, users, capability drops, read-only root filesystems, resource limits, internal networks, labels, volumes, and process execution.
 
-Docker Compose owns only the shared Gateway, OPA, and Auth Broker services plus shared networks and CA volumes. Per-Workspace containers and networks are reconciled by the runtime adapter because their exact root/Context identity and lifecycle are application concerns.
+Docker Compose owns only the shared Gateway, OPA, and Auth Broker services plus shared networks and CA volumes. Per-Workspace containers and networks are reconciled by the runtime adapter because their exact root/Workspace Manifest identity and lifecycle are application concerns.
 
 Docker is trusted infrastructure. “Runs in a container” is not itself a security argument; the exact mounts, network attachments, socket absence, labels, users, and failure tests are.
 
@@ -43,8 +43,8 @@ Python is used here because mitmproxy's reviewed extension boundary is a Python 
 
 ### OPA and Rego
 
-OPA is the shared policy decision service. Rego expresses Context policy ceilings,
-default deny, Context routing, exact learned allow/deny rules, and credential
+OPA is the shared policy decision service. Rego expresses Workspace Manifest policy ceilings,
+default deny, Workspace Manifest routing, exact learned allow/deny rules, and credential
 metadata constraints. Learned first-public V1 authority stays exact.
 
 OPA receives no request body or credential value and has no egress interface. Keeping decision logic separate makes the decision input/result contract testable without granting OPA network forwarding authority.
@@ -68,10 +68,10 @@ sanitized temporary home, bounds visible output, verifies cleanup, and commits
 one static record through Broker control. Owner providers use protected stdin
 import; neither path makes the Broker execute provider code.
 
-### Encrypted Context vault and root key
+### Encrypted Workspace Manifest vault and root key
 
-Each Context vault uses a schema-1 AES-256-GCM envelope with a random nonce and
-Context/schema-associated data. Its encrypted schema-1 payload stores static
+Each Workspace Manifest vault uses a schema-1 AES-256-GCM envelope with a random nonce and
+Workspace Manifest/schema-associated data. Its encrypted schema-1 payload stores static
 primary secrets, revisions, and raw handles. The installation root key is external to the vault:
 macOS Keychain or an owner-only Linux XDG file. Encryption limits storage
 exposure across the container/Workspace boundary but does not protect against
@@ -118,7 +118,7 @@ No one technology implements the complete promise.
 - Missing/incompatible runtime or service image fails validation before unsafe creation.
 - Digest/label/API/user/entrypoint mismatch fails closed.
 - Canonical source and embedded snapshot drift fails repository checks.
-- Invalid Rego or all-Context aggregate fails before activation.
+- Invalid Rego or all-Workspace Manifest aggregate fails before activation.
 - OPA or Broker outage produces a closed Gateway response.
 - Docker/host outage removes the enforcement substrate; Tobari does not claim protection under its compromise.
 - Missing root key with an existing vault prevents unlock rather than replacing the key.
@@ -135,14 +135,14 @@ compatibility.
 
 ## Source evidence
 
-- [Architecture runtime assets and component boundaries](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/docs/02_architecture.md)
-- [Supply-chain security contract](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/docs/03_security_model.md)
-- [Embedded component versions](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/internal/infra/runtimeassets/assets/versions.env)
-- [Shared Compose runtime](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/internal/infra/runtimeassets/assets/compose.yaml)
-- [Canonical Gateway source](https://github.com/tasuku43/tobari/tree/381835cda72885f78f5a3c9c69868e25df9a15fd/gateway)
-- [Canonical Auth Broker source](https://github.com/tasuku43/tobari/tree/381835cda72885f78f5a3c9c69868e25df9a15fd/authbroker)
-- [Gateway snapshot drift check](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/scripts/check-gateway-source.sh)
-- [Auth Broker snapshot drift check](https://github.com/tasuku43/tobari/blob/381835cda72885f78f5a3c9c69868e25df9a15fd/scripts/check-authbroker-source.sh)
+- [Architecture runtime assets and component boundaries](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/docs/02_architecture.md)
+- [Supply-chain security contract](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/docs/03_security_model.md)
+- [Embedded component versions](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/internal/infra/runtimeassets/assets/versions.env)
+- [Shared Compose runtime](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/internal/infra/runtimeassets/assets/compose.yaml)
+- [Canonical Gateway source](https://github.com/tasuku43/tobari/tree/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/gateway)
+- [Canonical Auth Broker source](https://github.com/tasuku43/tobari/tree/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/authbroker)
+- [Gateway snapshot drift check](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/scripts/check-gateway-source.sh)
+- [Auth Broker snapshot drift check](https://github.com/tasuku43/tobari/blob/1500c8dd29c4f52b4b729347b8ea413f3eb145ef/scripts/check-authbroker-source.sh)
 
 ## Summary
 
