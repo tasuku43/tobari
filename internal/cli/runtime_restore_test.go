@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"io"
 	"reflect"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -98,6 +99,72 @@ func TestRuntimeRestoreCatalogClosesManagedRevisionReferenceWorkflow(t *testing.
 		if !producesRevision {
 			t.Errorf("producer %q lacks managed revision reference", path)
 		}
+	}
+	create, found := catalog.Lookup("runtime create")
+	if !found {
+		t.Fatal("runtime create is absent")
+	}
+	for _, produced := range create.ProducedRefs() {
+		if produced.Kind == tobari.RuntimeRevisionReferenceKind {
+			t.Fatalf("fresh empty-history create advertises impossible revision producer: %+v", create.ProducedRefs())
+		}
+	}
+	var runtimeReportRevisionProducers []string
+	for _, command := range catalog.Commands() {
+		if command.Agent.Output.JSONEnvelope != "runtime" && command.Agent.Output.JSONEnvelope != "runtimes" {
+			continue
+		}
+		for _, produced := range command.ProducedRefs() {
+			if produced.Kind == tobari.RuntimeRevisionReferenceKind {
+				runtimeReportRevisionProducers = append(runtimeReportRevisionProducers, command.Path)
+				break
+			}
+		}
+	}
+	sort.Strings(runtimeReportRevisionProducers)
+	wantProducers := []string{"review runtimes", "runtime build", "runtime history", "runtime list", "runtime show"}
+	if !reflect.DeepEqual(runtimeReportRevisionProducers, wantProducers) {
+		t.Fatalf("Runtime report revision producers = %v, want %v", runtimeReportRevisionProducers, wantProducers)
+	}
+}
+
+func TestRuntimeCreateOutputCannotAdvertiseOrEmitRevisionReference(t *testing.T) {
+	stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	command := newCLI(strings.NewReader(""), stdout, stderr, DefaultCatalog(), nil)
+	command.runtime = runtimecmd.New(&runtimeCatalogCLI{})
+	if code := command.RunContext(context.Background(), []string{"runtime", "create", "--name", "mobile", "--format=json"}); code != ExitOK {
+		t.Fatalf("create code = %d, stderr = %q", code, stderr.String())
+	}
+	if strings.Contains(stdout.String(), `"revision_ref"`) || !strings.Contains(stdout.String(), `"revisions":[]`) {
+		t.Fatalf("fresh create output invented revision authority: %s", stdout.String())
+	}
+}
+
+func TestRuntimeListAndRedirectedReviewRenderManagedRevisionReference(t *testing.T) {
+	manifest := readyRuntimeManifest()
+	wantRef := tobari.RuntimeRevisionRef(manifest.ID, manifest.Revisions[0].Revision)
+	for _, args := range [][]string{{"runtime", "list"}, {"review", "runtimes"}} {
+		fake := &runtimeCatalogCLI{manifest: manifest, list: runtimeReviewList(manifest)}
+		stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+		command := newCLI(strings.NewReader(""), stdout, stderr, DefaultCatalog(), nil)
+		command.runtime = runtimecmd.New(fake)
+		if code := command.RunContext(context.Background(), args); code != ExitOK {
+			t.Fatalf("%v code = %d, stderr = %q", args, code, stderr.String())
+		}
+		if !strings.Contains(stdout.String(), "Revision reference") || !strings.Contains(stdout.String(), wantRef) || strings.Contains(stdout.String(), tobari.StandardRuntimeID+"/") {
+			t.Fatalf("%v Runtime revision reference output = %q", args, stdout.String())
+		}
+	}
+
+	draft := testRuntimeManifest()
+	stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	command := newCLI(strings.NewReader(""), stdout, stderr, DefaultCatalog(), nil)
+	command.runtime = runtimecmd.New(&runtimeCatalogCLI{list: runtimeReviewList(draft)})
+	if code := command.RunContext(context.Background(), []string{"runtime", "list"}); code != ExitOK {
+		t.Fatalf("draft list code = %d, stderr = %q", code, stderr.String())
+	}
+	if strings.Contains(stdout.String(), "Revision reference") {
+		t.Fatalf("standard/draft list invented revision reference: %q", stdout.String())
 	}
 }
 

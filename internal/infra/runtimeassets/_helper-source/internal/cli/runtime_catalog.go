@@ -555,7 +555,7 @@ func runtimeCreateSpec() CommandSpec {
 			Inputs: []CommandInput{
 				{Name: "--copy-source-from", Source: InputSourceFlag, Required: false, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, MinimumLength: &minimum, Description: "Copy current editable source once from standard or an existing managed Runtime; the new Runtime receives a fresh ID and empty history.", AllowedValues: []string{}, DefaultValue: stringPointer(tobari.StandardRuntimeName), Completion: InputCompletionRuntimeName},
 				{Name: "--name", Source: InputSourceFlag, Required: true, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, MinimumLength: &minimum, Description: "Unique local Runtime name.", AllowedValues: []string{}}, formatInput()},
-			Output: runtimeReportOutput(), Prerequisites: []string{"A managed copy source must remain an owner-only bounded editable tree throughout the copy; immutable name@ordinal revisions are not copy sources."}, FixedTarget: fixedRuntimeCatalogTarget(),
+			Output: runtimeCreateOutput(), Prerequisites: []string{"A managed copy source must remain an owner-only bounded editable tree throughout the copy; immutable name@ordinal revisions are not copy sources."}, FixedTarget: fixedRuntimeCatalogTarget(),
 			Errors: mutationCommandErrors("runtime create", "runtime list",
 				declaredCommandError(fault.KindInvalidInput, "invalid_runtime_name", false, "runtime list", "Choose a valid unique Runtime name."),
 				declaredCommandError(fault.KindInvalidInput, "invalid_runtime_copy_source", false, "runtime list", "Choose standard or an existing managed Runtime name, not a name@ordinal revision."),
