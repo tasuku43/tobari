@@ -80,9 +80,19 @@ exist for a Workspace Manifest/Workspace pair, concurrent borrower entries
 share it, and service-exposure controller attachment IDs are ineligible. A
 bounded private session registry joins one frozen schema-v1 Gateway principal
 to canonical Workspace Manifest and Workspace IDs, attachment epoch, owner,
-process-instance nonce, owner-only Unix ingestion socket, and renewable lease.
-The owner PID is diagnostic only. Gateway emits resume data only after
-that owner acknowledges the exact immutable secret-free wait record.
+256-bit process-instance nonce, one closed platform ingestion transport, and
+renewable lease. The owner PID and transport address are diagnostic only.
+Trusted composition fixes native Linux to an owner-only Unix socket and macOS
+Colima to a Darwin-kernel `127.0.0.1:0` listener reached by Gateway at exactly
+`host.docker.internal`. Gateway accepts only its composed transport kind and
+has no runtime probe, fallback, or downgrade. Transport kind, endpoint, nonce,
+lease, and stable owner identity are exact record fields; nonce-first
+constant-time authentication and host-side frame/deadline/concurrency/rate
+bounds protect the channel, while endpoint and peer address grant no authority.
+Gateway emits resume data only after that owner acknowledges the exact immutable
+secret-free wait record and an exact post-acknowledgment registry read proves no
+authority drift. The registry is mounted read-only into Gateway alone; its
+nonce and endpoint never enter logs or public output.
 
 The owner keeps the wait registry in memory and exposes one attachment-local
 read-only Unix socket to `tobari-permission`. Observation delegates exact

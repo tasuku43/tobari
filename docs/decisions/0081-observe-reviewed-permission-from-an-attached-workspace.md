@@ -58,10 +58,11 @@ ineligible for permission-wait ownership.
 The host-owned attachment lifecycle gains a bounded private canonical
 interactive-session registry. Its current record binds canonical
 WorkspaceManifestID and WorkspaceID, AttachmentID/epoch, owner process,
-unpredictable process-instance nonce, owner-only Unix ingestion socket, and a
-renewable bounded lease. The PID is diagnostic correlation, never sufficient
-join authority. A renewal advances an explicit lease issue time and cannot
-revive an expired lease.
+unpredictable 256-bit process-instance nonce, one closed platform ingestion
+transport, and a renewable bounded lease. The PID and transport address are
+diagnostic correlation, never sufficient join authority. A renewal strictly
+advances an explicit lease issue time and cannot revive an expired lease or
+succeed across wall-clock rollback/non-advance.
 Gateway may join its already-authenticated frozen schema-v1 principal only to
 one exact canonical session record. A Host Loopback route is an optional
 subordinate capability on that session and is never permission-wait join
@@ -79,6 +80,28 @@ acknowledges that exact record over the bounded authenticated ingestion channel.
 Failure or timeout omits resume fields. Possession of the wait ID alone grants
 nothing; the child can use it only through the owning attachment's private
 read-only helper socket.
+
+The trusted CLI selects the ingestion transport from one closed support-profile
+enum before composing Gateway: native Linux is `unix`; macOS Colima is
+`loopback_tcp`. Gateway accepts only the transport fixed by that trusted compose
+profile. It performs no runtime probe, fallback, or downgrade. Linux rejects a
+TCP record, macOS Colima rejects a Unix record, and unsupported, zero, invalid,
+or mismatched transport state omits resume.
+
+For `unix`, the owner publishes its owner-only Unix socket. For
+`loopback_tcp`, Darwin binds a kernel-assigned IPv4 endpoint at exactly
+`127.0.0.1:0`; Gateway connects only through the fixed
+`host.docker.internal` name supplied by the reviewed Colima profile. Binding
+`0.0.0.0`, a LAN address, or IPv6 is forbidden. Transport kind, endpoint,
+nonce, lease, and the complete stable owner identity are exact record fields,
+but the port and peer address grant no authority. Each connection sends the
+nonce first, comparison is constant-time, and frames, deadlines, concurrency,
+rate, and lifetime are bounded on the host. After acknowledgment Gateway
+re-reads the exact record; any endpoint, nonce, lease, or owner drift omits
+resume. The private session registry is mounted read-only into Gateway alone;
+OPA, Workspace containers, guards, and public output receive neither that mount
+nor its coordinates. Nonces and private endpoints never enter logs or public
+output.
 
 An ingestion-listener, heartbeat, or lease-renewal failure uses the same
 fail-closed shutdown: close transport, invalidate active and future waits, then
@@ -154,10 +177,12 @@ into the schema-2 denial/wait record; it does not widen sibling readers.
 - Domain and application tests fix ID syntax, immutable record identity,
   terminal results, expiry, attempts, consumption, and zero mutation ports.
 - Registry and transport tests fix one owner, borrower sharing, exact principal
-  join, nonce/endpoint binding, acknowledgment-before-publication, bounded
-  frames/concurrency, non-enumerating faults, and teardown.
+  join, closed platform selection, nonce-first constant-time authentication,
+  nonce/endpoint binding, acknowledgment-before-publication, bounded
+  frames/concurrency/rate, non-enumerating faults, and teardown.
 - Gateway tests cover positive and negative frozen-v1-to-schema-2 projection,
-  unsupported denial omission, CSPRNG IDs, secret exclusion, and canonical /
+  every unsupported denial omission, transport/profile mismatch, CSPRNG IDs,
+  secret exclusion, bounded malformed-registry handling, and canonical /
   embedded source equality. Byte/schema canaries hold every frozen sibling wire
   unchanged.
 - OPA-observer tests use the canonical evaluator and cover exact/template
@@ -167,8 +192,10 @@ into the schema-2 denial/wait record; it does not widen sibling readers.
   helper packaging, read-only mount, cancellation, and hostile output.
 - Integration proves deny, separate trusted-host Apply, wait result, deliberate
   fresh retry, zero automatic retry, zero policy mutation from the Workspace,
-  and default-cluster non-interference outside an explicitly owned disposable
-  test environment.
+  default-cluster non-interference outside an explicitly owned disposable test
+  environment, and the macOS Colima registry's owner-only regular-file shape,
+  atomic replacement visibility through three renewals, invalid-replacement
+  fail-closed behavior, and absence from OPA, Workspace, and guard containers.
 
 ## Compatibility and migration
 

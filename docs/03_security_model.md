@@ -598,10 +598,23 @@ Host Loopback route/grant schema-v1 bytes remain unchanged. Zero, duplicate,
 stale, malformed, symlinked, drifted, or concurrently replaced owner records
 omit the handoff. The attachment-local helper socket proves attachment
 possession independently of the non-authoritative wait ID. Gateway ingestion
-uses an owner-only Unix socket and unpredictable process-instance nonce; PID is
-diagnostic only. The renewable lease carries its current issue time, cannot be
-resurrected after expiry, and any listener, heartbeat, or renewal failure closes
-transport and invalidates waits before exact bounded authority cleanup.
+uses one support-profile-selected closed transport and an unpredictable 256-bit
+process-instance nonce; PID, port, and peer address are diagnostic only. Native
+Linux accepts only an owner-only Unix socket. macOS Colima accepts only a Darwin
+IPv4-loopback listener bound at kernel-assigned `127.0.0.1:0`, reached from
+Gateway through exact `host.docker.internal`; wildcard, LAN, and IPv6 listeners
+are forbidden. Gateway has no transport probe, fallback, or downgrade. It sends
+the nonce first, the owner compares it in constant time, and host-side frame,
+deadline, concurrency, rate, and lifetime bounds apply even if another
+container can reach the forwarded host gateway. Only Gateway receives the
+read-only registry mount; OPA, Workspace containers, and guards receive no
+mount or transport environment. The renewable lease carries a strictly
+advancing current issue time, cannot be resurrected after expiry or wall-clock
+rollback/non-advance, and any listener, heartbeat, or renewal failure closes
+transport and invalidates waits before exact bounded authority cleanup. An
+acknowledgment is usable only after an exact registry re-read proves endpoint,
+nonce, lease, and owner identity unchanged. Nonces and private endpoints are
+absent from logs and public output.
 
 The owner keeps at most eight waits in memory for at most fifteen minutes, with
 one active connection and three attempts per ID. Request and response frames
