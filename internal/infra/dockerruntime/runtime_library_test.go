@@ -42,6 +42,7 @@ type managedRuntimeBuildRunner struct {
 	blockInspect         bool
 	blockCompatibility   bool
 	compatibilityPayload []byte
+	afterImageInspect    func([]string)
 }
 
 func newManagedRuntimeBuildRunner() *managedRuntimeBuildRunner {
@@ -74,6 +75,11 @@ func (r *managedRuntimeBuildRunner) Run(ctx context.Context, args, _ []string, _
 	}
 	if len(args) >= 5 && args[0] == "image" && args[1] == "inspect" {
 		r.outputs = append(r.outputs, runnerCall{args: append([]string{}, args...)})
+		defer func() {
+			if r.afterImageInspect != nil {
+				r.afterImageInspect(append([]string{}, args...))
+			}
+		}()
 		if strings.Contains(args[3], tobari.RuntimeImageAPILabel) {
 			if r.blockCompatibility {
 				<-ctx.Done()

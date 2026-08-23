@@ -21,8 +21,23 @@ func (r *Runtime) RestoreManagedRuntimeByRevisionReference(ctx context.Context, 
 	if _, _, err := tobari.ParseRuntimeRevisionRef(reference); err != nil {
 		return tobari.RuntimeRestoreResult{}, err
 	}
+	observed, _, err := r.ReadRuntimeLifecycleSnapshot(ctx)
+	if err != nil {
+		return tobari.RuntimeRestoreResult{}, fmt.Errorf("%w: %v", tobari.ErrRuntimeRetirementObservationUnknown, err)
+	}
+	observedTarget, err := tobari.RuntimeRestoreTargetFrom(observed, reference)
+	if err != nil {
+		return tobari.RuntimeRestoreResult{}, err
+	}
+	if observedTarget.Availability == tobari.RuntimeAvailabilityAvailable {
+		result, err := r.observeAlreadyAvailableRuntimeRestore(ctx, reference, observedTarget)
+		if err != nil {
+			return tobari.RuntimeRestoreResult{}, err
+		}
+		return result, nil
+	}
 	var result tobari.RuntimeRestoreResult
-	err := r.WithLifecycleLock(ctx, func(lockContext context.Context) error {
+	err = r.WithLifecycleLock(ctx, func(lockContext context.Context) error {
 		snapshot, _, err := r.readRuntimeLifecycleSnapshotLocked(lockContext)
 		if err != nil {
 			return fmt.Errorf("%w: %v", tobari.ErrRuntimeRetirementObservationUnknown, err)
@@ -158,6 +173,32 @@ func (r *Runtime) RestoreManagedRuntimeByRevisionReference(ctx context.Context, 
 		return tobari.RuntimeRestoreResult{}, err
 	}
 	return result, nil
+}
+
+// observeAlreadyAvailableRuntimeRestore proves the no-op result entirely
+// through the non-creating read boundary. The second coherent snapshot rejects
+// local or Docker authority drift around the compatibility observation.
+func (r *Runtime) observeAlreadyAvailableRuntimeRestore(ctx context.Context, reference string, before tobari.RuntimeRestoreTarget) (tobari.RuntimeRestoreResult, error) {
+	observationContext, cancel := context.WithTimeout(ctx, runtimeLifecycleWallBudget)
+	defer cancel()
+	selector := managedLibraryRuntimeImage(before.Name, before.RuntimeID, before.Revision)
+	if err := r.validateManagedRuntimeBuildCompatibility(observationContext, selector); err != nil {
+		return tobari.RuntimeRestoreResult{}, fmt.Errorf("%w: current image compatibility changed: %v", tobari.ErrRuntimeRetirementObservationUnknown, err)
+	}
+	digest, err := r.inspectManagedRuntimeBuildEvidence(observationContext, selector, before.RuntimeID, before.Revision)
+	if err != nil || digest != before.RecordedImageDigest {
+		return tobari.RuntimeRestoreResult{}, fmt.Errorf("%w: current image authority changed: %v", tobari.ErrRuntimeRetirementObservationUnknown, err)
+	}
+	afterSnapshot, _, err := r.ReadRuntimeLifecycleSnapshot(observationContext)
+	if err != nil {
+		return tobari.RuntimeRestoreResult{}, fmt.Errorf("%w: current lifecycle authority changed: %v", tobari.ErrRuntimeRetirementObservationUnknown, err)
+	}
+	after, err := tobari.RuntimeRestoreTargetFrom(afterSnapshot, reference)
+	if err != nil || !reflect.DeepEqual(after, before) || after.Availability != tobari.RuntimeAvailabilityAvailable {
+		return tobari.RuntimeRestoreResult{}, fmt.Errorf("%w: current restore target changed: %v", tobari.ErrRuntimeRetirementObservationUnknown, err)
+	}
+	result := runtimeRestoreResult(after, tobari.RuntimeAlreadyAvailable, tobari.RuntimeRestoreArtifactNotCreated)
+	return result, result.Validate()
 }
 
 func runtimeRestoreResult(target tobari.RuntimeRestoreTarget, state tobari.RuntimeRestoreState, artifact tobari.RuntimeRestoreArtifactDisposition) tobari.RuntimeRestoreResult {

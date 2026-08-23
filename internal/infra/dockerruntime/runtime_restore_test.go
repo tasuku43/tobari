@@ -74,6 +74,11 @@ func TestRuntimeRestoreReturnsAlreadyAvailableWithoutMutation(t *testing.T) {
 		ownerLabel: ownerValue, componentLabel: managedRuntimeComponentLabel,
 		managedRuntimeIDLabel: manifest.ID, managedRuntimeRevisionLabel: revision.Revision,
 	}}
+	root := filepath.Dir(runtime.configDirectory)
+	beforeTree := snapshotOwnedTree(t, root)
+	if _, err := os.Lstat(runtime.stateDirectory); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("already-available fixture has state authority: %v", err)
+	}
 	beforeRuns := len(runner.runs)
 	result, err := runtime.RestoreManagedRuntimeByRevisionReference(context.Background(), tobari.RuntimeRevisionRef(manifest.ID, revision.Revision), nil)
 	if err != nil || result.State != tobari.RuntimeAlreadyAvailable || result.ArtifactDisposition != tobari.RuntimeRestoreArtifactNotCreated {
@@ -82,8 +87,42 @@ func TestRuntimeRestoreReturnsAlreadyAvailableWithoutMutation(t *testing.T) {
 	if len(runner.runs) != beforeRuns {
 		t.Fatalf("already-available restore crossed mutation boundary: %+v", runner.runs[beforeRuns:])
 	}
-	if _, err := os.Lstat(runtime.runtimeLifecycleDirectory()); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("already-available restore created lifecycle state: %v", err)
+	if afterTree := snapshotOwnedTree(t, root); !reflect.DeepEqual(afterTree, beforeTree) {
+		t.Fatalf("already-available restore changed durable tree\nbefore=%v\nafter=%v", beforeTree, afterTree)
+	}
+	if _, err := os.Lstat(runtime.stateDirectory); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("already-available restore created state or lifecycle lock: %v", err)
+	}
+}
+
+func TestRuntimeRestoreAlreadyAvailableRejectsAuthorityDriftWithoutCreatingState(t *testing.T) {
+	digest := "sha256:" + strings.Repeat("c", 64)
+	runtime, runner, manifest := restoreRuntimeFixture(t, digest)
+	revision := manifest.Revisions[0]
+	runner.images[revision.Image] = managedRuntimeTestImage{id: digest, labels: map[string]string{
+		ownerLabel: ownerValue, componentLabel: managedRuntimeComponentLabel,
+		managedRuntimeIDLabel: manifest.ID, managedRuntimeRevisionLabel: revision.Revision,
+	}}
+	root := filepath.Dir(runtime.configDirectory)
+	mutated := false
+	runner.afterImageInspect = func(args []string) {
+		if mutated || len(args) < 4 || !strings.Contains(args[3], tobari.RuntimeImageAPILabel) {
+			return
+		}
+		mutated = true
+		drifted := manifest
+		drifted.Revisions = append([]tobari.RuntimeRevision{}, manifest.Revisions...)
+		drifted.Revisions[0].ImageDigest = "sha256:" + strings.Repeat("d", 64)
+		if err := writeAtomicJSON(runtime.runtimeManifestPath(manifest.Name), drifted); err != nil {
+			t.Fatalf("mutate Runtime authority during observation: %v", err)
+		}
+	}
+	_, err := runtime.RestoreManagedRuntimeByRevisionReference(context.Background(), tobari.RuntimeRevisionRef(manifest.ID, revision.Revision), nil)
+	if !errors.Is(err, tobari.ErrRuntimeRetirementObservationUnknown) || !mutated {
+		t.Fatalf("already-available drift result = %v, mutated=%t", err, mutated)
+	}
+	if _, err := os.Lstat(runtime.stateDirectory); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("drifted read-only restore created state: %v; tree=%v", err, snapshotOwnedTree(t, root))
 	}
 }
 
