@@ -410,6 +410,14 @@ evidence. It derives image selectors from Runtime ID and semantic revision;
 persisted selectors, tags, labels, names, ordinals, paths, and Docker IDs are
 evidence rather than target authority.
 
+Runtime list, show, history, build verification, and redirected/JSON review
+derive their public schema-1 projection directly from that one coherent
+snapshot. Persisted `RuntimeRevision.Revision`, image selectors, image digests,
+and snapshot paths remain infrastructure evidence. The public boundary renames
+only the semantic digest to `source_digest` and projects typed availability,
+nullable storage, last-used certainty, and snapshot state; it exposes no
+parallel legacy or Docker-shaped fields.
+
 Task-owned application ports expose exact-reference build, restore, and whole-
 Runtime delete plus plan/apply prune. Mutations re-observe under the installation
 lifecycle lock, persist one owner-only monotonic journal before the first
@@ -420,7 +428,12 @@ confirmed `review runtimes` recovery path. Whole deletion quarantines the
 Runtime directory on its own filesystem and never cascades into Manifest,
 Workspace, home, applied receipt, project-root, credential, or shared-cluster
 state. Prune changes only local image availability; restore reuses immutable
-source and never rewrites successful history.
+source and never rewrites successful history. Restore completion advances an
+internal per-revision supersession bound to the newest retained prune receipt
+before clearing recovery authority: old plan replay stays idempotent, a new
+plan receives a different opaque authority generation, and a later unowned
+image disappearance remains `missing` rather than inheriting stale `pruned`
+evidence.
 
 Cluster state records one content-addressed projection revision and loaded
 Workspace Manifest count, not an active enforcement Workspace Manifest. Standard `cluster up` builds

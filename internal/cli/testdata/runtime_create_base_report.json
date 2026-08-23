@@ -20,8 +20,7 @@
       "kind": "builtin",
       "ready": true,
       "head": 1,
-      "revision": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
-      "revision_ref": "builtin/standard/sha256:0000000000000000000000000000000000000000000000000000000000000000"
+      "source_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
     },
     {
       "id": "018bcfe5-687b-7000-8000-000000000077",
@@ -30,7 +29,7 @@
       "kind": "managed",
       "ready": true,
       "head": 2,
-      "revision": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "source_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "revision_ref": "018bcfe5-687b-7000-8000-000000000077/sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "source_path": "/tmp/tobari-test/runtimes/frontend/source"
     },

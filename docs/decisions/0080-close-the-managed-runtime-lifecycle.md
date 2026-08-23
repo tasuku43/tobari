@@ -63,6 +63,11 @@ owner-only schema-validated journal before their first destructive step,
 revalidate the complete target and protection snapshot, and resume only the
 same exact target. A changed plan fails before mutation. Terminal receipts keep
 an old Runtime reference idempotent after same-name recreation with a fresh ID.
+An exact successful restore durably supersedes the latest matching prune
+availability receipt before restore cleanup can erase its journal. The old
+result receipt remains replayable, while the supersession generation changes
+the next opaque prune plan and prevents a later external disappearance from
+being misreported as a Tobari prune.
 
 Docker operations are bounded to exact validated Tobari evidence. Tobari never
 invokes daemon-global image, builder, or system prune, never forces removal,
@@ -129,6 +134,14 @@ No public V1 Runtime-retirement contract has shipped. The provisional
 `runtime build --id`. Provisional Runtime JSON may be replaced atomically by
 the semantic schema-1 lifecycle projection without retaining Docker selectors,
 snapshot paths, or old vocabulary aliases.
+
+That projection names the semantic revision identity `source_digest`, retains
+opaque `revision_ref` only for eligible managed revisions, and represents
+availability, storage, last-used certainty, and snapshot state separately.
+`ready` remains successful-history readiness even when head availability is
+`missing`, `mismatched`, `unknown`, or `pruned`; built-in `standard` has null
+storage. The public schema has no `revision` alias, Docker `image` or
+`image_digest`, or private `snapshot_path`.
 
 ADR 0079's pre-public UUID preservation and Workspace Manifest revision
 retention remain unchanged. Migration may synthesize an applied entry only

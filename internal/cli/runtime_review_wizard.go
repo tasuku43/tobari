@@ -85,7 +85,8 @@ func chooseRuntimeBuild(ctx context.Context, c *CLI) (string, error) {
 		for _, item := range managed {
 			description := "draft · no successful revision"
 			if item.Ready {
-				description = fmt.Sprintf("ready · head %s@%d", item.Name, item.Head)
+				description = fmt.Sprintf("ready · head %s@%d · availability %s · snapshot %s · last used %s",
+					item.Name, item.Head, item.Availability.State, item.Snapshot.State, item.LastUsed.State)
 			}
 			options = append(options, configurationWizardOption{label: item.Name, description: description, value: item.Name})
 		}
@@ -112,16 +113,23 @@ func chooseRuntimeBuild(ctx context.Context, c *CLI) (string, error) {
 			)
 		}
 		current := "draft · no successful revision"
-		if head, ok := report.Runtime.Head(); ok {
-			current = fmt.Sprintf("%s@%d · %s", report.Runtime.Name, head.Ordinal, shortRuntimeRevision(head.Revision))
+		details := []configurationWizardDetail{
+			{label: "Runtime", value: report.Runtime.Name},
+			{label: "Source", value: report.Runtime.SourcePath},
 		}
+		if report.Public != nil && len(report.Public.Runtime.Revisions) != 0 {
+			head := report.Public.Runtime.Revisions[len(report.Public.Runtime.Revisions)-1]
+			current = fmt.Sprintf("%s@%d · %s", report.Public.Runtime.Name, head.Ordinal, shortRuntimeRevision(head.SourceDigest))
+			details = append(details,
+				configurationWizardDetail{label: "Availability", value: string(head.Availability.State)},
+				configurationWizardDetail{label: "Snapshot", value: string(head.Snapshot.State)},
+				configurationWizardDetail{label: "Last used", value: string(head.LastUsed.State)},
+			)
+		}
+		details = append(details, configurationWizardDetail{label: "Current", value: current})
 		action, reviewErr := chooser.choose(ctx, c.In, c.Err, configurationWizardMenu{
-			title: "Tobari · Build Runtime",
-			details: []configurationWizardDetail{
-				{label: "Runtime", value: report.Runtime.Name},
-				{label: "Source", value: report.Runtime.SourcePath},
-				{label: "Current", value: current},
-			},
+			title:   "Tobari · Build Runtime",
+			details: details,
 			information: []string{
 				"Changed source creates one immutable revision; unchanged source creates none.",
 				"No Workspace Manifest Runtime binding will change.",

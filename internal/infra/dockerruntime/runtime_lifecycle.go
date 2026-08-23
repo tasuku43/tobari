@@ -616,6 +616,14 @@ func (r *Runtime) observeRuntimeLifecycleDocker(ctx context.Context, local runti
 	if err != nil {
 		return tobari.RuntimeLifecycleSnapshot{}, err
 	}
+	for index := range materials {
+		if materials[index].Availability == tobari.RuntimeAvailabilityMissing && runtimePruneReceiptRetired(local.Receipts, targets[index]) && !runtimeRestoreCommittedButNotSuperseded(local.Build, targets[index]) {
+			materials[index].Availability = tobari.RuntimeAvailabilityPruned
+			if err := materials[index].Validate(); err != nil {
+				return tobari.RuntimeLifecycleSnapshot{}, err
+			}
+		}
+	}
 	successful := make([]tobari.RuntimeMaterialObservation, 0, len(materials))
 	for index, material := range materials {
 		if targets[index].TagRole == tobari.RuntimeMaterialTagJournaledStaging {
@@ -625,7 +633,40 @@ func (r *Runtime) observeRuntimeLifecycleDocker(ctx context.Context, local runti
 		}
 	}
 	sortRuntimeLifecycleJournals(&journalInventory)
-	return tobari.RuntimeLifecycleSnapshot{CatalogComplete: true, Runtimes: local.Runtimes, Protection: local.Protection.Inventory, Materials: successful, Storage: local.Storage, Journals: journalInventory}, nil
+	generations := runtimeRetirementGenerations(local.Receipts, targets)
+	return tobari.RuntimeLifecycleSnapshot{CatalogComplete: true, Runtimes: local.Runtimes, Protection: local.Protection.Inventory, Materials: successful, Storage: local.Storage, Journals: journalInventory, RetirementGenerations: generations}, nil
+}
+
+func runtimePruneReceiptRetired(store runtimePruneReceiptStore, target runtimeMaterialTarget) bool {
+	if target.TagRole != tobari.RuntimeMaterialTagPublishedRevision {
+		return false
+	}
+	latest := runtimePruneLatestReceiptRevision(store, target.RuntimeID, target.Revision)
+	return latest > runtimePruneSupersededThrough(store, target.RuntimeID, target.Revision)
+}
+
+func runtimeRestoreCommittedButNotSuperseded(journal *runtimeBuildJournal, target runtimeMaterialTarget) bool {
+	if journal == nil || !journal.Restore || journal.RuntimeID != target.RuntimeID || journal.Revision != target.Revision {
+		return false
+	}
+	return journal.Phase == runtimeBuildPhaseManifestCommitted ||
+		(journal.Phase == runtimeBuildPhaseCompleting && journal.CleanupFrom == runtimeBuildPhaseManifestCommitted)
+}
+
+func runtimeRetirementGenerations(store runtimePruneReceiptStore, targets []runtimeMaterialTarget) []tobari.RuntimeRetirementGeneration {
+	current := make(map[string]bool, len(targets))
+	for _, target := range targets {
+		if target.TagRole == tobari.RuntimeMaterialTagPublishedRevision {
+			current[target.RuntimeID+"\x00"+target.Revision] = true
+		}
+	}
+	result := make([]tobari.RuntimeRetirementGeneration, 0, len(store.AvailabilitySupersessions))
+	for _, supersession := range store.AvailabilitySupersessions {
+		if current[supersession.RuntimeID+"\x00"+supersession.Revision] {
+			result = append(result, tobari.RuntimeRetirementGeneration{RuntimeID: supersession.RuntimeID, Revision: supersession.Revision, Generation: supersession.ThroughReceiptRevision})
+		}
+	}
+	return result
 }
 
 func (r *Runtime) observeRuntimeMaterials(ctx context.Context, targets []runtimeMaterialTarget, workspaces map[string]runtimeWorkspaceContainerAuthority, budget *runtimeLifecycleBudget) ([]tobari.RuntimeMaterialObservation, error) {

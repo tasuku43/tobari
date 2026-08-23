@@ -283,8 +283,8 @@ func TestRuntimeDeleteReviewRedirectedJSONRemainsReadOnly(t *testing.T) {
 	if code := command.RunContext(context.Background(), []string{"review", "runtimes", "--format=json"}); code != ExitOK {
 		t.Fatalf("redirected Runtime review code = %d, stderr = %q", code, stderr.String())
 	}
-	if fake.deleteCalls != 0 || fake.recoveryReads != 0 || fake.recoveries != 0 || fake.listCalls != 1 {
-		t.Fatalf("redirected Runtime review effects = delete:%d recovery-read:%d recovery:%d list:%d", fake.deleteCalls, fake.recoveryReads, fake.recoveries, fake.listCalls)
+	if fake.deleteCalls != 0 || fake.recoveryReads != 0 || fake.recoveries != 0 || fake.lifecycleReads != 1 || fake.listCalls != 0 {
+		t.Fatalf("redirected Runtime review effects = delete:%d recovery-read:%d recovery:%d lifecycle:%d list:%d", fake.deleteCalls, fake.recoveryReads, fake.recoveries, fake.lifecycleReads, fake.listCalls)
 	}
 	if !strings.Contains(stdout.String(), `"runtimes"`) {
 		t.Fatalf("redirected Runtime review output = %q", stdout.String())

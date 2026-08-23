@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -277,15 +278,19 @@ func (m RuntimeManifest) Binding(ordinal int) (RuntimeBinding, error) {
 }
 
 type RuntimeSummary struct {
-	ID          string      `json:"id"`
-	RuntimeRef  string      `json:"runtime_ref"`
-	Name        string      `json:"name"`
-	Kind        RuntimeKind `json:"kind"`
-	Ready       bool        `json:"ready"`
-	Head        int         `json:"head,omitempty"`
-	Revision    string      `json:"revision,omitempty"`
-	RevisionRef string      `json:"revision_ref,omitempty"`
-	SourcePath  string      `json:"source_path,omitempty"`
+	ID           string                        `json:"id"`
+	RuntimeRef   string                        `json:"runtime_ref"`
+	Name         string                        `json:"name"`
+	Kind         RuntimeKind                   `json:"kind"`
+	Ready        bool                          `json:"ready"`
+	Head         int                           `json:"head,omitempty"`
+	Revision     string                        `json:"source_digest,omitempty"`
+	RevisionRef  string                        `json:"revision_ref,omitempty"`
+	SourcePath   string                        `json:"source_path,omitempty"`
+	Availability *RuntimePublicAvailability    `json:"availability"`
+	Storage      *RuntimePublicRevisionStorage `json:"storage"`
+	LastUsed     *RuntimePublicLastUsed        `json:"last_used"`
+	Snapshot     *RuntimePublicSnapshot        `json:"snapshot"`
 }
 
 func RuntimeSummaryFrom(manifest RuntimeManifest) RuntimeSummary {
@@ -339,6 +344,29 @@ func (s RuntimeSummary) Validate() error {
 		}
 	} else if s.RevisionRef != "" {
 		return fmt.Errorf("draft Runtime cannot expose a revision reference")
+	}
+	semanticEvidence := s.Availability != nil || s.Storage != nil || s.LastUsed != nil || s.Snapshot != nil
+	if semanticEvidence {
+		if !s.Ready {
+			return fmt.Errorf("draft Runtime cannot expose revision lifecycle evidence")
+		}
+		if s.Availability == nil || s.LastUsed == nil || s.Snapshot == nil ||
+			(s.Kind == RuntimeKindManaged && s.Storage == nil) || (s.Kind == RuntimeKindBuiltin && s.Storage != nil) {
+			return fmt.Errorf("Runtime summary lifecycle evidence is incomplete")
+		}
+		public := RuntimePublicReport{Task: TaskRuntimeShow, Runtime: RuntimePublicManifest{
+			SchemaVersion: RuntimeSchemaVersion, ID: s.ID, RuntimeRef: s.RuntimeRef, Name: s.Name, Kind: s.Kind, SourcePath: s.SourcePath,
+			Revisions: []RuntimePublicRevision{{Ordinal: s.Head, SourceDigest: s.Revision, RuntimeRef: s.RuntimeRef, RevisionRef: s.RevisionRef,
+				CreatedAt: time.Unix(1, 0).UTC(), Availability: *s.Availability, Storage: s.Storage, LastUsed: *s.LastUsed, Snapshot: *s.Snapshot}},
+		}}
+		if s.Head != 1 {
+			// Public report validation requires contiguous full history. Validate
+			// the head lifecycle fields directly when the summary ordinal is >1.
+			public.Runtime.Revisions[0].Ordinal = 1
+		}
+		if err := public.Validate(); err != nil {
+			return fmt.Errorf("Runtime summary lifecycle evidence: %w", err)
+		}
 	}
 	return nil
 }
@@ -519,12 +547,29 @@ func (r RuntimeListResult) Validate() error {
 	return nil
 }
 
+func (r RuntimeListResult) ValidatePublic() error {
+	if err := r.Validate(); err != nil {
+		return err
+	}
+	for _, item := range r.Items {
+		if item.Ready && (item.Availability == nil || item.LastUsed == nil || item.Snapshot == nil ||
+			(item.Kind == RuntimeKindManaged && item.Storage == nil) || (item.Kind == RuntimeKindBuiltin && item.Storage != nil)) {
+			return fmt.Errorf("ready Runtime summary lacks lifecycle evidence")
+		}
+		if !item.Ready && (item.Availability != nil || item.Storage != nil || item.LastUsed != nil || item.Snapshot != nil) {
+			return fmt.Errorf("draft Runtime summary invents lifecycle evidence")
+		}
+	}
+	return nil
+}
+
 type RuntimeReport struct {
-	Task     string          `json:"task"`
-	Runtime  RuntimeManifest `json:"runtime"`
-	Created  bool            `json:"created,omitempty"`
-	Built    bool            `json:"built,omitempty"`
-	NoChange bool            `json:"no_change,omitempty"`
+	Task     string               `json:"task"`
+	Runtime  RuntimeManifest      `json:"runtime"`
+	Created  bool                 `json:"created,omitempty"`
+	Built    bool                 `json:"built,omitempty"`
+	NoChange bool                 `json:"no_change,omitempty"`
+	Public   *RuntimePublicReport `json:"-"`
 }
 
 func (r RuntimeReport) Validate() error {
@@ -549,6 +594,371 @@ func (r RuntimeReport) Validate() error {
 		return fmt.Errorf("Runtime build result requires a successful revision")
 	}
 	return nil
+}
+
+// RuntimePublicReport is the task-owned schema-1 Runtime projection. The
+// persisted manifest remains infrastructure authority; Docker selectors,
+// inspected content digests, and private snapshot paths cannot cross this
+// boundary.
+type RuntimePublicReport struct {
+	Task     string                `json:"task"`
+	Runtime  RuntimePublicManifest `json:"runtime"`
+	Created  bool                  `json:"created,omitempty"`
+	Built    bool                  `json:"built,omitempty"`
+	NoChange bool                  `json:"no_change,omitempty"`
+}
+
+type RuntimePublicManifest struct {
+	SchemaVersion int                     `json:"schema_version"`
+	ID            string                  `json:"id"`
+	RuntimeRef    string                  `json:"runtime_ref"`
+	Name          string                  `json:"name"`
+	Kind          RuntimeKind             `json:"kind"`
+	SourcePath    string                  `json:"source_path,omitempty"`
+	Revisions     []RuntimePublicRevision `json:"revisions"`
+}
+
+type RuntimePublicRevision struct {
+	Ordinal      int                           `json:"ordinal"`
+	SourceDigest string                        `json:"source_digest"`
+	RuntimeRef   string                        `json:"runtime_ref"`
+	RevisionRef  string                        `json:"revision_ref,omitempty"`
+	CreatedAt    time.Time                     `json:"created_at"`
+	Availability RuntimePublicAvailability     `json:"availability"`
+	Storage      *RuntimePublicRevisionStorage `json:"storage"`
+	LastUsed     RuntimePublicLastUsed         `json:"last_used"`
+	Snapshot     RuntimePublicSnapshot         `json:"snapshot"`
+}
+
+type RuntimePublicAvailability struct {
+	State RuntimeAvailability `json:"state"`
+}
+
+type RuntimePublicRevisionStorage struct {
+	SourceLogicalBytes   *int64 `json:"source_logical_bytes"`
+	SnapshotLogicalBytes *int64 `json:"snapshot_logical_bytes"`
+	ImageVirtualBytes    *int64 `json:"image_virtual_bytes"`
+	ReclaimableBytes     *int64 `json:"reclaimable_bytes"`
+}
+
+type RuntimePublicLastUsed struct {
+	State      RuntimeLastUsedState `json:"state"`
+	ObservedAt *time.Time           `json:"observed_at"`
+}
+
+type RuntimeSnapshotState string
+
+const (
+	RuntimeSnapshotRetained      RuntimeSnapshotState = "retained"
+	RuntimeSnapshotNotApplicable RuntimeSnapshotState = "not_applicable"
+)
+
+type RuntimePublicSnapshot struct {
+	State RuntimeSnapshotState `json:"state"`
+}
+
+func (r RuntimePublicReport) Validate() error {
+	switch r.Task {
+	case TaskRuntimeShow, TaskRuntimeCreate, TaskRuntimeBuildV1, TaskRuntimeHistory:
+	default:
+		return fmt.Errorf("public Runtime report task is invalid")
+	}
+	if r.Runtime.SchemaVersion != RuntimeSchemaVersion || r.Runtime.RuntimeRef != RuntimeRef(r.Runtime.ID) || r.Runtime.Revisions == nil {
+		return fmt.Errorf("public Runtime identity is invalid")
+	}
+	if err := r.Runtime.Kind.Validate(); err != nil {
+		return err
+	}
+	if err := ValidateName(r.Runtime.Name); err != nil {
+		return err
+	}
+	if r.Runtime.Kind == RuntimeKindBuiltin {
+		if r.Runtime.ID != StandardRuntimeID || r.Runtime.Name != StandardRuntimeName || r.Runtime.SourcePath != "" || len(r.Runtime.Revisions) != 1 {
+			return fmt.Errorf("public built-in Runtime is invalid")
+		}
+	} else {
+		if ValidateRuntimeID(r.Runtime.ID) != nil || !filepath.IsAbs(r.Runtime.SourcePath) || filepath.Clean(r.Runtime.SourcePath) != r.Runtime.SourcePath {
+			return fmt.Errorf("public managed Runtime is invalid")
+		}
+	}
+	seen := make(map[string]struct{}, len(r.Runtime.Revisions))
+	for index, revision := range r.Runtime.Revisions {
+		if revision.Ordinal != index+1 || ValidateDigest(revision.SourceDigest) != nil || revision.RuntimeRef != r.Runtime.RuntimeRef ||
+			revision.CreatedAt.IsZero() || revision.CreatedAt.Location() != time.UTC || revision.Availability.State.Validate() != nil ||
+			revision.LastUsed.State != RuntimeLastUsedUnknown || revision.LastUsed.ObservedAt != nil {
+			return fmt.Errorf("public Runtime revision is invalid")
+		}
+		if _, duplicate := seen[revision.SourceDigest]; duplicate {
+			return fmt.Errorf("public Runtime revision is duplicated")
+		}
+		seen[revision.SourceDigest] = struct{}{}
+		if r.Runtime.Kind == RuntimeKindBuiltin {
+			if revision.RevisionRef != "" || revision.Availability.State != RuntimeAvailabilityUnknown ||
+				revision.Storage != nil || revision.Snapshot.State != RuntimeSnapshotNotApplicable {
+				return fmt.Errorf("public built-in Runtime revision evidence is invalid")
+			}
+			continue
+		}
+		if revision.Storage == nil || revision.Storage.ReclaimableBytes != nil ||
+			revision.RevisionRef != RuntimeRevisionRef(r.Runtime.ID, revision.SourceDigest) || revision.Snapshot.State != RuntimeSnapshotRetained ||
+			revision.Storage.SourceLogicalBytes == nil || *revision.Storage.SourceLogicalBytes < 0 ||
+			revision.Storage.SnapshotLogicalBytes == nil || *revision.Storage.SnapshotLogicalBytes < 0 ||
+			(revision.Storage.ImageVirtualBytes != nil && *revision.Storage.ImageVirtualBytes < 0) {
+			return fmt.Errorf("public managed Runtime revision evidence is invalid")
+		}
+	}
+	if r.Created && (r.Task != TaskRuntimeCreate || r.Runtime.Kind != RuntimeKindManaged || len(r.Runtime.Revisions) != 0) {
+		return fmt.Errorf("public Runtime created state is invalid")
+	}
+	if (r.Built || r.NoChange) && r.Task != TaskRuntimeBuildV1 {
+		return fmt.Errorf("public Runtime build state is invalid")
+	}
+	if r.Built && r.NoChange {
+		return fmt.Errorf("public Runtime build cannot be new and unchanged")
+	}
+	if (r.Built || r.NoChange) && len(r.Runtime.Revisions) == 0 {
+		return fmt.Errorf("public Runtime build requires a successful revision")
+	}
+	return nil
+}
+
+// RuntimeReportWithLifecycleEvidence replaces infrastructure-shaped revision
+// fields with a semantic public projection derived from one validated coherent
+// lifecycle snapshot. The raw manifest remains available only to trusted
+// in-process callers.
+func RuntimeReportWithLifecycleEvidence(report RuntimeReport, snapshot RuntimeLifecycleSnapshot) (RuntimeReport, error) {
+	if err := report.Validate(); err != nil {
+		return RuntimeReport{}, err
+	}
+	if err := snapshot.Validate(); err != nil {
+		return RuntimeReport{}, err
+	}
+	observed, found := runtimeManifestByID(snapshot.Runtimes, report.Runtime.ID)
+	if !found || !runtimeManifestAuthorityEqual(report.Runtime, observed) {
+		return RuntimeReport{}, fmt.Errorf("Runtime report does not match coherent lifecycle authority")
+	}
+	projection, err := runtimePublicReportFromSnapshot(report, snapshot)
+	if err != nil {
+		return RuntimeReport{}, err
+	}
+	report.Runtime.RuntimeRef = projection.Runtime.RuntimeRef
+	for index := range report.Runtime.Revisions {
+		report.Runtime.Revisions[index].RuntimeRef = projection.Runtime.Revisions[index].RuntimeRef
+		report.Runtime.Revisions[index].RevisionRef = projection.Runtime.Revisions[index].RevisionRef
+	}
+	report.Public = &projection
+	if err := report.Validate(); err != nil {
+		return RuntimeReport{}, err
+	}
+	return report, nil
+}
+
+// RuntimeDraftReportWithPublicProjection is the only projection that does not
+// require material observation: a newly created managed Runtime has no
+// immutable revision or Docker material to describe.
+func RuntimeDraftReportWithPublicProjection(report RuntimeReport) (RuntimeReport, error) {
+	if err := report.Validate(); err != nil {
+		return RuntimeReport{}, err
+	}
+	if report.Task != TaskRuntimeCreate || report.Runtime.Kind != RuntimeKindManaged || len(report.Runtime.Revisions) != 0 || !report.Created {
+		return RuntimeReport{}, fmt.Errorf("public draft Runtime projection requires an exact create result")
+	}
+	report.Runtime.RuntimeRef = RuntimeRef(report.Runtime.ID)
+	projection := RuntimePublicReport{Task: report.Task, Created: true, Runtime: RuntimePublicManifest{
+		SchemaVersion: report.Runtime.SchemaVersion, ID: report.Runtime.ID, RuntimeRef: report.Runtime.RuntimeRef,
+		Name: report.Runtime.Name, Kind: report.Runtime.Kind, SourcePath: report.Runtime.SourcePath, Revisions: []RuntimePublicRevision{},
+	}}
+	if err := projection.Validate(); err != nil {
+		return RuntimeReport{}, err
+	}
+	report.Public = &projection
+	return report, nil
+}
+
+// RuntimeListWithLifecycleEvidence binds every summary to the same complete
+// snapshot. Ready remains immutable-history readiness; the four nested fields
+// separately describe current head material evidence.
+func RuntimeListWithLifecycleEvidence(result RuntimeListResult, snapshot RuntimeLifecycleSnapshot) (RuntimeListResult, error) {
+	if err := result.Validate(); err != nil {
+		return RuntimeListResult{}, err
+	}
+	if err := snapshot.Validate(); err != nil {
+		return RuntimeListResult{}, err
+	}
+	if len(result.Items) != len(snapshot.Runtimes) {
+		return RuntimeListResult{}, fmt.Errorf("Runtime list does not match coherent lifecycle catalog")
+	}
+	byID := make(map[string]RuntimeManifest, len(snapshot.Runtimes))
+	for _, manifest := range snapshot.Runtimes {
+		byID[manifest.ID] = manifest
+	}
+	for index := range result.Items {
+		manifest, found := byID[result.Items[index].ID]
+		if !found || !runtimeSummaryAuthorityEqual(result.Items[index], RuntimeSummaryFrom(manifest)) {
+			return RuntimeListResult{}, fmt.Errorf("Runtime summary does not match coherent lifecycle authority")
+		}
+		result.Items[index].RuntimeRef = RuntimeRef(manifest.ID)
+		if !result.Items[index].Ready {
+			continue
+		}
+		report := RuntimeReport{Task: TaskRuntimeShow, Runtime: manifest}
+		projection, err := runtimePublicReportFromSnapshot(report, snapshot)
+		if err != nil {
+			return RuntimeListResult{}, err
+		}
+		head := projection.Runtime.Revisions[len(projection.Runtime.Revisions)-1]
+		result.Items[index].RevisionRef = head.RevisionRef
+		availability, lastUsed, snapshotState := head.Availability, head.LastUsed, head.Snapshot
+		result.Items[index].Availability = &availability
+		result.Items[index].Storage = head.Storage
+		result.Items[index].LastUsed = &lastUsed
+		result.Items[index].Snapshot = &snapshotState
+	}
+	if err := result.ValidatePublic(); err != nil {
+		return RuntimeListResult{}, err
+	}
+	return result, nil
+}
+
+// RuntimeListFromLifecycleSnapshot derives the exhaustive public catalog from
+// one coherent observation rather than joining separately timed reads.
+func RuntimeListFromLifecycleSnapshot(snapshot RuntimeLifecycleSnapshot) (RuntimeListResult, error) {
+	if err := snapshot.Validate(); err != nil {
+		return RuntimeListResult{}, err
+	}
+	items := make([]RuntimeSummary, len(snapshot.Runtimes))
+	for index, manifest := range snapshot.Runtimes {
+		items[index] = RuntimeSummaryFrom(manifest)
+	}
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].Kind != items[j].Kind {
+			return items[i].Kind == RuntimeKindBuiltin
+		}
+		return items[i].Name < items[j].Name
+	})
+	return RuntimeListWithLifecycleEvidence(RuntimeListResult{Task: TaskRuntimeList, Items: items}, snapshot)
+}
+
+// RuntimeReportFromLifecycleSnapshot selects one display name inside the same
+// coherent observation used for semantic material evidence.
+func RuntimeReportFromLifecycleSnapshot(snapshot RuntimeLifecycleSnapshot, task, name string) (RuntimeReport, error) {
+	if task != TaskRuntimeShow && task != TaskRuntimeHistory {
+		return RuntimeReport{}, fmt.Errorf("Runtime read task is invalid")
+	}
+	if err := ValidateName(name); err != nil {
+		return RuntimeReport{}, err
+	}
+	if err := snapshot.Validate(); err != nil {
+		return RuntimeReport{}, err
+	}
+	for _, manifest := range snapshot.Runtimes {
+		if manifest.Name == name {
+			return RuntimeReportWithLifecycleEvidence(RuntimeReport{Task: task, Runtime: manifest}, snapshot)
+		}
+	}
+	return RuntimeReport{}, ErrRuntimeNotFound
+}
+
+func runtimePublicReportFromSnapshot(report RuntimeReport, snapshot RuntimeLifecycleSnapshot) (RuntimePublicReport, error) {
+	manifest := report.Runtime
+	public := RuntimePublicReport{Task: report.Task, Created: report.Created, Built: report.Built, NoChange: report.NoChange, Runtime: RuntimePublicManifest{
+		SchemaVersion: manifest.SchemaVersion, ID: manifest.ID, RuntimeRef: RuntimeRef(manifest.ID), Name: manifest.Name,
+		Kind: manifest.Kind, SourcePath: manifest.SourcePath, Revisions: make([]RuntimePublicRevision, len(manifest.Revisions)),
+	}}
+	if manifest.Kind == RuntimeKindBuiltin {
+		for index, revision := range manifest.Revisions {
+			public.Runtime.Revisions[index] = RuntimePublicRevision{
+				Ordinal: revision.Ordinal, SourceDigest: revision.Revision, RuntimeRef: public.Runtime.RuntimeRef, CreatedAt: revision.CreatedAt,
+				Availability: RuntimePublicAvailability{State: RuntimeAvailabilityUnknown},
+				Storage:      nil, LastUsed: RuntimePublicLastUsed{State: RuntimeLastUsedUnknown},
+				Snapshot: RuntimePublicSnapshot{State: RuntimeSnapshotNotApplicable},
+			}
+		}
+		return public, public.Validate()
+	}
+	var storage RuntimeStorageObservation
+	foundStorage := false
+	for _, candidate := range snapshot.Storage {
+		if candidate.RuntimeID == manifest.ID {
+			storage, foundStorage = candidate, true
+			break
+		}
+	}
+	if !foundStorage {
+		return RuntimePublicReport{}, fmt.Errorf("managed Runtime storage evidence is absent")
+	}
+	for index, revision := range manifest.Revisions {
+		material, foundMaterial := runtimeMaterialByRevision(snapshot.Materials, manifest.ID, revision.Revision)
+		snapshotStorage, foundSnapshot := runtimeSnapshotByRevision(storage.Snapshots, revision.Revision)
+		if !foundMaterial || !foundSnapshot {
+			return RuntimePublicReport{}, fmt.Errorf("managed Runtime revision lifecycle evidence is absent")
+		}
+		sourceBytes, snapshotBytes := storage.SourceLogicalBytes, snapshotStorage.LogicalBytes
+		public.Runtime.Revisions[index] = RuntimePublicRevision{
+			Ordinal: revision.Ordinal, SourceDigest: revision.Revision, RuntimeRef: public.Runtime.RuntimeRef,
+			RevisionRef: RuntimeRevisionRef(manifest.ID, revision.Revision), CreatedAt: revision.CreatedAt,
+			Availability: RuntimePublicAvailability{State: material.Availability},
+			Storage: &RuntimePublicRevisionStorage{SourceLogicalBytes: &sourceBytes, SnapshotLogicalBytes: &snapshotBytes,
+				ImageVirtualBytes: cloneInt64Pointer(material.ImageVirtualBytes)},
+			LastUsed: RuntimePublicLastUsed{State: RuntimeLastUsedUnknown}, Snapshot: RuntimePublicSnapshot{State: RuntimeSnapshotRetained},
+		}
+	}
+	return public, public.Validate()
+}
+
+func runtimeManifestByID(manifests []RuntimeManifest, id string) (RuntimeManifest, bool) {
+	for _, manifest := range manifests {
+		if manifest.ID == id {
+			return manifest, true
+		}
+	}
+	return RuntimeManifest{}, false
+}
+
+func runtimeMaterialByRevision(materials []RuntimeMaterialObservation, runtimeID, revision string) (RuntimeMaterialObservation, bool) {
+	for _, material := range materials {
+		if material.RuntimeID == runtimeID && material.Revision == revision {
+			return material, true
+		}
+	}
+	return RuntimeMaterialObservation{}, false
+}
+
+func runtimeSnapshotByRevision(snapshots []RuntimeSnapshotStorage, revision string) (RuntimeSnapshotStorage, bool) {
+	for _, snapshot := range snapshots {
+		if snapshot.Kind == RuntimePruneCandidateRevision && snapshot.Revision == revision {
+			return snapshot, true
+		}
+	}
+	return RuntimeSnapshotStorage{}, false
+}
+
+func runtimeManifestAuthorityEqual(left, right RuntimeManifest) bool {
+	if left.SchemaVersion != right.SchemaVersion || left.ID != right.ID || left.Name != right.Name || left.Kind != right.Kind ||
+		left.SourcePath != right.SourcePath || len(left.Revisions) != len(right.Revisions) {
+		return false
+	}
+	for index := range left.Revisions {
+		l, r := left.Revisions[index], right.Revisions[index]
+		if l.Ordinal != r.Ordinal || l.Revision != r.Revision || l.Image != r.Image || l.ImageDigest != r.ImageDigest ||
+			!l.CreatedAt.Equal(r.CreatedAt) || l.SnapshotPath != r.SnapshotPath {
+			return false
+		}
+	}
+	return true
+}
+
+func runtimeSummaryAuthorityEqual(left, right RuntimeSummary) bool {
+	return left.ID == right.ID && left.Name == right.Name && left.Kind == right.Kind && left.Ready == right.Ready &&
+		left.Head == right.Head && left.Revision == right.Revision && left.SourcePath == right.SourcePath
+}
+
+func cloneInt64Pointer(value *int64) *int64 {
+	if value == nil {
+		return nil
+	}
+	cloned := *value
+	return &cloned
 }
 
 // NewRuntimeID issues a UUIDv7 Runtime identity from host-owned clock and entropy.

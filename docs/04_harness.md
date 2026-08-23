@@ -685,11 +685,20 @@ The test suite has complementary levels:
   tag preservation, exact-reference same-name races, and zero-create reads.
   Journal fixtures interrupt build, restore, prune, and whole deletion at each
   supported filesystem/Docker boundary and prove one-confirmation recovery,
-  same-plan/idempotent replay, terminal receipts, and no cross-Runtime mutation.
+  same-plan/idempotent replay, terminal receipts, restore supersession before
+  journal cleanup, prune→restore→external-disappearance `missing` semantics,
+  new-plan generation after restore, and no cross-Runtime mutation.
   Catalog and presentation tests fix `runtime`, `runtime-revision`, and
   `runtime-prune-plan` reachability, exact mutation intent/target/impact/fault
   contracts, exhaustive dry-run uncertainty, and the absence of revision
   deletion, broad garbage collection, raw Docker authority, and false refs.
+  Public-projection fixtures derive list/show/history/build and redirected
+  review from one coherent snapshot, keep `ready=true` distinct from a pruned
+  head, require `source_digest` plus nullable semantic lifecycle evidence, and
+  reject `revision`, `image`, `image_digest`, `snapshot_path`, and their exact
+  underlying values in JSON and human output. Confirmed post-effect
+  cancellation or authority drift remains verification/confirmed in both the
+  application fault and Catalog declaration.
 - Runtime source, snapshot, build, history append, and explicit Workspace Manifest binding
   are owned by focused domain, application, infrastructure, and CLI contract
   tests. CLI tests additionally cover interactive text Review, managed-only

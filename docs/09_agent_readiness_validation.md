@@ -83,7 +83,10 @@ For Runtime lifecycle closure, retrieve `help runtime --format agent` once.
 Use `runtime list`, managed Runtime history, or redirected `review runtimes` to
 obtain exact Runtime and revision references; use `runtime prune dry-run` to
 obtain the plan reference. Pass each opaque value unchanged to its declared
-consumer. Verify dry-run leaves a fresh XDG tree byte-identical and makes no
+consumer. Verify the read projection uses `source_digest`, keeps successful
+history readiness separate from head availability, and contains no
+`revision`, `image`, `image_digest`, or `snapshot_path` field. Verify dry-run
+leaves a fresh XDG tree byte-identical and makes no
 Docker mutation, while a confirmed prune applies only the unchanged plan.
 Exercise one protected current or retained Manifest edge, Workspace applied,
 pending, and observed edges, external/shared image use, an unavailable retained

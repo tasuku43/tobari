@@ -23,25 +23,31 @@ import (
 type contextCLI fakeContextRuntime
 
 type runtimeCatalogCLI struct {
-	buildLog            string
-	buildErr            error
-	manifest            tobari.RuntimeManifest
-	list                []tobari.RuntimeSummary
-	listCalls           int
-	showCalls           int
-	historyCalls        int
-	buildCalls          int
-	lastBuild           string
-	createCalls         int
-	lastCreate          string
-	lastBase            tobari.RuntimeCopySource
-	recovery            *tobari.RuntimeBuildRecovery
-	recoveryErr         error
-	recoveryReads       int
-	recoveries          int
-	recoveredRef        string
-	recoveredKind       tobari.RuntimeBuildRecoveryKind
-	lifecycleActivities []tobari.RuntimeLifecycleActivity
+	buildLog              string
+	buildErr              error
+	buildCreates          bool
+	manifest              tobari.RuntimeManifest
+	snapshotManifest      *tobari.RuntimeManifest
+	list                  []tobari.RuntimeSummary
+	listCalls             int
+	lifecycleReads        int
+	replaceAfterRead      bool
+	showCalls             int
+	historyCalls          int
+	buildCalls            int
+	lastBuild             string
+	createCalls           int
+	lastCreate            string
+	lastBase              tobari.RuntimeCopySource
+	recovery              *tobari.RuntimeBuildRecovery
+	recoveryErr           error
+	recoveryReads         int
+	recoveries            int
+	recoveredRef          string
+	recoveredKind         tobari.RuntimeBuildRecoveryKind
+	lifecycleActivities   []tobari.RuntimeLifecycleActivity
+	lifecycleAvailability tobari.RuntimeAvailability
+	lifecycleErr          error
 }
 
 func testRuntimeManifest() tobari.RuntimeManifest {
@@ -128,11 +134,48 @@ func (f *runtimeCatalogCLI) BuildManagedRuntimeByReference(_ context.Context, re
 	if f.buildErr != nil {
 		return tobari.RuntimeReport{}, f.buildErr
 	}
+	if f.buildCreates {
+		return tobari.RuntimeReport{Task: tobari.TaskRuntimeBuildV1, Runtime: manifest, Built: true}, nil
+	}
 	return tobari.RuntimeReport{Task: tobari.TaskRuntimeBuildV1, Runtime: manifest, NoChange: true}, nil
 }
 func (f *runtimeCatalogCLI) ReadRuntimeLifecycleSnapshot(context.Context) (tobari.RuntimeLifecycleSnapshot, time.Time, error) {
+	f.lifecycleReads++
+	if f.lifecycleErr != nil {
+		return tobari.RuntimeLifecycleSnapshot{}, time.Time{}, f.lifecycleErr
+	}
 	standard := tobari.RuntimeManifest{SchemaVersion: tobari.RuntimeSchemaVersion, ID: tobari.StandardRuntimeID, Name: tobari.StandardRuntimeName, Kind: tobari.RuntimeKindBuiltin, Revisions: []tobari.RuntimeRevision{{Ordinal: 1, Revision: "sha256:" + strings.Repeat("f", 64), Image: tobari.OfficialRuntimeBase, CreatedAt: time.Unix(1, 0).UTC()}}}
-	runtimes := []tobari.RuntimeManifest{standard, f.runtimeManifest()}
+	observedManifest := f.runtimeManifest()
+	if f.snapshotManifest != nil {
+		observedManifest = *f.snapshotManifest
+	}
+	runtimes := []tobari.RuntimeManifest{standard, observedManifest}
+	if f.list != nil && !(f.replaceAfterRead && f.lifecycleReads > 1) {
+		runtimes = []tobari.RuntimeManifest{}
+		for _, summary := range f.list {
+			if summary.Kind == tobari.RuntimeKindBuiltin {
+				runtimes = append(runtimes, standard)
+				continue
+			}
+			manifest := f.runtimeManifest()
+			manifest.ID, manifest.Name, manifest.SourcePath = summary.ID, summary.Name, summary.SourcePath
+			if !summary.Ready {
+				manifest.Revisions = []tobari.RuntimeRevision{}
+			} else if manifest.ID != summary.ID || len(manifest.Revisions) != summary.Head || manifest.Revisions[len(manifest.Revisions)-1].Revision != summary.Revision {
+				manifest.Revisions = make([]tobari.RuntimeRevision, summary.Head)
+				for index := range manifest.Revisions {
+					digest := "sha256:" + strings.Repeat(string(rune('1'+index)), 64)
+					if index == summary.Head-1 {
+						digest = summary.Revision
+					}
+					manifest.Revisions[index] = tobari.RuntimeRevision{Ordinal: index + 1, Revision: digest,
+						Image: "tobari-runtime-" + summary.Name + ":test", ImageDigest: "sha256:" + strings.Repeat(string(rune('a'+index)), 64),
+						CreatedAt: time.Unix(int64(index+1), 0).UTC(), SnapshotPath: "/config/runtimes/" + summary.Name + "/snapshots/" + digest[7:19]}
+				}
+			}
+			runtimes = append(runtimes, manifest)
+		}
+	}
 	items := []tobari.RuntimeMaterialObservation{}
 	storage := []tobari.RuntimeStorageObservation{}
 	for _, runtime := range runtimes {
@@ -141,11 +184,16 @@ func (f *runtimeCatalogCLI) ReadRuntimeLifecycleSnapshot(context.Context) (tobar
 		}
 		observed := tobari.RuntimeStorageObservation{RuntimeID: runtime.ID, Name: runtime.Name, SourceLogicalBytes: 42, Snapshots: []tobari.RuntimeSnapshotStorage{}}
 		for _, revision := range runtime.Revisions {
-			items = append(items, tobari.RuntimeMaterialObservation{RuntimeID: runtime.ID, Revision: revision.Revision, TagRole: tobari.RuntimeMaterialTagPublishedRevision, Availability: tobari.RuntimeAvailabilityMissing, ObservationComplete: true})
+			availability := f.lifecycleAvailability
+			if availability == "" {
+				availability = tobari.RuntimeAvailabilityMissing
+			}
+			items = append(items, tobari.RuntimeMaterialObservation{RuntimeID: runtime.ID, Revision: revision.Revision, TagRole: tobari.RuntimeMaterialTagPublishedRevision, Availability: availability, ObservationComplete: true})
 			observed.Snapshots = append(observed.Snapshots, tobari.RuntimeSnapshotStorage{Kind: tobari.RuntimePruneCandidateRevision, Revision: revision.Revision, SemanticFingerprint: revision.Revision, LogicalBytes: 100})
 		}
 		storage = append(storage, observed)
 	}
+	sort.Slice(storage, func(i, j int) bool { return storage[i].RuntimeID < storage[j].RuntimeID })
 	return tobari.RuntimeLifecycleSnapshot{CatalogComplete: true, Runtimes: runtimes, Protection: tobari.RuntimeProtectionInventory{Complete: true, Items: []tobari.RuntimeProtection{}}, Materials: items, Storage: storage, Journals: tobari.RuntimeLifecycleJournals{Complete: true, Active: append([]tobari.RuntimeLifecycleActivity{}, f.lifecycleActivities...), FailedBuilds: []tobari.RuntimeFailedBuildArtifact{}}}, time.Unix(1, 0).UTC(), nil
 }
 
@@ -1731,8 +1779,8 @@ func TestRuntimeCreateInteractiveBaseSelectionAndStandardOnlySkip(t *testing.T) 
 			if code := command.RunContext(context.Background(), []string{"runtime", "create", "--name", "mobile"}); code != ExitOK {
 				t.Fatalf("runtime create code = %d, stderr = %q", code, stderr.String())
 			}
-			if fake.listCalls != 1 || fake.createCalls != 1 || fake.lastBase != test.wantBase {
-				t.Fatalf("interactive create calls/base = list %d create %d base %q", fake.listCalls, fake.createCalls, fake.lastBase)
+			if fake.lifecycleReads != 1 || fake.createCalls != 1 || fake.lastBase != test.wantBase {
+				t.Fatalf("interactive create calls/base = lifecycle %d create %d base %q", fake.lifecycleReads, fake.createCalls, fake.lastBase)
 			}
 			shown := strings.Contains(stderr.String(), "Tobari · Create Runtime · Base")
 			if shown != test.wantMenu {
@@ -1878,8 +1926,8 @@ func TestRuntimeBuildReviewSelectsAndConfirmsBeforeBuild(t *testing.T) {
 	if code := command.RunContext(context.Background(), []string{"review", "runtimes"}); code != ExitOK {
 		t.Fatalf("runtime build Review code = %d, stderr = %q", code, stderr.String())
 	}
-	if fake.buildCalls != 1 || fake.lastBuild != "frontend" || fake.listCalls != 1 || fake.showCalls != 1 {
-		t.Fatalf("runtime Review calls = list %d show %d build %d/%q", fake.listCalls, fake.showCalls, fake.buildCalls, fake.lastBuild)
+	if fake.buildCalls != 1 || fake.lastBuild != "frontend" || fake.lifecycleReads != 3 || fake.listCalls != 0 || fake.showCalls != 0 {
+		t.Fatalf("runtime Review calls = lifecycle %d list %d show %d build %d/%q", fake.lifecycleReads, fake.listCalls, fake.showCalls, fake.buildCalls, fake.lastBuild)
 	}
 	for _, want := range []string{"Tobari · Build Runtime", "Runtime: frontend", "Source: /config/runtimes/frontend/source", "No Workspace Manifest Runtime binding will change.", "Build Runtime"} {
 		if !strings.Contains(stderr.String(), want) {
@@ -1888,6 +1936,39 @@ func TestRuntimeBuildReviewSelectsAndConfirmsBeforeBuild(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), "Runtime frontend") || !strings.Contains(stdout.String(), "unchanged") {
 		t.Fatalf("runtime build confirmed stdout = %q", stdout.String())
+	}
+}
+
+func TestRuntimeBuildReviewRawKeepsReadySeparateFromPrunedAvailability(t *testing.T) {
+	manifest := readyRuntimeManifest()
+	fake := &runtimeCatalogCLI{manifest: manifest, list: runtimeReviewList(manifest), lifecycleAvailability: tobari.RuntimeAvailabilityPruned}
+	var stdout, stderr bytes.Buffer
+	command := newCLI(strings.NewReader("\n\n"), &stdout, &stderr, DefaultCatalog(), nil)
+	command.runtime = runtimecmd.New(fake)
+	command.tobari = tobaricmd.New(&policyReviewRuntimeFake{terminal: true})
+	mode := &selectorModeFake{}
+	command.config = &terminalContextConfigurationWizard{mode: mode, style: false}
+
+	if code := command.RunContext(context.Background(), []string{"review", "runtimes"}); code != ExitOK {
+		t.Fatalf("pruned Runtime build Review code = %d, stderr = %q", code, stderr.String())
+	}
+	if fake.buildCalls != 1 || mode.entered != 2 || mode.restored != 2 {
+		t.Fatalf("pruned Runtime Review build/raw calls = %d/%d/%d", fake.buildCalls, mode.entered, mode.restored)
+	}
+	for _, want := range []string{
+		"ready · head frontend@1 · availability pruned · snapshot retained · last used unknown",
+		"Availability pruned",
+		"Snapshot  retained",
+		"Last used unknown",
+	} {
+		if !strings.Contains(stderr.String(), want) {
+			t.Fatalf("pruned Runtime Review stderr = %q, missing %q", stderr.String(), want)
+		}
+	}
+	for _, forbidden := range []string{manifest.Revisions[0].Image, manifest.Revisions[0].ImageDigest, manifest.Revisions[0].SnapshotPath} {
+		if forbidden != "" && strings.Contains(stderr.String(), forbidden) {
+			t.Fatalf("pruned Runtime Review leaked infrastructure value %q: %q", forbidden, stderr.String())
+		}
 	}
 }
 
@@ -1955,7 +2036,7 @@ func TestRuntimeBuildReviewRejectsListToDetailIdentityReplacement(t *testing.T) 
 	selected := readyRuntimeManifest()
 	replacement := selected
 	replacement.ID = "018bcfe5-687b-7000-8000-000000000099"
-	fake := &runtimeCatalogCLI{manifest: replacement, list: runtimeReviewList(selected)}
+	fake := &runtimeCatalogCLI{manifest: replacement, list: runtimeReviewList(selected), replaceAfterRead: true}
 	var stdout, stderr bytes.Buffer
 	command := newCLI(strings.NewReader("\n"), &stdout, &stderr, DefaultCatalog(), nil)
 	command.runtime = runtimecmd.New(fake)
@@ -1964,8 +2045,8 @@ func TestRuntimeBuildReviewRejectsListToDetailIdentityReplacement(t *testing.T) 
 	if code := command.RunContext(context.Background(), []string{"review", "runtimes"}); code != ExitRejected || !strings.Contains(stderr.String(), "runtime_selection_changed") {
 		t.Fatalf("replaced Runtime Review code/stderr = %d/%q", code, stderr.String())
 	}
-	if fake.listCalls != 1 || fake.showCalls != 1 || fake.buildCalls != 0 || stdout.Len() != 0 {
-		t.Fatalf("replaced Runtime Review calls/output = list %d show %d build %d / %q", fake.listCalls, fake.showCalls, fake.buildCalls, stdout.String())
+	if fake.lifecycleReads != 2 || fake.listCalls != 0 || fake.showCalls != 0 || fake.buildCalls != 0 || stdout.Len() != 0 {
+		t.Fatalf("replaced Runtime Review calls/output = lifecycle %d list %d show %d build %d / %q", fake.lifecycleReads, fake.listCalls, fake.showCalls, fake.buildCalls, stdout.String())
 	}
 }
 
@@ -2004,8 +2085,8 @@ func TestRuntimeReviewRedirectedAndJSONRemainExhaustiveReadOnly(t *testing.T) {
 		if code := command.RunContext(context.Background(), args); code != ExitOK {
 			t.Fatalf("redirected Runtime Review %v code/stderr = %d/%q", args, code, stderr.String())
 		}
-		if fake.listCalls != 1 || fake.showCalls != 0 || fake.buildCalls != 0 || fake.recoveryReads != 0 || fake.recoveries != 0 {
-			t.Fatalf("redirected Runtime Review %v calls = list %d show %d build %d recovery=%d/%d", args, fake.listCalls, fake.showCalls, fake.buildCalls, fake.recoveryReads, fake.recoveries)
+		if fake.lifecycleReads != 1 || fake.listCalls != 0 || fake.showCalls != 0 || fake.buildCalls != 0 || fake.recoveryReads != 0 || fake.recoveries != 0 {
+			t.Fatalf("redirected Runtime Review %v calls = lifecycle %d list %d show %d build %d recovery=%d/%d", args, fake.lifecycleReads, fake.listCalls, fake.showCalls, fake.buildCalls, fake.recoveryReads, fake.recoveries)
 		}
 		for _, want := range []string{tobari.StandardRuntimeName, tobari.StandardRuntimeID, manifest.Name, manifest.ID} {
 			if !strings.Contains(stdout.String(), want) {
@@ -2103,8 +2184,8 @@ func TestContextRuntimeReviewLoadsCompleteSuccessfulHistoryForRollback(t *testin
 	for _, choice := range choices {
 		got = append(got, choice.selection)
 	}
-	if !reflect.DeepEqual(got, want) || runtimeFake.historyCalls != 1 {
-		t.Fatalf("ready Runtime choices/history calls = %v/%d, want %v/1", got, runtimeFake.historyCalls, want)
+	if !reflect.DeepEqual(got, want) || runtimeFake.lifecycleReads != 2 || runtimeFake.historyCalls != 0 {
+		t.Fatalf("ready Runtime choices/lifecycle/history calls = %v/%d/%d, want %v/2/0", got, runtimeFake.lifecycleReads, runtimeFake.historyCalls, want)
 	}
 }
 

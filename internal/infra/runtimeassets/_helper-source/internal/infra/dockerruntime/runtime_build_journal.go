@@ -587,6 +587,15 @@ func (r *Runtime) completeRuntimeBuildJournal(ctx context.Context, journal runti
 	if err := r.validateCompletedRuntimeBuildAuthority(ctx, origin); err != nil {
 		return err
 	}
+	if origin.Restore && origin.Phase == runtimeBuildPhaseManifestCommitted {
+		// Publish restore supersession before the journal can enter cleanup. A
+		// crash may therefore leave resumable restore authority, but can never
+		// clear that authority while an older prune receipt still classifies the
+		// successfully restored revision as retired.
+		if err := r.supersedeRuntimePruneAvailability(origin.RuntimeID, origin.Revision); err != nil {
+			return fmt.Errorf("publish Runtime restore retirement supersession: %w", err)
+		}
+	}
 	if *current == origin {
 		if err := r.validateRuntimeBuildCleanupStart(origin); err != nil {
 			return err

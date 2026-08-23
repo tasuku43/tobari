@@ -276,6 +276,23 @@ type RuntimeLifecycleSnapshot struct {
 	Materials       []RuntimeMaterialObservation `json:"materials"`
 	Storage         []RuntimeStorageObservation  `json:"storage"`
 	Journals        RuntimeLifecycleJournals     `json:"journals"`
+	// RetirementGenerations is internal durable authority that distinguishes a
+	// newly reviewed prune after an exact restore from replay of an older prune
+	// receipt. Public Runtime projections deliberately omit it.
+	RetirementGenerations []RuntimeRetirementGeneration `json:"-"`
+}
+
+type RuntimeRetirementGeneration struct {
+	RuntimeID  string `json:"runtime_id"`
+	Revision   string `json:"revision"`
+	Generation uint64 `json:"generation"`
+}
+
+func (g RuntimeRetirementGeneration) Validate() error {
+	if ValidateRuntimeID(g.RuntimeID) != nil || ValidateDigest(g.Revision) != nil || g.Generation == 0 {
+		return fmt.Errorf("Runtime retirement generation authority is invalid")
+	}
+	return nil
 }
 
 type RuntimeSnapshotStorage struct {
@@ -355,6 +372,17 @@ func (s RuntimeLifecycleSnapshot) Validate() error {
 	}
 	if standard != 1 {
 		return fmt.Errorf("Runtime lifecycle snapshot requires exact built-in standard evidence")
+	}
+	for index, generation := range s.RetirementGenerations {
+		if err := generation.Validate(); err != nil {
+			return err
+		}
+		if _, exists := revisions[generation.RuntimeID+"\x00"+generation.Revision]; !exists {
+			return fmt.Errorf("Runtime retirement generation has no immutable revision authority")
+		}
+		if index > 0 && runtimeRetirementGenerationKey(s.RetirementGenerations[index-1]) >= runtimeRetirementGenerationKey(generation) {
+			return fmt.Errorf("Runtime retirement generations are not unique canonical order")
+		}
 	}
 	for _, protection := range s.Protection.Items {
 		if _, exists := revisions[protection.RuntimeID+"\x00"+protection.RuntimeRevision]; !exists {
@@ -725,15 +753,16 @@ func (b RuntimeMaterialBlocker) Validate() error {
 }
 
 type RuntimePrunePlan struct {
-	Task       string                      `json:"task"`
-	PlanRef    string                      `json:"plan_ref"`
-	ObservedAt time.Time                   `json:"observed_at"`
-	Empty      bool                        `json:"empty"`
-	Applicable bool                        `json:"applicable"`
-	Candidates []RuntimePruneCandidate     `json:"candidates"`
-	Protected  []RuntimeProtection         `json:"protected"`
-	Blockers   []RuntimeMaterialBlocker    `json:"blockers"`
-	Storage    []RuntimeStorageObservation `json:"storage"`
+	Task                  string                        `json:"task"`
+	PlanRef               string                        `json:"plan_ref"`
+	ObservedAt            time.Time                     `json:"observed_at"`
+	Empty                 bool                          `json:"empty"`
+	Applicable            bool                          `json:"applicable"`
+	Candidates            []RuntimePruneCandidate       `json:"candidates"`
+	Protected             []RuntimeProtection           `json:"protected"`
+	Blockers              []RuntimeMaterialBlocker      `json:"blockers"`
+	Storage               []RuntimeStorageObservation   `json:"storage"`
+	RetirementGenerations []RuntimeRetirementGeneration `json:"-"`
 }
 
 type RuntimePruneResultState string
@@ -892,6 +921,17 @@ func (p RuntimePrunePlan) Validate() error {
 		}
 		sourceStorage[item.RuntimeID] = item.SourceLogicalBytes
 	}
+	for index, generation := range p.RetirementGenerations {
+		if err := generation.Validate(); err != nil {
+			return err
+		}
+		if index > 0 && runtimeRetirementGenerationKey(p.RetirementGenerations[index-1]) >= runtimeRetirementGenerationKey(generation) {
+			return fmt.Errorf("Runtime retirement generations are not unique canonical order")
+		}
+		if _, exists := storage[generation.RuntimeID+"\x00"+string(RuntimePruneCandidateRevision)+"\x00"+generation.Revision]; !exists {
+			return fmt.Errorf("Runtime retirement generation lacks exact snapshot storage evidence")
+		}
+	}
 	for _, candidate := range p.Candidates {
 		key := candidate.RuntimeID + "\x00" + string(candidate.Kind) + "\x00" + candidate.Revision
 		observed, exists := storage[key]
@@ -911,7 +951,7 @@ func (p RuntimePrunePlan) Validate() error {
 			}
 		}
 	}
-	want, err := runtimePrunePlanAuthorityRef(p.Candidates, p.Protected, p.Blockers, p.Storage)
+	want, err := runtimePrunePlanAuthorityRef(p.Candidates, p.Protected, p.Blockers, p.Storage, p.RetirementGenerations)
 	if err != nil || p.PlanRef != want {
 		return fmt.Errorf("Runtime prune plan reference does not match authority")
 	}
@@ -1000,7 +1040,8 @@ func PlanRuntimePrune(snapshot RuntimeLifecycleSnapshot, observedAt time.Time) (
 	sort.Slice(blockers, func(i, j int) bool {
 		return runtimeMaterialBlockerKey(blockers[i]) < runtimeMaterialBlockerKey(blockers[j])
 	})
-	planRef, err := runtimePrunePlanAuthorityRef(candidates, protectedItems, blockers, storageByRuntimeValues(storageByRuntime))
+	generationAuthority := append([]RuntimeRetirementGeneration(nil), snapshot.RetirementGenerations...)
+	planRef, err := runtimePrunePlanAuthorityRef(candidates, protectedItems, blockers, storageByRuntimeValues(storageByRuntime), generationAuthority)
 	if err != nil {
 		return RuntimePrunePlan{}, err
 	}
@@ -1008,7 +1049,7 @@ func PlanRuntimePrune(snapshot RuntimeLifecycleSnapshot, observedAt time.Time) (
 	sort.Slice(storage, func(i, j int) bool {
 		return runtimeStorageObservationKey(storage[i]) < runtimeStorageObservationKey(storage[j])
 	})
-	plan := RuntimePrunePlan{Task: TaskRuntimePruneDryRun, PlanRef: planRef, ObservedAt: observedAt, Empty: len(candidates) == 0, Applicable: runtimePrunePlanApplicable(blockers), Candidates: candidates, Protected: protectedItems, Blockers: blockers, Storage: storage}
+	plan := RuntimePrunePlan{Task: TaskRuntimePruneDryRun, PlanRef: planRef, ObservedAt: observedAt, Empty: len(candidates) == 0, Applicable: runtimePrunePlanApplicable(blockers), Candidates: candidates, Protected: protectedItems, Blockers: blockers, Storage: storage, RetirementGenerations: generationAuthority}
 	return plan, plan.Validate()
 }
 
@@ -1109,6 +1150,10 @@ func runtimeStorageObservationKey(storage RuntimeStorageObservation) string {
 	return storage.RuntimeID
 }
 
+func runtimeRetirementGenerationKey(generation RuntimeRetirementGeneration) string {
+	return generation.RuntimeID + "\x00" + generation.Revision
+}
+
 func runtimeSnapshotLogicalBytes(storage RuntimeStorageObservation, kind RuntimePruneCandidateKind, revision string) int64 {
 	for _, snapshot := range storage.Snapshots {
 		if snapshot.Kind == kind && snapshot.Revision == revision {
@@ -1129,7 +1174,7 @@ func storageByRuntimeValues(byRuntime map[string]RuntimeStorageObservation) []Ru
 	return result
 }
 
-func runtimePrunePlanAuthorityRef(candidates []RuntimePruneCandidate, protected []RuntimeProtection, blockers []RuntimeMaterialBlocker, storage []RuntimeStorageObservation) (string, error) {
+func runtimePrunePlanAuthorityRef(candidates []RuntimePruneCandidate, protected []RuntimeProtection, blockers []RuntimeMaterialBlocker, storage []RuntimeStorageObservation, generations []RuntimeRetirementGeneration) (string, error) {
 	type candidateAuthority struct {
 		Kind      RuntimePruneCandidateKind `json:"kind"`
 		RuntimeID string                    `json:"runtime_id"`
@@ -1156,13 +1201,23 @@ func runtimePrunePlanAuthorityRef(candidates []RuntimePruneCandidate, protected 
 		right := proofs[j].RuntimeID + "\x00" + string(proofs[j].Kind) + "\x00" + proofs[j].Revision + "\x00" + proofs[j].Fingerprint
 		return left < right
 	})
+	generationAuthority := append([]RuntimeRetirementGeneration{}, generations...)
+	for index, generation := range generationAuthority {
+		if err := generation.Validate(); err != nil {
+			return "", err
+		}
+		if index > 0 && runtimeRetirementGenerationKey(generationAuthority[index-1]) >= runtimeRetirementGenerationKey(generation) {
+			return "", fmt.Errorf("Runtime retirement generations are not unique canonical order")
+		}
+	}
 	canonical := struct {
-		Schema     int                      `json:"schema"`
-		Candidates []candidateAuthority     `json:"candidates"`
-		Protected  []RuntimeProtection      `json:"protected"`
-		Blockers   []RuntimeMaterialBlocker `json:"blockers"`
-		Proofs     []snapshotProof          `json:"snapshot_proofs"`
-	}{Schema: 2, Candidates: authorities, Protected: protected, Blockers: blockers, Proofs: proofs}
+		Schema      int                           `json:"schema"`
+		Candidates  []candidateAuthority          `json:"candidates"`
+		Protected   []RuntimeProtection           `json:"protected"`
+		Blockers    []RuntimeMaterialBlocker      `json:"blockers"`
+		Proofs      []snapshotProof               `json:"snapshot_proofs"`
+		Generations []RuntimeRetirementGeneration `json:"retirement_generations"`
+	}{Schema: 3, Candidates: authorities, Protected: protected, Blockers: blockers, Proofs: proofs, Generations: generationAuthority}
 	encoded, err := json.Marshal(canonical)
 	if err != nil {
 		return "", err

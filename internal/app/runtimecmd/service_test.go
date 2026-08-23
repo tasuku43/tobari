@@ -16,6 +16,7 @@ import (
 
 type runtimeFake struct {
 	manifest            tobari.RuntimeManifest
+	snapshotManifest    *tobari.RuntimeManifest
 	creates             int
 	base                tobari.RuntimeCopySource
 	builds              int
@@ -121,10 +122,10 @@ func TestRuntimeReadsPublishManagedRevisionReferencesForRestoreConsumer(t *testi
 		t.Fatal(err)
 	}
 	wantRevisionRef := tobari.RuntimeRevisionRef(manifest.ID, manifest.Revisions[0].Revision)
-	if len(listed.Items) != 1 || listed.Items[0].RuntimeRef != manifest.ID || listed.Items[0].RevisionRef != wantRevisionRef {
+	if len(listed.Items) != 2 || listed.Items[1].RuntimeRef != manifest.ID || listed.Items[1].RevisionRef != wantRevisionRef {
 		t.Fatalf("Runtime list references = %+v", listed.Items)
 	}
-	if shown.Runtime.RuntimeRef != manifest.ID || shown.Runtime.Revisions[0].RuntimeRef != manifest.ID || shown.Runtime.Revisions[0].RevisionRef != wantRevisionRef {
+	if shown.Runtime.RuntimeRef != manifest.ID || shown.Runtime.Revisions[0].RuntimeRef != manifest.ID || shown.Runtime.Revisions[0].RevisionRef != wantRevisionRef || shown.Public == nil {
 		t.Fatalf("Runtime report references = %+v", shown.Runtime)
 	}
 }
@@ -154,9 +155,13 @@ func (f *runtimeFake) ReadRuntimeLifecycleSnapshot(context.Context) (tobari.Runt
 	if f.protection != nil {
 		protection = *f.protection
 	}
-	runtimes := []tobari.RuntimeManifest{standardRuntimeFixture(), f.manifest}
-	storage := []tobari.RuntimeStorageObservation{{RuntimeID: f.manifest.ID, Name: f.manifest.Name, SourceLogicalBytes: 42, Snapshots: []tobari.RuntimeSnapshotStorage{}}}
-	for _, revision := range f.manifest.Revisions {
+	observedManifest := f.manifest
+	if f.snapshotManifest != nil {
+		observedManifest = *f.snapshotManifest
+	}
+	runtimes := []tobari.RuntimeManifest{standardRuntimeFixture(), observedManifest}
+	storage := []tobari.RuntimeStorageObservation{{RuntimeID: observedManifest.ID, Name: observedManifest.Name, SourceLogicalBytes: 42, Snapshots: []tobari.RuntimeSnapshotStorage{}}}
+	for _, revision := range observedManifest.Revisions {
 		storage[0].Snapshots = append(storage[0].Snapshots, tobari.RuntimeSnapshotStorage{Kind: tobari.RuntimePruneCandidateRevision, Revision: revision.Revision, SemanticFingerprint: revision.Revision, LogicalBytes: 100})
 	}
 	if f.materials != nil {
@@ -446,6 +451,79 @@ func TestRuntimeRecoveryRejectsWrongIntentBeforeAdapter(t *testing.T) {
 	intent := operation.Intent{Command: "runtime build", Effect: operation.EffectWrite, Target: operation.TargetRef{Kind: tobari.RuntimeReferenceKind, ID: "018bcfe5-687b-7000-8000-000000000099"}, Impact: operation.Impact{Cardinality: operation.CardinalityOne, Notification: operation.DeclarationNo, AccessChange: operation.DeclarationYes, Destructive: operation.DeclarationNo}}
 	if _, err := New(fake).Recover(context.Background(), intent, recovery); err == nil || fake.recoveries != 0 {
 		t.Fatalf("wrong recovery target = %v calls=%d", err, fake.recoveries)
+	}
+}
+
+func TestConfirmedRuntimeBuildAndRecoveryPreservePostEffectObservationAuthority(t *testing.T) {
+	manifest := runtimeFixture()
+	impact := operation.Impact{Cardinality: operation.CardinalityOne, Notification: operation.DeclarationNo, AccessChange: operation.DeclarationYes, Destructive: operation.DeclarationNo}
+	buildIntent := operation.Intent{Command: "runtime build", Effect: operation.EffectWrite, Target: operation.TargetRef{Kind: tobari.RuntimeReferenceKind, ID: manifest.ID}, Impact: impact}
+	publicationRecovery := tobari.RuntimeBuildRecovery{RuntimeID: manifest.ID, RuntimeRef: manifest.ID, Name: manifest.Name, Kind: tobari.RuntimeBuildRecoveryPublication}
+	cleanupRecovery := tobari.RuntimeBuildRecovery{RuntimeID: manifest.ID, RuntimeRef: manifest.ID, Name: manifest.Name, Kind: tobari.RuntimeBuildRecoveryCleanup}
+
+	tests := []struct {
+		name     string
+		invoke   func(*Service) error
+		fake     *runtimeFake
+		wantCode string
+	}{
+		{name: "build canceled observation", fake: &runtimeFake{manifest: manifest, lifecycleErr: context.Canceled}, wantCode: "runtime_build_observation_unknown",
+			invoke: func(service *Service) error {
+				_, err := service.Build(context.Background(), buildIntent, manifest.ID, nil)
+				return err
+			}},
+		{name: "recovery canceled observation", fake: &runtimeFake{manifest: manifest, lifecycleErr: context.Canceled}, wantCode: "runtime_build_observation_unknown",
+			invoke: func(service *Service) error {
+				_, err := service.Recover(context.Background(), buildIntent, publicationRecovery)
+				return err
+			}},
+		{name: "cleanup recovery canceled observation", fake: &runtimeFake{manifest: manifest, lifecycleErr: context.Canceled}, wantCode: "runtime_build_observation_unknown",
+			invoke: func(service *Service) error {
+				_, err := service.Recover(context.Background(), buildIntent, cleanupRecovery)
+				return err
+			}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			err := test.invoke(New(test.fake))
+			public, ok := fault.PublicCopy(err)
+			if !ok || public.Code != test.wantCode || public.Phase != fault.PhaseVerification || public.ChangeState != fault.ChangeConfirmed {
+				t.Fatalf("confirmed observation fault = %+v/%v", public, err)
+			}
+		})
+	}
+
+	drifted := manifest
+	drifted.Revisions = append([]tobari.RuntimeRevision{}, manifest.Revisions...)
+	drifted.Revisions[0].ImageDigest = "sha256:" + strings.Repeat("e", 64)
+	for _, test := range []struct {
+		name   string
+		invoke func(*Service) error
+		fake   *runtimeFake
+	}{
+		{name: "build projection drift", fake: &runtimeFake{manifest: manifest, snapshotManifest: &drifted},
+			invoke: func(service *Service) error {
+				_, err := service.Build(context.Background(), buildIntent, manifest.ID, nil)
+				return err
+			}},
+		{name: "recovery projection drift", fake: &runtimeFake{manifest: manifest, snapshotManifest: &drifted},
+			invoke: func(service *Service) error {
+				_, err := service.Recover(context.Background(), buildIntent, publicationRecovery)
+				return err
+			}},
+		{name: "cleanup recovery projection drift", fake: &runtimeFake{manifest: manifest, snapshotManifest: &drifted},
+			invoke: func(service *Service) error {
+				_, err := service.Recover(context.Background(), buildIntent, cleanupRecovery)
+				return err
+			}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			err := test.invoke(New(test.fake))
+			public, ok := fault.PublicCopy(err)
+			if !ok || public.Code != "invalid_runtime_report_confirmed" || public.Phase != fault.PhaseVerification || public.ChangeState != fault.ChangeConfirmed {
+				t.Fatalf("confirmed projection fault = %+v/%v", public, err)
+			}
+		})
 	}
 }
 

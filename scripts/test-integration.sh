@@ -3,6 +3,7 @@ set -Eeuo pipefail
 cd "$(dirname "$0")/.."
 source test/integration/workspace_service_exposure.sh
 source test/integration/gateway_fixture.sh
+source test/integration/runtime_image_cleanup.sh
 
 binary=${TOBARI_INTEGRATION_BINARY:-}
 binary_digest=
@@ -27,6 +28,9 @@ work_container=
 other_container=
 restricted_container=
 runtime_image=
+runtime_image_id=
+runtime_id=
+runtime_source_digest=
 official_runtime_image=
 created_dev_runtime_tag=false
 owns_shared_fixture=false
@@ -852,9 +856,15 @@ destination.write_text("\n".join(lines) + "\n", encoding="utf-8")
 destination.chmod(0o600)
 PY
 runtime_build=$(run_tobari runtime build --id "$runtime_ref" --format json)
-runtime_image=$(python3 -c \
-  'import json,sys; print(json.load(sys.stdin)["runtime"]["runtime"]["revisions"][-1]["image"])' \
-  <<<"$runtime_build")
+python3 -c \
+  'import json,sys; revision=json.load(sys.stdin)["runtime"]["runtime"]["revisions"][-1]; assert revision["availability"]["state"] == "available"; assert revision["source_digest"]; assert revision["revision_ref"]; assert all(key not in revision for key in ("image", "image_digest", "snapshot_path", "revision"))' \
+  <<<"$runtime_build"
+runtime_id=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["runtime"]["runtime"]["id"])' <<<"$runtime_build")
+runtime_source_digest=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["runtime"]["runtime"]["revisions"][-1]["source_digest"])' <<<"$runtime_build")
+capture_runtime_image_for_cleanup "$runtime_id" "$runtime_source_digest"
+if [[ ${TOBARI_INTEGRATION_FAIL_AFTER_RUNTIME_CAPTURE:-false} == true ]]; then
+  fail "injected failure after managed Runtime cleanup authority capture"
+fi
 runtime_selection="$runtime_name@1"
 default_manifest_create=$(run_tobari manifest create --name default --runtime "$runtime_selection" \
   --mode guided --source-access read-write --native-readiness enabled --format json)
@@ -1126,8 +1136,9 @@ if [[ $peer_resolution == *"$other_workspace_ip"* ]]; then
 fi
 
 tobari_image=$(docker inspect --format '{{.Config.Image}}' "$work_container")
-[[ $tobari_image == "$runtime_image" ]] ||
-  fail "managed Runtime image selector was not preserved"
+[[ $tobari_image == "$runtime_image" ]] || fail "Workspace did not retain the captured managed Runtime selector"
+[[ $(docker inspect --format '{{.Image}}' "$work_container") == "$runtime_image_id" ]] ||
+  fail "Workspace did not retain the captured managed Runtime image identity"
 custom_image_cmd=$(docker image inspect --format '{{json .Config.Cmd}}' "$runtime_image")
 [[ $custom_image_cmd == '["sh","-c","exit 23"]' ]] ||
   fail "managed Runtime fixture does not have a terminating default command: $custom_image_cmd"

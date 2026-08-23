@@ -19,8 +19,8 @@ type runtimeListDocument struct {
 }
 
 type runtimeReportDocument struct {
-	SchemaVersion int                  `json:"schema_version"`
-	Runtime       tobari.RuntimeReport `json:"runtime"`
+	SchemaVersion int                        `json:"schema_version"`
+	Runtime       tobari.RuntimePublicReport `json:"runtime"`
 }
 
 type runtimeRestoreDocument struct {
@@ -291,7 +291,7 @@ func runRuntimeRestore(ctx context.Context, c *CLI, command CommandSpec, intent 
 }
 
 func renderRuntimeList(path string, result tobari.RuntimeListResult, format successFormat, color bool) ([]byte, error) {
-	if err := result.Validate(); err != nil {
+	if err := result.ValidatePublic(); err != nil {
 		return nil, fault.Wrap(fault.KindContract, "invalid_runtime_list", "Runtime list is invalid", false, err)
 	}
 	if format == successFormatJSON {
@@ -321,6 +321,15 @@ func renderRuntimeList(path string, result tobari.RuntimeListResult, format succ
 		}
 		writeContextCardValue(&output, color, "Status", state, humanStatusToken(map[bool]string{true: "ready", false: "draft"}[item.Ready]))
 		writeContextCardValue(&output, color, "Kind", string(item.Kind), styleText)
+		if item.Ready {
+			writeContextCardValue(&output, color, "Availability", string(item.Availability.State), humanStatusToken(string(item.Availability.State)))
+			writeContextCardValue(&output, color, "Last used", string(item.LastUsed.State), styleMuted)
+			writeContextCardValue(&output, color, "Snapshot", string(item.Snapshot.State), styleText)
+			if item.Storage != nil {
+				writeContextCardValue(&output, color, "Storage", fmt.Sprintf("source %s logical · snapshot %s logical · image %s virtual · reclaimable unknown",
+					optionalBytes(item.Storage.SourceLogicalBytes), optionalBytes(item.Storage.SnapshotLogicalBytes), optionalBytes(item.Storage.ImageVirtualBytes)), styleText)
+			}
+		}
 		if item.SourcePath != "" {
 			writeContextCardValue(&output, color, "Source", safeExternalText(item.SourcePath), styleText)
 		}
@@ -333,7 +342,13 @@ func renderRuntimeReport(path string, result tobari.RuntimeReport, format succes
 	if err := result.Validate(); err != nil {
 		return nil, fault.Wrap(fault.KindContract, "invalid_runtime_report", "Runtime report is invalid", false, err)
 	}
-	if result.Runtime.RuntimeRef != tobari.RuntimeRef(result.Runtime.ID) {
+	if result.Public == nil {
+		return nil, fault.New(fault.KindContract, "invalid_runtime_report", "Runtime report has no semantic lifecycle projection.", false)
+	}
+	if err := result.Public.Validate(); err != nil {
+		return nil, fault.Wrap(fault.KindContract, "invalid_runtime_report", "Runtime semantic lifecycle projection is invalid", false, err)
+	}
+	if result.Runtime.RuntimeRef != tobari.RuntimeRef(result.Runtime.ID) || result.Public.Runtime.RuntimeRef != result.Runtime.RuntimeRef {
 		return nil, fault.New(fault.KindContract, "invalid_runtime_report", "Runtime report has no exact Runtime reference.", false)
 	}
 	for _, revision := range result.Runtime.Revisions {
@@ -342,14 +357,14 @@ func renderRuntimeReport(path string, result tobari.RuntimeReport, format succes
 		}
 	}
 	if format == successFormatJSON {
-		output, err := marshalCommandJSON(path, runtimeReportDocument{SchemaVersion: 1, Runtime: result})
+		output, err := marshalCommandJSON(path, runtimeReportDocument{SchemaVersion: 1, Runtime: *result.Public})
 		if err != nil {
 			return nil, err
 		}
 		return append(output, '\n'), nil
 	}
 	var output strings.Builder
-	manifest := result.Runtime
+	manifest := result.Public.Runtime
 	fmt.Fprintf(&output, "%s\n\n", applyStyleToken(color, styleAccent, "Runtime "+safeExternalText(manifest.Name)))
 	writeContextCardValue(&output, color, "Reference", manifest.RuntimeRef, styleAccent)
 	writeContextCardValue(&output, color, "Kind", string(manifest.Kind), styleText)
@@ -366,10 +381,17 @@ func renderRuntimeReport(path string, result tobari.RuntimeReport, format succes
 		}
 	} else {
 		for _, revision := range manifest.Revisions {
-			value := fmt.Sprintf("%s@%d · %s · %s", safeExternalText(manifest.Name), revision.Ordinal, revision.Revision[:12], revision.CreatedAt.Format("2006-01-02 15:04 UTC"))
+			value := fmt.Sprintf("%s@%d · %s · %s", safeExternalText(manifest.Name), revision.Ordinal, revision.SourceDigest[:12], revision.CreatedAt.Format("2006-01-02 15:04 UTC"))
 			writeContextCardValue(&output, color, "Revision", value, styleText)
 			if revision.RevisionRef != "" {
 				writeContextCardValue(&output, color, "Revision reference", revision.RevisionRef, styleAccent)
+			}
+			writeContextCardValue(&output, color, "Availability", string(revision.Availability.State), humanStatusToken(string(revision.Availability.State)))
+			writeContextCardValue(&output, color, "Last used", string(revision.LastUsed.State), styleMuted)
+			writeContextCardValue(&output, color, "Snapshot", string(revision.Snapshot.State), styleText)
+			if revision.Storage != nil {
+				writeContextCardValue(&output, color, "Storage", fmt.Sprintf("source %s logical · snapshot %s logical · image %s virtual · reclaimable unknown",
+					optionalBytes(revision.Storage.SourceLogicalBytes), optionalBytes(revision.Storage.SnapshotLogicalBytes), optionalBytes(revision.Storage.ImageVirtualBytes)), styleText)
 			}
 		}
 	}
@@ -380,15 +402,9 @@ func renderRuntimeReport(path string, result tobari.RuntimeReport, format succes
 		writeContextCardValue(&output, color, "Build", "revision created · no Workspace Manifest changed", styleAccent)
 	}
 	if path == "runtime build" {
-		if head, ok := manifest.Head(); ok {
-			binding, bindingErr := manifest.Binding(head.Ordinal)
-			if bindingErr != nil {
-				return nil, fault.Wrap(fault.KindContract, "invalid_runtime_report", "Runtime report is invalid", false, bindingErr)
-			}
-			selection, selectionErr := binding.Selection()
-			if selectionErr != nil {
-				return nil, fault.Wrap(fault.KindContract, "invalid_runtime_report", "Runtime report is invalid", false, selectionErr)
-			}
+		if len(manifest.Revisions) != 0 {
+			head := manifest.Revisions[len(manifest.Revisions)-1]
+			selection := fmt.Sprintf("%s@%d", manifest.Name, head.Ordinal)
 			writeContextCardValue(&output, color, "Next", ProgramName+" manifest runtime set --runtime "+safeExternalText(selection), styleAccent)
 		}
 	}
@@ -435,7 +451,12 @@ func runtimeListOutput() CommandOutput {
 }
 
 func runtimeSummaryOutputFields() []OutputField {
-	return []OutputField{{Name: "id", Type: OutputFieldTypeString, Description: "Stable Runtime authority ID."}, {Name: "runtime_ref", Type: OutputFieldTypeString, Description: "Opaque stable Runtime reference.", ReferenceKind: tobari.RuntimeReferenceKind}, {Name: "revision_ref", Type: OutputFieldTypeString, Description: "Opaque exact managed head revision reference; omitted for built-in standard and drafts.", ReferenceKind: tobari.RuntimeRevisionReferenceKind, Optional: true}, {Name: "name", Type: OutputFieldTypeString, Description: "Unique local Runtime name."}, {Name: "kind", Type: OutputFieldTypeString, Description: "Built-in or managed source.", Enum: []string{"builtin", "managed"}}, {Name: "ready", Type: OutputFieldTypeBoolean, Description: "Whether at least one successful revision exists."}, {Name: "head", Type: OutputFieldTypeInteger, Description: "Latest successful human ordinal.", Optional: true}, {Name: "revision", Type: OutputFieldTypeString, Description: "Latest semantic SHA-256 revision.", Optional: true}, {Name: "source_path", Type: OutputFieldTypeString, Description: "Managed editable source directory.", Optional: true}}
+	return []OutputField{{Name: "id", Type: OutputFieldTypeString, Description: "Stable Runtime authority ID."}, {Name: "runtime_ref", Type: OutputFieldTypeString, Description: "Opaque stable Runtime reference.", ReferenceKind: tobari.RuntimeReferenceKind}, {Name: "revision_ref", Type: OutputFieldTypeString, Description: "Opaque exact managed head revision reference; omitted for built-in standard and drafts.", ReferenceKind: tobari.RuntimeRevisionReferenceKind, Optional: true}, {Name: "name", Type: OutputFieldTypeString, Description: "Unique local Runtime name."}, {Name: "kind", Type: OutputFieldTypeString, Description: "Built-in or managed source.", Enum: []string{"builtin", "managed"}}, {Name: "ready", Type: OutputFieldTypeBoolean, Description: "Whether at least one successful revision exists; independent from current material availability."}, {Name: "head", Type: OutputFieldTypeInteger, Description: "Latest successful human ordinal.", Optional: true}, {Name: "source_digest", Type: OutputFieldTypeString, Description: "Latest semantic SHA-256 source identity.", Optional: true}, {Name: "source_path", Type: OutputFieldTypeString, Description: "Managed editable source directory.", Optional: true},
+		{Name: "availability", Type: OutputFieldTypeObject, Description: "Current head material availability; null for a draft.", Nullable: true, Fields: runtimeAvailabilityOutputFields()},
+		{Name: "storage", Type: OutputFieldTypeObject, Description: "Current head bounded storage evidence; null for standard or a draft.", Nullable: true, Fields: runtimeRevisionStorageOutputFields()},
+		{Name: "last_used", Type: OutputFieldTypeObject, Description: "Current head usage certainty; null for a draft.", Nullable: true, Fields: runtimeLastUsedOutputFields()},
+		{Name: "snapshot", Type: OutputFieldTypeObject, Description: "Current head immutable snapshot state; null for a draft.", Nullable: true, Fields: runtimeSnapshotOutputFields()},
+	}
 }
 
 func runtimeReportOutput() CommandOutput {
@@ -447,14 +468,45 @@ func runtimeCreateOutput() CommandOutput {
 }
 
 func runtimeReportOutputWithRevisionReferences(includeRevisionReferences bool) CommandOutput {
-	revisionFields := []OutputField{{Name: "ordinal", Type: OutputFieldTypeInteger, Description: "Contiguous human revision ordinal."}, {Name: "revision", Type: OutputFieldTypeString, Description: "Semantic SHA-256 source identity."}, {Name: "runtime_ref", Type: OutputFieldTypeString, Description: "Opaque stable owning Runtime reference.", ReferenceKind: tobari.RuntimeReferenceKind}, {Name: "revision_ref", Type: OutputFieldTypeString, Description: "Opaque exact managed revision reference; omitted for built-in standard.", ReferenceKind: tobari.RuntimeRevisionReferenceKind, Optional: true}, {Name: "image", Type: OutputFieldTypeString, Description: "Local execution image selector."}, {Name: "image_digest", Type: OutputFieldTypeString, Description: "Inspected immutable image identity; empty only for built-in standard."}, {Name: "created_at", Type: OutputFieldTypeString, Description: "UTC revision creation time."}, {Name: "snapshot_path", Type: OutputFieldTypeString, Description: "Immutable managed source snapshot path.", Optional: true}}
+	revisionFields := []OutputField{{Name: "ordinal", Type: OutputFieldTypeInteger, Description: "Contiguous human revision ordinal."}, {Name: "source_digest", Type: OutputFieldTypeString, Description: "Semantic SHA-256 source identity."}, {Name: "runtime_ref", Type: OutputFieldTypeString, Description: "Opaque stable owning Runtime reference.", ReferenceKind: tobari.RuntimeReferenceKind}, {Name: "revision_ref", Type: OutputFieldTypeString, Description: "Opaque exact managed revision reference; omitted for built-in standard.", ReferenceKind: tobari.RuntimeRevisionReferenceKind, Optional: true}, {Name: "created_at", Type: OutputFieldTypeString, Description: "UTC revision creation time."},
+		{Name: "availability", Type: OutputFieldTypeObject, Description: "Current local execution-material availability.", Fields: runtimeAvailabilityOutputFields()},
+		{Name: "storage", Type: OutputFieldTypeObject, Description: "Bounded storage evidence; null for the built-in standard Runtime.", Nullable: true, Fields: runtimeRevisionStorageOutputFields()},
+		{Name: "last_used", Type: OutputFieldTypeObject, Description: "Usage certainty without inferred history.", Fields: runtimeLastUsedOutputFields()},
+		{Name: "snapshot", Type: OutputFieldTypeObject, Description: "Immutable source snapshot state without a private path.", Fields: runtimeSnapshotOutputFields()},
+	}
 	if !includeRevisionReferences {
-		revisionFields = []OutputField{{Name: "ordinal", Type: OutputFieldTypeInteger, Description: "Contiguous human revision ordinal."}, {Name: "revision", Type: OutputFieldTypeString, Description: "Semantic SHA-256 source identity."}, {Name: "runtime_ref", Type: OutputFieldTypeString, Description: "Opaque stable owning Runtime reference.", ReferenceKind: tobari.RuntimeReferenceKind}, {Name: "image", Type: OutputFieldTypeString, Description: "Local execution image selector."}, {Name: "image_digest", Type: OutputFieldTypeString, Description: "Inspected immutable image identity; empty only for built-in standard."}, {Name: "created_at", Type: OutputFieldTypeString, Description: "UTC revision creation time."}, {Name: "snapshot_path", Type: OutputFieldTypeString, Description: "Immutable managed source snapshot path.", Optional: true}}
+		revisionFields = []OutputField{{Name: "ordinal", Type: OutputFieldTypeInteger, Description: "Contiguous human revision ordinal."}, {Name: "source_digest", Type: OutputFieldTypeString, Description: "Semantic SHA-256 source identity."}, {Name: "created_at", Type: OutputFieldTypeString, Description: "UTC revision creation time."},
+			{Name: "availability", Type: OutputFieldTypeObject, Description: "Current local execution-material availability.", Fields: runtimeAvailabilityOutputFields()},
+			{Name: "storage", Type: OutputFieldTypeObject, Description: "Bounded storage evidence.", Nullable: true, Fields: runtimeRevisionStorageOutputFields()},
+			{Name: "last_used", Type: OutputFieldTypeObject, Description: "Usage certainty without inferred history.", Fields: runtimeLastUsedOutputFields()},
+			{Name: "snapshot", Type: OutputFieldTypeObject, Description: "Immutable source snapshot state without a private path.", Fields: runtimeSnapshotOutputFields()},
+		}
 	}
 	manifestFields := []OutputField{{Name: "schema_version", Type: OutputFieldTypeInteger, Description: "Runtime manifest schema version."}, {Name: "id", Type: OutputFieldTypeString, Description: "Stable Runtime authority ID."}, {Name: "runtime_ref", Type: OutputFieldTypeString, Description: "Opaque stable Runtime reference.", ReferenceKind: tobari.RuntimeReferenceKind}, {Name: "name", Type: OutputFieldTypeString, Description: "Unique local Runtime name."}, {Name: "kind", Type: OutputFieldTypeString, Description: "Built-in or managed source.", Enum: []string{"builtin", "managed"}}, {Name: "source_path", Type: OutputFieldTypeString, Description: "Managed editable source directory; its root and children must have no group/other permissions and stay within the declared Runtime source limits.", Optional: true}, {Name: "revisions", Type: OutputFieldTypeArray, Description: "Ordered immutable successful revisions.", Items: &OutputField{Type: OutputFieldTypeObject, Description: "One successful Runtime revision.", Fields: revisionFields}}}
 	return CommandOutput{Formats: []OutputFormat{OutputFormatText, OutputFormatJSON}, DefaultFormat: OutputFormatText, TextPresentation: TextPresentationSemanticTokens,
 		Fields:   []OutputField{{Name: "task", Type: OutputFieldTypeString, Description: "Declared Runtime task identity."}, {Name: "runtime", Type: OutputFieldTypeObject, Description: "Complete Runtime authority record.", Fields: manifestFields}, {Name: "created", Type: OutputFieldTypeBoolean, Description: "Whether this invocation created the Runtime.", Optional: true}, {Name: "built", Type: OutputFieldTypeBoolean, Description: "Whether this invocation appended a revision.", Optional: true}, {Name: "no_change", Type: OutputFieldTypeBoolean, Description: "Whether source matched existing history.", Optional: true}},
 		Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageNotApplicable, JSONEnvelope: "runtime", JSONEnvelopeType: OutputFieldTypeObject, JSONSchemaVersion: 1}
+}
+
+func runtimeAvailabilityOutputFields() []OutputField {
+	return []OutputField{{Name: "state", Type: OutputFieldTypeString, Description: "Current material state, independent from immutable history readiness.", Enum: []string{"available", "missing", "mismatched", "unknown", "pruned"}}}
+}
+
+func runtimeRevisionStorageOutputFields() []OutputField {
+	return []OutputField{
+		{Name: "source_logical_bytes", Type: OutputFieldTypeInteger, Description: "Exact logical bytes in the editable managed source.", Nullable: true},
+		{Name: "snapshot_logical_bytes", Type: OutputFieldTypeInteger, Description: "Exact logical bytes in the immutable revision snapshot.", Nullable: true},
+		{Name: "image_virtual_bytes", Type: OutputFieldTypeInteger, Description: "Non-additive Docker virtual-size evidence, or null when unavailable.", Nullable: true},
+		{Name: "reclaimable_bytes", Type: OutputFieldTypeInteger, Description: "Authoritative reclaimable bytes; always null in V1.", Nullable: true},
+	}
+}
+
+func runtimeLastUsedOutputFields() []OutputField {
+	return []OutputField{{Name: "state", Type: OutputFieldTypeString, Description: "V1 usage certainty.", Enum: []string{"unknown"}}, {Name: "observed_at", Type: OutputFieldTypeString, Description: "Exact usage observation time; null because V1 has no usage receipt.", Nullable: true}}
+}
+
+func runtimeSnapshotOutputFields() []OutputField {
+	return []OutputField{{Name: "state", Type: OutputFieldTypeString, Description: "Whether an exact retained snapshot applies.", Enum: []string{"retained", "not_applicable"}}}
 }
 
 func runtimeRestoreOutput() CommandOutput {

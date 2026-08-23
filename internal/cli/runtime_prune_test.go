@@ -130,6 +130,7 @@ func TestRuntimePruneCatalogClosesReviewedReferenceWorkflow(t *testing.T) {
 
 func TestRuntimePruneDryRunAndApplyRoundTripExactPlanReference(t *testing.T) {
 	command, fake, stdout, stderr := newRuntimePruneTestCLI()
+	fake.snapshot.RetirementGenerations = []tobari.RuntimeRetirementGeneration{{RuntimeID: fake.snapshot.Materials[0].RuntimeID, Revision: fake.snapshot.Materials[0].Revision, Generation: 1}}
 	direct, err := tobari.PlanRuntimePrune(fake.snapshot, fake.observedAt)
 	if err != nil {
 		t.Fatal(err)
@@ -151,6 +152,18 @@ func TestRuntimePruneDryRunAndApplyRoundTripExactPlanReference(t *testing.T) {
 	fake.appliedRefs = nil
 	if code := command.RunContext(context.Background(), []string{"runtime", "prune", "dry-run", "--format", "json"}); code != ExitOK {
 		t.Fatalf("dry-run code = %d, stderr = %q", code, stderr.String())
+	}
+	for _, forbidden := range []string{"retirement_generations", "availability_supersessions", "through_receipt_revision"} {
+		if strings.Contains(stdout.String(), forbidden) {
+			t.Fatalf("dry-run exposed internal retirement authority %q: %s", forbidden, stdout.String())
+		}
+		commandSpec, found := DefaultCatalog().Lookup("runtime prune dry-run")
+		if !found {
+			t.Fatal("runtime prune dry-run is absent from Catalog")
+		}
+		if outputDeclaresField(commandSpec.Agent.Output.Fields, forbidden) {
+			t.Fatalf("Catalog declared internal retirement authority %q", forbidden)
+		}
 	}
 	var planDoc runtimePrunePlanJSONDocument
 	if err := json.Unmarshal(stdout.Bytes(), &planDoc); err != nil {

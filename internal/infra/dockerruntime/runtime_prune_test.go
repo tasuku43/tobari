@@ -121,6 +121,18 @@ func TestApplyRuntimePruneIsExactIdempotentAndPreservesDurableRuntime(t *testing
 	if len(runner.removals) != 1 || runner.removals[0] != managedLibraryRuntimeImage(manifest.Name, manifest.ID, manifest.Revisions[0].Revision) {
 		t.Fatalf("image removals = %v", runner.removals)
 	}
+	fresh, _, err := runtime.ReadRuntimeLifecycleSnapshot(context.Background())
+	if err != nil || len(fresh.Materials) != 1 || fresh.Materials[0].Availability != tobari.RuntimeAvailabilityPruned {
+		t.Fatalf("post-prune lifecycle material = %+v/%v", fresh.Materials, err)
+	}
+	selector := managedLibraryRuntimeImage(manifest.Name, manifest.ID, manifest.Revisions[0].Revision)
+	reappeared := managedLifecycleImage(manifest.ID, manifest.Revisions[0].Revision, selector)
+	runner.images[selector] = lifecycleImageFixture{observation: reappeared}
+	runner.images[manifest.Revisions[0].ImageDigest] = lifecycleImageFixture{observation: reappeared}
+	fresh, _, err = runtime.ReadRuntimeLifecycleSnapshot(context.Background())
+	if err != nil || len(fresh.Materials) != 1 || fresh.Materials[0].Availability != tobari.RuntimeAvailabilityAvailable {
+		t.Fatalf("reappeared lifecycle material = %+v/%v", fresh.Materials, err)
+	}
 	for index, path := range paths {
 		after, err := os.Stat(path)
 		if err != nil || !os.SameFile(before[index], after) {
@@ -131,6 +143,145 @@ func TestApplyRuntimePruneIsExactIdempotentAndPreservesDurableRuntime(t *testing
 	replayed, err := runtime.ApplyRuntimePrune(context.Background(), plan.PlanRef)
 	if err != nil || replayed.State != tobari.RuntimePruneAlreadyApplied || replayed.ReceiptRevision != result.ReceiptRevision || len(runner.removals) != 1 {
 		t.Fatalf("replayed Runtime prune = %+v/%v removals=%v", replayed, err, runner.removals)
+	}
+}
+
+func TestRuntimePruneReceiptRetirementRequiresExactStableAuthority(t *testing.T) {
+	runtime, _, plan, manifest := runtimePruneFixture(t, false)
+	result, err := runtime.ApplyRuntimePrune(context.Background(), plan.PlanRef)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store, err := runtime.readRuntimePruneReceiptStoreObserved()
+	if err != nil || len(result.Items) != 1 {
+		t.Fatalf("receipt store = %+v/%v", store, err)
+	}
+	target := runtimeMaterialTarget{RuntimeID: manifest.ID, Revision: manifest.Revisions[0].Revision, TagRole: tobari.RuntimeMaterialTagPublishedRevision, Name: manifest.Name}
+	if !runtimePruneReceiptRetired(store, target) {
+		t.Fatal("exact terminal receipt did not prove retirement")
+	}
+	newID := target
+	newID.RuntimeID = "018bcfe5-687b-7000-8000-000000000099"
+	if runtimePruneReceiptRetired(store, newID) {
+		t.Fatal("same-name fresh Runtime ID inherited stale prune authority")
+	}
+	otherRevision := target
+	otherRevision.Revision = "sha256:" + strings.Repeat("e", 64)
+	if runtimePruneReceiptRetired(store, otherRevision) {
+		t.Fatal("different semantic revision inherited prune authority")
+	}
+	staging := target
+	staging.TagRole = tobari.RuntimeMaterialTagJournaledStaging
+	if runtimePruneReceiptRetired(store, staging) {
+		t.Fatal("failed-build staging material inherited revision prune authority")
+	}
+}
+
+func TestRuntimeRestoreSupersedesPrunedAvailabilityAndPreservesPlanReplay(t *testing.T) {
+	digest := "sha256:" + strings.Repeat("c", 64)
+	runtime, runner, manifest := restoreRuntimeFixture(t, digest)
+	revision := manifest.Revisions[0]
+	labels := map[string]string{
+		ownerLabel: ownerValue, componentLabel: managedRuntimeComponentLabel,
+		managedRuntimeIDLabel: manifest.ID, managedRuntimeRevisionLabel: revision.Revision,
+	}
+	runner.images[revision.Image] = managedRuntimeTestImage{id: digest, labels: labels}
+
+	beforeSnapshot, observedAt, err := runtime.ReadRuntimeLifecycleSnapshot(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	beforePlan, err := tobari.PlanRuntimePrune(beforeSnapshot, observedAt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runtime.ApplyRuntimePrune(context.Background(), beforePlan.PlanRef); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runtime.RestoreManagedRuntimeByRevisionReference(context.Background(), tobari.RuntimeRevisionRef(manifest.ID, revision.Revision), nil); err != nil {
+		t.Fatal(err)
+	}
+
+	restoredSnapshot, restoredAt, err := runtime.ReadRuntimeLifecycleSnapshot(context.Background())
+	if err != nil || restoredSnapshot.Materials[0].Availability != tobari.RuntimeAvailabilityAvailable || len(restoredSnapshot.RetirementGenerations) != 1 || restoredSnapshot.RetirementGenerations[0].Generation != 1 {
+		t.Fatalf("restored lifecycle authority = %+v/%v", restoredSnapshot, err)
+	}
+	restoredPlan, err := tobari.PlanRuntimePrune(restoredSnapshot, restoredAt)
+	if err != nil || restoredPlan.PlanRef == beforePlan.PlanRef {
+		t.Fatalf("post-restore prune plan = %+v/%v; old=%q", restoredPlan, err, beforePlan.PlanRef)
+	}
+	if replay, err := runtime.ApplyRuntimePrune(context.Background(), beforePlan.PlanRef); err != nil || replay.State != tobari.RuntimePruneAlreadyApplied {
+		t.Fatalf("old prune receipt replay = %+v/%v", replay, err)
+	}
+	if _, exists := runner.images[revision.Image]; !exists {
+		t.Fatal("old prune plan replay removed the restored image")
+	}
+
+	// A later ordinary external disappearance is missing, not attributed to the
+	// older Tobari prune whose evidence the restore durably superseded.
+	delete(runner.images, revision.Image)
+	missing, _, err := runtime.ReadRuntimeLifecycleSnapshot(context.Background())
+	if err != nil || missing.Materials[0].Availability != tobari.RuntimeAvailabilityMissing {
+		t.Fatalf("post-restore external disappearance = %+v/%v", missing.Materials, err)
+	}
+
+	// Reappearance can be reviewed again, and the new plan outruns the old
+	// supersession with a new receipt revision.
+	runner.images[revision.Image] = managedRuntimeTestImage{id: digest, labels: labels}
+	result, err := runtime.ApplyRuntimePrune(context.Background(), restoredPlan.PlanRef)
+	if err != nil || result.State != tobari.RuntimePruneApplied || result.ReceiptRevision != 2 {
+		t.Fatalf("post-restore prune = %+v/%v", result, err)
+	}
+	pruned, _, err := runtime.ReadRuntimeLifecycleSnapshot(context.Background())
+	if err != nil || pruned.Materials[0].Availability != tobari.RuntimeAvailabilityPruned {
+		t.Fatalf("new prune did not outrun restore supersession = %+v/%v", pruned.Materials, err)
+	}
+}
+
+func TestRuntimeRestorePersistsPruneSupersessionBeforeCleanupRecovery(t *testing.T) {
+	digest := "sha256:" + strings.Repeat("c", 64)
+	runtime, runner, manifest := restoreRuntimeFixture(t, digest)
+	revision := manifest.Revisions[0]
+	labels := map[string]string{
+		ownerLabel: ownerValue, componentLabel: managedRuntimeComponentLabel,
+		managedRuntimeIDLabel: manifest.ID, managedRuntimeRevisionLabel: revision.Revision,
+	}
+	runner.images[revision.Image] = managedRuntimeTestImage{id: digest, labels: labels}
+	snapshot, observedAt, err := runtime.ReadRuntimeLifecycleSnapshot(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := tobari.PlanRuntimePrune(snapshot, observedAt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runtime.ApplyRuntimePrune(context.Background(), plan.PlanRef); err != nil {
+		t.Fatal(err)
+	}
+
+	runtime.runtimeBuildCompletionWrite = func(runtimeBuildJournal) error {
+		return errors.New("synthetic interruption before completing publication")
+	}
+	if _, err := runtime.RestoreManagedRuntimeByRevisionReference(context.Background(), tobari.RuntimeRevisionRef(manifest.ID, revision.Revision), nil); !errors.Is(err, tobari.ErrRuntimeRestoreInterrupted) {
+		t.Fatalf("interrupted restore = %v", err)
+	}
+	store, err := runtime.readRuntimePruneReceiptStoreObserved()
+	journal, journalErr := runtime.readRuntimeBuildJournalObserved()
+	if err != nil || journalErr != nil || runtimePruneSupersededThrough(store, manifest.ID, revision.Revision) != 1 || journal == nil || journal.Phase != runtimeBuildPhaseManifestCommitted {
+		t.Fatalf("interrupted restore authority = store:%+v journal:%+v errors:%v/%v", store, journal, err, journalErr)
+	}
+
+	runtime.runtimeBuildCompletionWrite = nil
+	if err := runtime.RecoverRuntimeBuildPublication(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if journal, err := runtime.readRuntimeBuildJournalObserved(); err != nil || journal != nil {
+		t.Fatalf("restore recovery retained journal = %+v/%v", journal, err)
+	}
+	delete(runner.images, revision.Image)
+	missing, _, err := runtime.ReadRuntimeLifecycleSnapshot(context.Background())
+	if err != nil || missing.Materials[0].Availability != tobari.RuntimeAvailabilityMissing {
+		t.Fatalf("recovered restore external disappearance = %+v/%v", missing.Materials, err)
 	}
 }
 

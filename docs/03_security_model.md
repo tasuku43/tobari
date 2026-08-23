@@ -937,7 +937,15 @@ crosses into reference-bound Build or an exact active build, restore, or
 whole-delete recovery. Its ordinary action candidates come only from managed
 Runtime summaries; active whole deletion takes precedence over subordinate
 build/restore recovery. Redirected and JSON use remains exhaustive and
-read-only. Workspace Manifest Runtime Review handles an omitted binding input;
+read-only. The Runtime read boundary publishes semantic `source_digest`,
+availability, storage uncertainty, last-used certainty, and snapshot state
+from one coherent lifecycle observation. It never serializes the persisted
+Docker selector, inspected image digest, private snapshot path, container
+identity, or the provisional public `revision` key. A confirmed build or
+reviewed recovery keeps verification/confirmed fault authority if that
+post-effect observation is canceled, fails, or detects drift; it points only
+to a read-only reconciliation path and never converts confirmed change into
+replay permission. Workspace Manifest Runtime Review handles an omitted binding input;
 binding candidates come only from the built-in standard revision or validated
 successful history. An omitted default
 Workspace Manifest is rebound to the exact persisted name shown during Review, preventing

@@ -640,6 +640,13 @@ review runs through `tobari review permissions` in a separate host terminal.
   Restore never appends or rewrites history, changes a Workspace Manifest, or
   changes a Workspace. An interrupted restore remains fail-closed and resumes
   through the same one-confirmation `review runtimes` recovery path.
+- Runtime schema 1 publishes revision identity as `source_digest`, never the
+  provisional `revision` alias. Each managed revision separately reports typed
+  `availability`, `storage`, `last_used`, and `snapshot` evidence; `storage` is
+  null for built-in `standard`. `ready` continues to mean that successful
+  history exists and does not imply that head execution material is locally
+  available. Docker image selectors, image digests, and private snapshot paths
+  are absent from list, show, history, build, and redirected/JSON review output.
 - Direct `config shell` changes one allowlisted shell-presentation policy in
   the explicit or default Workspace Manifest. Its terminal editor may stage several
   distinct rows and commits the complete change set with one atomic write.

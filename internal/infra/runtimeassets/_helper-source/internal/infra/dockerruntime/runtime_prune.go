@@ -37,13 +37,14 @@ type runtimePruneJournalItem struct {
 }
 
 type runtimePruneJournal struct {
-	SchemaVersion int                       `json:"schema_version"`
-	Plan          tobari.RuntimePrunePlan   `json:"plan"`
-	Items         []runtimePruneJournalItem `json:"items"`
+	SchemaVersion         int                                  `json:"schema_version"`
+	Plan                  tobari.RuntimePrunePlan              `json:"plan"`
+	RetirementGenerations []tobari.RuntimeRetirementGeneration `json:"retirement_generations,omitempty"`
+	Items                 []runtimePruneJournalItem            `json:"items"`
 }
 
 func (j runtimePruneJournal) Validate() error {
-	if j.SchemaVersion != runtimePruneJournalSchema || j.Plan.Validate() != nil || !j.Plan.Applicable || len(j.Items) == 0 || len(j.Items) != len(j.Plan.Candidates) {
+	if j.SchemaVersion != runtimePruneJournalSchema || !reflect.DeepEqual(j.RetirementGenerations, j.Plan.RetirementGenerations) || j.Plan.Validate() != nil || !j.Plan.Applicable || len(j.Items) == 0 || len(j.Items) != len(j.Plan.Candidates) {
 		return fmt.Errorf("Runtime prune journal authority is invalid")
 	}
 	previous := ""
@@ -104,13 +105,27 @@ func (j runtimePruneJournal) activities() []tobari.RuntimeLifecycleActivity {
 }
 
 type runtimePruneReceiptStore struct {
-	SchemaVersion int                         `json:"schema_version"`
-	NextRevision  uint64                      `json:"next_revision"`
-	Results       []tobari.RuntimePruneResult `json:"results"`
+	SchemaVersion             int                                    `json:"schema_version"`
+	NextRevision              uint64                                 `json:"next_revision"`
+	Results                   []tobari.RuntimePruneResult            `json:"results"`
+	AvailabilitySupersessions []runtimePruneAvailabilitySupersession `json:"availability_supersessions,omitempty"`
+}
+
+type runtimePruneAvailabilitySupersession struct {
+	RuntimeID              string `json:"runtime_id"`
+	Revision               string `json:"revision"`
+	ThroughReceiptRevision uint64 `json:"through_receipt_revision"`
+}
+
+func (s runtimePruneAvailabilitySupersession) Validate() error {
+	if tobari.ValidateRuntimeID(s.RuntimeID) != nil || tobari.ValidateDigest(s.Revision) != nil || s.ThroughReceiptRevision == 0 {
+		return fmt.Errorf("Runtime prune availability supersession is invalid")
+	}
+	return nil
 }
 
 func emptyRuntimePruneReceiptStore() runtimePruneReceiptStore {
-	return runtimePruneReceiptStore{SchemaVersion: runtimePruneReceiptSchema, NextRevision: 1, Results: []tobari.RuntimePruneResult{}}
+	return runtimePruneReceiptStore{SchemaVersion: runtimePruneReceiptSchema, NextRevision: 1, Results: []tobari.RuntimePruneResult{}, AvailabilitySupersessions: []runtimePruneAvailabilitySupersession{}}
 }
 
 func (s runtimePruneReceiptStore) Validate() error {
@@ -125,6 +140,14 @@ func (s runtimePruneReceiptStore) Validate() error {
 		}
 		previous = result.ReceiptRevision
 		seen[result.PlanRef] = true
+	}
+	for index, supersession := range s.AvailabilitySupersessions {
+		if err := supersession.Validate(); err != nil || supersession.ThroughReceiptRevision >= s.NextRevision || !runtimePruneReceiptContainsAuthority(s, supersession.RuntimeID, supersession.Revision, supersession.ThroughReceiptRevision) {
+			return fmt.Errorf("Runtime prune availability supersession authority is invalid")
+		}
+		if index > 0 && runtimePruneAvailabilitySupersessionKey(s.AvailabilitySupersessions[index-1]) >= runtimePruneAvailabilitySupersessionKey(supersession) {
+			return fmt.Errorf("Runtime prune availability supersessions are not unique canonical order")
+		}
 	}
 	return nil
 }
@@ -153,6 +176,7 @@ func (r *Runtime) readRuntimePruneJournalObserved() (*runtimePruneJournal, error
 	if err := readStrictJSON(path, &journal); err != nil {
 		return nil, err
 	}
+	journal.Plan.RetirementGenerations = append([]tobari.RuntimeRetirementGeneration(nil), journal.RetirementGenerations...)
 	if err := journal.Validate(); err != nil {
 		return nil, err
 	}
@@ -174,6 +198,12 @@ func (r *Runtime) readRuntimePruneReceiptStoreObserved() (runtimePruneReceiptSto
 	var store runtimePruneReceiptStore
 	if err := readStrictJSON(path, &store); err != nil {
 		return runtimePruneReceiptStore{}, err
+	}
+	// Schema 1 stores written before restore supersession existed omit the
+	// optional collection. Normalize that exact legacy empty representation in
+	// memory; read-only observation never rewrites durable state.
+	if store.AvailabilitySupersessions == nil {
+		store.AvailabilitySupersessions = []runtimePruneAvailabilitySupersession{}
 	}
 	if err := store.Validate(); err != nil {
 		return runtimePruneReceiptStore{}, err
@@ -267,11 +297,29 @@ func (r *Runtime) writeRuntimePruneReceipt(store runtimePruneReceiptStore, resul
 	for validateRuntimePruneStateSize(next) != nil && len(next.Results) > 1 {
 		next.Results = append([]tobari.RuntimePruneResult{}, next.Results[1:]...)
 	}
+	next.AvailabilitySupersessions = retainedRuntimePruneAvailabilitySupersessions(next)
 	if err := next.Validate(); err != nil {
 		return runtimePruneReceiptStore{}, err
 	}
 	if err := validateRuntimePruneStateSize(next); err != nil {
 		return runtimePruneReceiptStore{}, err
+	}
+	if err := r.writeRuntimePruneReceiptStore(store, next); err != nil {
+		return runtimePruneReceiptStore{}, err
+	}
+	return next, nil
+}
+
+func (r *Runtime) writeRuntimePruneReceiptStore(previous, next runtimePruneReceiptStore) error {
+	current, err := r.readRuntimePruneReceiptStoreObserved()
+	if err != nil || !reflect.DeepEqual(current, previous) {
+		return fmt.Errorf("Runtime prune receipt authority changed: %w", err)
+	}
+	if err := next.Validate(); err != nil {
+		return err
+	}
+	if err := validateRuntimePruneStateSize(next); err != nil {
+		return err
 	}
 	write := func() error { return writeAtomicJSON(r.runtimePruneReceiptsPath(), next) }
 	if r.runtimePruneReceiptWrite != nil {
@@ -280,10 +328,10 @@ func (r *Runtime) writeRuntimePruneReceipt(store runtimePruneReceiptStore, resul
 	if writeErr := write(); writeErr != nil {
 		observed, observeErr := r.readRuntimePruneReceiptStoreObserved()
 		if observeErr != nil || !reflect.DeepEqual(observed, next) {
-			return runtimePruneReceiptStore{}, errors.Join(writeErr, observeErr)
+			return errors.Join(writeErr, observeErr)
 		}
 	}
-	return next, nil
+	return nil
 }
 
 func validateRuntimePruneStateSize(value any) error {
@@ -305,6 +353,88 @@ func runtimePruneReceipt(store runtimePruneReceiptStore, planRef string) (tobari
 		}
 	}
 	return tobari.RuntimePruneResult{}, false
+}
+
+func runtimePruneAvailabilitySupersessionKey(value runtimePruneAvailabilitySupersession) string {
+	return value.RuntimeID + "\x00" + value.Revision
+}
+
+func runtimePruneReceiptContainsAuthority(store runtimePruneReceiptStore, runtimeID, revision string, receiptRevision uint64) bool {
+	for _, result := range store.Results {
+		if result.ReceiptRevision != receiptRevision {
+			continue
+		}
+		for _, item := range result.Items {
+			if item.Kind == tobari.RuntimePruneCandidateRevision && item.RuntimeID == runtimeID && item.Revision == revision &&
+				item.RuntimeRef == tobari.RuntimeRef(runtimeID) && item.RevisionRef == tobari.RuntimeRevisionRef(runtimeID, revision) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func retainedRuntimePruneAvailabilitySupersessions(store runtimePruneReceiptStore) []runtimePruneAvailabilitySupersession {
+	result := make([]runtimePruneAvailabilitySupersession, 0, len(store.AvailabilitySupersessions))
+	for _, supersession := range store.AvailabilitySupersessions {
+		if runtimePruneReceiptContainsAuthority(store, supersession.RuntimeID, supersession.Revision, supersession.ThroughReceiptRevision) {
+			result = append(result, supersession)
+		}
+	}
+	return result
+}
+
+func runtimePruneLatestReceiptRevision(store runtimePruneReceiptStore, runtimeID, revision string) uint64 {
+	for resultIndex := len(store.Results) - 1; resultIndex >= 0; resultIndex-- {
+		result := store.Results[resultIndex]
+		if runtimePruneReceiptContainsAuthority(store, runtimeID, revision, result.ReceiptRevision) {
+			return result.ReceiptRevision
+		}
+	}
+	return 0
+}
+
+func runtimePruneSupersededThrough(store runtimePruneReceiptStore, runtimeID, revision string) uint64 {
+	key := runtimeID + "\x00" + revision
+	for _, supersession := range store.AvailabilitySupersessions {
+		if runtimePruneAvailabilitySupersessionKey(supersession) == key {
+			return supersession.ThroughReceiptRevision
+		}
+	}
+	return 0
+}
+
+// supersedeRuntimePruneAvailability durably records that an exact successful
+// restore has superseded the newest retained prune receipt for one immutable
+// revision. Result receipts remain untouched so old plan replay stays
+// idempotent; a later prune receipt revision naturally outruns this marker.
+func (r *Runtime) supersedeRuntimePruneAvailability(runtimeID, revision string) error {
+	store, err := r.readRuntimePruneReceiptStoreObserved()
+	if err != nil {
+		return err
+	}
+	latest := runtimePruneLatestReceiptRevision(store, runtimeID, revision)
+	if latest == 0 || runtimePruneSupersededThrough(store, runtimeID, revision) >= latest {
+		return nil
+	}
+	next := store
+	next.AvailabilitySupersessions = append([]runtimePruneAvailabilitySupersession{}, store.AvailabilitySupersessions...)
+	replacement := runtimePruneAvailabilitySupersession{RuntimeID: runtimeID, Revision: revision, ThroughReceiptRevision: latest}
+	replaced := false
+	for index := range next.AvailabilitySupersessions {
+		if runtimePruneAvailabilitySupersessionKey(next.AvailabilitySupersessions[index]) == runtimePruneAvailabilitySupersessionKey(replacement) {
+			next.AvailabilitySupersessions[index] = replacement
+			replaced = true
+			break
+		}
+	}
+	if !replaced {
+		next.AvailabilitySupersessions = append(next.AvailabilitySupersessions, replacement)
+	}
+	sort.Slice(next.AvailabilitySupersessions, func(i, j int) bool {
+		return runtimePruneAvailabilitySupersessionKey(next.AvailabilitySupersessions[i]) < runtimePruneAvailabilitySupersessionKey(next.AvailabilitySupersessions[j])
+	})
+	return r.writeRuntimePruneReceiptStore(store, next)
 }
 
 func (r *Runtime) removeRuntimePruneJournal(expected runtimePruneJournal) error {
@@ -464,7 +594,7 @@ func (r *Runtime) applyRuntimePruneLocked(ctx context.Context, plan tobari.Runti
 			result := tobari.RuntimePruneResult{Task: tobari.TaskRuntimePruneApply, PlanRef: plan.PlanRef, State: tobari.RuntimePruneEmpty, Items: []tobari.RuntimePruneItemResult{}, SourcePreserved: true, SnapshotsPreserved: true, HistoryPreserved: true}
 			return result, result.Validate()
 		}
-		created := runtimePruneJournal{SchemaVersion: runtimePruneJournalSchema, Plan: current, Items: make([]runtimePruneJournalItem, len(current.Candidates))}
+		created := runtimePruneJournal{SchemaVersion: runtimePruneJournalSchema, Plan: current, RetirementGenerations: append([]tobari.RuntimeRetirementGeneration(nil), current.RetirementGenerations...), Items: make([]runtimePruneJournalItem, len(current.Candidates))}
 		for index, candidate := range current.Candidates {
 			created.Items[index] = runtimePruneJournalItem{Candidate: candidate, State: runtimePrunePending}
 		}
@@ -694,6 +824,8 @@ func (r *Runtime) validateRuntimePruneCandidate(snapshot tobari.RuntimeLifecycle
 
 func cloneRuntimePruneJournal(journal runtimePruneJournal) runtimePruneJournal {
 	journal.Items = append([]runtimePruneJournalItem{}, journal.Items...)
+	journal.RetirementGenerations = append([]tobari.RuntimeRetirementGeneration(nil), journal.RetirementGenerations...)
+	journal.Plan.RetirementGenerations = append([]tobari.RuntimeRetirementGeneration(nil), journal.Plan.RetirementGenerations...)
 	return journal
 }
 

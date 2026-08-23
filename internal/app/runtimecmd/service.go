@@ -16,9 +16,6 @@ import (
 )
 
 type RuntimePort interface {
-	ListRuntimes(context.Context) (tobari.RuntimeListResult, error)
-	ShowRuntime(context.Context, string) (tobari.RuntimeReport, error)
-	RuntimeHistory(context.Context, string) (tobari.RuntimeReport, error)
 	CreateRuntime(context.Context, string, tobari.RuntimeCopySource) (tobari.RuntimeReport, error)
 	ResolveRuntimeReference(context.Context, string) (tobari.RuntimeManifest, error)
 	BuildManagedRuntimeByReference(context.Context, string, io.Writer) (tobari.RuntimeReport, error)
@@ -393,11 +390,7 @@ func (s *Service) Recover(ctx context.Context, intent operation.Intent, recovery
 	if err != nil {
 		return tobari.RuntimeReport{}, err
 	}
-	result, err = tobari.RuntimeReportWithRevisionReferences(result)
-	if err != nil {
-		return tobari.RuntimeReport{}, fault.Wrap(fault.KindContract, "invalid_runtime_report", "Runtime recovery report is invalid", false, err)
-	}
-	return result, nil
+	return s.projectRuntimeBuildResult(ctx, result, true, "Runtime recovery report is invalid")
 }
 
 func (s *Service) requireRuntime() error {
@@ -597,33 +590,18 @@ func (s *Service) List(ctx context.Context) (tobari.RuntimeListResult, error) {
 	if err := s.requireRuntime(); err != nil {
 		return tobari.RuntimeListResult{}, err
 	}
-	result, err := s.runtime.ListRuntimes(ctx)
+	snapshot, _, err := s.runtime.ReadRuntimeLifecycleSnapshot(ctx)
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return tobari.RuntimeListResult{}, err
+	}
 	if err != nil {
-		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-			return tobari.RuntimeListResult{}, err
-		}
-		return tobari.RuntimeListResult{}, fault.Wrap(fault.KindInternal, "runtime_read_failed", "Runtime catalog could not be read", false, err, fault.NextAction{Command: "doctor", Reason: "Inspect the host Runtime store."})
+		return tobari.RuntimeListResult{}, runtimeReportObservationFault(err)
 	}
-	if err := result.Validate(); err != nil {
-		return tobari.RuntimeListResult{}, fault.Wrap(fault.KindContract, "invalid_runtime_list", "Runtime list is invalid", false, err)
-	}
-	result, err = runtimeListWithReferences(result)
+	result, err := tobari.RuntimeListFromLifecycleSnapshot(snapshot)
 	if err != nil {
 		return tobari.RuntimeListResult{}, fault.Wrap(fault.KindContract, "invalid_runtime_list", "Runtime list is invalid", false, err)
 	}
 	return result, nil
-}
-
-func runtimeListWithReferences(result tobari.RuntimeListResult) (tobari.RuntimeListResult, error) {
-	for index := range result.Items {
-		result.Items[index].RuntimeRef = tobari.RuntimeRef(result.Items[index].ID)
-		if result.Items[index].Kind == tobari.RuntimeKindManaged && result.Items[index].Revision != "" {
-			result.Items[index].RevisionRef = tobari.RuntimeRevisionRef(result.Items[index].ID, result.Items[index].Revision)
-		} else {
-			result.Items[index].RevisionRef = ""
-		}
-	}
-	return result, result.Validate()
 }
 
 func (s *Service) Show(ctx context.Context, name string) (tobari.RuntimeReport, error) {
@@ -641,26 +619,21 @@ func (s *Service) read(ctx context.Context, name string, history bool) (tobari.R
 	if err := tobari.ValidateName(name); err != nil {
 		return tobari.RuntimeReport{}, fault.Wrap(fault.KindInvalidInput, "invalid_runtime_name", "Runtime name is invalid", false, err, fault.NextAction{Command: "runtime list", Reason: "Choose a Runtime from the local catalog."})
 	}
-	var result tobari.RuntimeReport
-	var err error
+	task := tobari.TaskRuntimeShow
 	if history {
-		result, err = s.runtime.RuntimeHistory(ctx, name)
-	} else {
-		result, err = s.runtime.ShowRuntime(ctx, name)
+		task = tobari.TaskRuntimeHistory
 	}
+	snapshot, _, err := s.runtime.ReadRuntimeLifecycleSnapshot(ctx)
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return tobari.RuntimeReport{}, err
 	}
+	if err != nil {
+		return tobari.RuntimeReport{}, runtimeReportObservationFault(err)
+	}
+	result, err := tobari.RuntimeReportFromLifecycleSnapshot(snapshot, task, name)
 	if errors.Is(err, tobari.ErrRuntimeNotFound) {
 		return tobari.RuntimeReport{}, fault.New(fault.KindNotFound, "runtime_not_found", "the named Runtime does not exist", false, fault.NextAction{Command: "runtime list", Reason: "Choose an existing Runtime."})
 	}
-	if err != nil {
-		return tobari.RuntimeReport{}, fault.Wrap(fault.KindInternal, "runtime_read_failed", "Runtime could not be read", false, err, fault.NextAction{Command: "doctor", Reason: "Inspect the host Runtime store."})
-	}
-	if err := result.Validate(); err != nil {
-		return tobari.RuntimeReport{}, fault.Wrap(fault.KindContract, "invalid_runtime_report", "Runtime report is invalid", false, err)
-	}
-	result, err = tobari.RuntimeReportWithRevisionReferences(result)
 	if err != nil {
 		return tobari.RuntimeReport{}, fault.Wrap(fault.KindContract, "invalid_runtime_report", "Runtime report is invalid", false, err)
 	}
@@ -708,7 +681,7 @@ func (s *Service) Create(ctx context.Context, intent operation.Intent, name, bas
 	if err != nil {
 		return tobari.RuntimeReport{}, err
 	}
-	result, err = tobari.RuntimeReportWithRevisionReferences(result)
+	result, err = tobari.RuntimeDraftReportWithPublicProjection(result)
 	if err != nil {
 		return tobari.RuntimeReport{}, fault.Wrap(fault.KindContract, "invalid_runtime_report", "Runtime creation report is invalid", false, err)
 	}
@@ -761,9 +734,42 @@ func (s *Service) Build(ctx context.Context, intent operation.Intent, runtimeRef
 	if err != nil {
 		return tobari.RuntimeReport{}, err
 	}
-	result, err = tobari.RuntimeReportWithRevisionReferences(result)
-	if err != nil {
-		return tobari.RuntimeReport{}, fault.Wrap(fault.KindContract, "invalid_runtime_report", "Runtime build report is invalid", false, err)
+	return s.projectRuntimeBuildResult(ctx, result, result.Built, "Runtime build report is invalid")
+}
+
+func (s *Service) projectRuntimeBuildResult(ctx context.Context, result tobari.RuntimeReport, confirmedMutation bool, invalidMessage string) (tobari.RuntimeReport, error) {
+	snapshot, _, observationErr := s.runtime.ReadRuntimeLifecycleSnapshot(ctx)
+	if observationErr != nil {
+		if confirmedMutation {
+			return tobari.RuntimeReport{}, fault.WithClassification(
+				fault.Wrap(fault.KindInternal, "runtime_build_observation_unknown", "Confirmed Runtime build could not be projected from current lifecycle evidence", false, observationErr,
+					fault.NextAction{Command: "runtime show", Reason: "Reconcile the confirmed Runtime revision and current material availability."}),
+				fault.PhaseVerification, fault.ChangeConfirmed,
+			)
+		}
+		if errors.Is(observationErr, context.Canceled) || errors.Is(observationErr, context.DeadlineExceeded) {
+			return tobari.RuntimeReport{}, observationErr
+		}
+		return tobari.RuntimeReport{}, runtimeReportObservationFault(observationErr)
 	}
-	return result, nil
+	projected, err := tobari.RuntimeReportWithLifecycleEvidence(result, snapshot)
+	if err != nil {
+		if confirmedMutation {
+			return tobari.RuntimeReport{}, fault.WithClassification(
+				fault.Wrap(fault.KindContract, "invalid_runtime_report_confirmed", invalidMessage, false, err,
+					fault.NextAction{Command: "runtime show", Reason: "Reconcile the confirmed Runtime revision and current material availability."}),
+				fault.PhaseVerification, fault.ChangeConfirmed,
+			)
+		}
+		return tobari.RuntimeReport{}, fault.Wrap(fault.KindContract, "invalid_runtime_report", invalidMessage, false, err)
+	}
+	return projected, nil
+}
+
+func runtimeReportObservationFault(err error) error {
+	return fault.WithClassification(
+		fault.Wrap(fault.KindRejected, "runtime_retirement_observation_unknown", "Runtime lifecycle could not be observed completely", false, err,
+			fault.NextAction{Command: "doctor", Reason: "Inspect the host Runtime lifecycle state."}),
+		fault.PhaseObservation, fault.ChangeNotApplicable,
+	)
 }

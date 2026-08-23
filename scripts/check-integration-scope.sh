@@ -5,6 +5,7 @@ cd "$(dirname "$0")/.."
 scenario=scripts/test-integration.sh
 workspace_service_helper=test/integration/workspace_service_exposure.sh
 gateway_fixture_helper=test/integration/gateway_fixture.sh
+runtime_image_cleanup_helper=test/integration/runtime_image_cleanup.sh
 
 expected_phases=$'preflight\nbuild-fixtures\nmanifests-and-cluster\ncredentials-and-workspaces\ngateway-broker-and-transport\nlive-policy-activation\nattachment-scoped-host-loopback\nruntime-failure-boundaries\nlifecycle'
 actual_phases=$(awk '/^begin_phase / { print $2 }' "$scenario")
@@ -15,8 +16,13 @@ if [[ $actual_phases != "$expected_phases" ]]; then
 fi
 
 line_count=$(wc -l <"$scenario" | tr -d ' ')
-if ((line_count > 1700)); then
-  echo "integration scope: scenario grew to $line_count lines (limit 1700)" >&2
+if ((line_count > 1720)); then
+  echo "integration scope: scenario grew to $line_count lines (limit 1720)" >&2
+  exit 1
+fi
+runtime_image_cleanup_line_count=$(wc -l <"$runtime_image_cleanup_helper" | tr -d ' ')
+if ((runtime_image_cleanup_line_count > 50)); then
+  echo "integration scope: Runtime cleanup helper grew to $runtime_image_cleanup_line_count lines (limit 50)" >&2
   exit 1
 fi
 helper_line_count=$(wc -l <"$workspace_service_helper" | tr -d ' ')
@@ -30,6 +36,18 @@ if ((gateway_fixture_helper_line_count > 100)); then
   exit 1
 fi
 ./test/integration/gateway_fixture_test.sh
+for claim in \
+  'label=io.tobari.owner=default' \
+  'label=io.tobari.component=runtime-revision' \
+  'label=io.tobari.runtime-id=$expected_runtime_id' \
+  'label=io.tobari.runtime-revision=$expected_source_digest' \
+  'runtime_image="$repository:$tag"' \
+  'runtime_image_id=$image_id'; do
+  if ! grep -F "$claim" "$runtime_image_cleanup_helper" >/dev/null; then
+    echo "integration scope: missing exact managed Runtime cleanup evidence: $claim" >&2
+    exit 1
+  fi
+done
 for claim in \
   'run_tobari service requests' \
   'run_tobari service allow --id' \
@@ -79,6 +97,10 @@ for claim in \
   'item["workspace_manifest"]' \
   '["workspace_manifest"]["workspace_manifest_id"]' \
   '["runtime"]["runtime"]["runtime_ref"]' \
+  'revision["availability"]["state"] == "available"' \
+  'revision["source_digest"]' \
+  'capture_runtime_image_for_cleanup "$runtime_id" "$runtime_source_digest"' \
+  'TOBARI_INTEGRATION_FAIL_AFTER_RUNTIME_CAPTURE' \
   'run_tobari runtime build --id "$runtime_ref"' \
   'go run ./tools/integrationfixture manifest-policy'; do
   if ! grep -F "$claim" "$scenario" >/dev/null; then
@@ -86,8 +108,21 @@ for claim in \
     exit 1
   fi
 done
+capture_line=$(grep -nF 'capture_runtime_image_for_cleanup "$runtime_id" "$runtime_source_digest"' "$scenario" | cut -d: -f1)
+failure_line=$(grep -nF 'TOBARI_INTEGRATION_FAIL_AFTER_RUNTIME_CAPTURE' "$scenario" | tail -1 | cut -d: -f1)
+container_line=$(grep -nF 'work_container=$(container_for_id "$work_id")' "$scenario" | cut -d: -f1)
+cleanup_line=$(grep -nF 'docker image rm -f "$runtime_image"' "$scenario" | cut -d: -f1)
+if [[ -z $capture_line || -z $failure_line || -z $container_line || -z $cleanup_line ||
+  $capture_line -ge $failure_line || $failure_line -ge $container_line ]]; then
+  echo "integration scope: managed Runtime cleanup authority is not captured before the injectable pre-container failure" >&2
+  exit 1
+fi
 if grep -F 'run_tobari runtime build --name' "$scenario" >&2; then
   echo "integration scope: retired Runtime build target returned" >&2
+  exit 1
+fi
+if grep -E 'revisions.*\["(image|image_digest|snapshot_path|revision)"\]' "$scenario" >&2; then
+  echo "integration scope: provisional Runtime infrastructure projection returned" >&2
   exit 1
 fi
 for claim in 'item["project_id"]' 'item["context"]'; do

@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	runtimeCreateBaseFixtureSHA256 = "4f11f73096900908c59b7ca31c162937b403f9ca0e5abb70ac36c717c9487853"
+	runtimeCreateBaseFixtureSHA256 = "8d77153c950b130d13c94a1895c747f650b9de0882939d60a589609a47e9fc0c"
 	runtimeCreateBaseAnswerSHA256  = "7aa98fd5f5fa1566368081abc9f5031b498a6a6269f92f475d030bf8961ce811"
 )
 
@@ -82,7 +82,7 @@ func TestRuntimeCreateBasePinnedPresentationHasNoLineageInference(t *testing.T) 
 		t.Fatalf("routine success = %+v", answer.RoutineSuccess)
 	}
 
-	publicReport, err := tobari.RuntimeReportWithReferences(fixture.Report)
+	publicReport, err := tobari.RuntimeDraftReportWithPublicProjection(fixture.Report)
 	if err != nil {
 		t.Fatal(err)
 	}
