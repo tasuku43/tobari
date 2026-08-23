@@ -83,7 +83,7 @@ func (r *permissionWaitRegistry) ownerCurrentLocked(now time.Time) bool {
 }
 
 func permissionWaitOwnerFault() error {
-	return fault.New(fault.KindUnavailable, "permission_wait_owner_unavailable", "permission wait attachment owner is unavailable", true)
+	return fault.New(fault.KindUnavailable, "permission_wait_owner_unavailable", "permission wait attachment owner is unavailable", false)
 }
 
 func waitPermissionObservation(ctx context.Context, duration time.Duration, unavailable <-chan struct{}) error {

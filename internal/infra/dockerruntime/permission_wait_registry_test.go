@@ -83,6 +83,10 @@ func TestPermissionWaitRegistryRejectsTerminalAcrossOwnerExpiry(t *testing.T) {
 	if result != "" || !hasInfrastructureFaultCode(err, "permission_wait_owner_unavailable") {
 		t.Fatalf("terminal after owner expiry = %q, %v", result, err)
 	}
+	var structured *fault.Error
+	if !errors.As(err, &structured) || structured.Retryable {
+		t.Fatalf("owner-loss fault advertised replay permission: %+v", structured)
+	}
 }
 
 func TestPermissionWaitRegistryExpiresInsteadOfAcceptingLateTerminal(t *testing.T) {
