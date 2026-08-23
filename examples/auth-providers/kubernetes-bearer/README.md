@@ -27,7 +27,7 @@ addresses. Consequently, this example supports a public-DNS, publicly routed
 API endpoint only; a private, loopback, link-local, or literal-IP cluster
 endpoint is outside this slice.
 
-## Install and import into the default Context
+## Install and import into the default Workspace Manifest
 
 Copy the customized manifest to the owner-controlled provider directory and
 apply the required owner-only permissions:
@@ -49,10 +49,10 @@ Then pipe the token from a trusted, non-interactive secret source; never put it
 in argv or a shell environment variable:
 
 ```sh
-trusted-token-source | tobari auth import kubernetes-api-token --context default
+trusted-token-source | tobari auth import kubernetes-api-token --manifest default
 ```
 
-Leave and re-enter the default Context's Workspace after a successful import.
+Leave and re-enter the default Workspace Manifest's Workspace after a successful import.
 `kubectl` then reads `~/.kube/config`, sends the opaque Tobari handle as a
 Bearer `Authorization` value, and the Gateway replaces it only after the exact
 ordinary HTTP request is allowed by policy.

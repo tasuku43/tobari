@@ -333,13 +333,13 @@ network_for_id() {
 
 id_for_root() {
   local root=$1
-  local context=${2:-}
+  local manifest=${2:-}
   python3 -c \
     'import json,sys
-root,context=sys.argv[1:]
+root,manifest=sys.argv[1:]
 print(next(item["workspace_id"] for item in json.load(sys.stdin)["workspaces"]
-           if item["project_root"] == root and (not context or item["context"] == context)))' \
-    "$root" "$context"
+           if item["project_root"] == root and (not manifest or item["workspace_manifest"] == manifest)))' \
+    "$root" "$manifest"
 }
 
 run_project() {
@@ -563,9 +563,9 @@ cleanup() {
         run_tobari cluster up >/dev/null 2>&1 || true
       fi
       run_tobari_at "$work_root" delete --force >/dev/null 2>&1 || true
-			run_tobari_at "$work_root" delete --context restricted --force >/dev/null 2>&1 || true
+			run_tobari_at "$work_root" delete --manifest restricted --force >/dev/null 2>&1 || true
   if [[ -n $other_root ]]; then
-        run_tobari_at "$other_root" delete --context restricted --force >/dev/null 2>&1 || true
+        run_tobari_at "$other_root" delete --manifest restricted --force >/dev/null 2>&1 || true
       fi
       run_tobari cluster down --purge >/dev/null 2>&1 || true
     fi
@@ -802,7 +802,7 @@ if ! docker image inspect tobari-runtime:dev >/dev/null 2>&1; then
   docker tag "$custom_base_image" tobari-runtime:dev
   created_dev_runtime_tag=true
 fi
-begin_phase contexts-and-cluster
+begin_phase manifests-and-cluster
 runtime_create=$(run_tobari runtime create --name "$runtime_name" --format json)
 runtime_source_path=$(python3 -c \
   'import json,sys; print(json.load(sys.stdin)["runtime"]["runtime"]["source_path"])' \
@@ -828,11 +828,11 @@ runtime_image=$(python3 -c \
   'import json,sys; print(json.load(sys.stdin)["runtime"]["runtime"]["revisions"][-1]["image"])' \
   <<<"$runtime_build")
 runtime_selection="$runtime_name@1"
-default_context_create=$(run_tobari context create --name default --runtime "$runtime_selection" \
+default_manifest_create=$(run_tobari manifest create --name default --runtime "$runtime_selection" \
   --mode guided --source-access read-write --native-readiness enabled --format json)
-default_context_id=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["context"]["id"])' \
-  <<<"$default_context_create")
-run_tobari context create --name restricted --runtime "$runtime_selection" \
+default_manifest_id=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["workspace_manifest"]["workspace_manifest_id"])' \
+  <<<"$default_manifest_create")
+run_tobari manifest create --name restricted --runtime "$runtime_selection" \
   --mode guided --source-access read-only --native-readiness enabled --format json >/dev/null
 python3 - "$config_directory/contexts/default/policy/context.json" "$config_directory/contexts/default/context.json" <<'PY'
 import hashlib
@@ -910,13 +910,13 @@ gateway_projection_mode=$(docker exec tobari-gateway stat -c '%a:%u' /run/tobari
 
 begin_phase credentials-and-workspaces
 printf '%s' "$synthetic_default_secret" | \
-  run_tobari auth import "$synthetic_provider" --context default --format json >/dev/null
+  run_tobari auth import "$synthetic_provider" --manifest default --format json >/dev/null
 printf '%s' "$synthetic_restricted_secret" | \
-  run_tobari auth import "$synthetic_provider" --context restricted --format json >/dev/null
+  run_tobari auth import "$synthetic_provider" --manifest restricted --format json >/dev/null
 container_work_root="/var/lib/tobari/${work_root#"$test_root/user/"}"
 enter_tobari_at "$work_root"
-enter_tobari_at "$work_root" --context restricted
-enter_tobari_at "$other_root" --context restricted
+enter_tobari_at "$work_root" --manifest restricted
+enter_tobari_at "$other_root" --manifest restricted
 list_json=$(run_tobari_at "$work_root" list --format json)
 work_id=$(id_for_root "$work_root" default <<<"$list_json")
 restricted_id=$(id_for_root "$work_root" restricted <<<"$list_json")
@@ -954,7 +954,7 @@ if len(workspace_addresses) != len(set(workspace_addresses)):
 if set(addresses) & set(workspace_addresses):
     raise SystemExit("project principal registry overlapped Workspace and Gateway endpoints")
 if {item["context"] for item in bindings} != {"default", "restricted"}:
-    raise SystemExit(f"registry Context bindings are incomplete: {bindings!r}")
+    raise SystemExit(f"predecessor registry Manifest bindings are incomplete: {bindings!r}")
 PY
 
 work_gateway_ip=$(python3 - "$config_directory/principal-registry/principals.json" "$work_id" <<'PY'
@@ -1004,51 +1004,51 @@ assert_contains "$workspace_default_route" "default via $work_gateway_ip" "Works
 
 work_status=$(run_tobari_at "$work_root" status --format json)
 work_home=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["status"]["workspace_home"])' <<<"$work_status")
-restricted_status=$(run_tobari_at "$work_root" status --context restricted --format json)
+restricted_status=$(run_tobari_at "$work_root" status --manifest restricted --format json)
 restricted_home=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["status"]["workspace_home"])' <<<"$restricted_status")
-other_status=$(run_tobari_at "$other_root" status --context restricted --format json)
+other_status=$(run_tobari_at "$other_root" status --manifest restricted --format json)
 other_home=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["status"]["workspace_home"])' <<<"$other_status")
-[[ $work_home != "$restricted_home" && $work_home != "$other_home" && $restricted_home != "$other_home" ]] || fail "Context-bound Tobari share a home directory"
-printf 'shared-project-files\n' >"$work_root/context-sharing-canary"
-assert_contains "$(run_restricted_project cat "$container_work_root/context-sharing-canary")" "shared-project-files" "same-root cross-Context project file sharing"
+[[ $work_home != "$restricted_home" && $work_home != "$other_home" && $restricted_home != "$other_home" ]] || fail "Workspace Manifest-bound Workspaces share a home directory"
+printf 'shared-project-files\n' >"$work_root/manifest-sharing-canary"
+assert_contains "$(run_restricted_project cat "$container_work_root/manifest-sharing-canary")" "shared-project-files" "same-root cross-Manifest project file sharing"
 
-# Source access applies only to the selected live source bind. Both Contexts
+# Source access applies only to the selected live source bind. Both Workspace Manifests
 # observe the same host tree, while Workspace home and tmpfs remain writable.
 [[ $(docker inspect --format \
   "{{range .Mounts}}{{if eq .Destination \"$container_work_root\"}}{{.RW}}{{end}}{{end}}" \
-  "$work_container") == true ]] || fail "read-write Context source bind is not writable"
+  "$work_container") == true ]] || fail "read-write Manifest source bind is not writable"
 [[ $(docker inspect --format \
   "{{range .Mounts}}{{if eq .Destination \"$container_work_root\"}}{{.RW}}{{end}}{{end}}" \
-  "$restricted_container") == false ]] || fail "read-only Context source bind is writable"
+  "$restricted_container") == false ]] || fail "read-only Manifest source bind is writable"
 if docker inspect --format '{{range .Mounts}}{{println .Destination .RW}}{{end}}' "$restricted_container" | \
   awk -v root="$container_work_root" '$1 == root && $2 == "true" {found=1} END {exit found ? 0 : 1}'; then
-  fail "read-only Context exposes a writable alias for the selected source"
+  fail "read-only Manifest exposes a writable alias for the selected source"
 fi
-assert_contains "$(run_restricted_project cat "$container_work_root/context-sharing-canary")" \
-  "shared-project-files" "read-only Context source read"
+assert_contains "$(run_restricted_project cat "$container_work_root/manifest-sharing-canary")" \
+  "shared-project-files" "read-only Manifest source read"
 for mutation in \
-  "printf changed > '$container_work_root/context-sharing-canary'" \
+  "printf changed > '$container_work_root/manifest-sharing-canary'" \
   "printf created > '$container_work_root/read-only-create'" \
-  "rm '$container_work_root/context-sharing-canary'" \
-  "mv '$container_work_root/context-sharing-canary' '$container_work_root/read-only-rename'" \
-  "chmod 0600 '$container_work_root/context-sharing-canary'" \
+  "rm '$container_work_root/manifest-sharing-canary'" \
+  "mv '$container_work_root/manifest-sharing-canary' '$container_work_root/read-only-rename'" \
+  "chmod 0600 '$container_work_root/manifest-sharing-canary'" \
   "git -C '$container_work_root' init"; do
   if run_restricted_project sh -c "$mutation" >/dev/null 2>&1; then
-    fail "read-only Context allowed source mutation: $mutation"
+    fail "read-only Manifest allowed source mutation: $mutation"
   fi
 done
 run_project sh -c "printf observed > '$container_work_root/read-write-observation'"
 assert_contains "$(run_restricted_project cat "$container_work_root/read-write-observation")" \
-  "observed" "read-only Context observation of read-write Context change"
+  "observed" "read-only Manifest observation of read-write Manifest change"
 printf 'host-observed\n' >"$work_root/host-observation"
 assert_contains "$(run_restricted_project cat "$container_work_root/host-observation")" \
-  "host-observed" "read-only Context observation of host change"
+  "host-observed" "read-only Manifest observation of host change"
 run_restricted_project sh -c 'printf home-write > /var/lib/tobari/source-access-home'
 run_restricted_project sh -c 'printf tmp-write > /tmp/source-access-tmp'
 assert_contains "$(run_restricted_project cat /var/lib/tobari/source-access-home)" \
-  "home-write" "read-only Context writable home"
+  "home-write" "read-only Manifest writable home"
 assert_contains "$(run_restricted_project cat /tmp/source-access-tmp)" \
-  "tmp-write" "read-only Context writable tmpfs"
+  "tmp-write" "read-only Manifest writable tmpfs"
 
 assert_resource_bounds "$work_container"
 assert_resource_bounds "$restricted_container"
@@ -1068,9 +1068,9 @@ for projected_handle in "$work_auth_handle" "$restricted_auth_handle" "$other_au
     fail "Workspace did not receive one versioned opaque authentication handle"
 done
 [[ $work_auth_handle != "$restricted_auth_handle" ]] ||
-  fail "same-root Workspaces in different Contexts received the same handle"
+  fail "same-root Workspaces in different Manifests received the same handle"
 [[ $restricted_auth_handle != "$other_auth_handle" ]] ||
-  fail "different projects in one Context received the same handle"
+  fail "different projects in one Manifest received the same handle"
 [[ $(docker inspect --format '{{len .NetworkSettings.Networks}}' tobari-auth-broker) == 2 ]] ||
   fail "Auth Broker did not retain exactly control and bounded refresh egress networks"
 for project_network in "$work_network" "$restricted_network" "$other_network"; do
@@ -1101,7 +1101,7 @@ if docker exec "$other_container" test -e /var/lib/tobari/tool-auth-state; then
   fail "tool authentication state leaked to another project"
 fi
 if docker exec "$restricted_container" test -e /var/lib/tobari/tool-auth-state; then
-  fail "tool authentication state leaked across Contexts on the same root"
+  fail "tool authentication state leaked across Manifests on the same root"
 fi
 
 if run_project test -e "$container_work_root/credentials"; then
@@ -1178,7 +1178,7 @@ work_auth_handle=$(run_project printenv SYNTHETIC_TOKEN)
 restricted_auth_handle=$(run_restricted_project printenv SYNTHETIC_TOKEN)
 other_auth_handle=$(run_other_project printenv SYNTHETIC_TOKEN)
 
-default_vault="$test_root/state/tobari/auth/contexts/$default_context_id/vault.enc"
+default_vault="$test_root/state/tobari/auth/contexts/$default_manifest_id/vault.enc"
 python3 - "$default_vault" "$(id -u)" <<'PY'
 import os
 import stat
@@ -1186,10 +1186,10 @@ import sys
 
 info = os.lstat(sys.argv[1])
 if not stat.S_ISREG(info.st_mode) or stat.S_ISLNK(info.st_mode):
-    raise SystemExit("default Context vault is not a regular non-symlink file")
+    raise SystemExit("default Manifest vault is not a regular non-symlink file")
 if info.st_uid != int(sys.argv[2]) or stat.S_IMODE(info.st_mode) != 0o600:
     raise SystemExit(
-        f"default Context vault ownership/mode is {info.st_uid}:{stat.S_IMODE(info.st_mode):03o}"
+        f"default Manifest vault ownership/mode is {info.st_uid}:{stat.S_IMODE(info.st_mode):03o}"
     )
 PY
 
@@ -1225,10 +1225,10 @@ default_broker_response=$(run_project sh -c \
   'curl -fsS -H "X-Synthetic-Auth: $SYNTHETIC_TOKEN" https://api.synthetic.example/brokered-default')
 default_broker_digest=$(printf 'Bearer %s' "$synthetic_default_secret" | shasum -a 256 | awk '{print $1}')
 assert_contains "$default_broker_response" '"authorization_present":true' \
-  "default Context brokered upstream response"
+  "default Manifest brokered upstream response"
 assert_contains "$default_broker_response" \
   "\"authorization_sha256\":\"$default_broker_digest\"" \
-  "default Context brokered credential digest"
+  "default Manifest brokered credential digest"
 [[ $(docker inspect --format '{{.Id}}' tobari-opa) == "$opa_before_policy_activation" ]] ||
   fail "live policy activation recreated OPA"
 
@@ -1238,7 +1238,7 @@ restricted_broker_denial=$(run_restricted_project sh -c \
   'curl -sS -w "\n%{http_code}" -H "X-Synthetic-Auth: $SYNTHETIC_TOKEN" https://api.synthetic.example/brokered-restricted')
 restricted_broker_denial_status=${restricted_broker_denial##*$'\n'}
 [[ $restricted_broker_denial_status == 403 ]] ||
-  fail "restricted Context brokered request returned $restricted_broker_denial_status instead of policy denial"
+  fail "restricted Manifest brokered request returned $restricted_broker_denial_status instead of policy denial"
 if docker logs "$auth_mock_name" 2>&1 | grep -F '"/brokered-restricted"' >/dev/null; then
   fail "restricted policy-denied brokered request reached the synthetic upstream"
 fi
@@ -1254,9 +1254,9 @@ restricted_broker_response=$(run_restricted_project sh -c \
 restricted_broker_digest=$(printf 'Bearer %s' "$synthetic_restricted_secret" | shasum -a 256 | awk '{print $1}')
 assert_contains "$restricted_broker_response" \
   "\"authorization_sha256\":\"$restricted_broker_digest\"" \
-  "restricted Context brokered credential digest"
+  "restricted Manifest brokered credential digest"
 if [[ $restricted_broker_response == *"$default_broker_digest"* ]]; then
-  fail "one shared Auth Broker crossed Context credential authority"
+  fail "one shared Auth Broker crossed Manifest credential authority"
 fi
 
 copied_context_result=$(printf '%s\n' "$work_auth_handle" | \
@@ -1264,7 +1264,7 @@ copied_context_result=$(printf '%s\n' "$work_auth_handle" | \
     'IFS= read -r copied; curl -sS -w "\n%{http_code}" -H "X-Synthetic-Auth: $copied" https://api.synthetic.example/copied-context')
 copied_context_status=${copied_context_result##*$'\n'}
 [[ $copied_context_status == 403 ]] ||
-  fail "handle copied across Contexts returned $copied_context_status instead of 403"
+  fail "handle copied across Manifests returned $copied_context_status instead of 403"
 
 copied_project_result=$(printf '%s\n' "$restricted_auth_handle" | \
   docker exec -i "$other_container" sh -c \
@@ -1393,7 +1393,7 @@ document = json.load(sys.stdin)
 endpoint = {"scheme": "https", "host": "graphql.tobari.dev", "port": 8080, "path": "/graphql"}
 if endpoint not in document["contexts"][context_id]["graphql_endpoints"]:
     raise SystemExit("declared GraphQL endpoint is absent from the live Gateway projection")
-' "$default_context_id" <<<"$graphql_projection"
+' "$default_manifest_id" <<<"$graphql_projection"
 graphql_body='{"query":"mutation Change { closeIssue updateIssue }","variables":{"value":"runtime-canary"}}'
 graphql_status=$(run_project curl -sS -o /dev/null -w '%{http_code}' \
   -H 'content-type: application/json' --data-binary "$graphql_body" \
@@ -1637,7 +1637,7 @@ set +e
 run_tobari cluster down >/dev/null 2>&1
 down_with_projects_status=$?
 set -e
-[[ $down_with_projects_status != 0 ]] || fail "cluster down succeeded while Context-bound Tobari remained"
+[[ $down_with_projects_status != 0 ]] || fail "cluster down succeeded while Manifest-bound Workspaces remained"
 [[ $(docker inspect --format '{{.State.Running}}' tobari-gateway) == true ]] || fail "refused cluster down stopped the shared Gateway"
 docker rm -f "$work_container" >/dev/null
 docker network disconnect -f "$work_network" tobari-gateway >/dev/null 2>&1 || true
@@ -1655,10 +1655,10 @@ with open(sys.argv[1], encoding="utf-8") as handle:
 if {item["project_id"] for item in bindings} != set(sys.argv[2:]):
     raise SystemExit(f"deleted project principal was not removed: {bindings!r}")
 PY
-run_tobari_at "$work_root" delete --context restricted --force >/dev/null
+run_tobari_at "$work_root" delete --manifest restricted --force >/dev/null
 restricted_id=
 restricted_container=
-run_tobari_at "$other_root" delete --context restricted --force >/dev/null
+run_tobari_at "$other_root" delete --manifest restricted --force >/dev/null
 other_id=
 other_container=
 python3 - "$config_directory/principal-registry/principals.json" <<'PY'

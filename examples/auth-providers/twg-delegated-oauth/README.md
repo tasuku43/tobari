@@ -16,7 +16,7 @@ commands can use other Atlassian or connector endpoints, so verify that the
 operation stays on `api.atlassian.com`. Do not widen the manifest to wildcard
 Atlassian or connector domains.
 
-## Install and import into the default Context
+## Install and import into the default Workspace Manifest
 
 Copy the manifest to the owner-controlled provider directory and apply the
 required owner-only permissions:
@@ -33,10 +33,10 @@ Supply a current delegated OAuth access token from a trusted, non-interactive
 secret source; never put it in argv or a shell environment variable:
 
 ```sh
-trusted-token-source | tobari auth import twg-delegated-oauth --context default
+trusted-token-source | tobari auth import twg-delegated-oauth --manifest default
 ```
 
-Leave and re-enter the default Context's Workspace after a successful import.
+Leave and re-enter the default Workspace Manifest's Workspace after a successful import.
 The projected value is an opaque, project-bound Tobari handle rather than the
 upstream access token.
 

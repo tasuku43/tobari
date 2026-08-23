@@ -5,7 +5,7 @@ cd "$(dirname "$0")/.."
 scenario=scripts/test-integration.sh
 workspace_service_helper=test/integration/workspace_service_exposure.sh
 
-expected_phases=$'preflight\nbuild-fixtures\ncontexts-and-cluster\ncredentials-and-workspaces\ngateway-broker-and-transport\nlive-policy-activation\nattachment-scoped-host-loopback\nruntime-failure-boundaries\nlifecycle'
+expected_phases=$'preflight\nbuild-fixtures\nmanifests-and-cluster\ncredentials-and-workspaces\ngateway-broker-and-transport\nlive-policy-activation\nattachment-scoped-host-loopback\nruntime-failure-boundaries\nlifecycle'
 actual_phases=$(awk '/^begin_phase / { print $2 }' "$scenario")
 if [[ $actual_phases != "$expected_phases" ]]; then
   echo "integration scope: phase ownership changed" >&2
@@ -51,11 +51,33 @@ if grep -En \
   exit 1
 fi
 
+# These files invoke the public binary. Predecessor Broker storage and wire
+# fields may retain `context_id`, but removed public Context syntax and the old
+# create envelope must never return to executable examples or integration.
+public_cli_surfaces=(
+  "$scenario"
+  examples/auth-providers/kubernetes-bearer/README.md
+  examples/auth-providers/twg-delegated-oauth/README.md
+)
+if grep -En -- '(^|[[:space:]|])(tobari|run_tobari(_at|_pty_at)?) context([[:space:]]|$)|--context([=[:space:]]|$)|json\.load\(sys\.stdin\)\["context"\]' \
+  "${public_cli_surfaces[@]}" >&2; then
+  echo "integration scope: removed public Context vocabulary returned" >&2
+  exit 1
+fi
+for claim in \
+  'item["workspace_manifest"]' \
+  '["workspace_manifest"]["workspace_manifest_id"]'; do
+  if ! grep -F "$claim" "$scenario" >/dev/null; then
+    echo "integration scope: missing Workspace Manifest public JSON canary: $claim" >&2
+    exit 1
+  fi
+done
+
 required_runtime_claims=(
   'network container:tobari-gateway'
   'cap-add NET_ADMIN'
   'ReadonlyRootfs'
-  'handle copied across Contexts returned'
+  'handle copied across Manifests returned'
   'first_request_chunk'
   'oversized request'
   'denied GraphQL request reached mock upstream'
