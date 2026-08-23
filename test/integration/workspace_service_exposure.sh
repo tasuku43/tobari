@@ -9,7 +9,7 @@ assert_workspace_service_helper_mount() {
   [[ $helper_mount == bind\ false\ * ]] ||
     fail "Workspace service helper is not an exact read-only bind mount: $helper_mount"
   helper_source_path=${helper_mount#bind false }
-  [[ -f $helper_source_path && ! -L $helper_source_path && $(stat -f '%Lp' "$helper_source_path" 2>/dev/null || stat -c '%a' "$helper_source_path") == 700 ]] ||
+  [[ -f $helper_source_path && ! -L $helper_source_path && $(stat -c '%a' "$helper_source_path" 2>/dev/null || stat -f '%Lp' "$helper_source_path") == 700 ]] ||
     fail "Workspace service helper owner-state source is not a mode-0700 regular file"
   run_project tobari-expose help >/dev/null ||
     fail "engine-native Workspace service helper did not execute in the selected custom Runtime"
