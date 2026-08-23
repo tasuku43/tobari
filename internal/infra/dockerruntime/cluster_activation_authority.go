@@ -12,7 +12,6 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/tasuku43/tobari/internal/domain/tobari"
@@ -288,12 +287,12 @@ func (r *Runtime) captureComposeAssetReceipt(
 	if err != nil {
 		return composeAssetReceipt{}, err
 	}
-	stat, ok := info.Sys().(*syscall.Stat_t)
+	ownerUID, ok := fileOwnerUID(info)
 	if !ok {
 		return composeAssetReceipt{}, fmt.Errorf("candidate Compose asset owner is unavailable")
 	}
 	receipt := composeAssetReceipt{
-		Path: path, OwnerUID: int(stat.Uid), Mode: uint32(info.Mode().Perm()), SHA256: digest,
+		Path: path, OwnerUID: ownerUID, Mode: uint32(info.Mode().Perm()), SHA256: digest,
 	}
 	if err := receipt.Validate(); err != nil {
 		return composeAssetReceipt{}, err
@@ -339,8 +338,8 @@ func (r *Runtime) validateCandidateComposeClosure(
 		if err != nil {
 			return err
 		}
-		stat, ok := info.Sys().(*syscall.Stat_t)
-		if !ok || int(stat.Uid) != asset.receipt.OwnerUID || uint32(info.Mode().Perm()) != asset.receipt.Mode {
+		ownerUID, ok := fileOwnerUID(info)
+		if !ok || ownerUID != asset.receipt.OwnerUID || uint32(info.Mode().Perm()) != asset.receipt.Mode {
 			return fmt.Errorf("candidate %s owner or mode differs from its cleanup receipt", asset.name)
 		}
 	}

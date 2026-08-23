@@ -18,7 +18,6 @@ import (
 	"sort"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/tasuku43/tobari/internal/domain/tobari"
@@ -144,8 +143,8 @@ func requireOwnerOnlyPath(path string, directory bool) error {
 		(directory && !info.IsDir()) || (!directory && info.Mode()&os.ModeSocket == 0) {
 		return fmt.Errorf("permission attachment path is not owner-only expected type")
 	}
-	stat, ok := info.Sys().(*syscall.Stat_t)
-	if !ok || int(stat.Uid) != os.Getuid() {
+	ownerUID, ok := fileOwnerUID(info)
+	if !ok || ownerUID != os.Getuid() {
 		return fmt.Errorf("permission attachment path is not owned by the current host user")
 	}
 	return nil
@@ -159,8 +158,8 @@ func requireOwnerOnlyRegularFile(path string) error {
 	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm() != 0o600 {
 		return fmt.Errorf("permission attachment registry is not an owner-only regular file")
 	}
-	stat, ok := info.Sys().(*syscall.Stat_t)
-	if !ok || int(stat.Uid) != os.Getuid() {
+	ownerUID, ok := fileOwnerUID(info)
+	if !ok || ownerUID != os.Getuid() {
 		return fmt.Errorf("permission attachment registry is not owned by the current host user")
 	}
 	return nil
@@ -245,7 +244,7 @@ func (r *Runtime) cleanupExpiredPermissionSessionSocket(session tobari.Interacti
 		_ = connection.Close()
 		return fmt.Errorf("expired interactive attachment socket is still live")
 	}
-	if !errors.Is(dialErr, syscall.ECONNREFUSED) && !errors.Is(dialErr, os.ErrNotExist) {
+	if !isConnectionRefused(dialErr) && !errors.Is(dialErr, os.ErrNotExist) {
 		return fmt.Errorf("expired interactive attachment socket state is ambiguous: %w", dialErr)
 	}
 	after, err := os.Lstat(path)

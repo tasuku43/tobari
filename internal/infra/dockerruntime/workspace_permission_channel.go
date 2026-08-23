@@ -17,7 +17,6 @@ import (
 	"os"
 	"regexp"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/tasuku43/tobari/internal/domain/fault"
@@ -588,8 +587,8 @@ func NewPermissionWaitClientFromEnvironment() (*PermissionWaitClient, error) {
 	if err != nil || info.Mode()&os.ModeSocket == 0 || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm() != 0o600 {
 		return nil, fmt.Errorf("permission wait attachment channel is unsafe")
 	}
-	stat, ok := info.Sys().(*syscall.Stat_t)
-	if !ok || int(stat.Uid) != os.Getuid() {
+	ownerUID, ok := fileOwnerUID(info)
+	if !ok || ownerUID != os.Getuid() {
 		return nil, fmt.Errorf("permission wait attachment channel owner is invalid")
 	}
 	channelID := os.Getenv(workspacePermissionChannelEnv)
