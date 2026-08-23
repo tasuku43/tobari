@@ -51,11 +51,9 @@ func (r *Runtime) ReadRuntimeProtectionInventory(ctx context.Context) (tobari.Ru
 // one coherent zero-write snapshot.
 func (r *Runtime) readRuntimeProtectionInventoryObserved(ctx context.Context, budget *runtimeLifecycleBudget) (runtimeProtectionObservation, error) {
 	result := runtimeProtectionObservation{Inventory: tobari.RuntimeProtectionInventory{Complete: true, Items: []tobari.RuntimeProtection{}}, Containers: make(map[string]runtimeWorkspaceContainerAuthority)}
-	entries, err := os.ReadDir(r.contextsDirectory())
-	if errors.Is(err, os.ErrNotExist) {
-		entries = nil
-	} else if err != nil {
-		return runtimeProtectionObservation{}, err
+	entries, _, err := readPrivateDirectoryIfPresent(r.contextsDirectory())
+	if err != nil {
+		return runtimeProtectionObservation{}, tobari.RuntimeProtectionInventoryError{Reason: tobari.RuntimeProtectionInventoryIncomplete}
 	}
 	manifestByID := map[string]tobari.WorkspaceManifest{}
 	for _, entry := range entries {
@@ -66,6 +64,9 @@ func (r *Runtime) readRuntimeProtectionInventoryObserved(ctx context.Context, bu
 			return runtimeProtectionObservation{}, tobari.RuntimeProtectionInventoryError{Reason: tobari.RuntimeProtectionInventoryMigrationUnverified}
 		}
 		if !entry.IsDir() || entry.Type()&os.ModeSymlink != 0 {
+			return runtimeProtectionObservation{}, tobari.RuntimeProtectionInventoryError{Reason: tobari.RuntimeProtectionInventoryIncomplete}
+		}
+		if err := requirePrivateDirectory(r.contextDirectory(entry.Name())); err != nil {
 			return runtimeProtectionObservation{}, tobari.RuntimeProtectionInventoryError{Reason: tobari.RuntimeProtectionInventoryIncomplete}
 		}
 		manifest, err := r.readContextManifest(entry.Name())
@@ -217,10 +218,14 @@ func isMissingRuntimeContainerInspect(err error, diagnostic []byte, containerID 
 }
 
 func (r *Runtime) readRetainedManifestRevisions(current tobari.WorkspaceManifest) ([]tobari.WorkspaceManifest, error) {
-	entries, err := os.ReadDir(r.manifestRevisionsDirectory(current.Name))
-	if errors.Is(err, os.ErrNotExist) {
-		return nil, fmt.Errorf("Manifest retained revision inventory is unavailable")
+	directory := r.manifestRevisionsDirectory(current.Name)
+	if err := requirePrivateDirectory(directory); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, fmt.Errorf("Manifest retained revision inventory is unavailable")
+		}
+		return nil, tobari.RuntimeProtectionInventoryError{Reason: tobari.RuntimeProtectionInventoryIncomplete}
 	}
+	entries, err := os.ReadDir(directory)
 	if err != nil {
 		return nil, err
 	}
@@ -229,7 +234,7 @@ func (r *Runtime) readRetainedManifestRevisions(current tobari.WorkspaceManifest
 		if entry.IsDir() || entry.Type()&os.ModeSymlink != 0 {
 			return nil, fmt.Errorf("Manifest revision store contains an unsafe entry")
 		}
-		manifest, err := readWorkspaceManifestRevision(filepath.Join(r.manifestRevisionsDirectory(current.Name), entry.Name()))
+		manifest, err := readWorkspaceManifestRevision(filepath.Join(directory, entry.Name()))
 		if err != nil {
 			return nil, err
 		}
@@ -239,4 +244,18 @@ func (r *Runtime) readRetainedManifestRevisions(current tobari.WorkspaceManifest
 		result = append(result, manifest)
 	}
 	return result, nil
+}
+
+func readPrivateDirectoryIfPresent(path string) ([]os.DirEntry, bool, error) {
+	if err := requirePrivateDirectory(path); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return []os.DirEntry{}, false, nil
+		}
+		return nil, false, fmt.Errorf("protection authority directory is unsafe: %w", err)
+	}
+	entries, err := os.ReadDir(path)
+	if err != nil {
+		return nil, false, err
+	}
+	return entries, true, nil
 }

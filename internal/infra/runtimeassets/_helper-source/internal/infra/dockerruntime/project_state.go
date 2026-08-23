@@ -608,6 +608,10 @@ func (r *Runtime) listProjectsUnlocked() ([]tobari.Workspace, error) {
 	indexedIDs := make(map[string]bool, len(indexes))
 	for _, index := range indexes {
 		indexedIDs[index.InstanceID] = true
+		directory, pathErr := r.projectDirectory(index.InstanceID)
+		if pathErr != nil || requirePrivateDirectory(directory) != nil {
+			return nil, tobari.RuntimeProtectionInventoryError{Reason: tobari.RuntimeProtectionInventoryIncomplete}
+		}
 		instance, readErr := r.readProjectInstance(index.InstanceID)
 		if errors.Is(readErr, os.ErrNotExist) {
 			return nil, tobari.RuntimeProtectionInventoryError{Reason: tobari.RuntimeProtectionInventoryIncomplete}
@@ -620,14 +624,15 @@ func (r *Runtime) listProjectsUnlocked() ([]tobari.Workspace, error) {
 		}
 		instances = append(instances, instance)
 	}
-	entries, err := os.ReadDir(r.instancesDirectory())
-	if errors.Is(err, os.ErrNotExist) {
-		entries = nil
-	} else if err != nil {
+	entries, _, err := readPrivateDirectoryIfPresent(r.instancesDirectory())
+	if err != nil {
 		return nil, fmt.Errorf("read project instances for orphan diagnosis: %w", err)
 	}
 	for _, entry := range entries {
 		if !entry.IsDir() || entry.Type()&os.ModeSymlink != 0 {
+			return nil, tobari.RuntimeProtectionInventoryError{Reason: tobari.RuntimeProtectionInventoryIncomplete}
+		}
+		if err := requirePrivateDirectory(filepath.Join(r.instancesDirectory(), entry.Name())); err != nil {
 			return nil, tobari.RuntimeProtectionInventoryError{Reason: tobari.RuntimeProtectionInventoryIncomplete}
 		}
 		if indexedIDs[entry.Name()] {
@@ -739,8 +744,8 @@ func (r *Runtime) rootIndexPath(root, contextID string) (string, error) {
 
 func (r *Runtime) listRootIndexes() ([]tobari.RootIndex, error) {
 	directory := r.rootsDirectory()
-	entries, err := os.ReadDir(directory)
-	if errors.Is(err, os.ErrNotExist) {
+	entries, present, err := readPrivateDirectoryIfPresent(directory)
+	if !present && err == nil {
 		return []tobari.RootIndex{}, nil
 	}
 	if err != nil {

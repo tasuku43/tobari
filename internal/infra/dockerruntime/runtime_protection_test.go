@@ -336,6 +336,76 @@ func TestRuntimeProtectionIncompleteOrUnsafeInventoryFailsClosed(t *testing.T) {
 	}
 }
 
+func TestRuntimeProtectionRejectsSubstitutedAuthorityDirectories(t *testing.T) {
+	tests := map[string]func(*testing.T, *Runtime, tobari.Workspace, tobari.WorkspaceManifest) string{
+		"contexts": func(_ *testing.T, runtime *Runtime, _ tobari.Workspace, _ tobari.WorkspaceManifest) string {
+			return runtime.contextsDirectory()
+		},
+		"current Manifest": func(_ *testing.T, runtime *Runtime, _ tobari.Workspace, manifest tobari.WorkspaceManifest) string {
+			return runtime.contextDirectory(manifest.Name)
+		},
+		"retained Manifest revisions": func(_ *testing.T, runtime *Runtime, _ tobari.Workspace, manifest tobari.WorkspaceManifest) string {
+			return runtime.manifestRevisionsDirectory(manifest.Name)
+		},
+		"root indexes": func(_ *testing.T, runtime *Runtime, _ tobari.Workspace, _ tobari.WorkspaceManifest) string {
+			return runtime.rootsDirectory()
+		},
+		"Workspace instances": func(_ *testing.T, runtime *Runtime, _ tobari.Workspace, _ tobari.WorkspaceManifest) string {
+			return runtime.instancesDirectory()
+		},
+		"Workspace instance": func(t *testing.T, runtime *Runtime, workspace tobari.Workspace, _ tobari.WorkspaceManifest) string {
+			directory, err := runtime.projectDirectory(workspace.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			return directory
+		},
+	}
+	for name, target := range tests {
+		t.Run(name, func(t *testing.T) {
+			runtime, workspace, manifest := newRuntimeProtectionFixture(t, &runtimeProtectionRunner{})
+			path := target(t, runtime, workspace, manifest)
+			backup := filepath.Join(t.TempDir(), "authority-backup")
+			if err := os.Rename(path, backup); err != nil {
+				t.Fatal(err)
+			}
+			empty := t.TempDir()
+			if err := os.Chmod(empty, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(empty, path); err != nil {
+				t.Fatal(err)
+			}
+			inventory, err := runtime.ReadRuntimeProtectionInventory(context.Background())
+			if err == nil || inventory.Complete {
+				t.Fatalf("substituted %s authorized complete protection = %+v/%v", path, inventory, err)
+			}
+		})
+	}
+}
+
+func TestRuntimeProtectionRequiresOwnerOnlyAuthorityDirectories(t *testing.T) {
+	for name, target := range map[string]func(*Runtime, tobari.WorkspaceManifest) string{
+		"contexts": func(runtime *Runtime, _ tobari.WorkspaceManifest) string { return runtime.contextsDirectory() },
+		"retained revisions": func(runtime *Runtime, manifest tobari.WorkspaceManifest) string {
+			return runtime.manifestRevisionsDirectory(manifest.Name)
+		},
+		"root indexes":        func(runtime *Runtime, _ tobari.WorkspaceManifest) string { return runtime.rootsDirectory() },
+		"Workspace instances": func(runtime *Runtime, _ tobari.WorkspaceManifest) string { return runtime.instancesDirectory() },
+	} {
+		t.Run(name, func(t *testing.T) {
+			runtime, _, manifest := newRuntimeProtectionFixture(t, &runtimeProtectionRunner{})
+			if err := os.Chmod(target(runtime, manifest), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			inventory, err := runtime.ReadRuntimeProtectionInventory(context.Background())
+			if err == nil || inventory.Complete {
+				t.Fatalf("non-private authority authorized complete protection = %+v/%v", inventory, err)
+			}
+		})
+	}
+}
+
 func TestRuntimeProtectionOrderingIncludesRetainedManifestRevision(t *testing.T) {
 	base := tobari.RuntimeProtection{
 		RuntimeID: "018bcfe5-687b-7000-8000-000000000077", RuntimeRevision: "sha256:" + strings.Repeat("d", 64),
