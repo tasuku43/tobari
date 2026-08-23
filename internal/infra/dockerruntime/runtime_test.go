@@ -331,6 +331,8 @@ type freshAuthorityRunner struct {
 	ambiguousAt        map[string]int
 	cleanupStarted     bool
 	remainAfterCleanup string
+	onSecondFence      func()
+	secondFenceCalled  bool
 }
 
 func freshListResource(args []string) (string, string, bool) {
@@ -367,6 +369,10 @@ func (r *freshAuthorityRunner) Run(
 		key := kind + ":" + name
 		r.resourceCalls[key]++
 		call := r.resourceCalls[key]
+		if call == 2 && !r.secondFenceCalled && r.onSecondFence != nil {
+			r.secondFenceCalled = true
+			r.onSecondFence()
+		}
 		if r.ambiguousAt[key] == call {
 			_, _ = io.WriteString(errorOutput, "daemon returned unrelated diagnostic\n")
 			return errors.New("synthetic ambiguous inspect failure")
@@ -1526,6 +1532,126 @@ func TestFreshActivationRequiresTwoExactAbsenceFences(t *testing.T) {
 	}
 }
 
+func TestFreshActivationRequiresEmptyPrincipalAuthorityAtBothFences(t *testing.T) {
+	t.Parallel()
+	binding := principalTestBinding(
+		"01912345-6789-7abc-8def-0123456789ab", "172.30.0.3", "172.30.0.2", "tobari-preexisting-network",
+	)
+	for _, test := range []struct {
+		name      string
+		configure func(*testing.T, *Runtime, *freshAuthorityRunner)
+	}{
+		{name: "preexisting principal", configure: func(t *testing.T, runtime *Runtime, _ *freshAuthorityRunner) {
+			if err := runtime.ensureProjectPrincipalRegistry(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			if err := runtime.replaceProjectPrincipalRegistry(context.Background(), []projectPrincipalBinding{binding}); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{name: "principal appears between fences", configure: func(t *testing.T, runtime *Runtime, runner *freshAuthorityRunner) {
+			runner.onSecondFence = func() {
+				if err := runtime.replaceProjectPrincipalRegistry(context.Background(), []projectPrincipalBinding{binding}); err != nil {
+					t.Errorf("publish synthetic principal drift: %v", err)
+				}
+			}
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			runner := &freshAuthorityRunner{}
+			runtime := configuredClusterUpRuntime(t, root, runner)
+			test.configure(t, runtime, runner)
+			if _, err := runtime.ClusterUp(context.Background()); err == nil || !strings.Contains(err.Error(), "principal") {
+				t.Fatalf("fresh principal authority error = %v", err)
+			}
+			if runner.composed {
+				t.Fatal("fresh principal drift reached Compose mutation")
+			}
+			observed, err := runtime.readProjectPrincipalRegistry()
+			if err != nil || !slices.Equal(observed.Bindings, []projectPrincipalBinding{binding}) {
+				t.Fatalf("preexisting principal authority changed: %+v, %v", observed, err)
+			}
+		})
+	}
+}
+
+func TestFreshCleanupRevalidatesJournaledCandidateComposeClosure(t *testing.T) {
+	t.Parallel()
+	mutations := []struct {
+		name   string
+		mutate func(*testing.T, tobari.State)
+	}{
+		{name: "missing base", mutate: func(t *testing.T, state tobari.State) {
+			if err := os.Remove(filepath.Join(state.RuntimeDirectory, "compose.yaml")); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{name: "tampered base", mutate: func(t *testing.T, state tobari.State) {
+			if err := os.WriteFile(filepath.Join(state.RuntimeDirectory, "compose.yaml"), []byte("tampered\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{name: "broad mode", mutate: func(t *testing.T, state tobari.State) {
+			if err := os.Chmod(filepath.Join(state.RuntimeDirectory, "compose.yaml"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{name: "symlinked base", mutate: func(t *testing.T, state tobari.State) {
+			path := filepath.Join(state.RuntimeDirectory, "compose.yaml")
+			if err := os.Remove(path); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(filepath.Join(state.RuntimeDirectory, "versions.env"), path); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{name: "missing permission profile", mutate: func(t *testing.T, state tobari.State) {
+			for _, name := range []string{"compose.permission-unix.yaml", "compose.permission-loopback_tcp.yaml"} {
+				if err := os.Remove(filepath.Join(state.RuntimeDirectory, name)); err != nil {
+					t.Fatal(err)
+				}
+			}
+		}},
+		{name: "tampered research profile", mutate: func(t *testing.T, state tobari.State) {
+			if !brokerRuntimeEnabled {
+				t.Skip("research Compose profile exists only in the experimental build")
+			}
+			if err := os.WriteFile(filepath.Join(state.RuntimeDirectory, "compose.experimental.yaml"), []byte("tampered\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}},
+	}
+	for _, test := range mutations {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			runner := &rollbackClusterUpRunner{}
+			runtime := configuredClusterUpRuntime(t, root, runner)
+			injected := errors.New("state publication failed")
+			runtime.clusterStateWriteHook = func(candidate tobari.State, _ func() error) error {
+				test.mutate(t, candidate)
+				return injected
+			}
+			if _, err := runtime.ClusterUp(context.Background()); !errors.Is(err, injected) ||
+				!strings.Contains(err.Error(), "rollback did not complete") {
+				t.Fatalf("fresh cleanup closure error = %v", err)
+			}
+			if runner.cleanupCalls != 0 {
+				t.Fatalf("tampered candidate closure reached cleanup Compose %d times", runner.cleanupCalls)
+			}
+			if _, exists, err := runtime.readClusterJournal(); err != nil || !exists {
+				t.Fatalf("tampered cleanup journal exists=%t error=%v", exists, err)
+			}
+			if recovered, err := runtime.RecoverInterruptedClusterDown(context.Background(), false); err == nil || recovered {
+				t.Fatalf("tampered explicit recovery = (%t, %v)", recovered, err)
+			}
+			if runner.cleanupCalls != 0 {
+				t.Fatalf("tampered retry reached cleanup Compose %d times", runner.cleanupCalls)
+			}
+		})
+	}
+}
+
 func TestFreshCleanupVerifiesPostconditionAndRetainsJournalForRetry(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
@@ -1616,12 +1742,11 @@ func TestCandidatePrincipalPublicationDriftPreventsStatePublication(t *testing.T
 	runner := &freshAuthorityRunner{}
 	runtime := configuredClusterUpRuntime(t, root, runner)
 	var driftErr error
+	drifted := principalTestBinding(
+		"01912345-6789-7abc-8def-0123456789ab", "172.30.0.3", "172.30.0.2", "tobari-drift-network",
+	)
 	runner.onAppliedInspect = func() {
-		driftErr = runtime.replaceProjectPrincipalRegistry(context.Background(), []projectPrincipalBinding{
-			principalTestBinding(
-				"01912345-6789-7abc-8def-0123456789ab", "172.30.0.3", "172.30.0.2", "tobari-drift-network",
-			),
-		})
+		driftErr = runtime.replaceProjectPrincipalRegistry(context.Background(), []projectPrincipalBinding{drifted})
 	}
 	if _, err := runtime.ClusterUp(context.Background()); err == nil ||
 		!strings.Contains(err.Error(), "principal publication drifted") {
@@ -1632,6 +1757,13 @@ func TestCandidatePrincipalPublicationDriftPreventsStatePublication(t *testing.T
 	}
 	if _, exists, err := runtime.LoadState(context.Background()); err != nil || exists {
 		t.Fatalf("principal drift published state exists=%t error=%v", exists, err)
+	}
+	observed, err := runtime.readProjectPrincipalRegistry()
+	if err != nil || !slices.Equal(observed.Bindings, []projectPrincipalBinding{drifted}) {
+		t.Fatalf("principal cleanup erased concurrent authority: %+v, %v", observed, err)
+	}
+	if _, exists, err := runtime.readClusterJournal(); err != nil || !exists {
+		t.Fatalf("principal drift recovery journal exists=%t error=%v", exists, err)
 	}
 }
 
@@ -1704,6 +1836,99 @@ func TestExistingActivationValidatesRollbackComposeClosureBeforeMutation(t *test
 			}
 			if len(runner.policyPublishes) != 0 || len(runner.composeCalls) != 0 {
 				t.Fatalf("unsafe rollback closure mutated policy/Compose: policy=%v compose=%v", runner.policyPublishes, runner.composeCalls)
+			}
+		})
+	}
+}
+
+func TestCrashRecoveryRevalidatesRollbackComposeClosureBeforeMutation(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name   string
+		mutate func(*testing.T, tobari.State)
+	}{
+		{name: "missing base", mutate: func(t *testing.T, state tobari.State) {
+			if err := os.Remove(filepath.Join(state.RuntimeDirectory, "compose.yaml")); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{name: "tampered base", mutate: func(t *testing.T, state tobari.State) {
+			if err := os.WriteFile(filepath.Join(state.RuntimeDirectory, "compose.yaml"), []byte("tampered\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{name: "broad permission profile", mutate: func(t *testing.T, state tobari.State) {
+			if err := os.Chmod(filepath.Join(state.RuntimeDirectory, "compose.permission-unix.yaml"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{name: "symlinked permission profile", mutate: func(t *testing.T, state tobari.State) {
+			path := filepath.Join(state.RuntimeDirectory, "compose.permission-unix.yaml")
+			if err := os.Remove(path); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(filepath.Join(state.RuntimeDirectory, "versions.env"), path); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{name: "tampered research build profile", mutate: func(t *testing.T, state tobari.State) {
+			if !brokerRuntimeEnabled {
+				t.Skip("research Compose profile exists only in the experimental build")
+			}
+			if err := os.WriteFile(filepath.Join(state.RuntimeDirectory, "compose.experimental.yaml"), []byte("tampered\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			runner := &rollbackClusterUpRunner{}
+			runtime := configuredClusterUpRuntime(t, root, runner)
+			candidate, err := runtime.prepareState(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			retained := candidate
+			retained.SchemaVersion = 2
+			retained.Applied = tobari.SharedClusterAppliedEntry{
+				AggregateRevision: retained.AggregateRevision, AssetVersion: retained.AssetVersion,
+				ComposeAssets:  testComposeAssets(t, tobari.SharedClusterProfileUnix),
+				GatewayImageID: "sha256:" + strings.Repeat("4", 64), OPAImageID: "sha256:" + strings.Repeat("5", 64),
+				PermissionProfile: tobari.SharedClusterProfileUnix,
+			}
+			if brokerRuntimeEnabled {
+				retained.Applied.AuthBrokerImageID = "sha256:" + strings.Repeat("6", 64)
+			}
+			if err := runtime.writeState(retained); err != nil {
+				t.Fatal(err)
+			}
+			principals, err := runtime.readProjectPrincipalRegistry()
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, receipt, err := runtime.captureCandidateComposeClosure(candidate, tobari.SharedClusterProfileUnix)
+			if err != nil {
+				t.Fatal(err)
+			}
+			images := candidateClusterImages{Gateway: testGatewayDigest, OPA: "sha256:" + strings.Repeat("2", 64)}
+			if brokerRuntimeEnabled {
+				images.AuthBroker = "sha256:" + strings.Repeat("3", 64)
+			}
+			if err := runtime.startClusterUpReconcile(
+				&retained, candidate, tobari.SharedClusterProfileUnix, principals, nil, images, receipt,
+			); err != nil {
+				t.Fatal(err)
+			}
+			test.mutate(t, retained)
+			if err := runtime.recoverInterruptedClusterUp(context.Background(), retained, true); err == nil ||
+				!strings.Contains(err.Error(), "rollback Compose closure") {
+				t.Fatalf("crash rollback closure error = %v", err)
+			}
+			if len(runner.composeCalls) != 0 || len(runner.policyPublishes) != 0 {
+				t.Fatalf("crash rollback drift mutated Compose/policy: %v / %v", runner.composeCalls, runner.policyPublishes)
+			}
+			if _, exists, err := runtime.readClusterJournal(); err != nil || !exists {
+				t.Fatalf("crash rollback journal exists=%t error=%v", exists, err)
 			}
 		})
 	}
@@ -1949,6 +2174,27 @@ func testComposeAssets(t *testing.T, profile tobari.SharedClusterAppliedProfile)
 	return assets
 }
 
+func testCandidateComposeReceipt(
+	t *testing.T, state tobari.State, profile tobari.SharedClusterAppliedProfile,
+) candidateComposeClosureReceipt {
+	t.Helper()
+	assets := testComposeAssets(t, profile)
+	receipt := candidateComposeClosureReceipt{
+		RuntimeDirectory: state.RuntimeDirectory, AssetVersion: state.AssetVersion, Profile: profile,
+		Base: composeAssetReceipt{Path: filepath.Join(state.RuntimeDirectory, "compose.yaml"), OwnerUID: os.Getuid(), Mode: 0o600, SHA256: assets.BaseSHA256},
+	}
+	if brokerRuntimeEnabled {
+		build := composeAssetReceipt{Path: filepath.Join(state.RuntimeDirectory, "compose.experimental.yaml"), OwnerUID: os.Getuid(), Mode: 0o600, SHA256: assets.BuildSHA256}
+		receipt.Build = &build
+	}
+	transport, _ := profile.PermissionTransport()
+	receipt.Permission = composeAssetReceipt{
+		Path:     filepath.Join(state.RuntimeDirectory, "compose.permission-"+string(transport)+".yaml"),
+		OwnerUID: os.Getuid(), Mode: 0o600, SHA256: assets.PermissionSHA256,
+	}
+	return receipt
+}
+
 func appliedRuntimeState(t *testing.T, root string, profile tobari.SharedClusterAppliedProfile) tobari.State {
 	t.Helper()
 	state := runtimeState(root)
@@ -2009,6 +2255,28 @@ func materializePrePlatformRuntime(t *testing.T, directory string) {
 			t.Fatal(err)
 		}
 	}
+}
+
+func prePlatformStateFixture(t *testing.T, root string, schema int) tobari.State {
+	t.Helper()
+	state := runtimeState(root)
+	state.RuntimeDirectory = prePlatformRuntimeDirectory(root)
+	state.AssetVersion = prePlatformAssetVersion
+	materializePrePlatformRuntime(t, state.RuntimeDirectory)
+	if schema == 2 {
+		state.SchemaVersion = 2
+		state.Applied = tobari.SharedClusterAppliedEntry{
+			AggregateRevision: state.AggregateRevision, AssetVersion: state.AssetVersion,
+			ComposeAssets:     prePlatformComposeAssets(),
+			GatewayImageID:    "sha256:" + strings.Repeat("4", 64),
+			OPAImageID:        "sha256:" + strings.Repeat("5", 64),
+			PermissionProfile: tobari.SharedClusterProfilePrePlatform,
+		}
+		if brokerRuntimeEnabled {
+			state.Applied.AuthBrokerImageID = "sha256:" + strings.Repeat("6", 64)
+		}
+	}
+	return state
 }
 
 func prePlatformRuntimeDirectory(root string) string {
@@ -2287,7 +2555,7 @@ func TestClusterDownPurgesMissingVolumesIdempotently(t *testing.T) {
 		t.Fatal(err)
 	}
 	runtime.companion = &fakeCredentialCompanionLauncher{}
-	state := runtimeState(root)
+	state := prePlatformStateFixture(t, root, 1)
 	if err := runtime.writeState(state); err != nil {
 		t.Fatal(err)
 	}
@@ -2316,20 +2584,7 @@ func TestClusterDownDoesNotRequireCurrentPermissionProfileAssets(t *testing.T) {
 			// in research builds, experimental Compose assets. The current host
 			// permission profile must not become a cleanup dependency.
 			runtime.permissionIngestionTransport = tobari.PermissionSessionTransportTCP
-			state := runtimeState(root)
-			if schema == 2 {
-				state.SchemaVersion = 2
-				state.Applied = tobari.SharedClusterAppliedEntry{
-					AggregateRevision: state.AggregateRevision, AssetVersion: state.AssetVersion,
-					ComposeAssets:     testComposeAssets(t, tobari.SharedClusterProfilePrePlatform),
-					GatewayImageID:    "sha256:" + strings.Repeat("4", 64),
-					OPAImageID:        "sha256:" + strings.Repeat("5", 64),
-					PermissionProfile: tobari.SharedClusterProfilePrePlatform,
-				}
-				if brokerRuntimeEnabled {
-					state.Applied.AuthBrokerImageID = "sha256:" + strings.Repeat("6", 64)
-				}
-			}
+			state := prePlatformStateFixture(t, root, schema)
 			if err := runtime.writeState(state); err != nil {
 				t.Fatal(err)
 			}
@@ -2358,6 +2613,128 @@ func TestClusterDownDoesNotRequireCurrentPermissionProfileAssets(t *testing.T) {
 	}
 }
 
+func TestClusterDownRevalidatesRetainedComposeAuthorityBeforeMutation(t *testing.T) {
+	t.Parallel()
+	stateFactories := []struct {
+		name  string
+		build func(*testing.T, *Runtime, string) tobari.State
+	}{
+		{name: "schema1-pre-platform", build: func(t *testing.T, _ *Runtime, root string) tobari.State {
+			return prePlatformStateFixture(t, root, 1)
+		}},
+		{name: "schema2-pre-platform", build: func(t *testing.T, _ *Runtime, root string) tobari.State {
+			return prePlatformStateFixture(t, root, 2)
+		}},
+		{name: "schema2-current", build: func(t *testing.T, runtime *Runtime, _ string) tobari.State {
+			state, err := runtime.prepareState(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			state.SchemaVersion = 2
+			state.Applied = tobari.SharedClusterAppliedEntry{
+				AggregateRevision: state.AggregateRevision, AssetVersion: state.AssetVersion,
+				ComposeAssets:  testComposeAssets(t, tobari.SharedClusterProfileUnix),
+				GatewayImageID: "sha256:" + strings.Repeat("4", 64), OPAImageID: "sha256:" + strings.Repeat("5", 64),
+				PermissionProfile: tobari.SharedClusterProfileUnix,
+			}
+			if brokerRuntimeEnabled {
+				state.Applied.AuthBrokerImageID = "sha256:" + strings.Repeat("6", 64)
+			}
+			return state
+		}},
+	}
+	mutations := []struct {
+		name    string
+		current bool
+		build   bool
+		mutate  func(*testing.T, tobari.State)
+	}{
+		{name: "missing base", mutate: func(t *testing.T, state tobari.State) {
+			if err := os.Remove(filepath.Join(state.RuntimeDirectory, "compose.yaml")); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{name: "tampered base", mutate: func(t *testing.T, state tobari.State) {
+			if err := os.WriteFile(filepath.Join(state.RuntimeDirectory, "compose.yaml"), []byte("tampered\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{name: "broad base mode", mutate: func(t *testing.T, state tobari.State) {
+			if err := os.Chmod(filepath.Join(state.RuntimeDirectory, "compose.yaml"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{name: "symlinked base", mutate: func(t *testing.T, state tobari.State) {
+			path := filepath.Join(state.RuntimeDirectory, "compose.yaml")
+			if err := os.Remove(path); err != nil {
+				t.Fatal(err)
+			}
+			target := filepath.Join(state.RuntimeDirectory, "down-target")
+			if err := os.WriteFile(target, []byte("target\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(target, path); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{name: "tampered research overlay", build: true, mutate: func(t *testing.T, state tobari.State) {
+			if err := os.WriteFile(filepath.Join(state.RuntimeDirectory, "compose.experimental.yaml"), []byte("tampered\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{name: "missing successor permission receipt", current: true, mutate: func(t *testing.T, state tobari.State) {
+			if err := os.Remove(filepath.Join(state.RuntimeDirectory, "compose.permission-unix.yaml")); err != nil {
+				t.Fatal(err)
+			}
+		}},
+	}
+	for _, stateTest := range stateFactories {
+		for _, mutation := range mutations {
+			if mutation.current && stateTest.name != "schema2-current" {
+				continue
+			}
+			if mutation.build && !brokerRuntimeEnabled {
+				continue
+			}
+			for _, recovery := range []bool{false, true} {
+				name := stateTest.name + "/" + mutation.name + "/explicit"
+				if recovery {
+					name = stateTest.name + "/" + mutation.name + "/journal-retry"
+				}
+				t.Run(name, func(t *testing.T) {
+					root := t.TempDir()
+					runner := &recordingRunner{}
+					runtime := configuredClusterUpRuntime(t, root, runner)
+					runtime.companion = &fakeCredentialCompanionLauncher{}
+					state := stateTest.build(t, runtime, root)
+					if err := runtime.writeState(state); err != nil {
+						t.Fatal(err)
+					}
+					if recovery {
+						if err := runtime.startClusterReconcile(clusterOperationDown); err != nil {
+							t.Fatal(err)
+						}
+					}
+					mutation.mutate(t, state)
+					if err := runtime.ClusterDown(context.Background(), state, false); err == nil ||
+						!strings.Contains(err.Error(), "Compose authority") {
+						t.Fatalf("unsafe down authority error = %v", err)
+					}
+					for _, call := range runner.runs {
+						if len(call.args) > 0 && call.args[0] == "compose" && slices.Contains(call.args, "down") {
+							t.Fatalf("unsafe down authority reached Compose: %v", call.args)
+						}
+					}
+					_, journalExists, err := runtime.readClusterJournal()
+					if err != nil || journalExists != recovery {
+						t.Fatalf("down journal exists=%t want=%t error=%v", journalExists, recovery, err)
+					}
+				})
+			}
+		}
+	}
+}
+
 func TestClusterDownResumesAfterInterruptedComposeCleanup(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
@@ -2370,7 +2747,7 @@ func TestClusterDownResumesAfterInterruptedComposeCleanup(t *testing.T) {
 	if err := runtime.ensureProjectPrincipalRegistry(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	state := runtimeState(root)
+	state := prePlatformStateFixture(t, root, 1)
 	if err := runtime.writeState(state); err != nil {
 		t.Fatal(err)
 	}
@@ -2541,7 +2918,7 @@ func TestInterruptedClusterReconcileFailsClosedInStatus(t *testing.T) {
 	}
 	if err := runtime.startClusterUpReconcile(nil, state, tobari.SharedClusterProfileUnix, projectPrincipalRegistry{
 		SchemaVersion: projectPrincipalRegistrySchema, Bindings: []projectPrincipalBinding{},
-	}, &fresh, images); err != nil {
+	}, &fresh, images, testCandidateComposeReceipt(t, state, tobari.SharedClusterProfileUnix)); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := runtime.InspectCluster(context.Background(), state); err == nil {
@@ -2561,7 +2938,7 @@ func TestClusterDownRecoversExactSchemaOneDownJournal(t *testing.T) {
 		t.Fatal(err)
 	}
 	runtime.companion = &fakeCredentialCompanionLauncher{}
-	state := runtimeState(root)
+	state := prePlatformStateFixture(t, root, 1)
 	if err := runtime.writeState(state); err != nil {
 		t.Fatal(err)
 	}

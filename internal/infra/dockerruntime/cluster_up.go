@@ -115,9 +115,11 @@ func (r *Runtime) clusterUpWithProgressMode(
 	journalStarted := false
 	var appliedProfile tobari.SharedClusterAppliedProfile
 	var composeAssets tobari.SharedClusterComposeAssets
+	var candidateCompose candidateComposeClosureReceipt
 	var freshResources *freshClusterResourceAuthority
 	previousPrincipals := projectPrincipalRegistry{SchemaVersion: projectPrincipalRegistrySchema, Bindings: []projectPrincipalBinding{}}
 	candidatePrincipals := projectPrincipalRegistry{SchemaVersion: projectPrincipalRegistrySchema, Bindings: []projectPrincipalBinding{}}
+	var journaledCandidatePrincipals *projectPrincipalRegistry
 	defer func() {
 		if activationCommitted || !rollbackPermitted || !journalStarted {
 			return
@@ -134,7 +136,10 @@ func (r *Runtime) clusterUpWithProgressMode(
 		if exists {
 			rollbackErr = r.rollbackSharedClusterActivation(rollbackContext, existing, previousPrincipals)
 		} else {
-			rollbackErr = r.cleanupFreshClusterActivation(rollbackContext, state, appliedProfile, freshResources)
+			rollbackErr = r.cleanupFreshClusterActivation(
+				rollbackContext, state, appliedProfile, candidateCompose, freshResources,
+				previousPrincipals, journaledCandidatePrincipals,
+			)
 		}
 		if rollbackErr == nil {
 			if clearErr := r.clearClusterJournal(); clearErr != nil {
@@ -185,7 +190,7 @@ func (r *Runtime) clusterUpWithProgressMode(
 		})
 		return tobari.State{}, err
 	}
-	composeAssets, err = r.captureCandidateComposeAssets(state, appliedProfile)
+	composeAssets, candidateCompose, err = r.captureCandidateComposeClosure(state, appliedProfile)
 	if err != nil {
 		return tobari.State{}, fmt.Errorf("verify candidate Compose closure: %w", err)
 	}
@@ -228,6 +233,9 @@ func (r *Runtime) clusterUpWithProgressMode(
 				return fmt.Errorf("verify last-successful shared-cluster entry before mutation: %w", err)
 			}
 		} else {
+			if len(previousPrincipals.Bindings) != 0 {
+				return fmt.Errorf("fresh shared-cluster principal registry is not empty")
+			}
 			authority, err := r.proveFreshClusterResourcesAbsent(ctx)
 			if err != nil {
 				return fmt.Errorf("prove fresh shared-cluster resources absent: %w", err)
@@ -239,7 +247,7 @@ func (r *Runtime) clusterUpWithProgressMode(
 			previous = &existing
 		}
 		if err := r.startClusterUpReconcile(
-			previous, state, appliedProfile, previousPrincipals, freshResources, candidateImages,
+			previous, state, appliedProfile, previousPrincipals, freshResources, candidateImages, candidateCompose,
 		); err != nil {
 			return fmt.Errorf("start cluster reconcile journal: %w", err)
 		}
@@ -266,6 +274,16 @@ func (r *Runtime) clusterUpWithProgressMode(
 			}
 			if err := r.verifyFreshClusterResourcesAbsent(ctx, *freshResources); err != nil {
 				return fmt.Errorf("fence fresh shared-cluster resources before mutation: %w", err)
+			}
+			if err := r.validateCandidateComposeClosure(state, appliedProfile, candidateCompose); err != nil {
+				return fmt.Errorf("fence candidate Compose cleanup closure before mutation: %w", err)
+			}
+			currentPrincipals, err := r.readProjectPrincipalRegistry()
+			if err != nil {
+				return fmt.Errorf("fence fresh project principal registry before mutation: %w", err)
+			}
+			if len(currentPrincipals.Bindings) != 0 || !sameProjectPrincipalRegistry(currentPrincipals, previousPrincipals) {
+				return fmt.Errorf("fresh project principal registry changed before mutation")
 			}
 			activationAttempted = true
 			if err := r.preparePolicyBundle(ctx, state); err != nil {
@@ -359,14 +377,19 @@ func (r *Runtime) clusterUpWithProgressMode(
 		if err != nil {
 			return fmt.Errorf("read CWD-owned projects for Gateway reconciliation: %w", err)
 		}
-		if err := r.syncProjectPrincipalRegistry(ctx, projects); err != nil {
+		observed, err := r.syncProjectPrincipalRegistryFrom(ctx, projects, previousPrincipals, func(candidate projectPrincipalRegistry) error {
+			if err := r.recordClusterUpCandidatePrincipals(candidate); err != nil {
+				return fmt.Errorf("record candidate project principal publication: %w", err)
+			}
+			copy := candidate
+			journaledCandidatePrincipals = &copy
+			return nil
+		})
+		if err != nil {
 			attemptErrorMessage = "Gateway did not rejoin every Tobari network; inspect cluster status."
 			return err
 		}
-		candidatePrincipals, err = r.readProjectPrincipalRegistry()
-		if err != nil {
-			return fmt.Errorf("capture candidate project principal publication: %w", err)
-		}
+		candidatePrincipals = observed
 		return nil
 	}); err != nil {
 		return tobari.State{}, err
@@ -556,6 +579,12 @@ func (r *Runtime) rollbackSharedClusterActivation(
 	state tobari.State,
 	principals projectPrincipalRegistry,
 ) error {
+	// Crash recovery revalidates the destructive execution closure at the last
+	// possible point. Forward-path preflight cannot authorize retained assets
+	// after an interruption or concurrent filesystem drift.
+	if err := r.validateRollbackClosure(state); err != nil {
+		return fmt.Errorf("validate rollback Compose closure: %w", err)
+	}
 	if err := state.Validate(); err != nil {
 		return err
 	}
@@ -642,7 +671,8 @@ func (r *Runtime) recoverInterruptedClusterUp(ctx context.Context, state tobari.
 			return fmt.Errorf("fresh shared-cluster recovery conflicts with persisted state")
 		}
 		if err := r.cleanupFreshClusterActivation(
-			ctx, *journal.CandidateState, journal.CandidateProfile, journal.FreshResources,
+			ctx, *journal.CandidateState, journal.CandidateProfile, *journal.CandidateCompose,
+			journal.FreshResources, *journal.PreviousPrincipals, journal.CandidatePrincipals,
 		); err != nil {
 			return fmt.Errorf("recover interrupted fresh shared-cluster activation: %w", err)
 		}
@@ -678,7 +708,8 @@ func (r *Runtime) RecoverInterruptedClusterDown(ctx context.Context, purge bool)
 		return false, fmt.Errorf("fresh cluster down recovery conflicts with persisted state")
 	}
 	if err := r.cleanupFreshClusterActivation(
-		ctx, *journal.CandidateState, journal.CandidateProfile, journal.FreshResources,
+		ctx, *journal.CandidateState, journal.CandidateProfile, *journal.CandidateCompose,
+		journal.FreshResources, *journal.PreviousPrincipals, journal.CandidatePrincipals,
 	); err != nil {
 		return false, err
 	}
@@ -694,13 +725,28 @@ func (r *Runtime) RecoverInterruptedClusterDown(ctx context.Context, purge bool)
 
 func (r *Runtime) cleanupFreshClusterActivation(
 	ctx context.Context, state tobari.State, profile tobari.SharedClusterAppliedProfile,
-	resources *freshClusterResourceAuthority,
+	compose candidateComposeClosureReceipt, resources *freshClusterResourceAuthority,
+	previousPrincipals projectPrincipalRegistry, candidatePrincipals *projectPrincipalRegistry,
 ) error {
 	if resources == nil {
 		return fmt.Errorf("fresh cluster cleanup omits exact resource authority")
 	}
 	if err := resources.Validate(); err != nil {
 		return err
+	}
+	if err := previousPrincipals.Validate(); err != nil || len(previousPrincipals.Bindings) != 0 {
+		return fmt.Errorf("fresh cluster cleanup predecessor principal authority is invalid")
+	}
+	if err := r.validateCandidateComposeClosure(state, profile, compose); err != nil {
+		return fmt.Errorf("validate fresh cleanup Compose closure: %w", err)
+	}
+	preCleanupPrincipals, err := r.readProjectPrincipalRegistry()
+	if err != nil {
+		return fmt.Errorf("observe fresh project principal publication before cleanup: %w", err)
+	}
+	if !sameProjectPrincipalRegistry(preCleanupPrincipals, previousPrincipals) &&
+		(candidatePrincipals == nil || !sameProjectPrincipalRegistry(preCleanupPrincipals, *candidatePrincipals)) {
+		return fmt.Errorf("fresh project principal publication drifted before cleanup")
 	}
 	transport, ok := profile.PermissionTransport()
 	if !ok {
@@ -722,8 +768,17 @@ func (r *Runtime) cleanupFreshClusterActivation(
 			return fmt.Errorf("verify fresh credential companion stopped: %w", err)
 		}
 	}
-	if err := r.replaceProjectPrincipalRegistry(ctx, []projectPrincipalBinding{}); err != nil {
-		return fmt.Errorf("clear fresh project principal publication: %w", err)
+	currentPrincipals, err := r.readProjectPrincipalRegistry()
+	if err != nil {
+		return fmt.Errorf("observe fresh project principal publication before cleanup: %w", err)
+	}
+	if !sameProjectPrincipalRegistry(currentPrincipals, previousPrincipals) {
+		if candidatePrincipals == nil || !sameProjectPrincipalRegistry(currentPrincipals, *candidatePrincipals) {
+			return fmt.Errorf("fresh project principal publication drifted before cleanup")
+		}
+		if err := r.replaceProjectPrincipalRegistryIfCurrent(ctx, currentPrincipals, previousPrincipals.Bindings); err != nil {
+			return fmt.Errorf("clear exact fresh project principal publication: %w", err)
+		}
 	}
 	if err := r.verifyFreshClusterResourcesAbsent(ctx, *resources); err != nil {
 		return fmt.Errorf("verify fresh shared-cluster cleanup: %w", err)

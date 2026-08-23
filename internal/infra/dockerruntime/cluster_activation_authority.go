@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/tasuku43/tobari/internal/domain/tobari"
@@ -238,6 +239,114 @@ func (r *Runtime) captureCandidateComposeAssets(
 	return assets, nil
 }
 
+func (r *Runtime) captureCandidateComposeClosure(
+	state tobari.State, profile tobari.SharedClusterAppliedProfile,
+) (tobari.SharedClusterComposeAssets, candidateComposeClosureReceipt, error) {
+	assets, err := r.captureCandidateComposeAssets(state, profile)
+	if err != nil {
+		return tobari.SharedClusterComposeAssets{}, candidateComposeClosureReceipt{}, err
+	}
+	receipt := candidateComposeClosureReceipt{
+		RuntimeDirectory: state.RuntimeDirectory,
+		AssetVersion:     state.AssetVersion,
+		Profile:          profile,
+	}
+	if receipt.Base, err = r.captureComposeAssetReceipt(state, "compose.yaml", assets.BaseSHA256); err != nil {
+		return tobari.SharedClusterComposeAssets{}, candidateComposeClosureReceipt{}, err
+	}
+	if brokerRuntimeEnabled {
+		build, captureErr := r.captureComposeAssetReceipt(state, "compose.experimental.yaml", assets.BuildSHA256)
+		if captureErr != nil {
+			return tobari.SharedClusterComposeAssets{}, candidateComposeClosureReceipt{}, captureErr
+		}
+		receipt.Build = &build
+	}
+	transport, ok := profile.PermissionTransport()
+	if !ok {
+		return tobari.SharedClusterComposeAssets{}, candidateComposeClosureReceipt{}, fmt.Errorf("candidate permission profile is invalid")
+	}
+	receipt.Permission, err = r.captureComposeAssetReceipt(
+		state, "compose.permission-"+string(transport)+".yaml", assets.PermissionSHA256,
+	)
+	if err != nil {
+		return tobari.SharedClusterComposeAssets{}, candidateComposeClosureReceipt{}, err
+	}
+	if err := receipt.Validate(); err != nil {
+		return tobari.SharedClusterComposeAssets{}, candidateComposeClosureReceipt{}, err
+	}
+	return assets, receipt, nil
+}
+
+func (r *Runtime) captureComposeAssetReceipt(
+	state tobari.State, name, digest string,
+) (composeAssetReceipt, error) {
+	if err := r.validateRetainedComposeAsset(state, name, digest); err != nil {
+		return composeAssetReceipt{}, err
+	}
+	path := filepath.Join(state.RuntimeDirectory, name)
+	info, err := os.Lstat(path)
+	if err != nil {
+		return composeAssetReceipt{}, err
+	}
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		return composeAssetReceipt{}, fmt.Errorf("candidate Compose asset owner is unavailable")
+	}
+	receipt := composeAssetReceipt{
+		Path: path, OwnerUID: int(stat.Uid), Mode: uint32(info.Mode().Perm()), SHA256: digest,
+	}
+	if err := receipt.Validate(); err != nil {
+		return composeAssetReceipt{}, err
+	}
+	return receipt, nil
+}
+
+func (r *Runtime) validateCandidateComposeClosure(
+	state tobari.State, profile tobari.SharedClusterAppliedProfile, receipt candidateComposeClosureReceipt,
+) error {
+	if err := receipt.Validate(); err != nil {
+		return err
+	}
+	if receipt.RuntimeDirectory != state.RuntimeDirectory || receipt.AssetVersion != state.AssetVersion || receipt.Profile != profile {
+		return fmt.Errorf("candidate Compose closure no longer matches its journaled identity")
+	}
+	transport, ok := profile.PermissionTransport()
+	if !ok {
+		return fmt.Errorf("candidate permission profile is invalid")
+	}
+	expected := []struct {
+		name    string
+		receipt composeAssetReceipt
+	}{
+		{name: "compose.yaml", receipt: receipt.Base},
+		{name: "compose.permission-" + string(transport) + ".yaml", receipt: receipt.Permission},
+	}
+	if brokerRuntimeEnabled {
+		expected = append(expected, struct {
+			name    string
+			receipt composeAssetReceipt
+		}{name: "compose.experimental.yaml", receipt: *receipt.Build})
+	}
+	for _, asset := range expected {
+		path := filepath.Join(state.RuntimeDirectory, asset.name)
+		if asset.receipt.Path != path || filepath.Dir(path) != state.RuntimeDirectory || filepath.Base(path) != asset.name {
+			return fmt.Errorf("candidate %s path differs from its cleanup receipt", asset.name)
+		}
+		if err := r.validateRetainedComposeAsset(state, asset.name, asset.receipt.SHA256); err != nil {
+			return err
+		}
+		info, err := os.Lstat(path)
+		if err != nil {
+			return err
+		}
+		stat, ok := info.Sys().(*syscall.Stat_t)
+		if !ok || int(stat.Uid) != asset.receipt.OwnerUID || uint32(info.Mode().Perm()) != asset.receipt.Mode {
+			return fmt.Errorf("candidate %s owner or mode differs from its cleanup receipt", asset.name)
+		}
+	}
+	return nil
+}
+
 func (r *Runtime) validateEmbeddedComposeAsset(state tobari.State, name string) (string, error) {
 	expected, err := runtimeassets.Read(name)
 	if err != nil {
@@ -287,6 +396,20 @@ func (r *Runtime) validateRollbackClosure(state tobari.State) error {
 	return r.validateRetainedComposeAsset(
 		state, "compose.permission-"+string(transport)+".yaml", assets.PermissionSHA256,
 	)
+}
+
+// validateClusterDownComposeAuthority proves the exact retained destructive
+// execution inputs without adding the successor permission overlay to down.
+// Schema 1 is accepted only through the frozen predecessor bytes; schema 2
+// uses its complete retained closure receipt.
+func (r *Runtime) validateClusterDownComposeAuthority(state tobari.State) error {
+	if err := state.Validate(); err != nil {
+		return err
+	}
+	if state.SchemaVersion == 1 {
+		return r.validatePrePlatformRuntimeAuthority(state)
+	}
+	return r.validateRollbackClosure(state)
 }
 
 func (r *Runtime) validateRuntimeDirectoryAuthority(state tobari.State) error {

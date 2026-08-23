@@ -327,6 +327,9 @@ func (r *Runtime) ClusterDown(ctx context.Context, state tobari.State, purge boo
 	if !exists || current != state {
 		return fmt.Errorf("shared-cluster state changed during down recovery")
 	}
+	if err := r.validateClusterDownComposeAuthority(state); err != nil {
+		return fmt.Errorf("validate cluster down Compose authority: %w", err)
+	}
 	if err := r.startClusterReconcile(clusterOperationDown); err != nil {
 		return fmt.Errorf("start cluster reconcile journal: %w", err)
 	}
