@@ -113,6 +113,28 @@ func actSpec(path, kind string, inputs ...string) CommandSpec {
 	return spec
 }
 
+func recursiveReferenceProducerSpec() CommandSpec {
+	spec := discoverSpec("references list", "runtime")
+	spec.Agent.Output.Formats = []OutputFormat{OutputFormatJSON}
+	spec.Agent.Output.DefaultFormat = OutputFormatJSON
+	spec.Agent.Output.Fields = []OutputField{
+		{
+			Name: "items", Type: OutputFieldTypeArray, Description: "Runtime selections.",
+			Items: &OutputField{Type: OutputFieldTypeObject, Description: "One runtime selection.", Fields: []OutputField{
+				{Name: "runtime_ref", Type: OutputFieldTypeString, Description: "Opaque Runtime reference.", ReferenceKind: "runtime"},
+			}},
+		},
+		{
+			Name: "revisions", Type: OutputFieldTypeArray, Description: "Runtime revision selections.",
+			Items: &OutputField{Type: OutputFieldTypeObject, Description: "One runtime revision selection.", Fields: []OutputField{
+				{Name: "revision_ref", Type: OutputFieldTypeString, Description: "Opaque Runtime revision reference.", Optional: true, ReferenceKind: "runtime-revision"},
+			}},
+		},
+		{Name: "plan_ref", Type: OutputFieldTypeString, Description: "Opaque runtime prune plan reference.", ReferenceKind: "runtime-prune-plan"},
+	}
+	return spec
+}
+
 func fixedTargetActSpec(path string) CommandSpec {
 	spec := utilitySpec(path)
 	spec.Role = RoleAct
@@ -974,6 +996,57 @@ func TestReferenceGraphAllowsMultipleInputsOfTheSameKind(t *testing.T) {
 	if len(workflows) != 1 || len(workflows[0].Producers) != 1 || len(workflows[0].Consumers) != 2 ||
 		workflows[0].Consumers[0].Input != "--left-id" || workflows[0].Consumers[1].Input != "--right-id" {
 		t.Fatalf("reference workflows = %+v, want one grouped kind with both inputs", workflows)
+	}
+}
+
+func TestRecursiveOutputReferencesDriveCatalogGraphAndCanonicalPaths(t *testing.T) {
+	producer := recursiveReferenceProducerSpec()
+	want := []ProducedRef{
+		{Kind: "runtime", Field: "items[].runtime_ref"},
+		{Kind: "runtime-revision", Field: "revisions[].revision_ref"},
+		{Kind: "runtime-prune-plan", Field: "plan_ref"},
+	}
+	if got := producer.ProducedRefs(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("ProducedRefs() = %+v, want %+v", got, want)
+	}
+	mutated := producer.ProducedRefs()
+	mutated[0].Kind = "changed"
+	if got := producer.ProducedRefs(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("mutating returned references changed declaration: %+v", got)
+	}
+
+	commands := []CommandSpec{
+		producer,
+		actSpec("runtime inspect", "runtime", "--id"),
+		actSpec("runtime revision inspect", "runtime-revision", "--id"),
+		actSpec("runtime prune inspect", "runtime-prune-plan", "--plan"),
+	}
+	catalog := NewCatalog(commands...)
+	if err := catalog.Validate(); err != nil {
+		t.Fatalf("recursive produced-reference catalog failed validation: %v", err)
+	}
+
+	workflows := catalog.referenceWorkflows()
+	if len(workflows) != len(want) {
+		t.Fatalf("referenceWorkflows() = %+v", workflows)
+	}
+	for index, workflow := range workflows {
+		if workflow.ReferenceKind != want[index].Kind || len(workflow.Producers) != 1 ||
+			workflow.Producers[0].Field != want[index].Field || len(workflow.Consumers) != 1 {
+			t.Fatalf("workflow %d = %+v, want kind=%q field=%q", index, workflow, want[index].Kind, want[index].Field)
+		}
+	}
+}
+
+func TestProducedReferenceTraversalIsBoundedIndependently(t *testing.T) {
+	leaf := OutputField{Type: OutputFieldTypeString, Description: "Opaque reference.", ReferenceKind: "item"}
+	for depth := 0; depth < maxOutputFieldDepth; depth++ {
+		leaf = OutputField{Type: OutputFieldTypeArray, Description: "Nested references.", Items: &leaf}
+	}
+	spec := discoverSpec("items list", "item")
+	spec.Agent.Output.Fields = []OutputField{{Name: "items", Type: OutputFieldTypeArray, Description: "Nested references.", Items: &leaf}}
+	if _, err := spec.producedRefs(); err == nil || !strings.Contains(err.Error(), "maximum depth") {
+		t.Fatalf("unbounded produced reference traversal error = %v", err)
 	}
 }
 

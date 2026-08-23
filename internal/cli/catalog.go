@@ -2169,11 +2169,22 @@ func isUnsafeContractRune(r rune) bool {
 }
 
 // ProducedRefs derives the opaque references exposed by structured output.
+// Catalog validation rejects declarations that exceed the bounded recursive
+// output shape, so a derivation error here can only belong to an invalid spec.
 func (s CommandSpec) ProducedRefs() []ProducedRef {
+	references, err := s.producedRefs()
+	if err != nil {
+		return nil
+	}
+	return references
+}
+
+func (s CommandSpec) producedRefs() ([]ProducedRef, error) {
 	references := make([]ProducedRef, 0, len(s.Agent.Output.Fields)+1)
+	count := 0
 	for _, field := range s.Agent.Output.Fields {
-		if field.ReferenceKind != "" {
-			references = append(references, ProducedRef{Kind: field.ReferenceKind, Field: field.Name})
+		if err := appendOutputFieldProducedRefs(&references, field, field.Name, 1, &count); err != nil {
+			return nil, err
 		}
 	}
 	if pagination := s.Agent.Pagination; pagination != nil && pagination.CursorOutput.ReferenceKind != "" {
@@ -2182,7 +2193,41 @@ func (s CommandSpec) ProducedRefs() []ProducedRef {
 			Field: pagination.CursorOutput.Name,
 		})
 	}
-	return references
+	seen := make(map[string]string, len(references))
+	for _, reference := range references {
+		if previous, duplicate := seen[reference.Field]; duplicate {
+			return nil, fmt.Errorf("produced reference field path %q is declared for both %q and %q", reference.Field, previous, reference.Kind)
+		}
+		seen[reference.Field] = reference.Kind
+	}
+	return references, nil
+}
+
+// appendOutputFieldProducedRefs is the single recursive producer-reference
+// derivation. Paths describe the declared value shape rather than a renderer:
+// object children use dots and array items use []. Declaration order is kept.
+func appendOutputFieldProducedRefs(references *[]ProducedRef, field OutputField, path string, depth int, count *int) error {
+	*count++
+	if *count > maxOutputFieldCount {
+		return fmt.Errorf("produced reference traversal exceeds maximum field count %d", maxOutputFieldCount)
+	}
+	if depth > maxOutputFieldDepth {
+		return fmt.Errorf("produced reference traversal exceeds maximum depth %d", maxOutputFieldDepth)
+	}
+	if field.ReferenceKind != "" {
+		*references = append(*references, ProducedRef{Kind: field.ReferenceKind, Field: path})
+	}
+	for _, child := range field.Fields {
+		if err := appendOutputFieldProducedRefs(references, child, path+"."+child.Name, depth+1, count); err != nil {
+			return err
+		}
+	}
+	if field.Items != nil {
+		if err := appendOutputFieldProducedRefs(references, *field.Items, path+"[]", depth+1, count); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // ConsumedRefs derives the opaque references accepted by structured input.
@@ -2197,13 +2242,13 @@ func (s CommandSpec) ConsumedRefs() []ConsumedRef {
 }
 
 func validateCommandReferenceRole(command CommandSpec) error {
-	produced := command.ProducedRefs()
+	produced, err := command.producedRefs()
+	if err != nil {
+		return err
+	}
 	for _, reference := range produced {
 		if err := validateReferenceName(reference.Kind); err != nil {
 			return fmt.Errorf("produced reference kind: %w", err)
-		}
-		if err := validateOutputFieldName(reference.Field); err != nil {
-			return fmt.Errorf("produced reference field: %w", err)
 		}
 	}
 

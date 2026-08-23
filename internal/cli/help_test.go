@@ -727,6 +727,46 @@ func TestAgentHelpPublishesDiscoverToActReferenceFlow(t *testing.T) {
 	}
 }
 
+func TestScopedAgentHelpPublishesRecursiveProducedReferencePaths(t *testing.T) {
+	producer := recursiveReferenceProducerSpec()
+	catalog := NewCatalog(
+		producer,
+		actSpec("runtime inspect", "runtime", "--id"),
+		actSpec("runtime revision inspect", "runtime-revision", "--id"),
+		actSpec("runtime prune inspect", "runtime-prune-plan", "--plan"),
+	)
+	if err := catalog.Validate(); err != nil {
+		t.Fatalf("Validate() error = %v", err)
+	}
+	command := newCLI(strings.NewReader(""), &bytes.Buffer{}, &bytes.Buffer{}, catalog, nil)
+	selected, exact := catalog.Select(producer.Path)
+	encoded, err := command.renderAgentHelp(producer.Path, exact, selected)
+	if err != nil {
+		t.Fatalf("renderAgentHelp() error = %v", err)
+	}
+	var document agentDocument
+	if err := json.Unmarshal(encoded, &document); err != nil {
+		t.Fatal(err)
+	}
+	want := []ProducedRef{
+		{Kind: "runtime", Field: "items[].runtime_ref"},
+		{Kind: "runtime-revision", Field: "revisions[].revision_ref"},
+		{Kind: "runtime-prune-plan", Field: "plan_ref"},
+	}
+	if len(document.Commands) != 1 || !reflect.DeepEqual(document.Commands[0].ProducesRefs, want) {
+		t.Fatalf("scoped agent produced references = %+v", document.Commands)
+	}
+	if len(document.Workflows) != len(want) {
+		t.Fatalf("scoped agent workflows = %+v", document.Workflows)
+	}
+	for index, workflow := range document.Workflows {
+		if workflow.ReferenceKind != want[index].Kind || len(workflow.Producers) != 1 ||
+			workflow.Producers[0].Field != want[index].Field || len(workflow.Consumers) != 1 {
+			t.Fatalf("scoped agent workflow %d = %+v", index, workflow)
+		}
+	}
+}
+
 func TestAgentRoundTripContractCoversDiscoveryActionAndRecovery(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	command := newReferenceTestCLI(strings.NewReader(""), &stdout, &stderr)
