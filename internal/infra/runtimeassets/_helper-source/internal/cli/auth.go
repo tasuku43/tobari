@@ -231,17 +231,17 @@ func selectedAuthContext(ctx context.Context, inputs ParsedInputs) (string, erro
 }
 
 type authResultProjection struct {
-	ManifestState       tobari.ManifestObservationState `json:"workspace_manifest_state"`
-	Provider            string                          `json:"provider"`
-	Context             string                          `json:"workspace_manifest"`
-	WorkspaceManifestID *string                         `json:"workspace_manifest_id"`
-	Configured          bool                            `json:"configured"`
-	AccountLabel        *string                         `json:"account_label"`
-	StorageBackend      authbroker.StorageBackend       `json:"storage_backend"`
-	BrokerState         authbroker.BrokerState          `json:"broker_state"`
-	CredentialRevision  *string                         `json:"credential_revision"`
-	Change              authbroker.MutationChange       `json:"change"`
-	WorkspaceActivation authbroker.WorkspaceActivation  `json:"workspace_activation"`
+	ManifestState       string                         `json:"manifest_state"`
+	Provider            string                         `json:"provider"`
+	Context             string                         `json:"workspace_manifest"`
+	WorkspaceManifestID *string                        `json:"workspace_manifest_id"`
+	Configured          bool                           `json:"configured"`
+	AccountLabel        *string                        `json:"account_label"`
+	StorageBackend      authbroker.StorageBackend      `json:"storage_backend"`
+	BrokerState         authbroker.BrokerState         `json:"broker_state"`
+	CredentialRevision  *string                        `json:"credential_revision"`
+	Change              authbroker.MutationChange      `json:"change"`
+	WorkspaceActivation authbroker.WorkspaceActivation `json:"workspace_activation"`
 }
 
 type authResultDocument struct {
@@ -250,15 +250,15 @@ type authResultDocument struct {
 }
 
 type authStatusProjection struct {
-	ManifestState       tobari.ManifestObservationState `json:"workspace_manifest_state"`
-	Context             string                          `json:"workspace_manifest"`
-	WorkspaceManifestID *string                         `json:"workspace_manifest_id"`
-	StorageBackend      authbroker.StorageBackend       `json:"storage_backend"`
-	BrokerState         authbroker.BrokerState          `json:"broker_state"`
-	DeclaredBindings    authbroker.AuthenticationRoute  `json:"declared_bindings"`
-	UndeclaredBindings  authbroker.AuthenticationRoute  `json:"undeclared_bindings"`
-	Providers           []authProviderStatusProjection  `json:"providers"`
-	WorkspaceActivation authbroker.WorkspaceActivation  `json:"workspace_activation"`
+	ManifestState       string                         `json:"manifest_state"`
+	Context             string                         `json:"workspace_manifest"`
+	WorkspaceManifestID *string                        `json:"workspace_manifest_id"`
+	StorageBackend      authbroker.StorageBackend      `json:"storage_backend"`
+	BrokerState         authbroker.BrokerState         `json:"broker_state"`
+	DeclaredBindings    authbroker.AuthenticationRoute `json:"declared_bindings"`
+	UndeclaredBindings  authbroker.AuthenticationRoute `json:"undeclared_bindings"`
+	Providers           []authProviderStatusProjection `json:"providers"`
+	WorkspaceActivation authbroker.WorkspaceActivation `json:"workspace_activation"`
 }
 
 type authProviderStatusProjection struct {
@@ -292,7 +292,7 @@ func renderAuthResult(result authbroker.Result, format successFormat, color bool
 		)
 	}
 	projection := authResultProjection{
-		ManifestState: result.ManifestState, Provider: result.Provider, Context: result.Context, WorkspaceManifestID: optionalString(result.WorkspaceManifestID),
+		ManifestState: publicAuthManifestState(result.ManifestState), Provider: result.Provider, Context: result.Context, WorkspaceManifestID: optionalString(result.WorkspaceManifestID),
 		Configured: result.Configured, AccountLabel: result.AccountLabel,
 		StorageBackend: result.StorageBackend, BrokerState: result.BrokerState,
 		CredentialRevision: optionalString(result.CredentialRevision), Change: result.Change,
@@ -327,7 +327,7 @@ func renderAuthStatus(result authbroker.StatusResult, format successFormat, colo
 		})
 	}
 	projection := authStatusProjection{
-		ManifestState: result.ManifestState, Context: result.Context, WorkspaceManifestID: optionalString(result.WorkspaceManifestID),
+		ManifestState: publicAuthManifestState(result.ManifestState), Context: result.Context, WorkspaceManifestID: optionalString(result.WorkspaceManifestID),
 		StorageBackend: result.StorageBackend, BrokerState: result.BrokerState,
 		DeclaredBindings:    authbroker.AuthenticationRouteBrokerRequired,
 		UndeclaredBindings:  authbroker.AuthenticationRouteWorkspaceOwnedCompatibility,
@@ -350,6 +350,13 @@ func authResultCommand(task string) string {
 		authbroker.TaskImport: "auth import",
 		authbroker.TaskLogout: "auth logout",
 	}[task]
+}
+
+func publicAuthManifestState(state tobari.ManifestObservationState) string {
+	if state == tobari.ManifestObservationAbsent {
+		return "synthetic_default"
+	}
+	return string(state)
 }
 
 func renderAuthResultText(result authResultProjection, color bool) []byte {

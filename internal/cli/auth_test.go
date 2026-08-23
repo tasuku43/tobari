@@ -212,7 +212,7 @@ func TestSyntheticAuthStatusJSONHasNoContextAuthority(t *testing.T) {
 	if err := json.Unmarshal(encoded, &document); err != nil {
 		t.Fatal(err)
 	}
-	if document.SchemaVersion != 1 || document.Auth.ManifestState != tobari.ManifestObservationAbsent || document.Auth.WorkspaceManifestID != nil {
+	if document.SchemaVersion != 1 || document.Auth.ManifestState != "synthetic_default" || document.Auth.WorkspaceManifestID != nil {
 		t.Fatalf("synthetic auth status claims Workspace Manifest authority: %+v", document)
 	}
 }
@@ -258,8 +258,8 @@ func TestAuthImportReadsSecretOnlyFromStdinAndEmitsSecretFreeJSON(t *testing.T) 
 	}
 	sort.Strings(gotFields)
 	wantFields := []string{
-		"account_label", "broker_state", "change", "configured", "manifest", "manifest_id", "manifest_state",
-		"credential_revision", "provider", "storage_backend", "workspace_activation",
+		"account_label", "broker_state", "change", "configured", "credential_revision", "manifest_state",
+		"provider", "storage_backend", "workspace_activation", "workspace_manifest", "workspace_manifest_id",
 	}
 	if !reflect.DeepEqual(gotFields, wantFields) {
 		t.Fatalf("auth fields = %v, want %v", gotFields, wantFields)
@@ -590,7 +590,7 @@ func TestAuthNoOpLogoutReceiptClaimsOnlyNoChange(t *testing.T) {
 		t.Fatal(err)
 	}
 	visible := strings.ToLower(string(textOutput))
-	if !strings.Contains(visible, "context credential unchanged") || !strings.Contains(visible, "no_change") {
+	if !strings.Contains(visible, "workspace manifest credential unchanged") || !strings.Contains(visible, "no_change") {
 		t.Fatalf("no-op text = %q", textOutput)
 	}
 	for _, falseClaim := range []string{"credential removed", "revok", "re-entry", "workspace_reentry_required"} {

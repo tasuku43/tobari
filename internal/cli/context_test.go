@@ -1224,35 +1224,17 @@ func TestContextListMarksRuntimeActionWithoutInventingAReadyRevision(t *testing.
 	}
 }
 
-func TestSyntheticContextShowUsesOmissionBasedAuthStatusRecovery(t *testing.T) {
+func TestSyntheticManifestAuthStatusRecoveryOmitsAbsentSelector(t *testing.T) {
 	if len(authCommandSpecs()) == 0 {
 		t.Skip("Broker recovery exists only in the experimental profile")
 	}
 	t.Parallel()
-	report := tobari.ManifestReport{
-		Task: tobari.TaskManifestShow, ManifestState: tobari.ManifestObservationAbsent,
-		Name: tobari.DefaultManifestName, Default: true, AgentProfile: tobari.DefaultProfile,
-		Image: tobari.OfficialRuntimeBase, PolicyMode: tobari.ManifestPolicyModeGuided,
-		SourceAccess:     tobari.ManifestSourceAccessReadWrite,
-		MethodPolicy:     tobari.ManifestMethodPolicy{Default: tobari.ManifestMethodExactReview, Overrides: []tobari.ManifestMethodOverride{}},
-		ShellEnvironment: tobari.DefaultContextShellEnvironmentReport(),
-		GitIdentity:      tobari.DefaultContextGitIdentityReport(),
-		Runtime:          standardContextRuntimeReport(tobari.OfficialRuntimeBase),
-		Cluster:          tobari.ManifestClusterStatusNotApplicable,
-		Authentication: tobari.ManifestAuthentication{
-			BrokerState: tobari.ManifestAuthBrokerUnavailable, Providers: []tobari.ManifestAuthProvider{},
-		},
-	}
-	output, err := renderContextReport(report, successFormatText, false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(output), "Auth status    tobari auth status") ||
-		strings.Contains(string(output), "--manifest default") {
-		t.Fatalf("synthetic Workspace Manifest show claims an explicit absent selector: %q", output)
-	}
+	report := tobari.ManifestReport{ManifestState: tobari.ManifestObservationAbsent}
 	if routed := assertPublicNextArgvRoutes(t, contextAuthStatusNextArgv(report)); routed.Path != "auth status" {
 		t.Fatalf("synthetic Workspace Manifest recovery routes to %q", routed.Path)
+	}
+	if got := contextAuthStatusNextArgv(report); !reflect.DeepEqual(got, []string{"tobari", "auth", "status"}) {
+		t.Fatalf("synthetic Workspace Manifest recovery claims an absent selector: %v", got)
 	}
 }
 

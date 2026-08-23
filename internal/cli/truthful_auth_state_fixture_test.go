@@ -9,10 +9,11 @@ import (
 	"testing"
 
 	"github.com/tasuku43/tobari/internal/domain/authbroker"
+	"github.com/tasuku43/tobari/internal/domain/tobari"
 )
 
 const (
-	truthfulAuthStateFixtureSHA256 = "3c632f57f4e98b56a173b0ed6125d51f4a53fe80e8863ffb827b4fcd54623226"
+	truthfulAuthStateFixtureSHA256 = "f16a3245b2b49232e41b8d080a360d3b70426d65a75ffcba469181c8b9a62f86"
 	truthfulAuthStateAnswerSHA256  = "286367473b2010ce9944d121df5747e919e55cd47335db88e64cd01cb03255d7"
 )
 
@@ -101,7 +102,7 @@ func TestTruthfulAuthStateTypedCorpusClosesInterpretationBoundaries(t *testing.T
 			contextID = *item.Auth.WorkspaceManifestID
 		}
 		result := authbroker.StatusResult{
-			Task: authbroker.TaskStatus, ManifestState: item.Auth.ManifestState,
+			Task: authbroker.TaskStatus, ManifestState: tobari.ManifestObservationState(item.Auth.ManifestState),
 			Context: item.Auth.Context, WorkspaceManifestID: contextID,
 			StorageBackend: item.Auth.StorageBackend, BrokerState: item.Auth.BrokerState,
 			Providers: providers, WorkspaceActivation: item.Auth.WorkspaceActivation,
@@ -124,7 +125,7 @@ func TestTruthfulAuthStateTypedCorpusClosesInterpretationBoundaries(t *testing.T
 			task = authbroker.TaskLogin
 		}
 		result := authbroker.Result{
-			Task: task, ManifestState: item.Auth.ManifestState, Provider: item.Auth.Provider,
+			Task: task, ManifestState: tobari.ManifestObservationState(item.Auth.ManifestState), Provider: item.Auth.Provider,
 			Context: item.Auth.Context, WorkspaceManifestID: contextID, Configured: item.Auth.Configured,
 			AccountLabel: item.Auth.AccountLabel, StorageBackend: item.Auth.StorageBackend,
 			BrokerState: item.Auth.BrokerState, CredentialRevision: revision, Change: item.Auth.Change,

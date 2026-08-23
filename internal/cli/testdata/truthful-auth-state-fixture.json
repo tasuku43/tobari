@@ -4,7 +4,7 @@
     {
       "name": "current",
       "auth": {
-        "workspace_manifest_state": "persisted",
+        "manifest_state": "persisted",
         "workspace_manifest": "default",
         "workspace_manifest_id": "01912345-6789-7abc-8def-0123456789ad",
         "storage_backend": "xdg_file",
@@ -46,7 +46,7 @@
     {
       "name": "configured_zero_workspace",
       "auth": {
-        "workspace_manifest_state": "persisted",
+        "manifest_state": "persisted",
         "workspace_manifest": "default",
         "workspace_manifest_id": "01912345-6789-7abc-8def-0123456789ad",
         "storage_backend": "xdg_file",
@@ -72,7 +72,7 @@
     {
       "name": "missing",
       "auth": {
-        "workspace_manifest_state": "persisted",
+        "manifest_state": "persisted",
         "workspace_manifest": "default",
         "workspace_manifest_id": "01912345-6789-7abc-8def-0123456789ad",
         "storage_backend": "xdg_file",
@@ -121,7 +121,7 @@
     {
       "name": "stale",
       "auth": {
-        "workspace_manifest_state": "persisted",
+        "manifest_state": "persisted",
         "workspace_manifest": "default",
         "workspace_manifest_id": "01912345-6789-7abc-8def-0123456789ad",
         "storage_backend": "xdg_file",
@@ -170,7 +170,7 @@
     {
       "name": "enumeration_unavailable",
       "auth": {
-        "workspace_manifest_state": "persisted",
+        "manifest_state": "persisted",
         "workspace_manifest": "default",
         "workspace_manifest_id": "01912345-6789-7abc-8def-0123456789ad",
         "storage_backend": "xdg_file",
@@ -196,7 +196,7 @@
     {
       "name": "broker_locked_enumerable",
       "auth": {
-        "workspace_manifest_state": "persisted",
+        "manifest_state": "persisted",
         "workspace_manifest": "default",
         "workspace_manifest_id": "01912345-6789-7abc-8def-0123456789ad",
         "storage_backend": "xdg_file",
@@ -238,7 +238,7 @@
     {
       "name": "mixed_unresolved",
       "auth": {
-        "workspace_manifest_state": "persisted",
+        "manifest_state": "persisted",
         "workspace_manifest": "default",
         "workspace_manifest_id": "01912345-6789-7abc-8def-0123456789ad",
         "storage_backend": "xdg_file",
@@ -292,7 +292,7 @@
     {
       "name": "login_changed",
       "auth": {
-        "workspace_manifest_state": "persisted",
+        "manifest_state": "persisted",
         "provider": "github",
         "workspace_manifest": "default",
         "workspace_manifest_id": "01912345-6789-7abc-8def-0123456789ad",
@@ -338,7 +338,7 @@
     {
       "name": "logout_changed",
       "auth": {
-        "workspace_manifest_state": "persisted",
+        "manifest_state": "persisted",
         "provider": "github",
         "workspace_manifest": "default",
         "workspace_manifest_id": "01912345-6789-7abc-8def-0123456789ad",
@@ -384,7 +384,7 @@
     {
       "name": "logout_no_change",
       "auth": {
-        "workspace_manifest_state": "persisted",
+        "manifest_state": "persisted",
         "provider": "github",
         "workspace_manifest": "default",
         "workspace_manifest_id": "01912345-6789-7abc-8def-0123456789ad",
