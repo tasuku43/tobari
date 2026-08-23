@@ -215,6 +215,11 @@ const (
 	prePlatformComposeSHA256           = "4d188071e431aae7d415a1b2beec2efbb798668c993e5f6d164cf2f58f314776"
 	prePlatformExperimentalComposeSize = 2017
 	prePlatformExperimentalSHA256      = "4cea1d48f63ec7a671ca9615ade114ea1b823a8fdf23f2e3e38aedc5228b5637"
+	prePlatformAuthProviderProjection  = "/run/tobari/auth/providers.json"
+	prePlatformAuthBrokerSocket        = "/run/tobari-auth/runtime/broker.sock"
+	prePlatformAuthBrokerTimeout       = "70"
+	prePlatformAuthProviderMount       = "/run/tobari/auth"
+	prePlatformAuthRuntimeMount        = "/run/tobari-auth/runtime"
 )
 
 func (r *Runtime) validatePrePlatformRuntimeAuthority(state tobari.State) error {
@@ -434,20 +439,56 @@ func (r *Runtime) observeAppliedClusterComponent(
 }
 
 func verifyPrePlatformGatewayProjection(gateway appliedClusterComponentObservation) error {
+	researchEnvironment := map[string]string{
+		"TOBARI_AUTH_PROVIDER_PROJECTION":    prePlatformAuthProviderProjection,
+		"TOBARI_AUTH_BROKER_SOCKET":          prePlatformAuthBrokerSocket,
+		"TOBARI_AUTH_BROKER_TIMEOUT_SECONDS": prePlatformAuthBrokerTimeout,
+	}
+	seenResearchEnvironment := make(map[string]int, len(researchEnvironment))
 	for _, entry := range gateway.Environment {
 		if strings.HasPrefix(entry, "TOBARI_PERMISSION_INGESTION_") {
 			return fmt.Errorf("schema-1 state conflicts with a successor Gateway permission profile")
 		}
-		if !brokerRuntimeEnabled && strings.HasPrefix(entry, "TOBARI_AUTH_") {
+		if !strings.HasPrefix(entry, "TOBARI_AUTH_") {
+			continue
+		}
+		if !brokerRuntimeEnabled {
 			return fmt.Errorf("standard schema-1 state conflicts with a research Gateway profile")
 		}
+		name, value, found := strings.Cut(entry, "=")
+		expected, declared := researchEnvironment[name]
+		if !found || !declared || value != expected {
+			return fmt.Errorf("research schema-1 Gateway authentication projection is invalid")
+		}
+		seenResearchEnvironment[name]++
+	}
+	seenResearchMounts := map[string]int{
+		prePlatformAuthProviderMount: 0,
+		prePlatformAuthRuntimeMount:  0,
 	}
 	for _, destination := range gateway.MountDestinations {
 		if destination == "/run/tobari/permission-ingestion" {
 			return fmt.Errorf("schema-1 state conflicts with a successor Gateway permission mount")
 		}
-		if !brokerRuntimeEnabled && (destination == "/run/tobari/auth" || destination == "/run/tobari-auth/runtime") {
+		if _, researchMount := seenResearchMounts[destination]; researchMount && !brokerRuntimeEnabled {
 			return fmt.Errorf("standard schema-1 state conflicts with a research Gateway mount")
+		}
+		if brokerRuntimeEnabled {
+			if _, researchMount := seenResearchMounts[destination]; researchMount {
+				seenResearchMounts[destination]++
+			}
+		}
+	}
+	if brokerRuntimeEnabled {
+		for name := range researchEnvironment {
+			if seenResearchEnvironment[name] != 1 {
+				return fmt.Errorf("research schema-1 Gateway authentication projection is incomplete or ambiguous")
+			}
+		}
+		for destination, count := range seenResearchMounts {
+			if count != 1 {
+				return fmt.Errorf("research schema-1 Gateway mount %s is incomplete or ambiguous", destination)
+			}
 		}
 	}
 	return nil

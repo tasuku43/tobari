@@ -105,11 +105,23 @@ func appliedStateObservation(container, image string) appliedClusterComponentObs
 	case authBrokerContainer:
 		component = "auth-broker"
 	}
-	return appliedClusterComponentObservation{
+	observation := appliedClusterComponentObservation{
 		ContainerID: strings.Repeat("9", 64), Owner: ownerValue,
 		Component: component, Role: role, ImageID: image,
 		State: "running", Health: "healthy", Environment: []string{}, MountDestinations: []string{},
 	}
+	if brokerRuntimeEnabled && container == gatewayContainer {
+		observation.Environment = []string{
+			"TOBARI_AUTH_PROVIDER_PROJECTION=" + prePlatformAuthProviderProjection,
+			"TOBARI_AUTH_BROKER_SOCKET=" + prePlatformAuthBrokerSocket,
+			"TOBARI_AUTH_BROKER_TIMEOUT_SECONDS=" + prePlatformAuthBrokerTimeout,
+		}
+		observation.MountDestinations = []string{
+			prePlatformAuthProviderMount,
+			prePlatformAuthRuntimeMount,
+		}
+	}
+	return observation
 }
 
 func appliedStatePayload(t *testing.T, observation appliedClusterComponentObservation) []byte {
@@ -494,6 +506,69 @@ func TestSchemaOneMigrationBindsExactBuildProfile(t *testing.T) {
 			test.mutate(t, filepath.Join(legacy.RuntimeDirectory, "compose.experimental.yaml"))
 			if _, err := runtime.migratePrePlatformSharedClusterState(context.Background(), legacy); err == nil {
 				t.Fatal("research migration accepted unsafe experimental overlay")
+			}
+		})
+	}
+}
+
+func TestResearchSchemaOneMigrationRequiresExactGatewayBrokerProjection(t *testing.T) {
+	t.Parallel()
+	if !brokerRuntimeEnabled {
+		t.Skip("research predecessor projection is compiled only in the research profile")
+	}
+	for _, test := range []struct {
+		name   string
+		mutate func(*appliedClusterComponentObservation)
+	}{
+		{name: "standard Gateway with healthy Broker", mutate: func(gateway *appliedClusterComponentObservation) {
+			gateway.Environment = nil
+			gateway.MountDestinations = nil
+		}},
+		{name: "missing provider projection", mutate: func(gateway *appliedClusterComponentObservation) {
+			gateway.Environment = gateway.Environment[1:]
+		}},
+		{name: "duplicate provider projection", mutate: func(gateway *appliedClusterComponentObservation) {
+			gateway.Environment = append(gateway.Environment, gateway.Environment[0])
+		}},
+		{name: "conflicting provider projection", mutate: func(gateway *appliedClusterComponentObservation) {
+			gateway.Environment[0] = "TOBARI_AUTH_PROVIDER_PROJECTION=/run/foreign/providers.json"
+		}},
+		{name: "missing Broker socket", mutate: func(gateway *appliedClusterComponentObservation) {
+			gateway.Environment = append(gateway.Environment[:1], gateway.Environment[2:]...)
+		}},
+		{name: "conflicting Broker socket", mutate: func(gateway *appliedClusterComponentObservation) {
+			gateway.Environment[1] = "TOBARI_AUTH_BROKER_SOCKET=/run/foreign/broker.sock"
+		}},
+		{name: "missing timeout", mutate: func(gateway *appliedClusterComponentObservation) {
+			gateway.Environment = gateway.Environment[:2]
+		}},
+		{name: "changed timeout", mutate: func(gateway *appliedClusterComponentObservation) {
+			gateway.Environment[2] = "TOBARI_AUTH_BROKER_TIMEOUT_SECONDS=71"
+		}},
+		{name: "unknown authentication setting", mutate: func(gateway *appliedClusterComponentObservation) {
+			gateway.Environment = append(gateway.Environment, "TOBARI_AUTH_FALLBACK=enabled")
+		}},
+		{name: "missing provider mount", mutate: func(gateway *appliedClusterComponentObservation) {
+			gateway.MountDestinations = gateway.MountDestinations[1:]
+		}},
+		{name: "duplicate provider mount", mutate: func(gateway *appliedClusterComponentObservation) {
+			gateway.MountDestinations = append(gateway.MountDestinations, gateway.MountDestinations[0])
+		}},
+		{name: "missing runtime mount", mutate: func(gateway *appliedClusterComponentObservation) {
+			gateway.MountDestinations = gateway.MountDestinations[:1]
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			runtime, legacy, runner := schemaOneMigrationFixture(t)
+			var gateway appliedClusterComponentObservation
+			if err := json.Unmarshal(runner.payloads[gatewayContainer][0], &gateway); err != nil {
+				t.Fatal(err)
+			}
+			test.mutate(&gateway)
+			payload := appliedStatePayload(t, gateway)
+			runner.payloads[gatewayContainer] = [][]byte{payload, payload}
+			if _, err := runtime.migratePrePlatformSharedClusterState(context.Background(), legacy); err == nil {
+				t.Fatal("research migration accepted an unproven Gateway-to-Broker projection")
 			}
 		})
 	}
