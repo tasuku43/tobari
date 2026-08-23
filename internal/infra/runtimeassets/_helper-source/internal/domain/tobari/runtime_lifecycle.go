@@ -435,9 +435,11 @@ type RuntimePruneCandidate struct {
 	RevisionRef          string                    `json:"revision_ref"`
 	Name                 string                    `json:"name"`
 	Ordinal              int                       `json:"ordinal"`
+	LastUsed             RuntimeLastUsedState      `json:"last_used"`
 	SourceLogicalBytes   int64                     `json:"source_logical_bytes"`
 	SnapshotLogicalBytes int64                     `json:"snapshot_logical_bytes"`
 	ImageVirtualBytes    *int64                    `json:"image_virtual_bytes"`
+	ReclaimableBytes     *int64                    `json:"reclaimable_bytes"`
 }
 
 type RuntimePruneCandidateKind string
@@ -446,6 +448,10 @@ const (
 	RuntimePruneCandidateRevision    RuntimePruneCandidateKind = "runtime_revision"
 	RuntimePruneCandidateFailedBuild RuntimePruneCandidateKind = "failed_build"
 )
+
+type RuntimeLastUsedState string
+
+const RuntimeLastUsedUnknown RuntimeLastUsedState = "unknown"
 
 func (c RuntimePruneCandidate) Validate() error {
 	if err := ValidateRuntimeID(c.RuntimeID); err != nil {
@@ -471,6 +477,9 @@ func (c RuntimePruneCandidate) Validate() error {
 	}
 	if err := ValidateName(c.Name); err != nil {
 		return fmt.Errorf("Runtime prune candidate presentation is invalid")
+	}
+	if c.LastUsed != RuntimeLastUsedUnknown || c.ReclaimableBytes != nil {
+		return fmt.Errorf("Runtime prune candidate certainty is invalid")
 	}
 	if c.SourceLogicalBytes < 0 || c.SnapshotLogicalBytes < 0 || (c.ImageVirtualBytes != nil && *c.ImageVirtualBytes < 0) {
 		return fmt.Errorf("Runtime prune candidate byte evidence cannot be negative")
@@ -670,7 +679,7 @@ func PlanRuntimePrune(snapshot RuntimeLifecycleSnapshot, observedAt time.Time) (
 		for _, revision := range runtime.Revisions {
 			if revision.Revision == material.Revision {
 				storage := storageByRuntime[runtime.ID]
-				candidates = append(candidates, RuntimePruneCandidate{Kind: RuntimePruneCandidateRevision, RuntimeID: runtime.ID, Revision: revision.Revision, RuntimeRef: RuntimeRef(runtime.ID), RevisionRef: RuntimeRevisionRef(runtime.ID, revision.Revision), Name: runtime.Name, Ordinal: revision.Ordinal, SourceLogicalBytes: storage.SourceLogicalBytes, SnapshotLogicalBytes: runtimeSnapshotLogicalBytes(storage, RuntimePruneCandidateRevision, revision.Revision), ImageVirtualBytes: material.ImageVirtualBytes})
+				candidates = append(candidates, RuntimePruneCandidate{Kind: RuntimePruneCandidateRevision, RuntimeID: runtime.ID, Revision: revision.Revision, RuntimeRef: RuntimeRef(runtime.ID), RevisionRef: RuntimeRevisionRef(runtime.ID, revision.Revision), Name: runtime.Name, Ordinal: revision.Ordinal, LastUsed: RuntimeLastUsedUnknown, SourceLogicalBytes: storage.SourceLogicalBytes, SnapshotLogicalBytes: runtimeSnapshotLogicalBytes(storage, RuntimePruneCandidateRevision, revision.Revision), ImageVirtualBytes: material.ImageVirtualBytes})
 				break
 			}
 		}
@@ -682,7 +691,7 @@ func PlanRuntimePrune(snapshot RuntimeLifecycleSnapshot, observedAt time.Time) (
 			continue
 		}
 		storage := storageByRuntime[artifact.RuntimeID]
-		candidates = append(candidates, RuntimePruneCandidate{Kind: RuntimePruneCandidateFailedBuild, RuntimeID: artifact.RuntimeID, Revision: artifact.Revision, RuntimeRef: artifact.RuntimeRef, Name: artifact.Name, SourceLogicalBytes: storage.SourceLogicalBytes, SnapshotLogicalBytes: runtimeSnapshotLogicalBytes(storage, RuntimePruneCandidateFailedBuild, artifact.Revision), ImageVirtualBytes: artifact.Material.ImageVirtualBytes})
+		candidates = append(candidates, RuntimePruneCandidate{Kind: RuntimePruneCandidateFailedBuild, RuntimeID: artifact.RuntimeID, Revision: artifact.Revision, RuntimeRef: artifact.RuntimeRef, Name: artifact.Name, LastUsed: RuntimeLastUsedUnknown, SourceLogicalBytes: storage.SourceLogicalBytes, SnapshotLogicalBytes: runtimeSnapshotLogicalBytes(storage, RuntimePruneCandidateFailedBuild, artifact.Revision), ImageVirtualBytes: artifact.Material.ImageVirtualBytes})
 	}
 	sort.Slice(candidates, func(i, j int) bool {
 		return runtimeCandidateAuthorityKey(candidates[i]) < runtimeCandidateAuthorityKey(candidates[j])

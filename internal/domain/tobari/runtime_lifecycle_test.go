@@ -338,6 +338,11 @@ func TestRuntimePrunePlanValidateRejectsDirectInvalidConstruction(t *testing.T) 
 	}
 
 	tests := map[string]func(*RuntimePrunePlan){
+		"missing last-used certainty": func(plan *RuntimePrunePlan) { plan.Candidates[0].LastUsed = "" },
+		"invented reclaimable bytes": func(plan *RuntimePrunePlan) {
+			reclaimable := int64(1)
+			plan.Candidates[0].ReclaimableBytes = &reclaimable
+		},
 		"negative bytes": func(plan *RuntimePrunePlan) {
 			negative := int64(-1)
 			plan.Candidates[0].ImageVirtualBytes = &negative

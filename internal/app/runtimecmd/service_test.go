@@ -209,7 +209,7 @@ func TestRuntimePrunePlanUsesCompleteProtectionAndMaterialSnapshot(t *testing.T)
 	fake := &runtimeFake{manifest: manifest, materials: []tobari.RuntimeMaterialObservation{{RuntimeID: manifest.ID, Revision: manifest.Revisions[0].Revision, TagRole: tobari.RuntimeMaterialTagPublishedRevision, Availability: tobari.RuntimeAvailabilityAvailable, TagPresent: true, ContentPresent: true, OwnershipVerified: true, ObservationComplete: true, ImageVirtualBytes: &bytes}}}
 	service := New(fake)
 	plan, err := service.PlanPrune(context.Background())
-	if err != nil || plan.Empty || len(plan.Candidates) != 1 || plan.Candidates[0].RuntimeID != manifest.ID || plan.ObservedAt != time.Unix(100, 0).UTC() {
+	if err != nil || plan.Empty || len(plan.Candidates) != 1 || plan.Candidates[0].RuntimeID != manifest.ID || plan.Candidates[0].LastUsed != tobari.RuntimeLastUsedUnknown || plan.Candidates[0].ReclaimableBytes != nil || plan.ObservedAt != time.Unix(100, 0).UTC() {
 		t.Fatalf("Runtime prune plan = %+v/%v", plan, err)
 	}
 }
