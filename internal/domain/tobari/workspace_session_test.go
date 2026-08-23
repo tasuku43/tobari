@@ -44,7 +44,9 @@ func TestWorkspaceSessionRequestRejectsMissingOrUnrepresentableExecutable(t *tes
 }
 
 func TestWorkspaceSessionOutcomeKeepsExitAndBoundedCleanupIssues(t *testing.T) {
-	outcome := WorkspaceSessionOutcome{ExitCode: 37, CleanupIssues: []WorkspaceAttachmentCleanupIssue{WorkspaceCleanupHostLoopback, WorkspaceCleanupInteractiveSession}}
+	outcome := WorkspaceSessionOutcome{ExitCode: 37, CleanupIssues: []WorkspaceAttachmentCleanupIssue{
+		WorkspaceCleanupHostLoopback, WorkspaceCleanupInteractiveSession, WorkspaceCleanupPermissionChannel,
+	}}
 	if err := outcome.Validate(); err != nil {
 		t.Fatal(err)
 	}

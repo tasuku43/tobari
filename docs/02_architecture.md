@@ -112,6 +112,17 @@ invalidate waits before exact bounded authority cleanup; an expired lease is
 never renewed. Attachment cleanup faults remain typed secondary entry outcomes
 and cannot overwrite the already-observed child exit status.
 
+The Workspace-local socket and Python process are only an untrusted transport
+adapter. The host creates one ephemeral response-signing key per entry channel;
+the child receives only its verifier. The signed schema-1 response binds the
+channel, canonical attachment and owner digest, wait ID, fresh request nonce,
+and closed result or fault. The helper rejects a socket replacement, replay,
+unsigned response, or any binding drift. Host code independently enforces at
+most eight active waits, a bounded request window, the 4 KiB/1 KiB frames, and
+the wait lease. Unexpected bridge exit or a host response-write failure closes
+the channel, and checked teardown ends the control exec and verifies that its
+socket is absent before canonical attachment authority is removed.
+
 Attachment Grants are runtime-owned inputs to the complete per-request OPA projection and
 are disjoint from Workspace Manifest `policy/domains` learned rules. Policy review binds
 one grant to Workspace Manifest, project, epoch, target port, and exact effect. The route is

@@ -86,6 +86,84 @@ func TestInteractiveSessionOwnsWaitWithoutHostLoopbackStoreOrRoute(t *testing.T)
 	if !exists {
 		t.Fatal("acknowledged wait was not retained")
 	}
+	owner.waits.observer = &dispositionObserverStub{
+		results: []tobari.PermissionWaitResult{tobari.PermissionWaitResultAllow},
+		done:    []bool{true},
+	}
+	client, err := newPermissionWaitOwnerClient(runtime, owner.session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := client.WaitPermission(context.Background(), record.ID)
+	if err != nil || result != tobari.PermissionWaitResultAllow {
+		t.Fatalf("owner wait transport = %q, %v", result, err)
+	}
+}
+
+func TestPermissionOwnerTransportCancellationRetainsReconnectBudget(t *testing.T) {
+	root := t.TempDir()
+	runtime, _ := newRuntime(root+"/config", root+"/state", &recordingRunner{})
+	workspace := projectRuntimeInstance(t, runtime)
+	prepareInteractiveSessionPrincipal(t, runtime, workspace)
+	owner, err := runtime.beginInteractiveWorkspaceAttachment(context.Background(), workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer owner.Close(context.Background())
+	now := time.Now().UTC()
+	record := permissionWaitRecordFixtureForInfra()
+	record.FrozenPrincipalFingerprint = owner.session.FrozenPrincipalFingerprint
+	record.WorkspaceManifestID, record.WorkspaceID, record.AttachmentID = workspace.WorkspaceManifestID, workspace.ID, owner.session.AttachmentID
+	record.CreatedAt, record.ExpiresAt = now.Format(time.RFC3339Nano), now.Add(tobari.PermissionWaitLease).Format(time.RFC3339Nano)
+	if ack, err := registerPermissionWait(runtime, owner.session, record); err != nil || ack != "OK" {
+		t.Fatalf("register = %q, %v", ack, err)
+	}
+	started := make(chan struct{})
+	owner.waits.observer = &dispositionObserverStub{onCall: func() {
+		select {
+		case <-started:
+		default:
+			close(started)
+		}
+	}}
+	client, _ := newPermissionWaitOwnerClient(runtime, owner.session)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		_, waitErr := client.WaitPermission(ctx, record.ID)
+		done <- waitErr
+	}()
+	<-started
+	cancel()
+	if err := <-done; !hasInfrastructureFaultCode(err, "permission_wait_interrupted") {
+		t.Fatalf("canceled owner wait = %v", err)
+	}
+	deadline := time.Now().Add(time.Second)
+	for {
+		owner.waits.mu.Lock()
+		entry := owner.waits.records[record.ID]
+		active := entry != nil && entry.access.Active
+		attempts := 0
+		if entry != nil {
+			attempts = entry.access.Attempts
+		}
+		owner.waits.mu.Unlock()
+		if !active {
+			if attempts != 1 {
+				t.Fatalf("canceled attempt count = %d", attempts)
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("canceled wait remained active")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	owner.waits.observer = &dispositionObserverStub{results: []tobari.PermissionWaitResult{tobari.PermissionWaitResultDeny}, done: []bool{true}}
+	result, err := client.WaitPermission(context.Background(), record.ID)
+	if err != nil || result != tobari.PermissionWaitResultDeny {
+		t.Fatalf("reconnected owner wait = %q, %v", result, err)
+	}
 }
 
 func TestLoopbackTCPInteractiveSessionOwnsWaitWithoutUnixMountSource(t *testing.T) {

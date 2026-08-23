@@ -191,8 +191,11 @@ func TestEnterProjectRuntimeMirrorsHostCWDPath(t *testing.T) {
 		"--env", "PS1=" + projectInteractivePrompt,
 		"--env", "PROMPT_COMMAND=PS1=" + bashSingleQuoted(projectInteractivePrompt),
 		"--env", "TOBARI_CAPABILITIES_JSON=" + string(capabilities),
-		"--workdir", want, container, "/bin/bash",
 	}
+	for _, value := range permissionChannelEnvironment(t, runner.runs[0].args) {
+		wantArgs = append(wantArgs, "--env", value)
+	}
+	wantArgs = append(wantArgs, "--workdir", want, container, "/bin/bash")
 	if got := strings.Join(runner.runs[0].args, " "); got != strings.Join(wantArgs, " ") {
 		t.Fatalf("EnterProjectRuntime() argv = %q, want %q", got, strings.Join(wantArgs, " "))
 	}
@@ -205,6 +208,31 @@ func TestEnterProjectRuntimeMirrorsHostCWDPath(t *testing.T) {
 		}
 	}
 	t.Fatalf("EnterProjectRuntime() args = %v, missing --workdir", runner.runs[0].args)
+}
+
+func permissionChannelEnvironment(t *testing.T, args []string) []string {
+	t.Helper()
+	prefixes := []string{
+		workspacePermissionSocketEnv + "=",
+		workspacePermissionChannelEnv + "=",
+		workspacePermissionAttachmentEnv + "=",
+		workspacePermissionOwnerBindingEnv + "=",
+		workspacePermissionVerifyKeyEnv + "=",
+	}
+	values := make([]string, 0, len(prefixes))
+	for _, prefix := range prefixes {
+		matches := []string{}
+		for index := 0; index+1 < len(args); index++ {
+			if args[index] == "--env" && strings.HasPrefix(args[index+1], prefix) {
+				matches = append(matches, args[index+1])
+			}
+		}
+		if len(matches) != 1 || strings.TrimPrefix(matches[0], prefix) == "" {
+			t.Fatalf("permission channel environment %q = %q in %q", prefix, matches, args)
+		}
+		values = append(values, matches[0])
+	}
+	return values
 }
 
 func browserSocketEnvironment(t *testing.T, args []string) string {

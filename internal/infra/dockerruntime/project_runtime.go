@@ -485,6 +485,20 @@ func (r *Runtime) EnterProjectRuntime(
 		return outcome, encodeErr
 	}
 	extraEnvironment = append(extraEnvironment, "TOBARI_CAPABILITIES_JSON="+string(encoded))
+	container, _, containerErr := tobari.ProjectResourceNames(instance.ID)
+	if containerErr != nil {
+		return outcome, containerErr
+	}
+	permissionChannel, permissionChannelErr := r.startWorkspacePermissionChannel(ctx, interactiveAttachment, container)
+	if permissionChannelErr != nil {
+		return outcome, fmt.Errorf("establish permission wait channel: %w", permissionChannelErr)
+	}
+	defer func() {
+		if cleanupErr := permissionChannel.Close(); cleanupErr != nil {
+			outcome.CleanupIssues = append(outcome.CleanupIssues, tobari.WorkspaceCleanupPermissionChannel)
+		}
+	}()
+	extraEnvironment = append(extraEnvironment, permissionChannel.environment()...)
 	code, resultErr := r.enterProjectRuntime(
 		ctx, instance, manifest, cwd, session,
 		extraEnvironment, in, out, errOut,

@@ -10,11 +10,12 @@ type WorkspaceAttachmentCleanupIssue string
 const (
 	WorkspaceCleanupInteractiveSession WorkspaceAttachmentCleanupIssue = "interactive_session"
 	WorkspaceCleanupHostLoopback       WorkspaceAttachmentCleanupIssue = "host_loopback"
+	WorkspaceCleanupPermissionChannel  WorkspaceAttachmentCleanupIssue = "permission_channel"
 )
 
 func (i WorkspaceAttachmentCleanupIssue) Validate() error {
 	switch i {
-	case WorkspaceCleanupInteractiveSession, WorkspaceCleanupHostLoopback:
+	case WorkspaceCleanupInteractiveSession, WorkspaceCleanupHostLoopback, WorkspaceCleanupPermissionChannel:
 		return nil
 	default:
 		return fmt.Errorf("Workspace attachment cleanup issue is invalid")

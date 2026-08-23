@@ -630,6 +630,20 @@ evaluator and returns only `Allow`, explicit `Deny`, or validated lease
 `Expired`; default deny and ambiguous or unapplied state remain nonterminal.
 It receives no policy mutation, proposal, general network, filesystem, Docker,
 process, or TTY capability and never reconstructs or retries the request.
+
+The child-visible Unix socket is not authority: the custom Runtime and another
+same-UID process can remove or replace it. It is a transport bridge only. The
+trusted host generates an ephemeral per-entry signing key and signs the exact
+channel ID, canonical AttachmentID, owner-identity digest, wait ID, fresh
+helper-request nonce, and closed result or fault; only the verifier enters the
+Workspace. The helper rejects unsigned, replayed, rebound, or drifted responses.
+Host-side active-request, rate, frame, and lease bounds remain authoritative
+even when the Python bridge misbehaves. Unexpected bridge termination or host
+response-write failure invalidates the channel; checked cleanup terminates the
+control exec and proves its socket absent before the attachment owner is torn
+down. No signed result authorizes policy mutation or retries the original
+request.
+
 The host-owned retained denial queue remains the source of truth, and only the
 reference-bound host action can change policy. Interactive `review permissions`
 instead permits one command-bound fixed-target Apply over a bounded typed set:

@@ -504,7 +504,7 @@ func (a *interactiveWorkspaceAttachment) handle(connection net.Conn) {
 	}
 	header := make([]byte, permissionSessionHandshake)
 	if _, err := io.ReadFull(connection, header); err != nil ||
-		(header[0] != 'S' && header[0] != 'W') ||
+		(header[0] != 'S' && header[0] != 'W' && header[0] != 'Q') ||
 		subtle.ConstantTimeCompare(header[1:], []byte(a.session.IngestionNonce)) != 1 {
 		return
 	}
@@ -522,6 +522,10 @@ func (a *interactiveWorkspaceAttachment) handle(connection net.Conn) {
 	}
 	payload := make([]byte, int(length))
 	if _, err := io.ReadFull(connection, payload); err != nil {
+		return
+	}
+	if header[0] == 'Q' {
+		a.handlePermissionWaitQuery(connection, payload)
 		return
 	}
 	decoder := json.NewDecoder(bytes.NewReader(payload))

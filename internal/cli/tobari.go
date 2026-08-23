@@ -1029,6 +1029,8 @@ func renderWorkspaceAttachmentCleanupIssues(issues []tobari.WorkspaceAttachmentC
 			label = "Interactive session"
 		case tobari.WorkspaceCleanupHostLoopback:
 			label = "Host Loopback"
+		case tobari.WorkspaceCleanupPermissionChannel:
+			label = "Permission wait channel"
 		}
 		fmt.Fprintln(&output, applyStyleToken(style, styleWarning, "! "+label+" cleanup did not complete; run `tobari status` before re-entry."))
 	}

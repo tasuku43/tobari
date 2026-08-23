@@ -81,6 +81,19 @@ Failure or timeout omits resume fields. Possession of the wait ID alone grants
 nothing; the child can use it only through the owning attachment's private
 read-only helper socket.
 
+The Workspace-local Unix socket and its Python bridge are untrusted transport,
+not result authority: another same-UID process may remove or replace that
+socket. For each entry channel the trusted host creates an ephemeral signing
+key and projects only its verifier into the child. Every helper response is
+signed over the channel ID, canonical AttachmentID, a digest-bound owner
+identity, wait ID, fresh helper-request nonce, and the closed result or fault.
+The helper accepts a result only after verifying the signature and every exact
+binding. A replaced bridge, replayed response, unsigned result, unexpected
+bridge exit, or host response-write failure therefore fails the whole channel
+without manufacturing Allow, Deny, or Expired. The host independently enforces
+the active-request, rate, frame, and lease ceilings; the Runtime-side bridge is
+not trusted to enforce them.
+
 The trusted CLI selects the ingestion transport from one closed host-platform
 enum before composing Gateway: Linux is `unix`; Darwin is `loopback_tcp`.
 Gateway accepts only the transport fixed by that trusted compose profile. It

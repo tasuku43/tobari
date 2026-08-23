@@ -54,6 +54,10 @@ type workspaceServiceControlRunner interface {
 	RunWorkspaceServiceStream(context.Context, []string, []string, io.Reader, io.Writer, io.Writer) error
 }
 
+type workspacePermissionControlRunner interface {
+	RunWorkspacePermissionControl(context.Context, []string, []string, io.Reader, io.Writer, io.Writer) error
+}
+
 type osCommandRunner struct{}
 
 func (osCommandRunner) Run(ctx context.Context, args, environment []string, in io.Reader, out, errOut io.Writer) error {
@@ -79,6 +83,10 @@ func (runner osCommandRunner) RunWorkspaceServiceControl(ctx context.Context, ar
 }
 
 func (runner osCommandRunner) RunWorkspaceServiceStream(ctx context.Context, args, environment []string, in io.Reader, out, errOut io.Writer) error {
+	return runner.Run(ctx, args, environment, in, out, errOut)
+}
+
+func (runner osCommandRunner) RunWorkspacePermissionControl(ctx context.Context, args, environment []string, in io.Reader, out, errOut io.Writer) error {
 	return runner.Run(ctx, args, environment, in, out, errOut)
 }
 
