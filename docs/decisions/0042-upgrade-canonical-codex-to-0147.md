@@ -26,8 +26,8 @@ effect. There is therefore no evidence supporting broader baseline authority.
 
 ## Decision
 
-The canonical combined base and retained Codex integrity fixture pin Codex
-0.147.0. The coupled policy compatibility version changes to 0.147.0, but the
+The canonical combined base and its artifact lock pin Codex 0.147.0. The
+coupled policy compatibility version changes to 0.147.0, but the
 finite `builtin/agent-ready` exact grant set does not change. Any new or
 unmatched client effect remains denied or enters the ordinary exact review
 path according to the Context guardrail.
@@ -50,11 +50,11 @@ SHA-256 locks before extraction. The combined artifact remains build-only with
 
 ## Mechanical enforcement
 
-- `runtimes/codex/runtime.lock.json` binds version, asset names, byte sizes, and
+- `runtimes/base/runtime.lock.json` binds version, asset names, byte sizes, and
   SHA-256 values for both Linux architectures.
 - `tools/runtimecheck` couples that lock to
-  `tobari.AgentReadyCodexVersion`, both canonical Dockerfiles, runtime metadata,
-  and the embedded base snapshot.
+  `tobari.AgentReadyCodexVersion`, the canonical base Dockerfile, runtime
+  metadata, and the embedded base snapshot.
 - Runtime smoke checks execute `codex --version` with a fresh Workspace home.
 - Policy tests retain the exact core grants and continue to reject optional
   plugin, MCP, connector, transfer, evaluation, release, and update surfaces.

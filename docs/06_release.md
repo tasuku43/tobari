@@ -120,15 +120,15 @@ local base image at Workspace preparation time.
 Each CLI archive includes root `THIRD_PARTY_NOTICES` so the pinned
 `github.com/creack/pty` v1.1.24 MIT notice ships with the binary that uses it.
 
-The combined agent-ready base and the retained focused Claude/Codex child
-fixtures have validation-only workflows. They validate release checksums,
-multi-architecture construction, and the runtime contract without publishing.
-The combined OCI/runtime metadata uses `NOASSERTION` while both locks record
-`license_review: pending`; it must not imply that either bundled agent is
+The combined agent-ready base has one validation-only workflow. It validates
+both agents' release checksums, multi-architecture construction, and the
+runtime contract without publishing. The combined OCI/runtime metadata uses
+`NOASSERTION` while the consolidated base lock records `license_review:
+pending` for both agents; it must not imply that either bundled agent is
 MIT-licensed. Tobari permanently omits public base publication and instead
 ships its pinned recipes and integrity checks inside the CLI. Gateway source
 records contain no release-output digest. Contributor development builds
-`tobari-runtime:dev`; focused child commands remain integrity checks only.
+`tobari-runtime:dev`; there are no per-agent image commands or registry parents.
 
 Standard native Anthropic login is executed and stored by Claude Code inside
 the Workspace; Tobari ships no Anthropic acquisition or refresh adapter. The

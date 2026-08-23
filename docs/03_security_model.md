@@ -344,8 +344,8 @@ validation.
 The canonical base includes integrity-pinned Claude Code 2.1.220 and Codex
 0.147.0 and contains no credentials or agent configuration. Its ordinary Workspace
 binaries remain untrusted; only the separate mount-free Claude login container
-may treat exact Claude as a provider-only acquisition authority. Their workflows verify
-the versioned release packages against the checked-in per-architecture
+may treat exact Claude as a provider-only acquisition authority. The base
+workflow verifies both versioned release packages against the checked-in per-architecture
 checksums. The combined base declares `NOASSERTION`, is permanently
 local-build-only, and its workflow has no package-write permission, registry
 login, or push path.

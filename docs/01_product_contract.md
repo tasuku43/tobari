@@ -730,9 +730,10 @@ review runs through `tobari review permissions` in a separate host terminal.
   / `me` current-user lookup; `pup_ready` supplies only
   pup 1.10.7 default-US1 DCR, token, browser, and callback readiness. Neither
   bundle installs its client. A selected custom Context runtime must provide
-  the exact compatible client before its login can run. The protected release workflow publishes the reviewed combined
-  base as one immutable Linux amd64/arm64 index alongside Gateway and Auth
-  Broker. A local image or standalone validation workflow is not publication authority.
+  the exact compatible client before its login can run. The released CLI
+  carries the pinned combined-base recipe and builds it locally when absent.
+  The base workflow validates Linux amd64 and arm64 with cache-only output;
+  neither it nor the protected release workflow publishes an OCI image.
 - The pinned client versions and `builtin/agent-ready` exact and semantic effect catalog are
   one compatibility contract. Its compile-time `claude_ready`, `codex_ready`,
   `gh_ready`, custom-runtime `twg_ready`, and custom-runtime `pup_ready`
@@ -746,8 +747,9 @@ review runs through `tobari review permissions` in a separate host terminal.
   The bundles are not runtime selectors or
   executable identity. Updating a pinned client or its independent readiness
   contract revision requires reviewing its artifact lock where changed, exact
-  effects, host interactions, and core control-plane effects. Separate agent-image recipes
-  remain build-only validation inputs and create no second authority boundary.
+  effects, host interactions, and core control-plane effects. The Claude and
+  Codex artifact locks belong to the combined base and create no second image
+  or authority boundary.
 - Project metadata does not select or alter the runtime image. Workspaces use
   their permanently bound Context image when created and again when their runtime container
   is reconciled by root entry; all selected images still pass the same

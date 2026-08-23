@@ -5,7 +5,7 @@
 - Deciders: Tobari maintainers
 - Scope: Architecture, security, release, and harness
 - Supersedes: None
-- Superseded by: None
+- Superseded by: ADR 0045 revises the publication and component-lock portions; canonical source ownership remains accepted
 
 ## Context
 
@@ -102,7 +102,7 @@ compatibility preflight. Moving tags are never that authority.
 
 ## Mechanical enforcement
 
-- `task gateway:source:check` checks canonical/snapshot byte equality.
+- `scripts/check-gateway-source.sh` checks canonical/snapshot byte equality.
 - `task check` runs the snapshot check and Go asset tests.
 - `task gateway:test` mounts `gateway/`, not the generated snapshot.
 - The Gateway image workflow separates pull-request cache-only builds from

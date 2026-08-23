@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "base_image": {
     "name": "debian",
     "tag": "bookworm-20260713-slim",
@@ -13,6 +13,42 @@
     "aws_cli": {
       "version": "2.36.11",
       "source": "https://awscli.amazonaws.com/"
+    },
+    "claude": {
+      "name": "claude-code",
+      "version": "2.1.220",
+      "source": "https://downloads.claude.ai/claude-code-releases",
+      "license_review": "pending",
+      "platforms": {
+        "linux/amd64": {
+          "asset": "linux-x64/claude",
+          "sha256": "674f61f20ff306f3100cf9200e4c36c4b70278b5bef2884549819b942a89c863",
+          "size": 275012592
+        },
+        "linux/arm64": {
+          "asset": "linux-arm64/claude",
+          "sha256": "159e4a51d796f3bf14677577100f7efb845611b1ceaf0c30cbd8d4650d942185",
+          "size": 271825824
+        }
+      }
+    },
+    "codex": {
+      "name": "codex-cli",
+      "version": "0.147.0",
+      "source": "https://releases.openai.com/codex",
+      "license_review": "pending",
+      "platforms": {
+        "linux/amd64": {
+          "asset": "codex-package-x86_64-unknown-linux-musl.tar.gz",
+          "sha256": "bd758d53d56e41dc65e045f4589df79a038ed197a011adcb52a258e6ad64cfda",
+          "size": 119166922
+        },
+        "linux/arm64": {
+          "asset": "codex-package-aarch64-unknown-linux-musl.tar.gz",
+          "sha256": "89cbf79bd5ae6f9c58da47e8079f311c84219350c9c43c070d42f3e9b2a81401",
+          "size": 110889625
+        }
+      }
     }
   }
 }

@@ -4,9 +4,6 @@ on:
   pull_request:
     paths:
       - runtimes/base/**
-      - runtimes/claude/runtime.lock.json
-      - runtimes/codex/runtime.lock.json
-      - runtimes/manifest.json
       - internal/infra/runtimeassets/assets/tobari/**
       - internal/infra/runtimeassets/_helper-source/**
       - internal/infra/runtimeassets/assets/versions.env
@@ -22,9 +19,6 @@ on:
     branches: [main]
     paths:
       - runtimes/base/**
-      - runtimes/claude/runtime.lock.json
-      - runtimes/codex/runtime.lock.json
-      - runtimes/manifest.json
       - internal/infra/runtimeassets/assets/tobari/**
       - internal/infra/runtimeassets/_helper-source/**
       - internal/infra/runtimeassets/assets/versions.env
@@ -66,6 +60,7 @@ jobs:
         run: |
           set -euo pipefail
           base_image=$(go run ./tools/runtimecheck --print-base-image)
+          go_builder_image=$(go run ./tools/runtimecheck --print-go-builder-image)
           builder="tobari-runtime-${GITHUB_RUN_ID}"
           docker buildx create --name "$builder" --driver docker-container --use
           trap 'docker buildx rm "$builder" >/dev/null 2>&1 || true' EXIT
@@ -74,7 +69,7 @@ jobs:
             --platform linux/amd64,linux/arm64 \
             --file runtimes/base/Dockerfile \
             --build-arg "DEBIAN_IMAGE=$base_image" \
-            --build-arg "GO_BUILDER_IMAGE=$(awk -F= '$1 == \"GO_BUILDER_IMAGE\" { print $2 }' internal/infra/runtimeassets/assets/versions.env)" \
+            --build-arg "GO_BUILDER_IMAGE=$go_builder_image" \
             --build-arg "TOBARI_EXPOSURE_HELPER_SOURCE=$(go run ./tools/runtimeassetid exposure-helper)" \
             --build-arg TOBARI_UID=1000 \
             --build-arg TOBARI_GID=1000 \

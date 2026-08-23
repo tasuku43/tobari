@@ -1,4 +1,4 @@
-ARG TOBARI_RUNTIME_BASE=ghcr.io/tasuku43/tobari/runtime:latest
+ARG TOBARI_RUNTIME_BASE=tobari-runtime:base
 FROM ${TOBARI_RUNTIME_BASE}
 
 USER root

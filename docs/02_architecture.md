@@ -586,8 +586,8 @@ The canonical Tobari base-image source now lives under `runtimes/base`. Its
 Dockerfile and bootstrap are copied into the embedded
 `internal/infra/runtimeassets/assets/tobari` snapshot by the explicit
 `scripts/sync-runtime-base.sh` maintainer operation, and
-`task runtime:base:check` fails if the snapshot drifts. The base metadata,
-digest lock, and family manifest are kept beside the source image. This keeps
+`scripts/check-runtime-base.sh` fails if the snapshot drifts. The base metadata and
+single digest/artifact lock are kept beside the source image. This keeps
 the distributed CLI self-contained while avoiding two independently edited
 base definitions.
 
@@ -800,8 +800,9 @@ process or image executable a general host helper. Codex uses the official stand
 CLI companion binaries and Linux sandbox resources together. Agent executables
 and package resources live in image-owned `/usr/local/bin` and `/opt/tobari`
 paths; `/var/lib/tobari` contains only per-Workspace home state and is safe to
-replace with the persistent home bind. The retained child recipes remain
-build-only integrity fixtures for each upstream artifact.
+replace with the persistent home bind. The base lock records each upstream
+artifact's version, source, license-review state, architecture, checksum, and
+size; there are no per-agent child images.
 
 The combined base declares `NOASSERTION` and is permanently local-build-only.
 `.github/workflows/runtime-base.yml` has read-only repository permission and

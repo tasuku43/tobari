@@ -61,9 +61,9 @@ Broker control で確定します。owner provider は protected stdin import �
 です。payload は static primary secret、revision、raw handle を保存します。installation root key
 は vault 外の macOS Keychain または owner-only Linux XDG file に置きます。
 
-### OCI イメージと GHCR
+### ローカル OCI イメージの境界
 
-Gateway、Auth Broker、OPA、mitmproxy のベース、実行環境のベースは、OCI イメージで境界を作ります。実行時サービスの識別には、埋め込み済みのバージョン情報に記録した不変ダイジェストを使います。更新され得る `main` や `latest` タグは開発や公開の便宜のためにあり、実行時の権限を示すものではありません。
+Gateway、Auth Broker、OPA、mitmproxy のビルド元、agent-ready base は OCI イメージで境界を作ります。上流入力には埋め込み済みバージョン情報の不変ダイジェストを使い、Tobari 管理イメージにはソース由来のローカルタグと検査済みローカルダイジェストを使います。更新され得る `main` や `latest` タグは実行時の権限ではありません。
 
 現在の正確なバージョンとダイジェストは、このページへ複写しません。`go.mod`、`versions.env`、実行環境メタデータから[コンポーネントバージョン](../../reference/component-versions/)へ生成します。
 
@@ -78,7 +78,7 @@ Gateway と Auth Broker には、それぞれ編集元となる公開の正本�
 
 CLI は `internal/infra/runtimeassets/assets/` 以下にある実行環境の写しを埋め込みます。バイト単位の差分検査により、正本と一致しない写しの変更を拒否します。埋め込み資材には Compose、OPA ポリシー、実行環境のエントリーポイント、イメージの識別情報、ライセンス資料も含まれます。
 
-CI は正本から複数アーキテクチャ向けの OCI イメージをビルドします。通常の実行環境は、レビュー済みの不変ダイジェストを使います。Pull Request のイメージ検証には、パッケージを書き込む権限を与えません。公開は別の管理されたワークフローで行います。
+CI は正本から複数アーキテクチャ向け OCI イメージを cache-only output で検証します。通常の実行環境はソース由来のローカルイメージをビルドまたは再利用し、検査済みダイジェストと component contract を確認します。image 検証には package-write 権限を与えず、Tobari には OCI 公開 workflow がありません。
 
 ## 一つの具体的なリクエストと技術の対応
 

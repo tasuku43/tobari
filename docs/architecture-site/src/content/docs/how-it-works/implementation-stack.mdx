@@ -77,9 +77,9 @@ macOS Keychain or an owner-only Linux XDG file. Encryption limits storage
 exposure across the container/Workspace boundary but does not protect against
 a compromised host user, root-key backend, Broker, or Gateway.
 
-### OCI images and GHCR
+### Local OCI image boundaries
 
-Gateway, Auth Broker, OPA, mitmproxy base, and runtime base are OCI image boundaries. Runtime service identities use immutable digests recorded in embedded version metadata. Moving `main` and `latest` tags are development/publication conveniences, not runtime authority.
+Gateway, Auth Broker, OPA, the mitmproxy build base, and the agent-ready base are OCI image boundaries. Upstream inputs use immutable digests recorded in embedded version metadata; Tobari-managed images use source-derived local tags plus inspected local digests. No moving `main` or `latest` tag is runtime authority.
 
 The current exact versions and digests are generated in [Component versions](/reference/component-versions/) from `go.mod`, `versions.env`, and runtime metadata rather than copied into this page.
 
@@ -94,7 +94,7 @@ Gateway and Auth Broker each have one editable canonical public source tree:
 
 The CLI embeds a runtime snapshot under `internal/infra/runtimeassets/assets/`. Byte-for-byte drift checks reject a changed snapshot that does not match canonical source. The embedded assets also include Compose, OPA policy, runtime entrypoints, image identities, and license material.
 
-CI builds multi-architecture OCI images from canonical sources. Normal runtime uses reviewed immutable digests. Pull-request image validation does not receive package-write permission; publication is a separate controlled workflow.
+CI validates multi-architecture OCI construction from canonical sources with cache-only output. Normal runtime builds or reuses source-derived local images and verifies their inspected digests and component contracts. Image validation receives no package-write permission, and Tobari has no OCI publication workflow.
 
 ## Concrete request mapped to technologies
 

@@ -32,7 +32,7 @@ while one cleanup owner still controls the complete fixture.
 
 The base runtime check verifies its Git, HTTP, JSON, Python, SSH, GitHub CLI,
 AWS CLI, Claude Code 2.1.220, and Codex 0.147.0 baseline. The fast profile binds
-the two agent pins to their checked artifact locks. Datadog acquisition tests
+both agent pins to the single checked base artifact lock. Datadog acquisition tests
 instead prove selected-Context resolution, immutable image and executable
 identity, structural pup login/capture conformance, and absence of host/base
 fallback. The base workflow is always validation-only. Release tests reject
@@ -75,14 +75,14 @@ profile rejects component locks and registry publication, and verifies every
 CLI archive carries the requested source revision. Local image tags are derived
 from their embedded recipes.
 
-The focused `task runtime:base:check` workflow validates the canonical
-`runtimes/base` metadata and per-platform artifact lock, the Dockerfile's common
+The focused `scripts/check-runtime-base.sh` workflow step validates the canonical
+`runtimes/base` metadata and consolidated per-platform artifact lock, the Dockerfile's common
 tool, integrity, redistribution/license, and runtime contracts, and byte
 equality with the embedded CLI snapshot. Its pull-request and main workflow is
 cache-only and has no package-write permission. The protected Release workflow
 cannot publish any Tobari-owned OCI image.
 
-`task gateway:source:check` validates exact membership and byte equality for
+`scripts/check-gateway-source.sh` validates exact membership and byte equality for
 the canonical Gateway Dockerfile, `.dockerignore`, and Dockerfile-declared
 image inputs in the embedded snapshot. Tests and contributor documentation
 remain canonical-only. `task gateway:test` runs the
@@ -102,8 +102,7 @@ entrypoint, default user, Docker Engine platform, and selected runtime base
 before shared resources; local source image feedback is covered by the explicit
 contributor `task build` path.
 
-`task authbroker:source:check` and `scripts/check-authbroker-source.sh`
-validate exact membership and byte equality for the canonical Auth Broker
+`scripts/check-authbroker-source.sh` validates exact membership and byte equality for the canonical Auth Broker
 Dockerfile, `.dockerignore`, and Dockerfile-declared image inputs in the
 embedded snapshot. Tests and contributor documentation remain canonical-only.
 The canonical Python unit suite
@@ -114,15 +113,15 @@ unlock, rotation, logout, retired-operation rejection, and secret-free
 failures. The image check
 validates provider-CLI absence, Docker labels, fixed entrypoint, and non-root
 user. Its workflow builds both supported architectures without publishing.
-`task authbroker:image:check` is the focused image metadata/artifact check, and
+`scripts/check-authbroker-image.sh` is the focused image metadata/artifact check, and
 `task authbroker:source:sync` is the explicit maintainer operation that
 refreshes the embedded snapshot.
-The version contract requires every production image selector, including Auth
-Broker, to be an immutable digest reference. Component-lock tests reject a
-partial lock, moving tag, wrong repository, malformed digest, source mismatch,
-or incomplete platform set. The
-reviewed Linux amd64/arm64 manifest receives the same runtime preflight and
-ordinary immutable-image checks as Gateway.
+The source/version contract digest-pins upstream image inputs and records
+agent artifact identity in the consolidated base lock. Tobari-managed Gateway,
+Auth Broker, and base outputs use source-derived local tags plus inspected
+local digests; release checks reject any reintroduced component lock or
+registry authority. The focused Gateway, Auth Broker, and base workflows
+validate Linux amd64/arm64 construction with cache-only output.
 
 Authentication coverage spans Go, Python, Gateway, image content, and
 dependency checks. Reviewed host-driver tests fix argv/environment, canonical
@@ -299,6 +298,24 @@ privilege Pages deploy job. The repository installs no
 automatic Codex Stop hook: a per-turn gate adds latency and does not prove
 completion. Optional local automation must delegate to one named profile and
 must not claim equivalence to a profile it did not run.
+
+The repository retains seven workflow files, each with one distinct owner:
+
+| Workflow | Trigger | Owned outcome |
+|---|---|---|
+| `ci.yml` | Pull request and main push | Exact-revision completion and release evidence for all five source profiles |
+| `architecture-pages.yml` | Main push and manual replay | Canonical site verification and main-only Pages deployment |
+| `security.yml` | Weekly schedule and manual replay | Periodic dependency and source-security drift detection |
+| `release.yml` | Protected manual dispatch | Reuse exact successful CI evidence, package CLI archives, and publish reviewed release assets |
+| `gateway-image.yml` | Relevant pull request and reviewed manual revision | Cache-only multi-architecture Gateway source/image validation |
+| `authbroker-image.yml` | Relevant pull request and reviewed manual revision | Cache-only experimental Auth Broker source/image validation |
+| `runtime-base.yml` | Relevant pull request and main push | Cache-only multi-architecture validation of the one agent-ready base |
+
+There are no per-agent Runtime workflows: Claude Code and Codex are inputs to
+the base lock and build. Taskfile exposes completion profiles, focused product
+profiles, contributor build/site operations, and explicit snapshot sync
+operations. Implementation-only source checks and raw Go test variants remain
+owned by `scripts/check.sh` rather than receiving duplicate task aliases.
 
 ## Adoption is a product check
 

@@ -34,25 +34,24 @@ API, user, entrypoint, and lifetime contract. Tobari does not publish or pull
 the combined agent-ready base through GHCR. The inspected local digest records
 the bytes that reconciliation actually uses.
 
-Canonical source and a pinned runtime artifact are two separate facts. A source
-change does not alter a running or newly reconciled standard cluster until the
-corresponding multi-architecture Gateway/Auth Broker manifests are published,
-reviewed, and injected through the release-generated component lock. The generated
-[Component versions](/reference/component-versions/) table is the authority for
-the artifacts this source snapshot actually selects.
+Canonical source and a validated local image are two separate facts. A source
+change does not alter a running cluster until Tobari builds the corresponding
+source-derived local image and reconciliation selects its inspected digest. The
+generated [Component versions](/reference/component-versions/) table is the
+authority for the pinned upstream inputs this source snapshot actually uses.
 
-At this snapshot, canonical Gateway/Auth Broker source is the complete paired
-V1 requirement. Only the protected release flow turns its reviewed immutable
-V1 indexes into published runtime authority. A successful source test does not
-silently publish runtime bytes.
+At this snapshot, canonical Gateway, Auth Broker, and base Runtime source plus
+their embedded snapshots are the complete V1 image inputs. Image workflows
+validate multi-architecture construction with cache-only output. A successful
+source test does not publish runtime bytes.
 
 ## Build and release controls
 
-- Gateway and Auth Broker OCI images are built in the protected Release workflow and published to GHCR.
-- The agent-ready base is built locally from pinned embedded assets and is never published by Tobari.
+- Gateway, the experimental Auth Broker, and the agent-ready base are built locally from pinned source or embedded assets and are never published by Tobari.
+- Focused image workflows validate Linux amd64 and arm64 with cache-only output and no package-write permission.
 - External workflow actions are pinned to full commit SHAs.
 - Release packaging injects CLI version and commit; ordinary builds remain `dev`.
-- Base/derived runtime metadata records architecture, parent, API, lifetime command, tool source, checksum/signature, and licensing expectations.
+- Base runtime metadata and its consolidated lock record architecture, API, lifetime command, tool source, checksum/signature, and licensing expectations.
 - Auth Broker image checks prove the absence of provider executables and public
   TCP listeners.
 - Public and release guards check repository boundaries, secrets, licenses, package inputs, and immutable service references. Tobari does not claim a separate code-signing, SBOM-attestation, or externally verifiable provenance system here.

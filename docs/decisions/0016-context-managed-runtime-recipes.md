@@ -5,7 +5,7 @@
 - Deciders: Tobari maintainers
 - Scope: Product, architecture, security, and harness
 - Supersedes: None
-- Superseded by: ADR 0018 supersedes active-Context authority; the Context-owned recipe remains accepted
+- Superseded by: ADR 0018 supersedes active-Context authority; ADR 0039 and ADR 0043 revise the official base to a local-only agent-ready image; the Context-owned recipe remains accepted
 
 ## Context
 
@@ -55,10 +55,10 @@ It uses only that directory as build context, validates the resulting image
 against the existing Tobari runtime contract, obtains its local image digest,
 and atomically promotes the generated image reference into the Context.
 
-When the first `FROM` is the exact official
-`ghcr.io/tasuku43/tobari/runtime:latest` base, the explicit build requests a
-base refresh with Docker's `--pull`. Explicit local or custom bases do not
-receive that request, so the local-base development path remains valid.
+Later ADR 0039 and ADR 0043 replaced the registry-published official base with
+the local-only agent-ready base. The current built-in and explicit local bases
+receive no registry-pull request. Explicit remote custom bases remain
+Docker-owned inputs to the requested build.
 
 The generated image name is an implementation detail derived from the Context
 name and recipe source digest. The image digest and recipe source digest are

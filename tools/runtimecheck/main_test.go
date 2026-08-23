@@ -22,17 +22,27 @@ func TestValidateRepositoryBase(t *testing.T) {
 	}
 }
 
-func TestValidateRepositoryClaude(t *testing.T) {
+func TestValidatedGoBuilderImage(t *testing.T) {
 	root := repositoryRoot(t)
-	if _, err := validateClaude(root); err != nil {
+	if _, err := validatedGoBuilderImage(root); err != nil {
 		t.Fatal(err)
 	}
 }
 
-func TestValidateRepositoryCodex(t *testing.T) {
-	root := repositoryRoot(t)
-	if _, err := validateCodex(root); err != nil {
-		t.Fatal(err)
+func TestValidateAgentArtifactLockRejectsIncompleteMatrix(t *testing.T) {
+	lock := agentArtifactLock{
+		Name:          "agent",
+		Version:       "1.2.3",
+		Source:        "https://example.com/releases",
+		LicenseReview: "approved",
+		Platforms: map[string]struct {
+			Asset  string `json:"asset"`
+			SHA256 string `json:"sha256"`
+			Size   int    `json:"size"`
+		}{},
+	}
+	if err := validateAgentArtifactLock(lock, "agent", "1.2.3", "https://example.com/releases", map[string]string{"linux/amd64": "agent"}); err == nil {
+		t.Fatal("validateAgentArtifactLock accepted an incomplete architecture matrix")
 	}
 }
 
