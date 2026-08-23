@@ -9,7 +9,7 @@ verify_permission_observer_opa_expression_shape() {
   for decision in \
     '{"allow":true,"reason":"allowed by Context policy","status_code":403,"learnable":false}' \
     '{"allow":false,"reason":"denied by exact policy","status_code":403,"learnable":false}'; do
-    query='[result | revision := {"status_code":200,"body":{"result":"'"$revision"'"}}; revision.status_code == 200; decision := {"status_code":200,"body":{"result":'"$decision"'}}; decision.status_code == 200; object.get(decision.body, "result", null) != null; result := {"revision":revision.body.result,"decision":decision.body.result}][0]'
+    query='[result | observation := {"status_code":200,"body":{"result":{"revision":"'"$revision"'","decision":'"$decision"'}}}; observation.status_code == 200; object.get(observation.body, "result", null) != null; result := observation.body.result][0]'
     output=$(docker run --rm "$opa_image" eval --fail --format raw "$query")
     OPA_OBSERVATION="$output" python3 - "$revision" <<'PY'
 import json
@@ -24,15 +24,37 @@ if not isinstance(decision, dict) or not isinstance(decision.get("allow"), bool)
     raise SystemExit(f"OPA observer query did not retain its decision object: {document!r}")
 PY
   done
-  query='[result | revision := {"status_code":503,"body":{"result":"'"$revision"'"}}; revision.status_code == 200; result := {"revision":revision.body.result}][0]'
+  query='[result | observation := {"status_code":503,"body":{}}; observation.status_code == 200; result := observation.body.result][0]'
   if docker run --rm "$opa_image" eval --fail --format raw "$query" >/dev/null 2>&1; then
     fail "undefined OPA observer query did not fail closed"
   fi
 }
 
+verify_live_permission_observation_snapshot() {
+  local expected_allow=$1 policy_input query output
+  policy_input='{"schema_version":1,"principal":{"cluster":"default","context_id":"'"$default_manifest_id"'","project_id":"'"$work_id"'"},"request":{"authority":{"scheme":"https","host":"mock-upstream","port":443},"method":"GET","path":{"raw":"/permission-resume","segments":["permission-resume"]},"query":{},"headers":{}},"authorization":{"broker_provider":null}}'
+  query='[result | observation := http.send({"method":"post","url":"http://127.0.0.1:8181/v1/data/tobari/http/permission_wait_observation","headers":{"content-type":"application/json"},"body":{"input":'"$policy_input"'}}); observation.status_code == 200; object.get(observation.body, "result", null) != null; result := observation.body.result][0]'
+  output=$(docker exec tobari-opa /opa eval --fail --format raw "$query")
+  EXPECTED_ALLOW=$expected_allow OPA_OBSERVATION="$output" python3 <<'PY'
+import json
+import os
+import re
+
+document = json.loads(os.environ["OPA_OBSERVATION"])
+if (not isinstance(document, dict)
+        or re.fullmatch(r"[0-9a-f]{64}", document.get("revision", "")) is None):
+    raise SystemExit(f"live OPA observation omitted its exact revision: {document!r}")
+decision = document.get("decision")
+expected = os.environ["EXPECTED_ALLOW"] == "true"
+if not isinstance(decision, dict) or decision.get("allow") is not expected:
+    raise SystemExit(f"live OPA observation did not bind its decision snapshot: {document!r}")
+PY
+}
+
 verify_permission_resume_handoff() {
   local permission_denial permission_wait_result permission_retry _
   verify_permission_observer_opa_expression_shape
+  verify_live_permission_observation_snapshot false
   for _ in $(seq 1 120); do
     if run_project test -s /var/lib/tobari/permission-denial.json >/dev/null 2>&1; then
       break
@@ -74,6 +96,7 @@ PY
     fail "denied permission-resume request reached the upstream"
   fi
   allow_exact_effect "$work_id" mock-upstream GET /permission-resume
+  verify_live_permission_observation_snapshot true
   for _ in $(seq 1 120); do
     if run_project test -s /var/lib/tobari/permission-retry.json >/dev/null 2>&1; then
       break

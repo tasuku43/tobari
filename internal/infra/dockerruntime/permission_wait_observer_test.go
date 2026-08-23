@@ -76,13 +76,16 @@ func TestPermissionObserverReusesCanonicalLiveOPAForTerminalResults(t *testing.T
 				t.Fatalf("result = %q, want %q", result, want)
 			}
 			query := strings.Join(runner.args, " ")
-			for _, required := range []string{"/v1/data/tobari/aggregate_revision", "/v1/data/tobari/http/decision", `"context_id":"` + record.WorkspaceManifestID, `"project_id":"` + record.WorkspaceID, `"segments":["items","a b"]`, `result := {"revision":`} {
+			for _, required := range []string{"/v1/data/tobari/http/permission_wait_observation", `"context_id":"` + record.WorkspaceManifestID, `"project_id":"` + record.WorkspaceID, `"segments":["items","a b"]`, `result := observation.body.result`} {
 				if !strings.Contains(query, required) {
 					t.Fatalf("OPA query omitted %q: %s", required, query)
 				}
 			}
+			if strings.Count(query, "http.send(") != 1 || strings.Contains(query, "/v1/data/tobari/aggregate_revision") || strings.Contains(query, "/v1/data/tobari/http/decision\"") {
+				t.Fatalf("permission observation was split across OPA snapshots: %s", query)
+			}
 			if len(runner.args) == 0 || !strings.HasPrefix(runner.args[len(runner.args)-1], "[result | ") ||
-				!strings.HasSuffix(runner.args[len(runner.args)-1], "}][0]") {
+				!strings.HasSuffix(runner.args[len(runner.args)-1], "][0]") {
 				t.Fatalf("OPA raw query does not emit the bound observation object: %s", query)
 			}
 		})
@@ -103,6 +106,76 @@ func TestPermissionObserverKeepsDefaultDenyAndStaleRevisionNonterminal(t *testin
 				t.Fatalf("nonterminal observation = %q, %t, %v", result, terminal, err)
 			}
 		})
+	}
+}
+
+func TestPermissionObserverHotReloadCannotMixRevisionAndDecisionSnapshots(t *testing.T) {
+	runtime, runner, record := permissionObserverRuntime(t, "")
+	revisionA := strings.Repeat("a", 64)
+	revisionB := strings.Repeat("b", 64)
+	allow := `{"allow":true,"reason":"allowed by Context policy","status_code":403,"learnable":false}`
+	defaultDeny := `{"allow":false,"reason":"request did not match an allow rule","status_code":403,"learnable":true}`
+
+	// This is the deterministic equivalent of reloading A to B in the old gap
+	// between two OPA calls: the one endpoint can return only the complete B
+	// snapshot, which cannot match the preloaded A state.
+	runner.output = []byte(`{"revision":"` + revisionB + `","decision":` + allow + `}`)
+	if result, terminal, err := runtime.ObservePermissionDisposition(context.Background(), record); err != nil || terminal || result != "" {
+		t.Fatalf("unpublished B observation = %q, %t, %v", result, terminal, err)
+	}
+	if strings.Count(strings.Join(runner.args, " "), "http.send(") != 1 {
+		t.Fatalf("hot-reload observation used multiple OPA snapshots: %v", runner.args)
+	}
+
+	// A failed Apply returning to A remains pending without an explicit final
+	// disposition.
+	runner.output = []byte(`{"revision":"` + revisionA + `","decision":` + defaultDeny + `}`)
+	if result, terminal, err := runtime.ObservePermissionDisposition(context.Background(), record); err != nil || terminal || result != "" {
+		t.Fatalf("failed Apply observation = %q, %t, %v", result, terminal, err)
+	}
+
+	state, configured, err := runtime.LoadState(context.Background())
+	if err != nil || !configured {
+		t.Fatalf("load state = configured %t, %v", configured, err)
+	}
+	state.AggregateRevision = revisionB
+	if err := runtime.writeState(state); err != nil {
+		t.Fatal(err)
+	}
+	for name, terminalDecision := range map[string]struct {
+		document string
+		result   tobari.PermissionWaitResult
+	}{
+		"allow": {document: allow, result: tobari.PermissionWaitResultAllow},
+		"deny":  {document: `{"allow":false,"reason":"denied by exact policy","status_code":403,"learnable":false}`, result: tobari.PermissionWaitResultDeny},
+	} {
+		t.Run(name, func(t *testing.T) {
+			runner.output = []byte(`{"revision":"` + revisionB + `","decision":` + terminalDecision.document + `}`)
+			if result, terminal, err := runtime.ObservePermissionDisposition(context.Background(), record); err != nil || !terminal || result != terminalDecision.result {
+				t.Fatalf("published B observation = %q, %t, %v", result, terminal, err)
+			}
+		})
+	}
+}
+
+func TestPolicyTransitionFencePublishesAtomicPermissionWaitObservation(t *testing.T) {
+	runtime, _, _ := permissionObserverRuntime(t, "")
+	state, configured, err := runtime.LoadState(context.Background())
+	if err != nil || !configured {
+		t.Fatalf("load state = configured %t, %v", configured, err)
+	}
+	fence, cleanup, err := runtime.policyFenceState(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cleanup()
+	rego, err := os.ReadFile(fence.PolicyDirectory + "/fence.rego")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `permission_wait_observation := {"revision": data.tobari.aggregate_revision, "decision": decision}`
+	if strings.Count(string(rego), want) != 1 {
+		t.Fatalf("transition fence omitted atomic permission observation:\n%s", rego)
 	}
 }
 

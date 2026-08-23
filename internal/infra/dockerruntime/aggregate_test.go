@@ -33,6 +33,18 @@ func TestOrthogonalReadinessRemainsBehindTerminalGuardrails(t *testing.T) {
 	}
 }
 
+func TestAggregateRouterPublishesAtomicPermissionWaitObservation(t *testing.T) {
+	t.Parallel()
+	router, err := aggregateRouter([]aggregateContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `permission_wait_observation := {"revision": data.tobari.aggregate_revision, "decision": decision}`
+	if strings.Count(string(router), want) != 1 {
+		t.Fatalf("atomic permission observation rule count drifted:\n%s", router)
+	}
+}
+
 func (r *policyContentTestRunner) Output(ctx context.Context, args, environment []string) ([]byte, error) {
 	output, err := r.recordingRunner.Output(ctx, args, environment)
 	policyDirectory, ok := mountedPolicyTestDirectory(args)
