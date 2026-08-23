@@ -78,12 +78,18 @@ fi
 for claim in \
   'item["workspace_manifest"]' \
   '["workspace_manifest"]["workspace_manifest_id"]' \
+  '["runtime"]["runtime"]["runtime_ref"]' \
+  'run_tobari runtime build --id "$runtime_ref"' \
   'go run ./tools/integrationfixture manifest-policy'; do
   if ! grep -F "$claim" "$scenario" >/dev/null; then
     echo "integration scope: missing Workspace Manifest public JSON canary: $claim" >&2
     exit 1
   fi
 done
+if grep -F 'run_tobari runtime build --name' "$scenario" >&2; then
+  echo "integration scope: retired Runtime build target returned" >&2
+  exit 1
+fi
 for claim in 'item["project_id"]' 'item["context"]'; do
   if ! grep -F "$claim" "$scenario" >/dev/null; then
     echo "integration scope: frozen Gateway wire canary is missing: $claim" >&2

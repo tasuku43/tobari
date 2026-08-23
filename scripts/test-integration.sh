@@ -833,9 +833,8 @@ if ! docker image inspect tobari-runtime:dev >/dev/null 2>&1; then
 fi
 begin_phase manifests-and-cluster
 runtime_create=$(run_tobari runtime create --name "$runtime_name" --format json)
-runtime_source_path=$(python3 -c \
-  'import json,sys; print(json.load(sys.stdin)["runtime"]["runtime"]["source_path"])' \
-  <<<"$runtime_create")
+runtime_source_path=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["runtime"]["runtime"]["source_path"])' <<<"$runtime_create")
+runtime_ref=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["runtime"]["runtime"]["runtime_ref"])' <<<"$runtime_create")
 python3 - "$runtime_source_path/Dockerfile" "$custom_base_image" test/integration/custom-image.Dockerfile <<'PY'
 from pathlib import Path
 import json
@@ -852,7 +851,7 @@ for line in source.splitlines():
 destination.write_text("\n".join(lines) + "\n", encoding="utf-8")
 destination.chmod(0o600)
 PY
-runtime_build=$(run_tobari runtime build --name "$runtime_name" --format json)
+runtime_build=$(run_tobari runtime build --id "$runtime_ref" --format json)
 runtime_image=$(python3 -c \
   'import json,sys; print(json.load(sys.stdin)["runtime"]["runtime"]["revisions"][-1]["image"])' \
   <<<"$runtime_build")
