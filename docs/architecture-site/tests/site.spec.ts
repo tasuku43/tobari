@@ -274,9 +274,9 @@ test("home and request sequence publish Workspace-owned login without an auth-se
     "native Workspace authentication",
   );
   await expect(page.locator("main")).not.toContainText("Auth Broker");
-  await expect(page.locator(".actor-lane")).not.toContainText(
-    "native Workspace authentication",
-  );
+  await expect(
+    page.locator(".actor-lane", { hasText: "native Workspace authentication" }),
+  ).toHaveCount(0);
 });
 
 test("policy loop exposes the cycle without automatic playback", async ({
@@ -505,7 +505,7 @@ test("representative English and Japanese release pages hide research recovery j
     {
       route: "start/learning-path/",
       required: [
-        "agent's own login inside the persistent Workspace home",
+        "agent’s own login inside the persistent Workspace home",
         "does not add a host-side credential service",
       ],
     },

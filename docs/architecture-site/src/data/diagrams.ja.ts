@@ -18,8 +18,8 @@ const titles: Record<string, [string, string]> = {
     "Workspace の識別情報とホームは、置き換え可能なランタイムより長く残ります。exit は delete ではありません。",
   ],
   "tls-split": [
-    "HTTP と TLS の経路",
-    "Gateway は Workspace 側 TLS を終端し、一つの判断を取得して、allow 後に別の検証済み upstream TLS 接続を作ります。",
+    "一つの HTTPS リクエストが二つの TLS セッションを通る",
+    "Gateway は Workspace 側 TLS を終端し、復号した HTTP リクエストを認可して、allow 後だけ別の検証済み upstream TLS 接続を作ります。",
   ],
   "project-principal": [
     "プロジェクトプリンシパル",
@@ -53,9 +53,11 @@ const titles: Record<string, [string, string]> = {
 
 const labels: Record<string, string> = {
   Workspace: "Workspace",
+  "Workspace client": "Workspace のクライアント",
   Gateway: "Gateway",
   OPA: "OPA",
   Upstream: "接続先",
+  "HTTPS destination": "HTTPS の接続先",
   "Dedicated network": "専用ネットワーク",
   "Workspace Manifest": "Workspace Manifest",
   "Runtime resources": "ランタイムリソース",
@@ -103,6 +105,14 @@ const details: Record<string, string> = {
     "本文を含まない正規化 HTTP effect を一つ判断します。",
   "Receives only an authorized connection from Gateway.":
     "Gateway からの許可済み接続だけを受け取ります。",
+  "Uses an ordinary HTTPS URL and trusts the Tobari CA for Gateway-side TLS.":
+    "通常の HTTPS URL を使い、Gateway 側 TLS では Tobari CA を信頼します。",
+  "Terminates client TLS, owns the upstream connection, and enforces the decision.":
+    "client TLS を終端し、upstream connection を所有して判断を強制します。",
+  "Decides the normalized HTTP effect without receiving the body.":
+    "本文を受け取らず、正規化した HTTP effect を判断します。",
+  "Receives a separately connected and certificate-verified TLS session from Gateway.":
+    "Gateway が別に接続し、証明書を検証した TLS session を受け取ります。",
   "No direct public route.": "公開ネットワークへの直接経路を持ちません。",
   "Carries traffic for one Workspace and one Gateway interface.":
     "一つの Workspace と一つの Gateway interface の通信だけを運びます。",
@@ -214,9 +224,20 @@ const edgeLabels: Record<string, string> = {
   "reconcile on entry": "entry 時に調整",
   "bounded child process": "上限付き child process",
   "exit preserves state": "exit は state を保持",
-  "TLS connection A": "TLS connection A",
-  "normalized body-free effect": "本文を含まない正規化 effect",
-  "TLS connection B after allow": "allow 後の TLS connection B",
+  "Guarded TCP reaches transparent Gateway ingress":
+    "保護済み TCP が Gateway の透過入口へ届く",
+  "TLS session 1 starts with a Tobari-issued leaf certificate":
+    "Tobari 発行の leaf certificate で TLS session 1 を開始",
+  "Gateway sends scheme, host, port, method, and path—not the body":
+    "Gateway が scheme、host、port、method、path を送り、本文は送らない",
+  "OPA returns one allow or deny decision":
+    "OPA が allow または deny の判断を一つ返す",
+  "After allow, Gateway resolves the destination and opens TCP":
+    "allow 後に Gateway が接続先を名前解決し TCP を開く",
+  "TLS session 2 verifies the destination certificate independently":
+    "TLS session 2 で接続先 certificate を独立して検証",
+  "Gateway forwards HTTP over session 2; the response returns through both sessions":
+    "Gateway が session 2 で HTTP を転送し、response は両 session を通って戻る",
   "exact lookup": "exact lookup",
   "host-issued identity": "host-issued identity",
   "trusted request scope": "信頼できる request scope",
@@ -243,6 +264,7 @@ const edgeLabels: Record<string, string> = {
   "injects adapter": "adapter を注入",
   "depends on contracts": "contract に依存",
   "implements ports with domain types": "domain type で port を実装",
+  "outward dependency forbidden": "外向き依存は禁止",
   "byte-equality gate": "バイト一致 gate",
   "reviewed build input": "レビュー済み build input",
   "pinned dependency identity": "固定 dependency identity",

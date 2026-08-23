@@ -83,6 +83,20 @@ const requestPath: DiagramLayout = {
   },
 };
 
+const tlsPath: DiagramLayout = {
+  ...requestPath,
+  regions: requestPath.regions?.map((region) =>
+    region.id === "external-region"
+      ? {
+          ...region,
+          label: "External HTTPS destination",
+          japaneseLabel: "外部の HTTPS 接続先",
+        }
+      : { ...region },
+  ),
+  nodes: { ...requestPath.nodes },
+};
+
 export const diagramLayouts: Record<string, DiagramLayout> = {
   "minimal-system": requestPath,
   "detailed-network": {
@@ -121,7 +135,7 @@ export const diagramLayouts: Record<string, DiagramLayout> = {
       session: { x: 970, y: 450 },
     },
   },
-  "tls-split": requestPath,
+  "tls-split": tlsPath,
   "project-principal": {
     width: 1100,
     height: 620,
@@ -161,15 +175,47 @@ export const diagramLayouts: Record<string, DiagramLayout> = {
     },
   },
   "trust-boundaries": {
-    width: 1100,
-    height: 640,
+    width: 1040,
+    height: 680,
     mode: "relationship",
+    regions: [
+      {
+        id: "trusted-infrastructure",
+        label: "Trusted enforcement infrastructure",
+        japaneseLabel: "信頼する強制基盤",
+        kind: "host",
+        x: 15,
+        y: 25,
+        width: 710,
+        height: 245,
+      },
+      {
+        id: "untrusted-workspace",
+        label: "Untrusted project execution",
+        japaneseLabel: "信頼しないプロジェクト実行環境",
+        kind: "workspace",
+        x: 245,
+        y: 300,
+        width: 500,
+        height: 350,
+      },
+      {
+        id: "external",
+        label: "External destination",
+        japaneseLabel: "外部の接続先",
+        kind: "external",
+        x: 775,
+        y: 300,
+        width: 250,
+        height: 350,
+      },
+    ],
     nodes: {
-      workspace: { x: 120, y: 420, width: 210 },
-      host: { x: 370, y: 120, width: 220 },
-      gateway: { x: 550, y: 360, width: 210 },
-      opa: { x: 760, y: 130 },
-      upstream: { x: 980, y: 360 },
+      workspace: { x: 515, y: 390, width: 235, height: 118 },
+      host: { x: 150, y: 105, width: 220 },
+      gateway: { x: 405, y: 105, width: 210 },
+      opa: { x: 625, y: 105 },
+      upstream: { x: 890, y: 390, width: 220, height: 118 },
     },
   },
   "state-retention": {
@@ -185,14 +231,14 @@ export const diagramLayouts: Record<string, DiagramLayout> = {
     },
   },
   "code-layers": {
-    width: 1000,
-    height: 600,
+    width: 920,
+    height: 670,
     mode: "relationship",
     nodes: {
-      cli: { x: 150, y: 300 },
-      app: { x: 430, y: 130 },
-      infra: { x: 430, y: 470 },
-      domain: { x: 820, y: 300 },
+      cli: { x: 455, y: 85, width: 220 },
+      app: { x: 270, y: 310, width: 210 },
+      infra: { x: 650, y: 310, width: 220 },
+      domain: { x: 455, y: 565, width: 220 },
     },
   },
   "image-supply": {

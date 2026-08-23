@@ -4,9 +4,9 @@ description: The major Tobari security claims, each paired with preconditions, e
 ---
 
 Tobari narrows a supported Workspace to one selected project, one host-issued
-principal, Gateway-mediated HTTP/HTTPS, explicit policy, and agent-owned login
-state in that Workspace home. Host credentials are never inherited, and the
-release surface has no Tobari credential service. It does not police files inside the selected root, payloads sent to an
+principal, Gateway-mediated HTTP/HTTPS, explicit policy, and login state owned
+by the agent CLI in that Workspace home; host credentials are never inherited,
+and the release surface has no Tobari credential service. It does not police files inside the selected root, payloads sent to an
 allowed destination, processes inside the same Workspace, other protocols,
 overlapping roots, or a compromised trusted base.
 

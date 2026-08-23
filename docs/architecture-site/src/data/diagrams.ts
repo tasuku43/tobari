@@ -232,15 +232,78 @@ export const diagrams: Record<string, DiagramDefinition> = {
     ],
   },
   "tls-split": {
-    title: "HTTP and TLS paths",
+    title: "One HTTPS request crosses two TLS sessions",
     description:
-      "Gateway terminates Workspace-side TLS, obtains one decision, and creates a separate verified upstream TLS connection after allow.",
-    nodes: requestPathNodes,
+      "Gateway terminates Workspace-side TLS, authorizes the decrypted HTTP request, and creates a separate verified upstream TLS connection only after allow.",
+    nodes: [
+      node(
+        "workspace",
+        "Workspace client",
+        "Uses an ordinary HTTPS URL and trusts the Tobari CA for Gateway-side TLS.",
+        "untrusted",
+      ),
+      node(
+        "gateway",
+        "Gateway",
+        "Terminates client TLS, owns the upstream connection, and enforces the decision.",
+        "trusted",
+      ),
+      node(
+        "opa",
+        "OPA",
+        "Decides the normalized HTTP effect without receiving the body.",
+        "control",
+      ),
+      node(
+        "upstream",
+        "HTTPS destination",
+        "Receives a separately connected and certificate-verified TLS session from Gateway.",
+        "untrusted",
+      ),
+    ],
     edges: [
-      edge("workspace", "gateway", "TLS connection A", "network"),
-      edge("gateway", "opa", "normalized body-free effect", "control"),
-      edge("opa", "gateway", "allow or deny", "control"),
-      edge("gateway", "upstream", "TLS connection B after allow", "allowed"),
+      edge(
+        "workspace",
+        "gateway",
+        "Guarded TCP reaches transparent Gateway ingress",
+        "network",
+      ),
+      edge(
+        "workspace",
+        "gateway",
+        "TLS session 1 starts with a Tobari-issued leaf certificate",
+        "trusted",
+      ),
+      edge(
+        "gateway",
+        "opa",
+        "Gateway sends scheme, host, port, method, and path—not the body",
+        "control",
+      ),
+      edge(
+        "opa",
+        "gateway",
+        "OPA returns one allow or deny decision",
+        "control",
+      ),
+      edge(
+        "gateway",
+        "upstream",
+        "After allow, Gateway resolves the destination and opens TCP",
+        "allowed",
+      ),
+      edge(
+        "gateway",
+        "upstream",
+        "TLS session 2 verifies the destination certificate independently",
+        "network",
+      ),
+      edge(
+        "gateway",
+        "upstream",
+        "Gateway forwards HTTP over session 2; the response returns through both sessions",
+        "allowed",
+      ),
     ],
   },
   "project-principal": {
@@ -472,6 +535,13 @@ export const diagrams: Record<string, DiagramDefinition> = {
       edge("cli", "infra", "injects adapter", "network"),
       edge("app", "domain", "depends on contracts", "control"),
       edge("infra", "domain", "implements ports with domain types", "control"),
+      edge(
+        "domain",
+        "infra",
+        "outward dependency forbidden",
+        "denied",
+        "blocked",
+      ),
     ],
   },
   "image-supply": {

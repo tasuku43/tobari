@@ -23,7 +23,7 @@ export interface SequenceScenario {
 
 const workspaceActors = ["Workspace process", "Gateway", "OPA", "Upstream"];
 
-const requestSteps = (denied: boolean): SequenceStep[] => [
+const deniedRequestSteps = (): SequenceStep[] => [
   {
     title: "Guarded HTTP request arrives",
     from: "Workspace process",
@@ -48,38 +48,111 @@ const requestSteps = (denied: boolean): SequenceStep[] => [
     tone: "control",
   },
   {
-    title: denied ? "Default deny" : "One policy decision",
+    title: "Default deny",
     from: "OPA",
     to: "Gateway",
-    sent: denied
-      ? "Deny plus bounded review evidence"
-      : "A structured allow decision",
+    sent: "Deny plus bounded review evidence",
     withheld: "No automatic policy edit or wildcard",
     owner: "OPA",
-    failure: denied
-      ? "The effect remains denied."
-      : "Unexpected output fails closed.",
-    explanation: denied
-      ? "The host operator may review the exact retained evidence."
-      : "Gateway enforces the complete decision.",
-    tone: denied ? "denied" : "allowed",
+    failure: "The effect remains denied.",
+    explanation: "The host operator may review the exact retained evidence.",
+    tone: "denied",
   },
   {
-    title: denied ? "No upstream connection" : "Separate upstream connection",
+    title: "No upstream connection",
     from: "Gateway",
     to: "Upstream",
-    sent: denied ? "Nothing" : "The authorized request; body is streamed",
-    withheld: denied
-      ? "The entire request and egress"
-      : "Policy internals and trusted registry state",
+    sent: "Nothing",
+    withheld: "The entire request and egress",
     owner: "Gateway",
-    failure: denied
-      ? "No external side effect occurs."
-      : "Connection failure is reported without changing policy.",
-    explanation: denied
-      ? "A denial never opens an upstream connection."
-      : "The Workspace has no direct egress route.",
-    tone: denied ? "denied" : "allowed",
+    failure: "No external side effect occurs.",
+    explanation: "A denial never opens an upstream connection.",
+    tone: "denied",
+  },
+];
+
+const allowedRequestSteps = (): SequenceStep[] => [
+  {
+    title: "Guarded HTTP request arrives",
+    from: "Workspace process",
+    to: "Gateway",
+    sent: "HTTP method, URL, headers, and a streaming body",
+    withheld: "No trusted identity is accepted from request text",
+    owner: "Gateway",
+    failure: "The request stops before policy or upstream work.",
+    explanation:
+      "Explicit proxy compatibility and the transparent route converge at Gateway.",
+    tone: "network",
+  },
+  {
+    title: "Principal is established",
+    from: "Workspace source endpoint",
+    to: "Gateway",
+    sent: "Host-owned Manifest ID and Workspace ID from the principal registry",
+    withheld: "Workspace-supplied identity headers",
+    owner: "Gateway",
+    failure: "An unknown or ambiguous source endpoint fails closed.",
+    explanation:
+      "The kernel-observed source endpoint, not request text, selects authority.",
+    tone: "control",
+  },
+  {
+    title: "Decision input is normalized",
+    from: "Gateway",
+    to: "OPA",
+    sent: "Principal, scheme, host, port, method, path, and non-secret headers",
+    withheld: "Request body and credential values",
+    owner: "Gateway",
+    failure: "Malformed input is rejected before upstream work.",
+    explanation: "The body is never a policy-rule identity dimension.",
+    tone: "control",
+  },
+  {
+    title: "One policy decision",
+    from: "OPA",
+    to: "Gateway",
+    sent: "A structured allow decision",
+    withheld: "Credential values and request body",
+    owner: "OPA",
+    failure: "Deny, malformed output, timeout, or outage closes the path.",
+    explanation: "OPA decides the effect and Gateway enforces the result.",
+    tone: "allowed",
+  },
+  {
+    title: "Destination is resolved",
+    from: "Gateway",
+    to: "DNS / resolver",
+    sent: "Allowed destination hostname",
+    withheld: "Workspace network access and credential values",
+    owner: "Gateway",
+    failure: "Resolution or destination validation failure returns an error.",
+    explanation:
+      "Resolution happens only after allow and remains Gateway-owned.",
+    tone: "network",
+  },
+  {
+    title: "Separate upstream connection",
+    from: "Gateway",
+    to: "Upstream",
+    sent: "The authorized request; body is streamed",
+    withheld: "Policy internals and trusted registry state",
+    owner: "Gateway",
+    failure: "Connection failure is reported without changing policy.",
+    explanation:
+      "Gateway opens egress; the Workspace never receives a direct route.",
+    tone: "allowed",
+  },
+  {
+    title: "Secret-free audit event",
+    from: "Gateway",
+    to: "Host diagnostics",
+    sent: "Decision dimensions, outcome, and bounded diagnostics",
+    withheld: "Body and credential values",
+    owner: "Gateway",
+    failure: "Diagnostics never turn a denied request into allow.",
+    explanation:
+      "Audit explains the effect without copying payloads or credential values.",
+    tone: "diagnostic",
   },
 ];
 
@@ -89,8 +162,14 @@ export const sequenceScenarios: SequenceScenario[] = [
     label: "Allowed passthrough request",
     summary:
       "A normal HTTP effect is identified, authorized once, and then streamed to the upstream service.",
-    actors: workspaceActors,
-    steps: requestSteps(false),
+    actors: [
+      "Workspace process",
+      "Gateway",
+      "OPA",
+      "DNS / resolver",
+      "Upstream",
+    ],
+    steps: allowedRequestSteps(),
   },
   {
     id: "learnable-denial",
@@ -98,7 +177,7 @@ export const sequenceScenarios: SequenceScenario[] = [
     summary:
       "A request outside the active exact rules is denied before any upstream connection.",
     actors: ["Workspace process", "Gateway", "OPA", "Review store", "Upstream"],
-    steps: requestSteps(true),
+    steps: deniedRequestSteps(),
   },
   {
     id: "opa-unavailable",
@@ -107,7 +186,7 @@ export const sequenceScenarios: SequenceScenario[] = [
       "Authorization infrastructure failure is a closed path, not permission.",
     actors: workspaceActors,
     steps: [
-      requestSteps(false)[0],
+      allowedRequestSteps()[0],
       {
         title: "Policy query fails",
         from: "Gateway",
