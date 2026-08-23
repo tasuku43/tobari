@@ -335,6 +335,7 @@ type RuntimeProtection struct {
 	RuntimeRevision     string                  `json:"runtime_revision"`
 	Reason              RuntimeProtectionReason `json:"reason"`
 	WorkspaceManifestID string                  `json:"workspace_manifest_id,omitempty"`
+	ManifestRevision    string                  `json:"manifest_revision,omitempty"`
 	WorkspaceID         string                  `json:"workspace_id,omitempty"`
 }
 
@@ -345,19 +346,54 @@ func (p RuntimeProtection) Validate() error {
 	if err := ValidateDigest(p.RuntimeRevision); err != nil {
 		return err
 	}
+	if p.ManifestRevision != "" {
+		if err := ValidateDigest(p.ManifestRevision); err != nil {
+			return fmt.Errorf("Runtime protection Manifest revision: %w", err)
+		}
+	}
 	switch p.Reason {
 	case RuntimeProtectedByManifestCurrent, RuntimeProtectedByManifestRetained:
-		if ValidateWorkspaceManifestID(p.WorkspaceManifestID) != nil || p.WorkspaceID != "" {
+		if ValidateWorkspaceManifestID(p.WorkspaceManifestID) != nil || p.ManifestRevision == "" || p.WorkspaceID != "" {
 			return fmt.Errorf("Manifest Runtime protection owner is invalid")
 		}
 	case RuntimeProtectedByWorkspaceApplied, RuntimeProtectedByWorkspacePending, RuntimeProtectedByWorkspaceObserved:
-		if ValidateWorkspaceManifestID(p.WorkspaceManifestID) != nil || ValidateWorkspaceID(p.WorkspaceID) != nil {
+		if ValidateWorkspaceManifestID(p.WorkspaceManifestID) != nil || p.ManifestRevision == "" || ValidateWorkspaceID(p.WorkspaceID) != nil {
 			return fmt.Errorf("Workspace Runtime protection owner is invalid")
 		}
 	default:
 		return fmt.Errorf("Runtime protection reason is invalid")
 	}
 	return nil
+}
+
+// RuntimeProtectionInventoryFaultReason classifies why a complete protection
+// graph could not be observed. Destructive consumers must fail closed on every
+// value; these are not protection reasons for a successfully observed edge.
+type RuntimeProtectionInventoryFaultReason string
+
+const (
+	RuntimeProtectionInventoryIncomplete          RuntimeProtectionInventoryFaultReason = "incomplete_state"
+	RuntimeProtectionInventoryMigrationUnverified RuntimeProtectionInventoryFaultReason = "migration_unverified"
+	RuntimeProtectionInventoryObservationUnknown  RuntimeProtectionInventoryFaultReason = "unknown_observation"
+)
+
+// RuntimeProtectionInventoryError preserves one bounded fail-closed reason
+// without exposing filesystem or Docker diagnostics above infrastructure.
+type RuntimeProtectionInventoryError struct {
+	Reason RuntimeProtectionInventoryFaultReason
+}
+
+func (e RuntimeProtectionInventoryError) Error() string {
+	switch e.Reason {
+	case RuntimeProtectionInventoryIncomplete:
+		return "Runtime protection inventory contains incomplete state"
+	case RuntimeProtectionInventoryMigrationUnverified:
+		return "Runtime protection inventory contains migration-unverified state"
+	case RuntimeProtectionInventoryObservationUnknown:
+		return "Runtime protection inventory observation is unknown"
+	default:
+		return "Runtime protection inventory is unavailable"
+	}
 }
 
 // RuntimeProtectionInventory is the complete trusted-host graph consumed by
@@ -371,10 +407,17 @@ func (i RuntimeProtectionInventory) Validate() error {
 	if !i.Complete || i.Items == nil {
 		return fmt.Errorf("Runtime protection inventory is incomplete")
 	}
+	seen := make(map[string]struct{}, len(i.Items))
 	for _, item := range i.Items {
 		if err := item.Validate(); err != nil {
 			return err
 		}
+		identity := item.RuntimeID + "\x00" + item.RuntimeRevision + "\x00" + string(item.Reason) + "\x00" +
+			item.WorkspaceManifestID + "\x00" + item.ManifestRevision + "\x00" + item.WorkspaceID
+		if _, exists := seen[identity]; exists {
+			return fmt.Errorf("Runtime protection inventory contains duplicate evidence")
+		}
+		seen[identity] = struct{}{}
 	}
 	return nil
 }

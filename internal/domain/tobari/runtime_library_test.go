@@ -64,3 +64,62 @@ func TestRuntimeBindingRequiresStableIDAndSemanticRevision(t *testing.T) {
 		t.Fatal("presentation revision accepted as authority")
 	}
 }
+
+func TestRuntimeProtectionRejectsBuiltinAndRequiresExactOwnerIdentity(t *testing.T) {
+	protection := RuntimeProtection{
+		RuntimeID:           "018bcfe5-687b-7000-8000-000000000077",
+		RuntimeRevision:     "sha256:" + strings.Repeat("b", 64),
+		Reason:              RuntimeProtectedByManifestCurrent,
+		WorkspaceManifestID: "01912345-6789-7abc-8def-0123456789ad",
+		ManifestRevision:    "sha256:" + strings.Repeat("a", 64),
+	}
+	if err := protection.Validate(); err != nil {
+		t.Fatalf("managed Runtime protection rejected: %v", err)
+	}
+	tests := map[string]func(*RuntimeProtection){
+		"builtin Runtime":      func(value *RuntimeProtection) { value.RuntimeID = StandardRuntimeID },
+		"malformed Runtime":    func(value *RuntimeProtection) { value.RuntimeID = "standard" },
+		"missing Manifest":     func(value *RuntimeProtection) { value.WorkspaceManifestID = "" },
+		"missing revision":     func(value *RuntimeProtection) { value.ManifestRevision = "" },
+		"unexpected Workspace": func(value *RuntimeProtection) { value.WorkspaceID = "01912345-6789-7abc-8def-0123456789ab" },
+	}
+	for name, mutate := range tests {
+		t.Run(name, func(t *testing.T) {
+			candidate := protection
+			mutate(&candidate)
+			if err := candidate.Validate(); err == nil {
+				t.Fatal("invalid Runtime protection was accepted")
+			}
+		})
+	}
+}
+
+func TestRuntimeProtectionInventoryFaultReasonsRemainDistinct(t *testing.T) {
+	for _, reason := range []RuntimeProtectionInventoryFaultReason{
+		RuntimeProtectionInventoryIncomplete,
+		RuntimeProtectionInventoryMigrationUnverified,
+		RuntimeProtectionInventoryObservationUnknown,
+	} {
+		err := RuntimeProtectionInventoryError{Reason: reason}
+		if err.Error() == "" || err.Reason != reason {
+			t.Fatalf("RuntimeProtectionInventoryError(%q) = %+v", reason, err)
+		}
+	}
+}
+
+func TestRuntimeProtectionInventoryRejectsExactDuplicateButKeepsManifestRevisionsDistinct(t *testing.T) {
+	item := RuntimeProtection{
+		RuntimeID: "018bcfe5-687b-7000-8000-000000000077", RuntimeRevision: "sha256:" + strings.Repeat("b", 64),
+		Reason: RuntimeProtectedByManifestRetained, WorkspaceManifestID: "01912345-6789-7abc-8def-0123456789ad",
+		ManifestRevision: "sha256:" + strings.Repeat("a", 64),
+	}
+	duplicate := RuntimeProtectionInventory{Complete: true, Items: []RuntimeProtection{item, item}}
+	if err := duplicate.Validate(); err == nil {
+		t.Fatal("duplicate Runtime protection evidence was accepted")
+	}
+	distinct := item
+	distinct.ManifestRevision = "sha256:" + strings.Repeat("c", 64)
+	if err := (RuntimeProtectionInventory{Complete: true, Items: []RuntimeProtection{item, distinct}}).Validate(); err != nil {
+		t.Fatalf("distinct retained Manifest revisions rejected: %v", err)
+	}
+}

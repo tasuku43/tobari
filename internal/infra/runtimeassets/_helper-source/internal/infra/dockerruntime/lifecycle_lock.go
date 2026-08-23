@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/tasuku43/tobari/internal/domain/tobari"
 )
 
 // WithLifecycleLock serializes the installation-wide shared-cluster and
@@ -50,4 +52,76 @@ func (r *Runtime) WithLifecycleLock(ctx context.Context, action func(context.Con
 	}
 	defer unlockProjectFile(file)
 	return action(ctx)
+}
+
+// withLifecycleObservation shares the installation lifecycle serialization
+// only when its lock already exists. It never creates state. A fresh root can
+// be observed without a lock; if state appears during that observation the
+// result is rejected instead of being treated as a consistent snapshot.
+func (r *Runtime) withLifecycleObservation(ctx context.Context, action func(context.Context) error) (resultErr error) {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	stateInfo, err := os.Lstat(r.stateDirectory)
+	if errors.Is(err, os.ErrNotExist) {
+		if err := action(ctx); err != nil {
+			return err
+		}
+		if _, err := os.Lstat(r.stateDirectory); errors.Is(err, os.ErrNotExist) {
+			return nil
+		} else if err != nil {
+			return fmt.Errorf("recheck lifecycle state directory: %w", err)
+		}
+		return tobariProtectionObservationChanged()
+	}
+	if err != nil {
+		return fmt.Errorf("inspect lifecycle state directory: %w", err)
+	}
+	if !stateInfo.IsDir() || stateInfo.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("lifecycle state directory is unsafe")
+	}
+	path := filepath.Join(r.stateDirectory, "lifecycle.lock")
+	info, err := os.Lstat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return tobariProtectionObservationChanged()
+	}
+	if err != nil {
+		return fmt.Errorf("inspect lifecycle lock: %w", err)
+	}
+	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("lifecycle lock is not a regular file")
+	}
+	file, err := os.OpenFile(path, os.O_RDONLY, 0) // #nosec G304 -- validated existing fixed state child; observation never creates it.
+	if err != nil {
+		return fmt.Errorf("open lifecycle lock for observation: %w", err)
+	}
+	acquired := false
+	defer func() {
+		if acquired {
+			unlockProjectFile(file)
+		}
+		if closeErr := file.Close(); resultErr == nil && closeErr != nil {
+			resultErr = fmt.Errorf("close lifecycle observation lock: %w", closeErr)
+		}
+	}()
+	for {
+		locked, lockErr := tryLockProjectFile(file)
+		if lockErr != nil {
+			return fmt.Errorf("lock lifecycle state for observation: %w", lockErr)
+		}
+		if locked {
+			acquired = true
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(25 * time.Millisecond):
+		}
+	}
+	return action(ctx)
+}
+
+func tobariProtectionObservationChanged() error {
+	return tobari.RuntimeProtectionInventoryError{Reason: tobari.RuntimeProtectionInventoryObservationUnknown}
 }

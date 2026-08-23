@@ -577,6 +577,111 @@ func (r *Runtime) ListProjects(ctx context.Context) ([]tobari.Workspace, error) 
 	return instances, nil
 }
 
+// listProjectsForRuntimeProtection reads the complete Workspace collection
+// without reconciling an interrupted project journal or creating a lock. A
+// pending journal makes Runtime protection incomplete and therefore blocks
+// retirement until the explicit Workspace recovery path completes.
+func (r *Runtime) listProjectsForRuntimeProtection(ctx context.Context) ([]tobari.Workspace, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if _, err := os.Lstat(r.projectJournalPath()); err == nil {
+		return nil, tobari.RuntimeProtectionInventoryError{Reason: tobari.RuntimeProtectionInventoryIncomplete}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return nil, fmt.Errorf("inspect project journal: %w", err)
+	}
+	var instances []tobari.Workspace
+	err := r.withExistingProjectLock(ctx, func() error {
+		var err error
+		instances, err = r.listProjectsUnlocked()
+		return err
+	})
+	return instances, err
+}
+
+func (r *Runtime) listProjectsUnlocked() ([]tobari.Workspace, error) {
+	indexes, err := r.listRootIndexes()
+	if err != nil {
+		return nil, err
+	}
+	instances := make([]tobari.Workspace, 0, len(indexes))
+	indexedIDs := make(map[string]bool, len(indexes))
+	for _, index := range indexes {
+		indexedIDs[index.InstanceID] = true
+		instance, readErr := r.readProjectInstance(index.InstanceID)
+		if errors.Is(readErr, os.ErrNotExist) {
+			return nil, tobari.RuntimeProtectionInventoryError{Reason: tobari.RuntimeProtectionInventoryIncomplete}
+		}
+		if readErr != nil {
+			return nil, readErr
+		}
+		if instance.Root != index.Root {
+			return nil, fmt.Errorf("root index and instance root disagree")
+		}
+		instances = append(instances, instance)
+	}
+	entries, err := os.ReadDir(r.instancesDirectory())
+	if errors.Is(err, os.ErrNotExist) {
+		entries = nil
+	} else if err != nil {
+		return nil, fmt.Errorf("read project instances for orphan diagnosis: %w", err)
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() || entry.Type()&os.ModeSymlink != 0 {
+			return nil, tobari.RuntimeProtectionInventoryError{Reason: tobari.RuntimeProtectionInventoryIncomplete}
+		}
+		if indexedIDs[entry.Name()] {
+			continue
+		}
+		return nil, tobari.RuntimeProtectionInventoryError{Reason: tobari.RuntimeProtectionInventoryIncomplete}
+	}
+	sort.Slice(instances, func(left, right int) bool { return instances[left].Root < instances[right].Root })
+	return instances, nil
+}
+
+func (r *Runtime) withExistingProjectLock(ctx context.Context, action func() error) (resultErr error) {
+	path := filepath.Join(r.stateDirectory, "project.lock")
+	info, err := os.Lstat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return action()
+	}
+	if err != nil {
+		return fmt.Errorf("inspect project lock: %w", err)
+	}
+	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+		return tobari.RuntimeProtectionInventoryError{Reason: tobari.RuntimeProtectionInventoryIncomplete}
+	}
+	file, err := os.OpenFile(path, os.O_RDONLY, 0) // #nosec G304 -- validated existing fixed state child; observation never creates it.
+	if err != nil {
+		return fmt.Errorf("open project lock for Runtime protection: %w", err)
+	}
+	acquired := false
+	defer func() {
+		if acquired {
+			unlockProjectFile(file)
+		}
+		if closeErr := file.Close(); resultErr == nil && closeErr != nil {
+			resultErr = fmt.Errorf("close project observation lock: %w", closeErr)
+		}
+	}()
+	for {
+		locked, lockErr := tryLockProjectFile(file)
+		if lockErr != nil {
+			return fmt.Errorf("lock project state for Runtime protection: %w", lockErr)
+		}
+		if locked {
+			acquired = true
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(25 * time.Millisecond):
+		}
+	}
+	return action()
+}
+
 // UpdateProjectRuntime persists diagnostic resource identifiers while retaining
 // the immutable logical identity and root binding.
 func (r *Runtime) UpdateProjectRuntime(ctx context.Context, instance tobari.Workspace) error {
