@@ -82,7 +82,6 @@ services:
       TOBARI_HOST_LOOPBACK_REGISTRY: /run/tobari/host-loopback/routes.json
       TOBARI_ATTACHMENT_GRANT_REGISTRY: /run/tobari/host-loopback/grants.json
       TOBARI_INTERACTIVE_ATTACHMENT_REGISTRY: /run/tobari/interactive-attachments/sessions.json
-      TOBARI_PERMISSION_INGESTION_DIRECTORY: /run/tobari/permission-ingestion
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
@@ -92,7 +91,6 @@ services:
       - ${TOBARI_PRINCIPAL_DIR}:/run/tobari/principal-registry:ro
       - ${TOBARI_HOST_LOOPBACK_DIR}:/run/tobari/host-loopback:ro
       - ${TOBARI_INTERACTIVE_ATTACHMENT_DIR}:/run/tobari/interactive-attachments:ro
-      - ${TOBARI_PERMISSION_INGESTION_DIR}:/run/tobari/permission-ingestion:ro
     networks:
       control: {}
       egress: {}

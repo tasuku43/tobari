@@ -170,11 +170,16 @@ func (r *Runtime) clusterUpWithProgressMode(
 		var output bytes.Buffer
 		composeUpArgs := []string{"compose", "--project-directory", state.RuntimeDirectory}
 		composeUpArgs = append(composeUpArgs, composeFileArgs(state.RuntimeDirectory)...)
+		permissionProfileArgs, err := r.permissionSessionComposeFileArgs(state.RuntimeDirectory)
+		if err != nil {
+			return err
+		}
+		composeUpArgs = append(composeUpArgs, permissionProfileArgs...)
 		composeUpArgs = append(composeUpArgs, "up", "-d", "--no-build", "--remove-orphans")
 		if forceRecreate {
 			composeUpArgs = append(composeUpArgs, "--force-recreate")
 		}
-		err := r.runner.Run(
+		err = r.runner.Run(
 			ctx,
 			composeUpArgs,
 			environment, nil, &output, &output,
@@ -398,7 +403,6 @@ func (r *Runtime) composeEnvironment(state tobari.State) ([]string, error) {
 		"TOBARI_PRINCIPAL_DIR="+r.principalRegistryDirectory(),
 		"TOBARI_HOST_LOOPBACK_DIR="+r.hostLoopbackDirectory(),
 		"TOBARI_INTERACTIVE_ATTACHMENT_DIR="+r.interactiveAttachmentDirectory(),
-		"TOBARI_PERMISSION_INGESTION_DIR="+r.interactiveAttachmentSocketDirectory(),
 		"TOBARI_ASSET_VERSION="+state.AssetVersion,
 		"TOBARI_UID="+strconv.Itoa(uid), "TOBARI_GID="+strconv.Itoa(gid),
 		"TOBARI_MITMPROXY_IMAGE="+versions["MITMPROXY_IMAGE"],
@@ -406,6 +410,11 @@ func (r *Runtime) composeEnvironment(state tobari.State) ([]string, error) {
 		"TOBARI_OPA_IMAGE="+versions["OPA_IMAGE"],
 		"TOBARI_DEBIAN_IMAGE="+versions["DEBIAN_IMAGE"],
 	)
+	if r.permissionIngestionTransport == tobari.PermissionSessionTransportUnix {
+		environment = append(environment, "TOBARI_PERMISSION_INGESTION_DIR="+r.interactiveAttachmentSocketDirectory())
+	} else if err := r.permissionIngestionTransport.Validate(); err != nil {
+		return nil, fmt.Errorf("select permission ingestion support profile: %w", err)
+	}
 	if brokerRuntimeEnabled {
 		environment = append(environment,
 			"TOBARI_AUTH_PROVIDER_DIR="+r.authProviderProjectionDirectory(),

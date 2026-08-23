@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	goruntime "runtime"
 	"sync"
 	"time"
 
@@ -102,11 +103,15 @@ type Runtime struct {
 	claudeContainerLogin func(context.Context, string, io.Reader, io.Writer) (hostCredentialPayload, error)
 	// pupContainerLogin and pupRelayFactory are nil in production. Tests may
 	// replace the isolated Context-runtime acquisition and loopback adapter.
-	pupContainerLogin  func(context.Context, string, io.Reader, io.Writer) (hostCredentialPayload, error)
-	pupRelayFactory    pupLoginRelayFactory
-	hostLoginProfiles  hostLoginProfileReader
-	identities         identityIssuer
-	policyProjectionMu sync.Mutex
+	pupContainerLogin func(context.Context, string, io.Reader, io.Writer) (hostCredentialPayload, error)
+	pupRelayFactory   pupLoginRelayFactory
+	hostLoginProfiles hostLoginProfileReader
+	identities        identityIssuer
+	// permissionIngestionTransport is selected by the trusted host binary from
+	// its closed support profile. Tests may select a member directly; no public
+	// input or runtime probe can change it.
+	permissionIngestionTransport tobari.PermissionSessionTransport
+	policyProjectionMu           sync.Mutex
 	// projectStateWriter is nil in production. Tests may use it to inject a
 	// durable-state write failure after Docker reconciliation has completed.
 	projectStateWriter func(tobari.Workspace) error
@@ -131,6 +136,7 @@ func New() (*Runtime, error) {
 	if err != nil {
 		return nil, err
 	}
+	runtime.permissionIngestionTransport = permissionSessionTransportForGOOS(goruntime.GOOS)
 	return runtime, nil
 }
 
@@ -183,18 +189,19 @@ func newRuntimeWithData(configDirectory, stateDirectory, dataDirectory string, r
 		return nil, fmt.Errorf("Docker command runner is required")
 	}
 	return &Runtime{
-		configDirectory:   configDirectory,
-		stateDirectory:    stateDirectory,
-		dataDirectory:     dataDirectory,
-		runner:            runner,
-		browser:           osHostBrowserOpener{},
-		gitIdentity:       newOSHostGitIdentityResolver(),
-		companion:         companionruntime.NewOSLauncher(),
-		companionEntropy:  rand.Reader,
-		hostCLIs:          newPathHostCLIResolver(),
-		credentialHost:    newOSHostCredentialAcquirer(),
-		hostLoginProfiles: osHostLoginProfileReader{},
-		identities:        identityIssuer{now: time.Now, entropy: rand.Reader},
+		configDirectory:              configDirectory,
+		stateDirectory:               stateDirectory,
+		dataDirectory:                dataDirectory,
+		runner:                       runner,
+		browser:                      osHostBrowserOpener{},
+		gitIdentity:                  newOSHostGitIdentityResolver(),
+		companion:                    companionruntime.NewOSLauncher(),
+		companionEntropy:             rand.Reader,
+		hostCLIs:                     newPathHostCLIResolver(),
+		credentialHost:               newOSHostCredentialAcquirer(),
+		hostLoginProfiles:            osHostLoginProfileReader{},
+		identities:                   identityIssuer{now: time.Now, entropy: rand.Reader},
+		permissionIngestionTransport: tobari.PermissionSessionTransportUnix,
 	}, nil
 }
 

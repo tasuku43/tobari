@@ -324,6 +324,11 @@ func (r *Runtime) ClusterDown(ctx context.Context, state tobari.State, purge boo
 	var output bytes.Buffer
 	composeArgs := []string{"compose", "--project-directory", state.RuntimeDirectory}
 	composeArgs = append(composeArgs, composeFileArgs(state.RuntimeDirectory)...)
+	permissionProfileArgs, err := r.permissionSessionComposeFileArgs(state.RuntimeDirectory)
+	if err != nil {
+		return err
+	}
+	composeArgs = append(composeArgs, permissionProfileArgs...)
 	composeArgs = append(composeArgs, "down", "--remove-orphans")
 	err = r.runner.Run(
 		ctx,

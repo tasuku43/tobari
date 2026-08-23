@@ -29,6 +29,7 @@ const (
 	permissionSessionCleanup    = 3 * time.Second
 	permissionSessionHandshake  = 65
 	permissionSessionMaxClients = 8
+	permissionSessionMaxAccepts = 64
 )
 
 type interactiveWorkspaceAttachment struct {
@@ -41,6 +42,8 @@ type interactiveWorkspaceAttachment struct {
 	heartbeatDone chan struct{}
 	activeMu      sync.Mutex
 	active        map[net.Conn]struct{}
+	accepted      int
+	acceptWindow  time.Time
 	closing       bool
 	once          sync.Once
 	closeDone     chan struct{}
@@ -68,7 +71,7 @@ func (r *Runtime) interactiveAttachmentSocketDirectory() string {
 }
 
 func (r *Runtime) interactiveAttachmentSocketPath(session tobari.InteractiveAttachmentSession) string {
-	return filepath.Join(r.interactiveAttachmentSocketDirectory(), session.IngestionSocket)
+	return filepath.Join(r.interactiveAttachmentSocketDirectory(), session.IngestionEndpoint)
 }
 
 func (r *Runtime) interactiveAttachmentSessionRegistryPath() string {
@@ -83,28 +86,42 @@ func (r *Runtime) ensureInteractiveAttachmentStore(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	// Validate the externally mounted socket source before creating any
-	// registry state. An existing unsafe path is evidence of authority drift,
-	// not a directory whose permissions Tobari may silently repair.
-	if err := ensurePermissionSocketDirectory(r.interactiveAttachmentSocketDirectory()); err != nil {
-		return fmt.Errorf("prepare interactive attachment socket directory: %w", err)
+	if err := r.permissionIngestionTransport.Validate(); err != nil {
+		return fmt.Errorf("select permission ingestion support profile: %w", err)
 	}
-	if err := r.ensurePrivateDirectory(r.interactiveAttachmentDirectory()); err != nil {
+	if r.permissionIngestionTransport == tobari.PermissionSessionTransportUnix {
+		if err := ensurePermissionSocketDirectory(r.interactiveAttachmentSocketDirectory()); err != nil {
+			return fmt.Errorf("prepare interactive attachment socket directory: %w", err)
+		}
+	}
+	if err := ensurePermissionRegistryDirectory(r.interactiveAttachmentDirectory()); err != nil {
 		return fmt.Errorf("prepare interactive attachment directory: %w", err)
 	}
-	path := r.interactiveAttachmentSessionRegistryPath()
-	if _, err := os.Lstat(path); errors.Is(err, os.ErrNotExist) {
-		if err := initializeBytes(path, mustJSONBytes(emptyInteractiveAttachmentSessionRegistry()), 0o600); err != nil && !errors.Is(err, os.ErrExist) {
+	return r.withInteractiveAttachmentLock(ctx, func() error {
+		path := r.interactiveAttachmentSessionRegistryPath()
+		if _, err := os.Lstat(path); errors.Is(err, os.ErrNotExist) {
+			if err := initializeBytes(path, mustJSONBytes(emptyInteractiveAttachmentSessionRegistry()), 0o600); err != nil && !errors.Is(err, os.ErrExist) {
+				return err
+			}
+		} else if err != nil {
+			return fmt.Errorf("inspect interactive attachment registry: %w", err)
+		}
+		if err := requireOwnerOnlyRegularFile(path); err != nil {
+			return fmt.Errorf("validate interactive attachment registry: %w", err)
+		}
+		var registry tobari.InteractiveAttachmentSessionRegistry
+		if err := readStrictJSON(path, &registry); err != nil {
 			return err
 		}
-	} else if err != nil {
-		return fmt.Errorf("inspect interactive attachment registry: %w", err)
-	}
-	var registry tobari.InteractiveAttachmentSessionRegistry
-	if err := readStrictJSON(path, &registry); err != nil {
+		return registry.Validate()
+	})
+}
+
+func ensurePermissionRegistryDirectory(path string) error {
+	if err := os.MkdirAll(path, 0o700); err != nil {
 		return err
 	}
-	return registry.Validate()
+	return requireOwnerOnlyPath(path, true)
 }
 
 func ensurePermissionSocketDirectory(path string) error {
@@ -119,13 +136,32 @@ func requireOwnerOnlyPath(path string, directory bool) error {
 	if err != nil {
 		return err
 	}
-	if info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm()&0o077 != 0 ||
+	wantMode := os.FileMode(0o600)
+	if directory {
+		wantMode = 0o700
+	}
+	if info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm() != wantMode ||
 		(directory && !info.IsDir()) || (!directory && info.Mode()&os.ModeSocket == 0) {
 		return fmt.Errorf("permission attachment path is not owner-only expected type")
 	}
 	stat, ok := info.Sys().(*syscall.Stat_t)
 	if !ok || int(stat.Uid) != os.Getuid() {
 		return fmt.Errorf("permission attachment path is not owned by the current host user")
+	}
+	return nil
+}
+
+func requireOwnerOnlyRegularFile(path string) error {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return err
+	}
+	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm() != 0o600 {
+		return fmt.Errorf("permission attachment registry is not an owner-only regular file")
+	}
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok || int(stat.Uid) != os.Getuid() {
+		return fmt.Errorf("permission attachment registry is not owned by the current host user")
 	}
 	return nil
 }
@@ -169,12 +205,7 @@ func (r *Runtime) exactFrozenPrincipalFingerprint(workspaceManifestID, workspace
 }
 
 func sameInteractiveSessionAuthority(left, right tobari.InteractiveAttachmentSession) bool {
-	return left.SchemaVersion == right.SchemaVersion &&
-		left.WorkspaceManifestID == right.WorkspaceManifestID && left.WorkspaceID == right.WorkspaceID &&
-		left.AttachmentID == right.AttachmentID && left.OwnerKind == right.OwnerKind &&
-		left.FrozenPrincipalFingerprint == right.FrozenPrincipalFingerprint &&
-		left.OwnerPID == right.OwnerPID && left.IngestionSocket == right.IngestionSocket &&
-		left.IngestionNonce == right.IngestionNonce && left.CreatedAt == right.CreatedAt
+	return left.SameAuthority(right)
 }
 
 func permissionSessionLeaseCurrent(session tobari.InteractiveAttachmentSession, now time.Time) bool {
@@ -189,8 +220,14 @@ func permissionSessionLeaseCurrent(session tobari.InteractiveAttachmentSession, 
 // by a validated expired session. Live, malformed, replaced, or foreign nodes
 // are evidence of ambiguous authority and remain untouched.
 func (r *Runtime) cleanupExpiredPermissionSessionSocket(session tobari.InteractiveAttachmentSession) error {
+	if session.IngestionTransport == tobari.PermissionSessionTransportTCP {
+		return nil
+	}
+	if session.IngestionTransport != tobari.PermissionSessionTransportUnix {
+		return fmt.Errorf("expired interactive attachment transport is invalid")
+	}
 	path := r.interactiveAttachmentSocketPath(session)
-	if filepath.Dir(path) != r.interactiveAttachmentSocketDirectory() || filepath.Base(path) != session.IngestionSocket {
+	if filepath.Dir(path) != r.interactiveAttachmentSocketDirectory() || filepath.Base(path) != session.IngestionEndpoint {
 		return fmt.Errorf("expired interactive attachment socket is outside its owner directory")
 	}
 	before, err := os.Lstat(path)
@@ -314,21 +351,16 @@ func (r *Runtime) beginInteractiveWorkspaceAttachment(ctx context.Context, works
 	if err != nil {
 		return nil, err
 	}
-	socketName := "pws_" + strings.TrimPrefix(epochID, "att_") + ".sock"
-	socketPath := filepath.Join(r.interactiveAttachmentSocketDirectory(), socketName)
-	if _, err := os.Lstat(socketPath); err == nil {
-		return nil, fmt.Errorf("interactive attachment socket already exists")
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return nil, fmt.Errorf("inspect interactive attachment socket: %w", err)
-	}
-	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: socketPath, Net: "unix"})
+	listener, endpoint, err := r.listenPermissionSession(epochID)
 	if err != nil {
 		return nil, fmt.Errorf("listen for interactive attachment: %w", err)
 	}
-	listener.SetUnlinkOnClose(true)
-	if err := os.Chmod(socketPath, 0o600); err != nil { // #nosec G302 -- same-host owner-only ingestion socket.
-		closeErr := listener.Close()
-		return nil, errors.Join(fmt.Errorf("protect interactive attachment socket: %w", err), closeErr)
+	if r.permissionIngestionTransport == tobari.PermissionSessionTransportUnix {
+		path := filepath.Join(r.interactiveAttachmentSocketDirectory(), endpoint)
+		if err := os.Chmod(path, 0o600); err != nil { // #nosec G302 -- same-host owner-only ingestion socket.
+			closeErr := listener.Close()
+			return nil, errors.Join(fmt.Errorf("protect interactive attachment socket: %w", err), closeErr)
+		}
 	}
 	now := time.Now().UTC()
 	session := tobari.InteractiveAttachmentSession{
@@ -336,7 +368,7 @@ func (r *Runtime) beginInteractiveWorkspaceAttachment(ctx context.Context, works
 		WorkspaceManifestID: workspace.WorkspaceManifestID, WorkspaceID: workspace.ID,
 		AttachmentID: epochID, OwnerKind: tobari.PermissionSessionOwnerInteractive,
 		FrozenPrincipalFingerprint: fingerprint, OwnerPID: os.Getpid(),
-		IngestionSocket: socketName, IngestionNonce: nonce,
+		IngestionTransport: r.permissionIngestionTransport, IngestionEndpoint: endpoint, IngestionNonce: nonce,
 		CreatedAt: now.Format(time.RFC3339Nano), LeaseIssuedAt: now.Format(time.RFC3339Nano), ExpiresAt: now.Add(tobari.PermissionSessionLease).Format(time.RFC3339Nano),
 	}
 	if err := session.Validate(); err != nil {
@@ -345,7 +377,7 @@ func (r *Runtime) beginInteractiveWorkspaceAttachment(ctx context.Context, works
 	attachment := &interactiveWorkspaceAttachment{
 		runtime: r, session: session, listener: listener, owned: true,
 		active: map[net.Conn]struct{}{}, heartbeatStop: make(chan struct{}), heartbeatDone: make(chan struct{}), authorityDone: make(chan struct{}), closeDone: make(chan struct{}),
-		clock: time.Now,
+		clock: time.Now, acceptWindow: now,
 	}
 	waits, err := newPermissionWaitRegistry(session, r)
 	if err != nil {
@@ -420,25 +452,42 @@ func (a *interactiveWorkspaceAttachment) serve() {
 			}
 			return
 		}
-		if !a.track(connection) {
+		tracked, exhausted := a.track(connection)
+		if !tracked {
 			_ = connection.Close()
+			if exhausted {
+				a.failClosed()
+				return
+			}
 			continue
 		}
 		go a.handle(connection)
 	}
 }
 
-func (a *interactiveWorkspaceAttachment) track(connection net.Conn) bool {
+func (a *interactiveWorkspaceAttachment) track(connection net.Conn) (bool, bool) {
 	a.activeMu.Lock()
 	defer a.activeMu.Unlock()
 	if a.closing {
-		return false
+		return false, false
 	}
 	if len(a.active) >= permissionSessionMaxClients {
-		return false
+		return false, true
+	}
+	now := time.Now()
+	if now.Before(a.acceptWindow) {
+		return false, true
+	}
+	if now.Sub(a.acceptWindow) >= tobari.PermissionSessionLease {
+		a.acceptWindow = now
+		a.accepted = 0
+	}
+	a.accepted++
+	if a.accepted >= permissionSessionMaxAccepts {
+		return false, true
 	}
 	a.active[connection] = struct{}{}
-	return true
+	return true, false
 }
 
 func (a *interactiveWorkspaceAttachment) untrack(connection net.Conn) {
@@ -492,14 +541,10 @@ func (a *interactiveWorkspaceAttachment) handle(connection net.Conn) {
 }
 
 func (r *Runtime) permissionSessionActive(session tobari.InteractiveAttachmentSession) bool {
-	if err := session.Validate(); err != nil || requireOwnerOnlyPath(r.interactiveAttachmentSocketDirectory(), true) != nil {
+	if err := session.Validate(); err != nil {
 		return false
 	}
-	socketPath := r.interactiveAttachmentSocketPath(session)
-	if err := requireOwnerOnlyPath(socketPath, false); err != nil {
-		return false
-	}
-	connection, err := net.DialTimeout("unix", socketPath, 250*time.Millisecond)
+	connection, err := r.dialPermissionSession(session, 250*time.Millisecond)
 	if err != nil {
 		return false
 	}
@@ -551,10 +596,15 @@ func (a *interactiveWorkspaceAttachment) renew() error {
 		if current == nil || !sameInteractiveSessionAuthority(*current, a.session) || !permissionSessionLeaseCurrent(*current, issued) {
 			return fmt.Errorf("interactive attachment owner changed")
 		}
+		renewed := *current
+		renewed.LeaseIssuedAt = issued.Format(time.RFC3339Nano)
+		renewed.ExpiresAt = expires.Format(time.RFC3339Nano)
+		if err := renewed.ValidateRenewal(*current); err != nil {
+			return err
+		}
 		for index := range registry.Sessions {
 			if registry.Sessions[index].AttachmentID == a.session.AttachmentID {
-				registry.Sessions[index].LeaseIssuedAt = issued.Format(time.RFC3339Nano)
-				registry.Sessions[index].ExpiresAt = expires.Format(time.RFC3339Nano)
+				registry.Sessions[index] = renewed
 			}
 		}
 		if err := registry.Validate(); err != nil {
@@ -564,7 +614,10 @@ func (a *interactiveWorkspaceAttachment) renew() error {
 	}); err != nil {
 		return err
 	}
-	return a.waits.RenewOwner(issued, expires)
+	if err := a.waits.RenewOwner(issued, expires); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (a *interactiveWorkspaceAttachment) closeTransport() error {

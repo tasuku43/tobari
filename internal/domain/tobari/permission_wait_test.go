@@ -185,7 +185,7 @@ func TestInteractiveAttachmentSessionRegistryRequiresOneBoundedOwner(t *testing.
 		AttachmentID:               "att_0123456789abcdef0123456789abcdef",
 		OwnerKind:                  PermissionSessionOwnerInteractive,
 		FrozenPrincipalFingerprint: strings.Repeat("c", 64), OwnerPID: 42,
-		IngestionSocket: "pws_0123456789abcdef0123456789abcdef.sock", IngestionNonce: strings.Repeat("d", 64),
+		IngestionTransport: PermissionSessionTransportUnix, IngestionEndpoint: "pws_0123456789abcdef0123456789abcdef.sock", IngestionNonce: strings.Repeat("d", 64),
 		CreatedAt: "2026-08-23T00:00:00Z", LeaseIssuedAt: "2026-08-23T00:00:00Z", ExpiresAt: "2026-08-23T00:00:30Z",
 	}
 	registry := InteractiveAttachmentSessionRegistry{SchemaVersion: PermissionSessionSchema, Sessions: []InteractiveAttachmentSession{session}}
@@ -208,5 +208,71 @@ func TestInteractiveAttachmentSessionRegistryRequiresOneBoundedOwner(t *testing.
 	registry.Sessions = []InteractiveAttachmentSession{serviceController}
 	if err := registry.Validate(); err == nil {
 		t.Fatal("service-exposure controller entered the interactive registry")
+	}
+
+	for _, invalid := range []InteractiveAttachmentSession{
+		func() InteractiveAttachmentSession { value := session; value.IngestionTransport = "tcp"; return value }(),
+		func() InteractiveAttachmentSession {
+			value := session
+			value.IngestionTransport = PermissionSessionTransportTCP
+			value.IngestionEndpoint = "0.0.0.0:1234"
+			return value
+		}(),
+		func() InteractiveAttachmentSession {
+			value := session
+			value.IngestionTransport = PermissionSessionTransportTCP
+			value.IngestionEndpoint = "[::1]:1234"
+			return value
+		}(),
+		func() InteractiveAttachmentSession {
+			value := session
+			value.IngestionTransport = PermissionSessionTransportTCP
+			value.IngestionEndpoint = "127.0.0.1:0"
+			return value
+		}(),
+	} {
+		if err := invalid.Validate(); err == nil {
+			t.Fatalf("invalid ingestion endpoint passed validation: %+v", invalid)
+		}
+	}
+	tcp := session
+	tcp.IngestionTransport = PermissionSessionTransportTCP
+	tcp.IngestionEndpoint = "127.0.0.1:43210"
+	if err := tcp.Validate(); err != nil {
+		t.Fatalf("valid loopback TCP session = %v", err)
+	}
+}
+
+func TestInteractiveAttachmentSessionRenewalMustAdvance(t *testing.T) {
+	previous := InteractiveAttachmentSession{
+		SchemaVersion: PermissionSessionSchema, WorkspaceManifestID: "018f3f18-7a3b-7abc-8def-0123456789ab", WorkspaceID: "018f3f18-7a3b-7abc-8def-0123456789ac",
+		AttachmentID: "att_0123456789abcdef0123456789abcdef", OwnerKind: PermissionSessionOwnerInteractive,
+		FrozenPrincipalFingerprint: strings.Repeat("c", 64), OwnerPID: 42,
+		IngestionTransport: PermissionSessionTransportUnix, IngestionEndpoint: "pws_0123456789abcdef0123456789abcdef.sock", IngestionNonce: strings.Repeat("d", 64),
+		CreatedAt: "2026-08-23T00:00:00Z", LeaseIssuedAt: "2026-08-23T00:00:00Z", ExpiresAt: "2026-08-23T00:00:30Z",
+	}
+	advanced := previous
+	advanced.LeaseIssuedAt = "2026-08-23T00:00:10Z"
+	advanced.ExpiresAt = "2026-08-23T00:00:40Z"
+	if err := advanced.ValidateRenewal(previous); err != nil {
+		t.Fatal(err)
+	}
+	for name, mutate := range map[string]func(*InteractiveAttachmentSession){
+		"equal": func(value *InteractiveAttachmentSession) {},
+		"rollback": func(value *InteractiveAttachmentSession) {
+			value.LeaseIssuedAt = "2026-08-22T23:59:59Z"
+			value.ExpiresAt = "2026-08-23T00:00:29Z"
+		},
+		"endpoint": func(value *InteractiveAttachmentSession) {
+			value.IngestionEndpoint = "pws_ffffffffffffffffffffffffffffffff.sock"
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			candidate := previous
+			mutate(&candidate)
+			if err := candidate.ValidateRenewal(previous); err == nil {
+				t.Fatal("invalid renewal passed validation")
+			}
+		})
 	}
 }

@@ -39,7 +39,7 @@ func permissionSessionFixture() tobari.InteractiveAttachmentSession {
 		SchemaVersion:       tobari.PermissionSessionSchema,
 		WorkspaceManifestID: "01912345-6789-7abc-8def-0123456789ad", WorkspaceID: "01912345-6789-7abc-8def-0123456789ab",
 		AttachmentID: "att_0123456789abcdef0123456789abcdef", OwnerKind: tobari.PermissionSessionOwnerInteractive,
-		FrozenPrincipalFingerprint: strings.Repeat("b", 64), OwnerPID: 42, IngestionSocket: "pws_0123456789abcdef0123456789abcdef.sock", IngestionNonce: strings.Repeat("c", 64),
+		FrozenPrincipalFingerprint: strings.Repeat("b", 64), OwnerPID: 42, IngestionTransport: tobari.PermissionSessionTransportUnix, IngestionEndpoint: "pws_0123456789abcdef0123456789abcdef.sock", IngestionNonce: strings.Repeat("c", 64),
 		CreatedAt: "2026-08-23T00:00:00Z", LeaseIssuedAt: "2026-08-23T00:00:00Z", ExpiresAt: "2026-08-23T00:00:30Z",
 	}
 }

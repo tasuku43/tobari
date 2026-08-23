@@ -989,6 +989,37 @@ func TestComposeEnvironmentUsesPinnedImages(t *testing.T) {
 	}
 }
 
+func TestPermissionIngestionComposeProfileIsClosed(t *testing.T) {
+	root := t.TempDir()
+	runtime, _ := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), &recordingRunner{})
+	for _, test := range []struct {
+		transport tobari.PermissionSessionTransport
+		file      string
+		hasSource bool
+	}{
+		{transport: tobari.PermissionSessionTransportUnix, file: "compose.permission-unix.yaml", hasSource: true},
+		{transport: tobari.PermissionSessionTransportTCP, file: "compose.permission-loopback_tcp.yaml", hasSource: false},
+	} {
+		runtime.permissionIngestionTransport = test.transport
+		args, err := runtime.permissionSessionComposeFileArgs("/runtime")
+		if err != nil || len(args) != 2 || args[0] != "-f" || args[1] != filepath.Join("/runtime", test.file) {
+			t.Fatalf("%s compose profile = %v, %v", test.transport, args, err)
+		}
+		environment, err := runtime.composeEnvironment(runtimeState(root))
+		if err != nil {
+			t.Fatal(err)
+		}
+		hasSource := strings.Contains(strings.Join(environment, "\n"), "TOBARI_PERMISSION_INGESTION_DIR=")
+		if hasSource != test.hasSource {
+			t.Fatalf("%s Unix source presence = %t", test.transport, hasSource)
+		}
+	}
+	runtime.permissionIngestionTransport = "tcp"
+	if _, err := runtime.permissionSessionComposeFileArgs("/runtime"); err == nil {
+		t.Fatal("unsupported permission ingestion profile was accepted")
+	}
+}
+
 func TestPrepareActiveContextImageReusesAndValidatesLocalOfficialRuntime(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()

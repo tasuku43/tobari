@@ -115,9 +115,7 @@ func TestComposeSpecOwnsOnlySharedLeastPrivilegeServices(t *testing.T) {
 		"${TOBARI_PRINCIPAL_DIR}:/run/tobari/principal-registry:ro",
 		"TOBARI_PRINCIPAL_REGISTRY: /run/tobari/principal-registry/principals.json",
 		"${TOBARI_INTERACTIVE_ATTACHMENT_DIR}:/run/tobari/interactive-attachments:ro",
-		"${TOBARI_PERMISSION_INGESTION_DIR}:/run/tobari/permission-ingestion:ro",
 		"TOBARI_INTERACTIVE_ATTACHMENT_REGISTRY: /run/tobari/interactive-attachments/sessions.json",
-		"TOBARI_PERMISSION_INGESTION_DIRECTORY: /run/tobari/permission-ingestion",
 	} {
 		if !strings.Contains(spec, required) {
 			t.Errorf("compose spec is missing %q", required)
@@ -138,10 +136,35 @@ func TestComposeSpecOwnsOnlySharedLeastPrivilegeServices(t *testing.T) {
 		"auth-broker:",
 		"TOBARI_AUTH_PROVIDER_PROJECTION",
 		"TOBARI_AUTH_BROKER_SOCKET",
+		"TOBARI_PERMISSION_INGESTION_TRANSPORT",
+		"TOBARI_PERMISSION_INGESTION_DIRECTORY",
+		"${TOBARI_PERMISSION_INGESTION_DIR}",
 	} {
 		if strings.Contains(spec, forbidden) {
 			t.Errorf("compose spec contains forbidden boundary %q", forbidden)
 		}
+	}
+	unixData, err := Read("compose.permission-unix.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	unix := string(unixData)
+	for _, required := range []string{
+		"TOBARI_PERMISSION_INGESTION_TRANSPORT: unix",
+		"TOBARI_PERMISSION_INGESTION_DIRECTORY: /run/tobari/permission-ingestion",
+		"${TOBARI_PERMISSION_INGESTION_DIR}:/run/tobari/permission-ingestion:ro",
+	} {
+		if !strings.Contains(unix, required) {
+			t.Errorf("Unix permission profile is missing %q", required)
+		}
+	}
+	loopbackData, err := Read("compose.permission-loopback_tcp.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	loopback := string(loopbackData)
+	if !strings.Contains(loopback, "TOBARI_PERMISSION_INGESTION_TRANSPORT: loopback_tcp") || strings.Contains(loopback, "volumes:") || strings.Contains(loopback, "INGESTION_DIRECTORY") {
+		t.Fatalf("loopback permission profile widens its mount boundary: %s", loopback)
 	}
 	experimentalData, err := Read("compose.experimental.yaml")
 	if err != nil {

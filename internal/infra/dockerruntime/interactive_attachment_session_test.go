@@ -88,6 +88,93 @@ func TestInteractiveSessionOwnsWaitWithoutHostLoopbackStoreOrRoute(t *testing.T)
 	}
 }
 
+func TestLoopbackTCPInteractiveSessionOwnsWaitWithoutUnixMountSource(t *testing.T) {
+	root := t.TempDir()
+	runtime, err := newRuntime(root+"/config", root+"/state", &recordingRunner{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime.permissionIngestionTransport = tobari.PermissionSessionTransportTCP
+	workspace := projectRuntimeInstance(t, runtime)
+	prepareInteractiveSessionPrincipal(t, runtime, workspace)
+	owner, err := runtime.beginInteractiveWorkspaceAttachment(context.Background(), workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer owner.Close(context.Background())
+	if owner.session.IngestionTransport != tobari.PermissionSessionTransportTCP || !strings.HasPrefix(owner.session.IngestionEndpoint, "127.0.0.1:") {
+		t.Fatalf("loopback owner endpoint = %+v", owner.session)
+	}
+	if _, err := os.Lstat(runtime.interactiveAttachmentSocketDirectory()); !os.IsNotExist(err) {
+		t.Fatalf("loopback profile created a Unix mount source: %v", err)
+	}
+	registryDirectory, err := os.Lstat(runtime.interactiveAttachmentDirectory())
+	if err != nil || !registryDirectory.IsDir() || registryDirectory.Mode().Perm() != 0o700 || registryDirectory.Mode()&os.ModeSymlink != 0 {
+		t.Fatalf("registry directory = %v, %v", registryDirectory, err)
+	}
+	registryFile, err := os.Lstat(runtime.interactiveAttachmentSessionRegistryPath())
+	if err != nil || !registryFile.Mode().IsRegular() || registryFile.Mode().Perm() != 0o600 || registryFile.Mode()&os.ModeSymlink != 0 {
+		t.Fatalf("registry file = %v, %v", registryFile, err)
+	}
+	if !runtime.permissionSessionActive(owner.session) {
+		t.Fatal("loopback TCP owner did not pass nonce-first liveness")
+	}
+	now := time.Now().UTC()
+	record := permissionWaitRecordFixtureForInfra()
+	record.FrozenPrincipalFingerprint = owner.session.FrozenPrincipalFingerprint
+	record.WorkspaceManifestID, record.WorkspaceID, record.AttachmentID = workspace.WorkspaceManifestID, workspace.ID, owner.session.AttachmentID
+	record.CreatedAt, record.ExpiresAt = now.Format(time.RFC3339Nano), now.Add(tobari.PermissionWaitLease).Format(time.RFC3339Nano)
+	if ack, err := registerPermissionWait(runtime, owner.session, record); err != nil || ack != "OK" {
+		t.Fatalf("loopback registration = %q, %v", ack, err)
+	}
+	mismatch := owner.session
+	mismatch.IngestionTransport = tobari.PermissionSessionTransportUnix
+	mismatch.IngestionEndpoint = "pws_0123456789abcdef0123456789abcdef.sock"
+	if runtime.permissionSessionActive(mismatch) {
+		t.Fatal("Unix record was accepted by loopback TCP support profile")
+	}
+}
+
+func TestPermissionSessionPlatformSelectionIsClosed(t *testing.T) {
+	if got := permissionSessionTransportForGOOS("linux"); got != tobari.PermissionSessionTransportUnix {
+		t.Fatalf("Linux transport = %q", got)
+	}
+	if got := permissionSessionTransportForGOOS("darwin"); got != tobari.PermissionSessionTransportTCP {
+		t.Fatalf("macOS transport = %q", got)
+	}
+	for _, unsupported := range []string{"windows", "freebsd", ""} {
+		if got := permissionSessionTransportForGOOS(unsupported); got != "" {
+			t.Fatalf("unsupported %q transport = %q", unsupported, got)
+		}
+	}
+}
+
+func TestInteractiveSessionRejectsUnsafeRegistrySource(t *testing.T) {
+	for _, target := range []string{"directory", "file"} {
+		t.Run(target, func(t *testing.T) {
+			root := t.TempDir()
+			runtime, _ := newRuntime(root+"/config", root+"/state", &recordingRunner{})
+			workspace := projectRuntimeInstance(t, runtime)
+			prepareInteractiveSessionPrincipal(t, runtime, workspace)
+			if err := runtime.ensureInteractiveAttachmentStore(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			path := runtime.interactiveAttachmentDirectory()
+			mode := os.FileMode(0o755)
+			if target == "file" {
+				path = runtime.interactiveAttachmentSessionRegistryPath()
+				mode = 0o644
+			}
+			if err := os.Chmod(path, mode); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := runtime.beginInteractiveWorkspaceAttachment(context.Background(), workspace); err == nil {
+				t.Fatalf("unsafe registry %s was accepted", target)
+			}
+		})
+	}
+}
+
 func TestInteractiveSessionRejectsUnsafeSocketDirectoryBeforeRegistryMutation(t *testing.T) {
 	for _, test := range []struct {
 		name   string
@@ -138,7 +225,7 @@ func TestPermissionSessionLivenessRejectsBroadAndSymlinkedSockets(t *testing.T) 
 	}
 	symlinked := owner.session
 	symlinked.AttachmentID = "att_ffffffffffffffffffffffffffffffff"
-	symlinked.IngestionSocket = "pws_ffffffffffffffffffffffffffffffff.sock"
+	symlinked.IngestionEndpoint = "pws_ffffffffffffffffffffffffffffffff.sock"
 	symlinkPath := runtime.interactiveAttachmentSocketPath(symlinked)
 	if err := os.Symlink(path, symlinkPath); err != nil {
 		t.Fatal(err)
@@ -154,7 +241,7 @@ func registerPermissionWait(runtime *Runtime, session tobari.InteractiveAttachme
 	if err != nil {
 		return "", err
 	}
-	connection, err := net.DialTimeout("unix", runtime.interactiveAttachmentSocketPath(session), time.Second)
+	connection, err := runtime.dialPermissionSession(session, time.Second)
 	if err != nil {
 		return "", err
 	}
@@ -247,7 +334,7 @@ func TestInteractiveSessionFailsClosedOnLiveStaleEndpoint(t *testing.T) {
 		SchemaVersion: tobari.PermissionSessionSchema, WorkspaceManifestID: workspace.WorkspaceManifestID, WorkspaceID: workspace.ID,
 		AttachmentID: "att_0123456789abcdef0123456789abcdef", OwnerKind: tobari.PermissionSessionOwnerInteractive,
 		FrozenPrincipalFingerprint: frozenPrincipalFingerprint(binding), OwnerPID: os.Getpid(),
-		IngestionSocket: "pws_0123456789abcdef0123456789abcdef.sock", IngestionNonce: strings.Repeat("d", 64), CreatedAt: now.Format(time.RFC3339Nano), LeaseIssuedAt: now.Format(time.RFC3339Nano), ExpiresAt: now.Add(20 * time.Second).Format(time.RFC3339Nano),
+		IngestionTransport: tobari.PermissionSessionTransportUnix, IngestionEndpoint: "pws_0123456789abcdef0123456789abcdef.sock", IngestionNonce: strings.Repeat("d", 64), CreatedAt: now.Format(time.RFC3339Nano), LeaseIssuedAt: now.Format(time.RFC3339Nano), ExpiresAt: now.Add(20 * time.Second).Format(time.RFC3339Nano),
 	}
 	if err := writeAtomicJSON(runtime.interactiveAttachmentSessionRegistryPath(), tobari.InteractiveAttachmentSessionRegistry{
 		SchemaVersion: tobari.PermissionSessionSchema, Sessions: []tobari.InteractiveAttachmentSession{stale},
@@ -311,6 +398,37 @@ func TestInteractiveSessionCannotResurrectExpiredLease(t *testing.T) {
 	var registry tobari.InteractiveAttachmentSessionRegistry
 	if err := readStrictJSON(runtime.interactiveAttachmentSessionRegistryPath(), &registry); err != nil || len(registry.Sessions) != 1 || registry.Sessions[0].ExpiresAt != owner.session.ExpiresAt {
 		t.Fatalf("expired lease was rewritten: %+v, %v", registry, err)
+	}
+}
+
+func TestInteractiveSessionRejectsNonAdvancingOrRolledBackRenewal(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		offset time.Duration
+	}{
+		{name: "same wall clock", offset: 0},
+		{name: "wall clock rollback", offset: -time.Nanosecond},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			runtime, _ := newRuntime(root+"/config", root+"/state", &recordingRunner{})
+			workspace := projectRuntimeInstance(t, runtime)
+			prepareInteractiveSessionPrincipal(t, runtime, workspace)
+			owner, err := runtime.beginInteractiveWorkspaceAttachment(context.Background(), workspace)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer owner.Close(context.Background())
+			issued, _ := time.Parse(time.RFC3339Nano, owner.session.LeaseIssuedAt)
+			owner.clock = func() time.Time { return issued.Add(test.offset) }
+			if err := owner.renew(); err == nil {
+				t.Fatal("non-advancing lease was renewed")
+			}
+			var registry tobari.InteractiveAttachmentSessionRegistry
+			if err := readStrictJSON(runtime.interactiveAttachmentSessionRegistryPath(), &registry); err != nil || len(registry.Sessions) != 1 || registry.Sessions[0].LeaseIssuedAt != owner.session.LeaseIssuedAt {
+				t.Fatalf("non-advancing renewal rewrote registry: %+v, %v", registry, err)
+			}
+		})
 	}
 }
 
@@ -457,6 +575,60 @@ func TestInteractiveSessionBoundsPartialIngestionClients(t *testing.T) {
 			t.Fatal("ninth partial ingestion client was served")
 		}
 	}
+	deadline = time.Now().Add(time.Second)
+	for {
+		var registry tobari.InteractiveAttachmentSessionRegistry
+		err := readStrictJSON(runtime.interactiveAttachmentSessionRegistryPath(), &registry)
+		if err == nil && len(registry.Sessions) == 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("concurrency exhaustion left authority live: %+v, %v", registry, err)
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
+func TestLoopbackPermissionSessionBoundsConnectionsPerLease(t *testing.T) {
+	root := t.TempDir()
+	runtime, _ := newRuntime(root+"/config", root+"/state", &recordingRunner{})
+	runtime.permissionIngestionTransport = tobari.PermissionSessionTransportTCP
+	workspace := projectRuntimeInstance(t, runtime)
+	prepareInteractiveSessionPrincipal(t, runtime, workspace)
+	owner, err := runtime.beginInteractiveWorkspaceAttachment(context.Background(), workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer owner.Close(context.Background())
+	invalidProbe := func() {
+		connection, err := net.DialTimeout("tcp4", owner.session.IngestionEndpoint, time.Second)
+		if err != nil {
+			return
+		}
+		defer connection.Close()
+		_ = connection.SetDeadline(time.Now().Add(100 * time.Millisecond))
+		_, _ = connection.Write([]byte("S" + strings.Repeat("0", 64)))
+		var response [2]byte
+		_, _ = io.ReadFull(connection, response[:])
+	}
+	for attempt := 0; attempt < permissionSessionMaxAccepts; attempt++ {
+		invalidProbe()
+	}
+	deadline := time.Now().Add(time.Second)
+	for {
+		var registry tobari.InteractiveAttachmentSessionRegistry
+		err := readStrictJSON(runtime.interactiveAttachmentSessionRegistryPath(), &registry)
+		if err == nil && len(registry.Sessions) == 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("invalid-connection budget left authority live: %+v, %v", registry, err)
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if runtime.permissionSessionActive(owner.session) {
+		t.Fatal("rate-exhausted endpoint remained live")
+	}
 }
 
 func TestInteractiveSessionConcurrentFirstEntriesShareWinner(t *testing.T) {
@@ -519,7 +691,7 @@ func TestInteractiveSessionCompactsFullExpiredRegistry(t *testing.T) {
 			WorkspaceID:         fmt.Sprintf("01912345-6789-7abc-9def-%012x", index+1),
 			AttachmentID:        fmt.Sprintf("att_%032x", index+1), OwnerKind: tobari.PermissionSessionOwnerInteractive,
 			FrozenPrincipalFingerprint: fmt.Sprintf("%064x", index+1), OwnerPID: os.Getpid(),
-			IngestionSocket: fmt.Sprintf("pws_%032x.sock", index+1), IngestionNonce: fmt.Sprintf("%064x", index+129),
+			IngestionTransport: tobari.PermissionSessionTransportUnix, IngestionEndpoint: fmt.Sprintf("pws_%032x.sock", index+1), IngestionNonce: fmt.Sprintf("%064x", index+129),
 			CreatedAt: created.Format(time.RFC3339Nano), LeaseIssuedAt: created.Format(time.RFC3339Nano), ExpiresAt: created.Add(tobari.PermissionSessionLease).Format(time.RFC3339Nano),
 		}
 	}
@@ -550,7 +722,7 @@ func TestInteractiveSessionCompactionRemovesExactCrashedSocket(t *testing.T) {
 		SchemaVersion: tobari.PermissionSessionSchema, WorkspaceManifestID: workspace.WorkspaceManifestID, WorkspaceID: workspace.ID,
 		AttachmentID: "att_eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", OwnerKind: tobari.PermissionSessionOwnerInteractive,
 		FrozenPrincipalFingerprint: frozenPrincipalFingerprint(binding), OwnerPID: os.Getpid(),
-		IngestionSocket: "pws_eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee.sock", IngestionNonce: strings.Repeat("e", 64),
+		IngestionTransport: tobari.PermissionSessionTransportUnix, IngestionEndpoint: "pws_eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee.sock", IngestionNonce: strings.Repeat("e", 64),
 		CreatedAt: created.Format(time.RFC3339Nano), LeaseIssuedAt: created.Format(time.RFC3339Nano), ExpiresAt: created.Add(tobari.PermissionSessionLease).Format(time.RFC3339Nano),
 	}
 	socketPath := runtime.interactiveAttachmentSocketPath(expired)
@@ -591,7 +763,7 @@ func TestInteractiveSessionCompactionRetainsForeignExpiredSocketNode(t *testing.
 		SchemaVersion: tobari.PermissionSessionSchema, WorkspaceManifestID: workspace.WorkspaceManifestID, WorkspaceID: workspace.ID,
 		AttachmentID: "att_dddddddddddddddddddddddddddddddd", OwnerKind: tobari.PermissionSessionOwnerInteractive,
 		FrozenPrincipalFingerprint: frozenPrincipalFingerprint(binding), OwnerPID: os.Getpid(),
-		IngestionSocket: "pws_dddddddddddddddddddddddddddddddd.sock", IngestionNonce: strings.Repeat("d", 64),
+		IngestionTransport: tobari.PermissionSessionTransportUnix, IngestionEndpoint: "pws_dddddddddddddddddddddddddddddddd.sock", IngestionNonce: strings.Repeat("d", 64),
 		CreatedAt: created.Format(time.RFC3339Nano), LeaseIssuedAt: created.Format(time.RFC3339Nano), ExpiresAt: created.Add(tobari.PermissionSessionLease).Format(time.RFC3339Nano),
 	}
 	socketPath := runtime.interactiveAttachmentSocketPath(expired)

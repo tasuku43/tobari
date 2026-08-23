@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"net/netip"
 	"regexp"
 	"strings"
 	"time"
@@ -12,15 +13,17 @@ import (
 )
 
 const (
-	PermissionWaitRecordSchema        = 2
-	PermissionWaitLease               = 15 * time.Minute
-	PermissionWaitMaxLive             = 8
-	PermissionWaitMaxAttempts         = 3
-	PermissionWaitRequestLimit        = 4 * 1024
-	PermissionWaitResponseLimit       = 1024
-	PermissionSessionLease            = 30 * time.Second
-	PermissionSessionSchema           = 2
-	PermissionSessionOwnerInteractive = "interactive_workspace"
+	PermissionWaitRecordSchema                                   = 2
+	PermissionWaitLease                                          = 15 * time.Minute
+	PermissionWaitMaxLive                                        = 8
+	PermissionWaitMaxAttempts                                    = 3
+	PermissionWaitRequestLimit                                   = 4 * 1024
+	PermissionWaitResponseLimit                                  = 1024
+	PermissionSessionLease                                       = 30 * time.Second
+	PermissionSessionSchema                                      = 2
+	PermissionSessionOwnerInteractive                            = "interactive_workspace"
+	PermissionSessionTransportUnix    PermissionSessionTransport = "unix"
+	PermissionSessionTransportTCP     PermissionSessionTransport = "loopback_tcp"
 
 	PermissionWaitResultAllow   PermissionWaitResult = "allow"
 	PermissionWaitResultDeny    PermissionWaitResult = "deny"
@@ -37,6 +40,20 @@ var (
 // PermissionWaitResult is the complete successful helper result vocabulary.
 // It carries no authority, evidence, policy, or retry operation.
 type PermissionWaitResult string
+
+// PermissionSessionTransport is the complete private ingestion adapter union.
+// Trusted host composition selects one member; records cannot request a
+// fallback or a different platform adapter.
+type PermissionSessionTransport string
+
+func (t PermissionSessionTransport) Validate() error {
+	switch t {
+	case PermissionSessionTransportUnix, PermissionSessionTransportTCP:
+		return nil
+	default:
+		return fmt.Errorf("permission session transport is invalid")
+	}
+}
 
 func (r PermissionWaitResult) Validate() error {
 	switch r {
@@ -58,12 +75,13 @@ type InteractiveAttachmentSession struct {
 	FrozenPrincipalFingerprint string `json:"frozen_principal_fingerprint"`
 	// OwnerPID is bounded liveness/audit correlation only. It is never a join
 	// key without the owner-only socket, process-instance nonce, and epoch.
-	OwnerPID        int    `json:"owner_pid"`
-	IngestionSocket string `json:"ingestion_socket"`
-	IngestionNonce  string `json:"ingestion_nonce"`
-	CreatedAt       string `json:"created_at"`
-	LeaseIssuedAt   string `json:"lease_issued_at"`
-	ExpiresAt       string `json:"expires_at"`
+	OwnerPID           int                        `json:"owner_pid"`
+	IngestionTransport PermissionSessionTransport `json:"ingestion_transport"`
+	IngestionEndpoint  string                     `json:"ingestion_endpoint"`
+	IngestionNonce     string                     `json:"ingestion_nonce"`
+	CreatedAt          string                     `json:"created_at"`
+	LeaseIssuedAt      string                     `json:"lease_issued_at"`
+	ExpiresAt          string                     `json:"expires_at"`
 }
 
 func (s InteractiveAttachmentSession) Validate() error {
@@ -76,8 +94,19 @@ func (s InteractiveAttachmentSession) Validate() error {
 	if s.OwnerKind != PermissionSessionOwnerInteractive || !permissionWaitPrincipalPattern.MatchString(s.FrozenPrincipalFingerprint) {
 		return fmt.Errorf("interactive attachment session join is invalid")
 	}
-	if s.OwnerPID < 1 || !permissionSessionSocketPattern.MatchString(s.IngestionSocket) || !permissionSessionNoncePattern.MatchString(s.IngestionNonce) {
+	if s.OwnerPID < 1 || s.IngestionTransport.Validate() != nil || !permissionSessionNoncePattern.MatchString(s.IngestionNonce) {
 		return fmt.Errorf("interactive attachment session owner endpoint is invalid")
+	}
+	switch s.IngestionTransport {
+	case PermissionSessionTransportUnix:
+		if !permissionSessionSocketPattern.MatchString(s.IngestionEndpoint) {
+			return fmt.Errorf("interactive attachment session Unix endpoint is invalid")
+		}
+	case PermissionSessionTransportTCP:
+		endpoint, err := netip.ParseAddrPort(s.IngestionEndpoint)
+		if err != nil || endpoint.Addr() != netip.MustParseAddr("127.0.0.1") || endpoint.Port() == 0 || endpoint.String() != s.IngestionEndpoint {
+			return fmt.Errorf("interactive attachment session loopback endpoint is invalid")
+		}
 	}
 	created, err := time.Parse(time.RFC3339Nano, s.CreatedAt)
 	if err != nil {
@@ -94,6 +123,38 @@ func (s InteractiveAttachmentSession) Validate() error {
 	return nil
 }
 
+// SameAuthority compares every stable owner field. Lease timestamps are the
+// only mutable fields and must be checked through ValidateRenewal.
+func (s InteractiveAttachmentSession) SameAuthority(other InteractiveAttachmentSession) bool {
+	return s.SchemaVersion == other.SchemaVersion &&
+		s.WorkspaceManifestID == other.WorkspaceManifestID && s.WorkspaceID == other.WorkspaceID &&
+		s.AttachmentID == other.AttachmentID && s.OwnerKind == other.OwnerKind &&
+		s.FrozenPrincipalFingerprint == other.FrozenPrincipalFingerprint &&
+		s.OwnerPID == other.OwnerPID && s.IngestionTransport == other.IngestionTransport &&
+		s.IngestionEndpoint == other.IngestionEndpoint && s.IngestionNonce == other.IngestionNonce &&
+		s.CreatedAt == other.CreatedAt
+}
+
+// ValidateRenewal requires one exact owner and a strictly advancing lease
+// issue time. Equal or rolled-back wall clocks fail closed.
+func (s InteractiveAttachmentSession) ValidateRenewal(previous InteractiveAttachmentSession) error {
+	if err := previous.Validate(); err != nil {
+		return err
+	}
+	if err := s.Validate(); err != nil {
+		return err
+	}
+	if !s.SameAuthority(previous) {
+		return fmt.Errorf("interactive attachment session authority changed")
+	}
+	previousIssued, _ := time.Parse(time.RFC3339Nano, previous.LeaseIssuedAt)
+	issued, _ := time.Parse(time.RFC3339Nano, s.LeaseIssuedAt)
+	if !issued.After(previousIssued) {
+		return fmt.Errorf("interactive attachment session lease did not advance")
+	}
+	return nil
+}
+
 type InteractiveAttachmentSessionRegistry struct {
 	SchemaVersion int                            `json:"schema_version"`
 	Sessions      []InteractiveAttachmentSession `json:"sessions"`
@@ -105,7 +166,7 @@ func (r InteractiveAttachmentSessionRegistry) Validate() error {
 	}
 	pairs := make(map[string]struct{}, len(r.Sessions))
 	epochs := make(map[string]struct{}, len(r.Sessions))
-	sockets := make(map[string]struct{}, len(r.Sessions))
+	endpoints := make(map[string]struct{}, len(r.Sessions))
 	nonces := make(map[string]struct{}, len(r.Sessions))
 	for _, session := range r.Sessions {
 		if err := session.Validate(); err != nil {
@@ -118,7 +179,8 @@ func (r InteractiveAttachmentSessionRegistry) Validate() error {
 		if _, exists := epochs[session.AttachmentID]; exists {
 			return fmt.Errorf("interactive attachment session epoch is duplicated")
 		}
-		if _, exists := sockets[session.IngestionSocket]; exists {
+		endpoint := string(session.IngestionTransport) + "\x00" + session.IngestionEndpoint
+		if _, exists := endpoints[endpoint]; exists {
 			return fmt.Errorf("interactive attachment session endpoint is duplicated")
 		}
 		if _, exists := nonces[session.IngestionNonce]; exists {
@@ -126,7 +188,7 @@ func (r InteractiveAttachmentSessionRegistry) Validate() error {
 		}
 		pairs[pair] = struct{}{}
 		epochs[session.AttachmentID] = struct{}{}
-		sockets[session.IngestionSocket] = struct{}{}
+		endpoints[endpoint] = struct{}{}
 		nonces[session.IngestionNonce] = struct{}{}
 	}
 	return nil
