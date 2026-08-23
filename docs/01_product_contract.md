@@ -352,6 +352,8 @@ The public commands are:
 | `runtime create [--copy-source-from RUNTIME] --name NAME [--format text\|json]` | act, fixed target | create | Create one standalone owner-only managed Docker build-context source from the standard starter or another managed Runtime's current editable source, with a fresh Runtime ID, empty history, no lineage, and no Manifest or Workspace change |
 | `review runtimes [--format text\|json]` | discover plus TTY reference-bound action | read, or one confirmed write | List the exhaustive Runtime catalog; trusted interactive text offers only managed Runtime references and crosses into the separate build action after confirmation, while redirected and JSON output remain read-only |
 | `runtime build --id RUNTIME_REF [--format text\|json]` | act, reference bound | write | Re-resolve one stable managed Runtime ID under the lifecycle and store locks, then snapshot, build, validate, and append one immutable semantic revision without changing any Workspace Manifest |
+| `runtime prune dry-run [--format text\|json]` | discover | read | Produce one exact opaque prune-plan reference from a complete coherent installation observation, listing every eligible unused owned image tag, protection, blocker, preserved source/snapshot byte count, and bounded Docker observation without creating state or changing Docker |
+| `runtime prune apply --plan RUNTIME_PRUNE_PLAN_REF --confirm=prune [--format text\|json]` | act, reference bound | write | Revalidate and apply one unchanged reviewed plan, removing only exact Tobari-owned unused image tags while preserving Runtime source, immutable snapshots, revision history, Workspace Manifests, Workspaces, homes, IDs, and shared image content |
 
 Bare `tobari review` is a pure Catalog namespace listing with exactly the
 public task leaves `permissions`, `runtimes`, and `services`; it performs no task read or
@@ -788,6 +790,8 @@ Human output is concise text. The canonical public machine-output inventory is:
 | Workspace Manifest report (show/create/default/config/runtime results) | `workspace_manifest` | 2 |
 | Runtime list | `runtimes` | 1 |
 | Runtime report (show/create/history/build results) | `runtime` | 1 |
+| Runtime prune plan | `runtime_prune_plan` | 1 |
+| Runtime prune result | `runtime_prune_result` | 1 |
 | Workspace Manifest deletion | `workspace_manifest_deletion` | 2 |
 | Cluster status | `cluster` | 1 |
 | Cluster denials | `denials` | 1 |

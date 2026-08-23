@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"github.com/tasuku43/tobari/internal/app/runtimecmd"
 	"github.com/tasuku43/tobari/internal/domain/fault"
 	"github.com/tasuku43/tobari/internal/domain/operation"
 	"github.com/tasuku43/tobari/internal/domain/tobari"
@@ -40,6 +41,8 @@ func runtimeCommandSpecs() []CommandSpec {
 		runtimeHistorySpec(),
 		runtimeReviewSpec(),
 		runtimeBuildSpec(),
+		runtimePruneDryRunSpec(),
+		runtimePruneApplySpec(),
 		projectEnterSpec(),
 		statusSpec(),
 		listSpec(),
@@ -638,6 +641,66 @@ func runtimeBuildSpec() CommandSpec {
 			},
 		},
 		handler: runRuntimeBuild,
+	}
+}
+
+func runtimePruneDryRunSpec() CommandSpec {
+	return CommandSpec{
+		Path: "runtime prune dry-run", Summary: "Review exact unused Runtime image material without changing state",
+		Args: "[--format text|json]", Effect: operation.EffectRead, Role: RoleDiscover,
+		Agent: AgentContract{
+			CapabilityID: "runtime.lifecycle",
+			Outcome:      "Completely review exact unused managed Runtime revision and settled failed-build image material, every protection and blocker, preserved source/snapshot bytes, and bounded Docker evidence; produce one opaque plan without changing state",
+			Inputs:       []CommandInput{formatInput()},
+			Output:       runtimePrunePlanOutput(),
+			Prerequisites: []string{
+				"The owner-only Runtime catalog, build/retirement journals, Workspace Manifest current and retained revisions, Workspace applied/pending/observed state, and immutable source snapshots are complete and valid.",
+				"Bounded Docker image and exact candidate-container observation can finish; no state directory, lock, journal, timestamp, or Docker resource is created or changed.",
+			},
+			Errors: readCommandErrors("runtime prune dry-run", true,
+				declaredCommandError(fault.KindRejected, "runtime_retirement_observation_unknown", false, "doctor", "Inspect the host Runtime lifecycle state."),
+				declaredCommandError(fault.KindContract, "invalid_runtime_prune_plan", false, "doctor", "Inspect the complete Runtime lifecycle inventory."),
+				declaredCommandError(fault.KindContract, "output_encoding_failed", false, "runtime prune dry-run", "Repair the Runtime prune plan JSON projection."),
+				declaredCommandError(fault.KindInternal, "missing_runtime", false, "doctor", "Configure the Tobari runtime."),
+			),
+		},
+		handler: runRuntimePruneDryRun,
+	}
+}
+
+func runtimePruneApplySpec() CommandSpec {
+	return CommandSpec{
+		Path: "runtime prune apply", Summary: "Apply one exact reviewed Runtime prune plan",
+		Args: "--plan <runtime-prune-plan-ref> --confirm=prune [--format text|json]", Effect: operation.EffectWrite, Role: RoleAct,
+		Agent: AgentContract{
+			CapabilityID: "runtime.lifecycle",
+			Outcome:      "Apply one unchanged reviewed Runtime prune plan by removing only exact Tobari-owned unused image tags while preserving Runtime source, immutable snapshots, revision history, Workspace Manifests, Workspaces, homes, IDs, and shared content",
+			Inputs: []CommandInput{
+				{Name: "--plan", Source: InputSourceFlag, Required: true, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, Description: "Opaque Runtime prune plan reference emitted by runtime prune dry-run and consumed unchanged.", AllowedValues: []string{}, ReferenceKind: tobari.RuntimePrunePlanReferenceKind},
+				{Name: "--confirm", Source: InputSourceFlag, Required: true, ValueKind: InputValueText, Cardinality: InputCardinalitySingle, Description: "Confirm exact unused image-tag retirement without deleting source, snapshots, history, Workspace Manifests, or Workspaces.", AllowedValues: []string{"prune"}},
+				formatInput(),
+			},
+			Output: runtimePruneResultOutput(),
+			Prerequisites: []string{
+				"The exact plan still recomputes unchanged under the installation lifecycle and Runtime-store locks, or its matching durable journal/receipt authorizes idempotent resume.",
+				"Every candidate remains unreferenced and unused with complete ownership, immutable source, journal, and bounded Docker evidence; any unknown or migration-unverified state blocks the whole plan.",
+			},
+			Errors: mutationCommandErrors("runtime prune apply", "runtime prune dry-run",
+				declaredCommandError(fault.KindInvalidInput, "invalid_runtime_prune_plan_ref", false, "runtime prune dry-run", "Create and use one fresh Runtime prune plan reference unchanged."),
+				declaredCommandError(fault.KindRejected, "runtime_prune_plan_stale", false, "runtime prune dry-run", "Review a fresh exact Runtime prune plan."),
+				declaredCommandError(fault.KindRejected, "runtime_retirement_observation_unknown", false, "doctor", "Inspect the host Runtime lifecycle state."),
+				declaredCommandError(fault.KindInternal, "runtime_prune_interrupted", false, "runtime prune dry-run", "Observe the retained journal or current lifecycle state before another mutation."),
+				declaredCommandError(fault.KindContract, "invalid_runtime_retirement_result", false, "runtime prune dry-run", "Reconcile the current Runtime lifecycle state."),
+				declaredCommandError(fault.KindContract, "output_encoding_failed", false, "runtime prune dry-run", "Reconcile the confirmed Runtime prune result."),
+				declaredCommandError(fault.KindInternal, "missing_runtime_prune", false, "doctor", "Configure the Runtime prune application boundary."),
+				declaredCommandError(fault.KindInternal, "missing_runtime", false, "doctor", "Configure the Tobari runtime."),
+			),
+			Mutation: &MutationContract{
+				TargetKind: tobari.RuntimePrunePlanReferenceKind, TargetInputs: []string{"--plan"}, TargetIDInput: "--plan",
+				Impact: runtimecmd.PruneImpact(),
+			},
+		},
+		handler: runRuntimePruneApply,
 	}
 }
 

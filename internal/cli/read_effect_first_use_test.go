@@ -90,6 +90,7 @@ func TestEveryCatalogReadExecutesOnFreshXDGWithoutDurableOrExternalMutation(t *t
 		"service requests":      {},
 		"runtime history":       {"--name=standard", "--format=json"},
 		"runtime list":          {"--format=json"},
+		"runtime prune dry-run": {"--format=json"},
 		"runtime show":          {"--name=standard", "--format=json"},
 		"list":                  {"--format=json"},
 	}
