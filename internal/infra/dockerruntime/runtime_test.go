@@ -728,6 +728,35 @@ func TestClusterDownPurgesMissingVolumesIdempotently(t *testing.T) {
 	}
 }
 
+func TestClusterDownDoesNotRequireCurrentPermissionProfileAssets(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	runner := &recordingRunner{}
+	runtime, err := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), runner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A retained pre-platform runtime has only the original base compose file.
+	runtime.permissionIngestionTransport = tobari.PermissionSessionTransportTCP
+	if err := runtime.ClusterDown(context.Background(), runtimeState(root), false); err != nil {
+		t.Fatal(err)
+	}
+	var down []string
+	for _, call := range runner.runs {
+		if len(call.args) > 0 && call.args[0] == "compose" && slices.Contains(call.args, "down") {
+			down = call.args
+		}
+	}
+	if len(down) == 0 || !slices.Contains(down, "--remove-orphans") {
+		t.Fatalf("cluster down argv = %v", down)
+	}
+	for _, argument := range down {
+		if strings.Contains(argument, "compose.permission-") {
+			t.Fatalf("cluster down required a current permission profile: %v", down)
+		}
+	}
+}
+
 func TestClusterDownResumesAfterInterruptedComposeCleanup(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
