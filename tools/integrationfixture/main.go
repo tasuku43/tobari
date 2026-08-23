@@ -179,16 +179,13 @@ func writeAtomicBytes(path string, data []byte, exclusive bool) error {
 	temporaryPath := temporary.Name()
 	defer os.Remove(temporaryPath)
 	if err := temporary.Chmod(0o600); err != nil {
-		temporary.Close()
-		return err
+		return closeAfterFailure(temporary, err)
 	}
 	if _, err := temporary.Write(data); err != nil {
-		temporary.Close()
-		return err
+		return closeAfterFailure(temporary, err)
 	}
 	if err := temporary.Sync(); err != nil {
-		temporary.Close()
-		return err
+		return closeAfterFailure(temporary, err)
 	}
 	if err := temporary.Close(); err != nil {
 		return err
@@ -197,4 +194,8 @@ func writeAtomicBytes(path string, data []byte, exclusive bool) error {
 		return os.Link(temporaryPath, path)
 	}
 	return os.Rename(temporaryPath, path)
+}
+
+func closeAfterFailure(temporary *os.File, failure error) error {
+	return errors.Join(failure, temporary.Close())
 }

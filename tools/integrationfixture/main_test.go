@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -8,6 +9,22 @@ import (
 
 	"github.com/tasuku43/tobari/internal/domain/tobari"
 )
+
+func TestCloseAfterFailurePreservesOperationAndCloseErrors(t *testing.T) {
+	t.Parallel()
+	temporary, err := os.CreateTemp(t.TempDir(), "close-after-failure-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := temporary.Close(); err != nil {
+		t.Fatal(err)
+	}
+	operationErr := errors.New("operation failed")
+	combined := closeAfterFailure(temporary, operationErr)
+	if !errors.Is(combined, operationErr) || !errors.Is(combined, os.ErrClosed) {
+		t.Fatalf("combined error = %v", combined)
+	}
+}
 
 func TestPublishManifestPolicyRevisionRetainsCompleteAuthority(t *testing.T) {
 	t.Parallel()
