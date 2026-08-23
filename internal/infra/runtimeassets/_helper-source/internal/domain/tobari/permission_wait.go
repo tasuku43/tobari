@@ -5,8 +5,8 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
-	"net/netip"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -103,8 +103,9 @@ func (s InteractiveAttachmentSession) Validate() error {
 			return fmt.Errorf("interactive attachment session Unix endpoint is invalid")
 		}
 	case PermissionSessionTransportTCP:
-		endpoint, err := netip.ParseAddrPort(s.IngestionEndpoint)
-		if err != nil || endpoint.Addr() != netip.MustParseAddr("127.0.0.1") || endpoint.Port() == 0 || endpoint.String() != s.IngestionEndpoint {
+		host, portText, found := strings.Cut(s.IngestionEndpoint, ":")
+		port, err := strconv.Atoi(portText)
+		if !found || host != "127.0.0.1" || err != nil || port < 1 || port > 65535 || strconv.Itoa(port) != portText {
 			return fmt.Errorf("interactive attachment session loopback endpoint is invalid")
 		}
 	}

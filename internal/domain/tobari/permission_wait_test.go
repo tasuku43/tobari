@@ -230,6 +230,30 @@ func TestInteractiveAttachmentSessionRegistryRequiresOneBoundedOwner(t *testing.
 			value.IngestionEndpoint = "127.0.0.1:0"
 			return value
 		}(),
+		func() InteractiveAttachmentSession {
+			value := session
+			value.IngestionTransport = PermissionSessionTransportTCP
+			value.IngestionEndpoint = "127.0.0.1:043210"
+			return value
+		}(),
+		func() InteractiveAttachmentSession {
+			value := session
+			value.IngestionTransport = PermissionSessionTransportTCP
+			value.IngestionEndpoint = "127.0.0.1:65536"
+			return value
+		}(),
+		func() InteractiveAttachmentSession {
+			value := session
+			value.IngestionTransport = PermissionSessionTransportTCP
+			value.IngestionEndpoint = "127.0.0.1:+43210"
+			return value
+		}(),
+		func() InteractiveAttachmentSession {
+			value := session
+			value.IngestionTransport = PermissionSessionTransportTCP
+			value.IngestionEndpoint = "127.0.0.1:43210:1"
+			return value
+		}(),
 	} {
 		if err := invalid.Validate(); err == nil {
 			t.Fatalf("invalid ingestion endpoint passed validation: %+v", invalid)
