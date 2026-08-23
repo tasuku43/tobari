@@ -158,7 +158,7 @@ func TestRuntimeLifecycleSnapshotIsZeroWriteAndRequiresStableDockerEvidence(t *t
 	id := "018bcfe5-687b-7000-8000-000000000077"
 	revision := "sha256:" + strings.Repeat("a", 64)
 	imageDigest := "sha256:" + strings.Repeat("b", 64)
-	tag := "tobari-runtime-frontend:aaaaaaaaaaaa"
+	tag := managedLibraryRuntimeImage("frontend", id, revision)
 	if err := os.MkdirAll(filepath.Join(root, "config", "runtimes"), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -214,6 +214,29 @@ func TestRuntimeLifecycleSnapshotRejectsUnknownCatalogBeforeDocker(t *testing.T)
 	}
 }
 
+func TestRuntimeLifecycleSnapshotRejectsPersistedNonCanonicalImageSelectorBeforeDocker(t *testing.T) {
+	root := t.TempDir()
+	runner := &lifecycleObservationRunner{images: map[string]lifecycleImageFixture{}, containers: map[string]runtimeContainerObservation{}}
+	runtime, err := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), runner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := "018bcfe5-687b-7000-8000-000000000077"
+	revision := "sha256:" + strings.Repeat("a", 64)
+	canonical := managedLibraryRuntimeImage("frontend", id, revision)
+	manifest := installRuntimeLifecycleRevision(t, runtime, id, "frontend", revision, canonical, "sha256:"+strings.Repeat("b", 64))
+	manifest.Revisions[0].Image = "example.invalid/tampered:selector"
+	if err := writeAtomicJSON(runtime.runtimeManifestPath(manifest.Name), manifest); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := runtime.ReadRuntimeLifecycleSnapshot(context.Background()); err == nil {
+		t.Fatal("persisted non-canonical Runtime image selector was accepted")
+	}
+	if len(runner.outputs) != 0 {
+		t.Fatalf("tampered persisted selector crossed Docker observation: %v", runner.outputs)
+	}
+}
+
 func TestRuntimeLifecycleSnapshotRejectsUnknownJournalBeforeDocker(t *testing.T) {
 	root := t.TempDir()
 	runner := &lifecycleObservationRunner{images: map[string]lifecycleImageFixture{}, containers: map[string]runtimeContainerObservation{}}
@@ -262,7 +285,7 @@ func TestRuntimeMaterialObservesDigestUseWhenExpectedTagIsMissing(t *testing.T) 
 	id := "018bcfe5-687b-7000-8000-000000000077"
 	revision := "sha256:" + strings.Repeat("a", 64)
 	digest := "sha256:" + strings.Repeat("b", 64)
-	tag := "tobari-runtime-frontend:aaaaaaaaaaaa"
+	tag := managedLibraryRuntimeImage("frontend", id, revision)
 	foreign := "example.invalid/shared:fixture"
 	runner := &lifecycleObservationRunner{images: map[string]lifecycleImageFixture{
 		tag:    {missing: true},
@@ -281,6 +304,35 @@ func TestRuntimeMaterialObservesDigestUseWhenExpectedTagIsMissing(t *testing.T) 
 	material, err = runtime.observeRuntimeMaterial(context.Background(), target, map[string]runtimeContentUse{}, lifecycleTestBudget())
 	if err != nil || !material.ContentPresent || !material.SharedContent || material.WorkspaceInUse || material.ExternalInUse {
 		t.Fatalf("tag-missing shared content = %+v/%v", material, err)
+	}
+}
+
+func TestRuntimeMaterialRequiresExactContentDigestCorrelation(t *testing.T) {
+	id := "018bcfe5-687b-7000-8000-000000000077"
+	revision := "sha256:" + strings.Repeat("a", 64)
+	digest := "sha256:" + strings.Repeat("b", 64)
+	other := "sha256:" + strings.Repeat("c", 64)
+	tag := managedLibraryRuntimeImage("frontend", id, revision)
+	runner := &lifecycleObservationRunner{images: map[string]lifecycleImageFixture{
+		tag:    {missing: true},
+		digest: {observation: runtimeImageObservation{ID: other, Size: 2048, RepoTags: []string{"example.invalid/shared:fixture"}, Owner: ownerValue, Component: managedRuntimeComponentLabel, RuntimeID: id, Revision: revision}},
+	}, containers: map[string]runtimeContainerObservation{}}
+	runtime, err := newRuntime(t.TempDir(), t.TempDir(), runner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := runtimeMaterialTarget{RuntimeID: id, Revision: revision, TagRole: tobari.RuntimeMaterialTagPublishedRevision, Selector: tag, RecordedDigest: digest, Name: "frontend"}
+	if _, err := runtime.observeRuntimeMaterial(context.Background(), target, map[string]runtimeContentUse{}, lifecycleTestBudget()); err == nil {
+		t.Fatal("content-digest inspect accepted a contradictory image ID")
+	}
+
+	target.Selector = "example.invalid/tampered:selector"
+	runner.outputs = nil
+	if _, err := runtime.observeRuntimeMaterial(context.Background(), target, map[string]runtimeContentUse{}, lifecycleTestBudget()); err == nil {
+		t.Fatal("non-canonical material selector crossed observation")
+	}
+	if len(runner.outputs) != 0 {
+		t.Fatalf("non-canonical material selector crossed Docker: %v", runner.outputs)
 	}
 }
 
@@ -340,7 +392,7 @@ func TestRuntimeMaterialWithoutTrustedBuildLabelsIsMigrationUnverified(t *testin
 	id := "018bcfe5-687b-7000-8000-000000000077"
 	revision := "sha256:" + strings.Repeat("a", 64)
 	digest := "sha256:" + strings.Repeat("b", 64)
-	tag := "tobari-runtime-frontend:aaaaaaaaaaaa"
+	tag := managedLibraryRuntimeImage("frontend", id, revision)
 	runner := &lifecycleObservationRunner{images: map[string]lifecycleImageFixture{
 		tag: {observation: runtimeImageObservation{ID: digest, Size: 2048, RepoTags: []string{tag}}},
 	}, containers: map[string]runtimeContainerObservation{}}
@@ -367,7 +419,9 @@ func TestRuntimeLifecycleSnapshotMapsFailedBuildStagingEvidence(t *testing.T) {
 	}
 	id := "018bcfe5-687b-7000-8000-000000000077"
 	revision := "sha256:" + strings.Repeat("a", 64)
-	installRuntimeLifecycleRevision(t, runtime, id, "frontend", "sha256:"+strings.Repeat("c", 64), "tobari-runtime-frontend:cccccccccccc", "sha256:"+strings.Repeat("d", 64))
+	publishedRevision := "sha256:" + strings.Repeat("c", 64)
+	published := managedLibraryRuntimeImage("frontend", id, publishedRevision)
+	installRuntimeLifecycleRevision(t, runtime, id, "frontend", publishedRevision, published, "sha256:"+strings.Repeat("d", 64))
 	var journal runtimeBuildJournal
 	if err := runtime.WithLifecycleLock(context.Background(), func(context.Context) error {
 		created, err := runtime.beginRuntimeBuildJournal(context.Background(), id, "frontend")
@@ -402,7 +456,6 @@ func TestRuntimeLifecycleSnapshotMapsFailedBuildStagingEvidence(t *testing.T) {
 		t.Fatal(err)
 	}
 	runner.images[journal.StagingImage] = lifecycleImageFixture{observation: runtimeImageObservation{ID: "sha256:" + strings.Repeat("e", 64), Size: 1024, RepoTags: []string{journal.StagingImage}, Owner: ownerValue, Component: managedRuntimeComponentLabel, RuntimeID: id, Revision: revision}}
-	published := "tobari-runtime-frontend:cccccccccccc"
 	runner.images[published] = lifecycleImageFixture{observation: runtimeImageObservation{ID: "sha256:" + strings.Repeat("d", 64), Size: 2048, RepoTags: []string{published}, Owner: ownerValue, Component: managedRuntimeComponentLabel, RuntimeID: id, Revision: "sha256:" + strings.Repeat("c", 64)}}
 
 	snapshot, observedAt, err := runtime.ReadRuntimeLifecycleSnapshot(context.Background())

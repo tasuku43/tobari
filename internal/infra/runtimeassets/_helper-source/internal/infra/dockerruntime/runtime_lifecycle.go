@@ -327,6 +327,9 @@ func (r *Runtime) validateStrictRuntimeDirectory(manifest tobari.RuntimeManifest
 	}
 	wantRevisions := make(map[string]bool, len(manifest.Revisions)+1)
 	for _, revision := range manifest.Revisions {
+		if revision.Image != managedLibraryRuntimeImage(manifest.Name, manifest.ID, revision.Revision) {
+			return fmt.Errorf("Runtime revision image selector is not canonical")
+		}
 		wantRevisions[strings.TrimPrefix(revision.Revision, "sha256:")] = true
 	}
 	if journal != nil && journal.Phase == runtimeBuildPhaseSnapshotPublished && journal.RuntimeID == manifest.ID && journal.RuntimeName == manifest.Name && journal.Revision != "" {
@@ -355,7 +358,7 @@ func (r *Runtime) observeRuntimeLifecycleDocker(ctx context.Context, local runti
 			continue
 		}
 		for _, revision := range runtime.Revisions {
-			targets = append(targets, runtimeMaterialTarget{RuntimeID: runtime.ID, Revision: revision.Revision, TagRole: tobari.RuntimeMaterialTagPublishedRevision, Selector: revision.Image, RecordedDigest: revision.ImageDigest, Name: runtime.Name})
+			targets = append(targets, runtimeMaterialTarget{RuntimeID: runtime.ID, Revision: revision.Revision, TagRole: tobari.RuntimeMaterialTagPublishedRevision, Selector: managedLibraryRuntimeImage(runtime.Name, runtime.ID, revision.Revision), RecordedDigest: revision.ImageDigest, Name: runtime.Name})
 		}
 	}
 	journalInventory := tobari.RuntimeLifecycleJournals{Complete: true, Active: []tobari.RuntimeLifecycleActivity{}, FailedBuilds: []tobari.RuntimeFailedBuildArtifact{}}
@@ -408,6 +411,13 @@ func (r *Runtime) observeRuntimeMaterials(ctx context.Context, targets []runtime
 }
 
 func (r *Runtime) observeRuntimeMaterial(ctx context.Context, target runtimeMaterialTarget, containerUse map[string]runtimeContentUse, budget *runtimeLifecycleBudget) (tobari.RuntimeMaterialObservation, error) {
+	expectedSelector := managedLibraryRuntimeImage(target.Name, target.RuntimeID, target.Revision)
+	if target.TagRole == tobari.RuntimeMaterialTagJournaledStaging {
+		expectedSelector = managedRuntimeStagingImage(target.RuntimeID, target.Revision)
+	}
+	if target.Selector != expectedSelector {
+		return tobari.RuntimeMaterialObservation{}, tobari.RuntimeProtectionInventoryError{Reason: tobari.RuntimeProtectionInventoryObservationUnknown}
+	}
 	material := tobari.RuntimeMaterialObservation{RuntimeID: target.RuntimeID, Revision: target.Revision, TagRole: target.TagRole, ObservationComplete: true}
 	tagImage, tagMissing, err := r.inspectRuntimeLifecycleImage(ctx, target.Selector, budget)
 	if err != nil {
@@ -492,6 +502,9 @@ func (r *Runtime) inspectRuntimeLifecycleImage(ctx context.Context, selector str
 	}
 	var image runtimeImageObservation
 	if decodeStrictJSON(output, &image) != nil || tobari.ValidateDigest(image.ID) != nil || image.Size < 0 || len(image.RepoTags) > maxRuntimeLifecycleTags {
+		return runtimeImageObservation{}, false, tobari.RuntimeProtectionInventoryError{Reason: tobari.RuntimeProtectionInventoryObservationUnknown}
+	}
+	if tobari.ValidateDigest(selector) == nil && image.ID != selector {
 		return runtimeImageObservation{}, false, tobari.RuntimeProtectionInventoryError{Reason: tobari.RuntimeProtectionInventoryObservationUnknown}
 	}
 	seen := make(map[string]bool, len(image.RepoTags))
