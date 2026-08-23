@@ -12,7 +12,9 @@ import (
 
 // Observer is the complete effectful boundary for permission wait. It can
 // observe and consume only attachment-local wait side state; it has no policy,
-// Workspace, cluster, Docker, process, filesystem, network, or retry mutation.
+// Workspace, cluster, Docker, process, unrestricted filesystem, general or
+// external network, or retry mutation. Infrastructure owns the private
+// attachment-local Unix transport without exposing it through this port.
 type Observer interface {
 	WaitPermission(context.Context, string) (tobari.PermissionWaitResult, error)
 }
