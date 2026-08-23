@@ -4,6 +4,7 @@ FROM ${TOBARI_GATEWAY_BASE}
 # This image exists only inside the synthetic integration scenario. It gives
 # the Gateway one generated test CA so the mock HTTPS upstream can exercise the
 # real post-policy credential-resolution path without contacting the Internet.
+LABEL io.tobari.integration-fixture="tls-ca-v1"
 USER root
 COPY synthetic-ca.crt /usr/local/share/ca-certificates/tobari-integration.crt
 RUN chmod 0444 /usr/local/share/ca-certificates/tobari-integration.crt \

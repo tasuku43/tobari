@@ -2,6 +2,7 @@
 set -Eeuo pipefail
 cd "$(dirname "$0")/.."
 source test/integration/workspace_service_exposure.sh
+source test/integration/gateway_fixture.sh
 
 binary=${TOBARI_INTEGRATION_BINARY:-}
 binary_digest=
@@ -12,6 +13,9 @@ auth_network=tobari-auth-integration
 runtime_name=integration
 gateway_base_image="tobari-gateway-integration-base-$$"
 experimental_gateway_base_image="tobari-gateway-integration-experimental-base-$$"
+gateway_dev_tag= gateway_previous_image_id= gateway_fixture_image_id=
+gateway_fixture_image="tobari-gateway-integration-tls-$$"
+gateway_fixture_tag_installed=false
 test_keychain_service=
 test_root=
 work_root=
@@ -544,6 +548,7 @@ print(next(item["id"] for item in json.load(sys.stdin)["policy_candidates"]
 }
 
 cleanup() {
+	local gateway_fixture_restore_status=0
 	if [[ -n $host_service_attachment_pid ]]; then
 		kill "$host_service_attachment_pid" >/dev/null 2>&1 || true
 		wait "$host_service_attachment_pid" >/dev/null 2>&1 || true
@@ -582,6 +587,7 @@ cleanup() {
     docker network rm "$auth_network" >/dev/null 2>&1 || true
     docker network rm tobari-control tobari-egress >/dev/null 2>&1 || true
     docker volume rm tobari-gateway-ca tobari-public-ca tobari-policy-bundle >/dev/null 2>&1 || true
+    gateway_fixture_restore_tag || gateway_fixture_restore_status=1
     docker image rm -f "$experimental_gateway_base_image" >/dev/null 2>&1 || true
     docker image rm -f "$gateway_base_image" >/dev/null 2>&1 || true
     if [[ -n ${runtime_image:-} ]]; then
@@ -598,13 +604,14 @@ cleanup() {
     /usr/bin/security delete-generic-password \
       -a tobari -s "$test_keychain_service" >/dev/null 2>&1 || true
   fi
+  return "$gateway_fixture_restore_status"
 }
 
 finish() {
   local status=$?
   trap - EXIT
   if ((status != 0)); then
-    if [[ -n ${test_root:-} && -x $binary ]]; then
+    if [[ -n ${test_root:-} && -x $binary && -n ${binary_digest:-} ]]; then
       echo "integration diagnostics: cluster status" >&2
       run_tobari cluster status --format json >&2 || true
       echo "integration diagnostics: doctor" >&2
@@ -658,7 +665,12 @@ PY
       fi
     fi
   fi
-  cleanup
+  if ! cleanup; then
+    echo "integration: failed to restore the pre-existing Gateway resolver tag" >&2
+    if ((status == 0)); then
+      status=1
+    fi
+  fi
   if [[ -n ${test_root:-} ]]; then
     rm -rf "$test_root"
   fi
@@ -733,6 +745,9 @@ cat >"$config_directory/auth/providers/$synthetic_provider.json" <<'JSON'
 JSON
 chmod 0600 "$config_directory/auth/providers/$synthetic_provider.json"
 mitmproxy_image=$(awk -F= '$1 == "MITMPROXY_IMAGE" { print $2 }' internal/infra/runtimeassets/assets/versions.env)
+gateway_dev_tag="tobari-gateway-experimental:dev-$(go run ./tools/runtimeassetid gateway)"
+auth_broker_dev_tag="tobari-auth-broker:dev-$(go run ./tools/runtimeassetid authbroker)"
+gateway_fixture_snapshot_tag
 # The certificate belongs to this temporary integration run, not to binary or
 # image build ownership. Both the self-built and explicit-binary paths use it
 # for their bounded synthetic TLS upstreams.
@@ -752,9 +767,12 @@ docker run --rm --user "$(id -u):$(id -g)" \
   '
 if [[ -n ${TOBARI_INTEGRATION_BINARY:-} ]]; then
   [[ -x $binary ]] || fail "TOBARI_INTEGRATION_BINARY is not executable: $binary"
+  [[ -n $gateway_previous_image_id ]] || fail "explicit integration binary requires the matching experimental development Gateway image"
+  [[ $(docker image inspect --format '{{index .Config.Labels "io.tobari.gateway-api"}}' "$gateway_previous_image_id") == 1 ]] || fail "explicit integration Gateway image has an incompatible API"
+  [[ $(docker image inspect --format '{{index .Config.Labels "io.tobari.gateway-role"}}' "$gateway_previous_image_id") == enforcement ]] || fail "explicit integration Gateway image has an incompatible role"
+  [[ -z $(docker image inspect --format '{{index .Config.Labels "io.tobari.integration-fixture"}}' "$gateway_previous_image_id") ]] || fail "explicit integration Gateway image is a stale TLS fixture rather than a source image"
+  gateway_wrapper_base=$gateway_dev_tag
 else
-	  gateway_dev_tag="tobari-gateway-experimental:dev-$(go run ./tools/runtimeassetid gateway)"
-	  auth_broker_dev_tag="tobari-auth-broker:dev-$(go run ./tools/runtimeassetid authbroker)"
   debian_image=$(awk -F= '$1 == "DEBIAN_IMAGE" { print $2 }' internal/infra/runtimeassets/assets/versions.env)
   docker_arch=$(docker info --format '{{.Architecture}}')
   case $docker_arch in
@@ -767,17 +785,25 @@ else
   docker build --tag "$experimental_gateway_base_image" \
     --file gateway/Dockerfile.experimental \
     --build-arg "TOBARI_GATEWAY_BASE=$gateway_base_image" gateway >/dev/null
-	  docker build --tag "$gateway_dev_tag" \
-    --file test/integration/gateway-auth.Dockerfile \
-    --build-arg "TOBARI_GATEWAY_BASE=$experimental_gateway_base_image" \
-    "$test_root/tls" >/dev/null
-	  docker build --tag "$auth_broker_dev_tag" --file authbroker/Dockerfile \
+  gateway_wrapper_base=$experimental_gateway_base_image
+  docker build --tag "$auth_broker_dev_tag" --file authbroker/Dockerfile \
     --build-arg "DEBIAN_IMAGE=$debian_image" \
     --build-arg "MITMPROXY_IMAGE=$mitmproxy_image" \
     --build-arg "TARGETARCH=$auth_target_arch" \
     authbroker >/dev/null
   go build -tags='tobari_dev tobari_experimental' -buildvcs=false -trimpath -o "$binary" ./cmd/tobari
 fi
+docker build --tag "$gateway_fixture_image" --file test/integration/gateway-auth.Dockerfile \
+  --build-arg "TOBARI_GATEWAY_BASE=$gateway_wrapper_base" \
+  "$test_root/tls" >/dev/null
+gateway_fixture_publish_tag || fail "failed to publish the run-local Gateway TLS fixture"
+expected_gateway_ca_digest=$(shasum -a 256 "$test_root/tls/synthetic-ca.crt" | awk '{print $1}')
+actual_gateway_ca_digest=$(docker run --rm --entrypoint sha256sum "$gateway_dev_tag" /usr/local/share/ca-certificates/tobari-integration.crt | awk '{print $1}')
+[[ $actual_gateway_ca_digest == "$expected_gateway_ca_digest" ]] ||
+  fail "Gateway TLS fixture did not embed the run-local CA"
+docker run --rm --entrypoint sh "$gateway_dev_tag" -eu -c 'certifi_bundle=$(python3 -c "import certifi; print(certifi.where())")
+  openssl verify -CAfile "$certifi_bundle" /usr/local/share/ca-certificates/tobari-integration.crt >/dev/null
+' || fail "Gateway TLS fixture does not trust the run-local CA"
 go version -m "$binary" | grep -F $'build\t-tags=tobari_dev,tobari_experimental' >/dev/null ||
   fail "integration binary does not use the experimental capability profile"
 binary_digest=$(shasum -a 256 "$binary" | awk '{print $1}')

@@ -51,6 +51,15 @@ unknown in the standard profile and fully declared in the experimental profile.
 To run the integration script against the experimental binary, set
 `TOBARI_INTEGRATION_BINARY=$PWD/bin/tobari-dev` and
 `TOBARI_INTEGRATION_CUSTOM_BASE=tobari-runtime:dev`.
+Both paths generate a fresh synthetic TLS authority and build a run-local
+Gateway trust wrapper. The explicit-binary path wraps the already verified
+source-selected experimental development Gateway; the self-build path wraps
+its temporary experimental base. Before publishing that wrapper under the
+exact development-resolver tag, the harness records any pre-existing image
+identity. Normal exit, failure, and interruption restore that exact identity,
+or remove only the run-owned tag when no predecessor existed. Tag drift fails
+closed rather than overwriting concurrent contributor state. Executable checks
+prove the fresh authority is both byte-embedded and trusted by the wrapper.
 The integration script owns its dev-resolver prerequisites: when
 `tobari-runtime:dev` is absent, it builds the canonical base locally and
 removes only that integration-owned tag during cleanup. An explicitly selected

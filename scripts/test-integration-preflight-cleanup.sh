@@ -13,7 +13,8 @@ output="$fixture_root/output.log"
 touch "$docker_log"
 
 if ! grep -F -- '--file gateway/Dockerfile.experimental' scripts/test-integration.sh >/dev/null ||
-  ! grep -F -- "--build-arg \"TOBARI_GATEWAY_BASE=\$experimental_gateway_base_image\"" scripts/test-integration.sh >/dev/null; then
+  ! grep -F -- 'gateway_wrapper_base=$experimental_gateway_base_image' scripts/test-integration.sh >/dev/null ||
+  ! grep -F -- '--build-arg "TOBARI_GATEWAY_BASE=$gateway_wrapper_base"' scripts/test-integration.sh >/dev/null; then
   echo "integration fixture does not layer Broker modules into its experimental Gateway image" >&2
   exit 1
 fi

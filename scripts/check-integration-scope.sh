@@ -4,6 +4,7 @@ cd "$(dirname "$0")/.."
 
 scenario=scripts/test-integration.sh
 workspace_service_helper=test/integration/workspace_service_exposure.sh
+gateway_fixture_helper=test/integration/gateway_fixture.sh
 
 expected_phases=$'preflight\nbuild-fixtures\nmanifests-and-cluster\ncredentials-and-workspaces\ngateway-broker-and-transport\nlive-policy-activation\nattachment-scoped-host-loopback\nruntime-failure-boundaries\nlifecycle'
 actual_phases=$(awk '/^begin_phase / { print $2 }' "$scenario")
@@ -23,6 +24,12 @@ if ((helper_line_count > 100)); then
   echo "integration scope: Workspace service phase helper grew to $helper_line_count lines (limit 100)" >&2
   exit 1
 fi
+gateway_fixture_helper_line_count=$(wc -l <"$gateway_fixture_helper" | tr -d ' ')
+if ((gateway_fixture_helper_line_count > 100)); then
+  echo "integration scope: Gateway fixture helper grew to $gateway_fixture_helper_line_count lines (limit 100)" >&2
+  exit 1
+fi
+./test/integration/gateway_fixture_test.sh
 for claim in \
   'run_tobari service requests' \
   'run_tobari service allow --id' \
@@ -118,18 +125,26 @@ if ! awk '
   exit 1
 fi
 
-# The documented explicit-binary path skips repository image/binary builds,
-# but it still owns a fresh temporary TLS fixture for this run. Keep that
-# generation outside and before the build-selection branch.
+# The documented explicit-binary path skips source-image and binary builds, but
+# it still owns a fresh temporary TLS wrapper for this run. Keep certificate
+# generation before build selection and wrapper publication after it.
 binary_branch_line=$(grep -nF 'if [[ -n ${TOBARI_INTEGRATION_BINARY:-} ]]; then' "$scenario" | cut -d: -f1)
 tls_fixture_line=$(grep -nF 'openssl req -x509 -newkey' "$scenario" | cut -d: -f1)
-if [[ -z $binary_branch_line || -z $tls_fixture_line ]] || ((tls_fixture_line >= binary_branch_line)); then
+gateway_wrapper_line=$(grep -nF 'docker build --tag "$gateway_fixture_image"' "$scenario" | cut -d: -f1)
+if [[ -z $binary_branch_line || -z $tls_fixture_line || -z $gateway_wrapper_line ]] ||
+  ((tls_fixture_line >= binary_branch_line || gateway_wrapper_line <= binary_branch_line)); then
   echo "integration scope: run-local TLS fixture is not owned by both binary paths" >&2
   exit 1
 fi
 for claim in \
   '-v "$test_root/tls:/tls"' \
   '-out /tls/synthetic-ca.crt' \
+  'gateway_fixture_snapshot_tag' \
+  'gateway_fixture_publish_tag' \
+  'gateway_fixture_restore_tag' \
+  'explicit integration Gateway image is a stale TLS fixture' \
+  'Gateway TLS fixture did not embed the run-local CA' \
+  'Gateway TLS fixture does not trust the run-local CA' \
   'TOBARI_MOCK_TLS_CERT=/tls/synthetic-ca.crt' \
   'TOBARI_MOCK_TLS_KEY=/tls/synthetic-server.key'; do
   if ! grep -F -- "$claim" "$scenario" >/dev/null; then
