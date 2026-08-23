@@ -1383,6 +1383,8 @@ func (r *Runtime) buildManagedRuntimeLifecycleLocked(ctx context.Context, name, 
 		args = append(args, "--tag", image, "--file", dockerfile, snapshot)
 		building := journal
 		building.Phase = runtimeBuildPhaseBuilding
+		building.StagingArtifact = runtimeBuildStagingUnknown
+		building.AttemptSettlement = runtimeBuildAttemptUnsettled
 		if err := r.writeRuntimeBuildJournal(journal, building); err != nil {
 			return r.rollbackRuntimeBuildBeforeDocker(ctx, err, journal)
 		}
@@ -1410,6 +1412,7 @@ func (r *Runtime) buildManagedRuntimeLifecycleLocked(ctx context.Context, name, 
 			failed.Phase = runtimeBuildPhaseFailed
 			failed.ImageDigest = imageDigest
 			failed.StagingArtifact = runtimeBuildStagingOwned
+			failed.AttemptSettlement = runtimeBuildAttemptUnsettled
 			if journalErr := r.writeRuntimeBuildJournal(journal, failed); journalErr != nil {
 				return fmt.Errorf("Runtime build snapshot drift requires reconciliation: %w", errors.Join(err, journalErr))
 			}
@@ -1419,6 +1422,7 @@ func (r *Runtime) buildManagedRuntimeLifecycleLocked(ctx context.Context, name, 
 		built.ImageDigest = imageDigest
 		built.Phase = runtimeBuildPhaseBuilt
 		built.StagingArtifact = runtimeBuildStagingOwned
+		built.AttemptSettlement = runtimeBuildAttemptSettled
 		createdAt := time.Now().UTC()
 		if r.identities.now != nil {
 			createdAt = r.identities.now().UTC()

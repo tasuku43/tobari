@@ -39,6 +39,8 @@ const (
 	runtimeBuildStagingOwned       = "transaction_owned"
 	runtimeBuildStagingAbsent      = "observed_absent"
 	runtimeBuildStagingUnknown     = "outcome_unknown"
+	runtimeBuildAttemptUnsettled   = "unsettled"
+	runtimeBuildAttemptSettled     = "settled"
 
 	managedRuntimeComponentLabel           = "runtime-revision"
 	managedRuntimeIDLabel                  = "io.tobari.runtime-id"
@@ -55,20 +57,21 @@ func (r *Runtime) runtimeBuildRecoveryContext(parent context.Context) (context.C
 }
 
 type runtimeBuildJournal struct {
-	SchemaVersion   int    `json:"schema_version"`
-	Phase           string `json:"phase"`
-	RuntimeID       string `json:"runtime_id"`
-	RuntimeName     string `json:"runtime_name"`
-	Revision        string `json:"revision,omitempty"`
-	StagingImage    string `json:"staging_image,omitempty"`
-	FinalImage      string `json:"final_image,omitempty"`
-	ImageDigest     string `json:"image_digest,omitempty"`
-	SnapshotPath    string `json:"snapshot_path"`
-	CleanupFrom     string `json:"cleanup_from,omitempty"`
-	OrphanStaging   string `json:"orphan_staging,omitempty"`
-	RemoveStaging   bool   `json:"remove_staging,omitempty"`
-	StagingArtifact string `json:"staging_artifact,omitempty"`
-	CreatedAt       string `json:"created_at,omitempty"`
+	SchemaVersion     int    `json:"schema_version"`
+	Phase             string `json:"phase"`
+	RuntimeID         string `json:"runtime_id"`
+	RuntimeName       string `json:"runtime_name"`
+	Revision          string `json:"revision,omitempty"`
+	StagingImage      string `json:"staging_image,omitempty"`
+	FinalImage        string `json:"final_image,omitempty"`
+	ImageDigest       string `json:"image_digest,omitempty"`
+	SnapshotPath      string `json:"snapshot_path"`
+	CleanupFrom       string `json:"cleanup_from,omitempty"`
+	OrphanStaging     string `json:"orphan_staging,omitempty"`
+	RemoveStaging     bool   `json:"remove_staging,omitempty"`
+	StagingArtifact   string `json:"staging_artifact,omitempty"`
+	AttemptSettlement string `json:"attempt_settlement,omitempty"`
+	CreatedAt         string `json:"created_at,omitempty"`
 }
 
 func (r *Runtime) runtimeLifecycleDirectory() string {
@@ -88,7 +91,12 @@ func (j runtimeBuildJournal) Validate(r *Runtime) error {
 		return fmt.Errorf("Runtime build journal authority is invalid")
 	}
 	if j.Phase == runtimeBuildPhaseCompleting {
-		if j.CleanupFrom == "" || j.CleanupFrom == runtimeBuildPhaseCompleting {
+		allowedOrigin := j.CleanupFrom == runtimeBuildPhaseSnapshotting ||
+			j.CleanupFrom == runtimeBuildPhasePrepared ||
+			j.CleanupFrom == runtimeBuildPhaseFailed ||
+			j.CleanupFrom == runtimeBuildPhaseOrphanStaging ||
+			j.CleanupFrom == runtimeBuildPhaseManifestCommitted
+		if !allowedOrigin {
 			return fmt.Errorf("completing Runtime build journal origin is invalid")
 		}
 		origin := j
@@ -97,6 +105,12 @@ func (j runtimeBuildJournal) Validate(r *Runtime) error {
 		origin.RemoveStaging = false
 		if err := origin.Validate(r); err != nil {
 			return err
+		}
+		if origin.Phase == runtimeBuildPhaseOrphanStaging && origin.OrphanStaging != runtimeBuildOrphanExactManaged {
+			return fmt.Errorf("completing Runtime orphan staging authority is invalid")
+		}
+		if origin.Phase == runtimeBuildPhaseFailed && origin.AttemptSettlement != runtimeBuildAttemptSettled {
+			return fmt.Errorf("unsettled Runtime build attempt cannot enter cleanup")
 		}
 		if j.RemoveStaging && !(origin.Phase == runtimeBuildPhaseFailed && origin.StagingArtifact == runtimeBuildStagingOwned) && !(origin.Phase == runtimeBuildPhaseOrphanStaging && origin.OrphanStaging == runtimeBuildOrphanExactManaged) {
 			return fmt.Errorf("Runtime build cleanup lacks staging removal authority")
@@ -108,15 +122,18 @@ func (j runtimeBuildJournal) Validate(r *Runtime) error {
 	}
 	switch j.Phase {
 	case runtimeBuildPhaseSnapshotting:
-		if j.Revision != "" || j.StagingImage != "" || j.FinalImage != "" || j.ImageDigest != "" || j.OrphanStaging != "" || j.StagingArtifact != "" || j.CreatedAt != "" {
+		if j.Revision != "" || j.StagingImage != "" || j.FinalImage != "" || j.ImageDigest != "" || j.OrphanStaging != "" || j.StagingArtifact != "" || j.AttemptSettlement != "" || j.CreatedAt != "" {
 			return fmt.Errorf("snapshotting Runtime build journal has premature evidence")
 		}
 	case runtimeBuildPhasePrepared, runtimeBuildPhaseBuilding, runtimeBuildPhaseFailed, runtimeBuildPhaseOrphanStaging:
 		if tobari.ValidateDigest(j.Revision) != nil || j.StagingImage != managedRuntimeStagingImage(j.RuntimeID, j.Revision) || j.FinalImage != managedLibraryRuntimeImage(j.RuntimeName, j.RuntimeID, j.Revision) {
 			return fmt.Errorf("Runtime build journal target is invalid")
 		}
-		if (j.Phase == runtimeBuildPhasePrepared || j.Phase == runtimeBuildPhaseBuilding) && (j.ImageDigest != "" || j.StagingArtifact != "" || j.CreatedAt != "") {
+		if j.Phase == runtimeBuildPhasePrepared && (j.ImageDigest != "" || j.StagingArtifact != "" || j.AttemptSettlement != "" || j.CreatedAt != "") {
 			return fmt.Errorf("pre-build-completion Runtime journal has premature image evidence")
+		}
+		if j.Phase == runtimeBuildPhaseBuilding && (j.ImageDigest != "" || j.StagingArtifact != runtimeBuildStagingUnknown || j.AttemptSettlement != runtimeBuildAttemptUnsettled || j.CreatedAt != "") {
+			return fmt.Errorf("building Runtime journal lacks exact outcome-unknown evidence")
 		}
 		if j.ImageDigest != "" && tobari.ValidateDigest(j.ImageDigest) != nil {
 			return fmt.Errorf("Runtime build journal image evidence is invalid")
@@ -128,7 +145,7 @@ func (j runtimeBuildJournal) Validate(r *Runtime) error {
 			if (j.OrphanStaging == runtimeBuildOrphanExactManaged) != (j.ImageDigest != "") {
 				return fmt.Errorf("Runtime orphan staging evidence is invalid")
 			}
-			if j.StagingArtifact != "" {
+			if j.StagingArtifact != "" || j.AttemptSettlement != "" {
 				return fmt.Errorf("Runtime orphan staging has transaction-owned evidence")
 			}
 		} else if j.OrphanStaging != "" {
@@ -144,12 +161,15 @@ func (j runtimeBuildJournal) Validate(r *Runtime) error {
 			if j.CreatedAt != "" {
 				return fmt.Errorf("failed Runtime journal has publication time evidence")
 			}
+			if j.AttemptSettlement != runtimeBuildAttemptUnsettled && j.AttemptSettlement != runtimeBuildAttemptSettled {
+				return fmt.Errorf("failed Runtime journal lacks explicit attempt settlement")
+			}
 		}
 	case runtimeBuildPhaseBuilt, runtimeBuildPhaseFinalTagged, runtimeBuildPhaseStagingReleased, runtimeBuildPhaseSnapshotPublished, runtimeBuildPhaseManifestCommitted:
 		if tobari.ValidateDigest(j.Revision) != nil || tobari.ValidateDigest(j.ImageDigest) != nil || j.StagingImage != managedRuntimeStagingImage(j.RuntimeID, j.Revision) || j.FinalImage != managedLibraryRuntimeImage(j.RuntimeName, j.RuntimeID, j.Revision) {
 			return fmt.Errorf("built Runtime journal evidence is invalid")
 		}
-		if j.OrphanStaging != "" || j.StagingArtifact != runtimeBuildStagingOwned {
+		if j.OrphanStaging != "" || j.StagingArtifact != runtimeBuildStagingOwned || j.AttemptSettlement != runtimeBuildAttemptSettled {
 			return fmt.Errorf("built Runtime journal has orphan staging evidence")
 		}
 		createdAt, err := time.Parse(time.RFC3339Nano, j.CreatedAt)
@@ -260,6 +280,16 @@ func validateRuntimeBuildJournalTransition(previous, next runtimeBuildJournal) e
 	}
 	if previous.Revision != "" && (previous.Revision != next.Revision || previous.StagingImage != next.StagingImage || previous.FinalImage != next.FinalImage) {
 		return fmt.Errorf("Runtime build journal target changed")
+	}
+	if previous.Phase == runtimeBuildPhaseBuilt ||
+		previous.Phase == runtimeBuildPhaseFinalTagged ||
+		previous.Phase == runtimeBuildPhaseStagingReleased ||
+		previous.Phase == runtimeBuildPhaseSnapshotPublished {
+		expected := previous
+		expected.Phase = next.Phase
+		if expected != next {
+			return fmt.Errorf("Runtime build journal post-target authority changed")
+		}
 	}
 	allowed := previous.Phase == runtimeBuildPhaseSnapshotting && next.Phase == runtimeBuildPhasePrepared ||
 		previous.Phase == runtimeBuildPhasePrepared && next.Phase == runtimeBuildPhaseBuilding ||
@@ -441,10 +471,10 @@ func (r *Runtime) completeRuntimeBuildJournal(ctx context.Context, journal runti
 // already-authorized build cleanup. It never infers cleanup from a missing
 // snapshot while an ordinary active phase is recorded.
 func (r *Runtime) RecoverRuntimeBuildCleanup(ctx context.Context) error {
-	return r.WithLifecycleLock(ctx, func(lockContext context.Context) error {
+	recoveryContext, cancel := r.runtimeBuildRecoveryContext(ctx)
+	defer cancel()
+	return r.WithLifecycleLock(recoveryContext, func(lockContext context.Context) error {
 		return r.withRuntimeStoreLock(lockContext, func() error {
-			recoveryContext, cancel := r.runtimeBuildRecoveryContext(lockContext)
-			defer cancel()
 			journal, err := r.readRuntimeBuildJournalObserved()
 			if err != nil {
 				return err
@@ -470,10 +500,10 @@ func (r *Runtime) RecoverRuntimeBuildCleanup(ctx context.Context) error {
 // publication phases. Prepared/building authority is never inferred as a
 // completed Docker effect.
 func (r *Runtime) RecoverRuntimeBuildPublication(ctx context.Context) error {
-	return r.WithLifecycleLock(ctx, func(lockContext context.Context) error {
+	recoveryContext, cancel := r.runtimeBuildRecoveryContext(ctx)
+	defer cancel()
+	return r.WithLifecycleLock(recoveryContext, func(lockContext context.Context) error {
 		return r.withRuntimeStoreLock(lockContext, func() error {
-			recoveryContext, cancel := r.runtimeBuildRecoveryContext(lockContext)
-			defer cancel()
 			journal, err := r.readRuntimeBuildJournalObserved()
 			if err != nil {
 				return err
@@ -491,10 +521,10 @@ func (r *Runtime) RecoverRuntimeBuildPublication(ctx context.Context) error {
 // pre-existing staging conflict after re-observing it under the lifecycle
 // mutation lock. Unknown ownership remains a durable blocker.
 func (r *Runtime) RecoverRuntimeBuildOrphanStaging(ctx context.Context) error {
-	return r.WithLifecycleLock(ctx, func(lockContext context.Context) error {
+	recoveryContext, cancel := r.runtimeBuildRecoveryContext(ctx)
+	defer cancel()
+	return r.WithLifecycleLock(recoveryContext, func(lockContext context.Context) error {
 		return r.withRuntimeStoreLock(lockContext, func() error {
-			recoveryContext, cancel := r.runtimeBuildRecoveryContext(lockContext)
-			defer cancel()
 			journal, err := r.readRuntimeBuildJournalObserved()
 			if err != nil {
 				return err
@@ -523,6 +553,141 @@ func (r *Runtime) RecoverRuntimeBuildOrphanStaging(ctx context.Context) error {
 	})
 }
 
+// RecoverRuntimeBuildPreDocker explicitly abandons only snapshotting or
+// prepared work. Prepared recovery first proves that the staging selector is
+// still absent. A newly observed selector is journaled as an orphan conflict
+// and is never silently deleted by pre-Docker cleanup.
+func (r *Runtime) RecoverRuntimeBuildPreDocker(ctx context.Context) error {
+	recoveryContext, cancel := r.runtimeBuildRecoveryContext(ctx)
+	defer cancel()
+	return r.WithLifecycleLock(recoveryContext, func(lockContext context.Context) error {
+		return r.withRuntimeStoreLock(lockContext, func() error {
+			journal, err := r.readRuntimeBuildJournalObserved()
+			if err != nil {
+				return err
+			}
+			if journal == nil || (journal.Phase != runtimeBuildPhaseSnapshotting && journal.Phase != runtimeBuildPhasePrepared) {
+				return fmt.Errorf("Runtime pre-Docker recovery authority is absent")
+			}
+			if err := r.validateRuntimeBuildStagingSnapshotRoot(*journal); err != nil {
+				return err
+			}
+			if journal.Phase == runtimeBuildPhasePrepared {
+				if err := r.requireRuntimeBuildSnapshotRevision(recoveryContext, journal.SnapshotPath, journal.Revision); err != nil {
+					return fmt.Errorf("prepared Runtime build snapshot authority changed: %w", err)
+				}
+				orphanDisposition, orphanDigest, observeErr := r.observeUnusedRuntimeStagingTag(recoveryContext, *journal)
+				if observeErr != nil {
+					orphan := *journal
+					orphan.Phase = runtimeBuildPhaseOrphanStaging
+					orphan.OrphanStaging = orphanDisposition
+					orphan.ImageDigest = orphanDigest
+					if journalErr := r.writeRuntimeBuildJournal(*journal, orphan); journalErr != nil {
+						return fmt.Errorf("Runtime staging conflict requires reconciliation: %w", errors.Join(observeErr, journalErr))
+					}
+					return observeErr
+				}
+			}
+			return r.completeRuntimeBuildJournal(recoveryContext, *journal)
+		})
+	})
+}
+
+func (r *Runtime) validateRuntimeBuildStagingSnapshotRoot(journal runtimeBuildJournal) error {
+	parent := filepath.Dir(journal.SnapshotPath)
+	info, err := os.Lstat(parent)
+	if errors.Is(err, os.ErrNotExist) {
+		if journal.Phase == runtimeBuildPhasePrepared {
+			return fmt.Errorf("prepared Runtime build snapshot is missing")
+		}
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm()&0o077 != 0 {
+		return fmt.Errorf("Runtime build staging snapshot root is unsafe")
+	}
+	entries, err := os.ReadDir(parent)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if entry.Name() != filepath.Base(journal.SnapshotPath) || entry.Type()&os.ModeSymlink != 0 || !entry.IsDir() {
+			return fmt.Errorf("Runtime build staging snapshot root contains unknown authority")
+		}
+	}
+	if journal.Phase == runtimeBuildPhasePrepared && len(entries) != 1 {
+		return fmt.Errorf("prepared Runtime build snapshot is missing")
+	}
+	return nil
+}
+
+// RecoverRuntimeBuildBuilding reconciles only an outcome-unknown Docker build
+// boundary. It never treats the building phase itself as cleanup authority.
+// Exact managed staging evidence can be adopted only after compatibility and
+// the immutable source snapshot are revalidated under the same bounded lock.
+func (r *Runtime) RecoverRuntimeBuildBuilding(ctx context.Context) error {
+	recoveryContext, cancel := r.runtimeBuildRecoveryContext(ctx)
+	defer cancel()
+	return r.WithLifecycleLock(recoveryContext, func(lockContext context.Context) error {
+		return r.withRuntimeStoreLock(lockContext, func() error {
+			journal, err := r.readRuntimeBuildJournalObserved()
+			if err != nil {
+				return err
+			}
+			if journal == nil || journal.Phase != runtimeBuildPhaseBuilding || journal.StagingArtifact != runtimeBuildStagingUnknown {
+				return fmt.Errorf("Runtime building recovery authority is absent")
+			}
+
+			imageDigest, inspectErr := r.inspectManagedRuntimeBuildEvidence(recoveryContext, journal.StagingImage, journal.RuntimeID, journal.Revision)
+			if errors.Is(inspectErr, errManagedRuntimeImageMissing) {
+				failed := *journal
+				failed.Phase = runtimeBuildPhaseFailed
+				failed.StagingArtifact = runtimeBuildStagingAbsent
+				return r.writeRuntimeBuildJournal(*journal, failed)
+			}
+			if inspectErr != nil {
+				return fmt.Errorf("Runtime building image outcome requires review: %w", inspectErr)
+			}
+			if err := r.validateCompatibleImage(recoveryContext, journal.StagingImage); err != nil {
+				return fmt.Errorf("Runtime building image compatibility requires review: %w", err)
+			}
+			if err := r.requireRuntimeBuildSnapshotRevision(recoveryContext, journal.SnapshotPath, journal.Revision); err != nil {
+				return fmt.Errorf("Runtime building snapshot drift requires review: %w", err)
+			}
+			if err := r.freezeRuntimeBuildSnapshot(journal.SnapshotPath); err != nil {
+				return fmt.Errorf("freeze reconciled Runtime build snapshot: %w", err)
+			}
+			if err := r.syncRuntimeBuildSnapshot(journal.SnapshotPath); err != nil {
+				return fmt.Errorf("sync reconciled Runtime build snapshot: %w", err)
+			}
+			if err := r.requireRuntimeBuildSnapshotRevision(recoveryContext, journal.SnapshotPath, journal.Revision); err != nil {
+				return fmt.Errorf("Runtime building snapshot drift requires review: %w", err)
+			}
+
+			built := *journal
+			built.Phase = runtimeBuildPhaseBuilt
+			built.ImageDigest = imageDigest
+			built.StagingArtifact = runtimeBuildStagingOwned
+			built.AttemptSettlement = runtimeBuildAttemptSettled
+			createdAt := time.Now().UTC()
+			if r.identities.now != nil {
+				createdAt = r.identities.now().UTC()
+			}
+			built.CreatedAt = createdAt.Format(time.RFC3339Nano)
+			if err := r.writeRuntimeBuildJournal(*journal, built); err != nil {
+				observed, observeErr := r.readRuntimeBuildJournalObserved()
+				if observeErr == nil && observed != nil && *observed == built {
+					return nil
+				}
+				return fmt.Errorf("publish reconciled Runtime build authority: %w", errors.Join(err, observeErr))
+			}
+			return nil
+		})
+	})
+}
+
 func (r *Runtime) rollbackRuntimeBuildBeforeDocker(ctx context.Context, cause error, allowed ...runtimeBuildJournal) error {
 	current, observeErr := r.readRuntimeBuildJournalObserved()
 	matched := false
@@ -546,6 +711,7 @@ func (r *Runtime) rollbackRuntimeBuildBeforeDocker(ctx context.Context, cause er
 func (r *Runtime) retainRuntimeBuildFailure(ctx context.Context, journal runtimeBuildJournal, cause error) error {
 	failed := journal
 	failed.Phase = runtimeBuildPhaseFailed
+	failed.AttemptSettlement = runtimeBuildAttemptUnsettled
 	digest, inspectErr := r.inspectManagedRuntimeBuildEvidence(ctx, journal.StagingImage, journal.RuntimeID, journal.Revision)
 	switch {
 	case inspectErr == nil:

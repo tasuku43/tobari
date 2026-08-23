@@ -24,18 +24,19 @@ type managedRuntimeTestImage struct {
 }
 
 type managedRuntimeBuildRunner struct {
-	runs              []runnerCall
-	outputs           []runnerCall
-	images            map[string]managedRuntimeTestImage
-	failBuild         bool
-	corruptEvidence   string
-	duringBuild       func(string)
-	inspectFailure    string
-	inspectOverflow   bool
-	failImageRemove   bool
-	removeThenFail    bool
-	keepImageOnRemove bool
-	blockInspect      bool
+	runs               []runnerCall
+	outputs            []runnerCall
+	images             map[string]managedRuntimeTestImage
+	failBuild          bool
+	corruptEvidence    string
+	duringBuild        func(string)
+	inspectFailure     string
+	inspectOverflow    bool
+	failImageRemove    bool
+	removeThenFail     bool
+	keepImageOnRemove  bool
+	blockInspect       bool
+	blockCompatibility bool
 }
 
 func newManagedRuntimeBuildRunner() *managedRuntimeBuildRunner {
@@ -124,13 +125,17 @@ func (r *managedRuntimeBuildRunner) Run(ctx context.Context, args, _ []string, _
 	return fmt.Errorf("unexpected Runtime build mutation: %v", args)
 }
 
-func (r *managedRuntimeBuildRunner) Output(_ context.Context, args, _ []string) ([]byte, error) {
+func (r *managedRuntimeBuildRunner) Output(ctx context.Context, args, _ []string) ([]byte, error) {
 	r.outputs = append(r.outputs, runnerCall{args: append([]string{}, args...)})
 	if len(args) < 5 || args[0] != "image" || args[1] != "inspect" {
 		return nil, fmt.Errorf("unexpected Runtime build observation: %v", args)
 	}
 	format, imageName := args[3], args[4]
 	if strings.Contains(format, tobari.RuntimeImageAPILabel) {
+		if r.blockCompatibility {
+			<-ctx.Done()
+			return nil, ctx.Err()
+		}
 		return compatibleImageInspection(), nil
 	}
 	return nil, fmt.Errorf("unexpected Runtime build observation: %v (%s)", args, imageName)
@@ -489,7 +494,7 @@ func TestManagedRuntimeBuildEvidenceRequiresExactOwnershipAndDigestPublication(t
 	if err != nil {
 		t.Fatal(err)
 	}
-	journal := runtimeBuildJournal{SchemaVersion: runtimeBuildJournalSchema, Phase: runtimeBuildPhaseBuilt, RuntimeID: id, RuntimeName: "frontend", Revision: revision, StagingImage: tag, FinalImage: final, ImageDigest: "sha256:" + strings.Repeat("c", 64), SnapshotPath: runtime.runtimeBuildSnapshotPath(), StagingArtifact: runtimeBuildStagingOwned, CreatedAt: "2026-01-02T03:04:05Z"}
+	journal := runtimeBuildJournal{SchemaVersion: runtimeBuildJournalSchema, Phase: runtimeBuildPhaseBuilt, RuntimeID: id, RuntimeName: "frontend", Revision: revision, StagingImage: tag, FinalImage: final, ImageDigest: "sha256:" + strings.Repeat("c", 64), SnapshotPath: runtime.runtimeBuildSnapshotPath(), StagingArtifact: runtimeBuildStagingOwned, AttemptSettlement: runtimeBuildAttemptSettled, CreatedAt: "2026-01-02T03:04:05Z"}
 	if err := runtime.publishManagedRuntimeTag(context.Background(), journal); err == nil {
 		t.Fatal("published Runtime tag with different digest was accepted")
 	}
@@ -518,6 +523,7 @@ func TestRuntimeBuildJournalTransitionsRequireExactCurrentAuthority(t *testing.T
 	built.Phase = runtimeBuildPhaseBuilt
 	built.ImageDigest = "sha256:" + strings.Repeat("b", 64)
 	built.StagingArtifact = runtimeBuildStagingOwned
+	built.AttemptSettlement = runtimeBuildAttemptSettled
 	built.CreatedAt = "2026-01-02T03:04:05Z"
 	missingBuiltProvenance := built
 	missingBuiltProvenance.StagingArtifact = ""
@@ -540,6 +546,8 @@ func TestRuntimeBuildJournalTransitionsRequireExactCurrentAuthority(t *testing.T
 	}
 	building := prepared
 	building.Phase = runtimeBuildPhaseBuilding
+	building.StagingArtifact = runtimeBuildStagingUnknown
+	building.AttemptSettlement = runtimeBuildAttemptUnsettled
 	if err := runtime.writeRuntimeBuildJournal(journal, building); err == nil {
 		t.Fatal("stale journal authority overwrote the current phase")
 	}
@@ -589,7 +597,10 @@ func preparedRuntimeBuildJournalFixture(t *testing.T) (*Runtime, *managedRuntime
 	}
 	prepared := journal
 	prepared.Phase = runtimeBuildPhasePrepared
-	prepared.Revision = "sha256:" + strings.Repeat("a", 64)
+	prepared.Revision, err = digestRuntimeSnapshot(context.Background(), journal.SnapshotPath)
+	if err != nil {
+		t.Fatal(err)
+	}
 	prepared.StagingImage = managedRuntimeStagingImage(prepared.RuntimeID, prepared.Revision)
 	prepared.FinalImage = managedLibraryRuntimeImage(prepared.RuntimeName, prepared.RuntimeID, prepared.Revision)
 	if err := runtime.writeRuntimeBuildJournal(journal, prepared); err != nil {
@@ -716,6 +727,8 @@ func TestBuildingJournalWriteUncertaintyNeverOwnsRacingStagingTag(t *testing.T) 
 	runtime, runner, prepared := preparedRuntimeBuildJournalFixture(t)
 	building := prepared
 	building.Phase = runtimeBuildPhaseBuilding
+	building.StagingArtifact = runtimeBuildStagingUnknown
+	building.AttemptSettlement = runtimeBuildAttemptUnsettled
 	if err := runtime.writeRuntimeBuildJournal(prepared, building); err != nil {
 		t.Fatal(err)
 	}
@@ -732,6 +745,296 @@ func TestBuildingJournalWriteUncertaintyNeverOwnsRacingStagingTag(t *testing.T) 
 	observed, err := runtime.readRuntimeBuildJournalObserved()
 	if err != nil || observed == nil || *observed != building {
 		t.Fatalf("building publication uncertainty authority = %+v/%v", observed, err)
+	}
+}
+
+func exactBuildingRuntimeBuildFixture(t *testing.T) (*Runtime, *managedRuntimeBuildRunner, runtimeBuildJournal) {
+	t.Helper()
+	runtime, runner, prepared := preparedRuntimeBuildJournalFixture(t)
+	building := prepared
+	building.Phase = runtimeBuildPhaseBuilding
+	building.StagingArtifact = runtimeBuildStagingUnknown
+	building.AttemptSettlement = runtimeBuildAttemptUnsettled
+	if err := runtime.writeRuntimeBuildJournal(prepared, building); err != nil {
+		t.Fatal(err)
+	}
+	runner.images[building.StagingImage] = managedRuntimeTestImage{
+		id: "sha256:" + strings.Repeat("c", 64),
+		labels: map[string]string{
+			ownerLabel:                  ownerValue,
+			componentLabel:              managedRuntimeComponentLabel,
+			managedRuntimeIDLabel:       building.RuntimeID,
+			managedRuntimeRevisionLabel: building.Revision,
+		},
+	}
+	return runtime, runner, building
+}
+
+func TestRuntimeBuildingRecoveryClosesOutcomeUnknownWithoutInferringCleanup(t *testing.T) {
+	t.Run("exact success becomes built", func(t *testing.T) {
+		runtime, _, building := exactBuildingRuntimeBuildFixture(t)
+		fixed := time.Date(2026, 2, 3, 4, 5, 6, 7, time.UTC)
+		runtime.identities.now = func() time.Time { return fixed }
+		if err := runtime.RecoverRuntimeBuildBuilding(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		observed, err := runtime.readRuntimeBuildJournalObserved()
+		if err != nil || observed == nil || observed.Phase != runtimeBuildPhaseBuilt || observed.StagingArtifact != runtimeBuildStagingOwned || observed.ImageDigest == "" || observed.CreatedAt != fixed.Format(time.RFC3339Nano) {
+			t.Fatalf("reconciled building authority = %+v/%v", observed, err)
+		}
+		if _, err := os.Lstat(building.SnapshotPath); err != nil {
+			t.Fatalf("building recovery inferred cleanup: %v", err)
+		}
+	})
+
+	t.Run("confirmed absence becomes failed", func(t *testing.T) {
+		runtime, runner, building := exactBuildingRuntimeBuildFixture(t)
+		delete(runner.images, building.StagingImage)
+		if err := runtime.RecoverRuntimeBuildBuilding(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		observed, err := runtime.readRuntimeBuildJournalObserved()
+		if err != nil || observed == nil || observed.Phase != runtimeBuildPhaseFailed || observed.StagingArtifact != runtimeBuildStagingAbsent || observed.ImageDigest != "" {
+			t.Fatalf("absent building authority = %+v/%v", observed, err)
+		}
+	})
+
+	for _, test := range []struct {
+		name  string
+		alter func(*Runtime, *managedRuntimeBuildRunner, runtimeBuildJournal)
+	}{
+		{name: "replacement", alter: func(_ *Runtime, runner *managedRuntimeBuildRunner, _ runtimeBuildJournal) {
+			runner.corruptEvidence = "runtime"
+		}},
+		{name: "snapshot drift", alter: func(_ *Runtime, _ *managedRuntimeBuildRunner, journal runtimeBuildJournal) {
+			if err := os.WriteFile(filepath.Join(journal.SnapshotPath, "drift"), []byte("changed"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}},
+	} {
+		t.Run(test.name+" remains building", func(t *testing.T) {
+			runtime, runner, building := exactBuildingRuntimeBuildFixture(t)
+			test.alter(runtime, runner, building)
+			if err := runtime.RecoverRuntimeBuildBuilding(context.Background()); err == nil {
+				t.Fatal("uncertain building authority was accepted")
+			}
+			observed, err := runtime.readRuntimeBuildJournalObserved()
+			if err != nil || observed == nil || *observed != building {
+				t.Fatalf("uncertain building journal changed = %+v/%v", observed, err)
+			}
+		})
+	}
+}
+
+func TestRuntimeBuildingRecoveryHandlesBuiltWriteUncertaintyAndRetry(t *testing.T) {
+	for _, afterWrite := range []bool{false, true} {
+		t.Run(fmt.Sprintf("after_write_%t", afterWrite), func(t *testing.T) {
+			runtime, _, building := exactBuildingRuntimeBuildFixture(t)
+			fixed := time.Date(2026, 2, 3, 4, 5, 6, 0, time.UTC)
+			runtime.identities.now = func() time.Time { return fixed }
+			runtime.runtimeBuildJournalWrite = func(_, next runtimeBuildJournal) error {
+				if afterWrite {
+					if err := writeAtomicJSON(runtime.runtimeBuildJournalPath(), next); err != nil {
+						return err
+					}
+				}
+				return errors.New("synthetic built publication uncertainty")
+			}
+			err := runtime.RecoverRuntimeBuildBuilding(context.Background())
+			runtime.runtimeBuildJournalWrite = nil
+			if afterWrite {
+				if err != nil {
+					t.Fatalf("post-write authority was not reobserved: %v", err)
+				}
+			} else {
+				if err == nil {
+					t.Fatal("pre-write failure was hidden")
+				}
+				observed, observeErr := runtime.readRuntimeBuildJournalObserved()
+				if observeErr != nil || observed == nil || *observed != building {
+					t.Fatalf("pre-write failure changed authority = %+v/%v", observed, observeErr)
+				}
+				if retryErr := runtime.RecoverRuntimeBuildBuilding(context.Background()); retryErr != nil {
+					t.Fatalf("building retry: %v", retryErr)
+				}
+			}
+			observed, observeErr := runtime.readRuntimeBuildJournalObserved()
+			if observeErr != nil || observed == nil || observed.Phase != runtimeBuildPhaseBuilt || observed.CreatedAt != fixed.Format(time.RFC3339Nano) {
+				t.Fatalf("built recovery authority = %+v/%v", observed, observeErr)
+			}
+		})
+	}
+}
+
+func TestRuntimeBuildingAbsentAttemptRemainsDurableAcrossLateEffect(t *testing.T) {
+	runtime, runner, building := exactBuildingRuntimeBuildFixture(t)
+	delete(runner.images, building.StagingImage)
+	if err := runtime.RecoverRuntimeBuildBuilding(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	failed, err := runtime.readRuntimeBuildJournalObserved()
+	if err != nil || failed == nil || failed.Phase != runtimeBuildPhaseFailed || failed.StagingArtifact != runtimeBuildStagingAbsent || failed.AttemptSettlement != runtimeBuildAttemptUnsettled {
+		t.Fatalf("unsettled absent attempt = %+v/%v", failed, err)
+	}
+	if err := runtime.completeRuntimeBuildJournal(context.Background(), *failed); err == nil {
+		t.Fatal("one absent observation erased unsettled attempt authority")
+	}
+	if _, err := runtime.beginRuntimeBuildJournal(context.Background(), building.RuntimeID, building.RuntimeName); err == nil {
+		t.Fatal("new build reused an unresolved attempt authority")
+	}
+	runner.images[building.StagingImage] = managedRuntimeTestImage{
+		id: "sha256:" + strings.Repeat("c", 64),
+		labels: map[string]string{
+			ownerLabel:                  ownerValue,
+			componentLabel:              managedRuntimeComponentLabel,
+			managedRuntimeIDLabel:       building.RuntimeID,
+			managedRuntimeRevisionLabel: building.Revision,
+		},
+	}
+	observed, err := runtime.readRuntimeBuildJournalObserved()
+	if err != nil || observed == nil || *observed != *failed {
+		t.Fatalf("late effect lost durable attempt attribution = %+v/%v", observed, err)
+	}
+	digest, err := runtime.inspectManagedRuntimeBuildEvidence(context.Background(), building.StagingImage, building.RuntimeID, building.Revision)
+	if err != nil || digest == "" {
+		t.Fatalf("late exact staging effect is not reviewable = %q/%v", digest, err)
+	}
+}
+
+func TestRuntimePreDockerRecoveryIsExplicitAndCrashReachable(t *testing.T) {
+	for _, partialSnapshot := range []bool{false, true} {
+		t.Run(fmt.Sprintf("snapshotting_partial_%t", partialSnapshot), func(t *testing.T) {
+			root := t.TempDir()
+			runtime, err := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), newManagedRuntimeBuildRunner())
+			if err != nil {
+				t.Fatal(err)
+			}
+			journal, err := runtime.beginRuntimeBuildJournal(context.Background(), "018bcfe5-687b-7000-8000-000000000077", "frontend")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if partialSnapshot {
+				if err := os.MkdirAll(journal.SnapshotPath, 0o700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(journal.SnapshotPath, "partial"), []byte("partial"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := runtime.RecoverRuntimeBuildPreDocker(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			if observed, err := runtime.readRuntimeBuildJournalObserved(); err != nil || observed != nil {
+				t.Fatalf("snapshotting recovery retained authority = %+v/%v", observed, err)
+			}
+		})
+	}
+
+	t.Run("prepared absent selector cleans", func(t *testing.T) {
+		runtime, _, _ := preparedRuntimeBuildJournalFixture(t)
+		if err := runtime.RecoverRuntimeBuildPreDocker(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		if observed, err := runtime.readRuntimeBuildJournalObserved(); err != nil || observed != nil {
+			t.Fatalf("prepared recovery retained authority = %+v/%v", observed, err)
+		}
+	})
+
+	for _, exact := range []bool{true, false} {
+		t.Run(fmt.Sprintf("prepared_conflict_exact_%t", exact), func(t *testing.T) {
+			runtime, runner, prepared := preparedRuntimeBuildJournalFixture(t)
+			labels := map[string]string{ownerLabel: ownerValue, componentLabel: managedRuntimeComponentLabel, managedRuntimeIDLabel: prepared.RuntimeID, managedRuntimeRevisionLabel: prepared.Revision}
+			if !exact {
+				labels[managedRuntimeIDLabel] = "018bcfe5-687b-7000-8000-000000000099"
+			}
+			runner.images[prepared.StagingImage] = managedRuntimeTestImage{id: "sha256:" + strings.Repeat("c", 64), labels: labels}
+			if err := runtime.RecoverRuntimeBuildPreDocker(context.Background()); err == nil {
+				t.Fatal("prepared staging conflict was hidden")
+			}
+			observed, err := runtime.readRuntimeBuildJournalObserved()
+			want := runtimeBuildOrphanUnknown
+			if exact {
+				want = runtimeBuildOrphanExactManaged
+			}
+			if err != nil || observed == nil || observed.Phase != runtimeBuildPhaseOrphanStaging || observed.OrphanStaging != want {
+				t.Fatalf("prepared orphan authority = %+v/%v", observed, err)
+			}
+			if _, exists := runner.images[prepared.StagingImage]; !exists {
+				t.Fatal("pre-Docker recovery deleted a conflicting tag")
+			}
+		})
+	}
+}
+
+func TestRuntimeBuildCompletingRejectsPublicationOrigins(t *testing.T) {
+	runtime, _, building := exactBuildingRuntimeBuildFixture(t)
+	built := building
+	built.Phase = runtimeBuildPhaseBuilt
+	built.ImageDigest = "sha256:" + strings.Repeat("c", 64)
+	built.StagingArtifact = runtimeBuildStagingOwned
+	built.AttemptSettlement = runtimeBuildAttemptSettled
+	built.CreatedAt = "2026-02-03T04:05:06Z"
+	for _, origin := range []runtimeBuildJournal{
+		building,
+		built,
+		func() runtimeBuildJournal { value := built; value.Phase = runtimeBuildPhaseFinalTagged; return value }(),
+		func() runtimeBuildJournal {
+			value := built
+			value.Phase = runtimeBuildPhaseStagingReleased
+			return value
+		}(),
+		func() runtimeBuildJournal {
+			value := built
+			value.Phase = runtimeBuildPhaseSnapshotPublished
+			return value
+		}(),
+	} {
+		t.Run(origin.Phase, func(t *testing.T) {
+			completing := origin
+			completing.Phase = runtimeBuildPhaseCompleting
+			completing.CleanupFrom = origin.Phase
+			if err := completing.Validate(runtime); err == nil {
+				t.Fatalf("completing accepted forbidden origin %s", origin.Phase)
+			}
+		})
+	}
+	failed := building
+	failed.Phase = runtimeBuildPhaseFailed
+	failed.StagingArtifact = runtimeBuildStagingAbsent
+	failed.AttemptSettlement = runtimeBuildAttemptUnsettled
+	completing := failed
+	completing.Phase = runtimeBuildPhaseCompleting
+	completing.CleanupFrom = runtimeBuildPhaseFailed
+	if err := completing.Validate(runtime); err == nil {
+		t.Fatal("completing accepted an unsettled absent build attempt")
+	}
+}
+
+func TestRuntimeBuildPublicationEdgesPreserveExactAuthority(t *testing.T) {
+	_, _, building := exactBuildingRuntimeBuildFixture(t)
+	base := building
+	base.Phase = runtimeBuildPhaseBuilt
+	base.ImageDigest = "sha256:" + strings.Repeat("c", 64)
+	base.StagingArtifact = runtimeBuildStagingOwned
+	base.AttemptSettlement = runtimeBuildAttemptSettled
+	base.CreatedAt = "2026-02-03T04:05:06Z"
+	edges := [][2]string{
+		{runtimeBuildPhaseBuilt, runtimeBuildPhaseFinalTagged},
+		{runtimeBuildPhaseFinalTagged, runtimeBuildPhaseStagingReleased},
+		{runtimeBuildPhaseStagingReleased, runtimeBuildPhaseSnapshotPublished},
+		{runtimeBuildPhaseSnapshotPublished, runtimeBuildPhaseManifestCommitted},
+	}
+	for _, edge := range edges {
+		t.Run(edge[0]+"_to_"+edge[1], func(t *testing.T) {
+			previous := base
+			previous.Phase = edge[0]
+			next := previous
+			next.Phase = edge[1]
+			next.ImageDigest = "sha256:" + strings.Repeat("d", 64)
+			if err := validateRuntimeBuildJournalTransition(previous, next); err == nil {
+				t.Fatal("post-target edge accepted changed digest authority")
+			}
+		})
 	}
 }
 
@@ -757,6 +1060,8 @@ func TestRuntimeBuildCleanupSupportsEveryTerminalOrigin(t *testing.T) {
 			if phase != runtimeBuildPhasePrepared {
 				building := journal
 				building.Phase = runtimeBuildPhaseBuilding
+				building.StagingArtifact = runtimeBuildStagingUnknown
+				building.AttemptSettlement = runtimeBuildAttemptUnsettled
 				if err := runtime.writeRuntimeBuildJournal(journal, building); err != nil {
 					t.Fatal(err)
 				}
@@ -765,6 +1070,7 @@ func TestRuntimeBuildCleanupSupportsEveryTerminalOrigin(t *testing.T) {
 				next.Phase = phase
 				if phase == runtimeBuildPhaseFailed {
 					next.StagingArtifact = runtimeBuildStagingAbsent
+					next.AttemptSettlement = runtimeBuildAttemptSettled
 				}
 				if err := runtime.writeRuntimeBuildJournal(journal, next); err != nil {
 					t.Fatal(err)
@@ -1361,6 +1667,39 @@ func assertRuntimeBuildRecoveryReleasesLocks(t *testing.T, runtime *Runtime) {
 }
 
 func TestRuntimeBuildRecoveriesShareOneBoundedDockerContext(t *testing.T) {
+	t.Run("pre-Docker", func(t *testing.T) {
+		runtime, runner, _ := preparedRuntimeBuildJournalFixture(t)
+		runtime.runtimeBuildRecoveryTimeout = 20 * time.Millisecond
+		runner.blockInspect = true
+		if err := runtime.RecoverRuntimeBuildPreDocker(context.Background()); !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("pre-Docker recovery budget = %v", err)
+		}
+		runner.blockInspect = false
+		assertRuntimeBuildRecoveryReleasesLocks(t, runtime)
+	})
+
+	t.Run("building inspect", func(t *testing.T) {
+		runtime, runner, _ := exactBuildingRuntimeBuildFixture(t)
+		runtime.runtimeBuildRecoveryTimeout = 20 * time.Millisecond
+		runner.blockInspect = true
+		if err := runtime.RecoverRuntimeBuildBuilding(context.Background()); !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("building inspect recovery budget = %v", err)
+		}
+		runner.blockInspect = false
+		assertRuntimeBuildRecoveryReleasesLocks(t, runtime)
+	})
+
+	t.Run("building compatibility", func(t *testing.T) {
+		runtime, runner, _ := exactBuildingRuntimeBuildFixture(t)
+		runtime.runtimeBuildRecoveryTimeout = 20 * time.Millisecond
+		runner.blockCompatibility = true
+		if err := runtime.RecoverRuntimeBuildBuilding(context.Background()); !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("building compatibility recovery budget = %v", err)
+		}
+		runner.blockCompatibility = false
+		assertRuntimeBuildRecoveryReleasesLocks(t, runtime)
+	})
+
 	t.Run("orphan", func(t *testing.T) {
 		runtime, runner, _ := exactOrphanRuntimeBuildFixture(t)
 		runtime.runtimeBuildRecoveryTimeout = 20 * time.Millisecond
@@ -1398,6 +1737,30 @@ func TestRuntimeBuildRecoveriesShareOneBoundedDockerContext(t *testing.T) {
 		runner.blockInspect = false
 		assertRuntimeBuildRecoveryReleasesLocks(t, runtime)
 	})
+}
+
+func TestRuntimeBuildRecoveryBudgetIncludesLockAcquisition(t *testing.T) {
+	runtime, _, _ := preparedRuntimeBuildJournalFixture(t)
+	runtime.runtimeBuildRecoveryTimeout = 20 * time.Millisecond
+	storeAcquired := make(chan struct{})
+	releaseStore := make(chan struct{})
+	storeDone := make(chan error, 1)
+	go func() {
+		storeDone <- runtime.withRuntimeStoreLock(context.Background(), func() error {
+			close(storeAcquired)
+			<-releaseStore
+			return nil
+		})
+	}()
+	<-storeAcquired
+	if err := runtime.RecoverRuntimeBuildPreDocker(context.Background()); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("recovery lock-wait budget = %v", err)
+	}
+	close(releaseStore)
+	if err := <-storeDone; err != nil {
+		t.Fatal(err)
+	}
+	assertRuntimeBuildRecoveryReleasesLocks(t, runtime)
 }
 
 func TestRuntimeStoreLockWaitHonorsContextAndCreateLockOrder(t *testing.T) {
