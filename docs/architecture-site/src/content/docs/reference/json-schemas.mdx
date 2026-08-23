@@ -4,8 +4,8 @@ description: Public JSON envelopes, persisted documents, internal protocols, and
 ---
 
 This reference lists Tobari's versioned JSON surfaces and their exact boundaries. A
-public CLI report, persisted manifest, Gateway policy input,
-audit line, and Broker socket frame are separate contracts even when they
+public CLI report, persisted manifest, Gateway policy input, and
+audit line are separate contracts even when they
 describe related objects.
 
 Each schema belongs to one specific surface. Before first publication every
@@ -17,10 +17,9 @@ implementation is the source of truth for each surface below.
 
 Tobari uses explicit `schema_version` fields and strict readers for many JSON
 contracts. The repository does not currently publish a formal JSON Schema
-document for every surface. In particular, provider manifest v1 is enforced by
-the Go parser and validator, with a canonical synthetic fixture recorded in the
-harness ledger. That fixture's digest proves fixture identity; it is not a
-general-purpose JSON Schema.
+document for every surface. The Go parsers and validators enforce the public
+Manifest, Runtime, Workspace, policy, and report contracts, with canonical
+synthetic fixtures recorded in the harness ledger.
 
 For public CLI output, the Catalog declares the JSON envelope and schema
 version. Contract tests execute the renderer and compare the produced
@@ -81,52 +80,43 @@ stored in `context.json`.
 
 ## Persisted host contracts
 
-| State                                           | Current contract      |
-| ----------------------------------------------- | --------------------- |
-| Workspace Manifest manifest                     | Schema 1              |
-| Root index and Workspace instance               | Schema 1              |
-| Shared cluster state                            | Schema 1              |
-| Project principal registry                      | Schema 1              |
-| Domain policy `allow.json` / `deny.json` source | `schema_version` 1    |
-| Aggregate policy projection marker              | Schema 1              |
-| Owner provider manifest                         | Schema 1              |
-| Reviewed built-in provider manifest             | Schema 1              |
-| Normalized provider projection                  | Schema 1              |
-| Encrypted Workspace Manifest vault              | Envelope 1; payload 1 |
-| Workspace authentication file registry          | Schema 1              |
-| Base runtime metadata                           | Schema 1              |
+| State                                           | Current contract   |
+| ----------------------------------------------- | ------------------ |
+| Workspace Manifest manifest                     | Schema 1           |
+| Root index and Workspace instance               | Schema 1           |
+| Shared cluster state                            | Schema 1           |
+| Project principal registry                      | Schema 1           |
+| Domain policy `allow.json` / `deny.json` source | `schema_version` 1 |
+| Aggregate policy projection marker              | Schema 1           |
+| Workspace-owned agent state                     | Schema 1           |
+| Base runtime metadata                           | Schema 1           |
 
 Readers reject malformed, oversized, unsafe, or unsupported state according to
 the owning contract. Strictness is surface-specific: do not assume that every
-JSON reader accepts or rejects an unknown field in the same way. Provider
-documents, principal state, broker frames, and critical runtime state use
-explicit fail-closed validation.
+JSON reader accepts or rejects an unknown field in the same way. Principal
+state and critical runtime state use explicit fail-closed validation.
 
 There is no pre-public compatibility reader or implicit migration. The sole
 exception is the explicit `tobari migrate apply` command for ADR 0070's exact
 unpublished Workspace Manifest-policy/Runtime predecessor. Every non-V1 or other old value
 is unsupported, and that development state must be removed and recreated.
 
-## Gateway, OPA, audit, and broker contracts
+## Gateway, OPA, audit, and authentication contracts
 
-| Boundary                                     | Current contract | Important content rule                                                                               |
-| -------------------------------------------- | ---------------: | ---------------------------------------------------------------------------------------------------- |
-| Gateway credential configuration             |         Schema 1 | Workspace Manifest-aware managed projection; contains paths/metadata, not policy authority.          |
-| Gateway → OPA decision input                 |         Schema 1 | Host-derived principal plus normalized HTTP attributes. No body and no client secret headers.        |
-| Guided/Advanced source policy input          |         Schema 1 | Aggregate generation validates the exact V1 source before activation.                                |
-| Gateway audit line                           |         Schema 1 | Secret-free normalized decision evidence.                                                            |
-| Gateway learnable-denial navigation response |         Schema 1 | Fixed host review guidance; no candidate ID, query, body, or secret.                                 |
-| Broker control protocol                      |         Schema 1 | Bounded newline-delimited JSON over the host control Unix socket.                                    |
-| Broker runtime protocol                      |         Schema 1 | Introspection is non-secret; one post-allow same-revision static resolve uses Gateway's Unix socket. |
-| Workspace broker handle                      | Handle version 1 | Opaque `tobari-h1_…` value; never decode it into authority.                                          |
+| Boundary                                     | Current contract | Important content rule                                                                        |
+| -------------------------------------------- | ---------------: | --------------------------------------------------------------------------------------------- |
+| Gateway request metadata                     |         Schema 1 | Workspace Manifest-aware projection; contains paths/metadata, not policy authority.           |
+| Gateway → OPA decision input                 |         Schema 1 | Host-derived principal plus normalized HTTP attributes. No body and no client secret headers. |
+| Guided/Advanced source policy input          |         Schema 1 | Aggregate generation validates the exact V1 source before activation.                         |
+| Gateway audit line                           |         Schema 1 | Secret-free normalized decision evidence.                                                     |
+| Gateway learnable-denial navigation response |         Schema 1 | Fixed host review guidance; no candidate ID, query, body, or secret.                          |
 
 OPA output is a decision consumed by Gateway. OPA does not open an upstream
 connection. A wrong or unavailable policy response fails closed before
 upstream connection.
 
-Both Broker protocols use bounded newline-delimited JSON frames. Unlock and
-credential-import operations carry their declared, length-bounded raw payload
-after the control frame; those secret-bearing bytes are not JSON metadata.
+Runtime control uses bounded newline-delimited JSON frames. Credential-bearing
+values remain agent-owned request data and are not JSON metadata.
 
 ## Exact V1 rules for consumers
 
@@ -135,7 +125,7 @@ after the control frame; those secret-bearing bytes are not JSON metadata.
   newest known shape.
 - Preserve absent versus explicit empty, zero, or false when the contract says
   the distinction matters.
-- Treat opaque references and handles as exact bytes. Do not decode, normalize,
+- Treat opaque references as exact bytes. Do not decode, normalize,
   truncate, or reconstruct them.
 - Do not infer identity or relationships from labels, array order, proximity,
   or human indentation.
@@ -146,8 +136,7 @@ after the control frame; those secret-bearing bytes are not JSON metadata.
 
 A schema mismatch is a contract failure, not permission to
 guess. Tobari preserves known-good policy or runtime selection when candidate
-validation fails. Invalid broker frames and invalid Tobari-looking handles fail
-closed. Public errors omit arbitrary wrapped upstream prose because it may
+validation fails. Invalid runtime frames fail closed. Public errors omit arbitrary wrapped upstream prose because it may
 contain URLs, response bodies, or credentials.
 
 This page records current contracts; it is not a promise that every internal
@@ -198,17 +187,11 @@ external contracts are supported public boundaries.
   >
     aggregate projection
   </a>
-- Broker protocols:
+- CLI report projection:
   <a
-    href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/authbroker/protocol.py`}
+    href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/cli/runtime_catalog.go`}
   >
-    protocol parser
-  </a>
-  and
-  <a
-    href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/authbroker/tests/test_broker.py`}
-  >
-    negative tests
+    Catalog projection
   </a>
 - Fixture ledger:
   <a
@@ -227,14 +210,6 @@ contract; the shared number does not make distinct documents interchangeable.
 
 You should now be able to explain why a schema number is incomplete without
 its surface.
-
-<details>
-  <summary>Is `synthetic-provider-v1.json` a formal JSON Schema?</summary>
-
-No. It is the canonical synthetic fixture used with the strict Go parser,
-validator, normalization, and tests.
-
-</details>
 
 <details>
   <summary>Can an Advanced policy use a schema other than V1?</summary>

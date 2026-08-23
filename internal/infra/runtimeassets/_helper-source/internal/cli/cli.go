@@ -42,7 +42,7 @@ type CLI struct {
 	completion             *completioncmd.Service
 	serviceExposure        *serviceexposurecmd.Service
 	serviceExposureInitErr error
-	experimentalCLIState
+	researchCLIState
 	config        contextConfigurationWizard
 	contextCreate contextCreateWizard
 	firstUse      recommendedFirstUseReviewer
@@ -64,7 +64,7 @@ func New(in io.Reader, out, errOut io.Writer) *CLI {
 	command.authLogin = newAuthLoginProviderSelectorWithStyle(!command.noColor)
 	command.policyReview = newPolicyReviewSelectorWithStyle
 	command.policyNotify = terminal.WritePermissionInboxNotification
-	configureExperimentalCLI(command)
+	configureResearchCLI(command)
 	runtime, err := dockerruntime.New()
 	if err != nil {
 		command.doctor = doctorcmd.New(systemdoctor.New(err))
@@ -163,11 +163,11 @@ func (c *CLI) RunContext(ctx context.Context, args []string) int {
 	if len(commandArgs) == 0 {
 		// The root invocation is the primary interactive outcome. Help remains
 		// explicit through `help` or `--help` and is handled before this branch.
-		commandArgs = []string{c.catalog.programName()}
+		commandArgs = []string{WorkspaceEntryCommandPath}
 	} else if commandArgs[0] == "--" {
 		// A delimiter-led root invocation selects the existing catalog-owned
 		// root entry; the delimiter remains available to the typed parser.
-		commandArgs = append([]string{c.catalog.programName()}, commandArgs...)
+		commandArgs = append([]string{WorkspaceEntryCommandPath}, commandArgs...)
 	} else if c.catalog.programName() == ExposureProgramName && commandArgs[0] != "help" && commandArgs[0] != "list" && commandArgs[0] != "stop" {
 		// The helper's primary command is its exact port positional. Canonical
 		// routing still resolves through the program root declaration.

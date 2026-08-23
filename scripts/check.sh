@@ -180,9 +180,10 @@ run_fast() {
   ./scripts/check-gateway-source.sh
   ./scripts/check-authbroker-source.sh
   ./scripts/check-authbroker-image.sh
+  ./scripts/test-capability-surfaces.sh
   ./scripts/check-site.sh fast
   go test ./...
-	go test -tags='tobari_dev tobari_experimental' ./internal/app/authcmd ./internal/cli ./internal/domain/authbroker ./internal/domain/buildidentity ./internal/domain/capabilityprofile ./internal/infra/authproviders ./internal/infra/dockerruntime
+	go test -tags='tobari_dev tobari_research' ./internal/app/authcmd ./internal/cli ./internal/domain/authbroker ./internal/domain/buildidentity ./internal/domain/capabilitysurface ./internal/infra/authproviders ./internal/infra/dockerruntime
 }
 
 run_security() {

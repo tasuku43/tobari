@@ -61,10 +61,9 @@ centralized in `site.config.mjs` and `source-snapshot.txt`.
 
 ## Generated reference data
 
-The CLI, fault, component-version, and canonical provider-manifest example data
-is derived from repository authorities, not copied into Markdown. Regenerate
-it after changing the CLI Catalog, component versions, runtime metadata, a
-schema authority, or the synthetic provider fixture:
+The CLI, fault, and component-version data is derived from repository
+authorities, not copied into Markdown. Regenerate it after changing the CLI
+Catalog, component versions, runtime metadata, or a schema authority:
 
 ```sh
 npm run generate

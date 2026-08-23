@@ -890,7 +890,7 @@ func renderContextDelete(result tobari.ManifestDeleteResult, format successForma
 	writeStyledLine(&output, color, "Preserved:", "project files and shared runtime images", styleText)
 	writeStyledLine(&output, color, "Cluster:", string(result.Cluster), humanStatusToken(string(result.Cluster)))
 	if result.Cluster == tobari.ManifestClusterStatusRequiresReconcile {
-		writeStyledCommandLine(&output, color, "Next:", "run ", "`tobari cluster up`", " to reconcile the shared policy aggregate.")
+		writeStyledCommandLine(&output, color, "Next:", "run ", "`"+invocationForPath("cluster up")+"`", " to reconcile the shared policy aggregate.")
 	}
 	return []byte(output.String()), nil
 }
@@ -954,42 +954,8 @@ type contextReportJSONProjection struct {
 	Bootstrap        contextBootstrapJSONProjection           `json:"bootstrap"`
 }
 
-type contextAuthenticationJSONProjection struct {
-	Mode               string                              `json:"mode"`
-	BrokerState        string                              `json:"broker_state,omitempty"`
-	DeclaredBindings   authbroker.AuthenticationRoute      `json:"declared_bindings,omitempty"`
-	UndeclaredBindings authbroker.AuthenticationRoute      `json:"undeclared_bindings,omitempty"`
-	Providers          []contextAuthProviderJSONProjection `json:"providers"`
-}
-
-type contextAuthProviderJSONProjection struct {
-	Provider           string  `json:"provider"`
-	State              string  `json:"state"`
-	AccountLabel       *string `json:"account_label"`
-	CredentialRevision *string `json:"credential_revision"`
-}
-
 func contextReportJSONDocument(result tobari.ManifestReport) contextReportDocument {
 	nativeReadiness, _ := tobari.ResolveContextNativeReadiness(result.NativeReadiness)
-	providers := make([]contextAuthProviderJSONProjection, 0, len(result.Authentication.Providers))
-	if result.Authentication.Providers == nil {
-		providers = nil
-	} else {
-		for _, provider := range result.Authentication.Providers {
-			providers = append(providers, contextAuthProviderJSONProjection{
-				Provider: provider.Provider, State: provider.State, AccountLabel: provider.AccountLabel,
-				CredentialRevision: optionalString(provider.CredentialRevision),
-			})
-		}
-	}
-	authentication := contextAuthenticationJSONProjection{
-		Mode: contextAuthenticationMode(result.Authentication), BrokerState: result.Authentication.BrokerState,
-		Providers: providers,
-	}
-	if authentication.Mode == tobari.ManifestAuthenticationModeBroker || authentication.Mode == tobari.ManifestAuthenticationModeNotApplicable {
-		authentication.DeclaredBindings = authbroker.AuthenticationRouteBrokerRequired
-		authentication.UndeclaredBindings = authbroker.AuthenticationRouteWorkspaceOwnedCompatibility
-	}
 	return contextReportDocument{
 		SchemaVersion: 2,
 		Manifest: contextReportJSONProjection{
@@ -1001,7 +967,7 @@ func contextReportJSONDocument(result tobari.ManifestReport) contextReportDocume
 			NativeReadiness: nativeReadiness, MethodPolicy: result.MethodPolicy,
 			ShellEnvironment: result.ShellEnvironment, GitIdentity: result.GitIdentity, Stores: optionalContextStores(result),
 			Runtime: result.Runtime, Cluster: result.Cluster,
-			Authentication: authentication,
+			Authentication: contextAuthenticationJSON(result.Authentication),
 			Bootstrap:      contextBootstrapJSON(result.Bootstrap),
 		},
 	}
@@ -1259,15 +1225,15 @@ func renderContextReportText(result tobari.ManifestReport, color bool) []byte {
 			)
 		}
 	case tobari.TaskConfigShell:
-		writeStyledCommandLine(&output, color, "Next:", "start a new session with ", "`tobari`", "; running sessions are unchanged.")
+		writeStyledCommandLine(&output, color, "Next:", "start a new session with ", "`"+invocationForPath(WorkspaceEntryCommandPath)+"`", "; running sessions are unchanged.")
 	case tobari.TaskConfigGit:
-		writeStyledCommandLine(&output, color, "Next:", "re-enter a matching Workspace with ", "`tobari`", " to reconcile its Git fallback; this command does not change running sessions.")
+		writeStyledCommandLine(&output, color, "Next:", "re-enter a matching Workspace with ", "`"+invocationForPath(WorkspaceEntryCommandPath)+"`", " to reconcile its Git fallback; this command does not change running sessions.")
 	case tobari.TaskConfigBootstrapAWS, tobari.TaskConfigBootstrapEKS:
 		writeStyledLine(&output, color, "Scope:", "future Workspaces only; existing Workspace homes are unchanged", styleText)
-		writeStyledCommandLine(&output, color, "Next:", "create a new Workspace with ", "`tobari`", " to apply this snapshot once.")
+		writeStyledCommandLine(&output, color, "Next:", "create a new Workspace with ", "`"+invocationForPath(WorkspaceEntryCommandPath)+"`", " to apply this snapshot once.")
 	case tobari.TaskRuntimeBuild:
-		writeStyledLine(&output, color, "Note:", "existing Workspaces keep their home. On the next `tobari`, Tobari recreates only the work container when this runtime image changes the spec.", styleText)
-		writeStyledCommandLine(&output, color, "Next:", "run ", "`tobari`", " from a project directory.")
+		writeStyledLine(&output, color, "Note:", "existing Workspaces keep their home. On the next `"+invocationForPath(WorkspaceEntryCommandPath)+"`, Tobari recreates only the work container when this runtime image changes the spec.", styleText)
+		writeStyledCommandLine(&output, color, "Next:", "run ", "`"+invocationForPath(WorkspaceEntryCommandPath)+"`", " from a project directory.")
 	case tobari.TaskManifestRuntimeSet:
 		if nextArgv := contextRuntimeSetNextArgv(result); len(nextArgv) > 0 {
 			writeStyledCommandLine(
@@ -1280,13 +1246,13 @@ func renderContextReportText(result tobari.ManifestReport, color bool) []byte {
 		switch result.Cluster {
 		case tobari.ManifestClusterStatusDefaultManifestUpdated:
 			writeStyledCommandLine(
-				&output, color, "Next:", "run ", "`tobari`",
+				&output, color, "Next:", "run ", "`"+invocationForPath(WorkspaceEntryCommandPath)+"`",
 				" from a project directory to create or enter a Workspace using the new default Workspace Manifest.",
 			)
 		case tobari.ManifestClusterStatusReconciled, tobari.ManifestClusterStatusAlreadyReady:
-			writeStyledCommandLine(&output, color, "Next:", "run ", "`tobari`", " from a project directory.")
+			writeStyledCommandLine(&output, color, "Next:", "run ", "`"+invocationForPath(WorkspaceEntryCommandPath)+"`", " from a project directory.")
 		case tobari.ManifestClusterStatusNotConfigured, tobari.ManifestClusterStatusNotRunning:
-			writeStyledCommandLine(&output, color, "Next:", "run ", "`tobari cluster up`, then `tobari`", " from a project directory.")
+			writeStyledCommandLine(&output, color, "Next:", "run ", "`"+invocationForPath("cluster up")+"`, then `"+invocationForPath(WorkspaceEntryCommandPath)+"`", " from a project directory.")
 		}
 	}
 	if result.ManifestState != tobari.ManifestObservationAbsent {
@@ -1691,7 +1657,7 @@ func writeContextShowAuthenticationDetails(output *humanOutput, result tobari.Ma
 		output.row("Credentials", "agent CLI-owned in this Workspace home; host credentials are not inherited", styleText)
 		return
 	}
-	output.row("Owner", "experimental Broker", styleWarning)
+	output.row("Owner", "research Broker", styleWarning)
 	output.row("Auth Broker", safeExternalText(result.Authentication.BrokerState), humanStatusToken(result.Authentication.BrokerState))
 	output.row("Declared routes", string(authbroker.AuthenticationRouteBrokerRequired), styleText)
 	output.row("Other routes", string(authbroker.AuthenticationRouteWorkspaceOwnedCompatibility), styleText)
@@ -1789,5 +1755,5 @@ func writeStyledLine(output *strings.Builder, enabled bool, label, value string,
 }
 
 func runtimeCustomizationHint() string {
-	return "Tip: create a reusable custom Runtime with `tobari runtime create`, edit its source tree, then run `tobari runtime build` and select the ready revision."
+	return "Tip: create a reusable custom Runtime with `" + invocationForPath("runtime create") + "`, edit its source tree, then run `" + invocationForPath("runtime build") + "` and select the ready revision."
 }

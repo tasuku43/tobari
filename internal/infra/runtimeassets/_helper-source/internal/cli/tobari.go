@@ -209,8 +209,8 @@ func runPolicyReview(
 				}
 				delay := selector.RefreshFailed()
 				selector.notice = fmt.Sprintf(
-					"Refresh failed · current inbox and staged decisions preserved. Retrying in %s. Run tobari cluster status if this continues.",
-					delay,
+					"Refresh failed · current inbox and staged decisions preserved. Retrying in %s. Run %s if this continues.",
+					delay, invocationForPath("cluster status"),
 				)
 				continue
 			}
@@ -298,7 +298,7 @@ func runPolicyReview(
 			if refreshErr != nil {
 				delay := selector.RefreshFailed()
 				selector.notice = fmt.Sprintf(
-					"Applied successfully; refresh failed. Retrying in %s. Run tobari cluster status if this continues.", delay,
+					"Applied successfully; refresh failed. Retrying in %s. Run %s if this continues.", delay, invocationForPath("cluster status"),
 				)
 				continue
 			}
@@ -800,7 +800,7 @@ func prepareGuidedProjectEntry(
 	if draftErr != nil {
 		return c.fail(ctx, fault.Wrap(
 			fault.KindContract, "invalid_first_use_draft", "The recommended first-use draft is invalid.", false, draftErr,
-			fault.NextAction{Command: "help tobari", Reason: "Inspect the root first-use contract."},
+			fault.NextAction{Command: "help " + WorkspaceEntryCommandPath, Reason: "Inspect the root first-use contract."},
 		)), false
 	}
 	reviewer := c.firstUse
@@ -814,7 +814,7 @@ func prepareGuidedProjectEntry(
 		}
 		return c.fail(ctx, fault.Wrap(
 			fault.KindInternal, "first_use_review_failed", "The recommended first-use review failed before creating a Workspace Manifest.", false, reviewErr,
-			fault.NextAction{Command: "tobari", Reason: "Retry in an interactive terminal."},
+			fault.NextAction{Command: WorkspaceEntryCommandPath, Reason: "Retry in an interactive terminal."},
 		)), false
 	}
 	if action == recommendedFirstUseCancel {
@@ -991,7 +991,7 @@ func renderGuidedEntryPaused(contextName string, style bool) []byte {
 	output.WriteByte('\n')
 	fmt.Fprintln(&output, applyStyleToken(style, styleText, "Setup is ready; no Workspace was created."))
 	writeStyledLine(&output, style, "Workspace Manifest:", safeExternalText(contextName), styleText)
-	writeStyledCommandLine(&output, style, "Continue:", "run ", "`tobari`", " from the project directory.")
+	writeStyledCommandLine(&output, style, "Continue:", "run ", "`"+invocationForPath(WorkspaceEntryCommandPath)+"`", " from the project directory.")
 	return []byte(output.String())
 }
 
@@ -1001,8 +1001,8 @@ func renderGuidedRuntimeInitialized(report tobari.ManifestReport, style bool) []
 	writeStyledLine(&output, style, "Dockerfile:", safeExternalText(report.Runtime.Dockerfile), styleText)
 	output.WriteByte('\n')
 	fmt.Fprintln(&output, applyStyleToken(style, styleText, "Edit the Dockerfile, then build and select it on the host."))
-	writeStyledCommandLine(&output, style, "Build:", "run ", "`tobari runtime build`", "")
-	writeStyledCommandLine(&output, style, "After the build succeeds:", "run ", "`tobari`", " from the project directory.")
+	writeStyledCommandLine(&output, style, "Build:", "run ", "`"+invocationForPath("runtime build")+"`", "")
+	writeStyledCommandLine(&output, style, "After the build succeeds:", "run ", "`"+invocationForPath(WorkspaceEntryCommandPath)+"`", " from the project directory.")
 	return []byte(output.String())
 }
 
@@ -1011,9 +1011,9 @@ func renderProjectSessionClosed(style bool) []byte {
 	fmt.Fprintln(&output, applyStyleToken(style, styleText, "Workspace session closed."))
 	fmt.Fprintln(&output, applyStyleToken(style, styleText, "Workspace remains available."))
 	output.WriteByte('\n')
-	writeStyledCommandLine(&output, style, "Resume:", "", "tobari", "")
-	writeStyledCommandLine(&output, style, "Remove:", "", "tobari delete", "")
-	writeStyledCommandLine(&output, style, "If another session is attached:", "", "tobari delete --force", "")
+	writeStyledCommandLine(&output, style, "Resume:", "", invocationForPath(WorkspaceEntryCommandPath), "")
+	writeStyledCommandLine(&output, style, "Remove:", "", invocationForPath("delete"), "")
+	writeStyledCommandLine(&output, style, "If another session is attached:", "", invocationForPath("delete --force"), "")
 	return []byte(output.String())
 }
 
@@ -1037,7 +1037,7 @@ func renderPendingPolicyNotification(result tobari.PolicyCandidateReport, style 
 		safeExternalText(latest.Host), latest.Port, safeExternalText(latest.Method), safeExternalText(latest.Path),
 	)
 	fmt.Fprintln(&output, applyStyleToken(style, styleText, request))
-	writeStyledCommandLine(&output, style, "Review on the host:", "", "tobari review permissions", "")
+	writeStyledCommandLine(&output, style, "Review on the host:", "", invocationForPath("review permissions"), "")
 	return []byte(output.String())
 }
 
@@ -1963,7 +1963,7 @@ func renderClusterDownTextWithColor(status tobari.ClusterStatus, purge, color bo
 	output := newHumanOutput(color)
 	output.heading("✓", "Cluster removed", styleSuccess)
 	output.row("Removed", "shared CA volumes and active policy-bundle volume", styleText)
-	output.row("Preserved", "encrypted Workspace Manifest vaults and installation root key", styleText)
+	output.row("Preserved", clusterDownPreservedText(), styleText)
 	return output.bytes()
 }
 
@@ -1975,7 +1975,7 @@ func renderClusterUpText(status tobari.ClusterStatus, color bool) []byte {
 	var withNext bytes.Buffer
 	withNext.Write(output)
 	withNext.WriteByte('\n')
-	writeStyledCommandLine(&withNext, color, "Next:", "from a project directory, run ", "`tobari`", ".")
+	writeStyledCommandLine(&withNext, color, "Next:", "from a project directory, run ", "`"+invocationForPath(WorkspaceEntryCommandPath)+"`", ".")
 	return withNext.Bytes()
 }
 
@@ -1993,6 +1993,9 @@ func renderClusterStatusTextWithColor(status tobari.ClusterStatus, color bool) [
 	}
 	fmt.Fprintln(&output)
 	for _, component := range status.Components {
+		if !buildIdentityHasBroker() && component.Name == "auth-broker" {
+			continue
+		}
 		renderClusterComponent(&output, component, status.Running, color)
 	}
 	fmt.Fprintf(
@@ -2008,12 +2011,12 @@ func renderClusterStatusTextWithColor(status tobari.ClusterStatus, color bool) [
 	if status.PolicyRevision != "" {
 		fmt.Fprintf(&output, "  %s %s\n", applyStyleToken(color, styleMuted, fmt.Sprintf("%-8s", "Revision")), status.PolicyRevision[:12])
 		integrity := fmt.Sprintf("policy %s / principals %s / gateway %s", safeExternalText(status.PolicyProjection), safeExternalText(status.PrincipalRegistry), safeExternalText(status.GatewayProjection))
-		if status.AuthProviderProjection != "" {
+		if buildIdentityHasBroker() && status.AuthProviderProjection != "" {
 			integrity += " / providers " + safeExternalText(status.AuthProviderProjection)
 		}
 		fmt.Fprintf(&output, "  %s %s\n", applyStyleToken(color, styleMuted, fmt.Sprintf("%-8s", "Integrity")), integrity)
 	}
-	if status.AuthBrokerState != "" || status.CredentialCompanionState != "" || status.RootKeyBackend != "" {
+	if buildIdentityHasBroker() && (status.AuthBrokerState != "" || status.CredentialCompanionState != "" || status.RootKeyBackend != "") {
 		fmt.Fprintf(&output, "  %s broker %s / companion %s / root key %s\n", applyStyleToken(color, styleMuted, fmt.Sprintf("%-8s", "Auth")), safeExternalText(status.AuthBrokerState), safeExternalText(status.CredentialCompanionState), safeExternalText(status.RootKeyBackend))
 	}
 	if status.Policy != "" {
@@ -2286,7 +2289,7 @@ func renderProjectListWithColor(result tobari.WorkspaceListResult, format succes
 	if format == successFormatText {
 		if len(items) == 0 {
 			empty := newHumanOutput(color)
-			empty.empty("No Workspaces", "No Workspace state is configured.", "tobari", "Create or enter a Workspace from the current directory.")
+			empty.empty("No Workspaces", "No Workspace state is configured.", invocationForPath(WorkspaceEntryCommandPath), "Create or enter a Workspace from the current directory.")
 			return empty.bytes(), nil
 		}
 		output := newHumanOutput(color)
@@ -2331,7 +2334,7 @@ func renderProjectDeleteWithColor(result tobari.WorkspaceDeleteResult, color boo
 	output.row("Workspace ID", result.ID, styleText)
 	output.row("Workspace home", safeExternalText(result.Home), styleText)
 	if result.Deleted {
-		output.next("tobari", "Create or enter a Workspace from this project directory.")
+		output.next(invocationForPath(WorkspaceEntryCommandPath), "Create or enter a Workspace from this project directory.")
 	}
 	return output.bytes()
 }

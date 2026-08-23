@@ -114,7 +114,7 @@ No operation or dormant fallback widens exact rules.
 
 - Empty queue: no valid pending learnable denial exists in the requested retained window; this is not proof that no historical denial occurred.
 - Baseline deny or current exact deny: remains audit evidence but not a pending candidate.
-- Scheme, principal, cluster, or credential-binding failure: not learnable through an ineffective exact rule.
+- Scheme, principal, cluster, or principal-registry binding failure: not learnable through an ineffective exact rule.
 - `policy_candidate_not_found` or a stale rule reference: rediscover current state; do not reuse an older reference.
 - `policy_test_failed` or preflight failure: inspect owner-only policy and OPA diagnostics. The prior policy remains authoritative.
 - Uncertain mutation output: use `tobari policy rules` and `tobari cluster status` to reconcile before another mutation.

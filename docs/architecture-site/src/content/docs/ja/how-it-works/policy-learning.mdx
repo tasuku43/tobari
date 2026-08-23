@@ -33,7 +33,7 @@ Workspace 自身へ承認を求めることはありません。信頼するホ�
 OPA は Workspace Manifest policy baseline grant と learned exact allow のどちらにも一致しない effect を
 default deny します。default Workspace Manifest には有限の agent-ready baseline があり、完全な method
 policy は Workspace Manifest が所有します。deny-only や GET-only はその method policy で表します。request
-は schema、principal、fixed port、credential binding、immutable Workspace Manifest policy ceiling が有効な
+は schema、principal、fixed port、Workspace binding、immutable Workspace Manifest policy ceiling が有効な
 場合だけ learnable になれます。
 
 Gateway は `403 policy_denied` を返します。学習可能なレスポンスが示すのは、信頼するホスト上のレビュー場所と、利用者から見える完全一致の HTTP 操作だけです。自動再試行がないことも明示します。
@@ -42,7 +42,7 @@ Gateway は `403 policy_denied` を返します。学習可能なレスポンス
 
 Gateway は、上限付きのスキーマ 1 拒否監査を、ローテーションされる Docker ログへ書きます。候補の発見処理は上限付きの末尾だけを読み、厳密に検証した拒否記録だけを受け入れます。
 
-根拠には、Workspace Manifest とプロジェクトの識別情報、ホスト、ポート、メソッド、パス、理由、時刻、秘密を含まない診断情報が含まれます。クエリー、ヘッダー、本文、ハンドル、認証情報のリビジョン、実物の認証情報は含まれません。ハンドルを含む URL パスは、全体を `/[redacted-auth-handle]` に置き換えます。
+根拠には、Workspace Manifest とプロジェクトの識別情報、ホスト、ポート、メソッド、パス、理由、時刻、秘密を含まない診断情報が含まれます。クエリー、ヘッダー、本文、識別子、agent CLI のログイン値は含まれません。認証情報らしい URL パスは、値を `[redacted-credential]` に置き換えます。
 
 根拠を保持する量には上限があり、無期限に残る許可待ち一覧ではありません。操作前に観測記録が選択したログ範囲の外へ出ると、その記録を使って状態変更を認可することはできません。
 
@@ -57,7 +57,7 @@ Gateway は、上限付きのスキーマ 1 拒否監査を、ローテーショ
 - メソッド
 - 正規化済みの生のパス
 
-本文の内容や有無、クエリー、ヘッダー、理由、状態、リクエスト ID、時刻、プロバイダー、プロファイルの表示用根拠は、候補の識別情報を分割しません。
+本文の内容や有無、クエリー、ヘッダー、理由、状態、リクエスト ID、時刻、外部サービス、プロファイルの表示用根拠は、候補の識別情報を分割しません。
 
 候補 ID は `pcy_…` という形式で、これらの要素から導出されます。内容を解釈しない不透明な値です。操作では、一覧上の位置を権限として使わず、ID をデコードしたり組み立て直したりしません。受け取った値を変更せずに使います。
 
@@ -99,7 +99,7 @@ Gateway は、上限付きのスキーマ 1 拒否監査を、ローテーショ
 | 判断                                     | 意味                                                                                                   |
 | ---------------------------------------- | ------------------------------------------------------------------------------------------------------ |
 | Workspace Manifest policy baseline grant | snapshot authority。固定 agent-ready data は選択可能な profile ではありません                          |
-| Workspace Manifest policy terminal deny  | pending review に入らず candidate/DNS/Broker/upstream work がゼロの ceiling rejection                  |
+| Workspace Manifest policy terminal deny  | pending review に入らず candidate/DNS/Authentication/upstream work がゼロの ceiling rejection          |
 | 学習済みの完全一致許可                   | 一つの Workspace Manifest、プロジェクト、ホスト、ポート、メソッド、パスに対する権限                    |
 | 学習済みの完全一致拒否                   | 明示的にレビューした終端的な拒否。その HTTP 操作では許可より優先されます                               |
 | `policy reset`                           | 学習済み許可または完全一致拒否を一つ削除し、初期または既定の評価へ戻します。許可する操作ではありません |
@@ -129,7 +129,7 @@ Gateway は、上限付きのスキーマ 1 拒否監査を、ローテーショ
 
 **保証すること:** 観測しただけでは権限は変わりません。状態変更には不透明な参照一つを使います。完全一致規則は Workspace Manifest とプロジェクトに結び付きます。ポリシー全体の検証を、有効化より先に行います。ワイルドカードの自動作成も、リクエストの再実行もありません。本文によって許可範囲が暗黙に狭まることもありません。
 
-**保証しないこと:** 拒否記録の無期限保持。本文単位の制御。プロバイダー操作の意味解釈。ポリシーの自動最小化。人による承認判断が安全であること。OPA 再作成中の完全な無停止。
+**保証しないこと:** 拒否記録の無期限保持。本文単位の制御。外部サービス操作の意味解釈。ポリシーの自動最小化。人による承認判断が安全であること。OPA 再作成中の完全な無停止。
 
 ## 根拠となるソース
 

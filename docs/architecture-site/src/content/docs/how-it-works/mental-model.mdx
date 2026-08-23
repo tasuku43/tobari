@@ -70,13 +70,6 @@ or refresh a credential.
 | Gateway unavailable        | Guarded connection fails | No direct Internet fallback                 |
 | Provider rejects login     | Provider-owned failure   | Tobari does not synthesize account metadata |
 
-## Experimental Broker profile
-
-Repository builds made with `task build:dev` retain the Auth Broker research
-path. That compile-time profile has a third service, provider bindings, handles,
-vaults, and host-side `auth` commands. None of those surfaces exists in the
-standard catalog, topology, embedded standard runtime assets, or release.
-
 ## Guarantees and limitations
 
 The supported standard topology guarantees that Gateway receives an allow

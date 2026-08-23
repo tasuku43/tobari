@@ -3,11 +3,11 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 runtime_tag=tobari-runtime:dev
-experimental=false
-if [[ ${1:-} == --experimental ]]; then
-  experimental=true
+research=false
+if [[ ${1:-} == --research ]]; then
+  research=true
 elif [[ $# -ne 0 ]]; then
-  echo "usage: $0 [--experimental]" >&2
+  echo "usage: $0 [--research]" >&2
   exit 2
 fi
 gateway_version=$(go run ./tools/runtimeassetid gateway)
@@ -40,7 +40,7 @@ if ! docker image inspect "$gateway_tag" >/dev/null 2>&1; then
     gateway
 fi
 
-if [[ $experimental == true ]]; then
+if [[ $research == true ]]; then
   auth_broker_version=$(go run ./tools/runtimeassetid authbroker)
   auth_broker_tag="tobari-auth-broker:dev-${auth_broker_version}"
   experimental_gateway_tag="tobari-gateway-experimental:dev-${gateway_version}"
@@ -57,7 +57,7 @@ if [[ $experimental == true ]]; then
     --file gateway/Dockerfile.experimental \
     --build-arg "TOBARI_GATEWAY_BASE=$gateway_tag" \
     gateway
-  printf 'Built experimental development images: %s %s %s %s\n' "$runtime_tag" "$gateway_tag" "$experimental_gateway_tag" "$auth_broker_tag"
+  printf 'Built research development images: %s %s %s %s\n' "$runtime_tag" "$gateway_tag" "$experimental_gateway_tag" "$auth_broker_tag"
 else
-  printf 'Built standard development images: %s %s\n' "$runtime_tag" "$gateway_tag"
+  printf 'Built release-surface development images: %s %s\n' "$runtime_tag" "$gateway_tag"
 fi

@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
-	"strconv"
 	"strings"
 	"testing"
 
@@ -158,15 +157,6 @@ func TestGenerateUsesCommittedAgentHelp(t *testing.T) {
 	if len(generatedCatalog) == 0 {
 		t.Fatal("generate(root, HEAD) omitted catalog.json")
 	}
-	providerFixture := bytes.TrimSpace(committedForTest(
-		t,
-		root,
-		"internal/infra/authproviders/testdata/synthetic-provider-v1.json",
-	))
-	if got := bytes.TrimSpace(outputs["provider-manifest-example.json"]); !bytes.Equal(got, providerFixture) {
-		t.Fatal("generated provider manifest example does not preserve the committed canonical fixture")
-	}
-
 	runCommittedHelp, cleanup, err := buildCommittedAgentHelpRunner(root, "HEAD")
 	if err != nil {
 		t.Fatalf("build committed agent help runner: %v", err)
@@ -246,10 +236,7 @@ func TestGenerateVersionsDerivesCommittedAuthorities(t *testing.T) {
 			t.Errorf("%s identity %q is not immutable", componentName, component.Identity)
 		}
 	}
-	for componentName, authorityName := range map[string]string{
-		"Gateway":     "GATEWAY_IMAGE",
-		"Auth Broker": "AUTH_BROKER_IMAGE",
-	} {
+	for componentName, authorityName := range map[string]string{"Gateway": "GATEWAY_IMAGE"} {
 		component := componentForTest(t, document, componentName)
 		if historical := versionValues[authorityName]; historical != "" {
 			if component.Identity != historical {
@@ -263,14 +250,14 @@ func TestGenerateVersionsDerivesCommittedAuthorities(t *testing.T) {
 		wantVersion := "embedded-source V1"
 		wantIdentity := "source-derived local image"
 		wantAuthority := "internal/infra/runtimeassets/assets/gateway"
-		if componentName == "Auth Broker" {
-			wantVersion = "experimental embedded-source V1"
-			wantIdentity = "experimental source-derived local image"
-			wantAuthority = "internal/infra/runtimeassets/assets/authbroker"
-		}
 		if component.Version != wantVersion || component.Identity != wantIdentity ||
 			component.Authority != wantAuthority {
 			t.Errorf("%s embedded identity = %+v", componentName, component)
+		}
+	}
+	for _, component := range document.Components {
+		if component.Component == "Auth Broker" {
+			t.Fatal("release architecture-site component data exposes Auth Broker")
 		}
 	}
 
@@ -297,33 +284,20 @@ func TestGenerateVersionsDerivesCommittedAuthorities(t *testing.T) {
 	wantContextSchema := captureIntForTest(
 		t, contextSource, `ManifestSchemaVersion\s*=\s*([0-9]+)`,
 	)
-	providerSource := committedForTest(t, root, "internal/domain/authbroker/provider.go")
-	wantProviderSchema := captureIntForTest(
-		t, providerSource, `(?m)^\s*ProviderSchemaVersion\s*=\s*([0-9]+)`,
-	)
-	wantOwnerProviderSchema := wantProviderSchema
-	if match := regexp.MustCompile(`(?m)^\s*LegacyProviderSchemaVersion\s*=\s*([0-9]+)`).FindSubmatch(providerSource); len(match) == 2 {
-		wantOwnerProviderSchema, err = strconv.Atoi(string(match[1]))
-		if err != nil {
-			t.Fatal(err)
-		}
-	}
 	catalogSource := committedForTest(t, root, "internal/cli/runtime_catalog.go")
 	wantContextReportSchema, err := contextReportSchemaVersion(catalogSource)
 	if err != nil {
 		t.Fatalf("derive committed Context report schema: %v", err)
 	}
-	if wantContextSchema < 1 || wantContextReportSchema < 1 || wantProviderSchema < 1 || wantOwnerProviderSchema < 1 {
+	if wantContextSchema < 1 || wantContextReportSchema < 1 {
 		t.Fatalf(
-			"HEAD public schema authorities must be positive: Context manifest=%d report=%d owner provider=%d projection=%d",
-			wantContextSchema, wantContextReportSchema, wantOwnerProviderSchema, wantProviderSchema,
+			"HEAD public schema authorities must be positive: Context manifest=%d report=%d",
+			wantContextSchema, wantContextReportSchema,
 		)
 	}
 	for contract, want := range map[string]int{
-		"Workspace Manifest":                                          wantContextSchema,
-		"Public Workspace Manifest report":                            wantContextReportSchema,
-		"Owner provider manifest":                                     wantOwnerProviderSchema,
-		"Normalized provider projection / reviewed built-in manifest": wantProviderSchema,
+		"Workspace Manifest":               wantContextSchema,
+		"Public Workspace Manifest report": wantContextReportSchema,
 	} {
 		if got := schemaForTest(t, document, contract).Version; got != want {
 			t.Errorf("%s schema = %d, want HEAD authority %d", contract, got, want)
@@ -331,10 +305,8 @@ func TestGenerateVersionsDerivesCommittedAuthorities(t *testing.T) {
 	}
 
 	for contract, authority := range map[string][2]string{
-		"Gateway image API":     {"gateway/Dockerfile", `io\.tobari\.gateway-api="([0-9]+)"`},
-		"Gateway OPA input":     {"gateway/addon/tobari_gateway.py", `policy_input\s*=\s*\{\s*"schema_version":\s*([0-9]+),`},
-		"Auth Broker image API": {"authbroker/Dockerfile", `io\.tobari\.auth-broker-api="([0-9]+)"`},
-		"Auth Broker control/runtime protocol and static vault": {"authbroker/__init__.py", `(?m)^SCHEMA_VERSION\s*=\s*([0-9]+)$`},
+		"Gateway image API": {"gateway/Dockerfile", `io\.tobari\.gateway-api="([0-9]+)"`},
+		"Gateway OPA input": {"gateway/addon/tobari_gateway.py", `policy_input\s*=\s*\{\s*"schema_version":\s*([0-9]+),`},
 	} {
 		want := captureIntForTest(t, committedForTest(t, root, authority[0]), authority[1])
 		if got := schemaForTest(t, document, contract).Version; got != want {

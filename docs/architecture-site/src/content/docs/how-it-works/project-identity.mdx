@@ -71,7 +71,7 @@ Gateway selects B's Workspace Manifest/project binding and strips or redacts
 control/credential values as required. A rule learned for A does not match B
 even if host, port, method, and path are identical.
 
-If the request contains a copied broker handle from A, the result is stricter still: non-secret Broker introspection checks the derived B principal against the handle's Workspace Manifest, project, provider, credential revision, target, and source-header binding. The mismatch becomes `403 credential_handle_invalid` before OPA.
+If the request contains a copied Workspace identity from A, the result is stricter still: Gateway checks the derived B principal against the host-owned Workspace Manifest, project, target, and source-header binding before OPA. The mismatch is rejected before policy evaluation.
 
 ## Why network identity is used
 
@@ -94,7 +94,7 @@ The Gateway binding parser validates the exact per-binding shape and required va
 
 ## Guarantees and limitations
 
-**Guaranteed under supported lifecycle/topology:** caller-supplied identity is not authority; project and Workspace Manifest are established together before OPA; learned rules and broker handles cannot cross project principals; stale network bindings fail closed.
+**Guaranteed under supported lifecycle/topology:** caller-supplied identity is not authority; project and Workspace Manifest are established together before OPA; learned rules and Workspace identities cannot cross project principals; stale network bindings fail closed.
 
 **Not guaranteed:** resistance after host, Docker, Gateway, or registry compromise; tenant isolation for overlapping selected roots; a general cryptographic remote-workload identity; identity derived from arbitrary manually created containers outside Tobari lifecycle.
 

@@ -15,7 +15,7 @@ CLI は信頼するホストで動きますが、選択した Docker デーモ�
 
 - Workspace が読み書きする、選択済みの正規化されたプロジェクトルート
 - サービスが使うホスト所有のポリシーと生成済みプロジェクションを含む `${XDG_CONFIG_HOME:-$HOME/.config}/tobari`
-- ランタイムの具体化、プリンシパルレジストリ、Workspace 状態、Broker 状態を含む `${XDG_STATE_HOME:-$HOME/.local/state}/tobari`
+- ランタイムの具体化、プリンシパルレジストリ、Workspace 状態、host-owned lifecycle state を含む `${XDG_STATE_HOME:-$HOME/.local/state}/tobari`
 - Docker 自身がアクセスする必要がある明示的なカスタムイメージ/ビルドソース
 
 別シェルアカウントから推測せず、Tobari を呼ぶホストプロセスの環境を確認します。
@@ -61,7 +61,7 @@ tobari
 | 症状                                                            | 考えられる境界                                     | 確認するもの                                                                     |
 | --------------------------------------------------------------- | -------------------------------------------------- | -------------------------------------------------------------------------------- |
 | 結び付けソースがない、または共有されていないと Docker が報告    | VM のファイルシステム共有                          | プロジェクトと、実際に使われる XDG 親ディレクトリ                                |
-| Workspace は起動するが HTTP リクエストが `403`                  | Gateway/OPA ポリシーまたは認証情報結び付け         | VM マウントではなく `tobari review permissions`                                  |
+| Workspace は起動するが HTTP リクエストが `403`                  | Gateway/OPA ポリシーまたは upstream の応答         | VM マウントではなく `tobari review permissions`                                  |
 | Workspace が Gateway の TLS を信頼できない                      | クライアントの CA とプロキシ動作                   | ツールが注入された CA 変数を使うか。証明書ピンニングは意図的に失敗する場合がある |
 | クラスターコンポーネントからポリシー/プロジェクションが見えない | XDG 設定または状態の結び付けが見えるか、その所有権 | `doctor`、`cluster status`、コンポーネントログ                                   |
 | レジストリイメージが利用不可                                    | Docker VM レジストリ/ネットワークパス              | Docker コンテキストとレジストリへのアクセス。ポリシー規則は変更しない            |
@@ -72,7 +72,7 @@ tobari
 - `tobari doctor` を再実行します。警告が表示されても変更操作は行われません。
 - パスが見えるようになった後、`tobari cluster up` でサービスを調整します。
 - 作成途中の論理 Workspace が残る場合は `tobari status` を確認します。ランタイムの `missing` または `degraded` は、次の有効な入室で調整できます。`incomplete` は削除による後始末だけが許される状態なので、`tobari delete` で削除します。
-- 結び付けエラーを解決するために保管庫、ルート鍵、CA 状態を削除しないでください。
+- 結び付けエラーを解決するために Workspace の状態、host-owned lifecycle state、CA 状態を削除しないでください。
 - ホストネットワーク、特権モード、Docker ソケットのマウント、ホストホームを広く公開する Workspace マウントを追加しないでください。
 
 ## 保証と制限
@@ -104,12 +104,12 @@ VM 上のデーモンから、指定したホストの結び付け元がその�
 
 <details>
   <summary>
-    XDG 状態の親ディレクトリを VM と共有すると、Workspace はルート鍵
-    を読めますか？
+    XDG 状態の親ディレクトリを VM と共有すると、Workspace は host-owned
+    lifecycle state を読めますか？
   </summary>
   いいえ。サービスマウントは狭く指定され、Workspace に親ディレクトリや
-  ルート鍵ファイルは渡りません。VM から見えるホストパスを広げても、Tobari の
-  コンテナマウント契約は変わりません。
+  host-owned lifecycle state のファイルは渡りません。VM
+  から見えるホストパスを広げても、 Tobari のコンテナマウント契約は変わりません。
 </details>
 
 **次へ:** [トラブルシューティング](../troubleshooting/)。

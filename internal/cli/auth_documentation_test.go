@@ -8,9 +8,9 @@ import (
 	"testing"
 )
 
-var unqualifiedBrokerAuthExample = regexp.MustCompile(`(?m)^[ \t]*(?:\$[ \t]+)?(?:tobari|tobari-dev)[ \t]+auth(?:[ \t]|$)`)
+var unqualifiedBrokerAuthExample = regexp.MustCompile(`(?m)^[ \t]*(?:\$[ \t]+)?(?:tobari|tobari-research)[ \t]+auth(?:[ \t]|$)`)
 
-func TestAuthenticationDocumentationSeparatesStandardAndExperimentalProfiles(t *testing.T) {
+func TestAuthenticationDocumentationSeparatesReleaseAndResearchSurfaces(t *testing.T) {
 	t.Parallel()
 	repositoryRoot := filepath.Clean(filepath.Join("..", ".."))
 	readme := readAuthenticationDocument(t, filepath.Join(repositoryRoot, "README.md"))
@@ -18,7 +18,7 @@ func TestAuthenticationDocumentationSeparatesStandardAndExperimentalProfiles(t *
 
 	standard := sectionBetween(t, readme,
 		"### Standard native Workspace authentication",
-		"### Experimental Broker research")
+		"### Research Broker (repository-only)")
 	for _, required := range []string{
 		"tobari -- claude",
 		"tobari -- codex",
@@ -39,14 +39,14 @@ func TestAuthenticationDocumentationSeparatesStandardAndExperimentalProfiles(t *
 		}
 	}
 
-	experimental := sectionBetween(t, readme, "### Experimental Broker research", "## Runtime customization")
+	experimental := sectionBetween(t, readme, "### Research Broker (repository-only)", "## Runtime customization")
 	for _, required := range []string{
 		"unsupported, unpublished",
 		"for development only",
 		"absent from the standard and release",
 		"task build:dev",
-		"bin/tobari-dev auth login",
-		"docs/07_authentication.md#experimental-broker-profile",
+		"bin/tobari-research auth login",
+		"docs/07_authentication.md#research-broker-surface",
 	} {
 		if !strings.Contains(experimental, required) {
 			t.Errorf("experimental authentication section lacks %q", required)
@@ -55,7 +55,7 @@ func TestAuthenticationDocumentationSeparatesStandardAndExperimentalProfiles(t *
 
 	for name, document := range map[string]string{"README.md": readme, "docs/07_authentication.md": reference} {
 		if match := unqualifiedBrokerAuthExample.FindString(document); match != "" {
-			t.Errorf("%s contains an auth example without bin/tobari-dev: %q", name, strings.TrimSpace(match))
+			t.Errorf("%s contains an auth example without bin/tobari-research: %q", name, strings.TrimSpace(match))
 		}
 	}
 

@@ -6,15 +6,15 @@ description: Workspace から Gateway、OPA、必要な認証処理、外部の�
 import SequenceExplorer from "../../../../components/SequenceExplorer.astro";
 import SystemMap from "../../../../components/SystemMap.astro";
 
-Workspace から送られた HTTP/HTTPS リクエストは、外部の接続先へ到達する前に Gateway へ入ります。Gateway はカーネルが観測した Workspace の送信元エンドポイントと、ホスト管理のスキーマ 1 登録簿から Workspace Manifest とプロジェクトを特定し、本文と認証情報を含まない正規化済みの入力を OPA へ一度だけ送ります。
+Workspace から送られた HTTP/HTTPS リクエストは、外部の接続先へ到達する前に Gateway へ入ります。Gateway はカーネルが観測した Workspace の送信元エンドポイントと、ホスト管理のスキーマ 1 登録簿から Workspace Manifest とプロジェクトを特定して、信頼済みの principal メタデータを作ります。リクエスト本文と agent CLI のログイン値は OPA へ送りません。
 
-OPA が拒否した場合や判断結果が不正な場合、Gateway は接続先へ接続せず、ローカルで処理を終了します。認証情報の解決、DNS 名前解決、接続先への接続、本文の転送は、許可後に限って実行します。この順序により、ポリシーによる拒否、判断処理の障害、接続先の障害を区別できます。
+OPA が拒否した場合や判断結果が不正な場合、Gateway は接続先へ接続せず、ローカルで処理を終了します。DNS 名前解決、接続先への接続、本文の転送は、許可後に限って実行します。この順序により、ポリシーによる拒否、判断処理の障害、接続先の障害を区別できます。
 
-[システム全体像](../system-overview/)には固定されたネットワーク図があります。Auth Broker の詳細は後で扱い、ここでは必要な場合に限って参加する認証処理として示します。
+[システム全体像](../system-overview/)には固定されたネットワーク図があります。ここではネットワークとポリシーの処理順を示します。
 
 <SystemMap
   title="コンポーネントの配置は固定"
-  description="下の操作図で変わるのは処理の進行であり、アーキテクチャではありません。Gateway は中央に留まり、通信相手が Workspace、OPA、Auth Broker、接続先の間で移ります。"
+  description="下の操作図で変わるのは処理の進行であり、アーキテクチャではありません。Gateway は中央に留まり、通信相手が Workspace、OPA、接続先の間で移ります。"
   compact
 />
 
@@ -36,16 +36,7 @@ Docker の上限付きリゾルバーが Gateway の合成 DNS へ転送し、�
 
 Gateway は、カーネルが観測した Workspace の送信元エンドポイントを読み取り、ホスト管理のスキーマ 1 プリンシパル登録簿で照合します。その結果から、安定した `workspace_manifest_id` と `project_id` を得ます。結び付きが欠落、未知、古い、安全でない、または曖昧な場合は、OPA へ問い合わせる前に停止します。
 
-### 3. 認証方式を準備する
-
-選択した認証方式に応じて、Gateway はポリシー判断の前にリクエストを準備します。
-
-- **Workspace 所有の互換経路:** 宣言済み binding がない場合だけ、認証情報と Cookie の値を OPA 入力から除外し、許可後に転送できるよう保持します。
-- **Auth Broker:** 宣言済み binding の Workspace 実認証情報は `broker_auth_required` で拒否します。完全に認識できたハンドルは転送対象のリクエストから削除し、その後、秘密情報を含まない結び付き情報を照合します。
-
-Tobari 形式に見える不正なハンドルはここで失敗し、そのまま転送する方式には切り替わりません。
-
-### 4. 本文を含まない判断入力を作る
+### 3. 本文を含まない判断入力を作る
 
 Gateway はスキーマ 1 の入力を、固定の OPA エンドポイント一つへ POST します。内容は次のとおりです。
 
@@ -56,38 +47,34 @@ Gateway はスキーマ 1 の入力を、固定の OPA エンドポイント一�
 - 複数値を保持したクエリー
 - 秘密情報を除いたヘッダーと、秘密情報を含まない認可メタデータ
 
-リクエストとレスポンスの本文、Auth Broker のハンドル、解決済みの認証情報、既知または設定済みの認証用ヘッダー値は除外します。通常のクエリーは OPA 入力に含まれます。URL に置かれた任意のデータまで除去する、汎用的な秘密情報の検出処理ではありません。
+リクエストとレスポンスの本文、認証情報、既知または設定済みの認証用ヘッダー値は除外します。通常のクエリーは OPA 入力に含まれます。URL に置かれた任意のデータまで除去する、汎用的な秘密情報の検出処理ではありません。
 
-### 5. OPA へ一度だけ問い合わせる
+### 4. OPA へ一度だけ問い合わせる
 
 Gateway は、時間と応答サイズに上限を設けた HTTP POST を一度だけ送り、再試行しません。HTTP 200 であり、真偽値の `allow`、空でない `reason`、`status` が `403`、真偽値の `learnable` を含む、正しい結果を一つ要求します。
 
 OPA が判断し、Gateway がその判断を通信経路へ強制します。
 
-### 6A. ローカルで拒否する
+### 5A. ローカルで拒否する
 
 正しい拒否結果を受け取ると、Gateway は `403 policy_denied` を作ります。学習可能な拒否に含まれるのは、`tobari review permissions` を示す固定のホスト側案内オブジェクト、完全一致するホスト、ポート、メソッド、パス、`automatic_retry: false` だけです。
 
 候補 ID、クエリー、本文、ヘッダー、認証情報、動的なコマンド引数は含まれません。候補の不透明な参照値は、ホスト上に保持した根拠から後で導出します。
 
-### 6B. 許可後に続行する
+### 5B. 許可後に続行する
 
 許可後にだけ、Gateway は次の処理を行えます。
 
-1. 同じリビジョンに対して、静的解決、Datadog／OpenAI／Anthropic のトークン処理、または AWS 署名のいずれか一つを行う
-2. 接続先のホスト名を名前解決する
-3. ドットを含むホスト名に対する、安全でない非グローバルアドレスを拒否する
-4. 選択したアドレスを固定し、後の DNS 応答で接続先が変わらないようにする
-5. 接続先への接続を一つ作り、許可済みリクエストを転送する
-
-未宣言 binding の互換 passthrough と static-header Broker request は allow 後に body を stream します。static
-Broker resolution は manifest が宣言した header だけを、この request に対して置換します。
+1. 接続先のホスト名を名前解決する
+2. ドットを含むホスト名に対する、安全でない非グローバルアドレスを拒否する
+3. 選択したアドレスを固定し、後の DNS 応答で接続先が変わらないようにする
+4. 接続先への接続を一つ作り、元のリクエストを転送する
 
 アプリケーションリクエストの自動再試行はありません。リダイレクトは新しいリクエストとなり、再びポリシー判断を通ります。
 
-### 7. 結果を記録する
+### 6. 結果を記録する
 
-拒否は即座にログへ記録します。許可したリクエストは、レスポンスまたは接続エラーの後に記録します。監査スキーマ 1 には、上限付きの識別情報、接続先、メソッド、秘匿化したパス、判断、理由、秘密情報を含まないプロファイルとプロバイダーのメタデータ、状態、処理時間が含まれます。クエリー、ヘッダー、本文、ハンドル、認証情報の本体は含まれません。
+拒否は即座にログへ記録します。許可したリクエストは、レスポンスまたは接続エラーの後に記録します。監査スキーマ 1 には、Workspace Manifest／プロジェクトの識別情報を含む principal メタデータ、接続先、メソッド、秘匿化したパス、判断、理由、状態、処理時間が含まれます。クエリー、認証・cookie ヘッダーの値、本文、ログイン値は含まれません。
 
 ## 具体例：本文だけが異なる
 
@@ -107,15 +94,14 @@ Content-Type: application/json
 
 ## 失敗時の動作
 
-| 段階             | 障害                                                              | 結果                                               |
-| ---------------- | ----------------------------------------------------------------- | -------------------------------------------------- |
-| プリンシパル     | 登録簿を読めない、または Workspace の送信元エンドポイントが未知   | 403 `project_principal_unavailable`                |
-| 認証情報の準備   | 不正、古い、または一致しないハンドル                              | 403 `credential_handle_invalid`                    |
-| OPA              | タイムアウト、接続エラー、HTTP 200 以外、不正または上限超過の結果 | 503 `policy_unavailable`                           |
-| 判断             | 正しい拒否結果                                                    | 403 `policy_denied`。接続先には何も届かない        |
-| 許可後の認証処理 | 実行前に判明した Auth Broker、コンパニオン、更新、署名の障害      | 503 の認証障害。接続先には何も届かない             |
-| DNS／アドレス    | 安全で利用可能なアドレスがない                                    | 接続先またはプロキシのエラー。別の接続先は選ばない |
-| 接続先           | 許可後の TCP/TLS/HTTP 障害                                        | 監査結果は `upstream_error`。ポリシーは変更しない  |
+| 段階          | 障害                                                              | 結果                                               |
+| ------------- | ----------------------------------------------------------------- | -------------------------------------------------- |
+| プリンシパル  | 登録簿を読めない、または Workspace の送信元エンドポイントが未知   | 403 `project_principal_unavailable`                |
+| 認証情報の値  | ポリシー識別情報には含めない                                      | OPA と監査から除外する                             |
+| OPA           | タイムアウト、接続エラー、HTTP 200 以外、不正または上限超過の結果 | 503 `policy_unavailable`                           |
+| 判断          | 正しい拒否結果                                                    | 403 `policy_denied`。接続先には何も届かない        |
+| DNS／アドレス | 安全で利用可能なアドレスがない                                    | 接続先またはプロキシのエラー。別の接続先は選ばない |
+| 接続先        | 許可後の TCP/TLS/HTTP 障害                                        | 監査結果は `upstream_error`。ポリシーは変更しない  |
 
 既知の `Content-Length` が mitmproxy の 8 MiB 制限を超えると、通常のアドオンのヘッダーフックより前に拒否される場合があります。長さが不明な許可済み本文は、固定された製品契約に従い、総バイト数の上限なしでストリーミングされます。
 
@@ -126,7 +112,7 @@ credential preparation、allow decision、allow 後の static credential applica
 body byte を転送しません。deny では secret resolution はゼロです。application-level retry はなく、
 denial/review 情報は secret-free です。
 
-**保証しないこと:** 本文の内容に基づく認可。アプリケーション上の意味の理解。冪等性。プロバイダー操作の解釈。長さが不明な許可済み本文をストリーミングする場合の総バイト数制限。低レベルな接続先障害すべてに対応する安定した Tobari JSON 障害コード。
+**保証しないこと:** 本文の内容に基づく認可。アプリケーション上の意味の理解。冪等性。外部サービス操作の解釈。長さが不明な許可済み本文をストリーミングする場合の総バイト数制限。低レベルな接続先障害すべてに対応する安定した Tobari JSON 障害コード。
 
 ## 根拠となるソース
 
@@ -134,14 +120,14 @@ denial/review 情報は secret-free です。
 - [HTTP 通信許可のセキュリティ境界](https://github.com/tasuku43/tobari/blob/2a0f0f3b0303f889cd42c581403e70ace7680894/docs/03_security_model.md)
 - [Gateway の実装](https://github.com/tasuku43/tobari/blob/2a0f0f3b0303f889cd42c581403e70ace7680894/gateway/addon/tobari_gateway.py)
 - [認証情報アダプターの境界](https://github.com/tasuku43/tobari/blob/2a0f0f3b0303f889cd42c581403e70ace7680894/gateway/addon/credential_adapters.py)
-- [Auth Broker ハンドルのアダプター](https://github.com/tasuku43/tobari/blob/2a0f0f3b0303f889cd42c581403e70ace7680894/gateway/addon/broker_credentials.py)
+- [Gateway リクエストアダプター](https://github.com/tasuku43/tobari/blob/2a0f0f3b0303f889cd42c581403e70ace7680894/gateway/addon/tobari_gateway.py)
 - [処理順、秘匿化、障害、ストリーミングを確認する Gateway テスト](https://github.com/tasuku43/tobari/blob/2a0f0f3b0303f889cd42c581403e70ace7680894/gateway/test_tobari_gateway.py)
 
 ## まとめ
 
 Workspace Manifest/project は登録済みで kernel-observed な Workspace source endpoint から特定します。OPA は
 body-free normalized input を一度受け取って判断します。deny は Gateway 内で停止します。secret を
-扱う Broker 操作、real destination DNS、upstream connection は allow 後だけです。body は
+扱う Authentication 操作、real destination DNS、upstream connection は allow 後だけです。body は
 allow 後に stream します。
 
 ## 理解を確認する

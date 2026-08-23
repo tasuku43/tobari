@@ -35,7 +35,7 @@ or exact learned allow. The default Workspace Manifest has a finite exact
 version-coupled Claude/Codex core baseline; its complete method policy is
 Workspace Manifest-owned. A deny-only or GET-only posture is represented by that method
 policy. A request may be learnable only after schema, principal, fixed-port,
-credential binding, and the immutable Workspace Manifest policy ceiling validate it.
+Workspace binding, and the immutable Workspace Manifest policy ceiling validate it.
 
 Gateway returns `403 policy_denied`. A learnable response names only the trusted-host review location and exact visible effect. It explicitly says there is no automatic retry.
 
@@ -43,7 +43,7 @@ Gateway returns `403 policy_denied`. A learnable response names only the trusted
 
 Gateway writes bounded schema 1 denial audit into its rotated Docker logs. Candidate discovery reads a bounded tail and accepts only strict validated deny records.
 
-Evidence includes Workspace Manifest/project identity, host, port, method, path, reason, timestamp, and non-secret diagnostics. It omits query, headers, body, handle, credential revision, and primary credential. A handle-bearing URL path is replaced as a whole with `/[redacted-auth-handle]`.
+Evidence includes Workspace Manifest/project identity, host, port, method, path, reason, timestamp, and non-secret diagnostics. It omits query, headers, body, credential values, and primary credential. A credential-looking URL path is replaced as a whole with `/[redacted-credential]`.
 
 Evidence retention is bounded, not an infinite durable permission inbox. If an observation falls outside the selected log window before action, it can no longer authorize a mutation.
 
@@ -100,7 +100,7 @@ This matters for non-idempotent methods and bodies: Tobari cannot know whether b
 | Decision                                 | Meaning                                                                                                               |
 | ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
 | Workspace Manifest policy baseline grant | Trusted baseline authority in the Workspace Manifest snapshot; the fixed agent-ready data is not a selectable profile |
-| Workspace Manifest policy terminal deny  | Ceiling rejection that never enters pending review and performs zero candidate/DNS/Broker/upstream work               |
+| Workspace Manifest policy terminal deny  | Ceiling rejection that never enters pending review and performs zero candidate/DNS/Authentication/upstream work       |
 | Learned exact allow                      | One Workspace Manifest/project/host/port/method/path capability                                                       |
 | Learned exact deny                       | One explicitly reviewed terminal rejection; it wins over an allow for that effect                                     |
 | `policy reset`                           | Removes one learned allow or exact deny and returns the effect to initialized/default evaluation; it is not an allow  |

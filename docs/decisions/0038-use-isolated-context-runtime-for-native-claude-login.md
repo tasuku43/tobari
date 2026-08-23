@@ -6,7 +6,7 @@
 - Scope: Product, architecture, security, authentication, external I/O, harness, runtime images, and public boundary
 - Revises: ADR 0025, ADR 0031, and ADR 0036
 - Revised by: ADR 0041
-- Superseded by: ADR 0044 for the standard profile; retained only by the experimental development profile
+- Superseded by: ADR 0044 for the release surface; retained only by the research surface
 
 ## Context
 

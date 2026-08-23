@@ -58,15 +58,6 @@ const v1Sources = {
     join(root, "src/content/docs/ja/guides/authentication.mdx"),
     "utf8",
   ),
-  providerPairs: await readFile(
-    join(root, "src/data/providerToolSupport.ts"),
-    "utf8",
-  ),
-  credentialMap: await readFile(
-    join(root, "src/data/credentialArchitecture.ts"),
-    "utf8",
-  ),
-  sequences: await readFile(join(root, "src/data/sequences.ts"), "utf8"),
 };
 
 for (const required of [
@@ -101,7 +92,7 @@ for (const required of [
   "claude",
   "codex login",
   "agent-ready",
-  "task build:dev",
+  "release surface",
   "subscriptionType",
   "rateLimitTier",
 ]) {
@@ -112,34 +103,6 @@ for (const required of [
     errors.push(
       `native authentication guide is missing ${required} in one locale`,
     );
-  }
-}
-for (const required of [
-  "aws-brokered-allowed",
-  "datadog-refresh-allowed",
-  "credential-outcome-unknown",
-  "Host credential companion",
-  "Datadog token endpoint",
-]) {
-  if (
-    !v1Sources.sequences.includes(required) &&
-    !v1Sources.credentialMap.includes(required)
-  ) {
-    errors.push(
-      `reviewed credential path is missing from current diagrams: ${required}`,
-    );
-  }
-}
-for (const requiredProvider of [
-  'providerId: "github"',
-  'providerId: "aws"',
-  'providerId: "datadog"',
-  'providerId: "openai"',
-  'providerId: "anthropic"',
-  'providerId: "chatwork"',
-]) {
-  if (!v1Sources.providerPairs.includes(requiredProvider)) {
-    errors.push(`current provider map is missing ${requiredProvider}`);
   }
 }
 

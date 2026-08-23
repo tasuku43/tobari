@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tasuku43/tobari/internal/domain/capabilityprofile"
+	"github.com/tasuku43/tobari/internal/domain/capabilitysurface"
 	"github.com/tasuku43/tobari/internal/domain/doctor"
 	"github.com/tasuku43/tobari/internal/domain/fault"
 	"github.com/tasuku43/tobari/internal/domain/operation"
@@ -24,12 +24,14 @@ type cliInspector struct {
 	observations       map[doctor.CheckID]doctor.Observation
 	err                error
 	calls              int
+	ids                []doctor.CheckID
 	ctx                context.Context
 	roots              []string
 }
 
 func (i *cliInspector) ObserveDoctorCheck(ctx context.Context, root string, id doctor.CheckID) (doctor.Observation, error) {
 	i.calls++
+	i.ids = append(i.ids, id)
 	i.ctx = ctx
 	i.roots = append(i.roots, root)
 	if i.err != nil {
@@ -321,7 +323,7 @@ func TestHumanRootRecoveryActionIsExecutable(t *testing.T) {
 	if stdout.Len() != 0 {
 		t.Fatalf("stdout = %q", stdout.String())
 	}
-	if !humanOutputHasRow(stderr.String(), "Next", "tobari — Create a Workspace from the current project directory.") {
+	if !humanOutputHasRow(stderr.String(), "Next", expectedSurfaceText("tobari — Create a Workspace from the current project directory.")) {
 		t.Fatalf("stderr = %q, want executable root recovery", stderr.String())
 	}
 	if strings.Contains(stderr.String(), "Next           tobari tobari") {
@@ -344,9 +346,9 @@ func TestVersionOutputContract(t *testing.T) {
 		"  Version        v1.2.3\n" +
 		"  Commit         0123456789abcdef0123456789abcdef01234567\n" +
 		"  Resolver       " + string(identity.ResolverChannel) + "\n" +
-		"  Capabilities   " + string(capabilityprofile.Compiled()) + "\n" +
+		"  Capability surface " + string(capabilitysurface.Compiled()) + "\n" +
 		"  Gateway API    required 1, selected 1\n"
-	if identity.CapabilityProfile.IncludesExperimental() {
+	if identity.CapabilitySurface.IncludesResearch() {
 		want += "  Auth Broker API required 1, selected 1\n"
 	}
 	want += "  Compatibility  compatible\n"
@@ -368,7 +370,7 @@ func TestVersionOutputContract(t *testing.T) {
 	projection := document["build_identity"].(map[string]any)
 	_, hasBrokerRequired := projection["auth_broker_required_api"]
 	_, hasBrokerSelected := projection["auth_broker_selected_api"]
-	if hasBrokerRequired != identity.CapabilityProfile.IncludesExperimental() || hasBrokerSelected != hasBrokerRequired {
+	if hasBrokerRequired != identity.CapabilitySurface.IncludesResearch() || hasBrokerSelected != hasBrokerRequired {
 		t.Fatalf("version JSON Broker fields = %t/%t, identity = %+v", hasBrokerRequired, hasBrokerSelected, identity)
 	}
 }
@@ -428,7 +430,7 @@ func TestDoctorFailureUsesRejectedExitAndStructuredRecovery(t *testing.T) {
 	if !strings.Contains(stdout.String(), "docker_cli     fail") ||
 		!strings.Contains(stdout.String(), "docker_engine  blocked") ||
 		!strings.Contains(stdout.String(), "Recovery\n") ||
-		!strings.Contains(stdout.String(), "tobari doctor") ||
+		!strings.Contains(stdout.String(), expectedSurfaceText("tobari doctor")) ||
 		!humanOutputHasRow(stderr.String(), "Code", "diagnostic_failed") {
 		t.Fatalf("stdout = %q, stderr = %q", stdout.String(), stderr.String())
 	}
@@ -476,7 +478,7 @@ func TestDoctorWarningRecoveryIsRenderedWithoutFailing(t *testing.T) {
 		t.Fatalf("Run(doctor) code = %d, stderr = %q", code, stderr.String())
 	}
 	if !strings.Contains(stdout.String(), "state          warn") || !strings.Contains(stdout.String(), "Recovery\n") ||
-		!strings.Contains(stdout.String(), "tobari cluster up") {
+		!strings.Contains(stdout.String(), expectedSurfaceText("tobari cluster up")) {
 		t.Fatalf("doctor warning output = %q", stdout.String())
 	}
 }
@@ -1013,7 +1015,7 @@ func TestDoctorRejectsArgumentsBeforeInspection(t *testing.T) {
 	if code := runCLI(command, []string{"doctor", "extra"}); code != ExitUsage {
 		t.Fatalf("Run(doctor extra) code = %d, want %d", code, ExitUsage)
 	}
-	if inspector.calls != 0 || stdout.Len() != 0 || !strings.Contains(stderr.String(), "usage: tobari doctor") {
+	if inspector.calls != 0 || stdout.Len() != 0 || !strings.Contains(stderr.String(), expectedSurfaceText("usage: tobari doctor")) {
 		t.Fatalf("calls = %d, stdout = %q, stderr = %q", inspector.calls, stdout.String(), stderr.String())
 	}
 }

@@ -6,10 +6,10 @@ description: 各エージェント CLI のネイティブログインを Workspa
 Tobari では認証とネットワーク認可は別です。ログインの成功はアカウントを
 特定しますが、HTTP effect を許可しません。
 
-## standard の認証モデル
+## release surface の認証モデル
 
-standard profile には provider binding、credential projection、Auth Broker、
-`tobari auth` コマンドがありません。Workspace に入り、エージェント CLI の
+release surface には Tobari 所有の認証 command や credential service が
+ありません。Workspace に入り、エージェント CLI の
 公式ログインを使います。
 
 ```sh
@@ -90,16 +90,9 @@ tobari review permissions
 で再試行します。ログインは policy rule を作らず、policy approval はログインを
 実行しません。
 
-## experimental Broker 研究機能
-
-`task build:dev` は repository 研究用に compile-time experimental Auth Broker と
-`auth` コマンドを保持します。standard の catalog、Compose topology、埋め込みの
-standard runtime asset、release には含まれません。環境変数や runtime input で
-standard binary に有効化することもできません。
-
 ## 保証と限界
 
-standard Tobari は host 管理の認証情報を Workspace に入れず、Workspace の
+release surface の Tobari は host 管理の認証情報を Workspace に入れず、Workspace の
 認証情報を OPA、audit、denial output、log に出しません。同じ Workspace 内の
 相互に敵対するプロセスの分離、すでに許可された認証済み capability の利用防止、
 remote logout、provider credential schema の解釈は提供しません。

@@ -47,7 +47,7 @@
   {
     "id": "operator.console",
     "status": "internal",
-    "reason": "The Operator Console is compiled only into the unsupported experimental development profile."
+    "reason": "The Operator Console is compiled only into the unsupported research surface."
   },
   {
     "id": "tobari.lifecycle",
@@ -82,6 +82,6 @@
   {
     "id": "authentication.broker",
     "status": "internal",
-    "reason": "Auth Broker is compiled only into the unsupported experimental development profile."
+    "reason": "Auth Broker is compiled only into the unsupported research surface."
   }
 ]

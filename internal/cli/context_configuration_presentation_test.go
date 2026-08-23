@@ -89,7 +89,7 @@ func TestContextConfigurationPresentationEvidenceUsesOneTypedFixture(t *testing.
 		*fixture.GitIdentity.Name != answer.GitIdentity.Name || *fixture.GitIdentity.Email != answer.GitIdentity.Email {
 		t.Fatalf("Git identity answer does not match fixture: answer=%+v fixture=%+v", answer.GitIdentity, fixture.GitIdentity)
 	}
-	if !slices.Equal(answer.ExactNextArgv, []string{"tobari"}) ||
+	if !slices.Equal(expectedSurfaceArgv(answer.ExactNextArgv), []string{ProgramName}) ||
 		answer.RoutineSuccess.TaskInvocations != 1 || answer.RoutineSuccess.ExternalReconstructionSteps != 0 ||
 		!slices.Equal(answer.UnsupportedInferences, []string{
 			"authentication", "signing", "provider_account", "command_authority_from_display_text",
@@ -101,7 +101,7 @@ func TestContextConfigurationPresentationEvidenceUsesOneTypedFixture(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := renderContextReportText(fixture, false); !slices.Equal(got, golden) {
+	if got := renderContextReportText(fixture, false); !slices.Equal(got, []byte(expectedSurfaceText(string(golden)))) {
 		t.Fatalf("Workspace Manifest configuration text changed\n--- got ---\n%s--- want ---\n%s", got, golden)
 	}
 	jsonOutput, err := renderContextReport(fixture, successFormatJSON, false)
@@ -116,9 +116,9 @@ func TestContextConfigurationPresentationEvidenceUsesOneTypedFixture(t *testing.
 		*document.Manifest.ID != answer.SelectedContext.ID || document.Manifest.Name != answer.SelectedContext.Name {
 		t.Fatalf("rendered JSON lost semantic identity: %+v", document)
 	}
-	text := string(golden)
+	text := expectedSurfaceText(string(golden))
 	if !strings.Contains(text, "Shell NO_COLOR: literal \"\"") ||
-		!strings.Contains(text, "Next: re-enter a matching Workspace with `tobari`") {
+		!strings.Contains(text, expectedSurfaceText("Next: re-enter a matching Workspace with `tobari`")) {
 		t.Fatalf("text does not preserve explicit-empty or exact-next-command evidence: %q", text)
 	}
 	for _, unsupported := range answer.UnsupportedInferences {

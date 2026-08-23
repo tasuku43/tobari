@@ -72,9 +72,9 @@ Tobari は次を保証しません。
 immutable source access、Workspace Manifest-owned policy、完全一致 denial review、guided/advanced policy、
 Workspace Manifest runtime recipe、Claude Code と Codex の tool-native authentication です。
 
-standard CLI release が公開・lock する service image は Gateway だけです。repository development は content-addressed local image を使い、experimental Auth Broker profile は `task build:dev` の背後に保持します。[コンポーネントのバージョン](../../reference/component-versions/)では成果物の契約を確認でき、[サプライチェーン](../../security/supply-chain/)ではソースとランタイムの識別情報を別々に確認する理由を説明しています。
+release surface の CLI release が公開・lock する service image は Gateway だけです。repository development は content-addressed local image を使います。この release site は release contract だけを説明します。[コンポーネントのバージョン](../../reference/component-versions/)では成果物の契約を確認でき、[サプライチェーン](../../security/supply-chain/)ではソースとランタイムの識別情報を別々に確認する理由を説明しています。
 
-マニフェストで任意に選べる署名・更新処理、任意の OAuth ヘルパー、プロバイダー操作に対するポリシー、Git 認証情報ヘルパー、プロバイダーまたは Workspace Manifest ごとの複数アカウント、追加の未レビュー組み込みプランは対応外です。
+マニフェストで任意に選べる署名・更新処理、任意の OAuth ヘルパー、外部サービス操作に対するポリシー、Git 認証情報ヘルパー、外部サービスまたは Workspace Manifest ごとの複数アカウント、追加の未レビュー組み込みプランは対応外です。
 
 ## 根拠となるソース
 

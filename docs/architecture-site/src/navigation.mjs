@@ -125,11 +125,6 @@ export const navigationGroups = [
       "設定と状態",
       "/reference/configuration-and-state/",
     ),
-    item(
-      "Provider manifest",
-      "プロバイダーマニフェスト",
-      "/reference/provider-manifest/",
-    ),
     item("JSON schemas", "JSON Schema", "/reference/json-schemas/"),
     item(
       "Faults and recovery",

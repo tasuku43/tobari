@@ -16,8 +16,8 @@
     {
       "name": "development-compatible",
       "compatible": true,
-      "development_build_command": "task build",
-      "development_binary": "bin/tobari"
+      "development_build_command": "task build:dev",
+      "development_binary": "bin/tobari-research"
     },
     {
       "name": "missing-source-metadata",

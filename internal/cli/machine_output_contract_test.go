@@ -243,8 +243,8 @@ func TestExactAgentHelpDeclaresExecutableMachineInvocations(t *testing.T) {
 	text := string(output)
 	for _, want := range []string{
 		`"schema_version":1`,
-		`"success_json":"tobari status --format=json"`,
-		`"error_json":"tobari --error-format=json status --format=json"`,
+		expectedSurfaceText(`"success_json":"tobari status --format=json"`),
+		expectedSurfaceText(`"error_json":"tobari --error-format=json status --format=json"`),
 		`"global_flag_position":"before_command"`,
 	} {
 		if !strings.Contains(text, want) {

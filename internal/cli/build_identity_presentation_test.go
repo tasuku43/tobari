@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/tasuku43/tobari/internal/domain/buildidentity"
-	"github.com/tasuku43/tobari/internal/domain/capabilityprofile"
+	"github.com/tasuku43/tobari/internal/domain/capabilitysurface"
 )
 
 type buildIdentityFixture struct {
@@ -18,7 +18,7 @@ type buildIdentityFixture struct {
 		Commit                string `json:"commit"`
 		ResolverChannel       string `json:"resolver_channel"`
 		DevelopmentSource     bool   `json:"development_source"`
-		CapabilityProfile     string `json:"capability_profile"`
+		CapabilitySurface     string `json:"capability_surface"`
 		GatewayRequiredAPI    int    `json:"gateway_required_api"`
 		GatewaySelectedAPI    int    `json:"gateway_selected_api"`
 		AuthBrokerRequiredAPI int    `json:"auth_broker_required_api"`
@@ -71,13 +71,13 @@ func TestBuildIdentityFrozenSemanticCorpus(t *testing.T) {
 		item := item
 		t.Run(item.Name, func(t *testing.T) {
 			t.Parallel()
-			if (item.CapabilityProfile == string(capabilityprofile.ProfileExperimental)) != buildIdentityHasBroker() {
-				t.Skip("fixture belongs to the other compile-time capability profile")
+			if (item.CapabilitySurface == string(capabilitysurface.CapabilitySurfaceResearch)) != buildIdentityHasBroker() {
+				t.Skip("fixture belongs to the other compile-time capability surface")
 			}
 			identity := buildidentity.Identity{
 				Version: item.Version, Commit: item.Commit,
 				ResolverChannel: buildidentity.ResolverChannel(item.ResolverChannel), DevelopmentSource: item.DevelopmentSource,
-				CapabilityProfile: capabilityprofile.Profile(item.CapabilityProfile),
+				CapabilitySurface: capabilitysurface.CapabilitySurface(item.CapabilitySurface),
 				Gateway:           buildidentity.Component{RequiredAPI: item.GatewayRequiredAPI, SelectedAPI: item.GatewaySelectedAPI},
 				AuthBroker:        buildidentity.Component{RequiredAPI: item.AuthBrokerRequiredAPI, SelectedAPI: item.AuthBrokerSelectedAPI},
 			}

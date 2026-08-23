@@ -35,13 +35,18 @@ case "$profile" in
     ;;
   security)
     npm run check:source
+    npm run test:release-surface-guard
+    npm run check:release-surface
     ;;
   public)
     install_dependencies
     npm run generate:check
     npm run check:source
+    npm run test:release-surface-guard
+    npm run check:release-surface
     npm run build:pages
     npm run check:dist
+    npm run check:release-surface:dist
     ;;
   *)
     echo "usage: $0 <fast|full|browser|security|public>" >&2

@@ -41,7 +41,7 @@ type CheckSpec struct {
 	Prerequisites []CheckID
 }
 
-var checkInventory = []CheckSpec{
+var commonCheckInventory = []CheckSpec{
 	{ID: CheckIDDockerCLI},
 	{ID: CheckIDDockerEngine, Prerequisites: []CheckID{CheckIDDockerCLI}},
 	{ID: CheckIDDockerContext, Prerequisites: []CheckID{CheckIDDockerCLI}},
@@ -54,13 +54,6 @@ var checkInventory = []CheckSpec{
 	{ID: CheckIDPolicy, Prerequisites: []CheckID{CheckIDContext, CheckIDDockerEngine}},
 	{ID: CheckIDPolicyData, Prerequisites: []CheckID{CheckIDContext}},
 	{ID: CheckIDImageConfig, Prerequisites: []CheckID{CheckIDContext}},
-	{ID: CheckIDAuthProviderManifests, Prerequisites: []CheckID{CheckIDContext}},
-	{ID: CheckIDAuthVaultPaths, Prerequisites: []CheckID{CheckIDContext}},
-	{ID: CheckIDAuthRootKey, Prerequisites: []CheckID{CheckIDAuthVaultPaths}},
-	{ID: CheckIDAuthBroker, Prerequisites: []CheckID{CheckIDState, CheckIDDockerEngine}},
-	{ID: CheckIDCredentialCompanion, Prerequisites: []CheckID{CheckIDAuthBroker}},
-	{ID: CheckIDAuthVaultIntegrity, Prerequisites: []CheckID{CheckIDAuthBroker, CheckIDAuthProviderManifests, CheckIDContext}},
-	{ID: CheckIDAuthProjectHandles, Prerequisites: []CheckID{CheckIDAuthVaultIntegrity, CheckIDAuthProviderManifests, CheckIDState}},
 	{ID: CheckIDOwnedResources, Prerequisites: []CheckID{CheckIDDockerEngine}},
 }
 

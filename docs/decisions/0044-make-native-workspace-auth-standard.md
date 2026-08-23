@@ -21,7 +21,7 @@ boundary.
 
 ## Decision
 
-The standard profile has no provider binding, provider projection, Auth Broker
+The release surface has no provider binding, provider projection, Auth Broker
 service, Broker socket, handle projection, root key, vault, companion, or
 `auth` command. Claude Code, Codex, and other tools authenticate natively inside
 one persistent Workspace home. Gateway redacts authentication before OPA and
@@ -63,6 +63,6 @@ release lock entry, and is never published.
   Gateway regression proves Claude/Codex Authorization values are absent from
   OPA input and preserved after allow without `broker_auth_required`.
 - Policy-preset tests pin every Claude and Codex native-login method/host/path.
-- Experimental tests compile both `tobari_dev` and `tobari_experimental` and
+- Research tests compile both `tobari_dev` and `tobari_research` and
   retain the closed Broker contracts without creating a runtime switch in the
-  standard binary.
+  release-surface binary.

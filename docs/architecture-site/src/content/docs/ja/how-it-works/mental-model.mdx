@@ -69,13 +69,6 @@ native login は policy rule を作らず、policy approval は credential を�
 | Gateway が利用不能       | guarded connection が失敗 | public network への直接 fallback      |
 | provider が login を拒否 | provider-owned failure    | Tobari による account metadata の合成 |
 
-## experimental Broker profile
-
-`task build:dev` で作る repository build は Auth Broker の研究経路を保持します。
-この compile-time profile には第三の service、provider binding、handle、vault、host
-側の `auth` command があります。standard の catalog、topology、埋め込みの
-standard runtime asset、release にはいずれも存在しません。
-
 ## 保証と限界
 
 standard の対応 topology では、通常の HTTP/HTTPS を転送する前に Gateway が allow

@@ -412,7 +412,7 @@ func TestLoginRejectsAWSMethodForEveryNonAWSBuiltinBeforeTerminalInspection(t *t
 
 func TestLoginSelectsConsoleAndRejectsMethodForGitHubBeforeRuntime(t *testing.T) {
 	if !authbroker.SupportsReviewedLoginProvider(BuiltinAWSProviderID) {
-		t.Skip("AWS authentication is available only in the experimental profile")
+		t.Skip("AWS authentication is available only on the research surface")
 	}
 	fake := &authRuntimeFake{
 		result:        mutationObservation(validAuthResultForProvider(authbroker.TaskLogin, BuiltinAWSProviderID)),

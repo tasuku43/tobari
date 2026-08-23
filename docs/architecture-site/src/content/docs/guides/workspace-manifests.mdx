@@ -26,7 +26,7 @@ tobari manifest show
 `manifest show` without `--name` reads that default. Add `--details` for the
 complete Boundary, stable identity, revision and store references. JSON is
 already complete and does not change with `--details`. Neither view includes
-credentials, broker handles, root keys, or vault contents.
+credentials, untrusted Workspace-provided identity claims, host-owned states, or Workspace state contents.
 
 The display name is convenient selection text. `workspace_manifest_id` plus the
 semantic Manifest digest is authority. `manifest_generation` distinguishes

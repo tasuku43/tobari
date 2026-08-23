@@ -1,5 +1,8 @@
 # Product Contract
 
+The release/research capability vocabulary, resolver axis, breaking V1 schema
+cutover, and archive boundary are governed by [ADR 0082](decisions/0082-release-and-research-build-surfaces.md).
+
 ## Product statement
 
 Tobari is a local CLI that gives a coding agent an execution boundary in
@@ -12,7 +15,7 @@ authority is an observe, review, approve, and retry loop rather than a
 prerequisite policy-authoring project. Every supported outbound HTTP and HTTPS
 request remains enforced through one shared Gateway and OPA policy boundary.
 Agent CLIs authenticate natively inside their persistent Workspace home; the
-standard profile has no provider credential projection or Auth Broker.
+release surface has no provider credential projection or Auth Broker.
 
 ## Primary users and owned outcome
 
@@ -179,7 +182,7 @@ is added explicitly.
   root plus stable Workspace Manifest ID. Its work container is recoverable runtime detail;
   the stable Workspace ID is diagnostic rather than a routine action input.
 - **cluster:** the one installation-local Gateway, one OPA, aggregate policy,
-  principal registry, and CA lifecycle. The experimental development profile
+  principal registry, and CA lifecycle. The research surface
   adds one locked Auth Broker and provider projection.
 - **Gateway:** the trusted HTTP/HTTPS policy enforcement point.
 - **OPA:** the trusted policy decision point.
@@ -190,7 +193,7 @@ is added explicitly.
 - **Attachment Grant:** one exact reviewed Allow or Deny bound to a Workspace Manifest,
   Workspace, Attachment Epoch, target port, and exact HTTP effect. It is
   Workspace-wide for that attachment and is not a learned policy rule.
-- **Auth Broker:** the experimental non-root credential-resolution daemon. It owns
+- **Auth Broker:** the research non-root credential-resolution daemon. It owns
   encrypted Workspace Manifest vault access, has no TCP listener, starts locked, and
   exposes separate control and Gateway-only runtime Unix sockets.
 - **project root:** the canonical host directory selected from the current working
@@ -218,31 +221,31 @@ is added explicitly.
   one Workspace's persistent home during its own login or configuration flow. It
   is the standard credential source and is readable by every process in that
   Workspace.
-- **experimental credential provider:** the external service or authority whose credential
+- **research credential provider:** the external service or authority whose credential
   is acquired or imported, stored, and later applied to one exact reviewed
   request binding. A provider is not the Workspace client that uses it.
-- **experimental Workspace client tool:** the CLI or other client inside a Workspace that
+- **research Workspace client tool:** the CLI or other client inside a Workspace that
   receives a provider-declared handle projection and emits the authenticated
   request shape. Standard pairings cover GitHub/`gh`, Datadog/`pup`,
-  OpenAI/Codex, Anthropic/Claude, and Chatwork/`cwk`; the experimental
-  repository profile additionally covers AWS/`aws`. Their names
+  OpenAI/Codex, Anthropic/Claude, and Chatwork/`cwk`; the research
+  surface additionally covers AWS/`aws`. Their names
   grant neither provider identity nor network authority.
-- **experimental brokered credential:** one typed static or reviewed renewable record owned
+- **research brokered credential:** one typed static or reviewed renewable record owned
   by a stable Workspace Manifest and provider, acquired through protected non-terminal
   stdin or one purpose-limited reviewed host driver and stored in the
   encrypted Workspace Manifest vault.
-- **experimental Workspace credential handle:** a versioned random opaque value bound to one
+- **research Workspace credential handle:** a versioned random opaque value bound to one
   Workspace Manifest, project, provider, credential revision, and exact HTTP binding. It
   is not the real credential, but it is a scoped bearer capability that should
   not be published or logged. It is not authority without the trusted
   principal, exact binding, and OPA allow. Broker metadata never inherits a
   broad static host/method allow; the first L7 effect remains reviewable until
   an explicit exact or single-segment-template learned rule exists.
-- **experimental provider manifest:** strict non-secret data declaring static import,
+- **research provider manifest:** strict non-secret data declaring static import,
   Workspace handle projections, and exact HTTPS/header credential bindings.
   Owner manifests are V1 static-secret/header plans. Standard reviewed
   built-ins are a closed typed union for GitHub, Datadog, OpenAI, Anthropic,
-  and Chatwork; the experimental profile adds AWS without making it runtime configurable.
+  and Chatwork; the research surface adds AWS without making it runtime configurable.
   Owner data declares no executable shell, helper choice, refresh, signing,
   arbitrary route, HTTP method/path policy, or provider operation semantics.
 - **Workspace Manifest:** one stable host-owned desired Workspace definition
@@ -252,7 +255,7 @@ is added explicitly.
   source access, normalized policy and terminal ceilings, policy mode, and
   native-readiness participation. The same revision contains one exact Runtime
   binding and narrow Workspace defaults grouped by cluster, entry, child
-  session, and creation activation boundaries. Experimental Broker state is
+  session, and creation activation boundaries. Research Broker state is
   separate and is never a desired/applied Manifest field.
 - **default Workspace Manifest:** only the installation selector used when an
   invocation omits `--manifest`; it is not current applied state or shared
@@ -295,7 +298,7 @@ rejects duplicate or stale endpoints. Workspace Manifest policy is selected insi
 single OPA from that trusted principal. Learned permissions are Workspace Manifest- and
 project-bound. Principal identity never selects or injects tool credentials.
 Standard Gateway passes one Workspace-owned credential only after the ordinary
-HTTP decision; experimental Broker resolution additionally requires its exact
+HTTP decision; research Broker resolution additionally requires its exact
 provider, revision, target, and header binding.
 
 Every Workspace uses a guarded default route and non-recursive synthetic DNS,
@@ -378,12 +381,12 @@ copying it cannot expose host commands:
 | `tobari-expose stop <exposure-ref>` | act, reference bound | write | Close one exact current-attachment listener and its active relays without stopping the Workspace service |
 | `tobari-expose help [<command>...] [--format text\|agent]` | utility | read | Discover only the helper program's exact contracts |
 
-The unsupported experimental development profile built by `task build:dev`
+The unsupported research surface built by `task build:dev`
 additionally exposes `serve [--no-open]`. It runs one foreground IPv4-loopback
 Operator Console for typed cluster, Workspace, Permission Inbox, and learned-rule
 inspection; it may open the host browser, stages decisions without authority,
 and delegates one confirmed reviewed set to the canonical fixed-target Apply.
-The standard development binary and release archives omit this command.
+The release-surface development binary and release archives omit this command.
 
 For the CWD lifecycle commands `tobari`, `status`, and `delete`, one non-empty
 invocation Workspace Manifest may appear before or after the command path: for example,
@@ -517,10 +520,10 @@ review runs through `tobari review permissions` in a separate host terminal.
   Tobari publishes no Gateway, runtime, or Auth Broker OCI image, and moving
   registry tags never become runtime authority.
 - Standard authentication is owned by each agent CLI in the Workspace and the
-  standard catalog contains no `auth` namespace. The following legacy driver
+  release-surface catalog contains no `auth` namespace. The following legacy driver
   contract is compiled only by `task build:dev`. Its authentication commands
-  accept an existing Workspace Manifest name and installed provider ID; the experimental
-  profile accepts GitHub, Datadog, OpenAI, Anthropic, Chatwork import, and AWS.
+  accept an existing Workspace Manifest name and installed provider ID; the research
+  surface accepts GitHub, Datadog, OpenAI, Anthropic, Chatwork import, and AWS.
   AWS alone adds
   `--method identity-center|console`. The GitHub driver shows the
   GitHub device code and the trusted host opens exactly
@@ -882,7 +885,7 @@ must first recover through a declared read-only reconciliation command.
 
 `version --format json` uses schema version 1 with envelope
 `build_identity`. Its fixed fields are `version`, `commit`,
-`resolver_channel`, `development_source`, `capability_profile`, required and selected Gateway
+`resolver_channel`, `development_source`, `capability_surface`, required and selected Gateway
 APIs, `compatible`, `development_build_command`, and
 `development_binary`. An absent source commit is the explicit string
 `unknown` and makes `compatible=false`. The two repository-command fields are
@@ -962,7 +965,7 @@ revision plus each ordered Workspace Manifest/project/effect/stored-rule decisio
 directs the caller to retry in the current running Workspace. The public
 read-only JSON review schema remains version 1 and does not expose this
 internal TTY Apply receipt.
-Experimental `tobari serve` exposes the same human task in one foreground
+Research `bin/tobari-research serve` exposes the same human task in one foreground
 Operator Console and is absent from the standard and release catalogs.
 It binds only a random IPv4 loopback port, issues one process-memory 256-bit
 session bearer through the initial URL fragment, and stores no cookie or
@@ -1214,8 +1217,8 @@ synthetic state.
   that filename. Wildcards, IP literals, non-canonical hosts, unknown fields,
   duplicate keys or rule IDs, incomplete pairs, symlinks, unsafe permissions,
   and extra files fail closed;
-- `auth/providers/*.json`: experimental-only owner provider manifests, ignored
-  by standard builds;
+- `auth/providers/*.json`: research-only owner provider manifests, ignored
+  by release-surface builds;
 - `contexts/default.json`: owner-only exact default Workspace Manifest
   selection; missing means `default` and the marker has no enforcement authority;
 - `principal-registry/principals.json`: owner-only host-issued schema-v1
@@ -1250,7 +1253,7 @@ confirmation. The dedicated schema-v1 request is not URL authority; the host
 independently validates the target and Workspace. The bridge stores no callback, code, credential, or
 durable authentication state and creates no cluster service. The
 attached shell retains the real Docker terminal boundary without an observation path.
-Experimental Broker state is separate installation state:
+Research Broker state is separate installation state:
 the normalized schema-v1 provider projection is generated below
 `auth/projection/providers.json`; schema-1-envelope/schema-1-payload Workspace Manifest
 vaults are below
@@ -1260,7 +1263,7 @@ Workspace authentication file registries are below `auth/projects`. On macOS,
 the root key is instead stored in Keychain under service
 `io.tobari.auth-root.v1` and account `tobari`.
 The complete canonical schema/path/backend table is in
-[Authentication handling](07_authentication.md#experimental-canonical-schemas-paths-and-backend-identifiers).
+[Authentication handling](07_authentication.md#research-canonical-schemas-paths-and-backend-identifiers).
 
 Runtime state is stored under `${XDG_STATE_HOME:-$HOME/.local/state}/tobari`:
 `roots/<hash>.json` indexes `(canonical root, stable Workspace Manifest ID)` and
@@ -1490,7 +1493,7 @@ orthogonal boundary.
 Candidate
 discovery excludes other denials, preventing a successful no-op approval.
 
-In the experimental build only, `auth login`, `auth import`, and `auth logout`
+In the research build only, `auth login`, `auth import`, and `auth logout`
 validate the fixed installation
 credential-catalog target and mutation impact before acquisition or vault I/O.
 Login selects only the active profile's closed provider union through an
@@ -1548,7 +1551,7 @@ Dockerfile through the managed Runtime build boundary. Standard
 Workspace-native home/auth bytes are preserved without reading or converting
 them.
 
-Predecessor experimental Broker authority is not rebound. Migration enumerates
+Predecessor research Broker authority is not rebound. Migration enumerates
 the complete filesystem-side ciphertext, bindings, handles, lookups,
 projections, registries, and provider/config records and atomically moves them
 to owner-only private quarantine. Unknown, mixed, partial, corrupt, unsafe,
@@ -1579,7 +1582,7 @@ sockets through its guarded transparent path;
 it does not forward raw TCP, non-HTTP TLS, UDP, QUIC, recursive DNS, Git SSH, or
 certificate-pinned traffic. A client that cannot use the Tobari CA or expose an
 unambiguous HTTP authority fails closed.
-The experimental Broker slice supports GitHub, Datadog, OpenAI, Anthropic,
+The research Broker slice supports GitHub, Datadog, OpenAI, Anthropic,
 Chatwork, and AWS and retains one credential per Workspace Manifest/provider. Owner
 manifests may express another single static primary secret only through the
 exact HTTPS/header replacement contract and protected stdin import. V1 has no

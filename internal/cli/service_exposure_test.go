@@ -145,7 +145,7 @@ func TestExposureHelperPreservesOpaqueReferenceAndDoesNotRouteHostCLI(t *testing
 	if code := command.RunContext(context.Background(), []string{"3000"}); code != ExitOK {
 		t.Fatalf("request code = %d stderr=%q", code, stderr.String())
 	}
-	if port.requestPort != 3000 || !strings.Contains(stdout.String(), exposure.ID) || !strings.Contains(stdout.String(), "tobari-expose stop "+exposure.ID) || !strings.Contains(stderr.String(), "tobari review services") {
+	if port.requestPort != 3000 || !strings.Contains(stdout.String(), exposure.ID) || !strings.Contains(stdout.String(), "tobari-expose stop "+exposure.ID) || !strings.Contains(stderr.String(), expectedSurfaceText("tobari review services")) {
 		t.Fatalf("request output=%q stderr=%q port=%d", stdout.String(), stderr.String(), port.requestPort)
 	}
 	stdout.Reset()

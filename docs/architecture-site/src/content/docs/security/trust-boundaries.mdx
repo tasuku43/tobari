@@ -4,10 +4,9 @@ description: Where project files, identities, policy, credentials, control socke
 ---
 
 import ConceptDiagram from "../../../components/ConceptDiagram.astro";
-import CredentialArchitectureMap from "../../../components/CredentialArchitectureMap.astro";
 
-Host-owned lifecycle state, registries, policy, root keys, Gateway, OPA, and
-Auth Broker form the trusted enforcement side of Tobari. Workspace processes
+Host-owned lifecycle state, registries, policy, Gateway, and OPA form the
+trusted enforcement side of Tobari. Workspace processes
 and upstream services remain untrusted, and values they supply cannot turn a
 self-declared project or Workspace Manifest label into authority.
 
@@ -21,8 +20,7 @@ boundaries enforce.
 <ul class="meaning-key" aria-label="Diagram meaning">
   <li class="trusted">Trusted enforcement</li>
   <li class="untrusted">Untrusted data/process</li>
-  <li class="secret">Primary secret</li>
-  <li class="handle">Non-secret handle</li>
+  <li class="secret">Tool-owned secret</li>
   <li class="allowed">Allowed route</li>
   <li class="denied">Blocked route</li>
 </ul>
@@ -64,29 +62,27 @@ loopback, validates exact numeric HTTP authority, relays HTTP/1.1 or an upgraded
 WebSocket, and closes access on attachment exit. Review owns no route lifetime;
 the browser channel, Host Loopback policy, and application bytes grant none.
 
-## Boundary 5: credential authority
+## Boundary 5: agent CLI login
 
 Tool-native credentials deliberately cross into Workspace storage or
-environment and are readable there. In the brokered path, the fixed GitHub
-helper or strict owner stdin import runs on the trusted host. The root-key
-backend unlocks a Workspace Manifest vault, and Auth Broker keeps one static credential
-record. Workspace receives a non-secret opaque selector bound to one project.
-
-Gateway does not send the handle, resolved credential, or ordinary request
-body to OPA. On a static allow it resolves the same revision once and replaces
-the declared upstream header. On deny, resolution does not run.
-
-<CredentialArchitectureMap headingLevel={3} initial="static" />
+environment and are readable there. The release surface never inherits host
+credentials, provider configuration, or host Workspace state. Gateway removes
+authentication and cookies from OPA input and audit, then forwards the original
+value only after the ordinary HTTP effect is allowed. On deny, no credential
+value reaches the upstream.
 
 ## Boundary 6: external data
 
-Request URLs, headers, bodies, upstream certificates, responses, provider account labels, diagnostics, and policy candidates can all contain attacker-controlled text. Visible projection escapes terminal/structured-output hazards. It does not claim to make printable prompt-like content trustworthy.
+Request URLs, headers, bodies, upstream certificates, responses, external labels, diagnostics, and policy candidates can all contain attacker-controlled text. Visible projection escapes terminal/structured-output hazards. It does not claim to make printable prompt-like content trustworthy.
 
 Body streaming is separate from decision identity. The body crosses Gateway to the allowed upstream after authorization, but is absent from the policy candidate and secret-free audit record.
 
 ## Failure and recovery
 
-Boundary metadata is validated before effectful use. Unsafe registry, policy, provider, root-key, vault, or handle state fails closed. Recovery happens through explicit host commands—typically `doctor`, `cluster status`, `auth status`, policy rediscovery, or re-entry—not by trusting values sent from the Workspace.
+Boundary metadata is validated before effectful use. Unsafe registry, policy,
+host-owned state, or Workspace state fails closed. Recovery happens through
+explicit host commands—typically `doctor`, `cluster status`, policy
+rediscovery, or re-entry—not by trusting values sent from the Workspace.
 
 <aside class="guarantee">
   <h2>Guaranteed</h2>
@@ -120,14 +116,6 @@ For the implementation and tests behind these boundaries, see [Implementation an
       Gateway chooses Workspace Manifest/project from the host-created Workspace
       source- endpoint binding. The header cannot change that endpoint or
       registry entry.
-    </div>
-  </details>
-  <details>
-    <summary>Is a broker handle a secret or independent authority?</summary>
-    <div class="prose-block">
-      No. It is a non-secret opaque record selector, not the primary credential
-      and not sufficient authority. Workspace Manifest, project, provider,
-      revision, target, header binding, and OPA must all agree.
     </div>
   </details>
   <details>

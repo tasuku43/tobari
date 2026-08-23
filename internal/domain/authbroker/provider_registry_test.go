@@ -5,14 +5,14 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tasuku43/tobari/internal/domain/capabilityprofile"
+	"github.com/tasuku43/tobari/internal/domain/capabilitysurface"
 )
 
 func TestBuiltinProviderVocabularyAndReviewedLoginOrderAreClosed(t *testing.T) {
 	wantBuiltins := []string{"anthropic", "aws", "chatwork", "datadog", "github", "openai"}
 	wantKnownLogin := []string{"github", "aws", "datadog", "openai", "anthropic"}
 	wantLogin := []string{"github", "datadog", "openai", "anthropic"}
-	if capabilityprofile.Compiled().IncludesExperimental() {
+	if capabilitysurface.Compiled().IncludesResearch() {
 		wantLogin = wantKnownLogin
 	}
 	if got := BuiltinProviderIDs(); !reflect.DeepEqual(got, wantBuiltins) {
@@ -35,8 +35,8 @@ func TestBuiltinProviderVocabularyAndReviewedLoginOrderAreClosed(t *testing.T) {
 			t.Fatalf("reviewed provider %q helper = %q, found=%t", providerID, helper, found)
 		}
 	}
-	if !capabilityprofile.Compiled().IncludesExperimental() && SupportsReviewedLoginProvider(BuiltinAWSProviderID) {
-		t.Fatal("standard profile activated AWS login")
+	if !capabilitysurface.Compiled().IncludesResearch() && SupportsReviewedLoginProvider(BuiltinAWSProviderID) {
+		t.Fatal("release surface activated AWS login")
 	}
 	if SupportsReviewedLoginProvider("example") {
 		t.Fatal("unknown provider entered the reviewed host-login union")

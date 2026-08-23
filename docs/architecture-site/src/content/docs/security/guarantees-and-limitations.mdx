@@ -4,8 +4,9 @@ description: The major Tobari security claims, each paired with preconditions, e
 ---
 
 Tobari narrows a supported Workspace to one selected project, one host-issued
-principal, Gateway-mediated HTTP/HTTPS, explicit policy, and constrained broker
-handles. It does not police files inside the selected root, payloads sent to an
+principal, Gateway-mediated HTTP/HTTPS, explicit policy, and agent-owned login
+state in that Workspace home. Host credentials are never inherited, and the
+release surface has no Tobari credential service. It does not police files inside the selected root, payloads sent to an
 allowed destination, processes inside the same Workspace, other protocols,
 overlapping roots, or a compromised trusted base.
 
@@ -57,27 +58,7 @@ authority.
 
 **Limitation.** Current exact learned rules distinguish Workspace Manifest, project, host, port, method, and raw path. They do not distinguish body, query, safe headers, reason, or provider. Different bodies can use the same exact effect rule.
 
-## Claim 4: broker-managed credential state is not projected to Workspace
-
-**Claim.** A Workspace receives an opaque project-bound handle rather than a
-static primary secret or request-local credential.
-
-**Preconditions.** The provider uses the Auth Broker path, the root key is available, and the Workspace Manifest vault and provider manifest validate.
-
-**Enforcement point.** Auth Broker encrypts typed state in a Workspace Manifest vault.
-Handle records bind Workspace Manifest, project, provider, credential revision, exact
-target, and HTTP binding. Gateway removes the handle, introspects without a
-secret, applies the Workspace Manifest policy ceiling, asks OPA, and only after allow runs the
-declared static resolve.
-
-**Failure behavior.** Wrong, copied, old, malformed, or ambiguous handles fail
-closed and never become passthrough. Terminal Workspace Manifest policy denial or OPA deny causes no
-resolve, DNS, or upstream access. Broker unavailability before resolution is
-503 with no upstream attempt.
-
-**Limitation.** A malicious process inside the same Workspace may use a handle already projected to that Workspace and an already allowed effect. Tool-native credentials remain readable where the tool stores them. Logout does not guarantee provider-side revocation.
-
-## Claim 5: unsafe policy changes do not partially activate
+## Claim 4: unsafe policy changes do not partially activate
 
 **Claim.** An allow/deny mutation activates only a complete validated aggregate.
 
@@ -96,8 +77,8 @@ resolve, DNS, or upstream access. Broker unavailability before resolution is
 - Isolation of overlapping mounted project roots.
 - Prevention of data transfer through an allowed request.
 - Non-HTTP/HTTPS network mediation.
-- Protection after compromise of host, kernel, Docker, Gateway, OPA, Auth Broker, root-key provider, or reviewed images.
-- Remote credential revocation after local logout.
+- Protection after compromise of host, kernel, Docker, Gateway, OPA, host-owned state, or reviewed images.
+- Remote credential revocation by a provider.
 - Compatibility with certificate-pinned clients; they are expected to fail rather than bypass interception.
 
 For developers who want to trace these claims into the repository, see [Implementation and tests](../verification-evidence/).

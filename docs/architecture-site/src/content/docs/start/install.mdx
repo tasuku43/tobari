@@ -16,7 +16,7 @@ You need:
 - Docker Compose v2;
 - the exact Go toolchain declared by `go.mod` for source builds;
 - [Task](https://taskfile.dev/) for the repository build command; and
-- registry access to the reviewed Gateway, Auth Broker, and runtime images when they are not already local.
+- registry access to the reviewed Gateway and runtime images when they are not already local.
 
 Docker Desktop-specific APIs are not required. Colima, Lima-based Docker contexts, and standard Linux Docker Engine use the same Docker CLI adapter. A VM-based daemon must be able to bind-mount both the project root and Tobari's XDG configuration and state paths; see [Colima and Lima](../../guides/colima-and-lima/) before troubleshooting application traffic.
 
@@ -59,7 +59,9 @@ Then run the read-only host diagnostic from the project you plan to use:
 tobari doctor
 ```
 
-`doctor` observes Docker, required paths, images, policy, provider manifests, root-key and broker state, and residue. It does not start the cluster, repair credentials, create a Workspace, or activate policy.
+`doctor` observes Docker, required paths, images, policy, host-owned state,
+Workspace authentication readiness, and residue. It does not start the cluster,
+repair credentials, create a Workspace, or activate policy.
 
 Use `tobari doctor --root PATH` only to inspect a directory other than the current one. The exact CLI contract, including supported formats and fault codes, is generated from the Catalog in the [CLI reference](../../reference/cli/).
 
@@ -67,7 +69,7 @@ Use `tobari doctor --root PATH` only to inspect a directory other than the curre
 
 Building or copying the binary does not:
 
-- start Gateway, OPA, or Auth Broker;
+- start Gateway or OPA;
 - create a Workspace or mount a project;
 - create an outbound allow rule;
 - log in to a provider; or
@@ -77,13 +79,13 @@ The explicit next boundary is `tobari cluster up`. It reconciles shared services
 
 ## Common installation failures
 
-| Observation                        | Meaning                                                              | Safe next step                                                                            |
-| ---------------------------------- | -------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
-| `tobari: command not found`        | The binary directory is not on `PATH`.                               | Add the exact directory or install the binary into one already on `PATH`.                 |
-| Docker/Compose check fails         | The trusted host cannot use the required Docker CLI surface.         | Correct the Docker installation or selected Docker context, then rerun `tobari doctor`.   |
-| An image is unavailable            | Docker cannot inspect or obtain a reviewed service/runtime identity. | Inspect registry and Docker diagnostics; do not replace the digest with an arbitrary tag. |
-| A bind path is unavailable         | A VM-based Docker daemon cannot see the host path.                   | Share the project and Tobari XDG paths, then rerun `doctor`.                              |
-| Root key is missing beside a vault | Existing encrypted state cannot be opened.                           | Restore the original key; Tobari does not silently generate a replacement.                |
+| Observation                       | Meaning                                                              | Safe next step                                                                                  |
+| --------------------------------- | -------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `tobari: command not found`       | The binary directory is not on `PATH`.                               | Add the exact directory or install the binary into one already on `PATH`.                       |
+| Docker/Compose check fails        | The trusted host cannot use the required Docker CLI surface.         | Correct the Docker installation or selected Docker context, then rerun `tobari doctor`.         |
+| An image is unavailable           | Docker cannot inspect or obtain a reviewed service/runtime identity. | Inspect registry and Docker diagnostics; do not replace the digest with an arbitrary tag.       |
+| A bind path is unavailable        | A VM-based Docker daemon cannot see the host path.                   | Share the project and Tobari XDG paths, then rerun `doctor`.                                    |
+| Workspace or host state is unsafe | Tobari cannot validate the durable owner record.                     | Inspect the exact diagnostic and repair the owning state; Tobari does not invent a replacement. |
 
 Do not turn a diagnostic failure into a broad Docker mount, host-home mount, or Docker-socket mount inside a Workspace. Those workarounds would change the trust boundary.
 

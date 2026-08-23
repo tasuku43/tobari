@@ -6,7 +6,7 @@
 - Scope: Product, architecture, security, authentication, Gateway, harness, and compatibility
 - Supersedes: [ADR 0009: Select tool-native passthrough by default](0009-defer-gateway-managed-credential-injection.md)
 - Revises: [ADR 0019: Add a shared locked Auth Broker for Context credentials](0019-shared-locked-auth-broker.md), [ADR 0031: Restore reviewed broker provider plans](0031-restore-reviewed-broker-provider-plans.md)
-- Superseded by: ADR 0044 for the standard profile; retained only by the experimental development profile
+- Superseded by: ADR 0044 for the release surface; retained only by the research surface
 
 ## Context
 

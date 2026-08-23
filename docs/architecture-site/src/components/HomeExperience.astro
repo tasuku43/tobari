@@ -91,8 +91,8 @@ const tasks = [
       "GitHub などの認証を設定する",
     ),
     detail: t(
-      "Configure supported credentials without placing their primary value in the Workspace.",
-      "認証情報の本体を Workspace に渡さず、対応するプロバイダーを設定します。",
+      "Complete the supported tool's login inside the persistent Workspace home. Host credentials are never inherited, and Tobari adds no credential service.",
+      "永続的な Workspace home の中で対応するツールのログインを完了します。ホストの認証情報は継承せず、Tobari は認証サービスを追加しません。",
     ),
   },
   {
@@ -117,12 +117,12 @@ const protectedItems = t(
   [
     "Host files outside the selected project and Docker control",
     "Another Workspace's network and persistent home",
-    "Unauthorized outbound HTTP/HTTPS and primary credentials managed by Broker",
+    "Unauthorized outbound HTTP/HTTPS and credential values before policy allow",
   ],
   [
     "作業対象外のホストファイルと Docker の制御機能",
     "ほかの Workspace のネットワークと永続ホーム",
-    "未許可の HTTP/HTTPS 通信と、host から分離された Workspace 認証情報",
+    "未許可の HTTP/HTTPS 通信と、ポリシー許可前のログイン値",
   ],
 );
 const excludedItems = t(
@@ -349,8 +349,8 @@ const evidence = [
           <h3>{t("Implemented now", "実装されている機能")}</h3><p>
             {
               t(
-                "Project-bound Workspace lifecycle, shared Gateway and OPA services, default-deny exact policy learning, intercepted HTTP/HTTPS, native Workspace authentication, and Catalog-generated CLI contracts.",
-                "プロジェクト単位の Workspace、共有の Gateway・OPA、既定拒否から始まる完全一致ルール、HTTP/HTTPS の検査、Workspace ネイティブ認証、Catalog から生成した CLI 契約です。",
+                "Project-bound Workspace lifecycle, shared Gateway and OPA services, default-deny exact policy learning, intercepted HTTP/HTTPS, Workspace-home agent CLI login, and Catalog-generated CLI contracts.",
+                "プロジェクト単位の Workspace、共有の Gateway・OPA、既定拒否から始まる完全一致ルール、HTTP/HTTPS の検査、Workspace home 内の agent CLI ログイン、Catalog から生成した CLI 契約です。",
               )
             }
           </p>

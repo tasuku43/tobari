@@ -18,7 +18,7 @@ transcripts as repository fixtures.
 | Open one Workspace service | In the attached Workspace run `tobari-expose PORT`; in a separate host terminal run `tobari review services`; later use `tobari-expose list` and `tobari-expose stop EXPOSURE_REF` | Service review shows exact Workspace and target, random host-loopback-only access, no browser opening, and attachment lifetime; Allow once returns exact numeric-loopback URL plus opaque reference; stop consumes that reference unchanged; Permission review remains staged Apply |
 | Inspect/reset decisions | `policy rules`, then `policy reset --id` | One current exact decision is removed through its unchanged opaque reference and returns to default deny |
 | Use native Workspace auth | Run the agent CLI's native login inside the Workspace | Credential state persists in that Workspace home, receives no network grant from login, and crosses Gateway only after the ordinary exact HTTP effect is allowed |
-| Exercise experimental Broker research | Build with `task build:dev`, then use its `auth` commands | No equivalent command, provider binding, projection, service, image authority, or activation switch exists in the standard binary |
+| Exercise research Broker (repository-only) | Build with `task build:dev`, then use `bin/tobari-research` `auth` commands | No equivalent command, provider binding, projection, service, image authority, or activation switch exists in the release binary |
 
 Routine success must require zero undeclared external-processing steps. Reading
 a declared JSON/TSV field is consumption; a custom join/parser, provider-
@@ -457,9 +457,9 @@ allowed upstream attempt, and never produces `broker_auth_required`. Live
 manual evidence records only pinned client versions, pass/fail, and the
 secret-free account-status classification.
 
-## Experimental Broker synthetic journey
+## Research Broker synthetic journey
 
-The experimental integration evidence uses a fake GitHub CLI, synthetic
+The research integration evidence uses a fake GitHub CLI, synthetic
 static provider manifests and secrets, local Broker/Gateway/OPA/upstream
 fixtures, and secret canaries. It proves:
 
@@ -467,7 +467,7 @@ fixtures, and secret canaries. It proves:
 - protected stdin refusal before reading and validation before Broker send;
 - omitted-provider selection is interactive, bounded to installed reviewed
   login drivers, and explicit provider selection remains deterministic; the
-  experimental matrix accepts its two methods;
+  research matrix accepts its two methods;
 - fixed purpose-limited GitHub/AWS/pup/Codex/Claude argv, canonical executable
   digest checks, selected-Workspace Manifest image binding for pup and Claude, private
   homes/PTY where declared, bounded browser targets, and checked cleanup;
@@ -496,24 +496,24 @@ fixtures, and secret canaries. It proves:
 
 Owner manifests are strict static data and cannot select a helper or policy.
 Owner manifests cannot select a reviewed dynamic plan. This section describes
-the dev-only research profile and is not a standard release-readiness outcome.
+the dev-only research surface and is not a release-surface readiness outcome.
 
-## Optional experimental reviewed-provider acquisition
+## Optional research reviewed-provider acquisition
 
-When reviewing the experimental profile, maintainers may use disposable
+When reviewing the research surface, maintainers may use disposable
 provider accounts and an interactive trusted-host terminal. This observation
 is not a standard release-readiness requirement because the `auth` namespace
 and Broker runtime are absent from standard archives. The optional GitHub slice
 is:
 
 ```sh
-tobari auth login --provider github --manifest default
-tobari auth status --manifest default --format json
+bin/tobari-research auth login --provider github --manifest default
+bin/tobari-research auth status --manifest default --format json
 # Re-enter the default Workspace Manifest's Workspace.
 case "${GH_TOKEN-}" in tobari-h1_*) ;; *) exit 1 ;; esac
 test "$(gh auth token --hostname github.com)" = "$GH_TOKEN"
 gh api user --jq .login >/dev/null
-tobari auth logout github --manifest default --format json
+bin/tobari-research auth logout github --manifest default --format json
 ```
 
 The equality assertion proves `gh auth token` returns the projected handle, not
@@ -522,8 +522,8 @@ pass/fail, the exact source commit/image digests, and secret-free status. Never
 record the token, device code, handle, account identifier, vault, authenticated
 response, or raw transcript.
 
-Using the `task build:dev` experimental binary, replay the AWS Identity Center
-and console methods. With the standard binary, prove the `auth` namespace is
+Using `task build:dev` (`bin/tobari-research`), replay the AWS Identity Center
+and console methods. With the release-surface binary, prove the `auth` namespace is
 absent. Then replay selected-Workspace Manifest-runtime
 Datadog pup flow and localhost stdin relay, the
 contract-checked host Codex native browser/loopback flow, the separately pinned Workspace Codex

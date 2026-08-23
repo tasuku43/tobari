@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/tasuku43/tobari/internal/app/doctorcmd"
+	"github.com/tasuku43/tobari/internal/domain/capabilitysurface"
 	"github.com/tasuku43/tobari/internal/domain/doctor"
 	"github.com/tasuku43/tobari/internal/domain/operation"
 	"github.com/tasuku43/tobari/internal/domain/tobari"
@@ -109,6 +110,15 @@ func TestDoctorObserverDependencyMatrixAvoidsDockerFalseBlame(t *testing.T) {
 				doctor.CheckIDAuthProjectHandles: doctor.CheckIDAuthVaultIntegrity,
 			},
 		},
+	}
+	if !capabilitysurface.Compiled().IncludesResearch() {
+		for _, test := range tests {
+			for id := range test.blockedBy {
+				if isResearchDoctorCheck(id) {
+					delete(test.blockedBy, id)
+				}
+			}
+		}
 	}
 
 	for name, test := range tests {
@@ -248,6 +258,9 @@ func TestDoctorObserverKeepsInvalidPolicyDistinctFromPolicyData(t *testing.T) {
 }
 
 func TestDoctorObserverBrokerLockedBlocksOnlyDependents(t *testing.T) {
+	if !capabilitysurface.Compiled().IncludesResearch() {
+		t.Skip("research-surface doctor checks are not part of the release inventory")
+	}
 	installFakeDocker(t, t.TempDir())
 	runner := &authDoctorRunner{brokerState: "locked"}
 	fixture := newAuthDoctorFixture(t, runner)
@@ -277,6 +290,9 @@ func TestDoctorObserverBrokerLockedBlocksOnlyDependents(t *testing.T) {
 }
 
 func TestDoctorObserverHealthyWarningsRemainHealthy(t *testing.T) {
+	if !capabilitysurface.Compiled().IncludesResearch() {
+		t.Skip("research-surface doctor checks are not part of the release inventory")
+	}
 	installFakeDocker(t, t.TempDir())
 	runner := &authDoctorRunner{brokerState: "ready"}
 	fixture := newAuthDoctorFixture(t, runner)
@@ -375,6 +391,18 @@ func installFakeDocker(t *testing.T, root string) {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", binDirectory)
+}
+
+func isResearchDoctorCheck(id doctor.CheckID) bool {
+	switch id {
+	case doctor.CheckIDAuthProviderManifests, doctor.CheckIDAuthVaultPaths,
+		doctor.CheckIDAuthRootKey, doctor.CheckIDAuthBroker,
+		doctor.CheckIDCredentialCompanion, doctor.CheckIDAuthVaultIntegrity,
+		doctor.CheckIDAuthProjectHandles:
+		return true
+	default:
+		return false
+	}
 }
 
 func doctorDockerObservationAllowed(arguments []string) bool {

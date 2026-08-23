@@ -33,7 +33,7 @@ description: ポリシーの体験、実用ランタイム、認証、内部構�
 
 ### 4. インストールしたツールの認証を設定する
 
-[ツールの認証を設定する](../authentication-setup/)へ進みます。ツール自身が認証情報を管理する場合は、そのツールの通常のログインを使います。Tobari が対応する外部サービスでは、必要に応じてホスト側の認証を使います。
+[ツールの認証を設定する](../authentication-setup/)へ進みます。永続的な Workspace home の中で agent CLI 自身のログインを完了します。Tobari はホスト側の認証サービスを追加しません。
 
 ログインと外部通信の許可は別です。認証後の最初の API 通信が拒否された場合も、クイックスタートと同じようにレビューします。
 
@@ -41,7 +41,7 @@ description: ポリシーの体験、実用ランタイム、認証、内部構�
 
 ### 5. 主要コンポーネントを理解する
 
-[基本モデル](../../how-it-works/mental-model/)を読みます。実際の流れを一度経験した後で、Workspace、Gateway、OPA、Auth Broker、外部の接続先がそれぞれ何を担当するか整理します。
+[基本モデル](../../how-it-works/mental-model/)を読みます。実際の流れを一度経験した後で、Workspace、Workspace home の agent CLI ログイン、Gateway、OPA、外部の接続先がそれぞれ何を担当するか整理します。
 
 ### 6. 一つのリクエストを正確に追う
 
@@ -80,7 +80,8 @@ Workspace Manifest をここで初めて導入するのは意図的です。複�
 - [CLI](../../reference/cli/) はコマンドの正確な動作を確認するときに使います。
 - [ランタイムイメージ契約](../../reference/runtime-image-contract/)は互換性条件を確認するときに使います。
 - [設定と状態](../../reference/configuration-and-state/)は保存場所と寿命を確認するときに使います。
-- [プロバイダーマニフェスト](../../reference/provider-manifest/)は外部サービスとの認証契約を確認するときに使います。
+- 外部サービス固有の research 契約は public site に公開しません。Workspace 内では
+  agent 自身の native authentication を使います。
 - [障害と復旧](../../reference/faults-and-recovery/)は障害コードから安全な次の操作を調べるときに使います。
 
 ## まとめ

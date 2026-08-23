@@ -1,4 +1,4 @@
-//go:build tobari_experimental
+//go:build tobari_dev && tobari_research
 
 package cli
 
@@ -78,10 +78,10 @@ func TestAuthLoginCatalogAllowsInteractiveOmissionAndReviewedProviders(t *testin
 		}
 	} else {
 		if _, err := parseCommandInputs(spec, []string{"--provider=aws"}); err == nil {
-			t.Fatal("standard profile accepted AWS provider")
+			t.Fatal("release surface accepted AWS provider")
 		}
 		if _, err := parseCommandInputs(spec, []string{"--method=console"}); err == nil {
-			t.Fatal("standard profile accepted experimental AWS method")
+			t.Fatal("release surface accepted research AWS method")
 		}
 	}
 	if _, err := parseCommandInputs(spec, []string{"--provider=github"}); err != nil {

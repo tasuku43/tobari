@@ -10,21 +10,49 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/tasuku43/tobari/internal/domain/capabilitysurface"
 	"github.com/tasuku43/tobari/internal/domain/doctor"
 	"github.com/tasuku43/tobari/internal/domain/fault"
 	"github.com/tasuku43/tobari/internal/domain/operation"
 )
 
 const (
-	// ProgramName is the stable public executable name.
-	ProgramName = "tobari"
+	// ReleaseProgramName is the protected release executable identity.
+	ReleaseProgramName = "tobari"
+	// ResearchProgramName is the repository-only research executable identity.
+	ResearchProgramName = "tobari-research"
 	// ExposureProgramName is the attachment-local service helper executable.
 	ExposureProgramName = "tobari-expose"
+	// WorkspaceEntryCommandPath is the common Catalog task path for entering
+	// the current Workspace. Its invocation presentation is the compiled
+	// ProgramName, so research binaries do not publish a second root command.
+	WorkspaceEntryCommandPath = "tobari"
 
 	// maxAgentIndexEntryBytes bounds the selection-only root help cost per
 	// command. Detailed invocation contracts belong in scoped help.
 	maxAgentIndexEntryBytes = 512
 )
+
+// ProgramName is the compile-time canonical program identity used by catalog
+// help, recovery, and JSON. Runtime input and a copied filename cannot change
+// it.
+var ProgramName = canonicalProgramName()
+
+func canonicalProgramName() string {
+	if capabilitysurface.Compiled().IncludesResearch() {
+		return ResearchProgramName
+	}
+	return ReleaseProgramName
+}
+
+// invocationForPath renders one public Catalog path as an executable argv
+// prefix. The common Workspace entry path is the executable itself.
+func invocationForPath(path string) string {
+	if path == WorkspaceEntryCommandPath {
+		return ProgramName
+	}
+	return ProgramName + " " + path
+}
 
 type commandHandler func(context.Context, *CLI, CommandSpec, operation.Intent, ParsedInputs) int
 
@@ -548,7 +576,7 @@ func (v CommandVisibility) validate() error {
 func (s CommandSpec) Usage() string {
 	program := s.programName()
 	usage := program
-	if s.Path != program {
+	if s.Path != WorkspaceEntryCommandPath && s.Path != program {
 		usage += " " + s.Path
 	}
 	if s.Args != "" {

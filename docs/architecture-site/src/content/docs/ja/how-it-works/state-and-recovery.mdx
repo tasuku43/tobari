@@ -5,15 +5,15 @@ description: 永続データごとに、管理主体、寿命、削除操作、�
 
 import ConceptDiagram from "../../../../components/ConceptDiagram.astro";
 
-Tobari は、プロジェクト、Workspace、Workspace Manifest、クラスター、認証情報、インストール環境の
-状態を、所有範囲ごとに分けます。ライフサイクル操作が削除するのは、宣言した範囲だけです。
-そのため `exit`、`delete`、クラスターの停止、認証情報のログアウトや置換、実行環境の
-再ビルドでは、それぞれ残るものが異なります。
+Tobari は、プロジェクト、Workspace、Workspace Manifest、Runtime、クラスター、
+インストール環境の状態を所有範囲ごとに分けます。ライフサイクル操作が削除するのは
+宣言した範囲だけです。そのため `exit`、`delete`、クラスターの停止、Runtime の再作成では、
+それぞれ残るものが異なります。
 
 永続記録から安全に再構築できる実行時状態がある一方で、欠損や不整合を推測せず
-処理を止める状態もあります。コンテナやネットワークの消失が、Workspace や認証状態の
-消失と同じではないのはこのためです。以下の表では、[Workspace のライフサイクル](../workspace-lifecycle/)と
-[認証情報](../credentials/)の境界を各保存領域に適用します。
+処理を止める状態もあります。コンテナやネットワークの消失は、論理 Workspace の消失を
+意味しません。以下の表では、[Workspace のライフサイクル](../workspace-lifecycle/)の
+境界を各保存領域に適用します。
 
 <ConceptDiagram name="state-retention" />
 
@@ -21,137 +21,142 @@ Tobari は、プロジェクト、Workspace、Workspace Manifest、クラスタ�
 
 以下のパスは、特に記載がない限り、実際に使われる XDG の設定／状態ルートからの相対パスです。
 
-| 状態                                 | 管理主体と意味                                                                                                                  | 寿命                                                                                              |
-| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| プロジェクトルート                   | immutable Workspace Manifest `source_access` に従って mount する user-selected live host file                                   | Tobari のライフサイクル操作では削除しない                                                         |
-| `roots/<hash>.json`                  | 完全一致する（正規化済みプロジェクトルート、Workspace Manifest ID）の組ごとのルート索引                                         | 論理 Workspace と一緒に作成・削除                                                                 |
-| `instances/<id>/state.json`          | スキーマ1の安定した識別情報、永続的な Workspace Manifest との結び付き、要求された実行環境と調整済みの実行環境、診断用 Docker ID | 論理 Workspace と一緒に作成・削除。Docker を調べた結果よりも優先                                  |
-| `instances/<id>/home`                | Workspace ごとの書き込み可能なホーム領域と、ツール自身が管理するログイン状態                                                    | `exit` や実行環境の再作成後も残り、Workspace の削除で消える                                       |
-| Workspace Manifest マニフェスト      | ホスト所有の安定した ID、エージェントプロファイル、正確な Runtime リビジョン参照、ポリシーモード、限定されたシェル設定          | Workspace やクラスターの実行環境を操作しても残る                                                  |
-| Runtime `source/` と不変リビジョン   | インストール全体で再利用するビルドソースと成功履歴                                                                              | Workspace Manifest と Workspace のライフサイクルを越えて残り、ビルドだけでは展開されない          |
-| Workspace Manifest のポリシー原本    | 一つの Workspace Manifest が所有する exact-host `domains/<host>/{allow,deny}.json` と、Advanced の場合は Rego                   | クラスターの実行環境より長く残り、検証済みの有効化か、Advanced モードでの明示的な編集だけで変わる |
-| 統合ポリシー生成物                   | OPA に読み取り専用でマウントする、内容アドレス方式の全 Workspace Manifest 用ルーター、データ、モジュールの写し                  | ポリシー原本から再構築して不可分に公開する。クラスター稼働中だけ有効な判断データ                  |
-| 現在有効なポリシーバンドル           | 所有者ラベル付きの Docker 管理ボリュームに置く、版管理された完全な OPA バンドル                                                 | OPA が動的に読み込む。`cluster down --purge` だけが削除し、ポリシー原本から再構築する             |
-| プロバイダーマニフェスト             | 所有者が管理する厳格な V1 の静的宣言と、同じ V1 権限内のレビュー済み組み込みプラン                                              | インストール環境または Workspace Manifest の設定として、クラスター停止後も残る                    |
-| プロバイダー生成物                   | Gateway が使う、正規化済みで秘密を含まないスキーマ1の全プロバイダー用データ                                                     | 完全に検証できたマニフェスト群から再生成する。一部だけを有効化しない                              |
-| プリンシパル台帳                     | ホスト発行のスキーマ 1 Workspace 送信元＋Gateway エンドポイント＋ネットワークと Workspace Manifest／プロジェクトの結び付き      | 既存の Workspace ネットワークに合わせて調整し、Gateway には読み取り専用でマウントする             |
-| 暗号化した Workspace Manifest 保管庫 | static secret、revision、raw handle を含む schema-1 authenticated ciphertext                                                    | Workspace 削除やどちらの cluster-down でも残る。credential entry は auth mutation で更新          |
-| インストール用ルート鍵               | Workspace Manifest 保管庫のロックを解除する鍵。macOS Keychain または所有者だけが読める Linux ファイル                           | `cluster down` と `--purge` の後も残る。保管庫だけがあり鍵がなければ、安全側に停止する            |
-| Gateway CA の状態                    | Workspace 側の HTTPS 検査に使う、インストール環境固有の CA                                                                      | 通常の `cluster down` 後も残り、共有 CA ボリュームは `--purge` で削除する                         |
+| 状態                               | 管理主体と意味                                                                                   | 寿命                                                                           |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------ |
+| プロジェクトルート                 | immutable Workspace Manifest の `source_access` に従って mount する user-selected live host file | Tobari のライフサイクル操作では削除しない                                      |
+| `roots/<hash>.json`                | 正規化済みプロジェクトルートと Workspace Manifest ID の組に対するルート索引                      | 論理 Workspace と一緒に作成・削除                                              |
+| `instances/<id>/state.json`        | 安定した Workspace ID、Manifest との結び付き、要求／調整済み Runtime、診断用 Docker ID           | 論理 Workspace と一緒に作成・削除。Docker の観測より優先                       |
+| `instances/<id>/home`              | Workspace ごとの書き込み可能なホーム領域と、agent CLI が所有するログイン状態                     | `exit` や Runtime の再作成後も残り、Workspace の削除で消える                   |
+| Workspace Manifest                 | host-owned の stable ID、agent/runtime/policy/shell の desired declaration                       | Workspace やクラスターの実行環境を操作しても残る                               |
+| Runtime `source/` と不変リビジョン | インストール全体で再利用するビルドソースと成功履歴                                               | Workspace と Manifest のライフサイクルを越えて残り、build だけでは展開されない |
+| Manifest のポリシー原本            | exact-host domains と Advanced モードの Rego                                                     | クラスターの実行環境より長く残り、検証済みの有効化か明示編集だけで変わる       |
+| 統合ポリシー生成物                 | OPA に読み取り専用でマウントする全 Manifest 用ルーター、データ、モジュールの写し                 | 原本から不可分に公開し、クラスター稼働中だけ有効                               |
+| 現在有効なポリシーバンドル         | owner label 付きの Docker 管理ボリュームにある完全な OPA bundle                                  | `cluster down --purge` だけが削除し、原本から再構築する                        |
+| プリンシパル台帳                   | host-issued の Workspace 送信元、Gateway endpoint、network、Manifest／project の結び付き         | Workspace network に合わせて調整し、Gateway に read-only で mount              |
+| host-owned lifecycle state         | Runtime と policy が使うホスト設定、信頼情報、検査結果                                           | `cluster down` と `--purge` の後も残り、安全でなければ停止                     |
+| Gateway CA state                   | Workspace 側の HTTPS 検査に使う install-local CA                                                 | 通常の `cluster down` 後も残り、共有 CA volume は `--purge` で削除             |
 
-クラスター状態には、共有資源名、読み込み済み Workspace Manifest 数、内容アドレス方式で作った統合データの版、生成物のパスも記録します。現在選択中の Workspace Manifest を通信制御の権限とはせず、実物の認証情報も含めません。
+クラスター状態には、共有資源名、読み込み済み Manifest 数、内容アドレス方式で作った
+統合データの版、生成物のパスも記録します。現在選択中の Manifest は通信制御の権限ではなく、
+Workspace home のログイン状態も Manifest に含めません。
 
 ## 操作ごとに保持するもの
 
-| 操作または出来事                        | Workspace の識別情報とホーム領域                                 | Workspace Manifest／ポリシー | 保管庫とルート鍵                                                        | 共有サービス／CA                                    | プロジェクトファイル |
-| --------------------------------------- | ---------------------------------------------------------------- | ---------------------------- | ----------------------------------------------------------------------- | --------------------------------------------------- | -------------------- |
-| `exit`                                  | 保持                                                             | 保持                         | 保持                                                                    | 稼働を続け、CA も保持                               | 保持                 |
-| `delete`                                | 完全一致する Workspace のホーム領域と実行環境記録を含めて削除    | 保持                         | Workspace Manifest の認証情報は保持し、プロジェクトのハンドル台帳は削除 | 変更なし                                            | 保持                 |
-| `cluster down`                          | すべての Workspace を削除するまで、コマンドを拒否                | 保持                         | 保持                                                                    | サービスと一時ネットワークを削除し、CA は保持       | 保持                 |
-| `cluster down --purge`                  | 前提条件は `cluster down` と同じ                                 | 保持                         | 保持                                                                    | サービス、共有 CA、現在有効なポリシーバンドルを削除 | 保持                 |
-| `auth logout PROVIDER`                  | 識別情報とホーム領域は保持。実行中の環境は再入場まで変わらない   | 保持                         | プロバイダーの認証情報と全ハンドルを削除し、ルート鍵は保持              | クラスターは保持                                    | 保持                 |
-| 認証情報の置換                          | 識別情報とホーム領域は保持。新しい投影値の反映には再入場が必要   | 保持                         | 新しい版を保存し、古いハンドルを無効化                                  | クラスターは保持                                    | 保持                 |
-| Workspace Manifest の実行環境を再ビルド | 識別情報とホーム領域は保持。結び付いたコンテナは次の入場時に調整 | ポリシーは保持               | 保持                                                                    | 変更なし                                            | 保持                 |
-| コンテナ／ネットワークの消失            | 論理状態とホーム領域は保持。次の入場時に資源を調整               | 保持                         | 保持                                                                    | 必要に応じて Gateway の接続とプリンシパル情報を修復 | 保持                 |
+| 操作または出来事          | Workspace home／identity                                        | Manifest／policy                 | shared service／CA                            | project files |
+| ------------------------- | --------------------------------------------------------------- | -------------------------------- | --------------------------------------------- | ------------- |
+| `exit`                    | 保持                                                            | 保持                             | 稼働を続け、CA も保持                         | 保持          |
+| `delete`                  | 対象 Workspace の home、Runtime 記録、container、network を削除 | Manifest と policy source は保持 | 変更なし                                      | 保持          |
+| `cluster down`            | Workspace が残る間は拒否                                        | 保持                             | service と一時 network を削除、CA は保持      | 保持          |
+| `cluster down --purge`    | 保持                                                            | 保持                             | service、共有 CA、active policy bundle を削除 | 保持          |
+| Runtime の再作成          | identity と home は保持。container は次の entry で調整          | policy は保持                    | 変更なし                                      | 保持          |
+| container／network の消失 | logical state と home は保持                                    | 保持                             | 必要に応じて Gateway を再接続                 | 保持          |
 
 ## 正本に従って復旧する
 
 ### Docker の実行環境が見つからない
 
-永続的な Workspace の記録が有効で、コンテナやネットワークが見つからない場合、実行環境の資源は記録から作り直せます。次に Workspace へ入るときに再作成して Gateway をつなぎ直し、プリンシパル台帳を更新したうえで、既存のプロジェクトルートとホーム領域をマウントします。
+永続的な Workspace 記録が有効で、container や network が見つからない場合、Runtime の資源は
+記録から作り直せます。次に Workspace へ入るときに再作成して Gateway をつなぎ直し、
+プリンシパル台帳を更新したうえで、既存のプロジェクトルートと home を mount します。
 
 ### 永続状態が不完全
 
-ルート索引があるのに Workspace インスタンスの記録がない場合、Tobari は `incomplete` を報告します。失われた安定した識別情報、Workspace Manifest との結び付き、ホーム領域の関係を推測しません。明示的に作り直す前に、完全一致する `delete` で残った記録を片付けます。
+ルート索引があるのに instance 記録がない場合、Tobari は `incomplete` を報告します。
+失われた ID、Manifest との結び付き、home の関係を推測しません。明示的に作り直す前に、
+完全一致する `delete` で残った記録を片付けます。
 
 ### ポリシーの有効化に失敗
 
-ポリシー変更では、排他制御、Workspace Manifest 単位の事前検査、全 Workspace Manifest を統合した状態での完全なテスト、内容アドレス方式での公開、OPA が正常になるまでの待機を行います。入力が不正な場合や有効化に失敗した場合、候補の一部だけをマウントすることはありません。ポリシー原本を元に戻し、直前まで正常に動いていた統合データと状態を保持します。
+ポリシー変更では、排他制御、Manifest 単位の事前検査、全 Manifest を統合した状態での完全な
+テスト、内容アドレス方式での公開、OPA が正常になるまでの待機を行います。入力が不正な場合や
+有効化に失敗した場合、候補の一部だけを mount しません。原本を元に戻し、直前まで正常だった
+統合データと状態を保持します。
 
-### ルート鍵または保管庫の整合性検証に失敗
+### host-owned state または Workspace state の整合性検証に失敗
 
-Auth Broker はロックされた状態で起動します。暗号化した保管庫があるのにインストール用の鍵がない場合、既存の暗号文を復号できず、状態を曖昧にする代わりの鍵は作りません。認証データの破損、安全でない所有者やアクセス権、シンボリックリンク、認証失敗を報告し、安全側に停止します。信頼するホスト鍵のバックアップと復旧は、運用者の責任です。
-
-### プロバイダー生成物が不正
-
-未知のフィールド、厳格なスキーマに合わないデータ、宛先とヘッダーの衝突、組み込み定義の上書き、曖昧な HTTP の結び付きが一つでもあれば、プロバイダー群全体を拒否します。有効に見える一部だけを有効化することはありません。
+必要な host state が欠落または安全でない場合、Tobari は別の権限や identity を推測せず安全側に
+停止します。owner、mode、symlink、schema を使用前に検証します。
 
 ## 具体的な復旧シナリオ
 
-ホストの再起動後、Workspace コンテナと専用ネットワークはありませんが、ルート索引、Workspace インスタンスの状態、ホーム領域は残っています。
+ホスト再起動後、Workspace container と専用 network はありませんが、ルート索引、instance state、
+home は残っています。
 
-1. `tobari` が永続的なプロジェクトルートと Workspace Manifest の記録を解決する
-2. 結び付いた Workspace Manifest の実行環境イメージを検証する
-3. 内部ネットワークとコンテナを再作成する
-4. Gateway を接続し、Gateway／Workspace のガードを再適用して、新しい正確なエンドポイントのプリンシパル情報を記録する
-5. 現在の Auth Broker ハンドルの投影データを記録と一致させる
-6. 同じプロジェクト ID とホーム領域を持つ論理 Workspace へ入る
+1. `tobari` が永続的な project root と Manifest の記録を解決する
+2. Manifest が要求する Runtime image を検証する
+3. 内部 network と container を再作成する
+4. Gateway を接続し、Workspace の guard と principal 登録を記録に合わせる
+5. 同じ project root、Manifest ID、home を持つ logical Workspace へ入る
 
 これは状態の調整であり、新しい Workspace の作成ではありません。
 
 ## 失敗時の動作
 
-- 所有者、アクセス権、シンボリックリンク、スキーマ、識別情報の不一致は、安全でない再利用より前に失敗します。
-- イメージがない、または実行環境 API に互換性がない場合、プロジェクトの実行環境を変更する前に失敗します。
-- 既存の保管庫があるのにルート鍵がない場合、別の鍵を暗黙に作りません。
-- ポリシー統合データやプロバイダー生成物の作成に失敗した場合、直前まで正常に動いていた判断データを保持します。
-- 接続中の Workspace は、`--force` でこの保護だけを明示的に解除しない限り削除できません。
-- 論理 Workspace が一つでも残っていれば、クラスターの停止は失敗します。
-- ローカルでのログアウトは、プロバイダー側で認証情報が失効したことを意味しません。
+- owner、access mode、symlink、schema、identity の不一致は、安全でない再利用より前に失敗します。
+- image がない、または Runtime API に互換性がない場合、project root を変更する前に失敗します。
+- 既存の Workspace state が不完全なら、別の authority や identity を暗黙に作りません。
+- policy 統合データの作成に失敗した場合、直前まで正常だった判断データを保持します。
+- attached Workspace は `--force` で保護を明示的に解除しない限り削除できません。
+- logical Workspace が一つでも残っていれば、クラスターの停止は失敗します。
 
 ## 保証と制限
 
-**保証すること:** ライフサイクル操作が扱う範囲は限定され、プロジェクトファイルを削除しません。有効な論理状態から作り直せる Docker の状態は、記録に合わせて調整できます。Workspace Manifest 保管庫とルート鍵は `cluster down --purge` の後も残ります。ポリシーやプロバイダー生成物の一部だけを有効化することはありません。
+**保証すること:** ライフサイクル操作の範囲は限定され、project files は削除しません。有効な
+logical state から作り直せる Docker state は記録に合わせて調整できます。Workspace home と
+host-owned lifecycle state は `cluster down --purge` の後も残ります。policy の一部だけを有効化
+することはありません。
 
-**保証しないこと:** 失われたプロジェクトファイル、削除済みの Workspace ホーム領域、失われたインストール用ルート鍵、破損したホストストレージ、侵害された信頼ホストからの復旧、プロバイダー側での認証情報の失効、プロジェクト移動後の自動判定。
+**保証しないこと:** 手動削除した project files、削除済みの Workspace home、破損した host storage、
+侵害された trust host、外部 service 側のログイン失効、project 移動後の自動判定。
 
 ## 根拠となるソース
 
 - [状態の保存先と副作用の契約](https://github.com/tasuku43/tobari/blob/2a0f0f3b0303f889cd42c581403e70ace7680894/docs/01_product_contract.md)
 - [ライフサイクル、統合データ、復旧のアーキテクチャ](https://github.com/tasuku43/tobari/blob/2a0f0f3b0303f889cd42c581403e70ace7680894/docs/02_architecture.md)
-- [認証状態の保存先](https://github.com/tasuku43/tobari/blob/2a0f0f3b0303f889cd42c581403e70ace7680894/docs/07_authentication.md)
+- [認証の所有権](https://github.com/tasuku43/tobari/blob/2a0f0f3b0303f889cd42c581403e70ace7680894/docs/07_authentication.md)
 - [Workspace とクラスター状態の実装](https://github.com/tasuku43/tobari/tree/2a0f0f3b0303f889cd42c581403e70ace7680894/internal/infra/dockerruntime)
-- [Auth Broker の保管庫実装](https://github.com/tasuku43/tobari/blob/2a0f0f3b0303f889cd42c581403e70ace7680894/authbroker/vault.py)
-- [ルート鍵のインフラストラクチャ実装](https://github.com/tasuku43/tobari/tree/2a0f0f3b0303f889cd42c581403e70ace7680894/internal/infra/rootkey)
 - [ライフサイクルと復旧の統合テスト](https://github.com/tasuku43/tobari/blob/2a0f0f3b0303f889cd42c581403e70ace7680894/scripts/test-integration.sh)
 
 ## まとめ
 
-永続的な識別情報や利用者データを、コンテナの有無だけから推測することはありません。各保存領域には管理主体と削除操作が定められています。作り直せる Docker の状態や生成物は記録に合わせて調整しますが、識別情報、ポリシー、鍵、保管庫の状態が曖昧なら、安全側に停止します。
+コンテナの有無だけから永続的な identity や利用者データを推測することはありません。各保存領域には
+管理主体と削除操作が定められています。作り直せる Docker state や生成物は記録に合わせて調整しますが、
+identity、policy、Workspace state が曖昧なら安全側に停止します。
 
 ## 理解を確認する
 
-「コンテナがない」と「Workspace がない」を同一視せず、各操作の後に何が残るかを予測できるはずです。
+各ライフサイクル操作の後に何が残るか、予測できるはずです。
 
 <details>
   <summary>
     <code>delete</code> は、<code>exit</code> が保持する何を削除しますか？
   </summary>
-  完全一致する Workspace
-  のルート索引、インスタンス状態、ホーム領域、コンテナ、ネットワーク、プリンシパル台帳とプロジェクト認証台帳の項目です。どちらの操作も、プロジェクトファイルと
-  Workspace Manifest の状態は削除しません。
+  完全一致する Workspace の root index、instance
+  state、home、container、network、principal 台帳です。 project files と
+  Manifest の state は削除しません。
 </details>
 
 <details>
   <summary>
     <code>cluster down --purge</code> は何を追加で削除しますか？
   </summary>
-  共有 Gateway CA ボリュームです。暗号化した Workspace Manifest
-  保管庫とインストール用ルート鍵は保持します。
+  共有 Gateway CA volume と active policy bundle を追加で削除します。Workspace
+  home、Manifest、 policy source、host-owned lifecycle state は保持します。
 </details>
 
 <details>
   <summary>
-    保管庫があるのに鍵がない場合、Tobari は新しいルート鍵を作れますか？
+    Workspace state が不完全な場合、Tobari は新しい identity を作れますか？
   </summary>
-  いいえ。代わりの鍵では既存の保管庫を復号できず、安全に解釈できないため、安全側に停止します。
+  いいえ。完全な記録がない状態で補完すると、存在しない権限を推測するため、安全側に停止します。
 </details>
 
 <details>
   <summary>
-    失われたコンテナは修復できるのに、インスタンス状態のないルート索引を推測しないのはなぜですか？
+    container が消えても instance 記録が残っている場合、どうなりますか？
   </summary>
-  コンテナは、有効な論理状態から作り直せます。インスタンス状態がなければ、正本となる識別情報と結び付きが失われています。その状態で再構築すると、存在しない権限を推測で作ることになるからです。
+  Workspace は論理的には存在します。次の入室時に互換性のある container
+  を作り、記録と状態を合わせます。
 </details>
 
 状態遷移は[Workspace のライフサイクル](../workspace-lifecycle/)へ戻ってください。次は[実装技術](../implementation-stack/)で、各技術をその境界に置く理由を確認します。

@@ -18,7 +18,7 @@ distinction between related terms matters.
 ### Tobari
 
 The product, executable, and ownership adjective. Tobari prepares, enforces,
-and manages Workspaces and installation-local shared services.
+and manages Workspaces and the installation-local Gateway and OPA services.
 
 ### Workspace
 
@@ -38,10 +38,9 @@ files inside it from Workspace processes.
 ### Workspace Manifest
 
 One host-owned logical execution setup with a stable opaque UUIDv7 ID. It
-selects agent profile, runtime image, policy mode and source, allowlisted shell
-settings, provider configuration, and
-a separate encrypted credential vault. A Workspace is permanently bound to one
-Workspace Manifest.
+selects an agent profile, runtime image, policy mode and source, and allowlisted
+shell settings. A Workspace is permanently bound to one Workspace Manifest;
+agent tools keep their own login material in the Workspace home.
 
 ### current Workspace Manifest
 
@@ -51,9 +50,9 @@ Workspace's permanent Workspace Manifest binding and is not request authority.
 
 ### cluster
 
-The installation-local shared Gateway, OPA, locked Auth Broker, shared
-networks, CA volumes, and aggregate projections. A Workspace Manifest scopes policy and
-credentials; the cluster runs enforcement for all loaded Workspace Manifests.
+The installation-local shared Gateway, OPA, shared networks, CA volumes, and
+aggregate policy projections. A Workspace Manifest scopes policy; the cluster
+runs enforcement for all loaded Workspace Manifests.
 
 ### runtime image
 
@@ -76,9 +75,10 @@ Workspace lifecycle state.
 
 ### Workspace home
 
-The independent writable home owned by one Workspace. Tool-native
-login state and projected broker handles may live here. It survives session
-exit and work-container recreation, and is removed by Workspace `delete`.
+The independent writable home owned by one Workspace. Agent tools store their
+own login state here; Tobari does not project, resolve, or manage a second
+credential authority. It survives session exit and work-container recreation,
+and is removed by Workspace `delete`.
 
 ## Request enforcement
 
@@ -95,7 +95,7 @@ decision; OPA does not forward traffic.
 Open Policy Agent. It evaluates one normalized, body-free HTTP decision input
 against the loaded aggregate Rego/data projection and returns a decision. It
 does not have a Workspace network route, open the upstream connection, or
-resolve a brokered secret.
+resolve a native secret.
 
 ### upstream
 
@@ -132,7 +132,7 @@ clients fail rather than bypass Gateway.
 
 ### fail closed
 
-Refuse the effect when required identity, policy, broker, schema, state, or
+Refuse the effect when required identity, policy, authentication, schema, state, or
 ownership evidence is missing, invalid, ambiguous, or unavailable. In the
 request path, this means no unauthorized upstream connection.
 
@@ -152,10 +152,10 @@ the mutable display name and from the current Workspace Manifest marker.
 
 ### Workspace principal
 
-The trusted pairing of stable Workspace Manifest ID and Workspace ID derived by Gateway from
-the exact kernel-observed Workspace source endpoint on a dedicated network. It
-scopes policy and broker handles. Internal implementation and protocol names
-retain `project principal` where required by their schema-V1 contract.
+The trusted pairing of stable Workspace Manifest ID and Workspace ID derived by
+Gateway from the exact kernel-observed Workspace source endpoint on a dedicated
+network. It scopes policy. Internal implementation and protocol names retain
+`project principal` where required by their schema-V1 contract.
 
 ### principal registry
 
@@ -167,8 +167,8 @@ Caller-supplied `X-Tobari-*` text cannot replace the mapping.
 ### dedicated Workspace network
 
 One Docker internal network belonging to one Workspace. The work container and
-one Gateway interface join it. The Workspace cannot join OPA, Auth Broker, a
-peer Workspace, or a normal external network through the supported topology.
+one Gateway interface join it. The Workspace cannot join OPA, a peer Workspace,
+or a normal external network through the supported topology.
 
 ## Policy
 
@@ -221,102 +221,27 @@ deny. Reset is not allow and does not retry a request.
 
 ### authentication
 
-Establishing or storing credential material for an external service.
-Authentication answers “what credential may be presented?” It does not answer
-“may this HTTP effect leave the Workspace?”
+An agent CLI establishes or stores login material in its own persistent
+Workspace home. Authentication answers which credential the tool presents; it
+does not answer whether an HTTP effect may leave the Workspace.
 
 ### authorization
 
-OPA's decision about the ordinary HTTP effect, enforced by Gateway. Login,
-import, provider installation, and possession of a handle do not grant it.
+OPA's decision about the ordinary HTTP effect, enforced by Gateway. A successful
+provider login does not grant network permission.
 
-### credential provider
+### tool-native credentials
 
-The external service or authority whose credential is acquired or imported,
-stored, and later applied to one exact reviewed request binding. Provider does
-not name the Workspace client that uses the credential.
+Credential files and environment values owned by the agent CLI inside one
+Workspace. Tobari never inherits host credentials, removes credential values
+from OPA input and audit, and forwards the original values only after policy
+allow. Processes in the same Workspace can read the tool's state by design.
 
-### Workspace client Tool
+### Workspace identity
 
-The CLI or other client inside a Workspace that receives provider-declared
-projection and emits the matching request. Reviewed examples include `gh`,
-`aws`, `pup`, `codex`, `claude`, and `cwk`. A Tool name grants neither provider
-identity nor network authority.
-
-### supported Provider-Tool pairing
-
-One reviewed combination of Provider, Workspace client Tool, acquisition mode,
-handle projection, and exact request binding. Built-ins are a closed reviewed
-set; owner providers use strict stdin import and static projection.
-
-### tool-native passthrough
-
-The Workspace-owned compatibility route for a request that matches no declared
-provider binding. A tool logs in inside its persistent Workspace home; Gateway
-removes authentication and cookie values from OPA input and audit, then
-forwards them unchanged only after policy allow. The Workspace can read these
-tool-owned secrets. A declared binding rejects them as `broker_auth_required`.
-
-### Auth Broker
-
-The shared locked service that stores typed encrypted credential state per
-Workspace Manifest/provider, issues Workspace-bound opaque handles, performs non-secret
-introspection, and performs only one same-revision reviewed static, refresh, or
-signing action after Gateway reports policy allow. Broker has Unix sockets, no
-Workspace network, and no TCP listener.
-
-### brokered credential state
-
-The typed record encrypted in one Workspace Manifest vault. The closed union contains
-static primary secrets and reviewed AWS, Datadog, or OpenAI state plus revision,
-barrier, and handle state. It is never projected into Workspace or OPA.
-
-### broker handle
-
-A versioned opaque `tobari-h1_…` value projected into an eligible Workspace.
-It is not the real credential and is not sufficient authority. Its use must
-match Workspace Manifest, project, provider, credential revision, target, source header,
-and syntax, followed by OPA allow. Any process in that same Workspace that can
-read the handle can attempt to use the already delegated capability; Tobari
-does not isolate peer processes inside one Workspace.
-
-### non-secret introspection
-
-The pre-policy Broker operation that validates a candidate handle and returns
-only provider, revision, and normalized binding metadata. It does not reveal
-or resolve the primary secret.
-
-### resolve
-
-The schema-1 static-provider post-allow Broker operation that returns the
-matching current primary secret to Gateway for the declared destination
-header. Deny causes zero resolve calls.
-
-### credential revision
-
-A secret-free random identity for the current Workspace Manifest/provider credential.
-Replacement or logout revokes handles for the prior revision.
-
-### encrypted Workspace Manifest vault
-
-One schema-1 AES-256-GCM envelope bound by authenticated data to its stable
-Workspace Manifest ID. Its encrypted schema-1 payload contains typed credential records,
-revisions, durable operation barriers, and raw handles. Encryption protects the
-container/Workspace boundary under the documented root-key preconditions; it
-does not protect against compromise of the host user and key backend.
-
-### installation root key
-
-The 32-byte key used to unlock Workspace Manifest vaults: an owner-only XDG state file on
-Linux or a fixed macOS Keychain item. `cluster down --purge` preserves it.
-
-### provider manifest
-
-A strict non-secret data document declaring acquisition mode, Workspace handle
-projection, exact HTTPS binding, and redaction. Owner manifests are schema 1
-and `stdin_import` only. Reviewed built-ins are a closed compiled plan union.
-A manifest is not executable code, does not declare method/path policy, and
-does not grant communication permission or select a dynamic plan.
+The host-derived Workspace and project authority used for policy evaluation.
+It is independent of an agent CLI's login state and cannot be changed by a
+request header.
 
 ## State and public contracts
 
@@ -359,23 +284,23 @@ required before and after an external create or write.
 
 ### source snapshot
 
-The canonical Gateway or Auth Broker source tree. The CLI embeds a byte-checked
-runtime snapshot for orchestration. Drift checks prevent the embedded copy from
-becoming a second editable implementation.
+The canonical Gateway source tree. The CLI embeds a byte-checked runtime
+snapshot for orchestration. Drift checks prevent the embedded copy from becoming
+a second editable implementation.
 
 ## Common distinctions
 
-| Do not collapse                          | The difference                                                                                                                  |
-| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| Workspace and work container             | The Workspace is durable logical state; the container is replaceable runtime.                                                   |
-| Workspace Manifest and cluster           | Workspace Manifest scopes one setup and its authority; the cluster runs shared enforcement for every loaded Workspace Manifest. |
-| authentication and authorization         | A credential can exist while OPA still denies the HTTP effect.                                                                  |
-| CA trust and policy allow                | CA trust enables inspection; allow authorizes one normalized effect.                                                            |
-| broker handle and credential state       | The handle is Workspace-bound, revocable, and non-secret; the vault retains static or renewable state.                          |
-| `exit` and `delete`                      | Exit ends a child session; delete removes the logical Workspace and home.                                                       |
-| `cluster down --purge` and `auth logout` | Purge removes shared runtime and CA volumes; logout removes one local credential and handles.                                   |
-| tag and digest                           | A tag can move; a digest identifies immutable OCI content.                                                                      |
-| manifest schema and report schema        | Stored Workspace Manifest manifest and public Workspace Manifest report are distinct schema-1 contracts.                        |
+| Do not collapse                            | The difference                                                                                                                  |
+| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------- |
+| Workspace and work container               | The Workspace is durable logical state; the container is replaceable runtime.                                                   |
+| Workspace Manifest and cluster             | Workspace Manifest scopes one setup and its authority; the cluster runs shared enforcement for every loaded Workspace Manifest. |
+| authentication and authorization           | A credential can exist while OPA still denies the HTTP effect.                                                                  |
+| CA trust and policy allow                  | CA trust enables inspection; allow authorizes one normalized effect.                                                            |
+| Workspace identity and tool login          | Host-derived identity is separate from agent-owned login state.                                                                 |
+| `exit` and `delete`                        | Exit ends a child session; delete removes the logical Workspace and home.                                                       |
+| `cluster down --purge` and provider logout | Purge removes shared runtime and CA volumes; provider logout remains a provider-CLI operation.                                  |
+| tag and digest                             | A tag can move; a digest identifies immutable OCI content.                                                                      |
+| manifest schema and report schema          | Stored Workspace Manifest manifest and public Workspace Manifest report are distinct schema-1 contracts.                        |
 
 ## Failure and limits
 
@@ -436,9 +361,9 @@ authority.
   </a>
   , and
   <a
-    href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/domain/authbroker/provider.go`}
+    href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/domain/tobari/project.go`}
   >
-    provider vocabulary
+    Workspace vocabulary
   </a>
 
 ## Summary
@@ -453,9 +378,9 @@ You should now be able to explain Tobari without using “container,” “Works
 and “Workspace” as synonyms.
 
 <details>
-  <summary>A process has a valid broker handle. Is it authenticated and authorized?</summary>
+  <summary>A process has a valid Workspace identity. Is it authenticated and authorized?</summary>
 
-It has a credential capability candidate, not complete authority. Broker must
+It has a credential capability candidate, not complete authority. Authentication must
 match Workspace Manifest, project, provider, revision, and HTTP binding; OPA must
 separately allow the ordinary HTTP effect before the declared resolve, refresh,
 or signing action.

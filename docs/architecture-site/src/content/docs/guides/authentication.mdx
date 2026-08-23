@@ -6,10 +6,10 @@ description: Use each agent CLI's native login inside its Workspace while keepin
 Authentication and network authorization are separate in Tobari. A successful
 login identifies an account; it does not grant an HTTP effect.
 
-## Standard authentication model
+## Release-surface authentication model
 
-The standard profile has no provider binding, credential projection, Auth
-Broker, or `tobari auth` command. Enter the Workspace and use the agent CLI's
+The release surface has no Tobari-owned authentication command or credential
+service. Enter the Workspace and use the agent CLI's
 official login:
 
 ```sh
@@ -88,13 +88,6 @@ tobari review permissions
 Inspect the exact destination and allow only the effect you intend, then retry
 in the still-running Workspace. Login never creates a policy rule, and policy
 approval never performs login.
-
-## Experimental Broker research
-
-`task build:dev` retains a compile-time experimental Auth Broker and its
-`auth` commands for repository research. It is not present in the standard
-catalog, standard Compose topology, embedded standard runtime assets, or release. No
-environment variable or runtime input can activate it in a standard binary.
 
 ## Guarantees and limits
 

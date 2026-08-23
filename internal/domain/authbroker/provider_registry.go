@@ -3,7 +3,7 @@ package authbroker
 import (
 	"fmt"
 
-	"github.com/tasuku43/tobari/internal/domain/capabilityprofile"
+	"github.com/tasuku43/tobari/internal/domain/capabilitysurface"
 )
 
 const (
@@ -49,11 +49,11 @@ func BuiltinProviderIDs() []string {
 }
 
 // ActiveBuiltinProviderIDs returns the built-ins exposed by this immutable
-// capability profile. AWS is experimental and cannot be activated at runtime.
+// capability surface. AWS is research-only and cannot be activated at runtime.
 func ActiveBuiltinProviderIDs() []string {
 	result := make([]string, 0, len(knownBuiltinProviderIDs))
 	for _, providerID := range knownBuiltinProviderIDs {
-		if providerID == BuiltinAWSProviderID && !capabilityprofile.Compiled().IncludesExperimental() {
+		if providerID == BuiltinAWSProviderID && !capabilitysurface.Compiled().IncludesResearch() {
 			continue
 		}
 		result = append(result, providerID)
@@ -66,7 +66,7 @@ func ActiveBuiltinProviderIDs() []string {
 func ReviewedLoginProviderIDs() []string {
 	result := make([]string, 0, len(knownReviewedLoginProviders))
 	for _, provider := range knownReviewedLoginProviders {
-		if provider.id == BuiltinAWSProviderID && !capabilityprofile.Compiled().IncludesExperimental() {
+		if provider.id == BuiltinAWSProviderID && !capabilitysurface.Compiled().IncludesResearch() {
 			continue
 		}
 		result = append(result, provider.id)
@@ -87,7 +87,7 @@ func KnownReviewedLoginProviderIDs() []string {
 // ReviewedLoginProviderHelper returns the exact reviewed manifest helper for
 // one compiled host-login provider.
 func ReviewedLoginProviderHelper(providerID string) (string, bool) {
-	if providerID == BuiltinAWSProviderID && !capabilityprofile.Compiled().IncludesExperimental() {
+	if providerID == BuiltinAWSProviderID && !capabilitysurface.Compiled().IncludesResearch() {
 		return "", false
 	}
 	return KnownReviewedLoginProviderHelper(providerID)

@@ -103,13 +103,6 @@ const groups = [
       "manifest runtime set",
     ],
   ),
-  group(
-    "Set up authentication",
-    "認証情報を設定する",
-    "Acquire, import, inspect, or remove a supported provider credential on the trusted host.",
-    "対応するプロバイダーの認証情報を、信頼するホストで取得・インポート・確認・削除します。",
-    ["auth login", "auth import", "auth status", "auth logout"],
-  ),
 ].filter((item) => item.commands.length > 0);
 ---
 

@@ -5,7 +5,7 @@ description: Tobari のセキュリティ保証を、成立する前提、制御
 
 import ConceptDiagram from "../../../../components/ConceptDiagram.astro";
 
-Tobari は、Workspace へ渡すホスト権限、外部通信、ポリシー変更、Auth Broker が管理する認証情報へのアクセスを制限します。これらの保証は、サポート対象の Docker 構成と、信頼するホスト側のコンポーネントが正しく動作する場合に成立します。作業対象のディレクトリ内にあるコードやファイルを、エージェントから保護する仕組みではありません。
+Tobari は、Workspace へ渡すホスト権限、外部通信、ポリシー変更、agent CLI のログイン状態へのアクセスを制限します。これらの保証は、サポート対象の Docker 構成と、信頼するホスト側のコンポーネントが正しく動作する場合に成立します。作業対象のディレクトリ内にあるコードやファイルを、エージェントから保護する仕組みではありません。
 
 そのため、このセクションでは「コンテナで動く」「プロキシを使う」「暗号化されている」といった説明だけで安全性を表しません。各保証について、前提、制御の仕組み、障害時の動作、対象外を明記します。構成要素や通信経路が分からない場合は、先に[基本モデル](../../how-it-works/mental-model/)と[システム全体像](../../how-it-works/system-overview/)を読んでください。
 
@@ -25,7 +25,7 @@ Tobari は、Workspace へ渡すホスト権限、外部通信、ポリシー変
 
 ## 信頼する基盤
 
-Tobari は、ホストの利用者、ホストのファイルシステム制御、Docker Engine、カーネル、Gateway、OPA、Auth Broker、ルート鍵の保管機構、レビュー済みのランタイム成果物を信頼します。Workspace 内のプロセスと外部 HTTP サービスは信頼しません。ポリシー候補、リクエスト属性、プロバイダーマニフェスト、外部から返るレスポンス文字列は、信頼するコードが解析する場合でも、信頼しない入力として扱います。
+Tobari は、ホストの利用者、ホストのファイルシステム制御、Docker Engine、カーネル、Gateway、OPA、host-owned state、レビュー済みのランタイム成果物を信頼します。Workspace 内のプロセスと外部 HTTP サービスは信頼しません。ポリシー候補、リクエスト属性、外部から返るレスポンス文字列は、信頼するコードが解析する場合でも、信頼しない入力として扱います。
 
 この区別により、偽造したプロジェクトヘッダーが権限にならない一方で、Gateway の侵害が保証対象外になる理由が分かります。Gateway は、ホストが登録し、カーネルが観測した Workspace の送信元エンドポイントからプロジェクトを特定します。Gateway 自体が侵害されれば、この境界は成立しません。
 
@@ -57,11 +57,11 @@ Tobari は、ホストの利用者、ホストのファイルシステム制御�
     </div>
   </section>
   <section>
-    <h3>Auth Broker が管理する認証情報</h3>
+    <h3>Workspace 所有のログイン状態</h3>
     <div class="prose-block">
-      Auth Broker は static credential state を encrypted Workspace Manifest
-      vault に保持します。Workspace が受け取るのは project-bound opaque handle
-      だけで、same-revision resolution は policy allow 後だけです。
+      agent CLI は永続 Workspace home にログイン状態を保存します。Tobari は
+      その値を OPA と監査から除外し、通常の HTTP effect
+      が許可された後だけ元の値を転送します。
     </div>
   </section>
 </div>
@@ -71,8 +71,7 @@ Tobari は、ホストの利用者、ホストのファイルシステム制御�
 - Gateway が利用できない場合、保護済みの接続は失敗します。直接通信へ切り替わりません。
 - 有効なプロジェクトのプリンシパルを確立できない場合、Gateway は OPA より前に `project_principal_unavailable` を返します。
 - OPA が利用できない、または応答が不正な場合、Gateway は `policy_unavailable` を返し、外部の接続先へ接続しません。
-- Auth Broker がロック中または利用不能な場合、Auth Broker を使うリクエストは失敗し、認証情報を別の方法で解決しません。
-- ハンドルが不正または古い場合、`credential_handle_invalid` を返し、別の認証方式へ切り替わりません。
+- agent CLI のログイン状態が利用できない場合、その CLI のログイン手順を確認します。Tobari の代替 credential store はありません。
 - 不正なポリシーを有効化できない場合、直前に検証済みだった定義と集約結果を保持または復元します。OPA を正常な状態へ戻せない場合、以前のサービスが有効だと推測せず、通信を拒否し続けます。
 
 これらは、該当する外部通信を閉じたままにする動作です。Workspace のプロセスが行ったすべての操作を巻き戻すわけではありません。作業対象のディレクトリでは、ローカルファイルへの変更がすでに発生している可能性があります。

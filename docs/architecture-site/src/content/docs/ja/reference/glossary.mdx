@@ -3,422 +3,273 @@ title: 用語集
 description: Tobari の実行、ネットワーク、ポリシー、認証、状態、CLI 契約を一貫して説明するための用語集です。
 ---
 
-この用語集では、Tobari の実行、ネットワーク、ポリシー、認証、状態、CLI 契約で
-使う語を定義します。論理的な実行状態、ホスト管理の設定、共有の実施基盤、ランタイム
-コンテナ、認証、通信許可は、管理主体とセキュリティ上の意味が異なるため、別の名前を
-使います。
+この用語集では、Tobari の実行、ネットワーク、ポリシー、認証、状態、CLI 契約で使う語を定義します。論理状態、ホスト設定、共有の強制基盤、ランタイム、agent CLI のログイン、通信許可は、それぞれの管理主体が異なります。
 
-最初の導入には[五つの要素からなるメンタルモデル](../../how-it-works/mental-model/)
-を使ってください。正確な用語、または似た用語の区別が必要になったときに、この
-用語集へ戻れます。
-
-## 実行と管理主体
+## 実行と所有
 
 ### Tobari
 
-製品、実行ファイル、所有主体を表す名前です。Tobari は Workspace と、一つの
-インストール内で共有するサービスを準備、制御、管理します。
+製品、実行ファイル、所有主体を表す名前です。Tobari は Workspace と、インストール内で共有する Gateway と OPA を準備・管理します。
 
 ### Workspace
 
-正規化したプロジェクトルートと安定した Workspace Manifest ID の組み合わせで選ばれる、再利用可能な
-隔離リソースです。安定した論理レコード、選択したプロジェクトルート、Workspace Manifest との結び付き、
-独立したホーム、調整可能なランタイムリソースで構成されます。「Workspace を出る」
-操作はセッションを終了するだけで、論理 Workspace は削除しません。
+正規化したプロジェクトルートと安定した Workspace Manifest ID で選ばれる永続的な論理リソースです。ホーム、Manifest への結び付き、実行時リソースを持ちます。セッション終了は Workspace の削除ではありません。
 
-### プロジェクトルート（project root）
+### プロジェクトルート
 
-現在の作業ディレクトリから選び、immutable Workspace Manifest `source_access`（CLI default は
-`read-write`）に従って Workspace へ mount する正規の
-ホストディレクトリです。Tobari は、このルートを読み書きする権限を意図的に Workspace
-へ委ねます。Workspace 内のプロセスからファイルを守るスナップショットやオーバーレイは
-提供しません。
+現在の作業ディレクトリから選ばれるホストディレクトリです。Manifest の `source_access` に従って Workspace へマウントされます。Workspace 内のプロセスによるファイル変更を Tobari はスナップショットやオーバーレイで保護しません。
 
 ### Workspace Manifest
 
-安定した不透明な UUIDv7 ID を持つ、ホスト管理の論理実行設定です。エージェントプロファイル、
-ランタイムイメージ、ポリシーの方式とソース、許可済みのシェル設定、プロバイダー設定、
-独立した暗号化認証情報保管庫を選びます。Workspace は一つの Workspace Manifest へ恒久的に
-結び付きます。
+ホストが管理する安定した UUIDv7 ID の実行設定です。agent プロファイル、ランタイム、ポリシー方式とソース、許可済みシェル設定を選びます。Workspace は一つの Manifest に恒久的に結び付きます。
 
-### 現在の Workspace Manifest（current Workspace Manifest）
+### current Workspace Manifest
 
-Workspace Manifest セレクターを省略した呼び出しに使うデフォルト Workspace Manifest です。切り替えると、
-以後のデフォルト選択だけが変わります。既存 Workspace と Workspace Manifest の恒久的な結び付き
-は書き換えず、リクエストの権限にもなりません。
+Manifest を省略した新しい選択で使う既定の Workspace Manifest です。現在値を変更しても、既存 Workspace が恒久的に保持する Manifest ID は変わりません。current marker は選択の便宜であり、既存 Workspace や HTTP request の authority ではありません。
 
-### クラスター（cluster）
+### クラスター
 
-一つのインストール内で共有する Gateway、OPA、ロック状態の Auth Broker、共有ネットワーク、
-CA ボリューム、集約済みの投影データの集合です。Workspace Manifest がポリシーと認証情報の範囲を
-決め、クラスターが読み込み済みの全 Workspace Manifest に対する制御を実施します。
+共有 Gateway、OPA、ネットワーク、CA ボリューム、ポリシー投影の集合です。Manifest はポリシーの範囲を決め、クラスターは読み込んだ全 Manifest に対して強制します。
 
-### ランタイムイメージ（runtime image）
+### Workspace home
 
-Workspace のツールとルートファイルシステムを提供する OCI イメージです。ランタイム API `1`、
-`tobari` ユーザー、固定された寿命管理機能、エントリーポイントを備える必要があります。
-マウント、ネットワーク、ポリシー、認証情報、論理 Workspace の寿命は決めません。
+Workspace が所有する独立した書き込み可能ホームです。agent CLI はここに自分のログイン状態を保存します。セッション終了やコンテナ再作成後も残り、Workspace の `delete` で削除されます。
 
-### 作業コンテナ（work container）
+### ランタイムイメージ
 
-一つの Workspace を現在実体化している Docker コンテナです。イメージや runtime-spec に
-差分があれば、Tobari は論理 Workspace、プロジェクトルート、ホームを保ったまま
-再作成できます。
+ツールとルートファイルシステムを供給する OCI イメージです。標準 Runtime は固定 recipe、管理対象 Runtime は成功した semantic source revision に結び付きます。公開 action authority は opaque Runtime reference であり、Docker tag や image ID ではありません。
 
-### 接続中のセッション（attached session）
+### 作業コンテナ
 
-子の `docker exec` プロセスを通じて動く、一時的なシェルまたは完全一致コマンド
-です。`exit` はこのプロセスだけを終了します。接続状態は Workspace のライフサイクル
-状態として永続化されません。
+Runtime image から一時的に実体化した Docker resource です。消失または置換されても、論理 Workspace、Manifest binding、root index、instance state、Workspace home は残ります。container の存在だけから論理 Workspace を発明しません。
 
-### Workspace ホーム（Workspace home）
+### attached session
 
-一つの Workspace が所有する、独立した書き込み可能なホームです。ツール自身の
-ログイン状態や、投影された Auth Broker のハンドルが置かれる場合があります。
-セッションの終了後や作業コンテナの再作成後も残り、Workspace の `delete` で
-削除されます。
+信頼するホストの `tobari` entry と一つの Workspace 内 child process を結ぶ実行中セッションです。`exit` はこの session を終えるだけです。attached session がある間の delete は拒否され、`--force` はその exact guard だけを意図的に上書きします。
 
-## リクエストの制御
+## リクエストの強制
 
 ### Gateway
 
-Workspace から透過的に送られた HTTP 通信を受け取り、必要に応じて Workspace 側の TLS を終端し、
-ホスト発行の Workspace プリンシパルを導出するコンポーネントです。判断入力から秘密
-情報を除き、OPA へ一度問い合わせます。許可された場合だけ接続先への別の接続を開き、
-本文をストリーミングします。判断を実施するのは Gateway です。OPA は通信を転送しません。
+Workspace の HTTP 通信を受け、必要なら Workspace 側 TLS を終端し、ホストが発行した Workspace 識別情報を導出します。認証情報の値を OPA と監査から除外し、OPA の許可後に元の値を使って別の接続先へ接続します。
 
 ### OPA
 
-Open Policy Agent です。正規化して本文を除いた一つの HTTP 判断入力を、読み込み済みの
-集約した Rego とデータの投影に対して評価し、判断を返します。Workspace への
-ネットワーク経路を持たず、接続先へ接続せず、Auth Broker 管理の秘密情報を
-解決しません。
+Open Policy Agent です。本文を含まない正規化済み HTTP 判断入力を評価して結果を返します。Workspace ネットワークに接続せず、接続先への通信も行いません。
 
-### 接続先（upstream）
+### upstream
 
-許可されたリクエストの最終接続先となる HTTP/HTTPS サービスです。HTTPS では、
-Workspace 側の TLS 接続を Gateway で終端した後、Gateway がこのサービスへ独立した
-検証済み TLS 接続を作ります。
+許可済み request が最終的に選ぶ HTTP または HTTPS service です。HTTPS では Workspace 側の TLS connection が Gateway で終端した後、Gateway が別個に検証した TLS connection を upstream へ確立します。OPA は upstream connection を開きません。
 
-### HTTP 操作（HTTP effect）
+### HTTP effect
 
-ポリシーが許可または拒否する、正規化済みの HTTP 操作です。Workspace Manifest ID、Workspace
-ID、ホスト、ポート、HTTP メソッド、パスと、範囲を限定した秘密情報を含まないプロトコル
-メタデータで構成されます。リクエスト本文は識別項目ではなく、ポリシー候補を分けません。
-Workspace identity を運ぶ内部スキーマのフィールド名は `project_id` のままです。
+Workspace Manifest ID、Workspace ID、ホスト、ポート、HTTP メソッド、パスと、限定された非秘密プロトコル情報からなる認可単位です。本文はポリシー識別情報ではありません。
 
-### TLS 接続 A（TLS connection A）
+### TLS connection A
 
-透過的な検査により、Workspace から Gateway へ張る HTTPS 接続です。Gateway は
-Workspace が信頼する Tobari CA に連なる証明書を提示し、ポリシーに必要な HTTP
-属性を復号します。
+Workspace から Gateway までの interception 対象 HTTPS connection です。Gateway は Workspace が信頼する Tobari CA に連なる証明書を提示し、policy 判断に必要な HTTP 属性を復号します。
 
-### TLS 接続 B（TLS connection B）
+### TLS connection B
 
-Gateway から接続先へ張る、独立した検証済み HTTPS 接続です。接続 A を
-検査しても、Gateway が最終 HTTPS 接続先へ平文 HTTP を送るわけではありません。
+Gateway から upstream までの、独立して検証される HTTPS connection です。connection A を Gateway が終端することは、最終 HTTPS destination へ plaintext HTTP を送ることを意味しません。
 
 ### Tobari CA
 
-Gateway が Workspace 側の TLS を終端できるよう、公開証明書を Workspace の
-信頼バンドルへ組み込む認証局です。CA を信頼することは通信の前提であり、許可規則
-ではありません。証明書ピンニングを行うクライアントは
-Gateway を迂回せず、接続に失敗します。
+公開証明書が Workspace trust bundle に入り、Gateway が Workspace 側 TLS を終端できるようにする CA です。CA を信頼することは transport の前提であり、policy allow ではありません。certificate pinning を行う client は Gateway を迂回せず失敗します。
 
-### 安全側に倒して拒否（fail closed）
+### fail closed
 
-必要な識別情報、ポリシー、Broker、スキーマ、状態、管理主体の根拠が存在しない、
-不正、曖昧、利用不能な場合に、外部通信を拒否することです。リクエストの経路では、
-未許可の接続先へ接続しないことを意味します。
+識別情報、ポリシー、スキーマ、状態、所有権の証拠が欠落・不正・曖昧・利用不能なとき、効果を拒否することです。リクエスト経路では未許可の接続先通信を行いません。
 
-## Workspace 識別
+## Workspace 識別情報
 
 ### Workspace ID
 
-一つの Workspace にホストが発行する、安定した不透明な ID です。プロジェクトルート
-とは異なります。Workspace のヘッダーに書かれた値は、権限の根拠として受け入れません。
-内部の永続化と実施プロトコルでは、同じ値にスキーマ V1 の `project_id` を使い続けます。
+一つの Workspace に対する安定した host-issued opaque ID です。project root そのものではなく、Workspace request header から authority として受理しません。内部の永続化と enforcement protocol では同じ値を schema-V1 `project_id` として保持します。
 
 ### Workspace Manifest ID
 
-Workspace Manifest にホストが発行する、安定した UUIDv7 識別情報です。変更可能な表示名
-や現在の Workspace Manifest を示すマーカーとは別物です。
+一つの Workspace Manifest に対する安定した host-issued UUIDv7 identity です。変更可能な表示名や current Workspace Manifest marker とは別物です。Workspace は作成時に選ばれた exact Manifest ID を恒久的に保持します。
 
-### Workspace プリンシパル（Workspace principal）
+### Workspace principal
 
-Workspace 専用ネットワーク上でカーネルが観測した完全一致の送信元エンドポイントから Gateway が導出する、
-安定した Workspace Manifest ID と Workspace ID の信頼できる組です。ポリシーと Auth Broker の
-ハンドルを使える範囲を決めます。内部実装とスキーマ V1 プロトコルで必要な箇所では、
-`project principal` という名前を維持します。
+専用ネットワーク上のカーネル観測エンドポイントから Gateway が導出する、Manifest ID と Workspace ID の信頼できる組です。ポリシーの範囲を決め、リクエストヘッダーでは置き換えられません。
 
-### プリンシパル登録簿（principal registry）
+### principal registry
 
-Workspace の送信元エンドポイント、Gateway のエンドポイント、専用ネットワークを、Workspace Manifest と Workspace の識別情報
-へ完全一致で対応付ける、ホスト管理のスキーマ 1 対応表です。Gateway にはこの
-ディレクトリだけを読み取り専用で渡します。呼び出し元が指定した `X-Tobari-*` の
-文字列は、この対応付けの代わりになりません。
+正確な Workspace source endpoint、Gateway endpoint、専用 network を Manifest/Workspace identity に結び付ける host-owned schema-1 mapping です。Gateway はこの directory だけを read-only で受け取ります。caller が与える `X-Tobari-*` text は registry authority を置き換えません。
 
-### Workspace 専用ネットワーク（dedicated Workspace network）
+### 専用 Workspace ネットワーク
 
-一つの Workspace が所有する Docker 内部ネットワークです。作業コンテナと
-Gateway インターフェース一つだけが参加します。サポート対象の構成では、Workspace は
-OPA、Auth Broker、別 Workspace、通常の外部ネットワークへ参加できません。
+一つの Workspace 用 Docker 内部ネットワークです。作業コンテナと Gateway のインターフェースだけが参加します。Workspace は OPA、別 Workspace、通常の外部ネットワークへ参加できません。
 
 ## ポリシー
 
-### 既定の拒否（baseline deny）
+### baseline deny
 
-一致する許可規則がない場合の、デフォルトのポリシー結果です。それ以外は有効な
-リクエストについて、学習可能で秘密情報を含まない根拠を生成できます。学習済みの
-完全一致拒否エントリーとは異なります。
+allow rule が一致しないときの既定の policy result です。ほかの条件が有効なら、秘密情報を含まない learnable evidence を生成できます。学習済み exact deny entry そのものではありません。
 
-### 学習済み許可（learned allow）
+### learned allow
 
-Workspace Manifest、Workspace、ホスト、ポート、メソッド、パスが一致する一つの HTTP 通信に対し、
-明示的に有効化した完全一致規則です。信頼するホスト側の操作がポリシー全体を検証し、
-アトミックな有効化に成功した場合だけ作られます。
+一つの Workspace Manifest、Workspace、host、port、method、path effect に対して明示的に有効化された exact rule です。信頼するホストでレビューし、完全な policy validation と atomic activation が成功した場合だけ authority になります。
 
-### 学習済み拒否（learned deny）
+### learned deny
 
-明示的に有効化した完全一致の拒否です。baseline のデフォルト拒否とは異なり、学習済み
-規則の一覧へ現れ、明示的にリセットできます。
+明示的に有効化された exact denial です。baseline default と異なり、learned rule inventory に現れ、選択した exact decision として reset できます。deny は allow への途中状態ではありません。
 
-### ポリシー候補（policy candidate）
+### policy candidate
 
-保持している学習可能な拒否の根拠から、決定的にまとめた提案です。権限でも、自動の
-変更操作でもありません。本文の内容が違っても別の候補にはなりません。
+拒否の証拠から折りたたんだ提案です。権限ではなく、自動変更も行いません。
 
-### 不透明な参照値（opaque reference）
+### policy review
 
-検出コマンドが生成し、対応する一つの実行操作が変更せずに受け取る検証済みの値です。
-デコード、再構築、短縮をしたり、表示順で置き換えたりしません。
+信頼するホストが candidate を確認し、allow、deny、no action のいずれかを意図的に選ぶ flow です。Gateway の denial response はこの flow を案内するだけで、mutation authority を持ちません。
 
-### ポリシーレビュー（policy review）
+### policy activation
 
-候補を確認し、許可、拒否、何もしない、のいずれかを意図的に選ぶ、信頼するホスト側の
-手順です。Gateway の拒否レスポンスは、この手順の入口だけを示します。
+policy state を lock し、対象 Manifest source と全 Manifest の完全な projection を検証し、atomic publish と OPA reconcile を行う host process です。失敗時は known-good projection を保持または復元します。
 
-### ポリシー有効化（policy activation）
+### opaque reference
 
-ポリシー状態をロックし、対象 Workspace Manifest のソースを検証し、全 Workspace Manifest を含む完全な
-投影データをテストし、アトミックに公開して OPA の状態を合わせるホスト側の処理です。
-失敗時は、既知の正しい投影データを保持または復元します。
+discover コマンドが生成し、対応する action が値を変えずに消費する検証済みの不透明値です。表示順やラベルから再構成しません。
 
-### リセット（reset）
+### reset
 
-選択した学習済み判断を一つ削除し、一致するリクエストをデフォルト拒否へ戻す操作です。
-リセットは許可ではなく、リクエストを再試行もしません。
+選択した learned decision を一つ削除し、その exact effect を default deny へ戻す操作です。reset は allow ではなく、失敗した request を自動再試行しません。対象は opaque reference で binding されます。
 
-## 認証と認証情報
+## 認証と認可
 
-### 認証（authentication）
+### 認証
 
-外部サービスの認証情報を確立または保存することです。「どの認証情報を提示できるか」
-には答えますが、「この HTTP 通信を Workspace から出してよいか」には答えません。
+agent CLI が外部サービスへログインし、結果を Workspace home に保存することです。ログインの成功は通信許可を意味しません。
 
-### 認可（authorization）
+### 認可
 
-通常の HTTP 通信について OPA が判断し、Gateway が実施する許可または拒否です。
-ログイン、インポート、プロバイダーのインストール、ハンドルの所持によって、この許可が
-付与されません。
+OPA が一つの HTTP effect について返し、Gateway が強制する判断です。agent CLI のログイン状態とは独立しています。
 
-### 認証情報プロバイダー（credential provider）
+### ツール固有の認証情報
 
-認証情報を取得またはインポートし、保存して、レビュー済みの完全一致リクエストとの
-結び付き一つへ適用する外部サービスまたは権限の提供元です。Provider は、その認証情報
-を使う Workspace クライアントを表しません。
+agent CLI が所有するファイルや環境値です。Tobari はホストの認証情報を継承せず、値を OPA 入力と監査から除外し、許可後だけ元の値を転送します。同じ Workspace のプロセスから読めることは、Workspace の境界モデルに含まれます。
 
-### Workspace クライアントツール（Workspace client Tool）
+### Workspace 識別情報
 
-Provider が宣言した projection を受け取り、binding に一致する request を送る Workspace
-内 client です。組み込み V1 の例は `gh` だけです。Tool 名は provider identity も
-network authority も与えません。
-
-### サポート対象の Provider–Tool 対応（supported Provider-Tool pairing）
-
-Provider、Workspace client Tool、取得方式、handle projection、完全一致 request binding
-を組み合わせたレビュー済み対応です。組み込み V1 は GitHub/`gh` 一組で、owner provider
-は strict stdin import と static projection を使います。
-
-### ツール固有のパススルー（tool-native passthrough）
-
-宣言済みの provider binding に一致しない request のための、Workspace 所有の互換経路です。
-ツールは自身の永続 Workspace ホーム内でログインします。Gateway は OPA 入力と監査記録から
-認証情報と cookie の値を除き、ポリシー許可後にだけ値を変えず転送します。Workspace は、
-このツール管理の秘密情報を読めます。宣言済み binding では `broker_auth_required` で拒否します。
-
-### Auth Broker
-
-Workspace Manifest とプロバイダーごとに、型付きで暗号化した認証状態を保存する共有サービスです。
-Workspace に結び付いた不透明なハンドルを発行し、秘密情報を使わずに照会します。
-起動時は locked です。Gateway が policy allow を報告した後だけ、同じ static credential
-revision を解決します。Broker は Unix socket を持ちますが、Workspace network や TCP
-listener は持ちません。
-
-### Broker 管理の認証状態（brokered credential state）
-
-一つの Workspace Manifest vault 内で暗号化する型付き record です。V1 は static primary secret 一つと
-revision/handle state を保持します。Workspace や OPA へは投影しません。request-local value
-が境界を越えるのは policy allow 後に Auth Broker から Gateway へ渡る場合だけです。
-
-### Broker ハンドル（broker handle）
-
-対象 Workspace へ投影する、バージョン付きの不透明な `tobari-h1_…` 値です。実物の
-認証情報ではなく、それだけで十分な権限にもなりません。利用時には Workspace Manifest、
-プロジェクト、プロバイダー、認証情報のリビジョン、接続先、送信元ヘッダー、構文の
-一致と、その後の OPA の許可が必要です。同じ Workspace 内でハンドルを読める
-プロセスは、委ねられた権限の利用を試みられます。Tobari は同一 Workspace 内の
-プロセス同士を分離しません。
-
-### 秘密情報を使わない照会（non-secret introspection）
-
-候補ハンドルを検証し、プロバイダー、リビジョン、正規化した結び付きのメタデータだけを
-返す、ポリシー判断前の Broker 操作です。実物の秘密情報を公開も解決もしません。
-
-### 解決（resolve）
-
-スキーマ 1 の固定プロバイダー向けに、許可後に実行する Broker 操作です。宣言済みの
-宛先 header へ入れる current primary secret を Gateway に返します。deny では resolve call
-はゼロです。
-
-### 認証情報リビジョン（credential revision）
-
-現在の Workspace Manifest とプロバイダーの認証情報に対応する、秘密情報を含まないランダムな
-識別情報です。置換またはログアウトにより、以前のリビジョン用ハンドルを失効させます。
-
-### 暗号化 Workspace Manifest 保管庫（encrypted Workspace Manifest vault）
-
-安定した Workspace Manifest ID を認証付きデータとして結び付けた、スキーマ 1 の
-AES-256-GCM エンベロープです。暗号化したスキーマ 1 ペイロードは、型付きの認証情報
-レコード、リビジョン、永続する操作バリア、ハンドルの元レコードを保持します。
-暗号化は文書化したルート鍵の前提のもとで、コンテナと Workspace の境界を守ります。
-ホスト利用者と鍵の保管基盤の侵害からは守りません。
-
-### インストール用ルート鍵（installation root key）
-
-Workspace Manifest 保管庫を解錠する 32 バイトの鍵です。Linux では所有者だけが読める XDG
-状態ファイル、macOS では固定した Keychain 項目に置きます。`cluster down --purge`
-でも残ります。
-
-### プロバイダーマニフェスト（provider manifest）
-
-取得方式、Workspace へのハンドル投影、完全一致の HTTPS との結び付き、秘密情報を
-伏せる方法を宣言する、厳密で秘密情報を含まないデータ文書です。所有者マニフェストは
-schema 1 かつ `stdin_import` だけを使います。GitHub が唯一の reviewed built-in acquisition
-plan です。manifest は executable code ではなく、method/path policy を宣言せず、通信許可を
-付与しません。
+policy evaluation に使う host-derived Workspace/Manifest authority です。agent CLI の login state とは独立しており、request header や credential file の内容では変更できません。principal registry と kernel-observed endpoint の exact join から導出します。
 
 ## 状態と公開契約
 
-### ルート索引（root index）
+### root index
 
-正規のプロジェクトルートと安定した Workspace Manifest ID を、一つの Workspace ID へ対応付ける
-永続スキーマ 1 レコードです。最も近いルートを選ぶ前に、Workspace Manifest で対象を絞ります。
+一つの canonical project root と stable Manifest ID を一つの Workspace ID に結び付ける durable record です。nearest-root selection は Manifest を先に filter してから選び、同じ path の別 Manifest を混同しません。
 
-### Workspace インスタンス状態（Workspace instance state）
+### Workspace instance state
 
-一つの Workspace に対応する、永続スキーマ 1 の論理レコードです。Workspace Manifest との
-恒久的な結び付きと、診断用のランタイム識別子を含みます。
+一つの Workspace に対する durable logical record です。恒久的な Manifest binding、次回 entry の desired state、last successful AppliedEntry、failure/adoption state、read-only runtime observation input を保持します。
 
-### 集約ポリシー投影（aggregate policy projection）
+### aggregate policy projection
 
-全 Workspace Manifest から組み立て、OPA へ読み取り専用でマウントする、内容で識別される完全な
-投影データです。一つの Workspace Manifest の変更が権限として有効になるのは、候補全体を検証して
-有効化した後だけです。
+全 Manifest から組み立てた完全なポリシー投影です。候補全体の検証とアトミックな有効化が成功するまで権限になりません。
 
 ### Catalog
 
-コマンドパス、型付き入力、効果、役割、出力、参照の受け渡し、変更操作、
-失敗、復旧に関する公開仕様の正本である `cli.Catalog` です。ルーティング、ヘルプ、生成する
-CLI リファレンスはここから導出します。
+`cli.Catalog` はコマンドパス、入力、効果、役割、出力、参照、変更、障害、復旧の公開正本です。ルーティング、ヘルプ、サイトの CLI リファレンスはここから導出します。
 
-### コマンドの役割（command role）
+### command role
 
-`utility`、`discover`、`act` のいずれかです。検出操作は不透明な参照を生成
-できます。実行操作は、参照結び付き方式またはコマンド管理の固定対象方式
-の、どちらか一つだけを持ちます。
+`utility`、`discover`、`act` のいずれかです。discover は opaque reference を生成できます。act は一つの reference-bound target または command-owned fixed target のどちらかだけを使い、表示ラベルから対象を再発見しません。
 
-### 操作の作用（operation effect）
+### operation effect
 
-`read`、`create`、`write` のいずれかです。外部から見えるすべての操作が一つを宣言し、
-未知の効果は安全側に倒して拒否します。
+`read`、`create`、`write` のいずれかです。外部から見える全 operation が宣言し、unknown effect は fail closed です。read の表示から mutation を推測せず、write の完了後は confirmed outcome を保持します。
 
-### 変更操作契約（mutation contract）
+### mutation contract
 
-外部への作成または書き込みの前後で必要になる、宣言済みの意図、対象との結び付き、
-影響項目、確認済みの結果です。
+外部 create/write より前に必要な intent、target binding、impact dimension と、実行後に必要な outcome authority です。target ref は exact input と一致し、出力が失われても confirmed mutation を retry permission に変えません。
 
-### ソーススナップショット（source snapshot）
+### source snapshot
 
-正本となる Gateway と Auth Broker のソースツリーです。CLI はオーケストレーション用に、
-バイト単位の一致を検査したランタイムスナップショットを埋め込みます。差分検査により、埋め込み
-コピーが二つ目の編集可能な実装になることを防ぎます。
+正本となる Gateway ソースツリーと、CLI がオーケストレーション用に埋め込むバイト一致のランタイム写しです。差分検査により二つ目の編集可能な実装になることを防ぎます。
 
-## 混同してはいけないもの
+## 共通の区別
 
-| 同一視しないもの                        | 違い                                                                                                                |
-| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| Workspace と作業コンテナ                | Workspace は永続する論理状態。コンテナは交換可能なランタイム                                                        |
-| Workspace Manifest とクラスター         | Workspace Manifest は一つの設定と権限の範囲を決め、クラスターは読み込んだ全 Workspace Manifest を共有基盤で制御する |
-| 認証と認可                              | 認証情報が存在しても、OPA は HTTP 通信を拒否できる                                                                  |
-| CA の信頼とポリシーの許可               | CA の信頼は通信の検査を可能にし、許可は正規化した一つの通信を通す                                                   |
-| Auth Broker のハンドルと認証状態        | ハンドルは Workspace に結び付き、失効でき、秘密情報ではない。保管庫は固定または更新可能な状態を保持する             |
-| `exit` と `delete`                      | `exit` は子のセッションを終了し、`delete` は論理 Workspace とホームを削除する                                       |
-| `cluster down --purge` と `auth logout` | purge は共有ランタイムと CA ボリュームを削除し、logout はローカル認証情報一つとハンドルを削除する                   |
-| タグとダイジェスト                      | タグは移動可能。ダイジェストは不変な OCI コンテンツを識別する                                                       |
-| マニフェストとレポートのスキーマ        | 保存する Workspace Manifest マニフェストはスキーマ 1、公開 Workspace Manifest レポートはスキーマ 1                  |
+| 混同しない語                       | 違い                                                             |
+| ---------------------------------- | ---------------------------------------------------------------- |
+| Workspace と作業コンテナ           | Workspace は永続する論理状態、コンテナは交換可能な実行時リソース |
+| Manifest とクラスター              | Manifest は一つの設定とポリシー範囲、クラスターは共有の強制基盤  |
+| 認証と認可                         | agent CLI がログイン済みでも OPA は HTTP effect を拒否できる     |
+| CA の信頼とポリシー許可            | CA は検査の前提、許可は一つの正規化された効果を通す判断          |
+| Workspace 識別情報とツールログイン | 前者はホスト由来、後者は agent CLI が Workspace home に所有      |
+| `exit` と `delete`                 | 前者はセッション終了、後者は論理 Workspace とホームの削除        |
+| タグとダイジェスト                 | タグは移動可能、ダイジェストは不変 OCI コンテンツの識別          |
 
 ## 障害と制限
 
-これらの定義はサポート対象の実装を説明するもので、Tobari の脅威モデルを広げません。
-特に「信頼しない Workspace」は、選択したプロジェクトルートがその Workspace から
-保護されることや、明示的に許可した接続先へデータを送れないことを意味しません。
+これらの定義はサポート対象の実装を説明しますが、脅威モデルを広げません。「信頼しない Workspace」は、選択した project root がその Workspace から保護されるという意味でも、明示的に許可した destination へ data を送れないという意味でもありません。
 
-二つの用語が矛盾して見えても、表示順や都合で一方を選ばないでください。規定する契約と
-完全一致の境界へ戻って確認します。信頼できる識別情報、スキーマ、管理主体、
-ポリシー、認証状態がない、または曖昧なら、Tobari は安全側に倒して拒否します。用語は
-権限の代わりにはなりません。
+二つの語が衝突して見える場合、表示順や便利さで一方を authority にしません。規定する契約と exact boundary へ戻ります。trusted identity、schema、ownership、policy、credential state が欠落または曖昧なら fail closed であり、用語は代替 authority になりません。
 
 ## 根拠
 
-- 公開語彙の正本：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/docs/01_product_contract.md`}>製品契約</a>
-- レイヤーとランタイムの管理主体：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/docs/02_architecture.md`}>アーキテクチャ</a>
-- 信頼と制限の語彙：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/docs/03_security_model.md`}>セキュリティモデル</a>と <a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/docs/THREAT_MODEL.md`}>脅威モデル</a>
-- 認証の語彙：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/docs/07_authentication.md`}>認証契約</a>
-- Domain の定義：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/domain/tobari/project.go`}>Workspace の識別情報</a>、<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/domain/tobari/context.go`}>Workspace Manifest</a>、<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/domain/authbroker/provider.go`}>プロバイダーの語彙</a>
+- 公開用語の正本：
+  <a
+    href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/docs/01_product_contract.md`}
+  >
+    製品契約
+  </a>
+- layer と runtime ownership：
+  <a
+    href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/docs/02_architecture.md`}
+  >
+    アーキテクチャ
+  </a>
+- trust と limitation の用語：
+  <a
+    href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/docs/03_security_model.md`}
+  >
+    セキュリティモデル
+  </a>
+  および
+  <a
+    href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/docs/THREAT_MODEL.md`}
+  >
+    脅威モデル
+  </a>
+- 認証の用語：
+  <a
+    href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/docs/07_authentication.md`}
+  >
+    認証契約
+  </a>
+- domain definition：
+  <a
+    href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/domain/tobari/project.go`}
+  >
+    Workspace identity
+  </a>
+  、
+  <a
+    href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/domain/tobari/context.go`}
+  >
+    Workspace Manifest
+  </a>
 
 ## まとめ
 
-Tobari は、永続する実行識別情報、ホスト設定、共有の制御基盤、ランタイムによる
-実体化、認証情報の所持、ネットワークの許可を分離します。完全一致の境界には、対応する
-用語を使ってください。
+Tobari は、永続する実行識別情報、ホスト設定、共有の強制、ランタイム、agent CLI 所有のログイン、ネットワーク許可を分離します。正確な境界には正確な用語を使ってください。
 
 ## 理解を確認する
 
-「コンテナ」「Workspace Manifest」「Workspace」は同義語ではありません。
-
 <details>
-<summary>プロセスが有効な Auth Broker のハンドルを持っています。認証と通信許可は完了していますか？</summary>
+  <summary>agent CLI がログイン済みなら、通信は許可されていますか？</summary>
 
-いいえ。認証機能の候補を持っているだけです。Broker が Workspace Manifest、Workspace、
-プロバイダー、リビジョン、HTTP との結び付きの一致を確認し、さらに OPA が通常の HTTP
-通信を許可した後で、宣言済みの解決、更新、署名処理を実行します。
+いいえ。ログイン情報は Workspace home にあり、OPA が通常の HTTP effect を別に許可する必要があります。Gateway は許可後に元の認証情報を転送します。
 
 </details>
 
 <details>
-<summary>現在の Workspace Manifest を変更すると、既存 Workspace もその Workspace Manifest へ移りますか？</summary>
+  <summary>現在の Manifest を変更すると既存 Workspace も移動しますか？</summary>
 
-移りません。Workspace と Workspace Manifest ID の結び付きは恒久的です。現在の Workspace Manifest は、
-セレクターを省略した呼び出しのデフォルトにすぎません。
-
-</details>
-
-<details>
-<summary>許可された Upstream 接続を実際に開くのは Gateway と OPA のどちらですか？</summary>
-
-Gateway です。OPA は判断を評価して返しますが、通信を転送しません。
+いいえ。既存 Workspace の Manifest ID への結び付きは恒久的です。現在の Manifest は選択を省略した新しい呼び出しの既定値にすぎません。
 
 </details>
 
-次へ：全体の理解を[理解度チェック](../../start/understanding-check/)で確かめてください。
+次は [理解度チェック](/ja/start/understanding-check/) でモデル全体を確認してください。

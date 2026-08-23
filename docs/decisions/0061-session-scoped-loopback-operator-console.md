@@ -19,9 +19,9 @@ query string would expose it to ordinary URL handling.
 
 ## Decision
 
-The Operator Console is compiled only into the unsupported experimental
-capability profile produced by `task build:dev`; standard development and
-release catalogs omit `serve`. In that profile, `tobari serve` starts one
+The Operator Console is compiled only into the unsupported research surface
+produced by `task build:dev`; release-surface development and release catalogs
+omit `serve`. In that surface, `bin/tobari-research serve` starts one
 foreground, process-owned operator console on an
 OS-selected IPv4 `127.0.0.1` port. The command accepts no bind address, fixed
 port, remote-access, daemon, or persisted-session option. Cancellation closes

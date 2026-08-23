@@ -68,7 +68,7 @@ func TestContextShowPresentationEvidenceUsesOneTypedFixture(t *testing.T) {
 	if answer.SchemaVersion != 1 || answer.Task != fixture.Task ||
 		answer.SelectedContext.ID != fixture.ID || answer.SelectedContext.Name != fixture.Name ||
 		answer.SelectedContext.Default != fixture.Default ||
-		!slices.Equal(answer.ExactNextArgv, []string{ProgramName, "--manifest", fixture.Name}) ||
+		!slices.Equal(expectedSurfaceArgv(answer.ExactNextArgv), []string{ProgramName, "--manifest", fixture.Name}) ||
 		answer.RoutineSuccess.TaskInvocations != 1 || answer.RoutineSuccess.ExternalReconstructionSteps != 0 {
 		t.Fatalf("answer does not match typed fixture: answer=%+v fixture=%+v", answer, fixture)
 	}
@@ -85,16 +85,16 @@ func TestContextShowPresentationEvidenceUsesOneTypedFixture(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := renderContextShowSummaryText(fixture, false); !slices.Equal(got, summaryGolden) {
+	if got := renderContextShowSummaryText(fixture, false); !slices.Equal(got, []byte(expectedSurfaceText(string(summaryGolden)))) {
 		t.Fatalf("Workspace Manifest show summary changed\n--- got ---\n%s--- want ---\n%s", got, summaryGolden)
 	}
-	if got := renderContextShowDetailsText(fixture, false); !slices.Equal(got, detailsGolden) {
+	if got := renderContextShowDetailsText(fixture, false); !slices.Equal(got, []byte(expectedSurfaceText(string(detailsGolden)))) {
 		t.Fatalf("Workspace Manifest show details changed\n--- got ---\n%s--- want ---\n%s", got, detailsGolden)
 	}
 
-	summary := string(summaryGolden)
-	details := string(detailsGolden)
-	before := string(beforeGolden)
+	summary := expectedSurfaceText(string(summaryGolden))
+	details := expectedSurfaceText(string(detailsGolden))
+	before := expectedSurfaceText(string(beforeGolden))
 	for _, fact := range answer.RequiredSummaryFacts {
 		if !strings.Contains(summary, fact) {
 			t.Fatalf("summary omits required semantic fact %q: %q", fact, summary)

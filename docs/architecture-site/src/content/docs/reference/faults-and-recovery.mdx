@@ -108,16 +108,12 @@ reconciliation.
 Not every network failure is a CLI fault envelope. A Workspace observes an
 HTTP response or a failed connection from Gateway:
 
-| Observation                                                    | Meaning                                                                                                                                   | Upstream contacted?                                                                   |
-| -------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
-| Learnable HTTP `403` denial                                    | The normalized Workspace Manifest/project/host/port/method/path did not match an allow rule. Review on the host, then retry deliberately. | No.                                                                                   |
-| Non-learnable HTTP `403` denial                                | The request is outside a learnable boundary or its identity is invalid. It cannot become a candidate.                                     | No.                                                                                   |
-| Policy service unavailable or invalid decision (`503`)         | Gateway could not obtain one valid OPA decision.                                                                                          | No.                                                                                   |
-| `broker_auth_required` (`403`)                                 | A real Workspace credential was supplied at a declared Broker-required binding.                                                           | No; configure Broker auth, then re-enter if the handle projection is absent or stale. |
-| `credential_handle_invalid`                                    | A Tobari-looking handle was malformed, stale, copied, misplaced, ambiguous, or binding-mismatched.                                        | No; no passthrough fallback.                                                          |
-| `credential_broker_unavailable` (`503`)                        | Broker is locked/unavailable, or a reviewed credential action fails before execution.                                                     | No authorized credential-bearing upstream connection.                                 |
-| `credential_refresh_outcome_unknown` (`409`)                   | An AWS companion operation or Datadog refresh may have been dispatched.                                                                   | No application upstream attempt; do not replay automatically.                         |
-| Upstream DNS, TLS, connection, or response failure after allow | Authorization succeeded, but the separate upstream operation failed.                                                                      | A connection may have been attempted; Gateway does not replay the request.            |
+| Observation                                                    | Meaning                                                                                                                                   | Upstream contacted?                                                        |
+| -------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| Learnable HTTP `403` denial                                    | The normalized Workspace Manifest/project/host/port/method/path did not match an allow rule. Review on the host, then retry deliberately. | No.                                                                        |
+| Non-learnable HTTP `403` denial                                | The request is outside a learnable boundary or its identity is invalid. It cannot become a candidate.                                     | No.                                                                        |
+| Policy service unavailable or invalid decision (`503`)         | Gateway could not obtain one valid OPA decision.                                                                                          | No.                                                                        |
+| Upstream DNS, TLS, connection, or response failure after allow | Authorization succeeded, but the separate upstream operation failed.                                                                      | A connection may have been attempted; Gateway does not replay the request. |
 
 A policy denial can become a candidate only from retained, secret-free
 evidence. The Gateway response contains host-side navigation guidance, not a
@@ -170,12 +166,7 @@ availability, or safe replay of an arbitrary HTTP body.
   >
     runtime commands
   </a>
-  , and
-  <a
-    href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/cli/auth_catalog.go`}
-  >
-    authentication commands
-  </a>
+  .
 - Gateway fail-closed implementation and tests:
   <a
     href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/gateway/addon/tobari_gateway.py`}
@@ -205,7 +196,7 @@ availability, or safe replay of an arbitrary HTTP body.
 
 A fault kind selects a recovery class; a code identifies the exact condition.
 Retryability and rate timing do not replace mutation reconciliation. Gateway
-denials, OPA failures, and invalid broker handles all fail before unauthorized
+denials, OPA failures, and invalid Workspace identities all fail before unauthorized
 upstream traffic.
 
 ## Check your understanding

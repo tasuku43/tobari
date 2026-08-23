@@ -1,12 +1,13 @@
 # Authentication handling
 
 This document defines Tobari's reviewed authentication boundary. ADR 0044
-supersedes the Broker-first standard profile. The Broker implementation remains
-an experimental development capability; managed profiles remain retired.
+supersedes the Broker-first release surface. The release surface remains native
+and Workspace-owned; the Broker implementation remains an unsupported
+repository research capability. Managed profiles remain retired.
 
 ## Standard native Workspace authentication
 
-The standard and release profile has no provider binding, normalized provider
+The release surface has no provider binding, normalized provider
 projection, credential handle, vault, root key, companion, Auth Broker service,
 or `auth` command. Claude Code, Codex, and other tools run their own supported
 login inside a persistent Workspace home. Host credentials and host CLI homes
@@ -242,22 +243,24 @@ may report only `research_auth_disposition: reauthentication_required`.
 Automatic decrypt, import, rebind, standard fallback, and cleanup are excluded.
 Later research use requires an explicit fresh login/import.
 
-## Experimental Broker profile
+## Research Broker surface
 
-`task build:dev` compiles the legacy reviewed Broker capability and its `auth`
-commands behind `tobari_experimental`. It uses a three-service Compose override
-and an experimental Gateway layer. No environment variable or runtime flag can
-activate it in a standard binary, and it is not supported or published.
+`task build:dev` compiles the reviewed Broker capability and its `auth` commands
+behind the `tobari_dev && tobari_research` tuple. It uses a three-service
+Compose override and research Gateway layer. No environment variable, runtime
+flag, Runtime source/revision, Manifest revision, Workspace state, or renamed
+binary can activate it in the release surface, and it is not supported or
+published.
 
-The experimental profile accepts:
+The research surface accepts:
 
 ```sh
-bin/tobari-dev auth login --provider aws --method identity-center
-bin/tobari-dev auth login --provider aws --method console
+bin/tobari-research auth login --provider aws --method identity-center
+bin/tobari-research auth login --provider aws --method console
 ```
 
 Only AWS accepts `--method`; omission selects `identity-center`. The remaining
-sections describe this experimental profile only. GitHub:
+sections describe this research surface only. GitHub:
 
 All reviewed helper lookups inspect a finite PATH-ordered candidate set. A
 temporary integration shim may shadow a conventional installation for ordinary
@@ -277,7 +280,7 @@ the existing trusted-root and mode checks.
 Exact GitHub CLI product-version equality is not a security boundary. The
 fixed observed command contract and executable identity are.
 
-Experimental AWS uses only fixed IAM Identity Center or commercial-console acquisition
+Research AWS uses only fixed IAM Identity Center or commercial-console acquisition
 flows through a canonical AWS CLI. The encrypted record retains bounded opaque
 driver state. After allow, a private authenticated resident companion performs
 one compiled AWS credential export and Broker signs the already-authorized,
@@ -332,7 +335,7 @@ intent, and mutation validation happen before the read; the selected existing
 Workspace Manifest, installed static provider, and ready Broker are validated before the
 secret is sent.
 
-Experimental `auth status` is read-only and reports `declared_bindings: broker_required`
+Research `auth status` is read-only and reports `declared_bindings: broker_required`
 and `undeclared_bindings: workspace_owned_compatibility` beside Broker,
 provider, and Workspace activation state. `manifest show` reports the same
 routing contract in its authentication section and points to `auth status` for
@@ -347,10 +350,10 @@ adapters, provider-defined routes, multiple accounts, and compatibility
 readers remain unsupported. The dynamic records, refresh, signing,
 supplemental header, companion, compiled provider drivers, provider selector, and
 AWS method selector exist only in the compiled implementation union above;
-the experimental projection cannot select capabilities outside that compiled
+the research projection cannot select capabilities outside that compiled
 union.
 
-## Experimental runtime credential classes
+## Research runtime credential classes
 
 All declared bindings are Broker-required, but their post-policy behavior is
 not interchangeable:
@@ -359,13 +362,13 @@ not interchangeable:
 |---|---|---|---|---|
 | Static replacement | GitHub, Chatwork, owner static providers | Primary secret | Replace one exact header once | Broker cannot refresh; replace with `auth login`/`auth import` when invalid |
 | Renewable session | Datadog, OpenAI, Anthropic | OAuth session state | Select a valid bearer value or refresh at one fixed endpoint, persist the new state, then apply it | Broker refreshes when possible; an invalid grant or durable unknown outcome requires trusted-host reconciliation and usually re-login |
-| Request signing | AWS (experimental profile) | Reviewed login/session state | Obtain bounded temporary credentials and sign the exact already-authorized request | Broker/companion renew temporary state; unknown dispatch outcome is not replayed automatically |
+| Request signing | AWS (research surface) | Reviewed login/session state | Obtain bounded temporary credentials and sign the exact already-authorized request | Broker/companion renew temporary state; unknown dispatch outcome is not replayed automatically |
 
 These classes describe runtime use, not acquisition. `builtin_helper` and
 `stdin_import` describe how state enters the Broker; they do not say whether
 that state is static, renewable, or request-signing.
 
-## Experimental static provider manifests
+## Research static provider manifests
 
 Owner manifests are strict owner-only schema-V1 non-secret, non-executable
 local data. A manifest may declare:
@@ -384,7 +387,7 @@ are unsupported. Overlapping recognition coordinates reject the complete
 provider projection as `ambiguous_provider_http_binding`; partial authority is
 never activated.
 
-## Experimental canonical schemas, paths, and backend identifiers
+## Research canonical schemas, paths, and backend identifiers
 
 All Tobari-owned authentication schemas and component APIs are exactly V1.
 Readers reject every other version without migration or fallback.
@@ -420,7 +423,7 @@ host listener or Workspace mount. Control and runtime frames are strict 64 KiB
 schema-1 NDJSON; key and credential payload bytes follow their declared length
 and never use argv or environment.
 
-## Experimental post-policy request sequence
+## Research post-policy request sequence
 
 Gateway enforces this exact order:
 
@@ -461,13 +464,13 @@ different Workspace or binding does not create Broker authority. For declared
 bindings, the real primary secret never enters Workspace state, OPA input,
 audit, denial evidence, CLI output, or logs.
 
-## Experimental failure and recovery
+## Research failure and recovery
 
 Locked, unavailable, timed-out, or invalid Broker state fails as
 `credential_broker_unavailable` without forwarding. A malformed, stale,
 revoked, ambiguous, or mismatched handle fails as
 `credential_handle_invalid` without fallback. Auth mutation cancellation or
-an unclassified result preserves the experimental non-retryable reconciliation
+an unclassified result preserves the research non-retryable reconciliation
 contract: run `auth status` before attempting another mutation. Successful
 login/import/logout output is finalized before late cancellation can imply
 that replay is safe.
@@ -483,7 +486,7 @@ its result is unknown, Gateway returns non-retryable
 attempt. Reconcile with trusted-host `auth status`; a durable task barrier
 requires explicit login or logout before retry.
 
-## Experimental verification evidence
+## Research verification evidence
 
 Automated evidence uses synthetic credentials, fake GitHub CLI output, local
 servers, fixed clocks, secret canaries, and temporary owner-only state. It
@@ -493,18 +496,18 @@ refresh/signing/companion behavior, durable unknown-outcome barriers, rotation,
 revocation, logout, no invalid-handle fallback, source/snapshot equality, and
 absence of managed-profile or manifest-selected executable paths.
 
-Experimental manual validation may replay each reviewed host acquisition
+Research manual validation may replay each reviewed host acquisition
 against a disposable account without recording a token, code, handle, vault,
 account identifier, or authenticated transcript. The GitHub slice includes:
 
 ```sh
-bin/tobari-dev auth login --provider github --manifest default
-bin/tobari-dev auth status --manifest default --format json
+bin/tobari-research auth login --provider github --manifest default
+bin/tobari-research auth status --manifest default --format json
 # Re-enter the Workspace Manifest-bound Workspace.
 case "${GH_TOKEN-}" in tobari-h1_*) ;; *) exit 1 ;; esac
 test "$(gh auth token --hostname github.com)" = "$GH_TOKEN"
 gh api user --jq .login >/dev/null
-bin/tobari-dev auth logout github --manifest default --format json
+bin/tobari-research auth logout github --manifest default --format json
 ```
 
 The reviewer records pass/fail and secret-free observations only, then proves

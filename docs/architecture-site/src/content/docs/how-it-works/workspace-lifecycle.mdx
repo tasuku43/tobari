@@ -14,7 +14,7 @@ Workspaces have been deleted.
 Container or network loss does not automatically mean that the logical
 Workspace is gone: entry reconciles replaceable runtime state against durable
 records. `delete --force` has a narrower recovery purpose, and `cluster down
---purge` is neither Workspace deletion nor credential logout. See [Workspace,
+--purge` is neither Workspace deletion nor removal of a Workspace-owned login. See [Workspace,
 Workspace Manifest, cluster, and runtime](/how-it-works/workspace-manifest-workspace-cluster/) for the
 identities used in this lifecycle.
 
@@ -50,7 +50,7 @@ Shell `exit`, an exact agent command finishing, or a nonzero child exit ends onl
 - the per-Workspace home and tool-owned login state;
 - the runtime container and dedicated network;
 - learned policy scoped to that Workspace Manifest/project; and
-- Workspace Manifest-owned broker credentials and this project's current handle projection.
+- Workspace-owned agent login state in the persistent home.
 
 It does not preserve pending service requests, host service listeners, or
 active service relays; those are attachment-owned and close on exit.
@@ -59,7 +59,7 @@ There is no persisted “paused” state. Detached means no observed attached ex
 
 ### Detached → attached again
 
-The next `tobari` entry resolves the same logical record and reconciles runtime drift before entering. It may recreate the container or network, update the desired Workspace Manifest image, reissue current project-bound broker handle projections, and repair principal registration without changing identity or home.
+The next `tobari` entry resolves the same logical record and reconciles runtime drift before entering. It may recreate the container or network, update the desired Workspace Manifest image, reissue current project-bound Workspace identity projections, and repair principal registration without changing identity or home.
 
 ### Detached → absent
 
@@ -87,12 +87,14 @@ Durable journals cover interrupted creation and deletion so a partial file set i
 
 After that:
 
-| Operation              | Removes                                                                               | Preserves                                                                           |
-| ---------------------- | ------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
-| `cluster down`         | Shared Gateway, OPA, Auth Broker containers and transient shared networks/projections | Workspace Manifests, policy sources, encrypted vaults, root key, Gateway CA volumes |
-| `cluster down --purge` | The same shared runtime resources, shared CA volumes, and active policy-bundle volume | Workspace Manifests, policy sources, encrypted vaults, installation root key        |
+| Operation              | Removes                                                                               | Preserves                                                                                        |
+| ---------------------- | ------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `cluster down`         | Shared Gateway, OPA containers and transient shared networks                          | Workspace Manifests, policy sources, Workspace-owned homes, host-owned state, Gateway CA volumes |
+| `cluster down --purge` | The same shared runtime resources, shared CA volumes, and active policy-bundle volume | Workspace Manifests, policy sources, Workspace-owned homes, host-owned lifecycle state           |
 
-Purge means a later cluster start establishes new shared CA state. It does not revoke provider credentials or delete encrypted vaults. Use `auth logout <provider>` for local credential removal and handle revocation.
+Purge means a later cluster start establishes new shared CA state. It does not
+delete Workspace-owned homes or project files. Provider login and logout remain
+the provider CLI's responsibility.
 
 ## Concrete example
 
@@ -118,7 +120,7 @@ You enter `/work/service`, run a tool-native login, and then type `exit`.
 
 **Guaranteed:** session exit is not deletion; deletion targets one exact Workspace; project files are preserved; runtime resources can be recreated without changing logical identity; purge does not masquerade as logout.
 
-**Not guaranteed:** restoration of manually deleted project files or a manually deleted Workspace home; automatic migration after moving a root; preservation of tool-native login after Workspace deletion; remote provider revocation after local logout.
+**Not guaranteed:** restoration of manually deleted project files or a manually deleted Workspace home; automatic migration after moving a root; preservation of tool-native login after Workspace deletion; remote provider revocation.
 
 ## Source evidence
 
@@ -131,7 +133,7 @@ You enter `/work/service`, run a tool-native login, and then type `exit`.
 
 ## Summary
 
-An attached session, a logical Workspace, its Docker runtime, the shared cluster, and Workspace Manifest credential state have different lifetimes. Use `exit` to leave, `delete` to remove the Workspace, `cluster down` to stop shared services after deletion, and `auth logout` to remove a provider credential.
+An attached session, a logical Workspace, its Docker runtime, the shared cluster, and Workspace-owned login state have different lifetimes. Use `exit` to leave, `delete` to remove the Workspace, and `cluster down` to stop shared services after deletion.
 
 ## Check your understanding
 
@@ -153,10 +155,11 @@ You should now be able to predict what survives each lifecycle operation.
 
 <details>
   <summary>
-    Does `cluster down --purge` delete the encrypted vault and root key?
+    Does `cluster down --purge` delete Workspace home and host-owned lifecycle
+    state?
   </summary>
-  No. It additionally removes shared CA and active policy-bundle volumes. Vaults
-  and the installation root key survive.
+  No. It additionally removes shared CA and active policy-bundle volumes.
+  Workspace homes and host-owned lifecycle state survive.
 </details>
 
 <details>

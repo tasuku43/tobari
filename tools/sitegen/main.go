@@ -235,22 +235,9 @@ func generateWithAgentHelp(root, sourceRef string, runHelp agentHelpRunner) (map
 	if err != nil {
 		return nil, err
 	}
-	providerFixture, err := committedFile(
-		root,
-		sourceRef,
-		"internal/infra/authproviders/testdata/synthetic-provider-v1.json",
-	)
-	if err != nil {
-		return nil, err
-	}
-	providerFixture = bytes.TrimSpace(providerFixture)
-	if !json.Valid(providerFixture) {
-		return nil, errors.New("canonical synthetic provider manifest is not valid JSON")
-	}
 	return map[string][]byte{
-		"catalog.json":                   catalogJSON,
-		"component-versions.json":        versionJSON,
-		"provider-manifest-example.json": append(providerFixture, '\n'),
+		"catalog.json":            catalogJSON,
+		"component-versions.json": versionJSON,
 	}, nil
 }
 
@@ -584,24 +571,6 @@ func generateVersions(root, sourceRef string, catalog catalogDocument) (componen
 	if err != nil {
 		return componentVersionDocument{}, err
 	}
-	providerSource, err := committedFile(root, sourceRef, "internal/domain/authbroker/provider.go")
-	if err != nil {
-		return componentVersionDocument{}, err
-	}
-	providerSchema, err := requiredInt(providerSource, `(?m)^\s*ProviderSchemaVersion\s*=\s*([0-9]+)`, "normalized provider projection schema")
-	if err != nil {
-		return componentVersionDocument{}, err
-	}
-	ownerProviderSchema := providerSchema
-	// Public evidence is intentionally derived from its pinned commit. Some
-	// historical commits declared a separate owner-manifest authority, so report
-	// that committed fact without making it a reader in the current product.
-	if match := regexp.MustCompile(`(?m)^\s*LegacyProviderSchemaVersion\s*=\s*([0-9]+)`).FindSubmatch(providerSource); len(match) == 2 {
-		ownerProviderSchema, err = strconv.Atoi(string(match[1]))
-		if err != nil {
-			return componentVersionDocument{}, fmt.Errorf("parse committed owner provider manifest schema: %w", err)
-		}
-	}
 	gatewaySource, err := committedFile(root, sourceRef, "gateway/addon/tobari_gateway.py")
 	if err != nil {
 		return componentVersionDocument{}, err
@@ -619,22 +588,6 @@ func generateVersions(root, sourceRef string, catalog catalogDocument) (componen
 		return componentVersionDocument{}, err
 	}
 	gatewayImageAPI, err := requiredInt(gatewayDockerfile, `io\.tobari\.gateway-api="([0-9]+)"`, "Gateway image API")
-	if err != nil {
-		return componentVersionDocument{}, err
-	}
-	authBrokerDockerfile, err := committedFile(root, sourceRef, "authbroker/Dockerfile")
-	if err != nil {
-		return componentVersionDocument{}, err
-	}
-	authBrokerImageAPI, err := requiredInt(authBrokerDockerfile, `io\.tobari\.auth-broker-api="([0-9]+)"`, "Auth Broker image API")
-	if err != nil {
-		return componentVersionDocument{}, err
-	}
-	authBrokerPackage, err := committedFile(root, sourceRef, "authbroker/__init__.py")
-	if err != nil {
-		return componentVersionDocument{}, err
-	}
-	authBrokerProtocolSchema, err := requiredInt(authBrokerPackage, `(?m)^SCHEMA_VERSION\s*=\s*([0-9]+)$`, "Auth Broker protocol schema")
 	if err != nil {
 		return componentVersionDocument{}, err
 	}
@@ -667,11 +620,8 @@ func generateVersions(root, sourceRef string, catalog catalogDocument) (componen
 		return componentVersionDocument{}, fmt.Errorf("decode runtime metadata: %w", err)
 	}
 	gatewayVersion := "embedded-source V1"
-	authBrokerVersion := "experimental embedded-source V1"
 	gatewayIdentity := "source-derived local image"
-	authBrokerIdentity := "experimental source-derived local image"
 	gatewayAuthority := "internal/infra/runtimeassets/assets/gateway"
-	authBrokerAuthority := "internal/infra/runtimeassets/assets/authbroker"
 	// Historical documentation snapshots may predate ADR 0033. Preserve what
 	// that committed source actually selected rather than rewriting history.
 	if values["GATEWAY_IMAGE"] != "" {
@@ -682,14 +632,6 @@ func generateVersions(root, sourceRef string, catalog catalogDocument) (componen
 			gatewayVersion = "unpublished V1 snapshot"
 		}
 	}
-	if values["AUTH_BROKER_IMAGE"] != "" {
-		authBrokerIdentity = values["AUTH_BROKER_IMAGE"]
-		authBrokerAuthority = "internal/infra/runtimeassets/assets/versions.env"
-		authBrokerVersion = "digest identity"
-		if authBrokerIdentity == "unpublished" {
-			authBrokerVersion = "unpublished V1 snapshot"
-		}
-	}
 	localBuild := defaultSelector == "tobari-runtime:base"
 	return componentVersionDocument{
 		GeneratedFrom: "committed repository authorities and executable CLI help at " + sourceRef,
@@ -698,7 +640,6 @@ func generateVersions(root, sourceRef string, catalog catalogDocument) (componen
 			{Component: "OPA", Version: values["OPA_VERSION"], Identity: values["OPA_IMAGE"], Authority: "internal/infra/runtimeassets/assets/versions.env", Note: "Version is declared; runtime identity is the immutable digest."},
 			{Component: "mitmproxy", Version: values["MITMPROXY_VERSION"], Identity: values["MITMPROXY_IMAGE"], Authority: "internal/infra/runtimeassets/assets/versions.env", Note: "Version is declared; build base identity is the immutable digest."},
 			{Component: "Gateway", Version: gatewayVersion, Identity: gatewayIdentity, Authority: gatewayAuthority},
-			{Component: "Auth Broker", Version: authBrokerVersion, Identity: authBrokerIdentity, Authority: authBrokerAuthority},
 			{Component: "Base runtime build image", Version: values["DEBIAN_VERSION"], Identity: values["DEBIAN_IMAGE"], Authority: "internal/infra/runtimeassets/assets/versions.env"},
 			{Component: "Tobari CLI", Version: "dev unless release-injected", Identity: "documentation commit supplies source identity", Authority: "cmd/tobari/main.go and scripts/package-release.sh", Note: "The repository does not invent a release version for ordinary builds."},
 		},
@@ -707,13 +648,9 @@ func generateVersions(root, sourceRef string, catalog catalogDocument) (componen
 			{Contract: "Workspace Manifest", Version: contextSchema, Authority: "internal/domain/tobari/context.go"},
 			{Contract: "Public Workspace Manifest report", Version: contextReportSchema, Authority: "internal/cli/runtime_catalog.go"},
 			{Contract: "Root index and Workspace instance", Version: projectSchema, Authority: "internal/domain/tobari/project.go"},
-			{Contract: "Owner provider manifest", Version: ownerProviderSchema, Authority: "internal/domain/authbroker/provider.go"},
-			{Contract: "Normalized provider projection / reviewed built-in manifest", Version: providerSchema, Authority: "internal/domain/authbroker/provider.go"},
 			{Contract: "Project principal registry", Version: principalSchema, Authority: "internal/infra/dockerruntime/principal_registry.go"},
 			{Contract: "Gateway image API", Version: gatewayImageAPI, Authority: "gateway/Dockerfile"},
 			{Contract: "Gateway OPA input", Version: gatewayOPAInputSchema, Authority: "gateway/addon/tobari_gateway.py"},
-			{Contract: "Auth Broker image API", Version: authBrokerImageAPI, Authority: "authbroker/Dockerfile"},
-			{Contract: "Auth Broker control/runtime protocol and static vault", Version: authBrokerProtocolSchema, Authority: "authbroker/__init__.py"},
 		},
 		Runtime: runtimeVersionContract{
 			DefaultSelector: defaultSelector,

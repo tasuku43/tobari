@@ -1,5 +1,8 @@
 # Release Model
 
+The protected release tuple, research build tuple, schema cutover, and
+archive evidence are fixed by [ADR 0082](decisions/0082-release-and-research-build-surfaces.md).
+
 Tobari follows Semantic Versioning and initially supports source builds on
 Linux and macOS with Docker Engine. Colima is the documented macOS runtime;
 Docker Desktop-specific behavior is not required.
@@ -17,13 +20,23 @@ Linux `tobari-expose` helper is instead a checked input built into the local
 engine-native base image and is never an archive or Formula member.
 
 Every CLI artifact exposes build identity through `version` text and schema-1
-JSON. A release archive embeds the validated SemVer and full source commit,
-uses the embedded resolver channel and standard capability profile, names
-source-required and selected Gateway APIs, and leaves contributor command fields empty. A
-repository build retains version `dev`, embeds only the exact HEAD commit, and
-selects content-addressed local component images. `task build` compiles the
-standard profile; `task build:dev` compiles the experimental profile as
-`bin/tobari-dev`. Neither repository binary is a release candidate.
+JSON. A release archive is the protected `(release surface, embedded resolver,
+canonical program tobari)` tuple: it embeds the validated SemVer and full
+source commit, names source-required and selected Gateway APIs, and leaves
+contributor command fields empty. A repository `task build` retains version
+`dev`, embeds only the exact HEAD commit, and selects content-addressed local
+component images as `(release surface, development resolver, bin/tobari)`. The
+retained `task build:dev` path is `(research surface, development resolver,
+bin/tobari-research)`. Source building alone never grants research capability;
+neither repository binary is a release candidate.
+
+The schema-1 build identity has exactly two independent fields:
+`capability_surface` (`release` or `research`) and `resolver_channel`
+(`embedded` or `development`). The former is compile-time command/topology
+authority; the latter identifies the component resolver. There is no
+`capability_profile`, `standard|experimental` alias, dual reader, or runtime
+selector; those retired field names and aliases are not accepted. Runtime input, Workspace Manifest revisions, Workspace state,
+argv/env/config, or a copied/renamed executable cannot widen the tuple.
 
 One complete five-archive CLI matrix is accompanied by three
 repository-generated metadata files. `checksums.txt` binds the five sorted
@@ -74,18 +87,18 @@ when it is absent, then applies the ordinary compatibility preflight.
 Contributor source development uses its own source-hash tag built by
 `task build`.
 
-The experimental Auth Broker image definition is maintained under `authbroker/`.
+The research Auth Broker image definition is maintained under `authbroker/`.
 Its package, Dockerfile, entrypoints, bridge/protocol, tests, and provider-CLI
 absence are byte-checked against
 `internal/infra/runtimeassets/assets/authbroker/`. `task build:dev` builds it
-locally together with the experimental Gateway layer. Release assembly never
+locally together with the research Gateway layer. Release assembly never
 publishes it, and standard `cluster up` has no Broker startup path.
 
 ## Pre-public V1 contract
 
 All Tobari-owned command outputs, persisted state, configuration, OPA input and
-decisions, audits, and Gateway component API use V1. Experimental Broker state
-and protocols also use V1. Readers accept exactly V1 and reject every other
+decisions, audits, and Gateway component API use V1. Research Broker state and
+protocols also use V1. Readers accept exactly V1 and reject every other
 version. Before the first public release, development snapshots receive no
 deprecation window, compatibility reader, retired command alias, or implicit
 old-state interpretation. The explicit `migrate apply` command is the sole
@@ -93,10 +106,13 @@ exception: it accepts only ADR 0070's enumerated unpublished
 Context-policy/Runtime predecessor and emits current V1 state. Every other
 development snapshot must be removed and recreated when the contract changes.
 
-The standard V1 boundaries include command paths, exit meanings, Docker labels,
+The release V1 boundaries include command paths, exit meanings, Docker labels,
 configuration keys, and preservation of each Workspace home by default. Broker
 root-key identifiers, handles, sockets, and vault preservation belong only to
-the experimental profile.
+the unpublished research surface. Research predecessor authority is not
+in-place migrated: the complete replay-capable filesystem set is atomically
+quarantined, Keychain material is left untouched and inert, and a research user
+must explicitly login/import under a fresh Manifest identity.
 
 Every public JSON envelope uses schema 1 and exact catalog-owned recursive
 fields. Explicit `null`, empty collections, zero, false, and finite unavailable
@@ -132,7 +148,7 @@ records contain no release-output digest. Contributor development builds
 
 Standard native Anthropic login is executed and stored by Claude Code inside
 the Workspace; Tobari ships no Anthropic acquisition or refresh adapter. The
-experimental Broker integration is not a release artifact.
+research Broker integration is not a release artifact.
 
 Tobari does not claim code signing, notarization, an SBOM attestation, or
 externally verifiable build provenance. Checksums protect selected artifact
@@ -230,17 +246,18 @@ only; release archives use the embedded resolver and source-selected APIs.
 Auth Broker changes additionally require the canonical source, image, static
 protocol, GitHub host-driver, and topology checks used by `task check`
 and `task runtime:test`. The required reproducible synthetic Auth Broker proof
-is delegated explicitly to `task integration:test`. The experimental `auth`
-namespace and Broker runtime are absent from standard release archives, so a
+is delegated explicitly to `task integration:test`. The research `auth`
+namespace and Broker runtime are absent from the release surface and protected
+release archives, so a
 live Broker-backed provider login is not a standard publication prerequisite.
 Maintainers may record a secret-free pass/fail compatibility observation for
-the experimental profile, but it grants no release evidence and never becomes
+the research surface, but it grants no release evidence and never becomes
 a repository fixture.
 
 The first public release also requires a clean-environment Colima or Linux
 Quick Start run and a human review of history, dependencies, licenses, and
 generated artifacts. That review confirms the standard archives contain no
-experimental provider acquisition implementation, Broker runtime, provider
+research provider acquisition implementation, Broker runtime, provider
 credential state, or bundled Claude/Codex binary, and separately reviews the
 native integration recipes and browser/callback behavior against applicable
 provider terms. That terms review does not require a live account login.

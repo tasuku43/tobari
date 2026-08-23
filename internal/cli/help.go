@@ -227,7 +227,7 @@ func (c *CLI) renderRootHelpWithColor(color bool) []byte {
 	fmt.Fprintln(&output, applyStyleToken(color, styleAccent, "Start here:"))
 	startHere := []struct{ path, description string }{
 		{path: "version", description: "Inspect build channel and runtime API compatibility"},
-		{path: ProgramName, description: "Prepare Shared services and enter or reuse the current project's Workspace"},
+		{path: WorkspaceEntryCommandPath, description: "Prepare Shared services and enter or reuse the current project's Workspace"},
 	}
 	if program == ExposureProgramName {
 		startHere = []struct{ path, description string }{{path: ExposureProgramName, description: "Request one exact Workspace-loopback HTTP service"}}
@@ -263,6 +263,12 @@ func renderRootCommandIndexWithColor(commands []CommandSpec, color bool) []byte 
 	namespaces := make([]namespaceEntry, 0)
 	namespaceIndex := make(map[string]int)
 	for _, command := range commands {
+		if command.Path == WorkspaceEntryCommandPath {
+			// The common root task is presented in Start here. Keeping it out of
+			// this index prevents research binaries from publishing `tobari` as a
+			// second executable command while retaining the common Catalog path.
+			continue
+		}
 		boundary := strings.IndexByte(command.Path, ' ')
 		if boundary < 0 {
 			direct = append(direct, command)
@@ -282,8 +288,12 @@ func renderRootCommandIndexWithColor(commands []CommandSpec, color bool) []byte 
 	fmt.Fprintln(&output, applyStyleToken(color, styleAccent, "Commands:"))
 	width := 0
 	for _, command := range direct {
-		if len(command.Path) > width {
-			width = len(command.Path)
+		label := command.Path
+		if label == WorkspaceEntryCommandPath {
+			label = command.programName()
+		}
+		if len(label) > width {
+			width = len(label)
 		}
 	}
 	for _, namespace := range namespaces {
@@ -292,7 +302,11 @@ func renderRootCommandIndexWithColor(commands []CommandSpec, color bool) []byte 
 		}
 	}
 	for _, command := range direct {
-		path := applyStyleToken(color, styleText, fmt.Sprintf("%-*s", width, command.Path))
+		label := command.Path
+		if label == WorkspaceEntryCommandPath {
+			label = command.programName()
+		}
+		path := applyStyleToken(color, styleText, fmt.Sprintf("%-*s", width, label))
 		summary := applyStyleToken(color, styleText, command.Summary)
 		fmt.Fprintf(&output, "  %s  %s\n", path, summary)
 	}
@@ -551,7 +565,7 @@ func (c *CLI) renderAgentHelp(selector string, exact bool, commands []CommandSpe
 func machineInvocationsForCommand(command CommandSpec) agentMachineInvocations {
 	program := command.programName()
 	commandInvocation := program
-	if command.Path != program {
+	if command.Path != WorkspaceEntryCommandPath && command.Path != program {
 		commandInvocation += " " + command.Path
 	}
 	for _, input := range command.Agent.Inputs {

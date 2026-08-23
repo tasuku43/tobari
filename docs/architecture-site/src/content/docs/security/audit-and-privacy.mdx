@@ -4,8 +4,9 @@ description: What Tobari records for policy learning and diagnosis, what it excl
 ---
 
 Tobari retains bounded, secret-free decision metadata so an HTTP effect can be
-explained and reviewed. Request bodies, broker handles, resolved secrets, and
-configured credential headers are excluded. Ordinary URL paths, query values,
+explained and reviewed. The registry-derived Workspace Manifest/project identity is
+trusted principal metadata and is retained; request bodies, resolved secrets, and
+authentication/cookie or other configured sensitive-header values are excluded. Ordinary URL paths, query values,
 and unclassified headers are not automatically non-sensitive, so “secret-free”
 does not mean that no request content can appear.
 
@@ -18,7 +19,7 @@ credential boundaries that produce this record.
 
 Gateway builds schema-1 input with the trusted principal and normalized HTTP information: scheme, normalized host, fixed port, method, raw and decoded path, multi-valued query, redacted headers, and non-secret authorization metadata. The request body is absent.
 
-Configured/recognized secret headers and broker handles are removed or redacted. The implementation should not be described as an oracle that recognizes every secret-looking string. If a user puts confidential data in a URL path, query, or unclassified header, that value may be part of decision metadata or diagnostics.
+Authentication/cookie and other recognized sensitive-header values are removed or redacted; the trusted principal identity remains. The implementation should not be described as an oracle that recognizes every secret-looking string. If a user puts confidential data in a URL path, query, or unclassified header, that value may be part of decision metadata or diagnostics.
 
 ## What retained denial evidence contains
 
@@ -28,8 +29,8 @@ The body does not split candidates. Query and safe headers can appear in OPA inp
 
 ## What never belongs in the public output
 
-- Primary credentials, root keys, or decrypted vault content.
-- Broker handle values.
+- Primary credentials, host-owned states, or decrypted Workspace state content.
+- Untrusted Workspace-provided identity claims.
 - Request or response bodies.
 - Credential-bearing upstream causes.
 - Private organization/account fixtures or accidental build-machine paths. The trusted canonical project root is intentional diagnostic data and can appear in host-side output.
@@ -48,8 +49,8 @@ If audit retention fails, authorization does not change: a denied request stays 
 <aside class="guarantee">
   <h2>Guaranteed</h2>
   <div class="prose-block">
-    The supported policy and broker flows intentionally exclude bodies and
-    recognized credential material from OPA and retained audit. Public CLI
+    The supported policy and authentication flows intentionally exclude bodies
+    and recognized credential material from OPA and retained audit. Public CLI
     output has hostile-text projection and bounded schemas.
   </div>
 </aside>
@@ -106,8 +107,8 @@ If audit retention fails, authorization does not change: a denied request stays 
       credentials?
     </summary>
     <div class="prose-block">
-      No. Recognized credential headers/handles are protected; ordinary query
-      metadata may be visible to decision and diagnostic paths.
+      No. Recognized credential headers are protected; ordinary query metadata
+      may be visible to decision and diagnostic paths.
     </div>
   </details>
   <details>

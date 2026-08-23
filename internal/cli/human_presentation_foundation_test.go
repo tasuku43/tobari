@@ -71,6 +71,15 @@ func readPinnedHumanPresentationCorpus(t *testing.T) (humanPresentationFixture, 
 	read("testdata/human-presentation-foundation-fixture.json", humanPresentationFixtureSHA256, &fixture)
 	read("testdata/human-presentation-foundation-answer-key.json", humanPresentationAnswerSHA256, &answer)
 	fixture.Lifecycle.RuntimeSelection = tobari.StandardRuntimeName + "@1"
+	if !buildIdentityHasBroker() {
+		filtered := fixture.Warning.Checks[:0]
+		for _, check := range fixture.Warning.Checks {
+			if !isBrokerDoctorCheck(check.Name) {
+				filtered = append(filtered, check)
+			}
+		}
+		fixture.Warning.Checks = filtered
+	}
 	return fixture, answer
 }
 
@@ -111,7 +120,7 @@ func TestPinnedHumanPresentationCorpusDrivesEveryTerminalMode(t *testing.T) {
 			return renderProjectStatusWithColor(fixture.Lifecycle, successFormatText, color)
 		},
 		"scoped_empty_collection": func(color bool) ([]byte, error) {
-			return renderPolicyCandidatesWithColor(fixture.EmptyPolicyCandidates, "tobari policy allow", successFormatText, color)
+			return renderPolicyCandidatesWithColor(fixture.EmptyPolicyCandidates, expectedSurfaceText("tobari policy allow"), successFormatText, color)
 		},
 		"warning": func(color bool) ([]byte, error) {
 			return renderDoctorReportWithColor(fixture.Warning, successFormatText, color)
@@ -149,11 +158,11 @@ func TestPinnedHumanPresentationCorpusDrivesEveryTerminalMode(t *testing.T) {
 				t.Fatalf("terminal mode changed structure\n--- colored ---\n%q\n--- NO_COLOR ---\n%q\n--- redirected ---\n%q", colored, noColor, redirected)
 			}
 			for _, fact := range answerCase.RequiredFacts {
-				if !strings.Contains(plain, fact) {
+				if !strings.Contains(plain, expectedSurfaceText(fact)) {
 					t.Errorf("output lacks required fact %q: %q", fact, plain)
 				}
 			}
-			if len(answerCase.ExactNextArgv) > 0 && !strings.Contains(plain, strings.Join(answerCase.ExactNextArgv, " ")) {
+			if len(answerCase.ExactNextArgv) > 0 && !strings.Contains(plain, strings.Join(expectedSurfaceArgv(answerCase.ExactNextArgv), " ")) {
 				t.Errorf("output lacks exact next argv %q: %q", answerCase.ExactNextArgv, plain)
 			}
 			if len(answerCase.UnsupportedInferences) == 0 {
@@ -261,11 +270,11 @@ func TestHumanTextStructureDoesNotDependOnANSIStyle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	emptyPlain, err := renderPolicyCandidatesWithColor(emptyCandidates, "tobari policy allow", successFormatText, false)
+	emptyPlain, err := renderPolicyCandidatesWithColor(emptyCandidates, expectedSurfaceText("tobari policy allow"), successFormatText, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	emptyStyled, err := renderPolicyCandidatesWithColor(emptyCandidates, "tobari policy allow", successFormatText, true)
+	emptyStyled, err := renderPolicyCandidatesWithColor(emptyCandidates, expectedSurfaceText("tobari policy allow"), successFormatText, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -321,14 +330,14 @@ func TestEveryTextCollectionHasAnExplicitScopedEmptyState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	candidatePlain, _ := renderPolicyCandidatesWithColor(candidates, "tobari policy allow", successFormatText, false)
-	candidateStyled, _ := renderPolicyCandidatesWithColor(candidates, "tobari policy allow", successFormatText, true)
-	denialPlain, _ := renderClusterDenialsWithColor(denials, "tobari review permissions", successFormatText, false)
-	denialStyled, _ := renderClusterDenialsWithColor(denials, "tobari review permissions", successFormatText, true)
+	candidatePlain, _ := renderPolicyCandidatesWithColor(candidates, expectedSurfaceText("tobari policy allow"), successFormatText, false)
+	candidateStyled, _ := renderPolicyCandidatesWithColor(candidates, expectedSurfaceText("tobari policy allow"), successFormatText, true)
+	denialPlain, _ := renderClusterDenialsWithColor(denials, expectedSurfaceText("tobari review permissions"), successFormatText, false)
+	denialStyled, _ := renderClusterDenialsWithColor(denials, expectedSurfaceText("tobari review permissions"), successFormatText, true)
 	cases := []emptyCase{
 		{name: "policy candidates", plain: candidatePlain, styled: candidateStyled, required: []string{"No policy candidates", policyDirectory, "200 Gateway lines"}},
-		{name: "review permissions", plain: renderPolicyReviewHuman(review, "tobari policy allow", "tobari policy deny", false), styled: renderPolicyReviewHuman(review, "tobari policy allow", "tobari policy deny", true), required: []string{"No pending network permissions", policyDirectory, "200 Gateway lines"}},
-		{name: "policy rules", plain: renderPolicyRulesHuman(rules, "tobari policy reset", false), styled: renderPolicyRulesHuman(rules, "tobari policy reset", true), required: []string{"No learned policy decisions", policyDirectory}},
+		{name: "review permissions", plain: renderPolicyReviewHuman(review, expectedSurfaceText("tobari policy allow"), expectedSurfaceText("tobari policy deny"), false), styled: renderPolicyReviewHuman(review, expectedSurfaceText("tobari policy allow"), expectedSurfaceText("tobari policy deny"), true), required: []string{"No pending network permissions", policyDirectory, "200 Gateway lines"}},
+		{name: "policy rules", plain: renderPolicyRulesHuman(rules, expectedSurfaceText("tobari policy reset"), false), styled: renderPolicyRulesHuman(rules, expectedSurfaceText("tobari policy reset"), true), required: []string{"No learned policy decisions", policyDirectory}},
 		{name: "cluster denials", plain: denialPlain, styled: denialStyled, required: []string{"No policy denials", policyDirectory, "200 Gateway lines"}},
 		{name: "Workspaces", plain: projectPlain, styled: projectStyled, required: []string{"No Workspaces", "No Workspace state is configured"}},
 		{name: "auth providers", plain: renderAuthStatusText(authStatusProjection{Context: "toolbox", WorkspaceManifestID: stringPointer("018bcfe5-687b-7000-8000-000000000099"), Providers: []authProviderStatusProjection{}}, false), styled: renderAuthStatusText(authStatusProjection{Context: "toolbox", WorkspaceManifestID: stringPointer("018bcfe5-687b-7000-8000-000000000099"), Providers: []authProviderStatusProjection{}}, true), required: []string{"No authentication providers installed", "toolbox", "explicitly empty"}},

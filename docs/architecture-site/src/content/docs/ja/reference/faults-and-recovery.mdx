@@ -40,7 +40,7 @@ import FaultReference from "../../../../components/FaultReference.astro";
 
 `message` は、人が読むために安全化した文字列です。接続先から返されたレスポンス本文では
 ありません。実装内部では、ラップされた原因を分類に使えます。ただし、リクエスト URL、
-認証情報、安定しないプロバイダー文言を含む可能性があるため、公開出力からは除外します。
+認証情報、安定しない外部サービス文言を含む可能性があるため、公開出力からは除外します。
 
 `phase` は `precondition`、`observation`、`mutation`、`verification`、
 `attachment`、`presentation` のいずれかです。`change_state` は
@@ -100,16 +100,12 @@ import FaultReference from "../../../../components/FaultReference.astro";
 すべてのネットワーク障害が CLI の障害エンベロープになるわけではありません。
 Workspace からは、Gateway の HTTP レスポンスまたは接続失敗として見えます。
 
-| 観測結果                                              | 意味                                                                                                                                  | 接続先へ通信したか                                                                    |
-| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
-| 学習可能な HTTP `403` 拒否                            | 正規化した Workspace Manifest、プロジェクト、ホスト、ポート、メソッド、パスが許可規則に一致しなかった。ホストで確認後、明示的に再試行 | いいえ                                                                                |
-| 学習できない HTTP `403` 拒否                          | 学習対象の境界外、または識別情報が不正。候補にはできない                                                                              | いいえ                                                                                |
-| ポリシーサービスが利用不能、または判断が不正（`503`） | Gateway が OPA から有効な判断を一つ取得できなかった                                                                                   | いいえ                                                                                |
-| `broker_auth_required`（`403`）                       | 宣言済みの Broker 必須 binding に Workspace の実認証情報を付けた                                                                      | いいえ。Broker 認証を設定し、handle の配置が欠落または古い場合は Workspace へ入り直す |
-| `credential_handle_invalid`                           | Tobari 形式のハンドルが形式不正、古い、コピー済み、場所違い、曖昧、または結び付き不一致                                               | いいえ。パススルーへの切り替えなし                                                    |
-| `credential_broker_unavailable`（`503`）              | Broker が locked/unavailable、またはレビュー済み認証操作が実行前に失敗                                                                | 認証情報を付けた接続先への通信は行わない                                              |
-| `credential_refresh_outcome_unknown`（`409`）         | AWS companion 操作または Datadog refresh が dispatch 済みの可能性がある                                                               | application upstream attempt は行わず、自動再実行しない                               |
-| 許可後の接続先 DNS、TLS、接続、レスポンス障害         | 通信許可には成功したが、その後の別の接続先操作が失敗                                                                                  | 接続を試した可能性がある。Gateway はリクエストを再送しない                            |
+| 観測結果                                              | 意味                                                                                                                                  | 接続先へ通信したか                                         |
+| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
+| 学習可能な HTTP `403` 拒否                            | 正規化した Workspace Manifest、プロジェクト、ホスト、ポート、メソッド、パスが許可規則に一致しなかった。ホストで確認後、明示的に再試行 | いいえ                                                     |
+| 学習できない HTTP `403` 拒否                          | 学習対象の境界外、または識別情報が不正。候補にはできない                                                                              | いいえ                                                     |
+| ポリシーサービスが利用不能、または判断が不正（`503`） | Gateway が OPA から有効な判断を一つ取得できなかった                                                                                   | いいえ                                                     |
+| 許可後の接続先 DNS、TLS、接続、レスポンス障害         | 通信許可には成功したが、その後の別の接続先操作が失敗                                                                                  | 接続を試した可能性がある。Gateway はリクエストを再送しない |
 
 ポリシーによる拒否を学習候補にできるのは、保持した、秘密情報を含まない根拠がある場合
 だけです。Gateway のレスポンスに含まれるのは、ホスト側の確認先です。候補を指す参照値でも、
@@ -125,21 +121,21 @@ Workspace からは、Gateway の HTTP レスポンスまたは接続失敗と�
   一致しない障害を置き換える
 
 これらの `code` は、安定しない内部エラーが意図せず公開 API になることを防ぎます。
-プロバイダー固有の失敗ではなく、Tobari 実装の診断です。
+外部サービス固有の失敗ではなく、Tobari 実装の診断です。
 
 ## 保証と制限
 
 Tobari が安定した分類を保証するのは、サポート対象の公開境界だけです。上限付きの診断
-として表示する Docker、OPA、プロバイダー、OS の文字列は、安定した障害 `code` では
+として表示する Docker、OPA、外部サービス、OS の文字列は、安定した障害 `code` では
 ありません。プログラムで解析しないでください。復旧コマンドで前提を戻せる場合は
-ありますが、外部プロバイダーでの失効、外部サービスの利用可能性、任意の HTTP 本文を
+ありますが、外部外部サービスでの失効、外部サービスの利用可能性、任意の HTTP 本文を
 安全に再送できることは保証しません。
 
 ## 根拠
 
 - 障害の語彙と検証：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/domain/fault/fault.go`}><code>internal/domain/fault/fault.go</code></a>
 - JSON 出力、終了コード対応、契約の実施：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/cli/errors.go`}><code>internal/cli/errors.go</code></a>
-- Catalog 宣言：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/cli/catalog.go`}>基本コマンド</a>、<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/cli/runtime_catalog.go`}>ランタイムコマンド</a>、<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/cli/auth_catalog.go`}>認証コマンド</a>
+- Catalog 宣言：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/cli/catalog.go`}>基本コマンド</a>、<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/cli/runtime_catalog.go`}>ランタイムコマンド</a>
 - Gateway が拒否側へ倒す実装とテスト：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/gateway/addon/tobari_gateway.py`}>Gateway アドオン</a>、<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/gateway/test_tobari_gateway.py`}>Gateway テスト</a>
 - CLI 障害テスト：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/cli/cli_test.go`}>構造化エラーのテスト</a>、<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/domain/fault/fault_test.go`}>秘密情報を含まない公開コピーのテスト</a>
 
@@ -147,7 +143,7 @@ Tobari が安定した分類を保証するのは、サポート対象の公開�
 
 障害の `kind` は復旧分類を選び、`code` は完全一致する条件を識別します。再試行可否や
 レート制限の時間情報は、変更結果と現在の状態の照合に代わるものではありません。
-Gateway による拒否、OPA の障害、不正な Auth Broker ハンドルは、いずれも未許可の通信が
+Gateway による拒否、OPA の障害、不正な Workspace／principal の結び付きは、いずれも未許可の通信が
 接続先へ届く前に失敗します。
 
 ## 理解を確認する
@@ -173,7 +169,7 @@ Gateway による拒否、OPA の障害、不正な Auth Broker ハンドルは�
 
 <details>
   <summary>
-    プロバイダーのエラー文字列を Catalog の復旧コマンドへ追加できますか？
+    外部サービスのエラー文字列を Catalog の復旧コマンドへ追加できますか？
   </summary>
   いいえ。復旧コマンドは検査済みの完全一致パスです。接続先からの文言は信頼できない
   データであり、`argv` ではありません。

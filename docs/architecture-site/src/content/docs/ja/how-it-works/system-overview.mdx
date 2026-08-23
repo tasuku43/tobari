@@ -36,7 +36,8 @@ Tobari は論理 Workspace ごとに、Docker の `internal` 属性を持つネ�
 OPA は共有の `control` ネットワークに参加し、プロジェクトネットワークや `egress` には参加しません。そのため Workspace のプロセスは、OPA のポリシーエンドポイントを直接呼べません。
 
 Gateway も `control` に参加し、固定の OPA エンドポイントを一つだけ呼びます。
-standard には Auth Broker service や credential socket はありません。
+共有の強制サービスは Gateway と OPA だけで、agent CLI のログインは
+Tobari のサービスやソケットではなく Workspace home に残ります。
 
 ### 外向き通信ネットワーク一つ
 

@@ -33,7 +33,9 @@ Keep the default Tobari setup. Configuration switching is not part of this step.
 
 ### 4. Authenticate the tools you installed
 
-Follow [Authenticate your tools](../authentication-setup/). Complete the agent's own login when it manages its credentials, and use Tobari's host-side authentication for supported external providers when appropriate.
+Follow [Authenticate your tools](../authentication-setup/). Complete the
+agent's own login inside the persistent Workspace home; Tobari does not add a
+host-side credential service.
 
 Login and network permission remain separate. A newly authenticated API request can still be denied and reviewed exactly as in Quickstart.
 
@@ -41,7 +43,9 @@ At this point, the first-use loop is complete: you can start normal work with th
 
 ### 5. Learn the core components
 
-Read [Mental model](../../how-it-works/mental-model/). Now that the workflow is familiar, learn what Workspace, Gateway, OPA, Auth Broker, and the destination each do.
+Read [Mental model](../../how-it-works/mental-model/). Now that the workflow is
+familiar, learn what the Workspace, Gateway, OPA, agent-owned login state, and
+the destination each do.
 
 ### 6. Follow one request precisely
 
@@ -80,7 +84,8 @@ Use Reference when you need an exact command contract, schema, path, version, or
 - [CLI](../../reference/cli/) for exact command behavior.
 - [Runtime image contract](../../reference/runtime-image-contract/) for compatibility requirements.
 - [Configuration and state](../../reference/configuration-and-state/) for stores and lifetimes.
-- [Provider manifest](../../reference/provider-manifest/) for provider contracts.
+- The public site intentionally does not publish provider-specific research
+  contracts; use native agent authentication inside the Workspace.
 - [Faults and recovery](../../reference/faults-and-recovery/) for exact failure handling.
 
 ## Summary

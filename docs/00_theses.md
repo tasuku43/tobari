@@ -34,7 +34,7 @@ parts: each Workspace can host concurrent processes, cannot reach the Internet o
 another Workspace directly, never receives a real host-managed credential, and is
 selected from the canonical current directory rather than a user-managed name,
 root flag, or container identifier; and the user can reach that boundary
-without becoming a Docker or policy operator. In the standard profile, users
+without becoming a Docker or policy operator. On the release surface, users
 authenticate the pinned agent CLI inside the Workspace and its tool-owned state
 persists only in that Workspace home; host credentials are never inherited.
 
@@ -84,7 +84,7 @@ services` owns immediate attachment-local Allow once or Deny. The lower-level
 `policy` and `service` namespaces retain resource discovery and exact actions.
 One installation-local standard cluster shares one Gateway, one OPA, an atomic
 all-Manifest policy projection, and CA state without sharing Workspace homes or
-runtime networks. The repository-only experimental profile may additionally
+runtime networks. The repository-only research surface may additionally
 compile the Auth Broker research boundary. Host-issued Workspace Manifest/project
 principals bind mutable learned permissions to the exact current-directory
 network that originated a request; they never select a credential on their own.
@@ -114,7 +114,7 @@ A separate `policy rules` view makes the complete current learned Allow and
 exact Deny decisions visible, and its TTY flow can explicitly reset one
 decision to default deny. Reset never grants or retries; it makes the retained
 effect eligible for `review permissions` again.
-A foreground experimental `tobari serve` may present the same typed cluster, Workspace,
+A foreground research `bin/tobari-research serve` may present the same typed cluster, Workspace,
 Permission Inbox, and learned-rule tasks through a host-browser Operator
 Console. It is a trusted-host presentation alternative, not a second policy
 engine or remote control plane: the process owns one random IPv4-loopback
@@ -198,10 +198,10 @@ using `tobari` leaves host execution unchanged, while `delete` and
   in the normal journey. On a TTY, `review permissions` is the complete human
   review-to-decision flow, while `policy rules` is the complete human
   inventory-and-reset flow; neither requires a second JSON review.
-- Experimental `tobari serve` is the dense host-browser alternative for the same inspection
+- Research `bin/tobari-research serve` is the dense host-browser alternative for the same inspection
   and review outcome. It starts no daemon, accepts no remote bind address, and
   cannot bypass typed review staging, fresh validation, or final confirmation.
-  It is compiled only by `task build:dev`; the standard and release command
+  It is compiled only by `task build:dev`; release-surface command
   catalogs omit it while the interface is evaluated.
 - Explicit `manifest create`, `cluster up`, and runtime commands remain
   independently supported compatibility and automation surfaces. They do not
@@ -356,9 +356,9 @@ disabled, so neither path is direct egress.
   replace the CLI-owned isolation arguments. Runtime API compatibility includes
   the bootstrap needed to execute Tobari's fixed Workspace lifetime command.
 
-## Thesis 3: Native Workspace authentication is standard; brokering is experimental
+## Thesis 3: Native Workspace authentication is standard; brokering is research
 
-Tobari does not inherit host authentication material. The standard profile
+Tobari does not inherit host authentication material. The release surface
 declares no provider bindings, provider projection, credential handles, vault,
 root key, companion, or Auth Broker service. A pinned agent CLI performs its
 native login inside the Workspace and owns the resulting state in that
@@ -381,7 +381,7 @@ selector is accepted only when its name, cardinality, bounded value shape, and
 security meaning are reviewed explicitly. Unknown, duplicate, or malformed
 fields still fail before browser or callback authority is created.
 
-The experimental development profile retains the closed Broker research path.
+The research surface retains the closed Broker research path.
 That route stores one Workspace Manifest-owned credential or
 renewable provider session in an authenticated encrypted vault. Each eligible
 Workspace receives only a distinct random handle or handle-only client shim
@@ -389,7 +389,7 @@ bound to its stable Workspace Manifest, project, provider, credential revision, 
 HTTP binding. Gateway resolves, refreshes, or signs through one closed reviewed
 provider plan only after OPA allows the ordinary HTTP effect. Workspace-owned
 authentication remains the only standard path; Broker-required declarations
-exist only when the experimental capability profile is compiled.
+exist only when the research surface is compiled.
 
 ### Consequences
 
@@ -402,12 +402,12 @@ exist only when the experimental capability profile is compiled.
   Workspace by design, survives runtime-container recreation, and is removed by
   the explicit Workspace delete operation.
 - Client authentication and cookie values are redacted from OPA input, Gateway
-  audit, denial projections, and CLI output. In the experimental profile, a declared binding rejects a real
+  audit, denial projections, and CLI output. In the research surface, a declared binding rejects a real
   Workspace credential before OPA as non-learnable `broker_auth_required`; a
   valid handle selects the broker route and one exact post-allow action. Only an
   undeclared binding may select Workspace-owned compatibility passthrough after
   policy allow. Proxy and Tobari control headers are not forwarded upstream.
-- Only in the experimental profile, one shared Auth Broker joins the internal control network and a provider
+- Only in the research surface, one shared Auth Broker joins the internal control network and a provider
   egress path limited to compiled reviewed refresh plans, never a Workspace
   network. Workspaces and
   OPA cannot address its runtime socket; only Gateway mounts that socket.
@@ -447,10 +447,10 @@ exist only when the experimental capability profile is compiled.
   Browser
   targets, callback behavior, output framing, cleanup, versions where the
   client contract is pinned, and cancellation are closed per provider.
-  The experimental built-in set is GitHub, Datadog, OpenAI/Codex,
-  Anthropic/Claude, Chatwork, and AWS. A release or standard build cannot
+  The research built-in set is GitHub, Datadog, OpenAI/Codex,
+  Anthropic/Claude, Chatwork, and AWS. A release-surface build cannot
   activate any of these Broker plans through configuration, environment, or
-  runtime input. Capability maturity is one compile-time profile rather than a set of
+  runtime input. Capability maturity is one compile-time capability surface rather than a set of
   per-feature escape hatches. No manifest-selected helper, arbitrary
   OAuth client, executable adapter, provider SDK inference, or provider
   business-operation command is supported.
@@ -479,8 +479,8 @@ exist only when the experimental capability profile is compiled.
   authority, and all unmatched effects remain reviewable.
 - Built-in broker implementations are a closed typed union of static secrets,
   reviewed renewable sessions, fixed supplemental-header application, and the
-  experimental AWS request-local signer. They exist only in the experimental
-  profile. Owner manifests remain strict static-primary-secret,
+  research AWS request-local signer. They exist only in the research
+  surface. Owner manifests remain strict static-primary-secret,
   non-secret, non-executable local data and cannot select helpers, dynamic
   records, refresh, signing, policy, arbitrary routes, or provider business
   operations.
@@ -516,7 +516,7 @@ exist only when the experimental capability profile is compiled.
 
 MVP manages one installation-local enforcement cluster and multiple Workspaces.
 The standard shared cluster contains exactly one Gateway and one OPA;
-the experimental development profile adds one Auth Broker. The cluster uses a host-issued
+the research surface adds one Auth Broker. The cluster uses a host-issued
 Workspace Manifest/Workspace-principal boundary: stable Workspace and Workspace Manifest IDs are not
 trusted merely because they appear in caller data, but the host binds both to
 the exact Gateway network interface that received the request. Workspace Manifest policy,
@@ -648,10 +648,10 @@ name prefix or broad Docker query as authority.
   and image compatibility is rejected before project runtime resources are
   mutated.
 - Shared Gateway and OPA services use the same fixed JSON log rotation bounds;
-  the experimental Auth Broker follows those bounds as well. A project cannot
+  the research Auth Broker follows those bounds as well. A project cannot
   fill their host-side Docker logs without a cap.
 - Shared Gateway and OPA services carry fixed CPU, memory-plus-swap, and PID
-  bounds; the experimental Auth Broker does too. Those limits protect the
+  bounds; the research Auth Broker does too. Those limits protect the
   Docker VM but do not promise per-project fairness inside shared services.
 - `status`, `list`, and `doctor` never reconcile Docker or create/delete
   runtime resources. They may perform bounded journal cleanup before selecting
@@ -757,7 +757,7 @@ test, lint, policy test, or integration scenario.
 - Tobari publishes no OCI images. Released and development CLIs derive local
   Gateway and agent-ready image identities from their embedded pinned source,
   build missing images on the user's Docker host, and validate them before
-  mutation. Auth Broker remains local to experimental builds.
+  mutation. Auth Broker remains local to research builds.
 - `task check` is the implementation completion gate; security and public
   changes also run their named profiles.
 - Docker integration is a separate explicit profile because it requires a
@@ -920,13 +920,13 @@ Gateway-only secret stores. Its name and generation are presentation, not
 authority.
 
 The standard installation runs one shared Gateway and one shared OPA for every
-Workspace Manifest. An experimental development installation additionally runs one locked
+Workspace Manifest. A research-surface development installation additionally runs one locked
 Auth Broker.
 The installation default Manifest is only the selector used when a host
 invocation omits `--manifest`; changing it cannot retarget or mutate existing
 Workspaces or shared enforcement.
 Tool-native authentication state remains below each Workspace home and is not a
-Workspace Manifest secret. In the experimental profile, a brokered credential is owned once by the stable Workspace Manifest and
+Workspace Manifest secret. In the research surface, a brokered credential is owned once by the stable Workspace Manifest and
 enables every permanently bound Workspace to receive a different project-bound
 handle on its next reconciliation. A declared provider binding is handle-only;
 Workspace-owned passthrough remains only for undeclared bindings. Neither a

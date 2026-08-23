@@ -17,7 +17,7 @@ This page follows the denial through host review and deliberate retry. Complete 
 1. Gateway derives the Workspace Manifest/project principal from the kernel-observed Workspace source endpoint and the host-owned schema-1 principal registry.
 2. It constructs a normalized, body-free policy input and asks OPA once.
 3. OPA returns deny for an effect not covered by an allow rule.
-4. Gateway does not resolve a brokered secret, perform DNS for the destination, or create an upstream connection.
+4. Gateway does not resolve a native secret, perform DNS for the destination, or create an upstream connection.
 5. Gateway returns a bounded `403` response. The response identifies the fixed host review command, not an action reference.
 6. Secret-free denial evidence enters the retained review window. Repeated observations of the same exact effect coalesce instead of manufacturing new authority.
 
@@ -88,7 +88,7 @@ observations into broader authority.
 ## Failure behavior
 
 - OPA unavailable or an invalid OPA response produces a service failure and no upstream connection.
-- Immutable scheme, cluster, principal, or credential-binding failures are diagnostics, not learnable candidates.
+- Immutable scheme, cluster, principal, or principal-registry binding failures are diagnostics, not learnable candidates.
 - An expired or stale candidate reference is rejected; rediscover the queue.
 - Concurrent policy change makes a stale action fail rather than guessing.
 - Invalid complete policy leaves the previously active policy unchanged.

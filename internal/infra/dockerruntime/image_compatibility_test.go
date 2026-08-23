@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/tasuku43/tobari/internal/domain/buildidentity"
-	"github.com/tasuku43/tobari/internal/domain/capabilityprofile"
+	"github.com/tasuku43/tobari/internal/domain/capabilitysurface"
 	"github.com/tasuku43/tobari/internal/domain/fault"
 	"github.com/tasuku43/tobari/internal/domain/tobari"
 )
@@ -21,7 +21,7 @@ func TestClusterUpRejectsEmbeddedResolverAPIMismatchBeforeRuntimeCalls(t *testin
 	identity := buildidentity.Identity{
 		Version: "dev", Commit: buildidentity.UnknownCommit,
 		ResolverChannel:   buildidentity.ResolverEmbedded,
-		CapabilityProfile: capabilityprofile.ProfileStandard,
+		CapabilitySurface: capabilitysurface.CapabilitySurfaceRelease,
 		Gateway:           buildidentity.Component{RequiredAPI: 1, SelectedAPI: 2},
 	}
 	runtime.images = testImageResolver{identity: &identity}
@@ -48,7 +48,7 @@ func TestComponentAPIMismatchRecoveryIsChannelSpecific(t *testing.T) {
 	development := buildidentity.Identity{
 		Version: "dev", Commit: buildidentity.UnknownCommit,
 		ResolverChannel: buildidentity.ResolverDevelopment, DevelopmentSource: true,
-		CapabilityProfile: capabilityprofile.ProfileStandard,
+		CapabilitySurface: capabilitysurface.CapabilitySurfaceRelease,
 		Gateway:           buildidentity.Component{RequiredAPI: 1, SelectedAPI: 1},
 	}
 	runtime := &Runtime{images: testImageResolver{identity: &development}}

@@ -11,7 +11,7 @@ interface Props {
 }
 
 interface Conversation {
-  id: "proxy" | "policy" | "decision" | "credential" | "egress";
+  id: "proxy" | "policy" | "decision" | "egress";
   number: string;
   label: string;
   from: string;
@@ -24,7 +24,7 @@ interface Conversation {
 }
 
 interface Participant {
-  id: "workspace" | "gateway" | "opa" | "broker" | "upstream";
+  id: "workspace" | "gateway" | "opa" | "upstream";
   location: string;
   networks: string;
 }
@@ -36,7 +36,7 @@ interface Message {
   from: Participant["id"];
   to: Participant["id"];
   label: string;
-  kind: "network" | "control" | "handle" | "allowed";
+  kind: "network" | "control" | "allowed";
   optional?: boolean;
   response?: boolean;
 }
@@ -74,11 +74,6 @@ const participantsEn: Participant[] = [
     networks: "control only",
   },
   {
-    id: "broker",
-    location: "Shared cluster · host-managed",
-    networks: "control + bounded egress",
-  },
-  {
     id: "upstream",
     location: "External service",
     networks: "reached only from Gateway",
@@ -101,19 +96,12 @@ const participantsJa: Participant[] = [
     networks: "制御ネットワークだけ",
   },
   {
-    id: "broker",
-    location: "共有クラスター · ホストが管理",
-    networks: "制御 + 限定された外向き通信",
-  },
-  {
     id: "upstream",
     location: "外部サービス",
     networks: "Gateway からだけ到達",
   },
 ];
-const participants = (isJapanese ? participantsJa : participantsEn).filter(
-  (participant) => participant.id !== "broker",
-);
+const participants = isJapanese ? participantsJa : participantsEn;
 
 const messagesEn: Message[] = [
   {
@@ -151,27 +139,6 @@ const messagesEn: Message[] = [
     to: "gateway",
     label: "One allow or deny result",
     kind: "control",
-    response: true,
-  },
-  {
-    id: "credential-request",
-    number: "05",
-    phase: "credential",
-    from: "gateway",
-    to: "broker",
-    label: "Credential operation, only when required and allowed",
-    kind: "handle",
-    optional: true,
-  },
-  {
-    id: "credential-result",
-    number: "06",
-    phase: "credential",
-    from: "broker",
-    to: "gateway",
-    label: "Resolve one same-revision static credential",
-    kind: "handle",
-    optional: true,
     response: true,
   },
   {
@@ -243,27 +210,6 @@ const messagesJa: Message[] = [
     response: true,
   },
   {
-    id: "credential-request",
-    number: "05",
-    phase: "credential",
-    from: "gateway",
-    to: "broker",
-    label: "必要な場合だけ、許可後の認証処理",
-    kind: "handle",
-    optional: true,
-  },
-  {
-    id: "credential-result",
-    number: "06",
-    phase: "credential",
-    from: "broker",
-    to: "gateway",
-    label: "解決・更新・署名の結果",
-    kind: "handle",
-    optional: true,
-    response: true,
-  },
-  {
     id: "upstream-request",
     number: "05",
     phase: "egress",
@@ -293,9 +239,7 @@ const messagesJa: Message[] = [
     response: true,
   },
 ];
-const messages = (isJapanese ? messagesJa : messagesEn).filter(
-  (message) => message.phase !== "credential",
-);
+const messages = isJapanese ? messagesJa : messagesEn;
 
 const conversationsEn: Conversation[] = [
   {
@@ -317,7 +261,7 @@ const conversationsEn: Conversation[] = [
     from: "Gateway",
     to: "OPA",
     sent: "Registry-derived principal and normalized HTTP decision dimensions",
-    withheld: "Request body, broker handle, and credential values",
+    withheld: "Request body and credential values",
     result: "OPA receives one bounded decision input",
     failure: "Gateway does not connect to the destination",
   },
@@ -328,21 +272,9 @@ const conversationsEn: Conversation[] = [
     from: "OPA",
     to: "Gateway",
     sent: "One structured allow or deny result",
-    withheld: "OPA does not open connections or handle credentials",
+    withheld: "OPA does not open external connections",
     result: "Gateway either returns a local denial or continues",
     failure: "Missing or malformed policy results fail closed",
-  },
-  {
-    id: "credential",
-    number: "05–06",
-    label: "Use brokered credentials when required",
-    from: "Gateway",
-    to: "Auth Broker",
-    sent: "A bound handle and the exact post-allow operation",
-    withheld: "Workspace and OPA do not receive the brokered primary secret",
-    result: "The declared static header replacement completes once",
-    failure: "The request fails without switching credential modes",
-    optional: true,
   },
   {
     id: "egress",
@@ -376,7 +308,7 @@ const conversationsJa: Conversation[] = [
     from: "Gateway",
     to: "OPA",
     sent: "登録情報から導出した通信主体と、正規化した HTTP 通信の情報",
-    withheld: "リクエスト本文、ブローカーのハンドル、認証情報の値",
+    withheld: "リクエスト本文、認証境界の識別子、認証情報の値",
     result: "OPA が上限を定めた判断入力を一つ受け取る",
     failure: "Gateway は接続先へ接続しない",
   },
@@ -392,18 +324,6 @@ const conversationsJa: Conversation[] = [
     failure: "判断を取得できない、または応答が不正な場合は拒否する",
   },
   {
-    id: "credential",
-    number: "05–06",
-    label: "必要な場合だけ、ブローカー管理の認証情報を使う",
-    from: "Gateway",
-    to: "Auth Broker",
-    sent: "プロジェクトに結び付いたハンドルと、許可後の完全一致する操作",
-    withheld: "Workspace と OPA へ、ブローカー管理の秘密情報を送らない",
-    result: "宣言済みの静的ヘッダー置換を一度だけ完了する",
-    failure: "別の認証方式へ切り替えずに失敗する",
-    optional: true,
-  },
-  {
     id: "egress",
     number: "05–07",
     label: "外部接続を作り、応答を中継する",
@@ -415,16 +335,13 @@ const conversationsJa: Conversation[] = [
     failure: "接続先のエラーはポリシーを変更しない",
   },
 ];
-const conversations = (isJapanese ? conversationsJa : conversationsEn).filter(
-  (conversation) => conversation.id !== "credential",
-);
+const conversations = isJapanese ? conversationsJa : conversationsEn;
 
 const laneX: Record<Participant["id"], number> = {
   workspace: 120,
   gateway: 390,
   opa: 630,
-  broker: 870,
-  upstream: 1110,
+  upstream: 900,
 };
 const messageY = [275, 360, 445, 530, 625, 700, 795, 870, 945];
 const messageGeometry = messages.map((message, index) => {
@@ -785,7 +702,6 @@ const ui = isJapanese
     proxy: { from: "workspace", to: "gateway" },
     policy: { from: "gateway", to: "opa" },
     decision: { from: "opa", to: "gateway" },
-    credential: { from: "gateway", to: "broker" },
     egress: { from: "gateway", to: "upstream" },
   };
 
@@ -933,11 +849,6 @@ const ui = isJapanese
   .node-opa {
     color: var(--tobari-trusted);
   }
-  .node-broker {
-    color: var(--tobari-secret);
-    border-block-start-style: double;
-    border-block-start-width: 4px;
-  }
   .node-upstream {
     color: var(--tobari-network);
     border-style: dashed;
@@ -1004,10 +915,6 @@ const ui = isJapanese
   .message-route.kind-control {
     stroke: var(--tobari-trusted);
   }
-  .message-route.kind-handle {
-    stroke: var(--tobari-secret);
-    stroke-dasharray: 7 6;
-  }
   .message-route.kind-allowed {
     stroke: var(--tobari-allowed);
   }
@@ -1043,13 +950,6 @@ const ui = isJapanese
     color: var(--tobari-control);
     font-family: var(--sl-font-mono);
     font-size: 0.56rem;
-  }
-  .message-label.kind-handle {
-    border-color: color-mix(
-      in srgb,
-      var(--tobari-secret) 55%,
-      var(--sl-color-gray-5)
-    );
   }
   .message-label.kind-allowed {
     border-color: color-mix(

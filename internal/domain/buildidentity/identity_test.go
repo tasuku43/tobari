@@ -3,14 +3,14 @@ package buildidentity
 import (
 	"testing"
 
-	"github.com/tasuku43/tobari/internal/domain/capabilityprofile"
+	"github.com/tasuku43/tobari/internal/domain/capabilitysurface"
 )
 
 func TestIdentityRequiresCompleteTruthfulMetadataForCompatibility(t *testing.T) {
 	t.Parallel()
 	identity := Identity{
 		Version: "1.2.3", Commit: UnknownCommit, ResolverChannel: ResolverEmbedded,
-		CapabilityProfile: capabilityprofile.ProfileStandard,
+		CapabilitySurface: capabilitysurface.CapabilitySurfaceRelease,
 		Gateway:           Component{RequiredAPI: 4, SelectedAPI: 4},
 	}
 	if err := identity.Validate(); err != nil {
@@ -31,14 +31,19 @@ func TestIdentityRequiresCompleteTruthfulMetadataForCompatibility(t *testing.T) 
 
 func TestDevelopmentRecoveryRequiresDevelopmentResolverMetadata(t *testing.T) {
 	t.Parallel()
-	identity := Identity{ResolverChannel: ResolverEmbedded, CapabilityProfile: capabilityprofile.ProfileStandard}
+	identity := Identity{ResolverChannel: ResolverEmbedded, CapabilitySurface: capabilitysurface.CapabilitySurfaceRelease}
 	if build, binary, ok := identity.DevelopmentRecovery(); ok || build != "" || binary != "" {
 		t.Fatalf("published recovery = %q %q %t", build, binary, ok)
 	}
-	identity = Identity{ResolverChannel: ResolverDevelopment, DevelopmentSource: true, CapabilityProfile: capabilityprofile.ProfileStandard}
+	identity = Identity{ResolverChannel: ResolverDevelopment, DevelopmentSource: true, CapabilitySurface: capabilitysurface.CapabilitySurfaceRelease}
 	build, binary, ok := identity.DevelopmentRecovery()
 	if !ok || build != "task build" || binary != "bin/tobari" {
 		t.Fatalf("development recovery = %q %q %t", build, binary, ok)
+	}
+	identity.CapabilitySurface = capabilitysurface.CapabilitySurfaceResearch
+	build, binary, ok = identity.DevelopmentRecovery()
+	if !ok || build != "task build:dev" || binary != "bin/tobari-research" {
+		t.Fatalf("research development recovery = %q %q %t", build, binary, ok)
 	}
 }
 
@@ -46,10 +51,23 @@ func TestIdentityRejectsCrossedChannelMetadata(t *testing.T) {
 	t.Parallel()
 	identity := Identity{
 		Version: "dev", Commit: UnknownCommit, ResolverChannel: ResolverEmbedded, DevelopmentSource: true,
-		CapabilityProfile: capabilityprofile.ProfileStandard,
+		CapabilitySurface: capabilitysurface.CapabilitySurfaceRelease,
 		Gateway:           Component{RequiredAPI: 4, SelectedAPI: 3},
 	}
 	if err := identity.Validate(); err == nil {
 		t.Fatal("embedded resolver accepted development source metadata")
+	}
+}
+
+func TestIdentityRejectsResearchWithEmbeddedResolver(t *testing.T) {
+	t.Parallel()
+	identity := Identity{
+		Version: "dev", Commit: UnknownCommit, ResolverChannel: ResolverEmbedded,
+		CapabilitySurface: capabilitysurface.CapabilitySurfaceResearch,
+		Gateway:           Component{RequiredAPI: 1, SelectedAPI: 1},
+		AuthBroker:        Component{RequiredAPI: 1, SelectedAPI: 1},
+	}
+	if err := identity.Validate(); err == nil {
+		t.Fatal("research surface accepted embedded resolver")
 	}
 }

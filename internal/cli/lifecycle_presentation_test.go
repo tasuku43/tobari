@@ -87,7 +87,7 @@ func TestLifecyclePresentationEvidenceKeepsOneContextBoundTarget(t *testing.T) {
 		answer.SameRootOtherManifest.WorkspaceManifestName == fixture.WorkspaceManifestName {
 		t.Fatalf("same-root Workspace Manifest identities merged: %+v", answer.SameRootOtherManifest)
 	}
-	if !slices.Equal(answer.ExactNextArgv, []string{"tobari", "--manifest", "toolbox"}) ||
+	if !slices.Equal(expectedSurfaceArgv(answer.ExactNextArgv), expectedSurfaceArgv([]string{"tobari", "--manifest", "toolbox"})) ||
 		answer.RoutineSuccess.TaskInvocations != 1 || answer.RoutineSuccess.ExternalReconstructionSteps != 0 {
 		t.Fatalf("routine-success evidence is incomplete: %+v", answer)
 	}
@@ -105,7 +105,7 @@ func TestLifecyclePresentationEvidenceKeepsOneContextBoundTarget(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(textOutput, golden) {
+	if !slices.Equal(textOutput, []byte(expectedSurfaceText(string(golden)))) {
 		t.Fatalf("lifecycle status text changed\n--- got ---\n%s--- want ---\n%s", textOutput, golden)
 	}
 	jsonOutput, err := renderProjectStatus(fixture, successFormatJSON)
@@ -116,7 +116,7 @@ func TestLifecyclePresentationEvidenceKeepsOneContextBoundTarget(t *testing.T) {
 	if err := json.Unmarshal(jsonOutput, &document); err != nil {
 		t.Fatal(err)
 	}
-	if document.SchemaVersion != 2 || !reflect.DeepEqual(document.Status.NextArgv, answer.ExactNextArgv) ||
+	if document.SchemaVersion != 2 || !reflect.DeepEqual(document.Status.NextArgv, expectedSurfaceArgv(answer.ExactNextArgv)) ||
 		document.Status.WorkspaceManifestID == nil || *document.Status.WorkspaceManifestID != answer.Target.WorkspaceManifestID || document.Status.Attachment != answer.Target.Attachment {
 		t.Fatalf("structured status lost target or recovery: %+v", document)
 	}

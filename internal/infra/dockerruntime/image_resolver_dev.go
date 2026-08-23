@@ -9,7 +9,7 @@ import (
 
 import "github.com/tasuku43/tobari/internal/domain/buildidentity"
 
-import "github.com/tasuku43/tobari/internal/domain/capabilityprofile"
+import "github.com/tasuku43/tobari/internal/domain/capabilitysurface"
 
 import "github.com/tasuku43/tobari/internal/infra/runtimeassets"
 
@@ -20,17 +20,17 @@ const (
 type localDevImageResolver struct{}
 
 func (localDevImageResolver) BuildIdentity(version, commit string) (buildidentity.Identity, error) {
-	profile := capabilityprofile.Compiled()
+	surface := capabilitysurface.Compiled()
 	identity := buildidentity.Identity{
 		Version: version, Commit: buildidentity.NormalizeCommit(commit),
 		ResolverChannel: buildidentity.ResolverDevelopment, DevelopmentSource: true,
-		CapabilityProfile: profile,
+		CapabilitySurface: surface,
 		Gateway: buildidentity.Component{
 			RequiredAPI: buildidentity.RequiredGatewayAPI,
 			SelectedAPI: buildidentity.RequiredGatewayAPI,
 		},
 	}
-	if profile.IncludesExperimental() {
+	if surface.IncludesResearch() {
 		identity.AuthBroker = buildidentity.Component{
 			RequiredAPI: buildidentity.RequiredAuthBrokerAPI,
 			SelectedAPI: buildidentity.RequiredAuthBrokerAPI,
@@ -61,15 +61,15 @@ func (localDevImageResolver) GatewayImage(context.Context, *Runtime) (sharedImag
 		return sharedImageSelection{}, err
 	}
 	prefix := "tobari-gateway:dev-"
-	if capabilityprofile.Compiled().IncludesExperimental() {
+	if capabilitysurface.Compiled().IncludesResearch() {
 		prefix = "tobari-gateway-experimental:dev-"
 	}
 	return sharedImageSelection{Image: prefix + version, RequireDigest: false}, nil
 }
 
 func (localDevImageResolver) AuthBrokerImage(context.Context, *Runtime) (sharedImageSelection, error) {
-	if !capabilityprofile.Compiled().IncludesExperimental() {
-		return sharedImageSelection{}, fmt.Errorf("Auth Broker is unavailable in the standard development profile")
+	if !capabilitysurface.Compiled().IncludesResearch() {
+		return sharedImageSelection{}, fmt.Errorf("Auth Broker is unavailable on the release surface")
 	}
 	version, err := runtimeassets.ComponentVersion("authbroker")
 	if err != nil {

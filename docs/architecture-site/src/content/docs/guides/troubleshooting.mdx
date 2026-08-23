@@ -18,11 +18,7 @@ tobari status
 tobari list
 ```
 
-These commands observe; they do not start services, create/delete runtime resources, activate policy, or repair credentials. `auth status` is also read-only but needs the configured broker path to report provider state:
-
-```sh
-tobari auth status
-```
+These commands observe; they do not start services, create/delete runtime resources, activate policy, or repair agent CLI login state. Login remains the provider CLI's own operation inside the Workspace.
 
 Record the exact fault code and declared next action. Do not reduce every failure to “retry.”
 
@@ -31,7 +27,7 @@ Record the exact fault code and declared next action. Do not reduce every failur
 Check in this order:
 
 1. `tobari cluster status`: the shared cluster must already be configured and healthy.
-2. `tobari doctor`: inspect Docker, image, path, policy, provider, broker, and root-key prerequisites.
+2. `tobari doctor`: inspect Docker, image, path, policy, Workspace, and host-owned lifecycle prerequisites.
 3. `tobari status`: distinguish absent logical state from `missing`, `degraded`, `unreachable`, or `incomplete` runtime diagnostics.
 4. Confirm the root command has an interactive terminal and is not already running inside a Workspace.
 
@@ -44,10 +40,10 @@ For `workspace_selection_stale`, rerun `tobari` and choose from the refreshed ca
 First identify the response code:
 
 - `policy_denied`: leave the Workspace and run `tobari review permissions`. Inspect and stage exact choices for one Workspace Manifest, Apply the reviewed set once, then retry deliberately.
-- `credential_handle_invalid`: leave and re-enter the same Workspace Manifest-bound Workspace. A stale, copied, malformed, misplaced, or mismatched handle must not be forwarded.
+- A provider `401`/`403`: treat it as an upstream response. Leave the Workspace only if the provider CLI requires it, then use that CLI's documented login flow. Tobari never turns an upstream authentication response into a broader allow rule.
 - A baseline or learned exact deny: it is terminal policy, not a pending candidate. Inspect `tobari policy rules`; reset only if changing that decision is intentional.
 
-Do not solve a credential-binding `403` by creating a broad allow rule. The failure occurs before an effective OPA rule can close it.
+Do not solve an upstream authentication `403` by creating a broad allow rule. A provider response is not a pending Tobari policy candidate.
 
 ## Gateway or OPA is unhealthy
 
@@ -65,28 +61,23 @@ tobari cluster up
 
 OPA unavailable never becomes allow. Gateway does not connect upstream without a valid decision. An invalid policy candidate should leave the previous known-good aggregate active.
 
-## Auth Broker is locked or unavailable
+## A provider login is unavailable
 
-```sh
-tobari cluster status
-tobari auth status
-tobari doctor
-```
+Run the provider's own login command from inside the selected Workspace, then
+return to the ordinary request flow. Tobari does not inherit host credentials,
+store provider state, or provide a replacement login command.
 
-`cluster up` is the supported path that starts/reconciles the Broker and unlocks it through the host root-key backend. The broker starts locked after restart by design.
+## A Workspace entry or agent login is invalid
 
-If an existing vault is present but the root key is missing, restore the original Linux XDG key or macOS Keychain item. Tobari intentionally refuses to generate a replacement over encrypted state. Do not print, hand-edit, or copy vault ciphertext into a Workspace.
-
-## A broker handle is invalid
-
-Credential replacement and logout revoke old handles immediately, but a running process keeps its old environment. Exit and re-enter to receive the current projection:
+Credential changes are owned by the agent CLI and a running process keeps its old
+environment. Exit and re-enter to receive the current tool-owned state:
 
 ```sh
 exit
 tobari
 ```
 
-If it still fails, inspect `tobari auth status`, the exact Workspace Manifest selection, installed provider binding, and cluster readiness. Do not paste a handle from another Workspace; project and Workspace Manifest checks are intentional.
+If it still fails, inspect the exact Workspace Manifest selection and cluster readiness. Do not copy login files between Workspaces; project and Workspace Manifest checks are intentional.
 
 ## Runtime image is missing or incompatible
 
@@ -129,7 +120,7 @@ For host-authored Advanced policy, correct the Rego and tests on the trusted hos
 - `cluster_not_empty`: `tobari list` every Workspace, return to the appropriate root/Workspace Manifest, and delete each before `cluster down`.
 - Interrupted state: inspect `status` and `doctor`; use the declared exact cleanup or reconcile command rather than manually deleting labels/files.
 
-`delete` never removes project files. `cluster down --purge` removes shared runtime and CA volumes but preserves Workspace Manifest vaults/root key; it is not credential logout.
+`delete` never removes project files. `cluster down --purge` removes shared runtime and CA volumes but preserves Workspace home, Manifest policy, and host-owned lifecycle state; agent CLI logout remains a provider operation.
 
 ## Colima or Lima cannot see a mount
 
@@ -144,11 +135,11 @@ See [Colima and Lima](../colima-and-lima/). Do not work around the error with a 
 
 ## Mutation outcome is uncertain
 
-For `auth_mutation_outcome_unknown`, `unclassified_mutation_outcome`, or `mutation_output_write_failed`, the side effect may already have completed. Do not repeat login, import, logout, policy mutation, or another destructive write merely because output was lost.
+For `unclassified_mutation_outcome` or `mutation_output_write_failed`, the side effect may already have completed. Do not repeat a policy or lifecycle mutation merely because output was lost.
 
 Reconcile through the matching read path first:
 
-- authentication: `tobari auth status`;
+- agent login: the provider CLI's own login flow;
 - policy: `tobari policy rules` and `tobari cluster status`;
 - Workspace Manifest/Runtime: `tobari manifest show`;
 - Workspace: `tobari status` and `tobari list`.
@@ -160,7 +151,7 @@ Catalog faults declare bounded recovery, and read-only diagnostics avoid surpris
 ## Source evidence
 
 - [Catalog-declared faults and recovery](https://github.com/tasuku43/tobari/blob/2a0f0f3b0303f889cd42c581403e70ace7680894/internal/cli/runtime_catalog.go)
-- [Authentication fault contracts](https://github.com/tasuku43/tobari/blob/2a0f0f3b0303f889cd42c581403e70ace7680894/internal/cli/auth_catalog.go)
+- [Public command fault contracts](https://github.com/tasuku43/tobari/blob/2a0f0f3b0303f889cd42c581403e70ace7680894/internal/cli/catalog.go)
 - [Read-only doctor implementation](https://github.com/tasuku43/tobari/blob/2a0f0f3b0303f889cd42c581403e70ace7680894/internal/infra/dockerruntime/runtime.go)
 - [Workspace recovery tests](https://github.com/tasuku43/tobari/blob/2a0f0f3b0303f889cd42c581403e70ace7680894/internal/infra/dockerruntime/project_runtime_test.go)
 - [Integration recovery canaries](https://github.com/tasuku43/tobari/blob/2a0f0f3b0303f889cd42c581403e70ace7680894/scripts/test-integration.sh)
@@ -172,9 +163,10 @@ Start with what you observed, identify the owning boundary, read current state, 
 ## Check your understanding
 
 <details>
-<summary>A broker login command lost its final output. Should you run login again?</summary>
+<summary>A provider login lost its final output. Should you run it again?</summary>
 
-Not yet. The credential may already have been replaced. Run `tobari auth status` and reconcile the Workspace Manifest before another mutation.
+Not yet. The provider may already have accepted the login. Reconcile the
+Workspace-owned state before repeating a mutating login action.
 
 </details>
 

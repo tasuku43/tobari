@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 
 	"github.com/tasuku43/tobari/internal/cli"
+	"github.com/tasuku43/tobari/internal/domain/capabilitysurface"
 )
 
 func main() {
@@ -50,8 +51,32 @@ func fatal(err error) {
 
 func catalogCapabilityIDs(catalog cli.Catalog) map[string]struct{} {
 	ids := make(map[string]struct{})
-	for _, command := range catalog.Commands() {
+	for _, command := range publishedCatalogCommands(catalog) {
 		ids[command.Agent.CapabilityID] = struct{}{}
 	}
 	return ids
+}
+
+func publishedCatalogCommands(catalog cli.Catalog) []cli.CommandSpec {
+	commands := catalog.Commands()
+	if !capabilitysurface.Compiled().IncludesResearch() {
+		return commands
+	}
+	published := make([]cli.CommandSpec, 0, len(commands))
+	for _, command := range commands {
+		if isUnpublishedResearchCapability(command.Agent.CapabilityID) {
+			continue
+		}
+		published = append(published, command)
+	}
+	return published
+}
+
+func isUnpublishedResearchCapability(id string) bool {
+	switch id {
+	case "authentication.broker", "operator.console":
+		return true
+	default:
+		return false
+	}
 }

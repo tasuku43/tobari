@@ -4,9 +4,8 @@ description: プロジェクトのファイル、プロジェクト識別、ポ�
 ---
 
 import ConceptDiagram from "../../../../components/ConceptDiagram.astro";
-import CredentialArchitectureMap from "../../../../components/CredentialArchitectureMap.astro";
 
-Tobari が信頼するのは、ホスト側のライフサイクル状態、プリンシパル登録簿、ポリシー、ルート鍵、Gateway、OPA、Auth Broker です。Workspace 内のプロセスと外部サービスは信頼しません。Workspace や外部サービスが送った値を、そのまま Workspace Manifest やプロジェクトの権限として扱うこともありません。
+Tobari が信頼するのは、ホスト側のライフサイクル状態、プリンシパル登録簿、ポリシー、Gateway、OPA です。Workspace 内のプロセスと外部サービスは信頼しません。Workspace や外部サービスが送った値を、そのまま Workspace Manifest やプロジェクトの権限として扱うこともありません。
 
 作業対象のファイル、プロジェクトの権限、ポリシー変更の権限、認証情報の本体、リクエストデータは、それぞれ別の境界を通ります。各境界が成立させる保証は、先に[保証と制限](../guarantees-and-limitations/)で確認してください。
 
@@ -16,7 +15,6 @@ Tobari が信頼するのは、ホスト側のライフサイクル状態、プ�
   <li class="trusted">信頼する強制基盤</li>
   <li class="untrusted">信頼しないデータとプロセス</li>
   <li class="secret">認証情報の本体</li>
-  <li class="handle">秘密情報ではないハンドル</li>
   <li class="allowed">許可された経路</li>
   <li class="denied">拒否された経路</li>
 </ul>
@@ -57,30 +55,25 @@ upgrade 済み WebSocket を relay し、attachment exit で access を閉じま
 route lifetime を所有せず、browser channel、Host Loopback policy、application bytes はいずれも
 この access を認可しません。
 
-## 境界 5：認証情報を使う権限
+## 境界 5：native credential の権限
 
-ツール自身の認証情報は Workspace storage/environment に渡るため読めます。Broker path では、
-固定 GitHub helper または strict owner stdin import が trusted host で動きます。root-key backend
-が Workspace Manifest vault を unlock し、Auth Broker が static credential record 一つを保持します。
-Workspace が受け取るのは project-bound opaque selector だけです。
-
-Gateway は handle、resolved credential、body を OPA へ送りません。static allow 後に同じ revision
-を一度解決し、manifest-declared destination header だけを置換します。deny では resolution は
-実行されません。
-
-<CredentialArchitectureMap headingLevel={3} initial="static" />
+ツール自身の認証情報は Workspace の storage/environment に渡るため読めます。release surface
+は host credential を継承せず、Tobari の credential service も持ちません。一方で、Workspace は
+自分の persistent home と identity を使います。Gateway は認証情報と
+cookie を OPA input と audit から除外し、通常の HTTP effect が許可された後だけ元の値を転送します。
+deny では認証情報は接続先へ届きません。
 
 ## 境界 6：外部から入るデータ
 
-リクエスト URL、ヘッダー、本文、外部接続先の証明書、レスポンス、プロバイダーのアカウント名、診断情報、ポリシー候補には、攻撃者が制御する文字列が含まれる可能性があります。端末表示や構造化出力では、表示形式を壊す文字をエスケープします。それでも、表示された文字列の意味まで信頼できるとは扱いません。
+リクエスト URL、ヘッダー、本文、外部接続先の証明書、レスポンス、外部サービスのアカウント名、診断情報、ポリシー候補には、攻撃者が制御する文字列が含まれる可能性があります。端末表示や構造化出力では、表示形式を壊す文字をエスケープします。それでも、表示された文字列の意味まで信頼できるとは扱いません。
 
 リクエスト本文と、ポリシー判断に使う識別情報も分けています。本文は許可後に Gateway を通って外部の接続先へ届きますが、ポリシー候補や、秘密情報を除いた監査記録には含めません。
 
 ## 失敗と復旧
 
-境界に関わる登録情報や状態は、外部へ作用する処理より前に検証します。プリンシパル登録簿、ポリシー、プロバイダー、ルート鍵、保管庫、ハンドルが安全な状態でない場合、関連する通信や認証処理を拒否します。
+境界に関わる登録情報や状態は、外部へ作用する処理より前に検証します。プリンシパル登録簿、ポリシー、host-owned state、Workspace の状態が安全でない場合、関連する通信を拒否します。
 
-復旧時も、Workspace が送る値を権限の根拠にはしません。通常は `doctor`、`cluster status`、`auth status`、ポリシー候補の再取得、Workspace への再入室など、ホスト側の明示的なコマンドを使います。
+復旧時も、Workspace が送る値を権限の根拠にはしません。通常は `doctor`、`cluster status`、ポリシー候補の再取得、Workspace への再入室など、ホスト側の明示的なコマンドを使います。
 
 <aside class="guarantee">
   <h2>保証すること</h2>
@@ -102,7 +95,7 @@ Gateway は handle、resolved credential、body を OPA へ送りません。sta
 
 ## ここまでで説明できること
 
-どの識別情報が権限の根拠になり、どの値が単なる信頼しない文字列や、レコードを選ぶためのハンドルにすぎないかを区別します。
+どの識別情報が権限の根拠になり、どの値が単なる信頼しない文字列や、レコードを選ぶための識別子にすぎないかを区別します。
 
 <div class="question-list">
   <details>
@@ -114,16 +107,6 @@ Gateway は handle、resolved credential、body を OPA へ送りません。sta
       Gateway は、ホストが作成した Workspace 送信元エンドポイントの対応付けから
       Workspace Manifest
       とプロジェクトを選びます。リクエストヘッダーは、そのエンドポイントや登録簿を変更できません。
-    </div>
-  </details>
-  <details>
-    <summary>
-      Auth Broker のハンドルは、認証情報の本体または独立した権限ですか？
-    </summary>
-    <div class="prose-block">
-      いいえ。秘密情報ではない不透明なレコード選択子であり、それだけでは認証情報を利用できません。Workspace
-      Manifest、プロジェクト、プロバイダー、リビジョン、接続先、ヘッダーの結び付け、OPA
-      の許可がすべて一致する必要があります。
     </div>
   </details>
   <details>

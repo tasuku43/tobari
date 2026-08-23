@@ -25,28 +25,7 @@ func TestWorkspaceStartReadinessProfileIsClosedAndDefensive(t *testing.T) {
 }
 
 func TestCheckInventoryIsFiniteTopologicalDAG(t *testing.T) {
-	want := []CheckSpec{
-		{ID: CheckIDDockerCLI},
-		{ID: CheckIDDockerEngine, Prerequisites: []CheckID{CheckIDDockerCLI}},
-		{ID: CheckIDDockerContext, Prerequisites: []CheckID{CheckIDDockerCLI}},
-		{ID: CheckIDDockerCompose, Prerequisites: []CheckID{CheckIDDockerCLI}},
-		{ID: CheckIDProxyPort},
-		{ID: CheckIDRoot},
-		{ID: CheckIDRootSharing, Prerequisites: []CheckID{CheckIDRoot}},
-		{ID: CheckIDContext},
-		{ID: CheckIDState, Prerequisites: []CheckID{CheckIDContext}},
-		{ID: CheckIDPolicy, Prerequisites: []CheckID{CheckIDContext, CheckIDDockerEngine}},
-		{ID: CheckIDPolicyData, Prerequisites: []CheckID{CheckIDContext}},
-		{ID: CheckIDImageConfig, Prerequisites: []CheckID{CheckIDContext}},
-		{ID: CheckIDAuthProviderManifests, Prerequisites: []CheckID{CheckIDContext}},
-		{ID: CheckIDAuthVaultPaths, Prerequisites: []CheckID{CheckIDContext}},
-		{ID: CheckIDAuthRootKey, Prerequisites: []CheckID{CheckIDAuthVaultPaths}},
-		{ID: CheckIDAuthBroker, Prerequisites: []CheckID{CheckIDState, CheckIDDockerEngine}},
-		{ID: CheckIDCredentialCompanion, Prerequisites: []CheckID{CheckIDAuthBroker}},
-		{ID: CheckIDAuthVaultIntegrity, Prerequisites: []CheckID{CheckIDAuthBroker, CheckIDAuthProviderManifests, CheckIDContext}},
-		{ID: CheckIDAuthProjectHandles, Prerequisites: []CheckID{CheckIDAuthVaultIntegrity, CheckIDAuthProviderManifests, CheckIDState}},
-		{ID: CheckIDOwnedResources, Prerequisites: []CheckID{CheckIDDockerEngine}},
-	}
+	want := expectedCheckInventory()
 	got := CheckInventory()
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("CheckInventory() = %#v, want %#v", got, want)

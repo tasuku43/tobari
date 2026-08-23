@@ -102,7 +102,7 @@ support promises before maintainers invite external users.
 - Pin `github.com/creack/pty` v1.1.24 for the reviewed Unix attached-terminal
   relay. Its MIT text is retained in root `THIRD_PARTY_NOTICES`, and release
   archives include that file beside the project license.
-- Experimental Auth Broker source and tests remain subject to the public secret
+- Research-surface Auth Broker source and tests remain subject to the public secret
   guard, but no Broker image or provider adapter is a release artifact.
 - For the agent-ready base runtime, retain GitHub CLI and AWS CLI checks and
   bind Claude Code 2.1.220 and Codex 0.147.0 to their per-platform artifact
@@ -200,7 +200,7 @@ Minimum first-public-push checklist:
 - [ ] License and contribution terms were approved.
 - [ ] Private reporting and maintainer contacts exist.
 - [ ] Fixtures and docs contain only synthetic data.
-- [ ] Auth Broker source, image layers, tests, and synthetic validation evidence
+- [ ] Research-surface Auth Broker source, image layers, tests, and synthetic validation evidence
       contain no real account material, SSO/token/role state, device code,
       Codex or Claude credential state, signed authorization field, handle,
       key, or vault.

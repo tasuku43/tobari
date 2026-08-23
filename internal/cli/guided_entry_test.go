@@ -381,7 +381,7 @@ func TestGuidedEntryBlocksPendingRuntimeBeforeWorkspaceMutation(t *testing.T) {
 		t.Fatalf("pending runtime entry = (%d, %t), stderr = %q", code, continueEntry, stderr.String())
 	}
 	if !humanOutputHasRow(stderr.String(), "Code", "runtime_build_required") ||
-		!strings.Contains(stderr.String(), "tobari runtime build") {
+		!strings.Contains(stderr.String(), expectedSurfaceText("tobari runtime build")) {
 		t.Fatalf("pending runtime recovery = %q", stderr.String())
 	}
 }

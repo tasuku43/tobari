@@ -4,8 +4,9 @@ Tobari exposes no provider-specific business-operation API. It authorizes the
 ordinary HTTP/HTTPS effect that leaves a Workspace through Gateway. Standard
 has no provider-specific credential plan or binding: clients authenticate
 natively in the Workspace, and their original credentials remain absent from
-OPA/audit and are forwarded only after allow. Experimental `task build:dev`
-retains the closed Broker plan described below.
+OPA/audit and are forwarded only after allow. The repository-only research
+surface is built as `bin/tobari-research` by `task build:dev` and retains the
+closed Broker plan described below.
 Exact signed AWS wire-operation identity is not a provider business API:
 clients supply the service and operation on each request, and Tobari performs
 no AWS catalog lookup or IAM/read-write interpretation.
@@ -158,7 +159,7 @@ Workspace. `pup_ready` separately adds only exact `POST
 `api.datadoghq.com`. Product APIs, telemetry, revoke, alternate sites,
 caller-added scopes, and neighboring OAuth effects are absent.
 
-## Experimental Broker contract
+## Research Broker contract
 
 Provider schema 1 is strict non-secret, non-executable data. It declares a
 bounded Workspace handle projection and exact HTTPS target, source header,
@@ -200,11 +201,11 @@ queries, headers, and bodies are absent from OPA audit and denial output.
 Managed adapters/profiles remain absent. Dynamic records, refresh, task
 barriers, signing, supplemental headers, the credential companion, and exact-
 version drivers exist only inside the compiled reviewed built-in
-implementation union. The compiled experimental projection cannot select
+implementation union. The compiled research projection cannot select
 capabilities outside that union, and owner manifests cannot select or extend
 any dynamic plan.
 
-## Experimental GitHub acquisition
+## Research GitHub acquisition
 
 `auth login --provider github` resolves one canonical non-project GitHub CLI,
 uses fixed API-only argv and sanitized environment, runs in a private temporary
@@ -214,11 +215,11 @@ performs checked cleanup, and only then commits the static secret. It requests
 no Git protocol or credential-helper setup and reads no ambient GitHub home.
 Exact GitHub CLI product-version equality is not an authority boundary.
 
-## Other experimental acquisition and post-policy plans
+## Other research acquisition and post-policy plans
 
 Host acquisition ignores untrusted PATH shadows without executing them and
 selects the first finite PATH candidate whose canonical executable passes the
-existing conventional-root and mode contract. Experimental AWS offers only
+existing conventional-root and mode contract. Research AWS offers only
 `identity-center` and `console` host acquisition. Its opaque
 state is re-entered by a private authenticated companion after allow, and
 Broker emits one standard header-based SigV4 result for the exact bounded
@@ -262,7 +263,7 @@ public validation and before one Broker send. Terminal input is rejected before
 reading. Login/import rotate the record and all handles; logout removes local
 state and revokes handles without claiming provider-side revocation.
 
-## Experimental faults and evidence
+## Research faults and evidence
 
 OPA or Gateway uncertainty denies. Invalid handles return
 `credential_handle_invalid`; locked or unavailable Broker state returns
@@ -273,6 +274,6 @@ uncertainty uses `auth status` reconciliation before another mutation.
 Automated tests use synthetic secrets and provider state, fake fixed-driver
 results, local HTTP servers, fixed clocks, and canaries. They are the required
 release evidence. Live reviewed-provider acquisition is an optional
-experimental compatibility observation and records pass/fail only; it is not a
+research compatibility observation and records pass/fail only; it is not a
 standard release gate, and no credential, code, handle, vault, account
 identifier, authenticated response, or raw transcript may become a fixture.

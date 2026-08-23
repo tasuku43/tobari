@@ -16,7 +16,7 @@ A developer says: “Tobari is just a convenient `docker run` command.” What i
 <details>
 <summary>Answer</summary>
 
-The runtime container is only one recoverable implementation detail. Tobari also maintains a logical Workspace Manifest-bound Workspace, a host-issued project principal, a dedicated internal network, Gateway enforcement, OPA policy, denial review and atomic activation, persistent home/state, and optional credential brokering. See [System overview](../../how-it-works/system-overview/).
+The runtime container is only one recoverable implementation detail. Tobari also maintains a logical Workspace Manifest-bound Workspace, a host-issued project principal, a dedicated internal network, Gateway enforcement, OPA policy, denial review and atomic activation, and persistent Workspace home/state. See [System overview](../../how-it-works/system-overview/).
 
 </details>
 
@@ -113,62 +113,66 @@ No. Learned rules also bind the stable Workspace Manifest and host-issued projec
 
 ## 10. Login versus permission
 
-`tobari auth login --provider github` succeeds. Can the Workspace immediately call every GitHub API path?
+`native client sign-in --provider github` succeeds. Can the Workspace immediately call every GitHub API path?
 
 <details>
 <summary>Answer</summary>
 
-No. Login stores a Workspace Manifest credential and causes a project-bound handle to be projected on the next matching entry. OPA still evaluates each ordinary HTTP effect, and an exact allow is still required. Authentication does not enlarge authorization. See [Authentication](../../guides/authentication/).
+No. Login stores tool-owned credential material in the persistent Workspace
+home. OPA still evaluates each ordinary HTTP effect, and an exact allow is
+still required. Authentication does not enlarge authorization. See
+[Authentication](../../guides/authentication/).
 
 </details>
 
 ## 11. What the Workspace receives
 
-The Workspace sees a value beginning `tobari-h1_`. Is that the upstream token?
+The agent CLI has login state in its Workspace home. Is that a Tobari policy grant?
 
 <details>
 <summary>Answer</summary>
 
-No. It is an opaque random handle bound to Workspace Manifest, project, provider,
-credential revision, and exact HTTP contract. Static or renewable credential
-state remains encrypted in the Workspace Manifest vault. A declared resolve, refresh, or
-signing action can run only on the allowed Gateway path. See
+No. The Workspace home is where the agent CLI keeps its own login state. Tobari
+still evaluates each ordinary HTTP effect independently. See
 [Credentials](../../how-it-works/credentials/).
 
 </details>
 
-## 12. Denied brokered request
+## 12. Denied request
 
-A broker handle is valid, but OPA denies the HTTP effect. Which secret-bearing Broker actions run?
+A Workspace identity is valid, but OPA denies the HTTP effect. Which credential values reach the upstream?
 
 <details>
 <summary>Answer</summary>
 
-None. Gateway may perform non-secret introspection before policy, but static
-resolution, DNS, and upstream connection are skipped on deny. See
-[Credential security](../../security/credential-security/).
+None. Credential values remain out of the denied path, and Gateway performs no
+destination lookup or upstream connection. See [Credential security](../../security/credential-security/).
 
 </details>
 
-## 13. Invalid handle fallback
+## 13. Credential data is not policy identity
 
-A request contains a malformed Tobari-looking handle in the declared header. Can Gateway treat it as an ordinary passthrough credential?
+A request contains a credential value in its headers. Does that value create a policy rule?
 
 <details>
 <summary>Answer</summary>
 
-No. A recognized marker that is malformed, stale, copied, ambiguous, misplaced, or binding-mismatched fails closed. Passthrough/managed fallback is considered only when a Tobari marker is completely absent. See [Credential security](../../security/credential-security/).
+No. Credential values are removed from OPA input and audit. The exact
+Workspace/project/host/method/path effect remains the policy identity. See
+[Credential security](../../security/credential-security/).
 
 </details>
 
 ## 14. Purging the cluster
 
-The user deletes every Workspace and runs `tobari cluster down --purge`. Are the encrypted Workspace Manifest vault and installation root key deleted?
+The user deletes every Workspace and runs `tobari cluster down --purge`. Are Workspace homes and host-owned state deleted?
 
 <details>
 <summary>Answer</summary>
 
-No. `--purge` additionally removes the shared Gateway CA volumes. Workspace Manifest vaults and the installation root key remain; the command is not `auth logout` and does not contact a provider. See [State and recovery](../../how-it-works/state-and-recovery/).
+No. `--purge` additionally removes the shared Gateway CA volumes. Workspace
+home and host-owned state remain; logout remains the agent CLI's responsibility.
+See [State and recovery](../../how-it-works/state-and-recovery/).
 
 </details>
 
@@ -203,7 +207,10 @@ Gateway or the Docker daemon is compromised. Does the documented Workspace guara
 <details>
 <summary>Answer</summary>
 
-No. The host, kernel, Docker, Gateway, OPA, Auth Broker, root-key backend, and reviewed runtime configuration are trusted enforcement foundations. Tobari does not claim protection after their compromise. See [Threat model](../../security/threat-model/).
+No. The host, kernel, Docker, Gateway, OPA, host-owned state backend, and
+reviewed runtime configuration are trusted enforcement foundations. Agent CLI
+login files remain tool-owned data, not a Tobari service. Tobari does not claim
+protection after a trusted foundation is compromised. See [Threat model](../../security/threat-model/).
 
 </details>
 
@@ -240,19 +247,16 @@ At minimum: the governing architecture/security contract, Compose/network topolo
 
 </details>
 
-## Bonus scenario: copied broker handle
+## Bonus scenario: copied Workspace file
 
-A process copies a valid handle from Workspace A into Workspace B and sends it to the same host and header. What checks matter?
+A process copies a credential file from Workspace A into Workspace B. What checks matter?
 
 <details>
 <summary>Answer</summary>
 
-Gateway derives B's principal from the registered Workspace source endpoint. Broker
-introspection requires the handle's Workspace Manifest, project, provider, credential
-revision, exact target, and static or built-in plan binding to match. A's
-project binding does not match B, so the request fails before OPA, any
-post-policy credential action, fallback, or upstream. Even a valid matching
-handle would still need an OPA allow for B's ordinary HTTP method/path effect.
+Gateway derives B's principal from the registered Workspace source endpoint.
+Workspace homes are separate, so copying a file does not change B's host-owned
+principal or policy. B still needs an OPA allow for its own exact effect.
 
 </details>
 
@@ -268,7 +272,7 @@ handle would still need an OPA allow for B's ordinary HTTP method/path effect.
 
 You understand the current model when you can connect each answer to an owner:
 the host selects identity, Workspace holds project authority, OPA decides,
-Gateway enforces, Auth Broker performs only its declared credential action
-after allow, and lifecycle commands remove only the state they own.
+Gateway enforces, agent CLIs own their login state, and lifecycle commands
+remove only the state they own.
 
 If an answer depended on guessing, return to the linked page. For exact arguments, schemas, paths, faults, and versions, continue to [Reference](../../reference/cli/).

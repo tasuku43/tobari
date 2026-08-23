@@ -8,19 +8,21 @@ import SystemMap from "../../../components/SystemMap.astro";
 
 An outbound request starts on the Workspace's dedicated network and reaches
 Gateway before it can reach any upstream. Gateway first establishes the
-host-issued project principal, then prepares any credential metadata without
-exposing the credential value. It sends one normalized decision input to OPA.
+host-issued project principal, removes credential values from decision data,
+and sends one normalized input to OPA.
 
-A deny or invalid decision stops locally. Only an allow lets Gateway perform
-the declared credential action, resolve and pin the destination, open a
-separate upstream connection, and stream ordinary body bytes. This ordering
-keeps policy denial, policy failure, and upstream failure distinct.
+A deny or invalid decision stops locally. Only an allow lets Gateway resolve
+and pin the destination, open a separate upstream connection, and stream
+ordinary body bytes. This ordering keeps policy denial, policy failure, and
+upstream failure distinct.
 
-The [system overview](/how-it-works/system-overview/) shows the fixed network map. Broker details come later; in this request trace, the Broker is only an optional preparation step.
+The [system overview](/how-it-works/system-overview/) shows the fixed network map.
+Authentication values remain request data owned by the agent CLI; this trace
+focuses on the network and policy path.
 
 <SystemMap
   title="Keep the component map fixed"
-  description="The explorer below changes time, not architecture. Gateway remains central while the active conversation moves among Workspace, OPA, Auth Broker, and Upstream."
+  description="The explorer below changes time, not architecture. Gateway remains central while the active conversation moves among Workspace, OPA, and Upstream."
   compact
 />
 
@@ -50,16 +52,7 @@ the host-owned schema-1 principal registry. The result supplies stable
 `workspace_manifest_id` and `project_id`. Missing, unknown, stale, unsafe, or ambiguous
 bindings stop here, before OPA.
 
-### 3. Prepare the authentication route
-
-The selected credential route prepares the request before policy:
-
-- **Workspace-owned compatibility:** only for an undeclared binding, credential and cookie values are excluded from OPA input but retained for possible forwarding after allow;
-- **Auth Broker:** a declared binding rejects a real Workspace credential as `broker_auth_required`; an exactly recognized handle is removed from the forwardable request and introspected for non-secret binding metadata.
-
-An invalid Tobari-looking handle fails here. It does not become passthrough traffic.
-
-### 4. Build one normalized, body-free decision
+### 3. Build one normalized, body-free decision
 
 Gateway posts schema 1 input to one fixed OPA endpoint. It includes:
 
@@ -70,41 +63,39 @@ Gateway posts schema 1 input to one fixed OPA endpoint. It includes:
 - multi-valued query; and
 - redacted non-secret headers plus non-secret authorization metadata.
 
-It excludes request and response bodies, broker handles, resolved primary credentials, and known/configured credential-header values. The ordinary query is part of OPA input, so do not treat OPA input as a generic secret scrubber for arbitrary data placed in a URL.
+It excludes request and response bodies, authentication and cookie values, and other
+known/configured sensitive-header values. The registry-derived Workspace Manifest and
+project identity are trusted principal metadata and are intentionally included. The
+ordinary query is part of OPA input, so do not treat OPA input as a generic secret
+scrubber for arbitrary data placed in a URL.
 
-### 5. Ask OPA exactly once
+### 4. Ask OPA exactly once
 
 Gateway sends one bounded HTTP POST with a finite timeout and no retry. It requires HTTP 200 and one valid result containing a boolean `allow`, non-empty reason, status `403`, boolean `learnable`, and valid optional managed profile.
 
 OPA decides. Gateway enforces.
 
-### 6A. Deny locally
+### 5A. Deny locally
 
 On a valid deny, Gateway creates `403 policy_denied`. A learnable denial includes only a fixed host-side navigation object naming `tobari review permissions`, the exact host, port, method, and path, and `automatic_retry: false`.
 
 It contains no candidate ID, query, body, headers, credential, or dynamic command argument. The candidate's opaque reference is derived later from retained host evidence.
 
-### 6B. Continue after allow
+### 5B. Continue after allow
 
 Only after allow may Gateway:
 
-1. perform one declared same-revision Broker action: static resolution,
-   Datadog/OpenAI/Anthropic token selection or refresh, or bounded AWS signing;
-2. resolve the upstream hostname;
-3. reject unsafe non-global results for dotted hosts;
-4. pin the selected address so a later DNS answer cannot change the connection; and
-5. create one upstream connection and forward the authorized request.
-
-For undeclared compatibility passthrough, static-header Broker, Datadog, OpenAI, and Anthropic requests,
-the body streams after allow. AWS SigV4 is the reviewed exception: Gateway
-retains the complete authorized request within 8 MiB, Broker obtains one
-private companion export and signs locally, and Gateway sends it once.
+1. resolve the upstream hostname;
+2. reject unsafe non-global results for dotted hosts;
+3. pin the selected address so a later DNS answer cannot change the connection; and
+4. create one upstream connection and forward the authorized request, including
+   the original agent-owned credential values.
 
 There is no automatic application request retry. Redirects become new requests and pass through policy again.
 
-### 7. Record the outcome
+### 6. Record the outcome
 
-Denials are logged immediately. An allowed request is logged after response or connection error. Audit schema 1 contains bounded identity, authority, method, redacted path, decision, reason, non-secret profile/provider metadata, status, and timing. It does not contain query, headers, body, handle, or primary credential.
+Denials are logged immediately. An allowed request is logged after response or connection error. Audit schema 1 contains bounded Workspace Manifest/project identity, authority, method, redacted path, decision, reason, status, and timing. It does not contain query, authentication/cookie header values, body, or credential values.
 
 ## Concrete example: two different bodies
 
@@ -124,25 +115,22 @@ The bodies may have very different application meaning, but Tobari's exact polic
 
 ## Failure behavior
 
-| Stage                  | Failure                                                            | Result                                                                            |
-| ---------------------- | ------------------------------------------------------------------ | --------------------------------------------------------------------------------- |
-| Principal              | Registry unreadable or Workspace source endpoint unknown           | 403 `project_principal_unavailable`                                               |
-| Credential preparation | Invalid/stale/mismatched handle                                    | 403 `credential_handle_invalid`                                                   |
-| OPA                    | Timeout, connection error, non-200, invalid or oversized result    | 503 `policy_unavailable`                                                          |
-| Decision               | Valid deny                                                         | 403 `policy_denied`; upstream untouched                                           |
-| Post-allow credential  | Known pre-execution Broker, companion, refresh, or signing failure | 503 credential fault; upstream untouched                                          |
-| Credential outcome     | AWS companion or Datadog refresh outcome is uncertain              | 409 `credential_refresh_outcome_unknown`; no upstream attempt or automatic replay |
-| DNS/address            | No safe usable address                                             | Upstream/proxy error; no alternate authority is invented                          |
-| Upstream               | TCP/TLS/HTTP failure after allow                                   | Audit marks `upstream_error`; policy is unchanged                                 |
+| Stage           | Failure                                                         | Result                                                   |
+| --------------- | --------------------------------------------------------------- | -------------------------------------------------------- |
+| Principal       | Registry unreadable or Workspace source endpoint unknown        | 403 `project_principal_unavailable`                      |
+| Credential data | Credential values are not part of policy identity               | Request data remains absent from OPA and audit           |
+| OPA             | Timeout, connection error, non-200, invalid or oversized result | 503 `policy_unavailable`                                 |
+| Decision        | Valid deny                                                      | 403 `policy_denied`; upstream untouched                  |
+| DNS/address     | No safe usable address                                          | Upstream/proxy error; no alternate authority is invented |
+| Upstream        | TCP/TLS/HTTP failure after allow                                | Audit marks `upstream_error`; policy is unchanged        |
 
 A known `Content-Length` greater than mitmproxy's 8 MiB limit may be rejected before the ordinary addon header hook. Allowed unknown-length bodies stream without a total-byte limit in the pinned product contract.
 
 ## Guarantees and limitations
 
 **Guaranteed:** one OPA call per ordinary Gateway attempt; no request-body byte
-forwarded before principal, credential preparation, decision, and post-allow
-credential application succeed; zero resolution, refresh, companion call, or signing on deny; no
-application-level retry; secret-free
+forwarded before principal and decision succeed; credential values remain absent
+from OPA and audit; no application-level retry; secret-free
 denial/review projection.
 
 **Not guaranteed:** body-aware authorization, application semantic understanding, idempotence, provider-operation interpretation, total-byte limits for allowed unknown-length streaming bodies, or a stable Tobari JSON fault for every low-level upstream failure.
@@ -153,16 +141,15 @@ denial/review projection.
 - [HTTP authorization security boundary](https://github.com/tasuku43/tobari/blob/2a0f0f3b0303f889cd42c581403e70ace7680894/docs/03_security_model.md)
 - [Gateway implementation](https://github.com/tasuku43/tobari/blob/2a0f0f3b0303f889cd42c581403e70ace7680894/gateway/addon/tobari_gateway.py)
 - [Credential adapter boundary](https://github.com/tasuku43/tobari/blob/2a0f0f3b0303f889cd42c581403e70ace7680894/gateway/addon/credential_adapters.py)
-- [Broker handle adapter](https://github.com/tasuku43/tobari/blob/2a0f0f3b0303f889cd42c581403e70ace7680894/gateway/addon/broker_credentials.py)
+- [Gateway request adapter](https://github.com/tasuku43/tobari/blob/2a0f0f3b0303f889cd42c581403e70ace7680894/gateway/addon/tobari_gateway.py)
 - [Gateway ordering, redaction, outage, and streaming tests](https://github.com/tasuku43/tobari/blob/2a0f0f3b0303f889cd42c581403e70ace7680894/gateway/test_tobari_gateway.py)
 
 ## Summary
 
 Identity comes from the registered Workspace source endpoint. OPA sees a normalized body-free
 ordinary request and answers once. Deny stops locally. Allow is the prerequisite
-for any secret-bearing Broker action, destination resolution, and upstream
-connection. Ordinary bodies stream after allow; reviewed AWS signing buffers
-one bounded authorized request.
+for destination resolution and the upstream connection. Ordinary bodies stream
+after allow.
 
 ## Check your understanding
 
@@ -180,8 +167,7 @@ You should now be able to narrate an allowed and a denied request without swappi
 
 <details>
   <summary>When can the first body byte reach upstream?</summary>
-  Only after principal establishment, credential preparation, a valid OPA allow,
-  and any post-allow credential action succeed.
+  Only after principal establishment and a valid OPA allow.
 </details>
 
 <details>

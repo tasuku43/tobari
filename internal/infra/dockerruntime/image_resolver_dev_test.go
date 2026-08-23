@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/tasuku43/tobari/internal/domain/buildidentity"
+	"github.com/tasuku43/tobari/internal/domain/capabilitysurface"
 	"github.com/tasuku43/tobari/internal/infra/runtimeassets"
 )
 
@@ -28,16 +29,23 @@ func TestLocalDevImageResolverSelectsAllLocalImagesWithoutPulling(t *testing.T) 
 	if brokerRuntimeEnabled {
 		gatewayPrefix = "tobari-gateway-experimental:dev-"
 	}
-	for name, want := range map[string]string{
-		"gateway":     gatewayPrefix + gatewayVersion,
-		"auth broker": "tobari-auth-broker:dev-" + authVersion,
-	} {
+	selections := map[string]string{"gateway": gatewayPrefix + gatewayVersion}
+	if capabilitysurface.Compiled().IncludesResearch() {
+		selections["auth broker"] = "tobari-auth-broker:dev-" + authVersion
+	}
+	for name, want := range selections {
 		var selection sharedImageSelection
 		var err error
 		if name == "gateway" {
 			selection, err = resolver.GatewayImage(context.Background(), nil)
 		} else {
 			selection, err = resolver.AuthBrokerImage(context.Background(), nil)
+			if !capabilitysurface.Compiled().IncludesResearch() {
+				if err == nil {
+					t.Fatalf("standard development resolver unexpectedly selected Auth Broker image: %+v", selection)
+				}
+				continue
+			}
 		}
 		if err != nil {
 			t.Fatal(err)
@@ -56,12 +64,22 @@ func TestLocalDevImageResolverIdentityCannotCrossToPublishedPins(t *testing.T) {
 	}
 	if identity.ResolverChannel != buildidentity.ResolverDevelopment || !identity.DevelopmentSource ||
 		identity.Gateway.RequiredAPI != buildidentity.RequiredGatewayAPI || identity.Gateway.SelectedAPI != buildidentity.RequiredGatewayAPI ||
-		identity.AuthBroker.RequiredAPI != buildidentity.RequiredAuthBrokerAPI || identity.AuthBroker.SelectedAPI != buildidentity.RequiredAuthBrokerAPI ||
 		!identity.APIsCompatible() {
 		t.Fatalf("development identity = %+v", identity)
 	}
+	if capabilitysurface.Compiled().IncludesResearch() {
+		if identity.AuthBroker.RequiredAPI != buildidentity.RequiredAuthBrokerAPI || identity.AuthBroker.SelectedAPI != buildidentity.RequiredAuthBrokerAPI {
+			t.Fatalf("research development identity = %+v", identity)
+		}
+	} else if identity.AuthBroker != (buildidentity.Component{}) {
+		t.Fatalf("release development identity unexpectedly includes Auth Broker = %+v", identity.AuthBroker)
+	}
 	build, binary, ok := identity.DevelopmentRecovery()
-	if !ok || build != "task build" || binary != "bin/tobari" {
+	wantBuild, wantBinary := buildidentity.ReleaseDevelopmentBuildCommand, buildidentity.ReleaseDevelopmentBinary
+	if identity.CapabilitySurface.IncludesResearch() {
+		wantBuild, wantBinary = buildidentity.ResearchDevelopmentBuildCommand, buildidentity.ResearchDevelopmentBinary
+	}
+	if !ok || build != wantBuild || binary != wantBinary {
 		t.Fatalf("development recovery = %q %q %t", build, binary, ok)
 	}
 }

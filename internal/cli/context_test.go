@@ -591,7 +591,7 @@ func TestContextUseDefaultUpdatedContinuesThroughOmittedDefault(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(output), "Next: run `tobari` from a project directory to create or enter a Workspace using the new default Workspace Manifest.") ||
+	if !strings.Contains(string(output), expectedSurfaceText("Next: run `tobari` from a project directory to create or enter a Workspace using the new default Workspace Manifest.")) ||
 		strings.Contains(string(output), "--manifest review") {
 		t.Fatalf("default-updated continuation does not use omitted Workspace Manifest selection: %q", output)
 	}
@@ -1134,6 +1134,22 @@ func TestManifestReportJSONSchemaTwoDeclaresExactKeys(t *testing.T) {
 	if !reflect.DeepEqual(declared, want) {
 		t.Fatalf("declared Workspace Manifest output fields = %v, want %v", declared, want)
 	}
+	var authenticationFields map[string]json.RawMessage
+	if err := json.Unmarshal(contextFields["authentication"], &authenticationFields); err != nil {
+		t.Fatalf("authentication JSON = %q, error = %v", contextFields["authentication"], err)
+	}
+	authNames := make([]string, 0, len(authenticationFields))
+	for name := range authenticationFields {
+		authNames = append(authNames, name)
+	}
+	sort.Strings(authNames)
+	wantAuth := []string{"mode"}
+	if buildIdentityHasBroker() {
+		wantAuth = []string{"broker_state", "declared_bindings", "mode", "providers", "undeclared_bindings"}
+	}
+	if !reflect.DeepEqual(authNames, wantAuth) {
+		t.Fatalf("authentication JSON keys = %v, want %v", authNames, wantAuth)
+	}
 }
 
 func TestAbsentManifestCannotRenderAsAnAuthorityReport(t *testing.T) {
@@ -1170,7 +1186,7 @@ func TestContextCreateRendersRequiresReconcileAndExecutableRootContinuation(t *t
 	}
 	if !strings.Contains(string(output), "Workspace Manifest review created") ||
 		!strings.Contains(string(output), "Cluster        requires_reconcile") ||
-		!strings.Contains(string(output), "Next           tobari --manifest review") {
+		!strings.Contains(string(output), expectedSurfaceText("Next           tobari --manifest review")) {
 		t.Fatalf("Workspace Manifest create hides required cluster reconciliation: %q", output)
 	}
 	if routed := assertPublicNextArgvRoutes(t, contextCreateNextArgv(report)); routed.Path != "tobari" {
@@ -1191,7 +1207,7 @@ func TestContextCreateRendersAbsentClusterAndExecutableRootContinuation(t *testi
 	}
 	if !strings.Contains(string(output), "Workspace Manifest default created") ||
 		!strings.Contains(string(output), "Cluster        not_applicable") ||
-		!strings.Contains(string(output), "Next           tobari —") ||
+		!strings.Contains(string(output), expectedSurfaceText("Next           tobari —")) ||
 		strings.Contains(string(output), "Next           tobari --manifest") {
 		t.Fatalf("Workspace Manifest create hides absent-cluster recovery: %q", output)
 	}
@@ -1340,21 +1356,21 @@ func TestContextListMarksRuntimeActionWithoutInventingAReadyRevision(t *testing.
 
 func TestSyntheticManifestAuthStatusRecoveryOmitsAbsentSelector(t *testing.T) {
 	if len(authCommandSpecs()) == 0 {
-		t.Skip("Broker recovery exists only in the experimental profile")
+		t.Skip("Broker recovery exists only on the research surface")
 	}
 	t.Parallel()
 	report := tobari.ManifestReport{ManifestState: tobari.ManifestObservationAbsent}
 	if routed := assertPublicNextArgvRoutes(t, contextAuthStatusNextArgv(report)); routed.Path != "auth status" {
 		t.Fatalf("synthetic Workspace Manifest recovery routes to %q", routed.Path)
 	}
-	if got := contextAuthStatusNextArgv(report); !reflect.DeepEqual(got, []string{"tobari", "auth", "status"}) {
+	if got := contextAuthStatusNextArgv(report); !reflect.DeepEqual(got, expectedSurfaceArgv([]string{"tobari", "auth", "status"})) {
 		t.Fatalf("synthetic Workspace Manifest recovery claims an absent selector: %v", got)
 	}
 }
 
 func TestContextShowReportsBrokerFirstRouting(t *testing.T) {
 	if len(authCommandSpecs()) == 0 {
-		t.Skip("Broker routing exists only in the experimental profile")
+		t.Skip("Broker routing exists only on the research surface")
 	}
 	report := contextCLIReport(
 		tobari.TaskManifestShow, "default", true, tobari.OfficialRuntimeBase,
@@ -1407,8 +1423,8 @@ func TestContextCommandsRenderActiveContextAndRuntimeImage(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), "Selected       standard@1") ||
 		!strings.Contains(stdout.String(), "Project files  Read-write · changes affect this project directly") ||
-		!strings.Contains(stdout.String(), "Details        tobari manifest show --details") ||
-		!strings.Contains(stdout.String(), "Next           tobari") {
+		!strings.Contains(stdout.String(), expectedSurfaceText("Details        tobari manifest show --details")) ||
+		!strings.Contains(stdout.String(), expectedSurfaceText("Next           tobari")) {
 		t.Fatalf("context show output = %q", stdout.String())
 	}
 
@@ -1697,7 +1713,7 @@ func TestRuntimeBuildFailureKeepsDockerErrorAndEndsWithActionableSummary(t *test
 		"/bin/sh: gh: not found",
 		"Runtime could not be built",
 		"runtime_build_failed",
-		"tobari runtime show",
+		expectedSurfaceText("tobari runtime show"),
 		"unchanged Runtime history and source path",
 	} {
 		if !strings.Contains(stderr.String(), retained) {
@@ -1813,7 +1829,7 @@ func TestRuntimeBuildSourceValidationFailureIsActionableInTextAndJSON(t *testing
 		args []string
 		want []string
 	}{
-		{name: "text", args: []string{"runtime", "build", "--id", testRuntimeManifest().ID}, want: []string{"runtime_source_invalid", message, "tobari runtime show", "unchanged Runtime source path and history"}},
+		{name: "text", args: []string{"runtime", "build", "--id", testRuntimeManifest().ID}, want: []string{"runtime_source_invalid", message, expectedSurfaceText("tobari runtime show"), "unchanged Runtime source path and history"}},
 		{name: "json", args: []string{"--error-format", "json", "runtime", "build", "--id", testRuntimeManifest().ID}, want: []string{`"code":"runtime_source_invalid"`, `"kind":"rejected"`, `"message":"Runtime source file \"bin/tool\" is 33554433 bytes; the limit is 33554432 bytes (32 MiB)."`, `"command":"runtime show"`}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -2069,7 +2085,7 @@ func TestRuntimeBuildReviewRejectsCatalogWithoutManagedRuntimeBeforeBuild(t *tes
 	if code := command.RunContext(context.Background(), []string{"review", "runtimes"}); code != ExitNotFound || !strings.Contains(stderr.String(), "managed_runtime_not_found") {
 		t.Fatalf("managed Runtime empty state code/stderr = %d/%q", code, stderr.String())
 	}
-	if fake.buildCalls != 0 || stdout.Len() != 0 || !strings.Contains(stderr.String(), "tobari help runtime create") {
+	if fake.buildCalls != 0 || stdout.Len() != 0 || !strings.Contains(stderr.String(), expectedSurfaceText("tobari help runtime create")) {
 		t.Fatalf("managed Runtime empty state build/stdout/stderr = %d/%q/%q", fake.buildCalls, stdout.String(), stderr.String())
 	}
 }
@@ -2109,7 +2125,7 @@ func TestRuntimeBuildFullySpecifiedRemainsDirect(t *testing.T) {
 	if fake.buildCalls != 1 || fake.listCalls != 0 || fake.showCalls != 0 {
 		t.Fatalf("direct runtime build calls = build/list/show %d/%d/%d", fake.buildCalls, fake.listCalls, fake.showCalls)
 	}
-	if !strings.Contains(stdout.String(), "tobari manifest runtime set --runtime frontend@1") {
+	if !strings.Contains(stdout.String(), expectedSurfaceText("tobari manifest runtime set --runtime frontend@1")) {
 		t.Fatalf("direct runtime build output lacks exact selection handoff: %q", stdout.String())
 	}
 }
@@ -2147,7 +2163,7 @@ func TestContextRuntimeReviewSelectsRevisionAndAppliesOnce(t *testing.T) {
 		t.Fatalf("Workspace Manifest Runtime Review did not isolate Apply to one Review state: %q", stderr.String())
 	}
 	if !strings.Contains(stdout.String(), "frontend@1") ||
-		!strings.Contains(stdout.String(), applyStyleToken(true, styleAccent, "`tobari`")) ||
+		!strings.Contains(stdout.String(), applyStyleToken(true, styleAccent, expectedSurfaceText("`tobari`"))) ||
 		!strings.Contains(stdout.String(), "from the project directory to adopt the selected Runtime on entry") {
 		t.Fatalf("Workspace Manifest Runtime confirmed stdout = %q", stdout.String())
 	}
@@ -2164,7 +2180,7 @@ func TestContextRuntimeSetNonCurrentHandoffKeepsExactContext(t *testing.T) {
 	if code := command.RunContext(context.Background(), []string{"manifest", "runtime", "set", "--manifest", "web", "--runtime", manifest.Name + "@1"}); code != ExitOK {
 		t.Fatalf("non-current Workspace Manifest Runtime set code = %d, stderr = %q", code, stderr.String())
 	}
-	if !strings.Contains(stdout.String(), "Next: run `tobari --manifest web` from the project directory") {
+	if !strings.Contains(stdout.String(), expectedSurfaceText("Next: run `tobari --manifest web` from the project directory")) {
 		t.Fatalf("non-current Workspace Manifest Runtime handoff = %q", stdout.String())
 	}
 }
@@ -2366,7 +2382,7 @@ func TestRuntimeInitTextSnapshotPrioritizesNextActions(t *testing.T) {
 		"  1. Edit the Dockerfile\n" +
 		"     /config/contexts/default/runtime/Dockerfile\n\n" +
 		"  2. Build the runtime\n" +
-		"     tobari runtime build\n\n" +
+		"     " + ProgramName + " runtime build\n\n" +
 		"Details\n" +
 		"  Workspace Manifest default\n" +
 		"  Base image     tobari-runtime:base\n" +
@@ -2398,7 +2414,7 @@ func TestRuntimeInitTextColorDisabledRetainsPriorityAndValueEmphasis(t *testing.
 	}
 
 	styled := string(renderContextReportText(fixture, true))
-	if !strings.Contains(styled, applyStyleToken(true, styleAccent, "tobari runtime build")) {
+	if !strings.Contains(styled, applyStyleToken(true, styleAccent, expectedSurfaceText("tobari runtime build"))) {
 		t.Fatalf("styled output does not accent the next command: %q", styled)
 	}
 	for _, ordinary := range []string{"Runtime Dockerfile created", fixture.Runtime.Dockerfile, fixture.Name, fixture.Runtime.BaseReference} {
@@ -2444,8 +2460,8 @@ func TestContextShowPrioritizesBoundaryAndExpandsDiagnostics(t *testing.T) {
 		"Later entries and sessions",
 		"New Workspace homes only · existing homes unchanged",
 		"Login ownership",
-		"Details        tobari manifest show --details",
-		"Next           tobari",
+		expectedSurfaceText("Details        tobari manifest show --details"),
+		expectedSurfaceText("Next           tobari"),
 	} {
 		if !strings.Contains(stdout.String(), retained) {
 			t.Fatalf("context show output = %q, missing primary fact %q", stdout.String(), retained)

@@ -183,6 +183,39 @@ func TestDefaultCatalogIsValidAndUnique(t *testing.T) {
 	}
 }
 
+func TestCatalogSurfaceSetIsExact(t *testing.T) {
+	const researchOnlyPrefix = "auth "
+	wantResearchOnly := map[string]struct{}{
+		"auth login":  {},
+		"auth import": {},
+		"auth status": {},
+		"auth logout": {},
+		"serve":       {},
+	}
+
+	paths := make([]string, 0, len(DefaultCatalog().Commands()))
+	seen := make(map[string]struct{})
+	for _, command := range DefaultCatalog().Commands() {
+		if _, duplicate := seen[command.Path]; duplicate {
+			t.Fatalf("catalog path %q is duplicated", command.Path)
+		}
+		seen[command.Path] = struct{}{}
+		paths = append(paths, command.Path)
+		_, researchOnly := wantResearchOnly[command.Path]
+		if !researchOnly && strings.HasPrefix(command.Path, researchOnlyPrefix) {
+			t.Fatalf("unexpected non-contract authentication path %q", command.Path)
+		}
+	}
+	for path := range wantResearchOnly {
+		_, found := seen[path]
+		if found != buildIdentityHasBroker() {
+			t.Fatalf("research-only command %q present=%t on research surface=%t", path, found, buildIdentityHasBroker())
+		}
+	}
+	slices.Sort(paths)
+	t.Logf("CATALOG_SURFACE_PATHS=%s", strings.Join(paths, "|"))
+}
+
 func TestProgramAwareCatalogFiltersRoutingWhileClosingGlobalReferenceGraph(t *testing.T) {
 	producer := discoverSpec("requests", "service-request")
 	producer.Program = ProgramName
@@ -269,7 +302,7 @@ func TestDefaultCatalogSeparatesDeliveryFromCollectionCoverage(t *testing.T) {
 
 func TestSharedClusterCatalogDeclaresAuthBrokerLifecycle(t *testing.T) {
 	if !buildIdentityHasBroker() {
-		t.Skip("Auth Broker catalog exists only in the experimental profile")
+		t.Skip("Auth Broker catalog exists only on the research surface")
 	}
 	t.Parallel()
 	catalog := DefaultCatalog()
@@ -337,6 +370,64 @@ func TestStandardSharedClusterCatalogOmitsAuthBrokerLifecycle(t *testing.T) {
 		}
 		if strings.Contains(string(encoded), "auth_broker") || strings.Contains(string(encoded), "auth-broker") {
 			t.Fatalf("standard catalog exposed Auth Broker through %q: %s", spec.Path, encoded)
+		}
+	}
+}
+
+func TestReleaseCatalogDoesNotPublishResearchAuthorityVocabulary(t *testing.T) {
+	if buildIdentityHasBroker() {
+		t.Skip("release-surface catalog assertion")
+	}
+	for _, spec := range DefaultCatalog().Commands() {
+		projection := struct {
+			Path    string        `json:"path"`
+			Summary string        `json:"summary"`
+			Args    string        `json:"args"`
+			Usage   string        `json:"usage"`
+			Agent   AgentContract `json:"agent"`
+		}{Path: spec.Path, Summary: spec.Summary, Args: spec.Args, Usage: spec.Usage(), Agent: spec.Agent}
+		encoded, err := json.Marshal(projection)
+		if err != nil {
+			t.Fatalf("marshal %q: %v", spec.Path, err)
+		}
+		agentHelp, err := (&CLI{catalog: DefaultCatalog()}).renderAgentHelp(spec.Path, true, []CommandSpec{spec})
+		if err != nil {
+			t.Fatalf("render scoped agent help %q: %v", spec.Path, err)
+		}
+		lower := strings.ToLower(string(encoded) + string(agentHelp) + string(renderCommandHelp(spec)))
+		for _, forbidden := range []string{"broker", "provider", "vault", "root_key", "root key", "credential_companion", "companion"} {
+			if strings.Contains(lower, forbidden) {
+				t.Fatalf("release catalog command %q publishes research vocabulary %q: %s", spec.Path, forbidden, encoded)
+			}
+		}
+	}
+}
+
+func TestResearchManifestCatalogPublishesResearchAuthenticationFields(t *testing.T) {
+	if !buildIdentityHasBroker() {
+		t.Skip("research-surface catalog assertion")
+	}
+	command, found := DefaultCatalog().Lookup("manifest show")
+	if !found {
+		t.Fatal("default catalog lacks manifest show")
+	}
+	var authentication *OutputField
+	for index := range command.Agent.Output.Fields {
+		if command.Agent.Output.Fields[index].Name == "authentication" {
+			authentication = &command.Agent.Output.Fields[index]
+			break
+		}
+	}
+	if authentication == nil {
+		t.Fatal("manifest show lacks authentication output field")
+	}
+	fieldNames := make(map[string]bool, len(authentication.Fields))
+	for _, field := range authentication.Fields {
+		fieldNames[field.Name] = true
+	}
+	for _, name := range []string{"mode", "broker_state", "declared_bindings", "undeclared_bindings", "providers"} {
+		if !fieldNames[name] {
+			t.Fatalf("research authentication fields = %v, missing %q", fieldNames, name)
 		}
 	}
 }

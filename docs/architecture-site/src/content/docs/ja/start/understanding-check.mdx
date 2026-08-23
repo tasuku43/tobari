@@ -16,7 +16,7 @@ description: Tobari のライフサイクル、通信経路、ポリシー、認
 <details>
 <summary>回答</summary>
 
-ランタイムコンテナは、失われても復元できる実装要素の一つにすぎません。Tobari はほかにも、Workspace Manifest に結び付いた論理 Workspace、ホストが発行するプロジェクトプリンシパル、専用の内部ネットワーク、Gateway による通信経路の強制、OPA ポリシー、拒否内容のレビューと一括有効化、永続ホームと状態、必要に応じた認証情報の仲介を管理します。[システム全体像](../../how-it-works/system-overview/)を参照してください。
+ランタイムコンテナは、失われても復元できる実装要素の一つにすぎません。Tobari はほかにも、Workspace Manifest に結び付いた論理 Workspace、ホストが発行するプロジェクト principal、専用の内部ネットワーク、Gateway による通信経路の強制、OPA ポリシー、拒否内容のレビューと一括有効化、永続ホームと状態を管理します。[システム全体像](../../how-it-works/system-overview/)を参照してください。
 
 </details>
 
@@ -110,56 +110,56 @@ Workspace B が、Workspace A に許可されたものと同じホスト、メ�
 
 ## 10. ログインと通信許可
 
-`tobari auth login --provider github` に成功しました。Workspace はすぐにすべての GitHub API 経路を呼べますか？
+agent CLI のログインに成功しました。Workspace はすぐにすべての外部 API 経路を呼べますか？
 
 <details>
 <summary>回答</summary>
 
-いいえ。ログインは Workspace Manifest の認証状態を保存します。次に Workspace へ入るとき、現在のプロジェクトに結び付いたハンドルが反映されます。それでも OPA は通常の HTTP 通信を判断し、完全一致の許可を要求します。認証に成功しても、通信許可は広がりません。[認証](../../guides/authentication/)を参照してください。
+いいえ。ログインは agent CLI が Workspace home に保存します。それでも OPA は通常の HTTP 通信を判断し、完全一致の許可を要求します。ログインに成功しても、通信許可は広がりません。[認証](../../guides/authentication/)を参照してください。
 
 </details>
 
 ## 11. Workspace が受け取るもの
 
-Workspace に `tobari-h1_` で始まる値があります。外部の接続先へ渡すトークンですか？
+Workspace home に agent CLI のログイン状態があります。これは Tobari のポリシー許可ですか？
 
 <details>
 <summary>回答</summary>
 
-いいえ。Workspace Manifest、プロジェクト、プロバイダー、認証情報のリビジョン、完全一致の HTTP とヘッダーの契約に結び付いた、不透明でランダムなハンドルです。認証情報の本体は暗号化された Workspace Manifest 保管庫に残り、許可された Gateway の経路でだけ解決されます。[認証情報](../../how-it-works/credentials/)を参照してください。
+いいえ。Workspace home は agent CLI が自分のログイン状態を保管する場所です。Tobari は各 HTTP effect を独立に評価し、Gateway は OPA の許可後に元の値を転送します。[認証情報](../../how-it-works/credentials/)を参照してください。
 
 </details>
 
-## 12. 拒否された Auth Broker 経由のリクエスト
+## 12. 拒否されたリクエスト
 
-Broker ハンドルは有効ですが、OPA が HTTP 通信を拒否しました。Auth Broker は認証情報の本体を Gateway へ返しますか？
+agent CLI はログイン済みですが、OPA が HTTP 通信を拒否しました。認証情報の値は接続先へ届きますか？
 
 <details>
 <summary>回答</summary>
 
-いいえ。Gateway はポリシー判断前に、秘密情報を含まない結び付けを確認する場合がありますが、拒否された場合は認証情報を解決しません。外部の接続先への接続も作りません。[認証情報の安全性](../../security/credential-security/)を参照してください。
+いいえ。認証情報の値は OPA と監査から除外され、拒否された場合は接続先への接続も作りません。[認証情報の安全性](../../security/credential-security/)を参照してください。
 
 </details>
 
-## 13. 不正なハンドルのフォールバック
+## 13. 不正な識別子のフォールバック
 
-宣言済みのリクエストヘッダーに、不正な形式の Tobari ハンドルが入っています。Gateway は、通常のそのまま転送する認証方式として扱えますか？
+宣言済みのリクエストヘッダーに、認証情報の値が入っています。Gateway は OPA と監査へその値を渡しますか？
 
 <details>
 <summary>回答</summary>
 
-いいえ。Tobari 形式の値が不正、古い、コピー済み、曖昧、誤った位置、結び付き不一致のいずれかなら、Gateway は拒否します。Tobari 形式の値がない場合だけ、そのまま転送する方式を使います。[認証情報の安全性](../../security/credential-security/)を参照してください。
+いいえ。認証情報の値は OPA input と audit から除外され、通常の HTTP effect が許可された後だけ元の値が転送されます。[認証情報の安全性](../../security/credential-security/)を参照してください。
 
 </details>
 
 ## 14. クラスターの完全削除
 
-すべての Workspace を削除し、`tobari cluster down --purge` を実行しました。暗号化された Workspace Manifest 保管庫とインストール用ルート鍵も削除されますか？
+すべての Workspace を削除し、`tobari cluster down --purge` を実行しました。Workspace home と host-owned state も削除されますか？
 
 <details>
 <summary>回答</summary>
 
-いいえ。`--purge` は、通常のクラスター停止に加えて、共有 Gateway CA と現在有効なポリシーバンドルのボリュームを削除します。Workspace Manifest 保管庫とインストール用ルート鍵は残ります。`auth logout` を実行するわけではなく、プロバイダーへの接続も行いません。[状態と復旧](../../how-it-works/state-and-recovery/)を参照してください。
+いいえ。`--purge` は、通常のクラスター停止に加えて、共有 Gateway CA と現在有効なポリシーバンドルのボリュームを削除します。Workspace home と host-owned state は残ります。外部サービスのログインは、そのサービスの CLI が管理します。[状態と復旧](../../how-it-works/state-and-recovery/)を参照してください。
 
 </details>
 
@@ -194,7 +194,7 @@ Gateway または Docker デーモンが侵害されました。文書化され�
 <details>
 <summary>回答</summary>
 
-いいえ。ホスト、カーネル、Docker、Gateway、OPA、Auth Broker、ルート鍵の保存基盤、レビュー済みランタイム設定は、信頼する強制基盤です。侵害後まで保護するとは主張しません。[脅威モデル](../../security/threat-model/)を参照してください。
+いいえ。ホスト、カーネル、Docker、Gateway、OPA、host-owned lifecycle state、レビュー済みランタイム設定は、信頼する強制基盤です。agent CLI のログイン状態は Tobari の強制サービスではありません。侵害後まで保護するとは主張しません。[脅威モデル](../../security/threat-model/)を参照してください。
 
 </details>
 
@@ -231,14 +231,14 @@ Gateway または Docker デーモンが侵害されました。文書化され�
 
 </details>
 
-## 追加シナリオ：コピーされた Broker ハンドル
+## 追加シナリオ：コピーされたログインファイル
 
-プロセスが Workspace A の有効なハンドルを Workspace B へコピーし、同じホストとヘッダーへ送ります。重要な確認項目は何ですか？
+プロセスが Workspace A の agent CLI ログインファイルを Workspace B へコピーし、同じホストへ送ります。重要な確認項目は何ですか？
 
 <details>
 <summary>回答</summary>
 
-Gateway は、登録済みでカーネルが観測した Workspace の送信元エンドポイントから B のプリンシパルを導出します。Auth Broker の照会と解決では、ハンドルに含まれる Workspace Manifest、プロジェクト、プロバイダー、認証情報のリビジョン、完全一致の接続先、入力元と出力先のヘッダー結び付けが、すべて一致しなければなりません。A のプロジェクトへの結び付きは B と一致しないため、別方式への切り替えや外部接続より前に失敗します。有効で結び付きも一致するハンドルでも、B の通常の HTTP メソッドとパスに対する OPA の許可が必要です。
+Gateway は、登録済みでカーネルが観測した Workspace の送信元エンドポイントから B の principal を導出します。ログインファイルをコピーしても B の identity や policy は変わらず、B の通常の HTTP method と path には OPA の許可が必要です。
 
 </details>
 
@@ -252,6 +252,6 @@ Gateway は、登録済みでカーネルが観測した Workspace の送信元�
 
 ## まとめ
 
-各回答を、状態や権限を管理するコンポーネントへ結び付けられれば、現在のモデルを理解できています。ホストが識別情報を選び、Workspace が作業対象の権限を持ち、OPA がポリシーを判断し、Gateway が通信経路を強制し、Auth Broker が許可後にだけ認証処理を実行します。ライフサイクルコマンドは、それぞれが所有する状態だけを変更または削除します。
+各回答を、状態や権限を管理するコンポーネントへ結び付けられれば、現在のモデルを理解できています。ホストが identity を選び、Workspace が作業対象の権限を持ち、OPA がポリシーを判断し、Gateway が通信経路を強制し、agent CLI が Workspace home のログインを所有します。ライフサイクルコマンドは、それぞれが所有する状態だけを変更または削除します。
 
 推測に頼った回答があれば、各回答のリンク先へ戻ってください。正確な引数、スキーマ、保存先、障害、バージョンは[リファレンス](../../reference/cli/)で確認できます。

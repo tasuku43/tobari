@@ -235,7 +235,7 @@ test("system map keeps positions fixed while selecting a conversation", async ({
   expect(positionsAfter).toEqual(positionsBefore);
 });
 
-test("credential guide explains native Workspace ownership and post-policy forwarding", async ({
+test("credential guide explains release-surface native Workspace ownership", async ({
   page,
 }) => {
   await page.goto("how-it-works/credentials/");
@@ -243,13 +243,40 @@ test("credential guide explains native Workspace ownership and post-policy forwa
     page.getByRole("heading", { name: "Standard ownership" }),
   ).toBeVisible();
   await expect(page.locator("main")).toContainText(
-    "the standard profile has no provider binding or Auth Broker",
+    "the release surface has no Tobari-owned authentication command",
   );
   await expect(page.locator("main")).toContainText(
     "forwards the original values only after allow",
   );
-  await expect(page.locator("main")).toContainText("task build:dev");
+  await expect(page.locator("main")).not.toContainText("research surface");
+  await expect(page.locator("main")).not.toContainText("task build:dev");
+  await expect(page.locator("main")).not.toContainText("tobari auth login");
   await expect(page.locator("tobari-credential-map")).toHaveCount(0);
+});
+
+test("home and request sequence publish Workspace-owned login without an auth-service actor", async ({
+  page,
+}) => {
+  await page.goto("");
+  await expect(page.locator("main")).toContainText(
+    "Complete the supported tool's login inside the persistent Workspace home",
+  );
+  await expect(page.locator("main")).toContainText(
+    "Host credentials are never inherited",
+  );
+  await expect(page.locator("main")).not.toContainText("managed by Broker");
+  await expect(page.locator("main")).not.toContainText(
+    "primary value in the Workspace",
+  );
+
+  await page.goto("how-it-works/request-journey/");
+  await expect(page.locator("main")).not.toContainText(
+    "native Workspace authentication",
+  );
+  await expect(page.locator("main")).not.toContainText("Auth Broker");
+  await expect(page.locator(".actor-lane")).not.toContainText(
+    "native Workspace authentication",
+  );
 });
 
 test("policy loop exposes the cycle without automatic playback", async ({
@@ -351,7 +378,7 @@ test("native credential contract remains readable with JavaScript disabled", asy
   await context.close();
 });
 
-test("authentication guide keeps native login and experimental Broker distinct", async ({
+test("authentication guide publishes native login and hides research-only details", async ({
   browser,
 }) => {
   const context = await browser.newContext({ javaScriptEnabled: false });
@@ -368,11 +395,143 @@ test("authentication guide keeps native login and experimental Broker distinct",
     await expect(main).toContainText("agent-ready");
     await expect(main).toContainText("subscriptionType");
     await expect(main).toContainText("rateLimitTier");
-    await expect(main).toContainText("task build:dev");
+    await expect(main).not.toContainText("research surface");
+    await expect(main).not.toContainText("task build:dev");
+    await expect(main).not.toContainText("tobari auth login");
     await expect(page.locator(".provider-tool-map")).toHaveCount(0);
   }
 
   await context.close();
+});
+
+test("representative English and Japanese release pages hide research recovery journeys", async ({
+  page,
+}) => {
+  const pages = [
+    {
+      route: "start/install/",
+      forbidden:
+        /Auth Broker|authbroker|provider-manifest|credential revision|root key|optional credential brokering|tobari auth login|task build:dev/i,
+    },
+    {
+      route: "reference/configuration-and-state/",
+      forbidden:
+        /Auth Broker|authbroker|provider-manifest|credential revision|root key|optional credential brokering|tobari auth login|task build:dev/i,
+    },
+    {
+      route: "reference/json-schemas/",
+      forbidden:
+        /Auth Broker|authbroker|provider-manifest|synthetic-provider-v1\.json|credential revision|root key|optional credential brokering|tobari auth login|task build:dev/i,
+    },
+    {
+      route: "start/understanding-check/",
+      forbidden:
+        /Auth Broker|authbroker|provider-manifest|credential revision|root key|optional credential brokering|tobari auth login|task build:dev/i,
+    },
+    {
+      route: "security/guarantees-and-limitations/",
+      forbidden:
+        /Auth Broker|authbroker|provider-manifest|credential revision|root key|optional credential brokering|tobari auth login|task build:dev/i,
+    },
+    {
+      route: "ja/start/install/",
+      forbidden:
+        /Auth Broker|authbroker|provider-manifest|ルート鍵|プロバイダーマニフェスト|認証情報のリビジョン|認証サービス|task build:dev/i,
+    },
+    {
+      route: "ja/reference/configuration-and-state/",
+      forbidden:
+        /Auth Broker|authbroker|provider-manifest|ルート鍵|プロバイダーマニフェスト|認証情報のリビジョン|認証サービス|task build:dev/i,
+    },
+    {
+      route: "ja/reference/json-schemas/",
+      forbidden:
+        /Auth Broker|authbroker|provider-manifest|synthetic-provider-v1\.json|ルート鍵|プロバイダーマニフェスト|認証情報のリビジョン|認証サービス|task build:dev/i,
+    },
+    {
+      route: "ja/start/understanding-check/",
+      forbidden:
+        /Auth Broker|authbroker|provider-manifest|ルート鍵|プロバイダーマニフェスト|認証情報のリビジョン|認証サービス|task build:dev/i,
+    },
+    {
+      route: "ja/security/guarantees-and-limitations/",
+      forbidden:
+        /Auth Broker|authbroker|provider-manifest|ルート鍵|プロバイダーマニフェスト|認証情報のリビジョン|認証サービス|task build:dev/i,
+    },
+  ];
+
+  for (const { route, forbidden } of pages) {
+    const response = await page.goto(route);
+    expect(response?.ok(), route).toBeTruthy();
+    const body = await page.locator("main").innerText();
+    expect(body, `${route} must remain release-only`).not.toMatch(forbidden);
+  }
+
+  for (const route of [
+    "reference/faults-and-recovery/",
+    "ja/reference/faults-and-recovery/",
+  ]) {
+    await page.goto(route);
+    const filter = page.getByPlaceholder(/policy.*unavailable.*runtime/i);
+    await expect(filter).toBeVisible();
+    await expect(filter).not.toHaveAttribute("placeholder", /auth login/i);
+  }
+
+  const ownershipClaims = [
+    {
+      route: "reference/configuration-and-state/",
+      required: [
+        "tool-native authentication state and credentials",
+        "does not copy",
+        "agent",
+      ],
+    },
+    {
+      route: "ja/reference/configuration-and-state/",
+      required: [
+        "agent CLI",
+        "Workspace home",
+        "ホストのログイン情報を継承しません",
+      ],
+    },
+    {
+      route: "security/guarantees-and-limitations/",
+      required: [
+        "Workspace home",
+        "agent CLI",
+        "host credentials are never inherited",
+      ],
+    },
+    {
+      route: "start/learning-path/",
+      required: [
+        "agent's own login inside the persistent Workspace home",
+        "does not add a host-side credential service",
+      ],
+    },
+    {
+      route: "ja/security/guarantees-and-limitations/",
+      required: [
+        "Workspace home",
+        "agent CLI",
+        "host credential は継承しません",
+      ],
+    },
+    {
+      route: "ja/start/learning-path/",
+      required: [
+        "永続的な Workspace home の中で agent CLI 自身のログイン",
+        "ホスト側の認証サービスを追加しません",
+      ],
+    },
+  ];
+  for (const { route, required } of ownershipClaims) {
+    await page.goto(route);
+    const body = await page.locator("main").innerText();
+    for (const phrase of required) {
+      expect(body, `${route} must state ${phrase}`).toContain(phrase);
+    }
+  }
 });
 
 test("Japanese sequence controls and static transcript are localized", async ({

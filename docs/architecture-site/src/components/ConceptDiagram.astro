@@ -34,7 +34,6 @@ const kindLabels: Record<DiagramKind, string> = isJapanese
       network: "通信",
       persistent: "永続状態",
       secret: "秘密情報",
-      handle: "不透明なハンドル",
       allowed: "許可後",
       denied: "拒否",
       diagnostic: "確認・診断",
@@ -46,7 +45,6 @@ const kindLabels: Record<DiagramKind, string> = isJapanese
       network: "Network",
       persistent: "Persistent state",
       secret: "Secret material",
-      handle: "Opaque handle",
       allowed: "After allow",
       denied: "Denied",
       diagnostic: "Review / diagnostic",
@@ -630,7 +628,6 @@ const stageMinWidth = Math.max(760, Math.round(layout.width * 0.76));
     box-shadow: 0 0 0 0.24rem var(--sl-color-bg);
   }
   .flow-node.kind-untrusted,
-  .flow-node.kind-handle,
   .flow-node.kind-diagnostic,
   .flow-node.shape-boundary {
     border-style: dashed;
@@ -752,9 +749,6 @@ const stageMinWidth = Math.max(760, Math.round(layout.width * 0.76));
   }
   .kind-secret {
     color: var(--tobari-secret);
-  }
-  .kind-handle {
-    color: var(--tobari-handle);
   }
   .kind-allowed {
     color: var(--tobari-allowed);

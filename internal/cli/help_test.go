@@ -19,12 +19,12 @@ func TestRootHelpIsDerivedFromCatalog(t *testing.T) {
 		t.Fatalf("Run(help) code = %d, stderr = %q", code, stderr.String())
 	}
 	output := stdout.String()
-	for _, want := range []string{"Start here:", "tobari version", "Inspect build channel and runtime API compatibility", "Prepare Shared services and enter or reuse the current project's Workspace", "doctor", "help", "version", "items", "Namespace with 2 commands"} {
+	for _, want := range []string{"Start here:", expectedSurfaceText("tobari version"), "Inspect build channel and runtime API compatibility", "Prepare Shared services and enter or reuse the current project's Workspace", "doctor", "help", "version", "items", "Namespace with 2 commands"} {
 		if !strings.Contains(output, want) {
 			t.Errorf("root help lacks %q\n%s", want, output)
 		}
 	}
-	if strings.Contains(strings.Split(output, "Commands:")[0], "tobari cluster up") {
+	if strings.Contains(strings.Split(output, "Commands:")[0], expectedSurfaceText("tobari cluster up")) {
 		t.Fatalf("root help still requires explicit cluster bootstrap in Start here:\n%s", output)
 	}
 	for _, unwanted := range []string{"items list", "items read"} {
@@ -42,7 +42,7 @@ func TestVersionHelpDeclaresBuildIdentityBeforeClusterMutation(t *testing.T) {
 	}
 	output := stdout.String()
 	for _, want := range []string{
-		"Usage:\n  tobari version [--format text|json]",
+		expectedSurfaceText("Usage:\n  tobari version [--format text|json]"),
 		"resolver channel",
 	} {
 		if !strings.Contains(output, want) {
@@ -108,7 +108,7 @@ func TestContextShowHelpDeclaresOptionalHumanDetails(t *testing.T) {
 		t.Fatalf("Run(context show --help) code = %d, stderr = %q", code, stderr.String())
 	}
 	for _, want := range []string{
-		"Usage:\n  tobari manifest show [--name <name>] [--details] [--format text|json]",
+		expectedSurfaceText("Usage:\n  tobari manifest show [--name <name>] [--details] [--format text|json]"),
 		"--details",
 		"value: boolean",
 		"default when omitted: \"false\"",
@@ -121,7 +121,7 @@ func TestContextShowHelpDeclaresOptionalHumanDetails(t *testing.T) {
 }
 
 func TestRootCommandHelpUsesExecutableInvocation(t *testing.T) {
-	command, found := DefaultCatalog().Lookup(ProgramName)
+	command, found := DefaultCatalog().Lookup(WorkspaceEntryCommandPath)
 	if !found {
 		t.Fatal("default catalog lacks the root command")
 	}
@@ -153,7 +153,7 @@ func TestCommandHelpUsesCatalogMetadataAndDerivedReferences(t *testing.T) {
 	}
 	output := stdout.String()
 	for _, want := range []string{
-		"Usage:\n  tobari items read --id <item-id> [--format tsv|json]",
+		expectedSurfaceText("Usage:\n  tobari items read --id <item-id> [--format tsv|json]"),
 		"Read exactly one test item by opaque ID.",
 		"Effect: read",
 		"Role: act",
@@ -267,7 +267,7 @@ func TestRootAgentHelpIsACompactProjectionOfTheCatalog(t *testing.T) {
 	if document.SchemaVersion != 1 || agentHelpSchemaVersion != 1 || document.View != "index" || document.Program != ProgramName {
 		t.Fatalf("agent document header = %+v", document)
 	}
-	if document.ScopeRequest.InvocationTemplate != "tobari help <command-or-namespace> --format agent" ||
+	if document.ScopeRequest.InvocationTemplate != expectedSurfaceText("tobari help <command-or-namespace> --format agent") ||
 		!reflect.DeepEqual(document.ScopeRequest.SelectorFields, []string{"commands[].path", "commands[].namespace"}) ||
 		document.ScopeRequest.UnknownOutcomeMaxInvocations != 2 || document.ScopeRequest.KnownPathMaxInvocations != 1 {
 		t.Fatalf("scope request = %+v", document.ScopeRequest)
@@ -641,7 +641,7 @@ func TestTrailingHelpAliasSupportsNamespaceAndExactCommand(t *testing.T) {
 			if len(args) == 2 && !strings.Contains(stdout.String(), "Commands in namespace items:") {
 				t.Fatalf("namespace alias output = %q", stdout.String())
 			}
-			if len(args) == 3 && !strings.Contains(stdout.String(), "tobari items read") {
+			if len(args) == 3 && !strings.Contains(stdout.String(), expectedSurfaceText("tobari items read")) {
 				t.Fatalf("exact alias output = %q", stdout.String())
 			}
 		})
@@ -719,9 +719,9 @@ func TestAgentHelpPublishesDiscoverToActReferenceFlow(t *testing.T) {
 	}
 	if len(document.Workflows) != 1 || document.Workflows[0].ReferenceKind != "item" ||
 		!reflect.DeepEqual(document.Workflows[0].Producers, []agentWorkflowProducer{{
-			Path: "items list", Usage: "tobari items list [--format tsv|json]", Field: "id",
+			Path: "items list", Usage: expectedSurfaceText("tobari items list [--format tsv|json]"), Field: "id",
 		}}) || !reflect.DeepEqual(document.Workflows[0].Consumers, []agentWorkflowConsumer{{
-		Path: "items read", Usage: "tobari items read --id <item-id> [--format tsv|json]", Input: "--id",
+		Path: "items read", Usage: expectedSurfaceText("tobari items read --id <item-id> [--format tsv|json]"), Input: "--id",
 	}}) {
 		t.Fatalf("derived grouped workflow = %+v", document.Workflows)
 	}

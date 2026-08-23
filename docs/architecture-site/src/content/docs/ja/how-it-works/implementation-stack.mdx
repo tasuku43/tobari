@@ -5,10 +5,9 @@ description: Go、Docker、mitmproxy、OPA、Rego、Python、Unix ソケット�
 
 import ConceptDiagram from "../../../../components/ConceptDiagram.astro";
 
-Tobari は、役割ごとの境界に合わせて実装技術を選んでいます。Go はホスト CLI、決められた方法でのプロバイダー認証情報の取得、検証を伴う構成管理を担当します。Docker はプロセス、ネットワーク、マウントの境界を実現します。mitmproxy と Python アドオンは HTTP/TLS 通信を制御し、OPA と Rego は一般化された HTTP 通信を許可するか判断します。
+Tobari は、役割ごとの境界に合わせて実装技術を選んでいます。Go はホスト CLI と検証を伴う構成管理を担当します。agent CLI は各自のログイン情報を永続 Workspace home に保存します。Docker はプロセス、ネットワーク、マウントの境界を実現し、mitmproxy と Python アドオンは HTTP/TLS 通信を制御し、OPA と Rego は一般化された HTTP 通信を許可するか判断します。
 
-別プロセスの Python Auth Broker は暗号化した static credential state を管理し、限定 socket
-を通して policy allow 後の resolve 一回だけを行います。役割を別プロセスに分けることで、通信転送、ポリシー判断、認証情報の保管を一つの権限に集めません。編集元となる正本、埋め込み用の写し、変更不能な OCI イメージ、固定したダイジェストにより、この分離を実行環境への供給経路でも維持します。
+Tobari は認証情報を保管・解決する別サービスを持ちません。Gateway は OPA の許可後に Workspace 内の agent CLI が用意した元の認証情報を転送します。編集元となる Gateway 正本、埋め込み用の写し、変更不能な OCI イメージ、固定したダイジェストにより、この分離を実行環境への供給経路でも維持します。
 
 この内容は実装者向けです。[状態と復旧](../state-and-recovery/)までの製品動作を前提とし、通常の利用には必須ではありません。
 
@@ -18,21 +17,21 @@ Tobari は、役割ごとの境界に合わせて実装技術を選んでいま�
 
 公開 `tobari` 実行ファイルは Go で書かれています。正規化したパスの選択、ドメイン規則の検証、操作と状態変更の契約、アプリケーション層の処理、ホスト状態、Docker の構成管理、同じ入力から同じ結果を出す表示処理、公開コマンドの Catalog を担当します。
 
-インフラストラクチャ層より上の Go コードは、任意のプロバイダー API リクエストを作りません。一つのキャンセル制御を、呼び出し回数や時間に上限のある接続実装まで引き渡します。認証情報を含む型はインフラストラクチャ層の外へ出しません。
+インフラストラクチャ層より上の Go コードは、任意の外部サービス API リクエストを作りません。一つのキャンセル制御を、呼び出し回数や時間に上限のある接続実装まで引き渡します。認証情報を含む型はインフラストラクチャ層の外へ出しません。
 
 ### Docker Engine と Docker Compose
 
 Docker Engine は実行環境のコンテナ、読み取り専用／読み書き可能なマウント、実行ユーザー、Linux capability（プロセス権限）の削減、読み取り専用のルートファイルシステム、資源制限、外部へ直接出られない内部ネットワーク、ラベル、ボリューム、プロセス実行を提供します。
 
-Docker Compose が管理するのは、共有 Gateway、OPA、Auth Broker サービスと、共有ネットワーク、CA ボリュームだけです。Workspace ごとのコンテナとネットワークは、実行環境の接続実装が記録に合わせて調整します。完全一致するプロジェクトルートと Workspace Manifest の識別情報、ライフサイクルは、アプリケーション層で扱う必要があるためです。
+Docker Compose が管理するのは、共有 Gateway、OPA、共有ネットワーク、CA ボリュームだけです。Workspace ごとのコンテナとネットワークは、実行環境の接続実装が記録に合わせて調整します。完全一致するプロジェクトルートと Workspace Manifest の識別情報、ライフサイクルは、アプリケーション層で扱う必要があるためです。
 
 Docker は信頼する基盤です。「コンテナで動く」という事実だけでは、安全性の根拠になりません。重要なのは、正確なマウント、ネットワーク接続、不要なソケットを渡していないこと、ラベル、実行ユーザー、障害時のテストです。
 
 ### mitmproxy Gateway と Python アドオン
 
-mitmproxy は透過的な HTTP/TLS の検査、ストリーミング処理用のフック、接続先との TLS 通信を提供します。Tobari の Python アドオンは、製品固有のプリンシパル照合、認証情報の準備、本文を含まない OPA 入力、安全側に停止する判断結果の検証、許可後の認証処理、DNS で解決したアドレスの分類と固定、監査記録を追加します。
+mitmproxy は透過的な HTTP/TLS の検査、ストリーミング処理用のフック、接続先との TLS 通信を提供します。Tobari の Python アドオンは、製品固有のプリンシパル照合、本文を含まない OPA 入力、安全側に停止する判断結果の検証、DNS で解決したアドレスの分類と固定、監査記録を追加します。ログイン情報をサービスで扱いません。
 
-ここで Python を使うのは、mitmproxy が提供する、レビュー済みの拡張手段が Python アドオンだからです。Gateway は通信判断を実際の経路へ適用します。ポリシー規則の解釈や、認証情報保管庫の保存処理は組み込みません。
+ここで Python を使うのは、mitmproxy が提供する、レビュー済みの拡張手段が Python アドオンだからです。Gateway は通信判断を実際の経路へ適用します。ポリシー規則の解釈や、ログイン情報の保存・管理処理は組み込みません。
 
 ### OPA と Rego
 
@@ -42,28 +41,16 @@ OPA は共有のポリシー判断サービスです。Rego は Workspace Manife
 
 OPA はリクエスト本文も認証情報の値も受け取らず、外部へ接続するインターフェースを持ちません。判断処理を分けることで、OPA にネットワーク転送権限を与えずに、判断の入力と結果の契約をテストできます。
 
-### Python Auth Broker、GitHub helper、Unix ソケット
+**Agent CLI のログインと Workspace home。**
 
-Auth Broker は root authority を持たない独立 Python daemon です。credential encryption、handle
-issuance、binding introspection、allow 後の static resolve を別の trust boundary で扱います。
-TCP listener や provider executable は含みません。
-
-所有者だけが使える制御用ソケットと、実行時ソケットを分け、ホストから行うライフサイクル操作と、Gateway がリクエスト処理中に行う限定的なアクセスを隔離します。Workspace と OPA には、どちらのソケットもマウントしません。実行時の通信規約では、ポリシー判断前に結び付きを照合し、許可後にはプロバイダーが宣言した処理だけを実行できます。任意の通信に使える汎用ネットワーク API ではありません。
-
-組み込み GitHub 取得は trusted host の固定 Go helper を通ります。identity-checked `gh`、fixed
-argv、sanitized temporary home、bounded output、cleanup verification を使い、static record 一つを
-Broker control で確定します。owner provider は protected stdin import を使い、どちらも Broker
-に provider code を実行させません。
-
-### 暗号化した Workspace Manifest 保管庫とルート鍵
-
-各 Workspace Manifest vault は random nonce と Workspace Manifest/schema associated data を使う schema-1 AES-256-GCM
-です。payload は static primary secret、revision、raw handle を保存します。installation root key
-は vault 外の macOS Keychain または owner-only Linux XDG file に置きます。
+agent CLI は自分の認証情報を永続 Workspace home に保存します。Tobari は
+provider 固有の認証ストアや専用サービスを持たず、
+ログイン情報の形式を解釈しません。Gateway は OPA の許可後に元の値を
+転送し、OPA と監査には認証情報の値を渡しません。
 
 ### ローカル OCI イメージの境界
 
-Gateway、Auth Broker、OPA、mitmproxy のビルド元、agent-ready base は OCI イメージで境界を作ります。上流入力には埋め込み済みバージョン情報の不変ダイジェストを使い、Tobari 管理イメージにはソース由来のローカルタグと検査済みローカルダイジェストを使います。更新され得る `main` や `latest` タグは実行時の権限ではありません。
+Gateway、OPA、mitmproxy のビルド元、agent-ready base は OCI イメージで境界を作ります。上流入力には埋め込み済みバージョン情報の不変ダイジェストを使い、Tobari 管理イメージにはソース由来のローカルタグと検査済みローカルダイジェストを使います。更新され得る `main` や `latest` タグは実行時の権限ではありません。
 
 現在の正確なバージョンとダイジェストは、このページへ複写しません。`go.mod`、`versions.env`、実行環境メタデータから[コンポーネントバージョン](../../reference/component-versions/)へ生成します。
 
@@ -71,10 +58,9 @@ Gateway、Auth Broker、OPA、mitmproxy のビルド元、agent-ready base は O
 
 <ConceptDiagram name="image-supply" />
 
-Gateway と Auth Broker には、それぞれ編集元となる公開の正本ディレクトリが一つだけあります。
+Gateway には編集元となる公開の正本ディレクトリが一つだけあります。
 
 - `gateway/`
-- `authbroker/`
 
 CLI は `internal/infra/runtimeassets/assets/` 以下にある実行環境の写しを埋め込みます。バイト単位の差分検査により、正本と一致しない写しの変更を拒否します。埋め込み資材には Compose、OPA ポリシー、実行環境のエントリーポイント、イメージの識別情報、ライセンス資料も含まれます。
 
@@ -89,8 +75,9 @@ CI は正本から複数アーキテクチャ向け OCI イメージを cache-on
 3. **mitmproxy** は TLS A を終端し、リクエストヘッダーをアドオンへ渡します。
 4. **Python Gateway アドオン**は送信元に結び付いたプリンシパルを導出し、一つの矛盾しない接続先を検証して、スキーマ1の入力を送ります。
 5. **OPA/Rego** は許可または拒否を返します。
-6. Broker handle では、**Unix socket 越しの Python Auth Broker** が policy 前に non-secret binding
-   を照合し、allow 後に同じ static revision を一度だけ解決します。
+6. credential-bearing request では、**Gateway** が policy 前に認証情報の値を OPA
+   と監査から除外し、allow 後に Workspace 内の agent CLI が用意した元の
+   値を一度だけ転送します。
 7. **mitmproxy** は検証済み TLS B を確立し、allow 済み request を stream します。
 8. **Docker log** は host-side review 用の bounded secret-free audit evidence を保持します。
 
@@ -102,13 +89,13 @@ CI は正本から複数アーキテクチャ向け OCI イメージを cache-on
 - ダイジェスト、ラベル、API、実行ユーザー、エントリーポイントが一致しなければ、安全側に停止します。
 - 正本と埋め込み用の写しに差があれば、リポジトリ検査で失敗します。
 - 不正な Rego または全 Workspace Manifest の集約は、有効化より前に失敗します。
-- OPA または Auth Broker に障害が起きた場合、Gateway は通信を通さない応答を返します。
+- OPA または Gateway に障害が起きた場合、Gateway は通信を通さない応答を返します。
 - Docker またはホストの障害は、強制基盤を失わせます。Tobari は、その侵害下での保護を主張しません。
-- 既存の保管庫があるのにルート鍵が見つからない場合、鍵を置き換えず、ロック解除を拒否します。
+- Workspace のホスト状態が壊れている場合、既存の権限を推測せず、安全側に停止します。
 
 ## 保証と制限
 
-**契約とテストで保証すること:** 固定されたコンポーネントの役割。通常利用するサービスを不変に識別できること。バイト単位で正本との一致を検査した埋め込み用の写し。分離した認証情報用ソケット。Auth Broker にプロバイダー CLI がないこと。補助プロセスに待受ポートやソケットのマウントがないこと。OPA に外部接続経路がないこと。正確な Compose 構成。実行環境の互換性を事前検査すること。
+**契約とテストで保証すること:** 固定されたコンポーネントの役割。通常利用するサービスを不変に識別できること。バイト単位で正本との一致を検査した埋め込み用の写し。Workspace home と agent CLI の境界。補助プロセスに待受ポートや不要なソケットのマウントがないこと。OPA に外部接続経路がないこと。正確な Compose 構成。実行環境の互換性を事前検査すること。
 
 **保証しないこと:** イメージダイジェストだけでコードが安全になること。Docker、カーネル、ホストが侵害された後の分離。利用者が選んだ独自イメージの来歴。GHCR や外部レジストリの可用性。独自の実行環境レシピでインストールした任意ツールのセキュリティレビュー。
 
@@ -119,15 +106,11 @@ CI は正本から複数アーキテクチャ向け OCI イメージを cache-on
 - [埋め込みコンポーネントのバージョン](https://github.com/tasuku43/tobari/blob/2a0f0f3b0303f889cd42c581403e70ace7680894/internal/infra/runtimeassets/assets/versions.env)
 - [共有 Compose 実行環境](https://github.com/tasuku43/tobari/blob/2a0f0f3b0303f889cd42c581403e70ace7680894/internal/infra/runtimeassets/assets/compose.yaml)
 - [Gateway の正本](https://github.com/tasuku43/tobari/tree/2a0f0f3b0303f889cd42c581403e70ace7680894/gateway)
-- [Auth Broker の正本](https://github.com/tasuku43/tobari/tree/2a0f0f3b0303f889cd42c581403e70ace7680894/authbroker)
 - [Gateway の正本と埋め込み用の写しの差分検査](https://github.com/tasuku43/tobari/blob/2a0f0f3b0303f889cd42c581403e70ace7680894/scripts/check-gateway-source.sh)
-- [Auth Broker の正本と埋め込み用の写しの差分検査](https://github.com/tasuku43/tobari/blob/2a0f0f3b0303f889cd42c581403e70ace7680894/scripts/check-authbroker-source.sh)
 
 ## まとめ
 
-Tobari の動作は、複数技術の組み合わせで成り立ちます。Go が検証と構成管理を行い、Docker が境界を実現します。Gateway が HTTP/TLS 通信に判断を適用し、OPA/Rego が許可を判断し、Auth Broker が認証情報を管理します。不変な OCI イメージの識別情報と、正本と埋め込み用の写しの一致検査により、配布する実行環境をレビュー可能にします。
-
-## 理解を確認する
+Tobari の動作は、複数技術の組み合わせで成り立ちます。Go が検証と構成管理を行い、Docker が境界を実現します。Gateway が HTTP/TLS 通信に判断を適用し、OPA/Rego が許可を判断します。agent CLI は Workspace home でログインを管理し、Gateway は許可後に元の値を転送します。不変な OCI イメージの識別情報と、正本と埋め込み用の写しの一致検査により、配布する実行環境をレビュー可能にします。
 
 製品上の主張を、具体的な技術境界に結び付けて説明できるはずです。
 
@@ -140,12 +123,10 @@ Tobari の動作は、複数技術の組み合わせで成り立ちます。Go �
 
 <details>
   <summary>
-    Auth Broker が Workspace 向け HTTP API ではなく Unix ソケットを使うのは
-    なぜですか？
+    agent CLI のログインが Workspace 向け HTTP API を使わないのは なぜですか？
   </summary>
-  到達経路を、決められたホスト制御操作と Gateway
-  への実行時マウントに限定するためです。Workspace と OPA には、Auth Broker
-  へのソケットも TCP 経路も与えません。
+  ログイン情報は agent CLI が Workspace home に保存し、Tobari のサービス
+  経路へ公開しないためです。Gateway は OPA の許可後に元の値を転送します。
 </details>
 
 <details>

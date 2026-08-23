@@ -4,7 +4,7 @@ import "context"
 
 import "github.com/tasuku43/tobari/internal/domain/buildidentity"
 
-import "github.com/tasuku43/tobari/internal/domain/capabilityprofile"
+import "github.com/tasuku43/tobari/internal/domain/capabilitysurface"
 
 type testImageResolver struct {
 	runtimeImage string
@@ -19,14 +19,14 @@ func (r testImageResolver) BuildIdentity(version, commit string) (buildidentity.
 	if r.identity != nil {
 		return *r.identity, nil
 	}
-	profile := capabilityprofile.Compiled()
+	surface := capabilitysurface.Compiled()
 	identity := buildidentity.Identity{
 		Version: version, Commit: buildidentity.NormalizeCommit(commit),
 		ResolverChannel: buildidentity.ResolverDevelopment, DevelopmentSource: true,
-		CapabilityProfile: profile,
+		CapabilitySurface: surface,
 		Gateway:           buildidentity.Component{RequiredAPI: buildidentity.RequiredGatewayAPI, SelectedAPI: buildidentity.RequiredGatewayAPI},
 	}
-	if profile.IncludesExperimental() {
+	if surface.IncludesResearch() {
 		identity.AuthBroker = buildidentity.Component{RequiredAPI: buildidentity.RequiredAuthBrokerAPI, SelectedAPI: buildidentity.RequiredAuthBrokerAPI}
 	}
 	return identity, nil

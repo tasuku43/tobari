@@ -40,7 +40,7 @@ func runExposureRequest(ctx context.Context, c *CLI, command CommandSpec, _ oper
 	if !ok {
 		return c.failUsage(ctx, "invalid_arguments", "Workspace service port is invalid", "help "+ExposureProgramName, "Choose an exact non-privileged port.")
 	}
-	instruction := []byte("Waiting for trusted-host review.\nRun on the host: tobari review services\n")
+	instruction := []byte("Waiting for trusted-host review.\nRun on the host: " + invocationForPath("review services") + "\n")
 	if _, err := writeOnce(c.Err, instruction); err != nil {
 		return c.fail(ctx, fault.Wrap(fault.KindInternal, "service_instruction_write_failed", "The trusted-host review instruction could not be written.", false, err, fault.NextAction{Command: "list", Reason: "Retry with a writable terminal before another request."}))
 	}

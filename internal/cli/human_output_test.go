@@ -206,7 +206,7 @@ func TestHumanErrorUsesSemanticTokensAndExactRecovery(t *testing.T) {
 	for _, want := range []string{
 		applyStyleToken(true, styleDanger, "✗"),
 		applyStyleToken(true, styleDanger, "cluster is not running"),
-		applyStyleToken(true, styleAccent, "tobari cluster up"),
+		applyStyleToken(true, styleAccent, expectedSurfaceText("tobari cluster up")),
 	} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("colored error %q lacks %q", output, want)
@@ -230,15 +230,15 @@ func TestHumanHelpAndEmptyStateKeepMachineProjectionUnstyled(t *testing.T) {
 		Task: tobari.TaskPolicyCandidates, PolicyDirectory: "/tmp/config/tobari/policy",
 		WindowLines: 200, Items: []tobari.PolicyCandidate{},
 	}
-	human, err := renderPolicyCandidatesWithColor(empty, "tobari policy allow", successFormatText, true)
+	human, err := renderPolicyCandidatesWithColor(empty, expectedSurfaceText("tobari policy allow"), successFormatText, true)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(human), "No policy candidates") || !strings.Contains(string(human), "tobari cluster denials") {
+	if !strings.Contains(string(human), "No policy candidates") || !strings.Contains(string(human), expectedSurfaceText("tobari cluster denials")) {
 		t.Fatalf("empty human state = %q", human)
 	}
 
-	jsonOutput, err := renderPolicyCandidatesWithColor(empty, "tobari policy allow", successFormatJSON, true)
+	jsonOutput, err := renderPolicyCandidatesWithColor(empty, expectedSurfaceText("tobari policy allow"), successFormatJSON, true)
 	if err != nil {
 		t.Fatal(err)
 	}

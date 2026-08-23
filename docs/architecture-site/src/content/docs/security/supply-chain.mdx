@@ -5,8 +5,8 @@ description: How runtime source, embedded snapshots, immutable image identities,
 
 import ConceptDiagram from "../../../components/ConceptDiagram.astro";
 
-Tobari starts Gateway, OPA, and Auth Broker from reviewed immutable image
-digests. Canonical source is checked against the embedded runtime snapshots used
+Tobari starts Gateway and OPA from reviewed immutable image digests. Canonical
+source is checked against the embedded runtime snapshots used
 by the CLI, while runtime metadata, licenses, and repository gates reject drift
 before publication or release.
 
@@ -20,13 +20,25 @@ role of each image and embedded asset.
 
 ## Why source and snapshot both exist
 
-The Go CLI must materialize a runtime directory without downloading executable policy or Python source at startup. Canonical editable Gateway code lives under `gateway/`; Auth Broker under `authbroker/`; runtime source under `runtimes/base/`. Byte/content-checked copies live under `internal/infra/runtimeassets/assets/` for embedding. The closed Auth Broker image contract includes reviewed refresh/signing code but rejects provider executables.
+The Go CLI must materialize a runtime directory without downloading executable
+policy or Python source at startup. Canonical editable Gateway code lives under
+`gateway/`; runtime source under `runtimes/base/`. Byte/content-checked copies
+live under `internal/infra/runtimeassets/assets/` for embedding.
 
-The copies are not a second implementation. `check-gateway-source.sh`, `check-authbroker-source.sh`, and `check-runtime-base.sh` reject drift. The dedicated Linux `tobari-expose` helper is built into that base with a pinned Go builder from a mechanically checked source/module closure; it is not copied from the host executable or shipped as a second archive. `check-exposure-helper-source.sh` rejects closure drift. Synchronization is an explicit maintainer operation.
+The copies are not a second implementation. `check-gateway-source.sh` and
+`check-runtime-base.sh` reject drift. The dedicated Linux `tobari-expose` helper
+is built into that base with a pinned Go builder from a mechanically checked
+source/module closure; it is not copied from the host executable or shipped as
+a second archive. `check-exposure-helper-source.sh` rejects closure drift.
+Synchronization is an explicit maintainer operation.
 
 ## Immutable and moving identities
 
-`versions.env` pins OPA, mitmproxy build base, Gateway, Auth Broker, and Debian build base by `@sha256:` digest. Gateway and Auth Broker do not invent public SemVer values; their digest is the exact runtime identity. Friendly OPA/mitmproxy version strings are repository declarations paired with those digests.
+`versions.env` pins OPA, the mitmproxy build base, Gateway, and the Debian
+build base by `@sha256:` digest. Each digest is the exact runtime identity;
+friendly OPA/mitmproxy version strings are repository declarations paired with
+those digests. Agent CLI login is stored in the Workspace home and is not a
+Tobari image input.
 
 The official base uses a source-derived local tag. It is built from the CLI's
 pinned embedded Dockerfile and assets when absent, then checked for the runtime
@@ -40,25 +52,24 @@ source-derived local image and reconciliation selects its inspected digest. The
 generated [Component versions](/reference/component-versions/) table is the
 authority for the pinned upstream inputs this source snapshot actually uses.
 
-At this snapshot, canonical Gateway, Auth Broker, and base Runtime source plus
-their embedded snapshots are the complete V1 image inputs. Image workflows
+At this snapshot, canonical Gateway and base Runtime source plus their embedded
+snapshots are the complete V1 image inputs. Image workflows
 validate multi-architecture construction with cache-only output. A successful
 source test does not publish runtime bytes.
 
 ## Build and release controls
 
-- Gateway, the experimental Auth Broker, and the agent-ready base are built locally from pinned source or embedded assets and are never published by Tobari.
+- Gateway and the agent-ready base are built locally from pinned source or embedded assets and are never published by Tobari.
 - Focused image workflows validate Linux amd64 and arm64 with cache-only output and no package-write permission.
 - External workflow actions are pinned to full commit SHAs.
 - Release packaging injects CLI version and commit; ordinary builds remain `dev`.
 - Base runtime metadata and its consolidated lock record architecture, API, lifetime command, tool source, checksum/signature, and licensing expectations.
-- Auth Broker image checks prove the absence of provider executables and public
-  TCP listeners.
+- Gateway and runtime image checks prove the absence of unreviewed executables and public TCP listeners.
 - Public and release guards check repository boundaries, secrets, licenses, package inputs, and immutable service references. Tobari does not claim a separate code-signing, SBOM-attestation, or externally verifiable provenance system here.
 
 ## Startup failure behavior
 
-Missing, mutable where immutable is required, incompatible, or unverifiable images stop reconciliation. Missing embedded assets or source drift fail repository gates. Invalid policy/provider projections and locked/unsafe broker state stop dependent services from becoming ready. Failure does not switch to a different unreviewed image or download scripts dynamically.
+Missing, mutable where immutable is required, incompatible, or unverifiable images stop reconciliation. Missing embedded assets or source drift fail repository gates. Invalid policy projections or unsafe host/runtime state stop dependent services from becoming ready. Failure does not switch to a different unreviewed image or download scripts dynamically.
 
 <aside class="guarantee">
   <h2>Guaranteed</h2>
@@ -114,8 +125,8 @@ Missing, mutable where immutable is required, incompatible, or unverifiable imag
     <summary>Why is the agent-ready base not a published digest?</summary>
     <div class="prose-block">
       Tobari distributes its pinned recipe and integrity checks, then builds on
-      the user's Docker host. Gateway/Auth Broker service digests and the
-      inspected local runtime digest remain separate identities.
+      the user's Docker host. Gateway and the inspected local runtime digest
+      remain separate identities.
     </div>
   </details>
   <details>

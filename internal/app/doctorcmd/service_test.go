@@ -1,3 +1,5 @@
+//go:build tobari_dev && tobari_research
+
 package doctorcmd
 
 import (

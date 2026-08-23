@@ -13,6 +13,7 @@ export GOWORK=off
 bash -n \
   scripts/build-dev-images.sh \
   scripts/check.sh \
+  scripts/test-capability-surfaces.sh \
   scripts/package-release.sh \
   scripts/release-archive-entries.sh \
   scripts/render-formula.sh \
@@ -159,8 +160,8 @@ grep -qF 'go build -tags=tobari_dev -buildvcs=false -trimpath -o bin/' Taskfile.
 	echo "local build must use fixed dev version metadata without implicit VCS stamping" >&2
 	exit 1
 }
-grep -qF "go build -tags='tobari_dev tobari_experimental'" Taskfile.yml || {
-	echo "build:dev must compile the experimental capability profile explicitly" >&2
+grep -qF "go build -tags='tobari_dev tobari_research'" Taskfile.yml || {
+	echo "build:dev must compile the research capability surface explicitly" >&2
 	exit 1
 }
 # The Taskfile must contain this literal shell expansion.
@@ -564,6 +565,10 @@ for target in "${targets[@]}"; do
       exit 1
     fi
   done
+  if printf '%s\n' "$metadata" | grep -Eq 'tobari_research|tobari-research'; then
+    echo "archive $asset contains research-surface build metadata" >&2
+    exit 1
+  fi
 done
 if ! go mod verify >/dev/null; then
   echo "module inputs changed or failed verification during the primary archive pass" >&2
@@ -580,6 +585,25 @@ actual_assets=$release_root/actual-assets.txt
 find "$dist" -maxdepth 1 -type f -exec basename {} \; | LC_ALL=C sort >"$actual_assets"
 if ! cmp -s "$expected_assets" "$actual_assets"; then
   echo "release archive set does not match the supported five-target matrix" >&2
+  exit 1
+fi
+if grep -Eq 'tobari[-_]research' "$expected_assets" "$actual_assets"; then
+  echo "release archive inventory contains a research binary name" >&2
+  exit 1
+fi
+
+# A hostile caller must not widen a protected release through ambient GOFLAGS.
+hostile_dist=$release_root/hostile-dist
+mkdir -p "$hostile_dist"
+env GOFLAGS=-tags=tobari_research GOCACHE="$release_root/go-cache-hostile" scripts/package-release.sh \
+  "$release_tag" "$release_revision" linux amd64 "$hostile_dist" >/dev/null
+hostile_archive=$hostile_dist/${binary}_${release_tag}_linux_amd64.tar.gz
+hostile_extract=$release_root/hostile-extract
+mkdir -p "$hostile_extract"
+tar -xzf "$hostile_archive" -C "$hostile_extract"
+hostile_metadata=$(go version -m "$hostile_extract/$binary")
+if printf '%s\n' "$hostile_metadata" | grep -Eq 'tobari_research|tobari-research'; then
+  echo "hostile GOFLAGS selected the research surface in a release archive" >&2
   exit 1
 fi
 

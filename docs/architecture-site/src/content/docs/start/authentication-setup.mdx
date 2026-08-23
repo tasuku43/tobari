@@ -3,8 +3,8 @@ title: Authenticate your tools
 description: Run the coding agent's native login inside its Workspace while keeping login separate from outbound network permission.
 ---
 
-The agent binary can exist without account credentials. In the standard
-profile, the agent CLI owns its login state inside the Workspace.
+The agent binary can exist without account credentials. On the release
+surface, the agent CLI owns its login state inside the Workspace.
 
 ## Run native login
 
@@ -34,9 +34,9 @@ this Workspace. If that callback mode is unavailable, use
 
 ## Login and policy remain separate
 
-A successful login does not automatically allow an HTTP request. Gateway hides
-authentication from OPA and audit, asks OPA about the exact request effect, and
-forwards the original credential only after allow.
+A successful provider login does not automatically allow an HTTP request.
+Gateway hides credential values from OPA and audit, asks OPA about the exact
+request effect, and forwards the original value only after allow.
 
 The fixed agent-ready compatibility baseline already includes the pinned
 Claude/Codex native-login and core endpoints when native readiness is enabled.

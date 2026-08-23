@@ -15,7 +15,7 @@ Tobari needs the daemon to see:
 
 - the selected canonical project root for its Workspace Manifest-selected live bind;
 - `${XDG_CONFIG_HOME:-$HOME/.config}/tobari` for host-owned policy and generated projections used by services;
-- `${XDG_STATE_HOME:-$HOME/.local/state}/tobari` for runtime materialization, principal registry, Workspace state, and broker state; and
+- `${XDG_STATE_HOME:-$HOME/.local/state}/tobari` for runtime materialization, principal registry, Workspace state, and host-owned lifecycle state; and
 - any explicit custom image/build source that Docker itself must access.
 
 Do not infer these values from a different shell account. Inspect the environment of the host process that invokes Tobari:
@@ -61,7 +61,7 @@ Do not use repeated root entry as a repair mechanism. The root `tobari` command 
 | Symptom                                                 | Likely boundary                               | What to inspect                                                                 |
 | ------------------------------------------------------- | --------------------------------------------- | ------------------------------------------------------------------------------- |
 | Docker says bind source does not exist or is not shared | VM filesystem sharing                         | Project and resolved XDG parents                                                |
-| Workspace starts, but an HTTP request returns `403`     | Gateway/OPA policy or credential binding      | `tobari review permissions`, not VM mounts                                      |
+| Workspace starts, but an HTTP request returns `403`     | Gateway/OPA policy or upstream response       | `tobari review permissions` for policy, not VM mounts                           |
 | Workspace cannot trust Gateway TLS                      | Client CA/proxy behavior                      | Tool honors injected CA variables; certificate pinning may reject intentionally |
 | Cluster component cannot see policy/projection          | XDG config/state bind visibility or ownership | `doctor`, `cluster status`, component logs                                      |
 | Registry image unavailable                              | Docker VM registry/network path               | Docker context and registry access; do not change policy rules                  |
@@ -72,7 +72,7 @@ Do not use repeated root entry as a repair mechanism. The root `tobari` command 
 - Rerun `tobari doctor`; warnings alone do not mutate anything.
 - Use `tobari cluster up` to reconcile services after paths are visible.
 - If a partially created logical Workspace remains, inspect `tobari status`. Runtime `missing` or `degraded` can be reconciled on the next valid entry; `incomplete` is cleanup-only and should be removed with `tobari delete`.
-- Do not delete vaults, root keys, or CA state to solve a bind error.
+- Do not delete Workspace state, host-owned states, or CA state to solve a bind error.
 - Do not add host networking, privileged mode, Docker socket mounts, or broad host-home Workspace mounts.
 
 ## Guarantees and limits
@@ -101,9 +101,9 @@ Both must resolve it, but the failing view is the selected Docker daemon inside 
 </details>
 
 <details>
-<summary>Does sharing the XDG state parent with the VM authorize the Workspace to read the root key?</summary>
+<summary>Does sharing the XDG state parent with the VM authorize the Workspace to read the host-owned state?</summary>
 
-No. Service mounts remain narrowly specified, and the Workspace does not receive the parent directory or root-key file. Broadening the VM's host path visibility does not change Tobari's container mount contract.
+No. Service mounts remain narrowly specified, and the Workspace does not receive the parent directory or host-owned state file. Broadening the VM's host path visibility does not change Tobari's container mount contract.
 
 </details>
 

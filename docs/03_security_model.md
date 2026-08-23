@@ -1,5 +1,8 @@
 # Security Model
 
+The release/research trust-boundary distinction and migration disposition are
+fixed by [ADR 0082](decisions/0082-release-and-research-build-surfaces.md).
+
 This document is the durable Tobari security contract. The detailed threat
 catalog and operational limits are in [Threat Model](THREAT_MODEL.md).
 
@@ -16,7 +19,7 @@ and custom-runtime pup native login may also use a
 session-scoped host-browser and loopback callback bridge. The host selects one
 strict reviewed provider authorization contract and transports one callback to
 the selected Workspace without inspecting or persisting its bytes. The
-experimental Broker profile instead gives a Workspace an opaque
+research Broker surface instead gives a Workspace an opaque
 project-bound handle and retains its Workspace Manifest secret in an encrypted vault.
 Every supported HTTP/HTTPS request is normalized, authorized by OPA, and
 enforced by the shared Gateway before forwarding.
@@ -78,7 +81,7 @@ growth easier than manually operating Docker, OPA, or host policy files.
 ## Trust boundaries
 
 Trusted components are the host OS and user, Docker Engine or its Linux VM,
-Tobari CLI, Gateway, OPA, and Rego policy. The experimental profile additionally
+Tobari CLI, Gateway, OPA, and Rego policy. The research surface additionally
 trusts its reviewed provider drivers, Auth Broker, root-key provider, owner
 manifests, and encrypted Workspace Manifest vaults. Every Workspace and
 process in it, coding agents, project files, Workspace home, copied opaque
@@ -116,7 +119,7 @@ before Docker mutation. Failed or unknown reconciliation preserves the prior
 AppliedEntry and records one bounded attempted digest and change-state; a read
 never repairs or retries it.
 
-Only in the experimental profile, the reviewed GitHub, AWS, and Codex host-driver implementations and isolated pup and Claude
+Only in the research surface, the reviewed GitHub, AWS, and Codex host-driver implementations and isolated pup and Claude
 Workspace Manifest-runtime drivers are trusted, purpose-limited CLI side effects. Host
 drivers select canonical executables outside the project, reject group/world-
 writable candidates, bind SHA-256 identity, construct only fixed argv, use
@@ -155,7 +158,7 @@ root. The child process receives only validated host `HOME` and optional
 entry are absent. Repository/worktree configuration, caller-selected keys, raw
 config files, source paths, and raw diagnostics cannot cross this boundary.
 
-The following extended topology is experimental; standard omits every Broker,
+The following extended topology is research; standard omits every Broker,
 driver, companion, and vault edge:
 
 ```text
@@ -246,7 +249,7 @@ unbounded container is recreated before reuse. These bounds do not provide a
 quota for the explicitly mounted project root or shape network bandwidth.
 The shared Gateway and OPA services use fixed JSON-file log rotation of 10 MiB
 per file and three files, plus fixed CPU, memory-plus-swap, and PID ceilings.
-The experimental Auth Broker follows the same bounds.
+The research Auth Broker follows the same bounds.
 Those ceilings bound shared-service exhaustion but do not provide per-project
 fairness inside one shared Gateway, OPA, or Auth Broker.
 Tobari uses a non-root work user mapped to the invoking UID/GID where Docker
@@ -420,7 +423,7 @@ The canonical Gateway source declares API V1. Its label makes guarded
 transparent routing and schema-1 source-principal binding fail closed against a
 non-V1 component. The strict Gateway-only lock binds its reviewed service index
 to the exact CLI source revision without storing generated digests in source.
-The experimental Auth Broker separately declares API V1 but has no release
+The research Auth Broker separately declares API V1 but has no release
 lock entry. The runtime base is bound by embedded recipe bytes and a
 source-derived local tag instead.
 
@@ -552,7 +555,7 @@ upload/receive service; request pack bodies and authentication remain opaque.
 An exact Git rule is required, so a broad HTTP rule cannot authorize the same
 transport.
 
-OCI Distribution classification is bounded to distinctive standard catalog,
+OCI Distribution classification is bounded to distinctive release-surface catalog,
 tag, manifest, blob, referrer, and upload object routes under `/v2/`. Gateway
 retains only repository, action, and object coordinates; cross-repository
 mounts retain both digest and source repository. Bodies, authorization
@@ -631,8 +634,8 @@ identities. Every other identity falls back to BEL. Those environment values
 are tested only for presence and never enter the
 payload. Tobari never changes tmux or SSH passthrough. Cue failure is
 non-authoritative and leaves watch active.
-The experimental-only Operator Console is a session-scoped trusted-host presentation,
-not a network control plane. `tobari serve` binds TCP4 only to
+The research-only Operator Console is a session-scoped trusted-host presentation,
+not a network control plane. `bin/tobari-research serve` binds TCP4 only to
 `127.0.0.1:0`, accepts no remote/fixed-port option, and exits with its owning
 foreground process. A cryptographically random 256-bit bearer exists only in
 process memory and the initial URL fragment; script moves it to tab-scoped
@@ -730,7 +733,7 @@ OPA, Gateway, audit, denial evidence, or durable Tobari state. Its exact host
 browser effects grant no Workspace HTTP authority. Separately, the immutable
 agent-ready readiness bundles grant only their expanded exact HTTP effects.
 
-The experimental development profile's Auth Broker stores one static primary-secret record per Workspace Manifest/provider in
+The research surface's Auth Broker stores one static primary-secret record per Workspace Manifest/provider in
 `auth/contexts/<context-id>/vault.enc`. The schema-1 AES-256-GCM envelope
 contains a schema-1 payload, uses a random 12-byte nonce, and binds schema plus
 stable Workspace Manifest ID as authenticated data. All parent directories, files,
@@ -750,7 +753,7 @@ and bind Workspace Manifest, project, provider, credential revision, exact HTTPS
 source header, and source format. Login, replacement, and logout atomically
 revoke every old handle for that Workspace Manifest/provider.
 
-Only in the experimental profile, Gateway recognizes exactly one handle position from the owner-only normalized
+Only in the research surface, Gateway recognizes exactly one handle position from the owner-only normalized
 provider projection. It rejects URL, cookie, header-name, unsupported-value,
 and ambiguous occurrences, removes the placeholder, and performs non-secret
 introspection before OPA. Denial makes zero resolve calls. Allow permits exactly
@@ -788,7 +791,7 @@ before reading. Provider collections with overlapping exact
 scheme/host/port/source-header/source-format recognition fail completely as
 `ambiguous_provider_http_binding`; no partial projection becomes active.
 
-Datadog, OpenAI, Anthropic, Chatwork, and the experimental AWS capability are
+Datadog, OpenAI, Anthropic, Chatwork, and the research AWS capability are
 implemented only through the closed reviewed plan union. Standard projection
 cannot select AWS. Dynamic records, Datadog/OpenAI/Anthropic refresh, AWS
 signing/companion, OpenAI supplemental-header ownership, and exact-version
@@ -1124,7 +1127,7 @@ explicit or default Workspace Manifest and one installed provider before acquisi
 vault I/O. Standard login accepts only the installed reviewed GitHub, Datadog,
 OpenAI, or Anthropic driver union. Anthropic alone uses a fresh mount-free
 container from the selected compatible Workspace Manifest image; interactive omission
-opens only its bounded selector. The experimental compile-time profile
+opens only its bounded selector. The research compile-time surface
 additionally activates AWS and its `identity-center|console` methods. Import reads one
 bounded secret from non-terminal stdin only under the ordering above. One
 credential belongs to one Workspace Manifest/provider, and every permanently bound project
@@ -1242,7 +1245,7 @@ for an interactive terminal. `NO_COLOR` strips that closed vocabulary, unknown
 controls remain visibly escaped, and neither presentation path changes URL
 recognition. A dynamic OpenAI authorization URL is never a Tobari browser
 target; the verified Codex child owns its open attempt and fallback guidance.
-That sentence applies to the experimental host-acquisition driver. In the
+That sentence applies to the research host-acquisition driver. In the
 separate standard attached Workspace, ADRs 0046, 0048, 0050, and 0055 permit the strict
 Claude Code, Codex, GitHub CLI, AWS CLI, TWG, and pup native-login URL union only. GitHub CLI's
 device prompt remains visible; GitHub CLI invokes the attachment-scoped opener
@@ -1440,7 +1443,7 @@ distributed nor trusted by Tobari; their selector is persisted as user
 configuration. Third-party licenses are reviewed. Tests use synthetic
 credentials, fake fixed-driver output, fixed clocks, and `example.com`
 identities only. Live reviewed-provider acquisition, logout, and stale-handle
-rejection may be replayed as experimental compatibility observations, but they
+rejection may be replayed as research compatibility observations, but they
 are not standard release checks. Tokens, codes, handles, and authenticated
 transcripts are never repository fixtures. Publication still requires
 `task security` and `task public:check`; neither replaces a human history and
@@ -1448,7 +1451,7 @@ confidentiality review. The canonical Gateway source is the public `gateway/`
 tree; its embedded Docker build-input snapshot is checked for exact membership
 and bytes against the current source, while
 the locally built image is inspected against the exact embedded source identity
-that built it. The experimental Auth Broker source is the public `authbroker/` tree; its
+that built it. The research Auth Broker source is the public `authbroker/` tree; its
 embedded Docker build-input snapshot is checked for exact membership and bytes,
 and provider-CLI
 absence and closed-plan protocol behavior are checked in validation. Image

@@ -13,7 +13,7 @@ import (
 	"testing"
 
 	"github.com/tasuku43/tobari/internal/domain/authbroker"
-	"github.com/tasuku43/tobari/internal/domain/capabilityprofile"
+	"github.com/tasuku43/tobari/internal/domain/capabilitysurface"
 )
 
 type authProjectionRunner struct {
@@ -111,13 +111,13 @@ func syntheticProjectHandle(seed string) string {
 
 func requireExperimentalProjectAuth(t *testing.T) {
 	t.Helper()
-	if !capabilityprofile.Compiled().IncludesExperimental() {
-		t.Skip("project-bound Broker projection exists only in the experimental profile")
+	if !capabilitysurface.Compiled().IncludesResearch() {
+		t.Skip("project-bound Broker projection exists only in the research surface")
 	}
 }
 
 func TestReconcileProjectAuthStandardReturnsEmptyProjectionWithoutBrokerState(t *testing.T) {
-	if capabilityprofile.Compiled().IncludesExperimental() {
+	if capabilitysurface.Compiled().IncludesResearch() {
 		t.Skip("standard-only Workspace authentication assertion")
 	}
 	runner := &recordingRunner{}
@@ -192,7 +192,7 @@ func TestReconcileProjectAuthProjectsOnlyHandleAndProviderMetadata(t *testing.T)
 
 func TestBrokerBindingsForAWSIncludesCanonicalSigningPlanInDigest(t *testing.T) {
 	if !authbroker.SupportsReviewedLoginProvider(authbroker.BuiltinAWSProviderID) {
-		t.Skip("AWS authentication is available only in the experimental profile")
+		t.Skip("AWS authentication is available only on the research surface")
 	}
 	runtime, err := newRuntime(filepath.Join(t.TempDir(), "config"), filepath.Join(t.TempDir(), "state"), &recordingRunner{})
 	if err != nil {

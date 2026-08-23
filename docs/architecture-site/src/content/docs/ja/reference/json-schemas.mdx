@@ -4,8 +4,8 @@ description: 公開 JSON エンベロープ、永続文書、内部プロトコ�
 ---
 
 このリファレンスでは、Tobari のバージョン付き JSON 公開面と厳密な境界を一覧にします。公開 CLI
-レポート、永続化するマニフェスト、Gateway のポリシー入力、
-監査行、Broker のソケットフレームは、関連するオブジェクトを記述していても別の契約です。
+レポート、永続化するマニフェスト、Gateway のポリシー入力、監査行は、関連するオブジェクトを
+記述していても別の契約です。agent CLI のログイン形式は Tobari の公開契約ではありません。
 
 各スキーマは一つの公開面に属します。初回公開前の Tobari 所有の公開面は構造化エラー
 契約を除いて V1 で、構造化エラーは V2 です。それぞれの公開面では、担当するパーサー、Catalog の項目、プロトコルの実装が
@@ -15,9 +15,9 @@ description: 公開 JSON エンベロープ、永続文書、内部プロトコ�
 
 Tobari は多くの JSON 契約で、明示的な `schema_version` フィールドと厳密な読み取り処理を
 使います。ただし、すべての公開面に正式な JSON Schema 文書があるわけではありません。
-プロバイダーマニフェスト v1 は Go のパーサーと検証器で検証し、正本となる合成フィクスチャを
-検査台帳に記録します。フィクスチャのダイジェストが証明するのはフィクスチャ自体の識別情報で
-あり、汎用 JSON Schema ではありません。
+ランタイムの入力は Go のパーサーと検証器で検証し、正本となる合成フィクスチャを検査台帳に
+記録します。フィクスチャのダイジェストが証明するのはフィクスチャ自体の識別情報であり、
+汎用 JSON Schema ではありません。
 
 公開 CLI 出力では、Catalog が JSON エンベロープとスキーマバージョンを宣言します。契約
 テストはレンダラーを実行し、生成した `schema_version` を Catalog と比較します。
@@ -73,62 +73,56 @@ CLI presentation
 ```
 
 レポートには、タスクが管理するランタイム、クラスター、完全なシェル設定、秘密情報を
-除いた認証状態の解釈が加わります。`context.json` に保存するバイト列そのものでは
+除いたログイン境界の解釈が加わります。`context.json` に保存するバイト列そのものでは
 ありません。
 
 ## ホストに永続化する契約
 
-| 状態                                               | 現在の契約                   |
-| -------------------------------------------------- | ---------------------------- |
-| Workspace Manifest マニフェスト                    | スキーマ 1                   |
-| ルートインデックス／Workspace インスタンス         | スキーマ 1                   |
-| 共有クラスター状態                                 | スキーマ 1                   |
-| プロジェクトプリンシパル登録簿                     | スキーマ 1                   |
-| domain policy の `allow.json` / `deny.json` source | `schema_version` 1           |
-| 集約ポリシー投影のマーカー                         | スキーマ 1                   |
-| 所有者のプロバイダーマニフェスト                   | スキーマ 1                   |
-| レビュー済みの組み込みプロバイダーマニフェスト     | スキーマ 1                   |
-| 正規化済みプロバイダー投影                         | スキーマ 1                   |
-| 暗号化した Workspace Manifest 保管庫               | エンベロープ 1、ペイロード 1 |
-| Workspace 認証ファイル登録簿                       | スキーマ 1                   |
-| ベースランタイムメタデータ                         | スキーマ 1                   |
+| 状態                                               | 現在の契約         |
+| -------------------------------------------------- | ------------------ |
+| Workspace Manifest マニフェスト                    | スキーマ 1         |
+| ルートインデックス／Workspace インスタンス         | スキーマ 1         |
+| 共有クラスター状態                                 | スキーマ 1         |
+| プロジェクトプリンシパル登録簿                     | スキーマ 1         |
+| domain policy の `allow.json` / `deny.json` source | `schema_version` 1 |
+| 集約ポリシー投影のマーカー                         | スキーマ 1         |
+| agent CLI の Workspace home                        | ツール固有の形式   |
+| ホストのランタイム状態                             | スキーマ 1         |
+| ベースランタイムメタデータ                         | スキーマ 1         |
 
 読み取り処理は、担当する契約に従って、形式不正、上限超過、安全でない状態、未対応の状態を
 拒否します。厳密さは公開面ごとに異なります。すべての JSON 読み取り処理が未知のフィールド
-を同じように扱うとは限りません。プロバイダー文書、プリンシパルの状態、Broker フレーム、
-重要なランタイム状態では、明示的な fail-closed 検証を使います。
+を同じように扱うとは限りません。プリンシパルの状態、CLI フレーム、重要なランタイム状態では、
+明示的な fail-closed 検証を使います。
 
 初回公開前の互換読み取りや暗黙の移行処理はありません。唯一の例外は、ADR 0070 が定める
 未公開の Workspace Manifest ポリシー／Runtime の厳密な旧形式だけを対象にした明示的な
 `tobari migrate apply` コマンドです。V1 以外やその他の旧形式は未対応として拒否し、
 開発中の状態を削除して作り直します。
 
-## Gateway、OPA、監査、Auth Broker の契約
+## Gateway、OPA、監査の契約
 
-| 境界                                            |           現在の契約 | 重要な内容規則                                                                                         |
-| ----------------------------------------------- | -------------------: | ------------------------------------------------------------------------------------------------------ |
-| Gateway の認証設定                              |           スキーマ 1 | Workspace Manifest を認識する managed 方式の投影。パスとメタデータは含むが、ポリシー権限は含まない     |
-| Gateway → OPA の判断入力                        |           スキーマ 1 | ホストから導出したプリンシパルと、正規化した HTTP 属性。本文とクライアントの秘密ヘッダーは含まない     |
-| Guided/Advanced のソースポリシー入力            |           スキーマ 1 | 集約生成処理が、アクティベーション前に厳密な V1 ソースを検証                                           |
-| Gateway の監査行                                |           スキーマ 1 | 秘密情報を含まない、正規化済みの判断根拠                                                               |
-| 学習可能な拒否に対する Gateway の案内レスポンス |           スキーマ 1 | 固定したホストレビュー案内。候補 ID、クエリー、本文、秘密情報は含まない                                |
-| Broker 制御プロトコル                           |           スキーマ 1 | ホスト制御用 Unix ソケット上の、上限付き改行区切り JSON                                                |
-| Broker runtime protocol                         |             schema 1 | introspection は non-secret。allow 後の same-revision static resolve 一回が Gateway Unix socket を使用 |
-| Workspace の Auth Broker ハンドル               | ハンドルバージョン 1 | 不透明な `tobari-h1_…`。権限を得るためにデコードしない                                                 |
+| 境界                                            |       現在の契約 | 重要な内容規則                                                                                     |
+| ----------------------------------------------- | ---------------: | -------------------------------------------------------------------------------------------------- |
+| Gateway のリクエスト境界                        |       スキーマ 1 | Workspace Manifest とホスト由来の principal、正規化した HTTP 属性。認証情報の値は含まない          |
+| Gateway → OPA の判断入力                        |       スキーマ 1 | ホストから導出したプリンシパルと、正規化した HTTP 属性。本文とクライアントの秘密ヘッダーは含まない |
+| Guided/Advanced のソースポリシー入力            |       スキーマ 1 | 集約生成処理が、アクティベーション前に厳密な V1 ソースを検証                                       |
+| Gateway の監査行                                |       スキーマ 1 | 秘密情報を含まない、正規化済みの判断根拠                                                           |
+| 学習可能な拒否に対する Gateway の案内レスポンス |       スキーマ 1 | 固定したホストレビュー案内。候補 ID、クエリー、本文、秘密情報は含まない                            |
+| agent CLI のログイン値                          | ツール固有の形式 | Workspace home に保存され、Gateway が許可後に転送する。OPA と監査には含まれない                    |
 
 OPA の出力は Gateway が受け取る判断結果です。OPA 自身は接続先へ接続しません。
 不正な、または利用できないポリシー応答は、接続先へ接続する前に安全側に倒して拒否します。
 
-二つの Broker プロトコルは、上限付きの改行区切り JSON フレームを使います。
-解錠と認証情報のインポートでは、制御フレームの後に、宣言済みの長さ制限を持つ
-生のペイロードを運びます。秘密情報を含むそのバイト列は JSON メタデータではありません。
+agent CLI のログイン形式は各ツールが管理し、Tobari の公開 JSON 契約には含めません。
+Gateway と OPA の公開境界は、正規化した非秘密の判断入力と監査行です。
 
 ## 読み取り側の厳密な V1 規則
 
 - 完全一致のエンベロープと `schema_version` で動作を選ぶ
 - 未知のバージョンは未対応として扱い、既知の最新形式へ黙って変換しない
 - 契約上重要な「存在しない」と、明示的な空、0、false の違いを保持する
-- 不透明な参照とハンドルは完全一致のバイト列として扱い、デコード、正規化、切り詰め、
+- 不透明な参照と識別子は完全一致のバイト列として扱い、デコード、正規化、切り詰め、
   再構築をしない
 - ラベル、配列の順番、近さ、人向けのインデントから識別情報や関係を推論しない
 - サポート対象の公開 CLI 結果の代わりに、内部の状態ファイルを読まない
@@ -137,7 +131,7 @@ OPA の出力は Gateway が受け取る判断結果です。OPA 自身は接続
 
 スキーマの不一致は契約違反です。推測して続行してはいけません。
 候補の検証に失敗した場合、既知の正しいポリシーとランタイム選択を保持します。不正な
-Broker フレームと、形式が Tobari に見える不正なハンドルは安全側に倒して拒否します。公開
+不正な CLI フレームと、形式が Tobari に見える不正な識別子は安全側に倒して拒否します。公開
 エラーでは、URL、レスポンス本文、認証情報を含む可能性がある接続先由来の文字列を
 除外します。
 
@@ -151,7 +145,7 @@ Broker フレームと、形式が Tobari に見える不正なハンドルは�
 - Workspace Manifest の契約：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/domain/tobari/context.go`}>マニフェストスキーマ 1</a>、<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/cli/context.go`}>レポートスキーマ 1</a>
 - Gateway の入力と監査：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/gateway/addon/tobari_gateway.py`}>Gateway addon の正本</a>、<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/gateway/test_tobari_gateway.py`}>Gateway 契約テスト</a>
 - ポリシーの正本と変換：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/infra/dockerruntime/aggregate.go`}>集約した投影</a>
-- Auth Broker プロトコル：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/authbroker/protocol.py`}>プロトコルパーサー</a>、<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/authbroker/tests/test_broker.py`}>否定系テスト</a>
+- agent CLI ログインと Gateway の転送境界：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/docs/03_security_model.md`}>セキュリティモデル</a>
 - フィクスチャ台帳：<a href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/.harness/schemas.json`}><code>.harness/schemas.json</code></a>
 
 ## まとめ
@@ -163,14 +157,6 @@ Broker フレームと、形式が Tobari に見える不正なハンドルは�
 ## 理解を確認する
 
 スキーマ番号だけでは、それが適用される公開面を特定できません。
-
-<details>
-  <summary>
-    <code>synthetic-provider-v1.json</code> は正式な JSON Schema ですか？
-  </summary>
-  いいえ。厳密な Go パーサー、検証、正規化、テストとともに使う
-  正規の合成フィクスチャです。
-</details>
 
 <details>
   <summary>Advanced ポリシーで V1 以外のスキーマを使えますか？</summary>

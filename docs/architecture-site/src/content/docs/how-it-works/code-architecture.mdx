@@ -11,8 +11,8 @@ ports, infrastructure implements controlled external effects, and CLI wires
 the system together as the sole composition root.
 
 The CLI Catalog is the source of every public command contract, not merely a
-list of help strings. Gateway, Auth Broker, and runtime assets use a related
-source boundary: canonical source is edited in its owning directory and the
+list of help strings. Gateway and runtime assets use a related source boundary:
+canonical source is edited in its owning directory and the
 embedded copy is a byte-checked snapshot. These rules keep product policy,
 use-case interpretation, external I/O, and presentation from becoming one
 inseparable implementation.
@@ -23,7 +23,7 @@ This contributor-oriented page builds on the [implementation stack](/how-it-work
 
 ## Domain: pure vocabulary and invariants
 
-`internal/domain/` defines stable concepts such as Workspace identity, Workspace Manifest, policy candidates/rules, provider manifests, broker bindings, operations, effects, mutation impact, references, faults, and result schemas.
+`internal/domain/` defines stable concepts such as Workspace identity, Workspace Manifest, policy candidates/rules, operations, effects, mutation impact, references, faults, and result schemas. Agent CLI login state is not a Tobari domain resource.
 
 Domain performs no filesystem, process, Docker, network, terminal, or credential I/O. This makes the security/product claims executable as constructors and validators rather than comments attached to side effects.
 
@@ -31,25 +31,24 @@ Examples include:
 
 - one Workspace per canonical root/Workspace Manifest pair;
 - exact candidate identity and opaque reference shape;
-- provider manifest strictness and collision rejection;
 - declared operation effect and mutation contract; and
 - absent versus explicit values in structured results.
 
 ## Application: interpret one user task
 
-`internal/app/` owns use cases such as Workspace lifecycle, policy review/action, Workspace Manifest configuration, authentication, and doctor. Each package defines the smallest port its task needs.
+`internal/app/` owns use cases such as Workspace lifecycle, policy review/action, Workspace Manifest configuration, and doctor. Each package defines the smallest port its task needs.
 
-Application code depends on domain vocabulary, not a Docker client or filesystem implementation. A policy action asks a port to read evidence and activate validated policy; it does not construct `docker compose` argv. An auth use case validates public intent before giving secret input to a credential-bearing infrastructure port.
+Application code depends on domain vocabulary, not a Docker client or filesystem implementation. A policy action asks a port to read evidence and activate validated policy; it does not construct `docker compose` argv. Agent CLI login remains outside Tobari's application use cases.
 
 Owning the port next to the consumer prevents infrastructure convenience APIs from becoming undeclared product authority.
 
 ## Infrastructure: implement controlled effects
 
-`internal/infra/` contains concrete adapters for Docker CLI execution, XDG state/configuration, runtime assets, root-key backends, provider loading, terminal/process capability, Gateway/Broker control, and system diagnostics.
+`internal/infra/` contains concrete adapters for Docker CLI execution, XDG configuration and lifecycle state, runtime assets, terminal/process capability, Gateway control, and system diagnostics.
 
 Infrastructure may satisfy application ports through Go structural typing. It does not decide user-facing policy such as whether a missing reference should be reconstructed or whether a command should exist. Effects cross bounded adapters rather than an unrestricted executor exposed to use cases.
 
-Credential-bearing types, root keys, vault operations, provider acquisition, and exact HTTP bindings remain infrastructure-owned.
+Request redaction, host-owned lifecycle state, Workspace state operations, and exact HTTP bindings remain behind infrastructure-owned ports. Tobari does not own an authentication provider or login service.
 
 ## CLI: public contract and composition root
 
@@ -84,9 +83,9 @@ No layer alone owns the complete outcome, but responsibility does not move outwa
 
 ## Runtime source and embedded snapshots
 
-Gateway and Auth Broker are Python runtime components rather than Go packages, but they follow an analogous source-of-truth rule:
+Gateway is a Python runtime component rather than a Go package, but it follows an analogous source-of-truth rule:
 
-- editable canonical source and tests live under `gateway/` and `authbroker/`;
+- editable canonical source and tests live under `gateway/`;
 - byte-checked embedded snapshots live under `internal/infra/runtimeassets/assets/`;
 - the Go binary materializes exact embedded runtime bytes; and
 - checks reject drift rather than allowing two independently edited implementations.

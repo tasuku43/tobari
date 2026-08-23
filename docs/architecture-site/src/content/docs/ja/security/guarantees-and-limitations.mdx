@@ -3,131 +3,109 @@ title: 保証と制限
 description: Tobari の主要なセキュリティ保証について、成立する前提、制御の仕組み、障害時の動作、対象外を対応付けます。
 ---
 
-Tobari は、Workspace の権限を一つのプロジェクト、ホストが発行した一つのプリンシパル、Gateway を経由する HTTP/HTTPS、明示されたポリシー、利用範囲を制約した Auth Broker のハンドルへ限定します。一方、作業対象のディレクトリ内にあるファイル、許可済みの接続先へ送るデータ、同じ Workspace 内のプロセス、HTTP/HTTPS 以外の通信、重複するプロジェクトルート、侵害された信頼基盤は制御しません。
+Tobari は、Workspace の権限を一つのプロジェクト、ホスト発行の principal、Gateway を経由する HTTP/HTTPS、明示されたポリシーに限定します。agent CLI のログイン情報は Workspace home にあり、host credential は継承しません。Tobari はログインを共有サービスとして管理しません。作業対象のファイル、許可済みの接続先へ送るデータ、同じ Workspace のプロセス、HTTP/HTTPS 以外の通信、重複するプロジェクトルート、侵害された信頼基盤は制御しません。
 
-以下では、各保証を前提、制御の仕組み、障害時の動作、最も近い対象外とセットで示します。共通する信頼対象と境界は、先に[セキュリティ概要](../overview/)で確認してください。
+以下の各保証では、成立する前提、強制する場所、障害時の動作、最も近い制限を対応付けます。信頼するコンポーネントと、これらの保証が共有する境界は、先に[セキュリティ概要](../overview/)を確認してください。
 
 ## 保証 1：Workspace には外部への直接経路がない
 
 **保証。** サポート対象の構成で作られた Workspace は、公開インターネットへ直接到達できません。
 
-**前提。** Tobari が Docker の設定に従って Workspace を作成・調整し、Docker とホストのネットワークが設定どおりに動作していること。
+**前提。** Tobari が Docker 構成を通じて Workspace を作成・調整済みで、Docker とホストのネットワークが設定どおりに動作していること。
 
-**仕組み。** Workspace は専用の Docker `internal` ネットワークだけに参加します。出力ポリシーは既定で拒否し、唯一の既定 TCP 経路は正確なプロジェクト Gateway を指します。Gateway の転送処理は無効なまま、合成 DNS と透過リダイレクトが通常の HTTP/TLS を Gateway のポリシーリスナーへ届けます。
+**仕組み。** Workspace は専用の Docker `internal` ネットワークだけに参加します。出力 policy は default-drop で、既定の TCP 経路は exact project Gateway です。Gateway forwarding は無効のままで、synthetic DNS と transparent redirect が通常の HTTP/TLS を policy listener へ届けます。
 
-**障害時。** 通常の直接ソケットは別の経路ではなく、保護済みの透過経路へ入ります。Gateway が利用できない場合、HTTP 通信は失敗します。
+**障害時。** 通常の direct socket は別経路ではなく guarded transparent route へ到達します。Gateway が利用できない場合、HTTP 通信は失敗します。
 
-**対象外。** Tobari が仲介するのは通常の HTTP/HTTPS です。あらゆるプロトコルの通信を遮断する仕組みではありません。また、許可された HTTP 接続先は、Workspace から読めるデータを受け取れます。
+**対象外。** Tobari が仲介するのは通常の HTTP/HTTPS です。許可された接続先は Workspace から読めるデータを受け取れます。
 
 ## 保証 2：Workspace は別プロジェクトの権限を自分へ付与できない
 
-**保証。** リクエストのバイト列から、より強い権限を持つ Workspace Manifest またはプロジェクトのプリンシパルを選ぶことはできません。
+**保証。** リクエストのバイト列から、より強い Manifest または project principal を選ぶことはできません。
 
-**前提。** ホスト側のライフサイクル処理が Workspace 固有のネットワーク対応付けを作り、プリンシパル登録簿が破損していないこと。
+**前提。** host lifecycle が Workspace ごとの一意な network binding を作成し、principal registry の整合性が保たれていること。
 
-**仕組み。** Gateway は、カーネルが観測した Workspace の送信元エンドポイントを、ホストが管理するスキーマ 1 のプリンシパル登録簿で検索します。そこで得た Workspace Manifest とプロジェクトの識別情報を OPA の入力に入れます。リクエスト側が自己申告したヘッダーは、権限の根拠として使いません。
+**仕組み。** Gateway はカーネルが観測した Workspace の送信元 endpoint を、ホスト管理の principal 登録簿で検索します。自己申告したヘッダーは権限の根拠ではありません。不明または不正な対応付けは OPA より前に拒否されます。
 
-**障害時。** 対応付けが不明、不正、重複、または古い場合、OPA への問い合わせや外部の接続先への接続より前に `project_principal_unavailable` を返します。
+**障害時。** 未知、不正、重複、古い binding は `project_principal_unavailable` となり、OPA と upstream より前に止まります。
 
-**対象外。** 二つの Workspace Manifest から、同じまたは重複するホスト上のルートを意図的にマウントできます。ネットワーク、ホーム、ポリシー上のプリンシパルは別でも、重複範囲のファイル変更は同じホスト上のファイルへ反映されます。
+**対象外。** 二つの Manifest が同じ、または重なる host root を意図的に mount できます。network、home、policy principal は別でも、重なった範囲の file change は共有されます。
 
 ## 保証 3：ポリシー判断の失敗は外部通信にならない
 
-**保証。** Gateway が外部の接続先へ接続するのは、一つの有効な OPA の許可結果を得た後だけです。
+**保証。** Gateway が接続先へ接続するのは、有効な OPA の許可結果を得た後だけです。
 
-**前提。** 通信が Gateway に到達し、リクエストを現在のポリシー入力スキーマへ正規化できること。
+**前提。** traffic が Gateway へ到達し、request を現在の decision schema へ正規化できること。
 
-**仕組み。** Gateway は、本文を除いて正規化した判断項目を、固定された OPA の接続先へ一度だけ送ります。外部の接続先への接続は、許可された後に初めて作ります。
+**仕組み。** Gateway は本文を除いた正規化入力を OPA へ一度だけ送り、拒否・タイムアウト・不正応答では接続先へ接続しません。
 
-**障害時。** 拒否の場合は `policy_denied` を返します。応答待ちの上限超過、接続失敗、HTTP 200 以外の応答、上限超過、不正または不完全な判断結果では `policy_unavailable` を返します。どちらの場合も外部の接続先へ接続しません。
+**障害時。** deny は `policy_denied`、timeout、接続失敗、non-200、oversize、不正または不完全な decision は `policy_unavailable` です。どちらも upstream connection を作りません。
 
-**対象外。** 現在の学習済み完全一致ルールは、Workspace Manifest、プロジェクト、ホスト、ポート、メソッド、未加工のパスを区別します。本文、クエリー、秘密情報を含まないヘッダー、拒否理由、プロバイダー、認証情報プロファイルは区別しません。本文が異なっても、同じ HTTP 通信の完全一致ルールを利用できます。
+**対象外。** 現在の exact learned rule は Manifest、Workspace、host、port、method、raw path を区別します。body、query、safe header、reason、provider は区別しないため、異なる body が同じ exact effect rule を利用できます。
 
-## 保証 4：Auth Broker が管理する認証情報は Workspace に渡されない
+**ログイン情報の境界。** agent CLI が Workspace home に保管するログイン情報の値は、OPA の判断入力と監査記録に入りません。
 
-**保証。** Workspace が受け取るのは static primary secret や request-local credential ではなく、
-project-bound opaque handle 一つです。
+**仕組み。** Gateway は認識可能な認証ヘッダーと cookie の値を除外し、通常の HTTP effect が許可された後だけ元の値を転送します。Tobari は host credential を継承せず、provider 固有の形式を解釈しません。
 
-**前提。** プロバイダーが Auth Broker の経路を使い、ルート鍵が利用でき、Workspace Manifest 保管庫とプロバイダーマニフェストの検証が成功すること。
+**障害時。** OPA deny、Gateway 障害、ポリシー不在では値を転送せず、接続先への接続も作りません。
 
-**仕組み。** Auth Broker は static state を Workspace Manifest vault で暗号化します。handle record は
-Workspace Manifest、project、provider、revision、完全一致 target、HTTP header binding に結び付きます。
-Gateway は handle を除去し、non-secret introspection と Workspace Manifest policy ceiling の後に OPA へ問い合わせ、
-allow 後だけ declared static resolve を実行します。
+**対象外。** 同じ Workspace 内のプロセスは、その Workspace home にある agent CLI の状態を読めます。agent CLI の logout は外部サービス側の失効を保証しません。
 
-**障害時。** 不正、copy、stale、malformed、ambiguous handle は拒否し別方式へ切り替えません。
-terminal guardrail または OPA deny では resolve、DNS、upstream access はゼロです。resolution 前の
-Broker unavailability は upstream attempt なしの 503 です。
+## 保証 4：検証できないポリシー変更は部分的に有効化されない
 
-**対象外。** 同じ Workspace 内の悪意あるプロセスは、その Workspace へ配置されたハンドルと、すでに許可された通信を利用できます。ツール自身が管理する認証情報は、ツールが保存した場所から読めるままです。ログアウトはプロバイダー側での失効を保証しません。
+**保証。** 許可または拒否の変更で有効化するのは、全体を検証済みの集約結果だけです。
 
-## 保証 5：検証できないポリシー変更は部分的に有効化されない
+**前提。** 信頼する host user が現在の opaque candidate reference を選び、policy source と revision が競合していないこと。
 
-**保証。** 許可または拒否の変更操作で有効化するのは、全体を検証済みの集約結果だけです。
+**仕組み。** Tobari は候補を再検出し、private source、完全な all-Manifest projection、revision を検証します。一つの owner-only source を atomic write し、revisioned complete bundle を公開して、実行中 OPA が exact revision を報告するまで待ちます。authority reduction では最初に deny-all transition revision を入れます。
 
-**前提。** ホスト側の利用者が現在の不透明な候補参照をそのまま操作へ渡し、ポリシー定義元とリビジョンに競合がないこと。
+**障害時。** validation、stale reference、race、write、aggregate、OPA activation の失敗では以前の valid policy を保持または復元します。以前の HTTP request は再送しません。
 
-**仕組み。** Tobari は各候補を再検出し、非公開の定義元と完全な集約結果を検証し、リビジョンを確認します。その後、一つの Workspace Manifest について所有者だけが変更できる定義元へ、途中状態を見せずに書き込みます。リビジョン付きの完全なバンドルを公開し、実行中の OPA がそのリビジョンを報告するまで待ちます。権限を減らす変更では、最初に全拒否へ移行するリビジョンを導入します。失敗時は、状態を直前に確認できた内容へ戻します。
-
-**障害時。** 検証、古い参照値、競合、書き込み、集約、OPA の有効化に失敗した場合、以前の有効なポリシーを保持または復元します。以前の HTTP リクエストを再送することはありません。
-
-**対象外。** 信頼する利用者は、危険な HTTP 通信を完全一致で意図的に許可できます。Tobari は送信データの安全性を推測しません。複数の完全一致パスを接頭辞ルールへ広げるには、専用の検証用リクエストを通した明示的な集約操作が必要です。自動ではありません。
+**対象外。** trusted operator は危険な exact effect を意図的に許可できます。Tobari は payload safety を推測せず、first public V1 の learned exact path を自動的に広げません。
 
 ## 明示的に保証しないもの
 
-- 作業対象のディレクトリ内にあるファイルの完全性または機密性
+- 作業対象のファイルの完全性または機密性
 - 一つの Workspace 内のプロセス間隔離
 - 重複してマウントしたプロジェクトルート間の隔離
-- 許可済みのリクエストによるデータ送信の防止
+- 許可済みリクエストによるデータ送信の防止
 - HTTP/HTTPS 以外のネットワーク通信の仲介
-- ホスト、カーネル、Docker、Gateway、OPA、Auth Broker、ルート鍵の提供機構、レビュー済みイメージが侵害された後の保護
-- ローカルでログアウトした後の、外部プロバイダー側の認証情報失効
-- 証明書を固定するクライアントとの互換性。TLS の検査を迂回するのではなく、接続に失敗することが期待されます
+- ホスト、カーネル、Docker、Gateway、OPA、レビュー済みイメージが侵害された後の保護
+- provider 側の logout や remote revocation
+- 証明書を固定するクライアントとの互換性
 
 公開仕様と、それを維持する実装・テストの対応は、[実装とテスト](../verification-evidence/)にまとめています。
 
 ## ここまでで説明できること
 
-各保証には、成立する前提と対象外の両方があります。
-
 <div class="question-list">
   <details>
     <summary>
-      プロセスが HTTPS の直接ソケットを開くと、Tobari は Gateway を迂回する TLS
-      通信を許可しますか？
+      プロセスが HTTPS の直接ソケットを開くと、Gateway を迂回できますか？
     </summary>
     <div class="prose-block">
       いいえ。Workspace の出力ガードは通常の TCP を Gateway
-      の透過リスナーへ送ります。Gateway は同じ接続先検証と OPA
-      判断を適用し、対応しない通信に直接の外部経路を与えません。
+      の透過リスナーへ送り、同じ OPA 判断を適用します。
     </div>
   </details>
   <details>
-    <summary>
-      以前に許可されていた経路でも、リクエスト中に OPA
-      が停止した場合は許可されますか？
-    </summary>
+    <summary>OPA が停止した場合、以前の許可を使って通信できますか？</summary>
     <div class="prose-block">
-      いいえ。Gateway はリクエストごとに有効な判断結果を必要とします。OPA
-      の障害は <code>policy_unavailable</code>{" "}
-      となり、外部の接続先への接続は作られません。
+      いいえ。Gateway
+      はリクエストごとに有効な判断結果を必要とし、外部の接続先へ接続しません。
     </div>
   </details>
   <details>
-    <summary>
-      エージェントが、すでに許可された接続先へ作業対象のソースツリーを送ることを、Tobari
-      は防げますか？
-    </summary>
+    <summary>許可済みの接続先へソースを送ることを防げますか？</summary>
     <div class="prose-block">
-      いいえ。作業対象のディレクトリは意図的に読み取り可能です。ポリシーはリクエスト本文の意味を検査せず、HTTP
-      通信の条件だけを判断します。
+      いいえ。作業対象のファイルは Workspace
+      が読めるデータであり、ポリシーは本文の意味を検査しません。
     </div>
   </details>
   <details>
     <summary>Docker または Gateway が侵害された場合はどうなりますか？</summary>
     <div class="prose-block">
-      信頼する強制基盤が失われるため、これらの保証の対象外です。信頼基盤が不明確なら{" "}
-      <a href="../overview/">セキュリティ概要</a>に戻ってください。
+      信頼する強制基盤が失われるため、これらの保証の対象外です。
     </div>
   </details>
 </div>

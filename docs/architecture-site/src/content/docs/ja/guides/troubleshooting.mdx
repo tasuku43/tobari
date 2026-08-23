@@ -18,11 +18,7 @@ tobari status
 tobari list
 ```
 
-これらのコマンドは観測だけを行います。サービスの起動、ランタイムリソースの作成/削除、ポリシーの有効化、認証情報の修復は行いません。`auth status` も読み取り専用ですが、プロバイダー状態を報告するには設定済み Broker パスが必要です。
-
-```sh
-tobari auth status
-```
+これらのコマンドは観測だけを行います。サービスの起動、ランタイムリソースの作成/削除、ポリシーの有効化、Workspace 所有のログイン状態の修復は行いません。外部サービスへのログインは、そのサービスが提供する CLI で行います。
 
 正確な障害コードと、宣言された次の操作を記録します。すべての障害を単なる「再試行」にしないでください。
 
@@ -31,7 +27,7 @@ tobari auth status
 次の順で確認します。
 
 1. `tobari cluster status`: 共有クラスターが設定済みで、正常であることを確認します。
-2. `tobari doctor`: Docker、イメージ、パス、ポリシー、Provider、Broker、ルート鍵の前提条件を確認します。
+2. `tobari doctor`: Docker、イメージ、パス、ポリシー、Workspace、host-owned lifecycle state の前提条件を確認します。
 3. `tobari status`: 論理 Workspace が存在しないのか、ランタイム診断が `missing`、`degraded`、`unreachable`、`incomplete` のいずれなのかを区別します。
 4. ルートコマンドに対話型ターミナルがあり、Workspace 内で実行していないことを確認します。
 
@@ -44,10 +40,10 @@ tobari auth status
 まずレスポンスコードを特定します。
 
 - `policy_denied`: Workspace を出て `tobari review permissions` を実行します。一つの Workspace Manifest について完全一致の判断を確認して準備し、レビュー済みの一式を一度だけ Apply してから、意図的に再試行します。
-- `credential_handle_invalid`: 同じ Workspace Manifest に結び付いた Workspace を出て、もう一度入室します。古いハンドル、コピーしたハンドル、形式や配置、結び付けが不正なハンドルを転送してはいけません。
+- upstream の認証に関する `401`/`403`: provider CLI のレスポンスとして扱います。必要ならその CLI のログイン手順を使います。Tobari は upstream の認証失敗を広い許可へ変換しません。
 - 基本拒否または学習済みの完全一致拒否: 保留中の候補ではなく、確定したポリシーです。`tobari policy rules` を確認し、その判断を意図的に変更する場合だけリセットします。
 
-認証情報の結び付けによる `403` を、範囲の広い許可規則で解決しないでください。この障害は、有効な OPA 規則で通信経路を開くより前に発生します。
+upstream の認証 `403` を、範囲の広い許可規則で解決しないでください。provider のレスポンスは Tobari のポリシー候補ではありません。
 
 ## Gateway または OPA が正常でない
 
@@ -65,28 +61,20 @@ tobari cluster up
 
 OPA を利用できなくても通信が許可されることはありません。Gateway は有効な判断なしで Upstream へ接続しません。無効なポリシー候補がある場合も、直前の検証済み集約ポリシーが引き続き有効でなければなりません。
 
-## Auth Broker がロック中または利用不可になる
+## agent CLI のログインが利用できない
 
-```sh
-tobari cluster status
-tobari auth status
-tobari doctor
-```
+provider CLI 自身のログインコマンドを、選択した Workspace 内で実行してから通常のリクエストフローへ戻ります。Tobari はホストの認証情報を継承せず、provider の状態を保存せず、代替のログインコマンドも提供しません。
 
-Broker の起動と調整、ホストのルート鍵バックエンドを使ったロック解除を行う、サポート対象の経路は `cluster up` です。Broker は再起動後、設計どおりロックされた状態で起動します。
+## Workspace への入室または agent CLI のログインが無効
 
-既存の保管庫があるのにルート鍵が見つからない場合は、元の Linux XDG 鍵または macOS Keychain の項目を復元します。Tobari は、既存の暗号化状態に対して置換鍵を生成することを意図的に拒否します。保管庫の暗号文を表示、手動編集、Workspace へコピーしてはいけません。
-
-## Broker ハンドルが無効になる
-
-認証情報の置換とログアウトは古いハンドルを即座に失効させますが、実行中のプロセス環境には古い値が残ります。いったん退出して再入室し、現在のプロジェクションを受け取ります。
+認証情報の変更は agent CLI が所有し、実行中のプロセスは以前の環境を保持します。いったん退出し、再入室して現在のツール所有状態を受け取ります。
 
 ```sh
 exit
 tobari
 ```
 
-それでも失敗する場合は、`tobari auth status`、正しい Workspace Manifest の選択、インストール済み Provider の結び付け、クラスターの準備状態を確認します。別の Workspace のハンドルを貼り付けないでください。プロジェクトと Workspace Manifest の検査は意図的なものです。
+それでも失敗する場合は、正しい Workspace Manifest の選択とクラスターの準備状態を確認します。別の Workspace のログインファイルを貼り付けないでください。プロジェクトと Workspace Manifest の検査は意図的なものです。
 
 ## ランタイムイメージが見つからない、または互換性がない
 
@@ -128,7 +116,7 @@ tobari cluster logs --component opa --tail 100
 - `cluster_not_empty`: `tobari list` ですべての Workspace を確認し、対応するルート/Workspace Manifest へ戻って一つずつ削除してから `cluster down` を実行します。
 - 中断された状態: `status` と `doctor` を確認します。ラベルやファイルを手動で削除せず、宣言された所定の後始末または調整コマンドを使います。
 
-`delete` がプロジェクトファイルを削除することはありません。`cluster down --purge` は共有ランタイム/CA ボリュームを削除しますが、Workspace Manifest 保管庫/ルート鍵は保持します。認証情報ログアウトではありません。
+`delete` がプロジェクトファイルを削除することはありません。`cluster down --purge` は共有ランタイム/CA ボリュームを削除しますが、Workspace home、Manifest policy、host-owned lifecycle state は保持します。agent CLI の logout は provider の操作です。
 
 ## Colima または Lima からマウントが見えない
 
@@ -143,11 +131,11 @@ tobari cluster up
 
 ## 変更操作の結果が不確実
 
-`auth_mutation_outcome_unknown`、`unclassified_mutation_outcome`、`mutation_output_write_failed` の場合、副作用を伴う処理がすでに完了している可能性があります。出力が失われたという理由だけで、ログイン、インポート、ログアウト、ポリシー変更、その他の破壊的な書き込みを繰り返さないでください。
+`unclassified_mutation_outcome` または `mutation_output_write_failed` の場合、副作用を伴う処理がすでに完了している可能性があります。出力が失われたという理由だけで、ポリシーやライフサイクルの変更を繰り返さないでください。
 
 まず、対応する読み取り専用コマンドで状態を確認します。
 
-- 認証: `tobari auth status`
+- agent login: provider CLI のログインフロー
 - ポリシー: `tobari policy rules` と `tobari cluster status`
 - Workspace Manifest/ランタイム: `tobari manifest show`
 - Workspace: `tobari status` と `tobari list`
@@ -159,7 +147,7 @@ Catalog に記載された障害には範囲を限定した復旧方法が宣言
 ## 根拠となるソース
 
 - [Catalog に宣言された障害と復旧](https://github.com/tasuku43/tobari/blob/2a0f0f3b0303f889cd42c581403e70ace7680894/internal/cli/runtime_catalog.go)
-- [認証障害の契約](https://github.com/tasuku43/tobari/blob/2a0f0f3b0303f889cd42c581403e70ace7680894/internal/cli/auth_catalog.go)
+- [公開コマンドの障害契約](https://github.com/tasuku43/tobari/blob/2a0f0f3b0303f889cd42c581403e70ace7680894/internal/cli/catalog.go)
 - [読み取り専用の doctor 実装](https://github.com/tasuku43/tobari/blob/2a0f0f3b0303f889cd42c581403e70ace7680894/internal/infra/dockerruntime/runtime.go)
 - [Workspace の復旧テスト](https://github.com/tasuku43/tobari/blob/2a0f0f3b0303f889cd42c581403e70ace7680894/internal/infra/dockerruntime/project_runtime_test.go)
 - [統合テストの復旧カナリア](https://github.com/tasuku43/tobari/blob/2a0f0f3b0303f889cd42c581403e70ace7680894/scripts/test-integration.sh)
@@ -171,9 +159,9 @@ Catalog に記載された障害には範囲を限定した復旧方法が宣言
 ## 理解を確認する
 
 <details>
-<summary>Auth Broker のログインコマンドの最終出力が失われました。ログインをもう一度実行すべきですか？</summary>
+<summary>provider CLI のログインの最終出力が失われました。ログインをもう一度実行すべきですか？</summary>
 
-まだ実行しません。認証情報はすでに置き換えられている可能性があります。次の変更操作より前に `tobari auth status` を実行し、Workspace Manifest を調整してください。
+まだ実行しません。provider はすでにログインを受理した可能性があります。次の変更操作より前に、その CLI の読み取り可能な状態を確認してください。
 
 </details>
 

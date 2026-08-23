@@ -7,7 +7,7 @@ and OPA. Direct Internet egress is unavailable; denied effects become bounded,
 secret-free evidence that the trusted host can review and approve exactly.
 
 Tobari is pre-public V1 software. The repository is preparing its first public
-release. Tobari publishes no OCI images; a released standard binary builds its
+release. Tobari publishes no OCI images; a released release-surface binary builds its
 pinned Gateway and agent-ready base locally from embedded source recipes.
 
 ## What V1 protects
@@ -28,7 +28,7 @@ pinned Gateway and agent-ready base locally from embedded source recipes.
   or `deny` decision beneath an independent immutable destination ceiling.
   Terminal destination and method Deny decisions precede baseline data,
   learned policy, and Advanced Rego.
-- In the standard profile, each tool creates and owns its authentication state
+- On the release surface, each tool creates and owns its authentication state
   inside one persistent Workspace home. Every process in that Workspace can
   read that state; host CLI homes and host credentials are never inherited.
 - Gateway removes client authentication and cookies from OPA input and Tobari
@@ -76,13 +76,15 @@ task build
 bin/tobari version
 ```
 
-The development binary selects local source images and is not a release
-artifact. Its canonical base contains pinned Claude Code 2.1.220 and Codex
-0.147.0. `task build` compiles the standard capability profile;
-`task build:dev` adds unsupported repository-only capabilities such as the Auth
-Broker research path, AWS broker acquisition, and the Operator Console.
+The repository `task build` binary selects local source images and is not a
+release artifact. It is the release surface with the development resolver and
+is named `bin/tobari`. Its canonical base contains pinned Claude Code 2.1.220
+and Codex 0.147.0. `task build:dev` retains the contributor task path but builds
+the separate research surface as `bin/tobari-research`; it adds unsupported
+repository-only capabilities such as the Auth Broker research path, AWS broker
+acquisition, and the Operator Console.
 The agent-ready base is built locally from Tobari's pinned embedded recipe and
-is never published by Tobari. A released standard binary likewise builds its
+is never published by Tobari. A released release-surface binary likewise builds its
 pinned Gateway locally and contains no Auth Broker service or command.
 
 ## Quick Start
@@ -304,15 +306,15 @@ terminal and conservatively falls back to BEL elsewhere. Tobari
 never puts denial evidence in the control payload or configures OS, tmux, or SSH
 notification passthrough.
 
-The experimental development profile also offers the same trusted-host workflow
+The research surface also offers the same trusted-host workflow
 in a foreground browser Operator Console. Build and invoke that profile
 explicitly:
 
 ```sh
 task build:dev
-./bin/tobari-dev serve
+./bin/tobari-research serve
 # or print the URL without opening the host browser
-./bin/tobari-dev serve --no-open
+./bin/tobari-research serve --no-open
 ```
 
 The console combines cluster health, local Workspaces, the Permission Inbox,
@@ -436,23 +438,25 @@ re-enter the Workspace normally when needed.
 | Login-state owner | the client in one Workspace home |
 | Steady-state Tobari command | none; re-enter the Workspace normally |
 
-### Experimental Broker research
+### Research Broker (repository-only)
 
 The repository retains an unsupported, unpublished Auth Broker research
-profile for development only. It is absent from the standard and release
-binaries and cannot be enabled by a runtime flag. Contributors must build and
-name the experimental executable explicitly:
+surface for development only. It is absent from the standard and release
+surfaces and
+cannot be enabled by a runtime flag, Runtime input, Manifest revision,
+Workspace state, or renamed executable. Contributors must build the research
+surface explicitly:
 
 ```sh
 task build:dev
-bin/tobari-dev auth login --provider github --manifest default
-bin/tobari-dev auth status --manifest default
-bin/tobari-dev auth logout github --manifest default
+bin/tobari-research auth login --provider github --manifest default
+bin/tobari-research auth status --manifest default
+bin/tobari-research auth logout github --manifest default
 ```
 
-This profile studies Workspace Manifest vaults, project-bound handles, and a closed set of
+This research surface studies Workspace Manifest vaults, project-bound handles, and a closed set of
 reviewed provider acquisition plans; it is not a supported user authentication
-path or release artifact. See [Authentication handling](docs/07_authentication.md#experimental-broker-profile)
+path or release artifact. See [Authentication handling](docs/07_authentication.md#research-broker-surface)
 for its detailed research contract.
 
 ## Runtime customization
@@ -556,7 +560,7 @@ tobari cluster logs --component gateway --tail 200
 Reads are observational: they do not initialize Workspace Manifest, policy, key, vault,
 Broker, Workspace, or Docker state. Standard reads do not inspect or create
 tool-owned authentication state; the key, vault, and Broker observations apply
-only to the experimental development profile. External text is untrusted and
+only to the research surface. External text is untrusted and
 visibly projected; printable prompt-like meaning is not filtered. Opaque
 references are validated and passed byte-for-byte unchanged.
 

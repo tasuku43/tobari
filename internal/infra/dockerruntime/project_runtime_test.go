@@ -13,7 +13,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tasuku43/tobari/internal/domain/capabilityprofile"
+	"github.com/tasuku43/tobari/internal/domain/capabilitysurface"
 	"github.com/tasuku43/tobari/internal/domain/fault"
 	"github.com/tasuku43/tobari/internal/domain/tobari"
 )
@@ -986,7 +986,7 @@ func TestEnsureProjectRuntimeReconcilesActiveContextImageForExistingWorkspace(t 
 		if len(call) == 0 {
 			continue
 		}
-		if !capabilityprofile.Compiled().IncludesExperimental() && slices.Contains(call, authBrokerContainer) {
+		if !capabilitysurface.Compiled().IncludesResearch() && slices.Contains(call, authBrokerContainer) {
 			t.Fatalf("standard Workspace reconciliation inspected the Auth Broker: %v", call)
 		}
 		if call[0] == "rm" {

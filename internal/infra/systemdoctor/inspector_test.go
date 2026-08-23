@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/tasuku43/tobari/internal/app/doctorcmd"
+	"github.com/tasuku43/tobari/internal/domain/capabilitysurface"
 	"github.com/tasuku43/tobari/internal/domain/doctor"
 	"github.com/tasuku43/tobari/internal/domain/operation"
 )
@@ -48,10 +49,13 @@ func TestFallbackReturnsCompleteReportWithoutInventingXDGAuthority(t *testing.T)
 	if !found || first.NextCommand != "doctor" || !strings.Contains(first.Action, "XDG") {
 		t.Fatalf("first failure recovery = %+v, found=%t, want Context XDG recovery", first, found)
 	}
-	for _, id := range []doctor.CheckID{
+	blocked := []doctor.CheckID{
 		doctor.CheckIDState, doctor.CheckIDPolicy, doctor.CheckIDPolicyData,
-		doctor.CheckIDAuthProviderManifests, doctor.CheckIDAuthVaultPaths,
-	} {
+	}
+	if capabilitysurface.Compiled().IncludesResearch() {
+		blocked = append(blocked, doctor.CheckIDAuthProviderManifests, doctor.CheckIDAuthVaultPaths)
+	}
+	for _, id := range blocked {
 		check := fallbackCheck(t, report, id)
 		if check.Status != doctor.CheckStatusBlocked || check.BlockedBy == nil || *check.BlockedBy != doctor.CheckIDContext {
 			t.Fatalf("%s = %+v, want blocked by context", id, check)

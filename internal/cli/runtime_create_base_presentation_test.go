@@ -98,11 +98,12 @@ func TestRuntimeCreateBasePinnedPresentationHasNoLineageInference(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(got, after) || !slices.Equal(before, after) {
+	expectedAfter := []byte(expectedSurfaceText(string(after)))
+	if !slices.Equal(got, expectedAfter) || !slices.Equal(before, after) {
 		t.Fatalf("Runtime create summary changed\n--- got ---\n%s--- after ---\n%s--- before ---\n%s", got, after, before)
 	}
 	for _, fact := range answer.RequiredFacts {
-		if !strings.Contains(string(got), fact) {
+		if !strings.Contains(string(got), expectedSurfaceText(fact)) {
 			t.Errorf("summary lacks %q: %q", fact, got)
 		}
 	}

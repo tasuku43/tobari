@@ -1,8 +1,10 @@
 # Harness
 
+The surface/resolver matrices and release absence gates implement [ADR 0082](decisions/0082-release-and-research-build-surfaces.md).
+
 The harness is the executable counterpart of the theses, product contract, architecture, security model, and release policy. Its goal is not to maximize the number of tools. Its goal is to make important regressions fail through one understandable interface.
 
-## One gate, several profiles
+## One gate, several check modes
 
 `./scripts/check.sh` is the canonical check implementation. Every other entry point delegates to it.
 
@@ -15,9 +17,9 @@ The harness is the executable counterpart of the theses, product contract, archi
 | `public` | `task public:check` | Public publication | Project metadata, forbidden-data, required-file, license, capability/schema contracts, public-boundary checks, generated references, and the deployable Pages artifact |
 | `policy` | `task policy:test` | Rego feedback | Pinned OPA format check and unit tests |
 | `gateway` | `task gateway:test` | Enforcement-point feedback | Exact classifier-admission inventory/evidence gate, source-built Gateway image with hash-locked dependencies, exact runtime-input snapshot membership/bytes, and the complete addon/parser test suite |
-| `authbroker` | `task authbroker:test` | Experimental credential-boundary feedback | Exact runtime-input snapshot membership/bytes, strict broker/provider/root-key Go tests, Python daemon/vault/protocol tests in the pinned image environment, and Auth Broker image metadata |
-| `integration` | `task integration:test` | Experimental real runtime boundary | The `task build:dev` three-service topology, kernel/network enforcement, Broker isolation, live Gateway/OPA transport and activation, Host Loopback, and resource lifecycle canaries |
-| `runtime` | `task runtime:test` | Complete experimental container gate | Policy, Gateway, Auth Broker image/protocol, and experimental integration coverage |
+| `authbroker` | `task authbroker:test` | Research credential-boundary feedback | Exact runtime-input snapshot membership/bytes, strict broker/provider/root-key Go tests, Python daemon/vault/protocol tests in the pinned image environment, and Auth Broker image metadata |
+| `integration` | `task integration:test` | Research real runtime boundary | The `task build:dev` three-service topology, kernel/network enforcement, Broker isolation, live Gateway/OPA transport and activation, Host Loopback, and resource lifecycle canaries |
+| `runtime` | `task runtime:test` | Complete research container gate | Policy, Gateway, Auth Broker image/protocol, and research integration coverage |
 
 The integration script reports named phase start/completion and elapsed time
 for preflight, fixture build, Workspace Manifest/cluster, credentials/Workspaces,
@@ -39,22 +41,23 @@ fallback. The base workflow is always validation-only. Release tests reject
 every Tobari-owned GHCR reference, package-write permission, registry login, or
 push path. Auth Broker remains validation-only and local to `task build:dev`.
 
-`task build` is a contributor feedback path, not a completion profile. It
+`task build` is a contributor feedback path, not a release artifact. It
 builds or reuses local Tobari-managed component images whose tags contain the
 exact embedded source hash, builds `tobari-runtime:dev`, and compiles
-`bin/tobari` with the development resolver and standard capability profile.
-`task build:dev` produces `bin/tobari-dev` with the same resolver and the
-experimental capability profile. The standard matrix excludes AWS
-authentication and the Operator Console; the experimental matrix adds both
-without a runtime activation flag. Paired catalog tests prove that `serve` is
-unknown in the standard profile and fully declared in the experimental profile.
-To run the integration script against the experimental binary, set
-`TOBARI_INTEGRATION_BINARY=$PWD/bin/tobari-dev` and
+`bin/tobari` with the release surface and development resolver.
+`task build:dev` produces `bin/tobari-research` with the research surface and
+the same development resolver. The release surface excludes AWS
+authentication and the Operator Console; the research surface adds both
+without a runtime activation flag. Paired catalog tests derive the integrated
+release set and prove that research adds exactly `auth login`, `auth import`,
+`auth status`, `auth logout`, and `serve`. To run the integration script against
+the research binary, set
+`TOBARI_INTEGRATION_BINARY=$PWD/bin/tobari-research` and
 `TOBARI_INTEGRATION_CUSTOM_BASE=tobari-runtime:dev`.
 Both paths generate a fresh synthetic TLS authority and build a run-local
 Gateway trust wrapper. The explicit-binary path wraps the already verified
-source-selected experimental development Gateway; the self-build path wraps
-its temporary experimental base. Before publishing that wrapper under the
+source-selected research development Gateway; the self-build path wraps
+its temporary research base. Before publishing that wrapper under the
 exact development-resolver tag, the harness records any pre-existing image
 identity. Normal exit, failure, and interruption restore that exact identity,
 or remove only the run-owned tag when no predecessor existed. Tag drift fails
@@ -70,17 +73,18 @@ Both repository build tasks embed only `git rev-parse --verify HEAD` as the
 source commit while retaining the fixed `dev` version; `-buildvcs=false` and
 `-trimpath` exclude implicit VCS state and local paths. Build-identity tests
 fix version JSON schema 1, require `unknown` metadata to remain incompatible,
-and compile the default standard plus targeted experimental matrices. Release
+and compile release, development, research, and invalid-tuple matrices. Release
 packaging uses the embedded resolver and exposes source-selected APIs with no
 repository recovery value; the development fixture exposes matching source APIs plus exactly `task build`
-and `bin/tobari`.
+and `bin/tobari` for the release surface, while research recovery is exactly
+`task build:dev` and `bin/tobari-research`.
 
 The standard contributor source expects `io.tobari.gateway-api=1`, including
 guarded transparent routing, synthetic DNS, and schema-1 source principals.
-The experimental build additionally checks `io.tobari.auth-broker-api=1`.
-`task build` is the matching standard local image path. `versions.env` contains
+The research build additionally checks `io.tobari.auth-broker-api=1`.
+`task build` is the matching release-surface local image path. `versions.env` contains
 only source inputs and no generated Tobari-owned release output. The release
-profile rejects component locks and registry publication, and verifies every
+surface rejects component locks and registry publication, and verifies every
 CLI archive carries the requested source revision. Local image tags are derived
 from their embedded recipes.
 
@@ -140,7 +144,7 @@ versioned synthetic Codex native-login fixture and answer key prove that the
 child owns the loopback/browser flow, the dynamic authorization URL remains
 visible with zero Tobari browser-open calls, and reviewed SGR regeneration,
 `NO_COLOR` parity, and visible rejection of unknown controls remain bounded.
-That fixture covers the experimental trusted-host acquisition driver. Separate
+That fixture covers the research trusted-host acquisition driver. Separate
 standard attached-session GitHub CLI fixtures use only synthetic GitHub.com
 URLs and callback bytes and prove the strict native bridge without retaining a
 token, state, code, account identity, or authenticated transcript.
@@ -317,7 +321,7 @@ The repository retains seven workflow files, each with one distinct owner:
 | `security.yml` | Weekly schedule and manual replay | Periodic dependency and source-security drift detection |
 | `release.yml` | Protected manual dispatch | Reuse exact successful CI evidence, package CLI archives, and publish reviewed release assets |
 | `gateway-image.yml` | Relevant pull request and reviewed manual revision | Cache-only multi-architecture Gateway source/image validation |
-| `authbroker-image.yml` | Relevant pull request and reviewed manual revision | Cache-only experimental Auth Broker source/image validation |
+| `authbroker-image.yml` | Relevant pull request and reviewed manual revision | Cache-only research Auth Broker source/image validation |
 | `runtime-base.yml` | Relevant pull request and main push | Cache-only multi-architecture validation of the one agent-ready base |
 
 There are no per-agent Runtime workflows: Claude Code and Codex are inputs to
@@ -364,10 +368,10 @@ Auth Broker readiness is split deliberately. The required agent-readiness
 scenario delegates its reproducible synthetic authentication proof to `task
 integration:test`; that command is required evidence, not an optional adjacent
 check. It uses synthetic credentials, mocked host GitHub CLI results, and local
-HTTP fixtures and makes no live provider call. The experimental `auth`
+HTTP fixtures and makes no live provider call. The research `auth`
 namespace and Broker are absent from standard release archives, so live
 reviewed-provider acquisition is not a standard release gate. Maintainers may
-replay it as an experimental compatibility observation; such a replay records
+replay it as a research compatibility observation; such a replay records
 only pass/fail and secret-free outcomes and never becomes a fixture.
 
 ## Harness components
@@ -731,7 +735,7 @@ The test suite has complementary levels:
 - Auth domain and catalog tests fix exact schema-1 static providers and the
   standard GitHub/Datadog/OpenAI/Anthropic login union, exact command
   effects/inputs/outputs/failures, bounded interactive provider omission, and
-  rejection of AWS before acquisition. A targeted `tobari_experimental`
+  rejection of AWS before acquisition. A targeted `tobari_research`
   matrix adds AWS and its `identity-center|console` method axis while proving
   the release/default profile remains standard. They also cover Workspace Manifest binding, cancellation,
   redirected zero-mutation behavior, exhaustive Workspace Manifest-scoped status,
@@ -871,7 +875,7 @@ The test suite has complementary levels:
   answer key records zero routine external processing. Container integration
   separately keeps the OPA and Workspace processes stable while one reviewed
   effect becomes active and retries through the same running Workspace.
-- Experimental-profile Operator Console tests pin one valid typed snapshot before listen, exact
+- Research-surface Operator Console tests pin one valid typed snapshot before listen, exact
   `127.0.0.1:0` ownership, 256-bit bearer generation, loopback peer and exact
   Host/Origin/authentication gates, closed routes and methods, strict bounded
   JSON, CSP/no-store/no-cookie/no-external-asset responses, dark/light token
@@ -1016,7 +1020,7 @@ Every strong statement should identify its enforcement path.
 | Shared Runtime revision boundary | Fixed Runtime-catalog target contracts; typed `--copy-source-from standard|NAME` editable-source selection with no reference/lineage binding; no `--base` alias; current-editable-source wording with no head-equality inference; explicit, redirected-standard, standard-only-skip, and raw/line standard-first chooser tests; fresh-ID/empty-history atomic creation; exact relative-path/byte/owner-mode and empty-directory copying; source/target independence; missing/invalid/drifting/canceled/colliding zero-publication canaries; owner-only complete-source checks, symlink/special-file and size/count canaries; canonical semantic digest; snapshot-before-BuildKit ordering; compatibility and image-digest validation; failed/no-op history preservation; atomic successful append; zero Manifest/Workspace writes during create/build; RuntimeID+digest references; and bound-Workspace next-entry reconciliation with home preservation |
 | Managed Runtime lifecycle closure | Exact Runtime/revision/prune-plan reference graph; complete coherent catalog/protection/journal/snapshot/material observation; current/retained Manifest plus Workspace applied/pending/observed protection; standard and cross-Runtime active-lifecycle rejection; canonical selector, content correlation, shared/foreign-use preservation, bounded Docker output/calls, and zero-create reads; immutable-source restore; non-forced prune; same-filesystem whole-Runtime quarantine; monotonic journals, terminal receipts, same-name and interruption replay; one-confirmation review recovery; nullable reclaimable bytes and unknown last-used; exact human/JSON/fault/help contracts; no revision delete, global prune, Docker-ID authority, or Runtime-specific produced-reference walker |
 | Gateway source and image boundary | Canonical-source/snapshot byte comparison, pinned mitmproxy parent, signed nftables/iproute dependency inventory, canonical-source unit tests, source API-1/role labels, transparent-only listener and fixed network-guard entrypoint, explicit rejection of non-transparent ingress, absence of proxy environment/port exceptions, content-addressed development selection, Gateway-only lock validation, immutable digest/platform/entrypoint release preflight, non-root resident process, and validation/release workflow permission separation |
-| Experimental Auth Broker source and image boundary | Canonical-source/snapshot byte comparison, canonical Python tests in the pinned image environment, provider-CLI absence including Codex/Claude, source API-1/role labels, content-addressed development selection, absence from the release lock/publication workflow, non-root Dockerfile, and validation workflow permission separation |
+| Research Auth Broker source and image boundary | Canonical-source/snapshot byte comparison, canonical Python tests in the pinned image environment, provider-CLI absence including Codex/Claude, source API-1/role labels, content-addressed development selection, absence from the release lock/publication workflow, non-root Dockerfile, and validation workflow permission separation |
 | Workspace Manifest-owned encrypted credentials | Root-key backend tests, strict owner/mode/symlink checks, AES-GCM schema/Workspace Manifest AAD canaries, atomic vault replacement, missing-key-with-vault rejection, and secret-free outputs |
 | Authentication state survives cluster teardown | Exact down/purge resource assertions, preserved vault/key canaries, and subsequent cluster-up unlock/status proof |
 | Doctor remains observational | Fixed dependency-matrix, direct-blocker, complete-report, schema-1 renderer/agent-contract, fail/warn exit, cancellation, Docker-argv allowlist, host-only policy-source validation, content-aware fresh/unsupported-version snapshots, and zero-create/zero-repair canaries across root-key, vault, provider, broker, and project-auth state |
@@ -1028,10 +1032,10 @@ Every strong statement should identify its enforcement path.
 | Post-policy credential action | Gateway call-order/count tests for handle removal, introspect-before-OPA, zero resolve/refresh/companion/signing on deny, one same-revision reviewed action after allow, exact header replacement/signing, and no-secret canaries |
 | Closed broker plan boundary | Exact static and dynamic record schemas, immutable renewable-adapter, request-signing-mechanics, persisted-record-contract, control-login-plan, and Gateway reviewed-profile membership; one strict versioned test-only capability fixture checked from Go and Python for built-in/acquisition/manifest/login/record/runtime/Gateway parity; adapter/plan/profile incapability tests, record/Vault import compatibility, shared Broker-owned login commit and snapshot/single-flight/barrier/CAS conformance, Workspace Manifest/project/provider/revision/HTTPS-header or signing introspection, bounded AWS/Datadog/OpenAI/Anthropic behavior, rotation/revocation, durable barriers, and no invalid-handle fallback |
 | Unsupported broker capabilities stay absent | Catalog, state-parser, dependency, image-content, and hostile-header tests reject managed profiles, owner-selected dynamic plans, arbitrary helpers, compatibility readers, and provider CLIs inside Broker |
-| Experimental protected provider acquisition | Catalog selector/method/stdin contracts, terminal rules, bounded readers, canonical GitHub/AWS/pup/Codex/Claude identity/digest checks, fixed argv/environment, control-safe output, bounded browser/PTY behavior, checked cleanup, cancellation/failure preservation, and required synthetic integration; optional live observations make no standard publication claim |
+| Research protected provider acquisition | Catalog selector/method/stdin contracts, terminal rules, bounded readers, canonical GitHub/AWS/pup/Codex/Claude identity/digest checks, fixed argv/environment, control-safe output, bounded browser/PTY behavior, checked cleanup, cancellation/failure preservation, and required synthetic integration; optional live observations make no standard publication claim |
 | Typed denial recovery | Strict host/port audit projection, query/header absence, whole-path handle-marker redaction, non-learnable structural rejection, per-record isolation with an explicit unparsed count, fixed host-review navigation schema, host-stderr session summary, empty and partially unprojectable bounded scopes, hostile-field canaries, and end-to-end JSON assertions |
 | Explicit policy learning | OPA scheme/port learnability classification, terminal deny exclusion, deterministic repeated/concurrent Workspace Manifest/project/scheme/host/port/method/path candidate aggregation with required latest/count, two-distinct-example single-raw-segment template inference with ambiguity and unsafe-path suppression, Workspace Manifest-scoped reference validation, single-reference exact allow/deny/reset round trips, bounded typed TTY staging with template/exact choices, fresh revalidation, one fixed-target Apply and zero-write discard, installation-wide inventory/review, aggregate preflight ordering, and Docker retry |
-| Experimental session-scoped Operator Console | Standard-catalog absence plus experimental-catalog presence; typed pre-listen snapshot conformance; TCP4 random-loopback binding; exact peer/Host/Origin/bearer/method/path/content-type and bounded-body negative tests; CSP/no-store/no-cookie/no-external-asset canaries; fragment bootstrap and dark/light browser tests; inert staging; one canonical fixed-target Apply with receipt and no retry; opener fallback and cancellation cleanup |
+| Research session-scoped Operator Console | Standard-catalog absence plus research-catalog presence; typed pre-listen snapshot conformance; TCP4 random-loopback binding; exact peer/Host/Origin/bearer/method/path/content-type and bounded-body negative tests; CSP/no-store/no-cookie/no-external-asset canaries; fragment bootstrap and dark/light browser tests; inert staging; one canonical fixed-target Apply with receipt and no retry; opener fallback and cancellation cleanup |
 | Ordinary HTTP authority order | Aggregate-router and OPA tests prove principal/schema/Workspace Manifest validity, terminal destination/method decisions, one combined trusted-baseline plus remembered exact-Deny tier with no internal order, Workspace Manifest-policy positive authority, unresolved Guided Allow or Advanced Rego, and fail-closed/default-review completion; exact-Deny-over-baseline and terminal-ceiling zero-candidate/DNS/Broker/upstream canaries prevent lower-tier bypass |
 | Attachment-scoped Host Loopback authority | Constant hostname/URL-template, bounded port, and destination/lifetime domain tests; host-derived epoch and Workspace-wide audience assertions; negative retired `--host-http` parsing; owner-only strict route registry and secret-free capability projection; aggregate-router cross-branch canaries prove ordinary authority cannot decide Host Loopback and attachment authority cannot decide ordinary traffic; random-port 256-bit-authenticated host relay that revalidates the reviewed IPv4-loopback target port; Gateway principal/epoch/port derivation and one-shot stream tests; OPA exact Attachment Deny/Allow/review order and lifetime/port-confusion canaries; zero host I/O for malformed, unauthenticated, unreviewed, stale, mismatched, denied, unavailable, and post-detach requests; route-first teardown removes both route and grants, borrower non-ownership preserves both only until owner exit, and crash reconciliation removes stale state; policy-review lifetime presentation; and macOS/Linux Docker integration |
 | Attachment-owned Workspace service exposure | Global Program-aware Catalog/reference closure and program-filtered dispatch/help; fixed-create child-reference positive and fixed read/write/scope-escape negative canaries; dedicated hardcoded helper Program with spoofed-`argv[0]` denial; checked same-source/module closure and snapshot equality, with the generated closure excluded from duplicate root Go/security-package discovery; pinned builder plus Linux amd64/arm64 construction; label/source/API/digest/regular-file/safe-mode/Linux-ELF/engine-architecture extraction canaries with cleanup and stale replacement; owner-only host copy and read-only standard/custom-Runtime mount with live engine-native execution; typed port/request/exposure scope and action ordering; helper cancellation/withdrawal and opaque-reference round trips; fresh owner snapshots with Darwin/Linux peer, nonce, attachment, concurrent-owner, stale/forged/symlink cleanup, reviewer non-ownership, and teardown tests; exact numeric-loopback Host/Origin compatibility observations for pinned Vite, Next.js, Storybook, and Jupyter; zero-Workspace-I/O authority/smuggling/keepalive canaries; fixed secret-free 502 and passive state; HTTP/1.1/WebSocket, half-close, 4 MiB full-duplex backpressure, connection limits, stop, and owner cleanup; separate-source review interaction and cancellation tests; clean-environment integration from request through discovery, Allow, exact-authority relay, exhaustive list, opaque stop, and attachment teardown; capability/catalog/public-boundary coverage |
@@ -1044,7 +1048,7 @@ Every strong statement should identify its enforcement path.
 | Workspace Manifest source access | Required manifest/catalog field, omission-default tests, immutable runtime spec/hash, Docker inspect/reconciliation, read-only mutation/Git-metadata denial, writable home/tmpfs, no writable alias, and same-root observation |
 | Workspace Manifest-owned policy data | Strict normalization/digest/snapshot tests, dedicated binary catalog with unique family IDs, explicit pinned client versions, positive append-only contract revisions, one current contract, core-only new agent-ready snapshots, complete historical readiness stripping, current binary projection into existing agent-ready Workspace Manifests without rewrite, `claude_ready`, `codex_ready`, `gh_ready`, custom-runtime `twg_ready`, and custom-runtime `pup_ready` exact native-authentication grants plus native discovery grants, GitHub GraphQL `query` / `viewer` endpoint/baseline with mutation/sibling/mixed-root/HTTP canaries, TWG exact device-code/token/revoke, site inventory, stable manifest, and GraphQL `query` / `me` endpoint/baseline with method/REST/beta-manifest/installer/download and neighboring-Atlassian canaries, pup exact US1 DCR/token POSTs with neighboring host/path/method/product canaries, method-deny zero-overlay canaries, one safe evaluation template, exact MCP endpoint and initialize/list baseline, exact tool-name action review with payload canaries, acquisition/file-transfer/update exclusions, exact-Deny precedence, fixed-baseline schema canaries, GET-without-safe-claim contract, and terminal zero-candidate/DNS/Broker/upstream calls |
 | Workspace Manifest/project principal and credential scope | Owner-only atomic registry schema 1, exact Workspace-source/Gateway endpoint and network uniqueness, regular/transparent source derivation, forged-Workspace Manifest/project/SNI/authority and unknown-principal denial, source-spoof canaries, read-only live shared-network and registered-endpoint drift detection, pre-mutation matching-runtime observation with cancel-safe principal retention and drift fail-closed behavior, passthrough/static-broker tests, copied-handle cross-Workspace Manifest canaries, Rego canaries, and multi-Manifest Docker integration |
-| Standard native Workspace authentication boundary | Standard-profile empty authentication-projection and full runtime-reconciliation tests prove zero Auth Broker inspection/control calls and no experimental auth-registry creation; the attached-session suite adds a closed Claude/Codex/GitHub CLI/AWS CLI/TWG/pup browser union, one binary-owned read-only opener, exact `BROWSER`/`GH_BROWSER`/`xdg-open` projection, and a dedicated schema-v1 Unix-socket/non-TTY Docker exec protocol; a shared closed query-field schema enforces required singleton values, rejects invalid definitions and unknown fields, and dispatches provider-owned validators; exact mandatory URL fields, individually reviewed optional selectors, device targets, provider clients or bounded DCR IDs, scope ceilings, state/PKCE/callback shapes including AWS's commercial-region/default-scope dynamic callback and pup 1.10.7's optional UUID-shaped `dd_oid`, complete 110-scope ceiling, and four fixed ports, direct Docker terminal ownership, fixed login/setup argv and pass-through, zero-listener device paths, dynamic non-privileged host-loopback-only callback relay to the label-verified selected Workspace, duplicate-key/unknown-field/version/size/replay/neighbor canaries, opaque callback canaries, and cleanup; the experimental-tag suite separately retains project-bound handle and file projection coverage |
+| Standard native Workspace authentication boundary | Release-surface empty authentication-projection and full runtime-reconciliation tests prove zero Auth Broker inspection/control calls and no research auth-registry creation; the attached-session suite adds a closed Claude/Codex/GitHub CLI/AWS CLI/TWG/pup browser union, one binary-owned read-only opener, exact `BROWSER`/`GH_BROWSER`/`xdg-open` projection, and a dedicated schema-v1 Unix-socket/non-TTY Docker exec protocol; a shared closed query-field schema enforces required singleton values, rejects invalid definitions and unknown fields, and dispatches provider-owned validators; exact mandatory URL fields, individually reviewed optional selectors, device targets, provider clients or bounded DCR IDs, scope ceilings, state/PKCE/callback shapes including AWS's commercial-region/default-scope dynamic callback and pup 1.10.7's optional UUID-shaped `dd_oid`, complete 110-scope ceiling, and four fixed ports, direct Docker terminal ownership, fixed login/setup argv and pass-through, zero-listener device paths, dynamic non-privileged host-loopback-only callback relay to the label-verified selected Workspace, duplicate-key/unknown-field/version/size/replay/neighbor canaries, opaque callback canaries, and cleanup; the research-surface suite separately retains project-bound handle and file projection coverage |
 | Transparent attached-child terminal ownership | Direct-stream coverage plus Unix PTY literal-`0x1d`, delayed-input, resize, exact-status, output-failure, and terminal-restoration tests; root human-help rejects any `Ctrl+]` or Trusted Host Review shortcut; excluded capability/catalog absence; and independent Permission Inbox raw-terminal tests |
 | Atomic multi-Manifest policy activation | Source and projection locks, Workspace Manifest namespace rejection, complete all-Manifest OPA validation, content-addressed atomic publication, stale-revision rejection, known-good rollback, and invalid/concurrent mutation tests |
 | Causal failure recovery | Closed phase/change-state validation, Catalog/runtime agreement, schema-2 text/JSON equivalence, pre-action-none and post-action-unknown cancellation, confirmed-output preservation, lifecycle unknown/confirmed classifications, provider-neutral first-use readiness with Engine 23/24 boundaries, and read-only recovery for partial/confirmed/unknown mutation state |

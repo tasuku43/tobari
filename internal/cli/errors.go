@@ -276,6 +276,9 @@ func recoveryCommandForProgram(program, command string) string {
 	if command == program {
 		return program
 	}
+	if command == WorkspaceEntryCommandPath {
+		return program
+	}
 	return program + " " + escapeTSVCell(command)
 }
 

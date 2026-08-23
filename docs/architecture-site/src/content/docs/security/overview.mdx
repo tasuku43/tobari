@@ -6,7 +6,7 @@ description: Read Tobari security as bounded claims with explicit assumptions, e
 import ConceptDiagram from "../../../components/ConceptDiagram.astro";
 
 Tobari reduces a Workspace's ambient authority over the host, network, policy,
-and broker-managed credentials. That claim applies only when Tobari's supported
+and agent-owned login state. That claim applies only when Tobari's supported
 Docker topology and trusted host services hold. It does not make code inside
 the selected project harmless.
 
@@ -33,7 +33,7 @@ The pages in this section use one discipline:
 
 ## The trusted computing base
 
-Tobari treats the host user, host filesystem controls, Docker Engine, kernel, Gateway, OPA, Auth Broker, root-key backend, and reviewed runtime assets as trusted enforcement infrastructure. The Workspace process and external HTTP services are untrusted. Policy candidates, request attributes, provider manifests, and external response text remain untrusted data even when trusted code parses them.
+Tobari treats the host user, host filesystem controls, Docker Engine, kernel, Gateway, OPA, host-owned state backend, and reviewed runtime assets as trusted enforcement infrastructure. The Workspace process and external HTTP services are untrusted. Policy candidates, request attributes, and external response text remain untrusted data even when trusted code parses them.
 
 That distinction explains why a forged project header is useless but a
 compromised Gateway is out of scope. Gateway derives project authority from
@@ -67,11 +67,11 @@ itself is malicious, the enforcement point is gone.
     </div>
   </section>
   <section>
-    <h3>Brokered credentials</h3>
+    <h3>native credentials</h3>
     <div class="prose-block">
-      Auth Broker keeps static credential state in an encrypted Workspace
-      Manifest vault. A Workspace receives only a bound handle; same-revision
-      resolution is post-policy.
+      Agent CLIs keep login state in the persistent Workspace home. Tobari
+      removes credential values from OPA and audit and forwards them only after
+      the ordinary effect is allowed.
     </div>
   </section>
 </div>
@@ -81,8 +81,7 @@ itself is malicious, the enforcement point is gone.
 - No Gateway: the guarded connection fails.
 - No valid principal: Gateway returns `project_principal_unavailable` before OPA.
 - OPA unavailable or malformed: Gateway returns `policy_unavailable`; no upstream connection.
-- Auth Broker locked or unavailable: a brokered request fails; there is no secret resolution fallback.
-- Invalid or stale handle: `credential_handle_invalid`; no passthrough downgrade.
+- Agent-owned login unavailable: the provider's own login flow must be retried; there is no Tobari credential fallback.
 - Invalid policy activation: Tobari preserves or restores the prior source and known projection where possible; if OPA cannot be made healthy, communication remains failed closed rather than assuming the previous service is active.
 
 These are closed failures for the affected path. They do not promise that every process action is rolled back: local file writes inside the selected project may already have happened.

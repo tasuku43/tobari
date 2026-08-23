@@ -3,121 +3,75 @@ title: 脅威モデル
 description: 現在の Tobari における資産、攻撃者、前提、攻撃経路、緩和策、残るリスク、安全側に倒す動作を説明します。
 ---
 
-この脅威モデルでは、Workspace 内のすべてのプロセスを信頼しません。Tobari は、
-選択していないホストや Docker のリソースへのアクセス、別プロジェクトの識別情報
-の自己申告、HTTP ポリシーの迂回、Auth Broker 管理の認証状態やリクエスト用に導出
-した認証情報の取得を試みるプロセスを制限するよう設計されています。
+この脅威モデルでは、Workspace 内のすべてのプロセスを信頼しません。Tobari は、選択していないホストや Docker のリソースへのアクセス、別プロジェクトの識別情報の自己申告、HTTP ポリシーの迂回を制限するよう設計されています。
 
-一方で、ホスト側の実施基盤と、利用者が選んだプロジェクトルートおよびポリシーは
-信頼します。その基盤自体の侵害は、ここで述べる緩和策の範囲外です。信頼する
-コンポーネント、信頼しないデータ、認証状態の位置は、先に
-[信頼境界](../trust-boundaries/)で確認してください。
+ホストの強制基盤、選択したプロジェクトルート、明示されたポリシーは信頼します。その基盤自体の侵害は、ここで述べる緩和策の範囲外です。詳細は [信頼境界](../trust-boundaries/) を確認してください。
 
 ## 保護する資産
 
 - 選択したルート外にあるホストのファイル
-- Docker の制御と、別の Workspace のランタイムリソース
-- 安定した Workspace Manifest とプロジェクトの権限、およびポリシーの定義元
-- インストール用ルート鍵、暗号化した Workspace Manifest 保管庫、Auth Broker 管理の認証情報
-- 有効な集約ポリシーと、プリンシパルおよびプロバイダー投影結果の完全性
-- 秘密情報を除いた診断情報と、構造化された CLI 出力
+- Docker の制御と、別 Workspace のランタイムリソース
+- 安定した Workspace Manifest、Workspace ID、プロジェクト権限、ポリシーの正本
+- Gateway、OPA、CA、ネットワーク、監査の完全性
+- 秘密情報を除いた診断情報と構造化 CLI 出力
 
-選択したルートは作業用のリソースであり、その Workspace 自身から保護する資産では
-ありません。通信を明示的に許可した後に送るデータの機密性も、Tobari が保証できる
-資産ではありません。
+選択したルートは作業用のリソースであり、その Workspace 自身から保護する資産ではありません。明示的に許可した宛先へ送るデータの機密性も保証しません。
 
 ## 攻撃者ができること
 
 Workspace 内のコードは、次のことができると仮定します。
 
-- 選択したプロジェクトと Workspace ホームを読み書きする
+- 選択したプロジェクトと Workspace home を読み書きする
 - プロセスを起動し、同じ Workspace 内の別プロセスと連携する
 - 直接ソケットを開き、Gateway の迂回を試みる
-- ヘッダー、URL、Workspace Manifest やプロジェクトに見える ID、認証情報に見える値、命令文の
-  ような文字列を偽造する
-- 投影された Auth Broker のハンドルをコピーし、別の Workspace から再送する
-- ポリシーの拒否を発生させ、利用者のレビューと競合し、同じ HTTP 判断項目に異なる
-  本文を送る
-- 不正な証明書を提示し、外部接続先が制御するレスポンスを受け取る
+- ヘッダー、URL、Workspace ID に見える値、認証情報に見える値を偽造する
+- ポリシーの拒否を発生させ、利用者のレビューと競合する
+- 不正な証明書を提示し、外部接続先が制御するレスポンスを返す
 
-攻撃者が、ホストの利用者、Docker Engine、カーネル、Gateway、OPA、Auth Broker、
-ルート鍵の提供機構、レビュー済みイメージを制御することは想定しません。そのいずれかを
-制御できる状態は、信頼基盤の侵害です。
+攻撃者がホスト利用者、Docker Engine、カーネル、Gateway、OPA、レビュー済みイメージを制御することは想定しません。いずれかを制御できる状態は信頼基盤の侵害です。
 
 ## 攻撃経路と緩和策
 
 ### プロキシを迂回する
 
-Workspace のネットワークは Docker の内部ネットワークだけです。閉じた出力ポリシーと既定経路が TCP をプロジェクトの Gateway へ送り、合成 DNS がポリシー判断前の本物のホスト名解決を防ぎます。Gateway は通常の HTTP/TLS を透過リスナーへ振り分け、転送処理は閉じたままです。直接ソケットでもポリシーを迂回できず、対応しない通信は失敗し、Gateway が停止しても通信を許可する側には倒れません。
+Workspace のネットワークは Docker の内部ネットワークだけです。出力ポリシーと既定経路が TCP をプロジェクト Gateway へ送り、対応しない通信は失敗します。Gateway が停止しても通信を許可する側には倒れません。
 
 ### 別のプロジェクトを名乗る
 
-Gateway はリクエスト側が申告したプロジェクト権限を無視します。カーネルが観測した Workspace の送信元エンドポイントを、ホストが作成したスキーマ 1 のプリンシパル登録簿で解決します。偽造したヘッダーでは
-プリンシパルを切り替えられません。状態がない、または曖昧な場合は、OPA より前に
-拒否します。
+Gateway はリクエスト側が申告した権限を無視します。カーネルが観測した Workspace の送信元エンドポイントを、ホストが作成した principal 登録簿で解決します。偽造したヘッダーでは principal を切り替えられません。状態がない、または曖昧な場合は OPA より前に拒否します。
 
 ### 秘密情報をポリシーまたはログへ混入させる
 
-設定済みで認識可能な認証ヘッダーと Auth Broker のハンドルは、OPA への問い合わせと
-監査記録より前に削除するか値を伏せます。本文はポリシーの入力にも監査記録の内容にも
-なりません。そのため、これらに分類される認証情報と本文は、通常の許可判断と保持する
-根拠の経路へ入りません。
+認識可能な認証ヘッダーと cookie の値は、OPA への問い合わせと監査記録より前に削除または伏せます。Workspace 内の agent CLI が保持する値は Workspace home に残り、Tobari はホストの認証情報を継承しません。本文はポリシー入力にも監査記録にもなりません。
 
-ただし、実装が任意の値をすべて認証情報として認識できるわけではありません。通常の
-クエリや安全なヘッダーに機微な文字列を置くと、許可判断用のメタデータに含まれる
-可能性があります。
+ただし任意の値をすべて認証情報として認識できるわけではありません。通常のクエリや安全なヘッダーに機微な文字列を置かないでください。
 
 ### 拒否を許可に変える
 
-Gateway が返すのは、拒否とレビュー場所の案内だけです。ホスト側の検出処理が不透明な
-参照値を生成します。変更操作は現在の状態を再検出し、完全一致規則と集約結果
-全体を検証し、リビジョンを確認して途中状態を見せずに有効化します。Workspace が自身を許可
-することはできません。古い参照値は失敗し、リクエストが自動で再送されることも
-ありません。
+Gateway が返すのは拒否とホストレビューの案内だけです。変更操作は現在の状態を再検出し、完全一致規則と集約結果全体を検証してからアトミックに有効化します。Workspace が自身を許可することはできず、古い参照値で自動再送もしません。
 
-### Auth Broker のハンドルをコピーまたは偽造する
+### Workspace 間でログインファイルをコピーする
 
-Tobari 形式の印があるリクエストは、Auth Broker の処理に固定されます。OPA へ問い合わせる
-前の照会で、Workspace Manifest、プロジェクト、プロバイダー、認証情報のリビジョン、完全一致の
-HTTPS 接続先、ヘッダーの結び付きを確認します。コピー済み、古い、または不正なハンドル
-は、別方式への切り替えも秘密情報の解決も行わず拒否します。
+agent CLI のログインファイルを別 Workspace にコピーしても、Gateway が導出する host principal やポリシー範囲は変わりません。宛先 Workspace は自身の Workspace ID と OPA の完全一致許可を必要とします。Tobari はログインファイルの形式やリモート失効を代行しません。
 
-### Workspace から Auth Broker の保管庫またはルート鍵を読む
+### Workspace からホスト状態を読む
 
-Workspace には Broker の制御用マウントも、保管庫やルート鍵へのパスもありません。
-Broker は共有されるロック状態のサービスとして動きます。Linux の鍵ファイルと保管庫のパスは、
-安全でないファイル種別やアクセス権を拒否します。macOS ではキーチェーンを使います。
-ロック解除用のデータは argv や環境変数ではなく、固定した標準入力から渡します。信頼基盤が
-侵害されない限り、Auth Broker 管理の秘密情報はホストと Broker の管理下に残ります。
-
-### プロバイダー設定をホスト上のコード実行に変える
-
-所有者マニフェストは厳格なスキーマ 1 で、保護された標準入力からの取り込みだけを要求
-できます。executable や dynamic credential behavior は選べません。唯一の built-in GitHub
-login は identity-checked fixed trusted-host helper、sanitized temporary home、verified cleanup
-を使います。provider JSON は data であり executable adapter ではありません。
+Workspace には Docker control mount がなく、選択した project root と永続 home の外にある host configuration/state への path もありません。host が state file を使う前に owner と mode を検査し、不一致では fail closed です。agent CLI の login file は Workspace home 内に残り、Tobari authority の source にはなりません。
 
 ## 残るリスク
 
 - エージェントは、選択したファイルを破壊または外部へ送信できます。
-- 完全一致で許可した接続先は、悪意ある内容を受け取れます。
-- 本文を識別に使わないポリシーのため、許可済みのパスは異なる本文にも適用されます。
-- 安全なクエリやヘッダーのメタデータに、実装が認証情報と分類しない機微なデータが
-  含まれる可能性があります。秘密情報を置かないでください。
-- 同じ Workspace 内のプロセスは、投影済みの権限を再利用できます。
-- 重複するプロジェクトルートでは、他の部分を分離した Workspace 間でも、同じホスト
-  ファイルへの変更を共有します。
-- ローカルのログアウトはプロバイダー側での失効を保証せず、すでに動いている
-  プロセスの環境変数も書き換えられません。
-- 証明書を固定するクライアントは失敗します。未対応のプロトコルは、この
-  HTTP/HTTPS 境界では仲介しません。
+- 完全一致で許可した接続先は、悪意ある内容を返せます。
+- 本文を識別に使わないため、許可済みのパスは異なる本文にも適用されます。
+- 安全なクエリやヘッダーのメタデータに、実装が認証情報と分類しない機微なデータが含まれる可能性があります。
+- 同じ Workspace 内のプロセスは、その Workspace home にある agent CLI の状態を読めます。
+- 重複するプロジェクトルートでは同じホストファイルへの変更を共有します。
+- agent CLI のログアウトは外部サービス側の失効を保証せず、実行中プロセスの環境値も書き換えません。
+- 証明書を固定するクライアントと未対応プロトコルは、この HTTP/HTTPS 境界では仲介しません。
 
 ## 障害時の意味
 
-許可判断、プリンシパル、Broker、保管庫、投影、有効化の障害は、対象となる外部通信を
-閉じたままにします。ただし「どこでも何も起きなかった」という意味ではありません。
-外向きリクエストより前のローカル処理と、選択したルートへの書き込みは発生し得ます。
-復旧時には、盲目的に再試行せず、変更操作の結果に関する契約を守る必要があります。
+許可判断、principal、Workspace 状態、ポリシー投影、有効化の障害は、対象となる外部通信を閉じたままにします。ただしローカル処理と選択したルートへの書き込みは発生し得ます。復旧時には盲目的に再試行せず、変更操作の結果に関する契約を守ってください。
 
 <aside class="evidence">
   <h2>ソース</h2>
@@ -125,8 +79,7 @@ login は identity-checked fixed trusted-host helper、sanitized temporary home�
     <li>
       <a href="https://github.com/tasuku43/tobari/blob/2a0f0f3b0303f889cd42c581403e70ace7680894/docs/THREAT_MODEL.md">
         リポジトリの脅威モデル
-      </a>{" "}
-      — 規定セキュリティモデルと対になる、攻撃者と制御の簡潔な一覧。
+      </a>
     </li>
     <li>
       <a href="https://github.com/tasuku43/tobari/blob/2a0f0f3b0303f889cd42c581403e70ace7680894/docs/03_security_model.md">
@@ -134,13 +87,13 @@ login は identity-checked fixed trusted-host helper、sanitized temporary home�
       </a>
     </li>
     <li>
-      <a href="https://github.com/tasuku43/tobari/blob/2a0f0f3b0303f889cd42c581403e70ace7680894/gateway/addon/broker_credentials.py">
-        Auth Broker のハンドルを扱う Gateway の経路
+      <a href="https://github.com/tasuku43/tobari/blob/2a0f0f3b0303f889cd42c581403e70ace7680894/gateway/addon/tobari_gateway.py">
+        Gateway アドオンの正本
       </a>
     </li>
     <li>
-      <a href="https://github.com/tasuku43/tobari/blob/2a0f0f3b0303f889cd42c581403e70ace7680894/authbroker/tests/test_broker.py">
-        Auth Broker の障害と結び付きのテスト
+      <a href="https://github.com/tasuku43/tobari/blob/2a0f0f3b0303f889cd42c581403e70ace7680894/gateway/test_tobari_gateway.py">
+        Gateway の障害と binding のテスト
       </a>
     </li>
   </ul>
@@ -148,41 +101,35 @@ login は identity-checked fixed trusted-host helper、sanitized temporary home�
 
 ## ここまでで説明できること
 
-プロキシの迂回、プリンシパルの偽装、ポリシーの自己承認、ハンドルの再利用に対して、
-Tobari がどう応答するかを確認します。
+プロキシの迂回、principal の偽装、ポリシーの自己承認、Workspace 間のログインファイル再利用に対して、Tobari がどう応答するかを説明できるはずです。
 
 <div class="question-list">
   <details>
     <summary>
-      Workspace B が Workspace A の有効なハンドルをコピーし、同じホスト
-      へ送るとどうなりますか？何が重要ですか？
+      Workspace B が Workspace A
+      のログインファイルをコピーするとどうなりますか？
     </summary>
     <div class="prose-block">
-      Broker の照会処理は、信頼できる Workspace Manifest
-      とプロジェクトのプリンシパル、
-      プロバイダー、認証情報のリビジョン、接続先、ヘッダーの結び付きを比較します。
-      プロジェクトが一致しないため、OPA への問い合わせや秘密情報の解決より前に
-      拒否されます。結び付きが有効でも、通常の HTTP 通信には OPA
-      の許可が必要です。
+      B の host principal は変わらず、B 自身の完全一致の OPA
+      許可が必要です。Gateway は許可後だけ元の認証値を転送します。
     </div>
   </details>
   <details>
     <summary>異なる本文が別の学習済み規則にならないのはなぜですか？</summary>
     <div class="prose-block">
-      本文は許可判断の後にだけストリーミングされ、規則の識別には使いません。完全一致の
-      学習済み規則を識別するのは、Workspace
-      Manifest、プロジェクト、ホスト、ポート、メソッド、 未加工のパスです。
+      本文は許可後にストリーミングされ、規則の識別には使わないためです。
     </div>
   </details>
   <details>
-    <summary>これらの答えが不明確なら、どこへ戻るべきですか？</summary>
+    <summary>答えが不明確ならどこへ戻るべきですか？</summary>
     <div class="prose-block">
-      <a href="../trust-boundaries/">信頼境界</a>に戻ってください。
+      <a href="../trust-boundaries/">信頼境界</a>へ戻ってください。
     </div>
   </details>
 </div>
 
 <div class="page-next">
-  <strong>次へ:</strong> より狭い秘密情報の経路を{" "}
-  <a href="../credential-security/">認証情報の安全性 →</a>で確認します。
+  <strong>次へ:</strong>{" "}
+  <a href="../credential-security/">認証情報の安全性 →</a>
+  で秘密情報の境界を確認します。
 </div>

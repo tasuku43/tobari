@@ -63,13 +63,13 @@ channel. Release packaging derives the exact local tag from the CLI's embedded
 base assets. If that image is absent, Tobari builds it locally and separately
 inspects the resulting image digest.
 
-Shared infrastructure settings for OPA, mitmproxy/Gateway, Auth Broker, and
+Shared infrastructure settings for OPA, mitmproxy/Gateway, and
 base images use the fields declared in `versions.env`. Where a digest is
 present, that digest is the immutable image identity; a neighboring human tag
 or version remains descriptive.
 
-The Gateway and Auth Broker also have canonical source trees and byte-checked
-embedded snapshots. Source/snapshot equality is independent from the base
+Gateway has a canonical source tree and byte-checked embedded snapshot.
+Source/snapshot equality is independent from the base
 image digest: both must be correct for a reviewed build.
 
 ## CLI version behavior
@@ -153,12 +153,7 @@ links as evidence for local behavior.
   >
     Gateway image tests
   </a>
-  , and
-  <a
-    href={`${__TOBARI_DOCS_REPOSITORY__}/blob/${__TOBARI_DOCS_COMMIT__}/internal/infra/dockerruntime/authbroker_image_test.go`}
-  >
-    Auth Broker image tests
-  </a>
+  .
 
 ## Summary
 

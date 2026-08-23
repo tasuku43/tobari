@@ -52,7 +52,7 @@ explicit JSON array. Unknown fields, duplicate keys or rule IDs, missing
 fields, extra files, symlinks, and group/world permissions are rejected.
 
 The directory name and every host in an authority, GraphQL endpoint,
-credential binding, baseline rule, or learned rule must be identical.
+Workspace binding, baseline rule, or learned rule must be identical.
 Hostnames are canonical lower-case DNS names. Trailing dots, IP literals,
 uppercase forms, and wildcards are unsupported; the current contract is exact
 host only. HTTP methods are uppercase and belong only to authorities composed
@@ -109,7 +109,7 @@ Suppose a trusted maintainer needs a finite rule derived from non-secret request
 4. validates every Workspace Manifest in the aggregate; and
 5. confirms the resulting behavior with a denied and an allowed synthetic request.
 
-Do not use Advanced mode to implement a provider SDK, read request bodies, invoke a shell, load credentials, or bypass the Gateway/Auth Broker boundary. Rego receives normalized decision data, not arbitrary effect execution authority.
+Do not use Advanced mode to implement a provider SDK, read request bodies, invoke a shell, load credentials, or bypass the Gateway credential-redaction boundary. Rego receives normalized decision data, not arbitrary effect execution authority.
 
 ## Failure behavior
 
@@ -153,9 +153,11 @@ No. It is observational. Explicit cluster reconciliation or a supported exact po
 </details>
 
 <details>
-<summary>Can Advanced Rego request a credential from Auth Broker?</summary>
+<summary>Can Advanced Rego request a credential from an agent CLI?</summary>
 
-No. OPA decides normalized non-secret HTTP metadata. Gateway owns the post-allow broker resolution boundary.
+No. OPA decides normalized non-secret HTTP metadata. Agent CLIs own login state in
+the Workspace home, and Gateway forwards original credential values only after
+OPA allows the request; it does not resolve credentials through a service.
 
 </details>
 

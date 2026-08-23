@@ -38,8 +38,9 @@ transparent listener. Gateway exposes no separate explicit-proxy listener.
 
 OPA joins the shared `control` network, not project networks or egress. Workspace processes therefore cannot call OPA's policy endpoint directly.
 
-Gateway also joins control so it can call one fixed OPA endpoint. Standard has
-no Auth Broker service or credential socket.
+Gateway also joins control so it can call one fixed OPA endpoint. Gateway and
+OPA are the only shared enforcement services; agent CLI login remains in the
+Workspace home rather than a Tobari credential service or socket.
 
 ### One egress network
 

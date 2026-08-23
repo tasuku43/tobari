@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"fmt"
+
 	"github.com/tasuku43/tobari/internal/app/runtimecmd"
 	"github.com/tasuku43/tobari/internal/domain/fault"
 	"github.com/tasuku43/tobari/internal/domain/operation"
@@ -13,7 +15,7 @@ func runtimeCommandSpecs() []CommandSpec {
 		clusterUpSpec(),
 		clusterStatusSpec(),
 	}
-	specs = append(specs, experimentalRuntimeCommandSpecs()...)
+	specs = append(specs, researchRuntimeCommandSpecs()...)
 	specs = append(specs,
 		clusterDenialsSpec(),
 		clusterLogsSpec(),
@@ -807,7 +809,7 @@ func runtimePruneApplySpec() CommandSpec {
 
 func projectEnterSpec() CommandSpec {
 	return CommandSpec{
-		Path: "tobari", Summary: "Prepare the current directory's Workspace and enter Bash or an exact command",
+		Path: WorkspaceEntryCommandPath, Summary: "Prepare the current directory's Workspace and enter Bash or an exact command",
 		Args:   "[--manifest <name>] [-- <command>...]",
 		Effect: operation.EffectCreate, Role: RoleAct,
 		Agent: AgentContract{
@@ -920,7 +922,7 @@ func deleteSpec() CommandSpec {
 				declaredCommandError(fault.KindContract, "invalid_manifest_binding", false, "manifest list", "Inspect the Workspace Manifest catalog before selecting a Workspace."),
 				declaredCommandError(fault.KindContract, "manifest_binding_stale", false, "delete", "Review the newly selected target before retrying force deletion."),
 				declaredCommandError(fault.KindRejected, "project_session_attached", false, "delete", "Exit the attached session, then retry; use --force only when terminating it is intentional."),
-				declaredCommandError(fault.KindNotFound, "project_not_found", false, "tobari", "Create a Workspace from the current project directory."),
+				declaredCommandError(fault.KindNotFound, "project_not_found", false, WorkspaceEntryCommandPath, "Create a Workspace from the current project directory."),
 				declaredCommandError(fault.KindInvalidInput, "invalid_root", false, "doctor", "Inspect the current directory and host access."),
 				declaredCommandError(fault.KindInternal, "state_read_failed", false, "doctor", "Inspect local CWD-owned state."),
 				declaredCommandError(fault.KindInternal, "session_status_failed", false, "status", "Inspect the Workspace runtime before retrying deletion."),
@@ -1052,14 +1054,14 @@ func clusterStatusOutputFields() []OutputField {
 	componentScope := "The two shared standard services when configured; empty when unconfigured."
 	if buildIdentityHasBroker() {
 		fields = append(fields,
-			OutputField{Name: "auth_provider_projection", Type: OutputFieldTypeString, Description: "Experimental Auth Broker provider projection integrity observation.", Enum: []string{"valid", "invalid", "unavailable"}},
-			OutputField{Name: "auth_broker_state", Type: OutputFieldTypeString, Description: "Observed ready, locked, or unavailable experimental Auth Broker state.", Enum: []string{"ready", "locked", "unavailable"}},
-			OutputField{Name: "credential_companion_state", Type: OutputFieldTypeString, Description: "Observed experimental trusted-host credential companion state.", Enum: []string{"ready", "prepared", "absent", "unavailable"}},
-			OutputField{Name: "root_key_backend", Type: OutputFieldTypeString, Description: "Selected experimental host root-key backend or unavailable state.", Enum: []string{"macos_keychain", "xdg_file", "unavailable"}},
+			OutputField{Name: "auth_provider_projection", Type: OutputFieldTypeString, Description: "Research Auth Broker provider projection integrity observation.", Enum: []string{"valid", "invalid", "unavailable"}},
+			OutputField{Name: "auth_broker_state", Type: OutputFieldTypeString, Description: "Observed ready, locked, or unavailable research Auth Broker state.", Enum: []string{"ready", "locked", "unavailable"}},
+			OutputField{Name: "credential_companion_state", Type: OutputFieldTypeString, Description: "Observed research trusted-host credential companion state.", Enum: []string{"ready", "prepared", "absent", "unavailable"}},
+			OutputField{Name: "root_key_backend", Type: OutputFieldTypeString, Description: "Selected research host root-key backend or unavailable state.", Enum: []string{"macos_keychain", "xdg_file", "unavailable"}},
 		)
 		componentNames = []string{"auth-broker", "gateway", "opa"}
 		componentDescription = "Exact Auth Broker, Gateway, and OPA observations."
-		componentScope = "The three shared experimental services when configured; empty when unconfigured."
+		componentScope = "The three shared research services when configured; empty when unconfigured."
 	}
 	fields = append(fields,
 		OutputField{Name: "components", Type: OutputFieldTypeArray, Description: componentDescription, SemanticScope: componentScope, Items: &OutputField{
@@ -1447,7 +1449,7 @@ func clusterDownSpec() CommandSpec {
 		Args: "[--purge]", Effect: operation.EffectWrite, Role: RoleAct,
 		Agent: AgentContract{
 			CapabilityID: "cluster.lifecycle",
-			Outcome:      "Remove shared containers and networks after every logical Workspace is deleted. With --purge, also remove shared CA volumes and the active policy-bundle volume. Preserve encrypted Workspace Manifest vaults and the installation root key in both modes.",
+			Outcome:      clusterDownOutcome(),
 			Inputs:       []CommandInput{purgeInput("Also remove exact shared CA and active policy-bundle volumes.")},
 			Output:       textClusterStatusOutput(),
 			Prerequisites: []string{
@@ -1641,7 +1643,7 @@ func lifecycleContextInput() CommandInput {
 	input := executionContextInput()
 	minimumLength := int64(1)
 	input.MinimumLength = &minimumLength
-	input.Description = "Non-empty Workspace Manifest display name for this invocation; both `tobari --manifest toolbox status` and `tobari status --manifest toolbox` are accepted, omission uses the default Workspace Manifest without changing it, and duplicate placement is rejected."
+	input.Description = fmt.Sprintf("Non-empty Workspace Manifest display name for this invocation; both `%s --manifest toolbox status` and `%s status --manifest toolbox` are accepted, omission uses the default Workspace Manifest without changing it, and duplicate placement is rejected.", ProgramName, ProgramName)
 	return input
 }
 
@@ -1719,20 +1721,7 @@ func contextReportOutput() CommandOutput {
 				{Name: "ordinal", Type: OutputFieldTypeInteger, Description: "Human Runtime revision ordinal."},
 			}},
 			{Name: "cluster", Type: OutputFieldTypeString, Description: "How this task relates to cluster activation.", Enum: []string{"not_applicable", "not_configured", "not_running", "already_ready", "reconciled", "default_updated", "requires_reconcile"}},
-			{Name: "authentication", Type: OutputFieldTypeObject, Description: "Workspace-native authentication mode or experimental Broker status without credential values.", Fields: []OutputField{
-				{Name: "mode", Type: OutputFieldTypeString, Description: "Authentication ownership mode compiled into this executable.", Enum: []string{"native_workspace", "broker", "not_applicable"}},
-				{Name: "broker_state", Type: OutputFieldTypeString, Description: "Experimental Auth Broker observation.", Enum: []string{"not_applicable", "ready", "locked", "unavailable"}, Optional: true},
-				{Name: "declared_bindings", Type: OutputFieldTypeString, Description: "Experimental authentication route for installed declared provider bindings.", Enum: []string{"broker_required"}, Optional: true},
-				{Name: "undeclared_bindings", Type: OutputFieldTypeString, Description: "Experimental route for bindings absent from the provider projection.", Enum: []string{"workspace_owned_compatibility"}, Optional: true},
-				{Name: "providers", Type: OutputFieldTypeArray, Description: "Installed provider states, or null when this mutation did not observe authentication.", Nullable: true, SemanticScope: "Every installed provider for the selected Workspace Manifest when authentication was observed.", Items: &OutputField{
-					Type: OutputFieldTypeObject, Description: "One installed provider observation.", Fields: []OutputField{
-						{Name: "provider", Type: OutputFieldTypeString, Description: "Installed provider ID."},
-						{Name: "state", Type: OutputFieldTypeString, Description: "Provider credential state.", Enum: []string{"configured", "not_configured", "unavailable"}},
-						{Name: "account_label", Type: OutputFieldTypeString, Description: "Secret-free account label, or null.", Nullable: true},
-						{Name: "credential_revision", Type: OutputFieldTypeString, Description: "Secret-free credential revision, or null.", Nullable: true},
-					},
-				}},
-			}},
+			contextAuthenticationOutputField(),
 		},
 		Delivery: OutputDeliveryComplete, CollectionCoverage: CollectionCoverageNotApplicable,
 		JSONEnvelope: "workspace_manifest", JSONEnvelopeType: OutputFieldTypeObject, JSONSchemaVersion: 2,
@@ -1797,7 +1786,7 @@ func contextBootstrapOutputField() OutputField {
 }
 
 func projectEnterErrors() []CommandError {
-	errors := mutationCommandErrors("tobari", "status")
+	errors := mutationCommandErrors(WorkspaceEntryCommandPath, "status")
 	filtered := errors[:0]
 	for _, declared := range errors {
 		if declared.Code != "mutation_output_write_failed" {
@@ -1808,25 +1797,25 @@ func projectEnterErrors() []CommandError {
 		workspaceStartReadinessErrors()...,
 	)
 	result = append(result,
-		declaredCommandError(fault.KindInternal, "first_use_review_failed", false, "tobari", "Retry in an interactive terminal."),
-		declaredCommandError(fault.KindContract, "invalid_first_use_draft", false, "help tobari", "Inspect the root first-use contract."),
+		declaredCommandError(fault.KindInternal, "first_use_review_failed", false, WorkspaceEntryCommandPath, "Retry in an interactive terminal."),
+		declaredCommandError(fault.KindContract, "invalid_first_use_draft", false, "help "+WorkspaceEntryCommandPath, "Inspect the root first-use contract."),
 		declaredCommandError(fault.KindNotFound, "manifest_not_found", false, "manifest list", "Choose an existing Workspace Manifest."),
 		declaredCommandError(fault.KindContract, "invalid_manifest_binding", false, "manifest list", "Inspect the Workspace Manifest catalog before selecting a Workspace."),
 		declaredCommandError(fault.KindContract, "manifest_binding_stale", false, "doctor", "Inspect Workspace Manifest and Workspace state."),
-		declaredCommandError(fault.KindInvalidInput, "tty_required", false, "help tobari", "Run the root command from an interactive terminal."),
-		declaredCommandError(fault.KindRejected, "already_inside", false, "help tobari", "Exit the current Workspace session before entering another."),
+		declaredCommandError(fault.KindInvalidInput, "tty_required", false, "help "+WorkspaceEntryCommandPath, "Run the root command from an interactive terminal."),
+		declaredCommandError(fault.KindRejected, "already_inside", false, "help "+WorkspaceEntryCommandPath, "Exit the current Workspace session before entering another."),
 		declaredCommandError(fault.KindUnavailable, "cluster_not_configured", false, "cluster up", "Create the shared cluster explicitly before entering a Workspace."),
 		declaredCommandError(fault.KindUnavailable, "cluster_status_failed", false, "cluster status", "Inspect the shared cluster before entering a Workspace."),
 		declaredCommandError(fault.KindUnavailable, "cluster_not_ready", false, "cluster up", "Reconcile the shared cluster explicitly before entering a Workspace."),
 		declaredCommandError(fault.KindRejected, "cluster_projection_stale", false, "cluster up", "Load the complete Workspace Manifest catalog into the shared cluster before entering a Workspace."),
 		declaredCommandError(fault.KindRejected, "runtime_build_required", false, "runtime build", "Build and select the staged custom runtime before entering a Workspace."),
 		declaredCommandError(fault.KindRejected, "runtime_recipe_invalid", false, "manifest show", "Inspect and correct the invalid custom runtime recipe before entry."),
-		declaredCommandError(fault.KindInternal, "runtime_choice_failed", false, "tobari", "Resume from the persisted Workspace Manifest and ready cluster."),
+		declaredCommandError(fault.KindInternal, "runtime_choice_failed", false, WorkspaceEntryCommandPath, "Resume from the persisted Workspace Manifest and ready cluster."),
 		declaredCommandError(fault.KindRejected, "project_state_incomplete", false, "delete", "Review the exact delete command and confirm removal of the incomplete current-directory Workspace."),
 		declaredCommandError(fault.KindInternal, "missing_workspace_selector", false, "doctor", "Configure the Tobari terminal selector."),
 		declaredCommandError(fault.KindContract, "invalid_workspace_selection", false, "doctor", "Inspect local Workspace state."),
-		declaredCommandError(fault.KindContract, "workspace_selection_invalid", false, "tobari", "Choose a current Workspace or explicitly create one again."),
-		declaredCommandError(fault.KindRejected, "workspace_selection_stale", true, "tobari", "Refresh the Workspace choices and select again."),
+		declaredCommandError(fault.KindContract, "workspace_selection_invalid", false, WorkspaceEntryCommandPath, "Choose a current Workspace or explicitly create one again."),
+		declaredCommandError(fault.KindRejected, "workspace_selection_stale", true, WorkspaceEntryCommandPath, "Refresh the Workspace choices and select again."),
 		declaredCommandError(fault.KindInvalidInput, "invalid_root", false, "doctor", "Inspect the current directory and host access."),
 		declaredCommandError(fault.KindUnavailable, "image_not_found", false, "runtime build", "Build or make the selected compatible runtime image available to Docker."),
 		declaredCommandError(fault.KindUnavailable, "git_identity_resolution_failed", false, "manifest show", "Inspect the selected Workspace Manifest Git identity without changing Workspace state."),
@@ -2203,10 +2192,10 @@ func textClusterStatusOutput() CommandOutput {
 	}
 	if buildIdentityHasBroker() {
 		fields = append(fields,
-			OutputField{Name: "auth_provider_projection", Type: OutputFieldTypeString, Description: "Experimental Auth Broker provider projection integrity observation."},
-			OutputField{Name: "auth_broker_state", Type: OutputFieldTypeString, Description: "Observed experimental Auth Broker state."},
-			OutputField{Name: "credential_companion_state", Type: OutputFieldTypeString, Description: "Observed experimental trusted-host credential companion state."},
-			OutputField{Name: "root_key_backend", Type: OutputFieldTypeString, Description: "Selected experimental host root-key backend."},
+			OutputField{Name: "auth_provider_projection", Type: OutputFieldTypeString, Description: "Research Auth Broker provider projection integrity observation."},
+			OutputField{Name: "auth_broker_state", Type: OutputFieldTypeString, Description: "Observed research Auth Broker state."},
+			OutputField{Name: "credential_companion_state", Type: OutputFieldTypeString, Description: "Observed research trusted-host credential companion state."},
+			OutputField{Name: "root_key_backend", Type: OutputFieldTypeString, Description: "Selected research host root-key backend."},
 		)
 	}
 	return CommandOutput{

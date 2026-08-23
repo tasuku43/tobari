@@ -7,6 +7,7 @@ import (
 	"unicode"
 
 	"github.com/tasuku43/tobari/internal/cli"
+	"github.com/tasuku43/tobari/internal/domain/capabilitysurface"
 )
 
 const productContractPath = "docs/01_product_contract.md"
@@ -49,7 +50,7 @@ func validatePublicCommandTableDocument(path, document string, catalog cli.Catal
 		return issues
 	}
 
-	commands := catalog.Commands()
+	commands := publishedCatalogCommands(catalog)
 	commandsByPath := make(map[string]cli.CommandSpec, len(commands))
 	seen := make(map[string]int, len(rows))
 	for _, command := range commands {
@@ -66,6 +67,7 @@ func validatePublicCommandTableDocument(path, document string, catalog cli.Catal
 			})
 			continue
 		}
+		command = publicCommandProjection(command)
 		if firstLine, duplicate := seen[command.Path]; duplicate {
 			issues = append(issues, issue{
 				Path:    location,
@@ -99,6 +101,23 @@ func validatePublicCommandTableDocument(path, document string, catalog cli.Catal
 		return issues[i].Message < issues[j].Message
 	})
 	return issues
+}
+
+func publicCommandProjection(command cli.CommandSpec) cli.CommandSpec {
+	if !capabilitysurface.Compiled().IncludesResearch() || command.Path != "cluster logs" {
+		return command
+	}
+	// The public product table documents the release surface. Research adds
+	// an internal auth-broker component to this common command's selector, but
+	// that unsupported extension is intentionally not part of the published
+	// invocation grammar.
+	command.Args = "[--component gateway|opa|all] [--tail <lines>]"
+	for index := range command.Agent.Inputs {
+		if command.Agent.Inputs[index].Name == "--component" {
+			command.Agent.Inputs[index].AllowedValues = []string{"gateway", "opa", "all"}
+		}
+	}
+	return command
 }
 
 func extractPublicCommandTableRows(path, document string) ([]publicCommandTableRow, []issue) {

@@ -20,9 +20,12 @@
     "check:dist:root": "node scripts/verify-dist.mjs dist /",
     "check:locales": "node scripts/verify-locale-parity.mjs",
     "check:source": "node scripts/verify-source.mjs",
+    "check:release-surface": "node scripts/check-release-surface.mjs",
+    "test:release-surface-guard": "node scripts/test-release-surface-guard.mjs",
+    "check:release-surface:dist": "node scripts/check-release-surface.mjs dist",
     "test:locale-routes": "node scripts/test-locale-routes.mjs",
     "test:browser": "playwright test",
-    "test:static": "npm run generate:check && npm run check:source && npm run test:locale-routes && npm run check:locales && npm run format && npm run typecheck && npm run build && npm run check:dist:root && npm run build:pages && npm run check:dist",
+    "test:static": "npm run generate:check && npm run check:source && npm run test:release-surface-guard && npm run check:release-surface && npm run test:locale-routes && npm run check:locales && npm run format && npm run typecheck && npm run build && npm run check:dist:root && npm run check:release-surface:dist && npm run build:pages && npm run check:dist",
     "test": "npm run test:static && npm run test:browser"
   },
   "devDependencies": {

@@ -20,7 +20,7 @@ type versionJSONProjection struct {
 	Commit                  string `json:"commit"`
 	ResolverChannel         string `json:"resolver_channel"`
 	DevelopmentSource       bool   `json:"development_source"`
-	CapabilityProfile       string `json:"capability_profile"`
+	CapabilitySurface       string `json:"capability_surface"`
 	GatewayRequiredAPI      int    `json:"gateway_required_api"`
 	GatewaySelectedAPI      int    `json:"gateway_selected_api"`
 	AuthBrokerRequiredAPI   int    `json:"auth_broker_required_api,omitempty"`
@@ -64,7 +64,7 @@ func renderVersion(identity buildidentity.Identity, format successFormat, color 
 			SchemaVersion: 1,
 			BuildIdentity: versionJSONProjection{Version: identity.Version, Commit: identity.Commit,
 				ResolverChannel: string(identity.ResolverChannel), DevelopmentSource: identity.DevelopmentSource,
-				CapabilityProfile:  string(identity.CapabilityProfile),
+				CapabilitySurface:  string(identity.CapabilitySurface),
 				GatewayRequiredAPI: identity.Gateway.RequiredAPI, GatewaySelectedAPI: identity.Gateway.SelectedAPI,
 				AuthBrokerRequiredAPI: identity.AuthBroker.RequiredAPI, AuthBrokerSelectedAPI: identity.AuthBroker.SelectedAPI,
 				Compatible: identity.Compatible(), DevelopmentBuildCommand: buildCommand, DevelopmentBinary: binary,
@@ -87,9 +87,9 @@ func renderVersion(identity buildidentity.Identity, format successFormat, color 
 	output.row("Version", identity.Version, styleText)
 	output.row("Commit", identity.Commit, styleText)
 	output.row("Resolver", string(identity.ResolverChannel), styleText)
-	output.row("Capabilities", string(identity.CapabilityProfile), styleText)
+	output.row("Capability surface", string(identity.CapabilitySurface), styleText)
 	output.row("Gateway API", fmt.Sprintf("required %d, selected %d", identity.Gateway.RequiredAPI, identity.Gateway.SelectedAPI), styleText)
-	if identity.CapabilityProfile.IncludesExperimental() {
+	if identity.CapabilitySurface.IncludesResearch() {
 		output.row("Auth Broker API", fmt.Sprintf("required %d, selected %d", identity.AuthBroker.RequiredAPI, identity.AuthBroker.SelectedAPI), styleText)
 	}
 	output.row("Compatibility", state, token)
@@ -106,7 +106,7 @@ func versionOutputFields() []OutputField {
 		{Name: "commit", Type: OutputFieldTypeString, Description: "Full source commit embedded in the executable, or unknown when unavailable."},
 		{Name: "resolver_channel", Type: OutputFieldTypeString, Description: "Compiled image authority: embedded or development."},
 		{Name: "development_source", Type: OutputFieldTypeBoolean, Description: "Whether build metadata proves the contributor development resolver."},
-		{Name: "capability_profile", Type: OutputFieldTypeString, Description: "Immutable capability surface: standard or experimental."},
+		{Name: "capability_surface", Type: OutputFieldTypeString, Description: "Immutable compiled command surface: release or research."},
 		{Name: "gateway_required_api", Type: OutputFieldTypeInteger, Description: "Gateway API required by canonical source."},
 		{Name: "gateway_selected_api", Type: OutputFieldTypeInteger, Description: "Gateway API selected by the compiled resolver."},
 	}
@@ -125,5 +125,5 @@ func versionOutputFields() []OutputField {
 
 func buildIdentityHasBroker() bool {
 	identity, err := dockerruntime.BuildIdentity("dev", buildidentity.UnknownCommit)
-	return err == nil && identity.CapabilityProfile.IncludesExperimental()
+	return err == nil && identity.CapabilitySurface.IncludesResearch()
 }

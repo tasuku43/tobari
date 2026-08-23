@@ -51,7 +51,7 @@ field は `schema_version`、`host`、`baseline_rules`、`rules` だけです。
 はすべて明示的な JSON array です。未知の field、重複 key または rule ID、欠落 field、
 余分なファイル、symlink、group/world が使える permission は拒否されます。
 
-directory 名と、authority、GraphQL endpoint、credential binding、baseline rule、
+directory 名と、authority、GraphQL endpoint、Workspace binding、baseline rule、
 learned rule 内のすべての host は完全一致する必要があります。hostname は正規化済みの
 小文字 DNS 名です。末尾 dot、IP literal、大文字表現、wildcard は未対応であり、現在の
 契約は exact host のみです。HTTP method は大文字で、その domain から合成された
@@ -107,7 +107,7 @@ tobari cluster up
 4. 集約ポリシー内のすべての Workspace Manifest を検証する
 5. 合成した拒否対象と許可対象のリクエストで、最終的な動作を確認する
 
-高度なモードを、プロバイダー SDK、リクエスト本文の読み取り、シェル実行、認証情報の読み込み、Gateway/Auth Broker 境界の迂回に使わないでください。Rego が受け取るのは正規化された判断データであり、任意の処理を実行する権限ではありません。
+高度なモードを、外部サービス SDK、リクエスト本文の読み取り、シェル実行、認証情報の読み込み、Gateway の認証情報除外境界の迂回に使わないでください。Rego が受け取るのは正規化された判断データであり、任意の処理を実行する権限ではありません。
 
 ## 失敗時の動作
 
@@ -120,7 +120,7 @@ tobari cluster up
 
 ## 保証と制限
 
-Tobari はルーターと Workspace Manifest 名前空間を予約し、プロジェクション全体をテストしてアトミックに公開します。障害時には検証済みポリシーを保持します。高度な規則の意味と完全性は保守担当者の責任です。Tobari はプロバイダー固有の意味を解釈せず、安全なワイルドカードを推論しません。
+Tobari はルーターと Workspace Manifest 名前空間を予約し、プロジェクション全体をテストしてアトミックに公開します。障害時には検証済みポリシーを保持します。高度な規則の意味と完全性は保守担当者の責任です。Tobari は外部サービス固有の意味を解釈せず、安全なワイルドカードを推論しません。
 
 ## 根拠となるソース
 
@@ -152,9 +152,10 @@ Tobari はルーターと Workspace Manifest 名前空間を予約し、プロ�
 </details>
 
 <details>
-  <summary>高度な Rego は Auth Broker へ認証情報を要求できますか？</summary>
+  <summary>高度な Rego は agent CLI へ認証情報を要求できますか？</summary>
   いいえ。OPA が判断するのは、正規化され、秘密情報を含まない HTTP
-  メタデータです。許可後の Broker 解決は Gateway が担います。
+  メタデータです。agent CLI は Workspace home でログインを管理し、Gateway は
+  許可後に元の値を転送します。Tobari は認証情報をサービスで解決しません。
 </details>
 
 **次へ:** [トラブルシューティング](../troubleshooting/)で観測できる障害を調べるか、通常の作業は[ポリシーレビュー](../policy-review/)へ戻ってください。

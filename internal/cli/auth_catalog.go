@@ -1,4 +1,4 @@
-//go:build tobari_experimental
+//go:build tobari_dev && tobari_research
 
 package cli
 
@@ -22,7 +22,7 @@ func authLoginSpec() CommandSpec {
 	awsEnabled := authbroker.SupportsReviewedLoginProvider(authbroker.BuiltinAWSProviderID)
 	providerDescription := "Credential provider to authenticate. Omission opens an interactive selector over installed reviewed login providers. GitHub uses gh, Datadog uses a structurally compatible pup from the selected Workspace Manifest runtime, OpenAI uses the reviewed Codex host-login contract, and Anthropic uses Claude Code 2.1.220 from the selected Workspace Manifest runtime."
 	if awsEnabled {
-		providerDescription = "Credential provider to authenticate. Omission opens an interactive selector over installed reviewed login providers. GitHub uses gh, experimental AWS uses aws, Datadog uses a structurally compatible pup from the selected Workspace Manifest runtime, OpenAI uses the reviewed Codex host-login contract, and Anthropic uses Claude Code 2.1.220 from the selected Workspace Manifest runtime."
+		providerDescription = "Credential provider to authenticate. Omission opens an interactive selector over installed reviewed login providers. GitHub uses gh, research AWS uses aws, Datadog uses a structurally compatible pup from the selected Workspace Manifest runtime, OpenAI uses the reviewed Codex host-login contract, and Anthropic uses Claude Code 2.1.220 from the selected Workspace Manifest runtime."
 	}
 	provider := CommandInput{
 		Name: "--provider", Source: InputSourceFlag, Required: false,
@@ -37,7 +37,7 @@ func authLoginSpec() CommandSpec {
 		inputs = append(inputs, CommandInput{
 			Name: "--method", Source: InputSourceFlag, Required: false,
 			ValueKind: InputValueText, Cardinality: InputCardinalitySingle,
-			Description:   "Experimental AWS login method. Omission selects identity-center; console selects AWS CLI console login. This flag requires an explicit AWS provider.",
+			Description:   "Research-surface AWS login method. Omission selects identity-center; console selects AWS CLI console login. This flag requires an explicit AWS provider.",
 			AllowedValues: []string{string(authcmd.LoginMethodIdentityCenter), string(authcmd.LoginMethodConsole)},
 			Requires:      []string{"--provider"},
 		})

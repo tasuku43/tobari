@@ -2,7 +2,7 @@ version: '3'
 
 tasks:
   build:
-    desc: Build source-coupled local images and the standard-profile CLI binary.
+    desc: Build source-coupled local images and the release-surface CLI binary.
     cmds:
       - ./scripts/build-dev-images.sh
       - mkdir -p bin
@@ -12,12 +12,12 @@ tasks:
       - 'printf "Built %s\nIf this repository bin directory is not on PATH, run: install -m 0755 bin/tobari ~/.local/bin/tobari\n" bin/tobari'
 
   build:dev:
-    desc: Build the experimental-profile development CLI and local images.
+    desc: Build the research-surface development CLI and local images.
     cmds:
-      - ./scripts/build-dev-images.sh --experimental
+      - ./scripts/build-dev-images.sh --research
       - mkdir -p bin
-      - go build -tags='tobari_dev tobari_experimental' -buildvcs=false -trimpath -o bin/tobari-dev -ldflags "-X main.commit=$(git rev-parse --verify HEAD)" ./cmd/tobari
-      - 'printf "Built %s using the experimental capability profile, content-addressed local component images, and tobari-runtime:dev\nRun it directly, or install it with: install -m 0755 bin/tobari-dev ~/.local/bin/tobari-dev\n" bin/tobari-dev'
+      - go build -tags='tobari_dev tobari_research' -buildvcs=false -trimpath -o bin/tobari-research -ldflags "-X main.commit=$(git rev-parse --verify HEAD)" ./cmd/tobari
+      - 'printf "Built %s using the research surface, content-addressed local component images, and tobari-runtime:dev\nRun it directly, or install it with: install -m 0755 bin/tobari-research ~/.local/bin/tobari-research\n" bin/tobari-research'
 
   contracts:check:
     desc: Validate the command catalog, capability ledger, and external schema fixtures.
@@ -50,7 +50,7 @@ tasks:
       - ./scripts/sync-authbroker-source.sh
 
   integration:test:
-    desc: Run the experimental Auth Broker network, TLS, policy, credential, and lifecycle tests.
+    desc: Run the research-surface Auth Broker network, TLS, policy, credential, and lifecycle tests.
     cmds:
       - ./scripts/check.sh integration
 
@@ -60,7 +60,7 @@ tasks:
       - ./scripts/sync-runtime-base.sh
 
   runtime:test:
-    desc: Run standard policy and Gateway tests plus the experimental Auth Broker integration tests.
+    desc: Run release-surface policy and Gateway tests plus research-surface Auth Broker integration tests.
     cmds:
       - ./scripts/check.sh runtime
 

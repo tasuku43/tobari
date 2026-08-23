@@ -20,7 +20,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/tasuku43/tobari/internal/domain/authbroker"
-	"github.com/tasuku43/tobari/internal/domain/capabilityprofile"
+	"github.com/tasuku43/tobari/internal/domain/capabilitysurface"
 	"github.com/tasuku43/tobari/internal/domain/fault"
 	"github.com/tasuku43/tobari/internal/domain/tobari"
 )
@@ -134,7 +134,7 @@ func (r *Runtime) reconcileProjectAuth(
 	if err := instance.Validate(); err != nil {
 		return projectAuthProjection{}, err
 	}
-	if !capabilityprofile.Compiled().IncludesExperimental() {
+	if !capabilitysurface.Compiled().IncludesResearch() {
 		return projectAuthProjection{
 			Environment: []string{}, Files: []projectAuthFile{}, JSONMerges: []projectAuthJSONMerge{},
 			Providers: []projectAuthProviderBinding{},

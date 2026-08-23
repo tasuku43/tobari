@@ -47,7 +47,7 @@ func (r *Runtime) validateResolverCompatibility() error {
 	if identity.APIsCompatible() {
 		return nil
 	}
-	if !identity.CapabilityProfile.IncludesExperimental() {
+	if !identity.CapabilitySurface.IncludesResearch() {
 		return fault.New(
 			fault.KindContract, "runtime_image_api_mismatch",
 			fmt.Sprintf(

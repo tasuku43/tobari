@@ -1,5 +1,7 @@
 # Architecture
 
+Build-surface and resolver authority follow [ADR 0082](decisions/0082-release-and-research-build-surfaces.md); this document describes the resulting topology and layer seams.
+
 ## System topology
 
 ```text
@@ -29,7 +31,7 @@ target, and TWG's device-verification target open no listener.
 One bounded schema-v1 request over a dedicated non-TTY Docker exec control
 stream is the only originator. The host independently validates the closed URL
 union; arbitrary Workspace prose and terminal controls have no browser effect.
-It is absent when no host session is attached. The experimental development override adds a
+It is absent when no host session is attached. The research development override adds a
 locked Auth Broker on control/egress plus its private runtime socket and trusted
 host acquisition boundary. Tobari and control networks
 use Docker's `internal` property; the egress network is the only network with
@@ -92,8 +94,8 @@ chain. Neither resident process retains a network capability, and no host or
 Docker-VM-global firewall state is changed.
 
 Standard reviewed login drivers are the closed GitHub, pup, Codex, and Claude
-set. The experimental compile-time profile additionally activates the reviewed
-AWS driver; runtime data cannot change profile membership.
+set. The research compile-time surface additionally activates the reviewed
+AWS driver; runtime data cannot change surface membership.
 The shared host resolver for GitHub, AWS, and Codex rejects the first temporary, project-local, or
 home-local PATH shadow without executing it and inspects a finite PATH-ordered
 candidate set for the first canonical executable under an existing trusted
@@ -197,7 +199,7 @@ where applicable.
 `cluster up`, `cluster status`, `cluster denials`, `policy candidates`,
 `review permissions`, `policy allow`, `policy deny`, `policy rules`,
 and `policy reset` remain a valid standard seam. `serve`, `auth login`, `auth import`,
-`auth status`, and `auth logout` remain experimental-only seams
+`auth status`, and `auth logout` remain research-only seams
 internal seams today. They are not permission to expose Docker, OPA, or opaque
 resource identifiers as the routine mental model. `review permissions` is the
 ordinary human-facing Permission Inbox: on a TTY it composes selection, typed
@@ -231,7 +233,7 @@ snapshot and invokes canonical reference-bound Allow once or Deny immediately.
 Bare namespace dispatch is generic Catalog help and calls neither application
 port. The Workspace helper never receives host command routing.
 
-Experimental `serve` is a foreground CLI composition over the existing typed application
+Research `serve` is a foreground CLI composition over the existing typed application
 tasks. Before exposing a listener it obtains one valid installation snapshot:
 cluster status, exhaustive Workspace inventory, bounded policy review, and
 learned rules. Infrastructure owns an embedded no-external-asset HTTP surface
@@ -241,7 +243,7 @@ and every browser Apply to the catalog-owned internal `policy apply-reviewed`
 contract. The process lifetime owns the listener, session bearer, and browser
 opener. Cancellation closes the surface without changing policy. Build-tagged
 composition keeps its command, handler, and loopback infrastructure wiring out
-of the standard profile.
+of the release surface.
 
 ### Workspace Manifest composition
 
@@ -284,10 +286,10 @@ then publishes the complete standalone Runtime with one same-filesystem rename.
 `standard` instead writes the canonical built-in starter into the same private
 stage. Neither path persists source identity or lineage, reads an immutable revision
 snapshot, builds an image, or changes a Workspace Manifest.
-Only the experimental profile has encrypted Workspace Manifest vaults and projects a
+Only the research surface has encrypted Workspace Manifest vaults and projects a
 project-bound handle.
 
-Experimental Broker credential ownership is Workspace Manifest-wide. Every Workspace permanently bound to that
+Research Broker credential ownership is Workspace Manifest-wide. Every Workspace permanently bound to that
 Workspace Manifest is eligible, but reconciliation issues a distinct project-bound handle
 only on the Workspace's next matching entry; no running process is
 rewritten. Replacement revokes the previous revision. Logout removes the
@@ -304,7 +306,7 @@ the stored Workspace Manifest ID and uses that Workspace Manifest's runtime imag
 Tobari names the product and ownership boundary; Workspace is the resource
 name. Domain/application and public lifecycle state use Workspace,
 `workspace_id`, WorkspaceManifestID, and `project_root` consistently. Frozen
-predecessor experimental Broker/Gateway protocol keys may retain `context_id`
+predecessor research Broker/Gateway protocol keys may retain `context_id`
 or `project_id` until their separately governed build-profile migration; those
 wire spellings do not become public aliases or Manifest desired/applied fields.
 
@@ -439,7 +441,7 @@ Cluster state records one content-addressed projection revision and loaded
 Workspace Manifest count, not an active enforcement Workspace Manifest. Standard `cluster up` builds
 the projection from all authoritative Workspace Manifest policy sources,
 validates each source and the whole candidate, publishes only a complete
-owner-only directory, and starts exactly one Gateway and one OPA. Experimental
+owner-only directory, and starts exactly one Gateway and one OPA. Research
 composition adds the provider projection and one locked Auth Broker.
 Reconciliation is not ready on process health alone: OPA must
 serve both the exact content-addressed aggregate revision and its decision
@@ -449,17 +451,17 @@ root-key provider after its control endpoint is healthy and verifies the exact
 Broker container. Policy
 mutations serialize this same all-Manifest activation and preserve the previous
 known-good revision on any failure.
-Standard cluster status schema 1 projects Gateway and OPA. Experimental status
+Standard cluster status schema 1 projects Gateway and OPA. Research status
 additionally projects Auth Broker, `auth_provider_projection`,
 `auth_broker_state`, and `root_key_backend`.
 Workspace Manifest report schema 1 exposes explicit Workspace Manifest
 persistence state, nullable pre-authority ID/stores, the complete Workspace Manifest
 shell-environment and Git identity policies plus `native_workspace`
-authentication mode. Experimental output adds broker and installed-provider state without
+authentication mode. Research output adds broker and installed-provider state without
 returning a vault path/content, root key, primary secret, or handle. Public Linux backend values are `xdg_file`; the
 infrastructure/doctor detail `linux_xdg_file` is not a public JSON enum. The
 canonical schema/path/backend table is in
-[Authentication handling](07_authentication.md#experimental-canonical-schemas-paths-and-backend-identifiers).
+[Authentication handling](07_authentication.md#research-canonical-schemas-paths-and-backend-identifiers).
 
 Domain projects validated Workspace Manifest reports and list items into typed routine
 summaries: effective Access, routine-client availability after actual ceilings,
@@ -703,7 +705,7 @@ Neither implementation can consult CWD, project metadata, environment, or a
 moving registry tag. Cluster preflight compares this projection before state
 loading, asset materialization, journals, policy tests, or Docker calls.
 
-Experimental Auth Broker follows the same canonical-source/runtime-input pattern as Gateway. Its
+Research Auth Broker follows the same canonical-source/runtime-input pattern as Gateway. Its
 editable Python package, Dockerfile, tests, and bridge/protocol source live
 under `authbroker/`; the Go binary embeds the checked Docker build inputs, not
 the tests or contributor documentation, at
@@ -712,7 +714,7 @@ the tests or contributor documentation, at
 `scripts/check-authbroker-source.sh` rejects byte, membership, or Docker
 `COPY` drift. The source and image
 checks run the broker unit suite, prove that no provider CLI is installed, and
-build the fixed non-root image. It is not published. The experimental
+build the fixed non-root image. It is not published. The research
 contributor resolver uses a source-hash local tag.
 
 Both canonical sources declare component API V1. Source records only reviewed
@@ -739,7 +741,7 @@ on the trusted host. Each resolves and hashes one canonical executable from
 conventional non-project trusted installation roots, uses only its fixed argv
 and sanitized private state, and deletes temporary state on every outcome.
 The Auth Broker domain owns the complete implementation provider-ID vocabulary,
-the immutable standard or experimental active subset, and the
+the immutable standard or research active subset, and the
 presentation-ordered reviewed-login subset with its exact helper binding.
 The application service, CLI input enum, embedded-manifest loader, and fixed
 infrastructure driver table derive from or prove parity with that closed
@@ -820,7 +822,7 @@ across component boundaries. Go tests bind provider IDs, acquisition mode and
 helper, public manifest credential kind, and login membership to the domain
 registry and embedded built-ins. Python tests bind control-login shape,
 persisted record kind, renewable/signing/supplemental capabilities, and Gateway
-profile membership to the compiled Broker and Gateway registries. In
+surface membership to the compiled Broker and Gateway registries. In
 particular, public `primary_secret` intentionally maps to persisted
 `static_primary_secret`; identical spelling is not required where the trust
 boundary owns a different representation. No production component reads this
@@ -1110,7 +1112,7 @@ the lifecycle lock before the selected logical record is created or reused. It
 then resolves the selected record's root-scoped Workspace Manifest Git fallback before
 Docker calls and resolves the bound Workspace Manifest image. Standard reconciliation
 uses an explicit empty authentication projection and neither inspects nor
-creates experimental authentication state. Experimental reconciliation
+creates research authentication state. Research reconciliation
 requires the Broker to be ready and reconciles the Workspace Manifest's configured
 project-bound handle projection. Both profiles then ensure one exact project
 network and work container, connect Gateway with the `gateway` alias, reconcile
@@ -1239,7 +1241,7 @@ parse rendered output, reach Docker or the network, inspect arbitrary paths, or
 mutate startup state. Internal catalog entries remain excluded from public
 copies, lookup, routing, reference workflows, help, and completion.
 
-In the experimental build, the four auth commands share one catalog-declared `authentication.broker`
+In the research build, the four auth commands share one catalog-declared `authentication.broker`
 capability. Login, import, and logout are fixed-target writes to the one
 installation credential catalog; status is a Workspace Manifest-scoped read. The
 application resolves the explicit or default Workspace Manifest before the infrastructure
@@ -1256,7 +1258,7 @@ selector. Import, status, and logout remain
 available for strict owner static manifests and Chatwork.
 
 Standard `doctor` composes bounded read-only environment, Docker, policy, and
-project-binding diagnostics. Experimental doctor adds provider, root-key/vault,
+project-binding diagnostics. Research doctor adds provider, root-key/vault,
 and broker checks. The application-owned
 finite DAG schedules each infrastructure observation once its declared direct
 prerequisites pass, continues independent branches, and creates typed blocked
@@ -1311,9 +1313,9 @@ has no provider projection or Broker adapter. The Claude/Codex native-login
 regression exercises this sequence, including Claude's authenticated profile
 metadata request after token exchange.
 
-### Experimental Broker augmentation
+### Research Broker augmentation
 
-The experimental Gateway layer extends the same sequence as follows:
+The research Gateway layer extends the same sequence as follows:
 
 ```text
 client request headers
@@ -1420,7 +1422,7 @@ stream opaque, and prevents classified traffic from re-entering ordinary HTTP
 or AWS routing.
 
 OCI Distribution likewise needs no registry catalog or repository schema.
-Gateway recognizes distinctive standard catalog, tag, manifest, blob,
+Gateway recognizes distinctive release-surface catalog, tag, manifest, blob,
 referrer, and upload routes under `/v2/`, then projects only repository,
 action, and object identity. Cross-repository mount identity retains both its
 digest and source repository. Bodies, authentication, and raw query values

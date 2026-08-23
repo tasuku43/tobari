@@ -1106,7 +1106,7 @@ func TestProjectSessionClosedSummaryStaysOnHostLifecycleStream(t *testing.T) {
 	if childStdout.Len() != 0 {
 		t.Fatalf("child stdout received host lifecycle guidance: %q", childStdout.String())
 	}
-	if got, want := hostStderr.String(), "Workspace session closed.\nWorkspace remains available.\n\nResume: tobari\nRemove: tobari delete\nIf another session is attached: tobari delete --force\n"; got != want {
+	if got, want := hostStderr.String(), expectedSurfaceText("Workspace session closed.\nWorkspace remains available.\n\nResume: tobari\nRemove: tobari delete\nIf another session is attached: tobari delete --force\n"); got != want {
 		t.Fatalf("host lifecycle guidance = %q, want %q", got, want)
 	}
 }
@@ -1127,7 +1127,7 @@ func TestProjectSessionClosedStylesLabelsCommandsAndProseSeparately(t *testing.T
 		}
 	}
 	for _, command := range []string{"tobari", "tobari delete", "tobari delete --force"} {
-		if !strings.Contains(output, applyStyleToken(true, styleAccent, command)) {
+		if !strings.Contains(output, applyStyleToken(true, styleAccent, expectedSurfaceText(command))) {
 			t.Fatalf("session output %q lacks accented command %q", output, command)
 		}
 	}
@@ -1147,7 +1147,7 @@ func TestPendingPolicyNotificationStaysOnHostAndOmitsProjectIdentity(t *testing.
 	for _, expected := range []string{
 		"⚠ 1 pending network permission is waiting for review.",
 		"Latest: api.example.com:443 POST /token",
-		"Review on the host: tobari review permissions",
+		expectedSurfaceText("Review on the host: tobari review permissions"),
 	} {
 		if !strings.Contains(output, expected) {
 			t.Fatalf("notification %q lacks %q", output, expected)
@@ -1290,7 +1290,7 @@ func TestProjectDeleteHumanRendererPreservesPlainInformationUnion(t *testing.T) 
 			t.Fatalf("delete root used %s instead of text: %q", token, output)
 		}
 	}
-	if !strings.Contains(output, applyStyleToken(true, styleAccent, "tobari")) ||
+	if !strings.Contains(output, applyStyleToken(true, styleAccent, expectedSurfaceText("tobari"))) ||
 		strings.Contains(output, applyStyleToken(true, styleAccent, "— Create or enter a Workspace from this project directory.")) {
 		t.Fatalf("delete next action does not isolate command emphasis: %q", output)
 	}
@@ -1321,7 +1321,7 @@ func TestProjectStatusHumanStylesLabelsStateValuesAndNextCommand(t *testing.T) {
 	for _, want := range []string{
 		applyStyleToken(true, styleSuccess, "✓"),
 		applyStyleToken(true, styleSuccess, "standard@1 · ready"),
-		applyStyleToken(true, styleAccent, "tobari --manifest default"),
+		applyStyleToken(true, styleAccent, expectedSurfaceText("tobari --manifest default")),
 	} {
 		if !strings.Contains(value, want) {
 			t.Fatalf("status output %q lacks %q", value, want)
@@ -1350,14 +1350,14 @@ func TestProjectStatusRecoveryPreservesNonActiveContextInTextAndJSON(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !humanOutputHasRow(string(textOutput), "Next", "tobari --manifest toolbox — Create or enter a Workspace in this Workspace Manifest.") {
+	if !humanOutputHasRow(string(textOutput), "Next", expectedSurfaceText("tobari --manifest toolbox — Create or enter a Workspace in this Workspace Manifest.")) {
 		t.Fatalf("plain recovery lost Workspace Manifest: %q", textOutput)
 	}
 	humanOutput, err := renderProjectStatusWithColor(result, successFormatText, true)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(humanOutput), applyStyleToken(true, styleAccent, "tobari --manifest toolbox")) {
+	if !strings.Contains(string(humanOutput), applyStyleToken(true, styleAccent, expectedSurfaceText("tobari --manifest toolbox"))) {
 		t.Fatalf("human recovery lost Workspace Manifest: %q", humanOutput)
 	}
 	jsonOutput, err := renderProjectStatusWithColor(result, successFormatJSON, false)
@@ -1368,7 +1368,7 @@ func TestProjectStatusRecoveryPreservesNonActiveContextInTextAndJSON(t *testing.
 	if err := json.Unmarshal(jsonOutput, &document); err != nil {
 		t.Fatal(err)
 	}
-	if got, want := document.Status.NextArgv, []string{"tobari", "--manifest", "toolbox"}; !reflect.DeepEqual(got, want) {
+	if got, want := document.Status.NextArgv, expectedSurfaceArgv([]string{"tobari", "--manifest", "toolbox"}); !reflect.DeepEqual(got, want) {
 		t.Fatalf("JSON next argv = %q, want %q", got, want)
 	}
 }
@@ -1384,7 +1384,7 @@ func TestSyntheticProjectStatusUsesOmissionBasedRootRecovery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !humanOutputHasRow(string(textOutput), "Next", "tobari — Create or enter a Workspace in this Workspace Manifest.") ||
+	if !humanOutputHasRow(string(textOutput), "Next", expectedSurfaceText("tobari — Create or enter a Workspace in this Workspace Manifest.")) ||
 		strings.Contains(string(textOutput), "--manifest default") {
 		t.Fatalf("synthetic status recovery claims an explicit Workspace Manifest selector: %q", textOutput)
 	}
@@ -1396,7 +1396,7 @@ func TestSyntheticProjectStatusUsesOmissionBasedRootRecovery(t *testing.T) {
 	if err := json.Unmarshal(jsonOutput, &document); err != nil {
 		t.Fatal(err)
 	}
-	if got, want := document.Status.NextArgv, []string{"tobari"}; !reflect.DeepEqual(got, want) {
+	if got, want := document.Status.NextArgv, []string{ProgramName}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("synthetic JSON next argv = %q, want %q", got, want)
 	}
 	if routed := assertPublicNextArgvRoutes(t, document.Status.NextArgv); routed.Path != "tobari" {
@@ -1472,7 +1472,7 @@ func TestLifecycleScopedHelpPublishesBothContextPlacements(t *testing.T) {
 			t.Fatalf("catalog lacks %q", path)
 		}
 		help := string(renderCommandHelp(command))
-		for _, placement := range []string{"tobari --manifest toolbox status", "tobari status --manifest toolbox"} {
+		for _, placement := range []string{expectedSurfaceText("tobari --manifest toolbox status"), expectedSurfaceText("tobari status --manifest toolbox")} {
 			if !strings.Contains(help, placement) {
 				t.Fatalf("scoped help for %q lacks placement %q:\n%s", path, placement, help)
 			}
@@ -1495,11 +1495,11 @@ func TestClusterStatusRendererExposesXDGPolicyAndWorkspaceCount(t *testing.T) {
 		},
 	}
 	output := string(renderClusterStatusText(status))
-	for _, expected := range []string{
-		"✓ Cluster ready", "  Auth     healthy", "  Gateway  healthy", "  OPA      healthy",
-		"providers valid", "broker ready / companion ready / root key xdg_file",
-		"  Policy   /tmp/config/tobari/policy", "  Workspaces 2",
-	} {
+	want := []string{"✓ Cluster ready", "  Gateway  healthy", "  OPA      healthy", "  Policy   /tmp/config/tobari/policy", "  Workspaces 2"}
+	if buildIdentityHasBroker() {
+		want = append(want, "  Auth     healthy", "providers valid", "broker ready / companion ready / root key xdg_file")
+	}
+	for _, expected := range want {
 		if !strings.Contains(output, expected) {
 			t.Fatalf("status output %q lacks %q", output, expected)
 		}
@@ -1570,7 +1570,7 @@ func TestClusterDownHumanOutputMakesPurgeBoundaryExplicit(t *testing.T) {
 	purged := string(renderClusterDownTextWithColor(status, true, false))
 	for label, expected := range map[string]string{
 		"Removed":   "shared CA volumes and active policy-bundle volume",
-		"Preserved": "encrypted Workspace Manifest vaults and installation root key",
+		"Preserved": clusterDownPreservedText(),
 	} {
 		if !humanOutputHasRow(purged, label, expected) {
 			t.Fatalf("purge cluster down output %q lacks %s=%q", purged, label, expected)
@@ -1634,7 +1634,7 @@ func TestClusterUpTextAddsNextActionToSharedSummary(t *testing.T) {
 	}
 	output := string(renderClusterUpText(status, false))
 	for _, expected := range []string{
-		"✓ Cluster ready", "Next: from a project directory, run `tobari`.",
+		"✓ Cluster ready", expectedSurfaceText("Next: from a project directory, run `tobari`."),
 	} {
 		if !strings.Contains(output, expected) {
 			t.Fatalf("cluster up output %q lacks %q", output, expected)
@@ -1665,7 +1665,7 @@ func TestClusterStatusJSONDoesNotContainTerminalColors(t *testing.T) {
 
 func TestClusterStatusJSONExposesAuthBrokerSemantics(t *testing.T) {
 	if !buildIdentityHasBroker() {
-		t.Skip("Auth Broker output exists only in the experimental profile")
+		t.Skip("Auth Broker output exists only on the research surface")
 	}
 	t.Parallel()
 	status := tobari.ClusterStatus{
@@ -2160,7 +2160,7 @@ func TestPolicyDenyRendererReportsExactTerminalDecision(t *testing.T) {
 			t.Fatalf("deny output %q lacks %s=%q", output, label, expected)
 		}
 	}
-	if !humanOutputHasRow(output, "Next", "tobari policy rules — Inspect the active exact Deny decision.") ||
+	if !humanOutputHasRow(output, "Next", expectedSurfaceText("tobari policy rules — Inspect the active exact Deny decision.")) ||
 		strings.Contains(output, "review permissions") {
 		t.Fatalf("deny output did not point to the active exact decision: %q", output)
 	}

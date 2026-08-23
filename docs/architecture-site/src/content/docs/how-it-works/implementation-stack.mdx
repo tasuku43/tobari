@@ -1,115 +1,96 @@
 ---
 title: Implementation stack and supply path
-description: Learn why Go, Docker, mitmproxy, OPA, Rego, Python, Unix sockets, and immutable OCI images sit at their respective boundaries.
+description: Learn why Go, Docker, mitmproxy, OPA, Rego, and immutable OCI images sit at their respective boundaries.
 ---
 
 import ConceptDiagram from "../../../components/ConceptDiagram.astro";
 
 Each implementation technology sits at a specific Tobari boundary. Go owns the
-host CLI, fixed provider acquisition, and validated orchestration. Docker
-realizes process, network, and mount boundaries. mitmproxy and a Python addon
-enforce the HTTP/TLS flow, while OPA and Rego decide generic effects.
+host CLI and validated orchestration. Docker realizes process, network, and
+mount boundaries. mitmproxy and its Python addon enforce the HTTP/TLS flow,
+while OPA and Rego decide generic effects.
 
-A separate Python Auth Broker owns encrypted static credential state and one
-post-policy resolve operation over narrow sockets. Keeping these jobs in
-separate processes prevents forwarding, policy, and credential custody from
-collapsing into one authority. Canonical source, embedded snapshots, immutable
-OCI images, and digest pinning then carry those boundaries into the runtime
-supply path.
-
-This implementation-oriented page follows the product flow through [State and recovery](/how-it-works/state-and-recovery/) and is optional for ordinary use.
+This implementation-oriented page follows the product flow through [State and
+recovery](/how-it-works/state-and-recovery/) and is optional for ordinary use.
 
 ## Technology follows the trust boundary
 
 ### Go CLI
 
-The public `tobari` executable is written in Go. It owns canonical path selection, domain validation, effects and mutation contracts, application use cases, host state, Docker orchestration, deterministic rendering, and the public command Catalog.
-
-Go does not make arbitrary provider API requests above infrastructure. It passes one cancellation context through bounded adapters and keeps credential-bearing types in infrastructure.
+The public `tobari` executable owns canonical path selection, domain
+validation, effects and mutation contracts, application use cases, host state,
+Docker orchestration, deterministic rendering, and the public command Catalog.
+It passes one cancellation context through bounded adapters and keeps
+credential-bearing values inside the Workspace-owned agent home.
 
 ### Docker Engine and Docker Compose
 
-Docker Engine supplies runtime containers, read-only/read-write mounts, users, capability drops, read-only root filesystems, resource limits, internal networks, labels, volumes, and process execution.
+Docker Engine supplies runtime containers, read-only/read-write mounts, users,
+capability drops, read-only root filesystems, resource limits, internal
+networks, labels, volumes, and process execution.
 
-Docker Compose owns only the shared Gateway, OPA, and Auth Broker services plus shared networks and CA volumes. Per-Workspace containers and networks are reconciled by the runtime adapter because their exact root/Workspace Manifest identity and lifecycle are application concerns.
-
-Docker is trusted infrastructure. “Runs in a container” is not itself a security argument; the exact mounts, network attachments, socket absence, labels, users, and failure tests are.
+Docker Compose owns only the shared Gateway and OPA services, shared networks,
+and CA volumes. Per-Workspace containers and networks are reconciled by the
+runtime adapter because their exact root/Manifest identity and lifecycle are
+application concerns. Docker is trusted infrastructure; “runs in a container”
+is not itself a security argument.
 
 ### mitmproxy Gateway and Python addon
 
-Mitmproxy supplies transparent HTTP/TLS interception, streaming hooks, and upstream TLS. Tobari's Python addon adds product-specific principal lookup, credential preparation, body-free OPA input, fail-closed result validation, post-allow credential action, DNS address classification/pinning, and audit.
-
-Python is used here because mitmproxy's reviewed extension boundary is a Python addon. Gateway owns enforcement; it does not embed policy rule interpretation or vault storage.
+Mitmproxy supplies transparent HTTP/TLS interception, streaming hooks, and
+upstream TLS. Tobari's Python addon adds product-specific principal lookup,
+body-free OPA input, fail-closed result validation, DNS address
+classification/pinning, and audit. Gateway owns enforcement; it does not embed
+policy interpretation or Workspace state storage.
 
 ### OPA and Rego
 
-OPA is the shared policy decision service. Rego expresses Workspace Manifest policy ceilings,
-default deny, Workspace Manifest routing, exact learned allow/deny rules, and credential
-metadata constraints. Learned first-public V1 authority stays exact.
-
-OPA receives no request body or credential value and has no egress interface. Keeping decision logic separate makes the decision input/result contract testable without granting OPA network forwarding authority.
-
-### Python Auth Broker, GitHub helper, and Unix sockets
-
-The Auth Broker is a separate non-root Python daemon because credential
-encryption, handle issuance, introspection, and post-policy actions form a
-distinct trusted boundary. It has no TCP listener and contains no provider
-executable.
-
-Separate owner-only control and runtime Unix sockets divide host lifecycle
-operations from Gateway's narrow request-time access. Workspace and OPA mount
-neither socket. The runtime protocol can introspect a binding before policy and
-run only the declared static resolve after allow; it is not a
-generic network API.
-
-Built-in GitHub acquisition runs through one fixed Go infrastructure helper on
-the trusted host. It resolves identity-checked `gh`, uses fixed argv and a
-sanitized temporary home, bounds visible output, verifies cleanup, and commits
-one static record through Broker control. Owner providers use protected stdin
-import; neither path makes the Broker execute provider code.
-
-### Encrypted Workspace Manifest vault and root key
-
-Each Workspace Manifest vault uses a schema-1 AES-256-GCM envelope with a random nonce and
-Workspace Manifest/schema-associated data. Its encrypted schema-1 payload stores static
-primary secrets, revisions, and raw handles. The installation root key is external to the vault:
-macOS Keychain or an owner-only Linux XDG file. Encryption limits storage
-exposure across the container/Workspace boundary but does not protect against
-a compromised host user, root-key backend, Broker, or Gateway.
+OPA is the shared policy decision service. Rego expresses Workspace Manifest
+policy ceilings, default deny, exact learned allow/deny rules, and request
+metadata constraints. OPA receives no request body or credential value and has
+no egress interface.
 
 ### Local OCI image boundaries
 
-Gateway, Auth Broker, OPA, the mitmproxy build base, and the agent-ready base are OCI image boundaries. Upstream inputs use immutable digests recorded in embedded version metadata; Tobari-managed images use source-derived local tags plus inspected local digests. No moving `main` or `latest` tag is runtime authority.
+Gateway, OPA, the mitmproxy build base, and the agent-ready base are OCI image
+boundaries. Upstream inputs use immutable digests recorded in embedded version
+metadata; Tobari-managed images use source-derived local tags plus inspected
+local digests. No moving `main` or `latest` tag is runtime authority.
 
-The current exact versions and digests are generated in [Component versions](/reference/component-versions/) from `go.mod`, `versions.env`, and runtime metadata rather than copied into this page.
+The current exact versions and digests are generated in [Component
+versions](/reference/component-versions/) from `go.mod`, `versions.env`, and
+runtime metadata rather than copied into this page.
 
 ## From editable source to runtime image
 
 <ConceptDiagram name="image-supply" />
 
-Gateway and Auth Broker each have one editable canonical public source tree:
+Gateway has one editable canonical public source tree under `gateway/`. The
+CLI embeds a runtime snapshot under `internal/infra/runtimeassets/assets/`.
+Byte-for-byte drift checks reject a changed snapshot that does not match the
+canonical source. The embedded assets also include Compose, OPA policy, runtime
+entrypoints, image identities, and license material.
 
-- `gateway/`
-- `authbroker/`
-
-The CLI embeds a runtime snapshot under `internal/infra/runtimeassets/assets/`. Byte-for-byte drift checks reject a changed snapshot that does not match canonical source. The embedded assets also include Compose, OPA policy, runtime entrypoints, image identities, and license material.
-
-CI validates multi-architecture OCI construction from canonical sources with cache-only output. Normal runtime builds or reuses source-derived local images and verifies their inspected digests and component contracts. Image validation receives no package-write permission, and Tobari has no OCI publication workflow.
+CI validates multi-architecture OCI construction from canonical sources with
+cache-only output. Normal runtime builds or reuse verify inspected digests and
+component contracts. Image validation receives no package-write permission,
+and Tobari has no OCI publication workflow.
 
 ## Concrete request mapped to technologies
 
 For one allowed HTTPS call:
 
-1. **Go** has already reconciled the Workspace's Docker network, exact endpoint registry, CA, DNS setting, and Gateway/Workspace network guards.
-2. **Docker/Linux networking** prevents direct egress and delivers TCP to Gateway's transparent ingress.
-3. **mitmproxy** terminates TLS A and exposes request headers to the addon.
-4. **Python Gateway addon** derives the source-bound principal, validates one consistent authority, and posts schema 1 input.
+1. **Go** has reconciled the Workspace's Docker network, exact endpoint
+   registry, CA, DNS setting, and Gateway/Workspace network guards.
+2. **Docker/Linux networking** prevents direct egress and delivers TCP to
+   Gateway's transparent ingress.
+3. **Mitmproxy** terminates TLS A and exposes request headers to the addon.
+4. **Python Gateway addon** derives the source-bound principal and posts schema
+   1 input without body or credential values.
 5. **OPA/Rego** returns allow or deny.
-6. For a broker handle, **Python Auth Broker over Unix socket** performs
-   non-secret introspection before policy and resolves the same static revision
-   only after allow.
-7. **mitmproxy** establishes verified TLS B and streams the allowed request.
-8. **Docker logs** retain bounded secret-free audit evidence for host-side Go review.
+6. **Mitmproxy** establishes verified TLS B and streams the allowed request.
+7. **Docker logs** retain bounded secret-free audit evidence for host-side Go
+   review.
 
 No one technology implements the complete promise.
 
@@ -118,20 +99,20 @@ No one technology implements the complete promise.
 - Missing/incompatible runtime or service image fails validation before unsafe creation.
 - Digest/label/API/user/entrypoint mismatch fails closed.
 - Canonical source and embedded snapshot drift fails repository checks.
-- Invalid Rego or all-Workspace Manifest aggregate fails before activation.
-- OPA or Broker outage produces a closed Gateway response.
+- Invalid Rego or an incomplete aggregate fails before activation.
+- OPA outage produces a closed Gateway response.
 - Docker/host outage removes the enforcement substrate; Tobari does not claim protection under its compromise.
-- Missing root key with an existing vault prevents unlock rather than replacing the key.
 
 ## Guarantees and limitations
 
 **Guaranteed by contracts and tests:** fixed component roles, immutable normal
-service identities, byte-checked canonical source snapshots, separate
-credential sockets, no provider executable in Broker, no OPA egress, exact
-Compose topology, and preflight of runtime
-compatibility.
+service identities, byte-checked canonical source snapshots, no OPA egress,
+exact Compose topology, and preflight of runtime compatibility.
 
-**Not guaranteed:** that an image digest alone makes code safe; isolation after Docker/kernel/host compromise; provenance of a user-selected custom image; availability of GHCR or external registries; security review of arbitrary tools installed by a custom runtime recipe.
+**Not guaranteed:** that an image digest alone makes code safe; isolation after
+Docker/kernel/host compromise; provenance of a user-selected custom image;
+availability of GHCR or external registries; or security review of arbitrary
+tools installed by a custom runtime recipe.
 
 ## Source evidence
 
@@ -140,41 +121,13 @@ compatibility.
 - [Embedded component versions](https://github.com/tasuku43/tobari/blob/2a0f0f3b0303f889cd42c581403e70ace7680894/internal/infra/runtimeassets/assets/versions.env)
 - [Shared Compose runtime](https://github.com/tasuku43/tobari/blob/2a0f0f3b0303f889cd42c581403e70ace7680894/internal/infra/runtimeassets/assets/compose.yaml)
 - [Canonical Gateway source](https://github.com/tasuku43/tobari/tree/2a0f0f3b0303f889cd42c581403e70ace7680894/gateway)
-- [Canonical Auth Broker source](https://github.com/tasuku43/tobari/tree/2a0f0f3b0303f889cd42c581403e70ace7680894/authbroker)
 - [Gateway snapshot drift check](https://github.com/tasuku43/tobari/blob/2a0f0f3b0303f889cd42c581403e70ace7680894/scripts/check-gateway-source.sh)
-- [Auth Broker snapshot drift check](https://github.com/tasuku43/tobari/blob/2a0f0f3b0303f889cd42c581403e70ace7680894/scripts/check-authbroker-source.sh)
 
 ## Summary
 
-Tobari's behavior is a composition: Go validates and orchestrates, Docker realizes boundaries, Gateway enforces HTTP/TLS flow, OPA/Rego decide, Broker owns credential custody, and immutable OCI identities plus source/snapshot checks make the shipped runtime reviewable.
+Tobari's behavior is a composition: Go interprets the task, Docker enforces
+process boundaries, Gateway enforces the network path, OPA decides, and
+content-addressed images make the runtime reproducible.
 
-## Check your understanding
-
-You should now be able to connect a product claim to a concrete technology boundary.
-
-<details>
-  <summary>Why is OPA separate from Gateway?</summary>
-  OPA owns deterministic decision logic without forwarding or egress authority.
-  Gateway owns request/TLS/network enforcement and validates the decision
-  result.
-</details>
-
-<details>
-  <summary>
-    Why does Auth Broker use a Unix socket instead of a Workspace-facing HTTP
-    API?
-  </summary>
-  It narrows reachability to fixed host control operations and Gateway's runtime
-  mount. Workspace and OPA receive no socket or TCP route to the Broker.
-</details>
-
-<details>
-  <summary>
-    Does an immutable image digest prove the implementation is secure?
-  </summary>
-  No. It fixes the reviewed bytes and prevents moving-tag substitution. Safety
-  still depends on code, configuration, tests, trust assumptions, and the
-  runtime substrate.
-</details>
-
-If a product boundary is unclear, return to [System overview](/how-it-works/system-overview/). Next, see how the Go repository keeps those responsibilities separate in [Code architecture](/how-it-works/code-architecture/).
+Return to [System overview](/how-it-works/system-overview/) for the fixed
+topology. Next, inspect [HTTPS and TLS](/how-it-works/https-and-tls/).

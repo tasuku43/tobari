@@ -5,7 +5,7 @@ description: ランタイムの正本、埋め込みスナップショット、�
 
 import ConceptDiagram from "../../../../components/ConceptDiagram.astro";
 
-Tobari は Gateway、OPA、Auth Broker を、レビュー済みの変更されないイメージダイジェスト
+Tobari は Gateway と OPA を、レビュー済みの変更されないイメージダイジェスト
 から起動します。CLI が使う埋め込みランタイムのスナップショットと正本のソースが一致する
 ことを検査し、ランタイムのメタデータ、ライセンス、リポジトリの検証ゲートによって、
 公開またはリリース前の差分を拒否します。
@@ -20,12 +20,12 @@ Workspace のデフォルトランタイムは別の契約です。リリース�
 
 Go CLI は起動時に実行可能なポリシーや Python ソースをダウンロードせず、ランタイム
 ディレクトリを展開できる必要があります。編集する正本は、Gateway が `gateway/`、
-Auth Broker が `authbroker/`、ランタイムが `runtimes/base/` にあります。
+ランタイムが `runtimes/base/` にあります。
 埋め込み用にバイト列と内容の一致を検査する複製は、
-`internal/infra/runtimeassets/assets/` にあります。閉じた Auth Broker の image contract はレビュー済みの更新・署名コードを含みますが、provider executable が image に入ることを拒否します。
+`internal/infra/runtimeassets/assets/` にあります。Gateway とランタイムの image contract はレビュー済みの更新・署名コードを含み、未レビューの executable が image に入ることを拒否します。
 
-埋め込みの複製は二つ目の実装ではありません。`check-gateway-source.sh`、
-`check-authbroker-source.sh`、`check-runtime-base.sh` が正本との差分を拒否します。
+埋め込みの複製は二つ目の実装ではありません。`check-gateway-source.sh` と
+`check-runtime-base.sh` が正本との差分を拒否します。
 専用 Linux `tobari-expose` helper は、固定した Go builder と機械的に検査する
 source/module closure からこの base に組み込みます。host executable のコピーでも、
 二つ目の archive でもありません。`check-exposure-helper-source.sh` が closure の drift を拒否します。
@@ -33,9 +33,8 @@ source/module closure からこの base に組み込みます。host executable 
 
 ## 変更されない識別情報と更新される識別情報
 
-`versions.env` は OPA、mitmproxy のビルド元、Gateway、Auth Broker、Debian の
-ビルド元を `@sha256:` ダイジェストで固定します。Gateway と Auth Broker に架空の
-公開 SemVer は付けません。そのダイジェストがランタイムの完全一致の識別情報です。
+`versions.env` は OPA、mitmproxy のビルド元、Gateway、Debian のビルド元を `@sha256:`
+ダイジェストで固定します。そのダイジェストがランタイムの完全一致の識別情報です。
 読みやすい OPA と mitmproxy のバージョン文字列は、ダイジェストと組み合わせてリポジトリが
 宣言する情報です。
 
@@ -51,19 +50,19 @@ source/module closure からこの base に組み込みます。host executable 
 固定済み上流入力は、生成された[コンポーネントバージョン](../../reference/component-versions/)
 の表を正本として確認できます。
 
-このスナップショットでは、Gateway、Auth Broker、base Runtime の正本ソースと埋め込みの
+このスナップショットでは、Gateway と base Runtime の正本ソースと埋め込みの
 写しが完全な V1 image input です。image workflow は cache-only output で複数アーキテクチャの
 ビルドを検証します。ソースのテストが成功しても、ランタイムのバイト列は公開されません。
 
 ## ビルドとリリースの制御
 
-- Gateway、experimental Auth Broker、agent-ready base は固定済みソースまたは埋め込みアセットからローカルでビルドし、Tobari は公開しない
+- Gateway と agent-ready base は固定済みソースまたは埋め込みアセットからローカルでビルドし、Tobari は公開しない
 - 専用 image workflow は package-write 権限なしの cache-only output で Linux amd64 と arm64 を検証する
 - 外部ワークフローのアクションは完全なコミット SHA で固定する
 - リリースパッケージには CLI のバージョンとコミットを埋め込み、通常のビルドは `dev` のままにする
 - base Runtime のメタデータと統合 lock には、アーキテクチャ、API、寿命を保つコマンド、
   ツールのソース、チェックサムまたは署名、ライセンスの要件を記録する
-- Auth Broker image 検査では provider executable と public TCP listener がないことを確認する
+- Gateway とランタイムの image 検査では未レビュー executable と public TCP listener がないことを確認する
 - 公開・リリース用の検査は、リポジトリ境界、秘密情報、ライセンス、パッケージ入力、
   変更されないサービス参照を確認する。独立したコード署名、SBOM の証明、外部から
   検証できる来歴管理の仕組みまでを保証するものではない
@@ -72,8 +71,8 @@ source/module closure からこの base に組み込みます。host executable 
 
 必要な識別情報が存在しない、変更されないはずの参照が可変である、互換性がない、
 または検証できない場合は、状態調整を停止します。埋め込み成果物がない、または正本の
-ソースと一致しない場合は、リポジトリの検証ゲートが失敗します。ポリシーやプロバイダーの
-投影結果が不正、Broker がロック中または安全でない状態の場合、依存するサービスは
+ソースと一致しない場合は、リポジトリの検証ゲートが失敗します。ポリシーや外部サービスの
+投影結果が不正、ホストまたはランタイム状態が安全でない場合、依存するサービスは
 準備完了になりません。障害時に、レビューしていない別のイメージへ切り替えたり、
 スクリプトを動的にダウンロードしたりすることはありません。
 
@@ -134,8 +133,8 @@ source/module closure からこの base に組み込みます。host executable 
     </summary>
     <div class="prose-block">
       Tobari は固定済みレシピと完全性検査を配布し、ユーザーの Docker ホストで
-      ビルドします。Gateway と Auth Broker のサービスダイジェストと、検査済みの
-      ローカルランタイムダイジェストは別々の識別情報です。
+      ビルドします。Gateway
+      と検査済みのローカルランタイムダイジェストは別々の識別情報です。
     </div>
   </details>
   <details>

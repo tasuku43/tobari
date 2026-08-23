@@ -33,6 +33,10 @@ case "$goos/$goarch" in
 esac
 binary=$(go run ./tools/projectmeta --field binary_name)
 module=$(go run ./tools/projectmeta --field go_module)
+if [[ $binary != tobari || $binary == *research* ]]; then
+  echo "release packaging requires the canonical tobari program name" >&2
+  exit 1
+fi
 version=${tag#v}
 executable=$binary
 extension=tar.gz
@@ -69,7 +73,12 @@ env "${target_environment[@]}" go build -buildvcs=false -trimpath \
   -ldflags "-s -w -X main.version=${version} -X main.commit=${revision} -X ${module}/internal/infra/dockerruntime.localBaseRuntimeImage=${local_base_image}" \
   -o "$work_dir/$executable" "./cmd/$binary"
 
-go version -m "$work_dir/$executable" | grep -F "$module" >/dev/null
+module_metadata=$(go version -m "$work_dir/$executable")
+printf '%s\n' "$module_metadata" | grep -F "$module" >/dev/null
+if printf '%s\n' "$module_metadata" | grep -Eq 'tobari_research|tobari-research'; then
+  echo "release executable contains research-surface build metadata" >&2
+  exit 1
+fi
 
 host_os=$(go env GOHOSTOS)
 host_arch=$(go env GOHOSTARCH)
@@ -77,7 +86,7 @@ if [[ $goos == "$host_os" && $goarch == "$host_arch" ]]; then
 	# shellcheck disable=SC1091
 	compatible=true
 	actual=$("$work_dir/$executable" version --format json)
-	expected=$(printf '{"schema_version":1,"build_identity":{"version":"%s","commit":"%s","resolver_channel":"embedded","development_source":false,"capability_profile":"standard","gateway_required_api":%s,"gateway_selected_api":%s,"compatible":%s,"development_build_command":"","development_binary":""}}' \
+	expected=$(printf '{"schema_version":1,"build_identity":{"version":"%s","commit":"%s","resolver_channel":"embedded","development_source":false,"capability_surface":"release","gateway_required_api":%s,"gateway_selected_api":%s,"compatible":%s,"development_build_command":"","development_binary":""}}' \
 		"$version" "$revision" "$gateway_source_api" "$gateway_source_api" "$compatible")
 	if [[ $actual != "$expected" ]]; then
 		echo "build identity output = $actual, want $expected" >&2

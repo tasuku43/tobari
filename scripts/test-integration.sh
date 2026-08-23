@@ -795,7 +795,7 @@ else
     --build-arg "MITMPROXY_IMAGE=$mitmproxy_image" \
     --build-arg "TARGETARCH=$auth_target_arch" \
     authbroker >/dev/null
-  go build -tags='tobari_dev tobari_experimental' -buildvcs=false -trimpath -o "$binary" ./cmd/tobari
+  go build -tags='tobari_dev tobari_research' -buildvcs=false -trimpath -o "$binary" ./cmd/tobari
 fi
 docker build --tag "$gateway_fixture_image" --file test/integration/gateway-auth.Dockerfile \
   --build-arg "TOBARI_GATEWAY_BASE=$gateway_wrapper_base" \
@@ -808,8 +808,8 @@ actual_gateway_ca_digest=$(docker run --rm --entrypoint sha256sum "$gateway_dev_
 docker run --rm --entrypoint sh "$gateway_dev_tag" -eu -c 'certifi_bundle=$(python3 -c "import certifi; print(certifi.where())")
   openssl verify -CAfile "$certifi_bundle" /usr/local/share/ca-certificates/tobari-integration.crt >/dev/null
 ' || fail "Gateway TLS fixture does not trust the run-local CA"
-go version -m "$binary" | grep -F $'build\t-tags=tobari_dev,tobari_experimental' >/dev/null ||
-  fail "integration binary does not use the experimental capability profile"
+go version -m "$binary" | grep -F $'build\t-tags=tobari_dev,tobari_research' >/dev/null ||
+  fail "integration binary does not use the research capability surface"
 binary_digest=$(shasum -a 256 "$binary" | awk '{print $1}')
 work_root=$test_root/user/workspace
 other_root=$test_root/user/other-workspace

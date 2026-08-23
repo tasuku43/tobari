@@ -106,9 +106,9 @@ func (o *runtimeBuildOutput) WriteFailureSummary() {
 
 	_, _ = io.WriteString(o.out, "Next:\n")
 	if o.metadata.Selection == tobari.RuntimeBuildSelectionUnchanged {
-		_, _ = io.WriteString(o.out, "  Fix the Dockerfile or Docker problem, then run:\n  tobari runtime build\n")
+		_, _ = fmt.Fprintf(o.out, "  Fix the Dockerfile or Docker problem, then run:\n  %s\n", invocationForPath("runtime build"))
 	} else {
-		_, _ = io.WriteString(o.out, "  Inspect the selected Workspace Manifest with:\n  tobari manifest show\n")
+		_, _ = fmt.Fprintf(o.out, "  Inspect the selected Workspace Manifest with:\n  %s\n", invocationForPath("manifest show"))
 	}
 }
 

@@ -69,15 +69,15 @@ func TestContextCreatePresentationUsesContextShowStructure(t *testing.T) {
 	if answer.SchemaVersion != 1 || answer.Task != fixture.Task ||
 		answer.SelectedContext.ID != fixture.ID || answer.SelectedContext.Name != fixture.Name ||
 		answer.SelectedContext.Default != fixture.Default ||
-		!slices.Equal(answer.ExactNextArgv, contextCreateNextArgv(fixture)) ||
-		!slices.Equal(answer.ExactDetailsArgv, exactDetailsArgv) ||
+		!slices.Equal(expectedSurfaceArgv(answer.ExactNextArgv), contextCreateNextArgv(fixture)) ||
+		!slices.Equal(expectedSurfaceArgv(answer.ExactDetailsArgv), exactDetailsArgv) ||
 		answer.RoutineSuccess.TaskInvocations != 1 || answer.RoutineSuccess.ExternalReconstructionSteps != 0 {
 		t.Fatalf("answer does not match typed fixture: answer=%+v fixture=%+v", answer, fixture)
 	}
-	if routed := assertPublicNextArgvRoutes(t, answer.ExactNextArgv); routed.Path != "tobari" {
+	if routed := assertPublicNextArgvRoutes(t, expectedSurfaceArgv(answer.ExactNextArgv)); routed.Path != "tobari" {
 		t.Fatalf("create continuation routes to %q, want root entry", routed.Path)
 	}
-	if routed := assertPublicNextArgvRoutes(t, answer.ExactDetailsArgv); routed.Path != "manifest show" {
+	if routed := assertPublicNextArgvRoutes(t, expectedSurfaceArgv(answer.ExactDetailsArgv)); routed.Path != "manifest show" {
 		t.Fatalf("details continuation routes to %q, want context show", routed.Path)
 	}
 
@@ -89,15 +89,15 @@ func TestContextCreatePresentationUsesContextShowStructure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := renderContextCreateSummaryText(fixture, false); !slices.Equal(got, summary) {
+	if got := renderContextCreateSummaryText(fixture, false); !slices.Equal(got, []byte(expectedSurfaceText(string(summary)))) {
 		t.Fatalf("Workspace Manifest create summary changed\n--- got ---\n%s--- want ---\n%s", got, summary)
 	}
-	if got := renderContextReportText(fixture, false); !slices.Equal(got, summary) {
+	if got := renderContextReportText(fixture, false); !slices.Equal(got, []byte(expectedSurfaceText(string(summary)))) {
 		t.Fatalf("Workspace Manifest create did not route through the structured summary\n--- got ---\n%s--- want ---\n%s", got, summary)
 	}
 
 	for _, fact := range answer.RequiredSummaryFacts {
-		if !strings.Contains(string(summary), fact) {
+		if !strings.Contains(expectedSurfaceText(string(summary)), expectedSurfaceText(fact)) {
 			t.Fatalf("summary omits required semantic fact %q: %q", fact, summary)
 		}
 	}
@@ -111,7 +111,7 @@ func TestContextCreatePresentationUsesContextShowStructure(t *testing.T) {
 	}
 	details := renderContextShowDetailsText(detailsFixture, false)
 	for _, fact := range answer.DetailOnlyFacts {
-		if strings.Contains(string(summary), fact) || !strings.Contains(string(before), fact) || !strings.Contains(string(details), fact) {
+		if strings.Contains(expectedSurfaceText(string(summary)), expectedSurfaceText(fact)) || !strings.Contains(expectedSurfaceText(string(before)), expectedSurfaceText(fact)) || !strings.Contains(expectedSurfaceText(string(details)), expectedSurfaceText(fact)) {
 			t.Fatalf("diagnostic fact %q was not isolated behind the details command: before=%q summary=%q details=%q", fact, before, summary, details)
 		}
 	}
