@@ -70,7 +70,7 @@ test.describe("task-first documentation flow", () => {
     ).toBeVisible();
     await expect(
       page.getByRole("heading", {
-        name: "4. Select the revision for a Context",
+        name: "4. Select the revision for a Workspace Manifest",
       }),
     ).toBeVisible();
     await expect(

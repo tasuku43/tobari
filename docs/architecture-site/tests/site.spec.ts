@@ -525,29 +525,28 @@ test("360px mobile layout has no page-level horizontal overflow", async ({
   ).toBe(true);
 });
 
-test("a pinned schema-1 snapshot names unavailable fault classifications instead of rendering blanks", async ({
+test("the current Catalog snapshot renders declared fault classifications", async ({
   page,
 }) => {
   await page.goto("reference/faults-and-recovery/");
   await page.locator(".fault-reference details summary").first().click();
-  await expect(
-    page.getByText("Not declared by this source snapshot").first(),
-  ).toBeVisible();
+  const state = page.locator(".fault-reference details ul > li > div").first();
+  await expect(state).toContainText("Phase and change state:");
+  await expect(state.locator("code")).toHaveText(["precondition", "none"]);
   await expect(page.locator(".fault-reference code:empty")).toHaveCount(0);
 
   await page.goto("reference/cli/");
-  await page
+  const commandDetailsSummary = page
     .getByText(
       "Output, prerequisites, failures, references, and mutation contract",
       { exact: true },
     )
-    .first()
-    .click();
+    .first();
+  const commandDetails = commandDetailsSummary.locator("xpath=..");
+  await commandDetailsSummary.click();
   await expect(
-    page
-      .getByText(
-        "phase and change state are not declared by this source snapshot",
-      )
+    commandDetails
+      .getByText(/observation; not_applicable; do not repeat unchanged/)
       .first(),
   ).toBeVisible();
 });
