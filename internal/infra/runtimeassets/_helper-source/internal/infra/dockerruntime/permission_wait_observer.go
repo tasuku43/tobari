@@ -45,7 +45,7 @@ func (r *Runtime) ObservePermissionDisposition(
 	if err != nil {
 		return "", false, fmt.Errorf("encode permission policy input: %w", err)
 	}
-	expression := `revision := http.send({"method":"get","url":"http://127.0.0.1:8181/v1/data/tobari/aggregate_revision"}); revision.status_code == 200; decision := http.send({"method":"post","url":"http://127.0.0.1:8181/v1/data/tobari/http/decision","headers":{"content-type":"application/json"},"body":{"input":` + string(encoded) + `}}); decision.status_code == 200; object.get(decision.body, "result", null) != null; {"revision":revision.body.result,"decision":decision.body.result}`
+	expression := `[result | observation := http.send({"method":"post","url":"http://127.0.0.1:8181/v1/data/tobari/http/permission_wait_observation","headers":{"content-type":"application/json"},"body":{"input":` + string(encoded) + `}}); observation.status_code == 200; object.get(observation.body, "result", null) != null; result := observation.body.result][0]`
 	output, err := r.runner.Output(ctx, []string{
 		"exec", opaContainer, "/opa", "eval", "--fail", "--format", "raw", expression,
 	}, os.Environ())

@@ -441,6 +441,10 @@ func (r *Runtime) observeAppliedClusterComponent(
 	if component == "gateway" && observation.Role != gatewayRole {
 		return appliedClusterComponentObservation{}, false, fmt.Errorf("Gateway enforcement role is invalid")
 	}
+	// Docker does not contractually preserve inspect mount order. The applied
+	// authority is the exact destination set, so normalize that set before the
+	// two-pass identity fence without weakening element drift detection.
+	slices.Sort(observation.MountDestinations)
 	observation.NetworkAddresses = make(map[string]string, len(observation.Networks))
 	for network, raw := range observation.Networks {
 		var endpoint struct {
