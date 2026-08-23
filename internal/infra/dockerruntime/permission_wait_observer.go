@@ -5,9 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net/url"
+	"io"
 	"os"
-	"strings"
 
 	"github.com/tasuku43/tobari/internal/domain/tobari"
 )
@@ -73,16 +72,8 @@ func (r *Runtime) ObservePermissionDisposition(
 }
 
 func permissionPolicyInput(record tobari.PermissionWaitRecord) (map[string]any, error) {
-	segments := make([]string, 0)
-	for _, encoded := range strings.Split(record.Effect.Path, "/") {
-		if encoded == "" {
-			continue
-		}
-		decoded, err := url.PathUnescape(encoded)
-		if err != nil {
-			return nil, fmt.Errorf("permission wait effect path encoding is invalid")
-		}
-		segments = append(segments, decoded)
+	if err := record.Validate(); err != nil {
+		return nil, fmt.Errorf("validate permission policy input: %w", err)
 	}
 	return map[string]any{
 		"schema_version": 1,
@@ -95,7 +86,7 @@ func permissionPolicyInput(record tobari.PermissionWaitRecord) (map[string]any, 
 				"scheme": record.Effect.Scheme, "host": record.Effect.Host, "port": record.Effect.Port,
 			},
 			"method":  record.Effect.Method,
-			"path":    map[string]any{"raw": record.Effect.Path, "segments": segments},
+			"path":    map[string]any{"raw": record.Effect.Path, "segments": append([]string{}, record.Effect.Segments...)},
 			"query":   map[string]any{},
 			"headers": map[string]any{},
 		},
@@ -111,7 +102,7 @@ func parsePermissionPolicyObservation(data []byte) (permissionPolicyObservation,
 		return permissionPolicyObservation{}, fmt.Errorf("decode active permission policy: %w", err)
 	}
 	var trailing any
-	if err := decoder.Decode(&trailing); err == nil {
+	if err := decoder.Decode(&trailing); err != io.EOF {
 		return permissionPolicyObservation{}, fmt.Errorf("active permission policy contains trailing data")
 	}
 	if result.Revision == "" || result.Decision.Reason == "" || result.Decision.StatusCode < 100 || result.Decision.StatusCode > 599 {

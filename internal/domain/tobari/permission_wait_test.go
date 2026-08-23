@@ -19,11 +19,51 @@ func permissionWaitRecordFixture() PermissionWaitRecord {
 		AttachmentID:               "att_0123456789abcdef0123456789abcdef",
 		Effect: PermissionWaitEffect{
 			Scheme: "https", Host: "api.example.com", Port: 443,
-			Method: "POST", Path: "/v1/items/42",
+			Method: "POST", Path: "/v1/items/42", Segments: []string{"v1", "items", "42"},
 		},
 		CreatedAt: "2026-08-23T00:00:00Z",
 		ExpiresAt: "2026-08-23T00:15:00Z",
 	}
+}
+
+func TestPermissionWaitPathNormalizationMatchesGatewayStrictSubset(t *testing.T) {
+	for name, test := range map[string]struct {
+		path string
+		want []string
+	}{
+		"encoded slash":          {"/items/a%2Fb", []string{"items", "a/b"}},
+		"empty repeated and dot": {"//a/./../b//", []string{"a", ".", "..", "b"}},
+		"unicode":                {"/%E3%81%82", []string{"あ"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			got, err := NormalizePermissionWaitPath(test.path)
+			if err != nil || !equalStrings(got, test.want) {
+				t.Fatalf("NormalizePermissionWaitPath(%q) = %v, %v", test.path, got, err)
+			}
+		})
+	}
+	for _, path := range []string{"/bad%", "/bad%2", "/bad%zz", "/bad%ff", "/bad%C3%28"} {
+		if _, err := NormalizePermissionWaitPath(path); err == nil {
+			t.Fatalf("ambiguous path accepted: %q", path)
+		}
+	}
+	fixture := permissionWaitRecordFixture()
+	fixture.Effect.Segments = []string{"v1", "items", "sibling"}
+	if err := fixture.Validate(); err == nil {
+		t.Fatal("sibling path segments passed record validation")
+	}
+}
+
+func equalStrings(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		if left[index] != right[index] {
+			return false
+		}
+	}
+	return true
 }
 
 func TestPermissionWaitIDUsesExactCorrelationShape(t *testing.T) {
@@ -134,5 +174,34 @@ func TestPermissionWaitAttemptStateCountsReconnectWithoutFalseConsumption(t *tes
 	}
 	if _, err := consumed.StartAttempt(); err == nil {
 		t.Fatal("consumed record was reused")
+	}
+}
+
+func TestInteractiveAttachmentSessionRegistryRequiresOneBoundedOwner(t *testing.T) {
+	session := InteractiveAttachmentSession{
+		SchemaVersion:              PermissionSessionSchema,
+		WorkspaceManifestID:        "018f3f18-7a3b-7abc-8def-0123456789ab",
+		WorkspaceID:                "018f3f18-7a3b-7abc-8def-0123456789ac",
+		AttachmentID:               "att_0123456789abcdef0123456789abcdef",
+		HostLoopbackRouteID:        "hlr_0123456789abcdef0123456789abcdef",
+		FrozenPrincipalFingerprint: strings.Repeat("c", 64), OwnerPID: 42,
+		IngestionPort: 23456, IngestionNonce: strings.Repeat("d", 64),
+		CreatedAt: "2026-08-23T00:00:00Z", ExpiresAt: "2026-08-23T00:00:30Z",
+	}
+	registry := InteractiveAttachmentSessionRegistry{SchemaVersion: PermissionSessionSchema, Sessions: []InteractiveAttachmentSession{session}}
+	if err := registry.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	duplicate := session
+	duplicate.AttachmentID = "att_ffffffffffffffffffffffffffffffff"
+	duplicate.HostLoopbackRouteID = "hlr_ffffffffffffffffffffffffffffffff"
+	registry.Sessions = append(registry.Sessions, duplicate)
+	if err := registry.Validate(); err == nil {
+		t.Fatal("multiple owners for one Manifest/Workspace passed validation")
+	}
+	registry.Sessions = []InteractiveAttachmentSession{session}
+	registry.Sessions[0].ExpiresAt = "2026-08-23T00:00:30.000000001Z"
+	if err := registry.Validate(); err == nil {
+		t.Fatal("overlong owner lease passed validation")
 	}
 }

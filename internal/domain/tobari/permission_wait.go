@@ -1,11 +1,14 @@
 package tobari
 
 import (
+	"bytes"
 	"encoding/hex"
 	"fmt"
 	"io"
 	"regexp"
+	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 const (
@@ -15,6 +18,8 @@ const (
 	PermissionWaitMaxAttempts   = 3
 	PermissionWaitRequestLimit  = 4 * 1024
 	PermissionWaitResponseLimit = 1024
+	PermissionSessionLease      = 30 * time.Second
+	PermissionSessionSchema     = 2
 
 	PermissionWaitResultAllow   PermissionWaitResult = "allow"
 	PermissionWaitResultDeny    PermissionWaitResult = "deny"
@@ -24,6 +29,7 @@ const (
 var (
 	permissionWaitIDPattern        = regexp.MustCompile(`^pwt_[0-9a-f]{32}$`)
 	permissionWaitPrincipalPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
+	permissionSessionNoncePattern  = regexp.MustCompile(`^[0-9a-f]{64}$`)
 )
 
 // PermissionWaitResult is the complete successful helper result vocabulary.
@@ -37,6 +43,74 @@ func (r PermissionWaitResult) Validate() error {
 	default:
 		return fmt.Errorf("permission wait result is invalid")
 	}
+}
+
+// InteractiveAttachmentSession is the bounded private successor registry
+// record for the one canonical interactive owner. It is not a public resource.
+type InteractiveAttachmentSession struct {
+	SchemaVersion              int    `json:"schema_version"`
+	WorkspaceManifestID        string `json:"workspace_manifest_id"`
+	WorkspaceID                string `json:"workspace_id"`
+	AttachmentID               string `json:"attachment_id"`
+	HostLoopbackRouteID        string `json:"host_loopback_route_id"`
+	FrozenPrincipalFingerprint string `json:"frozen_principal_fingerprint"`
+	OwnerPID                   int    `json:"owner_pid"`
+	IngestionPort              int    `json:"ingestion_port"`
+	IngestionNonce             string `json:"ingestion_nonce"`
+	CreatedAt                  string `json:"created_at"`
+	ExpiresAt                  string `json:"expires_at"`
+}
+
+func (s InteractiveAttachmentSession) Validate() error {
+	if s.SchemaVersion != PermissionSessionSchema {
+		return fmt.Errorf("interactive attachment session schema is invalid")
+	}
+	if ValidateWorkspaceManifestID(s.WorkspaceManifestID) != nil || ValidateWorkspaceID(s.WorkspaceID) != nil || ValidateAttachmentEpochID(s.AttachmentID) != nil {
+		return fmt.Errorf("interactive attachment session identity is invalid")
+	}
+	if !hostLoopbackRoutePattern.MatchString(s.HostLoopbackRouteID) || !permissionWaitPrincipalPattern.MatchString(s.FrozenPrincipalFingerprint) {
+		return fmt.Errorf("interactive attachment session join is invalid")
+	}
+	if s.OwnerPID < 1 || s.IngestionPort < 1 || s.IngestionPort > 65535 || !permissionSessionNoncePattern.MatchString(s.IngestionNonce) {
+		return fmt.Errorf("interactive attachment session owner endpoint is invalid")
+	}
+	created, err := time.Parse(time.RFC3339Nano, s.CreatedAt)
+	if err != nil {
+		return fmt.Errorf("interactive attachment session creation time is invalid")
+	}
+	expires, err := time.Parse(time.RFC3339Nano, s.ExpiresAt)
+	if err != nil || !expires.After(created) || expires.Sub(created) > PermissionSessionLease {
+		return fmt.Errorf("interactive attachment session lease is invalid")
+	}
+	return nil
+}
+
+type InteractiveAttachmentSessionRegistry struct {
+	SchemaVersion int                            `json:"schema_version"`
+	Sessions      []InteractiveAttachmentSession `json:"sessions"`
+}
+
+func (r InteractiveAttachmentSessionRegistry) Validate() error {
+	if r.SchemaVersion != PermissionSessionSchema || r.Sessions == nil || len(r.Sessions) > 128 {
+		return fmt.Errorf("interactive attachment session registry is invalid")
+	}
+	pairs := make(map[string]struct{}, len(r.Sessions))
+	epochs := make(map[string]struct{}, len(r.Sessions))
+	for _, session := range r.Sessions {
+		if err := session.Validate(); err != nil {
+			return err
+		}
+		pair := session.WorkspaceManifestID + "\x00" + session.WorkspaceID
+		if _, exists := pairs[pair]; exists {
+			return fmt.Errorf("interactive attachment session owner is ambiguous")
+		}
+		if _, exists := epochs[session.AttachmentID]; exists {
+			return fmt.Errorf("interactive attachment session epoch is duplicated")
+		}
+		pairs[pair] = struct{}{}
+		epochs[session.AttachmentID] = struct{}{}
+	}
+	return nil
 }
 
 // PermissionWaitAccessState is the pure per-record concurrency and reconnect
@@ -105,11 +179,12 @@ func ValidatePermissionWaitID(value string) error {
 // PermissionWaitEffect is one exact normalized ordinary external HTTP effect.
 // Protocol-derived identities and Host Loopback are deliberately unrepresentable.
 type PermissionWaitEffect struct {
-	Scheme string `json:"scheme"`
-	Host   string `json:"host"`
-	Port   int    `json:"port"`
-	Method string `json:"method"`
-	Path   string `json:"path"`
+	Scheme   string   `json:"scheme"`
+	Host     string   `json:"host"`
+	Port     int      `json:"port"`
+	Method   string   `json:"method"`
+	Path     string   `json:"path"`
+	Segments []string `json:"segments"`
 }
 
 func (e PermissionWaitEffect) Validate() error {
@@ -128,7 +203,55 @@ func (e PermissionWaitEffect) Validate() error {
 	if err := validatePolicyPath(e.Path); err != nil {
 		return fmt.Errorf("permission wait effect path: %w", err)
 	}
+	segments, err := NormalizePermissionWaitPath(e.Path)
+	if err != nil {
+		return err
+	}
+	if e.Segments == nil || len(e.Segments) != len(segments) {
+		return fmt.Errorf("permission wait effect segments do not match the path")
+	}
+	for index := range segments {
+		if e.Segments[index] != segments[index] {
+			return fmt.Errorf("permission wait effect segments do not match the path")
+		}
+	}
 	return nil
+}
+
+// NormalizePermissionWaitPath defines the strict subset for which Go and
+// Gateway can bind byte-equivalent ordinary HTTP path segments. Gateway's
+// urllib.parse.unquote preserves malformed percent escapes and replaces invalid
+// UTF-8; those ambiguous inputs are deliberately unsupported for resume.
+func NormalizePermissionWaitPath(path string) ([]string, error) {
+	result := make([]string, 0)
+	for _, segment := range strings.Split(path, "/") {
+		if segment == "" {
+			continue
+		}
+		decoded := make([]byte, 0, len(segment))
+		for index := 0; index < len(segment); index++ {
+			if segment[index] != '%' {
+				decoded = append(decoded, segment[index])
+				continue
+			}
+			if index+2 >= len(segment) {
+				return nil, fmt.Errorf("permission wait effect path has an invalid percent escape")
+			}
+			var pair [1]byte
+			if _, err := hex.Decode(pair[:], []byte(segment[index+1:index+3])); err != nil {
+				return nil, fmt.Errorf("permission wait effect path has an invalid percent escape")
+			}
+			decoded = append(decoded, pair[0])
+			index += 2
+		}
+		if !utf8.Valid(decoded) || bytes.IndexFunc(decoded, func(r rune) bool {
+			return r < ' ' || r == '\u007f' || r == '\u2028' || r == '\u2029'
+		}) >= 0 {
+			return nil, fmt.Errorf("permission wait effect path segment is invalid UTF-8")
+		}
+		result = append(result, string(decoded))
+	}
+	return result, nil
 }
 
 // PermissionWaitRecord is the immutable schema-2 owner-ingestion record. The

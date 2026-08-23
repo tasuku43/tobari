@@ -2,6 +2,7 @@ package dockerruntime
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"os"
@@ -50,7 +51,7 @@ func permissionWaitRecordFixtureForInfra() tobari.PermissionWaitRecord {
 		WorkspaceManifestID:        "01912345-6789-7abc-8def-0123456789ad",
 		WorkspaceID:                "01912345-6789-7abc-8def-0123456789ab",
 		AttachmentID:               "att_0123456789abcdef0123456789abcdef",
-		Effect:                     tobari.PermissionWaitEffect{Scheme: "https", Host: "api.example.com", Port: 443, Method: "GET", Path: "/items/a%20b"},
+		Effect:                     tobari.PermissionWaitEffect{Scheme: "https", Host: "api.example.com", Port: 443, Method: "GET", Path: "/items/a%20b", Segments: []string{"items", "a b"}},
 		CreatedAt:                  "2026-08-23T00:00:00Z", ExpiresAt: "2026-08-23T00:15:00Z",
 	}
 }
@@ -110,5 +111,45 @@ func TestPermissionObserverFailsOnUnavailableOrMalformedOPA(t *testing.T) {
 	runner.err = os.ErrDeadlineExceeded
 	if _, _, err := runtime.ObservePermissionDisposition(context.Background(), record); err == nil || strings.Contains(err.Error(), "canary-private-output") {
 		t.Fatalf("OPA failure = %v", err)
+	}
+}
+
+func TestPermissionPolicyObservationRequiresExactDocumentEnd(t *testing.T) {
+	valid := `{"revision":"` + strings.Repeat("a", 64) + `","decision":{"allow":true,"reason":"allowed by Context policy","status_code":403,"learnable":false}}`
+	for name, document := range map[string]string{
+		"whitespace":     valid + " \n\t",
+		"second value":   valid + ` {}`,
+		"malformed tail": valid + ` {`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := parsePermissionPolicyObservation([]byte(document))
+			if name == "whitespace" && err != nil {
+				t.Fatalf("valid whitespace rejected: %v", err)
+			}
+			if name != "whitespace" && err == nil {
+				t.Fatal("trailing OPA data passed")
+			}
+		})
+	}
+}
+
+func TestPermissionObserverUsesBoundGatewaySegmentsWithoutSiblingReconstruction(t *testing.T) {
+	record := permissionWaitRecordFixtureForInfra()
+	record.Effect.Path = "/a%2Fb//./../%E3%81%82"
+	record.Effect.Segments = []string{"a/b", ".", "..", "あ"}
+	input, err := permissionPolicyInput(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, _ := json.Marshal(input)
+	if !strings.Contains(string(encoded), `"raw":"/a%2Fb//./../%E3%81%82"`) || !strings.Contains(string(encoded), `"segments":["a/b",".","..","あ"]`) {
+		t.Fatalf("policy input diverged from bound effect: %s", encoded)
+	}
+	for _, path := range []string{"/bad%", "/bad%ff"} {
+		record.Effect.Path = path
+		record.Effect.Segments = []string{"bad"}
+		if _, err := permissionPolicyInput(record); err == nil {
+			t.Fatalf("unrepresentable Gateway path accepted: %q", path)
+		}
 	}
 }
