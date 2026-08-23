@@ -8,6 +8,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -292,18 +294,20 @@ const (
 	appliedClusterScanTimeout    = 7 * time.Second
 )
 
-const appliedClusterInspectTemplate = `{"container_id":{{json .Id}},"owner":{{json (index .Config.Labels "io.tobari.owner")}},"component":{{json (index .Config.Labels "io.tobari.component")}},"role":{{json (index .Config.Labels "io.tobari.gateway-role")}},"image_id":{{json .Image}},"state":{{json .State.Status}},"health":{{if .State.Health}}{{json .State.Health.Status}}{{else}}"none"{{end}},"environment":{{json .Config.Env}},"mount_destinations":[{{range $index,$mount := .Mounts}}{{if $index}},{{end}}{{json $mount.Destination}}{{end}}]}`
+const appliedClusterInspectTemplate = `{"container_id":{{json .Id}},"owner":{{json (index .Config.Labels "io.tobari.owner")}},"component":{{json (index .Config.Labels "io.tobari.component")}},"role":{{json (index .Config.Labels "io.tobari.gateway-role")}},"image_id":{{json .Image}},"state":{{json .State.Status}},"health":{{if .State.Health}}{{json .State.Health.Status}}{{else}}"none"{{end}},"environment":{{json .Config.Env}},"mount_destinations":[{{range $index,$mount := .Mounts}}{{if $index}},{{end}}{{json $mount.Destination}}{{end}}],"networks":{{json .NetworkSettings.Networks}}}`
 
 type appliedClusterComponentObservation struct {
-	ContainerID       string   `json:"container_id"`
-	Owner             string   `json:"owner"`
-	Component         string   `json:"component"`
-	Role              string   `json:"role"`
-	ImageID           string   `json:"image_id"`
-	State             string   `json:"state"`
-	Health            string   `json:"health"`
-	Environment       []string `json:"environment"`
-	MountDestinations []string `json:"mount_destinations"`
+	ContainerID       string                     `json:"container_id"`
+	Owner             string                     `json:"owner"`
+	Component         string                     `json:"component"`
+	Role              string                     `json:"role"`
+	ImageID           string                     `json:"image_id"`
+	State             string                     `json:"state"`
+	Health            string                     `json:"health"`
+	Environment       []string                   `json:"environment"`
+	MountDestinations []string                   `json:"mount_destinations"`
+	Networks          map[string]json.RawMessage `json:"networks"`
+	NetworkAddresses  map[string]string          `json:"-"`
 }
 
 type appliedClusterSnapshot struct {
@@ -382,7 +386,8 @@ func sameAppliedClusterComponent(left, right appliedClusterComponentObservation)
 		left.Component == right.Component && left.Role == right.Role &&
 		left.ImageID == right.ImageID && left.State == right.State && left.Health == right.Health &&
 		slices.Equal(left.Environment, right.Environment) &&
-		slices.Equal(left.MountDestinations, right.MountDestinations)
+		slices.Equal(left.MountDestinations, right.MountDestinations) &&
+		maps.Equal(left.NetworkAddresses, right.NetworkAddresses)
 }
 
 func (r *Runtime) observeAppliedClusterComponent(
@@ -434,6 +439,20 @@ func (r *Runtime) observeAppliedClusterComponent(
 	}
 	if component == "gateway" && observation.Role != gatewayRole {
 		return appliedClusterComponentObservation{}, false, fmt.Errorf("Gateway enforcement role is invalid")
+	}
+	observation.NetworkAddresses = make(map[string]string, len(observation.Networks))
+	for network, raw := range observation.Networks {
+		var endpoint struct {
+			IPAddress string `json:"IPAddress"`
+		}
+		if err := json.Unmarshal(raw, &endpoint); err != nil {
+			return appliedClusterComponentObservation{}, false, fmt.Errorf("decode %s network endpoint: %w", component, err)
+		}
+		address, err := netip.ParseAddr(endpoint.IPAddress)
+		if err != nil || !address.Is4() || !address.IsGlobalUnicast() {
+			return appliedClusterComponentObservation{}, false, fmt.Errorf("%s network endpoint is invalid", component)
+		}
+		observation.NetworkAddresses[network] = address.String()
 	}
 	return observation, false, nil
 }

@@ -24,6 +24,7 @@ const (
 )
 
 type gatewayImageMetadata struct {
+	ID           string   `json:"Id"`
 	RepoDigests  []string `json:"RepoDigests"`
 	Architecture string   `json:"Architecture"`
 	OS           string   `json:"Os"`
@@ -39,20 +40,21 @@ type dockerServerMetadata struct {
 	OS           string `json:"Os"`
 }
 
-func (r *Runtime) prepareGatewayImage(ctx context.Context) (string, error) {
+func (r *Runtime) prepareGatewayImage(ctx context.Context) (string, string, error) {
 	selection, err := r.imageResolver().GatewayImage(ctx, r)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	if selection.BuildIfMissing {
 		if err := r.ensureLocalGatewayImage(ctx, selection.Image); err != nil {
-			return "", err
+			return "", "", err
 		}
 	}
-	if err := r.verifyGatewayImage(ctx, selection.Image, selection.RequireDigest); err != nil {
-		return "", err
+	identity, err := r.verifyGatewayImage(ctx, selection.Image, selection.RequireDigest)
+	if err != nil {
+		return "", "", err
 	}
-	return selection.Image, nil
+	return selection.Image, identity, nil
 }
 
 func (r *Runtime) ensureLocalGatewayImage(ctx context.Context, image string) error {
@@ -89,10 +91,10 @@ func (r *Runtime) ensureLocalGatewayImage(ctx context.Context, image string) err
 	return nil
 }
 
-func (r *Runtime) verifyGatewayImage(ctx context.Context, image string, requireDigest bool) error {
+func (r *Runtime) verifyGatewayImage(ctx context.Context, image string, requireDigest bool) (string, error) {
 	if requireDigest {
 		if err := validateGatewayImageReference(image); err != nil {
-			return fault.Wrap(
+			return "", fault.Wrap(
 				fault.KindContract, "gateway_image_incompatible",
 				"The configured Gateway image is not an immutable digest reference.", false, err,
 				fault.NextAction{Command: "doctor", Reason: "Inspect the installed Gateway image configuration."},
@@ -103,7 +105,7 @@ func (r *Runtime) verifyGatewayImage(ctx context.Context, image string, requireD
 	metadata, err := r.inspectGatewayImage(ctx, image)
 	if err != nil && requireDigest {
 		if _, pullErr := r.runner.Output(ctx, []string{"pull", image}, os.Environ()); pullErr != nil {
-			return fault.Wrap(
+			return "", fault.Wrap(
 				fault.KindUnavailable, "gateway_image_unavailable",
 				"The verified Gateway image could not be obtained; check Docker registry access and retry.", true, pullErr,
 				fault.NextAction{Command: "doctor", Reason: "Inspect Docker and registry access."},
@@ -114,13 +116,13 @@ func (r *Runtime) verifyGatewayImage(ctx context.Context, image string, requireD
 	}
 	if err != nil {
 		if !requireDigest {
-			return fault.Wrap(
+			return "", fault.Wrap(
 				fault.KindUnavailable, "gateway_image_unavailable",
 				"The selected local Gateway image could not be inspected.", true, err,
 				fault.NextAction{Command: "doctor", Reason: "Inspect Docker image availability."},
 			)
 		}
-		return fault.Wrap(
+		return "", fault.Wrap(
 			fault.KindContract, "gateway_image_incompatible",
 			"The Gateway image does not satisfy Tobari's verified image contract.", false, err,
 			fault.NextAction{Command: "doctor", Reason: "Inspect the installed Gateway image configuration."},
@@ -128,33 +130,40 @@ func (r *Runtime) verifyGatewayImage(ctx context.Context, image string, requireD
 	}
 
 	if requireDigest && !hasDigest(metadata.RepoDigests, image) {
-		return fault.New(
+		return "", fault.New(
 			fault.KindContract, "gateway_image_incompatible",
 			"The Gateway image did not resolve to the configured immutable digest.", false,
 			fault.NextAction{Command: "doctor", Reason: "Inspect the installed Gateway image configuration."},
 		)
 	}
+	if !imageIDPattern.MatchString(metadata.ID) {
+		return "", fault.New(
+			fault.KindContract, "gateway_image_incompatible",
+			"The Gateway image does not expose a stable content identity.", false,
+			fault.NextAction{Command: "doctor", Reason: "Inspect the installed Gateway image contract."},
+		)
+	}
 	labels := metadata.Config.Labels
 	selectedAPI := parseAPIOrZero(labels[gatewayAPIKey])
 	if selectedAPI != buildidentity.RequiredGatewayAPI {
-		return r.incompatibleComponentAPI("Gateway", selectedAPI, buildidentity.RequiredGatewayAPI, "gateway_image_incompatible")
+		return "", r.incompatibleComponentAPI("Gateway", selectedAPI, buildidentity.RequiredGatewayAPI, "gateway_image_incompatible")
 	}
 	if labels[gatewayRoleKey] != gatewayRole {
-		return fault.New(
+		return "", fault.New(
 			fault.KindContract, "gateway_image_incompatible",
 			"The Gateway image does not declare Tobari's enforcement API contract.", false,
 			fault.NextAction{Command: "doctor", Reason: "Inspect the installed Gateway image configuration."},
 		)
 	}
 	if isRootImageUser(metadata.Config.User) {
-		return fault.New(
+		return "", fault.New(
 			fault.KindContract, "gateway_image_incompatible",
 			"The Gateway image must declare a non-root default user.", false,
 			fault.NextAction{Command: "doctor", Reason: "Inspect the installed Gateway image configuration."},
 		)
 	}
 	if len(metadata.Config.Entrypoint) != 1 || metadata.Config.Entrypoint[0] != "/opt/tobari/entrypoint.sh" {
-		return fault.New(
+		return "", fault.New(
 			fault.KindContract, "gateway_image_incompatible",
 			"The Gateway image does not declare Tobari's enforcement entrypoint.", false,
 			fault.NextAction{Command: "doctor", Reason: "Inspect the Gateway image entrypoint contract."},
@@ -163,7 +172,7 @@ func (r *Runtime) verifyGatewayImage(ctx context.Context, image string, requireD
 
 	server, err := r.inspectDockerServer(ctx)
 	if err != nil {
-		return fault.Wrap(
+		return "", fault.Wrap(
 			fault.KindUnavailable, "gateway_image_unavailable",
 			"Docker Engine platform information could not be read before Gateway startup.", true, err,
 			fault.NextAction{Command: "doctor", Reason: "Inspect Docker Engine readiness."},
@@ -172,13 +181,13 @@ func (r *Runtime) verifyGatewayImage(ctx context.Context, image string, requireD
 	imageOS, imageArch := normalizePlatform(metadata.OS, metadata.Architecture)
 	serverOS, serverArch := normalizePlatform(server.OS, server.Architecture)
 	if imageOS == "" || imageArch == "" || serverOS == "" || serverArch == "" || imageOS != serverOS || imageArch != serverArch {
-		return fault.New(
+		return "", fault.New(
 			fault.KindContract, "gateway_image_incompatible",
 			"The Gateway image architecture does not match the Docker Engine.", false,
 			fault.NextAction{Command: "doctor", Reason: "Inspect Docker Engine and Gateway image platforms."},
 		)
 	}
-	return nil
+	return metadata.ID, nil
 }
 
 func parseAPIOrZero(value string) int {

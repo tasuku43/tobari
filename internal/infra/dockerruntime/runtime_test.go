@@ -73,6 +73,187 @@ type interruptedClusterUpRunner struct {
 	interrupted bool
 }
 
+type rollbackClusterUpRunner struct {
+	clusterUpProgressRunner
+	activationErr               error
+	rollbackErr                 error
+	predecessorGatewayID        string
+	predecessorOPAID            string
+	predecessorBrokerID         string
+	predecessorProfile          tobari.SharedClusterAppliedProfile
+	predecessorRevision         string
+	predecessorNetworks         map[string]string
+	predecessorNetworkProjects  map[string]string
+	prepareImagesErr            error
+	networkErr                  error
+	healthErr                   error
+	cleanupErr                  error
+	cleanupCalls                int
+	rollbackVerificationDrift   bool
+	rollbackGatewayObservations int
+	policyPublishes             []string
+	rollingBack                 bool
+	composeCalls                []runnerCall
+	composeEnvironments         [][]string
+}
+
+func (r *rollbackClusterUpRunner) bindPredecessor(state tobari.State) {
+	r.predecessorGatewayID = state.Applied.GatewayImageID
+	r.predecessorOPAID = state.Applied.OPAImageID
+	r.predecessorBrokerID = state.Applied.AuthBrokerImageID
+	r.predecessorProfile = state.Applied.PermissionProfile
+	r.predecessorRevision = state.AggregateRevision
+}
+
+func (r *rollbackClusterUpRunner) Run(
+	ctx context.Context, args, environment []string, input io.Reader, output, errorOutput io.Writer,
+) error {
+	if slices.Contains(args, "tobari-policy-publish") {
+		r.policyPublishes = append(r.policyPublishes, strings.Join(args, " "))
+	}
+	if len(args) >= 3 && args[0] == "inspect" && args[2] == appliedClusterInspectTemplate {
+		data, err := r.Output(ctx, args, environment)
+		if len(data) > 0 {
+			if err != nil && bytes.Contains(data, []byte("No such object")) {
+				_, _ = errorOutput.Write([]byte("Error: No such object: " + args[len(args)-1] + "\n"))
+			} else {
+				_, _ = output.Write(data)
+			}
+		}
+		return err
+	}
+	if len(args) > 0 && args[0] == "compose" && slices.Contains(args, "up") {
+		if r.predecessorGatewayID != "" && slices.Contains(environment, "TOBARI_GATEWAY_IMAGE="+r.predecessorGatewayID) {
+			r.rollingBack = true
+		}
+		r.composeCalls = append(r.composeCalls, runnerCall{args: append([]string{}, args...)})
+		r.composeEnvironments = append(r.composeEnvironments, append([]string{}, environment...))
+		switch len(r.composeCalls) {
+		case 1:
+			if r.activationErr != nil {
+				return r.activationErr
+			}
+		case 2:
+			if r.rollbackErr != nil {
+				return r.rollbackErr
+			}
+		}
+	}
+	if len(args) > 0 && args[0] == "compose" && slices.Contains(args, "down") {
+		r.cleanupCalls++
+		if r.cleanupErr != nil {
+			return r.cleanupErr
+		}
+	}
+	return r.clusterUpProgressRunner.Run(ctx, args, environment, input, output, errorOutput)
+}
+
+func (r *rollbackClusterUpRunner) Output(ctx context.Context, args, environment []string) ([]byte, error) {
+	if slices.Contains(args, "tobari-policy-publish") {
+		r.policyPublishes = append(r.policyPublishes, strings.Join(args, " "))
+	}
+	usingPredecessor := len(r.composeCalls) == 0 || len(r.composeCalls) >= 2 || r.activationErr != nil || r.rollingBack
+	if usingPredecessor && r.predecessorGatewayID != "" &&
+		len(args) >= 3 && args[0] == "exec" && args[1] == opaContainer && args[2] == "/opa" {
+		if r.predecessorRevision != "" && strings.Contains(strings.Join(args, " "), strconv.Quote(r.predecessorRevision)) {
+			return []byte("true\n"), nil
+		}
+		return nil, errors.New("requested policy revision is not active")
+	}
+	if usingPredecessor && len(args) >= 3 && args[0] == "inspect" && args[2] == appliedClusterInspectTemplate {
+		switch args[len(args)-1] {
+		case gatewayContainer:
+			if r.predecessorGatewayID != "" {
+				payload := appliedClusterTestPayloadForProfile(gatewayContainer, r.predecessorGatewayID, r.predecessorProfile)
+				if r.rollingBack {
+					r.rollbackGatewayObservations++
+					if r.rollbackVerificationDrift && r.rollbackGatewayObservations > 1 {
+						payload = bytes.Replace(payload, []byte(`"container_id":"`+strings.Repeat("9", 64)+`"`), []byte(`"container_id":"`+strings.Repeat("8", 64)+`"`), 1)
+					}
+				}
+				if len(r.predecessorNetworks) != 0 {
+					var observation appliedClusterComponentObservation
+					_ = json.Unmarshal(payload, &observation)
+					for network, address := range r.predecessorNetworks {
+						observation.Networks[network] = json.RawMessage(`{"IPAddress":` + strconv.Quote(address) + `}`)
+					}
+					payload, _ = json.Marshal(observation)
+				}
+				return payload, nil
+			}
+		case opaContainer:
+			if r.predecessorOPAID != "" {
+				return appliedClusterTestPayload(opaContainer, r.predecessorOPAID), nil
+			}
+		case authBrokerContainer:
+			if r.predecessorBrokerID != "" {
+				return appliedClusterTestPayload(authBrokerContainer, r.predecessorBrokerID), nil
+			}
+		}
+	}
+	if r.prepareImagesErr != nil && len(args) >= 1 && args[0] == "image" &&
+		strings.Contains(strings.Join(args, " "), tobari.RuntimeImageAPILabel) {
+		err := r.prepareImagesErr
+		r.prepareImagesErr = nil
+		return nil, err
+	}
+	if r.networkErr != nil && r.composed && len(args) >= 2 && args[0] == "network" && args[1] == "connect" {
+		err := r.networkErr
+		r.networkErr = nil
+		return nil, err
+	}
+	if r.healthErr != nil && r.composed && len(args) >= 3 && args[0] == "inspect" &&
+		strings.Contains(args[2], `"state":"{{.State.Status}}"`) {
+		r.healthErr = nil
+		return []byte("{"), nil
+	}
+	if len(args) >= 3 && args[0] == "network" && args[1] == "inspect" {
+		network := args[len(args)-1]
+		if projectID := r.predecessorNetworkProjects[network]; projectID != "" {
+			format := ""
+			if len(args) > 3 {
+				format = args[3]
+			}
+			switch {
+			case strings.Contains(format, ownerLabel):
+				return []byte(ownerValue + "\n"), nil
+			case strings.Contains(format, projectIDLabel):
+				return []byte(projectID + "\n"), nil
+			case strings.Contains(format, projectRoleLabel):
+				return []byte(projectNetRole + "\n"), nil
+			}
+		}
+	}
+	if usingPredecessor && len(r.predecessorNetworks) != 0 && len(args) >= 3 && args[0] == "inspect" &&
+		strings.Contains(args[2], "NetworkSettings.Networks") && args[len(args)-1] == gatewayContainer {
+		networks := map[string]map[string]string{
+			"tobari-control": {"IPAddress": "172.28.0.2"},
+			"tobari-egress":  {"IPAddress": "172.29.0.2"},
+		}
+		for network, address := range r.predecessorNetworks {
+			networks[network] = map[string]string{"IPAddress": address}
+		}
+		return json.Marshal(networks)
+	}
+	if usingPredecessor && len(args) >= 3 && args[0] == "inspect" && args[2] == "{{.Image}}" {
+		switch args[len(args)-1] {
+		case gatewayContainer:
+			if r.predecessorGatewayID != "" {
+				return []byte(r.predecessorGatewayID + "\n"), nil
+			}
+		case opaContainer:
+			if r.predecessorOPAID != "" {
+				return []byte(r.predecessorOPAID + "\n"), nil
+			}
+		case authBrokerContainer:
+			if r.predecessorBrokerID != "" {
+				return []byte(r.predecessorBrokerID + "\n"), nil
+			}
+		}
+	}
+	return r.clusterUpProgressRunner.Output(ctx, args, environment)
+}
+
 func (r *interruptedClusterUpRunner) Run(
 	ctx context.Context, args, environment []string, input io.Reader, output, errorOutput io.Writer,
 ) error {
@@ -87,6 +268,33 @@ type policyProbeRunner struct {
 	outputs []runnerCall
 }
 
+type boundedAppliedInspectRunner struct {
+	payloads map[string][][]byte
+	calls    []runnerCall
+}
+
+func (r *boundedAppliedInspectRunner) Run(
+	_ context.Context, args, _ []string, _ io.Reader, output, errorOutput io.Writer,
+) error {
+	r.calls = append(r.calls, runnerCall{args: append([]string{}, args...)})
+	container := args[len(args)-1]
+	queue := r.payloads[container]
+	if len(queue) == 0 {
+		_, _ = errorOutput.Write([]byte("Error: No such object: " + container + "\n"))
+		return errors.New("No such object")
+	}
+	payload := queue[0]
+	if len(queue) > 1 {
+		r.payloads[container] = queue[1:]
+	}
+	_, err := output.Write(payload)
+	return err
+}
+
+func (*boundedAppliedInspectRunner) Output(context.Context, []string, []string) ([]byte, error) {
+	return nil, errors.New("unbounded Output must not be used for applied identity")
+}
+
 type clusterUpProgressRunner struct {
 	events             []string
 	composeEnvironment []string
@@ -96,7 +304,62 @@ type clusterUpProgressRunner struct {
 	composed           bool
 }
 
-func (r *clusterUpProgressRunner) Run(_ context.Context, args, environment []string, _ io.Reader, out, _ io.Writer) error {
+func appliedClusterTestPayload(container, imageID string) []byte {
+	return appliedClusterTestPayloadForProfile(container, imageID, "")
+}
+
+func appliedClusterTestPayloadForProfile(
+	container, imageID string, profile tobari.SharedClusterAppliedProfile,
+) []byte {
+	component, role := "", ""
+	environment := []string{}
+	mounts := []string{}
+	switch container {
+	case gatewayContainer:
+		component, role = "gateway", gatewayRole
+		switch profile {
+		case tobari.SharedClusterProfileUnix:
+			environment = []string{
+				"TOBARI_PERMISSION_INGESTION_TRANSPORT=unix",
+				"TOBARI_PERMISSION_INGESTION_DIRECTORY=/run/tobari/permission-ingestion",
+			}
+			mounts = []string{"/run/tobari/permission-ingestion"}
+		case tobari.SharedClusterProfileLoopbackTCP:
+			environment = []string{"TOBARI_PERMISSION_INGESTION_TRANSPORT=loopback_tcp"}
+		}
+		if brokerRuntimeEnabled {
+			environment = append(environment,
+				"TOBARI_AUTH_PROVIDER_PROJECTION="+prePlatformAuthProviderProjection,
+				"TOBARI_AUTH_BROKER_SOCKET="+prePlatformAuthBrokerSocket,
+				"TOBARI_AUTH_BROKER_TIMEOUT_SECONDS="+prePlatformAuthBrokerTimeout,
+			)
+			mounts = append(mounts, prePlatformAuthProviderMount, prePlatformAuthRuntimeMount)
+		}
+	case opaContainer:
+		component = "opa"
+	case authBrokerContainer:
+		component = "auth-broker"
+	}
+	data, _ := json.Marshal(appliedClusterComponentObservation{
+		ContainerID: strings.Repeat("9", 64), Owner: ownerValue, Component: component, Role: role,
+		ImageID: imageID, State: "running", Health: "healthy",
+		Environment: environment, MountDestinations: mounts, Networks: appliedTestNetworkPayload(container),
+	})
+	return data
+}
+
+func (r *clusterUpProgressRunner) Run(_ context.Context, args, environment []string, _ io.Reader, out, errorOutput io.Writer) error {
+	if len(args) >= 3 && args[0] == "inspect" && args[2] == appliedClusterInspectTemplate {
+		data, err := r.Output(context.Background(), args, environment)
+		if len(data) > 0 {
+			if err != nil && bytes.Contains(data, []byte("No such object")) {
+				_, _ = errorOutput.Write([]byte("Error: No such object: " + args[len(args)-1] + "\n"))
+			} else {
+				_, _ = out.Write(data)
+			}
+		}
+		return err
+	}
 	if len(args) >= 2 && args[0] == "container" && args[1] == "cp" {
 		archive, err := exposureHelperArchiveBytes(syntheticExposureHelperELF("arm64"), "arm64", nil)
 		if err != nil {
@@ -174,9 +437,23 @@ func (r *clusterUpProgressRunner) Output(_ context.Context, args, _ []string) ([
 	if len(args) >= 1 && args[0] == "version" {
 		return []byte(`{"Os":"linux","Arch":"arm64"}`), nil
 	}
+	if len(args) >= 2 && args[0] == "exec" && args[1] == opaContainer {
+		return []byte("true\n"), nil
+	}
 	if len(args) >= 3 && args[0] == "inspect" {
-		if args[2] == "{{.Image}}" {
-			return []byte("sha256:" + strings.Repeat("b", 64) + "\n"), nil
+		container := args[len(args)-1]
+		if container == authBrokerContainer && !brokerRuntimeEnabled {
+			return []byte("No such object"), errors.New("No such object")
+		}
+		if args[2] == appliedClusterInspectTemplate {
+			switch container {
+			case gatewayContainer:
+				return appliedClusterTestPayloadForProfile(container, testGatewayDigest, tobari.SharedClusterProfileUnix), nil
+			case opaContainer:
+				return appliedClusterTestPayload(container, "sha256:"+strings.Repeat("2", 64)), nil
+			case authBrokerContainer:
+				return appliedClusterTestPayload(container, "sha256:"+strings.Repeat("3", 64)), nil
+			}
 		}
 		if strings.Contains(args[2], `"id"`) {
 			uid, gid := currentIDs()
@@ -184,6 +461,32 @@ func (r *clusterUpProgressRunner) Output(_ context.Context, args, _ []string) ([
 				`{"id":"%s","owner":"default","component":"auth-broker","user":"%d:%d"}`,
 				strings.Repeat("a", 64), uid, gid,
 			)), nil
+		}
+		if strings.Contains(args[2], ownerLabel) {
+			return []byte(ownerValue + "\n"), nil
+		}
+		if strings.Contains(args[2], componentLabel) {
+			switch container {
+			case gatewayContainer:
+				return []byte("gateway\n"), nil
+			case opaContainer:
+				return []byte("opa\n"), nil
+			case authBrokerContainer:
+				return []byte("auth-broker\n"), nil
+			}
+		}
+		if args[2] == "{{json .Config.Env}}" || args[2] == "{{json .Mounts}}" {
+			return []byte(`[]`), nil
+		}
+		if args[2] == "{{.Image}}" {
+			switch container {
+			case gatewayContainer:
+				return []byte(testGatewayDigest + "\n"), nil
+			case opaContainer:
+				return []byte("sha256:" + strings.Repeat("2", 64) + "\n"), nil
+			case authBrokerContainer:
+				return []byte("sha256:" + strings.Repeat("3", 64) + "\n"), nil
+			}
 		}
 		if strings.Contains(args[2], "NetworkSettings.Networks") {
 			return []byte(`{}`), nil
@@ -213,7 +516,7 @@ func TestClusterUpWithProgressReportsEachRuntimeStageInOrder(t *testing.T) {
 		return bytes.Repeat([]byte{0x41}, 32), nil
 	}
 	runtime.companion = &fakeCredentialCompanionLauncher{}
-	runtime.companionEntropy = bytes.NewReader(bytes.Repeat([]byte{0x42}, 32))
+	runtime.companionEntropy = bytes.NewReader(bytes.Repeat([]byte{0x42}, 256))
 	var events []tobari.ClusterUpProgress
 	state, err := runtime.ClusterUpWithProgress(context.Background(), func(event tobari.ClusterUpProgress) {
 		events = append(events, event)
@@ -262,7 +565,7 @@ func TestClusterUpWithProgressReportsEachRuntimeStageInOrder(t *testing.T) {
 		t.Fatalf("cluster up final policy readiness query = %v", runner.policyQueries[len(runner.policyQueries)-1].args)
 	}
 	joinedEnvironment := strings.Join(runner.composeEnvironment, "\n")
-	bindings := []string{"TOBARI_GATEWAY_IMAGE=tobari-gateway:dev"}
+	bindings := []string{"TOBARI_GATEWAY_IMAGE=" + testGatewayDigest}
 	if brokerRuntimeEnabled {
 		bindings = append(bindings, "TOBARI_AUTH_BROKER_IMAGE=tobari-auth-broker:dev")
 	}
@@ -315,14 +618,16 @@ func TestClusterUpResumesAfterInterruptedComposeStartup(t *testing.T) {
 		return bytes.Repeat([]byte{0x41}, 32), nil
 	}
 	runtime.companion = &fakeCredentialCompanionLauncher{}
-	runtime.companionEntropy = bytes.NewReader(bytes.Repeat([]byte{0x42}, 32))
+	runtime.companionEntropy = bytes.NewReader(bytes.Repeat([]byte{0x42}, 256))
 
 	if _, err := runtime.ClusterUp(context.Background()); !errors.Is(err, context.Canceled) {
 		t.Fatalf("interrupted ClusterUp() error = %v, want context cancellation", err)
 	}
-	journal, exists, err := runtime.readClusterJournal()
-	if err != nil || !exists || journal.Operation != clusterOperationUp || journal.Phase != clusterPhaseStarted {
-		t.Fatalf("interrupted journal = (%+v, %t, %v)", journal, exists, err)
+	if _, exists, err := runtime.readClusterJournal(); err != nil || exists {
+		t.Fatalf("exact fresh cleanup journal exists=%t error=%v", exists, err)
+	}
+	if _, exists, err := runtime.LoadState(context.Background()); err != nil || exists {
+		t.Fatalf("exact fresh cleanup state exists=%t error=%v", exists, err)
 	}
 	if _, err := runtime.ClusterUp(context.Background()); err != nil {
 		t.Fatalf("resumed ClusterUp() error = %v", err)
@@ -332,6 +637,783 @@ func TestClusterUpResumesAfterInterruptedComposeStartup(t *testing.T) {
 	}
 	if _, exists, err := runtime.LoadState(context.Background()); err != nil || !exists {
 		t.Fatalf("cluster state after resumed startup = exists:%t error:%v", exists, err)
+	}
+}
+
+func TestAppliedClusterObservationIsSingleCallBoundedAndStrict(t *testing.T) {
+	t.Parallel()
+	valid := appliedClusterTestPayload(gatewayContainer, testGatewayDigest)
+	for _, test := range []struct {
+		name    string
+		payload []byte
+		missing bool
+		wantErr bool
+	}{
+		{name: "valid with whitespace", payload: append(append([]byte{}, valid...), []byte("\n \t")...)},
+		{name: "stopped", payload: bytes.Replace(valid, []byte(`"state":"running"`), []byte(`"state":"exited"`), 1), wantErr: true},
+		{name: "wrong role", payload: bytes.Replace(valid, []byte(`"role":"enforcement"`), []byte(`"role":"observer"`), 1), wantErr: true},
+		{name: "trailing value", payload: append(append([]byte{}, valid...), []byte("\n{}")...), wantErr: true},
+		{name: "duplicate field", payload: bytes.Replace(valid, []byte(`"owner":"default"`), []byte(`"owner":"default","owner":"default"`), 1), wantErr: true},
+		{name: "overflow", payload: bytes.Repeat([]byte{'x'}, appliedClusterInspectLimit+1), wantErr: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			runner := &boundedAppliedInspectRunner{payloads: map[string][][]byte{gatewayContainer: {test.payload}}}
+			runtime, err := newRuntime(t.TempDir(), t.TempDir(), runner)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, missing, err := runtime.observeAppliedClusterComponent(context.Background(), "gateway", gatewayContainer)
+			if (err != nil) != test.wantErr || missing != test.missing {
+				t.Fatalf("observation = missing:%t error:%v", missing, err)
+			}
+			if len(runner.calls) != 1 {
+				t.Fatalf("observation calls = %d", len(runner.calls))
+			}
+		})
+	}
+	runner := &boundedAppliedInspectRunner{payloads: map[string][][]byte{}}
+	runtime, err := newRuntime(t.TempDir(), t.TempDir(), runner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, missing, err := runtime.observeAppliedClusterComponent(context.Background(), "gateway", gatewayContainer); err != nil || !missing {
+		t.Fatalf("missing observation = %t, %v", missing, err)
+	}
+}
+
+func TestAppliedClusterObservationUsesOneSnapshotPerComponent(t *testing.T) {
+	t.Parallel()
+	changed := bytes.Replace(
+		appliedClusterTestPayload(gatewayContainer, testGatewayDigest),
+		[]byte(`"image_id":"`+testGatewayDigest+`"`),
+		[]byte(`"image_id":"sha256:`+strings.Repeat("8", 64)+`"`), 1,
+	)
+	runner := &boundedAppliedInspectRunner{payloads: map[string][][]byte{
+		gatewayContainer: {appliedClusterTestPayload(gatewayContainer, testGatewayDigest), changed},
+		opaContainer:     {appliedClusterTestPayload(opaContainer, "sha256:"+strings.Repeat("2", 64))},
+	}}
+	if brokerRuntimeEnabled {
+		runner.payloads[authBrokerContainer] = [][]byte{
+			appliedClusterTestPayload(authBrokerContainer, "sha256:"+strings.Repeat("3", 64)),
+		}
+	}
+	runtime, err := newRuntime(t.TempDir(), t.TempDir(), runner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runtime.observeAppliedClusterSnapshot(context.Background()); err == nil {
+		t.Fatal("changed component tuple passed the second observation fence")
+	}
+	wantCalls := 6
+	if len(runner.calls) != wantCalls {
+		t.Fatalf("snapshot calls=%d, want %d", len(runner.calls), wantCalls)
+	}
+}
+
+func TestSchemaOneMigrationPublishesVerifiedPrePlatformEntry(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	runner := &rollbackClusterUpRunner{
+		predecessorGatewayID: "sha256:" + strings.Repeat("4", 64),
+		predecessorOPAID:     "sha256:" + strings.Repeat("5", 64),
+	}
+	if brokerRuntimeEnabled {
+		runner.predecessorBrokerID = "sha256:" + strings.Repeat("6", 64)
+	}
+	runtime := configuredClusterUpRuntime(t, root, runner)
+	legacy := runtimeState(root)
+	legacy.RuntimeDirectory = prePlatformRuntimeDirectory(root)
+	legacy.AssetVersion = prePlatformAssetVersion
+	materializePrePlatformRuntime(t, legacy.RuntimeDirectory)
+	if err := runtime.writeState(legacy); err != nil {
+		t.Fatal(err)
+	}
+	loaded, exists, err := runtime.LoadState(context.Background())
+	if err != nil || !exists || loaded.SchemaVersion != 1 {
+		t.Fatalf("pre-migration state = %+v exists:%t error:%v", loaded, exists, err)
+	}
+	migrated, err := runtime.migratePrePlatformSharedClusterState(context.Background(), loaded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if migrated.SchemaVersion != 2 || migrated.Applied.PermissionProfile != tobari.SharedClusterProfilePrePlatform ||
+		migrated.Applied.GatewayImageID != runner.predecessorGatewayID || migrated.Applied.OPAImageID != runner.predecessorOPAID {
+		t.Fatalf("migrated state = %+v", migrated)
+	}
+	if brokerRuntimeEnabled && migrated.Applied.AuthBrokerImageID != runner.predecessorBrokerID {
+		t.Fatalf("migrated Auth Broker identity = %q", migrated.Applied.AuthBrokerImageID)
+	}
+	if len(runner.composeCalls) != 0 {
+		t.Fatalf("schema migration mutated Docker: %v", runner.composeCalls)
+	}
+}
+
+func TestSchemaOneMigrationRejectsCurrentOrUnhealthyPredecessor(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name    string
+		current bool
+		mutate  func([]byte) []byte
+	}{
+		{name: "current assets", current: true},
+		{name: "stopped Gateway", mutate: func(payload []byte) []byte {
+			return bytes.Replace(payload, []byte(`"state":"running"`), []byte(`"state":"exited"`), 1)
+		}},
+		{name: "wrong Gateway role", mutate: func(payload []byte) []byte {
+			return bytes.Replace(payload, []byte(`"role":"enforcement"`), []byte(`"role":"observer"`), 1)
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			gateway := appliedClusterTestPayload(gatewayContainer, "sha256:"+strings.Repeat("4", 64))
+			if test.mutate != nil {
+				gateway = test.mutate(gateway)
+			}
+			runner := &boundedAppliedInspectRunner{payloads: map[string][][]byte{
+				gatewayContainer: {gateway},
+				opaContainer:     {appliedClusterTestPayload(opaContainer, "sha256:"+strings.Repeat("5", 64))},
+			}}
+			if brokerRuntimeEnabled {
+				runner.payloads[authBrokerContainer] = [][]byte{appliedClusterTestPayload(authBrokerContainer, "sha256:"+strings.Repeat("6", 64))}
+			}
+			runtime, err := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), runner)
+			if err != nil {
+				t.Fatal(err)
+			}
+			legacy := runtimeState(root)
+			legacy.RuntimeDirectory = prePlatformRuntimeDirectory(root)
+			legacy.AssetVersion = prePlatformAssetVersion
+			if test.current {
+				legacy.AssetVersion, err = runtimeassets.Version()
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := runtimeassets.Materialize(legacy.RuntimeDirectory); err != nil {
+					t.Fatal(err)
+				} else {
+					for _, name := range []string{"compose.permission-unix.yaml", "compose.permission-loopback_tcp.yaml"} {
+						if err := os.Remove(filepath.Join(legacy.RuntimeDirectory, name)); err != nil {
+							t.Fatal(err)
+						}
+					}
+				}
+			} else {
+				materializePrePlatformRuntime(t, legacy.RuntimeDirectory)
+			}
+			if err := runtime.writeState(legacy); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := runtime.migratePrePlatformSharedClusterState(context.Background(), legacy); err == nil {
+				t.Fatal("unsafe predecessor was migrated")
+			}
+			loaded, exists, err := runtime.LoadState(context.Background())
+			if err != nil || !exists || loaded.SchemaVersion != 1 {
+				t.Fatalf("failed migration rewrote predecessor: %+v exists:%t error:%v", loaded, exists, err)
+			}
+		})
+	}
+}
+
+func TestFailedActivationRestoresExactAppliedServiceIDsAndProfile(t *testing.T) {
+	t.Parallel()
+	for _, profile := range []tobari.SharedClusterAppliedProfile{
+		tobari.SharedClusterProfileUnix,
+		tobari.SharedClusterProfileLoopbackTCP,
+	} {
+		t.Run(string(profile), func(t *testing.T) {
+			root := t.TempDir()
+			activationErr := errors.New("candidate activation failed")
+			runner := &rollbackClusterUpRunner{activationErr: activationErr, predecessorProfile: profile}
+			runtime := configuredClusterUpRuntime(t, root, runner)
+			candidate, err := runtime.prepareState(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			retained := retainedAppliedState(filepath.Join(root, "retained"), candidate.AggregateRevision, profile)
+			runner.bindPredecessor(retained)
+			if err := runtimeassets.Materialize(retained.RuntimeDirectory); err != nil {
+				t.Fatal(err)
+			}
+			if err := runtime.writeState(retained); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := runtime.ClusterUp(context.Background()); !errors.Is(err, activationErr) {
+				t.Fatalf("ClusterUp() error = %v", err)
+			}
+			if len(runner.composeCalls) != 2 || len(runner.composeEnvironments) != 2 {
+				t.Fatalf("compose calls = %+v", runner.composeCalls)
+			}
+			rollbackArgs := runner.composeCalls[1].args
+			wantProfile := filepath.Join(retained.RuntimeDirectory, "compose.permission-"+string(profile)+".yaml")
+			if !slices.Contains(rollbackArgs, wantProfile) || !slices.Contains(rollbackArgs, "--force-recreate") {
+				t.Fatalf("rollback argv = %v", rollbackArgs)
+			}
+			rollbackEnvironment := strings.Join(runner.composeEnvironments[1], "\n")
+			for _, binding := range []string{
+				"TOBARI_GATEWAY_IMAGE=" + retained.Applied.GatewayImageID,
+				"TOBARI_OPA_IMAGE=" + retained.Applied.OPAImageID,
+			} {
+				if strings.Count(rollbackEnvironment, binding) != 1 {
+					t.Fatalf("rollback environment omits exact %q", binding)
+				}
+			}
+			if brokerRuntimeEnabled && strings.Count(rollbackEnvironment, "TOBARI_AUTH_BROKER_IMAGE="+retained.Applied.AuthBrokerImageID) != 1 {
+				t.Fatal("rollback environment omitted exact retained Auth Broker image")
+			}
+			for _, candidateID := range []string{testGatewayDigest, "sha256:" + strings.Repeat("2", 64), "sha256:" + strings.Repeat("3", 64)} {
+				if candidateID != retained.Applied.GatewayImageID && strings.Contains(rollbackEnvironment, candidateID) {
+					t.Fatalf("rollback substituted candidate service image %q", candidateID)
+				}
+			}
+		})
+	}
+}
+
+func TestFailedActivationRestoresMigratedPrePlatformBaseOnly(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	activationErr := errors.New("candidate activation failed")
+	runner := &rollbackClusterUpRunner{
+		activationErr:        activationErr,
+		predecessorGatewayID: "sha256:" + strings.Repeat("4", 64),
+		predecessorOPAID:     "sha256:" + strings.Repeat("5", 64),
+	}
+	if brokerRuntimeEnabled {
+		runner.predecessorBrokerID = "sha256:" + strings.Repeat("6", 64)
+	}
+	runtime := configuredClusterUpRuntime(t, root, runner)
+	candidate, err := runtime.prepareState(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy := candidate
+	legacy.RuntimeDirectory = prePlatformRuntimeDirectory(root)
+	legacy.AssetVersion = prePlatformAssetVersion
+	runner.predecessorRevision = legacy.AggregateRevision
+	materializePrePlatformRuntime(t, legacy.RuntimeDirectory)
+	if err := runtime.writeState(legacy); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runtime.ClusterUp(context.Background()); !errors.Is(err, activationErr) {
+		t.Fatalf("ClusterUp() error = %v", err)
+	}
+	if len(runner.composeCalls) != 2 {
+		t.Fatalf("compose calls = %+v", runner.composeCalls)
+	}
+	for _, argument := range runner.composeCalls[1].args {
+		if strings.Contains(argument, "compose.permission-") {
+			t.Fatalf("pre-platform rollback used successor profile: %v", runner.composeCalls[1].args)
+		}
+	}
+	rollbackEnvironment := strings.Join(runner.composeEnvironments[1], "\n")
+	for _, binding := range []string{
+		"TOBARI_GATEWAY_IMAGE=" + runner.predecessorGatewayID,
+		"TOBARI_OPA_IMAGE=" + runner.predecessorOPAID,
+	} {
+		if strings.Count(rollbackEnvironment, binding) != 1 {
+			t.Fatalf("pre-platform rollback omits %q", binding)
+		}
+	}
+}
+
+func TestRollbackFailureJoinsActivationEvidence(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	activationErr := errors.New("activation failed")
+	rollbackErr := errors.New("rollback failed")
+	runner := &rollbackClusterUpRunner{
+		activationErr: activationErr, rollbackErr: rollbackErr,
+		predecessorProfile: tobari.SharedClusterProfileUnix,
+	}
+	runtime := configuredClusterUpRuntime(t, root, runner)
+	candidate, err := runtime.prepareState(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	retained := candidate
+	retained.SchemaVersion = 2
+	retained.Applied = tobari.SharedClusterAppliedEntry{
+		AggregateRevision: candidate.AggregateRevision, AssetVersion: candidate.AssetVersion,
+		GatewayImageID:    "sha256:" + strings.Repeat("4", 64),
+		OPAImageID:        "sha256:" + strings.Repeat("5", 64),
+		PermissionProfile: tobari.SharedClusterProfileUnix,
+	}
+	if brokerRuntimeEnabled {
+		retained.Applied.AuthBrokerImageID = "sha256:" + strings.Repeat("6", 64)
+	}
+	runner.bindPredecessor(retained)
+	if err := runtime.writeState(retained); err != nil {
+		t.Fatal(err)
+	}
+	_, err = runtime.ClusterUp(context.Background())
+	if !errors.Is(err, activationErr) || !errors.Is(err, rollbackErr) {
+		t.Fatalf("joined rollback error = %v", err)
+	}
+}
+
+func TestRollbackVerificationDriftRetainsRecoveryJournal(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	activationErr := errors.New("activation failed")
+	runner := &rollbackClusterUpRunner{
+		activationErr: activationErr, rollbackVerificationDrift: true,
+		predecessorProfile: tobari.SharedClusterProfileUnix,
+	}
+	runtime := configuredClusterUpRuntime(t, root, runner)
+	candidate, err := runtime.prepareState(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	retained := candidate
+	retained.SchemaVersion = 2
+	retained.Applied = tobari.SharedClusterAppliedEntry{
+		AggregateRevision: candidate.AggregateRevision, AssetVersion: candidate.AssetVersion,
+		GatewayImageID:    "sha256:" + strings.Repeat("4", 64),
+		OPAImageID:        "sha256:" + strings.Repeat("5", 64),
+		PermissionProfile: tobari.SharedClusterProfileUnix,
+	}
+	if brokerRuntimeEnabled {
+		retained.Applied.AuthBrokerImageID = "sha256:" + strings.Repeat("6", 64)
+	}
+	runner.bindPredecessor(retained)
+	if err := runtime.writeState(retained); err != nil {
+		t.Fatal(err)
+	}
+	_, err = runtime.ClusterUp(context.Background())
+	if !errors.Is(err, activationErr) || !strings.Contains(err.Error(), "rollback did not complete") {
+		t.Fatalf("rollback verification error = %v", err)
+	}
+	if runner.rollbackGatewayObservations != 2 {
+		t.Fatalf("rollback Gateway fence observations = %d; error = %v", runner.rollbackGatewayObservations, err)
+	}
+	if _, exists, journalErr := runtime.readClusterJournal(); journalErr != nil || !exists {
+		t.Fatalf("rollback verification journal exists=%t error=%v", exists, journalErr)
+	}
+	loaded, exists, loadErr := runtime.LoadState(context.Background())
+	if loadErr != nil || !exists || loaded.Applied != retained.Applied {
+		t.Fatalf("rollback verification state = %+v exists=%t error=%v", loaded, exists, loadErr)
+	}
+}
+
+func TestRollbackJournalClearFailureKeepsExactPreviousAuthority(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	activationErr := errors.New("activation failed")
+	clearErr := errors.New("rollback journal clear failed")
+	runner := &rollbackClusterUpRunner{activationErr: activationErr}
+	runtime := configuredClusterUpRuntime(t, root, runner)
+	candidate, err := runtime.prepareState(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	retained := candidate
+	retained.SchemaVersion = 2
+	retained.Applied = tobari.SharedClusterAppliedEntry{
+		AggregateRevision: candidate.AggregateRevision, AssetVersion: candidate.AssetVersion,
+		GatewayImageID:    "sha256:" + strings.Repeat("4", 64),
+		OPAImageID:        "sha256:" + strings.Repeat("5", 64),
+		PermissionProfile: tobari.SharedClusterProfileUnix,
+	}
+	if brokerRuntimeEnabled {
+		retained.Applied.AuthBrokerImageID = "sha256:" + strings.Repeat("6", 64)
+	}
+	runner.bindPredecessor(retained)
+	if err := runtime.writeState(retained); err != nil {
+		t.Fatal(err)
+	}
+	runtime.clusterJournalClearHook = func() error { return clearErr }
+	_, err = runtime.ClusterUp(context.Background())
+	if !errors.Is(err, activationErr) || !errors.Is(err, clearErr) {
+		t.Fatalf("rollback journal cleanup error = %v", err)
+	}
+	loaded, exists, loadErr := runtime.LoadState(context.Background())
+	if loadErr != nil || !exists || loaded != retained {
+		t.Fatalf("rollback clear failure state = %+v exists=%t error=%v", loaded, exists, loadErr)
+	}
+	if _, exists, journalErr := runtime.readClusterJournal(); journalErr != nil || !exists {
+		t.Fatalf("rollback clear failure journal exists=%t error=%v", exists, journalErr)
+	}
+}
+
+func TestActivationFailuresRestorePolicyComponentsAndPrincipalTopology(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name         string
+		configure    func(*rollbackClusterUpRunner, error)
+		wantInjected bool
+	}{
+		{name: "after policy publish during image preparation", configure: func(runner *rollbackClusterUpRunner, err error) { runner.prepareImagesErr = err }},
+		{name: "during Compose activation", wantInjected: true, configure: func(runner *rollbackClusterUpRunner, err error) { runner.activationErr = err }},
+		{name: "during network join", wantInjected: true, configure: func(runner *rollbackClusterUpRunner, err error) { runner.networkErr = err }},
+		{name: "during health observation", configure: func(runner *rollbackClusterUpRunner, err error) { runner.healthErr = err }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			injected := errors.New("synthetic activation failure")
+			runner := &rollbackClusterUpRunner{}
+			runtime := configuredClusterUpRuntime(t, root, runner)
+			candidate, err := runtime.prepareState(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			retained := candidate
+			retained.SchemaVersion = 2
+			retained.AggregateRevision = strings.Repeat("e", 64)
+			retained.Applied = tobari.SharedClusterAppliedEntry{
+				AggregateRevision: retained.AggregateRevision, AssetVersion: retained.AssetVersion,
+				GatewayImageID:    "sha256:" + strings.Repeat("4", 64),
+				OPAImageID:        "sha256:" + strings.Repeat("5", 64),
+				PermissionProfile: tobari.SharedClusterProfileLoopbackTCP,
+			}
+			if brokerRuntimeEnabled {
+				retained.Applied.AuthBrokerImageID = "sha256:" + strings.Repeat("6", 64)
+			}
+			runner.bindPredecessor(retained)
+			binding := principalTestBinding(
+				"01912345-6789-7abc-8def-0123456789ab", "172.30.0.3", "172.30.0.2", "tobari-project-net",
+			)
+			runner.predecessorNetworks = map[string]string{binding.Network: binding.GatewayIP}
+			runner.predecessorNetworkProjects = map[string]string{binding.Network: binding.ProjectID}
+			if err := runtime.replaceProjectPrincipalRegistry(context.Background(), []projectPrincipalBinding{binding}); err != nil {
+				t.Fatal(err)
+			}
+			if err := runtime.writeState(retained); err != nil {
+				t.Fatal(err)
+			}
+			test.configure(runner, injected)
+			_, activationErr := runtime.ClusterUp(context.Background())
+			if activationErr == nil || (test.wantInjected && !errors.Is(activationErr, injected)) {
+				t.Fatalf("ClusterUp() error = %v", activationErr)
+			}
+			loaded, exists, err := runtime.LoadState(context.Background())
+			if err != nil || !exists || loaded.Applied != retained.Applied {
+				t.Fatalf("last-successful state = %+v exists:%t error:%v", loaded, exists, err)
+			}
+			principals, err := runtime.readProjectPrincipalRegistry()
+			if err != nil || !slices.Equal(principals.Bindings, []projectPrincipalBinding{binding}) {
+				t.Fatalf("restored principals = %+v error:%v", principals, err)
+			}
+			if len(runner.policyPublishes) < 2 ||
+				!strings.Contains(runner.policyPublishes[0], candidate.AggregateRevision) ||
+				!strings.Contains(runner.policyPublishes[len(runner.policyPublishes)-1], retained.AggregateRevision) {
+				t.Fatalf("policy publication sequence = %v", runner.policyPublishes)
+			}
+			if _, journalExists, err := runtime.readClusterJournal(); err != nil || journalExists {
+				t.Fatalf("successful rollback journal = exists:%t error:%v activation:%v", journalExists, err, activationErr)
+			}
+		})
+	}
+}
+
+func TestStatePublicationOutcomeControlsRollback(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name          string
+		hook          func(*Runtime, error) func(tobari.State, func() error) error
+		wantRollback  bool
+		wantCommitted bool
+	}{
+		{
+			name: "pre-rename failure retains previous",
+			hook: func(_ *Runtime, injected error) func(tobari.State, func() error) error {
+				return func(tobari.State, func() error) error { return injected }
+			},
+			wantRollback: true,
+		},
+		{
+			name: "post-rename failure keeps exact new",
+			hook: func(_ *Runtime, injected error) func(tobari.State, func() error) error {
+				return func(_ tobari.State, commit func() error) error {
+					if err := commit(); err != nil {
+						return err
+					}
+					return injected
+				}
+			},
+			wantCommitted: true,
+		},
+		{
+			name: "drift after publication is unknown",
+			hook: func(runtime *Runtime, injected error) func(tobari.State, func() error) error {
+				return func(candidate tobari.State, commit func() error) error {
+					if err := commit(); err != nil {
+						return err
+					}
+					drifted := candidate
+					drifted.RecentError = "synthetic drift"
+					if err := writeAtomicJSON(runtime.statePath(), drifted); err != nil {
+						return err
+					}
+					return injected
+				}
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			injected := errors.New("state publication failed")
+			runner := &rollbackClusterUpRunner{predecessorProfile: tobari.SharedClusterProfileUnix}
+			runtime := configuredClusterUpRuntime(t, root, runner)
+			candidate, err := runtime.prepareState(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			retained := retainedAppliedState(filepath.Join(root, "retained"), candidate.AggregateRevision, tobari.SharedClusterProfileUnix)
+			runner.bindPredecessor(retained)
+			if err := runtimeassets.Materialize(retained.RuntimeDirectory); err != nil {
+				t.Fatal(err)
+			}
+			if err := runtime.writeState(retained); err != nil {
+				t.Fatal(err)
+			}
+			runtime.clusterStateWriteHook = test.hook(runtime, injected)
+			_, err = runtime.ClusterUp(context.Background())
+			if !errors.Is(err, injected) {
+				t.Fatalf("ClusterUp() error = %v", err)
+			}
+			wantCalls := 1
+			if test.wantRollback {
+				wantCalls = 2
+			}
+			if len(runner.composeCalls) != wantCalls {
+				t.Fatalf("compose calls = %d, want %d", len(runner.composeCalls), wantCalls)
+			}
+			loaded, exists, loadErr := runtime.LoadState(context.Background())
+			if loadErr != nil || !exists {
+				t.Fatalf("published state = %+v exists:%t error:%v", loaded, exists, loadErr)
+			}
+			if test.wantCommitted && (loaded.SchemaVersion != 2 || loaded.Applied.GatewayImageID != testGatewayDigest) {
+				t.Fatalf("exact new state was not retained: %+v", loaded)
+			}
+			if _, journalExists, journalErr := runtime.readClusterJournal(); journalErr != nil || !journalExists {
+				t.Fatalf("publication failure journal = exists:%t error:%v", journalExists, journalErr)
+			}
+		})
+	}
+}
+
+func TestCommittedStateSurvivesJournalCleanupFailure(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	runner := &rollbackClusterUpRunner{}
+	runtime := configuredClusterUpRuntime(t, root, runner)
+	injected := errors.New("journal cleanup failed")
+	runtime.clusterJournalClearHook = func() error { return injected }
+	_, err := runtime.ClusterUp(context.Background())
+	if !errors.Is(err, injected) || len(runner.composeCalls) != 1 {
+		t.Fatalf("ClusterUp() = %v compose calls=%d", err, len(runner.composeCalls))
+	}
+	loaded, exists, loadErr := runtime.LoadState(context.Background())
+	if loadErr != nil || !exists || loaded.SchemaVersion != 2 || loaded.Applied.GatewayImageID != testGatewayDigest {
+		t.Fatalf("committed state after journal failure = %+v exists:%t error:%v", loaded, exists, loadErr)
+	}
+	if _, journalExists, journalErr := runtime.readClusterJournal(); journalErr != nil || !journalExists {
+		t.Fatalf("journal cleanup failure = exists:%t error:%v", journalExists, journalErr)
+	}
+}
+
+func TestFreshStatePublicationRecoveryMatrix(t *testing.T) {
+	t.Parallel()
+	t.Run("pre-rename failure cleans candidate exactly", func(t *testing.T) {
+		root := t.TempDir()
+		runner := &rollbackClusterUpRunner{}
+		runtime := configuredClusterUpRuntime(t, root, runner)
+		injected := errors.New("pre-rename publication failed")
+		runtime.clusterStateWriteHook = func(tobari.State, func() error) error { return injected }
+		if _, err := runtime.ClusterUp(context.Background()); !errors.Is(err, injected) {
+			t.Fatalf("ClusterUp() error = %v", err)
+		}
+		if runner.cleanupCalls != 1 {
+			t.Fatalf("fresh cleanup calls = %d", runner.cleanupCalls)
+		}
+		if _, exists, err := runtime.LoadState(context.Background()); err != nil || exists {
+			t.Fatalf("fresh failed publication state exists=%t error=%v", exists, err)
+		}
+		if _, exists, err := runtime.readClusterJournal(); err != nil || exists {
+			t.Fatalf("fresh successful cleanup journal exists=%t error=%v", exists, err)
+		}
+	})
+
+	t.Run("post-rename error retains exact new authority and retry", func(t *testing.T) {
+		root := t.TempDir()
+		runner := &rollbackClusterUpRunner{}
+		runtime := configuredClusterUpRuntime(t, root, runner)
+		injected := errors.New("post-rename publication failed")
+		runtime.clusterStateWriteHook = func(_ tobari.State, commit func() error) error {
+			if err := commit(); err != nil {
+				return err
+			}
+			return injected
+		}
+		if _, err := runtime.ClusterUp(context.Background()); !errors.Is(err, injected) {
+			t.Fatalf("ClusterUp() error = %v", err)
+		}
+		if runner.cleanupCalls != 0 {
+			t.Fatalf("committed fresh activation cleanup calls = %d", runner.cleanupCalls)
+		}
+		loaded, exists, err := runtime.LoadState(context.Background())
+		if err != nil || !exists || loaded.SchemaVersion != 2 {
+			t.Fatalf("fresh committed state = %+v exists=%t error=%v", loaded, exists, err)
+		}
+		if _, exists, err := runtime.readClusterJournal(); err != nil || !exists {
+			t.Fatalf("outcome-unknown journal exists=%t error=%v", exists, err)
+		}
+		runtime.clusterStateWriteHook = nil
+		if _, err := runtime.ClusterUp(context.Background()); err != nil {
+			t.Fatalf("fresh committed retry = %v", err)
+		}
+		if _, exists, err := runtime.readClusterJournal(); err != nil || exists {
+			t.Fatalf("fresh committed retry journal exists=%t error=%v", exists, err)
+		}
+	})
+
+	t.Run("drift after publication stops mutation", func(t *testing.T) {
+		root := t.TempDir()
+		runner := &rollbackClusterUpRunner{}
+		runtime := configuredClusterUpRuntime(t, root, runner)
+		injected := errors.New("publication outcome unknown")
+		runtime.clusterStateWriteHook = func(candidate tobari.State, commit func() error) error {
+			if err := commit(); err != nil {
+				return err
+			}
+			drifted := candidate
+			drifted.RecentError = "synthetic drift"
+			if err := writeAtomicJSON(runtime.statePath(), drifted); err != nil {
+				return err
+			}
+			return injected
+		}
+		if _, err := runtime.ClusterUp(context.Background()); !errors.Is(err, injected) {
+			t.Fatalf("ClusterUp() error = %v", err)
+		}
+		if runner.cleanupCalls != 0 {
+			t.Fatalf("unknown fresh authority cleanup calls = %d", runner.cleanupCalls)
+		}
+		composeCalls := len(runner.composeCalls)
+		runtime.clusterStateWriteHook = nil
+		if _, err := runtime.ClusterUp(context.Background()); err == nil {
+			t.Fatal("fresh drift retry unexpectedly mutated")
+		}
+		if len(runner.composeCalls) != composeCalls || runner.cleanupCalls != 0 {
+			t.Fatalf("fresh drift retry mutated compose=%d cleanup=%d", len(runner.composeCalls), runner.cleanupCalls)
+		}
+		if _, exists, err := runtime.readClusterJournal(); err != nil || !exists {
+			t.Fatalf("fresh drift recovery journal exists=%t error=%v", exists, err)
+		}
+	})
+
+	t.Run("journal clear failure recovers committed state", func(t *testing.T) {
+		root := t.TempDir()
+		runner := &rollbackClusterUpRunner{}
+		runtime := configuredClusterUpRuntime(t, root, runner)
+		injected := errors.New("journal clear failed")
+		failures := 1
+		runtime.clusterJournalClearHook = func() error {
+			if failures > 0 {
+				failures--
+				return injected
+			}
+			return nil
+		}
+		if _, err := runtime.ClusterUp(context.Background()); !errors.Is(err, injected) {
+			t.Fatalf("ClusterUp() error = %v", err)
+		}
+		if runner.cleanupCalls != 0 {
+			t.Fatalf("journal failure cleanup calls = %d", runner.cleanupCalls)
+		}
+		if _, err := runtime.ClusterUp(context.Background()); err != nil {
+			t.Fatalf("journal recovery retry = %v", err)
+		}
+		if _, exists, err := runtime.readClusterJournal(); err != nil || exists {
+			t.Fatalf("journal recovery exists=%t error=%v", exists, err)
+		}
+	})
+
+	t.Run("failed cleanup is recoverable by explicit down", func(t *testing.T) {
+		root := t.TempDir()
+		injected := errors.New("fresh cleanup failed")
+		runner := &rollbackClusterUpRunner{cleanupErr: injected}
+		runtime := configuredClusterUpRuntime(t, root, runner)
+		runtime.clusterStateWriteHook = func(tobari.State, func() error) error {
+			return errors.New("state publication failed")
+		}
+		if _, err := runtime.ClusterUp(context.Background()); !errors.Is(err, injected) {
+			t.Fatalf("ClusterUp() error = %v", err)
+		}
+		if _, exists, err := runtime.LoadState(context.Background()); err != nil || exists {
+			t.Fatalf("failed-cleanup state exists=%t error=%v", exists, err)
+		}
+		if _, exists, err := runtime.readClusterJournal(); err != nil || !exists {
+			t.Fatalf("failed-cleanup journal exists=%t error=%v", exists, err)
+		}
+		runner.cleanupErr = nil
+		recovered, err := runtime.RecoverInterruptedClusterDown(context.Background(), false)
+		if err != nil || !recovered || runner.cleanupCalls != 2 {
+			t.Fatalf("explicit down recovery recovered=%t cleanup=%d error=%v", recovered, runner.cleanupCalls, err)
+		}
+		if _, exists, err := runtime.readClusterJournal(); err != nil || exists {
+			t.Fatalf("explicit down recovery journal exists=%t error=%v", exists, err)
+		}
+	})
+}
+
+func TestSchemaMigrationPostRenameErrorRetriesAsSchemaTwo(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	runner := &rollbackClusterUpRunner{
+		predecessorGatewayID: "sha256:" + strings.Repeat("4", 64),
+		predecessorOPAID:     "sha256:" + strings.Repeat("5", 64),
+	}
+	if brokerRuntimeEnabled {
+		runner.predecessorBrokerID = "sha256:" + strings.Repeat("6", 64)
+	}
+	runtime := configuredClusterUpRuntime(t, root, runner)
+	legacy := runtimeState(root)
+	legacy.RuntimeDirectory = prePlatformRuntimeDirectory(root)
+	legacy.AssetVersion = prePlatformAssetVersion
+	runner.predecessorRevision = legacy.AggregateRevision
+	materializePrePlatformRuntime(t, legacy.RuntimeDirectory)
+	if err := runtime.writeState(legacy); err != nil {
+		t.Fatal(err)
+	}
+	injected := errors.New("post-rename fsync failed")
+	runtime.clusterStateWriteHook = func(_ tobari.State, commit func() error) error {
+		if err := commit(); err != nil {
+			return err
+		}
+		return injected
+	}
+	if _, err := runtime.ClusterUp(context.Background()); !errors.Is(err, injected) {
+		t.Fatalf("migration ClusterUp() = %v", err)
+	}
+	if len(runner.composeCalls) != 0 {
+		t.Fatalf("migration error mutated Docker: %v", runner.composeCalls)
+	}
+	loaded, exists, err := runtime.LoadState(context.Background())
+	if err != nil || !exists || loaded.SchemaVersion != 2 || loaded.Applied.PermissionProfile != tobari.SharedClusterProfilePrePlatform {
+		t.Fatalf("committed migration = %+v exists:%t error:%v", loaded, exists, err)
+	}
+	beforeReadOnly, err := os.ReadFile(runtime.statePath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := runtime.LoadState(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	_, _ = runtime.InspectCluster(context.Background(), loaded)
+	afterReadOnly, err := os.ReadFile(runtime.statePath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(beforeReadOnly, afterReadOnly) || len(runner.composeCalls) != 0 {
+		t.Fatalf("read-only load/status changed migrated authority or Docker")
+	}
+	runtime.clusterStateWriteHook = nil
+	if _, err := runtime.ClusterUp(context.Background()); err != nil {
+		t.Fatalf("schema-2 retry = %v", err)
+	}
+	if len(runner.composeCalls) != 1 {
+		t.Fatalf("schema-2 retry compose calls = %d", len(runner.composeCalls))
 	}
 }
 
@@ -465,6 +1547,88 @@ func runtimeState(root string) tobari.State {
 		PolicyDirectory: filepath.Join(root, "policy"),
 		GatewayConfig:   filepath.Join(root, "gateway.json"), AssetVersion: "asset",
 	}
+}
+
+func appliedRuntimeState(root string, profile tobari.SharedClusterAppliedProfile) tobari.State {
+	state := runtimeState(root)
+	state.SchemaVersion = 2
+	state.Applied = tobari.SharedClusterAppliedEntry{
+		AggregateRevision: state.AggregateRevision,
+		AssetVersion:      state.AssetVersion,
+		GatewayImageID:    testGatewayDigest,
+		OPAImageID:        "sha256:" + strings.Repeat("2", 64),
+		PermissionProfile: profile,
+	}
+	if brokerRuntimeEnabled {
+		state.Applied.AuthBrokerImageID = "sha256:" + strings.Repeat("3", 64)
+	}
+	return state
+}
+
+func configuredClusterUpRuntime(t *testing.T, root string, runner commandRunner) *Runtime {
+	t.Helper()
+	runtime, err := newRuntimeWithData(
+		filepath.Join(root, "config"), filepath.Join(root, "state"), filepath.Join(root, "data"), runner,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime.images = testImageResolver{
+		runtimeImage: "tobari-runtime:dev",
+		gateway:      sharedImageSelection{Image: "tobari-gateway:dev"},
+		authBroker:   sharedImageSelection{Image: "tobari-auth-broker:dev"},
+	}
+	runtime.rootKeyLoader = func(context.Context) ([]byte, error) {
+		return bytes.Repeat([]byte{0x41}, 32), nil
+	}
+	runtime.companion = &fakeCredentialCompanionLauncher{}
+	runtime.companionEntropy = bytes.NewReader(bytes.Repeat([]byte{0x42}, 256))
+	return runtime
+}
+
+func materializePrePlatformRuntime(t *testing.T, directory string) {
+	t.Helper()
+	if err := os.MkdirAll(directory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join("testdata", "compose.pre-platform.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(directory, "compose.yaml"), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if brokerRuntimeEnabled {
+		experimental, err := os.ReadFile(filepath.Join("testdata", "compose.pre-platform.experimental.yaml"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(directory, "compose.experimental.yaml"), experimental, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func prePlatformRuntimeDirectory(root string) string {
+	return filepath.Join(root, "state", "runtime", prePlatformAssetVersion)
+}
+
+func retainedAppliedState(root, aggregate string, profile tobari.SharedClusterAppliedProfile) tobari.State {
+	state := runtimeState(root)
+	state.SchemaVersion = 2
+	state.AggregateRevision = aggregate
+	state.AssetVersion = "retained-asset"
+	state.Applied = tobari.SharedClusterAppliedEntry{
+		AggregateRevision: aggregate,
+		AssetVersion:      "retained-asset",
+		GatewayImageID:    "sha256:" + strings.Repeat("4", 64),
+		OPAImageID:        "sha256:" + strings.Repeat("5", 64),
+		PermissionProfile: profile,
+	}
+	if brokerRuntimeEnabled {
+		state.Applied.AuthBrokerImageID = "sha256:" + strings.Repeat("6", 64)
+	}
+	return state
 }
 
 func TestResolveRuntimeHomesUsesXDGAndPortableFallbacks(t *testing.T) {
@@ -718,7 +1882,11 @@ func TestClusterDownPurgesMissingVolumesIdempotently(t *testing.T) {
 		t.Fatal(err)
 	}
 	runtime.companion = &fakeCredentialCompanionLauncher{}
-	if err := runtime.ClusterDown(context.Background(), runtimeState(root), true); err != nil {
+	state := runtimeState(root)
+	if err := runtime.writeState(state); err != nil {
+		t.Fatal(err)
+	}
+	if err := runtime.ClusterDown(context.Background(), state, true); err != nil {
 		t.Fatalf("ClusterDown() = %v, want idempotent success for missing resources", err)
 	}
 	for _, call := range runner.outputs {
@@ -730,30 +1898,57 @@ func TestClusterDownPurgesMissingVolumesIdempotently(t *testing.T) {
 
 func TestClusterDownDoesNotRequireCurrentPermissionProfileAssets(t *testing.T) {
 	t.Parallel()
-	root := t.TempDir()
-	runner := &recordingRunner{}
-	runtime, err := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), runner)
-	if err != nil {
-		t.Fatal(err)
-	}
-	// A retained pre-platform runtime has only the original base compose file.
-	runtime.permissionIngestionTransport = tobari.PermissionSessionTransportTCP
-	if err := runtime.ClusterDown(context.Background(), runtimeState(root), false); err != nil {
-		t.Fatal(err)
-	}
-	var down []string
-	for _, call := range runner.runs {
-		if len(call.args) > 0 && call.args[0] == "compose" && slices.Contains(call.args, "down") {
-			down = call.args
-		}
-	}
-	if len(down) == 0 || !slices.Contains(down, "--remove-orphans") {
-		t.Fatalf("cluster down argv = %v", down)
-	}
-	for _, argument := range down {
-		if strings.Contains(argument, "compose.permission-") {
-			t.Fatalf("cluster down required a current permission profile: %v", down)
-		}
+	for _, schema := range []int{1, 2} {
+		t.Run(fmt.Sprintf("schema-%d", schema), func(t *testing.T) {
+			root := t.TempDir()
+			runner := &recordingRunner{outputData: []byte(ownerValue + "\n")}
+			runtime, err := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), runner)
+			if err != nil {
+				t.Fatal(err)
+			}
+			runtime.companion = &fakeCredentialCompanionLauncher{}
+			// A retained pre-platform runtime has only the original base and,
+			// in research builds, experimental Compose assets. The current host
+			// permission profile must not become a cleanup dependency.
+			runtime.permissionIngestionTransport = tobari.PermissionSessionTransportTCP
+			state := runtimeState(root)
+			if schema == 2 {
+				state.SchemaVersion = 2
+				state.Applied = tobari.SharedClusterAppliedEntry{
+					AggregateRevision: state.AggregateRevision, AssetVersion: state.AssetVersion,
+					GatewayImageID:    "sha256:" + strings.Repeat("4", 64),
+					OPAImageID:        "sha256:" + strings.Repeat("5", 64),
+					PermissionProfile: tobari.SharedClusterProfilePrePlatform,
+				}
+				if brokerRuntimeEnabled {
+					state.Applied.AuthBrokerImageID = "sha256:" + strings.Repeat("6", 64)
+				}
+			}
+			if err := runtime.writeState(state); err != nil {
+				t.Fatal(err)
+			}
+			if err := runtime.ClusterDown(context.Background(), state, false); err != nil {
+				t.Fatal(err)
+			}
+			var down []string
+			for _, call := range runner.runs {
+				if len(call.args) > 0 && call.args[0] == "compose" && slices.Contains(call.args, "down") {
+					down = call.args
+				}
+			}
+			if len(down) == 0 || !slices.Contains(down, "--remove-orphans") {
+				t.Fatalf("cluster down argv = %v", down)
+			}
+			for _, argument := range down {
+				if strings.Contains(argument, "compose.permission-") {
+					t.Fatalf("cluster down required a successor permission profile: %v", down)
+				}
+			}
+			containsExperimental := slices.Contains(down, filepath.Join(state.RuntimeDirectory, "compose.experimental.yaml"))
+			if containsExperimental != brokerRuntimeEnabled {
+				t.Fatalf("cluster down research overlay presence = %t", containsExperimental)
+			}
+		})
 	}
 }
 
@@ -779,6 +1974,10 @@ func TestClusterDownResumesAfterInterruptedComposeCleanup(t *testing.T) {
 	journal, exists, err := runtime.readClusterJournal()
 	if err != nil || !exists || journal.Operation != clusterOperationDown || journal.Phase != clusterPhaseStarted {
 		t.Fatalf("interrupted journal = (%+v, %t, %v)", journal, exists, err)
+	}
+	state, exists, err = runtime.LoadState(context.Background())
+	if err != nil || !exists {
+		t.Fatalf("retry state exists=%t error=%v", exists, err)
 	}
 	if err := runtime.ClusterDown(context.Background(), state, false); err != nil {
 		t.Fatalf("resumed ClusterDown() error = %v", err)
@@ -927,7 +2126,9 @@ func TestInterruptedClusterReconcileFailsClosedInStatus(t *testing.T) {
 		t.Fatal(err)
 	}
 	state := runtimeState(root)
-	if err := runtime.startClusterReconcile(clusterOperationUp); err != nil {
+	if err := runtime.startClusterUpReconcile(nil, state, tobari.SharedClusterProfileUnix, projectPrincipalRegistry{
+		SchemaVersion: projectPrincipalRegistrySchema, Bindings: []projectPrincipalBinding{},
+	}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := runtime.InspectCluster(context.Background(), state); err == nil {
@@ -978,7 +2179,7 @@ func TestComposeEnvironmentUsesPinnedImages(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 	runtime, _ := newRuntime(filepath.Join(root, "config"), filepath.Join(root, "state"), &recordingRunner{})
-	environment, err := runtime.composeEnvironment(runtimeState(root))
+	environment, err := runtime.composeEnvironment(appliedRuntimeState(root, tobari.SharedClusterProfileUnix))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1034,7 +2235,11 @@ func TestPermissionIngestionComposeProfileIsClosed(t *testing.T) {
 		if err != nil || len(args) != 2 || args[0] != "-f" || args[1] != filepath.Join("/runtime", test.file) {
 			t.Fatalf("%s compose profile = %v, %v", test.transport, args, err)
 		}
-		environment, err := runtime.composeEnvironment(runtimeState(root))
+		profile, err := tobari.SharedClusterProfileForTransport(test.transport)
+		if err != nil {
+			t.Fatal(err)
+		}
+		environment, err := runtime.composeEnvironment(appliedRuntimeState(root, profile))
 		if err != nil {
 			t.Fatal(err)
 		}

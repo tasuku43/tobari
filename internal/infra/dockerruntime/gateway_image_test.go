@@ -53,7 +53,7 @@ func TestVerifyGatewayImagePullsAndChecksImmutableContract(t *testing.T) {
 		firstInspectErr: errors.New("image is not present"),
 	}
 	runtime := &Runtime{runner: runner}
-	if err := runtime.verifyGatewayImage(context.Background(), "ghcr.io/tasuku43/tobari/gateway@"+testGatewayDigest, true); err != nil {
+	if _, err := runtime.verifyGatewayImage(context.Background(), "ghcr.io/tasuku43/tobari/gateway@"+testGatewayDigest, true); err != nil {
 		t.Fatal(err)
 	}
 	if runner.inspectCalls != 2 {
@@ -72,7 +72,7 @@ func TestVerifyGatewayImageRejectsOldAPIBeforeEngineMutation(t *testing.T) {
 	}
 	runner.metadata = strings.Replace(runner.metadata, `"io.tobari.gateway-api":"1"`, `"io.tobari.gateway-api":"2"`, 1)
 	runtime := &Runtime{runner: runner}
-	err := runtime.verifyGatewayImage(context.Background(), "ghcr.io/tasuku43/tobari/gateway@"+testGatewayDigest, true)
+	_, err := runtime.verifyGatewayImage(context.Background(), "ghcr.io/tasuku43/tobari/gateway@"+testGatewayDigest, true)
 	public, ok := fault.PublicCopy(err)
 	if !ok || public.Code != "gateway_image_incompatible" {
 		t.Fatalf("error = %v, public = %+v", err, public)
@@ -91,7 +91,7 @@ func TestVerifyGatewayImageRejectsEngineArchitectureMismatch(t *testing.T) {
 		server:   `{"Os":"linux","Arch":"amd64"}`,
 	}
 	runtime := &Runtime{runner: runner}
-	err := runtime.verifyGatewayImage(context.Background(), "ghcr.io/tasuku43/tobari/gateway@"+testGatewayDigest, true)
+	_, err := runtime.verifyGatewayImage(context.Background(), "ghcr.io/tasuku43/tobari/gateway@"+testGatewayDigest, true)
 	public, ok := fault.PublicCopy(err)
 	if !ok || public.Code != "gateway_image_incompatible" {
 		t.Fatalf("error = %v, public = %+v", err, public)
@@ -111,12 +111,15 @@ func TestPrepareGatewayImageUsesInjectedLocalResolver(t *testing.T) {
 			gateway:      sharedImageSelection{Image: "tobari-gateway:dev", RequireDigest: false},
 		},
 	}
-	image, err := runtime.prepareGatewayImage(context.Background())
+	image, identity, err := runtime.prepareGatewayImage(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
 	if image != "tobari-gateway:dev" {
 		t.Fatalf("Gateway image = %q", image)
+	}
+	if identity != testGatewayDigest {
+		t.Fatalf("Gateway image identity = %q", identity)
 	}
 	for _, call := range runner.outputs {
 		if len(call.args) > 0 && call.args[0] == "pull" {
@@ -139,12 +142,12 @@ func TestPrepareGatewayImageBuildsMissingEmbeddedGatewayBeforeValidation(t *test
 			gateway: sharedImageSelection{Image: "tobari-gateway:base-example", BuildIfMissing: true},
 		},
 	}
-	image, err := runtime.prepareGatewayImage(context.Background())
+	image, identity, err := runtime.prepareGatewayImage(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if image != "tobari-gateway:base-example" || len(runner.runs) != 1 {
-		t.Fatalf("Gateway preparation = image %q runs %+v", image, runner.runs)
+	if image != "tobari-gateway:base-example" || identity != testGatewayDigest || len(runner.runs) != 1 {
+		t.Fatalf("Gateway preparation = image %q identity %q runs %+v", image, identity, runner.runs)
 	}
 	joined := strings.Join(runner.runs[0].args, "\n")
 	for _, required := range []string{"buildx", "build", "--progress=plain", "--load", "--tag", image, "gateway/Dockerfile", "MITMPROXY_IMAGE=mitmproxy/mitmproxy@sha256:"} {
@@ -167,7 +170,7 @@ func TestPrepareGatewayImageReusesExistingEmbeddedGateway(t *testing.T) {
 			gateway: sharedImageSelection{Image: "tobari-gateway:base-example", BuildIfMissing: true},
 		},
 	}
-	if _, err := runtime.prepareGatewayImage(context.Background()); err != nil {
+	if _, _, err := runtime.prepareGatewayImage(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	if len(runner.runs) != 0 {
@@ -188,7 +191,7 @@ func TestPrepareGatewayImageReportsEmbeddedBuildFailure(t *testing.T) {
 			gateway: sharedImageSelection{Image: "tobari-gateway:base-example", BuildIfMissing: true},
 		},
 	}
-	_, err := runtime.prepareGatewayImage(context.Background())
+	_, _, err := runtime.prepareGatewayImage(context.Background())
 	public, ok := fault.PublicCopy(err)
 	if !ok || public.Code != "gateway_image_build_failed" || public.Retryable {
 		t.Fatalf("error = %v, public = %+v", err, public)
@@ -214,5 +217,5 @@ func gatewayMetadata(architecture, repoDigest string) string {
 	if repoDigest != "" {
 		repoDigests = `["` + repoDigest + `"]`
 	}
-	return `{"RepoDigests":` + repoDigests + `,"Architecture":"` + architecture + `","Os":"linux","Config":{"User":"1000:1000","Labels":{"io.tobari.gateway-api":"1","io.tobari.gateway-role":"enforcement"},"Entrypoint":["/opt/tobari/entrypoint.sh"]}}`
+	return `{"Id":"` + testGatewayDigest + `","RepoDigests":` + repoDigests + `,"Architecture":"` + architecture + `","Os":"linux","Config":{"User":"1000:1000","Labels":{"io.tobari.gateway-api":"1","io.tobari.gateway-role":"enforcement"},"Entrypoint":["/opt/tobari/entrypoint.sh"]}}`
 }

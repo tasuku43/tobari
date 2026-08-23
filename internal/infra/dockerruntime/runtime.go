@@ -117,7 +117,8 @@ type Runtime struct {
 	projectStateWriter func(tobari.Workspace) error
 	// clusterStateWriteHook is nil in production. Tests use it to distinguish
 	// failures before and after the atomic shared-state publication boundary.
-	clusterStateWriteHook func(tobari.State, func() error) error
+	clusterStateWriteHook   func(tobari.State, func() error) error
+	clusterJournalClearHook func() error
 }
 
 // New resolves XDG paths without creating them.

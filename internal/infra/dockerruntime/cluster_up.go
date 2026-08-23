@@ -4,9 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"io"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -41,7 +42,7 @@ func (r *Runtime) ValidateClusterBuildIdentity(ctx context.Context) error {
 
 func (r *Runtime) clusterUpWithProgressMode(
 	ctx context.Context, progress tobari.ClusterUpProgressSink, forceRecreate bool,
-) (tobari.State, error) {
+) (result tobari.State, resultErr error) {
 	if err := ctx.Err(); err != nil {
 		return tobari.State{}, err
 	}
@@ -57,6 +58,27 @@ func (r *Runtime) clusterUpWithProgressMode(
 			Step: tobari.ClusterUpProgressPrepare, Status: tobari.ClusterUpProgressFailed,
 		})
 		return tobari.State{}, err
+	}
+	if err := r.recoverInterruptedClusterUp(ctx, existing, exists); err != nil {
+		emitClusterUpProgress(progress, tobari.ClusterUpProgress{
+			Step: tobari.ClusterUpProgressPrepare, Status: tobari.ClusterUpProgressFailed,
+		})
+		return tobari.State{}, err
+	}
+	// Recovery may have committed or removed state, so re-read the exact
+	// authority before preparing another activation.
+	existing, exists, err = r.LoadState(ctx)
+	if err != nil {
+		return tobari.State{}, err
+	}
+	if exists && existing.SchemaVersion == 1 {
+		existing, err = r.migratePrePlatformSharedClusterState(ctx, existing)
+		if err != nil {
+			emitClusterUpProgress(progress, tobari.ClusterUpProgress{
+				Step: tobari.ClusterUpProgressPrepare, Status: tobari.ClusterUpProgressFailed,
+			})
+			return tobari.State{}, err
+		}
 	}
 	var authBrokerSelection sharedImageSelection
 	if brokerRuntimeEnabled {
@@ -78,50 +100,47 @@ func (r *Runtime) clusterUpWithProgressMode(
 	if exists {
 		state.RecentError = existing.RecentError
 	}
-	recordAttemptError := func(message string) {
-		if exists {
-			_ = r.recordRecentError(existing, message)
-		}
-	}
+	attemptErrorMessage := "Cluster activation did not complete; inspect shared-cluster status."
 	activationAttempted := false
 	activationCommitted := false
-	var gatewayImage string
+	rollbackPermitted := true
+	var appliedProfile tobari.SharedClusterAppliedProfile
+	previousPrincipals := projectPrincipalRegistry{SchemaVersion: projectPrincipalRegistrySchema, Bindings: []projectPrincipalBinding{}}
 	defer func() {
-		if !activationAttempted || activationCommitted || !exists || existing.AggregateRevision == state.AggregateRevision {
+		if !activationAttempted || activationCommitted || !rollbackPermitted {
 			return
 		}
-		rollbackContext, cancel := context.WithTimeout(ctx, 30*time.Second)
+		rollbackContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
 		defer cancel()
-		rollbackEnvironment, environmentErr := r.composeEnvironment(existing)
-		if environmentErr != nil {
+		var rollbackErr error
+		if exists {
+			rollbackErr = r.rollbackSharedClusterActivation(rollbackContext, existing, previousPrincipals)
+		} else {
+			rollbackErr = r.cleanupFreshClusterActivation(rollbackContext, state, appliedProfile)
+		}
+		if rollbackErr == nil {
+			if clearErr := r.clearClusterJournal(); clearErr != nil {
+				resultErr = fmt.Errorf(
+					"cluster activation failed after rollback but recovery journal cleanup did not complete: %w",
+					errors.Join(resultErr, clearErr),
+				)
+				return
+			}
+			if exists {
+				if recordErr := r.recordRecentError(existing, attemptErrorMessage); recordErr != nil {
+					resultErr = fmt.Errorf(
+						"cluster activation failed after rollback and recovery evidence could not be recorded: %w",
+						errors.Join(resultErr, recordErr),
+					)
+				}
+			}
 			return
 		}
-		if brokerRuntimeEnabled {
-			rollbackEnvironment = replaceEnvironmentValue(
-				rollbackEnvironment, "TOBARI_AUTH_BROKER_IMAGE", authBrokerSelection.Image,
-			)
-		}
-		rollbackEnvironment = replaceEnvironmentValue(
-			rollbackEnvironment, "TOBARI_GATEWAY_IMAGE", gatewayImage,
+		resultErr = fmt.Errorf(
+			"cluster activation failed and rollback did not complete: %w",
+			errors.Join(resultErr, rollbackErr),
 		)
-		rollbackArgs := []string{"compose", "--project-directory", existing.RuntimeDirectory}
-		rollbackArgs = append(rollbackArgs, composeFileArgs(existing.RuntimeDirectory)...)
-		rollbackArgs = append(rollbackArgs, "up", "-d", "--no-build", "--remove-orphans", "--force-recreate", "--wait")
-		_ = r.runner.Run(
-			rollbackContext,
-			rollbackArgs,
-			rollbackEnvironment, nil, io.Discard, io.Discard,
-		)
-		_ = r.ensureGatewayNetworkGuard(rollbackContext)
 	}()
-	var environment []string
-	environment, err = r.composeEnvironment(state)
-	if err != nil {
-		emitClusterUpProgress(progress, tobari.ClusterUpProgress{
-			Step: tobari.ClusterUpProgressPrepare, Status: tobari.ClusterUpProgressFailed,
-		})
-		return tobari.State{}, err
-	}
 	if brokerRuntimeEnabled {
 		if err = r.verifyAuthBrokerImage(ctx, authBrokerSelection.Image, authBrokerSelection.RequireDigest); err != nil {
 			emitClusterUpProgress(progress, tobari.ClusterUpProgress{
@@ -129,31 +148,54 @@ func (r *Runtime) clusterUpWithProgressMode(
 			})
 			return tobari.State{}, err
 		}
-		environment = replaceEnvironmentValue(environment, "TOBARI_AUTH_BROKER_IMAGE", authBrokerSelection.Image)
 	}
-	gatewayImage, err = r.prepareGatewayImage(ctx)
+	_, gatewayImageID, err := r.prepareGatewayImage(ctx)
 	if err != nil {
 		emitClusterUpProgress(progress, tobari.ClusterUpProgress{
 			Step: tobari.ClusterUpProgressPrepare, Status: tobari.ClusterUpProgressFailed,
 		})
 		return tobari.State{}, err
 	}
-	environment = replaceEnvironmentValue(environment, "TOBARI_GATEWAY_IMAGE", gatewayImage)
-	if err := r.startClusterReconcile(clusterOperationUp); err != nil {
+	appliedProfile, err = tobari.SharedClusterProfileForTransport(r.permissionIngestionTransport)
+	if err != nil {
+		return tobari.State{}, fmt.Errorf("select applied permission profile: %w", err)
+	}
+	environment, err := r.composeEnvironmentForTransport(state, r.permissionIngestionTransport)
+	if err != nil {
 		emitClusterUpProgress(progress, tobari.ClusterUpProgress{
 			Step: tobari.ClusterUpProgressPrepare, Status: tobari.ClusterUpProgressFailed,
 		})
-		return tobari.State{}, fmt.Errorf("start cluster reconcile journal: %w", err)
+		return tobari.State{}, err
 	}
+	if brokerRuntimeEnabled {
+		environment = replaceEnvironmentValue(environment, "TOBARI_AUTH_BROKER_IMAGE", authBrokerSelection.Image)
+	}
+	environment = replaceEnvironmentValue(environment, "TOBARI_GATEWAY_IMAGE", gatewayImageID)
 	emitClusterUpProgress(progress, tobari.ClusterUpProgress{
 		Step: tobari.ClusterUpProgressPrepare, Status: tobari.ClusterUpProgressCompleted,
 	})
 
 	if err := runClusterUpProgressStep(progress, tobari.ClusterUpProgressPolicy, func() error {
 		if err := r.testPolicy(ctx, state); err != nil {
-			_ = r.clearClusterJournal()
 			return fault.Wrap(fault.KindRejected, "policy_test_failed", policyTestFailureMessage, false, err)
 		}
+		previousPrincipals, err = r.readProjectPrincipalRegistry()
+		if err != nil {
+			return fmt.Errorf("capture previous project principal publication: %w", err)
+		}
+		if exists {
+			if err := r.verifyAppliedSharedCluster(ctx, existing, previousPrincipals); err != nil {
+				return fmt.Errorf("verify last-successful shared-cluster entry before mutation: %w", err)
+			}
+		}
+		var previous *tobari.State
+		if exists {
+			previous = &existing
+		}
+		if err := r.startClusterUpReconcile(previous, state, appliedProfile, previousPrincipals); err != nil {
+			return fmt.Errorf("start cluster reconcile journal: %w", err)
+		}
+		activationAttempted = true
 		return r.preparePolicyBundle(ctx, state)
 	}); err != nil {
 		return tobari.State{}, err
@@ -166,11 +208,12 @@ func (r *Runtime) clusterUpWithProgressMode(
 	}
 
 	if err := runClusterUpProgressStep(progress, tobari.ClusterUpProgressStartServices, func() error {
-		activationAttempted = true
 		var output bytes.Buffer
 		composeUpArgs := []string{"compose", "--project-directory", state.RuntimeDirectory}
 		composeUpArgs = append(composeUpArgs, composeFileArgs(state.RuntimeDirectory)...)
-		permissionProfileArgs, err := r.permissionSessionComposeFileArgs(state.RuntimeDirectory)
+		permissionProfileArgs, err := permissionSessionComposeFileArgsForTransport(
+			state.RuntimeDirectory, r.permissionIngestionTransport,
+		)
 		if err != nil {
 			return err
 		}
@@ -185,22 +228,22 @@ func (r *Runtime) clusterUpWithProgressMode(
 			environment, nil, &output, &output,
 		)
 		if err != nil {
-			recordAttemptError("Cluster startup did not complete; inspect component logs.")
+			attemptErrorMessage = "Cluster startup did not complete; inspect component logs."
 			return fmt.Errorf("docker compose up: %w: %s", err, boundedDiagnostic(output.Bytes()))
 		}
 		if err := r.ensureGatewayNetworkGuard(ctx); err != nil {
-			recordAttemptError("Gateway network guard did not become ready; inspect Docker kernel support.")
+			attemptErrorMessage = "Gateway network guard did not become ready; inspect Docker kernel support."
 			return err
 		}
 		if brokerRuntimeEnabled {
 			rootKey, err := r.unlockAuthBroker(ctx)
 			if err != nil {
-				recordAttemptError("Auth Broker did not unlock; inspect root-key and broker state.")
+				attemptErrorMessage = "Auth Broker did not unlock; inspect root-key and broker state."
 				return err
 			}
 			defer clear(rootKey)
 			if err := r.startCredentialCompanion(ctx, rootKey); err != nil {
-				recordAttemptError("Credential companion did not become ready; inspect Auth Broker and host runtime state.")
+				attemptErrorMessage = "Credential companion did not become ready; inspect Auth Broker and host runtime state."
 				return err
 			}
 		}
@@ -212,18 +255,18 @@ func (r *Runtime) clusterUpWithProgressMode(
 	if err := runClusterUpProgressStep(progress, tobari.ClusterUpProgressConnectNetworks, func() error {
 		for _, sharedNetwork := range []string{"tobari-control", "tobari-egress"} {
 			if err := r.ensureGatewayNetwork(ctx, sharedNetwork); err != nil {
-				recordAttemptError("Gateway did not rejoin the shared cluster network; inspect cluster status.")
+				attemptErrorMessage = "Gateway did not rejoin the shared cluster network; inspect cluster status."
 				return err
 			}
 			if sharedNetwork == "tobari-control" {
 				if err := r.ensureOPANetwork(ctx, sharedNetwork); err != nil {
-					recordAttemptError("OPA did not rejoin the shared control network; inspect cluster status.")
+					attemptErrorMessage = "OPA did not rejoin the shared control network; inspect cluster status."
 					return err
 				}
 			}
 			if brokerRuntimeEnabled {
 				if err := r.ensureAuthBrokerNetwork(ctx, sharedNetwork); err != nil {
-					recordAttemptError("Auth Broker did not rejoin the shared cluster network; inspect cluster status.")
+					attemptErrorMessage = "Auth Broker did not rejoin the shared cluster network; inspect cluster status."
 					return err
 				}
 			}
@@ -235,11 +278,11 @@ func (r *Runtime) clusterUpWithProgressMode(
 
 	if err := runClusterUpProgressStep(progress, tobari.ClusterUpProgressWaitForHealth, func() error {
 		if err := r.waitForClusterReady(ctx, progress); err != nil {
-			recordAttemptError("Cluster components did not become healthy; inspect component status.")
+			attemptErrorMessage = "Cluster components did not become healthy; inspect component status."
 			return err
 		}
 		if err := r.waitForPolicyRevision(ctx, state.AggregateRevision); err != nil {
-			recordAttemptError("OPA did not activate the expected aggregate policy; inspect OPA logs.")
+			attemptErrorMessage = "OPA did not activate the expected aggregate policy; inspect OPA logs."
 			return err
 		}
 		return nil
@@ -253,7 +296,7 @@ func (r *Runtime) clusterUpWithProgressMode(
 			return fmt.Errorf("read CWD-owned projects for Gateway reconciliation: %w", err)
 		}
 		if err := r.syncProjectPrincipalRegistry(ctx, projects); err != nil {
-			recordAttemptError("Gateway did not rejoin every Tobari network; inspect cluster status.")
+			attemptErrorMessage = "Gateway did not rejoin every Tobari network; inspect cluster status."
 			return err
 		}
 		return nil
@@ -262,17 +305,56 @@ func (r *Runtime) clusterUpWithProgressMode(
 	}
 
 	if err := runClusterUpProgressStep(progress, tobari.ClusterUpProgressFinalize, func() error {
-		if err := r.markClusterRuntimeReconciled(clusterOperationUp); err != nil {
-			return fmt.Errorf("mark cluster reconcile complete: %w", err)
+		snapshot, err := r.observeAppliedClusterSnapshot(ctx)
+		if err != nil {
+			return fmt.Errorf("observe applied shared-cluster component identities: %w", err)
+		}
+		if snapshot.images.gateway != gatewayImageID {
+			return fmt.Errorf("applied Gateway image differs from the verified activation identity")
+		}
+		state.SchemaVersion = 2
+		state.Applied = tobari.SharedClusterAppliedEntry{
+			AggregateRevision: state.AggregateRevision,
+			AssetVersion:      state.AssetVersion,
+			GatewayImageID:    snapshot.images.gateway,
+			OPAImageID:        snapshot.images.opa,
+			AuthBrokerImageID: snapshot.images.authBroker,
+			PermissionProfile: appliedProfile,
 		}
 		state.RecentError = ""
-		if err := r.writeState(state); err != nil {
+		if err := state.Validate(); err != nil {
+			return fmt.Errorf("validate applied shared-cluster state: %w", err)
+		}
+		if err := validateAppliedSharedClusterEntryForBuild(state.Applied); err != nil {
 			return err
+		}
+		candidatePrincipals, err := r.readProjectPrincipalRegistry()
+		if err != nil {
+			return fmt.Errorf("capture applied project principal publication: %w", err)
+		}
+		if err := r.markClusterUpRuntimeReconciled(state, candidatePrincipals); err != nil {
+			return fmt.Errorf("mark cluster reconcile complete: %w", err)
+		}
+		var previous *tobari.State
+		if exists {
+			previous = &existing
+		}
+		publication, publicationErr := r.publishStateWithVerification(ctx, previous, state)
+		switch publication {
+		case statePublicationNew:
+			activationCommitted = true
+			if publicationErr != nil {
+				return fmt.Errorf("shared-cluster state committed with uncertain write completion: %w", publicationErr)
+			}
+		case statePublicationPrevious:
+			return fmt.Errorf("shared-cluster state was not published: %w", publicationErr)
+		default:
+			rollbackPermitted = false
+			return fmt.Errorf("shared-cluster state publication is unknown: %w", publicationErr)
 		}
 		if err := r.clearClusterJournal(); err != nil {
 			return fmt.Errorf("clear cluster reconcile journal: %w", err)
 		}
-		activationCommitted = true
 		return nil
 	}); err != nil {
 		return tobari.State{}, err
@@ -389,7 +471,342 @@ func (r *Runtime) ensureClusterContainerNetwork(
 	return nil
 }
 
+func permissionTransportForAppliedState(state tobari.State) (tobari.PermissionSessionTransport, error) {
+	if state.SchemaVersion == 1 || state.Applied.PermissionProfile == tobari.SharedClusterProfilePrePlatform {
+		return "", nil
+	}
+	if err := state.Applied.PermissionProfile.Validate(); err != nil {
+		return "", err
+	}
+	transport, ok := state.Applied.PermissionProfile.PermissionTransport()
+	if !ok {
+		return "", fmt.Errorf("applied permission ingestion profile has no transport")
+	}
+	return transport, nil
+}
+
+func (r *Runtime) rollbackSharedClusterActivation(
+	ctx context.Context,
+	state tobari.State,
+	principals projectPrincipalRegistry,
+) error {
+	if err := state.Validate(); err != nil {
+		return err
+	}
+	if err := validateAppliedSharedClusterEntryForBuild(state.Applied); err != nil {
+		return err
+	}
+	environment, err := r.composeEnvironment(state)
+	if err != nil {
+		return err
+	}
+	if brokerRuntimeEnabled {
+		environment = replaceEnvironmentValue(
+			environment, "TOBARI_AUTH_BROKER_IMAGE", state.Applied.AuthBrokerImageID,
+		)
+	}
+	environment = replaceEnvironmentValue(environment, "TOBARI_GATEWAY_IMAGE", state.Applied.GatewayImageID)
+	environment = replaceEnvironmentValue(environment, "TOBARI_OPA_IMAGE", state.Applied.OPAImageID)
+	args := []string{"compose", "--project-directory", state.RuntimeDirectory}
+	args = append(args, composeFileArgs(state.RuntimeDirectory)...)
+	permissionTransport, err := permissionTransportForAppliedState(state)
+	if err != nil {
+		return err
+	}
+	permissionProfileArgs, err := permissionSessionComposeFileArgsForTransport(state.RuntimeDirectory, permissionTransport)
+	if err != nil {
+		return err
+	}
+	args = append(args, permissionProfileArgs...)
+	args = append(args, "up", "-d", "--no-build", "--remove-orphans", "--force-recreate", "--wait")
+	var output bytes.Buffer
+	if err := r.runner.Run(ctx, args, environment, nil, &output, &output); err != nil {
+		return fmt.Errorf("restore last successful shared-cluster entry: %w: %s", err, boundedDiagnostic(output.Bytes()))
+	}
+	if err := r.ensureGatewayNetworkGuard(ctx); err != nil {
+		return fmt.Errorf("restore Gateway network guard: %w", err)
+	}
+	if brokerRuntimeEnabled {
+		rootKey, err := r.unlockAuthBroker(ctx)
+		if err != nil {
+			return fmt.Errorf("unlock restored Auth Broker: %w", err)
+		}
+		defer clear(rootKey)
+		if err := r.startCredentialCompanion(ctx, rootKey); err != nil {
+			return fmt.Errorf("restore credential companion: %w", err)
+		}
+	}
+	if err := r.publishPolicyBundle(ctx, state); err != nil {
+		return fmt.Errorf("restore last-successful aggregate policy: %w", err)
+	}
+	if err := r.restoreAppliedNetworkTopology(ctx, principals); err != nil {
+		return err
+	}
+	if err := r.waitForClusterReady(ctx, nil); err != nil {
+		return fmt.Errorf("verify restored cluster health: %w", err)
+	}
+	if err := r.waitForPolicyRevision(ctx, state.AggregateRevision); err != nil {
+		return fmt.Errorf("verify restored aggregate policy: %w", err)
+	}
+	if err := r.verifyAppliedSharedCluster(ctx, state, principals); err != nil {
+		return fmt.Errorf("verify restored shared-cluster authority: %w", err)
+	}
+	return nil
+}
+
+func (r *Runtime) recoverInterruptedClusterUp(ctx context.Context, state tobari.State, exists bool) error {
+	journal, journalExists, err := r.readClusterJournal()
+	if err != nil {
+		return fmt.Errorf("read interrupted cluster reconcile journal: %w", err)
+	}
+	if !journalExists {
+		return nil
+	}
+	if journal.Operation != clusterOperationUp || journal.CandidateState == nil || journal.PreviousPrincipals == nil {
+		return fmt.Errorf("interrupted shared-cluster reconcile lacks automatic recovery authority")
+	}
+	if exists && journal.Phase == clusterPhaseRuntime && state == *journal.CandidateState && journal.CandidatePrincipals != nil {
+		if err := r.verifyAppliedSharedCluster(ctx, state, *journal.CandidatePrincipals); err != nil {
+			return fmt.Errorf("verify interrupted committed shared-cluster activation: %w", err)
+		}
+		return r.clearClusterJournal()
+	}
+	if journal.PreviousState == nil {
+		if exists {
+			return fmt.Errorf("fresh shared-cluster recovery conflicts with persisted state")
+		}
+		if err := r.cleanupFreshClusterActivation(ctx, *journal.CandidateState, journal.CandidateProfile); err != nil {
+			return fmt.Errorf("recover interrupted fresh shared-cluster activation: %w", err)
+		}
+		return r.clearClusterJournal()
+	}
+	if !exists || state != *journal.PreviousState {
+		return fmt.Errorf("interrupted shared-cluster state authority is unknown")
+	}
+	if err := r.rollbackSharedClusterActivation(ctx, state, *journal.PreviousPrincipals); err != nil {
+		return fmt.Errorf("recover interrupted shared-cluster activation: %w", err)
+	}
+	return r.clearClusterJournal()
+}
+
+// RecoverInterruptedClusterDown consumes only a fresh activation journal for
+// which no public shared-cluster State was ever published. It gives explicit
+// cluster down a bounded recovery path without inventing configured state.
+func (r *Runtime) RecoverInterruptedClusterDown(ctx context.Context, purge bool) (bool, error) {
+	journal, exists, err := r.readClusterJournal()
+	if err != nil {
+		return false, fmt.Errorf("read interrupted cluster reconcile journal: %w", err)
+	}
+	if !exists {
+		return false, nil
+	}
+	if journal.Operation != clusterOperationUp || journal.PreviousState != nil || journal.CandidateState == nil {
+		return false, fmt.Errorf("interrupted cluster down recovery authority is ambiguous")
+	}
+	if _, stateExists, err := r.LoadState(ctx); err != nil {
+		return false, err
+	} else if stateExists {
+		return false, fmt.Errorf("fresh cluster down recovery conflicts with persisted state")
+	}
+	if err := r.cleanupFreshClusterActivation(ctx, *journal.CandidateState, journal.CandidateProfile); err != nil {
+		return false, err
+	}
+	if purge {
+		// Fresh cleanup already removes the exact candidate Compose volumes;
+		// no additional global Docker prune or resource discovery is allowed.
+	}
+	if err := r.clearClusterJournal(); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func (r *Runtime) cleanupFreshClusterActivation(
+	ctx context.Context, state tobari.State, profile tobari.SharedClusterAppliedProfile,
+) error {
+	transport, ok := profile.PermissionTransport()
+	if !ok {
+		return fmt.Errorf("fresh cluster cleanup profile is invalid")
+	}
+	environment, err := r.composeEnvironmentForTransport(state, transport)
+	if err != nil {
+		return err
+	}
+	var output bytes.Buffer
+	args := []string{"compose", "--project-directory", state.RuntimeDirectory}
+	args = append(args, composeFileArgs(state.RuntimeDirectory)...)
+	args = append(args, "down", "--remove-orphans", "--volumes")
+	if err := r.runner.Run(ctx, args, environment, nil, &output, &output); err != nil {
+		return fmt.Errorf("clean fresh shared-cluster activation: %w: %s", err, boundedDiagnostic(output.Bytes()))
+	}
+	if err := r.replaceProjectPrincipalRegistry(ctx, []projectPrincipalBinding{}); err != nil {
+		return fmt.Errorf("clear fresh project principal publication: %w", err)
+	}
+	return nil
+}
+
+func (r *Runtime) restoreAppliedNetworkTopology(ctx context.Context, principals projectPrincipalRegistry) error {
+	for _, sharedNetwork := range []string{"tobari-control", "tobari-egress"} {
+		if err := r.ensureGatewayNetwork(ctx, sharedNetwork); err != nil {
+			return fmt.Errorf("restore Gateway shared network: %w", err)
+		}
+		if sharedNetwork == "tobari-control" {
+			if err := r.ensureOPANetwork(ctx, sharedNetwork); err != nil {
+				return fmt.Errorf("restore OPA shared network: %w", err)
+			}
+		}
+		if brokerRuntimeEnabled {
+			if err := r.ensureAuthBrokerNetwork(ctx, sharedNetwork); err != nil {
+				return fmt.Errorf("restore Auth Broker shared network: %w", err)
+			}
+		}
+	}
+	for _, binding := range principals.Bindings {
+		if err := r.verifyOwnedProjectResource(ctx, "network", binding.Network, binding.ProjectID, projectNetRole); err != nil {
+			return fmt.Errorf("verify retained Workspace network: %w", err)
+		}
+		if err := r.ensureGatewayNetworkAtAddress(ctx, binding.Network, binding.GatewayIP); err != nil {
+			return err
+		}
+	}
+	if err := r.replaceProjectPrincipalRegistry(ctx, principals.Bindings); err != nil {
+		return fmt.Errorf("restore project principal publication: %w", err)
+	}
+	return nil
+}
+
+func (r *Runtime) ensureGatewayNetworkAtAddress(ctx context.Context, network, expected string) error {
+	// Rollback force-recreates Gateway before restoring retained Workspace
+	// networks. Connect the exact reviewed address directly; accepting an
+	// already-connected or ambiguous endpoint would require an additional
+	// mutation-authorizing observation. The bounded two-pass snapshot below
+	// proves the completed topology.
+	output, err := r.runner.Output(ctx, []string{
+		"network", "connect", "--alias", "gateway", "--ip", expected, network, gatewayContainer,
+	}, os.Environ())
+	if err != nil {
+		return fmt.Errorf("restore Gateway retained network: %w: %s", err, boundedDiagnostic(output))
+	}
+	return nil
+}
+
+func (r *Runtime) verifyAppliedSharedCluster(
+	ctx context.Context, state tobari.State, principals projectPrincipalRegistry,
+) error {
+	if state.SchemaVersion != 2 {
+		return fmt.Errorf("applied shared-cluster verification requires schema 2")
+	}
+	snapshot, err := r.observeAppliedClusterSnapshot(ctx)
+	if err != nil {
+		return err
+	}
+	if snapshot.images.gateway != state.Applied.GatewayImageID ||
+		snapshot.images.opa != state.Applied.OPAImageID ||
+		snapshot.images.authBroker != state.Applied.AuthBrokerImageID {
+		return fmt.Errorf("applied shared-cluster component image identity drifted")
+	}
+	if err := verifyAppliedPermissionProfile(snapshot.gateway, state.Applied.PermissionProfile); err != nil {
+		return err
+	}
+	if err := verifyAppliedNetworkTopology(snapshot, principals); err != nil {
+		return err
+	}
+	observedPrincipals, err := r.readProjectPrincipalRegistry()
+	if err != nil {
+		return err
+	}
+	if observedPrincipals.SchemaVersion != principals.SchemaVersion ||
+		!slices.Equal(observedPrincipals.Bindings, principals.Bindings) {
+		return fmt.Errorf("project principal publication drifted")
+	}
+	if ready, _ := r.policyRevisionReady(ctx, state.AggregateRevision); !ready {
+		return fmt.Errorf("applied aggregate policy revision is not active")
+	}
+	return nil
+}
+
+func verifyAppliedNetworkTopology(snapshot appliedClusterSnapshot, principals projectPrincipalRegistry) error {
+	gatewayExpected := map[string]string{"tobari-control": "", "tobari-egress": ""}
+	for _, binding := range principals.Bindings {
+		gatewayExpected[binding.Network] = binding.GatewayIP
+	}
+	if len(snapshot.gateway.NetworkAddresses) != len(gatewayExpected) {
+		return fmt.Errorf("Gateway network topology is incomplete or ambiguous")
+	}
+	for network, expectedAddress := range gatewayExpected {
+		observed, exists := snapshot.gateway.NetworkAddresses[network]
+		if !exists || (expectedAddress != "" && observed != expectedAddress) {
+			return fmt.Errorf("Gateway network topology drifted")
+		}
+	}
+	if len(snapshot.opa.NetworkAddresses) != 1 || snapshot.opa.NetworkAddresses["tobari-control"] == "" {
+		return fmt.Errorf("OPA network topology drifted")
+	}
+	if brokerRuntimeEnabled {
+		if len(snapshot.authBroker.NetworkAddresses) != 2 ||
+			snapshot.authBroker.NetworkAddresses["tobari-control"] == "" ||
+			snapshot.authBroker.NetworkAddresses["tobari-egress"] == "" {
+			return fmt.Errorf("Auth Broker network topology drifted")
+		}
+	}
+	return nil
+}
+
+func verifyAppliedPermissionProfile(
+	gateway appliedClusterComponentObservation, profile tobari.SharedClusterAppliedProfile,
+) error {
+	transportValues := make([]string, 0, 1)
+	directoryValues := make([]string, 0, 1)
+	for _, entry := range gateway.Environment {
+		if value, ok := strings.CutPrefix(entry, "TOBARI_PERMISSION_INGESTION_TRANSPORT="); ok {
+			transportValues = append(transportValues, value)
+		}
+		if value, ok := strings.CutPrefix(entry, "TOBARI_PERMISSION_INGESTION_DIRECTORY="); ok {
+			directoryValues = append(directoryValues, value)
+		}
+	}
+	mounts := 0
+	for _, destination := range gateway.MountDestinations {
+		if destination == "/run/tobari/permission-ingestion" {
+			mounts++
+		}
+	}
+	switch profile {
+	case tobari.SharedClusterProfilePrePlatform:
+		if len(transportValues) != 0 || len(directoryValues) != 0 || mounts != 0 {
+			return fmt.Errorf("pre-platform Gateway contains successor permission projection")
+		}
+	case tobari.SharedClusterProfileUnix:
+		if !slices.Equal(transportValues, []string{"unix"}) ||
+			!slices.Equal(directoryValues, []string{"/run/tobari/permission-ingestion"}) || mounts != 1 {
+			return fmt.Errorf("Unix Gateway permission projection drifted")
+		}
+	case tobari.SharedClusterProfileLoopbackTCP:
+		if !slices.Equal(transportValues, []string{"loopback_tcp"}) || len(directoryValues) != 0 || mounts != 0 {
+			return fmt.Errorf("Darwin Gateway permission projection drifted")
+		}
+	default:
+		return fmt.Errorf("applied permission profile is invalid")
+	}
+	return nil
+}
+
 func (r *Runtime) composeEnvironment(state tobari.State) ([]string, error) {
+	permissionTransport, err := permissionTransportForAppliedState(state)
+	if err != nil {
+		return nil, fmt.Errorf("select permission ingestion support profile: %w", err)
+	}
+	return r.composeEnvironmentForTransport(state, permissionTransport)
+}
+
+func (r *Runtime) composeEnvironmentForTransport(
+	state tobari.State, permissionTransport tobari.PermissionSessionTransport,
+) ([]string, error) {
+	if permissionTransport != "" {
+		if err := permissionTransport.Validate(); err != nil {
+			return nil, fmt.Errorf("select permission ingestion support profile: %w", err)
+		}
+	}
 	versions, err := runtimeassets.Versions()
 	if err != nil {
 		return nil, fmt.Errorf("read embedded runtime versions: %w", err)
@@ -410,10 +827,8 @@ func (r *Runtime) composeEnvironment(state tobari.State) ([]string, error) {
 		"TOBARI_OPA_IMAGE="+versions["OPA_IMAGE"],
 		"TOBARI_DEBIAN_IMAGE="+versions["DEBIAN_IMAGE"],
 	)
-	if r.permissionIngestionTransport == tobari.PermissionSessionTransportUnix {
+	if permissionTransport == tobari.PermissionSessionTransportUnix {
 		environment = append(environment, "TOBARI_PERMISSION_INGESTION_DIR="+r.interactiveAttachmentSocketDirectory())
-	} else if err := r.permissionIngestionTransport.Validate(); err != nil {
-		return nil, fmt.Errorf("select permission ingestion support profile: %w", err)
 	}
 	if brokerRuntimeEnabled {
 		environment = append(environment,

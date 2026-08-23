@@ -251,6 +251,20 @@ type activeContextFake struct {
 	active string
 }
 
+type interruptedDownRecoveryRuntime struct {
+	*fakeRuntime
+	recoveryCalls int
+	purge         bool
+}
+
+func (f *interruptedDownRecoveryRuntime) RecoverInterruptedClusterDown(
+	_ context.Context, purge bool,
+) (bool, error) {
+	f.recoveryCalls++
+	f.purge = purge
+	return true, nil
+}
+
 func (f *activeContextFake) DefaultManifestName(context.Context) (string, error) {
 	return f.active, nil
 }
@@ -1411,5 +1425,28 @@ func TestClusterDownRejectsRemainingCWDProjectBeforeMutation(t *testing.T) {
 		!strings.Contains(public.Message, "delete every logical Workspace") ||
 		strings.Contains(strings.ToLower(public.Message), "detach") {
 		t.Fatalf("cluster down fault = %+v, structured=%t", public, ok)
+	}
+}
+
+func TestClusterDownRecoversFreshActivationWithoutPublishedState(t *testing.T) {
+	t.Parallel()
+	configured := false
+	runtime := &interruptedDownRecoveryRuntime{fakeRuntime: &fakeRuntime{
+		state: testState(t.TempDir()), configured: &configured,
+	}}
+	intent := operation.Intent{
+		Command: "cluster down", Effect: operation.EffectWrite,
+		Target: operation.TargetRef{Kind: tobari.ClusterTargetKind, ID: tobari.ClusterTargetID},
+		Impact: operation.Impact{
+			Cardinality: operation.CardinalityMany, Notification: operation.DeclarationNo,
+			AccessChange: operation.DeclarationNo, Destructive: operation.DeclarationYes,
+		},
+	}
+	status, err := New(runtime).ClusterDown(context.Background(), intent, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runtime.recoveryCalls != 1 || !runtime.purge || status.Configured {
+		t.Fatalf("fresh down recovery calls=%d purge=%t status=%+v", runtime.recoveryCalls, runtime.purge, status)
 	}
 }

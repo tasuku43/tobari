@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -109,6 +110,7 @@ func appliedStateObservation(container, image string) appliedClusterComponentObs
 		ContainerID: strings.Repeat("9", 64), Owner: ownerValue,
 		Component: component, Role: role, ImageID: image,
 		State: "running", Health: "healthy", Environment: []string{}, MountDestinations: []string{},
+		Networks: appliedTestNetworkPayload(container),
 	}
 	if brokerRuntimeEnabled && container == gatewayContainer {
 		observation.Environment = []string{
@@ -122,6 +124,23 @@ func appliedStateObservation(container, image string) appliedClusterComponentObs
 		}
 	}
 	return observation
+}
+
+func appliedTestNetworkPayload(container string) map[string]json.RawMessage {
+	addresses := map[string]string{}
+	switch container {
+	case gatewayContainer:
+		addresses = map[string]string{"tobari-control": "172.28.0.2", "tobari-egress": "172.29.0.2"}
+	case opaContainer:
+		addresses = map[string]string{"tobari-control": "172.28.0.3"}
+	case authBrokerContainer:
+		addresses = map[string]string{"tobari-control": "172.28.0.4", "tobari-egress": "172.29.0.4"}
+	}
+	result := make(map[string]json.RawMessage, len(addresses))
+	for network, address := range addresses {
+		result[network] = json.RawMessage(`{"IPAddress":` + strconv.Quote(address) + `}`)
+	}
+	return result
 }
 
 func appliedStatePayload(t *testing.T, observation appliedClusterComponentObservation) []byte {

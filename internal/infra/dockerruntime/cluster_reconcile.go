@@ -8,10 +8,11 @@ import (
 	"path/filepath"
 
 	"github.com/tasuku43/tobari/internal/domain/fault"
+	"github.com/tasuku43/tobari/internal/domain/tobari"
 )
 
 const (
-	clusterJournalSchema = 1
+	clusterJournalSchema = 2
 	clusterOperationUp   = "up"
 	clusterOperationDown = "down"
 	clusterPhaseStarted  = "started"
@@ -19,9 +20,14 @@ const (
 )
 
 type clusterReconcileJournal struct {
-	SchemaVersion int    `json:"schema_version"`
-	Operation     string `json:"operation"`
-	Phase         string `json:"phase"`
+	SchemaVersion       int                                `json:"schema_version"`
+	Operation           string                             `json:"operation"`
+	Phase               string                             `json:"phase"`
+	PreviousState       *tobari.State                      `json:"previous_state,omitempty"`
+	CandidateState      *tobari.State                      `json:"candidate_state,omitempty"`
+	CandidateProfile    tobari.SharedClusterAppliedProfile `json:"candidate_profile,omitempty"`
+	PreviousPrincipals  *projectPrincipalRegistry          `json:"previous_principals,omitempty"`
+	CandidatePrincipals *projectPrincipalRegistry          `json:"candidate_principals,omitempty"`
 }
 
 func (j clusterReconcileJournal) Validate() error {
@@ -33,6 +39,36 @@ func (j clusterReconcileJournal) Validate() error {
 	}
 	if j.Phase != clusterPhaseStarted && j.Phase != clusterPhaseRuntime {
 		return fmt.Errorf("cluster journal phase is invalid")
+	}
+	if j.Operation == clusterOperationUp {
+		if j.CandidateState == nil || j.PreviousPrincipals == nil {
+			return fmt.Errorf("cluster up journal omits recovery authority")
+		}
+		if err := j.CandidateProfile.Validate(); err != nil || j.CandidateProfile == tobari.SharedClusterProfilePrePlatform {
+			return fmt.Errorf("cluster up journal candidate profile is invalid")
+		}
+		if err := j.CandidateState.Validate(); err != nil {
+			return fmt.Errorf("cluster up journal candidate: %w", err)
+		}
+		if j.PreviousState != nil {
+			if err := j.PreviousState.Validate(); err != nil {
+				return fmt.Errorf("cluster up journal previous state: %w", err)
+			}
+			if j.PreviousState.SchemaVersion != 2 {
+				return fmt.Errorf("cluster up journal previous state must be schema 2")
+			}
+		}
+		if err := j.PreviousPrincipals.Validate(); err != nil {
+			return fmt.Errorf("cluster up journal principals: %w", err)
+		}
+		if j.Phase == clusterPhaseRuntime {
+			if j.CandidateState.SchemaVersion != 2 || j.CandidatePrincipals == nil {
+				return fmt.Errorf("reconciled cluster up journal omits candidate authority")
+			}
+			if err := j.CandidatePrincipals.Validate(); err != nil {
+				return fmt.Errorf("cluster up journal candidate principals: %w", err)
+			}
+		}
 	}
 	return nil
 }
@@ -64,6 +100,11 @@ func (r *Runtime) readClusterJournal() (clusterReconcileJournal, bool, error) {
 }
 
 func (r *Runtime) clearClusterJournal() error {
+	if r.clusterJournalClearHook != nil {
+		if err := r.clusterJournalClearHook(); err != nil {
+			return err
+		}
+	}
 	return r.withClusterLock(func() error {
 		if err := os.Remove(r.clusterJournalPath()); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return err
@@ -90,6 +131,9 @@ func (r *Runtime) requireNoInterruptedClusterReconcile(ctx context.Context) erro
 }
 
 func (r *Runtime) startClusterReconcile(operation string) error {
+	if operation == clusterOperationUp {
+		return fmt.Errorf("cluster up reconcile requires explicit recovery authority")
+	}
 	return r.writeClusterJournal(clusterReconcileJournal{
 		SchemaVersion: clusterJournalSchema,
 		Operation:     operation,
@@ -97,10 +141,40 @@ func (r *Runtime) startClusterReconcile(operation string) error {
 	})
 }
 
+func (r *Runtime) startClusterUpReconcile(
+	previous *tobari.State, candidate tobari.State, profile tobari.SharedClusterAppliedProfile,
+	principals projectPrincipalRegistry,
+) error {
+	return r.writeClusterJournal(clusterReconcileJournal{
+		SchemaVersion: clusterJournalSchema, Operation: clusterOperationUp, Phase: clusterPhaseStarted,
+		PreviousState: previous, CandidateState: &candidate, CandidateProfile: profile,
+		PreviousPrincipals: &principals,
+	})
+}
+
 func (r *Runtime) markClusterRuntimeReconciled(operation string) error {
+	if operation == clusterOperationUp {
+		return fmt.Errorf("cluster up reconcile requires its exact candidate state")
+	}
 	return r.writeClusterJournal(clusterReconcileJournal{
 		SchemaVersion: clusterJournalSchema,
 		Operation:     operation,
 		Phase:         clusterPhaseRuntime,
 	})
+}
+
+func (r *Runtime) markClusterUpRuntimeReconciled(
+	candidate tobari.State, principals projectPrincipalRegistry,
+) error {
+	journal, exists, err := r.readClusterJournal()
+	if err != nil {
+		return err
+	}
+	if !exists || journal.Operation != clusterOperationUp || journal.Phase != clusterPhaseStarted {
+		return fmt.Errorf("cluster up reconcile journal is not in its started phase")
+	}
+	journal.Phase = clusterPhaseRuntime
+	journal.CandidateState = &candidate
+	journal.CandidatePrincipals = &principals
+	return r.writeClusterJournal(journal)
 }

@@ -22,10 +22,20 @@ func permissionSessionTransportForGOOS(goos string) tobari.PermissionSessionTran
 }
 
 func (r *Runtime) permissionSessionComposeFileArgs(runtimeDirectory string) ([]string, error) {
-	if err := r.permissionIngestionTransport.Validate(); err != nil {
+	return permissionSessionComposeFileArgsForTransport(runtimeDirectory, r.permissionIngestionTransport)
+}
+
+func permissionSessionComposeFileArgsForTransport(
+	runtimeDirectory string, transport tobari.PermissionSessionTransport,
+) ([]string, error) {
+	if transport == "" {
+		// Retained state written before the platform contract used base compose only.
+		return nil, nil
+	}
+	if err := transport.Validate(); err != nil {
 		return nil, fmt.Errorf("select permission ingestion support profile: %w", err)
 	}
-	name := "compose.permission-" + string(r.permissionIngestionTransport) + ".yaml"
+	name := "compose.permission-" + string(transport) + ".yaml"
 	return []string{"-f", filepath.Join(runtimeDirectory, name)}, nil
 }
 
