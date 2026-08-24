@@ -105,6 +105,15 @@ learned rules cannot express; ordinary permission growth must not require it.
 Exact policy actions and final reviewed-set Apply perform the bounded
 activation required for their own mutation.
 Denial evidence is a product output, not incidental debug noise.
+
+For a supported ordinary HTTP or HTTPS denial, Gateway schema 2 may additionally
+publish one attachment-local `permission_wait_id` after the canonical
+interactive attachment owner acknowledges the exact bounded record. The child
+can then run `tobari-permission wait --id pwt_<32-lowercase-hex>` and receive
+only `Allow`, `Deny`, or `Expired`. The helper exposes no candidate, policy
+decision, scope, revision, discovery, or retry operation. `Allow` is
+retry-readiness evidence; every deliberate fresh request is authorized again
+by Gateway.
 The host-issued Workspace principal and normalized scheme are retained in denial,
 candidate, learned-rule, and audit evidence; an approval made from one current-directory
 Workspace cannot be replayed as another Workspace's permission.
@@ -368,11 +377,11 @@ discovery and immediate attachment-local Allow once or Deny. The pre-public
 `policy review` path and registered root `review` selector have no alias or
 fallback; persisted policy and attachment state need no migration.
 
-Every Tobari-controlled base Runtime image builds a dedicated Linux Workspace
-helper from the checked source/Catalog closure with a pinned builder. The host
-extracts and verifies that engine-native helper, then mounts it read-only only
-while attached. Its main hardcodes the helper Program; changing `argv[0]` or
-copying it cannot expose host commands:
+Every Tobari-controlled base Runtime image builds dedicated Linux Workspace
+helpers from the checked source/Catalog closure with a pinned builder. The host
+extracts and verifies those engine-native helpers, then mounts them read-only
+only while attached. Each main hardcodes its helper Program; changing `argv[0]`
+or copying a helper cannot expose host commands:
 
 | Helper command | Role | Effect | Outcome |
 |---|---|---|---|
@@ -380,6 +389,7 @@ copying it cannot expose host commands:
 | `tobari-expose list` | discover | read | List the exhaustive current-attachment exposure inventory and unchanged opaque references |
 | `tobari-expose stop <exposure-ref>` | act, reference bound | write | Close one exact current-attachment listener and its active relays without stopping the Workspace service |
 | `tobari-expose help [<command>...] [--format text\|agent]` | utility | read | Discover only the helper program's exact contracts |
+| `tobari-permission wait --id <permission-wait-id> [--format text\|json]` | utility | read | Observe one attachment-owned reviewed disposition as `Allow`, `Deny`, or lease `Expired`, without mutating policy or retrying the denied request |
 
 The unsupported research surface built by `task build:dev`
 additionally exposes `serve [--no-open]`. It runs one foreground IPv4-loopback
@@ -824,6 +834,7 @@ Human output is concise text. The canonical public machine-output inventory is:
 | Policy rules | `policy_rules` | 1 |
 | Workspace list | `workspaces` | 2 |
 | Workspace status | `status` | 2 |
+| Permission wait result | `result` | 1 |
 <!-- public-cli-json-schemas:end -->
 
 Workspace status JSON always reports the selected Workspace Manifest ID/name, logical
@@ -1463,7 +1474,8 @@ remains fail closed if interrupted; cancellation never retries entry or the
 child request.
 Returning from that child session, including a normal shell `exit`, performs no
 Workspace deletion: it only returns the child exit status and emits the host
-stderr guidance described above. `delete` is the separate lifecycle-ending
+stderr guidance described above. A failed attachment cleanup is additional
+bounded stderr evidence and never replaces that child status. `delete` is the separate lifecycle-ending
 operation. It removes only that exact label-owned container, network, root
 index, instance state, and home after confirming that no session is attached;
 `--force` overrides that one guard.

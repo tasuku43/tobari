@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Print the exact repository files needed by the Linux helper build."""
+"""Print the exact repository files needed by the Linux Workspace helpers."""
 
 import json
 import os
@@ -25,28 +25,29 @@ def objects(data: str):
 files = {"go.mod", "go.sum"}
 for architecture in ("amd64", "arm64"):
     environment = dict(os.environ, GOOS="linux", GOARCH=architecture, CGO_ENABLED="0")
-    result = subprocess.run(
-        ["go", "list", "-deps", "-json", "-tags=tobari_exposure_helper", "./cmd/tobari-expose"],
-        cwd=ROOT,
-        env=environment,
-        check=True,
-        text=True,
-        stdout=subprocess.PIPE,
-    )
-    for package in objects(result.stdout):
-        module = package.get("Module") or {}
-        if module.get("Path") != MODULE:
-            continue
-        directory = package["Dir"]
-        for field in ("GoFiles", "CgoFiles", "SFiles", "EmbedFiles"):
-            for name in package.get(field, []):
-                path = os.path.realpath(os.path.join(directory, name))
-                if os.path.commonpath((ROOT, path)) != ROOT or not os.path.isfile(path):
-                    raise SystemExit(f"unsafe helper source path: {path}")
-                relative = os.path.relpath(path, ROOT)
-                if relative.startswith("internal/infra/runtimeassets/_helper-source/"):
-                    raise SystemExit("helper source closure became recursive")
-                files.add(relative)
+    for command in ("./cmd/tobari-expose", "./cmd/tobari-permission"):
+        result = subprocess.run(
+            ["go", "list", "-deps", "-json", "-tags=tobari_exposure_helper", command],
+            cwd=ROOT,
+            env=environment,
+            check=True,
+            text=True,
+            stdout=subprocess.PIPE,
+        )
+        for package in objects(result.stdout):
+            module = package.get("Module") or {}
+            if module.get("Path") != MODULE:
+                continue
+            directory = package["Dir"]
+            for field in ("GoFiles", "CgoFiles", "SFiles", "EmbedFiles"):
+                for name in package.get(field, []):
+                    path = os.path.realpath(os.path.join(directory, name))
+                    if os.path.commonpath((ROOT, path)) != ROOT or not os.path.isfile(path):
+                        raise SystemExit(f"unsafe helper source path: {path}")
+                    relative = os.path.relpath(path, ROOT)
+                    if relative.startswith("internal/infra/runtimeassets/_helper-source/"):
+                        raise SystemExit("helper source closure became recursive")
+                    files.add(relative)
 
 snapshot_files = []
 for name in files:

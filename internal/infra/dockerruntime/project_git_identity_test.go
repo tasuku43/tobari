@@ -568,6 +568,10 @@ func TestProjectContainerSelectsOnlyDirectSourceBindAccess(t *testing.T) {
 			if !containsConsecutiveArgs(create, "--mount", "type=bind,src="+helper+",dst=/usr/local/bin/tobari-expose,readonly") {
 				t.Fatalf("Workspace service helper mount is missing: %v", create)
 			}
+			permissionHelper := filepath.Join(state.RuntimeDirectory, "helpers", "tobari-permission")
+			if !containsConsecutiveArgs(create, "--mount", "type=bind,src="+permissionHelper+",dst=/usr/local/bin/tobari-permission,readonly") {
+				t.Fatalf("Workspace permission helper mount is missing: %v", create)
+			}
 		})
 	}
 }
@@ -609,6 +613,10 @@ func TestProjectRuntimeSpecIncludesGitFallbackEnvironmentAndMount(t *testing.T) 
 	helper := "bind:" + filepath.Join(state.RuntimeDirectory, "helpers", "tobari-expose") + "->/usr/local/bin/tobari-expose:ro"
 	if !slices.Contains(spec.Mounts, helper) {
 		t.Fatalf("project spec mounts = %v, want %q", spec.Mounts, helper)
+	}
+	permissionHelper := "bind:" + filepath.Join(state.RuntimeDirectory, "helpers", "tobari-permission") + "->/usr/local/bin/tobari-permission:ro"
+	if !slices.Contains(spec.Mounts, permissionHelper) {
+		t.Fatalf("project spec mounts = %v, want %q", spec.Mounts, permissionHelper)
 	}
 }
 

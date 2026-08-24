@@ -1,0 +1,57 @@
+services:
+  auth-broker:
+    image: ${TOBARI_AUTH_BROKER_IMAGE}
+    container_name: tobari-auth-broker
+    user: "${TOBARI_UID}:${TOBARI_GID}"
+    cpus: "1.0"
+    mem_limit: 512m
+    memswap_limit: 512m
+    pids_limit: 128
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+      - /run/tobari-auth/control:size=4m,mode=0700,uid=${TOBARI_UID},gid=${TOBARI_GID}
+      - /run/tobari-auth/companion:size=4m,mode=0700,uid=${TOBARI_UID},gid=${TOBARI_GID}
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    volumes:
+      - ${TOBARI_AUTH_CONTEXTS_DIR}:/var/lib/tobari-auth/contexts
+      - ${TOBARI_AUTH_RUNTIME_DIR}:/run/tobari-auth/runtime
+    networks:
+      control: {}
+      egress: {}
+    labels:
+      io.tobari.owner: default
+      io.tobari.component: auth-broker
+    healthcheck:
+      test: [CMD, python, -m, authbroker.control, health]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+  gateway:
+    depends_on:
+      auth-broker:
+        condition: service_healthy
+    environment:
+      TOBARI_AUTH_PROVIDER_PROJECTION: /run/tobari/auth/providers.json
+      TOBARI_AUTH_BROKER_SOCKET: /run/tobari-auth/runtime/broker.sock
+      TOBARI_AUTH_BROKER_TIMEOUT_SECONDS: ${TOBARI_AUTH_BROKER_TIMEOUT_SECONDS:-70}
+    volumes:
+      - ${TOBARI_AUTH_PROVIDER_DIR}:/run/tobari/auth:ro
+      - ${TOBARI_AUTH_RUNTIME_DIR}:/run/tobari-auth/runtime:ro
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import socket,sys,urllib.request;sys.path.insert(0,'/opt/tobari');import synthetic_dns;s=socket.create_connection(('127.0.0.1',15001),1);s.close();assert synthetic_dns.healthcheck('127.0.0.1',15053);b=socket.socket(socket.AF_UNIX,socket.SOCK_STREAM);b.settimeout(1);b.connect('/run/tobari-auth/runtime/broker.sock');b.close();urllib.request.urlopen('http://opa:8181/health',timeout=1).read()"
+      interval: 2s
+      timeout: 2s
+      retries: 30

@@ -2,7 +2,7 @@
 # Focused live boundary assertions sourced by scripts/test-integration.sh.
 
 assert_workspace_service_helper_mount() {
-  local container=$1 helper_mount helper_source_path
+  local container=$1 helper_mount helper_source_path permission_mount permission_source_path
   helper_mount=$(docker inspect --format \
     '{{range .Mounts}}{{if eq .Destination "/usr/local/bin/tobari-expose"}}{{.Type}} {{.RW}} {{.Source}}{{end}}{{end}}' \
     "$container")
@@ -15,6 +15,19 @@ assert_workspace_service_helper_mount() {
     fail "engine-native Workspace service helper did not execute in the selected custom Runtime"
   if run_project sh -c 'printf tamper > /usr/local/bin/tobari-expose' >/dev/null 2>&1; then
     fail "Workspace could write the read-only service helper mount"
+  fi
+  permission_mount=$(docker inspect --format \
+    '{{range .Mounts}}{{if eq .Destination "/usr/local/bin/tobari-permission"}}{{.Type}} {{.RW}} {{.Source}}{{end}}{{end}}' \
+    "$container")
+  [[ $permission_mount == bind\ false\ * ]] ||
+    fail "Workspace permission helper is not an exact read-only bind mount: $permission_mount"
+  permission_source_path=${permission_mount#bind false }
+  [[ -f $permission_source_path && ! -L $permission_source_path && $(stat -c '%a' "$permission_source_path" 2>/dev/null || stat -f '%Lp' "$permission_source_path") == 700 ]] ||
+    fail "Workspace permission helper owner-state source is not a mode-0700 regular file"
+  run_project tobari-permission help >/dev/null ||
+    fail "engine-native Workspace permission helper did not execute in the selected custom Runtime"
+  if run_project sh -c 'printf tamper > /usr/local/bin/tobari-permission' >/dev/null 2>&1; then
+    fail "Workspace could write the read-only permission helper mount"
   fi
 }
 

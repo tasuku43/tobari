@@ -175,10 +175,11 @@ func TestCommandHelpUsesCatalogMetadataAndDerivedReferences(t *testing.T) {
 func TestHumanAndAgentHelpProjectCompleteTypedInputContract(t *testing.T) {
 	minimumLimit, maximumLimit := int64(1), int64(10)
 	minimumContext, maximumContext := int64(0), int64(5)
+	minimumTag, maximumTag := int64(1), int64(36)
 	spec := utilitySpec("events inspect")
 	spec.Args = "[--tag <tag>] [--limit <count>] [--manifest <lines>] [--brief]"
 	spec.Agent.Inputs = []CommandInput{
-		{Name: "--tag", Source: InputSourceFlag, ValueKind: InputValueText, Cardinality: InputCardinalityRepeatable, Description: "Select repeated tags.", AllowedValues: []string{}},
+		{Name: "--tag", Source: InputSourceFlag, ValueKind: InputValueText, Cardinality: InputCardinalityRepeatable, Description: "Select repeated tags.", AllowedValues: []string{}, MinimumLength: &minimumTag, MaximumLength: &maximumTag},
 		{Name: "--limit", Source: InputSourceFlag, ValueKind: InputValueInteger, Cardinality: InputCardinalitySingle, Description: "Bound the event count.", AllowedValues: []string{}, DefaultValue: stringPointer("3"), Minimum: &minimumLimit, Maximum: &maximumLimit},
 		{Name: "--manifest", Source: InputSourceFlag, ValueKind: InputValueInteger, Cardinality: InputCardinalitySingle, Description: "Expand matching context.", AllowedValues: []string{}, Minimum: &minimumContext, Maximum: &maximumContext, Requires: []string{"--tag"}, ConflictsWith: []string{"--brief"}},
 		{Name: "--brief", Source: InputSourceFlag, ValueKind: InputValueBoolean, Cardinality: InputCardinalitySingle, Description: "Suppress expanded context.", AllowedValues: []string{}},
@@ -193,6 +194,7 @@ func TestHumanAndAgentHelpProjectCompleteTypedInputContract(t *testing.T) {
 		"default when omitted: \"3\"",
 		"range: 1..10",
 		"range: 0..5",
+		"UTF-8 byte length: 1..36",
 		"requires when supplied: --tag",
 		"conflicts with: --brief",
 		"Value flags: --flag value or --flag=value",

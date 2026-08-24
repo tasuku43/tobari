@@ -330,6 +330,7 @@ func aggregateRouter(items []aggregateContext) ([]byte, error) {
 		}
 		builder.WriteString(".decision\n}\n\n")
 	}
+	builder.WriteString("permission_wait_observation := {\"revision\": data.tobari.aggregate_revision, \"decision\": decision}\n")
 	return []byte(builder.String()), nil
 }
 

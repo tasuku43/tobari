@@ -13,6 +13,7 @@ on:
       - scripts/check-exposure-helper-source.sh
       - scripts/sync-exposure-helper-source.sh
       - cmd/tobari-expose/**
+      - cmd/tobari-permission/**
       - tools/runtimecheck/**
       - .github/workflows/runtime-base.yml
   push:
@@ -28,6 +29,7 @@ on:
       - scripts/check-exposure-helper-source.sh
       - scripts/sync-exposure-helper-source.sh
       - cmd/tobari-expose/**
+      - cmd/tobari-permission/**
       - tools/runtimecheck/**
       - .github/workflows/runtime-base.yml
 

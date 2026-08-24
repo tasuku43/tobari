@@ -54,17 +54,18 @@ target address. The capability projection inside the attached shell is an
 advisory discovery surface and carries no routing secret or permission.
 
 Workspace service exposure is a separate opposite-direction attachment branch.
-The canonical base recipe cross-compiles a dedicated Linux `tobari-expose`
-helper for Docker `TARGETARCH` with a pinned Go builder and an exact checked
-source/module closure. Its main hardcodes the helper Program rather than
-selecting authority from `argv[0]`. Before attachment, the host extracts the
-helper and identity record from the verified source-derived base through a
-bounded temporary container; validates source/API identity, SHA-256, regular
-file type, safe mode, Linux ELF, and engine architecture; and atomically stores
-one owner-only executable. Every selected Workspace, including one using a
-managed custom Runtime, receives that executable as the same read-only
-`/usr/local/bin/tobari-expose` mount. An unpredictable Workspace Unix socket
-connects that helper to one fixed non-TTY control process; it can submit only
+The canonical base recipe cross-compiles dedicated Linux `tobari-expose` and
+`tobari-permission` helpers for Docker `TARGETARCH` with a pinned Go builder and
+one exact checked source/module closure. Each main hardcodes its helper Program
+rather than selecting authority from `argv[0]`. Before attachment, the host
+extracts both helpers and identity records from the verified source-derived
+base through a bounded temporary container; validates their source/API
+identity, SHA-256, regular file type, safe mode, Linux ELF, and engine
+architecture; and atomically stores owner-only executables. Every selected
+Workspace, including one using a managed custom Runtime, receives the same
+read-only `/usr/local/bin/tobari-expose` and `/usr/local/bin/tobari-permission`
+mounts. For service exposure, an unpredictable Workspace Unix socket connects
+`tobari-expose` to one fixed non-TTY control process; it can submit only
 one non-privileged Workspace-loopback port, list current-attachment exposures,
 or stop one unchanged opaque reference. The live host attachment
 owns pending requests and exposes a distinct owner-only Unix rendezvous plus
@@ -74,6 +75,56 @@ listener or route lifetime. Allow once binds random host IPv4 loopback and a
 bounded HTTP/1.1/WebSocket relay to exact Workspace loopback. This channel
 shares no schema, socket, registry, authority, or data plane with browser login
 or Host Loopback access.
+
+Permission resume is a third, read-only attachment concern. The interactive
+Tobari entry session created before the child is its canonical owner; Host
+Loopback is only one capability on that session. Exactly one owner epoch may
+exist for a Workspace Manifest/Workspace pair, concurrent borrower entries
+share it, and service-exposure controller attachment IDs are ineligible. A
+bounded private session registry joins one frozen schema-v1 Gateway principal
+to canonical Workspace Manifest and Workspace IDs, attachment epoch, owner,
+256-bit process-instance nonce, one closed platform ingestion transport, and
+renewable lease. The owner PID and transport address are diagnostic only.
+Trusted composition fixes the Linux host adapter to an owner-only Unix socket
+and the Darwin host adapter to a Darwin-kernel `127.0.0.1:0` listener reached
+by Gateway at exactly `host.docker.internal`. Selection does not inspect the
+Docker provider, context name, or context path. Gateway accepts only its
+composed transport kind and has no runtime probe, fallback, or downgrade.
+Colima remains the only supported and release-validated Darwin runtime; an
+unvalidated provider whose host bridge is absent or different cannot complete
+the exact acknowledgment and therefore receives no resume projection.
+Transport reachability grants no authority. Transport kind, endpoint, nonce,
+lease, and stable owner identity are exact record fields; nonce-first
+constant-time authentication and host-side frame/deadline/concurrency/rate
+bounds protect the channel, while endpoint and peer address grant no authority.
+Gateway emits resume data only after that owner acknowledges the exact immutable
+secret-free wait record. The post-acknowledgment registry read requires every
+stable owner field to remain identical and accepts the lease only when it is
+byte-identical or one valid renewal strictly advances both issue and expiry
+times. A regressed lease, changed expiry at the same issue time, future issue,
+expiry, or owner drift omits resume. The registry is mounted read-only into Gateway alone; its
+nonce and endpoint never enter logs or public output.
+
+The owner keeps the wait registry in memory and exposes one attachment-local
+read-only Unix socket to `tobari-permission`. Observation delegates exact
+effect evaluation and precedence to the canonical live OPA policy; it adds no
+rule matcher, policy authority, persistent store, daemon, Workspace file, or
+request replay. Teardown ends the authority and never rebinds waits to a new
+attachment. Listener, heartbeat, and renewal failures close transport and
+invalidate waits before exact bounded authority cleanup; an expired lease is
+never renewed. Attachment cleanup faults remain typed secondary entry outcomes
+and cannot overwrite the already-observed child exit status.
+
+The Workspace-local socket and Python process are only an untrusted transport
+adapter. The host creates one ephemeral response-signing key per entry channel;
+the child receives only its verifier. The signed schema-1 response binds the
+channel, canonical attachment and owner digest, wait ID, fresh request nonce,
+and closed result or fault. The helper rejects a socket replacement, replay,
+unsigned response, or any binding drift. Host code independently enforces at
+most eight active waits, a bounded request window, the 4 KiB/1 KiB frames, and
+the wait lease. Unexpected bridge exit or a host response-write failure closes
+the channel, and checked teardown ends the control exec and verifies that its
+socket is absent before canonical attachment authority is removed.
 
 Attachment Grants are runtime-owned inputs to the complete per-request OPA projection and
 are disjoint from Workspace Manifest `policy/domains` learned rules. Policy review binds
@@ -222,10 +273,15 @@ fixed-target read or write remains reference-free. A fixed-target create may
 return confirmed opaque child-resource references, but consumes none and cannot
 return the fixed creation-scope kind.
 
-The Catalog spans both executable programs so the helper's produced service
+The Catalog spans the host Program and both helper Programs so the exposure helper's produced service
 reference can close through the host actions and the exposure reference can
 close through helper stop. Validation and reference closure are global;
 dispatch, human help, and scoped agent help are filtered by exact program.
+The dedicated `tobari-permission` Program participates in that same global
+Catalog but its required `permission_wait_id` is bounded plain text, not an
+opaque reference. It has no producer, completion, discovery, or local output
+traversal; the global recursive output/reference derivation remains the only
+walker.
 The pure `review` Catalog namespace has two host-only leaves. `review
 permissions` delegates to the existing Permission Inbox read and fixed-target
 staged Apply path. `review services` delegates directly to the fresh Service
@@ -1561,7 +1617,10 @@ as argv after Docker's `--`.
 
 ## Cancellation and errors
 
-The command root installs signal-aware cancellation and propagates one context.
+The command root installs signal-aware cancellation and propagates one operation
+context. It separately supplies infrastructure with one process-lifetime parent
+used only to derive the finite attachment teardown and post-mutation rollback
+deadlines that must survive child cancellation; it grants no unbounded action.
 Pre-execution cancellation makes zero Docker calls. A child interactive session
 exit status is preserved, and the CLI emits the session-closed/resume/delete
 guidance on host stderr after the child returns. Child stdout remains owned by

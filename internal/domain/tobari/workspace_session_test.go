@@ -42,3 +42,16 @@ func TestWorkspaceSessionRequestRejectsMissingOrUnrepresentableExecutable(t *tes
 		})
 	}
 }
+
+func TestWorkspaceSessionOutcomeKeepsExitAndBoundedCleanupIssues(t *testing.T) {
+	outcome := WorkspaceSessionOutcome{ExitCode: 37, CleanupIssues: []WorkspaceAttachmentCleanupIssue{
+		WorkspaceCleanupHostLoopback, WorkspaceCleanupInteractiveSession, WorkspaceCleanupPermissionChannel,
+	}}
+	if err := outcome.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	outcome.CleanupIssues = append(outcome.CleanupIssues, WorkspaceCleanupHostLoopback)
+	if err := outcome.Validate(); err == nil {
+		t.Fatal("duplicated cleanup issue was accepted")
+	}
+}

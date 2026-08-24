@@ -10,6 +10,10 @@ import (
 	"github.com/tasuku43/tobari/internal/domain/tobari"
 )
 
+type interruptedClusterDownRecoveryPort interface {
+	RecoverInterruptedClusterDown(context.Context, bool) (bool, error)
+}
+
 // clusterUpProgressRuntimePort is an optional extension of RuntimePort.
 // Production runtimes use it to keep human progress outside application
 // policy and Docker output.
@@ -265,7 +269,14 @@ func (s *Service) ClusterDown(ctx context.Context, intent operation.Intent, purg
 			return fault.Wrap(fault.KindInternal, "state_read_failed", "installation state could not be read", false, loadErr)
 		}
 		if !exists {
-			return nil
+			recovery, ok := s.runtime.(interruptedClusterDownRecoveryPort)
+			if !ok || portcheck.IsNil(recovery) {
+				return nil
+			}
+			return s.mutator.Invoke(lifecycleContext, request, func(actionContext context.Context, _ operation.Intent) error {
+				_, recoveryErr := recovery.RecoverInterruptedClusterDown(actionContext, purge)
+				return recoveryErr
+			})
 		}
 		return s.mutator.Invoke(lifecycleContext, request, func(actionContext context.Context, _ operation.Intent) error {
 			actionErr := s.runtime.ClusterDown(actionContext, state, purge)

@@ -1111,6 +1111,20 @@ func TestProjectSessionClosedSummaryStaysOnHostLifecycleStream(t *testing.T) {
 	}
 }
 
+func TestWorkspaceCleanupWarningIsSecondaryToChildStatus(t *testing.T) {
+	got := string(renderWorkspaceAttachmentCleanupIssues([]tobari.WorkspaceAttachmentCleanupIssue{
+		tobari.WorkspaceCleanupInteractiveSession, tobari.WorkspaceCleanupHostLoopback, tobari.WorkspaceCleanupPermissionChannel,
+	}, false))
+	for _, expected := range []string{
+		"Interactive session cleanup did not complete", "Host Loopback cleanup did not complete",
+		"Permission wait channel cleanup did not complete", "tobari status",
+	} {
+		if !strings.Contains(got, expected) {
+			t.Fatalf("cleanup warning %q missing %q", got, expected)
+		}
+	}
+}
+
 func TestProjectSessionClosedStylesLabelsCommandsAndProseSeparately(t *testing.T) {
 	t.Parallel()
 	output := string(renderProjectSessionClosed(true))

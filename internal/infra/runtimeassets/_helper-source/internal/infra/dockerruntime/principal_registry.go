@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"time"
 
@@ -105,6 +106,10 @@ func (r projectPrincipalRegistry) Validate() error {
 		networks[binding.Network] = struct{}{}
 	}
 	return nil
+}
+
+func sameProjectPrincipalRegistry(left, right projectPrincipalRegistry) bool {
+	return left.SchemaVersion == right.SchemaVersion && slices.Equal(left.Bindings, right.Bindings)
 }
 
 func (r *Runtime) principalRegistryPath() string {
@@ -290,6 +295,29 @@ func (r *Runtime) replaceProjectPrincipalRegistry(ctx context.Context, bindings 
 	})
 }
 
+func (r *Runtime) replaceProjectPrincipalRegistryIfCurrent(
+	ctx context.Context, expected projectPrincipalRegistry, bindings []projectPrincipalBinding,
+) error {
+	if err := expected.Validate(); err != nil {
+		return err
+	}
+	candidate := projectPrincipalRegistry{SchemaVersion: projectPrincipalRegistrySchema, Bindings: append([]projectPrincipalBinding{}, bindings...)}
+	sort.Slice(candidate.Bindings, func(i, j int) bool { return candidate.Bindings[i].ProjectID < candidate.Bindings[j].ProjectID })
+	if err := candidate.Validate(); err != nil {
+		return err
+	}
+	return r.withPrincipalRegistryLock(ctx, func() error {
+		current, err := r.readProjectPrincipalRegistry()
+		if err != nil {
+			return err
+		}
+		if !sameProjectPrincipalRegistry(current, expected) {
+			return fmt.Errorf("project principal registry changed before exact replacement")
+		}
+		return r.writeProjectPrincipalRegistry(candidate)
+	})
+}
+
 func (r *Runtime) containerNetworkAddressIfConnected(
 	ctx context.Context, container, network, purpose string,
 ) (string, bool, error) {
@@ -352,67 +380,92 @@ func (r *Runtime) workspaceNetworkAddress(ctx context.Context, container, networ
 }
 
 func (r *Runtime) syncProjectPrincipalRegistry(ctx context.Context, projects []tobari.Workspace) error {
+	expected, err := r.readProjectPrincipalRegistry()
+	if err != nil {
+		return err
+	}
+	_, err = r.syncProjectPrincipalRegistryFrom(ctx, projects, expected, nil)
+	return err
+}
+
+func (r *Runtime) syncProjectPrincipalRegistryFrom(
+	ctx context.Context, projects []tobari.Workspace, expected projectPrincipalRegistry,
+	beforeReplace func(projectPrincipalRegistry) error,
+) (projectPrincipalRegistry, error) {
 	bindings := make([]projectPrincipalBinding, 0, len(projects))
 	for _, project := range projects {
 		if err := project.Validate(); err != nil {
-			return err
+			return projectPrincipalRegistry{}, err
 		}
 		container, network, err := tobari.ProjectResourceNames(project.ID)
 		if err != nil {
-			return err
+			return projectPrincipalRegistry{}, err
 		}
 		exists, err := r.projectResourceExists(ctx, "network", network)
 		if err != nil {
-			return err
+			return projectPrincipalRegistry{}, err
 		}
 		if !exists {
 			continue
 		}
 		if err := r.verifyOwnedProjectResource(ctx, "network", network, project.ID, projectNetRole); err != nil {
-			return err
+			return projectPrincipalRegistry{}, err
 		}
 		if err := r.ensureGatewayNetwork(ctx, network); err != nil {
-			return err
+			return projectPrincipalRegistry{}, err
 		}
 		containerExists, err := r.projectResourceExists(ctx, "container", container)
 		if err != nil {
-			return err
+			return projectPrincipalRegistry{}, err
 		}
 		if !containerExists {
 			continue
 		}
 		if err := r.verifyOwnedProjectResource(ctx, "container", container, project.ID, projectWorkRole); err != nil {
-			return err
+			return projectPrincipalRegistry{}, err
 		}
 		component, err := r.inspectContainer(ctx, projectWorkRole, container)
 		if err != nil {
-			return err
+			return projectPrincipalRegistry{}, err
 		}
 		if component.State != "running" {
 			continue
 		}
 		subnet, err := r.projectNetworkSubnet(ctx, network)
 		if err != nil {
-			return err
+			return projectPrincipalRegistry{}, err
 		}
 		gatewayAddress, err := r.gatewayNetworkAddress(ctx, network)
 		if err != nil {
-			return err
+			return projectPrincipalRegistry{}, err
 		}
 		if err := r.ensureWorkspaceNetworkGuard(ctx, project, container, network, subnet, gatewayAddress); err != nil {
-			return err
+			return projectPrincipalRegistry{}, err
 		}
 		workspaceAddress, err := r.workspaceNetworkAddress(ctx, container, network)
 		if err != nil {
-			return err
+			return projectPrincipalRegistry{}, err
 		}
 		if err := validateProjectNetworkEndpoints(subnet, workspaceAddress, gatewayAddress); err != nil {
-			return err
+			return projectPrincipalRegistry{}, err
 		}
 		bindings = append(bindings, projectPrincipalBinding{
 			ProjectID: project.ID, WorkspaceManifestID: project.WorkspaceManifestID, WorkspaceManifestName: project.WorkspaceManifestName,
 			ProjectRoot: project.Root, WorkspaceIP: workspaceAddress, GatewayIP: gatewayAddress, Network: network,
 		})
 	}
-	return r.replaceProjectPrincipalRegistry(ctx, bindings)
+	candidate := projectPrincipalRegistry{SchemaVersion: projectPrincipalRegistrySchema, Bindings: bindings}
+	sort.Slice(candidate.Bindings, func(i, j int) bool { return candidate.Bindings[i].ProjectID < candidate.Bindings[j].ProjectID })
+	if err := candidate.Validate(); err != nil {
+		return projectPrincipalRegistry{}, err
+	}
+	if beforeReplace != nil {
+		if err := beforeReplace(candidate); err != nil {
+			return projectPrincipalRegistry{}, err
+		}
+	}
+	if err := r.replaceProjectPrincipalRegistryIfCurrent(ctx, expected, candidate.Bindings); err != nil {
+		return projectPrincipalRegistry{}, err
+	}
+	return candidate, nil
 }

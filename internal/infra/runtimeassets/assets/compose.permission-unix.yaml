@@ -1,0 +1,7 @@
+services:
+  gateway:
+    environment:
+      TOBARI_PERMISSION_INGESTION_TRANSPORT: unix
+      TOBARI_PERMISSION_INGESTION_DIRECTORY: /run/tobari/permission-ingestion
+    volumes:
+      - ${TOBARI_PERMISSION_INGESTION_DIR}:/run/tobari/permission-ingestion:ro

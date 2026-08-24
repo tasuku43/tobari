@@ -714,7 +714,10 @@ func runProjectEnter(ctx context.Context, c *CLI, command CommandSpec, _ operati
 		Target: operation.TargetRef{Kind: tobari.CurrentDirectoryTargetKind, ParentID: tobari.CurrentDirectoryTargetID},
 		Impact: command.Agent.Mutation.Impact,
 	}
-	code, err := c.tobari.EnterProjectSessionInContext(ctx, intent, contextName, session, c.In, c.Out, c.Err)
+	outcome, err := c.tobari.EnterProjectSessionInContext(ctx, intent, contextName, session, c.In, c.Out, c.Err)
+	if len(outcome.CleanupIssues) > 0 && c.Err != nil {
+		_, _ = writeOnce(c.Err, renderWorkspaceAttachmentCleanupIssues(outcome.CleanupIssues, humanStyleAllowed(ctx, c, c.Err)))
+	}
 	if err != nil {
 		return c.fail(ctx, err)
 	}
@@ -741,7 +744,7 @@ func runProjectEnter(ctx context.Context, c *CLI, command CommandSpec, _ operati
 		message = append(message, renderPendingPolicyNotification(pending, style)...)
 	}
 	_, _ = writeOnce(c.Err, message)
-	return code
+	return outcome.ExitCode
 }
 
 // prepareGuidedProjectEntry composes existing catalog-owned actions only for
@@ -1014,6 +1017,23 @@ func renderProjectSessionClosed(style bool) []byte {
 	writeStyledCommandLine(&output, style, "Resume:", "", invocationForPath(WorkspaceEntryCommandPath), "")
 	writeStyledCommandLine(&output, style, "Remove:", "", invocationForPath("delete"), "")
 	writeStyledCommandLine(&output, style, "If another session is attached:", "", invocationForPath("delete --force"), "")
+	return []byte(output.String())
+}
+
+func renderWorkspaceAttachmentCleanupIssues(issues []tobari.WorkspaceAttachmentCleanupIssue, style bool) []byte {
+	var output strings.Builder
+	for _, issue := range issues {
+		label := "Attachment"
+		switch issue {
+		case tobari.WorkspaceCleanupInteractiveSession:
+			label = "Interactive session"
+		case tobari.WorkspaceCleanupHostLoopback:
+			label = "Host Loopback"
+		case tobari.WorkspaceCleanupPermissionChannel:
+			label = "Permission wait channel"
+		}
+		fmt.Fprintln(&output, applyStyleToken(style, styleWarning, "! "+label+" cleanup did not complete; run `tobari status` before re-entry."))
+	}
 	return []byte(output.String())
 }
 

@@ -1,0 +1,4 @@
+services:
+  gateway:
+    environment:
+      TOBARI_PERMISSION_INGESTION_TRANSPORT: loopback_tcp

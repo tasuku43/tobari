@@ -23,6 +23,8 @@ const (
 	ResearchProgramName = "tobari-research"
 	// ExposureProgramName is the attachment-local service helper executable.
 	ExposureProgramName = "tobari-expose"
+	// PermissionProgramName is the attachment-local reviewed-permission observer.
+	PermissionProgramName = "tobari-permission"
 	// WorkspaceEntryCommandPath is the common Catalog task path for entering
 	// the current Workspace. Its invocation presentation is the compiled
 	// ProgramName, so research binaries do not publish a second root command.
@@ -53,6 +55,15 @@ func invocationForPath(path string) string {
 	}
 	return ProgramName + " " + path
 }
+
+type readOutputSettlement uint8
+
+const (
+	readOutputSettlementRetryable readOutputSettlement = iota
+	readOutputSettlementConsumed
+)
+
+const consumedReadOutputWriteFailureCode = "consumed_read_output_write_failed"
 
 type commandHandler func(context.Context, *CLI, CommandSpec, operation.Intent, ParsedInputs) int
 
@@ -218,8 +229,8 @@ func (c InputCompletion) validate() error {
 
 // CommandInput is one executable machine-readable input contract.
 // DefaultValue is nil when omission has no catalog-owned default. Minimum and
-// Maximum apply only to integer values; MinimumLength applies only to text and
-// counts UTF-8 bytes. Requires and ConflictsWith are checked against explicitly
+// Maximum apply only to integer values; MinimumLength and MaximumLength apply
+// only to text and count UTF-8 bytes. Requires and ConflictsWith are checked against explicitly
 // supplied command-line inputs. ReferenceKind is empty only when the input is
 // not an opaque reference.
 type CommandInput struct {
@@ -234,6 +245,7 @@ type CommandInput struct {
 	Minimum        *int64           `json:"minimum,omitempty"`
 	Maximum        *int64           `json:"maximum,omitempty"`
 	MinimumLength  *int64           `json:"minimum_length,omitempty"`
+	MaximumLength  *int64           `json:"maximum_length,omitempty"`
 	Requires       []string         `json:"requires,omitempty"`
 	ConflictsWith  []string         `json:"conflicts_with,omitempty"`
 	ReferenceKind  string           `json:"reference_kind,omitempty"`
@@ -425,6 +437,7 @@ type CommandOutput struct {
 	JSONEnvelopeType   OutputFieldType    `json:"json_envelope_type,omitempty"`
 	JSONSchemaVersion  int                `json:"json_schema_version,omitempty"`
 	TextPresentation   TextPresentation   `json:"-"`
+	readSettlement     readOutputSettlement
 }
 
 // PaginationCompletion states the one machine-readable condition that marks
@@ -615,7 +628,7 @@ func NewCatalog(commands ...CommandSpec) Catalog {
 
 func defaultErrorClassification(effect operation.Effect, kind fault.Kind, code string) (fault.Phase, fault.ChangeState) {
 	if effect == operation.EffectRead {
-		if code == "output_write_failed" || code == "output_encoding_failed" || code == "output_contract_exceeded" {
+		if code == "output_write_failed" || code == consumedReadOutputWriteFailureCode || code == "output_encoding_failed" || code == "output_contract_exceeded" {
 			return fault.PhasePresentation, fault.ChangeNotApplicable
 		}
 		return fault.PhaseObservation, fault.ChangeNotApplicable
@@ -863,7 +876,8 @@ func defaultCatalog() Catalog {
 	)
 	commands := append(catalog.commands, completionCommandSpecs()...)
 	commands = append(commands, runtimeCommandSpecs()...)
-	return NewCatalog(append(commands, serviceExposureCommandSpecs()...)...)
+	commands = append(commands, serviceExposureCommandSpecs()...)
+	return NewCatalog(append(commands, permissionWaitCommandSpecs()...)...)
 }
 
 // DefaultCatalog returns the public Tobari CLI contract.
@@ -1161,11 +1175,17 @@ func validateAgentContract(command CommandSpec) error {
 		if input.ValueKind != InputValueInteger && (input.Minimum != nil || input.Maximum != nil) {
 			return fmt.Errorf("agent non-integer input %q cannot declare numeric bounds", input.Name)
 		}
-		if input.ValueKind != InputValueText && input.MinimumLength != nil {
-			return fmt.Errorf("agent non-text input %q cannot declare a minimum length", input.Name)
+		if input.ValueKind != InputValueText && (input.MinimumLength != nil || input.MaximumLength != nil) {
+			return fmt.Errorf("agent non-text input %q cannot declare text length bounds", input.Name)
 		}
 		if input.MinimumLength != nil && *input.MinimumLength < 0 {
 			return fmt.Errorf("agent text input %q minimum length is negative", input.Name)
+		}
+		if input.MaximumLength != nil && *input.MaximumLength < 0 {
+			return fmt.Errorf("agent text input %q maximum length is negative", input.Name)
+		}
+		if input.MinimumLength != nil && input.MaximumLength != nil && *input.MinimumLength > *input.MaximumLength {
+			return fmt.Errorf("agent text input %q minimum length exceeds maximum length", input.Name)
 		}
 		if input.Minimum != nil && input.Maximum != nil && *input.Minimum > *input.Maximum {
 			return fmt.Errorf("agent integer input %q minimum exceeds maximum", input.Name)
@@ -1335,8 +1355,13 @@ func validateAgentContract(command CommandSpec) error {
 		if err := validateOutputFieldName(contract.Output.JSONEnvelope); err != nil {
 			return fmt.Errorf("agent JSON envelope: %w", err)
 		}
-		if contract.Output.JSONEnvelopeType != OutputFieldTypeObject && contract.Output.JSONEnvelopeType != OutputFieldTypeArray {
-			return fmt.Errorf("agent JSON envelope type must be object or array")
+		if contract.Output.JSONEnvelopeType != OutputFieldTypeObject && contract.Output.JSONEnvelopeType != OutputFieldTypeArray &&
+			contract.Output.JSONEnvelopeType != OutputFieldTypeString {
+			return fmt.Errorf("agent JSON envelope type must be object, array, or a declared scalar string")
+		}
+		if contract.Output.JSONEnvelopeType == OutputFieldTypeString &&
+			(len(contract.Output.Fields) != 1 || contract.Output.Fields[0].Name != contract.Output.JSONEnvelope || contract.Output.Fields[0].Type != OutputFieldTypeString) {
+			return fmt.Errorf("agent scalar JSON envelope must have one same-named string field")
 		}
 		if contract.Output.JSONSchemaVersion <= 0 {
 			return fmt.Errorf("agent JSON schema version must be positive")
@@ -1401,6 +1426,7 @@ func validateAgentContract(command CommandSpec) error {
 	}
 	_, noOutput := seenFormats[OutputFormatNone]
 	_, hasReadOutputFailure := seenErrors["output_write_failed"]
+	_, hasConsumedReadOutputFailure := seenErrors[consumedReadOutputWriteFailureCode]
 	_, hasMutationOutputFailure := seenErrors["mutation_output_write_failed"]
 	if command.Effect == operation.EffectRead && hasMutationOutputFailure {
 		return fmt.Errorf("read command must not declare mutation_output_write_failed")
@@ -1408,12 +1434,30 @@ func validateAgentContract(command CommandSpec) error {
 	if command.Effect != operation.EffectRead && hasReadOutputFailure {
 		return fmt.Errorf("mutating command must not declare retryable output_write_failed")
 	}
-	if noOutput && (hasReadOutputFailure || hasMutationOutputFailure) {
+	if command.Effect != operation.EffectRead && hasConsumedReadOutputFailure {
+		return fmt.Errorf("mutating command must not declare consumed read output failure")
+	}
+	if noOutput && (hasReadOutputFailure || hasConsumedReadOutputFailure || hasMutationOutputFailure) {
 		return fmt.Errorf("command without output must not declare an output write failure")
 	}
 	if !noOutput && command.Effect == operation.EffectRead {
-		if err := requireAgentError(seenErrors, "output_write_failed", fault.KindInternal, true); err != nil {
-			return err
+		switch contract.Output.readSettlement {
+		case readOutputSettlementRetryable:
+			if hasConsumedReadOutputFailure {
+				return fmt.Errorf("retryable read must not declare consumed read output failure")
+			}
+			if err := requireAgentError(seenErrors, "output_write_failed", fault.KindInternal, true); err != nil {
+				return err
+			}
+		case readOutputSettlementConsumed:
+			if hasReadOutputFailure {
+				return fmt.Errorf("consumed read must not declare retryable output_write_failed")
+			}
+			if err := requireAgentError(seenErrors, consumedReadOutputWriteFailureCode, fault.KindInternal, false); err != nil {
+				return err
+			}
+		default:
+			return fmt.Errorf("read output settlement is invalid")
 		}
 	}
 	if command.Effect == operation.EffectRead {
@@ -1887,6 +1931,9 @@ func validateInputScalar(input CommandInput, value string) error {
 	case InputValueText:
 		if input.MinimumLength != nil && int64(len(value)) < *input.MinimumLength {
 			return fmt.Errorf("value must contain at least %d byte(s)", *input.MinimumLength)
+		}
+		if input.MaximumLength != nil && int64(len(value)) > *input.MaximumLength {
+			return fmt.Errorf("value must contain at most %d byte(s)", *input.MaximumLength)
 		}
 		return nil
 	case InputValueInteger:
@@ -2461,6 +2508,20 @@ func (c Catalog) Commands() []CommandSpec {
 	return commands
 }
 
+// PublicCommands returns every public command across Program boundaries in
+// curated registration order. Repository contract tools use this global view;
+// routing and help continue to use the exact Commands Program view.
+func (c Catalog) PublicCommands() []CommandSpec {
+	commands := make([]CommandSpec, 0, len(c.commands))
+	for _, command := range c.commands {
+		if command.Visibility == CommandVisibilityInternal {
+			continue
+		}
+		commands = append(commands, c.publicCommandProjection(command))
+	}
+	return commands
+}
+
 // registeredCommands returns the detached global registry for contract tests
 // and catalog-owned composition. Public routing and help must use Commands.
 func (c Catalog) registeredCommands() []CommandSpec {
@@ -2569,6 +2630,10 @@ func cloneAgentContract(contract AgentContract) AgentContract {
 		if contract.Inputs[index].MinimumLength != nil {
 			value := *contract.Inputs[index].MinimumLength
 			contract.Inputs[index].MinimumLength = &value
+		}
+		if contract.Inputs[index].MaximumLength != nil {
+			value := *contract.Inputs[index].MaximumLength
+			contract.Inputs[index].MaximumLength = &value
 		}
 	}
 	contract.Output.Formats = cloneSlice(contract.Output.Formats)

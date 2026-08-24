@@ -238,14 +238,19 @@ func validate(root string) (string, error) {
 	for _, required := range []string{
 		"ARG DEBIAN_IMAGE=",
 		"ARG GO_BUILDER_IMAGE=golang@sha256:",
-		"FROM --platform=$BUILDPLATFORM ${GO_BUILDER_IMAGE} AS exposure-helper-builder",
+		"FROM --platform=$BUILDPLATFORM ${GO_BUILDER_IMAGE} AS workspace-helper-builder",
 		"COPY --from=helper-source . .",
 		"go build -tags=tobari_exposure_helper -buildvcs=false -trimpath",
 		"-o /out/tobari-expose ./cmd/tobari-expose",
+		"-o /out/tobari-permission ./cmd/tobari-permission",
 		`io.tobari.exposure-helper-api="1"`,
 		`io.tobari.exposure-helper-source="${TOBARI_EXPOSURE_HELPER_SOURCE}"`,
-		"COPY --from=exposure-helper-builder /out/tobari-expose /opt/tobari/libexec/tobari-expose",
-		"COPY --from=exposure-helper-builder /out/identity.json /opt/tobari/libexec/tobari-expose.identity.json",
+		`io.tobari.permission-helper-api="1"`,
+		`io.tobari.permission-helper-source="${TOBARI_EXPOSURE_HELPER_SOURCE}"`,
+		"COPY --from=workspace-helper-builder /out/tobari-expose /opt/tobari/libexec/tobari-expose",
+		"COPY --from=workspace-helper-builder /out/tobari-expose.identity.json /opt/tobari/libexec/tobari-expose.identity.json",
+		"COPY --from=workspace-helper-builder /out/tobari-permission /opt/tobari/libexec/tobari-permission",
+		"COPY --from=workspace-helper-builder /out/tobari-permission.identity.json /opt/tobari/libexec/tobari-permission.identity.json",
 		"FROM ${DEBIAN_IMAGE} AS fetcher",
 		"ARG GH_VERSION=" + lock.Tools.GH.Version,
 		"ARG AWS_CLI_VERSION=" + lock.Tools.AWSCLI.Version,
@@ -308,7 +313,7 @@ func validate(root string) (string, error) {
 	if !strings.Contains(spec, "ln -s /opt/aws-cli/v2/current/bin/aws /usr/local/bin/aws") {
 		return "", errors.New("base Dockerfile does not expose the AWS CLI")
 	}
-	for _, forbidden := range []string{"COPY tobari-expose ", "ENV CODEX_HOME=", "/var/lib/tobari/.local/bin/claude", "/var/lib/tobari/.codex/packages", "claude update", "codex update"} {
+	for _, forbidden := range []string{"COPY tobari-expose ", "COPY tobari-permission ", "ENV CODEX_HOME=", "/var/lib/tobari/.local/bin/claude", "/var/lib/tobari/.codex/packages", "claude update", "codex update"} {
 		if strings.Contains(spec, forbidden) {
 			return "", fmt.Errorf("base Dockerfile contains forbidden mutable agent installation %q", forbidden)
 		}

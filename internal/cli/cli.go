@@ -13,6 +13,7 @@ import (
 	"github.com/tasuku43/tobari/internal/app/contextcmd"
 	"github.com/tasuku43/tobari/internal/app/doctorcmd"
 	"github.com/tasuku43/tobari/internal/app/migrationcmd"
+	"github.com/tasuku43/tobari/internal/app/permissionwaitcmd"
 	"github.com/tasuku43/tobari/internal/app/runtimecmd"
 	"github.com/tasuku43/tobari/internal/app/serviceexposurecmd"
 	"github.com/tasuku43/tobari/internal/app/tobaricmd"
@@ -43,18 +44,20 @@ type CLI struct {
 	serviceExposure        *serviceexposurecmd.Service
 	serviceExposureInitErr error
 	researchCLIState
-	config        contextConfigurationWizard
-	contextCreate contextCreateWizard
-	firstUse      recommendedFirstUseReviewer
-	runtimeChoice runtimeChoiceWizard
-	authLogin     authLoginProviderSelector
-	policyReview  func(bool) *policyReviewSelector
-	policyNotify  func(io.Writer, string) error
-	noColor       bool
+	permissionWait        *permissionwaitcmd.Service
+	permissionWaitInitErr error
+	config                contextConfigurationWizard
+	contextCreate         contextCreateWizard
+	firstUse              recommendedFirstUseReviewer
+	runtimeChoice         runtimeChoiceWizard
+	authLogin             authLoginProviderSelector
+	policyReview          func(bool) *policyReviewSelector
+	policyNotify          func(io.Writer, string) error
+	noColor               bool
 }
 
 // New builds the production CLI with the Docker-backed Tobari runtime.
-func New(in io.Reader, out, errOut io.Writer) *CLI {
+func New(lifetime context.Context, in io.Reader, out, errOut io.Writer) *CLI {
 	command := newCLI(in, out, errOut, DefaultCatalog(), systemdoctor.New())
 	command.noColor = noColorFromEnvironment()
 	command.config = newContextConfigurationWizardWithStyle(!command.noColor)
@@ -65,7 +68,7 @@ func New(in io.Reader, out, errOut io.Writer) *CLI {
 	command.policyReview = newPolicyReviewSelectorWithStyle
 	command.policyNotify = terminal.WritePermissionInboxNotification
 	configureResearchCLI(command)
-	runtime, err := dockerruntime.New()
+	runtime, err := dockerruntime.New(lifetime)
 	if err != nil {
 		command.doctor = doctorcmd.New(systemdoctor.New(err))
 		return command
@@ -95,6 +98,20 @@ func NewExposureHelper(in io.Reader, out, errOut io.Writer) *CLI {
 		return command
 	}
 	command.serviceExposure = serviceexposurecmd.New(client)
+	return command
+}
+
+// NewPermissionHelper builds only the attachment-local wait observer view of
+// the canonical Catalog. It has no host policy or Docker composition service.
+func NewPermissionHelper(in io.Reader, out, errOut io.Writer) *CLI {
+	command := newCLI(in, out, errOut, DefaultCatalog().ForProgram(PermissionProgramName), systemdoctor.New())
+	command.noColor = noColorFromEnvironment()
+	client, err := dockerruntime.NewPermissionWaitClientFromEnvironment()
+	if err != nil {
+		command.permissionWaitInitErr = err
+		return command
+	}
+	command.permissionWait = permissionwaitcmd.New(client)
 	return command
 }
 

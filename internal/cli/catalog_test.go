@@ -577,6 +577,47 @@ func TestArgumentSyntaxRequiredAndAllowedValuesMatchAgentInputs(t *testing.T) {
 	}
 }
 
+func TestCatalogValidatesTextMaximumLengthContract(t *testing.T) {
+	minimum, maximum := int64(1), int64(36)
+	valid := utilitySpec("probe")
+	valid.Args = "--id <value>"
+	valid.Agent.Inputs = []CommandInput{{
+		Name: "--id", Source: InputSourceFlag, Required: true,
+		ValueKind: InputValueText, Cardinality: InputCardinalitySingle,
+		Description: "Bounded identifier.", AllowedValues: []string{},
+		MinimumLength: &minimum, MaximumLength: &maximum,
+	}}
+	if err := NewCatalog(valid).Validate(); err != nil {
+		t.Fatalf("valid text length bounds: %v", err)
+	}
+
+	for name, mutate := range map[string]func(*CommandInput){
+		"non-text": func(input *CommandInput) { input.ValueKind = InputValueInteger },
+		"negative maximum": func(input *CommandInput) {
+			value := int64(-1)
+			input.MaximumLength = &value
+		},
+		"minimum exceeds maximum": func(input *CommandInput) {
+			value := int64(0)
+			input.MaximumLength = &value
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			spec := cloneCommandSpec(valid)
+			mutate(&spec.Agent.Inputs[0])
+			if err := NewCatalog(spec).Validate(); err == nil {
+				t.Fatal("invalid text length bounds passed validation")
+			}
+		})
+	}
+
+	clone := cloneCommandSpec(valid)
+	*clone.Agent.Inputs[0].MaximumLength = 10
+	if *valid.Agent.Inputs[0].MaximumLength != 36 {
+		t.Fatal("maximum length pointer shares cloned storage")
+	}
+}
+
 func TestArgumentSyntaxAllowsOneExactFixedFlagValue(t *testing.T) {
 	valid := utilitySpec("items apply")
 	valid.Args = "--confirm=destructive"

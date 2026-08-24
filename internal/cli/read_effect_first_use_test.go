@@ -145,7 +145,7 @@ func TestEveryCatalogReadExecutesOnFreshXDGWithoutDurableOrExternalMutation(t *t
 			before = append(before, readEffectTreeSnapshot(t, dataHome)...)
 
 			var stdout, stderr bytes.Buffer
-			command := New(strings.NewReader(""), &stdout, &stderr)
+			command := New(context.Background(), strings.NewReader(""), &stdout, &stderr)
 			args := append(strings.Fields(path), extraArgs[path]...)
 			if code := command.RunContext(context.Background(), args); code == ExitUsage {
 				t.Fatalf("%s did not reach its handler: stderr=%q", path, stderr.String())

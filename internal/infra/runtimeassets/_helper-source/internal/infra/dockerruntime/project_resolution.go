@@ -173,7 +173,7 @@ func (r *Runtime) prepareContextImages(ctx context.Context) error {
 	if err := r.validateCompatibleImage(ctx, baseImage); err != nil {
 		return fmt.Errorf("Tobari base runtime image: %w", err)
 	}
-	if err := r.materializeWorkspaceExposureHelper(ctx, baseImage); err != nil {
+	if err := r.materializeWorkspaceHelpers(ctx, baseImage); err != nil {
 		return err
 	}
 	list, err := r.ListContexts(ctx)

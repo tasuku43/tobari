@@ -590,6 +590,72 @@ command. The object is advisory data
 for the child process, not an authorization token or an instruction to retry;
 it contains no candidate ID, query, body, header, credential, policy path, or
 dynamic command argument. Non-learnable denials advertise no review command.
+
+For a supported ordinary HTTP or HTTPS denial, the optional permission-resume
+handoff is issued only after Gateway joins the authenticated frozen schema-v1
+principal to exactly one bounded canonical interactive-session record and that
+owner acknowledges the immutable secret-free wait record. The schema-2 denial
+and wait projection uses `workspace_manifest_id` and `workspace_id`; the
+principal registry, Gateway-to-OPA input, persisted learned-policy wire, and
+Host Loopback route/grant schema-v1 bytes remain unchanged. Zero, duplicate,
+stale, malformed, symlinked, drifted, or concurrently replaced owner records
+omit the handoff. The attachment-local helper socket proves attachment
+possession independently of the non-authoritative wait ID. Gateway ingestion
+uses one host-platform-selected closed transport and an unpredictable 256-bit
+process-instance nonce; PID, port, and peer address are diagnostic only. Linux
+accepts only an owner-only Unix socket. Darwin accepts only a Darwin
+IPv4-loopback listener bound at kernel-assigned `127.0.0.1:0`, reached from
+Gateway through exact `host.docker.internal`; wildcard, LAN, and IPv6 listeners
+are forbidden. Selection does not inspect the Docker provider, context name, or
+context path. Colima is the only supported and release-validated Darwin
+runtime. An unvalidated provider whose bridge is absent or different cannot
+complete the exact acknowledgment, so resume is omitted; reachability grants no
+authority. Gateway has no transport probe, fallback, or downgrade. It sends
+the nonce first, the owner compares it in constant time, and host-side frame,
+deadline, concurrency, rate, and lifetime bounds apply even if another
+container can reach the forwarded host gateway. No unsupported-provider path
+may weaken nonce, lease, or exact post-acknowledgment re-read. Only Gateway receives the
+read-only registry mount; OPA, Workspace containers, and guards receive no
+mount or transport environment. The renewable lease carries a strictly
+advancing current issue time, cannot be resurrected after expiry or wall-clock
+rollback/non-advance, and any listener, heartbeat, or renewal failure closes
+transport and invalidates waits before exact bounded authority cleanup. An
+acknowledgment is usable only after an exact registry re-read proves every
+stable owner field unchanged. The lease may be byte-identical or one valid
+renewal may strictly advance both issue and expiry; regression, changed expiry
+at the same issue time, future issue, expiry, or owner drift omits resume. Nonces and private endpoints are
+absent from logs and public output.
+
+The owner keeps at most eight waits in memory for at most fifteen minutes, with
+one active connection and three attempts per ID. Request and response frames
+are bounded to 4 KiB and 1 KiB. The helper observes the canonical live OPA
+evaluator and returns only `Allow`, explicit `Deny`, or validated lease
+`Expired`; default deny and ambiguous or unapplied state remain nonterminal.
+It receives no policy mutation, proposal, general or external network,
+unrestricted filesystem, Docker, process, or TTY capability and never
+reconstructs or retries the request.
+
+The child-visible Unix socket is not authority: the custom Runtime and another
+same-UID process can remove or replace it. It is a transport bridge only. The
+trusted host generates an ephemeral per-entry signing key and signs the exact
+channel ID, canonical AttachmentID, owner-identity digest, wait ID, fresh
+helper-request nonce, and closed result or fault; only the verifier enters the
+Workspace. The helper rejects unsigned, replayed, rebound, or drifted responses.
+Host-side active-request, rate, frame, and lease bounds remain authoritative
+even when the Python bridge misbehaves. Unexpected bridge termination or host
+response-write failure invalidates the channel; checked cleanup terminates the
+control exec and proves its socket absent before the attachment owner is torn
+down. No signed result authorizes policy mutation or retries the original
+request.
+
+The permission helper is a dedicated hardcoded Linux Program, not a custom
+Runtime executable or host release alias. The pinned base build uses the same
+checked Go source/module closure and per-binary source/API/digest identity as
+the exposure helper. Host extraction requires both Linux ELF artifacts to match
+the Docker Engine architecture before owner-only storage, and every standard or
+custom Runtime Workspace receives the verified `tobari-permission` binary only
+through the read-only mount.
+
 The host-owned retained denial queue remains the source of truth, and only the
 reference-bound host action can change policy. Interactive `review permissions`
 instead permits one command-bound fixed-target Apply over a bounded typed set:

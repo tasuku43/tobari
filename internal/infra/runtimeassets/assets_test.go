@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 )
 
 func TestMaterializeAndVersion(t *testing.T) {
@@ -76,11 +78,14 @@ func TestTobariDockerfileDeclaresRuntimeContract(t *testing.T) {
 	}
 	spec := string(data)
 	for _, required := range []string{
-		`FROM --platform=$BUILDPLATFORM ${GO_BUILDER_IMAGE} AS exposure-helper-builder`,
+		`FROM --platform=$BUILDPLATFORM ${GO_BUILDER_IMAGE} AS workspace-helper-builder`,
 		`go build -tags=tobari_exposure_helper -buildvcs=false -trimpath`,
 		`io.tobari.exposure-helper-api="1"`,
 		`io.tobari.exposure-helper-source="${TOBARI_EXPOSURE_HELPER_SOURCE}"`,
-		`COPY --from=exposure-helper-builder /out/tobari-expose /opt/tobari/libexec/tobari-expose`,
+		`io.tobari.permission-helper-api="1"`,
+		`io.tobari.permission-helper-source="${TOBARI_EXPOSURE_HELPER_SOURCE}"`,
+		`COPY --from=workspace-helper-builder /out/tobari-expose /opt/tobari/libexec/tobari-expose`,
+		`COPY --from=workspace-helper-builder /out/tobari-permission /opt/tobari/libexec/tobari-permission`,
 		`io.tobari.runtime-api="1"`,
 		`io.tobari.runtime-lifetime-command="sleep infinity"`,
 		`USER tobari`,
@@ -114,6 +119,8 @@ func TestComposeSpecOwnsOnlySharedLeastPrivilegeServices(t *testing.T) {
 		"name: tobari-policy-bundle",
 		"${TOBARI_PRINCIPAL_DIR}:/run/tobari/principal-registry:ro",
 		"TOBARI_PRINCIPAL_REGISTRY: /run/tobari/principal-registry/principals.json",
+		"${TOBARI_INTERACTIVE_ATTACHMENT_DIR}:/run/tobari/interactive-attachments:ro",
+		"TOBARI_INTERACTIVE_ATTACHMENT_REGISTRY: /run/tobari/interactive-attachments/sessions.json",
 	} {
 		if !strings.Contains(spec, required) {
 			t.Errorf("compose spec is missing %q", required)
@@ -134,10 +141,35 @@ func TestComposeSpecOwnsOnlySharedLeastPrivilegeServices(t *testing.T) {
 		"auth-broker:",
 		"TOBARI_AUTH_PROVIDER_PROJECTION",
 		"TOBARI_AUTH_BROKER_SOCKET",
+		"TOBARI_PERMISSION_INGESTION_TRANSPORT",
+		"TOBARI_PERMISSION_INGESTION_DIRECTORY",
+		"${TOBARI_PERMISSION_INGESTION_DIR}",
 	} {
 		if strings.Contains(spec, forbidden) {
 			t.Errorf("compose spec contains forbidden boundary %q", forbidden)
 		}
+	}
+	unixData, err := Read("compose.permission-unix.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	unix := string(unixData)
+	for _, required := range []string{
+		"TOBARI_PERMISSION_INGESTION_TRANSPORT: unix",
+		"TOBARI_PERMISSION_INGESTION_DIRECTORY: /run/tobari/permission-ingestion",
+		"${TOBARI_PERMISSION_INGESTION_DIR}:/run/tobari/permission-ingestion:ro",
+	} {
+		if !strings.Contains(unix, required) {
+			t.Errorf("Unix permission profile is missing %q", required)
+		}
+	}
+	loopbackData, err := Read("compose.permission-loopback_tcp.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	loopback := string(loopbackData)
+	if !strings.Contains(loopback, "TOBARI_PERMISSION_INGESTION_TRANSPORT: loopback_tcp") || strings.Contains(loopback, "volumes:") || strings.Contains(loopback, "INGESTION_DIRECTORY") {
+		t.Fatalf("loopback permission profile widens its mount boundary: %s", loopback)
 	}
 	experimentalData, err := Read("compose.experimental.yaml")
 	if err != nil {
@@ -149,6 +181,119 @@ func TestComposeSpecOwnsOnlySharedLeastPrivilegeServices(t *testing.T) {
 			t.Errorf("experimental compose spec is missing %q", required)
 		}
 	}
+}
+
+func TestPermissionProfilesKeepPrivateStateGatewayOnly(t *testing.T) {
+	t.Parallel()
+	type service struct {
+		Environment map[string]string `yaml:"environment"`
+		Volumes     []string          `yaml:"volumes"`
+	}
+	type compose struct {
+		Services map[string]service `yaml:"services"`
+	}
+	decode := func(name string) compose {
+		data, err := Read(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var document compose
+		if err := yaml.Unmarshal(data, &document); err != nil {
+			t.Fatalf("decode %s: %v", name, err)
+		}
+		return document
+	}
+	merge := func(documents ...compose) map[string]service {
+		merged := map[string]service{}
+		for _, document := range documents {
+			for name, overlay := range document.Services {
+				value := merged[name]
+				if value.Environment == nil {
+					value.Environment = map[string]string{}
+				}
+				for key, environmentValue := range overlay.Environment {
+					value.Environment[key] = environmentValue
+				}
+				value.Volumes = append(value.Volumes, overlay.Volumes...)
+				merged[name] = value
+			}
+		}
+		return merged
+	}
+	base := decode("compose.yaml")
+	experimental := decode("compose.experimental.yaml")
+	for _, shape := range []struct {
+		name      string
+		documents []compose
+	}{
+		{name: "standard", documents: []compose{base}},
+		{name: "research", documents: []compose{base, experimental}},
+	} {
+		for _, profileName := range []string{"compose.permission-unix.yaml", "compose.permission-loopback_tcp.yaml"} {
+			profile := decode(profileName)
+			merged := merge(append(append([]compose{}, shape.documents...), profile)...)
+			label := shape.name + "/" + profileName
+			registryEnvironmentCount, registryMountCount := 0, 0
+			ingestionDirectoryCount, ingestionMountCount := 0, 0
+			for name, value := range merged {
+				joinedVolumes := strings.Join(value.Volumes, "\n")
+				_, hasRegistryEnvironment := value.Environment["TOBARI_INTERACTIVE_ATTACHMENT_REGISTRY"]
+				registryEnvironmentCount += boolInt(hasRegistryEnvironment)
+				registryMounts := strings.Count(joinedVolumes, "/run/tobari/interactive-attachments:ro")
+				registryMountCount += registryMounts
+				hasRegistryMount := registryMounts > 0
+				_, hasTransport := value.Environment["TOBARI_PERMISSION_INGESTION_TRANSPORT"]
+				_, hasDirectory := value.Environment["TOBARI_PERMISSION_INGESTION_DIRECTORY"]
+				ingestionDirectoryCount += boolInt(hasDirectory)
+				ingestionMounts := strings.Count(joinedVolumes, "/run/tobari/permission-ingestion:ro")
+				ingestionMountCount += ingestionMounts
+				hasIngestionMount := ingestionMounts > 0
+				if name == "gateway" {
+					if !hasRegistryEnvironment || !hasRegistryMount || !hasTransport {
+						t.Fatalf("%s Gateway private boundary is incomplete: %+v", label, value)
+					}
+					if profileName == "compose.permission-unix.yaml" && (!hasDirectory || !hasIngestionMount) {
+						t.Fatalf("%s Gateway Unix boundary is incomplete: %+v", label, value)
+					}
+					if profileName == "compose.permission-loopback_tcp.yaml" && (hasDirectory || hasIngestionMount) {
+						t.Fatalf("%s Gateway gained a Unix boundary: %+v", label, value)
+					}
+					continue
+				}
+				if hasRegistryEnvironment || hasRegistryMount || hasTransport || hasDirectory || hasIngestionMount {
+					t.Fatalf("%s leaked permission authority to service %s: %+v", label, name, value)
+				}
+			}
+			if registryEnvironmentCount != 1 || registryMountCount != 1 {
+				t.Fatalf("%s registry projection counts = env:%d mount:%d", label, registryEnvironmentCount, registryMountCount)
+			}
+			wantUnixCount := 0
+			if profileName == "compose.permission-unix.yaml" {
+				wantUnixCount = 1
+			}
+			if ingestionDirectoryCount != wantUnixCount || ingestionMountCount != wantUnixCount {
+				t.Fatalf("%s ingestion projection counts = env:%d mount:%d", label, ingestionDirectoryCount, ingestionMountCount)
+			}
+		}
+	}
+	for _, asset := range []string{"gateway/network-guard.sh", "tobari/Dockerfile"} {
+		data, err := Read(asset)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, forbidden := range []string{"interactive-attachments", "permission-ingestion", "TOBARI_PERMISSION_INGESTION", "pwt_", "pws_"} {
+			if strings.Contains(string(data), forbidden) {
+				t.Fatalf("%s received permission authority marker %q", asset, forbidden)
+			}
+		}
+	}
+}
+
+func boolInt(value bool) int {
+	if value {
+		return 1
+	}
+	return 0
 }
 
 func TestComposeSpecCapsSharedServiceLogs(t *testing.T) {

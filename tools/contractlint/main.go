@@ -51,14 +51,21 @@ func fatal(err error) {
 
 func catalogCapabilityIDs(catalog cli.Catalog) map[string]struct{} {
 	ids := make(map[string]struct{})
-	for _, command := range publishedCatalogCommands(catalog) {
+	for _, command := range publishedAllProgramCommands(catalog) {
 		ids[command.Agent.CapabilityID] = struct{}{}
 	}
 	return ids
 }
 
 func publishedCatalogCommands(catalog cli.Catalog) []cli.CommandSpec {
-	commands := catalog.Commands()
+	return filterPublishedCatalogCommands(catalog.Commands())
+}
+
+func publishedAllProgramCommands(catalog cli.Catalog) []cli.CommandSpec {
+	return filterPublishedCatalogCommands(catalog.PublicCommands())
+}
+
+func filterPublishedCatalogCommands(commands []cli.CommandSpec) []cli.CommandSpec {
 	if !capabilitysurface.Compiled().IncludesResearch() {
 		return commands
 	}

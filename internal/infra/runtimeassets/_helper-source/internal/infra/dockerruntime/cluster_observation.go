@@ -309,6 +309,27 @@ func (r *Runtime) ClusterDown(ctx context.Context, state tobari.State, purge boo
 	if err := state.Validate(); err != nil {
 		return err
 	}
+	journal, journalExists, err := r.readClusterJournal()
+	if err != nil {
+		return fmt.Errorf("read interrupted cluster reconcile before down: %w", err)
+	}
+	if journalExists && journal.Operation == clusterOperationUp {
+		if err := r.recoverInterruptedClusterUp(ctx, state, true); err != nil {
+			return fmt.Errorf("recover interrupted cluster activation before down: %w", err)
+		}
+	} else if journalExists && journal.Operation != clusterOperationDown {
+		return fmt.Errorf("interrupted cluster reconcile is not recoverable by down")
+	}
+	current, exists, err := r.LoadState(ctx)
+	if err != nil {
+		return err
+	}
+	if !exists || current != state {
+		return fmt.Errorf("shared-cluster state changed during down recovery")
+	}
+	if err := r.validateClusterDownComposeAuthority(state); err != nil {
+		return fmt.Errorf("validate cluster down Compose authority: %w", err)
+	}
 	if err := r.startClusterReconcile(clusterOperationDown); err != nil {
 		return fmt.Errorf("start cluster reconcile journal: %w", err)
 	}

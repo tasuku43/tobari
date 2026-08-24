@@ -536,10 +536,12 @@ These are accepted design facts, not current implementation claims:
 - `docs/work/host-loopback-name/` owns the opposite-direction physical-host
   authority spelling and `host.tobari.internal`. Neither appears as a Service
   parameter, alias, hostname, authority field, or output label.
-- `docs/work/permission-resume-handoff/` owns the separate ordinary-permission
-  Workspace wait helper. It must not reuse `tobari-expose`, Service refs, or
-  immediate Allow-once semantics; only task-neutral host review mechanics may
-  be shared. Its wait IDs and durable permission policy never enter Service.
+- [ADR 0081](../../decisions/0081-observe-reviewed-permission-from-an-attached-workspace.md)
+  and the promoted architecture/security contracts own the separate
+  ordinary-permission Workspace wait helper. It must not reuse
+  `tobari-expose`, Service refs, or immediate Allow-once semantics; only
+  task-neutral host review mechanics may be shared. Its wait IDs and durable
+  permission policy never enter Service.
 - ADR 0079 and docs 00--04 are the promoted authority for Workspace
   Manifest/Workspace identity, desired/applied/observed separation, explicit
   entry reconciliation, copy isolation, and migration. Service JSON/protocols

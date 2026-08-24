@@ -47,6 +47,7 @@ func resolveOrCreateTestProject(t *testing.T, runtime *Runtime, root string) (to
 
 func projectRuntimeContext(t *testing.T, runtime *Runtime, instance tobari.Workspace) tobari.WorkspaceManifest {
 	t.Helper()
+	prepareInteractiveSessionPrincipal(t, runtime, instance)
 	manifest, _, err := runtime.contextByID(instance.WorkspaceManifestID)
 	if err != nil {
 		t.Fatal(err)
@@ -190,8 +191,11 @@ func TestEnterProjectRuntimeMirrorsHostCWDPath(t *testing.T) {
 		"--env", "PS1=" + projectInteractivePrompt,
 		"--env", "PROMPT_COMMAND=PS1=" + bashSingleQuoted(projectInteractivePrompt),
 		"--env", "TOBARI_CAPABILITIES_JSON=" + string(capabilities),
-		"--workdir", want, container, "/bin/bash",
 	}
+	for _, value := range permissionChannelEnvironment(t, runner.runs[0].args) {
+		wantArgs = append(wantArgs, "--env", value)
+	}
+	wantArgs = append(wantArgs, "--workdir", want, container, "/bin/bash")
 	if got := strings.Join(runner.runs[0].args, " "); got != strings.Join(wantArgs, " ") {
 		t.Fatalf("EnterProjectRuntime() argv = %q, want %q", got, strings.Join(wantArgs, " "))
 	}
@@ -204,6 +208,31 @@ func TestEnterProjectRuntimeMirrorsHostCWDPath(t *testing.T) {
 		}
 	}
 	t.Fatalf("EnterProjectRuntime() args = %v, missing --workdir", runner.runs[0].args)
+}
+
+func permissionChannelEnvironment(t *testing.T, args []string) []string {
+	t.Helper()
+	prefixes := []string{
+		workspacePermissionSocketEnv + "=",
+		workspacePermissionChannelEnv + "=",
+		workspacePermissionAttachmentEnv + "=",
+		workspacePermissionOwnerBindingEnv + "=",
+		workspacePermissionVerifyKeyEnv + "=",
+	}
+	values := make([]string, 0, len(prefixes))
+	for _, prefix := range prefixes {
+		matches := []string{}
+		for index := 0; index+1 < len(args); index++ {
+			if args[index] == "--env" && strings.HasPrefix(args[index+1], prefix) {
+				matches = append(matches, args[index+1])
+			}
+		}
+		if len(matches) != 1 || strings.TrimPrefix(matches[0], prefix) == "" {
+			t.Fatalf("permission channel environment %q = %q in %q", prefix, matches, args)
+		}
+		values = append(values, matches[0])
+	}
+	return values
 }
 
 func browserSocketEnvironment(t *testing.T, args []string) string {
@@ -768,7 +797,31 @@ type projectExitError struct{ code int }
 func (e projectExitError) Error() string { return fmt.Sprintf("child exited with status %d", e.code) }
 func (e projectExitError) ExitCode() int { return e.code }
 
-func (r *projectReconcileRunner) Run(_ context.Context, args []string, _ []string, _ io.Reader, out, _ io.Writer) error {
+type projectCleanupDriftRunner struct {
+	projectExitRunner
+	runtime *Runtime
+}
+
+func (r *projectCleanupDriftRunner) Run(ctx context.Context, args []string, environment []string, in io.Reader, out, errOut io.Writer) error {
+	var registry tobari.InteractiveAttachmentSessionRegistry
+	if err := readStrictJSON(r.runtime.interactiveAttachmentSessionRegistryPath(), &registry); err == nil && len(registry.Sessions) == 1 {
+		registry.Sessions[0].IngestionNonce = strings.Repeat("f", 64)
+		_ = writeAtomicJSON(r.runtime.interactiveAttachmentSessionRegistryPath(), registry)
+	}
+	return r.projectExitRunner.Run(ctx, args, environment, in, out, errOut)
+}
+
+func (r *projectReconcileRunner) Run(ctx context.Context, args []string, environment []string, _ io.Reader, out, errOut io.Writer) error {
+	if (len(args) >= 3 && args[0] == "inspect" && strings.Contains(args[2], ".NetworkSettings.Networks")) ||
+		(len(args) >= 2 && args[0] == "network" && args[1] == "connect") {
+		data, err := r.Output(ctx, args, environment)
+		if err != nil {
+			_, _ = errOut.Write(data)
+			return err
+		}
+		_, _ = out.Write(data)
+		return nil
+	}
 	if slices.Contains(args, "authbroker.control") {
 		state := "unlocked"
 		if slices.Contains(args, "status") {
@@ -1346,7 +1399,11 @@ func TestEnsureProjectContainerAppliesSharedResourceBounds(t *testing.T) {
 		}
 	}
 	joined := strings.Join(create, " ")
-	for _, prohibited := range []string{"HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy", "NO_PROXY", "no_proxy", "gateway:8080"} {
+	for _, prohibited := range []string{
+		"HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy", "NO_PROXY", "no_proxy", "gateway:8080",
+		"TOBARI_INTERACTIVE_ATTACHMENT", "TOBARI_PERMISSION_INGESTION",
+		"/run/tobari/interactive-attachments", "/run/tobari/permission-ingestion", "pwt_", "pws_",
+	} {
 		if strings.Contains(joined, prohibited) {
 			t.Errorf("project create args contain prohibited proxy value %q: %v", prohibited, create)
 		}
@@ -1534,9 +1591,27 @@ func TestEnterProjectRuntimePreservesShellAndDirectChildExitStatus(t *testing.T)
 			instance := projectRuntimeInstance(t, runtime)
 			manifest := projectRuntimeContext(t, runtime, instance)
 			code, err := runtime.EnterProjectRuntime(context.Background(), instance, manifest, instance.Root, session, nil, io.Discard, io.Discard)
-			if err != nil || code != 37 {
-				t.Fatalf("EnterProjectRuntime() = (%d, %v), want child status 37", code, err)
+			if err != nil || code.ExitCode != 37 {
+				t.Fatalf("EnterProjectRuntime() = (%+v, %v), want child status 37", code, err)
 			}
 		})
+	}
+}
+
+func TestEnterProjectRuntimeReportsCleanupWithoutOverwritingChildStatus(t *testing.T) {
+	runtimeRoot := t.TempDir()
+	runner := &projectCleanupDriftRunner{projectExitRunner: projectExitRunner{code: 37}}
+	runtime, err := newRuntimeWithData(
+		filepath.Join(runtimeRoot, "config"), filepath.Join(runtimeRoot, "state"), filepath.Join(runtimeRoot, "data"), runner,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner.runtime = runtime
+	instance := projectRuntimeInstance(t, runtime)
+	manifest := projectRuntimeContext(t, runtime, instance)
+	outcome, err := runtime.EnterProjectRuntime(context.Background(), instance, manifest, instance.Root, tobari.NewWorkspaceShellSession(), nil, io.Discard, io.Discard)
+	if err != nil || outcome.ExitCode != 37 || !slices.Contains(outcome.CleanupIssues, tobari.WorkspaceCleanupInteractiveSession) {
+		t.Fatalf("EnterProjectRuntime() = (%+v, %v), want child status plus secondary cleanup issue", outcome, err)
 	}
 }

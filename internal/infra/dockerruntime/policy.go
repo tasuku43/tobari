@@ -424,6 +424,8 @@ func (r *Runtime) policyFenceState(state tobari.State) (tobari.State, func(), er
 	rego := []byte(`package tobari.http
 
 default decision := {"allow": false, "reason": "policy transition in progress", "status_code": 503, "learnable": false}
+
+permission_wait_observation := {"revision": data.tobari.aggregate_revision, "decision": decision}
 `)
 	data := []byte(fmt.Sprintf(`{"tobari":{"aggregate_schema_version":%d,"aggregate_revision":%q}}`+"\n", aggregateSchemaVersion, revision))
 	for name, contents := range map[string][]byte{"fence.rego": rego, "data.json": data} {
@@ -435,6 +437,9 @@ default decision := {"allow": false, "reason": "policy transition in progress", 
 	fence := state
 	fence.PolicyDirectory = directory
 	fence.AggregateRevision = revision
+	if fence.SchemaVersion == 2 {
+		fence.Applied.AggregateRevision = revision
+	}
 	return fence, cleanup, nil
 }
 

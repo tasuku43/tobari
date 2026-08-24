@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	goruntime "runtime"
 	"sync"
 	"time"
 
@@ -53,6 +54,10 @@ type workspaceServiceControlRunner interface {
 	RunWorkspaceServiceStream(context.Context, []string, []string, io.Reader, io.Writer, io.Writer) error
 }
 
+type workspacePermissionControlRunner interface {
+	RunWorkspacePermissionControl(context.Context, []string, []string, io.Reader, io.Writer, io.Writer) error
+}
+
 type osCommandRunner struct{}
 
 func (osCommandRunner) Run(ctx context.Context, args, environment []string, in io.Reader, out, errOut io.Writer) error {
@@ -81,8 +86,13 @@ func (runner osCommandRunner) RunWorkspaceServiceStream(ctx context.Context, arg
 	return runner.Run(ctx, args, environment, in, out, errOut)
 }
 
+func (runner osCommandRunner) RunWorkspacePermissionControl(ctx context.Context, args, environment []string, in io.Reader, out, errOut io.Writer) error {
+	return runner.Run(ctx, args, environment, in, out, errOut)
+}
+
 // Runtime owns filesystem state and Docker process execution.
 type Runtime struct {
+	lifetimeContext                context.Context
 	configDirectory                string
 	stateDirectory                 string
 	dataDirectory                  string
@@ -129,18 +139,29 @@ type Runtime struct {
 	claudeContainerLogin func(context.Context, string, io.Reader, io.Writer) (hostCredentialPayload, error)
 	// pupContainerLogin and pupRelayFactory are nil in production. Tests may
 	// replace the isolated Context-runtime acquisition and loopback adapter.
-	pupContainerLogin  func(context.Context, string, io.Reader, io.Writer) (hostCredentialPayload, error)
-	pupRelayFactory    pupLoginRelayFactory
-	hostLoginProfiles  hostLoginProfileReader
-	identities         identityIssuer
-	policyProjectionMu sync.Mutex
+	pupContainerLogin func(context.Context, string, io.Reader, io.Writer) (hostCredentialPayload, error)
+	pupRelayFactory   pupLoginRelayFactory
+	hostLoginProfiles hostLoginProfileReader
+	identities        identityIssuer
+	// permissionIngestionTransport is selected by the trusted host binary from
+	// its closed support profile. Tests may select a member directly; no public
+	// input or runtime probe can change it.
+	permissionIngestionTransport tobari.PermissionSessionTransport
+	policyProjectionMu           sync.Mutex
 	// projectStateWriter is nil in production. Tests may use it to inject a
 	// durable-state write failure after Docker reconciliation has completed.
 	projectStateWriter func(tobari.Workspace) error
+	// clusterStateWriteHook is nil in production. Tests use it to distinguish
+	// failures before and after the atomic shared-state publication boundary.
+	clusterStateWriteHook   func(tobari.State, func() error) error
+	clusterJournalClearHook func() error
 }
 
 // New resolves XDG paths without creating them.
-func New() (*Runtime, error) {
+func New(lifetime context.Context) (*Runtime, error) {
+	if lifetime == nil {
+		return nil, fmt.Errorf("runtime lifetime context is required")
+	}
 	configHome, stateHome, err := resolveRuntimeHomes(
 		os.Getenv("XDG_CONFIG_HOME"), os.Getenv("XDG_STATE_HOME"), os.UserHomeDir,
 	)
@@ -158,7 +179,20 @@ func New() (*Runtime, error) {
 	if err != nil {
 		return nil, err
 	}
+	runtime.permissionIngestionTransport = permissionSessionTransportForGOOS(goruntime.GOOS)
+	runtime.lifetimeContext = lifetime
 	return runtime, nil
+}
+
+// lifetimeParent selects the process-lifetime context supplied by the command
+// composition root. Tests that construct Runtime directly retain their caller
+// context. Cleanup and attachment control derive their own finite deadlines
+// from this parent so child cancellation cannot abandon host authority.
+func (r *Runtime) lifetimeParent(caller context.Context) context.Context {
+	if r != nil && r.lifetimeContext != nil {
+		return r.lifetimeContext
+	}
+	return caller
 }
 
 func resolveRuntimeHomes(configHome, stateHome string, userHome func() (string, error)) (string, string, error) {
@@ -210,18 +244,19 @@ func newRuntimeWithData(configDirectory, stateDirectory, dataDirectory string, r
 		return nil, fmt.Errorf("Docker command runner is required")
 	}
 	return &Runtime{
-		configDirectory:   configDirectory,
-		stateDirectory:    stateDirectory,
-		dataDirectory:     dataDirectory,
-		runner:            runner,
-		browser:           osHostBrowserOpener{},
-		gitIdentity:       newOSHostGitIdentityResolver(),
-		companion:         companionruntime.NewOSLauncher(),
-		companionEntropy:  rand.Reader,
-		hostCLIs:          newPathHostCLIResolver(),
-		credentialHost:    newOSHostCredentialAcquirer(),
-		hostLoginProfiles: osHostLoginProfileReader{},
-		identities:        identityIssuer{now: time.Now, entropy: rand.Reader},
+		configDirectory:              configDirectory,
+		stateDirectory:               stateDirectory,
+		dataDirectory:                dataDirectory,
+		runner:                       runner,
+		browser:                      osHostBrowserOpener{},
+		gitIdentity:                  newOSHostGitIdentityResolver(),
+		companion:                    companionruntime.NewOSLauncher(),
+		companionEntropy:             rand.Reader,
+		hostCLIs:                     newPathHostCLIResolver(),
+		credentialHost:               newOSHostCredentialAcquirer(),
+		hostLoginProfiles:            osHostLoginProfileReader{},
+		identities:                   identityIssuer{now: time.Now, entropy: rand.Reader},
+		permissionIngestionTransport: tobari.PermissionSessionTransportUnix,
 	}, nil
 }
 

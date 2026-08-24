@@ -12,7 +12,11 @@ import (
 // declaration and its renderer. A renderer may not emit a JSON document that
 // is wider, narrower, or differently typed than the exact catalog contract.
 func marshalCommandJSON(path string, document any) ([]byte, error) {
-	command, found := DefaultCatalog().lookupRegistered(path)
+	return marshalCommandJSONForProgram(ProgramName, path, document)
+}
+
+func marshalCommandJSONForProgram(program, path string, document any) ([]byte, error) {
+	command, found := DefaultCatalog().ForProgram(program).lookupRegistered(path)
 	if !found {
 		return nil, fmt.Errorf("JSON renderer command %q is not registered", path)
 	}
@@ -77,11 +81,10 @@ func validateJSONDocument(output CommandOutput, pagination *PaginationContract, 
 	if err != nil || parsedVersion != int64(output.JSONSchemaVersion) {
 		return fmt.Errorf("schema_version must equal %d", output.JSONSchemaVersion)
 	}
-	envelope := OutputField{
-		Name: output.JSONEnvelope, Type: output.JSONEnvelopeType,
-		Description: "Catalog JSON envelope.", Fields: output.Fields,
-	}
-	if output.JSONEnvelopeType == OutputFieldTypeArray {
+	envelope := OutputField{Name: output.JSONEnvelope, Type: output.JSONEnvelopeType, Description: "Catalog JSON envelope.", Fields: output.Fields}
+	if output.JSONEnvelopeType == OutputFieldTypeString {
+		envelope = output.Fields[0]
+	} else if output.JSONEnvelopeType == OutputFieldTypeArray {
 		envelope.Fields = nil
 		envelope.Items = &OutputField{Type: OutputFieldTypeObject, Description: "Catalog JSON item.", Fields: output.Fields}
 	}

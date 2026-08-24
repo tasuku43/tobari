@@ -75,7 +75,8 @@ func TestHostLoopbackRelayRequiresTokenAndPortGrantBeforeTargetDial(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	attachment, err := runtime.beginHostLoopbackAttachment(context.Background(), projectRuntimeInstance(t, runtime))
+	epoch, _ := newAttachmentEpochID()
+	attachment, err := runtime.beginHostLoopbackAttachment(context.Background(), projectRuntimeInstance(t, runtime), epoch)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,11 +132,12 @@ func TestHostLoopbackConcurrentAttachmentBorrowsOwnerWithoutExtendingLifetime(t 
 		t.Fatal(err)
 	}
 	project := projectRuntimeInstance(t, runtime)
-	owner, err := runtime.beginHostLoopbackAttachment(context.Background(), project)
+	epoch, _ := newAttachmentEpochID()
+	owner, err := runtime.beginHostLoopbackAttachment(context.Background(), project, epoch)
 	if err != nil {
 		t.Fatal(err)
 	}
-	borrower, err := runtime.beginHostLoopbackAttachment(context.Background(), project)
+	borrower, err := runtime.beginHostLoopbackAttachment(context.Background(), project, epoch)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -175,5 +177,31 @@ func TestHostLoopbackConcurrentAttachmentBorrowsOwnerWithoutExtendingLifetime(t 
 	}
 	if len(grants.Grants) != 0 {
 		t.Fatalf("attachment grant survived owner exit: %+v", grants.Grants)
+	}
+}
+
+func TestHostLoopbackBorrowRequiresCanonicalAttachmentEpoch(t *testing.T) {
+	runtime, err := newRuntime(filepath.Join(t.TempDir(), "c"), filepath.Join(t.TempDir(), "s"), &recordingRunner{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	project := projectRuntimeInstance(t, runtime)
+	epoch, _ := newAttachmentEpochID()
+	owner, err := runtime.beginHostLoopbackAttachment(context.Background(), project, epoch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer owner.Close(context.Background())
+	foreignEpoch, _ := newAttachmentEpochID()
+	if _, err := runtime.beginHostLoopbackAttachment(context.Background(), project, foreignEpoch); err == nil {
+		t.Fatal("Host Loopback route rebound to a different canonical attachment epoch")
+	}
+	foreignManifest := project
+	foreignManifest.WorkspaceManifestID = "01912345-6789-7abc-8def-0123456789af"
+	if _, err := runtime.beginHostLoopbackAttachment(context.Background(), foreignManifest, epoch); err == nil {
+		t.Fatal("Host Loopback route borrowed across Workspace Manifest authority")
+	}
+	if !runtime.hostLoopbackRelayActive(owner.route) || owner.epochID != epoch {
+		t.Fatal("failed borrower changed the owning Host Loopback route")
 	}
 }

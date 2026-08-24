@@ -251,6 +251,20 @@ type activeContextFake struct {
 	active string
 }
 
+type interruptedDownRecoveryRuntime struct {
+	*fakeRuntime
+	recoveryCalls int
+	purge         bool
+}
+
+func (f *interruptedDownRecoveryRuntime) RecoverInterruptedClusterDown(
+	_ context.Context, purge bool,
+) (bool, error) {
+	f.recoveryCalls++
+	f.purge = purge
+	return true, nil
+}
+
 func (f *activeContextFake) DefaultManifestName(context.Context) (string, error) {
 	return f.active, nil
 }
@@ -375,10 +389,10 @@ func (f *projectRuntimeFake) ProjectSessionAttached(context.Context, tobari.Work
 	f.sessionCalls++
 	return f.sessionAttached, f.sessionErr
 }
-func (f *projectRuntimeFake) EnterProjectRuntime(_ context.Context, _ tobari.Workspace, _ tobari.WorkspaceManifest, _ string, session tobari.WorkspaceSessionRequest, _ io.Reader, _ io.Writer, _ io.Writer) (int, error) {
+func (f *projectRuntimeFake) EnterProjectRuntime(_ context.Context, _ tobari.Workspace, _ tobari.WorkspaceManifest, _ string, session tobari.WorkspaceSessionRequest, _ io.Reader, _ io.Writer, _ io.Writer) (tobari.WorkspaceSessionOutcome, error) {
 	f.enterCalls++
 	f.lastSession = session
-	return 0, nil
+	return tobari.WorkspaceSessionOutcome{}, nil
 }
 func (f *projectRuntimeFake) DeleteProject(context.Context, tobari.Workspace) error {
 	f.deleteCalls++
@@ -488,8 +502,8 @@ func TestEnterProjectAcceptsCurrentDirectoryMutationAndNestedCWD(t *testing.T) {
 	code, err := NewWithWorkspaceSelector(fake, selector).EnterProject(
 		context.Background(), projectCreateIntent("tobari"), bytes.NewReader(nil), io.Discard, io.Discard,
 	)
-	if err != nil || code != 0 {
-		t.Fatalf("EnterProject() = (%d, %v)", code, err)
+	if err != nil || code.ExitCode != 0 {
+		t.Fatalf("EnterProject() = (%+v, %v)", code, err)
 	}
 	if fake.clusterCalls != 0 || fake.resolveCalls != 1 || fake.ensureCalls != 1 || fake.enterCalls != 1 {
 		t.Fatalf("calls = cluster:%d resolve:%d ensure:%d enter:%d", fake.clusterCalls, fake.resolveCalls, fake.ensureCalls, fake.enterCalls)
@@ -508,8 +522,8 @@ func TestEnterProjectWithoutAncestorCreatesDirectly(t *testing.T) {
 	code, err := New(fake).EnterProject(
 		context.Background(), projectCreateIntent("tobari"), bytes.NewReader(nil), io.Discard, io.Discard,
 	)
-	if err != nil || code != 0 {
-		t.Fatalf("EnterProject() = (%d, %v)", code, err)
+	if err != nil || code.ExitCode != 0 {
+		t.Fatalf("EnterProject() = (%+v, %v)", code, err)
 	}
 	if fake.createCalls != 1 || fake.resolveCalls != 0 || fake.ensureCalls != 1 || fake.enterCalls != 1 {
 		t.Fatalf("calls = create:%d resolve:%d ensure:%d enter:%d", fake.createCalls, fake.resolveCalls, fake.ensureCalls, fake.enterCalls)
@@ -530,8 +544,8 @@ func TestEnterProjectPassesExactDirectSessionThroughApplicationBoundary(t *testi
 		context.Background(), projectCreateIntent("tobari"), "", session,
 		bytes.NewReader(nil), io.Discard, io.Discard,
 	)
-	if err != nil || code != 0 {
-		t.Fatalf("EnterProjectSessionInContext() = (%d, %v)", code, err)
+	if err != nil || code.ExitCode != 0 {
+		t.Fatalf("EnterProjectSessionInContext() = (%+v, %v)", code, err)
 	}
 	if got, want := fake.lastSession.Argv(), session.Argv(); !reflect.DeepEqual(got, want) {
 		t.Fatalf("runtime session argv = %q, want %q", got, want)
@@ -568,8 +582,8 @@ func TestEnterProjectExactCurrentRootReusesDirectly(t *testing.T) {
 	code, err := New(fake).EnterProject(
 		context.Background(), projectCreateIntent("tobari"), bytes.NewReader(nil), io.Discard, io.Discard,
 	)
-	if err != nil || code != 0 {
-		t.Fatalf("EnterProject() = (%d, %v)", code, err)
+	if err != nil || code.ExitCode != 0 {
+		t.Fatalf("EnterProject() = (%+v, %v)", code, err)
 	}
 	if fake.createCalls != 0 || fake.resolveCalls != 1 || fake.ensureCalls != 1 || fake.enterCalls != 1 {
 		t.Fatalf("calls = create:%d resolve:%d ensure:%d enter:%d", fake.createCalls, fake.resolveCalls, fake.ensureCalls, fake.enterCalls)
@@ -609,8 +623,8 @@ func TestEnterProjectExplicitCreateUsesCurrentDirectoryWithoutNearestReuse(t *te
 	code, err := NewWithWorkspaceSelector(fake, selector).EnterProject(
 		context.Background(), projectCreateIntent("tobari"), bytes.NewReader(nil), io.Discard, io.Discard,
 	)
-	if err != nil || code != 0 {
-		t.Fatalf("EnterProject() = (%d, %v)", code, err)
+	if err != nil || code.ExitCode != 0 {
+		t.Fatalf("EnterProject() = (%+v, %v)", code, err)
 	}
 	if fake.createCalls != 1 || fake.resolveCalls != 0 || fake.ensureCalls != 1 || fake.enterCalls != 1 {
 		t.Fatalf("calls = create:%d resolve:%d ensure:%d enter:%d", fake.createCalls, fake.resolveCalls, fake.ensureCalls, fake.enterCalls)
@@ -1411,5 +1425,28 @@ func TestClusterDownRejectsRemainingCWDProjectBeforeMutation(t *testing.T) {
 		!strings.Contains(public.Message, "delete every logical Workspace") ||
 		strings.Contains(strings.ToLower(public.Message), "detach") {
 		t.Fatalf("cluster down fault = %+v, structured=%t", public, ok)
+	}
+}
+
+func TestClusterDownRecoversFreshActivationWithoutPublishedState(t *testing.T) {
+	t.Parallel()
+	configured := false
+	runtime := &interruptedDownRecoveryRuntime{fakeRuntime: &fakeRuntime{
+		state: testState(t.TempDir()), configured: &configured,
+	}}
+	intent := operation.Intent{
+		Command: "cluster down", Effect: operation.EffectWrite,
+		Target: operation.TargetRef{Kind: tobari.ClusterTargetKind, ID: tobari.ClusterTargetID},
+		Impact: operation.Impact{
+			Cardinality: operation.CardinalityMany, Notification: operation.DeclarationNo,
+			AccessChange: operation.DeclarationNo, Destructive: operation.DeclarationYes,
+		},
+	}
+	status, err := New(runtime).ClusterDown(context.Background(), intent, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runtime.recoveryCalls != 1 || !runtime.purge || status.Configured {
+		t.Fatalf("fresh down recovery calls=%d purge=%t status=%+v", runtime.recoveryCalls, runtime.purge, status)
 	}
 }

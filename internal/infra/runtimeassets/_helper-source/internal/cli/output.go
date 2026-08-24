@@ -112,3 +112,31 @@ func (c *CLI) emitComplete(ctx context.Context, output []byte) int {
 	}
 	return ExitOK
 }
+
+// emitConsumedReadResult settles a read whose bounded correlation record is
+// already terminal and consumed. Later cancellation or output failure cannot
+// advertise replay of the same input as safe.
+func (c *CLI) emitConsumedReadResult(ctx context.Context, command CommandSpec, output []byte) int {
+	if command.Effect != operation.EffectRead || command.Agent.Output.readSettlement != readOutputSettlementConsumed {
+		return c.fail(ctx, fault.New(fault.KindContract, "invalid_catalog", "The consumed read output contract is invalid.", false,
+			fault.NextAction{Command: "help " + command.Path, Reason: "Repair the command output settlement."}))
+	}
+	var recovery []fault.NextAction
+	for _, declared := range command.Agent.Errors {
+		if declared.Code == consumedReadOutputWriteFailureCode && declared.Kind == fault.KindInternal && !declared.Retryable {
+			recovery = cloneSlice(declared.NextActions)
+			break
+		}
+	}
+	if len(recovery) == 0 {
+		return c.fail(ctx, fault.New(fault.KindContract, "invalid_catalog", "The consumed read recovery contract is invalid.", false,
+			fault.NextAction{Command: "help " + command.Path, Reason: "Repair the command output settlement."}))
+	}
+	if _, err := writeOnce(c.Out, output); err != nil {
+		return c.fail(ctx, fault.WithClassification(fault.Wrap(
+			fault.KindInternal, consumedReadOutputWriteFailureCode,
+			"The terminal permission observation was consumed, but its output could not be written completely.", false, err, recovery...,
+		), fault.PhasePresentation, fault.ChangeNotApplicable))
+	}
+	return ExitOK
+}

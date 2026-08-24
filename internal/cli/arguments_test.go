@@ -86,6 +86,28 @@ func TestCatalogOwnedParserRejectsTextBelowCatalogMinimumLength(t *testing.T) {
 	}
 }
 
+func TestCatalogOwnedParserRejectsTextAboveCatalogMaximumLength(t *testing.T) {
+	t.Parallel()
+	maximum := int64(4)
+	spec := utilitySpec("probe")
+	spec.Args = "--id <value>"
+	spec.Agent.Inputs = []CommandInput{{
+		Name: "--id", Source: InputSourceFlag, Required: true, ValueKind: InputValueText,
+		Cardinality: InputCardinalitySingle, Description: "Bounded text value.",
+		AllowedValues: []string{}, MaximumLength: &maximum,
+	}}
+	if err := NewCatalog(spec).Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := parseCommandInputs(spec, []string{"--id", "12345"}); err == nil || !strings.Contains(err.Error(), "at most 4 byte") {
+		t.Fatalf("overlong bounded text error = %v", err)
+	}
+	inputs, err := parseCommandInputs(spec, []string{"--id", "1234"})
+	if err != nil || inputs.One("--id") != "1234" {
+		t.Fatalf("maximum-length bounded text = %q, %v", inputs.One("--id"), err)
+	}
+}
+
 func TestProjectEntryRejectsRetiredHostHTTPDeclaration(t *testing.T) {
 	t.Parallel()
 	if _, err := parseCommandInputs(projectEnterSpec(), []string{"--host-http", "web=3000"}); err == nil || !strings.Contains(err.Error(), "unknown flag") {

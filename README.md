@@ -267,9 +267,18 @@ ordinary Internet access. Ordinary Workspace Manifest and remembered authority c
 authorize Host Loopback, and Host Loopback decisions cannot authorize an
 ordinary destination.
 
-When a request is eligible for review, Gateway retains a bounded
-secret-free denial and gives the child fixed trusted-host navigation. Keep the
-Workspace and agent session running, then use a separate host terminal:
+When a request is eligible for review, Gateway retains a bounded secret-free
+denial and gives the child fixed trusted-host navigation. A supported ordinary
+HTTP or HTTPS denial also prints one attachment-local wait command. The agent
+may run it inside the same attached Workspace while the user keeps the
+Workspace running and reviews from a separate trusted-host terminal:
+
+```sh
+# Inside the attached Workspace; use the exact ID printed by Gateway.
+tobari-permission wait --id pwt_0123456789abcdef0123456789abcdef
+```
+
+On the host:
 
 ```sh
 tobari review permissions
@@ -290,8 +299,12 @@ scope. Exact Allow or Deny can be staged and cleared directly from the raw list;
 template Allow remains detail-only. Stage Allow template, Allow observed exact, or Deny pending exact
 and confirm one final Apply. Staging grants nothing. Refresh preserves decisions
 only by opaque typed review-item ID; labels, order, or indentation never create
-authority. Confirmed Apply returns the active revision and stored-rule receipts. Retry the
-original request in the same Workspace.
+authority. Confirmed Apply returns the active revision and stored-rule receipts.
+The waiting helper then returns only `Allow`, `Deny`, or `Expired`. `Allow`
+means the exact effect is retry-ready; the agent must deliberately issue a
+fresh request, which Gateway authorizes independently. The helper never
+proposes, approves, mutates policy, or retries the original request. Unsupported
+denials omit the wait handoff and retain the same host-review workflow.
 
 Watch refreshes the same bounded Inbox snapshot, preserves staging and focus by
 opaque typed ID, backs off after refresh failures, and stays open after Apply.
@@ -386,9 +399,10 @@ does not rewrite Host, Origin, redirects, cookies, headers, or content. The
 attachment owns the listener: exit closes it and active connections. Approval
 is not saved as Workspace Manifest policy or a remembered Workspace decision, and the
 helper cannot choose a host port, publish to the LAN, or expose raw TCP.
-The helper is a dedicated engine-native Linux program built into Tobari's
-verified base Runtime and mounted read-only even when the Workspace Manifest selects a
-custom Runtime; it is not the host release executable or a second archive.
+The Workspace helpers are dedicated engine-native Linux programs built into
+Tobari's verified base Runtime and mounted read-only even when the Workspace
+Manifest selects a custom Runtime; they are not host release executables or
+archive members.
 
 Advanced Workspace Manifests may add trusted-host Rego constraints, but Advanced Rego is
 beneath the Workspace Manifest policy ceiling and cannot redefine exact learned identity or the

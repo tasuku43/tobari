@@ -39,8 +39,10 @@ const (
 )
 
 var (
-	namePattern           = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}$`)
-	imageReferencePattern = regexp.MustCompile(`^(?:(?:localhost|[a-z0-9]+(?:[.-][a-z0-9]+)*)(?::[0-9]{1,5})?/)?[a-z0-9]+(?:[._-][a-z0-9]+)*(?:/[a-z0-9]+(?:[._-][a-z0-9]+)*)*(?::[A-Za-z0-9_][A-Za-z0-9_.-]{0,127})?(?:@sha256:[0-9a-f]{64})?$`)
+	namePattern              = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}$`)
+	imageReferencePattern    = regexp.MustCompile(`^(?:(?:localhost|[a-z0-9]+(?:[.-][a-z0-9]+)*)(?::[0-9]{1,5})?/)?[a-z0-9]+(?:[._-][a-z0-9]+)*(?:/[a-z0-9]+(?:[._-][a-z0-9]+)*)*(?::[A-Za-z0-9_][A-Za-z0-9_.-]{0,127})?(?:@sha256:[0-9a-f]{64})?$`)
+	gatewayImageIDPattern    = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
+	aggregateRevisionPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
 )
 
 // ValidateName accepts a portable Docker-resource-safe display name.
@@ -64,22 +66,88 @@ func ValidateImageSelector(image string) error {
 
 // State is the secret-free persisted identity of the shared cluster.
 type State struct {
-	SchemaVersion         int    `json:"schema_version"`
-	RuntimeDirectory      string `json:"runtime_directory"`
-	WorkspaceManifestName string `json:"manifest_name,omitempty"`
-	AgentProfile          string `json:"agent_profile,omitempty"`
-	AggregateRevision     string `json:"aggregate_revision,omitempty"`
-	ManifestCount         int    `json:"manifest_count,omitempty"`
-	PolicyDirectory       string `json:"policy_directory"`
-	GatewayConfig         string `json:"gateway_config"`
-	AssetVersion          string `json:"asset_version"`
-	RecentError           string `json:"recent_error"`
+	SchemaVersion         int                       `json:"schema_version"`
+	RuntimeDirectory      string                    `json:"runtime_directory"`
+	WorkspaceManifestName string                    `json:"manifest_name,omitempty"`
+	AgentProfile          string                    `json:"agent_profile,omitempty"`
+	AggregateRevision     string                    `json:"aggregate_revision,omitempty"`
+	ManifestCount         int                       `json:"manifest_count,omitempty"`
+	PolicyDirectory       string                    `json:"policy_directory"`
+	GatewayConfig         string                    `json:"gateway_config"`
+	AssetVersion          string                    `json:"asset_version"`
+	Applied               SharedClusterAppliedEntry `json:"applied,omitzero"`
+	RecentError           string                    `json:"recent_error"`
+}
+
+// SharedClusterAppliedEntry is the closed last-successful Compose recreation
+// authority. Build-only image inputs are intentionally not part of it.
+type SharedClusterAppliedEntry struct {
+	AggregateRevision string                      `json:"aggregate_revision"`
+	AssetVersion      string                      `json:"asset_version"`
+	ComposeAssets     SharedClusterComposeAssets  `json:"compose_assets"`
+	GatewayImageID    string                      `json:"gateway_image_id"`
+	OPAImageID        string                      `json:"opa_image_id"`
+	AuthBrokerImageID string                      `json:"auth_broker_image_id,omitempty"`
+	PermissionProfile SharedClusterAppliedProfile `json:"permission_profile"`
+}
+
+// SharedClusterComposeAssets is the closed receipt for every retained Compose
+// input that can recreate the last-successful shared cluster. Empty optional
+// digests mean that the corresponding build/profile overlay was not applied.
+type SharedClusterComposeAssets struct {
+	BaseSHA256       string `json:"base_sha256"`
+	BuildSHA256      string `json:"build_sha256,omitempty"`
+	PermissionSHA256 string `json:"permission_sha256,omitempty"`
+}
+
+func (a SharedClusterComposeAssets) Validate() error {
+	if !aggregateRevisionPattern.MatchString(a.BaseSHA256) {
+		return fmt.Errorf("applied base Compose asset digest is invalid")
+	}
+	for name, digest := range map[string]string{
+		"build": a.BuildSHA256, "permission": a.PermissionSHA256,
+	} {
+		if digest != "" && !aggregateRevisionPattern.MatchString(digest) {
+			return fmt.Errorf("applied %s Compose asset digest is invalid", name)
+		}
+	}
+	return nil
+}
+
+func (e SharedClusterAppliedEntry) IsZero() bool {
+	return e == (SharedClusterAppliedEntry{})
+}
+
+func (e SharedClusterAppliedEntry) Validate() error {
+	if !aggregateRevisionPattern.MatchString(e.AggregateRevision) {
+		return fmt.Errorf("applied aggregate revision is invalid")
+	}
+	if e.AssetVersion == "" || strings.ContainsAny(e.AssetVersion, " \t\r\n") {
+		return fmt.Errorf("applied asset version is invalid")
+	}
+	if err := e.ComposeAssets.Validate(); err != nil {
+		return err
+	}
+	for name, identity := range map[string]string{
+		"Gateway": e.GatewayImageID, "OPA": e.OPAImageID,
+	} {
+		if !gatewayImageIDPattern.MatchString(identity) {
+			return fmt.Errorf("applied %s image identity is invalid", name)
+		}
+	}
+	if e.AuthBrokerImageID != "" && !gatewayImageIDPattern.MatchString(e.AuthBrokerImageID) {
+		return fmt.Errorf("applied Auth Broker image identity is invalid")
+	}
+	if err := e.PermissionProfile.Validate(); err != nil {
+		return err
+	}
+	return nil
 }
 
 // Validate rejects incomplete, ambiguous, or relative state.
 func (s State) Validate() error {
-	if s.SchemaVersion != 1 {
-		return fmt.Errorf("Tobari state schema version must be 1")
+	if s.SchemaVersion != 1 && s.SchemaVersion != 2 {
+		return fmt.Errorf("Tobari state schema version must be 1 or 2")
 	}
 	for name, value := range map[string]string{
 		"runtime directory": s.RuntimeDirectory,
@@ -93,10 +161,23 @@ func (s State) Validate() error {
 	if s.AssetVersion == "" || strings.ContainsAny(s.AssetVersion, " \t\r\n") {
 		return fmt.Errorf("asset version is invalid")
 	}
+	switch s.SchemaVersion {
+	case 1:
+		if !s.Applied.IsZero() {
+			return fmt.Errorf("Tobari state schema 1 contains successor applied identity")
+		}
+	case 2:
+		if err := s.Applied.Validate(); err != nil {
+			return err
+		}
+		if s.AggregateRevision != s.Applied.AggregateRevision || s.AssetVersion != s.Applied.AssetVersion {
+			return fmt.Errorf("applied shared-cluster entry does not match state identity")
+		}
+	}
 	if s.WorkspaceManifestName != "" || s.AgentProfile != "" {
 		return fmt.Errorf("shared state must not contain a selected Workspace Manifest authority")
 	}
-	if !regexp.MustCompile(`^[0-9a-f]{64}$`).MatchString(s.AggregateRevision) || s.ManifestCount < 1 {
+	if !aggregateRevisionPattern.MatchString(s.AggregateRevision) || s.ManifestCount < 1 {
 		return fmt.Errorf("aggregate Workspace Manifest projection is invalid")
 	}
 	if len(s.RecentError) > 1024 || strings.IndexFunc(s.RecentError, func(r rune) bool {

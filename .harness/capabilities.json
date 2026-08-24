@@ -30,6 +30,11 @@
     "reason": ""
   },
   {
+    "id": "policy.permission-wait",
+    "status": "public",
+    "reason": ""
+  },
+  {
     "id": "trusted-host.review",
     "status": "excluded",
     "reason": "Trusted-host review is navigation, not a shared authority: the pure review namespace routes to public policy.learning and workspace.service-exposure leaves."

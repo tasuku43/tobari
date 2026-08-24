@@ -126,6 +126,16 @@ expanding authority. The loop is part of the product's adoption boundary: if
 the safe path is harder than running the agent on the host, users will bypass
 the isolation that the boundary is meant to provide.
 
+For a reviewable ordinary HTTP denial, one attachment-local wait handoff may
+remove the manual return trip after trusted-host Apply. Gateway publishes that
+handoff only after the canonical interactive attachment owner accepts the
+exact secret-free denial record. The Workspace helper can observe only
+`Allow`, `Deny`, or lease `Expired`; it cannot propose, stage, mutate, inspect,
+or reconcile policy, and it never retries the denied request. `Allow` means
+only that a deliberate fresh request is reasonable and remains subject to a
+new Gateway decision. The child retains direct ownership of its TTY while
+review remains in the separate trusted-host terminal.
+
 Routine users reason about network authority in three layers: **Workspace Manifest
 Access** is the creation-time destination and method Boundary plus routine
 traffic admitted inside it; **remembered Workspace decisions** are reviewed

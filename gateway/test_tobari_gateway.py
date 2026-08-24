@@ -4,9 +4,12 @@ from contextlib import redirect_stdout
 
 import json
 import os
+import socket
 import tempfile
+import threading
 import time
 import unittest
+from datetime import datetime, timezone
 from unittest import mock
 
 from mitmproxy import http
@@ -155,6 +158,34 @@ def principal_registry(workspace_ip="172.29.0.3"):
     }
 
 
+def permission_session_registry(now=None, transport="unix", endpoint=None):
+    now = time.time() if now is None else now
+    created = datetime.fromtimestamp(now - 5, timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z")
+    issued = datetime.fromtimestamp(now, timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z")
+    expires = datetime.fromtimestamp(now + 30, timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z")
+    principal = gateway._parse_project_principals(json.dumps(principal_registry()).encode())["172.29.0.3"]
+    if endpoint is None:
+        endpoint = "pws_" + "2" * 32 + ".sock" if transport == "unix" else "127.0.0.1:43179"
+    return {
+        "schema_version": 2,
+        "sessions": [{
+            "schema_version": 2,
+            "workspace_manifest_id": CONTEXT,
+            "workspace_id": PROJECT,
+            "attachment_id": "att_" + "1" * 32,
+            "owner_kind": "interactive_workspace",
+            "frozen_principal_fingerprint": principal["_frozen_principal_fingerprint"],
+            "owner_pid": 42,
+            "ingestion_transport": transport,
+            "ingestion_endpoint": endpoint,
+            "ingestion_nonce": "3" * 64,
+            "created_at": created,
+            "lease_issued_at": issued,
+            "expires_at": expires,
+        }],
+    }
+
+
 def host_loopback_registry(epoch="att_" + "1" * 32):
     material = "\x00".join(("tobari-host-loopback-route-v1", epoch, CONTEXT, PROJECT))
     route_id = "hlr_" + gateway.hashlib.sha256(material.encode()).hexdigest()[:32]
@@ -178,6 +209,566 @@ def attachment_grant(route, decision="allow", target_port=3000):
     material = "\x00".join(("tobari-attachment-grant-v2", grant["decision"], grant["context_id"], grant["project_id"], grant["attachment_epoch_id"], grant["host"], str(grant["target_port"]), grant["method"], grant["path"], grant["source_candidate"]))
     grant["id"] = "pag_" + gateway.hashlib.sha256(material.encode()).hexdigest()[:32]
     return grant
+
+
+class PermissionResumeProjectionTests(unittest.TestCase):
+    def _denial_addon(self, principal):
+        addon = gateway.TobariGateway.__new__(gateway.TobariGateway)
+        addon.cluster = "default"
+        addon.opa_url = "http://opa.invalid/decision"
+        addon.opa_timeout = 2
+        addon.graphql_config = {}
+        addon.principal_source = mock.Mock()
+        addon.principal_source.load.return_value = {}
+        addon.host_loopback_source = mock.Mock()
+        addon.host_loopback_bridges = mock.Mock()
+        addon.credential_adapter = mock.Mock()
+        addon.credential_adapter.prepare.return_value = mock.Mock(
+            secret_headers=set(), broker_provider=None, deferred=False
+        )
+        addon.permission_session_source = mock.Mock()
+        addon.permission_session_source.resolve.return_value = permission_session_registry()["sessions"][0]
+        addon.permission_ingestion_transport = gateway.PERMISSION_INGESTION_UNIX
+        addon.permission_socket_directory = "/run/tobari/permission-ingestion"
+        return addon
+
+    def test_frozen_principal_projects_to_schema2_without_widening_opa_wire(self):
+        principal = gateway._parse_project_principals(
+            json.dumps(principal_registry()).encode()
+        )["172.29.0.3"]
+        request = http.Request.make("GET", "https://api.example.com/a%2Fb")
+        flow = tflow.tflow(req=request)
+        with mock.patch.object(
+            gateway, "request_authority", return_value=("https", "api.example.com", 443)
+        ):
+            policy_input = gateway.build_policy_input(flow, "default", principal, set())
+        self.assertEqual(policy_input["schema_version"], 1)
+        self.assertEqual(policy_input["principal"], {
+            "cluster": "default", "context_id": CONTEXT, "project_id": PROJECT,
+        })
+        self.assertNotIn("workspace_manifest_id", json.dumps(policy_input))
+        self.assertRegex(principal["_frozen_principal_fingerprint"], r"^[0-9a-f]{64}$")
+
+    def test_session_registry_is_exact_current_and_service_owner_ineligible(self):
+        now = time.time()
+        document = permission_session_registry(now)
+        sessions = gateway._parse_permission_sessions(json.dumps(document).encode())
+        self.assertEqual(len(sessions), 1)
+        principal = gateway._parse_project_principals(
+            json.dumps(principal_registry()).encode()
+        )["172.29.0.3"]
+        with tempfile.TemporaryDirectory() as temporary:
+            path = os.path.join(temporary, "sessions.json")
+            atomic_json(path, document)
+            source = gateway.PermissionSessionSource(path, gateway.PERMISSION_INGESTION_UNIX)
+            self.assertEqual(source.resolve(principal, now + 0.001)["attachment_id"], "att_" + "1" * 32)
+            with self.assertRaises(gateway.PermissionSessionError):
+                source.resolve(principal, now + 31)
+        service = copy.deepcopy(document)
+        service["sessions"][0]["owner_kind"] = "service_exposure_controller"
+        with self.assertRaises(gateway.PermissionSessionError):
+            gateway._parse_permission_sessions(json.dumps(service).encode())
+
+    def test_session_registry_closes_transport_endpoint_and_parser_bounds(self):
+        loopback = permission_session_registry(transport="loopback_tcp")
+        self.assertEqual(
+            gateway._parse_permission_sessions(json.dumps(loopback).encode())[0]["ingestion_endpoint"],
+            "127.0.0.1:43179",
+        )
+        for transport, endpoint in (
+            ("tcp", "127.0.0.1:43179"),
+            ("loopback_tcp", "0.0.0.0:43179"),
+            ("loopback_tcp", "[::1]:43179"),
+            ("loopback_tcp", "127.0.0.1:0"),
+            ("loopback_tcp", "127.0.0.1:65536"),
+            ("unix", "../owner.sock"),
+        ):
+            invalid = permission_session_registry(transport=transport, endpoint=endpoint)
+            with self.subTest(transport=transport, endpoint=endpoint):
+                with self.assertRaises(gateway.PermissionSessionError):
+                    gateway._parse_permission_sessions(json.dumps(invalid).encode())
+        with self.assertRaises(gateway.PermissionSessionError):
+            gateway._parse_permission_sessions(b"[" * 2000 + b"]" * 2000)
+
+    def test_session_source_rejects_profile_mismatch(self):
+        now = time.time()
+        document = permission_session_registry(now)
+        principal = gateway._parse_project_principals(
+            json.dumps(principal_registry()).encode()
+        )["172.29.0.3"]
+        with tempfile.TemporaryDirectory() as temporary:
+            path = os.path.join(temporary, "sessions.json")
+            atomic_json(path, document)
+            mismatch = gateway.PermissionSessionSource(
+                path, gateway.PERMISSION_INGESTION_LOOPBACK_TCP
+            )
+            with self.assertRaises(gateway.PermissionSessionError):
+                mismatch.resolve(principal, now)
+
+    def test_session_confirmation_accepts_only_unchanged_or_strictly_advanced_lease(self):
+        now = time.time()
+        principal = gateway._parse_project_principals(
+            json.dumps(principal_registry()).encode()
+        )["172.29.0.3"]
+
+        def timestamp(value):
+            return datetime.fromtimestamp(
+                value, timezone.utc
+            ).isoformat(timespec="microseconds").replace("+00:00", "Z")
+
+        cases = (
+            ("unchanged", 0, 0, now + 0.1, True),
+            ("advanced renewal", 1, 1, now + 1.1, True),
+            ("regressed", -1, -1, now + 0.1, False),
+            ("equal issue changed expiry", 0, 1, now + 0.1, False),
+            ("future issue", 2, 2, now + 0.1, False),
+            ("expired", 0, -29.95, now + 0.1, False),
+        )
+        for name, issue_delta, expiry_delta, confirm_now, accepted in cases:
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as temporary:
+                document = permission_session_registry(now)
+                path = os.path.join(temporary, "sessions.json")
+                atomic_json(path, document)
+                source = gateway.PermissionSessionSource(
+                    path, gateway.PERMISSION_INGESTION_UNIX
+                )
+                expected = source.resolve(principal, now + 0.001)
+                changed = copy.deepcopy(document)
+                changed["sessions"][0]["lease_issued_at"] = timestamp(now + issue_delta)
+                changed["sessions"][0]["expires_at"] = timestamp(now + 30 + expiry_delta)
+                atomic_json(path, changed)
+                if accepted:
+                    current = source.confirm(principal, expected, confirm_now)
+                    self.assertEqual(current["lease_issued_at"], changed["sessions"][0]["lease_issued_at"])
+                else:
+                    with self.assertRaises(gateway.PermissionSessionError):
+                        source.confirm(principal, expected, confirm_now)
+
+    def test_permission_ingestion_profile_matrix_is_closed(self):
+        cases = (
+            ("unix", "/run/tobari/permission-ingestion", ("unix", "/run/tobari/permission-ingestion")),
+            ("unix", None, None),
+            ("unix", "", None),
+            ("unix", "/run/foreign", None),
+            ("loopback_tcp", None, ("loopback_tcp", None)),
+            ("loopback_tcp", "", None),
+            ("loopback_tcp", "/run/tobari/permission-ingestion", None),
+            ("tcp", None, None),
+            ("", None, None),
+        )
+        for transport, directory, expected in cases:
+            with self.subTest(transport=transport, directory=directory):
+                self.assertEqual(
+                    gateway._permission_ingestion_profile(transport, directory), expected
+                )
+
+    def test_exact_effect_rejects_unrepresentable_or_divergent_paths(self):
+        base = {
+            "request": {
+                "authority": {"scheme": "https", "host": "api.example.com", "port": 443},
+                "method": "GET",
+                "path": {"raw": "/a%2Fb//./../%E3%81%82", "segments": ["a/b", ".", "..", "あ"]},
+            }
+        }
+        self.assertEqual(
+            gateway._permission_wait_effect(base)["segments"],
+            ["a/b", ".", "..", "あ"],
+        )
+        for raw, segments in (
+            ("/bad%", ["bad%"]),
+            ("/bad%ff", ["bad�"]),
+            ("/a%2Fb", ["a", "b"]),
+            ("/bad\ud800", ["bad\ud800"]),
+        ):
+            invalid = copy.deepcopy(base)
+            invalid["request"]["path"] = {"raw": raw, "segments": segments}
+            with self.subTest(raw=raw):
+                self.assertIsNone(gateway._permission_wait_effect(invalid))
+
+    def test_resume_is_published_only_after_exact_owner_ack(self):
+        principal = gateway._parse_project_principals(
+            json.dumps(principal_registry()).encode()
+        )["172.29.0.3"]
+        session = permission_session_registry()["sessions"][0]
+        policy_input = {
+            "request": {
+                "authority": {"scheme": "https", "host": "api.example.com", "port": 443},
+                "method": "GET", "path": {"raw": "/items/a%20b", "segments": ["items", "a b"]},
+            }
+        }
+        addon = gateway.TobariGateway.__new__(gateway.TobariGateway)
+        addon.permission_session_source = mock.Mock()
+        addon.permission_session_source.resolve.return_value = session
+        addon.permission_ingestion_transport = gateway.PERMISSION_INGESTION_UNIX
+        addon.permission_socket_directory = "/run/tobari/permission-ingestion"
+        captured = []
+
+        def register(_transport, _directory, _session, record):
+            captured.append(record)
+            return True
+
+        with (
+            mock.patch.object(gateway, "register_permission_wait", side_effect=register),
+            mock.patch.object(gateway.secrets, "token_hex", return_value="4" * 32),
+        ):
+            resume = addon._permission_resume(principal, policy_input, "5" * 32)
+        self.assertEqual(resume["command"], "tobari-permission wait --id pwt_" + "4" * 32)
+        self.assertEqual(captured[0]["workspace_manifest_id"], CONTEXT)
+        self.assertEqual(captured[0]["workspace_id"], PROJECT)
+        self.assertEqual(captured[0]["effect"], gateway._permission_wait_effect(policy_input))
+        self.assertNotIn("context_id", captured[0])
+        self.assertNotIn("project_id", captured[0])
+        addon.permission_session_source.confirm.assert_called_once()
+        with mock.patch.object(gateway, "register_permission_wait", return_value=False):
+            self.assertIsNone(addon._permission_resume(principal, policy_input, "5" * 32))
+
+    def test_resume_is_omitted_when_session_authority_drifts_after_ack(self):
+        principal = gateway._parse_project_principals(
+            json.dumps(principal_registry()).encode()
+        )["172.29.0.3"]
+        policy_input = {
+            "request": {
+                "authority": {"scheme": "https", "host": "api.example.com", "port": 443},
+                "method": "GET", "path": {"raw": "/items", "segments": ["items"]},
+            }
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            registry_path = os.path.join(temporary, "sessions.json")
+            document = permission_session_registry()
+            atomic_json(registry_path, document)
+            addon = gateway.TobariGateway.__new__(gateway.TobariGateway)
+            addon.permission_session_source = gateway.PermissionSessionSource(
+                registry_path, gateway.PERMISSION_INGESTION_UNIX
+            )
+            addon.permission_ingestion_transport = gateway.PERMISSION_INGESTION_UNIX
+            addon.permission_socket_directory = temporary
+
+            def acknowledge_then_replace(_transport, _directory, _session, _record):
+                replaced = copy.deepcopy(document)
+                replaced["sessions"][0]["ingestion_nonce"] = "f" * 64
+                atomic_json(registry_path, replaced)
+                return True
+
+            with mock.patch.object(
+                gateway, "register_permission_wait", side_effect=acknowledge_then_replace
+            ):
+                self.assertIsNone(
+                    addon._permission_resume(principal, policy_input, "5" * 32)
+                )
+
+    def test_owner_ack_protocol_is_bounded_and_accepts_fragmented_ack(self):
+        session = permission_session_registry()["sessions"][0]
+        record = {
+            "schema_version": 2,
+            "permission_wait_id": "pwt_" + "4" * 32,
+            "denial_correlation_id": "5" * 32,
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            path = os.path.join(temporary, session["ingestion_endpoint"])
+            listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            listener.bind(path)
+            os.chmod(path, 0o600)
+            listener.listen(1)
+            observed = []
+
+            def serve():
+                connection, _ = listener.accept()
+                with connection:
+                    header = b""
+                    while len(header) < 69:
+                        header += connection.recv(69 - len(header))
+                    length = int.from_bytes(header[65:69], "big")
+                    payload = b""
+                    while len(payload) < length:
+                        payload += connection.recv(length - len(payload))
+                    observed.append((header[:65], json.loads(payload)))
+                    connection.sendall(b"O")
+                    connection.sendall(b"K")
+
+            worker = threading.Thread(target=serve)
+            worker.start()
+            try:
+                self.assertTrue(gateway.register_permission_wait("unix", temporary, session, record))
+            finally:
+                worker.join(timeout=1)
+                listener.close()
+            self.assertEqual(observed[0][0], b"W" + session["ingestion_nonce"].encode())
+            self.assertEqual(observed[0][1], record)
+
+    def test_loopback_owner_ack_uses_fixed_gateway_host_and_no_unix_source(self):
+        session = permission_session_registry(transport="loopback_tcp")["sessions"][0]
+        record = {"schema_version": 2, "permission_wait_id": "pwt_" + "4" * 32}
+
+        class FakeSocket:
+            def __init__(self, close_error=False):
+                self.address = None
+                self.frame = b""
+                self.close_error = close_error
+
+            def settimeout(self, _timeout):
+                pass
+
+            def connect(self, address):
+                self.address = address
+
+            def sendall(self, frame):
+                self.frame = frame
+
+            def recv(self, _size):
+                return b"OK"
+
+            def close(self):
+                if self.close_error:
+                    raise OSError("close failed")
+
+        connection = FakeSocket()
+        with mock.patch.object(gateway.socket, "socket", return_value=connection) as create:
+            self.assertTrue(gateway.register_permission_wait(
+                "loopback_tcp", None, session, record
+            ))
+        create.assert_called_once_with(socket.AF_INET, socket.SOCK_STREAM)
+        self.assertEqual(connection.address, ("host.docker.internal", 43179))
+        self.assertTrue(connection.frame.startswith(b"W" + b"3" * 64))
+        self.assertFalse(gateway.register_permission_wait(
+            "loopback_tcp", "/run/tobari/permission-ingestion", session, record
+        ))
+        self.assertFalse(gateway.register_permission_wait(
+            "unix", None, session, record
+        ))
+        with mock.patch.object(
+            gateway.socket, "socket", return_value=FakeSocket(close_error=True)
+        ):
+            self.assertFalse(gateway.register_permission_wait(
+                "loopback_tcp", None, session, record
+            ))
+
+    def test_owner_ack_rejects_unsafe_directory_and_socket_nodes(self):
+        session = permission_session_registry()["sessions"][0]
+        record = {"schema_version": 2, "permission_wait_id": "pwt_" + "4" * 32}
+        with tempfile.TemporaryDirectory() as temporary:
+            os.chmod(temporary, 0o755)
+            self.assertFalse(
+                gateway.register_permission_wait("unix", temporary, session, record)
+            )
+        with tempfile.TemporaryDirectory() as parent:
+            target = os.path.join(parent, "actual")
+            linked = os.path.join(parent, "linked")
+            os.mkdir(target, 0o700)
+            os.symlink(target, linked)
+            self.assertFalse(gateway.register_permission_wait("unix", linked, session, record))
+        with tempfile.TemporaryDirectory() as temporary:
+            path = os.path.join(temporary, session["ingestion_endpoint"])
+            listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            listener.bind(path)
+            try:
+                os.chmod(path, 0o666)
+                self.assertFalse(
+                    gateway.register_permission_wait("unix", temporary, session, record)
+                )
+            finally:
+                listener.close()
+        with tempfile.TemporaryDirectory() as temporary:
+            target = os.path.join(temporary, "actual.sock")
+            path = os.path.join(temporary, session["ingestion_endpoint"])
+            listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            listener.bind(target)
+            os.chmod(target, 0o600)
+            os.symlink(target, path)
+            try:
+                self.assertFalse(
+                    gateway.register_permission_wait("unix", temporary, session, record)
+                )
+            finally:
+                listener.close()
+
+    def test_denial_schema2_exposes_no_frozen_alias(self):
+        principal = {"context_id": CONTEXT, "project_id": PROJECT}
+        flow = tflow.tflow(req=http.Request.make("GET", "https://api.example.com/items"))
+        resume = {
+            "available": True, "run_on": "workspace",
+            "command": "tobari-permission wait --id pwt_" + "4" * 32,
+            "automatic_retry": False, "result_values": ["allow", "deny", "expired"],
+        }
+        gateway._policy_denied(flow, 403, True, principal, resume)
+        denial = json.loads(flow.response.content)
+        self.assertEqual(denial["tobari"]["schema_version"], 2)
+        self.assertEqual(denial["tobari"]["workspace_manifest_id"], CONTEXT)
+        self.assertEqual(denial["tobari"]["workspace_id"], PROJECT)
+        self.assertNotIn("context_id", denial["tobari"])
+        self.assertNotIn("project_id", denial["tobari"])
+        self.assertEqual(denial["tobari"]["resume"], resume)
+
+    def test_ordinary_policy_denial_acks_then_projects_schema2_resume(self):
+        principal = gateway._parse_project_principals(
+            json.dumps(principal_registry()).encode()
+        )["172.29.0.3"]
+        addon = self._denial_addon(principal)
+        flow = tflow.tflow(req=http.Request.make(
+            "GET", "https://api.example.com/items/a%20b"
+        ))
+        captured = []
+
+        def register(transport, directory, session, record):
+            captured.append((transport, directory, session, record))
+            return True
+
+        with (
+            mock.patch.object(gateway, "normalize_ingress_authority", return_value=("https", "api.example.com", 443)),
+            mock.patch.object(gateway, "resolve_project_principal", return_value=principal),
+            mock.patch.object(gateway, "graphql_endpoint_declared", return_value=False),
+            mock.patch.object(gateway, "mcp_endpoint_declared", return_value=False),
+            mock.patch.object(gateway, "query_opa", return_value=gateway.Decision(
+                allow=False, reason="review", status_code=403, learnable=True
+            )),
+            mock.patch.object(gateway, "register_permission_wait", side_effect=register),
+            mock.patch.object(gateway.secrets, "token_hex", return_value="4" * 32),
+            mock.patch.object(gateway, "_audit"),
+        ):
+            addon.requestheaders(flow)
+        denial = json.loads(flow.response.content)
+        self.assertEqual(denial["tobari"]["schema_version"], 2)
+        self.assertEqual(denial["tobari"]["workspace_manifest_id"], CONTEXT)
+        self.assertEqual(denial["tobari"]["workspace_id"], PROJECT)
+        self.assertNotIn("context_id", denial["tobari"])
+        self.assertNotIn("project_id", denial["tobari"])
+        self.assertEqual(
+            denial["tobari"]["resume"]["command"],
+            "tobari-permission wait --id pwt_" + "4" * 32,
+        )
+        self.assertEqual(captured[0][0:2], ("unix", "/run/tobari/permission-ingestion"))
+        self.assertEqual(captured[0][3]["effect"]["path"], "/items/a%20b")
+        addon.permission_session_source.confirm.assert_called_once()
+
+    def test_unsupported_request_paths_never_attempt_resume(self):
+        principal = gateway._parse_project_principals(
+            json.dumps(principal_registry()).encode()
+        )["172.29.0.3"]
+        protocol_cases = (
+            (
+                "kubernetes",
+                gateway.ParsedKubernetesRequest("get", "core/v1/pods/example", "none"),
+            ),
+            ("git", gateway.ParsedGitRequest("upload-pack", "/team/repo.git")),
+            ("oci", gateway.ParsedOCIRequest("pull", "team/app", "manifest:latest")),
+            ("aws", gateway.ParsedAWSRequest("json", "sts", "GetCallerIdentity")),
+        )
+        for protocol, identity in protocol_cases:
+            with self.subTest(protocol=protocol):
+                addon = self._denial_addon(principal)
+                addon._permission_resume = mock.Mock()
+                flow = tflow.tflow(req=http.Request.make("GET", "https://api.example.com/resource"))
+                with (
+                    mock.patch.object(gateway, "normalize_ingress_authority", return_value=("https", "api.example.com", 443)),
+                    mock.patch.object(gateway, "resolve_project_principal", return_value=principal),
+                    mock.patch.object(gateway, "graphql_endpoint_declared", return_value=False),
+                    mock.patch.object(gateway, "mcp_endpoint_declared", return_value=False),
+                    mock.patch.object(gateway, "kubernetes_endpoint_declared", return_value=protocol == "kubernetes"),
+                    mock.patch.object(gateway, "parse_kubernetes_request", return_value=identity if protocol == "kubernetes" else None),
+                    mock.patch.object(gateway, "parse_oci_request", return_value=identity if protocol == "oci" else None),
+                    mock.patch.object(gateway, "classify_git_request", return_value=identity if protocol == "git" else None),
+                    mock.patch.object(gateway, "classify_aws_request_headers", return_value=identity if protocol == "aws" else None),
+                    mock.patch.object(gateway, "query_opa", return_value=gateway.Decision(
+                        allow=False, reason="review", status_code=403, learnable=True
+                    )),
+                    mock.patch.object(gateway, "_audit"),
+                ):
+                    addon.requestheaders(flow)
+                addon._permission_resume.assert_not_called()
+                denial = json.loads(flow.response.content)["tobari"]
+                self.assertNotIn("resume", denial)
+                self.assertEqual(denial["request"]["protocol"], protocol)
+
+    def test_nonlearnable_host_loopback_and_invalid_effect_do_not_attempt_resume(self):
+        principal = gateway._parse_project_principals(
+            json.dumps(principal_registry()).encode()
+        )["172.29.0.3"]
+        for case in ("nonlearnable", "host_loopback", "invalid_effect"):
+            with self.subTest(case=case):
+                addon = self._denial_addon(principal)
+                addon._permission_resume = mock.Mock()
+                url = "http://host.tobari.test:3000/health" if case == "host_loopback" else "https://api.example.com/items"
+                scheme, host, port = ("http", "host.tobari.test", 3000) if case == "host_loopback" else ("https", "api.example.com", 443)
+                if case == "host_loopback":
+                    registry, route = host_loopback_registry()
+                    addon.host_loopback_source.resolve.return_value = (
+                        route, [attachment_grant(route)]
+                    )
+                flow = tflow.tflow(req=http.Request.make("GET", url))
+                effect = mock.patch.object(gateway, "_permission_wait_effect", return_value=None) if case == "invalid_effect" else mock.patch.object(gateway, "_permission_wait_effect", wraps=gateway._permission_wait_effect)
+                with (
+                    effect,
+                    mock.patch.object(gateway, "normalize_ingress_authority", return_value=(scheme, host, port)),
+                    mock.patch.object(gateway, "resolve_project_principal", return_value=principal),
+                    mock.patch.object(gateway, "graphql_endpoint_declared", return_value=False),
+                    mock.patch.object(gateway, "mcp_endpoint_declared", return_value=False),
+                    mock.patch.object(gateway, "query_opa", return_value=gateway.Decision(
+                        allow=False, reason="review", status_code=403,
+                        learnable=case != "nonlearnable",
+                    )),
+                    mock.patch.object(gateway, "_audit"),
+                ):
+                    addon.requestheaders(flow)
+                addon._permission_resume.assert_not_called()
+                self.assertNotIn("resume", json.loads(flow.response.content)["tobari"])
+
+    def test_invalid_session_state_omits_resume_but_preserves_policy_denial(self):
+        principal = gateway._parse_project_principals(
+            json.dumps(principal_registry()).encode()
+        )["172.29.0.3"]
+        for state in (
+            "zero", "duplicate", "stale", "fingerprint_mismatch",
+            "unsafe_registry", "invalid_replacement",
+        ):
+            with self.subTest(state=state):
+                addon = self._denial_addon(principal)
+                addon.permission_session_source.resolve.side_effect = gateway.PermissionSessionError(state)
+                flow = tflow.tflow(req=http.Request.make("GET", "https://api.example.com/items"))
+                with (
+                    mock.patch.object(gateway, "normalize_ingress_authority", return_value=("https", "api.example.com", 443)),
+                    mock.patch.object(gateway, "resolve_project_principal", return_value=principal),
+                    mock.patch.object(gateway, "graphql_endpoint_declared", return_value=False),
+                    mock.patch.object(gateway, "mcp_endpoint_declared", return_value=False),
+                    mock.patch.object(gateway, "query_opa", return_value=gateway.Decision(
+                        allow=False, reason="review", status_code=403, learnable=True
+                    )),
+                    mock.patch.object(gateway, "register_permission_wait") as register,
+                    mock.patch.object(gateway, "_audit"),
+                ):
+                    addon.requestheaders(flow)
+                register.assert_not_called()
+                denial = json.loads(flow.response.content)["tobari"]
+                self.assertEqual(denial["schema_version"], 2)
+                self.assertNotIn("resume", denial)
+
+    def test_deeply_malformed_registry_omits_resume_and_preserves_denial(self):
+        principal = gateway._parse_project_principals(
+            json.dumps(principal_registry()).encode()
+        )["172.29.0.3"]
+        with tempfile.TemporaryDirectory() as temporary:
+            path = os.path.join(temporary, "sessions.json")
+            with open(path, "wb") as output:
+                output.write(b'{' + b'"schema_version":2,"sessions":' + b"[" * 2000 + b"]" * 2000 + b"}")
+            os.chmod(path, 0o600)
+            addon = self._denial_addon(principal)
+            addon.permission_session_source = gateway.PermissionSessionSource(
+                path, gateway.PERMISSION_INGESTION_UNIX
+            )
+            flow = tflow.tflow(req=http.Request.make("GET", "https://api.example.com/items"))
+            with (
+                mock.patch.object(gateway, "normalize_ingress_authority", return_value=("https", "api.example.com", 443)),
+                mock.patch.object(gateway, "resolve_project_principal", return_value=principal),
+                mock.patch.object(gateway, "graphql_endpoint_declared", return_value=False),
+                mock.patch.object(gateway, "mcp_endpoint_declared", return_value=False),
+                mock.patch.object(gateway, "query_opa", return_value=gateway.Decision(
+                    allow=False, reason="review", status_code=403, learnable=True
+                )),
+                mock.patch.object(gateway, "_audit"),
+            ):
+                addon.requestheaders(flow)
+            denial = json.loads(flow.response.content)
+            self.assertEqual(flow.response.status_code, 403)
+            self.assertEqual(denial["error"], "policy_denied")
+            self.assertNotIn("resume", denial["tobari"])
 
 
 class ProtocolEndpointDeclarationTests(unittest.TestCase):
@@ -609,6 +1200,7 @@ class StandardNativeLoginGatewayTests(unittest.TestCase):
             addon = gateway.TobariGateway()
         addon.principal_source = mock.Mock()
         addon.principal_source.load.return_value = {}
+        addon._permission_resume = mock.Mock()
         request = http.Request.make(
             "POST", "https://chatgpt.com/backend-api/ps/mcp", content=body,
             headers={"content-type": "application/json", "content-length": str(len(body))},
@@ -636,6 +1228,8 @@ class StandardNativeLoginGatewayTests(unittest.TestCase):
         self.assertEqual(inputs[0]["request"]["mcp"], {"method": "tools/call", "tool_name": "codex_apps.search"})
         self.assertNotIn("argument-canary", json.dumps(inputs[0]))
         self.assertNotIn("argument-canary", flow.response.content.decode())
+        self.assertNotIn("resume", json.loads(flow.response.content)["tobari"])
+        addon._permission_resume.assert_not_called()
         self.assertEqual(audit.call_args.kwargs["mcp_tool_name"], "codex_apps.search")
         self.assertNotIn("argument-canary", json.dumps(audit.call_args.kwargs))
         commit.assert_not_called()
@@ -842,6 +1436,7 @@ class ReviewedBrokerGatewayTests(unittest.TestCase):
         addon.cluster = "default"
         addon.opa_url = "http://opa.invalid/decision"
         addon.opa_timeout = 2
+        addon._permission_resume = mock.Mock()
         request = http.Request.make(
             "POST",
             "https://graphql.example.com/graphql",
@@ -875,6 +1470,8 @@ class ReviewedBrokerGatewayTests(unittest.TestCase):
         credential_request.apply.assert_not_called()
         commit.assert_not_called()
         self.assertEqual(flow.response.status_code, 403)
+        self.assertNotIn("resume", json.loads(flow.response.content)["tobari"])
+        addon._permission_resume.assert_not_called()
         self.assertEqual(len(audit.call_args_list), 2)
         self.assertTrue(all(call.kwargs["scheme"] == "https" for call in audit.call_args_list))
 
