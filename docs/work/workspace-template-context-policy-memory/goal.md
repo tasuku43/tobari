@@ -1,14 +1,15 @@
 # Work Goal: WP11 — Separate Workspace Template, Context, and Policy Memory
 
 - Status: Draft
+- Planning state: Owner decision requested
 - Retention: temporary
 - Retention reason: None
 - Governing contract: `docs/00_theses.md`, `docs/01_product_contract.md`, `docs/02_architecture.md`, and `docs/03_security_model.md`
 - Review/delete trigger: Delete after the owner schedules the work, durable conclusions are promoted, implementation gates pass, and the change completes
 - Successor: None
 - Owner: Tobari product owner and maintainers
-- Target: Owner sequencing decision after WP01+02 and against the remaining V1 work packets
-- Related ADRs: ADR 0079 (likely revision or successor required), ADR 0070
+- Target: Pre-public hard cutover from exact predecessor `0bbd9deb424814ab92eed0b816e2c565e4b8f6d3`, before further WP05 mechanism and before WP09/WP06/WP10
+- Related ADRs: ADR 0079 (successor required), ADR 0070, ADR 0080, ADR 0081, ADR 0082, ADR 0083
 
 ## Outcome
 
@@ -42,16 +43,18 @@ first-use UX, and public reference flows.
 - Do not decide the detailed Runtime lifecycle, Host Loopback name, build
   profile, status presentation, service exposure, or first-use recovery owned by
   their respective packets.
-- Do not make `Manifest` a user-authored arbitrary YAML/JSON or `apply -f`
+- Do not make a Workspace Template a user-authored arbitrary YAML/JSON or `apply -f`
   boundary without a separate trust-boundary decision.
 - Do not require Template revisions and Policy Memory revisions to share one
   generation or transaction merely because a Context presents them together.
-- Do not finalize the provisional name `Policy Memory` before vocabulary review.
+- Do not change the accepted WP03 Runtime lifecycle, WP04 release/research
+  surfaces, WP07 permission-wait capability, or ADR 0083 Host Loopback hostname
+  and retirement authority while rebinding their affected identity seams.
 
 ## Acceptance criteria
 
 - [ ] The owner approves or rejects the four-concept model: Workspace Template,
-      immutable Template Manifest/revision, Context, and Workspace.
+      immutable Template Revision, Context with Policy Memory, and Workspace.
 - [ ] Static Template fields and dynamic learned policy are assigned by explicit
       owner, scope, lifetime, mutability, and authority rather than by naming
       convenience.

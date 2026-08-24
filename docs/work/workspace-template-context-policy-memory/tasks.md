@@ -21,18 +21,35 @@ implementation is authorized by creating it.
 
 ## Parent sequencing decision
 
-- [ ] Decide whether WP11 must precede the remaining pre-public V1 work, can be
+- [x] Decide whether WP11 must precede the remaining pre-public V1 work, can be
       interleaved at a defined seam, or is deferred until after the first public
-      release with compatibility obligations.
-- [ ] Name the downstream packet owners that must pause, rebase, or consume a
-      stable WP11 interface.
-- [ ] Confirm whether the existing WP01+02 implementation remains an intentional
+      release with compatibility obligations. Evidence: control authorized an
+      immediate pre-public hard cutover before further WP05 mechanism and before
+      WP09/WP06/WP10.
+- [x] Name the downstream packet owners that must pause, rebase, or consume a
+      stable WP11 interface. Evidence: WP05/WP09/WP06/WP10 are paused; completed
+      WP03/WP04/WP07 are stable capability inputs with affected seams only.
+- [x] Confirm whether the existing WP01+02 implementation remains an intentional
       intermediate state or should be treated as the migration predecessor for
-      WP11.
+      WP11. Evidence: exact predecessor is `0bbd9deb`.
 - [ ] Assign an implementation owner and target only after the above ordering is
       explicit.
 
 ## Decide
+
+- [x] Replace the open-choice list with one owner-decision target covering
+      vocabulary, identity, uniqueness, defaults, deletion, authentication,
+      activation, CLI/references/schemas, and migration/rollback.
+- [x] Record the recommended ID mapping: predecessor WorkspaceManifestID ->
+      WorkspaceTemplateID, predecessor WorkspaceID -> WorkspaceID, and one fresh
+      journaled ContextID per exact Project/Template pair.
+- [x] Record the recommended V1 uniqueness and selection: at most one Context
+      per canonical Project/Template pair, no Context name/default/use, one
+      installation default Template, and invocation-local `--template`.
+- [x] Record separate Template current/Context desired/Workspace applied,
+      Template cluster projection, and Policy Memory current/active axes.
+- [x] Record exact schema-family version transitions and the public/internal
+      reference graph without aliases or dual readers.
 
 - [ ] Approve the Workspace Template / Context / Policy Memory / Workspace
       aggregate split.
@@ -53,18 +70,26 @@ implementation is authorized by creating it.
 
 ## Cross-packet audit
 
-- [ ] WP03 Runtime retirement: update protection reads for Template current and
+- [x] WP03 Runtime retirement: update protection reads for Template current and
       retained revisions, Context desired binding, Workspace AppliedEntry, and
       observed runtime without treating Policy Memory time as `last_used`.
-- [ ] WP04 build profile: confirm standard Workspace-native auth and research
-      Broker state do not move into Template or Context implicitly.
-- [ ] WP05 Host Loopback: retain attachment-local authority and bind any
-      presentation identity to Context/Workspace without changing its lifetime.
+      Evidence: reread final `922fa792` and ADR 0080; only protection-port
+      identity inputs change.
+- [x] WP04 build profile: confirm standard Workspace-native auth remains
+      Workspace-owned, research Broker state remains outside Template desired,
+      and no build-surface mechanism changes. Evidence: reread final `cc5d14b`
+      and ADR 0082; the packet recommends Context-owned fresh research login and
+      quarantine rather than migration rebind.
+- [x] WP05 Host Loopback: retain attachment-local authority and bind its final
+      principal to Context/Workspace without changing hostname, retirement,
+      route/grant lifetime, or lock order. Evidence: reread `0bbd9deb` and ADR
+      0083 before paused mechanism work.
 - [ ] WP06 status home: redesign routine Current/Next around Context, separate
       Template and Policy Memory revision axes, and keep reads non-reconciling.
-- [ ] WP07 permission resume/handoff: move candidate/rule ownership and exact
+- [x] WP07 permission resume/handoff: move candidate/rule ownership and exact
       references to Context Policy Memory while preserving Workspace observation
-      correlation and same-session retry semantics.
+      correlation and same-session retry semantics. Evidence: reread final
+      `77c5607` and ADR 0081; helper/transport/wait lifecycle remains unchanged.
 - [ ] WP08 Catalog/domain/output conformance: rebuild reference producers,
       consumers, JSON fields, and negative vocabulary guards from the final
       Catalog.

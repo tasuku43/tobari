@@ -11,7 +11,7 @@ Take the four-concept model to owner review and sequencing:
 
 ```text
 Workspace Template (stable reusable definition)
-  └─ current Template Revision / Manifest (immutable semantic body)
+  └─ current Template Revision (immutable semantic body)
                          |
 Project ----------------+----> Context (durable binding)
                                 ├─ desired Template revision
@@ -48,10 +48,16 @@ authority axes even when routine UI presents them under one Context.
 | Concept | Owner | Scope | Lifetime | Mutability | Authority candidate |
 |---|---|---|---|---|---|
 | Workspace Template | installation/trusted host | reusable across Projects and Contexts | until explicit Template deletion | stable identity; current pointer advances | TemplateID |
-| Template Revision / Manifest | Workspace Template | complete static desired definition | immutable retained history | immutable; semantic no-op publishes nothing | TemplateID + semantic digest |
-| Context | one Project × one Template binding | project-specific work setup | survives Workspace deletion; until explicit Context deletion | binding stable in V1; desired pointer follows Template current | unresolved ContextID or exact typed pair |
+| Template Revision | Workspace Template | complete static desired definition | immutable retained history | immutable; semantic no-op publishes nothing | TemplateID + semantic digest |
+| Context | one Project × one Template binding | project-specific work setup | survives Workspace deletion; until explicit Context deletion | binding immutable in V1; desired revision derives from Template current | ContextID |
 | Policy Memory | Context | learned decisions for that Project/Template relationship | survives Workspace replacement; ends/reset by explicit Context/policy action | mutable, independently revised and atomically activated | Context identity + policy semantic revision |
-| Workspace | Context | one applied isolated instance | replaceable; ends at Workspace delete | applied receipt and bounded reconciliation/observation change | WorkspaceID + Context identity; observations are not authority |
+| Workspace | Context | one applied isolated instance and home | replaceable; ends at Workspace delete | applied receipt and bounded reconciliation/observation change | WorkspaceID + ContextID; observations are not authority |
+
+V1 permits at most one Context for one canonical Project root and TemplateID.
+This keeps the Context durable without adding a second human name: another
+Context for the same Project means another Template. Template rebinding and
+revision pinning are excluded; both would need explicit policy-memory
+revalidation and a separate lifecycle decision.
 
 ## Alternatives considered
 
@@ -98,37 +104,88 @@ distinct meanings. Rejected.
 
 ### Public contract
 
-The exact CLI is intentionally not fixed by this packet; the following is the
-semantic shape to evaluate:
+The recommended hard-cutover command vocabulary is:
 
-- `template create --copy-from SOURCE --name TARGET` is a fixed-target create
-  that forks one reviewed exact immutable current Template revision into a fresh
-  independent TemplateID at generation 1. It copies no Context, Policy Memory,
-  Workspace, home, auth, applied/failure/observed state, or default selection and
-  performs no reconciliation.
-- `context create --template TEMPLATE ...` creates the durable project-specific
-  binding. It selects an existing Template; it does not copy or fork it. The
-  command must bind one canonical Project and exactly one Template authority.
-- Workspace entry selects one Context, resolves its desired Template revision,
-  compares it with last-successful applied state and observation, and reconciles
-  only after explicit user action.
-- `workspace delete` removes the replaceable instance and preserves Context plus
-  Policy Memory. `context delete` is a separate explicit destructive outcome
-  whose exact policy-memory/home disposition requires owner decision.
-- A default Template, if retained, means “Template proposed when creating a new
-  Context.” It must not be described as the current Context or active Workspace.
-  Whether a separate per-Project default Context exists remains open.
-- Routine human output should lead with Context, its Template, and `Current` /
-  `Next entry`; details expose exact Template and Policy Memory revisions without
-  implying one combined revision.
-- Structured output requires new schema versions rather than silently changing
-  the meaning of `manifest_id`, policy ownership, or Workspace keys. Old and new
-  identities must not dual-authorize.
-- Copy and Context creation are `RoleAct`/`EffectCreate`; Template/Context
-  discovery is read-only. Exact reference kinds and producer/consumer chains
-  must be designed Catalog-wide before implementation.
-- Delivery/coverage, structured fault codes, confirmation values, and next
-  commands remain open and must be fixed in the governing contract.
+| Outcome | Final path/selector | Role/effect | Binding and result |
+|---|---|---|---|
+| list reusable designs | `template list` | discover/read | exhaustive installation collection; produces `workspace-template` refs |
+| inspect one design | `template show [--name NAME]` | utility/read | explicit name or `DefaultTemplateSelection`; produces the same Template ref |
+| create or statically fork | `template create [--copy-from NAME] --name NAME ...` | act/create, fixed Template collection | fresh TemplateID and generation 1; copy revalidates source ID/digest/body and copies no lower-lifetime state |
+| choose omission default | `template default set --id TEMPLATE_REF` | act/write, reference bound | consumes one `workspace-template` ref; changes no Context or Workspace |
+| delete a design | `template delete --id TEMPLATE_REF --confirm=delete` | act/write, reference bound | only with no default selection and no Context; produces no ref |
+| list project bindings | `context list [--format text\|json]` | discover/read | exhaustive Contexts with `context` refs; human groups by Project and Template |
+| inspect one binding | `context show --id CONTEXT_REF` | utility/read | consumes one `context` ref and reports Template desired plus Policy Memory current/active separately |
+| instantiate a design | `context create --template TEMPLATE_REF [--format text\|json]` | act/create, reference-bound parent | canonical CWD is Project scope; produces one fresh `context` ref; creates no Workspace or policy authority beyond empty memory |
+| forget project binding | `context delete --id CONTEXT_REF --confirm=delete` | act/write, reference bound | requires no Workspace/attachment/research credential; deletes Policy Memory and unresolved candidates |
+| enter current Project | `tobari [--template NAME] [-- ARGV...]` | existing composed act/create | resolves exact Context by CWD + Template; first-use may compose Context create, cluster reconcile, and Workspace entry after review |
+| inspect current Project | `status [--template NAME]` | utility/read | read-only Context desired, Policy Memory activation, Workspace applied/observed |
+| remove applied instance | `delete [--template NAME] [--force]` | existing fixed-target act/write | removes Workspace, home, and native auth; preserves Context and Policy Memory |
+
+`--manifest`, the `manifest` namespace, `manifest_id`, `workspace_manifest_id`,
+`context use`, and a default/current Context are absent. Root `--template NAME`
+is a human selection convenience over the unique CWD/Template pair; action
+commands that can destroy or rebind authority consume opaque refs. Existing
+Template configuration commands move their owner selector from `--manifest`
+to `--template`; their typed activation semantics remain unchanged.
+
+The final reference graph is:
+
+```text
+template list/show -> workspace-template ref
+  -> template default set / template delete
+  -> context create -> context ref
+       -> context show / context delete
+
+context + Workspace denial -> policy-review-item ref
+  -> policy allow / deny / reset / apply-reviewed
+
+runtime list/show/history -> runtime / runtime-revision refs
+  -> unchanged WP03 build/delete/restore and Template Runtime selection
+
+permission_wait_id remains a non-reference attachment correlation value.
+Host Loopback route/grant and service-exposure references remain
+attachment-local and never become Template or Context references.
+```
+
+Routine human output leads with Context, Template, `Current entry`, `Next
+entry`, and `Policy Memory`; details expose TemplateID/digest, ContextID,
+WorkspaceID, and current/active Policy Memory revisions. It never presents one
+combined Context revision.
+
+### Schema hard cutover
+
+| Contract | Predecessor | Final V1 |
+|---|---:|---:|
+| persisted Workspace Template + immutable revision store | Workspace Manifest schema 2 | Template schema 1 |
+| persisted Context + Policy Memory store | absent / Manifest-owned policy | Context schema 1 + Policy Memory schema 1 |
+| persisted Workspace state | schema 2 | schema 3 with ContextID and Template applied digest |
+| `template` and `context` command JSON | Manifest schema 2 / absent | family-local schema 1 |
+| root `status` and `list` JSON | schema 2 | schema 3 |
+| policy candidates/review/rules JSON | schema 1 | schema 2 with Context, Template, and observing Workspace dimensions |
+| `migrate apply` JSON | schema 2 | schema 3 |
+| Gateway denial/wait record | WP07 schema 2 | schema 3 with ContextID, WorkspaceID, and TemplateID projection |
+| permission helper result | schema 1 | unchanged schema 1 |
+| Host Loopback capability projection | schema 1 | unchanged schema 1 |
+| Host Loopback private route/grant registry | ADR 0083 schema 2 | unchanged schema 2, now binds ContextID + WorkspaceID |
+| Runtime public schemas and refs | WP03 schema 1 | unchanged schema 1 |
+| version, error, help, build-surface schemas | WP04/current | unchanged shapes and versions |
+
+Frozen principal/Gateway/OPA compatibility keys `context_id`, `project_id`, and
+`context` remain internal wire tokens. After the atomic cutover their validated
+values are ContextID, WorkspaceID, and Context presentation respectively; they
+do not expose a public alias or Project-root identity. TemplateID is resolved
+through the trusted Context registry and appears explicitly only in new public
+schema-3 projections where interpretation requires it. Old and new readers do
+not coexist.
+
+All reads use complete delivery; installation collections are exhaustive.
+Creates and writes use standard catalog mutation faults. `context create` is
+idempotent only for an exact unchanged published Context receipt and otherwise
+returns `context_exists` or `context_collection_changed`. Context/Template
+delete require literal confirmation and recover through their read-only
+list/show paths. Entry failure recovers through `status`; policy activation
+failure through `policy rules` or `cluster status`. No recovery action is a
+mutation.
 
 ### Layer changes
 
@@ -171,6 +228,33 @@ Policy review/apply
   -> do not publish a new Template revision
 ```
 
+### Independent activation axes
+
+- **Template current:** one immutable TemplateID/digest selected by the
+  Template's current pointer. A semantic no-op publishes nothing; A→B→A keeps a
+  later generation with A's original semantic digest. Generation remains
+  correlation only.
+- **Context desired:** a read-only resolution of the bound Template's current
+  digest. A Template mutation writes no Context and no Workspace.
+- **Workspace applied:** `AppliedEntry` records ContextID, TemplateID/digest,
+  exact RuntimeID/revision, slice digests, and reconciliation receipt only after
+  verified explicit entry. Failure preserves the previous receipt.
+- **Template cluster projection:** `cluster up` validates and activates the
+  complete all-Template static Boundary/baseline projection. A stale active
+  projection blocks entry where required; reads do not repair it.
+- **Policy Memory current/active:** each confirmed decision mutation publishes
+  one complete Context Policy Memory semantic revision. `policy
+  apply-reviewed`, `policy allow`, `policy deny`, and `policy reset` retain their
+  existing explicit atomic hot-activation boundary; `cluster up` can reconcile
+  the complete aggregate after migration or cluster absence. Neither operation
+  publishes a Template revision or AppliedEntry.
+
+When a Template Boundary narrows, now-ineligible remembered decisions remain
+visible but inert; they are not silently deleted. A later reviewed Template
+change may make an exact remembered decision effective again only after the
+explicit Template/cluster activation boundary. Policy Memory never creates a
+destination or method outside the active terminal Template Boundary.
+
 ### Error and cancellation behavior
 
 - Template source drift, Template name reuse, Context/Project mismatch, stale
@@ -183,9 +267,11 @@ Policy review/apply
   neither reconciles a Workspace or cluster.
 - Cancellation before publication or mutation reports zero change. A confirmed
   result remains confirmed if presentation later fails.
-- Context deletion must refuse or explicitly resolve live Workspace,
-  attachment, Policy Memory, home, authentication, and audit ownership; no
-  implicit cascade is assumed by this packet.
+- Context deletion refuses a live Workspace or attachment and any configured
+  research credential. After explicit Workspace deletion and research logout,
+  it deletes the exact Context, Policy Memory, and unresolved candidates;
+  Project files, Template, Runtime, and non-authorizing bounded audit evidence
+  remain. It cannot discover or delete a Workspace home indirectly.
 
 ### Security and public boundary
 
@@ -200,11 +286,24 @@ Policy review/apply
   design proves that remembered decisions cannot widen authority.
 - Cross-Context and cross-Project rule/denial/handle reuse fails closed. Multiple
   Contexts on one Project do not share Policy Memory implicitly.
+- Standard native authentication remains owned by one Workspace home and is
+  removed with that Workspace. Research Broker credentials, when compiled, are
+  Context-owned but remain outside Template desired/applied state and require
+  explicit logout before Context deletion. Template copy and Context creation
+  copy neither form.
+- WP07 permission wait remains attachment-memory observation. Its canonical
+  session binds ContextID + WorkspaceID; a wait record also projects TemplateID
+  for interpretation, but no wait, lease, nonce, transport, result, or helper
+  state enters Context or Policy Memory.
+- ADR 0083 Host Loopback remains exact attachment authority at
+  `host.tobari.internal`. Its final route/grant identity binds ContextID +
+  WorkspaceID + Attachment Epoch + exact effect; hostname, migration lock order,
+  HTTP-only rule, terminal retired-name guard, and schema split are unchanged.
 - Migration and rollback must be exclusive, journaled, content-checked, and
   atomic across Template, Context, Workspace, principal, and policy projection
   state. Old/new readers must never concurrently authorize the same bytes under
   different identity meanings.
-- No credentials, external destinations, dependency, daemon, or arbitrary
+- No external destination, dependency, daemon, or arbitrary
   Template file authority are added by this design.
 
 ## Implementation slices
@@ -254,25 +353,59 @@ only where transaction and authority boundaries remain coherent.
 
 ## Rollout and rollback
 
-This requires a pre-public hard-cutover migration if approved. Preserve existing
-WorkspaceManifestID bytes only when the new Template authority semantics are
-exactly equivalent; otherwise issue typed fresh identities and retain an
-explicit mapping inside the migration transaction. Create Context authority
-from exact current Manifest/project/Workspace and learned-policy evidence, never
-from names, generations, roots alone, or observed containers. Preserve
-last-successful AppliedEntry and Workspace home only when exact correlation is
-proven; otherwise retain explicit pending/unverified state.
+This is a pre-public hard-cutover from exact predecessor `0bbd9deb`; it is not a
+published compatibility migration. Existing `migrate apply` remains the sole
+writer and adds exact source kind `workspace_manifest_v1`.
 
-Migration must stop the cluster, require zero live attachments, preflight all
-owners/schemas/digests, journal an owner-only backup, publish atomically, and
-require explicit reconciliation. Rollback restores the complete predecessor
-authority only if no fresh canonical state would be overwritten. Ordinary
-readers accept one final schema; aliases and dual-authority readers are not the
-default plan.
+Under the installation lifecycle lock, stopped cluster, zero canonical
+attachments, and the existing research-quarantine/Host-Loopback lock order, the
+transaction must:
 
-The parent must decide timing relative to the first public release. Deferring
-WP11 after public V1 would require an explicit compatibility and deprecation
-strategy rather than the pre-public hard cutover assumed here.
+1. enumerate every schema-2 Workspace Manifest/revision, logical Workspace,
+   AppliedEntry/pending/failure record, default selection, learned Allow/exact
+   Deny, pending candidate, principal projection, Runtime protection edge,
+   standard Workspace home, and research Broker filesystem authority;
+2. validate owner/type/mode/symlink/schema/digest/reference closure and one exact
+   `(ProjectRoot, WorkspaceManifestID)` pair per Workspace before mutation;
+3. preserve each WorkspaceManifestID byte sequence as WorkspaceTemplateID and
+   each WorkspaceID byte sequence as WorkspaceID;
+4. generate and journal one fresh ContextID for each exact pair, rejecting
+   duplicate, dangling, ambiguous, name-only, or observation-only association;
+5. transform every retained immutable Manifest revision into the corresponding
+   static Template revision, preserving generation as correlation, recomputing
+   semantic digest after dynamic learned decisions are excluded, and preserving
+   every exact Runtime reference required by WP03 protection;
+6. publish one Context schema-1 binding and one complete Policy Memory schema-1
+   revision from the exact predecessor decisions. Learned authority drops the
+   predecessor WorkspaceID dimension and binds ContextID so it survives a later
+   Workspace replacement; pending observations retain both ContextID and the
+   observing WorkspaceID;
+7. rewrite Workspace state to schema 3 with the fresh ContextID and preserved
+   WorkspaceID/home bytes. Synthesize or preserve AppliedEntry only from exact
+   predecessor receipt plus bounded owned-Docker evidence; otherwise publish an
+   explicit pending/unverified state;
+8. convert DefaultManifestSelection to DefaultTemplateSelection with the exact
+   preserved TemplateID;
+9. quarantine rather than rebind any replay-capable research Broker authority,
+   leaving macOS Keychain recovery material untouched and moving Linux
+   filesystem root-key material with the exact set; standard Workspace-home
+   bytes are neither read nor transformed;
+10. atomically publish final stores and require `cluster up` followed by explicit
+    Workspace entry. Ordinary final readers accept only Template/Context/
+    Workspace schemas and cannot discover predecessor authority.
+
+The migration journal contains the exact predecessor digests, TemplateID byte
+preservation, generated ContextID mapping, preserved WorkspaceIDs, transformed
+revision receipts, and private backup identity. A second apply returns
+`changed:false` and never regenerates ContextIDs or overwrites backup. Rollback
+restores the complete byte-identical predecessor only when no fresh Template,
+Context, Workspace, Policy Memory, home/auth, principal, or cluster authority
+exists at canonical final paths; it never merges. Crash recovery exposes either
+the complete predecessor reader set or the complete final reader set, never a
+partially resolvable policy/principal combination.
+
+Manifest/`--manifest` aliases, dual schema readers, post-release deprecation,
+and fallback reconstruction are explicitly excluded.
 
 ## Documentation promotion
 

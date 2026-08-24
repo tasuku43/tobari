@@ -46,8 +46,9 @@ These are accepted inputs to the next design review, not current implementation:
 - The static reusable concept is class-like: a design from which project work is
   instantiated. `Workspace Template` currently fits that meaning better than a
   primary public resource named `Manifest`.
-- The dynamic learned policy is not part of that static Template. Its provisional
-  name is `Policy Memory` until vocabulary review.
+- The dynamic learned policy is not part of that static Template. The
+  owner-decision target names it `Policy Memory` and uses “remembered decisions”
+  in routine presentation.
 - A durable `Context` is the leading aggregate that binds one Project to one
   Workspace Template and owns the corresponding Policy Memory.
 - The owner selected the follow-current model: a Context desires the Template's
@@ -109,6 +110,26 @@ These are accepted inputs to the next design review, not current implementation:
 - Pre-public V1 prefers a coherent hard cutover over aliases, but the owner must
   schedule that cutover against downstream packets and any first-release freeze.
 
+## Sequencing and predecessor observation
+
+- Control authorized WP11 as a pre-public hard cutover before further WP05
+  mechanism and before WP09, WP06, and WP10. The exact implementation
+  predecessor is `0bbd9deb424814ab92eed0b816e2c565e4b8f6d3`, not a published
+  compatibility contract.
+- The independent sibling worktree uses branch
+  `codex/wp11-template-context-policy-memory`. Draft packet commit
+  `555736bef355ce3372dd1f944464190721292439` has exact base `0bbd9deb`.
+- Final WP03 `922fa792452ce053c994f4271e6debebae1e91dc`, WP04
+  `cc5d14b949276cafac0387dca3b7807d4ed34ed5`, and WP07
+  `77c5607ed6867c3f5162eb0a076f5589234a8462` are ancestors of the base and
+  remain accepted outcomes. WP11 changes only their affected identity,
+  protection, authentication-owner, learned-policy, Catalog, and migration
+  seams.
+- ADR 0083 and `0bbd9deb` remain the accepted Host Loopback hostname,
+  retirement, DNS/TLS, migration-lock, and attachment-lifetime authority.
+  WP11 replaces its predecessor principal dimensions with ContextID and
+  WorkspaceID before the paused mechanism is implemented.
+
 ## External facts
 
 No external specification is required for this packet. Kubernetes
@@ -116,39 +137,61 @@ PodTemplate/controller and Docker Compose service-definition analogies are only
 metaphors; Tobari's explicit-entry reconciliation and host-owned security state
 remain authoritative.
 
-## Unknowns
+## Owner-decision target
 
-- [ ] Decide the final public nouns: `Workspace Template` versus `Template`, and
-      whether `Manifest` remains only the immutable serialized revision/body.
-- [ ] Decide the final dynamic noun: `Policy Memory`, `Learned Policy`, `Context
-      Policy`, or another term that communicates reviewed retained decisions.
-- [ ] Decide whether Context has an independent opaque ContextID or whether a
-      typed `(ProjectID, WorkspaceTemplateID)` pair is sufficient authority.
-- [ ] Decide whether a Context follows Template current forever, can pin a
-      revision, or may expose an explicit upgrade policy later. The currently
-      selected V1 direction is follow-current with entry-time adoption.
-- [ ] Decide exact default selection semantics: default Template for new Context
-      creation, default Context for a Project, invocation-local Context, or a
-      deliberately smaller combination.
-- [ ] Decide Template and Context deletion protection, including Context delete
-      confirmation and the exact disposition of Policy Memory, pending review
-      items, audit evidence, and Workspace home.
-- [ ] Decide whether one Project may have multiple Contexts using the same
-      Template and, if so, what human name or opaque reference disambiguates
-      them.
-- [ ] Decide how static Boundary/baseline changes interact with existing Policy
-      Memory whose entries are no longer admissible, without silently granting
-      or deleting reviewed history.
-- [ ] Decide the two independent activation receipts: Template applied revision
-      at Workspace entry and Policy Memory active revision at shared-cluster
-      policy activation.
-- [ ] Design migration from WorkspaceManifestID and Manifest/project learned
-      stores to TemplateID, Context identity, and Policy Memory without inferring
-      association from names or current Docker state.
-- [ ] Decide public command paths, structured schema versions, reference kinds,
-      recovery commands, and alias policy only after the aggregate decision.
-- [ ] Have the control owner place WP11 before, between, or after downstream
-      WP03–10 work and identify which accepted packets must be rebased.
+The packet recommends one complete V1 target rather than leaving independent
+choices open:
+
+- **Vocabulary:** public long noun `Workspace Template`, CLI noun `template`,
+  durable `Context`, replaceable `Workspace`, and `Policy Memory`. Routine UI
+  says “remembered decisions”; `policy` remains the command namespace.
+  `Manifest` is retired from current public/domain resource vocabulary and may
+  describe only a private serialized migration artifact.
+- **Identity:** introduce opaque `WorkspaceTemplateID`, `ContextID`, and
+  `WorkspaceID`. TemplateID plus semantic Template revision digest is static
+  content authority. ContextID is the Policy Memory and Project/Template
+  binding authority. WorkspaceID is the applied-instance, home, and native-auth
+  authority. Names, roots, generations, images, and containers are never
+  authority.
+- **Uniqueness:** exactly one Context may exist for one `(canonical ProjectRoot,
+  WorkspaceTemplateID)` pair. A Project may have several Contexts only by
+  selecting different Templates. Context has no second human name and cannot
+  rebind to another Template in V1.
+- **Defaults:** preserve one installation `DefaultTemplateSelection`. Omitted
+  root selection proposes that Template for the current Project; explicit
+  `--template NAME` overrides it for one invocation. There is no current/default
+  Context, `context use`, active Template, or mutable Context selector.
+- **Tracking:** Context always desires its Template's current immutable
+  revision. It does not pin or snapshot. Workspace `AppliedEntry` records the
+  exact last-successful TemplateID/digest; explicit entry is the only Workspace
+  adoption writer. Reads derive desired state without mutation.
+- **Policy:** Policy Memory contains only confirmed remembered Allows and exact
+  Denies for one Context. Pending candidates retain ContextID plus the observing
+  WorkspaceID but are not authority. Template Boundary/baseline and Policy
+  Memory have separate semantic revisions and activation receipts.
+- **Deletion:** Workspace deletion removes that Workspace's container state,
+  persistent home, native authentication, pending wait/candidate observation,
+  and WorkspaceID; it preserves Context and Policy Memory. Context deletion
+  requires no Workspace, attachment, or research credential, then deletes the
+  Context binding, Policy Memory, and unresolved candidates while preserving
+  Project files, Templates, Runtimes, and non-authorizing installation audit
+  evidence. Template deletion requires no default selection and no Context.
+- **Authentication:** standard auth remains Workspace-home owned. Research
+  Broker credentials become Context-owned research state, never Template state;
+  Context deletion requires explicit research logout. Existing research state
+  is quarantined and requires reauthentication rather than rebound by migration.
+- **Migration identity:** preserve predecessor WorkspaceManifestID bytes as
+  WorkspaceTemplateID and predecessor WorkspaceID bytes as WorkspaceID. Generate
+  one fresh ContextID for each exact predecessor `(ProjectRoot,
+  WorkspaceManifestID)` pair and journal that mapping. Rewrite learned decisions
+  to Context Policy Memory only from exact validated predecessor identity.
+- **Compatibility:** one pre-public transaction and one final reader. No command,
+  flag, schema, state, or authority alias; no post-release fallback.
+
+The Product Owner must accept or replace this target as a whole before
+production implementation. Any replacement must restate the affected identity,
+deletion, activation, reference, schema, and migration consequences rather than
+changing one noun in isolation.
 
 ## Thesis evidence
 
@@ -189,21 +232,23 @@ contract and source inspection plus the product-owner lifecycle decisions above.
 - External schema provenance, publication rights, and drift evidence: not
   applicable; all proposed state is Tobari-owned.
 - Output delivery, collection coverage, pagination, timeout, retry, idempotency,
-  and cancellation facts: unresolved for future commands. Reads must remain
-  read-only; create/copy/delete/reconcile mutations must declare exact target,
-  impact, idempotency, bounded outcome, and recovery.
+  and cancellation facts: Template/Context reads use complete delivery and
+  exhaustive or not-applicable coverage with no pagination. Mutations use one
+  bounded attempt through the existing invoker contract; creates are exact
+  receipt-idempotent only, deletes require literal confirmation, cancellation
+  before action proves zero change, and every unknown/confirmed-late-output
+  outcome recovers through a read-only list/show/status command.
 - Publication and licensing concerns: no external content or dependency.
 
 ## Glossary
 
-- **Workspace Template:** proposed stable reusable static Workspace design. It
+- **Workspace Template:** recommended public stable reusable static Workspace design. It
   has independently versioned immutable revisions.
-- **Template Manifest:** provisional secondary term for the canonical immutable
-  body/representation of one Template revision, not necessarily a primary
-  user-managed resource.
-- **Context:** proposed durable Project × Workspace Template binding. It owns
+- **Template Revision:** one canonical immutable semantic body under a Workspace
+  Template. `Manifest` is not its current public/domain resource name.
+- **Context:** recommended durable Project × Workspace Template binding. It owns
   project-specific retained policy learning and outlives a replaceable Workspace.
-- **Policy Memory:** provisional name for reviewed learned Allows and exact
+- **Policy Memory:** recommended domain name for reviewed learned Allows and exact
   Denies retained for one Context. It is constrained by Template Boundary and
   is not a credential or an audit-log synonym.
 - **Workspace:** replaceable applied/observed isolated instance for one Context.
