@@ -536,19 +536,22 @@ func TestClusterAndFinalSettlementDurableDecisionsExcludeEachOtherBeforeEffects(
 }
 
 type finalGatewaySettlementRunner struct {
-	candidate           finalGatewaySettlementCandidate
-	workspaces          map[tobari.WorkspaceID]*tobari.WorkspacePolicyPrincipalAuthority
-	workspaceNets       map[tobari.WorkspaceID]string
-	onCompose           func()
-	selected            bool
-	composeCalls        int
-	policyEffects       int
-	companionEpoch      string
-	replacementPending  bool
-	gatewayOPAReachable bool
-	gatewayContainerID  string
-	restartCalls        [][]string
-	replacementServices []string
+	candidate            finalGatewaySettlementCandidate
+	workspaces           map[tobari.WorkspaceID]*tobari.WorkspacePolicyPrincipalAuthority
+	workspaceNets        map[tobari.WorkspaceID]string
+	onCompose            func()
+	selected             bool
+	composeCalls         int
+	policyEffects        int
+	companionEpoch       string
+	replacementPending   bool
+	gatewayOPAReachable  bool
+	gatewayContainerID   string
+	restartCalls         [][]string
+	replacementServices  []string
+	networkGuardCalls    int
+	networkGuardFailures int
+	events               []string
 }
 
 func (r *finalGatewaySettlementRunner) workspaceResource(name string) (*tobari.WorkspacePolicyPrincipalAuthority, string) {
@@ -629,6 +632,7 @@ func (r *finalGatewaySettlementRunner) Run(_ context.Context, args, _ []string, 
 		return nil
 	}
 	if len(args) > 0 && args[0] == "compose" {
+		r.events = append(r.events, "compose")
 		if r.onCompose != nil {
 			r.onCompose()
 		}
@@ -643,6 +647,7 @@ func (r *finalGatewaySettlementRunner) Run(_ context.Context, args, _ []string, 
 		return nil
 	}
 	if len(args) >= 3 && args[0] == "container" && args[1] == "restart" {
+		r.events = append(r.events, "restart")
 		r.restartCalls = append(r.restartCalls, append([]string(nil), args[2:]...))
 		r.gatewayOPAReachable = true
 		r.replacementPending = false
@@ -693,12 +698,28 @@ func (r *finalGatewaySettlementRunner) Run(_ context.Context, args, _ []string, 
 		return nil
 	}
 	if slices.Contains(args, "--interactive") {
+		r.events = append(r.events, "policy")
 		r.policyEffects++
 	}
 	return nil
 }
 
 func (r *finalGatewaySettlementRunner) Output(_ context.Context, args, _ []string) ([]byte, error) {
+	if len(args) >= 4 && args[0] == "inspect" && strings.Contains(args[2], ".State.Status") && args[len(args)-1] == gatewayContainer {
+		return []byte(`{"state":"running","health":"healthy"}`), nil
+	}
+	if len(args) >= 4 && args[0] == "inspect" && args[2] == "{{.Image}}" && args[len(args)-1] == gatewayContainer {
+		return []byte(r.candidate.GatewayImageID + "\n"), nil
+	}
+	if slices.Contains(args, networkGuardEntrypoint) {
+		r.networkGuardCalls++
+		r.events = append(r.events, "guard")
+		if r.networkGuardFailures > 0 {
+			r.networkGuardFailures--
+			return []byte("injected Gateway network guard failure"), errors.New("injected Gateway network guard failure")
+		}
+		return []byte("tobari-network-guard " + tobari.NetworkGuardRevision + " gateway\n"), nil
+	}
 	if len(args) > 0 && args[0] == "image" {
 		if len(args) > 0 && r.candidate.AuthBrokerImage != "" && args[len(args)-1] == r.candidate.AuthBrokerImage {
 			return []byte(authBrokerMetadata("amd64", "")), nil
@@ -1303,6 +1324,57 @@ func TestFinalGatewaySettlementResumesEveryPostEffectBoundaryThroughSameDecision
 				t.Fatalf("recovery omitted exact active receipt: %v", err)
 			}
 		})
+	}
+}
+
+func TestFinalGatewaySettlementGuardsReplacementBeforePolicyAndReceipt(t *testing.T) {
+	runtime, runner, journal := finalGatewayCoordinatorFixture(t)
+	if err := runtime.resumeFinalGatewaySettlement(context.Background(), journal); err != nil {
+		t.Fatalf("settle guarded replacement: %v", err)
+	}
+	if runner.networkGuardCalls != 1 {
+		t.Fatalf("Gateway network guard calls=%d, want one", runner.networkGuardCalls)
+	}
+	restartIndex := slices.Index(runner.events, "restart")
+	guardIndex := slices.Index(runner.events, "guard")
+	policyIndex := -1
+	if guardIndex >= 0 {
+		if relative := slices.Index(runner.events[guardIndex+1:], "policy"); relative >= 0 {
+			policyIndex = guardIndex + 1 + relative
+		}
+	}
+	if restartIndex < 0 || guardIndex <= restartIndex || policyIndex <= guardIndex {
+		t.Fatalf("replacement order=%v, want restart before guard before policy", runner.events)
+	}
+	if _, err := runtime.readFinalPolicyActivation(runtime.finalPolicyActiveReceiptPath()); err != nil {
+		t.Fatalf("guarded replacement omitted active receipt: %v", err)
+	}
+}
+
+func TestFinalGatewaySettlementGuardFailureRetainsDecisionAndRetryDoesNotReplaceAgain(t *testing.T) {
+	runtime, runner, journal := finalGatewayCoordinatorFixture(t)
+	runner.networkGuardFailures = 1
+	if err := runtime.resumeFinalGatewaySettlement(context.Background(), journal); err == nil {
+		t.Fatal("Gateway network guard failure published final authority")
+	}
+	if _, err := runtime.readFinalPolicyActivation(runtime.finalPolicyActiveReceiptPath()); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("guard failure published active receipt: %v", err)
+	}
+	recovered, present, err := runtime.readFinalGatewaySettlementJournal()
+	if err != nil || !present || recovered.Phase != finalGatewayPhasePrincipals || recovered.Applied != nil {
+		t.Fatalf("guard failure decision=%#v present=%t err=%v", recovered, present, err)
+	}
+	if runner.composeCalls != 1 || runner.networkGuardCalls != 1 {
+		t.Fatalf("guard failure effects: compose=%d guard=%d", runner.composeCalls, runner.networkGuardCalls)
+	}
+	if err := runtime.resumeFinalGatewaySettlement(context.Background(), recovered); err != nil {
+		t.Fatalf("same-decision guard retry: %v", err)
+	}
+	if runner.composeCalls != 1 || runner.networkGuardCalls != 2 {
+		t.Fatalf("guard retry repeated replacement or omitted guard: compose=%d guard=%d", runner.composeCalls, runner.networkGuardCalls)
+	}
+	if _, err := runtime.readFinalPolicyActivation(runtime.finalPolicyActiveReceiptPath()); err != nil {
+		t.Fatalf("guard retry omitted active receipt: %v", err)
 	}
 }
 

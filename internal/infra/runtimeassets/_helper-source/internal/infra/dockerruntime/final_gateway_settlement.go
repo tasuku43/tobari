@@ -932,6 +932,14 @@ func (r *Runtime) resumeFinalGatewaySettlement(ctx context.Context, journal fina
 				return err
 			}
 		}
+		// A replacement creates a new network namespace. Reapply the reviewed
+		// redirect/forwarding guard after topology and dependencies are exact,
+		// and before this namespace can become published authority. Running the
+		// idempotent guard on recovery also closes a failure after replacement
+		// without repeating the physical component effect.
+		if err := r.ensureGatewayNetworkGuard(ctx); err != nil {
+			return err
+		}
 		if err := r.interruptFinalGatewaySettlement("components_replaced"); err != nil {
 			return err
 		}
