@@ -86,7 +86,7 @@ func permissionWaitHelpSpec() CommandSpec {
 			Prerequisites: []string{},
 			Errors: []CommandError{
 				declaredCommandError(fault.KindInvalidInput, "invalid_arguments", false, "help", "Use an exact helper command selector."),
-				declaredCommandError(fault.KindContract, "output_encoding_failed", false, "help", "Repair helper agent help projection."),
+				declaredCommandError(fault.KindContract, "output_encoding_failed", false, "help help", "Inspect helper help without repeating agent-help encoding."),
 				declaredCommandError(fault.KindInternal, "output_write_failed", true, "help", "Retry with a writable output stream."),
 				declaredCommandError(fault.KindCanceled, "operation_canceled", true, "help", "Retry when ready."),
 			},

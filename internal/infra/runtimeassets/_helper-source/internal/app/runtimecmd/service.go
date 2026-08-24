@@ -160,7 +160,7 @@ func (s *Service) Restore(ctx context.Context, intent operation.Intent, revision
 	if _, _, err := tobari.ParseRuntimeRevisionRef(revisionRef); err != nil {
 		return tobari.RuntimeRestoreResult{}, fault.WithClassification(
 			fault.Wrap(fault.KindInvalidInput, "invalid_runtime_revision_ref", "Runtime revision reference is invalid", false, err,
-				fault.NextAction{Command: "runtime history", Reason: "Use one managed Runtime revision reference unchanged."}),
+				fault.NextAction{Command: "review runtimes", Reason: "Use one managed Runtime revision reference unchanged."}),
 			fault.PhasePrecondition, fault.ChangeNone,
 		)
 	}
@@ -461,7 +461,7 @@ func classifyRuntimeDeleteError(err error) error {
 	case errors.Is(err, tobari.ErrRuntimeDeleteProtected):
 		return fault.WithClassification(
 			fault.New(fault.KindRejected, "runtime_delete_protected", "the referenced Runtime is protected from deletion", false,
-				fault.NextAction{Command: "runtime show", Reason: "Review the Runtime and its current Manifest or Workspace protections."}),
+				fault.NextAction{Command: "review runtimes", Reason: "Review the Runtime and its current Template or Workspace protections."}),
 			fault.PhasePrecondition, fault.ChangeNone,
 		)
 	case errors.Is(err, tobari.ErrRuntimeLifecycleActive):
@@ -521,7 +521,7 @@ func classifyRuntimeRestoreError(err error, recovery bool) error {
 	case errors.Is(err, tobari.ErrRuntimeRevisionNotFound):
 		return fault.WithClassification(
 			fault.New(fault.KindNotFound, "runtime_revision_not_found", "the referenced Runtime revision does not exist", false,
-				fault.NextAction{Command: "runtime history", Reason: "Discover the current retained Runtime revisions."}),
+				fault.NextAction{Command: "review runtimes", Reason: "Discover the current retained Runtime revisions."}),
 			fault.PhasePrecondition, fault.ChangeNone,
 		)
 	case errors.Is(err, tobari.ErrRuntimeRetirementObservationUnknown):
@@ -549,7 +549,7 @@ func classifyRuntimeRestoreError(err error, recovery bool) error {
 		}
 		return fault.WithClassification(
 			fault.New(fault.KindRejected, "runtime_revision_unrestorable", "Runtime revision could not be restored with its immutable digest", false,
-				fault.NextAction{Command: "runtime history", Reason: "Review the retained immutable revision authority."}),
+				fault.NextAction{Command: "review runtimes", Reason: "Review the retained immutable revision authority."}),
 			fault.PhaseVerification, change,
 		)
 	default:
@@ -585,7 +585,7 @@ func invalidRuntimeRestoreResultFault(result tobari.RuntimeRestoreResult, revisi
 	}
 	return fault.WithClassification(
 		fault.Wrap(fault.KindContract, code, "Runtime restore result is invalid", false, err,
-			fault.NextAction{Command: "runtime history", Reason: "Reconcile the retained Runtime revision and current image availability."}),
+			fault.NextAction{Command: "review runtimes", Reason: "Reconcile the retained Runtime revision and current image availability."}),
 		fault.PhaseVerification, change,
 	)
 }
@@ -706,7 +706,7 @@ func (s *Service) Create(ctx context.Context, intent operation.Intent, name, bas
 	err = s.mutator.Invoke(ctx, request, func(actionContext context.Context, _ operation.Intent) error {
 		created, err := s.runtime.CreateRuntime(actionContext, name, base)
 		if errors.Is(err, tobari.ErrRuntimeExists) {
-			return fault.New(fault.KindRejected, "runtime_exists", "the named Runtime already exists", false, fault.NextAction{Command: "runtime show", Reason: "Inspect the existing Runtime before editing it."})
+			return fault.New(fault.KindRejected, "runtime_exists", "the named Runtime already exists", false, fault.NextAction{Command: "review runtimes", Reason: "Inspect the existing Runtime."})
 		}
 		if errors.Is(err, tobari.ErrRuntimeNotFound) {
 			return fault.New(fault.KindNotFound, "runtime_copy_source_not_found", "the named Runtime source Base does not exist", false, fault.NextAction{Command: "runtime list", Reason: "Choose standard or an existing managed Runtime name."})
@@ -769,7 +769,7 @@ func (s *Service) Build(ctx context.Context, intent operation.Intent, runtimeRef
 			if structured, ok := fault.PublicCopy(err); ok {
 				return structured
 			}
-			return fault.Wrap(fault.KindRejected, "runtime_build_failed", "Runtime could not be built", false, err, fault.NextAction{Command: "runtime show", Reason: "Inspect the unchanged Runtime history and source path."})
+			return fault.Wrap(fault.KindRejected, "runtime_build_failed", "Runtime could not be built", false, err, fault.NextAction{Command: "review runtimes", Reason: "Inspect the unchanged Runtime history and source path."})
 		}
 		if err := built.Validate(); err != nil || built.Task != tobari.TaskRuntimeBuildV1 || built.Runtime.ID != manifest.ID || (!built.Built && !built.NoChange) {
 			if err == nil {
@@ -792,7 +792,7 @@ func (s *Service) projectRuntimeBuildResult(ctx context.Context, result tobari.R
 		if confirmedMutation {
 			return tobari.RuntimeReport{}, fault.WithClassification(
 				fault.Wrap(fault.KindInternal, "runtime_build_observation_unknown", "Confirmed Runtime build could not be projected from current lifecycle evidence", false, observationErr,
-					fault.NextAction{Command: "runtime show", Reason: "Reconcile the confirmed Runtime revision and current material availability."}),
+					fault.NextAction{Command: "review runtimes", Reason: "Reconcile the confirmed Runtime revision and current material availability."}),
 				fault.PhaseVerification, fault.ChangeConfirmed,
 			)
 		}
@@ -806,7 +806,7 @@ func (s *Service) projectRuntimeBuildResult(ctx context.Context, result tobari.R
 		if confirmedMutation {
 			return tobari.RuntimeReport{}, fault.WithClassification(
 				fault.Wrap(fault.KindContract, "invalid_runtime_report_confirmed", invalidMessage, false, err,
-					fault.NextAction{Command: "runtime show", Reason: "Reconcile the confirmed Runtime revision and current material availability."}),
+					fault.NextAction{Command: "review runtimes", Reason: "Reconcile the confirmed Runtime revision and current material availability."}),
 				fault.PhaseVerification, fault.ChangeConfirmed,
 			)
 		}

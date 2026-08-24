@@ -226,7 +226,15 @@ func TestAgentAndHumanHelpPublishFixedTarget(t *testing.T) {
 	if !found {
 		t.Fatal("default catalog lacks help")
 	}
-	catalog := NewCatalog(help, spec)
+	version, found := DefaultCatalog().Lookup("version")
+	if !found {
+		t.Fatal("default catalog lacks version")
+	}
+	doctor, found := DefaultCatalog().Lookup("doctor")
+	if !found {
+		t.Fatal("default catalog lacks doctor")
+	}
+	catalog := NewCatalog(help, version, doctor, spec)
 	var stdout, stderr bytes.Buffer
 	command := newCLI(strings.NewReader(""), &stdout, &stderr, catalog, nil)
 	if code := runCLI(command, []string{"help", "auth", "status", "--format=agent"}); code != ExitOK {

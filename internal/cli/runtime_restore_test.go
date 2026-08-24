@@ -327,7 +327,7 @@ func TestRuntimeRestoreHelpAndCompletionDeriveFromCatalog(t *testing.T) {
 		`"path":"runtime restore"`, `"effect":"write"`, `"role":"act"`,
 		`"reference_kind":"runtime-revision"`, `"argument":"--id"`,
 		`"target_kind":"runtime-revision"`, `"target_id_input":"--id"`,
-		`"destructive":"no"`, `"command":"runtime history"`, `"command":"review runtimes"`,
+		`"destructive":"no"`, `"command":"runtime list"`, `"command":"review runtimes"`,
 	} {
 		if !strings.Contains(text, want) {
 			t.Errorf("restore agent help omitted %q: %s", want, text)

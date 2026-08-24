@@ -767,7 +767,7 @@ func (s *Service) createWithComposition(
 			}
 			if errors.Is(createErr, tobari.ErrRuntimeNotReady) {
 				return fault.New(fault.KindRejected, "runtime_revision_not_ready", "the selected Runtime revision does not exist", false,
-					fault.NextAction{Command: "runtime history", Reason: "Choose an existing successful revision."})
+					fault.NextAction{Command: "review runtimes", Reason: "Choose an existing successful revision."})
 			}
 			if errors.Is(createErr, tobari.ErrManifestCopySourceChanged) || (errors.Is(createErr, tobari.ErrContextNotFound) && composition.CopyFrom != nil) {
 				return fault.New(fault.KindRejected, "manifest_copy_source_changed", "Workspace Manifest copy source changed during review", true,
@@ -846,7 +846,7 @@ func (s *Service) SetRuntime(ctx context.Context, intent operation.Intent, conte
 		}
 	}
 	if _, _, err := tobari.ParseRuntimeSelection(selection); err != nil {
-		return tobari.ManifestReport{}, fault.Wrap(fault.KindInvalidInput, "invalid_runtime_selection", "Runtime selection is invalid", false, err, fault.NextAction{Command: "runtime history", Reason: "Choose standard or one ready name@ordinal revision."})
+		return tobari.ManifestReport{}, fault.Wrap(fault.KindInvalidInput, "invalid_runtime_selection", "Runtime selection is invalid", false, err, fault.NextAction{Command: "review runtimes", Reason: "Choose standard or one ready name@ordinal revision."})
 	}
 	runtime, ok := s.runtime.(contextRuntimeSelectionPort)
 	if !ok || portcheck.IsNil(runtime) {
@@ -864,7 +864,7 @@ func (s *Service) SetRuntime(ctx context.Context, intent operation.Intent, conte
 			case errors.Is(err, tobari.ErrRuntimeNotFound):
 				return fault.New(fault.KindNotFound, "runtime_not_found", "the named Runtime does not exist", false, fault.NextAction{Command: "runtime list", Reason: "Choose an existing Runtime."})
 			case errors.Is(err, tobari.ErrRuntimeNotReady):
-				return fault.New(fault.KindRejected, "runtime_revision_not_ready", "the selected Runtime revision does not exist", false, fault.NextAction{Command: "runtime history", Reason: "Choose an existing successful revision."})
+				return fault.New(fault.KindRejected, "runtime_revision_not_ready", "the selected Runtime revision does not exist", false, fault.NextAction{Command: "review runtimes", Reason: "Choose an existing successful revision."})
 			case err != nil:
 				return fault.Wrap(fault.KindRejected, "manifest_runtime_set_failed", "Workspace Manifest Runtime could not be changed", false, err, fault.NextAction{Command: "manifest show", Reason: "Inspect the unchanged Workspace Manifest Runtime binding."})
 			}

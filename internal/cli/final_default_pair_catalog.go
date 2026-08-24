@@ -41,7 +41,7 @@ func finalDefaultPairEnterErrors() []CommandError {
 		classifiedCommandError(fault.KindUnavailable, "default_pair_read_failed", false, fault.PhaseObservation, fault.ChangeNotApplicable, "status", "Observe the current default Template and Context pair."),
 		classifiedCommandError(fault.KindRejected, "default_pair_changed", false, fault.PhasePrecondition, fault.ChangeNone, "status", "Observe the current default pair before retrying."),
 		classifiedCommandError(fault.KindRejected, "default_template_required", false, fault.PhasePrecondition, fault.ChangeNone, "template list", "Discover a Template reference, then select it with template default set."),
-		classifiedCommandError(fault.KindInvalidInput, "invalid_template_body", false, fault.PhasePrecondition, fault.ChangeNone, "template create", "Review a valid Workspace Template body."),
+		classifiedCommandError(fault.KindInvalidInput, "invalid_template_body", false, fault.PhasePrecondition, fault.ChangeNone, "template list", "Review the current Workspace Template catalog."),
 		classifiedCommandError(fault.KindContract, "invalid_default_pair_initialization", false, fault.PhaseVerification, fault.ChangeUnknown, "status", "Reconcile the default-pair publication before retrying."),
 		classifiedCommandError(fault.KindContract, "invalid_default_pair", false, fault.PhaseVerification, fault.ChangeUnknown, "status", "Inspect the current default pair before retrying."),
 		classifiedCommandError(fault.KindUnavailable, "default_pair_initialized", false, fault.PhaseMutation, fault.ChangePartial, "status", "Observe the confirmed default pair before entering again."),

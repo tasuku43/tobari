@@ -124,7 +124,7 @@ func workspaceMutationFault(err error) error {
 	case errors.Is(err, tobari.ErrWorkspaceBindingNotFound):
 		return fault.WithClassification(fault.New(fault.KindNotFound, "workspace_not_found", "Workspace no longer exists", false, fault.NextAction{Command: "workspace list", Reason: "Discover current Workspace authority."}), fault.PhasePrecondition, fault.ChangeNone)
 	case errors.Is(err, tobari.ErrWorkspaceBindingProtected):
-		return fault.WithClassification(fault.New(fault.KindRejected, "workspace_attached", "Workspace still has a live attachment", false, fault.NextAction{Command: "workspace status", Reason: "Leave the exact Workspace or explicitly confirm forced cleanup."}), fault.PhasePrecondition, fault.ChangeNone)
+		return fault.WithClassification(fault.New(fault.KindRejected, "workspace_attached", "Workspace still has a live attachment", false, fault.NextAction{Command: "workspace list", Reason: "Leave the exact Workspace or explicitly confirm forced cleanup."}), fault.PhasePrecondition, fault.ChangeNone)
 	default:
 		return err
 	}

@@ -46,7 +46,7 @@ func finalClusterStatusSpec() CommandSpec {
 			Prerequisites: []string{},
 			Errors: readCommandErrors("cluster status", true,
 				declaredCommandError(fault.KindContract, "invalid_cluster_status_result", false, "doctor", "Repair the final cluster observation contract."),
-				declaredCommandError(fault.KindContract, "output_encoding_failed", false, "cluster status", "Repair the final cluster JSON projection."),
+				declaredCommandError(fault.KindContract, "output_encoding_failed", false, "version", "Report the exact build identity without repeating final-cluster JSON encoding."),
 				declaredCommandError(fault.KindInternal, "missing_port", false, "doctor", "Configure the final cluster status adapter."),
 			),
 		},
@@ -121,7 +121,7 @@ func finalClusterDenialsSpec() CommandSpec {
 			declaredCommandError(fault.KindUnavailable, "cluster_not_running", false, "cluster status", "Reconcile the final cluster before reading denials."),
 			declaredCommandError(fault.KindInternal, "denials_failed", false, "cluster status", "Inspect the final Gateway observation."),
 			declaredCommandError(fault.KindContract, "invalid_denial_contract", false, "cluster status", "Repair the final denial projection."),
-			declaredCommandError(fault.KindContract, "output_encoding_failed", false, "cluster denials", "Repair JSON projection."),
+			declaredCommandError(fault.KindContract, "output_encoding_failed", false, "version", "Report the exact build identity without repeating denial JSON encoding."),
 			declaredCommandError(fault.KindInternal, "missing_port", false, "doctor", "Configure the final cluster read adapter.")),
 	}, handler: runFinalClusterDenials}
 }

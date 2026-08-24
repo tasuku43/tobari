@@ -969,7 +969,7 @@ func rootRuntimeReadinessFault(report tobari.ManifestReport) error {
 		return fault.New(
 			fault.KindRejected, "runtime_build_required",
 			"The selected Workspace Manifest has a custom runtime recipe that must be built before creating or entering a Workspace.", false,
-			fault.NextAction{Command: "runtime build", Reason: "Build, validate, and select the selected Workspace Manifest runtime."},
+			fault.NextAction{Command: "review runtimes", Reason: "Review the staged Runtime and select its exact build action before entering a Workspace."},
 		)
 	case tobari.ManifestRuntimeStatusInvalid:
 		return fault.New(

@@ -1537,12 +1537,20 @@ func TestCatalogValidatesExecutableRecoveryCommandGrammar(t *testing.T) {
 	if !found {
 		t.Fatal("default catalog lacks help")
 	}
+	version, found := DefaultCatalog().Lookup("version")
+	if !found {
+		t.Fatal("default catalog lacks version")
+	}
+	doctor, found := DefaultCatalog().Lookup("doctor")
+	if !found {
+		t.Fatal("default catalog lacks doctor")
+	}
 	itemsList := utilitySpec("items list")
 	for _, action := range []string{"help", "items list", "help items", "help items list"} {
 		t.Run("valid_"+strings.ReplaceAll(action, " ", "_"), func(t *testing.T) {
 			spec := utilitySpec("test")
 			spec.Agent.Errors[0].NextActions[0].Command = action
-			if err := NewCatalog(help, itemsList, spec).Validate(); err != nil {
+			if err := NewCatalog(help, version, doctor, itemsList, spec).Validate(); err != nil {
 				t.Fatalf("valid recovery command %q: %v", action, err)
 			}
 		})
@@ -1559,7 +1567,7 @@ func TestCatalogValidatesExecutableRecoveryCommandGrammar(t *testing.T) {
 		t.Run("invalid_"+strings.ReplaceAll(action, " ", "_"), func(t *testing.T) {
 			spec := utilitySpec("test")
 			spec.Agent.Errors[0].NextActions[0].Command = action
-			if err := NewCatalog(help, itemsList, spec).Validate(); err == nil {
+			if err := NewCatalog(help, version, doctor, itemsList, spec).Validate(); err == nil {
 				t.Fatalf("invalid recovery command %q passed catalog validation", action)
 			}
 		})

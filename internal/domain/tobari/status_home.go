@@ -11,6 +11,39 @@ const (
 	StatusHomeDockerCallCeiling     = 12
 )
 
+const (
+	statusHomePathEntry             = "tobari"
+	statusHomePathTemplateList      = "template list"
+	statusHomePathClusterStatus     = "cluster status"
+	statusHomePathClusterUp         = "cluster up"
+	statusHomePathReviewRuntimes    = "review runtimes"
+	statusHomePathReviewPermissions = "review permissions"
+	statusHomePathReviewServices    = "review services"
+	statusHomeGuidanceWaitForDetach = "wait_for_detach"
+	statusHomeGuidanceContinue      = "continue_attached"
+)
+
+// StatusHomeRecoveryPaths exposes the exact Catalog tasks owned by schema 3
+// status so the composition root can check them without recreating status
+// decision logic.
+func StatusHomeRecoveryPaths() []string {
+	return []string{
+		statusHomePathEntry,
+		statusHomePathTemplateList,
+		statusHomePathClusterStatus,
+		statusHomePathClusterUp,
+		statusHomePathReviewRuntimes,
+		statusHomePathReviewPermissions,
+		statusHomePathReviewServices,
+	}
+}
+
+// StatusHomeRecoveryGuidance exposes typed non-command terminal conditions;
+// these values must never resolve as Catalog commands.
+func StatusHomeRecoveryGuidance() []string {
+	return []string{statusHomeGuidanceWaitForDetach, statusHomeGuidanceContinue}
+}
+
 type StatusObservationState string
 
 const (
@@ -211,7 +244,7 @@ func NewStatusHomeSnapshot(collection WorkspaceAuthorityCollection, present bool
 		LoginValidity: StatusNotObserved, Siblings: []StatusHomeSibling{}, Attention: []StatusAttentionItem{},
 	}
 	if !present {
-		result.Next = statusCommandNext("tobari", "Review the recommended Template and enter this Project.")
+		result.Next = statusCommandNext(statusHomePathEntry, "Review the recommended Template and enter this Project.")
 		return result, result.Validate()
 	}
 	if err := collection.Validate(); err != nil {
@@ -219,7 +252,7 @@ func NewStatusHomeSnapshot(collection WorkspaceAuthorityCollection, present bool
 	}
 	result.AuthorityState = "initialized"
 	if collection.DefaultTemplateID == nil {
-		result.Next = statusCommandNext("template list", "Choose and set one installation default Template.")
+		result.Next = statusCommandNext(statusHomePathTemplateList, "Choose and set one installation default Template.")
 		return result, result.Validate()
 	}
 	var selected WorkspaceTemplate
@@ -253,7 +286,7 @@ func NewStatusHomeSnapshot(collection WorkspaceAuthorityCollection, present bool
 		result.Siblings = append(result.Siblings, StatusHomeSibling{ContextID: snapshot.Context.ID, TemplateID: snapshot.Template.ID, TemplateName: snapshot.Template.Name, WorkspacePresent: snapshot.Workspace != nil})
 	}
 	if selectedSnapshot == nil {
-		result.Next = statusCommandNext("tobari", "Create the default Template's Context and enter it.")
+		result.Next = statusCommandNext(statusHomePathEntry, "Create the default Template's Context and enter it.")
 		return result, result.Validate()
 	}
 	axes, err := NewContextAuthorityAxes(*selectedSnapshot)
@@ -342,46 +375,46 @@ func statusGuidanceNext(value, reason string) StatusPrimaryNext {
 
 func (s *StatusHomeSnapshot) deriveAttentionAndNext() {
 	if s.Permissions.PendingCount > 0 {
-		s.Attention = append(s.Attention, StatusAttentionItem{Kind: "permissions", Count: s.Permissions.PendingCount, Observation: string(s.Permissions.Observation), Path: "review permissions", Inputs: []StatusNextInput{}})
+		s.Attention = append(s.Attention, StatusAttentionItem{Kind: "permissions", Count: s.Permissions.PendingCount, Observation: string(s.Permissions.Observation), Path: statusHomePathReviewPermissions, Inputs: []StatusNextInput{}})
 	}
 	if s.Services.PendingCount > 0 || s.Services.UnavailableOwnerCount > 0 {
-		s.Attention = append(s.Attention, StatusAttentionItem{Kind: "services", Count: s.Services.PendingCount, Observation: s.Services.Observation, Path: "review services", Inputs: []StatusNextInput{}})
+		s.Attention = append(s.Attention, StatusAttentionItem{Kind: "services", Count: s.Services.PendingCount, Observation: s.Services.Observation, Path: statusHomePathReviewServices, Inputs: []StatusNextInput{}})
 	}
 	if s.Cluster.Observation == StatusObserved {
 		switch s.Cluster.Runtime {
 		case FinalClusterRuntimeUnknown, FinalClusterRuntimeDrifted, FinalClusterRuntimeUnhealthy:
-			s.Next = statusCommandNext("cluster status", "Inspect the shared cluster before entry.")
+			s.Next = statusCommandNext(statusHomePathClusterStatus, "Inspect the shared cluster before entry.")
 			return
 		case FinalClusterRuntimeAbsent, FinalClusterRuntimeStopped:
-			s.Next = statusCommandNext("cluster up", "Activate the shared cluster before entry.")
+			s.Next = statusCommandNext(statusHomePathClusterUp, "Activate the shared cluster before entry.")
 			return
 		}
 	}
 	if s.Runtime.Authority != StatusRuntimeAuthorityReady || s.Runtime.Availability != RuntimeAvailabilityAvailable || s.Runtime.Compatibility != StatusNativeCompatible {
-		s.Next = statusCommandNext("review runtimes", "Inspect the exact Runtime revision and execution material.")
+		s.Next = statusCommandNext(statusHomePathReviewRuntimes, "Inspect the exact Runtime revision and execution material.")
 		return
 	}
 	switch s.Workspace.EntryState {
 	case StatusEntryBlockedAttached:
-		s.Next = statusGuidanceNext("wait_for_detach", "End the attached session before adopting the desired entry.")
+		s.Next = statusGuidanceNext(statusHomeGuidanceWaitForDetach, "End the attached session before adopting the desired entry.")
 		return
 	case StatusEntryAbsent, StatusEntryPending, StatusEntryUnknown:
-		s.Next = statusCommandNext("tobari", "Reconcile and enter the default Context's Workspace.")
+		s.Next = statusCommandNext(statusHomePathEntry, "Reconcile and enter the default Context's Workspace.")
 		return
 	}
 	if s.Permissions.PendingCount > 0 {
-		s.Next = statusCommandNext("review permissions", "Review pending remembered-permission decisions.")
+		s.Next = statusCommandNext(statusHomePathReviewPermissions, "Review pending remembered-permission decisions.")
 		return
 	}
 	if s.Services.PendingCount > 0 {
-		s.Next = statusCommandNext("review services", "Review pending Workspace service requests.")
+		s.Next = statusCommandNext(statusHomePathReviewServices, "Review pending Workspace service requests.")
 		return
 	}
 	if s.Workspace.AttachmentState == StatusAttachmentAttached {
-		s.Next = statusGuidanceNext("continue_attached", "Continue in the current attached Workspace session.")
+		s.Next = statusGuidanceNext(statusHomeGuidanceContinue, "Continue in the current attached Workspace session.")
 		return
 	}
-	s.Next = statusCommandNext("tobari", "Enter or resume the current Workspace.")
+	s.Next = statusCommandNext(statusHomePathEntry, "Enter or resume the current Workspace.")
 }
 
 func (s StatusHomeSnapshot) Validate() error {
