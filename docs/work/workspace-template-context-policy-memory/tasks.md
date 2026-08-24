@@ -216,6 +216,14 @@ implementation is authorized by creating it.
       removes the last principal. The dormant policy adapter does not implement
       or claim entry/deletion principal, Gateway-mount, OPA, or receipt
       settlement, and no current composition exposes it.
+- [ ] Route Gateway-changing Policy Memory decisions through that same final
+      coordinator. In particular, Allow/Deny/Reset of learned GraphQL endpoint
+      authority can change `gateway.json`; the invoked policy action and its
+      existing recovery decision must settle Gateway replacement, exact
+      principals, OPA, global/per-axis receipts, and envelope publication
+      without requiring a separate `cluster up`. Byte-identical HTTP policy
+      changes may retain the bounded OPA-only hot path. Add GraphQL allow/reset
+      and interruption-resume canaries before public cutover.
 - [ ] Perform one public Catalog hard cutover with no accidental aliases.
 - [ ] Update human output, JSON schemas, completion, help, examples, site,
       embedded/generated snapshots, and agent-readiness fixtures.

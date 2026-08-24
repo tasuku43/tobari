@@ -421,6 +421,14 @@ contract and source inspection plus the product-owner lifecycle decisions above.
   Gateway, and OPA content. Cluster reconciliation must not become an
   undocumented prerequisite for those invoked tasks, and atomic reader/public
   cutover remains blocked until their journaled settlement is implemented.
+- Learned GraphQL Policy Memory is another normal Gateway-changing input:
+  allowing a new GraphQL endpoint or resetting the last one changes the
+  generated `gateway.json`. The dormant hot adapter intentionally rejects that
+  mismatch rather than mutating OPA against stale Gateway interpretation. The
+  later coordinator must be selected by the same policy action/recovery
+  decision for Gateway-changing content; only byte-identical Gateway content
+  may use the OPA-only hot path. A separate user-issued `cluster up` is not an
+  acceptable completion or recovery prerequisite.
 
 ## Dormant migration-engine evidence
 
