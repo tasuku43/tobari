@@ -47,7 +47,7 @@ func finalDefaultPairEnterErrors() []CommandError {
 		classifiedCommandError(fault.KindUnavailable, "default_pair_initialized", false, fault.PhaseMutation, fault.ChangePartial, "status", "Observe the confirmed default pair before entering again."),
 		classifiedCommandError(fault.KindContract, "invalid_catalog", false, fault.PhasePrecondition, fault.ChangeNone, "help cluster up", "Repair the Catalog-owned cluster activation contract."),
 		declaredCommandError(fault.KindUnavailable, "cluster_reconcile_interrupted", false, "cluster status", "Inspect the retained final activation decision."),
-		declaredCommandError(fault.KindContract, "invalid_cluster_reconciliation_result", false, "cluster status", "Inspect final authority and component state."),
+		classifiedCommandError(fault.KindContract, "invalid_cluster_reconciliation_result", false, fault.PhaseVerification, fault.ChangeUnknown, "cluster status", "Inspect final authority and component state."),
 		classifiedCommandError(fault.KindUnavailable, "workspace_entry_attachment_unavailable", false, fault.PhaseAttachment, fault.ChangeConfirmed, "status", "Read the confirmed desired, applied, and active authority before another explicit entry."),
 		classifiedCommandError(fault.KindUnavailable, "workspace_entry_interrupted", false, fault.PhaseMutation, fault.ChangePartial, "status", "Read the preserved last-successful entry and active recovery authority."),
 		classifiedCommandError(fault.KindRejected, "workspace_entry_template_policy_inactive", false, fault.PhasePrecondition, fault.ChangeNone, "status", "Read the current Template policy activation before explicit cluster reconciliation."),

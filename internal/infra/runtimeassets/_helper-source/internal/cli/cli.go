@@ -44,6 +44,7 @@ type finalWorkspaceAuthorityAdapter struct {
 type finalDefaultPairEntry interface {
 	Observe(context.Context) (tobari.FinalDefaultPairObservation, error)
 	Resolve(context.Context, operation.Intent, *tobari.WorkspaceTemplateBody) (workspaceauthoritycmd.DefaultPairResolution, error)
+	RefreshAfterCluster(context.Context, workspaceauthoritycmd.DefaultPairResolution, workspaceauthoritycmd.FinalClusterReconciliation) (workspaceauthoritycmd.DefaultPairResolution, error)
 	EnterResolved(context.Context, workspaceauthoritycmd.DefaultPairResolution, tobari.WorkspaceSessionRequest, tobari.FirstEntryProgressSink, io.Reader, io.Writer, io.Writer) (workspaceauthoritycmd.ContextEntryResult, error)
 }
 

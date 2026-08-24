@@ -21,7 +21,7 @@ func finalClusterUpSpec() CommandSpec {
 			},
 			FixedTarget: fixedClusterTarget(),
 			Errors: mutationCommandErrors("cluster up", "cluster status",
-				declaredCommandError(fault.KindContract, "invalid_cluster_reconciliation_result", false, "cluster status", "Inspect final authority and component state."),
+				classifiedCommandError(fault.KindContract, "invalid_cluster_reconciliation_result", false, fault.PhaseVerification, fault.ChangeUnknown, "cluster status", "Inspect final authority and component state."),
 				declaredCommandError(fault.KindUnavailable, "cluster_reconcile_interrupted", false, "cluster status", "Inspect the retained final activation decision."),
 				declaredCommandError(fault.KindInternal, "missing_port", false, "doctor", "Configure the final cluster lifecycle adapter."),
 			),

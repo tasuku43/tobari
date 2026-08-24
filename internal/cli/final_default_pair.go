@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/tasuku43/tobari/internal/app/workspaceauthoritycmd"
 	"github.com/tasuku43/tobari/internal/domain/fault"
 	"github.com/tasuku43/tobari/internal/domain/operation"
 	"github.com/tasuku43/tobari/internal/domain/tobari"
@@ -117,12 +118,18 @@ func runFinalDefaultPairEnter(ctx context.Context, c *CLI, command CommandSpec, 
 		return c.failRootBeforeHandoff(ctx, err)
 	}
 	clusterIntent, clusterErr := c.firstEntryClusterIntent()
+	var clusterResult workspaceauthoritycmd.FinalClusterReconciliation
 	if clusterErr == nil {
-		_, clusterErr = c.finalCluster.Reconcile(ctx, clusterIntent)
+		clusterResult, clusterErr = c.finalCluster.Reconcile(ctx, clusterIntent)
 	}
 	if clusterErr != nil {
 		_ = progress.Finish(firstEntryFailureState(clusterErr))
 		return c.failRootBeforeHandoff(ctx, clusterErr)
+	}
+	resolution, err = c.finalDefaultPair.RefreshAfterCluster(ctx, resolution, clusterResult)
+	if err != nil {
+		_ = progress.Finish(firstEntryFailureState(err))
+		return c.failRootBeforeHandoff(ctx, err)
 	}
 	if err := progress.Finish(tobari.FirstEntryStageSucceeded); err != nil {
 		return c.failRootBeforeHandoff(ctx, err)

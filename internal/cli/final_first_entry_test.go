@@ -20,6 +20,7 @@ type firstEntryPairFixture struct {
 	resolveBody  *tobari.WorkspaceTemplateBody
 	session      tobari.WorkspaceSessionRequest
 	resolveCalls int
+	refreshCalls int
 	entryCalls   int
 	entryErr     error
 }
@@ -37,6 +38,12 @@ func (f *firstEntryPairFixture) Resolve(_ context.Context, intent operation.Inte
 	}
 	f.resolveBody = body
 	return workspaceauthoritycmd.DefaultPairResolution{}, nil
+}
+
+func (f *firstEntryPairFixture) RefreshAfterCluster(_ context.Context, resolution workspaceauthoritycmd.DefaultPairResolution, _ workspaceauthoritycmd.FinalClusterReconciliation) (workspaceauthoritycmd.DefaultPairResolution, error) {
+	f.refreshCalls++
+	*f.order = append(*f.order, "refresh")
+	return resolution, nil
 }
 
 func (f *firstEntryPairFixture) EnterResolved(_ context.Context, _ workspaceauthoritycmd.DefaultPairResolution, session tobari.WorkspaceSessionRequest, progress tobari.FirstEntryProgressSink, _ io.Reader, _, _ io.Writer) (workspaceauthoritycmd.ContextEntryResult, error) {
@@ -127,11 +134,11 @@ func TestFinalRootFreshStartComposesReviewFiveCheckpointsAndExactDirectArgv(t *t
 	if code := command.RunContext(context.Background(), append([]string{"--"}, argv...)); code != ExitOK {
 		t.Fatalf("root exit=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
-	if !reflect.DeepEqual(*order, []string{"observe", "review", "readiness", "template body", "resolve", "cluster", "entry"}) {
+	if !reflect.DeepEqual(*order, []string{"observe", "review", "readiness", "template body", "resolve", "cluster", "refresh", "entry"}) {
 		t.Fatalf("root order = %v", *order)
 	}
-	if reviewer.calls != 1 || readiness.calls != 1 || cluster.calls != 1 || pair.resolveCalls != 1 || pair.entryCalls != 1 || pair.resolveBody == nil {
-		t.Fatalf("root calls reviewer=%d readiness=%d cluster=%d resolve=%d entry=%d body=%v", reviewer.calls, readiness.calls, cluster.calls, pair.resolveCalls, pair.entryCalls, pair.resolveBody)
+	if reviewer.calls != 1 || readiness.calls != 1 || cluster.calls != 1 || pair.resolveCalls != 1 || pair.refreshCalls != 1 || pair.entryCalls != 1 || pair.resolveBody == nil {
+		t.Fatalf("root calls reviewer=%d readiness=%d cluster=%d resolve=%d refresh=%d entry=%d body=%v", reviewer.calls, readiness.calls, cluster.calls, pair.resolveCalls, pair.refreshCalls, pair.entryCalls, pair.resolveBody)
 	}
 	if !pair.session.Direct() || !reflect.DeepEqual(pair.session.Argv(), argv) {
 		t.Fatalf("direct argv = %#v", pair.session.Argv())
@@ -147,7 +154,7 @@ func TestFinalRootExistingPairSkipsReviewAndFreshBody(t *testing.T) {
 	if code := command.RunContext(context.Background(), nil); code != ExitOK {
 		t.Fatalf("existing root exit=%d stderr=%q", code, stderr.String())
 	}
-	if !reflect.DeepEqual(*order, []string{"observe", "readiness", "resolve", "cluster", "entry"}) || reviewer.calls != 0 || pair.resolveBody != nil {
+	if !reflect.DeepEqual(*order, []string{"observe", "readiness", "resolve", "cluster", "refresh", "entry"}) || reviewer.calls != 0 || pair.resolveBody != nil {
 		t.Fatalf("existing root order=%v review=%d body=%v", *order, reviewer.calls, pair.resolveBody)
 	}
 	if !strings.Contains(stderr.String(), "✓ Use Context\n") || strings.Contains(stderr.String(), "Save setup") {
@@ -160,7 +167,7 @@ func TestFinalRootCustomizePublishesOnlyTheReviewedBody(t *testing.T) {
 	if code := command.RunContext(context.Background(), nil); code != ExitOK {
 		t.Fatalf("customized root exit=%d stderr=%q", code, stderr.String())
 	}
-	if !reflect.DeepEqual(*order, []string{"observe", "review", "customize", "readiness", "resolve", "cluster", "entry"}) || pair.resolveBody == nil {
+	if !reflect.DeepEqual(*order, []string{"observe", "review", "customize", "readiness", "resolve", "cluster", "refresh", "entry"}) || pair.resolveBody == nil {
 		t.Fatalf("customized root order=%v body=%v", *order, pair.resolveBody)
 	}
 }

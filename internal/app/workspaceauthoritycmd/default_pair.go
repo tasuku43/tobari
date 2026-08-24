@@ -282,6 +282,55 @@ func (s *DefaultPairService) Resolve(ctx context.Context, intent operation.Inten
 	return resolution, err
 }
 
+// RefreshAfterCluster replaces only the collection receipt and independently
+// active policy axes that canonical cluster reconciliation is allowed to
+// publish. The resolved Project, default Template, Context desired authority,
+// Policy Memory, and Workspace binding must remain the same entry target.
+func (s *DefaultPairService) RefreshAfterCluster(ctx context.Context, resolution DefaultPairResolution, cluster FinalClusterReconciliation) (DefaultPairResolution, error) {
+	if err := resolution.Validate(); err != nil {
+		return DefaultPairResolution{}, invalidFault("invalid_default_pair", "The final default pair is invalid", err, "status")
+	}
+	if err := cluster.Validate(); err != nil {
+		return DefaultPairResolution{}, contractFault("invalid_cluster_reconciliation_result", "final cluster reconciliation result is invalid", err)
+	}
+	current, err := s.observeStable(ctx)
+	if err != nil {
+		return DefaultPairResolution{}, defaultPairPostInitializationFault(err, true)
+	}
+	if current.CollectionGeneration != cluster.Generation || current.CollectionRevision != cluster.CollectionRevision ||
+		!sameDefaultPairDesiredAuthority(resolution.Observation, current) || !currentDefaultPairActivationsMatchCluster(current, cluster) {
+		return DefaultPairResolution{}, defaultPairPostInitializationFault(fmt.Errorf("default-pair authority does not match the confirmed cluster receipt"), true)
+	}
+	return DefaultPairResolution{Observation: current.Clone(), AuthorityChanged: resolution.AuthorityChanged}, nil
+}
+
+func sameDefaultPairDesiredAuthority(previous, current tobari.FinalDefaultPairObservation) bool {
+	if previous.ProjectRoot != current.ProjectRoot || previous.DefaultTemplate == nil || current.DefaultTemplate == nil || previous.Context == nil || current.Context == nil {
+		return false
+	}
+	return reflect.DeepEqual(previous.DefaultTemplate, current.DefaultTemplate) &&
+		reflect.DeepEqual(previous.Context.Context, current.Context.Context) &&
+		reflect.DeepEqual(previous.Context.Template, current.Context.Template) &&
+		reflect.DeepEqual(previous.Context.PolicyMemory, current.Context.PolicyMemory) &&
+		reflect.DeepEqual(previous.Context.Workspace, current.Context.Workspace)
+}
+
+func currentDefaultPairActivationsMatchCluster(current tobari.FinalDefaultPairObservation, cluster FinalClusterReconciliation) bool {
+	if current.Context == nil || current.Context.ActiveTemplatePolicy == nil || current.Context.ActivePolicyMemory == nil || current.Context.ActivePolicyMemoryRef == nil {
+		return false
+	}
+	for _, activation := range cluster.Contexts {
+		if activation.ContextID != current.Context.Context.ID {
+			continue
+		}
+		return activation.WorkspaceTemplateID == current.Context.Template.ID &&
+			*current.Context.ActiveTemplatePolicy == activation.TemplatePolicy &&
+			*current.Context.ActivePolicyMemoryRef == activation.PolicyMemory &&
+			reflect.DeepEqual(*current.Context.ActivePolicyMemory, current.Context.PolicyMemory)
+	}
+	return false
+}
+
 // EnterResolved preserves the exact resolution through Context entry while
 // allowing the root composition to run canonical cluster reconciliation in
 // between. The optional sink is presentation-only.
