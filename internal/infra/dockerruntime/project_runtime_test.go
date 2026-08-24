@@ -184,7 +184,7 @@ func TestEnterProjectRuntimeMirrorsHostCWDPath(t *testing.T) {
 		t.Fatal(err)
 	}
 	wantArgs := []string{
-		"exec", "-i", "-t", "--user", strconv.Itoa(uid) + ":" + strconv.Itoa(gid),
+		"exec", "-i", "--user", strconv.Itoa(uid) + ":" + strconv.Itoa(gid),
 		"--env", "BROWSER=" + workspaceBrowserOpenerPath,
 		"--env", "GH_BROWSER=" + workspaceBrowserOpenerPath,
 		"--env", workspaceBrowserSocketEnv + "=" + browserSocketEnvironment(t, runner.runs[0].args),
@@ -287,6 +287,9 @@ func TestEnterProjectRuntimeRunsExactDirectArgvWithoutShell(t *testing.T) {
 	}
 	if slices.Contains(args[containerIndex+1:], "/bin/bash") || slices.Contains(args[containerIndex+1:], "-c") {
 		t.Fatalf("direct child gained a shell wrapper: %q", args[containerIndex+1:])
+	}
+	if slices.Contains(args[:containerIndex], "-t") {
+		t.Fatalf("redirected direct child requested a Docker TTY: %q", args[:containerIndex])
 	}
 }
 
