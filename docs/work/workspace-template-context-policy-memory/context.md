@@ -266,6 +266,11 @@ contract and source inspection plus the product-owner lifecycle decisions above.
   remain dormant domain code. No current Manifest reader, writer, Catalog path,
   schema, application port, infrastructure adapter, or public output consumes
   them in this concern.
+- Dormant final application tasks now consume and re-emit exact typed refs,
+  validate coherent Context/Template/Policy Memory/Workspace snapshots, and
+  cross the existing mutation invoker once. Port exchange values are
+  domain-owned so infrastructure can satisfy the task-owned interfaces without
+  importing application code. No Catalog route or current reader is wired.
 
 ## Security and public-boundary notes
 

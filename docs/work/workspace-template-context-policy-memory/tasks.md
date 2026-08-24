@@ -142,7 +142,10 @@ implementation is authorized by creating it.
 - [x] Require bounded exact-owned Docker evidence before retaining a predecessor
       AppliedEntry; map missing, mismatched, and unknown material to explicit
       unverified state.
-- [ ] Implement separate application use cases and smallest owned ports.
+- [x] Implement dormant separate Template, Context, Workspace, and Policy Memory
+      application use cases with task-owned smallest ports, exact unchanged ref
+      consumption/re-emission, coherent domain-owned receipts, one mutation
+      invoker boundary, and no Catalog or infrastructure wiring.
 - [ ] Implement owner-only stores, atomic migration/rollback, principal/policy
       projection, and reconciliation adapters.
 - [ ] Perform one public Catalog hard cutover with no accidental aliases.
@@ -157,6 +160,10 @@ implementation is authorized by creating it.
       ./internal/domain/tobari`, `go test -race ./internal/domain/tobari`,
       `go test ./internal/domain/...`, and `task check:fast` with the pinned
       Go 1.26.6/Node 24.18.0 toolchains.
+- [x] Dormant application contract tests pass. Evidence: `go test -race
+      ./internal/app/workspaceauthoritycmd ./internal/domain/tobari`, `go test
+      ./internal/app/... ./internal/domain/...`, and `task check:fast` with the
+      pinned toolchains.
 - [ ] `task check` passes. Evidence:
 - [ ] `task security` passes. Evidence:
 - [ ] `task public:check` passes. Evidence:

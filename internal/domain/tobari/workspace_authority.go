@@ -2,6 +2,7 @@ package tobari
 
 import (
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"path/filepath"
@@ -21,10 +22,25 @@ const (
 	WorkspaceTemplateRevisionReferenceKind = "workspace-template-revision"
 	ContextReferenceKind                   = "context"
 	WorkspaceReferenceKind                 = "workspace"
+	WorkspaceTemplateCatalogTargetKind     = "workspace-template-catalog"
+	WorkspaceTemplateCatalogTargetID       = "workspace-template-catalog"
 
 	WorkspaceTemplateAdvancedPolicyPath     = "tobari.rego"
 	WorkspaceTemplateAdvancedPolicyTestPath = "tobari_test.rego"
 	WorkspaceTemplateAdvancedPolicyMaxBytes = 4 * 1024 * 1024
+)
+
+var (
+	ErrWorkspaceTemplateExists           = errors.New("Workspace Template already exists")
+	ErrWorkspaceTemplateNotFound         = errors.New("Workspace Template does not exist")
+	ErrWorkspaceTemplateRevisionNotFound = errors.New("Workspace Template revision does not exist")
+	ErrWorkspaceTemplateProtected        = errors.New("Workspace Template is still referenced")
+	ErrContextBindingExists              = errors.New("Context already exists")
+	ErrContextBindingNotFound            = errors.New("Context does not exist")
+	ErrContextBindingProtected           = errors.New("Context still owns live authority")
+	ErrWorkspaceBindingNotFound          = errors.New("Workspace does not exist")
+	ErrWorkspaceBindingProtected         = errors.New("Workspace still has a live attachment")
+	ErrPolicyMemoryTargetNotFound        = errors.New("Policy Memory target does not exist")
 )
 
 const (
@@ -910,15 +926,22 @@ func policyMemoryRuleID(contextID ContextID, decision PolicyMemoryDecision, body
 	return "pmr_" + hex.EncodeToString(bytes[:16])
 }
 
+func ValidatePolicyMemoryRuleID(id string) error {
+	if len(id) != len("pmr_")+32 || !strings.HasPrefix(id, "pmr_") {
+		return fmt.Errorf("Policy Memory rule ID is invalid")
+	}
+	if _, err := hex.DecodeString(strings.TrimPrefix(id, "pmr_")); err != nil {
+		return fmt.Errorf("Policy Memory rule ID is invalid")
+	}
+	return nil
+}
+
 func (r PolicyMemoryRule) Validate(contextID ContextID) error {
 	if err := contextID.Validate(); err != nil {
 		return err
 	}
-	if len(r.ID) != len("pmr_")+32 || !strings.HasPrefix(r.ID, "pmr_") {
-		return fmt.Errorf("Policy Memory rule ID is invalid")
-	}
-	if _, err := hex.DecodeString(strings.TrimPrefix(r.ID, "pmr_")); err != nil {
-		return fmt.Errorf("Policy Memory rule ID is invalid")
+	if err := ValidatePolicyMemoryRuleID(r.ID); err != nil {
+		return err
 	}
 	if err := r.Body.Validate(r.Decision); err != nil {
 		return err
@@ -1002,6 +1025,41 @@ func (r PolicyMemoryRevision) Validate() error {
 	}
 	if r.Revision != want {
 		return fmt.Errorf("Policy Memory revision does not bind its complete rules")
+	}
+	return nil
+}
+
+// ValidateFor proves that one Context-owned memory remains inside its bound
+// Template's fixed terminal Boundary. Baseline policy is a separate tier and
+// is deliberately not merged into the remembered revision.
+func (r PolicyMemoryRevision) ValidateFor(context ContextBinding, template WorkspaceTemplateRevision) error {
+	if err := context.Validate(); err != nil {
+		return err
+	}
+	if err := template.Validate(); err != nil {
+		return err
+	}
+	if err := r.Validate(); err != nil {
+		return err
+	}
+	if r.ContextID != context.ID || template.TemplateID != context.TemplateID {
+		return fmt.Errorf("Policy Memory owner does not match its Context and Template")
+	}
+	for _, rule := range r.Rules {
+		path := rule.Body.Path
+		if rule.Body.Match == PolicyMatchPathTemplate {
+			path = rule.Body.Examples[0]
+		}
+		exact := ManifestPolicyExactRule{
+			Scheme: rule.Body.Scheme, Host: rule.Body.Host, Port: rule.Body.Port,
+			Method: rule.Body.Method, Path: path,
+		}
+		if !contextPolicyRuleInsideDestination(template.Body.Boundary.DestinationCeiling, exact) {
+			return fmt.Errorf("Policy Memory rule exceeds the fixed Template Boundary")
+		}
+		if rule.Decision == PolicyMemoryAllow && template.Body.Boundary.MethodPolicy.Decision(rule.Body.Method) == ManifestMethodDeny {
+			return fmt.Errorf("Policy Memory Allow exceeds the fixed Template method Boundary")
+		}
 	}
 	return nil
 }
@@ -1148,6 +1206,191 @@ func (r PolicyMemoryActivationReceipt) ValidateFor(context ContextBinding, memor
 	}
 	if r.ContextID != context.ID || r.ContextID != memory.ContextID || r.Revision != memory.Revision {
 		return fmt.Errorf("Policy Memory activation receipt is inconsistent")
+	}
+	return nil
+}
+
+// ContextAuthoritySnapshot is one coherent final-authority read. Runtime
+// observation remains a separate infrastructure-owned read dimension.
+type ContextAuthoritySnapshot struct {
+	Context               ContextBinding
+	Template              WorkspaceTemplate
+	PolicyMemory          PolicyMemoryRevision
+	ActiveTemplatePolicy  *TemplatePolicyActivationReceipt
+	ActivePolicyMemory    *PolicyMemoryRevision
+	ActivePolicyMemoryRef *PolicyMemoryActivationReceipt
+	Workspace             *WorkspaceBinding
+}
+
+func (s ContextAuthoritySnapshot) Validate() error {
+	if err := s.Context.Validate(); err != nil {
+		return err
+	}
+	if err := s.Template.Validate(); err != nil {
+		return err
+	}
+	if s.Context.TemplateID != s.Template.ID {
+		return fmt.Errorf("Context snapshot crosses Template authority")
+	}
+	if err := s.PolicyMemory.ValidateFor(s.Context, s.Template.Current); err != nil {
+		return err
+	}
+	if s.ActiveTemplatePolicy != nil {
+		found := false
+		for _, revision := range s.Template.Retained {
+			if s.ActiveTemplatePolicy.ValidateFor(s.Context, revision) == nil {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return fmt.Errorf("active Template policy has no exact retained revision")
+		}
+	}
+	if (s.ActivePolicyMemory == nil) != (s.ActivePolicyMemoryRef == nil) {
+		return fmt.Errorf("active Policy Memory revision and receipt must be present together")
+	}
+	if s.ActivePolicyMemory != nil {
+		if err := s.ActivePolicyMemory.ValidateFor(s.Context, s.Template.Current); err != nil {
+			return err
+		}
+		if err := s.ActivePolicyMemoryRef.ValidateFor(s.Context, *s.ActivePolicyMemory); err != nil {
+			return err
+		}
+	}
+	if s.Workspace != nil {
+		if err := s.Workspace.ValidateFor(s.Context); err != nil {
+			return err
+		}
+		if s.Workspace.LastSuccessfulEntry != nil {
+			found := false
+			for _, revision := range s.Template.Retained {
+				if s.Workspace.LastSuccessfulEntry.ValidateForRevision(s.Context, revision) == nil {
+					found = true
+					break
+				}
+			}
+			if !found {
+				return fmt.Errorf("Workspace AppliedEntry has no exact retained Template revision")
+			}
+		}
+	}
+	return nil
+}
+
+func (s ContextAuthoritySnapshot) Clone() ContextAuthoritySnapshot {
+	result := s
+	result.Template = s.Template.Clone()
+	result.PolicyMemory = s.PolicyMemory.Clone()
+	if s.ActiveTemplatePolicy != nil {
+		value := *s.ActiveTemplatePolicy
+		result.ActiveTemplatePolicy = &value
+	}
+	if s.ActivePolicyMemory != nil {
+		value := s.ActivePolicyMemory.Clone()
+		result.ActivePolicyMemory = &value
+	}
+	if s.ActivePolicyMemoryRef != nil {
+		value := *s.ActivePolicyMemoryRef
+		result.ActivePolicyMemoryRef = &value
+	}
+	if s.Workspace != nil {
+		value := *s.Workspace
+		if s.Workspace.LastSuccessfulEntry != nil {
+			entry := *s.Workspace.LastSuccessfulEntry
+			value.LastSuccessfulEntry = &entry
+		}
+		result.Workspace = &value
+	}
+	return result
+}
+
+type WorkspaceTemplateCopyPublication struct {
+	Source  WorkspaceTemplateRevision
+	Created WorkspaceTemplate
+}
+type WorkspaceTemplateSelectionResult struct {
+	TemplateID WorkspaceTemplateID
+	Selected   bool
+}
+type WorkspaceTemplateDeleteResult struct {
+	TemplateID WorkspaceTemplateID
+	Deleted    bool
+}
+type ContextDeleteResult struct {
+	ContextID ContextID
+	Deleted   bool
+}
+type WorkspaceAuthorityDeleteResult struct {
+	WorkspaceID WorkspaceID
+	Deleted     bool
+}
+type ContextEntryPublication struct {
+	Snapshot ContextAuthoritySnapshot
+	Outcome  WorkspaceSessionOutcome
+}
+type PolicyMemoryPublication struct {
+	Snapshot         ContextAuthoritySnapshot
+	PreviousRevision SemanticDigest
+	Changed          bool
+}
+
+type PolicyCandidatePublication struct {
+	CandidateID string
+	RuleID      string
+	Memory      PolicyMemoryPublication
+}
+
+func (p PolicyCandidatePublication) Validate() error {
+	if err := ValidatePolicyCandidateID(p.CandidateID); err != nil {
+		return err
+	}
+	if err := ValidatePolicyMemoryRuleID(p.RuleID); err != nil {
+		return err
+	}
+	if err := p.Memory.Validate(); err != nil {
+		return err
+	}
+	for _, rule := range p.Memory.Snapshot.PolicyMemory.Rules {
+		if rule.ID == p.RuleID {
+			return nil
+		}
+	}
+	return fmt.Errorf("Policy candidate publication has no resulting Policy Memory rule")
+}
+
+type PolicyRuleResetPublication struct {
+	RuleID string
+	Memory PolicyMemoryPublication
+}
+
+func (p PolicyRuleResetPublication) Validate() error {
+	if err := ValidatePolicyMemoryRuleID(p.RuleID); err != nil {
+		return err
+	}
+	if err := p.Memory.Validate(); err != nil {
+		return err
+	}
+	for _, rule := range p.Memory.Snapshot.PolicyMemory.Rules {
+		if rule.ID == p.RuleID {
+			return fmt.Errorf("reset Policy Memory rule remains active")
+		}
+	}
+	return nil
+}
+
+func (p PolicyMemoryPublication) Validate() error {
+	if err := p.Snapshot.Validate(); err != nil {
+		return err
+	}
+	if err := p.PreviousRevision.Validate(); err != nil {
+		return err
+	}
+	if p.Snapshot.ActivePolicyMemory == nil || p.Snapshot.ActivePolicyMemoryRef == nil || p.Snapshot.ActivePolicyMemory.Revision != p.Snapshot.PolicyMemory.Revision {
+		return fmt.Errorf("Policy Memory publication is not actively committed")
+	}
+	if p.Changed == (p.PreviousRevision == p.Snapshot.PolicyMemory.Revision) {
+		return fmt.Errorf("Policy Memory publication change state is inconsistent")
 	}
 	return nil
 }
