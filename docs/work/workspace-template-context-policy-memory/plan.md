@@ -59,6 +59,12 @@ Context for the same Project means another Template. Template rebinding and
 revision pinning are excluded; both would need explicit policy-memory
 revalidation and a separate lifecycle decision.
 
+One TemplateID also fixes one immutable source/network Boundary fingerprint,
+including direct source access and terminal network ceilings. A Boundary change
+is not a Template revision: it creates a fresh TemplateID and, for a Project, a
+fresh ContextID with empty Policy Memory. Revisions may change reviewed baseline
+and typed Runtime/session/creation defaults only inside that fingerprint.
+
 ## Alternatives considered
 
 ### Alternative A: Keep Workspace Manifest and improve presentation only
@@ -109,35 +115,55 @@ The recommended hard-cutover command vocabulary is:
 | Outcome | Final path/selector | Role/effect | Binding and result |
 |---|---|---|---|
 | list reusable designs | `template list` | discover/read | exhaustive installation collection; produces `workspace-template` refs |
-| inspect one design | `template show [--name NAME]` | utility/read | explicit name or `DefaultTemplateSelection`; produces the same Template ref |
-| create or statically fork | `template create [--copy-from NAME] --name NAME ...` | act/create, fixed Template collection | fresh TemplateID and generation 1; copy revalidates source ID/digest/body and copies no lower-lifetime state |
+| inspect one design/revision | `template show [--name NAME]` | discover/read | name is read-only discovery input; produces `workspace-template` and exact current `workspace-template-revision` refs |
+| create a direct design | `template create --name NAME ...` | act/create, fixed Template collection | fresh TemplateID and generation 1 from complete reviewed direct input; no copy mode |
+| fork static definition | `template copy --from TEMPLATE_REVISION_REF --name NAME` | act/create, reference-bound parent | consumes one exact immutable revision unchanged; fresh TemplateID/generation 1; copies no lower-lifetime state |
 | choose omission default | `template default set --id TEMPLATE_REF` | act/write, reference bound | consumes one `workspace-template` ref; changes no Context or Workspace |
 | delete a design | `template delete --id TEMPLATE_REF --confirm=delete` | act/write, reference bound | only with no default selection and no Context; produces no ref |
 | list project bindings | `context list [--format text\|json]` | discover/read | exhaustive Contexts with `context` refs; human groups by Project and Template |
-| inspect one binding | `context show --id CONTEXT_REF` | utility/read | consumes one `context` ref and reports Template desired plus Policy Memory current/active separately |
+| inspect one binding | `context show --id CONTEXT_REF` | discover/read | consumes and re-emits one unchanged `context` ref; reports Template desired plus Policy Memory current/active separately |
 | instantiate a design | `context create --template TEMPLATE_REF [--format text\|json]` | act/create, reference-bound parent | canonical CWD is Project scope; produces one fresh `context` ref; creates no Workspace or policy authority beyond empty memory |
+| enter an explicit Context | `context enter --id CONTEXT_REF [-- ARGV...]` | act/create, reference-bound parent | creates or reconciles the Context's Workspace and produces the exact `workspace` ref |
 | forget project binding | `context delete --id CONTEXT_REF --confirm=delete` | act/write, reference bound | requires no Workspace/attachment/research credential; deletes Policy Memory and unresolved candidates |
-| enter current Project | `tobari [--template NAME] [-- ARGV...]` | existing composed act/create | resolves exact Context by CWD + Template; first-use may compose Context create, cluster reconcile, and Workspace entry after review |
-| inspect current Project | `status [--template NAME]` | utility/read | read-only Context desired, Policy Memory activation, Workspace applied/observed |
-| remove applied instance | `delete [--template NAME] [--force]` | existing fixed-target act/write | removes Workspace, home, and native auth; preserves Context and Policy Memory |
+| enter default pair | `tobari [-- ARGV...]` | existing command-owned act/create | resolves and revalidates the exact `DefaultTemplateSelection` plus CWD pair; first-use may compose Context create, cluster reconcile, and Workspace entry after review |
+| inspect default pair | `status` | discover/read, command-owned default pair | read-only Context desired, Policy Memory activation, Workspace applied/observed; optionally produces a `workspace` ref when one exists |
+| list applied instances | `workspace list` | discover/read | exhaustive Workspace inventory producing exact `workspace` refs |
+| inspect one instance | `workspace status --id WORKSPACE_REF` | discover/read | consumes and re-emits one unchanged `workspace` ref; never rediscovers by root, Template name, or order |
+| remove one instance | `workspace delete --id WORKSPACE_REF --confirm=delete [--force]` | act/write, reference bound | removes exact Workspace, home, and native auth; preserves Context and Policy Memory |
 
 `--manifest`, the `manifest` namespace, `manifest_id`, `workspace_manifest_id`,
-`context use`, and a default/current Context are absent. Root `--template NAME`
-is a human selection convenience over the unique CWD/Template pair; action
-commands that can destroy or rebind authority consume opaque refs. Existing
-Template configuration commands move their owner selector from `--manifest`
-to `--template`; their typed activation semantics remain unchanged.
+`context use`, a default/current Context, `--template NAME` on root/status/delete,
+and other root/name-selected mutation routes are absent. `context create
+--template TEMPLATE_REF` remains the reference-bound parent input for the
+distinct Context-creation outcome. Bare root/status own only the revalidated
+default pair. Every explicit nondefault or destructive action consumes one
+unchanged opaque ref. Existing Template configuration mutations replace
+`--manifest NAME` with required `--id TEMPLATE_REF`; their typed activation
+semantics remain unchanged. Bounded name completion remains read-only discovery
+only.
 
 The final reference graph is:
 
 ```text
 template list/show -> workspace-template ref
-  -> template default set / template delete
+  -> template default set / template delete / Template config writes
   -> context create -> context ref
-       -> context show / context delete
+       -> context show / context enter / context delete
 
-context + Workspace denial -> policy-review-item ref
-  -> policy allow / deny / reset / apply-reviewed
+template show -> workspace-template-revision ref
+  -> template copy
+
+context enter / status / workspace list / workspace status -> workspace ref
+  -> workspace status / workspace delete
+
+Context + Workspace denial -> policy-candidate ref
+  -> policy allow / policy deny / staged review permissions + apply-reviewed
+
+policy rules -> policy-rule ref
+  -> policy reset
+
+context list/show/create -> context ref
+  -> research-only auth login/import/status/logout --context CONTEXT_REF
 
 runtime list/show/history -> runtime / runtime-revision refs
   -> unchanged WP03 build/delete/restore and Template Runtime selection
@@ -146,6 +172,41 @@ permission_wait_id remains a non-reference attachment correlation value.
 Host Loopback route/grant and service-exposure references remain
 attachment-local and never become Template or Context references.
 ```
+
+The Catalog must derive this exact producer/consumer inventory:
+
+| Reference kind | Producers and fields | Consumers and inputs |
+|---|---|---|
+| `workspace-template` | `template list.items[].template_ref`; `template show.template_ref` | `template default set --id`; `template delete --id`; `context create --template`; Template-owned `config shell`, `config git`, bootstrap, and Runtime-binding writes through required `--id` |
+| `workspace-template-revision` | `template show.current_revision.revision_ref` | `template copy --from` only |
+| `context` | `context create.context_ref`; `context list.items[].context_ref`; `context show.context_ref`; research-only `auth status.context_ref` | `context show --id`; `context enter --id`; `context delete --id`; research-only `auth login/import/status/logout --context` |
+| `workspace` | `context enter.workspace_ref`; bare `status.workspace_ref` when present; `workspace list.items[].workspace_ref`; `workspace status.workspace_ref` | `workspace status --id`; `workspace delete --id` |
+| `policy-candidate` | `policy candidates.items[].id`; `review permissions.items[].id` | `policy allow --id`; `policy deny --id`; unchanged staged selection consumed by internal `policy apply-reviewed` |
+| `policy-rule` | `policy rules.items[].id`; `policy apply-reviewed.decisions[].rule_id` | `policy reset --id` |
+| `runtime` | unchanged WP03 `runtime list/show` and `review runtimes` result fields | unchanged `runtime build --id` and `runtime delete --id` |
+| `runtime-revision` | unchanged WP03 `runtime history/show` revision fields | unchanged `runtime restore --id` and exact Template Runtime-selection input |
+| `runtime-prune-plan` | unchanged `runtime prune dry-run` plan field | unchanged `runtime prune apply --plan` |
+
+No action accepts a display name, root, generation, ordinal, image, container,
+or reconstructed ID in place of these references. The only acts without an
+input ref are complete command-owned fixed targets such as direct Template
+creation, bare default-pair entry, and fixed reviewed policy-set Apply.
+
+Research keeps WP04's exact five-path delta and no release path:
+
+| Research path | Binding |
+|---|---|
+| `auth login --context CONTEXT_REF ...` | reference-bound create with Context as the sole parent; creates fresh Context credential authority |
+| `auth import --context CONTEXT_REF ...` | same Context-parent-bound create; protected stdin remains the only secret ingress |
+| `auth status --context CONTEXT_REF ...` | discover/read over the exact Context; returns the unchanged `context_ref` in its typed result |
+| `auth logout --context CONTEXT_REF ...` | reference-bound write targeting that Context's credential authority and handles |
+| `serve` | unchanged research-only trusted-host presentation; no authentication owner selection |
+
+All four auth operations consume the exact Context ref from the existing
+Context producer chain. There is no Template name/ID fallback, installation-
+wide implicit status, migration UUID rebind, or standard-surface auth path.
+Context creation copies no credential; Context deletion reports a read-only
+`auth status` recovery until exact logout succeeds.
 
 Routine human output leads with Context, Template, `Current entry`, `Next
 entry`, and `Policy Memory`; details expose TemplateID/digest, ContextID,
@@ -160,15 +221,24 @@ combined Context revision.
 | persisted Context + Policy Memory store | absent / Manifest-owned policy | Context schema 1 + Policy Memory schema 1 |
 | persisted Workspace state | schema 2 | schema 3 with ContextID and Template applied digest |
 | `template` and `context` command JSON | Manifest schema 2 / absent | family-local schema 1 |
-| root `status` and `list` JSON | schema 2 | schema 3 |
+| bare root `status` JSON | schema 2 | schema 3; default-pair Context/Template/Workspace fields and optional workspace ref |
+| `workspace list/status/delete` JSON | predecessor root list/status/delete schema 2/1 | new family-local schema 1 with workspace refs |
+| `cluster status` JSON | schema 1 | schema 2 with Template count and separate active Template-policy/Policy-Memory receipts |
 | policy candidates/review/rules JSON | schema 1 | schema 2 with Context, Template, and observing Workspace dimensions |
 | `migrate apply` JSON | schema 2 | schema 3 |
 | Gateway denial/wait record | WP07 schema 2 | schema 3 with ContextID, WorkspaceID, and TemplateID projection |
 | permission helper result | schema 1 | unchanged schema 1 |
+| research auth command JSON | schema 1 with Manifest owner | schema 2 with exact Context owner/ref correlation |
+| research Broker vault/handle state | schema 1 with Manifest owner | schema 2 created fresh for Context owner; predecessor is quarantined, not read |
 | Host Loopback capability projection | schema 1 | unchanged schema 1 |
 | Host Loopback private route/grant registry | ADR 0083 schema 2 | unchanged schema 2, now binds ContextID + WorkspaceID |
 | Runtime public schemas and refs | WP03 schema 1 | unchanged schema 1 |
 | version, error, help, build-surface schemas | WP04/current | unchanged shapes and versions |
+
+Only contracts whose keys or field semantics change advance. A renamed command
+with a genuinely new family starts at schema 1; unchanged helper, Runtime,
+version, error, help, build-surface, and capability shapes do not receive a
+ceremonial bump.
 
 Frozen principal/Gateway/OPA compatibility keys `context_id`, `project_id`, and
 `context` remain internal wire tokens. After the atomic cutover their validated
@@ -233,37 +303,50 @@ Policy review/apply
 - **Template current:** one immutable TemplateID/digest selected by the
   Template's current pointer. A semantic no-op publishes nothing; A→B→A keeps a
   later generation with A's original semantic digest. Generation remains
-  correlation only.
+  correlation only. Every revision validates the TemplateID's one immutable
+  Boundary fingerprint; a Boundary difference is a new Template, not B.
 - **Context desired:** a read-only resolution of the bound Template's current
   digest. A Template mutation writes no Context and no Workspace.
 - **Workspace applied:** `AppliedEntry` records ContextID, TemplateID/digest,
   exact RuntimeID/revision, slice digests, and reconciliation receipt only after
   verified explicit entry. Failure preserves the previous receipt.
-- **Template cluster projection:** `cluster up` validates and activates the
-  complete all-Template static Boundary/baseline projection. A stale active
-  projection blocks entry where required; reads do not repair it.
+- **Template cluster projection:** `cluster up` validates the complete
+  installation candidate but records one authoritative receipt per Context as
+  `(ContextID, TemplateID, active Template policy-slice digest)`. A separate
+  installation aggregate digest may prove atomic publication, but is never the
+  Context or Workspace applied revision. A stale Context receipt blocks entry
+  where required; reads do not repair it.
 - **Policy Memory current/active:** each confirmed decision mutation publishes
   one complete Context Policy Memory semantic revision. `policy
   apply-reviewed`, `policy allow`, `policy deny`, and `policy reset` retain their
   existing explicit atomic hot-activation boundary; `cluster up` can reconcile
-  the complete aggregate after migration or cluster absence. Neither operation
-  publishes a Template revision or AppliedEntry.
+  the complete aggregate after migration or cluster absence. The authoritative
+  receipt is independently `(ContextID, active Policy Memory digest)`. Neither
+  operation publishes a Template revision or AppliedEntry.
 
-When a Template Boundary narrows, now-ineligible remembered decisions remain
-visible but inert; they are not silently deleted. A later reviewed Template
-change may make an exact remembered decision effective again only after the
-explicit Template/cluster activation boundary. Policy Memory never creates a
-destination or method outside the active terminal Template Boundary.
+Workspace `AppliedEntry` is the third, separate entry-slice receipt; it never
+stands for either cluster receipt. Remembered decisions are independent from
+Template baseline and are active only when their exact typed applicability and
+the fixed Template Boundary admit them. Same-Template Boundary widening is
+unrepresentable, so an inert remembered decision cannot regain authority from a
+Boundary edit. A newly widened Boundary means a new Template and new Context
+with empty Policy Memory.
 
 ### Error and cancellation behavior
 
 - Template source drift, Template name reuse, Context/Project mismatch, stale
   policy reference, changed Boundary, unsafe attachment, missing Runtime, and
   mixed identity all fail closed before mutation where possible.
+- Read-only `template show --name` may observe a reused display name, but every
+  later action consumes its emitted opaque ref unchanged. `template copy`
+  resolves exactly the referenced retained immutable TemplateID/digest/body;
+  deletion, name reuse, current-pointer advance, or receipt drift cannot redirect
+  it to another Template or revision.
 - Failed or unknown Workspace reconciliation preserves last-successful applied
   state and records a bounded read-only recovery action. It never advances
   AppliedEntry optimistically.
-- Template copy and Context create are independent/idempotency-scoped creates;
+- Direct Template create, Template copy, and Context create are independent
+  idempotency-scoped creates;
   neither reconciles a Workspace or cluster.
 - Cancellation before publication or mutation reports zero change. A confirmed
   result remains confirmed if presentation later fails.
@@ -333,7 +416,11 @@ only where transaction and authority boundaries remain coherent.
   cross-Context rule reuse, policy beyond Boundary, attached unsafe adoption,
   read-triggered mutation, and partial/mixed migration.
 - Opaque-reference and complete-pagination tests: Catalog-wide Template,
-  Context, Workspace, policy item, and migration plan producer/consumer graph.
+  Context, Workspace, `policy-candidate`, `policy-rule`, and migration-plan
+  producer/consumer graph.
+- Catalog construction must validate the final command set and its derived exact
+  producer/consumer inventory; no RoleUtility command may declare any reference
+  input or output. Exact-input discover reads must re-emit the unchanged ref.
 - Structured output, hostile-output, and recovery tests: new schema versions,
   absent/current/pending/failed/unknown/drifted states, exact next commands,
   secret-free errors, and no inference from labels or ordering.
@@ -371,10 +458,14 @@ transaction must:
    each WorkspaceID byte sequence as WorkspaceID;
 4. generate and journal one fresh ContextID for each exact pair, rejecting
    duplicate, dangling, ambiguous, name-only, or observation-only association;
-5. transform every retained immutable Manifest revision into the corresponding
-   static Template revision, preserving generation as correlation, recomputing
-   semantic digest after dynamic learned decisions are excluded, and preserving
-   every exact Runtime reference required by WP03 protection;
+5. verify that every retained immutable Manifest revision for one preserved ID
+   carries the same source/network Boundary fingerprint. Any differing,
+   missing, corrupt, or ambiguous fingerprint fails closed before mutation; the
+   migration neither splits authority nor invents a replacement ID. Transform
+   the validated revisions into static Template revisions, preserving generation
+   as correlation, recomputing semantic digest after dynamic learned decisions
+   are excluded, and preserving every exact Runtime reference required by WP03
+   protection;
 6. publish one Context schema-1 binding and one complete Policy Memory schema-1
    revision from the exact predecessor decisions. Learned authority drops the
    predecessor WorkspaceID dimension and binds ContextID so it survives a later

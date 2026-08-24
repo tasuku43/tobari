@@ -45,11 +45,31 @@ implementation is authorized by creating it.
       journaled ContextID per exact Project/Template pair.
 - [x] Record the recommended V1 uniqueness and selection: at most one Context
       per canonical Project/Template pair, no Context name/default/use, one
-      installation default Template, and invocation-local `--template`.
+      installation default Template, bare root/status default-pair selection,
+      and reference-bound explicit nondefault entry.
 - [x] Record separate Template current/Context desired/Workspace applied,
       Template cluster projection, and Policy Memory current/active axes.
 - [x] Record exact schema-family version transitions and the public/internal
       reference graph without aliases or dual readers.
+- [x] Close mutable-name action selection: make Template show discovery, split
+      direct create from exact-revision `template copy`, reserve bare root/status
+      for the revalidated default pair, and add Context/Workspace reference-bound
+      entry/status/delete paths.
+- [x] Restore the immutable Boundary fingerprint per TemplateID and record
+      separate Context-scoped Template-policy and Policy-Memory cluster receipts
+      plus the independent Workspace AppliedEntry.
+- [x] Close the research auth chain: keep WP04's five-path delta, require one
+      unchanged Context ref for login/import/status/logout, preserve release
+      absence, and make logout the exact Context-delete prerequisite.
+- [x] Record exact `policy-candidate` and `policy-rule` producer/consumer graphs
+      and list the Workspace plus research-auth reference producers and
+      consumers.
+- [x] Limit schema advancement to changed keys or semantics and retain unchanged
+      helper, Runtime, Host Loopback capability, version, error, help, and build
+      versions.
+- [x] Make every reference-producing or reference-consuming read RoleDiscover:
+      Template show, Context show, bare status, Workspace status, and research
+      auth status; each exact-input read re-emits the unchanged reference.
 
 - [ ] Approve the Workspace Template / Context / Policy Memory / Workspace
       aggregate split.
@@ -101,6 +121,9 @@ implementation is authorized by creating it.
 ## Implement
 
 - [ ] Add failing domain, Catalog, output, migration, and security contract tests.
+- [ ] Add a Catalog-construction test proving the proposed final Catalog
+      validates and its exact derived producer/consumer sets contain no
+      RoleUtility reference input or output.
 - [ ] Implement Template revision and Context/Policy Memory invariants.
 - [ ] Implement separate application use cases and smallest owned ports.
 - [ ] Implement owner-only stores, atomic migration/rollback, principal/policy

@@ -157,14 +157,20 @@ choices open:
   WorkspaceTemplateID)` pair. A Project may have several Contexts only by
   selecting different Templates. Context has no second human name and cannot
   rebind to another Template in V1.
-- **Defaults:** preserve one installation `DefaultTemplateSelection`. Omitted
-  root selection proposes that Template for the current Project; explicit
-  `--template NAME` overrides it for one invocation. There is no current/default
+- **Defaults:** preserve one installation `DefaultTemplateSelection`. Bare
+  `tobari` and bare `status` own the default-Template/default-pair workflow and
+  revalidate that exact selection under the action/read boundary. Explicit
+  nondefault entry consumes a Context ref through `context enter --id`; no
+  action accepts a Template or Context display name. There is no current/default
   Context, `context use`, active Template, or mutable Context selector.
 - **Tracking:** Context always desires its Template's current immutable
   revision. It does not pin or snapshot. Workspace `AppliedEntry` records the
   exact last-successful TemplateID/digest; explicit entry is the only Workspace
   adoption writer. Reads derive desired state without mutation.
+- **Boundary:** one WorkspaceTemplateID fixes one immutable source/network
+  Boundary fingerprint across every revision. A Boundary change creates a fresh
+  Template and therefore a fresh Context. Template revisions may change only
+  baseline and typed defaults inside that fixed terminal Boundary.
 - **Policy:** Policy Memory contains only confirmed remembered Allows and exact
   Denies for one Context. Pending candidates retain ContextID plus the observing
   WorkspaceID but are not authority. Template Boundary/baseline and Policy
@@ -178,8 +184,14 @@ choices open:
   evidence. Template deletion requires no default selection and no Context.
 - **Authentication:** standard auth remains Workspace-home owned. Research
   Broker credentials become Context-owned research state, never Template state;
-  Context deletion requires explicit research logout. Existing research state
-  is quarantined and requires reauthentication rather than rebound by migration.
+  the four auth operations each require one unchanged Context ref from the
+  Context discovery chain, and Context deletion requires exact research logout.
+  Existing research state is quarantined and requires reauthentication rather
+  than rebound by migration.
+- **Action binding:** mutable names are read-only discovery/completion input.
+  Template copy consumes one exact immutable Template revision ref; nondefault
+  entry consumes a Context ref; Workspace status/delete consumes a Workspace
+  ref. Name reuse can never redirect a reviewed action.
 - **Migration identity:** preserve predecessor WorkspaceManifestID bytes as
   WorkspaceTemplateID and predecessor WorkspaceID bytes as WorkspaceID. Generate
   one fresh ContextID for each exact predecessor `(ProjectRoot,

@@ -64,6 +64,13 @@ first-use UX, and public reference flows.
       sharing learned policy implicitly.
 - [ ] Template copy and Context creation are distinct user outcomes: static fork
       versus choosing a Template for a new project-specific Context.
+- [ ] Every explicit action consumes one unchanged opaque reference or owns one
+      complete command-local default target; mutable Template names are
+      read-only discovery/completion input and cannot redirect entry, copy, or
+      deletion after name reuse.
+- [ ] One TemplateID fixes one immutable source/network Boundary fingerprint;
+      Boundary change creates a fresh Template and fresh Context, so remembered
+      authority cannot reactivate through same-Template widening.
 - [ ] Template advancement, Context desired state, Workspace last-successful
       applied state, pending adoption, failure, retry, and read-only observation
       have an exact no-controller reconciliation contract.
@@ -72,6 +79,9 @@ first-use UX, and public reference flows.
       designed before implementation.
 - [ ] Policy Boundary/baseline and Policy Memory remain separate authority tiers;
       learned policy cannot widen the Template's terminal ceiling.
+- [ ] Research keeps WP04's exact five-path delta; login/import/status/logout
+      consume one Context ref, release exposes none, and Context deletion has an
+      exact logout-first supported workflow.
 - [ ] Migration preserves authoritative IDs and learned rules without inferring
       ownership from names, generations, roots, images, or containers; rollback
       and mixed-version behavior fail closed.
