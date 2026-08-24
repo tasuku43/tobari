@@ -418,8 +418,9 @@ JSON `overall_status`, `adoption_state`, or equivalent lossy authority exists.
   the retired name is excluded from output and fixtures.
 - `first-use-progress-recovery` (WP07): supplies wait/progress state; WP06 does
   not pre-implement it.
-- `service-exposure-ux` (WP09): supplies the bounded authenticated exposure
-  owner protocol and `not_observed` behavior; WP06 does not extend it first.
+- [ADR 0074](../../decisions/0074-expose-one-reviewed-workspace-service.md)
+  (completed WP09): supplies the bounded authenticated exposure owner protocol
+  and `not_observed` behavior; WP06 does not extend it first.
 - `first-public-release-core`: must not freeze the legacy status schema or old
   vocabulary; status schema replacement lands after/with WP 01 cutover.
 - `policy-compaction-retirement`: owns learned-rule retention/count semantics.

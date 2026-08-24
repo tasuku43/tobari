@@ -16,8 +16,8 @@
   completed [ADR 0080 Runtime lifecycle](../../decisions/0080-close-the-managed-runtime-lifecycle.md), completed WP04
   [ADR 0082 build surfaces](../../decisions/0082-release-and-research-build-surfaces.md), completed WP05
   [ADR 0083 Host Loopback authority](../../decisions/0083-name-the-physical-host-loopback-authority.md), WP07
-  [first-use recovery](../first-use-progress-recovery/plan.md), and WP09
-  [service exposure UX](../service-exposure-ux/plan.md)
+  [first-use recovery](../first-use-progress-recovery/plan.md), and completed WP09
+  [ADR 0074 Service exposure](../../decisions/0074-expose-one-reviewed-workspace-service.md)
 
 ## Chosen approach
 

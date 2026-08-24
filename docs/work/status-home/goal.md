@@ -22,7 +22,8 @@
   and [Harness](../../04_harness.md), completed [ADR 0080 Runtime lifecycle](../../decisions/0080-close-the-managed-runtime-lifecycle.md), completed WP04
   [ADR 0082 build surfaces](../../decisions/0082-release-and-research-build-surfaces.md), completed WP05
   [ADR 0083 Host Loopback authority](../../decisions/0083-name-the-physical-host-loopback-authority.md), WP07
-  `../first-use-progress-recovery/`, WP09 `../service-exposure-ux/`, plus the
+  `../first-use-progress-recovery/`, completed WP09
+  [ADR 0074 Service exposure](../../decisions/0074-expose-one-reviewed-workspace-service.md), plus the
   integrated policy-compaction and release contracts
 
 ## Outcome

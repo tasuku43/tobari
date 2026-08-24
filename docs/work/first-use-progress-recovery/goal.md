@@ -12,7 +12,7 @@
 - Related ADRs: ADR 0077 causal failure recovery, ADR 0078 as predecessor activation evidence superseded by ADR 0079's typed activation, and accepted ADR 0079
 - Active foundation: [ADR 0079](../../decisions/0079-model-workspace-manifests-and-applied-workspaces.md) and its promoted docs/00-04 contracts, implemented by promotion commits `07535a9` and `428812f`
 - Completed design integrations: ADR 0079's durable one-time Manifest/Runtime copy contract, [ADR 0080 Runtime lifecycle](../../decisions/0080-close-the-managed-runtime-lifecycle.md), [ADR 0081 permission resume](../../decisions/0081-observe-reviewed-permission-from-an-attached-workspace.md), and [ADR 0082 build surfaces](../../decisions/0082-release-and-research-build-surfaces.md)
-- Remaining fixed upstream integrations: completed WP08 Catalog/output contracts in [Architecture](../../02_architecture.md) and [Harness](../../04_harness.md), completed WP05 [ADR 0083 Host Loopback authority](../../decisions/0083-name-the-physical-host-loopback-authority.md), [WP 09 Service exposure UX](../service-exposure-ux/goal.md), and [WP 06 Status home](../status-home/goal.md)
+- Remaining fixed upstream integrations: completed WP08 Catalog/output contracts in [Architecture](../../02_architecture.md) and [Harness](../../04_harness.md), completed WP05 [ADR 0083 Host Loopback authority](../../decisions/0083-name-the-physical-host-loopback-authority.md), completed WP09 [ADR 0074 Service exposure](../../decisions/0074-expose-one-reviewed-workspace-service.md), and [WP 06 Status home](../status-home/goal.md)
 
 The repository guard does not define a `Ready` status; `Accepted` is the
 non-terminal repository status used here for a packet ready for future
