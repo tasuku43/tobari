@@ -1,6 +1,7 @@
 package workspaceauthoritystore
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -12,6 +13,46 @@ import (
 
 	"github.com/tasuku43/tobari/internal/domain/tobari"
 )
+
+func TestEncodeCompleteUsesTheExactBoundedStoreContract(t *testing.T) {
+	collection := storeCollectionFixture(t)
+	got, err := EncodeComplete(collection)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := json.Marshal(collection)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, want) {
+		index := 0
+		for index < len(got) && index < len(want) && got[index] == want[index] {
+			index++
+		}
+		start := index - 40
+		if start < 0 {
+			start = 0
+		}
+		end := index + 80
+		if end > len(got) {
+			end = len(got)
+		}
+		wantEnd := index + 80
+		if wantEnd > len(want) {
+			wantEnd = len(want)
+		}
+		t.Fatalf("bounded encoding drift at %d: got=%q want=%q", index, got[start:end], want[start:wantEnd])
+	}
+
+	buffer := boundedJSONBuffer{maximum: MaxAuthorityBytes}
+	exact := bytes.Repeat([]byte{'x'}, MaxAuthorityBytes)
+	if err := buffer.write(exact); err != nil || buffer.Len() != MaxAuthorityBytes {
+		t.Fatalf("exact boundary len=%d err=%v", buffer.Len(), err)
+	}
+	if err := buffer.write([]byte{'x'}); err == nil || buffer.Len() != MaxAuthorityBytes {
+		t.Fatalf("over-bound write len=%d err=%v", buffer.Len(), err)
+	}
+}
 
 const (
 	storeTemplateID  tobari.WorkspaceTemplateID = "01912345-6789-7abc-8def-0123456789a1"
@@ -230,7 +271,7 @@ func TestStoreFailsClosedOnUnsafePartialOrMalformedAuthority(t *testing.T) {
 		},
 		"oversized": func(t *testing.T, root string) {
 			materializeCollection(t, root, valid)
-			if err := os.Truncate(filepath.Join(root, authorityFileName), maxAuthorityBytes+1); err != nil {
+			if err := os.Truncate(filepath.Join(root, authorityFileName), MaxAuthorityBytes+1); err != nil {
 				t.Fatal(err)
 			}
 		},

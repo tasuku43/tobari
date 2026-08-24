@@ -315,6 +315,55 @@ contract and source inspection plus the product-owner lifecycle decisions above.
   current composition root, Catalog, migration writer, policy activation, or
   public output in this concern.
 
+## Dormant migration-engine evidence
+
+- The migration engine consumes the unchanged pure migration input/plan and
+  publishes exactly one final `WorkspaceAuthorityCollection` envelope. Its
+  preflight adapter is still an internal seam: no current `migrate apply`,
+  Catalog route, composition root, or ordinary reader selects this engine.
+- One owner-only journal binds exact predecessor source digests, complete final
+  collection, preserved Template/Workspace bytes, fresh stable Context
+  assignments, standard-home evidence, research disposition, and the exact
+  same-parent backup path for every source. Config and state roots may be on
+  different filesystems; the engine never renames authority between them.
+- Reader selection is monotonic. Forward recovery publishes and reads back the
+  final candidate while the complete predecessor remains selected, moves the
+  exact cutoff to select complete final authority, then quarantines subordinate
+  sources. Rollback restores subordinate sources while final remains selected,
+  restores the cutoff last to select the complete predecessor, and only then
+  retires final authority. Crash fixtures cover both sides of each cutoff and
+  post-rename/pre-journal recovery.
+- The stopped-cluster and zero-live-attachment observation is re-established
+  under the exclusive engine lock at every resumed mutation and immediately
+  before either reader cutoff. If quiescence changes, no subsequent authority
+  path is moved. The eventual cutover adapter must acquire the installation
+  lifecycle lock that makes this observation stable against cluster entry.
+- Final publication reserves a same-parent stage only after proving it absent
+  before the journal. Once `prepared` is durable, the journal owns only the
+  exact bounded stage layout; empty or partial owner-only stage writes can be
+  reconciled after process death, while unknown entries, unsafe modes,
+  symlinks, and a different complete collection fail closed. Rollback removes
+  only that noncanonical journal-owned stage and can resume interrupted cleanup.
+- The final store and migration publisher share one executable 64 MiB bounded
+  encoder. It streams the typed collection into a capped buffer, matches the
+  ordinary JSON representation byte-for-byte, and rejects an over-bound final
+  envelope before the first journal write, stage creation, or cutoff move. The
+  journal independently checks its 96 MiB serialized ceiling before rename.
+- Process exclusion uses a safe owner-only lock file plus a kernel-released
+  advisory lock. A pathname left by SIGKILL is reusable, while a live holder is
+  excluded. Journal and source rename errors are classified by exact read-back
+  before resume decisions.
+- Standard Workspace homes are declared outside every mutation/backup path and
+  are neither read nor transformed. Linux filesystem root-key material is one
+  required exact research source; macOS Keychain recovery material has no
+  engine port and is untouched. Fresh canonical research-auth state blocks
+  rollback rather than being merged or overwritten.
+- A committed second apply is read-only and returns `changed:false` with the
+  same Context assignments. Rollback is idempotent but terminal; implicit
+  reapply after rollback is rejected so an older rolled-final receipt cannot
+  collide with a later transaction. Starting again requires a separately
+  reviewed new transaction rather than mutating the existing journal.
+
 ## Security and public-boundary notes
 
 - Assets and side effects involved: static Template revisions, mutable learned

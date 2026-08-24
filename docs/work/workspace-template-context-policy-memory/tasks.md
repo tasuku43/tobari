@@ -160,8 +160,15 @@ implementation is authorized by creating it.
       validate the complete normalized authority, never consult predecessor
       Manifest state, and return empty/not-found without creating a root or
       lock.
-- [ ] Implement atomic migration/rollback, principal/policy projection, and
-      reconciliation adapters.
+- [x] Implement the dormant journaled migration engine and internal rollback
+      seam: exact owner-only preflight facts, one final-envelope publication,
+      atomic cutoff selection, same-filesystem predecessor quarantine,
+      research disposition, byte-untouched standard homes, idempotent committed
+      apply, terminal rollback, crash recovery, and kernel-released exclusion.
+      No current reader or invocable migration route selects it yet.
+- [ ] Wire the exact predecessor adapter and migration selection only with the
+      atomic final-reader cutover; implement principal/policy projection and
+      reconciliation adapters without changing WP03/04/07 mechanisms.
 - [ ] Perform one public Catalog hard cutover with no accidental aliases.
 - [ ] Update human output, JSON schemas, completion, help, examples, site,
       embedded/generated snapshots, and agent-readiness fixtures.
@@ -178,6 +185,14 @@ implementation is authorized by creating it.
       ./internal/app/workspaceauthoritycmd ./internal/domain/tobari`, `go test
       ./internal/app/... ./internal/domain/...`, and `task check:fast` with the
       pinned toolchains.
+- [x] Dormant journal engine and owner-store focused tests pass. Evidence:
+      `go test ./internal/infra/workspaceauthoritymigration` and `go test -race
+      ./internal/domain/... ./internal/app/...
+      ./internal/infra/workspaceauthoritystore
+      ./internal/infra/workspaceauthoritymigration` with the pinned Go 1.26.6
+      toolchain; `task check:fast` passes with pinned Go 1.26.6 and Node
+      24.18.0 after the default shell's older toolchains were rejected by the
+      expected preflight.
 - [ ] `task check` passes. Evidence:
 - [ ] `task security` passes. Evidence:
 - [ ] `task public:check` passes. Evidence:

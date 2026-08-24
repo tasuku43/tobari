@@ -15,7 +15,7 @@ import (
 
 const (
 	authorityFileName     = "authority.json"
-	maxAuthorityBytes     = 64 << 20
+	MaxAuthorityBytes     = 64 << 20
 	maxWorkspaceTemplates = 1024
 	maxContexts           = 16 * 1024
 	maxWorkspaces         = 16 * 1024
@@ -82,9 +82,8 @@ func (s *Store) ReadComplete(ctx context.Context) (tobari.WorkspaceAuthorityColl
 	if err := decodeStrictJSON(data, &collection); err != nil {
 		return tobari.WorkspaceAuthorityCollection{}, false, fmt.Errorf("decode final Workspace authority: %w", err)
 	}
-	if len(collection.Templates) > maxWorkspaceTemplates || len(collection.Contexts) > maxContexts ||
-		len(collection.Workspaces) > maxWorkspaces || len(collection.PendingCandidates) > maxPendingCandidates {
-		return tobari.WorkspaceAuthorityCollection{}, false, fmt.Errorf("final Workspace authority collection exceeds bounded counts")
+	if err := validateCollectionBounds(collection); err != nil {
+		return tobari.WorkspaceAuthorityCollection{}, false, err
 	}
 	if err := collection.Validate(); err != nil {
 		return tobari.WorkspaceAuthorityCollection{}, false, fmt.Errorf("validate final Workspace authority: %w", err)
@@ -103,8 +102,8 @@ func readAuthorityFile(path string) ([]byte, error) {
 	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() || info.Mode().Perm() != 0o600 || !ownedByCurrentUser(info) {
 		return nil, fmt.Errorf("final Workspace authority file must be a real owner-only regular file")
 	}
-	if info.Size() <= 0 || info.Size() > maxAuthorityBytes {
-		return nil, fmt.Errorf("final Workspace authority file must contain 1..%d bytes", maxAuthorityBytes)
+	if info.Size() <= 0 || info.Size() > MaxAuthorityBytes {
+		return nil, fmt.Errorf("final Workspace authority file must contain 1..%d bytes", MaxAuthorityBytes)
 	}
 	file, err := os.Open(path) // #nosec G304 -- Store owns the fixed child of one validated exact root.
 	if err != nil {
@@ -118,14 +117,22 @@ func readAuthorityFile(path string) ([]byte, error) {
 	if !opened.Mode().IsRegular() || opened.Mode().Perm() != 0o600 || !ownedByCurrentUser(opened) || !os.SameFile(info, opened) {
 		return nil, fmt.Errorf("final Workspace authority file changed during safe open")
 	}
-	data, err := io.ReadAll(io.LimitReader(file, maxAuthorityBytes+1))
+	data, err := io.ReadAll(io.LimitReader(file, MaxAuthorityBytes+1))
 	if err != nil {
 		return nil, fmt.Errorf("read final Workspace authority file: %w", err)
 	}
-	if len(data) == 0 || len(data) > maxAuthorityBytes {
-		return nil, fmt.Errorf("final Workspace authority file must contain 1..%d bytes", maxAuthorityBytes)
+	if len(data) == 0 || len(data) > MaxAuthorityBytes {
+		return nil, fmt.Errorf("final Workspace authority file must contain 1..%d bytes", MaxAuthorityBytes)
 	}
 	return data, nil
+}
+
+func validateCollectionBounds(collection tobari.WorkspaceAuthorityCollection) error {
+	if len(collection.Templates) > maxWorkspaceTemplates || len(collection.Contexts) > maxContexts ||
+		len(collection.Workspaces) > maxWorkspaces || len(collection.PendingCandidates) > maxPendingCandidates {
+		return fmt.Errorf("final Workspace authority collection exceeds bounded counts")
+	}
+	return nil
 }
 
 func decodeStrictJSON(data []byte, target any) error {

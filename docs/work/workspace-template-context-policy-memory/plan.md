@@ -448,7 +448,10 @@ only where transaction and authority boundaries remain coherent.
 
 This is a pre-public hard-cutover from exact predecessor `0bbd9deb`; it is not a
 published compatibility migration. Existing `migrate apply` remains the sole
-writer and adds exact source kind `workspace_manifest_v1`.
+writer and adds exact source kind `workspace_manifest_v1` at the atomic public
+cutover. The journal engine remains dormant until the same concern switches
+every ordinary reader to final authority; an intermediate binary must not move
+predecessor authority away from still-current Manifest readers.
 
 Under the installation lifecycle lock, stopped cluster, zero canonical
 attachments, and the existing research-quarantine/Host-Loopback lock order, the
@@ -502,6 +505,17 @@ Context, Workspace, Policy Memory, home/auth, principal, or cluster authority
 exists at canonical final paths; it never merges. Crash recovery exposes either
 the complete predecessor reader set or the complete final reader set, never a
 partially resolvable policy/principal combination.
+
+The physical order is monotonic: publish and read back the complete final
+envelope while predecessor readers remain selected; move one exact cutoff as
+the atomic reader selector; then quarantine subordinate predecessor sources.
+Rollback restores subordinate sources first while final remains selected,
+restores the cutoff last, and only then atomically retires the final envelope.
+Every source backup is a same-parent private sibling so separate XDG config and
+state filesystems never require a cross-filesystem rename. Process exclusion
+uses a safely validated kernel-released advisory lock, so a stale lock pathname
+cannot deadlock journal recovery. A rolled-back transaction is terminal rather
+than implicitly reusable; a separately reviewed new transaction is required.
 
 Manifest/`--manifest` aliases, dual schema readers, post-release deprecation,
 and fallback reconstruction are explicitly excluded.
